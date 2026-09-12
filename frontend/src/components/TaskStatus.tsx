@@ -1,13 +1,3 @@
-/**
- * 后台任务状态显示组件
- *
- * 功能：
- * 1. 实时轮询任务状态
- * 2. 显示处理进度条
- * 3. 错误提示
- * 4. 完成通知
- */
-
 import {
   FaCheckCircle,
   FaExclamationCircle,
@@ -37,8 +27,8 @@ interface TaskStatusProps {
   onComplete?: (task: Task) => void
   onError?: (task: Task) => void
   onClose?: () => void
-  autoClose?: boolean // 完成后自动关闭
-  autoCloseDelay?: number // 自动关闭延迟（毫秒）
+  autoClose?: boolean
+  autoCloseDelay?: number
 }
 
 export function TaskStatus({
@@ -69,12 +59,11 @@ export function TaskStatus({
         },
         {
           key: `task-status-${taskId}`,
-          priority: 1, // 任务状态查询有较高优先级
+          priority: 1,
         },
       )
 
       if (!data) {
-        // 请求被取消或组件已卸载
         return
       }
 
@@ -83,7 +72,6 @@ export function TaskStatus({
         setTask(updatedTask)
         setPollCount((prev) => prev + 1)
 
-        // 任务完成或失败时停止轮询
         if (updatedTask.status === 'Completed') {
           setIsPolling(false)
           onComplete?.(updatedTask)
@@ -101,7 +89,6 @@ export function TaskStatus({
         throw new Error(data.error || t.task.fetchFailed)
       }
     } catch (err) {
-      // 静默处理取消错误
       if (err instanceof Error && err.message.includes('cancelled')) {
         return
       }
@@ -121,34 +108,28 @@ export function TaskStatus({
     t.task.fetchFailed,
   ])
 
-  // 智能轮询间隔：根据轮询次数和任务状态动态调整
   const getPollingInterval = useCallback(() => {
-    if (!task) return 1000 // 初始：1秒
+    if (!task) return 1000
 
-    // 根据任务状态调整
     if (task.status === 'Processing') {
-      // 处理中：根据进度调整频率
-      if (task.progress < 10) return 1000 // 刚开始：1秒
-      if (task.progress < 50) return 1500 // 进行中：1.5秒
-      if (task.progress < 90) return 2000 // 快完成：2秒
-      return 1000 // 即将完成：1秒（加快检测）
+      if (task.progress < 10) return 1000
+      if (task.progress < 50) return 1500
+      if (task.progress < 90) return 2000
+      return 1000
     } else if (task.status === 'Pending') {
-      // 等待中：逐渐降低频率避免过多请求
-      if (pollCount < 5) return 1000 // 前5次：1秒
-      if (pollCount < 15) return 2000 // 6-15次：2秒
-      return 3000 // 15次后：3秒
+      if (pollCount < 5) return 1000
+      if (pollCount < 15) return 2000
+      return 3000
     }
 
-    return 1000 // 默认1秒
+    return 1000
   }, [task, pollCount])
 
   useEffect(() => {
-    // 立即执行一次
     fetchTaskStatus()
 
     if (!isPolling) return
 
-    // 使用动态间隔轮询
     const interval = setInterval(fetchTaskStatus, getPollingInterval())
 
     return () => clearInterval(interval)
@@ -273,7 +254,6 @@ export function TaskStatus({
           )}
       </div>
 
-      {/* 进度条 */}
       {(task.status === 'Processing' || task.status === 'Pending') && (
         <div className="space-y-1">
           <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400">
@@ -289,7 +269,6 @@ export function TaskStatus({
         </div>
       )}
 
-      {/* 时间信息 */}
       <div className="mt-3 text-xs text-gray-500 dark:text-gray-400 space-y-1">
         <div>
           {t.task.createdTime}:{' '}

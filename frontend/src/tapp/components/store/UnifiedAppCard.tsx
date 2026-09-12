@@ -1,5 +1,3 @@
-/** App Store style list row. */
-
 import type { CSSProperties } from 'react'
 import type { UnifiedAppItem } from './types'
 import { forwardRef, useMemo } from 'react'
@@ -31,16 +29,13 @@ export const UnifiedAppCard = forwardRef<
     date?: string
     onInstall: () => void
     onUpdate?: () => void
-    /** Open store detail (row click). */
     onOpen: () => void
-    /** Launch installed app (Get button when installed). */
     onLaunch: () => void
     installing: boolean
     installPercent?: number | null
     installPhase?: string | null
     installDetail?: string | null
     updating?: boolean
-    /** Stagger index for CSS enter animation (`--as-enter-i`). */
     index?: number
   }
 >(
@@ -114,7 +109,6 @@ export const UnifiedAppCard = forwardRef<
       t.tapp.storeUpdatedDaysAgo,
     ])
 
-    // CSS enter stagger (see TappStore.css). Cap keeps long lists cheap.
     const enterStyle = {
       ['--as-enter-i' as string]: Math.min(index, 14),
     } as CSSProperties
@@ -157,7 +151,6 @@ export const UnifiedAppCard = forwardRef<
               <OfficialVerifiedDot label={t.tapp.official} />
             ) : null}
           </div>
-          {/* Same cross-fade as detail hero (RotatingSubtitle). */}
           <RotatingSubtitle
             lines={subtitleSlides}
             phaseOffset={index}

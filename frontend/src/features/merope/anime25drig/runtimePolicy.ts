@@ -12,11 +12,6 @@ export interface Anime25DRenderSurface {
   displayHeight: number
 }
 
-/**
- * Fits the authored canvas inside its CSS box and allocates only the backing
- * pixels that can actually reach the display. Enlarged characters retain the
- * previous source-resolution ceiling instead of creating extra supersampling.
- */
 export function resolveAnime25DRenderSurface(input: {
   sourceWidth: number
   sourceHeight: number
@@ -92,11 +87,6 @@ export function shouldAnimateAnime25D(state: Anime25DAnimationState): boolean {
   )
 }
 
-/**
- * IntersectionObserver can report 0×0 before layout. Treat that as still
- * visible so we do not freeze (and, with the default drawing buffer, blank)
- * the face on the first callback after load.
- */
 export function intersectionKeepsAnime25DVisible(entry: {
   isIntersecting: boolean
   boundingClientRect: { width: number; height: number }

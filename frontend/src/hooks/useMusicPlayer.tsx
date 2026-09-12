@@ -1,8 +1,3 @@
-/**
- * 音乐播放器状态管理 Hook
- * 从 GlobalControlPanel 分离出来的音乐播放器核心逻辑
- */
-
 import type { MusicSource, Song } from '../utils/musicPlayer'
 import type {
   MusicColors,
@@ -257,7 +252,7 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
     const prevG = getGlobalState()
     const resolvedPalette = resolveMusicPalette(
       musicColors,
-      (prevG?.musicColors as MusicColors | null | undefined) ||
+      (prevG?.musicColors as MusicColors | null | undefined) ??
         musicColorsRef.current,
     )
 
@@ -448,7 +443,7 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
       if (!tempPlayModeRef.current.enabled) {
         tempPlayModeRef.current = {
           enabled: true,
-          originalPlaylist: [...playlistRef.current],
+          originalPlaylist: Iterator.from(playlistRef.current).toArray(),
           originalIndex: currentSongIndexRef.current,
           originalSource: musicSource,
           originalPlaylistId: playlistId,
@@ -572,7 +567,7 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
 
       broadcastStateChange()
     } catch {
-      // 静默处理
+
     }
   }, [loadPlaylist, broadcastStateChange, resetPreloadBackoff])
 
@@ -728,7 +723,7 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
       try {
         preloadAudioRef.current.volume = clampedVolume
       } catch {
-        // 静默处理
+
       }
     }
   }, [])

@@ -1,8 +1,3 @@
-/**
- * 输入行收藏：开开关关面板不该反复打 presets。
- * 收藏有增删时清掉，下次打开再读。存进常用后通知输入行立刻重读。
- */
-
 import { agentService } from '../../services/agent'
 
 export interface ComposerFavorite {
@@ -11,7 +6,6 @@ export interface ComposerFavorite {
   title?: string
 }
 
-/** 中间列能横滑，不必只留三四枚。 */
 const FAVORITE_CAP = 12
 
 let cache: ComposerFavorite[] | null = null

@@ -1,5 +1,3 @@
-/** Catalog list body: loading / error / featured / installed / category lists. */
-
 import type { ReactNode } from 'react'
 import type {
   CategorySortOrder,
@@ -22,7 +20,6 @@ export interface StoreCatalogViewProps {
   remoteEmpty: boolean
   filteredApps: UnifiedAppItem[]
   featuredApps: UnifiedAppItem[]
-  /** Discover “最新” (max 2) */
   latestApps: UnifiedAppItem[]
   selectedCategory: StoreSelection
   isDiscoverView: boolean
@@ -36,7 +33,6 @@ export interface StoreCatalogViewProps {
   installedTapps: Map<string, InstalledTappInfo>
   onRetry: () => void
   onOpenDetail: (app: UnifiedAppItem) => void
-  /** Discover “全部” → full catalog secondary page */
   onSeeAllApps?: () => void
   renderAppCard: (
     app: UnifiedAppItem,
@@ -72,7 +68,6 @@ export function StoreCatalogView({
     isDiscoverView && !selectedCategory
       ? filteredApps.slice(0, DISCOVER_ALL_PREVIEW_LIMIT)
       : filteredApps
-  // Always offer “查看全部” on discover, even when total ≤ preview limit.
   const showSeeAll =
     isDiscoverView && !selectedCategory && Boolean(onSeeAllApps)
 

@@ -51,7 +51,7 @@ pub struct PublishResponse {
     pub content_type: String,
     pub content_id: String,
     pub visibility: String,
-    /// Follower inboxes successfully enqueued for best-effort delivery.
+    /// Best-effort fan-out count (followers + room peers on Public; includes local timeline delivery).
     /// Fan-out never fails the publish; check logs if this is lower than expected.
     #[serde(default)]
     pub delivered_queued: u32,
@@ -64,7 +64,7 @@ pub struct PublishResponse {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct PublishedAttachment {
     pub url: String,
-    /// MIME type (image/jpeg, video/mp4, …). Accepts AP `mediaType` on input.
+    /// MIME type (image/jpeg, video/mp4, …). Serialize-only; AP `mediaType` is read in timeline.rs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media_type: Option<String>,
     /// AP attachment type (`Image` / `Video`).

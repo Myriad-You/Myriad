@@ -67,7 +67,6 @@ describe('mapPlaygroundGenerateError', () => {
       }),
       'AI_FAIL',
     )
-    // Ambiguous tail: agent failure wins over the word "timeout"
     assert.equal(
       mapPlaygroundGenerateError(
         'Pro AI agent generation failed: upstream timeout',

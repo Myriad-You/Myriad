@@ -1,10 +1,3 @@
-/**
- * 草稿存取与工具栏文本操作的单元测试。
- *
- * Run from frontend/:
- *   pnpm test:unit -- src/components/brew/notes/noteDraft.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { beforeEach, describe, it } from 'node:test'
 import {
@@ -18,7 +11,7 @@ import {
   writeNoteDraft,
 } from './noteDraft.ts'
 
-/** node:test 环境没有 localStorage；装一个最小实现。 */
+/** node:test 没有 localStorage。 */
 function installStorage(): Map<string, string> {
   const store = new Map<string, string>()
   ;(globalThis as { localStorage?: unknown }).localStorage = {
@@ -150,9 +143,9 @@ describe('prefixLines', () => {
   })
 
   it('选区停在行边界上不带上下一行', () => {
-    // 选到「乙」为止（0..3，末尾正好是行边界）：丙 不该被加前缀
+    // 选到行边界为止，下一行不加前缀。
     assert.equal(prefixLines('甲\n乙\n丙', 0, 3, '- ').value, '- 甲\n- 乙\n丙')
-    // 选区把行尾换行也包进来（0..4）：同样只到 乙
+    // 选区含行尾换行时，下一行仍不加前缀。
     assert.equal(prefixLines('甲\n乙\n丙', 0, 4, '- ').value, '- 甲\n- 乙\n丙')
   })
 

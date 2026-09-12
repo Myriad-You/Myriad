@@ -132,7 +132,6 @@ describe('getWatchProgress anime/Bangumi', () => {
   })
 
   it('fills partial logged progress to total when completed', () => {
-    // Users often mark done without bumping ep_status to the last episode
     const p = getWatchProgress('anime', {
       ep_status: 3,
       type: 2,
@@ -201,9 +200,6 @@ describe('getWatchProgress book', () => {
       list_status: { num_chapters_read: 0, num_volumes_read: 0 },
       node: { num_chapters: 100, num_volumes: 10 },
     })
-    // list_status is nested; ep_status/vol may be absent — use totals only
-    // After fill: still need current fields. Without ep_status, chapters from null.
-    // completed + totals via fillCompletedPart on missing parts:
     assert.ok(p)
     assert.deepEqual(p!.chapters, { current: 100, total: 100 })
     assert.deepEqual(p!.volumes, { current: 10, total: 10 })

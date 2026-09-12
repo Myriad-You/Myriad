@@ -1,8 +1,3 @@
-/**
- * 第三方登录（OAuth / OIDC）配置步骤
- * 文案走 i18n；外链来自 oauthPresets.docs_url。
- */
-
 import type { OAuthProviderEntry } from '../../utils/oauthSettings'
 import type { SetupFlowStep } from '../settings/SetupFlow'
 import { findPreset, OAUTH_PRESETS } from './oauthPresets'
@@ -86,9 +81,7 @@ export interface OAuthSetupGuide {
 }
 
 export interface OAuthSetupHandlers {
-  /** 复制登录回调 URL */
   copyCallback?: () => void
-  /** 是否已有可复制的回调 */
   hasCallback?: boolean
 }
 
@@ -119,7 +112,6 @@ function callbackStep(
   }
 }
 
-/** 从已配置 entry 推断预设 id */
 export function resolveOAuthPresetId(entry: OAuthProviderEntry): string {
   if (entry.kind === 'github') return 'github'
 

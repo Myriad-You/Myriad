@@ -4,11 +4,10 @@ import antfu from '@antfu/eslint-config'
 export default antfu(
   {
     formatters: false,
-    // Vendored Three IIFE is the runtime source of truth; do not lint minify output.
-    // Anime2.5DRig 的 rigger/genericparts 是上游原样拷贝（见同目录 NOTICE），
-    // 要能跟上游 diff，就不能让 lint 改它。
+    // Vendored Three IIFE and Anime2.5DRig rigger/genericparts (upstream copies; see NOTICE) stay lint-untouched so they still diff against upstream.
     ignores: [
       'public/tapp-runtime/**',
+      'src/utils/liquidGlass/vendor/**',
       'src/features/merope/anime25drig/vendor/**',
     ],
   },
@@ -56,6 +55,13 @@ export default antfu(
       ],
       'ts/prefer-literal-enum-member': 'off',
       'style/member-delimiter-style': 'off',
+    },
+  },
+  {
+    files: ['**/*.{js,mjs,cjs,ts,tsx}'],
+    rules: {
+      // Lock ES2024+ clone; JSON.parse(JSON.stringify) drops undefined and dates.
+      'unicorn/prefer-structured-clone': 'error',
     },
   },
 )

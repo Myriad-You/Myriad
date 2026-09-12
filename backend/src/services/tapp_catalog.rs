@@ -1,7 +1,8 @@
 //! Role-aware Tapp catalog / detail projection.
 //!
-//! Lives in services so install lists, detail views, and agent/UI surfaces share
-//! one permission-filtered projection without importing `crate::api::tapp_store`.
+//! Lives in services so install lists and detail views share one list/detail
+//! projection without importing `crate::api::tapp_store`. Detail `granted_permissions`
+//! are role-filtered from approved permissions.
 //! HTTP handlers only load models and wrap [`TappListItem`] / [`TappDetail`] in
 //! API envelopes.
 
@@ -20,13 +21,13 @@ pub struct TappListItem {
     pub version: String,
     pub description: Option<String>,
     pub icon: Option<String>,
-    /// 内联 SVG 图标代码（优先于 icon）
+    /// 内联 SVG 图标代码（manifest.iconSvg）
     pub icon_svg: Option<String>,
     /// manifest.locales 透传：语言标签 → { name?, description? }
     #[serde(skip_serializing_if = "Option::is_none")]
     pub locales: Option<serde_json::Value>,
     pub status: String,
-    /// 失败原因。`status = "error"` 时必须能读到，否则列表只显示「出错」而不可诊断。
+    /// 失败原因；status 为 error 且库里有值时出站。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,
     pub installed_at: String,
@@ -37,7 +38,7 @@ pub struct TappListItem {
     /// 是否为管理员/站点的公开 Tapp
     #[serde(default)]
     pub is_admin_tapp: bool,
-    /// 公开安装可见性：`all` | `admin`（私有安装始终仅本人）
+    /// 公开安装可见性：`all` | `admin`
     #[serde(default = "default_tapp_visibility")]
     pub visibility: String,
     #[serde(default)]
@@ -56,7 +57,7 @@ pub struct TappDetail {
     pub theme_color: Option<String>,
     pub manifest: serde_json::Value,
     pub status: String,
-    /// 失败原因。`status = "error"` 时必须能读到，否则详情只显示「出错」而不可诊断。
+    /// 失败原因；status 为 error 且库里有值时出站。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,
     pub granted_permissions: Vec<String>,
@@ -145,8 +146,7 @@ pub fn tapp_list_item_from_model(
 ) -> TappListItem {
     let approved_permissions: Vec<String> =
         serde_json::from_value(tapp.approved_permissions.clone()).unwrap_or_default();
-    // The durable marker (set by the upgrade migration) OR an unknown approved
-    // permission name (the fail-soft fallback) both surface as
+    // The durable marker or an unknown approved permission name both surface as
     // "needs re-authorization" in the list projection.
     let needs_reauthorization = tapp.needs_reauthorization
         || approved_permissions.iter().any(|permission| {
@@ -180,8 +180,7 @@ pub fn tapp_list_item_from_model(
 ///
 /// Uses [`catalog_install_flags`] for temporary/public flags. The HTTP contract
 /// reports `status = "installed"` and omits `last_run_at` even when the DB row
-/// was inserted as Running with a timestamp (clients treat install as not yet
-/// "started" from the list UI).
+/// was inserted as Running with a timestamp.
 pub fn install_response_list_item(tapp: tapps::Model, is_site_owner_install: bool) -> TappListItem {
     let (is_temporary, is_admin_tapp) = catalog_install_flags(is_site_owner_install);
     let mut item = tapp_list_item_from_model(tapp, is_temporary, is_admin_tapp);
@@ -204,7 +203,7 @@ pub fn update_response_list_item(tapp: tapps::Model, is_site_owner_install: bool
 /// Project a DB install row into a role-filtered detail DTO.
 ///
 /// `granted_permissions` is the intersection of approved install permissions
-/// with the current role's capability policy (not the legacy DB snapshot field).
+/// with the current role's capability policy (not the `tapps.granted_permissions` column).
 pub fn tapp_detail_from_model(
     tapp: tapps::Model,
     role: UserRole,
@@ -543,9 +542,7 @@ mod tests {
 
     #[test]
     fn persistent_marker_flags_row_even_when_all_permissions_parse() {
-        // After the migration cleans the retired strings, the remaining
-        // permissions parse fine, but the durable marker must keep the row
-        // flagged until an explicit re-approval clears it.
+        // Durable marker flags the row even when remaining approved names parse.
         let mut model = sample_model(json!(["storage:read"]));
         model.needs_reauthorization = true;
 
@@ -560,8 +557,7 @@ mod tests {
 
         assert!(item.needs_reauthorization);
         assert!(detail.needs_reauthorization);
-        // Marked installs project no granted permissions so callers that only
-        // read the list cannot treat leftover approved names as live grants.
+        // Marked installs project empty detail `granted_permissions` so leftover approved names are not treated as live grants.
         assert!(detail.granted_permissions.is_empty());
     }
 

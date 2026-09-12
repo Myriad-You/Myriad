@@ -1,10 +1,3 @@
-/**
- * Unit tests for updater → maintenance page auto-navigation helpers.
- *
- * Run from frontend/:
- *   pnpm exec tsx --test src/components/config/updaterMaintenanceNav.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { afterEach, before, describe, it } from 'node:test'
 import { ensureSessionStoragePolyfill } from '../../test/sessionStoragePolyfill'
@@ -18,7 +11,7 @@ import {
   startMaintenancePoll,
 } from './updaterMaintenanceNav'
 
-// Node 24 LTS does not enable Web Storage by default (Node 25+ does).
+// Node 24: no Web Storage by default (Node 25+ does)
 before(() => {
   ensureSessionStoragePolyfill()
 })

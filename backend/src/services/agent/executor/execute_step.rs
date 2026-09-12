@@ -62,7 +62,7 @@ impl Executor {
                 .await
                 .ok_or_else(|| format!("Unknown capability: {}", step.capability_id))?;
 
-        // 权限校验：检查 capability 声明的 required_permissions
+        // 权限校验：授予权限（自主上限存在时一并重读 grant）对照 capability.required_permissions
         if !capability.required_permissions.is_empty()
             || handler_ctx.autonomy_permission_cap.is_some()
         {
@@ -95,10 +95,8 @@ impl Executor {
             }
         }
 
-        // 敏感操作补检：动态子步骤（技能展开/动态分析生成）绕过了 Planner 层的
-        // check_sensitive_steps 确认流程。策略与 system_sensitive_gate 对齐：
-        // - 系统任务：Medium 自动放行；High/Critical 硬拦并返回清晰 blocked 文案
-        // - 交互用户：Medium+ 一律硬拦直至确认
+        // 动态步骤补检：`should_block_unconfirmed_dynamic_step` 为 true 时
+        // 返回 "This step needs confirmation first"。
         if context.is_dynamic_step(&step.id) {
             if let Some((_, risk)) =
                 crate::services::agent::capability::capability_requires_confirmation_async(
@@ -202,9 +200,8 @@ impl Executor {
         Ok(output)
     }
 
-    /// Breach (wrong JSON type / missing required) fails the step. Drift is
-    /// still log-only: a handler that returns extra keys plus none of the
-    /// declared ones is usually a schema leftover, not a crashed tool.
+    /// Breach (wrong JSON type / missing required) fails the step.
+    /// `ContractViolation::Drift` 只 `tracing::warn` 后 `Ok(())`。
     ///
     /// MCP tools synthesize a local `{"type": "string"}` placeholder and stay
     /// exempt.
@@ -325,11 +322,11 @@ impl Executor {
                         })
                         .unwrap_or_default();
                     caps_desc.push_str(&format!(
-                        "- `{}`: {} (参数: {})\n",
+                        "- `{}`: {} (params: {})\n",
                         cap.id,
                         cap.description,
                         if params_hint.is_empty() {
-                            "无必需"
+                            "none required"
                         } else {
                             &params_hint
                         }
@@ -343,7 +340,7 @@ impl Executor {
         // 构建用户上下文（原始请求 + 对话历史摘要 + 中途转向指令）
         let user_context = {
             let mut ctx_parts = Vec::new();
-            ctx_parts.push(format!("用户原始请求: {}", context.original_request));
+            ctx_parts.push(format!("Original request: {}", context.original_request));
             // Steering taken at the skill planning step boundary must reshape the plan.
             if let Some(steering) = context
                 .variables
@@ -353,7 +350,7 @@ impl Executor {
                 .filter(|s| !s.is_empty())
             {
                 ctx_parts.push(format!(
-                    "用户最新转向指令（优先遵循，调整后续步骤参数与目标）：{}",
+                    "Latest steering (follow this; adjust later step params and goals): {}",
                     steering
                 ));
             } else if !context.user_intent.is_empty()
@@ -361,7 +358,7 @@ impl Executor {
             {
                 // user_intent may already include "Steering: ..." from the step boundary.
                 if context.user_intent.contains("Steering:") {
-                    ctx_parts.push(format!("更新后的用户意图: {}", context.user_intent));
+                    ctx_parts.push(format!("Updated user intent: {}", context.user_intent));
                 }
             }
             if let Some(conv) = &context.conversation_context {
@@ -382,7 +379,7 @@ impl Executor {
                     })
                     .collect();
                 if !recent.is_empty() {
-                    ctx_parts.push(format!("最近对话:\n{}", recent.join("\n")));
+                    ctx_parts.push(format!("Recent conversation:\n{}", recent.join("\n")));
                 }
             }
             ctx_parts.join("\n\n")
@@ -426,7 +423,7 @@ impl Executor {
                 // 上游数据里有 webSearch / scrape 抓回来的正文，而这个提示词的
                 // 产物是要被执行的步骤。带边界进来，别让正文里的祈使句直通执行层。
                 format!(
-                    "\n## 已有上游数据（直接复用，不要重复搜索或分析相同内容）\n{}\n",
+                    "\n## Existing upstream data (reuse it; do not search or analyze the same content again)\n{}\n",
                     untrusted_block("upstream_output", &knowledge_parts.join("\n\n"))
                 )
             }
@@ -441,14 +438,17 @@ impl Executor {
                 .unwrap_or(1);
             let variations = step.params.get("variations").and_then(|v| v.as_array());
             if count > 1 || variations.is_some() {
-                let mut hint = format!("\n## 数量与变体要求\n用户需要 {} 组不同的结果。", count);
+                let mut hint = format!(
+                    "\n## Count and variants\nThe user wants {} distinct results.",
+                    count
+                );
                 if let Some(vars) = variations {
                     let descs: Vec<String> = vars
                         .iter()
                         .filter_map(|v| v.as_str().map(|s| s.to_string()))
                         .collect();
                     hint.push_str(&format!(
-                        "\n变体描述：\n{}",
+                        "\nVariant descriptions:\n{}",
                         descs
                             .iter()
                             .enumerate()
@@ -458,8 +458,8 @@ impl Executor {
                     ));
                 }
                 hint.push_str(
-                    "\n\n**重要**：搜索/调研步骤只执行一次，结果被所有变体共享。\
-                为每个变体分别生成独立的 prompt.generate + ai.image 步骤对。\n",
+                    "\n\n**Important**: run search/research once and share the result across variants. \
+                Emit a separate prompt.generate + ai.image pair for each variant.\n",
                 );
                 hint
             } else {
@@ -468,48 +468,48 @@ impl Executor {
         };
 
         let prompt = format!(
-            "你是 Myriad 的 DAG 执行计划编排器。\n\
-             你的任务：根据 Skill 策略和用户需求，输出一个 JSON 执行计划（步骤的有向无环图）。\n\n\
+            "You are Myriad's DAG planner.\n\
+             Your job: given the Skill policy and the user request, output a JSON execution plan (a directed acyclic graph of steps).\n\n\
              ## Skill: {name}\n{desc}\n\n\
-             ## 用户上下文\n{context}\n\n\
-             ## 可用能力（只能使用这些 capability_id）\n{caps}\n\
-             ## 执行策略\n{instructions}\n\n\
-             ## 用户参数\n{params}\n\
+             ## User context\n{context}\n\n\
+             ## Available capabilities (use only these capability_id values)\n{caps}\n\
+             ## Strategy\n{instructions}\n\n\
+             ## User params\n{params}\n\
              {prior_knowledge}\
              {count_hint}\n\
              ---\n\n\
-             # 规则\n\n\
-             ## 一、结构\n\
-             1. `capability_id` 只能从上面的列表选择\n\
-             2. 每个 step 必须有唯一 `id`（简短标识，如 `search_info`, `gen_prompt_1`）\n\
-             3. 每个 step 必须有 `depends_on` 数组（无依赖写 `[]`）\n\
-             4. `action` 字段写该步骤的具体目标（展示给用户看）\n\
-             5. {step_cap}只返回纯 JSON，不要 markdown 包裹\n\n\
-             ## 二、搜索优先\n\
-             6. **情报优先**：当任务涉及你不完全确定的外部知识（角色外貌、事件细节、专业信息等），\
-             **必须先 ai.webSearch 获取情报**，所有后续步骤都依赖它。搜索是为了让后续生成更准确。\n\
-             7. 搜索步骤全计划最多 1 个，多变体共享搜索结果。\
-             如「已有搜索结果」已包含所需信息，则不再搜索。\n\n\
-             ## 三、依赖 = 执行顺序\n{dependency}\n\n\
-             ## 四、数据流（xxxFrom）\n{data_flow}\n\n\
-             ## 五、ai.image 分辨率\n{image_size}\n\n\
+             # Rules\n\n\
+             ## 1. Structure\n\
+             1. `capability_id` must come from the list above\n\
+             2. Every step needs a unique `id` (short, e.g. `search_info`, `gen_prompt_1`)\n\
+             3. Every step needs a `depends_on` array (use `[]` when there is no dependency)\n\
+             4. `action` is the concrete goal of that step (shown to the user)\n\
+             5. {step_cap}Return pure JSON, no markdown wrapper\n\n\
+             ## 2. Search first\n\
+             6. **Intel first**: when the task needs external knowledge you are not sure about (character looks, event details, specialist facts), \
+             **you must ai.webSearch first**. Every later step depends on it. Search exists so later generation is accurate.\n\
+             7. At most one search step in the whole plan; variants share that result. \
+             If existing search results already cover it, do not search again.\n\n\
+             ## 3. depends_on = order\n{dependency}\n\n\
+             ## 4. Data flow (xxxFrom)\n{data_flow}\n\n\
+             ## 5. ai.image size\n{image_size}\n\n\
              ---\n\n\
-             # 示例（3 张角色图，需要搜索角色信息；竖图）\n\n\
+             # Example (3 character images that need a search; portrait)\n\n\
              ```json\n\
              {{\n\
                \"steps\": [\n\
-                 {{\"id\": \"search\",      \"capability_id\": \"ai.webSearch\",   \"action\": \"搜索角色外貌特征\",      \"params\": {{\"query\": \"...\"}},             \"depends_on\": []}},\n\
-                 {{\"id\": \"prompt_1\",    \"capability_id\": \"prompt.generate\", \"action\": \"生成变体1提示词\",       \"params\": {{\"description\": \"...\"}},       \"depends_on\": [\"search\"]}},\n\
-                 {{\"id\": \"prompt_2\",    \"capability_id\": \"prompt.generate\", \"action\": \"生成变体2提示词\",       \"params\": {{\"description\": \"...\"}},       \"depends_on\": [\"search\"]}},\n\
-                 {{\"id\": \"prompt_3\",    \"capability_id\": \"prompt.generate\", \"action\": \"生成变体3提示词\",       \"params\": {{\"description\": \"...\"}},       \"depends_on\": [\"search\"]}},\n\
-                 {{\"id\": \"img_1\",       \"capability_id\": \"ai.image\",        \"action\": \"生成变体1图片\",         \"params\": {{\"promptFrom\": \"prompt_1\", \"width\": 768, \"height\": 1024}},   \"depends_on\": [\"prompt_1\"]}},\n\
-                 {{\"id\": \"img_2\",       \"capability_id\": \"ai.image\",        \"action\": \"生成变体2图片\",         \"params\": {{\"promptFrom\": \"prompt_2\", \"width\": 768, \"height\": 1024}},   \"depends_on\": [\"prompt_2\"]}},\n\
-                 {{\"id\": \"img_3\",       \"capability_id\": \"ai.image\",        \"action\": \"生成变体3图片\",         \"params\": {{\"promptFrom\": \"prompt_3\", \"width\": 768, \"height\": 1024}},   \"depends_on\": [\"prompt_3\"]}}\n\
+                 {{\"id\": \"search\",      \"capability_id\": \"ai.webSearch\",   \"action\": \"Search the character's looks\",      \"params\": {{\"query\": \"...\"}},             \"depends_on\": []}},\n\
+                 {{\"id\": \"prompt_1\",    \"capability_id\": \"prompt.generate\", \"action\": \"Write variant 1 prompt\",       \"params\": {{\"description\": \"...\"}},       \"depends_on\": [\"search\"]}},\n\
+                 {{\"id\": \"prompt_2\",    \"capability_id\": \"prompt.generate\", \"action\": \"Write variant 2 prompt\",       \"params\": {{\"description\": \"...\"}},       \"depends_on\": [\"search\"]}},\n\
+                 {{\"id\": \"prompt_3\",    \"capability_id\": \"prompt.generate\", \"action\": \"Write variant 3 prompt\",       \"params\": {{\"description\": \"...\"}},       \"depends_on\": [\"search\"]}},\n\
+                 {{\"id\": \"img_1\",       \"capability_id\": \"ai.image\",        \"action\": \"Generate variant 1 image\",         \"params\": {{\"promptFrom\": \"prompt_1\", \"width\": 768, \"height\": 1024}},   \"depends_on\": [\"prompt_1\"]}},\n\
+                 {{\"id\": \"img_2\",       \"capability_id\": \"ai.image\",        \"action\": \"Generate variant 2 image\",         \"params\": {{\"promptFrom\": \"prompt_2\", \"width\": 768, \"height\": 1024}},   \"depends_on\": [\"prompt_2\"]}},\n\
+                 {{\"id\": \"img_3\",       \"capability_id\": \"ai.image\",        \"action\": \"Generate variant 3 image\",         \"params\": {{\"promptFrom\": \"prompt_3\", \"width\": 768, \"height\": 1024}},   \"depends_on\": [\"prompt_3\"]}}\n\
                ]\n\
              }}\n\
              ```\n\
-             执行流：search(独占) → prompt_1+prompt_2+prompt_3(并行) → 各自的 img 在 prompt 完成后立即启动\n\n\
-             只返回 JSON，不要任何解释文字。",
+             Flow: search (alone) → prompt_1+prompt_2+prompt_3 (parallel) → each img starts as soon as its prompt finishes\n\n\
+             Return JSON only. No explanation.",
             name = skill.name,
             desc = skill.description,
             context = user_context,
@@ -590,7 +590,7 @@ impl Executor {
         // 记录哪些步骤被跳过（gating/无效），用于依赖断裂检测
         let mut skipped_indices: std::collections::HashSet<usize> =
             std::collections::HashSet::new();
-        // 被跳过的 AI step id 集合（用于 pass 2 检测依赖断裂）
+        // 被跳过步骤的 plan id（pass 2 检测依赖断裂）
         let mut skipped_ai_ids: std::collections::HashSet<String> =
             std::collections::HashSet::new();
 
@@ -755,9 +755,7 @@ impl Executor {
 
             let step_id = format!("{}_{}_step_{}", step.id, skill_id, i);
 
-            // 子步骤大多是小操作，所以有个 60 秒地板；但能力自己声明需要更久
-            // 时以声明为准——硬写 60 秒会让 `model3d.generate`（声明 180 秒）
-            // 必然超时。
+            // 子步骤超时：`step_timeout_secs` 再与 `SKILL_SUB_STEP_MIN_SECS` 取较大值。
             let sub_step_timeout_ms = cap_registry
                 .get(cap_id)
                 .map(|capability| {
@@ -817,7 +815,6 @@ impl Executor {
         Ok(last_output)
     }
 
-    /// 解析参数中的引用
     /// 构建 StepDebug 事件用的参数预览（截断超长字符串）
     pub(crate) fn build_debug_params(params: &HashMap<String, Value>) -> Option<Value> {
         let mut p = params.clone();
@@ -836,9 +833,8 @@ impl Executor {
         serde_json::to_value(&p).ok()
     }
 
-    /// 能力特定的参数回退：当 resolve_params 无法填充某个必要参数时，
-    /// 从前置步骤输出中尝试语义搜索。每个能力的回退逻辑集中在此处，
-    /// 避免污染主执行路径。
+    /// 能力特定回退：`context.reference` 用 stepId/path 解析；
+    /// `music.playlist` 缺 playlistId 时取 recommendedPlaylistId 或 playlists[0].id。
     pub(crate) fn apply_capability_param_fallbacks(
         &self,
         capability_id: &str,
@@ -916,7 +912,7 @@ impl Executor {
                     if let Some(output) = resolved_value {
                         let new_key = key.trim_end_matches("From").to_string();
 
-                        // 数据型参数（data, content, input, context）保留完整对象，
+                        // 数据型参数（data, content, input, context, items）保留完整对象，
                         // 因为下游 handler（如 ai.analyze）有自己的 extract_semantic_text 逻辑
                         // 能处理结构化数据（如 results 数组、嵌套字段等）。
                         //
@@ -928,9 +924,7 @@ impl Executor {
                         );
 
                         // ID 型参数（playlistId、songId、id 等）：引用结构化输出时
-                        // 必须提取真实 ID，绝不能走语义文本提取——后者会把
-                        // message 提示文案当 ID 用（歌单播放曾因此拿到
-                        // "找到 10 个…" 字符串，任务"成功"但前端加载必败）
+                        // 必须提取真实 ID，不能走语义文本提取。
                         let is_id_param = new_key == "id"
                             || new_key.ends_with("Id")
                             || new_key.ends_with("ID")
@@ -1092,8 +1086,6 @@ impl Executor {
             )
         })
     }
-
-    // 动态步骤生成系统
 }
 
 fn prior_step_text(out_val: &Value) -> Option<&str> {

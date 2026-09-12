@@ -1,8 +1,3 @@
-/**
- * 智能岛收缩态轮播：站长可选择显示哪些内置/Tapp 内容。
- * 通知进岛走通知偏好，不走这一组。
- */
-
 export const ISLAND_CONTENT_KEYS = [
   'greeting',
   'weather',
@@ -37,7 +32,6 @@ export function islandBagKey(key: IslandContentKey): IslandUiBagKey {
   return `island_show_${key}`
 }
 
-/** 缺省 / 空 = 开。只有显式 false/0/"false"/"0" 才关。 */
 export function parseIslandFlag(value: unknown): boolean {
   if (value === false || value === 0) return false
   if (typeof value === 'string') {

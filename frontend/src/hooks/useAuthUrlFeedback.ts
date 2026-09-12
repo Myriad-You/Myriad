@@ -1,16 +1,3 @@
-/**
- * Surface OAuth outcomes from URL query params as toasts, then clean the query
- * so refresh does not re-show them.
- *
- * Handles:
- * - `/?link=success|error&...` (account link while already signed in)
- * - `?oauth_error=&desc=` on any route (including `/login` while GuestOnly
- *   shows the auth spinner for already-signed-in users — toast fires before redirect)
- *
- * LoginForm no longer renders oauth_error as an inline banner, so guests and
- * authed users share this single toast surface (no double-toast).
- */
-
 import { useEffect, useRef } from 'react'
 import { useI18n } from '../contexts/I18nContext'
 import { messageForOAuthError } from '../utils/authErrorMessages'
@@ -54,14 +41,15 @@ function cleanAuthFeedbackParams(): void {
     const path = window.location.pathname
     window.history.replaceState({}, '', next ? `${path}?${next}` : path)
   } catch {
-    // ignore
+
   }
 }
 
-/** Call once near the root layout (has ToastContainer + I18n). */
+/** 根布局调用一次。把 URL 上的 OAuth 结果打成 toast 后清 query，避免刷新再弹。 */
 export function useAuthUrlFeedback(): void {
   const { t, format } = useI18n()
-  // Deduplicate within a mount lifecycle (t/format changes, strict mode, etc.)
+
+  // 同一挂载周期去重（t/format 变化、strict mode）。
   const handledKeyRef = useRef<string | null>(null)
 
   useEffect(() => {
@@ -102,7 +90,7 @@ export function useAuthUrlFeedback(): void {
 
       cleanAuthFeedbackParams()
     } catch {
-      // ignore (SSR / non-browser)
+
     }
   }, [t, format])
 }

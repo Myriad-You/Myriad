@@ -1,31 +1,15 @@
 import { getDefaultLocale } from '../../../i18n'
 import { currentCopy } from '../../../i18n/localeCopy'
 
-/**
- * 引导的页号。0 是分岔口，1 是导入，2 起是生成链。
- *
- * 三个页面不是一条直线：从分岔口出发有两条互不相干的路，所以不要拿 `step ± 1`
- * 去推上一页/下一页——那样从生成链第一步后退会落进导入页。要前后关系就用
- * [`previousOnboardingStep`]。
- */
+/** Fork 0, import 1, generate 2–6. Do not use `step ± 1`. */
 export type OnboardingStep = 0 | 1 | 2 | 3 | 4 | 5 | 6
 
-/** 分岔口：选生成还是导入。 */
 export const CHOICE_STEP = 0 satisfies OnboardingStep
-/** 导入：现成的人设 + 现成的主立绘，一页落地。 */
 export const IMPORT_STEP = 1 satisfies OnboardingStep
-/** 生成链的第一页（特征词条）。 */
 export const GUIDED_FIRST_STEP = 2 satisfies OnboardingStep
-/** 生成链的最后一页（主立绘）。 */
 export const GUIDED_LAST_STEP = 6 satisfies OnboardingStep
-/** 生成链要从报告里抽词条。导入不吃这个门槛。 */
 export const GUIDED_MIN_REPORTS = 3
 
-/**
- * 上一页。`null` 表示已经在最前面，再往回就是离开引导页。
- *
- * 导入和生成链的第一页都回到分岔口——它们是从那儿分开的。
- */
 export function previousOnboardingStep(
   step: OnboardingStep,
 ): OnboardingStep | null {
@@ -34,7 +18,6 @@ export function previousOnboardingStep(
   return (step - 1) as OnboardingStep
 }
 
-/** 步骤上报给二级页标题栏：说明 + 可选「换一批」 */
 export interface OnboardingHeaderAction {
   label: string
   busy?: boolean
@@ -45,11 +28,9 @@ export interface OnboardingHeaderAction {
 export interface OnboardingHeaderChrome {
   description: string
   action?: OnboardingHeaderAction
-  /** Return true when this page handled back and the wizard should stay. */
   onBack?: () => boolean
 }
 
-/** 设定引导二级页标题栏，由引导页合成后交给设置壳 */
 export interface OnboardingPageChrome {
   title: string
   description: string
@@ -188,7 +169,7 @@ export interface UpperBodyVisualIdentity {
   outfit: OutfitVisual
 }
 
-/** Keep in sync with myriad-merope `CHARACTER_VISUAL_FIELDS` / `OUTFIT_VISUAL_FIELDS`. */
+/** Sync with myriad-merope `CHARACTER_VISUAL_FIELDS` / `OUTFIT_VISUAL_FIELDS`. */
 export const UPPER_BODY_VISUAL_IDENTITY_LIMITS: Record<
   UpperBodyVisualIdentityKey,
   number
@@ -206,7 +187,7 @@ export const UPPER_BODY_VISUAL_IDENTITY_LIMITS: Record<
   motif: 500,
 }
 
-/** Keep in sync with myriad-merope `MAX_VISUAL_NOTES_CHARS`. */
+/** Sync with myriad-merope `MAX_VISUAL_NOTES_CHARS`. */
 export const VISUAL_NOTES_LIMIT = 1_000
 
 function parseFieldGroup<K extends string>(
@@ -248,7 +229,7 @@ export function visualField(
   identity: UpperBodyVisualIdentity,
   key: UpperBodyVisualIdentityKey,
 ): string {
-  return key in identity.character
+  return Object.hasOwn(identity.character, key)
     ? identity.character[key as CharacterVisualKey]
     : identity.outfit[key as OutfitVisualKey]
 }
@@ -258,7 +239,7 @@ export function withVisualField(
   key: UpperBodyVisualIdentityKey,
   value: string,
 ): UpperBodyVisualIdentity {
-  if (key in identity.character) {
+  if (Object.hasOwn(identity.character, key)) {
     return {
       ...identity,
       character: { ...identity.character, [key]: value },
@@ -299,12 +280,7 @@ export function clothingStyleFromProfile(value: unknown): ClothingStyle | null {
     : null
 }
 
-/**
- * Resume at the first incomplete persisted asset stage.
- *
- * 只会落在生成链上：分岔口和导入是入口，不是可恢复的进度。人设一旦存下来，
- * 下次进来就该接着生成链往下走。
- */
+/** Resume on the generate chain; fork and import are not progress. */
 export function completedPersonaResumeStep(
   visualProfile: unknown,
 ): OnboardingStep {
@@ -403,8 +379,7 @@ const PERSONA_PARSE_KEYS = {
 
 export function flattenPersona(persona: StructuredPersona): string {
   const labels = personaFieldLabels()
-  // ASCII commas may be part of a single English trait (for example,
-  // "Blunt mouth, soft heart"), so use a delimiter parseList can distinguish.
+  // English traits may contain ASCII commas
   const joiner = getDefaultLocale() === 'en-US' ? '; ' : '、'
   const lines: string[] = []
   if (persona.temperament.length) {

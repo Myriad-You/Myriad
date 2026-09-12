@@ -1,0 +1,92 @@
+{
+  "sources": {
+    "agent": {
+      "title": "Agent Tasks",
+      "description": "Task progress, results, cancellation, clarification, and notable platform activity"
+    },
+    "heartbeat": {
+      "title": "Heartbeat",
+      "description": "Results from Agent background schedules"
+    },
+    "mcp": {
+      "title": "MCP Services",
+      "description": "Tool server connection state"
+    },
+    "brew": {
+      "title": "Brew",
+      "description": "New feed items and repeated fetch errors"
+    },
+    "tapp": {
+      "title": "Tapp",
+      "description": "App messages, warnings and task errors"
+    },
+    "updater": {
+      "title": "System Update",
+      "description": "Update, rollback and recovery status"
+    },
+    "federation": {
+      "title": "Federation",
+      "description": "Federated messages, follows and invitations"
+    },
+    "system": {
+      "title": "System",
+      "description": "Important information from Myriad"
+    }
+  },
+  "events": {
+    "agent.task_progress": "Task progress",
+    "agent.task_completed": "Task completed",
+    "agent.task_failed": "Task failed",
+    "agent.task_cancelled": "Task cancelled",
+    "agent.clarification": "Waiting for an answer",
+    "agent.merope.platform_activity": "Platform activity",
+    "heartbeat.succeeded": "Scheduled task succeeded",
+    "heartbeat.failed": "Scheduled task failed",
+    "mcp.connected": "MCP connected",
+    "mcp.disconnected": "MCP disconnected or failed",
+    "brew.new_items": "New content found",
+    "brew.source_error": "Feed repeatedly failed",
+    "platform.sync.failed": "Platform sync failed",
+    "tapp.message": "Message",
+    "tapp.warning": "Warning",
+    "tapp.error": "Error or task failure",
+    "updater.submitted": "Job submitted",
+    "updater.running": "Job running",
+    "updater.succeeded": "Update succeeded",
+    "updater.failed": "Update failed",
+    "updater.needs_manual": "Manual recovery required",
+    "updater.unknown": "Status cannot be confirmed",
+    "federation.channel_message": "Direct message",
+    "federation.room_message": "Room message",
+    "federation.new_follower": "New follower",
+    "federation.follow_accepted": "Follow accepted",
+    "federation.channel_invite": "Direct-message invitation",
+    "federation.room_invite": "Room invitation",
+    "federation.channel_accepted": "Direct channel established",
+    "federation.room_invite_accepted": "Room invite accepted",
+    "system.info": "System information",
+    "skill.pruned": "Skill auto-pruned",
+    "skill.improved": "Skill auto-improved",
+    "skill.changed": "Skill changed"
+  },
+  "ui": {
+    "master": "Enable notification center",
+    "masterDesc": "No new notifications are created when disabled; history is kept",
+    "delivery": "Presentation",
+    "island": "Control-island carousel",
+    "islandDesc": "Show new notifications in the top control island",
+    "toast": "Toast notifications",
+    "toastDesc": "Use global alerts when new notifications arrive",
+    "browser": "Browser system notifications",
+    "browserDesc": "Show while the page is in the background when permitted",
+    "sourceEnabled": "Allow this source",
+    "sources": "Notification sources",
+    "locations": "Display locations",
+    "locationsDesc": "Combined with the global presentation switches above",
+    "events": "Notification events",
+    "panelLocation": "Notification panel",
+    "toastLocation": "Toast",
+    "islandLocation": "Control island",
+    "browserLocation": "System notification"
+  }
+}

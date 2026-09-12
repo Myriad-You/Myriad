@@ -18,7 +18,6 @@ describe('collectReattachCandidates', () => {
         id: 'msg_multi_round',
         role: 'assistant',
         taskId: 'task_1',
-        // multi-round bug: newest message lacked runId
         runId: undefined,
       },
     ]
@@ -40,7 +39,7 @@ describe('collectReattachCandidates', () => {
     ]
     const candidates = collectReattachCandidates(messages, {
       runId: 'run_early',
-      // no taskId — matches early agent.task_progress metadata
+      // Early task_progress may omit taskId.
     })
     assert.ok(candidates.some((c) => c.runId === 'run_early'))
     const hit = candidates.find((c) => c.runId === 'run_early')

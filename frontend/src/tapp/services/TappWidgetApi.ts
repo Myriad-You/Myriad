@@ -1,5 +1,3 @@
-/** Host-side Widget registry APIs. */
-
 import type { RegisteredWidget, WidgetRegistration } from '../types'
 import { apiRequest } from './TappHttpClient'
 

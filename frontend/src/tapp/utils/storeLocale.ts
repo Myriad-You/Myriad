@@ -1,8 +1,3 @@
-/**
- * Catalog merchandising locale overlays (long_description / preview).
- * Distinct from manifest.locales, which only cover install-time name/description.
- */
-
 import type { StorePreviewDescriptor } from './storePreview'
 import {
   nonEmptyText,
@@ -31,7 +26,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** Ingest untrusted catalog `locales`; invalid previews are dropped per entry. */
 export function parseStoreLocales(value: unknown): RemoteStoreLocales | undefined {
   if (!isRecord(value)) return undefined
   const locales: RemoteStoreLocales = {}
@@ -48,10 +42,6 @@ export function parseStoreLocales(value: unknown): RemoteStoreLocales | undefine
   return Object.keys(locales).length > 0 ? locales : undefined
 }
 
-/**
- * Resolve store-facing name, short/long copy, and preview for the host locale.
- * Per-field fallback: locale entry → catalog default → localized short description.
- */
 export function resolveStoreMerchandising(
   app: {
     name: string

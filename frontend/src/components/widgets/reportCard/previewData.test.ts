@@ -1,21 +1,16 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { zhCN } from '../../../i18n/zh-CN'
+import zhCN from '../../../i18n/zh-CN.json' with { type: 'json' }
 import { buildReportCardPreviewData } from './previewData'
 
-/**
- * Widget-library previews feed the same fixture to every report card, so the
- * anime pair used to share one union of subject types. That made the MAL card
- * draw Bangumi-only segments (book/game/music/real) and the Bangumi card draw
- * `manga` — in both cases as untranslated raw keys in the fallback color.
- */
+// 预览 fixture 不要把 Bangumi/MAL 条目类型并成一份，多余 key 会以未翻译原文画出。
 const t = zhCN as unknown as Parameters<typeof buildReportCardPreviewData>[1]
 
 function typeKeys(platformId: string): string[] {
   return Object.keys(
     (buildReportCardPreviewData(platformId, t)
       .subject_type_distribution as Record<string, number>) ?? {},
-  ).sort()
+  ).toSorted()
 }
 
 describe('buildReportCardPreviewData — anime subject types', () => {
@@ -34,8 +29,6 @@ describe('buildReportCardPreviewData — anime subject types', () => {
   })
 
   it('labels every preview segment the card can render', () => {
-    // Mirrors the typeLabels maps in platforms/anime.tsx: a preview key with no
-    // label falls through to the raw key, which is what this guards against.
     const labelled: Record<string, string[]> = {
       bangumi: ['book', 'anime', 'game', 'music', 'real'],
       mal: ['anime', 'manga'],

@@ -32,11 +32,6 @@ type RandomSource = () => number
 type TextVisemeCompiler = typeof compileTextVisemes
 
 const REST_RELEASE = 0.2
-/**
- * Syllable spacing for the fallback rhythm used before compiled visemes exist.
- * Held near the compiled Han cadence (~0.25s) so the causal gap does not open
- * with a mouth that chatters and then abruptly settles down.
- */
 const FALLBACK_SYLLABLE_MIN = 0.185
 const FALLBACK_SYLLABLE_MAX = 0.275
 const TEXT_PHRASE_PACE_MIN = 0.92
@@ -68,14 +63,6 @@ export function speechPhraseIntervalScale(progress: number): number {
   return mix(1, 1.18, smootherstep((bounded - 0.72) / 0.28))
 }
 
-/**
- * Text-driven speech with a text-free workbench fallback.
- *
- * Agent text uses a bounded viseme queue with adjacent-shape coarticulation.
- * When no text was supplied, the workbench retains a lightweight grouped
- * syllable preview instead of Anime2.5DRig's unrelated 70-180ms targets.
- * The returned object is reused so the animation loop does not allocate.
- */
 export class AutoSpeechController {
   private readonly output: AutoSpeechPose = { ...ZERO_SPEECH }
   private initialized = false
@@ -143,8 +130,6 @@ export class AutoSpeechController {
         if (generation !== this.textGeneration || cues.length === 0) return
         this.appendTextCues(cues)
       } catch {
-        // Visual-only articulation is best effort. Keep the serialized queue
-        // usable when an optional language compiler rejects unexpectedly.
         return
       } finally {
         if (generation === this.textGeneration) {
@@ -172,7 +157,6 @@ export class AutoSpeechController {
       this.textCues = this.textCues.slice(this.textCueIndex)
       this.textCueIndex = 0
     }
-    // The compiler emits at most two cues per accepted text unit.
     const available = Math.max(
       0,
       MAX_VISUAL_SPEECH_TEXT_UNITS * 2 - this.textCues.length,
@@ -213,8 +197,6 @@ export class AutoSpeechController {
     }
 
     this.resolve(now)
-    // Preserve time-based behavior after a throttled or dropped frame without
-    // allowing an unbounded catch-up loop in the render path.
     for (let event = 0; event < 12 && now >= this.nextEventAt; event += 1) {
       const scheduledAt = this.nextEventAt
       this.advance(scheduledAt)
@@ -277,7 +259,6 @@ export class AutoSpeechController {
       ? this.randomRange(0.62, 0.8)
       : this.randomRange(0.28, 0.61)
     openness *= speechPhraseAmplitudeScale(phraseProgress)
-    // Large adjacent jumps read as sprite switching on a two-difference mouth.
     // Keep enough contrast for articulation while preserving visual continuity.
     openness = clamp(openness, this.toOpen - 0.34, this.toOpen + 0.34)
     openness = clamp(openness, 0.22, 0.8)
@@ -335,7 +316,6 @@ export class AutoSpeechController {
     this.output.mouthSeal = 0
     this.output.phraseActivity = this.resolvePhraseActivity(now)
     const emphasisElapsed = now - this.emphasisStartedAt
-    // Brows anticipate the visual beat while the smaller nod lands after it.
     this.output.browAccent = attackReleasePulse(
       emphasisElapsed,
       0,
@@ -467,12 +447,6 @@ export class AutoSpeechController {
     return this.output
   }
 
-  /**
-   * Gives text-only speech a bounded, correlated rhythm. A whole phrase drifts
-   * a little faster or slower; adjacent cues follow that drift instead of
-   * receiving independent jitter. Stress and phrase edges then add restrained
-   * local lengthening. This runs only at cue boundaries, never per frame.
-   */
   private prepareTextCue(): void {
     const cue = this.textCues[this.textCueIndex]
     if (!cue) {
@@ -517,11 +491,7 @@ export class AutoSpeechController {
     )
   }
 
-  /**
-   * Covers only the causal gap between receiving text and compiling its exact
-   * visemes. This stays quieter than the workbench fallback and is discarded
-   * as soon as the authoritative cue queue is available.
-   */
+  /** Covers only the causal gap between receiving text and compiling its exact visemes. */
   private sampleProvisionalText(now: number): Readonly<AutoSpeechPose> {
     if (!this.provisionalTextActive) {
       this.provisionalTextActive = true

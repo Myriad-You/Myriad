@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use crate::visual_design::DEFAULT_WARDROBE_ID;
 
-const DEFAULT_WARDROBE_LABEL: &str = "默认服装";
+const DEFAULT_WARDROBE_LABEL: &str = "Default outfit";
 
 const GENERIC_HINTS: &[&str] = &[
     "衣服", "服装", "衣装", "外套", "上衣", "那套", "这套", "一件", "一套", "outfit", "clothes",
@@ -187,7 +187,7 @@ fn look_from_item(item: &Value) -> Option<WardrobeLook> {
         push_hint(&mut hints, name);
     }
     if id == DEFAULT_WARDROBE_ID {
-        for alias in ["默认", "default outfit", "default"] {
+        for alias in ["默认", "默认服装", "default outfit", "default"] {
             push_hint(&mut hints, alias);
         }
     } else {
@@ -288,9 +288,11 @@ pub fn format_chat_wardrobe_section(
         .map(|look| look.label.as_str())
         .unwrap_or(showing_id);
     let wearing = if overlay_id.is_some() && overlay_id != Some(worn_id) {
-        format!("这一轮你穿着：{showing}（聊天里临时换的，不是正在穿着的那套）")
+        format!(
+            "This round you're wearing: {showing} (temporary for this chat, not the outfit you actually have on)"
+        )
     } else {
-        format!("这一轮你穿着：{showing}")
+        format!("This round you're wearing: {showing}")
     };
     let lines = catalog
         .iter()
@@ -298,14 +300,14 @@ pub fn format_chat_wardrobe_section(
         .collect::<Vec<_>>()
         .join("\n");
     Some(format!(
-        "## 衣服\n{wearing}\n{lines}\n\
-         这一轮要不要换衣服由你决定。对方点到哪套、想看哪套，对上了就换。\
-         短名、也可叫的名字、或这套衣服上能认出来的部件，对得上就是那一套。\
-         正在穿的就算同一类风格，只要短名不是那一套，也要换成对方点的那套。\
-         要换时在全文最后单独一行只写 [[wear:短名]]，短名是每行「-」后面到冒号或句号前的那个名字；\
-         换回来写 [[wear:回来]]。也可叫的名字只帮你认人，不要写进 [[wear:]]。\
-         这一行由现场执行，不要念出来。嘴上说换却漏写时，现场仍会按对方点名的那套换。\
-         明确不换就不要写这一行。"
+        "## Clothes\n{wearing}\n{lines}\n\
+         You decide whether to change this round. If they name a set or want to see one, change when it matches. \
+         Short name, also-called names, or a recognizable part of the outfit all count as that set. \
+         Even if the current set is the same style, change to the one they named if the short name is different. \
+         To change, write a last line that is only [[wear:short-name]]; the short name is the name after each \"-\" up to the colon or period. \
+         To change back, write [[wear:back]]. Also-called names help you recognize a set — do not put them in [[wear:]]. \
+         That line is executed live; do not speak it. If you say you'll change but omit the line, live still switches to the named set. \
+         If they clearly don't want a change, omit the line."
     ))
 }
 
@@ -313,7 +315,11 @@ fn spoken_style_label(style: &str) -> &str {
     clothing_style_aliases(style)
         .iter()
         .copied()
-        .find(|alias| !alias.is_ascii())
+        .find(|alias| {
+            alias
+                .chars()
+                .all(|ch| ch.is_ascii_alphabetic() || ch == '-')
+        })
         .unwrap_or(style)
 }
 
@@ -333,11 +339,11 @@ fn catalog_line(look: &WardrobeLook, showing_id: &str, all: &[WardrobeLook]) -> 
     }
     let aliases = catalog_aliases(look, showing_id, all, construction.as_deref());
     if !aliases.is_empty() {
-        line.push_str("。也可叫");
+        line.push_str(". Also called ");
         line.push_str(&aliases.join("、"));
     }
     if look.id == showing_id {
-        line.push_str("。这一轮穿着");
+        line.push_str(". Wearing this round");
     }
     line
 }
@@ -633,6 +639,10 @@ fn score_look(input: &str, look: &WardrobeLook, all: &[WardrobeLook]) -> u32 {
         score += 100;
     }
     if look.id == DEFAULT_WARDROBE_ID {
+        // Leftover Chinese name still has to match after the English label.
+        if score == 0 && contains_hint(input, "默认服装") {
+            score = 100;
+        }
         return score;
     }
     if contains_hint(input, &look.clothing_style) {
@@ -691,7 +701,7 @@ fn uniquify_generated_labels(looks: &mut [WardrobeLook]) {
         if looks[..i].iter().all(|look| look.label != label) {
             continue;
         }
-        let mut next = format!("另一套{label}");
+        let mut next = format!("Another {label}");
         let mut n = 2;
         while looks.iter().any(|look| look.label == next) {
             n += 1;
@@ -920,7 +930,11 @@ mod tests {
             portrait_asset_id: Some("/uploads/default.png".into()),
             rig_asset_id: None,
             generation_fingerprint: None,
-            hints: vec![DEFAULT_WARDROBE_LABEL.into(), "默认".into()],
+            hints: vec![
+                DEFAULT_WARDROBE_LABEL.into(),
+                "默认".into(),
+                "默认服装".into(),
+            ],
         }
     }
 
@@ -1098,26 +1112,26 @@ mod tests {
         });
         let looks = looks_from_visual_profile(&profile);
         assert_eq!(looks.len(), 2);
-        assert_eq!(looks[0].label, "默认服装");
+        assert_eq!(looks[0].label, DEFAULT_WARDROBE_LABEL);
         assert_eq!(looks[1].id, "w-coat");
         assert_eq!(worn_outfit_id(&profile), Some("default"));
         let section = format_chat_wardrobe_section(&looks, "default", Some("w-coat")).unwrap();
-        assert!(section.contains("冬日大衣（聊天里临时换的"));
-        assert!(section.contains("- 默认服装：水手领内搭叠短外套"));
+        assert!(section.contains("冬日大衣 (temporary for this chat"));
+        assert!(section.contains("- Default outfit：水手领内搭叠短外套"));
         assert!(section.contains("- 冬日大衣：高领内搭叠短大衣"));
-        assert!(section.contains("也可叫都市"));
-        assert!(!section.contains("也可叫日常"));
+        assert!(section.contains("Also called 都市"));
+        assert!(!section.contains("Also called 日常"));
         assert!(!looks[0]
             .hints
             .iter()
             .any(|hint| hint == "日常" || hint == "everyday"));
-        assert!(section.contains("这一轮穿着"));
+        assert!(section.contains("Wearing this round"));
         assert!(!section.contains("w-coat"));
         assert!(!section.contains("activeOutfitId"));
         assert!(!section.contains("JSON"));
         assert!(!section.contains("portraitAssetId"));
         assert!(section.contains("[[wear:"));
-        assert!(section.contains("由你决定"));
+        assert!(section.contains("You decide"));
     }
 
     #[test]
@@ -1146,24 +1160,26 @@ mod tests {
             .iter()
             .all(|hint| hint == DEFAULT_WARDROBE_LABEL
                 || hint == "默认"
+                || hint == "默认服装"
                 || hint == "default"
                 || hint == "default outfit"
                 || hint.contains("方领")));
         assert_eq!(looks[1].id, "w-stage-2");
-        assert_eq!(looks[1].label, "舞台装");
+        assert_eq!(looks[1].label, "stage");
         let section = format_chat_wardrobe_section(&looks, "default", None).unwrap();
         let default_line = section
             .lines()
-            .find(|line| line.starts_with("- 默认服装"))
+            .find(|line| line.starts_with("- Default outfit"))
             .unwrap();
         let other_line = section
             .lines()
-            .find(|line| line.starts_with("- 舞台装"))
+            .find(|line| line.starts_with("- stage"))
             .unwrap();
-        assert!(default_line.contains("这一轮穿着"));
-        assert!(!default_line.contains("也可叫舞台"));
-        assert!(other_line.contains("也可叫舞台服"));
-        assert!(section.contains("只要短名不是那一套"));
+        assert!(default_line.contains("Wearing this round"));
+        assert!(!default_line.contains("Also called 舞台"));
+        assert!(other_line.contains("舞台服"));
+        assert!(other_line.contains("Also called "));
+        assert!(section.contains("if the short name is different"));
         assert_eq!(
             resolve_wear_directive(
                 &WearDirective::Label("舞台装".into()),
@@ -1249,13 +1265,13 @@ mod tests {
         });
         let looks = looks_from_visual_profile(&profile);
         assert_eq!(looks[0].label, DEFAULT_WARDROBE_LABEL);
-        assert_eq!(looks[1].label, "舞台装");
+        assert_eq!(looks[1].label, "stage");
         let section = format_chat_wardrobe_section(&looks, "default", None).unwrap();
         let default_line = section
             .lines()
-            .find(|line| line.starts_with("- 默认服装"))
+            .find(|line| line.starts_with("- Default outfit"))
             .unwrap();
-        assert!(!default_line.contains("也可叫舞台"));
+        assert!(!default_line.contains("Also called 舞台"));
         let directive = wear_directive_after_reply(
             "想看你换舞台服唱歌",
             "行啊，你等着。先换了再说——唱完你可得老实夸我。",

@@ -1,9 +1,4 @@
-/**
- * 次条行：`[可选缩略图] 单行标题  时间`
- *
- * 字色三档（正常 / dim / dimmer）。4×4 列表从第 3 条起进 dim —— 层次靠颜色
- * 反差，不靠描边分隔。
- */
+/** 层次靠颜色反差，不靠描边。 */
 
 import type { MouseEvent } from 'react'
 import { memo } from 'react'
@@ -20,12 +15,11 @@ const DIM_CLASS: Record<MinorDim, string> = {
 
 export interface MinorRowProps {
   title: string
-  /** 已格式化的相对时间；空串则不渲染 */
   time?: string
   scale: number
   fontScale: number
   dim?: MinorDim
-  /** 点开这一篇。必须 stopPropagation，否则会连带触发整卡点击 */
+  /** 必须 stopPropagation，否则会点开整卡。 */
   onClick?: () => void
 }
 

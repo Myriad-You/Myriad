@@ -21,7 +21,7 @@ pub enum ProviderKind {
     Oidc,
 }
 
-/// Per-login secrets for OIDC PKCE + `nonce` (MYR-011).
+/// Per-login secrets for OIDC PKCE + `nonce`.
 ///
 /// Generated at state issuance and embedded in the signed OAuth `state` so any
 /// instance can complete the callback. GitHub and other non-OIDC providers
@@ -37,7 +37,6 @@ pub struct AuthFlowSecrets {
 /// 交换 code 后得到的 token 集合
 ///
 /// 当前只用到 `access_token`（GitHub /user, OIDC userinfo）和 `id_token`（OIDC claims）。
-/// 未来加 token refresh 时再补 refresh_token / expires_in。
 #[derive(Debug, Clone)]
 pub struct ProviderTokens {
     pub access_token: String,

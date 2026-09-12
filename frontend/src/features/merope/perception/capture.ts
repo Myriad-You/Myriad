@@ -4,19 +4,16 @@ import { getScreenConsent } from '../../../components/agent-panel/screenConsent'
 import { captureProductionRigStateSummary } from '../motion/runtimeHost'
 import { getVoicePresence } from '../speech/voicePresence'
 import { replaceMusicTrackSource, replaceSurfaceSource } from './consentedSources'
+import { STABLE_OBSERVATION_TTL_MS } from './leasePolicy'
 import { pagePerceptionCopy } from './pageCopy'
 import { MAX_PERCEPTION_ITEMS, perceptionRegistry } from './registry'
 
-const PAGE_TTL_MS = 8_000
+const PAGE_TTL_MS = STABLE_OBSERVATION_TTL_MS
 const POINTER_TTL_MS = 3_000
 const MUSIC_TTL_MS = 2_000
 const VOICE_TTL_MS = 2_000
 const PRESENCE_TTL_MS = 4_000
 
-/**
- * Event-time capture. High-frequency pointer/audio frames stay local;
- * Lite only sees these bounded summaries.
- */
 export function capturePerceptionSnapshots(input: {
   route: string
   page: PageContent | null
@@ -63,7 +60,7 @@ export function capturePerceptionSnapshots(input: {
     })
   }
 
-  replaceSurfaceSource({ now, ttlMs: PRESENCE_TTL_MS })
+  replaceSurfaceSource({ now, ttlMs: STABLE_OBSERVATION_TTL_MS })
 
   const rig = captureProductionRigStateSummary()
   perceptionRegistry.replace({
@@ -85,7 +82,7 @@ export function capturePerceptionSnapshots(input: {
   replaceMusicTrackSource({
     now,
     pageConsent: input.pageConsent,
-    ttlMs: MUSIC_TTL_MS,
+    ttlMs: STABLE_OBSERVATION_TTL_MS,
   })
 
   const voice = getVoicePresence()

@@ -1,4 +1,4 @@
-/** Compact display helpers for write-only credential bindings. */
+/** 只写凭据绑定的展示压缩。 */
 
 export interface CredentialBindingLike {
   api: string
@@ -22,7 +22,6 @@ export interface CredentialBindingSummaryModel {
   rows: CredentialBindingDisplayRow[]
 }
 
-/** Drop query/hash so settings copy stays on the path, not field lists. */
 export function compactCredentialEndpoint(endpoint: string): string {
   const trimmed = endpoint.trim()
   if (!trimmed) return ''

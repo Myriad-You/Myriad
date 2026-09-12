@@ -1,8 +1,7 @@
-//! 统一的步骤重试逻辑
-//!
-//! 提取自 execute / DAG streaming / resume_with_answer 三条路径中
-//! 重复的重试循环（错误分析 → 参数修复 → 前置步骤注入 → 退避 → 重试）。
-//! 纯决策（是否重试、延迟、默认次数）见 [`crate::services::agent::retry_pure`]。
+//! Shared post-DAG serial retry loop (also serial execute and resume_with_answer).
+//! DAG waves classify/queue; they do not call `execute_step_with_retry`.
+//! Loop: analyze → param fixes → collect prepend suggestions → backoff → retry.
+//! Callers inject prepends. Pure decisions: [`crate::services::agent::retry_pure`].
 
 use super::handlers::HandlerContext;
 use super::Executor;
@@ -24,7 +23,7 @@ pub struct StepRetryOutcome {
     pub output: Option<Value>,
     /// 最终错误消息（含重试历史）
     pub error: Option<String>,
-    /// 总耗时（最后一次尝试）
+    /// 本次 `execute_step` 耗时（不是跨尝试合计）
     pub duration_ms: u64,
     /// 实际重试次数（0 = 一次就成功）
     pub retry_count: u32,
@@ -67,15 +66,12 @@ pub struct RetryEventContext {
 impl Executor {
     /// 执行单个步骤，带智能错误分析和自动重试
     ///
-    /// 封装了三条执行路径（串行/DAG后/resume）共享的重试循环核心逻辑：
-    /// 1. 解析 tier + 创建 handler context
-    /// 2. 执行步骤
-    /// 3. 失败时：错误分析 → 参数修复 → 前置步骤建议 → 退避延迟 → 重试
-    /// 4. 返回完整的执行结果，由调用方处理后续（事件推送、DAG 更新等）
+    /// Shared by serial / post-DAG / resume. Loop: analyze → param fixes →
+    /// collect prepend suggestions → backoff → retry. Callers inject prepends
+    /// and handle SSE success/fail, DAG, TaskStore. Only `StepRetrying` is sent here.
     ///
-    /// 注意：此方法会修改 `context`（添加输出、回滚失败副作用），
-    /// 但**不会**发送成功/失败的 SSE 事件或操作 DAG/TaskStore，这些由调用方负责。
-    /// 仅在重试时发送 StepRetrying 事件。
+    /// Success: `add_output`. Retry: restore in-memory `ExecutionContext` snapshot
+    /// (handler I/O is not rolled back). Final failure does not restore.
     pub async fn execute_step_with_retry(
         &self,
         step: &RecipeStep,
@@ -119,7 +115,7 @@ impl Executor {
             // 快照 context 以便重试时回滚
             let ctx_snapshot = context.clone();
 
-            // 应用参数修复
+            // Use retry_params_override from a prior `apply_param_fixes`, else the original step.
             let effective_step = if let Some(ref override_params) = retry_params_override {
                 let mut patched = step.clone();
                 patched.params = override_params.clone();
@@ -273,7 +269,7 @@ impl Executor {
         }
     }
 
-    /// 计算步骤的最大重试次数（三条路径共用的默认逻辑）
+    /// Default `max_attempts` (AI/skill/`prompt.generate` → 2, else 1; explicit clamped to 3).
     pub fn default_max_retries(step: &RecipeStep) -> u32 {
         pure_default_max_retries(step)
     }

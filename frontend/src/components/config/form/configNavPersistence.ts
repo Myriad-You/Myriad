@@ -1,13 +1,7 @@
-/**
- * 配置页导航位置持久化（sessionStorage）。
- * 用于：切换分类后 F5 / 保存触发硬刷新时恢复所在 section 与滚动位置。
- */
-
 import { LEGACY_CONFIG_SECTION_MAP } from './defaults'
 
 export const CONFIG_NAV_STORAGE_KEY = 'myriad_config_nav_v1'
 
-/** 已知一级分类（与 useConfigNavigation.quickAccessItems 对齐） */
 export const CONFIG_NAV_SECTIONS = [
   'platforms',
   'ai',
@@ -27,7 +21,6 @@ export interface ConfigNavPersisted {
   section: string
   mobilePane?: 'nav' | 'section'
   platformFocus?: string | null
-  /** window 纵向滚动 */
   scrollY?: number
 }
 
@@ -83,13 +76,12 @@ export function saveConfigNavPersisted(
     const prev = loadConfigNavPersisted() ?? { section: 'platforms' }
     const next: ConfigNavPersisted = {
       section: patch.section ?? prev.section,
-      mobilePane:
-        patch.mobilePane !== undefined ? patch.mobilePane : prev.mobilePane,
+      mobilePane: patch.mobilePane ?? prev.mobilePane,
       platformFocus:
         patch.platformFocus !== undefined
           ? patch.platformFocus
           : prev.platformFocus,
-      scrollY: patch.scrollY !== undefined ? patch.scrollY : prev.scrollY,
+      scrollY: patch.scrollY ?? prev.scrollY,
     }
     sessionStorage.setItem(CONFIG_NAV_STORAGE_KEY, JSON.stringify(next))
   } catch {
@@ -97,15 +89,12 @@ export function saveConfigNavPersisted(
   }
 }
 
-/** 硬刷新前调用：把当前 window 滚动写进 session */
 export function snapshotConfigNavScroll(): void {
   if (typeof window === 'undefined') return
   saveConfigNavPersisted({ scrollY: window.scrollY || window.pageYOffset || 0 })
 }
 
-/**
- * 解析初始 section：URL ?section= 优先，否则 sessionStorage，默认 platforms。
- */
+/** URL ?section=, else sessionStorage, else platforms */
 export function resolveInitialConfigSection(isAdmin: boolean): string {
   if (typeof window === 'undefined') return 'platforms'
   try {
@@ -121,7 +110,7 @@ export function resolveInitialConfigSection(isAdmin: boolean): string {
   return 'platforms'
 }
 
-/** 用 replaceState 同步 ?section=，保留其余 query */
+/** replaceState ?section=; keep other query */
 export function syncConfigSectionToUrl(section: string): void {
   if (typeof window === 'undefined') return
   try {

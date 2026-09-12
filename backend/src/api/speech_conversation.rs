@@ -241,8 +241,7 @@ pub async fn conversation_events(
     .await
     {
         Ok(session) if session.claims.tv == claims.tv => session,
-        // 204 tells native EventSource not to retry an owner binding that no
-        // longer exists. An active stream receives the explicit `closed` event.
+        // No owned chat session or tv mismatch: 204. Active streams emit event("closed") on teardown.
         _ => return StatusCode::NO_CONTENT.into_response(),
     };
     let stream = async_stream::stream! {

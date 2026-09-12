@@ -6,7 +6,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use super::types::PublishedAttachment;
 use crate::federation::types::db_err;
 
-/// Insert Create into the author's local timeline so freeform posts show up immediately.
+/// Insert Create into the author's local timeline so published local content appears immediately.
 pub(super) async fn insert_author_timeline(
     db: &DatabaseConnection,
     user_id: i32,
@@ -124,7 +124,7 @@ pub(super) fn published_fields_from_activity_json(
                             .and_then(|s| s.get("content"))
                             .and_then(|v| v.as_str())
                     })
-                    // Keep a generous snippet for list cards; full body lives in content_json.
+                    // Generous quoted snippet for list cards; full body stays in object_json.
                     .map(|s| s.chars().take(800).collect::<String>())
                     .filter(|s| !s.is_empty());
                 if let Some(q) = q {

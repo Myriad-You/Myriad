@@ -2,19 +2,16 @@ import type { TappBridge } from '../TappBridge'
 
 export type SandboxCapabilityProfile = 'page' | 'widget' | 'headless'
 
-/**
- * Actions that require a visible/control-plane surface and therefore must not
- * be reachable from a background core runtime.
- */
+/** 可见/控制面动作不得从后台 core 触及。 */
 export const HEADLESS_DENIED_ACTIONS = [
   'ui.setTitle',
   'ui.confirm',
   'ui.openUrl',
   'ui.listOpenUrls',
-  'ui.requestFullscreen',
-  'ui.exitFullscreen',
-  'ui.toggleFullscreen',
-  'ui.isFullscreen',
+  'ui.fullscreen.request',
+  'ui.fullscreen.exit',
+  'ui.fullscreen.toggle',
+  'ui.fullscreen.isFullscreen',
   'widget.register',
   'widget.unregister',
   'widget.listRegistered',

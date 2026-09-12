@@ -1,4 +1,4 @@
-//! 联邦 Ring 管理模块（Phase 5 — Layer 3）
+//! 联邦 Ring 管理模块
 //!
 //! 去中心化环网：Tapp 商店发现、Brew 推荐交换、Library 交换圈、实例目录
 //! 基于 Gossip 协议进行对等同步，每个节点维护 known_peers 列表
@@ -12,9 +12,8 @@ use crate::federation::types::*;
 
 /// Ensure signing keys before ring enqueue (defense-in-depth).
 ///
-/// Delivery worker remains the universal choke point for already-queued rows;
-/// this avoids cold-key races on ring create/add_peer/leave/sync (same trap as
-/// room join in production logs).
+/// Delivery worker remains the choke point for already-queued rows.
+/// Callers: add_peer / leave / remove_peer / sync enqueue（create_ring 不入队）。
 async fn ensure_keys_before_ring_outbound(
     db: &impl ConnectionTrait,
     user_id: i32,
@@ -66,7 +65,7 @@ async fn resolve_user_id(
                 .ok_or_else(|| {
                     (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({"error": "No local users found"})),
+                        Json(AppError::public_json("No local users found")),
                     )
                 })?;
             fallback.try_get("", "id").map_err(|e| {
@@ -82,18 +81,18 @@ async fn resolve_user_id(
 
 // 请求/响应类型
 
-/// 创建 / 加入 Ring 请求
+/// 创建 Ring 请求
 #[derive(Debug, Deserialize)]
 pub struct CreateRingRequest {
     /// Ring 名称
     pub name: String,
     /// Ring 类型: tapp-store, brew-recommend, library-exchange, instance-directory
     pub ring_type: String,
-    /// Gossip fanout（每次传播给几个 peer）
+    /// Gossip fanout（缺省 3）
     pub fanout: Option<u32>,
-    /// Gossip TTL（跳数）
+    /// Gossip TTL 跳数（缺省 5）
     pub ttl: Option<u32>,
-    /// 同步间隔（秒）
+    /// 同步间隔秒（缺省 300）
     pub interval: Option<u64>,
     /// Optional brew category filter (brew-recommend only).
     /// When set, only sources/items under this category name are synced.
@@ -179,7 +178,7 @@ pub fn source_matches_any_category(source_category: Option<&str>, categories: &[
     categories.iter().any(|c| source_category_matches(sc, c))
 }
 
-/// Max brew items to push per brew-recommend ring sync.
+/// Max brew items to push per brew-recommend ring sync（`BREW_RING_ITEM_LIMIT` = 40）。
 const BREW_RING_ITEM_LIMIT: u64 = 40;
 
 // Ring CRUD
@@ -194,7 +193,7 @@ pub async fn create_ring(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
-                json!({"error": "Invalid ring_type. Must be one of: tapp-store, brew-recommend, library-exchange, instance-directory"}),
+                AppError::public_json("Invalid ring_type. Must be one of: tapp-store, brew-recommend, library-exchange, instance-directory"),
             ),
         ));
     }
@@ -305,7 +304,7 @@ pub async fn get_ring(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Ring not found"})),
+                Json(AppError::public_json("Ring not found")),
             )
         })?;
 
@@ -361,7 +360,7 @@ pub async fn leave_ring(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Ring not found"})),
+                Json(AppError::public_json("Ring not found")),
             )
         })?;
 
@@ -458,7 +457,7 @@ pub async fn get_peers(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Ring not found"})),
+                Json(AppError::public_json("Ring not found")),
             )
         })?;
 
@@ -501,7 +500,7 @@ pub async fn add_peer(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Ring not found"})),
+                Json(AppError::public_json("Ring not found")),
             )
         })?;
 
@@ -512,7 +511,9 @@ pub async fn add_peer(
     if same_actor_url(&peer_url, &local_actor) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Cannot add this instance as its own ring peer"})),
+            Json(AppError::public_json(
+                "Cannot add this instance as its own ring peer",
+            )),
         ));
     }
 
@@ -535,7 +536,7 @@ pub async fn add_peer(
         if arr.iter().any(|v| v.as_str() == Some(&peer_url)) {
             return Err((
                 StatusCode::CONFLICT,
-                Json(json!({"error": "Peer already in ring"})),
+                Json(AppError::public_json("Peer already in ring")),
             ));
         }
     }
@@ -574,7 +575,6 @@ pub async fn add_peer(
     if !remote.inbox_url.is_empty() {
         let domain = extract_domain(&remote.inbox_url).unwrap_or_default();
         let local_user_id = resolve_user_id(db, username).await?;
-        // Matches production log: add_peer enqueues without GET /users/{username}.
         ensure_keys_before_ring_outbound(db, local_user_id, username, "ring_add_peer").await;
         let act_row = db
             .query_one_raw(Statement::from_sql_and_values(
@@ -634,11 +634,11 @@ pub async fn remove_peer(
     if result.rows_affected() == 0 {
         return Err((
             StatusCode::NOT_FOUND,
-            Json(json!({"error": "Ring not found"})),
+            Json(AppError::public_json("Ring not found")),
         ));
     }
 
-    // Notify removed peer so they drop us from known_peers (was local-only)
+    // 向被移除 peer 投递 RingLeave，让对方从 known_peers 去掉本节点
     let local_actor = actor_url(&base_url, username);
     let local_user_id = resolve_user_id(db, username).await?;
     ensure_keys_before_ring_outbound(db, local_user_id, username, "ring_remove_peer").await;
@@ -714,7 +714,7 @@ pub async fn trigger_sync(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Ring not found"})),
+                Json(AppError::public_json("Ring not found")),
             )
         })?;
 
@@ -877,10 +877,10 @@ pub async fn trigger_sync(
     }))
 }
 
-/// Legacy path: last N federated brew-article Creates (manual publish).
+/// 最近 20 条 federated brew-article Create（手发）。
 async fn collect_legacy_brew_activities(db: &impl ConnectionTrait) -> Vec<serde_json::Value> {
-    // Prefer federation_published_content (stable content_type=brew-article) over
-    // object_type on activities (which stores AP type "Article").
+    // 优先 federation_published_content.content_type = brew-article；
+    // 空则查 federation_activities（object_type 存 MFP content_type）。
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -912,7 +912,7 @@ async fn collect_legacy_brew_activities(db: &impl ConnectionTrait) -> Vec<serde_
             .collect();
     }
 
-    // Fallback: older rows may only exist on federation_activities
+    // `federation_published_content` 为空时查 `federation_activities`
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -951,7 +951,7 @@ async fn collect_legacy_brew_activities(db: &impl ConnectionTrait) -> Vec<serde_
         .collect()
 }
 
-/// Truncate summary text for ring payload (no secrets / no full content).
+/// 摘要（空则 content）截到 500 个 Unicode scalar。
 fn brew_ring_summary(summary: Option<&str>, content: Option<&str>) -> String {
     let raw = summary
         .filter(|s| !s.trim().is_empty())
@@ -975,7 +975,7 @@ fn brew_ring_summary(summary: Option<&str>, content: Option<&str>) -> String {
 }
 
 /// Collect brew-recommend ring entries from user brew categories + sources.
-/// When the user has no categories, falls back to legacy federated brew-article Creates.
+/// 用户没有分类时回退 [`collect_legacy_brew_activities`]。
 async fn collect_brew_recommend_entries(
     db: &impl ConnectionTrait,
     user_id: i32,
@@ -1140,8 +1140,7 @@ async fn collect_brew_recommend_entries(
         .collect()
 }
 
-/// Best-effort: after new categorized brew items land, trigger brew-recommend ring sync
-/// for rings that have peers. Rate-limited to one pass per call (caller batches per tick).
+/// 分类 brew 条目落地后，对有 peer 的 brew-recommend ring 各触发一次 sync。
 pub async fn maybe_trigger_brew_recommend_sync_for_user(db: &DatabaseConnection, user_id: i32) {
     // Resolve username for trigger_sync
     let username = match db
@@ -1346,7 +1345,7 @@ async fn collect_sync_entries(
 
 // Inbox 处理（远程 Ring 事件）
 
-/// 处理收到的 RingJoin Activity（远程实例请求加入我们的 Ring 或通知我们加入他们的）
+/// 处理收到的 RingJoin：本地已有该 Ring 则把 actor 写入 known_peers；未知 Ring 忽略。
 pub async fn handle_ring_join(
     db: &impl ConnectionTrait,
     actor_url_str: &str,
@@ -1605,7 +1604,7 @@ pub async fn handle_ring_sync(
                 .unwrap_or_default();
 
             if !forward_peers.is_empty() {
-                // 只转发新导入的条目
+                // 转发入站 entries 的前 imported 条（原数组前缀，不是已导入集合）
                 let new_entries: Vec<&serde_json::Value> = entries.iter().take(imported).collect();
                 let base_url = get_base_url().await;
 
@@ -1629,11 +1628,7 @@ pub async fn handle_ring_sync(
                         }
                     });
 
-                    // Do not perform remote HTTP actor fetches while the
-                    // inbound receipt transaction is open.  A previously
-                    // verified actor cache entry is enough to enqueue the
-                    // durable delivery outbox; an uncached peer can be
-                    // discovered by the normal outbound worker later.
+                    // 入站 receipt 事务内不 HTTP 拉 actor；有缓存 inbox 才入队。
                     if let Ok(Some(remote_row)) = db
                         .query_one_raw(Statement::from_sql_and_values(
                             DatabaseBackend::Postgres,
@@ -1811,3 +1806,4 @@ mod tests {
         assert!(c.category.is_none());
     }
 }
+use myriad_error::AppError;

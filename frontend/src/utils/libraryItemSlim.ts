@@ -1,23 +1,13 @@
-/**
- * Client-side library item compacting (defense in depth for older API caches
- * and pre-normalize payloads). Mirrors backend slim_library_metadata /
- * prefer_card_cover_url so the infinite canvas does not retain fat platform JSON
- * or oversized cover bitmaps.
- */
-
 const BANGUMI_COVER_LARGE = /\/pic\/cover\/l\//i
 const BANGUMI_COVER_GRID = /\/pic\/cover\/g\//i
-/** Current API common/medium/grid: `/r/{width}/pic/cover/l/` — `l` is the source file. */
 const BANGUMI_RESIZE_COVER = /\/r\/\d+\/pic\/cover\//i
 
-/** Prefer card-sized CDN variants before decode. */
 export function preferCardCoverUrl(url: string | null | undefined): string | null {
   if (url == null || typeof url !== 'string') return null
   const trimmed = url.trim()
   if (!trimmed) return null
 
-  // Proxied URLs embed the CDN host in ?url= — rewrite the upstream first so
-  // we don't no-op on encoded paths like pic%2Fcover%2Fl%2F.
+  // Do not no-op on encoded paths (pic%2Fcover).
   if (trimmed.includes('/api/proxy/image') && trimmed.includes('url=')) {
     try {
       const base =
@@ -28,7 +18,6 @@ export function preferCardCoverUrl(url: string | null | undefined): string | nul
         const preferred = preferCardCoverUrl(upstream)
         if (preferred && preferred !== upstream) {
           parsed.searchParams.set('url', preferred)
-          // Keep relative proxy paths relative for same-origin.
           if (trimmed.startsWith('/')) {
             return `${parsed.pathname}${parsed.search}`
           }
@@ -36,13 +25,11 @@ export function preferCardCoverUrl(url: string | null | undefined): string | nul
         }
       }
     } catch {
-      // ignore malformed proxy URLs
     }
     return trimmed
   }
 
   if (trimmed.includes('bgm.tv') || trimmed.includes('lain.bgm')) {
-    // `/r/{n}/pic/cover/l/` is a width resize of large; swapping `l`→`c` 400s.
     if (BANGUMI_RESIZE_COVER.test(trimmed)) return trimmed
     return trimmed
       .replace(BANGUMI_COVER_LARGE, '/pic/cover/c/')
@@ -146,9 +133,6 @@ const FLAT_KEYS = [
   'platform',
 ] as const
 
-/**
- * Drop bulk platform blobs; keep fields used by cards, progress, and play.
- */
 export function slimLibraryMetadata(metadata: unknown): Record<string, unknown> {
   if (!isPlainObject(metadata)) return {}
   const out = pickKeys(metadata, FLAT_KEYS)

@@ -155,7 +155,6 @@ test('completed persona resumes at the first unfinished visual stage', () => {
   assert.equal(genderFromProfile(null), null)
   assert.equal(genderFromProfile({ gender: 'female' }), 'female')
   assert.equal(genderFromProfile({ gender: 'invalid' }), null)
-  // 生成链从 2 起（分岔口 0、导入 1），所以命名/视觉/主立绘是 3/5/6。
   assert.equal(completedPersonaResumeStep(null), 3)
   assert.equal(completedPersonaResumeStep({ gender: 'female' }), 5)
   const complete = {
@@ -175,6 +174,5 @@ test('completed persona resumes at the first unfinished visual stage', () => {
     completedPersonaResumeStep({ gender: 'female', visualIdentity: complete }),
     6,
   )
-  // 视觉设定齐了但没性别，仍然要回到命名那页补。
   assert.equal(completedPersonaResumeStep({ visualIdentity: complete }), 3)
 })

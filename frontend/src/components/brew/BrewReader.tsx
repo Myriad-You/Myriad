@@ -1,16 +1,6 @@
-/**
- * Brew 文章阅读器组件
- * 全屏沉浸式阅读体验，两侧悬浮控制栏
- *
- *
- * 性能优化：
- * - useMemo 缓存主题配置和样式计算
- * - useCallback 缓存所有回调函数
- * - 动画统一接入调度器，根据设备性能自适应
- */
-
 import type { AnnotationItem } from '../../services/brewliaApi'
 import type { BrewItem, SourceType } from '../../types/brew'
+import type { ReadingQueue } from './logic/readingQueue'
 import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,
@@ -32,6 +22,7 @@ import {
   useBrewAnimationConfig,
 } from '../../hooks/animation'
 import { isExlight } from '../../hooks/useAnimationLevel'
+import { authSubject } from '../../utils/authSubject'
 import { userFacingError } from '../../utils/userFacingError'
 import {
   AnnotationTooltip,
@@ -42,6 +33,7 @@ import {
   MobileReaderBar,
   ReaderArticleBody,
   ReaderLeftPanel,
+  ReaderProgressRail,
   ReaderRightPanel,
   STYLE_READER_CONTAINER,
   STYLE_SCROLL_SMOOTH,
@@ -55,32 +47,90 @@ import {
   useReaderControls,
   useReaderSettings,
 } from './reader'
+import { dismissReaderChrome, escapeWhileTyping } from './reader/readerPanels'
+import './ui/brew.css'
+import './skin/brew-reader.css'
 
 interface BrewReaderProps {
   item: BrewItem
   onClose: () => void
   onToggleStar: () => void
-  isAuthenticated?: boolean // 是否已登录（游客隐藏收藏按钮）
-  isAdmin?: boolean // 是否为管理员（游客/普通用户隐藏重新生成按钮）
-  sourceType?: SourceType // 来源类型（brewlia 时显示 AI 功能）
-  /**
-   * 分享用 URL。自有内容传入站内 `/brew/item/{id}`；
-   * 缺省则复制原文 `item.link`（外部订阅，避免把别人的文章当本站 SEO 页分享）。
-   */
+  isAuthenticated?: boolean
+  isAdmin?: boolean
+  sourceType?: SourceType
+  /** 自有内容用 `/brew/item/{id}`；缺省复制原文 link，勿把外站当本站 SEO 页分享。 */
   shareUrl?: string
-  /**
-   * 编辑这篇手记。上层只在「站长 + 这篇是手记」时传值，阅读器不自己判断。
-   */
+  /** 上层只在「站长 + 手记」时传值，阅读器不自己判断。 */
   onEditNote?: () => void
-  // 阅读列表导航回调（从 Brew.tsx 传入）
   onNavigateToArticle?: (articleId: number) => void
-  // 全局文章列表导航（非阅读列表时使用）
-  articleList?: BrewItem[]
-  currentArticleIndex?: number
+  readingQueue?: ReadingQueue | null
 }
 
-export default function BrewReader({
-  item: incomingItem,
+/** Persistent settings stay here; article resources live in the keyed child. */
+export default function BrewReader(props: BrewReaderProps) {
+  const settings = useReaderSettings()
+  const [displayed, setDisplayed] = useState(props)
+  const columnRef = useRef<HTMLDivElement>(null)
+  const animation = useRef<Animation | null>(null)
+  const config = useBrewAnimationConfig()
+  const enabled = !isExlight(config)
+  const sameArticle = props.item.id === displayed.item.id
+  if (sameArticle && props !== displayed) setDisplayed(props)
+  const visible = sameArticle ? props : displayed
+  const switched = useRef(false)
+
+  useEffect(() => {
+    animation.current?.cancel()
+    animation.current = null
+    if (sameArticle) return
+    let live = true
+    const commit = () => {
+      if (!live) return
+      live = false
+      switched.current = true
+      setDisplayed(props)
+    }
+    const column = columnRef.current
+    if (!enabled || !column || typeof column.animate !== 'function') {
+      commit()
+      return
+    }
+    const fade = column.animate([
+      { opacity: 1, transform: 'translateY(0)' },
+      { opacity: 0, transform: 'translateY(-6px)' },
+    ], { duration: 140, easing: 'ease-in', fill: 'forwards' })
+    animation.current = fade
+    fade.onfinish = commit
+    const failSafe = window.setTimeout(commit, 220)
+    return () => {
+      live = false
+      window.clearTimeout(failSafe)
+      fade.onfinish = null
+      fade.cancel()
+    }
+  }, [props, sameArticle, enabled])
+
+  useLayoutEffect(() => {
+    const column = columnRef.current
+    if (!enabled || !column || typeof column.animate !== 'function') return
+    const enter = column.animate([
+      { opacity: 0, transform: 'translateY(8px)' },
+      { opacity: 1, transform: 'translateY(0)' },
+    ], { duration: 260, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' })
+    return () => enter.cancel()
+  }, [displayed.item.id, enabled])
+
+  return <ReaderArticleSession
+    key={visible.item.id}
+    {...visible}
+    settings={settings}
+    columnRef={columnRef}
+    articleSwap={switched.current}
+         />
+}
+
+function ReaderArticleSession({
+  item,
   onClose,
   onToggleStar,
   isAuthenticated = false,
@@ -89,41 +139,29 @@ export default function BrewReader({
   shareUrl,
   onEditNote,
   onNavigateToArticle,
-  articleList,
-  currentArticleIndex,
-}: BrewReaderProps) {
+  readingQueue,
+  settings,
+  columnRef,
+  articleSwap,
+}: BrewReaderProps & {
+  settings: ReturnType<typeof useReaderSettings>
+  columnRef: React.RefObject<HTMLDivElement | null>
+  articleSwap: boolean
+}) {
   const { t } = useI18n()
   const contentRef = useRef<HTMLDivElement>(null)
   const articleRef = useRef<HTMLElement>(null)
   const contentInnerRef = useRef<HTMLDivElement>(null)
 
-  /**
-   * 换文章 = 淡出 → 换 → 淡入，而不是换完 DOM 再补一个淡入。
-   *
-   * 后者会先把新文章按满不透明画一帧，再跳到 0 开始淡入 —— 就是读者看到的
-   * 「闪一下」。这里把 prop 延迟一步：组件内部所有逻辑（标题、目录、进度、
-   * 批注、滚动复位）都只看 `item`，它在旧正文淡到 0 之后才切成新的一篇，
-   * 于是这些切换全都发生在正文不可见的那一刻。
-   *
-   * 同一篇的字段更新（已读 / 收藏 / 进度）直接透传，不走动画。
-   */
-  const [item, setItem] = useState(incomingItem)
-  if (incomingItem !== item && incomingItem.id === item.id)
-    setItem(incomingItem)
-  /** 中栏：标题 + 元信息 + 正文 + 上下篇。淡入淡出只作用在这一层。 */
-  const columnRef = useRef<HTMLDivElement>(null)
-  const fadeOutRef = useRef<Animation | null>(null)
-
-  // 沉浸模式 - 进入阅读器时隐藏导航栏和控制面板
   useImmersiveChrome('brew-reader', true)
 
-  // 页面内容上下文 - 用于 Agent 访问当前阅读的文章
-  const { setPageContent, clearPageContent } = usePageContentOptional() || {}
+  const { setPageContent, clearPageContent } = usePageContentOptional() ?? {}
+  // This article session is keyed by item id; retained old content is not a new observation.
+  const [contentSubject] = useState(() => authSubject.signal)
 
-  // 设置当前阅读的文章内容到全局上下文
   useEffect(() => {
+    if (contentSubject.aborted) return
     if (setPageContent && item) {
-      // 获取文章内容：优先使用 content，其次 summary
       const articleContent = item.content || item.summary || ''
 
       setPageContent({
@@ -150,15 +188,13 @@ export default function BrewReader({
       })
     }
 
-    // 清理：离开阅读器时清除内容
     return () => {
       if (clearPageContent) {
         clearPageContent()
       }
     }
-  }, [item, sourceType, setPageContent, clearPageContent])
+  }, [item, sourceType, setPageContent, clearPageContent, contentSubject])
 
-  // 动画配置 - 根据设备性能自适应
   const animConfig = useBrewAnimationConfig()
   const readerTransition = useMemo(
     () => getBrewTransition(animConfig, 'reader'),
@@ -166,64 +202,11 @@ export default function BrewReader({
   )
   const enableAnimations = !isExlight(animConfig)
 
-  /**
-   * 第一步：淡出。父组件换了 incomingItem 时，先把中栏淡到 0（140ms），
-   * 结束时才真正 setItem —— 目录、进度、滚动复位都在这一刻发生，读者看不见。
-   * 连续快速切换（狂按 j/k）时淡出已经在跑，只改它的目标，不从头再来。
-   *
-   * exlight 一律不做 —— `prefers-reduced-motion` 在本仓库就会解析成 exlight。
-   */
-  useEffect(() => {
-    if (incomingItem.id === item.id) return
-    const col = columnRef.current
-    if (!enableAnimations || !col || typeof col.animate !== 'function') {
-      setItem(incomingItem)
-      return
-    }
-    const running = fadeOutRef.current
-    if (running && running.playState === 'running') {
-      running.onfinish = () => setItem(incomingItem)
-      return
-    }
-    const out = col.animate(
-      [
-        { opacity: 1, transform: 'translateY(0)' },
-        { opacity: 0, transform: 'translateY(-6px)' },
-      ],
-      { duration: 140, easing: 'ease-in', fill: 'forwards' },
-    )
-    fadeOutRef.current = out
-    out.onfinish = () => setItem(incomingItem)
-  }, [incomingItem, item.id, enableAnimations])
+  // WebKit：入场动画完成后再灌正文。
+  const [contentReady, setContentReady] = useState(articleSwap || !enableAnimations)
 
-  /**
-   * 第二步：淡入。用 useLayoutEffect 在新正文首帧绘制之前起动画，
-   * 第一帧就是 opacity 0 —— useEffect 会晚一帧，那一帧就是「闪」。
-   * 淡出留下的 fill: forwards 必须先取消，否则新正文永远透明。
-   */
-  useLayoutEffect(() => {
-    fadeOutRef.current?.cancel()
-    fadeOutRef.current = null
-    if (!enableAnimations) return
-    const col = columnRef.current
-    if (!col || typeof col.animate !== 'function') return
-    const swap = col.animate(
-      [
-        { opacity: 0, transform: 'translateY(8px)' },
-        { opacity: 1, transform: 'translateY(0)' },
-      ],
-      { duration: 260, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'none' },
-    )
-    return () => swap.cancel()
-  }, [item.id, enableAnimations])
-
-  // WebKit 优化：延迟渲染内容，让入场动画先完成
-  const [contentReady, setContentReady] = useState(!enableAnimations)
-
-  // Brewlia AI 功能标识
   const isBrewlia = sourceType === 'brewlia'
 
-  // 阅读设置 - 使用自定义 hook
   const {
     fontSize,
     lineHeight,
@@ -238,15 +221,13 @@ export default function BrewReader({
     cycleTheme,
     cycleFont,
     cycleLayout,
-  } = useReaderSettings()
+  } = settings
 
   const [showToast, setShowToast] = useState<string | null>(null)
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null) // Toast 定时器，防止泄漏
-  const [lightboxImage, setLightboxImage] = useState<string | null>(null) // 灯箱图片
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null)
 
-  // 统一的 Toast 显示函数，自动管理定时器防止泄漏
   const showToastMessage = useCallback((message: string, duration = 2000) => {
-    // 清除之前的定时器
     if (toastTimerRef.current) {
       clearTimeout(toastTimerRef.current)
     }
@@ -257,7 +238,6 @@ export default function BrewReader({
     }, duration)
   }, [])
 
-  // 清理 toast 定时器
   useEffect(() => {
     return () => {
       if (toastTimerRef.current) {
@@ -266,7 +246,6 @@ export default function BrewReader({
     }
   }, [])
 
-  // Brewlia AI 注释 - 使用自定义 hook
   const {
     annotations,
     annotationsLoading,
@@ -292,7 +271,6 @@ export default function BrewReader({
     t,
   })
 
-  // 用户评论 - 使用自定义 hook
   const {
     comments,
     commentsLoading,
@@ -331,7 +309,6 @@ export default function BrewReader({
     t,
   })
 
-  // Brewlia AI 播客 - 使用自定义 hook
   const {
     podcastDialogues,
     podcastLoading,
@@ -373,14 +350,7 @@ export default function BrewReader({
     t,
   })
 
-  // 侧边栏按钮样式 - useMemo 缓存
-  const sideButtonClass = useMemo(
-    () =>
-      `p-2.5 rounded-xl transition-all duration-200 ${currentTheme.secondary} hover:${currentTheme.text} ${
-        isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'
-      }`,
-    [currentTheme.secondary, currentTheme.text, isDark],
-  )
+  const sideButtonClass = 'brew-reader__btn'
 
   const {
     readingProgress,
@@ -393,24 +363,32 @@ export default function BrewReader({
     handleProgressPointerDown,
     handleProgressPointerUp,
     handleProgressPointerLeave,
+    syncPaused,
+    recoverLocalProgress,
+    recoverRemoteProgress,
   } = useReaderControls({
     articleRef,
     contentRef,
     itemId: item.id,
     readProgress: item.read_progress,
+    stateRevision: item.state_revision,
     contentReady,
-    isAuthenticated,
-    onClose,
+    isAuthenticated: isAuthenticated && !item.fromWebSearch,
     adjustFontSize,
     showToastMessage,
     t,
   })
 
+  const [focusedCommentIds, setFocusedCommentIds] = useState<number[]>([])
+  const [unresolvedCommentIds, setUnresolvedCommentIds] = useState<Set<number>>(new Set())
+  useEffect(() => {
+    if (!showCommentsPanel) setFocusedCommentIds([])
+  }, [showCommentsPanel])
+
   const baseContent = useContentRender({
     contentInnerRef,
     contentReady,
     item,
-    isDark,
     t,
     showAnnotations,
     annotations,
@@ -418,6 +396,15 @@ export default function BrewReader({
     highlightComments,
     theme,
   })
+
+  useEffect(() => {
+    if (!baseContent || !contentInnerRef.current) return
+    const marked = new Set(
+      Iterator.from(contentInnerRef.current.querySelectorAll('[data-comment-id]'))
+        .map((node) => Number(node.getAttribute('data-comment-id'))),
+    )
+    setUnresolvedCommentIds(new Set(comments.filter(comment => comment.selected_text && !comment.parent_id && !marked.has(comment.id)).map(comment => comment.id)))
+  }, [baseContent, comments, annotations, showAnnotations, theme, item.content_revision])
 
   useContentPostprocess({
     contentRef,
@@ -430,16 +417,14 @@ export default function BrewReader({
     setToc,
   })
 
-  // WebKit 优化：延迟渲染内容，让入场动画先完成
-  // 这避免了同时执行动画 + 大量 DOM 渲染导致的卡顿
+  // WebKit：入场动画完成后再灌正文。
   useEffect(() => {
     if (!enableAnimations) {
       setContentReady(true)
       return
     }
 
-    // 使用 requestAnimationFrame 确保在下一帧开始前设置
-    // 延迟时间略长于动画时长，确保动画完成
+    // 延迟略长于动画时长。
     const delay = readerTransition.duration * 1000 + 50
     const timer = setTimeout(() => {
       requestAnimationFrame(() => {
@@ -451,7 +436,8 @@ export default function BrewReader({
   }, [enableAnimations, readerTransition.duration])
 
   const { handleTooltipMouseEnter, handleTooltipMouseLeave } = useContentEvents({
-    contentRef,
+    contentRef: contentInnerRef,
+    setFocusedCommentIds,
     comments,
     isAuthenticated,
     showCommentPopup,
@@ -471,18 +457,15 @@ export default function BrewReader({
     t,
   })
 
-  // Brewlia 订阅自动加载注释
   useEffect(() => {
     if (isBrewlia && annotations.length === 0 && !annotationsLoading) {
-      // 延迟加载，等页面渲染完成
       const timer = setTimeout(() => {
         loadAnnotations()
       }, 500)
       return () => clearTimeout(timer)
     }
-  }, [isBrewlia]) // 只在初始化时触发一次
+  }, [isBrewlia])
 
-  // 登录用户自动加载评论
   useEffect(() => {
     if (isAuthenticated && comments.length === 0 && !commentsLoading) {
       const timer = setTimeout(() => {
@@ -490,9 +473,8 @@ export default function BrewReader({
       }, 300)
       return () => clearTimeout(timer)
     }
-  }, [isAuthenticated]) // 只在初始化时触发一次
+  }, [isAuthenticated])
 
-  // 包装 scrollToAnnotation 以传入 refs
   const handleScrollToAnnotation = useCallback(
     (annotation: AnnotationItem) => {
       scrollToAnnotation(annotation, contentRef, articleRef)
@@ -500,7 +482,6 @@ export default function BrewReader({
     [scrollToAnnotation],
   )
 
-  // 关闭所有附属的 tooltip 和面板
   const closeAllTooltips = useCallback(() => {
     setShowToc(false)
     setShowBrewliaPanel(false)
@@ -522,7 +503,60 @@ export default function BrewReader({
     closeAllTooltips,
   })
 
-  // 复制链接：自有内容用站内规范 URL，外部订阅仍用原文
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      const typing = Boolean(
+        event.target instanceof HTMLElement &&
+          event.target.closest(
+            'input, textarea, select, [contenteditable="true"]',
+          ),
+      )
+      const layer = dismissReaderChrome({
+        lightbox: !!lightboxImage,
+        popup: showCommentPopup,
+        comments: showCommentsPanel,
+        toc: showToc,
+        brewlia: showBrewliaPanel,
+        voice: showVoiceSettings,
+        podcast: showPodcastPlayer,
+        controls: showMobileControls,
+      })
+      const next = typing ? escapeWhileTyping(layer) : layer
+      if (!next) {
+        if (!typing) onClose()
+        return
+      }
+      if (next === 'lightbox') setLightboxImage(null)
+      else if (next === 'popup') setShowCommentPopup(false)
+      else if (next === 'comments') setShowCommentsPanel(false)
+      else if (next === 'toc') setShowToc(false)
+      else if (next === 'annotations') setShowBrewliaPanel(false)
+      else if (next === 'voice') setShowVoiceSettings(false)
+      else if (next === 'podcast') setShowPodcastPlayer(false)
+      else if (next === 'controls') setShowMobileControls(false)
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [
+    lightboxImage,
+    showCommentPopup,
+    showCommentsPanel,
+    showToc,
+    showBrewliaPanel,
+    showVoiceSettings,
+    showPodcastPlayer,
+    showMobileControls,
+    onClose,
+    setShowCommentPopup,
+    setShowCommentsPanel,
+    setShowToc,
+    setShowBrewliaPanel,
+    setShowVoiceSettings,
+    setShowPodcastPlayer,
+    setShowMobileControls,
+  ])
+
   const handleShare = async () => {
     try {
       const url = (shareUrl && shareUrl.trim()) || item.link
@@ -534,10 +568,8 @@ export default function BrewReader({
     }
   }
 
-  // 阅读器动画配置 - 根据性能等级动态调整
   const readerAnimProps = useMemo(() => {
     if (!enableAnimations) {
-      // 禁用动画时直接显示
       return {
         initial: false as const,
         animate: undefined,
@@ -546,9 +578,8 @@ export default function BrewReader({
       }
     }
 
-    // 完整动画
     return {
-      initial: brewAnimationPresets.readerEnter.initial,
+      initial: articleSwap ? false : brewAnimationPresets.readerEnter.initial,
       animate: brewAnimationPresets.readerEnter.animate,
       exit: brewAnimationPresets.readerEnter.exit,
       transition: {
@@ -556,26 +587,20 @@ export default function BrewReader({
         ease: readerTransition.ease,
       },
     }
-  }, [enableAnimations, readerTransition])
+  }, [enableAnimations, readerTransition, articleSwap])
 
   return (
     <motion.div
       {...readerAnimProps}
       style={STYLE_READER_CONTAINER}
-      className={`fixed inset-0 z-50 ${currentTheme.bg}`}
+      className={`brew-skin brew-reader fixed inset-0 z-50 ${currentTheme.bg}`}
       data-brew-reader="true"
       data-brew-theme={theme}
     >
-      {/* 顶部进度条 - 用 scaleX 替代 width 动画，避免触发 layout recalculation */}
-      <div className="absolute top-0 left-0 right-0 h-0.5 z-10 overflow-hidden">
-        <div
-          className="h-full w-full bg-linear-to-r from-amber-500 to-orange-500 origin-left"
-          style={{ transform: `scaleX(${readingProgress / 100})` }}
-        />
-      </div>
+      {/* 进度条用 scaleX，避免 width 触发布局。 */}
+      <ReaderProgressRail progress={readingProgress} />
 
-      {/* 主内容区 - 三栏布局 */}
-      {/* transform: translateZ(0) 将滚动容器提升为独立合成层，避免 sticky 子元素回流影响主线程 */}
+      {/* translateZ(0) 独立合成层，避免 sticky 子元素回流。 */}
       <article
         ref={articleRef}
         className="h-full overflow-y-auto overflow-x-hidden"
@@ -586,7 +611,6 @@ export default function BrewReader({
         }}
       >
         <div className="flex justify-center">
-          {/* 左侧控制栏 - 导航与进度 */}
           <ReaderLeftPanel
             item={item}
             onClose={onClose}
@@ -680,10 +704,8 @@ export default function BrewReader({
             contentInnerRef={contentInnerRef}
             contentReady={contentReady}
             onNavigateToArticle={onNavigateToArticle}
-            articleList={articleList}
-            currentArticleIndex={currentArticleIndex}
+            readingQueue={readingQueue}
           />
-          {/* 右侧控制栏 - 设置与操作 */}
           <ReaderRightPanel
             theme={theme}
             currentTheme={currentTheme}
@@ -718,7 +740,20 @@ export default function BrewReader({
         </div>
       </article>
 
-      {/* Toast 提示 */}
+      {syncPaused ? (
+        <div className="brew-reader__conflict" role="status">
+          <p>{t.brew.readingSyncConflict}</p>
+          <div className="brew-reader__conflict-actions">
+            <button type="button" className="brew-reader__btn" onClick={() => void recoverLocalProgress()}>
+              {t.brew.readingSyncKeepLocal}
+            </button>
+            <button type="button" className="brew-reader__btn" onClick={() => void recoverRemoteProgress()}>
+              {t.brew.readingSyncUseLatest}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <AnimatePresence>
         {showToast && (
           <motion.div
@@ -736,16 +771,13 @@ export default function BrewReader({
                 ? { duration: 0.25, ease: [0.16, 1, 0.3, 1] }
                 : undefined
             }
-            className={`fixed bottom-8 inset-x-0 mx-auto w-fit px-4 py-2 rounded-xl shadow-lg z-60 ${
-              isDark ? 'bg-neutral-800/95 text-white' : 'bg-black/90 text-white'
-            }`}
+            className="brew-reader__toast"
           >
             {showToast}
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* 评论 Tooltip */}
       <CommentTooltip
         commentTooltip={commentTooltip}
         onMouseEnter={handleTooltipMouseEnter}
@@ -756,7 +788,6 @@ export default function BrewReader({
         t={t}
       />
 
-      {/* 用户评论输入弹窗 */}
       <CommentInputPopup
         showCommentPopup={showCommentPopup && !!isAuthenticated}
         setShowCommentPopup={setShowCommentPopup}
@@ -773,8 +804,10 @@ export default function BrewReader({
         t={t}
       />
 
-      {/* 用户评论列表面板 - 从顶部展开 */}
       <CommentsListPanel
+        focusedCommentIds={focusedCommentIds}
+        clearCommentFocus={() => setFocusedCommentIds([])}
+        unresolvedCommentIds={unresolvedCommentIds}
         currentTheme={currentTheme}
         isDark={isDark}
         showCommentsPanel={showCommentsPanel}
@@ -795,7 +828,6 @@ export default function BrewReader({
         t={t}
       />
 
-      {/* Brewlia 注释 Tooltip */}
       <AnnotationTooltip
         hoveredAnnotation={hoveredAnnotation}
         tooltipPosition={tooltipPosition}
@@ -805,7 +837,6 @@ export default function BrewReader({
         t={t}
       />
 
-      {/* 移动端底部控制栏 */}
       <MobileReaderBar
         item={item}
         onClose={onClose}
@@ -894,7 +925,6 @@ export default function BrewReader({
         t={t}
       />
 
-      {/* 灯箱组件 */}
       <Lightbox
         src={lightboxImage}
         isDark={isDark}

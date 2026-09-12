@@ -1,11 +1,3 @@
-/**
- * Read-only Agent 人设 card for TAPPs.
- *
- * Public name and enabled flag come from site config. Mood is the addressee
- * band when the caller is logged in; guests get the baseline. Portrait is a
- * host-origin path for `<img src>` — bytes never cross the bridge.
- */
-
 import type { TappBridge } from '../../TappBridge'
 import { getSiteFace } from '../../../../features/merope/api'
 import { publicPersonaNameFromConfig } from '../../../../features/merope/publicName'
@@ -37,7 +29,6 @@ async function loadVitals(): Promise<{
       activity: persona.activity,
     }
   } catch {
-    // Guests have no addressee state; merope-off returns null above.
     return {}
   }
 }

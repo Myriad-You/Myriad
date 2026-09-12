@@ -381,10 +381,7 @@ export function upstreamRuntimeFadeAlpha(
   return 1
 }
 
-/**
- * Preserves the original layer traversal and eye stencil classification while
- * keeping WebGL calls outside the isolated TypeScript compatibility layer.
- */
+/** Layer traversal and eye stencil only; WebGL stays outside this module. */
 export function planUpstreamRuntimeDraw(
   layers: ReadonlyArray<
     Pick<UpstreamRuntimeLayer, 'name' | 'fade' | 'side'>
@@ -415,11 +412,7 @@ export function planUpstreamRuntimeDraw(
   return commands
 }
 
-/**
- * Writes the original Anime2.5DRig vertex deformation into `layer.cur`.
- * The function remains a standalone compatibility boundary guarded by direct
- * module invariants and fixed multi-frame regression tests.
- */
+/** Writes vertex deformation into `layer.cur`. */
 export function deformUpstreamRuntimeLayer(
   layer: UpstreamRuntimeLayer,
   expression: Readonly<UpstreamRuntimeExpression>,

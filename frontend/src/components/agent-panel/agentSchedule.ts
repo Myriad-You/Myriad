@@ -1,11 +1,3 @@
-/**
- * 定时任务的时间表达。
- *
- * cron 是给机器读的，界面上得说人话。这里只负责**认出常见的几种形状**并归成一个
- * 结构，拼字交给 i18n；认不出来的原样交回去 —— 猜错的描述比看不懂的 cron 更危险，
- * 用户会照着那句错话去改任务。
- */
-
 export type SchedulePreset = '15m' | '30m' | '1h' | '6h' | 'daily9' | 'custom'
 
 export const SCHEDULE_PRESETS: ReadonlyArray<{
@@ -29,7 +21,6 @@ export type ScheduleShape =
   | { kind: 'everyHours'; value: number }
   | { kind: 'hourly' }
   | { kind: 'dailyAt'; time: string }
-  /** 认不出来。原样显示那串 cron，不编一个说法。 */
   | { kind: 'raw'; cron: string }
 
 const EVERY_MINUTES = /^\*\/(\d+)\s+\*\s+\*\s+\*\s+\*$/
@@ -86,7 +77,6 @@ export function describeSchedule(cron: string): ScheduleShape {
   return { kind: 'raw', cron: raw }
 }
 
-/** 五段才是一条 cron。字段数不对就别提交，后端也不认。 */
 export function isPlausibleCron(cron: string): boolean {
   const parts = cron.trim().split(/\s+/).filter(Boolean)
   return parts.length === 5

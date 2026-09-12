@@ -3,11 +3,9 @@ import type { TappManifest } from '../types'
 export const MAX_TAPP_ASSETS = 128
 export const MAX_TAPP_GAME_ASSETS = 256
 export const MAX_TAPP_GAME_ARCHIVE_BYTES = 128 * 1024 * 1024
-/** Bridge budget for `tappList.install` / `getInstallPackage`. Game ZIP + slack. */
 export const TAPP_PACKAGE_PAYLOAD_BYTES =
   MAX_TAPP_GAME_ARCHIVE_BYTES + 512 * 1024
 
-/** Same predicate as `TappManifest::uses_game_package_limits`. */
 export function usesGamePackageLimits(
   manifest: Pick<TappManifest, 'category' | 'game' | 'runtimeModules'>,
 ): boolean {

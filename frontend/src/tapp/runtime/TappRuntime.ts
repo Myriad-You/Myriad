@@ -1,18 +1,3 @@
-/**
- * Tapp Runtime - 运行时主控制器
- * 管理 Tapp 的生命周期、加载和执行
- *
- * 数据存储策略：
- * - 所有数据存储在后端数据库
- * - 内存缓存用于快速访问
- * - 通过 API 同步状态
- *
- * 性能优化：
- * - 请求去重防止并发重复请求
- * - 智能缓存策略减少 API 调用
- * - 懒加载按需获取 Tapp 详情
- */
-
 import type { TappPlaygroundCode } from '../services/TappPlaygroundService'
 import type {
   BackgroundRequirement,
@@ -29,7 +14,6 @@ import * as TappApiService from '../services/TappApiService'
 import { getResourceLoader } from './sandbox/resourceLoader'
 import { TappPermissionController } from './TappPermission'
 
-/** 运行时事件类型 */
 type RuntimeEvent =
   | 'tapp:installed'
   | 'tapp:uninstalled'
@@ -41,7 +25,7 @@ type RuntimeEvent =
   | 'widget:unregistered'
   | 'platform:registered'
   | 'sync:complete'
-  | 'background:changed' // 后台需求变化
+  | 'background:changed'
 
 type RuntimeEventCallback = (data: unknown) => void
 
@@ -49,12 +33,12 @@ function samePermissions(
   left: TappPermission[],
   right: TappPermission[],
 ): boolean {
-  if (left.length !== right.length) return false
-  const expected = new Set(left)
-  return right.every((permission) => expected.has(permission))
+  return (
+    left.length === right.length &&
+    new Set(right).isSubsetOf(new Set(left))
+  )
 }
 
-/** 请求去重管理器 */
 class RequestDeduplicator {
   private pendingRequests: Map<string, Promise<unknown>> = new Map()
 
@@ -73,86 +57,60 @@ class RequestDeduplicator {
   }
 }
 
-/**
- * Tapp Runtime 类
- */
 export class TappRuntime {
   private static instance: TappRuntime | null = null
 
-  /** 已安装的 Tapp（内存缓存） */
   private installedTapps: Map<string, TappInstance> = new Map()
 
-  /** 运行中的 Tapp */
   private runningTapps: Set<string> = new Set()
 
-  /**
-   * 当前浏览器会话主动启动的共享管理员 Tapp。
-   *
-   * 管理员安装记录的数据库 status 表示管理员自己的持久运行态，不能直接
-   * 传播成其他用户或访客的运行态。共享 Tapp 对非所有者只在当前会话中运行。
-   */
+  /** 共享管理员 Tapp 的库 status 是站主持久态，不能当成其他用户/访客的运行态。 */
   private sessionRunningTapps: Set<string> = new Set()
 
-  /** 已注册的小组件（内存缓存） */
   private registeredWidgets: Map<string, RegisteredWidget> = new Map()
 
-  /** 已注册的自定义平台 */
   private registeredPlatforms: Map<
     string,
     CustomPlatformConfig & { tappId: string }
   > = new Map()
 
-  /** 后台运行需求（tappId -> 需求集合） */
   private backgroundRequirements: Map<string, Set<BackgroundRequirement>> =
     new Map()
 
-  /** Manifest 声明的后台需求；与运行时 require/release 分开计源。 */
   private manifestBackgroundRequirements: Map<
     string,
     Set<BackgroundRequirement>
   > = new Map()
 
-  /** 事件监听器 */
   private eventListeners: Map<RuntimeEvent, Set<RuntimeEventCallback>> =
     new Map()
 
-  /** 是否已从后端同步 */
   private synced: boolean = false
 
-  /** 同步错误（用于 waitForSync 超时或失败处理） */
   private syncError: Error | null = null
 
-  /** 构造时启动的首次同步；waitForSync 直接等待它，不靠事件猜测完成状态。 */
   private initialSyncPromise: Promise<void>
 
-  /** 请求去重器 */
   private deduplicator = new RequestDeduplicator()
 
-  /** 同一 Tapp 的 start/stop 串行执行，避免多窗口并发反转最终状态。 */
+  /** 同一 Tapp 的 start/stop 串行，避免多窗口并发反转状态。 */
   private lifecycleTransitions = new Map<string, Promise<void>>()
   private uninstallingTapps = new Set<string>()
 
-  /** 缓存 TTL（毫秒） */
   private static readonly CACHE_TTL = {
-    tappList: 30 * 1000, // Tapp 列表 30 秒
+    tappList: 30 * 1000,
   }
 
-  /** 上次同步时间 */
   private lastSyncTime: number = 0
 
   private constructor() {
-    // 异步从后端同步状态
     this.initialSyncPromise = this.syncFromBackend().catch((err) => {
       console.error('[TappRuntime] Initial sync failed:', err)
       this.syncError = err instanceof Error ? err : new Error(String(err))
-      // 首次请求已经结束，但 waitForSync 会明确抛出 syncError。
       this.synced = true
     })
   }
 
-  /**
-   * 获取单例实例
-   */
   static getInstance(): TappRuntime {
     if (!TappRuntime.instance) {
       TappRuntime.instance = new TappRuntime()
@@ -160,7 +118,6 @@ export class TappRuntime {
     return TappRuntime.instance
   }
 
-  /** Drop every subject-scoped cache when the authenticated identity changes. */
   static reset(): void {
     TappRuntime.instance?.dispose()
     TappRuntime.instance = null
@@ -183,11 +140,7 @@ export class TappRuntime {
     this.lastSyncTime = 0
   }
 
-  /**
-   * 从后端同步状态（带请求去重和缓存检查）
-   */
   async syncFromBackend(force: boolean = false): Promise<void> {
-    // 检查缓存是否仍有效
     if (
       !force &&
       this.synced &&
@@ -196,10 +149,8 @@ export class TappRuntime {
       return
     }
 
-    // 使用请求去重
     return this.deduplicator.dedupe('sync', async () => {
       try {
-        // details 与 widgets 无依赖，并行拉取缩短冷启动
         const [details, backendWidgets] = await Promise.all([
           TappApiService.listTappDetails(),
           TappApiService.getAllWidgets(),
@@ -232,15 +183,11 @@ export class TappRuntime {
             this.sessionRunningTapps.delete(detail.id)
           }
 
-          // Site-public (admin) install stopped → drop any leftover local session
-          // "starts" so visitors cannot keep a stopped Tapp alive after refresh.
+          // 访客不能在刷新后保活已停的 Tapp。
           if (isAdminTapp && installationStatus !== 'running') {
             this.sessionRunningTapps.delete(detail.id)
           }
 
-          // Public admin Tapp: only server `running` counts for everyone (including
-          // guests). Session starts are not used to override a site-wide stop.
-          // Owners (admin public / user temporary) still use persisted + session.
           const isRunning =
             !needsReauthorization &&
             (isAdminTapp
@@ -280,14 +227,12 @@ export class TappRuntime {
           }
           if (isRunning) {
             this.runningTapps.add(detail.id)
-            // 恢复运行态的 Tapp 也要补注册 manifest 后台需求，
             // 否则重载后 headless core 不会被拉起。
             this.registerManifestBackgroundRequirements(instance)
           }
         }
 
-        // 跨标签页或其他副本卸载后，不保留同 ID 的本地会话运行标记；否则将来
-        // 重新安装同名 Tapp 会被误判为已经运行。
+        // 跨标签卸载后不保留同 ID 本地运行标记。
         for (const tappId of this.sessionRunningTapps) {
           if (!this.installedTapps.has(tappId)) {
             this.sessionRunningTapps.delete(tappId)
@@ -299,11 +244,9 @@ export class TappRuntime {
           this.registeredWidgets.set(widget.id, widget)
         }
 
-        // 外部停止/卸载或跨标签页状态变化后，不应残留动态或 Manifest 后台来源。
-        const backgroundTappIds = new Set([
-          ...this.backgroundRequirements.keys(),
-          ...this.manifestBackgroundRequirements.keys(),
-        ])
+        const backgroundTappIds = new Set(
+          this.backgroundRequirements.keys(),
+        ).union(new Set(this.manifestBackgroundRequirements.keys()))
         for (const tappId of backgroundTappIds) {
           if (!this.runningTapps.has(tappId)) {
             this.dropStoppedTappHostState(tappId)
@@ -333,10 +276,6 @@ export class TappRuntime {
     })
   }
 
-  /**
-   * 等待同步完成
-   * 包含超时保护（10秒）
-   */
   async waitForSync(): Promise<void> {
     if (!this.synced) {
       let timeout: ReturnType<typeof setTimeout> | undefined
@@ -358,31 +297,24 @@ export class TappRuntime {
     if (this.syncError) throw this.syncError
   }
 
-  /**
-   * 安装 Tapp
-   */
   async installTapp(
     manifest: TappManifest,
     code: TappPlaygroundCode,
     _requestedPermissions?: TappPermission[],
   ): Promise<TappInstance> {
-    // 验证 Manifest
     const validation =
       TappPermissionController.validateManifestPermissions(manifest)
     if (!validation.valid) {
       throw new Error(`Invalid manifest: ${validation.errors.join(', ')}`)
     }
 
-    // 检查是否已安装
     if (this.installedTapps.has(manifest.id)) {
       throw new Error(`Tapp ${manifest.id} is already installed`)
     }
 
-    // 通过 API 安装（传递完整的代码结构，包括 CSS 和 HTML 模板）
     const result = await TappApiService.installFromCode(manifest, code)
     const detail = await TappApiService.getTapp(result.id)
 
-    // 将后端返回的 user_role 转换为 UserRole 类型
     const userRole = (detail.user_role as 'guest' | 'user' | 'admin') || 'guest'
 
     const backendPerms = detail.granted_permissions as TappPermission[]
@@ -402,25 +334,17 @@ export class TappRuntime {
       error: detail.error_message,
     }
 
-    // 添加到内存缓存
     this.installedTapps.set(manifest.id, instance)
 
-    // 安装内容可能覆盖同 ID 的资源，确保真实资源加载器不会返回旧页面/widget/core。
     getResourceLoader().clearCache(manifest.id)
 
-    // 后端在安装事务中对账 Manifest Widget；同步一次取得权威注册表。
     await this.syncFromBackend(true)
-    const synchronized = this.installedTapps.get(manifest.id) || instance
+    const synchronized = this.installedTapps.get(manifest.id) ?? instance
     this.emit('tapp:installed', { id: manifest.id, instance: synchronized })
 
     return synchronized
   }
 
-  /**
-   * 卸载 Tapp
-   * @param tappId Tapp ID
-   * @param options 卸载选项，包含 keepData 可选参数
-   */
   async uninstallTapp(
     tappId: string,
     options?: { keepData?: boolean },
@@ -435,52 +359,39 @@ export class TappRuntime {
     this.uninstallingTapps.add(tappId)
 
     try {
-      // 即使 start 仍在途也要排队 stop，确保卸载前没有活跃 runtime。
       await this.stopTapp(tappId)
 
-      // 调用 API 卸载
       await TappApiService.uninstallTapp(tappId, options)
 
-      // 删除注册的小组件
       for (const [widgetId, widget] of this.registeredWidgets) {
         if (widget.tappId === tappId) {
           this.registeredWidgets.delete(widgetId)
         }
       }
 
-      // 删除注册的平台
       for (const [platformId, platform] of this.registeredPlatforms) {
         if (platform.tappId === tappId) {
           this.registeredPlatforms.delete(platformId)
         }
       }
 
-      // 清除该 Tapp 的全部模式资源缓存
       getResourceLoader().clearCache(tappId)
       this.dropStoppedTappHostState(tappId)
 
-      // 从列表中移除
       this.installedTapps.delete(tappId)
       this.sessionRunningTapps.delete(tappId)
 
-      // 触发事件
       this.emit('tapp:uninstalled', { id: tappId })
     } finally {
       this.uninstallingTapps.delete(tappId)
     }
   }
 
-  /**
-   * 当前查看者是否可启动/停止该安装（站主公开装 或 自己的临时装）。
-   * 访客/普通用户不能对「未启动」的站主公开 Tapp 做启动。
-   */
+  /** 仅站主公开装或自己的临时装可启停。访客/普通用户不能启动未启动的站主公开 Tapp。 */
   canControlLifecycle(instance: TappInstance): boolean {
     return this.persistsLifecycle(instance)
   }
 
-  /**
-   * 启动 Tapp
-   */
   async startTapp(tappId: string): Promise<void> {
     return this.enqueueLifecycleTransition(tappId, async () => {
       const instance = this.installedTapps.get(tappId)
@@ -496,7 +407,7 @@ export class TappRuntime {
 
       if (this.runningTapps.has(tappId)) return
 
-      // 站主公开 Tapp：只有站主可改全站运行态；访客不得用会话假启动绕过「已停止」。
+      // 站主公开 Tapp：只有站主可改全站运行态；访客不得会话假启动。
       if (instance.isAdminTapp && !this.persistsLifecycle(instance)) {
         throw new Error(
           'This Tapp is stopped by the site admin and cannot be started by other users',
@@ -522,7 +433,7 @@ export class TappRuntime {
     tappId: string,
     operation: () => Promise<void>,
   ): Promise<void> {
-    const previous = this.lifecycleTransitions.get(tappId) || Promise.resolve()
+    const previous = this.lifecycleTransitions.get(tappId) ?? Promise.resolve()
     const transition: Promise<void> = previous
       .catch(() => undefined)
       .then(operation)
@@ -535,7 +446,6 @@ export class TappRuntime {
     return transition
   }
 
-  /** 是否由当前查看者拥有并可把生命周期状态持久化到安装记录。 */
   private persistsLifecycle(instance: TappInstance): boolean {
     return (
       (instance.userRole === 'admin' && instance.isAdminTapp === true) ||
@@ -543,15 +453,11 @@ export class TappRuntime {
     )
   }
 
-  /**
-   * 注册 manifest 声明的后台需求。
-   * 声明需求的 Tapp 由此在运行期被 getBackgroundTapps 收入，
-   * 并由 TappBackgroundRunner 拉起 headless core。
-   */
+  /** 注册 Manifest 声明的后台需求，供 BackgroundRunner 拉起 headless core。 */
   private registerManifestBackgroundRequirements(instance: TappInstance): void {
     this.setManifestBackgroundRequirements(
       instance.id,
-      instance.manifest.backgroundRequirements || [],
+      instance.manifest.backgroundRequirements ?? [],
     )
   }
 
@@ -579,15 +485,11 @@ export class TappRuntime {
   private getEffectiveBackgroundRequirements(
     tappId: string,
   ): Set<BackgroundRequirement> {
-    return new Set([
-      ...(this.manifestBackgroundRequirements.get(tappId) || []),
-      ...(this.backgroundRequirements.get(tappId) || []),
-    ])
+    return new Set(
+      this.manifestBackgroundRequirements.get(tappId) ?? [],
+    ).union(new Set(this.backgroundRequirements.get(tappId) ?? []))
   }
 
-  /**
-   * 停止 Tapp
-   */
   async stopTapp(tappId: string): Promise<void> {
     return this.enqueueLifecycleTransition(tappId, async () => {
       const instance = this.installedTapps.get(tappId)
@@ -616,28 +518,18 @@ export class TappRuntime {
     })
   }
 
-  /**
-   * 获取 Tapp 实例
-   */
   getTapp(tappId: string): TappInstance | undefined {
     return this.installedTapps.get(tappId)
   }
 
-  /**
-   * 获取所有已安装的 Tapp
-   */
   getAllTapps(): TappInstance[] {
-    return Array.from(this.installedTapps.values())
+    return Iterator.from(this.installedTapps.values()).toArray()
   }
 
-  /**
-   * 清除真实资源加载器中的 core/page/widget 缓存。
-   */
   clearCodeCache(tappId?: string): void {
     getResourceLoader().clearCache(tappId)
   }
 
-  /** 使资源缓存失效、重新同步清单，并通知现有运行实例重建。 */
   async refreshTapp(tappId: string): Promise<void> {
     this.clearCodeCache(tappId)
     await this.syncFromBackend(true)
@@ -647,21 +539,14 @@ export class TappRuntime {
     }
   }
 
-  /** Refresh effective grants and rebuild only runtimes whose permissions changed. */
   async refreshPermissionGrants(): Promise<void> {
     await this.syncFromBackend(true)
   }
 
-  /**
-   * 检查 Tapp 是否在运行
-   */
   isRunning(tappId: string): boolean {
     return this.runningTapps.has(tappId)
   }
 
-  /**
-   * 注册小组件
-   */
   async registerWidget(
     tappId: string,
     config: RegisteredWidget['config'],
@@ -678,20 +563,17 @@ export class TappRuntime {
 
     const fullId = `tapp.${tappId}.${config.id}`
 
-    // 检查是否已存在（避免重复注册）
     const existing = this.registeredWidgets.get(fullId)
     if (existing) {
       return existing
     }
 
-    // 同步到后端
     await TappApiService.registerTappWidget(
       tappId,
       config as WidgetRegistration,
       runtimeGrant,
     )
 
-    // 更新内存缓存
     const widget: RegisteredWidget = {
       id: fullId,
       tappId,
@@ -702,15 +584,11 @@ export class TappRuntime {
 
     this.registeredWidgets.set(fullId, widget)
 
-    // 触发事件
     this.emit('widget:registered', widget)
 
     return widget
   }
 
-  /**
-   * 注销小组件
-   */
   async unregisterWidget(
     tappId: string,
     widgetId: string,
@@ -731,35 +609,23 @@ export class TappRuntime {
       )
     }
 
-    // 同步到后端
     await TappApiService.unregisterTappWidget(tappId, widgetId, runtimeGrant)
 
-    // 从内存缓存移除
     this.registeredWidgets.delete(fullId)
 
-    // 触发事件
     this.emit('widget:unregistered', { id: fullId })
   }
 
-  /**
-   * 获取所有已注册的小组件
-   */
   getRegisteredWidgets(): RegisteredWidget[] {
-    return Array.from(this.registeredWidgets.values())
+    return Iterator.from(this.registeredWidgets.values()).toArray()
   }
 
-  /**
-   * 获取指定 Tapp 的小组件
-   */
   getWidgetsByTapp(tappId: string): RegisteredWidget[] {
-    return Array.from(this.registeredWidgets.values()).filter(
-      (w) => w.tappId === tappId,
-    )
+    return Iterator.from(this.registeredWidgets.values())
+      .filter((w) => w.tappId === tappId)
+      .toArray()
   }
 
-  /**
-   * 注册自定义平台
-   */
   registerPlatform(tappId: string, config: CustomPlatformConfig): void {
     const instance = this.installedTapps.get(tappId)
     if (!instance) {
@@ -778,20 +644,13 @@ export class TappRuntime {
 
     this.registeredPlatforms.set(fullId, { ...config, tappId })
 
-    // 触发事件
     this.emit('platform:registered', { id: fullId, config })
   }
 
-  /**
-   * 获取所有已注册的自定义平台
-   */
   getRegisteredPlatforms(): Array<CustomPlatformConfig & { tappId: string }> {
-    return Array.from(this.registeredPlatforms.values())
+    return Iterator.from(this.registeredPlatforms.values()).toArray()
   }
 
-  /**
-   * 监听事件
-   */
   on(event: RuntimeEvent, callback: RuntimeEventCallback): () => void {
     let listeners = this.eventListeners.get(event)
     if (!listeners) {
@@ -805,9 +664,6 @@ export class TappRuntime {
     }
   }
 
-  /**
-   * 触发事件
-   */
   private emit(event: RuntimeEvent, data: unknown): void {
     const listeners = this.eventListeners.get(event)
     if (listeners) {
@@ -821,9 +677,6 @@ export class TappRuntime {
     }
   }
 
-  /**
-   * 更新 Tapp 状态
-   */
   updateTappStatus(tappId: string, status: TappStatus, error?: string): void {
     const instance = this.installedTapps.get(tappId)
     if (instance) {
@@ -836,12 +689,6 @@ export class TappRuntime {
     }
   }
 
-  // 后台运行需求管理
-
-  /**
-   * 注册后台运行需求
-   * Tapp 在需要后台运行时调用此方法声明需求
-   */
   registerBackgroundRequirement(
     tappId: string,
     requirement: BackgroundRequirement,
@@ -865,9 +712,6 @@ export class TappRuntime {
     }
   }
 
-  /**
-   * 注销后台运行需求
-   */
   unregisterBackgroundRequirement(
     tappId: string,
     requirement: BackgroundRequirement,
@@ -892,18 +736,11 @@ export class TappRuntime {
     }
   }
 
-  /**
-   * 停止/卸载后卸掉宿主侧残留：后台需求与信息岛内容。
-   * 岛内容没有跟沙箱走，Tapp 自己不 remove 就会一直留在控制岛里。
-   */
   private dropStoppedTappHostState(tappId: string): void {
     this.clearBackgroundRequirements(tappId)
     getDynamicContentProvider().unregisterTappProvider(tappId)
   }
 
-  /**
-   * 清除 Tapp 的所有后台需求
-   */
   clearBackgroundRequirements(tappId: string): void {
     const had = this.hasBackgroundRequirements(tappId)
     this.backgroundRequirements.delete(tappId)
@@ -918,23 +755,14 @@ export class TappRuntime {
     }
   }
 
-  /**
-   * 获取 Tapp 的后台运行需求
-   */
   getBackgroundRequirements(tappId: string): BackgroundRequirement[] {
-    return Array.from(this.getEffectiveBackgroundRequirements(tappId))
+    return Iterator.from(this.getEffectiveBackgroundRequirements(tappId)).toArray()
   }
 
-  /**
-   * 检查 Tapp 是否有后台运行需求
-   */
   hasBackgroundRequirements(tappId: string): boolean {
     return this.getEffectiveBackgroundRequirements(tappId).size > 0
   }
 
-  /**
-   * 检查 Tapp 是否有特定的后台运行需求
-   */
   hasBackgroundRequirement(
     tappId: string,
     requirement: BackgroundRequirement,
@@ -942,9 +770,6 @@ export class TappRuntime {
     return this.getEffectiveBackgroundRequirements(tappId).has(requirement)
   }
 
-  /**
-   * 获取所有需要后台运行的 Tapp（有任何后台需求的）
-   */
   getTappsWithBackgroundRequirements(): Array<{
     tappId: string
     requirements: BackgroundRequirement[]
@@ -953,30 +778,22 @@ export class TappRuntime {
       tappId: string
       requirements: BackgroundRequirement[]
     }> = []
-    const tappIds = new Set([
-      ...this.backgroundRequirements.keys(),
-      ...this.manifestBackgroundRequirements.keys(),
-    ])
+    const tappIds = new Set(this.backgroundRequirements.keys()).union(
+      new Set(this.manifestBackgroundRequirements.keys()),
+    )
     for (const tappId of tappIds) {
       const requirements = this.getEffectiveBackgroundRequirements(tappId)
       if (requirements.size > 0) {
-        result.push({ tappId, requirements: Array.from(requirements) })
+        result.push({ tappId, requirements: Iterator.from(requirements).toArray() })
       }
     }
     return result
   }
 
-  /**
-   * 检查 Tapp 是否应该在后台运行
-   * 条件：Tapp 正在运行 + 有后台需求
-   */
   shouldRunInBackground(tappId: string): boolean {
     return this.isRunning(tappId) && this.hasBackgroundRequirements(tappId)
   }
 
-  /**
-   * 获取所有应该在后台运行的 Tapp
-   */
   getBackgroundTapps(): TappInstance[] {
     const result: TappInstance[] = []
     for (const tappId of this.runningTapps) {
@@ -991,9 +808,6 @@ export class TappRuntime {
   }
 }
 
-/**
- * 获取 Runtime 实例
- */
 export function getTappRuntime(): TappRuntime {
   return TappRuntime.getInstance()
 }

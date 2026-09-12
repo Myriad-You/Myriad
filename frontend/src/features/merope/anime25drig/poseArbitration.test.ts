@@ -40,9 +40,6 @@ test('an idle rig gives every local source its full occupancy', () => {
   assert.equal(gate.coSpeech.headBody, 1)
 })
 
-// This is the whole point: before the arbiter, the lease table described the
-// rig without governing it, and every source wrote at full occupancy no matter
-// who held the channel.
 test('losing a channel attenuates a source only on that channel', () => {
   const gate = resolvePoseGate(
     policy({ expression: 'performance' }),
@@ -56,8 +53,6 @@ test('losing a channel attenuates a source only on that channel', () => {
   assert.equal(gate.coSpeech.headBody, 1)
 })
 
-// Losing the lease means stop competing, not stop breathing — occupancy's own
-// rule is that weights tilt rather than exclusive-zero a living source.
 test('an unowned source is attenuated rather than silenced', () => {
   const gate = resolvePoseGate(
     policy({
@@ -115,8 +110,6 @@ test('scales multiply into the idle sources, not into music or speech', () => {
   assert.ok(Math.abs(gate.random.gaze - 0.25) < 1e-9)
   assert.equal(gate.coSpeech.expression, 1)
 
-  // Director attention and sticker holds quiet the rig's own idling; they are
-  // not a volume knob on the song or the voice.
   const singing = resolvePoseGate(policy({ headBody: 'music' }), busy, {
     performance: 0.5,
     stylized: 0.5,
@@ -125,9 +118,6 @@ test('scales multiply into the idle sources, not into music or speech', () => {
   assert.equal(singing.groove.headBody, 1)
 })
 
-// idleBreath writes the head's three axes and the torso, and the director's
-// own plan writes the eyes. Both used to sit outside the arbiter, so a
-// "unified" composition still had two sources writing at full weight.
 test('breath and the director answer to the same leases as everything else', () => {
   const music = resolvePoseGate(policy({ headBody: 'music' }), busy, unscaled)
   assert.equal(music.ambient.headBody, UNOWNED_POSE_KEEP)
@@ -141,7 +131,6 @@ test('breath and the director answer to the same leases as everything else', () 
   assert.equal(directed.performance.expression, 1)
   assert.equal(directed.ambient.gaze, UNOWNED_POSE_KEEP)
 
-  // With no plan running the director has no claim on the eyes either.
   const idle = resolvePoseGate(policy(), busy, unscaled)
   assert.equal(idle.performance.gaze, UNOWNED_POSE_KEEP)
 })
@@ -197,8 +186,7 @@ test('a missing behavior unit leaves the occupancy gate alone, never zeroes it',
     musicQuality: quality,
     musicMode: 'listen',
   })
-  // Talking with no realized co-speech behavior must still move the face: a
-  // moving mouth on a frozen body is the failure, not the fallback.
+  // Talking with no realized co-speech behavior must still move the face
   assert.equal(speaking.coSpeech.expression, 1)
   assert.equal(speaking.coSpeech.headBody, 1)
   assert.equal(speaking.groove.headBody, 1)
@@ -242,9 +230,6 @@ test('musical stilling quiets body fidgets but preserves gaze and explicit actin
 })
 
 test('the gate stays a weight, so no strength is silently clamped away', () => {
-  // The compositor treats these as weights and clamps them to [0, 1]. A
-  // ceiling above that is not a boost, it is a number the next stage throws
-  // away — which is what 1.55 was doing.
   const compositor = readFileSync(
     new URL('./poseCompositor.ts', import.meta.url),
     'utf8',
@@ -257,7 +242,6 @@ test('the gate stays a weight, so no strength is silently clamped away', () => {
       assert.ok(scale > 0, `${extent}/${power} -> ${scale}`)
     }
   }
-  // A unit at full authored strength opens its channel and stops there.
   assert.equal(behaviorMotionScale(1.4, 1.4), 1)
 })
 

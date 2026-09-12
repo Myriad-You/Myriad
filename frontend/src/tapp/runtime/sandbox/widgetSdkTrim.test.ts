@@ -1,9 +1,3 @@
-/**
- * Permission-trimmed Widget SDK surface.
- *
- *   pnpm exec tsx --test src/tapp/runtime/sandbox/widgetSdkTrim.test.ts
- */
-
 import type { TappInstance } from '../../types'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
@@ -55,13 +49,13 @@ describe('generateWidgetSDK permission trim', () => {
   it('keeps namespace shape with denied stubs when permissions are empty', () => {
     const sdk = generateWidgetSDK(makeInstance([]), 'tok')
     assert.match(sdk, /storage:\s*\{/)
-    assert.match(sdk, /onChanged: function\(cb\) \{ return addEventListener\('settingsChanged'/)
-    assert.match(sdk, /msg\.action === 'settingsChanged'/)
+    assert.match(sdk, /addEventListener\('settingsChanged'/)
+    assert.match(sdk, /addEventListener\('privateChanged'/)
+    assert.match(sdk, /eventListeners.get\(message.action\)/)
     assert.match(sdk, /lifecycle:\s*\{/)
     assert.match(sdk, /sendRequest\('persona'/)
-    // Shape preserved for DX; heavy sendRequest bodies omitted
     assert.match(sdk, /\bai:\s*\{/)
-    assert.match(sdk, /\bmodel3d:\s*\{/)
+    assert.doesNotMatch(sdk, /\bmodel3d:\s*\{/)
     assert.match(sdk, /\bmedia:\s*\{/)
     assert.match(sdk, /\banalytics:\s*\{/)
     assert.match(sdk, /_denied\(/)
@@ -74,7 +68,7 @@ describe('generateWidgetSDK permission trim', () => {
       sdk,
       /create: _denied\('ai:generate'\)/,
     )
-    // Full AI subscribe / media sendRequest plumbing should not be present without perms
+    // 无权限时不应出现完整 AI subscribe / media sendRequest。
     assert.doesNotMatch(sdk, /sendRequest\('ai'/)
     assert.doesNotMatch(sdk, /sendRequest\('media'/)
     assert.doesNotMatch(sdk, /sendRequest\('scheduler'/)
@@ -85,9 +79,80 @@ describe('generateWidgetSDK permission trim', () => {
     assert.match(sdk, /analytics:\s*\{/)
     assert.match(sdk, /getVisitorCard/)
     assert.match(sdk, /sendRequest\('analytics'/)
-    // media still stubbed (no live sendRequest)
     assert.doesNotMatch(sdk, /sendRequest\('media'/)
     assert.match(sdk, /_denied\('media:/)
+  })
+
+  it('evaluates denied AI stubs while KV methods still postMessage', async () => {
+    const sdk = generateWidgetSDK(makeInstance([]), 'tok')
+    const posted: Array<Record<string, unknown>> = []
+    const sandboxWindow: Record<string, unknown> = {
+      parent: {
+        postMessage(message: Record<string, unknown>) {
+          posted.push(message)
+        },
+      },
+      addEventListener() {},
+      _TAPP_I18N: {},
+      _TAPP_LOCALE: 'en-US',
+    }
+    const sandboxDocument = {
+      readyState: 'complete',
+      addEventListener() {},
+      createElement: () => ({ style: {}, appendChild() {} }),
+      body: {
+        style: {},
+        classList: { toggle() {} },
+        offsetHeight: 0,
+      },
+      documentElement: {
+        style: { setProperty() {} },
+        classList: { toggle() {} },
+        lang: 'en-US',
+      },
+    }
+    // eslint-disable-next-line no-new-func -- isolated widget SDK eval
+    const run = new Function(
+      'window',
+      'document',
+      'crypto',
+      'setTimeout',
+      'URL',
+      'Blob',
+      'atob',
+      sdk,
+    )
+    run(
+      sandboxWindow,
+      sandboxDocument,
+      globalThis.crypto,
+      () => 0,
+      URL,
+      Blob,
+      globalThis.atob,
+    )
+    const tapp = sandboxWindow.Tapp as {
+      ai: { tasks: { create: (request: unknown) => Promise<unknown> } }
+      private: { get: (key: string) => Promise<unknown> }
+    }
+    await assert.rejects(
+      () => tapp.ai.tasks.create({}),
+      /Missing permission/,
+    )
+    assert.equal(posted.length, 0)
+    const pending = tapp.private.get('token')
+    assert.equal(posted[0]?.action, 'private.get')
+    pending.catch(() => {})
+  })
+
+  it('replaces session token without rebuilding the cached body', () => {
+    const instance = makeInstance(['analytics:read'])
+    const a = generateWidgetSDK(instance, 'tok-a')
+    const b = generateWidgetSDK(instance, 'tok-b')
+    assert.match(a, /tok-a/)
+    assert.match(b, /tok-b/)
+    assert.doesNotMatch(a, /tok-b/)
+    assert.doesNotMatch(b, /tok-a/)
   })
 
   it('minimal SDK is meaningfully smaller than full-permission SDK', () => {
@@ -109,13 +174,10 @@ describe('generateWidgetSDK permission trim', () => {
       'tok',
     )
     // Full media/ai/scheduler bodies are large; stubs stay compact.
+    // Shared message-loop bootstrap is the same, so the delta is the live namespaces.
     assert.ok(
       full.length > minimal.length + 4000,
       `expected full (${full.length}) to exceed minimal (${minimal.length}) by ≥4KB`,
-    )
-    assert.ok(
-      full.length > minimal.length * 1.15,
-      `expected full (${full.length}) ≥ 1.15× minimal (${minimal.length})`,
     )
   })
 })

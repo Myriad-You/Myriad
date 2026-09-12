@@ -37,11 +37,6 @@ interface ReactionMemory {
 const MAX_REACTION_MEMORY = 32
 const RECOVERY_GAP_MS = 90
 
-/**
- * Deterministic reaction policy between semantic selection and scheduling.
- * It adds human-like refractory periods and respects concurrent body activity;
- * it never emits poses and remains renderer neutral.
- */
 export class HumanReactionPolicy {
   private readonly memory: ReactionMemory[] = []
 
@@ -134,12 +129,10 @@ export class HumanReactionPolicy {
     nowMs: number,
     scope?: string,
   ): boolean {
-    const recent = [...this.memory]
-      .reverse()
-      .find(
-        (entry) =>
-          entry.intent === cue.intent && (!scope || entry.scope === scope),
-      )
+    const recent = this.memory.findLast(
+      (entry) =>
+        entry.intent === cue.intent && (!scope || entry.scope === scope),
+    )
     if (!recent) return false
     const elapsed = nowMs + cue.atMs - recent.selectedAtMs
     return (
@@ -164,11 +157,7 @@ export class HumanReactionPolicy {
   }
 }
 
-/**
- * Same-turn beats can be refined; acknowledgement yields to delivery. A newer
- * live Chat generation supersedes its predecessor. The shared scheduler owns
- * recovery, so admission never restarts or directly clears a pose.
- */
+/** The shared scheduler owns recovery, so admission never restarts or directly clears a pose. */
 function acceptsPerformanceHandoff(
   directive: PerformanceDirective,
   behavior: BehaviorSnapshot,
@@ -184,8 +173,7 @@ function acceptsPerformanceHandoff(
     return false
   }
   const previous = behavior.form.parameters
-  // A new live Chat generation replaces its predecessor, with scheduler-owned
-  // recovery. A mood revision is affect state, never proof of turn identity.
+  // A mood revision is affect state, never proof of turn identity.
   if (
     generation > 0 &&
     typeof previous?.generation === 'number' &&

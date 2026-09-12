@@ -1,7 +1,7 @@
 //! ModelTier 智能路由
 //!
-//! 根据能力类别和动作类型，决定使用 Standard 还是 Pro 模型。
-//! Pro 模型用于复杂推理、规划和创造性任务；Standard 模型用于数据获取和常规操作。
+//! 根据能力 ID 推断复杂度：Simple 不走 LLM；Medium → Standard；Complex/Critical → Pro。
+//! Pro 用于 Complex/Critical；Standard 用于 Medium。Simple（数据读取等）不调用模型。
 
 use crate::config::ModelTier;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
@@ -10,13 +10,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// 任务复杂度等级
 #[derive(Debug, Clone, PartialEq)]
 pub enum TaskComplexity {
-    /// 数据读取、格式化、简单查询 → Standard
+    /// 数据读取、格式化、简单查询 → 不使用 LLM
     Simple,
-    /// 内容总结、模式匹配、条件判断 → Standard (失败时可 fallback Pro)
+    /// 内容总结、模式匹配、条件判断 → Standard
     Medium,
     /// 多步推理、创意生成、复杂分析 → Pro
     Complex,
-    /// 规划、决策、评估、纠错 → 强制 Pro
+    /// 规划、决策、评估、纠错 → Pro（与 Complex 相同；熔断可降 Standard）
     Critical,
 }
 
@@ -39,7 +39,7 @@ impl TaskComplexity {
 
 /// ModelTier 路由器
 ///
-/// 根据能力 ID 和动作推断应使用的模型层级。
+/// 根据能力 ID 推断应使用的模型层级。
 /// 支持显式覆盖（Recipe 步骤可指定 tier）。
 pub struct TierRouter;
 
@@ -47,14 +47,13 @@ impl TierRouter {
     /// 显式登记的复杂度规则；`None` 表示这个能力没有被登记。
     ///
     /// **顺序敏感**：精确分支必须排在同前缀的通配分支之前。`brew.generateReadingList`
-    /// 原先排在 `brew.` 前缀规则之后，永远被判成 Simple——这条确实要跑 AI 的能力
-    /// 因此从未计入 LLM 用量。
+    /// 必须排在 `brew.` 通配之前，否则会被判成 Simple。
     ///
     /// 动态命名空间（`skill:` / `mcp.`）也在此登记：它们不在能力注册表里，但同样
     /// 会走 `suggest_tier`，落到兜底分支就会被无声地当成消耗 LLM。
     fn complexity_rule(capability_id: &str) -> Option<TaskComplexity> {
         let complexity = match capability_id {
-            // Critical：强制 Pro
+            // Critical：Pro
             // 复杂分析和对比类
             "ai.analyze" | "compare.content" | "ai.recommend" => TaskComplexity::Critical,
 
@@ -64,7 +63,7 @@ impl TierRouter {
             // 代码理解
             "code.explain" => TaskComplexity::Complex,
 
-            // Medium：Standard (可升级 Pro)
+            // Medium：Standard
             // 总结和注释类（定式化 AI 任务）
             "ai.summarize" | "brewlia.annotate" | "brewlia.podcast" | "translate.text" => {
                 TaskComplexity::Medium
@@ -74,12 +73,12 @@ impl TierRouter {
             // 图标推荐
             "icon.recommend" => TaskComplexity::Medium,
 
-            // brew：要跑 AI 的两条必须排在 `brew.` 前缀规则之前
+            // `brew.discover` / `brew.generateReadingList` 必须排在 `brew.` 通配之前（后者才 requires_ai）。
             "brew.discover" | "brew.generateReadingList" => TaskComplexity::Medium,
             id if id.starts_with("brew.") => TaskComplexity::Simple,
             // 所有 platform 数据读取与写入
             id if id.starts_with("platform.") => TaskComplexity::Simple,
-            // tapp 交互和理解需要 AI（排在其余 tapp 规则之前）
+            // 精确 ID 须排在其余 tapp 规则之前（仅 `tapp.understand` 跑 AI；ui/interact 不跑 LLM）。
             "tapp.ui" | "tapp.understand" | "tapp.interact" => TaskComplexity::Medium,
             // tapp 查询 / 安装 / 存储 / 窗口操作都不消耗 LLM
             "tapp.list" | "tapp.page" | "tapp.widget" | "tapp.windows" | "tapp.pageContent"
@@ -122,7 +121,7 @@ impl TierRouter {
             "notion.query" => TaskComplexity::Simple,
             // 数据写入
             "storage.set" | "content.write" => TaskComplexity::Simple,
-            // 资源创建（需要一定 AI 能力）
+            // 资源创建（能力表 requires_ai = false）
             "report.create" | "note.create" | "bookmark.save" | "reminder.create" => {
                 TaskComplexity::Medium
             }
@@ -207,9 +206,6 @@ pub enum CircuitState {
 }
 
 /// 简易熔断器
-///
-/// 每个 (provider, tier) 组合维护一个熔断器。
-/// Pro 熔断 → 降级到 Standard；Standard 也熔断 → 返回错误。
 pub struct CircuitBreaker {
     /// 连续失败次数
     failure_count: AtomicU32,
@@ -325,9 +321,9 @@ pub fn get_circuit_breaker(tier: ModelTier) -> &'static CircuitBreaker {
 
 /// 带熔断器的 tier 解析
 ///
-/// 如果目标 tier 已熔断，自动降级：
-/// - Pro 熔断 → 降级到 Standard
-/// - Standard 熔断 → 返回 None（调用方应显示错误）
+/// 如果目标 tier 已熔断：
+/// - Pro → Standard（Standard 也开则 None）
+/// - Standard / Lite → None
 pub fn resolve_with_circuit_breaker(
     capability_id: &str,
     explicit_tier: Option<ModelTier>,
@@ -406,8 +402,6 @@ mod tests {
 
     #[test]
     fn ai_dependent_brew_rules_win_over_the_brew_prefix() {
-        // Regression: `brew.generateReadingList` sat after `starts_with("brew.")`,
-        // so it resolved to Simple and never counted as LLM usage.
         assert!(TierRouter::requires_llm("brew.generateReadingList"));
         assert!(TierRouter::requires_llm("brew.discover"));
         assert!(!TierRouter::requires_llm("brew.items"));

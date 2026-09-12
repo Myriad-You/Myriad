@@ -19,9 +19,6 @@ export {
   LEGACY_CONFIG_SECTION_MAP,
   loadConfigFavorites,
 } from './defaults'
-/**
- * ConfigForm 拆分模块：类型 / 默认值 / 搜索 / 旁路 draft / 保存 / 重置 / 导航
- */
 export type {
   AiConfig,
   Config,

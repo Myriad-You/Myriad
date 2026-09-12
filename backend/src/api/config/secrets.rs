@@ -6,14 +6,13 @@ pub(crate) fn mask_secret_display_value() -> String {
     "••••••••".to_string()
 }
 
-/// True when the client re-submitted a masked secret (save must keep DB value;
-/// platform_test should fall back to saved config / env).
+/// True when the client re-submitted a masked secret (save must keep DB value).
 pub(crate) fn is_masked_secret_value(value: &str) -> bool {
     let v = value.trim();
     if v.is_empty() {
         return false;
     }
-    // save historically accepted both bullet and asterisk masks
+    // Bullet and asterisk masks both count as masked.
     v.starts_with("••")
         || v.starts_with("**")
         || v == "********"
@@ -29,13 +28,11 @@ pub(crate) fn form_secret_if_plaintext(value: Option<&str>) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// Persist a credential field into DB updates.
+/// Persist a platform field into DB updates.
 ///
 /// Semantics:
 /// - masked (`••••` / `****…`) → skip (keep existing DB value)
-/// - empty / whitespace → `null` (未配置). Do not persist `""`:
-///   `Option::as_deref()` treats `Some("")` as a credential and GitHub
-///   rejects `Authorization: token ` with 401.
+/// - empty / whitespace → `null` (未配置). Do not persist `""`.
 /// - non-empty plaintext → set new value
 pub(crate) fn insert_platform_field(
     updates: &mut std::collections::HashMap<String, Value>,
@@ -73,8 +70,8 @@ mod secret_persist_contract_tests {
 
 /// Extract a numeric playlist id from a bare id or a NetEase / QQ Music URL.
 ///
-/// Config UI hints show full links (`?id=2884035`, `/playlist/8039305244`); the
-/// music proxy only accepts digits. Unrecognized input is returned trimmed.
+/// Config UI hints show full links (`?id=2884035`, `/playlist/8039305244`).
+/// Unrecognized input is returned trimmed.
 pub(crate) fn normalize_music_playlist_id(raw: &str) -> String {
     let s = raw.trim();
     if s.is_empty() {

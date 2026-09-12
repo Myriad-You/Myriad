@@ -1,20 +1,14 @@
-import { currentCopy } from '../i18n/localeCopy'
+import { hostLocaleHeaders } from '../i18n/hostLocaleHeaders'
+import { currentCopy, formatCurrent } from '../i18n/localeCopy'
 import { ApiError, parseApiErrorBody } from '../services/api'
 import { withAiTimeoutSignal } from './aiRequestTimeout.mjs'
 import { httpStatusMessage, isUselessErrorText } from './userFacingError'
 
-/**
- * 安全地解析 JSON 响应，处理各种错误情况
- * @param response Fetch API 响应对象
- * @returns 解析后的 JSON 数据
- * @throws 抛出包含错误信息的 Error
- */
 export async function parseJsonResponse(response: Response): Promise<any> {
   const contentType = response.headers.get('content-type')
   const hasJson = contentType && contentType.includes('application/json')
 
   if (!hasJson) {
-    // 响应不是 JSON 格式
     const text = await response.text()
     throw new Error(
       text || response.statusText || httpStatusMessage(response.status),
@@ -23,23 +17,15 @@ export async function parseJsonResponse(response: Response): Promise<any> {
 
   try {
     return await response.json()
-  } catch (_error) {
+  } catch {
     throw new Error(
-      currentCopy().errors.invalidResponse.replace(
-        '{status}',
-        String(response.status),
-      ),
+      formatCurrent(currentCopy().errors.invalidResponse, {
+        status: response.status,
+      }),
     )
   }
 }
 
-/**
- * 处理 API 错误响应
- * @param response Fetch API 响应对象
- * @param defaultMessage 默认错误消息
- * @returns 永不返回，总是抛出错误
- * @throws 抛出包含错误信息的 Error
- */
 export async function handleErrorResponse(
   response: Response,
   defaultMessage: string = currentCopy().errors.requestFailed,
@@ -77,7 +63,6 @@ export async function handleErrorResponse(
   )
 }
 
-/** 开发代理或网络层可能短暂产生的瞬时状态码。 */
 const TRANSIENT_STATUSES = new Set([502, 503, 504])
 const MAX_RETRIES = 3
 
@@ -85,23 +70,11 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-/** 仅幂等方法可安全重试，避免 POST 等重复提交 */
 function isIdempotent(method?: string): boolean {
   const m = (method ?? 'GET').toUpperCase()
   return m === 'GET' || m === 'HEAD'
 }
 
-/**
- * 执行 API 请求并安全地处理响应
- *
- * 幂等请求（GET/HEAD）在遇到网络层错误或瞬时 5xx 时自动重试。
- *
- * @param url 请求 URL
- * @param options Fetch 选项
- * @param errorMessage 错误时的默认消息
- * @returns 解析后的 JSON 数据
- * @throws 抛出包含错误信息的 Error
- */
 export async function fetchJson<T = any>(
   url: string,
   options?: RequestInit,
@@ -116,6 +89,10 @@ export async function fetchJson<T = any>(
         withAiTimeoutSignal(url, {
           credentials: 'include',
           ...options,
+          headers: {
+            ...hostLocaleHeaders(),
+            ...(options?.headers as Record<string, string> | undefined),
+          },
         }),
       )
 
@@ -134,7 +111,6 @@ export async function fetchJson<T = any>(
 
       return await parseJsonResponse(response)
     } catch (error) {
-      // fetch 自身抛出 = 网络层错误（连接被拒 / socket hang up）。
       const isNetworkError = error instanceof TypeError
       if (retryable && isNetworkError && attempt < MAX_RETRIES) {
         await sleep(150 * (attempt + 1))

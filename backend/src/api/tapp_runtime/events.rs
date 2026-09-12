@@ -1,4 +1,4 @@
-//! Manifest-scoped, online at-most-once event broker.
+//! HTTP shell for the manifest-scoped, online at-most-once event broker (domain in tapp_events).
 //!
 //! Domain publish / presence / mailbox live in [`crate::services::tapp_events`].
 //! This module owns permission checks, rate limits, ownership resolution, and
@@ -29,7 +29,7 @@ use super::{
     runtime_grant::RuntimeGrantContext,
 };
 
-// Preserve historical public type paths used by docs / clients (binary crate).
+// Re-export `EventScope` / `EventSource` / `TappEventEnvelope`.
 #[allow(unused_imports)]
 pub use crate::services::tapp_events::{EventScope, EventSource, TappEventEnvelope};
 

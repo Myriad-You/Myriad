@@ -9,10 +9,7 @@ export function normalizeHttpsMediaUrl(url?: string | null): string | null {
   return u
 }
 
-/**
- * Xbox / MS 商店图常给 http:// 或非 SSL 域名，HTTPS 页面会因混合内容被拦。
- * 统一升到 https，并把 images-eds → images-eds-ssl（不强制代理；xboxlive 直链可用）。
- */
+// Xbox/MS 图升 https，并把 images-eds → images-eds-ssl。
 export function normalizeXboxMediaUrl(url?: string | null): string | null {
   const base = normalizeHttpsMediaUrl(url)
   if (!base) return null
@@ -22,17 +19,14 @@ export function normalizeXboxMediaUrl(url?: string | null): string | null {
   )
 }
 
-/**
- * 单字段兜底：仅用于「前端拼 CDN」或独立 presence API 等未走
- * extractCardVisuals 入口的路径。报告卡 body 请依赖入口 normalizeJsonMediaUrls。
- */
+// 仅用于未走 extractCardVisuals 的路径；报告卡 body 走入口 normalizeJsonMediaUrls。
 export function resolveMediaUrl(url?: string | null): string | null {
   const base = normalizeHttpsMediaUrl(url)
   if (!base) return null
   return proxyImageUrl(base) ?? base
 }
 
-/** Bilibili 封面：无图时占位；有图时走 proxy（兼容预览/直链） */
+// B 站封面无图占位，有图走 proxy。
 export function getBilibiliProxyUrl(cover?: string, title?: string): string {
   if (!cover) {
     return `https://ui-avatars.com/api/?name=${encodeURIComponent(title || 'B')}&size=400&background=00A1D6&color=fff`

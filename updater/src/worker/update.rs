@@ -28,6 +28,9 @@ use crate::probe::compose::ComposeBinary;
 use crate::snapshot::SnapshotManager;
 use crate::state::{JobStatus, Phase, UpdaterStateFile};
 use crate::version::{DeployTag, MyriadVersion, UpdateMode};
+use crate::worker::backend_health::{
+    backend_business_ready, backend_routes_full, backend_storage_writable,
+};
 use crate::worker::{machine::PhaseRecorder, preflight, rollback, Worker};
 
 pub async fn run(
@@ -1078,8 +1081,9 @@ fn swap_tag(worker: &Arc<Worker>, new_tag: &str) -> Result<String> {
 /// 1. **Backend-only** (maintenance still active): direct `http://backend:1103/health`
 ///    so DB/migrations/version identity is verified without relying on proxy.
 /// 2. **Lift maintenance** (keep job id) so proxy serves real frontend HTML.
-/// 3. **Live frontend** via `http://proxy:80/`: prefer `myriad-version` / commit meta;
-///    soft-pass still allows image-tag match if stamps lag.
+/// 3. **Live frontend** via `http://proxy:80/`: prefer `myriad-version` / commit meta.
+///    Soft ticks (image-tag lag, proxy-down) are degraded only — they never
+///    complete the wait.
 ///
 /// No Docker exec / probe containers. Needs **2** consecutive OK ticks per phase.
 async fn health_probe_phased(
@@ -1155,10 +1159,8 @@ async fn run_probe_loop(
     phase_label: &str,
 ) -> Result<()> {
     const OK_STREAK_NEED: u32 = 2;
-    const SOFT_PASS_AFTER: Duration = Duration::from_secs(90);
 
     let mut ok_streak = 0u32;
-    let mut soft_streak = 0u32;
     let mut last_diag = String::new();
     let mut attempts: u32 = 0;
 
@@ -1171,7 +1173,6 @@ async fn run_probe_loop(
         let diag = match &tick {
             ProbeTick::HardOk { detail, pass_kind } => {
                 ok_streak += 1;
-                soft_streak = 0;
                 if ok_streak >= OK_STREAK_NEED {
                     info!(
                         target = %target,
@@ -1190,38 +1191,25 @@ async fn run_probe_loop(
                 }
                 format!("hard ok streak={ok_streak}/{OK_STREAK_NEED} kind={pass_kind} {detail}")
             }
-            ProbeTick::SoftOk { detail, pass_kind } if elapsed >= SOFT_PASS_AFTER => {
-                soft_streak += 1;
-                ok_streak = 0;
-                if soft_streak >= OK_STREAK_NEED {
-                    warn!(
-                        target = %target,
-                        phase = phase_label,
-                        pass_kind = %pass_kind,
-                        attempts,
-                        elapsed_s = elapsed.as_secs(),
-                        detail = %detail,
-                        "health probe passed (soft)"
-                    );
-                    let _ = worker.state().append_history(&format!(
-                        "health: pass soft phase={phase_label} kind={pass_kind} target={} detail={detail}",
-                        target.as_str()
-                    ));
-                    return Ok(());
-                }
-                format!("soft ok streak={soft_streak}/{OK_STREAK_NEED} kind={pass_kind} {detail}")
-            }
             ProbeTick::SoftOk { detail, pass_kind } => {
                 ok_streak = 0;
-                soft_streak = 0;
-                format!(
-                    "soft-eligible kind={pass_kind} (wait {}s): {detail}",
-                    SOFT_PASS_AFTER.as_secs()
-                )
+                warn!(
+                    target = %target,
+                    phase = phase_label,
+                    pass_kind = %pass_kind,
+                    attempts,
+                    elapsed_s = elapsed.as_secs(),
+                    detail = %detail,
+                    "health probe degraded (soft); not counting as recovery success"
+                );
+                let _ = worker.state().append_history(&format!(
+                    "health: degraded phase={phase_label} kind={pass_kind} target={} detail={detail}",
+                    target.as_str()
+                ));
+                format!("degraded kind={pass_kind} {detail}")
             }
             ProbeTick::NotReady { detail } => {
                 ok_streak = 0;
-                soft_streak = 0;
                 detail.clone()
             }
         };
@@ -1268,13 +1256,10 @@ enum ProbeTick {
     },
 }
 
-fn backend_storage_writable(health: &serde_json::Value) -> bool {
-    // Missing means an older backend from before the storage-preflight field;
-    // preserve rollback/upgrade compatibility for those images.
-    match health.get("storage_writable") {
-        None => true,
-        Some(value) => value.as_bool().unwrap_or(false),
-    }
+/// Soft ticks never complete a wait. Only HardOk may.
+#[cfg(test)]
+fn probe_tick_completes_job(tick: &ProbeTick) -> bool {
+    matches!(tick, ProbeTick::HardOk { .. })
 }
 
 async fn probe_one_tick(
@@ -1283,6 +1268,19 @@ async fn probe_one_tick(
     elapsed: Duration,
     mode: FrontendProbe,
 ) -> ProbeTick {
+    match worker.docker().federation_worker_healthy().await {
+        Ok(true) => {}
+        Ok(false) => {
+            return ProbeTick::NotReady {
+                detail: "federation worker health/image not ready".into(),
+            }
+        }
+        Err(error) => {
+            return ProbeTick::NotReady {
+                detail: format!("federation worker probe: {error}"),
+            }
+        }
+    }
     const LOOSE_FRONTEND_AFTER: Duration = Duration::from_secs(45);
 
     let docker = worker.docker();
@@ -1348,15 +1346,16 @@ async fn probe_one_tick(
     // Older backends do not expose this field; retain upgrade compatibility.
     // New backends only start after a real uid-1000 storage write probe.
     let storage = backend_storage_writable(&json);
+    let routes = backend_routes_full(&json);
     let version_ok =
         target.matches_runtime_version(version) || commit_matches_target(target, commit_sha);
     let backend_identity_ok = version_ok || backend_img_ok;
 
-    if !db || !mig || !storage {
+    if !backend_business_ready(&json) {
         return ProbeTick::NotReady {
             detail: format!(
-                "backend up but db_connected={db} migrations_applied={mig} storage_writable={storage} \
-                 version={version:?} commit={commit_sha:?} image={backend_image}"
+                "backend up but db_connected={db} migrations_applied={mig} routes_full={routes} \
+                 storage_writable={storage} version={version:?} commit={commit_sha:?} image={backend_image}"
             ),
         };
     }
@@ -1602,17 +1601,20 @@ mod health_match_tests {
     }
 
     #[test]
-    fn backend_storage_health_is_strict_when_field_is_present() {
-        assert!(backend_storage_writable(&serde_json::json!({})));
-        assert!(backend_storage_writable(
-            &serde_json::json!({ "storage_writable": true })
-        ));
-        assert!(!backend_storage_writable(
-            &serde_json::json!({ "storage_writable": false })
-        ));
-        assert!(!backend_storage_writable(
-            &serde_json::json!({ "storage_writable": "invalid-old-shape" })
-        ));
+    fn soft_ok_never_completes_probe_wait() {
+        let soft = ProbeTick::SoftOk {
+            detail: "proxy down".into(),
+            pass_kind: "soft_backend_fe_img_proxy_down",
+        };
+        let hard = ProbeTick::HardOk {
+            detail: "ok".into(),
+            pass_kind: "hard_backend",
+        };
+        assert!(!probe_tick_completes_job(&soft));
+        assert!(probe_tick_completes_job(&hard));
+        assert!(!probe_tick_completes_job(&ProbeTick::NotReady {
+            detail: "down".into()
+        }));
     }
 
     #[test]

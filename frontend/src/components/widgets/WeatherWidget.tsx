@@ -1,8 +1,3 @@
-/**
- * 天气小组件 - 重构版
- * 使用glass毛玻璃效果和现代化设计
- */
-
 import type { TranslationKeys } from '../../i18n'
 import type { WeatherData } from '../../utils/dynamicContent'
 
@@ -33,11 +28,10 @@ import { GlowBackground } from './shared/GlowBackground'
 import { WidgetShell } from './shared/WidgetShell'
 import { WidgetSkeleton } from './shared/WidgetSkeleton'
 
-// 缓存配置
 const CACHE_KEY = 'weather_data_cache'
-const CACHE_DURATION = 30 * 60 * 1000 // 30分钟
+const CACHE_DURATION = 30 * 60 * 1000
 
-/** WMO 天气代码 → 翻译键。模块级常量，别在函数里重建这张表 */
+// WMO 码→翻译键；模块级常量，别在函数里重建。
 const WEATHER_KEY_BY_CODE: Record<number, keyof TranslationKeys['weather']> = {
   0: 'sunny',
     1: 'sunny',
@@ -69,34 +63,17 @@ const WEATHER_KEY_BY_CODE: Record<number, keyof TranslationKeys['weather']> = {
   99: 'thunderstorm',
 }
 
-/**
- * 根据 WMO 天气代码返回对应的翻译键
- * @param code WMO 天气代码
- * @returns 翻译键名
- */
 function getWeatherKeyFromCode(code: number): keyof TranslationKeys['weather'] {
   return WEATHER_KEY_BY_CODE[code] || 'unknown'
 }
 
-/**
- * 根据 WMO 天气代码返回对应的主题颜色
- * @param code WMO 天气代码
- * @returns 主题颜色
- */
 function getThemeColorFromCode(code: number): string {
-  // 晴天
   if (code === 0 || code === 1) return '#f59e0b'
-  // 多云/阴天
   if (code === 2 || code === 3) return '#6b7280'
-  // 雾
   if (code === 45 || code === 48) return '#9ca3af'
-  // 雨
   if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return '#3b82f6'
-  // 雪
   if ((code >= 71 && code <= 77) || (code >= 85 && code <= 86)) return '#6366f1'
-  // 雷暴
   if (code >= 95 && code <= 99) return '#8b5cf6'
-  // 默认
   return '#10b981'
 }
 
@@ -115,23 +92,15 @@ export const WeatherWidget = memo(
     const anim = useAnimationLevel()
     const { t, locale } = useI18n()
 
-    // 🆕 使用触发式动画 - 组件挂载时播放一次天气图标动画
     const { isAnimating } = useLoopAnimation({
-      duration: 3000, // 天气图标摇摆约3秒周期
-      trigger: 'mount', // 固定值，组件首次渲染时触发一次
-      enabled: anim.loop, // 低端设备禁用
+      duration: 3000,
+      trigger: 'mount',
+      enabled: anim.loop,
     })
 
     const canAnimate = anim.loop && isAnimating
 
-    /*
-     * 走全局 motionShim，不再自建一份 `import('motion/react')` + 局部 state。
-     *
-     * 本地那份的真正代价不是重复下载（chunk 有缓存），而是元素类型会从
-     * 'div' 变成 motion.div —— React 视作不同类型，整棵子树卸载重挂
-     * （图标重新解码、内部状态丢失）。shim 是全局单例：首页在 applyWidgets
-     * 前已 ensureMotionReady()，挂载时就是真 motion 组件，不存在中途切换。
-     */
+    // 走全局 motionShim，勿自建 import('motion/react')：元素类型会从 div 变成 motion.div，整棵子树重挂。
     const MDiv = motion.div
     const MSpan = motion.span
 
@@ -139,7 +108,6 @@ export const WeatherWidget = memo(
     const [loading, setLoading] = useState(true)
     const [fetchError, setFetchError] = useState('')
 
-    // 从缓存加载
     const loadFromCache = useCallback(() => {
       try {
         const cached = localStorage.getItem(CACHE_KEY)
@@ -156,7 +124,6 @@ export const WeatherWidget = memo(
       return false
     }, [t])
 
-    // 保存到缓存
     const saveToCache = useCallback(
       (data: WeatherData) => {
         try {
@@ -207,13 +174,11 @@ export const WeatherWidget = memo(
         return
       }
 
-      // 先尝试从缓存加载
       const hasCache = loadFromCache()
       if (hasCache) {
         setLoading(false)
       }
 
-      // 然后获取最新天气
       fetchWeather()
     }, [
       loadFromCache,
@@ -223,16 +188,13 @@ export const WeatherWidget = memo(
       t.weatherWidget.sampleCity,
     ])
 
-    // 使用首页原子化可见性感知定时器，页面隐藏时自动暂停
     useHomeVisibilityInterval(fetchWeather, CACHE_DURATION, !isPreview)
 
-    // 根据天气状况选择主题色 - 使用 useMemo 缓存
     const themeColor = useMemo(() => {
       if (!weatherData) return '#10b981'
       return getThemeColorFromCode(weatherData.weatherCode ?? 0)
     }, [weatherData])
 
-    // 获取翻译后的天气状态文本
     const weatherText = useMemo(() => {
       if (!weatherData) return ''
       const key = getWeatherKeyFromCode(weatherData.weatherCode ?? 0)
@@ -259,7 +221,6 @@ export const WeatherWidget = memo(
       )
     }
 
-    // 4x2 宽版布局 - 左右结构重构 (左3/5 右2/5)
     if (config.size === '4x2') {
       return (
         <WidgetShell
@@ -276,9 +237,7 @@ export const WeatherWidget = memo(
             />
           }
         >
-          {/* 左侧：主要信息 (60%) */}
           <div className="w-[60%] flex flex-col justify-between">
-              {/* 顶部：城市（flex-1 拿到确定宽度，避免 fit-content 测量陷阱） */}
               <div className="flex justify-between items-start">
                 <FitText
                   as="div"
@@ -290,7 +249,6 @@ export const WeatherWidget = memo(
                 </FitText>
               </div>
 
-              {/* 中部：温度和图标 */}
               <div className="flex items-center gap-3 my-auto">
                 <MDiv
                   className="shrink-0"
@@ -330,7 +288,6 @@ export const WeatherWidget = memo(
                 </div>
               </div>
 
-              {/* 底部：详细信息 (一行排列) */}
               <div
                 className="flex items-center gap-3 text-gray-500 dark:text-gray-400 overflow-hidden whitespace-nowrap"
                 style={{ fontSize: '0.6rem' }}
@@ -389,7 +346,6 @@ export const WeatherWidget = memo(
               </div>
             </div>
 
-            {/* 右侧：未来天气预报 (40%) */}
             <div className="w-[40%] pl-2 flex flex-col justify-between gap-1 h-full">
               {weatherData.forecast ? (
                 weatherData.forecast.slice(0, 3).map((day, i) => (
@@ -444,9 +400,7 @@ export const WeatherWidget = memo(
       )
     }
 
-    // 4x1 紧凑横版布局 (参考 4x2 但只显示1天预报)
     if (config.size === '4x1') {
-      // 获取明天预报 (通常是索引1，索引0为今天)
       const tomorrow =
         weatherData.forecast && weatherData.forecast.length > 1
           ? weatherData.forecast[1]
@@ -467,9 +421,7 @@ export const WeatherWidget = memo(
             />
           }
         >
-          {/* 左侧：主要信息 (75%) */}
           <div className="w-[75%] flex items-center pr-3 gap-3">
-              {/* 图标 & 温度 */}
               <div className="flex items-center gap-2 shrink-0">
                 <WeatherAssetIcon
                   icon={weatherData.icon}
@@ -496,7 +448,6 @@ export const WeatherWidget = memo(
                 </div>
               </div>
 
-              {/* 城市 & 详情 */}
               <div className="flex flex-col justify-center gap-1 min-w-0 flex-1">
                 <FitText
                   as="div"
@@ -529,7 +480,6 @@ export const WeatherWidget = memo(
               </div>
             </div>
 
-            {/* 右侧：明天预报 (25%) - 极简模式 */}
             <div className="w-[25%] pl-1 flex flex-col items-center justify-center h-full">
               {tomorrow ? (
                 <>
@@ -577,7 +527,6 @@ export const WeatherWidget = memo(
           />
         }
       >
-        {/* 图标：与温度紧邻，整组内容在卡内垂直居中 */}
         <div className="h-9 shrink-0 mb-1">
             <MSpan
               className="inline-flex h-9 w-9 items-center justify-center origin-center"
@@ -606,9 +555,6 @@ export const WeatherWidget = memo(
             </MSpan>
           </div>
 
-          {/* 主视觉：温度 + 状态同一基线横排，吃满整行宽度（右侧不留死区）。
-              温度是数字与语言无关，固定大号；状态 FitText 占余下宽度自适应。
-              不加 overflow 裁剪，绝不拆切字形 */}
           <MDiv
             className="flex items-baseline gap-2 min-w-0 mb-1.5 shrink-0"
             initial={{ x: -20, opacity: 0 }}
@@ -625,7 +571,6 @@ export const WeatherWidget = memo(
             >
               {weatherData.temperature}
             </div>
-            {/* 状态：占满温度右侧余宽，任何语言单行自适应 */}
             <FitText
               className="flex-1 text-gray-600 dark:text-gray-400 font-medium"
               max={13}
@@ -635,7 +580,6 @@ export const WeatherWidget = memo(
             </FitText>
           </MDiv>
 
-          {/* 底部信息组：城市 + 详情，次级信息收在底部，弱化颜色拉开层级 */}
           <MDiv
             className="shrink-0 mb-1"
             initial={{ x: -20, opacity: 0 }}
@@ -656,7 +600,6 @@ export const WeatherWidget = memo(
             </FitText>
           </MDiv>
 
-          {/* 次要信息：湿度/风速/空气质量 - 横向紧凑排列，shrink-0 保证不被主区挤出 */}
           {(weatherData.humidity !== undefined ||
             weatherData.windSpeed !== undefined ||
             weatherData.aqi !== undefined) && (
@@ -693,7 +636,6 @@ export const WeatherWidget = memo(
                     icon={WEATHER_DETAIL_ICON_ASSETS.wind}
                     className="h-3.5 w-3.5 shrink-0 object-contain"
                   />
-                  {/* 2x2 空间紧，只显数字，单位收进 title 提示 */}
                   <span className="text-gray-600 dark:text-gray-400">
                     {Math.round(weatherData.windSpeed)}
                   </span>

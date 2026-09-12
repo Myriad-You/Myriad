@@ -46,7 +46,7 @@ pub(super) async fn execute_fuzzy_search(
                     .as_deref()
                     .map(|u| calculate_fuzzy_score(&query_lower, &u.to_lowercase()))
                     .unwrap_or(0.0);
-                // Also score normalized friend-link aliases against category tokens
+                // Also score normalized friend-link aliases against the source category field.
                 let alias_category_score = {
                     use crate::services::agent::executor::utils::normalize_brew_category_filter;
                     let normalized = normalize_brew_category_filter(query);
@@ -207,7 +207,7 @@ pub(super) async fn execute_fuzzy_search(
             "notFound": true,
             "canDiscover": can_discover,
             "discoveryHint": discovery_hint,
-            "suggestions": ["请尝试其他关键词", "检查拼写是否正确"]
+            "suggestions": ["Try a different keyword", "Check the spelling"]
         }));
     }
 

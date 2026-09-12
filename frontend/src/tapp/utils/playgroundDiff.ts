@@ -1,16 +1,9 @@
-/**
- * Lightweight line-level text diff for Playground version compare.
- * Pure helpers — no React, no DOM.
- */
-
 export type DiffOp = 'equal' | 'add' | 'remove'
 
 export interface DiffLine {
   op: DiffOp
   text: string
-  /** 1-based line number in the "before" text (removes + equals). */
   oldLine?: number
-  /** 1-based line number in the "after" text (adds + equals). */
   newLine?: number
 }
 
@@ -21,19 +14,13 @@ export interface SideBySideRow {
 
 function splitLines(text: string): string[] {
   if (!text) return []
-  // Preserve empty trailing line semantics of split; drop a single trailing empty
-  // only when the source ends with a newline (common editor display).
   const lines = text.split('\n')
-  if (lines.length > 0 && lines[lines.length - 1] === '' && text.endsWith('\n')) {
+  if (lines.length > 0 && lines.at(-1) === '' && text.endsWith('\n')) {
     lines.pop()
   }
   return lines
 }
 
-/**
- * Myers-inspired O(ND) line diff; falls back to naive for huge inputs.
- * Returns a unified sequence of equal/add/remove ops.
- */
 export function computeLineDiff(before: string, after: string): DiffLine[] {
   const a = splitLines(before)
   const b = splitLines(after)
@@ -46,7 +33,6 @@ export function computeLineDiff(before: string, after: string): DiffLine[] {
     return a.map((text, i) => ({ op: 'remove' as const, text, oldLine: i + 1 }))
   }
 
-  // Cap to keep UI responsive on huge generated files.
   const MAX = 4_000
   if (a.length > MAX || b.length > MAX) {
     return naiveHeadTailDiff(a, b)
@@ -122,11 +108,9 @@ function backtrack(
     }
   }
 
-  ops.reverse()
-
   let oldLine = 0
   let newLine = 0
-  return ops.map((row) => {
+  return ops.toReversed().map((row) => {
     if (row.op === 'equal') {
       oldLine++
       newLine++
@@ -141,7 +125,6 @@ function backtrack(
   })
 }
 
-/** Cheap fallback: shared prefix/suffix, middle as remove-then-add. */
 function naiveHeadTailDiff(a: string[], b: string[]): DiffLine[] {
   let start = 0
   while (start < a.length && start < b.length && a[start] === b[start]) {
@@ -178,7 +161,6 @@ function naiveHeadTailDiff(a: string[], b: string[]): DiffLine[] {
   return result
 }
 
-/** Pair unified ops into side-by-side rows (remove/add aligned). */
 export function toSideBySide(lines: DiffLine[]): SideBySideRow[] {
   const rows: SideBySideRow[] = []
   let i = 0

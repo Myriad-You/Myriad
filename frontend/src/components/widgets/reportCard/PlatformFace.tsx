@@ -1,10 +1,3 @@
-/**
- * Mount the platform-specific report face inside the card shell.
- *
- * Face 按平台分包，但禁止 React.lazy + Suspense 渲染期挂起。
- * 首页在 setWidgets 前 preloadPlatformFaces；此处只做同步 registry 读取。
- * 未预热时（组件库漏预热等）补拉一次再同步画，避免错峰入场。
- */
 import { createElement, useEffect, useReducer } from 'react'
 import { isKnownReportPlatformId } from '../../../utils/reportCardVisuals'
 import { Spinner } from '../../Spinner'
@@ -21,11 +14,7 @@ interface PlatformFaceProps {
   showOverview: boolean
   onContentChange: (content: any) => void
   allowLoop: boolean
-  /**
-   * 小组件库预览。face 必须据此关掉在线状态轮询：预览数据里的
-   * gamertag / online_id 是 'PreviewGamer' / 'PreviewPSN' 这类假身份，
-   * 不 gate 的话一开编辑模式就会拿它们去打后端，并每 120s 重复一次。
-   */
+  // 预览须关掉在线轮询：fixture 身份是假的，不 gate 会拿去打后端。
   isPreview?: boolean
 }
 
@@ -96,7 +85,6 @@ export function PlatformFace({
   })
 }
 
-// 兼容旧 import 点
 export {
   preloadPlatformFaces as preloadPlatformFaceBatch,
   preloadPlatformFacesForWidgetTypes,

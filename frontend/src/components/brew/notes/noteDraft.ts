@@ -1,13 +1,6 @@
-/**
- * 编辑器的本地草稿。
- *
- * 第一版没有服务端草稿 —— 加 `status` 列会牵动所有列表查询，那是第二版的事。
- * 在此之前，正在编辑的内容存在这台浏览器里，刷新、误关标签页都能捡回来。
- *
- * 这份草稿只属于这台浏览器上的这个人：不同步、不发给服务端、不进任何载荷。
- */
+/** 草稿只在本机：不同步、不进任何载荷。 */
 
-/** 草稿在 localStorage 里的键。`new` 是「还没发布的那篇」。 */
+/** `new` 是还没发布的那篇。 */
 export function noteDraftKey(id: number | 'new'): string {
   return `brew:note-draft:${id}`
 }
@@ -15,11 +8,9 @@ export function noteDraftKey(id: number | 'new'): string {
 export interface NoteDraft {
   title: string
   contentMd: string
-  /** 写入时刻（毫秒）。过期草稿靠它判断。 */
   savedAt: number
 }
 
-/** 草稿多久之后不再自动恢复。超过就当没有。 */
 export const NOTE_DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
 export function readNoteDraft(
@@ -40,7 +31,7 @@ export function readNoteDraft(
       savedAt,
     }
   } catch {
-    // 隐私模式 / 站点数据被禁用时读 localStorage 会抛
+    // 读 localStorage 可能抛。
     return null
   }
 }
@@ -56,7 +47,7 @@ export function writeNoteDraft(
       JSON.stringify({ ...draft, savedAt: now }),
     )
   } catch {
-    // 写不进去就不写。草稿丢失不该挡住编辑本身。
+    // 写不进去就不写；草稿丢失不挡住编辑。
   }
 }
 
@@ -64,16 +55,10 @@ export function clearNoteDraft(id: number | 'new'): void {
   try {
     globalThis.localStorage?.removeItem(noteDraftKey(id))
   } catch {
-    /* 同上 */
   }
 }
 
-/**
- * 草稿与已保存内容是否真的不同。
- *
- * 只比正文和标题，不比时间戳 —— 否则每次自动保存都会显示「有未保存改动」。
- * 首尾空白不算差异：编辑器结束时也会 trim。
- */
+/** 只比正文和标题，不比时间戳。首尾空白不算差异。 */
 export function draftDiffersFrom(
   draft: NoteDraft | null,
   saved: { title: string; contentMd: string },
@@ -85,18 +70,13 @@ export function draftDiffersFrom(
   )
 }
 
-/** 光标处插入 Markdown 标记后的新状态。工具栏每个按钮都走这一个函数。 */
 export interface WrapResult {
   value: string
-  /** 插入后光标（或选区）的新位置。 */
   selectionStart: number
   selectionEnd: number
 }
 
-/**
- * 用 `before` / `after` 包住选区。没有选区时插入 `placeholder` 并把它选中，
- * 这样按下按钮就能直接打字覆盖。
- */
+/** 没有选区时插入 placeholder 并选中。 */
 export function wrapSelection(
   value: string,
   start: number,
@@ -115,12 +95,7 @@ export function wrapSelection(
   }
 }
 
-/**
- * 在选区所在的每一行前面加前缀（标题、引用、列表）。
- *
- * 按行处理而不是按选区包裹 —— `## ` 加在选区中间不产生标题，只产生一段
- * 带井号的普通文字。已经有同样前缀的行会被去掉前缀，按钮因此是可切换的。
- */
+/** 按行加前缀，不按选区包裹。已有同样前缀则去掉。 */
 export function prefixLines(
   value: string,
   start: number,
@@ -128,8 +103,7 @@ export function prefixLines(
   prefix: string,
 ): WrapResult {
   const lineStart = value.lastIndexOf('\n', start - 1) + 1
-  // 选区正好停在换行符之后时，用户选的是「到上一行为止」，不该把下一行也带上。
-  // 少了这一步，选中「甲\n乙\n」会连丙一起加上前缀。
+  // 选区停在换行后，不把下一行带上。
   const scanFrom = end > start && value[end - 1] === '\n' ? end - 1 : end
   const lineEndIndex = value.indexOf('\n', scanFrom)
   const lineEnd = lineEndIndex === -1 ? value.length : lineEndIndex

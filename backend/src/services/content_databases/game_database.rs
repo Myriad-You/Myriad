@@ -1,6 +1,6 @@
 //! Steam 游戏数据库
 //!
-//! 预置常见游戏信息，用于快速分类用户游戏库
+//! 从 `game_database.json` 加载（缺失则写空数组）；用于分类用户游戏库
 
 #![allow(dead_code)]
 
@@ -56,22 +56,17 @@ impl GameDatabase {
 
         if file_path.exists() {
             match fs::read_to_string(file_path) {
-                Ok(content) => {
-                    // Try parsing as array first
-                    match serde_json::from_str::<Vec<GameEntry>>(&content) {
-                        Ok(entries_list) => {
-                            for entry in entries_list {
-                                entries.insert(entry.name.clone(), entry);
-                            }
-                            info!("Loaded {} entries from game database", entries.len());
+                Ok(content) => match serde_json::from_str::<Vec<GameEntry>>(&content) {
+                    Ok(entries_list) => {
+                        for entry in entries_list {
+                            entries.insert(entry.name.clone(), entry);
                         }
-                        Err(e) => {
-                            error!("Failed to parse game database JSON as array: {}", e);
-                            // Maybe it's wrapped in an object?
-                            // For now, just log error.
-                        }
+                        info!("Loaded {} entries from game database", entries.len());
                     }
-                }
+                    Err(e) => {
+                        error!("Failed to parse game database JSON as array: {}", e);
+                    }
+                },
                 Err(e) => error!("Failed to read game database file: {}", e),
             }
         } else {
@@ -156,7 +151,7 @@ impl GameDatabase {
             }
         }
 
-        // 按游玩时间排序类型
+        // 按类型聚合
         let mut genre_analysis: Vec<GameGenreAnalysis> = genre_map
             .into_iter()
             .map(|(genre, games)| {
@@ -194,12 +189,12 @@ impl GameDatabase {
             .collect();
 
         let summary = if top_genres.is_empty() {
-            format!("拥有 {} 款游戏", total_games)
+            format!("Owns {total_games} games")
         } else {
             format!(
-                "拥有 {} 款游戏，主要喜欢{}类型",
+                "Owns {} games, mostly likes {}",
                 total_games,
-                top_genres.join("、")
+                top_genres.join(", ")
             )
         };
 

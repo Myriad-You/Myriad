@@ -1,4 +1,3 @@
-/* 白话分节 + 正文 1 2 3 步骤样式 */
 
 .setting-guide-body {
   display: flex;
@@ -38,7 +37,6 @@ html.dark .setting-guide-block-text {
   color: var(--cfg-text-1);
 }
 
-/* —— 正文步骤 1 / 2 / 3 —— */
 
 .setting-guide-steps {
   margin: 0;
@@ -86,7 +84,6 @@ html.dark .setting-guide-step-text {
   color: var(--cfg-text-1);
 }
 
-/* 指南正文中的外链（密钥/控制台 URL 等） */
 .setting-guide-link {
   color: var(--cfg-accent, #4f6ef7);
   text-decoration: underline;

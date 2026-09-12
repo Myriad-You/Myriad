@@ -1,13 +1,3 @@
-/**
- * 米哈游游戏卡片（固定 4x2）
- *
- * Enka.Network 展柜（genshin / hsr / zzz，一卡一游戏），仅使用公开 UID，
- * 不收集用户 Cookie、不需要服务端密钥。
- * 设置方式与社交网络小组件一致：编辑模式下长按 → 浮窗面板。
- *
- * Xbox / PSN 已升级为独立的数据报告卡（report-xbox / report-psn），不再挤在这里。
- */
-
 import type { CSSProperties } from 'react'
 import type { WidgetComponentProps } from '../widgetGridTypes'
 import {
@@ -40,9 +30,6 @@ import { WidgetShell } from './shared/WidgetShell'
 import { WidgetSkeleton } from './shared/WidgetSkeleton'
 import './GamePresenceWidget.css'
 
-// Types
-
-/** 历史上支持过 xbox / psn；现在它们走独立报告卡，这里只剩米哈游 */
 export type GamePlatformId = 'hoyolab'
 export type HoyoGame = 'genshin' | 'hsr' | 'zzz'
 
@@ -50,7 +37,6 @@ export interface GamePresenceWidgetConfig {
   platformId?: GamePlatformId
   accountId?: string
   game?: HoyoGame
-  /** Host-stored font URL from POST /api/home/widget-fonts; empty = system font */
   fontUrl?: string
 }
 
@@ -81,7 +67,6 @@ interface ShowcaseItem {
   name: string
   level?: number | null
   icon?: string | null
-  /** 大幅立绘（聚焦展示用） */
   art?: string | null
   rarity?: number | null
 }
@@ -99,23 +84,14 @@ interface GamePresenceData {
   degrade_reason?: string | null
 }
 
-/** 游戏视觉主题 —— 与品牌色对齐，亮暗双套 */
 interface GameTheme {
-  /** 亮色主色 */
   color: string
-  /** 暗色主色 */
   darkColor: string
 }
 
-// Constants — brand-aligned palettes
-
-/** 米哈游按子游戏细分（同一平台不同气质） */
 const HOYO_GAME_THEMES: Record<HoyoGame, GameTheme> = {
-  // 原神：琥珀金 / 旅人风
   genshin: { color: '#C9A227', darkColor: '#E8C547' },
-  // 星铁：星轨紫
   hsr: { color: '#6B5CE7', darkColor: '#9B8CFF' },
-  // 绝区零：霓虹黄
   zzz: { color: '#E8C547', darkColor: '#FFE566' },
 }
 
@@ -127,16 +103,12 @@ const HOYO_GAMES: { id: HoyoGame, labelKey: 'genshin' | 'hsr' | 'zzz' }[] = [
   { id: 'zzz', labelKey: 'zzz' },
 ]
 
-/** 每个游戏的品牌资产：App 图标（前景）+ wordmark（低透明度背景装饰）+ 系统字体气质 */
 const GAME_META: Record<
   HoyoGame,
   {
-    /** 官方 App Store 应用图标 */
     appIcon: string
-    /** wordmark mask class，仅作背景装饰 */
     logoClass: string
     fontClass: string
-    /** 立绘裁切焦点（三家立绘构图不同：原神横幅居中 / 星铁签绘偏上 / ZZZ 半身像偏上） */
     artPos: string
   }
 > = {
@@ -160,7 +132,6 @@ const GAME_META: Record<
   },
 }
 
-/** 稀有度描边色：5★ 金 / 4★ 紫（ZZZ 的 S/A 级由后端映射成 5/4） */
 function rarityRing(rarity: number | null | undefined, fallback: string): string {
   if (rarity === 5) return '#E8B33B'
   if (rarity === 4) return '#A47CE0'
@@ -178,7 +149,6 @@ function resolveTheme(
   const base = HOYO_GAME_THEMES[game] || HOYO_GAME_THEMES.genshin
   const primary = isDark ? base.darkColor : base.color
 
-  // 从 hex 主色生成半透明表面（避免每处手写 rgba）
   return {
     primary,
     softBgStrong: hexToRgba(primary, isDark ? 0.22 : 0.16),
@@ -194,8 +164,6 @@ function hexToRgba(hex: string, alpha: number): string {
   const b = Number.parseInt(h.slice(4, 6), 16)
   return `rgba(${r},${g},${b},${alpha})`
 }
-
-// Settings modal (global singleton, same pattern as SocialNetworkWidget)
 
 interface SettingsState {
   isOpen: boolean
@@ -263,7 +231,6 @@ const GamePresenceSettingsModal = memo(() => {
   const { isOpen, anchorRect, onSave } = globalSettings
   const tw = t.gamePresenceWidget
 
-  // Sync draft when opening
   useEffect(() => {
     if (isOpen) {
       setDraftAccountId(globalSettings.accountId)
@@ -391,10 +358,7 @@ const GamePresenceSettingsModal = memo(() => {
 
 GamePresenceSettingsModal.displayName = 'GamePresenceSettingsModal'
 
-// Data fetch
-
 const dataCache = new Map<string, { data: GamePresenceData, at: number }>()
-/** 展柜数据变化以天计，6 小时刷新一次足够 */
 const DATA_TTL = 6 * 3600 * 1000
 const MAX_DATA_CACHE = 20
 const inflight = new Map<string, Promise<GamePresenceData | null>>()
@@ -455,8 +419,6 @@ async function fetchGamePresence(
   return p
 }
 
-// Widget
-
 function resolveConfig(config: WidgetComponentProps['config']): {
   platformId: GamePlatformId
   accountId: string
@@ -467,8 +429,6 @@ function resolveConfig(config: WidgetComponentProps['config']): {
   const game = (['genshin', 'hsr', 'zzz'] as const).includes(c.game as HoyoGame)
     ? (c.game as HoyoGame)
     : 'genshin'
-  // 旧配置里可能残留 xbox / psn（现已拆成独立报告卡），统一坍缩回 hoyolab；
-  // 残留的 accountId（gamertag 等）对 Enka 无效，会在 UI 上表现为获取失败，重新配置即可
   return {
     platformId: 'hoyolab',
     accountId: (c.accountId || '').trim(),
@@ -488,7 +448,6 @@ const GamePresenceWidget = memo(
       isPreview ? 1 : undefined,
     )
     const localRef = useRef<HTMLDivElement | null>(null)
-    // Merge ResizeObserver ref + local ref for settings positioning
     const setRefs = useCallback(
       (node: HTMLDivElement | null) => {
         localRef.current = node
@@ -510,7 +469,6 @@ const GamePresenceWidget = memo(
     const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const isLongPressRef = useRef(false)
 
-    // Sync from config
     useEffect(() => {
       const next = resolveConfig(config)
       setAccountId(next.accountId)
@@ -541,7 +499,6 @@ const GamePresenceWidget = memo(
       }
     }, [fontUrl])
 
-    // Fetch (initial load + 6h 低频轮询 —— 展柜数据变化以天计，长驻页面兜底刷新用)
     useEffect(() => {
       if (isPreview) return
       if (!accountId) {
@@ -553,8 +510,6 @@ const GamePresenceWidget = memo(
       let hasData = false
       let retryTimer: number | null = null
 
-      // 初次加载失败不该在错误态卡满 6 小时（后端错误只缓存 30s，多半是
-      // Enka 抖动或刚配置好 UID）：60s 后静默重试，拿到数据即恢复
       const scheduleRetry = () => {
         if (cancelled || retryTimer != null) return
         retryTimer = window.setTimeout(() => {
@@ -598,7 +553,6 @@ const GamePresenceWidget = memo(
       }
 
       load(true)
-      // 后台标签页跳过请求，回到前台后由下一次 tick 自然恢复
       const intervalId = window.setInterval(() => {
         if (document.hidden) return
         load(false)
@@ -614,12 +568,10 @@ const GamePresenceWidget = memo(
     const theme = useMemo(() => resolveTheme(game, isDark), [game, isDark])
     const iconColor = theme.primary
 
-    // 展柜聚焦轮播：4s 一换，后台标签页暂停（共享可见性管理器），低动效模式不轮播
     const showcaseLen = data?.showcase?.length ?? 0
     const [focusIndex, setFocusIndex] = useState(0)
     const queueRef = useRef<HTMLDivElement | null>(null)
 
-    // 队列单行滚动：聚焦项变化时自动滚到可视区中央
     useEffect(() => {
       const el = queueRef.current
       if (!el) return
@@ -716,7 +668,6 @@ const GamePresenceWidget = memo(
     const hasAccount = Boolean(accountId)
     const meta = GAME_META[game]
 
-    // 4x2 content: 顶部数值 → 角色横条 → 底部 App 图标 + 身份信息
     const content = useMemo(() => {
       const appIcon = (size: number) => (
         <img
@@ -727,7 +678,6 @@ const GamePresenceWidget = memo(
           loading="lazy"
         />
       )
-      /* 原 wordmark 降级为背景装饰：低透明度、中性色、右侧垂直居中 */
       const wordmarkBg = (
         <span
           className={`gp-logo ${meta.logoClass} absolute right-2 bottom-1 h-[42%] opacity-[0.05] dark:opacity-[0.07] text-gray-900 dark:text-gray-100 pointer-events-none`}
@@ -818,7 +768,6 @@ const GamePresenceWidget = memo(
 
       return (
         <div className={`relative h-full w-full flex gap-3 min-h-0 ${meta.fontClass}`}>
-          {/* 左：角色聚焦面板（1/3 宽、占满全高、大幅立绘 + 底部渐变信息条） */}
           {showcase.length > 0 && focused && (
             <div
               className="relative w-[34%] shrink-0 h-full rounded-lg overflow-hidden"
@@ -861,7 +810,6 @@ const GamePresenceWidget = memo(
                 </motion.div>
               </AnimatePresence>
 
-              {/* 底部渐变信息条：名字 + 等级/星级 */}
               <div className="absolute inset-x-0 bottom-0 px-2 pt-7 pb-1.5 bg-linear-to-t from-black/75 via-black/30 to-transparent pointer-events-none">
                 <div
                   className="text-white font-bold truncate leading-tight"
@@ -893,14 +841,11 @@ const GamePresenceWidget = memo(
             </div>
           )}
 
-          {/* 右列：待播队列（顶部）→ 指标行 → 弹性留白 → 身份底栏 */}
           <div className="relative flex-1 flex flex-col min-w-0 min-h-0">
             {wordmarkBg}
 
             {showcase.length > 0 ? (
               <>
-                {/* 待播队列：与顶部对齐。
-                   水平/垂直各留出余量，避免选中 scale(1.1) 时被 overflow 裁掉边缘 */}
                 <div
                   ref={queueRef}
                   className="scrollbar-hide w-full flex items-center gap-2 overflow-x-auto px-1.5 py-1.5 shrink-0"
@@ -932,7 +877,6 @@ const GamePresenceWidget = memo(
                   ))}
                 </div>
 
-                {/* 指标行：待播队列下面（标题在上、数值在下） */}
                 <div className="mt-2 flex items-center gap-5 shrink-0 overflow-hidden">
                   {[
                     ...(score ? [{ label: score.label, value: score.value }] : []),
@@ -969,7 +913,6 @@ const GamePresenceWidget = memo(
 
             <div className="flex-1 min-h-0" />
 
-            {/* 底栏：App 图标 + 昵称/UID */}
             <div className="flex items-center gap-2 shrink-0 min-w-0">
               {appIcon(30)}
               <div className="flex flex-col justify-center min-w-0 gap-0.5">

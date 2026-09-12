@@ -1,5 +1,5 @@
 import { API_URL } from '../../config'
-import { getDefaultLocale } from '../../i18n'
+import { hostLocaleHeaders } from '../../i18n/hostLocaleHeaders'
 import { currentCopy } from '../../i18n/localeCopy'
 import { parseApiErrorBody } from '../../services/api'
 import { getCSRFToken } from '../../utils/csrf'
@@ -11,15 +11,13 @@ import {
 import { userFacingError } from '../../utils/userFacingError'
 
 export interface ApiRequestOptions extends RequestInit {
-  /** Host-only runtime identity; never exposed to sandbox code. */
+  /** 仅宿主运行时身份；不进沙箱。 */
   runtimeGrant?: string
 }
 
-/** Structured HTTP error so callers keep status / Retry-After (not plain Error). */
 export class TappHttpError extends Error {
   readonly status: number
   readonly code?: string
-  /** Seconds until retry when 429 (from header or body). */
   readonly retryAfter?: number
   readonly body?: unknown
 
@@ -37,25 +35,6 @@ export class TappHttpError extends Error {
   }
 }
 
-function hostLocaleHeaders(): Record<string, string> {
-  const locale = getDefaultLocale()
-  let timezone = 'UTC'
-  try {
-    timezone = new Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-  } catch {
-    /* ignore */
-  }
-  return {
-    'X-Myriad-Locale': locale,
-    'X-Myriad-Timezone': timezone,
-    'Accept-Language': locale,
-  }
-}
-
-/**
- * Shared Tapp HTTP client. It owns CSRF recovery, runtime-grant recovery and
- * the backend's response-envelope normalization in one place.
- */
 export async function apiRequest<T>(
   endpoint: string,
   options: ApiRequestOptions = {},
@@ -132,20 +111,24 @@ export async function apiRequest<T>(
   }
 
   const result = await response.json()
-  if (typeof result === 'object' && result !== null && 'success' in result) {
-    if (!result.success) {
+  if (
+    typeof result === 'object' &&
+    result !== null &&
+    Object.hasOwn(result, 'success')
+  ) {
+    const payload = result as { success: unknown; error?: unknown; data?: T }
+    if (!payload.success) {
       throw new Error(
-        (typeof result.error === 'string' && result.error.trim()) ||
+        (typeof payload.error === 'string' && payload.error.trim()) ||
           currentCopy().errors.requestFailed,
       )
     }
-    if ('data' in result) return result.data as T
+    if (Object.hasOwn(payload, 'data')) return payload.data as T
     return result as T
   }
   return result as T
 }
 
-/** Shared host-only SSE parser used by bounded runtime streams. */
 export async function streamRuntimeEvents(
   endpoint: string,
   runtimeGrant: string,
@@ -157,6 +140,7 @@ export async function streamRuntimeEvents(
     headers: {
       Accept: 'text/event-stream',
       'X-Tapp-Runtime-Grant': runtimeGrant,
+      ...hostLocaleHeaders(),
     },
     credentials: 'include',
     signal,
@@ -202,7 +186,7 @@ export async function streamRuntimeEvents(
   let buffer = ''
   while (true) {
     const { done, value } = await reader.read()
-    buffer += decoder.decode(value, { stream: !done }).replace(/\r\n/g, '\n')
+    buffer += decoder.decode(value, { stream: !done }).replaceAll('\r\n', '\n')
     let boundary = buffer.indexOf('\n\n')
     while (boundary >= 0) {
       const block = buffer.slice(0, boundary)
@@ -219,7 +203,6 @@ export async function streamRuntimeEvents(
         try {
           parsed = JSON.parse(raw)
         } catch {
-          // Control events may intentionally contain short plain text.
         }
         onEvent(eventName, parsed)
       }

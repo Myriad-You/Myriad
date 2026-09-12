@@ -1,6 +1,3 @@
-/**
- * 日期范围弹出层 — 设置页令牌 + 连贯选区 + 轻动效
- */
 
 .date-range-popover {
   --dr-cell: 2rem;
@@ -16,7 +13,7 @@
 
   position: fixed;
 
-  /* top/left 由 JS 写入（含 lerp），与指南浮窗一致 */
+  /* top/left: JS lerp */
   top: 0;
   left: 0;
   z-index: 10060;
@@ -45,7 +42,7 @@
   font-family: inherit;
   outline: none;
 
-  /* 先挂载后量尺寸：未 ready 时隐藏，对齐 SettingTitleHelp is-ready */
+  /* hide until measured */
   opacity: 0;
   pointer-events: none;
   transform: translate3d(0, 8px, 0) scale(0.97);
@@ -105,7 +102,6 @@ html.dark .date-range-popover {
     0 18px 44px -10px color-mix(in srgb, var(--dr-accent) 22%, transparent);
 }
 
-/* 指向锚点的小三角 */
 .date-range-popover-caret {
   position: absolute;
   width: 0.55rem;
@@ -225,7 +221,6 @@ html.dark .date-range-popover {
   transition: background 0.15s ease, box-shadow 0.15s ease;
 }
 
-/* 当前正在选的一端轻高亮 */
 .date-range-summary-item.is-active {
   background: color-mix(in srgb, var(--dr-accent) 10%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dr-accent) 28%, transparent);
@@ -368,7 +363,6 @@ button.date-range-cell.is-day:focus-visible {
   pointer-events: none;
 }
 
-/* 区间填充：略收圆角让连成条带 */
 .date-range-cell.is-in-range,
 .date-range-cell.is-hover-in {
   background: var(--dr-accent-soft);
@@ -404,7 +398,6 @@ button.date-range-cell.is-day:focus-visible {
   border-radius: 0.5rem;
 }
 
-/* 今天：底部小点（未选中时可见） */
 .date-range-cell.is-today:not(.is-start, .is-end, .is-single)
   .date-range-day-num::after {
   content: '';
@@ -517,7 +510,6 @@ button.date-range-cell.is-day:focus-visible {
   outline-offset: 2px;
 }
 
-/* 标题行 compact 触发 chip */
 .date-range-trigger-chip {
   display: inline-flex;
   align-items: center;

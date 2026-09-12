@@ -46,6 +46,8 @@ pub fn stable_consciousness_event_id(user_id: i32, event_key: &str, summary: &st
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         summary.hash(&mut hasher);
         format!("{:x}", hasher.finish())
+    } else if event_key == "agent.merope.touch" {
+        (Utc::now().timestamp() / 30).to_string()
     } else {
         (Utc::now().timestamp() / (SAME_EVENT_MINUTES * 60)).to_string()
     };
@@ -151,12 +153,20 @@ pub async fn ingest(
     let state = get_or_create_state(db, user_id).await?;
     let sight = current_sight(user_id, &state).await;
     let decision = decide_ingest(event_key, &sight);
-    // Whether this is a Chat completion is a property of the event, and it is
-    // already filtered twice: `run_hub` stops publishing one, and the match in
-    // `apply_task_mood` ignores every key but the three task outcomes. Whether
-    // the addressee happens to be chatting right now is a different question,
-    // and gating on it meant a real Work task that finished inside the chat
-    // window never counted — success or failure — for good.
+    let touch = event_key == "agent.merope.touch";
+    if touch {
+        let live = crate::services::agent::consciousness::last_live_presence(user_id);
+        if !live.face_visible || live.speaking || !decision.allow_model {
+            return Ok(());
+        }
+        if recently_spoke_event(db, user_id, event_key, 1).await? {
+            return Ok(());
+        }
+    }
+    // Chat vs Work is the completion payload (`is_chat_turn_completion`).
+    // `run_hub` still publishes TaskCompleted; it only skips task-status notify
+    // for Chat. `apply_task_mood` only matches the three task outcome keys.
+    // Do not gate on whether the addressee is currently chatting.
     apply_task_mood(db, user_id, event_key).await;
 
     if !decision.allow_model {
@@ -218,10 +228,9 @@ pub async fn ingest(
         .and_then(|value| match value.decision.action {
             ConsciousnessAction::Speak => value.decision.speech.clone(),
             ConsciousnessAction::Ask => value.decision.question.clone(),
-            ConsciousnessAction::ProposeWork => value
-                .intent
-                .as_ref()
-                .map(|intent| format!("我注意到{}。要不要交给我处理？", intent.proposal.title)),
+            ConsciousnessAction::ProposeWork => value.intent.as_ref().map(|intent| {
+                format!("I noticed {}. Want me to handle it?", intent.proposal.title)
+            }),
             ConsciousnessAction::Ignore | ConsciousnessAction::Remember => None,
         })
         .filter(|text| !is_trivial_line(text));
@@ -230,21 +239,28 @@ pub async fn ingest(
             .as_ref()
             .and_then(|value| value.intent.as_ref())
             .map(|intent| intent.id.clone());
-        enqueue_speak_intent(new_speak_intent(
+        let mut intent = new_speak_intent(
             user_id,
             conscious_event.id.clone(),
             event_key.to_string(),
             gist,
             conscious_event.urgency,
             work_intent_id,
-        ));
+        );
+        if touch {
+            intent.expires_at = conscious_event.occurred_at + chrono::Duration::seconds(20);
+            intent.observation = Some(summary.clone());
+        }
+        enqueue_speak_intent(intent);
         let speak_db = db.clone();
         tokio::spawn(async move {
             super::tick_speak_intents(speak_db).await;
         });
     }
 
-    let _ = insert_diary(db, user_id, &summary, DIARY_SOURCE_EVENT).await;
+    if !touch {
+        let _ = insert_diary(db, user_id, &summary, DIARY_SOURCE_EVENT).await;
+    }
     Ok(())
 }
 
@@ -358,9 +374,9 @@ mod tests {
     }
 
     /// Mood follows what happened, not what the addressee was doing when it
-    /// happened. Chat completions are filtered by event kind — in `run_hub`,
-    /// and again by the match in `apply_task_mood` — so a Work outcome must
-    /// still count while the addressee is mid-conversation.
+    /// happened. Chat completions skip task-status notify in `run_hub` via
+    /// `is_chat_turn_completion` (payload mode/type); `apply_task_mood` only
+    /// matches the three task keys — so a Work outcome still counts mid-chat.
     #[test]
     fn task_mood_follows_the_event_kind_not_the_addressees_activity() {
         let src = include_str!("produce.rs")

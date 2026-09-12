@@ -38,7 +38,7 @@ pub async fn store_federation_media(
     if bytes.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Empty file"})),
+            Json(AppError::public_json("Empty file")),
         ));
     }
     if bytes.len() > max {
@@ -79,7 +79,7 @@ pub async fn store_federation_media(
         tracing::error!("Failed to create media dir: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to store media"})),
+            Json(AppError::public_json("Failed to store media")),
         )
     })?;
 
@@ -88,7 +88,7 @@ pub async fn store_federation_media(
         tracing::error!("Failed to write media file: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to store media"})),
+            Json(AppError::public_json("Failed to store media")),
         )
     })?;
 
@@ -322,3 +322,4 @@ mod tests {
         assert!(attachment_url_rejection_reason(base, 7, "").is_some());
     }
 }
+use myriad_error::AppError;

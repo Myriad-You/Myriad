@@ -44,7 +44,6 @@ export const STICKER_KEEP_RANDOM = 0.22
 export const STICKER_KEEP_COSPEECH = 0.22
 export const STICKER_KEEP_THINKING = 0.18
 
-/** New activity becomes legible quickly; recovery stays soft and unhurried. */
 const OCCUPANCY_ATTACK_RATE = 18
 const OCCUPANCY_RELEASE_RATE = 6.2
 const KEYS = [
@@ -57,7 +56,7 @@ const KEYS = [
   'grooveMouth',
 ] as const
 
-/** Discrete situation → target mix. Weights tilt; they do not exclusive-zero living sources. */
+/** Weights tilt; they do not exclusive-zero living sources. */
 export function occupancyTargets(situation: PoseSituation): PoseOccupancy {
   const sticker = clamp01(situation.sticker)
   const speaking = situation.speaking
@@ -98,7 +97,7 @@ export function occupancyTargets(situation: PoseSituation): PoseOccupancy {
   }
 }
 
-/** Eases occupancy toward the situation table. Owner/situation flips never step the weights. */
+/** Owner/situation flips never step the weights. */
 export class PoseOccupancyController {
   private readonly current: PoseOccupancy = { ...ZERO }
   private initialized = false

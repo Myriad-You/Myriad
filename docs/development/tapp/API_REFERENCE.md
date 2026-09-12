@@ -105,7 +105,7 @@ const unsubscribe = Tapp.storage.onChanged(({ key, operation }) => {
 
 存储 key 和单值由后端校验，单值最大 1 MiB，总量最大 8 MiB。替换投影与写入位于同一数据库
 事务并使用 subject/Tapp advisory lock，因此并发写入也不能越过配额。公开 Tapp 仍按当前
-**subject**（持久用户或签名游客）隔离存储；`_settings.`、`_shared.`、`_component:`、
+**subject**（持久用户或签名游客）隔离存储；`_settings.`、`_shared.`、`_private.`、`_component:`、
 `_shortcut:`、`_report:` 为宿主保留前缀。
 
 ---
@@ -232,6 +232,43 @@ const unsubscribe = Tapp.shared.onChanged(({ key, operation }) => {
 - 不要在 shared 里存放密钥：凡能打开该公开安装的 visitor 均可读。
 
 `Tapp.data` 是数据处理 API（`transform`），不是这个仓库。
+
+---
+
+## 安装私有数据 API
+
+**权限**: 读取方法使用 `storage:read`；写入、删除与清空使用 `storage:write`；与
+`Tapp.storage` / `Tapp.settings` / `Tapp.shared` 共用权限位，但**数据命名空间不同**。
+REST 另要求安装 owner 或当前管理员；有授予权限不等于游客能读到值。
+
+`Tapp.private` 是安装级自由 KV，仅 owner / 管理员可读可写。公开部署里用它存放站长之间要共用、
+又不能给访客看的非密数据。不要把个人草稿放这里（用 `Tapp.storage`），也不要把出站密钥放这里
+（用 Manifest `credentials`）。值会进入沙箱。
+
+```javascript
+const draft = await Tapp.private.get("moderation.queue");
+await Tapp.private.set("moderation.queue", [{ id: 1 }]);
+await Tapp.private.remove("scratch");
+const keys = await Tapp.private.keys();
+const all = await Tapp.private.getAll();
+await Tapp.private.clear();
+const usage = await Tapp.private.usage();
+const unsubscribe = Tapp.private.onChanged(({ key, operation }) => {
+  console.log(key, operation); // set | remove | clear
+});
+```
+
+| 操作 | 游客（公开安装） | 已登录运行者 | 安装 owner / 管理员 |
+| ---- | ---------------- | ------------ | ------------------- |
+| `get` / `getAll` / `keys` / `usage` | ❌ 401 / 403 | ❌（非 owner） | ✅ |
+| `set` / `remove` / `clear` | ❌ | ❌（非 owner） | ✅ |
+
+- 全部走宿主 private REST（**auth + owner/admin**），不接受 Runtime Grant。
+- 未登录 401；已登录非 owner/admin 403，不泄漏键是否存在。owner 读缺失键返回 `null`。
+- 键空间与 `Tapp.storage`、`Tapp.settings`、`Tapp.shared` 独立；不能用 `_private.*` 经 storage API 读写。
+- 单值最大 1 MiB；`usage()` 返回安装 owner 命名空间的 8 MiB 配额（与 settings / shared / credentials / owner 自己的 storage 合计）。
+- `onChanged` 只通知同标签页其他沙箱（`key` + `operation`，不含值），**不** remount Widget。
+- 不要在 private 里存放密钥：明文进入沙箱，且不能在站长离线时由后端代发。
 
 ---
 
@@ -518,7 +555,7 @@ content-addressed 资源，`Tapp.model3d.getUrl` / `getMetadata` 不需要本权
 CSP 不能直接 `fetch` `/api/model3d/assets/...`，由宿主读回后在 iframe 内
 做成 blob）。
 
-只在 **Page** 注册生成 handlers；Widget 上的 `Tapp.model3d` 是拒绝桩。
+只在 **Page** 注册生成 handlers；Widget / headless 没有 `Tapp.model3d`。
 
 ```javascript
 const status = await Tapp.model3d.status(); // { enabled, configured, capabilities }
@@ -784,29 +821,23 @@ scheduler/headless core，不依赖 Widget iframe 常驻。
 **权限**: `report:read`, `report:write`
 
 ```javascript
-// 获取报告列表
-const reports = await Tapp.report.list();
-// 或: await Tapp.report.listReports();
+// 平台分析（只读，不属于本安装）
+const catalog = await Tapp.report.platform.list();
+const steam = await Tapp.report.platform.byPlatform("steam");
+const one = await Tapp.report.platform.get(catalogId);
 
-// 获取报告详情
+// 本 Tapp 写下的报告
+const mine = await Tapp.report.list();
 const report = await Tapp.report.get(reportId);
-// 或: await Tapp.report.getReport(reportId);
 
-// 获取特定平台的报告
-const steamReport = await Tapp.report.getPlatformReport("steam");
-
-// 创建报告（需要 report:write）
-const newReport = await Tapp.report.create(
-  "我的报告", // title
-  "summary", // reportType
-  { summary: "..." }, // content
-  { tags: ["test"] }, // metadata (可选)
+// 创建 / 更新 / 删除需要 report:write；Widget 沙箱没有写入
+const created = await Tapp.report.create(
+  "我的报告",
+  "custom",
+  { summary: "..." },
+  { tags: ["test"] },
 );
-
-// 更新报告
 await Tapp.report.update(reportId, "新标题", { summary: "新内容" });
-
-// 删除报告
 await Tapp.report.delete(reportId);
 ```
 
@@ -1833,12 +1864,13 @@ Page 完整面当前包含以下命名空间（`analytics` / `agent` 也挂在 `
 | 命名空间                                   | 主要能力                                            | 权限族                             |
 | ------------------------------------------ | --------------------------------------------------- | ---------------------------------- |
 | `lifecycle`, `i18n`                        | `onReady` / `onDestroy` / `onPause` / `onResume`；安装 i18n | public                             |
-| `storage`, `settings`, `shared`            | 私有 KV、安装设置、安装级共享数据（读含签名游客）   | `storage:read`, `storage:write`    |
+| `storage`, `settings`, `shared`, `private` | 主体 KV、安装设置、安装级共享数据、安装级私有数据   | `storage:read`, `storage:write`    |
 | `dataExchange`                             | 逐次授权的跨 Tapp 具名数据交换                      | Manifest + one-shot consent        |
 | `ui`, `animation`, `dynamicContent`, `dom` | 宿主 UI、主题、动画和安全 DOM helper                | `ui:*` 或 public                   |
 | `platform`, `data`                         | 平台数据读取、写入、转换和注册                      | `platform:*`                       |
 | `analytics`                                | 站点访问统计聚合（admin 完整 / 非 admin 访客卡片）  | `analytics:read`                   |
-| `ai`, `report`                             | 服务端治理的 AI Task 与报告读写                     | `ai:*`（含 `ai:search`）, `report:*` |
+| `ai`                                       | 服务端治理的 AI Task                                | `ai:*`（含 `ai:search`）           |
+| `report`                                   | `platform.*` 平台分析目录（只读）；顶层 `list`/`get`/`create` 为本安装报告 | `report:read` / `report:write` |
 | `model3d`                                  | Tripo 图生 3D / rig / retarget；`getUrl` 回沙箱 blob | `3d:generate`（资产读取 public） |
 | `widget`                                   | Page：动态注册 + 定向 `invalidate`；Widget 沙箱：实例设置 / 自刷 `invalidate` | `widget:register`（仅 register 系列）；定向 `invalidate` 要 `storage:write` |
 | `media`                                    | 播放器读取和控制                                    | `media:*`                          |
@@ -1859,8 +1891,8 @@ Page 完整面当前包含以下命名空间（`analytics` / `agent` 也挂在 `
 
 | 命名空间 | Page | Widget | headless |
 | -------- | ---- | ------ | -------- |
-| `lifecycle`, `i18n`, `storage`, `settings`, `shared`, `assets`, `context`, `persona`, `user`, `background`, `animation`, `api`, `dataExchange` | ✅ | ✅ | ✅ |
-| `ai`, `analytics`, `media`, `speech`, `scheduler`, `event`, `agent`, `report` 读 | ✅ | ✅ 按授予，否则拒绝桩 | ✅ |
+| `lifecycle`, `i18n`, `storage`, `settings`, `shared`, `private`, `assets`, `context`, `persona`, `user`, `background`, `animation`, `api`, `dataExchange` | ✅ | ✅ | ✅ |
+| `ai`, `analytics`, `media`, `speech`, `scheduler`, `event`, `agent`，以及 `report.platform.*` / `report.list` / `report.get` | ✅ | ✅ 按授予，否则拒绝桩 | ✅ |
 | `ui` 主题 / 语言 / 通知 | ✅ | ✅ | ✅ |
 | `ui.openUrl` / `listOpenUrls` | ✅ | ✅ | ❌ 不可用 |
 | `ui` title / confirm / fullscreen | ✅ | ❌ | ❌ |
@@ -1869,9 +1901,9 @@ Page 完整面当前包含以下命名空间（`analytics` / `agent` 也挂在 `
 | `widget` 定向 `invalidate({ widgetId })` | ✅ 需 `storage:write` | ✅ 需 `storage:write` | ✅ 需 `storage:write` |
 | `tappList`, `component`, `shortcut`, `dynamicContent` | ✅ | ❌ | ❌ 无此对象 |
 | `dom`, `file` | ✅ | ✅ | ❌ 无此对象 |
-| `model3d` | ✅ | 调用会报缺权限 | ❌ 无此对象 |
+| `model3d` | ✅ | ❌ 无此对象 | ❌ 无此对象 |
 | `brewList`, `federation`, `game` | ✅ | ❌ | ✅（有授予权限时可用） |
-| `platform` / `report` 写、`data.transform` | ✅ | ❌ Widget 只读 | ✅ |
+| `platform` 写 / `report` 写 / `data.transform` | ✅ | ❌ 沙箱没有这些方法 | ✅ |
 
 Widget 不会自动拥有完整面的写入/管理能力。调用前必须核对：当前是 Page、Widget 还是
 headless、方法是否在上表里、以及是否已有授予权限。新增能力时再核对权限映射、三种沙箱是否

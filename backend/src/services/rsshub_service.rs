@@ -67,7 +67,7 @@ use crate::services::brew_parser::{FeedParser, ParsedFeed};
 /// RSSHub 服务配置
 #[derive(Clone, Debug)]
 pub struct RsshubConfig {
-    /// 健康检查间隔（秒）— 预留；当前由调用方/调度器控制周期
+    /// 健康检查间隔（秒）— 预留，未读
     #[allow(dead_code)]
     pub health_check_interval_secs: u64,
     /// 请求超时（秒）
@@ -335,7 +335,7 @@ impl RsshubService {
         }
     }
 
-    /// Live health check and persist success/failure stats (same path as brew admin checks).
+    /// Live health check and persist success/failure stats.
     pub async fn health_check_and_record(&self, instance: &InstanceModel) -> Result<i32, String> {
         match self.health_check(instance).await {
             Ok(ms) => {
@@ -381,7 +381,7 @@ impl RsshubService {
         }
     }
 
-    /// 对所有实例执行健康检查
+    /// 对已启用实例执行健康检查
     pub async fn check_all_instances(&self, user_id: Option<i32>) -> Result<(), String> {
         let instances = self.get_instances(user_id).await?;
 

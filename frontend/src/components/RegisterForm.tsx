@@ -10,12 +10,6 @@ import { setSessionHint } from '../utils/sessionDetection'
 import { Spinner } from './Spinner'
 import './LoginForm.css'
 
-/**
- * 公开本地账号注册表单（PR #4）
- *
- * 后端开关：`DynamicConfig.allow_local_registration`
- * 端点：POST /api/auth/register
- */
 const RegisterForm: FC = () => {
   const { t } = useI18n()
   const [formData, setFormData] = useState({
@@ -42,7 +36,7 @@ const RegisterForm: FC = () => {
       setError(t.auth.usernameFormatError)
       return
     }
-    // Align with backend validate_password + SetupWizard: ≥8 + Unicode letter + digit
+    // 与后端 validate_password / SetupWizard 一致：≥8 + Unicode 字母 + 数字。
     if (
       formData.password.length < 8 ||
       !/\p{L}/u.test(formData.password) ||
@@ -78,10 +72,9 @@ const RegisterForm: FC = () => {
         const { trackProductEvent, AnalyticsEvents } = await import(
           '../utils/analyticsEvents',
         )
-        // Sync enqueue + immediate flush before hard redirect (~100ms)
+        // 硬跳转前同步入队并立刻 flush。
         trackProductEvent(AnalyticsEvents.REGISTER_SUCCESS, { flush: true })
       } catch {
-        /* ignore */
       }
 
       setSessionHint()

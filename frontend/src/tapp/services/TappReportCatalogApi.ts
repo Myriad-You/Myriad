@@ -1,8 +1,6 @@
-/** Read-only report catalog APIs used by Tapp host surfaces. */
-
 import { apiRequest } from './TappHttpClient'
 
-export async function listReports(runtimeGrant?: string): Promise<{
+export async function listPlatform(runtimeGrant?: string): Promise<{
   reports: {
     id: string
     platform: string
@@ -14,14 +12,13 @@ export async function listReports(runtimeGrant?: string): Promise<{
   return apiRequest('/api/tapp/report-catalog', { runtimeGrant })
 }
 
-export async function getReport(
+export async function getPlatform(
   reportId: string,
   runtimeGrant?: string,
 ): Promise<{
   id: string
   platform?: string
   type: 'platform'
-  /** Top-level summary from report catalog (also often nested in content.summary). */
   summary?: string
   content: unknown
   createdAt: string
@@ -32,7 +29,7 @@ export async function getReport(
   )
 }
 
-export async function getPlatformReport(
+export async function byPlatform(
   platform: string,
   runtimeGrant?: string,
 ): Promise<{
@@ -40,11 +37,8 @@ export async function getPlatformReport(
   summary: string
   insights: string[]
   metadata: unknown
-  /** Nested full PlatformReport body (legacy) */
   content?: unknown
-  /** snake_case card visuals (matches /api/reports/latest) */
   card_visuals?: unknown
-  /** camelCase alias for Tapp host convenience */
   cardVisuals?: unknown
   createdAt: string
 } | null> {
@@ -55,7 +49,6 @@ export async function getPlatformReport(
     )
     if (!raw || typeof raw !== 'object') return null
 
-    // Normalize field mapping so callers can rely on cardVisuals / card_visuals
     const content =
       raw.content && typeof raw.content === 'object'
         ? (raw.content as Record<string, unknown>)

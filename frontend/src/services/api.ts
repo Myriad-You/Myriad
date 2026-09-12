@@ -1,10 +1,5 @@
-/**
- * 基础 API 服务
- *
- * 提供统一的 HTTP 请求封装
- */
-
 import { API_URL } from '../config'
+import { hostLocaleHeaders } from '../i18n/hostLocaleHeaders'
 import { currentCopy } from '../i18n/localeCopy'
 import { aiRequestTimeoutMs } from '../utils/aiRequestTimeout.mjs'
 import { clearCSRFToken, getCSRFToken } from '../utils/csrf'
@@ -14,17 +9,12 @@ import { httpStatusMessage } from '../utils/userFacingError'
 const API_BASE = `${API_URL}/api`
 
 export interface ApiRequestOptions extends RequestInit {
-  /** 是否需要认证 */
   requireAuth?: boolean
-  /** 超时时间（毫秒） */
+  /** ms */
   timeout?: number
-  /** 查询参数 */
   params?: Record<string, string | number | boolean | undefined>
 }
 
-/**
- * API 错误类
- */
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -38,7 +28,8 @@ export class ApiError extends Error {
   }
 }
 
-const STABLE_ERROR_CODE = /^[A-Z]\w{2,64}$/i
+/** Machine codes: snake_case, SCREAMING_SNAKE, or short ALLCAPS. Not English labels. */
+const STABLE_ERROR_CODE = /^(?:[A-Za-z][A-Za-z0-9]*_\w+|[A-Z][A-Z0-9]{2,64})$/
 
 function readErrorString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
@@ -73,9 +64,6 @@ export function parseApiErrorBody(
   }
 }
 
-/**
- * 构建完整 URL
- */
 function buildUrl(
   endpoint: string,
   params?: Record<string, string | number | boolean | undefined>,
@@ -102,16 +90,13 @@ function isCsrfErrorBody(body: {
   return haystack.includes('csrf')
 }
 
-/**
- * 通用 API 请求
- * State-changing calls retry once after CSRF rejection (stale sessionStorage /
- * backend restart / token expiry), matching brewApi / speechApi / brewliaApi.
- */
+/** CSRF: retry once. */
 async function request<T>(
   endpoint: string,
   options: ApiRequestOptions = {},
   retryOnCSRFError: boolean = true,
 ): Promise<T> {
+  options.signal?.throwIfAborted()
   const {
     requireAuth: _requireAuth = false,
     timeout: timeoutOpt = 30000,
@@ -121,15 +106,16 @@ async function request<T>(
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    ...hostLocaleHeaders(),
     ...(fetchOptions.headers as Record<string, string>),
   }
 
-  // 对于状态变更操作添加 CSRF Token
   const method = fetchOptions.method?.toUpperCase() || 'GET'
   const needsCSRF = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
 
   if (needsCSRF) {
     const csrfToken = await getCSRFToken()
+    options.signal?.throwIfAborted()
     if (csrfToken) {
       headers['X-CSRF-Token'] = csrfToken
     }
@@ -138,7 +124,6 @@ async function request<T>(
   const url = buildUrl(endpoint, params)
   const timeout = Math.max(timeoutOpt, aiRequestTimeoutMs(url) ?? 0)
 
-  // 创建 AbortController 用于超时控制
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), timeout)
 
@@ -147,10 +132,13 @@ async function request<T>(
       ...fetchOptions,
       headers,
       credentials: 'include',
-      signal: controller.signal,
+      signal: options.signal
+        ? AbortSignal.any([options.signal, controller.signal])
+        : controller.signal,
     })
 
     clearTimeout(timeoutId)
+    options.signal?.throwIfAborted()
 
     if (!response.ok) {
       notifyHttpRateLimit(response)
@@ -169,10 +157,9 @@ async function request<T>(
         errorDetails = parsed.details
         errorHint = parsed.hint
       } catch {
-        // 忽略 JSON 解析错误
       }
 
-      // CSRF: clear cache, force-refresh, retry once (settings writers + others)
+      // CSRF: force-refresh and retry once.
       if (
         response.status === 403 &&
         needsCSRF &&
@@ -202,7 +189,6 @@ async function request<T>(
       )
     }
 
-    // 处理空响应
     const contentType = response.headers.get('content-type')
     if (contentType?.includes('application/json')) {
       return await response.json()
@@ -211,6 +197,7 @@ async function request<T>(
     return {} as T
   } catch (error) {
     clearTimeout(timeoutId)
+    options.signal?.throwIfAborted()
 
     if (error instanceof ApiError) {
       throw error
@@ -224,7 +211,6 @@ async function request<T>(
   }
 }
 
-/** Binary GET (file download). Returns blob + optional Content-Disposition filename. */
 async function requestBlob(
   endpoint: string,
   options: ApiRequestOptions = {},
@@ -237,9 +223,10 @@ async function requestBlob(
   } = options
 
   const headers: Record<string, string> = {
+    ...hostLocaleHeaders(),
     ...(fetchOptions.headers as Record<string, string>),
   }
-  // Do not force application/json Accept for binary bodies
+  // Do not force Accept: application/json on binary GET.
   delete headers['Content-Type']
 
   const url = buildUrl(endpoint, params)
@@ -309,20 +296,11 @@ async function requestBlob(
   }
 }
 
-/**
- * API 服务实例
- */
 export const apiService = {
-  /**
-   * GET 请求
-   */
   get<T>(endpoint: string, options?: ApiRequestOptions): Promise<T> {
     return request<T>(endpoint, { ...options, method: 'GET' })
   },
 
-  /**
-   * GET binary body (downloads)
-   */
   getBlob(
     endpoint: string,
     options?: ApiRequestOptions,
@@ -330,9 +308,6 @@ export const apiService = {
     return requestBlob(endpoint, options)
   },
 
-  /**
-   * POST 请求
-   */
   post<T>(
     endpoint: string,
     data?: unknown,
@@ -345,9 +320,6 @@ export const apiService = {
     })
   },
 
-  /**
-   * PUT 请求
-   */
   put<T>(
     endpoint: string,
     data?: unknown,
@@ -360,9 +332,6 @@ export const apiService = {
     })
   },
 
-  /**
-   * PATCH 请求
-   */
   patch<T>(
     endpoint: string,
     data?: unknown,
@@ -375,9 +344,6 @@ export const apiService = {
     })
   },
 
-  /**
-   * DELETE 请求
-   */
   delete<T>(endpoint: string, options?: ApiRequestOptions): Promise<T> {
     return request<T>(endpoint, { ...options, method: 'DELETE' })
   },

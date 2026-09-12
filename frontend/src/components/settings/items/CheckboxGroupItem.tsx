@@ -1,8 +1,3 @@
-/**
- * 复选框组设置项组件
- * 将多个 CheckboxCard 组合成一组，共享标签和描述（权限下放等同款卡片风格）
- */
-
 import type { ReactNode } from 'react'
 import React, { useCallback } from 'react'
 import { guideDomProps } from '../guides/guideAnchor'
@@ -11,35 +6,22 @@ import { CheckboxCard } from './CheckboxCard'
 import './SettingItem.css'
 
 export interface CheckboxGroupOption {
-  /** 唯一标识 */
   key: string
-  /** 选项显示文本 */
   label: string
-  /** 选项说明文本 */
   description?: string
-  /** 选项图标 */
   icon?: React.ReactNode
-  /** 当前是否选中 */
   value: boolean
 }
 
 export interface CheckboxGroupItemProps {
-  /** 组标签 */
   label: string
-  /** 描述说明 */
   description?: string
-  /** 选项指南 */
   guide?: ReactNode
-  /** 指南路径（搜索跳转） */
   guidePath?: string
-  /** 提示文本 */
   hint?: string
-  /** 选项列表 */
   options: CheckboxGroupOption[]
-  /** 值变化回调 */
   onChange: (key: string, value: boolean) => void
   disabled?: boolean
-  /** 自定义 class */
   className?: string
 }
 

@@ -18,14 +18,14 @@ function pair(
       route,
       audience: 'visitor',
       ...(surface ? { surface } : {}),
-      steps: [...steps],
+      steps: Iterator.from(steps).toArray(),
     },
     {
       id: `${page}-owner`,
       route,
       audience: 'owner',
       ...(surface ? { surface } : {}),
-      steps: [...steps],
+      steps: Iterator.from(steps).toArray(),
     },
   ]
 }

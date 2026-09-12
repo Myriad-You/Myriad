@@ -22,12 +22,10 @@ use serde_json::{json, Value};
 
 use crate::services::avatar::{
     identity_provider_platform_key, owner_platform_profiles, platform_display_label,
-    PlatformProfile, PLATFORM_ORDER,
+    PlatformProfile, LAZY_BIO, PLATFORM_ORDER,
 };
 
-const LAZY_BIO: &str = "这家伙很懒，没有介绍呢";
-
-/// 文案来源类型。与画像源同形，但语义独立，切勿混用列。
+/// 文案来源。列独立于画像源（无 Persona）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProfileTextSourceKind {
     Auto,
@@ -63,7 +61,7 @@ pub struct ResolvedProfileText {
     pub bio: String,
     /// 平台展示标签（"GitHub" / "Bilibili"…）；账号来源为 `None`。
     pub platform: Option<String>,
-    /// 数据出处标记：`platform` / `account` / `identity` / `none`
+    /// 数据出处：`platform` / `account` / `identity`（miss → auto_resolved, never `"none"`）。
     pub source: &'static str,
 }
 
@@ -223,9 +221,7 @@ async fn load_identities(
     let mut out = Vec::new();
     for row in rows {
         let provider = row.try_get::<String>("", "provider").unwrap_or_default();
-        if provider.is_empty()
-            || crate::services::channel_pairing::is_pairing_provider(&provider)
-        {
+        if provider.is_empty() || crate::services::channel_pairing::is_pairing_provider(&provider) {
             continue;
         }
         out.push(IdentityText {
@@ -287,8 +283,6 @@ pub async fn resolve_profile_text(
                 .find(|i| Some(i.id) == id)
                 .map(identity_resolved)
                 .or_else(|| {
-                    // 同站合并：库里可能仍是 identity，但列表以 platform 展示；
-                    // 若该 identity 映射的平台有抓取，优先用平台 bio（更完整）
                     let identity = identities.iter().find(|i| Some(i.id) == id)?;
                     let key = identity_provider_platform_key(&identity.provider)?;
                     profiles
@@ -479,7 +473,7 @@ mod tests {
                     platform: "Bilibili",
                     name: Some("阿绫".into()),
                     avatar: None,
-                    bio: "B站签名".into(),
+                    bio: "Bilibili bio".into(),
                 },
             ),
             (
@@ -526,7 +520,7 @@ mod tests {
         };
         let resolved = auto_resolved(&row, &sample_profiles());
         assert_eq!(resolved.name.as_deref(), Some("阿绫"));
-        assert_eq!(resolved.bio, "B站签名");
+        assert_eq!(resolved.bio, "Bilibili bio");
         assert_eq!(resolved.platform.as_deref(), Some("Bilibili"));
         assert_eq!(resolved.source, "platform");
     }

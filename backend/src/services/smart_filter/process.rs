@@ -431,12 +431,12 @@ impl SmartFilter {
         // Empty public channel is a valid success (not a fetch failure).
         let video_summary = if video_count == 0 && sample_n == 0 {
             format!(
-                "公开频道已解析，但暂无上传视频（订阅 {}，观看 {}）。空频道仍可生成报告。",
+                "Public channel resolved, but no uploaded videos yet ({} subscribers, {} views). An empty channel can still generate a report.",
                 subscriber_count, view_count
             )
         } else {
             format!(
-                "{} 个公开视频，{} 位订阅者，累计 {} 次观看；已采样最近 {} 条上传",
+                "{} public videos, {} subscribers, {} views; sampled {} recent uploads",
                 video_count, subscriber_count, view_count, sample_n
             )
         };
@@ -476,7 +476,7 @@ impl SmartFilter {
     pub(crate) fn filter_bilibili(data: &Value) -> Result<SmartFilteredData, String> {
         // 如果缺少用户信息，使用默认值而不是报错
         let default_user_info = serde_json::json!({
-            "name": "未知用户",
+            "name": "Unknown user",
             "mid": 0,
             "level": 0,
             "follower": 0,
@@ -521,7 +521,7 @@ impl SmartFilter {
             username: user_info
                 .get("name")
                 .and_then(|v| v.as_str())
-                .unwrap_or("未知用户")
+                .unwrap_or("Unknown user")
                 .to_string(),
             user_id,
             level: user_info
@@ -674,7 +674,7 @@ impl SmartFilter {
         );
 
         let video_summary = format!(
-            "基于收藏的 {} 个视频和追番的 {} 部作品分析",
+            "Analysis based on {} collected videos and {} followed series",
             videos.map(|v| v.len()).unwrap_or(0),
             bangumi.map(|b| b.len()).unwrap_or(0)
         );
@@ -702,7 +702,7 @@ impl SmartFilter {
             username: user_info
                 .and_then(|u| u.get("personaname"))
                 .and_then(|v| v.as_str())
-                .unwrap_or("未知用户")
+                .unwrap_or("Unknown user")
                 .to_string(),
             user_id: user_info
                 .and_then(|u| u.get("steamid"))
@@ -727,7 +727,7 @@ impl SmartFilter {
             .and_then(|v| v.get("games"))
             .and_then(|v| v.as_array());
 
-        // name → (playtime, appid)
+        // `game_list`: (name, playtime)；`name_to_appid`: name → appid
         let mut game_list = Vec::new();
         let mut name_to_appid: std::collections::HashMap<String, i64> =
             std::collections::HashMap::new();
@@ -844,7 +844,7 @@ impl SmartFilter {
             username: user
                 .and_then(|u| u.get("login"))
                 .and_then(|v| v.as_str())
-                .unwrap_or("未知用户")
+                .unwrap_or("Unknown user")
                 .to_string(),
             user_id: user
                 .and_then(|u| u.get("id"))
@@ -945,13 +945,13 @@ impl SmartFilter {
             .unwrap_or(0)
             .max(recent_repos.len());
         let repo_summary = format!(
-            "拥有 {} 个仓库，主要使用 {}",
+            "Owns {} repositories, mainly using {}",
             repo_count_display,
             language_distribution
                 .iter()
                 .map(|(k, v)| format!("{} ({})", k, v))
                 .collect::<Vec<_>>()
-                .join("、")
+                .join(", ")
         );
 
         // 3. 提取贡献历史（直接从原始数据中获取）
@@ -1013,7 +1013,7 @@ impl SmartFilter {
                         .and_then(|u| u.get("nickname"))
                         .and_then(|v| v.as_str())
                 })
-                .unwrap_or("网易云音乐用户")
+                .unwrap_or("NetEase Music user")
                 .to_string(),
             user_id: profile
                 .and_then(|p| p.get("userId"))
@@ -1088,7 +1088,7 @@ impl SmartFilter {
                                         .and_then(|a| a.get("name"))
                                         .and_then(|v| v.as_str())
                                 })
-                                .unwrap_or("未知艺术家");
+                                .unwrap_or("Unknown artist");
 
                             song_list.push((name.to_string(), artist.to_string()));
 
@@ -1189,7 +1189,7 @@ impl SmartFilter {
                     user.and_then(|u| u.get("username"))
                         .and_then(|v| v.as_str())
                 })
-                .unwrap_or("Bangumi 用户")
+                .unwrap_or("Bangumi user")
                 .to_string(),
             user_id: user
                 .and_then(|u| u.get("id"))
@@ -1296,7 +1296,7 @@ impl SmartFilter {
         recent_updates.truncate(20);
 
         let collection_summary = format!(
-            "Bangumi 收藏 {} 个条目，其中看过/读过/玩过 {} 个，正在进行 {} 个",
+            "Bangumi collection: {} items, finished {}, currently {}",
             collections.len(),
             collection_type_distribution
                 .get("done")

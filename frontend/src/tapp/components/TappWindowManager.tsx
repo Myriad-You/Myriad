@@ -1,14 +1,3 @@
-/**
- * Tapp 多窗口管理器
- *
- * 支持在页面中同时运行多个应用窗口
- * 特性：
- * - 最多支持3个应用窗口同时运行
- * - 可自由拖拽窗口位置
- * - 可调整窗口大小
- * - 窗口层级管理（点击置顶）
- */
-
 import type { TappCategory, TappCodeStructure, TappInstance } from '../types'
 import {
   FaExclamationTriangle,
@@ -28,14 +17,11 @@ import {
 } from '@lib/motionShim'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Spinner } from '../../components/Spinner'
-// API 配置
 import { API_URL as CONFIG_API_URL } from '../../config'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
-// 统一动画调度器
 import { isPageVisible, startPage } from '../../hooks/animation'
 import { isExlight, useAnimationLevel } from '../../hooks/useAnimationLevel'
-// CSRF 防护
 import { getCSRFToken } from '../../utils/csrf'
 import { getUIConfigDeduped } from '../../utils/requestDedup'
 import { showError } from '../../utils/toastManager'
@@ -65,73 +51,48 @@ import './TappWindowManager.css'
 
 const API_URL = CONFIG_API_URL
 
-/** 窗口种类：真实沙箱 Tapp 或宿主 React 面板 */
 export type TappWindowKind = 'tapp' | 'host'
 
-/** 窗口状态 */
 export interface TappWindow {
-  /** 唯一窗口ID */
   windowId: string
-  /** Tapp ID，或宿主面板 ID（如 myriad:host.store） */
   tappId: string
-  /** 窗口种类，默认 tapp */
   kind: TappWindowKind
-  /** Tapp 实例（host 为 null） */
   tapp: TappInstance | null
-  /** Tapp 代码（host 为 null） */
   code: TappCodeStructure | null
-  /** 加载状态 */
   loading: boolean
-  /** 错误信息 */
   error: string | null
-  /** 窗口位置 */
   position: { x: number; y: number }
-  /** 窗口尺寸 */
   size: { width: number; height: number }
-  /** 是否最大化 */
   isMaximized: boolean
-  /** 是否最小化（藏入 Dock，实例仍保留） */
   isMinimized: boolean
-  /** 层级 */
   zIndex: number
 }
 
-/** 商店宿主面板默认尺寸（比单应用窗口更宽） */
-/** 商店宿主面板默认尺寸（宽屏：侧栏 + 内容区） */
 const HOST_STORE_WINDOW_SIZE = { width: 960, height: 720 }
 
-/** 窗口管理器 Props */
 export interface TappWindowManagerProps {
-  /** 初始 Tapp ID */
   initialTappId?: string
-  /** 返回回调 */
   onBack?: () => void
 }
 
-/** 最大窗口数量 */
 const MAX_WINDOWS = 5
 
-/** Dock 直接展示的已安装应用上限；超出收入应用面板 */
 const MAX_DOCK_APPS = 18
 
-/** Launchpad：每行 7 个，最多 3 行 → 每页 21 */
 const LAUNCHPAD_COLS = 7
 const LAUNCHPAD_ROWS = 3
 const LAUNCHPAD_PAGE_SIZE = LAUNCHPAD_COLS * LAUNCHPAD_ROWS
 
-/** 默认窗口尺寸（移动端竖屏比例） */
 const DEFAULT_WINDOW_SIZE = { width: 400, height: 600 }
 
 type LaunchpadEntry = { kind: 'store' } | { kind: 'app'; tapp: TappInstance }
 
-/** 窗口方案中的窗口配置 */
 interface WindowSchemeItem {
   tappId: string
   position: { x: number; y: number }
   size: { width: number; height: number }
 }
 
-/** 保存的窗口方案 */
 interface WindowScheme {
   id: string
   name: string
@@ -139,7 +100,6 @@ interface WindowScheme {
   createdAt: number
 }
 
-/** 最小窗口尺寸（与默认尺寸同步） */
 const MIN_WINDOW_SIZE = { ...DEFAULT_WINDOW_SIZE }
 
 const WINDOW_CONTROL_HOVER_CLASS = 'tapp-window-control'
@@ -157,16 +117,10 @@ const WINDOW_CONTROL_DANGER_HOVER_STYLE = {
   color: 'var(--text-muted)',
 } as React.CSSProperties
 
-/**
- * 生成唯一窗口ID
- */
 function generateWindowId(): string {
   return `window-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
 }
 
-/**
- * 计算新窗口的初始位置（级联效果）
- */
 function getInitialPosition(windowCount: number): { x: number; y: number } {
   const offset = windowCount * 30
   return {
@@ -175,10 +129,6 @@ function getInitialPosition(windowCount: number): { x: number; y: number } {
   }
 }
 
-/**
- * 单个 Tapp 窗口组件
- * 使用 React.memo 优化，避免其他窗口变化时重新渲染
- */
 interface TappWindowComponentProps {
   window: TappWindow
   isActive: boolean
@@ -220,7 +170,6 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
     const positionStartRef = useRef({ x: 0, y: 0 })
     const sizeStartRef = useRef({ width: 0, height: 0 })
 
-    // 用于追踪交互过程中的实时位置和大小（直接操作 DOM 时使用）
     const currentPositionRef = useRef({
       x: window.position.x,
       y: window.position.y,
@@ -230,8 +179,6 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
       height: window.size.height,
     })
 
-    // 始终同步 props 到 ref，确保方案保存时能获取最新值
-    // 注意：交互过程中 ref 会被直接修改，但交互结束后会同步回 state
     useEffect(() => {
       currentPositionRef.current = {
         x: window.position.x,
@@ -248,41 +195,34 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
       window.size.height,
     ])
 
-    // 缓存图标样式计算（宿主商店用固定 token）
     const iconStyle = useMemo(() => {
       if (isStoreHostPanel(window.tappId)) return null
       return window.tapp ? getTappIconStyle(window.tapp.manifest) : null
     }, [window.tapp, window.tappId])
 
-    // 拖拽处理 - 支持鼠标和触摸
     const handleDragStart = useCallback(
       (e: React.MouseEvent | React.TouchEvent) => {
         e.preventDefault()
         e.stopPropagation()
         setIsDragging(true)
-        // 获取坐标（支持鼠标和触摸）
         const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
         const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
         dragStartRef.current = { x: clientX, y: clientY }
-        // 使用 ref 中的当前值，确保从正确位置开始
         positionStartRef.current = { ...currentPositionRef.current }
         onFocus(window.windowId)
       },
       [window.windowId, onFocus],
     )
 
-    // 调整大小处理 - 支持鼠标和触摸
     const handleResizeStart = useCallback(
       (e: React.MouseEvent | React.TouchEvent, direction: string) => {
         e.preventDefault()
         e.stopPropagation()
         setIsResizing(true)
         setResizeDirection(direction)
-        // 获取坐标（支持鼠标和触摸）
         const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
         const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
         dragStartRef.current = { x: clientX, y: clientY }
-        // 使用 ref 中的当前值，确保从正确位置和尺寸开始
         positionStartRef.current = { ...currentPositionRef.current }
         sizeStartRef.current = { ...currentSizeRef.current }
         onFocus(window.windowId)
@@ -290,11 +230,9 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
       [window.windowId, onFocus],
     )
 
-    // 移动处理 - 使用 requestAnimationFrame 节流优化性能，支持鼠标和触摸
     useEffect(() => {
       if (!isDragging && !isResizing) return
 
-      // 页面不可见时不处理拖拽（由调度器可见性状态控制）
       if (!isPageVisible()) return
 
       let rafId: number | null = null
@@ -302,18 +240,15 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
       let lastY = dragStartRef.current.y
 
       const handleMove = (e: MouseEvent | TouchEvent) => {
-        // 获取坐标（支持鼠标和触摸）
         const clientX =
           'touches' in e ? (e.touches[0]?.clientX ?? lastX) : e.clientX
         const clientY =
           'touches' in e ? (e.touches[0]?.clientY ?? lastY) : e.clientY
 
-        // 避免重复计算相同位置
         if (clientX === lastX && clientY === lastY) return
         lastX = clientX
         lastY = clientY
 
-        // 取消上一次未执行的 RAF
         if (rafId) cancelAnimationFrame(rafId)
 
         rafId = requestAnimationFrame(() => {
@@ -323,11 +258,9 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
           const deltaY = clientY - dragStartRef.current.y
 
           if (isDragging) {
-            // 拖拽移动 - 直接操作 DOM
             let newX = positionStartRef.current.x + deltaX
             let newY = positionStartRef.current.y + deltaY
 
-            // 边界限制
             newX = Math.max(
               0,
               Math.min(
@@ -343,11 +276,9 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
               ),
             )
 
-            // 使用 transform 进行 GPU 加速定位
             windowRef.current.style.transform = `translate3d(${newX}px, ${newY}px, 0)`
             currentPositionRef.current = { x: newX, y: newY }
           } else if (isResizing && resizeDirection) {
-            // 调整大小 - 直接操作 DOM
             let newWidth = sizeStartRef.current.width
             let newHeight = sizeStartRef.current.height
             let newX = positionStartRef.current.x
@@ -382,11 +313,9 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
               newY = positionStartRef.current.y + heightDelta
             }
 
-            // 边界限制
             newWidth = Math.min(newWidth, containerBounds.width - newX)
             newHeight = Math.min(newHeight, containerBounds.height - newY)
 
-            // 使用 transform + width/height，transform 用于 GPU 加速位置变换
             windowRef.current.style.transform = `translate3d(${newX}px, ${newY}px, 0)`
             windowRef.current.style.width = `${newWidth}px`
             windowRef.current.style.height = `${newHeight}px`
@@ -400,7 +329,6 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
       const handleEnd = () => {
         if (rafId) cancelAnimationFrame(rafId)
 
-        // 交互结束时一次性同步状态到 React
         if (isDragging) {
           onMove(window.windowId, currentPositionRef.current)
         } else if (isResizing) {
@@ -418,10 +346,8 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
         setResizeDirection(null)
       }
 
-      // 鼠标事件
       document.addEventListener('mousemove', handleMove, { passive: true })
       document.addEventListener('mouseup', handleEnd)
-      // 触摸事件 - 使用 passive: true 优化滚动性能
       document.addEventListener('touchmove', handleMove, { passive: true })
       document.addEventListener('touchend', handleEnd)
       document.addEventListener('touchcancel', handleEnd)
@@ -434,27 +360,21 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
         document.removeEventListener('touchend', handleEnd)
         document.removeEventListener('touchcancel', handleEnd)
       }
-      // 注意：onMove, onResize, window.windowId 通过闭包捕获，不加入依赖以避免不必要的重新绑定
     }, [isDragging, isResizing, resizeDirection, containerBounds])
 
-    // 计算窗口样式 - 使用 transform 进行 GPU 加速
     const windowStyle = useMemo(
       () => ({
         width: window.size.width,
         height: window.size.height,
         zIndex: window.zIndex,
-        // 使用 transform 替代 top/left，启用 GPU 加速
         transform: `translate3d(${window.position.x}px, ${window.position.y}px, 0)`,
-        // 只在非交互时启用过渡
         transition: isDragging || isResizing ? 'none' : 'box-shadow 0.15s',
       }),
       [window.position, window.size, window.zIndex, isDragging, isResizing],
     )
 
-    // 交互状态 - 用于显示遮罩层
     const isInteracting = isDragging || isResizing
 
-    // 缓存 boxShadow 样式 - 使用更简单的阴影以提升性能
     const boxShadowStyle = useMemo(
       () => ({
         boxShadow: isActive
@@ -465,7 +385,6 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
       [isActive],
     )
 
-    // 缓存标题栏样式（exlight：不透明底，避免关 blur 后仍透壁纸）
     const headerStyle = useMemo(
       () => ({
         borderBottom: `1px solid ${isStorePanel ? 'var(--surface-border)' : 'var(--border-color)'}`,
@@ -475,12 +394,10 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
       [isActive, isStorePanel],
     )
 
-    // 缓存窗口点击处理函数
     const handleWindowClick = useCallback(() => {
       onFocus(window.windowId)
     }, [onFocus, window.windowId])
 
-    // 缓存关闭 / 最小化按钮处理函数
     const handleCloseClick = useCallback(
       (e: React.MouseEvent) => {
         e.stopPropagation()
@@ -497,7 +414,6 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
       [onMinimize, window.windowId],
     )
 
-    /** 标题栏控件：阻止 mousedown 冒泡触发拖拽 */
     const stopTitleControlPointer = useCallback(
       (e: React.MouseEvent | React.TouchEvent) => {
         e.stopPropagation()
@@ -505,7 +421,6 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
       [],
     )
 
-    // 调整大小的手柄：命中区样式在 TappWindowManager.css（比 4px 边框更易抓取）
     const resizeHandles = useMemo(
       () =>
         (['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const).map(
@@ -527,7 +442,6 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
           ...windowStyle,
           ...(window.isMinimized
             ? {
-                // 最小化：保留挂载与沙箱状态，仅隐藏
                 visibility: 'hidden' as const,
                 pointerEvents: 'none' as const,
                 zIndex: 0,
@@ -538,14 +452,12 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
         onClick={window.isMinimized ? undefined : handleWindowClick}
         aria-hidden={window.isMinimized || undefined}
       >
-        {/* 窗口标题栏 - 可拖拽（支持鼠标和触摸） */}
         <div
           className={`flex items-center justify-between px-3 h-10 shrink-0 select-none rounded-t-xl ${isStorePanel ? 'glass glass-chrome-free' : 'glass-surface glass-80'} ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
           style={headerStyle}
           onMouseDown={handleDragStart}
           onTouchStart={handleDragStart}
         >
-          {/* 左侧：拖拽手柄 + 图标 + 名称 */}
           <div className="flex items-center gap-2 min-w-0">
             <FaGripVertical
               className="w-3 h-3 shrink-0"
@@ -616,7 +528,6 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
             ) : null}
           </div>
 
-          {/* 右侧：最小化 + 关闭 */}
           <div className="flex items-center gap-0.5 shrink-0">
             <motion.button
               type="button"
@@ -647,14 +558,13 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
           </div>
         </div>
 
-        {/* 窗口内容（圆角 + 裁剪在此层，外层 overflow-visible 以便缩放命中区伸出边框） */}
         <div
           className="flex-1 overflow-hidden relative rounded-b-xl"
           style={{
             backgroundColor: isStorePanel ? 'transparent' : 'var(--bg-primary)',
           }}
         >
-          {/* 交互时显示遮罩层，防止 iframe 捕获事件并避免重绘 */}
+          {/* 交互时遮罩，防止 iframe 捕获事件。 */}
           {isInteracting && (
             <div
               className="absolute inset-0 z-50"
@@ -699,7 +609,6 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
           ) : null}
         </div>
 
-        {/* 调整大小的手柄（支持鼠标和触摸；命中区见 CSS） */}
         {resizeHandles.map(({ direction, className }) => (
           <div
             key={direction}
@@ -712,7 +621,6 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
     )
   },
   (prevProps, nextProps) => {
-    // 自定义比较函数，只在关键属性变化时重新渲染
     return (
       prevProps.window.windowId === nextProps.window.windowId &&
       prevProps.window.kind === nextProps.window.kind &&
@@ -734,17 +642,13 @@ const TappWindowComponent: React.FC<TappWindowComponentProps> = React.memo(
   },
 )
 
-// 设置 displayName 便于调试
 TappWindowComponent.displayName = 'TappWindowComponent'
 
-/**
- * Tapp 多窗口管理器
- */
 export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
   initialTappId,
   onBack,
 }) => {
-  const { t, locale } = useI18n()
+  const { t, locale, format } = useI18n()
   const { isAuthenticated } = useAuth()
   const animConfig = useAnimationLevel()
   const noAnimation = isExlight(animConfig)
@@ -772,22 +676,18 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
   const [savedSchemes, setSavedSchemes] = useState<WindowScheme[]>([])
   const [schemeLoadFailed, setSchemeLoadFailed] = useState(false)
 
-  // 用于防抖的 ref
   const resizeTimeoutRef = useRef<number | null>(null)
   const [isSaving, setIsSaving] = useState(false)
 
-  // 用 ref 跟踪 windows 和 activeWindowId，避免 agent handler 的 useEffect 因 windows 变化频繁重注册
   const windowsRef = useRef(windows)
   windowsRef.current = windows
   const activeWindowIdRef = useRef(activeWindowId)
   activeWindowIdRef.current = activeWindowId
 
-  // 注册页面到统一调度器（页面级生命周期管理）
   useEffect(() => {
     startPage('tapp-multi')
   }, [])
 
-  // 点击外部关闭方案菜单
   useEffect(() => {
     if (!showSchemeMenu) return
 
@@ -800,7 +700,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
       }
     }
 
-    // 延迟添加监听器，避免立即触发
     const timer = setTimeout(() => {
       document.addEventListener('mousedown', handleClickOutside)
     }, 0)
@@ -811,7 +710,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     }
   }, [showSchemeMenu])
 
-  // 从云端加载已保存的方案
   useEffect(() => {
     const loadSchemes = async () => {
       try {
@@ -831,7 +729,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     loadSchemes()
   }, [])
 
-  // 更新容器尺寸 - 使用防抖优化
   useEffect(() => {
     const updateBounds = () => {
       if (containerRef.current) {
@@ -847,7 +744,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
       resizeTimeoutRef.current = requestAnimationFrame(updateBounds)
     }
 
-    updateBounds() // 初始化时立即执行
+    updateBounds()
     window.addEventListener('resize', debouncedUpdateBounds, { passive: true })
     return () => {
       window.removeEventListener('resize', debouncedUpdateBounds)
@@ -857,12 +754,10 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     }
   }, [])
 
-  /** Dock 已安装列表：内存快照 + 事件驱动刷新（避免 idle 延迟 / 商店装完不同步） */
   const refreshDockApps = useCallback(() => {
     const next = runtime.getAllTapps().filter(
       (item) =>
         tappHasPage(item.manifest) &&
-        // 包与当前格式不符的安装不进 Dock：点开只会失败
         item.installationStatus !== 'error' &&
         item.status !== 'error',
     )
@@ -887,7 +782,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
   useEffect(() => {
     let cancelled = false
 
-    // 立即用当前缓存填 Dock，避免 scheduleIdle 造成空坞
     refreshDockApps()
 
     const syncThenRefresh = async () => {
@@ -903,7 +797,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     const unsubUninstalled = runtime.on('tapp:uninstalled', (data) => {
       const id = (data as { id?: string })?.id
       if (id) {
-        // 卸载后关掉对应窗口，指示点与列表一并收敛
         setWindows((prev) => {
           const remaining = prev.filter((w) => w.tappId !== id)
           setActiveWindowId((cur) => {
@@ -935,8 +828,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     }
   }, [runtime, refreshDockApps])
 
-  // 更新已打开的多窗口实例。资源缓存代际已在 runtime 事件发出前提升，所有同 ID
-  // 窗口共享一次重新加载，然后各自重建沙箱。宿主面板跳过。
   useEffect(() => {
     let cancelled = false
     const unsubscribe = runtime.on('tapp:updated', (data) => {
@@ -992,14 +883,12 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     }
   }, [runtime, t.tapp.appNotExist, t.tapp.loadAppFailed])
 
-  // 初始化第一个窗口
   useEffect(() => {
     if (initialTappId && windows.length === 0) {
       openTappWindow(initialTappId)
     }
   }, [initialTappId])
 
-  // 打开新的 Tapp / 宿主面板窗口（opts.size/position from Agent open_window when provided）
   const openTappWindow = useCallback(
     async (
       tappId: string,
@@ -1014,7 +903,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
       }
 
       const isHost = isHostPanelId(tappId)
-      // 商店宿主面板：已打开则聚焦，避免重复占用窗口位
       if (isHost && isStoreHostPanel(tappId)) {
         const existing = windows.find(
           (w) => w.kind === 'host' && isStoreHostPanel(w.tappId),
@@ -1065,7 +953,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
             : defaultSize.height,
       }
 
-      // 宿主面板：无需沙箱加载，直接就绪
       if (isHost) {
         if (!isStoreHostPanel(tappId)) {
           console.warn('[TappWindowManager] Unknown host panel:', tappId)
@@ -1091,7 +978,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
         return
       }
 
-      // 创建初始窗口状态
       const newWindow: TappWindow = {
         windowId,
         tappId,
@@ -1111,7 +997,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
       setActiveWindowId(windowId)
       setNextZIndex((prev) => prev + 1)
 
-      // 异步加载 Tapp
       try {
         await runtime.waitForSync()
 
@@ -1168,12 +1053,10 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     [windows, nextZIndex, runtime, t.tapp.appNotExist, t.tapp.loadAppFailed],
   )
 
-  // 关闭窗口（不触发暂停应用逻辑，应用继续在后台运行）
   const closeWindow = useCallback(
     (windowId: string) => {
       setWindows((prev) => {
         const remaining = prev.filter((w) => w.windowId !== windowId)
-        // 如果关闭的是活动窗口，激活下一个可见窗口
         if (activeWindowId === windowId && remaining.length > 0) {
           const candidates = remaining.filter((w) => !w.isMinimized)
           const pool = candidates.length > 0 ? candidates : remaining
@@ -1188,8 +1071,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     [activeWindowId],
   )
 
-  // Minimize: hide into Dock but keep the sandbox/iframe alive so restore is
-  // instant. Work freezes via `paused` → lifecycle:pause (no teardown).
+  // 最小化：隐藏进 Dock，保留 iframe；paused → lifecycle:pause，不销毁。
   const minimizeWindow = useCallback(
     (windowId: string) => {
       setWindows((prev) => {
@@ -1211,7 +1093,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     [activeWindowId],
   )
 
-  // 聚焦窗口（同时从最小化恢复）
   const focusWindow = useCallback(
     (windowId: string) => {
       setActiveWindowId(windowId)
@@ -1227,7 +1108,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     [nextZIndex],
   )
 
-  // 移动窗口
   const moveWindow = useCallback(
     (windowId: string, position: { x: number; y: number }) => {
       setWindows((prev) =>
@@ -1237,7 +1117,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     [],
   )
 
-  // 调整窗口大小
   const resizeWindow = useCallback(
     (windowId: string, size: { width: number; height: number }) => {
       setWindows((prev) =>
@@ -1247,7 +1126,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     [],
   )
 
-  // Agent 操作处理器（已解耦为 Hook）
   useWindowAgentHandler({
     windowsRef,
     activeWindowIdRef,
@@ -1256,7 +1134,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     focusWindow,
   })
 
-  // 保存方案到云端
   const saveToCloud = useCallback(async (schemes: WindowScheme[]) => {
     const csrfToken = await getCSRFToken(true)
     if (!csrfToken) {
@@ -1283,14 +1160,12 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     }
   }, [])
 
-  // 保存当前窗口方案
   const saveCurrentScheme = useCallback(async () => {
     if (windows.length === 0 || isSaving) return
 
     setIsSaving(true)
 
     const schemeWindows: WindowSchemeItem[] = windows
-      // 已加载的 Tapp，或就绪的宿主面板
       .filter((w) => w.kind === 'host' || !!w.tapp)
       .map((w) => ({
         tappId: w.tappId,
@@ -1329,17 +1204,13 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     t.tapp.schemeSaveFailed,
   ])
 
-  // 加载窗口方案
   const loadScheme = useCallback(
     async (scheme: WindowScheme) => {
-      // 1. 先关闭菜单
       setShowSchemeMenu(false)
 
-      // 2. 清空所有当前窗口并等待状态更新完成
       await new Promise<void>((resolve) => {
         setWindows([])
         setActiveWindowId(null)
-        // 使用 requestAnimationFrame 确保 React 状态更新完成
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
             resolve()
@@ -1347,7 +1218,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
         })
       })
 
-      // 3. 准备所有新窗口的初始状态
       const newWindows: TappWindow[] = []
       const baseZIndex = nextZIndex
 
@@ -1362,7 +1232,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
           kind: isHost ? 'host' : 'tapp',
           tapp: null,
           code: null,
-          // 宿主面板无需异步加载
           loading: !isHost,
           error:
             isHost && !isStoreHostPanel(schemeWindow.tappId)
@@ -1376,14 +1245,12 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
         })
       }
 
-      // 4. 一次性设置所有窗口（批量更新，减少重渲染）
       if (newWindows.length > 0) {
         setWindows(newWindows)
-        setActiveWindowId(newWindows[newWindows.length - 1].windowId)
+        setActiveWindowId(newWindows.at(-1)!.windowId)
         setNextZIndex(baseZIndex + newWindows.length)
       }
 
-      // 5. 异步加载所有真实 Tapp 的资源（跳过宿主面板）
       await runtime.waitForSync()
 
       for (const newWindow of newWindows) {
@@ -1446,7 +1313,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     [nextZIndex, runtime, t.tapp.appNotExist, t.tapp.loadAppFailed],
   )
 
-  // 删除方案
   const deleteScheme = useCallback(
     async (schemeId: string) => {
       const updatedSchemes = savedSchemes.filter((s) => s.id !== schemeId)
@@ -1460,7 +1326,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     [savedSchemes, saveToCloud, t.tapp.schemeSaveFailed],
   )
 
-  // Dock 快捷槽：最多 MAX_DOCK_APPS；已打开优先。应用面板入口常显，面板内始终列全部。
   const dockVisibleApps = useMemo(() => {
     const openIds = new Set(
       windows.map((w) => w.tappId).filter((id) => !isHostPanelId(id)),
@@ -1474,10 +1339,8 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     return [...openApps, ...restApps].slice(0, MAX_DOCK_APPS)
   }, [availableTapps, windows])
 
-  /** 应用面板：全部已安装（有页面）应用，与是否溢出无关 */
   const dockPanelApps = availableTapps
 
-  /** 按 tappId 统计打开中的窗口（用于 Dock 指示点） */
   const openCountByTappId = useMemo(() => {
     const map = new Map<string, number>()
     for (const w of windows) {
@@ -1500,13 +1363,14 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     setLaunchpadPage(0)
   }, [])
 
-  /** 已安装应用中出现过的分类（稳定顺序） */
   const launchpadCategories = useMemo(() => {
     const present = new Set<TappCategory>()
     for (const app of dockPanelApps) {
       present.add(resolveTappCategory(app.manifest))
     }
-    return TAPP_CATEGORIES.filter((c) => present.has(c))
+    return Iterator.from(TAPP_CATEGORIES)
+      .filter((c) => present.has(c))
+      .toArray()
   }, [dockPanelApps])
 
   const launchpadCategoryLabel = useCallback(
@@ -1517,12 +1381,10 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     [t.tapp],
   )
 
-  /** 启动台：商店 + 已安装（搜索 + 分类），扁平条目供 7×3 分页 */
   const launchpadEntries = useMemo((): LaunchpadEntry[] => {
     const q = launchpadQuery.trim().toLowerCase()
     const storeTitle = t.tapp.storeTitle
     const entries: LaunchpadEntry[] = []
-    // 商店仅在「全部」分类下展示
     if (
       launchpadCategory === 'all' &&
       (!q || storeTitle.toLowerCase().includes(q))
@@ -1558,7 +1420,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     return launchpadEntries.slice(start, start + LAUNCHPAD_PAGE_SIZE)
   }, [launchpadEntries, launchpadPage, launchpadPageCount])
 
-  // 搜索 / 分类变化时回到第一页；页码钳制
   useEffect(() => {
     setLaunchpadPage(0)
   }, [launchpadQuery, launchpadCategory])
@@ -1567,7 +1428,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     setLaunchpadPage((p) => Math.min(p, launchpadPageCount - 1))
   }, [launchpadPageCount])
 
-  // 启动台：聚焦搜索；Esc 关闭；点窗外关闭；←/→ 翻页（非输入中）
   useEffect(() => {
     if (!showLaunchpad) return
     const tId = window.setTimeout(() => {
@@ -1595,7 +1455,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
       const stage = launchpadStageRef.current
       const target = e.target as Node
       if (stage && !stage.contains(target)) {
-        // Dock「应用」入口自行 toggle，勿抢先关掉再被打开
         if (
           target instanceof Element &&
           target.closest('.tapp-multi-dock-more')
@@ -1606,7 +1465,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
       }
     }
     document.addEventListener('keydown', onKey)
-    // 延迟，避免打开时同一 click 立刻关掉
     const outId = window.setTimeout(() => {
       document.addEventListener('mousedown', onPointerDown)
     }, 0)
@@ -1618,16 +1476,12 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     }
   }, [showLaunchpad, closeLaunchpad, launchpadPageCount])
 
-  /**
-   * Dock 点击：已有窗口则聚焦（含从最小化恢复）；Alt/⌘/Ctrl 强制新开。
-   * 同 app 多窗时：若顶层已是活动且可见，则恢复下一扇最小化副本，否则聚焦 z 最高。
-   */
   const activateFromDock = useCallback(
     (tappId: string, forceNew: boolean) => {
       if (!forceNew) {
         const same = windows.filter((w) => w.tappId === tappId)
         if (same.length > 0) {
-          const byZ = [...same].sort((a, b) => b.zIndex - a.zIndex)
+          const byZ = same.toSorted((a, b) => b.zIndex - a.zIndex)
           const top = byZ[0]
           const minimizedTop = byZ.find((w) => w.isMinimized)
           const target =
@@ -1651,7 +1505,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
 
   const dockAtMax = windows.length >= MAX_WINDOWS
 
-  /** 渲染单个 Dock 应用图标 */
   const renderDockAppItem = useCallback(
     (tapp: TappInstance) => {
       const style = getTappIconStyle(tapp.manifest)
@@ -1719,9 +1572,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
   )
 
   return (
-    // z-100：高于 NavigationIsland（z-50），避免底栏被挡住
     <div className="fixed inset-0 z-100 overflow-hidden" data-no-ripple>
-      {/* 顶部工具栏：返回 + 方案 + 窗口计数（不再弹中间选择器） */}
       <div className="absolute top-4 left-4 z-1000">
         <div
           className="flex items-center gap-2 rounded-xl px-2 py-1.5 glass-surface glass-80"
@@ -1851,10 +1702,9 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
                                   className="text-xs"
                                   style={{ color: 'var(--text-muted)' }}
                                 >
-                                  {t.tapp.windowCount.replace(
-                                    '{count}',
-                                    String(scheme.windows.length),
-                                  )}
+                                  {format(t.tapp.windowCount, {
+                                    count: scheme.windows.length,
+                                  })}
                                 </span>
                               </motion.button>
                               <motion.button
@@ -1897,17 +1747,13 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
           <span
             className="px-2 py-1 text-sm font-medium"
             style={{ color: 'var(--text-muted)' }}
-            title={t.tapp.windowCount.replace(
-              '{count}',
-              String(windows.length),
-            )}
+            title={format(t.tapp.windowCount, { count: windows.length })}
           >
             {windows.length}/{MAX_WINDOWS}
           </span>
         </div>
       </div>
 
-      {/* 窗口桌面（底部为 Dock 留白） */}
       <div
         ref={containerRef}
         className="tapp-multi-desktop absolute inset-0 overflow-hidden"
@@ -1929,7 +1775,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
         </AnimatePresence>
       </div>
 
-      {/* 应用启动窗：居中窗口，无背景遮罩 */}
       <AnimatePresence>
         {showLaunchpad && (
           <div className="tapp-launchpad" aria-hidden={false}>
@@ -2149,14 +1994,12 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
         )}
       </AnimatePresence>
 
-      {/* macOS 风格底部 Dock：应用入口(左) + 最多 18 快捷应用 */}
       <nav
         className="tapp-multi-dock"
         aria-label={t.tapp.dockLabel}
         data-at-max={dockAtMax ? 'true' : undefined}
       >
         <div className="tapp-multi-dock-inner glass">
-          {/* 启动台入口：最左，名称「应用」 */}
           <motion.button
             type="button"
             className={`tapp-multi-dock-item tapp-multi-dock-more${showLaunchpad ? ' is-open' : ''}`}
@@ -2170,7 +2013,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
             <span className="tapp-multi-dock-label" aria-hidden>
               {t.tapp.dockAppPanel}
             </span>
-            {/* 启动台风格：顶行胶囊 + 下两行彩格 */}
             <span className="tapp-multi-dock-apps-shell" aria-hidden>
               <span className="tapp-multi-dock-apps-grid">
                 <span className="tapp-multi-dock-apps-search">
@@ -2186,7 +2028,6 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
             </span>
           </motion.button>
 
-          {/* 快捷应用槽（最多 18） */}
           {dockVisibleApps.length > 0 && (
             <div className="tapp-multi-dock-sep" aria-hidden />
           )}

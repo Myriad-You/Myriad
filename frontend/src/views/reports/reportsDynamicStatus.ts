@@ -1,24 +1,20 @@
-/**
- * Reports page dynamic status: rotating tips + hero title for the unified bar.
- */
 export type ReportsTipKind = 'stage' | 'platform' | 'empty'
 
 export interface ReportsDynamicTip {
   id: string
-  /** Decorative Latin word behind the bar. Idle stays on Stage; stage follows the platform. */
+  /** Decorative Latin. Idle = Stage; stage follows the platform. */
   hero: string
   main: string
-  /** Omit when the tip is just a status line — no how-to copy. */
+  /** Omit for status-only tips. */
   sub?: string
   kind: ReportsTipKind
-  /** Platform id for stage / highlight icon lookup */
   platformId?: string
-  /** Subtitle is a long hook — scroll it before advancing */
+  /** Scroll a long subtitle before advancing. */
   scrollSub?: boolean
 }
 
 export interface ReportsStatusCopy {
-  /** Hero word for the report tips — decorative Latin, never localized */
+  /** Decorative Latin; never localized. */
   heroStage: string
   platformReport: string
   noEnabledPlatforms: string
@@ -30,9 +26,7 @@ export interface ReportsStatusCopy {
 
 export interface ReportHighlight {
   platformId: string
-  /** Localized name — main title */
   platformName: string
-  /** One-line portrait from the report itself — subtitle */
   hook: string
 }
 
@@ -42,7 +36,7 @@ export interface BuildReportsTipsInput {
   stagePaused: boolean
   stagePlatformId?: string | null
   stagePlatformName?: string | null
-  /** Latin platform name for the stage hero — display names get localized to CJK */
+  /** Latin stage hero; display names localize to CJK. */
   stagePlatformHero?: string | null
   enabledPlatformCount: number
   reportCount: number
@@ -51,7 +45,7 @@ export interface BuildReportsTipsInput {
 
 function oneLine(value: unknown): string {
   if (typeof value !== 'string') return ''
-  return value.replace(/\s+/g, ' ').trim()
+  return value.replaceAll(/\s+/g, ' ').trim()
 }
 
 function moodLine(value: unknown): string {
@@ -63,7 +57,7 @@ function moodLine(value: unknown): string {
   return words.join(' · ')
 }
 
-/** Prefer the card's short portrait; fall back to the first insight / summary. */
+/** Card portrait, else first insight/summary. */
 export function pickReportHook(report: {
   summary?: string | null
   insights?: string[] | null
@@ -88,7 +82,6 @@ const MARQUEE_PX_PER_SEC = 36
 const MARQUEE_MIN_MS = 1800
 const MARQUEE_MAX_MS = 14_000
 
-/** How long the subtitle should take to scroll its overflow. */
 export function marqueeDurationMs(overflowPx: number): number {
   if (overflowPx <= 0) return 0
   return Math.min(
@@ -115,7 +108,7 @@ export function buildReportsDynamicTips(
     highlights = [],
   } = input
 
-  // Stage locks the tip carousel — one focused status.
+  // Stage: one tip only.
   if (isStageMode && stagePlatformName) {
     return [
       {

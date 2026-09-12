@@ -59,7 +59,7 @@ pub struct TappStorageAccess {
 /// Domain errors for storage access resolution / installation writes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TappStorageAccessError {
-    /// JWT subject missing or not a positive authenticated user.
+    /// No subject id on the request.
     Unauthenticated,
     /// Runtime grant subject does not match the authenticated subject.
     SubjectMismatch,
@@ -110,9 +110,7 @@ impl TappStorageAccess {
 
     /// Build access from a validated runtime grant + authenticated subject id.
     ///
-    /// `claims_subject_id` should be the JWT subject when authenticated and
-    /// non-guest (`>= 0`). Guests and missing subjects yield
-    /// [`TappStorageAccessError::Unauthenticated`].
+    /// Missing subject → Unauthenticated; guest negative ids are valid subjects.
     pub fn from_grant_and_subject(
         grant_owner_id: i32,
         grant_subject_id: i32,
@@ -180,9 +178,11 @@ pub struct SandboxStorageEntry {
 /// the generic storage response path.
 const SANDBOX_STORAGE_PREDICATE_SQL: &str = r#"
 key <> '_settings'
+AND key <> '_private'
 AND NOT starts_with(key, '_settings.')
 AND NOT starts_with(key, '_credentials.')
 AND NOT starts_with(key, '_shared.')
+AND NOT starts_with(key, '_private.')
 AND NOT starts_with(key, '_component:')
 AND NOT starts_with(key, '_shortcut:')
 AND NOT starts_with(key, '_report:')
@@ -276,7 +276,7 @@ pub async fn storage_bytes(
 ///
 /// Only Manifest-declared keys are returned. Stored values win; otherwise the
 /// declared `defaultValue` is used. Missing keys are omitted so templates stay
-/// unresolved instead of inventing empty secrets.
+/// unresolved. This loader does not read `_credentials.` secrets.
 pub async fn load_declared_setting_values(
     db: &DatabaseConnection,
     owner_id: i32,
@@ -433,6 +433,8 @@ mod tests {
             "_settings.theme",
             "_credentials.wegame",
             "_shared.posts",
+            "_private",
+            "_private.token",
             "_component:x",
             "_shortcut:y",
             "_report:z",
@@ -447,6 +449,7 @@ mod tests {
     #[test]
     fn sandbox_query_predicate_covers_every_host_storage_prefix() {
         assert!(SANDBOX_STORAGE_PREDICATE_SQL.contains("key <> '_settings'"));
+        assert!(SANDBOX_STORAGE_PREDICATE_SQL.contains("key <> '_private'"));
         for prefix in super::HOST_STORAGE_KEY_PREFIXES {
             assert!(
                 SANDBOX_STORAGE_PREDICATE_SQL.contains(&format!("starts_with(key, '{prefix}')")),
@@ -514,6 +517,7 @@ VALUES
     ($1, $2, 'ordinary.two', '{"visible":2}'::jsonb, NULL, NULL, NOW(), NOW()),
     ($1, $2, '_settings.theme', '"dark"'::jsonb, NULL, NULL, NOW(), NOW()),
     ($1, $2, '_shared.posts', '[]'::jsonb, NULL, NULL, NOW(), NOW()),
+    ($1, $2, '_private.token', '"owner-only"'::jsonb, NULL, NULL, NOW(), NOW()),
     ($1, $2, '_credentials.api', '{"kind":"credential","version":1}'::jsonb,
         'ciphertext-must-stay-host-only', $3, NOW(), NOW())
 "#,
@@ -551,7 +555,12 @@ VALUES
             .collect();
         assert_eq!(
             remaining,
-            vec!["_credentials.api", "_settings.theme", "_shared.posts"]
+            vec![
+                "_credentials.api",
+                "_private.token",
+                "_settings.theme",
+                "_shared.posts",
+            ]
         );
 
         db.execute_raw(delete_rows())
@@ -575,6 +584,16 @@ VALUES
         assert_eq!(private_owner.installation_namespace(), 42);
         assert!(private_owner.can_manage_installation());
         assert!(private_owner.require_installation_write().is_ok());
+
+        // Tapp.storage → private_storage_namespace (subject).
+        // Tapp.private / shared / settings → installation_namespace (owner).
+        // Visitor Tapp.storage namespace ≠ owner installation namespace.
+        assert_ne!(
+            viewer_of_admin.private_storage_namespace(),
+            viewer_of_admin.installation_namespace()
+        );
+        assert!(can_write_installation_settings(private_owner, false));
+        assert!(!can_write_installation_settings(viewer_of_admin, false));
 
         let site_owner = TappStorageAccess::from_owner_and_subject(1, 1);
         assert_eq!(site_owner.private_storage_namespace(), 1);

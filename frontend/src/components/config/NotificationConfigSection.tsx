@@ -4,9 +4,12 @@ import type {
   NotificationPreferences,
   NotificationSourceKey,
 } from '../../services/notificationPreferencesApi'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
-import { getNotificationCopy } from '../../i18n/notificationCatalog'
+import {
+  getNotificationCopy,
+  loadNotificationCopy,
+} from '../../i18n/notificationCatalog'
 import { cloneNotificationPreferences } from '../../services/notificationPreferencesApi'
 import { NotificationSourceIcon } from '../notifications/NotificationIcons'
 import {
@@ -56,8 +59,18 @@ export const NotificationConfigSection: React.FC<
 }) => {
   const { locale } = useI18n()
   const { catalog: g, renderGuide, bindGuide } = useSettingGuide()
-  const { sources: sourceText, events: eventText, ui } =
-    getNotificationCopy(locale)
+  const [copy, setCopy] = useState(() => getNotificationCopy(locale))
+  useEffect(() => {
+    let cancelled = false
+    setCopy(getNotificationCopy(locale))
+    void loadNotificationCopy(locale).then((next) => {
+      if (!cancelled) setCopy(next)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [locale])
+  const { sources: sourceText, events: eventText, ui } = copy
   const locationsGuide = renderGuide(g.notifications.locations)
   const eventsGuide = renderGuide(g.notifications.events)
 

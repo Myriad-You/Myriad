@@ -1,7 +1,7 @@
 //! 图片缓存服务
 //!
 //! 用于缓存外部图片（特别是 Notion 的临时 URL）
-//! Notion 托管的文件 URL 是带签名的临时链接，通常 1 小时后失效
+//! Notion 托管的文件 URL 是带签名的临时链接
 //! 此服务会下载并本地缓存这些图片
 
 use sha2::{Digest, Sha256};
@@ -25,7 +25,7 @@ fn cache_io_error(action: &str, error: std::io::Error) -> String {
     }
 }
 
-/// 最大图片大小 (10MB)
+/// 最大图片大小（`MAX_IMAGE_SIZE` = 10 MiB）
 const MAX_IMAGE_SIZE: usize = 10 * 1024 * 1024;
 
 /// 图片缓存服务
@@ -52,10 +52,7 @@ impl ImageCacheService {
         Self { cache_dir }
     }
 
-    /// 检查 URL 是否是 Notion 托管的临时文件
-    /// Notion 文件 URL 格式：
-    /// - https://prod-files-secure.s3.us-west-2.amazonaws.com/...
-    /// - https://s3.us-west-2.amazonaws.com/secure.notion-static.com/...
+    /// 检查 URL 是否像 Notion / S3 临时文件（含 `notion.so/image` 与 `X-Amz-*`）
     pub fn is_notion_temporary_url(url: &str) -> bool {
         let patterns = [
             "prod-files-secure.s3",
@@ -196,23 +193,15 @@ impl ImageCacheService {
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
 
-        // 验证是图片类型
+        // 若带 Content-Type，必须是 image/*；缺 CT 则放过
         if let Some(ref ct) = content_type {
             if !ct.starts_with("image/") {
                 return Err(format!("Not an image: {}", ct));
             }
         }
 
-        // 下载数据
-        let data = response.bytes().await.map_err(|e| {
-            tracing::warn!(error = %e, "Failed to read image data");
-            "Failed to read image data".to_string()
-        })?;
-
-        // 检查大小
-        if data.len() > MAX_IMAGE_SIZE {
-            return Err(format!("Image too large: {} bytes", data.len()));
-        }
+        // Enforce the existing image limit before buffering the entire response.
+        let data = myriad_outbound::read_limited_body(response, MAX_IMAGE_SIZE).await?;
 
         // 生成文件名
         let filename = Self::generate_cache_filename(url);
@@ -317,9 +306,7 @@ impl ImageCacheService {
         }
     }
 
-    /// Resolve a public `/api/brew/image-cache/{subdir}/{sha256}.{ext}` URL to
-    /// local bytes. Rejects anything that is not this site's cache path so
-    /// callers cannot turn it into an open HTTP fetch (SSRF).
+    /// Resolve a public `/api/brew/image-cache/{subdir}/{sha256}.{ext}` URL to a local path.
     pub fn local_path_for_public_url(&self, url: &str) -> Option<PathBuf> {
         let path = image_cache_path(url)?;
         let rest = path.strip_prefix("/api/brew/image-cache/")?;

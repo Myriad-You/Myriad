@@ -1,18 +1,8 @@
-/* 卡片底交给 WidgetShell 的 .glass（--surface-* 令牌 / 表面模式驱动），
-   这里只做隔离和文字色，不再自己刷一层底色。 */
 .merope-widget {
   isolation: isolate;
   color: var(--text-primary, #202238);
 }
 
-/*
- * 人物按「铺满卡片」排版：master portrait 是 3:4 竖画布，
- * 按卡片宽度铺满、顶边对齐，溢出的身体从卡片底边裁掉 —— 底部因此永远平整。
- * 4x4 是正方形格，3:4 铺满宽度后底部固定裁掉 1/4：这是「不留侧边空档」的下限，
- * 再少就得让人物缩到比卡片窄。--merope-widget-fill > 1 可以额外吃掉立绘两侧留白，
- * 代价是底部裁得更多（1.12 ≈ 裁 1/3），默认不吃。
- * --merope-widget-portrait 由 rig manifest 的画布尺寸覆盖（无 rig 时回落 3:4）。
- */
 .merope-widget__surface {
   --merope-widget-portrait: 3 / 4;
   --merope-widget-fill: 1;
@@ -23,10 +13,6 @@
   overflow: hidden;
 }
 
-/*
- * 与画布同比例的取景框：播放器按 min(w, h) 等比缩放画布，
- * 框和画布同比 ⇒ 缩放由宽度决定 ⇒ 人物横向铺满，纵向溢出到卡片外被裁掉。
- */
 .merope-widget__rig {
   position: absolute;
   z-index: 1;
@@ -97,13 +83,6 @@
   animation: none;
 }
 
-/*
- * 右下角铭牌：单行，名字 + 心情挤在一条基线上。
- * 底是全站同料的玻璃（.glass-surface 供底和滤镜，边框/圆角/投影按约定留在使用处），
- * 有了自己的地面，文字不必再跟着身下的立绘换色 —— 直接吃 --text-* 令牌。
- * 只占一行高：信息就这么点，不值得摞成两行再包一圈内边距去盖住立绘。
- * 圆角 6px = WidgetShell 约定里的 micro 档（外壳 12 / 嵌套 8 / 微件 6）。
- */
 .merope-widget__identity {
   position: absolute;
   z-index: 3;
@@ -151,8 +130,6 @@
   white-space: nowrap;
 }
 
-/* 心情：档位词退到铭牌次要位，4 格电平承担高低。
-   格数 = 档位（很低/偏低/平常/轻松）；词只点明档位，不跟名字抢视觉。 */
 .merope-widget__mood {
   flex: 0 1 auto;
   display: flex;

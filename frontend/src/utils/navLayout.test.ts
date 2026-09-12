@@ -46,7 +46,6 @@ describe('resolveNavLayout', () => {
   })
 
   it('tablet band: touch / Apple → mobile bottom island', () => {
-    // iPad portrait-ish
     assert.equal(
       resolveNavLayout({
         width: 820,
@@ -63,7 +62,6 @@ describe('resolveNavLayout', () => {
       }),
       'mobile',
     )
-    // Apple touch without coarse (rare desktop-UA iPad) still mobile
     assert.equal(
       resolveNavLayout({
         width: 834,

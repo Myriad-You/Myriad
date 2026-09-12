@@ -13,7 +13,7 @@ Base URL:
 
 | 能力 | 路径前缀 / 说明 |
 | --- | --- |
-| 健康检查 | `GET /health`（公开） |
+| 健康检查 | `GET /health`（公开，存活）；`GET /ready`（公开，业务就绪，未就绪 503）。经 proxy / 开发代理转发，也可直连 backend。 |
 | 本地登录 / 注册 / 改密 | `/api/auth/…`（见 `auth_local`） |
 | OAuth / OIDC | `/api/auth/oauth/:slug/*`；provider 列表 `GET /api/auth/oauth/providers` |
 | 当前用户 | `GET /api/auth/me` 等 |

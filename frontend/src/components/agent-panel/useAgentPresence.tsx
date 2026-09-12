@@ -1,11 +1,4 @@
-/**
- * 进出场包装：列表项、贴、同一位置上换内容，都走同一套 data-presence。
- *
- * 真正的位移/淡出在 CSS 里。这里只负责「卸之前多留一帧」。
- * 文件名不能叫 AgentPresence.tsx —— Vite 在大小写不敏感的盘上会先命中
- * 同名的 .ts（进出场记账），浏览器就拿不到这些组件。
- */
-
+/** Keep this filename; Vite would hit agentPresence.ts first on case-insensitive disks. */
 import type { CSSProperties, ReactNode } from 'react'
 import type { PresenceEntry } from './agentPresenceState'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -21,7 +14,6 @@ import {
 
 export type AgentPresenceKind = 'row' | 'chip' | 'swap'
 
-/** 从哪来回哪去：进出共用这个原点。 */
 export type AgentPresenceFrom = 'composer' | 'attach' | 'context' | 'self'
 
 export function useKeyedPresence<T>(

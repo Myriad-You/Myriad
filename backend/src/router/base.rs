@@ -19,6 +19,7 @@ async fn require_installation_capability(req: Request, next: Next) -> Response {
 pub(super) fn build_config_mode_router() -> Router {
     Router::new()
         .route("/health", get(api::health))
+        .route("/ready", get(api::ready))
         .route("/api/setup/config", get(api::setup::get_setup_config))
         // Registered without AppState: extract::Db → 503 until DB is wired.
         .route("/api/setup/status", get(api::setup::check_setup_status))
@@ -59,6 +60,7 @@ pub(super) fn build_base_api_router(
     use axum::middleware::from_fn_with_state;
     let api_router = Router::<crate::state::AppState>::new()
         .route("/health", get(api::health))
+        .route("/ready", get(api::ready))
         // Setup routes (always available when DB/AppState is wired)
         .route("/api/setup/config", get(api::setup::get_setup_config))
         .route("/api/setup/status", get(api::setup::check_setup_status))
@@ -77,16 +79,14 @@ pub(super) fn build_base_api_router(
                 .route_layer(from_fn(require_installation_capability)),
         )
         // System management routes
-        // P2: system/status 暴露了一些系统信息，但为了监控保持公开（考虑移除敏感字段）
+        // /api/system/status 保持公开（监控探活）。reload-config 须管理员。
         .route("/api/system/status", get(api::system::system_status))
         .route(
             "/api/system/reload-config",
-            post(api::system::reload_config)
-                // P1 修复：配置重载应该只有 admin 可以触发
-                .route_layer(from_fn_with_state(
-                    app_state.clone(),
-                    middleware::auth::admin_middleware,
-                )),
+            post(api::system::reload_config).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::admin_middleware,
+            )),
         )
         // 系统监控指标端点（内存、任务、连接等）-  需要管理员权限
         .route(
@@ -102,7 +102,7 @@ pub(super) fn build_base_api_router(
             "/api/analytics/pageview",
             post(api::analytics::record_pageview),
         )
-        // 公开访客卡片：只有站点总量 + 7 日趋势 + 调用者自己的到达序号，
+        // 公开访客卡片：站点总量 + 5 日趋势 + 调用者自己的到达序号，
         // 页面 / 来源 / 国家 / 停留等细分仍然只走下面的 admin summary
         .route(
             "/api/analytics/visitor",
@@ -144,15 +144,14 @@ pub(super) fn build_base_api_router(
                 middleware::auth::admin_middleware,
             )),
         )
-        // Authentication routes (use wrapper for dynamic DB access)
+        // Authentication routes
         .route("/api/auth/login", post(api::auth_local::local_login))
         .route("/api/auth/me", get(api::auth::get_current_user))
         .route(
             "/api/auth/logout",
             post(api::auth::logout), // 不需要认证中间件
         )
-        // OAuth routes stay registered even if DB is temporarily unavailable,
-        // keeping login/setup surfaces on 503 responses instead of 404s.
+        // OAuth list/login stay registered (no extract::Db) so a missing path is not 404.
         .route("/api/auth/oauth/providers", get(api::oauth::list_providers))
         .route(
             "/api/auth/oauth/{slug}/login",
@@ -289,16 +288,15 @@ pub(super) fn build_base_api_router(
                 middleware::auth::admin_middleware,
             )),
         )
-        // ActivityPub domain Move (emit Move to followers for every local user)
+        // 公开注册（开关受 allow_local_registration 控制） + 后补密码 + 本地登录开关
+        .route("/api/auth/register", post(api::auth_local::register))
         .route(
-            "/api/admin/federation/domain-move",
-            post(api::federation::admin_federation_domain_move).route_layer(from_fn_with_state(
+            "/api/auth/me/locale",
+            axum::routing::put(api::auth::set_current_user_locale).route_layer(from_fn_with_state(
                 app_state.clone(),
-                middleware::auth::admin_middleware,
+                middleware::auth::auth_middleware,
             )),
         )
-        // PR #4: 公开注册（开关受 allow_local_registration 控制） + 后补密码 + 本地登录开关
-        .route("/api/auth/register", post(api::auth_local::register))
         .route(
             "/api/auth/me/set-password",
             post(api::auth_local::set_password).route_layer(from_fn_with_state(
@@ -312,12 +310,12 @@ pub(super) fn build_base_api_router(
                 from_fn_with_state(app_state.clone(), middleware::auth::auth_middleware),
             ),
         )
-        // Configuration routes (use wrapper for dynamic DB access)
+        // Configuration routes
         .route(
             "/api/config",
             get(api::config::get_config).route_layer(from_fn_with_state(
                 app_state.clone(),
-                middleware::auth::auth_middleware,
+                middleware::auth::admin_middleware,
             )),
         )
         .route(
@@ -406,7 +404,7 @@ pub(super) fn build_base_api_router(
                 middleware::auth::admin_middleware,
             )), // 仅管理员
         )
-        // PR #6: OAuth providers + 本地注册开关（仅管理员可读写）
+        // OAuth providers + 本地注册开关（仅管理员可读写）
         .route(
             "/api/config/oauth-providers",
             get(api::config::get_oauth_providers)
@@ -420,7 +418,7 @@ pub(super) fn build_base_api_router(
             "/api/config/test",
             post(api::config::test_platform).route_layer(from_fn_with_state(
                 app_state.clone(),
-                middleware::auth::auth_middleware,
+                middleware::auth::admin_middleware,
             )),
         )
         .route("/api/config/metadata", get(api::config::get_site_metadata)) // 公开端点：网站元数据
@@ -451,7 +449,7 @@ pub(super) fn build_base_api_router(
             "/api/ai/recommend-icon",
             post(api::ai_recommend::recommend_icon),
         )
-        // Profile routes (use wrapper for dynamic DB access) - ALWAYS REGISTERED
+        // Profile routes — always registered
         .route("/api/profile/user-info", get(api::profile::get_user_info))
         .route("/api/profile/batch", get(api::profile::get_batch_user_info)); // 批量 API
 
@@ -465,102 +463,10 @@ pub(super) fn build_base_api_router(
                 middleware::auth::admin_middleware,
             )),
         )
-        // Federation (MFP) 公开端点
-        // Layer 1: 发现（无需认证）
-        .route(
-            "/.well-known/webfinger",
-            get(federation::discovery::webfinger),
-        )
-        .route(
-            "/.well-known/nodeinfo",
-            get(federation::discovery::nodeinfo_wellknown),
-        )
-        .route("/nodeinfo/2.1", get(federation::discovery::nodeinfo))
-        // Public room directory card (join-by-id / federated public join)
-        .route(
-            "/api/federation/public/rooms/{room_id}",
-            get(api::federation::federation_get_public_room),
-        )
-        .route(
-            "/api/federation/public/limits",
-            get(federation::limits::public_limits),
-        )
-        // Layer 2: Actor + Outbox + Collections（无需认证，AP 标准端点）
-        .route("/users/{username}", get(federation::actor::get_actor))
-        .route(
-            "/users/{username}/avatar",
-            get(federation::actor::get_avatar),
-        )
         .route(
             "/api/home/widget-fonts/{file}",
             get(api::widget_fonts::get_widget_font),
         )
-        .nest_service(
-            "/api/federation/avatar-cache",
-            tower::ServiceBuilder::new()
-                .layer(SetResponseHeaderLayer::if_not_present(
-                    axum::http::header::CACHE_CONTROL,
-                    axum::http::HeaderValue::from_static("public, max-age=604800, immutable"),
-                ))
-                .service(ServeDir::new(&services::data_paths::paths().cache_images)),
-        )
-        // Public federation media (Note attachments Image/Video) — URLs embedded in AP.
-        // Intentionally unauthenticated GET so remote instances can fetch media during
-        // federation. Must stay outside session/auth middleware (see delivery.rs docs).
-        .nest_service(
-            "/media/federation",
-            tower::ServiceBuilder::new()
-                .layer(SetResponseHeaderLayer::if_not_present(
-                    axum::http::header::CACHE_CONTROL,
-                    axum::http::HeaderValue::from_static("public, max-age=604800"),
-                ))
-                .service(ServeDir::new(federation::content::federation_media_root())),
-        )
-        .route(
-            "/users/{username}/outbox",
-            get(federation::outbox::get_outbox),
-        )
-        // 让 generate_activity_id 产出的 id 真正可解引用（与 Outbox 同一可见性投影）
-        .route("/activities/{id}", get(federation::outbox::get_activity))
-        // Public objects embedded in federation Create activities.  Each
-        // handler applies the same fail-closed published-content projection
-        // as the Outbox; private/unpublished MFP rows must remain 404.
-        .route("/notes/{id}", get(federation::outbox::get_note))
-        .route("/reports/{id}", get(federation::outbox::get_report))
-        .route(
-            "/brew/articles/{id}",
-            get(federation::outbox::get_brew_article),
-        )
-        .route("/tapps/{id}", get(federation::outbox::get_tapp))
-        .route("/library/{id}", get(federation::outbox::get_library))
-        .route(
-            "/users/{username}/followers",
-            get(federation::actor::get_followers),
-        )
-        .route(
-            "/users/{username}/following",
-            get(federation::actor::get_following),
-        )
-        // Layer 2: Inbox（远程实例投递，通过 HTTP Signature 验证）
-        // Live body limit follows memory profile (default 8 MiB / saver 4 MiB).
-        // Concurrent buffering is also gated by inbox inflight budget (429).
-        .merge(
-            Router::<crate::state::AppState>::new()
-                .route(
-                    "/users/{username}/inbox",
-                    post(federation::inbox::post_inbox),
-                )
-                .route("/inbox", post(federation::inbox::post_shared_inbox))
-                // 远端可达表面。verify_preparse_gate 会在解析 JSON 之前先校验
-                // 签名头 / Date / Digest，攻击者要触发解析必须先算出正确的
-                // SHA-256 —— 这是这个上限敢放宽的前提。
-                .layer(axum::middleware::from_fn(
-                    federation::limits::live_inbox_body_limit,
-                )),
-        )
-        // Federation API（需认证）
-        // Tapp 宿主归因与认证在 api::federation::router() 内按 Router 级统一挂载。
-        .merge(api::federation::router(app_state.clone()))
 }
 
 #[cfg(test)]

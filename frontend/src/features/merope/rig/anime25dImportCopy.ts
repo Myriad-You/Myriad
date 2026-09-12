@@ -1,6 +1,5 @@
 import { currentCopy } from '../../../i18n/localeCopy'
 
-/** Snapshot UI copy at import start; workers cannot read the user's locale storage. */
 export function anime25DImportCopy() {
   const copy = currentCopy().merope
   return {

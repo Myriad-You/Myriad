@@ -219,6 +219,17 @@ function Fixture() {
       </button>
       <button onClick={() => reply('old')}>Old reply</button>
       <button onClick={() => reply('new')}>New reply</button>
+      <button
+        onClick={() =>
+          getSpeechPipeline().applyStatus({
+            available: true,
+            tts_enabled: true,
+            persona_speech_enabled: false,
+          })
+        }
+      >
+        Disable speech
+      </button>
       <button onClick={() => getSpeechPipeline().cancel()}>Cancel reply</button>
       <button onClick={() => getSpeechPipeline().cancel('old')}>
         Cancel old reply

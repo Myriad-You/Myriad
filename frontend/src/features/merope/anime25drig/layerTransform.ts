@@ -13,7 +13,6 @@ export interface Anime25DLayerGlobalTransformInput {
   breathOffset: number
 }
 
-/** Writes a column-major mat3 matching the legacy per-vertex global transform. */
 export function writeAnime25DLayerGlobalTransform(
   input: Anime25DLayerGlobalTransformInput,
   output: Float32Array,

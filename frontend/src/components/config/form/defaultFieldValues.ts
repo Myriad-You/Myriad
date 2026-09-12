@@ -28,7 +28,6 @@ export function defaultTripoFieldValue(key: string): string {
 }
 
 export function defaultUiFieldValue(key: string): string {
-  // Empty → client applies bundled `/wallpapers/default.webp` fallback.
   if (key === 'wallpaper_url') {
     return ''
   }
@@ -42,9 +41,7 @@ export function defaultUiFieldValue(key: string): string {
   if (key === 'analytics_enabled') return 'true'
   if (key === 'pwa_enabled') return 'true'
   if (key === 'site_noindex') return 'false'
-  // Align with backend normalize_visibility_policy("", false) → ai_full
   if (key === 'site_visibility_policy') return 'ai_full'
-  // Clearable SEO / third-party analytics: empty = disabled (not env-injected)
   if (key === 'site_keywords') return ''
   if (key === 'site_og_image') return ''
   if (key === 'google_site_verification') return ''

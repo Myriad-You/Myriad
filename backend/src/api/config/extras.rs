@@ -77,7 +77,7 @@ pub async fn update_dashboard_config(
         StatusCode::OK,
         Json(json!({
             "success": true,
-            "message": "Dashboard configuration updated successfully"
+            "message": "ok"
         })),
     )
 }
@@ -120,7 +120,7 @@ pub async fn update_control_panel_config(
         StatusCode::OK,
         Json(json!({
             "success": true,
-            "message": "Control panel configuration updated successfully"
+            "message": "ok"
         })),
     )
 }
@@ -158,7 +158,7 @@ pub async fn update_tapp_window_schemes(
         StatusCode::OK,
         Json(json!({
             "success": true,
-            "message": "Tapp window schemes updated successfully"
+            "message": "ok"
         })),
     )
 }
@@ -300,7 +300,8 @@ pub async fn update_hitokoto_config(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({
                     "success": false,
-                    "message": "Failed to save hitokoto config"
+                    "message": "Failed to save hitokoto config",
+                    "code": "hitokoto_save_failed",
                 })),
             )
         }
@@ -314,7 +315,7 @@ pub(crate) const REPORT_SETTINGS_KEY: &str = "report_settings";
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ReportSettings {
-    /// 是否启用报告过期（关闭时报告永不过期，保持历史行为）
+    /// 是否启用报告过期（关闭时报告永不过期）
     #[serde(default)]
     pub expiry_enabled: bool,
     /// 过期后读取时自动后台重新生成（只消耗 AI 调用，不重新抓平台数据）
@@ -416,7 +417,8 @@ pub async fn update_report_settings(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({
                     "success": false,
-                    "message": "Failed to save report settings"
+                    "message": "Failed to save report settings",
+                    "code": "report_settings_save_failed",
                 })),
             )
         }

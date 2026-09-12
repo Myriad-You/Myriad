@@ -1,6 +1,3 @@
-/**
- * Calendar range helpers
- */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
@@ -13,14 +10,12 @@ import {
 
 describe('dateCalendarLogic', () => {
   it('weekdayMon0: 2026-08-03 is Monday', () => {
-    // 2026-08-03 is Monday
     assert.equal(weekdayMon0(2026, 8, 3), 0)
   })
 
   it('buildMonthGrid has 42 cells and correct first day offset', () => {
     const grid = buildMonthGrid(2026, 8)
     assert.equal(grid.length, 42)
-    // Aug 1 2026 is Saturday → Mon0 = 5 → 5 empties
     assert.equal(grid[0]!.kind, 'empty')
     assert.equal(grid[5]!.kind, 'day')
     if (grid[5]!.kind === 'day') {

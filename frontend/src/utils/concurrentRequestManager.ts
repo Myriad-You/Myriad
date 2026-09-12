@@ -1,12 +1,3 @@
-/**
- * 并发请求管理器
- *
- * 功能：
- * 1. 控制同时进行的请求数量
- * 2. 自动取消过期或重复的请求
- * 3. 支持请求优先级
- */
-
 import { ApiError } from '../services/api'
 import { httpStatusMessage } from './userFacingError'
 
@@ -32,20 +23,13 @@ class ConcurrentRequestManager {
     this.maxConcurrent = maxConcurrent
   }
 
-  /**
-   * 执行请求（带并发控制）
-   * @param key 请求唯一标识
-   * @param fetcher 请求函数
-   * @param priority 优先级（数值越大越优先）
-   * @param timeout 超时时间（毫秒）
-   */
+  /** ms */
   async fetch<T>(
     key: string,
     fetcher: (signal: AbortSignal) => Promise<T>,
     priority: number = 0,
     timeout?: number,
   ): Promise<T> {
-    // 如果已有相同请求正在进行，取消旧请求
     if (
       this.activeRequests.has(key) ||
       this.requestQueue.some((request) => request.key === key)
@@ -55,38 +39,35 @@ class ConcurrentRequestManager {
 
     const controller = new AbortController()
 
-    return new Promise<T>((resolve, reject) => {
-      const request: QueuedRequest = {
-        key,
-        fetcher: () => fetcher(controller.signal),
-        controller,
-        priority,
-        resolve,
-        reject,
-        timeout,
-        timeoutId: null,
-        timedOut: false,
-      }
+    const { promise, resolve, reject } = Promise.withResolvers<T>()
+    const request: QueuedRequest = {
+      key,
+      fetcher: () => fetcher(controller.signal),
+      controller,
+      priority,
+      resolve,
+      reject,
+      timeout,
+      timeoutId: null,
+      timedOut: false,
+    }
 
-      // 如果达到并发限制，加入队列
-      if (this.currentCount >= this.maxConcurrent) {
-        this.requestQueue.push(request)
-        // 按优先级排序（高优先级在前）
-        this.requestQueue.sort((a, b) => b.priority - a.priority)
-      } else {
-        this.executeRequest(request)
-      }
-    })
+    if (this.currentCount >= this.maxConcurrent) {
+      this.requestQueue.push(request)
+      this.requestQueue = this.requestQueue.toSorted(
+        (a, b) => b.priority - a.priority,
+      )
+    } else {
+      this.executeRequest(request)
+    }
+    return promise
   }
 
-  /**
-   * 执行单个请求
-   */
   private async executeRequest(request: QueuedRequest) {
     this.currentCount++
     this.activeRequests.set(request.key, request.controller)
 
-    // 排队时间不计入网络超时；任务真正开始后才启动计时。
+    // Queue time is not part of the network timeout.
     if (request.timeout) {
       request.timeoutId = setTimeout(() => {
         request.timedOut = true
@@ -120,9 +101,6 @@ class ConcurrentRequestManager {
     }
   }
 
-  /**
-   * 处理队列中的下一个请求
-   */
   private processQueue() {
     if (
       this.requestQueue.length > 0 &&
@@ -135,16 +113,13 @@ class ConcurrentRequestManager {
     }
   }
 
-  /**
-   * 取消指定请求
-   */
   cancelRequest(key: string): void {
     const controller = this.activeRequests.get(key)
     if (controller) {
       controller.abort()
     }
 
-    // 同时从队列中移除并结束其 Promise，避免调用方永久等待。
+    // Reject queued promises so callers do not hang.
     const queued = this.requestQueue.filter((request) => request.key === key)
     this.requestQueue = this.requestQueue.filter(
       (request) => request.key !== key,
@@ -155,17 +130,12 @@ class ConcurrentRequestManager {
     }
   }
 
-  /**
-   * 取消所有请求
-   */
   cancelAll(): void {
-    // 取消所有活动请求
     for (const [_key, controller] of this.activeRequests) {
       controller.abort()
     }
     this.activeRequests.clear()
 
-    // 清空队列并结束所有尚未执行的 Promise
     for (const request of this.requestQueue) {
       request.controller.abort()
       request.reject(new Error('Request was cancelled'))
@@ -173,9 +143,6 @@ class ConcurrentRequestManager {
     this.requestQueue = []
   }
 
-  /**
-   * 获取当前状态
-   */
   getStatus() {
     return {
       active: this.currentCount,
@@ -185,12 +152,8 @@ class ConcurrentRequestManager {
   }
 }
 
-// 创建全局实例
 export const requestManager = new ConcurrentRequestManager(6)
 
-/**
- * 简化的fetch封装（自动处理AbortSignal）
- */
 export async function managedFetch<T = any>(
   url: string,
   options: RequestInit = {},

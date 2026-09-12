@@ -40,7 +40,7 @@ struct FeedRow {
 fn db_unavailable() -> HttpError {
     HttpError::from((
         StatusCode::SERVICE_UNAVAILABLE,
-        Json(json!({"error": "Federation feed is unavailable"})),
+        Json(AppError::public_json("Federation feed is unavailable")),
     ))
 }
 
@@ -108,10 +108,7 @@ async fn enrich_feed_items(db: &DatabaseConnection, user_id: i32, items: &mut [V
 }
 
 /// SQL expression: resolved local-user avatar URL when present. Used only for the
-/// post author, never the viewer.
-///
-/// 曾在此另抄一份阶梯；现在统一走 services::avatar，作者头像才会跟随用户
-/// 在用户中心选定的画像源（此前联邦这边一直停在旧的隐式优先级上）。
+/// post author, never the viewer. Authors follow `services::avatar`.
 fn local_user_avatar_expr(alias: &str) -> String {
     crate::services::avatar::avatar_snapshot_expr(alias)
 }
@@ -419,9 +416,8 @@ async fn load_rooms_feed(db: &DatabaseConnection) -> Result<Vec<Value>, HttpErro
 /// Every public post from every user of every instance represented in a group
 /// chat this instance has joined, local users included, deduplicated.
 ///
-/// Separate from [`get_federation_feed`] on purpose: that one answers "what did
-/// the people I subscribed to say", this one answers "what is my neighbourhood
-/// saying". Aro shows them as Home and Subscribed respectively.
+/// Separate from [`get_federation_feed`] on purpose: that one is public (plus
+/// personal when the subject is signed in); this one is neighbourhood public posts.
 pub async fn get_federation_rooms_feed(
     State(db): State<DatabaseConnection>,
     runtime_grant: RuntimeGrantContext,
@@ -544,3 +540,4 @@ mod tests {
         assert!(expr.contains("CASE WHEN a.is_local THEN $3::text"));
     }
 }
+use myriad_error::AppError;

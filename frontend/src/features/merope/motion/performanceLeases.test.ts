@@ -159,8 +159,7 @@ test('cancel or unmount releases every performance lease, not someone else', () 
   assert.equal(coordinator.owner('headBody', 0), 'idle')
 })
 
-// Both semantic and stylized eye axes use this lease. Missing either class lets
-// ambient drift keep full weight and pull against the directed look.
+// Missing either class lets ambient drift keep full weight and pull against the directed look.
 test('a cue that moves the eyes takes the gaze lease for as long as it plays', () => {
   for (const intent of [
     'think',

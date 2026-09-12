@@ -28,6 +28,8 @@ pub struct Model {
     #[sea_orm(column_type = "Text", nullable)]
     pub notes: Option<String>,
     pub updated_at: DateTimeWithTimeZone,
+    /// Server-owned version; database trigger increments on every update.
+    pub revision: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -65,8 +67,28 @@ pub struct SyncStatesRequest {
     pub states: Vec<SyncStateItem>,
 }
 
+impl SyncStatesRequest {
+    /// Each target has one unambiguous intent per batch. Validate before I/O.
+    pub fn validate_targets(&self) -> Result<(), &'static str> {
+        let mut ids = std::collections::HashSet::new();
+        for state in &self.states {
+            if state.expected_revision.is_some_and(|revision| revision < 0) {
+                return Err("Invalid state revision");
+            }
+            if state.item_id <= 0 {
+                return Err("Invalid article ID");
+            }
+            if !ids.insert(state.item_id) {
+                return Err("Duplicate article ID in sync batch");
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SyncStateItem {
+    pub expected_revision: Option<i64>,
     pub item_id: i32,
     pub is_read: Option<bool>,
     pub is_starred: Option<bool>,
@@ -74,6 +96,15 @@ pub struct SyncStateItem {
     /// Do not send 0–1 fractions — `1` means 1%, not 100%.
     pub read_progress: Option<f32>,
     pub updated_at: i64,
+}
+
+impl SyncStateItem {
+    pub fn conflicts_with(&self, revision: i64, updated_at: i64) -> bool {
+        match self.expected_revision {
+            Some(expected) => expected != revision,
+            None => updated_at > self.updated_at,
+        }
+    }
 }
 
 /// Clamp client read progress to the canonical **0–100** percent scale.
@@ -110,13 +141,61 @@ mod read_progress_tests {
 /// 同步响应
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SyncStatesResponse {
+    pub revisions: std::collections::HashMap<i32, i64>,
+    pub confirmed: Vec<i32>,
+    pub failed: Vec<i32>,
     pub synced: i32,
     pub conflicts: Vec<SyncConflict>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SyncConflict {
+    pub server_revision: i64,
     pub item_id: i32,
     pub server_updated_at: i64,
     pub client_updated_at: i64,
+}
+
+#[cfg(test)]
+mod sync_target_tests {
+    use super::*;
+
+    fn request(ids: &[i32]) -> SyncStatesRequest {
+        SyncStatesRequest {
+            states: ids
+                .iter()
+                .map(|&item_id| SyncStateItem {
+                    item_id,
+                    expected_revision: None,
+                    is_read: Some(true),
+                    is_starred: None,
+                    read_progress: None,
+                    updated_at: 1,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn rejects_duplicates_and_invalid_targets_before_any_write() {
+        assert!(request(&[]).validate_targets().is_ok());
+        assert!(request(&[1, 2]).validate_targets().is_ok());
+        assert_eq!(
+            request(&[1, 2, 1]).validate_targets(),
+            Err("Duplicate article ID in sync batch")
+        );
+        assert_eq!(request(&[0]).validate_targets(), Err("Invalid article ID"));
+        assert!(request(&[-1]).validate_targets().is_err());
+    }
+    #[test]
+    fn expected_revision_ignores_client_clock_and_detects_stale_versions() {
+        let mut state = request(&[1]).states.remove(0);
+        state.expected_revision = Some(3);
+        assert!(!state.conflicts_with(3, i64::MAX));
+        state.updated_at = i64::MAX;
+        assert!(state.conflicts_with(4, 0));
+        state.expected_revision = Some(0);
+        assert!(!state.conflicts_with(0, 0));
+        assert!(state.conflicts_with(1, 0));
+    }
 }

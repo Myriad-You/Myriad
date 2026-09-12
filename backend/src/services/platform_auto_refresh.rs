@@ -142,7 +142,7 @@ pub async fn reconcile_platform_auto_refresh(
             let schedule_changed = task.schedule_config != schedule_config;
             let must_reschedule = !task.enabled || schedule_changed || task.next_run_at.is_none();
             let mut active: tapp_scheduled_tasks::ActiveModel = task.into();
-            active.name = Set(format!("自动刷新 {} 数据", platform));
+            active.name = Set(format!("Auto-refresh {platform} data"));
             active.schedule_type = Set(ScheduleType::Interval);
             active.schedule_config = Set(schedule_config.clone());
             active.payload = Set(None);
@@ -168,7 +168,7 @@ pub async fn reconcile_platform_auto_refresh(
                 task_id: Set(task_id(platform)),
                 tapp_id: Set(CORE_PLATFORM_SYNC_TAPP_ID.to_string()),
                 user_id: Set(user_id),
-                name: Set(format!("自动刷新 {} 数据", platform)),
+                name: Set(format!("Auto-refresh {platform} data")),
                 schedule_type: Set(ScheduleType::Interval),
                 schedule_config: Set(schedule_config.clone()),
                 payload: Set(None),

@@ -21,25 +21,16 @@ mod oauth_identities;
 
 mod retired_history;
 
-// 016 is data cleanup (#336). Schema columns live in 001–006; this migration
-// still has to run on existing installs that carry retired permission strings.
-#[path = "016_tapp_legacy_grant_clear.rs"]
-mod tapp_legacy_grant_clear;
-
-#[path = "017_agent_tapp_approved_permissions.rs"]
-mod agent_tapp_approved_permissions;
-
 pub use retired_history::{purge_retired_migration_history, RETIRED_MIGRATION_NAMES};
 
 pub struct Migrator;
 
 impl Migrator {
-    /// Strip folded 007–015 names from `seaql_migrations`, drop leftover
-    /// `digital_life_*` experiment tables, then apply 001–006 + 016–017.
+    /// Strip folded 007–019 names from `seaql_migrations`, drop leftover
+    /// `digital_life_*` experiment tables, then apply 001–006.
     ///
     /// SeaORM rejects applied versions that have no file *before* any `up()`
-    /// body runs, so 016 cannot delete those rows itself. This wrapper is the
-    /// only `Migrator::up` call path.
+    /// body runs, so this wrapper is the only `Migrator::up` call path.
     pub async fn up<'c, C>(db: C, steps: Option<u32>) -> Result<(), DbErr>
     where
         C: IntoSchemaManagerConnection<'c>,
@@ -60,8 +51,6 @@ impl MigratorTrait for Migrator {
             Box::new(agent_system::Migration),
             Box::new(federation::Migration),
             Box::new(oauth_identities::Migration),
-            Box::new(tapp_legacy_grant_clear::Migration),
-            Box::new(agent_tapp_approved_permissions::Migration),
         ]
     }
 }
@@ -72,7 +61,7 @@ mod tests {
     use std::collections::HashSet;
 
     #[test]
-    fn migrator_contains_greenfield_and_permission_data_migrations() {
+    fn migrator_contains_greenfield_schema() {
         let migrations = Migrator::migrations();
         let names: Vec<&str> = migrations
             .iter()
@@ -89,8 +78,6 @@ mod tests {
                 "004_agent_system",
                 "005_federation",
                 "006_oauth_identities",
-                "016_tapp_legacy_grant_clear",
-                "017_agent_tapp_approved_permissions",
             ]
         );
         for retired in RETIRED_MIGRATION_NAMES {

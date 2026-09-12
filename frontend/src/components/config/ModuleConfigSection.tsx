@@ -106,7 +106,6 @@ interface ModuleConfigSectionProps {
   setHitokotoDraft: React.Dispatch<React.SetStateAction<HitokotoConfig>>
   reportSettingsDraft: ReportSettings
   setReportSettingsDraft: React.Dispatch<React.SetStateAction<ReportSettings>>
-  /** UI config fields (music player lives in ui_config). */
   uiConfigFields: UiConfigField[]
   updateUiFieldValue: (key: string, value: string) => void
   onMessage?: (message: string, type?: 'success' | 'error' | 'info') => void
@@ -227,7 +226,6 @@ function IslandTitleIcon({ className }: { className?: string }) {
   )
 }
 
-/** 一言源选项（顺序即展示顺序，custom 固定在末尾） */
 const HITOKOTO_SOURCE_IDS = [
   'hitokoto-cn',
   'hitokoto-anime',
@@ -370,7 +368,7 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
   updateUiFieldValue,
   onMessage,
 }) => {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const { catalog: g, renderGuide, bindGuide } = useSettingGuide()
   const hitokotoSourceGuide = renderGuide(g.modules.hitokotoSource)
   const islandContentGuide = renderGuide(g.modules.islandContent)
@@ -489,7 +487,6 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
     [t],
   )
 
-  // 一言设置（存于后端数据库，随全局保存统一提交）
   const hitokotoSourceLabels = useMemo<Record<string, string>>(
     () => ({
       'hitokoto-cn': t.config.hitokotoSourceHitokotoCn,
@@ -587,7 +584,6 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
     (type: LibraryItemType) => {
       const bySource = new Map<string, LibrarySourceOption>()
       // Always surface known default platforms (e.g. newly added MyAnimeList)
-      // even when the user already has saved preferences without them.
       ;(DEFAULT_LIBRARY_SOURCE_PREFERENCES.categories[type] ?? []).forEach(
         (source) => {
           bySource.set(source, { source, count: 0 })
@@ -601,7 +597,7 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
           bySource.set(source, { source, count: 0 })
         }
       })
-      return Array.from(bySource.values())
+      return Iterator.from(bySource.values()).toArray()
     },
     [sourceDraft.categories, sourceOptions],
   )
@@ -614,7 +610,6 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
             ...prev.modules,
             [moduleKey]: visibility,
           },
-          // 兼容旧字段；能力档位已迁至 Tapp 权限预设
           agentUsage: prev.agentUsage,
         }),
       )
@@ -629,7 +624,6 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
       description={description}
       sectionId={sectionId}
     >
-      {/* 1. 可见性 → 2. 媒体库 → 3. 报告 → 4. 音乐 → 5. 智能岛 → 6. 一言 */}
       <SettingGroup
         title={t.config.moduleVisibilityTitle}
         description={t.config.moduleVisibilityDesc}
@@ -709,9 +703,10 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
 
         <div className="settings-text-3 text-xs">
           {rawTotal > 0 ? (
-            t.config.librarySourceVisibleCount
-              .replace('{shown}', String(shownTotal))
-              .replace('{total}', String(rawTotal))
+            format(t.config.librarySourceVisibleCount, {
+              shown: shownTotal,
+              total: rawTotal,
+            })
           ) : loading ? (
             <span className="inline-flex items-center" role="status">
               <Spinner size="xs" color="primary" />
@@ -828,7 +823,6 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
         </div>
       </SettingGroup>
 
-      {/* 音乐播放器（原独立「音乐」设置区，并入模块） */}
       <SettingGroup
         title={t.config.music}
         description={t.config.musicDesc}
@@ -872,7 +866,6 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
           required
           value={playlistId}
           onChange={(v) => {
-            // Paste full NetEase/QQ URL → extract numeric id (matches backend normalize)
             const next =
               v.includes('://') || v.includes('id=') || v.includes('/playlist/')
                 ? normalizeMusicPlaylistId(v)

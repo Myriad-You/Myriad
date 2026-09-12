@@ -434,8 +434,8 @@ pub(super) async fn attach_motion_to_result(
         Some(response.message.clone()),
         task_success,
     );
-    // The body carries the floor so a non-streaming client still gets acting;
-    // awaiting Lite here used to put its whole timeout in front of the reply.
+    // The body carries the floor so a non-streaming client still gets acting.
+    // Do not await Lite here — that would put its timeout in front of the reply.
     response.performance = crate::services::agent::merope::local_directive(&context);
     Ok(response)
 }

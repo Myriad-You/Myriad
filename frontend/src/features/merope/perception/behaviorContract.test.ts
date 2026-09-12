@@ -16,8 +16,6 @@ interface Scene {
   playing: boolean
 }
 
-// One sequence deliberately shares the production singleton: replacement and
-// revocation must work without clearing the registry between scenes.
 test('behavior contract exports production captures for backend consumption', (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: 100_000 })
   const scenes: Scene[] = JSON.parse(readFileSync(new URL(
@@ -43,7 +41,7 @@ test('behavior contract exports production captures for backend consumption', (t
       assert.equal(perception.some((item) => item.sourceId === 'music_track'), scene.pageConsent && scene.song !== null, scene.id)
       rows.push({ id: scene.id, data: { perception, presence: { pageVisible: true } } })
     }
-    // Only the dedicated runner asks for an artifact. No model, DB or HTTP.
+    // Only the dedicated runner asks for an artifact.
     const output = process.env.MEROPE_BEHAVIOR_WIRE_PATH
     if (output) writeFileSync(output, JSON.stringify(rows))
   } finally {

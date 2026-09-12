@@ -1,4 +1,3 @@
-/* 标题栏「添加服务商 / 登录方式」：与「显示说明」同款 CheckboxCard + 预设浮窗 */
 
 .setting-title-guide.ai-vendor-add-entry {
   margin-left: 0;
@@ -61,10 +60,7 @@
   max-height: min(82vh, 40rem);
 }
 
-/*
- * 和用户详情浮窗一样：固定/关闭进文档流底部，
- * 不再绝对叠在最后一排预设上。
- */
+/* pin/close in document flow; not absolute over presets */
 .setting-title-guide-float.ai-vendor-add-float .setting-title-guide-drag {
   order: 0;
 }

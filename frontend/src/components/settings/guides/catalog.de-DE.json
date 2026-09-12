@@ -1,0 +1,1170 @@
+{
+  "ui": {
+    "siteUrl": {
+      "what": "Die öffentliche Adresse, unter der Ihre Site geöffnet wird, etwa https://ihre-domain.",
+      "chain": "1) Hier ändern und speichern — gilt sofort (die untere Schaltfläche „Konfiguration speichern“ brauchen Sie nicht).\n2) Danach nutzen alle vollständigen Adressen, die die Site nach außen meldet, die neue: Rückkehr nach GitHub-/Google-Anmeldung, wie andere Sites Sie erkennen, Freigabelinks usw.\n3) Das System listet auch „was nach einem Domainwechsel zu prüfen ist“ — gehen Sie die Liste Punkt für Punkt durch.",
+      "frontend": "Nach der Änderung so prüfen: abmelden, Drittanbieter-Anmeldung nutzen und sehen, ob Sie sauber hier landen.\nFreigabelinks und Verbindungen zu anderen Sites folgen der neuen Adresse. Seitenfarben und Designs ändern sich nicht von selbst.",
+      "notes": "Bei Domainwechsel muss die bei Anmeldediensten (GitHub usw.) hinterlegte „Rückkehradresse“ meist mitgeändert werden, sonst schlägt die Anmeldung fehl.\nZertifikate und Domain-DNS müssen zu dem passen, was Sie hier eintragen. Im Zweifel der Checkliste des Systems folgen."
+    },
+    "siteIdentity": {
+      "what": "Öffentliche Site-Karte (Name, Kurztext, Icon) und ob Besucher die Site als PWA installieren können.",
+      "chain": "1) Titel / Beschreibung / Icon oder den PWA-Schalter ändern → Konfiguration unten speichern.\n2) Die Karte aktualisiert Browser-Tab, Anmelde-Site-Namen und Freigabevorschauen; bei PWA folgt der Installationsname dem Titel, wenn möglich.\n3) Getrennt von „Site-Adresse“: ändert nicht, wie man Sie erreicht.",
+      "frontend": "Tab-Name und Icon, Site-Name auf der Anmeldeseite, Freigabetext; „App installieren“ auf Mobil/Desktop, wenn PWA an ist.\nDer Entwicklungsmodus registriert keinen Service Worker.",
+      "notes": "Das Icon kann eine URL oder eine kleine lokale Datei sein. PWA braucht HTTPS (oder localhost)."
+    },
+    "siteTitle": {
+      "what": "Der Anzeigename der Site (der kurze Name, den man sieht).",
+      "chain": "1) Namen ändern → unten speichern.\n2) Überall, wo „wie diese Site heißt“ steht, aktualisiert sich das, etwa der Tab-Titel.\n3) Ändert weder Domain noch Anmelde-Rückkehradressen.",
+      "frontend": "Browser-Tab-Titel, Site-Name auf der Anmeldeseite und ähnliche Bezeichnungen. Nach Speichern und Aktualisieren sofort sichtbar.",
+      "notes": "Kurz und leicht erkennbar halten; keinen langen Satz schreiben."
+    },
+    "siteDescription": {
+      "what": "Ein oder zwei Sätze, wozu diese Site da ist.",
+      "chain": "1) Ausfüllen → unten speichern.\n2) Freigabelinks und manche Vorschauen tragen diesen Text.\n3) Ändert weder Navigation noch Berechtigungen.",
+      "frontend": "Der kurze Text, der manchmal erscheint, wenn Sie die URL in Chat oder soziale Apps einfügen.",
+      "notes": "Bei zu langem Text zeigen externe Apps nur die ersten Zeilen — ein oder zwei Sätze reichen."
+    },
+    "siteFavicon": {
+      "what": "Das kleine Icon im Browser-Tab.",
+      "chain": "1) Link einfügen oder hochladen → unten speichern.\n2) Der Browser zeigt das neue Icon beim nächsten Mal (manchmal zuerst noch das alte).\n3) Unabhängig von Hintergrundbild oder Designfarben.",
+      "frontend": "Das kleine Bild an der Tab-Ecke und in Lesezeichen. Nach der Änderung hart aktualisieren oder ein privates Fenster nutzen.",
+      "notes": "Beim lokalen Upload ein kleines Bild wählen; sehr große Dateien können scheitern."
+    },
+    "siteSeo": {
+      "what": "Hilft Suchmaschinen und sozialen Vorschauen, Ihre Site zu verstehen: Stichwörter, Freigabebild und ob Indexierung erlaubt ist.",
+      "chain": "1) SEO-Felder hier bearbeiten → Konfiguration unten speichern.\n2) Nach dem Speichern aktualisiert diese Seite die Meta-Daten (keywords / robots / Open Graph) sofort.\n3) Wirkt mit der Site-Identität oben: Titel und Beschreibung speisen auch Freigabekarten.",
+      "frontend": "meta keywords, robots, og:* und twitter:* im Seitenquelltext.\nLinkvorschau-Bild und Text in Chat-Apps.",
+      "notes": "Stichwörter beeinflussen das Google-Ranking kaum — nicht vollstopfen. Für Freigaben eine öffentlich erreichbare Bild-URL bevorzugen; reine data:-Bilder sind für die meisten Crawler unsichtbar."
+    },
+    "siteKeywords": {
+      "what": "Stichwörter im Meta-Tag keywords der Seite.",
+      "chain": "1) Eingeben (kommagetrennt) → unten speichern.\n2) Schreibt <meta name=\"keywords\">.\n3) Ändert weder Navigation noch Berechtigungen.",
+      "frontend": "Das keywords-Meta-Tag im Seitenkopf.",
+      "notes": "Moderne Suchmaschinen ignorieren Stichwörter fast; optional. Leer ist in Ordnung."
+    },
+    "siteOgImage": {
+      "what": "Das große Vorschaubild auf Linkkarten (Open Graph / Twitter).",
+      "chain": "1) URL oder Upload → unten speichern.\n2) Schreibt og:image und twitter:image.\n3) Wenn leer, fällt es nach Möglichkeit auf das Site-Favicon zurück.",
+      "frontend": "Linkvorschauen in sozialen Apps; Prüftools wie Facebook Sharing Debugger können bestätigen.",
+      "notes": "Querformat ≥1200×630 wirkt am besten. Hochgeladene data-URLs funktionieren für Crawler selten — in Produktion eine öffentliche Bild-URL nutzen."
+    },
+    "googleSiteVerification": {
+      "what": "HTML-Tag-Besitzprüfung für Google Search Console.",
+      "chain": "1) Property in der Search Console anlegen → HTML-Tag wählen.\n2) Den content-Wert oder das ganze Meta-Tag hier einfügen → unten speichern.\n3) Google holt die Startseite, prüft das Meta, dann können Sie /sitemap.xml einreichen.",
+      "frontend": "<meta name=\"google-site-verification\"> in Crawler-HTML-Hüllen und im SPA-Kopf. Die Verifizierungsabfrage von Google nutzt die Crawler-Hülle.",
+      "notes": "Keine HTML-Datei-Verifizierung nutzen (diese App ist eine SPA und liefert kein google*.html an der Site-Wurzel). DNS-TXT-Verifizierung nutzt dieses Feld nicht."
+    },
+    "siteVisibilityPolicy": {
+      "what": "Vierstufige Richtlinie für Suchmaschinen und KI-Entdeckung/Zitation.",
+      "chain": "1) Stufe wählen → Konfiguration speichern.\n2) Das Backend aktualisiert robots.txt / sitemap / llms.txt und gleicht noindex ab.\n3) Öffentliche Sites: „KI-Zitate erlauben“ bevorzugen.",
+      "frontend": "Unterschiede bei GET /robots.txt, /sitemap.xml, /llms.txt; robots-Meta der Seite.",
+      "notes": "Nicht alle KI-Bots achten robots; CDN-KI-Bot-Einstellungen (z. B. Cloudflare) getrennt prüfen."
+    },
+    "siteAiIntro": {
+      "what": "KI-gerichteter Site-Kurztext in /llms.txt.",
+      "chain": "1) Schreiben oder per KI erzeugen → speichern.\n2) Wird ausgeliefert, wenn die Richtlinie „KI-Zitate erlauben“ oder „Vollständig offen“ ist.",
+      "frontend": "Zusammenfassungsblock in öffentlichem /llms.txt.",
+      "notes": "Fakten und Umfang vor Marketingtext bevorzugen."
+    },
+    "siteAiGenerate": {
+      "what": "Feldweise „KI erzeugen“-Titelmarken für Beschreibung / Stichwörter / KI-Intro.",
+      "chain": "1) Site-Titel setzen → Marke neben einem Feld anklicken → prüfen → Konfiguration speichern.",
+      "frontend": "SettingTitleTag neben dem Titel; POST /api/seo/generate-copy mit einem einzelnen Feld.",
+      "notes": "KI erzeugen öffnet einen optionalen Hinweisdialog und sendet dann ein einzelnes Feld per POST."
+    },
+    "pwaEnabled": {
+      "what": "Ob PWA aktiv ist (Service Worker + installierbares Manifest), unter „Site-Identität & App“ mit Titel und Icon.",
+      "chain": "1) Wenn an, registriert die Produktion /sw.js und hält das Web-App-Manifest.\n2) Gilt direkt nach dem Speichern — kein vollständiger Hard-Reload nötig.",
+      "frontend": "Browser-„Apps“ / Installationshinweise; DevTools → Application → Service Workers.",
+      "notes": "Standardmäßig an. Installationshinweise brauchen HTTPS (oder localhost)."
+    },
+    "siteFooter": {
+      "what": "Die Leiste ganz unten auf der Seite: Hinterlegungsnummern, Cloud-Anbieter-Badges und Ähnliches.",
+      "chain": "1) Hinterlegungsnummern und Sponsor-Badges hier eintragen → unten speichern.\n2) Der Fuß jeder Seite der Site aktualisiert sich gemeinsam.\n3) Nur Anzeige für Besucher — ändert weder Beschleunigungsrouten noch das Servernetz wirklich.",
+      "frontend": "Auf jeder Seite nach unten scrollen. Wenn alles leer ist, erscheint der Block möglicherweise gar nicht.",
+      "notes": "Ohne Hinterlegungsnummer leer lassen — keine fremde erfinden."
+    },
+    "siteIcp": {
+      "what": "ICP-Hinterlegungsnummer der Aufsicht (nur ausfüllen, wenn Sie eine haben).",
+      "chain": "1) Nummer eingeben → unten speichern.\n2) Der Fuß erhält eine Hinterlegungszeile; leer bedeutet ausgeblendet.\n3) Unabhängig davon, ob die Site erreichbar ist — nur Compliance-Anzeige.",
+      "frontend": "Hinterlegungstext im Fuß. Nach Speichern und Aktualisieren sichtbar.",
+      "notes": "Leer lassen, wenn Sie keine haben."
+    },
+    "siteGongan": {
+      "what": "Polizeiliche Hinterlegungsnummer (nur ausfüllen, wenn Sie eine haben).",
+      "chain": "1) Nummer eingeben → speichern → erscheint im Fuß.\n2) Leer bedeutet ausgeblendet.\n3) Kann zusammen mit ICP erscheinen oder nur eine von beiden.",
+      "frontend": "Die polizeiliche Hinterlegungszeile im Fuß.",
+      "notes": "Leer lassen, wenn Sie keine haben."
+    },
+    "cloudSponsors": {
+      "what": "Ob der Fuß kleine Logos bestimmter Cloud-Anbieter zeigt.",
+      "chain": "1) Gewünschte ankreuzen → unten speichern.\n2) Der Fuß erhält eine Reihe kleiner Icons.\n3) Unabhängig davon, ob Sie diese Dienste wirklich nutzen — reine Anzeige.",
+      "frontend": "Sponsor-/Cloud-Badges im Fuß. Nicht angehakt bedeutet keine Badge-Reihe.",
+      "notes": "Sie können keines wählen; das ist nicht „dieser Cloud-Dienst ist schon eingerichtet“."
+    },
+    "siteFooterCustom": {
+      "what": "Vollständig eigene Icon+Text-Fußblöcke — höchstens 2.",
+      "chain": "1) Eintrag hinzufügen → Text Pflicht, Icon/URL optional → unten speichern.\n2) Die Startseite zeigt Icon+Text; andere Seiten und Mobil nur Icon (Tooltip-Text), gleicher Kollaps wie Hinterlegung/Cloud-Badges.\n3) Nur Einträge mit nicht leerem Text erscheinen.",
+      "frontend": "Fuß unten rechts; weiche Aktualisierung nach dem Speichern.",
+      "notes": "Einträge ohne Text sind ausgeblendet. Links erlauben http(s), relative Pfade, mailto — nicht javascript:."
+    },
+    "backgroundAndTheme": {
+      "what": "Site-weiter Hintergrund, Hintergrundunschärfe und ähnliche Atmosphäre.",
+      "chain": "1) Hintergrundbild / Unschärfe ändern → unten speichern.\n2) Das Atmosphärenbild hinter der ganzen Site aktualisiert sich gemeinsam.\n3) Passt zu „Immersive Effekte“ darunter: das Bild wird hier gesetzt; Bewegung an/aus liegt in jener Gruppe.",
+      "frontend": "Hintergrundbild hinter jeder Seite; hintergrundbezogene Einträge im Steuerpanel.\nNach dem Speichern zur Startseite wechseln — dort fällt die Änderung am leichtesten auf.",
+      "notes": "Ein unruhiges oder sehr unscharfes Bild macht Text schwer lesbar. Wenn die Site stockt, zuerst einige Punkte in der Effektgruppe aus."
+    },
+    "wallpaper": {
+      "what": "Hintergrundbild (direkte URL, 302-Umleitung oder JSON-Bild-API mit url/image).",
+      "chain": "1) Direkte Bild-URL oder üblichen JSON-Bildhost einfügen → speichern.\n2) Wird siteweit als Hintergrund genutzt.\n3) Parallaxe und Klickwellen wirken ebenfalls auf dieses Bild — ohne gesetztes Bild hat Bewegung nichts, worauf sie fahren kann.",
+      "frontend": "Atmosphärenbild hinter fast jeder Seite. Eine frische Startseite daneben öffnen zum Vergleich.",
+      "notes": "Kleinere Bilder laufen flüssiger; ein toter Link zeigt leer oder ein defektes Bild. JSON braucht Felder wie url/image/img."
+    },
+    "wallpaperBlur": {
+      "what": "Wie weich bzw. scharf der Hintergrund ist.",
+      "chain": "1) Wert ziehen → speichern.\n2) Weicherer Hintergrund macht Karten davor meist leichter lesbar.\n3) Kann sich mit „dynamischer Unschärfe“ stapeln — nicht beides auf Maximum, sonst wird alles matschig.",
+      "frontend": "Gesamte Hintergrundweichheit. Nach der Änderung auf der Startseite prüfen, ob Text auf Karten klar ist.",
+      "notes": "Sehr hohe Werte belasten den Rechner; wenn Text weich wirkt, den Wert senken."
+    },
+    "evocative": {
+      "what": "Ein stilles Hintergrundbild lebendig wirken lassen: Zeiger folgen, Klickwellen usw.",
+      "chain": "1) Punkte hier umschalten und Bildrate / Qualität anpassen → speichern.\n2) Ändert nur, wie Seiten mit Hintergrundbild bewegen — nicht Bibliotheks- oder Berichtsinhalt.\n3) Das Hintergrundbild selbst steht unter „Hintergrund“ oben; auf schwächeren Geräten kann das System Effekte etwas reduzieren.",
+      "frontend": "Startseite und andere Seiten mit Hintergrund. Maus bewegen oder auf den Hintergrund klicken, um es zu spüren.",
+      "notes": "Bei Ruckeln: Wellen zuerst aus, oder Bildrate auf 30. Alle Bewegungen aus stört den normalen Gebrauch nicht."
+    },
+    "evocativeEffects": {
+      "what": "Getrenntes An/Aus für Parallaxe, dynamische Unschärfe und Klickwellen.",
+      "chain": "1) Nur die aktivierten Punkte laufen wirklich.\n2) Zusammen mit Hintergrundbild, Bildrate und Wellenqualität bilden sie das Bewegungserlebnis.\n3) Bei Verzögerung einzeln aus, um den Verursacher schnell zu finden.",
+      "frontend": "Ob der Hintergrund der Maus folgt und ob ein Klick eine Wasserwelle erzeugt.",
+      "notes": "Alle drei aus = stilles Hintergrundbild (statische Unschärfe kann an bleiben)."
+    },
+    "evocativeFps": {
+      "what": "Wie flüssig Bewegung sein soll: 30 spart etwas Strom, 60 wirkt glatter.",
+      "chain": "1) 30 oder 60 wählen → speichern.\n2) Betrifft nur, wie schnell Animationen auffrischen.\n3) Ändert keine Geschäftsdaten; Hintergrundbild und Effektschalter bleiben in anderen Punkten.",
+      "frontend": "Wie flüssig die Hintergrundanimation wirkt. Auf einem Laptop beides ausprobieren und vergleichen.",
+      "notes": "Bei Akku oder Besuch vom Telefon 30 bevorzugen."
+    },
+    "evocativeRippleQuality": {
+      "what": "Wie fein Klick-Wasserwellen gezeichnet werden.",
+      "chain": "1) Prozentsatz anpassen → speichern.\n2) Zählt nur, wenn „Wellen“ an sind.\n3) Höher sieht besser aus und kostet etwas mehr Leistung.",
+      "frontend": "Wellenkanten, wenn Sie auf den Hintergrund klicken. Bei Wellen aus zeigt eine Änderung nichts.",
+      "notes": "Etwa 85 % reicht meist; auf schwächeren Geräten senken."
+    }
+  },
+  "modules": {
+    "visibility": {
+      "what": "Welche Funktionstüren jede Zielgruppe sieht: alle, angemeldete Nutzer oder nur Admins.",
+      "chain": "1) Sichtbarkeit eines Moduls ändern → zugehörige Einstellungen auf dieser Seite speichern.\n2) Die Navigationsleiste blendet Einträge nach Rolle ein oder aus; ohne Zugang kommt man auch per URL nicht hinein.\n3) Das ist nicht dasselbe wie „Berechtigungen“: hier = „sehen Sie die Tür“; Berechtigungen = „was Sie drinnen tun können“.\n4) Der Assistenteneinstieg braucht weiterhin Berechtigungen und Kontingent zusammen, bevor jemand ihn wirklich nutzen kann.",
+      "frontend": "Bibliothek, Lesen, Berichte, Apps, Assistent und ähnliche Einträge in der unteren oder seitlichen Navigation.\nMit einem privaten Fenster oder einem anderen Konto prüfen, was gewöhnliche Personen noch sehen.",
+      "notes": "Admins können Systemkonfiguration meist weiter öffnen. Speichern nicht vergessen und mit einem Nicht-Admin-Konto prüfen."
+    },
+    "visibilityItem": {
+      "what": "Sichtbarkeitsbereich nur für eine Funktion.",
+      "chain": "1) Nur dieser Punkt ändert sich; andere Module bleiben.\n2) Die passende Navigationsschaltfläche und der Öffnungszugang ändern sich gemeinsam.\n3) Auf „nur Admins“ können auch normale angemeldete Nutzer nicht eintreten.",
+      "frontend": "Diese eine Navigationsschaltfläche und Seite. Klicken mit einem normalen Konto ist die klarste Prüfung.",
+      "notes": "Um vor Gästen zu verbergen, aber für Angemeldete zu öffnen, „angemeldete Nutzer“ wählen."
+    },
+    "library": {
+      "what": "Wie Bibliothekskarten gelegt sind und welche Plattformeinträge in jeder Kategorie erscheinen.",
+      "chain": "1) „Kartenlayout“ oben wählt Liste oder unendliche Leinwand; schwache Geräte fallen automatisch auf Liste zurück.\n2) Zuerst Konten unter „Datenplattformen“ verbinden und synchronisieren — erst dann erscheinen hier Quellen und Zahlen.\n3) Quellenhaken sind nur Anzeigefilter: nicht angehakte Plattformen erscheinen nicht in der Bibliothek, synchronisierte Daten liegen meist weiter auf dem Server.\n4) Berichtsseiten nutzen ebenfalls Plattformdaten, aber Ablauf und Neuerzeugen von Berichten liegen in der Gruppe „Bericht“ darunter.\n5) Getrennt von der Navigationssichtbarkeit der Bibliothek: Sichtbarkeit lässt Sie eintreten; innen werden Layout und Quellen hier gesetzt.\n6) Layout und Quellen speichern sich mit dieser Seite in den Bibliothekseinstellungen.",
+      "frontend": "Listen-/Leinwandmodus der Bibliothek, Karten unter jeder Kategorie und die angezeigten / vor dem Filter gezählten Werte.\nNach der Änderung die Bibliothek öffnen und vergleichen.",
+      "notes": "Ohne Daten zuerst Plattformen synchronisieren. Nichts für eine Kategorie zu wählen kann die Liste leeren. Leinwand ist schwerer — bei Ruckeln zur Liste zurück."
+    },
+    "libraryLayout": {
+      "what": "Ob Bibliothekskarten eine normale Liste oder eine unendliche Leinwand von der Seitenmitte nutzen.",
+      "chain": "1) Liste = klassische scrollbare Karten; Leinwand = freies Ziehen/Zoomen von der Mitte.\n2) Schwache Geräte fallen automatisch auf Liste zurück, selbst wenn Leinwand gespeichert ist.\n3) Unabhängig davon, welche Plattformquellen unter jeder Kategorie darunter angehakt sind.\n4) Speichert mit den Bibliothekseinstellungen; Bibliothek öffnen zum Vergleich.",
+      "frontend": "Gesamtanordnung auf der Bibliotheksseite. Schwächere Geräte können weiter die Liste zeigen.",
+      "notes": "Leinwand kostet mehr GPU/CPU; bei zäher Interaktion zur Liste zurück."
+    },
+    "libraryType": {
+      "what": "Welche Quellen für eine Kategorie angehakt sind (zum Beispiel Spiele oder Anime).",
+      "chain": "1) Filtert nur diese Kategorie.\n2) Vorgelagert bleibt das Sync-Ergebnis jeder Plattform.\n3) Andere Kategorien sind unabhängig und beeinflussen sich nicht.",
+      "frontend": "Einträge unter diesem Kategorie-Tab. Nach Häkchen-Änderung die Kategorie aktualisieren und nachsehen.",
+      "notes": "Nichts angehakt kann diese Kategorie leeren."
+    },
+    "report": {
+      "what": "Wie lange ein Bericht gültig bleibt und ob nach Ablauf automatisch ein neuer entsteht.",
+      "chain": "1) Berichtsinhalt hängt ab von: bereits synchronisierten Plattformdaten + funktionierender „KI-Konfiguration“ + erlaubten Berechtigungen/Kontingent.\n2) Mit „Ablauf“ an gelten Berichte nach der Tageszahl als abgelaufen; mit zusätzlich „automatisch neu erzeugen“ werden sie fällig im Hintergrund neu gebaut (nutzt KI-Kontingent).\n3) Den Navigationseintrag „Berichte“ auszublenden macht ihn nur schwer anklickbar — alte Berichte bleiben meist.\n4) Bei Fehler können Aufgaben oder Benachrichtigungen einen Hinweis zeigen.",
+      "frontend": "Ablaufhinweise auf der Berichtsseite und ob Inhalt aktualisiert wirkt.\nBerichtsseite für den Status öffnen oder nach dem automatischen Auftrag aktualisieren.",
+      "notes": "Automatisch neu erzeugen kostet Kontingent; zuerst Ablauf, dann automatisch neu erzeugen. Ohne eingerichtete KI scheitert es weiter."
+    },
+    "reportExpiry": {
+      "what": "Ob Berichte „ablaufen“ dürfen.",
+      "chain": "1) Aus = die Tageszahl und das automatische Neuerzeugen darunter tun im Wesentlichen nichts.\n2) An = der Ablauf wird nach der Tageszahl beurteilt.\n3) Schreibt KI- oder Plattformeinstellungen nicht um — nur „gilt dieser Bericht als alt“.",
+      "frontend": "Ob Berichte einen abgelaufenen Zustand zeigen. Nach dem Umschalten die Berichtsseite öffnen und bestätigen.",
+      "notes": "Bei ausgeschaltetem Ablauf ist automatisches Neuerzeugen meist ebenfalls nicht verfügbar."
+    },
+    "reportAutoRegen": {
+      "what": "Nach Ablauf automatisch einen neuen Bericht erzeugen.",
+      "chain": "1) „Ablauf“ muss zuerst an sein.\n2) Wenn fällig → Hintergrundwarteschlange baut neu → KI und Plattformdaten müssen beide gesund sein.\n3) Bei Erfolg zeigt die Berichtsseite neuen Inhalt; bei Fehler bleibt oft der alte Bericht mit Fehlerhinweis.",
+      "frontend": "Berichtsinhalt wird nach dem Auftrag neu. Benachrichtigungen auf zugehörige Aufgabenmeldungen achten.",
+      "notes": "Scheitert, wenn KI nicht eingerichtet oder das Kontingent aufgebraucht ist; nicht „klicken und sofort fertig“ erwarten."
+    },
+    "reportExpiryDays": {
+      "what": "Wie viele Tage ein Bericht gültig bleibt.",
+      "chain": "1) Gezählt ab dem Erzeugungstag.\n2) Nach den Tagen bei Ablauf an → als abgelaufen markiert; bei automatisch neu erzeugen an → kann einen Neuaufbau auslösen.\n3) Die Zahl zu ändern baut nicht sofort neu — sie wirkt nur auf künftige Prüfungen.",
+      "frontend": "Ablaufbezogene Hinweise und Zeitpunkte. Nach der Änderung mit der Erzeugungszeit des Berichts vergleichen.",
+      "notes": "Meist 1–365 Tage; beim Verlassen des Feldes rastet es in einen gültigen Bereich ein."
+    },
+    "music": {
+      "what": "Der eingebaute Musikplayer der Site: an oder aus und welche Playlist-Quelle.",
+      "chain": "1) Schalter an, Plattform wählen, Playlist-Nummer ausfüllen → unten speichern.\n2) Der Player holt die Liste von diesem Musikdienst; Steuerpanel-Player und Musik-Widgets teilen dieselbe Einrichtung.\n3) Den Schalter aus blendet nur den Player — Playlist-Einstellungen bleiben.\n4) „Cache leeren“ vergisst nur die auf diesem Gerät merkte Liste, nicht die eingegebene Nummer.\n5) Wenn der Server für das offene Internet einen Proxy braucht (Erweiterte Einstellungen), kann das das Laden von Titeln beeinflussen.",
+      "frontend": "Player im Steuerpanel und musikbezogene Widgets.\nEinmal an sollten Sie eine Liste oder eine Fehlermeldung sehen.",
+      "notes": "Die Playlist-Nummer muss zur gewählten Plattform passen; private Playlists laden oft nicht. Beim Plattformwechsel die Nummer ändern."
+    },
+    "musicPlatform": {
+      "what": "Ob die Playlist von Netease Cloud Music oder QQ Music kommt.",
+      "chain": "1) Plattform wechseln → speichern.\n2) Die Playlist-Nummer dieses Dienstes nutzen; alter Cache kann nicht mehr passen.\n3) Funktioniert nur zusammen mit dem Player-Hauptschalter und der Playlist-Nummer.",
+      "frontend": "Von welchem Dienst Titel und Cover in der Playlist kommen. Nach dem Wechsel einmal Cache leeren, dann erneut hören.",
+      "notes": "Beim Plattformwechsel immer die Playlist-Nummer darunter aktualisieren."
+    },
+    "musicPlaylist": {
+      "what": "Playlist-Nummer (meist die Ziffern im Freigabelink).",
+      "chain": "1) Nummer ausfüllen + Player an + speichern.\n2) Holt die Liste von der passenden Plattform.\n3) Nur bei Erfolg gibt es klickbare Titel; bei Fehler wird gezeigt, dass die Liste nicht geladen werden konnte.",
+      "frontend": "Playlist und aktueller Titel. Player vom Steuerpanel öffnen zum Prüfen.",
+      "notes": "Private Playlists und falsche IDs scheitern beide; die Playlist zuerst im Browser öffnen, um den Zugang zu bestätigen."
+    },
+    "musicCache": {
+      "what": "Die auf diesem Gerät gemerkte Playlist vergessen und die Liste beim nächsten Mal neu laden.",
+      "chain": "1) Leeren klicken.\n2) Ändert weder Schalter noch IDs.\n3) Das nächste Öffnen des Players fordert die Liste erneut an (etwas langsamer, aber möglicherweise frischer).",
+      "frontend": "Listeninhalt kann sich aktualisieren. Leeren, dann den Player sofort öffnen und versuchen.",
+      "notes": "Sehr nützlich, wenn Sie die Playlist-Nummer geändert haben, aber noch die alte Liste hören."
+    },
+    "hitokoto": {
+      "what": "Woher die „Tageszeile“ auf der Startseite / in Widgets kommt.",
+      "chain": "1) Quelle (oder Eigen) wählen → speichern.\n2) Das Zitat-Widget holt eine Zeile selbst — nicht KI und nicht Datenplattformen.\n3) Bei Eigen muss die andere Site Ihrer Site das Lesen erlauben, sonst blockiert der Browser die Anfrage.",
+      "frontend": "Zitat- / Kurzzeilen-Widgets und ähnliche Begrüßungsanzeigen. Nach der Änderung die Startseite aktualisieren.",
+      "notes": "Eigen braucht die richtige Adresse und Feldnamen; unabhängig vom Assistenten-Chat."
+    },
+    "hitokotoSource": {
+      "what": "Eingebaute chinesische / englische / japanische Quellen oder Ihr eigener Endpunkt.",
+      "chain": "1) Eingebaut → nutzt diesen öffentlichen Dienst direkt.\n2) Eigen → Adresse und Feldoptionen darunter erscheinen.\n3) Nach dem Speichern holt das Widget von der neuen Quelle.",
+      "frontend": "Sprache und Stil der Zeile ändern sich. Eine Seite mit Zitaten aktualisieren zum Bestätigen.",
+      "notes": "Eigen muss auch eine Adresse haben, sonst lädt nichts."
+    },
+    "hitokotoCustomUrl": {
+      "what": "Vollständige Webadresse Ihrer eigenen Zitatquelle.",
+      "chain": "1) Wird nur genutzt, wenn die Quelle „eigen“ ist.\n2) Beim Öffnen der Seite wird Inhalt von dieser Adresse geholt.\n3) Dann holen die Feldnamen darunter Text und Autor.",
+      "frontend": "Welche Zeile gezeigt wird. Die Adresse im Browser öffnen und prüfen, ob Daten da sind.",
+      "notes": "Adressen mit https bevorzugen; eine Adresse nur auf Ihrem eigenen Rechner ist für Außenstehende nicht erreichbar."
+    },
+    "hitokotoTextField": {
+      "what": "Im zurückgegebenen Datensatz, welches Feld der Zitatkörper ist.",
+      "chain": "1) Nach der Rückgabe einer eigenen Quelle wird der Text unter diesem Namen genommen.\n2) Falscher Name → leer oder merkwürdige Anzeige.\n3) Unabhängig vom Autorenfeld.",
+      "frontend": "Hauptzitatinhalt. Wenn leer, Feldnamen in den zurückgegebenen Daten abgleichen und korrigieren.",
+      "notes": "Übliche Namen sind hitokoto; der Dokumentation der Gegenseite folgen."
+    },
+    "hitokotoAuthorField": {
+      "what": "Welches Feld Autor oder Quelle ist.",
+      "chain": "1) Falls vorhanden, unter dem Zitat gezeigt.\n2) Kann leer bleiben, um nur den Körper zu zeigen.\n3) Nur bei eigenen Quellen sinnvoll.",
+      "frontend": "Die Zuschreibungszeile.",
+      "notes": "Wenn die Gegenseite kein Autorenfeld hat, leer lassen."
+    },
+    "island": {
+      "what": "Was die eingeklappte Steuerinsel oben rechts durchwechselt.",
+      "chain": "1) Begrüßung, Wetter, Zitat, Musik, Tapp ankreuzen → unten speichern.\n2) Nach dem Speichern aktualisiert sich die Insel ohne vollständiges Neuladen.\n3) Benachrichtigungen auf der Insel bleiben unter Benachrichtigungseinstellungen, nicht in dieser Gruppe.\n4) Ist der Musikplayer aus, hat ein Haken bei Musik hier trotzdem nichts zu zeigen.",
+      "frontend": "Die Kapsel-Steuerinsel oben rechts auf jeder Seite.",
+      "notes": "Ohne Haken bleibt die Insel, leer, und öffnet weiter das Steuerpanel."
+    },
+    "islandContent": {
+      "what": "Jeder Punkt in dieser Gruppe: auf dem Insel-Karussell zeigen oder nicht.",
+      "chain": "1) Begrüßung, Wetter, Zitat, Musik und Tapp sind unabhängig.\n2) Wetter braucht weiter einen Standort; Zitat eine funktionierende Quelle; Musik den Player an mit einem Titel.\n3) Tapp muss dynamischen Inhalt selbst schreiben.\n4) Benachrichtigungen gehören nicht in diese Gruppe.",
+      "frontend": "Die Zeilen, die gerade auf der Steuerinsel wechseln.",
+      "notes": "Das ist eine siteweite Inhabereinstellung; Besucher sehen dieselbe Insel."
+    }
+  },
+  "platforms": {
+    "list": {
+      "what": "Überblick Daten & Statistik: verbundene Plattformen, Besucherstatistik (Seiten / Ereignisse / Referrer) und KI-Nutzungsstatistik.",
+      "chain": "1) Unter Verbundene Plattformen GitHub, Steam, Bilibili usw. verknüpfen und Autoaktualisierung setzen.\n2) Unter Besucherstatistik KPIs, Trends und Abschnitte Seiten/Ereignisse/Referrer prüfen.\n3) Unter KI-Nutzungsstatistik den siteweiten Text-, Bild- und Sprachverbrauch prüfen.\n4) Kartenschalter steuern nur die Sichtbarkeit der Berichtsseite; Autoaktualisierung synchronisiert konfigurierte Plattformen.",
+      "frontend": "Einstellungen → Daten & Statistik. Plattformdaten speisen Bibliothek und Berichte; Besucher- und KI-Buch-Aggregate sind nur für Admins.",
+      "notes": "Die Besucherstatistik speichert keine Roh-IPs; Plattformgeheimnisse privat halten. KI-Nutzung ist nur für Admins."
+    },
+    "visitorStats": {
+      "what": "Siteweite Aufrufe, eindeutige Besucher, Top-Länder plus Abschnitte Seiten / Ereignisse / Referrer in derselben Unterkategorie.",
+      "chain": "1) Der Schalter in der Titelzeile steuert die Erfassung (standardmäßig an; aus lehnt der Server neue Beacons ab).\n2) Der Client sendet Beacons beim Seitenöffnen (gebündelt / im Leerlauf).\n3) Der Server aggregiert PV/UV nach lokalem Kalendertag des Servers; die Ausgangs-IP kann Top-Länder auflösen.\n4) 7/14/30 Tage für Trends umschalten, die alle Abschnitte darunter teilen.\n5) Verschachtelte Abschnitte haben je eine eigene Optionsanleitung: Seiten, Ereignisse, Referrer.",
+      "frontend": "Daten & Statistik → Unterkategorie Besucherstatistik (KPIs inklusive Länder, Diagramm, verschachtelte Listen).",
+      "notes": "Historische Daten bleiben lesbar, wenn die Erfassung aus ist. Admin- und Inhaber-Sitzungen sind ausgeschlossen. „Auf diesem Gerät abmelden“ in dieser Gruppe stoppt Beacons nur von diesem Browser. Derselbe Besucher zählt einmal pro Tag für UV (gehasht; keine Roh-IP). Länderkacheln können leer sein, wenn die Geo-Auflösung scheitert."
+    },
+    "analyticsOptOut": {
+      "what": "Diesen Browser am Senden von Besuchs-Beacons hindern. Schaltet die siteweite Erfassung nicht aus und betrifft andere Personen nicht.",
+      "chain": "1) An: dieses Gerät sendet keine Besucher-Beacons mehr.\n2) Bleibt der siteweite Erfassungsschalter an, werden andere Besucher weiter gezählt.\n3) Der Gruppenschalter blockiert alle neuen Beacons; dieser nur den aktuellen Browser.\n4) Lokal gespeichert — Site-Daten leeren oder Browser wechseln nimmt die Meldung wieder auf.",
+      "frontend": "Daten & Statistik → Besucherstatistik → „Auf diesem Gerät abmelden.“ Mit einem privaten Fenster vergleichen: privat zählt weiter, dieser Browser nicht.",
+      "notes": "Löscht den Verlauf nicht. Admin-Sitzungen sind bereits ausgeschlossen."
+    },
+    "pageAnalytics": {
+      "what": "Verkehr nach Route im gewählten Zeitraum.",
+      "chain": "1) Dieselbe Quelle und derselbe Zeitraum wie die Besucherstatistik.\n2) Nach Pfad aggregiert.\n3) Dynamische Routen fallen auf Vorlagen zusammen (z. B. /tapp/:id).",
+      "frontend": "Daten & Statistik → Besucherstatistik → Abschnitt Seitenstatistik.",
+      "notes": "Unbekannte Pfade landen unter Sonstiges, um die Kardinalität zu begrenzen."
+    },
+    "eventAnalytics": {
+      "what": "Wie oft Produktereignisse im gewählten Zeitraum feuern und wie viele Besucher sie treffen.",
+      "chain": "1) Teilt Erfassungsschalter, Zeitraum und Ausschlüsse der Besucherstatistik (Admin/Inhaber nicht gezählt).\n2) Anzahl = Summe im Zeitraum; Besucher = eindeutige Personen, die das Ereignis ausgelöst haben.\n3) Eingebaute decken Anmeldung/OAuth, Musik, Bibliothek, Brew, Berichtsstufe, Agent, Tapp, Freundeslinks, Design/Sprache/Steuerpanel ab; target für Aufteilung je Entität übergeben (tapp id, Plattform-Slug, …).\n4) Hauptzeile = Ereignissumme; Unterzeilen = Zielaufschlüsselung (bis etwa 20).\n5) Erfassung aus stoppt neue Schreibvorgänge; der Verlauf bleibt lesbar.",
+      "frontend": "Daten & Statistik → Besucherstatistik → Abschnitt Ereignisse (neben Referrer).",
+      "notes": "Eigene Ereignisnamen stabil und kurz halten; laute hochfrequente Ereignisse verdrängen die Rangliste. Export/Import-Sicherungen enthalten Ereignisaggregate und sind mit einem Instanz-Integritätstoken versiegelt, damit handbearbeitete Kennzahlen abgelehnt werden."
+    },
+    "referrerAnalytics": {
+      "what": "Welche externen Sites Verkehr hierher gesendet haben (Aufrufe nach Referrer-Hostname).",
+      "chain": "1) Derselbe Zeitraum wie die Besucherstatistik.\n2) Nur externe Referer-Hostnamen; Navigation innerhalb der Site wird ignoriert.\n3) Fehlender oder nicht parsebarer Referer erscheint nicht in dieser Liste.\n4) Erfassung aus betrifft nur neue Besuche.",
+      "frontend": "Daten & Statistik → Besucherstatistik → Abschnitt Referrer.",
+      "notes": "Privater Modus, HTTPS über Sites hinweg und In-App-Browser streichen Referrer oft. Die Rangliste ist nach Aufrufen, nicht nach eindeutigen Besuchern."
+    },
+    "aiUsage": {
+      "what": "Siteweite KI-Nutzung (einschließlich Admins/Inhaber): Tagestrend, Ränge nach Nutzer/Modell/Quelle, mit Filtern.",
+      "chain": "1) Jeder Anbieteraufruf (Text, Bild, Sprache) schreibt tapp_ai_cost_ledger. Tapp / geplante Jobs rechnen Kontingent weiter auf dem geregelten Pfad ab; Agent, Berichte, Agent-Persona, Playground und Sprache sind gekennzeichnet; unbeschriftete Aufrufe landen als intern.\n2) Admin GET /api/analytics/ai-usage aggregiert nach lokalem Kalendertag des Servers und schließt Personal nicht aus.\n3) Balken = Aufrufe (linke Achse), Linie = Tokens (rechte Achse, unabhängige Skala); Listen nach Nutzer, Modell und Quelle.\n4) Unabhängig vom Erfassungsschalter der Besucherstatistik.",
+      "frontend": "Einstellungen → Daten & Statistik → „KI-Nutzungsstatistik“ (KPIs, Diagramm, nach Nutzer / Modell / Quelle).",
+      "notes": "Tokens sind oft Schätzungen (Bilder nach Auflösung, Sprache nach Text-/Audiolänge). Das Panel ist nur für Admins."
+    },
+    "thirdPartyAnalytics": {
+      "what": "Besuche an externe Statistik senden (Google Analytics, Umami, …), getrennt von den First-Party-Besucherdiagrammen auf dieser Seite.",
+      "chain": "1) Unten bei Daten & Statistik GA und/oder Umami ausfüllen → speichern.\n2) Besucher-Browser laden passende Skripte und senden page_view.\n3) Die Besucherstatistik-Diagramme oben bleiben First-Party und gehen nicht an GA/Umami.",
+      "frontend": "Einstellungen → Daten & Statistik → letzte Gruppe „Drittanbieter-Statistik“.",
+      "notes": "Beide können leer sein (keine Drittanbieter-Skripte). Eines oder beide aktivieren."
+    },
+    "gaMeasurementId": {
+      "what": "Ihre Google-Analytics-4-Measurement-ID — sendet Besuche an Ihre GA-Property.",
+      "chain": "1) Die G-…-ID aus GA Admin → Datenstreams kopieren.\n2) Unter Drittanbieter-Statistik einfügen → Konfiguration speichern.\n3) Die Seite lädt gtag.js; SPA-Routenwechsel senden page_view.",
+      "frontend": "Der Netzwerk-Tab sollte googletagmanager.com/gtag/js zeigen.\nGA Realtime sollte passende page_path-Werte listen.",
+      "notes": "Nur GA4 (G-…). Admin-/Inhaber-Browsing wird nicht gemeldet. First-Party-Opt-out überspringt auch Drittanbieter. Leer lassen, um GA zu deaktivieren."
+    },
+    "umamiWebsiteId": {
+      "what": "Website-ID dieser Site in Umami (meist eine UUID).",
+      "chain": "1) Website-ID aus den Umami-Site-Einstellungen kopieren.\n2) Zusammen mit der Skript-URL darunter speichern.\n3) Der Tracker wird eingefügt; SPA-Routen rufen umami.track auf.",
+      "frontend": "Der Netzwerk-Tab zeigt Ihre Skript-URL; Umami-Realtime sollte Pfade listen.",
+      "notes": "ID allein ohne Skript-URL tut nichts. Dasselbe Feld für Cloud und Selbsthost."
+    },
+    "umamiScriptUrl": {
+      "what": "Vollständige URL des Umami-Tracker-Skripts.",
+      "chain": "1) Cloud: https://cloud.umami.is/script.js; Selbsthost: https://ihr-umami/script.js.\n2) Lädt nach dem Speichern mit Website-ID.\n3) data-auto-track ist aus; der SPA-Router besitzt Seitenaufrufe.",
+      "frontend": "Ein Script-Tag mit data-website-id im Seitenkopf.",
+      "notes": "Nur-Host-Werte (z. B. https://stats.example.com) erhalten /script.js angehängt. https bevorzugen."
+    },
+    "connected": {
+      "what": "Externe Konten verbinden und Autoaktualisierung für konfigurierte Plattformen einrichten.",
+      "chain": "1) Eine Plattformkarte öffnen → Konto/Schlüssel ausfüllen und speichern (konfiguriert reicht zum Synchronisieren).\n2) Der Kartenschalter steuert nur, ob diese Plattform auf der Berichtsseite erscheint — nicht Aktualisieren oder Lesen.\n3) Autoaktualisierung darunter plant Sync für alle konfigurierten Plattformen.\n4) Karten nach links/rechts ziehen, um die Kartenreihenfolge der Berichtsseite zu setzen.",
+      "frontend": "Bibliothekseinträge, Berichtsmaterial (wenn aktiviert), plattformabhängige Widgets und der Datenverwaltungsbereich jeder Plattform.",
+      "notes": "Pflichtfelder vor dem Sync ausfüllen; der Schalter steuert nur die Sichtbarkeit der Berichtsseite."
+    },
+    "autoRefresh": {
+      "what": "Wie oft Daten für bereits konfigurierte Plattformen automatisch geholt werden.",
+      "chain": "1) Einschalten und Intervall wählen.\n2) Hintergrund synchronisiert alle konfigurierten Plattformen nach Zeitplan (unabhängig vom Berichtsseitenschalter; gestaffelt, um APIs nicht zu überlasten).\n3) Bibliothek und Berichte wirken beim nächsten Öffnen frischer.\n4) Ohne konfigurierte Plattformen hat Autoaktualisierung nichts Nützliches zu tun.\n5) Ein zu kurzes Intervall kann Sie vorübergehend von der anderen Plattform begrenzen.",
+      "frontend": "Daten & Statistik → Verbundene Plattformen → „Aktualisierungsfrequenz“. Aktualisierungszeiten auf der Plattformdetailseite oder in der Bibliothek prüfen.",
+      "notes": "Manueller Sync auf der Detailseite funktioniert daneben weiter. Produktionsintervalle nicht zu kurz setzen."
+    },
+    "platformCard": {
+      "what": "Verbindungsfelder plus Sichtbarkeitsschalter der Berichtsseite; zum Konfigurieren und für Datenoperationen öffnen.",
+      "chain": "1) Pflichtfelder müssen ausgefüllt sein, bevor der Schalter angehen kann.\n2) Einmal konfiguriert können Sie auf der Detailseite aktualisieren/verarbeiten und an der Autoaktualisierung teilnehmen.\n3) Der Schalter zeigt/versteckt nur die Karte der Berichtsseite; Aus stoppt den Datensync nicht.\n4) Ziehreihenfolge wirkt auf die Kartenreihenfolge der Berichtsseite.",
+      "frontend": "Daten & Statistik → Listen karten verbundener Plattformen; Schalter auf der Karte, Klick öffnet Detail und Datenverwaltung.",
+      "notes": "Ein ausgegrauter Schalter bedeutet meist unvollständige Pflichtfelder."
+    },
+    "platformFields": {
+      "what": "Nutzername, Geheimschlüssel und andere Verbindungsdetails.",
+      "chain": "1) Den Schritten auf der Seite folgen, Schlüssel von der offiziellen Site kopieren → hier einfügen → speichern.\n2) Einmal konfiguriert können Sie synchronisieren, ohne den Berichtsseitenschalter einzuschalten.\n3) Erfolgreicher Sync → nachgelagerte Module haben Daten; falsch oder abgelaufen → Sync scheitert, Bibliothek/Berichte können alt oder leer bleiben.\n4) Manche Plattformen hängen auch mit Drittanbieter-Anmeldung zusammen — die Schritte sagen das.",
+      "frontend": "Indirekt: ob Daten erscheinen und ob Fehler gezeigt werden. Nach dem Sync die Bibliothek oder den Datenverwaltungsbereich dieser Plattform prüfen.",
+      "notes": "Geheimschlüssel nicht teilen; nach dem Rotieren eines Schlüssels hierher zurückkommen und ihn aktualisieren."
+    },
+    "dataPreview": {
+      "what": "Eine Momentaufnahme dessen, was diese Plattform bereits im Smart-Filter-Cache hat: Konto, Kennzahlen, ein paar Beispiele.",
+      "chain": "1) Einmal geladen, wenn Sie die Detailseite öffnen — nicht im Hintergrund abgefragt.\n2) Stammt aus der Smart-Filter-Ausgabe, nicht aus einem Live-Aufruf der entfernten Plattform.\n3) Nach Rohdaten-Aktualisierung oder Neuverarbeitung lädt die Momentaufnahme einmal neu.\n4) Leer, bis Sie synchronisieren und verarbeiten.",
+      "frontend": "Plattformdetail-Gruppe „Aktuelle Daten“.",
+      "notes": "Nur Vorschau — vollständige Listen leben in der Bibliothek."
+    },
+    "dataManagement": {
+      "what": "Bereits synchronisierte Daten dieser Plattform: erneut holen, neu verarbeiten oder lokalen Cache leeren.",
+      "chain": "1) Braucht die Verbindungsfelder oben, um zu funktionieren.\n2) Aktualisieren: Rohdaten erneut von der entfernten Plattform holen.\n3) Neu verarbeiten: vorhandene Rohdaten lokal neu parsen, ohne erneut zu holen.\n4) Cache leeren: die zwischengespeicherte Kopie dieser Site für Anzeige/Geschwindigkeit verwerfen — nicht das entfernte Konto.\n5) Bibliothek und Berichte übernehmen Ergebnisse beim nächsten Laden.",
+      "frontend": "Statuszeilen und Schaltflächen unter „Datenverwaltung“ auf der Plattformdetailseite.",
+      "notes": "Cache leeren kann die lokale Kopie nicht rückgängig machen; Sync vor destruktiven Operationen bestätigen."
+    },
+    "dataRefresh": {
+      "what": "Rohdaten erneut von der externen Plattform holen.",
+      "chain": "1) Aktualisieren klicken → Hintergrundaufgabe wird eingereiht.\n2) Bei Erfolg hat diese Site eine neue Rohmomentaufnahme; bei Fehler die Aufgabenfehlermeldung prüfen.\n3) Bibliothek/Berichte können sich erst danach aktualisieren.\n4) Zu häufiges Holen kann Sie rate-limiten.",
+      "frontend": "Zeile „Rohdaten“ und Aktualisieren-Schaltfläche in der Datenverwaltung; Aufgabenfortschritt kann erscheinen.",
+      "notes": "Falsche Geheimnisse oder Netzwerk-/Proxy-Probleme verursachen Fehler."
+    },
+    "dataReprocess": {
+      "what": "Vorhandene Rohdaten auf dieser Site neu parsen, ohne die Gegenseite erneut zu fragen.",
+      "chain": "1) Nützlich, wenn Parsing/Zuordnung sich geändert hat, die entfernten Daten aber nicht.\n2) Scheitert oder ist deaktiviert meist ohne Rohdaten.\n3) Schneller und trifft die Gegenseite weniger als eine volle Aktualisierung.",
+      "frontend": "Schaltfläche im Stil Neu verarbeiten in der Datenverwaltung.",
+      "notes": "Wenn die Rohdaten selbst veraltet sind, zuerst aktualisieren statt nur neu zu verarbeiten."
+    },
+    "dataClearCache": {
+      "what": "Die Cache-Kopie dieser Site für die Plattform leeren.",
+      "chain": "1) Nur lokaler Cache — nicht das entfernte Konto.\n2) Nächste Anzeige oder Sync kann den Cache neu bauen.\n3) Nutzen, wenn die Konfiguration sich geändert hat, alte Listen/Karten aber weiter erscheinen.",
+      "frontend": "Schaltfläche Cache leeren; die Statuszeile zeigt, ob Cache existiert.",
+      "notes": "Fragt nach Bestätigung; die Last kann danach kurz langsamer sein."
+    }
+  },
+  "notifications": {
+    "master": {
+      "what": "Ob Sie die verschiedenen Hinweise empfangen, die diese Site zu senden eingerichtet ist.",
+      "chain": "1) Bei ausgeschaltetem Hauptschalter stoßen Darstellungsstile und einzelne Quellen darunter nicht mehr zu Ihnen durch.\n2) Der Verlauf bleibt meist — nur neue Zustellungen stoppen.\n3) Hintergrundarbeit kann weiterlaufen; Sie bekommen nur keinen Pop-up oder roten Badge.\n4) Um wieder Hinweise zu empfangen: Hauptschalter an, dann passende Quellen und Orte öffnen.",
+      "frontend": "Benachrichtigungsliste, kleines rotes Badge in der Navigation, Eckhinweise, Systembenachrichtigungen. Bei Hauptschalter aus sollten diese ruhig werden.",
+      "notes": "Optionen darunter werden grau, wenn er aus ist — das ist normal."
+    },
+    "island": {
+      "what": "Ob benachrichtigungsbezogene Hinweise im Navigationssteuerbereich erscheinen.",
+      "chain": "1) Braucht den Hauptschalter an.\n2) Braucht auch die passende „Quelle“ erlaubt und den Navigationsbereich unter Orten angehakt.\n3) Betrifft nur den Navigationsbereich — nicht Eckhinweise oder Systembenachrichtigungen (die haben eigene Schalter).",
+      "frontend": "Benachrichtigungseinstieg oder Badge im Navigationssteuerbereich. Eine Testbenachrichtigung auslösen und beobachten.",
+      "notes": "Tut nichts, solange der Hauptschalter aus ist."
+    },
+    "toast": {
+      "what": "Ob kurze Hinweise in einer Ecke der Seite aufpoppen.",
+      "chain": "1) Hauptschalter + dieser Kanal an.\n2) Weiter gefiltert nach „Quelle“ und „Ereignissen“ — nicht alles poppt.\n3) Kann zusammen mit Navigationsbereich und Systembenachrichtigungen laufen oder nur einer davon.",
+      "frontend": "Kurze Hinweisleisten, die in einer Ecke aufblitzen. Bei zu viel Lärm diesen aus oder weniger Ereignisse ankreuzen.",
+      "notes": "Bei hochvolumigen Quellen mit Ereignisfiltern kombinieren, sonst werden Sie überflutet."
+    },
+    "browser": {
+      "what": "Ob die eingebauten Systembenachrichtigungen von Telefon/Computer genutzt werden.",
+      "chain": "1) Einschalten lässt den Browser „Benachrichtigungen erlauben?“ fragen.\n2) Einmal erlaubt können sie weiter erscheinen, wenn die Seite im Hintergrund ist.\n3) Weiter dem Hauptschalter, Quellen und Ereignisfiltern unterworfen.\n4) Wenn Sie Ablehnen geklickt haben, die Berechtigung in den Browsereinstellungen ändern — die Site kann das allein nicht umkehren.",
+      "frontend": "System-Benachrichtigungszentrale. Zu einem anderen Tab wechseln und sehen, ob sie weiter erscheinen.",
+      "notes": "Auf geteilten/öffentlichen Rechnern vorsichtig sein."
+    },
+    "source": {
+      "what": "Ob eine ganze Quellenkategorie (Assistent, System, Föderation usw.) Sie benachrichtigt.",
+      "chain": "1) Eine Quelle aus macht ihre Orts- und Ereigniseinstellungen wirkungslos.\n2) Betrifft nur „Hinweis oder nicht“ — nicht die Funktion selbst (der Assistent läuft weiter).\n3) Um Hinweise zu bekommen: Hauptschalter an → Quelle an → Orte und Ereignisse ankreuzen.",
+      "frontend": "Ob diese Kategorie weiter in der Benachrichtigungsliste erscheint. Eine Quelle umschalten und vergleichen.",
+      "notes": "Um eine Kategorie stummzuschalten, ist die Quelle aus präziser als der Hauptschalter."
+    },
+    "locations": {
+      "what": "Wo diese Art Benachrichtigung erscheint: Liste, Eckhinweise, Navigationsbereich, Systembenachrichtigungen usw.",
+      "chain": "1) Hauptschalter und diese Quelle müssen zuerst an sein.\n2) Orte anzuhaken zählt dann erst.\n3) Keines angehakt = diese Quelle ist praktisch stumm.",
+      "frontend": "Die Anzeigeorte, die Sie angehakt haben. Nur die Liste ankreuzen, wenn Sie weniger Unterbrechung wollen.",
+      "notes": "Systembenachrichtigungen brauchen auch Browserberechtigung."
+    },
+    "events": {
+      "what": "Innerhalb dieser Kategorie, welche konkreten Ereignisse Sie benachrichtigen sollen.",
+      "chain": "1) Nicht angehakte Ereignisse gelangen nie in Benachrichtigungen, selbst wenn sie geschehen.\n2) Ist die Quelle aus, ist hier alles inaktiv.\n3) Gut zur Feinsteuerung, wenn Sie nur bestimmte Erfolge/Fehler wollen.",
+      "frontend": "Inhaltsarten in der Benachrichtigungsliste. Einige abzuhaken entfernt sofort eine Nachrichtenklasse.",
+      "notes": "Im Zweifel zuerst alles an, dann abschalten, was laut wird."
+    }
+  },
+  "ai": {
+    "llm": {
+      "what": "Die drei Textmodellstufen: Standard für den Alltag, Lite zum Sparen, Pro für schwere Aufgaben.",
+      "chain": "1) Schlüssel liegen oben bei Anbietern; hier wählen Sie nur Quelle und Modellname.\n2) Standard ist der Vorgabe. Pro fällt auf Standard zurück, wenn aus. Lite-Jobs stoppen, wenn Lite aus ist — sie fallen nicht zurück.\n3) Agent-Persona braucht Pro. Lite wählt Bewegung und schreibt proaktive Zeilen und Stimmungshinweise.\n4) Berechtigungen und Kontingent gelten weiter.",
+      "frontend": "Assistenten-Chat, Berichte und Hintergrund-Textaufträge nutzen diese Stufen. Zuerst eine Zeile im Assistenten senden, um Standard zu testen.",
+      "notes": "Standard zum Laufen bringen, bevor Sie die anderen beiden einschalten."
+    },
+    "standard": {
+      "what": "Die standardmäßige intelligente Einrichtung für Alltagschat, Analyse und Berichte erzeugen.",
+      "chain": "1) Anbieter wählen, Geheimschlüssel (und Adresse/Modell falls nötig) ausfüllen → unten speichern.\n2) Assistenten-Chat, Berichterzeugung und intelligente Funktionen in manchen kleinen Apps nutzen dieses Set standardmäßig.\n3) Wenn „Lite / Hohe Qualität“ aus oder unbrauchbar ist, fällt Arbeit ebenfalls auf dieses Set zurück.\n4) Hängt auch davon ab, dass „Berechtigungen“ KI-Nutzung erlauben und Kontingent bleibt.\n5) Wenn der Server für das offene Internet einen Proxy braucht, unter „Erweitert“ setzen, sonst verbinden intelligente Dienste möglicherweise nicht.",
+      "frontend": "Ob das Assistentenpanel normal antworten kann und ob Berichte erzeugt werden können.\nZuerst eine einfache Nachricht im Assistenten als Verbindungstest senden.",
+      "notes": "Zuerst Standard zum Laufen bringen, dann andere Stufen einschalten. Geheimschlüssel nicht preisgeben."
+    },
+    "lite": {
+      "what": "Eine günstigere Einrichtung für einfache, wiederholte Aufgaben (optional).",
+      "chain": "1) Lite einschalten und konfigurieren (ist der Geheimschlüssel leer, leiht es den von Standard).\n2) Als „lite“ markierte Aufgaben bevorzugen diese Einrichtung.\n3) Aus → nutzt weiter Standard.\n4) Dieselben Berechtigungs- und Kontingentgrenzen gelten.",
+      "frontend": "Nutzer sehen meist keine eigene Seite — vor allem, welche Einrichtung einfache Hintergrundaufgaben nutzen.",
+      "notes": "Kann einen anderen Anbieter als Standard nutzen; sicherer, zuerst Standard zum Laufen zu bringen."
+    },
+    "agentPersona": {
+      "what": "Den Agent mit der Site-Persona sprechen lassen, Stimmung und Tagebuch je Person halten und nach benannten Ereignissen sprechen.",
+      "chain": "1) Standardmäßig aus. Aus bedeutet nur Chat und Aufgaben — kein Ereignishören, keine versteckte Sprache, Persona ungenutzt.\n2) Der Schalter braucht Pro. Chat injiziert die Persona nur als Systemtext; er nutzt die Planer-/Antwortstufen.\n3) Lite wählt semantische Bewegung und schreibt proaktive Zeilen und Stimmungshinweise. Ohne Lite stoppt semantische Bewegung und es bleiben nur lokales Blinzeln, Atem, Haar und andere Umgebungsphysik; es gibt keinen Standard-Rückfall.\n4) An: Persona auf der Unterseite dieses Punkts schreiben. Tags, Name und Persona laufen über Pro.\n5) MEROPE_ENABLED kann den gespeicherten Schalter überschreiben, braucht aber weiter Pro.\n6) Autonome Sprache bleibt versteckt; wertvolle Ereignisse benachrichtigen auch, wenn die Person nicht chattet.",
+      "frontend": "Chat nutzt diese Persona. Schreiben Sie sie auf der Unterseite dieses Punkts. Die erste Zeile zeigt Ihr Stimmungsband und die aktuelle Aktivität. Gäste sehen keine Stimmung.",
+      "notes": "Nur der Site-Inhaber kann die Persona schreiben. Persona löschen leert auch Stimmung und Tagebuch. Heartbeat wird nie durch Stimmung blockiert. Laut sprechen ist ein eigener Schalter auf dieser Karte, standardmäßig aus."
+    },
+    "agentPersonaSpeech": {
+      "what": "Ob das Persona-Gesicht Chat-Antworten laut spricht.",
+      "chain": "1) Standardmäßig aus. Aus: Antworten bleiben Text; das Gesicht formt die Zeile weiter, ohne Stimme.\n2) An, mit konfigurierter Sprache: Antworten laufen durch die Sprachpipeline; echtes Audio treibt den Mund; Text-Viseme nur, wenn TTS scheitert.\n3) Braucht Agent-Persona an und einen Sprachanbieter auf der KI-Seite. Der Schalter zählt nicht, solange Persona aus ist.\n4) Push-to-listen bleibt manuell und getrennt.\n5) Reader-/Podcast-TTS nutzt den Sprachanbieter, nicht diesen Schalter.",
+      "frontend": "Einstellungen → KI → Agent → Sprechen. Wirkt auf den nächsten Chat-Zug nach dem Speichern.",
+      "notes": "Stimme nutzt Kontingent. Diesen aus schaltet die Persona nicht aus."
+    },
+    "liteEnable": {
+      "what": "Ob die Lite-Stufe aktiviert wird.",
+      "chain": "1) Aus = Lite-Jobs stoppen. Sie fallen nicht auf Standard zurück.\n2) An = Bewegungsauswahl und andere Lite-Aufgaben nutzen die Lite-Einrichtung.\n3) Ausschalten löscht nicht, was Sie bereits ausgefüllt haben.\n4) Agent-Persona kann ohne Lite an; es bleibt nur lokale Umgebungsphysik, proaktive Zeilen bleiben kurz, Stimmungshinweise bleiben aus.",
+      "frontend": "Wirkt indirekt darauf, welches Modell genutzt wird; einfache Aufgaben können Kosten-/Geschwindigkeitsunterschiede zeigen.",
+      "notes": "Wenn Standard noch nicht funktioniert, Lite nicht überstürzen."
+    },
+    "pro": {
+      "what": "Eine stärkere, meist teurere Stufe für schwerere Aufgaben.",
+      "chain": "1) Wenn an und konfiguriert, gehen Aufgaben, die hohe Qualität brauchen, hierhin.\n2) Aus → fällt auf Standard zurück.\n3) Meist teurer; dieselben Berechtigungs- und Kontingentgrenzen.",
+      "frontend": "Die Erzeugungsqualität kann besser sein. Schwere Fragen im Assistenten vergleichen.",
+      "notes": "Nur bei Bedarf aktivieren; nicht jede Aufgabe braucht diese Stufe."
+    },
+    "proEnable": {
+      "what": "Ob die hochwertige Modellstufe aktiviert wird.",
+      "chain": "1) Aus → auch schwere Aufgaben fallen auf Standard zurück.\n2) An → schwere Aufgaben können den hochwertigen Anbieter/das Modell nutzen. Persona-Einrichtung (Tags, Name, Persona) nutzt ebenfalls diese Stufe.\n3) Weiter durch Berechtigungen und Kontingent begrenzt; Ausschalten löscht keine Schlüssel.",
+      "frontend": "Qualität bei schweren Assistenten-/Berichtsaufgaben. Dieselbe schwere Frage vorher/nachher stellen.",
+      "notes": "Aus lassen, wenn kostenempfindlich oder Standard reicht."
+    },
+    "image": {
+      "what": "Welcher Dienst zum Erzeugen von Bildern genutzt wird.",
+      "chain": "1) Anbieter wählen, Geheimschlüssel und Modell ausfüllen → speichern.\n2) Funktionen mit Bildausgabe können dann arbeiten.\n3) Berechtigungen müssen auch „KI-Bilder“ erlauben, und Kontingent muss bleiben.\n4) Kann ein anderer Anbieter sein als Textchat.",
+      "frontend": "Bildbezogene Schaltflächen und Ergebnisbilder. Bei Fehler prüfen, ob der Hinweis Schlüssel, Berechtigung oder Kontingent ist.",
+      "notes": "Jeder Anbieter schreibt Modellnamen anders — den Hinweisen auf der Seite folgen."
+    },
+    "speech": {
+      "what": "Welcher Anbieter Vorlesen und Erkennung übernimmt: Tencent Cloud, OpenAI oder OpenRouter.",
+      "chain": "1) Anbieter wählen und speichern. Schlüssel liegen oben bei Anbietern.\n2) Der Test auf der Seite spricht eine kurze Zeile und transkribiert sie zurück.\n3) Assistenten-TTS/ASR nutzt diesen Abschnitt.\n4) OpenRouter hat keine offizielle OpenAI-TTS-Listung; Transkription funktioniert weiter.",
+      "frontend": "Einstellungen → KI → Sprache. Zuerst den Test auf der Seite nutzen.",
+      "notes": "Offizielle Sprache: OpenAI wählen. Tencent-Geheimnisse liegen unter Anbietern."
+    },
+    "vendors": {
+      "what": "Ein Satz Zugangsdaten je Anbieter, von der ganzen Site geteilt.",
+      "chain": "1) „Anbieter hinzufügen“ in der Seitenkopfzeile nutzen, um eine Vorgabe zu wählen. Sie können mehr als einen derselben Art hinzufügen.\n2) Jede Quelle hat eigenen Namen, ID und Schlüssel.\n3) Text, Bild und Sprache wählen aus diesen Quellen.",
+      "frontend": "Einstellungen → KI → „Anbieter hinzufügen“ in der Abschnittskopfzeile.",
+      "notes": "Beim Modellwechsel keinen Schlüssel neu eingeben. Neue Schlüssel hier gewinnen gegenüber älteren feldspezifischen Feldern."
+    },
+    "webSearch": {
+      "what": "TinyFish-Schlüssel für die Websuche im Arbeitsmodus. Suche ist kostenlos; ein Schlüssel ist trotzdem nötig.",
+      "chain": "1) Bei agent.tinyfish.ai anmelden, den Schlüssel hier einfügen und speichern.\n2) ai.webSearch im Arbeitsmodus und der Web-Rückfall der Leseliste nutzen TinyFish Search zuerst (Leselisten holen auch Seitentext).\n3) Ist dieser Schlüssel leer, fällt die Suche auf konfiguriertes Gemini Google Search zurück.\n4) Der Schlüssel ist ein Host-Geheimnis: nur ausgehend, nie an Apps zurückgegeben.",
+      "frontend": "Einstellungen → KI → Websuche. Nach dem Speichern eine Arbeitsmodus-Frage stellen, die das Live-Web braucht.",
+      "notes": "Besucher füllen das nicht aus. Der Chat-Modus nutzt keine Websuche. Das Feld leeren und speichern löscht den gespeicherten Schlüssel; die Maske speichern lässt ihn unverändert."
+    },
+    "provider": {
+      "what": "Welches Intelligenz-Unternehmen genutzt wird.",
+      "chain": "1) Anbieterwechsel ändert die Felder darunter.\n2) Anfragen gehen an diesen Anbieter.\n3) Nach dem Wechsel erneut prüfen, ob Geheimschlüssel und Modellname noch passen.",
+      "frontend": "Formularfelder auf der Einstellungsseite ändern sich; falsche Einrichtung zeigt Fehler bei der Nutzung.",
+      "notes": "Nicht den Anbieter wechseln, aber den Modellnamen eines anderen Anbieters behalten."
+    },
+    "apiKey": {
+      "what": "Das geheime Passwort zur Verbindung mit dem intelligenten Dienst.",
+      "chain": "1) Nach Ausfüllen und Speichern nutzt es nur das Server-Backend.\n2) Besucher sehen das volle Geheimnis nie auf der Seite.\n3) Fehlt oder falsch → Chat und Erzeugung scheitern beide.\n4) Nach dem Rotieren stoppt das alte sofort.",
+      "frontend": "Fehlermeldungen bei Fehler. Eine Testzeile im Assistenten senden.",
+      "notes": "Nicht in öffentlichen Gruppen posten oder in öffentliche Code-Repositories legen."
+    },
+    "baseUrl": {
+      "what": "Zugangsadresse des intelligenten Dienstes (offiziell oder ein Relais, das Sie betreiben).",
+      "chain": "1) Die meisten lassen leer = offizielle Adresse nutzen.\n2) Füllen Sie ein Relais, läuft der Verkehr über das Relais.\n3) Falscher Wert → alle Modelle verbinden nicht; das Seitenbild ist in Ordnung.",
+      "frontend": "Seitenerscheinung unverändert; Fehler erscheint als KI nicht verfügbar.",
+      "notes": "Wenn Sie Relais nicht verstehen, leer lassen; falsch ausfüllen ist schlechter als leer."
+    },
+    "model": {
+      "what": "Der genaue Modellname, der genutzt werden soll.",
+      "chain": "1) Entscheidet Antwortstil, Stärke und Kosten.\n2) Muss ein auf Ihrem Konto bereits aktivierter Name sein.\n3) Funktioniert nur zusammen mit Anbieter und Geheimschlüssel.",
+      "frontend": "Unterschiede in Qualität und Geschwindigkeit der Assistentenantworten.",
+      "notes": "Falscher Name lässt den Aufruf scheitern; den Namen aus der Anbieterkonsole nutzen."
+    },
+    "heartbeat": {
+      "what": "Den Agent eine Aufgabe nach Zeitplan ausführen lassen, ohne dass Sie zusehen.",
+      "chain": "1) Hier eine Aufgabe anlegen: Name, Zeitplan (Vorgabe oder cron) und was zu tun ist.\n2) Wenn fällig, führt Agent diese Anweisung im Arbeitsmodus aus.\n3) Die Liste kann aktivieren, bearbeiten oder löschen; das letzte Ergebnis steht in der Zeile.\n4) Unabhängig von Persona-Stimmung — Heartbeat wird nie durch Stimmung blockiert.\n5) Sie müssen angemeldet sein, um diese Aufgaben zu lesen oder zu schreiben.",
+      "frontend": "Einstellungen → KI → Agent → Zeitplan. Läufe erscheinen auch auf der Assistenten-Zeitleiste.",
+      "notes": "Eine klare Aktion schreiben. Ungültiges cron feuert nie. Aufgaben nutzen KI-Kontingent."
+    },
+    "skills": {
+      "what": "Arbeitsweisen, die der Agent merkt: von Ihnen geschrieben oder beim Erledigen von Aufgaben gelernt oder überarbeitet.",
+      "chain": "1) Nach einem erfolgreichen Auftrag kann er einen Skill speichern und ihn nächstes Mal wiederverwenden.\n2) Sie können den Assistenten auch bitten, einen zu lernen oder zu bearbeiten.\n3) Diese Seite listet, sucht und löscht nur — sie erzeugt keinen Skill-Text.\n4) Nach dem Löschen wird dieser Skill nicht mehr genutzt.",
+      "frontend": "Einstellungen → KI → Agent → Skills. Badges markieren manuell / gelernt / überarbeitet.",
+      "notes": "Löschen bedeutet erneut lehren. Skills sind keine Berechtigungen und umgehen weder Site-Berechtigungen noch Kontingent."
+    },
+    "memory": {
+      "what": "Kurze Fakten, die der Agent behalten hat, in späteren Chat injiziert.",
+      "chain": "1) Er schreibt eine Zeile, wenn er einen Fakt für merkwürdig hält.\n2) Hier suchen, bearbeiten oder löschen.\n3) Bearbeitungen gelten beim nächsten Chat-Zug.\n4) Nicht dasselbe wie Persona-Tagebuch: Tagebuch ist je Person; Speicher sind Faktzeilen.",
+      "frontend": "Einstellungen → KI → Agent → Speicher. Eine Zeile aufklappen, um den Text zu bearbeiten.",
+      "notes": "Keine Geheimnisse in den Speicher legen. Gelöschte Zeilen werden nicht mehr injiziert."
+    },
+    "imageModel": {
+      "what": "Der genaue Modellname für die Bilderzeugung.",
+      "chain": "1) Zusammen mit dem Bildanbieter gespeichert.\n2) Muss ein auf diesem Anbieter bereits aktivierter Name sein.\n3) Braucht weiter Bildberechtigung und verbleibendes Kontingent.\n4) Kann vom Textmodell abweichen.",
+      "frontend": "Einstellungen → KI → Bild → Modell. Bei Fehler zuerst den Namen prüfen.",
+      "notes": "Jeder Anbieter schreibt Namen anders — dem Platzhalter auf der Seite folgen."
+    },
+    "speechStt": {
+      "what": "Das Erkennungsmodell, das Sprache in Text verwandelt.",
+      "chain": "1) Nach Wahl eines Sprachanbieters ausfüllen.\n2) Assistenten-Diktat und der Sprachtest auf der Seite nutzen dies.\n3) Der Name muss bei diesem Anbieter aktiviert sein.\n4) Manche Anbieter (z. B. MiniMax) zeigen dieses Feld nicht.",
+      "frontend": "Einstellungen → KI → Sprache → Erkennungsmodell. Den Test auf der Seite nutzen.",
+      "notes": "Nicht derselbe Name wie das Vorlese-Modell. Ein falscher Name lässt die Transkription scheitern."
+    },
+    "speechTts": {
+      "what": "Das Synthesemodell, das Text vorliest.",
+      "chain": "1) Nach Wahl eines Sprachanbieters ausfüllen.\n2) Assistenten-TTS, Persona-Sprechen und der Test auf der Seite nutzen dies.\n3) Persona „Sprechen“ ist ein eigener Schalter und braucht Persona an.\n4) OpenRouter hat oft keine offizielle TTS-Listung.",
+      "frontend": "Einstellungen → KI → Sprache → TTS-Modell. Zuerst den Test auf der Seite nutzen.",
+      "notes": "Podcast-/Reader-TTS nutzt den Sprachanbieter selbst, nicht den Persona-Sprechen-Schalter."
+    },
+    "speechVoice": {
+      "what": "Welche Stimmen-ID zum Vorlesen genutzt wird.",
+      "chain": "1) Mit dem TTS-Modell gespeichert.\n2) Muss eine Stimme sein, die der aktuelle Anbieter unterstützt.\n3) Persona-Sprechen nutzt diese Stimme ebenfalls.\n4) Leer fällt auf die Platzhalter-Vorgabe auf der Seite zurück.",
+      "frontend": "Einstellungen → KI → Sprache → Stimme. Eine Testzeile reicht, um den Unterschied zu hören.",
+      "notes": "Stimmlnamen sind anbieterspezifisch — keine OpenAI-Stimme in Gemini einfügen."
+    },
+    "qqBot": {
+      "what": "Send a QQ private message into site Work and get the result back in the same chat.",
+      "chain": "1) Turn on, fill AppID / AppSecret, then save. The title tag is messaging: offline / connecting / online / rejected / reconnecting.\n2) Test saved credentials hits the stored values, not unsaved form fields. Treat that separately from messaging being online.\n3) The secret is write-only: reads come back masked, empty clears it, a mask resubmit keeps the stored value.\n4) Off, incomplete credentials, or 401/403 stop the worker. Network jitter reconnects.\n5) After connect succeeds, bind your QQ here: copy the pairing code and send it in a private chat. Codes expire; regenerate after expiry.\n6) After pairing, send a request. Reply yes/no or an option number. You can send 停止 / 新对话 / 当前任务.",
+      "frontend": "Settings → AI → Agent → QQ bot.",
+      "notes": "Do not paste Discord data-platform OAuth here. AppSecret never appears in page plaintext or error text."
+    },
+    "telegramBot": {
+      "what": "Send a Telegram DM into site Work and get the result back in the same chat.",
+      "chain": "1) Turn on, paste the BotFather token, then save. The title tag is messaging: offline / connecting / online / rejected / reconnecting.\n2) Test saved credentials hits the stored values, not unsaved form fields. Treat that separately from messaging being online.\n3) The token is write-only: reads come back masked, empty clears it, a mask resubmit keeps the stored value.\n4) Off, missing token, or 401/403 stop the worker. 429 waits retry_after. 409 (webhook / another getUpdates client) backs off; it is not a bad token.\n5) After connect succeeds, bind your Telegram here: copy the pairing code and open the bot. Codes expire; regenerate after expiry.\n6) After pairing, send a request. Buttons belong to that step only. You can send 停止 / 新对话 / 当前任务.",
+      "frontend": "Settings → AI → Agent → Telegram bot.",
+      "notes": "Do not paste MTProto api_id / api_hash. The token never appears in page plaintext or error text. Reachability of api.telegram.org is outside the platform."
+    },
+    "discordBot": {
+      "what": "Send a Discord DM into site Work and get the result back in the same chat.",
+      "chain": "1) Turn on, paste the Developer Portal bot token, then save. The title tag is messaging: offline / connecting / online / rejected / reconnecting.\n2) Test saved credentials hits the stored values, not unsaved form fields. Treat that separately from messaging being online.\n3) The token is write-only: reads come back masked, empty clears it, a mask resubmit keeps the stored value.\n4) Off, missing token, or 401/403 stop the worker. Network jitter resumes the Gateway session; do not Identify on every disconnect.\n5) After connect succeeds, bind your Discord here: copy the pairing code and send it in a DM. Codes expire; regenerate after expiry.\n6) After pairing, send a request. Buttons belong to that step only. You can send 停止 / 新对话 / 当前任务.",
+      "frontend": "Settings → AI → Agent → Discord bot.",
+      "notes": "Do not paste the data-platform OAuth access token. Pairing identity is discord_dm, not Discord login. The token never appears in page plaintext or error text."
+    },
+    "feishuBot": {
+      "what": "Send a Feishu private message into site Work and get the result back in the same chat.",
+      "chain": "1) Turn on, fill the internal-app AppID / AppSecret, then save. The title tag is messaging: offline / connecting / online / rejected / reconnecting.\n2) Test saved credentials hits the stored values, not unsaved form fields. Treat that separately from messaging being online.\n3) The secret is write-only: reads come back masked, empty clears it, a mask resubmit keeps the stored value.\n4) Off, incomplete credentials, or auth rejects stop the worker. Network jitter reconnects.\n5) After connect succeeds, bind your Feishu here: copy the pairing code and send it in a private chat. Codes expire; regenerate after expiry.\n6) After pairing, send a request. Buttons belong to that step only. You can send 停止 / 新对话 / 当前任务.",
+      "frontend": "Settings → AI → Agent → Feishu bot.",
+      "notes": "Use an internal company app, not a group custom-bot webhook. AppSecret never appears in page plaintext or error text."
+    }
+  },
+  "tripo": {
+    "connection": {
+      "what": "Ob Tripo 3D aktiviert ist und welcher API-Endpunkt und Schlüssel genutzt wird.",
+      "chain": "1) Aktivieren an, API-Schlüssel (und optionale Basis-URL) ausfüllen → Konfiguration unten speichern.\n2) Vollständig unabhängig von der Bilderzeugung unter „KI-Konfiguration“: Referenzbilder sind nur Eingaben in die 3D-Pipeline, nicht dieselben Schlüssel.\n3) Nur wenn aktiviert und der Schlüssel gültig ist, dürfen Aufgaben angelegt werden, die Tripo-Guthaben verbrauchen.\n4) Der Schlüssel liegt nur auf dem Server — nie an Browser gesendet oder in Modelldateien eingebettet.\n5) Ausgehender Verkehr nutzt den globalen Proxy unter Erweiterte Einstellungen; Tripo öffnet keinen eigenen Netzpfad.",
+      "frontend": "Einstellungen → 3D & Tripo → Gruppe „Tripo-Verbindung“.\nEinstiege zur 3D-Aufgabenanlage (Admin).",
+      "notes": "Den Schlüssel von platform.tripo3d.ai holen. Aktivieren aus graut Felder darunter, behält aber, was Sie bereits ausgefüllt haben."
+    },
+    "enabled": {
+      "what": "Hauptschalter: dieser Site erlauben, 3D-Aufgaben zu starten, die Tripo-Guthaben verbrauchen.",
+      "chain": "1) Aus = keine guthabenverbrauchenden Aufgaben anlegen; an = anlegen, sobald Schlüssel und Budget bereit sind.\n2) Löscht weder Schlüssel noch Budgetwerte — blockiert nur den Auftragseinstieg.\n3) Unabhängig vom KI-Bildschalter.",
+      "frontend": "Schalter „Tripo 3D aktivieren“; andere Eingaben in der Gruppe werden bei aus schreibgeschützt.",
+      "notes": "Auf öffentlichen Sites sicherstellen, dass nur Admins das ändern können."
+    },
+    "apiKey": {
+      "what": "Geheimschlüssel für die offene Tripo-Plattform.",
+      "chain": "1) Ausfüllen → unten speichern → nur auf dem Server gespeichert.\n2) Besucher und das Frontend sehen den vollen Schlüssel nie.\n3) Fehlender oder falscher Schlüssel → Aufgabenanlage/Abfrage scheitert.",
+      "frontend": "Passwortfeld „Tripo API Key.“ Bei Fehler die Aufgabenfehlermeldung prüfen.",
+      "notes": "Nicht in Chats oder öffentliche Repos einfügen; Rotieren macht den alten Schlüssel sofort ungültig."
+    },
+    "baseUrl": {
+      "what": "Stamm-URL der Tripo-API (offizielle Vorgabe reicht für die meisten).",
+      "chain": "1) Vorgabe ist https://openapi.tripo3d.ai/v3.\n2) Nur für ein selbst gehostetes Relais oder wenn der offizielle Host umzieht ändern.\n3) Falscher Wert → jede 3D-Aufgabe verbindet nicht.",
+      "frontend": "Feld „API Base URL“. Seitenbild unverändert; Fehler erscheint als gescheiterte Aufgaben.",
+      "notes": "Ohne Relaisbedarf die Vorgabe behalten; falsch ausfüllen ist schlechter als die Vorgabe."
+    },
+    "webBudget": {
+      "what": "Standard-Erzeugungsbudget für Web/WebGL-Szenen: welches Low-Poly-Modell, Face-Cap und maximale Größe zum Speichern.",
+      "chain": "1) Das sind Standard-Anfrageparameter; ein einzelner Aufruf kann sie überschreiben, und Ergebnisse werden nach der Erzeugung erneut geprüft.\n2) Zielt auf Ein-Charakter-Webszenen: Balance aus Aussehen und mobiler Leistung.\n3) Zu viele Faces oder ein zu großer Download verlangsamen Download und Bildrate; zu niedrig verwässert Details.\n4) Unabhängig von KI-Text-zu-Bild-Auflösung/Modellen.",
+      "frontend": "Gruppe „Web-Modellbudget“; Ergebnisse werden langlebige lokale Assets, keine temporären externen Links.",
+      "notes": "Flächenlimit etwa 4.000–8.000 empfohlen (Standard 5.000). Budget ändern baut alte Modelle nicht neu."
+    },
+    "model": {
+      "what": "Standard-Tripo-Low-Poly-Erzeugungsmodell-ID (zum Beispiel die P1-Serie).",
+      "chain": "1) Setzt Standard-Topologie/Detailausrichtung; Aufgaben ohne explizites Modell nutzen dies.\n2) Der Name muss zu einer aktuell verfügbaren offiziellen Modell-ID passen.\n3) Wirkt mit Flächenlimit und maximalem Download als Standardbudget.",
+      "frontend": "Textfeld „Standard-Low-Poly-Modell“.",
+      "notes": "Standard P1-20260311 zielt auf Low-Poly und sauberere Topologie; ein falscher Name lässt den Aufruf scheitern."
+    },
+    "faceLimit": {
+      "what": "Standard-Face-Zahl-Deckel: wie dicht das Mesh sein darf.",
+      "chain": "1) Als Standard beim Erzeugungsantrag gesendet (Aufrufer können überschreiben).\n2) Höher = mehr Detail, mehr VRAM/Bandbreite; niedriger = besser für mobiles WebGL.\n3) Etwa 4.000–8.000 empfohlen; Standard 5.000 balanciert Aussehen und Leistung.\n4) Erlaubter Bereich etwa 50–20.000.",
+      "frontend": "Zahlenfeld „Standard-Flächenlimit“.",
+      "notes": "Ein-Charakter-Webszenen brauchen selten das Absolute Maximum; hohe Deckel verlangsamen Telefone."
+    },
+    "maxDownload": {
+      "what": "Maximale Größe (MB), die beim Speichern eines erzeugten Modells erlaubt ist.",
+      "chain": "1) Nach Erfolg lädt der Server das Modell von einer temporären URL in den lokalen Speicher; über diesem Deckel wird das Speichern abgelehnt oder scheitert.\n2) Schützt die Festplatte vor unerwartet riesigen Dateien.\n3) Standard etwa 64 MB; an Festplatte und Szenenbedarf anpassen.",
+      "frontend": "Zahlenfeld „Maximale Modellgröße“.",
+      "notes": "Temporäre Ergebnis-URLs laufen ab — mit der Aufgaben-Zeitüberschreitung koppeln, damit der Download rechtzeitig fertig wird."
+    },
+    "taskControl": {
+      "what": "Wie das Backend auf Tripo-Jobs wartet: wie oft abfragen und wie lange warten.",
+      "chain": "1) Nach dem Anlegen Status im Intervall abfragen, bis Erfolg, Fehler oder Zeitüberschreitung.\n2) Bei Erfolg zügig herunterladen und speichern, bevor temporäre URLs ablaufen.\n3) Ein zu kurzes Intervall kann Anbieter-Ratenlimits treffen; zu lang lässt Fortschritt festgefahren wirken.\n4) Unabhängig von der Verbindung: bei Aktivieren/Schlüssel aus wirken diese ebenfalls nicht.",
+      "frontend": "Gruppe „Aufgabensteuerung“. Nutzer spüren vor allem „wie lange, bis ein Modell erscheint“.",
+      "notes": "Vorgaben etwa 2 s Abfrage und etwa 15 Minuten Zeitüberschreitung entsprechen üblicher Anbieterführung."
+    },
+    "pollInterval": {
+      "what": "Sekunden zwischen Statusabfragen an Tripo, während ein Job läuft.",
+      "chain": "1) Gilt nur, während eine Aufgabe läuft.\n2) Meist nicht schneller als 2 Sekunden, um Ratenlimits zu vermeiden.\n3) Größeres Intervall = weniger Anfragen, langsamere Fortschrittsupdates.",
+      "frontend": "Zahlenfeld „Abfrageintervall“.",
+      "notes": "Nicht ohne klaren Grund aggressiv werden."
+    },
+    "taskTimeout": {
+      "what": "Maximale Wartezeit für einen Job (Sekunden); danach gilt er als fehlgeschlagen.",
+      "chain": "1) Zählt vom Start bis Erfolg/Fehler; wartet nicht länger als diese Sekunden.\n2) Komplexe Jobs können länger brauchen; zu kurz tötet gültige Arbeit, zu lang hält die Warteschlange.\n3) Standard etwa 900 Sekunden (15 Minuten).",
+      "frontend": "Zahlenfeld „Aufgaben-Zeitüberschreitung“.",
+      "notes": "Bei Zeitüberschreitung zuerst den vorgelagerten Status und die Protokolle prüfen, dann erneut versuchen."
+    }
+  },
+  "oauth": {
+    "section": {
+      "what": "Besucher mit einem Klick über GitHub, Google und ähnliche Konten auf dieser Site anmelden lassen.",
+      "chain": "1) Zuerst eine korrekte Site-Adresse unter „Grundkonfiguration“ ausfüllen, damit Rückkehradressen stimmen.\n2) Hier eine Anmeldemethode hinzufügen und den Schritten folgen, ID und Geheimnis aus beiden Dashboards auszufüllen.\n3) Die Anmeldeseite zeigt eine Schaltfläche → der Nutzer meldet sich auf der anderen Site an → kehrt dann hierher zurück.\n4) Offene lokale Passwortregistrierung steuert „Nutzer“, nicht dieser Abschnitt.\n5) Nach Domainwechsel auch die beim anderen Dashboard hinterlegte Rückkehradresse aktualisieren.",
+      "frontend": "Drittanbieter-Schaltflächen auf der Anmelde- / Registrierungsseite.\nEin voller Anmeldeversuch in einem privaten Fenster ist die beste Prüfung.",
+      "notes": "Ist die Site-Adresse nicht eingerichtet, sehen Sie eine starke Warnung — zuerst die Grundkonfiguration beheben. Geheimnisse nicht preisgeben."
+    },
+    "provider": {
+      "what": "Die konkreten Ausfüllfelder für eine Drittanbieter-Anmeldemethode.",
+      "chain": "1) Vollständig ausgefüllt und aktiviert → die Anmeldeseite zeigt die Schaltfläche dieser Marke.\n2) Fehlende Felder bedeuten oft, dass Sie nach dem Klick nicht zurückkehren können.\n3) Die Rückkehradresse hängt von der Site-Adresskonfiguration ab.",
+      "frontend": "Die Anmeldeschaltfläche dieser Marke. Sie können einen Anbieter allein testen.",
+      "notes": "Den Schritten auf der Seite folgen; beim Einfügen keine Extra-Leerzeichen."
+    },
+    "callback": {
+      "what": "Die Adresse, die diese Site nach erfolgreicher Anmeldung empfangen muss — genau so beim Anmeldedienst registrieren.",
+      "chain": "1) Gebaut aus Site-Adresse + Slug dieses Anbieters; Sie bearbeiten sie meist nicht.\n2) Die Redirect URI in der Anbieterkonsole muss zeichenweise übereinstimmen.\n3) Nach einem Domainwechsel auch die Anbieterkonsole aktualisieren.\n4) Discord-Datensync kann einen zweiten Callback zeigen, getrennt von der Anmeldung.",
+      "frontend": "Die Callback-Zeile in einer aufgeklappten Anmeldekarte; kopierbar. Eine volle Anmeldung im privaten Fenster ist die Prüfung.",
+      "notes": "Ein Extra-Schrägstrich oder http statt https lässt die Rückkehr scheitern."
+    },
+    "clientId": {
+      "what": "Die Anwendungs-ID, die der Anmeldedienst ausgestellt hat (Client ID).",
+      "chain": "1) Nach dem Anlegen der App in deren Konsole hierher kopieren.\n2) Funktioniert nur zusammen mit Geheimnis und Callback.\n3) Eine falsche ID scheitert auf deren Autorisierungsseite.",
+      "frontend": "Client ID auf der Anmeldemethodenkarte.",
+      "notes": "Sie kann im Browser erscheinen; trotzdem keine fremde wiederverwenden."
+    },
+    "clientSecret": {
+      "what": "Das Anwendungsgeheimnis, das der Anmeldedienst ausgestellt hat (Client Secret).",
+      "chain": "1) Nur der Server nutzt es zum Tauschen von Tokens; die Seite zeigt den vollen Wert nie.\n2) Zusammen mit ID und Callback nötig, um die Anmeldung abzuschließen.\n3) Nach dem Rotieren stirbt das alte Geheimnis sofort — dieses Feld aktualisieren.",
+      "frontend": "Geheimnisfeld auf der Anmeldemethodenkarte (maskiert).",
+      "notes": "Nicht in Chat oder öffentliche Repos einfügen. Die Maske speichern behält den gespeicherten Wert."
+    },
+    "discovery": {
+      "what": "OpenID-Discovery-URL, um Autorisierungs- und Token-Endpunkte automatisch zu finden.",
+      "chain": "1) Nur für OIDC-Anbieter (Google und ähnlich). GitHubs eigener Typ hat kein solches Feld.\n2) Die offizielle .well-known/openid-configuration nutzen.\n3) Eine falsche URL blockiert die Autorisierungsseite oder den Tokentausch.",
+      "frontend": "Discovery-URL auf einer OIDC-Karte.",
+      "notes": "Aus den Schritten auf der Seite kopieren; nicht auf einen Spiegel zeigen, außer Sie wissen warum."
+    },
+    "advanced": {
+      "what": "Slug, Anzeigename, Scopes und Icon dieser Methode.",
+      "chain": "1) Der Slug erscheint im Callback-Pfad — ihn zu ändern bedeutet, auch die Anbieterkonsole zu aktualisieren.\n2) Der Anzeigename ist die Beschriftung auf der Anmeldeschaltfläche.\n3) Scopes entscheiden, welche Profilfelder Sie bekommen; Extra können abgelehnt werden.\n4) Das Icon ändert nur, wie die Schaltfläche aussieht.",
+      "frontend": "Anmeldemethodenkarte → aufklappen → Erweitert.",
+      "notes": "Wenn die Anmeldung schon funktioniert, den Slug nicht leichtfertig ändern."
+    }
+  },
+  "permissions": {
+    "agentPreset": {
+      "what": "Ein-Klick-übliche Kombinationen von „was Assistent / kleine Apps tun dürfen“.",
+      "chain": "1) Ein Klick auf eine Vorgabe ändert viele Fähigkeiten darunter gesammelt (Chat, Analyse, ausgehendes Netz, Zeitpläne usw.).\n2) Nach dem Speichern erlauben oder verweigern kleine Apps und der Assistent diese Fähigkeiten zur Laufzeit.\n3) Ob Sie „den Assistenten sehen“ in der Navigation, liegt unter Moduleinstellungen; hier ist „einmal gesehen, können Sie ihn wirklich nutzen“.\n4) Wie oft Sie ihn nutzen können, begrenzt weiter das „Kontingent“ darunter.\n5) Nach dem manuellen Ändern einzelner Punkte kann „Benutzerdefiniert“ erscheinen.",
+      "frontend": "Ob Assistentenfunktionen arbeiten und ob intelligente/vernetzte Aktionen in kleinen Apps abgelehnt werden.\nAls normaler Nutzer anmelden und eine Meldung verweigerter Berechtigung versuchen.",
+      "notes": "Bei Gastfähigkeiten besonders vorsichtig. Vorgaben ändern nicht zufällig Medien-/Designkräfte, die nicht zum Assistenten gehören."
+    },
+    "agentPresetUser": {
+      "what": "Welche Assistentenfähigkeits-Vorgabe angemeldete Nutzer bekommen.",
+      "chain": "1) Eine Stufe zu wählen ändert erhöhte Nutzerfähigkeiten gesammelt.\n2) Feineinstellung darunter zu bearbeiten macht es Benutzerdefiniert.\n3) Admins sind davon meist nicht begrenzt.\n4) Kontingent wird darunter getrennt gesetzt.",
+      "frontend": "Berechtigungen → Agent-Vorgaben → Nutzer. Als normales Konto angemeldet prüfen.",
+      "notes": "Missbrauch durchdenken, bevor Sie Netz oder Zeitplaner für Nutzer öffnen."
+    },
+    "agentPresetGuest": {
+      "what": "Welche Assistentenfähigkeits-Vorgabe nicht angemeldete Besucher bekommen.",
+      "chain": "1) Nicht angemeldete Besuche werden von dieser Stufe erlaubt oder verweigert.\n2) Gäste haben keine volle Backend-Assistentensitzung — zu viel zu öffnen lädt Überflutung ein.\n3) Manche Fähigkeiten (Zeitplaner, Föderationsschreiben) erscheinen nie in der Gastvorgabe.\n4) Kontingent klar unter dem angemeldeter Nutzer halten.",
+      "frontend": "Berechtigungen → Agent-Vorgaben → Gäste. In einem abgemeldeten privaten Fenster prüfen.",
+      "notes": "In Produktion eng halten."
+    },
+    "fineTune": {
+      "what": "Oberhalb einer Vorgabe einzelne Fähigkeiten einzeln an oder aus.",
+      "chain": "1) Einen einzelnen Punkt ändern → speichern.\n2) Passende Fähigkeiten werden sofort unter den neuen Regeln geprüft.\n3) Üblicher Fall: die Schaltfläche bleibt, aber ein Klick sagt keine Berechtigung.\n4) Höchste Admin-Kräfte können hier nicht an andere weitergegeben werden.",
+      "frontend": "Ob jede Fähigkeit wirklich arbeitet. „Geklickt und keine Berechtigung“ als Checkliste nutzen.",
+      "notes": "Wenn es nach Änderungen noch wie eine Vorgabe wirkt, prüfen, ob es schon eine benutzerdefinierte Mischung geworden ist."
+    },
+    "userElevated": {
+      "what": "Zusätzliches, das gewöhnliche angemeldete Nutzer tun dürfen.",
+      "chain": "1) Nach der Anmeldung gelten die Prüfungen hier.\n2) Teil desselben Satzes wie die Vorgaben oben.\n3) Admins sind davon meist nicht begrenzt.",
+      "frontend": "Grenzen der Assistenten- / Klein-App-Fähigkeiten angemeldeter Nutzer.",
+      "notes": "Missbrauchsrisiko durchdenken, bevor Sie Nutzern „ausgehendes Netz“ und ähnliche Kräfte geben."
+    },
+    "guestElevated": {
+      "what": "Zusätzliches, das nicht Angemeldete tun dürfen (höheres Risiko).",
+      "chain": "1) Nicht authentifizierte Besuche werden hiernach beurteilt.\n2) Zu offen lädt Überflutung von Schnittstellen und KI ein.\n3) Gäste bekommen meist keine volle Backend-Assistentensitzung.",
+      "frontend": "Funktionen, die Gäste weiter sehen oder klicken können. Abgemeldet in einem privaten Fenster prüfen.",
+      "notes": "In Produktion so wenig wie möglich öffnen; Gastkontingent ebenfalls niedrig halten."
+    },
+    "aiQuota": {
+      "what": "Wie oft Nutzer und Gäste intelligente Funktionen jeweils nutzen dürfen.",
+      "chain": "1) Über dem Limit → blockiert, selbst wenn Modelle vollständig konfiguriert sind.\n2) Zusammen mit Berechtigungen und Modelleinrichtung drei Tore: alle müssen passen, damit es gelingt.\n3) Überschreiten wechselt nicht automatisch zu einem teureren Modell.",
+      "frontend": "Fehlermeldungen bei überzogenem Kontingent. Mit einem normalen Konto nahe am Limit beobachten.",
+      "notes": "Gastkontingent sollte klar unter dem angemeldeter Nutzer liegen."
+    },
+    "userQuota": {
+      "what": "Nutzungsdeckel für angemeldete Nutzer.",
+      "chain": "1) Begrenzt nur angemeldete Nutzer.\n2) Wenn voll, zeigen zugehörige intelligente Funktionen Fehlermeldungen.\n3) Wann der Zähler zurückgesetzt wird, entscheidet die Serverrichtlinie.",
+      "frontend": "Meldungen, wenn diese Rolle ihr Kontingent aufgebraucht hat.",
+      "notes": "0 oder extrem niedrig ist praktisch fast deaktiviert (je nach Umsetzung)."
+    },
+    "guestQuota": {
+      "what": "KI-Nutzungsdeckel für Gäste (abgemeldet).",
+      "chain": "1) Erstes Tor gegen Überflutung durch nicht angemeldete Besucher.\n2) Wirkt zusammen mit Gastberechtigungen.\n3) Wenn voll, sind Gast-Intelligenzfunktionen nicht verfügbar.\n4) 0 bedeutet meist, dass Gäste keine Intelligenzfunktionen nutzen können (siehe tatsächliche Fehler).",
+      "frontend": "Meldungen zum Gast-Testbudget; privates Fenster bis über Kontingent versuchen.",
+      "notes": "Klar unter angemeldeten Nutzern halten; in Produktion lieber niedrig."
+    }
+  },
+  "users": {
+    "section": {
+      "what": "Verwalten, wer sich anmelden kann, wer Admin ist und ob Besucher selbst ein lokales Nutzername/Passwort-Konto anlegen dürfen.",
+      "chain": "1) Hier Konten anlegen oder anpassen; der obere Schalter steuert die öffentliche lokale Registrierung.\n2) Personen melden sich mit Nutzername/Passwort an (oder Drittanbieter-Methoden aus „Anmeldemethoden“).\n3) Admins öffnen die Systemkonfiguration; gewöhnliche Nutzer folgen weiter Modulsichtbarkeit, Berechtigungen und Kontingenten.\n4) Ein Konto zu löschen betrifft vor allem die Anmeldung — synchronisierte Plattformanzeigedaten bleiben meist.\n5) Ist die öffentliche Registrierung an, können Gäste /register öffnen und selbst ein Konto anlegen.",
+      "frontend": "Wer sich anmelden kann, Admin-Menüs und ob die Anmeldeseite „Registrieren“ zeigt. Mit einem neuen Konto oder privaten Fenster prüfen.",
+      "notes": "Nur Admins öffnen diese Seite; wenige Admins anlegen. Öffentliche Registrierung auf öffentlichen Sites vorsichtig aktivieren."
+    },
+    "create": {
+      "what": "Ein neues lokales Konto anlegen; optional als Admin markieren.",
+      "chain": "1) „Nutzer hinzufügen“ öffnen, Nutzername und Passwort ausfüllen → anlegen.\n2) Meist sofort anmelden können.\n3) Admin gewährt Konfigurationskräfte — sparsam nutzen.\n4) Getrennter Weg von der öffentlichen Selbstregistrierung: hier legt ein Admin das Konto an.",
+      "frontend": "Neue Zeile in der Liste; das neue Konto sieht nach der Anmeldung andere Einträge.",
+      "notes": "Ein starkes Passwort nutzen; vor dem Admin-Haken zweimal prüfen."
+    },
+    "list": {
+      "what": "Nutzer anzeigen, suchen und filtern; eine Zeile aufklappen, um Rollen oder Anmeldemethoden anzupassen.",
+      "chain": "1) Nach Rolle / Online-Status suchen oder filtern.\n2) Aufklappen für Bindungen, lokales Passwort deaktivieren usw.\n3) Rollenänderungen gelten bei der nächsten Anmeldung.\n4) Löschen und ähnliche Aktionen sind schwer rückgängig zu machen.",
+      "frontend": "Nutzerliste und Filter; nach Änderungen erneut anmelden lassen.",
+      "notes": "Nicht das einzige Admin-Konto löschen."
+    },
+    "allowLocalRegister": {
+      "what": "Ob Besucher auf der Registrierungsseite ein lokales Nutzername/Passwort-Konto anlegen dürfen.",
+      "chain": "1) An: nicht angemeldete Besucher können /register öffnen und sich anmelden.\n2) Aus: lokale Konten nur über Admin-Anlage auf dieser Seite.\n3) Nicht dasselbe wie Drittanbieter-Anmeldung (GitHub/Google) — das liegt unter Anmeldemethoden.\n4) Wirkt für Besucher meist, nachdem die Konfiguration gespeichert ist.",
+      "frontend": "Schalter „Öffentliche lokale Registrierung erlauben“ oben bei Nutzern; ob die Anmeldung „Registrieren“ zeigt. /register in einem privaten Fenster versuchen.",
+      "notes": "Auf öffentlichen Sites vorsichtig (Massenanmeldungen). Sicherer: aus + adminangelegte Konten oder nur vertrauenswürdiges Drittanbieter-Anmeldung."
+    },
+    "privateTappInstall": {
+      "what": "Wann persönliche (private) Tapp-Installationen eines normalen Nutzers automatisch deinstalliert werden.",
+      "chain": "1) Vorgabe ist 14 Tage inaktiv: ein täglicher Worker räumt nach letzter Anmeldung/Sicht; Abmelden selbst löscht nicht.\n2) 7 Tage ist kürzer; ein eigener Wert 1–365 Tage erscheint ebenfalls im Menü.\n3) „Abmelden“: private Installationen dieses Nutzers sofort beim Abmelden löschen.\n4) Betrifft weder siteweite öffentliche Installationen noch Admin-Apps im öffentlichen Namensraum.\n5) Aufräumen entfernt die Installationsbeziehung; das Paket bleibt im Store.",
+      "frontend": "Oben in der Nutzerliste, neben der öffentlichen Registrierung.",
+      "notes": "Auf einer öffentlichen Site persönliche Installationen nicht ewig behalten. Admin-Konten überspringen das Abmelde-Aufräumen."
+    }
+  },
+  "advanced": {
+    "memorySaver": {
+      "what": "Gleichzeitige Kapazität gegen niedrigeren Speicherverbrauch auf kleinen Hosts (~1 GiB) tauschen.",
+      "chain": "1) Aus (Vorgabe) = aktuelle ausgewogene, begrenzte Budgets: 4-MiB-Nachrichtennutzlast, 8-MiB-Föderations-Posteingangskörper, 24-MiB authentifizierter Körper und 32 MiB gleichzeitige Roh-Posteingangspufferung. Ein Wechsel von älteren Versionen kann daher Grenzen ändern.\n2) An = eine zweite Stufe: 4-MiB-Posteingang unterwegs, 16-MiB-Stück unterwegs, 8-MiB-API-Cache, DB-Pool 1–4, 1 Argon2-Slot, 32-MiB-Notizvideo, 16-MiB-Audioproxy.\n3) Alltägliche Nachrichten passen weiter; großes Video oder verlustfreies Audio sollte stückweisen Transfer nutzen oder den Sparmodus aus lassen.\n4) Die meisten Regler gelten nach Speichern; die DB-Poolgröße gilt vollständig nach Backend-Neuverbindung/Neustart.",
+      "frontend": "Kein Seiten-Designwechsel. Sehr große Medien oder Mehrweg-Spitzen können früher ablehnen oder „später erneut versuchen“ zeigen.",
+      "notes": "Betreiber können ein Profil mit MYRIAD_MEMORY_PROFILE=default|saver erzwingen (Umgebung überschreibt diesen Schalter)."
+    },
+    "memorySaverEnable": {
+      "what": "Speicherspar-Ressourcenbudgets aktivieren.",
+      "chain": "1) Speichert in die Serverkonfiguration und lädt Laufzeit-Gleichzeitigkeits-/Föderations-/Cache-Deckel neu.\n2) Föderation bleibt an; Budgets sind nur enger.\n3) Am besten für 1-GiB-VMs; auf größeren Hosts aus lassen.",
+      "frontend": "Indirekt unter Last. Alltagliches Surfen sollte sich gleich anfühlen.",
+      "notes": "Jederzeit aus und Speichern, um ausgewogene Budgets wiederherzustellen (Neustart, wenn Ihnen die DB-Poolgröße wichtig ist)."
+    },
+    "network": {
+      "what": "Ob der Server einen Proxy nutzt, wenn er ins offene Internet geht, und Zugangsadressen für einige Dienste.",
+      "chain": "1) Das gilt vor allem für „der Server selbst geht online“: fremde Plattformen synchronisieren, intelligente Dienste aufrufen usw.\n2) Ihr Browser, der diese Site öffnet, oder der Sprung zur Drittanbieter-Anmeldung nutzt diesen Proxy meist nicht.\n3) Inländische Plattformen können langsamer werden, wenn sie durch einen Proxy gezwungen werden — eine Liste „für diese keinen Proxy“ ausfüllen.\n4) Probleme wirken oft so: Sync scheitert, KI nicht verfügbar — nicht ein kaputtes Seitendesign.",
+      "frontend": "Das Seitenbild bleibt meist unverändert. Wenn etwas schiefgeht, Datensync und ob der Assistent Fehler zeigt prüfen.",
+      "notes": "Anmelde-Sprungadressen nicht auf Spiegel ändern; das ist nicht dasselbe wie „GitHub-Datensync-Adresse“."
+    },
+    "proxyEnable": {
+      "what": "Ob der Server einen Proxy nutzt, wenn er ins Internet geht.",
+      "chain": "1) An → nutzt die Proxy-Adresse darunter für ausgehenden Verkehr.\n2) Aus → Direktverbindung (die Adresse kann gespeichert ungenutzt bleiben).\n3) Beeinflusst, ob Plattform-Autoaktualisierung, KI-Ausgänge und Ähnliches gelingen.",
+      "frontend": "Indirekt: Sync-/KI-Erfolgsquote. Nach dem Aktivieren des Proxys einmal eine fremde Plattform synchronisieren.",
+      "notes": "Der Proxy selbst muss in Ihrer Netzwerkumgebung bereits funktionieren."
+    },
+    "proxyUrl": {
+      "what": "Adresse des Proxyservers.",
+      "chain": "1) Nur genutzt, wenn der Schalter oben an ist.\n2) Falsch ausfüllen = der Server erreicht das offene Internet nicht.\n3) Oft von einer lokalen oder Firmen-Proxy-App bereitgestellt.",
+      "frontend": "Keine direkte Oberflächenänderung. Wenn es scheitert, scheitern Sync/KI.",
+      "notes": "So ausfüllen, wie die Proxy-App es vorgibt; auf die Portnummer achten."
+    },
+    "proxyBypass": {
+      "what": "Welche Adressen den Proxy nicht nutzen sollen.",
+      "chain": "1) Hosts auf der Liste erreicht der Server direkt.\n2) Oft für inländische Dienste, um einen langen Umweg zu vermeiden.\n3) Wirkt mit dem Proxy-Hauptschalter: bei Schalter aus zählt die Liste kaum.",
+      "frontend": "Keine. Glatterer inländischer Plattform-Sync kann daran liegen.",
+      "notes": "Mehrere Einträge durch Kommas trennen; lokale Adressen können enthalten sein."
+    },
+    "geminiBaseUrl": {
+      "what": "Stamm-URL für Google-Gemini-API-Aufrufe (die meisten lassen leer).",
+      "chain": "1) Genutzt, wenn die KI-Konfiguration Gemini-bezogene Modelle wählt.\n2) Leer = offizielle URL.\n3) Nur für Ihr eigenes Proxy/Spiegel ausfüllen; falsche Werte lassen Gemini-Aufrufe scheitern.\n4) Getrennt von den Base-URL-Feldern je Anbieter auf der KI-Seite — das ist die erweiterte globale Vorgabe.",
+      "frontend": "Ob Gemini-Chat/Erzeugung nicht verbindet. Design unverändert.",
+      "notes": "Leer lassen, wenn Sie Gemini nicht nutzen. Nicht mit GitHub-API oder Site-URL verwechseln."
+    },
+    "githubApiBaseUrl": {
+      "what": "Adresse, die beim Holen von GitHub-Daten genutzt wird (ein Spiegel ist erlaubt).",
+      "chain": "1) Beeinflusst, ob GitHub-Plattform-Sync glatt läuft.\n2) Bei Anmeldung mit einem GitHub-Konto bleibt die Autorisierungsseite offiziell — dieses Feld kann das nicht ändern.\n3) Getrennt von „Site-Adresse“ und Anmelde-Rückkehradressen — drei verschiedene Zeilen.",
+      "frontend": "Ob GitHub-bezogenes Material erfolgreich synchronisiert.",
+      "notes": "Nicht mit Anmelde-Rückkehradressen verwechseln."
+    },
+    "backup": {
+      "what": "Aktuelle Einstellungen in eine Datei sichern, aus einer Datei wiederherstellen oder auf Werkseinstellungen zurücksetzen.",
+      "chain": "1) Export: erzeugt eine Einstellungsdatei zum Herunterladen.\n2) Import: nach Prüfung zurückschreiben — viele Site-Einstellungen ändern sich gemeinsam.\n3) Zurücksetzen: alles kehrt zu Vorgaben zurück, schwer rückgängig.\n4) Sehr empfohlen: zuerst eine Kopie exportieren, dann importieren oder zurücksetzen.",
+      "frontend": "Nach Import/Zurücksetzen können Design, Module, Plattformen und mehr sich stark ändern. Danach die ganze Site stichprobenartig prüfen.",
+      "notes": "Sicherungsdateien können Geheimschlüssel enthalten — nicht frei weiterleiten."
+    },
+    "exportConfig": {
+      "what": "Eine Sicherung der aktuellen Einstellungen herunterladen.",
+      "chain": "1) Export klicken → eine Datei erhalten.\n2) Ändert die laufende Site nicht.\n3) Zum Umziehen, Sichern oder als Sicherheitskopie, bevor etwas schiefgeht.",
+      "frontend": "Keine sofortige Änderung — nur eine Extra-Datei.",
+      "notes": "Sorgfältig lagern; sie enthält sensible Informationen."
+    },
+    "importConfig": {
+      "what": "Einstellungen aus einer Sicherungsdatei wiederherstellen.",
+      "chain": "1) Eine Datei wählen → Vorschau bestätigen → zurückschreiben.\n2) Nach Erfolg lädt ein vollständiger Seitenreload (~2 s) den kompletten Zustand.\n3) Kann Ihr aktuelles Design, Plattformen, KI und mehr überschreiben.",
+      "frontend": "Viele Optionen können sich gemeinsam ändern. Import löst einen vollständigen Seitenreload aus; Anmeldung, Bibliothek und Assistent stichprobenartig prüfen.",
+      "notes": "Falsche Dateien scheitern; den aktuellen Zustand zuerst exportieren, wenn Sie können. Der Bestätigungsdialog nennt den kommenden vollständigen Seitenreload."
+    },
+    "resetConfig": {
+      "what": "Alles auf Vorgaben zurücksetzen.",
+      "chain": "1) Läuft nach einer zweiten Bestätigung.\n2) Personalisierte Konfiguration wird auf den Anfangszustand zurückgesetzt.\n3) Fast unmöglich leicht rückgängig zu machen — immer zuerst sichern.",
+      "frontend": "Aussehen und Funktionen wirken wie eine frische Installation.",
+      "notes": "In Produktion äußerst vorsichtig; zuerst exportieren."
+    },
+    "runtimeDiagnostics": {
+      "what": "Eine schreibgeschützte Gesundheitsprüfung dieses Backends ausführen und einen zugangsdatenfreien Diagnosebericht erzeugen.",
+      "chain": "1) Lädt einmal, wenn Sie Erweiterte Einstellungen öffnen; Aktualisieren führt die Suite erneut aus.\n2) Prüft DB-Verbindung, Speicherbeschreibbarkeit, Migrationen/Schema, Prozessspeicher, Ausgangsort und Frontend-/Backend-Versionsübereinstimmung.\n3) Status ist gesund / Achtung / kritisch; JSON für Betreuer kopieren oder herunterladen.\n4) Ändert weder Konfiguration, startet Dienste neu noch schreibt Geschäftsdaten.",
+      "frontend": "Einstellungen → Erweitert → obere Karte „Laufzeitdiagnose“ und Prüfgrid.",
+      "notes": "Der Ausgangsort ist nur informativ (Einzelquelle/Konflikt hebt die Gesamtaufmerksamkeit nicht). Proxy/Firewall kann nicht verfügbar zeigen, ohne dass die Site kaputt ist. Berichte lassen Passwörter und API-Schlüssel weg — interne IPs trotzdem nicht öffentlich einfügen."
+    },
+    "frontendCache": {
+      "what": "Lokale erweiterte Werkzeuge zur Fehlersuche (keine Serverkonfiguration).",
+      "chain": "1) Sitzt über Sichern & Wiederherstellen, damit Sie Caches vor Import/Zurücksetzen leeren können.\n2) Bietet derzeit erzwungenes Aktualisieren von Frontend-Caches und ähnliche Wartung.\n3) Meldet Sie nicht ab und ändert weder Design noch Sprache.",
+      "frontend": "Die Gruppe „Erweiterte Werkzeuge“ unter Erweiterten Einstellungen.",
+      "notes": "Aktionen betreffen nur diesen Browser."
+    },
+    "forceRefreshCache": {
+      "what": "Ein-Klick-Leeren der Frontend-Caches und Neuladen.",
+      "chain": "1) Doppelte Bestätigung vor Ort: erster Klick schärft die Schaltfläche, zweiter Klick führt aus.\n2) Löscht jede Cache-Schicht, dann vollständiges Neuladen.\n3) Gut, wenn „ich habe Konfiguration / Aktualisierung geändert, aber der Browser nutzt noch das Alte“.",
+      "frontend": "Die Schaltflächenbeschriftung wechselt in den Bestätigungszustand; kehrt zurück, wenn innerhalb von ~4 s nicht erneut geklickt wird.",
+      "notes": "Nur dieser Browser; andere Geräte bleiben unberührt."
+    },
+    "mcp": {
+      "what": "Externe MCP-(stdio-)Tool-Server für Agent in der UI verwalten: hinzufügen/bearbeiten/entfernen, aktivieren/deaktivieren und Live-Zustand prüfen.",
+      "chain": "1) Speichern schreibt Laufzeit data/agent/mcp_servers.json (im Container oft /data/agent/mcp_servers.json) und lädt Kinder heiß neu (kein vollständiger Site-Neustart).\n2) Aktivierte Server starten command/args; Tools erscheinen als mcp.{id}.{tool} für den Agent.\n3) Die Liste zeigt Zustand und Tool-Zahlen; deaktivierte Einträge bleiben auf der Platte, starten aber nicht.\n4) Env-Felder können Geheimnisse halten, die nur auf dem Server leben.",
+      "frontend": "Einstellungen → Erweitert → „MCP-Tool-Server“ (nur Admin). Direktlink /config?section=mcp.",
+      "notes": "Der Konfigurationspfad folgt dem Bereitstellungs-Datenverzeichnis. Befehle müssen auf PATH liegen. Geheimnisse nicht ins Repository legen. Ein gescheitertes Speichern lässt laufende Prozesse, bis ein erfolgreiches Speichern folgt."
+    },
+    "mcpId": {
+      "what": "Kurze ID dieses MCP-Servers; sie erscheint in Tool-Namen.",
+      "chain": "1) Nur Buchstaben, Ziffern und . _ -.\n2) Nach dem Speichern sind Tools mcp.{id}.{tool}.\n3) Muss in dieser Konfiguration eindeutig sein.\n4) Die ID zu ändern ist wie ein neuer Server — alte Tool-Namen funktionieren nicht mehr.",
+      "frontend": "MCP-Hinzufügen/Bearbeiten-Formular → Server-ID.",
+      "notes": "Kurz und englisch halten, z. B. github."
+    },
+    "mcpCommand": {
+      "what": "Ausführbare Datei zum Starten dieses Servers.",
+      "chain": "1) Etwas auf PATH wie npx, node oder python.\n2) Zusammen mit args zur Startzeile kombiniert.\n3) Fehlt der Befehl, wird der Server nicht gesund.",
+      "frontend": "MCP-Formular → Befehl.",
+      "notes": "In Containern bestätigen, dass das Image diese Binärdatei wirklich hat."
+    },
+    "mcpArgs": {
+      "what": "Argumente nach dem Startbefehl.",
+      "chain": "1) Leerzeichengetrennt; Segmente mit Leerzeichen in Anführungszeichen.\n2) Typisch: -y @modelcontextprotocol/server-github.\n3) Nach dem Speichern mit dem Befehl heiß neu geladen.",
+      "frontend": "MCP-Formular → Args.",
+      "notes": "Falsches Paket oder Pfad lässt den Start scheitern — Zustand und Protokolle prüfen."
+    },
+    "mcpEnv": {
+      "what": "Umgebungsvariablen für diesen Prozess, oft Geheimnisse.",
+      "chain": "1) Eine KEY=value je Zeile.\n2) Nur in der Serverkonfiguration gespeichert — nicht git, nicht an Apps zurückgegeben.\n3) Nach dem Speichern startet das Kind mit der neuen Umgebung.",
+      "frontend": "MCP-Formular → Umgebung.",
+      "notes": "Geheimnisse nicht in den Chat einfügen. Leer ist in Ordnung, wenn der Server keine braucht."
+    },
+    "mcpMaxRestart": {
+      "what": "Wie oft nach einem Absturz automatisch gestartet wird.",
+      "chain": "1) 0–50. Nach dem Deckel keine automatischen Neustarts mehr.\n2) Zählt nur, wenn Absturz-Auto-Neustart an ist.\n3) 0 bedeutet nie automatisch starten.",
+      "frontend": "MCP-Formular → Maximale Neustartversuche.",
+      "notes": "Wiederholte Abstürze bedeuten einen schlechten Befehl oder ein schlechtes Geheimnis — den Deckel zu heben ist keine Lösung."
+    },
+    "mcpEnabled": {
+      "what": "Ob dieser Server jetzt gestartet wird.",
+      "chain": "1) An: Speichern startet das Kind und indexiert Tools.\n2) Aus: startet nicht; die Konfiguration bleibt für später.\n3) Die Listenzeile kann das an Ort und Stelle umschalten.",
+      "frontend": "MCP-Formular → Aktiviert und der Schalter in der Listenzeile.",
+      "notes": "Aus ist nicht Löschen."
+    },
+    "mcpAutoRestart": {
+      "what": "Ob erneut gestartet wird, wenn das Kind unerwartet endet.",
+      "chain": "1) An: versucht bis zur maximalen Neustartzahl erneut.\n2) Aus: bleibt unten, bis Sie aktivieren oder erneut speichern.\n3) Getrennt von Aktiviert — nichts läuft, wenn das aus ist.",
+      "frontend": "MCP-Formular → Bei Absturz neu starten.",
+      "notes": "Sicherer, nur für Befehle zu aktivieren, die Sie steuern."
+    },
+    "mcpTrustAnnotations": {
+      "what": "Ob den eigenen „nur Lesen“-Marken dieses Servers vertraut und einige Bestätigungen übersprungen werden.",
+      "chain": "1) An: Tools, die er als nur Lesen kennzeichnet, können den Bestätigungsdialog überspringen.\n2) Destruktive Tools bestätigen immer, unabhängig von diesem Schalter.\n3) Annotationen sind die Behauptung des Servers, keine Host-Prüfung.",
+      "frontend": "MCP-Formular → Den Tool-Annotationen dieses Servers vertrauen.",
+      "notes": "Nur für Server einschalten, die Sie bereitstellen und denen Sie vertrauen."
+    }
+  },
+  "federation": {
+    "keys": {
+      "what": "Identität und Schlüssel dieser Site beim Verbinden mit anderen Sites.",
+      "chain": "1) Dient dazu zu beweisen „dieser Beitrag kam wirklich von dieser Site“ und andere zu erkennen.\n2) Die Identitätsadresse ist an die Site-Domain gebunden — eine instabile Domain macht Ärger.\n3) Nach dem Rotieren von Schlüsseln kann die Prüfung bei anderen kurz scheitern.",
+      "frontend": "Ob anderen Sites zu folgen und Beiträge zu senden/empfangen glatt läuft.",
+      "notes": "Vor dem Rotieren von Schlüsseln gut überlegen; nicht täglich leichtfertig auf Rotieren klicken."
+    },
+    "rotateKeys": {
+      "what": "Das Signierschlüsselpaar dieser Site für die Föderation ersetzen.",
+      "chain": "1) Erzeugt neue Schlüssel und versucht, zugehörige Sites zu benachrichtigen.\n2) Peers können kurz scheitern, bis sie Ihren öffentlichen Schlüssel aktualisieren.\n3) Tägliches Schlüssel-Sicherstellen rotiert nie still — nur nach Ihrer Bestätigung.\n4) Nicht rotieren, wenn die Domain instabil ist.",
+      "frontend": "Rotieren-Schaltfläche auf der Föderations-Identitäts- und Schlüsselkarte.",
+      "notes": "In Produktion selten nötig; ein Fehlklick kann die Föderation kurz stören."
+    },
+    "policy": {
+      "what": "Welche Art Inhalt von außen Sites Sie annehmen wollen.",
+      "chain": "1) Nach dem Speichern der Regeln wird eingehender Inhalt zuerst nach Vertrauen und Listen gefiltert.\n2) Nur was durchkommt, kann im Feed erscheinen.\n3) Um benachrichtigt zu werden, brauchen Sie auch die passende Quelle unter „Benachrichtigungen“ offen.\n4) Zu streng → Sie verpassen Sites von Freunden; zu locker → Spam kommt leicht an.",
+      "frontend": "Ob Sie Beiträge anderer Sites sehen können. Gegenseitiges Folgen mit einer Freund-Site ist ein guter Test.",
+      "notes": "Vertrauen für vertraute Sites zuerst erhöhen, dann die Gesamtrichtlinie langsam straffen."
+    },
+    "minTrust": {
+      "what": "Wie vertrauenswürdig eingehender Inhalt sein muss, bevor Sie ihn annehmen.",
+      "chain": "1) Inhalt von Sites unter dieser Stufe wird verworfen.\n2) Vertrauen von Freunden unter „Bekannte Instanzen“ erhöhen.\n3) Zusammen mit Allowlist und Inhaltsfiltern ist das die Eingangsschwelle.",
+      "frontend": "Inhalt von Sites mit geringem Vertrauen erscheint nicht.",
+      "notes": "Zuerst Freunde hinzufügen, dann die Latte heben."
+    },
+    "allowlist": {
+      "what": "Nur Sites auf der Liste die Verbindung erlauben (wenn Sie diese Richtlinie aktivieren).",
+      "chain": "1) Sites nicht auf der Liste interagieren im Wesentlichen nicht.\n2) Kann mit Auto-Entdecken arbeiten: zuerst entdecken, dann entscheiden, ob zur Liste hinzufügen.\n3) Verhalten bei leerer Liste folgt der Beschreibung auf der Seite.",
+      "frontend": "Keine Interaktion mit Sites außerhalb der Liste.",
+      "notes": "Beim Tippen von Domains Extra-Leerzeichen und Tippfehler vermeiden."
+    },
+    "autoDiscover": {
+      "what": "Ob neue Sites automatisch gemerkt werden, wenn Sie ihnen begegnen.",
+      "chain": "1) Einmal gemerkt erscheinen sie in der Liste „Bekannte Instanzen“.\n2) Macht es später leichter, Vertrauen anzupassen oder zu sperren.\n3) Weiter Allowlist und Mindestvertrauen unterworfen — nicht für alle offen.",
+      "frontend": "Die Liste bekannter Instanzen wird länger.",
+      "notes": "Für öffentliche Sites an lassen; für sehr private Bereitstellungen aus."
+    },
+    "knownInstances": {
+      "what": "Bereits gesehene Sites: Vertrauen anpassen, sperren, suchen.",
+      "chain": "1) Hier zu sperren lehnt diese Site sofort ab.\n2) Vertrauen zu ändern beeinflusst, ob Sie ihren Inhalt später annehmen.\n3) Verknüpft mit dem Mindestvertrauen in der Richtlinie.",
+      "frontend": "Ob Inhalt / zugehörige Benachrichtigungen dieser Site erscheinen. Nach dem Sperren sollten Sie sie sofort nicht mehr empfangen.",
+      "notes": "Sperren wirkt in beide Richtungen — den Site-Namen vor dem Handeln bestätigen."
+    },
+    "contentFilters": {
+      "what": "Ein weiterer Filterdurchgang über eingehenden Inhalt nach Typ, Stichwörtern usw.",
+      "chain": "1) Regeln gelten sofort.\n2) Inhalt, der Regeln trifft, gelangt nie in Feed oder Benachrichtigungen.\n3) Ein weiteres Sieb nach Vertrauen/Listen.\n4) Zu breit geschriebene Regeln blockieren auch normalen Inhalt.",
+      "frontend": "Gefilterten Inhalt sehen Sie nicht. Zuerst eine Testregel hinzufügen, dann entfernen.",
+      "notes": "Zuerst einen kleinen Bereich versuchen; ein paar Tage beobachten, bevor Sie straffen."
+    },
+    "deliveryQueue": {
+      "what": "Gesundheit der Sendewarteschlange für Beiträge, die diese Site an andere zustellt.",
+      "chain": "1) Inhalt, den Sie senden, wird zur Zustellung an die Gegenseite eingereiht.\n2) Fehler werden erneut versucht oder gelangen in eine Liste „konnte nicht zustellen“.\n3) Wenn die Gegenseite Sie nie empfängt: Warteschlange + Netz/Proxy + ob sie Sie gesperrt haben prüfen.\n4) Die Warteschlange zu leeren wirft weg, was noch ungesendet ist.",
+      "frontend": "Warteschlangenstatus; ob die andere Site Ihre Beiträge rechtzeitig sieht.",
+      "notes": "Andere Richtung als „begrenzen, was andere hereinschicken“ — nicht nur eine Seite drehen."
+    },
+    "advanced": {
+      "what": "Grenzen, die zu viele Anfragen in kurzer Zeit verhindern.",
+      "chain": "1) Über dem Limit lehnt die Gegenseite vorübergehend ab.\n2) Vertrauenswürdigere Sites können einen höheren Multiplikator bekommen.\n3) Vorgaben reichen meist; nur drehen, wenn Sie überflutet werden.",
+      "frontend": "Die Gegenseite kann nicht synchronisieren; Sie können es in Betriebsinformationen sehen.",
+      "notes": "Nicht ohne Grund extrem kleine Werte „zur Sicherheit“ setzen — Sie schaden Freund-Sites."
+    },
+    "rateMax": {
+      "what": "Maximale Anfragen, die in einem Zeitraum angenommen werden.",
+      "chain": "1) Zusammen mit dem „Zeitfenster“ darunter entscheidet, wie eng das Limit ist.\n2) Über Limit → die Gegenseite eine Weile ablehnen.\n3) Vertrauenswürdige Sites können auch höher multipliziert werden.",
+      "frontend": "Bei über Limit kann die Gegenseite nicht verbinden.",
+      "notes": "Zu klein schadet normalem Verkehr."
+    },
+    "rateWindow": {
+      "what": "Über wie lange der Zähler oben gemessen wird.",
+      "chain": "1) Wenn das Fenster endet, startet der Zähler neu.\n2) Kurzes Fenster + kleines Maximum = leichter das Limit zu treffen.",
+      "frontend": "Wirkt zusammen mit dem Anfrage-Maximum.",
+      "notes": "Im Bereich ausfüllen, den die Seite zeigt."
+    },
+    "rateTrusted": {
+      "what": "Wie oft höher das Limit für vertrauenswürdigere Sites ist.",
+      "chain": "1) Freund-Sites werden seltener blockiert.\n2) Sehr großer Multiplikator ist fast unbegrenzt.\n3) Hängt von Vertrauensstufen ab, die Sie unter bekannten Instanzen setzen.",
+      "frontend": "Freundlichere Sites fühlen sich glatter an.",
+      "notes": "Hohe Multiplikatoren nur Sites geben, denen Sie wirklich vertrauen."
+    }
+  },
+  "updater": {
+    "channel": {
+      "what": "Welchem Veröffentlichungszweig Aktualisierungen folgen: stabil, Vorschau oder Entwicklung.",
+      "chain": "1) Nach der Wahl wird der Kanal gemerkt.\n2) „Nach Updates suchen“ sucht neue Versionen auf dieser Linie.\n3) Sie bestätigen die Aktualisierung → kann in Wartung gehen → sichern → Version wechseln → wieder öffnen.\n4) Die Besucher-Startseite ändert sich nicht nur, weil Sie „einen Kanal gewählt“ haben — erst nach der abgeschlossenen Aktualisierung.",
+      "frontend": "Version und Hinweise in Über / Updater-Bereichen der Einstellungen.",
+      "notes": "Für den echten Einsatz den stabilen (offiziellen) Kanal bevorzugen; Vorschau/Entwicklung kann instabil sein."
+    },
+    "maintenance": {
+      "what": "Wie wiederherstellen, wenn ein Aktualisierungsproblem die Site in Wartung lässt.",
+      "chain": "1) Eine gescheiterte Aktualisierung bleibt auf der Wartungsseite stehen.\n2) „Aus der Sicherung vor der Aktualisierung wiederherstellen“ bevorzugen.\n3) „Wartung erzwungen beenden“ schließt nur die Wartungsseite — Daten können noch halb aktualisiert sein.\n4) Nach der Rettung prüfen, ob die Site wieder gesund ist.",
+      "frontend": "Wartungshinweisseite gegenüber der normalen Site.",
+      "notes": "Wenn Rettung verfügbar ist, zuerst retten — nicht zuerst erzwungen beenden."
+    },
+    "rescue": {
+      "what": "Die Sicherung vor der Aktualisierung nutzen, um Daten und Zustand wiederherzustellen.",
+      "chain": "1) Rettung wählen → Sicherung wiederherstellen → Dienste kommen hoch → Wartung verlassen.\n2) Die Site kehrt zum Moment dieser Sicherung zurück.\n3) Relativ der sicherste Weg.",
+      "frontend": "Nach Ende der Wartung passen Site-Inhalt/Einstellungen zum Sicherungspunkt.",
+      "notes": "Vor dem Retten bestätigen, dass das der Zeitpunkt ist, zu dem Sie zurückkehren wollen."
+    },
+    "forceExit": {
+      "what": "Wartung ohne Wiederherstellen einer Sicherung verlassen.",
+      "chain": "1) Die Wartungsseite schließt sich.\n2) Halb aktualisierte Daten werden nicht automatisch behoben.\n3) Sie können die Site öffnen, aber mit kaputten Funktionen.",
+      "frontend": "Die Site öffnet sich, Inhalt kann aber falsch wirken.",
+      "notes": "Nur wenn Sie den aktuellen Zustand akzeptieren; sonst zuerst retten."
+    },
+    "infra": {
+      "what": "Versionen von Hilfskomponenten, die Aktualisierungen ausführen.",
+      "chain": "1) Getrennte Linie von „Hauptwebsite-Programm-Aktualisierung“.\n2) Sie zu aktualisieren kann ebenfalls kurz in Wartung gehen.\n3) Wenn eine neue Version verfügbar ist, fordert dieser Bereich Sie auf.",
+      "frontend": "Betriebshinweise; gewöhnliche Besucher merken meist nichts.",
+      "notes": "Manchmal brauchen diese Komponenten ein Update vor dem Haupt-Site-Update."
+    },
+    "target": {
+      "what": "Eine bestimmte alte oder festgelegte Version installieren.",
+      "chain": "1) Ähnlich einer normalen Aktualisierung, aber Sie wählen die Version.\n2) Funktionen können schrumpfen oder sich anders verhalten.\n3) Falsche Wahl kann die Site nicht starten lassen.",
+      "frontend": "Siteweite Funktionen können zurückrollen.",
+      "notes": "Nicht für den Alltag; wenn etwas bricht, Rettung nutzen statt zufällige Versionen zu wählen."
+    },
+    "snapshot": {
+      "what": "Liste automatischer Sicherungen vor Aktualisierungen.",
+      "chain": "1) Automatische Sicherung vor der Aktualisierung.\n2) Bei Problemen können Sie von hier zurückrollen oder retten.\n3) Wie viele Sie behalten können, hängt vom Speicherplatz ab; Sicherungslimit aktivieren, um nur die neuesten wenigen zu behalten.",
+      "frontend": "Nach dem Rollback kehren Inhalt und Einstellungen zum Sicherungspunkt zurück.",
+      "notes": "Vor wichtigen Aktualisierungen bestätigen, dass eine frische Sicherung existiert."
+    },
+    "snapshotLimit": {
+      "what": "Ältere Sicherungen automatisch kürzen, sodass nur die neuesten wenigen bleiben.",
+      "chain": "1) Wenn an, rechts „Neueste N“ wählen; darüber hinausgehende werden nach einem erfolgreichen Update, nach einem gescheiterten Update, das bereits eine Sicherung angelegt hat, oder wenn Sie diese Einstellung ändern, entfernt.\n2) Gehaltene Pins und Sicherungen, die die Wiederherstellung nutzt, werden nie automatisch gelöscht; Alter befreit eine Sicherung nicht vom Limit.\n3) Aus = kein zahlenbasiertes automatisches Kürzen (manuelles Löschen funktioniert weiter).",
+      "frontend": "Oben bei Sicherungen & Rollback: Bezeichnung links, Behalten-Zahl + Schalter rechts.",
+      "notes": "Standard an, 3 behalten. 1–2 bei knappem Speicher; erhöhen für ein längeres Rollback-Fenster."
+    },
+    "checkInterval": {
+      "what": "Wie oft der Hintergrund nach einer neuen Version sucht.",
+      "chain": "1) Das Intervall auf der Statuskarte zu ändern wird sofort gemerkt.\n2) Nach Zeitplan prüft es den aktuellen Update-Kanal.\n3) Gefundene Updates werden angekündigt; Automatisch installieren entscheidet, ob sie allein installieren.\n4) Intervall aus = keine automatischen Prüfungen; manuelle Prüfung funktioniert weiter.",
+      "frontend": "Dropdown „Prüffrequenz“ auf der Über/Updater-Statuskarte. Kein vollständiges Seitenspeichern nötig.",
+      "notes": "12 h oder 24 h ist in Produktion in Ordnung; sehr kurze Intervalle erzeugen nur Lärm."
+    },
+    "autoInstall": {
+      "what": "Wenn eine passende neue Version erscheint, ob ohne Zuschauen aktualisiert wird.",
+      "chain": "1) An: eine passende Version kann automatisch aktualisieren → Wartung → Version wechseln.\n2) Sicherungen werden meist zuerst genommen; Fehler können Wartungsrettung nutzen.\n3) Aus: nur benachrichtigen; Sie klicken Installieren.",
+      "frontend": "Schalter „Automatisch installieren“ auf der Statuskarte. An kann plötzlich die Wartungsseite zeigen.",
+      "notes": "Für öffentliche Produktion stark empfohlen aus; Vorschau/private Netze nur, wenn Sie das Risiko akzeptieren."
+    },
+    "transport": {
+      "what": "Ob Update-Prüfungen/Downloads über den Backend-Proxy dieser Site oder direkt vom Browser gehen.",
+      "chain": "1) Vorgabe „Backend“: der Server spricht mit Update-Quellen; Besucher-Browser tun das nicht.\n2) „Direkt“: der Browser nutzt einen Betriebsschlüssel, um Update-APIs aufzurufen — nur besondere Bereitstellungen.\n3) Unabhängig von Prüffrequenz / Automatisch installieren — nur wie Sie verbinden.",
+      "frontend": "Transport-Segmentsteuerung unter Erweitert & Diagnose.",
+      "notes": "Im Zweifel Backend behalten; Direkt braucht Bereitstellungswissen und ein Token."
+    },
+    "token": {
+      "what": "Betriebspasswort (UPDATE_TOKEN) für Update-APIs im Direktmodus.",
+      "chain": "1) Nur im Direktmodus nötig.\n2) Falsche oder leere Werte lassen Prüfen/Aktualisieren scheitern.\n3) Nur Sitzungs-/lokale Eingabe — nie öffentlich posten.",
+      "frontend": "UPDATE_TOKEN-Passwortfeld unter Direkt-Transport.",
+      "notes": "Nicht Ihr Anmeldepasswort; aus der Bereitstellungsdokumentation ausfüllen."
+    },
+    "advanced": {
+      "what": "Wie der Updater verbindet, plus Betriebsdiagnose.",
+      "chain": "1) Der Standardweg nutzt das Backend dieser Site, um Update-APIs weiterzuleiten.\n2) „Direkt“-Modus kann UPDATE_TOKEN brauchen — nur wenn Sie die Bereitstellung verstehen.\n3) Zeigt Updater-Version, Kanal, laufende Jobs und Image-Prüfsummen.\n4) Prüffrequenz / Automatisch installieren leben in der Statuskarte oben, nicht in diesem Panel.",
+      "frontend": "Aufklappbares Panel „Erweitert & Diagnose“.",
+      "notes": "Das Token nicht teilen; wenn die Verbindung scheitert, bestätigen, ob Direktmodus erlaubt ist."
+    }
+  },
+  "about": {
+    "section": {
+      "what": "Aktuelle Version und Projektinfo anzeigen; diese Seite bettet meist auch den System-Updater ein.",
+      "chain": "1) Der obere Bereich ist schreibgeschützte Versions- und Projektinfo.\n2) Unterer Updater: Kanal, Prüffrequenz, Automatisch installieren, Wartungsrettung, Sicherungen und erweiterte Diagnose.\n3) Beim Melden von Fehlern die Versionsnummer an Betreuer senden.",
+      "frontend": "Über-Text, Versionsnummer und die Updater-Statuskarte und Gruppen auf derselben Seite.",
+      "notes": "Version zu lesen ändert keine Geschäftseinstellungen; eine Aktualisierung zu starten geht in Wartung."
+    }
+  },
+  "tapp": {
+    "detail": {
+      "what": "Detailseite eines Tapps: Identität, Einstellungen, Start/Stopp und Deinstallieren.",
+      "chain": "1) Die obere Karte ist Identität plus Aktionen (Start/Stopp, Export, Deinstallieren).\n2) App-Einstellungen speichern in die nutzerspezifische Konfiguration dieser App (sofort oder beim Verlassen des Felds).\n3) Berechtigungen sind eine schreibgeschützte Liste der bei der Installation erteilten Fähigkeiten.",
+      "frontend": "Eine App aus der Tapp-Liste öffnen oder zu /tapp/detail/:id gehen.",
+      "notes": "Gäste können meist nur ansehen. Einstellungen / Start-Stopp / Deinstallieren brauchen die richtige Rolle (Admin oder Ihre eigene temporäre Installation).\nDeinstallieren fragt, ob lokale Daten behalten werden."
+    },
+    "overview": {
+      "what": "App-Profil und übliche Aktionen: ID, Version, Autor, Installationszeit plus Start, Export, Deinstallieren.",
+      "chain": "1) Start öffnet die Laufseite; Stopp, wenn bereits laufend.\n2) Export lädt ein Paket auf Ihr Gerät.\n3) Deinstallieren entfernt die Installation (optional Daten behalten).",
+      "frontend": "Obere Infokarte und Aktionszeile auf der Detailseite.",
+      "notes": "Die App-ID ist stabil; den Anzeigenamen umzubenennen ändert sie nicht.\nExport dient Sicherung/Migration; nach der Deinstallation müssen Sie erneut installieren."
+    },
+    "appSettings": {
+      "what": "Verhaltensoptionen aus dem App-Manifest plus Installationssichtbarkeit für Admins, wenn zutreffend.",
+      "chain": "1) Schalter speichern sofort; Text-/Zahlenfelder nach Leerlauf oder Verlassen des Felds.\n2) Werte liegen je App-ID und betreffen nur diese App.\n3) Globale Einstellungen öffentlicher Installationen können schreibgeschützt sein, außer Sie sind Installateur/Admin.",
+      "frontend": "Gruppe „App-Einstellungen“ auf der Detailseite.",
+      "notes": "Hat das Manifest keine Einstellungen, sehen Sie möglicherweise nur Sichtbarkeit oder einen Leerzustand.\nÄnderungen gelten meist beim nächsten Lauf ohne siteweites „Konfiguration speichern“."
+    },
+    "appVisibility": {
+      "what": "Wer diese siteweite öffentliche Installation in der Appliste sieht: alle oder nur Admins.",
+      "chain": "1) Nur Admins und nur für öffentliche Installationen (nicht reine persönliche Temp-Installationen).\n2) „Nur Admins“ versteckt sie vor Listen normaler Nutzer.\n3) Speichert sofort und aktualisiert Listen-Caches.",
+      "frontend": "Segmentsteuerung „App-Sichtbarkeit“ unter App-Einstellungen.",
+      "notes": "Entfernt nicht die eigene temporäre Installation eines Nutzers; nur siteweite Listensichtbarkeit."
+    },
+    "permissions": {
+      "what": "Bei der Installation deklarierte und erteilte Fähigkeiten, nach Risikostufe gruppiert.",
+      "chain": "1) Hier schreibgeschützt — Sie können Erteilungen auf dieser Seite nicht hinzufügen/entfernen.\n2) Laufzeit-APIs setzen diese Berechtigungen durch.\n3) Höhere Risikogruppen erscheinen zuerst (privilegiert → erhöht → Basis).",
+      "frontend": "Gruppe „Berechtigungen“ und Stufenuntergruppen.",
+      "notes": "Erteilungen zu ändern bedeutet meist Neuinstallation mit neuem Manifest oder einen App-Update-Ablauf.\nKeine Berechtigungen bedeutet, die App braucht keine Extra-Fähigkeiten."
+    },
+    "permPrivileged": {
+      "what": "Privilegierte Berechtigungen: siteweite oder sensible Schreibfähigkeiten; höchstes Risiko.",
+      "chain": "1) Beispiele: Startseiten-Widgets, Plattformdaten schreiben, Tapp-Liste verwalten, Föderationsvertrauen.\n2) Nur für vertrauenswürdige Apps.\n3) Unautorisierte Aufrufe werden zur Laufzeit abgelehnt.",
+      "frontend": "Untergruppe „Privilegiert“ unter Berechtigungen.",
+      "notes": "Wenn Sie eine privilegierte Erteilung nicht erkennen, die App-Quelle vor der Nutzung prüfen."
+    },
+    "permElevated": {
+      "what": "Erhöhte Berechtigungen: KI, Netz, Zeitplaner und andere Kosten- oder Ausgangsfähigkeiten.",
+      "chain": "1) Beispiele: KI erzeugen/Chat, Netzabruf, Sprache, Kürzel, Ereignis veröffentlichen.\n2) Kann Kontingente verbrauchen oder externe Dienste aufrufen.\n3) Weiter durch siteweite KI-/Netzkonfiguration begrenzt.",
+      "frontend": "Untergruppe „Erhöht“ unter Berechtigungen.",
+      "notes": "Aufgebrauchtes Kontingent oder Proxy-Fehler können diese Funktionen stören, ohne dass die App selbst kaputt ist."
+    },
+    "permBasic": {
+      "what": "Basisberechtigungen: alltägliches Lesen/Schreiben, Benachrichtigungen, Design und ähnliche geringer riskante Fähigkeiten.",
+      "chain": "1) Beispiele: Plattformdaten lesen, Berichte lesen, Speicher, Benachrichtigungen, Medien steuern.\n2) Ändert meist nicht die Kern-Site-Konfiguration.\n3) Braucht weiter eine ausdrückliche Erteilung zum Aufruf.",
+      "frontend": "Untergruppe „Basis“ unter Berechtigungen.",
+      "notes": "Basis ist nicht unbegrenzt — nicht deklarierte Fähigkeiten bleiben blockiert."
+    }
+  }
+}

@@ -1,13 +1,9 @@
-//! Agent 类型定义
-//!
-//! 定义 AI Agent 系统的核心类型结构
+//! Agent 请求、意图与 Planner 类型。
 
 use crate::config::ModelTier;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-
-// 意图分析相关类型
 
 /// 一轮输入进入哪条运行时路径。
 ///
@@ -46,12 +42,12 @@ pub struct UserRequest {
 /// 请求上下文
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RequestContext {
-    /// 面板选中的运行时路径。缺省必须是 Work，保持旧客户端行为。
+    /// 运行时路径。缺省 Work（`#[serde(default)]`）。
     #[serde(default)]
     pub interaction_mode: AgentInteractionMode,
     /// 当前页面/路由
     pub current_route: Option<String>,
-    /// 最近活动的平台
+    /// 活跃的平台
     #[serde(default)]
     pub active_platforms: Vec<String>,
     /// 用户偏好
@@ -68,7 +64,7 @@ pub struct RequestContext {
     /// 当前后端 run id（确认续跑时复用同一 run，避免通知身份漂移）
     #[serde(default)]
     pub run_id: Option<String>,
-    /// User-accepted consciousness proposal that originated this Work turn.
+    /// 本轮 Work 的提案 id（用户接单或意识引擎接单都写）。
     #[serde(default)]
     pub source_intent_id: Option<String>,
     /// Extra ceiling for autonomy-accepted Work. Intersected with current
@@ -152,7 +148,7 @@ pub struct Capability {
     pub input_schema: Value,
     /// 输出格式规格
     pub output_schema: Value,
-    /// 所需权限
+    /// 能力声明的权限串（执行时对照授予权限）
     pub required_permissions: Vec<String>,
     /// 是否需要 AI
     pub requires_ai: bool,
@@ -245,13 +241,13 @@ pub struct Recipe {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionType {
-    /// 即时查询 - 执行后立即返回结果
+    /// 即时执行（生产路径一律 Instant，含多步 / 等待输入）
     Instant,
-    /// 持续监控 - 设置后持续执行
+    /// 持续监控（变体存在；生产路径不构造）
     Continuous,
-    /// 资源创建 - 创建新的资源/内容
+    /// 资源创建（变体存在；生产路径不构造）
     Creation,
-    /// 批处理 - 批量处理数据
+    /// 批处理（变体存在；生产路径不构造）
     Batch,
 }
 
@@ -305,7 +301,7 @@ pub struct AiRecipeStep {
     /// 依赖的步骤 ID 列表
     #[serde(default)]
     pub depends_on: Vec<String>,
-    /// 失败策略: "abort" | "skip"
+    /// 失败策略：`"skip"` → Skip，其余（含 `"abort"`）→ Abort
     #[serde(default = "default_on_failure")]
     pub on_failure: String,
     /// 重试配置
@@ -321,7 +317,7 @@ fn default_on_failure() -> String {
 }
 
 impl AiRecipeStep {
-    /// 转换为 RecipeStep，设置 order 和 model_tier
+    /// 转为 `RecipeStep`：写入 `order` / `model_tier`；`on_failure` 仅 `"skip"`→Skip，其余 Abort；`timeout_ms` 缺省 30000。
     pub fn into_recipe_step(self, order: u32, tier: Option<ModelTier>) -> RecipeStep {
         let failure_strategy = match self.on_failure.as_str() {
             "skip" => FailureStrategy::Skip,
@@ -351,7 +347,7 @@ impl AiRecipeStep {
 pub struct PlannerOutput {
     /// 输出状态
     pub status: PlannerStatus,
-    /// 置信度 0.0-1.0
+    /// 置信度（缺省 0.8）
     #[serde(default = "default_confidence")]
     pub confidence: f32,
     /// AI 推理说明
@@ -420,13 +416,12 @@ pub struct TaskState {
     pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
     /// 错误信息
     pub error: Option<String>,
-    /// 进度百分比 (0-100)
+    /// 进度百分比（`update_progress` 按 current_step/total_steps×100）
     pub progress: u8,
     /// 待用户回答的问题（当状态为 WaitingForInput 时）
     #[serde(default)]
     pub pending_question: Option<UserQuestion>,
-    /// 执行上下文（用于恢复执行）
-    /// 注意：此字段现在会被序列化以支持任务持久化和动态步骤恢复
+    /// 执行上下文（序列化，供任务持久化与动态步骤恢复）
     #[serde(default)]
     pub execution_context: Option<ExecutionContext>,
     /// Lane ID（用于队列追踪）
@@ -473,7 +468,7 @@ pub struct PlannerDecisionInfo {
 
 /// Planner 规划的单步摘要
 ///
-/// Field names use camelCase for SSE / FE debug panels (`capabilityId`).
+/// `capabilityId` 为 camelCase（SSE / FE debug）；其余字段 snake_case。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlannerStepSummary {
     pub id: String,
@@ -496,10 +491,10 @@ pub struct StepTrace {
     /// 主 Agent 对此步骤的指令（step.action）
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub action: String,
-    /// 解析后的参数快照（脱敏）
+    /// 步骤参数快照（`serde_json::to_value(&step.params)`，不脱敏）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub params: Option<Value>,
-    /// 输出预览（截断）
+    /// 输出预览（`StepTrace` 写入为 `None`；截断在 `StepDebug`）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_preview: Option<String>,
     /// 是否为动态生成的步骤
@@ -507,7 +502,7 @@ pub struct StepTrace {
     pub is_dynamic: bool,
 }
 
-/// 等待用户输入的默认最长时长（分钟）。无后或缺少 expires_at 的历史问题统一按此补齐。
+/// 等待用户输入的默认 TTL（`DEFAULT_QUESTION_TTL_MINUTES` = 30）。缺少 `expires_at` 时按 `created_at` + 此值补齐。
 pub const DEFAULT_QUESTION_TTL_MINUTES: i64 = 30;
 
 /// 用户问题 - Agent 向用户提出的澄清问题
@@ -626,7 +621,7 @@ pub struct AgentResponse {
     pub data_display: Option<DataDisplayHint>,
     /// 后续建议
     pub suggestions: Vec<String>,
-    /// 任务状态（如果有后台任务）
+    /// 任务状态
     pub task: Option<TaskState>,
     /// 确认请求信息（当 response_type 为 ConfirmationRequired 时）
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -634,7 +629,7 @@ pub struct AgentResponse {
     /// 前端操作指令（路由导航、页面元素交互等）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frontend_action: Option<Value>,
-    /// Lite-selected semantic performance. Driver values remain client-owned.
+    /// 先填 `local_directive`；Lite 精炼走 SSE `PerformancePlan`。Driver 仍在客户端。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub performance: Option<super::merope::PerformanceDirective>,
 }
@@ -673,7 +668,7 @@ pub enum DataDisplayHint {
     Table {
         /// 列定义
         columns: Vec<ColumnDef>,
-        /// 数据路径（JSON path 到数组数据）
+        /// 前端数据路径（后端原样转 API，不求值）
         #[serde(default)]
         data_path: Option<String>,
     },
@@ -800,8 +795,6 @@ pub struct UserConfirmation {
     pub user_id: i32,
 }
 
-// 辅助 trait
-
 impl Default for Capability {
     fn default() -> Self {
         Self {
@@ -893,7 +886,7 @@ impl TaskState {
 pub enum StepGenerator {
     /// 基于 UI 分析结果生成交互步骤
     UiInteractionFromAnalysis {
-        /// 源步骤 ID（tapp.ui 分析步骤）
+        /// 源步骤 ID（读该步 `elements`）
         source_step: String,
         /// 要执行的操作描述
         operation_intent: String,
@@ -954,13 +947,13 @@ pub struct ExecutionContext {
     #[serde(default)]
     pub conversation_context: Option<Vec<ConversationMessage>>,
     /// 角色身份上下文（Orchestrator 注入）
-    /// key = capability_id prefix (如 "ai"), value = 该角色的 SOUL 身份文本
+    /// key = `format!("{:?}", role)`（`AgentRole` Debug）；value = 对应 worker 身份文本
     #[serde(default)]
     pub role_contexts: HashMap<String, String>,
     /// Extra ceiling for autonomy-accepted Work. Names only.
     #[serde(default)]
     pub autonomy_permission_cap: Option<Vec<String>>,
-    /// 全局重试预算剩余（跨 resume 保持）
+    /// 全局重试预算剩余（跨 resume 保持；缺省 5）
     #[serde(default = "default_retry_budget")]
     pub retry_budget_remaining: u32,
     /// 待提问队列（DAG 中多个问题排队，每次 resume 后检查是否还有待问问题）
@@ -969,7 +962,7 @@ pub struct ExecutionContext {
     /// 记忆上下文摘要（Executor 初始化时召回，供 AI 步骤参考）
     #[serde(default)]
     pub memory_context: Option<String>,
-    /// 动态生成的步骤 ID（技能展开/动态分析产生，未经 Planner 层敏感操作确认）
+    /// `queue_dynamic_steps` 写入的步骤 ID（技能展开 / 动态分析 / 重试前置）；执行时补敏感确认。
     #[serde(default)]
     pub dynamic_step_ids: std::collections::HashSet<String>,
 }
@@ -1083,7 +1076,7 @@ impl ExecutionContext {
         self.variables.insert(key.to_string(), value);
     }
 
-    /// 添加待执行的动态步骤（硬上限 15 个，含 ID 去重和自依赖检测）
+    /// 添加待执行的动态步骤（`MAX_DYNAMIC_QUEUE`=15 累计 `dynamic_steps_generated`，ID 去重，自依赖整步拒绝）
     pub fn queue_dynamic_steps(&mut self, steps: Vec<RecipeStep>) {
         const MAX_DYNAMIC_QUEUE: usize = 15;
         let remaining = MAX_DYNAMIC_QUEUE.saturating_sub(self.dynamic_steps_generated);
@@ -1117,7 +1110,7 @@ impl ExecutionContext {
                     );
                     return false;
                 }
-                // 自依赖检测：移除 depends_on 中引用自身的条目
+                // 自依赖：depends_on 含自身则整步拒绝
                 if step.depends_on.iter().any(|d| d == &step.id) {
                     tracing::warn!(
                         step_id = %step.id,
@@ -1137,7 +1130,7 @@ impl ExecutionContext {
         self.pending_dynamic_steps.extend(accepted);
     }
 
-    /// 判断某步骤是否为动态生成（未经 Planner 层敏感操作确认）
+    /// 是否在 `dynamic_step_ids`（技能展开 / 动态分析 / 重试前置）
     pub fn is_dynamic_step(&self, step_id: &str) -> bool {
         self.dynamic_step_ids.contains(step_id)
     }
@@ -1314,8 +1307,7 @@ impl QuestionOption {
 
 /// Agent 进度事件（用于 SSE 实时推送）
 ///
-/// 定义在 service 层，由 executor 和 agent mod 发送，
-/// api 层负责序列化为 SSE 数据。
+/// executor / Chat / API 都会构造；api 层再序列化成 SSE。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AgentProgressEvent {
@@ -1368,7 +1360,7 @@ pub enum AgentProgressEvent {
         duration_ms: u64,
         #[serde(rename = "outputSummary", skip_serializing_if = "Option::is_none")]
         output_summary: Option<String>,
-        /// 图片生成结果 URL（ai.image 能力输出）
+        /// 步骤输出里的 `url` / `imageUrl`
         #[serde(rename = "imageUrl", skip_serializing_if = "Option::is_none")]
         image_url: Option<String>,
         /// 本步要立刻执行的前端动作（不要等整份 recipe 结束）
@@ -1434,7 +1426,7 @@ pub enum AgentProgressEvent {
     },
     /// 会话标题已生成（AI 并行生成）
     SessionTitleUpdated { title: String },
-    /// AI 汇总流式 token（逐步推送主 Agent 生成的汇总文本）
+    /// 面向用户的流式正文 token（Chat / response_agent），不是 Planner 推理。
     SummaryToken {
         /// 文本片段
         token: String,
@@ -1449,7 +1441,7 @@ pub enum AgentProgressEvent {
     PerformancePlan {
         performance: super::merope::PerformanceDirective,
     },
-    /// Persisted per-addressee Merope state for stale-result rejection and UI sync.
+    /// Mood/activity for live-face UI sync.
     MeropeStateChanged {
         mood: super::merope::MoodTransition,
         activity: String,
@@ -1459,7 +1451,7 @@ pub enum AgentProgressEvent {
         #[serde(rename = "outfitId")]
         outfit_id: Option<String>,
     },
-    /// Chat Lite may nudge the current player. Search and playlists stay in Work.
+    /// Chat 流式路径发出的播放器控制（`ChatMusicAction::as_str()`）。
     MusicControl { action: String },
     /// 错误
     Error {
@@ -1487,7 +1479,7 @@ pub enum AgentProgressEvent {
     StepDebug {
         #[serde(rename = "stepId")]
         step_id: String,
-        /// 步骤阶段："start" 或 "complete"
+        /// 步骤阶段：`"start"` / `"complete"` / `"expired"`
         phase: String,
         #[serde(rename = "capabilityId")]
         capability_id: String,
@@ -1497,28 +1489,28 @@ pub enum AgentProgressEvent {
         /// 用户原始请求
         #[serde(rename = "userRequest", skip_serializing_if = "Option::is_none")]
         user_request: Option<String>,
-        /// 解析后的参数
+        /// `build_debug_params(&step.params)`（截断原 params，不是 resolve 后）
         #[serde(skip_serializing_if = "Option::is_none")]
         params: Option<Value>,
-        /// 执行输出预览（仅 phase=complete）
+        /// 执行输出预览（`complete` 才有）
         #[serde(rename = "outputPreview", skip_serializing_if = "Option::is_none")]
         output_preview: Option<String>,
         /// 是否动态步骤
         #[serde(rename = "isDynamic")]
         is_dynamic: bool,
-        /// 耗时 ms（仅 phase=complete）
+        /// 耗时 ms（`complete` 才有）
         #[serde(rename = "durationMs", skip_serializing_if = "Option::is_none")]
         duration_ms: Option<u64>,
-        /// 是否成功（仅 phase=complete）
+        /// 是否成功（`complete` / `expired`）
         #[serde(skip_serializing_if = "Option::is_none")]
         success: Option<bool>,
-        /// 错误信息（仅 phase=complete 且失败时）
+        /// 错误信息（`complete` 失败或 `expired`）
         #[serde(skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },
 }
 
-/// SSE 事件中的精简选项（仅 value + label）
+/// SSE 事件中的精简选项（value、label，可选 description）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuestionOptionCompact {
     pub value: String,

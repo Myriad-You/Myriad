@@ -1,9 +1,7 @@
 use sea_orm_migration::prelude::*;
 use sea_orm_migration::sea_orm::sea_query::OnConflict;
 
-/// 初始数据库结构 - 完整统一版本
-///
-/// 包含所有必要的表，清晰简洁，无历史包袱
+/// 初始数据库结构（001）。
 #[derive(DeriveMigrationName)]
 pub struct Migration;
 
@@ -49,8 +47,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // 插入默认平台（与 backend/src/db/schema_check.rs::default_platform_seeds 保持同步）
-        // 旧库补种走 ensure_default_platforms，勿为单平台再开 migration。
+        // 插入默认平台（ON CONFLICT DO NOTHING）
         manager
             .exec_stmt(
                 Query::insert()
@@ -197,28 +194,28 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(false),
                     )
-                    // 禁止该用户安装新 Tapp（旧库由 schema_check 补列）
+                    // tapp_install_disabled boolean NOT NULL default false
                     .col(
                         ColumnDef::new(Users::TappInstallDisabled)
                             .boolean()
                             .not_null()
                             .default(false),
                     )
-                    // 每用户通知策略（原 007；旧库由 schema_check 补列）
+                    // notification_preferences jsonb NOT NULL default '{}'
                     .col(
                         ColumnDef::new(Users::NotificationPreferences)
                             .json_binary()
                             .not_null()
                             .default("{}"),
                     )
-                    // 列表页应用卡尺寸（tappId → 1x1|2x1）；旧库由 schema_check 补列
+                    // tapp_list_card_sizes jsonb NOT NULL default '{}'
                     .col(
                         ColumnDef::new(Users::TappListCardSizes)
                             .json_binary()
                             .not_null()
                             .default("{}"),
                     )
-                    // 在线状态跟踪（原 009；旧库由 schema_check 补列）
+                    // last_seen_at / online_seconds bigint default 0
                     .col(ColumnDef::new(Users::LastSeenAt).timestamp_with_time_zone())
                     .col(
                         ColumnDef::new(Users::OnlineSeconds)
@@ -226,36 +223,30 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(0),
                     )
-                    // 站点 owner（原 010/011；种子与 owner→admin 由 schema_check::ensure_single_owner）
+                    // is_owner boolean NOT NULL default false
                     .col(
                         ColumnDef::new(Users::IsOwner)
                             .boolean()
                             .not_null()
                             .default(false),
                     )
-                    // 画像源选择（旧库由 schema_check 补列）：
-                    // kind = auto | account | identity | platform，NULL/auto 表示沿用隐式优先级；
-                    // ref = identity id 或平台名（bilibili/github/…）。
-                    //
-                    // 解析结果单独存 avatar_resolved_url，**不回写 avatar_url** —— avatar_url 是
-                    // "账号"这一来源本身，被覆盖就再也切不回来了。
+                    // avatar_source_kind varchar(20)、ref varchar(64)、resolved_url text（无 CHECK）
                     .col(ColumnDef::new(Users::AvatarSourceKind).string_len(20))
                     .col(ColumnDef::new(Users::AvatarSourceRef).string_len(64))
                     .col(ColumnDef::new(Users::AvatarResolvedUrl).text())
                     .col(ColumnDef::new(Users::AvatarUpdatedAt).timestamp_with_time_zone())
-                    // 名称/简介文案来源（与画像源独立；旧库由 schema_check 补列）：
-                    // kind = auto | account | identity | platform；ref = identity id 或平台键。
+                    // profile_text_source_kind varchar(20)、ref varchar(64)（无 CHECK）
                     .col(ColumnDef::new(Users::ProfileTextSourceKind).string_len(20))
                     .col(ColumnDef::new(Users::ProfileTextSourceRef).string_len(64))
-                    // JWT session epoch (MYR-005): bump on logout / password change / admin
-                    // force-revoke so long-lived tokens fail closed without shortening TTL.
-                    // Old DBs get the column via schema_check ADD COLUMN DEFAULT 0.
+                    // token_version integer NOT NULL default 0
                     .col(
                         ColumnDef::new(Users::TokenVersion)
                             .integer()
                             .not_null()
                             .default(0),
                     )
+                    // locale varchar(16) nullable（无 CHECK）
+                    .col(ColumnDef::new(Users::Locale).string_len(16))
                     .to_owned(),
             )
             .await?;
@@ -333,7 +324,7 @@ impl MigrationTrait for Migration {
         ).await?;
 
         // ==================== 3. CONFIGURATIONS 表 ====================
-        // 系统配置（含AI、平台、OAuth密钥）
+        // configurations：key / value json / is_encrypted
         manager
             .create_table(
                 Table::create()
@@ -358,7 +349,7 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(Configurations::Category)
                             .string()
                             .default("general"),
-                    ) // general/ai/platforms/oauth/ui/features
+                    ) // category string default 'general'（无 CHECK）
                     .col(
                         ColumnDef::new(Configurations::IsEncrypted)
                             .boolean()
@@ -455,7 +446,7 @@ impl MigrationTrait for Migration {
             .await?;
 
         // ==================== 5. METADATA_HISTORY 表 ====================
-        // 数据变更历史记录（纯净版，无人设）
+        // metadata_history
         manager
             .create_table(
                 Table::create()
@@ -606,9 +597,7 @@ CREATE INDEX IF NOT EXISTS idx_activity_events_platform_date
             .await?;
 
         // ==================== 8. SITE ANALYTICS 表 ====================
-        // 第一方访客统计（page / event / referrer / country）
-        // 与 schema_check::get_expected_schema + ensure_analytics_tables 同结构。
-        // 已跑过旧 001 的库不会重跑本段，靠 ensure_analytics_tables / 补列对齐。
+        // 第一方访客统计（page / event / referrer / country / visitor_seen）
         manager
             .get_connection()
             .execute_unprepared(
@@ -629,8 +618,7 @@ CREATE TABLE IF NOT EXISTS analytics_visitor_seen (
     day DATE NOT NULL,
     path TEXT NOT NULL,
     visitor_hash VARCHAR(64) NOT NULL,
-    -- 到达序号（"你是今天第 N 位访客"）。仅 path = '__site__' 的行有意义；
-    -- 0 = 未知（该功能上线前的历史行）。
+    -- 到达序号（"你是今天第 N 位访客"）。ordinal bigint NOT NULL default 0（无 path CHECK）。
     ordinal BIGINT NOT NULL DEFAULT 0,
     PRIMARY KEY (day, path, visitor_hash)
 );
@@ -641,7 +629,7 @@ CREATE TABLE IF NOT EXISTS analytics_event_daily (
     day DATE NOT NULL,
     event_name TEXT NOT NULL,
     path TEXT NOT NULL DEFAULT '',
-    -- 事件维度：tapp id / 平台 slug / 音乐源 / Brew 源 id 等；无维度时 ''
+    -- target text NOT NULL default ''
     target TEXT NOT NULL DEFAULT '',
     count BIGINT NOT NULL DEFAULT 0,
     unique_visitors BIGINT NOT NULL DEFAULT 0,
@@ -789,6 +777,7 @@ enum Users {
     ProfileTextSourceKind,
     ProfileTextSourceRef,
     TokenVersion,
+    Locale,
 }
 
 #[derive(DeriveIden)]

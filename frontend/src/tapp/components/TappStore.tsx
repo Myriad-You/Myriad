@@ -1,12 +1,3 @@
-/**
- * Tapp 商店内容组件
- *
- * 宿主侧 React UI（非沙箱 Tapp 包）。可作为正式页面或
- * 多窗口宿主面板嵌入，本身不带模态遮罩。
- *
- * 子组件见 ./store/*（卡片、详情、预览、源配置）。
- */
-
 import type { CSSProperties } from 'react'
 import type {
   RemoteApp,
@@ -83,9 +74,6 @@ import './TappStore.css'
 
 export type { TappStoreProps } from './store'
 
-/**
- * Tapp 商店内容（页面 / 多窗口宿主面板共用）
- */
 export function TappStore({
   onInstalled,
   className = '',
@@ -93,7 +81,7 @@ export function TappStore({
   compact = false,
   fullscreen = false,
 }: TappStoreProps) {
-  const { t, locale } = useI18n()
+  const { t, locale, format } = useI18n()
   const navigate = useNavigate()
   const { isAuthenticated, isAdmin, hasChecked, checkAuth } = useAuth()
   const [searchQuery, setSearchQuery] = useState('')
@@ -102,19 +90,14 @@ export function TappStore({
     useState<InstalledSortOrder>('category')
   const [categorySortOrder, setCategorySortOrder] =
     useState<CategorySortOrder>('name')
-  // 详情视图当前展示的应用（null 表示列表视图）
   const [detailApp, setDetailApp] = useState<UnifiedAppItem | null>(null)
   const [showStoreConfiguration, setShowStoreConfiguration] = useState(false)
-  /** Discover “全部” secondary page (full catalog, beyond preview limit). */
   const [showAllAppsPage, setShowAllAppsPage] = useState(false)
-  // 存储已安装应用的信息：包含角色、版本与安装时间
   const [installedTapps, setInstalledTapps] = useState<
     Map<string, InstalledTappInfo>
   >(new Map())
-  /** Per-app busy sets (allow concurrent install of different apps) */
   const [installingIds, setInstallingIds] = useState(() => new Set<string>())
   const [updatingIds, setUpdatingIds] = useState(() => new Set<string>())
-  /** Progress keyed by app id */
   const [installProgressById, setInstallProgressById] = useState(
     () =>
       new Map<
@@ -124,7 +107,6 @@ export function TappStore({
   )
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  // 卸载确认 tooltip
   const [showUninstallDialog, setShowUninstallDialog] = useState(false)
   const [uninstallTargetId, setUninstallTargetId] = useState<string | null>(
     null,
@@ -134,9 +116,7 @@ export function TappStore({
     null,
   )
 
-  // 动画配置
   const animConfig = useAnimationLevel()
-  // motionShim 在 framer 未就绪时会把 initial 当静态样式；enter 动画仅在就绪后开启
   const [motionReady, setMotionReady] = useState(isMotionReady)
   useEffect(() => {
     if (motionReady) return
@@ -149,7 +129,6 @@ export function TappStore({
     }
   }, [motionReady])
 
-  // 远程应用列表
   const [remoteApps, setRemoteApps] = useState<
     Array<
       RemoteApp & {
@@ -167,13 +146,11 @@ export function TappStore({
     onInstalled?.()
   }, [onInstalled])
 
-  // 已安装应用 ID 集合（兼容性）
   const installedIds = useMemo(
     () => new Set(installedTapps.keys()),
     [installedTapps],
   )
 
-  // 加载已安装 Tapp 的辅助函数
   const loadInstalledTapps = useCallback(() => {
     const allTapps = runtime.getAllTapps()
     const tappsMap = new Map<string, InstalledTappInfo>()
@@ -188,19 +165,16 @@ export function TappStore({
     setInstalledTapps(tappsMap)
   }, [runtime])
 
-  // 首次挂载时检查认证状态
   useEffect(() => {
     if (!hasChecked && hasSessionHint()) {
       checkAuth()
     }
   }, [hasChecked, checkAuth])
 
-  // 加载已安装的 Tapp（等待同步完成）
   useEffect(() => {
     let mounted = true
 
     const initLoad = async () => {
-      // 等待 runtime 同步完成
       await runtime.waitForSync()
       if (mounted) {
         loadInstalledTapps()
@@ -209,7 +183,6 @@ export function TappStore({
 
     initLoad()
 
-    // 监听同步完成事件，以便在后续同步时更新
     const unsubscribe = runtime.on('sync:complete', () => {
       if (mounted) {
         loadInstalledTapps()
@@ -222,7 +195,6 @@ export function TappStore({
     }
   }, [runtime, loadInstalledTapps])
 
-  // 加载商店源
   useEffect(() => {
     const loadSources = async () => {
       const loadedSources = await RemoteStoreService.getSources()
@@ -231,7 +203,6 @@ export function TappStore({
     loadSources()
   }, [])
 
-  // 加载远程应用（generation 防止并发刷新乱序覆盖）
   const loadRemoteGenRef = useRef(0)
   const loadRemoteApps = useCallback(async (forceRefresh = false) => {
     const gen = ++loadRemoteGenRef.current
@@ -242,7 +213,6 @@ export function TappStore({
       if (gen !== loadRemoteGenRef.current) return
       setRemoteApps(result.apps)
 
-      // 部分失败仍展示已拉到的 apps；全失败时由列表空态 + 横幅处理
       const errors = result.sources.filter((s) => s.error)
       if (errors.length > 0) {
         setError(userFacingError(errors[0].error, t.tapp.loadRemoteFailed))
@@ -257,14 +227,12 @@ export function TappStore({
     }
   }, [t])
 
-  // 初始加载
   useEffect(() => {
     if (remoteApps.length === 0) {
       loadRemoteApps()
     }
   }, [loadRemoteApps, remoteApps.length])
 
-  // 转换本地示例为统一格式
   const localApps: UnifiedAppItem[] = useMemo(
     () =>
       EXAMPLE_TAPPS.map((tapp) => {
@@ -289,7 +257,6 @@ export function TappStore({
     [locale],
   )
 
-  // 转换远程应用为统一格式（name/description 按宿主语言解析 locales）
   const remoteAppsUnified: UnifiedAppItem[] = useMemo(
     () =>
       remoteApps.map((app) => {
@@ -328,12 +295,11 @@ export function TappStore({
     [remoteApps, locale],
   )
 
-  // 首屏远程未落地前不并入内置示例，避免用 Hello World 当目录 mock。
+  // 首屏远程未落地前不并入内置示例。
   const catalogSettled = !loading || remoteApps.length > 0 || error != null
 
-  // 合并应用列表（去重，远程优先；再补已装但不在目录里的 runtime 项）
   const allApps: UnifiedAppItem[] = useMemo(() => {
-    const merged: UnifiedAppItem[] = [...remoteAppsUnified]
+    const merged: UnifiedAppItem[] = Iterator.from(remoteAppsUnified).toArray()
     if (catalogSettled) {
       for (const localApp of localApps) {
         if (!merged.some((r) => r.id === localApp.id)) {
@@ -341,7 +307,6 @@ export function TappStore({
         }
       }
     }
-    // 文件/直装/下架后仍安装：从 runtime 合成列表项，否则「已安装」页缺失
     for (const [id, info] of installedTapps) {
       if (merged.some((a) => a.id === id)) continue
       const instance = runtime.getTapp(id)
@@ -374,7 +339,6 @@ export function TappStore({
     catalogSettled,
   ])
 
-  // 打开详情后目录/安装态变化时同步快照（版本、文案、权限等）
   const detailAppId = detailApp?.id ?? null
   useEffect(() => {
     if (!detailAppId) return
@@ -415,9 +379,7 @@ export function TappStore({
     return Number.isFinite(timestamp) ? timestamp : 0
   }
 
-  // 过滤 Tapp。已安装可按分类或安装日期排序；更新按商店更新时间排序。
-  const filteredApps = allApps.filter((app) => {
-    // 搜索过滤：解析后文案 + 远程原始 name/description/locales 均可命中
+  const filteredAppsUnsorted = allApps.filter((app) => {
     if (searchQuery) {
       const query = searchQuery.toLowerCase()
       const matchName = app.name.toLowerCase().includes(query)
@@ -439,7 +401,6 @@ export function TappStore({
       if (!matchName && !matchDesc && !matchLong && !matchTags && !matchRaw)
         return false
     }
-    // 分类过滤
     if (selectedCategory === '__installed__') {
       return installedIds.has(app.id)
     }
@@ -452,39 +413,37 @@ export function TappStore({
       const dateOrder = parseDate(b.updatedAt) - parseDate(a.updatedAt)
       if (dateOrder !== 0) return dateOrder
     } else if (categorySortOrder === 'downloads') {
-      // Edge stats overlay; missing counts sort last.
       const downloadOrder = (b.downloads ?? 0) - (a.downloads ?? 0)
       if (downloadOrder !== 0) return downloadOrder
     }
     return a.name.localeCompare(b.name, locale)
   }
 
-  if (selectedCategory === '__installed__') {
-    filteredApps.sort((a, b) => {
-      const categoryOrder =
-        TAPP_CATEGORIES.indexOf(a.category) -
-        TAPP_CATEGORIES.indexOf(b.category)
-      const dateOrder =
-        parseDate(installedTapps.get(b.id)?.installedAt) -
-        parseDate(installedTapps.get(a.id)?.installedAt)
+  const filteredApps =
+    selectedCategory === '__installed__'
+      ? filteredAppsUnsorted.toSorted((a, b) => {
+          const categoryOrder =
+            TAPP_CATEGORIES.indexOf(a.category) -
+            TAPP_CATEGORIES.indexOf(b.category)
+          const dateOrder =
+            parseDate(installedTapps.get(b.id)?.installedAt) -
+            parseDate(installedTapps.get(a.id)?.installedAt)
 
-      if (installedSortOrder === 'category') {
-        if (categoryOrder !== 0) return categoryOrder
-        if (dateOrder !== 0) return dateOrder
-      } else {
-        if (dateOrder !== 0) return dateOrder
-        if (categoryOrder !== 0) return categoryOrder
-      }
-      return a.name.localeCompare(b.name, locale)
-    })
-  } else if (selectedCategory) {
-    filteredApps.sort(compareCatalogSort)
-  }
+          if (installedSortOrder === 'category') {
+            if (categoryOrder !== 0) return categoryOrder
+            if (dateOrder !== 0) return dateOrder
+          } else {
+            if (dateOrder !== 0) return dateOrder
+            if (categoryOrder !== 0) return categoryOrder
+          }
+          return a.name.localeCompare(b.name, locale)
+        })
+      : selectedCategory
+        ? filteredAppsUnsorted.toSorted(compareCatalogSort)
+        : filteredAppsUnsorted
 
-  // Full “全部” secondary page: name / date / downloads (discover home keeps catalog order).
   const allAppsCatalogSorted = useMemo(() => {
-    const list = [...allApps]
-    list.sort((a, b) => {
+    return allApps.toSorted((a, b) => {
       if (categorySortOrder === 'date') {
         const dateOrder = parseDate(b.updatedAt) - parseDate(a.updatedAt)
         if (dateOrder !== 0) return dateOrder
@@ -494,18 +453,20 @@ export function TappStore({
       }
       return a.name.localeCompare(b.name, locale)
     })
-    return list
   }, [allApps, categorySortOrder, locale])
 
   const installedCurrentApps =
     selectedCategory === '__installed__'
-      ? filteredApps.filter((app) => !availableUpdateIds.has(app.id))
+      ? Iterator.from(filteredApps)
+          .filter((app) => !availableUpdateIds.has(app.id))
+          .toArray()
       : []
   const sortedAvailableUpdates =
     selectedCategory === '__installed__'
-      ? filteredApps
+      ? Iterator.from(filteredApps)
           .filter((app) => availableUpdateIds.has(app.id))
-          .sort((a, b) => {
+          .toArray()
+          .toSorted((a, b) => {
             const dateOrder =
               parseDate(b.updatedAt ?? installedTapps.get(b.id)?.installedAt) -
               parseDate(a.updatedAt ?? installedTapps.get(a.id)?.installedAt)
@@ -585,10 +546,9 @@ export function TappStore({
     })
   }, [])
 
-  // 安装应用
   const handleInstall = useCallback(
     async (app: UnifiedAppItem) => {
-      // 以 checkAuth 返回值为准，不盲信 session hint（超时/5xx 也不得安装）
+      // 以 checkAuth 返回值为准；超时/5xx 也不得安装。
       let authed = isAuthenticated
       if (!authed) {
         if (!hasChecked || hasSessionHint()) {
@@ -599,7 +559,6 @@ export function TappStore({
           return
         }
       }
-      // 同 id 防重入；不同 id 可并行
       if (installingIds.has(app.id) || updatingIds.has(app.id)) return
 
       setInstallingIds((prev) => new Set(prev).add(app.id))
@@ -676,7 +635,7 @@ export function TappStore({
             ]),
         )
         notifyInstalled()
-        showSuccess(t.tapp.installSuccess.replace('{name}', app.name))
+        showSuccess(format(t.tapp.installSuccess, { name: app.name }))
       } catch (error) {
         console.error('Failed to install Tapp:', error)
         showError(
@@ -707,7 +666,6 @@ export function TappStore({
     ],
   )
 
-  // 更新应用
   const handleUpdate = useCallback(
     async (app: UnifiedAppItem) => {
       let authed = isAuthenticated
@@ -824,11 +782,9 @@ export function TappStore({
     ],
   )
 
-  // 处理商店源操作
   const handleToggleSource = async (url: string, enabled: boolean) => {
     const source = findStoreSource(sources, url)
     if (!source?.id) {
-      // 无 DB id（例如 API 降级 OFFICIAL_STORE）无法写回服务端
       showError(t.tapp.loadRemoteFailed)
       return
     }
@@ -836,7 +792,7 @@ export function TappStore({
       await RemoteStoreService.toggleSource(source.id, enabled)
       const updatedSources = await RemoteStoreService.getSources()
       setSources(updatedSources)
-      // 启用/禁用后必须重拉目录，否则列表仍显示旧源应用
+      // 启用/禁用后必须重拉目录。
       await loadRemoteApps(true)
     } catch (error) {
       console.error('Failed to toggle source:', error)
@@ -845,7 +801,6 @@ export function TappStore({
   }
 
   const handleRemoveSource = async (url: string) => {
-    // 确认 UI 在 StoreConfigurationView 内；失败须 rethrow 以免对话框误关
     const source = findStoreSource(sources, url)
     if (!source?.id) {
       const err = new Error(t.tapp.loadRemoteFailed)
@@ -877,7 +832,6 @@ export function TappStore({
     } catch (error) {
       console.error('Failed to add source:', error)
       showError(userFacingError(error, t.tapp.addSourceFailed))
-      // 让配置页表单保留输入、显示错误（与 delete 一致 rethrow）
       throw error
     }
   }
@@ -912,10 +866,8 @@ export function TappStore({
     }
   }
 
-  // 获取所有分类
   const categoryCounts = new Map<TappCategory, number>()
 
-  // 统计所有应用的分类
   for (const app of allApps) {
     categoryCounts.set(
       app.category,
@@ -930,7 +882,6 @@ export function TappStore({
       : []
   })
 
-  // 详情视图的安装状态派生
   const detailTappInfo = detailApp
     ? installedTapps.get(detailApp.id)
     : undefined
@@ -940,7 +891,6 @@ export function TappStore({
         detailTappInfo.isTemporary === true)
     : false
 
-  // 列表 ↔ 详情切换：记忆列表滚动位置，返回时恢复
   const listViewRef = useRef<HTMLDivElement | null>(null)
   const listScrollPosRef = useRef(0)
   const attachListView = useCallback((el: HTMLDivElement | null) => {
@@ -968,7 +918,6 @@ export function TappStore({
     setShowAllAppsPage(true)
   }, [])
   const closeSecondaryView = useCallback(() => {
-    // Detail stacks above configuration / all-apps; pop detail first.
     if (detailApp) {
       setDetailApp(null)
       return
@@ -992,8 +941,7 @@ export function TappStore({
     [navigate],
   )
 
-  // 切换动效：进入详情从右侧入，返回反向。仅在 motion 就绪时用 initial，
-  // 避免 motionShim 把 opacity:0 固化成静态样式导致「空白卡死」。
+  // 避免 motionShim 把 opacity:0 固化成静态样式。
   const viewMotionProps = useCallback(
     (dir: 1 | -1) => {
       if (isExlight(animConfig) || !motionReady) {
@@ -1037,7 +985,6 @@ export function TappStore({
     [allApps, isDiscoverView],
   )
 
-  // Discover “最新”: by updatedAt (newest first), at most 2.
   const latestApps = useMemo(() => {
     if (!isDiscoverView) return []
     const parseDate = (value?: string) => {
@@ -1045,8 +992,8 @@ export function TappStore({
       const timestamp = Date.parse(value)
       return Number.isFinite(timestamp) ? timestamp : 0
     }
-    return [...allApps]
-      .sort((a, b) => {
+    return allApps
+      .toSorted((a, b) => {
         const dateOrder = parseDate(b.updatedAt) - parseDate(a.updatedAt)
         if (dateOrder !== 0) return dateOrder
         return a.name.localeCompare(b.name, locale)
@@ -1066,7 +1013,6 @@ export function TappStore({
   const selectCategory = useCallback((category: StoreSelection) => {
     setSearchQuery('')
     setSelectedCategory(category)
-    // Leave any secondary view when switching library / category tabs.
     setDetailApp(null)
     setShowStoreConfiguration(false)
     setShowAllAppsPage(false)
@@ -1220,7 +1166,6 @@ export function TappStore({
         </aside>
 
         <main className="as-store__main">
-          {/* 窄屏专用工具栏；桌面由左侧栏承担导航。外层页面顶栏不变。 */}
           <div className="as-store__chrome">
             <AnimatePresence mode="wait" initial={false}>
               {detailApp || showStoreConfiguration || showAllAppsPage ? (

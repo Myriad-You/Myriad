@@ -1,10 +1,4 @@
-/**
- * Soft URL policy for site config fields (favicon / OG / Umami / etc.).
- *
- * Unlike wallpaper policy, this intentionally allows private hosts and
- * favicon data:image/* so self-host and local-upload flows keep working.
- * Only rejects clearly dangerous schemes / formats.
- */
+/** Allows private hosts and favicon data:image/*. */
 
 function isSchemeSmuggledPath(path: string): boolean {
   if (!(path.startsWith('/') && !path.startsWith('//'))) return false
@@ -29,7 +23,7 @@ function sanitizeHttpAllowPrivate(raw: string): string | null {
   }
 }
 
-/** Favicon: empty, path, http(s), data:image/ */
+/** Favicon: empty | path | http(s) | data:image/*. */
 export function sanitizeSiteFaviconUrl(
   raw: string | null | undefined,
 ): string | null {
@@ -41,14 +35,14 @@ export function sanitizeSiteFaviconUrl(
     return s
   }
   if (s.toLowerCase().startsWith('data:')) {
-    // Local upload favicons; reject non-image data URLs
+    // Allow data:image/*; reject other data:.
     if (/^data:image\//i.test(s)) return s
     return null
   }
   return sanitizeHttpAllowPrivate(s)
 }
 
-/** OG image: empty, path, http(s) — no data: */
+/** OG image: empty | path | http(s); no data:. */
 export function sanitizeSiteOgImageUrl(
   raw: string | null | undefined,
 ): string | null {
@@ -62,7 +56,7 @@ export function sanitizeSiteOgImageUrl(
   return sanitizeHttpAllowPrivate(s)
 }
 
-/** Umami script: empty or http(s); private hosts OK */
+/** Umami script: empty | http(s); private hosts OK. */
 export function sanitizeUmamiScriptUrl(
   raw: string | null | undefined,
 ): string | null {

@@ -143,7 +143,7 @@ pub fn widget_installation_owner(config: &serde_json::Value) -> Option<i32> {
 
 /// Whether a runtime-sourced widget row belongs to the given installation.
 ///
-/// Runtime widgets bind to `installationOwnerId` when set; legacy rows without
+/// Runtime widgets bind to `installationOwnerId` when set; rows without
 /// the field bind to the subject when subject == installation owner.
 pub fn runtime_widget_belongs_to_installation(
     config: &serde_json::Value,
@@ -216,7 +216,7 @@ pub fn desired_manifest_widget_ids(
         .collect()
 }
 
-/// Legacy full widget ids from a previous raw manifest JSON `widgets` array.
+/// Full widget ids from a previous raw manifest JSON `widgets` array.
 pub fn legacy_manifest_widget_ids(
     tapp_id: &str,
     previous_manifest: Option<&serde_json::Value>,
@@ -263,7 +263,7 @@ pub fn manifest_declares_local_widget_id(manifest: &serde_json::Value, local_id:
 
 // ── Recent activity list ────────────────────────────────────────────────────
 
-/// Recent-use list item for `/api/tapp/recent`.
+/// Recent-use list item for `GET /api/tapps/recent`.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RecentTappItem {

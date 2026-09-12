@@ -1,7 +1,3 @@
-/**
- * 初始化设置视图组件
- */
-
 import { useMemo } from 'react'
 import AnimatedView from '../components/AnimatedView'
 import SetupWizard from '../components/SetupWizard'
@@ -11,7 +7,6 @@ import { usePageSeo } from '../hooks/usePageSeo'
 import { buildPrivatePageSeo } from '../utils/modulePageSeo'
 
 export default function Setup() {
-  // 🆕 初始化页面级调度器
   useSetupScheduler()
   const { t } = useI18n()
 

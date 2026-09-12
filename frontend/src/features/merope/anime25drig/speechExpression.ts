@@ -2,34 +2,11 @@ import type { BehaviorQuality } from '../motion/behavior'
 import type { SpeechProsodyPlan } from '../speech/prosody'
 import type { CoSpeechGestureMix } from './behaviorMotion'
 
-/**
- * How long a spoken accent takes to arrive.
- *
- * Both the generator and this controller raise the same beat gesture, and
- * `Math.max` picks whichever is larger, so the two must agree on its shape.
- *
- * A minimum-jerk arrival carries jerk proportional to depth over duration
- * cubed, so how sharp an accent looks is decided almost entirely by how long
- * it is given. At 65ms the brow was moving faster than a real one can — a
- * human eyebrow raise peaks somewhere between 100 and 200ms — and measured
- * through the whole player, speaking tripled the pitch jerk against standing
- * idle (23.2 against 6.8) with the brow going from nothing to 24.6.
- *
- * Doubling the arrival brings both to 9.6, near the idle floor, and does not
- * cost the accent anything: its depth is unchanged to four decimals, and the
- * head actually covers slightly more range without the sharp pulses fighting
- * each other.
- *
- * The head's delay doubles with them. It exists so the brow reads as leading
- * the beat, and a brow that now takes 130ms to arrive would otherwise still be
- * on its way up when the nod started.
- */
 export const SPEECH_ACCENT_BROW_ATTACK = 0.13
 export const SPEECH_ACCENT_HEAD_DELAY = 0.09
 export const SPEECH_ACCENT_HEAD_ATTACK = 0.19
 export const SPEECH_ACCENT_BROW_RELEASE = 0.2
 export const SPEECH_ACCENT_HEAD_RELEASE = 0.22
-/** The text path raises the same gesture from a cue boundary. */
 export const SPEECH_TEXT_ACCENT_ATTACK = 0.11
 export const SPEECH_TEXT_ACCENT_RELEASE = 0.18
 
@@ -43,7 +20,6 @@ export interface CoSpeechExpressionOffset {
 
 const RELEASE_RATE = 6.2
 
-/** Keeps authored audio/viseme input on the same visual-prosody path. */
 export class CoSpeechExpressionController {
   private readonly output: CoSpeechExpressionOffset = {
     brow: 0,
@@ -86,8 +62,7 @@ export class CoSpeechExpressionController {
     if (!plan) return
     const ageSeconds = Math.max(0, wallNowMs - plan.startedAtMs) / 1_000
     const origin = playerTimeSeconds - ageSeconds
-    // Suppression removes the visual beat, not the speech plan. Keep its
-    // duration below so the energy fallback cannot recreate the same nod.
+    // Suppression removes the visual beat, not the speech plan.
     this.plannedAccents = plan.accents
       .filter((accent) => accent.gesture !== 'none')
       .map((accent) => ({
@@ -242,10 +217,7 @@ export class CoSpeechExpressionController {
     const checkIn = gesture?.['check-in'] ?? 0
     const generic =
       1 - Math.min(1, question + contrast + laugh + hesitate + tease + checkIn)
-    // The scheduled envelope already owns arrival/recovery. Do not put these
-    // normalized shares into the generic smoothing history: that leaves a
-    // residual pose when the finished unit's gate returns to its fallback.
-    // Replace the generic beat; articulation still owns the mouth completely.
+    // Do not put these normalized shares into the generic smoothing history
     this.rendered.brow =
       this.output.brow * generic +
       question * 0.1 +
@@ -302,9 +274,6 @@ function writeOffset(
   const activity = unitInterval(phraseActivity)
   const browBeat = unitInterval(browAccent)
   const headBeat = unitInterval(headAccent)
-  // Two incommensurate, low-frequency components keep conversational weight
-  // transfer alive without a repeated left-right metronome. Accent direction
-  // alternates per beat, matching the head stroke with a small torso carry.
   const tempo = relativeQuality(quality?.tempo, 1, 0.72)
   const density = relativeQuality(quality?.density, 0.8, 0.18)
   const directness = relativeQuality(quality?.directness, 0.72, -0.22)

@@ -1,8 +1,3 @@
-/**
- * Per-user Tapp list card layout (sizes 1x1|2x1 + order), bound to the account.
- * GET/PUT /api/tapps/list-card-sizes
- */
-
 import type { TappAppCardSize } from '../components/TappAppCard'
 import { apiRequest } from './TappHttpClient'
 
@@ -13,9 +8,7 @@ export interface TappListCardLayout {
   order: string[]
 }
 
-/** GET payload: personal (or guest site) layout + separate site-owner layout. */
 export interface TappListCardLayoutResponse extends TappListCardLayout {
-  /** Site-owner public layout (for site scope / guest display). */
   siteSizes: TappListCardSizesMap
   siteOrder: string[]
   source: 'viewer' | 'site_owner' | string
@@ -45,7 +38,6 @@ function normalizeOrder(raw: unknown): string[] {
   return out
 }
 
-/** Load layout for the current authenticated user / public site-owner. */
 export async function fetchTappListCardSizes(): Promise<TappListCardLayoutResponse> {
   const data = await apiRequest<{
     sizes?: unknown
@@ -59,11 +51,10 @@ export async function fetchTappListCardSizes(): Promise<TappListCardLayoutRespon
   const order = normalizeOrder(data?.order)
   const siteSizes = normalizeSizes(data?.site_sizes)
   const siteOrder = normalizeOrder(data?.site_order)
-  // Guests (and older servers without site_*): site layout is the primary payload
   const hasSitePayload =
     data != null &&
     typeof data === 'object' &&
-    ('site_sizes' in data || 'site_order' in data)
+    (Object.hasOwn(data, 'site_sizes') || Object.hasOwn(data, 'site_order'))
   return {
     sizes,
     order,
@@ -77,12 +68,11 @@ export async function fetchTappListCardSizes(): Promise<TappListCardLayoutRespon
   }
 }
 
-/** Full-replace save for the current authenticated user. */
 export async function saveTappListCardSizes(
   layout: TappListCardLayout | TappListCardSizesMap,
 ): Promise<TappListCardLayout> {
   const body: TappListCardLayout =
-    layout && typeof layout === 'object' && 'sizes' in layout
+    layout && typeof layout === 'object' && Object.hasOwn(layout, 'sizes')
       ? {
           sizes: normalizeSizes((layout as TappListCardLayout).sizes),
           order: normalizeOrder((layout as TappListCardLayout).order),

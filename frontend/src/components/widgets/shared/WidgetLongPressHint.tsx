@@ -1,22 +1,10 @@
-/**
- * 编辑模式下「长按进入单独卡片设置」的通用齿轮提示。
- *
- * 统一左上角位置与样式。可点开设置气泡；卡片长按仍可用。
- */
-
 import type { MouseEvent } from 'react'
 import { motionShim as motion } from '@lib/motionShim'
 import './WidgetLongPressHint.css'
 
 export interface WidgetLongPressHintProps {
-  /** 悬停 title（各小组件 i18n：longPressHint / longPressToEdit） */
   title: string
-  /**
-   * 是否显示。默认 true。
-   * 调用方可写 `visible={isEditMode}`，或外层条件渲染。
-   */
   visible?: boolean
-  /** 追加到根节点的 className（少用；默认布局勿轻易覆盖） */
   className?: string
   onClick?: () => void
 }

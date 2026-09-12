@@ -12,7 +12,6 @@ import {
   withListening,
 } from './agentStatus'
 
-/** 按顺序喂一串事件，拿最终状态。 */
 function run(...events: ProgressEvent[]): AgentStatusState {
   return events.reduce(reduceAgentStatus, IDLE_AGENT_STATUS)
 }
@@ -74,7 +73,6 @@ test('进度只由 progress 事件写入，步骤事件不去猜', () => {
   })
   assert.equal(reported.progress, 40)
 
-  // 下一步开始时进度保持，不回退也不跳
   const nextStep = reduceAgentStatus(reported, {
     ...stepStarted,
     stepId: 'step_2',
@@ -110,7 +108,6 @@ test('要用户回话时带上问题本身', () => {
   assert.equal(asking.status, 'needsInput')
   assert.equal(asking.detail, '要发给谁？')
 
-  // 敏感确认不走 SSE，但落到同一档
   assert.deepEqual(awaitingConfirmation('确认删除这 3 个文件？'), {
     status: 'needsInput',
     detail: '确认删除这 3 个文件？',
@@ -178,7 +175,6 @@ test('录音只在没事干的时候顶到最前', () => {
   assert.equal(withListening({ status: 'done' }, true).status, 'listening')
   assert.equal(withListening({ status: 'error' }, true).status, 'listening')
 
-  // 任务跑着时，用户更需要看到它走到哪一步
   const working = run(runStarted, stepStarted)
   assert.deepEqual(withListening(working, true), working)
   assert.deepEqual(withListening({ status: 'needsInput', detail: '?' }, true), {

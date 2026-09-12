@@ -59,7 +59,7 @@ pub fn normalize_store_catalog_url(url: &str) -> String {
     store_catalog_base_url(url)
 }
 
-/// Append a cache-bust query token so CDN layers cannot reuse stale package files.
+/// Append `_myriad_cb` as `?` or `&` with the given token.
 pub fn append_store_cache_bust(url: &str, token: &str) -> String {
     if url.contains('?') {
         format!("{url}&_myriad_cb={token}")
@@ -68,7 +68,7 @@ pub fn append_store_cache_bust(url: &str, token: &str) -> String {
     }
 }
 
-/// Reject install-mode placeholders mistaken for catalog refs (Aro legacy bug).
+/// Reject install-mode placeholders (`store` / `direct` / empty) mistaken for catalog refs.
 pub fn is_invalid_store_source_ref(store_source: &str) -> bool {
     let trimmed = store_source.trim();
     trimmed.is_empty()
@@ -341,7 +341,7 @@ pub fn require_download_page_template_if_declared<'a>(
     }
 }
 
-/// Bound the declared assets list before download (store-side contract).
+/// Reject when declared asset count exceeds max_assets.
 pub fn validate_store_declared_assets_count_max(
     declared_len: usize,
     max_assets: usize,
@@ -422,7 +422,7 @@ pub fn widget_template_downloads(download: &serde_json::Value) -> Vec<WidgetTemp
     out
 }
 
-/// Nested string→path map entries (`i18n`, `page_modules`).
+/// Nested string→path map entries (`i18n`, `modules`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NamedPathDownload {
     pub key: String,
@@ -452,8 +452,7 @@ pub fn i18n_downloads(download: &serde_json::Value) -> Vec<NamedPathDownload> {
 
 /// `download.modules` 包内相对路径 → 仓库路径。
 ///
-/// 覆盖任意层的入口与层内文件（`core.js`、`page/index.js`、`widget/index.js`…）。
-/// 取代按目录写死的 `page_modules`：层入口可以在任何位置，索引不该只能描述 `page/`。
+/// 其余层入口与层内文件；key 为包内相对路径。
 pub fn module_downloads(download: &serde_json::Value) -> Vec<NamedPathDownload> {
     named_path_map_downloads(download, "modules")
 }
@@ -480,7 +479,7 @@ pub struct StoreSourceRowRef<'a> {
 
 /// Resolve `storeSource` against known rows.
 ///
-/// Preference order (matches historical install behavior):
+/// Preference order:
 /// 1. exact URL equality
 /// 2. numeric source id
 /// 3. normalized catalog base (`…/index.json` vs bare path)
@@ -515,7 +514,7 @@ pub fn store_index_url(base_url: &str) -> String {
 
 /// Validate a resolved catalog base before outbound fetch.
 ///
-/// Unparseable URLs are accepted (legacy: validation was skipped when parse failed).
+/// Unparseable URLs are accepted.
 /// Parsed URLs must be HTTP(S) and not point at internal hosts.
 pub fn validate_store_fetch_base_url(base_url: &str) -> Result<(), String> {
     let Ok(parsed) = reqwest::Url::parse(base_url.trim()) else {

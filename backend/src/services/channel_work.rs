@@ -1,6 +1,6 @@
 //! Shared private-chat Work: session, pending, cursor, outbound ledger.
 //!
-//! QQ and Telegram only adapt send/receive. Rules stay in
+//! Transport adapters only adapt send/receive. Rules stay in
 //! `myriad_agent_rules::channel`.
 
 use std::collections::HashMap;
@@ -393,6 +393,7 @@ async fn continue_text(
                     confirmed,
                     sink,
                     input,
+                    pending,
                 )
                 .await;
                 return;
@@ -527,6 +528,12 @@ async fn cancel_session_tasks(db: &DatabaseConnection, user_id: i32, session_id:
         return;
     }
     let agent = Agent::new(db.clone()).await;
+    if let Err(error) = agent
+        .revoke_session_confirmations(user_id, session_id)
+        .await
+    {
+        warn!(%error, "channel confirmation revocation failed");
+    }
     for task in agent.get_user_tasks(user_id).await {
         if !is_cancellable_task_status(&task.status) {
             continue;
@@ -617,6 +624,7 @@ async fn resume_pending(
     confirmed: Option<bool>,
     sink: ChannelSink,
     latest_input: &str,
+    parked: StoredPending,
 ) {
     sink.send_typing().await;
     let sid = (!session_id.is_empty()).then_some(session_id);
@@ -684,6 +692,23 @@ async fn resume_pending(
             .await;
         }
         Err(body) => {
+            if sink.authorized().await {
+                if let Err(error) = shared_registry::put(
+                    &db,
+                    pending_ns(sink.platform()),
+                    session_key,
+                    identity(user_id),
+                    &parked,
+                    parked
+                        .prompt
+                        .expires_at_unix
+                        .unwrap_or_else(|| (Utc::now() + ChronoDuration::days(2)).timestamp()),
+                )
+                .await
+                {
+                    warn!(%error, "cannot restore unaccepted channel answer");
+                }
+            }
             let message = body
                 .get("message")
                 .and_then(Value::as_str)

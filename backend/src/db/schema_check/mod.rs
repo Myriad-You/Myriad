@@ -4,7 +4,7 @@
 //!
 //! | Path | Role |
 //! |------|------|
-//! | `migrations` (Migrator 001–006 + 016–017; folded 007–015 names purged from `seaql_migrations` before up) | **Greenfield SoT** — CREATE tables for new installs |
+//! | `migrations` (Migrator 001–006; folded 007–019 names purged from `seaql_migrations` before up) | **Greenfield SoT** — CREATE tables for new installs |
 //! | `schema_check` (`ensure_schema`) | **Runtime heals** — missing columns/indexes (generic), platform seeds, single owner, recent-feature CREATE / structural heals |
 //!
 //! Boot (`main`) and setup (`init_database`) both run Migrator then `ensure_schema`.
@@ -28,7 +28,7 @@ mod tables_federation;
 mod tables_tapp;
 mod types;
 
-pub use orchestrator::ensure_schema;
+pub use orchestrator::{ensure_schema, report_schema_drift};
 pub use seeds::{
     default_config_seeds, default_platform_seeds, ensure_default_config, DefaultPlatformSeed,
 };

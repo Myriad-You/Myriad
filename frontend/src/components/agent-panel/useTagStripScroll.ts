@@ -1,7 +1,3 @@
-/**
- * 中间贴条横滑：滚轮改左右、溢出时给两端淡、新贴进来滑到最右。
- */
-
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { AGENT_ROW_MS } from './agentPresenceState'

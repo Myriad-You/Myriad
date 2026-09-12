@@ -457,7 +457,7 @@ padding = 4px
 'brew-featured':  { defaultSize: '4x4', supportedSizes: ['4x2','4x4'],       component: ... }
 ```
 
-同步改：`BUILTIN_WIDGET_ORDER`、`WIDGET_NAME_KEY`、`i18n/index.ts` 的 `widgets` 类型、`zh-CN` / `en-US` / `ja-JP`。id 是 kebab，i18n key 是 camelCase（`brewSource` / `brewTopic` / `brewFeatured`）。`getWidgetTranslationKey` 已做这个转换，但 `WIDGET_NAME_KEY` 仍要显式写。
+同步改：`BUILTIN_WIDGET_ORDER`、`WIDGET_NAME_KEY`、`i18n/en-US.json`（及 zh-CN / ja-JP）的 `widgets`。id 是 kebab，i18n key 是 camelCase（`brewSource` / `brewTopic` / `brewFeatured`）。`getWidgetTranslationKey` 已做这个转换，但 `WIDGET_NAME_KEY` 仍要显式写。
 
 ---
 
@@ -542,7 +542,7 @@ export function inferTopicByKeywords(item: BrewItem): string | null
 | `types/brew.ts` | 改 | pulses / topic |
 | `services/brewApi.ts` | 改 | `getItems` 传 `topic` |
 | `components/widgets/builtinWidgets.ts` | 改 | 三条注册 |
-| `i18n/index.ts` + 三语言包 | 改 | widget 名 + 主题名 |
+| `i18n/*.json` 三语言包 | 改 | widget 名 + 主题名 |
 | `App.tsx` | 改 | DEV 路由 `/dev/brew-tiles` |
 | `api/brew/feeds_articles.rs` | 改 | pulses；list_items.topic |
 | `models/entities/brew_items.rs` | 改 | topic 列 |

@@ -150,7 +150,6 @@ test('a rolling speech window reaches the final question through the real schedu
         intent.behaviorPlan,
         'unchanged windows must reuse their plan',
       )
-      // A 4s lookahead + 1.1s recovery and 380ms minimum spacing bound live work.
       assert.ok(intent.behaviorPlan!.behaviors.length <= 16)
       const frame = human.frame([intent.behaviorPlan], now)
       for (const behavior of frame.plan!.behaviors) {

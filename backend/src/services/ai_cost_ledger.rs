@@ -57,8 +57,9 @@ impl AiLedgerAttribution {
 /// A caller that reserves AI quota up front needs to know what the work
 /// actually cost in order to settle the reservation, but the spend is spread
 /// across nested `AiAnalyzer` calls it never sees — an agent turn covers
-/// planning, per-step handlers, dynamic-step analysis, response generation and
-/// memory extraction. Rather than thread counters through every call site, the
+/// planning, per-step handlers, dynamic-step analysis and response generation.
+/// The meter is task-local and is not snapshotted onto spawned work (memory extraction).
+/// Rather than thread counters through every call site, the
 /// meter rides the same task-local scope the ledger already uses and is
 /// incremented from the one place every call passes through.
 ///
@@ -130,7 +131,7 @@ where
     .await
 }
 
-/// Durable site owner, or `1` when the database is not reachable.
+/// Durable site owner, or `1` when the database is unreachable or `get_admin_user_id` fails.
 pub async fn resolve_site_owner_id() -> i32 {
     match crate::services::tapp_registry::database().await {
         Ok(db) => crate::services::tapp_ownership::get_admin_user_id(&db)
@@ -207,7 +208,7 @@ pub fn estimate_stt_tokens(audio_bytes: usize, transcript: &str) -> (i32, i32) {
     (input, output)
 }
 
-/// Best-effort ledger write from analyzer / media hooks.
+/// Best-effort ledger write from analyzer text hooks (`estimate_text_tokens`).
 ///
 /// Writes even without a task-local attribution (`source=internal`) so a
 /// forgotten wrapper cannot hide spend. Governed Tapp tasks suppress this.
@@ -351,8 +352,7 @@ mod tests {
 
     #[tokio::test]
     async fn meter_counts_calls_made_outside_any_attribution_scope() {
-        // The planner runs with no attribution installed; a settlement still has
-        // to see that spend, so metering cannot be gated on attribution.
+        // Metering is independent of attribution scope.
         let meter = AiUsageMeter::new();
         with_ai_usage_meter(meter.clone(), async {
             record_ai_call_from_attribution("gemini", "m", 4_000, 0, "completed", None).await;

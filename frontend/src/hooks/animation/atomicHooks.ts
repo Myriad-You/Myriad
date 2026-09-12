@@ -1,11 +1,3 @@
-/**
- * 原子化 Hooks - 基于轻量级核心
- *
- * 每个 Hook 独立工作，只引入必要的核心功能
- *
- * @module animation/atomicHooks
- */
-
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   batchRead,
@@ -18,17 +10,6 @@ import {
   scheduleIdle,
 } from './core'
 
-// 可见性 Hooks
-
-/**
- * 页面可见性 Hook
- *
- * @example
- * ```tsx
- * const visible = usePageVisible();
- * if (!visible) pauseAnimation();
- * ```
- */
 export function usePageVisible(): boolean {
   const [visible, setVisible] = useState(isPageVisible)
 
@@ -39,17 +20,6 @@ export function usePageVisible(): boolean {
   return visible
 }
 
-/**
- * 可见性感知的 Interval
- * 页面隐藏时自动暂停
- *
- * @example
- * ```tsx
- * useVisibilityInterval(() => {
- *   fetchData();
- * }, { delay: 30000 });
- * ```
- */
 export function useVisibilityInterval(
   callback: () => void,
   options: { delay: number; enabled?: boolean; immediate?: boolean },
@@ -73,15 +43,12 @@ export function useVisibilityInterval(
       timeoutRef.current = window.setTimeout(tick, delay)
     }
 
-    // 立即执行一次
     if (immediate && isPageVisible()) {
       callbackRef.current()
     }
 
-    // 开始定时
     timeoutRef.current = window.setTimeout(tick, delay)
 
-    // 订阅可见性
     const unsub = onVisibility((vis) => {
       if (vis && timeoutRef.current === null && !cancelled) {
         timeoutRef.current = window.setTimeout(tick, delay)
@@ -101,17 +68,6 @@ export function useVisibilityInterval(
   }, [delay, enabled, immediate])
 }
 
-// 尺寸观察 Hook
-
-/**
- * 元素尺寸观察 Hook
- *
- * @example
- * ```tsx
- * const { ref, width, height } = useElementSize<HTMLDivElement>();
- * return <div ref={ref}>Size: {width}x{height}</div>;
- * ```
- */
 export function useElementSize<T extends Element>(): {
   ref: React.RefCallback<T>
   width: number
@@ -121,7 +77,6 @@ export function useElementSize<T extends Element>(): {
   const unobserveRef = useRef<(() => void) | null>(null)
 
   const ref = useCallback((element: T | null) => {
-    // 清理旧观察
     if (unobserveRef.current) {
       unobserveRef.current()
       unobserveRef.current = null
@@ -138,7 +93,6 @@ export function useElementSize<T extends Element>(): {
     }
   }, [])
 
-  // 清理
   useEffect(() => {
     return () => {
       if (unobserveRef.current) {
@@ -150,17 +104,6 @@ export function useElementSize<T extends Element>(): {
   return { ref, ...size }
 }
 
-// 可见性观察 Hook
-
-/**
- * 元素视口可见性 Hook
- *
- * @example
- * ```tsx
- * const { ref, isVisible } = useInView<HTMLDivElement>({ threshold: 0.5 });
- * return <div ref={ref}>{isVisible ? 'Visible' : 'Hidden'}</div>;
- * ```
- */
 export function useInView<T extends Element>(options?: {
   threshold?: number
   rootMargin?: string
@@ -212,15 +155,6 @@ export function useInView<T extends Element>(options?: {
   return { ref, isVisible }
 }
 
-/**
- * 懒加载图片 Hook
- *
- * @example
- * ```tsx
- * const { ref, shouldLoad } = useLazyLoad<HTMLImageElement>();
- * return <img ref={ref} src={shouldLoad ? src : placeholder} />;
- * ```
- */
 export function useLazyLoad<T extends Element>(
   rootMargin = '200px',
 ): {
@@ -235,18 +169,6 @@ export function useLazyLoad<T extends Element>(
   return { ref, shouldLoad: isVisible }
 }
 
-// 空闲任务 Hook
-
-/**
- * 空闲时执行 Hook
- *
- * @example
- * ```tsx
- * useIdleEffect(() => {
- *   prefetchNextPage();
- * }, ['prefetch-page']);
- * ```
- */
 export function useIdleEffect(
   callback: () => void,
   deps: React.DependencyList,
@@ -266,25 +188,6 @@ export function useIdleEffect(
   }, deps)
 }
 
-// DOM 批量操作 Hooks
-
-/**
- * 批量 DOM 操作 Hook
- *
- * @example
- * ```tsx
- * const { measureElement, updateElement } = useBatchedDom();
- *
- * measureElement(() => {
- *   const rect = el.getBoundingClientRect();
- *   // ...
- * });
- *
- * updateElement(() => {
- *   el.style.transform = `translateX(${x}px)`;
- * });
- * ```
- */
 export function useBatchedDom(): {
   measureElement: (callback: () => void) => void
   updateElement: (callback: () => void) => void
@@ -295,18 +198,6 @@ export function useBatchedDom(): {
   }
 }
 
-// 动画帧 Hook
-
-/**
- * RAF 循环 Hook
- *
- * @example
- * ```tsx
- * useAnimationFrame((deltaTime) => {
- *   position += velocity * deltaTime;
- * }, { enabled: isAnimating });
- * ```
- */
 export function useAnimationFrame(
   callback: (deltaTime: number) => void,
   options?: { enabled?: boolean },
@@ -344,18 +235,6 @@ export function useAnimationFrame(
   }, [enabled])
 }
 
-// 防抖节流 Hooks
-
-/**
- * 节流回调 Hook
- *
- * @example
- * ```tsx
- * const throttledScroll = useThrottle((e) => {
- *   console.log(e.scrollTop);
- * }, 100);
- * ```
- */
 export function useThrottle<T extends (...args: any[]) => void>(
   callback: T,
   ms: number,
@@ -379,15 +258,6 @@ export function useThrottle<T extends (...args: any[]) => void>(
   ) as T
 }
 
-/**
- * 防抖值 Hook
- *
- * @example
- * ```tsx
- * const [search, setSearch] = useState('');
- * const debouncedSearch = useDebounce(search, 300);
- * ```
- */
 export function useDebounce<T>(value: T, ms: number): T {
   const [debounced, setDebounced] = useState(value)
 

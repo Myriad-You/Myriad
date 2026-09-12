@@ -17,11 +17,11 @@ use crate::federation::types::*;
 /// 发布本地内容到联邦网络
 ///
 /// 1. 拉取本地内容详情（或构建 freeform Note）
-/// 2. 转换为 AP Note/Article 对象
+/// 2. 转换为 AP 对象（Note/Article/Application/Collection）
 /// 3. 创建 Create Activity
 /// 4. 存入 federation_published_content
-/// 5. 推送给所有 followers
-/// 6. Note：立即写入作者时间线
+/// 5. 写入作者时间线（不限 Note）
+/// 6. 按 visibility fan-out（Direct/mentioned 不投 followers；Public 另投群邻）
 pub async fn publish_content(
     user_id: i32,
     username: &str,
@@ -30,9 +30,7 @@ pub async fn publish_content(
 ) -> Result<PublishResponse, (StatusCode, Json<serde_json::Value>)> {
     let base_url = get_base_url().await;
 
-    // visibility 必须是明确建模过的取值。过去未知取值（含前端已声明的
-    // `direct`）会走到 `resolve_audience` 的 `_ =>` 分支拿到空 to/cc，然后
-    // **照样 fan-out 给全部粉丝** —— 收件人为空反而让接收端无从补救。
+    // visibility 必须是明确建模过的取值；未知值由 `parse_visibility` 拒绝。
     let visibility_raw = req.visibility.as_deref().unwrap_or("public");
     let visibility_kind =
         crate::federation::audience::parse_visibility(visibility_raw).map_err(|bad| {
@@ -56,7 +54,7 @@ pub async fn publish_content(
     if content_type.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "content_type required"})),
+            Json(AppError::public_json("content_type required")),
         ));
     }
 
@@ -79,7 +77,7 @@ pub async fn publish_content(
             .ok_or_else(|| {
                 (
                     StatusCode::BAD_REQUEST,
-                    Json(json!({"error": "content_id required"})),
+                    Json(AppError::public_json("content_id required")),
                 )
             })?;
         id.to_string()
@@ -98,7 +96,7 @@ pub async fn publish_content(
     if existing.is_some() {
         return Err((
             StatusCode::CONFLICT,
-            Json(json!({"error": "Content already published"})),
+            Json(AppError::public_json("Content already published")),
         ));
     }
 
@@ -303,9 +301,8 @@ fn normalize_unpublish_target(
 
 /// 取消发布（Delete Activity）
 ///
-/// Accepts either:
-/// - `content_type` + `content_id` (content_id may be bare id, Note object URL, or path)
-/// - `activity_id` of the original Create (timeline convenience)
+/// Accepts `activity_id`, or `content_type`+`content_id`, or `content_id` alone
+/// (type inferred / looked up). `content_id` may be bare id, object URL, or path.
 pub async fn unpublish_content(
     user_id: i32,
     username: &str,
@@ -333,7 +330,7 @@ pub async fn unpublish_content(
         if bare_id.is_empty() {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error": "content_id required"})),
+                Json(AppError::public_json("content_id required")),
             ));
         }
         if let Some(ct) = ct_opt.as_deref().filter(|s| !s.is_empty()) {
@@ -364,7 +361,7 @@ pub async fn unpublish_content(
                 .map_err(db_err)?
             }
         } else {
-            // content_id only — unique match for this user
+            // content_id only — `LIMIT 2` then `query_one_raw`（多行仍取一行，不拒绝）
             db.query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "SELECT id, activity_id, content_type, content_id FROM federation_published_content WHERE user_id = $1 AND (content_id = $2 OR content_id = $3) LIMIT 2",
@@ -376,16 +373,16 @@ pub async fn unpublish_content(
     } else {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({
-                "error": "Provide activity_id, or content_type + content_id"
-            })),
+            Json(AppError::public_json(
+                "Provide activity_id, or content_type + content_id",
+            )),
         ));
     };
 
     let row = row.ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
-            Json(json!({"error": "Content not published"})),
+            Json(AppError::public_json("Content not published")),
         )
     })?;
 
@@ -563,3 +560,4 @@ mod tests {
         assert!(parse_visibility("publik").is_err());
     }
 }
+use myriad_error::AppError;

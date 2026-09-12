@@ -1,15 +1,4 @@
-/**
- * 订阅源磁贴：5 种构图 × 5 档尺寸。
- *
- * 构图由 `logic/layout.tileLayout` 派生，尺寸由 `logic/layout.tileSize` 派生 ——
- * 这个组件**不判断窄屏**，只按传进来的 `config.size` 排版。
- *
- * 4×2 的硬规则：左右拆栏（feature / cadence / numeric / icon）或单行列表
- * （list）。上下堆封面再堆标题的「瘦条」是上一版被否掉的形态。
- *
- * `2x1`（横条）只有 icon 构图会遇到 —— 它是入口型来源专属的一档，
- * `tileSize` 不会把它派给有条目的源。
- */
+/** 窄屏降档在 layout.downgradeForBand。2x1 仅 icon。 */
 
 import type { KeyboardEvent, MouseEvent } from 'react'
 import type { BrewItemPreview, BrewSource } from '../../../types/brew'
@@ -18,15 +7,14 @@ import type { BrewTileLayout, BrewTileSize } from '../logic/layout'
 
 import type { BrewViewerRole } from '../logic/score'
 import { LuExternalLink as ExternalLink } from '@lib/icons'
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { useAuth } from '../../../contexts/AuthContext'
 import { useI18n } from '../../../contexts/I18nContext'
-import { useHomeVisibilityInterval } from '../../../hooks/animation'
 import { isExlight, useAnimationLevel } from '../../../hooks/useAnimationLevel'
 import { useWidgetSize } from '../../../hooks/useWidgetSize'
-import { getSources } from '../../../services/brewApi'
+import { formatMessage, localeOrFallback } from '../../../i18n'
 import { extractColorsFromLoadedImage } from '../../../utils/colorExtractor'
 import {
   DEFAULT_THEME_COLOR,
@@ -52,48 +40,35 @@ import {
   T_MINOR,
   T_TITLE,
 } from './tokens'
+import { useWidgetSources } from './useWidgetSources'
 import './rotation.css'
 
-/** 4×4 列表每页条数。 */
 const LIST_PAGE_4X4 = 5
-/** 4×2 列表每页条数。 */
 const LIST_PAGE_4X2 = 4
-/** 每页停留时长（ms），供 animationDuration 计算。 */
 const ROTATE_PAGE_MS = 5600
-/** 最多轮播几页（keyframes 只到 4 页）。 */
 const ROTATE_MAX_PAGES = 4
-/** 首页 widget 轮询间隔，与 FriendLinksWidget 一致。 */
 const WIDGET_REFRESH_INTERVAL = 60 * 1000
 
 export interface BrewSourceTileProps {
   source: BrewSource
   size: BrewTileSize
   role: BrewViewerRole
-  /** 会话内冻结的时钟。同一次进入页面用同一个值，构图才不会自己跳。 */
+  /** 会话内冻结时钟，构图才不会自己跳。 */
   now: number
   scale: number
   fontScale: number
   containerRef?: React.Ref<HTMLDivElement>
-  /** 整卡点击（非 icon 型） */
   onOpenSource?: (source: BrewSource) => void
-  /** 点开某一篇 */
   onOpenItem?: (item: BrewItemPreview, source: BrewSource) => void
-  /** 补拉后的条目（比 recent_items 更全）；不传就用 recent_items */
   items?: BrewItemPreview[]
-  /** 构图覆盖，仅 DEV 预览用；生产一律走派生 */
   layoutOverride?: BrewTileLayout
-  /**
-   * 编辑模式：整卡点击交给 onOpenSource（选中切换），友链也不再开外站，
-   * 条目行不可点。这是渲染态开关，不是布局决策 —— 布局仍全由 size 决定。
-   */
+  /** icon 卡在编辑态走 onOpenSource，不 window.open。 */
   editMode?: boolean
-  /** 图标加载后提取到主题色（源没有 theme_color 时才会调用） */
   onThemeColorExtracted?: (sourceId: number, color: string) => void
-  /** 表面；磁贴墙传 solid，见 TileShell.css */
   surface?: 'glass' | 'solid'
 }
 
-/** 相对时间。与 SourceCard 的口径一致，但只吃 t.brew 的四个键。 */
+/** 只吃 t.brew 的四个相对时间键。 */
 function relTime(
   ts: number | null | undefined,
   now: number,
@@ -108,16 +83,23 @@ function relTime(
   if (!ts) return ''
   const diff = now - ts
   if (diff < 60_000) return t.justNow
+  const loc = localeOrFallback(locale)
   if (diff < 3_600_000) {
-    return t.minutesAgo.replace('{minutes}', String(Math.floor(diff / 60_000)))
+    return formatMessage(loc, t.minutesAgo, {
+      minutes: Math.floor(diff / 60_000),
+    })
   }
   if (diff < 86_400_000) {
-    return t.hoursAgo.replace('{hours}', String(Math.floor(diff / 3_600_000)))
+    return formatMessage(loc, t.hoursAgo, {
+      hours: Math.floor(diff / 3_600_000),
+    })
   }
   if (diff < 604_800_000) {
-    return t.daysAgo.replace('{days}', String(Math.floor(diff / 86_400_000)))
+    return formatMessage(loc, t.daysAgo, {
+      days: Math.floor(diff / 86_400_000),
+    })
   }
-  // 跟界面语言走，不跟浏览器：否则 en-US 界面里会冒出「8月16日」
+  // 相对时间跟界面语言，不跟浏览器。
   return new Date(ts).toLocaleDateString(locale, {
     month: 'short',
     day: 'numeric',
@@ -126,19 +108,13 @@ function relTime(
 
 function siteHost(source: BrewSource): string {
   try {
-    return new URL(source.site_url || source.url).hostname.replace(/^www\./, '')
+    return new URL(source.site_url || source.url).hostname.replaceAll(/^www\./g, '')
   } catch {
     return ''
   }
 }
 
-/**
- * 轮播分页：把条目切成每页 pageSize 条，最多 ROTATE_MAX_PAGES 页。
- *
- * **只保留满页。** 末页只有一两条时，同样高度里行数不同，轮播过去会看到
- * 行距忽然变大、内容忽上忽下 —— 也就是「切文章时高度乱跳」。宁可少转一页，
- * 也不要让每一轮的版面都不一样。
- */
+/** 只保留满页，避免轮播时行距乱跳。 */
 function paginate<T>(items: T[], pageSize: number): T[][] {
   if (items.length < pageSize) return items.length > 0 ? [items] : []
   const pages: T[][] = []
@@ -166,7 +142,7 @@ export const BrewSourceTile = memo(
     onThemeColorExtracted,
     surface,
   }: BrewSourceTileProps) => {
-    const { t, locale } = useI18n()
+    const { t, locale, format } = useI18n()
     const anim = useAnimationLevel()
     const color = normalizeThemeColor(source.theme_color)
     const icon = getIconUrl(source.icon)
@@ -178,9 +154,9 @@ export const BrewSourceTile = memo(
     const layout: BrewTileLayout =
       layoutOverride ?? tileLayout(source, role, now, list.length)
 
-    // 未读只在登录后是真数据；游客侧后端恒回 0，画出来就是假信息
+    // 未读只在登录后渲染。
     const unread = role === 'guest' ? null : source.unread_count
-    // 失败态只在管理员视图报警：对游客/成员它是噪音，不是待办
+    // 失败态只在管理员视图报警。
     const alert = role === 'admin' && source.error_count > 0
 
     const timeKeys = {
@@ -190,8 +166,7 @@ export const BrewSourceTile = memo(
       daysAgo: t.brew.daysAgo,
     }
 
-    // 源没有主题色时，从图标里提一次主色写回 —— 老 SourceCard 也是这样做的，
-    // 不接的话新墙里没主题色的源会一直是灰的
+    // 没 theme_color 时从图标提主色写回。
     const handleIconLoad = useCallback(
       (img: HTMLImageElement) => {
         if (source.theme_color || !source.icon || !onThemeColorExtracted) return
@@ -205,7 +180,6 @@ export const BrewSourceTile = memo(
             onThemeColorExtracted(source.id, palette.primary)
           }
         } catch {
-          // 提取失败就保持默认色
         }
       },
       [source.id, source.theme_color, source.icon, onThemeColorExtracted],
@@ -226,10 +200,7 @@ export const BrewSourceTile = memo(
 
     const openSource = onOpenSource ? () => onOpenSource(source) : undefined
     const openItem = (item: BrewItemPreview) => onOpenItem?.(item, source)
-    /**
-     * 头条标题 / 缩略图的「可点」语义：跟 MinorRow 一致 —— role=link、可 Tab 到、
-     * Enter / 空格触发。之前只有 onClick，键盘和读屏用户点不到头条。
-     */
+    /** 头条可点语义：role=link，Enter / 空格触发。 */
     const leadLinkProps = (item: BrewItemPreview) =>
       onOpenItem
         ? {
@@ -248,11 +219,10 @@ export const BrewSourceTile = memo(
           }
         : {}
 
-    // 2×2 既不放封面（面积不够，§10.2）也不左右拆栏（拆完文字只剩 ~90px，
-    // 比上下瘦条更糟）。拆栏那条规则针对的是 4×2 那个扁矩形。
+    // 2×2 不放封面、不拆栏。
     const isSmall = size === '2x2'
 
-    // icon 型：站点入口。整卡点击直接开外站，不进阅读器
+    // icon 整卡开外站，不进阅读器。
     if (layout === 'icon') {
       const host = siteHost(source)
       const target = source.site_url || source.url
@@ -265,7 +235,6 @@ export const BrewSourceTile = memo(
             ? () => window.open(target, '_blank', 'noopener,noreferrer')
             : undefined
 
-      // 横条：图标在左、站名在右。一行高，只放得下名字。
       if (size === '2x1') {
         return (
           <TileShell
@@ -371,7 +340,6 @@ export const BrewSourceTile = memo(
       )
     }
 
-    // numeric 型：仅登录。数字与「条未读」横排
     if (layout === 'numeric') {
       const heroSize = heroNumberSize(size)
       const rows = size === '4x4' ? list.slice(0, 5) : list.slice(0, 4)
@@ -401,7 +369,6 @@ export const BrewSourceTile = memo(
         </div>
       )
 
-      // 2×2：只放数字 + 站名，列表塞不进去
       if (isSmall) {
         return (
           <TileShell
@@ -424,7 +391,6 @@ export const BrewSourceTile = memo(
         )
       }
 
-      // 4×2 拆栏：左数字 + 右 3–4 条标题
       if (size !== '4x4') {
         return (
           <TileShell
@@ -479,7 +445,7 @@ export const BrewSourceTile = memo(
         >
           {header}
           <div style={{ marginBottom: sp(10, scale) }}>{hero}</div>
-          {/* justify-evenly：4×4 有 ~320px 高，5 条紧贴顶部会在下半张卡留一个洞 */}
+          {/* justify-evenly，避免下半张留洞。 */}
           <div className="flex min-h-0 flex-1 flex-col justify-evenly">
             {rows.map((item, i) => (
               <MinorRow
@@ -497,7 +463,6 @@ export const BrewSourceTile = memo(
       )
     }
 
-    // cadence 型：沉寂源。节律图 + 轴标签
     if (layout === 'cadence') {
       const pulses =
         source.pulses && source.pulses.length > 0
@@ -517,20 +482,16 @@ export const BrewSourceTile = memo(
           className="justify-between"
         >
           <span>
-            {t.brew.tileQuietMonths.replace('{months}', String(months))}
+            {format(t.brew.tileQuietMonths, { months })}
           </span>
           <span className={alert ? 'text-red-500 dark:text-red-400' : ''}>
             {alert
-              ? t.brew.tileFailedTimes.replace(
-                  '{count}',
-                  String(source.error_count),
-                )
+              ? format(t.brew.tileFailedTimes, { count: source.error_count })
               : t.brew.tileToday}
           </span>
         </TileMeta>
       )
 
-      // 2×2：站名 + 通栏节律图 + 轴标签，不拆栏
       if (isSmall) {
         return (
           <TileShell
@@ -554,7 +515,6 @@ export const BrewSourceTile = memo(
         )
       }
 
-      // 4×2 拆栏：左节律图 + 右站名 / 最新一篇 / 跨度
       if (size !== '4x4') {
         return (
           <TileShell
@@ -607,7 +567,7 @@ export const BrewSourceTile = memo(
         >
           {header}
           <div className="flex min-h-0 flex-1 flex-col justify-center">
-            {/* 4×4 的节律图是主视觉，56px 撑不起 320px 的卡，也看不出密度差 */}
+            {/* 4×4 节律图不能只用 56px 高。 */}
             <Cadence pulses={pulses} color={color} height={sp(104, scale)} />
             <div style={{ marginTop: sp(6, scale) }}>{axis}</div>
           </div>
@@ -626,16 +586,15 @@ export const BrewSourceTile = memo(
       )
     }
 
-    // list 型：站名行 + 头条 + 次条，整页轮播
     if (layout === 'list') {
       const pageSize = size === '4x4' ? LIST_PAGE_4X4 : LIST_PAGE_4X2
       const pages = paginate(list, pageSize)
       const rotating =
         pages.length > 1 && !isExlight(anim) && anim.widgetUiRotation
-      // 每张卡不同的负 delay 错峰；用 id 派生，保证同一张卡每次一样
+      // 负 delay 用 id 派生，同一张卡每次一样。
       const stagger = -((source.id * 1300) % (ROTATE_PAGE_MS * pages.length))
 
-      // 4×2 不拆栏、不放封面：吃水平宽度，站名一行 + 4 条单行标题
+      // list 的 4×2 不拆栏、不放封面。
       if (size !== '4x4') {
         return (
           <TileShell
@@ -660,8 +619,7 @@ export const BrewSourceTile = memo(
                         animationTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)',
                         animationDelay: `${stagger}ms`,
                       }
-                    : // 不轮播时也要显式给 100% 高：轨道 auto 高会让里面的
-                      // `height: 100%` 退化成内容高，几条标题全挤在卡片上半部
+                    : // 不轮播也要 100% 高，避免轨道 auto 把 height:100% 塌成内容高。
                       { height: '100%' }
                 }
               >
@@ -721,7 +679,7 @@ export const BrewSourceTile = memo(
               {(rotating ? pages : pages.slice(0, 1)).map((page, pi) => (
                 <div
                   key={pi}
-                  // justify-evenly：不满 5 条时也铺满整张卡，别在下半张留洞
+                  // 不满 5 条也铺满，别在下半张留洞。
                   className="flex flex-col justify-evenly"
                   style={{
                     height: rotating ? `${100 / pages.length}%` : '100%',
@@ -735,8 +693,7 @@ export const BrewSourceTile = memo(
                         style={{ gap: sp(9, scale) }}
                         {...leadLinkProps(item)}
                       >
-                        {/* 无图不画灰块，但行高要保住：否则有图页 52px、
-                            无图页塌成一行，轮播过去像在抽搐 */}
+                        {/* 无图不画灰块，但行高要保住。 */}
                         <div
                           className="shrink-0"
                           style={{
@@ -798,7 +755,6 @@ export const BrewSourceTile = memo(
       )
     }
 
-    // feature 型：头条独大
     const lead = list[0]
     const second = list[1]
     const summary = getPlainText(lead?.summary ?? null)
@@ -806,8 +762,6 @@ export const BrewSourceTile = memo(
       ? relTime(lead.published_at, now, timeKeys, locale)
       : ''
 
-    // 4×2 拆栏：左封面 + 右站名 / 标题两行 / meta。
-    // 2×2 走同一段结构但不放封面（isSmall），于是自然退化成纯文本。
     if (size !== '4x4') {
       return (
         <TileShell
@@ -909,7 +863,7 @@ export const BrewSourceTile = memo(
               {lead.title}
             </span>
           ) : (
-            // 无条目：走纯文本，用站点简介，不画灰占位
+            // 无条目走纯文本，不画灰占位。
             <span
               className="text-gray-500 dark:text-gray-400"
               style={{
@@ -924,8 +878,7 @@ export const BrewSourceTile = memo(
               {source.description?.trim() || siteHost(source)}
             </span>
           )}
-          {/* 有封面时摘要也照放（clamp 2）：4×4 的封面 96px + 标题两行只占掉
-              三分之一，不给摘要就在卡中间留一块空白 —— 空白不是留白，是没排完。 */}
+          {/* 有封面也放摘要（clamp 2），避免卡中间空一块。 */}
           {summary ? (
             <span
               className="text-gray-500 dark:text-gray-400"
@@ -966,17 +919,9 @@ export const BrewSourceTile = memo(
 
 BrewSourceTile.displayName = 'BrewSourceTile'
 
-/** 节律窗口再导出，方便 DEV 预览生成 fixture。 */
 export { CADENCE_WINDOW_DAYS }
 
-/**
- * 首页 widget 包装：按 `config.config.sourceId` 绑一个源。
- *
- * 数据走 `getSources()`（cache key `brew:sources`）+ `find(sourceId)`，
- * 不为磁贴新开 `GET /source/:id` —— `requestCache` 会把多张卡的请求合并成一次。
- *
- * 编辑模式下未绑源时原地列出可选源，选中即 `onConfigChange` 落盘。
- */
+/** 不新开 GET /source/:id，走 getSources() + find。 */
 export const BrewSourceWidget = memo(
   ({ config, isEditMode, isPreview, onConfigChange }: WidgetComponentProps) => {
     const { t } = useI18n()
@@ -987,37 +932,15 @@ export const BrewSourceWidget = memo(
       config.size,
       isPreview ? 1 : undefined,
     )
-    const [sources, setSources] = useState<BrewSource[]>([])
-    const mountedRef = useRef(true)
-    // 会话内冻结时钟：构图不因为「过了一分钟」而跳
+    const sources = useWidgetSources(
+      isPreview ?? false,
+      WIDGET_REFRESH_INTERVAL,
+      '[BrewSourceWidget]',
+    )
+    // 会话内冻结时钟。
     const [now] = useState(() => Date.now())
 
     const sourceId = config.config?.sourceId as number | undefined
-
-    useEffect(() => {
-      mountedRef.current = true
-      return () => {
-        mountedRef.current = false
-      }
-    }, [])
-
-    const load = useCallback(async () => {
-      // 预览态（小组件库）也拉一次：`getSources()` 走 requestCache，一屏
-      // 多个磁贴只会合并成一个请求。库里全是「暂无订阅源」的空盒子时，
-      // 用户根本看不出这三个磁贴是什么。轮询仍然只在非预览态开。
-      try {
-        const next = await getSources()
-        if (mountedRef.current) setSources(next)
-      } catch (error) {
-        console.error('[BrewSourceWidget] failed to load sources:', error)
-      }
-    }, [isPreview])
-
-    useEffect(() => {
-      void load()
-    }, [load])
-
-    useHomeVisibilityInterval(load, WIDGET_REFRESH_INTERVAL, !isPreview)
 
     const persist = useCallback(
       (nextId: number) => {
@@ -1036,7 +959,6 @@ export const BrewSourceWidget = memo(
     )
 
     const size = downgradeForBand(config.size as BrewTileSize, viewportBand)
-    // 库里的预览没有绑源：拿评分最高的那个当样例，否则一格空盒子看不出这是什么
     const source = sourceId
       ? sources.find((s) => s.id === sourceId)
       : isPreview
@@ -1044,7 +966,6 @@ export const BrewSourceWidget = memo(
         : undefined
     const locked = isEditMode || isPreview
 
-    // 未绑源：编辑模式给一个原地选择器，其它情况给一句提示
     if (!source) {
       const pickable = isEditMode && !isPreview && sources.length > 0
       return (

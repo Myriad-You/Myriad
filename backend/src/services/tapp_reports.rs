@@ -60,10 +60,10 @@ impl std::fmt::Display for ReportCatalogError {
 
 impl std::error::Error for ReportCatalogError {}
 
-/// Project a platform_reports row for host + Tapp clients.
+/// Project a platform_reports row for Tapp catalog clients.
 ///
-/// Exposes nested `content` (legacy) and top-level `card_visuals` / `cardVisuals`
-/// so home/catalog cards render without field-mapping bugs.
+/// Exposes nested `content` (legacy) and top-level `card_visuals` / `cardVisuals`.
+/// Host home cards use `GET /api/reports/latest`, not this payload.
 pub fn platform_report_payload(report: &platform_reports::Model) -> Value {
     let card_visuals = report
         .report
@@ -390,7 +390,7 @@ pub async fn delete_tapp_report(
     Ok(())
 }
 
-/// Clamp list pagination to the historical API contract (default 50, max 100).
+/// Clamp list pagination (default 50, max 100).
 pub fn clamp_report_list_pagination(limit: Option<u32>, offset: Option<u32>) -> (u64, u64) {
     let limit = u64::from(limit.unwrap_or(50).min(100));
     let offset = u64::from(offset.unwrap_or(0));

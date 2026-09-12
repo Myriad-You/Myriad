@@ -1,10 +1,7 @@
 //! Process-wide memory profile (default vs memory-saver).
 //!
-//! - **default**: current balanced, bounded product budgets. These are not the
-//!   legacy unbounded/high-water values, so upgrading can change request caps.
-//! - **saver**: a second, tighter notch for ~1 GiB hosts. Default is already
-//!   bounded; saver further cuts cache, chunk inflight, pool, Argon2, and
-//!   large-media peaks so those knobs stay meaningfully below default.
+//! - **default**: bounded product budgets.
+//! - **saver**: a tighter notch for ~1 GiB hosts (cache, chunk inflight, pool, Argon2, large-media).
 //!
 //! Selection order: `MYRIAD_MEMORY_PROFILE` env (`default`|`saver`|`small`) >
 //! dynamic config `memory_saver_enabled` > default.
@@ -18,13 +15,10 @@ use std::sync::{Arc, RwLock};
 use once_cell::sync::Lazy;
 use tokio::sync::Semaphore;
 
-/// Current balanced product defaults. They are not compatibility promises for
-/// releases that predate the bounded federation profile.
+/// Current bounded product defaults.
 ///
-/// Pool min is the idle floor (not request concurrency). Keep it small so a
-/// quiet host does not park five Postgres backends; max is the concurrent
-/// query ceiling. 2/24 is +4 peak checkouts versus the old 5/20, paid for by
-/// three fewer idle connections at rest.
+/// Pool min is the idle floor (not request concurrency); max is the concurrent
+/// query ceiling.
 pub const DEFAULT_DB_MIN_CONNECTIONS: u32 = 2;
 pub const DEFAULT_DB_MAX_CONNECTIONS: u32 = 24;
 pub const DEFAULT_INBOX_INFLIGHT_RAW_BUDGET: usize = 32 * 1024 * 1024;
@@ -48,7 +42,7 @@ pub const SAVER_MAX_API_CACHE_BYTES: usize = 8 * 1024 * 1024;
 pub const SAVER_MAX_GEO_CACHE_BYTES: usize = 256 * 1024;
 pub const SAVER_ARGON2_PERMITS: usize = 1;
 pub const SAVER_MAX_AUDIO_BYTES: usize = 16 * 1024 * 1024;
-/// Federation JSON caps. Larger media uses the chunked transfer surface.
+/// Inbox/message JSON + authenticated HTTP body + Note file caps (chunked transfer is a separate surface).
 pub const DEFAULT_MESSAGE_PAYLOAD_LIMIT: usize = 4 * 1024 * 1024;
 pub const DEFAULT_INBOX_BODY_LIMIT: usize = 8 * 1024 * 1024;
 pub const DEFAULT_AUTHENTICATED_BODY_LIMIT: usize = 24 * 1024 * 1024;
@@ -407,7 +401,7 @@ mod tests {
         // Envelope headroom: inbox must still exceed message payload by ≥25%.
         assert!(s.inbox_body_limit > s.message_payload_limit);
         assert!(s.inbox_body_limit - s.message_payload_limit >= s.message_payload_limit / 4);
-        // Larger media is intentionally handled by chunked transfer, not inbox JSON.
+        // Note video is the Note media cap; chunk inflight is the transfer surface.
         assert!(s.message_payload_limit >= 2 * 1024 * 1024);
         assert_eq!(s.note_video_limit, 32 * 1024 * 1024);
         assert_eq!(s.max_in_flight_chunk_bytes, 16 * 1024 * 1024);

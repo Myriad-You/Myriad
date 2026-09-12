@@ -33,7 +33,7 @@ impl JsonMode<'_> {
             Self::Structured(schema) => Some(schema.and_then(gemini_response_schema)),
             Self::PromptOnly(_) => None,
         };
-        // 关思考不依赖结构化输出：退回 prompt-only 时预算还在。
+        // Prompt-only 仍带 `max_output_tokens`；思考开关不在这个 Gemini config 里。
         match (structured, budget) {
             (None, None) => None,
             (structured, budget) => Some(GeminiGenerationConfig {
@@ -68,8 +68,8 @@ impl JsonMode<'_> {
 }
 
 /// Keys Gemini accepts inside `responseSchema` (an OpenAPI 3.0 subset).
-/// Anything else — `additionalProperties`, `$schema`, `default`, `const` — is
-/// rejected with a 400, so unknown keys are dropped rather than forwarded.
+/// Unknown keys (including `additionalProperties` / `$schema` / `default` / `const`)
+/// are dropped rather than forwarded.
 const GEMINI_SCHEMA_KEYS: &[&str] = &[
     "type",
     "format",
@@ -145,7 +145,7 @@ mod tests {
         .expect("serialize")
     }
 
-    /// 没有预算的调用，报文必须和加这个功能之前一模一样。
+    /// 无预算时 body 只有 `messages` 和 `model`。
     #[test]
     fn an_unbudgeted_call_sends_no_new_fields() {
         let body = openai_body(JsonMode::PromptOnly(None), None);
@@ -221,7 +221,7 @@ mod tests {
         assert_eq!(translated["properties"]["tags"]["type"], "ARRAY");
         assert_eq!(translated["properties"]["tags"]["items"]["type"], "STRING");
         assert_eq!(translated["required"], json!(["summary"]));
-        // Gemini rejects these outright.
+        // This translator omits them (local subset).
         assert!(translated.get("additionalProperties").is_none());
         assert!(translated["properties"]["score"].get("minimum").is_none());
         // enum is part of the accepted subset.

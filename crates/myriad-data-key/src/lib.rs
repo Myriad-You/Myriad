@@ -35,8 +35,9 @@
 //! - 它和数据库不在同一个备份域：PostgreSQL 走 `./pgdata` bind mount，
 //!   `backend_data` 是具名卷。所有泄露数据库的路径都拿不到这个密钥文件 ——
 //!   这正是加密方案成立的前提。
-//! - 它不进程序的环境变量表。MCP 子进程会继承后端的整个环境
-//!   （见 `services/agent/mcp/transport.rs`），密钥放 env 等于发给每个 MCP server。
+//! - 它不必常驻程序环境变量表。MCP 仅继承白名单环境变量，白名单不含数据密钥
+//!   （见 `crates/myriad-mcp/src/transport.rs`）。文件存储本身不构成 MCP 隔离：
+//!   运行第三方代码的沙箱仍必须禁止访问后端数据卷。
 //!
 //! 兜底分支保证**已有部署升级后不会启动失败**：卷只读、权限异常等情况下退回到
 //! 旧行为并告警，而不是拒绝启动。
@@ -298,6 +299,38 @@ pub fn derive_legacy_key(jwt_secret: &str) -> [u8; KEY_LEN] {
 }
 
 /// 进程级数据密钥（首次调用时解析）。
+/// Initialize a trusted worker with the installation's existing key. Unlike the
+/// web bootstrap, workers must neither generate a second key nor fall back to JWT.
+pub fn init_existing() -> Result<&'static DataKey> {
+    if DATA_KEY.get().is_none() {
+        let key = load_existing(
+            std::env::var("MYRIAD_DATA_KEY").ok().as_deref(),
+            &key_file_path(),
+        )?;
+        let _ = DATA_KEY.set(key);
+    }
+    let key = DATA_KEY.get().expect("data key initialized");
+    anyhow::ensure!(
+        matches!(key.source, KeySource::Env | KeySource::File),
+        "worker requires an existing installation data key"
+    );
+    Ok(key)
+}
+
+fn load_existing(env: Option<&str>, path: &Path) -> Result<DataKey> {
+    let (raw, source) = match env.filter(|value| !value.trim().is_empty()) {
+        Some(value) => (value.to_owned(), KeySource::Env),
+        None => (
+            std::fs::read_to_string(path)
+                .context("worker cannot read the installation data key")?,
+            KeySource::File,
+        ),
+    };
+    let key = parse_key_material(&raw)
+        .ok_or_else(|| anyhow!("worker installation data key is invalid"))?;
+    Ok(DataKey { key, source })
+}
+
 pub fn data_key() -> &'static DataKey {
     DATA_KEY.get_or_init(load_or_create)
 }
@@ -568,5 +601,30 @@ mod tests {
             assert_eq!(mode & 0o777, 0o600, "key file must be owner-only");
         }
         std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+#[cfg(test)]
+mod worker_key_tests {
+    use super::*;
+
+    #[test]
+    fn worker_requires_existing_key_and_never_creates_one() {
+        let path =
+            std::env::temp_dir().join(format!("myriad-worker-key-{}", rand::random::<u64>()));
+        assert!(load_existing(None, &path).is_err());
+        assert!(!path.exists());
+        let material = BASE64.encode([42u8; 32]);
+        let env_key = load_existing(Some(&material), &path).unwrap();
+        assert_eq!(env_key.source(), KeySource::Env);
+        std::fs::write(&path, &material).unwrap();
+        let file_key = load_existing(None, &path).unwrap();
+        assert_eq!(file_key.source(), KeySource::File);
+        assert_eq!(env_key.fingerprint(), file_key.fingerprint());
+        assert!(load_existing(Some("invalid"), &path).is_err());
+        std::fs::write(&path, "invalid").unwrap();
+        assert!(load_existing(None, &path).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "invalid");
+        std::fs::remove_file(path).unwrap();
     }
 }

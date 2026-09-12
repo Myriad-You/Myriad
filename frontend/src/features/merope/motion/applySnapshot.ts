@@ -13,10 +13,6 @@ export interface SingingRigWrite {
   speechActive: boolean | null
 }
 
-/**
- * Apply channel-gated singing to one mounted rig. Speech-owned mouth is
- * left untouched so visemes and occupancy stay with the speech controller.
- */
 export function applySingingWrite(
   rig: Pick<
     RigMotionPort,
@@ -50,8 +46,6 @@ export function applySingingWrite(
     rig.setMusicSignal(null)
   }
   if (apply.writeMouth) {
-    // Singing articulation must not start the independent co-speech gesture
-    // generator or make speech occupancy override musical body participation.
     rig.setSpeechActive(false)
     rig.setSpeechArticulation(drive.articulation)
   } else if (apply.restMouth) {

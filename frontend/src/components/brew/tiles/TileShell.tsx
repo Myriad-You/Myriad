@@ -1,12 +1,4 @@
-/**
- * 磁贴外壳与站名行。
- *
- * `TileShell` 只是 `WidgetShell` 的薄封装：补上身份色光晕、点击语义和
- * 「exlight / prefers-reduced-motion 不渲染光晕」这条硬规则。圆角、安全内
- * 边距、overflow 裁切全部交给 WidgetShell，不在这里重写。
- *
- * 禁止在磁贴里出现装饰性 border / 左边框：层次靠留白、嵌套表面、字重与颜色反差。
- */
+/** exlight / prefers-reduced-motion 不渲染光晕。禁止装饰性 border。 */
 
 import type { CSSProperties, ReactNode } from 'react'
 import { memo } from 'react'
@@ -19,7 +11,6 @@ import './TileShell.css'
 
 export interface TileShellProps {
   children: ReactNode
-  /** 身份色（已经过 normalizeThemeColor） */
   color: string
   scale: number
   containerRef?: React.Ref<HTMLDivElement>
@@ -27,20 +18,11 @@ export interface TileShellProps {
   className?: string
   style?: CSSProperties
   onClick?: () => void
-  /** 无障碍标签；给了就渲染成 button 语义 */
   label?: string
-  /** 光晕布局；2×2 用 single，通栏用 dual */
   glow?: 'single' | 'dual' | 'single-left' | 'none'
-  /**
-   * 表面：首页几张 widget 用默认毛玻璃；磁贴墙一屏二十多张必须用 solid ——
-   * 大量 backdrop-filter 兄弟会被 Chrome 合并成整面墙的一块矩形色块。
-   */
+  /** 磁贴墙必须 solid，避免 backdrop-filter 合成整面色块。 */
   surface?: 'glass' | 'solid'
-  /**
-   * 覆盖安全内边距。只有 `2x1` 这一档窄卡需要 —— 默认的 14px 在只有一行
-   * 高的横条上会把正文挤到没有位置。
-   * 其余尺寸一律用默认值，不要在这里调版。
-   */
+  /** 只有 2x1 覆盖安全内边距；其余用默认。 */
   padding?: number | { x: number; y: number }
 }
 
@@ -60,8 +42,7 @@ export const TileShell = memo(
     padding,
   }: TileShellProps) => {
     const anim = useAnimationLevel()
-    // exlight 与 prefers-reduced-motion 一律不渲染光晕（不是「渲染但不动」）：
-    // 一屏十几张卡各带一个合成层，静止的光晕也照样吃合成预算。
+    // exlight / prefers-reduced-motion 不渲染光晕，不是渲染但不动。
     const showGlow = glow !== 'none' && !isExlight(anim)
 
     const interactive = Boolean(onClick)
@@ -118,9 +99,7 @@ export const TileShell = memo(
 
 TileShell.displayName = 'TileShell'
 
-/**
- * 扁字标：站名首字 + 身份色。没有图标时不画灰块，直接用色底的首字。
- */
+/** 没有图标不画灰块，用色底首字。 */
 export function TileMark({
   name,
   color,
@@ -133,9 +112,8 @@ export function TileMark({
   color: string
   scale: number
   size?: number
-  /** 已经过 getIconUrl 的图标地址；缺失或加载失败时退回字标 */
   icon?: string | null
-  /** 图标真正加载成功后回调（已排除 1×1 软失败占位）—— 主题色提取挂这里 */
+  /** 排除 1×1 软失败后再回调。 */
   onIconLoad?: (img: HTMLImageElement) => void
 }) {
   const px = sp(size, scale)
@@ -164,7 +142,7 @@ export function TileMark({
           draggable={false}
           className="absolute inset-0 h-full w-full object-cover"
           onLoad={(e) => {
-            // 后端软失败会回 1×1 透明 PNG，当作没有图标
+            // 软失败 1×1 PNG 当作没有图标。
             const img = e.currentTarget
             if (img.naturalWidth <= 1 && img.naturalHeight <= 1) {
               img.style.display = 'none'
@@ -182,12 +160,7 @@ export function TileMark({
   )
 }
 
-/**
- * 站名行：左字标 + 站名，右侧未读数字。
- *
- * 未读只在登录后渲染（游客侧后端恒回 0，画出来就是假信息）。
- * 管理员看失败源时右侧换红色 token —— 这是唯一允许用颜色报警的位置。
- */
+/** 未读只在登录后渲染。失败色只给管理员。 */
 export function TileHeader({
   name,
   color,
@@ -205,11 +178,8 @@ export function TileHeader({
   fontScale: number
   icon?: string | null
   onIconLoad?: (img: HTMLImageElement) => void
-  /** null = 不显示（游客 / 无未读） */
   unread?: number | null
-  /** 管理员视图下的失败态 */
   alert?: boolean
-  /** 右侧自定义内容，优先于 unread */
   trailing?: ReactNode
 }) {
   return (
@@ -251,7 +221,6 @@ export function TileHeader({
   )
 }
 
-/** 底部一行 meta 文本（时间 · 阅读时长 / 轴标签）。 */
 export function TileMeta({
   children,
   fontScale,

@@ -9,8 +9,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 音乐播放控制
     registry.register(Capability {
         id: "music.control".to_string(),
-        name: "音乐播放控制".to_string(),
-        description: "控制音乐播放器：播放、暂停、上一首、下一首、调节音量等".to_string(),
+        name: "Music control".to_string(),
+        description: "Play, pause, skip, or change volume.".to_string(),
         category: CapabilityCategory::UiControl,
         supported_actions: vec![IntentAction::Control, IntentAction::Navigate],
         input_schema: json!({
@@ -19,17 +19,17 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "action": { 
                     "type": "string", 
                     "enum": ["play", "pause", "toggle", "next", "previous", "volume", "mute", "unmute", "seek"],
-                    "description": "播放器操作类型"
+                    "description": "Player action"
                 },
                 "volume": { 
                     "type": "number", 
                     "minimum": 0, 
                     "maximum": 100,
-                    "description": "音量值（0-100）"
+                    "description": "Volume (0-100)"
                 },
                 "position": { 
                     "type": "number",
-                    "description": "播放位置（秒）"
+                    "description": "Playback position in seconds"
                 }
             },
             "required": ["action"]
@@ -51,8 +51,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 音乐播放状态
     registry.register(Capability {
         id: "music.status".to_string(),
-        name: "音乐播放状态".to_string(),
-        description: "读取当前播放器状态（请求可带上前端快照，供后续步骤 xxxFrom）".to_string(),
+        name: "Music status".to_string(),
+        description: "Read the current player status.".to_string(),
         category: CapabilityCategory::UiControl,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -78,24 +78,24 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 播放歌单
     registry.register(Capability {
         id: "music.playlist".to_string(),
-        name: "播放歌单".to_string(),
-        description: "加载并播放指定歌单".to_string(),
+        name: "Play playlist".to_string(),
+        description: "Load and play a playlist.".to_string(),
         category: CapabilityCategory::UiControl,
         supported_actions: vec![IntentAction::Navigate, IntentAction::Control],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "playlistId": { "type": "string", "description": "歌单 ID（也可用 playlist_id）" },
-                "playlist_id": { "type": "string", "description": "playlistId 的别名" },
+                "playlistId": { "type": "string", "description": "Playlist id (playlist_id also accepted)" },
+                "playlist_id": { "type": "string", "description": "Alias of playlistId" },
                 "source": {
                     "type": "string",
                     "enum": ["netease", "qq"],
-                    "description": "音乐平台来源"
+                    "description": "Music platform"
                 },
                 "autoPlay": {
                     "type": "boolean",
                     "default": true,
-                    "description": "是否自动开始播放"
+                    "description": "Start playback automatically"
                 }
             },
             "required": ["playlistId"]
@@ -120,8 +120,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 路由状态
     registry.register(Capability {
         id: "router.state".to_string(),
-        name: "路由状态".to_string(),
-        description: "获取当前页面路由状态，了解用户正在查看的内容".to_string(),
+        name: "Route status".to_string(),
+        description: "Read the current route and what is on screen.".to_string(),
         category: CapabilityCategory::UiControl,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -131,32 +131,32 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
-                "currentPath": { "type": "string", "description": "当前路由路径" },
-                "params": { "type": "object", "description": "路由参数" },
-                "query": { "type": "object", "description": "URL 查询参数" },
-                "pageName": { "type": "string", "description": "页面名称" },
+                "currentPath": { "type": "string", "description": "Current route" },
+                "params": { "type": "object", "description": "Route params" },
+                "query": { "type": "object", "description": "URL query params" },
+                "pageName": { "type": "string", "description": "Page name" },
                 "pageType": { 
                     "type": "string", 
                     "enum": ["home", "library", "platform", "brew", "tapp", "report", "settings", "profile", "other"],
-                    "description": "页面类型"
+                    "description": "Page type"
                 },
                 "context": {
                     "type": "object",
-                    "description": "页面上下文信息",
+                    "description": "Page context",
                     "properties": {
-                        "platform": { "type": "string", "description": "当前平台（如 bilibili/steam）" },
-                        "itemId": { "type": "string", "description": "当前查看的项目 ID" },
-                        "viewMode": { "type": "string", "description": "视图模式（list/grid/detail）" },
-                        "filters": { "type": "object", "description": "当前筛选条件" }
+                        "platform": { "type": "string", "description": "Current platform (e.g. bilibili/steam)" },
+                        "itemId": { "type": "string", "description": "Current item id" },
+                        "viewMode": { "type": "string", "description": "View mode (list/grid/detail)" },
+                        "filters": { "type": "object", "description": "Current filters" }
                     }
                 },
                 "breadcrumb": { 
                     "type": "array", 
                     "items": { "type": "string" },
-                    "description": "面包屑导航路径"
+                    "description": "Breadcrumb path"
                 },
-                "canGoBack": { "type": "boolean", "description": "是否可以返回" },
-                "timestamp": { "type": "string", "description": "状态获取时间" }
+                "canGoBack": { "type": "boolean", "description": "Whether back is available" },
+                "timestamp": { "type": "string", "description": "When this state was read" }
             }
         }),
         required_permissions: vec!["router:read".to_string()],
@@ -168,9 +168,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 路由导航
     registry.register(Capability {
         id: "router.navigate".to_string(),
-        name: "路由导航".to_string(),
-        description: "导航到指定页面，支持主应用的所有路由，包括首页、平台页、Brew、Tapp、设置等"
-            .to_string(),
+        name: "Navigate".to_string(),
+        description: "Go to a page in the site.".to_string(),
         category: CapabilityCategory::UiControl,
         supported_actions: vec![IntentAction::Execute],
         input_schema: json!({
@@ -178,25 +177,25 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "目标路由路径，如 /brew、/platform/steam、/tapp/multi"
+                    "description": "Target route, e.g. /brew, /platform/steam, /tapp/multi"
                 },
                 "params": {
                     "type": "object",
-                    "description": "路由参数，如 { sourceId: 123 }"
+                    "description": "Route params, e.g. { sourceId: 123 }"
                 },
                 "query": {
                     "type": "object",
-                    "description": "URL 查询参数，如 { filter: 'unread' }"
+                    "description": "URL query, e.g. { filter: 'unread' }"
                 },
                 "replace": {
                     "type": "boolean",
                     "default": false,
-                    "description": "是否替换当前历史记录（而非添加）"
+                    "description": "Replace the current history entry instead of pushing"
                 },
                 "openInNewWindow": {
                     "type": "boolean",
                     "default": false,
-                    "description": "是否在新窗口/标签页打开"
+                    "description": "Open in a new window/tab"
                 }
             },
             "required": ["path"]
@@ -208,7 +207,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "currentPath": { "type": "string" },
                 "frontendAction": {
                     "type": "object",
-                    "description": "前端执行的导航指令"
+                    "description": "Navigation command for the frontend"
                 }
             }
         }),
@@ -223,8 +222,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 页面元素交互
     registry.register(Capability {
         id: "page.interact".to_string(),
-        name: "页面元素交互".to_string(),
-        description: "与主应用页面元素交互，支持点击按钮、链接、标签页、菜单项等各种可交互元素".to_string(),
+        name: "Page actions".to_string(),
+        description: "Click or type on page elements.".to_string(),
         category: CapabilityCategory::UiControl,
         supported_actions: vec![IntentAction::Execute],
         input_schema: json!({
@@ -233,22 +232,22 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "action": { 
                     "type": "string", 
                     "enum": ["click", "hover", "focus", "scroll", "select", "toggle", "expand", "collapse", "type", "input"],
-                    "description": "交互动作类型。type/input 向输入框写入 value"
+                    "description": "Action type. type/input writes value into an input"
                 },
                 "target": { 
                     "type": "object",
-                    "description": "目标元素",
+                    "description": "Target element",
                     "properties": {
-                        "selector": { "type": "string", "description": "CSS 选择器" },
-                        "testId": { "type": "string", "description": "data-testid 属性值" },
-                        "text": { "type": "string", "description": "元素文本内容（模糊匹配）" },
-                        "ariaLabel": { "type": "string", "description": "aria-label 属性值" },
-                        "role": { "type": "string", "description": "元素角色，如 button、link、tab" },
-                        "index": { "type": "integer", "description": "如果匹配多个元素，选择第几个（0-based）" }
+                        "selector": { "type": "string", "description": "CSS selector" },
+                        "testId": { "type": "string", "description": "data-testid value" },
+                        "text": { "type": "string", "description": "Element text (loose match)" },
+                        "ariaLabel": { "type": "string", "description": "aria-label value" },
+                        "role": { "type": "string", "description": "Role, e.g. button, link, tab" },
+                        "index": { "type": "integer", "description": "Which match to use when several match (0-based)" }
                     }
                 },
                 "value": {
-                    "description": "select/toggle 的值，或 type/input 要写入的文本"
+                    "description": "Value for select/toggle, or text for type/input"
                 },
                 "scrollOptions": {
                     "type": "object",
@@ -260,7 +259,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 },
                 "waitFor": {
                     "type": "object",
-                    "description": "等待条件",
+                    "description": "Wait condition",
                     "properties": {
                         "visible": { "type": "boolean" },
                         "timeout": { "type": "integer", "default": 3000 }
@@ -273,12 +272,12 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "type": "object",
             "properties": {
                 "success": { "type": "boolean" },
-                "queued": { "type": "boolean", "description": "已交给前端；不表示元素已点到" },
+                "queued": { "type": "boolean", "description": "Handed to the frontend; does not mean the element was clicked" },
                 "action": { "type": "string" },
                 "target": { "type": "object" },
                 "frontendAction": {
                     "type": "object",
-                    "description": "前端执行的交互指令"
+                    "description": "Interaction command for the frontend"
                 }
             }
         }),
@@ -286,16 +285,15 @@ pub fn register(registry: &mut CapabilityRegistry) {
         requires_ai: false,
         estimated_duration_ms: Some(200),
         requires_confirmation: true,
-        confirmation_message: Some("即将与页面元素交互".to_string()),
+        confirmation_message: Some("This will interact with a page element".to_string()),
         risk_level: RiskLevel::Low,
     });
 
     // 页面 UI 智能理解
     registry.register(Capability {
         id: "page.understand".to_string(),
-        name: "页面 UI 智能理解".to_string(),
-        description: "使用 AI 分析当前页面的 UI 结构，理解各元素的用途，并根据用户意图生成操作指令"
-            .to_string(),
+        name: "Understand page".to_string(),
+        description: "Analyze the page UI and plan actions.".to_string(),
         category: CapabilityCategory::UiControl,
         supported_actions: vec![IntentAction::Analyze, IntentAction::Execute],
         input_schema: json!({
@@ -303,23 +301,23 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "properties": {
                 "userIntent": {
                     "type": "string",
-                    "description": "用户想要执行的操作描述（也可用 query）"
+                    "description": "What the user wants (query also accepted)"
                 },
                 "query": {
                     "type": "string",
-                    "description": "userIntent 的别名"
+                    "description": "Alias of userIntent"
                 },
                 "currentPath": {
                     "type": "string",
-                    "description": "当前页面路径"
+                    "description": "Current page path"
                 },
                 "context": {
                     "type": "object",
-                    "description": "页面快照（请求级 page_context 会自动注入；也可用 pageSnapshot）"
+                    "description": "Page snapshot (request page_context is injected; pageSnapshot also accepted)"
                 },
                 "pageSnapshot": {
                     "type": "object",
-                    "description": "页面快照信息（由前端提供；handler 读 context / pageSnapshot）",
+                    "description": "Page snapshot from the frontend; handler reads context / pageSnapshot",
                     "properties": {
                         "visibleElements": { "type": "array" },
                         "activeElement": { "type": "object" },
@@ -329,7 +327,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "autoExecute": {
                     "type": "boolean",
                     "default": false,
-                    "description": "是否把计划变成 frontendActions。点击/输入还需要 ui:interact 授予，否则只发 navigate"
+                    "description": "Turn the plan into frontendActions. Click/input still needs granted ui:interact; otherwise only navigate"
                 }
             },
             "required": ["userIntent"]
@@ -347,25 +345,25 @@ pub fn register(registry: &mut CapabilityRegistry) {
         requires_ai: true,
         estimated_duration_ms: Some(3000),
         requires_confirmation: true,
-        confirmation_message: Some("AI 将分析页面并可能执行操作".to_string()),
+        confirmation_message: Some("AI will analyze the page and may run actions".to_string()),
         risk_level: RiskLevel::Medium,
     });
 
     // 页面内容读取
     registry.register(Capability {
         id: "page.content".to_string(),
-        name: "页面内容".to_string(),
-        description: "读取当前页面内容：有快照用快照，否则转发 brew.page / tapp.page / platform.read / report.list".to_string(),
+        name: "Page content".to_string(),
+        description: "Read the current page content.".to_string(),
         category: CapabilityCategory::UiControl,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "currentPath": { "type": "string", "description": "当前路由路径" },
-                "pageType": { "type": "string", "description": "页面类型" },
+                "currentPath": { "type": "string", "description": "Current route" },
+                "pageType": { "type": "string", "description": "Page type" },
                 "context": {
                     "type": "object",
-                    "description": "页面上下文，包含 sourceId、itemId 等"
+                    "description": "Page context including sourceId, itemId, etc."
                 }
             }
         }),
@@ -387,8 +385,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 全局搜索
     registry.register(Capability {
         id: "search.global".to_string(),
-        name: "全局搜索".to_string(),
-        description: "跨平台搜索内容".to_string(),
+        name: "Search".to_string(),
+        description: "Search across platforms.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -416,9 +414,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 模糊搜索
     registry.register(Capability {
         id: "search.fuzzy".to_string(),
-        name: "模糊搜索".to_string(),
-        description: "在 Brew 订阅源、Tapp 应用、内容等中进行模糊搜索。Brew 源匹配名称、category 与 site_url（如「友情链接」可返回友链分类源）。"
-            .to_string(),
+        name: "Fuzzy search".to_string(),
+        description: "Fuzzy-search feeds, apps, and content.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -426,22 +423,22 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "搜索关键词，支持模糊匹配"
+                    "description": "Search keyword (loose match)"
                 },
                 "scope": {
                     "type": "string",
                     "enum": ["brew", "tapp", "all"],
-                    "description": "搜索范围: brew=订阅源, tapp=应用, all=全部",
+                    "description": "Scope: brew=feeds, tapp=apps, all=all",
                     "default": "all"
                 },
                 "type": {
                     "type": "string",
                     "enum": ["source", "item", "app", "widget"],
-                    "description": "搜索类型: source=订阅源, item=内容, app=应用, widget=组件"
+                    "description": "Kind: source=feed, item=content, app=app, widget=widget"
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "返回结果数量限制",
+                    "description": "Max results",
                     "default": 10
                 }
             },
@@ -459,7 +456,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
                             "name": { "type": "string" },
                             "type": { "type": "string" },
                             "scope": { "type": "string" },
-                            "score": { "type": "number", "description": "匹配得分 0-1" },
+                            "score": { "type": "number", "description": "Match score 0-1" },
                             "metadata": { "type": "object" }
                         }
                     }
@@ -468,15 +465,15 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "query": { "type": "string" },
                 "notFound": {
                     "type": "boolean",
-                    "description": "是否未找到任何匹配"
+                    "description": "Whether nothing matched"
                 },
                 "canDiscover": {
                     "type": "boolean",
-                    "description": "是否可以尝试发现新源"
+                    "description": "Whether discovering a new feed is possible"
                 },
                 "discoveryHint": {
                     "type": "object",
-                    "description": "发现新源的提示信息",
+                    "description": "Hint for discovering a new feed",
                     "properties": {
                         "suggestedUrls": { "type": "array", "items": { "type": "string" } },
                         "searchQuery": { "type": "string" }
@@ -493,8 +490,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 内容写入
     registry.register(Capability {
         id: "content.write".to_string(),
-        name: "内容写入".to_string(),
-        description: "将内容写入到指定目标（Tapp 应用、笔记、剪贴板等）".to_string(),
+        name: "Write content".to_string(),
+        description: "Write content to an app, note, or clipboard.".to_string(),
         category: CapabilityCategory::DataWrite,
         supported_actions: vec![IntentAction::Create, IntentAction::Update],
         input_schema: json!({
@@ -506,16 +503,16 @@ pub fn register(registry: &mut CapabilityRegistry) {
                         "type": {
                             "type": "string",
                             "enum": ["tapp", "clipboard", "file", "storage"],
-                            "description": "目标类型"
+                            "description": "Target type"
                         },
-                        "id": { "type": "string", "description": "目标 ID（如 Tapp ID）" },
-                        "name": { "type": "string", "description": "目标名称（用于模糊匹配）" }
+                        "id": { "type": "string", "description": "Target id (e.g. Tapp id)" },
+                        "name": { "type": "string", "description": "Target name (loose match)" }
                     },
                     "required": ["type"]
                 },
                 "content": {
                     "type": "string",
-                    "description": "要写入的内容"
+                    "description": "Content to write"
                 },
                 "contentType": {
                     "type": "string",
@@ -524,7 +521,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 },
                 "append": {
                     "type": "boolean",
-                    "description": "是否追加而非覆盖",
+                    "description": "Append instead of overwrite",
                     "default": false
                 }
             },
@@ -544,15 +541,15 @@ pub fn register(registry: &mut CapabilityRegistry) {
         requires_ai: false,
         estimated_duration_ms: Some(200),
         requires_confirmation: true,
-        confirmation_message: Some("即将写入内容到目标".to_string()),
+        confirmation_message: Some("This will write content to the target".to_string()),
         risk_level: RiskLevel::Low,
     });
 
     // 上下文引用
     registry.register(Capability {
         id: "context.reference".to_string(),
-        name: "上下文引用".to_string(),
-        description: "引用之前步骤的输出结果，支持路径表达式访问嵌套数据".to_string(),
+        name: "Context reference".to_string(),
+        description: "Reuse output from an earlier step.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -560,16 +557,16 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "properties": {
                 "stepId": {
                     "type": "string",
-                    "description": "要引用的步骤 ID"
+                    "description": "Step id to cite"
                 },
                 "path": {
                     "type": "string",
-                    "description": "JSON 路径表达式，如 'results[0].content' 或 'summary'"
+                    "description": "JSON path, e.g. results[0].content or summary"
                 },
                 "transform": {
                     "type": "string",
                     "enum": ["none", "stringify", "parse", "join", "first", "last"],
-                    "description": "转换操作",
+                    "description": "Transform",
                     "default": "none"
                 }
             },
@@ -578,8 +575,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
-                "value": { "description": "引用的值" },
-                "type": { "type": "string", "description": "值的类型" }
+                "value": { "description": "Cited value" },
+                "type": { "type": "string", "description": "Value type" }
             }
         }),
         required_permissions: vec![],

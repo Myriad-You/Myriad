@@ -46,7 +46,6 @@ export interface Anime25DOpacityFrame {
   mouthUnderlay: SpeechMouthMaterial
 }
 
-/** Resolves stable mouth artwork references once instead of scanning per frame. */
 export function compileAnime25DMouthMorphSources(
   layers: readonly Anime25DPlaybackLayer[],
 ): Anime25DMouthMorphSources {
@@ -136,7 +135,6 @@ export function resolveMouthMorph(
   }
   if (maniac > 0) {
     // An extreme mouth must still fit the character's lower face.
-    // Blend the guard with the expression so entry/exit remains continuous.
     const faceWidth = Math.max(1, face.x1 - face.x0)
     const faceHeight = Math.max(1, face.y1 - face.y0)
     const maximumWidth = faceWidth * 0.54
@@ -206,8 +204,6 @@ export function fadeOpacity(
   const anger = smoothstep(driver.anger)
   const speechless = smoothstep(driver.speechless)
   const maniac = smoothstep(driver.maniac)
-  // Silly is a complete eye and mouth replacement, so it yields to every
-  // artwork state that also replaces the eyes and to the wilder maniac face.
   const silly =
     smoothstep(driver.silly) *
     (1 - dizzy) *
@@ -221,8 +217,6 @@ export function fadeOpacity(
     (1 - squeeze) *
     (1 - maniac) *
     (1 - silly)
-  // The vacant eyes and the vacant mouth are owned separately: speech keeps
-  // the articulating mouth while the stare stays on the face.
   const sillyMouth = silly * clamp(sillyMouthShare, 0, 1)
   const symbolBlocker =
     (1 - dizzy) * (1 - squeeze) * (1 - cry) * (1 - silly) * (1 - lovestruck)
@@ -300,7 +294,6 @@ export function createAnime25DOpacityFrame(): Anime25DOpacityFrame {
   }
 }
 
-/** Computes shared expression weights once for every layer in a frame. */
 export function writeAnime25DOpacityFrame(
   output: Anime25DOpacityFrame,
   driver: Readonly<Anime25DDriver>,
@@ -356,7 +349,6 @@ export function writeAnime25DOpacityFrame(
   output.mouthUnderlay = regularMouthMaterial(driver, activeMouthMaterial)
 }
 
-/** Resolves one preclassified layer from the shared frame weights. */
 export function fadeOpacityFromFrame(
   layer: Pick<Anime25DPlaybackLayer, 'fade' | 'side'>,
   frame: Readonly<Anime25DOpacityFrame>,

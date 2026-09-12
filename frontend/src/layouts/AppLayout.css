@@ -1,12 +1,9 @@
-/* 导航岛动画系统
- * navigation-island.css 和本文件的 .dynamic-island transition 保持一致，
- * 若需修改动画曲线，两处都要同步修改 */
+/* Keep .dynamic-island transition in sync with navigation-island.css. */
 .dynamic-island {
-  width: 65px; /* 桌面端默认宽度 */
+  width: 65px;
   overflow: hidden;
 
-  /* 容器尺寸过渡：与内容退出同时启动，回弹曲线营造弹性感
-   * 补充 background/border-color 以修复 navigation-island.css 中 hover 状态的过渡被覆盖的问题 */
+  /* Also transition background/border-color; navigation-island.css hover must not be overridden. */
   transition:
     height 0.45s cubic-bezier(0.25, 1.3, 0.5, 1),
     width 0.45s cubic-bezier(0.25, 1.3, 0.5, 1),
@@ -15,10 +12,7 @@
     box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/*
- * 底栏↔侧轨 crossfade 期间：关掉岛内 width/height 弹性过渡。
- * 布局已在 opacity≈0 时切完，尺寸弹跳只会在淡入时露馅。
- */
+/* During bottom↔side crossfade, disable width/height bounce (layout already flipped at opacity≈0). */
 .nav-container[data-nav-switch] .dynamic-island {
   transition:
     background 0.3s ease,
@@ -26,26 +20,18 @@
     box-shadow 0.3s ease !important;
 }
 
-/* 仅在动画过渡时启用 will-change，避免常驻占用合成层 */
+/* will-change only while transitioning. */
 .dynamic-island[data-transitioning='true'] {
   will-change: height, width;
 }
 
-/* 防闪安全网：内容切换瞬间，新 DOM 尚未设置 enter-initial 时保持不可见 */
+/* Hide until enter-initial is set (anti-flash). */
 .dynamic-island[data-entering='true'] .nav-group {
   opacity: 0 !important;
   transition: none !important;
 }
 
-/* 移动端 / 触控底栏横向布局
- *
- * 残影修复：backdrop-filter 与 overflow 滚动不能落在同一元素上。
- * 外层 .dynamic-island 只负责毛玻璃 + 圆角裁剪（overflow: hidden），
- * 内层 .nav-island-scroll 承担横向滚动。
- *
- * 权威选择器：html[data-nav-layout=mobile]（平板触控 768–1023 也走底栏）。
- * width media 仅作 FOUC 回退。
- */
+/* backdrop-filter and overflow scroll must not share an element. html[data-nav-layout=mobile] is authoritative; width media is FOUC fallback. */
 @media (width <= 767px) {
   .dynamic-island {
     width: auto;
@@ -95,9 +81,7 @@
   }
 }
 
-/* 平板触控等：强制底栏样式（覆盖桌面 FOUC / 残留）
- * 勿对 width/height 用 !important：二级导航宽度过渡依赖 inline width。
- * 布局切换时由 JS resetIslandChromeForLayout 清掉错误侧的 inline 尺寸。 */
+/* Do not !important width/height; secondary nav needs inline width. resetIslandChromeForLayout clears the wrong side. */
 html[data-nav-layout='mobile'] .dynamic-island {
   width: auto;
   height: auto;
@@ -145,7 +129,6 @@ html[data-nav-layout='mobile'] .nav-group {
   flex-shrink: 0;
 }
 
-/* 桌面侧轨：清掉底栏滚动/flex 残留，恢复固定轨宽 */
 html[data-nav-layout='desktop'] .dynamic-island {
   width: 65px;
   min-height: 0;
@@ -175,8 +158,6 @@ html[data-nav-layout='desktop'] .nav-island-content {
   padding-inline: 0;
 }
 
-/* 导航岛内容容器 - Apple 风格动画
- * 默认列（桌面侧轨）；底栏由 data-nav-layout=mobile / 窄屏 media 改行 */
 .nav-island-content {
   position: relative;
   transform-origin: center;
@@ -184,9 +165,7 @@ html[data-nav-layout='desktop'] .nav-island-content {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.25rem; /* 自 astro 页面级样式迁移（原双份声明，astro 版已删） */
-
-  /* 确保内容始终可见，防止消失 */
+  gap: 0.25rem;
   min-height: 36px;
 }
 
@@ -203,7 +182,6 @@ html[data-nav-layout='desktop'] .nav-island-content {
   }
 }
 
-/* 内容切换时的呼吸效果 - 与容器过渡同步 */
 .dynamic-island[data-transitioning='true'] .nav-island-content {
   animation: breathe 0.45s cubic-bezier(0.25, 1.3, 0.5, 1);
 }
@@ -222,7 +200,6 @@ html[data-nav-layout='desktop'] .nav-island-content {
   }
 }
 
-/* 导航项组间距 — 默认底栏横排；侧轨改纵向 */
 .nav-group-spaced {
   margin-left: 8px;
   margin-top: 0;
@@ -264,9 +241,7 @@ html[data-nav-layout='desktop'] .nav-group-spaced {
   }
 }
 
-/* 导航项组 - 统一动画，快速流畅的回弹效果
- * 桌面端保留 translateZ 以平滑进出场；移动端空闲态在下方 media 中取消，
- * 避免横向滚动时每个图标各占合成层造成残影。 */
+/* Desktop keeps translateZ; mobile idle must not (compositor ghosts while scrolling). */
 .nav-group {
   opacity: 1;
   transform: scale(1) translateY(0) translateZ(0);
@@ -274,41 +249,12 @@ html[data-nav-layout='desktop'] .nav-group-spaced {
   -webkit-font-smoothing: antialiased;
 }
 
-/* =============================================
-   导航项组动画系统
-
-   编排时序（桌面端 / 移动端）:
-   ┌─ 退出阶段 ──────────────────────────────┐
-   │ 容器高度变化    0.45s bounce             │
-   │ 各项交错退出    40ms/项 (桌面) ← 同时    │
-   │                 25ms/项 (移动)            │
-   │ 单项退出过渡    0.25s/0.32s (桌面)        │
-   │                 0.15s/0.2s  (移动)        │
-   └──────────────────────────────────────────┘
-            ↓ 等退出完全结束
-   ┌─ 切换阶段 ──────────────────────────────┐
-   │ DOM 卸载旧内容 → 挂载新内容              │
-   └──────────────────────────────────────────┘
-            ↓ 新内容挂载后
-   ┌─ 进入阶段 ──────────────────────────────┐
-   │ 呼吸动画        0.45s pulse              │
-   │ 各项交错进入    50ms/项 (桌面) ← 同时    │
-   │                 30ms/项 (移动)            │
-   │ 单项进入过渡    0.3s/0.4s (桌面 bounce)   │
-   │                 0.2s/0.28s (移动 bounce)  │
-   └──────────────────────────────────────────┘
-   ============================================= */
-
-/* 桌面端默认：从容优雅的节奏 */
-
-/* 正常态过渡（进入动画完成时、data-animation 被移除后触发） */
 .nav-group:not([data-animation]) {
   transition:
     opacity 0.3s cubic-bezier(0.25, 1.2, 0.5, 1),
     transform 0.4s cubic-bezier(0.25, 1.2, 0.5, 1);
 }
 
-/* 进入动画初始态 - 从下方缩放淡入 */
 .nav-group[data-animation='enter-initial'] {
   opacity: 0;
   transform: scale(0.88) translateY(8px) translateZ(0);
@@ -317,7 +263,7 @@ html[data-nav-layout='desktop'] .nav-group-spaced {
     transform 0.4s cubic-bezier(0.25, 1.2, 0.5, 1);
 }
 
-/* 保护机制：动画标记残留超过1秒时强制显示 */
+/* Force-show if the animation flag is stuck >1s. */
 .nav-group[data-animation='enter-initial'] {
   animation: force-visible 1s 1s forwards;
 }
@@ -329,7 +275,6 @@ html[data-nav-layout='desktop'] .nav-group-spaced {
   }
 }
 
-/* 退出动画目标态 - 向下缩放淡出，accelerate 曲线 */
 .nav-group[data-animation='exit'] {
   opacity: 0;
   transform: scale(0.88) translateY(8px) translateZ(0);
@@ -338,19 +283,14 @@ html[data-nav-layout='desktop'] .nav-group-spaced {
     transform 0.32s cubic-bezier(0.4, 0, 1, 1);
 }
 
-/* 分隔线 - 与退出动画对齐 */
 .nav-group[data-group='divider'] {
   transition:
     opacity 0.28s cubic-bezier(0.4, 0, 1, 1),
     transform 0.35s cubic-bezier(0.4, 0, 1, 1);
 }
 
-/* 底栏（mobile / 触控平板）覆盖：敏捷紧凑，水平进出场 */
 @media (width <= 767px) {
-  /*
-   * 空闲态不写 translateZ：常驻合成层会在横向滚动时留下图层残影。
-   * 仅在 data-animation 进出场期间使用 transform。
-   */
+  /* Idle: no translateZ. Transform only during data-animation. */
   .nav-group {
     transform: none;
     backface-visibility: visible;
@@ -422,7 +362,6 @@ html[data-nav-layout='mobile']
   animation: breathe 0.3s cubic-bezier(0.25, 1.3, 0.5, 1);
 }
 
-/* 侧轨：恢复纵向进出场（清掉底栏 translateX 残留） */
 html[data-nav-layout='desktop'] .nav-group {
   transform: scale(1) translateY(0) translateZ(0);
   backface-visibility: hidden;
@@ -436,7 +375,7 @@ html[data-nav-layout='desktop'] .nav-group[data-animation='exit'] {
   transform: scale(0.88) translateY(8px) translateZ(0);
 }
 
-/* 二级导航激活状态 - 补充 navigation-island.css 中 [aria-current] 未覆盖的场景 */
+/* Covers [aria-current] cases navigation-island.css misses. */
 .nav-item.active-secondary {
   color: var(--color-primary);
   background: color-mix(in srgb, var(--color-primary) 15%, white);
@@ -451,14 +390,8 @@ html.dark .nav-item.active-secondary {
     inset 0 1px 0 0 rgb(255 255 255 / 10%);
 }
 
-/*
- * 底栏模式导航岛留白：各页 AnimatedView / 内容壳已用 pb-24 / pb-28 等处理，
- * 切勿再写全局 `section { padding-bottom: 7rem }`——设置「选项指南」的
- * .setting-guide-block、SetupFlow、商店分区等内部 section 会被每块多垫 7rem，
- * 移动端表现为「分类之间间距异常大」。
- */
+/* Do not add global section { padding-bottom: 7rem }; pages already pad, and inner sections would stack 7rem. */
 
-/* 减少不必要的动画以提升性能 */
 @media (prefers-reduced-motion: reduce) {
   .dynamic-island,
   .nav-group,
@@ -466,7 +399,6 @@ html.dark .nav-item.active-secondary {
     transition: none !important;
   }
 
-  /* 禁用渐变边框流动动画与呼吸动画 */
   .dynamic-island::before {
     animation: none !important;
   }

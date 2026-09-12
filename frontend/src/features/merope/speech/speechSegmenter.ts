@@ -12,11 +12,6 @@ export interface SpeechSegment {
   generation: number
   source?: MeropeSpeechSource
   interrupt: SpeechInterruptMode
-  /**
-   * UI language at the time the reply was written. Han characters alone cannot
-   * say whether a line is Chinese or Japanese, and reading Japanese kanji as
-   * pinyin gives the wrong mouth for the whole sentence.
-   */
   locale?: string
 }
 
@@ -24,10 +19,6 @@ const CJK_SENTENCE_END = /[。！？!?…]/
 const MAX_CHARS = 120
 const MIN_CHARS = 4
 
-/**
- * Accumulates Lite tokens and emits stable speakable sentences.
- * A segment is ready at a sentence end, a newline, or the max length.
- */
 export class SpeechSegmenter {
   private raw = ''
   private spokenOffset = 0
@@ -102,18 +93,6 @@ export class SpeechSegmenter {
   }
 }
 
-/**
- * End of the prefix whose speakable form can no longer change.
- *
- * `speakableText` only recognises a construct once it is closed, so an
- * unterminated fence reads as plain text and would be spoken; when the closing
- * marker finally arrives the whole block collapses and the speakable string
- * gets *shorter*, invalidating `spokenOffset`. Holding back from the opener
- * keeps that string monotonic, which is what the offset assumes.
- *
- * On `force` the message is over, so only unclosed code stays unspoken; a
- * half-written link or tag is prose and is read as-is.
- */
 function stableRawEnd(raw: string, force: boolean): number {
   let end = raw.length
   const code = openCode(raw)
@@ -125,19 +104,11 @@ function stableRawEnd(raw: string, force: boolean): number {
   return end
 }
 
-/**
- * True when a fence opened on its own line is still unclosed. Everything
- * before it is finished prose, so it may be cut even without a sentence end --
- * otherwise a long code block would hold the preceding line until `end()`.
- * Inline openers get no such seal: cutting there would split one sentence
- * across two utterances.
- */
 function blockFenceOpen(raw: string): boolean {
   const fence = openCode(raw).fence
   return fence === 0 || (fence > 0 && raw[fence - 1] === '\n')
 }
 
-/** Start of the unterminated fence and inline code span, each -1 when closed. */
 function openCode(raw: string): { fence: number; tick: number } {
   let index = 0
   let fence = -1
@@ -158,7 +129,6 @@ function openCode(raw: string): { fence: number; tick: number } {
   return { fence, tick }
 }
 
-/** Start of an unterminated link, HTML tag, or URL, or -1. */
 function openProseStart(raw: string): number {
   let end = -1
   const link = openLinkStart(raw)
@@ -170,7 +140,6 @@ function openProseStart(raw: string): number {
   return end
 }
 
-/** A trailing token that may still grow into a link `speakableText` strips. */
 const TRAILING_URL = /(?:\bwww|\bhttp)\S*$/i
 
 function openLinkStart(raw: string): number {
@@ -252,7 +221,7 @@ const PERIOD_ABBREVIATIONS = new Set([
   'no',
 ])
 
-/** Exclusive end index, or -1. ASCII `.` needs a following space and is not a decimal. */
+/** ASCII `.` needs a following space and is not a decimal. */
 function sentenceEndAfter(text: string, index: number): number {
   const ch = text[index]
   if (!ch) return -1

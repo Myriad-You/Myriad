@@ -10,8 +10,7 @@
 //! - 一个都不命中返回 `None`，写入 NULL。**不要**写「未知」/「其他」——
 //!   聚类侧靠 NULL 把这些文章留在源磁贴里。
 //!
-//! AI 批量打标（Brewlia，每小时跑近 30 天 `topic IS NULL`）替换的是「谁来写
-//! 这个 key」，不是聚类逻辑；失败一律保持 NULL。
+//! 生产路径只有关键词打标（插入时 `infer_topic_by_keywords`）；没有小时级 AI 批量。
 
 /// 预定义主题及其关键词种子（大小写不敏感，匹配标题 + 摘要前 200 字）。
 ///
@@ -57,17 +56,17 @@ const TOPIC_SEEDS: &[(&str, &[&str])] = &[
     ("hardware", &["芯片", "硬件", "pcb", "制造", "risc-v"]),
 ];
 
-/// 摘要参与匹配的前缀字符数（与 AI prompt 的「摘要前 200 字」一致）。
+/// 摘要参与匹配的前缀字符数。
 const SUMMARY_MATCH_CHARS: usize = 200;
 
-/// 全部预定义主题 key。AI 打标只许从这里选，不许自创。
-#[allow(dead_code)] // consumed by the hourly AI batch, not the keyword path
+/// 全部预定义主题 key。
+#[allow(dead_code)] // tests only; no production AI tagger
 pub fn predefined_topics() -> Vec<&'static str> {
     TOPIC_SEEDS.iter().map(|(key, _)| *key).collect()
 }
 
-/// key 是否在预定义表内。用于校验 AI 返回值。
-#[allow(dead_code)] // consumed by the hourly AI batch, not the keyword path
+/// key 是否在预定义表内。
+#[allow(dead_code)] // tests only; no production AI tagger
 pub fn is_predefined_topic(key: &str) -> bool {
     TOPIC_SEEDS.iter().any(|(k, _)| *k == key)
 }

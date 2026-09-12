@@ -7,7 +7,6 @@ import type {
 
 export type WidgetSize = WidgetSizeKey | StickerExtraSizeKey
 
-/** Layout tile kind. Absent / `widget` counts toward the free-mode cell budget. */
 export type HomeLayoutItemKind = 'widget' | 'sticker'
 
 export interface WidgetConfig {
@@ -33,7 +32,6 @@ export interface WidgetType {
   component: ComponentType<WidgetComponentProps>
   supportedSizes?: WidgetSize[]
   settings?: TappSettingItem[]
-  /** Catalog: third-party Tapp widget (absent/false = built-in). */
   isTappWidget?: boolean
   tappId?: string
   category?: string

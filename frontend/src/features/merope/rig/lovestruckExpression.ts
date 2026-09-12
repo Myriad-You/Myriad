@@ -101,10 +101,6 @@ export function createLovestruckHeartBitmap(
   return { width, height, data }
 }
 
-/**
- * One face-local layer carries the broad blush, hatch marks, and three small
- * sweat drops. Keeping them in one atlas rectangle avoids three extra draws.
- */
 export function createLovestruckFaceEffectBitmap(
   requestedSize: Readonly<LovestruckBitmapSize>,
   sourcePink: Readonly<RgbColor>,

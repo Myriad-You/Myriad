@@ -1,16 +1,9 @@
-/*
- * 共享歌词波浪视口（Tapp 语义）
- * variant: card（资料库）| panel（控制面板）
- */
-
 .lyric-wave {
   --lyric-wave-color: #ef4444;
 
   position: relative;
   width: 100%;
   overflow: hidden;
-
-  /* 默认几乎不 mask，避免焦点行被淡出裁掉 */
   mask-image: none;
   mask-image: none;
 }
@@ -18,8 +11,6 @@
 .lyric-wave--card {
   height: 5.8rem;
   z-index: 1;
-
-  /* 卡片仅极薄上下淡出 */
   mask-image: linear-gradient(
     to bottom,
     transparent 0%,
@@ -45,16 +36,12 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
-
-  /* 面板极矮：关闭 mask，完全靠 JS 安全区 */
   mask-image: none;
   mask-image: none;
 }
 
 .lyric-wave__inner {
   position: absolute;
-
-  /* 上下+左右留白：防裁切，适度贴边 */
   inset: 0.15rem 0.3rem;
   width: auto;
 }
@@ -63,9 +50,6 @@
   inset: 0.12rem 0.25rem;
 }
 
-/*
- * 行：统一字号/字重；激活只靠 scale + 色/模糊（零重排）
- */
 .lyric-wave__row {
   position: absolute;
   top: 0;
@@ -77,8 +61,6 @@
   word-break: break-word;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
-
-  /* 顶对齐缩放：只向下长，不向上鼓出被裁 */
   transform-origin: center top;
   transition:
     opacity 0.48s cubic-bezier(0.33, 1, 0.68, 1),
@@ -86,7 +68,6 @@
     filter 0.48s cubic-bezier(0.33, 1, 0.68, 1);
 }
 
-/* —— card：资料库卡片白字；行距略松一点（仅 card，不影响面板） —— */
 .lyric-wave--card .lyric-wave__row {
   padding: 0.2rem;
   font-size: 0.72rem;
@@ -133,7 +114,6 @@
   );
 }
 
-/* —— panel：控制面板主题色，与外容器内容区同宽居中 —— */
 .lyric-wave--panel .lyric-wave__row {
   padding: 0.38rem 0.15rem;
   font-size: 0.8125rem;
@@ -150,7 +130,7 @@ html.dark .lyric-wave--panel .lyric-wave__row {
 }
 
 .lyric-wave--panel .lyric-wave__row.is-active {
-  /* 用字号而不是 scale>1，避免视觉溢出被 overflow 裁切 */
+  /* 用字号不要 scale>1，避免被 overflow 裁切。 */
   font-size: 1rem;
   font-weight: 700;
   line-height: 1.4;

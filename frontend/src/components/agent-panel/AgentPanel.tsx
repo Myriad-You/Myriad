@@ -1,13 +1,3 @@
-/**
- * Agent 面板外壳 —— 只管「现在展开到第几档」。
- *
- * Quick Overlay、Full 是同一块东西的两个大小，所以档位、手势、收起这些跨档的事
- * 集中在这里，各档自己只管长什么样。收起后底部不再留一枚状态胶囊。
- *
- * 输入那一行也归这里摆：它已经从卡片里搬出来，是卡片外面的输入框加一枚动作，两档
- * 共用同一行。「什么时候不该出现」（等人拍板、在设置那一面）于是也成了跨档的规矩。
- */
-
 import type { AgentAttachment } from './agentAttachments'
 import type { AgentPanelFullView } from './AgentPanelFull'
 import type { AgentPanelMode } from './agentPanelMode'
@@ -138,23 +128,14 @@ export const AgentPanel: React.FC = () => {
   const pendingAction = useAgentPendingAction()
   const undoOffer = useAgentUndoOffer()
   const mode = useAgentPanelMode()
-  /**
-   * Full 档正看着哪一面。
-   *
-   * 放在这里而不是 Full 自己身上，是因为输入那一行也归这里摆 —— 设置那一面没有
-   * 「跟它说话」这回事，输入框得收起来，而收的人在外面。
-   */
   const [fullView, setFullView] = useState<AgentPanelFullView>('messages')
 
-  // 收起之后重新唤起，从对话那一面开始 —— 上次翻到设置页不该留到下一次
   useEffect(() => {
     if (!showsFull) setFullView('messages')
   }, [showsFull])
 
-  /** 等人拍板时那一档整块让给操作卡片；设置那一面没有「跟它说话」这回事。 */
   const showsComposer = !pendingAction && !(showsFull && fullView === 'manage')
 
-  // 通知中心这些外部入口：叫开面板，并落到它们想让人看的那一面
   useEffect(() => {
     const onOpen = (event: Event) => {
       setFullView(agentPanelOpenView(event))
@@ -170,17 +151,12 @@ export const AgentPanel: React.FC = () => {
     return () => window.removeEventListener(AGENT_PANEL_CLOSE_EVENT, onClose)
   }, [])
 
-  // 要人拍板的时候自动展开。这不算抢占：确认是用户自己那条指令的下一步，
-  // 而且它有时限，不展开就会过期。
   useEffect(() => {
     if (pendingAction) dispatch({ type: 'open', stage: 'overlay' })
   }, [pendingAction])
 
-  // 移动端展开时给导航岛让位。
   useImmersiveChrome('agent-panel-overlay', navLayout === 'mobile' && open)
 
-  // 档位跟着「有没有话要读」走：正说着的时候唤起，直接展开到能读的那一档，
-  // 不该让人先看到一个空输入框再自己点开。
   const hasConversation = messageCount > 0
   const { indicator } = useLongPress(
     LONG_PRESS_DURATION,
@@ -195,8 +171,7 @@ export const AgentPanel: React.FC = () => {
     !open,
   )
 
-  // 入场：先落到 opening（整块锚点 opacity 0），下一帧再 settled，transition 才会播。
-  // @starting-style 兜底初次挂上。不能把消息条数算进依赖 —— 流式追加会反复取消双 rAF，卡在 opening。
+  // do not depend on message count: streaming tokens would cancel the double rAF
   useEffect(() => {
     if (stage.phase !== 'opening') return
     let inner = 0
@@ -211,7 +186,6 @@ export const AgentPanel: React.FC = () => {
     }
   }, [stage.phase, stage.stage])
 
-  // 退场停在 closing 等到卡片收完再卸。
   useEffect(() => {
     if (stage.phase !== 'closing') return
     const timer = setTimeout(
@@ -225,10 +199,8 @@ export const AgentPanel: React.FC = () => {
     return () => clearTimeout(timer)
   }, [fullView, messageCount, showsFull, stage.phase, stage.stage])
 
-  // 一直盯着选区。必须常驻 —— 长按那一下会把选区收掉，等面板开了再看就晚了。
   useEffect(() => watchAgentSelection(), [])
 
-  // 换页面时收起：上下文都变了，开着的那句话已经不成立，记着的那段选中也是
   useEffect(() => {
     dispatch({ type: 'close' })
     clearAgentSelection()
@@ -260,7 +232,7 @@ export const AgentPanel: React.FC = () => {
         dispatch({ type: 'close' })
       }
     }
-    // 延后挂载：唤起用的那次长按会以 mouseup 收尾，立刻挂上会被同一串事件关掉
+    // same long-press mouseup would close the panel if this listener were immediate
     const timer = setTimeout(
       () => document.addEventListener('mousedown', onPointerDown),
       100,
@@ -279,7 +251,6 @@ export const AgentPanel: React.FC = () => {
     ) => {
       if (submitMode !== mode) setAgentPanelMode(submitMode)
       dispatchAgentPanelSubmit(text, attachments, submitMode)
-      // 展开到能读答案的那一档，而不是收起 —— 问完就把面板关掉等于让人白问
       setFullView('messages')
       dispatch({ type: 'open', stage: 'full' })
     },
@@ -293,7 +264,6 @@ export const AgentPanel: React.FC = () => {
     dispatch({ type: 'open', stage: 'full' })
   }, [])
 
-  // 撤销就是把逆操作再执行一遍 —— 不另起一套机制
   const undo = useCallback(() => {
     if (!undoOffer) return
     clearAgentUndoOffer(undoOffer.id)
@@ -345,7 +315,6 @@ export const AgentPanel: React.FC = () => {
               />
             ) : null}
 
-            {/* 等人拍板、翻设置的时候没有话可说，这一行就不该杵在那儿 */}
             {showsComposer && (
               <AgentPanelComposer
                 onSubmit={submit}

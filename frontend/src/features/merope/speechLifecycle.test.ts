@@ -36,9 +36,9 @@ class FakeScheduler implements SpeechLifecycleScheduler {
   advance(ms: number): void {
     const destination = this.time + ms
     while (true) {
-      const next = [...this.timers.entries()]
+      const next = Iterator.from(this.timers.entries()).toArray()
         .filter(([, timer]) => timer.at <= destination)
-        .sort((left, right) => left[1].at - right[1].at)[0]
+        .toSorted((left, right) => left[1].at - right[1].at)[0]
       if (!next) break
       this.time = next[1].at
       this.timers.delete(next[0])
@@ -67,6 +67,55 @@ function fakeTarget() {
   return { target, active, auto, energy, articulation, prosody, text }
 }
 
+test('cancelled chunks and audio cannot resurrect speech; explicit restart remains possible', () => {
+  const rig = fakeTarget()
+  const scheduler = new FakeScheduler()
+  const controller = new SpeechLifecycleController(rig.target, scheduler)
+  const base = {
+    messageId: 'cancelled',
+    utteranceId: 'first',
+    source: 'reply' as const,
+  }
+  controller.handle({ ...base, phase: 'start' })
+  controller.handle({ ...base, phase: 'cancel' })
+  assert.equal(
+    controller.handle({ ...base, phase: 'chunk', text: 'late' }),
+    'ignored',
+  )
+  assert.equal(
+    controller.handle({ ...base, phase: 'energy', energy: 1 }),
+    'ignored',
+  )
+  assert.equal(scheduler.activeTimerCount, 0)
+  assert.deepEqual(rig.text, [])
+  const successor = { ...base, utteranceId: 'second' }
+  controller.handle({ ...successor, phase: 'start' })
+  controller.handle({ ...base, phase: 'cancel' })
+  assert.equal(
+    controller.handle({ ...successor, phase: 'chunk', text: 'new' }),
+    'active',
+  )
+  controller.handle({
+    messageId: base.messageId,
+    source: 'reply',
+    phase: 'cancel',
+  })
+  assert.equal(
+    controller.handle({ ...successor, phase: 'chunk', text: 'late-new' }),
+    'ignored',
+  )
+  controller.handle({ ...successor, phase: 'start' })
+  assert.equal(
+    controller.handle({ ...successor, phase: 'chunk', text: 'replay' }),
+    'active',
+  )
+  assert.deepEqual(
+    rig.text.map((entry) => entry.text),
+    ['new', 'replay'],
+  )
+  controller.dispose()
+})
+
 test('keeps fallback prosody alive for a complete non-streamed reply', () => {
   const scheduler = new FakeScheduler()
   const rig = fakeTarget()
@@ -84,8 +133,7 @@ test('keeps fallback prosody alive for a complete non-streamed reply', () => {
   assert.deepEqual(rig.active, [true])
   scheduler.advance(500)
   assert.deepEqual(rig.auto, [true])
-  // Advance past the estimate rather than a fixed number: the tail is sized to
-  // outlast the slowest realized cadence, and that budget is allowed to change.
+  // Advance past the estimate rather than a fixed number
   scheduler.advance(estimateAutoSpeechDurationMs('你好，这是一段回答。') + 500)
   assert.deepEqual(rig.auto, [true, false])
   assert.deepEqual(rig.active, [true, false])
@@ -361,7 +409,6 @@ test('a live-conversation energy frame cannot evict a reply that is speaking', (
     source: 'reply',
     text: '在的',
   })
-  // Agora samples the remote track at 20Hz under its own conversation id.
   controller.handle({
     phase: 'energy',
     messageId: 'convo-agent-7',

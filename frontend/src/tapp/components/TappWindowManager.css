@@ -19,11 +19,6 @@
   }
 }
 
-/*
- * Multi-window resize hit zones
- * - Edges: 6px band (slightly outside frame for easier grab)
- * - Corners: 16px, higher z-index so they win over edges
- */
 .tapp-window-resize-handle {
   position: absolute;
   z-index: 20;
@@ -42,7 +37,6 @@
   }
 }
 
-/* Edge bands: inset from corners so corners own the diagonal zone */
 .tapp-window-resize-n {
   top: -3px;
   left: 14px;
@@ -75,7 +69,6 @@
   cursor: w-resize;
 }
 
-/* Corners sit above edges */
 .tapp-window-resize-ne,
 .tapp-window-resize-nw,
 .tapp-window-resize-se,
@@ -109,7 +102,6 @@
   cursor: sw-resize;
 }
 
-/* Touch / coarse pointer: larger hit targets */
 @media (pointer: coarse) {
   .tapp-window-resize-n,
   .tapp-window-resize-s {
@@ -170,12 +162,6 @@
   }
 }
 
-/* ── Multi-window dock ────────────────────────────────────────────────
- *
- * 尺寸：固定 rem（不跟视口 fluid 缩放，避免多处 clamp/vw 重算）
- * 材质：.glass 消费 surface 令牌；布局：圆点 absolute，不撑高条
- */
-
 .tapp-multi-desktop,
 .tapp-multi-dock {
   --tapp-dock-icon: 2.5rem;
@@ -208,12 +194,9 @@
   z-index: 1000;
   transform: translateX(-50%);
   pointer-events: none;
-
-  /* 应用面板入口 + 最多 18 快捷 app */
   max-width: min(98vw, 72rem);
 }
 
-/* 玻璃条：固定尺寸 + 全站 surface（.glass） */
 .tapp-multi-dock-inner {
   pointer-events: auto;
   display: flex;
@@ -263,7 +246,6 @@
   box-shadow: none;
 }
 
-/* 悬停名称：图标上方，即时出现（替代原生 title 延迟） */
 .tapp-multi-dock-label {
   position: absolute;
   left: 50%;
@@ -303,7 +285,6 @@
   }
 }
 
-/* Slot only — app badge brings material shell; no gray plate behind it */
 .tapp-multi-dock-icon {
   display: grid;
   place-items: center;
@@ -319,7 +300,6 @@
   border-radius: var(--tapp-dock-icon-radius) !important;
 }
 
-/* 商店：无底壳，与 app 槽同大 */
 .tapp-multi-dock-store-glyph {
   display: block;
   box-sizing: border-box;
@@ -329,7 +309,6 @@
   object-fit: contain;
 }
 
-/* 圆点：强调色 inline；挂在图标槽下，不顶偏图标 */
 .tapp-multi-dock-dot {
   position: absolute;
   left: 50%;
@@ -355,7 +334,6 @@
   white-space: nowrap;
 }
 
-/* Dock「应用」入口：Launchpad 风格壳 + 3×3 彩格 */
 .tapp-multi-dock-apps-shell {
   display: grid;
   place-items: center;
@@ -363,8 +341,6 @@
   width: 100%;
   height: 100%;
   border-radius: var(--tapp-dock-icon-radius);
-
-  /* 浅色：白 → 微灰微渐变 */
   background: linear-gradient(
     160deg,
     #fff 0%,
@@ -380,7 +356,6 @@
 }
 
 html.dark .tapp-multi-dock-apps-shell {
-  /* 深色：近黑微渐变 */
   background: linear-gradient(
     160deg,
     #2a2a2e 0%,
@@ -396,8 +371,6 @@ html.dark .tapp-multi-dock-apps-shell {
 .tapp-multi-dock-apps-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-
-  /* 三行等高：胶囊高度 = 小方块高度 */
   grid-template-rows: 1fr 1fr 1fr;
   gap: 12%;
   width: 60%;
@@ -405,7 +378,6 @@ html.dark .tapp-multi-dock-apps-shell {
   place-items: stretch stretch;
 }
 
-/* 顶行：通栏胶囊（略宽于三列，仍落在外壳内） */
 .tapp-multi-dock-apps-search {
   grid-column: 1 / -1;
   display: flex;
@@ -426,7 +398,6 @@ html.dark .tapp-multi-dock-apps-search {
   box-shadow: inset 0 0.5px 0 rgb(255 255 255 / 8%);
 }
 
-/* 左侧小圆点：固定正圆，避免百分比宽高被压扁 */
 .tapp-multi-dock-apps-search-dot {
   flex: none;
   align-self: center;
@@ -450,7 +421,6 @@ html.dark .tapp-multi-dock-apps-search-dot {
     0 0.5px 1px rgb(0 0 0 / 12%);
 }
 
-/* 下两行六色：贴近 Launchpad 多彩小图标 */
 .tapp-multi-dock-apps-grid > i:nth-of-type(1) {
   background: linear-gradient(145deg, #60a5fa, #2563eb);
 }
@@ -484,7 +454,6 @@ html.dark .tapp-multi-dock-apps-search-dot {
       color-mix(in srgb, var(--color-primary, #6366f1) 28%, transparent);
 }
 
-/* ── 应用启动窗：居中浮层窗口，无全屏遮罩 ──────────────────────────── */
 .tapp-launchpad {
   position: absolute;
   inset: 0;
@@ -492,8 +461,6 @@ html.dark .tapp-multi-dock-apps-search-dot {
   display: flex;
   align-items: center;
   justify-content: center;
-
-  /* 避开顶栏 / Dock；不拦截窗外点击 */
   padding: max(3.5rem, env(safe-area-inset-top, 0px) + 2.5rem) 1rem
     max(5.5rem, calc(env(safe-area-inset-bottom, 0px) + 4.75rem));
   overflow: visible;
@@ -506,7 +473,6 @@ html.dark .tapp-multi-dock-apps-search-dot {
   z-index: 1;
   isolation: isolate;
 
-  /* 7×3 阵列窗口；普通 .glass，不透明度介于默认玻璃与实底之间 */
   --surface-alpha: 78%;
 
   width: min(46rem, calc(100vw - 2rem));
@@ -545,7 +511,6 @@ html.dark .tapp-launchpad-stage {
     0 14px 36px rgb(0 0 0 / 42%);
 }
 
-/* 搜索 + 分类 */
 .tapp-launchpad-toolbar {
   width: 100%;
   display: flex;
@@ -721,7 +686,6 @@ html[data-perf-mode='exlight'] .tapp-multi-dock-label {
   height: 0.8rem;
 }
 
-/* 分类标签 */
 .tapp-launchpad-cats {
   display: flex;
   flex-wrap: wrap;
@@ -814,8 +778,6 @@ html.dark .tapp-launchpad-cat.is-active {
 
   width: 100%;
   flex: 0 0 auto;
-
-  /* 固定 7 列 × 最多 3 行，不纵向滚动（超出翻页） */
   display: grid;
   grid-template-columns: repeat(var(--tapp-lp-cols), minmax(0, 1fr));
   grid-template-rows: repeat(var(--tapp-lp-rows), auto);
@@ -859,7 +821,6 @@ html.dark .tapp-launchpad-cat.is-active {
   opacity: 0.42;
 }
 
-/* Slot only — material badge is the default icon shell */
 .tapp-launchpad-icon {
   position: relative;
   width: 3.55rem;
@@ -925,7 +886,6 @@ html.dark .tapp-launchpad-cat.is-active {
   text-align: center;
 }
 
-/* 多页圆点（>21 个应用时） */
 .tapp-launchpad-pages {
   display: flex;
   align-items: center;

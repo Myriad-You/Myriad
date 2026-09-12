@@ -1,13 +1,8 @@
-/**
- * 手记编辑器的预览区排版。
- *
- * 预览里的 HTML 由后端渲染并消毒，标签集合是固定的（见 myriad-brew-notes 的
- * 白名单），所以这里可以按标签选择器直接排版，不需要给每个块加类名。
- */
+/** 预览 HTML 标签集合固定，按标签选择器排版。 */
 
 .brew-note-preview {
   overflow-wrap: anywhere;
-  color: var(--color-gray-700, #374151);
+  color: var(--brew-fg, var(--color-gray-700, #374151));
   font-size: 15px;
   line-height: 1.75;
 }
@@ -23,7 +18,7 @@
 .brew-note-preview h5,
 .brew-note-preview h6 {
   margin: 1.6em 0 0.6em;
-  color: var(--color-gray-900, #111827);
+  color: var(--brew-fg, var(--color-gray-900, #111827));
   font-weight: 600;
   line-height: 1.35;
 }
@@ -67,7 +62,7 @@
 }
 
 .brew-note-preview a {
-  color: var(--color-orange-600, #ea580c);
+  color: var(--brew-accent, var(--color-orange-600, #ea580c));
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -75,7 +70,7 @@
 .brew-note-preview blockquote {
   padding-inline-start: 1em;
   border-inline-start: 3px solid rgb(0 0 0 / 12%);
-  color: var(--color-gray-500, #6b7280);
+  color: var(--brew-fg-dim, var(--color-gray-500, #6b7280));
 }
 
 .brew-note-preview code {
@@ -111,7 +106,7 @@
   border-top: 1px solid rgb(0 0 0 / 10%);
 }
 
-/* 表格可能比预览区宽；让它自己横向滚动，不撑破整块面板 */
+/* 表格自行横向滚动，不撑破面板。 */
 .brew-note-preview table {
   display: block;
   overflow-x: auto;
@@ -131,39 +126,39 @@
   font-weight: 600;
 }
 
-.dark .brew-note-preview {
-  color: var(--color-gray-300, #d1d5db);
+html.dark .brew-note-preview {
+  color: var(--brew-fg-soft, var(--color-gray-300, #d1d5db));
 }
 
-.dark .brew-note-preview h1,
-.dark .brew-note-preview h2,
-.dark .brew-note-preview h3,
-.dark .brew-note-preview h4,
-.dark .brew-note-preview h5,
-.dark .brew-note-preview h6 {
-  color: var(--color-gray-100, #f3f4f6);
+html.dark .brew-note-preview h1,
+html.dark .brew-note-preview h2,
+html.dark .brew-note-preview h3,
+html.dark .brew-note-preview h4,
+html.dark .brew-note-preview h5,
+html.dark .brew-note-preview h6 {
+  color: var(--brew-fg, var(--color-gray-100, #f3f4f6));
 }
 
-.dark .brew-note-preview a {
-  color: var(--color-orange-400, #fb923c);
+html.dark .brew-note-preview a {
+  color: var(--brew-accent, var(--color-orange-400, #fb923c));
 }
 
-.dark .brew-note-preview blockquote {
+html.dark .brew-note-preview blockquote {
   border-inline-start-color: rgb(255 255 255 / 18%);
-  color: var(--color-gray-400, #9ca3af);
+  color: var(--brew-fg-dim, var(--color-gray-400, #9ca3af));
 }
 
-.dark .brew-note-preview code,
-.dark .brew-note-preview pre {
+html.dark .brew-note-preview code,
+html.dark .brew-note-preview pre {
   background: rgb(255 255 255 / 8%);
 }
 
-.dark .brew-note-preview hr,
-.dark .brew-note-preview th,
-.dark .brew-note-preview td {
+html.dark .brew-note-preview hr,
+html.dark .brew-note-preview th,
+html.dark .brew-note-preview td {
   border-color: rgb(255 255 255 / 12%);
 }
 
-.dark .brew-note-preview th {
+html.dark .brew-note-preview th {
   background: rgb(255 255 255 / 5%);
 }

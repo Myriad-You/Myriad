@@ -1,13 +1,3 @@
-/**
- * Shell open/close presence for Tapp run / store pages.
- *
- * - Enter/exit: smooth ease, no bounce/overshoot
- * - Optional column fade (opacity); default off on WebKit (iframe ancestor bug)
- * - Scrim always fades (sibling — safe)
- * - Settled `--shown` clears animation so in-page enter/exit stays independent
- * - enabled=false (fullscreen / exlight) → immediate action
- */
-
 import type { AnimationEvent, CSSProperties } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -22,27 +12,18 @@ export type TappShellPresencePhase = 'enter' | 'shown' | 'exit'
 const ENTER_DURATION_MS = 480
 const EXIT_DURATION_MS = 320
 
-/** animation names that belong to the chrome column (not scrim/header) */
 const COLUMN_ENTER_NAMES = new Set(['tapp-shell-in', 'tapp-shell-in-fade'])
 const COLUMN_EXIT_NAMES = new Set(['tapp-shell-out', 'tapp-shell-out-fade'])
 
 export interface UseTappShellPresenceOptions {
-  /**
-   * When false: no motion classes, requestClose runs immediately.
-   * Typically `!isFullscreen` — fixed content must not sit under a transform.
-   */
+  /** 全屏时关闭 presence：fixed 内容不能放在 transform 下。 */
   enabled: boolean
-  /**
-   * Fade the chrome column (opacity). Default: false on WebKit, true elsewhere.
-   * WebKit + opacity on iframe ancestors can break hit-testing / painting.
-   * Store (no iframe) can force `fade: true`.
-   */
+  /** 列 fade 默认在 WebKit 关闭：祖先 opacity 会弄坏 iframe。 */
   fade?: boolean
 }
 
 export interface UseTappShellPresenceResult {
   phase: TappShellPresencePhase
-  /** true after enter settles — safe window for page-level element animations */
   isSettled: boolean
   isExiting: boolean
   shellClassName: string
@@ -94,7 +75,6 @@ export function useTappShellPresence(
     return () => window.clearTimeout(timer)
   }, [phase, exitFallbackMs, flushExit])
 
-  // Enter safety: if animationend missed, still settle so page animations unstick
   useEffect(() => {
     if (phase !== 'enter' || !motionOn) return
     const ms = Math.round(ENTER_DURATION_MS * animConfig.durationScale) + 80

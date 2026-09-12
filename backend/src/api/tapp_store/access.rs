@@ -47,7 +47,7 @@ pub(super) async fn find_admin_user_id(db: &DatabaseConnection) -> Result<Option
     tapp_common::find_admin_user_id(db).await
 }
 
-// Domain visibility + lifecycle: services::tapp_ownership (path-stable re-export).
+// Domain visibility row: services::tapp_ownership (path-stable re-export). Lifecycle lock is `lock_tapp_lifecycle`.
 pub(crate) use crate::services::tapp_ownership::VisibleTappInstallation;
 
 /// HTTP adapter: validate tapp_id shape, then resolve the visible install.

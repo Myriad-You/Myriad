@@ -3,9 +3,7 @@ import type { Anime25DDriver } from './driver'
 import type { Anime25DPlaybackLayer } from './types'
 
 export interface Anime25DMotionEnvelopeAxis {
-  /** Pose amount where the asset-specific soft knee starts. */
   startsAt: number
-  /** Reachable endpoint when the normalized driver reaches one. */
   limit: number
 }
 
@@ -66,11 +64,6 @@ interface MotionEnvelopePlayback {
 }
 type MotionEnvelopeManifest = Pick<MeropeRigManifest, 'outfitProfile'>
 
-/**
- * Compiles immutable asset metadata into the one spatial envelope consumed by
- * the live player. Outfit safety is authored during import; the render loop
- * never re-infers garment topology or invents another motion scale.
- */
 export function deriveAnime25DMotionEnvelopeProfile(
   playback: Readonly<MotionEnvelopePlayback>,
   manifest?: Readonly<MotionEnvelopeManifest>,
@@ -86,8 +79,6 @@ export function deriveAnime25DMotionEnvelopeProfile(
   )
   const rigidArmLimit = armMotion
     ? clamp(
-        // A rigid sleeve is Anime2.5D's only independently moving garment
-        // segment, so it consumes the importer-authored secondary allowance.
         finiteOr(manifest?.outfitProfile?.secondaryMotionScale, 1),
         0.2,
         1,
@@ -102,11 +93,6 @@ export function deriveAnime25DMotionEnvelopeProfile(
   }
 }
 
-/**
- * Projects the composed pose into an asset-safe joint envelope. Energy that a
- * high collar cannot safely carry as pitch is moved into yaw, roll, gaze,
- * torso and available sleeve motion instead of globally damping the gesture.
- */
 export function projectAnime25DMotionEnvelope(
   target: Anime25DDriver,
   profile: Readonly<Anime25DMotionEnvelopeProfile>,
@@ -133,8 +119,6 @@ export function projectAnime25DMotionEnvelope(
     transferArmResidual(target, originalArmPos - safeArmPos, false, result)
   }
 
-  // Torso is projected last so energy arriving from the head or rigid sleeve
-  // cannot push a restrictive garment back outside its authored allowance.
   const originalBody = finite(target.body)
   const safeBody = softLimitSigned(originalBody, profile.torso)
   target.body = safeBody
@@ -210,15 +194,6 @@ function noteTransfer(
   result.transferredEnergy += amount
 }
 
-/**
- * Width over which the lateral side of a transfer resolves.
- *
- * A hard sign flipped the whole lateral redistribution the instant the pose
- * crossed upright: sweeping roll through zero in steps of 0.002 moved yaw by
- * 0.105 in one of them, which reads as the head being yanked the other way.
- * Fading the side out across the boundary gives up redistribution only where
- * there is no side to prefer, and the energy stays clipped there instead.
- */
 const SIDE_BLEND = 0.08
 
 function preferredSide(target: Readonly<Anime25DDriver>): number {
@@ -238,10 +213,6 @@ function softLimitSigned(
   if (amount <= startsAt) return value
   if (limit >= 1 - 1e-6) return sign * amount
 
-  // This endpoint-preserving soft knee has unit slope where it meets the
-  // untouched range and still reaches the authored limit at driver value 1.
-  // The old asymptote never reached the safe maximum, making expressive input
-  // look unnecessarily timid even after calibration.
   const inputSpan = Math.max(1e-6, 1 - startsAt)
   const outputSpan = Math.max(1e-6, limit - startsAt)
   const progress = clamp((amount - startsAt) / inputSpan, 0, 1)

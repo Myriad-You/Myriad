@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
-use url::Url;
+use url::{Host, Url};
 
 /// Short-lived host-keyed Client cache (MYR-046).
 ///
@@ -137,6 +137,27 @@ pub fn is_public_ip(ip: IpAddr) -> bool {
     }
 }
 
+/// `Url::host_str()` wraps IPv6 in brackets (`[::1]`), which `IpAddr` will not
+/// parse — that skipped the public-address check on the proxy path.
+fn literal_ip(host: Host<&str>) -> Option<IpAddr> {
+    match host {
+        Host::Ipv4(ip) => Some(IpAddr::V4(ip)),
+        Host::Ipv6(ip) => Some(IpAddr::V6(ip)),
+        Host::Domain(_) => None,
+    }
+}
+
+fn reject_non_public_literal_host(parsed: &Url) -> Result<(), String> {
+    let host = parsed.host().ok_or_else(|| "URL has no host".to_string())?;
+    let Some(ip) = literal_ip(host) else {
+        return Ok(());
+    };
+    if !federation_lab_private_outbound_enabled() && !is_public_ip(ip) {
+        return Err(format!("Target is a non-public address: {ip}"));
+    }
+    Ok(())
+}
+
 /// Local dual-instance federation lab only.
 ///
 /// When `MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND=1` (or `true`/`yes`), outbound
@@ -216,13 +237,14 @@ pub async fn build_public_http_client(
         .port_or_known_default()
         .ok_or_else(|| "URL has no usable port".to_string())?;
 
-    let addresses: Vec<SocketAddr> = if let Ok(ip) = host.parse::<IpAddr>() {
-        vec![SocketAddr::new(ip, port)]
-    } else {
-        tokio::net::lookup_host((host, port))
+    let addresses: Vec<SocketAddr> = match parsed.host() {
+        Some(Host::Ipv4(ip)) => vec![SocketAddr::new(IpAddr::V4(ip), port)],
+        Some(Host::Ipv6(ip)) => vec![SocketAddr::new(IpAddr::V6(ip), port)],
+        Some(Host::Domain(_)) => tokio::net::lookup_host((host, port))
             .await
             .map_err(|_| "DNS resolution failed".to_string())?
-            .collect()
+            .collect(),
+        None => return Err("URL has no host".to_string()),
     };
 
     let mut addresses = select_outbound_addresses(addresses)?;
@@ -290,14 +312,7 @@ pub async fn build_public_http_client_via_proxy(
     if !parsed.username().is_empty() || parsed.password().is_some() {
         return Err("URL credentials are not allowed".to_string());
     }
-    let host = parsed
-        .host_str()
-        .ok_or_else(|| "URL has no host".to_string())?;
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        if !federation_lab_private_outbound_enabled() && !is_public_ip(ip) {
-            return Err(format!("Target is a non-public address: {ip}"));
-        }
-    }
+    reject_non_public_literal_host(&parsed)?;
 
     let mut builder: ClientBuilder = Client::builder()
         .timeout(timeout)
@@ -371,6 +386,58 @@ pub async fn tests_lab_env_lock() -> tokio::sync::MutexGuard<'static, ()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn limited_body_rejects_oversize_before_response_finishes() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        for chunked in [false, true] {
+            for size in [8, 9] {
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                    .await
+                    .expect("bind fixture");
+                let addr = listener.local_addr().unwrap();
+                let server = tokio::spawn(async move {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut request = Vec::new();
+                    while !request.ends_with(b"\r\n\r\n") {
+                        assert!(request.len() < 8192, "fixture request headers too large");
+                        assert_ne!(socket.read_buf(&mut request).await.unwrap(), 0);
+                    }
+                    let body = "x".repeat(size);
+                    let response = if chunked {
+                        // The oversize stream deliberately never terminates.
+                        let end = if size == 8 { "0\r\n\r\n" } else { "" };
+                        format!("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n{size:x}\r\n{body}\r\n{end}")
+                    } else {
+                        format!("HTTP/1.1 200 OK\r\nContent-Length: {size}\r\n\r\n{body}")
+                    };
+                    socket.write_all(response.as_bytes()).await.unwrap();
+                    std::future::pending::<()>().await;
+                });
+                let response = reqwest::Client::builder()
+                    .no_proxy()
+                    .timeout(Duration::from_secs(2))
+                    .build()
+                    .unwrap()
+                    .get(format!("http://{addr}/image"))
+                    .send()
+                    .await
+                    .unwrap();
+                let result = read_limited_body(response, 8).await;
+                server.abort();
+                if size == 8 {
+                    assert_eq!(result.unwrap(), b"xxxxxxxx");
+                } else {
+                    assert_eq!(
+                        result.unwrap_err(),
+                        "Response exceeds 8 bytes",
+                        "chunked={chunked}: must reject on size, not wait for EOF or timeout"
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn rejects_non_public_address_ranges() {
@@ -483,6 +550,35 @@ mod tests {
         if let Some(v) = prev_env {
             std::env::set_var("ENVIRONMENT", v);
         }
+    }
+
+    #[tokio::test]
+    async fn proxy_path_rejects_ipv6_loopback_and_ula() {
+        let _guard = tests_lab_env_lock().await;
+        std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND");
+        let proxy = reqwest::Proxy::all("http://203.0.113.1:8080").expect("proxy");
+        for url in ["http://[::1]/", "http://[fc00::1]/", "http://127.0.0.1/"] {
+            let error = build_public_http_client_via_proxy(
+                url,
+                Duration::from_secs(1),
+                None,
+                proxy.clone(),
+            )
+            .await
+            .expect_err(url);
+            assert!(
+                error.contains("non-public"),
+                "{url} should be refused, got {error}"
+            );
+        }
+        let ok = build_public_http_client_via_proxy(
+            "https://[2606:4700:4700::1111]/",
+            Duration::from_secs(1),
+            None,
+            proxy,
+        )
+        .await;
+        assert!(ok.is_ok(), "public IPv6 literal: {:?}", ok.err());
     }
 
     #[test]

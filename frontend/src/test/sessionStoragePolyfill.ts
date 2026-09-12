@@ -19,7 +19,7 @@ export function ensureSessionStoragePolyfill(): void {
       return store.has(key) ? store.get(key)! : null
     },
     key(index: number) {
-      return [...store.keys()][index] ?? null
+      return Iterator.from(store.keys()).toArray()[index] ?? null
     },
     removeItem(key: string) {
       store.delete(key)

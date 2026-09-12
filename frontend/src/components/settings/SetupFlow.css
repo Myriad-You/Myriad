@@ -1,6 +1,3 @@
-/**
- * SetupFlow — 流程图步骤轨
- */
 
 .setup-flow {
   display: flex;
@@ -13,7 +10,6 @@
   background: transparent;
 }
 
-/* 与 SettingGroup 标题同级 */
 .setup-flow-title {
   margin: 0;
   font-size: 0.875rem;
@@ -36,7 +32,6 @@ html.dark .setup-flow-title {
   min-width: 0;
 }
 
-/* —— 横排（默认 / auto 宽屏） —— */
 .setup-flow.is-horizontal .setup-flow-track,
 .setup-flow.is-auto .setup-flow-track {
   flex-flow: row nowrap;
@@ -87,7 +82,6 @@ html.dark .setup-flow-title {
     color-mix(in srgb, var(--cfg-accent) 45%, var(--cfg-text-3));
 }
 
-/* —— 竖排 —— */
 .setup-flow.is-vertical .setup-flow-track {
   flex-direction: column;
 }
@@ -127,7 +121,7 @@ html.dark .setup-flow-title {
     color-mix(in srgb, var(--cfg-accent) 45%, var(--cfg-text-3));
 }
 
-/* is-auto：与设置页移动分层同断点（<1024）竖排，避免配置窄栏内横滑小卡 */
+/* <1024: match settings mobile split */
 @media (width < 1024px) {
   .setup-flow.is-auto .setup-flow-track {
     flex-direction: column;
@@ -170,7 +164,6 @@ html.dark .setup-flow-title {
   }
 }
 
-/* —— 步骤卡片 —— */
 .setup-flow-step-card {
   display: flex;
   flex-direction: column;

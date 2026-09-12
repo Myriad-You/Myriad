@@ -1,15 +1,3 @@
-/**
- * 锚定浮层生命周期 — 安装/卸载等 tip 共用
- *
- * 防竞态要点：
- * 1. isOpen effect 只依赖 isOpen，不因 onCancel 引用变化而重开/重置
- * 2. session 代际：关闭动画回调在已 reopen 时丢弃
- * 3. onRequestClose 走 ref；父级已 isOpen=false 时清掉 pending notify，避免双重 onCancel
- * 4. 关闭中再次 isOpen=true 会清 exit timer 并直接进入 open
- * 5. 点外关闭：仅 phase=open 且 ready 后挂载；忽略 panel / anchor；busy 时可拦
- * 6. 打开同帧的 pointer 不会误关（ready 后才监听）
- */
-
 import type { RefObject, TransitionEvent } from 'react'
 import {
 
@@ -70,8 +58,7 @@ function computePosition(
       { p: 'right', s: spaceRight },
       { p: 'bottom', s: spaceBelow },
     ]
-    scores.sort((a, b) => b.s - a.s)
-    placement = scores[0]!.p
+    placement = scores.toSorted((a, b) => b.s - a.s)[0]!.p
   }
 
   let top = 0
@@ -114,27 +101,12 @@ function nodeContains(
 export interface UseAnchoredFloatTipOptions {
   isOpen: boolean
   anchorEl?: HTMLElement | null
-  /**
-   * 用户取消 / 点外 / Esc 在退出动画结束后调用。
-   * 存 ref，不进入 isOpen 同步 effect 依赖。
-   */
   onRequestClose?: () => void
-  /**
-   * 内容尺寸变化时触发重新测量（如 appName、error、loading）。
-   * 勿放不稳定引用。
-   */
   contentKey?: string | number | boolean | null
   exitMs?: number
-  /** 每次进入 open 时调用（重置表单等），同步执行 */
   onEnter?: () => void
-  /**
-   * 是否允许点外 / Esc 关闭。安装中、卸载中应传 false。
-   * 每轮 render 同步进 ref。
-   */
   canDismiss?: boolean
-  /** 默认 true：panel 与 anchor 之外的 pointerdown 关闭 */
   closeOnOutsidePress?: boolean
-  /** 默认 true：Escape 关闭 */
   closeOnEscape?: boolean
 }
 
@@ -144,13 +116,10 @@ export interface UseAnchoredFloatTipResult {
   ready: boolean
   placement: AnchoredFloatPlacement
   isMounted: boolean
-  /** 当前 open 代际快照；异步开始时记下，结束后用 isCurrentSession 校验 */
   session: number
-  /** 比对 ref 中的最新代际（避免 await 后闭包 session 过期） */
   isCurrentSession: (started: number) => boolean
   close: (opts?: { notifyParent?: boolean }) => void
   handlePanelTransitionEnd: (e: TransitionEvent<HTMLDivElement>) => void
-  /** 拼 class：base + --placement + is-ready / is-leaving */
   className: (base: string) => string
 }
 
@@ -180,9 +149,7 @@ export function useAnchoredFloatTip({
   const rafRef = useRef(0)
   const exitTimerRef = useRef(0)
   const phaseRef = useRef<AnchoredFloatPhase>('closed')
-  /** 打开/重开代际：关闭回调与 setReady 必须匹配 */
   const sessionRef = useRef(0)
-  /** 发起 close 时的 session；finish 时校验 */
   const closingSessionRef = useRef(0)
   const notifyParentOnCloseRef = useRef(false)
   const onRequestCloseRef = useRef(onRequestClose)
@@ -191,7 +158,6 @@ export function useAnchoredFloatTip({
   const canDismissRef = useRef(canDismiss)
   const closeOnOutsidePressRef = useRef(closeOnOutsidePress)
   const closeOnEscapeRef = useRef(closeOnEscape)
-  /** 父级 isOpen 的最新值，供 dismiss 与 finish 判断 */
   const isOpenRef = useRef(isOpen)
 
   phaseRef.current = phase
@@ -249,9 +215,7 @@ export function useAnchoredFloatTip({
 
   const finishUnmount = useCallback(
     (closingSession: number) => {
-      // 已 reopen 或并非本次关闭 → 丢弃
       if (sessionRef.current !== closingSession) return
-      // 仅收尾仍处于 closing 的会话（reopen 会把 phase 改回 open）
       if (phaseRef.current !== 'closing') return
 
       stopSmooth()
@@ -259,8 +223,7 @@ export function useAnchoredFloatTip({
       phaseRef.current = 'closed'
       setPhase('closed')
 
-      // notify 仅在用户取消/点外/Esc 时为 true；
-      // 父级 isOpen→false 的 effect 会先清掉 flag，避免双重 onCancel
+      // 父级已关掉时清掉 pending notify，避免双重 onCancel。
       const shouldNotify = notifyParentOnCloseRef.current
       notifyParentOnCloseRef.current = false
       if (shouldNotify) {
@@ -278,11 +241,9 @@ export function useAnchoredFloatTip({
       if (opts?.notifyParent === true) {
         notifyParentOnCloseRef.current = true
       } else if (opts?.notifyParent === false) {
-        // 显式不 notify：覆盖先前的 cancel 意图（父级已接管）
         notifyParentOnCloseRef.current = false
       }
 
-      // 已在 closing：只合并 notify 意图，不重启动画 / 不换 session
       if (current === 'closing') return
 
       const closingSession = sessionRef.current
@@ -353,12 +314,10 @@ export function useAnchoredFloatTip({
     [applyDisplay, startSmooth, stopSmooth],
   )
 
-  /* 父级 isOpen → 本地 phase（仅依赖 isOpen） */
   useEffect(() => {
     if (isOpen) {
       window.clearTimeout(exitTimerRef.current)
       exitTimerRef.current = 0
-      // reopen：丢弃关闭后 notify
       notifyParentOnCloseRef.current = false
       sessionRef.current += 1
       const nextSession = sessionRef.current
@@ -370,13 +329,11 @@ export function useAnchoredFloatTip({
       return
     }
 
-    // 父级已关掉：清掉 pending notify，避免 finish 再调 onCancel
     notifyParentOnCloseRef.current = false
 
     if (phaseRef.current === 'open') {
       closeRef.current({ notifyParent: false })
     }
-    // closing / closed：保持，由 finishUnmount 收尾
   }, [isOpen])
 
   useEffect(
@@ -387,7 +344,6 @@ export function useAnchoredFloatTip({
     [stopSmooth],
   )
 
-  /* 打开瞬间：snap → 双 rAF → is-ready */
   useLayoutEffect(() => {
     if (phase !== 'open') {
       if (phase === 'closed') stopSmooth()
@@ -414,7 +370,6 @@ export function useAnchoredFloatTip({
     }
   }, [phase, session, contentKey, measureTarget, stopSmooth])
 
-  /* 滚动 / 缩放：平抑跟随 */
   useEffect(() => {
     if (phase !== 'open') return
 
@@ -432,18 +387,12 @@ export function useAnchoredFloatTip({
     }
   }, [phase, measureTarget, stopSmooth])
 
-  /* 锚点 DOM 替换时重测（同一 isOpen 会话） */
   useEffect(() => {
     if (phase !== 'open') return
     measureTarget({ snap: true })
   }, [anchorEl, phase, measureTarget])
 
-  /**
-   * 点外关闭 + Escape
-   * - 仅 ready 后启用，避开打开按钮同一 pointer 序列误关
-   * - capture 阶段：先于内部按钮，但仍 ignore panel/anchor
-   * - busy（canDismiss=false）忽略
-   */
+  /** 仅 ready 后启用点外关闭，避开打开按钮同一 pointer。 */
   useEffect(() => {
     if (phase !== 'open' || !ready) return
     if (typeof document === 'undefined') return
@@ -468,7 +417,6 @@ export function useAnchoredFloatTip({
       if (nodeContains(panelRef.current, target)) return
       if (nodeContains(anchorRef.current, target)) return
 
-      // 不 preventDefault：让外层按钮等仍可响应；本 tip 只负责收起
       dismissIfAllowed()
     }
 

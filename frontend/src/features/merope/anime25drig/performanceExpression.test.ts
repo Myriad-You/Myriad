@@ -41,9 +41,6 @@ function cue(
   }
 }
 
-// "Conservative" is measured against the ambient random-action band the rig
-// already plays in (brow 0.12-0.36), not against zero: a semantic cue quieter
-// than the character's own idle fidgeting reads as no cue at all.
 test('maps semantic baselines and cues to legible expression offsets', () => {
   const warm = baselineExpressionOffset({
     ...steadyBaseline,
@@ -75,7 +72,7 @@ test('maps semantic baselines and cues to legible expression offsets', () => {
   assert.equal(dizzy.irisScale, 0)
   assert.equal(dizzy.angleZ, 0)
   assert.equal(dizzy.mouthForm, 0)
-  assert.equal(think.eyeOpen, 0)
+  assert.ok(think.eyeOpen < -0.1 && think.eyeOpen > -0.3)
   assert.ok(think.eyeX > 0.4)
   assert.ok(think.eyeY < -0.3)
   assert.ok(think.angleZ < 0)
@@ -90,7 +87,7 @@ test('maps semantic baselines and cues to legible expression offsets', () => {
   assert.equal(silly.eyeX, 0)
   assert.equal(silly.eyeY, 0)
   assert.equal(lovestruck.lovestruck, 1)
-  assert.deepEqual(Object.keys(warm).sort(), [
+  assert.deepEqual(Object.keys(warm).toSorted(), [
     'anger',
     'angleY',
     'angleZ',
@@ -135,7 +132,7 @@ test('irritation keeps alert eyes within the actual driver range while knitting 
   assert.ok(tense.browAngSym >= 0.75)
   assert.ok(tense.mouthForm <= -0.4)
   assert.ok(tense.irisScale < Math.min(...ladder.map((rung) => rung.irisScale)))
-  // A bearing, not the angry sticker: knitted brow without the vein mark.
+  // A bearing, not the angry sticker
   assert.equal(tense.anger ?? 0, 0)
 })
 
@@ -149,8 +146,6 @@ test('the two low-valence standing faces use distinct sad brow geometry', () => 
     expression: 'subdued',
   })
 
-  // Negative symmetric rotation lifts the inner ends of the two brows — the
-  // same readable sad direction as `cry`, without taking over eyes or mouth.
   assert.ok(withdrawn.browAngSym <= -0.85)
   assert.ok(subdued.browAngSym <= -0.6)
   assert.ok(subdued.eyeOpen <= -0.24)
@@ -227,8 +222,8 @@ test('maps additive bearing offsets onto absolute driver neutrals', () => {
   assert.equal(tense.eyeOpenL, 0.92)
   assert.equal(cleared.eyeOpenL, 1)
   assert.equal(cleared.irisScale, 1)
-  assert.equal('bust' in steady, false)
-  assert.equal('eyeDizzy' in steady, false)
+  assert.equal(Object.hasOwn(steady, 'bust'), false)
+  assert.equal(Object.hasOwn(steady, 'eyeDizzy'), false)
 })
 
 test('adds to manual channels without flattening left-right eye differences', () => {
@@ -344,7 +339,6 @@ test('soft-limits additive expression near manual channel extremes', () => {
   }
 })
 
-/** Schedules cues the way the player does: compile, realize, restate. */
 function playUnits(
   controller: PerformanceExpressionController,
   cues: PerformanceCue[],
@@ -390,9 +384,6 @@ test('sample reuses one offset object and starts every frame at rest', () => {
   const first = expression.sample(0)
   assert.deepEqual({ ...first }, { ...ZERO_SAMPLE })
   const next = expression.sample(1 / 60)
-  // The bearing is a base pose the player installs; this controller holds no
-  // second copy of it, so with nothing scheduled it stays at zero — and it
-  // must not allocate a new offset per frame.
   assert.equal(first, next)
   assert.deepEqual({ ...next }, { ...ZERO_SAMPLE })
 })
@@ -402,7 +393,6 @@ test('attention easing is equivalent at 30 and 60 FPS', () => {
   const sixty = new PerformanceExpressionController()
   thirty.setBearingAttention(1)
   sixty.setBearingAttention(1)
-  // Prime both clocks: the first sample only establishes `lastTime`.
   thirty.sample(0)
   sixty.sample(0)
   for (let frame = 1; frame <= 30; frame += 1) thirty.sample(frame / 30)
@@ -435,8 +425,6 @@ test('fades a semantic behavior in and out back to rest', () => {
   assert.ok(rising > 0)
   const peak = expression.sample(unit.timing.strokePeakMs / 1_000).brow
   assert.ok(peak > rising)
-  // The amplitude that matters is legibility against the rig's own idle band
-  // (brow 0.12-0.36), not a decimal in the driver.
   assert.ok(peak >= 0.12, `${peak} is quieter than an idle fidget`)
   assert.ok(Math.abs(expression.sample(unit.timing.endMs! / 1_000).brow) < 1e-9)
 })
@@ -454,9 +442,6 @@ test('does not replay a behavior that already ended before this frame', () => {
     'performance',
   )
   const { units } = realizeAnime25DBehaviorPlan(plan, 10_000)
-  // A remount hands the body a plan whose behaviors are already finished. The
-  // rig state summary has told the director they are over; replaying them
-  // would contradict what the backend was told.
   expression.playBehaviorUnits(units, 18, 18_000)
   assert.equal(expression.sample(18).brow, 0)
   assert.equal(expression.getScheduledCueCount(), 0)
@@ -480,7 +465,6 @@ test('a remount resumes a behavior mid-flight instead of replaying it', () => {
   fresh.playBehaviorUnits(units, 0, 0)
   const atPeak = fresh.sample(peakSeconds).brow
 
-  // The same plan reaching a player whose clock starts at zero 300ms later.
   const remounted = new PerformanceExpressionController()
   remounted.playBehaviorUnits(units, 0, 300)
   assert.ok(
@@ -504,8 +488,6 @@ test('replacing a behavior crossfades instead of cutting the active face', () =>
   const held = poseMagnitude(expression.sample(0.3))
   assert.ok(held > 0)
   playUnits(expression, [cue('greet')], 0.3)
-  // The outgoing sticker must release through its own fade, not vanish on the
-  // first sample after the replacement lands.
   assert.ok(poseMagnitude(expression.sample(0.31)) > 0)
 })
 
@@ -582,9 +564,6 @@ test('a performance unit holds through its stroke plateau, not up to it', () => 
   const plan = compilePerformanceBehaviorPlan(heldDirective, 0, 'held')
   const realized = realizeAnime25DBehaviorPlan(plan, 0)
   const unit = realized.units[0]!
-  // The planner puts up to 80ms between the peak and the end of the stroke.
-  // Packing the lifecycle into a cue measured the hold from strokeEnd, so that
-  // plateau was silently dropped from every performance behavior.
   const plateau = (unit.timing.strokeEndMs - unit.timing.strokePeakMs) / 1_000
   assert.ok(plateau > 0, 'this plan has no plateau to protect')
 
@@ -618,8 +597,6 @@ test('restating the same units keeps the pose instead of replaying it', () => {
   const restated = new PerformanceExpressionController()
   restated.playBehaviorUnits(realized.units, 0, 0)
   restated.sample(peakSeconds / 2)
-  // A plan revision restates every live behavior. Scheduling it a second time
-  // would stack the same pose on itself; dropping it would freeze the face.
   restated.playBehaviorUnits(realized.units, peakSeconds / 2, peakSeconds * 500)
   assert.equal(poseMagnitude(restated.sample(peakSeconds)), expected)
 })
@@ -690,10 +667,6 @@ test('a beat restated with more force reaches the face, not only the body', () =
     compilePerformanceBehaviorPlan(stronger, 0, 'performance'),
     0,
   )
-  // Stable ids are what let the scheduler carry a beat across a refinement.
-  // The expression controller keys on the same id, so it has to notice that
-  // the beat behind that id changed — otherwise the body follows Lite while
-  // the face keeps playing the deterministic floor.
   assert.equal(refined.units[0]?.behaviorId, floor.units[0]?.behaviorId)
   assert.ok(refined.units[0]!.intensity > floor.units[0]!.intensity)
 
@@ -706,8 +679,7 @@ test('a beat restated with more force reaches the face, not only the body', () =
   const refinedController = new PerformanceExpressionController()
   refinedController.playBehaviorUnits(floor.units, 0, 0)
   refinedController.sample(peakSeconds / 2)
-  // The wall clock and the player clock must agree, the way the player passes
-  // them: `nowMs` is the same instant as `peakSeconds / 2`.
+  // The wall clock and the player clock must agree, the way the player passes them
   refinedController.playBehaviorUnits(
     refined.units,
     peakSeconds / 2,
@@ -727,8 +699,6 @@ test('a beat that leaves the plan and returns is scheduled again', () => {
   const unit = realized.units[0]!
   const controller = new PerformanceExpressionController()
   controller.playBehaviorUnits(realized.units, 0, 0)
-  // Release clears the signature, so an identical restatement is not mistaken
-  // for the cue that is already fading out.
   controller.playBehaviorUnits([], 0.05, 50)
   controller.playBehaviorUnits(realized.units, 0.05, 50)
   assert.ok(
@@ -743,10 +713,6 @@ test('a live beat quiets the idle layer, not only a focused bearing', () => {
   playUnits(expression, [cue('greet')])
   expression.sample(0.3)
   const duringBeat = expression.getAmbientMotionScale()
-  // A sticker and a large random action each damp the idle drift underneath
-  // them, and the pose gate multiplies all three. Until this, the director's
-  // own beats were the one covering motion that left the drift at full size,
-  // because this scale answered only to the persistent bearing.
   assert.ok(duringBeat < 1, `a live beat left ambient at ${duringBeat}`)
   assert.ok(duringBeat >= 0.7)
 
@@ -769,14 +735,7 @@ test('bearing and a live beat compound instead of shadowing each other', () => {
 })
 
 test('a released cue continues from the screen, not one lead into its fade', () => {
-  // `playUnits` schedules on the write clock, which is right: the read clock's
-  // lead is what makes a cue land on time. A release travels the other way —
-  // it continues from the value already drawn — and starting it on the write
-  // clock spent the whole lead before its first frame. A short `fadeOut` lost
-  // 79% of itself there, which is the pose snapping back to rest.
   const expression = new PerformanceExpressionController()
-  // A short authored fade is where the lead actually hurts: it is most of the
-  // release. A long one absorbs the same 40ms and hides the defect entirely.
   playUnits(expression, [{ ...cue('respond'), fadeOutMs: 60 }])
   let at = 0
   for (let frame = 0; frame < 12; frame += 1) {

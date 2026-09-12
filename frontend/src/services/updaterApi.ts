@@ -1,19 +1,4 @@
-/**
- * Client for the Myriad updater.
- *
- * Two transports, selected by `mode` at call sites:
- *
- *  - 'backend' (default): goes through `/api/admin/updater/*`. The backend has admin-session
- *    auth and talks to updater-gateway with `UPDATER_GATEWAY_SECRET` (no `UPDATE_TOKEN` in
- *    the fat process). Mutating calls go through the backend's `csrf_middleware`, so we
- *    attach `X-CSRF-Token` for POSTs.
- *
- *  - 'direct': goes through `/_updater/*` on the proxy. Requires the caller to supply
- *    `UPDATE_TOKEN` manually. Kept as a fallback for when the backend is down or the user
- *    is running an operator's rescue flow.
- *
- * See docs/updater-spec.md §13.
- */
+/** backend: /api/admin/updater (CSRF). direct: /_updater (token, no CSRF). */
 
 import { clearCSRFToken, getCSRFToken } from '../utils/csrf'
 
@@ -32,9 +17,7 @@ export interface LatestAvailable {
   mode?: UpdateMode
   source?: 'github' | 'dockerhub'
   commit_sha?: string | null
-  /** Running deploy resolved to git sha (commit mode). */
   current_commit_sha?: string | null
-  /** Ancestry of tip vs current: ahead = tip is newer. */
   relation?: CommitRelation | string | null
   ahead_by?: number | null
   behind_by?: number | null
@@ -59,7 +42,6 @@ export interface CommitListItem {
 export interface DockerBuildListItem {
   tag: string
   short_sha: string
-  /** `commit` (dev-<sha>) or `release` (vX.Y.Z). */
   kind?: 'commit' | 'release' | string
   pushed_at: string | null
   backend_digest: string | null
@@ -91,78 +73,53 @@ export interface CompareResult {
 export interface UpdaterStatus {
   schema_version: number
   updater_version: string
-  /** Running PROXY_TAG from .env (edge reverse-proxy image tag). Optional on older updaters. */
   proxy_version?: string | null
   current_version: string | null
-  /** Exact source commit backing current_version, when resolved. */
   current_commit_sha?: string | null
   channel: string
-  /** release | commit — present on updater ≥ channel/mode support */
   update_mode?: UpdateMode
-  /** Effective check interval seconds (prefs or env). 0 = off. */
   check_interval_secs?: number
-  /** Raw prefs value when set; omitted when using env fallback. */
   check_interval_secs_pref?: number | null
-  /** Auto-install clear upgrades on the current channel. Default false. */
   auto_install?: boolean
-  /**
-   * Auto-prune pgdata backups so only the latest N non-keep / non-in-use
-   * entries (any age) are retained. Pins (`keep`) and in-use/rescue backups
-   * are never auto-deleted. Default true.
-   */
+  /** Pins and in-use backups are never auto-deleted. */
   snapshot_limit_enabled?: boolean
-  /** Max non-keep / non-protected backups when limit is enabled (1–20). Default 3. */
+  /** 1–20 */
   snapshot_limit?: number
   maintenance_active: boolean
   maintenance_phase: string
   job_in_flight: string | null
-  // 字段从 updater 0.2 起出现，旧 updater 不返回；UI 必须按可选处理。
   latest_available?: LatestAvailable | null
   update_available?: boolean
-  /** Target is older than current; confirm then send allow_downgrade. */
+  /** Downgrade needs allow_downgrade. */
   downgrade_available?: boolean
   requires_self_update?: boolean
   last_checked_at?: string | null
-  /** Snapshot for one-click continue when stuck in needs_manual. */
   rescue_snapshot_id?: string | null
   rescue_source_version?: string | null
-  /** Version pinned locally for rollback as `*:myriad-rollback`. */
   rollback_version?: string | null
   available_channels?: string[]
-  /** Last TCB self-update helper outcome (`state/self-update-last.json`), when present. */
   self_update_last?: InfraUpdateLastStatus | null
-  /** Last manual proxy upgrade outcome (`state/proxy-update-last.json`), when present. */
   proxy_update_last?: InfraUpdateLastStatus | null
-  /**
-   * Last failed update attempt. Present even when auto-rollback restored the prior
-   * stack and maintenance is idle (job status was `failed`, not `needs_manual`).
-   */
   last_failed_update?: LastFailedUpdate | null
 }
 
 export interface LastFailedUpdate {
   from_version?: string | null
   to_version?: string | null
-  /** RFC3339 */
   at: string
   reason: string
   job_id: string
 }
 
-/** UI presets for periodic update checks (seconds). */
 export const CHECK_INTERVAL_PRESETS = [0, 3600, 21600, 43200, 86400] as const
 
-/**
- * Snapshot retention limit presets (count of older non-keep backups kept).
- * BE accepts 1–20; presets cover common values and the max.
- */
 export const SNAPSHOT_LIMIT_PRESETS = [1, 2, 3, 5, 10, 15, 20] as const
 
 export const SNAPSHOT_LIMIT_DEFAULT = 3
 export const SNAPSHOT_LIMIT_MIN = 1
 export const SNAPSHOT_LIMIT_MAX = 20
 
-/** Clamp a raw snapshot_limit into the documented 1–20 range. */
+/** 1–20 */
 export function clampSnapshotLimit(raw: number): number {
   if (!Number.isFinite(raw)) return SNAPSHOT_LIMIT_DEFAULT
   return Math.min(
@@ -171,15 +128,12 @@ export function clampSnapshotLimit(raw: number): number {
   )
 }
 
-/** Shared shape for self-update / proxy-update durable last outcome. */
 export interface InfraUpdateLastStatus {
   status: 'pending' | 'succeeded' | 'failed'
   target_tag: string
   previous_tag: string
-  /** RFC3339 UTC */
   at: string
   error?: string | null
-  /** Proxy only: true when PROXY_TAG was restored after failure. */
   rolled_back?: boolean
 }
 
@@ -194,9 +148,7 @@ export interface ReleaseManifest {
   channel: string
   released_at: string
   min_from_version?: string
-  /** Present when mode=commit (synthetic available payload). */
   mode?: UpdateMode
-  /** Metadata provider used for commit-mode availability. */
   source?: 'github' | 'dockerhub'
   commit_sha?: string
   current_commit_sha?: string | null
@@ -241,13 +193,11 @@ export interface SnapshotMeta {
 export interface SnapshotsResponse {
   schema_version: number
   items: SnapshotMeta[]
-  /** Present on updater with retention diagnostics (≥ prune self-heal). */
   snapshot_limit_enabled?: boolean
   snapshot_limit?: number
   eligible_count?: number
   protected_count?: number
   total_count?: number
-  /** Ids removed by self-heal prune during this list call (if any). */
   pruned_snapshot_ids?: string[]
 }
 
@@ -301,8 +251,6 @@ async function callOnce<T>(
   if (opts.token) headers['X-Update-Token'] = opts.token
   if (opts.idempotencyKey) headers['Idempotency-Key'] = opts.idempotencyKey
 
-  // Backend mode + state-changing methods go through backend csrf_middleware.
-  // Direct mode bypasses backend entirely so no CSRF token is required.
   const stateChanging =
     method === 'POST' ||
     method === 'PUT' ||
@@ -325,7 +273,6 @@ async function callOnce<T>(
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
-    // backend mode rides on admin session cookie; direct mode is token-only.
     credentials: mode === 'backend' ? 'same-origin' : 'omit',
   })
 
@@ -363,8 +310,7 @@ async function call<T>(
 
   let result = await callOnce<T>(method, path, body, opts, false)
 
-  // A token can expire or become invalid after session/key rotation while the
-  // browser still caches it. One forced refresh + retry recovers automatically.
+  // CSRF: one force-refresh + retry.
   if (
     !result.ok &&
     mode === 'backend' &&
@@ -391,13 +337,6 @@ export class UpdaterError extends Error {
   }
 }
 
-/**
- * Builder so callers can pin a single transport mode + token once and reuse it.
- *
- * Usage:
- *   const api = makeUpdaterApi({ mode: 'backend' })       // default
- *   const api = makeUpdaterApi({ mode: 'direct', token }) // fallback
- */
 export function makeUpdaterApi(
   opts: { mode?: TransportMode; token?: string } = {},
 ) {
@@ -504,7 +443,7 @@ export function makeUpdaterApi(
       const allowDiverged = opts?.allowDiverged
       const allowUnknown = opts?.allowUnknown
       const allowIrreversible = opts?.allowIrreversible
-      // Soft gate: only when risk/downgrade flags are set; normal upgrades omit confirm_risk.
+      // confirm_risk only when risk/downgrade flags are set.
       const needsConfirm =
         allowDowngrade ||
         allowRisk ||
@@ -535,16 +474,12 @@ export function makeUpdaterApi(
       wrap<{ job_id: string }>('POST', '/rollback', {
         snapshot_id: snapshotId,
       }),
-    /** Hide the last-failed banner permanently (clears updater.json). */
     dismissLastFailed: () =>
       wrap<{ ok: boolean }>('POST', '/last-failed/dismiss'),
-    /** Hide the TCB self-update last-fail notice (removes self-update-last.json). */
     dismissSelfUpdateLast: () =>
       wrap<{ ok: boolean }>('POST', '/self-update/last/dismiss'),
-    /** Hide the proxy-update last-fail notice (removes proxy-update-last.json). */
     dismissProxyUpdateLast: () =>
       wrap<{ ok: boolean }>('POST', '/proxy-update/last/dismiss'),
-    /** Permanently remove a single backup snapshot. */
     deleteSnapshot: (snapshotId: string) =>
       wrap<{ ok: boolean; id: string }>(
         'DELETE',
@@ -555,7 +490,6 @@ export function makeUpdaterApi(
       wrap<{ ok: boolean }>('POST', '/rescue/exit-maintenance'),
     forgetCurrent: () =>
       wrap<{ ok: boolean }>('POST', '/rescue/forget-current'),
-    /** One-click rollback to the snapshot on the stuck needs_manual job. */
     rescueContinue: () =>
       wrap<{
         ok: boolean
@@ -563,7 +497,6 @@ export function makeUpdaterApi(
         snapshot_id: string
         source_version: string | null
       }>('POST', '/rescue/continue'),
-    /** 触发 updater 自更新；旧 updater 几秒后会被 helper container 替换。 */
     triggerSelfUpdate: () =>
       wrap<{
         ok: boolean
@@ -573,13 +506,8 @@ export function makeUpdaterApi(
         scheduled?: boolean
       }>(
         'POST',
-        // backend mode: 走 backend 代理；direct mode: 直接命中 updater /admin/self-update
         mode === 'backend' ? '/self-update' : '/admin/self-update',
       ),
-    /**
-     * 手动升级 proxy 镜像（改 PROXY_TAG + compose up proxy）。
-     * 不在业务自动更新路径内；短暂边缘 downtime（通常 <10s）。
-     */
     triggerProxyUpdate: (targetVersion?: string) =>
       wrap<{
         ok: boolean
@@ -595,14 +523,8 @@ export function makeUpdaterApi(
   }
 }
 
-/** Default singleton — uses backend transport (admin session). */
 export const updaterApi = makeUpdaterApi()
 
-/**
- * Compare the browser-cached frontend version with what the backend currently reports.
- * The updater health flow ensures version matching at swap time, but a tab opened before
- * the swap will keep running the old bundle. Use this on app load to nudge a reload.
- */
 export async function detectVersionDrift(): Promise<{
   current: string
   build: string

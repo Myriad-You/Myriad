@@ -1,6 +1,5 @@
 import type { MotionLeaseHandle, RigMotionCoordinator } from './coordinator'
 
-/** Idle floor for gaze and head/body at ambient priority. */
 export class AmbientMotionSource {
   private handle: MotionLeaseHandle | null = null
 

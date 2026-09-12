@@ -1,15 +1,8 @@
-/* ============================================
-   动画定义 - 优化版本
-   只保留实际使用的动画
-   ============================================ */
-
-/* 基础动画 - 保持GPU加速 */
 * {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* 淡入动画 */
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -20,7 +13,6 @@
   }
 }
 
-/* 淡入上浮 */
 @keyframes fadeInUp {
   from {
     opacity: 0;
@@ -33,9 +25,7 @@
   }
 }
 
-/* 左滑进入 */
 
-/* 上滑进入 */
 @keyframes slideUp {
   from {
     opacity: 0;
@@ -48,11 +38,7 @@
   }
 }
 
-/* 右滑进入 */
 
-/* 缩放进入 */
-
-/* 卡片淡入 */
 @keyframes cardFadeIn {
   from {
     opacity: 0;
@@ -65,7 +51,6 @@
   }
 }
 
-/* Toast动画 */
 @keyframes toastSlideIn {
   from {
     opacity: 0;
@@ -90,10 +75,6 @@
   }
 }
 
-/* 遮罩层淡入 */
-
-/* 性能优化版本动画类名 */
-
 @keyframes scale-in {
   from {
     opacity: 0;
@@ -106,8 +87,7 @@
   }
 }
 
-/* 旋转加载动画：App 全局正典（App.tsx 导入 animations.css）。
-   PageLoader.astro 另有同名副本供水合前首屏引导环使用。 */
+/* App-wide spin (App.tsx imports this file). PageLoader.astro has a copy for the pre-hydration boot ring. */
 @keyframes spin {
   from {
     transform: rotate(0deg) translateZ(0);
@@ -118,7 +98,6 @@
   }
 }
 
-/* 脉冲动画 */
 @keyframes pulse {
   0%,
   100% {
@@ -132,7 +111,6 @@
   }
 }
 
-/* 减少动画复杂度 */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

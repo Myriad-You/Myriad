@@ -1,9 +1,9 @@
 //! Tapp installation lifecycle: store fetch, direct/file install and transactional updates.
 //!
-//! Pure install decisions (source mode, direct CSS channels, approved-permission
-//! selection, owner/conflict namespaces) live in
-//! [`crate::services::tapp_install`] and [`crate::services::tapp_ownership`].
-//! This module keeps Claims/DB/FS and role-config permission filtering.
+//! Source-mode parse, approved-permission selection, and persist snapshots live in
+//! [`crate::services::tapp_install`]; owner/conflict namespaces live in
+//! [`crate::services::tapp_ownership`]. This module keeps Claims/DB/FS and
+//! role-config granted filtering.
 
 use super::prepared_package::{
     package_from_archive, PackageStageContext, PreparedTappPackage, PreparedTappPackageHttp,
@@ -48,7 +48,7 @@ use crate::services::tapp_install::{
     InstallSource, INSTALL_ACQUIRE_TIMEOUT_SECS, MAX_CONCURRENT_INSTALLS,
 };
 
-/// Global install concurrency gate (MYR-025). Bounds simultaneous archive
+/// Global install concurrency gate. Bounds simultaneous archive
 /// buffers + extract work so handlers do not hold full zip clones unboundedly.
 static INSTALL_SEMAPHORE: Lazy<Arc<Semaphore>> =
     Lazy::new(|| Arc::new(Semaphore::new(MAX_CONCURRENT_INSTALLS)));
@@ -87,7 +87,7 @@ async fn acquire_install_permit() -> Result<OwnedSemaphorePermit, HttpError> {
 /// 统一安装 Tapp 的请求体
 ///
 /// 支持两种安装来源：
-/// 1. direct: 直接提供代码（本地示例、上传文件解析后）
+/// 1. direct: 直接提供代码
 /// 2. store: 从远程商店安装（后端下载）
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -108,7 +108,7 @@ pub(super) struct InstallTappRequest {
     widget_styles: Option<std::collections::HashMap<String, String>>,
     /// 页面 HTML 模板（可选）
     page_template: Option<String>,
-    /// 小组件 HTML 模板（可选，Widget ID → 尺寸）
+    /// 小组件 HTML 模板（可选，widget id → 尺寸 → HTML）
     widget_templates: Option<WidgetTemplateContents>,
     /// 宿主预编译的 Widget Tailwind CSS（可选）
     widget_css: Option<String>,
@@ -126,7 +126,7 @@ pub(super) struct InstallTappRequest {
     tapp_id: Option<String>,
 
     // 通用字段
-    /// 授权的权限列表（可选，默认全部授权）
+    /// 要批准的权限列表（可选；缺省则批准全部声明权限）
     permissions: Option<Vec<String>>,
 }
 
@@ -238,7 +238,7 @@ pub(super) async fn install_tapp(
     )
     .await?;
     if from_store {
-        // Instance-day cap (1 install count / instance / app / day) — no shared secret.
+        // Fire-and-forget store stats hit; payload has no secret.
         crate::services::store_stats_beacon::spawn_store_stats_hit(
             &stats_app_id,
             &stats_version,
@@ -452,7 +452,7 @@ async fn install_prepared_package(
         last_run_at: Set(Some(persist.last_run_at)),
         updated_at: Set(persist.updated_at),
         error_message: Set(None),
-        // New installs default to everyone; admin can tighten on the detail page.
+        // New installs default visibility to everyone.
         visibility: Set(crate::services::tapp_ownership::TAPP_VISIBILITY_ALL.to_string()),
     };
 
@@ -508,13 +508,10 @@ async fn install_prepared_package(
         ));
     }
     activated.commit().await;
-    // A newly published installation can immediately shadow an existing
-    // private copy with the same ID. No grant or declared-API cache produced
-    // from the formerly visible installation may survive that ownership swap.
+    // Runtime grants and declared-API cache are keyed by tapp_id, not owner.
     crate::api::tapp_runtime::revoke_all_tapp_runtime_grants(db, &manifest.id).await;
     crate::api::tapp_runtime::invalidate_tapp_apis_cache(&manifest.id).await;
 
-    // Only the deterministic site-owner namespace is public and persistent.
     // List projection: services::tapp_catalog (install contract forces status=installed).
     Ok(Json(ApiResponse::success(
         crate::services::tapp_catalog::install_response_list_item(result, is_current_admin),
@@ -616,7 +613,7 @@ pub(super) struct UpdateTappRequest {
     widget_styles: Option<std::collections::HashMap<String, String>>,
     /// 页面 HTML 模板（可选）
     page_template: Option<String>,
-    /// 小组件 HTML 模板（可选，Widget ID → 尺寸）
+    /// 小组件 HTML 模板（可选，widget id → 尺寸 → HTML）
     widget_templates: Option<WidgetTemplateContents>,
     /// 宿主预编译的 Widget Tailwind CSS（可选）
     widget_css: Option<String>,
@@ -630,17 +627,13 @@ pub(super) struct UpdateTappRequest {
     // store 模式需要的字段
     /// 商店源 URL 或 ID
     store_source: Option<String>,
-    /// 授权的权限列表（可选，保留原有权限）
+    /// 要批准的权限列表（可选；缺省保留仍在声明中的原批准集）
     permissions: Option<Vec<String>>,
 }
 
 /// 更新 Tapp（从远程商店或内置代码获取最新版本）
 ///
 /// 保留用户数据，仅更新代码和资源
-///
-/// 权限模型：
-/// - 管理员可以更新自己的 Tapp
-/// - 普通用户可以更新自己临时安装的 Tapp
 pub(super) async fn update_tapp(
     State(db): State<DatabaseConnection>,
     State(dynamic_config): State<Arc<RwLock<DynamicConfig>>>,
@@ -842,8 +835,7 @@ pub(super) async fn update_tapp(
     active.manifest = Set(persist.manifest);
     active.granted_permissions = Set(persist.granted_permissions);
     active.approved_permissions = Set(persist.approved_permissions);
-    // A successful update is an explicit re-authorization: the
-    // permission filter above already failed closed on unknown names.
+    // Successful update is explicit re-authorization; persist always clears the flag.
     active.needs_reauthorization = Set(persist.needs_reauthorization);
     active.code_path = Set(persist.code_path);
     active.updated_at = Set(persist.updated_at);
@@ -882,7 +874,7 @@ pub(super) async fn update_tapp(
     }
     activated.commit().await;
 
-    // Code or permissions may have changed; existing grants must not survive the update.
+    // Code or approved/granted columns may have changed; drop runtime grants.
     crate::api::tapp_runtime::revoke_all_tapp_runtime_grants(&db, &tapp_id).await;
 
     // manifest 已更新，清除 API 解析缓存
@@ -896,7 +888,6 @@ pub(super) async fn update_tapp(
         user_id
     );
 
-    // Only the deterministic site-owner namespace is public and persistent.
     // List projection: services::tapp_catalog (preserves live status/last_run_at).
     if from_store {
         crate::services::store_stats_beacon::spawn_store_stats_hit(

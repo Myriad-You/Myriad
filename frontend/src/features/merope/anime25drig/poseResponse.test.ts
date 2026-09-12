@@ -103,7 +103,6 @@ const NEUTRAL_QUALITY = {
   density: 0.8,
 }
 
-// The two profiles `compilePerformanceBehaviorPlan` authors for its cues.
 const FORCEFUL = {
   ...NEUTRAL_QUALITY,
   tempo: 1.2,
@@ -148,8 +147,6 @@ test('manner reaches the pose, not just its size', () => {
     }
     return current.angleX
   }
-  // Same goal, same elapsed time. Before this, a forceful `emphasize` and a
-  // soft `listen` nod arrived at exactly the same place.
   assert.ok(
     travel(FORCEFUL) > travel(GENTLE) * 1.1,
     `${travel(FORCEFUL)} vs ${travel(GENTLE)}`,
@@ -162,8 +159,6 @@ test('an unclaimed pose keeps the rig own rate', () => {
     resolvePoseResponseScale([{ weight: 0.8, quality: null }]),
     1,
   )
-  // Idle drift has no authored manner, so a beat that carries a tenth of the
-  // pose may only move the bandwidth a tenth of the way.
   const faint = resolvePoseResponseScale([{ weight: 0.1, quality: FORCEFUL }])
   const full = resolvePoseResponseScale([{ weight: 1, quality: FORCEFUL }])
   assert.ok(faint > 1 && faint < full)

@@ -1,9 +1,5 @@
 import type { Anime25DFade } from '../anime25drig/types'
 
-/**
- * One registry owns render depth and activation channel for every semantic
- * drawing. Depths originate from Anime2.5DRig's MIT-licensed `lib/rigger.js`.
- */
 export const ANIME25D_LAYER_DESCRIPTORS = {
   'back-hair': { depth: 0.55, fade: null },
   bottomwear: { depth: 0.88, fade: null },
@@ -15,7 +11,6 @@ export const ANIME25D_LAYER_DESCRIPTORS = {
   earwear: { depth: 0.97, fade: null },
   neckwear: { depth: 1, fade: null },
   eyewear: { depth: 1.16, fade: null },
-  // Recognized upstream drawings, not articulated wings/tail/object bones.
   wings: { depth: 1, fade: null },
   tail: { depth: 1, fade: null },
   objects: { depth: 1, fade: null },

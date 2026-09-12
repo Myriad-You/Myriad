@@ -1,12 +1,19 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { currentCopy } from '../i18n/localeCopy.ts'
+import { currentCopy, formatCurrent } from '../i18n/localeCopy.ts'
 import { ApiError } from '../services/api.ts'
 import {
   httpStatusMessage,
   isUselessErrorText,
   userFacingError,
 } from './userFacingError.ts'
+
+function fill(
+  template: string,
+  params: Record<string, string | number> = {},
+): string {
+  return formatCurrent(template, params)
+}
 
 describe('userFacingError', () => {
   it('treats API Error: 500 and JSON dumps as useless', () => {
@@ -24,6 +31,51 @@ describe('userFacingError', () => {
     assert.equal(isUselessErrorText('Failed to parse AI response'), true)
     assert.equal(isUselessErrorText('AI error: model exploded'), true)
     assert.equal(isUselessErrorText('Steam 未返回游戏数据'), false)
+  })
+
+  it('maps unmapped codes without leaking leftover English', () => {
+    const withStatus = new ApiError(
+      'Failed to frobnicate the widget',
+      500,
+      'unmapped',
+    )
+    const statusText = userFacingError(withStatus)
+    assert.equal(/frobnicate/i.test(statusText), false)
+    assert.match(statusText, /500/)
+    assert.equal(
+      userFacingError({ code: 'unmapped' }),
+      currentCopy().errors.operationFailed,
+    )
+    assert.equal(
+      userFacingError('Failed to frobnicate the widget'),
+      currentCopy().errors.operationFailed,
+    )
+  })
+
+  it('maps locale_invalid from the catalog', () => {
+    const err = new ApiError('Bad request', 400, 'locale_invalid')
+    assert.equal(userFacingError(err), currentCopy().errors.localeInvalid)
+  })
+
+  it('maps new stable save/load codes from the catalog', () => {
+    assert.equal(
+      userFacingError(new ApiError('Failed to load config', 500, 'config_load_failed')),
+      currentCopy().config.loadConfigFailed,
+    )
+    assert.equal(
+      userFacingError(
+        new ApiError('Failed to update permissions', 500, 'permissions_save_failed'),
+      ),
+      currentCopy().config.permissionsSaveFailed,
+    )
+    assert.equal(
+      userFacingError(new ApiError('Failed to persist Tapp', 500, 'tapp_save_failed')),
+      currentCopy().errors.tappSaveFailed,
+    )
+    assert.equal(
+      userFacingError('Failed to load configuration'),
+      currentCopy().config.loadConfigFailed,
+    )
   })
 
   it('maps HTTP status to a localized reason', () => {
@@ -51,6 +103,135 @@ describe('userFacingError', () => {
     const text = userFacingError(err)
     assert.match(text, /数据|data|データ/i)
     assert.equal(/Database error/i.test(text), false)
+  })
+
+  it('maps platform test field-required codes', () => {
+    const text = userFacingError(
+      new ApiError('Username is required', 400, 'username_required'),
+    )
+    assert.equal(/Username is required/i.test(text), false)
+    const uid = userFacingError(new ApiError('UID is required', 400, 'uid_required'))
+    assert.equal(/UID is required/i.test(uid), false)
+  })
+
+  it('maps leftover Chinese agent wait-loop messages', () => {
+    assert.equal(
+      /任务已取消/.test(userFacingError('任务已取消')),
+      false,
+    )
+    assert.equal(
+      /任务等待通道已断开/.test(userFacingError('任务等待通道已断开')),
+      false,
+    )
+    assert.equal(
+      /等待用户输入已超时/.test(
+        userFacingError('等待用户输入已超时（服务重启后发现已过期）'),
+      ),
+      false,
+    )
+    assert.equal(
+      userFacingError('用户取消了任务'),
+      currentCopy().errors.agentTaskCancelled,
+    )
+    assert.equal(
+      userFacingError('Resume exceeded the step cap'),
+      currentCopy().errors.agentResumeOverCap,
+    )
+    assert.equal(
+      userFacingError('恢复执行超出步骤上限').includes('恢复执行超出'),
+      false,
+    )
+  })
+
+  it('maps leftover Chinese agent progress chrome', () => {
+    const queued = userFacingError('排队中（前方约 3 个任务）…')
+    assert.equal(/排队中（前方约 3 个任务）/.test(queued), false)
+    assert.match(queued, /3/)
+    const bili = userFacingError('获取 B 站数据')
+    assert.equal(/获取 B 站数据/.test(bili), false)
+    assert.match(bili, /Bilibili/)
+  })
+
+  it('maps realtime session and missing-report codes', () => {
+    const voice = userFacingError(
+      new ApiError('Realtime session is unavailable', 404, 'realtime_session_unavailable'),
+    )
+    assert.equal(/Realtime session is unavailable/i.test(voice), false)
+    const report = userFacingError(
+      new ApiError('No valid report found', 200, 'no_valid_report'),
+    )
+    assert.equal(/No valid report found/i.test(report), false)
+  })
+
+  it('maps leftover Chinese share-empty and query-token codes', () => {
+    const share = userFacingError('分享内容为空：请提供 text，或 title/summary')
+    assert.equal(/分享内容为空/.test(share), false)
+    const token = userFacingError(
+      new ApiError(
+        'Do not pass X bearer tokens in the query string',
+        400,
+        'bearer_token_not_allowed',
+      ),
+    )
+    assert.equal(/query string/i.test(token), false)
+  })
+
+  it('maps configuration_mode away from the English label', () => {
+    const err = new ApiError(
+      'Service in configuration mode',
+      503,
+      'configuration_mode',
+    )
+    const text = userFacingError(err)
+    assert.match(text, /配置|setup|セットアップ/i)
+    assert.equal(/Service in configuration mode/i.test(text), false)
+  })
+
+  it('maps setup_completed away from the English label', () => {
+    const err = new ApiError(
+      'Setup already completed',
+      403,
+      'setup_completed',
+    )
+    const text = userFacingError(err)
+    assert.match(text, /安装|complete|完了/i)
+    assert.equal(/Setup already completed/i.test(text), false)
+  })
+
+  it('maps report fetch_failed away from platform fetch copy', () => {
+    const text = userFacingError(
+      new ApiError('Failed to fetch report', 500, 'fetch_failed'),
+    )
+    assert.equal(/Failed to fetch report/i.test(text), false)
+    assert.equal(/platform/i.test(text), false)
+  })
+
+  it('maps API_NOT_FOUND to not-found copy', () => {
+    const text = userFacingError(
+      new ApiError("API 'demo' not defined in manifest", 404, 'API_NOT_FOUND'),
+    )
+    assert.match(text, /找不到|not found|見つかり/i)
+    assert.equal(/not defined in manifest/i.test(text), false)
+  })
+
+  it('maps file and payload size limits without the English template', () => {
+    const file = userFacingError(
+      new ApiError(
+        'File size must be between 1 byte and 104857600 bytes',
+        400,
+        'file_too_large',
+      ),
+    )
+    assert.equal(/File size must be between/i.test(file), false)
+    const payload = userFacingError(
+      new ApiError(
+        'Message payload too large: 9000 bytes (max 4194304)',
+        413,
+        'payload_too_large',
+      ),
+    )
+    assert.equal(/Message payload too large/i.test(payload), false)
+    assert.match(payload, /9000|4194304/)
   })
 
   it('maps leftover Chinese setup migration copy', () => {
@@ -1197,7 +1378,7 @@ describe('userFacingError', () => {
     assert.match(youtube, /YouTube/)
     assert.match(youtube, /502/)
     assert.match(configSave, /配置|settings|設定/)
-    assert.match(configLoad, /读取|read|読み込/)
+    assert.match(configLoad, /配置|configuration|設定|load|加载|載入|読み込/)
     assert.notEqual(playlist, song)
     assert.notEqual(configSave, configLoad)
     assert.notEqual(media, mode)
@@ -1383,6 +1564,251 @@ describe('userFacingError', () => {
     assert.match(cloud, /502/)
     assert.equal(/Failed to save to cloud/i.test(cloud), false)
     assert.notEqual(usage, currentCopy().errors.operationFailed)
+  })
+
+  it('maps setup window closed and secret mismatch without English labels', () => {
+    const closed = userFacingError(
+      new ApiError('Setup window closed', 401, 'setup_window_closed'),
+    )
+    assert.equal(/Setup window closed/i.test(closed), false)
+    assert.equal(closed.includes('安装向导已关闭'), false)
+    const leftoverClosed = userFacingError(
+      '安装向导已关闭。认领之后请先修库，不要再用 setup 改宿主配置。',
+    )
+    assert.equal(leftoverClosed.includes('安装向导已关闭'), false)
+    const mismatch = userFacingError(
+      new ApiError('Setup secret required', 401, 'setup_secret_mismatch'),
+    )
+    assert.equal(/Setup secret required/i.test(mismatch), false)
+    assert.equal(mismatch.includes('安装暗号不对'), false)
+    const leftoverSecret = userFacingError(
+      '安装暗号不对。请从服务器 .env 的 MYRIAD_SETUP_SECRET 复制后再试。',
+    )
+    assert.equal(leftoverSecret.includes('安装暗号不对'), false)
+    assert.notEqual(closed, mismatch)
+  })
+
+  it('maps leftover Chinese bangumi credentials and agent submitted copy', () => {
+    const bangumi = userFacingError('username 或 access_token 至少需要提供一个')
+    assert.equal(bangumi.includes('至少需要提供'), false)
+    const submitted = userFacingError('任务已提交，等待执行')
+    assert.equal(submitted.includes('任务已提交'), false)
+    const submittedEn = userFacingError('Task submitted, waiting to run')
+    assert.equal(submittedEn, currentCopy().errors.agentSubmitted)
+    const planFailed = userFacingError(
+      'I understood the request, but planning failed: timeout. Please describe what you want more specifically.',
+    )
+    assert.equal(
+      planFailed,
+      fill(currentCopy().errors.agentPlanningFailed, { detail: 'timeout' }),
+    )
+    const leftoverPlan = userFacingError(
+      '我理解了你的请求，但生成执行计划时出现问题：timeout。请更具体地描述你想要什么。',
+    )
+    assert.equal(leftoverPlan.includes('我理解了你的请求'), false)
+    assert.match(leftoverPlan, /timeout/)
+  })
+
+  it('maps Discord app-missing and leftover music-control chrome', () => {
+    const discord = userFacingError(
+      new ApiError(
+        'Add and enable a Discord app in OAuth login first',
+        400,
+        'discord_app_not_configured',
+      ),
+    )
+    assert.equal(discord, currentCopy().config.discordOAuthAppMissing)
+    const leftoverDiscord = userFacingError(
+      '请先在「OAuth 登录」中添加并启用 Discord 应用（client_id / client_secret）。数据授权会复用同一 Application。',
+    )
+    assert.equal(leftoverDiscord.includes('OAuth 登录'), false)
+    const next = userFacingError('切换到下一首')
+    assert.equal(next.includes('切换到下一首'), false)
+    assert.equal(userFacingError('Playing music'), currentCopy().music.playingNow)
+    assert.equal(userFacingError('Muted'), currentCopy().music.muted)
+    assert.equal(
+      userFacingError('现在没在放歌。'),
+      currentCopy().music.noPlaying,
+    )
+    assert.equal(
+      /系统繁忙/.test(
+        userFacingError('系统繁忙，排队超过 30 秒仍未获得执行许可，请稍后重试'),
+      ),
+      false,
+    )
+  })
+
+  it('maps leftover Chinese agent step chrome and English capability labels', () => {
+    assert.equal(userFacingError('AI 对话'), currentCopy().errors.agentChat)
+    assert.equal(userFacingError('Chatting'), currentCopy().errors.agentChat)
+    assert.equal(userFacingError('好了，都处理完啦~'), currentCopy().errors.agentAllDone)
+    assert.equal(
+      userFacingError('此操作将执行 打开窗口'),
+      fill(currentCopy().errors.willExecute, { name: '打开窗口' }),
+    )
+    assert.equal(userFacingError('数据读取'), currentCopy().errors.capCategoryData)
+    assert.equal(userFacingError('Discovering feeds'), currentCopy().errors.agentDiscoverFeeds)
+    assert.equal(
+      userFacingError('获取 B 站数据').includes('B 站'),
+      false,
+    )
+    assert.equal(
+      userFacingError('即将添加新的 RSS/Atom 订阅源'),
+      currentCopy().errors.confirmAddFeed,
+    )
+    assert.equal(
+      userFacingError('正在加载网易云歌单...'),
+      fill(currentCopy().errors.loadingNamedPlaylist, { name: 'NetEase' }),
+    )
+    assert.equal(userFacingError('组件列表'), currentCopy().errors.tappWidgets)
+    assert.equal(
+      userFacingError('未命名报告'),
+      currentCopy().errors.unnamedReport,
+    )
+    assert.equal(userFacingError('未知标题'), currentCopy().errors.unknownTitle)
+    assert.equal(
+      userFacingError('未知艺术家'),
+      currentCopy().library.unknownArtist,
+    )
+    assert.equal(
+      userFacingError('自动刷新 steam 数据'),
+      fill(currentCopy().errors.autoRefreshNamed, { name: 'steam' }),
+    )
+    assert.equal(
+      userFacingError('定时任务: 备份'),
+      fill(currentCopy().errors.noticeHeartbeatTask, { name: '备份' }),
+    )
+    assert.equal(
+      userFacingError('未命名内容'),
+      currentCopy().errors.untitledContent,
+    )
+    assert.equal(
+      userFacingError('智能阅读列表'),
+      currentCopy().brew.smartReadingList,
+    )
+    assert.equal(userFacingError('订阅源'), currentCopy().brew.boardFeeds)
+    assert.equal(userFacingError('已收藏'), currentCopy().errors.brewMarkStarred)
+    assert.equal(
+      userFacingError('网络搜索 - 科技'),
+      fill(currentCopy().errors.webSearchNamed, { name: '科技' }),
+    )
+    assert.equal(
+      userFacingError("将调用外部 MCP 服务 'files' 的工具 'read'"),
+      fill(currentCopy().errors.confirmMcpTool, {
+        server: 'files',
+        tool: 'read',
+      }),
+    )
+    assert.equal(
+      userFacingError('已加载 3 个工具'),
+      fill(currentCopy().errors.noticeMcpToolsLoaded, { n: 3 }),
+    )
+    assert.equal(
+      userFacingError('维护重试成功'),
+      currentCopy().errors.noticeMcpMaintenanceRetry,
+    )
+    assert.equal(
+      userFacingError('Auto-restart succeeded'),
+      currentCopy().errors.noticeMcpAutoRestart,
+    )
+    assert.equal(
+      userFacingError('状态监控超时，请在系统更新面板确认任务结果'),
+      currentCopy().errors.noticeUpdaterWatchTimeout,
+    )
+    assert.equal(
+      userFacingError('未知用户'),
+      currentCopy().userModal.unknownUser,
+    )
+    assert.equal(userFacingError('游客'), currentCopy().errors.guestLabel)
+    assert.equal(
+      userFacingError('用户#7'),
+      fill(currentCopy().errors.userNumber, { id: '7' }),
+    )
+    assert.equal(
+      userFacingError('网易云音乐用户'),
+      currentCopy().errors.neteaseMusicUser,
+    )
+    assert.equal(userFacingError('Steam 玩家'), currentCopy().errors.steamPlayer)
+    assert.equal(
+      userFacingError('等待 Tapp 完成交互'),
+      currentCopy().errors.waitTappInteraction,
+    )
+    assert.equal(userFacingError('动态技能'), currentCopy().errors.capDynamicSkills)
+    assert.equal(userFacingError('未分类'), currentCopy().brew.uncategorized)
+    assert.equal(
+      userFacingError('最新文章'),
+      currentCopy().brew.latestArticles,
+    )
+    assert.equal(
+      userFacingError('任务等待用户输入超时（2小时），已自动取消'),
+      fill(currentCopy().errors.waitInputTimeoutHours, { hours: 2 }),
+    )
+    assert.equal(
+      userFacingError('API 速率限制，等待后重试'),
+      currentCopy().errors.rateLimited,
+    )
+    assert.equal(
+      userFacingError('内容策略违规，尝试清理敏感内容后重试'),
+      currentCopy().errors.contentPolicyRetry,
+    )
+    assert.equal(
+      userFacingError('标题不能为空'),
+      currentCopy().brew.noteTitleRequired,
+    )
+    assert.equal(
+      userFacingError('A title is required'),
+      currentCopy().brew.noteTitleRequired,
+    )
+    assert.equal(
+      userFacingError('标题最多 200 字，现在有 201 字'),
+      fill(currentCopy().brew.noteTitleTooLong, { max: '200', chars: '201' }),
+    )
+    assert.equal(
+      userFacingError('正文最多 200000 字，现在有 200001 字'),
+      fill(currentCopy().brew.noteBodyTooLong, {
+        max: '200000',
+        chars: '200001',
+      }),
+    )
+    assert.equal(
+      userFacingError('我现在心情很低，不想接新的事情。我们先说说话吧。'),
+      currentCopy().errors.agentRefuseLowMood,
+    )
+    assert.equal(
+      userFacingError('我对这个请求的理解置信度较低（20%），可能会误解你的意图。能再详细描述一下你想要做什么吗？'),
+      currentCopy().errors.agentNeedClarification,
+    )
+    assert.equal(userFacingError('重试'), currentCopy().errors.retryStep)
+    assert.equal(
+      userFacingError('取消整个任务'),
+      currentCopy().errors.cancelTaskDesc,
+    )
+    assert.equal(
+      userFacingError('联网搜索结果'),
+      currentCopy().errors.webSearchResult,
+    )
+    assert.equal(
+      userFacingError('AI 已根据近期失败原因改写该自动技能。'),
+      currentCopy().errors.noticeSkillImprovedBody,
+    )
+    assert.equal(
+      userFacingError('请尝试其他关键词'),
+      currentCopy().errors.tryOtherKeyword,
+    )
+    assert.equal(
+      userFacingError(
+        'page.content 读取 Tapp 页需要 context.tappId，或由前端提供 content 快照',
+      ),
+      currentCopy().errors.pageContentNeedsTapp,
+    )
+    assert.equal(
+      userFacingError('即将向外部 URL 发起 HTTP 请求'),
+      currentCopy().errors.confirmHttpFetch,
+    )
+    assert.equal(
+      userFacingError('This will interact with a page element'),
+      currentCopy().errors.confirmPageInteract,
+    )
   })
 
   it('maps leftover public config and comment reply leftovers without unifying them', () => {

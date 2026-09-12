@@ -1,8 +1,3 @@
-/**
- * 阅读列表上下文
- * 管理 AI 生成的阅读列表和顺序阅读状态
- */
-
 import type { ReactNode } from 'react'
 import {
   createContext,
@@ -11,9 +6,10 @@ import {
   useEffect,
   useMemo,
   useState,
+  useSyncExternalStore,
 } from 'react'
+import { brewSubject } from '../utils/brewSubject'
 
-// 阅读列表项（来自 AI 生成）
 export interface ReadingListItem {
   id: number
   title: string
@@ -23,53 +19,40 @@ export interface ReadingListItem {
   summary?: string
   relevanceReason?: string
   link?: string
-  /** 文章内容（网络搜索结果可能需要后续获取） */
+  /** May still need a fetch for web-search items. */
   content?: string
-  /** 是否来自 AI 网络搜索（而非数据库） */
+  /** AI web search, not DB. */
   fromWebSearch?: boolean
 }
 
-// 阅读列表
 export interface ReadingList {
-  id: string // 唯一标识
-  name: string // 列表名称
-  criteria: string // 生成条件
+  id: string
+  name: string
+  criteria: string
   items: ReadingListItem[]
   createdAt: Date
 }
 
-// 阅读进度
 export interface ReadingProgress {
   listId: string
   currentIndex: number
-  readIds: Set<number> // 已读文章 ID
+  readIds: Set<number>
 }
 
 interface ReadingListContextType {
-  // 当前阅读列表
   currentList: ReadingList | null
-  // 阅读进度
   progress: ReadingProgress | null
-  // 历史阅读列表
   history: ReadingList[]
 
-  // 设置阅读列表（从 Agent 响应）
   setReadingList: (list: ReadingList) => void
-  // 清除当前阅读列表
   clearReadingList: () => void
-  // 跳转到列表中的某篇文章
   goToArticle: (index: number) => void
-  // 标记当前文章已读并获取下一篇
   markReadAndNext: () => ReadingListItem | null
-  // 获取上一篇
   getPrevious: () => ReadingListItem | null
-  // 获取下一篇（不标记已读）
+  /** Does not mark the current item read. */
   getNext: () => ReadingListItem | null
-  // 获取当前文章
   getCurrentItem: () => ReadingListItem | null
-  // 检查是否在阅读列表中
   isInReadingList: (itemId: number) => boolean
-  // 获取文章在列表中的位置信息
   getPositionInfo: (itemId: number) => {
     index: number
     total: number
@@ -81,11 +64,22 @@ interface ReadingListContextType {
 const ReadingListContext = createContext<ReadingListContextType | null>(null)
 
 export function ReadingListProvider({ children }: { children: ReactNode }) {
+  const subject = useSyncExternalStore(
+    brewSubject.subscribe,
+    brewSubject.getSnapshot,
+    brewSubject.getSnapshot,
+  )
   const [currentList, setCurrentListState] = useState<ReadingList | null>(null)
   const [progress, setProgress] = useState<ReadingProgress | null>(null)
   const [history, setHistory] = useState<ReadingList[]>([])
+  const [generation, setGeneration] = useState(subject.generation)
+  if (generation !== subject.generation) {
+    setGeneration(subject.generation)
+    setCurrentListState(null)
+    setProgress(null)
+    setHistory([])
+  }
 
-  // 设置新的阅读列表
   const setReadingList = useCallback((list: ReadingList) => {
     setCurrentListState(list)
     setProgress({
@@ -93,20 +87,17 @@ export function ReadingListProvider({ children }: { children: ReactNode }) {
       currentIndex: 0,
       readIds: new Set(),
     })
-    // 添加到历史
     setHistory((prev) => {
       const filtered = prev.filter((h) => h.id !== list.id)
-      return [list, ...filtered].slice(0, 10) // 保留最近10个
+      return [list, ...filtered].slice(0, 10)
     })
   }, [])
 
-  // 清除当前列表
   const clearReadingList = useCallback(() => {
     setCurrentListState(null)
     setProgress(null)
   }, [])
 
-  // 跳转到指定文章
   const goToArticle = useCallback(
     (index: number) => {
       if (!currentList || index < 0 || index >= currentList.items.length) return
@@ -115,19 +106,16 @@ export function ReadingListProvider({ children }: { children: ReactNode }) {
     [currentList],
   )
 
-  // 获取当前文章
   const getCurrentItem = useCallback((): ReadingListItem | null => {
     if (!currentList || !progress) return null
     return currentList.items[progress.currentIndex] || null
   }, [currentList, progress])
 
-  // 获取上一篇
   const getPrevious = useCallback((): ReadingListItem | null => {
     if (!currentList || !progress || progress.currentIndex <= 0) return null
     return currentList.items[progress.currentIndex - 1]
   }, [currentList, progress])
 
-  // 获取下一篇
   const getNext = useCallback((): ReadingListItem | null => {
     if (
       !currentList ||
@@ -139,7 +127,6 @@ export function ReadingListProvider({ children }: { children: ReactNode }) {
     return currentList.items[progress.currentIndex + 1]
   }, [currentList, progress])
 
-  // 标记已读并跳转下一篇
   const markReadAndNext = useCallback((): ReadingListItem | null => {
     if (!currentList || !progress) return null
 
@@ -162,7 +149,6 @@ export function ReadingListProvider({ children }: { children: ReactNode }) {
     }
   }, [currentList, progress])
 
-  // 检查是否在阅读列表中
   const isInReadingList = useCallback(
     (itemId: number): boolean => {
       if (!currentList) return false
@@ -171,7 +157,6 @@ export function ReadingListProvider({ children }: { children: ReactNode }) {
     [currentList],
   )
 
-  // 获取位置信息
   const getPositionInfo = useCallback(
     (itemId: number) => {
       if (!currentList) return null
@@ -187,9 +172,9 @@ export function ReadingListProvider({ children }: { children: ReactNode }) {
     [currentList],
   )
 
-  // 监听来自 AgentGlobalActions 的阅读列表设置事件
   useEffect(() => {
     const handleSetReadingList = (event: CustomEvent<ReadingList>) => {
+      if (!brewSubject.getSnapshot().active) return
       console.log(
         '[ReadingListContext] Received set-reading-list event:',
         event.detail,
@@ -255,7 +240,7 @@ export function useReadingList() {
   return context
 }
 
-// 可选的 hook，在 Provider 外部使用时返回 null
+/** Returns null outside the provider. */
 export function useReadingListOptional() {
   return useContext(ReadingListContext)
 }

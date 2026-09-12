@@ -1,8 +1,5 @@
 import { apiRequest } from './TappHttpClient'
 
-// Report CRUD API
-
-/** 创建报告请求 */
 export interface CreateReportRequest {
   tappId: string
   title: string
@@ -11,7 +8,6 @@ export interface CreateReportRequest {
   metadata?: unknown
 }
 
-/** 报告数据 */
 export interface TappReport {
   id: string
   title: string
@@ -22,9 +18,6 @@ export interface TappReport {
   updatedAt: string
 }
 
-/**
- * 创建报告
- */
 export async function createTappReport(
   request: CreateReportRequest,
   runtimeGrant?: string,
@@ -42,9 +35,6 @@ export async function createTappReport(
   })
 }
 
-/**
- * 获取 Tapp 报告列表
- */
 export async function listTappReports(
   tappId: string,
   runtimeGrant?: string,
@@ -54,9 +44,6 @@ export async function listTappReports(
   })
 }
 
-/**
- * 获取报告详情
- */
 export async function getTappReport(
   tappId: string,
   reportId: string,
@@ -68,9 +55,6 @@ export async function getTappReport(
   )
 }
 
-/**
- * 更新报告
- */
 export async function updateTappReport(
   tappId: string,
   reportId: string,
@@ -87,9 +71,6 @@ export async function updateTappReport(
   )
 }
 
-/**
- * 删除报告
- */
 export async function deleteTappReport(
   tappId: string,
   reportId: string,
@@ -104,9 +85,6 @@ export async function deleteTappReport(
   )
 }
 
-// Media Control API
-
-/** 媒体控制请求 */
 export interface MediaControlRequest {
   tappId: string
   action:
@@ -122,7 +100,6 @@ export interface MediaControlRequest {
   value?: unknown
 }
 
-/** 媒体状态 */
 export interface MediaStatus {
   isPlaying: boolean
   isPaused: boolean
@@ -150,9 +127,6 @@ export interface MediaStatus {
   muted: boolean
 }
 
-/**
- * 媒体控制
- */
 export async function mediaControl(
   request: MediaControlRequest,
   runtimeGrant?: string,
@@ -168,9 +142,6 @@ export async function mediaControl(
   })
 }
 
-/**
- * 获取媒体状态
- */
 export async function mediaStatus(runtimeGrant?: string): Promise<{
   success: boolean
   status: MediaStatus

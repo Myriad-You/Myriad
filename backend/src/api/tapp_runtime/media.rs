@@ -60,7 +60,9 @@ pub async fn media_control(
             if req.value.is_none() {
                 return Err(HttpError::from((
                     StatusCode::BAD_REQUEST,
-                    Json(json!({ "error": "Seek action requires a position value" })),
+                    Json(AppError::public_json(
+                        "Seek action requires a position value",
+                    )),
                 )));
             }
         }
@@ -70,7 +72,7 @@ pub async fn media_control(
                     if !(0.0..=100.0).contains(&v) {
                         return Err(HttpError::from((
                             StatusCode::BAD_REQUEST,
-                            Json(json!({ "error": "Volume must be between 0 and 100" })),
+                            Json(AppError::public_json("Volume must be between 0 and 100")),
                         )));
                     }
                 }
@@ -123,3 +125,4 @@ pub async fn media_status(
         "_note": "Real-time status is provided via TappBridge"
     })))
 }
+use myriad_error::AppError;

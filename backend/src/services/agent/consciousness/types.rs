@@ -50,6 +50,9 @@ pub struct RecentIntent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
 pub struct SelfLivePresence {
+    /// Page-instance lease key, never a user identity or an authorization fact.
+    #[serde(skip)]
+    pub instance_id: Option<String>,
     pub speaking: bool,
     pub face_visible: bool,
     /// Document is visible in this browser. Independent of the face widget.

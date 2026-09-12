@@ -1,11 +1,4 @@
-/**
- * Shared enter / exit for the live face.
- *
- * This is not a clothing performance — the body has no dressing joints —
- * and it is not a second live player. Outfit changes stay on the mounted
- * player. Leaving the stage or handing the live lease away copies the last
- * frame, exits, and unmounts. Exit is shorter than enter.
- */
+/** This is not a clothing performance */
 
 export const FACE_PRESENCE_EXIT_MS = 360
 export const FACE_PRESENCE_REST_MS = 100

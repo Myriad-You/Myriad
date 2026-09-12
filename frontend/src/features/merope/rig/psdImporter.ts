@@ -7,7 +7,6 @@ const MAX_PSD_BYTES = 32 * 1024 * 1024
 
 export type PreparedRigPsdImport = PreparedAnime25DRigImport
 
-/** The production importer compiles one layered upper-body FaceRig off-thread. */
 export async function prepareRigPsdImport(
   file: File,
   sourceMasterAssetId: string,

@@ -205,35 +205,35 @@ async fn execute_tapp_understand(
     let tapp_name = ui_analysis
         .get("tappName")
         .and_then(|v| v.as_str())
-        .unwrap_or("未知应用");
+        .unwrap_or("Unknown app");
 
     // 构建 AI 提示词
     let prompt = format!(
-        r#"你是一个 UI 交互分析专家。分析以下 Tapp 应用的 UI 结构，根据用户意图生成操作指令。
+        r#"You are a UI interaction analyst. Read this Tapp's UI structure and produce action instructions for the user intent.
 
-## 应用信息
-- 应用名称：{tapp_name}
-- 应用 ID：{tapp_id}
+## App
+- Name: {tapp_name}
+- Id: {tapp_id}
 
-## UI 结构
+## UI structure
 {ui_block}
 
-## 用户意图
+## User intent
 {user_intent}
 
-请返回 JSON 格式：
+Return JSON:
 ```json
 {{
   "understanding": {{
-    "appPurpose": "应用主要用途",
-    "currentState": "当前 UI 状态",
+    "appPurpose": "what the app is for",
+    "currentState": "current UI state",
     "availableActions": []
   }},
   "plan": {{
     "canFulfill": true/false,
-    "explanation": "是否能完成用户意图",
+    "explanation": "whether the intent can be fulfilled",
     "steps": [
-      {{ "step": 1, "action": "click|input|submit", "target": "元素ID", "value": "输入值", "reason": "原因" }}
+      {{ "step": 1, "action": "click|input|submit", "target": "element id", "value": "input if any", "reason": "why" }}
     ],
     "requiredInputs": []
   }}
@@ -241,8 +241,7 @@ async fn execute_tapp_understand(
 ```"#,
         tapp_name = tapp_name,
         tapp_id = tapp_id,
-        // UI 结构来自 TAPP 自己的代码。这个提示词的产物是会被执行的
-        // click/input 计划，所以第三方 DOM 必须带边界进来。
+        // UI 结构来自 TAPP 自己的代码。产物不再直接执行 click/input；第三方 DOM 仍带边界。
         ui_block = untrusted_block(
             "tapp_ui",
             &serde_json::to_string_pretty(&ui_analysis).unwrap_or_default(),
@@ -259,7 +258,7 @@ async fn execute_tapp_understand(
         .and_then(|json_str| serde_json::from_str(&json_str).ok())
         .unwrap_or_else(|| {
             json!({
-                "understanding": { "appPurpose": "无法解析", "currentState": "未知", "availableActions": [] },
+                "understanding": { "appPurpose": "unparsed", "currentState": "unknown", "availableActions": [] },
                 "plan": { "canFulfill": false, "explanation": ai_result, "steps": [], "requiredInputs": [] }
             })
         });
@@ -450,7 +449,7 @@ pub(super) async fn execute_tapp_page_content(
                     "current": { "view": "all_apps" }
                 },
                 "content": {
-                    "title": "Tapp 应用",
+                    "title": "Tapp apps",
                     "apps": app_list,
                     "metadata": { "totalApps": apps.len() }
                 },
@@ -599,7 +598,7 @@ pub(super) async fn execute_tapp_page_content(
                     "current": { "view": "widget_list" }
                 },
                 "content": {
-                    "title": "组件列表",
+                    "title": "Widgets",
                     "widgets": widget_list,
                     "metadata": { "tappId": tapp_id_str, "totalWidgets": widgets.len() }
                 },
@@ -645,7 +644,7 @@ pub(super) async fn execute_tapp_page_content(
                     "current": { "view": "storage_list" }
                 },
                 "content": {
-                    "title": "存储数据",
+                    "title": "Storage",
                     "storage": storage_list,
                     "metadata": {
                         "tappId": tapp_id_str,
@@ -723,7 +722,7 @@ pub(super) async fn execute_tapp_page_content(
                     "current": { "view": "task_list" }
                 },
                 "content": {
-                    "title": "定时任务",
+                    "title": "Scheduled tasks",
                     "tasks": task_list,
                     "metadata": {
                         "tappId": tapp_id_str,
@@ -813,7 +812,7 @@ pub(super) async fn execute_tapp_page_content(
                     "current": { "view": "execution_list" }
                 },
                 "content": {
-                    "title": task.as_ref().map(|t| format!("{} 执行记录", t.name)).unwrap_or_else(|| "执行记录".to_string()),
+                    "title": task.as_ref().map(|t| format!("{} executions", t.name)).unwrap_or_else(|| "Executions".to_string()),
                     "executions": execution_list,
                     "task": task.as_ref().map(|t| json!({
                         "id": t.id,
@@ -1018,8 +1017,7 @@ async fn execute_tapp_window_focus(
     let tapp_name = params.get("tappName").and_then(|v| v.as_str());
     let position = params.get("position").and_then(|v| v.as_str());
 
-    // Frontend `resolveWindowTarget` only matches windowId / tappId / position.
-    // Schema advertises tappName — resolve it here the same way open does.
+    // Schema advertises tappName — resolve missing tappId here the same way open does.
     if tapp_id.is_none() {
         if let Some(name) = tapp_name {
             let tapp = tapps::Entity::find()
@@ -1128,23 +1126,23 @@ async fn execute_page_understand(
     if let Some(analyzer) = ctx.ai_analyzer {
         let context_str = serde_json::to_string_pretty(&page_context).unwrap_or_default();
         let truncated_context: String = context_str.chars().take(USER_TEXT_MAX_CHARS).collect();
-        // 页面上下文含 DOM 与 TAPP 渲染的内容，同样是别人能写的；产物是
-        // 开了 `ui:interact` 就会真的执行的动作计划。
+        // 页面上下文含 DOM 与 TAPP 渲染的内容，同样是别人能写的。
+        // click/input 要 `autoExecute` 且 granted `ui:interact`；navigate 在 autoExecute 下仍会发出。
         let truncated_context = untrusted_block("page_context", &truncated_context);
 
         let prompt = format!(
-            "你是一个页面交互分析助手。请分析当前页面上下文并理解用户意图，生成操作计划。\n\n\
-            页面上下文：\n{}\n\n\
-            用户请求：{}\n\n\
-            请返回 JSON 格式的操作计划：\n\
+            "You are a page-interaction analyst. Read the current page context, understand the user request, and produce an action plan.\n\n\
+            Page context:\n{}\n\n\
+            User request: {}\n\n\
+            Return a JSON action plan:\n\
             {{\n\
-              \"understood_intent\": \"对用户意图的理解\",\n\
+              \"understood_intent\": \"what the user wants\",\n\
               \"actions\": [\n\
-                {{\"type\": \"click|input|type|navigate|scroll\", \"target\": \"目标元素描述\", \"value\": \"输入值（如有）\"}}\n\
+                {{\"type\": \"click|input|type|navigate|scroll\", \"target\": \"target element\", \"value\": \"input value if any\"}}\n\
               ],\n\
-              \"explanation\": \"操作计划说明\"\n\
+              \"explanation\": \"why these actions\"\n\
             }}\n\n\
-            请直接返回 JSON。",
+            Return JSON only.",
             truncated_context, query
         );
 
@@ -1318,7 +1316,10 @@ async fn execute_music_playlist(params: &HashMap<String, Value>) -> Result<Value
             "autoPlay": auto_play,
             "timestamp": timestamp
         },
-        "message": format!("正在加载{}歌单...", if source == "netease" { "网易云" } else { "QQ音乐" })
+        "message": format!(
+            "Loading {} playlist…",
+            if source == "netease" { "NetEase" } else { "QQ Music" }
+        )
     }))
 }
 
@@ -1389,7 +1390,7 @@ async fn execute_page_content(
                 .filter(|v| v.as_str().map(|s| !s.trim().is_empty()).unwrap_or(false));
             let Some(tapp_id) = tapp_id else {
                 return Err(
-                    "page.content 读取 Tapp 页需要 context.tappId，或由前端提供 content 快照"
+                    "page.content needs context.tappId to read a Tapp page, or a content snapshot from the frontend"
                         .to_string(),
                 );
             };
@@ -1406,7 +1407,7 @@ async fn execute_page_content(
                 .or_else(|| route_ctx.get("platform").and_then(Value::as_str));
             let Some(platform) = platform else {
                 return Err(
-                    "page.content 读取平台页需要 context.platform，或由前端提供 content 快照"
+                    "page.content needs context.platform to read a platform page, or a content snapshot from the frontend"
                         .to_string(),
                 );
             };

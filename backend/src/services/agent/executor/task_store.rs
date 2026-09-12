@@ -245,13 +245,13 @@ pub async fn init_task_store_db(db: DatabaseConnection) {
         *db_guard = Some(db.clone());
     }
 
-    // 从数据库加载未完成的任务
+    // Boot：pending/running 在库中原子标 cancelled；只把 waiting_for_input 载入内存。
     if let Err(e) = load_pending_tasks_from_db(&db).await {
         tracing::warn!("加载待处理任务失败: {}", e);
     }
 }
 
-/// 从数据库加载未完成的任务
+/// Boot：pending/running 在库中原子标 cancelled；只把 waiting_for_input 载入内存。
 async fn load_pending_tasks_from_db(db: &DatabaseConnection) -> Result<(), String> {
     // pending/running 没有可安全恢复的执行 continuation。先在权威数据库中
     // 原子终结，避免每次重启都把同一任务再次识别为“被中断”。
@@ -357,7 +357,7 @@ fn task_model_to_state(model: &agent_tasks::Model) -> Result<TaskState, String> 
         .as_ref()
         .and_then(|value| serde_json::from_value(value.clone()).ok());
 
-    // Prefer stored lane_id; fall back to reconstructing from session_id for older rows.
+    // 优先用存着的 `lane_id`；没有则从 `session_id` 重建。
     let lane_id = model.lane_id.clone().or_else(|| {
         model
             .session_id
@@ -666,8 +666,7 @@ async fn mark_cancelled_in_memory(task_id: &str, reason: &str) {
 
 /// 获取用户的任务列表（内存 + 数据库合并）。
 ///
-/// 内存中的非终态任务优先（更新鲜）；数据库补充重启后仅落库的完成/失败/取消任务，
-/// 避免 list_tasks 在进程重启后「空列表」造成前端无法恢复。
+/// 内存已有的 id 原样保留；数据库按 started_at 降序最多并入 100 条缺失任务。
 pub async fn get_user_tasks(user_id: i32) -> Vec<TaskState> {
     let mut by_id: HashMap<String, TaskState> = HashMap::new();
 
@@ -709,7 +708,7 @@ pub async fn get_user_tasks(user_id: i32) -> Vec<TaskState> {
     tasks
 }
 
-/// 以约 5% 的概率触发一次过期任务清理（请求驱动，避免独立定时任务）
+/// 请求驱动清理：每 20 次 `cleanup_expired`，每 100 次 idle lane。
 pub async fn maybe_cleanup_tasks() {
     use std::sync::atomic::{AtomicU32, Ordering};
     static COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -838,7 +837,7 @@ mod tests {
         assert!(retained
             .error
             .as_deref()
-            .is_some_and(|value| value.contains("超时")));
+            .is_some_and(|value| value.contains("timed out")));
         assert_eq!(store.get_user_tasks(7).len(), 1);
     }
 }

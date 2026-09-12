@@ -1,9 +1,13 @@
 //! Platform connectivity test endpoint.
-use axum::{http::StatusCode, Json};
+use axum::{
+    http::{HeaderMap, StatusCode},
+    Json,
+};
 use serde_json::{json, Value};
 
 use super::{form_secret_if_plaintext, is_masked_secret_value};
-use crate::services::platform_refresh::humanize_platform_fetch_error;
+use crate::api::reports::locale::host_locale_from_headers;
+use crate::services::platform_refresh::humanize_platform_fetch_error_for;
 
 /// Map UI platform label → internal platform id for error humanization.
 fn test_platform_id(ui_label: &str) -> &'static str {
@@ -23,9 +27,30 @@ fn test_platform_id(ui_label: &str) -> &'static str {
     }
 }
 
-fn test_fail_message(ui_label: &str, err: impl ToString) -> String {
-    let detail = humanize_platform_fetch_error(test_platform_id(ui_label), &err.to_string());
-    format!("✗ Failed to verify {ui_label}: {detail}")
+fn test_fail_message(ui_label: &str, err: impl ToString, locale: &str) -> String {
+    humanize_platform_fetch_error_for(test_platform_id(ui_label), &err.to_string(), locale)
+}
+
+fn test_reject(code: &'static str, message: &'static str) -> (StatusCode, Json<Value>) {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({
+            "success": false,
+            "message": message,
+            "code": code,
+        })),
+    )
+}
+
+fn test_fetch_fail(ui_label: &str, err: impl ToString, locale: &str) -> (StatusCode, Json<Value>) {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({
+            "success": false,
+            "message": test_fail_message(ui_label, err, locale),
+            "code": "fetch_failed",
+        })),
+    )
 }
 
 pub async fn test_platform(
@@ -33,8 +58,10 @@ pub async fn test_platform(
     axum::extract::State(dynamic_config): axum::extract::State<
         std::sync::Arc<tokio::sync::RwLock<crate::config::DynamicConfig>>,
     >,
+    headers: HeaderMap,
     Json(payload): Json<Value>,
 ) -> (StatusCode, Json<Value>) {
+    let locale = host_locale_from_headers(&headers);
     let platform = payload["platform"].as_str().unwrap_or("");
     let config = &payload["config"];
 
@@ -42,10 +69,7 @@ pub async fn test_platform(
         "GitHub" => {
             let username = config["username"].as_str().unwrap_or("");
             if username.is_empty() {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({"success": false, "message": "Username is required"})),
-                );
+                return test_reject("username_required", "Username is required");
             }
 
             let token = config["token"].as_str().filter(|s| !s.is_empty());
@@ -65,32 +89,20 @@ pub async fn test_platform(
                         })),
                     )
                 }
-                Err(e) => (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "success": false,
-                        "message": test_fail_message("GitHub", e)
-                    })),
-                ),
+                Err(e) => test_fetch_fail("GitHub", e, locale),
             }
         }
         "Bilibili" => {
             let uid = config["uid"].as_str().unwrap_or("");
             if uid.is_empty() {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({"success": false, "message": "UID is required"})),
-                );
+                return test_reject("uid_required", "UID is required");
             }
 
             // 尝试解析 UID 为数字
             let uid_i64 = match uid.parse::<i64>() {
                 Ok(n) => n,
                 Err(_) => {
-                    return (
-                        StatusCode::BAD_REQUEST,
-                        Json(json!({"success": false, "message": "Invalid UID format"})),
-                    );
+                    return test_reject("invalid_uid", "Invalid UID format");
                 }
             };
 
@@ -104,22 +116,16 @@ pub async fn test_platform(
                         "message": format!("✓ Bilibili UID {} is valid. User: {}", uid, user_info.name)
                     })),
                 ),
-                Err(e) => (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "success": false,
-                        "message": test_fail_message("Bilibili", e)
-                    })),
-                ),
+                Err(e) => test_fetch_fail("Bilibili", e, locale),
             }
         }
         "Steam" => {
             let api_key = config["api_key"].as_str().unwrap_or("");
             let steam_id = config["steam_id"].as_str().unwrap_or("");
             if api_key.is_empty() || steam_id.is_empty() {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({"success": false, "message": "API Key and Steam ID are required"})),
+                return test_reject(
+                    "steam_credentials_required",
+                    "API Key and Steam ID are required",
                 );
             }
 
@@ -133,25 +139,16 @@ pub async fn test_platform(
                         "message": format!("✓ Steam user '{}' verified", user_info.personaname)
                     })),
                 ),
-                Err(e) => (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "success": false,
-                        "message": test_fail_message("Steam", e)
-                    })),
-                ),
+                Err(e) => test_fetch_fail("Steam", e, locale),
             }
         }
         "YouTube" => {
             let api_key = config["api_key"].as_str().unwrap_or("").trim();
             let channel_id = config["channel_id"].as_str().unwrap_or("").trim();
             if api_key.is_empty() || channel_id.is_empty() {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "success": false,
-                        "message": "API Key and Channel ID / @handle are required"
-                    })),
+                return test_reject(
+                    "youtube_credentials_required",
+                    "API Key and Channel ID / @handle are required",
                 );
             }
             // Masked secrets from form: fall back to stored config
@@ -163,12 +160,9 @@ pub async fn test_platform(
             };
             drop(cfg);
             if resolved_key.trim().is_empty() {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "success": false,
-                        "message": "YouTube API key is required (re-enter after save)"
-                    })),
+                return test_reject(
+                    "youtube_api_key_required",
+                    "YouTube API key is required (re-enter after save)",
                 );
             }
 
@@ -201,32 +195,20 @@ pub async fn test_platform(
                         })),
                     )
                 }
-                Err(e) => (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "success": false,
-                        "message": test_fail_message("YouTube", e)
-                    })),
-                ),
+                Err(e) => test_fetch_fail("YouTube", e, locale),
             }
         }
         "Netease Music" => {
             let user_id = config["user_id"].as_str().unwrap_or("");
             if user_id.is_empty() {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({"success": false, "message": "User ID is required"})),
-                );
+                return test_reject("user_id_required", "User ID is required");
             }
 
             // 尝试解析 User ID 为数字
             let user_id_i64 = match user_id.parse::<i64>() {
                 Ok(n) => n,
                 Err(_) => {
-                    return (
-                        StatusCode::BAD_REQUEST,
-                        Json(json!({"success": false, "message": "Invalid User ID format"})),
-                    );
+                    return test_reject("invalid_user_id", "Invalid User ID format");
                 }
             };
 
@@ -247,13 +229,7 @@ pub async fn test_platform(
                         })),
                     )
                 }
-                Err(e) => (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "success": false,
-                        "message": test_fail_message("Netease Music", e)
-                    })),
-                ),
+                Err(e) => test_fetch_fail("Netease Music", e, locale),
             }
         }
         "Bangumi" => {
@@ -263,11 +239,9 @@ pub async fn test_platform(
                 .and_then(|s| form_secret_if_plaintext(Some(s)));
             let user_agent = config["user_agent"].as_str().filter(|s| !s.is_empty());
             if username.is_empty() && access_token.is_none() {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(
-                        json!({"success": false, "message": "Username or access token is required"}),
-                    ),
+                return test_reject(
+                    "bangumi_credentials_required",
+                    "Username or access token is required",
                 );
             }
 
@@ -296,13 +270,7 @@ pub async fn test_platform(
                         })),
                     )
                 }
-                Err(e) => (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "success": false,
-                        "message": test_fail_message("Bangumi", e)
-                    })),
-                ),
+                Err(e) => test_fetch_fail("Bangumi", e, locale),
             }
         }
         "Discord" => {
@@ -320,12 +288,9 @@ pub async fn test_platform(
                     .unwrap_or_default()
             };
             if access_token.is_empty() {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "success": false,
-                        "message": "Access Token is required. Use Connect Discord or paste a token."
-                    })),
+                return test_reject(
+                    "discord_token_required",
+                    "Access Token is required. Use Connect Discord or paste a token.",
                 );
             }
 
@@ -347,13 +312,7 @@ pub async fn test_platform(
                         })),
                     )
                 }
-                Err(e) => (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "success": false,
-                        "message": test_fail_message("Discord", e)
-                    })),
-                ),
+                Err(e) => test_fetch_fail("Discord", e, locale),
             }
         }
         "X" => {
@@ -374,18 +333,12 @@ pub async fn test_platform(
             drop(cfg);
             let bearer_token = bearer_owned.as_deref().unwrap_or("");
             if username.is_empty() {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({"success": false, "message": "Username is required"})),
-                );
+                return test_reject("username_required", "Username is required");
             }
             if bearer_token.is_empty() {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "success": false,
-                        "message": "Bearer Token is required (or re-enter it if the form shows a masked value)"
-                    })),
+                return test_reject(
+                    "bearer_token_required",
+                    "Bearer Token is required (or re-enter it if the form shows a masked value)",
                 );
             }
 
@@ -418,13 +371,7 @@ pub async fn test_platform(
                         })),
                     )
                 }
-                Err(e) => (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "success": false,
-                        "message": test_fail_message("X", e)
-                    })),
-                ),
+                Err(e) => test_fetch_fail("X", e, locale),
             }
         }
         "MyAnimeList" => {
@@ -443,10 +390,7 @@ pub async fn test_platform(
             });
             drop(cfg);
             if username.is_empty() {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({"success": false, "message": "Username is required"})),
-                );
+                return test_reject("username_required", "Username is required");
             }
 
             let mode = if client_id.as_ref().is_some_and(|s| !s.trim().is_empty()) {
@@ -477,13 +421,7 @@ pub async fn test_platform(
                         })),
                     )
                 }
-                Err(e) => (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "success": false,
-                        "message": test_fail_message("MyAnimeList", e)
-                    })),
-                ),
+                Err(e) => test_fetch_fail("MyAnimeList", e, locale),
             }
         }
         "Xbox" => {
@@ -513,18 +451,12 @@ pub async fn test_platform(
             drop(cfg);
 
             if gamertag.trim().is_empty() {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({"success": false, "message": "Gamertag is required"})),
-                );
+                return test_reject("gamertag_required", "Gamertag is required");
             }
             if api_key.trim().is_empty() {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "success": false,
-                        "message": "OpenXBL API Key is required (or re-enter it if the form shows a masked value)"
-                    })),
+                return test_reject(
+                    "xbox_api_key_required",
+                    "OpenXBL API Key is required (or re-enter it if the form shows a masked value)",
                 );
             }
 
@@ -551,13 +483,7 @@ pub async fn test_platform(
                         })),
                     )
                 }
-                Err(e) => (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "success": false,
-                        "message": test_fail_message("Xbox", e)
-                    })),
-                ),
+                Err(e) => test_fetch_fail("Xbox", e, locale),
             }
         }
         "PlayStation" => {
@@ -586,18 +512,12 @@ pub async fn test_platform(
             drop(cfg);
 
             if online_id.trim().is_empty() {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({"success": false, "message": "Online ID is required"})),
-                );
+                return test_reject("online_id_required", "Online ID is required");
             }
             if npsso.trim().is_empty() {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "success": false,
-                        "message": "NPSSO Token is required (or re-enter it if the form shows a masked value)"
-                    })),
+                return test_reject(
+                    "npsso_required",
+                    "NPSSO Token is required (or re-enter it if the form shows a masked value)",
                 );
             }
 
@@ -631,18 +551,16 @@ pub async fn test_platform(
                         })),
                     )
                 }
-                Err(e) => (
-                    StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "success": false,
-                        "message": test_fail_message("PlayStation", e)
-                    })),
-                ),
+                Err(e) => test_fetch_fail("PlayStation", e, locale),
             }
         }
         _ => (
             StatusCode::OK,
-            Json(json!({"success": false, "message": "Platform test not implemented yet"})),
+            Json(json!({
+                "success": false,
+                "message": "Platform test not implemented yet",
+                "code": "platform_test_unimplemented",
+            })),
         ),
     }
 }

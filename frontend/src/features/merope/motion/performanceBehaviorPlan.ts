@@ -17,14 +17,9 @@ import {
   scheduleBodyCues,
 } from '../anime25drig/performanceMotion'
 
-/** Stable across directives, so a refinement reconciles against the floor. */
 export const PERFORMANCE_BEHAVIOR_PLAN_ID = 'performance'
 
-/**
- * Compiles a Strict-Lite directive into the renderer-neutral behavior
- * protocol. Bodies realize only this plan; the directive does not bypass the
- * shared scheduler.
- */
+/** Bodies realize only this plan */
 export function compilePerformanceBehaviorPlan(
   directive: PerformanceDirective,
   originMs: number,
@@ -37,15 +32,6 @@ export function compilePerformanceBehaviorPlan(
   const scheduled = scheduleBodyCues(directive.plan.cues, originMs)
 
   // A behavior id names the beat, not the delivery that carried it.
-  //
-  // Two directives reach this in one round: the deterministic floor the moment
-  // the round opens, and the Lite refinement whenever it lands. Keying on a
-  // fresh per-publish id made every refinement a full removal plus a full
-  // addition, so the scheduler's reconcile path — retime the pegs, keep the
-  // lifecycle — could never fire for the one producer that publishes twice.
-  // Counting occurrences of an intent instead means a refinement that repeats
-  // a beat continues it (and may strengthen it mid-flight), while a refinement
-  // that chose differently still recovers the old beat and schedules the new.
   const occurrences = new Map<string, number>()
 
   scheduled.forEach((item) => {

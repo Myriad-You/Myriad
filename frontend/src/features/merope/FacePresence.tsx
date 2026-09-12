@@ -32,9 +32,9 @@ export function FacePresence({
   ready: boolean
   children: ReactNode | ((mounted: boolean) => ReactNode)
   vacant?: ReactNode
-  /** After the live player is out of the tree. Outfit swap stays on the same lease. */
+  /** Outfit swap keeps the same lease after unmount. */
   onLiveUnmounted?: () => void
-  /** Host writes `data-face-phase` so siblings can follow without `:has()`. */
+  /** Host writes `data-face-phase` for siblings; no `:has()`. */
   hostRef?: RefObject<HTMLElement | null>
 }) {
   const rootRef = useRef<HTMLDivElement>(null)

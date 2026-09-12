@@ -1,4 +1,4 @@
-//! 端到端加密模块（Phase 5 补全 — 安全增强）
+//! 端到端加密模块
 //!
 //! 基于 X25519 密钥交换 + AES-256-GCM（HKDF 派生）对称加密
 //! 用于 Channel 和 Room 消息的可选 E2E 加密
@@ -15,8 +15,6 @@ use serde::{Deserialize, Serialize};
 
 /// 对外算法标识（Activity / 信封字段）
 pub const E2E_ALGORITHM: &str = "x25519-aes256gcm";
-
-// 类型定义
 
 /// E2E 密钥对（X25519）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,7 +47,6 @@ pub struct EncryptedEnvelope {
 pub struct KeyExchangePayload {
     #[serde(rename = "type")]
     pub payload_type: String,
-    /// Set exactly one of channel / room
     #[serde(skip_serializing_if = "Option::is_none")]
     pub channel: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -133,7 +130,7 @@ pub fn compute_shared_secret(local_private: &[u8; 32], remote_public: &[u8; 32])
 
 /// 使用共享密钥加密消息（AES-256-GCM AEAD）
 ///
-/// `aad` 绑定 channel/room id，防止密文跨通道重放。
+/// `aad` 进入 AEAD Payload（会话路径传入 target_id）。
 pub fn encrypt_message(
     plaintext: &[u8],
     shared_secret: &[u8; 32],
@@ -144,7 +141,7 @@ pub fn encrypt_message(
 
     let encryption_key = hkdf_derive(shared_secret, b"mfp-e2e-aes256gcm");
 
-    // rand 0.10 already in tree; avoid older rand_core OsRng trait paths for nonces.
+    // nonce 用 `rand::random`（12 字节）
     let nonce_bytes: [u8; 12] = rand::random();
 
     let cipher = aes_gcm::Aes256Gcm::new_from_slice(&encryption_key)
@@ -257,7 +254,7 @@ pub fn create_session(target_id: &str) -> EncryptionSession {
     }
 }
 
-/// 处理收到的密钥交换载荷，完成会话建立
+/// 写入对端公钥并计算共享密钥。
 pub fn accept_key_exchange(
     session: &mut EncryptionSession,
     remote_pk_base64: &str,
@@ -320,14 +317,8 @@ pub fn encrypt_with_session(
 
 /// 解密收到的加密消息
 ///
-/// 信封里的 `ephemeral_key` 是**发送方**的公钥。收到对端消息时它就是我们要的
-/// ECDH 对端；但自己发出去的消息，这个字段等于本地公钥 —— 拿它做 ECDH 得到的是
-/// ECDH(local_sk, local_pk)，和加密时用的 ECDH(local_sk, remote_pk) 不是同一个
-/// 密钥，于是**发送方永远解不开自己发的消息**。Channel 聊天里表现为：自己的气泡
-/// 一直停在「Encrypted · decrypting…」，对端却读得正常。
-///
-/// 因此按顺序试：信封里的发送方公钥（若不是我们自己）→ 会话缓存的
-/// remote_public_key。两个都试是为了兼容对端刚轮换、我们还没记下新公钥的情况。
+/// 按顺序试：信封 `ephemeral_key`（若不是本地公钥）→ 会话缓存的
+/// `remote_public_key`（对端刚轮换、本地尚未记下新公钥时也能解）。
 pub fn decrypt_with_session(
     session: &EncryptionSession,
     envelope: &EncryptedEnvelope,
@@ -634,12 +625,12 @@ pub fn decrypt_json_for_recipient(
 // At-rest private key sealing
 // AES-256-GCM with key = SHA-256("myriad-e2e-key-seal:" || jwt_secret)
 // Stored form: "sealed:v1:" + base64(nonce || ciphertext)
-// Legacy plaintext base64 private keys still load for one-release migration.
+// Unsealed plaintext base64 private keys still load.
 
 const E2E_SK_SEAL_PREFIX: &str = "sealed:v1:";
 /// KDF domain for current seals (channel + room)
 const E2E_SEAL_KDF_LABEL: &[u8] = b"myriad-e2e-key-seal:";
-/// Brief room-only label used before helpers were shared — still accepted on unseal.
+/// unseal 仍接受的房间-only KDF label。
 const E2E_SEAL_KDF_LABEL_LEGACY_ROOM: &[u8] = b"myriad-room-e2e-key-seal:";
 
 fn derive_seal_aes_key(jwt_secret: &str, label: &[u8]) -> [u8; 32] {
@@ -671,7 +662,7 @@ pub fn seal_private_key(plain_b64: &str, jwt_secret: &str) -> Result<String, Str
     Ok(format!("{}{}", E2E_SK_SEAL_PREFIX, B64.encode(&combined)))
 }
 
-/// Unseal a stored E2E private key. Plain (legacy) values pass through.
+/// Unseal a stored E2E private key. Values without `sealed:v1:` pass through.
 pub fn unseal_private_key(stored: &str, jwt_secret: &str) -> Result<String, String> {
     use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
     use base64::{engine::general_purpose::STANDARD as B64, Engine};
@@ -692,7 +683,7 @@ pub fn unseal_private_key(stored: &str, jwt_secret: &str) -> Result<String, Stri
         .map_err(|_| "invalid e2e seal nonce".to_string())?;
     let nonce = Nonce::from(nonce_bytes);
 
-    // Try current KDF label, then legacy room-only label.
+    // Try `E2E_SEAL_KDF_LABEL`, then `E2E_SEAL_KDF_LABEL_LEGACY_ROOM`.
     for label in [E2E_SEAL_KDF_LABEL, E2E_SEAL_KDF_LABEL_LEGACY_ROOM] {
         let key = derive_seal_aes_key(jwt_secret, label);
         let cipher = match Aes256Gcm::new_from_slice(&key) {
@@ -741,7 +732,7 @@ mod tests {
         let sealed = seal_private_key(plain, secret).unwrap();
         assert!(sealed.starts_with(E2E_SK_SEAL_PREFIX));
         assert_eq!(unseal_private_key(&sealed, secret).unwrap(), plain);
-        // Legacy plain passes through
+        // Unsealed plaintext passes through
         assert_eq!(unseal_private_key(plain, secret).unwrap(), plain);
         // Wrong secret fails
         assert!(unseal_private_key(&sealed, "other").is_err());
@@ -910,13 +901,6 @@ mod tests {
     }
 
     /// A sender left out of `recipients` cannot read back their own message.
-    ///
-    /// `collect_room_e2e_recipients` deliberately excludes the sender, so the
-    /// send path has to append a self key-wrap. When the local member key is
-    /// unreadable that wrap is missing, and the row is stored as ciphertext the
-    /// author's own `get_room_messages` can never open — the bubble sits at
-    /// "Encrypted · decrypting…" forever while the peer reads it fine. Hence the
-    /// plaintext fallback in `room::messages::send_room_message`.
     #[test]
     fn sender_without_self_wrap_cannot_read_own_message() {
         let aad = b"rm_selfwrap";
@@ -949,13 +933,8 @@ mod tests {
     }
 
     /// The author of a channel message must be able to read it back.
-    ///
-    /// `encrypt_with_session` stamps the envelope's `ephemeral_key` with the
-    /// *sender's* public key. `decrypt_with_session` used to always ECDH against
-    /// that field, so decrypting your own message computed
-    /// ECDH(local_sk, local_pk) instead of ECDH(local_sk, remote_pk) and failed.
-    /// Every message you sent stayed sealed in your own transcript — "Encrypted ·
-    /// decrypting…" forever — while the peer read it normally.
+    /// `encrypt_with_session` stamps `ephemeral_key` with the sender's public key;
+    /// decrypt uses ECDH(local_sk, remote_pk), not ECDH(local_sk, local_pk).
     #[test]
     fn sender_can_decrypt_own_channel_message() {
         let target = "ch_selfread";
@@ -988,14 +967,7 @@ mod tests {
         assert_eq!(decrypt_json_payload(&peer_session, &env).unwrap(), plain);
     }
 
-    /// A rotated local keypair retires every message encrypted under the old one.
-    ///
-    /// This is what the lost-update on `properties.e2e` / `shared_data_config.e2e`
-    /// caused: the inbound and outbound key-exchange writers each wrote back a
-    /// whole-object snapshot, so one silently dropped the other's key material.
-    /// Losing `local_private_key` made the next initiate mint a fresh pair and
-    /// re-announce it, retiring the history on every turn. Both writers now take
-    /// the row lock, so the pair survives a concurrent exchange.
+    /// A rotated local keypair cannot open ciphertext encrypted under the old one.
     #[test]
     fn rotated_keypair_cannot_open_prior_ciphertext() {
         let target = "ch_rotate";

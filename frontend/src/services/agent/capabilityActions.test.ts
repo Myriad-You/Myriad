@@ -1,7 +1,3 @@
-/**
- *   pnpm exec tsx --test src/services/agent/capabilityActions.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { normalizeCapabilityActions } from './agentApi.ts'

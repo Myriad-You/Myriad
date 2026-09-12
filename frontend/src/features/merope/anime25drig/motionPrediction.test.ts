@@ -25,15 +25,12 @@ test('a delivery at the rig own rate keeps the documented lead', () => {
 })
 
 test('the lead follows the response it compensates', () => {
-  // `poseResponseScale` moves the pose filter bandwidth with the delivery's
-  // manner. A single constant under-compensated a quick, direct beat and
-  // over-compensated a fluid one.
   const quick = predictedControlTime(2, 1.35) - 2
   const even = predictedControlTime(2, 1) - 2
   const fluid = predictedControlTime(2, 0.75) - 2
   assert.ok(quick < even)
   assert.ok(even < fluid)
-  // Only the response half moves; the display frame is not negotiable.
+  // Only the response half moves
   assert.ok(quick > 0.0167)
 })
 
@@ -50,16 +47,11 @@ test('a nonsensical scale falls back to the rig own rate', () => {
 })
 
 test('a shrinking lead cannot rewind the clock every controller reads on', () => {
-  // A fluid delivery leads by ~48ms and a quick one by ~34ms. At 120Hz the
-  // frame is 8.3ms, so switching between them mid-utterance would otherwise
-  // hand every scheduled controller a time earlier than the last one and step
-  // every envelope backwards at once.
   const fluid = monotonicControlTime(0, 2, 0.75)
   const quick = monotonicControlTime(fluid, 2 + 1 / 120, 1.35)
   assert.ok(predictedControlTime(2 + 1 / 120, 1.35) < fluid)
   assert.equal(quick, fluid)
 
-  // It holds, it does not freeze: real elapsed time still moves it on.
   assert.ok(monotonicControlTime(quick, 2 + 0.05, 1.35) > quick)
   assert.equal(
     monotonicControlTime(Number.NaN, 2, 1),

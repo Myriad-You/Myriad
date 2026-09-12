@@ -6,7 +6,7 @@ use std::sync::atomic::Ordering;
 const TASKS_WARNING: usize = 50; // 任务数超过50时警告
 const TASKS_CRITICAL: usize = 100; // 任务数超过100时严重告警
 
-/// 获取系统指标（内存、CPU、连接等）
+/// 获取系统指标（内存、后台任务、CSRF、config_mode）。无 CPU；`db_connected` 恒为 true。
 /// 用于监控和告警
 ///
 /// Mounted only under full-mode `AppState` routes. Presence of this handler
@@ -106,8 +106,8 @@ fn check_alerts(
 }
 
 /// Process memory info (cross-platform, best-effort).
-/// Public for agent `system.metrics` and HTTP `/api/metrics`.
-/// Implementation: workspace crate `myriad-process-info`.
+/// Re-export for HTTP `/api/metrics` and diagnostics. Agent `system.metrics`
+/// imports `myriad-process-info` directly.
 pub use myriad_process_info::process_memory_info;
 
 /// 获取后台任务统计

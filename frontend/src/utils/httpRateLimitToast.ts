@@ -1,18 +1,10 @@
-/**
- * Native-fetch 429 → Retry-After toast.
- *
- * axios / apiService paths may already handle rate limits; brew / speech /
- * TappHttpClient / Reports still use raw `fetch` and previously only threw
- * a generic error with no user-visible Retry-After hint.
- */
-
-import { currentCopy } from '../i18n/localeCopy'
+import { currentCopy, formatCurrent } from '../i18n/localeCopy'
 import { showToast } from './toastManager'
 
 const recentToastAt = { t: 0 }
 const TOAST_COOLDOWN_MS = 4000
 
-/** Parse `Retry-After` as seconds (integer) or HTTP-date. */
+/** Retry-After: seconds or HTTP-date. */
 export function parseRetryAfterSeconds(response: Response): number | null {
   const raw = response.headers.get('Retry-After')
   if (!raw) return null
@@ -28,7 +20,7 @@ export function parseRetryAfterSeconds(response: Response): number | null {
   return null
 }
 
-/** Prefer body `retry_after` (seconds) when header is missing. */
+/** Body retry_after (s) if header missing. */
 export function retryAfterSecondsFromBody(data: unknown): number | null {
   if (!data || typeof data !== 'object') return null
   const ra = (data as { retry_after?: unknown }).retry_after
@@ -42,11 +34,7 @@ export function retryAfterSecondsFromBody(data: unknown): number | null {
   return null
 }
 
-/**
- * Prefer i18n template with Retry-After seconds.
- * BE English boilerplate ("Rate limit exceeded. Please try again in N seconds.")
- * must not override the UI locale.
- */
+/** Do not let Retry-After copy override the UI locale. */
 export function formatRateLimitMessage(
   seconds: number,
   serverMessage?: string | null,
@@ -59,14 +47,9 @@ export function formatRateLimitMessage(
   ) {
     return msg
   }
-  return currentCopy().errors.rateLimitedRetry.replace('{sec}', String(sec))
+  return formatCurrent(currentCopy().errors.rateLimitedRetry, { sec })
 }
 
-/**
- * If `response` is 429, show a toast (deduped) and return true.
- * Call **before** consuming the body when you still need JSON — headers only.
- * Optional `body` supplies message / retry_after when header is absent.
- */
 export function notifyHttpRateLimit(
   response: Response,
   body?: unknown,

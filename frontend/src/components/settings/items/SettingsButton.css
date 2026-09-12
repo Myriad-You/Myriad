@@ -1,13 +1,5 @@
-/**
- * SettingsButton — layout + size tokens on top of global `.btn-base` variants
- * (ConfigForm.css). Size scale is owned here so list density stays consistent.
- *
- *   sm  — dense list / card chrome (~1.65rem)
- *   md  — default settings / modal
- *   lg  — hero / floating primary
- */
+/* size tokens on .btn-base; density owned here */
 
-/* —— Base / states —— */
 
 .settings-btn:disabled,
 .settings-btn.is-loading {
@@ -43,7 +35,6 @@
   width: 100%;
 }
 
-/* —— Size: sm (dense) —— */
 
 .settings-btn.settings-btn--sm {
   gap: 0.3rem;
@@ -52,13 +43,9 @@
   font-size: 0.72rem;
   font-weight: 600;
   line-height: 1.2;
-
-  /* Rounded rect — not pill/capsule */
   border-radius: 0.45rem;
   border-width: 1px;
   backdrop-filter: none;
-
-  /* Softer lift — dense rows shouldn't bounce */
   box-shadow: none;
 }
 
@@ -76,7 +63,6 @@
   height: 0.85rem;
 }
 
-/* Icon-only sm */
 .settings-btn.settings-btn--sm.btn-icon {
   width: 1.65rem;
   height: 1.65rem;
@@ -98,22 +84,18 @@
   transform: none;
 }
 
-/* —— Size: md (default) —— */
 
 .settings-btn.settings-btn--md {
   min-height: 2.25rem;
 
-  /* padding / font come from .btn-base */
 }
 
-/* —— Size: lg —— */
 
 .settings-btn.settings-btn--lg {
   min-height: 2.75rem;
   gap: 0.55rem;
 }
 
-/* —— Ghost —— */
 
 .settings-btn--ghost {
   background: transparent;
@@ -129,7 +111,6 @@
   box-shadow: none;
 }
 
-/* Icon-only danger (card/row delete): quiet until hover */
 .settings-btn--danger-quiet.btn-danger {
   background: transparent;
   color: var(--cfg-text-3);
@@ -164,7 +145,6 @@ html.dark .settings-btn--ghost:hover:not(:disabled) {
   color: var(--cfg-text-1);
 }
 
-/* Icon-only: keep square hit target; suppress text gap */
 .settings-btn.btn-icon:not(.is-loading) {
   gap: 0;
 }
@@ -173,8 +153,6 @@ html.dark .settings-btn--ghost:hover:not(:disabled) {
   display: none;
 }
 
-/* Dense surfaces (ManagedList rows / toolbars) already pass size="sm";
-   keep icon sizing predictable inside list chrome. */
 .managed-list .settings-btn.settings-btn--sm {
   flex-shrink: 0;
 }

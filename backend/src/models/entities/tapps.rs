@@ -63,7 +63,7 @@ pub struct Model {
     /// 当前状态
     pub status: TappStatus,
 
-    /// 安装时的有效权限快照（兼容旧数据；运行时不以此字段作为最终授权事实）
+    /// 安装时落库的权限列。运行时授予权限不读本列，见 `tapp_detail_from_model`。
     #[sea_orm(column_type = "Json")]
     pub granted_permissions: serde_json::Value,
 
@@ -71,7 +71,7 @@ pub struct Model {
     #[sea_orm(column_type = "JsonBinary")]
     pub approved_permissions: serde_json::Value,
 
-    /// 升级迁移清除旧权限后置 true：重新授权成功前，运行时不签发、不校验
+    /// 016 清掉退役权限串后置 true：重新授权成功前，运行时不签发、不校验
     /// runtime grant，不启动；inbound `/tapi` 与调度器同样拒绝。仅显式的
     /// 安装/更新/重新授权路径可清回 false；普通读取、启动、schema heal 不得清。
     pub needs_reauthorization: bool,

@@ -387,10 +387,6 @@ test('chest spring reverses only after following a moving base', () => {
 })
 
 test('chest spring response stays stable across common render frame rates', () => {
-  // The chest base moves every frame in the player, so the invariant is about
-  // a base in motion. The relative offset this spring reports is driven by the
-  // base's acceleration, and a single instantaneous jump carries none that a
-  // sampled input can reproduce at two different rates.
   const base = (seconds: number) => {
     const progress = Math.min(1, seconds / 0.25)
     const eased = progress * progress * (3 - 2 * progress)

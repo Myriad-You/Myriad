@@ -6,7 +6,7 @@
 //! GET    /api/auth/oauth/providers              列出 enabled providers
 //! GET    /api/auth/oauth/:slug/login            重定向到授权页
 //! GET    /api/auth/oauth/:slug/callback         交换 code + 登录/创建用户
-//! GET    /api/auth/oauth/:slug/link             绑定 (需 JWT + is_admin)
+//! GET    /api/auth/oauth/:slug/link             绑定 (需 JWT，非游客)
 //! DELETE /api/auth/oauth/:slug/unlink/:id       解绑
 //! GET    /api/auth/identities                   当前用户所有 identities
 //! POST   /api/auth/identities/:id/primary       设为画像源（is_primary + 同步头像等）
@@ -18,7 +18,11 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     Json,
 };
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, Value as SeaValue};
+use myriad_error::AppError;
+use sea_orm::{
+    ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait,
+    Value as SeaValue,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::env;
@@ -44,12 +48,7 @@ async fn build_redirect_uri(slug: &str) -> String {
 }
 
 fn err_500(msg: impl Into<String>) -> HttpError {
-    let msg = msg.into();
-    let mut body = json!({"error": msg.clone()});
-    if let Some(code) = myriad_error::AppError::inferred_code(&msg) {
-        body["code"] = json!(code);
-    }
-    HttpError::from((StatusCode::INTERNAL_SERVER_ERROR, Json(body)))
+    HttpError(AppError::internal(msg))
 }
 
 fn oauth_start_failed(error: impl std::fmt::Display) -> HttpError {
@@ -63,10 +62,10 @@ fn oauth_start_failed(error: impl std::fmt::Display) -> HttpError {
     ))
 }
 fn err_400(msg: impl Into<String>) -> HttpError {
-    HttpError::from((StatusCode::BAD_REQUEST, Json(json!({"error": msg.into()}))))
+    HttpError::from((StatusCode::BAD_REQUEST, Json(AppError::public_json(msg))))
 }
 fn err_404(msg: impl Into<String>) -> HttpError {
-    HttpError::from((StatusCode::NOT_FOUND, Json(json!({"error": msg.into()}))))
+    HttpError::from((StatusCode::NOT_FOUND, Json(AppError::public_json(msg))))
 }
 
 /// Attach anti-caching headers so OAuth redirects / callbacks are never stored by browsers or CDNs.
@@ -107,7 +106,7 @@ fn append_set_cookie(response: &mut Response, cookie: &str) {
     }
 }
 
-/// Login/link redirect with `oauth_tx` browser-binding cookie (MYR-003).
+/// Login/link redirect with `oauth_tx` browser-binding cookie.
 async fn redirect_with_oauth_tx(auth_url: &str, browser_tx: &str) -> Response {
     let is_production = SiteConfig::is_production().await;
     let mut response = no_store_redirect(auth_url);
@@ -251,7 +250,7 @@ pub async fn provider_login(Path(slug): Path<String>) -> Result<Response, HttpEr
         .await
         .map_err(oauth_start_failed)?;
 
-    // Bind signed state to this browser via oauth_tx (MYR-003).
+    // Bind signed state to this browser via oauth_tx.
     Ok(redirect_with_oauth_tx(&auth_url, &issued.browser_tx).await)
 }
 
@@ -267,7 +266,7 @@ pub async fn provider_link(
         .map_err(|_| {
             HttpError::from((
                 StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Unauthorized"})),
+                Json(AppError::public_json("Unauthorized")),
             ))
         })?;
 
@@ -360,7 +359,7 @@ pub async fn provider_callback(
     };
 
     // 1. Verify signed state WITHOUT burning the nonce yet.
-    // Cookie binding (MYR-003) must succeed first so a session-swap attempt
+    // Cookie binding must succeed first so a session-swap attempt
     // cannot one-shot invalidate a legitimate browser's pending state.
     let verified = match verify_state(&state_param).await {
         Ok(v) => v,
@@ -373,7 +372,7 @@ pub async fn provider_callback(
         }
     };
 
-    // MYR-003: require oauth_tx cookie == payload nonce (fail closed) BEFORE mark_used.
+    // require oauth_tx cookie == payload nonce (fail closed) BEFORE mark_used.
     let cookie_header = headers.get(header::COOKIE).and_then(|v| v.to_str().ok());
     if !oauth_tx_cookie_matches(cookie_header, verified.browser_tx()) {
         return Ok(reject_oauth_tx_mismatch(&frontend_base).await);
@@ -524,7 +523,7 @@ pub async fn provider_callback(
 /// Soft-recover a second callback hit with the same (already-consumed) state.
 ///
 /// **Must only run after** `oauth_tx` cookie matched the state nonce — never skip
-/// that check for soft-success (MYR-003 / session-swap defense).
+/// that check for soft-success (session-swap defense).
 /// We never re-exchange the authorization code (provider codes are one-time).
 ///
 /// Tradeoff for Login: without `provider_user_id` on pure replay we cannot prove
@@ -619,9 +618,7 @@ async fn handle_link_replay(
         return Ok(no_store_redirect(&url));
     }
 
-    // Also check whether this provider identity is bound to a *different* user
-    // for any row of this provider — we lack provider_user_id on pure replay,
-    // so we can only fail closed if this user has no binding yet.
+    // 无 provider_user_id，无法判断是否绑到别人；本用户尚无该 provider 绑定时 fail closed。
     tracing::warn!(
         provider = %slug,
         user_id = link_user_id,
@@ -839,7 +836,7 @@ async fn find_or_create_user(
         return Ok(uid);
     }
 
-    // 2. MYR-012 — no silent cross-issuer auto-link by email.
+    // 2. no silent cross-issuer auto-link by email.
     //
     // Login only when (provider, provider_user_id) is already linked (step 1).
     // If the provider email is already on another account, refuse account creation
@@ -905,7 +902,7 @@ async fn find_or_create_user(
                     .map(|s| SeaValue::String(Some(s)))
                     .unwrap_or(SeaValue::String(None)),
                 SeaValue::String(Some(provider_label.to_string())),
-                // 兼容层：GitHub 时写 github_id 镜像
+                // GitHub 时同时写 users.github_id
                 if slug == "github" {
                     profile
                         .provider_user_id
@@ -1016,7 +1013,7 @@ async fn upsert_identity(
 
 /// 防止 username 冲突：若已存在，追加 `_<n>` 后缀
 ///
-/// MYR-036: one range scan for `base` / `base_*` instead of up to 100 point probes.
+/// 一次扫描 `base` / `base_*`（`LIMIT 200`）。
 async fn ensure_unique_username(db: &DatabaseConnection, base: &str) -> Result<String, HttpError> {
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
@@ -1057,6 +1054,43 @@ async fn ensure_unique_username(db: &DatabaseConnection, base: &str) -> Result<S
 
 // DELETE /api/auth/oauth/:slug/unlink/:identity_id
 
+/// Local login is a remaining sign-in method only when a password exists and
+/// the user has not disabled it.
+pub(crate) fn local_login_usable(has_password: bool, local_login_disabled: bool) -> bool {
+    has_password && !local_login_disabled
+}
+
+pub(crate) fn unlink_blocks_last_signin(
+    has_password: bool,
+    local_login_disabled: bool,
+    identity_count: i64,
+) -> bool {
+    identity_count <= 1 && !local_login_usable(has_password, local_login_disabled)
+}
+
+pub(crate) fn disable_local_login_blocks(identity_count: i64) -> bool {
+    identity_count < 1
+}
+
+pub(crate) fn login_methods_lock_key(user_id: i32) -> String {
+    format!("myriad:auth:login_methods:{user_id}")
+}
+
+/// Serialize login-method mutations (unlink / disable local login) per user.
+/// Caller must hold an explicit transaction for the check + write.
+pub(crate) async fn lock_login_methods(
+    db: &impl ConnectionTrait,
+    user_id: i32,
+) -> Result<(), sea_orm::DbErr> {
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [login_methods_lock_key(user_id).into()],
+    ))
+    .await?;
+    Ok(())
+}
+
 pub async fn provider_unlink(
     Path((slug, identity_id)): Path<(String, i32)>,
     crate::extract::Db(db): crate::extract::Db,
@@ -1067,7 +1101,7 @@ pub async fn provider_unlink(
         .map_err(|_| {
             HttpError::from((
                 StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Unauthorized"})),
+                Json(AppError::public_json("Unauthorized")),
             ))
         })?;
     let user_id: i32 = claims.sub.parse().map_err(|_| err_400("Invalid user id"))?;
@@ -1082,8 +1116,16 @@ pub async fn provider_unlink(
         )));
     }
 
-    // 确认 identity 属于当前用户
-    let row = db
+    let txn = db.begin().await.map_err(|e| {
+        tracing::error!("OAuth DB error: {e}");
+        err_500("Database error")
+    })?;
+    lock_login_methods(&txn, user_id).await.map_err(|e| {
+        tracing::error!("OAuth DB error: {e}");
+        err_500("Database error")
+    })?;
+
+    let row = txn
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id FROM user_identities WHERE id = $1 AND user_id = $2 AND provider = $3",
@@ -1103,16 +1145,16 @@ pub async fn provider_unlink(
         return Err(err_404("identity not found or not yours"));
     }
 
-    // 防失联：若此 identity 是唯一登录方式（没密码 + 只有这一条 identity），拒绝
-    let summary = db
+    // 防失联：最后一个 OAuth 身份，且本地登录不可用（无密码或已禁用）时拒绝。
+    // Count + delete stay under the same xact lock so two unlinks cannot both
+    // read "still two" and wipe the last sign-in method.
+    let summary = txn
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            format!(
-                "SELECT \
-                    (SELECT password_hash IS NOT NULL FROM users WHERE id = $1) AS has_password, \
-                    (SELECT COUNT(*) FROM user_identities WHERE user_id = $1 \
-                        AND {SQL_NOT_PAIRING_PROVIDER}) AS identity_count"
-            ),
+            format!("SELECT \
+                (SELECT password_hash IS NOT NULL FROM users WHERE id = $1) AS has_password, \
+                (SELECT local_login_disabled FROM users WHERE id = $1) AS local_login_disabled, \
+                (SELECT COUNT(*) FROM user_identities WHERE user_id = $1 AND {SQL_NOT_PAIRING_PROVIDER}) AS identity_count"),
             vec![SeaValue::Int(Some(user_id))],
         ))
         .await
@@ -1123,22 +1165,27 @@ pub async fn provider_unlink(
         .ok_or_else(|| err_500("user not found"))?;
 
     let has_password: bool = summary.try_get("", "has_password").unwrap_or(false);
+    let local_login_disabled: bool = summary.try_get("", "local_login_disabled").unwrap_or(false);
     let identity_count: i64 = summary.try_get("", "identity_count").unwrap_or(0);
 
-    if !has_password && identity_count <= 1 {
+    if unlink_blocks_last_signin(has_password, local_login_disabled, identity_count) {
         return Err(HttpError::from((
             StatusCode::CONFLICT,
             Json(json!({
                 "error": "Cannot unlink last identity",
-                "message": "Please set a local password first, or link another provider."
+                "message": "Keep a usable local login (password set and not disabled), or link another provider."
             })),
         )));
     }
 
-    db.execute_raw(Statement::from_sql_and_values(
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "DELETE FROM user_identities WHERE id = $1",
-        vec![SeaValue::Int(Some(identity_id))],
+        "DELETE FROM user_identities WHERE id = $1 AND user_id = $2 AND provider = $3",
+        vec![
+            SeaValue::Int(Some(identity_id)),
+            SeaValue::Int(Some(user_id)),
+            SeaValue::String(Some(slug.clone())),
+        ],
     ))
     .await
     .map_err(|e| {
@@ -1146,9 +1193,9 @@ pub async fn provider_unlink(
         err_500("Database error")
     })?;
 
-    // 兼容层：解绑 GitHub 时清掉 users.linked_github_id（若仍持有该 id）
+    // 解绑 GitHub 时清空 users.linked_github_id。
     if slug == "github" {
-        let _ = db
+        let _ = txn
             .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "UPDATE users SET linked_github_id = NULL WHERE id = $1",
@@ -1156,6 +1203,11 @@ pub async fn provider_unlink(
             ))
             .await;
     }
+
+    txn.commit().await.map_err(|e| {
+        tracing::error!("OAuth DB error: {e}");
+        err_500("Database error")
+    })?;
 
     Ok(Json(json!({"success": true})))
 }
@@ -1171,7 +1223,7 @@ pub async fn list_my_identities(
         .map_err(|_| {
             HttpError::from((
                 StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Unauthorized"})),
+                Json(AppError::public_json("Unauthorized")),
             ))
         })?;
     let user_id: i32 = claims.sub.parse().map_err(|_| err_400("Invalid user id"))?;
@@ -1219,13 +1271,12 @@ pub async fn list_my_identities(
 
 // POST /api/auth/identities/{identity_id}/primary
 //
-// 兼容别名：等价于 PUT /api/users/me/avatar-source {kind:"identity", ref:<id>}。
+// 等价于 PUT /api/users/me/avatar-source {kind:"identity", ref:<id>}。
 // 画像源的唯一写入处是 services::avatar::set_avatar_source（它一并维护
 // is_primary 与 avatar_resolved_url 快照），这里只做 GitHub 账号联结的补写。
 //
-// 已移除的旧副作用：**不再覆盖 users.display_name**。改画像源是选头像，
-// 顺手改掉展示名属于两件事绑一起，用户切个头像却发现名字变了。
-// 同样不再覆盖 users.avatar_url —— 那是"账号"这一来源本身，覆盖后就切不回来了。
+// 不覆盖 users.display_name。改画像源只选头像。
+// 同样不覆盖 users.avatar_url —— 那是「账号」这一来源本身，覆盖后就切不回来了。
 
 pub async fn set_primary_identity(
     Path(identity_id): Path<i32>,
@@ -1237,7 +1288,7 @@ pub async fn set_primary_identity(
         .map_err(|_| {
             HttpError::from((
                 StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Unauthorized"})),
+                Json(AppError::public_json("Unauthorized")),
             ))
         })?;
     let user_id: i32 = claims.sub.parse().map_err(|_| err_400("Invalid user id"))?;
@@ -1260,7 +1311,7 @@ pub async fn set_primary_identity(
         .ok_or_else(|| {
             HttpError::from((
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Identity not found"})),
+                Json(AppError::public_json("Identity not found")),
             ))
         })?;
 
@@ -1292,10 +1343,9 @@ pub async fn set_primary_identity(
     )
     .await
     .map_err(|message| {
-        HttpError::from((
-            StatusCode::BAD_REQUEST,
-            Json(json!({"success": false, "message": message})),
-        ))
+        let mut body = AppError::fail_json(&message);
+        body["message"] = json!(message);
+        HttpError::from((StatusCode::BAD_REQUEST, Json(body)))
     })?;
 
     Ok(Json(json!({
@@ -1308,16 +1358,98 @@ pub async fn set_primary_identity(
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::services::channel_pairing::is_pairing_provider;
+mod unlink_lockout_tests {
+    use super::{
+        disable_local_login_blocks, local_login_usable, login_methods_lock_key,
+        unlink_blocks_last_signin,
+    };
 
     #[test]
-    fn pairing_providers_are_not_oauth_slugs() {
-        assert!(is_pairing_provider("qq"));
-        assert!(is_pairing_provider("Telegram"));
-        assert!(is_pairing_provider("discord_dm"));
-        assert!(is_pairing_provider("feishu"));
-        assert!(!is_pairing_provider("discord"));
-        assert!(!is_pairing_provider("github"));
+    fn login_methods_lock_key_is_per_user() {
+        assert_eq!(login_methods_lock_key(7), "myriad:auth:login_methods:7");
+        assert_ne!(login_methods_lock_key(7), login_methods_lock_key(8));
+    }
+
+    #[test]
+    fn disable_local_login_then_unlink_last_oauth_is_blocked() {
+        let has_password = true;
+        let identity_count = 1;
+
+        assert!(local_login_usable(has_password, false));
+        assert!(!unlink_blocks_last_signin(
+            has_password,
+            false,
+            identity_count
+        ));
+
+        let local_login_disabled = true;
+        assert!(!local_login_usable(has_password, local_login_disabled));
+        assert!(unlink_blocks_last_signin(
+            has_password,
+            local_login_disabled,
+            identity_count
+        ));
+    }
+
+    #[test]
+    fn last_oauth_without_password_stays_blocked() {
+        assert!(unlink_blocks_last_signin(false, false, 1));
+        assert!(!unlink_blocks_last_signin(true, true, 2));
+    }
+
+    #[test]
+    fn serialized_dual_unlink_keeps_one_identity() {
+        // Isolated PG: two unlinks both read count=2 without a lock.
+        // Under the xact lock the second check sees count=1.
+        assert!(!unlink_blocks_last_signin(false, false, 2));
+        assert!(unlink_blocks_last_signin(false, false, 1));
+    }
+
+    #[test]
+    fn serialized_disable_and_unlink_keep_a_signin() {
+        // Isolated PG: disable + unlink last OAuth both pass their stale reads.
+        // Order A: disable first — unlink must then refuse.
+        assert!(!disable_local_login_blocks(1));
+        assert!(unlink_blocks_last_signin(true, true, 1));
+        // Order B: unlink first (password still usable) — disable must then refuse.
+        assert!(!unlink_blocks_last_signin(true, false, 1));
+        assert!(disable_local_login_blocks(0));
+    }
+
+    #[test]
+    fn unlink_and_toggle_share_the_login_methods_lock() {
+        let unlink = include_str!("oauth.rs");
+        let unlink_fn = unlink
+            .split("pub async fn provider_unlink")
+            .nth(1)
+            .and_then(|rest| rest.split("pub async fn list_my_identities").next())
+            .expect("provider_unlink body");
+        assert!(unlink_fn.contains(".begin()"));
+        assert!(unlink_fn.contains("lock_login_methods"));
+
+        let toggle = include_str!("auth_local.rs");
+        let toggle_fn = toggle
+            .split("pub async fn toggle_local_login")
+            .nth(1)
+            .and_then(|rest| rest.split("async fn issue_session_cookie").next())
+            .expect("toggle_local_login body");
+        assert!(toggle_fn.contains(".begin()"));
+        assert!(toggle_fn.contains("lock_login_methods"));
+        assert!(toggle_fn.contains("disable_local_login_blocks"));
+    }
+}
+
+#[cfg(test)]
+mod channel_identity_tests {
+    #[test]
+    fn channel_pairing_is_not_a_login() {
+        for provider in ["qq", "Telegram", "discord_dm", "feishu"] {
+            assert!(crate::services::channel_pairing::is_pairing_provider(
+                provider
+            ));
+        }
+        assert!(!crate::services::channel_pairing::is_pairing_provider(
+            "discord"
+        ));
     }
 }

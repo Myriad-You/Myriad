@@ -23,6 +23,7 @@ use serde_json::{json, Value};
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
+pub(crate) mod touch;
 use tokio_stream::StreamExt;
 
 use crate::middleware::auth::Claims;
@@ -35,7 +36,7 @@ use crate::services::agent::{
 };
 
 /// 等待用户回答的任务上下文
-/// process_stream 注册后等待 oneshot 信号；answer_task_question_stream 完成后通过此信号回传结果
+/// `spawn_restored_wait_loop` 注册后等待 oneshot；answer / cancel / interrupt 都可 send `done_tx`
 struct WaitingTaskCtx {
     /// 任务所有者；take 时必须匹配，防止跨用户抢 oneshot
     user_id: i32,
@@ -113,7 +114,8 @@ fn wait_loop_channel_dropped_response(task_id: &str) -> Value {
     json!({
         "success": false,
         "responseType": "error",
-        "message": "任务等待通道已断开",
+        "message": "The wait channel closed",
+        "code": "wait_channel_closed",
         "streamTerminal": true,
         "task": {
             "taskId": task_id,
@@ -147,7 +149,7 @@ pub(crate) fn session_metadata_with_run_identity(
     if let Some(obj) = meta.as_object_mut() {
         obj.insert("runId".to_string(), json!(run_id));
         obj.insert("taskId".to_string(), json!(task_id));
-        // snake_case aliases for notification / legacy readers
+        // snake_case aliases `run_id` / `task_id`
         obj.insert("run_id".to_string(), json!(run_id));
         obj.insert("task_id".to_string(), json!(task_id));
         if !obj.contains_key("task") {

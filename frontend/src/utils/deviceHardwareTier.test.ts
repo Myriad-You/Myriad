@@ -189,7 +189,6 @@ describe('detectAppleSilicon WebGL budget', () => {
         }
       },
     }
-    // 无 high-entropy → 同步走 WebGL
     const nav = {
       userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
     } as Navigator

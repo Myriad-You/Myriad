@@ -1,11 +1,6 @@
-/* ==========================================
-   Agent Panel
-   ==========================================
-
-   颜色一律走站点表面令牌（--surface-* / --text-*），不自带底色：
-   站长切 solid / flat / liquid 时这块要跟着变，不能是全站唯一不变的地方。
-   底色与边框由同元素上的 .glass 提供。
-   ========================================== */
+/* 颜色一律走站点表面令牌（--surface-* / --text-*），不自带底色。
+   站长切 solid / flat / liquid 时这块要跟着变。
+   底色与边框由同元素上的 .glass 提供。 */
 
 @keyframes agent-panel-blink {
   0%,
@@ -30,24 +25,13 @@
   }
 }
 
-/* ==========================================
-   Quick Overlay
-   ==========================================
-
-   贴底、不铺满、不遮死当前页面 —— 助手不抢当前工作。
-   入场从底下长上来，退场原路沉回去：同一段位移、缩放和时长，错开顺序倒过来。
-   ========================================== */
-
 .agent-panel-overlay-anchor {
   position: fixed;
   inset: auto auto 1rem 50%;
   z-index: 61;
 
-  /* 卡片在上，那一行独立控件在下 —— 它们并排，不是包含。
-     外壳不裁切：阴影要完整，玻璃还要采到壁纸。每行整张进整张出。
-     进出同一条贝塞尔：出场是入场的镜像。
-     空输入态开合动外壳；对话/历史入场仍按张从输入行叠上，
-     退场卡片先收回去，再让外壳只沉、只淡，不整块缩放。 */
+  /* 卡片与底下一行并排，不是包含。overflow 可见：阴影要完整，玻璃要采到壁纸。
+     空输入态开合动外壳；对话/历史按张进出，退场外壳只沉、只淡，不整块缩放。 */
   --agent-ease: cubic-bezier(0.32, 0.72, 0, 1);
   --agent-ease-exit: cubic-bezier(1, 0, 0.68, 0.28);
   --agent-move: 480ms;
@@ -118,8 +102,8 @@
   scale: 1;
 }
 
-/* 退场回一点外壳运动：卡片先收回输入行，再整块只沉、只淡。
-   不缩 —— 高列再 scale 会像往输入行里挤。输入行跟着锚点走，不再自己先走一步。 */
+/* 退场卡片先收回输入行，外壳只沉、只淡。
+   不缩：高列再 scale 会像往输入行里挤。 */
 .agent-panel-overlay-anchor[data-stage='full'][data-phase='closing'] {
   opacity: 0;
   translate: -50% 22px;
@@ -154,8 +138,7 @@
   scale: 0.96;
 }
 
-/* 2/3 窗口外那张半截卡：就地淡掉，不往输入行滑 —— 滑会把那截拉进画面。
-   延迟仍走 --agent-exit-stagger：它在最上面，最后才收。 */
+/* 2/3 窗外那张半截卡就地淡掉，不往输入行滑——滑会把那截拉进画面。 */
 .agent-panel-overlay-anchor[data-stage='full'][data-phase='closing']
   .agent-panel-presence[data-kind='row'][data-from='composer']:has(
     [data-leaving='true']
@@ -221,7 +204,7 @@
   width: 100%;
   margin-bottom: 10px;
 
-  /* 入场错开：初次展开从输入行往上叠。新气泡 stagger=0，马上进。 */
+  /* 新气泡 stagger=0，马上进。 */
   transition-delay: calc(
     var(--agent-stagger, 0) * var(--agent-stagger-step, 72ms)
   );
@@ -254,8 +237,7 @@
   overflow: visible;
 }
 
-/* 没配语音时右侧那枚会整颗进出：槽位宽度要跟输入框对挤，不能先占 96px
-   再在空位里从 0.72 放大。胶囊跟着槽一起变宽，间距一起收。 */
+/* 没配语音时右侧整颗进出：槽宽跟输入框对挤，不能先占 96px 再从 0.72 放大。 */
 .agent-panel-composer-row > .agent-panel-presence[data-kind='chip'] {
   flex: 0 0 auto;
   width: 96px;
@@ -276,9 +258,7 @@
   min-width: 0;
 }
 
-/* 入场用 @starting-style，不再用 JS 的 enter。
-   曾经卡在 data-presence=enter（opacity 0）上，双 rAF 被取消就永远不出现。
-   退场仍是 data-presence=out，值和入场同一组 —— 从哪来回哪去。
+/* 入场用 @starting-style，不用 JS enter。退场 data-presence=out，与入场同一组。
    开合只动锚点。子元素入场靠 data-appear=skip 跳过整表首屏，避免和整块叠两层。 */
 @starting-style {
   .agent-panel-overlay-anchor {
@@ -287,7 +267,7 @@
     scale: 0.96;
   }
 
-  /* 默认就是藏着的。先画亮再收到 0，plus-lighter 会闪一帧。 */
+  /* 默认藏着。先画亮再收到 0，plus-lighter 会闪一帧。 */
   .agent-panel-aurora,
   .agent-panel-aurora[data-phase='settled'],
   .agent-panel-aurora[data-stage='full']:not([data-phase='closing']) {
@@ -533,17 +513,7 @@
   margin-left: 0;
 }
 
-/* ── 一切说明性的短句都是贴 ──────────────────────
-
-   看得到什么、刚做了什么、为什么这里是空的、人设改到哪儿去了 —— 这些以前是六处
-   裸文本，各自一套字号和留白，读起来像六个人写的。现在只有一种东西：贴。可点的
-   （开关、撤销、图标键）多一层悬停和回弹，不可点的就是同一张贴的静态版。
-
-   能点的、只是说明的，都是同一颗胶囊，同一行、同一高度。贴里的字分主次：
-   类别淡、内容重。底是同一套表面令牌。
-
-   输入框上面那一排贴直接铺在页面上，所以自己吃表面令牌 —— 不再套进卡片里。
-   ================================================ */
+/* 输入框上面那一排贴直接铺在页面上，自己吃表面令牌，不套进卡片里。 */
 
 .agent-panel-tag-rail {
   display: flex;
@@ -607,7 +577,7 @@
   color: inherit;
 }
 
-/* 只装一个图标的贴：同样是胶囊，不要收成正圆 */
+/* 图标贴仍是胶囊，不要收成正圆 */
 .agent-panel-tag[data-icon='true'] {
   justify-content: center;
   flex-shrink: 0;
@@ -621,7 +591,7 @@
   height: 16px;
 }
 
-/* 独占一行的贴：空态、加载失败这类整段话，高度跟着字走 */
+/* 独占一行的贴高度跟着字走 */
 .agent-panel-tag[data-block='true'] {
   align-self: center;
   height: auto;
@@ -647,7 +617,6 @@
   color: var(--color-primary, #10b981);
 }
 
-/* 语气。中性是默认；primary 是「这跟你刚做的事有关」；alert 是「有东西被关掉了」 */
 .agent-panel-tag[data-tone='primary'] {
   border-color: color-mix(
     in srgb,
@@ -672,7 +641,6 @@
   color: var(--color-error, #ef4444);
 }
 
-/* 「就等你点」的那种贴要更实一点 */
 .agent-panel-tag-strong {
   font-weight: 600;
 }
@@ -718,7 +686,6 @@
   min-width: 0;
 }
 
-/* 可点的那一半：回弹曲线跟站内其他流体控件同一条 */
 button.agent-panel-tag {
   cursor: pointer;
   transition:
@@ -751,7 +718,7 @@ button.agent-panel-tag:not(:disabled):hover {
   color: var(--color-primary, #10b981);
 }
 
-/* 关掉的那道闸悬停时不该变成主色 —— 它说的是「有东西没在读」 */
+/* 关掉的闸悬停不该变主色——它说的是「有东西没在读」 */
 button.agent-panel-tag[data-tone='alert']:not(:disabled):hover {
   border-color: color-mix(
     in srgb,
@@ -771,8 +738,7 @@ button.agent-panel-tag:disabled {
   opacity: 0.38;
 }
 
-/* 收藏的常用问法：和上下文动作同一排语言，但标题可能很长，收窄一点。
-   按字宽收而不是按百分比 —— 窄屏上 40% 只剩四个字，连意思都读不出来 */
+/* 常用问法按字宽收，不要百分比——窄屏 40% 只剩四个字。 */
 .agent-panel-tag-saved {
   max-width: 12em;
 }
@@ -802,23 +768,10 @@ button.agent-panel-tag:disabled {
   color: var(--color-primary, #10b981);
 }
 
-/* ── 输入那一行：输入框 + 一枚动作 ────────────────
-
-   输入框和右侧那一枚动作各自是一块独立的玻璃，摆在卡片外面。**搬出来是有技术
-   必要的**：套在 `.glass` 里的子层采不到卡片背后的画面，再滤一次只会糊成乳白带，
-   只有并排才吃得到真正的流体质感。
-
-   那一枚动作按框里有没有字、现在忙不忙换身份：空着且语音可用是语音，有字是发送，
-   正在跑是终止；语音没配置时空着不画。底、边框、阴影、滤镜全部由同元素上的
-   `.glass` 从表面令牌取，这里只管
-   形状、尺寸和手感 —— 和 Tapp 商店那几枚流体控件同一条路子。**但不像它那样钉死
-   `.glass-liquid`**：站主选了 solid，卡片会变成不透明白底，强制流体的胶囊浮在
-   底下会明显脱节；而且 solid/flat 是真正的性能档，钉死等于替他把 backdrop-filter
-   加回来。跟着令牌走，站主切到 liquid 时它们自然拿到吸色底、磨砂噪点和边缘弯光环。
-
-   刻意不叠写死的顶部高光：流体表面自带随环境走的光学，静态高光压上去只会跟它
-   打架（theme.css 里写过这条）。
-   ================================================ */
+/* 输入框和右侧动作各自一块独立玻璃，并排才能采到背后画面；套进 .glass 子层只会糊。
+   底/边框/阴影/滤镜由同元素 .glass 取表面令牌。
+   不要钉死 .glass-liquid：solid/flat 是性能档，钉死会把 backdrop-filter 加回来。
+   不要叠写死的顶部高光：流体表面自带光学，静态高光会打架。 */
 
 .agent-panel-composer {
   --agent-composer-gap: 12px;
@@ -828,7 +781,7 @@ button.agent-panel-tag:disabled {
   --agent-face-lift: 10px;
   --agent-mode-lag: 40ms;
 
-  /* 人头伸出贴行的那截。人仍绝对定位贴着输入框，对话靠这段 padding 让位。 */
+  /* 人头绝对定位贴着输入框；对话靠这段 padding 让位。 */
   --agent-face-reserve: calc(
     var(--agent-face-visible-height) - var(--agent-face-fade) - 32px -
       var(--agent-composer-gap)
@@ -1057,7 +1010,7 @@ button.agent-panel-tag:disabled {
   interpolate-size: numeric-only;
 }
 
-/* 办事 / 聊天叠在同一格。只改透明度，visibility 会让隐藏那一层退出占位，胶囊跟着收。 */
+/* 办事 / 聊天叠在同一格。只改透明度；visibility 会让隐藏层退出占位，胶囊跟着收。 */
 .agent-panel-mode-labels {
   display: grid;
   flex: 0 0 auto;
@@ -1108,9 +1061,8 @@ button.agent-panel-tag:disabled {
     translate var(--agent-move) var(--agent-ease) var(--agent-mode-lag);
 }
 
-/* 中间列吃掉弹性空位。办事贴只淡，占位不撤，左右贴才不会在淡出结束时被拽动。
-   进聊天：贴先让，人晚一拍托出来。回办事：人先收，贴再亮。
-   常用问法一行横滑，新对话 / 历史钉在右列，不被挤走。 */
+/* 办事贴只淡、占位不撤，左右贴才不会在淡出结束时被拽动。
+   进聊天贴先让、人晚一拍；回办事人先收、贴再亮。 */
 .agent-panel-work-chrome {
   display: flex;
   align-items: center;
@@ -1168,7 +1120,7 @@ button.agent-panel-tag:disabled {
   flex-wrap: nowrap;
 }
 
-/* 上下文贴按字宽收。长文才收到剩余宽度、贴内横滑；解释 / 翻译仍是 shrink-0。 */
+/* 上下文贴按字宽收。长文才收到剩余宽度、贴内横滑；解释 / 翻译仍 shrink-0。 */
 .agent-panel-work-tags > .agent-panel-swap {
   flex: 0 1 auto;
   min-width: 0;
@@ -1228,8 +1180,7 @@ button.agent-panel-tag:disabled {
   transition: opacity var(--agent-move) linear var(--agent-mode-lag);
 }
 
-/* 聊天档：输入框上面的人设。3:4 画布放大 2.5，裁掉底下 1/5，底边模糊收掉。
-   不是玻璃 —— 输入框已经是 .glass，套进去会糊。 */
+/* 聊天档人设 3:4 放大 2.5，裁掉底下 1/5。不是玻璃——输入框已经是 .glass，套进去会糊。 */
 .agent-panel-face {
   --agent-face-portrait: 3 / 4;
 
@@ -1372,7 +1323,7 @@ button.agent-panel-tag:disabled {
 .agent-panel-control svg {
   position: relative;
 
-  /* 流体的弯光环走 ::before，图标得压在它上面 */
+  /* Mic ring is .agent-panel-mic-fx (z-0); keep the icon at z-1. */
   z-index: 1;
   width: 22px;
   height: 22px;
@@ -1403,8 +1354,7 @@ button.agent-panel-tag:disabled {
   outline-offset: 2px;
 }
 
-/* 在听的时候一直亮着 —— 录音这种事必须一眼看得出还开着。
-   压过 .glass 的令牌底，所以要两层类名 */
+/* 在听时一直亮。压过 .glass 令牌底，所以要两层类名。 */
 .agent-panel-composer .agent-panel-mic[data-on='true'] {
   background:
     linear-gradient(
@@ -1538,9 +1488,8 @@ button.agent-panel-tag:disabled {
   }
 }
 
-/* 发送才叠主色。空着（没语音可用、也没字）保持普通玻璃，不要一枚褪色的绿点。
-   主色压在流体底上 —— 换掉整块底会把噪点/高光/吸色那几层一起丢掉，所以是叠一层，
-   不是替一层 */
+/* 发送才叠主色。空着保持普通玻璃，不要一枚褪色的绿点。
+   主色叠在 --surface-bg 上；换掉整块底会丢掉高光。 */
 .agent-panel-composer .agent-panel-send:not(:disabled) {
   background:
     linear-gradient(
@@ -1557,7 +1506,7 @@ button.agent-panel-tag:disabled {
   }
 }
 
-/* 停止键：不透明淡红。叠在玻璃令牌上只会透出壁纸，看起来像没上色。 */
+/* 停止键用不透明淡红。叠在玻璃令牌上只会透出壁纸。 */
 .agent-panel-composer .agent-panel-stop {
   background: color-mix(in srgb, var(--color-error, #ef4444) 42%, white);
   color: #fff;
@@ -1593,8 +1542,7 @@ button.agent-panel-tag:disabled {
   ) !important;
 }
 
-/* 状态灯和添加附件是同一枚：待命是 14px 圆角加号。亮起来时两臂胀成同一
-   颗圆；圆里是三团 OKLCH 色晕，频率错开，颜色自己在游。 */
+/* 状态灯和添加附件是同一枚。 */
 .agent-panel-attach {
   --orb: var(--color-primary, #10b981);
 
@@ -1639,6 +1587,7 @@ button.agent-panel-tag:disabled {
   color: var(--orb);
 }
 
+/* 待命 14px 加号；亮起两臂胀成圆。 */
 .agent-panel-attach-plus {
   position: relative;
   z-index: 1;
@@ -1790,7 +1739,7 @@ button.agent-panel-tag:disabled {
 .agent-panel-field:focus {
   position: relative;
 
-  /* 同上：别被弯光环盖住 */
+  /* 别被弯光环盖住 */
   z-index: 1;
   display: block;
   flex: 1 1 auto;
@@ -1930,13 +1879,7 @@ button.agent-panel-tag:disabled {
   }
 }
 
-/* ==========================================
-   Full 层
-   ==========================================
-
-   最大的那一档，仍然贴底。对话每条独立成胶囊，不再铺一块统一底。
-   列表不设 overflow、不裁容器、不切遮罩：轨道位移，越界的卡片整张化开。
-   ========================================== */
+/* 列表不设 overflow、不裁容器、不切遮罩：轨道位移，越界卡片整张化开。 */
 
 .agent-panel-full {
   flex: 0 0 auto;
@@ -2005,8 +1948,8 @@ button.agent-panel-tag:disabled {
   max-width: 100%;
 }
 
-/* 滚动退场走 transform / filter:opacity，不碰 opacity / translate / scale ——
-   那三条是面板开合和卡片入场在用。不加 blur：高斯糊会把越界的卡片拖成一片脏雾。 */
+/* 滚动退场走 transform / filter:opacity，不碰 opacity / translate / scale
+   （那三条是开合和入场在用）。不加 blur：高斯糊会把越界卡片拖成脏雾。 */
 .agent-panel-message[data-leaving='true'],
 .agent-panel-session[data-leaving='true'] {
   transform-origin: center center;
@@ -2045,9 +1988,8 @@ html[data-perf-mode='exlight'] .agent-panel-message-body {
   border-radius: 22px;
 }
 
-/* 正文在文档流里撑开气泡。思考收掉时改绝对定位叠在上面，
-   高度从上一帧收到正文，多出来的是思考被裁掉，不是一块空垫。
-   grow 必须是内容高，不能跟着外框一起长，否则跟随会把目标越写越大。 */
+/* 正文在文档流里撑开气泡。思考收掉时改绝对定位叠在上面。
+   grow 必须是内容高，不能跟着外框一起长。 */
 .agent-panel-message-grow {
   position: relative;
   width: 100%;
@@ -2074,7 +2016,7 @@ html[data-perf-mode='exlight'] .agent-panel-message-body {
   min-width: 0;
 }
 
-/* 整块 Agent 面板不磨砂（含 tag / 输入行 / 气泡）。去掉后抬到 92%。
+/* 整块面板不磨砂（含 tag / 输入行 / 气泡）。去掉后抬到 92%。
    solid 已经不透明，不要往回减。发送键自己叠主色。 */
 html .agent-panel-overlay-anchor {
   --surface-filter: none;
@@ -2105,8 +2047,7 @@ html .agent-panel-session.glass {
   color: var(--color-error, #ef4444);
 }
 
-/* 还在说的时候，句尾跟一个光标。
-   挂在正文最后一个块的末尾。思考、提问、图不是「还在说」。 */
+/* 句尾光标挂在正文最后一块。思考、提问、图不是「还在说」。 */
 .agent-panel-message[data-state='streaming']
   .agent-panel-message-answer
   > :last-child:not(
@@ -2168,8 +2109,6 @@ html .agent-panel-session.glass {
   background: var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
   box-shadow: var(--surface-shadow);
 }
-
-/* ── 它的设置 ───────────────────────────────────── */
 
 .agent-panel-manage {
   display: flex;
@@ -2278,8 +2217,7 @@ html .agent-panel-session.glass {
   }
 }
 
-/* ── 思考过程 ─────────────────────────────────────
-   在答案胶囊里面。正文一出来就卸掉，所以不必做成另一颗气泡。 */
+/* 思考在答案胶囊里面。正文一出来就卸掉，不必另做一颗气泡。 */
 
 .agent-panel-thinking {
   margin: 0 0 6px;
@@ -2321,8 +2259,8 @@ html .agent-panel-session.glass {
   max-width: 100%;
 }
 
-/* 扫在字形上。clip 要配透明填充，所以渐变必须始终盖住整段字 ——
-   扫到 -100% 会把底滑出盒子，字就跟着没了。200% + 0%/100% 两端都盖住。 */
+/* 扫在字形上。clip 要配透明填充，渐变必须始终盖住整段字——
+   扫到 -100% 会把底滑出盒子。200% + 0%/100% 两端都盖住。 */
 .agent-panel-thinking-sweep {
   color: var(--text-muted, #9ca3af);
 }
@@ -2582,8 +2520,6 @@ html[data-perf-mode='exlight'] .agent-panel-thinking-sweep {
   -webkit-text-fill-color: var(--text-muted, #9ca3af);
 }
 
-/* ── 之前聊过的 ─────────────────────────────────── */
-
 .agent-panel-session {
   display: flex;
   align-items: center;
@@ -2676,8 +2612,7 @@ html[data-perf-mode='exlight'] .agent-panel-thinking-sweep {
   height: 12px;
 }
 
-/* ── 它反过来问你的话 ─────────────────────────────
-   问句就是气泡正文，不再套一层色块。选项跟输入行那排贴同一套。 */
+/* 问句就是气泡正文，不另套色块。选项跟输入行那排贴同一套。 */
 
 .agent-panel-question {
   display: flex;
@@ -2717,7 +2652,7 @@ html[data-perf-mode='exlight'] .agent-panel-thinking-sweep {
   max-width: 100%;
 }
 
-/* 答过之后按钮冻结，但仍然看得见当时选了哪个 */
+/* 答过之后按钮冻结，但仍看得见当时选了哪个 */
 .agent-panel-question-options .agent-panel-tag[data-active='true'] {
   border-color: var(--color-primary, #10b981);
   background: color-mix(
@@ -2752,9 +2687,7 @@ html[data-perf-mode='exlight'] .agent-panel-thinking-sweep {
   }
 }
 
-/* ── 消息脚注：时间、复制、重试 ───────────────────
-   贴在气泡下面、跟气泡同一侧。对话卡已经不套进 overlay 玻璃，
-   脚注贴直接铺在壁纸上，所以自己吃表面令牌。 */
+/* 对话卡不套 overlay 玻璃；脚注贴直接铺在壁纸上，自己吃表面令牌。 */
 
 .agent-panel-message-footer {
   display: flex;
@@ -2797,8 +2730,6 @@ html[data-perf-mode='exlight'] .agent-panel-thinking-sweep {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── 看大图 ─────────────────────────────────────── */
-
 .agent-panel-image-open {
   padding: 0;
   border: none;
@@ -2839,8 +2770,6 @@ html[data-perf-mode='exlight'] .agent-panel-thinking-sweep {
     transition-duration: 0.01ms !important;
   }
 }
-
-/* ── 助手回复里那点 Markdown ─────────────────────── */
 
 .agent-md-p {
   margin: 0 0 6px;
@@ -2962,14 +2891,6 @@ html[data-perf-mode='exlight'] .agent-panel-thinking-sweep {
   }
 }
 
-/* ==========================================
-   Action Card
-   ==========================================
-
-   要动真格之前问的那一下。按操作本身排：风险和时限在最上，接着是它准备做什么、
-   会影响什么，最后才是两个键。三档只差摊开多少。
-   ========================================== */
-
 .agent-panel-action {
   display: flex;
   flex-direction: column;
@@ -3065,20 +2986,9 @@ html[data-perf-mode='exlight'] .agent-panel-thinking-sweep {
   width: 100%;
 }
 
-/* ==========================================
-   底部流光
-
-   面板开着时贴在屏幕底边，参考 Apple Intelligence 的虹彩边缘。
-   色从壁纸主色衍生。画面里只走主色两侧约 120°，来回是回文，
-   邻档 40°；整圈彩虹铺满底边会脏。色带拉长，一屏只看到两三色。
-   光在面板下面（z 60 / 61），从玻璃后面渗出来。
-   色带画两段相同的谱，位移 50% 接上；光斑只平移不缩放。
-   底下一层匀速铺色，上面一层反向走更紧的色团，两边光斑错开，
-   才看得出颜色在底边滑，而不是一团光在原地变色。
-   思考不用平移色带。五团色块铺满底边，高度贴空闲 88px 色带。
-   进出按车道错开；换谱同一位置旧团先收、新团再进。失败叠淡红。
-   默认藏着，落定才亮，避免 plus-lighter 先闪一帧。入场比外壳晚、从底下托上来。
-   ========================================== */
+/* 色从壁纸主色衍生。邻档 40°；东侧 +120°，西侧 −80°。整圈彩虹会脏。
+   光在面板下面（z 60 / 61）。色带画两段相同的谱，位移 50% 接上。
+   默认藏着，落定才亮，避免 plus-lighter 先闪一帧。 */
 
 @property --agent-aurora-0 {
   syntax: '<color>';
@@ -3250,8 +3160,7 @@ html.dark .agent-panel-aurora {
   }
 }
 
-/* 默认藏着。落定才亮。先画成不透明再 0.01ms 灭掉会闪一帧。
-   快捷态→对话时光线已经在，full 且不是 closing 保持亮。 */
+/* 默认藏着，落定才亮。快捷态→对话时光线已经在；full 且不是 closing 保持亮。 */
 .agent-panel-aurora[data-phase='settled'],
 .agent-panel-aurora[data-stage='full']:not([data-phase='closing']) {
   opacity: 1;
@@ -3761,12 +3670,7 @@ html.dark .agent-panel-aurora[data-status='error']::after {
   }
 }
 
-/* ==========================================
-   长按指示环
-   ==========================================
-
-   唤起 Agent 的手势反馈：按下即冒点，到时长成一圈。跟着指针走，永不吃事件。
-   ========================================== */
+/* 跟着指针走，pointer-events: none。 */
 
 .agent-panel-longpress {
   position: fixed;

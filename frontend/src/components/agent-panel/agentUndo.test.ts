@@ -59,7 +59,6 @@ test('换过路由的操作能原路退回', () => {
   assert.ok(offer)
   assert.equal(offer.actionType, 'navigate')
   assert.equal(offer.inverse.type, 'navigate')
-  // 退回去的是「之前在哪」，连查询参数一起
   assert.equal(offer.inverse.path, '/brew?tag=ai')
   assert.equal(offer.expiresAtMs, NOW + UNDO_WINDOW_MS)
 })

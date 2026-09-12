@@ -1,10 +1,3 @@
-/**
- * 状态球里三团色晕的运动。
- *
- * 不是随机跳目标：每团用两路不同频率的正弦叠成李萨如曲线，周期互质，
- * 看起来像颜色自己在圆里游，而不是在扫一张渐变贴图。
- */
-
 const BLOBS = [
   { fx: 0.41, fy: 0.29, fs: 0.23, ax: 34, ay: 30, as: 0.16 },
   { fx: 0.53, fy: 0.37, fs: 0.19, ax: 38, ay: 28, as: 0.14 },
@@ -32,7 +25,9 @@ export function startAttachOrbDrift(
   el: HTMLElement,
   speed: () => number,
 ): () => void {
-  const blobs = [...el.querySelectorAll<HTMLElement>('[data-orb-blob]')]
+  const blobs = Iterator.from(
+    el.querySelectorAll<HTMLElement>('[data-orb-blob]'),
+  ).toArray()
   if (blobs.length === 0) return () => {}
 
   const seed = Math.random() * Math.PI * 2

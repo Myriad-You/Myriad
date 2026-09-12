@@ -1,4 +1,3 @@
-/** Parameter block copied from Anime2.5DRig `P` / `auto` in index.html. */
 export interface Anime25DDriver {
   angleX: number
   angleY: number
@@ -24,10 +23,6 @@ export interface Anime25DDriver {
   mouthForm: number
   mouthCY: number
   body: number
-  /**
-   * How far the body comes around with a head turn, as a share of this
-   * portrait's own authored follow. The fork carries the same control.
-   */
   bodyYaw: number
   physAmp: number
   soft: number
@@ -124,7 +119,6 @@ export const IDENTITY_DRIVER: Anime25DDriver = {
   phys: true,
 }
 
-/** Settings workbench: automations off so each slider can be seen. */
 export const WORKBENCH_DRIVER: Anime25DDriver = {
   ...IDENTITY_DRIVER,
   idle: false,

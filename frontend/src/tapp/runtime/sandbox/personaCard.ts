@@ -1,7 +1,6 @@
 import type { ActivityKey, MoodBand } from '../../../components/agent/meropeVitals'
 import { activityKey, moodBand } from '../../../components/agent/meropeVitals'
 
-/** Public TAPP projection of Agent 人设. Numbers and soul stay off this card. */
 export interface TappPersonaCard {
   enabled: boolean
   name: string
@@ -10,10 +9,7 @@ export interface TappPersonaCard {
   portraitUrl: string | null
 }
 
-/**
- * Same-origin portrait path for `<img src>`. CSP already allows the host origin;
- * remote https would need `network:fetch`, so it is dropped rather than rewritten.
- */
+/** 头像用同源路径。远端 https 需要 network:fetch，故丢弃不改写。 */
 export function sameOriginPortraitUrl(
   raw: string | null | undefined,
 ): string | null {

@@ -38,7 +38,6 @@ export function squeezeEyeGeneratedSize(eye: {
   }
 }
 
-/** Enlarge undersized authored marks while preserving deliberate large art. */
 export function squeezeEyeDisplayScale(
   layerWidth: number,
   eye: { x0: number; x1: number },
@@ -52,11 +51,6 @@ export function squeezeEyeDisplayScale(
   )
 }
 
-/**
- * Generates inward-facing chevrons: the screen-left eye is `>` and the
- * screen-right eye is `<`. Slightly uneven curves and stroke weights keep the
- * generated mark closer to hand-drawn expression art than a geometric glyph.
- */
 export function createSqueezeEyeBitmap(
   requestedSize: Readonly<SqueezeEyeSize>,
   tint: Readonly<RgbColor>,

@@ -1,7 +1,3 @@
-/**
- *   pnpm exec tsx --test src/hooks/useSiteOwnerProfile.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { afterEach, describe, it, mock } from 'node:test'
 
@@ -66,6 +62,36 @@ describe('fetchSiteOwnerProfile', () => {
     assert.equal(calls[0]!.init?.credentials, 'include')
   })
 
+  it('treats leftover placeholder bios as empty so the UI catalog can fill in', async () => {
+    mockFetch(() =>
+      jsonResponse({
+        success: true,
+        user_info: {
+          name: 'Alice',
+          avatar: null,
+          bio: '这家伙很懒，没有介绍呢',
+          platform: 'GitHub',
+        },
+      }),
+    )
+    const leftover = await fetchSiteOwnerProfile()
+    assert.equal(leftover?.bio, '')
+    __resetSiteOwnerProfileInflightForTests()
+    mockFetch(() =>
+      jsonResponse({
+        success: true,
+        user_info: {
+          name: 'Alice',
+          avatar: null,
+          bio: 'No bio available',
+          platform: 'GitHub',
+        },
+      }),
+    )
+    const english = await fetchSiteOwnerProfile()
+    assert.equal(english?.bio, '')
+  })
+
   it('force path sets cache: no-store and cache-busts the URL', async () => {
     const { calls } = mockFetch(() =>
       jsonResponse({
@@ -87,10 +113,8 @@ describe('fetchSiteOwnerProfile', () => {
   })
 
   it('non-force concurrent callers share one in-flight request', async () => {
-    let resolveFetch!: (value: Response) => void
-    const pending = new Promise<Response>((resolve) => {
-      resolveFetch = resolve
-    })
+    const { promise: pending, resolve: resolveFetch } =
+      Promise.withResolvers<Response>()
     const { calls } = mockFetch(() => pending)
 
     const a = fetchSiteOwnerProfile()
@@ -111,10 +135,8 @@ describe('fetchSiteOwnerProfile', () => {
   })
 
   it('force does not reuse a stale non-force in-flight response', async () => {
-    let resolveCold!: (value: Response) => void
-    const coldPending = new Promise<Response>((resolve) => {
-      resolveCold = resolve
-    })
+    const { promise: coldPending, resolve: resolveCold } =
+      Promise.withResolvers<Response>()
     let call = 0
     const { calls } = mockFetch((_url, init) => {
       call += 1
@@ -150,15 +172,14 @@ describe('fetchSiteOwnerProfile', () => {
     )
     const coldResult = await cold
     assert.equal(coldResult?.name, 'Stale')
-    // force 与 cold 各发一次，互不合并
+
+    // force 与 cold 各发一次，互不合并。
     assert.equal(call, 2)
   })
 
   it('concurrent force callers share one in-flight request', async () => {
-    let resolveFetch!: (value: Response) => void
-    const pending = new Promise<Response>((resolve) => {
-      resolveFetch = resolve
-    })
+    const { promise: pending, resolve: resolveFetch } =
+      Promise.withResolvers<Response>()
     const { calls } = mockFetch(() => pending)
 
     // Simulates notifyAvatarChanged dual-firing avatar + profile-display

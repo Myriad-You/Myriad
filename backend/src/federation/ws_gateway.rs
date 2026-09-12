@@ -1,4 +1,4 @@
-//! WebSocket 网关（Phase 3 — Layer 3）
+//! WebSocket 网关
 //!
 //! 为 Channel 提供实时双向通信能力。
 //! 每个 Channel 可以有多个 WebSocket 连接（同一用户多设备）。
@@ -152,6 +152,12 @@ async fn cleanup_room(room_id: &str) {
     }
 }
 
+// Independently budget upgraded connections; HTTP header permits cannot bound
+// on_upgrade tasks, whose lifetime extends beyond the HTTP response.
+static SOCKET_BUDGET: Lazy<Arc<tokio::sync::Semaphore>> =
+    Lazy::new(|| Arc::new(tokio::sync::Semaphore::new(64)));
+const MAX_WS_MESSAGE_BYTES: usize = 1024 * 1024;
+
 // WebSocket 处理器
 
 /// WebSocket 升级端点
@@ -177,6 +183,10 @@ pub async fn channel_websocket(
         return err.into_response();
     }
 
+    let Ok(permit) = SOCKET_BUDGET.clone().try_acquire_owned() else {
+        return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+
     let tapp_attr = match resolve_ws_ticket(
         &db,
         query.tapp_ws_ticket.as_deref(),
@@ -193,10 +203,13 @@ pub async fn channel_websocket(
     let user_id: i32 = claims.sub.parse().unwrap_or(-1);
     let username = claims.username.clone();
 
-    ws.on_upgrade(move |socket| {
-        handle_channel_socket(socket, db, user_id, username, channel_id, tapp_attr)
-    })
-    .into_response()
+    ws.max_message_size(MAX_WS_MESSAGE_BYTES)
+        .max_frame_size(MAX_WS_MESSAGE_BYTES)
+        .on_upgrade(move |socket| async move {
+            let _permit = permit;
+            handle_channel_socket(socket, db, user_id, username, channel_id, tapp_attr).await;
+        })
+        .into_response()
 }
 
 async fn resolve_ws_ticket(
@@ -388,6 +401,10 @@ pub async fn room_websocket(
         return err.into_response();
     }
 
+    let Ok(permit) = SOCKET_BUDGET.clone().try_acquire_owned() else {
+        return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+
     let tapp_attr = match resolve_ws_ticket(
         &db,
         query.tapp_ws_ticket.as_deref(),
@@ -403,10 +420,13 @@ pub async fn room_websocket(
 
     let user_id: i32 = claims.sub.parse().unwrap_or(-1);
     let username = claims.username.clone();
-    ws.on_upgrade(move |socket| {
-        handle_room_socket(socket, db, user_id, username, room_id, tapp_attr)
-    })
-    .into_response()
+    ws.max_message_size(MAX_WS_MESSAGE_BYTES)
+        .max_frame_size(MAX_WS_MESSAGE_BYTES)
+        .on_upgrade(move |socket| async move {
+            let _permit = permit;
+            handle_room_socket(socket, db, user_id, username, room_id, tapp_attr).await;
+        })
+        .into_response()
 }
 
 /// 处理单个 Room WebSocket 连接
@@ -443,12 +463,8 @@ async fn handle_room_socket(
     let base_url = get_base_url().await;
     let local_actor = crate::federation::types::actor_url(&base_url, &username);
 
-    // 验证用户是该 Room 的**活跃**成员。
-    //
-    // 这里过去只看行是否存在，于是一个还没接受邀请（membership_status =
-    // 'pending'）的用户也能连上房间 socket，拿到此后所有消息、typing 与系统事件
-    // —— 而 REST 侧的 get_room_messages 走 require_active_member_role，明确不给
-    // pending 看历史。两条路必须同一个门槛。
+    // 验证用户是该 Room 的**活跃**成员（`membership_status = 'active'`）。
+    // 精确 `actor_url` 匹配 + `membership_status = 'active'`（pending 不能连）。REST 另有 `same_actor_url` 回退。
     use sea_orm::{ConnectionTrait as _, DatabaseBackend, Statement};
     let is_member = db
         .query_one_raw(Statement::from_sql_and_values(

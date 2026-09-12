@@ -30,7 +30,6 @@ export interface RigAssetPreflight extends ImportedRigAsset {
   prepared: PreparedRigPsdImport
 }
 
-/** 预检要的两件外部事：解析打包、送后端编译。落库由 persistRigAsset 单独拿 upload。 */
 interface RigAssetPreflightDependencies {
   prepare: typeof prepareRigPsdImport
   preview: typeof previewMeropeRigImport
@@ -109,7 +108,6 @@ function copyPreviewPlaybackProfiles(
   source.anime25dPlayback.shellProfile = structuredClone(playback.shellProfile)
 }
 
-/** Commits the exact source and atlas that passed preflight. */
 export async function persistRigAsset(
   preflight: RigAssetPreflight,
   upload: typeof importMeropeRig,

@@ -71,6 +71,37 @@ test('releases an atlas texture when its upload fails', () => {
   assert.equal(deleted, true)
 })
 
+test('accessory alpha patch reaches the same GPU atlas with premultiplied pixels', () => {
+  const calls: unknown[][] = []
+  const pixels = new Uint8ClampedArray([200, 100, 50, 128, 90, 80, 70, 0])
+  const gl = {
+    createTexture: () => ({}),
+    bindTexture() {},
+    pixelStorei() {},
+    texParameteri() {},
+    texImage2D() {},
+    texSubImage2D(...args: unknown[]) {
+      calls.push(args)
+    },
+    deleteTexture() {},
+  } as unknown as WebGL2RenderingContext
+  createAtlasTexture(gl, {} as HTMLImageElement, [
+    { x: 12, y: 24, width: 2, height: 1, pixels },
+  ])
+  assert.equal(calls.length, 1)
+  assert.deepEqual(calls[0].slice(2, 6), [12, 24, 2, 1])
+  assert.deepEqual(
+    Iterator.from(calls[0][8] as Uint8Array).toArray(),
+    [100, 50, 25, 128, 0, 0, 0, 0],
+  )
+  assert.deepEqual(Iterator.from(pixels).toArray(), [200, 100, 50, 128, 90, 80, 70, 0])
+  const player = readFileSync(new URL('./player.ts', import.meta.url), 'utf8')
+  assert.match(
+    player,
+    /createAtlasTexture\(this.gl, image, compiled.atlasPatches\)/,
+  )
+})
+
 test('keeps positions dynamic while uploading UVs and indices only once', () => {
   const uploads: Array<{ usage: number; bytes: number }> = []
   let nextBuffer = 0
@@ -150,10 +181,7 @@ test('same-origin atlas URLs skip CORS so guest origins can load the live face',
     atlasUrlNeedsCors('https://kiseki.blog/api/merope/rig/assets/abc', page),
     false,
   )
-  assert.equal(
-    atlasUrlNeedsCors('https://cdn.example/atlas.png', page),
-    true,
-  )
+  assert.equal(atlasUrlNeedsCors('https://cdn.example/atlas.png', page), true)
 })
 
 test('aborts an in-flight atlas image without leaving live handlers', async () => {

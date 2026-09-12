@@ -53,6 +53,10 @@ test('parseApiErrorBody keeps code and prefers detail message', () => {
     parseApiErrorBody({ error: 'report_dna_failed' }, 502).code,
     'report_dna_failed',
   )
+  assert.equal(
+    parseApiErrorBody({ error: 'Unauthorized' }, 401).code,
+    undefined,
+  )
 })
 
 test('generationFailureMessage strips a code prefix from quota-style detail', () => {

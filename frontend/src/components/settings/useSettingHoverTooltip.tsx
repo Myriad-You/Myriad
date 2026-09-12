@@ -1,8 +1,3 @@
-/**
- * 设置页 hover / focus tooltip：Portal + fixed，避免 overflow 裁切。
- * SettingTitleHelp（ⓘ）与 ToggleSwitch 预告共用这一套，不要再手写一份。
- */
-
 import type { ReactNode, RefObject } from 'react'
 import type {
   HoverTooltipCoords,
@@ -30,7 +25,6 @@ function hasTooltipContent(content: ReactNode): boolean {
 
 export interface UseSettingHoverTooltipOptions {
   content: ReactNode
-  /** false 时 show/hide 为空操作（无预告的开关） */
   enabled?: boolean
   placement?: HoverTooltipPlacement
   tone?: SettingHoverTooltipTone
@@ -110,9 +104,8 @@ export function useSettingHoverTooltip<T extends HTMLElement>(
     }, HIDE_DELAY_MS)
   }, [active])
 
-  // 不要把 content 放进依赖：调用方常传内联 JSX，引用每次都变，
-  // 再叠加 setCoords 会把 layout effect 打进死循环。
-  // 文案变高变宽时靠 ResizeObserver 重新量。
+  // content is often inline JSX; putting it in deps loops with setCoords
+  // size changes: ResizeObserver
   useLayoutEffect(() => {
     if (!open) return
     updatePosition()

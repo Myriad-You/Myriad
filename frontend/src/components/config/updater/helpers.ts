@@ -1,7 +1,3 @@
-/**
- * Updater pure helpers / channel model / mood derivation.
- */
-
 import type { useI18n } from '../../../contexts/I18nContext'
 import type {
   SnapshotMeta,
@@ -37,7 +33,6 @@ export type Tone = 'ok' | 'info' | 'warn' | 'danger' | 'muted'
 export type Toast = { kind: 'ok' | 'error'; text: string } | null
 
 export const POLL_INTERVAL = 4_000
-/** Trusted TCB handoff + bounded recovery: 2s × 2700 ≈ 90 minutes. */
 export const INFRA_OUTCOME_POLL_MS = 2_000
 export const INFRA_OUTCOME_MAX_TRIES = 2_700
 const TEMPLATE_RE = /\{(\w+)\}/g
@@ -49,16 +44,14 @@ export const CHANNEL_OPTIONS: ChannelOption[] = [
   { key: 'dev', mode: 'commit', channel: 'preview', badge: 'dev' },
 ]
 
-/** Formal release tags look like v0.4.0 (`v`-prefixed semver, matching DeployTag). */
 export function isReleaseTag(tag: string): boolean {
   return /^v\d+\.\d+\.\d+([.-][0-9A-Za-z.]+)?$/.test(tag.trim())
 }
 
 export function modeForTarget(target: string, fallback: UpdateMode): UpdateMode {
-  // Non-semver targets must never be forced to release mode (BE 400).
+  // non-semver must not be forced to release mode (BE 400)
   if (isReleaseTag(target)) return 'release'
   if (fallback === 'commit') return 'commit'
-  // Default non-tag → commit (sha / branch / free text)
   return 'commit'
 }
 
@@ -66,13 +59,6 @@ export function format(template: string, params: Record<string, string>): string
   return template.replace(TEMPLATE_RE, (_, k) => params[k] ?? `{${k}}`)
 }
 
-/** Brief proxy/updater restart windows surface as 502/503 or fetch failures. */
-/**
- * Whether a durable infra outcome is new enough to stop polling.
- * `targetTag` is only applied when the schedule RPC actually returned one —
- * the success path kills the updater before that response arrives, and the
- * app tip is a different version space from the updater tag.
- */
 export function isFreshInfraOutcome(
   last:
     | {
@@ -115,7 +101,6 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((r) => window.setTimeout(r, ms))
 }
 
-/** 从 upstream 转发的错误体里提取一句人能读的话（剥掉嵌套 JSON）。 */
 export function upstreamDetail(message: string): string {
   const brace = message.indexOf('{')
   if (brace >= 0) {
@@ -158,7 +143,6 @@ export function channelDesc(key: ChannelKey, u: U): string {
   }
 }
 
-/** 服务器保存的 (mode, channel) → 三选项之一。兼容旧命名。 */
 export function deriveSelection(status: UpdaterStatus | null): ChannelKey {
   if (!status) return 'stable'
   if (status.update_mode === 'commit') return 'dev'
@@ -224,7 +208,6 @@ export function moodText(
   }
 }
 
-/** Why delete is blocked (scheme-2 policy). Null when delete is allowed. */
 export function snapshotDeleteBlockReason(
   snap: SnapshotMeta,
   opts: {
@@ -261,7 +244,6 @@ export function isDismissedLastFailed(jobId: string | undefined): boolean {
   return dismissedLastFailedJobId() === jobId
 }
 
-/** Cached check tip used as the infra upgrade hint (same as confirm dialogs). */
 export function infraLatestTip(
   status: UpdaterStatus | null | undefined,
 ): string | null {
@@ -270,10 +252,9 @@ export function infraLatestTip(
 }
 
 function normalizeDeployTag(tag: string): string {
-  return tag.trim().replace(/^v/i, '').toLowerCase()
+  return tag.trim().replaceAll(/^v/ig, '').toLowerCase()
 }
 
-/** True when this component is not already on the cached tip. */
 export function infraComponentBehind(
   current: string | null | undefined,
   tip: string | null | undefined,

@@ -164,12 +164,12 @@ function usageLabel(id: VendorUsageId, t: ReturnType<typeof useI18n>['t']): stri
 function usedByText(
   ids: VendorUsageId[] | undefined,
   t: ReturnType<typeof useI18n>['t'],
+  format: ReturnType<typeof useI18n>['format'],
 ): string {
   if (!ids?.length) return ''
-  return t.config.aiVendorUsedBy.replace(
-    '{name}',
-    ids.map((id) => usageLabel(id, t)).join(t.config.aiVendorUsedJoin),
-  )
+  return format(t.config.aiVendorUsedBy, {
+    name: ids.map((id) => usageLabel(id, t)).join(t.config.aiVendorUsedJoin),
+  })
 }
 
 const CAPABILITY_ORDER: AiVendorCapability[] = ['text', 'image', 'speech', 'realtime']
@@ -218,7 +218,7 @@ export function AiVendorAddTrigger({
   onChange,
   usages = {},
 }: AiVendorSourcesProps) {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const addFromPreset = useAddVendorSource(sources, onChange)
   const guide = useMemo(
     () => (
@@ -231,7 +231,11 @@ export function AiVendorAddTrigger({
                 source.slug === preset.defaultSlug,
             )
             .flatMap((source) => usages[source.slug] ?? [])
-          const usedHint = usedByText([...new Set(used)], t)
+          const usedHint = usedByText(
+            Iterator.from(new Set(used)).toArray(),
+            t,
+            format,
+          )
           const capsHint = capabilityText(preset.capabilities, t)
           return (
             <button
@@ -260,7 +264,7 @@ export function AiVendorAddTrigger({
         })}
       </div>
     ),
-    [addFromPreset, sources, t, usages],
+    [addFromPreset, format, sources, t, usages],
   )
 
   return (
@@ -364,12 +368,12 @@ function VendorCard({
   onChange: (patch: Partial<AiVendorSource>) => void
   onRemove: () => void
 }) {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const { catalog: g, bindGuide } = useSettingGuide()
   const preset = findVendorPreset(source)
   const configured = hasVendorCredential(source)
   const title = source.display_name || source.slug
-  const usedHint = usedByText(usedBy, t)
+  const usedHint = usedByText(usedBy, t, format)
   const [open, setOpen] = useAddedCardOpen(justAdded, !configured)
   const regionOptions = useMemo(
     () => [
@@ -397,10 +401,10 @@ function VendorCard({
           className="ai-vendor-card-hit"
           onClick={toggleOpen}
           aria-expanded={open}
-          aria-label={(open
-            ? t.config.collapseGroupAria
-            : t.config.expandGroupAria
-          ).replace('{title}', title)}
+          aria-label={format(
+            open ? t.config.collapseGroupAria : t.config.expandGroupAria,
+            { title },
+          )}
         />
         <div className="oidc-provider-title">
           <span className="oidc-provider-icon-img" aria-hidden>

@@ -1,9 +1,4 @@
-/**
- * Tapp Playground 页面
- * 用自然语言生成、预览并安装 Tapp；全程运行在无授权的临时沙箱中。
- * 布局与多窗口运行页一致：透明工作区 + 可自由拖拽/缩放的浮动窗格，
- * 输入与日志收纳在底部控制岛。
- */
+/** 自然语言生成/预览/安装；跑在无授权的临时沙箱。 */
 
 import type { PlaygroundLastFailedAttempt } from '../components/PlaygroundComposer'
 import type { TappPlaygroundProject } from '../services/TappPlaygroundService'
@@ -151,7 +146,7 @@ function fileContents(project: TappPlaygroundProject, file: FileId): string {
     case 'styles':
       return project.code.styles || ''
     case 'i18n':
-      return JSON.stringify(project.code.i18n || {}, null, 2)
+      return JSON.stringify(project.code.i18n ?? {}, null, 2)
     case 'widget':
       return project.code.widget || ''
     case 'widgetHtml':
@@ -159,7 +154,7 @@ function fileContents(project: TappPlaygroundProject, file: FileId): string {
     case 'assets':
       return JSON.stringify(
         Object.fromEntries(
-          Object.entries(project.code.assets || {}).map(([path, value]) => [
+          Object.entries(project.code.assets ?? {}).map(([path, value]) => [
             path,
             `[encoded asset: ${value.length} bytes]`,
           ]),
@@ -169,10 +164,6 @@ function fileContents(project: TappPlaygroundProject, file: FileId): string {
       )
   }
 }
-
-/* ============================================================
- * 浮动窗格 - 拖拽/缩放逻辑取自 TappWindowManager（简化版）
- * ============================================================ */
 
 interface Rect {
   x: number
@@ -199,12 +190,9 @@ interface FloatingPaneProps {
   bounds: { width: number; height: number }
   isActive: boolean
   onFocus: () => void
-  /** 标题栏内容（拖拽把手区域） */
   header: React.ReactNode
   children: React.ReactNode
-  /** 移动端渲染为静态块，禁用拖拽/缩放 */
   interactive: boolean
-  /** 静态模式下的高度 class */
   staticClassName?: string
   tourAnchor?: string
 }
@@ -251,7 +239,6 @@ function FloatingPane({
     [onFocus],
   )
 
-  // 移动/缩放 - RAF 节流，直接操作 DOM，结束时一次性提交 state
   useEffect(() => {
     if (!isDragging && !resizeDirection) return
 
@@ -387,7 +374,6 @@ function FloatingPane({
       onMouseDown={onFocus}
       onTouchStart={onFocus}
     >
-      {/* 标题栏 - 拖拽把手 */}
       <div
         className={`flex items-center h-9 shrink-0 select-none glass-surface glass-80 ${
           isDragging ? 'cursor-grabbing' : 'cursor-grab'
@@ -403,17 +389,14 @@ function FloatingPane({
         {header}
       </div>
 
-      {/* 内容 */}
       <div
         className="flex-1 min-h-0 overflow-hidden relative"
         style={{ backgroundColor: 'var(--bg-primary)' }}
       >
-        {/* 交互时的透明遮罩，防止 iframe 捕获指针事件 */}
         {isInteracting && <div className="absolute inset-0 z-50" />}
         {children}
       </div>
 
-      {/* 缩放手柄 */}
       {RESIZE_HANDLES.map(({ direction, className }) => (
         <div
           key={direction}
@@ -425,10 +408,6 @@ function FloatingPane({
     </div>
   )
 }
-
-/* ============================================================
- * 代码编辑器：Prism 高亮层 + 透明 textarea 输入层
- * ============================================================ */
 
 const FILE_LANGUAGE: Record<FileId, string> = {
   page: 'javascript',
@@ -444,9 +423,9 @@ const FILE_LANGUAGE: Record<FileId, string> = {
 
 function escapeHtml(text: string): string {
   return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
 }
 
 function CodeEditor({
@@ -499,10 +478,6 @@ function CodeEditor({
   )
 }
 
-/* ============================================================
- * 页面
- * ============================================================ */
-
 export function TappPlaygroundPage() {
   const navigate = useNavigate()
   const { t, locale, format } = useI18n()
@@ -524,7 +499,6 @@ export function TappPlaygroundPage() {
   const [instruction, setInstruction] = useState('')
   const [busy, setBusy] = useState(false)
   const [busyMode, setBusyMode] = useState<'user' | 'runtime-repair'>('user')
-  /** Latest real agent step summary from generate-stream (busy band line 2). */
   const [busyStepSummary, setBusyStepSummary] = useState<string | null>(null)
   const lastStreamStepRef = useRef<string | null>(null)
   const [installing, setInstalling] = useState(false)
@@ -532,7 +506,6 @@ export function TappPlaygroundPage() {
   const [selectedFile, setSelectedFile] = useState<FileId>('page')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  /** One-shot storage prune warning (separate from success notice). */
   const [pruneNotice, setPruneNotice] = useState('')
   const [previewError, setPreviewError] = useState('')
   const [lastSuccessElapsedMs, setLastSuccessElapsedMs] = useState<
@@ -550,40 +523,37 @@ export function TappPlaygroundPage() {
   const [diffMode, setDiffMode] = useState<'unified' | 'side-by-side'>(
     'unified',
   )
-  /** Base revision index for diff; -1 = previous of current when using quick mode. */
   const [diffBaseIndex, setDiffBaseIndex] = useState<number | null>(null)
   const [diffCompareIndex, setDiffCompareIndex] = useState<number | null>(null)
   const [activePane, setActivePane] = useState<'preview' | 'code' | 'widget'>(
     'preview',
   )
-  // 小组件预览选择：无效值自动回退到首个声明的组件及其默认尺寸
   const [widgetId, setWidgetId] = useState('')
   const [widgetSize, setWidgetSize] = useState<WidgetSize | ''>('')
   const previewStorageRef = useRef(new Map<string, unknown>())
   const previewSettingsRef = useRef(new Map<string, unknown>())
   const previewSharedRef = useRef(new Map<string, unknown>())
+  const previewPrivateRef = useRef(new Map<string, unknown>())
   const previewStores = useMemo(
     () => ({
       storage: previewStorageRef.current,
       settings: previewSettingsRef.current,
       shared: previewSharedRef.current,
+      private: previewPrivateRef.current,
     }),
     [],
   )
   const [widgetConfigs, setWidgetConfigs] = useState<
     Record<string, Record<string, unknown>>
   >({})
-  // 手动编辑代码的草稿：为空表示未编辑，直接展示项目内容
   const [draft, setDraft] = useState<string | null>(null)
   const [draftInvalid, setDraftInvalid] = useState(false)
   const draftTimerRef = useRef<number | undefined>(undefined)
   const runtimeRepairCountRef = useRef(0)
   const repairedRuntimeErrorsRef = useRef(new Set<string>())
-  /** In-flight generate AbortController (user Cancel). */
   const generateAbortRef = useRef<AbortController | null>(null)
   const userCancelledRef = useRef(false)
   const generateRequestIdRef = useRef(0)
-  /** Avoid re-notifying the same prune event on every effect run. */
   const lastPruneNoticeKeyRef = useRef('')
 
   const animationsEnabled = !isExlight(animConfig)
@@ -596,8 +566,8 @@ export function TappPlaygroundPage() {
   const project = revision?.project
   const sessionSummaries = useMemo(
     () =>
-      [...store.sessions]
-        .sort((a, b) => b.updatedAt - a.updatedAt)
+      store.sessions
+        .toSorted((a, b) => b.updatedAt - a.updatedAt)
         .map((s) => ({
           id: s.id,
           title: s.title,
@@ -619,9 +589,7 @@ export function TappPlaygroundPage() {
     [session.revisions],
   )
 
-  // 项目同时包含页面和小组件时，预览拆成两个独立窗格；
-  // 仅小组件（无可用 Page）时不挂载页面沙箱，左列整列给小组件预览。
-  const manifestWidgets = project?.manifest.widgets || []
+  const manifestWidgets = project?.manifest.widgets ?? []
   const hasWidgetPreview =
     manifestWidgets.length > 0 &&
     !!(project?.code.widget || project?.code.widgetHtml)
@@ -631,7 +599,7 @@ export function TappPlaygroundPage() {
     !!(project.code.pageHtml && project.code.pageHtml.trim())
   const isWidgetOnly = hasWidgetPreview && !hasUsablePage
   const activeWidget =
-    manifestWidgets.find((widget) => widget.id === widgetId) ||
+    manifestWidgets.find((widget) => widget.id === widgetId) ??
     manifestWidgets[0]
   const activeWidgetSize: WidgetSize =
     (widgetSize && activeWidget?.sizes?.includes(widgetSize)
@@ -640,9 +608,6 @@ export function TappPlaygroundPage() {
     activeWidget?.sizes?.[0] ||
     '2x2'
 
-  // 工作区尺寸（用于窗格默认布局与边界约束）
-  // callback ref + ResizeObserver：motion 懒加载会重挂根节点，
-  // 单次 effect 测量会拿到 0，观察器保证任何挂载/尺寸变化都能测到
   const [bounds, setBounds] = useState({ width: 0, height: 0 })
   const workspaceObserverRef = useRef<ResizeObserver | null>(null)
   const attachWorkspace = useCallback((node: HTMLDivElement | null) => {
@@ -658,14 +623,12 @@ export function TappPlaygroundPage() {
   }, [])
   useEffect(() => () => workspaceObserverRef.current?.disconnect(), [])
 
-  // 进入沉浸模式，隐藏底部导航岛给控制岛让位（桌面端 only；移动端会立刻重定向）
   useImmersiveChrome('tapp-playground', !isMobile)
 
   useEffect(() => {
     saveSessionsStore(store)
   }, [store])
 
-  // Widget-only: focus the widget pane (and prefer widget source tabs).
   useEffect(() => {
     if (!isWidgetOnly) return
     setActivePane('widget')
@@ -704,7 +667,6 @@ export function TappPlaygroundPage() {
           }),
         )
       }
-      // Allow the same shape of prune to notify again later
       window.setTimeout(() => {
         if (lastPruneNoticeKeyRef.current === key) {
           lastPruneNoticeKeyRef.current = ''
@@ -714,7 +676,6 @@ export function TappPlaygroundPage() {
     [t, format],
   )
 
-  /** Commit store mutation that may prune; surface one-shot prune notice. */
   const commitStore = useCallback(
     (
       mutator: (
@@ -824,8 +785,6 @@ export function TappPlaygroundPage() {
     selectedFile,
   ])
 
-  // 默认布局：预览居左约 55%，代码居右，底部为控制岛预留空间；
-  // 页面 + 小组件：左列上下拆分；仅小组件：左列整列给小组件预览。
   const defaultLayout = useMemo(() => {
     if (!bounds.width || !bounds.height) return null
     const margin = 14
@@ -850,7 +809,6 @@ export function TappPlaygroundPage() {
       height,
     }
 
-    // Widget-only: full left column for widget; no page preview pane.
     if (isWidgetOnly) {
       return {
         preview: null as {
@@ -887,9 +845,6 @@ export function TappPlaygroundPage() {
 
   const tappInstance = useMemo<TappInstance | null>(() => {
     if (!project) return null
-    // MYR-024: Manifest permissions are install-time declarations only.
-    // Preview grants are an explicit temporary allowlist intersection — never
-    // the full declaration list (which would open real host capabilities / CSP).
     return {
       id: project.manifest.id,
       manifest: project.manifest,
@@ -920,12 +875,10 @@ export function TappPlaygroundPage() {
     runtimeFeedback: string[] = [],
   ) => {
     if (!prompt.trim() || busy) return
-    // Cancel any leftover controller; start a fresh AbortController for this run.
     generateAbortRef.current?.abort()
     const abortController = new AbortController()
     generateAbortRef.current = abortController
     userCancelledRef.current = false
-    // Generation request id: ignore late responses after cancel/unmount.
     const requestId = (generateRequestIdRef.current += 1)
 
     setBusy(true)
@@ -936,10 +889,7 @@ export function TappPlaygroundPage() {
     setNotice('')
     setLastSuccessElapsedMs(null)
     if (origin === 'user') setPreviewError('')
-    // Snapshot multi-turn memory BEFORE clearing the failure banner so a prior
-    // failed attempt is still sent as a failed tail entry.
     const history = buildPlaygroundMemoryHistory(session)
-    // Clear prior failure banner while a new attempt is in flight
     commitStore((current) =>
       updateActiveSessionWithMeta(
         current,
@@ -1024,18 +974,14 @@ export function TappPlaygroundPage() {
         code:
           requestError &&
           typeof requestError === 'object' &&
-          'code' in requestError &&
-          typeof requestError.code === 'string'
-            ? requestError.code
+          Object.hasOwn(requestError, 'code') &&
+          typeof (requestError as { code: unknown }).code === 'string'
+            ? (requestError as { code: string }).code
             : undefined,
       })
 
       if (userCancelled) {
-        // Soft notice only — not the hard failure banner. Keep lastFailed so
-        // the user can still Retry the same prompt from the status band if set;
-        // we intentionally do NOT set lastFailed for cancel (distinct UX).
         setNotice(friendly)
-        // Keep instruction for easy re-submit.
         return
       }
 
@@ -1046,7 +992,7 @@ export function TappPlaygroundPage() {
         finishedAt: Date.now(),
         origin,
         phaseIndex: phaseIndexFromElapsedMs(elapsedMs),
-        lastStepSummary: lastStreamStepRef.current || undefined,
+        lastStepSummary: lastStreamStepRef.current ?? undefined,
       }
       commitStore((current) =>
         updateActiveSessionWithMeta(current, (active) => ({
@@ -1054,8 +1000,6 @@ export function TappPlaygroundPage() {
           lastFailedAttempt: failed,
         })),
       )
-      // Keep instruction text on failure (do not clear). Prefer the status
-      // band over a duplicate floating error card for generate failures.
     } finally {
       if (requestId === generateRequestIdRef.current) {
         setBusy(false)
@@ -1079,7 +1023,6 @@ export function TappPlaygroundPage() {
   const retryFailedAttempt = async () => {
     const failed = session.lastFailedAttempt
     if (!failed?.instruction.trim() || busy) return
-    // Restore the same prompt into the composer, then re-run as a user attempt
     setInstruction(failed.instruction)
     runtimeRepairCountRef.current = 0
     repairedRuntimeErrorsRef.current.clear()
@@ -1099,15 +1042,13 @@ export function TappPlaygroundPage() {
     )
   }
 
-  /** Page sandbox errors may auto-repair (existing behavior). */
   const handleSandboxError = (sandboxError: Error) => {
     const message =
       sandboxError.message || t.tapp.playgroundUnknownError
     setPreviewError(mapPlaygroundRuntimeError(message, t.tapp, format))
-    // Widget-only projects have no page sandbox; never auto-repair for page absence.
+    // 仅 Widget 的项目没有 page 沙箱；不得因缺 page 去 auto-repair。
     if (isWidgetOnly || !hasUsablePage) return
-    // Preview cannot run AI / federation / other host APIs. Do not let those
-    // expected failures rewrite the generated install-time code.
+    // 预览不能跑 AI/联邦等宿主 API。那些失败不得当 page 缺失去 auto-repair。
     if (isPlaygroundPreviewExpectedError(message)) return
     if (!project || busy || runtimeRepairCountRef.current >= 2) return
 
@@ -1125,7 +1066,6 @@ export function TappPlaygroundPage() {
     }, 500)
   }
 
-  /** Widget errors surface in the status band but do not trigger auto-repair. */
   const handleWidgetError = (sandboxError: Error) => {
     const message =
       sandboxError.message || t.tapp.playgroundUnknownError
@@ -1229,7 +1169,7 @@ export function TappPlaygroundPage() {
     const detail = formatPlaygroundPackageErrors(errors)
     const template = t.tapp.playgroundPackageInvalid
     return template.includes('{errors}')
-      ? template.replace('{errors}', detail)
+      ? format(template, { errors: detail })
       : `${template}\n${detail}`
   }
 
@@ -1249,8 +1189,6 @@ export function TappPlaygroundPage() {
         project.code,
       )
 
-      // Sync runtime so the new install is in installedTapps, then enable it.
-      // Sync/start failures must not fail the install — user can enable on detail.
       const runtime = getTappRuntime()
       try {
         await runtime.syncFromBackend(true)
@@ -1269,7 +1207,7 @@ export function TappPlaygroundPage() {
             : ''
         setNotice(
           detail
-            ? t.tapp.playgroundInstallStartFailed.replace('{error}', detail)
+            ? format(t.tapp.playgroundInstallStartFailed, { error: detail })
             : t.tapp.playgroundInstallSuccess,
         )
       }
@@ -1290,7 +1228,7 @@ export function TappPlaygroundPage() {
     try {
       const filename = await exportPlaygroundProjectAsTapp(project)
       setNotice(
-        t.tapp.playgroundExportSuccess.replace('{filename}', filename),
+        format(t.tapp.playgroundExportSuccess, { filename }),
       )
     } catch (exportError) {
       if (exportError instanceof PlaygroundPackageValidationError) {
@@ -1321,7 +1259,6 @@ export function TappPlaygroundPage() {
     repairedRuntimeErrorsRef.current.clear()
   }
 
-  // 切换文件或版本时丢弃未提交的编辑草稿；清理时取消待落盘的定时器
   useEffect(() => {
     setDraft(null)
     setDraftInvalid(false)
@@ -1330,7 +1267,6 @@ export function TappPlaygroundPage() {
     }
   }, [selectedFile, session.revisionIndex])
 
-  // 手动编辑落盘：解析成功后推入 manual 版本（防抖 600ms；无变更则跳过）
   const applyDraft = useCallback((file: FileId, text: string) => {
     const textKeys = {
       page: 'page',
@@ -1350,7 +1286,7 @@ export function TappPlaygroundPage() {
         setDraftInvalid(true)
         return
       }
-    } else if (!(file in textKeys)) {
+    } else if (!Object.hasOwn(textKeys, file)) {
       return
     }
     setDraftInvalid(false)
@@ -1420,14 +1356,12 @@ export function TappPlaygroundPage() {
     ...(project?.code.widgetHtml
       ? ([{ id: 'widgetHtml', label: FILE_LABELS.widgetHtml }] as const)
       : []),
-    ...(Object.keys(project?.code.assets || {}).length
+    ...(Object.keys(project?.code.assets ?? {}).length
       ? ([{ id: 'assets', label: FILE_LABELS.assets }] as const)
       : []),
   ]
 
   const interactive = !isMobile
-
-  /* 窗格内容 */
 
   const previewHeader = (
     <div className="flex items-center gap-2 min-w-0 w-full px-3">
@@ -1538,7 +1472,6 @@ export function TappPlaygroundPage() {
         </div>
       )}
 
-      {/* 生成中的遮罩 */}
       <AnimatePresence>
         {busy && project && (
           <motion.div
@@ -1567,7 +1500,7 @@ export function TappPlaygroundPage() {
         .getPropertyValue('--color-primary')
         .trim() || '#8b5cf6'
     const defaults: Record<string, unknown> = {}
-    for (const setting of activeWidget?.settings || []) {
+    for (const setting of activeWidget?.settings ?? []) {
       if (setting.defaultValue !== undefined) {
         defaults[setting.key] = setting.defaultValue
       }
@@ -1576,8 +1509,6 @@ export function TappPlaygroundPage() {
       ...defaults,
       ...(activeWidget ? widgetConfigs[activeWidget.id] : undefined),
     }
-    // Playground widget pane must receive clicks (buttons/inputs). Catalog
-    // previews keep isPreview:true → pointer-events:none; here we do not.
     return {
       size: activeWidgetSize,
       config,
@@ -1753,7 +1684,6 @@ export function TappPlaygroundPage() {
     </div>
   )
 
-  // Playground is desktop-admin only; redirect mobile direct/bookmark URLs.
   if (isMobile) {
     return <Navigate to={TAPP_LIST_PATH} replace />
   }
@@ -1991,7 +1921,6 @@ export function TappPlaygroundPage() {
       }`}
       data-no-ripple
     >
-      {/* 顶部工具栏 - 与多窗口运行页一致的浮动样式 */}
       <div className="absolute top-3.5 left-3.5 z-40" data-tour="tapp-playground-toolbar">
         <div
           className="flex items-center gap-1.5 rounded-xl pl-1.5 pr-3 py-1.5 glass-surface glass-80"
@@ -2041,7 +1970,6 @@ export function TappPlaygroundPage() {
         </div>
       </div>
 
-      {/* 工作区窗格 */}
       <div className="absolute inset-0">
       {interactive ? (
         defaultLayout && (
@@ -2153,7 +2081,6 @@ export function TappPlaygroundPage() {
       )}
       </div>
 
-      {/* 底部控制岛（Composer） */}
       <PlaygroundComposer
         interactive={interactive}
         busy={busy}
@@ -2175,7 +2102,7 @@ export function TappPlaygroundPage() {
         agentTrace={revision?.agentTrace}
         knowledgeSources={revision?.knowledgeSources}
         validation={revision?.validation}
-        lastFailedAttempt={session.lastFailedAttempt || null}
+        lastFailedAttempt={session.lastFailedAttempt ?? null}
         lastSuccessElapsedMs={lastSuccessElapsedMs}
         examplePrompts={examplePrompts}
         capabilityNote={
@@ -2204,7 +2131,6 @@ export function TappPlaygroundPage() {
           try {
             sessionStorage.setItem(CAPABILITY_NOTE_DISMISS_KEY, '1')
           } catch {
-            // ignore
           }
         }}
         onDismissStorageNotice={() => setPruneNotice('')}

@@ -1,10 +1,3 @@
-/**
- * 统一开关控件（无 label 壳）
- * 供 SwitchItem、平台卡、OAuth 等复用，避免多处手写 toggle-switch DOM。
- *
- * 可选 `preview`：悬停 / 聚焦时预演开启样子；浮层走 SettingTitleHelp 同一套 hover tooltip。
- */
-
 import type { ToggleSwitchPreview } from './toggleSwitchPreview'
 import React, { useMemo } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
@@ -19,13 +12,10 @@ export interface ToggleSwitchProps {
   checked: boolean
   onChange: (checked: boolean) => void
   disabled?: boolean
-  /** 无障碍名；有关联 label 时可不传 */
   'aria-label'?: string
   className?: string
   title?: string
-  /**
-   * 悬停 / 聚焦预告。有内容时不再使用原生 title，避免叠两层。
-   */
+  /** preview copy; skip native title so they don't stack */
   preview?: ToggleSwitchPreview
 }
 

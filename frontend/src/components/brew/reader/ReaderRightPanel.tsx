@@ -1,8 +1,3 @@
-/**
- * 阅读器右侧控制栏组件
- * 包含: 评论、主题、字体、布局、字号、行高
- */
-
 import type { MouseEvent } from 'react'
 
 import type { CommentItem } from '../../../services/brewApi'
@@ -16,10 +11,10 @@ import {
 } from '@lib/icons'
 import { motionShim as motion } from '@lib/motionShim'
 import { memo } from 'react'
-import { THEMES } from './constants'
+import { READER_COMMENTS_PANEL_ID, THEMES } from './constants'
+import { readerDialogTrigger } from './readerPanels'
 
 interface ExtendedReaderRightPanelProps extends ReaderRightPanelProps {
-  // 评论
   isAuthenticated: boolean
   hasComments: boolean
   comments: CommentItem[]
@@ -47,7 +42,6 @@ export default memo(
     onMouseEnter,
     onMouseLeave,
     t,
-    // Extended props
     isAuthenticated,
     hasComments,
     comments,
@@ -75,12 +69,7 @@ export default memo(
           className="hidden sm:flex sticky top-0 h-dvh items-center ml-4 z-20 pointer-events-none"
           style={{ willChange: 'transform, opacity' }}
         >
-          {/*
-            外层撑满视口高度、内容垂直居中：胶囊的位置只跟视口有关，跟文章长短、滚到哪都无关。
-            以前是 sticky top-1/3 再按自身高度 -1/3 位移 —— 文章短到不用滚时 sticky 根本不生效，
-            胶囊被短行夹住、再按各自高度偏移，左右两条高度不同就对不齐，换篇文章还会跳。
-            弹层（目录 / 批注 / 评论）用 absolute 挂在这一层上，所以它得是 relative 的 h-fit。
-          */}
+          {/* 胶囊相对视口垂直居中，不用 sticky。弹层 absolute 挂在 relative h-fit 上。 */}
           <div
             className="relative h-fit"
             style={{ pointerEvents: showPanels ? 'auto' : 'none' }}
@@ -91,12 +80,15 @@ export default memo(
             <div
               className={`flex flex-col items-center gap-2 p-2 rounded-2xl border ${currentTheme.border} ${currentTheme.surface}`}
             >
-              {/* 用户评论指示器 - 仅登录用户可见 */}
               {isAuthenticated && (
                 <>
                   <button
                     onClick={() => setShowCommentsPanel(!showCommentsPanel)}
                     className={`${sideButtonClass} relative`}
+                    {...readerDialogTrigger(
+                      showCommentsPanel,
+                      READER_COMMENTS_PANEL_ID,
+                    )}
                     title={
                       hasComments
                         ? `${t.brew.viewComments} (${comments.length})`
@@ -116,7 +108,6 @@ export default memo(
                 </>
               )}
 
-              {/* 主题切换 */}
               <button
                 onClick={cycleTheme}
                 className={sideButtonClass}
@@ -125,27 +116,19 @@ export default memo(
                 <Palette className="w-5 h-5" />
               </button>
 
-              {/* 字体切换 */}
               <button
                 onClick={cycleFont}
                 className={`${sideButtonClass} text-xs font-bold w-10 h-10 flex items-center justify-center`}
-                title={
-                  (t.brew as Record<string, string>)[currentFont.labelKey] ||
-                  currentFont.labelKey
-                }
+                title={t.brew[currentFont.labelKey]}
                 style={{ fontFamily: currentFont.family }}
               >
                 {t.brew.fontLabel}
               </button>
 
-              {/* 布局宽度切换 */}
               <button
                 onClick={cycleLayout}
                 className={sideButtonClass}
-                title={
-                  (t.brew as Record<string, string>)[currentLayout.labelKey] ||
-                  currentLayout.labelKey
-                }
+                title={t.brew[currentLayout.labelKey]}
               >
                 <svg
                   className="w-5 h-5"
@@ -157,12 +140,10 @@ export default memo(
                   strokeLinejoin="round"
                 >
                   {layout === 'narrow' ? (
-                    // 窄版图标 - 居中矩形
                     <>
                       <rect x="6" y="4" width="12" height="16" rx="1" />
                     </>
                   ) : (
-                    // 宽版图标 - 更宽的矩形
                     <>
                       <rect x="3" y="4" width="18" height="16" rx="1" />
                     </>
@@ -170,12 +151,10 @@ export default memo(
                 </svg>
               </button>
 
-              {/* 分隔线 */}
               <div
                 className={`w-6 h-px ${isDark ? 'bg-white/10' : 'bg-black/10'}`}
               />
 
-              {/* 字号调整 */}
               <div
                 className={`flex flex-col items-center gap-1 p-1 rounded-xl ${isDark ? 'bg-white/5' : 'bg-black/5'}`}
               >
@@ -200,7 +179,6 @@ export default memo(
                 </button>
               </div>
 
-              {/* 行高调整 */}
               <div
                 className={`flex flex-col items-center gap-1 p-1 rounded-xl ${isDark ? 'bg-white/5' : 'bg-black/5'}`}
               >

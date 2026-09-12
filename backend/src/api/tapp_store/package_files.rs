@@ -321,7 +321,7 @@ pub(crate) fn directory_generation_matches(
                 install_generation_matches_micros(&value, expected_updated_at.timestamp_micros())
             });
     }
-    // Compatibility for installations created before generation markers.
+    // 无 generation marker 时回退 `directory_manifest_matches`
     directory_manifest_matches(directory, expected_manifest)
 }
 
@@ -374,11 +374,10 @@ pub(crate) fn reinstall_orphan_paths(final_path: &FsPath) -> Result<Vec<PathBuf>
 /// Best-effort remove leftover live dir and lifecycle artifacts before install
 /// staging/activate. Caller must ensure there is no conflicting DB install row.
 ///
-/// Cleanup is deliberately non-fatal. Older deployments may have created Tapp
-/// contents as another UID, making recursive deletion fail even though the
-/// owner directory still permits an atomic rename. `TappDirStage::activate`
-/// can quarantine that live path by renaming it, so refusing to stage here
-/// would turn recoverable ownership drift into a permanent install failure.
+/// Cleanup is deliberately non-fatal. Recursive delete can fail when the live
+/// tree is another UID, even if the owner directory still allows rename.
+/// `TappDirStage::activate` quarantines that path by renaming it; refusing to
+/// stage here would turn recoverable ownership drift into a permanent failure.
 pub(crate) fn cleanup_reinstall_orphans(
     final_path: &FsPath,
     tapp_id: &str,
@@ -601,10 +600,7 @@ pub(crate) fn looks_like_tapp_installation(directory: &FsPath) -> bool {
     })
 }
 
-/// Remove filesystem generations that cannot belong to any database row.
-/// Artifacts for an installed key are deliberately retained when normal
-/// recovery cannot identify the expected generation, avoiding destructive
-/// guesses in the presence of partial/manual damage.
+/// List filesystem generations that cannot belong to any database row.
 pub(crate) fn orphaned_tapp_directories(
     root: &FsPath,
     installed: &std::collections::HashSet<(i32, String)>,
@@ -697,8 +693,7 @@ pub(crate) async fn cleanup_orphaned_tapp_directories(
     Ok(removed)
 }
 
-/// Startup recovery for filesystem/DB transactions interrupted between the
-/// atomic directory rename and the PostgreSQL commit.
+/// Recover filesystem/DB generations (startup and after live DB reconnect).
 pub(crate) async fn recover_tapp_filesystem_state(db: &DatabaseConnection) -> Result<usize, DbErr> {
     let installed = tapps::Entity::find().all(db).await?;
     let installed_keys = installed
@@ -740,10 +735,7 @@ pub(crate) fn installed_tapp_dir(tapp: &tapps::Model) -> Result<PathBuf, HttpErr
 
 /// 已安装包的结构不符合当前契约时的失败。
 ///
-/// 不能用 5xx：这不是宿主故障，包是装进来的那一刻就长这样。也不能用 404：
-/// 前端把资源接口的 404 当作回退到旧 `/code` 端点的信号
-/// （frontend/src/tapp/services/TappPackageResourceApi.ts:110-116），
-/// 用 404 会让不受支持的包换条路继续进沙箱。
+/// 不能用 5xx：这不是宿主故障。不能用 404：getTappResources 对任何 !ok 都抛错，没有旧 `/code` 回退。
 pub(crate) fn unsupported_package_structure(reason: &str) -> HttpError {
     HttpError(AppError::conflict("Tapp package is not usable").with_message(reason))
 }
@@ -954,9 +946,7 @@ pub(crate) fn collect_package_module_paths(tapp_dir: &FsPath) -> Vec<String> {
 }
 
 /// 包内 `.js` 不需要逐个在 Manifest 里声明，但仍要受检：必须是沙箱内的普通 UTF-8
-/// 文件、不超体积上限，且 `require` 的目标真实存在。
-///
-/// 「扫描登记」是指这一步——不是「随便放什么都不管」。
+/// 文件，且 `require` 的目标真实存在。体积上限不在本函数。
 pub(crate) fn validate_installed_package_modules(tapp_dir: &FsPath) -> Result<(), String> {
     use crate::services::tapp_install_resources::{
         extract_require_requests, require_target_missing, resolve_require_against_modules,

@@ -1,12 +1,4 @@
-/**
- * Cross-stack consistency: sandbox PERMISSION_MAP (speech / brew / federation)
- * and PERMISSION_LEVELS must match the machine-readable fixtures under
- * docs/development/tapp/fixtures/.
- *
- * Edit the fixtures first, then update permissionConfig.ts / host_attribution.
- * Run from frontend/:
- *   node --experimental-strip-types --test src/tapp/runtime/permissionMapConsistency.test.ts
- */
+/** PERMISSION_MAP / PERMISSION_LEVELS 须与 fixtures 一致。先改 fixtures。 */
 
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -16,7 +8,6 @@ import { fileURLToPath } from 'node:url'
 import { PERMISSION_LEVELS, PERMISSION_MAP } from './permissionConfig.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-// runtime/ → tapp/ → src/ → frontend/ → repo root
 const repoRoot = join(__dirname, '../../../..')
 const fixturesDir = join(repoRoot, 'docs/development/tapp/fixtures')
 
@@ -113,11 +104,37 @@ describe('host-proxied action → permission fixture', () => {
           .map(a => a.permission),
       )
       assert.deepEqual(
-        [...hostPerms].sort(),
-        [...actionPerms].sort(),
+        Iterator.from(hostPerms).toArray().toSorted(),
+        Iterator.from(actionPerms).toArray().toSorted(),
         `domain ${domain}: host route permission set must equal action permission set`,
       )
     }
+  })
+
+  it('maps every KV namespace method to storage:read or storage:write', () => {
+    const reads = ['get', 'keys', 'getAll', 'usage'] as const
+    const writes = ['set', 'remove', 'clear'] as const
+    for (const api of ['storage', 'shared', 'private'] as const) {
+      for (const method of reads) {
+        assert.equal(
+          PERMISSION_MAP.get(`${api}.${method}`),
+          'storage:read',
+          `${api}.${method}`,
+        )
+      }
+      for (const method of writes) {
+        assert.equal(
+          PERMISSION_MAP.get(`${api}.${method}`),
+          'storage:write',
+          `${api}.${method}`,
+        )
+      }
+      assert.equal(PERMISSION_MAP.has(`${api}.onChanged`), false, `${api}.onChanged`)
+    }
+    assert.equal(PERMISSION_MAP.get('settings.get'), 'storage:read')
+    assert.equal(PERMISSION_MAP.get('settings.getAll'), 'storage:read')
+    assert.equal(PERMISSION_MAP.get('settings.set'), 'storage:write')
+    assert.equal(PERMISSION_MAP.has('settings.onChanged'), false)
   })
 
   it('has unique action names in the fixture', () => {

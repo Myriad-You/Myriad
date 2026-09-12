@@ -1,8 +1,3 @@
-/**
- * SPA route → pageview + engagement.
- * Waits for auth; excludes admin/owner self-traffic.
- */
-
 import { useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
@@ -34,6 +29,7 @@ export {
   trackProductEvent,
 }
 
+/** SPA route → pageview + engagement。等 auth；排除管理员/站长自己。 */
 export function usePageViewTracker() {
   const location = useLocation()
   const { isAdmin, hasChecked, user } = useAuth()
@@ -58,7 +54,8 @@ export function usePageViewTracker() {
     if (lastPathRef.current === path) return
     lastPathRef.current = path
     trackPageview(path)
-    // 第三方统计 SPA page_view（未配置时排队，配置后补发）
+
+    // 第三方统计 SPA page_view（未配置时排队，配置后补发）。
     trackGooglePageview(path)
     trackUmamiPageview(path)
   }, [location.pathname, hasChecked, isStaff])

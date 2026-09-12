@@ -1,11 +1,5 @@
-/**
- * Bangumi 用户评分徽章 - 资料库同款（仿 Metacritic 分色分级）
- * 分数越高越推荐 —— 色彩越暖、尺寸越大、越醒目
- * 与 LibraryGrid 中的评分徽章保持同一套分级与动画
- */
 import { memo } from 'react'
 
-// 注入评分徽章动画样式（每页面一次；与 library-grid-styles 中的同名规则等价，可共存）
 if (
   typeof document !== 'undefined' &&
   !document.getElementById('rating-badge-styles')
@@ -51,9 +45,7 @@ if (
   document.head.appendChild(style)
 }
 
-// 尺寸与配色分离：size 为资料库的分级尺寸（分数越高越大），color 为分色标记
 export function getRatingBadgeStyle(rate: number) {
-  // 满分（10）：金色渐变，最大最亮，双环 + 光晕，独享的稀有感
   if (rate >= 10) {
     return {
       size: 'w-10 h-10 text-xl',
@@ -62,7 +54,6 @@ export function getRatingBadgeStyle(rate: number) {
       gloss: true,
     }
   }
-  // 神作（9）：金色渐变 + 光晕
   if (rate >= 9) {
     return {
       size: 'w-9 h-9 text-lg',
@@ -71,7 +62,6 @@ export function getRatingBadgeStyle(rate: number) {
       gloss: true,
     }
   }
-  // 力荐（8）
   if (rate >= 8) {
     return {
       size: 'w-8 h-8 text-base',
@@ -80,7 +70,6 @@ export function getRatingBadgeStyle(rate: number) {
       gloss: false,
     }
   }
-  // 推荐（7）
   if (rate >= 7) {
     return {
       size: 'w-8 h-8 text-base',
@@ -88,7 +77,6 @@ export function getRatingBadgeStyle(rate: number) {
       gloss: false,
     }
   }
-  // 还行（6）
   if (rate >= 6) {
     return {
       size: 'w-7 h-7 text-sm',
@@ -96,7 +84,6 @@ export function getRatingBadgeStyle(rate: number) {
       gloss: false,
     }
   }
-  // 不过不失（5）
   if (rate >= 5) {
     return {
       size: 'w-7 h-7 text-sm',
@@ -104,7 +91,6 @@ export function getRatingBadgeStyle(rate: number) {
       gloss: false,
     }
   }
-  // 较差（3-4）
   if (rate >= 3) {
     return {
       size: 'w-7 h-7 text-sm',
@@ -112,7 +98,6 @@ export function getRatingBadgeStyle(rate: number) {
       gloss: false,
     }
   }
-  // 差评（1-2）
   return {
     size: 'w-7 h-7 text-sm',
     color: 'bg-rose-500 text-white',
@@ -128,7 +113,6 @@ export const RatingBadge = memo(
   }: {
     rate?: number
     className?: string
-    /** 覆盖分级尺寸，传入后所有分数统一尺寸（如报告卡片等小场景） */
     sizeClass?: string
   }) => {
     if (!rate || rate <= 0) return null

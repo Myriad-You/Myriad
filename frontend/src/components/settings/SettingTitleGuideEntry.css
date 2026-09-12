@@ -1,8 +1,3 @@
-/**
- * 选项指南：标题旁 chip + Portal 浮窗（非内嵌、非全屏弹窗）
- * 定位：优先触发器上方；上方不够 → 左侧
- * 进入 / 退出：opacity + 轻微位移缩放；滚动跟随由 JS lerp 平抑
- */
 
 .setting-title-guide {
   position: relative;
@@ -13,7 +8,6 @@
   margin-left: 0.3rem;
 }
 
-/* 自定义触发器外包：不额外占样式，只作定位锚点 */
 .setting-title-guide-trigger-host {
   display: inline-flex;
   align-items: center;
@@ -25,7 +19,6 @@
   margin-left: 0;
 }
 
-/* —— 点击入口 —— */
 
 .setting-title-guide-trigger {
   display: inline-flex;
@@ -51,7 +44,6 @@
     border-color 0.18s ease;
 }
 
-/* 默认「选项指南」hover：壁纸色掺白/黑 */
 .setting-title-guide-trigger:hover,
 .setting-title-guide-trigger:focus-visible {
   color: var(--cfg-accent-ink);
@@ -64,7 +56,6 @@
   transform: scale(0.98);
 }
 
-/* 展开中（收起指南）：壁纸色掺白/黑 */
 .setting-title-guide-trigger.is-active {
   color: var(--cfg-accent-ink);
   border-color: var(--cfg-accent-line);
@@ -78,7 +69,6 @@
   background: var(--cfg-accent-fill-hover);
 }
 
-/* —— 浮窗（body Portal + fixed） —— */
 
 .setting-title-guide-float {
   --guide-float-enter-ms: 280ms;
@@ -88,13 +78,13 @@
 
   position: fixed;
 
-  /* top/left 由 JS 平滑写入，避免滚动时硬跳 */
+  /* top/left: JS */
   top: 0;
   left: 0;
   z-index: 10045;
   box-sizing: border-box;
 
-  /* 随内容自适应，仅设上限 */
+  /* max-width only */
   width: max-content;
   max-width: min(36rem, calc(100vw - 1.25rem));
   min-width: min(12rem, calc(100vw - 1.25rem));
@@ -103,7 +93,7 @@
   flex-direction: column;
   padding: 0;
 
-  /* 供浮动关闭 absolute 定位 */
+  /* positioning context for close */
   border: 1px solid
     color-mix(
       in srgb,
@@ -111,8 +101,6 @@
       var(--cfg-frost-border, rgb(255 255 255 / 45%))
     );
   border-radius: 0.875rem;
-
-  /* 透明毛玻璃，跟设置页 frost 一致 */
   background: color-mix(
     in srgb,
     var(--cfg-frost-bg, rgb(255 255 255 / 72%)) 88%,
@@ -126,8 +114,6 @@
       color-mix(in srgb, var(--cfg-accent, #6c8cff) 18%, transparent);
   overflow: hidden;
   text-align: left;
-
-  /* 默认隐藏（进入前 / 退出后） */
   opacity: 0;
   pointer-events: none;
   transform: translate3d(0, 8px, 0) scale(0.96);
@@ -139,7 +125,6 @@
     box-shadow var(--guide-float-enter-ms) var(--guide-float-ease);
 }
 
-/* 右下角操作组：固定 + 关闭 */
 .setting-title-guide-actions {
   position: absolute;
   top: auto;
@@ -151,7 +136,6 @@
   gap: 0.4rem;
 }
 
-/* 固定后顶部拖动手柄 */
 .setting-title-guide-drag {
   display: flex;
   align-items: center;
@@ -211,11 +195,9 @@
 }
 
 .setting-title-guide-float.is-pinned .setting-title-guide-body {
-  /* 顶部手柄额外占位，右下仍留给操作钮 */
   padding-top: 0.65rem;
 }
 
-/* 按锚点方向设置 transform-origin 与初始位移 */
 .setting-title-guide-float--top {
   transform-origin: center bottom;
   transform: translate3d(0, 10px, 0) scale(0.96);
@@ -236,7 +218,6 @@
   transform: translate3d(-12px, 0, 0) scale(0.96);
 }
 
-/* 进入完成 */
 .setting-title-guide-float.is-ready {
   opacity: 1;
   pointer-events: auto;
@@ -247,7 +228,6 @@
       color-mix(in srgb, var(--cfg-accent, #6c8cff) 18%, transparent);
 }
 
-/* 退出：沿锚点方向收回 + 淡出 */
 .setting-title-guide-float.is-leaving {
   opacity: 0;
   pointer-events: none;
@@ -299,10 +279,6 @@ html.dark .setting-title-guide-float.is-ready {
       color-mix(in srgb, var(--cfg-accent, #8ba3ff) 28%, transparent);
 }
 
-/**
- * 浮动操作钮：关闭 = 强调色实心圆；固定 = 同尺寸描边圆（钉住后填色）
- * --cfg-accent 与 Hero adaptive 同源
- */
 .setting-title-guide-close,
 .setting-title-guide-pin {
   display: inline-flex;
@@ -529,7 +505,6 @@ html.dark .setting-title-guide-close:focus-visible {
       color-mix(in srgb, var(--cfg-accent, #8ba3ff) 52%, transparent);
 }
 
-/* 入口 chip 固定徽记 */
 .setting-title-guide-trigger-pin {
   width: 0.65rem;
   height: 0.65rem;
@@ -546,8 +521,6 @@ html.dark .setting-title-guide-close:focus-visible {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-
-  /* 右下留出关闭钮 + 加大边距后的空间 */
   padding: 0.9rem 0.95rem 3.1rem;
   overflow: hidden auto;
   font-size: 0.8125rem;
@@ -555,7 +528,7 @@ html.dark .setting-title-guide-close:focus-visible {
   color: var(--cfg-text-2);
   -webkit-overflow-scrolling: touch;
 
-  /* 长文在 max-width 内换行，不把浮窗撑破 */
+  /* wrap inside max-width; do not grow float */
   overflow-wrap: anywhere;
 }
 

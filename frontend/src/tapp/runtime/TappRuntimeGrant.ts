@@ -15,14 +15,8 @@ interface SharedWidgetEntry {
   refs: number
 }
 
-/**
- * Backend `MAX_INSTANCE_ID_LENGTH` is 100; tapp ids may be up to 128.
- * Never embed the full tappId in instance_id — use a stable longer hash form.
- * Charset must stay compatible with BE: [A-Za-z0-9_.-]
- */
+/** instance_id 最长 100；tappId 可达 128，不得嵌入全文。字符集 [A-Za-z0-9_.-]。 */
 export function sharedWidgetInstanceId(tappId: string): string {
-  // Dual FNV-1a 32-bit streams → 16 hex chars of entropy (collision-resistant
-  // enough for the share table, which is also keyed by tappId).
   let h1 = 0x811C9DC5
   let h2 = 0x811C9DC5 ^ 0x9E3779B9
   for (let i = 0; i < tappId.length; i++) {
@@ -35,26 +29,21 @@ export function sharedWidgetInstanceId(tappId: string): string {
   const hex =
     (h1 >>> 0).toString(16).padStart(8, '0') +
     (h2 >>> 0).toString(16).padStart(8, '0')
-  // Compact stable slug (not the full id) for debuggability, then hash.
   const slug = tappId
-    .replace(/[^\w.-]/g, '_')
-    .replace(/_+/g, '_')
+    .replaceAll(/[^\w.-]/g, '_')
+    .replaceAll(/_+/g, '_')
     .slice(0, 48)
   const id = `ws.${slug}.${hex}`
   return id.length <= 100 ? id : id.slice(0, 100)
 }
 
 /**
- * Host-owned runtime identity. The token stays in the parent application and is
- * never serialized into iframe HTML or postMessage payloads.
- *
- * Multi-widget same Tapp: use {@link TappRuntimeGrant.acquireSharedWidget} so N
- * sandboxes share one BE grant (refcount) while each keeps its own session token.
+ * 宿主持有；永不写入 iframe HTML 或 postMessage。多 widget 用 acquireSharedWidget：共享 BE
+ * grant，各持自己的 session token。
  */
 export class TappRuntimeGrant {
   private static readonly tokenOwners = new Map<string, TappRuntimeGrant>()
   private static readonly instances = new Set<TappRuntimeGrant>()
-  /** Refcounted grants for widget sandboxes of the same tappId. */
   private static readonly sharedWidgetEntries = new Map<string, SharedWidgetEntry>()
   private current: TappRuntimeGrantResponse | null = null
   private refreshPromise: Promise<TappRuntimeGrantResponse> | null = null
@@ -68,10 +57,7 @@ export class TappRuntimeGrant {
     TappRuntimeGrant.instances.add(this)
   }
 
-  /**
-   * Acquire a refcounted host grant for all Widget sandboxes of `tappId`.
-   * Isolation: iframes still have distinct session tokens; only host BE identity is shared.
-   */
+  /** 同 tappId 的 Widget 共享宿主 grant；各 iframe 仍有独立 session token。 */
   static acquireSharedWidget(tappId: string): {
     grant: TappRuntimeGrant
     release: () => void
@@ -105,15 +91,11 @@ export class TappRuntimeGrant {
     }
   }
 
-  /** Test helper */
   static sharedWidgetRefCount(tappId: string): number {
     return TappRuntimeGrant.sharedWidgetEntries.get(tappId)?.refs ?? 0
   }
 
-  /**
-   * Destroy every shared-widget pool entry and clear the table.
-   * Targeted helper for tests / hot-reload; login/logout uses {@link destroyAll}.
-   */
+  /** 清共享 widget 池。登录/登出走 destroyAll。 */
   static clearSharedWidgetGrants(): void {
     for (const entry of TappRuntimeGrant.sharedWidgetEntries.values()) {
       entry.grant.destroy()
@@ -214,15 +196,12 @@ export class TappRuntimeGrant {
   }
 
   static destroyAll(): void {
-    for (const grant of [...TappRuntimeGrant.instances]) grant.destroy()
+    for (const grant of Iterator.from(TappRuntimeGrant.instances).toArray())
+      grant.destroy()
     TappRuntimeGrant.tokenOwners.clear()
     TappRuntimeGrant.sharedWidgetEntries.clear()
   }
 
-  /**
-   * Reissue once after backend restart, revocation, or subject mismatch
-   * (`INVALID_RUNTIME_GRANT` / `RUNTIME_GRANT_SUBJECT_MISMATCH` from host clients).
-   */
   static async recoverRejectedToken(token: string): Promise<string | null> {
     const owner = TappRuntimeGrant.tokenOwners.get(token)
     if (!owner || owner.destroyed) return null

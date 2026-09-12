@@ -21,6 +21,7 @@ export interface TtsPipelineHost {
     onEnded: () => void,
   ) => TtsAudioHandle
   onCancel?: (messageId: string) => void
+  fallback?: (segment: SpeechSegment, onEnded: () => void) => TtsAudioHandle
 }
 
 const MAX_SYNTH = 2
@@ -40,15 +41,12 @@ interface Synthesis {
   controller: AbortController
 }
 
-/**
- * Synthesize up to two segments at once; play in enqueue order.
- * Segment.sequence is per-utterance and must not be the play cursor.
- */
+/** Segment.sequence is per-utterance and must not be the play cursor. */
 export class TtsPipeline {
   private nextPlayId = 0
   private nextPlay = 1
   private readonly synthesis = new Map<number, Synthesis>()
-  private readonly pending: QueuedSegment[] = []
+  private pending: QueuedSegment[] = []
   private readonly ready = new Map<number, ReadySlot>()
   private handle: TtsAudioHandle | null = null
   private playingMessageId: string | null = null
@@ -83,15 +81,15 @@ export class TtsPipeline {
     )
   }
 
-  /** Ordered future segments only; the speech source owns the playing cursor. */
+  /** Ordered future segments only */
   upcomingText(messageId: string, generation: number): string {
     return [
       ...this.pending,
-      ...[...this.ready].map(([playId, slot]) => ({
+      ...Iterator.from(this.ready).map(([playId, slot]) => ({
         playId,
         segment: slot.segment,
       })),
-      ...[...this.synthesis].map(([playId, task]) => ({
+      ...Iterator.from(this.synthesis).map(([playId, task]) => ({
         playId,
         segment: task.segment,
       })),
@@ -100,7 +98,7 @@ export class TtsPipeline {
         ({ segment }) =>
           segment.messageId === messageId && segment.generation === generation,
       )
-      .sort((a, b) => a.playId - b.playId)
+      .toSorted((a, b) => a.playId - b.playId)
       .slice(0, 6)
       .map(({ segment }) => segment.text)
       .join('\n')
@@ -153,7 +151,7 @@ export class TtsPipeline {
     this.stopPlayback()
     this.pending.length = 0
     this.ready.clear()
-    const abandoned = [...this.synthesis.values()]
+    const abandoned = Iterator.from(this.synthesis.values()).toArray()
     this.synthesis.clear()
     this.nextPlayId = 0
     this.nextPlay = 1
@@ -182,11 +180,11 @@ export class TtsPipeline {
     let dropped = false
     for (let i = this.pending.length - 1; i >= 0; i--) {
       if (this.pending[i]?.segment.messageId === messageId) {
-        this.pending.splice(i, 1)
+        this.pending = this.pending.toSpliced(i, 1)
         dropped = true
       }
     }
-    for (const [playId, slot] of [...this.ready]) {
+    for (const [playId, slot] of Iterator.from(this.ready).toArray()) {
       if (slot.segment.messageId === messageId) {
         this.ready.delete(playId)
         dropped = true
@@ -221,8 +219,6 @@ export class TtsPipeline {
       void result
         .catch(() => null)
         .then((audio) => {
-          // A cancelled task may settle after IDs have been reused. Check
-          // identity before touching any state belonging to the new reply.
           if (this.synthesis.get(item.playId) !== task) return
           this.synthesis.delete(item.playId)
           if (audio) {
@@ -245,7 +241,7 @@ export class TtsPipeline {
     if (!slot) return
     this.ready.delete(this.nextPlay)
     this.nextPlay += 1
-    if (!slot.audio) {
+    if (!slot.audio && !this.host.fallback) {
       this.tryPlay()
       return
     }
@@ -254,14 +250,17 @@ export class TtsPipeline {
     let ended = false
     markTurnTraceOnce('playback_started')
     this.handle = { stop: () => undefined }
-    const handle = this.host.play(slot.audio, slot.segment, () => {
+    const onEnded = () => {
       if (playSeq !== this.playSeq) return
       ended = true
       this.handle = null
       this.playingMessageId = null
       this.noteQueue()
       this.tryPlay()
-    })
+    }
+    const handle = slot.audio
+      ? this.host.play(slot.audio, slot.segment, onEnded)
+      : this.host.fallback!(slot.segment, onEnded)
     if (!ended && playSeq === this.playSeq) this.handle = handle
   }
 

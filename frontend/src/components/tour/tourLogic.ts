@@ -72,7 +72,6 @@ export function subscribeConfigTourSurface(
   }
 }
 
-/** 设置页 `?section=` / `?page=` 变化后重读人设教程面。 */
 export function refreshConfigTourSurface(): void {
   const next = readConfigTourSurfaceFromLocation()
   if (configTourSurface === next) return
@@ -96,7 +95,6 @@ export function readTourSurface(
   return configTourSurface
 }
 
-/** 真在渲染无限画布（空状态只有偏好、没有 surface）。 */
 export function isLibraryCanvasTourSurface(): boolean {
   return getLibraryTourSurfaceSnapshot() === 'canvas'
 }
@@ -129,22 +127,16 @@ function readLibraryCanvasTourFlags(): {
   }
 }
 
-/**
- * list：列表。canvas：画布已挂上。pending：偏好是画布但还在转圈。
- * 只读 <html> dataset，不扫 DOM。
- */
 export function getLibraryTourSurfaceSnapshot(): LibraryTourSurface {
   return libraryTourSurfaceFromFlags(readLibraryCanvasTourFlags())
 }
 
-/** 资料库收藏步：列表外包会 0.4s 长高，画布 surface 是整视口。都不跟 RO。 */
 const TOUR_STATIC_HOST_ANCHORS = new Set(['library-grid'])
 
 export function tourMeasureWatchesHost(anchor: string): boolean {
   return !TOUR_STATIC_HOST_ANCHORS.has(anchor)
 }
 
-/** 画布教程只活在真挂上的画布上；pending / empty 会落到列表外包。 */
 export function shouldAbortLibraryTour(
   tourId: string,
   librarySurface: LibraryTourSurface,
@@ -161,7 +153,6 @@ export function shouldAbortLibraryTour(
   return false
 }
 
-/** 教程覆层挡住指针，画布不会滚；capture scroll 只浪费量盒。 */
 export function tourMeasureWatchesScroll(
   canvasSurface = typeof document !== 'undefined' &&
     document.documentElement.dataset.libraryCanvasSurface === '1',
@@ -192,7 +183,7 @@ export function pageNameForPath(
   editMode: string,
   editingHome: boolean,
 ): string {
-  const path = pathname.replace(/\/+$/, '') || '/'
+  const path = pathname.replaceAll(/\/+$/g, '') || '/'
   if ((path === '/' || path === '') && editingHome) return editMode
   if (path === '/library' || path.startsWith('/library')) return nav.library
   if (path === '/brew' || path.startsWith('/brew')) return nav.brew
@@ -205,7 +196,6 @@ export function pageNameForPath(
 export type HomeEditTourDockPose = 'parked' | 'restored'
 export type HomeBrowseTourPanelPose = 'collapsed' | 'expanded'
 
-/** 编辑教程只在小组件库那一步拉开库存。 */
 export function homeEditTourDockPose(
   tourId: string | null,
   stepId: string | null,
@@ -215,7 +205,6 @@ export function homeEditTourDockPose(
   return 'parked'
 }
 
-/** 首页浏览教程：控制面板步展开，其余步收起，好让控制岛保持收缩态。 */
 export function homeBrowseTourPanelPose(
   tourId: string | null,
   stepId: string | null,
@@ -229,7 +218,6 @@ export function homeBrowseTourPanelPose(
 
 export type PersonaTourPanel = 'overview' | 'persona' | 'wardrobe' | 'motion'
 
-/** 人物设定教程：走到哪一页签，工作台就切到哪一页签。 */
 export function personaTourPanel(
   tourId: string | null,
   stepId: string | null,
@@ -254,7 +242,6 @@ export function rootFontSizePx(): number {
   )
 }
 
-/** 拉开后的库存岛位置，不读正在飞的 transform。 */
 export function predictedLibraryDockTourBox(
   viewportWidth: number,
   viewportHeight: number,
@@ -269,7 +256,6 @@ export function predictedLibraryDockTourBox(
 
 let lastControlPanelContentHeight = 0
 
-/** 读内层内容高度，不读外壳正在 morph 的 height。 */
 export function readControlPanelContentHeight(
   node?: HTMLElement | null,
 ): number {
@@ -280,7 +266,6 @@ export function readControlPanelContentHeight(
   return lastControlPanelContentHeight
 }
 
-/** 展开终态控制面板外壳，不读正在变的 width / height / radius。 */
 export function predictedControlPanelTourBox(
   viewportWidth: number,
   contentHeight: number,
@@ -300,7 +285,6 @@ export function predictedControlPanelHoleRadius(
   return CONTROL_PANEL_EXPANDED_RADIUS_REM * rem
 }
 
-/** 收缩终态控制岛，不读正在收起的 width / height / radius。 */
 export function predictedControlIslandTourBox(
   viewportWidth: number,
   rootFontSize = rootFontSizePx(),
@@ -315,7 +299,6 @@ export function predictedControlIslandHoleRadius(
   return CONTROL_PANEL_COLLAPSED_RADIUS_REM * rem
 }
 
-/** 洞位由终态公式算出，不必跟着外壳 morph 每帧重测。 */
 export function isPredictedTourAnchor(
   anchor: string,
   stepId?: string,
@@ -370,7 +353,6 @@ export function sameTourCardPos(
   )
 }
 
-/** Empty value or leftover `{key}` → '' so the caller can fall back. */
 export function fillTourHint(
   template: string,
   key: string,
@@ -390,7 +372,6 @@ export interface TourCardPos {
   placement: TourPlacement
 }
 
-/** Hole larger than this share of the viewport uses a ring + docked card. */
 export const TOUR_LARGE_HOLE = 0.35
 
 export interface Box {
@@ -452,8 +433,6 @@ export function isDegenerateBox(box: Box, min = 24): boolean {
 }
 
 export function fitTourUnion(boxes: readonly Box[], host: Box): Box | null {
-  // display:contents 等无盒锚点 getBoundingClientRect 为 0；再按 host 裁切会
-  // 把子项并集丢掉，量高亮失败，覆层 ready 不起、整页点不动。
   if (isDegenerateBox(host, 1)) {
     const union = unionBoxes(boxes)
     return union && !isDegenerateBox(union) ? union : null
@@ -474,15 +453,17 @@ export function readTourBox(node: HTMLElement): Box {
   const fit = node.getAttribute('data-tour-fit')
   if (fit) {
     const fitted = fitTourUnion(
-      Array.from(node.querySelectorAll(fit), (el) => {
-        const box = el.getBoundingClientRect()
-        return {
-          top: box.top,
-          left: box.left,
-          width: box.width,
-          height: box.height,
-        }
-      }),
+      Iterator.from(node.querySelectorAll(fit))
+        .map((el) => {
+          const box = el.getBoundingClientRect()
+          return {
+            top: box.top,
+            left: box.left,
+            width: box.width,
+            height: box.height,
+          }
+        })
+        .toArray(),
       host,
     )
     if (fitted) return fitted
@@ -500,7 +481,7 @@ export function filterVisibleSteps<T extends { anchor: string }>(
 export function normalizeTourPath(pathname: string): string {
   if (!pathname) return '/'
   if (pathname.length > 1 && pathname.endsWith('/')) {
-    const trimmed = pathname.replace(/\/+$/, '')
+    const trimmed = pathname.replaceAll(/\/+$/g, '')
     return trimmed.length > 0 ? trimmed : '/'
   }
   return pathname
@@ -594,9 +575,7 @@ export function isTourStepAvailable(step: TourStepDef): boolean {
   return isTourAnchorMeasurable(step.anchor)
 }
 
-/**
- * 实操完成后的下一步。紧后一步依赖刚完成的动作、但还没挂上时等，不要跨过去。
- */
+// 紧后一步还没挂上就等，不要跨过去。
 export function nextIndexAfterTourAction(
   steps: readonly TourStepDef[],
   index: number,
@@ -616,7 +595,6 @@ export function nextIndexAfterTourAction(
   return firstVisibleIndex(steps, (_anchor, step) => isAvailable(step), index + 1)
 }
 
-/** 实操步的长按示范区边长。 */
 export const HOME_AGENT_PRESS_REM = 7.5
 
 export interface HomeAgentPressInsets {
@@ -651,7 +629,6 @@ function overlapArea(a: Box, b: Box): number {
   return Math.max(0, right - left) * Math.max(0, bottom - top)
 }
 
-/** 在避开导航、控制岛和小组件的空档里放一块长按区。 */
 export function pickHomeAgentPressBox(
   vw: number,
   vh: number,
@@ -728,7 +705,7 @@ export function pickLargestVisible<T>(
   return best
 }
 
-/** 沉浸导航 / 收起槽 / 隐藏节点挂着锚也不能量。 */
+// 沉浸导航/收起槽/隐藏节点即使有锚也不能量。
 export function isTourAnchorEligible(node: HTMLElement): boolean {
   if (node.closest('.nav-container.immersive')) return false
   if (node.closest('[inert]')) return false
@@ -743,9 +720,11 @@ export function queryTourAnchor(anchor: string): HTMLElement | null {
     typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
       ? CSS.escape(anchor)
       : anchor
-  const nodes = [
-    ...document.querySelectorAll<HTMLElement>(`[data-tour="${escaped}"]`),
-  ].filter(isTourAnchorEligible)
+  const nodes = Iterator.from(
+    document.querySelectorAll<HTMLElement>(`[data-tour="${escaped}"]`),
+  )
+    .filter(isTourAnchorEligible)
+    .toArray()
   if (nodes.length <= 1) return nodes[0] ?? null
   return (
     pickLargestVisible(
@@ -764,7 +743,7 @@ export function hasTourAnchor(anchor: string): boolean {
   return queryTourAnchor(anchor) != null
 }
 
-/** 锚点在，但量出来是空盒（display:contents / 未布局）时不能开步。 */
+// 锚在但量出来是空盒（display:contents / 未布局）时不能开步。
 export function isTourAnchorMeasurable(anchor: string): boolean {
   const node = queryTourAnchor(anchor)
   if (!node) return false
@@ -774,7 +753,6 @@ export function isTourAnchorMeasurable(anchor: string): boolean {
 export const LIBRARY_FILTER_EXPAND_WAIT_MS = 900
 export const TOUR_ANCHOR_POLL_MS = 50
 
-/** 资料库分类要等导航岛切完二级模式才能量到。 */
 export function waitForTourAnchor(
   anchor: string,
   timeoutMs: number,
@@ -809,7 +787,6 @@ export function boxBottom(box: Box): number {
   return box.top + box.height
 }
 
-/** 锚点完全在视口外时，开场/换步需要先滚过去。 */
 export function tourAnchorNeedsReveal(
   box: Box,
   viewportW: number,
@@ -824,7 +801,6 @@ export function tourAnchorNeedsReveal(
   )
 }
 
-/** 固定层 + overflow hidden / 画布 transform：scrollIntoView 只会卷走后面的文档。 */
 export function tourAnchorScrollIsTrapped(node: HTMLElement): boolean {
   if (node.closest('[data-library-canvas-surface="true"]')) return true
   let cur: HTMLElement | null = node.parentElement
@@ -888,7 +864,6 @@ export function holePadForBox(box: Box): number {
   return TOUR_HOLE_PAD
 }
 
-/** 控制面板步对准外壳，不圈内层 356px 内容。 */
 export function resolveTourMeasureNode(
   anchor: string,
   node: HTMLElement,
@@ -897,7 +872,6 @@ export function resolveTourMeasureNode(
   return node.closest('.control-bar-trigger') ?? node
 }
 
-/** 展开面板贴齐玻璃外壳，不再外扩一圈。 */
 export function holePadForTourAnchor(anchor: string, box: Box): number {
   if (anchor === 'control-panel' || anchor === 'home-agent') return 0
   return holePadForBox(box)
@@ -945,12 +919,7 @@ export function dockTourCard(
   }
 }
 
-/**
- * Sit the card against the hole on the roomiest side. Tall rails prefer
- * right; wide bars prefer below/above. If no side can hold the card
- * (a near-full grid), dock it to the bottom of the viewport — never drop
- * it into the hole.
- */
+// 两侧都放不下时停在视口底部，不要掉进洞里。
 export function computeTourCardPosition(
   hole: GuideRect,
   cardW: number,

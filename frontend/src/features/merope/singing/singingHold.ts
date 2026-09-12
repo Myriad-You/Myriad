@@ -1,6 +1,5 @@
 export type SingingPlaybackGap = 'active' | 'hold' | 'stop'
 
-/** Skip keeps the body pose; a real pause winds it down. */
 export function singingPlaybackGap(
   playing: boolean,
   switchingTracks: boolean,

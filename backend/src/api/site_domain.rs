@@ -36,8 +36,7 @@ pub struct DomainMigrationChecklist {
     pub reverse_proxy_301: ChecklistItem,
     pub oauth_callbacks: ChecklistItem,
     pub federation_move_separate: ChecklistItem,
-    /// CorsLayer is built at process start; restart (or stack recreate) so the
-    /// new `CORS_ORIGINS` is applied to the HTTP layer.
+    /// CORS allowlist is hot-reloaded (`cors_runtime`); no restart required.
     pub backend_restart_for_cors: ChecklistItem,
 }
 
@@ -389,7 +388,7 @@ fn write_and_reload_env(content: &str) -> Result<(), String> {
         return Err(last_err.unwrap_or_else(|| "Failed to write any env path".into()));
     }
 
-    // Reload from the durable path first, then cwd .env (order: last wins).
+    // Reload cwd `.env` first, then durable `DATA_DIR/site_public.env` (last wins).
     for path in paths.iter().rev() {
         if path.is_file() {
             if let Err(e) = dotenvy::from_path_override(path) {
@@ -412,7 +411,7 @@ fn write_and_reload_env(content: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// `POST /api/admin/site/domain` — atomically update site public origin + env trio.
+/// `POST /api/admin/site/domain` — update site public origin + env trio (not a single transaction).
 pub async fn change_site_domain(
     State(db): State<DatabaseConnection>,
     State(dynamic_config): State<std::sync::Arc<tokio::sync::RwLock<crate::config::DynamicConfig>>>,
@@ -457,8 +456,7 @@ pub async fn change_site_domain(
     {
         let mut bag = std::collections::HashMap::new();
         bag.insert("base_url".to_string(), json!(normalized.clone()));
-        // frontend_url / cors_origins may not be loaded into DynamicConfig yet;
-        // still store for operators and future loaders.
+        // frontend_url is stored in configurations; DynamicConfig only has base_url.
         bag.insert("frontend_url".to_string(), json!(normalized.clone()));
         if let Err(e) = config_service.update_configs(bag).await {
             tracing::error!("Failed to save domain keys to database: {e}");

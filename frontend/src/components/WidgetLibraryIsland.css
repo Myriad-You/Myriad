@@ -1,8 +1,4 @@
-/* Widget library island: Stage Manager dock.
- * --sm-dur-* / --sm-ease-* come from App's global settings-motion import. */
-
 .widget-library-island {
-  /* width / height / top|bottom / left / transform-origin: JS box style */
   position: absolute;
   display: flex;
   flex-direction: column;
@@ -196,8 +192,6 @@ html.dark .widget-library-search-clear:hover {
 .widget-library-stage-root {
   position: fixed;
   inset: 0;
-
-  /* Above GCP bar (9999). Ghost portals to body at 10001. */
   z-index: 10000;
   overflow: visible;
   pointer-events: none;
@@ -231,8 +225,6 @@ html.dark .widget-library-search-clear:hover {
   overflow: hidden;
   box-shadow: none;
   pointer-events: none;
-
-  /* Silhouette shadow: box-shadow clips under overflow+radius in WebKit. */
   filter:
     drop-shadow(6px 14px 20px rgb(0 0 0 / 18%))
     drop-shadow(0 4px 8px rgb(0 0 0 / 8%));
@@ -364,9 +356,6 @@ html.dark .widget-library-stage-badge img {
   position: relative;
   overflow: hidden;
   border-radius: 16px;
-
-  /* Same fill as WidgetShell .glass; inner glass is stripped so scale
-     does not double-stack frost. Catalog drop-shadow stays here. */
   background: var(--surface-bg, rgb(var(--surface-rgb) / var(--surface-alpha)));
   box-shadow:
     0 1px 1px rgb(0 0 0 / 4%),
@@ -445,10 +434,6 @@ html.dark .widget-library-tile-frame {
   pointer-events: none;
 }
 
-/*
- * 预览在放大画布上再 scale，外壳 .glass 的圆角/毛玻璃会和岛叠两层。
- * 卡片底画在未缩放的预览盒上；壳只负责裁剪，圆角 inherit 对齐外框。
- */
 .widget-library-preview .h-full.w-full.glass {
   background: transparent !important;
   backdrop-filter: none !important;

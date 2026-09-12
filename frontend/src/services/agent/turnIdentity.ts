@@ -1,10 +1,4 @@
-/**
- * Turn identity for Chat/Work realtime.
- *
- * `runId` is the durable root from the run hub. Do not invent a second turnId.
- * `generation` is in-memory only: a newer Chat request replaces the previous
- * Chat text, speech, and motion. Work is never cancelled by Chat.
- */
+/** Do not invent turnId. generation is in-memory only. */
 
 export type TurnPhase =
   | 'created'
@@ -35,15 +29,12 @@ export interface TurnIdentity {
 
 let messageSequence = 0
 
-/**
- * ASR can commit two ordered results in the same millisecond. The client
- * message IDs must remain distinct before either reply has a backend runId.
- */
+/** ASR may commit twice in 1ms; client ids must stay distinct. */
 export function nextAgentMessageId(role: 'user' | 'assistant'): string {
   return `msg_${role}_${Date.now()}_${++messageSequence}`
 }
 
-/** In-memory Chat replacement counter. Never persisted. */
+/** In-memory only; never persisted. */
 export class ChatTurnClock {
   private generation = 0
 

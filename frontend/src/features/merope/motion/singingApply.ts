@@ -10,23 +10,20 @@ export interface SingingApplyInput {
 }
 
 export interface SingingApply {
-  /** Drop the music lease and clear groove on this rig. */
   release: boolean
   /** Keep singing=true / signal so the player groove continues. */
   writeGroove: boolean
-  /** Write visemes onto the shared mouth path. */
   writeMouth: boolean
   /** Rest the mouth without releasing groove. */
   restMouth: boolean
 }
 
-/**
- * Channel-aware singing writes. Speech may own the mouth while music
- * still drives head/body. Pause rests the mouth; a real stop releases.
- */
 export function resolveSingingApply(input: SingingApplyInput): SingingApply {
   const mouthOurs = input.mouthOwner === 'music'
-  const bodyOurs = input.headBodyOwner === 'music'
+  // Ownership controls visible contribution in the player's pose gate, not
+  // the lifetime of its music oscillator. Keep evidence flowing during a
+  // touch/performance takeover so the weighted groove can continue/recover.
+  const keepGroove = input.headBodyOwner !== 'preview'
   if (input.gap === 'stop' || (input.gap === 'hold' && input.holdExpired)) {
     return {
       release: true,
@@ -38,14 +35,14 @@ export function resolveSingingApply(input: SingingApplyInput): SingingApply {
   if (input.gap === 'hold' || input.audioPaused) {
     return {
       release: false,
-      writeGroove: bodyOurs,
+      writeGroove: keepGroove,
       writeMouth: false,
       restMouth: mouthOurs,
     }
   }
   return {
     release: false,
-    writeGroove: bodyOurs,
+    writeGroove: keepGroove,
     writeMouth: mouthOurs,
     restMouth: false,
   }

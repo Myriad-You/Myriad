@@ -1,8 +1,3 @@
-/**
- * Unified watch/read progress extraction for library cards (Bangumi + MAL).
- * Safe no-ops for platforms without progress metadata (Steam, Bilibili, etc.).
- */
-
 export type CollectionStatusKey =
   | 'wish'
   | 'done'
@@ -12,19 +7,16 @@ export type CollectionStatusKey =
 
 export interface ProgressPart {
   current: number
-  /** null when total is unknown or 0 */
   total: number | null
 }
 
 export interface WatchProgress {
-  /** Primary progress for the thin bar (episodes / chapters / best available). */
   primary: ProgressPart
   episodes?: ProgressPart
   chapters?: ProgressPart
   volumes?: ProgressPart
-  /** Normalized collection status when available. */
   status: CollectionStatusKey | null
-  /** 0–100 when total is known; otherwise null (no bar). */
+  /** 0–100; null if total unknown. */
   percent: number | null
 }
 
@@ -41,7 +33,6 @@ function part(current: number, totalRaw: number | null | undefined): ProgressPar
   return { current: Math.max(0, current), total }
 }
 
-/** Parse "5/12", "5", "5/?" style progress strings. */
 export function parseProgressString(
   raw: unknown,
 ): ProgressPart | null {
@@ -103,7 +94,6 @@ function malStatus(status: unknown): CollectionStatusKey | null {
 }
 
 function pickStatus(meta: Record<string, unknown>): CollectionStatusKey | null {
-  // Bangumi collection `type` (numeric). MAL flattens `status` string.
   return bangumiStatus(meta.type) ?? malStatus(meta.status)
 }
 
@@ -150,7 +140,6 @@ function listStatus(meta: Record<string, unknown>): Record<string, unknown> | un
 
 function hasMeaningfulPart(p: ProgressPart | undefined): boolean {
   if (!p) return false
-  // Hide pure zero with no total (wish / empty). Allow 0/N and N/N.
   if (p.current === 0 && (p.total == null || p.total === 0)) return false
   return true
 }
@@ -160,10 +149,6 @@ function percentOf(p: ProgressPart): number | null {
   return Math.min(100, Math.round((p.current / p.total) * 100))
 }
 
-/**
- * Bangumi/MAL often leave progress at 0 when the user marks the entry as
- * completed ("看过" / completed). If we know the total, treat done as full.
- */
 function fillCompletedPart(
   p: ProgressPart | null | undefined,
   status: CollectionStatusKey | null,
@@ -178,21 +163,14 @@ function fillCompletedPart(
     (totalHint != null && totalHint > 0 ? totalHint : null)
 
   if (total != null) {
-    // Prefer known total as both current and total when marked done.
-    // If the user already logged a higher current (edge), keep max.
     const current = Math.max(p?.current ?? 0, total)
     return part(current, total)
   }
 
-  // No total: keep a positive current if present; still nothing useful if 0.
   if (p && hasMeaningfulPart(p)) return p
   return null
 }
 
-/**
- * Extract watch/read progress from a library item metadata bag.
- * Returns null when there is nothing useful to display.
- */
 export function getWatchProgress(
   itemType: string,
   metadata: unknown,
@@ -207,7 +185,6 @@ export function getWatchProgress(
   const isBook = itemType === 'book'
 
   if (isAnimeLike) {
-    // Prefer flattened "n/m" (MAL anime); fall back to Bangumi ep_status + subject.eps
     let episodes: ProgressPart | null = parseProgressString(meta.progress)
     const epTotal = episodeTotal(meta)
 
@@ -220,11 +197,9 @@ export function getWatchProgress(
         episodes = part(watched, epTotal)
       }
     } else if (episodes.total == null && epTotal != null) {
-      // Enrich total from subject/node when progress was "5" only
       episodes = part(episodes.current, epTotal)
     }
 
-    // Completed with empty/zero progress → show full total (not an empty bar)
     episodes = fillCompletedPart(episodes, status, epTotal)
 
     if (!episodes || !hasMeaningfulPart(episodes)) return null
@@ -250,7 +225,6 @@ export function getWatchProgress(
       toNonNegInt(ls?.num_volumes_read) ??
       toNonNegInt(meta.num_volumes_read)
 
-    // MAL may only expose progress string for manga (chapters[/volumes] legacy)
     const fromProgress = parseProgressString(meta.progress)
 
     let chapters: ProgressPart | null =
@@ -266,7 +240,6 @@ export function getWatchProgress(
     chapters = fillCompletedPart(chapters, status, chTotal)
     volumes = fillCompletedPart(volumes, status, volTotal)
 
-    // Done book with only one side of totals known — still show that side full
     if (status === 'done' && !chapters && !volumes) {
       if (chTotal != null) chapters = part(chTotal, chTotal)
       if (volTotal != null) volumes = part(volTotal, volTotal)
@@ -297,15 +270,12 @@ export function getWatchProgress(
 }
 
 export interface WatchProgressLabels {
-  /** e.g. "EP {current}/{total}" */
   progressEp: string
-  /** e.g. "EP {current}" when total unknown */
   progressEpOnly: string
   progressCh: string
   progressChOnly: string
   progressVol: string
   progressVolOnly: string
-  /** Joiner between ch and vol segments, e.g. " · " */
   progressJoin: string
   statusDoing: string
   statusDone: string
@@ -319,7 +289,7 @@ function fill(
   vars: Record<string, string | number>,
 ): string {
   return Object.entries(vars).reduce(
-    (acc, [k, v]) => acc.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v)),
+    (acc, [k, v]) => acc.replaceAll(`{${k}}`, String(v)),
     template,
   )
 }
@@ -335,7 +305,6 @@ function formatPart(
   return fill(only, { current: p.current })
 }
 
-/** Human-readable progress line for cards and hover overlays. */
 export function formatWatchProgressText(
   progress: WatchProgress,
   labels: WatchProgressLabels,
@@ -363,12 +332,10 @@ export function formatWatchProgressText(
     return bits.join(labels.progressJoin)
   }
 
-  // Episodes / anime-like
   const p = progress.episodes ?? progress.primary
   return formatPart(p, labels.progressEp, labels.progressEpOnly)
 }
 
-/** Optional status micro-label. Prefer doing; others only when explicitly requested. */
 export function formatWatchStatusLabel(
   status: CollectionStatusKey | null | undefined,
   labels: WatchProgressLabels,

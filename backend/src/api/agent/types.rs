@@ -17,7 +17,7 @@ pub struct ProcessRequest {
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessContext {
-    /// 面板模式：work 走完整 Agent，chat 只走严格 Lite 人设对话。
+    /// 缺省 Work。`chat` 走严格 Lite 人设对话，不进 Planner / Executor。
     pub mode: Option<crate::services::agent::AgentInteractionMode>,
     /// 当前页面路由
     pub current_route: Option<String>,
@@ -25,11 +25,11 @@ pub struct ProcessContext {
     pub active_platforms: Option<Vec<String>>,
     /// 会话 ID（用于多轮对话）
     pub session_id: Option<String>,
-    /// 对话历史（用于继续对话模式）
+    /// 对话历史。有 session 时服务端以 DB 为准，丢弃客户端这份。
     pub conversation_history: Option<Vec<ConversationMessageApi>>,
     /// 自定义数据
     pub custom_data: Option<Value>,
-    /// 用户已接受、正在进入 Work 的自主提案。
+    /// 已 Accepted、正在进入 Work 的提案 id（用户接单或意识引擎接单都写）。
     pub intention_id: Option<String>,
     pub autonomy_permission_cap: Option<Vec<String>>,
     /// Semantic live-face snapshot. Extra keys are dropped at the sanitizer.
@@ -41,14 +41,14 @@ pub struct ProcessContext {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConversationMessageApi {
-    /// 角色: user, assistant, system
+    /// 角色
     pub role: String,
     /// 消息内容
     pub content: String,
     pub created_at: Option<String>,
 }
 
-/// API 响应（增强版）
+/// API 响应
 #[derive(Debug, Clone, Serialize)]
 pub struct ApiResponse {
     /// 是否成功
@@ -161,14 +161,14 @@ pub struct PendingStepInfo {
     pub impact: Vec<String>,
 }
 
-/// 任务信息（增强版）
+/// 任务信息
 #[derive(Debug, Clone, Serialize)]
 pub struct TaskInfo {
     /// 任务 ID
     #[serde(rename = "taskId")]
     pub task_id: String,
     pub status: String,
-    /// 进度 (0-100)
+    /// 进度百分比（来自 `TaskState.progress`）
     pub progress: u8,
     /// 错误信息
     pub error: Option<String>,
@@ -230,7 +230,7 @@ pub struct StepExecution {
     /// 错误信息（步骤失败时）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    /// 图片 URL（ai.image 输出）
+    /// 图片 URL（输出里的 url / imageUrl）
     #[serde(rename = "imageUrl", skip_serializing_if = "Option::is_none")]
     pub image_url: Option<String>,
     /// 是否为动态生成的步骤
@@ -282,7 +282,7 @@ pub type ProgressEvent = AgentProgressEvent;
 /// 对话消息（用于 conversation_data）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationMessage {
-    /// 消息角色: user, assistant, system
+    /// 消息角色
     pub role: String,
     /// 消息内容
     pub content: String,
@@ -323,7 +323,7 @@ pub struct TaskPresetResponse {
     /// 对话历史数据
     #[serde(rename = "conversationData", skip_serializing_if = "Option::is_none")]
     pub conversation_data: Option<Vec<ConversationMessage>>,
-    /// 是否有对话历史（前端用于判断是否显示"继续对话"按钮）
+    /// 是否有非空 conversation_data
     #[serde(rename = "hasConversation")]
     pub has_conversation: bool,
 }
@@ -477,7 +477,7 @@ impl From<&TaskState> for TaskInfo {
             status: task_status_name(&state.status).to_string(),
             progress: state.progress,
             error: state.error.clone(),
-            current_step: None, // 由执行器在运行时设置
+            current_step: None,
             completed_steps,
             total_steps: total_steps.max(completed_steps),
             dynamic_steps_added,
@@ -551,25 +551,25 @@ pub(crate) fn summarize_output(output: &Value) -> Option<String> {
 
 /// 从步骤 ID 提取能力名称
 pub(crate) fn extract_capability_name(step_id: &str) -> String {
-    // 步骤 ID 格式通常为 "step_1_platform.bilibili"
+    // 取 `step_id` 最后一个 `_` 分段，再映射友好名
     if let Some(cap_part) = step_id.split('_').next_back() {
-        // 将 capability id 转换为友好名称
+        // 最后一段对表；对不上则把 `.`/`_` 换成空格
         match cap_part {
-            "bilibili" | "platform.bilibili" => "获取 B 站数据".to_string(),
-            "steam" | "platform.steam" => "获取 Steam 数据".to_string(),
-            "github" | "platform.github" => "获取 GitHub 数据".to_string(),
-            "netease" | "platform.netease" => "获取网易云数据".to_string(),
-            "bangumi" | "platform.bangumi" => "获取 Bangumi 数据".to_string(),
-            "x" | "platform.x" => "获取 X 数据".to_string(),
-            "discord" | "platform.discord" => "获取 Discord 数据".to_string(),
+            "bilibili" | "platform.bilibili" => "Loading Bilibili data".to_string(),
+            "steam" | "platform.steam" => "Loading Steam data".to_string(),
+            "github" | "platform.github" => "Loading GitHub data".to_string(),
+            "netease" | "platform.netease" => "Loading NetEase data".to_string(),
+            "bangumi" | "platform.bangumi" => "Loading Bangumi data".to_string(),
+            "x" | "platform.x" => "Loading X data".to_string(),
+            "discord" | "platform.discord" => "Loading Discord data".to_string(),
             "mal" | "platform.mal" | "myanimelist" | "platform.myanimelist" => {
-                "获取 MyAnimeList 数据".to_string()
+                "Loading MyAnimeList data".to_string()
             }
-            "summarize" | "ai.summarize" => "AI 总结".to_string(),
-            "analyze" | "ai.analyze" => "AI 分析".to_string(),
-            "webSearch" | "ai.webSearch" => "网络搜索".to_string(),
-            "discover" | "brew.discover" => "发现 RSS 源".to_string(),
-            "subscribe" | "brew.subscribe" => "订阅 RSS 源".to_string(),
+            "summarize" | "ai.summarize" => "Summarizing".to_string(),
+            "analyze" | "ai.analyze" => "Analyzing".to_string(),
+            "webSearch" | "ai.webSearch" => "Searching the web".to_string(),
+            "discover" | "brew.discover" => "Discovering feeds".to_string(),
+            "subscribe" | "brew.subscribe" => "Subscribing to a feed".to_string(),
             _ => cap_part.replace(['.', '_'], " "),
         }
     } else {
@@ -613,7 +613,6 @@ impl From<AgentResponse> for ApiResponse {
             }
         });
 
-        // 转换前端操作指令
         let frontend_action = response.frontend_action;
         let performance = response.performance;
 
@@ -689,10 +688,10 @@ mod api_contract_tests {
             "contextProvenance": []
         }))
         .expect("image summary");
-        assert!(image.contains("图片"), "{image}");
+        assert!(image.contains("Image"), "{image}");
         assert_eq!(
             summarize_output(&json!({ "count": 5 })).as_deref(),
-            Some("处理了 5 条记录")
+            Some("Processed 5 records")
         );
     }
 

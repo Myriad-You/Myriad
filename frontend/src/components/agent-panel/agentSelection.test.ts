@@ -37,7 +37,6 @@ test('预览只截到界面放得下的长度', () => {
   const preview = selectionPreview(text)
   assert.equal(preview.length, SELECTION_PREVIEW_LENGTH + 1)
   assert.ok(preview.endsWith('…'))
-  // 放得下就别加省略号
   assert.equal(selectionPreview('短的'), '短的')
 })
 

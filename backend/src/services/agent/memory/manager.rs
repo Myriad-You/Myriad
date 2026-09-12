@@ -52,8 +52,6 @@ impl AgentMemory {
     }
 
     /// 进索引的文本：内容 + 实体 + 关联能力，提升语义召回率。
-    ///
-    /// 此前四个写入路径各自手写一遍同样的拼接，改一处就得改四处。
     fn index_text_for(entry: &MemoryEntry) -> String {
         Self::index_text(&entry.content, &entry.entities, &entry.related_capabilities)
     }
@@ -116,8 +114,6 @@ impl AgentMemory {
     }
 
     /// 记住一条记忆（完整参数，带实体和能力关联）
-    // This is the single internal boundary that expands all memory metadata.
-    // Keep the call shape stable until the Agent memory API moves to a request object.
     #[allow(clippy::too_many_arguments)]
     pub async fn remember_full(
         &self,
@@ -229,7 +225,7 @@ impl AgentMemory {
         capabilities_used: &[String],
         user_id: i32,
     ) {
-        // Short-circuit: 极简交互不需要触发 AI 提取
+        // 极简交互直接 return：规则纠错 / 失败课 / AI 提取都不跑
         let input_chars: usize = user_input.chars().count();
         if input_chars < 6
             && success
@@ -242,7 +238,7 @@ impl AgentMemory {
 
         // 构建上下文摘要
         let mut context_parts = Vec::new();
-        context_parts.push(format!("用户请求: {}", user_input));
+        context_parts.push(format!("User request: {}", user_input));
 
         if let Some(history) = conversation_history {
             let recent: Vec<String> = history
@@ -264,7 +260,7 @@ impl AgentMemory {
                 })
                 .collect();
             if !recent.is_empty() {
-                context_parts.push(format!("对话历史:\n{}", recent.join("\n")));
+                context_parts.push(format!("Conversation:\n{}", recent.join("\n")));
             }
         }
 
@@ -276,13 +272,16 @@ impl AgentMemory {
         }
         if !results_summary.is_empty() {
             context_parts.push(format!(
-                "执行结果 ({}):\n{}",
-                if success { "成功" } else { "失败" },
+                "Run result ({}):\n{}",
+                if success { "ok" } else { "failed" },
                 results_summary.join("\n")
             ));
         }
 
-        context_parts.push(format!("使用的能力: {}", capabilities_used.join(", ")));
+        context_parts.push(format!(
+            "Capabilities used: {}",
+            capabilities_used.join(", ")
+        ));
 
         let context = context_parts.join("\n\n");
 
@@ -299,23 +298,23 @@ impl AgentMemory {
         // 3. AI 提取深层记忆
         let existing_memories = self.get_existing_summary(user_id).await;
         let prompt = format!(
-            r#"你是记忆提取引擎。从以下对话和执行记录中提取**值得长期记住**的信息。
+            r#"You extract long-term memory from the conversation and run log below.
 
-## 已有记忆（避免重复）
+## Known memory (do not repeat)
 {existing}
 
-## 本次交互
+## This turn
 {ctx}
 
-## 提取规则
-1. **用户偏好** (preference): 用户表达的喜好/习惯/风格偏好（"喜欢ACG风格"、"常用日语"、"经常画初音未来"）
-2. **实体知识** (entity_knowledge): 角色/作品/人物的关联知识纠错（"芙芙=芙宁娜/原神水神"、"昔涟=星穹铁道角色"）
-3. **执行教训** (execution_lesson): 什么参数有效/无效、什么策略成功/失败（"生成角色图时详细描述外观效果更好"）
-4. **有效模式** (effective_pattern): 可复用的参数组合或执行策略（"动漫角色图片 category=anime 效果好"）
+## What to extract
+1. **preference**: likes / habits / style ("喜欢ACG风格", "常用日语", "经常画初音未来")
+2. **entity_knowledge**: corrections about characters / works / people ("芙芙=芙宁娜/原神水神", "昔涟=星穹铁道角色")
+3. **execution_lesson**: which params or strategies worked or failed ("生成角色图时详细描述外观效果更好")
+4. **effective_pattern**: reusable param sets or strategies ("动漫角色图片 category=anime 效果好")
 
-只输出有价值的新信息，不重复已有记忆。如果没有值得记住的，返回空数组。
+Only output valuable new facts. If nothing is worth keeping, return an empty array.
 
-输出 JSON：{{"memories": [{{"content": "...", "memory_type": "preference|entity_knowledge|execution_lesson|effective_pattern", "importance": 0.0-1.0, "entities": ["相关实体"], "capabilities": ["相关能力ID"]}}]}}"#,
+JSON: {{"memories": [{{"content": "...", "memory_type": "preference|entity_knowledge|execution_lesson|effective_pattern", "importance": 0.0-1.0, "entities": ["related entities"], "capabilities": ["capability ids"]}}]}}"#,
             existing = existing_memories,
             ctx = context,
         );
@@ -408,12 +407,12 @@ impl AgentMemory {
                 })
                 .collect();
             format!(
-                "用户纠正: {} (上下文: {})",
+                "User correction: {} (context: {})",
                 user_input,
                 recent_context.join(" → ")
             )
         } else {
-            format!("用户纠正: {}", user_input)
+            format!("User correction: {}", user_input)
         };
 
         self.remember_full(
@@ -457,7 +456,7 @@ impl AgentMemory {
                     .unwrap_or_else(|| step_id.clone());
 
                 let lesson = format!(
-                    "执行 {} 时失败: {} (用户请求: {})",
+                    "Failed while running {}: {} (user request: {})",
                     cap_id,
                     error_msg,
                     user_input.chars().take(50).collect::<String>()
@@ -500,22 +499,22 @@ impl AgentMemory {
             .take(15)
             .map(|e| {
                 let type_str = match e.memory_type {
-                    MemoryType::Preference => "偏好",
-                    MemoryType::EntityKnowledge => "知识",
-                    MemoryType::ExecutionLesson => "教训",
-                    MemoryType::EffectivePattern => "模式",
-                    MemoryType::SessionInsight => "会话洞察",
-                    MemoryType::Fact => "事实",
-                    MemoryType::Decision => "决策",
-                    MemoryType::SessionSummary => "会话摘要",
-                    _ => "其他",
+                    MemoryType::Preference => "preference",
+                    MemoryType::EntityKnowledge => "knowledge",
+                    MemoryType::ExecutionLesson => "lesson",
+                    MemoryType::EffectivePattern => "pattern",
+                    MemoryType::SessionInsight => "session insight",
+                    MemoryType::Fact => "fact",
+                    MemoryType::Decision => "decision",
+                    MemoryType::SessionSummary => "session summary",
+                    _ => "other",
                 };
                 format!("- [{}] {}", type_str, e.content)
             })
             .collect();
 
         if summaries.is_empty() {
-            "（暂无已有记忆）".to_string()
+            "(no memories yet)".to_string()
         } else {
             summaries.join("\n")
         }
@@ -525,11 +524,10 @@ impl AgentMemory {
 
     /// 检查是否应该去重或合并（返回 true 表示跳过写入）
     ///
-    /// 合并策略：同类型且相似度 > 0.70 时，**用新内容覆盖旧内容**并提升重要性，
-    /// 同时并入新记忆的实体/能力关联，保证纠错/更新信息能正确替换过时记忆。
+    /// 去重/合并：score > DEDUP（0.85）跳过新写；MERGE（0.70）< score ≤ DEDUP 且同类型才覆盖合并，
+    /// 并入新记忆的实体/能力关联。高于 DEDUP 的近重复不会替换旧内容。
     ///
-    /// 候选只在写入者自己的分片里取。此前是在全局索引上取 top-3 再按用户过滤，
-    /// 跨用户条目占满这 3 个槽位时去重就整个落空，同一用户的重复记忆会无限累积。
+    /// 候选只在写入者自己的分片里取。
     async fn should_dedup_or_merge(
         &self,
         new_content: &str,
@@ -592,7 +590,7 @@ impl AgentMemory {
                                 (entry.importance + 0.1).max(new_importance).min(1.0);
                             entry.access_count += 1;
                             entry.last_accessed_at = Some(Utc::now().to_rfc3339());
-                            // 并入新记忆的实体/能力关联（旧逻辑直接丢弃新关联）
+                            // 并入新记忆的实体/能力关联
                             for ent in new_entities {
                                 if !entry.entities.contains(ent) {
                                     entry.entities.push(ent.clone());
@@ -648,8 +646,7 @@ impl AgentMemory {
 
     /// 强制该用户的容量上限，淘汰其低价值记忆
     ///
-    /// 只在 `user_id` 自己的桶里结算。此前是在全体条目上打分排序，配额跨用户共享，
-    /// 活跃用户的写入会把别人的记忆挤掉。
+    /// 只在 `user_id` 自己的桶里结算。
     ///
     /// 锁顺序：先 indexes.write()，再 entries.write()（与其他所有路径一致，避免死锁）
     async fn enforce_capacity_limit(&self, user_id: i32) {
@@ -750,7 +747,7 @@ impl AgentMemory {
 
                 let mut match_score: f32 = 0.0;
                 for token in &tokens {
-                    // 实体名精确匹配（高权重）
+                    // 实体名双向 contains（高权重）
                     if entity_names
                         .iter()
                         .any(|ent| ent.contains(token) || token.contains(ent.as_str()))
@@ -985,9 +982,7 @@ impl AgentMemory {
         }
     }
 
-    /// 归档会话洞察到 LongTerm 记忆
-    ///
-    /// 在会话结束或切换时调用，用 AI 从会话历史中提炼关键信息。
+    /// 把传入的 `summary` 写入 MediumTerm `SessionInsight`。
     pub async fn consolidate_session(&self, summary: &str, user_id: i32) {
         if summary.trim().is_empty() {
             return;
@@ -1077,7 +1072,7 @@ impl AgentMemory {
         true
     }
 
-    /// 更新指定 ID 的记忆内容（仅所有者）
+    /// 更新指定 ID 的记忆内容（`entry_visible_to`：所有者或系统用户）
     ///
     /// 锁顺序：index 先，entries 后（与其他所有路径一致，避免死锁）
     pub async fn update_memory(&self, memory_id: &str, new_content: &str, user_id: i32) -> bool {
@@ -1131,16 +1126,13 @@ impl AgentMemory {
             return Vec::new();
         }
 
-        // TF-IDF 搜索 — 只在调用者可见的分片里取候选，拿多一些做后续过滤。
-        //
-        // 分片之前是全局取 top-N 再按用户过滤，别人的高分文档会把本用户的候选挤出
-        // 候选池；现在候选池本身就只含可见条目，`limit * 3` 的余量全部留给层级和
-        // 类型过滤。读锁：IDF 已由写入方在写锁内重建。
+        // TF-IDF 搜索 — 只在调用者可见的分片里取候选，`limit * 3` 余量留给层级和类型过滤。
+        // 读锁：IDF 已由写入方在写锁内重建。
         let tfidf_results = {
             let indexes = self.indexes.read().await;
             let shards = match params.user_id {
                 Some(uid) => Self::visible_shards(uid, &indexes),
-                // 未指定用户（内部调用）时退回全量，语义与过滤阶段一致
+                // user_id 为 None 时扫全部分片；过滤阶段也不做用户隔离
                 None => indexes.keys().copied().collect(),
             };
             let mut merged: Vec<(String, f32)> = shards
@@ -1222,8 +1214,8 @@ impl AgentMemory {
                         })
                         .unwrap_or(365.0);
 
-                    // 访问越多衰减越慢：半衰期 = 90 天 * ln(access_count + 1)
-                    // access_count=0: 90天(floor), =5: 161天, =10: 215天
+                    // 半衰期 = 90 * ln_1p(access_count)，再 `.max(90)`
+                    // access_count=0 → 90；=5 → ≈161；=10 → ≈215
                     let half_life = 90.0 * (entry.access_count as f32).ln_1p();
                     let half_life = half_life.max(90.0); // 最低 90 天
                     let decay = (0.3_f32).max((-0.693 * days_since / half_life).exp());
@@ -1239,7 +1231,7 @@ impl AgentMemory {
         scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
         scored.truncate(params.limit);
 
-        // 更新 access_count (不阻塞返回)
+        // 召回结果先拷出；access_count 在返回前写锁递增，persist 才延后
         let hit_ids: Vec<String> = scored.iter().map(|(_, id)| id.clone()).collect();
         drop(entries);
 
@@ -1263,8 +1255,8 @@ impl AgentMemory {
                     }
                 }
             }
-            // 只是访问计数变更，不在召回热路径上全量重写两份持久化文件
-            // （每次规划会触发 2 次召回）；标记脏位，由后台维护任务批量落盘
+            // 只是访问计数变更，不在召回热路径上全量重写两份持久化文件；
+            // 标记脏位，由后台维护任务批量落盘
             self.dirty.store(true, std::sync::atomic::Ordering::Relaxed);
         }
 
@@ -1355,7 +1347,7 @@ impl AgentMemory {
 
     // 持久化
 
-    /// 生成确定性 ID（纯内容 hash，相同内容产生相同 ID，支持幂等去重）
+    /// 对传入字符串做确定性 hash；写入路径传入 `{user_id}:{content}`。
     fn make_id(content: &str) -> String {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -1481,7 +1473,7 @@ impl AgentMemory {
         Ok(())
     }
 
-    /// 解析旧版 memory.md 格式（迁移用）
+    /// 解析 memory.md（无 `memory_index.json` 时的迁移路径）
     fn parse_memory_md(content: &str) -> Vec<MemoryEntry> {
         content
             .lines()
@@ -1514,7 +1506,7 @@ impl AgentMemory {
 
                 Some(MemoryEntry {
                     id,
-                    user_id: None, // 遗留 markdown 导入，不归属具体用户
+                    user_id: None, // memory.md 导入，不归属具体用户
                     memory_type,
                     tier: MemoryTier::LongTerm,
                     content,
@@ -1857,11 +1849,7 @@ mod tests {
 
     #[tokio::test]
     async fn recall_candidate_pool_is_per_user_not_global() {
-        // Recall takes `limit * 3` candidates before applying tier/type filters.
-        // That pool used to be global and filtered by owner afterwards, so its
-        // useful size shrank as other users wrote more: a user could end up with
-        // fewer results than they had matching memories. The pool is now drawn
-        // from the caller's shard, so a neighbour's volume cannot affect it.
+        // Recall takes `limit * 3` candidates from the caller's shard before tier/type filters.
         let (memory, _dir) = scratch_memory().await;
         seed(&memory, 1, 5, "订阅源").await;
         seed(&memory, 2, 400, "订阅源").await;
@@ -1939,8 +1927,7 @@ mod tests {
 
     #[tokio::test]
     async fn dedup_sees_the_writers_own_shard_regardless_of_neighbours() {
-        // Dedup used to read the global top-3; neighbours filling those slots
-        // meant a user's duplicates accumulated unchecked.
+        // Dedup reads the writer's own shard; neighbours must not fill the candidate slots.
         let (memory, _dir) = scratch_memory().await;
         seed(&memory, 2, 30, "订阅记录").await;
         memory
@@ -2002,7 +1989,7 @@ mod tests {
 
     #[tokio::test]
     async fn writes_leave_the_shard_searchable_under_a_read_lock() {
-        // Recall now takes only a read lock, which is sound only if every write
+        // Recall takes only a read lock, which is sound only if every write
         // path refreshes IDF before releasing its write lock.
         let (memory, _dir) = scratch_memory().await;
         memory

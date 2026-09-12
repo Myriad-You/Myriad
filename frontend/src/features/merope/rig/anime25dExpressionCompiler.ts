@@ -94,7 +94,7 @@ function synthesizeMissingDizzyEyes(
     })
   }
   if (generated.length === 0) return layers
-  const output = [...layers]
+  const output = Iterator.from(layers).toArray()
   let insertAt = -1
   for (let index = 0; index < output.length; index += 1) {
     if (
@@ -104,8 +104,7 @@ function synthesizeMissingDizzyEyes(
       insertAt = index
     }
   }
-  output.splice(insertAt + 1, 0, ...generated)
-  return output
+  return output.toSpliced(insertAt + 1, 0, ...generated)
 }
 
 function synthesizeMissingSqueezeEyes(
@@ -148,7 +147,7 @@ function synthesizeMissingSqueezeEyes(
     })
   }
   if (generated.length === 0) return layers
-  const output = [...layers]
+  const output = Iterator.from(layers).toArray()
   let insertAt = -1
   for (let index = 0; index < output.length; index += 1) {
     if (
@@ -159,8 +158,7 @@ function synthesizeMissingSqueezeEyes(
       insertAt = index
     }
   }
-  output.splice(insertAt + 1, 0, ...generated)
-  return output
+  return output.toSpliced(insertAt + 1, 0, ...generated)
 }
 
 function synthesizeMissingCryEyes(
@@ -194,8 +192,6 @@ function synthesizeMissingCryEyes(
       side,
       group: 'head',
       left: Math.round(eye.icx - bitmap.width / 2),
-      // Anchor the squeeze mark by eye width so a longer tear canvas extends
-      // downward without moving the eye artwork or the tear root.
       top: Math.round(eyeMarkCenterY - bitmap.width * 0.305),
       width: bitmap.width,
       height: bitmap.height,
@@ -203,7 +199,7 @@ function synthesizeMissingCryEyes(
     })
   }
   if (generated.length === 0) return layers
-  const output = [...layers]
+  const output = Iterator.from(layers).toArray()
   let insertAt = -1
   for (let index = 0; index < output.length; index += 1) {
     if (
@@ -215,8 +211,7 @@ function synthesizeMissingCryEyes(
       insertAt = index
     }
   }
-  output.splice(insertAt + 1, 0, ...generated)
-  return output
+  return output.toSpliced(insertAt + 1, 0, ...generated)
 }
 
 function synthesizeMissingSillyEyes(
@@ -270,13 +265,9 @@ function synthesizeMissingSillyEyes(
       })
     }
     if (!hasIris) {
-      // The character's own iris art always wins; the generated disc only
-      // covers portraits that ship no separate iris layer at all.
       const bitmap =
         (irides && createSillyIrisFromArtwork(irides, size.iris)) ??
         createSillyIrisBitmap(size.iris, palette, side)
-      // Seeded apart by a fixed share of the room, so the rest of it stays
-      // available to the runtime drift and neither eye reaches the rim.
       const room = sillyIrisTravelRoom(size)
       const divergentX =
         (side === 'left' ? -1 : 1) * room.x * SILLY_IRIS_REST_SHARE
@@ -299,7 +290,7 @@ function synthesizeMissingSillyEyes(
     }
   }
   if (generated.length === 0) return layers
-  const output = [...layers]
+  const output = Iterator.from(layers).toArray()
   let insertAt = -1
   for (let index = 0; index < output.length; index += 1) {
     if (
@@ -312,8 +303,7 @@ function synthesizeMissingSillyEyes(
       insertAt = index
     }
   }
-  output.splice(insertAt + 1, 0, ...generated)
-  return output
+  return output.toSpliced(insertAt + 1, 0, ...generated)
 }
 
 function synthesizeMissingLovestruckEffects(
@@ -323,7 +313,7 @@ function synthesizeMissingLovestruckEffects(
   const usedIds = new Set(layers.map((layer) => layer.id))
   const generated: RasterLayer[] = []
   const mouthReference =
-    layers.find((layer) => layer.role === 'mouth-close') ||
+    layers.find((layer) => layer.role === 'mouth-close') ??
     layers.find((layer) => layer.role === 'mouth-open')
   const pink = sampleMouthExpressionPalette(mouthReference?.data).fill
 
@@ -483,9 +473,6 @@ function synthesizeMissingManiacEyeShadows(
       side,
       group: 'head',
       left: Math.round(eye.icx + inwardOffset - bitmap.width / 2),
-      // Sink the shadow into the eyewhite edge. Its lower depth lets the
-      // eyewhite crop the overlap, so the visible shadow starts flush with the
-      // lower lid instead of floating on the cheek.
       top: Math.round(eye.y1 - eyeHeight * 0.22),
       width: bitmap.width,
       height: bitmap.height,
@@ -495,7 +482,7 @@ function synthesizeMissingManiacEyeShadows(
   }
   if (generated.length === 0) return layers
 
-  const output = [...layers]
+  const output = Iterator.from(layers).toArray()
   const firstEyeLayer = output.findIndex(
     (layer) =>
       layer.role === 'eyewhite' ||
@@ -503,9 +490,9 @@ function synthesizeMissingManiacEyeShadows(
       layer.role === 'eyelash' ||
       layer.role === 'eye-close',
   )
-  if (firstEyeLayer >= 0) output.splice(firstEyeLayer, 0, ...generated)
-  else output.push(...generated)
-  return output
+  return firstEyeLayer >= 0
+    ? output.toSpliced(firstEyeLayer, 0, ...generated)
+    : output.concat(generated)
 }
 
 function synthesizeMissingMouthExpressions(
@@ -513,7 +500,7 @@ function synthesizeMissingMouthExpressions(
   anchors: Anime25DRiggerAnchors,
 ): RasterLayer[] {
   const reference =
-    layers.find((layer) => layer.role === 'mouth-close') ||
+    layers.find((layer) => layer.role === 'mouth-close') ??
     layers.find((layer) => layer.role === 'mouth-open')
   if (!reference) return layers
   const expressions: ReadonlyArray<{
@@ -579,7 +566,7 @@ function synthesizeMissingMouthExpressions(
   for (const expression of missing) add(expression.role, expression.kind)
   if (needsManiacShadow) {
     const maniacMouth =
-      layers.find((layer) => layer.role === 'mouth-maniac') ||
+      layers.find((layer) => layer.role === 'mouth-maniac') ??
       generated.find((layer) => layer.role === 'mouth-maniac')
     const bitmap = createManiacMouthShadowBitmap(
       maniacMouth
@@ -606,7 +593,7 @@ function synthesizeMissingMouthExpressions(
     })
   }
 
-  const output = [...layers]
+  const output = Iterator.from(layers).toArray()
   let insertAt = -1
   for (let index = 0; index < output.length; index += 1) {
     if (
@@ -622,8 +609,7 @@ function synthesizeMissingMouthExpressions(
       insertAt = index
     }
   }
-  output.splice(insertAt + 1, 0, ...generated)
-  return output
+  return output.toSpliced(insertAt + 1, 0, ...generated)
 }
 
 function synthesizeMissingExpressionSymbols(

@@ -54,7 +54,7 @@ pub(super) struct TappResourcesResponse {
     modules: HashMap<String, String>,
     /// 安装期同语义的静态解析表：模块路径 → require 原文 → 目标模块。
     ///
-    /// 客户端有这个字段时不再扫描源码；缺失时仍可兼容旧后端。
+    /// 客户端有这个字段时不再扫描源码。
     module_resolutions:
         std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
     /// 各层入口的相对路径，供客户端知道从哪个模块开始执行。
@@ -92,7 +92,7 @@ pub(super) struct TappResourcesResponse {
 ///
 /// - `full` (default): every layer
 /// - `core`: core dependency closure only
-/// - `widget`: core + one requested widget dependency closure
+/// - `widget`: core + widgets (all if `widget_id` omitted, else one)
 /// - `page`: core + page layers only
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ResourceMode {
@@ -130,8 +130,7 @@ pub(super) struct GetTappResourcesQuery {
     /// `full` | `core` | `widget` | `page`. Unknown values fall back to full.
     #[serde(default)]
     mode: Option<String>,
-    /// Widget mode may select one manifest widget. Omitted keeps the old
-    /// all-widget projection for backward-compatible callers.
+    /// Widget mode may select one manifest widget. Omitted: all widgets.
     #[serde(default)]
     widget_id: Option<String>,
 }
@@ -205,10 +204,7 @@ async fn load_i18n(tapp_dir: &std::path::Path) -> Option<HashMap<String, serde_j
     (!translations.is_empty()).then_some(translations)
 }
 
-/// Read the JS files a mode needs, keyed by package-relative path.
-///
-/// 层入口加同层可 require 的文件一起下发；客户端从入口出发做闭包，只把用到的
-/// 模块包装进 iframe。
+/// Read the listed package-relative `.js` files (caller then keeps the entry graph).
 async fn load_layer_modules(
     tapp_dir: &std::path::Path,
     entries: &[String],

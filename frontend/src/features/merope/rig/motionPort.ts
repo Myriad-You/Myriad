@@ -6,7 +6,6 @@ import type { SpeechProsodyPlan } from '../speech/prosody'
 import type { MeropeActivity } from '../types'
 import type { SpeechArticulation } from './articulation'
 
-/** Renderer-neutral commands consumed by every production face. */
 export interface RigMotionPort {
   setMotionPolicy: (policy: MotionChannelPolicy) => void
   setBearing: (bearing: RigBearing | null) => void

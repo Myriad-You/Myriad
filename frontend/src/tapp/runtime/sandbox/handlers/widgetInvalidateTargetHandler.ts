@@ -21,7 +21,7 @@ export function registerWidgetInvalidateTargetHandler(
       return { success: false, error: parsed.error, code: 'INVALID_REQUEST' }
     }
 
-    // Preview must not remount installed Dashboard cards in this tab.
+    // 预览不得重挂本页已安装的 Dashboard 卡片。
     if (options.preview || tappInstance.previewMode) {
       return { success: true, data: null }
     }

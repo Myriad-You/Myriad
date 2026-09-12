@@ -1,0 +1,158 @@
+/* 页面组合不要往这里塞业务。 */
+
+.brew-feeds {
+  --brew-story-h: 12rem;
+  --brew-story-w: 16.5rem;
+  --brew-rail-pad-x: 0rem;
+  --brew-open-ms: 560ms;
+
+  display: flex;
+  position: relative;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: visible;
+}
+
+.brew-feeds__air {
+  flex: 1 1 0;
+  min-height: 0;
+  transition: flex-grow var(--brew-open-ms) var(--sm-ease-standard, ease);
+}
+
+.brew-feeds__stage {
+  display: flex;
+  flex: 0 0 auto;
+  min-height: 0;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.brew-feeds__bar {
+  display: flex;
+  position: relative;
+  z-index: 8;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.32rem;
+  justify-content: flex-start;
+  padding: 0 var(--brew-rail-pad-x);
+}
+
+.brew-feeds__bar > .brew-bar {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.brew-feeds.is-sites-open .brew-feeds__air {
+  flex-grow: 0;
+}
+
+.brew-feeds.is-sites-open .brew-feeds__stage {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.brew-feeds.is-sites-open .brew-feeds__sites {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+
+.brew-feeds.is-sites-flipping .brew-feeds__sites,
+.brew-feeds.is-sites-open.is-sites-flipping .brew-feeds__sites {
+  overflow: visible;
+  touch-action: none;
+}
+
+.brew-feeds.is-sites-open .brew-feeds__sites-track {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 0.55rem;
+  width: 100%;
+  min-width: 0;
+  padding-bottom: 0;
+  transform: none !important;
+}
+
+.brew-feeds.is-sites-flipping .brew-feeds__stage {
+  transition: none !important;
+}
+
+.brew-feeds.is-sites-flipping .brew-feeds__sites-track,
+.brew-feeds.is-sites-flipping .brew-feeds__items-track,
+.brew-feeds.is-sites-flipping .brew-site,
+.brew-feeds.is-sites-flipping .brew-story {
+  contain: none;
+}
+
+.brew-feeds.is-sites-flipping .brew-site,
+.brew-feeds.is-sites-flipping .brew-story,
+.brew-feeds [data-brew-ghost] {
+  pointer-events: none;
+  will-change: transform, opacity;
+  transition: none !important;
+}
+
+.brew-feeds .is-ghosted,
+.brew-feeds.is-sites-morphing .brew-site:not([data-brew-ghost]),
+.brew-feeds.is-sites-morphing.is-sites-open .brew-story:not([data-brew-ghost]) {
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+.brew-feeds:not(.is-sites-booted) .brew-site:not([data-brew-ghost]),
+.brew-feeds:not(.is-stories-booted) .brew-story:not([data-brew-ghost]) {
+  opacity: 0;
+}
+
+.brew-feeds.is-sites-flipping .brew-story:hover,
+.brew-feeds.is-sites-flipping .brew-story:active {
+  transform: none;
+}
+
+.brew-feeds.is-sites-open.is-sites-flipping .brew-feeds__items {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+}
+
+.brew-feeds.is-sites-open .brew-site,
+.brew-feeds.is-sites-open .brew-site.is-on,
+.brew-feeds.is-sites-open .brew-site:hover {
+  opacity: 1;
+}
+
+.brew-feeds.is-sites-settling .brew-site,
+.brew-feeds.is-sites-settling .brew-story {
+  transition: none !important;
+}
+
+.brew-feeds__sites,
+.brew-feeds__items {
+  overflow: visible;
+  touch-action: none;
+}
+
+.brew-feeds__sites {
+  flex-shrink: 0;
+}
+
+.brew-feeds__sites-track,
+.brew-feeds__items-track {
+  width: max-content;
+  min-width: 100%;
+  contain: layout style;
+}
+
+.brew-feeds__sites-track {
+  display: flex;
+  align-items: stretch;
+  gap: 0.45rem;
+  padding: 0.28rem var(--brew-rail-pad-x) 0.35rem;
+}
+

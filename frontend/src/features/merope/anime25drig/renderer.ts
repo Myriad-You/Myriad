@@ -62,7 +62,6 @@ export interface Anime25DRenderFrame {
   eyeCry: number
 }
 
-/** Resolves stable shader bindings and initializes the shared blend state once. */
 export function createAnime25DRendererBindings(
   gl: WebGL2RenderingContext,
   program: WebGLProgram,
@@ -92,7 +91,6 @@ export function createAnime25DRendererBindings(
   return bindings
 }
 
-/** Draws the frozen collar/eye stencil plan without allocating frame objects. */
 export function drawAnime25DFrame(
   gl: WebGL2RenderingContext,
   program: WebGLProgram,
@@ -122,8 +120,6 @@ export function drawAnime25DFrame(
   gl.activeTexture(gl.TEXTURE0)
   if (!atlasTexture) return
   gl.bindTexture(gl.TEXTURE_2D, atlasTexture)
-  // Build masks independently of paint order. Hidden whites still bound open
-  // irises during expression crossfades; each eye unions only its own fragments.
   gl.enable(gl.STENCIL_TEST)
   gl.colorMask(false, false, false, false)
   for (const layer of layers) {

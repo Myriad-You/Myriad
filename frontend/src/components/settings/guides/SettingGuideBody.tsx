@@ -1,9 +1,3 @@
-/**
- * 结构化选项指南正文（概述 / 关联 / 位置 / 提示）
- * 支持多行步骤（① / 1) 开头）自动拆成 1 2 3 列表。
- * 正文内 http(s) URL 自动转为外链（新标签打开）。
- */
-
 import type { ReactNode } from 'react'
 import type { GuideSectionLabels, SettingGuideEntry } from './types'
 import React, { useMemo } from 'react'
@@ -17,7 +11,6 @@ export interface SettingGuideBodyProps {
 const STEP_LINE =
   /^(?:[①②③④⑤⑥⑦⑧⑨⑩]|\d+[)）.、]|[（(]\d+[)）])\s*/
 
-/** 匹配 http(s) URL；尾部常见中文/英文标点不计入链接 */
 const URL_RE = /(https?:\/\/[^\s<>"'）】\]},;，。；]+)/g
 
 function trimUrlTrailingPunct(raw: string): { href: string; trail: string } {

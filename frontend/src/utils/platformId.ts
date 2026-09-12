@@ -1,8 +1,3 @@
-/**
- * Map free-form platform display names to canonical API / cache ids.
- * Shared by settings data-management, reports, and similar call sites.
- */
-
 const PLATFORM_NAME_TO_ID: Record<string, string> = {
   bilibili: 'bilibili',
   b站: 'bilibili',
@@ -31,7 +26,6 @@ const PLATFORM_NAME_TO_ID: Record<string, string> = {
   网易云音乐: 'netease',
 }
 
-/** Canonical platform ids accepted by profile / cache APIs. */
 export const CANONICAL_PLATFORM_IDS = [
   'bilibili',
   'steam',
@@ -46,15 +40,10 @@ export const CANONICAL_PLATFORM_IDS = [
   'psn',
 ] as const
 
-/**
- * Resolve a display name or alias to a canonical platform id.
- * Returns null when the name is not a known data platform.
- */
 export function resolvePlatformId(platformName: string): string | null {
-  const key = platformName.trim().toLowerCase().replace(/\s+/g, ' ')
+  const key = platformName.trim().toLowerCase().replaceAll(/\s+/g, ' ')
   if (!key) return null
   if (PLATFORM_NAME_TO_ID[key]) return PLATFORM_NAME_TO_ID[key]
-  // Already canonical (e.g. API id passed through)
   if ((CANONICAL_PLATFORM_IDS as readonly string[]).includes(key)) return key
   return null
 }

@@ -58,12 +58,71 @@ it('types AI task inputs and snapshots and rejects malformed inputs', async () =
       sdk.ai.tasks.create({ version: 2, operation: 'image', input: { referenceImages: [] } });
     `)
     const program = ts.createProgram([join(directory, 'example.ts')], {
-      strict: true, noEmit: true, target: ts.ScriptTarget.ES2022,
+      strict: true, noEmit: true, target: ts.ScriptTarget.ES2025,
       module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext,
       types: [],
     })
     assert.deepEqual(ts.getPreEmitDiagnostics(program).map(diagnostic =>
       ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')), [])
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+it('curates storage, shared, private, and settings including onChanged', async () => {
+  const shipped = await readFile(new URL('../src/generated/tapp-sdk.d.ts', import.meta.url), 'utf8')
+  const block = (name) => {
+    const start = shipped.indexOf(`\n  ${name}: {`)
+    assert.notEqual(start, -1, `missing ${name} namespace`)
+    const from = shipped.slice(start + 1)
+    const next = from.search(/\n  [a-zA-Z]+: \{/)
+    return next === -1 ? from : from.slice(0, next)
+  }
+  for (const ns of ['storage', 'shared', 'private']) {
+    const body = block(ns)
+    assert.match(body, /onChanged\(callback:/)
+    assert.match(body, /usage\(\): Promise/)
+    assert.match(body, /getAll\(\): Promise<Record<string, unknown>>/)
+  }
+  const settings = block('settings')
+  assert.match(settings, /onChanged\(callback:/)
+  assert.match(settings, /getAll\(\): Promise<Record<string, unknown>>/)
+  assert.doesNotMatch(settings, /\busage\(/)
+  assert.doesNotMatch(settings, /\bremove\(/)
+})
+
+it('exposes global Tapp to referenced JavaScript without importing the SDK module', async () => {
+  const shipped = await readFile(new URL('../src/generated/tapp-sdk.d.ts', import.meta.url), 'utf8')
+  const directory = await mkdtemp(join(tmpdir(), 'tapp-global-'))
+  try {
+    await writeFile(join(directory, 'tapp-sdk.d.ts'), shipped)
+    await writeFile(
+      join(directory, 'page.js'),
+      `/// <reference path="./tapp-sdk.d.ts" />
+Tapp.lifecycle.onReady(async () => {
+  await Tapp.storage.get('ready')
+  await Tapp.shared.get('posts')
+  Tapp.private.onChanged(({ key, operation }) => {
+    key
+    operation
+  })
+})
+`,
+    )
+    const program = ts.createProgram([join(directory, 'page.js')], {
+      allowJs: true,
+      checkJs: true,
+      noEmit: true,
+      target: ts.ScriptTarget.ES2025,
+      lib: ['lib.es2025.d.ts', 'lib.dom.d.ts'],
+      types: [],
+    })
+    assert.deepEqual(
+      ts.getPreEmitDiagnostics(program).map((diagnostic) =>
+        ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
+      ),
+      [],
+    )
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

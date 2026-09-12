@@ -1,0 +1,18 @@
+Hyalite 0.3.0 by VII-Cae, MIT licensed (see LICENSE).
+Source: https://github.com/VII-Cae/hyalite--liquid-glass
+Commit: b0692b8aecdf264fcb49276f45d7d1d1f80f6dd0
+
+Myriad modifications:
+- ESM factory with isolated state/IDs; no window/global API or SSR DOM work.
+- Smoked dark transmission and lighter chrome transmission; no bloom blur.
+- Stretch private filter regions/images during resize; rebuild after settling
+  without temporarily replacing the lens with blur.
+- Target the rim alpha node explicitly during materialization.
+- Geometry refreshes reuse settled filters without rewriting unchanged URLs.
+- Cancel/remove transient filters on refresh, detach and disposal; clear caches
+  and SVG host on disposal.
+
+The optical algorithm remains recognizable for upstream comparison. This
+vendored directory is excluded from automatic formatting/lint rewriting.
+Browser engine detection and elliptical/percentage corner approximations
+retain upstream limitations; browser rendering must be verified separately.

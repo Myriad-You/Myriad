@@ -276,7 +276,7 @@ async fn finish_autonomy_turn(
         park_confirmation_run(&api_response, &task_id)
     } else {
         serde_json::to_value(&api_response)
-            .unwrap_or_else(|_| json!({"error": "serialization failed"}))
+            .unwrap_or_else(|_| AppError::public_json("serialization failed"))
     };
     let _ = progress_tx
         .send(AgentProgressEvent::TaskCompleted {
@@ -289,7 +289,7 @@ async fn finish_autonomy_turn(
 
 pub(crate) fn park_confirmation_run(api_response: &ApiResponse, task_id: &str) -> Value {
     let mut value = serde_json::to_value(api_response)
-        .unwrap_or_else(|_| json!({"error": "serialization failed"}));
+        .unwrap_or_else(|_| AppError::public_json("serialization failed"));
     if let Some(object) = value.as_object_mut() {
         object.insert("streamTerminal".into(), json!(false));
         let mut task = object.get("task").cloned().unwrap_or_else(|| json!({}));
@@ -525,3 +525,4 @@ mod tests {
         assert_eq!(resume["task"]["pendingQuestion"]["questionId"], "q2");
     }
 }
+use myriad_error::AppError;

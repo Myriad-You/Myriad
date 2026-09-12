@@ -1,8 +1,7 @@
 //! Distill personality tags from platform reports.
 //!
-//! The tag-distillation rules live here, not in `myriad-merope`: a copy once
-//! did, gained no consumer, and silently drifted apart on six behaviors before
-//! it was deleted. The shared onboarding sanitizer comes from the crate.
+//! The tag-distillation rules live here, not in `myriad-merope`.
+//! The shared onboarding sanitizer comes from the crate.
 //!
 //! Latest report per platform; evidence is summary / insights / notes /
 //! structured labels. Pro writes spoken temperament tags via
@@ -107,11 +106,7 @@ fn is_chunk_platform(platform: &str) -> bool {
 
 /// Distinct platforms with a real report. Chunks and the `all` rollup do not count.
 ///
-/// Only the `platform` column is read. `platform_reports` rows carry two `Json`
-/// columns — `metadata` and the report body — and this is called on every
-/// persona page load and on every name / draft roll. Selecting whole rows meant
-/// dragging the owner's entire report corpus across the wire and deserializing
-/// it to count distinct strings, which got slower the longer the site was used.
+/// Only the `platform` column is read; do not load `metadata` or `report`.
 ///
 /// The chunk rule stays in Rust rather than becoming a SQL regex: it is the
 /// same predicate the rest of this module uses, and one copy of it is enough.
@@ -370,39 +365,74 @@ fn fallback_tag_deck(
     sanitize_onboarding_tags_for_language(&result, language)
 }
 
+fn traditional_ui_language(language: &str) -> bool {
+    let lower = language.trim().to_ascii_lowercase().replace('_', "-");
+    lower.starts_with("zh-tw")
+        || lower.starts_with("zh-hk")
+        || lower.starts_with("zh-mo")
+        || lower.contains("hant")
+}
+
+fn zh_seed_label(key: &str, traditional: bool) -> Option<&'static str> {
+    Some(match (key, traditional) {
+        ("thoughtful", false) => "善于思考",
+        ("thoughtful", true) => "善於思考",
+        ("curious", _) => "好奇",
+        ("creative", false) => "有创造力",
+        ("creative", true) => "有創造力",
+        ("calm", false) => "沉静",
+        ("calm", true) => "沉靜",
+        ("playful", false) => "活泼",
+        ("playful", true) => "活潑",
+        ("focused", false) => "专注",
+        ("focused", true) => "專注",
+        ("independent", false) => "独立",
+        ("independent", true) => "獨立",
+        ("social", false) => "重视连接",
+        ("social", true) => "重視連結",
+        ("persistent", false) => "有韧性",
+        ("persistent", true) => "有韌性",
+        ("expressive", false) => "善于表达",
+        ("expressive", true) => "善於表達",
+        ("bound", false) => "边界感强",
+        ("bound", true) => "邊界感強",
+        ("loyal", false) => "朋友不多但很铁",
+        ("loyal", true) => "朋友不多但很鐵",
+        ("perfect", false) => "完美主义",
+        ("perfect", true) => "完美主義",
+        ("solo", false) => "独处才放松",
+        ("solo", true) => "獨處才放鬆",
+        ("order", false) => "讨厌混乱",
+        ("order", true) => "討厭混亂",
+        ("warm", false) => "外冷内热",
+        ("warm", true) => "外冷內熱",
+        ("near", _) => "想交心又怕熟",
+        ("deep_focus", _) => "做事很沉",
+        ("night", false) => "夜猫子",
+        ("night", true) => "夜貓子",
+        ("soft", false) => "嘴硬心软",
+        ("soft", true) => "嘴硬心軟",
+        ("space", false) => "礼貌但疏离",
+        ("space", true) => "禮貌但疏離",
+        ("feel", false) => "情绪来了先憋着",
+        ("feel", true) => "情緒來了先憋著",
+        ("arranged", false) => "喜欢把事情安排妥",
+        ("arranged", true) => "喜歡把事情安排妥",
+        ("slow_warm", false) => "慢热",
+        ("slow_warm", true) => "慢熱",
+        ("shy", _) => "社恐",
+        ("try_hard", false) => "认真起来很拼",
+        ("try_hard", true) => "認真起來很拼",
+        _ => return None,
+    })
+}
+
 fn localize_report_seed_keys(keys: &[String], language: &str) -> Vec<String> {
     keys.iter()
         .filter_map(|key| {
             let label = match language {
-                value if value.starts_with("zh") => match key.as_str() {
-                    "thoughtful" => "善于思考",
-                    "curious" => "好奇",
-                    "creative" => "有创造力",
-                    "calm" => "沉静",
-                    "playful" => "活泼",
-                    "focused" => "专注",
-                    "independent" => "独立",
-                    "social" => "重视连接",
-                    "persistent" => "有韧性",
-                    "expressive" => "善于表达",
-                    "bound" => "边界感强",
-                    "loyal" => "朋友不多但很铁",
-                    "perfect" => "完美主义",
-                    "solo" => "独处才放松",
-                    "order" => "讨厌混乱",
-                    "warm" => "外冷内热",
-                    "near" => "想交心又怕熟",
-                    "deep_focus" => "做事很沉",
-                    "night" => "夜猫子",
-                    "soft" => "嘴硬心软",
-                    "space" => "礼貌但疏离",
-                    "feel" => "情绪来了先憋着",
-                    "arranged" => "喜欢把事情安排妥",
-                    "slow_warm" => "慢热",
-                    "shy" => "社恐",
-                    "try_hard" => "认真起来很拼",
-                    _ => return None,
-                },
+                value if traditional_ui_language(value) => zh_seed_label(key, true)?,
+                value if value.starts_with("zh") => zh_seed_label(key, false)?,
                 value if value.starts_with("ja") => match key.as_str() {
                     "thoughtful" => "思慮深い",
                     "curious" => "好奇心旺盛",
@@ -970,10 +1000,6 @@ mod tests {
     use super::*;
 
     /// 数报告平台数只该读 `platform` 这一列。
-    ///
-    /// 这个函数在人设页每次打开、每次「换一个名字」、每次起草人设时都会跑。
-    /// 拉整行意味着把两个 Json 大列（metadata 和报告正文）一起搬过来再丢掉，
-    /// 报告越攒越多就越慢——是那种只有老站点才会察觉的慢。
     #[test]
     fn counting_platforms_reads_one_column_not_whole_reports() {
         let source = include_str!("report_dna.rs");
@@ -995,7 +1021,7 @@ mod tests {
     fn chunk_platforms_never_count_as_a_platform() {
         assert!(is_chunk_platform("steam_chunk_1"));
         assert!(is_chunk_platform("steam_chunk_12"));
-        // 后缀为空时 `all()` 在空迭代器上为真，历史行为如此，别在搬家时改掉。
+        // 后缀为空时 `all()` 在空迭代器上为真；`is_chunk_platform("steam_chunk_")` 为真。
         assert!(is_chunk_platform("steam_chunk_"));
         assert!(!is_chunk_platform("steam"));
         assert!(!is_chunk_platform("_chunk_1"));
@@ -1043,6 +1069,14 @@ mod tests {
             localize_report_seed_keys(&keys, "ja-JP"),
             ["好奇心旺盛", "粘り強い", "スロースターター"]
         );
+        assert_eq!(
+            localize_report_seed_keys(&keys, "zh-TW"),
+            ["好奇", "有韌性", "慢熱"]
+        );
+        assert_ne!(
+            localize_report_seed_keys(&keys, "zh-TW"),
+            localize_report_seed_keys(&keys, "zh-CN")
+        );
     }
 
     #[test]
@@ -1082,7 +1116,7 @@ mod tests {
             .iter()
             .map(|key| (*key).to_string())
             .collect();
-        for language in ["zh-CN", "ja-JP", "en-US"] {
+        for language in ["zh-CN", "zh-TW", "ja-JP", "en-US"] {
             let labels = localize_report_seed_keys(&keys, language);
             assert_eq!(labels.len(), PERSONA_POOL_KEYS.len(), "{language}");
             let kept = sanitize_report_dna_tags(&labels);

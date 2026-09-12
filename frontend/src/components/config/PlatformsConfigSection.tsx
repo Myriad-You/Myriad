@@ -1,9 +1,3 @@
-/**
- * 数据及统计：接入平台子分类（列表/拖拽/开关 + 自动刷新）+ 访客统计子分类
- * ↔ 二级页（凭证 + 数据管理）
- * 导航 / 拖拽状态自包含；父级只提供 platforms 草稿与写入回调。
- */
-
 import type { ReactNode } from 'react'
 import type { ToastType } from '../Toast'
 
@@ -84,18 +78,12 @@ export interface PlatformsConfigSectionProps {
     type?: ToastType,
     duration?: number,
   ) => void
-  /** 跳转设置页 OAuth 区块 */
   openOAuthSection: () => void
-  /**
-   * 外部要求打开某平台二级页（如 Discord OAuth 回调）。
-   * 消费后应调用 onFocusPlatformConsumed 清空，避免重复打开。
-   */
+  /** consume via onFocusPlatformConsumed or it reopens */
   focusPlatform?: string | null
   onFocusPlatformConsumed?: () => void
-  /** 访客统计总开关（默认开启） */
   analyticsEnabled?: boolean
   onAnalyticsEnabledChange?: (enabled: boolean) => void
-  /** 第三方统计等 ui_config bag 字段读写（与访客开关同一保存路径） */
   getUiFieldValue?: (key: string) => string
   onUiFieldChange?: (key: string, value: string) => void
 }
@@ -107,7 +95,6 @@ function isMaskedValue(value: string) {
 function hasFieldValue(field?: PlatformConfigField) {
   if (!field) return false
   const v = String(field.value ?? '').trim()
-  // 空串不算；掩码（•••• / ****）算已配置
   return v.length > 0
 }
 
@@ -126,12 +113,6 @@ export function hasBangumiCredential(platform: PlatformConfig) {
   )
 }
 
-/**
- * 指示灯 / 开关可用：是否已配好可同步的凭证。
- * - 掩码密钥算已配置
- * - Discord：仅 access_token / has_token（user_id  alone 不算）
- * - X：username + bearer（或 has_token）
- */
 export function isPlatformConfigured(platform: PlatformConfig) {
   if (!platform.config_fields || platform.config_fields.length === 0) {
     return Boolean(platform.has_token)
@@ -144,12 +125,10 @@ export function isPlatformConfigured(platform: PlatformConfig) {
   }
 
   if (name === 'discord') {
-    // 只认 access_token（含掩码）。单独 user_id / 空 has_token 不算已配置
     return hasFieldValue(findField(platform, 'access_token'))
   }
 
   if (name === 'x' || name === 'twitter' || name === 'x (twitter)') {
-    // username + bearer；bearer 可为掩码，或 has_token（密钥仅服务端可见时）
     const userOk = hasFieldValue(findField(platform, 'username'))
     const tokenOk =
       hasFieldValue(findField(platform, 'bearer_token')) || platform.has_token
@@ -162,7 +141,6 @@ export function isPlatformConfigured(platform: PlatformConfig) {
   })
 }
 
-/** 清理掩码输入，供父级 updateField 复用 */
 export function sanitizeMaskedFieldValue(value: string): string {
   const trimmed = value.trimStart()
   // JSON 袋（服务商列表等）里会嵌套 •••• 掩码，不能当单个密码框清洗
@@ -174,12 +152,11 @@ export function sanitizeMaskedFieldValue(value: string): string {
     value !== '••••••••' &&
     value !== '********'
   ) {
-    return value.replace(/[•*]+/g, '')
+    return value.replaceAll(/[•*]+/g, '')
   }
   return value
 }
 
-/** 列表入口卡用的轻量快照（GET /api/cache/previews） */
 interface CardPreviewUser {
   username: string
   user_id: string
@@ -205,7 +182,26 @@ interface CardPreviewsResponse {
   previews: Record<string, CardPreview>
 }
 
-const UNKNOWN_USERNAMES = new Set(['未知用户', 'unknown', 'unknown user', ''])
+const UNKNOWN_USERNAMES = new Set([
+  '',
+  'unknown',
+  'unknown user',
+  '未知用户',
+  'xbox 玩家',
+  'xbox gamer',
+  'xbox player',
+  'psn 玩家',
+  'psn player',
+  'psn hunter',
+  'myanimelist 用户',
+  'myanimelist user',
+  'bangumi 用户',
+  'bangumi user',
+  '网易云音乐用户',
+  'netease music user',
+  'steam 玩家',
+  'steam player',
+])
 
 function formatCardNumber(n: number, locale: string): string {
   if (!Number.isFinite(n)) return '—'
@@ -219,16 +215,20 @@ function formatCardNumber(n: number, locale: string): string {
   }
 }
 
-function formatCardPlaytime(minutes: number, hoursTpl: string, minsTpl: string): string {
+function formatCardPlaytime(
+  minutes: number,
+  hoursTpl: string,
+  minsTpl: string,
+  format: (template: string, params: Record<string, string | number>) => string,
+): string {
   if (minutes < 60) {
-    return minsTpl.replace('{n}', String(Math.round(minutes)))
+    return format(minsTpl, { n: Math.round(minutes) })
   }
   const hours = minutes / 60
   const rounded = hours >= 100 ? Math.round(hours) : Math.round(hours * 10) / 10
-  return hoursTpl.replace('{n}', String(rounded))
+  return format(hoursTpl, { n: rounded })
 }
 
-/** 数据行：溢出时无缝横向循环滚动；装得下则静止 */
 function PlatformCardMetricsMarquee({
   title,
   items,
@@ -252,7 +252,6 @@ function PlatformCardMetricsMarquee({
     const needs = contentW > viewW + 1
     setScrolling(needs)
     if (needs) {
-      // ~28px/s，下限 8s 上限 28s
       const sec = Math.min(28, Math.max(8, contentW / 28))
       setDurationSec(sec)
     }
@@ -318,12 +317,11 @@ const PlatformsConfigSection: React.FC<PlatformsConfigSectionProps> = ({
   getUiFieldValue,
   onUiFieldChange,
 }) => {
-  const { t, locale } = useI18n()
+  const { t, locale, format } = useI18n()
   const { catalog: settingGuides, bindGuide } = useSettingGuide()
   const g = settingGuides
   const dm = t.dataManagement
-  const numberLocale =
-    locale === 'zh-CN' ? 'zh-CN' : locale === 'ja-JP' ? 'ja-JP' : 'en-US'
+  const numberLocale = locale
 
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null)
   const [platformNavDir, setPlatformNavDir] = useState<
@@ -333,7 +331,6 @@ const PlatformsConfigSection: React.FC<PlatformsConfigSectionProps> = ({
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
   const dragIndexRef = useRef<number | null>(null)
   const suppressCardClickRef = useRef(false)
-  /** 列表入口：各平台轻量数据快照（一次加载，不轮询） */
   const [cardPreviews, setCardPreviews] = useState<
     Record<string, CardPreview>
   >({})
@@ -353,7 +350,6 @@ const PlatformsConfigSection: React.FC<PlatformsConfigSectionProps> = ({
     }
   }, [])
 
-  // 列表可见时加载/刷新快照（从二级页返回也会重载，反映处理结果）
   useEffect(() => {
     if (selectedPlatform !== null) return
     void loadCardPreviews()
@@ -386,7 +382,7 @@ const PlatformsConfigSection: React.FC<PlatformsConfigSectionProps> = ({
   const formatMetricValue = useCallback(
     (key: string, value: number): string => {
       if (key === 'total_playtime_minutes') {
-        return formatCardPlaytime(value, dm.playtimeHours, dm.playtimeMinutes)
+        return formatCardPlaytime(value, dm.playtimeHours, dm.playtimeMinutes, format)
       }
       if (key === 'average_completion') {
         return `${formatCardNumber(value, numberLocale)}%`
@@ -396,7 +392,6 @@ const PlatformsConfigSection: React.FC<PlatformsConfigSectionProps> = ({
     [dm.playtimeHours, dm.playtimeMinutes, numberLocale],
   )
 
-  // 推入动画播完后清掉方向标记（否则平台卡毛玻璃会停在实底）
   useEffect(() => {
     if (platformNavDir === 'none') return undefined
     const id = window.setTimeout(
@@ -407,7 +402,6 @@ const PlatformsConfigSection: React.FC<PlatformsConfigSectionProps> = ({
     return () => window.clearTimeout(id)
   }, [platformNavDir, selectedPlatform])
 
-  // Discord OAuth 等外部深链：打开指定平台
   useEffect(() => {
     if (!focusPlatform) return
     const exists = platforms.some((p) => p.name === focusPlatform)
@@ -499,7 +493,6 @@ const PlatformsConfigSection: React.FC<PlatformsConfigSectionProps> = ({
         detail={platformCapability}
         {...bindGuide('platforms.platformFields', settingGuides.platforms.platformFields)}
         headerLeading={
-          // 二级：回平台列表（覆盖移动端「回菜单」；列表层再由 onMobileBack 回菜单）
           <button
             type="button"
             className="section-header-back"
@@ -584,7 +577,6 @@ const PlatformsConfigSection: React.FC<PlatformsConfigSectionProps> = ({
           data-nav={platformNavDir === 'none' ? undefined : platformNavDir}
           className="platforms-pane platforms-pane--list sm-pane"
         >
-          {/* 接入平台 + 自动刷新 共享同一 TOC 子分类（带图标） */}
           <SettingGroup
             id="connected-platforms"
             title={t.config.connectedPlatforms}
@@ -620,10 +612,9 @@ const PlatformsConfigSection: React.FC<PlatformsConfigSectionProps> = ({
                   style={{ cursor: 'pointer' }}
                   role="button"
                   tabIndex={0}
-                  aria-label={t.config.platformOpenDetailAria.replace(
-                    '{name}',
-                    platform.name,
-                  )}
+                  aria-label={format(t.config.platformOpenDetailAria, {
+                    name: platform.name,
+                  })}
                   onClick={openDetail}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
@@ -713,7 +704,6 @@ const PlatformsConfigSection: React.FC<PlatformsConfigSectionProps> = ({
                         />
                       </div>
                       <div className="platform-details">
-                        {/* 入口卡不响应「显示说明」：仅固定 ⓘ 短说明 + 状态点 */}
                         <div className="platform-title-row">
                           <h3 className="platform-name">
                             <span className="platform-name-text">
@@ -730,10 +720,9 @@ const PlatformsConfigSection: React.FC<PlatformsConfigSectionProps> = ({
                             />
                             {platformDesc ? (
                               <SettingTitleHelp
-                                ariaLabel={t.config.platformHelpAria.replace(
-                                  '{name}',
-                                  platform.name,
-                                )}
+                                ariaLabel={format(t.config.platformHelpAria, {
+                                  name: platform.name,
+                                })}
                               >
                                 {platformDesc}
                               </SettingTitleHelp>
@@ -825,19 +814,16 @@ const PlatformsConfigSection: React.FC<PlatformsConfigSectionProps> = ({
                         checked={platform.enabled}
                         onChange={() => onToggle(index)}
                         disabled={!platformConfigured}
-                        aria-label={t.config.platformEnableAria.replace(
-                          '{name}',
-                          platform.name,
-                        )}
+                        aria-label={format(t.config.platformEnableAria, {
+                          name: platform.name,
+                        })}
                         preview={{
-                          on: t.config.platformEnablePreviewOn.replace(
-                            '{name}',
-                            platform.name,
-                          ),
-                          off: t.config.platformEnablePreviewOff.replace(
-                            '{name}',
-                            platform.name,
-                          ),
+                          on: format(t.config.platformEnablePreviewOn, {
+                            name: platform.name,
+                          }),
+                          off: format(t.config.platformEnablePreviewOff, {
+                            name: platform.name,
+                          }),
                           disabled: t.config.platformEnablePreviewNeedConfig,
                         }}
                       />
@@ -867,7 +853,6 @@ const PlatformsConfigSection: React.FC<PlatformsConfigSectionProps> = ({
 
           <AiUsageSection showMessage={showMessage} />
 
-          {/* 第三方统计：数据及统计页最末，与本站第一方访客/AI 用量看板分开 */}
           {getUiFieldValue && onUiFieldChange ? (
             <SettingGroup
               title={t.config.thirdPartyAnalytics}

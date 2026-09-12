@@ -1,13 +1,3 @@
-/**
- * AI 设置里 Agent 子分类的内层：定时、技能、记忆。
- *
- * 外层标题由 AiConfigSection 的 Agent 分组承担，这里只做和大语言模型
- * 档位同一套的内层标题（.ai-llm-tier）。
- *
- * 三条列表不能无限平铺。短的跟着内容长；超过窗口就进滚动，
- * 首批条数对齐统计排行（先挂 30，其余「显示更多」）。
- */
-
 import type { ReactNode } from 'react'
 import type {
   HeartbeatTask,
@@ -415,6 +405,7 @@ export const AgentOptionsPanel: React.FC = () => {
       if (!q) return true
       return (
         task.name.toLowerCase().includes(q) ||
+        userFacingError(task.name).toLowerCase().includes(q) ||
         task.action.toLowerCase().includes(q)
       )
     })
@@ -425,9 +416,10 @@ export const AgentOptionsPanel: React.FC = () => {
       filteredTasks.map((task) => {
         const expanded = expandedTaskId === task.id
         const result = task.lastResult?.trim()
+        const displayName = userFacingError(task.name)
         return {
           id: task.id,
-          title: task.name,
+          title: displayName,
           subtitle: describe(task),
           meta: result
             ? `${lastRunLabel(task)} · ${result}`
@@ -444,7 +436,7 @@ export const AgentOptionsPanel: React.FC = () => {
                 )
               }
               disabled={busyKey === `task:${task.id}`}
-              aria-label={format(m.enableTask, { name: task.name })}
+              aria-label={format(m.enableTask, { name: displayName })}
             />
           ),
           actions: [
@@ -452,7 +444,7 @@ export const AgentOptionsPanel: React.FC = () => {
               key: 'remove',
               label: m.remove,
               variant: 'ghost',
-              confirm: format(m.confirmRemove, { name: task.name }),
+              confirm: format(m.confirmRemove, { name: displayName }),
               onClick: () =>
                 void guard(`task:${task.id}`, () =>
                   agentService.deleteHeartbeat(task.id),

@@ -1,10 +1,3 @@
-/**
- * The whole Merope surface the agent engine is allowed to touch.
- *
- * The engine runs a turn: it does not own a mouth, a gate or a rig. Binding
- * `agentFace` and `faceSpeechGate` here keeps the two singletons out of the
- * engine's call sites, so a turn state machine never names a body part.
- */
 import type { AgentPanelMode } from '../../components/agent-panel/agentPanelMode'
 import type { Locale } from '../../i18n'
 import type {
@@ -13,6 +6,7 @@ import type {
 } from '../../services/agent/types'
 import type { PerceptionAdapter } from './body/types'
 import type { FaceDelivery, FaceSpeechLine } from './faceSpeechArbitration'
+import { authSubject } from '../../utils/authSubject'
 import { agentFace } from './agentFaceChannel'
 import { getLocalPerception, getProductionBody } from './body/host'
 import {
@@ -32,35 +26,42 @@ import { SpeechSegmenter } from './speech/speechSegmenter'
 
 export { notePresenceRoute, startPresenceInbound }
 
-/** Token-to-speech feed for one turn. The engine never names the splitter. */
+/** The engine never names the splitter. */
 export function openTurnSpeech(
+  mode: AgentPanelMode,
   messageId: string,
   generation = 0,
   locale?: Locale,
   output: 'local' | 'external' = 'local',
 ) {
-  if (output === 'external') {
+  // Admission is shared with the text-mouth outlet. An admitted utterance may
+  // finish across a panel switch; a background reply is never replayed later.
+  if (output === 'external' || faceSpeechGate.decide(mode) !== 'speak') {
     return {
       cancel() {},
       push: (_token: string): number | null => 0,
       end: () => 0,
     }
-}
+  }
+  const subject = authSubject.signal
   const pipeline = getSpeechPipeline()
   void pipeline.probe()
   const segmenter = new SpeechSegmenter(messageId, generation, locale)
   return {
     cancel() {
+      if (subject.aborted) return
       pipeline.cancel(messageId)
     },
     /** `null` = pipeline is off, caller should fall back to the live utterance. */
     push(token: string): number | null {
+      if (subject.aborted) return 0
       if (!pipeline.available) return null
       const segments = segmenter.push(token)
       pipeline.feed(segments)
       return segments.length
     },
     end(): number {
+      if (subject.aborted) return 0
       if (!pipeline.available) return 0
       const tail = segmenter.end()
       pipeline.feed(tail)
@@ -69,7 +70,6 @@ export function openTurnSpeech(
   }
 }
 
-/** Mount the live body for as long as the engine is mounted. */
 export function attachLiveBody(): () => void {
   setLiveBody(getProductionBody())
   return () => setLiveBody(null)
@@ -119,7 +119,6 @@ export interface TurnBodyContext {
   presence: ReturnType<typeof livePresenceFacts>
 }
 
-/** What the body can tell the model about right now. */
 export function captureTurnBody(input: PerceptionInput): TurnBodyContext {
   return {
     rigState: captureProductionRigStateSummary(),

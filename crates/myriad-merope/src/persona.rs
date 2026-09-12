@@ -93,12 +93,14 @@ fn fallback_summary(name: &str, language: &str, tags: &[String]) -> String {
         return match language {
             "ja-JP" => format!("{name}は、これから個性を育てていきます。"),
             "en-US" => format!("{name}'s personality will grow through shared experiences."),
+            "zh-TW" => format!("{name}會在相處中逐漸形成獨特個性。"),
             _ => format!("{name}会在相处中逐渐形成独特个性。"),
         };
     }
     match language {
         "ja-JP" => format!("{name}は、{}という気質を持っています。", traits.join("、")),
         "en-US" => format!("{name} has a {} temperament.", traits.join(", ")),
+        "zh-TW" => format!("{name}帶有{}氣質。", traits.join("、")),
         _ => format!("{name}带有{}气质。", traits.join("、")),
     }
 }

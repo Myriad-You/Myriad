@@ -1,15 +1,3 @@
-/**
- * Generic list-management panel for settings pages.
- *
- * Layout: optional stats → chrome toolbar (query first, then domain
- * actions, then add-form) → optional expanded query / form panels →
- * scrollable rows with badge + actions.
- * Search/filter is a first-class ManagedList feature (not caller layout).
- * Callers own data; this only renders structure and wires clicks. Prefer
- * optimistic row updates at the call site so delete/cancel never need a full
- * page refresh.
- */
-
 import type { ReactNode } from 'react'
 import type { SettingsButtonVariant } from './items/SettingsButton'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
@@ -23,10 +11,6 @@ import { SettingsButton } from './items/SettingsButton'
 import { SettingTitleGuideEntry } from './SettingTitleGuideEntry'
 import './ManagedList.css'
 
-/**
- * List chrome press chip — same shell as register switch.
- * Optional leading icon + tone (primary / danger bulk actions).
- */
 function ChromeCard({
   label,
   checked = false,
@@ -84,7 +68,6 @@ export type ManagedListTone =
 
 export type ManagedListButtonVariant = SettingsButtonVariant
 
-/** Numeric (or text) metric chip */
 export interface ManagedListStatMetric {
   key: string
   label: string
@@ -93,10 +76,6 @@ export interface ManagedListStatMetric {
   kind?: 'metric'
 }
 
-/**
- * Toggle chip after metrics — CheckboxCard size="sm"
- * (list mini-button density + 权限下放 card language).
- */
 export interface ManagedListStatSwitch {
   key: string
   label: string
@@ -105,25 +84,13 @@ export interface ManagedListStatSwitch {
   onChange: (checked: boolean) => void
   disabled?: boolean
   loading?: boolean
-  /** Second line under the title (same as CheckboxGroup cards) */
   description?: string
-  /** Optional leading icon (CheckboxCard) */
   icon?: ReactNode
-  /** Native tooltip (optional; defaults not set when description is shown) */
   title?: string
-  /**
-   * Structured option guide (modal only).
-   * 「显示说明」开启时标题旁出现入口；不内联、不进 ⓘ tooltip。
-   */
   guide?: ReactNode
-  /** 指南路径，供配置搜索跳转 */
   guidePath?: string
 }
 
-/**
- * Choice chip — same chrome as switch stats, with an inline select
- * (e.g. users “personal Tapp cleanup” next to allow-register).
- */
 export interface ManagedListStatChoice {
   key: string
   kind: 'choice'
@@ -138,7 +105,6 @@ export interface ManagedListStatChoice {
   title?: string
   guide?: ReactNode
   guidePath?: string
-  /** Extra class on the card shell */
   className?: string
 }
 
@@ -150,26 +116,20 @@ export type ManagedListStat =
 export interface ManagedListAction {
   key: string
   label: string
-  /** Second line under label (CheckboxCard desc; same as register switch). */
   description?: string
-  /** Optional leading icon on chrome CheckboxCard / SettingsButton */
   icon?: ReactNode
   onClick: () => void
   disabled?: boolean
   loading?: boolean
   variant?: ManagedListButtonVariant
-  /** Optional window.confirm message before onClick. */
   confirm?: string
-  /** Accessible name when label is short. */
   ariaLabel?: string
-  /** Native title / tooltip (e.g. why a button is disabled). */
   title?: string
 }
 
 export interface ManagedListFilterOption {
   key: string
   label: string
-  /** Optional count badge on the chip. */
   count?: number
 }
 
@@ -193,157 +153,58 @@ export interface ManagedListItem {
   subtitle?: ReactNode
   meta?: ReactNode
   badge?: { label: string; tone?: ManagedListTone }
-  /** Extra badges after the primary one (role + status, etc.). */
   badges?: Array<{ label: string; tone?: ManagedListTone }>
-  /** Optional leading slot (icon / avatar). */
   leading?: ReactNode
-  /**
-   * Optional control between main text and action buttons
-   * (e.g. FieldSelect for trust level).
-   */
   trailing?: ReactNode
   actions?: ManagedListAction[]
-  /**
-   * Expandable detail panel under the row (caller-owned content).
-   * When set, the main area becomes a toggle control.
-   */
   expandContent?: ReactNode
-  /** Controlled expand state. */
   expanded?: boolean
   onToggleExpand?: () => void
-  /**
-   * Replace the default expand hit with a custom control (e.g. a guide
-   * float trigger). Receives the same leading + main nodes. When set,
-   * `expandContent` is not shown inline.
-   */
   renderHit?: (parts: { leading: ReactNode; main: ReactNode }) => ReactNode
-  /** Dim row + block pointer while this row’s action runs. */
   busy?: boolean
   className?: string
 }
 
 export interface ManagedListProps {
-  /** Compact counters above the list (pending / dead / …). */
   stats?: ManagedListStat[]
-  /** Bulk / refresh actions. */
   toolbar?: ManagedListAction[]
-  /** Domain search field above the body. */
   search?: ManagedListSearch
-  /**
-   * Single filter chip group (shorthand). Prefer `filterGroups` when
-   * multiple independent SegmentedControls are needed (e.g. role + online).
-   */
   filters?: ManagedListFilters
-  /** Multiple filter chip groups rendered stacked in the query panel. */
   filterGroups?: ManagedListFilters[]
-  /**
-   * Search + filter (generic ManagedList query chrome).
-   * When `search` / `filters` / `filterGroups` are set, a **leading**
-   * toolbar button expands the query panel (collapsed by default).
-   * Order is fixed: query → toolbar actions → add form.
-   */
-  /** Label on the expand control when the query bar is collapsed. */
   queryToggleLabel?: ReactNode
-  /** Second line under query toggle (same card layout as register switch). */
   queryToggleDescription?: ReactNode
-  /** Optional icon on the query toggle chip. */
   queryToggleIcon?: ReactNode
-  /** Collapse control when the query bar is open. Default “Done”. */
   queryCollapseLabel?: ReactNode
-  /** Second line under query collapse control. */
   queryCollapseDescription?: ReactNode
-  /** Optional icon on the query collapse chip. */
   queryCollapseIcon?: ReactNode
-  /**
-   * Uncontrolled initial open state for search/filters. Default `false`.
-   * Ignored when `queryOpen` is provided.
-   */
+  /** ignored when `queryOpen` is set */
   queryDefaultOpen?: boolean
-  /** Controlled open state for the search/filter bar. */
   queryOpen?: boolean
   onQueryOpenChange?: (open: boolean) => void
-  /**
-   * Filter key treated as “no filter” for the active indicator
-   * (default `'all'`). Applied to every filter group.
-   */
   queryNeutralFilter?: string
-  /**
-   * Query panel chrome:
-   * - `panel` (default): titled card with collapse control
-   * - `plain`: no title row; search + filters only
-   */
   queryChrome?: 'panel' | 'plain'
-  /**
-   * When false, query stays always open: no toolbar toggle, no collapse.
-   * Default `true`.
-   */
   queryCollapsible?: boolean
-  /**
-   * Optional create / add form panel. Callers own fields + submit;
-   * ManagedList only provides chrome and placement.
-   * Default: above the list body (`formPlacement="before"`).
-   * Collapsed by default — expand via the toggle button.
-   */
   form?: ReactNode
-  /**
-   * Where to put `form` relative to the list body.
-   * - `before` (default): add-then-see-list
-   * - `after`: list first, form below
-   */
   formPlacement?: 'before' | 'after'
-  /**
-   * Label on the expand control when the form is collapsed.
-   * Also used as the form panel heading when open (unless
-   * `formOpenTitle` is set).
-   */
   formTitle?: ReactNode
-  /** Second line under form expand control. */
   formDescription?: ReactNode
-  /** Optional icon on the form expand chip. */
   formIcon?: ReactNode
-  /** Heading inside the open form panel; defaults to `formTitle`. */
   formOpenTitle?: ReactNode
-  /** Label for the collapse control; default “Cancel”. */
   formCollapseLabel?: ReactNode
-  /** Second line under form collapse control. */
   formCollapseDescription?: ReactNode
-  /** Optional icon on the form collapse chip. */
   formCollapseIcon?: ReactNode
-  /**
-   * Uncontrolled initial open state. Default `false` (hidden).
-   * Ignored when `formOpen` is provided.
-   */
+  /** ignored when `formOpen` is set */
   formDefaultOpen?: boolean
-  /** Controlled open state for the add form. */
   formOpen?: boolean
   onFormOpenChange?: (open: boolean) => void
   items: ManagedListItem[]
   emptyText: string
-  /** Initial list fetch / full refresh spinner over the body. */
   loading?: boolean
-  /** Soft working state (bulk action) without blanking the list. */
   working?: boolean
-  /**
-   * Body max height. Pass `null` / `'none'` to grow with content
-   * (short settings lists). Default scrolls at 18rem.
-   */
   maxHeight?: string | number | null
-  /**
-   * Soft page size when the body is height-constrained.
-   * Avoids painting hundreds of empty-looking shells (delivery queue etc.).
-   * Truncation offers “Show more” to grow the window by this size each click.
-   * - `undefined`: auto — `80` when scrolling, unlimited when not
-   * - `null`: never cap
-   * - number: explicit page size
-   */
   maxVisibleItems?: number | null
-  /**
-   * Footer when the list is truncated.
-   * Receives (shown, total). Default: i18n `config.managedListShowing`.
-   */
   truncateFooter?: (shown: number, total: number) => ReactNode
   className?: string
-  /** Optional footer (e.g. “showing N of M”). */
   footer?: ReactNode
 }
 
@@ -354,10 +215,6 @@ function toneClass(tone: ManagedListTone | undefined, prefix: string): string {
 const ListActionButton = React.memo(({
   action,
   size = 'md',
-  /**
-   * Toolbar chrome: always CheckboxCard (incl. primary/danger bulk).
-   * Row actions: SettingsButton (confirm / danger still available).
-   */
   chrome = false,
 }: {
   action: ManagedListAction
@@ -369,7 +226,6 @@ const ListActionButton = React.memo(({
     action.onClick()
   }, [action])
 
-  // Top chip strip — unified CheckboxCard for all toolbar actions.
   if (chrome && size === 'sm') {
     const tone =
       action.variant === 'danger'
@@ -450,7 +306,7 @@ export const ManagedList = React.memo(({
   className = '',
   footer,
 }: ManagedListProps) => {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const queryToggleLabel =
     queryToggleLabelProp ?? t.config.managedListSearchFilter
   const queryCollapseLabel =
@@ -465,20 +321,14 @@ export const ManagedList = React.memo(({
       : String(maxHeight)
     : undefined
 
-  /**
-   * Page size for scroll bodies; uncapped lists stay unlimited.
-   * “Show more” multiplies this window without remounting the list.
-   */
   const pageSize = useMemo(() => {
     if (maxVisibleItems === undefined) return constrain ? 80 : null
     return maxVisibleItems
   }, [maxVisibleItems, constrain])
 
   const totalCount = items.length
-  /** How many pages of `pageSize` are currently visible (1-based growth). */
   const [visiblePages, setVisiblePages] = useState(1)
 
-  // Reset only when list size / page size changes — not on every new array ref.
   useEffect(() => {
     setVisiblePages(1)
   }, [totalCount, pageSize])
@@ -498,9 +348,10 @@ export const ManagedList = React.memo(({
     pageSize != null && totalCount > pageSize
       ? truncateFooter
         ? truncateFooter(visibleItems.length, totalCount)
-        : t.config.managedListShowing
-            .replace('{shown}', String(visibleItems.length))
-            .replace('{total}', String(totalCount))
+        : format(t.config.managedListShowing, {
+            shown: visibleItems.length,
+            total: totalCount,
+          })
       : null
 
   const handleShowMore = useCallback(() => {
@@ -590,7 +441,6 @@ export const ManagedList = React.memo(({
         ? formTitle
         : null
 
-  // Keep chips in a fixed slot: open → same chip becomes cancel (no jump).
   const showQueryChip = queryCollapsible && hasFilterBar
   const showFormChip = form != null
   const hasToolbarActions = !!(toolbar && toolbar.length > 0)
@@ -608,7 +458,6 @@ export const ManagedList = React.memo(({
             : t.config.managedListFormAdd
         }
       >
-        {/* Collapse stays on the top chip strip — no second cancel here */}
         {openHeading != null ? (
           <div className="managed-list-form-header is-title-only">
             <div className="managed-list-form-title">{openHeading}</div>
@@ -634,7 +483,6 @@ export const ManagedList = React.memo(({
             : t.config.managedListSearchFilter
         }
       >
-        {/* Collapse stays on the top chip strip — title-only when panel chrome */}
         {queryChrome === 'panel' && queryCollapsible && (
           <div className="managed-list-filter-bar-header is-title-only">
             <div className="managed-list-form-title">
@@ -791,10 +639,7 @@ export const ManagedList = React.memo(({
                 </div>
               ) : canExpand ? (
                 <div className="managed-list-row-head">
-                  {/*
-                    Full hit target: leading + main. Side actions stay outside
-                    and stopPropagation so they don't toggle expand.
-                  */}
+                  {/* hit: leading+main; side actions stopPropagation */}
                   <button
                     type="button"
                     className="managed-list-row-hit"
@@ -829,11 +674,6 @@ export const ManagedList = React.memo(({
     <div
       className={`managed-list${working ? ' is-working' : ''}${className ? ` ${className}` : ''}`}
     >
-      {/*
-        Unified top chip strip (one region, equal height):
-        [metrics…] | [switch…] [query] [toolbar] [form…]
-        All interactive chips sit after numeric data in the same wrap area.
-      */}
       {(stats && stats.length > 0) || hasChromeBar ? (
         <div className="managed-list-top">
           <div
@@ -841,7 +681,6 @@ export const ManagedList = React.memo(({
             role="group"
             aria-label={t.config.managedListStatsAria}
           >
-            {/* 1. Numeric metrics */}
             {stats
               ?.filter(
                 (s): s is ManagedListStatMetric =>
@@ -857,9 +696,7 @@ export const ManagedList = React.memo(({
                 </div>
               ))}
 
-            {/* 2. Interactive chips after data (same card region) */}
-            {((stats &&
-              stats.some((s) => s.kind === 'switch' || s.kind === 'choice')) ||
+            {(stats?.some((s) => s.kind === 'switch' || s.kind === 'choice') ||
               hasChromeBar) && (
               <div
                 className="managed-list-chip-actions"
@@ -912,7 +749,6 @@ export const ManagedList = React.memo(({
                             .filter(Boolean)
                             .join(' ')}
                         >
-                          {/* Single header row: icon | title+desc | select (like switch chip) */}
                           <span className="checkbox-group-card-header">
                             {s.icon ? (
                               <span
@@ -970,7 +806,7 @@ export const ManagedList = React.memo(({
                     return (
                       <span
                         key={s.key}
-                        id={`cfg-g-${s.guidePath.replace(/\./g, '-')}`}
+                        id={`cfg-g-${s.guidePath.replaceAll('.', '-')}`}
                         data-guide-path={s.guidePath}
                         className="has-guide-anchor managed-list-guide-anchor"
                       >

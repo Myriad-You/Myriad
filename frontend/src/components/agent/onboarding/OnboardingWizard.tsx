@@ -135,20 +135,9 @@ export default function OnboardingWizard({
     },
     [extraRequirements, invalidatePersonaAndVisual],
   )
-  /**
-   * 从分岔口进入一条路 = 那条路从头开始。
-   *
-   * 两条路分开的只是界面，底下共用同一份写作状态。不在换道时清场的话：
-   * 生成链起草出来的人设会让导入页的「下一步」直接亮起来（什么都没导入），
-   * 而导入进来的人设又会占住 `claimedAuto.persona`，让生成链跳过自动起草。
-   *
-   * 名字和性别不清：它们是身份，两条路都要，用户刚填的不该被抹掉。
-   */
   const enterLane = useCallback(
     (lane: OnboardingStep) => {
-      // 第 4 步的自动起草走它自己的 regenBusy，不是向导的 run()，所以起草
-      // 在飞的时候后退并不被拦。推进这个序号，让那份晚到的草稿落不进新的
-      // 一条路——`draftPersona` 的回包正是按它判断自己是否已经过期。
+      // bump seq so a late draftPersona cannot land on the other lane
       personaWriteSeq.current += 1
       invalidatePersonaAndVisual()
       setImportedPortraitUrl(null)
@@ -263,27 +252,17 @@ export default function OnboardingWizard({
                 persona={persona}
                 portraitUrl={importedPortraitUrl}
                 busy={busy}
-                // 导入页改的是身份，不是「起草的输入」。用生成链那两个
-                // updater 的话，在名字框里敲一个字就会触发
-                // invalidatePersonaAndVisual，把刚导入的人设静默清空。
                 onDisplayName={setDisplayName}
                 onGender={setGender}
                 onHeaderChange={onHeaderChange}
                 onImported={(next) => {
-                  // 不动 claimedAuto：那是生成链「自动起草已认领」的闩，
-                  // 换道时 enterLane 会把它重置，导入这边碰它只会让两条路
-                  // 的行为取决于用户顺手点过什么。
-                  // personaWriteSeq 要动：它作废可能在飞的 draftPersona 回包。
                   personaWriteSeq.current += 1
                   setPersona(next)
                 }}
                 onPortrait={setImportedPortraitUrl}
                 onSubmit={() =>
                   run(async () => {
-                    // 主立绘在选中文件时就已经落库了（upload_portrait），这里只
-                    // 补人设本身。不传 portraitAssetId，后端按 Keep 处理。
-                    // 视觉设定不能留空：按刚上传的主图读出特征，避免 merge
-                    // 把上一次生成链的 visualIdentity 补回来。
+                    // omit portraitAssetId (Keep); observe visual so merge cannot refill generate-chain values
                     const observed = importedPortraitUrl
                       ? await agentService.observeVisualFromPortrait({
                           gender: gender ?? 'unspecified',

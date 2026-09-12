@@ -1,7 +1,4 @@
-/**
- * Local end-to-end IO trace. Ring + counters only — never the run hub,
- * never volume frames, never mouth samples.
- */
+/** Ring + counters only */
 
 export const TURN_TRACE_SPANS = [
   'input_started',
@@ -11,11 +8,8 @@ export const TURN_TRACE_SPANS = [
   'input_final',
   'request_sent',
   'reaction_ready',
-  // Delivery readiness is a phase, not proof that a model director returned.
-  // Local sentence delivery can precede the optional model revision.
   'delivery_ready',
-  // Backend receipt is not proof of animation. This is stamped only after the
-  // renderer accepts a semantic cue from the unified behavior plan.
+  // This is stamped only after the renderer accepts a semantic cue from the unified behavior plan.
   'performance_applied',
   'llm_first_token',
   'first_sentence',
@@ -169,11 +163,9 @@ function delayBetween(from: string, to: string): number | null {
 }
 
 function lastMark(span: string): TurnTraceMark | undefined {
-  for (let i = marks.length - 1; i >= 0; i--) {
-    const mark = marks[i]
-    if (mark && mark.span === span && mark.turnId === turnId) return mark
-  }
-  return undefined
+  return marks.findLast(
+    (mark) => mark && mark.span === span && mark.turnId === turnId,
+  )
 }
 
 function notify(): void {
@@ -204,7 +196,6 @@ export function beginTurnTrace(id: string): void {
   pending.clear()
 }
 
-/** Stamp a span before the owning turn exists (ASR start, VAD). Latest wins. */
 export function stampTurnTrace(
   span: TurnTraceSpan,
   extra?: TurnTraceExtra,
@@ -224,10 +215,6 @@ export interface VoiceInputTiming {
   asr_completed: number
 }
 
-/**
- * Attach this utterance to the NEXT submitted run, never the previous reply
- * that happens to be playing while ASR runs. Stage only when committing text.
- */
 export function stageVoiceInputTrace(timing: VoiceInputTiming): void {
   const stagedAt = now()
   for (const span of [
@@ -241,7 +228,6 @@ export function stageVoiceInputTrace(timing: VoiceInputTiming): void {
   pending.set('input_final', { t: stagedAt, stagedAt })
 }
 
-/** Drop pending input stamps from an abandoned recording. */
 export function dropPendingTurnTrace(span?: TurnTraceSpan): void {
   if (span) pending.delete(span)
   else pending.clear()

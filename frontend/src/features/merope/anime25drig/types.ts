@@ -41,7 +41,6 @@ export interface Anime25DStrand {
 export interface Anime25DPlaybackLayer {
   name: string
   role: string
-  /** Draw-order index from Anime2.5DRig (`L.z`). Hair spring phase uses this. */
   z?: number
   depth: number
   group: Anime25DGroup
@@ -95,7 +94,7 @@ export interface Anime25DPlaybackAnchors {
 export type Anime25DChestProfileSource =
   'ai-vision' | 'geometry-fallback' | 'gender-policy'
 
-/** Import-time chest region. Runtime consumes this without further AI work. */
+/** Runtime consumes this without further AI work. */
 export interface Anime25DChestProfile {
   version: 2
   enabled: boolean
@@ -107,17 +106,13 @@ export interface Anime25DChestProfile {
   visibleScale: number
   motionScale: number
   frequencyScale: number
-  /** 0 is freely moving; 1 is visually locked to structured support. */
   supportScale: number
-  /** Fraction of local soft-tissue motion visible on the outer garment. */
   garmentMotionScale: number
   confidence: number
 }
 
 export interface Anime25DShellCurvePoint {
-  /** Vertical progress from forehead (0) to chin (1). */
   v: number
-  /** Additional normalized depth outside the base ellipsoid. */
   z: number
 }
 
@@ -131,12 +126,7 @@ export interface Anime25DShellEllipsoid {
 
 export interface Anime25DHairlinePinProfile {
   enabled: boolean
-  /**
-   * Imported assets follow their strand roots unless an authored profile uses
-   * the fork's calibrated rectangle.
-   */
   mode: 'rectangle' | 'strand-roots'
-  /** Centre and half extents expressed in head-radius units. */
   centerX: number
   centerY: number
   halfWidth: number
@@ -146,19 +136,10 @@ export interface Anime25DHairlinePinProfile {
 
 export interface Anime25DTorsoShellProfile {
   enabled: boolean
-  /** Local share multiplied by the parent shell blend. */
   blend: number
-  /** Vertical elliptic-cylinder axis and radii in playback pixels. */
   centerX: number
   radiusX: number
   radiusZ: number
-  /**
-   * How much of a head turn this body comes around with. The fork carries the
-   * same per-model control; a stiff pose or a structured garment turns less
-   * than a soft one at the same head angle.
-   *
-   * Optional for manifests compiled before the torso follow became per-model.
-   */
   yawFollowScale?: number
 }
 
@@ -214,7 +195,6 @@ export interface Anime25DMouthBridgeTuning {
   centerOffsetY: number
 }
 
-/** Import-time alpha-contour analysis. Runtime performs no image sampling. */
 export interface Anime25DMouthProfile {
   version: 1
   source: 'alpha-contour' | 'bounds-fallback'
@@ -418,7 +398,7 @@ function isAnime25DMouthProfile(
     ) {
       return false
     }
-    const pair = [first, second].sort().join(':')
+    const pair = [first, second].toSorted().join(':')
     if (
       pairs.has(pair) ||
       !numberInRange(bridge.widthScale, 0.75, 1) ||

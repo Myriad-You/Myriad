@@ -9,23 +9,14 @@ import type {
 import { BehaviorScheduler } from './behaviorScheduler'
 
 export interface HumanPerformanceFrame {
-  /** Candidate plan delivered to the body adapter. Recovery may outlive it. */
   plan: BehaviorPlan | null
   /** Changes only when the body adapter needs a new realization. */
   revision: number
-  /** Scheduler-authoritative lifecycle, including graceful recovery. */
   behaviors: readonly BehaviorSnapshot[]
 }
 
 const PLAN_ID = 'human-performance'
 
-/**
- * The one behavior clock for speech, music and semantic reactions.
- *
- * Producers publish renderer-neutral candidate plans. This runtime merges
- * them, retimes compatible pegs without restarting live work, and exposes one
- * plan plus one lifecycle stream to every mounted rig.
- */
 export class HumanPerformanceRuntime {
   private readonly scheduler = new BehaviorScheduler()
   private schedulerFingerprint = ''
@@ -45,14 +36,8 @@ export class HumanPerformanceRuntime {
     plans: readonly (BehaviorPlan | null | undefined)[],
     nowMs: number,
   ): HumanPerformanceFrame {
-    // The fingerprints exist to keep an unchanged plan from disturbing the
-    // scheduler, but computing them means serializing every peg and behavior.
-    // On the workbench runtime this ran on a 16ms clock, so the check cost far
-    // more than the work it was avoiding. Producers rebuild a plan object only
-    // when its content changes, so identical references are identical plans
-    // and both fingerprints are already known to match.
     if (!this.mergedFrom || !sameBehaviorPlans(plans, this.mergedFrom)) {
-      this.mergedFrom = [...plans]
+      this.mergedFrom = Iterator.from(plans).toArray()
       this.mergedOriginFloor = originFloor(plans)
       const next = mergeBehaviorPlans(plans, nowMs, this.motionStyle)
       const schedulerFingerprint = planFingerprint(next, true)
@@ -116,7 +101,6 @@ function sameBehaviorPlans(
   return left.every((plan, index) => plan === right[index])
 }
 
-/** Mirrors the `active` filter in `mergeBehaviorPlans`; a test holds them together. */
 function originFloor(
   plans: readonly (BehaviorPlan | null | undefined)[],
 ): number {
@@ -154,11 +138,11 @@ export function mergeBehaviorPlans(
     metadata: {
       sources: active
         .map((plan) => plan.id)
-        .sort()
+        .toSorted()
         .join(','),
     },
-    pegs: [...pegById.values()],
-    behaviors: [...behaviorById.values()],
+    pegs: Iterator.from(pegById.values()).toArray(),
+    behaviors: Iterator.from(behaviorById.values()).toArray(),
   }
 }
 
@@ -239,10 +223,6 @@ function emptyPlan(nowMs: number): BehaviorPlan {
   return { id: PLAN_ID, originMs: nowMs, pegs: [], behaviors: [] }
 }
 
-/**
- * Anticipator positions affect scheduler feedback but not body-adapter setup;
- * the live music evidence already reaches the procedural rhythm unit.
- */
 function planFingerprint(
   plan: BehaviorPlan | null,
   includeAnticipation: boolean,
@@ -253,9 +233,10 @@ function planFingerprint(
       .map((behavior) => behavior.anticipation)
       .filter((id): id is string => typeof id === 'string'),
   )
-  const pegs = plan.pegs
+  const pegs = Iterator.from(plan.pegs)
     .filter((peg) => includeAnticipation || !anticipation.has(peg.id))
     .map((peg) => [peg.id, peg.atMs, peg.revision, peg.confidence ?? null])
+    .toArray()
   const behaviors = plan.behaviors.map((behavior) => ({
     id: behavior.id,
     function: behavior.function,

@@ -116,9 +116,16 @@ test('two consumers see the same speech intent; one unmount does not stop the so
   unsubA()
   releaseA()
   assert.equal(runtime.frame().snapshot.owners.mouth, 'speech')
+  releaseA()
+  assert.equal(runtime.frame().snapshot.owners.mouth, 'speech', 'duplicate cleanup cannot stop another consumer')
   unsubB()
   releaseB()
   assert.equal(runtime.frame().snapshot.owners.mouth, 'idle')
+  const releaseC = runtime.retain()
+  runtime.speech.handleForTest({ phase: 'start', messageId: 'message-2', utteranceId: 'stream-2', source: 'reply' })
+  releaseB()
+  assert.equal(runtime.frame().snapshot.owners.mouth, 'speech', 'retired handles cannot affect a remounted runtime')
+  releaseC()
 })
 
 test('visible face consumers merge capabilities and select one mood authority', () => {

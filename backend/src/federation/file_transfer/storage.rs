@@ -1,4 +1,4 @@
-//! Path confinement (MYR-001), concurrent admission (MYR-008), and chunk I/O.
+//! Path confinement, concurrent admission, and chunk I/O.
 
 use axum::{http::StatusCode, Json};
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
@@ -24,7 +24,7 @@ use crate::federation::limits::{
     MAX_CONCURRENT_TRANSFER_BYTES, MAX_IN_FLIGHT_CHUNK_BYTES,
 };
 
-// ── MYR-008: in-flight chunk byte budget ────────────────────────────────────
+// ── in-flight chunk byte budget ────────────────────────────────────
 //
 // Caps concurrent decoded chunk payloads across upload + inbound handlers so a
 // burst of clients cannot pin unbounded memory while each transfer still obeys
@@ -145,7 +145,7 @@ async fn open_transfer_load_for_user(
     })
 }
 
-/// MYR-008: admit a new transfer if concurrent count/bytes stay within budgets.
+/// admit a new transfer if concurrent count/bytes stay within budgets.
 ///
 /// `user_id`: when `Some`, also enforce the per-user concurrent count.
 /// Inbound remote FileMeta passes `None` (only global budgets apply).
@@ -243,7 +243,7 @@ pub(super) fn admit_chunk_bytes_str(chunk_size: i64) -> Result<InFlightChunkGuar
 
 // 存储辅助
 //
-// MYR-001: transferId is a path component under the federation transfers root.
+// transferId is a path component under the federation transfers root.
 // Never join unvalidated remote/DB strings into filesystem paths.
 
 /// Max length for transfer IDs used as storage directory names.
@@ -253,7 +253,7 @@ pub(super) fn storage_root() -> PathBuf {
     paths().root.join("federation").join("transfers")
 }
 
-/// Strict transferId validation before any filesystem use (MYR-001).
+/// Strict transferId validation before any filesystem use.
 ///
 /// Allowlist: ASCII alphanumeric, `_`, `-` only (covers local `ft_{uuid}`).
 /// Rejects empty, oversize, absolute paths, `..`, separators, null bytes, Unicode.
@@ -328,7 +328,7 @@ pub(super) fn final_file_path(transfer_id: &str, filename: &str) -> Result<PathB
 
 /// Resolve a path for open/write: prefer DB `local_path` only if confined under storage root.
 ///
-/// Never trust stored paths blindly — re-validate confinement before any FS use (MYR-001).
+/// Never trust stored paths blindly — re-validate confinement before any FS use.
 pub(super) fn resolve_transfer_path(
     transfer_id: &str,
     filename: &str,
@@ -361,6 +361,22 @@ fn transfer_lock_key(transfer_id: &str) -> String {
     format!("federation-file-transfer:{transfer_id}")
 }
 
+const TRANSFER_ADMISSION_LOCK_KEY: &str = "myriad:federation:transfer_admission";
+
+/// Serialize concurrent transfer admission (count + insert) across connections.
+/// The caller must hold an explicit transaction for the duration of check+insert.
+pub(super) async fn lock_transfer_admission(
+    db: &impl ConnectionTrait,
+) -> Result<(), sea_orm::DbErr> {
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [TRANSFER_ADMISSION_LOCK_KEY.into()],
+    ))
+    .await?;
+    Ok(())
+}
+
 /// Serialize one transfer's database and filesystem state across backend replicas.
 /// The caller must hold an explicit transaction for the duration of the mutation.
 pub(super) async fn lock_transfer_session(
@@ -384,14 +400,14 @@ pub(super) fn storage_err(e: impl std::fmt::Display) -> (StatusCode, Json<serde_
     tracing::error!("[FileTransfer] storage error: {}", e);
     (
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(json!({"error": "File storage error"})),
+        Json(AppError::public_json("File storage error")),
     )
 }
 
 pub(super) fn bad_request(message: impl Into<String>) -> (StatusCode, Json<serde_json::Value>) {
     (
         StatusCode::BAD_REQUEST,
-        Json(json!({"error": message.into()})),
+        Json(AppError::public_json(message)),
     )
 }
 
@@ -450,7 +466,9 @@ pub(super) async fn verify_chunk_bytes(
     if existing != decoded {
         return Err((
             StatusCode::CONFLICT,
-            Json(json!({"error": "Chunk retry content does not match stored bytes"})),
+            Json(AppError::public_json(
+                "Chunk retry content does not match stored bytes",
+            )),
         ));
     }
     Ok(())
@@ -554,7 +572,9 @@ pub(super) fn upload_session_action(
         )),
         "finalizing" | "completed" => Err((
             StatusCode::CONFLICT,
-            Json(json!({"error": "Transfer finalization state is inconsistent"})),
+            Json(AppError::public_json(
+                "Transfer finalization state is inconsistent",
+            )),
         )),
         _ => Err(bad_request(format!("Transfer is {}", status))),
     }
@@ -577,7 +597,9 @@ pub(super) async fn prepare_chunk_file(
         Ok(_) => {
             return Err((
                 StatusCode::CONFLICT,
-                Json(json!({"error": "Final file exists before the last chunk"})),
+                Json(AppError::public_json(
+                    "Final file exists before the last chunk",
+                )),
             ));
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -717,7 +739,7 @@ pub(super) async fn finalize_uploaded_transfer(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Transfer not found while finalizing"})),
+                Json(AppError::public_json("Transfer not found while finalizing")),
             )
         })?;
     let status: String = row.try_get("", "status").unwrap_or_default();
@@ -730,7 +752,9 @@ pub(super) async fn finalize_uploaded_transfer(
     if status != "finalizing" || chunks_completed != chunks_total {
         return Err((
             StatusCode::CONFLICT,
-            Json(json!({"error": "Transfer state changed while finalizing"})),
+            Json(AppError::public_json(
+                "Transfer state changed while finalizing",
+            )),
         ));
     }
 
@@ -749,14 +773,16 @@ pub(super) async fn finalize_uploaded_transfer(
     if updated.rows_affected() != 1 {
         return Err((
             StatusCode::CONFLICT,
-            Json(json!({"error": "Transfer state changed while finalizing"})),
+            Json(AppError::public_json(
+                "Transfer state changed while finalizing",
+            )),
         ));
     }
     txn.commit().await.map_err(db_err)?;
     Ok(true)
 }
 
-// ── MYR-001 path safety + MYR-008 admission tests ───────────────────────────
+// ── path safety + admission tests ───────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -767,7 +793,7 @@ mod tests {
 
     #[test]
     fn in_flight_chunk_budget_admits_then_rejects_when_full() {
-        // Drain any leftover from parallel tests in this binary (best-effort).
+        // `try_acquire(0)` is a no-op（不占/不释放 in-flight 预算）。
         let _ = InFlightChunkGuard::try_acquire(0);
         let half = MAX_IN_FLIGHT_CHUNK_BYTES / 2;
         let g1 = InFlightChunkGuard::try_acquire(half).expect("first half");
@@ -787,6 +813,14 @@ mod tests {
     fn admit_chunk_bytes_rejects_non_positive() {
         assert!(admit_chunk_bytes(0).is_err());
         assert!(admit_chunk_bytes(-1).is_err());
+    }
+
+    #[test]
+    fn transfer_admission_lock_key_is_stable() {
+        assert_eq!(
+            TRANSFER_ADMISSION_LOCK_KEY,
+            "myriad:federation:transfer_admission"
+        );
     }
 
     #[test]
@@ -886,7 +920,7 @@ mod tests {
             .expect("rebuild");
         assert!(is_strictly_under(&root, &p));
 
-        // Mixed-separator style path under root's parent
+        // Lexical `..` parent escape via `PathBuf::join`
         let escape = root
             .join("..")
             .join("agent")
@@ -1077,3 +1111,4 @@ mod tests {
         );
     }
 }
+use myriad_error::AppError;

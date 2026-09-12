@@ -35,7 +35,6 @@ test('认不出来的风险按最重的算', () => {
   assert.equal(normalizeActionRisk('low'), 'low')
   assert.equal(normalizeActionRisk('CRITICAL'), 'critical')
   assert.equal(normalizeActionRisk('  medium  '), 'medium')
-  // 猜轻了要出事，猜重了只是多问一句
   assert.equal(normalizeActionRisk('weird'), 'critical')
   assert.equal(normalizeActionRisk(undefined), 'critical')
   assert.equal(normalizeActionRisk(''), 'critical')
@@ -93,7 +92,6 @@ test('倒计时存到期时刻而不是剩余秒数', () => {
   assert.equal(agentActionRemainingSeconds(action, NOW + 299_500), 1)
   assert.equal(agentActionExpired(action, NOW + 299_999), false)
 
-  // 到点之后不给负数，也不再让人点确认
   assert.equal(agentActionRemainingSeconds(action, NOW + 400_000), 0)
   assert.equal(agentActionExpired(action, NOW + 300_000), true)
 })

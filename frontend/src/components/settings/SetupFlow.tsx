@@ -1,10 +1,3 @@
-/**
- * SetupFlow — 流程图式步骤引导（去哪里 / 做什么）
- *
- * 通用组件：横向步骤轨 + 连接线；窄屏自动竖排。
- * 适用于数据平台凭证、OAuth 等「分步获取 → 回到本页填写」场景。
- */
-
 import type { ReactNode } from 'react'
 import { FaExternalLinkAlt } from '@lib/icons'
 import React from 'react'
@@ -14,34 +7,21 @@ import './SetupFlow.css'
 
 export interface SetupFlowStep {
   key: string
-  /** 步骤标题（做什么） */
   title: ReactNode
-  /** 步骤说明（去哪里 / 细节） */
   description?: ReactNode
-  /** 外链（去哪里） */
   href?: string
-  /** 站内操作（替代 href） */
   onAction?: () => void
-  /** 操作按钮文案；有 href/onAction 时默认「打开」 */
   actionLabel?: ReactNode
-  /** 可选步骤角标 */
   optional?: boolean
-  /** 完成态（可选，供高亮） */
   done?: boolean
   icon?: ReactNode
 }
 
 export interface SetupFlowProps {
   steps: SetupFlowStep[]
-  /** 区块小标题，如「配置步骤」 */
   title?: ReactNode
-  /** 可选步骤角标文案 */
   optionalLabel?: ReactNode
   className?: string
-  /**
-   * `auto`：宽屏横排、窄屏竖排（默认）
-   * `horizontal` / `vertical`：强制方向
-   */
   orientation?: 'auto' | 'horizontal' | 'vertical'
 }
 

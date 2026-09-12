@@ -1,13 +1,7 @@
-/**
- * 阅读器 Tooltip 组件集合
- * 包含: AI注释Tooltip、评论Tooltip、评论输入弹窗
- */
-
 import type { MouseEvent } from 'react'
 
 import type { CommentItem } from '../../../services/brewApi'
-import type { AnnotationType } from '../../../services/brewliaApi'
-import type { ThemeConfig } from './types'
+import type { ReaderCopy, ThemeConfig } from './types'
 import {
   LuCheck as Check,
   LuCopy as Copy,
@@ -20,23 +14,22 @@ import {
   motionShim as motion,
 } from '@lib/motionShim'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import * as brewliaApi from '../../../services/brewliaApi'
+import { useI18n } from '../../../contexts/I18nContext'
 import { Spinner } from '../../Spinner'
+import { annotationChrome } from './annotationChrome'
 import { DATE_FORMAT_SHORT } from './constants'
-
-// AI 注释 Tooltip
 
 interface AnnotationTooltipProps {
   hoveredAnnotation: {
     term: string
     explanation: string
-    type: AnnotationType
+    type: string
   } | null
   tooltipPosition: { x: number; y: number }
   currentTheme: ThemeConfig
   isDark: boolean
   enableAnimations: boolean
-  t: Record<string, any>
+  t: ReaderCopy
 }
 
 export function AnnotationTooltip({
@@ -47,9 +40,12 @@ export function AnnotationTooltip({
   enableAnimations,
   t,
 }: AnnotationTooltipProps) {
+  const chrome = hoveredAnnotation
+    ? annotationChrome(hoveredAnnotation.type)
+    : null
   return (
     <AnimatePresence>
-      {hoveredAnnotation && (
+      {hoveredAnnotation && chrome && (
         <motion.div
           initial={
             enableAnimations
@@ -81,23 +77,16 @@ export function AnnotationTooltip({
             x: '-50%',
             y: '-100%',
             pointerEvents: 'none' as const,
-            // 长词 / URL 编码串不得撑破视口
+            // 长词 / URL 不得撑破视口
             maxWidth: 'min(20rem, calc(100vw - 2rem))',
           }}
         >
           <div className="flex items-center gap-2 mb-1.5 min-w-0">
             <span
-              className={`text-xs px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap ${
-                brewliaApi.ANNOTATION_TYPE_CONFIG[hoveredAnnotation.type]
-                  ?.bgColor || 'bg-gray-100'
-              } ${
-                brewliaApi.ANNOTATION_TYPE_CONFIG[hoveredAnnotation.type]
-                  ?.color || 'text-gray-600'
-              }`}
+              className={`text-xs px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap ${chrome.bgColor} ${chrome.color}`}
             >
-              {/* 只显示完整类型名，不要 label[0] + label 造成「背 背景」 */}
-              {brewliaApi.annotationTypeLabel(hoveredAnnotation.type) ||
-                t.brew.annotationFallback}
+              {/* 只显示完整类型名，不要 label[0] + label。 */}
+              {chrome.label || t.brew.annotationFallback}
             </span>
             <span
               className={`text-sm font-medium ${currentTheme.text} min-w-0 flex-1 truncate`}
@@ -110,7 +99,6 @@ export function AnnotationTooltip({
           >
             {hoveredAnnotation.explanation}
           </p>
-          {/* 小三角指示器 */}
           <div
             className="absolute left-1/2 -translate-x-1/2 bottom-0 translate-y-full w-0 h-0 border-l-6 border-r-6 border-t-6 border-transparent"
             style={{
@@ -123,14 +111,12 @@ export function AnnotationTooltip({
   )
 }
 
-// 评论 Tooltip
-
 interface CommentTooltipProps {
   commentTooltip: { comment: CommentItem; x: number; y: number } | null
   currentTheme: ThemeConfig
   isDark: boolean
   enableAnimations: boolean
-  t: Record<string, any>
+  t: ReaderCopy
   onMouseEnter?: () => void
   onMouseLeave?: () => void
 }
@@ -144,6 +130,7 @@ export function CommentTooltip({
   onMouseEnter,
   onMouseLeave,
 }: CommentTooltipProps) {
+  const { locale } = useI18n()
   return (
     <AnimatePresence>
       {commentTooltip && (
@@ -178,7 +165,6 @@ export function CommentTooltip({
             y: '-100%',
           }}
         >
-          {/* 用户信息和时间 - 次要信息 */}
           <div
             className={`flex items-center gap-2 px-3 pt-2.5 pb-1.5 ${currentTheme.secondary}`}
           >
@@ -201,12 +187,11 @@ export function CommentTooltip({
             <span className="text-xs opacity-60">·</span>
             <span className="text-xs opacity-60">
               {new Date(commentTooltip.comment.created_at).toLocaleDateString(
-                'zh-CN',
+                locale,
                 DATE_FORMAT_SHORT,
               )}
             </span>
           </div>
-          {/* 评论内容 - 主要信息 */}
           <div className="px-3 pb-3">
             <p className={`text-sm leading-relaxed ${currentTheme.text}`}>
               {commentTooltip.comment.comment}
@@ -217,8 +202,6 @@ export function CommentTooltip({
     </AnimatePresence>
   )
 }
-
-// 评论输入弹窗
 
 interface CommentInputPopupProps {
   showCommentPopup: boolean
@@ -233,7 +216,7 @@ interface CommentInputPopupProps {
   currentTheme: ThemeConfig
   isDark: boolean
   enableAnimations: boolean
-  t: Record<string, any>
+  t: ReaderCopy
 }
 
 export function CommentInputPopup({
@@ -251,14 +234,10 @@ export function CommentInputPopup({
   enableAnimations,
   t,
 }: CommentInputPopupProps) {
-  // 内部状态：是否显示评论输入框
   const [showCommentInput, setShowCommentInput] = useState(false)
-  // 复制成功反馈
   const [copySuccess, setCopySuccess] = useState(false)
-  // 复制成功后延迟关闭的定时器
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // 当弹窗关闭时，重置内部状态
   useEffect(() => {
     if (!showCommentPopup) {
       setShowCommentInput(false)
@@ -266,7 +245,6 @@ export function CommentInputPopup({
     }
   }, [showCommentPopup])
 
-  // 清理复制定时器
   useEffect(() => {
     return () => {
       if (copyTimerRef.current) {
@@ -275,7 +253,6 @@ export function CommentInputPopup({
     }
   }, [])
 
-  // 复制选中文本
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(selectedText)
@@ -284,7 +261,6 @@ export function CommentInputPopup({
       copyTimerRef.current = setTimeout(() => {
         copyTimerRef.current = null
         setCopySuccess(false)
-        // 复制后关闭弹窗
         setShowCommentPopup(false)
         setSelectedText('')
       }, 800)
@@ -293,12 +269,10 @@ export function CommentInputPopup({
     }
   }
 
-  // 点击评论按钮
   const handleCommentClick = () => {
     setShowCommentInput(true)
   }
 
-  // 关闭弹窗时重置状态
   const handleClose = () => {
     setShowCommentPopup(false)
     setSelectedText('')
@@ -306,14 +280,12 @@ export function CommentInputPopup({
     setShowCommentInput(false)
   }
 
-  // 提交评论后重置
   const handleSubmit = () => {
     submitComment()
-    // submitComment 内部会重置状态，这里重置本地状态
     setShowCommentInput(false)
   }
 
-  // 防止点击按钮时清除浏览器的文本选中状态
+  // 点击按钮不得清掉文本选中。
   const preventSelectionClear = useCallback((e: MouseEvent) => {
     e.preventDefault()
   }, [])
@@ -353,7 +325,6 @@ export function CommentInputPopup({
           onClick={(e: MouseEvent) => e.stopPropagation()}
         >
           {!showCommentInput ? (
-            /* 第一步：显示复制和评论按钮（上下布局） */
             <div className="flex flex-col p-1">
               <button
                 onMouseDown={preventSelectionClear}
@@ -386,9 +357,7 @@ export function CommentInputPopup({
               </button>
             </div>
           ) : (
-            /* 第二步：显示评论输入框 */
             <div className="w-72">
-              {/* 选中的文本预览 */}
               <div
                 className={`px-3 py-2 border-b ${currentTheme.border} ${isDark ? 'bg-white/5' : 'bg-black/5'} rounded-t-xl`}
               >
@@ -402,7 +371,6 @@ export function CommentInputPopup({
                 </p>
               </div>
 
-              {/* 评论输入区 */}
               <div className="p-3">
                 <textarea
                   value={commentInput}
@@ -413,7 +381,6 @@ export function CommentInputPopup({
                   maxLength={500}
                 />
 
-                {/* 操作按钮 */}
                 <div className="flex items-center justify-between mt-2">
                   <span className={`text-xs ${currentTheme.secondary}`}>
                     {commentInput.length}

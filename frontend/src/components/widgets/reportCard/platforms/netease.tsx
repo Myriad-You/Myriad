@@ -6,7 +6,6 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../../../contexts/I18nContext'
 import { useLoopAnimation } from '../../../../hooks/animation'
 
-// Netease组件（完整版）
 export const MusicStatsWidget = memo(
   ({
     data,
@@ -19,11 +18,10 @@ export const MusicStatsWidget = memo(
   }) => {
     const { t } = useI18n()
 
-    // 🆕 使用触发式动画 - triggerKey 变化时播放一轮，完成后自动释放
     const { isAnimating } = useLoopAnimation({
-      duration: 5000, // 气泡动画约5秒
-      trigger: triggerKey, // 状态切换时触发
-      enabled: allowLoop, // 低端设备禁用
+      duration: 5000,
+      trigger: triggerKey,
+      enabled: allowLoop,
     })
 
     const canAnimate = allowLoop && isAnimating
@@ -132,7 +130,7 @@ export const MusicStatsWidget = memo(
                   fontSize: `${Math.min(Math.max(10, bubble.size / 4), 16)}px`,
                   textShadow: `0 1px 1px rgba(255,255,255,0.8)`,
                   zIndex: 10,
-                  willChange: 'transform', // GPU 加速
+                  willChange: 'transform',
                   transform: 'translateZ(0)',
                   backfaceVisibility: 'hidden',
                 }}
@@ -141,7 +139,6 @@ export const MusicStatsWidget = memo(
                   scale: 1,
                   opacity: 1,
                   y: [0, -8, 0, 8, 0],
-                  // 移除动态 boxShadow 动画，使用静态样式代替
                 }}
                 transition={{
                   scale: {
@@ -257,7 +254,6 @@ export const NeteaseWidget = memo(
     const [currentItemIndex, setCurrentItemIndex] = useState(0)
     const prevShowOverviewRef = useRef(showOverview)
 
-    // 当从概览切换到库项目模式时，立即更新索引
     useEffect(() => {
       if (
         prevShowOverviewRef.current &&
@@ -269,7 +265,6 @@ export const NeteaseWidget = memo(
       prevShowOverviewRef.current = showOverview
     }, [showOverview, libraryItems.length])
 
-    // 在非概览模式下，定时轮换项目 - timeout 链 + 可见性暂停
     useEffect(() => {
       if (!showOverview && libraryItems.length > 0) {
         let cancelled = false

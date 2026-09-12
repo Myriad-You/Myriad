@@ -4,7 +4,7 @@ import type {
 } from '../../../services/agent/types'
 import type { BehaviorPlan, BehaviorSnapshot } from '../motion/behavior'
 import type { SpeechProsodyPlan } from './prosody'
-import contract from '../../../../../shared/merope_performance_contract.json'
+import contract from '../../../../../shared/merope_performance_contract.json' with { type: 'json' }
 import { speechAccentBehaviorId } from '../motion/speechBehaviorPlan'
 import { unquotedSpeechText } from './phraseGestures'
 
@@ -46,9 +46,10 @@ export function sanitizeSpeechPhrases(value: unknown): SpeechPhrase[] {
       continue
     }
     const text = item.text.normalize('NFKC')
+    const units = Iterator.from(text).reduce((n: number) => n + 1, 0)
     if (
-      [...text].length < 2 ||
-      [...text].length > 120 ||
+      units < 2 ||
+      units > 120 ||
       text.trim() !== text ||
       result.some((other) => other.text === text)
     ) {
@@ -66,11 +67,10 @@ export function mergeSpeechPhrases(
 ): SpeechPhrase[] {
   const phrases = new Map(previous.map((phrase) => [phrase.text, phrase]))
   for (const phrase of sanitizeSpeechPhrases(incoming)) {
-    // A correction (including `none`) replaces and refreshes just this fragment.
     phrases.delete(phrase.text)
     phrases.set(phrase.text, phrase)
   }
-  return [...phrases.values()].slice(-24)
+  return Iterator.from(phrases.values()).toArray().slice(-24)
 }
 
 export function directorPhraseCoverage(
@@ -92,7 +92,6 @@ export function directorPhraseCoverage(
   })
 }
 
-/** Same commitment boundary as refinement; never invent a second speech clock. */
 export function upcomingSpeechText(
   base: SpeechProsodyPlan,
   text: string,
@@ -109,8 +108,6 @@ export function upcomingSpeechText(
       future = true
     }
   })
-  // Strip quotes before slicing, so a cut inside a quote cannot turn another
-  // person's words into this character's emotional evidence.
   return future ? unquotedSpeechText(text.normalize('NFKC')).slice(from) : ''
 }
 
@@ -128,7 +125,7 @@ function accentCommitment(
   )
 }
 
-/** Only a future beat can change delivery; the scheduler owns commitment. */
+/** Only a future beat can change delivery */
 export function refineSpeechPhrases(
   base: SpeechProsodyPlan,
   text: string,

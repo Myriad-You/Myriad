@@ -1,30 +1,12 @@
 ---
-/**
- * 页面加载过渡组件
- * 提供流畅自然的页面切换体验
- */
 ---
 
 <div id="page-loader" class="page-loader" aria-live="polite" aria-busy="true">
-  <!-- 统一 Spinner（正典定义见下方 is:global 块），屏幕居中 -->
   <span class="spinner page-loader-spinner" aria-hidden="true"></span>
-  <!-- 品牌字：独立锚定屏幕底部居中，不参与环的居中布局 -->
   <h1 class="loader-brand">Myriad</h1>
 </div>
 
-<!-- React 应用占位容器，初始隐藏，等待完全加载后显示 -->
 <style is:global>
-  /* ============================================================
-     统一 Spinner 正典（.spinner / .spinner-center / spinner-reveal）
-     内联于首屏 HTML：水合前的引导加载器与水合后的 React
-     <Spinner> 组件（components/Spinner.tsx）共用这一份。
-     尺寸/颜色/粗细/速度由 CSS 变量注入。
-
-     @keyframes spin：App 全局正典在 styles/animations.css（随
-     App.tsx 加载）。此处保留同名副本，确保水合前引导环即可旋转
-     （animations.css 随 React 入口加载，晚于首屏）。tapp 沙箱因
-     DOM 隔离另有副本，属 SDK 契约。
-     ============================================================ */
   .spinner {
     --spinner-size: 16px;
     --spinner-color: currentcolor;
@@ -41,15 +23,10 @@
     border-top-color: var(--spinner-color);
     border-radius: 50%;
 
-    /* spinner-reveal（0s + backwards）令环在 --spinner-delay 内保持
-       不可见：快于该时长完成的加载全程不闪环。默认 0s 无任何影响。
-       仅 spin 驱动 transform；reveal 只动 opacity，避免双动画抢 transform */
     animation:
       spin var(--spinner-speed) linear infinite,
       spinner-reveal 0s linear var(--spinner-delay, 0s) backwards;
 
-    /* GPU 层提示：不写静态 transform，以免与 @keyframes spin 的
-       transform 插值在部分引擎上互相覆盖导致“看得见但不转” */
     backface-visibility: hidden;
   }
 
@@ -59,14 +36,12 @@
     }
   }
 
-  /* 区块/页面级加载位：flex 居中容器 */
   .spinner-center {
     display: flex;
     align-items: center;
     justify-content: center;
   }
 
-  /* 首屏关键副本（与 animations.css 同名同值；水合前可用） */
   @keyframes spin {
     from {
       transform: rotate(0deg) translateZ(0);
@@ -77,15 +52,13 @@
     }
   }
 
-  /* 尊重用户动画偏好：放慢而非停止（停止会让加载态不可辨） */
+  /* 减少动效时放慢，不要停（停了加载态不可辨）。 */
   @media (prefers-reduced-motion: reduce) {
     .spinner {
       animation-duration: 1.5s, 0s;
     }
   }
 
-  /* 引导加载环参数（须与 .spinner 同处首屏内联，避免 dev 下
-     scoped 样式经 Vite 模块晚到造成的尺寸闪变；双类压过默认值） */
   .page-loader .page-loader-spinner {
     --spinner-size: 48px;
     --spinner-thickness: 3px;
@@ -103,14 +76,12 @@
     }
   }
 
-  /* 应用容器初始状态：不可见但保留布局 */
   #app-root {
     opacity: 0;
     transition: opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1);
     transition-delay: 0.05s;
   }
 
-  /* 应用就绪后显示 */
   #app-root.app-ready {
     opacity: 1;
     transition-delay: 0s;
@@ -132,17 +103,14 @@
       opacity 0.5s cubic-bezier(0.4, 0, 0.2, 1),
       visibility 0s linear 0s;
 
-    /* 性能优化 */
     will-change: opacity;
     transform: translateZ(0);
   }
 
-  /* 深色模式加载器 */
   html.dark .page-loader {
     background: var(--bg-primary, #0a0a0a);
   }
 
-  /* 隐藏状态 - 使用更长的过渡时间实现平滑淡出 */
   .page-loader.hidden {
     opacity: 0;
     pointer-events: none;
@@ -165,14 +133,9 @@
     margin: 0;
   }
 
-  /* 引导加载环参数在上方 is:global 块（须首屏内联，见彼处注释） */
 </style>
 
 <script>
-  /**
-   * 页面加载器控制类
-   * 协调 PageLoader 隐藏和 React 应用显示的时序
-   */
   class PageLoader {
     private loader: HTMLElement | null
     private appRoot: HTMLElement | null
@@ -182,12 +145,9 @@
 
     constructor() {
       this.loader = document.getElementById('page-loader')
-      this.appRoot = null // 延迟获取，因为 React 可能还没挂载
+      this.appRoot = null
     }
 
-    /**
-     * 显示加载器
-     */
     show(): void {
       if (!this.loader) return
 
@@ -201,50 +161,36 @@
       this.isShowing = true
       this.isAppReady = false
 
-      // 同时隐藏应用
       if (this.appRoot) {
         this.appRoot.classList.remove('app-ready')
       }
     }
 
-    /**
-     * 标记应用已就绪（React 基础框架已加载）
-     * 各个组件会独立控制自己的淡入显示
-     */
     markAppReady(): void {
       if (this.isAppReady) return
       this.isAppReady = true
 
-      // 获取应用根元素
       this.appRoot = document.getElementById('app-root')
 
-      // 使用双帧确保 DOM 已更新
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          // 显示应用容器
           if (this.appRoot) {
             this.appRoot.classList.add('app-ready')
-            // 过渡完成后移除 opacity/transition，避免 Safari 持续保持合成层
-            // 导致 position:fixed 子元素（如顶栏、iframe）无法正常绘制
-            // 使用 setTimeout 而非 transitionend，因为 transitionend 可能被 background-color 等其他过渡先触发
+            /* 过渡完去掉 opacity/transition，避免 Safari 合成层导致 fixed 子元素画不出。用 setTimeout，transitionend 可能被其他属性先触发。 */
             const appRootRef = this.appRoot
             setTimeout(() => {
               if (appRootRef) {
                 appRootRef.style.opacity = '1'
                 appRootRef.style.transition = 'none'
               }
-            }, 600) // 0.5s transition + 0.1s buffer
+            }, 600)
           }
 
-          // 立即开始隐藏加载器
           this.hide(50)
         })
       })
     }
 
-    /**
-     * 隐藏加载器
-     */
     hide(delay: number = 200): void {
       if (!this.loader) return
 
@@ -257,22 +203,15 @@
       }, delay)
     }
 
-    /**
-     * 检查是否正在显示
-     */
     isActive(): boolean {
       return this.isShowing
     }
 
-    /**
-     * 检查应用是否已就绪
-     */
     isReady(): boolean {
       return this.isAppReady
     }
   }
 
-  // 创建全局实例
   if (typeof window !== 'undefined') {
     ;(window as any).pageLoader = new PageLoader()
   }

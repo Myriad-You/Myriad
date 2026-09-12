@@ -46,7 +46,7 @@ pub fn extract_platform_items(data: &Value, platform: &str) -> Vec<Value> {
         }
     }
 
-    // Older filtered caches dropped covers/appids — fill from cache/raw/{platform}.json.
+    // 从 `cache/raw/{platform}.json` 补封面 / appid。
     enrich_items_from_raw_cache(platform, &mut items);
     items
 }
@@ -90,7 +90,7 @@ fn enrich_items_from_raw_cache(platform: &str, items: &mut [Value]) {
         return;
     }
     let slug = platform.to_ascii_lowercase();
-    // netease_music catalog → netease_filtered / raw/netease.json
+    // netease_music catalog → raw/netease.json
     let raw_slug = match slug.as_str() {
         "netease_music" => "netease",
         other => other,
@@ -354,7 +354,7 @@ fn set_item_image_if_empty(item: &mut Value, url: &str) {
     item["cover"] = json!(url);
 }
 
-/// Netease: fill album cover + song id from liked_songs (filtered only keeps title/artist).
+/// Netease: fill album cover + song id from liked_songs.
 fn enrich_netease_items(items: &mut [Value], raw: &Value) {
     // title|artist → (id, picUrl, album, fee, is_vip)
     let mut by_key: HashMap<String, (String, String, String, Option<i64>, bool)> = HashMap::new();
@@ -716,7 +716,7 @@ fn enrich_bangumi_items(items: &mut [Value], raw: &Value) {
                 }
             }
         }
-        // progress / rating for media card
+        // `rate` / `ep_status` for media card
         if let Some(meta) = item.get_mut("metadata").and_then(|m| m.as_object_mut()) {
             if let Some(rate) = c.get("rate").and_then(|v| v.as_i64()) {
                 if rate > 0 {
@@ -890,7 +890,7 @@ fn normalize_platform_item(item: &Value, platform: &str, index: usize) -> Value 
                 .and_then(|m| first_string(m, &["image", "cover", "display_image", "thumbnail"]))
         })
         .or_else(|| {
-            // Steam: derive CDN art from appid when cover was stripped by older filters.
+            // Steam：封面缺失时用 appid 拼 CDN header。
             let appid = obj
                 .and_then(|o| first_string(o, &["appid"]))
                 .or_else(|| {
@@ -1025,7 +1025,7 @@ fn project_unknown_content(entry: &Value, platform: &str, index: usize) -> Value
         out["image"] = json!(img);
         out["cover"] = out["image"].clone();
     }
-    // Promote playtime / progress from metadata for extractLibraryStats consumers.
+    // Promote playtime / progress from metadata.
     if let Some(m) = metadata.as_object() {
         if let Some(pt) = first_string(m, &["playtime", "playtime_forever"]) {
             out["playtime"] = json!(pt);
@@ -1103,8 +1103,7 @@ const SKIP_ANALYSIS_KEYS: &[&str] = &[
     "average_completion",
     "hardcore_score",
     "display_gamertag",
-    // `artist_analysis` is usually a nested object (top_artists inside); nested
-    // lists are not walked here. Agent fallback covers netease top_artists.
+    // `artist_analysis` is a nested object; nested lists are not walked here.
 ];
 
 fn project_content_analysis(analysis: &Value, platform: &str, start_index: usize) -> Vec<Value> {
@@ -1298,8 +1297,8 @@ fn promote_entry_fields(item: &mut Value, entry: &Map<String, Value>) {
 
 /// Extract items for Agent random-content sampling.
 ///
-/// Prefers legacy raw top-level arrays (`games`, `videos`, …) when present, then
-/// falls back to [`extract_platform_items`] for filtered-cache shapes.
+/// Prefers legacy raw top-level arrays (`games`, `videos`, …) when present.
+/// YouTube and MAL fall back to [`extract_platform_items`].
 pub fn extract_platform_items_for_random(platform: &str, data: &Value) -> Vec<Value> {
     let platform = platform.to_ascii_lowercase();
     match platform.as_str() {
@@ -1518,7 +1517,7 @@ mod tests {
 
     #[test]
     fn extract_netease_songs_and_enrich_from_raw_file() {
-        // Filtered shape (title+artist only) + write a temp raw file for enrich.
+        // Filtered `content_analysis` shape; no raw file.
         let data = json!({
             "content_analysis": {
                 "music_summary": "songs",

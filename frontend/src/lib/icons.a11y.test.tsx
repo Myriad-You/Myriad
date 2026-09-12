@@ -1,9 +1,4 @@
-/**
- *   pnpm exec tsx --test src/lib/icons.a11y.test.tsx
- *
- * Ensures Simple Icons re-exports from @lib/icons do not expose nameless
- * role="img" (Lighthouse svg-img-alt), while still supporting accessible names.
- */
+/** Si* re-exports must stay decorative (no nameless role=img). */
 
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'

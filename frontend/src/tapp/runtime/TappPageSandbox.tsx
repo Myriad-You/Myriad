@@ -1,9 +1,3 @@
-/**
- * Tapp Page 沙箱组件
- *
- * 用于渲染 Tapp 的页面模式（全屏应用）
- */
-
 import type { TappCodeStructure, TappInstance } from '../types'
 import type { AnimationConfigRef, SafeInsets } from './sandbox'
 import type { TappBridge } from './TappBridge'
@@ -77,77 +71,34 @@ import { onSpaNavigation } from './spaNavigation'
 import { createTappBridge } from './TappBridge'
 import { TappRuntimeGrant } from './TappRuntimeGrant'
 import { useSandboxSubscriptions } from './useSandboxSubscriptions'
-import {
-  isForeignTappKvChange,
-  onTappSettingsChange,
-  onTappSharedChange,
-  onTappStorageChange,
-} from './WidgetRuntimeSignals'
+import { bindAllTappKvChanges } from './WidgetRuntimeSignals'
 
-// 核心模块
-
-// 处理器
-
-// WebKit/Safari 引擎检测：统一走 platformDetect（与 OS/硬件档位共用 UA 基础）
-// 供运行页工具栏 portal、禁用多窗口等宿主决策使用。
 export { isWebKit } from '../../utils/platformDetect'
 
 export interface TappPageSandboxProps {
-  /** Tapp 实例 */
   tappInstance: TappInstance
-  /** Tapp 代码 */
   code: TappCodeStructure
-  /** 准备就绪回调 */
   onReady?: () => void
-  /** 错误回调 */
   onError?: (error: Error) => void
-  /** 销毁回调 */
   onDestroy?: () => void
-  /** 自定义类名 */
   className?: string
-  /** 自定义样式 */
   style?: React.CSSProperties
-  /** 安全区域内边距 */
   safeInsets?: SafeInsets
-  /**
-   * Headless "core" 模式：不渲染任何 UI，只运行 core（大脑）代码。
-   * 用于 background.require 声明的后台运行，取代过去在后台隐形挂一整页的做法。
-   */
+  /** Headless core：无 UI，只跑 core。 */
   headless?: boolean
-  /**
-   * Session-local Playground preview. It uses the production iframe/CSP shell,
-   * but never issues a backend Runtime Grant or registers host-mutating APIs.
-   */
+  /** 会话内 Playground 预览。用生产 iframe/CSP，无 Runtime Grant。UI handlers 仍会挂上。 */
   previewMode?: boolean
-  /** Shared Playground tab stores so Page and Widget preview see the same KV. */
   previewStores?: {
     storage: Map<string, unknown>
     settings: Map<string, unknown>
     shared: Map<string, unknown>
+    private: Map<string, unknown>
   }
-  /**
-   * When true, host has hidden this surface (e.g. multi-window minimize).
-   * Composed with document visibility into a single lifecycle:pause/resume
-   * stream (see useSandboxSubscriptions). Minimize intentionally keeps the
-   * sandbox/iframe alive so restore is instant; only work is frozen via
-   * lifecycle events (no teardown).
-   */
+  /** 宿主隐藏此表面（如最小化）。与 document 可见性合成 lifecycle:pause/resume。隐藏保留 iframe，不销毁。 */
   paused?: boolean
 }
 
-/**
- * 生成 headless "core" 沙箱 HTML
- *
- * 无 UI、无 pageHtml、无 page 模块，只运行 core（大脑）代码，
- * body 为空。用于 background.require 声明的后台运行——取代过去在后台
- * 隐形挂一整页（含完整 DOM）的做法，把后台实例从「整页」降到「无头 JS」。
- *
- * 契约：需要后台运行的逻辑（拉数据/轮询/调度）应写在 core 里，并在
- * `window._TAPP_MODE === 'core'` 时执行；UI（page/widget）作为纯视图订阅。
- *
- * 复用与 page 相同的 CSP nonce / 安全包装器 / SDK，确保 core 能正常使用
- * storage / federation / scheduler 等能力。
- */
+/** 后台逻辑写在 core，且仅在 _TAPP_MODE === 'core' 时执行。 */
 function generateHeadlessCoreHTML(
   tappInstance: TappInstance,
   code: TappCodeStructure,
@@ -159,13 +110,12 @@ function generateHeadlessCoreHTML(
   const cspOptions = cspOptionsFromPermissions(tappInstance.grantedPermissions)
   const csp = generateCSP(nonce, cspOptions)
   const securityWrapper = escapeSandboxScriptSource(
-    // 包装层的图片 URL 判断必须与 CSP 用同一份选项，否则提示与实际拦截会脱节
+    // 包装层图片 URL 判断必须与 CSP 同一份选项。
     generateSecurityWrapper(sessionToken, cspOptions.allowRemoteMedia),
   )
   const sdkCode = escapeSandboxScriptSource(
     generateFullSDK(tappInstance, sessionToken, 'headless'),
   )
-  // 'background' 模式即返回纯 code.core（无 page/widget UI 代码）
   const coreCode = escapeSandboxScriptSource(buildLayerScript(code, 'background').source)
 
   const i18nScript =
@@ -208,23 +158,6 @@ function generateHeadlessCoreHTML(
 </html>`
 }
 
-/**
- * 生成 Page 沙箱 HTML
- *
- * 支持三种渲染方式：
- * 1. 纯 JS 模式：Tapp.pages[id].render(container, props)
- * 2. 纯 HTML 模式：pageHtml 直接渲染（适合静态页面）
- * 3. 混合模式：pageHtml 定义结构 + JS 处理交互（性能最优）
- *
- * 🔒 安全特性：
- * - 使用 CSP nonce 替代 unsafe-inline，只有带正确 nonce 的脚本才能执行
- * - 安全包装器禁用危险 API（eval, Function 等）
- *
- * @param tappInstance - Tapp 实例
- * @param code - Tapp 代码结构
- * @param sessionToken - 会话 token（用于消息验证）
- * @param safeInsets - 安全区域内边距
- */
 function generatePageHTML(
   tappInstance: TappInstance,
   code: TappCodeStructure,
@@ -242,12 +175,11 @@ function generatePageHTML(
       .getPropertyValue('--color-primary')
       .trim() || '#94a3b8'
 
-  // 生成唯一 nonce（每个沙箱实例独立）
   const nonce = generateNonce()
   const cspOptions = cspOptionsFromPermissions(tappInstance.grantedPermissions)
   const csp = generateCSP(nonce, cspOptions)
   const securityWrapper = escapeSandboxScriptSource(
-    // 包装层的图片 URL 判断必须与 CSP 用同一份选项，否则提示与实际拦截会脱节
+    // 包装层图片 URL 判断必须与 CSP 同一份选项。
     generateSecurityWrapper(sessionToken, cspOptions.allowRemoteMedia),
   )
   const sdkCode = escapeSandboxScriptSource(
@@ -255,47 +187,33 @@ function generatePageHTML(
   )
   const themeCSS = generateThemeCSS(isDark, primaryColor)
 
-  // 自定义 CSS
   const customCSS = code.styles || ''
 
-  // HTML 模板（如果有）
   const hasHtmlTemplate = !!code.pageHtml
   const pageHtmlContent = code.pageHtml || ''
 
-  // 检测 pageHtml 是否已经包含分层结构
-  // 如果包含 #tapp-background 或 #tapp-content，说明 Tapp 自己定义了分层
   const hasLayeredStructure =
     pageHtmlContent.includes('id="tapp-background"') ||
     pageHtmlContent.includes("id='tapp-background'") ||
     pageHtmlContent.includes('id="tapp-content"') ||
     pageHtmlContent.includes("id='tapp-content'")
 
-  // JS 代码 - 混合模式下也会加载。core 先于 page 层执行。
   const pagePlan = buildLayerScript(code, 'page')
   const pageCode = pagePlan.source
 
-  // 已装入的模块清单（用于调试和验证）
   const loadedModulesScript = `window._TAPP_LOADED_MODULES = ${serializeSandboxScriptValue(pagePlan.includedModules)};`
 
-  // i18n 注入脚本
   const i18nScript =
     code.i18n && Object.keys(code.i18n).length > 0
       ? `window._TAPP_I18N = ${serializeSandboxScriptValue(code.i18n)};`
       : 'window._TAPP_I18N = {};'
 
-  // 使用安装时预编译的 CSS
   const tailwindCSS = code.pageCSS || ''
 
-  // 是否需要调用 Tapp.pages.render()
-  // 仅在没有 HTML 模板时才需要（纯 JS 模式）
   const needsJsRender = !hasHtmlTemplate
 
-  // 初始安全区域 padding（确保首次渲染就有正确的间距）
   const initialPadding = `${safeInsets?.top ?? 0}px ${safeInsets?.right ?? 0}px ${safeInsets?.bottom ?? 0}px ${safeInsets?.left ?? 0}px`
 
-  // 根据是否有分层结构决定 body 内容
-  // - 有分层：直接使用 pageHtmlContent（已包含 #tapp-background 和 #tapp-content）
-  // - 无分层：用默认结构包装
   const bodyContent = hasLayeredStructure
     ? `<div id="tapp-root">${pageHtmlContent}</div>`
     : `<div id="tapp-root">
@@ -338,13 +256,13 @@ function generatePageHTML(
     };
     window._TAPP_DIMENSIONS = { width: 0, height: 0, scale: 1, fontScale: 1 };
     window.addEventListener('message', function(e) {
-      var msg = e.data;
+      const msg = e.data;
       if (msg?.type === 'event' && msg.action === 'container:resize') {
         window._TAPP_DIMENSIONS = msg.payload;
-        var root = document.documentElement;
+        const root = document.documentElement;
         root.style.setProperty('--tapp-scale', msg.payload.scale || 1);
         root.style.setProperty('--tapp-font-scale', msg.payload.fontScale || 1);
-        var content = document.getElementById('tapp-content');
+        const content = document.getElementById('tapp-content');
         if (content) {
           content.style.padding =
             (msg.payload.safeInsetTop || 0) + 'px ' +
@@ -361,7 +279,6 @@ function generatePageHTML(
   <script nonce="${nonce}">${sdkCode}</script>
   ${runtimeScripts ? `<script nonce="${nonce}">${runtimeScripts}</script>` : ''}
 
-  <!-- JS 代码始终加载（用于事件绑定等） -->
   <script nonce="${nonce}">
     (function() {
       'use strict';
@@ -378,18 +295,17 @@ function generatePageHTML(
   ${
     needsJsRender
       ? `
-  <!-- 纯 JS 模式：调用 render 函数 -->
   <script nonce="${nonce}">
     (function() {
       'use strict';
       setTimeout(function() {
         try {
-          var pageKeys = Object.keys(Tapp.pages || {});
+          const pageKeys = Object.keys(Tapp.pages || {});
           if (pageKeys.length > 0) {
-            var pageId = pageKeys[0];
-            var pageDef = Tapp.pages[pageId];
+            const pageId = pageKeys[0];
+            const pageDef = Tapp.pages[pageId];
             if (pageDef && typeof pageDef.render === 'function') {
-              var container = document.getElementById('tapp-content');
+              const container = document.getElementById('tapp-content');
               container.innerHTML = '';
               pageDef.render(container, {});
             }
@@ -404,15 +320,12 @@ function generatePageHTML(
     })();
   </script>
   `
-      : '<!-- 混合/HTML 模式：HTML 已渲染，JS 用于交互 -->'
+      : ''
   }
 </body>
 </html>`
 }
 
-/**
- * Tapp Page 沙箱组件
- */
 export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
   tappInstance,
   code,
@@ -446,7 +359,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
   const { locale, t } = useI18n()
   const animationConfig = useAnimationLevel()
 
-  // 使用 ref 存储对象引用，避免依赖变化触发 iframe 重建
+  // 对象引用放 ref，避免 deps 重建 iframe
   const tappInstanceRef = useRef(tappInstance)
   const codeRef = useRef(code)
   const safeInsetsRef = useRef(safeInsets)
@@ -466,47 +379,13 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
     bridgeRef.current?.setSurfaceActive(!paused)
   }, [paused, isReady])
 
-  // 同一 Tapp 的其他 Page、headless core 或 Widget 修改 storage 时通知本沙箱。
   useEffect(
     () =>
-      onTappStorageChange((change) => {
-        const bridge = bridgeRef.current
-        if (!isForeignTappKvChange(change, tappInstance.id, bridge)) return
-        bridge.emit('storageChanged', {
-          key: change.key,
-          operation: change.operation,
-        })
-      }),
+      bindAllTappKvChanges(() => bridgeRef.current, tappInstance.id),
     [tappInstance.id],
   )
 
-  useEffect(
-    () =>
-      onTappSharedChange((change) => {
-        const bridge = bridgeRef.current
-        if (!isForeignTappKvChange(change, tappInstance.id, bridge)) return
-        bridge.emit('sharedChanged', {
-          key: change.key,
-          operation: change.operation,
-        })
-      }),
-    [tappInstance.id],
-  )
-
-  useEffect(
-    () =>
-      onTappSettingsChange((change) => {
-        const bridge = bridgeRef.current
-        if (!isForeignTappKvChange(change, tappInstance.id, bridge)) return
-        bridge.emit('settingsChanged', {
-          key: change.key,
-          operation: change.operation,
-        })
-      }),
-    [tappInstance.id],
-  )
-
-  // 生成稳定的代码指纹，只有代码实际变化时才重建 iframe
+  // code/runtime 指纹：iframe remount 的输入之一。
   const codeFingerprint = useMemo(
     () => getCodeStructureFingerprint(code, headless ? 'background' : 'page'),
     [code, headless],
@@ -523,7 +402,6 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
     animationConfigRef.current = animationConfig
   }, [animationConfig])
 
-  // 尺寸更新
   useEffect(() => {
     if (!iframeRef.current || dimensions.width === 0) return
     const dims = {
@@ -536,18 +414,15 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
     sendResizeMessage(iframeRef.current, dims)
   }, [dimensions, safeInsets])
 
-  // 语言变化
   useEffect(() => {
     if (!bridgeRef.current || !isReady) return
     bridgeRef.current.emit('locale:change', locale)
   }, [locale, isReady])
 
-  // 构建媒体状态对象（供 mediaStateChange 事件使用）— 与 Widget 共用纯函数
   const buildMediaState = useCallback((detail: Record<string, unknown>) => {
     return buildTappMediaState(detail)
   }, [])
 
-  // 媒体状态变化 - 转发给 Tapp 沙箱
   useEffect(() => {
     if (!isReady) return
 
@@ -582,15 +457,13 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
 
     const currentGlobalState = (window as any).__musicPlayerState
     if (currentGlobalState) {
-      // 直接从全局状态构建并推送
       bridge.emit('mediaStateChange', buildMediaState(currentGlobalState))
     } else {
       // 全局状态尚未初始化，触发同步请求（监听器已就位，会收到结果）
       window.dispatchEvent(new CustomEvent('request-music-state-sync'))
     }
 
-    // 延迟重推：确保 iframe SDK 消息监听器就绪后再推一次
-    // 解决初始推送早于 SDK 初始化的竞态
+    // SDK 监听器就绪后再推一次
     const retryTimer = setTimeout(pushCurrentState, 150)
 
     return () => {
@@ -641,7 +514,6 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
     }
   }, [isReady])
 
-  // 动画级别变化
   useEffect(() => {
     if (!isReady) return
     bridgeRef.current?.emit('animationLevel:change', animationConfig.level)
@@ -659,10 +531,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
     [onError],
   )
 
-  // 初始化
-  // 依赖优化：只使用稳定的 ID 和指纹，不使用对象引用
-  // Safari 兼容：使用 imperative iframe 创建，确保 srcdoc 在 DOM 插入前设置
-  // Safari/WebKit 不会重新渲染已挂载的 sandboxed iframe 的 srcdoc 变更
+  // Safari：imperative iframe。已挂载的 sandboxed iframe 不会因 srcdoc 变更重绘。
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
@@ -674,7 +543,6 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
     // 生成 session token（独立于 Bridge，确保 HTML 生成和 Bridge 使用同一 token）
     const sessionToken = generateSessionToken()
 
-    // 创建 iframe
     const iframe = document.createElement('iframe')
     iframe.className = 'tapp-page-iframe'
     iframe.setAttribute('sandbox', IFRAME_SANDBOX_ATTRS)
@@ -683,7 +551,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
     iframe.allowFullscreen = true
     iframeRef.current = iframe
 
-    // 初始化 Bridge（在 DOM 插入前设置消息监听）
+    // DOM 插入前挂消息监听
     const bridge = createTappBridge()
     bridgeRef.current = bridge
 
@@ -702,7 +570,6 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
     // Apply current minimize/paused state (effect may have run before bridge existed).
     bridge.setSurfaceActive(!pausedRef.current)
 
-    // 注册所有处理器
     registerLifecycleHandlers(
       bridge,
       currentTappInstance,
@@ -737,6 +604,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
         previewStores?.settings ?? previewSettingsRef.current,
         currentCode.assets || {},
         previewStores?.shared,
+        previewStores?.private,
       )
       registerWidgetInvalidateTargetHandler(bridge, currentTappInstance, {
         preview: true,
@@ -862,14 +730,13 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
       applySandboxCapabilityProfile(bridge, headless ? 'headless' : 'page')
     }
 
-    // 收集 URL 启动参数传递给沙箱
     const launchParams: Record<string, string> = {}
     try {
       const sp = new URLSearchParams(window.location.search)
       sp.forEach((v, k) => {
         launchParams[k] = v
       })
-    } catch (_) {
+    } catch {
       /* ignore */
     }
 
@@ -925,6 +792,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
       if (!container.contains(iframe)) {
         container.appendChild(iframe)
       }
+      // appendChild 后再赋 srcdoc。
       iframe.srcdoc = html
       if (cancelled) {
         detachIframe()
@@ -947,10 +815,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
       bridge.destroy()
       onDestroy?.()
     }
-    // 稳定依赖：只有这些真正改变时才重建 iframe
-    // - tappInstance.id: Tapp 实例 ID
-    // - codeFingerprint: 代码指纹（内容变化才会变）
-    // 注意：safeInsets 通过 ref 获取，不作为依赖（通过 postMessage 动态更新）
+    // remount 看下方 deps，不只 id/指纹；safeInsets 走 ref + postMessage
   }, [
     tappInstance.id,
     runtimeFingerprint,
@@ -984,7 +849,6 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
       }
 
       try {
-        // srcdoc sandbox is same-document accessible for this assignment
         ;(
           iframe.contentWindow as Window & {
             _TAPP_LAUNCH_PARAMS?: Record<string, string>
@@ -1016,7 +880,6 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
       }}
       data-no-ripple
     >
-      {/* iframe 内联挂载到本容器（全浏览器一致） */}
     </div>
   )
 }

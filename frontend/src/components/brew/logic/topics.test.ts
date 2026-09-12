@@ -1,10 +1,3 @@
-/**
- * 主题聚类与关键词打标的单元测试。
- *
- * Run from frontend/:
- *   pnpm test:unit -- src/components/brew/logic/topics.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { daysAgo, makeItem, NOW } from './fixtures.ts'
@@ -15,6 +8,7 @@ import {
   PREDEFINED_TOPICS,
   TOPIC_MIN_ITEMS,
   TOPIC_WINDOW_DAYS,
+  topicDisplayName,
   topicHue,
   topicNameKey,
   topicSourceCount,
@@ -23,7 +17,7 @@ import {
 describe('PREDEFINED_TOPICS', () => {
   it('固定 10 个 key，且没有「其他」桶', () => {
     assert.equal(PREDEFINED_TOPICS.length, 10)
-    assert.deepEqual([...PREDEFINED_TOPICS], [
+    assert.deepEqual(Iterator.from(PREDEFINED_TOPICS).toArray(), [
       'engineering',
       'systems',
       'ai',
@@ -51,7 +45,7 @@ describe('PREDEFINED_TOPICS', () => {
   })
 
   it('nameKey 是 i18n key 而不是展示文案', () => {
-    // 主题名走 i18n、跟界面语言；写死中文会让 en-US / ja-JP 露出中文
+    // 主题名走 i18n，不写死中文。
     for (const key of PREDEFINED_TOPICS) {
       assert.match(topicNameKey(key)!, /^topic[A-Z]/)
     }
@@ -98,7 +92,6 @@ describe('inferTopicByKeywords', () => {
     const item = { title: 'Rust 写的 kernel 模块', summary: null }
     const first = inferTopicByKeywords(item)
     assert.equal(first, 'engineering', '按预定义顺序，engineering 在 systems 之前')
-    // 同一输入永远同一输出
     assert.equal(inferTopicByKeywords(item), first)
   })
 
@@ -175,12 +168,11 @@ describe('clusterTopics', () => {
     ]
     const keys = clusterTopics(items, NOW).map((t) => t.key)
     assert.deepEqual(keys, ['ai', 'engineering', 'systems'])
-    // 打乱输入顺序也是同一个结果
-    assert.deepEqual(clusterTopics([...items].reverse(), NOW).map((t) => t.key), keys)
+    assert.deepEqual(clusterTopics(items.toReversed(), NOW).map((t) => t.key), keys)
   })
 
   it('聚类只看 item.topic，不重新跑关键词', () => {
-    // 标题里全是 systems 的词，但已标 ai —— 打标是离线的唯一真相
+    // 已有 topic 是唯一真相，不按标题重打。
     const items = Array.from({ length: 3 }, (_, i) =>
       makeItem({
         id: i + 1,
@@ -220,5 +212,18 @@ describe('topicSourceCount', () => {
     ]
     const [topic] = clusterTopics(items, NOW)
     assert.equal(topicSourceCount(topic), 2)
+  })
+})
+
+describe('topicDisplayName', () => {
+  it('reads the i18n field without a Record cast', () => {
+    assert.equal(
+      topicDisplayName({ key: 'ai', nameKey: 'topicAi' }, { topicAi: '人工智能' }),
+      '人工智能',
+    )
+    assert.equal(
+      topicDisplayName({ key: 'ai', nameKey: 'topicAi' }, {}),
+      'ai',
+    )
   })
 })

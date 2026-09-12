@@ -1,6 +1,6 @@
 import type { AgentInteractionV2, TappInstance } from '../types'
 import type { TappBridge } from './TappBridge'
-import { currentCopy } from '../../i18n/localeCopy'
+import { currentCopy, formatCurrent } from '../../i18n/localeCopy'
 import { executeFrontendAction } from '../../services/agent'
 import { userFacingError } from '../../utils/userFacingError'
 import * as TappApiService from '../services/TappApiService'
@@ -71,8 +71,6 @@ async function executeHostIntent(
       ) {
         throw new TypeError(currentCopy().errors.agentInputEmpty)
       }
-      // This adapter deliberately delegates confirmation to DataExchangeBroker
-      // so a cross-Tapp read has exactly one detailed, one-shot consent popup.
       return requestDataExchangeFromHost(bridge, {
         targetTappId,
         exportId,
@@ -156,14 +154,14 @@ export function registerAgentInteractionHandlers(
     }
     const confirmed =
       intent.type === 'dataExchange.request' ||
-      window.confirm(
-        currentCopy()
-          .tapp.agentIntentConfirm.replace(
-            '{name}',
-            tappInstance.manifest.name,
-          )
-          .replace('{type}', intent.type || 'unknown')
-          .replace('{reason}', intent.reason || ''),
+      Boolean(
+        globalThis.window?.confirm?.(
+          formatCurrent(currentCopy().tapp.agentIntentConfirm, {
+            name: tappInstance.manifest.name,
+            type: intent.type || 'unknown',
+            reason: intent.reason || '',
+          }),
+        ),
       )
     if (!confirmed) return { success: false, error: 'User denied Agent intent' }
     try {

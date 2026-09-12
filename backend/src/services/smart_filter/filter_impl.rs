@@ -23,7 +23,7 @@ impl SmartFilter {
             username: user
                 .and_then(|u| u.get("name"))
                 .and_then(|v| v.as_str())
-                .unwrap_or("MyAnimeList 用户")
+                .unwrap_or("MyAnimeList user")
                 .to_string(),
             user_id: user
                 .and_then(|u| u.get("id"))
@@ -165,7 +165,7 @@ impl SmartFilter {
             .and_then(|v| v.as_f64());
 
         let collection_summary = format!(
-            "MyAnimeList 收藏 {} 部（动画 {} / 漫画 {}），完成 {} 部，正在进行 {} 部",
+            "MyAnimeList collection: {} titles (anime {} / manga {}), completed {}, currently {}",
             subjects.len(),
             subject_type_distribution
                 .get("anime")
@@ -205,14 +205,14 @@ impl SmartFilter {
 
     /// Xbox 成就过滤：OpenXBL achievements bundle → 成就向画像
     ///
-    /// 可拿字段全部榨干：profile settings（头像/GS/等级/信誉/展示名）+
+    /// 可拿字段全部榨干：profile settings（头像/GS/账号档/信誉/展示名）+
     /// titles（进度/封面/设备/最近游玩）。平均完成度只计「有成就系统」的作品，
     /// 避免 PC 商店无成就条目把均值压到接近 0。
     pub(crate) fn filter_xbox(data: &Value) -> Result<SmartFilteredData, String> {
         let fallback_gamertag = data
             .get("gamertag")
             .and_then(|v| v.as_str())
-            .unwrap_or("Xbox 玩家")
+            .unwrap_or("Xbox Gamer")
             .to_string();
         let xuid = data
             .get("xuid")
@@ -416,7 +416,7 @@ impl SmartFilter {
         top_completed.truncate(20);
 
         let gaming_summary = format!(
-            "Xbox Gamerscore {}，共 {} 款游戏（{} 款含成就），{} 款全成就，累计解锁 {}/{} 成就，平均完成度 {:.1}%",
+            "Xbox Gamerscore {}, {} games ({} with achievements), {} completed, unlocked {}/{} achievements, average completion {:.1}%",
             gamerscore,
             games_count,
             achievement_games,
@@ -459,13 +459,12 @@ impl SmartFilter {
         })
     }
 
-    /// PSN 奖杯过滤：trophyTitles bundle → 奖杯向画像
     /// PSN 奖杯过滤：trophySummary + trophyTitles + social_metadata → 奖杯向画像
     pub(crate) fn filter_psn(data: &Value) -> Result<SmartFilteredData, String> {
         let fallback_id = data
             .get("online_id")
             .and_then(|v| v.as_str())
-            .unwrap_or("PSN 玩家")
+            .unwrap_or("PSN player")
             .to_string();
         let account_id = data
             .get("account_id")
@@ -546,7 +545,7 @@ impl SmartFilter {
                     .get("trophyTitleName")
                     .and_then(|v| v.as_str())?
                     .to_string();
-                // 跳过隐藏/空壳
+                // 跳过空壳名称
                 if name.trim().is_empty() {
                     return None;
                 }
@@ -649,7 +648,7 @@ impl SmartFilter {
         top_completed.truncate(20);
 
         let trophy_summary_text = format!(
-            "PSN 奖杯等级 {}，白金 {} / 金 {} / 银 {} / 铜 {}（共 {}），{} 款游戏，{} 款 100% 完成，平均完成度 {:.1}%",
+            "PSN trophy level {}, platinum {} / gold {} / silver {} / bronze {} ({} total), {} games, {} at 100%, average completion {:.1}%",
             trophy_level,
             platinum_count,
             gold_count,
@@ -787,7 +786,7 @@ impl SmartFilter {
         let fetched_count = tweets.len();
 
         let post_summary = format!(
-            "X 账号 @{} 共有约 {} 条帖子，抓取 {} 条时间线，累计获赞 {}，转推 {}，评论 {}",
+            "X account @{} has about {} posts; fetched {} timeline items, {} likes, {} reposts, {} replies",
             username, tweet_count_metric, fetched_count, total_likes, total_retweets, total_replies
         );
 
@@ -847,7 +846,7 @@ impl SmartFilter {
 
         let following_summary = if following_fetched > 0 {
             format!(
-                "共关注 {} 个账号（已抓取 {} 个），样本按粉丝数取前 {} 个；关注对象反映用户的兴趣圈层",
+                "Following {} accounts (fetched {}), sample of top {} by follower count; follows reflect interest circles",
                 following_count.unwrap_or(following_fetched as i64),
                 following_fetched,
                 following_sample.len()
@@ -896,7 +895,7 @@ impl SmartFilter {
                     total_retweets_received: total_retweets,
                     total_replies_received: total_replies,
                     total_impressions,
-                    // 已放弃用户 OAuth，不再抓 likes；字段保留兼容旧报告结构
+                    // `liked_posts_count` 恒 0；字段保留给报告结构
                     liked_posts_count: 0,
                 },
                 recent_posts,
@@ -1212,29 +1211,26 @@ impl SmartFilter {
             },
         );
 
-        // 触达用「万」更符合中文语感；不足 1 万时给具体数
         let reach_phrase = if total_member_reach >= 10_000 {
-            format!("触达约 {:.1} 万人", total_member_reach as f64 / 10_000.0)
+            format!("reach ~{:.1}k people", total_member_reach as f64 / 1_000.0)
         } else if total_member_reach > 0 {
-            format!("触达约 {} 人", total_member_reach)
+            format!("reach ~{total_member_reach} people")
         } else {
             String::new()
         };
         let age_phrase = account_age_years
             .filter(|y| *y >= 1)
-            .map(|y| format!("，{} 年老号", y))
+            .map(|y| format!(", {y}-year-old account"))
             .unwrap_or_default();
         let community_summary = format!(
-            "Discord 用户 {}{} 加入 {} 个服务器（自建 {}，管理 {}{}），绑定 {} 个第三方账号（已验证 {}）",
-            display_name,
-            age_phrase,
+            "Discord user {display_name}{age_phrase} joined {} servers (owned {}, manages {}{}), linked {} third-party accounts ({} verified)",
             guilds.len(),
             owned_guild_count,
             manage_guild_count,
             if reach_phrase.is_empty() {
                 String::new()
             } else {
-                format!("，{}", reach_phrase)
+                format!(", {reach_phrase}")
             },
             connections.len(),
             verified_connection_count

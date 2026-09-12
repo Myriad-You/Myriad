@@ -10,7 +10,7 @@ pub async fn security_headers_middleware(req: Request, next: Next) -> Response {
     let is_production =
         env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string()) == "production";
 
-    // img-src: dual-path image loading (MYR-039 / image proxy).
+    // img-src: dual-path image loading (image proxy).
     // Non-hotlink https hosts are used as original URLs in <img src>, so CSP must
     // allow http(s) remote images. We avoid the bare `*` scheme wildcard (which
     // would also permit data-adjacent exotic schemes) while keeping dual-path working.
@@ -18,7 +18,7 @@ pub async fn security_headers_middleware(req: Request, next: Next) -> Response {
     const IMG_SRC: &str = "img-src 'self' data: blob: https: http:";
 
     let csp = if is_production {
-        // PRODUCTION: Get allowed API origins from env (fallback to default)
+        // PRODUCTION: connect-src list from CSP_CONNECT_SRC (fallback to default)
         // wss/stun/turn: Shengwang realtime talk (Agora RTC) plus any other WebRTC.
         let allowed_api_origins = env::var("CSP_CONNECT_SRC")
             .unwrap_or_else(|_| "'self' https: wss: stun: turn:".to_string());
@@ -82,7 +82,7 @@ pub async fn security_headers_middleware(req: Request, next: Next) -> Response {
     // X-Frame-Options: 防止点击劫持
     headers.insert(header::X_FRAME_OPTIONS, "DENY".parse().unwrap());
 
-    // X-XSS-Protection: XSS过滤器（虽然现代浏览器已不需要，但为了兼容性保留）
+    // X-XSS-Protection: 1; mode=block
     headers.insert(
         "X-XSS-Protection".parse::<header::HeaderName>().unwrap(),
         "1; mode=block".parse().unwrap(),

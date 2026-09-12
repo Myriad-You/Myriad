@@ -23,23 +23,21 @@ function run(label, command, args, cwd = root) {
   if (result.status !== 0) throw new Error(`${label}: failed (exit ${result.status}, signal ${result.signal ?? 'none'})`)
 }
 try {
-  run('Nonblocking Chat director: coalescing, backpressure and cancellation', 'cargo',
-    ['test', '-p', 'myriad-backend', 'chat_director', '--', '--test-threads=1', '--quiet'])
-  run('Playback direction: post-terminal delivery, ownership and cancellation', 'cargo',
-    ['test', '-p', 'myriad-backend', 'playback_direction', '--', '--test-threads=1', '--quiet'])
-  run('Semantic fixtures: production contracts and honest grading (no model)', 'cargo',
-    ['test', '-p', 'myriad-backend', 'semantic_eval', '--', '--test-threads=1', '--quiet'])
+  run('Merope core: persona, wardrobe and rig contracts', 'cargo',
+    ['test', '-p', 'myriad-merope', '--', '--test-threads=1', '--quiet'])
+  run('Rig API: provenance and activation contracts', 'cargo',
+    ['test', '-p', 'myriad-backend', 'api::merope_rig::', '--', '--test-threads=1', '--quiet'])
+  run('Agent services: director, memory, events, policy and semantic fixtures (no model)', 'cargo',
+    ['test', '-p', 'myriad-backend', 'services::agent::', '--', '--test-threads=1', '--quiet'])
+  run('Agent API: touch validation, presence, ownership and request contracts', 'cargo',
+    ['test', '-p', 'myriad-backend', 'api::agent::', '--', '--test-threads=1', '--quiet'])
   run('Merope production behavior: perception, speech, director, scheduler and rig', process.execPath,
-    ['node_modules/tsx/dist/cli.mjs', '--test', 'src/features/merope/**/*.test.ts', 'src/features/merope/*.test.ts'], join(root, 'frontend'))
+    ['node_modules/tsx/dist/cli.mjs', '--test', 'src/features/merope/**/*.test.ts', 'src/features/merope/*.test.ts', 'src/components/agent/meropeVitals.test.ts'], join(root, 'frontend'))
   run('Frontend wire → backend Chat and event readers', 'cargo',
     ['test', '-p', 'myriad-backend', 'behavior_contract', '--', '--include-ignored', '--test-threads=1', '--nocapture'])
   env.MEROPE_DELIVERY_WIRE_PATH = join(temporary, 'delivery.json')
   run('Backend parallel director → frontend scheduler → body output', process.execPath,
     ['node_modules/tsx/dist/cli.mjs', '--test', 'src/features/merope/motion/speechDelivery.contract.test.ts'], join(root, 'frontend'))
-  run('Memory interpretation and bounded failures (no database)', 'cargo',
-    ['test', '-p', 'myriad-backend', 'merope::chat_remember', '--', '--test-threads=1', '--quiet'])
-  run('Event gates, policy and opening-intent lifecycle', 'cargo',
-    ['test', '-p', 'myriad-backend', 'agent::consciousness', '--', '--test-threads=1', '--quiet'])
   if (database) {
     run('Dedicated database: corrections, stale writes, isolation and concurrent dedup', 'cargo',
       ['test', '-p', 'myriad-backend', 'store::memory_tests', '--', '--ignored', '--test-threads=1', '--quiet'])

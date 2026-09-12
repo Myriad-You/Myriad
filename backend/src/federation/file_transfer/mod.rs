@@ -1,4 +1,4 @@
-//! 联邦文件传输模块（Phase 5 补全 — Layer 3 增强）
+//! 联邦文件传输模块
 //!
 //! 基于 federation_file_transfers 表实现：
 //! 1. 文件元数据发送与接收

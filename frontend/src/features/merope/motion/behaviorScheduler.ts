@@ -27,18 +27,10 @@ export interface BehaviorPlanReconcileReport extends BehaviorPlanRetimeReport {
 /** Preparation may adapt, but cannot chase a moving event indefinitely. */
 export const MAX_PREPARATION_RETIME_MS = 160
 
-/** Retreat length for a mid-sized gesture caught halfway through its stroke. */
 export const NOMINAL_RECOVERY_MS = 180
-/** A retreat is still one motion: never a snap, never a second gesture. */
 export const MIN_RECOVERY_MS = 90
 export const MAX_RECOVERY_MS = 420
 
-/**
- * Stroke points that an interruption pulls back onto the relaxation peg.
- *
- * `start` is excluded: a behavior that has not started yet is completed
- * outright rather than retreating, so every surviving case already began.
- */
 const COLLAPSIBLE_STROKE_ROLES = [
   'ready',
   'strokeStart',
@@ -52,14 +44,7 @@ interface RuntimeBehavior {
   realizer: RealizerResult | null
 }
 
-/**
- * Renderer-neutral temporal scheduler.
- *
- * It owns mutable semantic time pegs and behavior lifecycle only. Channel
- * ownership remains with RigMotionCoordinator, and pose generation remains in
- * the body adapter. This keeps scheduling reusable without creating another
- * renderer or another pose writer.
- */
+/** It owns mutable semantic time pegs and behavior lifecycle only. */
 export class BehaviorScheduler {
   private readonly pegs = new Map<string, TimePeg>()
   private readonly behaviors = new Map<string, RuntimeBehavior>()
@@ -95,10 +80,7 @@ export class BehaviorScheduler {
     this.tick(nowMs)
   }
 
-  /**
-   * Applies a revised timing estimate without restarting compatible behavior.
-   * This is the event-to-TimePeg bridge used by streaming speech prosody.
-   */
+  /** Applies a revised timing estimate without restarting compatible behavior. */
   retimePlan(plan: BehaviorPlan, nowMs: number): BehaviorPlanRetimeReport {
     const compatible = plan.behaviors.every((next) => {
       const current = this.behaviors.get(next.id)?.spec
@@ -122,11 +104,7 @@ export class BehaviorScheduler {
     return { compatible: true, pegs: results }
   }
 
-  /**
-   * Reconciles one incremental revision without restarting unchanged behavior.
-   * New increments are appended, removed increments recover, and compatible
-   * increments keep their lifecycle while their future TimePegs move.
-   */
+  /** Reconciles one incremental revision without restarting unchanged behavior. */
   reconcilePlan(
     plan: BehaviorPlan,
     nowMs: number,
@@ -205,10 +183,9 @@ export class BehaviorScheduler {
     for (const runtime of this.behaviors.values()) {
       snapshots.push(this.snapshot(runtime, now))
     }
-    return snapshots.sort((left, right) => left.startedAtMs - right.startedAtMs)
+    return snapshots.toSorted((left, right) => left.startedAtMs - right.startedAtMs)
   }
 
-  /** Restates a candidate plan with the scheduler's accepted peg positions. */
   resolvePlan(plan: BehaviorPlan): BehaviorPlan {
     return {
       ...plan,
@@ -230,9 +207,9 @@ export class BehaviorScheduler {
     if (!Number.isFinite(requestedAtMs)) return 'invalid'
     const now = finiteTime(nowMs)
     let nextAt = Math.max(0, requestedAtMs)
-    const affected = [...this.behaviors.values()].filter((runtime) =>
-      timingPegIds(runtime.spec).includes(pegId),
-    )
+    const affected = Iterator.from(this.behaviors.values())
+      .filter((runtime) => timingPegIds(runtime.spec).includes(pegId))
+      .toArray()
     for (const runtime of affected) {
       const anticipation = runtime.spec.anticipation === pegId
       const role = timingPegRole(runtime.spec, pegId)
@@ -270,10 +247,6 @@ export class BehaviorScheduler {
     return 'retimed'
   }
 
-  /**
-   * Retreats a live behavior. Omit `recoveryMs` to let the retreat scale with
-   * what the body actually has to undo.
-   */
   interrupt(behaviorId: string, nowMs: number, recoveryMs?: number): boolean {
     const runtime = this.behaviors.get(behaviorId)
     if (
@@ -300,12 +273,6 @@ export class BehaviorScheduler {
         atMs: now + recovery,
         revision: 0,
       })
-      // Every stroke point still ahead of the interruption collapses onto the
-      // relaxation peg. Leaving one in the future makes the timing
-      // non-monotonic, and both readers of that timing then misbehave: the
-      // realizer refuses the behavior outright, so it disappears in one frame
-      // instead of retreating, and `phaseAt` walks back into `committed`,
-      // which the reaction policy still reads as an occupied resource.
       const collapsed: Partial<BehaviorTiming> = {}
       for (const role of COLLAPSIBLE_STROKE_ROLES) {
         if (this.pegTime(runtime.spec.timing[role]) > now) {
@@ -354,7 +321,7 @@ export class BehaviorScheduler {
   }
 
   private interruptAll(nowMs: number, recoveryMs: number | undefined): void {
-    for (const behaviorId of [...this.behaviors.keys()]) {
+    for (const behaviorId of Iterator.from(this.behaviors.keys()).toArray()) {
       this.interrupt(behaviorId, nowMs, recoveryMs)
     }
   }
@@ -404,16 +371,6 @@ export class BehaviorScheduler {
     }
   }
 
-  /**
-   * How long this particular gesture needs to put itself away.
-   *
-   * A flat retreat made a full-extent `emphasize` caught at its peak release
-   * in the same time as a barely-begun nod, which reads as the body giving up
-   * rather than finishing. Three things decide it, and nothing else: how much
-   * of the outbound arc was actually delivered, how far out the pose reaches,
-   * and how quickly this delivery moves. The bounds keep the result one
-   * motion — never a snap, never long enough to read as a second gesture.
-   */
   private recoveryFor(spec: ScheduledBehavior, nowMs: number): number {
     const timing = this.resolvedTiming(spec)
     const outbound = timing.strokeEnd - timing.start

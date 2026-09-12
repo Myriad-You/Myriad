@@ -27,11 +27,6 @@ export const SINGING_SAMPLE_INTERVAL_MS = 25
 export const TRACK_SWITCH_HOLD_MS = 12_000
 export const MUSIC_LEASE_TTL_MS = 250
 
-/**
- * Music owns articulation and rhythmic head/body movement. Sparse facial and
- * gaze reactions belong to the reaction planner; a groove is not permanent
- * evidence of delight, agreement, or attention.
- */
 const MUSIC_CHANNELS = [
   'mouth',
   'headBody',
@@ -41,10 +36,8 @@ export interface SingingFrame {
   apply: SingingApply
   signal: MusicMotionSignal | null
   articulation: SpeechArticulation
-  /** Stable media identity; a change invalidates tempo evidence immediately. */
   trackId: string | null
   behaviorPlan: BehaviorPlan | null
-  /** Filled from the global scheduler by MotionRuntime. */
   behaviors: readonly import('./behavior').BehaviorSnapshot[]
 }
 
@@ -55,7 +48,11 @@ export interface MusicMotionClock {
 }
 
 export interface MusicMotionAudio {
-  getCurrentAudio: () => { paused: boolean; currentTime: number } | null
+  getCurrentAudio: () => {
+    paused: boolean
+    currentTime: number
+    ended?: boolean
+  } | null
   getMotionAudioFeatures: (audio: {
     paused: boolean
     currentTime: number
@@ -102,10 +99,6 @@ function musicTrackInputFingerprint(track: MusicTrackInput): string {
   return JSON.stringify([track.trackId, 'lines', duration, lines])
 }
 
-/**
- * One 25ms sampler for every mounted face. Reads the analysis-only audio tap,
- * independently of the display signal cache, and publishes a gated frame.
- */
 export class MusicMotionSource {
   private readonly listeners = new Set<SingingFrameListener>()
   private readonly clock: MusicMotionClock
@@ -224,7 +217,13 @@ export class MusicMotionSource {
 
   sampleNow(timestamp: number = this.clock.now()): SingingFrame {
     const nowMs = timestamp
-    const gap = singingPlaybackGap(this.playing, this.switching)
+    const audio = this.audio.getCurrentAudio()
+    // The media element can finish before the React playback snapshot catches
+    // up. A finished song is not an indefinitely quiet/settling music lease.
+    const gap = singingPlaybackGap(
+      this.playing && !audio?.ended,
+      this.switching,
+    )
     let holdExpired = false
     if (gap === 'hold') {
       if (!this.holdUntil) this.holdUntil = timestamp + TRACK_SWITCH_HOLD_MS
@@ -233,11 +232,7 @@ export class MusicMotionSource {
       this.holdUntil = 0
     }
 
-    const audio = this.audio.getCurrentAudio()
     const audioPaused = !audio || audio.paused
-    // The player rebuilds its audio element across tracks. A boolean "already
-    // connected" latched on the first one and never reconnected, leaving the
-    // analyser wired to a dead element and every band reading zero.
     if (audio && this.connectedAudio !== audio) {
       this.connectedAudio = this.audio.connectAudioToAnalyser(audio)
         ? audio

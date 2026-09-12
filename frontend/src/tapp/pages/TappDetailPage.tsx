@@ -1,8 +1,3 @@
-/**
- * Tapp 详情 / 配置页
- * 对齐新版设置页：SettingSection + SettingGroup + 设置原语
- */
-
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import type { ToastType } from '../../components/Toast'
 import type {
@@ -34,10 +29,11 @@ import {
 import { useNavigate, useParams } from 'react-router-dom'
 import AnimatedView from '../../components/AnimatedView'
 import {
-  getTappPermissionGuide,
+  getTappPermissionGuides,
   guideDomProps,
   InfoActionCard,
   InputItem,
+  loadTappPermissionGuides,
   NumberItem,
   SegmentedControl,
   SelectItem,
@@ -99,11 +95,24 @@ function formatCredentialBindingDetail(
 
 export function TappDetailPage() {
   const { id } = useParams<{ id: string }>()
-  // react-router already decodes path params; avoid double-decode (throws on lone `%`)
+  // react-router 已解码；不要二次 decode。
   const tappId = id ?? ''
   const navigate = useNavigate()
   const { t, format, locale } = useI18n()
   const { catalog: g, bindGuide, renderGuide } = useSettingGuide()
+  const [permGuides, setPermGuides] = useState(() =>
+    getTappPermissionGuides(locale),
+  )
+  useEffect(() => {
+    let cancelled = false
+    setPermGuides(getTappPermissionGuides(locale))
+    void loadTappPermissionGuides(locale).then((next) => {
+      if (!cancelled) setPermGuides(next)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [locale])
   const { isAuthenticated, hasChecked } = useAuth()
   const { preferences: moduleVisibility } = useModuleVisibilityPreferences()
   const moduleOpenToAll = canAccessModuleVisibility(
@@ -127,7 +136,6 @@ export function TappDetailPage() {
     null,
   )
   const [inboundGuardBusy, setInboundGuardBusy] = useState(false)
-  /** 本地输入缓存，避免中文输入被打断 */
   const [localInputValues, setLocalInputValues] = useState<
     Record<string, string>
   >({})
@@ -365,7 +373,6 @@ export function TappDetailPage() {
         setIsRunning(runtime.isRunning(tappId))
         setAppVisibility(instance.visibility === 'admin' ? 'admin' : 'all')
 
-        // 设置属于已登录查看者的控制面数据；访客只使用 manifest 默认值。
         if (hasChecked && isAuthenticated) {
           const mayManageInstallation =
             instance.userRole === 'admin' ||
@@ -424,7 +431,6 @@ export function TappDetailPage() {
     t,
   ])
 
-  // 与 run/store 同款壳层：进场 + 返回时 requestClose 再 navigate（列表下 fixed 叠化）
   const {
     shellClassName,
     scrimClassName,
@@ -624,7 +630,6 @@ export function TappDetailPage() {
     (tapp.userRole === 'user' && tapp.isTemporary === true)
   const canManageVisibility =
     tapp.userRole === 'admin' && tapp.isAdminTapp === true
-  // 安装记录被判为 error：包与当前格式不符，启动只会失败，先给原因再谈操作。
   const isUnusable =
     tapp.installationStatus === 'error' || tapp.status === 'error'
   const unusableReason = isUnusable
@@ -641,7 +646,6 @@ export function TappDetailPage() {
   const iconStyle = getTappIconStyle(manifest)
   const hasManifestSettings = Boolean(manifest.settings?.length)
   const hasManifestCredentials = Boolean(manifest.credentials?.length)
-  /** 已登录用户始终展示应用设置组（含空态 / 只读说明） */
   const showSettingsGroup = isAuthenticated
 
   const settingsGroupDesc = hasManifestSettings
@@ -658,7 +662,6 @@ export function TappDetailPage() {
     privileged: t.tapp.privilegedPermission,
   } as const
 
-  /** 高等级优先：特权 → 提升 → 基础 */
   const permissionLevels = ['privileged', 'elevated', 'basic'] as const
   type PermissionLevelKey = (typeof permissionLevels)[number]
   interface PermissionListItem {
@@ -849,7 +852,6 @@ export function TappDetailPage() {
       : []),
   ]
 
-  // Copy disabled on the whole card (`copyable={false}`); no per-field copyText.
   const infoFields = [
     ...(isUnusable
       ? [
@@ -912,14 +914,14 @@ export function TappDetailPage() {
     {
       key: 'installed',
       label: t.tapp.installedAt,
-      value: new Date(tapp.installedAt).toLocaleDateString(),
+      value: new Date(tapp.installedAt).toLocaleDateString(locale),
     },
     ...(tapp.lastRunAt
       ? [
           {
             key: 'lastRun',
             label: t.tapp.lastRunAt,
-            value: new Date(tapp.lastRunAt).toLocaleString(),
+            value: new Date(tapp.lastRunAt).toLocaleString(locale),
           },
         ]
       : []),
@@ -1015,7 +1017,6 @@ export function TappDetailPage() {
           </button>
         }
       >
-        {/* 应用信息 + 主操作 */}
         <div data-tour="tapp-detail-overview">
         <SettingGroup
           id="tapp-overview"
@@ -1031,7 +1032,6 @@ export function TappDetailPage() {
         </SettingGroup>
         </div>
 
-        {/* 应用设置 */}
         {showSettingsGroup && (
           <div data-tour="tapp-detail-settings">
           <SettingGroup
@@ -1302,7 +1302,6 @@ export function TappDetailPage() {
           </SettingGroup>
         )}
 
-        {/* 权限：按等级分组，等级内部三列 */}
         <div data-tour="tapp-detail-permissions">
         <SettingGroup
           id="tapp-permissions"
@@ -1349,12 +1348,11 @@ export function TappDetailPage() {
                     }
                     {...bindGuide(levelGuidePath, levelGuide)}
                   >
-                    {/* 等级内部三列排布权限卡（只读 + 单项指南） */}
                     <div className="tapp-perm-cards checkbox-group-options">
                       {items.map(({ key, label, description, Icon }) => {
                         const guidePath = tappPermissionGuidePath(key)
                         const guide = renderGuide(
-                          getTappPermissionGuide(locale, key),
+                          permGuides[key],
                         )
                         return (
                           <div

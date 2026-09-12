@@ -9,18 +9,18 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // Brew 内容读取（读 DB brew_items + brew_sources）
     registry.register(Capability {
         id: "brew.read".to_string(),
-        name: "Brew 内容读取".to_string(),
-        description: "从数据库读取 Brew 订阅文章列表。支持 sourceId / sourceName / source（id 或名称）、limit、since。".to_string(),
+        name: "Read feeds".to_string(),
+        description: "Read Brew articles from the database.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "source": { "type": "string", "description": "订阅源 ID（数字字符串）或名称；与 sourceId/sourceName 对齐" },
-                "sourceId": { "type": "integer", "description": "订阅源 ID" },
-                "sourceName": { "type": "string", "description": "订阅源名称（模糊包含匹配）" },
+                "source": { "type": "string", "description": "Feed id (numeric string) or name; same as sourceId/sourceName" },
+                "sourceId": { "type": "integer", "description": "Feed id" },
+                "sourceName": { "type": "string", "description": "Feed name (loose contains match)" },
                 "limit": { "type": "integer", "default": 50 },
-                "since": { "type": "string", "format": "date-time", "description": "RFC3339，仅返回此后发布的文章" }
+                "since": { "type": "string", "format": "date-time", "description": "RFC3339; only items published after this" }
             }
         }),
         output_schema: json!({
@@ -42,18 +42,18 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 订阅源列表（读 DB，支持宽松名称匹配）
     registry.register(Capability {
         id: "brew.sources".to_string(),
-        name: "订阅源列表".to_string(),
-        description: "从数据库列出/查找 Brew 订阅源（含友情链接）。支持 category 筛选（友情链接/友链/friends）与 sourceType=link|rss|brewlia；名称宽松匹配（exact/contains/fuzzy）。用户说「友情链接」「友链」时用 category=友情链接；「看看 X」时先用本能力定位 source，再把 sourceId 传给 brew.items；有本地条目时不要改走 ai.webSearch。".to_string(),
+        name: "Feed list".to_string(),
+        description: "List or find Brew feeds.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query, IntentAction::Create],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "query": { "type": "string", "description": "按名称/URL/分类/描述宽松匹配" },
-                "name": { "type": "string", "description": "同 query，按名称查找" },
-                "keyword": { "type": "string", "description": "同 query" },
-                "category": { "type": "string", "description": "按分类筛选；支持前端别名 friends→友情链接、mine→我；多分类逗号分隔按 token 匹配" },
-                "sourceType": { "type": "string", "description": "来源类型: rss|link|brewlia；friendlink/友链/友情链接 视为 link" },
+                "query": { "type": "string", "description": "Loose match on name / URL / category / description" },
+                "name": { "type": "string", "description": "Same as query, match by name" },
+                "keyword": { "type": "string", "description": "Same as query" },
+                "category": { "type": "string", "description": "Filter by category; aliases friends→友情链接, mine→我; comma-separated tokens" },
+                "sourceType": { "type": "string", "description": "Source type: rss|link|brewlia; friendlink/友链/友情链接 count as link" },
                 "action": { "type": "string", "enum": ["list", "add", "refresh"] },
                 "url": { "type": "string" }
             }
@@ -79,22 +79,22 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 文章列表
     registry.register(Capability {
         id: "brew.items".to_string(),
-        name: "文章列表".to_string(),
-        description: "获取订阅源中的文章列表。优先传 sourceId（来自 brew.sources）；也支持 sourceName/name/query 宽松匹配订阅源名。用户说「看看 X」且本地有该源文章时用本能力，不要 webSearch。".to_string(),
+        name: "Article list".to_string(),
+        description: "List articles from a feed.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query, IntentAction::Navigate, IntentAction::Summarize, IntentAction::Analyze],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "sourceId": { "type": "integer", "description": "订阅源ID（推荐：由 brew.sources 返回后传入）" },
-                "sourceName": { "type": "string", "description": "订阅源名称（宽松匹配）" },
-                "name": { "type": "string", "description": "同 sourceName/query" },
-                "query": { "type": "string", "description": "按源名/作者/URL 筛选" },
-                "limit": { "type": "integer", "default": 20, "description": "返回数量" },
+                "sourceId": { "type": "integer", "description": "Feed id (prefer the id returned by brew.sources)" },
+                "sourceName": { "type": "string", "description": "Feed name (loose match)" },
+                "name": { "type": "string", "description": "Same as sourceName/query" },
+                "query": { "type": "string", "description": "Filter by source name / author / URL" },
+                "limit": { "type": "integer", "default": 20, "description": "How many to return" },
                 "unreadOnly": { "type": "boolean", "default": false },
                 "starred": { "type": "boolean" },
-                "keyword": { "type": "string", "description": "按关键词筛选" },
-                "selectFirst": { "type": "boolean", "description": "是否选择第一条进行导航" }
+                "keyword": { "type": "string", "description": "Filter by keyword" },
+                "selectFirst": { "type": "boolean", "description": "Navigate to the first match" }
             }
         }),
         output_schema: json!({
@@ -102,7 +102,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "properties": {
                 "items": { "type": "array" },
                 "total": { "type": "integer" },
-                "navigation": { "type": "object", "description": "导航信息（如果 selectFirst=true）" }
+                "navigation": { "type": "object", "description": "Navigation when selectFirst=true" }
             }
         }),
         required_permissions: vec!["brew:read".to_string()],
@@ -114,9 +114,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 阅读统计（聚合 brew_sources / brew_items / brew_user_states）
     registry.register(Capability {
         id: "brew.stats".to_string(),
-        name: "阅读统计".to_string(),
-        description: "从数据库聚合 Brew 阅读统计：订阅源数、文章数、当前用户未读/收藏数。"
-            .to_string(),
+        name: "Reading stats".to_string(),
+        description: "Show Brew reading stats.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query, IntentAction::Analyze],
         input_schema: json!({
@@ -141,8 +140,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 文章内容（读 DB brew_items）
     registry.register(Capability {
         id: "brew.article".to_string(),
-        name: "文章内容".to_string(),
-        description: "获取单篇 Brew 文章完整内容。按 item id（整数或字符串）、guid 或 url/link 从 brew_items 解析。".to_string(),
+        name: "Article".to_string(),
+        description: "Load one Brew article by id, guid, or URL.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![
             IntentAction::Query,
@@ -152,12 +151,12 @@ pub fn register(registry: &mut CapabilityRegistry) {
         input_schema: json!({
             "type": "object",
             "properties": {
-                "articleId": { "type": ["string", "integer"], "description": "文章 ID（i32）或 guid/link" },
-                "itemId": { "type": ["string", "integer"], "description": "同 articleId" },
-                "id": { "type": ["string", "integer"], "description": "同 articleId" },
-                "url": { "type": "string", "description": "文章原始链接" },
-                "link": { "type": "string", "description": "同 url" },
-                "sourceId": { "type": "integer", "description": "订阅源 ID（可选，缩小匹配范围）" }
+                "articleId": { "type": ["string", "integer"], "description": "Article id (i32) or guid/link" },
+                "itemId": { "type": ["string", "integer"], "description": "Same as articleId" },
+                "id": { "type": ["string", "integer"], "description": "Same as articleId" },
+                "url": { "type": "string", "description": "Original article URL" },
+                "link": { "type": "string", "description": "Same as url" },
+                "sourceId": { "type": "integer", "description": "Optional feed id to narrow the match" }
             }
         }),
         output_schema: json!({
@@ -181,15 +180,15 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 订阅源发现
     registry.register(Capability {
         id: "brew.discover".to_string(),
-        name: "订阅源发现".to_string(),
-        description: "通过 URL 或关键词发现 RSS/Atom 订阅源".to_string(),
+        name: "Discover feeds".to_string(),
+        description: "Find RSS/Atom feeds by URL or keyword.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "url": { "type": "string", "description": "RSS/Atom 源 URL 或网站 URL" },
-                "query": { "type": "string", "description": "搜索关键词，用于查找常见源" }
+                "url": { "type": "string", "description": "RSS/Atom feed URL or site URL" },
+                "query": { "type": "string", "description": "Keyword to find common feeds" }
             }
         }),
         output_schema: json!({
@@ -209,7 +208,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
                         }
                     }
                 },
-                "suggestions": { "type": "array", "description": "如果未找到精确匹配，提供建议的源" }
+                "suggestions": { "type": "array", "description": "Suggested feeds when there is no exact match" }
             }
         }),
         required_permissions: vec![],
@@ -221,18 +220,18 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 添加订阅
     registry.register(Capability {
         id: "brew.subscribe".to_string(),
-        name: "添加订阅".to_string(),
-        description: "添加新的 RSS/Atom 订阅源".to_string(),
+        name: "Subscribe".to_string(),
+        description: "Add an RSS/Atom feed.".to_string(),
         category: CapabilityCategory::DataWrite,
         supported_actions: vec![IntentAction::Create],
         input_schema: json!({
             "type": "object",
             "required": ["url"],
             "properties": {
-                "url": { "type": "string", "description": "订阅源 URL" },
-                "name": { "type": "string", "description": "自定义名称（可选，默认从源获取）" },
-                "category": { "type": "string", "description": "分类文件夹" },
-                "updateInterval": { "type": "integer", "description": "更新间隔（分钟）", "default": 30 }
+                "url": { "type": "string", "description": "Feed URL" },
+                "name": { "type": "string", "description": "Optional custom name; default comes from the feed" },
+                "category": { "type": "string", "description": "Category folder" },
+                "updateInterval": { "type": "integer", "description": "Refresh interval in minutes", "default": 30 }
             }
         }),
         output_schema: json!({
@@ -248,7 +247,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
         requires_ai: false,
         estimated_duration_ms: Some(5000),
         requires_confirmation: true,
-        confirmation_message: Some("即将添加新的 RSS/Atom 订阅源".to_string()),
+        confirmation_message: Some("This will add a new RSS/Atom feed".to_string()),
         risk_level: RiskLevel::Medium,
         ..Default::default()
     });
@@ -257,14 +256,14 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 权限用 brew:read：共享库下普通用户只读订阅源，但仍可维护自己的阅读状态
     registry.register(Capability {
         id: "brew.mark".to_string(),
-        name: "标记文章状态".to_string(),
-        description: "标记 Brew 文章为已读/未读/收藏/稍后阅读（仅当前用户的个人状态）".to_string(),
+        name: "Mark articles".to_string(),
+        description: "Mark articles read, unread, saved, or later.".to_string(),
         category: CapabilityCategory::DataWrite,
         supported_actions: vec![IntentAction::Update],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "itemId": { "type": "integer", "description": "文章 ID" },
+                "itemId": { "type": "integer", "description": "Article id" },
                 "action": { "type": "string", "enum": ["read", "unread", "star", "unstar", "later"] }
             },
             "required": ["itemId", "action"]
@@ -285,23 +284,23 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 生成阅读列表（默认仅本地 brew_items；联网需 allowWebSearch=true）
     registry.register(Capability {
         id: "brew.generateReadingList".to_string(),
-        name: "生成阅读列表".to_string(),
-        description: "根据用户需求从本地订阅筛选生成阅读列表。本地关键词无匹配时返回诚实空结果与建议，不会自动强制 ai.webSearch。联网补充必须同时满足：步骤参数 allowWebSearch=true，以及当前用户已被授予 ai:search。本地路径只需要 brew:read。".to_string(),
+        name: "Reading list".to_string(),
+        description: "Build a reading list from local feeds.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query, IntentAction::Recommend],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "criteria": { "type": "string", "description": "用户的筛选条件/需求描述" },
-                "keyword": { "type": "string", "description": "本地标题/正文关键词" },
-                "topic": { "type": "string", "description": "同 keyword" },
-                "query": { "type": "string", "description": "同 keyword" },
-                "maxItems": { "type": "integer", "default": 10, "description": "列表最大文章数" },
-                "sourceName": { "type": "string", "description": "限定特定订阅源" },
-                "daysBack": { "type": "integer", "default": 7, "description": "查看最近多少天的文章" },
-                "allowWebSearch": { "type": "boolean", "default": false, "description": "显式允许本地无结果时联网搜索；默认 false。真正出站还需要授予权限 ai:search" },
-                "useWebSearch": { "type": "boolean", "description": "同 allowWebSearch" },
-                "webSearch": { "type": "boolean", "description": "同 allowWebSearch" }
+                "criteria": { "type": "string", "description": "What the user wants in the list" },
+                "keyword": { "type": "string", "description": "Local title/body keyword" },
+                "topic": { "type": "string", "description": "Same as keyword" },
+                "query": { "type": "string", "description": "Same as keyword" },
+                "maxItems": { "type": "integer", "default": 10, "description": "Max articles in the list" },
+                "sourceName": { "type": "string", "description": "Limit to one feed" },
+                "daysBack": { "type": "integer", "default": 7, "description": "Look back this many days" },
+                "allowWebSearch": { "type": "boolean", "default": false, "description": "Allow a web search when local results are empty; default false. Outbound still needs granted ai:search" },
+                "useWebSearch": { "type": "boolean", "description": "Same as allowWebSearch" },
+                "webSearch": { "type": "boolean", "description": "Same as allowWebSearch" }
             }
         }),
         output_schema: json!({
@@ -327,8 +326,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // Brew 页面内容
     registry.register(Capability {
         id: "brew.page".to_string(),
-        name: "Brew 页面内容".to_string(),
-        description: "读取 Brew 信息聚合页面的详细内容。level=sources 返回订阅源列表（含 sourceType/category/siteUrl），可用 category 筛选友情链接等分类。".to_string(),
+        name: "Brew page".to_string(),
+        description: "Read Brew page content, including feed lists.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -337,18 +336,18 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "level": { 
                     "type": "string", 
                     "enum": ["sources", "items", "detail"],
-                    "description": "页面层级: sources=订阅源列表, items=文章列表, detail=文章详情"
+                    "description": "Page level: sources=feed list, items=article list, detail=article"
                 },
-                "sourceId": { "type": "integer", "description": "订阅源 ID（items/detail 层级需要）" },
-                "itemId": { "type": "string", "description": "文章 ID（detail 层级需要）" },
+                "sourceId": { "type": "integer", "description": "Feed id (required at items/detail)" },
+                "itemId": { "type": "string", "description": "Article id (required at detail)" },
                 "filter": { 
                     "type": "string", 
                     "enum": ["all", "unread", "starred", "today"],
-                    "description": "筛选条件"
+                    "description": "Filter"
                 },
                 "category": {
                     "type": "string",
-                    "description": "level=sources 时按分类筛选；支持 friends/友链→友情链接"
+                    "description": "When level=sources, filter by category; friends/友链→友情链接"
                 },
                 "limit": { "type": "integer", "default": 20 }
             }
@@ -360,16 +359,16 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "hierarchy": {
                     "type": "object",
                     "properties": {
-                        "source": { "type": "object", "description": "当前订阅源信息" },
-                        "item": { "type": "object", "description": "当前文章信息" }
+                        "source": { "type": "object", "description": "Current feed" },
+                        "item": { "type": "object", "description": "Current article" }
                     }
                 },
                 "content": {
                     "type": "object",
                     "properties": {
-                        "sources": { "type": "array", "description": "订阅源列表" },
-                        "items": { "type": "array", "description": "文章列表" },
-                        "detail": { "type": "object", "description": "文章详情" }
+                        "sources": { "type": "array", "description": "Feed list" },
+                        "items": { "type": "array", "description": "Article list" },
+                        "detail": { "type": "object", "description": "Article detail" }
                     }
                 },
                 "stats": {
@@ -401,8 +400,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // Brew 调度控制
     registry.register(Capability {
         id: "brew.schedule".to_string(),
-        name: "Brew 调度控制".to_string(),
-        description: "控制 Brew 订阅调度器".to_string(),
+        name: "Brew schedule".to_string(),
+        description: "Start, stop, or refresh the Brew scheduler.".to_string(),
         category: CapabilityCategory::SystemOp,
         supported_actions: vec![IntentAction::Update, IntentAction::Query],
         input_schema: json!({
@@ -433,7 +432,9 @@ pub fn register(registry: &mut CapabilityRegistry) {
         requires_ai: false,
         estimated_duration_ms: Some(30000),
         requires_confirmation: true,
-        confirmation_message: Some("即将控制 Brew 订阅调度器（启动/停止/刷新）".to_string()),
+        confirmation_message: Some(
+            "This will start, stop, or refresh the Brew scheduler".to_string(),
+        ),
         risk_level: RiskLevel::Medium,
         ..Default::default()
     });
@@ -445,8 +446,7 @@ mod tests {
 
     #[test]
     fn add_subscription_source_requires_brew_manage() {
-        // ADR 0013 / handoff：brew.subscribe 对应真实 host 路由
-        // POST /api/brew/sources uses privileged brew:manage, not the user-state brew:write.
+        // brew.subscribe → POST /api/brew/sources：privileged brew:manage，不是 brew:write。
         let registry = CapabilityRegistry::new();
         let capability = registry
             .get("brew.subscribe")

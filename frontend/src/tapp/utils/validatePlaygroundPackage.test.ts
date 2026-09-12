@@ -1,9 +1,3 @@
-/**
- * Pure-function tests for validatePlaygroundPackage.
- * Run from frontend/:
- *   node --experimental-strip-types --test src/tapp/utils/validatePlaygroundPackage.test.ts
- */
-
 import type { TappPlaygroundCode } from '../services/TappPlaygroundService'
 import type { TappManifest } from '../types'
 import assert from 'node:assert/strict'
@@ -65,7 +59,6 @@ function validWidgetProject(): {
   }
 }
 
-/** Widget-only: no page layer, widgets + widget code. */
 function validWidgetOnlyProject(): {
   manifest: TappManifest
   code: TappPlaygroundCode
@@ -255,7 +248,6 @@ describe('validatePlaygroundPackage', () => {
       },
       code: {
         ...code,
-        // no code.assets entry → file not written
         assets: {},
       },
     })
@@ -387,7 +379,7 @@ describe('validatePlaygroundPackage', () => {
     }
   })
 
-  it('rejects Widget confirm and Tailwind breakpoint prefixes', () => {
+  it('rejects Widget Page-only SDK: confirm, fullscreen, and model3d', () => {
     const { manifest, code } = validWidgetOnlyProject()
     const confirm = validatePlaygroundPackage({
       manifest,
@@ -401,6 +393,36 @@ describe('validatePlaygroundPackage', () => {
     if (!confirm.ok) {
       assert.ok(
         confirm.errors.some((error) => error.includes('Tapp.ui.confirm')),
+      )
+    }
+
+    const model3d = validatePlaygroundPackage({
+      manifest,
+      code: {
+        ...code,
+        widget:
+          "Tapp.widgets['card'] = { render: function () {} }; Tapp.model3d.getUrl('x');",
+      },
+    })
+    assert.equal(model3d.ok, false)
+    if (!model3d.ok) {
+      assert.ok(
+        model3d.errors.some((error) => error.includes('Tapp.model3d')),
+      )
+    }
+
+    const fullscreen = validatePlaygroundPackage({
+      manifest,
+      code: {
+        ...code,
+        widget:
+          "Tapp.widgets['card'] = { render: function () {} }; Tapp.ui.fullscreen.request();",
+      },
+    })
+    assert.equal(fullscreen.ok, false)
+    if (!fullscreen.ok) {
+      assert.ok(
+        fullscreen.errors.some((error) => error.includes('Tapp.ui.fullscreen')),
       )
     }
 

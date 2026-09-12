@@ -1,27 +1,12 @@
 /**
- * Tapp 权限配置
- *
- * 集中管理 API action → 权限映射和权限级别定义，
- * 便于维护和审计权限变更。
- *
- * Host-proxied domains (speech / brewList / federation) must stay in lockstep
- * with:
- * - `docs/development/tapp/fixtures/action_permissions.json` (this map)
- * - `docs/development/tapp/fixtures/host_route_permissions.json` (backend
- *   host_attribution route → permission)
- * - backend `TappPermission` / this file's `PERMISSION_LEVELS`
- *
- * Edit the fixtures first, then update this file and host_attribution.
- * Enforced by `permissionMapConsistency.test.ts` and Rust host_attribution tests.
+ * speech / brewList / federation 须与 fixtures 及后端 TappPermission /
+ * PERMISSION_LEVELS 同步。先改 fixtures。
  */
 
 import type { PermissionLevel, TappPermission } from '../types'
 
 type TappPermissionLevel = Exclude<PermissionLevel, 'public'>
 
-/**
- * 权限级别映射（与 TappPermission.ts 保持同步）
- */
 export const PERMISSION_LEVELS: Record<TappPermission, TappPermissionLevel> = {
   'widget:register': 'privileged',
   'platform:read': 'basic',
@@ -73,15 +58,8 @@ export const PERMISSION_LEVELS: Record<TappPermission, TappPermissionLevel> = {
   'game:session': 'basic',
 }
 
-/**
- * API action → 所需权限的静态映射表
- *
- * 使用 Map 以获得 O(1) 查找性能。
- * 'public' 表示无需权限即可调用。
- */
 export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
   new Map([
-    // 公开 API（无需权限）
     ['lifecycle.ready', 'public'],
     ['lifecycle.error', 'public'],
     ['ui.getTheme', 'public'],
@@ -111,18 +89,16 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['animation.getStaggerDelay', 'public'],
     ['dynamicContent.get', 'public'],
 
-    // Tapp API 声明系统 - 权限由后端检查
+    // 权限由后端检查。
     ['api.execute', 'public'],
     ['api.list', 'public'],
 
-    // 跨 Tapp 数据访问由双方 manifest + Runtime Grant + 每次宿主授权共同控制，
-    // 不使用可长期授予的静态权限。
+    // 双方 manifest + Runtime Grant + 每次宿主授权；无长期静态权限。
     ['dataExchange.registerProvider', 'public'],
     ['dataExchange.unregisterProvider', 'public'],
     ['dataExchange.request', 'public'],
     ['dataExchange.respond', 'public'],
 
-    // 小组件权限
     ['widget.register', 'widget:register'],
     ['widget.unregister', 'widget:register'],
     ['widget.listRegistered', 'widget:register'],
@@ -131,7 +107,6 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['widget.invalidate', 'public'],
     ['widget.invalidateTarget', 'storage:write'],
 
-    // 内容列表权限 — Tapp
     ['tappList.list', 'tappList:read'],
     ['tappList.get', 'tappList:read'],
     ['tappList.getRecent', 'tappList:read'],
@@ -143,7 +118,6 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['tappList.stop', 'tappList:manage'],
     ['tappList.export', 'tappList:manage'],
 
-    // 内容列表权限 — Brew 读取
     ['brewList.list', 'brew:read'],
     ['brewList.get', 'brew:read'],
     ['brewList.sources', 'brew:read'],
@@ -152,14 +126,12 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['brewList.discover', 'brew:manage'],
     ['brewList.exportOpml', 'brew:read'],
 
-    // 内容列表权限 — Brew 写入
     ['brewList.markRead', 'brew:write'],
     ['brewList.markUnread', 'brew:write'],
     ['brewList.markAllRead', 'brew:write'],
     ['brewList.star', 'brew:write'],
     ['brewList.unstar', 'brew:write'],
 
-    // 内容列表权限 — Brew 评论（读用 brew:read，写用 brew:commentWrite）
     ['brewList.getComments', 'brew:read'],
     ['brewList.createComment', 'brew:commentWrite'],
     ['brewList.updateComment', 'brew:commentWrite'],
@@ -167,7 +139,6 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['brewList.getReplies', 'brew:read'],
     ['brewList.createReply', 'brew:commentWrite'],
 
-    // 内容列表权限 — Brew 管理
     ['brewList.addSource', 'brew:manage'],
     ['brewList.updateSource', 'brew:manage'],
     ['brewList.deleteSource', 'brew:manage'],
@@ -176,7 +147,6 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['brewList.createCategory', 'brew:manage'],
     ['brewList.deleteCategory', 'brew:manage'],
 
-    // 平台数据权限
     ['platform.listEnabled', 'platform:read'],
     ['platform.getData', 'platform:read'],
     ['platform.getStats', 'platform:read'],
@@ -185,15 +155,12 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['platform.addItems', 'platform:write'],
     ['platform.registerPlatform', 'platform:register'],
 
-    // 站点访问统计（聚合）
     ['analytics.getSummary', 'analytics:read'],
     ['analytics.getVisitorCard', 'analytics:read'],
-    // Input/output permissions depend on the request shape and are enforced by
-    // the backend Runtime Grant (`inline` needs none; platform/storage are dynamic).
+    // 输入/输出权限由请求形状决定，后端 Runtime Grant 强制。
     ['data.transform', 'public'],
 
-    // AI 权限
-    // AI Task operation/context permissions are resolved dynamically by backend.
+    // 操作/上下文权限由后端动态解析。
     ['ai.tasks.create', 'public'],
     ['ai.tasks.get', 'public'],
     ['ai.tasks.cancel', 'public'],
@@ -209,17 +176,17 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['model3d.getUrl', 'public'],
     ['model3d.getMetadata', 'public'],
 
-    // 报告权限
-    ['report.listReports', 'report:read'],
-    ['report.getReport', 'report:read'],
-    ['report.getPlatformReport', 'report:read'],
+    ['report.platform.list', 'report:read'],
+    ['report.platform.get', 'report:read'],
+    ['report.platform.byPlatform', 'report:read'],
     ['report.create', 'report:write'],
     ['report.list', 'report:read'],
     ['report.get', 'report:read'],
     ['report.update', 'report:write'],
     ['report.delete', 'report:write'],
 
-    // 存储权限
+    // 四种 KV 共用 storage:read / storage:write；REST 另按命名空间做角色闸。
+    // onChanged 是宿主事件，不进本表。
     ['storage.get', 'storage:read'],
     ['storage.set', 'storage:write'],
     ['storage.remove', 'storage:write'],
@@ -237,26 +204,30 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['shared.getAll', 'storage:read'],
     ['shared.clear', 'storage:write'],
     ['shared.usage', 'storage:read'],
+    ['private.get', 'storage:read'],
+    ['private.set', 'storage:write'],
+    ['private.remove', 'storage:write'],
+    ['private.keys', 'storage:read'],
+    ['private.getAll', 'storage:read'],
+    ['private.clear', 'storage:write'],
+    ['private.usage', 'storage:read'],
 
-    // UI 权限
     ['ui.showNotification', 'ui:notification'],
     ['ui.confirm', 'ui:confirm'],
     ['ui.openUrl', 'ui:openUrl'],
     ['ui.listOpenUrls', 'ui:openUrl'],
-    ['ui.requestFullscreen', 'ui:fullscreen'],
-    ['ui.exitFullscreen', 'ui:fullscreen'],
-    ['ui.toggleFullscreen', 'ui:fullscreen'],
-    ['ui.isFullscreen', 'ui:fullscreen'],
+    ['ui.fullscreen.request', 'ui:fullscreen'],
+    ['ui.fullscreen.exit', 'ui:fullscreen'],
+    ['ui.fullscreen.toggle', 'ui:fullscreen'],
+    ['ui.fullscreen.isFullscreen', 'ui:fullscreen'],
 
-    // 媒体权限
     ['media.control', 'media:control'],
     ['media.getStatus', 'media:read'],
     ['media.getPlaylist', 'media:read'],
     ['media.playTrack', 'media:control'],
     ['media.jumpToIndex', 'media:control'],
     ['media.getSpectrum', 'media:read'],
-    // 推流版的 getSpectrum：由 tapp 订阅后由宿主按帧推送，读到的是同一份频谱数据，
-    // 沙箱 handler 自身也是校验 media:read
+    // 宿主按帧推送；handler 仍校验 media:read。
     ['media.spectrumStream', 'media:read'],
     ['media.getLyrics', 'media:read'],
     ['media.getBeatGrid', 'media:read'],
@@ -264,45 +235,35 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['media.getSkipVip', 'media:read'],
     ['media.setSkipVip', 'media:control'],
 
-    // 组件权限
     ['component.registerTheme', 'component:theme'],
     ['component.registerAgent', 'component:agent'],
-    // 类型相关权限由后端根据 theme/agent 动态校验。
+    // theme/agent 类型由后端动态校验。
     ['component.unregister', 'public'],
 
-    // 快捷键权限
     ['shortcut.register', 'shortcut:register'],
     ['shortcut.unregister', 'shortcut:register'],
 
-    // 事件权限
     ['event.publish', 'event:publish'],
 
-    // Agent Interaction is governed by Manifest declaration, interaction state, schema,
-    // accepting runtime identity, and host intent confirmation on the backend.
+    // Manifest 声明 + 交互状态 + schema + 接受方身份 + 宿主确认；后端强制。
     ['agent.v2.accept', 'public'],
     ['agent.v2.result', 'public'],
     ['agent.v2.reject', 'public'],
     ['agent.v2.intent', 'public'],
 
-    // 后台权限
     ['background.require', 'event:subscribe'],
     ['background.release', 'event:subscribe'],
 
-    // 动态内容权限
     ['dynamicContent.set', 'ui:notification'],
     ['dynamicContent.update', 'ui:notification'],
     ['dynamicContent.remove', 'ui:notification'],
 
-    // Host save-as for bytes the Tapp already holds. Not storage:read — that
-    // permission is private KV. The iframe has no allow-downloads, so this is
-    // the only export path.
+    // 沙箱已持有的字节；不是 storage:read。iframe 无 allow-downloads。
     ['file.download', 'public'],
 
-    // 包内静态资源（安装包声明内容，可读即可运行的 Tapp 已可见）
     ['assets.get', 'public'],
     ['assets.list', 'public'],
 
-    // 定时任务权限
     ['scheduler.register', 'scheduler:register'],
     ['scheduler.unregister', 'scheduler:register'],
     ['scheduler.list', 'scheduler:register'],
@@ -314,16 +275,12 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['scheduler.unsubscribe', 'scheduler:register'],
     ['scheduler.complete', 'scheduler:register'],
 
-    // 语音服务权限
     ['speech.tts', 'speech:tts'],
     ['speech.getVoices', 'speech:tts'],
     ['speech.getStatus', 'speech:tts'],
     ['speech.asr', 'speech:asr'],
 
-    // 联邦权限
     ['federation.getIdentity', 'federation:read'],
-    // Explicit signing-key rotation (POST /api/federation/keys/rotate) —
-    // overwrites the local keypair and fans out Update(Person) to followers.
     ['federation.rotateKeys', 'federation:post'],
     ['federation.getFeed', 'federation:read'],
     ['federation.getRoomsFeed', 'federation:read'],
@@ -351,12 +308,10 @@ export const PERMISSION_MAP: ReadonlyMap<string, TappPermission | 'public'> =
     ['federation.bookmark', 'federation:interact'],
     ['federation.unbookmark', 'federation:interact'],
     ['federation.getBookmarks', 'federation:read'],
-    // External share intent (compose + status only; never server-side post)
     ['federation.getExternalShareStatus', 'federation:read'],
     ['federation.composeExternalShare', 'federation:read'],
     ['federation.announce', 'federation:interact'],
     ['federation.unannounce', 'federation:interact'],
-    // uploadMedia stores media for later publish attachments → post domain
     ['federation.uploadMedia', 'federation:post'],
     ['federation.unpublish', 'federation:post'],
     ['federation.createChannel', 'federation:channel'],

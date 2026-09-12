@@ -1,5 +1,3 @@
-/** Installed Tapp discovery and runtime state controls. */
-
 import type { TappManifest, TappManifestLocales } from '../types'
 import { apiRequest } from './TappHttpClient'
 
@@ -10,21 +8,18 @@ export interface TappListItem {
   description?: string
   icon?: string
   iconSvg?: string
-  /** manifest.locales 透传，用 resolveManifestText 按当前语言解析 */
   locales?: TappManifestLocales
   status: string
-  /** 失败原因，`status === 'error'` 时由后端带出 */
   errorMessage?: string
   installedAt: string
   lastRunAt?: string
   isTemporary?: boolean
   isAdminTapp?: boolean
-  /** Public install visibility: everyone | admins only */
+  /** 公开安装可见性。私有安装忽略此项。 */
   visibility?: TappVisibility
   needsReauthorization?: boolean
 }
 
-/** Public (site-owner) install visibility. Private installs ignore this. */
 export type TappVisibility = 'all' | 'admin'
 
 export interface TappDetail {
@@ -41,7 +36,6 @@ export interface TappDetail {
   theme_color?: string
   manifest: TappManifest
   status: string
-  /** 失败原因，`status === 'error'` 时由后端带出 */
   error_message?: string
   granted_permissions: string[]
   needs_reauthorization?: boolean
@@ -50,7 +44,7 @@ export interface TappDetail {
   user_role?: string
   is_temporary?: boolean
   is_admin_tapp?: boolean
-  /** Public install visibility: `all` | `admin` */
+  /** 公开安装可见性。私有安装忽略此项。 */
   visibility?: TappVisibility
 }
 
@@ -60,13 +54,11 @@ export interface RecentTappItem {
   icon?: string
   iconSvg?: string
   themeColor?: string
-  /** manifest.locales 透传，用 resolveManifestText 按当前语言解析 */
   locales?: TappManifestLocales
   lastRunAt: string
   runCount: number
 }
 
-/** Catalog list scope for /api/tapps and /api/tapps/details. */
 export type TappCatalogScope = 'all' | 'mine' | 'site'
 
 function catalogScopeQuery(scope?: TappCatalogScope): string {
@@ -108,7 +100,6 @@ export async function stopTapp(tappId: string): Promise<void> {
   })
 }
 
-/** Update public-install visibility (admin only). */
 export async function setTappVisibility(
   tappId: string,
   visibility: TappVisibility,

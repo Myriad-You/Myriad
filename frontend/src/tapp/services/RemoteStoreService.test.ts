@@ -1,7 +1,3 @@
-/**
- * cd frontend && node --experimental-strip-types --test src/tapp/services/RemoteStoreService.test.ts
- */
-
 import type {
   RemoteApp,
   RemoteStoreIndex,
@@ -76,7 +72,7 @@ describe('RemoteStoreService.downloadAppPreview', () => {
         preview.css,
         'main { color: white; }\nmain { background: navy; }',
       )
-      assert.deepEqual(requestedPaths.sort(), [
+      assert.deepEqual(requestedPaths.toSorted(), [
         '/store/apps/com.example.preview/page.css',
         '/store/apps/com.example.preview/preview.css',
         '/store/apps/com.example.preview/preview.html',

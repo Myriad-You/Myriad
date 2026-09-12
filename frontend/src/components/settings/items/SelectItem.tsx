@@ -1,8 +1,3 @@
-/**
- * 下拉选择设置项组件
- * 使用 FieldSelect 自定义列表，避免原生 option 深色不可控。
- */
-
 import type { SelectSettingConfig } from '../types'
 import React, { useCallback } from 'react'
 import { guideDomProps } from '../guides/guideAnchor'
@@ -44,7 +39,7 @@ function SelectItemComponent<T extends string = string>({
     [onChange, disabled, loading],
   )
 
-  const id = `setting-select-${itemKey || label.replace(/\s+/g, '-').toLowerCase()}`
+  const id = `setting-select-${itemKey || label.replaceAll(/\s+/g, '-').toLowerCase()}`
   const anchorProps = guideDomProps(guidePath)
 
   return (

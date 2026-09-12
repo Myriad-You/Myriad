@@ -5,11 +5,6 @@ export interface CapturedUtterance {
   sampleRate: number
 }
 
-/**
- * Energy endpointing, not speech recognition. All gates use audio duration,
- * independent of AudioWorklet message size. A model VAD can improve noise
- * rejection later; these bounds and pre-roll are still required underneath it.
- */
 export class UtteranceCapture {
   private preRoll: Float32Array[] = []
   private preSamples = 0
@@ -68,7 +63,6 @@ export class UtteranceCapture {
     this.clip.push(frame)
     this.clipSamples += frame.length
     // The louder threshold protects barge-in only while playback is present.
-    // Once interrupted, quiet continuation belongs to this same utterance.
     if (rms >= (playback ? this.threshold : 0.035) * 0.45) {
       this.quietSamples = 0
       this.voicedSamples += frame.length

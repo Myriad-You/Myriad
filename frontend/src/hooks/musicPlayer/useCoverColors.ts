@@ -86,7 +86,7 @@ export function useCoverColors(options: {
   const colorCacheRef = useRef<Map<string, MusicColors>>(new Map())
 
   const normalizeColor = useCallback((color: string): string => {
-    const cleaned = color.trim().replace(/\s+/g, '')
+    const cleaned = color.trim().replaceAll(/\s+/g, '')
     if (/^#([0-9A-F]{3}){1,2}$/i.test(cleaned)) {
       return cleaned.toLowerCase()
     }
@@ -94,10 +94,7 @@ export function useCoverColors(options: {
     return '#999999'
   }, [])
 
-  /**
-   * 同步写入 --music-*（取色完成当帧生效，不经 React commit 多等一帧）。
-   * useEffect 仍保留作 React 态回放/严格模式双写兜底。
-   */
+  /** 同步写 --music-*（取色完成当帧生效）。useEffect 仍作严格模式双写兜底。 */
   const applyMusicCssVars = useCallback(
     (colors: MusicColors) => {
       const root = document.documentElement
@@ -118,12 +115,7 @@ export function useCoverColors(options: {
     applyMusicCssVars(musicColors)
   }, [musicColors, applyMusicCssVars])
 
-  /**
-   * 立即写入全局态并推送给 Tapp（不依赖 React 下一帧）。
-   * - resetProgress=true：切歌，进度/歌词归零
-   * - resetProgress=false：颜色-only 等补丁，保留 audio 实时进度与现有歌词
-   * - colors=null：保留上一首主题色，绝不刷默认红/灰（等新曲取色完成再换）
-   */
+  /** 立即写入全局态并推给 Tapp。colors=null 保留上一首主题色，不刷默认红/灰。 */
   const pushSongTheme = useCallback(
     (
       song: Song,
@@ -136,8 +128,8 @@ export function useCoverColors(options: {
 
       const g = getGlobalState()
       const prevColors =
-        (g?.musicColors as MusicColors | null | undefined) ||
-        musicColorsRef.current ||
+        (g?.musicColors as MusicColors | null | undefined) ??
+        musicColorsRef.current ??
         null
       const resolvedColors = resolveMusicPalette(colors, prevColors)
 
@@ -201,7 +193,7 @@ export function useCoverColors(options: {
 
   const peekCoverColors = useCallback((cover: string): MusicColors | null => {
     return (
-      colorCacheRef.current.get(cover) ||
+      colorCacheRef.current.get(cover) ??
       (getCachedPalette(cover) as MusicColors | null)
     )
   }, [])
@@ -225,10 +217,7 @@ export function useCoverColors(options: {
     [],
   )
 
-  /**
-   * 从已渲染的封面 <img> 同步取色（零网络）。
-   * 显示与取色共用同一张代理图时最稳；小尺寸 URL / 二次请求失败时的主兜底。
-   */
+  /** 从已渲染封面 <img> 同步取色（零网络）；小尺寸 URL / 二次请求失败时的主兜底。 */
   const tryExtractFromDomCover = useCallback(
     (cover: string): MusicColors | null => {
       const root = musicContainerRef.current
@@ -258,10 +247,7 @@ export function useCoverColors(options: {
     [musicContainerRef],
   )
 
-  /**
-   * 当前曲封面取色 + 失败后延迟再试（连点 abort / 瞬时网络失败后仍能补色）。
-   * generation 过期或曲目已变则放弃。
-   */
+  /** generation 过期或曲目已变则放弃。 */
   const extractCoverColorsForSong = useCallback(
     (
       song: Song,
@@ -425,7 +411,7 @@ export function useCoverColors(options: {
       if (!song?.cover || !detail?.cover) return
       if (song.id !== detail.songId && song.cover !== detail.cover) return
       const hit =
-        colorCacheRef.current.get(song.cover) || getCachedPalette(song.cover)
+        colorCacheRef.current.get(song.cover) ?? getCachedPalette(song.cover)
       if (hit && !isDefaultPalette(hit)) return
       extractCoverColorsForSong(
         song,

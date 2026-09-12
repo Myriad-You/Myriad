@@ -21,7 +21,10 @@ fn inbox_auth_reject(
     error: impl std::fmt::Display,
 ) -> (StatusCode, Json<serde_json::Value>) {
     tracing::warn!(%error, public, "inbox signature rejected");
-    (StatusCode::UNAUTHORIZED, Json(json!({"error": public})))
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(AppError::public_json(public)),
+    )
 }
 
 // HTTP Signature 验证
@@ -55,7 +58,7 @@ fn unique_header<'a>(
     first.to_str().map(Some).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Invalid request header encoding"})),
+            Json(AppError::public_json("Invalid request header encoding")),
         )
     })
 }
@@ -83,11 +86,8 @@ fn signing_header_map(
 
 /// 解析请求体**之前**必须通过的检查。
 ///
-/// inbox 允许 INBOX_BODY_LIMIT 的请求体（更大的文件必须走分块端点），而过去的顺序是
-/// 「先 `serde_json::from_slice` 整个 body，再验签」—— 于是任何未认证客户端都能
-/// 用一坨满额 inbox body 的 JSON 逼服务端做一次完整解析，代价完全不对等。
-///
-/// 这里把只依赖 header 和原始字节、不需要网络往返的检查提到解析之前：
+/// inbox 允许 INBOX_BODY_LIMIT 的请求体（更大的文件必须走分块端点）。
+/// 只依赖 header 和原始字节、不需要网络往返的检查在解析 JSON 之前：
 /// Signature 头存在且可解析、签名覆盖的 header 集合合规、Date 新鲜、
 /// Digest 与原始 body 逐字节相符。攻击者要让我们开始解析 JSON，至少得先算出
 /// 这段 body 正确的 SHA-256 并附上格式合法的签名头。
@@ -101,7 +101,7 @@ pub(crate) fn verify_preparse_gate(
     let sig_header = unique_header(headers, "signature")?.ok_or_else(|| {
         (
             StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Missing Signature header"})),
+            Json(AppError::public_json("Missing Signature header")),
         )
     })?;
 
@@ -113,7 +113,7 @@ pub(crate) fn verify_preparse_gate(
     let date = unique_header(headers, "date")?.ok_or_else(|| {
         (
             StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Missing Date header"})),
+            Json(AppError::public_json("Missing Date header")),
         )
     })?;
     verify_date_freshness(date, chrono::Utc::now(), HTTP_DATE_MAX_SKEW)
@@ -123,13 +123,15 @@ pub(crate) fn verify_preparse_gate(
         let digest_str = unique_header(headers, "digest")?.ok_or_else(|| {
             (
                 StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Missing Digest header for request with body"})),
+                Json(AppError::public_json(
+                    "Missing Digest header for request with body",
+                )),
             )
         })?;
         if !verify_digest(body, digest_str) {
             return Err((
                 StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Digest verification failed"})),
+                Json(AppError::public_json("Digest verification failed")),
             ));
         }
     }
@@ -139,7 +141,7 @@ pub(crate) fn verify_preparse_gate(
 
 /// 验证请求的 HTTP Signature
 ///
-/// MYR-022: remote Actor material used for the public key is resolved via
+/// remote Actor material used for the public key is resolved via
 /// [`fetch_remote_actor_for_verify`] (DB cache hit or **ephemeral** HTTP fetch).
 /// Failed signatures never write an unauthenticated remote document into
 /// `federation_remote_actors`. Successful verification may persist via
@@ -155,7 +157,7 @@ pub(crate) async fn verify_request_signature(
     let sig_header = unique_header(headers, "signature")?.ok_or_else(|| {
         (
             StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Missing Signature header"})),
+            Json(AppError::public_json("Missing Signature header")),
         )
     })?;
 
@@ -167,7 +169,7 @@ pub(crate) async fn verify_request_signature(
     let date = unique_header(headers, "date")?.ok_or_else(|| {
         (
             StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Missing Date header"})),
+            Json(AppError::public_json("Missing Date header")),
         )
     })?;
     verify_date_freshness(date, chrono::Utc::now(), HTTP_DATE_MAX_SKEW)
@@ -178,26 +180,26 @@ pub(crate) async fn verify_request_signature(
         let digest_str = unique_header(headers, "digest")?.ok_or_else(|| {
             (
                 StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Missing Digest header for non-empty body"})),
+                Json(AppError::public_json(
+                    "Missing Digest header for non-empty body",
+                )),
             )
         })?;
         if !verify_digest(body, digest_str) {
             return Err((
                 StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Digest verification failed"})),
+                Json(AppError::public_json("Digest verification failed")),
             ));
         }
     }
 
-    // MYR-022: trusted cache or ephemeral remote fetch — never poison DB on 401.
+    // trusted cache or ephemeral remote fetch — never poison DB on 401.
     let mut resolved: ResolvedRemoteActor = fetch_remote_actor_for_verify(db, actor_url_str, false)
         .await
         .map_err(|error| inbox_auth_reject("Cannot verify actor", error))?;
 
     // If we stored a public_key_id for this actor, Signature keyId must match
-    // (normalized). On mismatch, force ephemeral re-fetch once — stale cache
-    // after key rotation / domain path change was a common permanent 401 source.
-    // If no stored key id, PEM-only verify.
+    // (normalized). On mismatch, force ephemeral re-fetch once. If no stored key id, PEM-only verify.
     if let Some(ref stored_kid) = resolved.info.public_key_id {
         if !stored_kid.is_empty() && !same_key_id(stored_kid, &parsed.key_id) {
             tracing::warn!(
@@ -215,8 +217,8 @@ pub(crate) async fn verify_request_signature(
                 if !fresh_kid.is_empty() && !same_key_id(fresh_kid, &parsed.key_id) {
                     // Last chance: request keyId may still be a valid id for the
                     // same actor path even if publicKey.id differs slightly —
-                    // only accept when the request keyId is clearly under this
-                    // actor URL (same origin + /users/{name}).
+                    // only accept when the request keyId is under this actor URL
+                    // (`{actor}`, `{actor}#…`, `{actor}/…`).
                     let actor_ok = key_id_belongs_to_actor(&parsed.key_id, actor_url_str);
                     if !actor_ok {
                         tracing::warn!(
@@ -244,7 +246,7 @@ pub(crate) async fn verify_request_signature(
     let public_key_pem = resolved.info.public_key_pem.as_deref().ok_or_else(|| {
         (
             StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Remote actor has no public key"})),
+            Json(AppError::public_json("Remote actor has no public key")),
         )
     })?;
 
@@ -259,10 +261,10 @@ pub(crate) async fn verify_request_signature(
         .map_err(|error| inbox_auth_reject("Signature verification failed", error))?;
 
     if !valid {
-        // Ephemeral document is dropped here — never written to DB (MYR-022).
+        // Ephemeral document is dropped here — never written to DB.
         return Err((
             StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Invalid signature"})),
+            Json(AppError::public_json("Invalid signature")),
         ));
     }
 
@@ -371,3 +373,4 @@ mod tests {
         assert!(!map.contains_key("x-extra"));
     }
 }
+use myriad_error::AppError;

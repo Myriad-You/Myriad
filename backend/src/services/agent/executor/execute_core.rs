@@ -34,7 +34,7 @@ impl Executor {
         }
     }
 
-    /// 根据 ModelTier 获取对应的 AI 分析器
+    /// Pro→Pro else Standard；Standard→Standard else Pro；Lite→Standard else Pro。
     pub(crate) fn get_analyzer_for_tier(&self, tier: ModelTier) -> Option<&AiAnalyzer> {
         match tier {
             ModelTier::Pro => self
@@ -45,9 +45,7 @@ impl Executor {
                 .standard_analyzer
                 .as_ref()
                 .or(self.pro_analyzer.as_ref()),
-            // Executor tasks do not currently route to Lite. Keep this arm so
-            // explicit future Lite tasks degrade safely until a cached Lite
-            // analyzer is added to the executor.
+            // Lite：没有独立 analyzer，用 Standard，再缺则 Pro。
             ModelTier::Lite => self
                 .standard_analyzer
                 .as_ref()
@@ -57,14 +55,14 @@ impl Executor {
 
     /// 带熔断器的 tier 解析
     ///
-    /// 优先使用熔断器感知的解析（自动降级），如果两个 tier 都熔断则 fallback 到普通解析。
+    /// 熔断器返回 None 时仍走 `resolve_with_override`（warn）。
     pub(crate) fn resolve_tier_with_breaker(
         capability_id: &str,
         explicit_tier: Option<ModelTier>,
     ) -> ModelTier {
         tier_router::resolve_with_circuit_breaker(capability_id, explicit_tier).unwrap_or_else(
             || {
-                // 两个 tier 都熔断时仍然尝试（best-effort）
+                // 熔断器返回 None 时仍尝试 resolve_with_override。
                 tracing::warn!(
                     capability_id = capability_id,
                     "[Executor] Both tiers circuit-broken, falling back to default resolve"
@@ -84,7 +82,7 @@ impl Executor {
         }
     }
 
-    /// 执行方案（不带进度回调，兼容旧代码）
+    /// 执行方案（`progress_tx = None`）
     pub async fn execute(&self, recipe: &Recipe, user_id: i32) -> Result<TaskState, String> {
         self.execute_with_progress(recipe, user_id, None).await
     }
@@ -177,7 +175,7 @@ impl Executor {
             }
         }
 
-        // 召回记忆上下文，供各 AI 步骤的 inject_role_identity 注入 systemPrompt
+        // 召回长期/中期记忆到 context.memory_context。
         if let Some(mem) = crate::services::agent::memory::get_memory() {
             use crate::services::agent::memory::{MemoryTier, RecallQuery};
             let memories = mem
@@ -238,9 +236,6 @@ impl Executor {
             "[Executor] Starting recipe execution"
         );
 
-        // 对话历史已通过 ExecutionContext.conversation_context 传递到 HandlerContext
-        // 不再冗余存入 step_outputs（inject_role_identity 直接从 execution_context 读取）
-
         // 初始化执行追踪
         let execution_start = std::time::Instant::now();
         let trace_id = format!("trace_{}", task_state.task_id);
@@ -275,7 +270,7 @@ impl Executor {
             && !all_steps
                 .iter()
                 .any(|step| step.capability_id == "tapp.interact");
-        // 追踪被注入 DAG 的动态子步骤 ID（区分原始 recipe 步骤和 Skill 子步骤）
+        // 注入 DAG 的动态步骤 ID（相对原始 recipe 步骤）
         let mut dag_injected_ids: HashSet<String> = HashSet::new();
         if use_dag {
             tracing::info!(
@@ -485,7 +480,7 @@ impl Executor {
                                 "[Executor] DAG streaming cancelled by user"
                             );
                             task_state.status = TaskStatus::Failed;
-                            task_state.error = Some("用户取消了任务".to_string());
+                            task_state.error = Some("The task was cancelled".to_string());
                             // 中断流式循环，外层循环的取消检查会处理状态保存
                             break;
                         }
@@ -574,8 +569,7 @@ impl Executor {
                                 // pre_dynamic_count 在 generator 之前取值，确保 generator 和 skill 子步骤都能被 DAG 注入
                                 let pre_dynamic_count = context.pending_dynamic_steps.len();
 
-                                // 动态步骤生成器：处理 ConditionalBranch / AiGenerated
-                                // DAG注入的动态步骤不触发生成器，防止链式爆炸
+                                // process_step_generator，除非已是 DAG 注入步骤。
                                 if !is_injected {
                                     if let Some(ref gen) = step.generator {
                                         if let Some(ref output_val) = task_state
@@ -690,7 +684,7 @@ impl Executor {
                                     }
                                 }
 
-                                // ★ 核心改进：立即检查并启动新就绪步骤（如果没有待处理问题）
+                                // `pending_questions_from_dag` 为空则立刻 `dag.get_ready_steps()`
                                 if pending_questions_from_dag.is_empty() {
                                     if let Some(ref dag) = dag_scheduler {
                                         for new_step in dag.get_ready_steps() {
@@ -887,7 +881,7 @@ impl Executor {
                     // 流式 DAG 后处理：暂停等待用户输入
                     // 如果已取消，跳过 WaitingForInput 和重试
                     let dag_cancelled = task_state.status == TaskStatus::Failed
-                        && task_state.error.as_deref() == Some("用户取消了任务");
+                        && task_state.error.as_deref() == Some("The task was cancelled");
                     if !dag_cancelled && !pending_questions_from_dag.is_empty() {
                         let question = pending_questions_from_dag.remove(0);
                         // 将剩余问题存入 context，resume 后继续提问

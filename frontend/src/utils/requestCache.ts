@@ -1,21 +1,14 @@
-/**
- * API 请求缓存管理器
- * 使用内存缓存 + TTL + LRU 上限，减少重复请求并防止缓存无限增长
- */
-
 interface CacheEntry<T> {
   data: T
   timestamp: number
-  ttl: number // Time to live in milliseconds
+  ttl: number
 }
 
-/** 默认最大缓存条目数（超出后按 LRU 淘汰最久未访问项） */
 const DEFAULT_MAX_ENTRIES = 80
 
-/** 过期扫描间隔（ms） */
 const SWEEP_INTERVAL_MS = 60_000
 
-class RequestCache {
+export class RequestCache {
   private cache: Map<string, CacheEntry<any>>
   private pendingRequests: Map<string, Promise<any>>
   private maxEntries: number
@@ -27,10 +20,6 @@ class RequestCache {
     this.maxEntries = maxEntries
   }
 
-  /**
-   * 缓存非空时才安排下一次过期扫描。
-   * 空缓存不保留常驻 interval，避免应用空闲时每分钟无意义唤醒。
-   */
   private scheduleSweep(): void {
     if (typeof window === 'undefined') return
     if (this.sweepTimer || this.cache.size === 0) return
@@ -41,7 +30,6 @@ class RequestCache {
       this.scheduleSweep()
     }, SWEEP_INTERVAL_MS)
 
-    // Node / 测试环境可能无 unref；浏览器忽略
     if (
       typeof this.sweepTimer === 'object' &&
       this.sweepTimer !== null &&
@@ -57,9 +45,6 @@ class RequestCache {
     this.sweepTimer = null
   }
 
-  /**
-   * 删除所有已过期条目
-   */
   sweepExpired(): number {
     const now = Date.now()
     let removed = 0
@@ -73,9 +58,7 @@ class RequestCache {
     return removed
   }
 
-  /**
-   * 写入后维持 LRU 上限：Map 保持插入顺序，队头为最旧
-   */
+  /** Map insertion order = LRU. */
   private enforceLimit(): void {
     while (this.cache.size > this.maxEntries) {
       const oldest = this.cache.keys().next().value
@@ -84,9 +67,6 @@ class RequestCache {
     }
   }
 
-  /**
-   * 获取缓存数据（命中时刷新 LRU 顺序）
-   */
   get<T>(key: string): T | null {
     const entry = this.cache.get(key)
 
@@ -100,19 +80,14 @@ class RequestCache {
       return null
     }
 
-    // 重新插入到末尾 → 标记为最近使用
     this.cache.delete(key)
     this.cache.set(key, entry)
 
     return entry.data as T
   }
 
-  /**
-   * 设置缓存数据
-   * @param ttl 存活时间（毫秒），默认 5 分钟
-   */
   set<T>(key: string, data: T, ttl: number = 5 * 60 * 1000): void {
-    // 先删再写，确保 key 位于 LRU 末尾
+    this.pendingRequests.delete(key)
     this.cache.delete(key)
     this.cache.set(key, {
       data,
@@ -123,27 +98,21 @@ class RequestCache {
     this.scheduleSweep()
   }
 
-  /**
-   * 删除指定缓存
-   */
   delete(key: string): void {
     this.cache.delete(key)
     this.pendingRequests.delete(key)
     this.stopSweepIfIdle()
   }
 
-  /**
-   * 按前缀批量删除（如离开 Brew 时清理 brew:）
-   */
   deleteByPrefix(prefix: string): number {
     let removed = 0
-    for (const key of [...this.cache.keys()]) {
+    for (const key of Iterator.from(this.cache.keys()).toArray()) {
       if (key.startsWith(prefix)) {
         this.cache.delete(key)
         removed++
       }
     }
-    for (const key of [...this.pendingRequests.keys()]) {
+    for (const key of Iterator.from(this.pendingRequests.keys()).toArray()) {
       if (key.startsWith(prefix)) {
         this.pendingRequests.delete(key)
       }
@@ -152,26 +121,21 @@ class RequestCache {
     return removed
   }
 
-  /**
-   * 清空所有缓存
-   */
   clear(): void {
     this.cache.clear()
     this.pendingRequests.clear()
     this.stopSweepIfIdle()
   }
 
-  /**
-   * 包装请求，自动处理缓存和请求去重
-   */
   async fetch<T>(
     key: string,
     fetcher: () => Promise<T>,
     ttl?: number,
+    forceRefresh = false,
   ): Promise<T> {
-    const cached = this.get<T>(key)
-    if (cached !== null) {
-      return cached
+    const cached = forceRefresh ? null : this.get<T>(key)
+    if (!forceRefresh && this.cache.has(key)) {
+      return cached as T
     }
 
     const pending = this.pendingRequests.get(key)
@@ -181,12 +145,15 @@ class RequestCache {
 
     const promise = fetcher()
       .then((data) => {
-        this.set(key, data, ttl)
-        this.pendingRequests.delete(key)
+        if (this.pendingRequests.get(key) === promise) {
+          this.set(key, data, ttl)
+        }
         return data
       })
       .catch((error) => {
-        this.pendingRequests.delete(key)
+        if (this.pendingRequests.get(key) === promise) {
+          this.pendingRequests.delete(key)
+        }
         throw error
       })
 
@@ -199,10 +166,9 @@ class RequestCache {
   }
 
   get keys(): string[] {
-    return Array.from(this.cache.keys())
+    return Iterator.from(this.cache.keys()).toArray()
   }
 
-  /** 调试状态 */
   getStatus() {
     return {
       size: this.cache.size,
@@ -212,5 +178,4 @@ class RequestCache {
   }
 }
 
-// 导出单例实例
 export const requestCache = new RequestCache()

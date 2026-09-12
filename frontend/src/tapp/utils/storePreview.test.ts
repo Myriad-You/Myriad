@@ -1,7 +1,3 @@
-/**
- * cd frontend && node --experimental-strip-types --test src/tapp/utils/storePreview.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
@@ -45,7 +41,7 @@ describe('parseStorePreview', () => {
       parseStorePreview({ version: 1, type: 'snapshot', html: '  ' }),
       undefined,
     )
-    // Markup must never be accepted as a resource path (blank-preview regression).
+    // 不得把 markup 当成资源路径。
     assert.equal(
       parseStorePreview({
         version: 1,

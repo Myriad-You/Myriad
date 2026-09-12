@@ -1,7 +1,3 @@
-/**
- * Brew 阅读器自定义 Hooks 导出
- */
-
 export { useAnnotations } from './useAnnotations'
 export type {
   UseAnnotationsOptions,

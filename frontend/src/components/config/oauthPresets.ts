@@ -1,34 +1,15 @@
-/**
- * 常见 OAuth provider 预设
- *
- * 每个预设填好 discovery_url / scopes / icon / 注册文档链接，
- * 用户只需补 client_id / client_secret 即可上线。
- *
- * GitHub 用 kind="github" 走 GithubProvider（不需要 OIDC discovery）；
- * 其它都是标准 OIDC。
- *
- * 配置步骤文案见 oauthSetupGuides.ts + i18n（oauthSetup*）。
- */
-
 import type { OAuthProviderEntry } from '../../utils/oauthSettings'
 import { getOAuthIconAsset } from '../../utils/oauthIcons'
 
 export interface OAuthPreset {
-  /** 预设 ID，仅用于前端 UI 选择 */
   id: string
-  /** 创建出的 entry slug 默认值（可被用户改） */
   defaultSlug: string
-  /** "github" | "oidc" */
   kind: 'github' | 'oidc'
-  /** UI 上的名字 */
   display_name: string
-  /** 已知 discovery URL（OIDC） */
   discovery_url?: string
-  /** 默认 scopes（OIDC 必须包含 openid） */
   scopes: string[]
-  /** SVG icon URL；GitHub 留空，前端识别 slug="github" 后用内置 FaGithub */
+  /** GitHub: omit; slug github uses FaGithub */
   icon_url?: string
-  /** 提供方申请 OAuth 应用的文档链接（SetupFlow「打开」用） */
   docs_url?: string
 }
 
@@ -157,7 +138,7 @@ export function entryFromPreset(
   const seed = preset.defaultSlug || preset.id
   const slug = uniqueOAuthSlug(seed, existing)
   const copy =
-    slug === seed ? '' : slug.slice(seed.length).replace(/^-+/, '')
+    slug === seed ? '' : slug.slice(seed.length).replaceAll(/^-+/g, '')
   return {
     slug,
     kind: preset.kind,
@@ -167,7 +148,7 @@ export function entryFromPreset(
     enabled: true,
     client_id: '',
     client_secret: '',
-    scopes: [...preset.scopes],
+    scopes: Iterator.from(preset.scopes).toArray(),
     discovery_url: preset.discovery_url || '',
     icon_url: preset.icon_url || null,
   }

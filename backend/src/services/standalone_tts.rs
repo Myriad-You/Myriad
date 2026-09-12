@@ -22,24 +22,24 @@ const STANDALONE_TTS_SUBDIR: &str = "standalone_tts";
 /// TTS request DTO (HTTP body + agent capability params).
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct TtsApiRequest {
-    /// 要转换的文本（中文最大150字，英文最大500字母）
+    /// 要转换的文本。Tencent 路径最多 150 个 Unicode scalar。
     pub text: String,
     /// 音色ID（可选，默认爱小溪 AI_XIAO_XI）
     #[serde(default)]
     pub voice_type: Option<i32>,
-    /// 语速 [-2, 6]，默认0
+    /// 语速（缺省 0.0；本层不校验区间）
     #[serde(default)]
     pub speed: Option<f32>,
-    /// 音量 [-10, 10]，默认0
+    /// 音量（Option；本层不填缺省、不校验区间）
     #[serde(default)]
     pub volume: Option<f32>,
-    /// 返回格式: wav, mp3, pcm，默认mp3
+    /// 音频格式（缺省 mp3；本层不校验枚举）
     #[serde(default)]
     pub codec: Option<String>,
-    /// 采样率: 8000, 16000, 24000，默认16000
+    /// 采样率（缺省 16000；本层不校验取值）
     #[serde(default)]
     pub sample_rate: Option<i32>,
-    /// 情感类别（仅多情感音色支持）
+    /// 情感类别（透传 `emotion_category`；本层不校验音色是否支持）
     #[serde(default)]
     pub emotion: Option<String>,
     /// 强制重新合成（跳过 exact + any-voice 缓存；与 batch TTS 语义对齐）
@@ -190,7 +190,8 @@ pub fn tencent_speech_error_message(error: &TencentSpeechError) -> String {
 
 /// Shared standalone TTS synthesis used by HTTP `/api/speech/tts` and agent `speech.tts`.
 ///
-/// Returns the same cache + Tencent path as the product API (base64 audio when successful).
+/// Match configured_provider(): OpenAI|OpenRouter, Gemini, MiniMax, else Tencent (no fallback).
+/// Tencent reads+writes cache; OpenAI/MiniMax write-only; Gemini no cache.
 pub async fn synthesize_standalone_tts(request: &TtsApiRequest) -> Result<TtsApiResponse, String> {
     if request.text.trim().is_empty() {
         return Err("Speech text is empty".to_string());

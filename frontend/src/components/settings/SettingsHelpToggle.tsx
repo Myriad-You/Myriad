@@ -1,7 +1,3 @@
-/**
- * 设置页右上角「显示说明」：与重置本页同款 CheckboxCard（标题 + 介绍 + 图标）
- */
-
 import { LuInfo } from '@lib/icons'
 import React from 'react'
 import { useI18n } from '../../contexts/I18nContext'

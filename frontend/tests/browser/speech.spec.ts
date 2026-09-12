@@ -274,6 +274,50 @@ test('realtime cloud audio uses the shared run identity and provider close tears
   await expect.poll(() => stopped).toEqual(['fake-agent'])
 })
 
+test('disabling speech stops current audio and drops the ready successor', async ({
+  page,
+}) => {
+  await page.route('**/api/speech/tts', (route) =>
+    route.fulfill({ json: { success: true, audio: audio() } }),
+  )
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Old reply', exact: true }).click()
+  await expect(page.getByTestId('speech-events')).toContainText('old:prosody')
+  await page.getByRole('button', { name: 'New reply', exact: true }).click()
+  await page
+    .getByRole('button', { name: 'Disable speech', exact: true })
+    .click()
+  await expect(page.getByTestId('tts-playing')).toHaveText('false')
+  await expect(page.getByTestId('mouth')).toHaveText('false')
+  await expect(page.getByTestId('speech-events')).toContainText('old:cancel')
+  await expect(page.getByTestId('speech-events')).not.toContainText(
+    'new:prosody',
+  )
+})
+
+test('failed synthesis runs text mouth before the next audio segment', async ({
+  page,
+}) => {
+  await page.route('**/api/speech/tts', (route) =>
+    route.fulfill({
+      json: route.request().postDataJSON().text.includes('old')
+        ? { success: false }
+        : { success: true, audio: audio() },
+    }),
+  )
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Old reply', exact: true }).click()
+  await expect(page.getByTestId('speech-events')).toContainText('old:chunk')
+  await expect(page.getByTestId('mouth')).toHaveText('true')
+  await page.getByRole('button', { name: 'New reply', exact: true }).click()
+  await expect(page.getByTestId('speech-events')).toContainText('new:prosody')
+  await expect(page.getByTestId('speech-events')).not.toContainText(
+    'old:prosody',
+  )
+  await expect(page.getByTestId('speech-events')).toContainText('new:end')
+  await expect(page.getByTestId('mouth')).toHaveText('false')
+})
+
 test('cancelled TTS cannot block the next real WebAudio playback or its body behavior', async ({
   page,
 }) => {

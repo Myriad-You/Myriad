@@ -4,8 +4,8 @@
 //! both declare the named contract in their manifests, and the host must
 //! authorize every prepared request before a provider response can be consumed.
 //!
-//! Domain lives in services so runtime-grant teardown and future agent paths do
-//! not import `api::tapp_runtime::data_exchange`. The API layer maps
+//! Domain lives in services. Grant teardown still calls through
+//! `api::tapp_runtime::data_exchange` wrappers. The API layer maps
 //! [`DataExchangeError`] to Axum responses and resolves accessible Tapp installs.
 
 use chrono::Utc;
@@ -519,8 +519,8 @@ pub async fn cancel_exchange(
     }
 
     // Once authorized, the prepared request has already been removed. Locate
-    // the host-only one-shot grant by its request id so runtime teardown and
-    // explicit cancellation revoke it immediately instead of waiting for TTL.
+    // the host-only one-shot grant by its request id so `cancel_exchange`
+    // revokes it immediately instead of waiting for TTL.
     cancelled |= shared_registry::delete_matching_payload_text(
         db,
         DATA_GRANT_NAMESPACE,
@@ -669,7 +669,7 @@ pub async fn cancel_runtime_data_exchanges(subject_id: i32, tapp_id: &str, runti
     .await;
 }
 
-/// Revoke for a subject+tapp pair (stop/uninstall subject-scoped).
+/// Revoke for a subject+tapp pair (stop). Uninstall uses `cancel_all_tapp_data_exchanges`.
 pub async fn cancel_tapp_data_exchanges(subject_id: i32, tapp_id: &str) {
     delete_exchange_scope(PREPARED_NAMESPACE, Some(subject_id), Some(tapp_id), None).await;
     delete_exchange_scope(DATA_GRANT_NAMESPACE, Some(subject_id), Some(tapp_id), None).await;

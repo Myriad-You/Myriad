@@ -19,10 +19,6 @@ function writeSubpage(page: AiSubpage | null) {
   window.history.pushState(window.history.state, '', url.toString())
 }
 
-/**
- * AI 一级 ↔ Agent 人设二级页：URL `page=merope|merope-setup`、回顶、sm-pane 方向。
- * 回顶与换设置分类同一套（scrollTo(0) + 清掉滚动快照）。
- */
 export function useAiSubpage(
   onNavigate?: (page: AiSubpage | null) => void,
 ) {

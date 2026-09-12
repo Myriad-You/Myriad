@@ -335,8 +335,12 @@ async fn clear_cached_for_test(user_id: i32) {
 }
 
 pub async fn load(db: Option<&DatabaseConnection>, user_id: i32) -> NotificationPreferences {
-    if let Some(cached) = PREFERENCES_CACHE.read().await.get(&user_id).cloned() {
-        return cached;
+    // Persistent producers can run in other processes. A process-local cache
+    // must not retain an old opt-in forever after the user changes preferences.
+    if db.is_none() {
+        if let Some(cached) = PREFERENCES_CACHE.read().await.get(&user_id).cloned() {
+            return cached;
+        }
     }
     let preferences = if let Some(db) = db {
         let result = db

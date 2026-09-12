@@ -1,7 +1,3 @@
-/**
- * Gaming report cards: Steam + Xbox + PSN.
- * Shared: presence polling, score/count-up, identity + bottom-slot layout.
- */
 import type { AnimationConfig } from '../../../../hooks/useAnimationLevel'
 import type { SteamPresence } from '../types'
 import { FaBolt, FaPlay, FaSteam, FaXbox, SiPlaystation } from '@lib/icons'
@@ -46,7 +42,6 @@ async function fetchSteamPresence(
         signal: AbortSignal.timeout(10000),
       })
       if (!res.ok) {
-        // Drop stale cache so UI does not keep "online" after a failed poll
         cachedSteamPresence = null
         cachedSteamPresenceAt = 0
         return null
@@ -60,8 +55,6 @@ async function fetchSteamPresence(
       cachedSteamPresence = null
       cachedSteamPresenceAt = 0
     } catch {
-      // Failure: clear module cache so the next refresh does not re-serve
-      // a prior online snapshot after TTL (假在线).
       cachedSteamPresence = null
       cachedSteamPresenceAt = 0
     } finally {
@@ -73,7 +66,6 @@ async function fetchSteamPresence(
   return steamPresencePromise
 }
 
-/** Xbox 实时状态（OpenXBL presence，走 game/presence 公共接口） */
 interface XboxPresence {
   gamertag?: string | null
   avatar?: string | null
@@ -82,7 +74,6 @@ interface XboxPresence {
   game_title?: string | null
   status?: string | null
   gamerscore?: number | null
-  /** Server returned identity-only payload (no API key) */
   degraded?: boolean
   degrade_reason?: string | null
 }
@@ -132,7 +123,6 @@ async function fetchXboxPresence(
       }
       const body = await res.json()
       const d = body?.data
-      // success:true + degraded:true is valid (identity-only when API key missing)
       if (!body?.success || !d) {
         xboxPresenceCache.delete(key)
         return null
@@ -143,7 +133,6 @@ async function fetchXboxPresence(
       const isOnline = degraded
         ? false
         : status === 'online' || status === 'away' || status === 'busy'
-      // Offline payloads may still carry a stale title — require online for "playing"
       const isInGame =
         !degraded && isOnline && Boolean(title && title !== 'Home')
       const gsRaw = d?.score?.value
@@ -235,7 +224,6 @@ function getSteamPresenceFromData(data: any): SteamPresence | null {
   }
 }
 
-// Steam组件（完整版）
 function getSteamPresenceText(
   presence: SteamPresence | null,
   t: ReturnType<typeof useI18n>['t'],
@@ -287,13 +275,8 @@ function getSteamPresenceColor(presence: SteamPresence | null): string {
   }
 }
 
-// 分数滚动计数：一次性 rAF 动画，duration<=0 时直接返回终值（降级/低端设备）
-// 同一个值驱动数字与进度条宽度，保证两者完全同步；
-// delay 让计数等卡片入场动画完成后再开跑，增长过程不会被淡入盖掉
-
 const SCORE_BAR_SEGMENTS = 10
 
-// 评分卡内容：抽成组件，使计数/进度条在每次轮播入场时重新播放
 export const ScoreCardBody = memo(
   ({
     score,
@@ -305,7 +288,6 @@ export const ScoreCardBody = memo(
     anim: AnimationConfig
   }) => {
     const { t } = useI18n()
-    // 延迟 300ms 起跑：等卡片与分数行入场完成，增长过程完整可见
     const displayScore = useCountUp(
       score,
       Math.round(900 * anim.durationScale),
@@ -315,7 +297,6 @@ export const ScoreCardBody = memo(
 
     return (
       <>
-        {/* 标题「游戏力评分」+ 分段能量条（缩短，与标题同排） */}
         <motion.div
           className="flex items-center justify-between gap-2"
           initial={{ opacity: 0, y: 6 }}
@@ -345,7 +326,6 @@ export const ScoreCardBody = memo(
           </div>
         </motion.div>
 
-        {/* 分数 + 类型标签（放大，与分数同排） */}
         <motion.div
           className="flex items-center justify-between gap-2.5"
           initial={{ opacity: 0, y: 6 }}
@@ -353,7 +333,6 @@ export const ScoreCardBody = memo(
           transition={{ duration: 0.3, delay: 0.2 }}
         >
           <span className="flex shrink-0 items-baseline gap-0.5">
-            {/* tabular-nums：计数过程数字等宽，右侧内容不抖动 */}
             <span className="text-3xl font-black leading-none tracking-tight tabular-nums text-gray-800 dark:text-gray-100">
               {displayScore}
             </span>
@@ -361,7 +340,6 @@ export const ScoreCardBody = memo(
               /100
             </span>
           </span>
-          {/* 类型标签：切角徽章，像游戏内稀有度/成就标签 */}
           <motion.span
             className="inline-flex min-w-0 items-center gap-1.5 bg-gray-800/90 py-1 pl-2.5 pr-3 dark:bg-white/90"
             style={{
@@ -400,7 +378,6 @@ export const SteamStatsWidget = memo(({ data, isPreview }: any) => {
     const raw = String(data?.player_type || '')
       .trim()
       .toLowerCase()
-    // Enum keys + legacy Chinese labels from older reports
     if (
       raw === 'hardcore' ||
       raw.includes('硬核') ||
@@ -418,7 +395,6 @@ export const SteamStatsWidget = memo(({ data, isPreview }: any) => {
     if (raw === 'balanced' || raw.includes('均衡')) {
       return t.reportCardWidget.balancedPlayer || t.reportCard.casualPlayer
     }
-    // Unknown string: show as-is only if non-empty, else casual default
     if (raw) return String(data.player_type)
     return t.reportCard.casualPlayer
   }, [data, t])
@@ -428,7 +404,6 @@ export const SteamStatsWidget = memo(({ data, isPreview }: any) => {
     return Math.round(n)
   }, [data])
   const totalPlaytime = useMemo(() => {
-    // card_visuals.total_playtime is **hours** (backend converts from Steam minutes)
     const hours = Number(data?.total_playtime)
     if (!Number.isFinite(hours) || hours < 0) return '0'
     const h = Math.round(hours)
@@ -446,12 +421,9 @@ export const SteamStatsWidget = memo(({ data, isPreview }: any) => {
   const avatarUrl = useMemo(() => {
     const raw = presence?.avatar?.trim()
     if (!raw) return null
-    // presence 走独立 API，不在 card_visuals 入口；此处补代理 + 相对路径
     if (raw.includes('/api/proxy/image')) return proxyImageUrl(raw) ?? raw
-    // Steam 同一 hash 有 无后缀(32) / _medium(64) / _full(184) 三种尺寸，
-    // 统一升到 _full，避免拿到小图放大发糊
-    const full = raw.replace(
-      /(_full|_medium)?\.(jpg|png)(\?.*)?$/i,
+    const full = raw.replaceAll(
+      /(_full|_medium)?\.(jpg|png)(\?.*)?$/ig,
       '_full.$2$3',
     )
     return proxyImageUrl(full) ?? full
@@ -461,21 +433,18 @@ export const SteamStatsWidget = memo(({ data, isPreview }: any) => {
     presence?.is_in_game && presence?.gameextrainfo
       ? presence.gameextrainfo
       : null
-  // 前端拼的商店头图（不在 card_visuals）：本地包代理
   const gameIconUrl =
     nowPlaying && presence?.gameid
       ? proxyImageUrl(
           `https://cdn.cloudflare.steamstatic.com/steam/apps/${presence.gameid}/header.jpg`,
         )
       : null
-  // 近两周游玩时长（小时），无数据时不显示该项
   const recent2wHours = useMemo(() => {
     const minutes = presence?.recent_2weeks_minutes
     if (typeof minutes !== 'number' || minutes <= 0) return null
     const hours = minutes / 60
     return hours >= 10 ? Math.round(hours).toString() : hours.toFixed(1)
   }, [presence])
-  // 右列三项统计（顶对齐分数、底对齐内边距，justify-between 均布）
   const statItems = useMemo(
     () => [
       { label: t.reportsPage.library, value: String(gamesCount), unit: '' },
@@ -488,8 +457,6 @@ export const SteamStatsWidget = memo(({ data, isPreview }: any) => {
     ],
     [t, gamesCount, totalPlaytime, recent2wHours],
   )
-  // 底部卡槽轮播：游戏中在「正在玩卡」与「评分卡」间循环，不玩时停在评分卡。
-  // 低端设备/减少动画时不轮播：游戏中固定正在玩卡（信息优先）。
   const [slotIndex, setSlotIndex] = useState(0)
   useEffect(() => {
     if (!nowPlaying || !anim.loop) {
@@ -525,22 +492,17 @@ export const SteamStatsWidget = memo(({ data, isPreview }: any) => {
   const showNowPlaying = Boolean(nowPlaying) && slotIndex === 1
 
   useEffect(() => {
-    // 小组件库预览用的是假数据，不该去打真接口
     if (isPreview) return
     let cancelled = false
 
     const refreshPresence = async () => {
-      // 后台标签页跳过请求，回到前台后由下一个 interval tick 恢复
       if (document.hidden) return
       const nextPresence = await fetchSteamPresence()
       if (cancelled) return
-      // null = poll failed or offline payload: clear live state (fall back to
-      // report-card snapshot) so a prior "online" does not stick forever.
       setLivePresence(nextPresence)
     }
 
     refreshPresence()
-    // 仅在线状态需要实时性，120s 一次足够；后端有 120s 共享缓存，多访客不会各自打 Steam
     const intervalId = window.setInterval(refreshPresence, 120 * 1000)
 
     return () => {
@@ -551,12 +513,9 @@ export const SteamStatsWidget = memo(({ data, isPreview }: any) => {
 
   return (
     <div className="relative h-full w-full overflow-hidden">
-      {/* 背景：Steam 亮蓝对角渐变 */}
       <div className="absolute inset-0 bg-linear-to-br from-[#66c0f4]/25 via-[#66c0f4]/8 to-transparent dark:from-[#66c0f4]/15 dark:via-[#66c0f4]/5 clip-diagonal" />
 
-      {/* 主体：身份块在顶、轮播卡槽沉底，justify-between 撑出中部呼吸带 */}
       <div className="relative z-10 flex h-full flex-col justify-between p-4">
-        {/* 身份块：头像 + （昵称/徽章同行 + 指标 tag 行） */}
         <motion.div
           className="flex min-w-0 items-center gap-3"
           initial={{ x: -12, opacity: 0 }}
@@ -588,7 +547,6 @@ export const SteamStatsWidget = memo(({ data, isPreview }: any) => {
                 <FaSteam className="h-5 w-5 text-gray-400 dark:text-gray-500" />
               </div>
             )}
-            {/* 状态点：头像右下角，在线时外圈呼吸扩散 */}
             {presence && (
               <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3">
                 {isLive && anim.loop && (
@@ -605,7 +563,6 @@ export const SteamStatsWidget = memo(({ data, isPreview }: any) => {
             )}
           </motion.div>
           <div className="flex min-w-0 flex-col gap-1.5">
-            {/* 昵称；文字描边补足 CJK 字重 */}
             {presence?.personaname && (
               <span
                 className="truncate text-base font-black tracking-tight text-gray-800 dark:text-gray-100"
@@ -614,7 +571,6 @@ export const SteamStatsWidget = memo(({ data, isPreview }: any) => {
                 {presence.personaname}
               </span>
             )}
-            {/* 三项指标：退化为无背景 tag 行 */}
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
               {statItems.map((item, i) => (
                 <motion.span
@@ -643,14 +599,10 @@ export const SteamStatsWidget = memo(({ data, isPreview }: any) => {
           </div>
         </motion.div>
 
-        {/* 底部卡槽：评分卡 ⇄ 正在玩卡 循环轮播。
-            pl 约等于 头像(44)+gap(12) 让左缘对齐昵称文本、越过浮动 Logo；
-            整体下移 3px 与上方指标行拉开距离 */}
         <div className="translate-y-[3px] pl-13">
           <div className="relative h-16">
             <AnimatePresence mode="wait">
               {showNowPlaying ? (
-                // 正在玩卡：满宽封面横幅 + 压暗渐变 + 播放角标/游戏名
                 <motion.div
                   key="playing"
                   className="absolute inset-0 overflow-hidden rounded-lg shadow-sm ring-1 ring-black/10 dark:ring-white/15"
@@ -683,7 +635,6 @@ export const SteamStatsWidget = memo(({ data, isPreview }: any) => {
                   </div>
                 </motion.div>
               ) : (
-                // 评分卡：类型 + 分数进度条（横向卡片专属，取代圆环）
                 <motion.div
                   key="score"
                   className="absolute inset-0 flex flex-col justify-center gap-1 rounded-lg glass-surface glass-45 px-3.5 ring-1 ring-black/5 dark:ring-white/10"
@@ -761,11 +712,6 @@ export const SteamWidget = memo(({ data, showOverview, onContentChange }: any) =
   )
 })
 
-// 平台配置
-// Xbox / PSN 共用：成就/奖杯型标题轮播
-// 两个平台都没有时长数据，卡片走"成就完成度"叙事：
-// 概览 = 核心分数 + 完成度统计；详情 = 作品完成度轮播。
-
 export const TrophyTitleRow = memo(
   ({
     title,
@@ -815,7 +761,6 @@ export const TrophyTitleRow = memo(
 
 TrophyTitleRow.displayName = 'TrophyTitleRow'
 
-/** 成就/奖杯向报告卡的通用骨架，Xbox / PSN 以配色和统计项区分 */
 export const AchievementReportBody = memo(
   ({
     icon,
@@ -938,10 +883,6 @@ export const AchievementReportBody = memo(
 
 AchievementReportBody.displayName = 'AchievementReportBody'
 
-// Xbox：对齐 Steam 卡的身份+指标+底槽结构
-// 叙事：成就向（无时长）。概览 = 头像/在线 + GS/库/成就 + 硬核指数/正在玩；
-// 详情 = 作品封面轮播（带完成度角标）。
-
 const XBOX_ACCENT_SOFT = '#3A9D23'
 
 export const XboxScoreCardBody = memo(
@@ -1055,7 +996,6 @@ export const XboxStatsWidget = memo(({ data, isPreview }: any) => {
     [data],
   )
   const score = useMemo(() => {
-    // 显式有 hardcore_score 字段时信任后端（含 0）；缺失才前端兜底
     if (
       data?.hardcore_score !== undefined &&
       data?.hardcore_score !== null &&
@@ -1063,7 +1003,6 @@ export const XboxStatsWidget = memo(({ data, isPreview }: any) => {
     ) {
       return Math.min(100, Math.max(0, Math.round(Number(data.hardcore_score))))
     }
-    // 旧报告无 hardcore_score 时用完成度/全成就/GS 做轻量兜底
     const completion = Math.min(
       100,
       Math.max(0, Number(data?.completion_rate) || 0),
@@ -1116,7 +1055,7 @@ export const XboxStatsWidget = memo(({ data, isPreview }: any) => {
   const [livePresence, setLivePresence] = useState<XboxPresence | null>(null)
 
   useEffect(() => {
-    // 预览态的 gamertag 来自 previewData（'PreviewGamer'），不能拿去打接口
+    // 预览 gamertag 是假的，不能拿去打接口。
     if (isPreview || !gamertag) return
     let cancelled = false
     const refresh = async () => {
@@ -1132,7 +1071,6 @@ export const XboxStatsWidget = memo(({ data, isPreview }: any) => {
     }
   }, [gamertag, isPreview])
 
-  // 无 gamertag 时尝试从公开配置取
   useEffect(() => {
     if (gamertag) return
     let cancelled = false
@@ -1148,7 +1086,6 @@ export const XboxStatsWidget = memo(({ data, isPreview }: any) => {
   }, [gamertag])
 
   const displayName = livePresence?.gamertag || gamertag || 'Xbox'
-  // live presence 独立 API（非 card_visuals 入口）
   const avatarUrl =
     proxyImageUrl(livePresence?.avatar) ||
     livePresence?.avatar ||
@@ -1162,7 +1099,7 @@ export const XboxStatsWidget = memo(({ data, isPreview }: any) => {
       ? livePresence.game_title
       : null
   const presenceColor = isDegraded
-    ? '#f59e0b' // amber: limited / no API key — not offline
+    ? '#f59e0b'
     : livePresence?.is_in_game
       ? XBOX_ACCENT_SOFT
       : livePresence?.is_online
@@ -1173,7 +1110,6 @@ export const XboxStatsWidget = memo(({ data, isPreview }: any) => {
       ? livePresence.gamerscore
       : gamerscore
 
-  // 主指标 + 副指标同一行：游戏数 / GS / 成就 / 完成度 / 全成就
   const statItems = useMemo(() => {
     const items: { label: string; value: string; unit: string }[] = [
       {
@@ -1209,7 +1145,6 @@ export const XboxStatsWidget = memo(({ data, isPreview }: any) => {
     return items
   }, [t, gamesCount, liveGs, achievements, completionRate, completedGames])
 
-  // 底槽：有正在玩时在「正在玩」与「猎人指数」间轮播
   const [slotIndex, setSlotIndex] = useState(0)
   useEffect(() => {
     if (!nowPlaying || !anim.loop) {
@@ -1249,11 +1184,9 @@ export const XboxStatsWidget = memo(({ data, isPreview }: any) => {
 
   return (
     <div className="relative h-full w-full overflow-hidden">
-      {/* 背景：Xbox 绿对角渐变 */}
       <div className="absolute inset-0 bg-linear-to-br from-[#107C10]/25 via-[#107C10]/8 to-transparent dark:from-[#107C10]/18 dark:via-[#107C10]/5 clip-diagonal" />
 
       <div className="relative z-10 flex h-full flex-col justify-between p-4">
-        {/* 身份块：头像 + 昵称 + 指标 tag（主+副同一行） */}
         <motion.div
           className="flex min-w-0 items-center gap-3"
           initial={{ x: -12, opacity: 0 }}
@@ -1292,7 +1225,6 @@ export const XboxStatsWidget = memo(({ data, isPreview }: any) => {
                 <FaXbox className="h-5 w-5 text-[#107C10]" />
               </div>
             )}
-            {/* 在线状态点（amber = degraded / missing server key） */}
             {livePresence && (
               <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3">
                 {isLive && anim.loop && (
@@ -1344,7 +1276,6 @@ export const XboxStatsWidget = memo(({ data, isPreview }: any) => {
           </div>
         </motion.div>
 
-        {/* 底部卡槽：猎人指数 ⇄ 正在玩 */}
         <div className="translate-y-[3px] pl-13">
           <div className="relative h-16">
             <AnimatePresence mode="wait">
@@ -1390,7 +1321,6 @@ export const XboxStatsWidget = memo(({ data, isPreview }: any) => {
 })
 XboxStatsWidget.displayName = 'XboxStatsWidget'
 
-/** PSN 实时状态（走 game/presence） */
 interface PsnPresence {
   online_id?: string | null
   avatar?: string | null
@@ -1438,7 +1368,6 @@ async function fetchPsnPresence(
       const degraded = Boolean(d.degraded)
       const status = String(d?.presence?.status || '').toLowerCase()
       const title = d?.presence?.title ? String(d.presence.title) : null
-      // BE may still emit availableToPlay before normalize; accept available*
       const isOnline = degraded
         ? false
         : status.includes('online') ||
@@ -1447,7 +1376,6 @@ async function fetchPsnPresence(
           (status.includes('available') && !status.includes('unavailable')) ||
           status === 'away' ||
           status === 'busy'
-      // Align with Xbox: require online for "playing" (stale title while offline is common)
       const isInGame =
         !degraded && isOnline && Boolean(title && title !== 'Home')
       const lvRaw = d?.score?.value
@@ -1492,7 +1420,6 @@ async function fetchPsnPresence(
 }
 
 export const XboxWidget = memo(({ data, showOverview, onContentChange }: any) => {
-  // 详情优先 library_items（带封面）；无则回退 top_titles。封面统一升 https。
   const libraryItems = useMemo(() => {
     const mapItem = (t: any) => ({
       title: t.title || t.name,
@@ -1505,7 +1432,6 @@ export const XboxWidget = memo(({ data, showOverview, onContentChange }: any) =>
     })
     const lib = Array.isArray(data?.library_items) ? data.library_items : []
     const fromLib = lib.map(mapItem).filter((x: any) => x.title)
-    // 有封面的优先轮播；全无封面时仍展示文字进度
     const withCover = fromLib.filter((x: any) => x.cover)
     if (withCover.length > 0) return withCover
     if (fromLib.length > 0) return fromLib
@@ -1569,10 +1495,8 @@ export const XboxWidget = memo(({ data, showOverview, onContentChange }: any) =>
                   <FaXbox className="h-10 w-10 text-white/30" />
                 </div>
               )}
-              {/* 轻量底渐变即可；标题交给左下角浮动 Logo，避免与背景文字重复 */}
               <div className="absolute inset-0 bg-linear-to-t from-black/50 via-transparent to-transparent" />
             </div>
-            {/* 完成度角标（右上）；标题只走 onContentChange → 左下 Logo */}
             {(progress > 0 || achTotal > 0) && (
               <div className="absolute top-2 right-2 z-10 flex items-center gap-1 rounded-md bg-black/55 px-1.5 py-0.5 ring-1 ring-white/15">
                 <span
@@ -1588,7 +1512,6 @@ export const XboxWidget = memo(({ data, showOverview, onContentChange }: any) =>
                 )}
               </div>
             )}
-            {/* 底部进度条：pl 避开左下浮动 Logo */}
             {progress > 0 && (
               <div className="absolute inset-x-0 bottom-0 z-10 px-2.5 pb-2.5 pl-12">
                 <div className="h-1 overflow-hidden rounded-full bg-white/20">
@@ -1617,10 +1540,6 @@ export const XboxWidget = memo(({ data, showOverview, onContentChange }: any) =>
 })
 
 XboxWidget.displayName = 'XboxWidget'
-
-// PSN：对齐 Xbox/Steam 的身份+指标+底槽结构
-// 叙事：奖杯向（无时长）。概览 = 头像/在线 + 白金/等级/库 + 猎人指数/正在玩；
-// 详情 = 作品封面轮播（完成度 + 白金角标）。
 
 const PSN_ACCENT_SOFT = '#3D9BFF'
 
@@ -1798,7 +1717,7 @@ export const PsnStatsWidget = memo(({ data, isPreview }: any) => {
   const [livePresence, setLivePresence] = useState<PsnPresence | null>(null)
 
   useEffect(() => {
-    // 预览态的 onlineId 来自 previewData（'PreviewPSN'），不能拿去打接口
+    // 预览 onlineId 是假的，不能拿去打接口。
     if (isPreview || !onlineId) return
     let cancelled = false
     const refresh = async () => {
@@ -1829,7 +1748,6 @@ export const PsnStatsWidget = memo(({ data, isPreview }: any) => {
   }, [onlineId])
 
   const displayName = livePresence?.online_id || onlineId || 'PlayStation'
-  // live presence 独立 API：仅补 https / 代理
   const avatarUrl =
     proxyImageUrl(livePresence?.avatar) ||
     normalizeHttpsMediaUrl(livePresence?.avatar) ||
@@ -2155,7 +2073,6 @@ export const PsnWidget = memo(({ data, showOverview, onContentChange }: any) => 
               )}
               <div className="absolute inset-0 bg-linear-to-t from-black/50 via-transparent to-transparent" />
             </div>
-            {/* 右上：完成度 + 白金标记；标题只走左下 Logo */}
             {(progress > 0 || hasPlatinum) && (
               <div className="absolute top-2 right-2 z-10 flex items-center gap-1 rounded-md bg-black/55 px-1.5 py-0.5 ring-1 ring-white/15">
                 {hasPlatinum && (

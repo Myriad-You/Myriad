@@ -1,36 +1,5 @@
-/**
- * Helpers for ReportCardWidget data resolution.
- *
- * Home dashboard cards fetch `/api/reports/latest` and must map each widget
- * to the correct platform report + card_visuals payload. These pure helpers
- * are unit-tested so field-mapping regressions surface as test failures.
- *
- * Media URLs in card_visuals are normalized once here (`normalizeJsonMediaUrls`);
- * platform faces should not re-wrap with resolveMediaUrl.
- *
- * API shape (GET /api/reports/latest):
- * ```
- * {
- *   success: true,
- *   user_id?: number,
- *   platform_reports: Array<{
- *     platform: string,           // e.g. "steam"
- *     summary?: string,
- *     insights?: string[],
- *     card_visuals?: object,      // stats the platform widget renders
- *     cardVisuals?: object,       // camelCase alias (catalog)
- *     content?: { card_visuals?, platform? },
- *     report?: { card_visuals? }, // older nested shape
- *     ...
- *   }>
- * }
- * ```
- * Widget path: resolve platformId → pickPlatformCardVisuals → platform branch render.
- */
-
 import { normalizeJsonMediaUrls } from './proxyImageUrl'
 
-/** Structural input for report-card platform resolution (accepts WidgetConfig). */
 export interface WidgetConfigLike {
   type?: string
   config?: {
@@ -38,7 +7,6 @@ export interface WidgetConfigLike {
   } | null
 }
 
-/** Canonical home widget platform ids (must match ReportCardWidget branches). */
 export const REPORT_PLATFORM_IDS = [
   'bilibili',
   'steam',
@@ -80,22 +48,13 @@ const PLATFORM_ALIASES: Record<string, ReportPlatformId> = {
   discord: 'discord',
 }
 
-/**
- * Normalize free-form platform labels to a canonical ReportCard platform id.
- * Keeps unknown ids lowercased so equality matches still work when possible.
- */
 export function normalizeReportPlatformId(raw: unknown): string {
   if (typeof raw !== 'string') return 'bilibili'
-  const key = raw.trim().toLowerCase().replace(/\s+/g, ' ')
+  const key = raw.trim().toLowerCase().replaceAll(/\s+/g, ' ')
   if (!key) return 'bilibili'
   return PLATFORM_ALIASES[key] ?? key
 }
 
-/**
- * Resolve platform id for a report card widget.
- * Prefer explicit config; fall back to widget type suffix (`report-steam` → `steam`).
- * Always normalizes aliases (MyAnimeList → mal, Twitter → x, …).
- */
 export function resolveReportPlatformId(config: WidgetConfigLike): string {
   const fromConfig = config.config?.platformId
   if (typeof fromConfig === 'string' && fromConfig.trim()) {
@@ -109,10 +68,6 @@ export function resolveReportPlatformId(config: WidgetConfigLike): string {
   return 'bilibili'
 }
 
-/**
- * Extract card_visuals from a platform report payload.
- * Tolerates snake_case / camelCase / catalog `content` nesting / double-encoded JSON.
- */
 export function extractCardVisuals(
   report: unknown,
 ): Record<string, unknown> | null {
@@ -148,7 +103,7 @@ export function extractCardVisuals(
       }
       continue
     }
-    // Skip empty {} so later candidates (content.card_visuals, etc.) still win
+    // Skip empty {}.
     if (
       typeof raw === 'object' &&
       !Array.isArray(raw) &&
@@ -158,7 +113,6 @@ export function extractCardVisuals(
     }
   }
 
-  // Payload itself looks like card_visuals (legacy flat shape / direct prop)
   const looksLikeVisuals =
     r.hardcore_score != null ||
     r.danmaku != null ||
@@ -197,7 +151,6 @@ export function extractCardVisuals(
   return null
 }
 
-/** True when visuals object has at least one renderable field. */
 export function hasRenderableCardVisuals(
   visuals: Record<string, unknown> | null | undefined,
 ): boolean {
@@ -205,13 +158,6 @@ export function hasRenderableCardVisuals(
   return Object.keys(visuals).length > 0
 }
 
-/**
- * Whether home ReportCard auto-flip (overview ⇄ detail) has a real detail face.
- *
- * Most platforms use `library_items` (covers / guilds / titles). X does not:
- * detail is following highlights/sample after tweet carousel was removed.
- * Gating only on library_items (#155 Discord empty-face fix) stuck X on overview.
- */
 export function hasReportDetailContent(
   visuals: Record<string, unknown> | null | undefined,
 ): boolean {
@@ -239,13 +185,6 @@ function platformMatches(candidate: unknown, platformId: string): boolean {
   )
 }
 
-/**
- * Pick a platform report from `/api/reports/latest` (or catalog / generate) list
- * and return non-empty card_visuals, or null (empty-render guard).
- *
- * This is the home ReportCardWidget data path: wrong platform match or empty
- * `{}` visuals previously mounted a blank shell with only the platform logo.
- */
 export function pickPlatformCardVisuals(
   data: unknown,
   platformId: string,
@@ -260,7 +199,6 @@ export function pickPlatformCardVisuals(
       ? body.reports
       : null
   if (!reports) {
-    // Single report envelope or raw visuals
     const visuals = extractCardVisuals(body)
     return hasRenderableCardVisuals(visuals) ? visuals : null
   }
@@ -280,35 +218,23 @@ export function pickPlatformCardVisuals(
 
   if (!report) return null
 
-  // Prefer nested card_visuals; coerce so widgets always get a flat stats object
-  // even when the API returns a full PlatformReport envelope or double wraps.
   return coerceReportVisuals(report)
 }
 
-/** Whether a platform id has a dedicated home ReportCard branch. */
 export function isKnownReportPlatformId(id: string): boolean {
   return (REPORT_PLATFORM_IDS as readonly string[]).includes(
     normalizeReportPlatformId(id),
   )
 }
 
-/**
- * Coerce any report-shaped JSON into flat card_visuals the platform widgets read.
- *
- * Critical empty-content path: report JSON *exists* (PlatformReport envelope or
- * double-wrapped card_visuals) but widgets read top-level hardcore_score /
- * library_items / profile — nested stats → blank face with only the logo.
- */
 export function coerceReportVisuals(
   input: unknown,
 ): Record<string, unknown> | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null
   const root = input as Record<string, unknown>
 
-  // 1) Standard extract (card_visuals / content.card_visuals / flat)
   let visuals = extractCardVisuals(root)
 
-  // 2) Older rows: { platform, report: { card_visuals } } or catalog content/*
   if (!hasRenderableCardVisuals(visuals)) {
     for (const nestKey of ['report', 'content', 'data', 'payload'] as const) {
       const nested = root[nestKey]
@@ -317,7 +243,6 @@ export function coerceReportVisuals(
     }
   }
 
-  // 3) Double-wrap: { card_visuals: { card_visuals: { stats… } } }
   if (visuals) {
     const nestedOnly =
       Object.keys(visuals).length <= 3 &&
@@ -330,7 +255,6 @@ export function coerceReportVisuals(
     }
   }
 
-  // 4) Envelope with empty card_visuals but sibling stats fields (mis-saved rows)
   if (!hasRenderableCardVisuals(visuals)) {
     const sibling = extractCardVisuals({
       ...root,
@@ -342,7 +266,6 @@ export function coerceReportVisuals(
 
   if (!hasRenderableCardVisuals(visuals)) return null
 
-  // 5) Merge useful siblings from the envelope onto visuals when missing
   const merged: Record<string, unknown> = { ...visuals }
   for (const key of [
     'library_items',
@@ -365,14 +288,12 @@ export function coerceReportVisuals(
     'is_empty_channel',
     'video_summary',
     'status_counts',
-    // GitHub flat stats (often siblings of empty card_visuals)
     'total_contributions',
     'repos_count',
     'total_stars',
     'contribution_level',
     'contribution_calendar',
     'languages',
-    // Bilibili / gaming flat stats
     'hardcore_score',
     'danmaku',
     'games_count',
@@ -381,7 +302,6 @@ export function coerceReportVisuals(
     if (merged[key] == null && root[key] != null) {
       merged[key] = root[key]
     }
-    // Also pull from nested report/content if present
     for (const nestKey of ['report', 'content', 'data'] as const) {
       const nest = root[nestKey]
       if (

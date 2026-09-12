@@ -51,7 +51,7 @@ pub(crate) async fn load_room_shared_config(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Room not found"})),
+                Json(AppError::public_json("Room not found")),
             )
         })?;
     Ok(room_row
@@ -134,7 +134,7 @@ pub(crate) async fn broadcast_and_fanout_stickers(
     }
 }
 
-/// POST /rooms/{id}/stickers — room owner/admin only (edit shared pack).
+/// POST /api/federation/rooms/{room_id}/stickers — room owner/admin only (edit shared pack).
 pub async fn add_room_sticker(
     user_id: i32,
     username: &str,
@@ -151,7 +151,9 @@ pub async fn add_room_sticker(
         .ok_or_else(|| {
             (
                 StatusCode::FORBIDDEN,
-                Json(json!({"error": "Only active members can manage stickers"})),
+                Json(AppError::public_json(
+                    "Only active members can manage stickers",
+                )),
             )
         })?;
     if !is_admin_role(&role) {
@@ -173,7 +175,9 @@ pub async fn add_room_sticker(
         if !owner_ok {
             return Err((
                 StatusCode::FORBIDDEN,
-                Json(json!({"error": "Only room owner or admin can edit the group sticker pack"})),
+                Json(AppError::public_json(
+                    "Only room owner or admin can edit the group sticker pack",
+                )),
             ));
         }
     }
@@ -182,13 +186,13 @@ pub async fn add_room_sticker(
     if !data.starts_with("data:image/") {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Sticker must be a data:image URL"})),
+            Json(AppError::public_json("Sticker must be a data:image URL")),
         ));
     }
     if data.len() > ROOM_STICKER_MAX_DATA_LEN {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Sticker image too large"})),
+            Json(AppError::public_json("Sticker image too large")),
         ));
     }
 
@@ -249,7 +253,7 @@ pub async fn add_room_sticker(
     })
 }
 
-/// DELETE /rooms/{id}/stickers/{sticker_id} — room owner/admin only.
+/// DELETE /api/federation/rooms/{room_id}/stickers/{sticker_id} — room owner/admin only.
 pub async fn remove_room_sticker(
     user_id: i32,
     username: &str,
@@ -263,7 +267,7 @@ pub async fn remove_room_sticker(
     if sticker_id.is_empty() || sticker_id.len() > 128 {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Invalid sticker id"})),
+            Json(AppError::public_json("Invalid sticker id")),
         ));
     }
 
@@ -273,7 +277,9 @@ pub async fn remove_room_sticker(
         .ok_or_else(|| {
             (
                 StatusCode::FORBIDDEN,
-                Json(json!({"error": "Only active members can manage stickers"})),
+                Json(AppError::public_json(
+                    "Only active members can manage stickers",
+                )),
             )
         })?;
     let local_actor = stored_actor;
@@ -296,7 +302,9 @@ pub async fn remove_room_sticker(
         if !owner_ok {
             return Err((
                 StatusCode::FORBIDDEN,
-                Json(json!({"error": "Only room owner or admin can edit the group sticker pack"})),
+                Json(AppError::public_json(
+                    "Only room owner or admin can edit the group sticker pack",
+                )),
             ));
         }
     }
@@ -307,7 +315,7 @@ pub async fn remove_room_sticker(
     if !found {
         return Err((
             StatusCode::NOT_FOUND,
-            Json(json!({"error": "Sticker not found"})),
+            Json(AppError::public_json("Sticker not found")),
         ));
     }
 
@@ -332,3 +340,4 @@ pub async fn remove_room_sticker(
         stickers,
     })
 }
+use myriad_error::AppError;

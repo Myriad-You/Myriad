@@ -20,11 +20,8 @@ interface FaceVerticalBounds {
 }
 
 export interface HairStrandDynamics {
-  /** Displacement gain relative to a strand one face-height long. */
   amplitudeScale: number
-  /** Spring stiffness multiplier; paired with dampingScale below. */
   stiffnessScale: number
-  /** Preserves the authored damping ratio as response speed changes. */
   dampingScale: number
 }
 
@@ -57,11 +54,6 @@ export interface Anime25DHairSpringFrame {
   time: number
 }
 
-/**
- * Derive restrained per-strand motion from its projected pixel length.
- * Displacement follows length approximately linearly, while response speed
- * changes much more gently than a literal physical cantilever would.
- */
 export function hairStrandDynamics(
   rootY: number,
   tipY: number,
@@ -94,7 +86,6 @@ export function hairStrandDynamics(
   }
 }
 
-/** Semi-implicit spring integration with bounded substeps for stable playback. */
 export function stepHairSpring(
   spring: HairSpringState,
   target: number,
@@ -121,7 +112,6 @@ export function stepHairSpring(
   spring.dx = -(spring.x - target) * pull
 }
 
-/** Advance every authored strand after the shared head pose has settled. */
 export function stepAnime25DHairLayerSprings(
   layers: readonly Anime25DHairSpringLayer[],
   frame: Readonly<Anime25DHairSpringFrame>,
@@ -161,11 +151,7 @@ export function stepAnime25DHairLayerSprings(
   }
 }
 
-/**
- * Reduce only the upper excess-depth parallax of a composite front-hair layer.
- * The face-plane head motion remains intact; the retained depth motion then
- * smoothly returns to the authored amount above the long-lock tips.
- */
+/** Reduce only the upper excess-depth parallax of a composite front-hair layer. */
 export function frontHairUpperParallaxScale(
   vertexY: number,
   layer: LayerVerticalBounds,

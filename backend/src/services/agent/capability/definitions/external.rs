@@ -9,8 +9,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // HTTP 请求
     registry.register(Capability {
         id: "http.fetch".to_string(),
-        name: "HTTP 请求".to_string(),
-        description: "发起外部 HTTP 请求".to_string(),
+        name: "HTTP request".to_string(),
+        description: "Make an outbound HTTP request.".to_string(),
         category: CapabilityCategory::ExternalIntegration,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -34,7 +34,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
         requires_ai: false,
         estimated_duration_ms: Some(2000),
         requires_confirmation: true,
-        confirmation_message: Some("即将向外部 URL 发起 HTTP 请求".to_string()),
+        confirmation_message: Some("This will send an HTTP request to an external URL".to_string()),
         risk_level: RiskLevel::Medium,
         ..Default::default()
     });
@@ -42,14 +42,14 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 一言
     registry.register(Capability {
         id: "hitokoto.get".to_string(),
-        name: "获取一言".to_string(),
-        description: "获取随机一言/语录".to_string(),
+        name: "Hitokoto".to_string(),
+        description: "Get a random quote.".to_string(),
         category: CapabilityCategory::ExternalIntegration,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "type": { "type": "string", "description": "类型：动画、漫画、游戏等" }
+                "type": { "type": "string", "description": "Type: anime, manga, games, etc." }
             }
         }),
         output_schema: json!({
@@ -69,8 +69,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // RSSHub 实例列表（brew rsshub_instances 表，与 Brew UI 同源）
     registry.register(Capability {
         id: "rsshub.instances".to_string(),
-        name: "RSSHub 实例列表".to_string(),
-        description: "获取 RSSHub 实例列表及健康状态（与 Brew 设置同源）".to_string(),
+        name: "RSSHub instances".to_string(),
+        description: "List RSSHub instances and their health.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -93,14 +93,14 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // RSSHub 健康检查（对已配置实例探测，非硬编码公共 URL）
     registry.register(Capability {
         id: "rsshub.healthcheck".to_string(),
-        name: "RSSHub 健康检查".to_string(),
-        description: "对已配置的 RSSHub 实例做实时健康检查（可选 instanceId）".to_string(),
+        name: "RSSHub health".to_string(),
+        description: "Check configured RSSHub instances.".to_string(),
         category: CapabilityCategory::SystemOp,
         supported_actions: vec![IntentAction::Monitor],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "instanceId": { "type": "integer", "description": "可选；省略则检查全部已配置实例" }
+                "instanceId": { "type": "integer", "description": "Optional; omit to check every configured instance" }
             }
         }),
         output_schema: json!({
@@ -120,8 +120,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // Notion 数据查询
     registry.register(Capability {
         id: "notion.query".to_string(),
-        name: "Notion 数据查询".to_string(),
-        description: "查询 Notion 数据库内容".to_string(),
+        name: "Query Notion".to_string(),
+        description: "Query a Notion database.".to_string(),
         category: CapabilityCategory::ExternalIntegration,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -148,8 +148,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 网易云歌曲详情
     registry.register(Capability {
         id: "netease.song".to_string(),
-        name: "网易云歌曲详情".to_string(),
-        description: "查询网易云音乐歌曲详细信息，可包含歌词".to_string(),
+        name: "NetEase song".to_string(),
+        description: "Read a NetEase song, optionally with lyrics.".to_string(),
         category: CapabilityCategory::ExternalIntegration,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -176,8 +176,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 网易云歌单详情
     registry.register(Capability {
         id: "netease.playlist.detail".to_string(),
-        name: "网易云歌单详情".to_string(),
-        description: "获取网易云歌单的详细信息和歌曲列表".to_string(),
+        name: "NetEase playlist".to_string(),
+        description: "Read a NetEase playlist and its tracks.".to_string(),
         category: CapabilityCategory::ExternalIntegration,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -204,8 +204,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 图片代理
     registry.register(Capability {
         id: "proxy.image".to_string(),
-        name: "图片代理".to_string(),
-        description: "代理获取外链图片（绕过防盗链）".to_string(),
+        name: "Image proxy".to_string(),
+        description: "Fetch an external image through the image proxy.".to_string(),
         category: CapabilityCategory::ExternalIntegration,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -234,15 +234,15 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 天气查询
     registry.register(Capability {
         id: "weather.get".to_string(),
-        name: "天气查询".to_string(),
-        description: "获取指定城市的天气信息".to_string(),
+        name: "Weather".to_string(),
+        description: "Get weather for a city.".to_string(),
         category: CapabilityCategory::ExternalIntegration,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "city": { "type": "string", "description": "城市名（也可用 location / q）" },
-                "location": { "type": "string", "description": "city 的别名" }
+                "city": { "type": "string", "description": "City name (location / q also accepted)" },
+                "location": { "type": "string", "description": "Alias of city" }
             },
             "required": ["city"]
         }),
@@ -264,8 +264,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 时间信息
     registry.register(Capability {
         id: "time.info".to_string(),
-        name: "时间信息".to_string(),
-        description: "按 IANA / UTC / local / 固定偏移换算当前墙钟；未知时区失败".to_string(),
+        name: "Time".to_string(),
+        description: "Convert the current time across time zones.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -273,7 +273,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "properties": {
                 "timezone": {
                     "type": "string",
-                    "description": "IANA（Asia/Shanghai）、UTC、local、或 +08:00 / UTC+8"
+                    "description": "IANA (Asia/Shanghai), UTC, local, or +08:00 / UTC+8"
                 }
             }
         }),
@@ -300,8 +300,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 内容数据库 - 番剧
     registry.register(Capability {
         id: "database.anime".to_string(),
-        name: "番剧数据库查询".to_string(),
-        description: "查询预置番剧/电视剧/电影数据库".to_string(),
+        name: "Anime database".to_string(),
+        description: "Query the built-in anime and film database.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -328,8 +328,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 内容数据库 - 游戏
     registry.register(Capability {
         id: "database.game".to_string(),
-        name: "游戏数据库查询".to_string(),
-        description: "查询预置游戏数据库".to_string(),
+        name: "Game database".to_string(),
+        description: "Query the built-in game database.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -356,8 +356,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 内容数据库 - 艺术家
     registry.register(Capability {
         id: "database.artist".to_string(),
-        name: "艺术家数据库查询".to_string(),
-        description: "查询预置歌手/艺术家数据库".to_string(),
+        name: "Artist database".to_string(),
+        description: "Query the built-in artist database.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -383,8 +383,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 元数据历史
     registry.register(Capability {
         id: "metadata.history".to_string(),
-        name: "元数据历史".to_string(),
-        description: "查询平台元数据变化历史".to_string(),
+        name: "Metadata history".to_string(),
+        description: "Read platform metadata history.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -413,8 +413,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 用户画像
     registry.register(Capability {
         id: "profile.summary".to_string(),
-        name: "用户画像".to_string(),
-        description: "获取用户跨平台综合画像".to_string(),
+        name: "Profile summary".to_string(),
+        description: "Read a cross-platform profile summary.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query, IntentAction::Analyze],
         input_schema: json!({
@@ -440,8 +440,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 随机内容
     registry.register(Capability {
         id: "random.content".to_string(),
-        name: "随机内容".to_string(),
-        description: "从平台数据中随机推荐内容".to_string(),
+        name: "Random content".to_string(),
+        description: "Pick random items from platform data.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query, IntentAction::Recommend],
         input_schema: json!({
@@ -467,16 +467,16 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 网页抓取
     registry.register(Capability {
         id: "web.scrape".to_string(),
-        name: "网页内容抓取".to_string(),
-        description: "抓取外部网页并提取可读文本，支持 CSS 选择器。可与 ai.summarize 联用实现「读这个网页并总结」".to_string(),
+        name: "Fetch page".to_string(),
+        description: "Fetch a web page and extract readable text.".to_string(),
         category: CapabilityCategory::ExternalIntegration,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "url": { "type": "string", "description": "要抓取的网页 URL" },
-                "selector": { "type": "string", "description": "CSS 选择器，默认 body" },
-                "max_length": { "type": "integer", "description": "最大返回字符数，默认 5000" }
+                "url": { "type": "string", "description": "Page URL to scrape" },
+                "selector": { "type": "string", "description": "CSS selector, default body" },
+                "max_length": { "type": "integer", "description": "Max characters to return, default 5000" }
             },
             "required": ["url"]
         }),

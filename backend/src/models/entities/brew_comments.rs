@@ -38,6 +38,8 @@ pub struct Model {
     pub is_public: bool,
     /// 父评论 ID（用于嵌套回复，NULL 表示顶级评论）
     pub parent_id: Option<i32>,
+    /// Article body version when this comment was created. Null on legacy rows.
+    pub content_revision: Option<i64>,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
 }
@@ -93,6 +95,8 @@ pub struct CommentResponse {
     pub color: Option<String>,
     pub is_public: bool,
     pub parent_id: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_revision: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,
     /// 回复列表（仅用于获取详情时填充）
@@ -121,6 +125,7 @@ impl From<Model> for CommentResponse {
             color: m.color,
             is_public: m.is_public,
             parent_id: m.parent_id,
+            content_revision: m.content_revision,
             created_at: m.created_at.timestamp_millis(),
             updated_at: m.updated_at.timestamp_millis(),
             replies: None,

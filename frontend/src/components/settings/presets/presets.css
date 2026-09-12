@@ -1,25 +1,14 @@
-/**
- * 预设组件样式
- * 间距：在 .config-form 内由 --settings-gap-group 承接
- */
 
-/* ==========================================
-   权限组样式（CheckboxGroupItem 卡片）
-   ========================================== */
 
 .permission-checkbox-group {
   margin-bottom: 0;
 }
 
-/* ==========================================
-   配额组样式（基于 NumberGroupItem 卡片）
-   ========================================== */
 
 .quota-number-group {
   margin-bottom: 0;
 }
 
-/* 无 .config-form 时相邻预设仍保留组间距 */
 :not(.config-form) > .permission-checkbox-group + .permission-checkbox-group,
 :not(.config-form) > .permission-checkbox-group + .quota-number-group,
 :not(.config-form) > .quota-number-group + .quota-number-group,
@@ -27,10 +16,7 @@
   margin-top: var(--settings-gap-group, 1.25rem);
 }
 
-/* ==========================================
-   Agent 预设：卡面由 SettingGroupGrid variant=card 提供
-   此处只保证分段控件在网格卡内铺满
-   ========================================== */
+/* segmented control fills grid card */
 
 .agent-preset-grid .choice-segmented {
   width: 100%;

@@ -11,18 +11,10 @@ export interface PerformanceLeaseWindows {
   planUntilMs: number
   expressionCueUntilMs: number | null
   headBodyCueUntilMs: number | null
-  /**
-   * Cues that drive eyeX/eyeY take the eyes for as long as they play. Without
-   * this window they can be classified as gaze motion and still never claim
-   * it, leaving ambient drift to pull against the directed look.
-   */
   gazeCueUntilMs: number | null
 }
 
-/**
- * Timed windows for transient behavior only. Persistent bearing is a base
- * pose, not a lease, and therefore never takes expression or body ownership.
- */
+/** Timed windows for transient behavior only. */
 export function performanceLeaseWindows(
   directive: PerformanceDirective,
   originMs: number,
@@ -74,10 +66,6 @@ export function performanceLeaseWindows(
   }
 }
 
-/**
- * One performance producer: baseline expression, and timed expression,
- * head/body and gaze cues. Each is an independent lease handle.
- */
 export class PerformanceMotionLeases {
   private expressionCue: MotionLeaseHandle | null = null
   private headBodyCue: MotionLeaseHandle | null = null

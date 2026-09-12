@@ -1,16 +1,10 @@
-/**
- * Tapp 详情页 — 对齐设置页 SettingSection 布局的局部 chrome
- * 表面 / 按钮 / 设置项令牌来自 ConfigForm.css + settings 组件。
- */
-
 .tapp-detail-page {
   width: 100%;
-  max-width: 56rem; /* ~max-w-4xl，单栏详情 */
+  max-width: 56rem;
   margin-left: auto;
   margin-right: auto;
 }
 
-/* 标题栏图标：尺寸见 .tapp-page-icon--header；质感走默认 material */
 .tapp-detail-icon {
   display: inline-flex;
   align-items: center;
@@ -23,7 +17,6 @@
   box-shadow: 0 4px 14px -4px rgb(0 0 0 / 22%) !important;
 }
 
-/* 运行状态 chip（标题旁） */
 .tapp-detail-status {
   display: inline-flex;
   align-items: center;
@@ -65,7 +58,6 @@
   }
 }
 
-/* 权限：按等级纵向分组；等级内部三列卡 */
 .tapp-perm-levels {
   display: flex;
   flex-direction: column;
@@ -73,7 +65,6 @@
   width: 100%;
 }
 
-/* 组内强制最多 3 列（复用 checkbox-group-options 自适应减列） */
 .tapp-perm-cards.checkbox-group-options {
   width: 100%;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -91,7 +82,6 @@
   }
 }
 
-/* 只读权限卡：div 壳复用 checkbox-group-card，指南入口可点 */
 .tapp-perm-cards .tapp-perm-card.checkbox-group-card {
   max-width: none;
   width: 100%;
@@ -107,7 +97,6 @@
   gap: 0.25rem 0.35rem;
 }
 
-/* 等级标题旁数量 chip */
 .tapp-perm-level {
   display: inline-flex;
   align-items: center;
@@ -122,7 +111,6 @@
   letter-spacing: 0.01em;
 }
 
-/* 分组标题：基础用默认字色；提升 / 特权用语义色 */
 .tapp-perm-group--elevated .setting-group-title-text {
   color: #b45309;
 }
@@ -139,7 +127,6 @@ html.dark .tapp-perm-group--privileged .setting-group-title-text {
   color: #f87171;
 }
 
-/* 基础：中性黑白；提升琥珀；特权红 */
 .tapp-perm-level--basic {
   color: var(--cfg-text-2);
   background: var(--cfg-subtle-bg);
@@ -172,7 +159,6 @@ html.dark .tapp-perm-level--privileged {
   background: rgb(127 29 29 / 40%);
 }
 
-/* 卡片：基础保持默认表面；提升 / 特权语义色 */
 .tapp-perm-card.tapp-perm-card--elevated {
   border-color: color-mix(in srgb, #f59e0b 34%, var(--cfg-subtle-border));
   background: color-mix(in srgb, #f59e0b 9%, var(--cfg-subtle-bg));
@@ -297,7 +283,6 @@ html.dark .tapp-perm-card.tapp-perm-card--privileged .checkbox-group-card-icon {
   padding: 0 0.15rem 0.35rem;
 }
 
-/* 加载 / 错误壳：复用 config-section 视觉 */
 .tapp-detail-state {
   display: flex;
   flex-direction: column;

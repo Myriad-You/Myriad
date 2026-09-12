@@ -1,7 +1,3 @@
-/**
- * Unit tests for delivery-queue UI classification helpers.
- * Mirrors backend is_user_cancelled_delivery_error / should_offer_retry_for_dead_error.
- */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {

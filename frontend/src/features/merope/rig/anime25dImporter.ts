@@ -42,6 +42,7 @@ import {
   PORTRAIT_CANVAS,
   RIG_IR_VERSION,
 } from './contract'
+import { formatTemplate } from './formatTemplate'
 import { inferOutfitProfileFromPartIds } from './outfit'
 
 function genericCloseParts() {
@@ -81,7 +82,7 @@ function anime25DLayerSide(normalizedName: string): EyeSide | null {
 }
 
 export function isAnime25DDocument(psd: Psd): boolean {
-  const names = flattenVisibleLayers(psd.children || []).map((layer) =>
+  const names = flattenVisibleLayers(psd.children ?? []).map((layer) =>
     normalizeAnime25DLayerName(layer.name),
   )
   return names.some((name) => anime25DBaseRole(name) === 'face')
@@ -101,8 +102,7 @@ export async function prepareAnime25DRigPsd(
   const staticSeeThroughMouth = hasStaticSeeThroughMouth(psd)
   const working = flattenPsdForRigger(psd)
   Rigger.cleanPsdLayers(working)
-  // The reference accepts a missing face; the production portrait contract does
-  // not. A named but empty/hidden face must never silently acquire guessed pivots.
+  // A named but empty/hidden face must never silently acquire guessed pivots.
   if (
     !working.children?.some(
       (layer) =>
@@ -137,7 +137,7 @@ export async function prepareAnime25DRigPsd(
   }
   if (layers.length === 0 || layers.length > MAX_RIG_PARTS) {
     throw new Error(
-      copy.anime25dPartCount.replace('{max}', String(MAX_RIG_PARTS)),
+      formatTemplate(copy.anime25dPartCount, { max: MAX_RIG_PARTS }),
     )
   }
   const frame = contentFrame(psd, layers)
@@ -231,7 +231,7 @@ function flattenVisibleLayers(layers: Layer[], parentOpacity = 1): Layer[] {
 
 /** See-through's plain `mouth` is the static portrait mouth, not an open phoneme. */
 function hasStaticSeeThroughMouth(psd: Psd): boolean {
-  const names = flattenVisibleLayers(psd.children || []).map((layer) =>
+  const names = flattenVisibleLayers(psd.children ?? []).map((layer) =>
     canonicalAnime25DLayerName(layer.name),
   )
   const hasPlainMouth = names.some(
@@ -248,27 +248,26 @@ function hasStaticSeeThroughMouth(psd: Psd): boolean {
 
 function toRiggerLayerName(value: string | undefined): string {
   let kebab = normalizeAnime25DLayerName(value)
-  // The reference rigger handles face/hair/garment slots. Extra drawings retain
-  // their full source identity instead of losing depth/side fragment suffixes.
+  // Extra drawings retain their full source identity instead of losing depth/side fragment suffixes.
   const role = anime25DBaseRole(kebab)
   if (isAnime25DRigidAttachment({ role: role ?? 'unknown' })) {
-    return kebab.replace(/-/g, '_')
+    return kebab.replaceAll('-', '_')
   }
   const numbered = kebab.match(/-(\d+)$/)
   const number = numbered?.[1]
   if (number) kebab = kebab.slice(0, -(number.length + 1))
-  kebab = kebab.replace(/-(?:l|r|left|right)$/, '')
+  kebab = kebab.replaceAll(/-(?:l|r|left|right)$/g, '')
   const riggerName =
     kebab === 'front-hair'
       ? 'front hair'
       : kebab === 'back-hair'
         ? 'back hair'
-        : kebab.replace(/-/g, '_')
+        : kebab.replaceAll('-', '_')
   return number ? `${riggerName}_${number}` : riggerName
 }
 
 function flattenPsdForRigger(psd: Psd): Psd {
-  const children = flattenVisibleLayers(psd.children || [])
+  const children = flattenVisibleLayers(psd.children ?? [])
     .filter((layer) => validPixelData(layer.imageData))
     .filter(
       (layer) =>
@@ -279,9 +278,6 @@ function flattenPsdForRigger(psd: Psd): Psd {
     .map((layer) => {
       const pixels = layer.imageData
       if (!validPixelData(pixels)) return layer
-      // Bake source opacity once into the copied pixels. All downstream stages
-      // (collar evidence, generated artwork and atlas) see the same composition;
-      // no second runtime multiplier or asset-contract field is needed.
       const data = new Uint8ClampedArray(pixels.data)
       const opacity = layer.opacity ?? 1
       if (opacity !== 1) {
@@ -317,20 +313,20 @@ function rasterFromRiggerPart(
   },
   usedIds: Set<string>,
 ): RasterLayer {
-  const kebab = part.name.replace(/_/g, '-').replace(/ /g, '-').toLowerCase()
+  const kebab = part.name.replaceAll('_', '-').replaceAll(' ', '-').toLowerCase()
   const side: EyeSide | null =
     part.side === 'L'
       ? 'left'
       : part.side === 'R'
         ? 'right'
         : anime25DLayerSide(kebab)
-  const role = anime25DBaseRole(kebab.replace(/-(?:l|r)$/, '')) || 'unknown'
+  const role = anime25DBaseRole(kebab.replaceAll(/-(?:l|r)$/g, '')) || 'unknown'
   const numbered = /-\d+(?:-|$)/.test(anime25DLayerNameParts(kebab).suffix)
   const preferred = numbered
     ? kebab
     : side
       ? `${role}-${side}`
-      : kebab.replace(/-(?:l|r)$/, '')
+      : kebab.replaceAll(/-(?:l|r)$/g, '')
   return {
     id: uniquePartId(preferred, usedIds),
     role,
@@ -344,7 +340,7 @@ function rasterFromRiggerPart(
     height: part.h,
     data: part.img.data,
     synthetic: part.synthetic,
-    documentStrands: part.strands || undefined,
+    documentStrands: part.strands ?? undefined,
   }
 }
 
@@ -365,8 +361,7 @@ function preserveStaticMouthAsClosed(layers: RasterLayer[]): RasterLayer[] {
     synthetic: false,
   }
   const insertAt = Math.max(0, layers.indexOf(staticMouth))
-  output.splice(Math.min(insertAt, output.length), 0, closed)
-  return output
+  return output.toSpliced(Math.min(insertAt, output.length), 0, closed)
 }
 
 function splitHandwearIfNeeded(
@@ -587,7 +582,7 @@ function deriveAnchors(
     const fallback = layers.find(
       (layer) => layer.role === 'eyelash' && layer.side === side,
     )
-    const eyeCenter = center(eye || fallback)
+    const eyeCenter = center(eye ?? fallback)
     if (eyeCenter) eyes[side] = eyeCenter
     const irisCenter = center(iris)
     if (irisCenter) irises[side] = irisCenter
@@ -595,7 +590,7 @@ function deriveAnchors(
   const neckLayer = layers.find((layer) => layer.role === 'neck')
   const topwear = layers.find((layer) => layer.role === 'topwear')
   const bottomwear = layers.find((layer) => layer.role === 'bottomwear')
-  const bodyReference = topwear || bottomwear || neckLayer
+  const bodyReference = topwear ?? bottomwear ?? neckLayer
   const neck = neckLayer
     ? {
         x: neckLayer.bounds.x + neckLayer.bounds.width / 2,
@@ -612,7 +607,7 @@ function deriveAnchors(
       }
     : { x: 0.5, y: frame.height / frame.width }
   const mouth = center(
-    layers.find((layer) => layer.role === 'mouth-open') ||
+    layers.find((layer) => layer.role === 'mouth-open') ??
       layers.find((layer) => layer.role === 'mouth-close'),
   )
   return {
@@ -625,7 +620,7 @@ function deriveAnchors(
     bodyBottom,
     eyes,
     irises,
-    mouth: mouth || null,
+    mouth: mouth ?? null,
   }
 }
 
@@ -710,7 +705,7 @@ function requiredLayer(
 ): PreparedLayer {
   const layer = layers.find((candidate) => candidate.role === role)
   if (!layer) {
-    throw new Error(copy.anime25dMissingLayer.replace('{role}', role))
+    throw new Error(formatTemplate(copy.anime25dMissingLayer, { role }))
   }
   return layer
 }

@@ -67,13 +67,11 @@ describe('netease play-url / proxy fallback (plan B+C)', () => {
     const url = getNeteaseAudioUrlImmediate(id)
     assert.equal(typeof url, 'string')
     assert.match(url, /netease/)
-    assert.match(url, new RegExp(id))
+    assert.match(url, new RegExp(RegExp.escape(id)))
   })
 })
 
 describe('desktop Web Audio spectrum CORS (play-url → same-origin /audio/)', () => {
-  // Node test env has no navigator → shouldPreserveNativeAudioOutput=false
-  // → prefersSameOriginMusicProxy=true（与桌面 Web Audio 路径一致）
   it('prefers same-origin proxy in this test environment (desktop-like)', () => {
     assert.equal(prefersSameOriginMusicProxy(), true)
   })

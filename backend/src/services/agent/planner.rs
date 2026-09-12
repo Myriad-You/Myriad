@@ -1,7 +1,7 @@
 //! Planner 模块
 //!
-//! 合并意图分析 + 方案生成为单次 Pro AI 调用。
-//! 直接输出可执行的 Recipe 步骤。
+//! 合并意图分析 + 方案生成一次调用。请求 Pro 档；档关或模型留空时 resolve_ai_config 回落到 Standard。无密钥才是 None。
+//! 输出 PlannerOutput；plan 的步骤是 AiRecipeStep，落地前还要校验/转换。
 
 use std::collections::{HashMap, HashSet};
 
@@ -21,16 +21,16 @@ use myriad_agent_rules::{
     PLAN_DEPENDENCY_RULE,
 };
 
-/// Planner — 单次 Pro AI 调用完成意图理解 + 执行规划
+/// Planner — 一次调用完成意图理解 + 执行规划（请求 Pro 档，配置可回落到 Standard）
 pub struct Planner {
-    /// Pro 层级 AI 分析器
+    /// 请求 Pro 档的分析器（可能实际跑 Standard）
     ai_analyzer: Option<AiAnalyzer>,
     /// 语言检测器
     language_detector: LanguageDetector,
 }
 
 impl Planner {
-    /// 创建 Planner（使用 Pro 层级）
+    /// 创建 Planner：请求 Pro 档分析器；档关/模型空则回落 Standard
     pub async fn new() -> Self {
         let ai_analyzer = create_ai_analyzer_for_tier(ModelTier::Pro).await;
         if ai_analyzer.is_some() {
@@ -86,7 +86,7 @@ impl Planner {
         progress_tx: Option<&tokio::sync::mpsc::Sender<AgentProgressEvent>>,
         granted: Option<&HashSet<String>>,
     ) -> Result<PlannerOutput, String> {
-        // 尝试获取 AI（支持热加载配置）
+        // Pro 分析器未持有时再创建一次；已持有的不会按新配置热加载。
         let runtime_analyzer;
         let ai_ref = if self.ai_analyzer.is_some() {
             self.ai_analyzer.as_ref()
@@ -109,8 +109,7 @@ impl Planner {
             .await;
         let user_prompt = self.build_user_prompt(request, escalation_hint);
 
-        // 走提供商原生的结构化输出：由 API 层保证返回是合法 JSON，
-        // 而不是靠 prompt 里的「请只输出 JSON」再从自由文本里抠花括号。
+        // 优先结构化 JSON；parse_response 仍保留 fence/花括号回退。
         let schema = planner_output_schema();
         let mut response = None;
         for attempt in 0..2 {
@@ -185,8 +184,7 @@ impl Planner {
                 // 验证失败时降级为 chat
                 output.status = PlannerStatus::Chat;
                 output.chat_reply = Some(format!(
-                    "我理解了你的请求，但生成执行计划时出现问题：{}。请尝试更具体地描述你想做什么。",
-                    e
+                    "I understood the request, but planning failed: {e}. Please describe what you want more specifically."
                 ));
                 output.steps.clear();
             }
@@ -199,15 +197,11 @@ impl Planner {
     ///
     /// **段落顺序按「跨请求是否稳定」排，不按叙事顺序排。** OpenAI 的自动 prompt
     /// caching 和 Gemini 的 context caching 都是前缀匹配：前缀一旦出现差异，后面
-    /// 全部无法命中。此前当前时间戳排在第一段，意味着每分钟都会让整个 prompt 前缀
-    /// 失配，而最大的两块（能力索引 ~113 条 + 190 行规则）恰好排在最后，永远进不了
-    /// 缓存。
+    /// 全部无法命中。
     ///
-    /// 现在拆成两段拼接：
-    /// - `stable`：身份 / 用户偏好 / 协作团队 / 能力索引 / 规则——只在部署配置、
-    ///   Skill 注册表或 MCP 工具列表变化时才变
-    /// - `volatile`：环境（时间+语言）/ 记忆 / 教训 / 推荐 Skill / 执行记录 /
-    ///   升级上下文——每次请求都可能不同
+    /// 两段拼接：
+    /// - `stable`：身份 / USER.md / 协作团队 / 授予权限过滤后的能力索引 / 规则（索引随 granted 变）
+    /// - `volatile`：Merope 称呼 / 自治上限 / 记忆 / 教训 / 推荐 Skill / 执行记录 / 升级上下文 / 环境
     ///
     /// 副作用是语言指令移到了末尾，离模型的输出更近，指令跟随反而更稳。
     async fn build_system_prompt(
@@ -220,18 +214,17 @@ impl Planner {
         let mut stable: Vec<String> = Vec::new();
         let mut volatile: Vec<String> = Vec::new();
 
-        // 1. 身份（全局 SOUL.md）
+        // 1. 身份（Merope 开时为人设，否则 SOUL.md）
         let speaking_soul = crate::services::agent::identity::get_speaking_soul().await;
         let global_identity = identity::get_identity().await;
         let role_prompt = speaking_soul
             .as_deref()
             .or_else(|| global_identity.as_ref().and_then(|id| id.role_prompt()));
-        // 兜底身份此前是死代码：它的条件是 `sections.is_empty()`，而环境段总是先被
-        // 压入，所以没有 SOUL.md 时 prompt 里根本不含身份段。
+        // 无 SOUL.md 时仍写入默认身份段（排进 `stable`）。
         stable.push(match role_prompt {
-            Some(role) => format!("## 身份\n{}", role),
+            Some(role) => format!("## Identity\n{}", role),
             None => {
-                "## 身份\n你是 Agent，一个智能 AI 助手。你能理解用户的自然语言请求并规划执行步骤。"
+                "## Identity\nYou are Agent, an AI assistant. You understand natural-language requests and plan steps."
                     .to_string()
             }
         });
@@ -239,7 +232,7 @@ impl Planner {
         // 1.2. 用户偏好（USER.md）
         if let Some(ref id) = global_identity {
             if let Some(user_ctx) = id.user_context() {
-                stable.push(format!("## 用户偏好\n{}", user_ctx));
+                stable.push(format!("## User preferences\n{}", user_ctx));
             }
         }
 
@@ -252,7 +245,7 @@ impl Planner {
             .filter(|cap| !cap.is_empty())
         {
             volatile.push(format!(
-                "## 自治授权上限\n本轮办事只能使用当前授予权限与自治授权的交集，不得规划需要其他权限的步骤。允许的权限：\n{}",
+                "## Autonomy cap\nThis turn may only use the intersection of granted permissions and autonomy. Do not plan steps that need other permissions. Allowed:\n{}",
                 cap.iter()
                     .map(|permission| format!("- {permission}"))
                     .collect::<Vec<_>>()
@@ -265,13 +258,13 @@ impl Planner {
             let summaries = mgr.get_role_summaries().await;
             if !summaries.is_empty() {
                 stable.push(format!(
-                    "## 协作团队\n你可以调度以下专业 Agent 的能力：\n{}",
+                    "## Team\nYou can dispatch these specialist agents:\n{}",
                     summaries
                 ));
             }
         }
 
-        // 2. 记忆系统（多维召回：语义 + 能力 + 实体 + 教训）
+        // 2. 记忆系统（语义 + 实体 + 教训）
         if let Some(mem) = memory::get_memory() {
             let mut mem_lines: Vec<String> = Vec::new();
 
@@ -301,9 +294,9 @@ impl Planner {
                         if days <= 1 {
                             String::new()
                         } else if days < 30 {
-                            format!(" ({}天前)", days)
+                            format!(" ({} days ago)", days)
                         } else {
-                            format!(" ({}个月前)", days / 30)
+                            format!(" ({} months ago)", days / 30)
                         }
                     })
                     .unwrap_or_default();
@@ -349,25 +342,24 @@ impl Planner {
 
             if !mem_lines.is_empty() {
                 volatile.push(format!(
-                    "## 参考记忆\n以下是历史记忆，仅供参考。当用户请求包含「最近」「最新」「目前」「现在」等时效性词汇时，\
-                    必须通过搜索获取实时信息，不要用历史记忆中的旧结论替代。\n<memory_context>\n{}\n</memory_context>",
+                    "## Reference memory\nHistorical memory for reference only. If the request uses recent / latest / now / 最近 / 最新 / 目前 / 现在, fetch live information. Do not replace it with old conclusions from memory.\n<memory_context>\n{}\n</memory_context>",
                     mem_lines.join("\n")
                 ));
             }
             if !lesson_lines.is_empty() {
                 volatile.push(format!(
-                    "## 注意事项（历史教训）\n<lessons>\n{}\n</lessons>",
+                    "## Notes (lessons)\n<lessons>\n{}\n</lessons>",
                     lesson_lines.join("\n")
                 ));
             }
         }
 
-        // 3. 能力索引（含相关 Skill）
+        // 3. 能力索引（授予权限过滤，含 Skill/MCP）
         let compact_index = get_compact_index_for_grants(granted).await;
         stable.push(format!(
-            "## 可用能力（紧凑索引）\n\
-             条目字段：`id` 能力 ID、`h` 用途、`p` 必需参数、`o` 该能力的输出字段\
-             （怎么引用见下面的数据流规则）。\n\
+            "## Available capabilities (compact index)\n\
+             Fields: `id` capability id, `h` purpose, `p` required params, `o` output fields\
+             (see the data-flow rule below).\n\
              ```json\n{}\n```",
             serde_json::to_string_pretty(&compact_index).unwrap_or_default()
         ));
@@ -377,7 +369,7 @@ impl Planner {
 
         // —— 以下按请求变化，排在缓存前缀之后 ——
 
-        // 5. 相关 Skill 预过滤（语义匹配 top-5，随用户输入变化）
+        // 5. 相关 Skill 预过滤（子串+分词重叠 top-5，再按 granted 过滤）
         if let Some(registry) = super::skill::get_skill_registry() {
             let relevant = registry.get_relevant_skills(&request.raw_input, 5).await;
             let mut filtered = Vec::new();
@@ -393,10 +385,10 @@ impl Planner {
                         let params_hint = if sm.skill.parameters.is_empty() {
                             String::new()
                         } else {
-                            format!(" (参数: {})", sm.skill.parameters.join(", "))
+                            format!(" (params: {})", sm.skill.parameters.join(", "))
                         };
                         format!(
-                            "- **skill:{}** (相关度 {:.0}%) — {}{}",
+                            "- **skill:{}** (relevance {:.0}%) — {}{}",
                             sm.skill.id,
                             sm.relevance * 100.0,
                             sm.skill.description,
@@ -405,7 +397,7 @@ impl Planner {
                     })
                     .collect();
                 volatile.push(format!(
-                    "## 推荐 Skill\n以下 Skill 与用户请求高度相关，可优先考虑使用：\n{}",
+                    "## Recommended skills\nThese skills match the request closely. Prefer them:\n{}",
                     skill_lines.join("\n")
                 ));
             }
@@ -416,26 +408,29 @@ impl Planner {
             if let Some(ref history) = context.conversation_history {
                 let exec_summary = Self::extract_execution_summary(history);
                 if !exec_summary.is_empty() {
-                    volatile.push(format!("## 本轮对话执行记录\n{}", exec_summary));
+                    volatile.push(format!("## Execution log this turn\n{}", exec_summary));
                 }
             }
         }
 
         // 7. 升级提示
         if let Some(hint) = escalation_hint {
-            volatile.push(format!("## 升级上下文\n前次执行结果不满意。{}", hint));
+            volatile.push(format!(
+                "## Escalation context\nThe previous run was not good enough. {}",
+                hint
+            ));
         }
 
         // 8. 环境上下文（时间、语言）——放在最后：时间戳每分钟都变，
         // 排在前面会让后续所有内容都失去缓存前缀；放末尾还能让语言指令离输出更近
         let now = chrono::Local::now();
         let lang_instruction = match language {
-            super::intent::keywords::Language::Chinese => "请用中文回复。",
+            super::intent::keywords::Language::Chinese => "Reply in Chinese.",
             super::intent::keywords::Language::English => "Please respond in English.",
-            super::intent::keywords::Language::Japanese => "日本語で返信してください。",
+            super::intent::keywords::Language::Japanese => "Reply in Japanese.",
         };
         volatile.push(format!(
-            "## 环境\n当前时间：{}\n{}",
+            "## Environment\nCurrent time: {}\n{}",
             now.format("%Y-%m-%d %H:%M (%A)"),
             lang_instruction
         ));
@@ -454,16 +449,16 @@ impl Planner {
         if let Some(context) = &request.context {
             if let Some(route) = &context.current_route {
                 let page_desc = describe_route(route);
-                prompt.push_str(&format!("\n当前页面：{} ({})", page_desc, route));
+                prompt.push_str(&format!("\nCurrent page: {} ({})", page_desc, route));
             }
             if !context.active_platforms.is_empty() {
                 prompt.push_str(&format!(
-                    "\n活跃平台：{}",
+                    "\nActive platforms: {}",
                     context.active_platforms.join(", ")
                 ));
             }
 
-            // 对话历史（直接从 conversation_history 读取，不再走 custom_data hack）
+            // 对话历史来自 `context.conversation_history`。
             if let Some(history) = &context.conversation_history {
                 if !history.is_empty() {
                     prompt.push_str("\n\n<conversation_history>");
@@ -479,7 +474,7 @@ impl Planner {
                     }
                     prompt.push_str("\n</conversation_history>");
                     prompt.push_str(
-                        "\n\n请注意：用户可能在引用之前对话中提到的内容，注意理解代词和上下文指代。",
+                        "\n\nNote: the user may be referring to earlier turns. Resolve pronouns from that context.",
                     );
                 }
             }
@@ -490,10 +485,10 @@ impl Planner {
                     if let Some(title) = page.get("title").and_then(|v| v.as_str()) {
                         let title: String = title.chars().take(120).collect();
                         if !title.trim().is_empty() {
-                            prompt.push_str(&format!("\n正在看：{}", title.trim()));
+                            prompt.push_str(&format!("\nLooking at: {}", title.trim()));
                         }
                     }
-                    prompt.push_str("\n页面上下文可用：true。总结/分析用 \"contentFrom\": \"__page_context__\"；page.content / page.understand 用 \"contextFrom\": \"__page_context__\"（不要写成 inputFrom）");
+                    prompt.push_str("\nPage context available: true. Summarize/analyze with \"contentFrom\": \"__page_context__\"; page.content / page.understand with \"contextFrom\": \"__page_context__\" (do not write inputFrom)");
                 }
                 if let Some(now_playing) = now_playing_line(custom_data.get("musicStatus")) {
                     prompt.push_str(&format!("\n{now_playing}"));
@@ -516,7 +511,7 @@ impl Planner {
                                 }
                             } else if mime.starts_with("image/") {
                                 prompt
-                                    .push_str("\n  （图片像素未随请求发送，只能看到文件名和类型）");
+                                    .push_str("\n  (image pixels were not sent; only the file name and type are visible)");
                             }
                         }
                         prompt.push_str("\n</user_attachments>");
@@ -527,11 +522,11 @@ impl Planner {
                 if let Some(prefs) = custom_data.get("user_preferences") {
                     if let Some(prefs_obj) = prefs.as_object() {
                         if !prefs_obj.is_empty() {
-                            prompt.push_str("\n\n用户历史偏好：");
+                            prompt.push_str("\n\nUser history preferences:");
                             if let Some(action) =
                                 prefs_obj.get("preferred_action").and_then(|v| v.as_str())
                             {
-                                prompt.push_str(&format!("\n- 常用操作：{}", action));
+                                prompt.push_str(&format!("\n- Usual action: {}", action));
                             }
                             if let Some(platforms) = prefs_obj
                                 .get("preferred_platforms")
@@ -540,7 +535,10 @@ impl Planner {
                                 let names: Vec<&str> =
                                     platforms.iter().filter_map(|p| p.as_str()).collect();
                                 if !names.is_empty() {
-                                    prompt.push_str(&format!("\n- 常用平台：{}", names.join(", ")));
+                                    prompt.push_str(&format!(
+                                        "\n- Usual platforms: {}",
+                                        names.join(", ")
+                                    ));
                                 }
                             }
                         }
@@ -550,7 +548,7 @@ impl Planner {
         }
 
         if let Some(hint) = escalation_hint {
-            prompt.push_str(&format!("\n\n[升级提示] {}", hint));
+            prompt.push_str(&format!("\n\n[Escalation hint] {}", hint));
         }
 
         prompt
@@ -766,7 +764,11 @@ impl Planner {
                 || content.contains("分析")
                 || content.contains("搜索")
                 || content.contains("completed")
-                || content.contains("failed");
+                || content.contains("failed")
+                || content.contains("Got ")
+                || content.contains("Searched")
+                || content.contains("Generated")
+                || content.contains("Analyzed");
 
             if has_exec_markers && content.len() > 10 {
                 // 截取摘要（最多 120 字符）
@@ -797,9 +799,8 @@ const PLANNER_SCHEMA_NAME: &str = "planner_output";
 /// 字段名与 `PlannerOutput` / `AiRecipeStep` 的 serde 表示一一对应（两者都用
 /// Rust 字段名，未做 rename）。
 ///
-/// 注意 `steps[].params` 是自由 map——能力各自的参数由 `validate_and_convert_steps`
-/// 按 capability 的 `input_schema` 校验，不在这里穷举。它同时意味着这份 schema
-/// 无法翻译成 Gemini 的 `responseSchema` 方言（Gemini 不接受没有 `properties` 的
+/// `steps[].params` 是自由 map，这里不穷举；`validate_and_convert_steps` 对 input_schema 只 warn，缺参不失败。
+/// 这份 schema 无法翻译成 Gemini 的 `responseSchema` 方言（Gemini 不接受没有 `properties` 的
 /// OBJECT），Gemini 上只生效 `responseMimeType: application/json`；OpenAI 侧走
 /// 非 strict 的 `json_schema`，两边都能保证返回是合法 JSON。
 fn planner_output_schema() -> serde_json::Value {
@@ -809,7 +810,7 @@ fn planner_output_schema() -> serde_json::Value {
             "status": {
                 "type": "string",
                 "enum": ["plan", "clarify", "unsupported", "chat"],
-                "description": "本次判断的请求类型"
+                "description": "Classified request type"
             },
             "confidence": {
                 "type": "number",
@@ -818,11 +819,11 @@ fn planner_output_schema() -> serde_json::Value {
             },
             "reasoning": {
                 "type": "string",
-                "description": "简要说明判断思路"
+                "description": "Brief rationale"
             },
             "steps": {
                 "type": "array",
-                "description": format!("status=plan 时的执行步骤，最多 {MAX_PLAN_STEPS} 个"),
+                "description": format!("Steps when status=plan, at most {MAX_PLAN_STEPS}"),
                 "maxItems": MAX_PLAN_STEPS,
                 "items": {
                     "type": "object",
@@ -830,15 +831,15 @@ fn planner_output_schema() -> serde_json::Value {
                         "id": { "type": "string" },
                         "capability_id": {
                             "type": "string",
-                            "description": "必须来自可用能力索引的 id"
+                            "description": "Must be an id from the available-capability index"
                         },
                         "action": {
                             "type": "string",
-                            "description": "对这个步骤的具体指令"
+                            "description": "Concrete command for this step"
                         },
                         "params": {
                             "type": "object",
-                            "description": "能力入参；引用前序步骤用 xxxFrom: \"step_id.字段\""
+                            "description": "Capability params; cite a prior step with xxxFrom: \"step_id.field\""
                         },
                         "depends_on": {
                             "type": "array",
@@ -864,7 +865,7 @@ fn planner_output_schema() -> serde_json::Value {
             },
             "clarification": {
                 "type": "object",
-                "description": "status=clarify 时的提问",
+                "description": "Question when status=clarify",
                 "properties": {
                     "message": { "type": "string" },
                     "options": {
@@ -909,7 +910,7 @@ fn now_playing_line(music: Option<&serde_json::Value>) -> Option<String> {
         .get("isPlaying")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let label = if playing { "正在播放" } else { "已暂停" };
+    let label = if playing { "Playing" } else { "Paused" };
     Some(if artist.trim().is_empty() {
         format!("{label}：{}", name.trim())
     } else {
@@ -920,18 +921,18 @@ fn now_playing_line(music: Option<&serde_json::Value>) -> Option<String> {
 /// 路由描述
 fn describe_route(route: &str) -> &'static str {
     match route.trim_matches('/') {
-        "brew" => "Brew 订阅页面",
-        "tapp" | "tapps" => "Tapp 应用页面",
-        "library" => "资料库页面",
-        "config" | "settings" => "设置页面",
-        route if route.starts_with("platform/bilibili") => "B站数据页面",
-        route if route.starts_with("platform/steam") => "Steam 游戏页面",
-        route if route.starts_with("platform/github") => "GitHub 页面",
-        route if route.starts_with("platform/netease") => "网易云音乐页面",
-        route if route.starts_with("platform/") => "平台页面",
-        "report" | "reports" => "报告页面",
-        "" | "dashboard" => "仪表盘首页",
-        _ => "未知页面",
+        "brew" => "Brew feeds page",
+        "tapp" | "tapps" => "Tapp apps page",
+        "library" => "Library page",
+        "config" | "settings" => "Settings page",
+        route if route.starts_with("platform/bilibili") => "Bilibili data page",
+        route if route.starts_with("platform/steam") => "Steam games page",
+        route if route.starts_with("platform/github") => "GitHub page",
+        route if route.starts_with("platform/netease") => "NetEase Music page",
+        route if route.starts_with("platform/") => "Platform page",
+        "report" | "reports" => "Reports page",
+        "" | "dashboard" => "Home dashboard",
+        _ => "Unknown page",
     }
 }
 
@@ -948,139 +949,138 @@ fn planner_rules() -> String {
 
 /// Planner 规则与输出格式（注入到系统 prompt）。
 ///
-/// 四块 `{{…}}` 由 [`myriad_agent_rules::plan_contract`] 填入：引擎的调度语义
-/// 只有一份，Skill 内部 DAG 那份提示词填的是同样的字。
-const PLANNER_RULES_TEMPLATE: &str = r#"## 规则
+/// 四块 `{{…}}` 由 planner_rules() 用 plan_contract 常量替换；DAG 提示词必须引用同一份字。
+const PLANNER_RULES_TEMPLATE: &str = r#"## Rules
 
-你需要分析用户请求，判断其类型，并输出对应的 JSON 响应。
+Analyze the user request, classify it, and output the matching JSON.
 
-### 请求类型判断
+### Request type
 
-1. **plan**: 用户需要执行某个操作（查询数据、生成内容、控制功能等）→ 输出执行步骤
-2. **chat**: 用户在闲聊、问问题、不需要调用任何能力 → 直接回复
-3. **clarify**: 用户请求模糊，无法确定意图 → 请求澄清
-4. **unsupported**: 用户请求超出能力范围 → 解释原因
+1. **plan**: the user needs an action (query data, generate content, control a feature, …) → output steps
+2. **chat**: small talk, a question, or anything that needs no capability → reply directly
+3. **clarify**: the request is too vague to act on → ask for clarification
+4. **unsupported**: the request is out of scope → explain why
 
-### 主动征询意图识别（极其重要）
+### Ask-me-first (critical)
 
-当用户**明确要求你提问或征求意见**时（"问我"、"问问我"、"你问一下我"、"让我选"、"给我选项"、"我来决定"、"先问问我的意见"），**必须使用 clarify**，绝不能用 chat。
-- 这些表达是用户主动要求参与决策，不是闲聊
-- clarification.message 里写出你需要了解的具体问题
-- clarification.options 里给出 3-5 个合理选项供用户选择
-- 结合对话历史和上次执行结果，让问题和选项尽量具体，不要泛泛而问
+When the user **explicitly asks you to question them or seek their opinion** ("问我", "问问我", "你问一下我", "让我选", "给我选项", "我来决定", "先问问我的意见", "ask me", "let me choose"), **you must use clarify**, never chat.
+- These phrases mean the user wants to take part in the decision; they are not small talk
+- Write the concrete question in clarification.message
+- Put 3–5 reasonable options in clarification.options
+- Ground the question and options in conversation history and the last run; do not ask vaguely
 
-### 执行步骤规则（status=plan 时）
+### Step rules (status=plan)
 
-1. `capability_id` 必须匹配可用能力索引中的 ID。能力索引中 `"p"` 字段列出了必需参数，务必包含
-2. 如果可用能力中有 `skill:xxx` 类型恰好匹配用户意图，优先使用 Skill（它封装了完整的多步骤编排）
-3. **Skill 单次调用原则**：同一个 `skill:xxx` 在整个计划中最多出现一次。如果用户要求多张图/多个变体/一些/一批，通过 Skill 的参数传达数量和变体需求（如 `"count": 3`、`"variations": ["场景A", "场景B"]`），由 Skill 内部自行编排多轮生成。**绝不允许**把同一个 Skill 在步骤列表里重复调用多次。举例：用户说"帮我生成一些XX图片" → 一个 `skill:xxx` 步骤 + `"count": 3`，而不是 3 个重复的 skill 步骤
-4. `params` 根据能力描述和 `"p"` 参数列表推断合理值
-5. 如果页面上下文可用：总结/分析用 `"contentFrom": "__page_context__"`；`page.content` / `page.understand` 用 `"contextFrom": "__page_context__"`（不要写成 `inputFrom`，这两个能力读的是 `context`）
-6. `on_failure` 策略：
-   - 数据获取步骤用 `"abort"`（后续步骤依赖数据，获取失败则无法继续）
-   - AI 处理步骤可用 `"skip"`（非关键性分析/总结可跳过）
-   - 如果步骤是其他步骤的 `depends_on` 数据源，必须 `"abort"`
-7. `timeout_ms`: 数据获取 15000，AI 处理 300000，图片生成 900000
-8. 可选字段：`"retry": {"max_attempts": 2, "delay_ms": 1000, "exponential_backoff": true}` — 对网络请求类步骤建议添加
-9. 可选字段：`"model_tier": "pro"` — 需要高质量分析/创作时指定 pro，普通任务省略即可
+1. `capability_id` must match an id in the available-capability index. Include every required param listed in `"p"`
+2. If a `skill:xxx` capability matches the intent, prefer that Skill (it already wraps a multi-step flow)
+3. **Call each Skill at most once.** The same `skill:xxx` may appear only once in the whole plan. If the user wants several images / variants / a batch, pass quantity through Skill params (e.g. `"count": 3`, `"variations": ["scene A", "scene B"]`) and let the Skill orchestrate internally. **Never** repeat the same Skill as multiple steps. Example: "帮我生成一些XX图片" → one `skill:xxx` step with `"count": 3`, not three Skill steps
+4. Infer `params` from the capability description and the `"p"` list
+5. If page context is available: summarize/analyze with `"contentFrom": "__page_context__"`; `page.content` / `page.understand` with `"contextFrom": "__page_context__"` (do not write `inputFrom`; those capabilities read `context`)
+6. `on_failure`:
+   - data-fetch steps: `"abort"` (later steps need the data)
+   - AI steps: `"skip"` is allowed (non-critical analysis/summary)
+   - if this step is a `depends_on` source for others, it must `"abort"`
+7. `timeout_ms`: data fetch 15000, AI 300000, image generation 900000
+8. Optional: `"retry": {"max_attempts": 2, "delay_ms": 1000, "exponential_backoff": true}` — add this on network-fetch steps
+9. Optional: `"model_tier": "pro"` — set pro for high-quality analysis/creation; omit for ordinary tasks
 
-### 数据流（xxxFrom）
+### Data flow (xxxFrom)
 
 {{DATA_FLOW}}
 
-### ❗ 步骤最小化原则（极其重要）
+### Keep the step count down (critical)
 
 - {{STEP_CAP}}
-- 大多数请求应在 1-3 步内完成
-- **简单请求**（查询、搜索、生成一张图、问答）→ 1-2 步
-- **中等请求**（搜索+分析、获取+总结）→ 2-3 步
-- **复杂请求**（多平台对比、多步骤工作流）→ 3-6 步
-- 每步都必须有明确且不可替代的作用，不允许「为了形式」增加步骤
-- **当一个能力就能完成时，绝不拆成多步**
-- step.action 字段是你对这个步骤的直接命令，必须具体、明确、与用户请求直接相关
+- Most requests should finish in 1–3 steps
+- **Simple** (query, search, one image, Q&A) → 1–2 steps
+- **Medium** (search+analyze, fetch+summarize) → 2–3 steps
+- **Complex** (multi-platform compare, multi-step workflow) → 3–6 steps
+- Every step must have a distinct, irreplaceable job. Do not add steps for form
+- **If one capability can do it, do not split it**
+- step.action is your direct command for that step; keep it concrete and tied to the request
 
-### 数量意图识别
+### Quantity
 
-用户请求中包含数量词时：
-- **明确单数**（"一张"、"一个"）→ 1 个步骤
-- **无数量词或模糊词**（“帮我生成图”、“一些”、“几个”）→ **默认单个**，不要自行展开为多个
+When the request contains a quantity:
+- **Explicit singular** ("一张", "一个", "one") → 1 step
+- **No quantity or a vague word** ("帮我生成图", "一些", "几个", "some") → **default to one**; do not expand into several yourself
 
-### 依赖与并行
+### Dependencies and parallelism
 
 {{DEPENDENCY}}
 
-仅当用户**明确列举**多个目标时（"B站和Steam"、"搜索X和Y"）为每个目标生成独立步骤。
-- "所有平台" → 最多展开 3 个主要平台
-- 如果后续还有汇总需求，汇总步骤 `depends_on` 所有并行步骤
+Only when the user **explicitly lists** several targets ("B站和Steam", "search X and Y") emit one step per target.
+- "所有平台" / "all platforms" → expand at most 3 main platforms
+- If a later step needs to merge them, that step `depends_on` every parallel step
 
-### 对比意图
+### Compare intent
 
-用户表达对比、比较、PK 等意图时（"对比"、"比一比"、"哪个更好"、"有什么区别"），执行计划必须包含：
-1. **并行数据获取**：为每个对比目标生成独立的数据获取步骤，`depends_on: []`
-2. **对比分析步骤**：一个 `compare.content` 或 `ai.analyze`（analysisType="custom"）步骤，`depends_on` 全部获取步骤，将获取结果作为对比输入
+When the user wants a comparison, PK, or "which is better" ("对比", "比一比", "哪个更好", "有什么区别"), the plan must include:
+1. **Parallel fetches**: one data-fetch step per target, `depends_on: []`
+2. **Compare step**: one `compare.content` or `ai.analyze` (analysisType="custom") step that `depends_on` every fetch and uses those results as input
 
-### 串联意图（A 然后 B）
+### Sequence (A then B)
 
-用户在单句中表达连续操作时（"搜索并总结"、"找到后订阅"、"获取数据然后分析"、"翻译完再朗读"），必须拆解为**有依赖关系**的多步骤：
-- 前置步骤执行数据获取或处理
-- 后续步骤通过 `depends_on` 引用前置步骤 ID，并用 `"xxxFrom": "step_id"` 传递数据
-- 不要合并为单步骤，每个动词对应一个能力调用
+When one sentence chains actions ("搜索并总结", "找到后订阅", "获取数据然后分析", "翻译完再朗读"), split into **dependent** steps:
+- Earlier steps fetch or transform data
+- Later steps `depends_on` those ids and pass data with `"xxxFrom": "step_id"`
+- Do not collapse into one step; each verb is one capability call
 
-### 时间表达映射
+### Time phrases
 
-用户请求包含时间修饰词时，转化为对应参数（`since`、`daysBack` 等）：
-- “最近”/“近期” → `daysBack: 7`
-- “今天” → `since` 当天零点
-- “本周” → `daysBack: 7`
-- “本月” → `daysBack: 30`
-- 无时间修饰 → 使用默认值
+Map time modifiers to params (`since`, `daysBack`, …):
+- “最近” / “近期” / recent → `daysBack: 7`
+- “今天” / today → `since` midnight today
+- “本周” / this week → `daysBack: 7`
+- “本月” / this month → `daysBack: 30`
+- no time phrase → defaults
 
-### 后续/修改请求
+### Follow-ups / edits
 
-用户发出后续请求（"换个XX"、"再来一个"、"改一下"、"不满意"、"不够XX"）时：
-- 结合对话历史理解意图
-- 用户给了反馈但未指定具体修改方向 → status="clarify"，给出修改选项
-- 用户给了反馈且要求被征询意见（"问我"、"你问问我"）→ status="clarify"，必须提问
-- 明确指定了具体修改方向时才直接执行（status="plan"）
+When the user follows up ("换个XX", "再来一个", "改一下", "不满意", "不够XX"):
+- Read intent from conversation history
+- Feedback without a concrete direction → status="clarify" with edit options
+- Feedback plus ask-me-first ("问我", "你问问我") → status="clarify", you must ask
+- Only plan directly (status="plan") when they named a concrete change
 
-### 指代消歧与上下文引用
+### Pronouns and context
 
-用户使用代词时（“这个”、“它”、“刚才那个”），结合页面上下文和对话历史解析指代。
-如果歧义无法解决，使用 status="clarify" 提问。
+When the user uses a pronoun (“这个”, “它”, “刚才那个”, "this", "it"), resolve it from page context and history.
+If you cannot, status="clarify".
 
-### 图片生成规则（prompt.generate + ai.image）
+### Image generation (prompt.generate + ai.image)
 
-生成图片时，在 `prompt.generate` 的 `description` 中提供详尽描述：
-- 已知角色必须写出完整视觉特征（发型发色、瞳色、服装细节、标志性元素）
-- 昵称/简称必须展开为完整角色描述
-- 包含场景、氛围、构图
-- 绝不要只写简短标题
+When generating an image, put a detailed description in `prompt.generate`'s `description`:
+- Known characters need full visual traits (hair, eyes, outfit, signature details)
+- Expand nicknames/short names into a full character description
+- Include scene, mood, composition
+- Never a short title only
 
 {{IMAGE_SIZE}}
 
-`prompt.generate` 的描述来源同样走 `xxxFrom`：`descriptionFrom` 取文本作 description，`titleFrom` 取文本作 title。
+`prompt.generate` sources also use `xxxFrom`: `descriptionFrom` fills description, `titleFrom` fills title.
 
-典型链式计划（搜索 → 分析 → 生成提示词 → 生成图片）：
+Typical chain (search → analyze → prompt → image):
 ```
 search(ai.webSearch) → analyze(ai.analyze, dataFrom:"search") → gen_prompt(prompt.generate, descriptionFrom:"analyze") → image(ai.image, promptFrom:"gen_prompt", width?, height?)
 ```
 
-### 输出格式
+### Output format
 
-严格输出 JSON，不要包含 markdown 标记：
+Output JSON only. No markdown fences:
 
 ```
 {
   "status": "plan" | "clarify" | "unsupported" | "chat",
   "confidence": 0.0-1.0,
-  "reasoning": "简要说明你的判断思路",
+  "reasoning": "brief rationale",
 
-  // status=plan 时（示例：搜索→分析→生成提示词→生成图片）:
+  // status=plan (example: search→analyze→prompt→image):
   "steps": [
     {
       "id": "search",
       "capability_id": "ai.webSearch",
-      "action": "搜索角色信息",
+      "action": "Search for the character",
       "params": { "query": "..." },
       "depends_on": [],
       "on_failure": "abort",
@@ -1089,8 +1089,8 @@ search(ai.webSearch) → analyze(ai.analyze, dataFrom:"search") → gen_prompt(p
     {
       "id": "analyze",
       "capability_id": "ai.analyze",
-      "action": "分析并介绍角色",
-      "params": { "dataFrom": "search", "instruction": "根据搜索结果介绍该角色..." },
+      "action": "Introduce the character",
+      "params": { "dataFrom": "search", "instruction": "Introduce this character from the search results..." },
       "depends_on": ["search"],
       "on_failure": "skip",
       "timeout_ms": 300000
@@ -1098,7 +1098,7 @@ search(ai.webSearch) → analyze(ai.analyze, dataFrom:"search") → gen_prompt(p
     {
       "id": "gen_prompt",
       "capability_id": "prompt.generate",
-      "action": "生成角色图片提示词",
+      "action": "Write an image prompt for the character",
       "params": { "descriptionFrom": "analyze" },
       "depends_on": ["analyze"],
       "timeout_ms": 15000
@@ -1106,24 +1106,24 @@ search(ai.webSearch) → analyze(ai.analyze, dataFrom:"search") → gen_prompt(p
     {
       "id": "gen_image",
       "capability_id": "ai.image",
-      "action": "生成角色图片",
+      "action": "Generate the character image",
       "params": { "promptFrom": "gen_prompt", "width": 768, "height": 1024 },
       "depends_on": ["gen_prompt"],
       "timeout_ms": 900000
     }
   ],
 
-  // status=clarify 时:
+  // status=clarify:
   "clarification": {
-    "message": "需要澄清的问题",
-    "options": ["选项1", "选项2"]
+    "message": "the question to ask",
+    "options": ["option 1", "option 2"]
   },
 
-  // status=unsupported 时:
-  "unsupported_reason": "不支持的原因",
+  // status=unsupported:
+  "unsupported_reason": "why this is unsupported",
 
-  // status=chat 时:
-  "chat_reply": "直接回复内容"
+  // status=chat:
+  "chat_reply": "the spoken reply"
 }
 ```"#;
 
@@ -1255,10 +1255,7 @@ mod tests {
     }
 
     /// Planner 和 Skill 内部 DAG 面对同一个引擎，调度语义必须逐字同一份。
-    ///
-    /// 这两份提示词此前各手抄一遍，已经漂开过：`on_failure` 与 `timeout_ms`
-    /// 只有 Planner 那份提到，步骤上限那个 8 在五处各写一遍。任何一边重新
-    /// 抄写这几条，这个测试就红。
+    /// DAG 提示词必须引用共享契约槽，不得把契约正文再抄一遍。
     #[test]
     fn both_plan_prompts_quote_the_same_engine_contract() {
         let dag = include_str!("executor/execute_step.rs");
@@ -1270,6 +1267,9 @@ mod tests {
             "整数像素 256",
             "$$variable$$ 语法或模板占位符",
             "最多 8 个步骤",
+            "The engine schedules by",
+            "At most 8 steps",
+            "Never use `$$variable$$`",
         ] {
             assert!(
                 !dag.contains(restated),
@@ -1277,7 +1277,12 @@ mod tests {
             );
         }
         let template = PLANNER_RULES_TEMPLATE;
-        for restated in ["256–2048", "绝对上限 8 个", "引擎自动并行"] {
+        for restated in [
+            "256–2048",
+            "绝对上限 8 个",
+            "引擎自动并行",
+            "The engine schedules by",
+        ] {
             assert!(
                 !template.contains(restated),
                 "PLANNER_RULES 又把共享契约抄了一遍：{restated}"
@@ -1285,8 +1290,7 @@ mod tests {
         }
     }
 
-    /// 只查模板不够：能力索引那一段也在同一份系统提示词里，`o` 字段怎么引用
-    /// 曾经在那里又写了一遍。断言落在**组装完的整份提示词**上。
+    /// 断言落在组装完的整份提示词上（能力索引的 `o` 字段引用也在同一份里）。
     #[tokio::test]
     async fn the_assembled_prompt_states_each_shared_rule_once() {
         let planner = test_planner();
@@ -1331,8 +1335,6 @@ mod tests {
 
     #[test]
     fn schema_step_cap_matches_the_planner_rules() {
-        // PLANNER_RULES tells the model 8 steps is the hard ceiling and
-        // validate_and_convert_steps truncates there; the schema must agree.
         assert_eq!(
             planner_output_schema()["properties"]["steps"]["maxItems"],
             8
@@ -1391,17 +1393,17 @@ mod tests {
         // Two unrelated requests must still share the whole stable block, or the
         // capability index and the rules never reach a provider prefix cache.
         let prefix = shared_prefix(&chinese, &english);
-        assert!(prefix.contains("## 身份"), "identity must be cacheable");
+        assert!(prefix.contains("## Identity"), "identity must be cacheable");
         assert!(
-            prefix.contains("## 可用能力（紧凑索引）"),
+            prefix.contains("## Available capabilities (compact index)"),
             "the capability index is the largest block and must be cacheable"
         );
         assert!(
-            prefix.contains("## 规则"),
+            prefix.contains("## Rules"),
             "PLANNER_RULES must be cacheable"
         );
         // The language instruction is what diverges, and it belongs after them.
-        assert!(!prefix.contains("请用中文回复。"));
+        assert!(!prefix.contains("Reply in Chinese."));
     }
 
     #[tokio::test]
@@ -1416,11 +1418,13 @@ mod tests {
             )
             .await;
 
-        let rules = prompt.find("## 规则").expect("rules section");
-        let escalation = prompt.find("## 升级上下文").expect("escalation section");
-        let environment = prompt.find("## 环境").expect("environment section");
+        let rules = prompt.find("## Rules").expect("rules section");
+        let escalation = prompt
+            .find("## Escalation context")
+            .expect("escalation section");
+        let environment = prompt.find("## Environment").expect("environment section");
         let capabilities = prompt
-            .find("## 可用能力（紧凑索引）")
+            .find("## Available capabilities (compact index)")
             .expect("capability index");
 
         assert!(capabilities < rules, "index precedes rules");
@@ -1430,9 +1434,7 @@ mod tests {
 
     #[tokio::test]
     async fn identity_falls_back_when_no_soul_file_is_loaded() {
-        // The previous fallback was unreachable: it was guarded on
-        // `sections.is_empty()` while the environment section had already been
-        // pushed, so a deployment without SOUL.md got no identity at all.
+        // 无 SOUL.md 时 prompt 仍含默认身份段。
         let prompt = test_planner()
             .build_system_prompt(
                 &request("你好"),
@@ -1441,9 +1443,9 @@ mod tests {
                 None,
             )
             .await;
-        assert!(prompt.contains("## 身份"));
+        assert!(prompt.contains("## Identity"));
         assert!(
-            prompt.contains("你是 Agent") || prompt.contains("You are Agent"),
+            prompt.contains("You are Agent"),
             "identity names the product Agent"
         );
     }
@@ -1480,7 +1482,7 @@ mod tests {
         assert!(prompt.contains("n.txt"));
         assert!(prompt.contains("hello"));
         assert!(prompt.contains("a.png"));
-        assert!(prompt.contains("图片像素未随请求发送"));
+        assert!(prompt.contains("image pixels were not sent"));
     }
 
     #[test]
@@ -1512,9 +1514,9 @@ mod tests {
             },
             None,
         );
-        assert!(prompt.contains("正在看：Harbour Notes"));
-        assert!(prompt.contains("页面上下文可用：true"));
-        assert!(prompt.contains("正在播放：Night — Lantern"));
+        assert!(prompt.contains("Looking at: Harbour Notes"));
+        assert!(prompt.contains("Page context available: true"));
+        assert!(prompt.contains("Playing：Night — Lantern"));
         assert!(!prompt.contains("example.test"));
         assert!(!prompt.contains("long body"));
     }

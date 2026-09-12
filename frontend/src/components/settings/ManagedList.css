@@ -1,7 +1,3 @@
-/**
- * ManagedList — cohesive list panel for settings (delivery queue, etc.)
- * Aligns with SettingItem surface tokens (glass / dark).
- */
 
 .managed-list {
   display: flex;
@@ -14,7 +10,6 @@
   opacity: 0.92;
 }
 
-/* —— Stats + action chips (unified top region) —— */
 
 .managed-list-stats {
   display: flex;
@@ -26,10 +21,6 @@
   min-width: 0;
 }
 
-/*
- * All interactive chips after metrics (register / query / toolbar / form).
- * Extra lead-in when metrics sit before actions so data ≠ buttons glued.
- */
 .managed-list-chip-actions {
   display: flex;
   flex-wrap: wrap;
@@ -39,7 +30,7 @@
   min-width: 0;
 }
 
-/* Guide-path span is a flex item — hug the card, do not grow */
+/* guide-path: hug, do not grow */
 .managed-list-chip-actions > .managed-list-guide-anchor {
   display: flex;
   flex: 0 0 auto;
@@ -154,7 +145,6 @@ html.dark .managed-list-stat--danger .managed-list-stat-value {
   color: var(--cfg-text-3);
 }
 
-/* —— Top strip: metrics then all buttons in one region —— */
 
 .managed-list-top {
   --managed-list-chip-min-h: 2.75rem;
@@ -170,7 +160,7 @@ html.dark .managed-list-stat--danger .managed-list-stat-value {
   width: 100%;
 }
 
-/* Equal height only — width hugs content (not unified) */
+/* equal height; width hugs */
 .managed-list-top .checkbox-group-card--sm {
   flex: 0 0 auto;
   width: max-content;
@@ -182,8 +172,6 @@ html.dark .managed-list-stat--danger .managed-list-stat-value {
   padding: var(--managed-list-chip-pad-y) var(--managed-list-chip-pad-x);
   border-radius: var(--managed-list-chip-radius);
   box-sizing: border-box;
-
-  /* Top-align text stacks so title/desc baselines match across chips */
   justify-content: flex-start;
 }
 
@@ -193,7 +181,6 @@ html.dark .managed-list-stat--danger .managed-list-stat-value {
   width: max-content;
 }
 
-/* SettingsButton (danger/primary bulk) still matches chip height */
 .managed-list-chip-actions > .settings-btn.settings-btn--sm {
   min-height: var(--managed-list-chip-min-h);
   height: auto;
@@ -209,7 +196,6 @@ html.dark .managed-list-stat--danger .managed-list-stat-value {
   flex: 0 0 auto;
 }
 
-/* Plain query: no titled card header */
 .managed-list-filter-bar.is-plain {
   gap: 0.4rem;
   padding: 0.45rem 0.55rem;
@@ -236,7 +222,6 @@ html.dark .managed-list-stat--danger .managed-list-stat-value {
   font-weight: 700;
 }
 
-/* —— Search + filter chips (collapsed by default) —— */
 
 .managed-list-filter-bar {
   display: flex;
@@ -264,12 +249,10 @@ html.dark .managed-list-filter-bar {
   min-width: 0;
 }
 
-/* Cancel lives on the top chip strip — header is title only */
 .managed-list-filter-bar-header.is-title-only {
   justify-content: flex-start;
 }
 
-/* Search uses shared InputItem / .field-input (same as settings forms) */
 .managed-list-search {
   min-width: 0;
   flex: 1 1 auto;
@@ -281,7 +264,6 @@ html.dark .managed-list-filter-bar {
   width: 100%;
 }
 
-/* Label only for a11y — visual is pure field-input */
 .managed-list-search-item .setting-label {
   position: absolute;
   width: 1px;
@@ -311,7 +293,6 @@ html.dark .managed-list-filter-bar {
   appearance: none;
 }
 
-/* Filter groups: one horizontal strip, chips never wrap */
 .managed-list-filter-groups {
   display: flex;
   flex-wrap: nowrap;
@@ -331,7 +312,6 @@ html.dark .managed-list-filter-bar {
   min-width: 0;
 }
 
-/* Segmented chips inside list query: single line only */
 .managed-list-filters.choice-segmented.is-flex {
   flex-wrap: nowrap;
   width: max-content;
@@ -343,7 +323,6 @@ html.dark .managed-list-filter-bar {
   white-space: nowrap;
 }
 
-/* —— Create / add form panel (collapsed by default) —— */
 
 .managed-list-form {
   display: flex;
@@ -371,7 +350,6 @@ html.dark .managed-list-form {
   min-width: 0;
 }
 
-/* Cancel lives on the top chip strip — header is title only */
 .managed-list-form-header.is-title-only {
   justify-content: flex-start;
 }
@@ -393,7 +371,6 @@ html.dark .managed-list-form-title {
   min-width: 0;
 }
 
-/* Submit row: primary action flush left under fields */
 .managed-list-form-actions {
   display: flex;
   flex-wrap: wrap;
@@ -403,7 +380,7 @@ html.dark .managed-list-form-title {
   margin-top: 0.15rem;
 }
 
-/* Tighten setting items nested in the form (no extra outer chrome) */
+/* nested items: no extra chrome */
 .managed-list-form .setting-item {
   margin: 0;
 }
@@ -412,7 +389,6 @@ html.dark .managed-list-form-title {
   margin-bottom: 0.28rem;
 }
 
-/* —— Body / rows —— */
 
 .managed-list-body {
   display: flex;
@@ -424,7 +400,7 @@ html.dark .managed-list-form-title {
   margin: 0;
   border-radius: 0.75rem;
 
-  /* 子行不得被外层 flex 压扁成「空心白线」 */
+  /* rows: do not flatten */
   align-items: stretch;
 }
 
@@ -433,7 +409,7 @@ html.dark .managed-list-form-title {
   overscroll-behavior: contain;
   scrollbar-width: thin;
 
-  /* 只限高，不强制铺满；避免子项被均分高度 */
+  /* max-height only; do not stretch items */
   flex: 0 1 auto;
 }
 
@@ -494,7 +470,6 @@ html.dark .managed-list-empty {
   border-color: color-mix(in srgb, var(--cfg-accent, #3b82f6) 28%, transparent);
 }
 
-/* Full-row expand hit: avatar + title/meta (not action buttons) */
 .managed-list-row-hit {
   appearance: none;
   display: flex;
@@ -530,7 +505,6 @@ html.dark .managed-list-row-hit:hover {
     color-mix(in srgb, var(--cfg-accent, #3b82f6) 40%, transparent);
 }
 
-/* Non-expandable rows keep padded head content */
 .managed-list-row:not(.is-expandable) .managed-list-row-head {
   padding: 0.65rem 0.75rem;
   gap: 0.55rem 0.75rem;
@@ -575,7 +549,7 @@ html.dark .managed-list-row-leading .managed-list-avatar-fallback {
   padding: 0.55rem 0.75rem 0.7rem;
   border-top: 1px solid rgb(229 231 235 / 45%);
 
-  /* Single surface with the row — no nested fill (host embeds plain content) */
+  /* no nested fill */
   background: transparent;
 }
 
@@ -592,7 +566,7 @@ html.dark .managed-list-row-detail {
   flex-direction: column;
   justify-content: center;
   gap: 0.2rem;
-  pointer-events: none; /* whole hit button owns the click */
+  pointer-events: none; /* row-hit owns the click */
 }
 
 .managed-list-row:not(.is-expandable) .managed-list-row-main {
@@ -620,7 +594,6 @@ html.dark .managed-list-row-detail {
   min-width: 0;
 }
 
-/* Keep FieldSelect compact inside list rows */
 .managed-list-row-trailing .field-select-wrap {
   min-width: 8rem;
   max-width: 13rem;
@@ -717,7 +690,6 @@ html.dark .managed-list-row-title code {
   background: rgb(255 255 255 / 8%);
 }
 
-/* —— Badge —— */
 
 .managed-list-badge {
   display: inline-flex;
@@ -788,9 +760,6 @@ html.dark .managed-list-badge--muted {
   color: var(--cfg-text-3);
 }
 
-/* —— Footer —— */
-
-/* Action buttons: SettingsButton size="sm". Toggle chips: CheckboxCard size="sm". */
 
 .managed-list-footer {
   display: flex;
@@ -826,7 +795,6 @@ html.dark .managed-list-footer-truncate {
   color: var(--cfg-text-2);
 }
 
-/* Domain-specific helpers used inside row title/subtitle slots */
 .managed-list-id {
   font-variant-numeric: tabular-nums;
   opacity: 0.72;

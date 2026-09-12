@@ -1,13 +1,3 @@
-/**
- * 深度定制日期范围选择：Portal 弹出层 + 双月历范围点选。
- *
- * 定位 / 动效对齐 SettingTitleGuideEntry + SettingTitleHelp：
- * - Portal + fixed，避免 overflow 裁切
- * - 先量后显（is-ready），双 rAF 再入场
- * - 滚动/缩放 lerp 平滑跟随；锚点不可见则关闭
- * - 关闭走 is-closing 退出动效再卸载
- */
-
 import type { IsoDate } from './dateCalendarLogic'
 import { LuChevronLeft, LuChevronRight } from '@lib/icons'
 import React, {
@@ -89,10 +79,6 @@ function isAnchorVisible(el: HTMLElement): boolean {
   return visibleH >= MIN_VISIBLE_EDGE && visibleW >= MIN_VISIBLE_EDGE
 }
 
-/**
- * 优先下方（右缘对齐锚点，贴标题行控件）；
- * 下方不够 → 上方。
- */
 function computePosition(
   anchor: DOMRect,
   panelW: number,
@@ -254,11 +240,11 @@ export const DateRangePopover: React.FC<DateRangePopoverProps> = ({
   const [picking, setPicking] = useState<'from' | 'to' | 'done'>('from')
   const [hover, setHover] = useState('')
   const [viewY, setViewY] = useState(() => {
-    const p = parseIso(fromProp) || parseIso(maxDate || '')
+    const p = parseIso(fromProp) ?? parseIso(maxDate || '')
     return p?.y ?? new Date().getFullYear()
   })
   const [viewM, setViewM] = useState(() => {
-    const p = parseIso(fromProp) || parseIso(maxDate || '')
+    const p = parseIso(fromProp) ?? parseIso(maxDate || '')
     return p?.m ?? new Date().getMonth() + 1
   })
 
@@ -330,14 +316,12 @@ export const DateRangePopover: React.FC<DateRangePopoverProps> = ({
     setReady(false)
   }, [])
 
-  /* 受控 open → 内部 phase */
   useEffect(() => {
     if (openProp) {
       if (phaseRef.current === 'closed' || phaseRef.current === 'closing') {
         openFloat()
       }
     } else if (phaseRef.current === 'open') {
-      // 父级关掉：走退出动效，但不重复 onOpenChange
       stopSmooth()
       setReady(false)
       if (prefersReducedMotion()) {
@@ -358,7 +342,6 @@ export const DateRangePopover: React.FC<DateRangePopoverProps> = ({
     [stopSmooth],
   )
 
-  // Sync draft when opened
   useEffect(() => {
     if (phase !== 'open') return
     setDraftFrom(fromProp)
@@ -367,7 +350,7 @@ export const DateRangePopover: React.FC<DateRangePopoverProps> = ({
       fromProp && toProp ? 'done' : fromProp && !toProp ? 'to' : 'from',
     )
     setHover('')
-    const p = parseIso(fromProp) || parseIso(toProp) || parseIso(todayIso)
+    const p = parseIso(fromProp) ?? parseIso(toProp) ?? parseIso(todayIso)
     if (p) {
       setViewY(p.y)
       setViewM(p.m)
@@ -405,7 +388,7 @@ export const DateRangePopover: React.FC<DateRangePopoverProps> = ({
     [anchorRef, applyDisplay, close, startSmooth, stopSmooth],
   )
 
-  /* 打开：snap 定位 → 双 rAF → is-ready 入场 */
+  /* snap, then double rAF, then is-ready */
   useLayoutEffect(() => {
     if (phase !== 'open') {
       if (phase === 'closed') stopSmooth()

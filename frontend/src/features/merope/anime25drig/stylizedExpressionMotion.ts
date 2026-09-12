@@ -99,10 +99,7 @@ const ZERO_MOTION: StylizedExpressionMotion = {
   speechlessSweatRotation: 0,
 }
 
-/**
- * Stages semantic expression channels instead of cross-fading the whole face.
- * The reused output keeps the per-frame path allocation-free.
- */
+/** Stages semantic expression channels instead of cross-fading the whole face. */
 export class StylizedExpressionMotionController {
   private readonly output: StylizedExpressionMotion = { ...ZERO_MOTION }
   private readonly targetInput: StylizedExpressionTargets = {
@@ -177,8 +174,6 @@ export class StylizedExpressionMotionController {
     if (maniacActive && !this.maniacWasActive) this.maniacStartedAt = now
     if (sillyActive && !this.sillyWasActive) {
       this.sillyStartedAt = now
-      // Successive vacant looks must not replay the same six seconds, or the
-      // loop is recognisable after two or three uses in one conversation.
       this.sillyPhaseOffset = (this.sillyActivations * SILLY_PHASE_STRIDE) % 1
       this.sillyActivations += 1
     }
@@ -250,19 +245,12 @@ export class StylizedExpressionMotionController {
     const maniacWobble =
       Math.sin(now * 2.7 + 0.3) * 0.035 * maniacPose +
       Math.sin(now * 5.9 + 1.1) * 0.012 * maniacPose
-    // An asymmetric laugh pulse: a small, quick opening, slower recovery, then
-    // one restrained rebound. This keeps the reference's nearly-held grin and
-    // avoids a mechanical equal-amplitude sine wave.
     const maniacMouthPhase = (now / 0.82 + 0.17) % 1
     const maniacUpperMouthCycle =
       maniacLaughCurve(maniacMouthPhase) * maniacMouth
     const delayedManiacHead =
       maniacLaughCurve((maniacMouthPhase + 0.94) % 1) * maniacMouth
-    // The artwork pulse is deliberately small, but using that value unchanged
-    // made the accompanying head motion almost imperceptible. Keep the same
-    // laugh cadence and slight delay while giving the head its own amplitude.
-    // Rotation carries most of the read; translation stays modest so collars
-    // and the neck continue to overlap safely.
+    // Keep the same laugh cadence and slight delay while giving the head its own amplitude.
     const maniacHeadCycle = delayedManiacHead * 2
     const sillyPhase =
       (sillyAge / SILLY_LOOP_SECONDS + this.sillyPhaseOffset) % 1
@@ -412,12 +400,6 @@ export class StylizedExpressionMotionController {
 
 export const SILLY_LOOP_SECONDS = 6
 
-/**
- * Largest iris drift the loop may reach, as a fraction of the eye anchor.
- * Import reserves room for exactly this much travel before it seeds the two
- * irides apart, so a wandering eye slides under the drawn rim only at the very
- * edge of the range instead of being cut in half through the whole loop.
- */
 export const SILLY_IRIS_DRIFT_LIMIT = { x: 0.12, y: 0.1275 } as const
 
 const SILLY_PHASE_STRIDE = 0.37
@@ -496,7 +478,7 @@ function loopedKeyframe(
       (bounded - previous[0]) / Math.max(0.0001, next[0] - previous[0]),
     )
   }
-  return keyframes[keyframes.length - 1]?.[1] ?? 0
+  return keyframes.at(-1)?.[1] ?? 0
 }
 
 function staged(

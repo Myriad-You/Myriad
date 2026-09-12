@@ -80,9 +80,7 @@ test('没有步骤时不炸，也不编数字', () => {
 test('只有一步且已经跑完就不摆过程 —— 正文本身就是结果', () => {
   assert.equal(stepsWorthShowing([]), false)
   assert.equal(stepsWorthShowing([step({ status: 'done' })]), false)
-  // 但还在跑的时候要说一声，否则等待期间界面上什么都没有
   assert.equal(stepsWorthShowing([step({ status: 'running' })]), true)
-  // 失败的单步更要摆出来 —— 哪一步炸的比「失败了」这个结论有用
   assert.equal(stepsWorthShowing([step({ status: 'error' })]), true)
   assert.equal(
     stepsWorthShowing([step({ id: 's1' }), step({ id: 's2' })]),

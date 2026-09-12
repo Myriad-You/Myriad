@@ -27,12 +27,6 @@ export function createJawMotionState(): JawMotionState {
   return { value: 0, velocity: 0 }
 }
 
-/**
- * Separates mandible travel from lip articulation. Wide and narrow visemes
- * rely more on lip muscle motion; open and round visemes retain more jaw use.
- * A lip seal only slightly reduces the target so a short bilabial does not
- * force the mandible to snap shut between neighbouring vowels.
- */
 export function jawMotionTarget(
   input: Readonly<JawMotionInput>,
   emphasis: number,
@@ -64,7 +58,6 @@ export function jawMotionTarget(
   )
 }
 
-/** Exact under-damped spring step; stable across the player's bounded dt. */
 export function stepJawMotion(
   state: JawMotionState,
   target: number,
@@ -115,7 +108,6 @@ function springCoefficients(
   }
 }
 
-/** Character-scale travel inferred once from the imported mouth silhouette. */
 export function jawTravelPixels(playback: Readonly<Anime25DPlayback>): number {
   const faceHeight = Math.max(
     1,

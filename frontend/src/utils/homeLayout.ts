@@ -1,13 +1,3 @@
-/**
- * Home dashboard layout: standard (centered 16×4) vs free (same cell size, fixed 16×8).
- *
- * Cell size is derived from the standard stage (max-width + stage pad inside page padding).
- * Free uses the same centered 16-col width; row count is a fixed taller canvas,
- * not the standard 4 rows and not viewport-grown.
- * Visual gutters live as `--home-*` on `.home-shell` (Home.css); the rem steps here
- * are the same numbers.
- */
-
 import type { WidgetConfig } from '../components/widgetGridTypes'
 import type { StickerCrop } from './homeStickerCrop'
 import { widgetSizeSpan } from './widgetSizeScale'
@@ -24,24 +14,18 @@ export interface HomePagePadXStep {
   rem: number
 }
 
-/** Page pad-x: 0.75rem / 1rem / 1.5rem at 0 / 375 / 640. */
 export const HOME_PAGE_PAD_X_STEPS: readonly HomePagePadXStep[] = [
   { minWidth: 0, rem: 0.75 },
   { minWidth: 375, rem: 1 },
   { minWidth: 640, rem: 1.5 },
 ]
 
-/** Standard stage max-width (`--home-standard-max-width`). */
 export const HOME_STANDARD_MAX_WIDTH_REM = 80
-/** Per-side stage padding (`--home-stage-pad`). */
 export const HOME_STANDARD_STAGE_PAD_REM = 0.5
-/** Per-side free-layout page pad-y (`--home-free-pad-y`). */
 export const HOME_FREE_PAGE_PAD_Y_REM = 1.5
 export const HOME_STANDARD_COLS = 16
 export const HOME_STANDARD_ROWS = 4
-/** Free canvas rows: fixed, taller than standard, independent of viewport. */
 export const HOME_FREE_ROWS = 8
-/** Free layout: max occupied cells across all widgets (16×8 canvas is 128). */
 export const HOME_FREE_MAX_CELLS = 96
 export const HOME_STICKER_TYPE = 'sticker'
 export const HOME_LAYOUT_MODE_KEY = 'myriad.home-layout-mode'
@@ -87,10 +71,6 @@ export function standardHomeCellSize(
   return standardHomeGridWidth(viewportWidth, rootFontSize) / HOME_STANDARD_COLS
 }
 
-/**
- * First-paint guess for the free-layout host before ResizeObserver.
- * Same rem steps as `.home-shell` CSS variables.
- */
 export function estimateFreeHomeHostSize(
   viewportWidth: number,
   viewportHeight: number,
@@ -232,11 +212,10 @@ function compareWidgetAreaDesc(a: WidgetConfig, b: WidgetConfig): number {
   return db.w * db.h - da.w * da.h || db.h - da.h || db.w - da.w
 }
 
-/** Tops within 1 cell share a visual row (staggered free-canvas items). */
 const PACK_BAND_Y_SLACK = 1
 
 function clusterWidgetsIntoBands(widgets: WidgetConfig[]): WidgetConfig[][] {
-  const sorted = [...widgets].sort((a, b) => {
+  const sorted = widgets.toSorted((a, b) => {
     if (a.position.y !== b.position.y) return a.position.y - b.position.y
     if (a.position.x !== b.position.x) return a.position.x - b.position.x
     return compareWidgetAreaDesc(a, b)
@@ -280,7 +259,7 @@ function packShelf(
     }
   }
 
-  const ordered = [...items].sort((a, b) => {
+  const ordered = items.toSorted((a, b) => {
     if (a.position.x !== b.position.x) return a.position.x - b.position.x
     return compareWidgetAreaDesc(a, b)
   })
@@ -311,12 +290,6 @@ function packShelf(
   return { widgets: packed, height: maxY }
 }
 
-/**
- * Compact a free or standard layout into `columns`.
- * Keeps source visual rows (later rows cannot fill holes in earlier ones),
- * then left-to-right first-fit inside each row so mixed heights pack side by side.
- * Does not mutate the input.
- */
 export function packWidgetsIntoColumns(
   widgets: WidgetConfig[],
   columns: number,
@@ -347,11 +320,6 @@ function isWidgetArray(value: unknown): value is WidgetConfig[] {
   return Array.isArray(value)
 }
 
-/**
- * Legacy `dashboard_layout` is a widget array (standard only).
- * v2 is `{ v: 2, standard, free }`. Missing `free` copies standard.
- * An explicit empty `free` array is preserved.
- */
 export function parseDashboardLayout(raw: unknown): HomeDashboardLayouts {
   if (isWidgetArray(raw)) {
     return { standard: raw, free: cloneHomeWidgets(raw) }
@@ -382,29 +350,16 @@ export function homeLayoutsHaveTiles(layouts: HomeDashboardLayouts): boolean {
   return layouts.standard.length > 0 || layouts.free.length > 0
 }
 
-/**
- * First paint of a saved dashboard must keep every tile, including Tapp
- * types that are not in the widget catalog yet.
- *
- * Filtering against a cold registry (Home's first render has no Tapp types)
- * drops third-party tiles. `applyLayouts` then awaits chunk preload; if the
- * restore effect already put those tiles back, the late `setLayouts` from
- * that first apply overwrites them. HTTP cache makes the race likely —
- * Disable cache in DevTools slows the preload enough that restore wins.
- */
+/** HTTP cache makes the race likely. */
 export function layoutsForFirstPaint(
   source: HomeDashboardLayouts,
 ): HomeDashboardLayouts {
   return {
-    standard: [...source.standard],
-    free: [...source.free],
+    standard: Iterator.from(source.standard).toArray(),
+    free: Iterator.from(source.free).toArray(),
   }
 }
 
-/**
- * After the Tapp registry has loaded, drop tiles whose types are still
- * unknown (uninstalled Tapps). Stickers stay on the free canvas.
- */
 export function layoutsAfterWidgetRegistry(
   source: HomeDashboardLayouts,
   registeredIds: ReadonlySet<string>,
@@ -421,7 +376,7 @@ export function layoutsAfterWidgetRegistry(
   }
 }
 
-/** In-flight first-paint apply must not replace a newer restore. */
+/** In-flight first-paint must not replace a newer restore. */
 export function shouldAcceptHomeLayoutApply(
   applyGeneration: number,
   currentGeneration: number,
@@ -449,7 +404,6 @@ export function readHomeLayoutMode(
   return peekStoredHomeLayoutMode(storage) ?? 'standard'
 }
 
-/** `null` when the site mode has never been cached locally. */
 export function peekStoredHomeLayoutMode(
   storage?: Pick<Storage, 'getItem'> | null,
 ): HomeLayoutMode | null {
@@ -469,6 +423,5 @@ export function persistHomeLayoutMode(
   try {
     storage?.setItem(HOME_LAYOUT_MODE_KEY, mode)
   } catch {
-    // private mode / quota
   }
 }

@@ -1,11 +1,3 @@
-/**
- * Home layout file transfer: dedicated export envelope plus the stored
- * `dashboard_layout` shapes. Settings backups are rejected, not mined.
- *
- * v2 may carry sticker originals in `assets` (PNG/JPEG/WebP base64). Layout tiles
- * still store paths only; import re-writes those paths after re-store.
- */
-
 import type { WidgetConfig, WidgetSize } from '../components/widgetGridTypes'
 import type { HomeDashboardLayouts, HomeLayoutMode } from './homeLayout'
 import {
@@ -109,7 +101,7 @@ export function parseHomeLayoutImportText(
   }
   let raw: unknown
   try {
-    raw = JSON.parse(text.replace(/^\uFEFF/, ''))
+    raw = JSON.parse(text.replaceAll(/^\uFEFF/g, ''))
   } catch {
     return { ok: false, reason: 'invalid' }
   }
@@ -222,7 +214,7 @@ export function listStickerImageUrls(
     const key = canonicalStickerImageUrl(raw)
     if (key && !key.startsWith('inline:')) urls.add(key)
   }
-  return [...urls]
+  return Iterator.from(urls).toArray()
 }
 
 export function rewriteStickerImageUrls(
@@ -341,7 +333,7 @@ function parseStickerAsset(raw: unknown): HomeLayoutAsset | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const record = raw as Record<string, unknown>
   if (typeof record.data !== 'string' || !record.data) return null
-  const data = record.data.replace(/\s/g, '')
+  const data = record.data.replaceAll(/\s/g, '')
   if (!data || data.length > HOME_LAYOUT_ASSET_MAX_BYTES * 2) return null
   const bytes = decodeBase64(data)
   if (!bytes) return null
@@ -484,13 +476,16 @@ function isGridCoord(value: unknown): value is number {
 }
 
 function clonePlainObject(value: unknown): Record<string, unknown> | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype
+  ) {
+    return undefined
+  }
   try {
-    const cloned = JSON.parse(JSON.stringify(value)) as unknown
-    if (!cloned || typeof cloned !== 'object' || Array.isArray(cloned)) {
-      return undefined
-    }
-    return cloned as Record<string, unknown>
+    return structuredClone(value) as Record<string, unknown>
   } catch {
     return undefined
   }

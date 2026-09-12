@@ -13,7 +13,6 @@ export interface HomeStickerCropProps {
   crop: StickerCrop
   hint?: string
   disabled?: boolean
-  /** Fill the parent instead of using a max-height aspect box. */
   fill?: boolean
   onChange: (crop: StickerCrop) => void
 }

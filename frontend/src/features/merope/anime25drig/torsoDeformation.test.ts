@@ -95,10 +95,8 @@ test('the per-model follow scales the head share and leaves the body alone', () 
     )
     return state.value
   }
-  // Half the follow, half the head's contribution.
   assert.ok(Math.abs(stepped(1, 0, 0.5) - stepped(1, 0) * 0.5) < 1e-12)
   assert.equal(stepped(1, 0, 0), 0)
-  // The body's own share is the authored amount and carries no such control.
   assert.equal(stepped(0, 1, 0), stepped(0, 1))
   assert.equal(stepped(0, 1, 0.25), stepped(0, 1))
 })
@@ -339,9 +337,6 @@ function sleeveCarry(normalizedX: number, yawRadians: number): number {
 }
 
 test('a sleeve drawn past the body silhouette is not dragged against it', () => {
-  // Outside the cylinder its depth is gone and the bare projection reverses,
-  // pulling the sleeve the opposite way from the garment it hangs on — by as
-  // much as 60% of the garment's own travel.
   for (const yaw of [0.2, 0.45, 0.6]) {
     const garment = anime25DTorsoShellOffsetX(
       SLEEVE_TORSO.centerX - 0.5 * SLEEVE_TORSO.radiusX,
@@ -350,8 +345,6 @@ test('a sleeve drawn past the body silhouette is not dragged against it', () => 
       0.5,
     )
     assert.ok(garment > 0)
-    // The near sleeve is carried outright; the far one recedes and may hold
-    // still, but neither is swept backwards.
     for (const normalizedX of [-1.5, -1.25, -0.9]) {
       assert.ok(sleeveCarry(normalizedX, yaw) > 0, `${normalizedX} @ ${yaw}`)
     }
@@ -363,8 +356,6 @@ test('a sleeve drawn past the body silhouette is not dragged against it', () => 
 })
 
 test('how far out a sleeve is drawn stops mattering past the shoulder', () => {
-  // Depth falls off a cliff at the silhouette: read the turn there and a tenth
-  // of a radius of drawing position would change the carry several-fold.
   for (const side of [-1, 1]) {
     const shoulder = sleeveCarry(side * 0.8, 0.45)
     for (const normalizedX of [0.9, 1, 1.25, 1.5, 3]) {
@@ -381,18 +372,15 @@ test('a sleeve drawn on the body reads the turn where it is drawn', () => {
     const anchorX = SLEEVE_TORSO.centerX + normalizedX * SLEEVE_TORSO.radiusX
     assert.ok(Math.abs(anime25DSleeveAnchorX(anchorX, SLEEVE_TORSO) - anchorX) < 1e-9)
   }
-  // Nearer the front of the torso is carried further than nearer the edge.
   assert.ok(sleeveCarry(-0.3, 0.45) > sleeveCarry(-0.8, 0.45))
 })
 
 test('the compiled follow and the audition are one value, not two', () => {
   assert.equal(anime25DTorsoYawFollow({ yawFollowScale: 0.5 }, 0.5), 0.25)
-  // A manifest compiled before the follow became per-model turns fully.
   assert.equal(anime25DTorsoYawFollow({}, 1), 1)
   assert.equal(anime25DTorsoYawFollow({}, 0.4), 0.4)
   // The site never writes bodyYaw, so the compiled value governs alone.
   assert.equal(anime25DTorsoYawFollow({ yawFollowScale: 0.6 }, 1), 0.6)
-  // Neither source can push the other out of range.
   for (const authored of [Number.NaN, undefined, 4, -1]) {
     for (const bodyYaw of [Number.NaN, Number.POSITIVE_INFINITY, 4, -1]) {
       const follow = anime25DTorsoYawFollow({ yawFollowScale: authored }, bodyYaw)

@@ -1,7 +1,3 @@
-/**
- * Pure mappers: AI usage API rows → TrendChart / RankList shapes.
- */
-
 import type { RankRow } from './RankList'
 import type { TrendPoint } from './TrendChart'
 
@@ -71,7 +67,6 @@ export interface AiUsageSourceLabels {
   other: string
 }
 
-/** Map ledger `source` to the settings-page label. */
 export function aiSourceDisplayName(
   source: string,
   labels: AiUsageSourceLabels,

@@ -4,16 +4,20 @@ import type { CollarClipMesh } from './collarRuntime'
 import type { Anime25DLayerDeformationPlan } from './deformationDependencies'
 import type { Anime25DDriver } from './driver'
 import type { Anime25DExpressionDeformationBinding } from './expressionDeformation'
-import type { Anime25DLayerAttachment } from './layerAttachment'
-import type { Anime25DLayerSpringBinding } from './layerBinding'
+import type { HairSurface } from './hairSurface'
+import type { Anime25DLayerAttachment, Anime25DNeckwearBridge } from './layerAttachment'
+import type { Anime25DLayerBinding, Anime25DLayerSpringBinding } from './layerBinding'
 import type { Anime25DUpstreamFeatureInput } from './layerDeformation'
 import type { Anime25DLayerDeformationExtension } from './layerDeformationPolicy'
 import type { Anime25DMouthDeformationKind } from './mouthDeformation'
 import type { Anime25DRenderableLayer } from './renderer'
 import type { Anime25DSecondaryDeformationBinding } from './secondaryDeformation'
+import type { SurfaceContact } from './surfaceContact'
 import type { Anime25DPlayback, Anime25DShellProfile } from './types'
-import type { CroppedLayerPixels } from './webglRuntime'
+import type { AtlasPixelPatch, CroppedLayerPixels } from './webglRuntime'
 import { isAnime25DRigidAttachment } from '../rig/anime25dLayerSemantics'
+import { removeDuplicatedNeckComponents } from './accessoryComponents'
+import { duplicateAccessoryLayers } from './accessoryDuplicate'
 import { sampleChestWeight } from './chestPhysics'
 import { buildFrontCollarContactModel } from './collarContact'
 import { createCollarClipMesh, disposeCollarClipMesh } from './collarRuntime'
@@ -22,7 +26,8 @@ import {
   resolveAnime25DDeformationDependencies,
 } from './deformationDependencies'
 import { resolveAnime25DExpressionDeformation } from './expressionDeformation'
-import { bindAnime25DLayerAttachment } from './layerAttachment'
+import { bindHairSurface } from './hairSurface'
+import { bindAnime25DLayerAttachment, bindNeckwearBridge } from './layerAttachment'
 import { buildAnime25DLayerBinding } from './layerBinding'
 import { bindAnime25DUpstreamFeature } from './layerDeformation'
 import { resolveAnime25DLayerDeformationPolicy } from './layerDeformationPolicy'
@@ -35,6 +40,10 @@ import {
   anime25DShellModeForLayer,
   sampleAnime25DHairlinePinWeights,
 } from './shellDeformation'
+import { shoulderContactWeights } from './shoulderContact'
+import { fuseShoulderSurface } from './shoulderSurface'
+import { bindSurfaceContact } from './surfaceContact'
+import { buildContactSurfaceMesh } from './surfaceMesh'
 import { anime25DTorsoShellModeForLayer } from './torsoDeformation'
 import {
   createIndexedDeformableMesh,
@@ -45,9 +54,9 @@ import {
 export interface Anime25DGpuLayer extends Anime25DRenderableLayer {
   baseRole: string
   rest: Float32Array
+  atlasUvs: Float32Array
+  indices: Uint16Array
   deformed: Float32Array
-  cols: number
-  rows: number
   vertexBuffer: WebGLBuffer | null
   uvBuffer: WebGLBuffer | null
   indexBuffer: WebGLBuffer | null
@@ -69,14 +78,18 @@ export interface Anime25DGpuLayer extends Anime25DRenderableLayer {
   deformationPlan: Anime25DLayerDeformationPlan
   geometryDirty: boolean
   attachment: Anime25DLayerAttachment | null
+  neckwearBridge?: Anime25DNeckwearBridge | null
+  attachmentDependents?: Anime25DGpuLayer[]
+  surfaceContact?: SurfaceContact
+  hairSurface?: HairSurface
 }
 
 export interface Anime25DCompiledGpuLayers {
+  atlasPatches?: AtlasPixelPatch[]
   layers: Anime25DGpuLayer[]
   collarClip: CollarClipMesh | null
 }
 
-/** Compiles all stable atlas, mesh, deformation, and stencil bindings once. */
 export function compileAnime25DGpuLayers(
   gl: WebGL2RenderingContext,
   program: WebGLProgram,
@@ -86,9 +99,67 @@ export function compileAnime25DGpuLayers(
   chestWeightField: ChestWeightField | null,
   atlasImage: HTMLImageElement,
 ): Anime25DCompiledGpuLayers {
-  const layers: Anime25DGpuLayer[] = []
+  let layers: Anime25DGpuLayer[] = []
   let collarClip: CollarClipMesh | null = null
   try {
+    const bindingPixels = new Map<
+      Anime25DPlayback['layers'][number],
+      CroppedLayerPixels | null
+    >()
+    const readBindingPixels = (source: Anime25DPlayback['layers'][number]) => {
+      if (!bindingPixels.has(source))
+        bindingPixels.set(source, readLayerPixels(atlasImage, source))
+      return bindingPixels.get(source) ?? null
+    }
+    const atlasPatches: AtlasPixelPatch[] = []
+    const neckOrnaments = playback.layers.filter((l) => l.role === 'neckwear')
+    if (neckOrnaments.length) {
+      for (const source of playback.layers.filter(
+        (l) => l.role === 'headwear',
+      )) {
+        if (
+          !neckOrnaments.some(
+            (l) =>
+              source.x < l.x + l.w &&
+              source.x + source.w > l.x &&
+              source.y < l.y + l.h &&
+              source.y + source.h > l.y,
+          )
+        ) {
+          continue
+}
+        const art = readBindingPixels(source)
+        if (!art) continue
+        const targets = neckOrnaments.flatMap((layer) => {
+          const image = readBindingPixels(layer)
+          return image ? [{ layer, image }] : []
+        })
+        const patch = removeDuplicatedNeckComponents(
+          source,
+          art,
+          targets,
+          playback.anchors.neckTop,
+        )
+        if (patch) {
+          bindingPixels.set(source, patch)
+          atlasPatches.push({
+            ...patch,
+            x: Math.round(source.atlas.x * atlasImage.width),
+            y: Math.round(source.atlas.y * atlasImage.height),
+          })
+        }
+      }
+}
+    const duplicateAccessories = duplicateAccessoryLayers(
+      playback.layers,
+      readBindingPixels,
+    )
+    const torsos = playback.layers.filter((layer) => layer.role === 'topwear')
+    const torso = torsos.length === 1 ? torsos[0] : null
+    const torsoPixels =
+      torso && playback.layers.some((layer) => layer.role === 'handwear')
+        ? readBindingPixels(torso)
+        : null
     const neck = playback.layers.find((layer) => layer.role === 'neck')
     const collarContacts = new Map<
       Anime25DPlayback['layers'][number],
@@ -119,12 +190,10 @@ export function compileAnime25DGpuLayers(
       )
     }
 
-    for (
-      let layerIndex = 0;
-      layerIndex < playback.layers.length;
-      layerIndex += 1
-    ) {
-      const source = playback.layers[layerIndex]
+    const bindings = new Map<Anime25DPlayback['layers'][number], Anime25DLayerBinding>()
+    const bindingFor = (source: Anime25DPlayback['layers'][number]) => {
+      const cached = bindings.get(source)
+      if (cached) return cached
       const collarContact = collarContacts.get(source) ?? null
       const binding = buildAnime25DLayerBinding({
         source,
@@ -133,19 +202,33 @@ export function compileAnime25DGpuLayers(
         layerZ:
           typeof source.z === 'number' && Number.isFinite(source.z)
             ? source.z
-            : layerIndex,
+            : playback.layers.indexOf(source),
         extraGridX: collarContact?.gridX,
         extraGridY: collarContact?.gridY,
+        faceShell: shellProfile.enabled && shellProfile.blend > 0 ? shellProfile : undefined,
       })
+      bindings.set(source, binding)
+      return binding
+    }
+    for (const source of playback.layers) {
+      if (duplicateAccessories.has(source)) continue
+      const collarContact = collarContacts.get(source) ?? null
+      const binding = bindingFor(source)
       const {
-        rest,
-        atlasUvs,
-        indices,
-        cols,
+        rest: gridRest,
+        atlasUvs: gridUvs,
+        indices: gridIndices,
+        cols: _cols,
         rows,
         extensions: _extensions,
         ...hair
       } = binding
+      const hasShoulderContact = source.role === 'handwear' && source.phys !== 'hair' && torso && torsoPixels &&
+        shoulderContactWeights(source, readBindingPixels(source), torso, torsoPixels, gridRest)
+      const surfaceMesh = hasShoulderContact
+        ? buildContactSurfaceMesh(bindingFor(torso!), source)
+        : null
+      const { rest, atlasUvs, indices } = surfaceMesh ?? { rest: gridRest, atlasUvs: gridUvs, indices: gridIndices }
       const chestWeights =
         source.role === 'topwear' && chestWeightField
           ? samplePlaybackChestWeights(
@@ -247,8 +330,11 @@ export function compileAnime25DGpuLayers(
         baseRole,
         rest,
         deformed: deformationPolicy.localDynamic ? rest.slice() : rest,
-        cols,
-        rows,
+        hairSurface: source.phys === 'hair' && ['front-hair', 'back-hair'].includes(source.role) && hair.springs && hair.alongStrand
+          ? bindHairSurface(rest, indices, hair.alongStrand, hairlinePinWeights)
+          : undefined,
+        atlasUvs,
+        indices,
         vao: mesh?.vao ?? null,
         vertexBuffer: mesh?.positionBuffer ?? null,
         uvBuffer: mesh?.uvBuffer ?? null,
@@ -273,16 +359,6 @@ export function compileAnime25DGpuLayers(
         attachment: null,
       })
     }
-    // Seam evidence and shared attachment hosts reuse one transient pixel cache.
-    const bindingPixels = new Map<
-      Anime25DPlayback['layers'][number],
-      CroppedLayerPixels | null
-    >()
-    const readBindingPixels = (source: Anime25DPlayback['layers'][number]) => {
-      if (!bindingPixels.has(source))
-        bindingPixels.set(source, readLayerPixels(atlasImage, source))
-      return bindingPixels.get(source) ?? null
-    }
     const neckSurface = resolveAnime25DNeckSurface(
       playback.layers,
       playback.anchors,
@@ -302,12 +378,10 @@ export function compileAnime25DGpuLayers(
         contour: neckSurface.contour,
       }
       if (neckIndex < bodyIndex) {
-        layers.splice(neckIndex, 1)
-        layers.splice(bodyIndex, 0, neckLayer)
+        layers = layers.toSpliced(neckIndex, 1)
+        layers = layers.toSpliced(bodyIndex, 0, neckLayer)
       }
-      // See-through may put the necklace before the skin-bearing topwear.
-      // Moving only the neck would still bury that independent drawing under
-      // both skin surfaces. Lift overlapping neckwear with the recovered neck.
+      // Moving only the neck would still bury that independent drawing under both skin surfaces.
       const recoveredNeckIndex = layers.indexOf(neckLayer)
       const accessories = layers.filter(
         (layer, index) =>
@@ -327,21 +401,97 @@ export function compileAnime25DGpuLayers(
             readBindingPixels,
           ),
       )
-      for (const accessory of accessories)
-        layers.splice(layers.indexOf(accessory), 1)
-      layers.splice(layers.indexOf(neckLayer) + 1, 0, ...accessories)
+      for (const accessory of accessories) {
+        const index = layers.indexOf(accessory)
+        if (index >= 0) layers = layers.toSpliced(index, 1)
+      }
+      layers = layers.toSpliced(
+        layers.indexOf(neckLayer) + 1,
+        0,
+        ...accessories,
+      )
     }
+    const torsoLayer = layers.find((layer) => layer.source === torso)
+    if (torsoLayer && torso && torsoPixels) {
+      for (const layer of layers) {
+        if (layer.source.role !== 'handwear') continue
+        const weights = shoulderContactWeights(
+          layer.source, readBindingPixels(layer.source), torso, torsoPixels, layer.rest,
+        )
+        if (!weights) continue
+        layer.surfaceContact = bindSurfaceContact(
+          {
+            rest: torsoLayer.rest,
+            deformed: torsoLayer.deformed,
+            indices: torsoLayer.indices,
+            transform: torsoLayer.layerTransform,
+          },
+          layer.rest,
+          weights,
+        )
+        ;(torsoLayer.attachmentDependents ??= []).push(layer)
+      }
+    }
+    // High-collar necks are rendered by the aperture mesh, not the retired
+    // rectangular neck grid. Attachments must sample that same visible surface.
+    const attachmentHosts = layers.map((layer) =>
+      layer.renderKind === 'neck' && collarClip
+        ? {
+            ...layer,
+            rest: collarClip.rest,
+            deformed: collarClip.deformed,
+            indices: collarClip.indices,
+          }
+        : layer,
+    )
     for (const layer of layers) {
+      layer.neckwearBridge = bindNeckwearBridge(
+        layer.source,
+        attachmentHosts,
+        playback.anchors,
+        chestWeightField,
+        playback.pixelCanvas.width,
+        layer.rest,
+        readBindingPixels,
+      )
+      if (layer.neckwearBridge) layer.deformed = layer.rest.slice()
       layer.attachment = bindAnime25DLayerAttachment(
         layer.source,
-        layers,
+        attachmentHosts,
         playback.anchors,
         chestWeightField,
         playback.pixelCanvas.width,
         readBindingPixels,
       )
     }
-    return { layers, collarClip }
+    for (const child of layers) {
+      const sources = new Set([
+        child.attachment?.hostSource,
+        child.neckwearBridge?.upper.hostSource,
+        child.neckwearBridge?.lower.hostSource,
+      ])
+      for (const parent of layers) {
+        if (sources.has(parent.source))
+          (parent.attachmentDependents ??= []).push(child)
+      }
+    }
+    if (torso && torsoPixels) {
+      const arms = layers
+        .filter((layer) => layer.surfaceContact)
+        .flatMap((layer) => {
+          const image = readBindingPixels(layer.source)
+          return image ? [{ layer: layer.source, image }] : []
+        })
+      const patch = fuseShoulderSurface(torso, torsoPixels, arms)
+      if (patch) {
+        atlasPatches.push({
+          ...patch,
+          x: Math.round(torso.atlas.x * atlasImage.width),
+          y: Math.round(torso.atlas.y * atlasImage.height),
+        })
+}
+    }
+    return { layers, collarClip, atlasPatches }
   } catch (error) {
     disposeAnime25DGpuLayers(gl, { layers, collarClip })
     throw error
@@ -383,7 +533,7 @@ function samplePlaybackChestWeights(
 export function anime25DLayerBaseName(role: string): string {
   if (role === 'front-hair') return 'front hair'
   if (role === 'back-hair') return 'back hair'
-  return role.replace(/-/g, '_')
+  return role.replaceAll('-', '_')
 }
 
 function anime25DRenderKind(

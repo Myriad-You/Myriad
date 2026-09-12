@@ -92,10 +92,7 @@ pub(super) fn extract_openai_completion_text(response: &OpenAIResponse) -> Resul
     ))
 }
 
-/// OpenAI-compatible chat.completion.chunk → text / reasoning deltas.
-///
-/// Grok / DeepSeek / OpenRouter put the thinking trace on `delta.reasoning_content`
-/// (sometimes `delta.reasoning`). The visible answer stays on `delta.content`.
+/// Pull a reasoning string from a JSON value (`json_token` / `content` / `text`).
 fn reasoning_text_from_value(value: &serde_json::Value) -> Option<String> {
     if let Some(text) = json_token(value) {
         return Some(text.to_string());
@@ -108,6 +105,10 @@ fn reasoning_text_from_value(value: &serde_json::Value) -> Option<String> {
     None
 }
 
+/// OpenAI-compatible chat.completion.chunk → text / reasoning deltas.
+///
+/// Grok / DeepSeek / OpenRouter put the thinking trace on `delta.reasoning_content`
+/// (sometimes `delta.reasoning`). The visible answer stays on `delta.content`.
 pub fn openai_stream_deltas(json: &serde_json::Value) -> Vec<StreamDelta> {
     if let Some(kind) = json.get("type").and_then(|v| v.as_str()) {
         if kind == "response.reasoning_text.delta"

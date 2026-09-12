@@ -168,8 +168,7 @@ pub async fn refresh_platform_data(
     }
 }
 
-/// 检查抓取回来的平台数据是否为空/缺失，返回给用户的可读提示。
-/// 返回 None 表示数据看起来正常。
+/// 抓取单个平台；空数据或远程错误时用 `resolve_platform_fetch_message_for` 填 message。
 pub async fn fetch_single_platform_data(
     State(db): State<DatabaseConnection>,
     headers: HeaderMap,
@@ -247,7 +246,7 @@ pub async fn fetch_single_platform_data(
     }
 }
 
-/// Admin-only debug dump of the in-process platform data cache (`cache/raw` shape).
+/// Admin-only disk dump of split `cache/raw` JSON.
 ///
 /// Contains full platform raw JSON for the site — never expose without auth.
 /// Route: `GET /api/profile/metadata` (admin middleware).
@@ -353,8 +352,7 @@ pub async fn get_platform_metadata_status(
 /// - **名称/简介/平台标签** ← [`crate::services::profile_text::resolve_profile_text`]
 ///   （`profile_text_source_*`，与画像源独立）
 ///
-/// 两套来源可分别选定，例如脸用 GitHub、简介仍用 B 站。文案 auto 时保留历史
-/// `PLATFORM_ORDER` 首个平台；显式选定后严格跟该源。
+/// 两套来源可分别选定。文案 auto：`PLATFORM_ORDER` 上第一个有数据的平台；选定源缺失则回落 auto。
 async fn build_user_info(db: &DatabaseConnection) -> (StatusCode, Value) {
     use crate::services::avatar::resolve_avatar;
     use crate::services::profile_text::resolve_profile_text;
@@ -365,7 +363,11 @@ async fn build_user_info(db: &DatabaseConnection) -> (StatusCode, Value) {
             tracing::warn!(%error, "Site owner lookup failed");
             return (
                 StatusCode::SERVICE_UNAVAILABLE,
-                json!({ "success": false, "message": "Site owner is not configured" }),
+                json!({
+                    "success": false,
+                    "message": "Site owner is not configured",
+                    "code": "site_owner_missing",
+                }),
             );
         }
     };
@@ -377,7 +379,11 @@ async fn build_user_info(db: &DatabaseConnection) -> (StatusCode, Value) {
             tracing::warn!(%error, user_id, "Profile text resolve failed");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                json!({ "success": false, "message": "Failed to resolve profile text" }),
+                json!({
+                    "success": false,
+                    "message": "Failed to resolve profile text",
+                    "code": "profile_text_load_failed",
+                }),
             );
         }
     };
@@ -409,8 +415,7 @@ async fn build_user_info(db: &DatabaseConnection) -> (StatusCode, Value) {
 
 /// 内容哈希 ETag：任何字段变化都会变，因此 304 不会把陈旧名称/简介锁死。
 ///
-/// Uses SHA-256 of canonical JSON bytes so ETags are stable across process
-/// restarts (unlike `DefaultHasher`, which is not portable).
+/// ETag = SHA-256(`Value::to_string()`)；键序随 BTreeMap，跨进程稳定。
 fn weak_etag(value: &Value) -> String {
     use sha2::{Digest, Sha256};
     let digest = Sha256::digest(value.to_string().as_bytes());
@@ -419,8 +424,7 @@ fn weak_etag(value: &Value) -> String {
 
 /// GET /api/profile/user-info
 ///
-/// 带 `Cache-Control` + 内容 ETag，取代前端那套 30 分钟 localStorage 缓存
-/// （后者只在登录/登出时失效，站长换了画像源要等半小时才生效）。
+/// 带 `Cache-Control: public, max-age=60` + 内容 ETag。
 pub async fn get_user_info(
     crate::extract::Db(db): crate::extract::Db,
     headers: axum::http::HeaderMap,
@@ -497,7 +501,7 @@ pub async fn delete_platform_cache(
 // Media URL rewrite (pure) — implementation in services so schedulers/export can share it.
 pub use crate::services::image_proxy_urls::{normalize_json_media_urls, proxy_image_url};
 
-// Library item shaping (pure) — DB I/O stays in this module.
+// library_items：分页/组装缓存；DB 与 Steam/Bili/Netease 组装仍在本文件。
 pub use crate::services::library_items::{
     append_bangumi_library_items, append_mal_library_items, cached_library_items,
     collect_library_source_options, invalidate_library_assembly_cache, paginate_library_items,
@@ -611,7 +615,11 @@ async fn library_page_response(
         Err(message) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(json!({ "success": false, "message": message })),
+                Json(json!({
+                    "success": false,
+                    "message": message,
+                    "code": "bad_request",
+                })),
             )
         }
     };
@@ -793,7 +801,7 @@ pub async fn get_library_data(
                 }
             }
 
-            // 处理网易云音乐数据（支持从临时文件加载完整数据）
+            // 处理网易云 liked_songs。
             if let Some(netease_data) = db_data.get("netease") {
                 // 直接从 liked_songs 读取完整数据
                 let songs_vec: Vec<Value> = netease_data
@@ -842,7 +850,7 @@ pub async fn get_library_data(
                             }
                             // 确保有al字段（专辑信息）
                             if !obj.contains_key("al") && !obj.contains_key("album") {
-                                obj.insert("al".to_string(), json!({"name": "未知专辑"}));
+                                obj.insert("al".to_string(), json!({"name": ""}));
                             }
                             // 确保有dt字段（时长毫秒）
                             if !obj.contains_key("dt") && !obj.contains_key("duration") {
@@ -1044,7 +1052,7 @@ pub async fn get_library_data(
                             }
                             // 确保有al字段（专辑信息）
                             if !obj.contains_key("al") && !obj.contains_key("album") {
-                                obj.insert("al".to_string(), json!({"name": "未知专辑"}));
+                                obj.insert("al".to_string(), json!({"name": ""}));
                             }
                             // 确保有dt字段（时长毫秒）
                             if !obj.contains_key("dt") && !obj.contains_key("duration") {
@@ -1080,9 +1088,7 @@ pub async fn get_library_data(
     library_page_response(&db, library_items, query, user_id).await
 }
 
-/// 批量获取用户信息 - 优化性能，减少前端API调用次数
-///
-/// 这个端点将多个独立的API调用合并为一个请求，显著提升前端加载速度
+/// 批量获取站长公开资料：一次返回 user_info + 平台摘要。
 #[derive(Debug, Serialize)]
 pub struct BatchUserInfoResponse {
     pub user_info: Option<Value>,
@@ -1110,12 +1116,12 @@ pub async fn get_batch_user_info(
         }));
     }
 
-    // 2. 获取配置信息 - 仅返回平台启用状态，不返回敏感数据
+    // 2. 从 get_config 只保留平台 name/enabled/has_token/icon/description。
     let (config_status, config_json) =
         crate::api::config::get_config(crate::extract::Db(db.clone())).await;
     if config_status == StatusCode::OK {
         let full_config = config_json.0;
-        // 只提取平台启用状态和图标，移除所有配置字段
+        // 白名单字段；不返回 config_fields / ai_config / ui_config。
         if let Some(platforms) = full_config.get("platforms").and_then(|p| p.as_array()) {
             let safe_platforms: Vec<_> = platforms
                 .iter()
@@ -1222,8 +1228,7 @@ pub async fn get_recent_activities(
                 {
                     Ok(events) => events,
                     Err(error) => {
-                        // During a rolling deploy an old replica may serve before
-                        // activity_events (001 + schema_check) is visible. Legacy summaries remain usable.
+                        // activity_events 查询失败则只用 metadata_history 汇总。
                         tracing::warn!("Failed to load normalized activity events: {}", error);
                         Vec::new()
                     }

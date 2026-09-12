@@ -1,0 +1,92 @@
+{
+  "sources": {
+    "agent": {
+      "title": "Agent タスク",
+      "description": "進行状況、結果、キャンセル、確認要求、価値のあるプラットフォームの動き"
+    },
+    "heartbeat": {
+      "title": "Heartbeat",
+      "description": "Agent バックグラウンド定期処理の結果"
+    },
+    "mcp": {
+      "title": "MCP サービス",
+      "description": "ツールサーバーの接続状態"
+    },
+    "brew": {
+      "title": "Brew",
+      "description": "新着フィードと連続取得エラー"
+    },
+    "tapp": {
+      "title": "Tapp",
+      "description": "アプリの通知、警告、タスクエラー"
+    },
+    "updater": {
+      "title": "システム更新",
+      "description": "更新、ロールバック、復旧状態"
+    },
+    "federation": {
+      "title": "連合",
+      "description": "連合メッセージ、フォロー、招待"
+    },
+    "system": {
+      "title": "システム",
+      "description": "Myriad からの重要なお知らせ"
+    }
+  },
+  "events": {
+    "agent.task_progress": "タスクの進行状況",
+    "agent.task_completed": "タスク完了",
+    "agent.task_failed": "タスク失敗",
+    "agent.task_cancelled": "タスクキャンセル",
+    "agent.clarification": "回答待ち",
+    "agent.merope.platform_activity": "プラットフォームの動き",
+    "heartbeat.succeeded": "定期タスク成功",
+    "heartbeat.failed": "定期タスク失敗",
+    "mcp.connected": "MCP 接続",
+    "mcp.disconnected": "MCP 切断または失敗",
+    "brew.new_items": "新着コンテンツ",
+    "brew.source_error": "フィードの連続失敗",
+    "platform.sync.failed": "プラットフォーム同期失敗",
+    "tapp.message": "メッセージ",
+    "tapp.warning": "警告",
+    "tapp.error": "エラーまたはタスク失敗",
+    "updater.submitted": "ジョブ送信済み",
+    "updater.running": "ジョブ実行中",
+    "updater.succeeded": "更新成功",
+    "updater.failed": "更新失敗",
+    "updater.needs_manual": "手動対応が必要",
+    "updater.unknown": "状態を確認できません",
+    "federation.channel_message": "ダイレクトメッセージ",
+    "federation.room_message": "ルームメッセージ",
+    "federation.new_follower": "新しいフォロワー",
+    "federation.follow_accepted": "フォロー承認",
+    "federation.channel_invite": "DM 招待",
+    "federation.room_invite": "ルーム招待",
+    "federation.channel_accepted": "DM チャンネル確立",
+    "federation.room_invite_accepted": "ルーム招待が承認されました",
+    "system.info": "システム情報",
+    "skill.pruned": "スキル自動淘汰",
+    "skill.improved": "スキル自動改善",
+    "skill.changed": "スキル変更"
+  },
+  "ui": {
+    "master": "通知センターを有効にする",
+    "masterDesc": "無効時は新規通知を作成せず、履歴は保持します",
+    "delivery": "表示方法",
+    "island": "コントロールアイランド",
+    "islandDesc": "新着通知を上部のコントロールアイランドに表示",
+    "toast": "Toast 通知",
+    "toastDesc": "新着通知をグローバル表示",
+    "browser": "ブラウザー通知",
+    "browserDesc": "許可済みでページがバックグラウンドの時に表示",
+    "sourceEnabled": "この送信元を許可",
+    "sources": "通知の送信元",
+    "locations": "表示場所",
+    "locationsDesc": "上部のグローバル表示設定と組み合わせて適用します",
+    "events": "通知イベント",
+    "panelLocation": "通知パネル",
+    "toastLocation": "Toast",
+    "islandLocation": "コントロールアイランド",
+    "browserLocation": "システム通知"
+  }
+}

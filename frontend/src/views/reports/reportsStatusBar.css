@@ -1,15 +1,3 @@
-/* ============================================
-   报告页状态条
-   与首页状态条（Home.tsx 用户卡）同一套控件语言：
-   圆角矩形玻璃 + 头像圆片 + 竖发丝分隔 + rounded-lg 幽灵按钮（主题色字）。
-   旧版的问题：白方块按钮硬编码 bg-white/neutral-800，表面主题一换就脱节；
-   条宽固定 576px，左文右钮中间空三百像素。
-
-   这一版：宽度贴内容走（framer layout 形变）、字形只在「说得出是谁」时才有、
-   动作跟着当前那条走（报告给播放、Merope 给创建），按钮全部改用首页那套
-   bg-black/5 + 主题色字，四种表面主题下都自洽。
-   ============================================ */
-
 .rsb {
   --rsb-h: 3.25rem;
   --rsb-accent: var(--color-primary, #7c6ee6);
@@ -34,8 +22,7 @@ html.dark .rsb {
   --rsb-ghost-hover: rgb(255 255 255 / 10%);
 }
 
-/* 大标题（跟随当前 tip 的英雄字）—— 位置/字体由页面注入内联样式。
-   左边距与条子对齐（都是 rail 的 0.25rem 内边距），同主页 h1 与用户卡的关系 */
+/* Position/font from page inline styles; left 0.25rem matches the rail. */
 .rsb-hero {
   position: absolute;
   left: 0.25rem;
@@ -46,8 +33,7 @@ html.dark .rsb {
   pointer-events: none;
 }
 
-/* 与主页顶部信息条同一套节奏：60px 的槽里放 52px 的卡，上下各留 4px 净空。
-   条子本身两边一样高，是这层净空让主页那张卡不显得「顶」着下面的内容 */
+/* 60px rail, 52px bar, 4px clearance each side (same as home). */
 .rsb-rail {
   position: relative;
   z-index: 10;
@@ -66,12 +52,9 @@ html.dark .rsb {
   max-width: min(100%, 34rem);
   height: var(--rsb-h);
   padding: 0 0.5rem 0 0.75rem;
-
-  /* 与首页状态条同形：rounded-xl 圆角矩形 */
   border-radius: 0.75rem;
 }
 
-/* ---------- 提示主体 ---------- */
 
 .rsb-tip {
   display: flex;
@@ -97,8 +80,7 @@ html.dark .rsb {
   background: var(--rsb-ghost);
 }
 
-/* 进出场共处同一网格格；退场那份由 popLayout 抽出文档流，
-   所以容器宽度永远只由「当前这条」决定，形变不会被旧内容卡住 */
+/* Enter/exit share one grid cell; popLayout takes the outgoing tip out of flow. */
 .rsb-stack {
   display: grid;
   min-width: 0;
@@ -112,8 +94,7 @@ html.dark .rsb {
   min-width: 0;
 }
 
-/* 字形就是字形，不套底、不描边：报告类提示干脆连字形都不要，
-   只有「这一条说的是谁」（舞台的平台标、Merope 形象标记）才配一个 */
+/* Glyph only when the tip names who; no plate/stroke. */
 .rsb-glyph {
   display: grid;
   flex: none;
@@ -130,7 +111,6 @@ html.dark .rsb {
   height: 100%;
 }
 
-/* Viewer avatar on their own report tips */
 .rsb-portrait {
   flex: none;
   width: 2rem;
@@ -209,7 +189,6 @@ html.dark .rsb {
   }
 }
 
-/* ---------- 动作区（首页状态条那套按钮） ---------- */
 
 .rsb-sep {
   flex: none;
@@ -247,7 +226,7 @@ html.dark .rsb {
     transform 0.22s var(--rsb-ease);
 }
 
-/* 只有图标的传输键收成方钮 */
+/* Icon-only transport controls are square. */
 .rsb-btn.is-icon {
   width: 1.875rem;
   padding: 0;
@@ -258,7 +237,7 @@ html.dark .rsb {
   height: 0.875rem;
 }
 
-/* 播放/暂停是「传输键」，实心才读得出是按钮不是图示 */
+/* Play/pause is solid so it reads as a control. */
 .rsb-glyph-solid {
   fill: currentcolor;
 }
@@ -276,7 +255,6 @@ html.dark .rsb {
   opacity: 0.45;
 }
 
-/* 主动作：与首页「编辑中」态同款——实心主题色 + 白字 */
 .rsb-btn.is-key {
   color: #fff;
   background: var(--rsb-accent);
@@ -298,7 +276,6 @@ html.dark .rsb {
   outline-offset: 2px;
 }
 
-/* 窄屏：收紧留白给文字让路，其余不变 */
 @media (width <= 26rem) {
   .rsb-bar {
     min-width: 0;

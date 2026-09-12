@@ -1,12 +1,3 @@
-/**
- * Generic info surface + action buttons for settings pages.
- *
- * Use for “show status / identity / summary, then act” panels
- * (e.g. federation keys, about version, export status).
- * Callers own data; this only provides chrome and layout.
- * Field rows support one-click copy (default on when text is available).
- */
-
 import type { ReactNode } from 'react'
 import type { SettingsButtonVariant } from './items/SettingsButton'
 import { FaCheck, FaCopy } from '@lib/icons'
@@ -27,76 +18,38 @@ export interface InfoActionField {
   key: string
   label: ReactNode
   value: ReactNode
-  /** Monospace + break-all (URLs, key ids). */
   mono?: boolean
-  /**
-   * Text written to the clipboard. Defaults to string/number `value`.
-   * Required for non-string ReactNode values if copy is enabled.
-   */
   copyText?: string
-  /**
-   * Show a copy control on this row.
-   * Default: true when `copyText` or a string/number `value` is available
-   * (and the card has not disabled copy).
-   */
   copyable?: boolean
 }
 
 export interface InfoActionButton {
   key: string
   label: ReactNode
-  /** 可接收点击事件（用于锚定 popover / tooltip） */
   onClick: (event?: React.MouseEvent<HTMLButtonElement>) => void
   disabled?: boolean
   loading?: boolean
   variant?: SettingsButtonVariant
-  /** Leading icon (passed to SettingsButton). */
   icon?: ReactNode
-  /** Optional window.confirm before onClick. */
   confirm?: string
-  /** Native tooltip / longer description. */
   title?: string
   ariaLabel?: string
 }
 
 export interface InfoActionCardProps {
-  /** Optional heading inside the card. */
   title?: ReactNode
   icon?: ReactNode
-  /** Structured label/value rows (preferred for identity-style data). */
   fields?: InfoActionField[]
-  /**
-   * Shown when there are no fields (or fields empty) and no `children`.
-   * Also used when `empty` is true.
-   */
   emptyText?: ReactNode
-  /** Force empty state even if fields/children exist. */
   empty?: boolean
-  /** Free-form body (used when not empty; takes precedence over fields). */
   children?: ReactNode
-  /** Primary action row under the body. */
   actions?: InfoActionButton[]
-  /** Extra footer slot (e.g. secondary links). */
   footer?: ReactNode
-  /**
-   * Media beside the body (e.g. character portrait).
-   * Title, body, and actions sit in the text column next to it.
-   */
   preview?: ReactNode
   tone?: InfoActionCardTone
-  /**
-   * Master switch for per-field copy controls. Default `true`.
-   * Individual fields can still set `copyable={false}`.
-   */
   copyable?: boolean
-  /** Accessible name for copy buttons. Default “Copy”. */
   copyLabel?: string
-  /** Title after a successful copy. Default “Copied”. */
   copiedLabel?: string
-  /**
-   * Nested layout (e.g. inside ManagedList expand): no card border/fill,
-   * avoids double chrome with the parent surface.
-   */
   embedded?: boolean
   className?: string
 }

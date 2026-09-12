@@ -12,9 +12,7 @@ export type ModuleVisibilityKey =
   | 'tapp'
   | 'agent'
 
-/** 游客：仅控制是否展示助手入口（无后端能力档） */
 export type AgentGuestUsageLevel = 'none' | 'visible'
-/** 普通用户 Agent 使用档 */
 export type AgentUserUsageLevel = 'none' | 'chat' | 'standard' | 'elevated'
 
 export interface AgentUsagePreferences {
@@ -24,7 +22,6 @@ export interface AgentUsagePreferences {
 
 export interface ModuleVisibilityPreferences {
   modules: Record<ModuleVisibilityKey, ModuleVisibilityLevel>
-  /** Agent 游客/普通用户使用权限（管理员始终完整） */
   agentUsage: AgentUsagePreferences
 }
 
@@ -34,7 +31,7 @@ interface ModuleVisibilityResponse {
   message?: string
 }
 
-/** Keep in sync with crates/myriad-module-visibility MODULE_VISIBILITY_KEYS. */
+/** Keep in sync with MODULE_VISIBILITY_KEYS. */
 export const MODULE_VISIBILITY_KEYS: ModuleVisibilityKey[] = [
   'library',
   'brew',
@@ -143,15 +140,6 @@ export function canAccessModuleVisibility(
   return viewer.isAdmin
 }
 
-/**
- * Agent 是否应对当前观众展示/可用。
- * 综合「页面可见性」与 Tapp `ai:chat`（权限页预设模板的真相源）：
- * - 管理员：仅受可见性约束
- * - 游客：可见性允许 + guest_perm_ai_chat
- * - 普通用户：可见性允许 + user_perm_ai_chat
- *
- * 兼容：若未传入 elevatedAiChat，回退旧 agentUsage 字段（迁移期）
- */
 export function canUseAgent(
   preferences: ModuleVisibilityPreferences,
   viewer: { isAuthenticated: boolean; isAdmin: boolean },
@@ -176,8 +164,7 @@ export function canUseAgent(
 }
 
 export async function fetchModuleVisibilityPreferences() {
-  // cacheTTL: 0 → 只合并并发中的重复请求（启动时多处同时读取），
-  // 不缓存结果，保证每次独立读取都拿到最新偏好
+  // cacheTTL 0: coalesce in-flight only; do not cache.
   const response = await dedupedFetch(
     '/config/module-visibility',
     () =>
@@ -187,24 +174,12 @@ export async function fetchModuleVisibilityPreferences() {
   return normalizeModuleVisibilityPreferences(response.preferences)
 }
 
-/**
- * Session-level cache for module visibility.
- *
- * ModuleVisibilityGuard mounts on every guarded route change. Without a shared
- * cache each mount starts with isLoading=true and returns null until
- * /config/module-visibility returns (~300ms+ on production) — that blank gap
- * stacks with AnimatePresence mode="wait" and feels like severe route lag.
- */
 let sessionPreferences: ModuleVisibilityPreferences | null = null
 let sessionLoadedAt = 0
 let sessionInflight: Promise<ModuleVisibilityPreferences> | null = null
-/**
- * Bumps on every new network load so a superseded in-flight response cannot
- *  clobber a newer force-refresh (or clear the wrong inflight slot).
- */
 let sessionLoadGeneration = 0
 
-/** Soft TTL: remounts reuse cache; background refresh after this age. */
+/** Soft TTL: remounts reuse; refresh when stale. */
 const SESSION_PREFERENCES_TTL_MS = 60_000
 
 function rememberSessionPreferences(
@@ -219,13 +194,7 @@ export function getCachedModuleVisibilityPreferences(): ModuleVisibilityPreferen
   return sessionPreferences
 }
 
-/**
- * Load preferences once per session window; concurrent soft callers share one
- * flight. Force refreshes start a new request; older responses are ignored via
- * generation so they cannot overwrite newer data or null the new inflight.
- *
- * @param force - bypass soft TTL (stale remount / explicit reload)
- */
+/** Force refresh ignores older in-flight responses (generation). */
 export async function ensureModuleVisibilityPreferences(
   force = false,
 ): Promise<ModuleVisibilityPreferences> {
@@ -237,7 +206,6 @@ export async function ensureModuleVisibilityPreferences(
   ) {
     return sessionPreferences
   }
-  // Soft loads coalesce on the in-flight request (whether soft or force).
   if (!force && sessionInflight) {
     return sessionInflight
   }
@@ -260,7 +228,7 @@ export async function ensureModuleVisibilityPreferences(
       return rememberSessionPreferences(DEFAULT_MODULE_VISIBILITY_PREFERENCES)
     })
     .finally(() => {
-      // Only the active flight may clear the slot.
+      // Only the active in-flight request may clear the slot.
       if (sessionInflight === flight) {
         sessionInflight = null
       }
@@ -308,12 +276,11 @@ export function useModuleVisibilityPreferences() {
   const [preferences, setPreferences] = useState<ModuleVisibilityPreferences>(
     () => sessionPreferences ?? DEFAULT_MODULE_VISIBILITY_PREFERENCES,
   )
-  // Only block first paint until the session has resolved once.
+  // Block first paint until session resolves once.
   const [isLoading, setIsLoading] = useState(() => sessionPreferences === null)
 
   const reload = useCallback(async (force = true) => {
-    // Never flip isLoading back to true when we already have session data —
-    // that blanks ModuleVisibilityGuard on every route remount.
+    // Do not set isLoading true again once session data exists.
     if (sessionPreferences === null) {
       setIsLoading(true)
     }
@@ -330,7 +297,7 @@ export function useModuleVisibilityPreferences() {
   }, [])
 
   useEffect(() => {
-    // Soft reuse: if session cache is warm, paint immediately; refresh only when stale.
+    // Warm session: paint immediately; refresh when stale.
     const age = Date.now() - sessionLoadedAt
     if (sessionPreferences && age < SESSION_PREFERENCES_TTL_MS) {
       setPreferences(sessionPreferences)

@@ -1,6 +1,6 @@
 //! 能力注册表模块
 //!
-//! 管理系统所有可用能力的注册、查询和匹配
+//! 注册内置能力并按 id 查询。不匹配意图；Skill/MCP 不在此注册表。
 
 pub mod definitions;
 mod output_contract;
@@ -76,7 +76,7 @@ pub async fn get_registry() -> tokio::sync::RwLockReadGuard<'static, CapabilityR
     CAPABILITY_REGISTRY.read().await
 }
 
-/// 异步版本：检查能力是否需要确认（从注册表读取）
+/// 检查能力是否需要确认（注册表 + get_sensitive_capabilities 兜底）
 pub async fn capability_requires_confirmation_async(
     capability_id: &str,
 ) -> Option<(String, RiskLevel)> {
@@ -177,11 +177,9 @@ pub fn capability_covered_by_grants(cap: &Capability, granted: Option<&HashSet<S
 }
 
 /// Compact index limited to capabilities the user is actually granted.
+/// Filtering here is the grant layer, not declared/approved.
 ///
-/// Planner used to see the full 117 plus MCP, then fail at execute for
-/// non-admin. Filtering here is the grant layer, not declared/approved.
-///
-/// 每个条目的字段：`id` / `h` 用途 / `p` 必需入参 / `o` 声明的输出字段。
+/// 能力条目字段：`id` / `h` / `p` / `o`。Skill 行用 `params` 而非 `p`；MCP 行无 `o`。
 /// `o` 让 Planner 能写出 `"dataFrom": "search.results"` 这类精确引用，
 /// 而不是只引用整个步骤输出再由执行层猜哪个字段有用。
 ///
@@ -248,7 +246,7 @@ pub async fn get_compact_index_for_grants(granted: Option<&HashSet<String>>) -> 
         if !kept.is_empty() {
             total += kept.len();
             by_category
-                .entry("动态技能".to_string())
+                .entry("Dynamic skills".to_string())
                 .or_default()
                 .extend(kept);
         }
@@ -266,7 +264,7 @@ pub async fn get_compact_index_for_grants(granted: Option<&HashSet<String>>) -> 
                     .map(|(server_id, tool)| mcp_compact_entry(server_id, tool))
                     .collect();
                 by_category
-                    .entry("MCP 工具".to_string())
+                    .entry("MCP tools".to_string())
                     .or_default()
                     .extend(mcp_entries);
             }
@@ -279,7 +277,7 @@ pub async fn get_compact_index_for_grants(granted: Option<&HashSet<String>>) -> 
     })
 }
 
-/// 根据 ID 列表获取完整能力定义（渐进式披露第二阶段）
+/// 根据 ID 列表获取完整能力定义（供 validate_and_convert_steps）
 pub async fn get_capabilities_by_ids(ids: &[String]) -> Vec<Capability> {
     let mut capabilities = Vec::with_capacity(ids.len());
     for id in ids {
@@ -315,18 +313,9 @@ pub async fn get_capability_by_id(id: &str) -> Option<Capability> {
 
 /// Risk classification for an MCP tool.
 ///
-/// Every tool used to be `High` + always-confirm. That is safe in isolation but
-/// corrosive in aggregate: a read-only lookup and a destructive write raise the
-/// same dialog, so users learn to dismiss it and the confirmation stops carrying
-/// information by the time a genuinely dangerous call arrives.
-///
-/// A tool's own `annotations` can tell the two apart, but only for a server the
-/// operator has marked `trust_annotations` — the MCP spec is explicit that these
-/// are hints and that clients must not base security decisions on annotations
-/// from untrusted servers. Without that opt-in, nothing changes.
-///
-/// Spec defaults are load-bearing here: `destructiveHint` defaults to *true*, so
-/// silence means "assume destructive", never "assume safe".
+/// Without `trust_annotations`, risk is `High` + always-confirm.
+/// Annotations apply only when the operator marked that server trusted.
+/// `destructiveHint` defaults true: silence means assume destructive.
 fn mcp_tool_risk(
     annotations: Option<&super::mcp::protocol::McpToolAnnotations>,
     trusted: bool,
@@ -350,8 +339,7 @@ fn mcp_tool_risk(
     (RiskLevel::High, true)
 }
 
-/// Compact-index row for an MCP tool. Planner rules key off `p` (required
-/// params); omitting it is how MCP calls used to ship with empty arguments.
+/// Compact-index row for an MCP tool. Planner rules key off `p` (required params).
 fn mcp_compact_entry(server_id: &str, tool: &super::mcp::protocol::McpToolDef) -> Value {
     let mut entry = json!({
         "id": format!("mcp.{}.{}", server_id, tool.name),
@@ -392,8 +380,12 @@ fn mcp_capability(
         requires_ai: false,
         estimated_duration_ms: Some(30_000),
         requires_confirmation,
-        confirmation_message: requires_confirmation
-            .then(|| format!("将调用外部 MCP 服务 '{}' 的工具 '{}'", server_id, tool.name)),
+        confirmation_message: requires_confirmation.then(|| {
+            format!(
+                "This will call tool '{}' on MCP server '{}'",
+                tool.name, server_id
+            )
+        }),
         risk_level,
     }
 }
@@ -401,13 +393,13 @@ fn mcp_capability(
 /// 获取能力类别的友好名称
 fn get_capability_category_name(category: &CapabilityCategory) -> String {
     match category {
-        CapabilityCategory::DataRead => "数据读取".to_string(),
-        CapabilityCategory::DataWrite => "数据写入".to_string(),
-        CapabilityCategory::AiProcess => "AI处理".to_string(),
-        CapabilityCategory::ResourceCreate => "资源创建".to_string(),
-        CapabilityCategory::SystemOp => "系统操作".to_string(),
-        CapabilityCategory::ExternalIntegration => "外部集成".to_string(),
-        CapabilityCategory::UiControl => "界面控制".to_string(),
+        CapabilityCategory::DataRead => "Data".to_string(),
+        CapabilityCategory::DataWrite => "Write".to_string(),
+        CapabilityCategory::AiProcess => "AI".to_string(),
+        CapabilityCategory::ResourceCreate => "Create".to_string(),
+        CapabilityCategory::SystemOp => "System".to_string(),
+        CapabilityCategory::ExternalIntegration => "External".to_string(),
+        CapabilityCategory::UiControl => "Interface".to_string(),
     }
 }
 
@@ -457,9 +449,7 @@ mod tests {
             .iter()
             .filter_map(Value::as_str)
             .collect();
-        // Both fields `execute_ai_summarize` actually returns. It used to declare
-        // `keyPoints`, which the handler never produced — the planner would have
-        // been pointed at data that cannot exist.
+        // Both fields `execute_ai_summarize` actually returns.
         assert!(outputs.contains(&"summary"), "got {outputs:?}");
         assert!(outputs.contains(&"style"), "got {outputs:?}");
     }
@@ -467,8 +457,7 @@ mod tests {
     #[tokio::test]
     async fn no_capability_is_indexed_without_a_description() {
         // An entry with an empty `h` reaches the planner as a bare ID, which
-        // makes the capability effectively unselectable. 20 capabilities were in
-        // that state before `resolve_capability_hint` fell back to description.
+        // makes the capability effectively unselectable.
         let index = get_compact_index_for_grants(None).await;
         let blank: Vec<String> = index
             .get("caps")

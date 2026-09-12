@@ -23,7 +23,6 @@ interface Props {
   cancelLabel: string
   saveLabel: string
   busy?: boolean
-  /** Default shows both. Wardrobe splits clothes from the fixed face and hair. */
   show?: 'all' | 'character' | 'outfit'
   onIdentity: (identity: UpperBodyVisualIdentity) => void
   onEditingChange?: (editing: boolean) => void

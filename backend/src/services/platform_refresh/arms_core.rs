@@ -81,8 +81,7 @@ pub(super) async fn fetch_bilibili(ctx: &mut FetchCtx<'_>) {
         if let Ok(uid) = uid_str.parse::<i64>() {
             match ctx.fetcher.fetch_bilibili_user(uid).await {
                 Ok(user_data) => {
-                    // 与 Steam/GitHub 一致用 `user`；smart_filter / get_user_info 都读这个键
-                    // （旧版曾写成 user_info，导致过滤与资料页读不到用户信息）
+                    // 与 Steam/GitHub 一致用 `user`；smart_filter 读 `user` 或 `user_info`。
                     ctx.all_data["bilibili"]["user"] = json!(user_data);
                     tracing::info!(
                         "✓ Bilibili user data fetched: {} (mid={}, lv{}, {} followers)",
@@ -98,7 +97,7 @@ pub(super) async fn fetch_bilibili(ctx: &mut FetchCtx<'_>) {
                 }
             }
 
-            // 获取追番/追剧数据
+            // 追番/电影（fetcher type=1 番剧 + type=2 电影，不拉 type=5 追剧）
             match ctx.fetcher.fetch_all_bilibili_bangumi(uid).await {
                 Ok(bangumi_data) => {
                     ctx.all_data["bilibili"]["bangumi"] = json!(bangumi_data);
@@ -209,7 +208,7 @@ pub(super) async fn fetch_netease(ctx: &mut FetchCtx<'_>) {
                         ctx.all_data["netease"]["profile"] = profile.clone();
                         tracing::info!("✓ Netease user data fetched");
                     } else {
-                        // 如果没有 profile 字段，使用整个响应（兼容旧版本）
+                        // 没有 profile 字段时用整个响应
                         ctx.all_data["netease"]["profile"] = user_data;
                         tracing::warn!(
                             "⚠️ Netease API response missing 'profile' field, using full response"
@@ -222,7 +221,7 @@ pub(super) async fn fetch_netease(ctx: &mut FetchCtx<'_>) {
                 }
             }
 
-            // 获取喜欢的歌曲（分批处理，避免内存占用过大）
+            // 获取喜欢的歌曲（一次 playlist；超过 1000 首时 `fetch_playlist` 才分批补齐）
             tracing::info!("🎵 Fetching Netease liked songs...");
             match ctx.fetcher.fetch_netease_liked_songs(netease_user_id).await {
                 Ok(songs) => {

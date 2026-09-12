@@ -111,7 +111,7 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
 }
 
 export const DEFAULT_NOTIFICATION_CATALOG = {
-  sources: [...NOTIFICATION_SOURCE_KEYS],
+  sources: Iterator.from(NOTIFICATION_SOURCE_KEYS).toArray(),
   events: NOTIFICATION_EVENT_KEYS.map((key) => ({
     key,
     source: key.split('.')[0] as NotificationSourceKey,

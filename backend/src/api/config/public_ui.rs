@@ -15,7 +15,7 @@ pub async fn get_site_metadata(
     let config_service = crate::services::config_service::ConfigService::new(db.clone());
     let db_config = config_service.load_config().await.ok();
 
-    // Branding fields: empty DB still falls through to env/default (legacy UX).
+    // Branding fields: empty DB still falls through to env/default.
     let get_branding = |db_val: Option<String>, env_key: &str, default: &str| -> String {
         db_val
             .filter(|v| !v.is_empty())
@@ -104,7 +104,7 @@ pub async fn get_site_metadata(
     (StatusCode::OK, Json(metadata))
 }
 
-/// 获取公开的平台配置（不包含敏感信息，仅用于社交链接显示）
+/// Public platforms (no secrets) plus meropeEnabled / persona name / sticker avatar.
 /// 公开端点 - 不需要认证
 pub async fn get_public_config(
     crate::extract::Db(db): crate::extract::Db,
@@ -420,8 +420,7 @@ pub async fn get_public_config(
         None
     };
     let stored_name = stored_persona.as_ref().map(|persona| persona.name.clone());
-    // 通知图标和头像来源都要在没有 Agent 权限的页面上认出这张脸，所以它和
-    // 对外名字同进同出。人设关掉时两边都不给。
+    // Sticker avatar only when stored persona exists. Name still `"Agent"` if merope is off.
     let sticker_avatar = stored_persona
         .as_ref()
         .and_then(|persona| persona.avatar_asset_id.as_deref())

@@ -20,11 +20,10 @@ impl Agent {
 
     /// 处理用户请求
     ///
-    /// 两层流程：
-    /// 1. Planner 规划（Pro AI 单次调用）
-    /// 2. 根据 PlannerOutput.status 分流
-    /// 3. 执行 Recipe
-    /// 4. 升级重试（如需要）
+    /// Chat vs Work (`process_inner`). Chat does not consume Pro and must not
+    /// emit Recipe/tool calls. Work is Planner → Recipe in `process_work`
+    /// (Planner requests Pro; `resolve_ai_config` may fall back to Standard).
+    /// Escalation is on the progress Work path only.
     ///
     /// 整个回合跑在一次 AI 配额预留里，见 [`AgentTurnBudget`]。
     pub async fn process(&self, request: UserRequest) -> Result<AgentResponse, String> {
@@ -85,9 +84,8 @@ impl Agent {
             .await
     }
 
-    /// 处理用户请求（带实时进度回调）
-    ///
-    /// 与 process 相同的两层逻辑，但会通过 channel 发送进度更新
+    /// Same Chat/Work split as `process`, plus `progress_tx`.
+    /// Work-with-progress may escalate after Recipe.
     pub async fn process_with_progress(
         &self,
         request: UserRequest,
@@ -290,7 +288,7 @@ impl Agent {
         crate::services::agent::merope::mark_activity(&self.db, user_id, "idle").await;
         let task_state = task_result?;
 
-        // 根据执行类型返回结果
+        // extract_final_result: successful step outputs (not execution-type).
         let mut result = self.extract_final_result(&task_state);
         let frontend_action = self.extract_frontend_action(&result);
 
@@ -312,7 +310,7 @@ impl Agent {
             _ => response_agent::in_progress(&recipe.name),
         };
 
-        // v3 记忆记录（saved recipe 执行也需要记录）
+        // record_execution_memory (saved recipe)
         {
             let ok = task_state.status == types::TaskStatus::Completed;
             record_execution_memory(MemoryRecordParams {
@@ -451,7 +449,7 @@ impl Agent {
             .map(|pending| ConfirmationResumeContext {
                 lane_key: pending.recipe.lane_key.clone(),
                 session_id: pending.session_id.clone().or_else(|| {
-                    // Older confirmations may only have session embedded in lane_key.
+                    // `session_id` 为空时从 `lane_key` 解析。
                     pending
                         .recipe
                         .lane_key

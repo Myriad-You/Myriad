@@ -1,14 +1,7 @@
-/**
- * Tapp AI Task envelope: `{ format, value, contextProvenance }`.
- *
- * Agent AI handlers that share that contract wrap their payload this way.
- * Consumers that want `summary` / `analysis` / `url` look inside `value`.
- */
-
 export function taskInnerValue(data: unknown): unknown {
   if (data && typeof data === 'object' && !Array.isArray(data)) {
     const obj = data as Record<string, unknown>
-    if (typeof obj.format === 'string' && 'value' in obj) {
+    if (typeof obj.format === 'string' && Object.hasOwn(obj, 'value')) {
       return obj.value
     }
   }

@@ -31,7 +31,6 @@ export interface ReportConfig {
   config_fields: ConfigField[]
 }
 
-/** 管理端 ui_config：仅 bag */
 export interface UiConfig {
   config_fields: ConfigField[]
 }
@@ -48,7 +47,6 @@ export interface Config {
 export interface QuickAccessItem {
   id: string
   label: string
-  /** Page header description (source of truth; not from search aliases). */
   description: string
   icon: React.ReactNode
   section: string

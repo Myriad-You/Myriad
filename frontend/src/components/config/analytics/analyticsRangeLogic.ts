@@ -1,7 +1,3 @@
-/**
- * Pure helpers for analytics range (no React / CSS) — unit-test friendly.
- */
-
 export const ANALYTICS_RANGE_PRESETS = ['7', '14', '30'] as const
 export type AnalyticsRangePreset =
   | (typeof ANALYTICS_RANGE_PRESETS)[number]
@@ -9,7 +5,6 @@ export type AnalyticsRangePreset =
 
 export interface AnalyticsRangeState {
   preset: AnalyticsRangePreset
-  /** YYYY-MM-DD when preset === 'custom' */
   from: string
   to: string
 }
@@ -32,7 +27,6 @@ function addDaysIso(iso: string, delta: number): string {
   return `${yy}-${mm}-${dd}`
 }
 
-/** Default custom window: last 7 local calendar days including today. */
 export function defaultCustomRange(maxDate = localIsoToday()): Pick<
   AnalyticsRangeState,
   'from' | 'to'
@@ -45,7 +39,6 @@ export function defaultAnalyticsRange(): AnalyticsRangeState {
   return { preset: '7', from, to }
 }
 
-/** Query string fragment for analytics APIs (no leading ?). */
 export function analyticsRangeQuery(state: AnalyticsRangeState): string {
   if (state.preset === 'custom' && state.from && state.to) {
     return `from=${encodeURIComponent(state.from)}&to=${encodeURIComponent(state.to)}`
@@ -54,7 +47,6 @@ export function analyticsRangeQuery(state: AnalyticsRangeState): string {
   return `days=${days}`
 }
 
-/** Inclusive day span for display (custom uses from/to). */
 export function analyticsRangeDayCount(state: AnalyticsRangeState): number {
   if (state.preset !== 'custom') return Number(state.preset)
   if (!state.from || !state.to) return 0

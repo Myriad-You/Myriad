@@ -1,9 +1,3 @@
-/**
- * Pure-function tests for buildPlaygroundPackageFiles.
- * Run from frontend/:
- *   node --experimental-strip-types --test src/tapp/utils/playgroundPackageFiles.test.ts
- */
-
 import type { TappPlaygroundCode } from '../services/TappPlaygroundService'
 import type { TappManifest } from '../types'
 import assert from 'node:assert/strict'
@@ -61,7 +55,7 @@ describe('buildPlaygroundPackageFiles', () => {
       manifest,
       code,
     )
-    const paths = Object.keys(files).sort()
+    const paths = Object.keys(files).toSorted()
 
     assert.ok(paths.includes('manifest.json'))
     assert.ok(paths.includes('core.js'))
@@ -88,7 +82,6 @@ describe('buildPlaygroundPackageFiles', () => {
     )
   })
 
-  /// 层各自成文件之后，包里不该再出现注释切割标记。
   it('emits no code section markers', () => {
     const { manifest, code } = minimalProject()
     const { files } = buildPlaygroundPackageFiles(manifest, code)
@@ -106,7 +99,7 @@ describe('buildPlaygroundPackageFiles', () => {
     const pkg = buildPlaygroundPackageFiles(manifest, code)
     const body = packageFilesToDirectInstallBody(pkg, code.assets)
 
-    assert.deepEqual(Object.keys(body.modules).sort(), [
+    assert.deepEqual(Object.keys(body.modules).toSorted(), [
       'core.js',
       'page/index.js',
       'widget/index.js',
@@ -164,7 +157,7 @@ describe('buildPlaygroundPackageFiles', () => {
 })
 
 describe('playgroundCodeToRuntime', () => {
-  /// 预览跑的东西必须和装出来的包是同一份布局。
+  // 预览必须与安装包同一布局。
   it('projects the editing model onto the packaged layout', () => {
     const { manifest, code } = minimalProject()
     const runtime = playgroundCodeToRuntime(manifest, code)
@@ -172,9 +165,8 @@ describe('playgroundCodeToRuntime', () => {
 
     assert.equal(runtime.coreEntry, 'core.js')
     assert.equal(runtime.pageEntry, 'page/index.js')
-    // 按真实 widget id 建表，沙箱才取得到自己那层的入口
     assert.deepEqual(runtime.widgetEntries, { card: 'widget/index.js' })
-    assert.deepEqual(Object.keys(runtime.modules).sort(), [
+    assert.deepEqual(Object.keys(runtime.modules).toSorted(), [
       'core.js',
       'page/index.js',
       'widget/index.js',

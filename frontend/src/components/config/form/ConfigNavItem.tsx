@@ -6,13 +6,11 @@ interface ConfigNavItemProps {
   item: QuickAccessItem
   isActive: boolean
   isFavorite: boolean
-  /** 'all' 组里已收藏的行在桌面端由 CSS 隐藏（收藏组已列出），移动端滑轨仍需要它 */
   group: 'all' | 'favorites'
   onSelect: (section: string) => void
   onToggleFavorite: (id: string) => void
 }
 
-/** 侧边栏一行：图标 + 名称 + 收藏星（整行可点，星单独可点） */
 export const ConfigNavItem = React.memo<ConfigNavItemProps>(
   ({ item, isActive, isFavorite, group, onSelect, onToggleFavorite }) => {
     const handleSelect = React.useCallback(() => {

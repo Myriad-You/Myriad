@@ -224,9 +224,9 @@ impl TappSchedulerEngine {
         Ok(Some(current))
     }
 
-    /// Size the crash-recovery lease from the validated retry/action envelope.
-    /// Legacy rows are clamped to the current contract, so malformed historical
-    /// retry JSON cannot create either an instant duplicate or an endless lease.
+    /// Size the crash-recovery lease from retry_config and backend_actions (retries/delay/action count clamped; plus compensation and the 5-minute frontend timeout).
+    /// `max_retries` / `retry_delay` are clamped to `MAX_SCHEDULER_RETRIES` /
+    /// `MAX_SCHEDULER_RETRY_DELAY_MS`.
     fn recovery_lease_duration(task: &tapp_scheduled_tasks::Model, now: DateTime<Utc>) -> Duration {
         let retry: RetryConfig = task
             .retry_config
@@ -505,18 +505,15 @@ impl TappSchedulerEngine {
                     ("user".to_string(), Some(vec![task.user_id]))
                 }
                 TaskScope::Tapp => {
-                    // Tapp 级别：推送给所有安装该 Tapp 的用户
-                    // target_users = None 表示广播，前端/WebSocket 层根据 tapp_id 过滤
+                    // target_users=None；入队时 `can_receive_frontend_task` 过滤
                     ("tapp".to_string(), None)
                 }
                 TaskScope::TappPerUser => {
-                    // Tapp 用户级别：类似 Tapp 级别，但每个用户独立数据
                     // 只推送给注册任务的用户
                     ("tapp-per-user".to_string(), Some(vec![task.user_id]))
                 }
                 TaskScope::Global => {
-                    // 全局级别：通常不需要前端推送，或只推送给管理员
-                    // 这里设为广播，让前端过滤
+                    // target_users=None；入队时 can_receive_frontend_task 过滤
                     ("global".to_string(), None)
                 }
             };
@@ -569,7 +566,7 @@ impl TappSchedulerEngine {
         let duration_ms = start_time.elapsed().as_millis() as i32;
 
         if awaiting_frontend {
-            // 保持 execution=running；只推进调度时间，最终成功/失败由 WS 完成消息落库。
+            // 保持 running 并推进 next_run；终态由 task:complete 或 5 分钟超时落库。
             let mut execution_update: tapp_task_executions::ActiveModel = execution.into();
             execution_update.result = Set(result.clone());
             execution_update
@@ -888,7 +885,7 @@ SELECT EXISTS (
     }
 
     /// 每次真正执行前重新读取当前角色和动态权限。
-    /// 定时任务可能在注册数小时后才触发，不能永久沿用注册时的管理员/下放状态。
+    /// 不能沿用注册时的角色；执行前重算授予，并再与安装批准集求交。
     async fn validate_task_execution_permissions(
         db: &DatabaseConnection,
         task: &tapp_scheduled_tasks::Model,
@@ -990,12 +987,11 @@ SELECT EXISTS (
         actions_json: &serde_json::Value,
         authority: &ScheduledExecutionAuthority,
     ) -> Result<serde_json::Value, String> {
-        // 尝试解析为新格式（带 resultAs），否则回退到旧格式
+        // 先解析 `BackendActionWrapper`（含 resultAs）；失败则解析 `BackendAction` 再包成 wrapper
         let action_wrappers: Vec<BackendActionWrapper> =
             match serde_json::from_value(actions_json.clone()) {
                 Ok(wrappers) => wrappers,
                 Err(_) => {
-                    // 回退：尝试解析为旧格式并转换
                     let actions: Vec<BackendAction> = serde_json::from_value(actions_json.clone())
                         .map_err(|error| {
                             tracing::error!(%error, "Invalid backend actions");
@@ -1051,8 +1047,7 @@ SELECT EXISTS (
                     results.push(json!({ "success": true, "result": r }));
                 }
                 Err(e) => {
-                    // 后端动作是串行流水线；失败后继续会让后续模板读取到错误上下文，
-                    // 且旧逻辑最终仍返回 Ok，导致任务被错误记为成功。
+                    // 后端动作是串行流水线；失败即 `return Err`，不让后续模板读到错误上下文。
                     return Err(format!("Backend action failed: {}", e));
                 }
             }
@@ -1813,9 +1808,7 @@ impl TappSchedulerEngine {
     ) -> Result<tapp_scheduled_tasks::Model, String> {
         let now = Utc::now();
 
-        // 检查是否已存在 — 幂等：同 user/tapp/task_id 重复注册返回已有行。
-        // Page/Widget/headless 都会在 onReady 里 register 一次；返回 500 会刷屏且
-        // 让沙箱误以为调度失败（前端虽会 getTask 兜底，但 Network 面板仍是 500）。
+        // 幂等：同 user/tapp/task_id 重复注册返回已有行。
         let existing = tapp_scheduled_tasks::Entity::find()
             .filter(tapp_scheduled_tasks::Column::UserId.eq(user_id))
             .filter(tapp_scheduled_tasks::Column::TappId.eq(tapp_id))

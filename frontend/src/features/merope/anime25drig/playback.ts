@@ -8,6 +8,7 @@ import type {
   Anime25DPlaybackLayer,
 } from './types'
 import { ANIME25D_LAYER_DEPTH, anime25DLayerFade } from '../rig/anime25d'
+import { formatTemplate } from '../rig/formatTemplate'
 import { deriveGeometryChestProfile } from './chestPhysics'
 import { deriveAnime25DShellProfile } from './shellProfile'
 import { anime25DPlaybackSource } from './types'
@@ -22,7 +23,6 @@ export interface Anime25DPlaybackBuildLayer {
   strands: Array<{ x: number; rootY: number; tipY: number }>
 }
 
-/** Raw `rig.anchors` from Anime2.5DRig `buildRig`. */
 export interface Anime25DRiggerAnchors {
   face: {
     cx: number
@@ -57,7 +57,6 @@ export interface Anime25DPlaybackBuildInput {
   mouthProfile: Anime25DMouthProfile
 }
 
-/** Translate Anime2.5DRig document anchors into the 3:4 content frame. */
 export function remapRiggerAnchors(
   anchors: Anime25DRiggerAnchors,
   frame: { x: number; y: number; width: number; height: number },
@@ -193,7 +192,7 @@ function requiredLayer(
 ): Anime25DPlaybackLayer {
   const layer = layers.find((candidate) => candidate.role === role)
   if (!layer) {
-    throw new Error(copy.anime25dMissingLayer.replace('{role}', role))
+    throw new Error(formatTemplate(copy.anime25dMissingLayer, { role }))
   }
   return layer
 }

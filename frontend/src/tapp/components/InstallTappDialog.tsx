@@ -1,8 +1,3 @@
-/**
- * Tapp 手动安装 — 锚定触发按钮的浮层
- * 生命周期见 useAnchoredFloatTip（点外/Esc 关闭、session 防竞态）
- */
-
 import type { ChangeEvent, DragEvent } from 'react'
 import { FaFileAlt, FaUpload } from '@lib/icons'
 import {
@@ -24,10 +19,8 @@ import './InstallTappDialog.css'
 
 export interface InstallTappDialogProps {
   isOpen: boolean
-  /** 定位锚点（安装按钮） */
   anchorEl?: HTMLElement | null
   onCancel: () => void
-  /** 安装成功后刷新列表等 */
   onInstall: () => void
   onSuccess?: (name: string) => void
 }
@@ -96,14 +89,13 @@ export function InstallTappDialog({
 
       try {
         const result = await TappApiService.installTappFile(file)
-        // 安装已成功：始终刷新/toast，即使 tip 已被互斥关掉
         onInstallRef.current()
         onSuccessRef.current?.(
-          result.name || file.name.replace(/\.tapp$/i, ''),
+          result.name || file.name.replaceAll(/\.tapp$/ig, ''),
         )
-        // 仅当前会话仍 open 时收起 UI（避免误关后开的新 tip）
+        // 仅当前会话仍 open 时收起 UI。
         if (!isCurrentSession(startedSession)) return
-        // 先让父级 isOpen=false，再本地 close(不 notify)，避免 finish 双重 onCancel
+        // 先让父级 isOpen=false，再本地 close（不 notify）。
         onCancelRef.current()
         close({ notifyParent: false })
       } catch (err) {

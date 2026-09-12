@@ -75,15 +75,10 @@ pub async fn get_platform_cache_status(
     )
 }
 
-/// 平台智能过滤缓存的「即时快照」——设置二级页一次加载，不轮询。
+/// GET /api/cache/preview/{platform} — one-shot snapshot from `{platform}_filtered.json`.
 ///
-/// GET /api/cache/preview/{platform}
-///
-/// 从 `{platform}_filtered.json` 抽取：
-/// - user_summary（账号）
-/// - 一条文字 summary（各平台 *\_summary）
-/// - 少量数值 metrics
-/// - 最多 10 条样本（封面/标题）
+/// user_summary, one string from extract_preview_summary KEYS (not
+/// trophy_summary_text / community_summary), metrics, up to 10 samples.
 pub async fn get_platform_cache_preview(
     State(_db): State<DatabaseConnection>,
     Path(platform): Path<String>,
@@ -93,9 +88,7 @@ pub async fn get_platform_cache_preview(
     (StatusCode::OK, Json(body))
 }
 
-/// 列表入口用的批量轻量快照——一次返回各平台 user + 少量 metrics，无 samples，不轮询。
-///
-/// GET /api/cache/previews
+/// GET /api/cache/previews — one-shot list cards: user + metrics, no samples.
 pub async fn get_all_platform_cache_previews(
     State(_db): State<DatabaseConnection>,
 ) -> (StatusCode, Json<Value>) {
@@ -135,7 +128,7 @@ impl PreviewOptions {
         }
     }
 
-    /// 入口卡片：无 samples；指标可略多，前端数据行 marquee 循环展示
+    /// 入口卡片：无 samples；max_metrics 6（detail 8）
     fn list_card() -> Self {
         Self {
             include_samples: false,
@@ -398,7 +391,7 @@ fn extract_preview_metrics(data: &Value, analysis: &Value) -> Vec<Value> {
         seen.insert(key)
     });
 
-    // Cap metrics so the UI stays scannable
+    // At most 8 here; caller then applies opts.max_metrics (6 list / 8 detail).
     metrics.truncate(8);
     metrics
 }
@@ -573,10 +566,8 @@ pub async fn clear_platform_cache(
     }
 }
 
-/// 批量清除缓存
-///
 /// POST /api/cache/clear
-/// Body: { "platforms": ["netease", "bilibili"] } 或 {} 清除所有
+/// `platforms: None` (or omitted) clears the 11 hardcoded slugs; `[]` clears nothing.
 pub async fn clear_caches(
     State(_db): State<DatabaseConnection>,
     Json(payload): Json<ClearCacheRequest>,
@@ -635,9 +626,7 @@ pub async fn clear_caches(
     )
 }
 
-/// 清除所有缓存（包括原始数据）
-///
-/// DELETE /api/cache/all
+/// DELETE /api/cache/all — delete `*.json` under platforms_cache_dir (not cache_raw).
 pub async fn clear_all_caches(State(_db): State<DatabaseConnection>) -> (StatusCode, Json<Value>) {
     let cache_dir = platforms_cache_dir();
     let mut removed_files = Vec::new();

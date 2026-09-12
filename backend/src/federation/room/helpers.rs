@@ -160,7 +160,7 @@ pub(crate) async fn get_member_role(
     actor_url: &str,
 ) -> Result<Option<String>, sea_orm::DbErr> {
     // Only *active* members can act (pending invites cannot send/download).
-    // Legacy rows without membership_status column heal to default 'active'.
+    // NULL membership_status 当 `'active'`。
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -318,8 +318,7 @@ pub(crate) async fn upsert_remote_room_member_with_status(
 /// Ensure the signed RoomMessage sender is a known member.
 ///
 /// Self-heals common sync gaps (invitee never seeded inviter/owner) so messages
-/// are not lost. Returns `not_member:` / `not_found:` prefixed errors for inbox
-/// status mapping (4xx, no endless 500 retry storm).
+/// are not lost. Missing room is a retry string (inbox 503); permanent miss is `not_member:`.
 pub(crate) async fn ensure_room_message_sender_member(
     db: &impl ConnectionTrait,
     room_id: &str,
@@ -402,7 +401,6 @@ pub(crate) fn fallback_room_name(room_id: &str) -> String {
     format!("Room {}", &room_id[..8.min(room_id.len())])
 }
 
-/// Blank / whitespace-only names are treated as missing.
 /// Public rooms are one-way: once public, they cannot become private again.
 pub(crate) fn validate_public_transition(
     currently_public: bool,
@@ -470,8 +468,7 @@ pub(crate) async fn fanout_to_remote_members_excluding(
 ) -> Result<crate::federation::delivery::FanoutResult, sea_orm::DbErr> {
     let mut result = crate::federation::delivery::FanoutResult::default();
 
-    // Ensure signing keys exist before enqueue so first outbound never races
-    // the delivery worker without a keypair (join / message / leave fan-out).
+    // Best-effort ensure keys before enqueue; failure is warn-and-continue.
     if let Ok(Some(uname_row)) = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,

@@ -13,6 +13,7 @@
 //! - PUT /api/admin/users/{id}/avatar-source  管理员替他人切换（只能选对方已有的来源）
 
 use axum::{extract::Path, http::StatusCode, Json};
+use myriad_error::AppError;
 use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -28,7 +29,7 @@ type ApiError = (StatusCode, Json<Value>);
 pub struct SetAvatarSourceRequest {
     /// auto | account | identity | platform | persona
     pub kind: String,
-    /// identity id 或平台名；auto/account 可省略
+    /// identity id 或平台名；auto/account/persona 可省略
     #[serde(default, rename = "ref")]
     pub source_ref: Option<String>,
 }
@@ -36,15 +37,15 @@ pub struct SetAvatarSourceRequest {
 fn unauthorized() -> ApiError {
     (
         StatusCode::UNAUTHORIZED,
-        Json(json!({"error": "Unauthorized"})),
+        Json(AppError::public_json("Unauthorized")),
     )
 }
 
 fn bad_request(message: impl Into<String>) -> ApiError {
-    (
-        StatusCode::BAD_REQUEST,
-        Json(json!({"success": false, "message": message.into()})),
-    )
+    let message = message.into();
+    let mut body = AppError::fail_json(&message);
+    body["message"] = json!(message);
+    (StatusCode::BAD_REQUEST, Json(body))
 }
 
 fn server_error(context: &str, error: impl std::fmt::Display) -> ApiError {
@@ -54,10 +55,9 @@ fn server_error(context: &str, error: impl std::fmt::Display) -> ApiError {
     } else {
         "Failed to load avatar sources"
     };
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(json!({"success": false, "message": message})),
-    )
+    let mut body = AppError::fail_json(message);
+    body["message"] = json!(message);
+    (StatusCode::INTERNAL_SERVER_ERROR, Json(body))
 }
 
 fn apply_error(error: String) -> ApiError {
@@ -167,7 +167,7 @@ pub async fn list_user_avatar_sources(
 
 /// PUT /api/admin/users/{id}/avatar-source
 ///
-/// 管理员改的是别人的脸，留一条审计日志；`set_avatar_source` 保证只能落在对方
+/// 管理员改的是别人的脸，打一条 `tracing::info!`；`set_avatar_source` 保证只能落在对方
 /// **已有**的来源上，管理员无法塞任意 URL。
 pub async fn set_user_avatar_source(
     crate::extract::Db(db): crate::extract::Db,

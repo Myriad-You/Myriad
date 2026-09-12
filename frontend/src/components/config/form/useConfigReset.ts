@@ -99,7 +99,6 @@ export function useConfigReset(args: {
   isAdmin: boolean
   userId?: number
   oauthDraft: OAuthSettings
-  /** Apply side-draft clean state after per-section reset */
   side: {
     setLibrarySourceDraft: Dispatch<SetStateAction<LibrarySourcePreferences>>
     setSavedLibrarySourcePreferences: Dispatch<
@@ -200,7 +199,7 @@ export function useConfigReset(args: {
       if (saveResult?.success === false) {
         throw new Error(saveResult.message || t.config.resetFailed)
       }
-      setInitialConfig(JSON.parse(JSON.stringify(clearedData)))
+      setInitialConfig(structuredClone(clearedData))
       showMessage(t.config.configReset, 'success', 5000)
       window.dispatchEvent(
         new CustomEvent('config-reset-result', {
@@ -260,7 +259,7 @@ export function useConfigReset(args: {
           throw new Error(result.message || t.config.resetFailed)
         }
         setConfig(next)
-        setInitialConfig(JSON.parse(JSON.stringify(next)))
+        setInitialConfig(structuredClone(next))
         setPlatformFocus(null)
       } else if (section === 'ai') {
         const next = {
@@ -278,7 +277,7 @@ export function useConfigReset(args: {
           throw new Error(result.message || t.config.resetFailed)
         }
         setConfig(next)
-        setInitialConfig(JSON.parse(JSON.stringify(next)))
+        setInitialConfig(structuredClone(next))
       } else if (section === 'tripo') {
         const next = {
           ...config,
@@ -295,7 +294,7 @@ export function useConfigReset(args: {
           throw new Error(result.message || t.config.resetFailed)
         }
         setConfig(next)
-        setInitialConfig(JSON.parse(JSON.stringify(next)))
+        setInitialConfig(structuredClone(next))
       } else if (section === 'basic') {
         const uiKeys = new Set(UI_RESET_KEYS)
         const next = {
@@ -314,7 +313,7 @@ export function useConfigReset(args: {
           throw new Error(result.message || t.config.resetFailed)
         }
         setConfig(next)
-        setInitialConfig(JSON.parse(JSON.stringify(next)))
+        setInitialConfig(structuredClone(next))
       } else if (section === 'advanced') {
         const advancedKeys = new Set(ADVANCED_RESET_KEYS)
         const next = {
@@ -333,7 +332,7 @@ export function useConfigReset(args: {
           throw new Error(result.message || t.config.resetFailed)
         }
         setConfig(next)
-        setInitialConfig(JSON.parse(JSON.stringify(next)))
+        setInitialConfig(structuredClone(next))
       } else if (section === 'modules') {
         const moduleUiKeys = new Set(MODULE_UI_RESET_KEYS)
         const nextConfig = {
@@ -352,7 +351,7 @@ export function useConfigReset(args: {
           throw new Error(result.message || t.config.resetFailed)
         }
         setConfig(nextConfig)
-        setInitialConfig(JSON.parse(JSON.stringify(nextConfig)))
+        setInitialConfig(structuredClone(nextConfig))
 
         const lib = normalizeLibraryPreferences(
           DEFAULT_LIBRARY_SOURCE_PREFERENCES,

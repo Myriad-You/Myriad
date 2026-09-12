@@ -1,0 +1,152 @@
+/* 页面组合不要往这里塞业务。 */
+
+/* 不复用磁贴墙 / 玻璃卡 / WidgetGrid。优先 --cfg-*，否则 --chrome-* / --text-* / --color-primary。动效走 --sm-*。 */
+
+/* 不动 #bg-gradient。这一层加高并加浓到页脚。 */
+#brew-veil-bloom {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    transparent 8%,
+    rgb(255 255 255 / 32%) 26%,
+    rgb(255 255 255 / 52%) 48%,
+    rgb(255 255 255 / 72%) 72%,
+    rgb(255 255 255 / 86%) 100%
+  );
+  transition: opacity 560ms var(--sm-ease-exit, cubic-bezier(0.4, 0, 1, 1));
+}
+
+#brew-veil-bloom.is-on {
+  opacity: 1;
+  transition-duration: 780ms;
+  transition-timing-function: var(--sm-ease-enter, cubic-bezier(0.16, 1, 0.3, 1));
+}
+
+html.dark #brew-veil-bloom {
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    transparent 8%,
+    rgb(10 10 10 / 36%) 26%,
+    rgb(10 10 10 / 55%) 48%,
+    rgb(10 10 10 / 72%) 72%,
+    rgb(10 10 10 / 88%) 100%
+  );
+}
+
+.brew-skin {
+  --brew-fg: var(--cfg-text-1, var(--text-primary));
+  --brew-fg-soft: var(--cfg-text-2, var(--text-secondary));
+  --brew-fg-dim: var(--cfg-text-3, var(--text-tertiary));
+  --brew-line: var(--cfg-subtle-border, var(--chrome-inner-stroke));
+  --brew-line-hover: var(
+    --cfg-subtle-border-hover,
+    var(--chrome-inner-stroke-hover)
+  );
+  --brew-fill: var(--cfg-subtle-bg, var(--chrome-inner));
+  --brew-fill-hover: var(--cfg-subtle-bg-hover, var(--chrome-inner-hover));
+  --brew-accent: var(--cfg-accent, var(--color-primary));
+  --brew-accent-fill: var(
+    --cfg-accent-fill,
+    color-mix(in srgb, var(--brew-accent) 18%, white)
+  );
+  --brew-accent-ink: var(
+    --cfg-accent-ink,
+    color-mix(in srgb, var(--brew-accent) 48%, black)
+  );
+  --brew-accent-line: var(
+    --cfg-accent-line,
+    color-mix(in srgb, var(--brew-accent) 38%, white)
+  );
+  --brew-shadow: var(--cfg-card-shadow-sm, var(--chrome-chip-shadow));
+  --brew-shadow-hover: var(--cfg-card-shadow-md, var(--chrome-shadow));
+  --brew-radius: 0.75rem;
+  --brew-radius-lg: 1rem;
+  --brew-focus:
+    0 0 0 2px rgb(255 255 255 / 90%),
+    0 0 0 4px color-mix(in srgb, var(--brew-accent) 45%, transparent);
+  --brew-frost: var(--cfg-frost-bg, var(--brew-fill));
+  --brew-frost-line: var(--cfg-frost-border, var(--brew-line));
+  --brew-chip: rgb(255 255 255 / 78%);
+  --brew-rail-pad-x: 0.2rem;
+  --brew-tag-type: 0.8125rem;
+  --brew-tag-h: 1.9rem;
+  --brew-tag-mark: 0.78rem;
+
+  color: var(--brew-fg);
+}
+
+html.dark .brew-skin {
+  --brew-chip: rgb(18 18 18 / 72%);
+  --brew-accent-fill: var(
+    --cfg-accent-fill,
+    color-mix(in srgb, var(--brew-accent) 22%, transparent)
+  );
+  --brew-accent-ink: var(
+    --cfg-accent-ink,
+    color-mix(in srgb, var(--brew-accent) 46%, white)
+  );
+  --brew-accent-line: var(
+    --cfg-accent-line,
+    color-mix(in srgb, var(--brew-accent) 40%, transparent)
+  );
+  --brew-focus:
+    0 0 0 2px rgb(0 0 0 / 70%),
+    0 0 0 4px color-mix(in srgb, var(--brew-accent) 50%, transparent);
+}
+
+.brew-skin button {
+  appearance: none;
+  font: inherit;
+  color: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.brew-skin button:focus {
+  outline: none;
+}
+
+.brew-skin button:focus-visible {
+  outline: none;
+  box-shadow: var(--brew-focus);
+}
+
+.brew-float {
+  border: 1px solid var(--brew-frost-line);
+  background: var(--brew-chip);
+  box-shadow: var(--brew-shadow);
+}
+
+.brew-view-lane {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.brew-view-lane[data-chip-phase='exit'] {
+  pointer-events: none;
+}
+
+.brew-toast {
+  display: flex;
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 50;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--brew-accent-line);
+  border-radius: 0.42rem;
+  background: var(--brew-accent-fill);
+  box-shadow: var(--brew-shadow);
+  color: var(--brew-accent-ink);
+  font-size: 0.8125rem;
+}
+

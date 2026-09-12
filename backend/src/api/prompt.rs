@@ -84,41 +84,80 @@ Requirements:
     }))
 }
 
-/// 使用规则生成提示词（可以替换为真实的 AI API 调用）
+fn content_hits(content: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| content.contains(needle))
+}
+
+/// 规则引擎生成提示词（AI 不可用时的降级路径）
 fn generate_prompt_with_rules(title: &str, summary: &str) -> String {
     let content = format!("{} {}", title, summary).to_lowercase();
 
-    // 分析内容类型
-    let character = if content.contains("编程")
-        || content.contains("代码")
-        || content.contains("开发")
-        || content.contains("技术")
-    {
+    // Leftover Chinese/Japanese tokens stay so existing titles still classify.
+    let character = if content_hits(
+        &content,
+        &[
+            "编程",
+            "代码",
+            "开发",
+            "技术",
+            "programming",
+            "programmer",
+            "coding",
+            "プログラミング",
+            "コード",
+        ],
+    ) {
         "cute chibi programmer character with laptop and glowing holographic code"
-    } else if content.contains("游戏") || content.contains("玩") {
+    } else if content_hits(&content, &["游戏", "game", "gaming", "ゲーム"]) {
         "cheerful gamer character holding game controller with pixel effects"
-    } else if content.contains("音乐") || content.contains("歌") {
+    } else if content_hits(&content, &["音乐", "歌", "music", "song", "音楽"]) {
         "gentle musician character with musical notes floating around"
-    } else if content.contains("艺术") || content.contains("设计") || content.contains("画") {
+    } else if content_hits(
+        &content,
+        &[
+            "艺术",
+            "设计",
+            "画",
+            "painting",
+            "artwork",
+            "illustration",
+            "芸術",
+            "デザイン",
+        ],
+    ) {
         "artistic character with paintbrush and colorful palette"
-    } else if content.contains("旅行") || content.contains("旅游") {
+    } else if content_hits(&content, &["旅行", "旅游", "travel", "trip"]) {
         "adventurous traveler character with backpack and map"
-    } else if content.contains("美食") || content.contains("食物") || content.contains("烹饪")
-    {
+    } else if content_hits(
+        &content,
+        &[
+            "美食",
+            "食物",
+            "烹饪",
+            "food",
+            "cooking",
+            "chef",
+            "料理",
+            "グルメ",
+        ],
+    ) {
         "happy chef character with chef hat and delicious food"
-    } else if content.contains("阅读") || content.contains("书") {
+    } else if content_hits(&content, &["阅读", "书", "reading", "book", "読書"]) {
         "peaceful reader character holding an open book with glowing pages"
-    } else if content.contains("运动") || content.contains("健身") {
+    } else if content_hits(
+        &content,
+        &["运动", "健身", "sport", "fitness", "workout", "運動"],
+    ) {
         "energetic athlete character in active pose with motion effects"
-    } else if content.contains("学习") || content.contains("教育") {
+    } else if content_hits(&content, &["学习", "教育", "study", "education", "学習"]) {
         "focused student character with books and lightbulb ideas"
-    } else if content.contains("社交") || content.contains("分享") {
+    } else if content_hits(&content, &["社交", "分享", "social", "share", "交流"]) {
         "friendly character waving with speech bubbles and hearts"
     } else {
         "gentle character with soft smile and sparkles"
     };
 
-    // 提取关键活动
+    // 活动 hint：中文固定英文 filler，否则截 title+summary
     let activity_hint = extract_activity_context(title, summary);
 
     format!(
@@ -130,10 +169,10 @@ fn generate_prompt_with_rules(title: &str, summary: &str) -> String {
 
 /// 提取活动上下文
 fn extract_activity_context(title: &str, summary: &str) -> String {
-    // 简化处理：只提取标题中的关键活动词
+    // title + summary；任一汉字则走固定 filler
     let content = format!("{} {}", title, summary);
 
-    // 如果内容主要是中文，使用简短描述
+    // 任一汉字即走中文分支（不是「主要是中文」）
     let has_chinese = content
         .chars()
         .any(|c| ('\u{4e00}'..='\u{9fa5}').contains(&c));
@@ -149,5 +188,24 @@ fn extract_activity_context(title: &str, summary: &str) -> String {
         } else {
             format!("{}...", &content[..max_len])
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rule_prompt_classifies_english_and_leftover_chinese() {
+        let en = generate_prompt_with_rules("Weekend programming", "");
+        let zh = generate_prompt_with_rules("周末编程", "");
+        let ja = generate_prompt_with_rules("週末のプログラミング", "");
+        assert!(en.contains("programmer"));
+        assert!(zh.contains("programmer"));
+        assert!(ja.contains("programmer"));
+        let music = generate_prompt_with_rules("New song", "studio session");
+        assert!(music.contains("musician"));
+        let generic = generate_prompt_with_rules("Hello", "world");
+        assert!(generic.contains("gentle character"));
     }
 }

@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { BeatClock, MAX_BEAT_PERIOD } from './beatClock'
 
-/** Feeds a steady kick at `bpm` for `seconds`, at 60fps. */
 function play(
   clock: BeatClock,
   bpm: number,
@@ -14,7 +13,6 @@ function play(
   let frame = clock.sample(startAt, 0, true)
   for (let t = startAt; t < startAt + seconds; t += step) {
     const intoBeat = (t - startAt) % period
-    // A kick: sharp attack in the first two frames, then decay.
     const bass = intoBeat < 2 * step ? 0.9 : Math.max(0, 0.3 - intoBeat)
     frame = clock.sample(t, bass, true)
   }
@@ -39,12 +37,11 @@ test('counts pulses without claiming to know the meter or bar downbeat', () => {
   const clock = new BeatClock()
   const frame = play(clock, 120, 12)
   assert.ok(frame.beatCount >= 18, `counted ${frame.beatCount}`)
-  assert.equal('barPhase' in frame, false)
+  assert.equal(Object.hasOwn(frame, 'barPhase'), false)
   assert.ok(frame.beatPhase >= 0 && frame.beatPhase < 1)
 })
 
-// Silence is not a slow tempo. Reporting one would have the character dancing
-// confidently to nothing.
+// Silence is not a slow tempo.
 test('noise never earns confidence', () => {
   const clock = new BeatClock()
   let random = 7
@@ -58,7 +55,6 @@ test('noise never earns confidence', () => {
 
 test('an interval outside the musical range is not a tempo', () => {
   const clock = new BeatClock()
-  // One hit every three seconds: real onsets, no danceable period.
   let frame = clock.sample(0, 0, true)
   for (let t = 0; t < 30; t += 1 / 60) {
     frame = clock.sample(t, t % 3 < 2 / 60 ? 0.95 : 0, true)
@@ -86,16 +82,12 @@ test('a seek invalidates the old phase rather than counting skipped beats', () =
   assert.equal(forward.beatCount, 0)
 })
 
-// The rig holds its pose for up to 12s across a track switch, so `singing`
-// stays true through the gap. Keyed only on that flag the clock kept a full
-// lock through the silence and carried the old tempo into the next song.
 test('a track switch expires the old tempo before the next song starts', () => {
   const clock = new BeatClock()
   const locked = play(clock, 120, 12)
   assert.ok(Math.abs(locked.bpm - 120) < 6)
   assert.ok(locked.confidence > 0.7)
 
-  // Silent hold: still "singing", no audio.
   let quiet = locked
   for (let t = 12; t < 24; t += 1 / 60) {
     quiet = clock.sample(t, 0, true)

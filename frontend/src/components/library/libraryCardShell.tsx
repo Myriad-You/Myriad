@@ -670,7 +670,6 @@ function coverFallbackUrl(title: string): string {
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(title || '?')}&size=400&background=random`
 }
 
-/** 从 metadata / id 解析可打开的外链；无有效 http(s) 则返回 null */
 function resolveLibraryItemUrl(item: {
   id: string
   platform: string
@@ -703,15 +702,13 @@ function resolveLibraryItemUrl(item: {
   const platform = (item.platform || '').toLowerCase()
   const id = item.id || ''
 
-  // Steam
   if (platform.includes('steam') || id.startsWith('steam_')) {
-    const appid = m.appid ?? id.replace(/^steam_game_/, '')
+    const appid = m.appid ?? id.replaceAll(/^steam_game_/g, '')
     if (appid !== '' && appid != null) {
       return `https://store.steampowered.com/app/${appid}`
     }
   }
 
-  // Bilibili
   if (
     platform.includes('bilibili') ||
     platform.includes('bili') ||
@@ -728,7 +725,6 @@ function resolveLibraryItemUrl(item: {
     }
   }
 
-  // Bangumi
   if (
     platform.includes('bangumi') ||
     platform.includes('bgm') ||
@@ -745,7 +741,6 @@ function resolveLibraryItemUrl(item: {
     }
   }
 
-  // MyAnimeList
   if (
     platform.includes('mal') ||
     platform.includes('myanimelist') ||
@@ -759,7 +754,6 @@ function resolveLibraryItemUrl(item: {
     if (mid != null) return `https://myanimelist.net/${kind}/${mid}`
   }
 
-  // GitHub
   if (platform.includes('github')) {
     if (typeof m.full_name === 'string' && m.full_name.includes('/')) {
       return `https://github.com/${m.full_name}`
@@ -769,7 +763,6 @@ function resolveLibraryItemUrl(item: {
     }
   }
 
-  // YouTube
   if (platform.includes('youtube') || platform.includes('yt')) {
     const vid = m.video_id ?? m.id
     if (typeof vid === 'string' && vid.length >= 6) {
@@ -792,86 +785,71 @@ export function openLibraryItemExternal(item: {
   window.open(url, '_blank', 'noopener,noreferrer')
 }
 
-// 判断是否为 Bangumi 平台
 export function isBangumiPlatform(platform: string) {
   return platform.toLowerCase() === 'bangumi'
 }
 
-// 判断是否为 MyAnimeList 平台
 export function isMalPlatform(platform: string) {
-  const key = platform.toLowerCase().replace(/[\s_-]/g, '')
+  const key = platform.toLowerCase().replaceAll(/[\s_-]/g, '')
   return key === 'myanimelist' || key === 'mal'
 }
 
-// 是否展示用户评分徽章（Bangumi / MyAnimeList 等 1–10 分制）
 export function hasUserRatingBadge(platform: string) {
   return isBangumiPlatform(platform) || isMalPlatform(platform)
 }
 
-// Bangumi 用户评分徽章样式（仿 Metacritic 分色标记）
-// 分数越高越推荐 —— 色彩越暖、尺寸越大、越醒目
 export function getRatingBadgeStyle(rate: number) {
-  // 满分（10）：金色渐变，最大最亮，双环 + 光晕，独享的稀有感
   if (rate >= 10) {
     return {
       box: 'w-10 h-10 text-xl bg-linear-to-br from-amber-300 via-yellow-400 to-orange-500 text-white ring-2 ring-amber-200/80 ring-offset-1 ring-offset-amber-500/30 shadow-amber-400/60',
       gloss: true,
     }
   }
-  // 神作（9）：金色渐变 + 光晕
   if (rate >= 9) {
     return {
       box: 'w-9 h-9 text-lg bg-linear-to-br from-amber-300 to-orange-500 text-white ring-2 ring-amber-200/70 shadow-amber-500/50',
       gloss: true,
     }
   }
-  // 力荐（8）
   if (rate >= 8) {
     return {
       box: 'w-8 h-8 text-base bg-emerald-500 text-white ring-1 ring-emerald-300/50 shadow-emerald-500/40',
       gloss: false,
     }
   }
-  // 推荐（7）
   if (rate >= 7) {
     return {
       box: 'w-8 h-8 text-base bg-green-500 text-white shadow-green-500/30',
       gloss: false,
     }
   }
-  // 还行（6）
   if (rate >= 6) {
     return {
       box: 'w-7 h-7 text-sm bg-lime-500 text-white',
       gloss: false,
     }
   }
-  // 不过不失（5）
   if (rate >= 5) {
     return {
       box: 'w-7 h-7 text-sm bg-amber-500 text-white',
       gloss: false,
     }
   }
-  // 较差（3-4）
   if (rate >= 3) {
     return {
       box: 'w-7 h-7 text-sm bg-orange-500 text-white',
       gloss: false,
     }
   }
-  // 差评（1-2）
   return {
     box: 'w-7 h-7 text-sm bg-rose-500 text-white',
     gloss: false,
   }
 }
 
-// 获取项目在网格中的尺寸 (w, h)
 export function getItemGridSize(type: string, platform: string) {
   switch (type) {
     case 'game':
-      // Bangumi 游戏使用竖版封面，其余（如 Steam）保持横版
       return isBangumiPlatform(platform) ? { w: 1, h: 2 } : { w: 2, h: 1 }
     case 'video':
       return { w: 2, h: 1 }
@@ -885,9 +863,6 @@ export function getItemGridSize(type: string, platform: string) {
   }
 }
 
-/**
- * 卡片外壳：封面占位 + 加载完再显示玻璃 chrome，避免滚动时标题/平台标先闪。
- */
 export const LibraryCardShell = memo(
   ({
     cover,
@@ -903,26 +878,20 @@ export const LibraryCardShell = memo(
     cover: string | null
     title: string
     className?: string
-    /** 额外图片类（如 hover scale） */
     imgClassName?: string
     placeholder: ReactNode
     children: ReactNode
-    /** 播放中封面呼吸动效 */
     coverBreathing?: boolean
-    /** Canvas visible cards: eager fetch (decode slot still caps concurrency). */
     priority?: boolean
-    /** First-reveal shell enter delay (seconds); null = no enter animation. */
     canvasEnterDelay?: number | null
   }) => {
     const hasCover = Boolean(cover)
     const [mediaReady, setMediaReady] = useState(!hasCover)
-    /** Gate real src through a decode budget so pan-in doesn't decode 30 covers at once. */
     const [activeSrc, setActiveSrc] = useState<string | null>(null)
-    /** off | breathing | exiting — 退场播完再卸类，避免硬切 */
+    // 退场播完再卸类，避免硬切。
     const [breathPhase, setBreathPhase] = useState<
       'off' | 'breathing' | 'exiting'
     >(coverBreathing ? 'breathing' : 'off')
-    // Freeze mount-time enter delay — parent re-renders pass null after the id is claimed.
     const [enterDelay] = useState(canvasEnterDelay)
     const [canvasEntering, setCanvasEntering] = useState(
       () => enterDelay != null,
@@ -930,7 +899,7 @@ export const LibraryCardShell = memo(
     const imgRef = useRef<HTMLImageElement>(null)
     const releaseSlotRef = useRef<(() => void) | null>(null)
 
-    // reduced-motion / missed animationend: drop enter flag so attributes don't linger
+    // reduced-motion / 收不到 animationend 时摘掉 enter，避免属性残留。
     useEffect(() => {
       if (!canvasEntering) return
       const delayMs = ((enterDelay ?? 0) + 0.62) * 1000 + 80
@@ -955,7 +924,6 @@ export const LibraryCardShell = memo(
 
     useEffect(() => {
       if (coverBreathing) {
-        // 重新进场：清掉上次退出时写死的 inline transform
         clearCoverInline()
         setBreathPhase('breathing')
         return
@@ -966,7 +934,7 @@ export const LibraryCardShell = memo(
       })
     }, [coverBreathing, clearCoverInline])
 
-    // 退场：冻结当前呼吸 matrix → 下一帧 transition 到 scale(1)（避免 keyframes 硬切）
+    // 退场：先冻呼吸 matrix，下一帧 transition 到 scale(1)，避免 keyframes 硬切。
     useEffect(() => {
       if (breathPhase !== 'exiting') return
       const img = imgRef.current
@@ -985,7 +953,6 @@ export const LibraryCardShell = memo(
       img.style.transition = 'none'
       img.style.transform =
         matrix && matrix !== 'none' ? matrix : 'scale(1.018)'
-      // 强制提交 frozen 帧
       void img.offsetWidth
 
       let raf2 = 0
@@ -1008,7 +975,6 @@ export const LibraryCardShell = memo(
       }
     }, [breathPhase, clearCoverInline])
 
-    // Decode budget + unload on unmount (virtualized cards leave the viewport).
     useEffect(() => {
       if (!cover) {
         setActiveSrc(null)
@@ -1033,7 +999,6 @@ export const LibraryCardShell = memo(
         cancelled = true
         releaseSlotRef.current?.()
         releaseSlotRef.current = null
-        // Drop decoded bitmap when the card is culled from the canvas viewport.
         releaseCoverImageElement(imgRef.current)
         setActiveSrc(null)
       }
@@ -1160,7 +1125,7 @@ export function getTypeIcon(type: string) {
 }
 
 export function useLibraryCardActions() {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
 
   const watchProgressLabels = useMemo<WatchProgressLabels>(
     () => ({
@@ -1200,10 +1165,9 @@ export function useLibraryCardActions() {
     (item: LibraryItem) => {
       if (item.item_type === 'game' && item.metadata.playtime_forever) {
         const hours = Math.round(item.metadata.playtime_forever / 60)
-        return t.library.playedHours.replace('{hours}', hours.toString())
+        return format(t.library.playedHours, { hours })
       }
       if (item.item_type === 'music') {
-        // Bangumi music (subject_type=3): no Netease ar/artists; show rating / open-external hint
         if (
           isBangumiPlatform(item.platform) ||
           item.id.startsWith('bangumi_subject_')
@@ -1218,7 +1182,6 @@ export function useLibraryCardActions() {
           }
           return null
         }
-        // Netease (and other streamable) music metadata
         const artists = item.metadata.ar || item.metadata.artists || []
         if (Array.isArray(artists) && artists.length > 0) {
           return artists.map((a: any) => a.name || a).join(', ')
@@ -1240,7 +1203,6 @@ export function useLibraryCardActions() {
     [t, formatItemWatchProgress],
   )
 
-  /** Progress row + thin bar for anime/book vertical title plates. */
   const renderWatchProgressPanel = useCallback(
     (item: LibraryItem, opts?: { dark?: boolean }): React.ReactNode => {
       const progress = resolveWatchProgress(item)
@@ -1303,7 +1265,6 @@ export function useLibraryCardActions() {
 
   const handlePlayMusic = useCallback(
     async (item: LibraryItem) => {
-      // Bangumi subject_type=3 → music, but id is bangumi_subject_* — not Netease
       if (
         isBangumiPlatform(item.platform) ||
         item.id.startsWith('bangumi_subject_')
@@ -1316,7 +1277,7 @@ export function useLibraryCardActions() {
           (subjectId ? `https://bgm.tv/subject/${subjectId}` : '')
         if (url) {
           window.open(url, '_blank', 'noopener,noreferrer')
-          showInfo(t.library.openExternal.replace('{name}', item.title || ''))
+          showInfo(format(t.library.openExternal, { name: item.title || '' }))
         } else {
           showInfo(t.library.playbackNotSupported)
         }
@@ -1335,7 +1296,7 @@ export function useLibraryCardActions() {
           typeof item.metadata?.url === 'string' ? item.metadata.url : ''
         if (ext) {
           window.open(ext, '_blank', 'noopener,noreferrer')
-          showInfo(t.library.openExternal.replace('{name}', item.title || ''))
+          showInfo(format(t.library.openExternal, { name: item.title || '' }))
         } else {
           showInfo(t.library.playbackNotSupported)
         }
@@ -1351,17 +1312,16 @@ export function useLibraryCardActions() {
         String(musicState.currentSong.id) === songId
       ) {
         window.dispatchEvent(new CustomEvent('open-control-panel'))
-        // 暂停中：再点同一首应恢复播放，而不是误报「已在播放」
+        // 暂停中再点同一首应恢复，不要当成已在播放。
         if (!musicState.isPlaying) {
           window.dispatchEvent(new CustomEvent('toggle-play-pause'))
-          showInfo(t.library.nowPlaying.replace('{name}', item.title || ''))
+          showInfo(format(t.library.nowPlaying, { name: item.title || '' }))
         } else {
           showInfo(t.library.alreadyPlaying)
         }
         return
       }
 
-      // 正确标记 VIP；临时播放在 useMusicPlayer 内放行 excludeVipSongs
       const isVip = isNeteaseVipFromMeta(item.metadata)
       if (isVip) {
         showInfo(t.library.vipSongWarning)
@@ -1394,8 +1354,7 @@ export function useLibraryCardActions() {
           ? item.metadata.duration
           : 0
 
-      // 同步 URL：禁止 await geo（会把「点击→开播」拖成数百 ms～数秒）
-      // 海外若 play-url 失败，播放器方案 C 会自动降级全量代理
+      // 同步 URL 禁止 await geo，会把开播拖成数百 ms～数秒。
       const url = getNeteaseAudioUrlImmediate(songId)
 
       const song: Song = {
@@ -1403,7 +1362,7 @@ export function useLibraryCardActions() {
         name,
         artist,
         album,
-        // 临时播放入口：裸 CDN 封面必须代理，否则播放器取色 canvas CORS 失败
+        // 裸 CDN 封面必须代理，否则取色 canvas CORS 失败。
         cover: proxyImageUrlOr(cover, cover || ''),
         url,
         duration,
@@ -1411,9 +1370,8 @@ export function useLibraryCardActions() {
         isVip,
       }
 
-      // 先开面板 + toast，再播：体感即时
       window.dispatchEvent(new CustomEvent('open-control-panel'))
-      showInfo(t.library.nowPlaying.replace('{name}', name))
+      showInfo(format(t.library.nowPlaying, { name }))
       window.dispatchEvent(new CustomEvent('play-song', { detail: { song } }))
       void import('../../utils/analyticsEvents').then(
         ({ trackProductEvent, AnalyticsEvents }) => {

@@ -1,22 +1,8 @@
 //! 多 Agent 路由模块
 //!
-//! 实现 Planner-Worker 模式的多 Agent 协作架构：
-//!
-//! ```text
-//! 用户请求 → Orchestrator (Pro) → 分析意图、拆解子任务
-//! ↓
-//! ┌───────────────────────┼───────────────────────┐
-//! ↓                       ↓                       ↓
-//! DataWorker (Std)       ContentWorker (Std)      CreativeWorker (Pro)
-//! 数据获取/转换           总结/分析/过滤            创作/推理/生成
-//! ↓                       ↓                       ↓
-//! └───────────────────────┼───────────────────────┘
-//! ↓
-//! Orchestrator → 汇总 → 最终响应
-//! ```
-//!
-//! 所有 Worker 共享同一进程，通过 tokio channel 通信，零网络延迟。
-//! 并发受 LaneQueue 的全局 Semaphore 限制。
+//! 按能力前缀把步骤分到 `AgentRole`（Data / Content / Creative / System）。
+//! Orchestrator 前缀为空，`route_capability` 不会选中它。
+//! `default_tier` 是展示用；实际模型选择走 `TierRouter`。
 
 use crate::config::ModelTier;
 use serde::{Deserialize, Serialize};
@@ -28,7 +14,7 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentRole {
-    /// 编排者：分析意图、拆解任务、汇总结果
+    /// 编排者角色（前缀为空，`route_capability` 不会选出）
     Orchestrator,
     /// 数据工作者：平台数据获取、Brew 读取、API 调用
     DataWorker,
@@ -96,8 +82,8 @@ pub struct AgentProfile {
 
 /// 多 Agent 路由器
 ///
-/// 根据能力 ID 将任务路由到合适的 Worker Agent。
-/// 在单进程部署下，"Agent" 是逻辑概念，影响模型选择和执行策略。
+/// 根据能力 ID 将任务路由到合适的 `AgentRole`。
+/// `default_tier` 仅展示；实际模型选择走 `TierRouter`。
 pub struct AgentRouter {
     /// 角色 → Agent 配置
     profiles: HashMap<AgentRole, AgentProfile>,
@@ -120,7 +106,7 @@ impl AgentRouter {
                 capability_prefixes: vec![], // Orchestrator 不直接执行能力
                 default_tier: ModelTier::Pro,
                 max_concurrency: 1,
-                description: "规划、决策、汇总".to_string(),
+                description: "Planning, decisions, and summaries".to_string(),
             },
         );
 
@@ -155,7 +141,7 @@ impl AgentRouter {
                 capability_prefixes: data_prefixes,
                 default_tier: ModelTier::Standard,
                 max_concurrency: 4,
-                description: "平台数据获取、API 调用、数据转换".to_string(),
+                description: "Platform data, API calls, and transforms".to_string(),
             },
         );
 
@@ -185,7 +171,7 @@ impl AgentRouter {
                 capability_prefixes: content_prefixes,
                 default_tier: ModelTier::Standard,
                 max_concurrency: 3,
-                description: "内容总结、分析、过滤、搜索".to_string(),
+                description: "Summarize, analyze, filter, and search".to_string(),
             },
         );
 
@@ -210,7 +196,7 @@ impl AgentRouter {
                 capability_prefixes: creative_prefixes,
                 default_tier: ModelTier::Pro,
                 max_concurrency: 2,
-                description: "创意生成、自由对话、代码、图片".to_string(),
+                description: "Creative generation, chat, code, and images".to_string(),
             },
         );
 
@@ -263,7 +249,7 @@ impl AgentRouter {
                 capability_prefixes: system_prefixes,
                 default_tier: ModelTier::Standard,
                 max_concurrency: 4,
-                description: "路由导航、UI 控制、系统操作".to_string(),
+                description: "Routing, UI control, and system operations".to_string(),
             },
         );
 

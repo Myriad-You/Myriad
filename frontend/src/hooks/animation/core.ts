@@ -1,30 +1,10 @@
-/**
- * 动画调度器核心 - 极简原子化版本
- *
- * 设计原则：
- * 1. 零开销抽象：未使用的功能不产生运行时开销
- * 2. 惰性初始化：只在首次调用时创建资源
- * 3. 页面级隔离：SPA 路由切换时自动清理
- * 4. 原子化 API：每个功能独立，可单独使用
- * 5. 🔧 页面级按需加载：只初始化当前页面需要的功能
- *
- * @module animation/core
- */
-
 import { Feature, getFeatureList, hasFeature } from './pageFeatures'
 
-// 类型定义
-
-/** 取消订阅函数 */
 export type Unsubscribe = () => void
 
-/** 页面上下文 ID */
 let currentPageId: string | null = null
 
-/** 是否处于活动状态 */
 let isActive = true
-
-// 惰性初始化标记
 
 let visibilityInitialized = false
 let messageChannelInitialized = false
@@ -32,15 +12,13 @@ let resizeObserverInitialized = false
 let intersectionInitialized = false
 let idleSchedulerInitialized = false
 
-// 页面可见性模块（惰性）
-
 let _isPageVisible = true
 let _visibilityHandler: (() => void) | null = null
 const _visibilitySubscribers = new Set<(visible: boolean) => void>()
 
 function initVisibility() {
   if (visibilityInitialized || typeof document === 'undefined') return
-  // 检查当前页面是否需要此功能
+
   if (currentPageId && !hasFeature(currentPageId, Feature.Visibility)) {
     if (import.meta.env.DEV) {
       console.warn(`[Core] Visibility not enabled for page: ${currentPageId}`)
@@ -51,7 +29,7 @@ function initVisibility() {
   _isPageVisible = !document.hidden
   _visibilityHandler = () => {
     _isPageVisible = !document.hidden
-    // 直接遍历，避免创建临时数组
+
     for (const sub of _visibilitySubscribers) {
       try {
         sub(_isPageVisible)
@@ -63,7 +41,6 @@ function initVisibility() {
   })
 }
 
-/** 订阅页面可见性 */
 export function onVisibility(
   callback: (visible: boolean) => void,
 ): Unsubscribe {
@@ -74,13 +51,10 @@ export function onVisibility(
   }
 }
 
-/** 获取页面可见性 */
 export function isPageVisible(): boolean {
   if (!visibilityInitialized) initVisibility()
   return _isPageVisible
 }
-
-// MessageChannel 模块（惰性）
 
 let _channel: MessageChannel | null = null
 let _pendingCallbacks: Array<() => void> = []
@@ -99,7 +73,7 @@ function initMessageChannel() {
   }
 }
 
-/** 高效任务让出（比 setTimeout(0) 快） */
+/** 比 setTimeout(0) 快（MessageChannel）。 */
 export function scheduleTask(callback: () => void): void {
   initMessageChannel()
   if (_channel) {
@@ -112,17 +86,14 @@ export function scheduleTask(callback: () => void): void {
   }
 }
 
-/** 让出主线程并返回 Promise */
 export function yieldToMain(): Promise<void> {
   return new Promise((resolve) => scheduleTask(resolve))
 }
 
-// 时间戳缓存（微优化）
-
 let _cachedNow = 0
 let _nowValid = false
 
-/** 获取缓存的时间戳（同一帧内复用） */
+/** 同一帧内复用缓存时间戳。 */
 export function now(): number {
   if (!_nowValid) {
     _cachedNow = performance.now()
@@ -134,14 +105,11 @@ export function now(): number {
   return _cachedNow
 }
 
-/** 强制刷新时间戳 */
 export function refreshNow(): number {
   _cachedNow = performance.now()
   _nowValid = true
   return _cachedNow
 }
-
-// ResizeObserver 模块（惰性）
 
 let _resizeObserver: ResizeObserver | null = null
 const _resizeCallbacks = new WeakMap<
@@ -162,7 +130,6 @@ function initResizeObserver() {
     if (!_isPageVisible) return
 
     const nowTime = performance.now()
-    // 节流
     if (nowTime - _lastResizeTime < RESIZE_THROTTLE) {
       _resizeBatch.push(...entries)
       if (!_resizeScheduled) {
@@ -173,7 +140,6 @@ function initResizeObserver() {
     }
 
     _lastResizeTime = nowTime
-    // 直接处理
     for (const entry of entries) {
       const cb = _resizeCallbacks.get(entry.target)
       if (cb) cb(entry)
@@ -193,7 +159,6 @@ function flushResizeBatch() {
   }
 }
 
-/** 观察元素尺寸变化 */
 export function observeResize(
   element: Element,
   callback: (entry: ResizeObserverEntry) => void,
@@ -211,8 +176,6 @@ export function observeResize(
     _resizeObserver?.unobserve(element)
   }
 }
-
-// IntersectionObserver 模块（惰性）
 
 const _intersectionObservers = new Map<string, IntersectionObserver>()
 const _intersectionCallbacks = new WeakMap<
@@ -253,7 +216,6 @@ function getOrCreateIntersectionObserver(
   return observer
 }
 
-/** 观察元素可见性 */
 export function observeIntersection(
   element: Element,
   callback: (entry: IntersectionObserverEntry) => void,
@@ -278,15 +240,13 @@ export function observeIntersection(
   }
 }
 
-// 空闲任务调度模块（惰性）
-
 interface IdleTask {
   id: string
   task: () => void
   priority: number
 }
 
-const _idleTasks: IdleTask[] = []
+let _idleTasks: IdleTask[] = []
 let _idleCallbackId: number | null = null
 const _registeredTasks = new Set<string>()
 
@@ -326,13 +286,11 @@ function scheduleIdleRun() {
   idleSchedulerInitialized = true
 }
 
-/** 调度空闲任务 */
 export function scheduleIdle(
   id: string,
   task: () => void,
   priority: 'low' | 'normal' | 'high' = 'normal',
 ): Unsubscribe {
-  // 去重
   if (_registeredTasks.has(id)) {
     return () => cancelIdle(id)
   }
@@ -341,7 +299,6 @@ export function scheduleIdle(
   _idleTasks.push({ id, task, priority: p })
   _registeredTasks.add(id)
 
-  // 按优先级排序（简单插入排序，因为通常队列很短）
   for (let i = _idleTasks.length - 1; i > 0; i--) {
     if (_idleTasks[i].priority > _idleTasks[i - 1].priority) {
       ;[_idleTasks[i], _idleTasks[i - 1]] = [_idleTasks[i - 1], _idleTasks[i]]
@@ -354,18 +311,15 @@ export function scheduleIdle(
   return () => cancelIdle(id)
 }
 
-/** 取消空闲任务 */
 export function cancelIdle(id: string): boolean {
   const idx = _idleTasks.findIndex((t) => t.id === id)
   if (idx !== -1) {
-    _idleTasks.splice(idx, 1)
+    _idleTasks = _idleTasks.toSpliced(idx, 1)
     _registeredTasks.delete(id)
     return true
   }
   return false
 }
-
-// DOM 批量读写（原子化）
 
 let _reads: Array<() => void> = []
 let _writes: Array<() => void> = []
@@ -374,7 +328,7 @@ let _domBatchScheduled = false
 function flushDomBatch() {
   _domBatchScheduled = false
 
-  // 先执行所有读取
+  // 先读后写，避免强制重排。
   const reads = _reads
   _reads = []
   for (const r of reads) {
@@ -383,7 +337,6 @@ function flushDomBatch() {
     } catch {}
   }
 
-  // 再执行所有写入
   const writes = _writes
   _writes = []
   for (const w of writes) {
@@ -393,7 +346,6 @@ function flushDomBatch() {
   }
 }
 
-/** 批量 DOM 读取 */
 export function batchRead(callback: () => void): void {
   _reads.push(callback)
   if (!_domBatchScheduled) {
@@ -402,7 +354,6 @@ export function batchRead(callback: () => void): void {
   }
 }
 
-/** 批量 DOM 写入 */
 export function batchWrite(callback: () => void): void {
   _writes.push(callback)
   if (!_domBatchScheduled) {
@@ -411,31 +362,19 @@ export function batchWrite(callback: () => void): void {
   }
 }
 
-// 页面清理注册表（自注册模式）
-
-/** 页面级清理函数注册表 - 各 pages/*.ts 模块自行注册 */
 const _pageCleanupRegistry = new Map<string, () => void>()
 
-/** 注册页面清理函数（由各页面模块调用） */
 export function registerPageCleanup(pageId: string, cleanup: () => void): void {
   _pageCleanupRegistry.set(pageId, cleanup)
 }
 
-/** 执行指定页面的清理函数 */
 export function runPageCleanup(pageId: string): void {
   _pageCleanupRegistry.get(pageId)?.()
 }
 
-// 页面生命周期（SPA 优化）
-
-/**
- * 开始新页面（SPA 路由切换时调用）
- * 清理旧页面资源，根据页面配置初始化所需功能
- */
 export function startPage(pageId: string): void {
   if (currentPageId === pageId) return
 
-  // 清理旧页面
   if (currentPageId) {
     cleanupPage()
   }
@@ -443,16 +382,12 @@ export function startPage(pageId: string): void {
   currentPageId = pageId
   isActive = true
 
-  // 根据页面配置预初始化必要模块
-  // 这确保了只有当前页面需要的功能才会初始化
   if (hasFeature(pageId, Feature.Visibility) && !visibilityInitialized) {
     initVisibility()
   }
 }
 
-/** 清理当前页面资源 */
 function cleanupPage(): void {
-  // 清理空闲任务
   _idleTasks.length = 0
   _registeredTasks.clear()
   if (_idleCallbackId !== null) {
@@ -462,45 +397,32 @@ function cleanupPage(): void {
     _idleCallbackId = null
   }
 
-  // 清理 DOM 批量队列
   _reads.length = 0
   _writes.length = 0
   _domBatchScheduled = false
 
-  // 清理 resize 批量队列
   _resizeBatch.length = 0
   _resizeScheduled = false
 
-  // MessageChannel 待处理回调
   _pendingCallbacks.length = 0
 }
 
-/**
- * 暂停调度器（如后台标签页）
- */
 export function pause(): void {
   isActive = false
 }
 
-/**
- * 恢复调度器
- */
 export function resume(): void {
   isActive = true
   scheduleIdleRun()
 }
 
-/** 获取当前页面 ID */
 export function getCurrentPageId(): string | null {
   return currentPageId
 }
 
-/** 是否处于活动状态 */
 export function isSchedulerActive(): boolean {
   return isActive && _isPageVisible
 }
-
-// 页面级 ResizeObserver 工厂（消除 pages 间重复代码）
 
 interface PageResizeManager {
   observe: (
@@ -513,10 +435,6 @@ interface PageResizeManager {
 
 const _pageResizeManagers = new Map<string, PageResizeManager>()
 
-/**
- * 获取页面级 ResizeObserver 管理器
- * 每个页面一个独立的 Observer，切换页面时清理
- */
 export function getPageResizeManager(pageId: string): PageResizeManager {
   let manager = _pageResizeManagers.get(pageId)
   if (manager) return manager
@@ -557,8 +475,6 @@ export function getPageResizeManager(pageId: string): PageResizeManager {
   return manager
 }
 
-// 页面级 Interval 管理（消除 pages 间重复代码）
-
 interface PageIntervalManager {
   add: (id: ReturnType<typeof setInterval>) => void
   remove: (id: ReturnType<typeof setInterval>) => void
@@ -567,10 +483,6 @@ interface PageIntervalManager {
 
 const _pageIntervalManagers = new Map<string, PageIntervalManager>()
 
-/**
- * 获取页面级 Interval 管理器
- * 统一追踪和清理 setInterval
- */
 export function getPageIntervalManager(pageId: string): PageIntervalManager {
   let manager = _pageIntervalManagers.get(pageId)
   if (manager) return manager
@@ -596,9 +508,6 @@ export function getPageIntervalManager(pageId: string): PageIntervalManager {
   return manager
 }
 
-// 统计信息（调试用）
-
-/** 获取调度器状态 */
 export function getStats() {
   return {
     pageId: currentPageId,
@@ -624,12 +533,9 @@ export function getStats() {
   }
 }
 
-// 销毁（仅测试用）
-
 export function destroy(): void {
   cleanupPage()
 
-  // 清理可见性
   if (_visibilityHandler && typeof document !== 'undefined') {
     document.removeEventListener('visibilitychange', _visibilityHandler)
     _visibilityHandler = null
@@ -637,7 +543,6 @@ export function destroy(): void {
   _visibilitySubscribers.clear()
   visibilityInitialized = false
 
-  // 清理 MessageChannel
   if (_channel) {
     _channel.port1.close()
     _channel.port2.close()
@@ -645,7 +550,6 @@ export function destroy(): void {
   }
   messageChannelInitialized = false
 
-  // 清理 ResizeObserver
   if (_resizeObserver) {
     _resizeObserver.disconnect()
     _resizeObserver = null
@@ -653,7 +557,6 @@ export function destroy(): void {
   _resizeElements.clear()
   resizeObserverInitialized = false
 
-  // 清理 IntersectionObserver
   for (const obs of _intersectionObservers.values()) {
     obs.disconnect()
   }

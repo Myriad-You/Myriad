@@ -7,11 +7,6 @@ export interface LibraryPreferencesUpdatedDetail {
   layout: LibraryLayoutMode
 }
 
-/**
- * Resolve effective library card layout for the current device.
- * Infinite canvas is only used when the preference is canvas **and** the
- * device meets the high-hardware tier; otherwise fall back to list.
- */
 export function resolveLibraryLayoutMode(
   preferred: LibraryLayoutMode | undefined | null,
   highHardware: boolean,

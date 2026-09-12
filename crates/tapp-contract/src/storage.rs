@@ -2,10 +2,11 @@
 
 use crate::contract_rules::MAX_STORAGE_KEY_LEN;
 
-pub const HOST_STORAGE_KEY_PREFIXES: [&str; 6] = [
+pub const HOST_STORAGE_KEY_PREFIXES: [&str; 7] = [
     "_settings.",
     "_credentials.",
     "_shared.",
+    "_private.",
     "_component:",
     "_shortcut:",
     "_report:",
@@ -41,6 +42,7 @@ pub fn validate_storage_key(key: &str) -> Result<(), &'static str> {
 
 pub fn is_host_storage_key(key: &str) -> bool {
     key == "_settings"
+        || key == "_private"
         || HOST_STORAGE_KEY_PREFIXES
             .iter()
             .any(|prefix| key.starts_with(prefix))
@@ -100,6 +102,8 @@ mod tests {
             "_settings.theme",
             "_credentials.wegame",
             "_shared.posts",
+            "_private",
+            "_private.token",
             "_component:x",
             "_shortcut:y",
             "_report:z",

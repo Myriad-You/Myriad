@@ -1,8 +1,3 @@
-/**
- * Run from frontend/:
- *   pnpm test:unit -- src/components/config/analytics/compareDeltaLogic.test.ts
- */
-
 import type { CompareLabels } from './compareDeltaLogic.ts'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'

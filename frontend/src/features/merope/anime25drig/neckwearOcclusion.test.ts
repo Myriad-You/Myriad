@@ -75,3 +75,14 @@ test('front/back interleaving and unavailable obstacle pixels preserve authored 
     true,
   )
 })
+
+test('another neckwear layer is also an occluder when only the lower item would move', () => {
+  const f = fixture()
+  f.put(f.accessory, (x, y) => x >= 18 && x <= 22 && y >= 28 && y < 35)
+  const scarf = { ...f.body, role: 'neckwear' }
+  f.put(scarf, () => true)
+  assert.equal(
+    canLiftNeckwearOverSkin(f.accessory, f.neck, f.body, [scarf], f.read),
+    false,
+  )
+})

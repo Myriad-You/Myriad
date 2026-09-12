@@ -1,16 +1,27 @@
-//! 统一的 HTTP 客户端工厂
-//!
-//! 为所有需要访问外部 API 的服务提供统一的 HTTP 客户端，
-//! 支持代理配置，方便中国大陆服务器访问外部服务。
+//! HTTP 客户端工厂：全局/长任务/媒体/Tapp 静态客户端，以及带动态代理的出站构建。
+//! 不是每条出站路径都走这里（declared-API 有独立客户端；部分音乐服务自建 Client）。
 
 use once_cell::sync::Lazy;
 use reqwest::{Client, Proxy};
 use std::sync::RwLock;
 use std::time::Duration;
+use url::Url;
+
+/// Scheme + host + port only. Userinfo (proxy password) never belongs in logs.
+fn proxy_log_target(raw: &str) -> String {
+    match Url::parse(raw) {
+        Ok(url) => match (url.host_str(), url.port()) {
+            (Some(host), Some(port)) => format!("{}://{host}:{port}", url.scheme()),
+            (Some(host), None) => format!("{}://{host}", url.scheme()),
+            _ => "invalid-proxy-url".to_string(),
+        },
+        Err(_) => "invalid-proxy-url".to_string(),
+    }
+}
 
 /// Shared Tapp outbound HTTP client (pooled, fixed timeouts, no dynamic proxy).
 ///
-/// Used by declared-API / geo helpers and AI image fetch paths. Lives in services
+/// Used by declared-API geo helpers and store stats beacon. Lives in services
 /// so `tapp_api_service` does not import `crate::api::tapp_runtime`.
 pub static TAPP_HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
     Client::builder()
@@ -23,7 +34,7 @@ pub static TAPP_HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
         .expect("Failed to create Tapp HTTP client")
 });
 
-/// Shared client for music CDN / audio streaming (NetEase, QQ, KuGou, etc.).
+/// Shared client for music CDN / audio streaming (NetEase, QQ). KuGou builds its own Client.
 ///
 /// Browser-like UA for CDN referer policies. Prefer this over per-request
 /// `Client::builder()` to reuse connection pools (memory + latency).
@@ -116,7 +127,7 @@ impl ProxyConfig {
 /// Gemini Grounding, TinyFish Search/Fetch, and Tencent speech so bypass list
 /// behavior stays consistent.
 ///
-/// **MYR-019 fail-closed:** when `should_use_proxy()` is true and the proxy URL
+/// **fail-closed:** when `should_use_proxy()` is true and the proxy URL
 /// cannot be built, returns `Err` — callers must not fall back to a silent
 /// direct-connect client. When proxy is not configured/enabled, direct is OK.
 pub fn apply_proxy(
@@ -125,19 +136,25 @@ pub fn apply_proxy(
 ) -> Result<reqwest::ClientBuilder, reqwest::Error> {
     if proxy_config.should_use_proxy() {
         if let Some(proxy_url) = &proxy_config.proxy_url {
-            tracing::info!("🌐 Configuring HTTP proxy: {}", proxy_url);
+            let proxy_target = proxy_log_target(proxy_url);
+            tracing::info!(
+                proxy_enabled = true,
+                proxy = %proxy_target,
+                "Configuring HTTP proxy"
+            );
 
             let mut proxy = Proxy::all(proxy_url).map_err(|error| {
                 tracing::error!(
                     %error,
-                    proxy_url = %proxy_url,
+                    proxy_enabled = true,
+                    proxy = %proxy_target,
                     "Configured outbound proxy URL is invalid (PROXY_URL / proxy_url); \
                      refusing silent direct-connect (MYR-019 fail-closed)"
                 );
                 error
             })?;
 
-            // Wire NO_PROXY-style bypass into reqwest (was log-only before).
+            // Wire NO_PROXY-style bypass into reqwest (`proxy.no_proxy`).
             if !proxy_config.bypass_list.is_empty() {
                 let bypass_str = proxy_config
                     .bypass_list
@@ -191,7 +208,7 @@ pub fn create_client_no_proxy() -> Result<Client, reqwest::Error> {
 /// Resolve a client after a build attempt: direct only when proxy was not required.
 ///
 /// When proxy **was** required, logs and panics rather than returning a direct
-/// client (MYR-019). Misconfiguration must not look like a working egress path.
+/// client. Misconfiguration must not look like a working egress path.
 pub fn resolve_client_or_fail_closed(
     result: Result<Client, reqwest::Error>,
     proxy_config: &ProxyConfig,
@@ -203,7 +220,12 @@ pub fn resolve_client_or_fail_closed(
             tracing::error!(
                 %error,
                 context,
-                proxy_url = ?proxy_config.proxy_url.as_deref(),
+                proxy_enabled = true,
+                proxy = %proxy_config
+                    .proxy_url
+                    .as_deref()
+                    .map(proxy_log_target)
+                    .unwrap_or_else(|| "none".to_string()),
                 "Configured outbound proxy failed to build; refusing silent \
                  direct-connect (MYR-019 fail-closed). Fix PROXY_URL / admin \
                  proxy settings (or disable proxy)."
@@ -263,7 +285,7 @@ pub async fn get_global_client() -> Client {
 /// Used by [`crate::services::image_generation`] for provider round-trips.
 /// Keep in sync with `MEROPE_PROXY_TIMEOUT_MS` and the portrait client timeout.
 ///
-/// **MYR-019:** if a proxy is configured and cannot be applied, this panics
+/// If a proxy is configured and cannot be applied, this panics
 /// instead of silently building a direct client.
 pub async fn get_long_running_client() -> Client {
     // gpt-image / Gemini image at portrait resolution can exceed 6 minutes.
@@ -279,7 +301,12 @@ pub async fn get_long_running_client() -> Client {
         Err(error) if proxy_is_required(&proxy_config) => {
             tracing::error!(
                 %error,
-                proxy_url = ?proxy_config.proxy_url.as_deref(),
+                proxy_enabled = true,
+                proxy = %proxy_config
+                    .proxy_url
+                    .as_deref()
+                    .map(proxy_log_target)
+                    .unwrap_or_else(|| "none".to_string()),
                 "Long-running client: configured outbound proxy failed to build; \
                  refusing silent direct-connect (MYR-019 fail-closed)"
             );
@@ -321,7 +348,12 @@ fn build_pooled_egress_client(
             tracing::error!(
                 %error,
                 context,
-                proxy_url = ?proxy_config.proxy_url.as_deref(),
+                proxy_enabled = true,
+                proxy = %proxy_config
+                    .proxy_url
+                    .as_deref()
+                    .map(proxy_log_target)
+                    .unwrap_or_else(|| "none".to_string()),
                 "Configured outbound proxy failed to build; \
                  refusing silent direct-connect (MYR-019 fail-closed)"
             );
@@ -384,7 +416,7 @@ pub async fn get_gemini_grounding_client() -> Client {
 /// 重新加载全局 HTTP 客户端（配置更新时调用）
 ///
 /// On failure with a **required** proxy, keeps the previous client (if any) and
-/// does **not** install a silent direct-connect replacement (MYR-019).
+/// does **not** install a silent direct-connect replacement.
 pub async fn reload_global_client() {
     let proxy_config = ProxyConfig::from_dynamic_config().await;
 
@@ -412,7 +444,12 @@ pub async fn reload_global_client() {
         Err(e) if proxy_is_required(&proxy_config) => {
             tracing::error!(
                 %e,
-                proxy_url = ?proxy_config.proxy_url.as_deref(),
+                proxy_enabled = true,
+                proxy = %proxy_config
+                    .proxy_url
+                    .as_deref()
+                    .map(proxy_log_target)
+                    .unwrap_or_else(|| "none".to_string()),
                 "❌ Failed to reload HTTP client with required proxy; keeping previous \
                  client (fail-closed, no silent direct bypass)"
             );
@@ -595,7 +632,7 @@ mod tests {
 
     #[test]
     fn invalid_required_proxy_does_not_yield_direct_client() {
-        // MYR-019: when proxy is required, create paths must error — never
+        // when proxy is required, create paths must error — never
         // silently hand back a working direct client.
         let bad = ProxyConfig {
             enabled: true,
@@ -681,5 +718,73 @@ mod tests {
             let mut config = GLOBAL_DYNAMIC_CONFIG.write().await;
             *config = original;
         }
+    }
+
+    struct BufferWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl std::io::Write for BufferWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for BufferWriter {
+        type Writer = BufferWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            BufferWriter(self.0.clone())
+        }
+    }
+
+    fn captured_logs(buf: &std::sync::Arc<std::sync::Mutex<Vec<u8>>>) -> String {
+        String::from_utf8_lossy(&buf.lock().unwrap()).into_owned()
+    }
+
+    #[test]
+    fn proxy_log_target_strips_userinfo() {
+        assert_eq!(
+            proxy_log_target("http://user:super-secret-proxy-pass@127.0.0.1:8080"),
+            "http://127.0.0.1:8080"
+        );
+        assert_eq!(proxy_log_target("not a valid proxy url"), "invalid-proxy-url");
+    }
+
+    #[test]
+    fn apply_proxy_logs_never_include_proxy_password() {
+        const SECRET: &str = "super-secret-proxy-pass";
+        let buf = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(BufferWriter(buf.clone()))
+            .with_max_level(tracing::Level::INFO)
+            .with_ansi(false)
+            .finish();
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        let ok = ProxyConfig {
+            enabled: true,
+            proxy_url: Some(format!("http://user:{SECRET}@127.0.0.1:8080")),
+            bypass_list: vec![],
+        };
+        let _ok_builder = apply_proxy(reqwest::Client::builder(), &ok).expect("valid proxy");
+
+        let bad = ProxyConfig {
+            enabled: true,
+            proxy_url: Some(format!("http://user:{SECRET}@%")),
+            bypass_list: vec![],
+        };
+        assert!(apply_proxy(reqwest::Client::builder(), &bad).is_err());
+
+        let logs = captured_logs(&buf);
+        assert!(
+            !logs.contains(SECRET),
+            "proxy password leaked into logs: {logs}"
+        );
+        assert!(
+            logs.contains("proxy_enabled") || logs.contains("127.0.0.1"),
+            "expected enabled/redacted proxy log, got: {logs}"
+        );
     }
 }

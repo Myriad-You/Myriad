@@ -1,26 +1,17 @@
-/**
- * Host-side resolution for manifest `openUrls` + `Tapp.ui.openUrl`.
- *
- * Security model:
- * - Tapp never passes a free-form URL; only a declared `id` plus optional path/query.
- * - Host rebuilds the URL from the install-time allowlist and re-validates the result.
- * - HTTPS only (http allowed solely for loopback hosts).
- */
+/** 沙箱只传声明 id。宿主按安装期 allowlist 重建 URL。仅 HTTPS（loopback 可 http）。 */
 
 export type OpenUrlMatchMode = 'exact' | 'prefix' | 'origin'
 
 export interface OpenUrlDeclaration {
   id: string
   url: string
-  /** Defaults to exact when omitted / unknown. */
   match?: OpenUrlMatchMode | string
 }
 
 export interface OpenUrlRequest {
   id: string
-  /** Relative path or origin-absolute path; never a full URL. */
+  /** 相对路径或 origin 绝对路径；从不是完整 URL。 */
   path?: string
-  /** Plain string query pairs only. */
   query?: Record<string, string>
 }
 
@@ -37,7 +28,6 @@ function isLoopbackHost(hostname: string): boolean {
   return h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || h === '::1'
 }
 
-/** Strict target URL rules for declaration and resolved open. */
 export function isAllowedOpenUrlTarget(raw: string): boolean {
   if (!raw || raw.length > MAX_URL_LEN) return false
   if (/[\s\u0000-\u001F\u007F]/.test(raw)) return false
@@ -60,7 +50,6 @@ function normalizeMatch(raw: unknown): OpenUrlMatchMode {
 }
 
 function pathHasTraversal(pathname: string): boolean {
-  // Split on / and reject empty-after-decode ".." segments.
   const segments = pathname.split('/')
   for (const segment of segments) {
     let decoded = segment
@@ -70,7 +59,6 @@ function pathHasTraversal(pathname: string): boolean {
       return true
     }
     if (decoded === '..' || decoded === '.') {
-      // "." is harmless but unusual in declared navigation; reject both.
       if (decoded === '..') return true
     }
     if (decoded.includes('\\') || decoded.includes('\0')) return true
@@ -79,7 +67,6 @@ function pathHasTraversal(pathname: string): boolean {
 }
 
 function looksLikeAbsoluteUrl(path: string): boolean {
-  // scheme: or //host
   if (path.startsWith('//')) return true
   if (/^[a-z][a-z0-9+.-]*:/i.test(path)) return true
   return false
@@ -107,7 +94,7 @@ function matchesAllowlist(resolved: URL, base: URL, mode: OpenUrlMatchMode): boo
   if (pathHasTraversal(resolved.pathname)) return false
 
   if (mode === 'exact') {
-    // Compare without hash; declarations must not use fragments.
+    // 比较时去掉 hash；声明不得带 fragment。
     const a = new URL(resolved.href)
     const b = new URL(base.href)
     a.hash = ''
@@ -121,11 +108,8 @@ function matchesAllowlist(resolved: URL, base: URL, mode: OpenUrlMatchMode): boo
     return true
   }
 
-  // prefix: pathname must stay under base.pathname
   let basePath = base.pathname
   if (!basePath.endsWith('/')) {
-    // Treat file-like prefix as directory-or-exact-file prefix:
-    // https://ex.com/docs allows /docs and /docs/... but not /docsEvil
     const resolvedPath = resolved.pathname
     if (resolvedPath === basePath) return true
     if (!basePath.endsWith('/')) basePath = `${basePath}/`
@@ -134,10 +118,7 @@ function matchesAllowlist(resolved: URL, base: URL, mode: OpenUrlMatchMode): boo
   return resolved.pathname.startsWith(basePath)
 }
 
-/**
- * Resolve a sandbox open request against install-time declarations.
- * Never trusts a caller-supplied absolute URL.
- */
+/** 按安装期声明解析。不信任调用方绝对 URL。 */
 export function resolveOpenUrl(
   declarations: readonly OpenUrlDeclaration[] | null | undefined,
   request: OpenUrlRequest,
@@ -201,7 +182,6 @@ export function resolveOpenUrl(
   let resolved: URL
   try {
     if (path && path.length > 0) {
-      // Relative to the declared base (directory-style when base ends with /).
       resolved = new URL(path, base)
     } else {
       resolved = new URL(base.href)
@@ -224,7 +204,6 @@ export function resolveOpenUrl(
   return { ok: true, url: resolved.href, id, match: mode }
 }
 
-/** Public list payload for `Tapp.ui.listOpenUrls`. */
 export function listOpenUrlDeclarations(
   declarations: readonly OpenUrlDeclaration[] | null | undefined,
 ): Array<{ id: string; url: string; match: OpenUrlMatchMode }> {
@@ -238,7 +217,6 @@ export function listOpenUrlDeclarations(
     }))
 }
 
-/** Simple sliding-window rate limit for host open calls. */
 export class OpenUrlRateLimiter {
   private readonly hits = new Map<string, number[]>()
   private readonly maxHits: number

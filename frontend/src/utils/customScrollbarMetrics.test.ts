@@ -63,7 +63,7 @@ describe('scrollbar drag mapping', () => {
     )
     assert.equal(scrollTop, 2000)
 
-    // Growing the live page must not change the in-drag mapping.
+    // In-drag mapping must not follow live page growth.
     const liveScrollableHeight = 9000
     const stillLocked = scrollTopFromThumb(
       thumbTop,

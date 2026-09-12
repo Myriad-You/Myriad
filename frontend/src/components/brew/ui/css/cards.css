@@ -1,0 +1,872 @@
+/* 页面组合不要往这里塞业务。 */
+
+.brew-site {
+  --brew-site-inset: 0.7rem;
+
+  display: flex;
+  position: relative;
+  flex: 0 0 auto;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+  width: 19rem;
+  max-width: 19rem;
+  min-height: 5.5rem;
+  height: 5.5rem;
+  padding: var(--brew-site-inset);
+  border: 1px solid var(--brew-frost-line, var(--brew-line));
+  border-radius: var(--brew-radius);
+  contain: layout style paint;
+  background: var(--brew-chip);
+  box-shadow: var(--brew-shadow);
+  cursor: pointer;
+  opacity: 0.64;
+  transition:
+    background-color 160ms var(--sm-ease-standard, ease),
+    border-color 160ms var(--sm-ease-standard, ease),
+    opacity 200ms var(--sm-ease-standard, ease);
+}
+
+.brew-site:hover {
+  background: var(--brew-fill-hover);
+  border-color: var(--brew-line-hover);
+  opacity: 0.9;
+}
+
+.brew-site.is-on,
+.brew-site.is-on:hover {
+  opacity: 1;
+  background: var(--brew-chip);
+  border-color: var(--brew-frost-line, var(--brew-line));
+}
+
+.brew-site.is-cover,
+.brew-site.is-cover:hover,
+.brew-site.is-on.is-cover,
+.brew-site.is-on.is-cover:hover {
+  justify-content: flex-start;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.brew-site__scene {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border: 1px solid var(--brew-frost-line, var(--brew-line));
+  border-radius: inherit;
+  background: var(--brew-fill);
+  box-shadow: var(--brew-shadow);
+  pointer-events: none;
+}
+
+.brew-site__scene img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.brew-site__scene::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    rgb(0 0 0 / 62%) 0%,
+    rgb(0 0 0 / 28%) 42%,
+    rgb(0 0 0 / 8%) 100%
+  );
+}
+
+.brew-site.is-cover .brew-site__head {
+  max-width: 78%;
+}
+
+.brew-site.is-cover .brew-site__name {
+  color: #fff;
+  text-shadow: 0 1px 10px rgb(0 0 0 / 42%);
+}
+
+.brew-site.is-edit .brew-site__unread {
+  display: none;
+}
+
+.brew-site__edit,
+.brew-salon__edit {
+  position: absolute;
+  top: 0.42rem;
+  left: 0.42rem;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  padding: 0;
+  border: 1px solid var(--brew-frost-line, var(--brew-line));
+  border-radius: 999px;
+  background: var(--brew-chip);
+  color: var(--brew-fg-soft);
+  cursor: pointer;
+}
+
+.brew-site__edit svg,
+.brew-salon__edit svg {
+  width: 0.72rem;
+  height: 0.72rem;
+}
+
+.brew-site__edit:hover,
+.brew-salon__edit:hover {
+  border-color: var(--brew-accent-line);
+  background: var(--brew-accent-fill);
+  color: var(--brew-accent-ink);
+}
+
+.brew-site.is-edit.is-picked,
+.brew-feeds.is-sites-open .brew-site.is-edit.is-picked {
+  border-color: var(--brew-accent-line);
+  background: var(--brew-accent-fill);
+  opacity: 1;
+}
+
+.brew-site.is-edit.is-picked.is-cover,
+.brew-site.is-edit.is-picked.is-cover:hover {
+  background: transparent;
+  border-color: var(--brew-accent-line);
+  box-shadow: 0 0 0 1px var(--brew-accent-line);
+}
+
+.brew-site__bleed {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: 58%;
+  pointer-events: none;
+  mask-image: radial-gradient(
+    circle at 100% 50%,
+    rgb(0 0 0 / 100%) 42%,
+    transparent 74%
+  );
+  mask-image: radial-gradient(
+    circle at 100% 50%,
+    rgb(0 0 0 / 100%) 42%,
+    transparent 74%
+  );
+}
+
+.brew-site__bleed img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: translateX(6%) scale(1.1);
+}
+
+.brew-site__head {
+  display: flex;
+  position: relative;
+  z-index: 1;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0.14rem;
+  max-width: 68%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.brew-site__name {
+  overflow: hidden;
+  min-width: 0;
+  color: var(--brew-fg);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brew-site__dek {
+  display: block;
+  overflow: hidden;
+  min-width: 0;
+  color: var(--brew-fg-soft);
+  font-size: 0.8125rem;
+  line-height: 1.3;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brew-site__unread {
+  position: absolute;
+  top: var(--brew-site-inset);
+  right: var(--brew-site-inset);
+  z-index: 2;
+  min-width: 1.15rem;
+  padding: 0.12rem 0.36rem 0.1rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--brew-chip);
+  color: var(--site-ink, var(--brew-fg-soft));
+  font-size: 0.625rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  line-height: 1.15;
+}
+
+html.dark .brew-site__unread {
+  color: color-mix(in srgb, var(--site-ink, var(--brew-fg-soft)) 62%, white);
+}
+
+.brew-site button.brew-site__article,
+.brew-site__none {
+  display: flex;
+  position: relative;
+  z-index: 1;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.7rem;
+  overflow: hidden;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--brew-fg-dim);
+  font-size: 0.6875rem;
+  font-weight: 450;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+}
+
+.brew-site__none {
+  cursor: default;
+}
+
+.brew-site__article-title {
+  flex: 1 1 auto;
+  overflow: hidden;
+  max-width: 62%;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brew-site__when {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  opacity: 0.82;
+  white-space: nowrap;
+}
+
+.brew-site button.brew-site__article:hover {
+  color: var(--brew-fg-soft);
+}
+
+.brew-feeds__items {
+  --brew-items-gap: 0.55rem;
+  --brew-items-pad-bottom: 0rem;
+  --brew-items-span: calc(
+    var(--brew-story-h) * 2 + var(--brew-items-gap) +
+      var(--brew-items-pad-bottom) + 0.35rem
+  );
+
+  box-sizing: border-box;
+  flex: 0 0 var(--brew-items-span);
+  height: var(--brew-items-span);
+  min-height: var(--brew-items-span);
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+  transition:
+    flex-basis var(--brew-open-ms) var(--sm-ease-standard, ease),
+    height var(--brew-open-ms) var(--sm-ease-standard, ease),
+    min-height var(--brew-open-ms) var(--sm-ease-standard, ease),
+    opacity var(--brew-open-ms) var(--sm-ease-standard, ease),
+    transform var(--brew-open-ms) var(--sm-ease-standard, ease);
+}
+
+.brew-feeds.is-sites-open:not(.is-sites-morphing) .brew-feeds__items {
+  flex: 0 0 0 !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.brew-feeds__items-track {
+  display: grid;
+  grid-template-rows: repeat(2, var(--brew-story-h));
+  grid-auto-flow: column;
+  grid-auto-columns: var(--brew-story-w);
+  align-items: stretch;
+  gap: var(--brew-items-gap) 0.75rem;
+  padding: 0.35rem var(--brew-rail-pad-x) var(--brew-items-pad-bottom);
+}
+
+.brew-feeds__empty {
+  margin: 0.35rem 0 0;
+  color: var(--brew-fg-dim);
+  font-size: 0.8125rem;
+}
+
+.brew-story {
+  --brew-story-inset: 0.7rem;
+  --brew-story-title-size: 1.2rem;
+
+  box-sizing: border-box;
+  display: block;
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--brew-story-w);
+  height: var(--brew-story-h);
+  min-height: var(--brew-story-h);
+  overflow: visible;
+  color: var(--brew-fg);
+  contain: layout style;
+  isolation: isolate;
+  transition: transform var(--sm-dur-fast, 140ms) var(--sm-ease-standard, ease);
+}
+
+.brew-skin button.brew-story__hit {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.brew-story:hover {
+  transform: translateY(var(--sm-lift, -1px));
+}
+
+.brew-story:hover .brew-story__shell {
+  border-color: var(--brew-line-hover);
+  box-shadow: var(--brew-shadow-hover);
+}
+
+.brew-story.is-current .brew-story__shell {
+  border-color: var(--brew-line-hover);
+  box-shadow: var(--brew-shadow-hover);
+}
+
+.brew-story.is-picked .brew-story__shell {
+  border-color: var(--brew-accent-line);
+  background: var(--brew-accent-fill);
+  box-shadow: none;
+}
+
+.brew-story__hit:active {
+  transform: scale(var(--sm-scale-press, 0.97));
+}
+
+.brew-site[data-leaving='true'],
+.brew-story[data-leaving='true'],
+.brew-story[data-leaving='true']:hover,
+.brew-story[data-leaving='true']:active {
+  transform-origin: center center;
+  transform: translate3d(calc(var(--exit, 0) * var(--exit-x, 0px)), 0, 0)
+    scale(calc(1 - var(--exit, 0) * 0.03));
+}
+
+.brew-story[data-leaving='true'],
+.brew-story[data-leaving='true']:hover,
+.brew-story[data-leaving='true']:active {
+  opacity: calc(1 - var(--exit, 0) * 0.86);
+}
+
+html[data-perf-mode='exlight'] .brew-site[data-leaving='true'],
+html[data-perf-mode='exlight'] .brew-story[data-leaving='true'] {
+  opacity: 1;
+  transform: none;
+}
+
+.brew-story__hit:focus-visible {
+  box-shadow: none;
+}
+
+.brew-story__hit:focus-visible .brew-story__shell {
+  box-shadow: var(--brew-focus);
+}
+
+.brew-skin button.brew-story__star {
+  position: absolute;
+  top: 0.42rem;
+  right: 0.42rem;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--brew-fg-soft);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--sm-dur-fast, 140ms) var(--sm-ease-standard, ease),
+    color var(--sm-dur-fast, 140ms) var(--sm-ease-standard, ease);
+}
+
+.brew-story:hover .brew-story__star,
+.brew-story:focus-within .brew-story__star,
+.brew-skin button.brew-story__star.is-on,
+.brew-skin button.brew-story__star:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.brew-skin button.brew-story__star:hover {
+  color: var(--brew-fg);
+}
+
+.brew-skin button.brew-story__star.is-on {
+  color: var(--brew-accent-ink);
+}
+
+.brew-story__star :is(svg) {
+  display: block;
+  width: 1rem;
+  height: 1rem;
+}
+
+.brew-skin button.brew-story__star.is-on :is(svg) {
+  fill: currentcolor;
+}
+
+.brew-pick {
+  position: absolute;
+  top: 0.42rem;
+  right: 0.42rem;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 1.35rem;
+  height: 1.35rem;
+  border: 1.5px solid color-mix(in srgb, var(--brew-fg-dim) 72%, transparent);
+  border-radius: 999px;
+  background: var(--brew-chip);
+  color: transparent;
+  pointer-events: none;
+  animation: brew-tag-enter var(--sm-dur-base, 220ms)
+    var(--sm-ease-enter, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+
+.brew-pick.is-on {
+  border-color: transparent;
+  background: var(--brew-accent-ink);
+  color: var(--brew-chip);
+}
+
+.brew-pick :is(svg) {
+  display: block;
+  width: 0.72rem;
+  height: 0.72rem;
+}
+
+.brew-story__shell {
+  display: flex;
+  position: relative;
+  box-sizing: border-box;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  padding: var(--brew-story-inset);
+  border-radius: var(--brew-radius);
+  background: var(--brew-chip);
+}
+
+.brew-story__body {
+  display: flex;
+  z-index: 1;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.brew-story__title {
+  display: -webkit-box;
+  overflow: hidden;
+  max-width: 100%;
+  min-width: 0;
+  color: var(--brew-fg);
+  font-size: var(--brew-story-title-size);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.25;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.brew-story__meta {
+  color: var(--brew-fg-dim);
+  font-size: 0.6875rem;
+  font-weight: 550;
+  letter-spacing: 0.01em;
+}
+
+.brew-story__summary {
+  display: -webkit-box;
+  overflow: hidden;
+  max-width: 100%;
+  color: var(--brew-fg-soft);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.brew-story__kicker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.4rem;
+}
+
+.brew-story__source {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  min-width: 0;
+  color: var(--brew-fg-dim);
+  font-size: 0.6875rem;
+  font-weight: 550;
+  letter-spacing: 0.01em;
+}
+
+.brew-story__source span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brew-story__source img,
+.brew-story__source-mark {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 0.18rem;
+}
+
+.brew-story__source img {
+  object-fit: cover;
+}
+
+.brew-story__source img[hidden] {
+  display: none;
+}
+
+.brew-story__source-mark {
+  display: grid;
+  place-items: center;
+  background: var(--brew-fill);
+  color: var(--brew-fg-soft);
+  font-size: 0.5rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.brew-story__topic {
+  color: var(--brew-fg);
+  font-size: 0.625rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.brew-story__unread {
+  color: var(--brew-accent-ink);
+  font-size: 0.625rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.brew-story__byline {
+  overflow: hidden;
+  max-width: 100%;
+  color: var(--brew-fg-soft);
+  font-size: 0.75rem;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brew-story__foot {
+  min-width: 0;
+  width: 100%;
+}
+
+.brew-story.has-cover .brew-story__foot {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  margin-top: auto;
+}
+
+.brew-story__thumb {
+  flex: 0 0 4.5rem;
+  box-sizing: border-box;
+  width: 4.5rem;
+  height: 4.5rem;
+  overflow: hidden;
+  border: 1px solid var(--brew-line);
+  border-radius: 0.45rem;
+  background: var(--brew-fill);
+}
+
+.brew-story__thumb[hidden] {
+  display: none;
+}
+
+.brew-story__thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.brew-story.has-cover .brew-story__summary {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.brew-mark {
+  display: grid;
+  place-items: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  overflow: hidden;
+  border: 1px solid var(--brew-line);
+  border-radius: 0.65rem;
+  background: var(--brew-fill);
+  box-shadow: var(--brew-shadow);
+  color: var(--brew-fg-soft);
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.brew-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.brew-salon {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14.5rem, 1fr));
+  gap: 0.75rem;
+}
+
+.brew-salon__card {
+  display: flex;
+  position: relative;
+  flex-direction: column;
+  gap: 0.55rem;
+  min-height: 8.5rem;
+  padding: 0.85rem 0.9rem;
+  border: 1px solid var(--brew-frost-line, var(--brew-line));
+  border-radius: var(--brew-radius);
+  background: var(--brew-chip);
+  box-shadow: var(--brew-shadow);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    var(--sm-t-elevate, transform 220ms ease),
+    border-color 160ms var(--sm-ease-standard, ease),
+    background-color 160ms var(--sm-ease-standard, ease),
+    box-shadow 160ms var(--sm-ease-standard, ease);
+}
+
+.brew-salon__card:hover {
+  border-color: var(--brew-line-hover);
+  background: var(--brew-fill-hover);
+  box-shadow: var(--brew-shadow-hover);
+  transform: translateY(var(--sm-lift, -1px));
+}
+
+.brew-salon__card:active {
+  transform: scale(var(--sm-scale-press, 0.97));
+}
+
+.brew-salon__card.is-edit {
+  position: relative;
+}
+
+.brew-salon__card.is-picked {
+  border-color: var(--brew-accent-line);
+  background: var(--brew-accent-fill);
+}
+
+.brew-salon__card.is-note {
+  min-height: 11rem;
+}
+
+.brew-salon__card.is-note:first-child {
+  grid-column: 1 / -1;
+  min-height: 0;
+}
+
+.brew-salon__card.has-cover {
+  position: relative;
+  overflow: hidden;
+  min-height: 14rem;
+  justify-content: flex-end;
+  color: #fff;
+}
+
+.brew-salon__cover {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.brew-salon__cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.brew-salon__card.has-cover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgb(0 0 0 / 8%) 0%,
+    rgb(0 0 0 / 42%) 46%,
+    rgb(0 0 0 / 72%) 100%
+  );
+  pointer-events: none;
+}
+
+.brew-salon__card.has-cover .brew-salon__kicker,
+.brew-salon__card.has-cover .brew-salon__title,
+.brew-salon__card.has-cover .brew-salon__summary {
+  position: relative;
+  z-index: 1;
+}
+
+.brew-salon__card.has-cover .brew-salon__kicker,
+.brew-salon__card.has-cover .brew-salon__summary {
+  color: rgb(255 255 255 / 78%);
+}
+
+.brew-salon__kicker {
+  color: var(--brew-fg-dim);
+  font-size: 0.6875rem;
+  font-weight: 550;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.brew-salon__title {
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+}
+
+.brew-salon__card.is-note:first-child .brew-salon__title {
+  font-size: 1.45rem;
+}
+
+.brew-salon__summary {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--brew-fg-soft);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.brew-salon__hit {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.55rem;
+  align-items: stretch;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.brew-salon__head {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.brew-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding-bottom: 2.5rem;
+}
+
+.brew-stories {
+  --brew-story-h: 12rem;
+  --brew-story-w: 16.5rem;
+
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--brew-story-w), 1fr));
+  gap: 0.75rem 0.85rem;
+}
+
+.brew-stories .brew-story {
+  width: 100%;
+}
+
+.brew-stories__more {
+  grid-column: 1 / -1;
+  padding: 1.5rem 0;
+  color: var(--brew-fg-dim);
+  font-size: 0.8125rem;
+  text-align: center;
+}
+
+@media (hover: none) {
+  .brew-story:hover,
+  .brew-salon__card:hover {
+    transform: none;
+  }
+
+  .brew-skin button.brew-story__star {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+@media (width < 640px) {
+  .brew-feeds,
+  .brew-stories {
+    --brew-story-w: 14rem;
+  }
+
+  .brew-salon {
+    grid-template-columns: 1fr;
+  }
+}
+

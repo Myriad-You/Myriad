@@ -1,12 +1,3 @@
-/**
- * Google Analytics 4 (gtag.js) client.
- *
- * - Measurement ID from site metadata / config (G-XXXXXXXX)
- * - SPA page_view via route tracker (send_page_view disabled on config)
- * - Respects first-party analytics opt-out (`myriad_analytics_optout`)
- * - Skips /setup and empty/invalid IDs
- */
-
 declare global {
   interface Window {
     dataLayer?: unknown[]
@@ -14,10 +5,8 @@ declare global {
   }
 }
 
-/** Align with siteAnalytics OPT_OUT_KEY */
 const OPT_OUT_KEY = 'myriad_analytics_optout'
 const SKIP_PREFIXES = ['/setup']
-/** GA4 Measurement ID (also accepts legacy UA- for gtag compatibility) */
 const GA_ID_PATTERN = /^(G-[A-Z0-9]+|UA-\d+-\d+)$/i
 
 const SCRIPT_ATTR = 'data-myriad-ga'
@@ -25,9 +14,9 @@ const SCRIPT_SRC_BASE = 'https://www.googletagmanager.com/gtag/js?id='
 
 let activeId: string | null = null
 let scriptLoading = false
-/** Align with first-party staff exclusion (admin / owner self-traffic) */
+/** Staff sessions excluded. */
 let excludeStaff = false
-/** Last path requested before gtag was ready — flushed once configure succeeds */
+/** Flush once configure succeeds. */
 let pendingPath: string | null = null
 
 export function normalizeGaMeasurementId(raw: string | null | undefined): string {
@@ -38,7 +27,7 @@ export function isValidGaMeasurementId(id: string): boolean {
   return GA_ID_PATTERN.test(id)
 }
 
-/** Admin/owner sessions should not pollute GA (same policy as first-party stats). */
+/** Staff sessions excluded. */
 export function setGoogleAnalyticsStaffExcluded(excluded: boolean): void {
   excludeStaff = excluded
 }
@@ -75,7 +64,7 @@ function removeInjectedScript(): void {
   scriptLoading = false
 }
 
-/** Stop tracking and remove our gtag loader tag (cannot fully unload gtag from memory). */
+/** Removes our loader tag; cannot unload gtag. */
 function disableGoogleAnalytics(): void {
   activeId = null
   pendingPath = null
@@ -108,10 +97,6 @@ function injectScript(id: string): void {
   document.head.appendChild(script)
 }
 
-/**
- * Enable / update / disable GA4 from measurement ID.
- * Empty or invalid id stops page_view sends and removes the injected loader script.
- */
 export function configureGoogleAnalytics(
   measurementId: string | null | undefined,
 ): void {
@@ -126,7 +111,7 @@ export function configureGoogleAnalytics(
   ensureGtagStub()
   injectScript(id)
 
-  // Avoid automatic first hit — SPA tracker owns page_view for path accuracy.
+  // SPA tracker owns page_view; disable automatic send.
   window.gtag?.('js', new Date())
   window.gtag?.('config', id, {
     send_page_view: false,
@@ -134,7 +119,7 @@ export function configureGoogleAnalytics(
   })
   activeId = id
 
-  // Metadata fetch is async: only flush paths the router already tried (no double-hit).
+  // Flush only paths the router already requested.
   const flushPath = pendingPath
   pendingPath = null
   if (flushPath) {
@@ -142,11 +127,6 @@ export function configureGoogleAnalytics(
   }
 }
 
-/**
- * Send a GA4 page_view for SPA navigations.
- * No-op when GA is not configured, opted out, staff, or path is skipped.
- * If gtag is not ready yet, remembers the path for a one-shot flush after configure.
- */
 export function trackGooglePageview(path?: string): void {
   if (typeof window === 'undefined') return
   if (excludeStaff) return

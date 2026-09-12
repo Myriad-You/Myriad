@@ -44,7 +44,7 @@ pub fn generated_tapp_fallback(raw: &str) -> Value {
     })
 }
 
-/// Obsolete top-level keys the layer contract no longer accepts.
+/// Top-level keys `normalize_agent_tapp_manifest` strips before persist.
 const RETIRED_MANIFEST_FIELDS: &[&str] = &[
     "main",
     "hasPage",
@@ -59,8 +59,7 @@ const RETIRED_MANIFEST_FIELDS: &[&str] = &[
 /// Normalize agent install/generate manifest fields before persist.
 ///
 /// Sets id/name, default version / category / permissions, layer entries,
-/// optional description/author. Drops retired top-level keys so the row
-/// matches the current package contract.
+/// optional description/author. Strips `RETIRED_MANIFEST_FIELDS`. Extra keys remain.
 pub fn normalize_agent_tapp_manifest(
     mut manifest: Value,
     tapp_id: &str,
@@ -121,7 +120,7 @@ fn ensure_layer_entry(
 
 /// `require` 字面量：从 `from_module` 所在目录指向 `to_module`。
 ///
-/// 与安装期 `resolve_require_target` 同构，只生成相对路径，不猜测默认文件名。
+/// 与安装期 `resolve_require_target` 同构，只生成相对路径，不回退默认文件名。
 pub fn relative_require_request(from_module: &str, to_module: &str) -> Result<String, String> {
     validate_resource_path(from_module)?;
     validate_resource_path(to_module)?;
@@ -208,13 +207,13 @@ pub fn render_report_content(
 ) -> String {
     match format {
         "markdown" => format!(
-            "# {}\n\n生成时间：{}\n\n## 分析结果\n\n{}",
+            "# {}\n\nGenerated at: {}\n\n## Analysis\n\n{}",
             title,
             generated_at_display,
             serde_json::to_string_pretty(analysis).unwrap_or_default()
         ),
         "html" => format!(
-            "<h1>{}</h1><p>生成时间：{}</p><pre>{}</pre>",
+            "<h1>{}</h1><p>Generated at: {}</p><pre>{}</pre>",
             escape_html(title),
             generated_at_display,
             escape_html(&serde_json::to_string_pretty(analysis).unwrap_or_default())
@@ -448,7 +447,7 @@ mod tests {
             "2026-01-01T00:00:00Z",
         );
         assert!(md.contains("# T"));
-        assert!(md.contains("分析结果"));
+        assert!(md.contains("Analysis"));
         let html = render_report_content("<bad>", "html", &json!({}), "t", "t");
         assert!(html.contains("&lt;bad&gt;"));
         let fallback = render_report_content("T", "pdf", &json!({"a": 1}), "t", "t");

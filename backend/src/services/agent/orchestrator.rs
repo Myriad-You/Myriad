@@ -1,16 +1,7 @@
-//! Multi-Agent Orchestrator
+//! Recipe role analysis for identity injection.
 //!
-//! 将多步骤 Recipe 按 Agent 角色分组，并行调度独立的角色组，
-//! 合并结果，提供整体进度追踪。
-//!
-//! ```text
-//! Recipe (N steps)
-//! ↓ group_by_role()
-//! RoleGroup { DataWorker: [s1,s3], ContentWorker: [s2], CreativeWorker: [s4] }
-//! ↓ execute_groups()
-//! 独立组并行 → 有依赖组串行
-//! ↓ 统一执行进度与结果
-//! ```
+//! Groups steps by Agent role, reports `can_parallelize`, and loads role
+//! identity contexts. Does not execute or schedule groups.
 
 use std::collections::HashMap;
 

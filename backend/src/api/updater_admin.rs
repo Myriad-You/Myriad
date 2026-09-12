@@ -4,9 +4,7 @@
 //! `UPDATE_TOKEN` in the fat process); the gateway injects the update token. The browser
 //! never sees either secret. See docs/updater-spec.md §13 for the upstream contract.
 //!
-//! The `UpdaterClient` is stashed in a process-global `OnceLock` so handlers don't need to
-//! thread axum `State` through — this matches the style of the rest of `backend/src/main.rs`,
-//! which constructs the `Router` without a generic state parameter.
+//! `UpdaterClient` lives in a process-global `OnceLock`; handlers read it instead of axum `State`.
 
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -68,7 +66,7 @@ async fn track_updater_job(
     };
     if let Some(manager) = crate::services::agent::notifications::get_notification_manager() {
         manager
-            .notify_updater_job(user_id, job_id, kind, "pending", "任务已进入更新队列")
+            .notify_updater_job(user_id, job_id, kind, "pending", "Update queued")
             .await;
     }
 
@@ -99,9 +97,9 @@ fn spawn_updater_job_tracker(updater: UpdaterClient, user_id: i32, job_id: Strin
                     .or_else(|| {
                         job.get("to_version")
                             .and_then(Value::as_str)
-                            .map(|version| format!("目标版本: {}", version))
+                            .map(|version| format!("Target version: {version}"))
                     })
-                    .unwrap_or_else(|| format!("任务状态: {}", status));
+                    .unwrap_or_else(|| format!("Job status: {status}"));
                 if let Some(manager) =
                     crate::services::agent::notifications::get_notification_manager()
                 {
@@ -123,7 +121,7 @@ fn spawn_updater_job_tracker(updater: UpdaterClient, user_id: i32, job_id: Strin
                     &job_id,
                     &kind,
                     "unknown",
-                    "状态监控超时，请在系统更新面板确认任务结果",
+                    "Status watch timed out. Check the result in System Update.",
                 )
                 .await;
         }
@@ -208,8 +206,7 @@ pub async fn status() -> Response {
 pub struct AvailableQuery {
     #[serde(default)]
     pub channel: Option<String>,
-    /// Ephemeral override: `release` | `commit`. Must be forwarded to updater —
-    /// UI channel checks rely on this when draft mode differs from saved prefs.
+    /// Ephemeral `release` | `commit`. Forwarded to updater `/available` when set.
     #[serde(default)]
     pub mode: Option<String>,
 }
@@ -259,7 +256,7 @@ pub async fn job(Path(id): Path<String>) -> Response {
     {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "invalid job id" })),
+            Json(AppError::public_json("invalid job id")),
         )
             .into_response();
     }
@@ -291,7 +288,7 @@ pub async fn delete_snapshot(headers: HeaderMap, Path(id): Path<String>) -> Resp
     {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "invalid snapshot id" })),
+            Json(AppError::public_json("invalid snapshot id")),
         )
             .into_response();
     }
@@ -699,8 +696,7 @@ pub async fn rescue_continue(headers: HeaderMap) -> Response {
     }
 }
 
-/// Compatibility endpoint. The updater rejects application-driven TCB upgrades;
-/// Guard/updater upgrades require an independently verified host operation.
+/// Proxy to updater `/admin/self-update` (`WorkerCmd::SelfUpdate`). Guard performs TCB replacement.
 pub async fn self_update(headers: HeaderMap) -> Response {
     let c = match require_mutate() {
         Ok(c) => c,
@@ -740,7 +736,7 @@ pub async fn proxy_update(headers: HeaderMap, body: Option<Json<Value>>) -> Resp
     }
 }
 
-/// Legacy TCB self-update outcome (`state/self-update-last.json`). Also on GET /status.
+/// TCB self-update last outcome (`self-update-last.json`). Also on GET /status.
 pub async fn self_update_last() -> Response {
     let c = match require() {
         Ok(c) => c,

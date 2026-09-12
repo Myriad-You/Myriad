@@ -1,13 +1,3 @@
-/**
- * 标题样式选择器组件
- * 用于在编辑模式下选择信息条标题的装饰字体、大小和颜色
- *
- * 性能优化：
- * - useCallback 缓存事件处理函数
- * - useMemo 缓存计算结果
- * - 懒加载字体预览
- */
-
 import type { FontOption } from '../hooks/useTitleFont'
 import type { WidgetGlowMode, WidgetSurface } from '../hooks/useWidgetTheme'
 import type { StylePanelPosition } from './titleFontSelectorPlacement'
@@ -50,9 +40,8 @@ import {
 interface TitleFontSelectorProps {
   csrfToken: string
   className?: string
-  /** 自由布局底栏：直接用轨道按钮样式，不要外包一层再 display:contents。 */
+  // 自由布局底栏直接用轨道按钮，不要外包一层再 display:contents。
   buttonClassName?: string
-  /** 自由布局没有 Hero 标题时，不展示字体/字号。 */
   showHeroOptions?: boolean
 }
 
@@ -82,10 +71,8 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
 
     const [isOpen, setIsOpen] = useState(false)
 
-    // Tapp 注册的主题预设（仅面板打开时拉取，已消毒为 surface+glow）
     const { themes: tappThemes } = useTappThemes(isOpen)
 
-    // 标签配置 - 使用 i18n；Tapp 预设页仅在存在已注册主题时出现
     const TABS = useMemo<{ id: TabType; label: string }[]>(() => {
       const tabs: { id: TabType; label: string }[] = []
       if (showHeroOptions) {
@@ -118,19 +105,16 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
       placement: 'below',
     })
     const isDark = useThemeMode()
-    // 壁纸主色变化时刷新自适应色块预览
     const primaryColor = usePrimaryColor()
 
     const buttonRef = useRef<HTMLButtonElement>(null)
     const panelRef = useRef<HTMLDivElement>(null)
 
-    // 自适应色预览（对比度推导，与 Hero 实际着色一致）
     const adaptivePreviewColor = useMemo(() => {
-      void primaryColor // 壁纸色指纹，触发色块刷新
+      void primaryColor
       return getTitleColorCss('adaptive', isDark)
     }, [isDark, primaryColor])
 
-    // 贴着触发按钮放：下方不够（底栏）就翻到上方，并夹在视口内
     useLayoutEffect(() => {
       if (!isOpen || !buttonRef.current) return
 
@@ -163,7 +147,6 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
       }
     }, [isOpen, activeTab])
 
-    // 点击外部关闭
     useEffect(() => {
       if (!isOpen) return
 
@@ -183,7 +166,6 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
       return () => document.removeEventListener('mousedown', handleClickOutside)
     }, [isOpen])
 
-    // 打开选择器
     const handleOpen = useCallback(async () => {
       const willOpen = !isOpen
       if (willOpen && buttonRef.current) {
@@ -201,7 +183,6 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
       }
     }, [isOpen, preloadAllFonts, showHeroOptions])
 
-    // 选择字体
     const handleSelectFont = useCallback(
       (font: FontOption) => {
         setTitleFont(font.id, csrfToken)
@@ -209,7 +190,6 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
       [setTitleFont, csrfToken],
     )
 
-    // 选择字体大小
     const handleSelectSize = useCallback(
       (size: number) => {
         setTitleFontSize(size, csrfToken)
@@ -217,7 +197,6 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
       [setTitleFontSize, csrfToken],
     )
 
-    // 选择颜色
     const handleSelectColor = useCallback(
       (colorId: string) => {
         setTitleColor(colorId, csrfToken)
@@ -225,7 +204,6 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
       [setTitleColor, csrfToken],
     )
 
-    // 选择小组件表面
     const handleSelectSurface = useCallback(
       (id: WidgetSurface) => {
         setSurface(id, csrfToken)
@@ -233,7 +211,6 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
       [setSurface, csrfToken],
     )
 
-    // 选择光晕模式
     const handleSelectGlow = useCallback(
       (id: WidgetGlowMode) => {
         setGlowMode(id, csrfToken)
@@ -241,7 +218,6 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
       [setGlowMode, csrfToken],
     )
 
-    // 应用 Tapp 主题预设：一键设置 surface + glow（均已白名单消毒）
     const handleApplyPreset = useCallback(
       (preset: { surface?: WidgetSurface; glow?: WidgetGlowMode }) => {
         if (preset.surface) setSurface(preset.surface, csrfToken)
@@ -250,12 +226,10 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
       [setSurface, setGlowMode, csrfToken],
     )
 
-    // 切换标签
     const handleTabChange = useCallback((tab: TabType) => {
       setActiveTab(tab)
     }, [])
 
-    // 渲染标签按钮
     const renderTabs = useMemo(
       () => (
         <div className="flex border-b border-gray-200 dark:border-white/10">
@@ -281,7 +255,6 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
       [activeTab, handleTabChange, TABS],
     )
 
-    // 渲染字体列表
     const renderFontList = useMemo(
       () => (
         <div className="space-y-1 max-h-56 overflow-y-auto">
@@ -315,7 +288,6 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
       [titleFont, isLoading, handleSelectFont],
     )
 
-    // 渲染大小列表
     const renderSizeList = useMemo(
       () => (
         <div className="space-y-1">
@@ -352,7 +324,6 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
       [titleFontSize, handleSelectSize, t],
     )
 
-    // 渲染颜色列表
     const renderColorList = useMemo(
       () => (
         <div className="space-y-1">
@@ -392,7 +363,6 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
       [titleColor, adaptivePreviewColor, handleSelectColor, t],
     )
 
-    // 渲染小组件表面列表（附带一小块该表面的实时预览）
     const renderSurfaceList = useMemo(
       () => (
         <div className="space-y-1">
@@ -432,7 +402,6 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
       [surface, handleSelectSurface, t],
     )
 
-    // 渲染光晕模式列表
     const renderGlowList = useMemo(
       () => (
         <div className="space-y-1">
@@ -480,7 +449,6 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
       [glow, handleSelectGlow, t],
     )
 
-    // 渲染 Tapp 主题预设列表（点击一键应用 surface + glow）
     const renderPresetList = useMemo(() => {
       const surfaceLabel = (id?: WidgetSurface) => {
         const opt = SURFACE_OPTIONS.find((o) => o.id === id)
@@ -539,7 +507,6 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
       )
     }, [tappThemes, surface, glow, handleApplyPreset, t])
 
-    // 渲染当前标签内容
     const renderTabContent = useMemo(() => {
       switch (activeTab) {
         case 'font':

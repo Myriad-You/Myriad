@@ -1,6 +1,3 @@
-/* Tour overlay sits above host chrome (nav 50, GCP 9999, dock 10000)
-   and below toast / login modal (10050). See GlobalControlPanel.css ladder. */
-
 .tour-overlay {
   position: fixed;
   inset: 0;
@@ -36,7 +33,6 @@
 }
 
 .tour-overlay[data-hole-snap] .tour-spotlight {
-  /* 9999px 阴影跟着 morph 插值会整屏重绘；预计算洞当帧落下。 */
   transition-duration: 0s;
 }
 

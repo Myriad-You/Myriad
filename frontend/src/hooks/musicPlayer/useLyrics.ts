@@ -54,9 +54,9 @@ export function useLyrics(): MusicLyricsApi {
     }
   }, [])
 
-  // 直接补丁 globalState，确保进度 tick 读到最新歌词（不依赖广播）
   useEffect(() => {
     lyricsRef.current = lyrics
+    // 直接补丁 globalState，进度 tick 不依赖广播。
     patchLiveGlobalState({ lyrics })
   }, [lyrics])
 
@@ -94,9 +94,7 @@ export function useLyrics(): MusicLyricsApi {
       lyricRequestKeyRef.current = requestKey
       resetLyrics()
 
-      // 不走 loadResource.completed 缓存：固定 id 首次完成后，二次点同一曲会
-      // resetLyrics 后任务被 addTask 直接跳过，资料库/面板歌词永久空白。
-      // HTTP 层仍可由 getLyricsWithVerbatim / 浏览器缓存复用。
+      // 不走 loadResource.completed：同 id 二次点会被 addTask 跳过，歌词永久空白。
       void (async () => {
         try {
           const result = await getLyricsWithVerbatim(song)

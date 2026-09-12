@@ -1,8 +1,3 @@
-/**
- * Who may drive which group of drivers. Higher CHANNEL_PRIORITY wins.
- * Hair and cloth physics are bounded overlays, not a fifth mutex channel.
- */
-
 export const MOTION_CHANNELS = [
   'mouth',
   'expression',
@@ -25,10 +20,6 @@ export const MOTION_SOURCES = [
 
 export type MotionSourceId = (typeof MOTION_SOURCES)[number]
 
-/**
- * Higher number wins. Missing source is idle.
- * Pointer gaze is a local overlay (`allowsPointerGaze`), not a lease.
- */
 export const CHANNEL_PRIORITY: Record<
   MotionChannel,
   Partial<Record<MotionSourceId, number>>

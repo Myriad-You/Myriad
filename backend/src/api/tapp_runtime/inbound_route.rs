@@ -18,6 +18,7 @@ use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, Method, StatusCode, Uri};
 use axum::Json;
+use myriad_error::AppError;
 use myriad_tapp_contract::manifest::TappApiAccess;
 use sea_orm::DatabaseConnection;
 use serde_json::{json, Value};
@@ -256,7 +257,9 @@ pub async fn execute_inbound_route(
     } else {
         Err(HttpError::from((
             StatusCode::BAD_REQUEST,
-            Json(json!({ "success": false, "error": result.error })),
+            Json(AppError::fail_json(
+                result.error.unwrap_or_else(|| "request failed".into()),
+            )),
         )))
     }
 }

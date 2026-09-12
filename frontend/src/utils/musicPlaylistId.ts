@@ -1,7 +1,3 @@
-/**
- * Extract a numeric playlist id from a bare id or a NetEase / QQ Music URL.
- * Matches backend `normalize_music_playlist_id`.
- */
 export function normalizeMusicPlaylistId(raw: string): string {
   const s = raw.trim()
   if (!s) return ''

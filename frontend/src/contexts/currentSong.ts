@@ -40,22 +40,21 @@ export function subscribeCurrentSong(listener: () => void): () => void {
   }
 }
 
-/**
- * Ingest a published `music-player-state-change` detail (or `__musicPlayerState`).
- * Partial events without `currentSong` leave the track alone, but still
- * update playing / current lyric.
- */
+/** Partial events without currentSong leave the track; still update playing / lyric. */
 export function applyPublishedMusicState(
   detail: Record<string, unknown>,
 ): void {
   const patch = pickMusicContextState(detail)
   let changed = false
 
-  if ('currentSong' in patch) {
+  if (Object.hasOwn(patch, 'currentSong')) {
     const song = (patch.currentSong as Song | null) ?? null
     if (!sameTrack(current, song)) {
       current = song
-      if (!('lyrics' in patch) && !('currentLyricIndex' in patch)) {
+      if (
+        !Object.hasOwn(patch, 'lyrics') &&
+        !Object.hasOwn(patch, 'currentLyricIndex')
+      ) {
         lastLyrics = []
         lastLyricIndex = -1
         lyric = ''
@@ -64,7 +63,7 @@ export function applyPublishedMusicState(
     }
   }
 
-  if ('isPlaying' in patch) {
+  if (Object.hasOwn(patch, 'isPlaying')) {
     const next = Boolean(patch.isPlaying)
     if (playing !== next) {
       playing = next
@@ -72,14 +71,17 @@ export function applyPublishedMusicState(
     }
   }
 
-  if ('lyrics' in patch) {
+  if (Object.hasOwn(patch, 'lyrics')) {
     lastLyrics = Array.isArray(patch.lyrics) ? patch.lyrics : []
   }
-  if ('currentLyricIndex' in patch) {
+  if (Object.hasOwn(patch, 'currentLyricIndex')) {
     lastLyricIndex =
       typeof patch.currentLyricIndex === 'number' ? patch.currentLyricIndex : -1
   }
-  if ('lyrics' in patch || 'currentLyricIndex' in patch) {
+  if (
+    Object.hasOwn(patch, 'lyrics') ||
+    Object.hasOwn(patch, 'currentLyricIndex')
+  ) {
     const nextLyric = lyricLine(lastLyrics, lastLyricIndex)
     if (lyric !== nextLyric) {
       lyric = nextLyric
@@ -90,7 +92,7 @@ export function applyPublishedMusicState(
   if (changed) notify()
 }
 
-/** Bind once to the player publish event. No-op without `window`. */
+/** Bind once to the player publish event. No-op without window. */
 export function bindPublishedMusicState(): void {
   if (bound || typeof window === 'undefined') return
   bound = true
@@ -101,7 +103,7 @@ export function bindPublishedMusicState(): void {
   window.addEventListener('music-player-state-change', onPublishedMusicState)
 }
 
-/** Strip play-url / cover before the object is sent to the Agent. */
+/** Strip play-url / cover before sending to the Agent. */
 export function agentMusicStatus(
   published: Record<string, unknown> | null | undefined,
 ): Record<string, unknown> | null {
@@ -129,7 +131,7 @@ export function agentMusicStatus(
   }
 }
 
-/** Current player projection for Agent requests and live-presence renewals. */
+/** Agent / live-presence projection. */
 export function currentAgentMusicStatus(): Record<string, unknown> | null {
   if (typeof window === 'undefined') return null
   return agentMusicStatus(

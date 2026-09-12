@@ -1,0 +1,92 @@
+{
+  "sources": {
+    "agent": {
+      "title": "Agent 작업",
+      "description": "작업 진행, 결과, 취소, 확인 요청, 그리고 눈에 띄는 플랫폼 활동"
+    },
+    "heartbeat": {
+      "title": "Heartbeat",
+      "description": "Agent 백그라운드 예약 작업 결과"
+    },
+    "mcp": {
+      "title": "MCP 서비스",
+      "description": "도구 서버 연결 상태"
+    },
+    "brew": {
+      "title": "Brew",
+      "description": "새 피드와 반복된 수집 오류"
+    },
+    "tapp": {
+      "title": "Tapp",
+      "description": "앱 메시지, 경고, 작업 오류"
+    },
+    "updater": {
+      "title": "시스템 업데이트",
+      "description": "업데이트, 롤백, 복구 상태"
+    },
+    "federation": {
+      "title": "연합",
+      "description": "연합 메시지, 팔로우, 초대"
+    },
+    "system": {
+      "title": "시스템",
+      "description": "Myriad의 중요 안내"
+    }
+  },
+  "events": {
+    "agent.task_progress": "작업 진행",
+    "agent.task_completed": "작업 완료",
+    "agent.task_failed": "작업 실패",
+    "agent.task_cancelled": "작업 취소",
+    "agent.clarification": "답변 대기",
+    "agent.merope.platform_activity": "플랫폼 활동",
+    "heartbeat.succeeded": "예약 작업 성공",
+    "heartbeat.failed": "예약 작업 실패",
+    "mcp.connected": "MCP 연결됨",
+    "mcp.disconnected": "MCP 끊김 또는 실패",
+    "brew.new_items": "새 글 발견",
+    "brew.source_error": "피드가 반복해서 실패",
+    "platform.sync.failed": "플랫폼 동기화 실패",
+    "tapp.message": "메시지",
+    "tapp.warning": "경고",
+    "tapp.error": "오류 또는 작업 실패",
+    "updater.submitted": "작업 제출됨",
+    "updater.running": "작업 실행 중",
+    "updater.succeeded": "업데이트 성공",
+    "updater.failed": "업데이트 실패",
+    "updater.needs_manual": "직접 복구가 필요함",
+    "updater.unknown": "상태를 확인할 수 없음",
+    "federation.channel_message": "쪽지",
+    "federation.room_message": "방 메시지",
+    "federation.new_follower": "새 팔로워",
+    "federation.follow_accepted": "팔로우 수락됨",
+    "federation.channel_invite": "쪽지 초대",
+    "federation.room_invite": "방 초대",
+    "federation.channel_accepted": "쪽지 채널이 열림",
+    "federation.room_invite_accepted": "방 초대 수락됨",
+    "system.info": "시스템 안내",
+    "skill.pruned": "스킬 자동 정리",
+    "skill.improved": "스킬 자동 개선",
+    "skill.changed": "스킬 변경"
+  },
+  "ui": {
+    "master": "알림 센터 켜기",
+    "masterDesc": "끄면 새 알림은 만들지 않습니다. 기존 기록은 그대로 둡니다",
+    "delivery": "표시 방식",
+    "island": "컨트롤 아일랜드 캐러셀",
+    "islandDesc": "새 알림을 상단 컨트롤 아일랜드에 보여 줍니다",
+    "toast": "토스트 알림",
+    "toastDesc": "새 알림이 오면 전역 알림으로 띄웁니다",
+    "browser": "브라우저 시스템 알림",
+    "browserDesc": "허용된 경우, 페이지가 백그라운드일 때 보여 줍니다",
+    "sourceEnabled": "이 출처 허용",
+    "sources": "알림 출처",
+    "locations": "표시 위치",
+    "locationsDesc": "위의 전역 표시 스위치와 함께 적용됩니다",
+    "events": "알림 이벤트",
+    "panelLocation": "알림 패널",
+    "toastLocation": "토스트",
+    "islandLocation": "컨트롤 아일랜드",
+    "browserLocation": "시스템 알림"
+  }
+}

@@ -13,11 +13,7 @@ export function cueOccupiesGaze(cue: PerformanceCue): boolean {
   return performanceCueChannels(cue.intent).includes('gaze')
 }
 
-/**
- * Channels a Lite plan actually writes. Face plans do not take the body;
- * posture and body cues do. Mouth stays speech/music owned.
- * Timed occupancy lives in performanceLeaseWindows — this is classification.
- */
+/** Face plans do not take the body */
 export function performanceOccupiedChannels(
   directive: PerformanceDirective,
 ): MotionChannel[] {
@@ -29,5 +25,5 @@ export function performanceOccupiedChannels(
       channels.add(channel)
     }
   }
-  return [...channels]
+  return Iterator.from(channels).toArray()
 }

@@ -1,9 +1,3 @@
-/**
- * 组装结构化指南 ReactNode，供 SettingGroup / Item 的 guide= 使用。
- * 分节标签：概述 / 关联 / 位置 / 提示（见 i18n guideSection*）。
- * bindGuide(path, entry) 同时返回 guidePath，用于搜索跳转锚点。
- */
-
 import type { ReactNode } from 'react'
 import type { SettingGuideEntry } from './types'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
@@ -16,7 +10,6 @@ import { SettingGuideBody } from './SettingGuideBody'
 
 export interface GuideBinding {
   guide: ReactNode
-  /** 目录路径，如 advanced.proxyEnable → DOM data-guide-path / id */
   guidePath: string
 }
 
@@ -60,10 +53,6 @@ export function useSettingGuide() {
     [labels],
   )
 
-  /**
-   * 绑定指南路径 + 正文。展开到 SettingGroup / Item：
-   * `{...bindGuide('advanced.proxyEnable', g.advanced.proxyEnable)}`
-   */
   const bindGuide = useCallback(
     (
       path: string,

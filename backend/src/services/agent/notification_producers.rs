@@ -19,13 +19,14 @@ impl NotificationManager {
                 user_id,
                 NotificationType::HeartbeatResult,
                 priority,
-                format!("定时任务: {}", task_name),
+                format!("Scheduled task: {task_name}"),
                 result,
             )
             .with_metadata(serde_json::json!({
                 "event_key": if success { "heartbeat.succeeded" } else { "heartbeat.failed" },
                 "action": "open_agent_manage",
                 "tab": "heartbeat",
+                "task_name": task_name,
                 "success": success,
                 "status": if success { "completed" } else { "failed" },
             }));
@@ -42,7 +43,7 @@ impl NotificationManager {
         titles: &[String],
     ) {
         let body = if titles.is_empty() {
-            format!("发现 {} 篇新内容", new_count)
+            format!("{new_count} new items found")
         } else {
             titles.join("\n")
         };
@@ -50,13 +51,14 @@ impl NotificationManager {
             user_id,
             NotificationType::BrewNewItems,
             NotificationPriority::Normal,
-            format!("{} · {} 篇新内容", source_name, new_count),
+            format!("{source_name} · {new_count} new items"),
             body,
         )
         .with_metadata(serde_json::json!({
             "event_key": "brew.new_items",
             "route": "/brew",
             "source_id": source_id,
+            "source_name": source_name,
             "new_count": new_count,
         }));
         self.notify(notification).await;
@@ -189,7 +191,7 @@ impl NotificationManager {
             )
             .with_metadata(serde_json::json!({
                 "event_key": if connected { "mcp.connected" } else { "mcp.disconnected" },
-                // About hosts Updater/MCP operator surface
+                // route: About section (Updater lives there; MCP panel is Advanced).
                 "route": "/config?section=about",
                 "server_id": server_id,
                 "status": if connected { "connected" } else { "failed" },

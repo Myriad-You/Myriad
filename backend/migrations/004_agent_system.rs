@@ -2,11 +2,9 @@ use sea_orm_migration::prelude::*;
 
 /// Agent 系统数据库结构
 ///
-/// AI Agent 自然语言任务编排系统：
-/// - 任务状态持久化与恢复
-/// - 动态步骤保存
-/// - 执行上下文管理
-/// - 会话历史记录
+/// agent_tasks / sessions / messages / task_presets / notifications /
+/// heartbeat_claims / persona / addressee_state / diary /
+/// proactive_messages / intentions / autonomy_grants。
 #[derive(DeriveMigrationName)]
 pub struct Migration;
 
@@ -36,7 +34,7 @@ impl MigrationTrait for Migration {
                     )
                     // 任务名称
                     .col(ColumnDef::new(AgentTasks::Name).string_len(255))
-                    // 任务状态: pending, running, paused, waiting_for_input, completed, failed, cancelled
+                    // varchar(32) NOT NULL default pending；本 migration 无 CHECK
                     .col(
                         ColumnDef::new(AgentTasks::Status)
                             .string_len(32)
@@ -59,13 +57,13 @@ impl MigrationTrait for Migration {
                     )
                     // 步骤执行结果 (JSON)
                     .col(ColumnDef::new(AgentTasks::StepResults).json().not_null())
-                    // 执行上下文 (JSON) - 包含动态步骤、变量等
+                    // json，可空
                     .col(ColumnDef::new(AgentTasks::ExecutionContext).json())
-                    // 完整执行配方（Planner 输出）
+                    // jsonb，可空
                     .col(ColumnDef::new(AgentTasks::Recipe).json_binary())
                     // 待回答问题 (JSON)
                     .col(ColumnDef::new(AgentTasks::PendingQuestion).json())
-                    // 进度百分比
+                    // smallint NOT NULL default 0；本 migration 无 CHECK
                     .col(
                         ColumnDef::new(AgentTasks::Progress)
                             .small_integer()
@@ -161,9 +159,9 @@ impl MigrationTrait for Migration {
                     )
                     // 所属用户
                     .col(ColumnDef::new(AgentSessions::UserId).integer().not_null())
-                    // 会话标题（自动生成或用户设置）
+                    // varchar(255)，可空
                     .col(ColumnDef::new(AgentSessions::Title).string_len(255))
-                    // 会话上下文 (JSON) - 包含偏好、历史摘要等
+                    // json，可空
                     .col(ColumnDef::new(AgentSessions::Context).json())
                     // 消息数量
                     .col(
@@ -229,7 +227,7 @@ impl MigrationTrait for Migration {
                     )
                     // 关联任务（可选）
                     .col(ColumnDef::new(AgentMessages::TaskId).string_len(64))
-                    // 消息角色: user, assistant, system
+                    // varchar(16) NOT NULL；本 migration 无 CHECK
                     .col(
                         ColumnDef::new(AgentMessages::Role)
                             .string_len(16)
@@ -237,7 +235,7 @@ impl MigrationTrait for Migration {
                     )
                     // 消息内容
                     .col(ColumnDef::new(AgentMessages::Content).text().not_null())
-                    // 消息元数据 (JSON) - 包含 data, suggestions 等
+                    // json，可空
                     .col(ColumnDef::new(AgentMessages::Metadata).json())
                     // 创建时间
                     .col(
@@ -262,8 +260,7 @@ impl MigrationTrait for Migration {
             .await?;
 
         // ==================== 4. AGENT_TASK_PRESETS 表 ====================
-        // 存储任务预设（收藏的任务 + 历史任务 + 对话记录）
-        // 合并了 Session 系统：支持「重新运行」和「继续对话」两种模式
+        // 存储 agent_task_presets
         manager
             .create_table(
                 Table::create()
@@ -284,21 +281,20 @@ impl MigrationTrait for Migration {
                     )
                     // 原始用户输入
                     .col(ColumnDef::new(AgentTaskPresets::Input).text().not_null())
-                    // 预设类型: favorite(收藏), history(历史)
+                    // varchar(16) NOT NULL default history；本 migration 无 CHECK
                     .col(
                         ColumnDef::new(AgentTaskPresets::PresetType)
                             .string_len(16)
                             .not_null()
                             .default("history"),
                     )
-                    // 解析后的步骤 (JSON) - 包含能力ID和参数
+                    // json，可空
                     .col(ColumnDef::new(AgentTaskPresets::ParsedSteps).json())
                     // 解析后的意图摘要
                     .col(ColumnDef::new(AgentTaskPresets::IntentSummary).string_len(255))
-                    // 对话标题（用于继续对话时显示）
+                    // varchar(255)，可空
                     .col(ColumnDef::new(AgentTaskPresets::Title).string_len(255))
-                    // 完整对话记录 (JSON) - [{role, content, metadata, created_at}]
-                    // 支持「继续对话」模式恢复上下文
+                    // json，可空
                     .col(ColumnDef::new(AgentTaskPresets::ConversationData).json())
                     // 最后使用时间
                     .col(
@@ -374,13 +370,13 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .primary_key(),
                     )
-                    // 通知类型: task_completed, task_failed, heartbeat_result, ...
+                    // varchar(32) NOT NULL；本 migration 无 CHECK
                     .col(
                         ColumnDef::new(AgentNotifications::NotificationType)
                             .string_len(32)
                             .not_null(),
                     )
-                    // 优先级: low, normal, high, urgent
+                    // varchar(16) NOT NULL default normal；本 migration 无 CHECK
                     .col(
                         ColumnDef::new(AgentNotifications::Priority)
                             .string_len(16)
@@ -389,7 +385,7 @@ impl MigrationTrait for Migration {
                     )
                     .col(ColumnDef::new(AgentNotifications::Title).text().not_null())
                     .col(ColumnDef::new(AgentNotifications::Body).text().not_null())
-                    // 目标用户 ID（NULL = 广播）
+                    // integer，可空
                     .col(ColumnDef::new(AgentNotifications::UserId).integer())
                     .col(ColumnDef::new(AgentNotifications::Metadata).json())
                     .col(

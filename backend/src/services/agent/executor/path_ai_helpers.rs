@@ -119,29 +119,29 @@ impl Executor {
         };
 
         let prompt = format!(
-            r#"根据以下上下文，生成接下来需要执行的步骤。
+            r#"Given the context below, generate the next steps to run.
 
-## 用户原始请求（最高优先级，所有步骤都必须服务于此目标）
+## Original user request (highest priority; every step must serve this)
 {user_request}
 
-## 上下文提示
+## Context notes
 {ctx}
 
-## 已完成步骤的输出
+## Outputs from finished steps
 {outputs}
 
-## 可用能力
+## Available capabilities
 {caps}
 
-## 重要规则
-1. 每个步骤的 action 字段必须明确写出该步骤要做什么，且必须与用户原始请求直接相关
-2. 不要生成与用户请求无关的步骤
-3. 最多生成 3 个步骤
-4. 只输出 JSON 数组，不要其他文字
+## Rules
+1. Each step's action must say what that step does, and it must relate to the original request
+2. Do not emit steps unrelated to the request
+3. Emit at most 3 steps
+4. Output a JSON array only, no other text
 
-## 输出格式
+## Output format
 ```json
-[{{"id": "gen_1", "capability_id": "...", "action": "具体说明这步做什么", "params": {{}}}}]
+[{{"id": "gen_1", "capability_id": "...", "action": "what this step does", "params": {{}}}}]
 ```"#,
             user_request = context.original_request,
             ctx = context_prompt,

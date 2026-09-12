@@ -1,15 +1,6 @@
 import type { NotificationCenterState } from '../hooks/useNotificationCenter'
 import type { AppNotification } from '../services/notificationApi'
 import type { NotificationSourceKey } from '../services/notificationPreferencesApi'
-/**
- * 通知列表面板（智能岛「通知」tab 的内容区）
- *
- * iOS 通知中心模型：无已读概念，通知堆积直到被清除。
- * 页头为问候语 + 日期，右侧清理按钮先展示 X 图标，
- * 点击后变为文本二次确认（3 秒未确认自动还原）。
- * 点击通知直接跳转对应内容（任务类 → Agent 会话），无落点时展开详情。
- * 联邦邀请类通知可从 metadata.actions 一键 Accept / Reject。
- */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../contexts/I18nContext'
 import { currentCopy } from '../i18n/localeCopy'
@@ -23,7 +14,6 @@ import {
 import { userFacingError } from '../utils/userFacingError'
 import { NotificationSourceIcon } from './notifications/NotificationIcons'
 
-/** metadata.actions 单项（后端 notify 写入） */
 interface NotifAction {
   id: string
   label?: string
@@ -48,7 +38,6 @@ function parseNotifActions(n: AppNotification): NotifAction[] {
   return out
 }
 
-/** 根据 kind + action id 调用联邦 API */
 async function runFederationInviteAction(
   n: AppNotification,
   actionId: string,
@@ -84,13 +73,11 @@ async function runFederationInviteAction(
   throw new Error(currentCopy().errors.agentUnsupported)
 }
 
-/** Apple 风格胶囊按钮基础样式 */
 const PILL_BTN =
   'rounded-full px-3 py-1 text-xs font-medium transition-colors ' +
   'bg-black/5 text-gray-600 hover:bg-black/9 ' +
   'dark:bg-white/10 dark:text-gray-300 dark:hover:bg-white/15'
 
-/** 通知的跳转目标 */
 type NotifTarget =
   | {
       kind: 'session'
@@ -102,7 +89,6 @@ type NotifTarget =
   | { kind: 'agent_manage'; tab?: 'heartbeat' | 'skills' | 'memory' }
   | null
 
-/** 解析点击落点：任务类通知带 session_id 时跳回对应 Agent 会话（可带 run/task 以 reattach） */
 function resolveTarget(n: AppNotification): NotifTarget {
   if (n.metadata?.action === 'open_agent') {
     const sid =
@@ -146,18 +132,13 @@ function resolveTarget(n: AppNotification): NotifTarget {
 
 interface Props {
   center: NotificationCenterState
-  /** 填满父容器高度（覆盖层模式：继承控制面板高度，列表内部滚动） */
   fill?: boolean
-  /** 打开 Agent 会话（由 GlobalControlPanel 注入：收起面板 + 派发打开事件） */
   onOpenSession?: (
     sessionId: string,
     opts?: { runId?: string; taskId?: string },
   ) => void
-  /** 打开普通应用路由（如 Brew 新内容） */
   onNavigate?: (path: string) => void
-  /** 打开 Agent 管理面板（Heartbeat / Skills 通知；可选初始 tab） */
   onOpenAgentManage?: (tab?: 'heartbeat' | 'skills' | 'memory') => void
-  /** 当前用户是否允许浏览器系统通知。 */
   browserNotificationsEnabled?: boolean
 }
 
@@ -181,7 +162,7 @@ function NotificationPanelList({
   )
   const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // tab 切换 / 面板收起会卸载本组件，确认倒计时须随之清理
+  // 卸载时清确认倒计时。
   useEffect(
     () => () => {
       if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current)
@@ -189,7 +170,6 @@ function NotificationPanelList({
     [],
   )
 
-  // 问候语 + 本地化日期（组件随 tab 打开重挂载，时点足够新鲜）
   const { greetingText, dateText } = useMemo(() => {
     const greeting = getGreeting(
       undefined,
@@ -248,7 +228,6 @@ function NotificationPanelList({
         onOpenAgentManage(target.tab)
         return
       }
-      // 无落点：展开/收起详情
       setExpandedId((prev) => (prev === n.id ? null : n.id))
     },
     [onOpenSession, onNavigate, onOpenAgentManage],
@@ -262,7 +241,6 @@ function NotificationPanelList({
       try {
         await runFederationInviteAction(n, actionId)
         void removeItem(n)
-        // 接受后若有 route，顺带打开对应会话
         if (actionId === 'accept') {
           const route = n.metadata?.route
           if (typeof route === 'string' && route.startsWith('/') && onNavigate) {
@@ -296,7 +274,6 @@ function NotificationPanelList({
     [t, format],
   )
 
-  /** 发信源名称（iOS 通知头行的 App 名位置） */
   const sourceLabels = useMemo<Record<NotificationSourceKey, string>>(
     () => ({
       agent: t.notificationCenter.sourceAgent,
@@ -313,7 +290,6 @@ function NotificationPanelList({
 
   return (
     <div className={`flex flex-col min-h-0 ${fill ? 'h-full' : ''}`}>
-      {/* 页头：问候语 + 日期，右侧为系统通知开关与清理按钮 */}
       <div className="flex items-start justify-between gap-2 px-0.5 pb-2.5">
         <div className="min-w-0 leading-tight">
           <div className="text-xs font-medium text-gray-400 dark:text-gray-500">
@@ -335,8 +311,6 @@ function NotificationPanelList({
           )}
           {items.length > 0 &&
             (confirmClear ? (
-              // 二次确认态：与图标态同高（h-7），仅内容由图标换为文本，
-              // 保持中性配色（不变红）——语气克制，符合 Apple 的清除确认调性
               <button
                 type="button"
                 onClick={handleClearAll}
@@ -355,7 +329,6 @@ function NotificationPanelList({
                   bg-black/5 text-gray-500 transition-colors hover:bg-black/9
                   dark:bg-white/10 dark:text-gray-400 dark:hover:bg-white/15"
               >
-                {/* 清空全部：用簸箕/垃圾桶图标，与单条删除的 X 区分语义 */}
                 <svg
                   className="h-3.5 w-3.5"
                   fill="none"
@@ -374,7 +347,6 @@ function NotificationPanelList({
         </div>
       </div>
 
-      {/* 列表：覆盖层模式填满剩余空间内部滚动，否则回退到视口上限 */}
       <div
         className={`flex-1 overflow-y-auto overscroll-contain ${
           fill ? 'min-h-0' : 'max-h-[50vh]'
@@ -405,14 +377,12 @@ function NotificationPanelList({
                 bg-black/3 hover:bg-black/6
                 dark:bg-white/4 dark:hover:bg-white/8"
               >
-                {/* 直接展示透明来源图标，不额外叠加背景容器 */}
                 <NotificationSourceIcon
                   source={source}
                   className="h-10 w-10 shrink-0 object-contain"
                 />
 
                 <div className="min-w-0 flex-1">
-                  {/* 头行：发信源名 + 时间 */}
                   <div className="flex items-center gap-1.5">
                     <span className="truncate text-[10px] font-medium tracking-wide text-gray-400 dark:text-gray-500">
                       {sourceLabels[source]}
@@ -523,6 +493,4 @@ function NotificationPanelList({
   )
 }
 
-// memo：面板展开且音乐播放时父组件（GlobalControlPanel）每秒重渲染，
-// center 已由 hook 端 useMemo 稳定，通知无变化时整个列表跳过重渲染
 export default memo(NotificationPanelList)

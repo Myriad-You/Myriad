@@ -1,6 +1,3 @@
-/* Tapp Playground 代码编辑器
-   高亮层(pre) + 透明输入层(textarea) 叠加：两层字体度量必须完全一致 */
-
 .playground-code-editor {
   position: relative;
   min-height: 100%;
@@ -38,7 +35,6 @@
   caret-color: #61afef;
 }
 
-/* 覆盖 overrides.css 的全局 textarea 聚焦样式 */
 .playground-code-editor textarea:focus {
   background: transparent;
   border: none;
@@ -49,7 +45,6 @@
   background: rgb(97 175 239 / 30%);
 }
 
-/* Prism 配色（One Dark 系），全部限定在编辑器作用域内 */
 .playground-code-editor .token.comment,
 .playground-code-editor .token.prolog,
 .playground-code-editor .token.cdata {
@@ -112,11 +107,6 @@
   font-style: italic;
 }
 
-/* ============================================================
-   底部控制岛：生成中的反馈动效
-   ============================================================ */
-
-/* 忙碌时环绕岛的旋转光晕（放在岛背景层之下的兄弟元素上） */
 @property --playground-aura-angle {
   syntax: '<angle>';
   initial-value: 0deg;
@@ -147,7 +137,6 @@
   }
 }
 
-/* 忙碌标题：水平流光扫字（primary accent over muted base） */
 .playground-text-shimmer {
   background-image: linear-gradient(
     90deg,
@@ -167,7 +156,6 @@
   animation: playground-text-shimmer-scan 2.2s linear infinite;
 }
 
-/* animationsEnabled === false：静态主色标题，无扫光 */
 .playground-text-shimmer--static {
   animation: none;
   background-image: none;
@@ -176,7 +164,6 @@
   -webkit-text-fill-color: var(--color-primary);
 }
 
-/* 历史 / 会话面板：激活态与滚动条 */
 .playground-history-item--active {
   background: color-mix(in srgb, var(--color-primary) 12%, transparent);
   box-shadow: inset 0 0 0 1px
@@ -212,10 +199,6 @@
     background-position: -100% 0;
   }
 }
-
-/* ============================================================
-   Version diff (code pane) — glass-friendly mono view
-   ============================================================ */
 
 .playground-diff {
   font-family:

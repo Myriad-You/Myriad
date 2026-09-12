@@ -1,7 +1,3 @@
-/**
- * 设置页壳层：导航 / 搜索 / 统一保存 / Section 渲染。
- * 状态与写路径拆到 `config/form/*` hooks。
- */
 import {
   FaExclamationTriangle,
   FaSearch,
@@ -237,10 +233,8 @@ const ModernConfigForm: React.FC = () => {
     void drafts.loadNotificationSettings()
     void drafts.loadOAuthSettings()
     void drafts.loadFederationPolicy()
-    // 初始加载一次；各 load* 内部稳定
   }, [])
 
-  // Discord 一键授权回调（section 深链由 useConfigNavigation 统一处理）
   useEffect(() => {
     if (typeof window === 'undefined') return
     const params = new URLSearchParams(window.location.search)
@@ -260,7 +254,9 @@ const ModernConfigForm: React.FC = () => {
     } else if (oauth === 'error' || (oauth && oauth !== 'ok')) {
       const reason = params.get('reason') || 'unknown'
       showMessage(
-        `${t.config.discordOAuthFailed}${reason !== 'unknown' ? ` (${reason})` : ''}`,
+        reason === 'app_not_configured'
+          ? t.config.discordOAuthAppMissing
+          : t.config.discordOAuthFailed,
         'error',
       )
     }
@@ -277,6 +273,7 @@ const ModernConfigForm: React.FC = () => {
     setMobilePane,
     setPlatformFocus,
     showMessage,
+    t.config.discordOAuthAppMissing,
     t.config.discordOAuthFailed,
     t.config.discordOAuthSuccess,
   ])
@@ -341,7 +338,7 @@ const ModernConfigForm: React.FC = () => {
           audio.addEventListener('ended', release, { once: true })
           void audio.play().catch(release)
         } catch {
-          // Playback is best-effort; the API result still stands.
+          // 播放是尽力而为，API 结果仍算数。
         }
       }
       if (result.success) {
@@ -518,7 +515,7 @@ const ModernConfigForm: React.FC = () => {
             privateTappInstallPreset={(() => {
               const d = drafts.oauthDraft
               if (d.privateTappInstallCleanup === 'logout') return 'logout'
-              // Keep exact day count (including non-preset values like 30)
+              // 保留精确天数（含非预设如 30）。
               return String(d.privateTappInstallInactivityDays)
             })()}
             privateTappInstallLoading={drafts.oauthLoading}
@@ -763,8 +760,7 @@ const ModernConfigForm: React.FC = () => {
                   'oauth',
                   'users',
                 ].includes(activeSection),
-                // 移动端选项页：标题栏内嵌返回（与平台二级页 section-header-back 同款）
-                // 平台二级页通过显式 headerLeading 覆盖，先回列表再回菜单
+                // 移动端选项页标题栏内嵌返回；平台二级页用 headerLeading 覆盖，先回列表再回菜单。
                 onMobileBack: isMobileLayout
                   ? handleMobileBackToNav
                   : undefined,

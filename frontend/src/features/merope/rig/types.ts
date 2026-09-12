@@ -46,7 +46,6 @@ export interface RigBone {
 export type RigSemanticBoneRole = (typeof RIG_SEMANTIC_BONE_ROLES)[number]
 export type RigSemanticChainRole = (typeof RIG_SEMANTIC_CHAIN_ROLES)[number]
 
-/** Versioned semantic IR decouples runtime behavior from source bone names. */
 export interface RigSemantics {
   bones: Partial<Record<RigSemanticBoneRole, string>>
   chains: Partial<Record<RigSemanticChainRole, string[]>>
@@ -68,9 +67,7 @@ export type RigOutfitTopology = (typeof RIG_OUTFIT_TOPOLOGIES)[number]
 export interface RigOutfitProfile {
   topologies: RigOutfitTopology[]
   secondaryPartIds: string[]
-  /** Optional for manifests compiled before adaptive torso safety was added. */
   torsoTwistScale?: number
-  /** Optional for manifests compiled before garment-aware spring tuning was added. */
   secondaryMotionScale?: number
 }
 
@@ -87,7 +84,6 @@ export interface RigCollisionVolume {
   padding: number
 }
 
-/** Character-local body volumes consumed by final-pose contact and collision. */
 export interface RigSpatialProfile {
   collisionVolumes: RigCollisionVolume[]
 }
@@ -138,11 +134,7 @@ export interface RigBoneHandle {
   falloff: number
 }
 
-/**
- * Optional importer-authored topology for layers that need interior vertices.
- * The backend still owns UV generation and skin-weight normalization. Legacy
- * contour-only sources remain unchanged.
- */
+/** Legacy contour-only sources remain unchanged. */
 export interface RigLayerMeshSource {
   vertices: RigPoint[]
   indices: number[]

@@ -1,22 +1,145 @@
-/**
- * 按需加载语言包
- * - 同一语言只加载一次并缓存
- * - 非当前语言不会进入主包，降低常驻 JS 堆
- */
-
 import type { Locale, TranslationKeys } from './index'
+import { assembleLocale } from './assembleLocale'
+import { createLocaleLoader } from './createLocaleLoader'
 
-const cache = new Map<Locale, TranslationKeys>()
-const inflight = new Map<Locale, Promise<TranslationKeys>>()
+// Vite serves `*.json?import` as JS. A JSON import attribute makes the
+// browser require application/json and reject the module.
 
-async function importLocale(locale: Locale): Promise<TranslationKeys> {
+async function loadPack(locale: Locale): Promise<TranslationKeys> {
   switch (locale) {
-    case 'zh-CN':
-      return (await import('./zh-CN')).zhCN
-    case 'en-US':
-      return (await import('./en-US')).enUS
-    case 'ja-JP':
-      return (await import('./ja-JP')).jaJP
+    case 'zh-CN': {
+      const [core, config, tapp, brew, merope, errors, agentCaps] = await Promise.all([
+        import('./zh-CN.json'),
+        import('./config.zh-CN.json'),
+        import('./tapp.zh-CN.json'),
+        import('./brew.zh-CN.json'),
+        import('./merope.zh-CN.json'),
+        import('./errors.zh-CN.json'),
+        import('./agentCaps.zh-CN.json'),
+      ])
+      return assembleLocale(core.default, {
+        config: config.default,
+        tapp: tapp.default,
+        brew: brew.default,
+        merope: merope.default,
+        errors: errors.default,
+        agentCaps: agentCaps.default,
+      })
+    }
+    case 'en-US': {
+      const [core, config, tapp, brew, merope, errors, agentCaps] = await Promise.all([
+        import('./en-US.json'),
+        import('./config.en-US.json'),
+        import('./tapp.en-US.json'),
+        import('./brew.en-US.json'),
+        import('./merope.en-US.json'),
+        import('./errors.en-US.json'),
+        import('./agentCaps.en-US.json'),
+      ])
+      return assembleLocale(core.default, {
+        config: config.default,
+        tapp: tapp.default,
+        brew: brew.default,
+        merope: merope.default,
+        errors: errors.default,
+        agentCaps: agentCaps.default,
+      })
+    }
+    case 'ja-JP': {
+      const [core, config, tapp, brew, merope, errors, agentCaps] = await Promise.all([
+        import('./ja-JP.json'),
+        import('./config.ja-JP.json'),
+        import('./tapp.ja-JP.json'),
+        import('./brew.ja-JP.json'),
+        import('./merope.ja-JP.json'),
+        import('./errors.ja-JP.json'),
+        import('./agentCaps.ja-JP.json'),
+      ])
+      return assembleLocale(core.default, {
+        config: config.default,
+        tapp: tapp.default,
+        brew: brew.default,
+        merope: merope.default,
+        errors: errors.default,
+        agentCaps: agentCaps.default,
+      })
+    }
+    case 'zh-TW': {
+      const [core, config, tapp, brew, merope, errors, agentCaps] = await Promise.all([
+        import('./zh-TW.json'),
+        import('./config.zh-TW.json'),
+        import('./tapp.zh-TW.json'),
+        import('./brew.zh-TW.json'),
+        import('./merope.zh-TW.json'),
+        import('./errors.zh-TW.json'),
+        import('./agentCaps.zh-TW.json'),
+      ])
+      return assembleLocale(core.default, {
+        config: config.default,
+        tapp: tapp.default,
+        brew: brew.default,
+        merope: merope.default,
+        errors: errors.default,
+        agentCaps: agentCaps.default,
+      })
+    }
+    case 'ko-KR': {
+      const [core, config, tapp, brew, merope, errors, agentCaps] = await Promise.all([
+        import('./ko-KR.json'),
+        import('./config.ko-KR.json'),
+        import('./tapp.ko-KR.json'),
+        import('./brew.ko-KR.json'),
+        import('./merope.ko-KR.json'),
+        import('./errors.ko-KR.json'),
+        import('./agentCaps.ko-KR.json'),
+      ])
+      return assembleLocale(core.default, {
+        config: config.default,
+        tapp: tapp.default,
+        brew: brew.default,
+        merope: merope.default,
+        errors: errors.default,
+        agentCaps: agentCaps.default,
+      })
+    }
+    case 'fr-FR': {
+      const [core, config, tapp, brew, merope, errors, agentCaps] = await Promise.all([
+        import('./fr-FR.json'),
+        import('./config.fr-FR.json'),
+        import('./tapp.fr-FR.json'),
+        import('./brew.fr-FR.json'),
+        import('./merope.fr-FR.json'),
+        import('./errors.fr-FR.json'),
+        import('./agentCaps.fr-FR.json'),
+      ])
+      return assembleLocale(core.default, {
+        config: config.default,
+        tapp: tapp.default,
+        brew: brew.default,
+        merope: merope.default,
+        errors: errors.default,
+        agentCaps: agentCaps.default,
+      })
+    }
+    case 'de-DE': {
+      const [core, config, tapp, brew, merope, errors, agentCaps] = await Promise.all([
+        import('./de-DE.json'),
+        import('./config.de-DE.json'),
+        import('./tapp.de-DE.json'),
+        import('./brew.de-DE.json'),
+        import('./merope.de-DE.json'),
+        import('./errors.de-DE.json'),
+        import('./agentCaps.de-DE.json'),
+      ])
+      return assembleLocale(core.default, {
+        config: config.default,
+        tapp: tapp.default,
+        brew: brew.default,
+        merope: merope.default,
+        errors: errors.default,
+        agentCaps: agentCaps.default,
+      })
+    }
     default: {
       const _exhaustive: never = locale
       throw new Error(`Unknown locale: ${_exhaustive}`)
@@ -24,34 +147,21 @@ async function importLocale(locale: Locale): Promise<TranslationKeys> {
   }
 }
 
-/**
- * 加载指定语言翻译（带内存缓存与 in-flight 去重）
- */
+const loader = createLocaleLoader<TranslationKeys>({
+  'zh-CN': () => loadPack('zh-CN'),
+  'zh-TW': () => loadPack('zh-TW'),
+  'en-US': () => loadPack('en-US'),
+  'ja-JP': () => loadPack('ja-JP'),
+  'ko-KR': () => loadPack('ko-KR'),
+  'fr-FR': () => loadPack('fr-FR'),
+  'de-DE': () => loadPack('de-DE'),
+})
+
+/** Cache + in-flight dedupe; unused locales stay out of the main bundle. */
 export function loadLocale(locale: Locale): Promise<TranslationKeys> {
-  const cached = cache.get(locale)
-  if (cached) return Promise.resolve(cached)
-
-  const pending = inflight.get(locale)
-  if (pending) return pending
-
-  const promise = importLocale(locale)
-    .then((t) => {
-      cache.set(locale, t)
-      inflight.delete(locale)
-      return t
-    })
-    .catch((err) => {
-      inflight.delete(locale)
-      throw err
-    })
-
-  inflight.set(locale, promise)
-  return promise
+  return loader.load(locale)
 }
 
-/**
- * 同步读取已缓存的语言包（未加载返回 null）
- */
 export function getCachedLocale(locale: Locale): TranslationKeys | null {
-  return cache.get(locale) ?? null
+  return loader.getCached(locale)
 }

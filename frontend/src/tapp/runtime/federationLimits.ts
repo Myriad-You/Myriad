@@ -1,10 +1,4 @@
-/**
- * Live federation size caps for the host bridge.
- *
- * Defaults match backend `memory_profile` DEFAULT_* (not the pre-#316 36/64/80).
- * `refreshFederationLimits` reads GET /api/federation/public/limits so saver
- * hosts reject oversized TAPP payloads before the request leaves the browser.
- */
+/** 与后端 DEFAULT_* 对齐。超限在浏览器内拒绝。 */
 
 import { federationApi } from '../../services/federationApi'
 
@@ -61,7 +55,6 @@ export function applyFederationLimitsPayload(
   return cached
 }
 
-/** Test helper: restore process-local cache to product defaults. */
 export function resetFederationLimitsForTests(): void {
   cached = { ...DEFAULT_FEDERATION_LIVE_LIMITS }
   inflight = null
@@ -75,7 +68,6 @@ export function refreshFederationLimits(): Promise<void> {
         applyFederationLimitsPayload(payload)
       })
       .catch(() => {
-        // Keep last-known / defaults. Backend remains authoritative.
       })
       .finally(() => {
         inflight = null

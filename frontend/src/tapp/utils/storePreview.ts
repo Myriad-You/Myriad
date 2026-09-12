@@ -7,17 +7,10 @@ export const STORE_PREVIEW_MAX_STYLES = 8
 export type StorePreviewFit = 'cover' | 'contain'
 export type StorePreviewTheme = 'auto' | 'light' | 'dark'
 
-/**
- * Catalog merchandising snapshot.
- * - `html` / `styles`: resource **paths** under store `base_url` (not inline source)
- * - host fetches them via `RemoteStoreService.downloadAppPreview`
- */
 export interface StorePreviewDescriptor {
   version: 1
   type: 'snapshot'
-  /** Relative or absolute path to the static preview HTML file */
   html: string
-  /** Relative or absolute paths to static CSS files (max 8) */
   styles: string[]
   viewport: {
     width: number
@@ -56,34 +49,17 @@ function unitInterval(value: unknown, fallback: number): number {
   return Math.min(1, Math.max(0, parsed))
 }
 
-/**
- * `preview.html` / `preview.styles[]` are **store-relative resource paths**
- * (or absolute http(s) URLs), never inline markup. Treating a path like
- * `apps/foo/preview.html` as document source blanks the store preview.
- */
+/** preview.html / styles 是商店相对路径，不是内联源码。 */
 export function isStorePreviewResourcePath(value: string): boolean {
   const path = value.trim()
   if (!path || path.length > 1024) return false
-  // Markup / multi-line blobs are not fetch paths.
   if (/[<>\r\n]/.test(path) || /\s/.test(path)) return false
-  // Block obvious non-resource schemes; allow relative + http(s).
   if (/^[a-z][a-z0-9+.-]*:/i.test(path) && !/^https?:\/\//i.test(path)) {
     return false
   }
   return true
 }
 
-/**
- * Parse an untrusted optional catalog preview declaration.
- *
- * Invalid declarations are ignored so merchandising metadata can never block
- * catalog browsing or application installation. Declared canvases are clamped
- * to a real desktop-class resolution before the store renders them.
- *
- * Contract (see docs/development/tapp/STORE.md):
- * `html` and `styles` are paths relative to catalog `base_url`, fetched by
- * `RemoteStoreService.downloadAppPreview` — not embedded HTML/CSS text.
- */
 export function parseStorePreview(
   value: unknown,
 ): StorePreviewDescriptor | undefined {
@@ -107,7 +83,7 @@ export function parseStorePreview(
     version: 1,
     type: 'snapshot',
     html,
-    styles: [...new Set(styles)],
+    styles: Iterator.from(new Set(styles)).toArray(),
     viewport: {
       width: boundedInteger(
         viewport.width,

@@ -1,17 +1,4 @@
-/**
- * 导航岛自动隐藏 Hook
- * 管理滚动隐藏、鼠标边缘唤回、无操作超时、响应式断点等行为
- *
- * 布局（底栏 / 侧轨）与 utils/navLayout 一致，勿用纯 width≥768：
- * 平板触控 768–1023 为 mobile 底栏，若写 desktop 的 translateY 会盖住 CSS。
- *
- * 底栏↔侧轨切换时由 NavigationIsland 做 crossfade（data-nav-switch）；
- * 此期间不写 inline transform/opacity，避免与淡出/淡入抢控制权。
- *
- * 边缘唤回只认进入沿（离开后再进来，或推到热边）。岛本身就在邻近带里，
- * 带内的 mousemove 不能刷新无操作计时，否则空闲隐藏永远不会发生。
- */
-
+/** 布局与 navLayout 一致，勿用纯 width≥768：平板触控 768–1023 是 mobile 底栏。 */
 import type { NavLayout } from '../utils/navLayout'
 import { useEffect } from 'react'
 import {
@@ -39,7 +26,8 @@ const TRANSFORM_HIDE_DESKTOP = 'translateY(-50%) translateX(-20px)'
 const TRANSFORM_HIDE_MOBILE = 'translateX(-50%) translateY(20px)'
 
 const TRANSITION_VISIBILITY = 'opacity 0.3s ease, transform 0.3s ease'
-/** Layout morph: never interpolate translateX(-50%) ↔ translateY(-50%). */
+
+/** 布局变形时不要在 translateX(-50%) 与 translateY(-50%) 之间插值。 */
 const TRANSITION_OPACITY_ONLY = 'opacity 0.3s ease'
 
 function isChromeSwitching(nav: HTMLElement): boolean {
@@ -52,7 +40,6 @@ export function useNavAutoHide(selector = '.nav-container') {
     const navContainer = document.querySelector(selector) as HTMLElement
     if (!navContainer) return
 
-    // 状态
     const readScrollY = () =>
       document.scrollingElement?.scrollTop ?? window.scrollY ?? 0
 
@@ -73,7 +60,7 @@ export function useNavAutoHide(selector = '.nav-container') {
     navContainer.style.transition = TRANSITION_VISIBILITY
 
     const applyVisibility = (visible: boolean) => {
-      // Crossfade owns opacity/transform while data-nav-switch is set.
+      // Crossfade 期间不写 opacity/transform。
       if (isChromeSwitching(navContainer)) return
 
       const desktop = cachedLayout === 'desktop'
@@ -85,21 +72,19 @@ export function useNavAutoHide(selector = '.nav-container') {
           ? TRANSFORM_HIDE_DESKTOP
           : TRANSFORM_HIDE_MOBILE
 
-      // Idle-hide used to leave an opacity:0 island with backdrop-filter on.
-      // That backdrop root samples #wallpaper (filter + parallax transform) and
-      // can freeze those updates. Drop the glass before the fade/slide.
+      // 隐藏前去掉玻璃：opacity:0 仍带着 backdrop-filter 会冻住 #wallpaper 采样。
       navContainer.dataset.navIdle = visible ? 'shown' : 'hidden'
       navContainer.style.opacity = visible ? '1' : '0'
       navContainer.style.transform = transform
       navContainer.style.pointerEvents = visible ? 'auto' : 'none'
     }
 
-    /** After layout morph: snap transform without animating old→new axes. */
+    /** 布局变形后立刻 snap transform，不要播旧轴→新轴。 */
     const snapVisibilityForLayout = (visible: boolean) => {
       if (isChromeSwitching(navContainer)) return
       navContainer.style.transition = TRANSITION_OPACITY_ONLY
       applyVisibility(visible)
-      // Restore hide/show transform transition on next frame
+
       requestAnimationFrame(() => {
         if (!isChromeSwitching(navContainer)) {
           navContainer.style.transition = TRANSITION_VISIBILITY
@@ -107,7 +92,6 @@ export function useNavAutoHide(selector = '.nav-container') {
       })
     }
 
-    // 核心显示/隐藏
     const showNav = () => {
       if (isNavVisible) return
       isNavVisible = true
@@ -116,7 +100,7 @@ export function useNavAutoHide(selector = '.nav-container') {
     }
 
     const syncHoverFromDom = () => {
-      // Touch :hover sticks after tap; only fine pointers pause idle hide.
+      // 触摸 :hover 会粘住；仅 hover:hover 才暂停空闲隐藏。
       isHovering = hoverCapable && navContainer.matches(':hover')
     }
 
@@ -126,8 +110,8 @@ export function useNavAutoHide(selector = '.nav-container') {
     const hideNav = (byScroll = false) => {
       if (isTourDomActive()) return
       if (!isNavVisible) return
-      // Touch can fire pointerenter without a matching leave; don't let a
-      // sticky flag block idle hide if the pointer is not actually over us.
+
+      // 触摸可能只有 enter 没有 leave；指针不在岛上时不要挡住空闲隐藏。
       if (isPointerOverNav()) return
       isHovering = false
       isNavVisible = false
@@ -135,7 +119,6 @@ export function useNavAutoHide(selector = '.nav-container') {
       applyVisibility(false)
     }
 
-    // 无操作计时器
     const clearInactivityTimer = () => {
       if (inactivityTimeoutId) {
         clearTimeout(inactivityTimeoutId)
@@ -151,7 +134,6 @@ export function useNavAutoHide(selector = '.nav-container') {
       }
     }
 
-    // 滚动处理
     const processScroll = () => {
       if (isChromeSwitching(navContainer)) {
         rafId = 0
@@ -177,7 +159,6 @@ export function useNavAutoHide(selector = '.nav-container') {
       }
     }
 
-    // 鼠标移动处理
     let pendingMouseMove: MouseEvent | null = null
     let mouseRafId = 0
 
@@ -210,8 +191,8 @@ export function useNavAutoHide(selector = '.nav-container') {
       edgePrimed = reveal.primed
       insideEdge = reveal.insideProximity
       insideHotEdge = reveal.insideHot
-      // Proximity must not refresh the idle timer while the island is already
-      // visible — the rail sits inside that band.
+
+      // 岛已可见时邻近带不得刷新空闲计时——侧轨就在带内。
       if (reveal.show) {
         showNav()
         startInactivityTimer()
@@ -225,7 +206,6 @@ export function useNavAutoHide(selector = '.nav-container') {
       }
     }
 
-    // 交互处理
     const handleInteraction = () => {
       if (isChromeSwitching(navContainer)) return
       if (hiddenByScroll) return
@@ -233,8 +213,7 @@ export function useNavAutoHide(selector = '.nav-container') {
       if (!isHovering) startInactivityTimer()
     }
 
-    // Pause idle hide only for real hover. Touch synthesizes enter without
-    // leave, which used to pin isHovering and disable auto-hide entirely.
+    // 只把真 hover 当暂停；触摸合成的 enter 不配对 leave。
     const isHoverPointer = (e: PointerEvent) =>
       e.pointerType === 'mouse' || e.pointerType === 'pen'
 
@@ -251,8 +230,7 @@ export function useNavAutoHide(selector = '.nav-container') {
       startInactivityTimer()
     }
 
-    // Desired layout changed (store). Chrome may still be crossfading — only
-    // cache the token; transform snap happens on NAV_CHROME_SETTLED_EVENT.
+    // 只缓存 layout token；transform snap 等 NAV_CHROME_SETTLED_EVENT。
     const handleLayoutDesire = () => {
       cachedLayout = getNavLayoutSnapshot()
     }
@@ -262,14 +240,16 @@ export function useNavAutoHide(selector = '.nav-container') {
       isNavVisible = true
       hiddenByScroll = false
       clearInactivityTimer()
-      // Clear any residual inline from before switch, then snap show pose.
+
+      // 清掉切换残留的 inline，再 snap 到显示姿态。
       navContainer.style.removeProperty('opacity')
       navContainer.style.removeProperty('transform')
       navContainer.style.removeProperty('pointer-events')
       navContainer.removeAttribute('data-nav-idle')
       snapVisibilityForLayout(true)
-      // pointer-events just came back; :hover / pointerenter may lag one frame.
+
       if (hoverSyncRaf) cancelAnimationFrame(hoverSyncRaf)
+      // pointer-events 刚恢复；:hover / pointerenter 可能晚一帧。
       hoverSyncRaf = requestAnimationFrame(() => {
         hoverSyncRaf = 0
         syncHoverFromDom()
@@ -283,18 +263,16 @@ export function useNavAutoHide(selector = '.nav-container') {
 
     const handleTourActive = () => {
       if (isTourDomActive()) {
-        // Edit mode (and other immersive chrome) keeps the island hidden.
-        // Do not snap it back just because a tour started.
+        // 沉浸 chrome 保持隐藏；教程开始不要把它 snap 回来。
         if (navContainer.classList.contains('immersive')) {
           return
         }
-        // Snap to the shown pose. A 300ms transform transition would leave
-        // getBoundingClientRect mid-slide, and the tour hole/card would lock
-        // onto the idle-hide offset (translateX(-20px) on desktop).
+
         isNavVisible = true
         hiddenByScroll = false
         clearInactivityTimer()
         if (!isChromeSwitching(navContainer)) {
+          // snap 显示姿态，避免 300ms 过渡让教程洞对准 idle-hide 位移。
           navContainer.style.transition = 'none'
           applyVisibility(true)
         }
@@ -306,7 +284,6 @@ export function useNavAutoHide(selector = '.nav-container') {
       if (!isHovering) startInactivityTimer()
     }
 
-    // 初始化 & 事件注册
     applyVisibility(true)
 
     const controller = new AbortController()
@@ -331,7 +308,8 @@ export function useNavAutoHide(selector = '.nav-container') {
     })
 
     const unsubscribeLayout = subscribeNavLayout(handleLayoutDesire)
-    // pointerenter does not fire if the pointer is already over the island.
+    // pointerenter 在指针已在岛上时不会再触发。
+
     syncHoverFromDom()
     if (!isHovering) startInactivityTimer()
 

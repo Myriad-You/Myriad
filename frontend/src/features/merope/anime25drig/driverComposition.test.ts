@@ -120,7 +120,6 @@ test('semantic and staged expression extras honor independent ownership', () => 
     stylized = controller.sample(frame / 60, 0, 0, 1, 0, 0)
   }
 
-  // 1 = no voice on the mouth, which is what the old `speaking: false` meant.
   applyAnime25DStylizedExpression(target, semantic, stylized, 1, 0, 0.25)
 
   assert.equal(target.eyeDizzy, 0)
@@ -249,9 +248,6 @@ test('pointer gaze is a weight, so leaving eases off instead of dropping', () =>
   const at = (authority: number) =>
     prepareAnime25DWorkingTarget({ ...IDENTITY_DRIVER }, authored, pointer, authority)
 
-  // Losing the cursor used to drop the whole tracked goal in one frame, which
-  // the pose filter then chased as a snap back to rest. Skimming the edge of
-  // the character did it twice a second.
   const held = at(1)
   const half = at(0.5)
   const released = at(0)
@@ -261,7 +257,6 @@ test('pointer gaze is a weight, so leaving eases off instead of dropping', () =>
     Math.abs(half.angleX - (authored.angleX + held.angleX) / 2) < 1e-12,
   )
   assert.ok(Math.abs(half.eyeX - (authored.eyeX + held.eyeX) / 2) < 1e-12)
-  // An authored pose with no pointer at all is untouched at any authority.
   const ignored = prepareAnime25DWorkingTarget(
     { ...IDENTITY_DRIVER },
     { ...authored, mouse: false },
@@ -494,18 +489,6 @@ test('new pose response leaves mouth, expression, blink and physics flags unchan
   }
 })
 
-/**
- * Second implementation of the blink machine, kept to pin its arithmetic.
- *
- * This was a byte-for-byte copy of the version extracted from the player. One
- * clause is deliberately no longer identical: the original abandoned a blink
- * in flight the moment `suppressed` or `!enabled` arrived, returning without
- * writing the lid, so a sticker crossing its 0.03 threshold — or automation
- * being switched off — while the eyes were shut threw them open from wherever
- * they had got to. A blink in flight now finishes; only the scheduling of new
- * ones stops. `an interrupted blink finishes instead of springing open` pins
- * that behaviour directly, and this keeps covering everything else.
- */
 function legacyStepBlink(
   target: Anime25DDriver,
   state: { activeSeconds: number; nextAtSeconds: number },
@@ -621,7 +604,6 @@ test('an interrupted blink finishes instead of springing open', () => {
       stepAnime25DBlink(target, state, time, 1 / 60, enabled, suppressed, random)
       return target.eyeOpenL
     }
-    // Open the lids, then land the interruption while they are shut.
     let time = 1 / 60
     lid(time, true, false)
     for (let frame = 0; frame < 8; frame += 1) {
@@ -637,14 +619,11 @@ test('an interrupted blink finishes instead of springing open', () => {
       interruption !== 'disabled',
       interruption === 'suppressed',
     )
-    // A sticker crossing 0.03 is only 3% blended in, so the real eyes are
-    // still what the viewer is looking at while this happens.
     assert.ok(
       interrupted < 0.2,
       `${interruption}: lids sprang to ${interrupted} mid-blink`,
     )
 
-    // It still ends, and it stops scheduling new ones.
     for (let frame = 0; frame < 60; frame += 1) {
       time += 1 / 60
       lid(time, interruption !== 'disabled', interruption === 'suppressed')
@@ -672,9 +651,6 @@ test('the lovestruck mouth yields to a voice by degrees, not in one step', () =>
     return target.mouthOpen
   }
 
-  // The silly mouth beside this one has always taken an eased share. This one
-  // read the same quantity as a boolean and moved 0.82 of the mouth in a
-  // single frame every time speech started or stopped.
   const free = openAt(1)
   const taken = openAt(0)
   assert.ok(free > taken)

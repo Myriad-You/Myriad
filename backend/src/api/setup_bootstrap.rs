@@ -147,8 +147,9 @@ fn claimed_marker_plan(
 }
 
 fn setup_window_closed_error() -> AppError {
-    AppError::unauthorized("Setup window closed")
-        .with_message("安装向导已关闭。认领之后请先修库，不要再用 setup 改宿主配置。")
+    AppError::unauthorized("Setup window closed").with_message(
+        "Setup is already claimed. Repair the database first; do not use setup to change host configuration.",
+    )
 }
 
 pub(crate) fn secret_matches(expected: &str, provided: &str) -> bool {
@@ -228,9 +229,8 @@ pub fn require_setup_window() -> Result<(), AppError> {
     state.authorize()
 }
 
-/// Durably mark the installation claimed, then close the process window
-/// immediately before the owner transaction commits. Marker failure leaves the
-/// window open so the database transaction can be rolled back and retried.
+/// Persist `.bootstrap-claimed`, then close the process window.
+/// This fn has no owner transaction (`create_admin` calls it before commit).
 pub fn consume_setup() -> io::Result<()> {
     let Some(state) = INSTALLATION_WINDOW.get() else {
         return Err(io::Error::other("installation window is uninitialized"));
@@ -301,7 +301,7 @@ fn unquote_env(value: &str) -> &str {
     }
 }
 
-/// 从 `.env` 一行或进程环境里取出可用的安装暗号。
+/// Unquote/trim a raw env value (does not read a `.env` file).
 fn setup_secret_from_env_value(raw: Option<&str>) -> Option<String> {
     raw.map(unquote_env)
         .map(str::trim)
@@ -311,7 +311,9 @@ fn setup_secret_from_env_value(raw: Option<&str>) -> Option<String> {
 
 fn setup_secret_mismatch_error() -> AppError {
     AppError::unauthorized("Setup secret required")
-        .with_message("安装暗号不对。请从服务器 .env 的 MYRIAD_SETUP_SECRET 复制后再试。")
+        .with_message(
+            "Setup passphrase does not match. Copy MYRIAD_SETUP_SECRET from the server .env and try again.",
+        )
         .with_hint(format!(
             "Send `{SETUP_SECRET_HEADER}` or JSON field `setup_secret`"
         ))
@@ -483,9 +485,11 @@ mod tests {
         assert_eq!(error.status_u16(), 401);
         let body = error.to_json();
         assert_eq!(body["error"], "Setup window closed");
-        assert!(body["message"]
-            .as_str()
-            .is_some_and(|value| !value.is_empty()));
+        assert_eq!(body["code"], "setup_window_closed");
+        assert_eq!(
+            body["message"],
+            "Setup is already claimed. Repair the database first; do not use setup to change host configuration."
+        );
     }
 
     #[test]
@@ -511,6 +515,7 @@ mod tests {
         let bytes = to_bytes(resp.into_body(), 64 * 1024).await.expect("body");
         let v: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
         assert_eq!(v["error"], "Setup window closed");
+        assert_eq!(v["code"], "setup_window_closed");
     }
 
     #[test]
@@ -537,7 +542,12 @@ mod tests {
 
     #[test]
     fn check_setup_secret_requires_match_when_configured() {
-        assert!(check_setup_secret(Some("correct-phrase"), "wrong").is_err());
+        let mismatch = check_setup_secret(Some("correct-phrase"), "wrong").unwrap_err();
+        assert_eq!(mismatch.code(), Some("setup_secret_mismatch"));
+        assert_eq!(
+            mismatch.to_json()["message"],
+            "Setup passphrase does not match. Copy MYRIAD_SETUP_SECRET from the server .env and try again."
+        );
         assert!(check_setup_secret(Some("correct-phrase"), "").is_err());
         assert!(check_setup_secret(Some("correct-phrase"), "correct-phrase").is_ok());
         assert!(check_setup_secret(Some("\"correct-phrase\""), "correct-phrase").is_ok());

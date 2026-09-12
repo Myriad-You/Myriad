@@ -1,9 +1,3 @@
-/**
- * 选项标题旁：「默认值有更新」可关闭标签。
- * - 点击标签正文：可选 onApply 将选项值写成新默认，并关闭提示
- * - 点 ×：仅关闭提示，不改值
- */
-
 import type { SettingDefaultChangeNotice } from './settingDefaultChanges'
 import { LuSparkles } from '@lib/icons'
 import React, { useCallback, useEffect, useState } from 'react'
@@ -17,12 +11,8 @@ import {
 import { SettingTitleTag } from './SettingTitleTag'
 
 export interface SettingDefaultChangeTagProps {
-  /** 配置字段 key（与 InputItem itemKey / 后端 field key 对齐） */
   fieldKey?: string
-  /**
-   * 点击标签时把选项写成新默认。
-   * 未传则仅展示提示 + 可关闭，不可一点应用。
-   */
+  /** click applies the new default; omit for display-only */
   onApply?: (newDefault: string) => void
   className?: string
 }

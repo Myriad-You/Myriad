@@ -1,13 +1,3 @@
-/**
- * Client preflight for Playground .tapp export and install-from-playground.
- *
- * Mirrors production install checks as closely as practical without a server
- * dry-run: manifest field rules from `validate_tapp_manifest`, resource
- * presence from `validate_installed_resources`, asset path rules from
- * `validate_asset_path`, plus playground project constraints that affect
- * whether the built package would stage cleanly.
- */
-
 import type { TappPlaygroundCode } from '../services/TappPlaygroundService'
 import type { TappManifest, WidgetSize } from '../types'
 import type { PackageFileContent, PlaygroundPackageFiles } from './playgroundPackageFiles.ts'
@@ -35,10 +25,8 @@ const VALID_WIDGET_SIZES = new Set<string>([
   '4x4',
 ])
 
-/** Loose BCP-47 tag matching backend `valid_locale_tag`: language 2-3 letters + alnum subtags. */
 const LOCALE_TAG_RE = /^[a-z]{2,3}(-[a-z0-9]{1,8})*$/i
 
-/** Loose semver matching the backend `semver::Version::parse` happy path. */
 const SEMVER_RE =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-z-][0-9a-z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-z-][0-9a-z-]*))*))?(?:\+([0-9a-z-]+(?:\.[0-9a-z-]+)*))?$/i
 
@@ -96,7 +84,6 @@ function validateResourceExtension(
   return null
 }
 
-/** Mirrors backend `validate_asset_path`. */
 export function validateAssetPath(path: string): string | null {
   const pathError = validateResourcePath(path)
   if (pathError) return pathError
@@ -122,7 +109,6 @@ function isNonEmptyText(value: PackageFileContent | undefined): boolean {
   return value.byteLength > 0
 }
 
-/** Tailwind `sm:`/`md:`/`lg:` prefixes. `text-sm` / `rounded-md` are allowed. */
 export function unsupportedTailwindBreakpoint(source: string): string | null {
   const prefixes = ['sm:', 'md:', 'lg:', 'xl:', '2xl:'] as const
   for (const prefix of prefixes) {
@@ -137,10 +123,6 @@ export function unsupportedTailwindBreakpoint(source: string): string | null {
   return null
 }
 
-/**
- * Validate that a playground project builds an installable package map.
- * Runs after path normalization via `buildPlaygroundPackageFiles`.
- */
 export function validatePlaygroundPackage(
   project: ValidatePlaygroundPackageInput,
 ): ValidatePlaygroundPackageResult {
@@ -152,11 +134,9 @@ export function validatePlaygroundPackage(
   const pkg = buildPlaygroundPackageFiles(project.manifest, project.code)
   const { manifest, files } = pkg
   const code = project.code
-  // Mode checks use the author-declared manifest so normalize (which may clear
-  // declared page when pageHtml is empty) does not hide "page without content" errors.
+  // 模式检查用作者声明的 Manifest；normalize 清空空 page 时仍能报「声明了却没内容」。
   const declared = project.manifest
 
-  // Manifest required fields (validate_tapp_manifest core)
   const idError = validateTappId(manifest.id || '')
   if (idError) push(idError)
 
@@ -172,7 +152,7 @@ export function validatePlaygroundPackage(
     for (const [tag, entry] of entries) {
       if (!LOCALE_TAG_RE.test(tag)) {
         push(
-          `Tapp locales key '${tag}' must be a BCP-47 language tag (e.g. zh-CN)`,
+          `Tapp locales key '${tag}' must be a BCP-47 language tag (e.g. zh-CN, zh-TW)`,
         )
       }
       if (
@@ -197,7 +177,6 @@ export function validatePlaygroundPackage(
     push('Tapp category is required')
   }
 
-  // 层入口与层资源（validate_tapp_layers）
   const layerPaths: Array<[string, string | undefined, string]> = [
     ['core.entry', manifest.core?.entry, '.js'],
     ['core.styles', manifest.core?.styles, '.css'],
@@ -221,8 +200,7 @@ export function validatePlaygroundPackage(
   const pageHtml = code.pageHtml ?? ''
   const widgetsForMode = declared.widgets ?? manifest.widgets ?? []
   const hasWidgets = widgetsForMode.length > 0
-  // 用作者声明判断模式：normalize 会在内容为空时清掉 page 层，
-  // 只看 normalize 结果就分不出「没打算要页面」和「声明了却没写内容」。
+  // 用作者声明判断模式；normalize 会在内容为空时清掉 page 层。
   const hasPage = declared.page !== undefined || manifest.page !== undefined
 
   const declaredBackground =
@@ -232,12 +210,10 @@ export function validatePlaygroundPackage(
     push('Tapp declaring backgroundRequirements must declare a core layer')
   }
 
-  // Dual mode: Page and/or Widget-only. Reject empty projects (neither).
   if (!hasPage && !hasWidgets) {
     push('Playground project requires a page layer and/or non-empty Widgets')
   }
 
-  // Playground install/export expectations (fixed three-file layout)
   if (manifest.core && manifest.core.entry !== 'core.js') {
     push('Playground requires core entry core.js')
   }
@@ -262,7 +238,6 @@ export function validatePlaygroundPackage(
     }
   }
 
-  // Assets list on manifest — full validate_asset_path
   if (manifest.assets) {
     const maxAssets = maxDeclaredAssets(manifest)
     if (manifest.assets.length > maxAssets) {
@@ -279,7 +254,6 @@ export function validatePlaygroundPackage(
     }
   }
 
-  // Widgets
   const widgets = manifest.widgets ?? []
   if (widgets.length > 0) {
     if (!manifest.permissions?.includes('widget:register')) {
@@ -334,7 +308,6 @@ export function validatePlaygroundPackage(
       }
     }
 
-    // Export writes widget HTML only when code.widgetHtml is present.
     if (!code.widget?.trim() || !code.widgetHtml?.trim()) {
       push(
         'Manifest Widgets require non-empty code.widget and code.widgetHtml',
@@ -342,7 +315,7 @@ export function validatePlaygroundPackage(
     }
   }
 
-  // Declared layer resources must exist in the built file map
+  // 声明的层资源必须出现在打好的文件图里。
   const requiredPaths: string[] = []
   for (const path of [
     manifest.core?.entry,
@@ -375,7 +348,6 @@ export function validatePlaygroundPackage(
 
   if (manifest.assets) {
     for (const relative of manifest.assets) {
-      // Skip presence check when path shape is already invalid.
       if (validateAssetPath(relative)) continue
       if (!fileExists(files, relative)) {
         push(`Declared Tapp asset not found: ${relative}`)
@@ -383,7 +355,7 @@ export function validatePlaygroundPackage(
     }
   }
 
-  // Widgets with code must also emit template files (export writes them).
+  // 有代码的 widget 也必须写出模板文件。
   if (widgets.length > 0 && code.widgetHtml?.trim()) {
     for (const widget of widgets) {
       const templates = widget.templates
@@ -403,7 +375,7 @@ export function validatePlaygroundPackage(
     }
   }
 
-  // 安装契约只在后台常驻时强制 core。空 core.js 对 Page/Widget 预览无害。
+  // 安装契约只在常驻时强制 core。空 core.js 对 Page/Widget 预览无害。
   const coreEntry = manifest.core?.entry
   if (declaredBackground && coreEntry && fileExists(files, coreEntry)) {
     const source = files[coreEntry]
@@ -469,14 +441,6 @@ export function validatePlaygroundPackage(
       ],
       ['Tapp.ui.confirm', 'Tapp.ui.confirm is not on the Widget SDK'],
       ['Tapp.ui.setTitle', 'Tapp.ui.setTitle is not on the Widget SDK'],
-      [
-        'Tapp.ui.requestFullscreen',
-        'Tapp.ui.requestFullscreen is not on the Widget SDK',
-      ],
-      [
-        'Tapp.ui.exitFullscreen',
-        'Tapp.ui.exitFullscreen is not on the Widget SDK',
-      ],
       ['Tapp.ui.fullscreen', 'Tapp.ui.fullscreen is not on the Widget SDK'],
       ['Tapp.game', 'Tapp.game is not on the Widget SDK'],
       ['Tapp.federation', 'Tapp.federation is not on the Widget SDK'],
@@ -485,6 +449,7 @@ export function validatePlaygroundPackage(
       ['Tapp.component', 'Tapp.component is not on the Widget SDK'],
       ['Tapp.shortcut', 'Tapp.shortcut is not on the Widget SDK'],
       ['Tapp.dynamicContent', 'Tapp.dynamicContent is not on the Widget SDK'],
+      ['Tapp.model3d', 'Tapp.model3d is not on the Widget SDK'],
     ]
     for (const [method, message] of widgetPageOnly) {
       if (calls(method, widgetSource)) push(message)
@@ -513,15 +478,11 @@ export function validatePlaygroundPackage(
   return { ok: true, package: pkg }
 }
 
-/**
- * Format validation errors for throw / error UI (English, admin playground).
- */
 export function formatPlaygroundPackageErrors(errors: string[]): string {
   if (errors.length === 1) return errors[0]
   return errors.map((error, index) => `${index + 1}. ${error}`).join('\n')
 }
 
-/** Thrown by export (and usable by install) when preflight fails. */
 export class PlaygroundPackageValidationError extends Error {
   readonly errors: string[]
 

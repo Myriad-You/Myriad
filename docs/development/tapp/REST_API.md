@@ -305,13 +305,32 @@ Manifest 声明配置。公开部署用它存放站长要给访客看的内容�
 | GET | `/api/tapps/{tappId}/shared/{key}` | **optional_auth** | 读取单个键；未写入返回 `null` |
 | POST | `/api/tapps/{tappId}/shared/{key}` | **auth（登录）** | 写入；仅 owner / 当前管理员 |
 | DELETE | `/api/tapps/{tappId}/shared/{key}` | **auth（登录）** | 删除单个键 |
-| DELETE | `/api/tapps/{tappId}/shared` | **auth（登录）** | 只清 `_shared.*`，不动 settings / credentials / 私有 storage |
+| DELETE | `/api/tapps/{tappId}/shared` | **auth（登录）** | 只清 `_shared.*`，不动 settings / credentials / private / 私有 storage |
 
 读路径与 Settings GET 相同：游客打开公开安装可读站主数据。写路径与 Settings POST 相同：
 游客和普通 viewer 403。底层行的 key 为 `_shared.{key}`；通用 storage REST 在 SQL 层排除
 该前缀。
 
 不要把 secrets 放进 shared：访客可读。
+
+### Private 读/写（安装级，仅 owner / admin）
+
+`Tapp.private` 是 **installation owner** 命名空间上的自由 KV，仅安装 owner 或当前管理员
+可读可写。给站长之间共用、又不能给游客看的非密数据。密钥、出站 token 仍走凭据，不要放这里。
+
+| 方法 | 路径 | 认证层 | 说明 |
+| ---- | ---- | ------ | ---- |
+| GET | `/api/tapps/{tappId}/private` | **auth + owner/admin** | 列出私有 key |
+| GET | `/api/tapps/{tappId}/private/entries` | **auth + owner/admin** | 一次读取全部键值 |
+| GET | `/api/tapps/{tappId}/private/usage` | **auth + owner/admin** | owner 命名空间用量 |
+| GET | `/api/tapps/{tappId}/private/{key}` | **auth + owner/admin** | 读取单个键；未写入返回 `null` |
+| POST | `/api/tapps/{tappId}/private/{key}` | **auth + owner/admin** | 写入 |
+| DELETE | `/api/tapps/{tappId}/private/{key}` | **auth + owner/admin** | 删除单个键 |
+| DELETE | `/api/tapps/{tappId}/private` | **auth + owner/admin** | 只清 `_private.*` |
+
+全部方法走持久登录会话，不接受 Runtime Grant 顶替。未登录 401；已登录但非 owner/admin 403，
+且在查库之前返回，不泄漏键是否存在。底层行的 key 为 `_private.{key}`；通用 storage REST
+在 SQL 层排除该前缀。明文会进入沙箱；不要把应用凭据放进这里。
 
 ### API 凭据（安装级，只写）
 
@@ -348,7 +367,7 @@ storage 路由要求 optional_auth + Runtime Grant。读取需要 `storage:read`
 需要 `storage:write`。`storage:read` 与 `platform:read` 均为 **guest-safe basic**（见 [MANIFEST · 权限](MANIFEST.md) 与
 `permission_service::requires_authenticated_subject`）：签名游客 session 可作为 subject，
 私有 storage 落在负 id 命名空间下，平台 **读** 走 optional_auth 的公开站点缓存。
-通用 storage 使用当前 subject 命名空间，并拒绝访问 `_settings.`、`_shared.`、`_component:`、
+通用 storage 使用当前 subject 命名空间，并拒绝访问 `_settings.`、`_shared.`、`_private.`、`_component:`、
 `_shortcut:`、`_report:` 等宿主保留键。
 
 下列能力的真实后端路由仍要求**持久登录**主体，不会被签入访客 Grant：`report:read`、
@@ -556,21 +575,21 @@ Tapp 通知进入 Myriad 的统一通知流，不存在独立的 Tapp-only toast
 
 ### 报告、组件、快捷键和事件
 
-| 方法           | 路径                                                          |
-| -------------- | ------------------------------------------------------------- |
-| POST           | `/api/tapp/reports`                                           |
-| GET            | `/api/tapp/report-catalog`                                    |
-| GET            | `/api/tapp/report-catalog/{reportId}`                         |
-| GET            | `/api/tapp/report-catalog/platform/{platform}`                |
-| GET            | `/api/tapp/reports/tapp/{tappId}`                             |
-| GET/PUT/DELETE | `/api/tapp/reports/{tappId}/{reportId}`                       |
-| POST           | `/api/tapp/components/register`                               |
-| DELETE         | `/api/tapp/components/{tappId}/{componentType}/{componentId}` |
-| GET            | `/api/tapp/components/{tappId}`                               |
-| GET            | `/api/tapp/components/all/{componentType}`                    |
-| POST           | `/api/tapp/shortcuts/register`                                |
-| DELETE         | `/api/tapp/shortcuts/{tappId}/{shortcutId}`                   |
-| GET            | `/api/tapp/shortcuts`                                         |
+| 方法           | 路径                                                          | SDK |
+| -------------- | ------------------------------------------------------------- | --- |
+| POST           | `/api/tapp/reports`                                           | `Tapp.report.create` |
+| GET            | `/api/tapp/report-catalog`                                    | `Tapp.report.platform.list` |
+| GET            | `/api/tapp/report-catalog/{reportId}`                         | `Tapp.report.platform.get` |
+| GET            | `/api/tapp/report-catalog/platform/{platform}`                | `Tapp.report.platform.byPlatform` |
+| GET            | `/api/tapp/reports/tapp/{tappId}`                             | `Tapp.report.list` |
+| GET/PUT/DELETE | `/api/tapp/reports/{tappId}/{reportId}`                       | `Tapp.report.get` / `update` / `delete` |
+| POST           | `/api/tapp/components/register`                               | `Tapp.component.registerTheme` / `registerAgent` |
+| DELETE         | `/api/tapp/components/{tappId}/{componentType}/{componentId}` | `Tapp.component.unregister` |
+| GET            | `/api/tapp/components/{tappId}`                               | `Tapp.component.list` |
+| GET            | `/api/tapp/components/all/{componentType}`                    | — |
+| POST           | `/api/tapp/shortcuts/register`                                | `Tapp.shortcut.register` |
+| DELETE         | `/api/tapp/shortcuts/{tappId}/{shortcutId}`                   | `Tapp.shortcut.unregister` |
+| GET            | `/api/tapp/shortcuts`                                         | `Tapp.shortcut.list` |
 
 这些路由都需要登录；具体能力还受 `report:*`、`component:*` 与 `shortcut:register` 等最终授权约束。
 

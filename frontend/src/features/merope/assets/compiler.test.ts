@@ -279,7 +279,6 @@ test('failed preview never produces anything to persist', async () => {
     ),
     /semantic chain rejected/,
   )
-  // 拿不到 preflight 就无从落库；阶段流里也不该出现落库这一步。
   assert.deepEqual(events.at(-1), {
     stage: 'compile-preview',
     status: 'failed',

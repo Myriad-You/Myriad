@@ -3,8 +3,7 @@
 //! 基于 Tapp 系统的权限等级（PermissionLevel）管理权限下放。
 //!
 //! ## 权限层级（来自 Tapp 系统）
-//! - **public**: 无需权限，所有人可用
-//! - **basic**: 基础权限，默认所有角色可用；需要持久身份的数据能力可排除游客
+//! - **basic**: check 默认 true；游客另拒 `requires_authenticated_subject()`
 //! - **elevated**: 提升权限，默认仅管理员，可配置下放
 //! - **privileged**: 特权权限，始终仅管理员可用
 //!
@@ -21,12 +20,14 @@
 //! - report:read (authenticated), storage:read (guest-safe)
 //! - ui:notification (authenticated), ui:fullscreen, ui:theme, ui:confirm, ui:openUrl
 //! - media:read, media:control, media:audio, event:subscribe
-//! - federation:read, federation:message, federation:files
+//! - federation:read
+//! - federation:message, federation:files (guest-excluded)
 //! - federation:interact (authenticated), federation:ring (authenticated)
+//! - game:session (guest-excluded)
 //!
 //! ### Elevated - 可配置下放
-//! - ai:generate, ai:analyze, ai:chat, ai:image, 3d:generate
-//! - network:fetch, component:theme (authenticated)
+//! - ai:generate, ai:analyze, ai:chat, ai:image, ai:search, 3d:generate
+//! - network:fetch, storage:write, component:theme (authenticated)
 //! - shortcut:register (authenticated), event:publish
 //! - scheduler:register, speech:tts, speech:asr (all authenticated)
 //! - federation:post, federation:channel, federation:room
@@ -45,7 +46,7 @@ pub use myriad_tapp_contract::permission::{
     UserRole, UNKNOWN_TAPP_PERMISSION_CODE,
 };
 
-/// Agent / 会话 `user_id` → TAPP 角色。管理员以当前库角色为准；访客为负 id。
+/// `is_admin` → Admin；`user_id <= 0` → Guest；否则 User。
 pub fn role_from_user_id(user_id: i32, is_admin: bool) -> UserRole {
     if is_admin {
         UserRole::Admin
@@ -62,7 +63,7 @@ pub fn role_from_user_id(user_id: i32, is_admin: bool) -> UserRole {
 pub struct TappPermissionService;
 
 impl TappPermissionService {
-    /// Filter manifest/requested permissions by the user's current role.
+    /// Filter requested permission ids to the granted set for this role.
     pub fn filter_permissions_for_role(
         config: &DynamicConfig,
         role: UserRole,
@@ -84,24 +85,26 @@ impl TappPermissionService {
             .collect())
     }
 
-    /// 检查用户是否拥有特定 Tapp 权限
+    /// 检查该角色是否被授予该权限
     pub fn check(config: &DynamicConfig, role: UserRole, permission: TappPermission) -> bool {
-        // 管理员拥有所有权限
+        // 出口地理位置闸门关闭时，联邦能力对**任何角色**都不授予——管理员也不例外，
+        // 所以这一条必须排在下面的管理员短路之前。这只过滤授予权限：manifest 里的
+        // 声明权限和安装时落库的批准权限都不动，闸门重新打开就自然恢复。
+        if permission.is_federation() && !crate::services::federation_gate::federation_enabled() {
+            return false;
+        }
+
+        // 闸门通过后，管理员短路为授予
         if role == UserRole::Admin {
             return true;
         }
 
-        // Never issue a capability whose real route is behind mandatory auth;
-        // Runtime Grant metadata must match the executable HTTP boundary.
-        // (Storage + platform:read are guest-safe and use optional_auth.)
+        // 游客不授予 `requires_authenticated_subject` 的能力
         if role == UserRole::Guest && permission.requires_authenticated_subject() {
             return false;
         }
 
-        // 游客的 federation 能力严格只读：可以读取经过内容级过滤的公开
-        // Feed，但不能发布/治理/通信或传输文件。federation:interact 与
-        // federation:ring 虽为 Basic，但要求持久登录主体（见
-        // requires_authenticated_subject），游客同样拿不到。
+        // 游客额外拒绝 federation post/channel/room/message/files 与 game:session
         if role == UserRole::Guest
             && matches!(
                 permission,
@@ -142,7 +145,6 @@ impl TappPermissionService {
             TappPermission::AiImage => config.user_perm_ai_image,
             TappPermission::AiSearch => config.user_perm_ai_search,
             TappPermission::ThreeDGenerate => config.user_perm_3d_generate,
-            // report:write 已升 privileged；media:control 已降 basic
             TappPermission::NetworkFetch => config.user_perm_network_fetch,
             TappPermission::ComponentTheme => config.user_perm_component_theme,
             TappPermission::ShortcutRegister => config.user_perm_shortcut_register,
@@ -176,8 +178,7 @@ impl TappPermissionService {
             TappPermission::SpeechTts => false,
             TappPermission::SpeechAsr => false,
             TappPermission::StorageWrite => config.guest_perm_storage_write,
-            // federation 写域不向游客下放：guest 排除块在 check() 中先拦截，
-            // 这里即使配置为 true 也不会生效（写路由要求持久登录主体）。
+            // 游客写域固定 false（check() 排除块也会先返回）
             TappPermission::FederationPost => false,
             TappPermission::FederationChannel => false,
             TappPermission::FederationRoom => false,
@@ -221,7 +222,7 @@ impl TappPermissionService {
                 three_d_generate: config.user_perm_3d_generate,
                 report_write: false, // 不再下放
                 network_fetch: config.user_perm_network_fetch,
-                // media:control 已降 basic，始终可用；字段保留供 API 兼容
+                // media:control 为 basic，始终可用；字段保留供 API 兼容
                 media_control: true,
                 component_theme: config.user_perm_component_theme,
                 shortcut_register: config.user_perm_shortcut_register,
@@ -244,11 +245,10 @@ impl TappPermissionService {
                 three_d_generate: config.guest_perm_3d_generate,
                 report_write: false, // 不再下放
                 network_fetch: config.guest_perm_network_fetch,
-                // media:control 已降 basic，始终可用；字段保留供 API 兼容
+                // media:control 为 basic，始终可用；字段保留供 API 兼容
                 media_control: true,
                 // These routes require a durable authenticated subject. Keep
-                // legacy config fields for schema compatibility, but never
-                // advertise them as effective guest delegation settings.
+                // config fields for schema compatibility; grant path is hardcoded false.
                 component_theme: false,
                 shortcut_register: false,
                 event_publish: config.guest_perm_event_publish,
@@ -299,7 +299,7 @@ pub struct AiQuotaConfig {
     pub cooldown_seconds: i32,
 }
 
-/// Elevated 级别权限配置（report:write 已升 privileged，不可下放）
+/// Elevated 级别权限配置（report:write 为 privileged，不可下放）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ElevatedPermissions {
     pub ai_generate: bool,
@@ -310,11 +310,11 @@ pub struct ElevatedPermissions {
     pub ai_search: bool,
     #[serde(default)]
     pub three_d_generate: bool,
-    /// 保留字段：始终为 false，前端不再展示
+    /// 兼容字段；`get_permission_config` 写 false
     #[serde(default)]
     pub report_write: bool,
     pub network_fetch: bool,
-    /// 保留字段：media:control 已降 basic，摘要中始终为 true
+    /// 保留字段：media:control 为 basic，摘要中始终为 true
     #[serde(default)]
     pub media_control: bool,
     pub component_theme: bool,
@@ -418,7 +418,7 @@ mod tests {
 
     #[test]
     fn test_media_control_is_basic_for_all_roles() {
-        // media:control is basic: always allowed regardless of legacy config flags
+        // media:control is basic: always allowed regardless of user/guest_perm_media_control
         let config = DynamicConfig {
             user_perm_media_control: false,
             guest_perm_media_control: false,
@@ -749,7 +749,6 @@ mod tests {
         .unwrap();
         assert_eq!(granted, vec!["brew:write"]);
 
-        // brew:read cannot mutate status, favorites, or comments.
         let granted = TappPermissionService::filter_permissions_for_role(
             &config,
             UserRole::User,
@@ -766,7 +765,7 @@ mod tests {
 
     #[test]
     fn brew_comment_write_requires_explicit_declaration_after_delegation() {
-        // 即使把 commentWrite 下放给 user，声明 brew:read 也不会附带 commentWrite
+        // 即使 commentWrite 已下放，批准集里只有 brew:read 也不会进入授予集合
         let config = DynamicConfig {
             user_perm_brew_comment_write: true,
             ..DynamicConfig::default()
@@ -779,7 +778,7 @@ mod tests {
         .unwrap();
         assert_eq!(granted, vec!["brew:read"]);
 
-        // 单独声明 commentWrite 才进入授予集合
+        // 批准集含 commentWrite 才进入授予集合
         let granted = TappPermissionService::filter_permissions_for_role(
             &config,
             UserRole::User,
@@ -913,7 +912,7 @@ mod tests {
     #[test]
     fn federation_split_levels_and_delegation_defaults() {
         let defaults = DynamicConfig::default();
-        // ADR 0020 定级：写类 Elevated，互动/ring Basic。
+        // 写类 Elevated，互动/ring Basic。
         assert_eq!(
             TappPermission::FederationPost.level(),
             PermissionLevel::Elevated
@@ -935,7 +934,7 @@ mod tests {
             PermissionLevel::Basic
         );
 
-        // 旧 federation:write 已从枚举移除，无法解析。
+        // `TappPermission::from_str("federation:write")` 为 `None`。
         assert!(TappPermission::from_str("federation:write").is_none());
         assert!(TappPermission::from_str("federation:post").is_some());
         assert!(TappPermission::from_str("federation:interact").is_some());
@@ -1038,7 +1037,7 @@ mod tests {
             TappPermission::FederationRoom
         ));
 
-        // GET 摘要必须带回 user 侧下放值；游客侧固定 false，避免前端 ?? false 把已开开关写回。
+        // 摘要带回 user 侧下放值；游客写域固定 false。
         let effective = TappPermissionService::get_permission_config(&delegated);
         assert!(effective.user.federation_post);
         assert!(effective.user.federation_channel);
@@ -1050,8 +1049,7 @@ mod tests {
 
     #[test]
     fn federation_basic_grants_cannot_reach_elevated_domains() {
-        // 跨域拒绝：一个只声明了 Basic 域（interact/ring）的 manifest，在
-        // 过滤后绝不能包含 Elevated 域（post/channel/room）的能力。
+        // 默认不下放时，请求里的 Elevated 联邦权限不会进入授予集。
         let config = DynamicConfig::default();
         let requested = vec![
             "federation:interact".to_string(),
@@ -1070,8 +1068,7 @@ mod tests {
         assert!(!granted.contains(&"federation:channel".to_string()));
         assert!(!granted.contains(&"federation:room".to_string()));
 
-        // 反向：授予 Elevated 域也不隐含 Basic 互动能力之外的内容；
-        // post/channel/room 之间互不越权。
+        // 过滤结果是请求与已下放授予的交集，不会补上未请求的 interact/ring。
         let elevated_config = DynamicConfig {
             user_perm_federation_post: true,
             user_perm_federation_channel: true,

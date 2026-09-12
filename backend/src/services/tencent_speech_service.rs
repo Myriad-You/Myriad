@@ -58,14 +58,14 @@ impl std::error::Error for TencentSpeechError {}
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct TtsRequest {
-    /// 合成语音的源文本 (中文最大150字，英文最大500字母)
+    /// 合成语音的源文本（本层 `chars().count() > 150` 拒绝）
     pub text: String,
     /// 会话ID，用于标识请求
     pub session_id: String,
-    /// 音量大小 [-10, 10]，默认0
+    /// 音量（`Default` 为 0.0）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub volume: Option<f32>,
-    /// 语速 [-2, 6]，默认0 (1.0倍速)
+    /// 语速（`Default` 为 0.0，1.0 倍速）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub speed: Option<f32>,
     /// 项目ID，默认0
@@ -76,23 +76,22 @@ pub struct TtsRequest {
     /// 更多音色参见: https://cloud.tencent.com/document/product/1073/34079
     #[serde(skip_serializing_if = "Option::is_none")]
     pub voice_type: Option<i32>,
-    /// 主语言类型: 1-中文(默认), 2-英文
+    /// 主语言（`Default` 为 1；本层不校验取值）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub primary_language: Option<i32>,
-    /// 音频采样率: 8000, 16000(默认), 24000
+    /// 音频采样率（`Default` 为 16000）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sample_rate: Option<i32>,
-    /// 返回音频格式: wav(默认), mp3, pcm
+    /// 返回音频格式（`Default` 为 mp3）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codec: Option<String>,
     /// 是否开启时间戳功能
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enable_subtitle: Option<bool>,
-    /// 情感类别 (仅多情感音色支持)
-    /// neutral, sad, happy, angry, fear, news, story, radio, poetry, call, sajiao, disgusted, amaze, peaceful, exciting, aojiao, jieshuo
+    /// 情感类别（透传 `EmotionCategory`；本层不校验音色是否支持）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub emotion_category: Option<String>,
-    /// 情感强度 [50, 200]，默认100
+    /// 情感强度（可选；`Default` 为 `None`，不序列化）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub emotion_intensity: Option<i32>,
 }
@@ -156,13 +155,11 @@ pub struct TtsResponse {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct AsrRequest {
-    /// 引擎模型类型
-    /// 16k_zh: 中文通用, 16k_en: 英语, 16k_yue: 粤语
-    /// 8k_zh: 中文电话, 8k_en: 英文电话
+    /// 引擎模型类型（`Default` 为 `16k_zh`；取值见 `asr_engines`）
     pub eng_ser_vice_type: String,
     /// 语音数据来源: 0-语音URL, 1-语音数据(post body)
     pub source_type: i32,
-    /// 音频格式: wav, pcm, ogg-opus, speex, silk, mp3, m4a, aac, amr
+    /// 音频格式（`Default` 为 wav；本层不校验枚举）
     pub voice_format: String,
     /// 用户音频标识
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -176,19 +173,19 @@ pub struct AsrRequest {
     /// 数据长度 (SourceType=1时必填，未Base64编码时的长度)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data_len: Option<i32>,
-    /// 是否显示词级别时间戳: 0-不显示, 1-显示(不含标点), 2-显示(含标点)
+    /// 词级时间戳（透传；`Default` 为 0；本层不校验 0/1/2）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub word_info: Option<i32>,
-    /// 是否过滤脏词: 0-不过滤, 1-过滤, 2-替换为*
+    /// 脏词过滤（透传；`Default` 为 0；本层不校验 0/1/2）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub filter_dirty: Option<i32>,
-    /// 是否过滤语气词: 0-不过滤, 1-部分过滤, 2-严格过滤
+    /// 语气词过滤（透传；`Default` 为 0；本层不校验 0/1/2）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub filter_modal: Option<i32>,
-    /// 是否过滤标点: 0-不过滤, 1-过滤句末标点, 2-过滤所有标点
+    /// 标点过滤（透传；`Default` 为 0；本层不校验 0/1/2）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub filter_punc: Option<i32>,
-    /// 阿拉伯数字智能转换: 0-不转换, 1-智能转换(默认)
+    /// 阿拉伯数字转换（透传；`Default` 为 1；本层不校验 0/1）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub convert_num_mode: Option<i32>,
     /// 热词表ID
@@ -398,7 +395,7 @@ impl TencentSpeechService {
         })
     }
 
-    /// 创建HTTP客户端（含 proxy + NoProxy bypass，与全局 HTTP 客户端一致）
+    /// HTTP 客户端：timeout 300s、connect 30s；代理走 `apply_proxy`。
     pub(crate) fn create_client(proxy_config: &ProxyConfig) -> Result<Client, TencentSpeechError> {
         let builder = Client::builder()
             .timeout(Duration::from_secs(5 * 60))
@@ -637,7 +634,7 @@ impl TencentSpeechService {
 /// 腾讯云TTS音色分类
 #[allow(dead_code)]
 pub mod voice_types {
-    // 超自然大模型音色 (最高品质)
+    // 超自然大模型音色
     /// 智小虎 - 聊天童声 (超自然大模型)
     pub const ZHI_XIAO_HU: i32 = 502007;
     /// 智小悟 - 聊天男声 (超自然大模型)
@@ -669,7 +666,7 @@ pub mod voice_types {
     /// 爱小悠 - 聊天女声 (超自然大模型)
     pub const AI_XIAO_YOU: i32 = 602003;
 
-    // 大模型音色 (高品质)
+    // 大模型音色
     /// 智斌 - 阅读男声 (大模型)
     pub const ZHI_BIN: i32 = 501000;
     /// 智兰 - 资讯女声 (大模型)
@@ -723,7 +720,7 @@ pub mod voice_types {
     /// 爱小童 - 男童声 (大模型，多情感)
     pub const AI_XIAO_TONG: i32 = 601015;
 
-    // 精品音色 (中等品质)
+    // 精品音色
     /// 智云 - 通用男声 (精品)
     pub const ZHI_YUN: i32 = 101004;
     /// 智瑜 - 情感女声 (精品)
@@ -820,7 +817,7 @@ mod tests {
     fn analyzer_and_tencent_source_wire_apply_proxy() {
         assert!(include_str!("analyzer/transport.rs").contains("apply_proxy"));
         assert!(include_str!("tencent_speech_service.rs").contains("apply_proxy"));
-        // MYR-019: analyzer must fail closed, not silently direct-connect.
+        // analyzer 必须 fail-closed，禁止静默直连。
         assert!(include_str!("analyzer/client.rs").contains("proxy_is_required"));
         assert!(include_str!("analyzer/client.rs").contains("fail-closed"));
         assert!(include_str!("http_client.rs").contains("resolve_client_or_fail_closed"));
@@ -829,7 +826,7 @@ mod tests {
     /// HMAC-SHA256 roundtrip for digest-generation alignment (hmac 0.13 + sha2 0.11).
     #[test]
     fn hmac_sha256_roundtrip_matches_known_vector() {
-        // RFC 4231 test case 1 (truncated to HMAC-SHA256)
+        // RFC 4231 test case 1（HMAC-SHA256 完整 32 字节标签）
         let key =
             b"\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b";
         let data = "Hi There";

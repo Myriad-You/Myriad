@@ -1,13 +1,3 @@
-/**
- * 排行条列表：页面 / 事件 / 来源共用
- *
- * - 一个序列一个颜色，不按排名深浅（长度已经在表达大小，色相不重复编码）
- * - 条只是量级速读，每行数值都直接可见（不靠悬停、不靠配色）
- * - 列头与数据行同一套 CSS Grid 模板，数字列天然对齐
- * - 窄容器（两列半幅 / 小屏）用 container query 叠成「名称 → 条 + 数字」
- * - 视口大约只露 8 行（CSS max-height）；DOM 先挂 30 条，滚到尾再挂剩余
- */
-
 import type { ReactNode, UIEvent } from 'react'
 import React, {
   useCallback,
@@ -28,23 +18,16 @@ export interface RankSubRow {
 
 export interface RankRow {
   key: string
-  /** 主标题（本地化后的名称） */
   name: string
-  /** 副标题：原始路径 / 事件名，等宽显示 */
   meta?: string
-  /** 决定条长的主指标 */
   value: number
-  /** 已格式化的次要数值 */
   secondary?: string
-  /** 已格式化的第三列（如均停），无数据传 undefined */
   tertiary?: string
-  /** 事件维度 breakdown（如各 tapp / 平台） */
   subRows?: RankSubRow[]
 }
 
 interface RankListProps {
   rows: RankRow[]
-  /** 已格式化的主指标（与 value 同序） */
   formatValue: (n: number) => string
   headers: {
     name: string
@@ -53,26 +36,15 @@ interface RankListProps {
     tertiary?: string
   }
   emptyText: string
-  /** 空态占位卡的图标，默认收件箱 */
   emptyIcon?: ReactNode
   loading?: boolean
   refreshing?: boolean
-  /**
-   * 首批挂载行数（默认 30）。视口仍只约显示 8 行；
-   * 滚到列表尾部后再挂上剩余全部行。
-   */
   initialCount?: number
 }
 
-/** 首批 DOM 行数：可滚动窗口里大约只看见 8 行 */
 export const DEFAULT_RANK_LOAD_COUNT = 30
-/** 距底部多少 px 视为「滚到尾」 */
 const SCROLL_LOAD_THRESHOLD_PX = 32
 
-/**
- * 滚动触底后的下一可见行数：直接拉满 total（剩余一次挂完）。
- * 纯函数便于单测。
- */
 export function nextRankVisibleCount(
   current: number,
   total: number,
@@ -82,7 +54,6 @@ export function nextRankVisibleCount(
   return total
 }
 
-/** 首批挂载上限（非法 initialCount 时回退默认 30） */
 export function clampRankInitialLoad(
   initialCount: unknown,
   total: number,
@@ -94,10 +65,9 @@ export function clampRankInitialLoad(
   return Math.min(total, page)
 }
 
-/** 列表数据签名：条数 + 首尾 key，用于重置可见窗口（刷新后不沿用旧的「已加载到 N」）。 */
 function rowsWindowKey(rows: RankRow[]): string {
   if (rows.length === 0) return '0'
-  return `${rows.length}:${rows[0]?.key ?? ''}:${rows[rows.length - 1]?.key ?? ''}`
+  return `${rows.length}:${rows[0]?.key ?? ''}:${rows.at(-1)?.key ?? ''}`
 }
 
 export const RankList: React.FC<RankListProps> = ({
@@ -116,7 +86,6 @@ export const RankList: React.FC<RankListProps> = ({
     clampRankInitialLoad(initialCount, rows.length),
   )
 
-  // 数据窗口变化时回到首批 30（区间切换 / 刷新）
   useEffect(() => {
     setVisibleCount(clampRankInitialLoad(initialCount, rows.length))
   }, [windowKey, initialCount, rows.length])
@@ -146,7 +115,6 @@ export const RankList: React.FC<RankListProps> = ({
     [hasMore, loadRemaining],
   )
 
-  // 首批撑不满滚动区时直接挂剩余（否则无法滚到尾）
   useLayoutEffect(() => {
     if (!hasMore) return
     const el = listRef.current
@@ -175,7 +143,6 @@ export const RankList: React.FC<RankListProps> = ({
     <div className={`site-analytics-rank${mods ? ` ${mods}` : ''}`}>
       <div className="site-analytics-rank-head" aria-hidden>
         <span className="site-analytics-rank-h-name">{headers.name}</span>
-        {/* 与行内条对齐的空格；叠层时隐藏 */}
         <span className="site-analytics-rank-h-track" />
         <span className="site-analytics-rank-h-value">{headers.value}</span>
         {hasSecondary ? (

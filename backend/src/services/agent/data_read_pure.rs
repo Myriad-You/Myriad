@@ -18,7 +18,7 @@ mod tests {
         assert_eq!(out["day"], 31);
         assert_eq!(out["hour"], 20);
         assert_eq!(out["minute"], 30);
-        assert_eq!(out["weekday"], "星期五"); // 2026-07-31 20:30 +08 is Friday
+        assert_eq!(out["weekday"], "Friday"); // 2026-07-31 20:30 +08 is Friday
         assert_eq!(out["timestamp"], now.timestamp());
         assert!(out["datetime"]
             .as_str()

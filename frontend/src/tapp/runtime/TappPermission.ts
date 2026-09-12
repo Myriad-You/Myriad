@@ -1,11 +1,7 @@
-/**
- * Manifest permission validation. Runtime authorization lives in TappBridge
- * and the backend Runtime Grant; this module intentionally keeps no usage or
- * role-derived authorization state.
- */
+/** 只做 Manifest 权限校验。运行时授权在 TappBridge 与后端 Runtime Grant。 */
 
 import type { TappManifest } from '../types'
-import { currentCopy } from '../../i18n/localeCopy'
+import { currentCopy, formatCurrent } from '../../i18n/localeCopy'
 import { PERMISSION_LEVELS } from './permissionConfig'
 
 export class TappPermissionController {
@@ -22,10 +18,9 @@ export class TappPermissionController {
     for (const permission of manifest.permissions) {
       if (!PERMISSION_LEVELS[permission]) {
         errors.push(
-          currentCopy().tapp.unknownPermission.replace(
-            '{permission}',
-            String(permission),
-          ),
+          formatCurrent(currentCopy().tapp.unknownPermission, {
+            permission: String(permission),
+          }),
         )
       }
     }

@@ -1,9 +1,3 @@
-/**
- * Widget load perf marks (host-side User Timing helpers).
- *
- *   pnpm exec tsx --test src/tapp/runtime/WidgetLoadPerf.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { beforeEach, describe, it } from 'node:test'
 import {

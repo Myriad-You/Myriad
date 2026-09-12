@@ -242,9 +242,6 @@ test('a long utterance of accents cannot crowd the director out of the list', ()
 
   const summary = captureRigStateSummary(runtime, startedAtMs + 300)
   const sources = summary.activeBehaviors.map((behavior) => behavior.source)
-  // Twelve prosody accents used to fill the eight slots by start time, so the
-  // director saw seven identical `emphasize` rows and none of its own acting —
-  // while being told not to repeat a function already in flight.
   assert.ok(
     sources.includes('performance'),
     `director acting missing from ${JSON.stringify(summary.activeBehaviors)}`,

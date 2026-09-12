@@ -1,0 +1,92 @@
+{
+  "sources": {
+    "agent": {
+      "title": "Agent 任務",
+      "description": "任務進度、結果、取消、澄清，以及有價值的平臺動態"
+    },
+    "heartbeat": {
+      "title": "Heartbeat",
+      "description": "Agent 後臺定時任務執行結果"
+    },
+    "mcp": {
+      "title": "MCP 服務",
+      "description": "工具伺服器連線和斷開狀態"
+    },
+    "brew": {
+      "title": "Brew",
+      "description": "訂閱源新內容與連續抓取錯誤"
+    },
+    "tapp": {
+      "title": "Tapp",
+      "description": "Tapp 主動訊息、警告和任務錯誤"
+    },
+    "updater": {
+      "title": "系統更新",
+      "description": "更新、回滾及人工恢復狀態"
+    },
+    "federation": {
+      "title": "聯邦",
+      "description": "聯邦訊息、關注和邀請"
+    },
+    "system": {
+      "title": "系統",
+      "description": "Myriad 自身的重要資訊"
+    }
+  },
+  "events": {
+    "agent.task_progress": "任務進度",
+    "agent.task_completed": "任務完成",
+    "agent.task_failed": "任務失敗",
+    "agent.task_cancelled": "任務取消",
+    "agent.clarification": "等待回答",
+    "agent.merope.platform_activity": "平臺新動態",
+    "heartbeat.succeeded": "定時任務成功",
+    "heartbeat.failed": "定時任務失敗",
+    "mcp.connected": "MCP 已連線",
+    "mcp.disconnected": "MCP 斷開或失敗",
+    "brew.new_items": "發現新內容",
+    "brew.source_error": "訂閱源連續失敗",
+    "platform.sync.failed": "平臺同步失敗",
+    "tapp.message": "普通訊息",
+    "tapp.warning": "警告",
+    "tapp.error": "錯誤與任務失敗",
+    "updater.submitted": "任務已提交",
+    "updater.running": "任務執行中",
+    "updater.succeeded": "更新成功",
+    "updater.failed": "更新失敗",
+    "updater.needs_manual": "需要人工處理",
+    "updater.unknown": "狀態無法確認",
+    "federation.channel_message": "私信新訊息",
+    "federation.room_message": "群聊新訊息",
+    "federation.new_follower": "新的關注者",
+    "federation.follow_accepted": "關注已透過",
+    "federation.channel_invite": "私信邀請",
+    "federation.room_invite": "群組邀請",
+    "federation.channel_accepted": "私信通道已建立",
+    "federation.room_invite_accepted": "群組邀請已接受",
+    "system.info": "系統資訊",
+    "skill.pruned": "技能自動淘汰",
+    "skill.improved": "技能自動改進",
+    "skill.changed": "技能變更"
+  },
+  "ui": {
+    "master": "啟用通知中心",
+    "masterDesc": "關閉後不再建立新的通知，已有歷史仍會保留",
+    "delivery": "展示方式",
+    "island": "智慧島輪播",
+    "islandDesc": "新通知到達時在頂部控制島展示",
+    "toast": "Toast 通知",
+    "toastDesc": "新通知到達時使用全域提示",
+    "browser": "瀏覽器系統通知",
+    "browserDesc": "頁面位於後臺且瀏覽器已授權時展示",
+    "sourceEnabled": "允許此來源",
+    "sources": "通知來源",
+    "locations": "顯示位置",
+    "locationsDesc": "與上方全域展示開關共同生效",
+    "events": "通知事件",
+    "panelLocation": "通知面板",
+    "toastLocation": "Toast",
+    "islandLocation": "智慧島",
+    "browserLocation": "系統通知"
+  }
+}

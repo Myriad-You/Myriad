@@ -1,7 +1,3 @@
-/**
- * Screen visual summaries need their own opt-in. Off by default.
- */
-
 const STORAGE_KEY = 'myriad.agentPanel.screenConsent'
 
 let enabled = false
@@ -34,7 +30,7 @@ export function setScreenConsent(next: boolean): void {
   try {
     window.localStorage.setItem(STORAGE_KEY, next ? 'on' : 'off')
   } catch {
-    // session-only is fine
+    /* session-only */
   }
   for (const listener of listeners) listener()
 }

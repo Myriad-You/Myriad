@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 
 #[derive(Debug, Deserialize)]
 pub struct HitokotoQuery {
-    /// 自定义一言 API 地址（可选），为空时使用默认的 hitokoto.cn
+    /// 自定义一言 API 地址（可选），为空时用 `default_hitokoto_url()`（`v1.hitokoto.cn`）。
     pub url: Option<String>,
 }
 
@@ -24,7 +24,7 @@ pub struct HitokotoQuery {
 /// `outbound_security::build_public_http_client` (public-routable only, DNS pin,
 /// no redirects). This is **not** the image-proxy `shared/image_proxy_hosts.json`
 /// list (that file is for media CDN rewrite only).
-/// 2. **Per-IP quota** — `PUBLIC_HITOKOTO_IP_HITS` / compute-intensive rate limit.
+/// 2. **Per-IP quota** — `COMPUTE_MAX` (45 / 60s) compute-intensive rate limit.
 /// Prefer tightening quota / outbound policy over mandatory JWT.
 ///
 /// Catalog alignment (do not drift):
@@ -44,12 +44,7 @@ pub async fn proxy_hitokoto(Query(params): Query<HitokotoQuery>) -> Response {
         _ => crate::api::config::default_hitokoto_url(),
     };
 
-    // 这是一个**未认证**的任意 URL 出站端点。以前只用 `is_internal_url` 做
-    // 字符串/字面 IP 检查，然后交给默认 reqwest client —— 于是：
-    // 1. 主机名解析到 169.254.169.254 / 10.x 照样放行（DNS 重绑定）
-    // 2. 默认跟随 10 次重定向，第一跳合法即可跳进内网
-    // 3. `resp.json()` 先把整个响应缓冲进内存，没有上限
-    // 改用集中式安全客户端：解析后逐个地址校验公网可路由、把 DNS 结果 pin 住、
+    // 未认证的任意 URL 出站：解析后逐个地址校验公网可路由、把 DNS 结果 pin 住、
     // 禁用重定向；响应体流式读取并限长。
     let (parsed, client) = match crate::services::outbound_security::build_public_http_client(
         &url,
@@ -63,7 +58,7 @@ pub async fn proxy_hitokoto(Query(params): Query<HitokotoQuery>) -> Response {
             tracing::warn!("Rejected hitokoto proxy for unsafe url {}: {}", url, e);
             return (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error": "Invalid or disallowed hitokoto url"})),
+                Json(AppError::public_json("Invalid or disallowed hitokoto url")),
             )
                 .into_response();
         }
@@ -96,7 +91,9 @@ pub async fn proxy_hitokoto(Query(params): Query<HitokotoQuery>) -> Response {
             tracing::error!("Failed to read Hitokoto response: {}", e);
             return (
                 StatusCode::BAD_GATEWAY,
-                Json(json!({"error": "Hitokoto response too large or unreadable"})),
+                Json(AppError::public_json(
+                    "Hitokoto response too large or unreadable",
+                )),
             )
                 .into_response();
         }
@@ -144,7 +141,7 @@ pub async fn fetch_web_content(Query(params): Query<FetchWebContentQuery>) -> Re
     if url.len() > 2048 {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "URL too long"})),
+            Json(AppError::public_json("URL too long")),
         )
             .into_response();
     }
@@ -153,7 +150,7 @@ pub async fn fetch_web_content(Query(params): Query<FetchWebContentQuery>) -> Re
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Invalid URL scheme"})),
+            Json(AppError::public_json("Invalid URL scheme")),
         )
             .into_response();
     }
@@ -163,7 +160,7 @@ pub async fn fetch_web_content(Query(params): Query<FetchWebContentQuery>) -> Re
         tracing::warn!(url = %url, "[FetchWebContent] Blocked SSRF attempt to internal URL");
         return (
             StatusCode::FORBIDDEN,
-            Json(json!({"error": "Cannot fetch internal URLs"})),
+            Json(AppError::public_json("Cannot fetch internal URLs")),
         )
             .into_response();
     }
@@ -182,7 +179,7 @@ pub async fn fetch_web_content(Query(params): Query<FetchWebContentQuery>) -> Re
             tracing::warn!(url = %url, %error, "[FetchWebContent] Rejected unsafe target");
             return (
                 StatusCode::FORBIDDEN,
-                Json(json!({"error": "Cannot fetch unsafe URLs"})),
+                Json(AppError::public_json("Cannot fetch unsafe URLs")),
             )
                 .into_response();
         }
@@ -211,7 +208,7 @@ pub async fn fetch_web_content(Query(params): Query<FetchWebContentQuery>) -> Re
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or("text/html");
 
-            // 只处理 HTML 内容
+            // 只接受 `text/html` 或 `text/plain`
             if !content_type.contains("text/html") && !content_type.contains("text/plain") {
                 return (
                     StatusCode::BAD_REQUEST,
@@ -306,7 +303,7 @@ fn extract_article_content(html: &str, url: &str) -> ExtractedArticle {
     let title = extract_meta_content(html, "og:title")
         .or_else(|| extract_meta_content(html, "twitter:title"))
         .or_else(|| extract_tag_content(html, "title"))
-        .unwrap_or_else(|| "未知标题".to_string());
+        .unwrap_or_else(|| "Untitled".to_string());
 
     // 提取作者
     let author = extract_meta_content(html, "author")
@@ -569,3 +566,4 @@ fn extract_domain_from_url_simple(url: &str) -> Option<String> {
 
     url.split('/').next().map(|s| s.to_string())
 }
+use myriad_error::AppError;

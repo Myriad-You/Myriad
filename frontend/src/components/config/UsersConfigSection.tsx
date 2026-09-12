@@ -1,12 +1,3 @@
-/**
- * 设置页「用户管理」区块
- *
- * 基于 ManagedList：
- * - 搜索 / 角色 / 在线筛选（折叠查询栏）
- * - 创建用户（折叠表单）
- * - 列表行「详情」走选项指南同款浮窗；浮窗内 tab 切换（账号+活动 / 来源 / 应用）
- */
-
 import type {
   AdminUser,
   AdminUserIdentity,
@@ -76,12 +67,7 @@ interface UsersConfigSectionProps {
   allowRegister: boolean
   allowRegisterLoading?: boolean
   onAllowRegisterChange: (allow: boolean) => void
-  /**
-   * Private Tapp install cleanup preset:
-   * - '7' / '14': prune after that many days inactive
-   * - 'logout': wipe on logout
-   * - other numeric string (e.g. '30'): preserve custom inactivity days from API
-   */
+  /** '7'/'14' days; 'logout' wipe; other numeric keeps custom days */
   privateTappInstallPreset: string
   privateTappInstallLoading?: boolean
   onPrivateTappInstallPresetChange: (preset: string) => void
@@ -213,7 +199,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
   privateTappInstallLoading = false,
   onPrivateTappInstallPresetChange,
 }) => {
-  const { t } = useI18n()
+  const { t, format, locale } = useI18n()
   const c = t.config
   const { catalog: g, renderGuide, bindGuide } = useSettingGuide()
   const { user: currentUser } = useAuth()
@@ -292,9 +278,11 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
     (value: string | null) => {
       if (!value) return c.usersNever
       const date = new Date(value)
-      return Number.isNaN(date.getTime()) ? c.usersNever : date.toLocaleString()
+      return Number.isNaN(date.getTime())
+        ? c.usersNever
+        : date.toLocaleString(locale)
     },
-    [c.usersNever],
+    [c.usersNever, locale],
   )
 
   const formatOnlineTotal = useCallback(
@@ -391,7 +379,9 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
     async (user: AdminUser, tapp: { tapp_id: string; name: string }) => {
       if (
         !window.confirm(
-          c.usersUninstallTappConfirm.replace('{name}', tapp.name || tapp.tapp_id),
+          format(c.usersUninstallTappConfirm, {
+            name: tapp.name || tapp.tapp_id,
+          }),
         )
       ) {
         return
@@ -482,7 +472,6 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
       if (u.is_admin) admins++
       if (u.online) online++
     }
-    // Metrics first; switch chips (CheckboxCard) always after data.
     return [
       {
         key: 'total',
@@ -525,8 +514,6 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
             { value: '7', label: c.privateTappInstallPreset7Short },
             { value: '14', label: c.privateTappInstallPreset14Short },
           ]
-          // Preserve non-preset inactivity days (API allows 1–365) instead of
-          // silently showing them as 14.
           if (
             privateTappInstallPreset !== 'logout' &&
             privateTappInstallPreset !== '7' &&
@@ -536,11 +523,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
             if (Number.isFinite(days) && days >= 1) {
               base.push({
                 value: String(days),
-                // Dedicated {n} template — avoid brittle replace(/7/) on i18n
-                label: c.privateTappInstallPresetNShort.replace(
-                  '{n}',
-                  String(days),
-                ),
+                label: format(c.privateTappInstallPresetNShort, { n: days }),
               })
             }
           }
@@ -804,8 +787,6 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
           }
           avatar={
             <div className="users-expand-pane users-expand-pane--full">
-              {/* 管理员替他人换头像来源；后端只接受该用户已有的来源，
-                  塞不进任意 URL，且会记一条审计日志 */}
               <AvatarSourcePicker
                 userId={shown.id}
                 targetIsSiteOwner={shown.is_owner}
@@ -815,7 +796,6 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
           }
           text={
             <div className="users-expand-pane users-expand-pane--full">
-              {/* 名称/简介来源与头像独立；同站合并仅影响列表展示 */}
               <ProfileTextSourcePicker
                 userId={shown.id}
                 targetIsSiteOwner={shown.is_owner}
@@ -1006,10 +986,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
 
   const footer =
     hasActiveFilter && users.length > 0 && !usersListTruncated
-      ? c.usersResultCount.replace(
-          '{count}',
-          String(filteredUsers.length),
-        )
+      ? format(c.usersResultCount, { count: filteredUsers.length })
       : undefined
 
   return (
@@ -1034,9 +1011,7 @@ export const UsersConfigSection: React.FC<UsersConfigSectionProps> = ({
             filteredUsers.length > 12 ? USERS_LIST_CAP : null
           }
           truncateFooter={(shown, total) =>
-            c.usersShowing
-              .replace('{shown}', String(shown))
-              .replace('{total}', String(total))
+            format(c.usersShowing, { shown, total })
           }
           emptyText={emptyText}
           footer={footer}

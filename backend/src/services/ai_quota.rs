@@ -795,10 +795,7 @@ mod tests {
 
     #[test]
     fn continuations_are_not_blocked_by_the_cooldown_they_just_started() {
-        // The bug: `process` plans, returns a confirmation and settles (call +1,
-        // clock starts). The user clicks confirm ~2s later. Reserving that
-        // continuation as a fresh turn answers AI_COOLDOWN_ACTIVE instead of
-        // running the work they just approved.
+        // A confirm ~2s after plan would still be inside the 5s cooldown if treated as a new turn.
         let elapsed_since_plan = 2;
         assert_eq!(
             cooldown_remaining(true, 1, elapsed_since_plan, 5),

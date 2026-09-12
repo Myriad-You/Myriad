@@ -1,10 +1,3 @@
-/**
- * 对话消息的增删改 —— 执行引擎的内部状态。
- *
- * Work / Chat 各持一份列表。可见档决定界面读哪一份；按 id 的更新会扫两份，
- * 这样后台办事的 SSE 在聊天档打开时仍能写进办事那份。
- */
-
 import type { AgentPanelMode } from './agentPanelMode'
 import type { ChatMessage, ExecutionStep, TaskExecution } from './engineTypes'
 import { useCallback, useRef, useState } from 'react'

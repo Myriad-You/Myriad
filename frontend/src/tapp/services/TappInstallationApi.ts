@@ -1,10 +1,9 @@
-/** Tapp installation, update, uninstall and temporary cleanup operations. */
-
 import type { TappManifest } from '../types'
 import type { TappListItem } from './TappLifecycleApi'
 import type { TappPlaygroundCode } from './TappPlaygroundService'
 import { API_URL } from '../../config'
-import { currentCopy } from '../../i18n/localeCopy'
+import { hostLocaleHeaders } from '../../i18n/hostLocaleHeaders'
+import { currentCopy, formatCurrent } from '../../i18n/localeCopy'
 import { parseApiErrorBody } from '../../services/api'
 import { getCSRFToken } from '../../utils/csrf'
 import { generateOnDemandTailwindCSS } from '../runtime/sandbox/styles'
@@ -16,12 +15,7 @@ import {
 } from '../utils/playgroundPackageFiles'
 import { apiRequest, TappHttpError } from './TappHttpClient'
 
-/**
- * 商店包的模块表：`download.code` 是 core 入口，`download.modules` 覆盖其余层。
- *
- * 声明的层入口缺一个就拒绝，别装个打不开的半成品——后端 staging 也会拒，但那时
- * 用户已经等完了整个下载。
- */
+/** 商店模块表须覆盖每个层入口；缺一个就拒绝。 */
 export function storeInstallModules(
   manifest: TappManifest,
   code: string,
@@ -30,7 +24,7 @@ export function storeInstallModules(
   const modules: Record<string, string> = { ...(downloaded || {}) }
   if (manifest.core?.entry) modules[manifest.core.entry] = code
   for (const entry of tappLayerEntries(manifest)) {
-    if (!(entry in modules)) {
+    if (!Object.hasOwn(modules, entry)) {
       throw new Error(
         `Store index is missing download.modules entry for declared layer entry ${entry}`,
       )
@@ -39,13 +33,7 @@ export function storeInstallModules(
   return modules
 }
 
-/**
- * 把商店索引里那份 `download.widget_styles` 摊给每个声明了 `styles` 的 widget。
- *
- * 索引只能描述一份 widget CSS，而作者样式在包里是按 widget 寻址的。注意它必须走
- * `widgetStyles`（作者样式）而不是 `widgetCss`（宿主预编译 Tailwind）——写错通道会让
- * 声明的路径落不了盘，装完样式就是空的。
- */
+/** download.widget_styles 摊给声明了 styles 的 widget。走 widgetStyles（作者样式），不是 widgetCss（宿主预编译）。 */
 export function storeWidgetStyles(
   manifest: TappManifest,
   content: string | undefined,
@@ -69,54 +57,31 @@ interface CompiledCssPayload {
   pageCss?: string
 }
 
-/**
- * 安装 Tapp 请求体（统一格式）
- */
 export interface InstallTappRequest {
   source: 'direct' | 'store'
-  // direct 模式
   manifest?: TappManifest
-  /** 包内 `.js` 文件：相对路径 → 源码，须覆盖每个层入口 */
+  /** 包内 .js：相对路径 → 源码，须覆盖每个层入口。 */
   modules?: Record<string, string>
-  /** 作者共享样式（core.styles） */
   coreStyles?: string
-  /** 作者 Page 样式 */
   pageStyles?: string
-  /** 作者 Widget 样式：widget id → 内容 */
   widgetStyles?: Record<string, string>
   pageTemplate?: string
   widgetTemplates?: Record<string, Record<string, string>>
-  /** 宿主预编译的 Widget Tailwind CSS */
+  /** 宿主预编译；与作者 widgetStyles / pageStyles 分通道。 */
   widgetCss?: string
-  /** 宿主预编译的 Page Tailwind CSS */
   pageCss?: string
-  /** i18n 翻译数据 (lang_code → JSON) */
   i18n?: Record<string, unknown>
-  /** Package assets (path → base64) */
   assets?: Record<string, string>
-  // store 模式
   storeSource?: string
   tappId?: string
-  // 通用
   permissions?: string[]
 }
 
-/**
- * Direct-install package payload (share / peer install).
- * Matches POST /api/tapps/install source=direct body minus `source`.
- */
 export type DirectInstallPackage = Omit<InstallTappRequest, 'source' | 'storeSource' | 'tappId'> & {
   manifest: TappManifest
   modules: Record<string, string>
 }
 
-/**
- * 安装 Tapp（统一接口，发送 JSON）
- *
- * @param manifest - Tapp 清单
- * @param code - Tapp 代码结构
- * @param permissions - 授权的权限
- */
 export async function installTapp(
   manifest: TappManifest,
   code: TappPlaygroundCode,
@@ -136,11 +101,6 @@ export async function installTapp(
   })
 }
 
-/**
- * Map structured code → direct-install JSON body using the same package file
- * map as Playground .tapp export (`buildPlaygroundPackageFiles`).
- * Install API shape is unchanged; only the source of path/content mapping is shared.
- */
 function buildDirectTappRequest(
   manifest: TappManifest,
   code: TappPlaygroundCode,
@@ -172,8 +132,6 @@ function buildDirectTappRequest(
   if (mapped.assets) {
     requestBody.assets = mapped.assets
   }
-  // Generated Tailwind CSS is part of the installation generation. Include
-  // empty strings as well so an update can remove previously generated CSS.
   if (compiledCss?.widgetCss !== undefined) {
     requestBody.widgetCss = compiledCss.widgetCss
   }
@@ -184,17 +142,10 @@ function buildDirectTappRequest(
   return requestBody
 }
 
-/**
- * 从代码和清单安装 Tapp（用于示例 Tapp）
- * 支持完整的代码结构，包括 CSS 和 HTML 模板
- *
- * 🎯 自动生成分离式预编译 Tailwind CSS（widget.css 和 page.css）
- */
 export async function installFromCode(
   manifest: TappManifest,
   code: TappPlaygroundCode,
 ): Promise<TappListItem> {
-  // 生成 Widget 专用 CSS（core 是共享层，两个模式都要扫）
   const widgetSources = [
     code.widgetHtml || '',
     code.styles || '',
@@ -203,7 +154,6 @@ export async function installFromCode(
   ].join('\n')
   const widgetCss = generateOnDemandTailwindCSS(widgetSources)
 
-  // 生成 Page 专用 CSS
   const pageSources = [
     code.pageHtml || '',
     code.styles || '',
@@ -212,18 +162,12 @@ export async function installFromCode(
   ].join('\n')
   const pageCss = generateOnDemandTailwindCSS(pageSources)
 
-  // CSS and source resources enter the same backend staging generation.
   return installTapp(manifest, code, manifest.permissions, {
     widgetCss,
     pageCss,
   })
 }
 
-/**
- * 从代码和清单更新 Tapp（用于内置示例 Tapp）。
- *
- * 保留后端存储数据，仅覆盖 manifest、代码和资源。
- */
 export async function updateTappFromCode(
   manifest: TappManifest,
   code: TappPlaygroundCode,
@@ -259,13 +203,6 @@ export async function updateTappFromCode(
   )
 }
 
-/**
- * 上传 .tapp 文件安装（multipart 文件上传）
- *
- * @param file .tapp 文件
- * @param permissions 授权的权限列表（可选）
- * @returns 安装后的 Tapp 信息
- */
 export async function installTappFile(
   file: File,
   permissions?: string[],
@@ -282,6 +219,7 @@ export async function installTappFile(
     method: 'POST',
     headers: {
       'X-CSRF-Token': csrfToken,
+      ...hostLocaleHeaders(),
     },
     body: formData,
     credentials: 'include',
@@ -304,21 +242,14 @@ export async function installTappFile(
   return result.data || result
 }
 
-/**
- * 从远程应用商店安装 Tapp 的请求参数
- *
- * `source` is the **catalog URL or local store-source id**, NOT the install mode
- * string `"store"`. Callers must never pass `"store"` / `"direct"` here.
- */
+/** source 是目录 URL 或商店源 id，不是 mode 字符串 store。 */
 export interface InstallFromStoreRequest {
-  /** 商店源 URL（跨实例优先）或本机 store source ID */
   source: string
   tappId: string
-  /** 授权的权限列表（可选，默认全部授权） */
   permissions?: string[]
 }
 
-/** Official Myriad catalog URL (portable across instances; never use local DB id). */
+/** 官方目录 URL（跨实例可移植；不用本地 DB id）。 */
 export const OFFICIAL_TAPP_STORE_URL =
   'https://raw.githubusercontent.com/Myriad-You/tapp-store/main/index.json'
 
@@ -334,20 +265,14 @@ function isInstallModePlaceholder(value: string | undefined | null): boolean {
   return v === 'store' || v === 'direct' || v === ''
 }
 
-/**
- * Normalize catalog URL for matching (strip trailing slash / index.json).
- */
 export function normalizeStoreCatalogUrl(url: string): string {
   return url
     .trim()
-    .replace(/\/+$/, '')
-    .replace(/\/index\.json$/i, '')
+    .replaceAll(/\/+$/g, '')
+    .replaceAll(/\/index\.json$/ig, '')
 }
 
-/**
- * Resolve which remote catalog contains `tappId`.
- * Always returns a **URL** (portable across instances), never a local DB id.
- */
+/** 解析 tappId 所在目录，返回 URL，不是本地 DB id。 */
 export async function resolveStoreSourceForTapp(tappId: string): Promise<{
   storeSource: string
   sourceName?: string
@@ -357,7 +282,7 @@ export async function resolveStoreSourceForTapp(tappId: string): Promise<{
     './RemoteStoreService',
   )
   const sources = await RemoteStoreService.getEnabledSources()
-  const ordered = [...sources].sort((a, b) => {
+  const ordered = sources.toSorted((a, b) => {
     if (a.official && !b.official) return -1
     if (!a.official && b.official) return 1
     return 0
@@ -367,7 +292,6 @@ export async function resolveStoreSourceForTapp(tappId: string): Promise<{
     try {
       const index = await RemoteStoreService.fetchStoreIndex(source)
       if (index.apps?.some((app) => app.id === tappId)) {
-        // Prefer full index.json URL for peer install + backend lookup.
         const url = source.url.includes('index.json')
           ? source.url
           : `${normalizeStoreCatalogUrl(source.url)}/index.json`
@@ -382,7 +306,6 @@ export async function resolveStoreSourceForTapp(tappId: string): Promise<{
     }
   }
 
-  // Fallback: official catalog URL (peer can resolve if they have official source).
   const fallback =
     ordered.find((s) => s.official)?.url ||
     OFFICIAL_STORE.url ||
@@ -397,22 +320,11 @@ export async function resolveStoreSourceForTapp(tappId: string): Promise<{
 }
 
 export interface InstallFromStoreOptions {
-  /** Progress for browser-proxy fallback downloads and registration. */
   onProgress?: import('../utils/tappInstallProgress').TappInstallProgressCallback
-  /** Catalog `size` in bytes, used to estimate browser fallback progress. */
   estimatedBytes?: number
 }
 
-/**
- * 从远程应用商店安装 Tapp
- *
- * 优先走后端 `/api/tapps/install`（source=store，由服务端下载）。
- * 生产环境常见问题：backend 容器无法访问 raw.githubusercontent.com 等外网，
- * 会返回 502；此时回退为浏览器下载资源 + direct 安装（与商店列表同源）。
- *
- * @param request 安装请求 — `source` must be catalog URL/id, never `"store"`
- * @returns 安装后的 Tapp 信息
- */
+/** 优先后端 store 安装；502 时浏览器下载 + direct。source 必须是目录 URL/id。 */
 export async function installFromStore(
   request: InstallFromStoreRequest,
   options?: InstallFromStoreOptions,
@@ -426,9 +338,7 @@ export async function installFromStore(
   const { clampInstallPercent } = await import('../utils/tappInstallProgress')
   const report = options?.onProgress
 
-  // Always let the backend fetch the store package first. This keeps the client
-  // request small even for multi-megabyte Tapps and avoids CDN/reverse-proxy
-  // upload limits. The browser only proxies the package when backend egress fails.
+  // 仅后端出站失败时才由浏览器代下。
   try {
     report?.({
       phase: 'install',
@@ -453,13 +363,10 @@ export async function installFromStore(
       const { clearStoreStatsCache } = await import('./storeStats')
       clearStoreStatsCache()
     } catch {
-      /* ignore */
     }
     return result
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    // Also fall back when peer has no matching DB row for the shared catalog URL —
-    // browser can still download if the URL is public.
     const shouldFallback =
       (error instanceof TappHttpError && error.status === 502) ||
       /502|BAD_GATEWAY|Failed to fetch store|cannot reach store|Failed to fetch manifest|Failed to fetch code|Failed to fetch|NetworkError|ECONNREFUSED|timeout|Load failed|Store source not found|not found/i.test(
@@ -483,10 +390,6 @@ export async function installFromStore(
   }
 }
 
-/**
- * Install from a peer-shared / playground direct package (source=direct).
- * Used by chat share install and custom/example tapps not in the store.
- */
 export async function installDirect(
   packagePayload: DirectInstallPackage,
 ): Promise<TappListItem> {
@@ -534,10 +437,6 @@ export async function installDirect(
   })
 }
 
-/**
- * Build a direct-install package from an installed Tapp (for peer share).
- * Omits heavy assets when the package JSON would exceed `maxBytes` (if set).
- */
 export async function buildInstallPackageFromInstalled(
   tappId: string,
   options?: { maxBytes?: number },
@@ -584,7 +483,6 @@ export async function buildInstallPackageFromInstalled(
   const max = options?.maxBytes
 
   if (max != null && sizeBytes > max) {
-    // Drop optional heavy fields and retry once.
     delete pkg.assets
     delete pkg.i18n
     serialized = JSON.stringify(pkg)
@@ -602,12 +500,7 @@ export async function buildInstallPackageFromInstalled(
   return { package: pkg, sizeBytes, omitted: false }
 }
 
-/**
- * 浏览器侧下载远程商店资源后，以 direct 模式安装
- *
- * Accepts catalog URL even when the peer has not added that source to their DB
- * (share-install path). Never treats `"store"` as a source id.
- */
+/** 浏览器下载后 direct 安装。即使对端没加该源，也接受目录 URL。 */
 async function installFromStoreViaClient(
   request: InstallFromStoreRequest,
   options?: InstallFromStoreOptions,
@@ -630,7 +523,6 @@ async function installFromStoreViaClient(
       normalizeStoreCatalogUrl(s.url) === reqNorm,
   )
 
-  // Shared catalog URL not in local sources — still fetch by absolute URL.
   if (!source && isHttpStoreSource(request.source)) {
     const url = request.source.includes('index.json')
       ? request.source.trim()
@@ -654,19 +546,17 @@ async function installFromStoreViaClient(
     percent: 2,
   })
 
-  // Drop in-memory index and always re-fetch catalog so install never uses a
-  // 5-minute stale listing (version / download paths can lag GitHub main).
   RemoteStoreService.clearCache()
   const index = await RemoteStoreService.fetchStoreIndex(source, true)
   const baseUrl =
     index.base_url ||
-    source.url.replace(/\/index\.json$/, '').replace(/\/$/, '')
+    source.url.replaceAll(/\/index\.json$/g, '').replaceAll(/\/$/g, '')
   const storeIndex = { ...index, base_url: baseUrl }
 
   const app = storeIndex.apps.find((a) => a.id === request.tappId)
   if (!app) {
     throw new Error(
-      currentCopy().tapp.storeAppNotFound.replace('{id}', request.tappId),
+      formatCurrent(currentCopy().tapp.storeAppNotFound, { id: request.tappId }),
     )
   }
 
@@ -699,7 +589,7 @@ async function installFromStoreViaClient(
   if (pkg.styles) requestBody.coreStyles = pkg.styles
   if (pkg.pageTemplate) requestBody.pageTemplate = pkg.pageTemplate
   if (pkg.widgetTemplates) requestBody.widgetTemplates = pkg.widgetTemplates
-  // 作者声明了层样式就必须带上内容，宿主预编译顶不了它。
+  // 作者声明了层样式就必须带上内容；宿主预编译顶不了它。
   const widgetStyles = storeWidgetStyles(pkg.manifest, pkg.widgetStyles)
   if (widgetStyles) requestBody.widgetStyles = widgetStyles
   if (pkg.pageCss != null && pkg.pageCss !== '') {
@@ -710,7 +600,6 @@ async function installFromStoreViaClient(
     )
   }
   if (pkg.i18n) requestBody.i18n = pkg.i18n
-  // Binary package assets (manifest.assets) so Tapp.assets works after store install
   if (pkg.assets && Object.keys(pkg.assets).length > 0) {
     requestBody.assets = pkg.assets
   }
@@ -720,7 +609,6 @@ async function installFromStoreViaClient(
     body: JSON.stringify(requestBody),
   })
 
-  // Client-fallback path only — backend store installs beacon server-side.
   try {
     const { reportStoreInstallHit, clearStoreStatsCache } = await import(
       './storeStats',
@@ -732,7 +620,7 @@ async function installFromStoreViaClient(
     })
     clearStoreStatsCache()
   } catch {
-    // never block install
+    // 不阻塞安装。
   }
 
   report?.({
@@ -743,19 +631,10 @@ async function installFromStoreViaClient(
   return result
 }
 
-/**
- * 卸载选项
- */
 export interface UninstallOptions {
-  /** 是否保留应用数据（存储和设置），以便再次安装时恢复 */
   keepData?: boolean
 }
 
-/**
- * 卸载 Tapp
- * @param tappId Tapp ID
- * @param options 卸载选项
- */
 export async function uninstallTapp(
   tappId: string,
   options?: UninstallOptions,
@@ -772,27 +651,11 @@ export async function uninstallTapp(
   })
 }
 
-/**
- * 更新 Tapp 的请求参数（从远程商店更新）
- */
 export interface UpdateTappFromStoreRequest {
-  /** 商店源 URL 或 ID */
   source: string
-  /** 授权的权限列表（可选，保留原有权限） */
   permissions?: string[]
 }
 
-/**
- * 更新 Tapp（从远程商店获取最新版本）
- *
- * Same dual path as installFromStore:
- * - always try the backend store fetch first (small client request)
- * - use browser download + direct update only on 502/unreachable failures
- *
- * @param tappId - 要更新的 Tapp ID
- * @param request - 更新请求参数
- * @returns 更新后的 Tapp 信息
- */
 export async function updateTappFromStore(
   tappId: string,
   request: UpdateTappFromStoreRequest,
@@ -806,8 +669,6 @@ export async function updateTappFromStore(
 
   const { clampInstallPercent } = await import('../utils/tappInstallProgress')
 
-  // Keep the initial request metadata-only for every package size. Browser
-  // proxying remains a recovery path for backend store egress failures.
   try {
     return await apiRequest(`/api/tapps/${encodeURIComponent(tappId)}/update`, {
       method: 'POST',
@@ -838,7 +699,6 @@ export async function updateTappFromStore(
   }
 }
 
-/** Browser-side download of store package, then POST direct update. */
 async function updateFromStoreViaClient(
   tappId: string,
   request: UpdateTappFromStoreRequest,
@@ -868,16 +728,17 @@ async function updateFromStoreViaClient(
   }
 
   report?.({ phase: 'prepare', message: 'prepare', percent: 2 })
-  // Force a fresh index so version/size/download map match GitHub main.
   RemoteStoreService.clearCache()
   const index = await RemoteStoreService.fetchStoreIndex(source, true)
   const baseUrl =
     index.base_url ||
-    source.url.replace(/\/index\.json$/, '').replace(/\/$/, '')
+    source.url.replaceAll(/\/index\.json$/g, '').replaceAll(/\/$/g, '')
   const storeIndex = { ...index, base_url: baseUrl }
   const app = storeIndex.apps.find((a) => a.id === tappId)
   if (!app) {
-    throw new Error(currentCopy().tapp.storeAppNotFound.replace('{id}', tappId))
+    throw new Error(
+      formatCurrent(currentCopy().tapp.storeAppNotFound, { id: tappId }),
+    )
   }
 
   report?.({ phase: 'download', message: 'download', percent: 5 })
@@ -931,18 +792,12 @@ async function updateFromStoreViaClient(
     })
     clearStoreStatsCache()
   } catch {
-    // never block update
+    // 不阻塞更新。
   }
   report?.({ phase: 'done', message: 'done', percent: 100 })
   return result
 }
 
-/**
- * Called on logout. Behavior is site-configured:
- * - logout mode: wipe this user's private installs
- * - inactivity mode: no-op (daily worker prunes stale private installs)
- * @returns number of installs deleted
- */
 export async function cleanupTemporaryTapps(): Promise<number> {
   const result = await apiRequest<number>('/api/tapps/cleanup-temporary', {
     method: 'POST',

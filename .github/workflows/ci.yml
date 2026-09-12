@@ -36,6 +36,8 @@ jobs:
         run: pnpm test
       - name: Production build
         run: pnpm build
+      - name: Home first-paint budget
+        run: pnpm test:home-budget
       - name: Install browser for speech regression
         run: pnpm exec playwright install --with-deps chromium
       - name: Browser speech lifecycle regression (mock providers)
@@ -116,6 +118,51 @@ jobs:
         run: cargo test --all-targets --locked
       - name: Clippy
         run: cargo clippy --all-targets --locked -- -D warnings
+
+  business-smoke:
+    name: Real backend business smoke
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: myriad_smoke
+          POSTGRES_USER: myriad
+          POSTGRES_PASSWORD: myriad_smoke
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      MYRIAD_SMOKE_DATABASE_URL: postgres://myriad:myriad_smoke@127.0.0.1:5432/myriad_smoke
+      JWT_SECRET: smoke-jwt-key-abcdefghijklmnopqrstuvwxyz012
+      MYRIAD_SETUP_SECRET: smoke-setup-secret
+      ENVIRONMENT: development
+      MYRIAD_SMOKE_BACKEND_PORT: 18103
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.94
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Install pnpm
+        run: npm install --global pnpm@11.25.0
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+        env:
+          HUSKY: '0'
+      - name: Install Playwright
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Business API smoke
+        run: bash scripts/extra/smoke.sh
 
   schema-drift:
     name: Migrations vs schema_check drift gate

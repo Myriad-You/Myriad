@@ -15,7 +15,6 @@ describe('cssUrl', () => {
   })
 
   it('escapes closing paren inside the string so declaration stays one token', () => {
-    // With quotes, `)` is literal and does not terminate url()
     const out = cssUrl('https://x.com/a)b')
     assert.equal(out, 'url("https://x.com/a)b")')
     assert.ok(out.startsWith('url("') && out.endsWith('")'))

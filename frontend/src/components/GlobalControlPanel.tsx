@@ -24,6 +24,7 @@ import { agentFace } from '../features/merope/agentFaceChannel'
 import {
   deliverProactiveFace,
   faceSpeechGate,
+  refineProactiveFace,
 } from '../features/merope/faceSpeechArbitration'
 import { setForegroundSurface } from '../features/merope/perception/surface'
 import { resetMeropeState } from '../features/merope/performanceEvents'
@@ -37,6 +38,7 @@ import { useNotificationCenter } from '../hooks/useNotificationCenter'
 import { useNotificationPreferences } from '../hooks/useNotificationPreferences'
 import { usePerformanceProfile } from '../hooks/usePerformanceProfile'
 import { useWallpaper } from '../hooks/useWallpaper'
+import { hostLanguageName, hostLanguageShort, LOCALES } from '../i18n'
 import { getDynamicContentProvider } from '../services/DynamicContentProvider'
 import {
   notificationSourceFor,
@@ -109,7 +111,6 @@ function readHomeBrowseTourPanelPose() {
   return homeBrowseTourPanelPose(snapshot.tourId, snapshot.step?.id ?? null)
 }
 
-// 懒加载展开面板子组件 — 仅在用户展开面板时加载
 const ControlPanelWidgets = lazy(() =>
   import('./ControlPanel/ControlPanelWidgets').then((m) => ({
     default: m.ControlPanelWidgets,
@@ -145,7 +146,6 @@ const DYNAMIC_ICON_ASSETS = {
   musicPaused: '/icons/dynamic/music-paused.webp',
 } as const
 
-/** 外观偏好：浅色 / 深色 / 跟随系统 */
 type ThemePreference = 'light' | 'dark' | 'auto'
 
 const THEME_CYCLE: ThemePreference[] = ['light', 'dark', 'auto']
@@ -156,7 +156,6 @@ function getStoredThemePreference(): ThemePreference {
   return stored === 'light' || stored === 'dark' ? stored : 'auto'
 }
 
-/** 应用主题 class 并同步 meta theme-color */
 function applyThemeClass(dark: boolean) {
   const html = document.documentElement
   if (dark) {
@@ -177,17 +176,13 @@ function applyThemeClass(dark: boolean) {
   }
 }
 
-/** 扩展的动态内容类型（包含 Tapp 自定义类型） */
 interface DynamicContent {
   type: DynamicContentType
   icon: React.ReactNode
   text: string
   subtext?: string
-  /** 是否显示副文本 */
   showSubtext?: boolean
-  /** 来源 Tapp ID */
   sourceTappId?: string
-  /** 歌词持续时间（秒）- 仅用于 music 类型 */
   lyricDuration?: number
 }
 
@@ -206,32 +201,25 @@ const GlobalControlPanel: React.FC = () => {
     isLookingAtAgentPanel,
     () => false,
   )
-  // Mobile / touch-tablet: skip control-panel widget grid (weather/quote etc.)
-  // to save vertical space and memory; music player + settings remain.
+  // 触控带不挂天气/一言格，只留播放器与设置。
   const showControlPanelWidgets = navLayout === 'desktop'
   const { preferences: notificationPreferences } = useNotificationPreferences(
     user?.id,
   )
-  // 展开/收起的唯一状态所有者（issue #320）。
-  // 收缩内容、展开内容、进度 UI、动画类名全部从 phase 派生，
-  // 不再由若干独立 boolean + 固定 setTimeout 各自维护。
+  // 展开/收起唯一状态：phase（issue #320）。
   const [panel, dispatchPanel] = useReducer(panelReducer, initialPanelState)
   const isExpanded = isPanelOpen(panel)
   const showDynamicContent = showsDynamicContent(panel)
   const showPanelContent = showsPanelContent(panel)
   const showOverlay = showsOverlay(panel)
-  /** 面板 tab：控制面板 / 通知 */
   const panelTab = panel.tab
-  // 使用共享主题订阅器，避免创建多余的 MutationObserver
   const isDark = useThemeMode()
 
-  // 页面可见性状态 - 用于冻结动态内容更新
   const [isPageVisible, setIsPageVisible] = useState(!document.hidden)
   const pendingUpdatesRef = useRef<
     Array<(prev: DynamicContent[]) => DynamicContent[]>
   >([])
 
-  // 监听页面可见性变化
   useEffect(() => {
     const handleVisibilityChange = () => {
       const visible = !document.hidden
@@ -243,7 +231,6 @@ const GlobalControlPanel: React.FC = () => {
     }
   }, [])
 
-  // 动态内容状态
   const [dynamicContents, setDynamicContents] = useState<DynamicContent[]>([])
   const [currentContentIndex, setCurrentContentIndex] = useState(0)
   const [isHovering, setIsHovering] = useState(false)
@@ -252,31 +239,23 @@ const GlobalControlPanel: React.FC = () => {
   const [quoteData, setQuoteData] = useState<QuoteData | null>(null)
   const [islandContent, setIslandContent] = useState(DEFAULT_ISLAND_CONTENT)
 
-  // 安全的动态内容更新函数 - 页面隐藏时暂存更新
   const safeSetDynamicContents = useCallback(
     (updater: (prev: DynamicContent[]) => DynamicContent[]) => {
       if (document.hidden) {
-        // 页面隐藏时，暂存更新
         pendingUpdatesRef.current.push(updater)
       } else {
-        // 页面可见时，直接应用更新
         setDynamicContents(updater)
       }
     },
     [],
   )
 
-  // 页面恢复可见时，应用所有暂存的更新
   useEffect(() => {
     if (isPageVisible && pendingUpdatesRef.current.length > 0) {
-      // 先截取并清空队列，再把稳定快照交给 React。
-      // setState 的函数式 updater 不保证在调用点同步执行；若在其外部先清空
-      // pendingUpdatesRef，稍后执行的 updater 会读到空数组，导致后台期间积累的
-      // 问候语、天气、通知等更新全部丢失。
+      // 先截取队列再 setState：updater 不在调用点同步跑，先清空会丢后台累积。
       const pendingUpdates = pendingUpdatesRef.current
       pendingUpdatesRef.current = []
 
-      // 合并所有暂存的更新
       setDynamicContents((prev) => {
         let result = prev
         for (const updater of pendingUpdates) {
@@ -287,13 +266,10 @@ const GlobalControlPanel: React.FC = () => {
     }
   }, [isPageVisible])
 
-  // 通知中心
-
   const notifCarouselTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   )
 
-  // 卸载时清理轮播撤下定时器
   useEffect(
     () => () => {
       if (notifCarouselTimerRef.current) {
@@ -303,7 +279,6 @@ const GlobalControlPanel: React.FC = () => {
     [],
   )
 
-  /** 新通知到达：按统一投递策略分发到面板之外的展示位置。 */
   const handleNewNotification = useCallback(
     (n: AppNotification) => {
       const source = notificationSourceFor(n)
@@ -314,7 +289,6 @@ const GlobalControlPanel: React.FC = () => {
       const body = notificationFacingBody(n)
       const snippet = body.length > 60 ? `${body.slice(0, 60)}…` : body
 
-      // 1. 接入智能岛轮播（置顶展示，20 秒后自动撤下）
       if (
         shouldSurfaceNotification(
           notificationPreferences,
@@ -344,8 +318,7 @@ const GlobalControlPanel: React.FC = () => {
         }, 20000)
       }
 
-      // 2. 所有允许投递到 Toast 的通知都走同一全局容器。
-      // 通知优先级只决定视觉类型，不再决定通知是否展示。
+      // Toast 只改视觉类型，不决定是否展示。
       if (
         shouldEmitNotificationToast(
           notificationPreferences,
@@ -367,8 +340,7 @@ const GlobalControlPanel: React.FC = () => {
           showCloseButton: true,
           onClick: showInPanel
             ? () => {
-                // 复用既有的打开面板事件并带上目标 tab：
-                // 收起时展开直达通知页，已展开时只做一次 tab 交叉淡入
+                // 复用打开面板事件带 tab：已展开则只切 tab。
                 window.dispatchEvent(
                   new CustomEvent('open-control-panel', {
                     detail: { tab: 'notifications' },
@@ -379,7 +351,6 @@ const GlobalControlPanel: React.FC = () => {
         })
       }
 
-      // 3. 页面在后台时推浏览器系统通知
       if (
         document.hidden &&
         shouldSurfaceNotification(
@@ -392,14 +363,13 @@ const GlobalControlPanel: React.FC = () => {
         Notification.permission === 'granted'
       ) {
         try {
-          // 构造即展示（无需持有实例），tag 去重同 id 通知
+          // Notification 构造即展示；同 id 用 tag 去重。
           void new Notification(title, {
             body: body.slice(0, 200),
             tag: n.id,
             icon: notificationSourceIconAsset(source),
           })
         } catch {
-          /* 某些环境不支持构造 Notification，忽略 */
         }
       }
     },
@@ -420,12 +390,14 @@ const GlobalControlPanel: React.FC = () => {
   const handleLiveSpeech = useCallback(
     (speech: {
       id: string
+      event_key: string
       body: string
       performance?: unknown
       merope_state?: unknown
     }) => {
       deliverProactiveFace(agentFace, faceSpeechGate, {
         id: speech.id,
+        eventKey: speech.event_key,
         body: speech.body,
         performance: speech.performance,
         meropeState: speech.merope_state,
@@ -439,70 +411,56 @@ const GlobalControlPanel: React.FC = () => {
     userId: user?.id,
     onNew: handleNewNotification,
     onLiveSpeech: handleLiveSpeech,
+    onLiveSpeechMotion: (id, performance) => refineProactiveFace(faceSpeechGate, id, performance),
     onMeropeState: (state) => agentFace.updateState(state),
     onMeropeResync: () => window.dispatchEvent(new Event(ADDRESSEE_UPDATED_EVENT)),
     includeInPanel: includeNotificationInPanel,
   })
   const { loaded: notifLoaded, loadHistory: loadNotifHistory } = notifCenter
 
-  // 历史已在 hook 启用时预载；此处仅在预载失败（loaded 仍为 false）时
-  // 于打开通知页时重试
+  // hook 预载失败时，打开通知页再试一次。
   useEffect(() => {
     if (panelTab === 'notifications' && !notifLoaded) {
       void loadNotifHistory()
     }
   }, [panelTab, notifLoaded, loadNotifHistory])
 
-  // 高度策略：控制面板内容始终挂载并定义面板高度（切走时仅 visibility:hidden，
-  // 布局保留、懒加载的配置项出现时照常触发重测）；通知作为绝对定位覆盖层
-  // 盖在其上（inset:0 自动跟随面板高度）。tab 切换本身不触发任何重算。
-
-  // 过滤掉空白内容，获取有效的动态内容列表（提前定义，供轮播逻辑使用）
   const validContents = useMemo(() => {
     return dynamicContents.filter((c) => {
-      // 必须有图标和文本
       if (!c.icon || !c.text) return false
-      // 文本不能是空字符串或只有空白
       if (typeof c.text === 'string' && c.text.trim().length === 0) return false
       if (!allowsIslandType(islandContent, String(c.type))) return false
       return true
     })
   }, [dynamicContents, islandContent])
 
-  // 文本引用，用于检测是否需要滚动
   const textRef = useRef<HTMLSpanElement>(null)
   const [needsScroll, setNeedsScroll] = useState(false)
 
-  // 壁纸管理 Hook（替代之前的独立状态和函数）
   const {
     canRefresh: canRefreshWallpaper,
     refreshWallpaper,
     loadWallpaper,
   } = useWallpaper()
 
-  // 音乐播放器 Hook（从 GlobalControlPanel 分离）
   const musicPlayer = useMusicPlayer()
-  // 解构出稳定引用，供 expand/collapse 回调使用而不引入 musicPlayer 对象依赖
+  // 解构稳定引用，避免 expand/collapse 依赖整个 musicPlayer。
   const { setProgressUiVisible } = musicPlayer
 
-  // DOM 引用
   const triggerRef = useRef<HTMLDivElement>(null)
   const expandedContentRef = useRef<HTMLDivElement>(null)
-  // 展开状态镜像（供 popstate 等原生事件回调读取，避免闭包过期）
+  // 镜像给 popstate 等原生回调，避免闭包过期。
   const isExpandedRef = useRef(false)
-  // 是否已压入哨兵历史记录（面板展开时移动端系统返回应先收起面板）
+  // 展开时压哨兵历史，系统返回先收起面板。
   const historyArmedRef = useRef(false)
-  // 自己调用 history.back() 产生的 popstate 计数：快速「关→开」时，
-  // 迟到的那次回退不得把刚展开的面板再收掉
+  // 自己 history.back() 的 popstate 计数：关→开时迟到回退不得再收起。
   const pendingBackRef = useRef(0)
-  // 外壳 morph 进行中（供测量闭包读取）。必须是组件级 ref：
-  // 局部变量会随测量 effect 重建而丢失已经发生的开始信号
+  // morphing 必须是组件级 ref，局部变量会随测量 effect 重建丢失。
   const morphingRef = useRef(false)
   const perf = usePerformanceProfile()
   const anim = useAnimationLevel()
 
-  // 动效档位：同一套状态机按 motion / performance policy 选择 transition profile，
-  // 不维护第二套交互实现
+  // 同一套状态机按档位选 transition，不维护第二套交互。
   const motion = useMemo(
     () =>
       resolvePanelMotion({
@@ -511,23 +469,10 @@ const GlobalControlPanel: React.FC = () => {
       }),
     [anim.level, perf.reduceMotion],
   )
-  /**
-   * morph 一旦开始就用开始时的档位跑完 —— JS 与 CSS 两条线都要冻结。
-   *
-   * 档位可能在动画中途变化：面板里就有动效开关，而 startAutoFrameAdapt
-   * 会在掉帧时自动降级 —— 后者恰好发生在低端设备 morph 掉帧时。
-   *
-   * 不冻结的两个后果：
-   * - JS 侧：motion 进 settle effect 的依赖会让 effect 重建，cleanup 提前
-   *   派发 gcp-animation-end，触发一次绕过 morph 闸门的重测顶跳高度。
-   * - CSS 侧：降到 exlight 会给外壳挂上 gcp-no-morph，该类把 width/height
-   *   移出 transition-property，浏览器当场 cancel 掉运行中的尺寸过渡，
-   *   外壳直接瞬移到终态（实测 width 160 → 400 无过渡），
-   *   而且 transitionend 再也不会来，相位只能等兜底超时。
-   */
+  // morph 开始时冻结档位跑完；中途降级会 cancel 尺寸过渡并误触发重测。
   const [activeMotion, setActiveMotion] = useState(motion)
   useEffect(() => {
-    // 只在稳定态跟进最新档位；改档位影响的是下一次交互
+    // 只在稳定态跟进档位，改档影响下一次交互。
     if (!isPanelMorphing(panel)) setActiveMotion(motion)
   }, [motion, panel.phase])
 
@@ -536,8 +481,7 @@ const GlobalControlPanel: React.FC = () => {
     motionRef.current = activeMotion
   }, [activeMotion])
 
-  // 时长以 CSS 变量下发：内容交接的 delay/duration 全部按 morph 比例计算，
-  // 保证两条时间线永远同步（不会因为改时长而错位）
+  // 交接 delay/duration 按 morph 比例，两条时间线同步。
   const motionVars = useMemo(
     () =>
       ({
@@ -556,8 +500,7 @@ const GlobalControlPanel: React.FC = () => {
     ? 'performance-standard'
     : 'performance-light'
 
-  // 原生事件回调（popstate）与测量闭包读取的状态镜像。
-  // 用 layout effect 保证在同一次提交内、且早于下方的测量 effect 生效
+  // layout effect 在同一次提交内、早于测量 effect 同步镜像。
   useLayoutEffect(() => {
     isExpandedRef.current = isPanelOpen(panel)
     historyArmedRef.current = panel.historyArmed
@@ -565,24 +508,12 @@ const GlobalControlPanel: React.FC = () => {
   }, [panel])
 
   useEffect(() => {
-    // 主题状态现在由 useThemeMode() hook 自动管理
-    // 认证检查现在由 AuthContext 管理，用户信息会自动同步
-
-    // 加载动态内容
     loadDynamicContents()
-
-    // 加载壁纸配置以初始化 canRefresh 状态
     loadWallpaper()
-  }, []) // 只在挂载时运行一次，避免循环依赖
+  }, []) // 只在挂载跑一次，避免循环依赖。
 
-  // 注意：壁纸颜色提取完全由 AppLayout 负责
-  // GlobalControlPanel 不再处理壁纸颜色，只处理音乐封面颜色
-  // 音量弹层开关 / 点外关闭在 MusicPlayer 内（state 与 ref 均来自 useMusicPlayer）
-
-  // 获取动态内容提供者
   const dynamicContentProvider = getDynamicContentProvider()
 
-  // 同步语言设置到动态内容提供者
   useEffect(() => {
     dynamicContentProvider.setLocale(locale)
   }, [locale, dynamicContentProvider])
@@ -607,10 +538,8 @@ const GlobalControlPanel: React.FC = () => {
     }
   }, [loadIslandContent])
 
-  // 订阅 Tapp 动态内容更新
   useEffect(() => {
     const unsubscribe = dynamicContentProvider.addListener((event) => {
-      // 当 Tapp 内容更新时，刷新动态内容列表
       if (
         event.type === 'add' ||
         event.type === 'update' ||
@@ -626,15 +555,12 @@ const GlobalControlPanel: React.FC = () => {
     }
   }, [dynamicContentProvider])
 
-  // 刷新 Tapp 提供的动态内容
   const refreshTappContents = useCallback(() => {
     safeSetDynamicContents((prev) => {
-      // 移除旧的 Tapp 内容
       const builtinContents = prev.filter(
         (c) => !c.type.toString().startsWith('tapp-'),
       )
 
-      // 获取所有 Tapp 内容
       const tappContents = dynamicContentProvider
         .getAllContents()
         .filter((c) => c.type.toString().startsWith('tapp-'))
@@ -647,12 +573,10 @@ const GlobalControlPanel: React.FC = () => {
           sourceTappId: c.sourceTappId,
         }))
 
-      // 合并内容
       return [...builtinContents, ...tappContents]
     })
   }, [dynamicContentProvider, safeSetDynamicContents])
 
-  // 天气文本翻译辅助函数（提取出来以便复用）
   const getWeatherText = useCallback(
     (code: number): string => {
       const weatherT = t.weather ?? {}
@@ -690,11 +614,9 @@ const GlobalControlPanel: React.FC = () => {
     )
   }, [])
 
-  // 加载动态内容
   const loadDynamicContents = useCallback(async () => {
     const contents: DynamicContent[] = []
 
-    // 1. 问候语（始终显示，立即加载）
     const greetingTranslations = {
       morning: t.greeting?.morning ?? 'Good morning',
       forenoon: t.greeting?.forenoon ?? t.greeting?.morning ?? 'Good morning',
@@ -737,16 +659,13 @@ const GlobalControlPanel: React.FC = () => {
       subtext: greeting.time,
     })
 
-    // 立即显示问候语（保留音乐和 Tapp 内容，只更新内置内容）
     safeSetDynamicContents((prev) => {
-      // 保留音乐和 Tapp 类型的内容
       const preserved = prev.filter(
         (c) => c.type === 'music' || c.type.toString().startsWith('tapp-'),
       )
       return [...contents, ...preserved]
     })
 
-    // 同步问候语到动态内容提供者（供 Tapp 读取）
     dynamicContentProvider.setContent('builtin', {
       type: 'greeting',
       icon: greeting.icon,
@@ -755,29 +674,23 @@ const GlobalControlPanel: React.FC = () => {
       priority: 100,
     })
 
-    // 2. 天气信息（高优先级）
-    // 如果已有天气数据，直接使用缓存数据更新（语言切换时）
     if (weatherData) {
       const weatherText = `${weatherData.temperature} ${getWeatherText(weatherData.weatherCode)}`
       const weatherCity = weatherData.city || ''
 
       safeSetDynamicContents((prev) => {
-        // 移除旧的天气内容，添加新的翻译版本
         const filtered = prev.filter((c) => c.type !== 'weather')
-        // 在问候语后插入天气信息
         const greetingIndex = filtered.findIndex((c) => c.type === 'greeting')
         const insertIndex = greetingIndex >= 0 ? greetingIndex + 1 : 0
-        filtered.splice(insertIndex, 0, {
+        return filtered.toSpliced(insertIndex, 0, {
           type: 'weather',
           icon: renderWeatherIcon(weatherData.icon),
           text: weatherText,
           subtext: weatherCity,
           showSubtext: true,
         })
-        return filtered
       })
 
-      // 同步到动态内容提供者
       dynamicContentProvider.setContent('builtin', {
         type: 'weather',
         icon: weatherData.icon,
@@ -787,7 +700,6 @@ const GlobalControlPanel: React.FC = () => {
         showSubtext: true,
       })
     } else {
-      // 首次加载天气数据
       loadResource.high('weather-info', async () => {
         try {
           const weather = await getWeatherInfo()
@@ -798,24 +710,20 @@ const GlobalControlPanel: React.FC = () => {
             const weatherCity = weather.city || ''
 
             safeSetDynamicContents((prev) => {
-              // 移除旧的天气内容（如果有）
               const filtered = prev.filter((c) => c.type !== 'weather')
-              // 在问候语后插入天气信息
               const greetingIndex = filtered.findIndex(
                 (c) => c.type === 'greeting',
               )
               const insertIndex = greetingIndex >= 0 ? greetingIndex + 1 : 0
-              filtered.splice(insertIndex, 0, {
+              return filtered.toSpliced(insertIndex, 0, {
                 type: 'weather',
                 icon: renderWeatherIcon(weather.icon),
                 text: weatherText,
                 subtext: weatherCity,
                 showSubtext: true,
               })
-              return filtered
             })
 
-            // 同步到动态内容提供者
             dynamicContentProvider.setContent('builtin', {
               type: 'weather',
               icon: weather.icon,
@@ -826,17 +734,13 @@ const GlobalControlPanel: React.FC = () => {
             })
           }
         } catch (error) {
-          // 静默处理错误 - 天气不可用时不显示
           console.debug('[GlobalControlPanel] Weather unavailable:', error)
         }
       })
     }
 
-    // 3. 一言警句（高优先级）
-    // 如果已有一言数据，直接复用（一言不需要翻译，只有备用句子需要根据语言切换）
     if (quoteData) {
       safeSetDynamicContents((prev) => {
-        // 移除旧的一言内容，重新添加
         const filtered = prev.filter((c) => c.type !== 'quote')
         return [
           ...filtered,
@@ -850,7 +754,6 @@ const GlobalControlPanel: React.FC = () => {
         ]
       })
 
-      // 同步到动态内容提供者
       dynamicContentProvider.setContent('builtin', {
         type: 'quote',
         icon: 'quote',
@@ -860,14 +763,12 @@ const GlobalControlPanel: React.FC = () => {
         showSubtext: false,
       })
     } else {
-      // 首次加载一言数据
       loadResource.high('quote-info', async () => {
         try {
           const quote = await getRandomQuote(locale)
-          if (quote && quote.text) {
+          if (quote?.text) {
             setQuoteData(quote)
             safeSetDynamicContents((prev) => {
-              // 移除旧的一言内容（如果有）
               const filtered = prev.filter((c) => c.type !== 'quote')
               return [
                 ...filtered,
@@ -881,7 +782,6 @@ const GlobalControlPanel: React.FC = () => {
               ]
             })
 
-            // 同步到动态内容提供者
             dynamicContentProvider.setContent('builtin', {
               type: 'quote',
               icon: 'quote',
@@ -892,13 +792,11 @@ const GlobalControlPanel: React.FC = () => {
             })
           }
         } catch (error) {
-          // 静默处理错误 - 一言不可用时不显示
           console.debug('[GlobalControlPanel] Quote unavailable:', error)
         }
       })
     }
 
-    // 4. 加载 Tapp 提供的动态内容
     refreshTappContents()
   }, [
     user?.username,
@@ -914,28 +812,20 @@ const GlobalControlPanel: React.FC = () => {
     renderDynamicAssetIcon,
   ])
 
-  // 当用户信息更新时，重新加载动态内容
   useEffect(() => {
     if (user) {
       loadDynamicContents()
     }
   }, [user, loadDynamicContents])
 
-  // 当语言变化时，重新加载动态内容以更新问候语、天气等文本
   useEffect(() => {
     loadDynamicContents()
-    // loadDynamicContents 依赖 t 和 locale，当语言变化时会自动使用新的翻译
   }, [locale, loadDynamicContents])
 
-  // 壁纸加载和刷新功能已由 useWallpaper Hook 提供
-  // loadWallpaperConfig 和 refreshWallpaper 已废弃
-
-  // 初始化时加载音乐配置（只在挂载时运行一次）
   useEffect(() => {
     musicPlayer.loadMusicConfig()
-  }, []) // 仅在组件挂载时运行一次
+  }, [])
 
-  // 确保 currentContentIndex 在有效范围内（使用 validContents）
   useEffect(() => {
     if (
       validContents.length > 0 &&
@@ -945,12 +835,9 @@ const GlobalControlPanel: React.FC = () => {
     }
   }, [validContents.length, currentContentIndex])
 
-  // 动态内容轮播（带淡入淡出效果）- 仅在有有效内容时运行
   useEffect(() => {
-    // 在以下情况禁用轮播：展开面板 / 悬停 / 有效内容为空 / 页面隐藏
     if (validContents.length === 0 || isExpanded || isHovering) {
-      // 若依赖恰好在 300ms 淡出窗口内变化，上一轮 effect 会取消换页定时器；
-      // 此处必须同步撤销淡出，否则内容会一直停留在 hidden 状态。
+      // 淡出窗口内依赖变化会取消换页定时器，必须同步撤销淡出，否则内容停在 hidden。
       setIsTransitioning(false)
       return
     }
@@ -982,29 +869,25 @@ const GlobalControlPanel: React.FC = () => {
         swapTimerId = null
         if (cancelled) return
         setCurrentContentIndex((prev) => (prev + 1) % validContents.length)
-        // 稍等一帧后开始淡入，确保内容已更新
         revealTimerId = window.setTimeout(() => {
           revealTimerId = null
           if (!cancelled) setIsTransitioning(false)
         }, 80)
-        // 下一次循环：延长停留时间到 15秒，低端设备 30秒
         const base = 15000
         const nextDelay = Math.round(base * (anim.durationScale || 1))
         cycleTimerId = window.setTimeout(cycle, nextDelay)
       }, 300)
     }
 
-    // 首次延迟启动，等待 6 秒后开始轮播
     const startDelay = Math.round(6000 * (anim.durationScale || 1))
     cycleTimerId = window.setTimeout(cycle, startDelay)
 
     const handleVisibility = () => {
       if (document.hidden) {
-        // 页面隐藏时中止完整过渡，避免停在已淡出但尚未换页的中间态
+        // 隐藏时中止过渡，避免停在已淡出未换页的中间态。
         clearTimers()
         setIsTransitioning(false)
       } else if (!cancelled) {
-        // 页面重新可见时重新启动轮播
         clearTimers()
         setIsTransitioning(false)
         const restartDelay = Math.round(2000 * (anim.durationScale || 1))
@@ -1021,11 +904,6 @@ const GlobalControlPanel: React.FC = () => {
     }
   }, [validContents.length, isExpanded, isHovering, anim.durationScale])
 
-  // 主题变化已通过 useThemeMode() hook 自动响应
-  // 无需额外的 MutationObserver
-
-  // 动态计算展开面板的高度 -  事件驱动，无轮询
-  // 外部可通过 dispatchEvent(new CustomEvent('gcp-remeasure')) 触发重测
   useLayoutEffect(() => {
     if (!triggerRef.current) return
     const triggerEl = triggerRef.current
@@ -1043,27 +921,17 @@ const GlobalControlPanel: React.FC = () => {
     let measureTimeout: number | null = null
     let visibilityTimeout: number | null = null
 
-    // 移动端 / 低性能模式：加大节流、跳过 ResizeObserver
+    // 触控/低性能：加大节流，跳过 ResizeObserver。
     const isMobileDevice = perf.isMobile || isReducedAnimation(anim)
 
-    // 节流时间：防止短时间内多次事件触发重复测量
-    // 加大节流时间，减少克隆测量频率
     const THROTTLE_MS = isMobileDevice ? 1200 : 600
 
-    /**
-     * 两个闸门是独立的，不能用同一个 force 一起绕过：
-     * - duringMorph：morph 期间不写高度，目标值留到动画结束一次性应用，
-     *   否则异步到达的用户/配置/音乐/通知内容会在过渡中途顶跳外壳
-     * - immediate：跳过节流。行数切换这类用户主动触发的尺寸变化需要外壳
-     *   当帧就拿到新目标值，才能和内容高度跑在同一条时间线上；
-     *   但它仍然必须服从 morph 闸门
-     */
+    // duringMorph 与 immediate 独立：morph 中不写高度；immediate 只跳过节流，仍服从 morph 闸门。
     const measure = (opts?: { immediate?: boolean, duringMorph?: boolean }) => {
       if (morphingRef.current && !opts?.duringMorph) return
 
       const now = Date.now()
       if (now - lastUpdateTime < THROTTLE_MS && !opts?.immediate) {
-        // 如果在节流期内,标记待测量,稍后执行
         if (!pendingMeasure) {
           pendingMeasure = true
           const delay = THROTTLE_MS - (now - lastUpdateTime)
@@ -1077,15 +945,12 @@ const GlobalControlPanel: React.FC = () => {
       }
       lastUpdateTime = now
 
-      // DEV 契约断言：scrollHeight 直读的正确性依赖 CSS 把内容宽度
-      // 固定为展开终值（.expanded-panel-content 的 width + flex-shrink: 0）。
-      // 若被改回 100% 或恢复 flex 压缩，高度会按动画中间帧计算——
-      // 在开发环境立即暴露，生产零开销
+      // DEV：scrollHeight 依赖内容宽度钉在展开终值；改回 100%/flex 压缩会按中间帧算高。
       if (import.meta.env.DEV) {
         const rootFontSize = Number.parseFloat(
           getComputedStyle(document.documentElement).fontSize,
         )
-        // 桌面 356px；移动端 calc(100vw - 4.25rem)，与 CSS 保持一致
+        // 宽度与 CSS 一致：桌面 356px，移动 calc(100vw - 4.25rem)。
         const expectedWidth =
           window.innerWidth <= 640
             ? window.innerWidth - 4.25 * rootFontSize
@@ -1099,12 +964,9 @@ const GlobalControlPanel: React.FC = () => {
         }
       }
 
-      // 内容宽度已由 CSS 固定为展开终值（不随容器动画变化），
-      // 直接读取真实布局高度即可 —— 无需克隆整棵面板到 body 测量，
-      // 每次测量从"深克隆 + 插入 + 强制布局 + 移除"降为一次布局读取
+      // 内容宽度已钉在展开终值，直接读布局高度，勿再克隆到 body。
       const raw = contentEl.scrollHeight
 
-      // 适当补偿 (考虑内边距 + 过渡)
       const compensated = Math.ceil(raw * CONTROL_PANEL_HEIGHT_COMPENSATION)
 
       if (Math.abs(compensated - lastHeight) > 4) {
@@ -1113,40 +975,31 @@ const GlobalControlPanel: React.FC = () => {
       }
     }
 
-    // 立即测量，确保动画起始帧即为正确高度
     measure({ immediate: true, duringMorph: true })
 
-    // 动画结束后精确重测一次，补齐 morph 期间被丢弃的内容变化。
-    // 注意：闸门读的是组件级 morphingRef，本 effect 因依赖变化重建时
-    // 不会丢失「当前正在动画」这一事实（旧实现的局部标记会被重置为 false）
+    // 动画结束后重测，补齐 morph 期间丢弃的内容变化。闸门读组件级 morphingRef。
     const handleAnimationEnd = () => {
       lastUpdateTime = 0
       measure({ immediate: true, duringMorph: true })
     }
     window.addEventListener('gcp-animation-end', handleAnimationEnd)
 
-    // 统一使用事件驱动重测（移除轮询）。
-    // detail.immediate 由内容侧在「用户主动改变尺寸」时带上（如小组件行数切换），
-    // 用于跳过节流，让外壳与内容的高度动画同帧开始
     const handleRemeasure = (e: Event) => {
       const detail = (e as CustomEvent<{ immediate?: boolean } | undefined>)
         .detail
       measure({ immediate: detail?.immediate })
     }
     window.addEventListener('gcp-remeasure', handleRemeasure)
-    // 兼容 ControlPanelWidgets 触发的事件
     window.addEventListener('control-panel-content-resize', handleRemeasure)
 
-    // 视口变化事件
     const handleViewportChange = () => {
-      lastUpdateTime = 0 // 重置节流
+      lastUpdateTime = 0
       measure()
     }
     window.addEventListener('resize', handleViewportChange)
     window.addEventListener('orientationchange', handleViewportChange)
 
-    // 可见性变化时重新测量。定时器必须可清理：effect 因依赖变化重建、
-    // 或组件卸载后，这一发迟到的 measure 仍会朝旧的外壳写高度
+    // 可见性重测定时器必须可清理，否则迟到的 measure 会朝旧外壳写高度。
     const handleVisibility = () => {
       if (!document.hidden) {
         lastUpdateTime = 0
@@ -1159,17 +1012,14 @@ const GlobalControlPanel: React.FC = () => {
     }
     document.addEventListener('visibilitychange', handleVisibility)
 
-    // 桌面端：使用 ResizeObserver 监听内容尺寸变化
     let unobserveResize: (() => void) | null = null
     if (!isMobileDevice) {
       unobserveResize = observeResize(contentEl, () => measure())
     }
 
-    // MutationObserver：只监听直接子节点变化
     const mutationObserver = new MutationObserver(() => measure())
     mutationObserver.observe(contentEl, {
       childList: true,
-      // 不监听 subtree 和 characterData，减少触发频率
     })
 
     return () => {
@@ -1193,12 +1043,7 @@ const GlobalControlPanel: React.FC = () => {
         clearTimeout(visibilityTimeout)
       }
     }
-    // canRefreshWallpaper / user?.is_admin：壁纸配置与用户信息均为异步加载，
-    // 壁纸切换/系统配置两个控制项会在面板展开后才出现。它们渲染在
-    // .control-items-grid 内部（contentEl 的孙节点），MutationObserver
-    // （仅监听直接子节点）观察不到，移动端又没有 ResizeObserver 兜底——
-    // 历史上全靠 ×1.08 的冗余高度硬扛，不够时按钮被裁掉"第一时间不显示"。
-    // 加入 deps 后翻转即触发一次强制重测，精确修正高度
+    // 壁纸项与管理员项在孙节点，MutationObserver 看不到；加入 deps 翻转后强制重测。
   }, [
     isExpanded,
     perf.highHardware,
@@ -1208,7 +1053,6 @@ const GlobalControlPanel: React.FC = () => {
     user?.is_admin,
   ])
 
-  // 外观偏好（浅色/深色/自动），isDark 始终反映当前实际外观
   const [themePreference, setThemePreference] = useState<ThemePreference>(
     getStoredThemePreference,
   )
@@ -1225,7 +1069,6 @@ const GlobalControlPanel: React.FC = () => {
       next === 'auto'
         ? window.matchMedia('(prefers-color-scheme: dark)').matches
         : next === 'dark'
-    // isDark 状态由 useThemeMode() hook 自动响应 class 变化，无需手动 setIsDark
     applyThemeClass(dark)
     void import('../utils/analyticsEvents').then(
       ({ trackProductEvent, AnalyticsEvents }) => {
@@ -1237,17 +1080,14 @@ const GlobalControlPanel: React.FC = () => {
     )
   }, [themePreference])
 
-  // 相位推进：由外壳真实的过渡结束事件驱动，定时器只作兜底。
-  // 收缩内容淡出 → 外壳 morph → 展开内容淡入，共用同一条时间线，
-  // 不再有「先出空壳、400ms 后内容突然加入」的固定猜测。
+  // 相位由外壳 transitionend 推进，定时器只兜底。
   useEffect(() => {
     if (!isPanelMorphing(panel)) return
     const el = triggerRef.current
     const generation = panel.generation
-    // 用相位开始时的档位，中途换档不重启这条时间线
     const activeMotion = motionRef.current
 
-    // 子组件（MusicPlayer 频谱/歌词引擎）仍按这两个事件冻结
+    // 子组件仍按 gcp-animation-start/end 冻结引擎。
     window.dispatchEvent(new CustomEvent('gcp-animation-start'))
 
     let settled = false
@@ -1258,29 +1098,27 @@ const GlobalControlPanel: React.FC = () => {
       dispatchPanel({ type: 'settle', generation })
     }
 
-    // width 在两个方向上都必然变化（160px ↔ 400px），是最可靠的结束信号；
-    // 过渡被打断时浏览器发 transitioncancel，由新一轮 effect 接管
+    // 结束信号用 width（双向都变）；打断时走 transitioncancel。
     const handleTransitionEnd = (e: TransitionEvent) => {
       if (e.target === el && e.propertyName === 'width') finish()
     }
     if (activeMotion.spatial && el) {
       el.addEventListener('transitionend', handleTransitionEnd)
     }
-    // 兜底：非空间档位没有尺寸过渡、后台标签页被节流、过渡被 !important 覆盖
+    // 兜底定时器：非空间档、后台节流、!important 盖住过渡。
     const fallback = window.setTimeout(finish, settleTimeoutMs(activeMotion))
 
     return () => {
       window.clearTimeout(fallback)
       el?.removeEventListener('transitionend', handleTransitionEnd)
-      // 被新动作抢占：补发 end，避免子组件停在冻结态
+      // 被抢占时补发 end，避免子组件停在冻结态。
       if (!settled) {
         window.dispatchEvent(new CustomEvent('gcp-animation-end'))
       }
     }
   }, [panel.phase, panel.generation])
 
-  // 展开态写入 html.gcp-panel-open：全屏 TApp iframe 在移动端会抢 hit-test，
-  // 宿主侧用该 class 临时关闭 TApp 层 pointer-events（见 GlobalControlPanel.css）
+  // html.gcp-panel-open：移动端全屏 TApp 会抢 hit-test，用它关 TApp pointer-events。
   useEffect(() => {
     const root = document.documentElement
     if (isExpanded) {
@@ -1293,8 +1131,7 @@ const GlobalControlPanel: React.FC = () => {
     }
   }, [isExpanded])
 
-  // 通知 Tab 下控制区仅 opacity 隐藏：进度 tick / 引擎需与可见性对齐。
-  // 展开首帧即置位，展开内容淡入时 currentTime 已是最新值
+  // 通知 Tab 控制区只 opacity 隐藏：进度/引擎需对齐可见性，展开首帧即置位。
   const progressUiVisible = showsProgressUi(panel)
   useEffect(() => {
     setProgressUiVisible(progressUiVisible)
@@ -1305,16 +1142,9 @@ const GlobalControlPanel: React.FC = () => {
   }, [])
 
   const expandPanel = useCallback((tab?: PanelTab) => {
-    // 压入哨兵历史记录：移动端系统返回时先收起面板，而非直接离开页面
-    // 保留 react-router 写入的 state（usr/key/idx），避免破坏其内部索引
+    // 压哨兵历史，系统返回先收起。保留 router state。同一 tick 立即置位，避免连开压出多余哨兵。
     let historyArmed = false
     if (!isExpandedRef.current) {
-      // 立即翻转镜像，不等下一次提交的 layout effect。
-      // open-control-panel 有多个派发源，同一 tick 内可能到达两次展开请求；
-      // 若这里仍读到过期的 false 就会再压一条哨兵，而 reducer 在 opening
-      // 相位会忽略 historyArmed，多出来的那条永远不会被消费 ——
-      // 表现为之后按一次系统返回键被吞掉。
-      // 立即置位同时保证：同一 tick 内的提前关闭仍能消费掉这条哨兵。
       isExpandedRef.current = true
       try {
         const st = window.history.state
@@ -1334,18 +1164,12 @@ const GlobalControlPanel: React.FC = () => {
   const handleClosePanel = useCallback(() => {
     if (!isExpandedRef.current) return
     if (historyArmedRef.current) {
-      // 先解除武装再消费哨兵记录；pendingBack 让「关→立刻开」时迟到的
-      // popstate 不会把刚展开的面板再收掉
+      // 先解除武装再消费哨兵；pendingBack 必须计数，置 1 会把后续 popstate 当成用户返回。
       historyArmedRef.current = false
-      // 必须计数而不是置 1：同一 tick 内可能连续消费多条哨兵
-      // （程序化的连开连关），每次 back 都会各自回一个 popstate，
-      // 置 1 会让第二个之后的被当成用户按返回键，把刚展开的面板收掉
       pendingBackRef.current += 1
       window.history.back()
     }
-    // 与 expandPanel 的立即置位对称：不等下一次提交的 layout effect。
-    // 否则同一 tick 内「关→立刻开」时第二次调用仍读到 true，
-    // 会被 handleTogglePanel 误判成再关一次，面板打不开。
+    // 立即清镜像：同一 tick 关→开时第二次调用仍读到 true 会再关一次。
     isExpandedRef.current = false
     dispatchPanel({ type: 'close' })
     setForegroundSurface('none')
@@ -1372,10 +1196,9 @@ const GlobalControlPanel: React.FC = () => {
     [handleClosePanel, expandPanel],
   )
 
-  // 系统返回（popstate）时收起面板 — 复用同一条收起动画路径
   useEffect(() => {
     const handlePopState = () => {
-      // 自己调用 history.back() 产生的那次回退：只记账，不改状态
+      // 自己 history.back() 的 popstate 只记账，不改状态。
       if (pendingBackRef.current > 0) {
         pendingBackRef.current -= 1
         return
@@ -1388,8 +1211,7 @@ const GlobalControlPanel: React.FC = () => {
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
 
-  // 从面板内部导航到其他页面：收起面板，并用目标路由替换哨兵记录
-  // （不能走 handleClosePanel 的 history.back()——异步回退会吞掉紧随其后的 push）
+  // 面板内导航：收起并用目标路由替换哨兵，不能 history.back()（异步回退会吞掉随后的 push）。
   const handleNavigateFromPanel = useCallback(
     (path: string) => {
       const wasArmed = historyArmedRef.current
@@ -1400,7 +1222,6 @@ const GlobalControlPanel: React.FC = () => {
     [collapsePanel, navigate],
   )
 
-  // 点击任务类通知：收起面板并打开对应 Agent 会话（AraelPanel 监听该事件；可带 run/task 以 reattach）
   const handleOpenNotifSession = useCallback(
     (sessionId: string, opts?: { runId?: string; taskId?: string }) => {
       handleClosePanel()
@@ -1429,7 +1250,6 @@ const GlobalControlPanel: React.FC = () => {
     [handleClosePanel],
   )
 
-  // 监听打开控制面板事件（来自音乐小组件等点击）
   useEffect(() => {
     const handleOpenPanel = (e: Event) => {
       const tab = (e as CustomEvent<{ tab?: PanelTab } | undefined>).detail?.tab
@@ -1477,9 +1297,7 @@ const GlobalControlPanel: React.FC = () => {
     }
   }, [expandPanel, handleClosePanel, panelTab, tourPanelPose])
 
-  // 音乐错误兜底提示：面板收起时 MusicPlayer 的内联错误不可见
-  // （典型场景：Agent 触发歌单加载失败），用全局 toast 兜底；
-  // 面板展开时已有内联提示，不重复弹
+  // 收起时内联错误不可见，用 toast 兜底；展开时不重复弹。
   const musicErrorKey = musicPlayer.musicErrorKey
   const musicErrorDetail = musicPlayer.musicErrorDetail
   useEffect(() => {
@@ -1493,11 +1311,9 @@ const GlobalControlPanel: React.FC = () => {
       type: 'error',
       duration: 5000,
     })
-    // t 不入依赖：只在错误出现时弹一次，语言切换不重弹
+    // t 不入依赖：只在错误出现时弹一次，语言切换不重弹。
   }, [musicErrorDetail, musicErrorKey])
 
-  // 当有歌词时，更新动态内容以显示歌词（仅播放时）
-  // 使用 useRef 来减少状态更新频率
   const lastLyricTextRef = useRef<string>('')
   const lastSongIdRef = useRef<string>('')
   const lastPlayingStateRef = useRef<boolean>(false)
@@ -1505,8 +1321,6 @@ const GlobalControlPanel: React.FC = () => {
   useEffect(() => {
     const { currentSong, isPlaying, lyrics, currentLyricIndex } = musicPlayer
 
-    // 早期返回：面板展开时不更新动态内容
-    // 注意：页面隐藏时由 safeSetDynamicContents 自动暂存更新
     if (isExpanded) return
 
     if (
@@ -1517,7 +1331,6 @@ const GlobalControlPanel: React.FC = () => {
     ) {
       const currentLyric = lyrics[currentLyricIndex]
 
-      // 如果歌词文本没有变化，跳过更新（避免重复渲染）
       if (lastLyricTextRef.current === currentLyric.text) {
         return
       }
@@ -1525,17 +1338,15 @@ const GlobalControlPanel: React.FC = () => {
       lastSongIdRef.current = currentSong.id
       lastPlayingStateRef.current = true
 
-      // 计算当前歌词的持续时间（到下一句歌词的时间差）
-      let lyricDuration = 5 // 默认5秒
+      let lyricDuration = 5
       if (currentLyricIndex < lyrics.length - 1) {
         const nextLyric = lyrics[currentLyricIndex + 1]
         lyricDuration = Math.max(1, nextLyric.time - currentLyric.time)
       } else {
-        // 最后一句歌词，默认8秒
         lyricDuration = 8
       }
 
-      // 播放时显示歌词 - 使用函数式更新避免闭包问题
+      // 播放中写歌词用函数式更新，避免闭包过期。
       safeSetDynamicContents((prev) => {
         const filtered = prev.filter((c) => c.type !== 'music')
         return [
@@ -1544,13 +1355,12 @@ const GlobalControlPanel: React.FC = () => {
             icon: renderDynamicAssetIcon(DYNAMIC_ICON_ASSETS.music),
             text: currentLyric.text,
             subtext: `${currentSong.name} - ${currentSong.artist}`,
-            lyricDuration, // 传入歌词持续时间
+            lyricDuration,
           },
           ...filtered,
         ]
       })
     } else if (currentSong) {
-      // 避免重复更新：检查歌曲和播放状态是否真的变化了
       const songChanged = lastSongIdRef.current !== currentSong.id
       const playingChanged = lastPlayingStateRef.current !== isPlaying
 
@@ -1558,12 +1368,10 @@ const GlobalControlPanel: React.FC = () => {
         return
       }
 
-      // 重置歌词文本引用
       lastLyricTextRef.current = ''
       lastSongIdRef.current = currentSong.id
       lastPlayingStateRef.current = isPlaying
 
-      // 暂停时或没有歌词时只显示歌曲名
       safeSetDynamicContents((prev) => {
         const filtered = prev.filter((c) => c.type !== 'music')
         return [
@@ -1581,7 +1389,6 @@ const GlobalControlPanel: React.FC = () => {
         ]
       })
     } else if (lastSongIdRef.current !== '') {
-      // 没有歌曲时移除音乐内容（仅当之前有歌曲时）
       lastLyricTextRef.current = ''
       lastSongIdRef.current = ''
       lastPlayingStateRef.current = false
@@ -1597,22 +1404,17 @@ const GlobalControlPanel: React.FC = () => {
     renderDynamicAssetIcon,
   ])
 
-  // 确保索引在有效范围内
   const safeContentIndex =
     validContents.length > 0
       ? Math.min(currentContentIndex, validContents.length - 1)
       : 0
 
-  // 获取当前显示的动态内容
   const currentContent =
     validContents.length > 0 ? validContents[safeContentIndex] : null
 
-  // 用于跟踪上一次歌词文本，实现切换时的淡入淡出
   const prevLyricTextRef = useRef<string>('')
-  // 用于强制触发滚动动画重置的key
   const scrollResetKeyRef = useRef<number>(0)
 
-  // 歌词切换时的淡入淡出效果（独立处理，不影响滚动检测）
   useEffect(() => {
     if (!textRef.current || !currentContent) return
 
@@ -1624,19 +1426,16 @@ const GlobalControlPanel: React.FC = () => {
       prevLyricTextRef.current !== currentContent.text
 
     if (textChanged) {
-      // 歌词切换时添加淡入淡出效果
       element.classList.add('lyric-transition')
       const timer = setTimeout(() => {
         element.classList.remove('lyric-transition')
       }, 100)
 
-      // 强制触发滚动重置
       scrollResetKeyRef.current++
 
       return () => clearTimeout(timer)
     }
 
-    // 更新上一次歌词文本
     if (isMusic) {
       prevLyricTextRef.current = currentContent.text
     } else {
@@ -1644,7 +1443,6 @@ const GlobalControlPanel: React.FC = () => {
     }
   }, [currentContent?.text, currentContent?.type])
 
-  // 检测文本是否超出2行，需要垂直滚动 - 使用统一动画调度器优化性能
   useEffect(() => {
     if (!textRef.current || !currentContent || isExpanded) {
       setNeedsScroll(false)
@@ -1653,13 +1451,11 @@ const GlobalControlPanel: React.FC = () => {
 
     const element = textRef.current
 
-    // 滚动检测和动画配置函数
     const updateScrollAnimation = () => {
       let scrollHeight = 0
       let overflowAmount = 0
       let shouldScroll = false
 
-      // 批量读取阶段 - 使用统一调度器避免布局抖动
       batchRead(() => {
         const twoLineHeight = 34
         scrollHeight = element.scrollHeight
@@ -1667,28 +1463,20 @@ const GlobalControlPanel: React.FC = () => {
         shouldScroll = overflowAmount > 5
       })
 
-      // 批量写入阶段
       batchWrite(() => {
         if (shouldScroll) {
-          // 设置 CSS 变量来控制垂直滚动距离
           element.style.setProperty('--scroll-distance', `-${overflowAmount}px`)
 
-          // 根据内容类型计算滚动时间和延迟
           let duration: number
           let delay: string
 
-          // 歌词特殊处理：使用精确的时间轴同步
           if (currentContent.type === 'music' && currentContent.lyricDuration) {
-            // 歌词：使用歌词持续时间（到下一句的时间差）
-            // 减去0.5秒作为缓冲，留出0.3秒作为延迟，确保流畅过渡
             duration = Math.max(1.5, currentContent.lyricDuration - 0.5)
-            delay = '0.3s' // 歌词用更短的延迟，快速响应
+            delay = '0.3s'
           } else if (currentContent.type === 'music') {
-            // 没有时间轴的歌词（最后一句或无时间戳），默认 4 秒
             duration = 4
             delay = '0.5s'
           } else {
-            // 普通内容：根据溢出量动态计算，每20px需要1秒，最短10秒，最长20秒
             duration = Math.max(
               10,
               Math.min(20, Math.ceil(overflowAmount / 20) + 10),
@@ -1699,7 +1487,6 @@ const GlobalControlPanel: React.FC = () => {
           element.style.setProperty('--scroll-duration', `${duration}s`)
           element.style.setProperty('--scroll-delay', delay)
 
-          // 重置滚动动画（确保从头开始）
           setNeedsScroll(false)
           requestAnimationFrame(() => {
             setNeedsScroll(true)
@@ -1713,17 +1500,14 @@ const GlobalControlPanel: React.FC = () => {
       })
     }
 
-    // 使用统一调度器的ResizeObserver，共享Observer实例，性能更优
     const unobserve = observeResize(
       element,
       (_entry) => {
         updateScrollAnimation()
       },
       { immediate: true },
-    ) // 立即执行首次测量
+    )
 
-    // 监听内容变化，强制重新计算滚动
-    // 这确保歌词切换时滚动动画会重置
     updateScrollAnimation()
 
     return () => {
@@ -1738,32 +1522,21 @@ const GlobalControlPanel: React.FC = () => {
     scrollResetKeyRef.current,
   ])
 
-  /**
-   * 判断是否应该显示副文本
-   * - 显式指定 showSubtext 时使用指定值
-   * - 默认规则：天气、主题、Tapp 内容显示副文本；问候语、一言、音乐不显示
-   */
   const shouldShowSubtext = useCallback((content: DynamicContent): boolean => {
-    // 显式指定时使用指定值
     if (content.showSubtext !== undefined) {
       return content.showSubtext
     }
 
-    // Tapp 类型内容默认显示副文本
     if (content.type.toString().startsWith('tapp-')) {
       return !!content.subtext
     }
 
-    // 默认规则：天气和主题显示副文本
     const typesWithSubtext: DynamicContentType[] = ['weather', 'theme']
     return typesWithSubtext.includes(content.type)
   }, [])
 
-  // 是否有有效内容可显示
   const hasValidContent = validContents.length > 0
 
-  // 收缩态右侧指示器：有通知时下箭头替换为计数徽标
-  // （无已读概念：计数 = 未清除的通知数，iOS 通知中心模型）
   const notifCount = notifCenter.items.length
   const collapsedIndicator =
     notifCount > 0 ? (
@@ -1788,7 +1561,6 @@ const GlobalControlPanel: React.FC = () => {
 
   return (
     <React.Fragment>
-      {/* 顶部控制栏 - 智能岛 */}
       <div className="global-control-bar">
         <div className="control-bar-content">
           <div
@@ -1797,7 +1569,7 @@ const GlobalControlPanel: React.FC = () => {
             className={[
               'control-bar-trigger',
               isExpanded ? 'expanded' : '',
-              // morph 进行中：冻结 hover/active 变换
+              // morph 中冻结 hover/active 变换。
               isPanelMorphing(panel) ? 'gcp-animating' : '',
               panel.phase === 'closing' ? 'gcp-closing' : '',
               activeMotion.spatial ? '' : 'gcp-no-morph',
@@ -1810,12 +1582,10 @@ const GlobalControlPanel: React.FC = () => {
             }}
             onPointerLeave={() => setIsHovering(false)}
           >
-            {/* 动态轮播内容 - 仅在有有效内容时显示 */}
             {hasValidContent && currentContent && (
               <div
                 className={`dynamic-content-wrapper ${!showDynamicContent || isTransitioning ? 'hidden' : ''}`}
                 onClick={() => {
-                  // 点击轮播中的通知内容 → 直接进入通知 tab（与展开同一次状态切换）
                   handleTogglePanel(
                     currentContent.type === 'notification'
                       ? 'notifications'
@@ -1831,7 +1601,6 @@ const GlobalControlPanel: React.FC = () => {
                   >
                     {currentContent.text}
                   </span>
-                  {/* 根据 showSubtext 属性或类型判断是否显示副文本 */}
                   {currentContent.subtext &&
                     shouldShowSubtext(currentContent) && (
                       <span className="dynamic-text-sub">
@@ -1843,10 +1612,7 @@ const GlobalControlPanel: React.FC = () => {
               </div>
             )}
 
-            {/* 无有效内容时，仍需保持可点击区域以展开面板。
-                不按 isExpanded 卸载：卸载会让收缩内容在展开首帧硬切消失，
-                这里交给 showDynamicContent 走与外壳同一条时间线的淡出/淡入
-                （隐藏态是绝对定位 + opacity:0 + pointer-events:none，无布局代价） */}
+            {/* 无内容也保留点击区；不按 isExpanded 卸载，否则展开首帧硬切。隐藏走绝对定位 + opacity:0。 */}
             {!hasValidContent && (
               <div
                 className={`dynamic-content-wrapper empty-state ${!showDynamicContent ? 'hidden' : ''}`}
@@ -1856,13 +1622,11 @@ const GlobalControlPanel: React.FC = () => {
               </div>
             )}
 
-            {/* 展开的控制面板内容 - 通过 JS 控制显示/隐藏 */}
             <div
               ref={expandedContentRef}
               className={`expanded-panel-content ${showPanelContent ? 'visible' : ''}`}
               data-tour="control-panel"
             >
-              {/* 头部 - 用户信息按钮 */}
               <div className="control-panel-header">
                 <UserSection
                   onClosePanel={handleClosePanel}
@@ -1871,7 +1635,7 @@ const GlobalControlPanel: React.FC = () => {
                 <button
                   type="button"
                   onClick={(e) => {
-                    // 避免 touch 残留 focus / 父级 :active 干扰收起 morph
+                    // 避免 touch 残留 focus / 父级 :active 干扰收起 morph。
                     e.stopPropagation()
                     ;(e.currentTarget as HTMLButtonElement).blur()
                     handleClosePanel()
@@ -1895,7 +1659,6 @@ const GlobalControlPanel: React.FC = () => {
                 </button>
               </div>
 
-              {/* Tab 切换：控制面板 / 通知 */}
               <div
                 className="notif-tab-bar"
                 role="tablist"
@@ -1939,12 +1702,7 @@ const GlobalControlPanel: React.FC = () => {
                 </button>
               </div>
 
-              {/* 内容区：控制面板内容始终挂载并定义高度；
-                  通知作为绝对定位覆盖层盖在其上，高度自动跟随。
-                  控制内容切走时用容器级 opacity:0（保留布局，懒加载的
-                  配置项出现时仍会触发重测），而非 display:none（会把
-                  小组件测成 0 尺寸）或卸载（切回时引发连环重算）。
-                  inert 负责把隐藏内容移出焦点链与无障碍树 */}
+              {/* 控制区始终挂载定高；切走用容器 opacity:0，勿 display:none（小组件会测成 0）或卸载。 */}
               <div className="notif-panel-body">
                 <div
                   className={`notif-control-content ${
@@ -1952,7 +1710,6 @@ const GlobalControlPanel: React.FC = () => {
                   }`}
                   inert={panelTab === 'notifications'}
                 >
-                  {/* 动态信息卡片 - 仅桌面显示；移动端关闭以省高度与资源 */}
                   <Suspense fallback={null}>
                     {showControlPanelWidgets && (
                       <ControlPanelWidgets
@@ -1961,16 +1718,13 @@ const GlobalControlPanel: React.FC = () => {
                       />
                     )}
 
-                    {/* 音乐播放器：收起或非控制 Tab 时停频谱/歌词引擎，不刷进度 */}
                     <MusicPlayer
                       player={musicPlayer}
                       panelVisible={progressUiVisible}
                     />
                   </Suspense>
 
-                  {/* 控制项网格 - 一行两个 */}
                   <div className="control-items-grid">
-                    {/* 主题切换 - 循环：浅色 → 深色 → 自动；图标始终反映当前实际外观 */}
                     <div className="control-item control-item-compact">
                       <div className="control-item-info">
                         <div className="control-item-icon icon-theme">
@@ -2017,7 +1771,6 @@ const GlobalControlPanel: React.FC = () => {
                       </button>
                     </div>
 
-                    {/* 动效等级切换 */}
                     <div className="control-item control-item-compact">
                       <div className="control-item-info">
                         <div
@@ -2056,7 +1809,6 @@ const GlobalControlPanel: React.FC = () => {
                       </button>
                     </div>
 
-                    {/* 语言切换 */}
                     <div className="control-item control-item-compact">
                       <div className="control-item-info">
                         <div className="control-item-icon icon-language">
@@ -2070,49 +1822,35 @@ const GlobalControlPanel: React.FC = () => {
                             {t.controlPanel.language}
                           </h4>
                           <p className="control-item-desc">
-                            {locale === 'zh-CN'
-                              ? '简体中文'
-                              : locale === 'ja-JP'
-                                ? '日本語'
-                                : 'English'}
+                            {hostLanguageName(locale, t.controlPanel)}
                           </p>
                         </div>
                       </div>
                       <button
                         onClick={() => {
-                          // 循环切换语言列表
-                          const locales = ['zh-CN', 'en-US', 'ja-JP'] as const
-                          const currentIndex = locales.indexOf(locale)
-                          const nextIndex = (currentIndex + 1) % locales.length
-                          setLocale(locales[nextIndex])
+                          const currentIndex = LOCALES.indexOf(locale)
+                          const nextIndex = (currentIndex + 1) % LOCALES.length
+                          setLocale(LOCALES[nextIndex])
                         }}
                         onWheel={(e) => {
                           e.preventDefault()
-                          const locales = ['zh-CN', 'en-US', 'ja-JP'] as const
-                          const currentIndex = locales.indexOf(locale)
-                          // 向下滚动 = 下一个，向上滚动 = 上一个
+                          const currentIndex = LOCALES.indexOf(locale)
                           const nextIndex =
                             e.deltaY > 0
-                              ? (currentIndex + 1) % locales.length
-                              : (currentIndex - 1 + locales.length) %
-                                locales.length
-                          setLocale(locales[nextIndex])
+                              ? (currentIndex + 1) % LOCALES.length
+                              : (currentIndex - 1 + LOCALES.length) %
+                                LOCALES.length
+                          setLocale(LOCALES[nextIndex])
                         }}
                         className="language-switch-btn"
                         aria-label={t.controlPanel.languageSwitch}
                       >
                         <span className="language-code">
-                          {locale === 'zh-CN'
-                            ? '中'
-                            : locale === 'ja-JP'
-                              ? '日'
-                              : 'En'}
+                          {hostLanguageShort(locale, t.controlPanel)}
                         </span>
                       </button>
                     </div>
 
-                    {/* 壁纸切换 - 仅在非单一图片链接时显示 */}
-                    {/* Debug: canRefreshWallpaper = {String(canRefreshWallpaper)} */}
                     {canRefreshWallpaper && (
                       <div className="control-item control-item-compact">
                         <div className="control-item-info">
@@ -2153,7 +1891,6 @@ const GlobalControlPanel: React.FC = () => {
                       </div>
                     )}
 
-                    {/* 系统配置 - 仅管理员可见 */}
                     {user?.is_admin && (
                       <div className="control-item control-item-compact">
                         <div className="control-item-info">
@@ -2196,10 +1933,7 @@ const GlobalControlPanel: React.FC = () => {
                   </div>
                 </div>
 
-                {/* 通知覆盖层：inset:0 跟随控制面板高度，列表内部滚动。
-                    首次进入通知页后保持挂载：tab 往返是同一表面上的交叉淡入，
-                    而不是「立即卸载 + 条件挂载」的硬切；收起到 collapsed 时随
-                    状态机复位一起卸载，回收列表资源 */}
+                {/* 通知层 inset:0 跟高；首次进入后保持挂载，tab 往返交叉淡入；收起才卸载。 */}
                 {mountsNotifications(panel) && (
                   <div
                     className={`notif-overlay ${panelTab === 'notifications' ? 'active' : ''}`}
@@ -2223,7 +1957,6 @@ const GlobalControlPanel: React.FC = () => {
         </div>
       </div>
 
-      {/* 透明点击层：无视觉遮罩，点空白收起 */}
       <div
         className={[
           'control-panel-overlay',

@@ -1,8 +1,3 @@
-/**
- * Run from frontend/:
- *   pnpm test:unit -- src/utils/deepEqual.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { deepEqual } from './deepEqual.ts'

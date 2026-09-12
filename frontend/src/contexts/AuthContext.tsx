@@ -1,8 +1,3 @@
-/**
- * 认证上下文
- * 统一管理用户登录状态，避免重复的认证请求
- */
-
 import type { ReactNode } from 'react'
 
 import {
@@ -15,15 +10,17 @@ import {
   useState,
 } from 'react'
 import { API_URL } from '../config'
+import { isLocale } from '../i18n'
 import { isAuthMeHttpOk, parseAuthMeResponse } from '../utils/authMe'
 import { setKnownAuthState } from '../utils/authState'
+import { authSubject, authSubjectKey } from '../utils/authSubject'
+import { brewSubject, brewSubjectKey } from '../utils/brewSubject'
 import {
   clearSessionHint,
   hasSessionHint,
   setSessionHint,
 } from '../utils/sessionDetection'
 
-/** Linked OAuth/OIDC identity from /api/auth/me or /api/auth/identities */
 export interface AuthIdentity {
   id: number
   provider: string
@@ -37,7 +34,7 @@ export interface User {
   username: string
   display_name?: string
   is_admin: boolean
-  /** Durable site owner (was: heuristic id === 1). */
+  /** Durable site owner. */
   is_owner?: boolean
   auth_provider?: string
   linked_github_id?: string
@@ -45,10 +42,10 @@ export interface User {
   avatar_url?: string
   bio?: string
   has_password?: boolean
-  /** ISO-8601 last successful login (from /api/auth/me) */
   last_login_at?: string | null
-  /** Linked OAuth providers (GitHub + generic OIDC slugs) */
   identities?: AuthIdentity[]
+  /** Account UI language; null if never set. */
+  locale?: import('../i18n').Locale | null
 }
 
 interface AuthContextType {
@@ -57,7 +54,7 @@ interface AuthContextType {
   user: User | null
   isLoading: boolean
   hasChecked: boolean
-  /** Probe session; resolves true when authenticated after this probe. */
+  /** Probe session; true if authenticated after this probe. */
   checkAuth: () => Promise<boolean>
   logout: () => void
 }
@@ -68,18 +65,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [user, setUser] = useState<User | null>(null)
-  const [isLoading, setIsLoading] = useState(false) // 初始不加载
-  const [hasChecked, setHasChecked] = useState(false) // 是否已检查过
+  const [isLoading, setIsLoading] = useState(false)
+  const [hasChecked, setHasChecked] = useState(false)
 
-  // tapp runtime 动态加载：Auth 上下文是全站首屏必经之路，静态 import 会把
-  // runtime/调度器拖进每个页面的关键路径。身份切换是低频操作，多付一次
-  // chunk 加载换取首屏不含 runtime。
-  //
-  // 必须 await 后再拉新身份：reset 会 destroy 所有 TappRuntimeGrant，而
-  // destroy 是不可逆的（getToken 之后永远抛 'Tapp runtime has already
-  // stopped'）。若 reset 落在新会话之后，刚挂载的 tapp 会被打成 guest——
-  // 宿主 user.getRole / context.getUser 都吞掉该异常并回落 guest，
-  // 表现为联邦客户端加载不出用户信息。
+  // Dynamic-import tapp runtime (Auth is on the first-paint path).
+  // Await reset before the new identity: destroyAll is irreversible; reset after
+  // a new session would leave sandboxes guest (host APIs swallow the error).
   const resetTappSubjectState = useCallback(async () => {
     const [{ TappScheduler }, { TappRuntimeGrant }, { TappRuntime }] =
       await Promise.all([
@@ -92,8 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     TappRuntime.reset()
   }, [])
 
-  // Serialize concurrent checkAuth: wait for in-flight, then always re-probe
-  // (login right after mount check must not no-op on a stale shared result).
+  // Wait for in-flight checkAuth, then always re-probe (login after mount must not reuse a stale result).
   const checkAuthInflight = useRef<Promise<boolean> | null>(null)
   /** Monotonic generation so a stale probe cannot clear a fresher login hint. */
   const checkAuthGeneration = useRef(0)
@@ -103,7 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         await checkAuthInflight.current
       } catch {
-        // previous attempt failed; still run a fresh probe
+        // Failed probe; still run a fresh one.
       }
     }
 
@@ -117,16 +107,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           signal: AbortSignal.timeout(5000),
         })
 
-        // Superseded by a newer checkAuth (e.g. login right after mount probe)
         if (generation !== checkAuthGeneration.current) return false
 
-        // Durable contract: guest/expired session → HTTP 200 + authenticated:false
-        // (never 401). Parse body; do not treat status alone as "logged in".
+        // Guest/expired → HTTP 200 + authenticated:false (never 401). Do not treat status alone as logged in.
         if (isAuthMeHttpOk(response.status)) {
           const parsed = parseAuthMeResponse(await response.json())
           if (generation !== checkAuthGeneration.current) return false
           if (parsed.authenticated) {
             const u = parsed.user
+            authSubject.change(authSubjectKey(u))
+            brewSubject.change(brewSubjectKey(u))
             setSessionHint()
             const rawIdentities = (u as { identities?: unknown }).identities
             const identities = Array.isArray(rawIdentities)
@@ -163,14 +153,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               last_login_at:
                 typeof u.last_login_at === 'string' ? u.last_login_at : null,
               identities,
+              locale: isLocale(u.locale) ? u.locale : null,
             })
             setIsAuthenticated(true)
             setIsAdmin(u.is_admin || false)
             setKnownAuthState(true)
             return true
           }
-          // Definitive guest body — only then drop the session hint
+          // Drop the session hint only on a definitive guest body.
           clearSessionHint()
+          authSubject.change('guest')
+          brewSubject.change('guest')
           setUser(null)
           setIsAuthenticated(false)
           setIsAdmin(false)
@@ -178,24 +171,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return false
         }
 
-        // 5xx / unexpected: keep session hint so a post-login probe can recover
         if (response.status === 401 || response.status === 403) {
+          authSubject.change('guest')
+          brewSubject.change('guest')
           clearSessionHint()
           setUser(null)
           setIsAuthenticated(false)
           setIsAdmin(false)
           setKnownAuthState(false)
         }
-        // 5xx: unauthenticated for this probe (hint may remain for later recover)
-        // 认证状态保持「未知」——5xx 不是「确定是访客」，不能让沙箱据此拦请求
+        // 5xx is not a definitive guest; do not let the sandbox block on it. Hint may remain.
         return false
-      } catch (_error) {
-        // Network/timeout: keep session hint, but do not claim authenticated.
+      } catch {
+        // Network/timeout: keep the session hint; do not claim authenticated.
         if (generation !== checkAuthGeneration.current) return false
+        authSubject.change('unknown')
+        brewSubject.change('unknown', false)
         setUser(null)
         setIsAuthenticated(false)
         setIsAdmin(false)
-        // 同上：网络失败只是「这次没探到」，不写入 knownAuthState
+        // Missed probe; do not write knownAuthState.
         return false
       } finally {
         if (generation === checkAuthGeneration.current) {
@@ -212,38 +207,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const logout = useCallback(() => {
-    // 登出不必等待：清空身份后没有新 tapp 会以已登录状态挂载，且这里的 reset
-    // 与随后可能的登录 reset 共享同一份 import 缓存，解析顺序即调用顺序。
+    checkAuthGeneration.current++
+    authSubject.change('guest', true)
+    brewSubject.change('guest', true, true)
+    setIsLoading(false)
+    // Logout need not await; this reset and a later login share the import cache.
     void resetTappSubjectState()
     setUser(null)
     setIsAuthenticated(false)
     setIsAdmin(false)
     setKnownAuthState(false)
-    // 清除会话提示标志
     clearSessionHint()
   }, [resetTappSubjectState])
 
-  // 页面加载时检查认证状态，包括：
-  // 1. OAuth 回调（auth=success 或 link=success）— 始终探测
-  // 2. 有 session hint 时恢复登录（Cookie 持久化）
-  // 3. 纯游客（无 hint）可跳过探测（optimization only）
-  //
-  // Backend safety net: /api/auth/me returns 200 + authenticated:false for guests,
-  // so stale hints / new callers no longer paint Network 401 red.
-  // link=* query params are cleaned by useAuthUrlFeedback (toasts need them first).
+  // Probe on OAuth callback or session hint; skip for a hintless guest.
+  // /api/auth/me is 200 + authenticated:false for guests (never 401).
+  // link=* is cleaned by useAuthUrlFeedback after toasts.
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search)
     const authSuccess = urlParams.get('auth') === 'success'
     const linkSuccess = urlParams.get('link') === 'success'
 
     if (authSuccess || linkSuccess) {
-      // OAuth 登录/绑定成功，立即检查认证状态
-      console.debug('[AuthContext] OAuth callback detected, checking auth...')
       void checkAuth()
 
-      // Strip only auth=success; leave link=* for the feedback toast hook
+      // Strip only auth=success; leave link=* for the feedback toast hook.
       if (authSuccess) {
-        // Product event: OAuth login completed (staff excluded by client+server)
         void import('../utils/analyticsEvents').then(
           ({ trackProductEvent, AnalyticsEvents }) => {
             trackProductEvent(AnalyticsEvents.LOGIN_OAUTH_SUCCESS, {
@@ -257,34 +246,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         window.history.replaceState({}, '', next ? `${path}?${next}` : path)
       }
     } else if (hasSessionHint()) {
-      // May have a session (or a stale hint) — probe is safe (200 guest body).
+      // Probe is safe (200 guest body) even if the hint is stale.
       console.debug('[AuthContext] Session hint present, checking auth...')
       void checkAuth()
     } else {
-      // Optimization: pure guest without hint skips the network probe.
-      // Any other caller that still hits /api/auth/me gets 200 guest body.
       console.debug('[AuthContext] No session hint — guest, skip auth probe')
       setUser(null)
       setIsAuthenticated(false)
       setIsAdmin(false)
       setIsLoading(false)
       setHasChecked(true)
-      // 整个宿主已经按访客渲染了，沙箱侧同样按访客处理才自洽。
-      // 极端情况（localStorage 被清但 Cookie 仍有效）下这里会偏保守，
-      // 但那种情况宿主本来也显示未登录；后续任何一次 checkAuth 成功都会翻正。
+      // Host already rendered as guest; sandbox must match. A later checkAuth can flip this.
       setKnownAuthState(false)
     }
   }, [])
 
-  // 监听全局认证状态变化事件（由 LoginForm、api.ts、UserSection 触发）
   useEffect(() => {
     const handleAuthChange = (e: Event) => {
       const isAuth = (e as CustomEvent).detail?.isAuthenticated ?? false
       if (isAuth) {
-        // 1) destroyAll old grants (irreversible)
-        // 2) refresh session identity
-        // 3) tell open sandboxes to remount AFTER grants are cleared and
-        // user is known — otherwise Aro keeps a dead grant and stays guest.
+        authSubject.change('changing', true)
+        brewSubject.change('changing', false, true)
+        // Remount sandboxes only after destroyAll and a known user, or Aro keeps a dead grant.
         void (async () => {
           try {
             await resetTappSubjectState()
@@ -315,7 +298,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('auth-state-changed', handleAuthChange)
   }, [checkAuth, logout, resetTappSubjectState])
 
-  // 使用 useMemo 缓存 context value，避免不必要的重渲染
   const value = useMemo(
     () => ({
       isAuthenticated,

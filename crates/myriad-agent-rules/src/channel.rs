@@ -622,21 +622,14 @@ pub fn ensure_pending_id(prompt: &mut PendingPrompt) {
 }
 
 fn pending_id_from_parts(kind: &PendingKind, question: &str) -> String {
-    let seed = match kind {
-        PendingKind::Confirm { confirmation_id } => confirmation_id.as_str(),
+    let seed: std::borrow::Cow<'_, str> = match kind {
+        PendingKind::Confirm { confirmation_id } => confirmation_id.as_str().into(),
         PendingKind::Answer {
             task_id,
             question_id,
             ..
-        } => {
-            return pending_id_from_parts(
-                &PendingKind::Confirm {
-                    confirmation_id: format!("{task_id}:{question_id}"),
-                },
-                question,
-            )
-        }
-        PendingKind::Clarify { original_input } => original_input.as_str(),
+        } => format!("{task_id}:{question_id}").into(),
+        PendingKind::Clarify { original_input } => original_input.as_str().into(),
     };
     let mut n: u32 = 0x811c_9dc5;
     for byte in seed.bytes().chain(question.bytes()) {

@@ -1,8 +1,10 @@
+import type { TouchReaction } from '../interaction/touchReaction'
 import type { BehaviorPlan, BehaviorRealizerReport } from '../motion/behavior'
 import type { BehaviorRealizerContext } from '../motion/behaviorRealizerRegistry'
 import type { SpeechGesture } from '../speech/phraseGestures'
 import type { Anime25DMotionUnit } from './behaviorMotion'
 import type { CueIntent } from './performanceCueDefinitions'
+import { TOUCH_REACTIONS } from '../interaction/touchReaction'
 import { BehaviorRealizerRegistry } from '../motion/behaviorRealizerRegistry'
 import { PERFORMANCE_CUE_INTENTS } from '../performanceContract'
 import { isMusicMode } from '../singing/musicSignal'
@@ -14,11 +16,6 @@ export interface Anime25DBehaviorRealization {
   reports: readonly BehaviorRealizerReport[]
 }
 
-/**
- * Every family realizes into the same motion unit. A behavior carries a form
- * and a resolved lifecycle; nothing downstream reconstructs the director's
- * wire shape to find out what to draw.
- */
 const registry = new BehaviorRealizerRegistry<Anime25DMotionUnit>().register(
   'performance-cue',
   (behavior, context) => {
@@ -71,6 +68,22 @@ registry.register('music', (behavior, context) => {
     kind: behavior.kind,
     timing,
     intensity: clamp(behavior.intensity, 0.2, 1.4),
+    quality: completeBehaviorQuality(behavior.quality),
+  }
+})
+
+registry.register('touch', (behavior, context) => {
+  if (!TOUCH_REACTIONS.includes(behavior.form.id as TouchReaction)) return null
+  const timing = realizedUnitTiming(behavior.timing, context)
+  if (!timing) return null
+  const value = (key: string) => {
+    const raw = behavior.form.parameters?.[key]
+    return typeof raw === 'number' && Number.isFinite(raw) ? clamp(raw, -1, 1) : 0
+  }
+  return {
+    behaviorId: behavior.id, family: 'touch', form: behavior.form.id,
+    touch: { x: value('x'), y: value('y'), strokeX: value('strokeX'), strokeY: value('strokeY'), caress: Math.max(0, value('caress')) },
+    kind: behavior.kind, timing, intensity: clamp(behavior.intensity, 0.2, 1.4),
     quality: completeBehaviorQuality(behavior.quality),
   }
 })

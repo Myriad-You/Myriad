@@ -38,7 +38,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(db: DatabaseConnection, config: AppConfig, dynamic_config: DynamicConfig) -> Self {
-        // Isolated slot for unit tests that build AppState without process wiring.
+        // Private slot; production uses `from_shared` (process registry Arc).
         Self {
             db_slot: Arc::new(RwLock::new(Some(db))),
             config: Arc::new(TokioRwLock::new(config)),
@@ -89,7 +89,7 @@ impl FromRef<AppState> for Arc<TokioRwLock<DynamicConfig>> {
 /// Process-shared dynamic config Arc (same handle as [`AppState::dynamic_config`]
 /// after [`AppState::from_shared`]).
 ///
-/// **HTTP handlers (full mode):** use `State<Arc<RwLock<DynamicConfig>>>` /
+/// **HTTP handlers (full mode):** use `State<Arc<tokio::sync::RwLock<DynamicConfig>>>` /
 /// `AppState` and write with `*dynamic_config.write().await = …`. Do not call
 /// these helpers from request paths.
 ///
@@ -115,8 +115,7 @@ mod tests {
     #[test]
     fn from_shared_uses_process_registry_slot() {
         let process_slot = tapp_registry::shared_database_slot();
-        // Cannot open a real pool here; only prove Arc identity after from_shared
-        // would assign the same slot (constructor always returns process Arc).
+        // No live pool: source-grep that `from_shared` binds `shared_database_slot()`.
         let config = Arc::new(TokioRwLock::new(AppConfig::default()));
         let dynamic = Arc::new(TokioRwLock::new(DynamicConfig::default()));
         // from_shared needs a DatabaseConnection — skip live call; assert API:
@@ -137,8 +136,9 @@ mod tests {
     #[test]
     fn extract_db_and_process_slot_documented_as_same_handle() {
         let state_src = include_str!("state.rs");
-        assert!(state_src.contains("Same Arc as process registry"));
+        assert!(state_src.contains("pub db_slot:"));
+        assert!(state_src.contains("tapp_registry::shared_database_slot()"));
         let reg = include_str!("services/tapp_registry.rs");
-        assert!(reg.contains("no dual-pool fork") || reg.contains("shared_database_slot"));
+        assert!(reg.contains("pub fn shared_database_slot()"));
     }
 }

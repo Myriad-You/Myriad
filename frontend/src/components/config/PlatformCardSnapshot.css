@@ -1,7 +1,3 @@
-/**
- * 入口卡概览：固定约 2 行（用户名 / 指标）
- * 入口卡不响应「显示说明」页级开关
- */
 
 .platform-card-snapshot {
   display: flex;
@@ -57,7 +53,6 @@ html.dark .platform-card-snapshot-level {
 }
 
 
-/* 数据行：默认单行；溢出时 .is-marquee 无缝循环滚动 */
 .platform-card-snapshot-metrics {
   --metrics-marquee-duration: 12s;
 
@@ -94,7 +89,6 @@ html.dark .platform-card-snapshot-level {
   white-space: nowrap;
 }
 
-/* 两段内容之间的间隔，循环时更自然 */
 .platform-card-snapshot-metrics.is-marquee
   .platform-card-snapshot-metrics-group {
   padding-right: 1.75rem;
@@ -167,7 +161,6 @@ html.dark .platform-card-snapshot-metric-value {
   color: var(--cfg-text-3, #9ca3af);
 }
 
-/* 无概览：垂直居中；有概览：贴顶 */
 .platform-card:not(:has(.platform-card-snapshot)) .platform-header {
   align-items: center;
 }

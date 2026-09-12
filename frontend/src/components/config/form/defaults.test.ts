@@ -1,11 +1,4 @@
-/**
- * Reset defaults must match the product default delegation:
- * `component:theme` and `shortcut:register` are default-delegated to ordinary
- * users; guests and every other elevated capability stay closed.
- *
- * This drives the permissions-page reset request (granted-permission
- * delegation only — declared and approved permissions are unaffected).
- */
+/** reset must match default delegation: theme+shortcut for users; guests closed */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 

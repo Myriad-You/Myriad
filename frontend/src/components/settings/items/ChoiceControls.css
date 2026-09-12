@@ -1,10 +1,3 @@
-/**
- * SegmentedControl — unified choice track (settings surfaces).
- * Single + multi select share the same inset rail + raised thumb look.
- */
-
-/* —— Shared option bits —— */
-
 .choice-option-icon {
   display: inline-flex;
   align-items: center;
@@ -29,7 +22,6 @@
   line-height: 1.25;
 }
 
-/* 计数徽章跟字色，不跟壁纸强调色（强调色只用于 focus 等交互态） */
 .choice-segmented-item.is-selected .choice-option-count {
   background: color-mix(in srgb, var(--cfg-text-1) 8%, transparent);
   color: var(--cfg-text-2);
@@ -40,9 +32,7 @@ html.dark .choice-option-count {
   background: rgb(255 255 255 / 10%);
 }
 
-/* —— Track (inset rail + raised thumb) —— */
 
-/* 分段选择轨道：内层 → 微透（中性，无 slate 蓝灰） */
 .choice-segmented {
   display: grid;
   gap: 0.15rem;
@@ -58,13 +48,11 @@ html.dark .choice-option-count {
   isolation: isolate;
 }
 
-/* 等分网格：默认吃满父级宽度，列宽由 --choice-cols 控制 */
 .choice-segmented.is-grid {
   width: 100%;
   grid-template-columns: repeat(var(--choice-cols, 2), minmax(0, 1fr));
 }
 
-/* 自适应 flex：内容驱动宽度；窄屏见下方 media 拉满 */
 .choice-segmented.is-flex {
   display: inline-flex;
   flex-wrap: wrap;
@@ -96,7 +84,7 @@ html.dark .choice-segmented {
   box-sizing: border-box;
   max-width: 100%;
   min-width: 0;
-  overflow: hidden; /* 选中态边框/阴影内裁切，文案不溢出格 */
+  overflow: hidden;
   border: 1px solid transparent;
   border-radius: 0.5rem;
   background: transparent;
@@ -115,7 +103,7 @@ html.dark .choice-segmented {
     transform var(--sm-dur-fast) var(--sm-ease-standard);
 }
 
-/* 网格项铺满单元格，避免 max-content 把整轨撑成窄条 */
+/* fill cell; max-content must not shrink track */
 .choice-segmented.is-grid .choice-segmented-item {
   width: 100%;
   min-width: 0;
@@ -129,7 +117,6 @@ html.dark .choice-segmented {
   white-space: nowrap;
 }
 
-/* 选中抬起态同样受格约束，不因 border/shadow 把文案顶出去 */
 .choice-segmented.is-grid .choice-segmented-item.is-selected {
   max-width: 100%;
   min-width: 0;
@@ -149,7 +136,6 @@ html.dark .choice-segmented-item:hover:not(:disabled, .is-selected) {
   background: rgb(255 255 255 / 6%);
 }
 
-/* Raised selected thumb */
 .choice-segmented-item.is-selected {
   z-index: 1;
   color: var(--cfg-text-1);
@@ -161,7 +147,7 @@ html.dark .choice-segmented-item:hover:not(:disabled, .is-selected) {
     inset 0 1px 0 rgb(255 255 255 / 90%);
 }
 
-/* 选中文案用中性主色，不混壁纸 --cfg-accent（否则随壁纸变色） */
+/* selected text: neutral; not --cfg-accent */
 .choice-segmented-item.is-selected .choice-option-label {
   color: var(--cfg-text-1);
 }
@@ -262,12 +248,7 @@ html.dark .choice-segmented-item.is-selected:focus-visible {
   height: 1rem;
 }
 
-/*
- * 与设置页移动分层同断点（<1024）：
- * - 网格已默认 100% + 1fr；≥3 列压成 2 列等分
- * - 格内允许换行（最多 2 行），避免 nowrap 把长文案全部溢出
- * - flex 轨拉满均分（ManagedList 筛选条除外）
- */
+/* <1024: match settings mobile split */
 @media (width < 1024px) {
   .choice-segmented.is-grid {
     grid-template-columns: repeat(
@@ -287,7 +268,7 @@ html.dark .choice-segmented-item.is-selected:focus-visible {
   }
 
   .choice-segmented.is-grid .choice-segmented-item.is-selected {
-    /* 选中边框计入盒模型，内边距略收，避免再挤爆 */
+    /* selected border in box; slightly tighter padding */
     padding: 0.35rem 0.3rem;
   }
 
@@ -305,7 +286,6 @@ html.dark .choice-segmented-item.is-selected:focus-visible {
   }
 
   .choice-segmented.is-grid .choice-option-icon {
-    /* 有图标时与文字竖排，少抢横向 */
     flex-shrink: 0;
   }
 

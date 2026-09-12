@@ -1,8 +1,3 @@
-/**
- * Home free-layout sticker generation.
- * Stickers are layout tiles, not catalog widgets.
- */
-
 import { API_URL } from '../config'
 import { currentCopy } from '../i18n/localeCopy'
 import { fetchJson } from './apiHelper'
@@ -27,7 +22,7 @@ export interface GeneratedHomeSticker {
 
 export const HOME_STICKER_MAX_REFERENCES = 4
 const MAX_PROMPT_CHARS = 2_000
-/** Keep in sync with MEROPE_PROXY_TIMEOUT_MS / get_long_running_client. */
+/** Keep in sync with MEROPE_PROXY_TIMEOUT_MS. */
 const STICKER_REQUEST_TIMEOUT_MS = 15 * 60 * 1000
 
 export function normalizeHomeStickerPrompt(raw: string): string {

@@ -1,8 +1,3 @@
-/**
- * Pure widget content scale math (no React / DOM).
- * Aligned with viewportBands phone / tablet / desktop.
- */
-
 import type { ViewportBand } from './viewportBands'
 
 export type WidgetSizeKey =
@@ -18,7 +13,6 @@ export type WidgetSizeKey =
   | '4x2'
   | '4x4'
 
-/** Extra home-sticker tiles (not catalog widget sizes). */
 export type StickerExtraSizeKey =
   | '4x3'
   | '8x6'
@@ -29,16 +23,11 @@ export type StickerExtraSizeKey =
   | '14x8'
   | '4x7'
 
-/** Desktop 16-col design cell (library previews). */
 export const STANDARD_CELL_SIZE = 80
 
-/**
- * WidgetGridItem wraps placed tiles in Tailwind `p-1` (4px × 2).
- * Home dock previews omit that wrapper, so they look a bit large unless
- * this inset is applied on top of the live cell / design-cell ratio.
- */
+/** Dock previews omit p-1; apply this inset. */
 export const GRID_WIDGET_PAD_PX = 4
-/** 2×2 is the common catalog tile; 8 / 160. */
+/** 8 / 160 */
 export const LIBRARY_DOCK_PREVIEW_INSET_SCALE =
   1 - (GRID_WIDGET_PAD_PX * 2) / (2 * STANDARD_CELL_SIZE)
 
@@ -47,10 +36,7 @@ export function libraryDockPreviewDisplayScale(cellSize: number): number {
   return (cell / STANDARD_CELL_SIZE) * LIBRARY_DOCK_PREVIEW_INSET_SCALE
 }
 
-/**
- * Resting cell size (px) per viewport band so scale≈1 on a typical layout.
- * Must stay in sync with home grid column bands (viewportBands).
- */
+/** Keep in sync with viewportBands. */
 export const STANDARD_CELL_BY_BAND: Record<ViewportBand, number> = {
   desktop: 80,
   tablet: 112,

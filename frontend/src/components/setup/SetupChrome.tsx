@@ -1,10 +1,3 @@
-/**
- * 初始化向导的外壳原语 —— 设定引导也用同一套排版。
- *
- * 顶栏（返回 + 步骤位置）→ 标题区（标题 / 副标题 / 提示）→ 正文 → 右下悬浮动作。
- * 没有进度条：你在哪一步全靠顶栏右侧那一行文字交代。
- */
-
 import type {
   ComponentType,
   InputHTMLAttributes,
@@ -25,7 +18,6 @@ import { useEffect } from 'react'
 
 type Glyph = ComponentType<SVGProps<SVGSVGElement>>
 
-/** 玻璃背后的漂移光斑：backdrop-filter 需要可折射的内容才显得出玻璃。 */
 export function Aurora() {
   return (
     <div className="setup-ob__aurora" aria-hidden>
@@ -35,15 +27,9 @@ export function Aurora() {
   )
 }
 
-/**
- * 顶栏色层浓度：随正文滚动 0→1（smoothstep）。
- * 写在卡片根上的 --sob-top-dense，CSS 用它混合顶栏 tint，
- * 让内容滚到顶栏底下时不会和步骤文字糊在一起。
- */
 export function useTopBarDense(
   cardRef: RefObject<HTMLElement | null>,
   scrollerRef: RefObject<HTMLElement | null>,
-  /** 换步时重新绑定滚动容器 */
   key: string,
 ): void {
   useEffect(() => {
@@ -70,10 +56,6 @@ export function useTopBarDense(
   }, [cardRef, scrollerRef, key])
 }
 
-/**
- * 顶部条：左边「返回上一步」，右边一行淡淡的当前步骤名与位置。
- * 状态页（读取中 / 已完成）不传 stepName，右侧那行就整条不画。
- */
 export function StepTopBar({
   back,
   stepName,
@@ -108,19 +90,13 @@ export function StepTopBar({
   )
 }
 
-/**
- * 左上角返回：只有圆底箭头可点，旁挂上一页名称（只展示、不吃点击）。
- * 完整「返回 xxx」写在按钮的 aria-label / title 上。
- */
 export function BackButton({
   label,
   destination,
   disabled,
   onClick,
 }: {
-  /** 读屏 / tooltip 用的完整返回文案，例如「返回 欢迎」 */
   label: string
-  /** 按钮旁可见的上一页名称，例如「欢迎」 */
   destination: string
   disabled?: boolean
   onClick: () => void
@@ -144,11 +120,6 @@ export function BackButton({
   )
 }
 
-/**
- * 无处可返回的那几步（首屏 / 终态）的左上角占位：
- * 与返回按钮同一副骨架——圆底图标 + 旁挂文字，只是图标换成齿轮且不吃点击。
- * 这样换步时左上角的重心不会跳。
- */
 export function BrandMark({
   label,
   icon: Icon = LuSettings,
@@ -166,7 +137,6 @@ export function BrandMark({
   )
 }
 
-/** 没有可返回的地方时，用同款药丸标签占住左上角。 */
 export function BrandTag({
   label,
   showLogo = true,
@@ -182,10 +152,6 @@ export function BrandTag({
   )
 }
 
-/**
- * 每一步统一的标题区：（可选眉标 →）标题 → 副标题(lead) → 可选 notes。
- * notes 只放操作提示与阶段性状态；字段旁的小字 hint 仍挂在 Field 上。
- */
 export function StepHero({
   eyebrow,
   title,
@@ -195,7 +161,6 @@ export function StepHero({
   notes,
 }: {
   eyebrow?: string
-  /** 大多数步骤是一句纯文本；完成屏用两行（问候 + 提示）时传 ReactNode */
   title: ReactNode
   lead: string
   titleId: string
@@ -215,16 +180,10 @@ export function StepHero({
   )
 }
 
-/** 步骤正文容器：控制间距与子块入场节奏。 */
 export function StepBody({ children }: { children: ReactNode }) {
   return <div className="setup-ob-body">{children}</div>
 }
 
-/** 底部操作条：只放向前的动作，返回已经在左上角。 */
-/**
- * split: 左边留一句轻提示，右边仍是浮起的主动作——
- * 目前只有欢迎屏用这个变体，配一句「通常只需几分钟」。
- */
 export function ActionBar({
   children,
   split = false,
@@ -239,10 +198,6 @@ export function ActionBar({
   )
 }
 
-/**
- * 主动作。进了 ActionBar 会收成右下角那颗浮起的圆钮（文案退给读屏与 tooltip），
- * 留在正文里则是一颗文案可见的药丸。
- */
 export function PrimaryButton({
   label,
   icon: Icon = LuArrowRight,
@@ -252,7 +207,7 @@ export function PrimaryButton({
   onClick,
 }: {
   label: string
-  /** 默认向前箭头；正文里的动作传 null 表示不要图标。 */
+  // 正文动作传 null 表示不要图标。
   icon?: Glyph | null
   busy?: boolean
   disabled?: boolean
@@ -278,7 +233,6 @@ export function PrimaryButton({
   )
 }
 
-/** 次要动作：同一层玻璃，但不吸主题色。 */
 export function GhostButton({
   label,
   icon: Icon,
@@ -311,7 +265,6 @@ export function GhostButton({
 
 export type NoteTone = 'info' | 'warn' | 'success' | 'error' | 'active'
 
-/** 一句提示。info = 顺带说明，warn = 需要你处理，error / success = 动作结果。 */
 export function Note({
   tone = 'info',
   children,
@@ -337,7 +290,6 @@ export function Note({
   )
 }
 
-/** 表单字段：一行标签 +（可选）「可选」徽标 + 控件 +（可选）小字说明。 */
 export function Field({
   label,
   hint,
@@ -350,7 +302,6 @@ export function Field({
   hint?: ReactNode
   optional?: boolean
   optionalLabel?: string
-  /** 在两列网格里独占整行 */
   wide?: boolean
   children: ReactNode
 }) {

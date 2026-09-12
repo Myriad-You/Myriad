@@ -12,7 +12,6 @@ export interface PerformanceLifecycleTarget {
   clearPerformanceDirective: () => void
 }
 
-/** Forwards bounded semantic plans to the mounted rig; text stays speech-owned. */
 export class PerformanceLifecycleController {
   private activeMessageId: string | null = null
   private activePlanKey: string | null = null
@@ -30,15 +29,12 @@ export class PerformanceLifecycleController {
       this.noteDrop(event, 'cancelled')
       return
     }
-    // The final HTTP response can omit the stream's run id, but still belongs
-    // to the same UI message. Keep content replay protection stable across it.
+    // Keep content replay protection stable across it.
     const scope = [
       event.generation ?? 0,
       event.source,
       event.messageId ?? event.runId ?? '',
     ]
-    // The event boundary has already sanitized the directive into a fixed
-    // shape. Cue count alone is not identity: refinements often keep it equal.
     const contentKey = JSON.stringify([...scope, 'content', event.performance])
     const intentKey = event.motionIntentId
       ? JSON.stringify([...scope, 'intent', event.motionIntentId])
@@ -64,9 +60,6 @@ export class PerformanceLifecycleController {
     }
     this.activeMessageId = event.messageId ?? null
     this.activePlanKey = planKey
-    // A final response or reconnect may assign a fresh transport intent id to
-    // the same message's plan. Remember accepted content as well as that id.
-    // Explicit preview/interaction intents may intentionally repeat a pose.
     if (rememberedKeys.length) {
       this.acceptedPlans.push(rememberedKeys)
       for (const key of rememberedKeys) this.acceptedPlanKeys.add(key)
@@ -78,9 +71,6 @@ export class PerformanceLifecycleController {
   }
 
   handleSpeech(event: MeropeSpeechEventDetail): void {
-    // Text completion does not release the plan or its ownership: TTS and
-    // body recovery may still be running. A later interruption must be able
-    // to clear that message's landing, without touching a newer message.
     if (event.phase !== 'cancel') return
     this.rememberCancellation(event.messageId)
     if (event.messageId !== this.activeMessageId) return

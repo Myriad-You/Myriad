@@ -5,7 +5,6 @@ export function useLibraryItemRotation(libraryItems: any[], showOverview: boolea
   const prevShowOverviewRef = useRef(showOverview)
 
   useEffect(() => {
-    // 当从概览模式切换到库项目模式时，更新索引
     if (
       prevShowOverviewRef.current &&
       !showOverview &&
@@ -34,9 +33,6 @@ export function useCountUp(value: number, duration = 800, delay = 0) {
       const p = Math.min(Math.max((now - start) / duration, 0), 1)
       const eased = 1 - (1 - p) ** 3
       const next = Math.round(value * eased)
-      // 只在整数显示值真的变了才 setState。delay 期间恒为 0，
-      // 大数值的尾段也常常连续多帧落在同一整数上——同一张 face 挂了
-      // 三个 useCountUp，省下的是三条逐帧重渲染。
       if (next !== last) {
         last = next
         setDisplay(next)

@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::RwLock;
 
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use once_cell::sync::Lazy;
 use serde_json::Value;
 
@@ -12,36 +12,105 @@ use crate::services::agent::types::UserRequest;
 
 use super::SelfLivePresence;
 
-static LIVE: Lazy<RwLock<HashMap<i32, SelfLivePresence>>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
+const MAX_LIVE_USERS: usize = 4096;
+const MAX_USER_PAGES: usize = 16;
+
+#[derive(Default)]
+struct LivePresenceStore {
+    users: HashMap<i32, HashMap<String, SelfLivePresence>>,
+}
+
+impl LivePresenceStore {
+    fn remember(&mut self, user_id: i32, live: SelfLivePresence, now: DateTime<Utc>) -> bool {
+        self.users.retain(|_, pages| {
+            pages.retain(|_, value| presence_is_fresh_at(value, now));
+            !pages.is_empty()
+        });
+        if user_id <= 0
+            || (!self.users.contains_key(&user_id) && self.users.len() >= MAX_LIVE_USERS)
+        {
+            return false;
+        }
+        let was_present = self.last(user_id, now).page_visible;
+        let pages = self.users.entry(user_id).or_default();
+        let key = live.instance_id.clone().unwrap_or_default();
+        if !pages.contains_key(&key) && pages.len() >= MAX_USER_PAGES {
+            // Prefer evicting an old hidden page, not the actively viewed one.
+            if let Some(oldest) = pages
+                .iter()
+                .min_by_key(|(id, value)| (value.page_visible, value.captured_at, *id))
+                .map(|(id, _)| id.clone())
+            {
+                pages.remove(&oldest);
+            }
+        }
+        pages.insert(key, live);
+        !was_present && self.last(user_id, now).page_visible
+    }
+
+    fn last(&self, user_id: i32, now: DateTime<Utc>) -> SelfLivePresence {
+        let Some(pages) = self.users.get(&user_id) else {
+            return SelfLivePresence::default();
+        };
+        let fresh: Vec<_> = pages
+            .iter()
+            .filter(|(_, live)| presence_is_fresh_at(live, now))
+            .collect();
+        // Select one coherent body/perception/music source. Never splice the rig
+        // of one outfit into another page's observations. Visible panel wins,
+        // then visible face, then recency; hidden updates cannot displace it.
+        let Some((_, selected)) = fresh.iter().max_by_key(|(id, live)| {
+            (
+                live.page_visible,
+                live.page_visible && live.panel_visible,
+                live.page_visible && live.face_visible,
+                live.captured_at,
+                *id,
+            )
+        }) else {
+            return SelfLivePresence::default();
+        };
+        let mut live = (*selected).clone();
+        live.page_visible = fresh.iter().any(|(_, value)| value.page_visible);
+        live.panel_visible = fresh
+            .iter()
+            .any(|(_, value)| value.page_visible && value.panel_visible);
+        live.face_visible = fresh
+            .iter()
+            .any(|(_, value)| value.page_visible && value.face_visible);
+        // Hidden audio still owns the mouth. Interruptibility is conservative.
+        live.speaking = fresh.iter().any(|(_, value)| value.speaking);
+        live.speech_interruptible = live.speaking
+            && fresh
+                .iter()
+                .filter(|(_, value)| value.speaking)
+                .all(|(_, value)| value.speech_interruptible);
+        age_perception(&mut live, now);
+        live
+    }
+}
+
+static LIVE: Lazy<RwLock<LivePresenceStore>> =
+    Lazy::new(|| RwLock::new(LivePresenceStore::default()));
 
 /// Returns true when the addressee moved from absent/expired to on-page.
 pub fn remember_live_presence(user_id: i32, live: SelfLivePresence) -> bool {
-    if user_id <= 0 {
-        return false;
-    }
-    let was_present = live_presence_is_on_page(user_id);
-    let now_present = live.page_visible;
-    if let Ok(mut map) = LIVE.write() {
-        map.insert(user_id, live);
-    }
-    !was_present && now_present
+    LIVE.write()
+        .map(|mut store| store.remember(user_id, live, Utc::now()))
+        .unwrap_or(false)
 }
 
 pub fn last_live_presence(user_id: i32) -> SelfLivePresence {
-    let mut live = LIVE
-        .read()
-        .ok()
-        .and_then(|map| map.get(&user_id).cloned())
-        .filter(presence_is_fresh)
-        .unwrap_or_default();
+    LIVE.read()
+        .map(|store| store.last(user_id, Utc::now()))
+        .unwrap_or_default()
+}
+
+fn age_perception(live: &mut SelfLivePresence, now: DateTime<Utc>) {
     // The page-presence lease is longer than individual observations. Age a
     // copy on read, never renew the stored TTL by repeatedly reading it.
     let elapsed = live.captured_at.map_or(0, |at| {
-        Utc::now()
-            .signed_duration_since(at)
-            .num_milliseconds()
-            .max(0)
+        now.signed_duration_since(at).num_milliseconds().max(0)
     });
     for item in &mut live.perception_payload {
         let remaining = item
@@ -57,8 +126,7 @@ pub fn last_live_presence(user_id: i32) -> SelfLivePresence {
             .and_then(Value::as_i64)
             .is_some_and(|ttl| ttl > 0)
     });
-    refresh_perception_text(&mut live);
-    live
+    refresh_perception_text(live);
 }
 
 fn refresh_perception_text(live: &mut SelfLivePresence) {
@@ -73,21 +141,17 @@ fn refresh_perception_text(live: &mut SelfLivePresence) {
         .collect();
 }
 
-pub fn live_presence_is_on_page(user_id: i32) -> bool {
-    last_live_presence(user_id).page_visible
-}
-
 /// Looking at her: on the page and the Agent panel is open.
 pub fn live_presence_panel_open(user_id: i32) -> bool {
     let live = last_live_presence(user_id);
     live.page_visible && live.panel_visible
 }
 
-fn presence_is_fresh(live: &SelfLivePresence) -> bool {
+fn presence_is_fresh_at(live: &SelfLivePresence, now: DateTime<Utc>) -> bool {
     let Some(captured_at) = live.captured_at else {
         return false;
     };
-    Utc::now().signed_duration_since(captured_at) <= Duration::seconds(PRESENCE_WINDOW_SECS)
+    now.signed_duration_since(captured_at) <= Duration::seconds(PRESENCE_WINDOW_SECS)
 }
 
 /// Whitelist for inbound presence JSON. Unknown keys are ignored; perception
@@ -101,6 +165,20 @@ pub fn live_presence_from_custom_data(data: &Value) -> SelfLivePresence {
 
 fn apply_whitelisted_presence(live: &mut SelfLivePresence, data: &Value) {
     if let Some(presence) = data.get("presence").and_then(Value::as_object) {
+        live.instance_id = presence
+            .get("instanceId")
+            .and_then(Value::as_str)
+            .filter(|id| {
+                !id.is_empty()
+                    && id.len() <= 64
+                    && id
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+            })
+            .map(str::to_owned);
+        if let Some(rig) = presence.get("rigState") {
+            live.rig_state = myriad_merope::sanitize_rig_state(rig);
+        }
         live.speaking = presence
             .get("speaking")
             .and_then(Value::as_bool)
@@ -264,6 +342,131 @@ mod tests {
     use super::*;
     use crate::services::agent::types::{RequestContext, UserRequest};
     use crate::services::agent::AgentInteractionMode;
+
+    fn page(id: &str, visible: bool, panel: bool, now: DateTime<Utc>) -> SelfLivePresence {
+        let mut live = live_presence_from_custom_data(&serde_json::json!({
+            "presence": { "instanceId": id, "pageVisible": visible,
+                "panelVisible": panel, "faceVisible": visible,
+                "rigState": { "expression": id, "capabilities": ["head-body"] } },
+            "perception": [{ "sourceId": "page", "kind": "page", "privacy": "consented",
+                "summary": id, "ttlMs": 60000 }]
+        }));
+        live.captured_at = Some(now);
+        live
+    }
+
+    #[test]
+    fn hidden_tab_cannot_replace_visible_body_or_page_and_revival_is_aggregated() {
+        let mut store = LivePresenceStore::default();
+        let now = Utc::now();
+        assert!(store.remember(1, page("front", true, true, now), now));
+        assert!(!store.remember(1, page("back", false, false, now), now));
+        let live = store.last(1, now + Duration::seconds(9));
+        assert!(live.page_visible && live.panel_visible && live.face_visible);
+        assert_eq!(live.instance_id.as_deref(), Some("front"));
+        assert_eq!(live.perception, vec!["front"]);
+        assert_eq!(live.perception_payload[0]["ttlMs"], 51000);
+        assert!(!store.remember(1, page("back", true, false, now), now));
+        assert!(!store.remember(1, page("front", false, true, now), now));
+        let live = store.last(1, now);
+        assert!(live.page_visible && !live.panel_visible);
+        assert_eq!(live.instance_id.as_deref(), Some("back"));
+        assert_eq!(live.perception, vec!["back"]);
+        assert!(!store.remember(1, page("back", false, false, now), now));
+        assert!(!store.last(1, now).page_visible);
+        assert!(store.remember(1, page("front", true, true, now), now));
+    }
+
+    #[test]
+    fn leases_expire_independently_and_reads_do_not_extend_observation_ttl() {
+        let mut store = LivePresenceStore::default();
+        let now = Utc::now();
+        store.remember(1, page("front", true, true, now), now);
+        let later = now + Duration::seconds(PRESENCE_WINDOW_SECS + 1);
+        store.remember(1, page("back", false, false, later), later);
+        assert!(!store.last(1, later).page_visible);
+        assert_eq!(store.users[&1].len(), 1);
+        assert!(store
+            .last(1, later + Duration::seconds(61))
+            .perception
+            .is_empty());
+        assert!(
+            !store
+                .last(1, later + Duration::seconds(PRESENCE_WINDOW_SECS + 1))
+                .speaking
+        );
+    }
+
+    #[test]
+    fn revocation_clears_the_selected_page_without_reusing_other_tabs_content() {
+        let mut store = LivePresenceStore::default();
+        let now = Utc::now();
+        store.remember(1, page("front", true, true, now), now);
+        store.remember(1, page("back", true, false, now), now);
+        let mut revoked = page("front", true, true, now);
+        revoked.perception_payload.clear();
+        revoked.rig_state = None;
+        store.remember(1, revoked, now);
+        assert!(store.last(1, now).perception.is_empty());
+        assert!(store.last(1, now).rig_state.is_none());
+        assert!(store.last(2, now).perception.is_empty());
+    }
+
+    #[test]
+    fn page_keys_are_bounded_and_not_exposed_to_the_decision_model() {
+        let now = Utc::now();
+        let mut store = LivePresenceStore::default();
+        for i in 0..100 {
+            store.remember(1, page(&format!("page-{i}"), false, false, now), now);
+        }
+        assert_eq!(store.users[&1].len(), MAX_USER_PAGES);
+        let live = page("page-key", true, true, now);
+        assert_eq!(live.instance_id.as_deref(), Some("page-key"));
+        assert!(serde_json::to_value(&live)
+            .unwrap()
+            .get("instanceId")
+            .is_none());
+        let invalid = live_presence_from_custom_data(&serde_json::json!({
+            "presence": { "instanceId": "x".repeat(65) }
+        }));
+        assert!(invalid.instance_id.is_none());
+    }
+
+    #[test]
+    fn inbound_replaces_chat_rig_with_current_sanitized_state() {
+        let old_rig = myriad_merope::sanitize_rig_state(&serde_json::json!({
+            "capabilities": ["head-body", "cry-eye"], "expression": "warm"
+        }))
+        .unwrap();
+        remember_live_presence(
+            906,
+            SelfLivePresence {
+                rig_state: Some(old_rig),
+                captured_at: Some(Utc::now()),
+                ..Default::default()
+            },
+        );
+        let inbound = live_presence_from_custom_data(&serde_json::json!({
+            "presence": { "pageVisible": true, "faceVisible": true,
+                "rigState": { "expression": "tense", "posture": "closed",
+                    "capabilities": ["head-body"], "driver": { "headX": 99 } }
+            }
+        }));
+        remember_live_presence(906, inbound);
+        let rig = last_live_presence(906).rig_state.unwrap();
+        assert_eq!(rig.expression, "tense");
+        assert_eq!(rig.posture, "closed");
+        assert_eq!(rig.capabilities, vec!["head-body"]);
+        assert!(!serde_json::to_string(&rig).unwrap().contains("driver"));
+        // A new report with no rig is not permission to keep a previous body's capabilities.
+        remember_live_presence(
+            906,
+            live_presence_from_custom_data(&serde_json::json!({
+                "presence": { "pageVisible": true, "faceVisible": false, "rigState": null }
+            })),
+        );
+        assert!(last_live_presence(906).rig_state.is_none());
+    }
 
     #[test]
     fn live_presence_does_not_invent_grants() {
@@ -489,7 +692,7 @@ mod tests {
             "presence": { "pageVisible": true }
         }));
         assert!(remember_live_presence(96, live.clone()));
-        assert!(live_presence_is_on_page(96));
+        assert!(last_live_presence(96).page_visible);
         assert!(!live_presence_panel_open(96));
         assert!(!remember_live_presence(96, live));
     }
@@ -500,13 +703,13 @@ mod tests {
             "presence": { "pageVisible": true, "panelVisible": true }
         }));
         remember_live_presence(97, on_page);
-        assert!(live_presence_is_on_page(97));
+        assert!(last_live_presence(97).page_visible);
         assert!(live_presence_panel_open(97));
         let page_only = live_presence_from_custom_data(&serde_json::json!({
             "presence": { "pageVisible": true, "panelVisible": false }
         }));
         remember_live_presence(97, page_only);
-        assert!(live_presence_is_on_page(97));
+        assert!(last_live_presence(97).page_visible);
         assert!(!live_presence_panel_open(97));
     }
 }

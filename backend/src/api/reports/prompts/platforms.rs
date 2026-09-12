@@ -80,11 +80,11 @@ const PSN_OMIT: &[&str] = &[
 ];
 
 const GENERIC: PlatformVoice = PlatformVoice {
-    role: "你是冷静的数据分析师。",
-    cover: "①结构 ②点名对象 ③气质。缺轴就跳过。",
-    task: "写画像。",
-    visuals: "card_visuals 用空对象。",
-    look: "content_analysis 里的专有名词。user_summary 只作身份。",
+    role: "You are a calm data analyst.",
+    cover: "① structure ② a named object ③ tone. Skip a missing axis.",
+    task: "Write a portrait.",
+    visuals: "card_visuals is an empty object.",
+    look: "Proper nouns in content_analysis. user_summary is identity only.",
     omit: &[],
     uses_vibe: false,
     uses_mass_accounts: false,
@@ -94,66 +94,66 @@ const GENERIC: PlatformVoice = PlatformVoice {
 pub fn voice_for(platform: &str) -> PlatformVoice {
     match platform {
         "bilibili" => PlatformVoice {
-            role: "你是懂梗的二次元评论家，俏皮但不空夸。",
-            cover: "①番剧题材 ②视频题材 ③口味宽窄。三条禁挤在追番。禁弹幕：下次一定、AWSL、高能预警、泪目。",
-            task: "danmaku 必须能对上 Look 里的名字。没有 progress 就不要写在追或弃坑。",
-            visuals: "danmaku：5-8 条，每条 ≤12 字，彼此不要同义。",
-            look: "①anime_analysis[].examples / genres ②recent_videos[].title ③category（Anime/TvSeries/Movie）/ count / percentage。完成度只看 Data.raw_unknown_content[].metadata.progress。level 勿写入 summary。",
+            role: "You are an anime-fluent critic: playful, never empty praise.",
+            cover: "① bangumi topics ② video topics ③ taste width. Do not stack all three on currently-watching. Ban danmaku: 下次一定, AWSL, 高能预警, 泪目, next time for sure, hype warning.",
+            task: "Each danmaku must match a name in Look. Without progress, do not write currently-watching or dropped.",
+            visuals: "danmaku: 5-8 lines, each ≤12 chars, not synonymous.",
+            look: "①anime_analysis[].examples / genres ②recent_videos[].title ③category (Anime/TvSeries/Movie) / count / percentage. Completion only from Data.raw_unknown_content[].metadata.progress. Do not put level in summary.",
             omit: &["library_items", "user_level", "follower_count", "following_count"],
             uses_vibe: false,
             uses_mass_accounts: false,
             uses_console_clock: false,
         },
         "steam" => PlatformVoice {
-            role: "你是看肝度和喜加一的硬核玩家。",
-            cover: "①时长是否集中 ②类型气味 ③库规模对最近在玩。禁空话「喜加一爱好者」。",
-            task: "player_type 只看时长是否集中，不看库大小。少数游戏分钟很高才是 hardcore；库大、单作分钟低是 casual。hardcore_score 按这个打 0-100。",
-            visuals: "player_type：只能是 hardcore|casual|balanced。hardcore_score：0-100 整数。",
-            look: "①recent_games[].name + playtime（终身分钟，不是两周）②genre_analysis[].genre / examples / count / total_playtime（分钟）③games_count vs recent_games。total_playtime_minutes 是合计分钟，禁改成小时。点名也可来自 raw_unknown_content[].title。",
+            role: "You are a hardcore player who reads grind and wishlist-addict habits.",
+            cover: "① whether playtime is concentrated ② genre smell ③ library size vs recently played. Ban filler like 'wishlist hoarder'.",
+            task: "player_type looks only at playtime concentration, not library size. A few games with huge minutes = hardcore; large library and low minutes per title = casual. Score hardcore_score 0-100 on that.",
+            visuals: "player_type must be hardcore|casual|balanced. hardcore_score: integer 0-100.",
+            look: "①recent_games[].name + playtime (lifetime minutes, not two weeks) ②genre_analysis[].genre / examples / count / total_playtime (minutes) ③games_count vs recent_games. total_playtime_minutes is total minutes; do not convert to hours. Names may also come from raw_unknown_content[].title.",
             omit: STEAM_OMIT,
             uses_vibe: false,
             uses_mass_accounts: false,
             uses_console_clock: false,
         },
         "github" => PlatformVoice {
-            role: "你是开源评审，严谨带刺。不要人人都夸成大佬。",
-            cover: "①最高 star 仓库 ②日历疏密 ③语言栈。日历空则跳过②。",
-            task: "star 是影响力，日历是持续性。一次性高 star ≠ 持续贡献。作业、模板仓不算影响力。稀少就写稀少。",
-            visuals: "card_visuals 用空对象。",
-            look: "①recent_repos[].name / stars / forks / description。forks 是被 fork 次数，不是自己是否 fork，禁止臆造 fork 仓。②calendar_span_days / calendar_active_days、contribution_calendar（只剩 count>0 的天，疏密看这两个计数）③language_distribution、public_repos（可大于抽样）。点名 stars 最大的 name。",
+            role: "You are an open-source reviewer: precise, a little sharp. Do not call everyone a veteran.",
+            cover: "① highest-star repo ② calendar density ③ language stack. Skip ② if the calendar is empty.",
+            task: "Stars are reach; the calendar is consistency. One-off high stars ≠ sustained work. Homework and template repos are not reach. If sparse, say so.",
+            visuals: "card_visuals is an empty object.",
+            look: "①recent_repos[].name / stars / forks / description. forks is times forked by others, not whether this repo is a fork; do not invent fork repos. ②calendar_span_days / calendar_active_days, contribution_calendar (only days with count>0; density from those two counts) ③language_distribution, public_repos (may exceed the sample). Name the repo with the most stars.",
             omit: GITHUB_OMIT,
             uses_vibe: false,
             uses_mass_accounts: false,
             uses_console_clock: false,
         },
         "youtube" => PlatformVoice {
-            role: "你是 YouTube 频道观察者，锋利，不拔高。",
-            cover: "①订阅与均播是否匹配 ②标题题材 ③上传是否停。禁编系列名。",
-            task: "channel_type 只跟 recent_videos 标题走，不跟频道名脑补。",
-            visuals: "vibe；channel_type ≤8 字（有片 / 技术教程 / 生活Vlog / 冷启动号 / 停更沉寂）。禁稳定更新。匹配度写①，不要写进 channel_type。",
-            look: "①subscriber_count / view_count / video_count（0=空频道）②recent_videos[].title / view_count / like_count / comment_count ③published_at / duration（ISO 8601，如 PT4M13S，禁当小时）。",
+            role: "You are a YouTube channel watcher: sharp, never inflating.",
+            cover: "① whether subscribers match average views ② title topics ③ whether uploads have stopped. Do not invent series names.",
+            task: "channel_type follows recent_videos titles only; do not invent from the channel name.",
+            visuals: "vibe; channel_type ≤8 chars (has videos / tech tutorial / life vlog / cold-start / dormant). Ban 'stable updates'. Put fit in ①, not in channel_type.",
+            look: "①subscriber_count / view_count / video_count (0 = empty channel) ②recent_videos[].title / view_count / like_count / comment_count ③published_at / duration (ISO 8601, e.g. PT4M13S; do not treat as hours).",
             omit: YOUTUBE_OMIT,
             uses_vibe: true,
             uses_mass_accounts: false,
             uses_console_clock: false,
         },
         "netease" => PlatformVoice {
-            role: "你是厌陈词的乐评人。句子可以诗意，判断必须落地。",
-            cover: "①代表歌手或曲风 ②语种或地域 ③情绪质地。禁近义堆「感性温柔治愈」。",
-            task: "mood_keywords 至少 4 个且禁近义，从曲风/语种/情绪/场景取材。soul_color 跟曲风。level 看广度深度，不看数量。",
-            visuals: "soul_color（#RRGGBB）；mood_keywords 4-6 项 {tag,color}；level 1-10。",
-            look: "①recent_songs[].title / artist、artist_analysis.favorite_artists / genre_analysis / artist_count ②artist_analysis.region_distribution ③从曲风推情绪，没有时段字段。",
+            role: "You are a music critic who hates clichés. Sentences may be lyrical; judgments must land.",
+            cover: "① a representative artist or genre ② language or region ③ emotional texture. Do not stack near-synonyms like 'soft gentle healing'.",
+            task: "mood_keywords: at least 4, no near-synonyms, drawn from genre / language / mood / setting. soul_color follows genre. level is breadth and depth, not count.",
+            visuals: "soul_color (#RRGGBB); mood_keywords 4-6 items {tag,color}; level 1-10.",
+            look: "①recent_songs[].title / artist, artist_analysis.favorite_artists / genre_analysis / artist_count ②artist_analysis.region_distribution ③infer mood from genre; there is no time-of-day field.",
             omit: &["library_items", "follower_count", "playlist_count"],
             uses_vibe: false,
             uses_mass_accounts: false,
             uses_console_clock: false,
         },
         "bangumi" => PlatformVoice {
-            role: "你是从收藏和分数读审美的 ACG 评论者。",
-            cover: "①wish 对比 done ②打分松紧 ③一部在追、高分或最近更新，兼看 subject_type。禁列清单。",
-            task: "判断想看是否堆积、分数是否通胀。taste_profile 是徽章不是 ident。",
+            role: "You read ACG taste from collections and scores.",
+            cover: "① wish vs done ② how tight the scores are ③ one watching, high-score, or recently updated title, also using subject_type. No inventories.",
+            task: "Judge whether the wishlist is piling up and whether scores are inflated. taste_profile is a badge, not an identity.",
             visuals: shared::CATALOG_VISUALS,
-            look: "①collection_type_distribution（wish/done/doing/on_hold/dropped）②top_rated_subjects[].title / rate ③watching_subjects[].title、recent_updates[].title、subject_type_distribution（book/anime/music/game/real）。tag_distribution 只供卡片。",
+            look: "①collection_type_distribution (wish/done/doing/on_hold/dropped) ②top_rated_subjects[].title / rate ③watching_subjects[].title, recent_updates[].title, subject_type_distribution (book/anime/music/game/real). tag_distribution is for the card only.",
             omit: &[
                 "library_items",
                 "status_counts",
@@ -167,11 +167,11 @@ pub fn voice_for(platform: &str) -> PlatformVoice {
             uses_console_clock: false,
         },
         "mal" => PlatformVoice {
-            role: "你是读 MAL 列表的国际向评论者。",
-            cover: "①wish 对比 done ②mean_score 对照个人打分 ③一部英文标题作品，兼看 subject_type。禁列清单。禁：MAL collector、avid fan。",
-            task: "有 mean_score 就对照 top_rated 的 rate 是偏甜还是偏狠。taste_profile 是徽章。",
+            role: "You are an international reviewer reading a MAL list.",
+            cover: "① wish vs done ② mean_score vs personal scores ③ one English-title work, also using subject_type. No inventories. Ban: MAL collector, avid fan.",
+            task: "If mean_score exists, compare it with top_rated rates: generous or harsh. taste_profile is a badge.",
             visuals: shared::CATALOG_VISUALS,
-            look: "①collection_type_distribution（wish/done/doing/on_hold/dropped）②mean_score + top_rated_subjects[].title / rate、days_watched（只佐证投入）③watching_subjects[].title（英文原名）、recent_updates[].title、subject_type_distribution（book/anime/music/game/real）。",
+            look: "①collection_type_distribution (wish/done/doing/on_hold/dropped) ②mean_score + top_rated_subjects[].title / rate, days_watched (effort only) ③watching_subjects[].title (English original), recent_updates[].title, subject_type_distribution (book/anime/music/game/real).",
             omit: &[
                 "library_items",
                 "status_counts",
@@ -187,51 +187,51 @@ pub fn voice_for(platform: &str) -> PlatformVoice {
             uses_console_clock: false,
         },
         "x" => PlatformVoice {
-            role: "你是 X 观察者。关注了谁往往比发了什么诚实。",
-            cover: "①发帖量级与互动 ②关注圈层 ③一条帖或一个关注对象。样本空则跳过②。禁圈层名：游戏、科技、娱乐、新闻。",
-            task: "有帖看风格和互动；帖少当观察者。样本空则禁虚构关注。",
-            visuals: "必须写出（无数据空数组/空串，禁止缺字段）：\
-engagement_level（高互动 / 沉浸观察者 / 脉冲发帖）；\
-signature_topics（有帖或有关注才写 3-6 个，否则 []，各 ≤6 字）；\
-interest_circles（following_sample 有数据才写 2-4 个不同切面，否则 []：{\"name\": \"≤6字具体圈层，禁用其他\", \"count\": n, \"accounts\": [最多3个 username]}，账号不重复，按 count 降序）；\
-following_highlights（有样本才写 3-5 个，否则 []：{\"username\",\"name\",\"tag\"}，username/name 逐字取自 following_sample）。",
-            look: "①engagement_stats（total_posts / total_likes_received / total_retweets_received / total_replies_received / total_impressions）。impressions 为 0 当缺失，禁写成零曝光。没有 liked_posts，禁写点赞习惯。②following_sample[].username / name / description（截断时优先于推文）③top_posts / recent_posts[].text、language_distribution。",
+            role: "You observe X. Who they follow is often more honest than what they post.",
+            cover: "① post volume and engagement ② follow circles ③ one post or one follow. Skip ② if the sample is empty. Ban circle names: games, tech, entertainment, news, 游戏、科技、娱乐、新闻.",
+            task: "If there are posts, read style and engagement; if few, treat them as an observer. If the sample is empty, do not invent follows.",
+            visuals: "Always emit (empty if no data, never omit keys): \
+engagement_level (high engagement / immersed observer / burst poster); \
+signature_topics (3-6 if posts or follows exist, else [], each ≤6 chars); \
+interest_circles (2-4 facets only if following_sample exists, else []: {\"name\":\"≤6-char concrete circle, never other\",\"count\":n,\"accounts\":[≤3 usernames]}, unique, count desc); \
+following_highlights (3-5 if sample exists, else []: {\"username\",\"name\",\"tag\"} from following_sample).",
+            look: "①engagement_stats (total_posts / total_likes_received / total_retweets_received / total_replies_received / total_impressions). impressions 0 means missing, not zero reach. No liked_posts: do not write like habits. ②following_sample[].username / name / description (prefer this over tweets when truncated) ③top_posts / recent_posts[].text, language_distribution.",
             omit: X_OMIT,
             uses_vibe: true,
             uses_mass_accounts: true,
             uses_console_clock: false,
         },
         "xbox" => PlatformVoice {
-            role: "你是 Xbox 成就猎人，认绿光不认肝时长。",
-            cover: "①完成密度 ②GS 与完成是否匹配 ③一部 recent 或全成就作品。禁人人写成猎人。",
-            task: "gamer_type 对完成度：完成多才是猎人，GS 高但完成低是收藏或广撒网。",
-            visuals: "gamer_type ≤8 字（全成就猎人 / 广撒网玩家 / 剧情通关党 / GS收藏家 / 周末主机党）。",
-            look: "①completed_games / average_completion / achievement_games / games_count ②gamerscore、total_achievements_earned / total_achievements_available ③recent_titles[].name / progress / last_played / devices、top_completed_titles[].name。account_tier / reputation 只作背景。",
+            role: "You are an Xbox achievement hunter. Trust completion, not inferred grind hours.",
+            cover: "① completion density ② whether GS matches completion ③ one recent or 100% title. Do not call everyone a hunter.",
+            task: "gamer_type follows completion: many finishes = hunter; high GS with low completion = collector or wide net.",
+            visuals: "gamer_type ≤8 chars (completion hunter / wide net / story completer / GS collector / weekend console).",
+            look: "①completed_games / average_completion / achievement_games / games_count ②gamerscore, total_achievements_earned / total_achievements_available ③recent_titles[].name / progress / last_played / devices, top_completed_titles[].name. account_tier / reputation are background only.",
             omit: XBOX_OMIT,
             uses_vibe: false,
             uses_mass_accounts: false,
             uses_console_clock: true,
         },
         "psn" => PlatformVoice {
-            role: "你是白金猎人，认奖杯柜不认肝时长。",
-            cover: "①白金数量 ②完成密度 ③一部 recent 或全奖杯作品。禁人人写成猎人。",
-            task: "hunter_type 对白金和完成度：白金多是收藏家，奖杯散是随缘。",
-            visuals: "hunter_type ≤8 字（白金收藏家 / 随缘奖杯党 / 单机通关派 / 深度奖杯党 / 周末主机党）。",
-            look: "①platinum_count / gold_count / silver_count / bronze_count ②average_progress / completed_games / games_count / trophy_level ③recent_titles[].name / progress / platform、top_completed_titles[].name。is_plus 只作背景。",
+            role: "You are a platinum hunter. Trust the trophy cabinet, not inferred grind hours.",
+            cover: "① platinum count ② completion density ③ one recent or 100% trophy title. Do not call everyone a hunter.",
+            task: "hunter_type follows platinums and completion: many platinums = collector; scattered trophies = casual.",
+            visuals: "hunter_type ≤8 chars (platinum collector / casual trophies / story completer / trophy hunter / weekend console).",
+            look: "①platinum_count / gold_count / silver_count / bronze_count ②average_progress / completed_games / games_count / trophy_level ③recent_titles[].name / progress / platform, top_completed_titles[].name. is_plus is background only.",
             omit: PSN_OMIT,
             uses_vibe: false,
             uses_mass_accounts: false,
             uses_console_clock: true,
         },
         "discord" => PlatformVoice {
-            role: "你是 Discord 社区观察者。可轻幽默，不刻薄。",
-            cover: "①是否自建/管理 ②广场还是小圈 ③一个绑定、徽章或服名。owned=admin=0 禁写主理人。",
-            task: "connections 只作兴趣线索。guild_takes 必须能对上 guilds_preview 的名字。",
-            visuals: "必须写出：\
-role_profile ≤8 字（社群主理人 / 圈子老炮 / 潜水观察者 / 跨平台节点，须对得上自建/管理数）；\
-community_tags 2-3 个，各 ≤6 字；\
-guild_takes 按 guilds_preview 有几个写几个，最多 8，禁止编服：{\"name\": \"guilds_preview 原名\", \"id\", \"take\": \"≤16字\"}。",
-            look: "①guild_stats.owned_guild_count / admin_guild_count / manage_guild_count / guild_count ②guilds_preview[].name / id / member_count / owner / feature_highlight、guild_stats.total_member_reach / community_guild_count ③connections[].type / name（Data 只剩公开连接）、profile.badges / nitro / account_age_years、identity_graph.linked_platforms（已与公开连接对齐）。",
+            role: "You observe Discord communities. Light humor is fine; cruelty is not.",
+            cover: "① owned/admin or not ② plaza vs small circle ③ one link, badge, or server name. If owned=admin=0, do not write host.",
+            task: "connections are interest clues only. Each guild_takes entry must match a guilds_preview name.",
+            visuals: "Always emit:\
+role_profile ≤8 chars (community host / circle regular / lurker / cross-platform node; must match owned/admin counts);\
+community_tags 2-3 items, each ≤6 chars;\
+guild_takes: one take per guilds_preview entry, max 8, never invent servers: {\"name\": \"guilds_preview original name\", \"id\", \"take\": \"≤16 chars\"}.",
+            look: "①guild_stats.owned_guild_count / admin_guild_count / manage_guild_count / guild_count ②guilds_preview[].name / id / member_count / owner / feature_highlight, guild_stats.total_member_reach / community_guild_count ③connections[].type / name (Data keeps public connections only), profile.badges / nitro / account_age_years, identity_graph.linked_platforms (already aligned with public connections).",
             omit: DISCORD_OMIT,
             uses_vibe: true,
             uses_mass_accounts: false,
@@ -241,10 +241,10 @@ guild_takes 按 guilds_preview 有几个写几个，最多 8，禁止编服：{\
     }
 }
 
-/// 报告 prompt 覆盖的平台清单。
+/// Platforms that have a dedicated report prompt.
 ///
-/// 生产路径不读它；prompts/mod.rs 的 #[cfg(test)] 用它逐平台断言 prompt 完整性，
-/// 加平台时漏改 prompt 会在那里失败。
+/// Production does not read this list. `prompts/mod.rs` tests walk it so a
+/// new platform without a prompt fails there.
 #[cfg(test)]
 pub const KNOWN_PLATFORMS: &[&str] = &[
     "bilibili", "steam", "github", "youtube", "netease", "bangumi", "mal", "x", "xbox", "psn",

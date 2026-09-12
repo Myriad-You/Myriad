@@ -5,7 +5,6 @@ export interface IdleBreathOffset {
   body: number
 }
 
-/** Phase-continuous idle sine. Mix with occupancy; never gate on authored.idle. */
 export function idleBreathOffset(
   timeSeconds: number,
   output: IdleBreathOffset = { angleX: 0, angleY: 0, angleZ: 0, body: 0 },

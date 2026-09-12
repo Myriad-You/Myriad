@@ -1,7 +1,3 @@
-/**
- *   pnpm exec tsx --test src/utils/setupSecretFromUrl.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { consumeSetupSecretFromLocation } from './setupSecretFromUrl.ts'

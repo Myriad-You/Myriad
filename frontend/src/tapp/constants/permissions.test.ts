@@ -1,9 +1,4 @@
-/**
- * PERMISSION_CONFIG copy-key integrity.
- *
- * storage:read and storage:write are separate permissions and must
- * not share label/description i18n keys; every permission gets a unique pair.
- */
+/** storage:read 与 storage:write 不得共用文案键。 */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
@@ -50,5 +45,7 @@ describe('permission copy keys', () => {
   it('keeps file.download public so generated content can be saved without storage:read', () => {
     assert.equal(PERMISSION_MAP.get('file.download'), 'public')
     assert.equal(PERMISSION_MAP.get('storage.get'), 'storage:read')
+    assert.equal(PERMISSION_MAP.get('private.get'), 'storage:read')
+    assert.equal(PERMISSION_MAP.get('private.set'), 'storage:write')
   })
 })

@@ -78,7 +78,7 @@ mod tests {
         assert!(is_terminal_past_retention(now - Duration::hours(25), now));
         assert!(!is_waiting_input_timed_out(now - Duration::hours(2), now));
         assert!(is_waiting_input_timed_out(now - Duration::hours(3), now));
-        assert!(waiting_input_timeout_error().contains("超时"));
+        assert!(waiting_input_timeout_error().contains("timed out"));
     }
 
     #[test]

@@ -15,11 +15,6 @@ export interface RigMotionLifecycleOptions {
   arousal?: number
   activity?: MeropeActivity
   capabilities?: readonly string[]
-  /**
-   * False until the character handle exists. Subscribe-on-mount would apply
-   * the standing bearing into a null ref and never replay it on a live
-   * runtime that only emits when mood, speech, or music changes.
-   */
   ready?: boolean
   /** Higher wins only when two visible production faces disagree. */
   priority?: number
@@ -122,10 +117,6 @@ function useMotionRuntimeConsumer(
   }, [runtime, rigRef, liveFace, ready])
 }
 
-/**
- * One owner for a live face. Sources publish intents to the production
- * runtime; this hook only consumes the snapshot.
- */
 export function useRigMotionLifecycle(
   rigRef: RefObject<RigMotionPort | null>,
   options: RigMotionLifecycleOptions = {},
@@ -134,10 +125,6 @@ export function useRigMotionLifecycle(
   useMotionRuntimeConsumer(getProductionMotionRuntime(), rigRef, options, true)
 }
 
-/**
- * Workbench / persona studio: speech and performance on a private runtime
- * so preview never takes production channels.
- */
 export function useRigPreviewMotionLifecycle(
   rigRef: RefObject<RigMotionPort | null>,
   options: RigMotionLifecycleOptions = {},

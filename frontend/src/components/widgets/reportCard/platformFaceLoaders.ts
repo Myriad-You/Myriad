@@ -1,11 +1,4 @@
-/**
- * 平台 face 按需加载（非 React.lazy）。
- *
- * 规则：
- * - 渲染期禁止 Suspense 错峰挂载（会吃掉多卡内部入场动画）
- * - 允许：挂载前 await 只拉「布局用到的」平台 chunk，再同步 render
- * - 同文件多导出（steam/xbox/psn、x/discord、bangumi/mal）一次 import 注册全部
- */
+// 非 React.lazy。渲染期禁止 Suspense 错峰挂载；挂载前只 await 布局用到的平台 chunk。
 import type { ComponentType } from 'react'
 
 export type PlatformFaceComponent = ComponentType<{
@@ -13,7 +6,7 @@ export type PlatformFaceComponent = ComponentType<{
   showOverview: boolean
   onContentChange: (content: any) => void
   allowLoop?: boolean
-  /** 小组件库预览：face 须据此关掉在线状态等真实网络轮询 */
+  // 预览须关掉真实网络轮询。
   isPreview?: boolean
 }>
 
@@ -100,7 +93,6 @@ async function loadFaceModule(key: FaceModuleKey): Promise<void> {
   }
 }
 
-/** 单个平台 face 是否已在 registry（可同步渲染） */
 export function isPlatformFaceReady(platformId: string): boolean {
   return registry.has(platformId)
 }
@@ -111,7 +103,6 @@ export function getPlatformFace(
   return registry.get(platformId)
 }
 
-/** 预热若干平台 face（去重模块） */
 export function preloadPlatformFaces(
   platformIds: Iterable<string>,
 ): Promise<void> {
@@ -121,12 +112,13 @@ export function preloadPlatformFaces(
     if (mod && !registry.has(id)) modules.add(mod)
   }
   if (modules.size === 0) return Promise.resolve()
-  return Promise.all([...modules].map((k) => loadFaceModule(k))).then(
+  return Promise.all(
+    Iterator.from(modules).map((k) => loadFaceModule(k)),
+  ).then(
     () => undefined,
   )
 }
 
-/** 从 widget type（report-steam）收集并预热 */
 export function preloadPlatformFacesForWidgetTypes(
   types: Iterable<string>,
 ): Promise<void> {

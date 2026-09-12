@@ -1,15 +1,10 @@
 //! Deterministic acting floor.
 //!
-//! Lite refines a performance; it must never be the only thing able to produce
-//! one. Production shows why: of 217 director calls only 2 returned a plan, and
-//! every failure sat on the request timeout. So every round also renders a plan
-//! from state the backend already holds — mood band, phase, activity, task
-//! outcome, motion style — with no network call and no latency. `direct_motion`
-//! falls back to this whenever Lite is unavailable, slow or invalid, and the
-//! Chat path plays it as an immediate reaction while the reply is still
-//! streaming.
-//!
-//! Amplitudes stay in the readable band the client uses for ambient action.
+//! Lite refines; it must never be the only producer. `local_performance_plan`
+//! uses phase, mood, task_success, response_text, motion_style (no activity).
+//! Chat publishes `local_directive` before the reply stream; Lite refine uses
+//! `fallback_to_local: false`. `direct_motion` is the no-publisher path.
+//! Amplitudes clamp 0.2..=1.4 (performance contract, not ambient).
 //! A floor nobody can see is the same as no floor.
 
 use myriad_merope::{ChatPerformanceBaseline, ChatPerformanceCue, ChatPerformancePlan};
@@ -68,11 +63,8 @@ fn local_baseline(
 /// Band sets the rung; a decisive swing this round moves it one step.
 ///
 /// `tense` answers before the ladder because it is not on it. `mood_band`
-/// splits `sad` from `tense` on arousal, and putting both on rung 1 threw that
-/// split away: a wound-up round wore the same face as a flat one and differed
-/// only in motion energy. The ladder cannot fix that — it is a valence axis,
-/// and every step down it also closes the eyes, which reads as giving up
-/// rather than being on edge.
+/// splits `sad` from `tense` on arousal. The ladder is a valence axis;
+/// only `subdued` / `withdrawn` close the eyes.
 fn baseline_expression(band: &str, delta: f64) -> &'static str {
     if band == "tense" {
         return "tense";
@@ -121,7 +113,7 @@ fn baseline_energy(motion_style: &str, band: &str) -> f32 {
     (style * band_scale).clamp(0.2, 1.4)
 }
 
-/// How much of the face the round is willing to spend on the user right now.
+/// Scales ambient wander (`1 - 0.3 * attention`); not a face budget.
 fn phase_attention(phase: MotionPhase) -> f32 {
     match phase {
         MotionPhase::Reaction => 0.9,

@@ -25,10 +25,7 @@ use crate::middleware::auth::{
 
 fn auth_store_http(context: &'static str, error: impl std::fmt::Display) -> HttpError {
     tracing::error!(%error, context, "auth store failed");
-    HttpError::from((
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(json!({ "error": format!("Failed to {context}") })),
-    ))
+    HttpError(AppError::internal(format!("Failed to {context}")))
 }
 
 fn auth_store_app(context: &'static str, error: impl std::fmt::Display) -> HttpError {
@@ -36,7 +33,7 @@ fn auth_store_app(context: &'static str, error: impl std::fmt::Display) -> HttpE
     HttpError(AppError::internal(format!("Failed to {context}")))
 }
 
-/// Modest global cap on concurrent Argon2 hash/verify work (MYR-006).
+/// Modest global cap on concurrent Argon2 hash/verify work.
 ///
 /// Argon2 is intentionally CPU- and memory-heavy. Unbounded `spawn_blocking`
 /// under concurrent login/register can exhaust the blocking pool. We allow a
@@ -83,13 +80,11 @@ async fn acquire_password_hash_permit_from(
                 timeout_secs = timeout.as_secs_f64(),
                 "Password hash concurrency limit reached; returning 503"
             );
-            Err(HttpError::from((
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({
-                    "error": "Server busy",
-                    "message": "Too many password operations in progress. Please try again shortly."
-                })),
-            )))
+            Err(HttpError(
+                AppError::service_unavailable("Server busy").with_message(
+                    "Too many password operations in progress. Please try again shortly.",
+                ),
+            ))
         }
     }
 }
@@ -267,10 +262,7 @@ pub async fn create_admin(
         updated_at
     ) VALUES ($1, $2, $3, true, true, NULL, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     RETURNING id";
-    // avatar_url 留空：占位头像是「显示时的兜底」，不是账号数据。
-    // 曾在这里播种 ui-avatars.com 外链（渲染出的 "Ad" 就是 name=Admin 的缩写），
-    // 结果是每个新装站点从第一天起就依赖一个外部图床，且用户显式选「账号头像」
-    // 时会把这张占位图当成真头像用。现在交给前端 <Avatar> 本地生成。
+    // avatar_url 留空：占位头像是「显示时的兜底」，不是账号数据。交给前端 <Avatar> 本地生成。
     let insert_params = vec![
         SeaValue::String(Some(request.username.clone())),
         SeaValue::String(Some("local".to_string())),
@@ -355,9 +347,7 @@ pub async fn local_login(
 ) -> Result<impl IntoResponse, HttpError> {
     tracing::info!("Local login attempt: {}", request.username);
 
-    // Query user by username
-    // PR #4: 不再要求 auth_provider='local' — 只要 password_hash 存在就能本地登录。
-    // 这样 GitHub-注册用户走 /api/auth/me/set-password 后也能用 username 登录。
+    // 只要 `password_hash IS NOT NULL` 就能本地登录（不要求 `auth_provider='local'`）。
     use sea_orm::Value as SeaValue;
 
     let query = "SELECT id, username, password_hash, is_admin,
@@ -501,16 +491,15 @@ pub async fn change_password(
     let claims = crate::middleware::auth::authenticate_request(&headers, &db)
         .await
         .map_err(|_| {
-            HttpError::from((
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Unauthorized", "message": "Invalid or missing token"})),
-            ))
+            HttpError(
+                AppError::unauthorized("Unauthorized").with_message("Invalid or missing token"),
+            )
         })?;
 
     let user_id = claims.sub.parse::<i32>().map_err(|_| {
         HttpError::from((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Invalid user ID"})),
+            Json(AppError::public_json("Invalid user ID")),
         ))
     })?;
 
@@ -541,7 +530,7 @@ pub async fn change_password(
         tracing::warn!("User not found: {}", user_id);
         HttpError::from((
             StatusCode::NOT_FOUND,
-            Json(json!({"error": "User not found"})),
+            Json(AppError::public_json("User not found")),
         ))
     })?;
 
@@ -559,9 +548,8 @@ pub async fn change_password(
         ))
     })?;
 
-    // PR #4: 任何拥有 password_hash 的账户都能改密码（不再要求 auth_provider='local'）
-    // 没有密码的账户（纯 OAuth）应走 /api/auth/me/set-password 后补密码。
-    let _ = auth_provider; // 信息性字段，保留读取以兼容旧 SELECT
+    // 有 `password_hash` 就能改密码。没有密码的账户走 `/api/auth/me/set-password`。
+    let _ = auth_provider;
 
     let is_admin: bool = user_row.try_get("", "is_admin").unwrap_or(false);
     let is_owner: bool = user_row.try_get("", "is_owner").unwrap_or(false);
@@ -653,7 +641,7 @@ pub async fn change_password(
 
 // Helper functions
 
-/// Username charset: letters, digits, underscore (compiled once — MYR-036).
+/// Username charset: letters, digits, underscore (compiled once).
 static USERNAME_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^[a-zA-Z0-9_]+$").expect("username regex"));
 
@@ -683,8 +671,8 @@ fn validate_username(username: &str) -> Result<(), HttpError> {
 }
 
 /// Validate password strength.
-/// Length is **Unicode scalar count** (`chars().count()`), matching FE
-/// `password.length` for BMP/emoji better than UTF-8 byte `len()`.
+/// Length is Unicode scalar count (`chars().count()`). JS `password.length`
+/// is UTF-16 code units — BMP matches, emoji/surrogate pairs do not.
 fn validate_password(password: &str) -> Result<(), HttpError> {
     let char_len = password.chars().count();
     if char_len < 8 {
@@ -806,7 +794,7 @@ async fn verify_password(password: &str, hash: &str) -> Result<(), HttpError> {
     }
 }
 
-// PR #4 新增端点：公开注册 + 后补密码 + 本地登录开关
+// 公开注册 + 后补密码 + 本地登录开关
 // 详见 docs/development/OAUTH.md
 
 /// POST /api/auth/register —— 公开本地账号注册
@@ -895,7 +883,7 @@ pub async fn register(
                     .map(|s| SeaValue::String(Some(s)))
                     .unwrap_or(SeaValue::String(None)),
                 SeaValue::String(Some(password_hash)),
-                // 占位头像退成显示兜底，不落库（见 create_owner 处说明）
+                // 占位头像退成显示兜底，不落库（见 create_admin 处说明）
                 SeaValue::String(None),
             ],
         ))
@@ -926,7 +914,7 @@ pub async fn register(
     issue_session_cookie(&db, user_id, &req.username, false, false).await
 }
 
-/// POST /api/auth/me/set-password —— GitHub-only 用户后补密码
+/// POST /api/auth/me/set-password —— 无密码账户后补密码（不限 GitHub）
 ///
 /// 要求当前账户**没有**密码（已有密码走 `change_password`）。
 #[derive(Debug, Deserialize)]
@@ -946,13 +934,13 @@ pub async fn set_password(
         .map_err(|_| {
             HttpError::from((
                 StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Unauthorized"})),
+                Json(AppError::public_json("Unauthorized")),
             ))
         })?;
     let user_id: i32 = claims.sub.parse().map_err(|_| {
         HttpError::from((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Invalid user id"})),
+            Json(AppError::public_json("Invalid user id")),
         ))
     })?;
 
@@ -970,7 +958,7 @@ pub async fn set_password(
         .ok_or_else(|| {
             HttpError::from((
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "User not found"})),
+                Json(AppError::public_json("User not found")),
             ))
         })?;
     let has_password: bool = row.try_get("", "has_password").unwrap_or(false);
@@ -1009,7 +997,7 @@ pub async fn set_password(
         .ok_or_else(|| {
             HttpError::from((
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "User not found"})),
+                Json(AppError::public_json("User not found")),
             ))
         })?;
     if let Err(error) = notify_auth_cache_invalidation(&db, user_id).await {
@@ -1065,18 +1053,25 @@ pub async fn toggle_local_login(
         .map_err(|_| {
             HttpError::from((
                 StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Unauthorized"})),
+                Json(AppError::public_json("Unauthorized")),
             ))
         })?;
     let user_id: i32 = claims.sub.parse().map_err(|_| {
         HttpError::from((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Invalid user id"})),
+            Json(AppError::public_json("Invalid user id")),
         ))
     })?;
 
-    // 取当前状态
-    let row = db
+    let txn = db
+        .begin()
+        .await
+        .map_err(|error| auth_store_http("begin local login toggle", error))?;
+    crate::api::oauth::lock_login_methods(&txn, user_id)
+        .await
+        .map_err(|error| auth_store_http("lock login methods", error))?;
+
+    let row = txn
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT password_hash IS NOT NULL AS has_password, \
@@ -1090,7 +1085,7 @@ pub async fn toggle_local_login(
         .ok_or_else(|| {
             HttpError::from((
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "User not found"})),
+                Json(AppError::public_json("User not found")),
             ))
         })?;
 
@@ -1108,7 +1103,7 @@ pub async fn toggle_local_login(
                 })),
             )));
         }
-    } else if identity_count == 0 {
+    } else if crate::api::oauth::disable_local_login_blocks(identity_count) {
         return Err(HttpError::from((
             StatusCode::CONFLICT,
             Json(json!({
@@ -1119,21 +1114,23 @@ pub async fn toggle_local_login(
     }
 
     let disabled = !req.enabled;
-    db.execute_raw(Statement::from_sql_and_values(
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE users SET local_login_disabled = $1, updated_at = NOW() WHERE id = $2",
         vec![SeaValue::Bool(Some(disabled)), SeaValue::Int(Some(user_id))],
     ))
     .await
     .map_err(|error| auth_store_http("update local login", error))?;
+    txn.commit()
+        .await
+        .map_err(|error| auth_store_http("commit local login toggle", error))?;
 
     Ok(Json(json!({"success": true, "enabled": req.enabled})))
 }
 
 /// 内部：给指定 user 颁发 JWT + 设置 cookie，返回 AuthResponse + Set-Cookie
 ///
-/// `token_version` is read from the user row (defaults 0) so the mint matches
-/// the session epoch checked by auth middleware.
+/// `token_version` from `COALESCE(token_version, 0)`；query/parse miss is `unwrap_or(0)`，which may not match the row epoch.
 async fn issue_session_cookie(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
@@ -1187,7 +1184,7 @@ async fn issue_session_cookie(
     Ok(resp)
 }
 
-// PR #6: Admin 后台建本地账号
+// Admin 后台建本地账号
 // 详见 docs/development/OAUTH.md
 //
 // 不受 allow_local_registration 开关限制；is_admin=true 仅站点 owner 可设。
@@ -1211,20 +1208,20 @@ pub async fn admin_create_user(
         .map_err(|_| {
             HttpError::from((
                 StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "Unauthorized"})),
+                Json(AppError::public_json("Unauthorized")),
             ))
         })?;
     ensure_current_admin_on(&claims, &db).await?;
 
     let actor_id: i32 = claims.sub.parse().unwrap_or(0);
-    // 仅站点 owner 可创建带 is_admin=true 的账号（was: actor id=1）
+    // 仅站点 owner 可创建带 is_admin=true 的账号。
     let actor_is_owner = crate::api::admin_users::actor_is_owner(&db, actor_id).await?;
     if let Some(msg) =
         crate::api::admin_users::non_owner_grant_admin_on_create_error(actor_is_owner, req.is_admin)
     {
         return Err(HttpError::from((
             StatusCode::FORBIDDEN,
-            Json(json!({"error": msg})),
+            Json(AppError::public_json(msg)),
         )));
     }
 
@@ -1270,7 +1267,7 @@ pub async fn admin_create_user(
                     .unwrap_or(SeaValue::String(None)),
                 SeaValue::String(Some(password_hash)),
                 SeaValue::Bool(Some(create_as_admin)),
-                // 占位头像退成显示兜底，不落库（见 create_owner 处说明）
+                // 占位头像退成显示兜底，不落库（见 create_admin 处说明）
                 SeaValue::String(None),
             ],
         ))
@@ -1315,8 +1312,6 @@ pub async fn admin_create_user(
     }
     Ok(Json(body))
 }
-
-// admin 用户列表已迁移到 api::admin_users::list_users（设置页用户管理模块）
 
 #[cfg(test)]
 mod tests {
@@ -1450,7 +1445,7 @@ mod tests {
 
     #[test]
     fn password_hash_permit_budget_is_modest() {
-        // MYR-006: cap concurrency ~4; leave headroom — not a harsh multi-axis governor.
+        // DEFAULT_ARGON2_PERMITS == 4; timeout asserted in [5s, 30s] (const is 15s).
         assert_eq!(crate::services::memory_profile::DEFAULT_ARGON2_PERMITS, 4);
         assert!(PASSWORD_HASH_ACQUIRE_TIMEOUT >= StdDuration::from_secs(5));
         assert!(PASSWORD_HASH_ACQUIRE_TIMEOUT <= StdDuration::from_secs(30));

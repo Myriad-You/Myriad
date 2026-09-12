@@ -4,8 +4,8 @@
 //! 私钥使用 AES-256-GCM 加密后存储到数据库。
 //!
 //! 加密密钥来自 [`crate::services::data_key`]，**不再**从 `JWT_SECRET` 派生。
-//! 旧格式（v0，JWT_SECRET 派生）仍可解密，并在启动时由
-//! [`rewrap_legacy_private_keys`] 重新封装成 v1 —— 之后轮换 `JWT_SECRET`
+//! v0（JWT_SECRET 派生）仍可解密，启动时由
+//! [`rewrap_legacy_private_keys`] 重新封装成 v1；之后轮换 `JWT_SECRET`
 //! 就不会再让实例丢掉 ActivityPub 身份。
 
 use anyhow::{Context, Result};
@@ -69,7 +69,7 @@ impl KeyPair {
 
     /// 从加密存储恢复密钥对。
     ///
-    /// 依次尝试两种格式：
+    /// 按前缀分流两种格式：
     ///
     /// - **v1** `myriad-enc:v1:…` —— 当前格式，数据密钥。
     /// - **v0** 裸 `base64(nonce || ct)` —— 历史格式，密钥由 `JWT_SECRET` 派生。
@@ -123,7 +123,7 @@ pub fn is_legacy_ciphertext(stored: &str) -> bool {
     !crate::services::data_key::is_ciphertext(stored)
 }
 
-/// 解密私钥 PEM：先试 v1，失败再试 v0。
+/// 解密私钥 PEM：`myriad-enc:v1:` 走数据密钥，否则走 v0。
 fn decrypt_private_key_pem(stored: &str, legacy_jwt_secret: &str) -> Result<String> {
     if crate::services::data_key::is_ciphertext(stored) {
         return crate::services::data_key::data_key().decrypt(stored);

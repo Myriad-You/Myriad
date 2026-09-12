@@ -9,13 +9,13 @@ test('motion features use physical frequency ranges instead of display bars', ()
   )
   const bins = new Float32Array(1024).fill(-Infinity)
   const output = { energy: 0, bass: 0, pulse: 0, presence: 0 }
-  bins[4] = -20 // 93.75 Hz at 48 kHz
+  bins[4] = -20
   analyzeMotionAudio(wave, bins, 48000, output)
   assert.ok(output.energy > 0.6)
   assert.ok(output.bass > 0.39)
   assert.equal(output.presence, 0)
   bins.fill(-Infinity)
-  bins[86] = -20 // approximately 2 kHz
+  bins[86] = -20
   analyzeMotionAudio(wave, bins, 48000, output)
   assert.equal(output.bass, 0)
   assert.equal(output.pulse, 0)

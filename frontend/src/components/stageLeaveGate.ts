@@ -1,7 +1,4 @@
-/**
- * 舞台还开着时，先让舞台退完再切页。
- * NavigationIsland 走这里；BrowserRouter 没有 data-router，用不上 useBlocker。
- */
+// 舞台开着时先退完再切页。BrowserRouter 无 data-router，不能用 useBlocker。
 
 type Proceed = () => void
 
@@ -14,7 +11,7 @@ export function setStageLeaveHandler(
   handler = next
 }
 
-/** @returns true：这次导航已被接管，调用方不要自己 navigate */
+// true：导航已接管，调用方不要自己 navigate。
 export function navigateAfterStageLeave(proceed: Proceed): boolean {
   if (pending) return true
   if (!handler) return false

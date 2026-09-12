@@ -1,10 +1,3 @@
-/**
- * Custom scrollbar geometry — keep the thumb glued to the pointer.
- *
- * The library list grows while you drag (infinite load + height transition).
- * Mapping must use metrics locked at pointer-down, otherwise the thumb slips.
- */
-
 export const TRACK_HEIGHT_PERCENT = 0.3
 export const MIN_THUMB_HEIGHT = 40
 
@@ -72,7 +65,6 @@ export function computeThumbLayout(viewport: ScrollbarViewport): ThumbLayout {
   }
 }
 
-/** Thumb offset inside the track so the grabbed point stays under the pointer. */
 export function thumbTopFromPointer(
   clientY: number,
   metrics: Pick<

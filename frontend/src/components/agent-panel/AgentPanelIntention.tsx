@@ -9,7 +9,6 @@ export interface AgentPanelIntentionProps {
   onAccept: (intentionId: string, input: string) => void
 }
 
-/** A review boundary: autonomous observations stop here until the user accepts. */
 export const AgentPanelIntention: React.FC<AgentPanelIntentionProps> = ({
   enabled,
   onAccept,
@@ -29,7 +28,6 @@ export const AgentPanelIntention: React.FC<AgentPanelIntentionProps> = ({
       setIntentions(await agentService.listIntentions())
       setFailed(false)
     } catch {
-      // This is ambient UI; a failed background refresh must not interrupt chat.
       setFailed(true)
     }
   }, [enabled, isAuthenticated])

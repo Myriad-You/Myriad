@@ -1,9 +1,3 @@
-/**
- * 主应用入口
- * 集成路由器和布局,构建 SPA 核心
- * 优化: 代码分割 + 预加载 + 性能监控
- */
-
 import type { ModuleVisibilityKey } from './utils/moduleVisibility'
 import {
   AnimatePresenceShim as AnimatePresence,
@@ -23,8 +17,9 @@ import RouteLoader from './components/RouteLoader'
 import { AgentGlobalActions } from './contexts/AgentGlobalActions'
 import { AnimationPreferenceProvider } from './contexts/AnimationPreferenceContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
-
 import { I18nProvider } from './contexts/I18nContext'
+
+import { LocaleAccountSync } from './contexts/LocaleAccountSync'
 import { MusicPlayerProvider } from './contexts/MusicPlayerContext'
 import { NavigationProvider } from './contexts/NavigationContext'
 import { PageContentProvider } from './contexts/PageContentContext'
@@ -55,12 +50,11 @@ import './styles/modals.css'
 import './styles/overrides.css'
 import './styles/performance.css'
 
-// TappBackgroundRunner 懒加载，避免其错误阻塞主应用
+// 懒加载，避免其错误阻塞主应用
 const TappBackgroundRunner = lazy(
   () => import('./tapp/components/TappBackgroundRunner'),
-) // 性能优化 CSS
+)
 
-// 懒加载视图组件 - 使用代码分割
 const Home = lazy(() => import('./views/Home.tsx'))
 const Library = lazy(() => import('./views/Library.tsx'))
 const Brew = lazy(() => import('./views/Brew.tsx'))
@@ -70,7 +64,6 @@ const Login = lazy(() => import('./views/Login.tsx'))
 const Register = lazy(() => import('./views/Register.tsx'))
 const Setup = lazy(() => import('./views/Setup.tsx'))
 
-// Tapp 页面（直连 pages，不再经 views 薄包装）
 const TappList = lazy(() => import('./tapp/pages/TappListPage.tsx'))
 const TappRun = lazy(() => import('./tapp/pages/TappRunPage.tsx'))
 const TappDetail = lazy(() => import('./tapp/pages/TappDetailPage.tsx'))
@@ -79,15 +72,10 @@ const TappPlayground = lazy(
   () => import('./tapp/pages/TappPlaygroundPage.tsx'),
 )
 
-// Agent 新 UI —— 岛 / Quick Overlay / Full 的外壳
 const AgentPanel = lazy(() => import('./components/agent-panel/AgentPanel'))
-// 执行引擎 —— 不画任何东西，只跑任务
 const AgentEngine = lazy(() => import('./components/agent-panel/AgentEngine'))
 
-/**
- * 路由守卫：复用全局 AuthContext 认证状态
- * 避免每次路由切换都重新发起 /api/auth/me 请求
- */
+/** 复用 AuthContext，避免路由切换再打 /api/auth/me。 */
 function RequireAuth({
   children,
   requiresAdmin,
@@ -97,17 +85,14 @@ function RequireAuth({
 }) {
   const { isAuthenticated, isAdmin, hasChecked } = useAuth()
 
-  // AuthContext 尚未完成首次检查
   if (!hasChecked) {
     return null
   }
 
-  // 未认证
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />
   }
 
-  // 需要管理员权限但不是管理员
   if (requiresAdmin && !isAdmin) {
     return <Navigate to="/" replace />
   }
@@ -115,14 +100,7 @@ function RequireAuth({
   return children
 }
 
-/**
- * Guest-only routes (/login, /register): authenticated users go home.
- * While auth is still resolving, show a spinner — never flash the form.
- *
- * OAuth errors (`?oauth_error=`) are toasted by useAuthUrlFeedback on
- * AppLayout while this spinner is shown (URL still has the query), so we
- * intentionally do not re-attach query params on redirect (avoids double-toast).
- */
+/** 已登录去首页。解析中不要闪表单。OAuth 错误由 AppLayout toast，重定向不要再带 query。 */
 function GuestOnly({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, hasChecked } = useAuth()
 
@@ -169,14 +147,8 @@ function ModuleVisibilityGuard({
 }
 
 /**
- * Agent 访问门禁 - 悬浮面板，不做路由跳转，
- * 无权限时直接不渲染面板。
- * 门禁：页面可见性 + Tapp ai:chat（与权限页 Agent 预设同一真相源）。
- */
-/**
- * Global Agent open_window fallback when multi-window is not mounted.
- * Typed handlers (TappWindowManager) take priority via registerActionHandler(type, …);
- * this global handler covers open_window from Agent on any route.
+ * 多窗未挂载时的全局 open_window。
+ * TappWindowManager 的 typed handler 优先。
  */
 function GlobalAgentWindowHandler() {
   const navigate = useNavigate()
@@ -261,6 +233,7 @@ function GlobalAgentWindowHandler() {
   return null
 }
 
+/** 模块可见性 + 平台 ai_chat；无权限不渲染，不跳路由。 */
 function AgentAccessGate({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isAdmin, hasChecked } = useAuth()
   const { preferences, isLoading } = useModuleVisibilityPreferences()
@@ -315,23 +288,12 @@ function AgentAccessGate({ children }: { children: React.ReactNode }) {
   return children
 }
 
-/**
- * 带 Suspense 的懒加载页面包装器
- * 确保每个页面独立处理加载状态，避免切换时闪屏
- *
- * fallback 为 null：引导加载器（PageLoader.astro）与各页面自己的数据
- * 加载态（如 Home 的 dashboard 配置 Spinner）已覆盖真实等待场景；
- * 这中间曾插入一个路由级小环，只在「引导屏刚谢幕、下一路由代码块
- * 还没取到」的窄缝里出现，观感上是无意义的第三次闪烁，故移除。
- */
+/** fallback null：PageLoader 与页面数据态已覆盖等待，不要再加路由级 spinner。 */
 function SuspensePage({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={null}>{children}</Suspense>
 }
 
-/**
- * 带动画的页面包装器
- * 策略来自 resolvePageRouteAnimation（tappRouteMeta）
- */
+/** 策略来自 resolvePageRouteAnimation。 */
 function AnimatedPage({
   children,
   animationKey,
@@ -391,10 +353,7 @@ function AnimatedPage({
   )
 }
 
-/**
- * 页面动画配置 - 普通页面（带 transform）
- * exit 偏淡出、少位移，叠在 Tapp 壳下时不显得「闪一下没了」
- */
+/** 普通页：exit 偏淡出少位移，叠在 Tapp 壳下不闪没。 */
 const pageVariants = {
   initial: {
     opacity: 0,
@@ -436,9 +395,7 @@ const fixedPageVariants = {
   },
 }
 
-/**
- * 详情：同上，壳层 presence 负责动效；页面层不二次淡出。
- */
+/** 详情：壳层 presence 负责动效，页面层不二次淡出。 */
 const detailPageVariants = {
   initial: {},
   enter: {
@@ -449,14 +406,10 @@ const detailPageVariants = {
   },
 }
 
-/**
- * 路由内容组件
- */
 function AppRoutes() {
   const location = useLocation()
   const routeAnim = resolvePageRouteAnimation(location.pathname)
 
-  // 原子化调度器：在路由变化时自动管理页面生命周期
   useRouteScheduler()
 
   useEffect(() => {
@@ -507,9 +460,7 @@ function AppRoutes() {
             </ModuleVisibilityGuard>
           }
         />
-        {/* Brew 页面允许游客访问（只读），登录用户可使用已读/收藏，管理员可管理。
-            使用 /brew/* 单路由，避免 /brew ↔ /brew/item/:id 切换时 remount 丢失阅读器状态。
-            自有文章规范路径 /brew/item/:id 由 Brew 内部 match。 */}
+        {/* /brew/* 单路由，避免 /brew ↔ /brew/item/:id remount 丢阅读器状态。 */}
         <Route
           path="/brew/*"
           element={
@@ -520,9 +471,7 @@ function AppRoutes() {
             </ModuleVisibilityGuard>
           }
         />
-        {/* DEV 专用磁贴预览。`lazy()` 必须写在 DEV 分支**里面** ——
-            写在模块顶层的话，即使路由被条件挡掉，动态 import 仍会被打成
-            生产 chunk（PerformanceMonitor 就是这么处理的）。 */}
+        {/* DEV 专用磁贴预览。lazy() 必须写在 DEV 分支里面，否则动态 import 仍会打进生产 chunk。 */}
         {import.meta.env.DEV && (
           <Route
             path="/dev/brew-tiles"
@@ -584,7 +533,6 @@ function AppRoutes() {
           }
         />
 
-        {/* Tapp 路由 */}
         <Route
           path="/tapp"
           element={
@@ -646,22 +594,16 @@ function AppRoutes() {
           }
         />
 
-        {/* 404 页面 - 重定向到首页 */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AnimatedPage>
   )
 }
 
-/**
- * 主应用组件
- */
 export function App() {
   const [_isLayoutReady, setIsLayoutReady] = useState(false)
 
-  // 后台 Tapp 宿主延后到首屏渲染 + 入场动画之后再挂载：
-  // 它会拉起整个 tapp runtime（含沙箱/SDK 代码），不应与首屏抢主线程。
-  // 后台 Tapp 本身无 UI，晚几秒启动对用户不可见。
+  // 后台 Tapp 宿主延后到首屏+入场之后：会拉起整套 runtime，不与首屏抢主线程。
   const [backgroundTappsReady, setBackgroundTappsReady] = useState(false)
   useEffect(() => {
     let idleId: number | null = null
@@ -681,16 +623,12 @@ export function App() {
     }
   }, [])
 
-  // 在 React 应用挂载完成后标记就绪状态
-  // 注意：这只是通知基本框架已加载，各个组件会独立控制自己的淡入显示
   useEffect(() => {
-    // 使用双帧延迟确保基础布局已渲染
     let innerRafId: number | null = null
     const rafId = requestAnimationFrame(() => {
       innerRafId = requestAnimationFrame(() => {
         setIsLayoutReady(true)
 
-        // 通知 PageLoader 应用已就绪
         if ((window as any).pageLoader) {
           ;(window as any).pageLoader.markAppReady()
         }
@@ -703,11 +641,8 @@ export function App() {
     }
   }, [])
 
-  // 预加载关键路由 — 只预取资料库 / Tapp 入口，不预取 Config
+  // 只预取资料库 / Tapp，不预取 Config。6s：过早会与首屏抢主线程。
   useEffect(() => {
-    // 延迟6秒后预加载：低端设备上首屏渲染 + 小组件数据请求 + 入场动画
-    // 可持续数秒，过早预取会与首屏抢主线程（preloadRoutes 内部还有
-    // requestIdleCallback 二次让路）
     const timer = setTimeout(() => {
       preloadCriticalRoutes()
     }, 6000)
@@ -720,15 +655,14 @@ export function App() {
       <I18nProvider>
         <AnimationPreferenceProvider>
           <AuthProvider>
+            <LocaleAccountSync />
             <MusicPlayerProvider>
               <NavigationProvider>
                 <PageContentProvider>
                   <ReadingListProvider>
-                    {/* Agent 全局动作处理器 - 处理路由导航和页面元素交互 */}
                     <AgentGlobalActions />
-                    {/* open_window 全局回退（多窗挂载时由 typed handler 覆盖） */}
+                    {/* open_window 全局回退；多窗挂载时 typed handler 覆盖 */}
                     <GlobalAgentWindowHandler />
-                    {/* Agent 浮动面板 - 长按触发 */}
                     <AgentAccessGate>
                       <Suspense fallback={null}>
                         <AgentEngine />
@@ -746,7 +680,6 @@ export function App() {
                     <AppLayout>
                       <AppRoutes />
                     </AppLayout>
-                    {/* 开发环境下显示合并的性能监控工具 */}
                     {import.meta.env.DEV && (
                       <Suspense fallback={null}>
                         {React.createElement(

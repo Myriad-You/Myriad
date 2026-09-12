@@ -397,7 +397,7 @@ impl PlatformFetcher {
                 break;
             }
 
-            // load.json 单页通常约 300；若不足一页可认为结束
+            // 本页不足 100 条则停止翻页
             if page_len < 100 {
                 break;
             }

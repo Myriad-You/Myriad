@@ -1,10 +1,3 @@
-/**
- * First-owner setup passphrase from the install link.
- *
- * Prefer the hash (`#setup_secret=…`) so Nginx / proxy access logs never see it.
- * Query `?setup_secret=` is accepted then stripped. Invalid values are ignored.
- */
-
 const SETUP_SECRET_RE = /^[\w-]{32,512}$/
 const PARAM = 'setup_secret'
 

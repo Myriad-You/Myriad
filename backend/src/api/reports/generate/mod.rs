@@ -41,14 +41,14 @@ pub struct PlatformReport {
     #[serde(default)]
     pub card_visuals: Value,
     pub created_at: String,
-    /// Host UI locale at generation time (`zh-CN` / `ja-JP` / `en-US`).
+    /// Host UI locale at generation time (`zh-CN` / `zh-TW` / `en-US` / `ja-JP` / `ko-KR` / `fr-FR` / `de-DE`).
     #[serde(default)]
     pub locale: String,
 }
 
 /// User id under which public platform reports are stored.
-/// Prefer durable site owner so home ReportCards (which always *read* owner
-/// reports) find rows written by any admin who generates them.
+/// Prefer durable site owner so public latest (owner-preferred, then latest
+/// non-`all` writer) can find the rows.
 async fn report_storage_user_id(db: &DatabaseConnection, actor_id: i32) -> i32 {
     match crate::api::profile::site_owner_user_id(db).await {
         Ok(owner_id) => {
@@ -65,7 +65,7 @@ async fn report_storage_user_id(db: &DatabaseConnection, actor_id: i32) -> i32 {
     }
 }
 
-/// 生成平台报告（第一层）
+/// 生成平台报告
 /// POST /api/reports/platform
 pub async fn generate_platform_reports(
     State(db): State<DatabaseConnection>,
@@ -83,7 +83,10 @@ pub async fn generate_platform_reports(
     })?;
     let user_id = report_storage_user_id(&db, actor_id).await;
 
-    let locale = super::locale::locale_from_headers(&headers);
+    let locale = match super::locale::locale_from_headers(&headers) {
+        Some(tag) => Some(tag),
+        None => super::locale::locale_from_user(&db, user_id).await,
+    };
     tracing::info!("   Locale: {:?}", locale);
     let (platform_reports, skipped) =
         generate_platform_reports_internal(&db, user_id, req.platforms.clone(), locale).await;
@@ -109,6 +112,7 @@ pub async fn generate_platform_reports(
         return Ok(Json(json!({
             "success": false,
             "message": message,
+            "code": "no_platform_reports",
             "reports": [],
             "skipped": skipped_json,
             "token_estimate": 0
@@ -242,8 +246,11 @@ pub async fn generate_all_reports(
     .collect::<Vec<_>>();
     drop(config);
 
-    // 2. 生成平台报告 (使用内部函数，避免序列化开销)
-    let locale = super::locale::locale_from_headers(&headers);
+    // generate_platform_reports_internal (same persist path as single-platform).
+    let locale = match super::locale::locale_from_headers(&headers) {
+        Some(tag) => Some(tag),
+        None => super::locale::locale_from_user(&db, user_id).await,
+    };
     let (platform_reports, skipped) =
         generate_platform_reports_internal(&db, user_id, enabled_platforms, locale).await;
     let skipped_json: Vec<_> = skipped
@@ -261,21 +268,13 @@ pub async fn generate_all_reports(
     })))
 }
 
-/// 获取最新的平台报告
-/// GET /api/reports/latest
-/// Public home / report cards: always return the **site owner's** platform reports
-/// (same authority as `/api/user`, library, activities). Do not switch to the
-/// viewer's user id when a session cookie is present — logged-in guests would
-/// otherwise get empty cards on the owner's dashboard.
-/// 过期报告自动重生成的在途去重表（key: "user_id:platform"）
-/// In-flight set for regen; `std::sync::Mutex` short critical section only (no await while held).
+/// In-flight regen set (key `{user_id}:{platform}`); Mutex not held across await.
 pub(crate) static REPORT_REGEN_IN_FLIGHT: once_cell::sync::Lazy<
     std::sync::Mutex<std::collections::HashSet<String>>,
 > = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
 
-/// Resolve which user's reports the public latest/list endpoints should serve.
-/// Prefers durable site owner (`is_owner`); falls back to the legacy owner id 1.
-/// Viewer credentials never select public report ownership.
+/// Public latest owner: `site_owner_user_id` (lowest admin) then user_id 1.
+/// Viewer credentials never select public report ownership. Used by `get_latest_report` + catalog, not authed `/api/reports/list`.
 pub(crate) async fn public_report_owner_user_id(db: &DatabaseConnection) -> i32 {
     if let Ok(owner_id) = crate::api::profile::site_owner_user_id(db).await {
         return owner_id;
@@ -286,8 +285,8 @@ pub(crate) async fn public_report_owner_user_id(db: &DatabaseConnection) -> i32 
 /// Prefer `preferred` when they have platform reports; otherwise use the user_id
 /// that most recently wrote a non-`all` platform report.
 ///
-/// Historical generations stored under actor claims (pre-#144) left site-owner
-/// home cards empty even though reports exist under another admin id.
+/// If `preferred` has no non-`all` platform reports, use the user_id that
+/// most recently wrote one.
 pub(crate) async fn resolve_report_user_id_for_public_read(
     db: &DatabaseConnection,
     preferred: i32,

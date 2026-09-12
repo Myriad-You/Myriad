@@ -1,10 +1,10 @@
 //! Runtime schema heal helpers (CREATE IF NOT EXISTS / structural ALTER).
 //!
-//! **Support floor: product ≥ 0.3.10.** Field-level alignment for older trees
-//! (thin ADD COLUMN one-shots, intermediate half-built tables) is not kept;
+//! **Support floor: product ≥ 0.3.10.** Thin ADD COLUMN one-shots are not kept;
 //! missing columns go through `get_expected_schema` + generic DDL.
-//! Heals here are: near-term CREATE IF NOT EXISTS, unique-index data cleanup,
-//! analytics `target` PK expansion, federation FK report/apply, seeds.
+//! Heals here: CREATE IF NOT EXISTS, unique-index cleanup, analytics `target` PK,
+//! federation FK report/apply, triggers, credential CHECK, inbox_scope rebuild,
+//! retired-report DELETE.
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbErr};
 
 /// `brew_items.topic` 的部分索引（`migrations/003` 已 CREATE）。
@@ -17,6 +17,51 @@ pub(crate) async fn ensure_brew_item_topic_index(db: &DatabaseConnection) -> Res
         "CREATE INDEX IF NOT EXISTS idx_brew_items_topic ON brew_items (topic) WHERE topic IS NOT NULL",
     )
     .await?;
+    Ok(())
+}
+
+/// 阅读状态版本触发器。列走通用 ADD；触发器不进 TableDef。
+pub(crate) async fn ensure_brew_state_revision(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(
+        r#"
+            CREATE OR REPLACE FUNCTION brew_advance_state_revision() RETURNS trigger AS $$
+            BEGIN
+                NEW.revision := OLD.revision + 1;
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql
+        "#,
+    )
+    .await?;
+    db.execute_unprepared("DROP TRIGGER IF EXISTS brew_state_revision ON brew_user_states")
+        .await?;
+    db.execute_unprepared("CREATE TRIGGER brew_state_revision BEFORE UPDATE ON brew_user_states FOR EACH ROW EXECUTE FUNCTION brew_advance_state_revision()")
+        .await?;
+    Ok(())
+}
+
+/// 正文版本触发器。列走通用 ADD；触发器不进 TableDef。
+pub(crate) async fn ensure_brew_content_revision(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(
+        r#"
+            CREATE OR REPLACE FUNCTION brew_advance_content_revision() RETURNS trigger AS $$
+            BEGIN
+                IF NEW.content IS DISTINCT FROM OLD.content
+                    OR NEW.content_md IS DISTINCT FROM OLD.content_md THEN
+                    NEW.content_revision := OLD.content_revision + 1;
+                ELSE
+                    NEW.content_revision := OLD.content_revision;
+                END IF;
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql
+        "#,
+    )
+    .await?;
+    db.execute_unprepared("DROP TRIGGER IF EXISTS brew_content_revision ON brew_items")
+        .await?;
+    db.execute_unprepared("CREATE TRIGGER brew_content_revision BEFORE UPDATE ON brew_items FOR EACH ROW EXECUTE FUNCTION brew_advance_content_revision()")
+        .await?;
     Ok(())
 }
 
@@ -234,7 +279,7 @@ CREATE TABLE IF NOT EXISTS agent_autonomy_grants (
 /// First-party site analytics tables.
 ///
 /// **权威建表**：`migrations/001_initial_schema.rs` §8（新库 Migrator）。
-/// 本函数与 001 的 SQL **逐字同构**，作「表尚不存在」的幂等 CREATE 兜底。
+/// 与 001 §8 同结构（列 / PK / 索引），作表尚不存在时的幂等 CREATE 兜底。
 /// 普通缺列（engagement / ordinal 等）走 `get_expected_schema` 通用 ADD，
 /// 不再为 <0.3.10 或中间过渡形态维护逐列 ALTER。
 ///
@@ -375,46 +420,26 @@ $heal$;
 }
 
 /// 投递队列去重：`(activity_id, target_inbox)` 唯一索引。
-///
-/// # 为什么需要
-///
-/// 25 个入队点（room/channel/ring/follow/content/inbox/file_transfer/interactions）
-/// 原本都是裸 `INSERT`，没有任何约束阻止同一条活动向同一个 inbox 重复排队。
-/// `interactions.rs` 曾用 `WHERE NOT EXISTS` 自己去重 —— 那是先查后插，两个
-/// 并发请求可以同时通过检查再双双插入。
-///
-/// 重复投递的后果是远端收到两次同一条活动（重复通知、重复计数）。
-///
-/// # 为什么是 heal 而不是纯 migration
-///
-/// 已有部署的表里可能**已经**存在重复行，直接 `CREATE UNIQUE INDEX` 会失败。
-/// 所以先按 `(activity_id, target_inbox)` 保留 id 最小的一行、删掉其余，再建索引。
-/// 幂等：没有重复行时 DELETE 影响 0 行，索引已存在时 IF NOT EXISTS 跳过。
+/// Only a missing unique index needs data cleanup. DELETE and CREATE are atomic;
+/// an existing valid unique index skips the table scan entirely.
 pub(crate) async fn ensure_delivery_queue_unique(db: &DatabaseConnection) -> Result<(), DbErr> {
-    // 1) 清理历史重复（保留最早入队的那条 —— 它的 attempts/status 最有参考价值）
-    let removed = db
-        .execute_unprepared(
-            r#"
-DELETE FROM federation_delivery_queue a
-USING federation_delivery_queue b
-WHERE a.activity_id = b.activity_id
-  AND a.target_inbox = b.target_inbox
-  AND a.id > b.id;
-"#,
-        )
-        .await?;
-    if removed.rows_affected() > 0 {
-        tracing::info!(
-            "🧹 Removed {} duplicate delivery-queue row(s) before adding the unique index",
-            removed.rows_affected()
-        );
-    }
-
-    // 2) 建唯一索引 —— 之后 25 个入队点的 ON CONFLICT DO NOTHING 才真正生效
     db.execute_unprepared(
         r#"
-CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_queue_activity_target
-    ON federation_delivery_queue (activity_id, target_inbox);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_index
+        WHERE indexrelid = to_regclass('idx_delivery_queue_activity_target')
+          AND indrelid = 'federation_delivery_queue'::regclass
+          AND indisunique AND indisvalid
+    ) THEN
+        DELETE FROM federation_delivery_queue a
+        USING federation_delivery_queue b
+        WHERE a.activity_id = b.activity_id AND a.target_inbox = b.target_inbox AND a.id > b.id;
+        CREATE UNIQUE INDEX idx_delivery_queue_activity_target
+            ON federation_delivery_queue (activity_id, target_inbox);
+    END IF;
+END $$;
 "#,
     )
     .await?;
@@ -425,9 +450,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_queue_activity_target
 ///
 /// # Policy (strict, no data mutation)
 ///
-/// 005 migration created federation tables **without** FKs. Adding constraints
-/// on a live DB fails if orphan rows exist. Cleaning orphans means DELETE or
-/// SET NULL — **never automated here**.
+/// 005 SeaORM 主表没有 `ForeignKey::create`（本函数的候选 FK）。
+/// 扩展 SQL 里 `federation_object_interactions.user_id` 已 `REFERENCES users`。
+/// 孤儿行清理（DELETE / SET NULL）从不自动执行。
 ///
 /// **Default (`MYRIAD_FEDERATION_APPLY_FKS` unset/false): report-only.**
 /// For each candidate FK, count orphans and log whether the constraint is
@@ -748,39 +773,26 @@ LIMIT 1
     Ok(())
 }
 
-/// 时间线去重：`(user_id, activity_id)` 唯一索引。
-///
-/// 6 个写入点原先各自用 `WHERE NOT EXISTS` 去重 —— 先查后插，同一条活动
-/// 并发送达（例如远端重投 + 扇出同时发生）时两个请求可以同时通过检查，
-/// 用户首页出现重复条目。
-///
-/// 语义与原 `NOT EXISTS` 完全一致（同一用户同一 activity_id 只留一条），
-/// 只是把检查从应用层挪到数据库、变成原子操作。
-///
-/// 同样先去重再建索引：已有部署可能已经积累了重复行。
+/// 时间线去重：`(user_id, activity_id)` 唯一索引。同一用户同一 activity_id 只留一条。
+/// Skip cleanup when the valid unique index already enforces this invariant.
 pub(crate) async fn ensure_timeline_unique(db: &DatabaseConnection) -> Result<(), DbErr> {
-    let removed = db
-        .execute_unprepared(
-            r#"
-DELETE FROM federation_timeline a
-USING federation_timeline b
-WHERE a.user_id = b.user_id
-  AND a.activity_id = b.activity_id
-  AND a.id > b.id;
-"#,
-        )
-        .await?;
-    if removed.rows_affected() > 0 {
-        tracing::info!(
-            "🧹 Removed {} duplicate timeline row(s) before adding the unique index",
-            removed.rows_affected()
-        );
-    }
-
     db.execute_unprepared(
         r#"
-CREATE UNIQUE INDEX IF NOT EXISTS idx_timeline_user_activity
-    ON federation_timeline (user_id, activity_id);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_index
+        WHERE indexrelid = to_regclass('idx_timeline_user_activity')
+          AND indrelid = 'federation_timeline'::regclass
+          AND indisunique AND indisvalid
+    ) THEN
+        DELETE FROM federation_timeline a
+        USING federation_timeline b
+        WHERE a.user_id = b.user_id AND a.activity_id = b.activity_id AND a.id > b.id;
+        CREATE UNIQUE INDEX idx_timeline_user_activity
+            ON federation_timeline (user_id, activity_id);
+    END IF;
+END $$;
 "#,
     )
     .await?;

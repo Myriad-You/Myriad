@@ -1,17 +1,3 @@
-/**
- * 滑动条设置项
- * - 粗轨道 + 主色进度；当前值浮在拇指上方
- * - 刻度强制显示：沿轨道均匀分配，最多 11 个，与 step 解耦
- * - 两端可显示对应数值 + 可选 startLabel / endLabel 说明
- * - 可选 recommendedValue：进度条下方推荐标记
- * - 宽度按可移动间隔自适应
- *
- * 几何约定（刻度 / 两端数值 / 进度填充 / 推荐标记共用）：
- * 全部落在同一 `.slider-geometry` 宽度内，用同一 CSS 行程公式
- *   left/width = thumb/2 + pct/100 * (100% − thumb)
- * 避免用 input 实测像素去定位兄弟层（两者宽度常不一致）。
- */
-
 import type { SliderSettingConfig } from '../types'
 import React, { useCallback, useMemo, useState } from 'react'
 import { guideDomProps } from '../guides/guideAnchor'
@@ -25,9 +11,7 @@ export interface SliderItemProps extends Omit<SliderSettingConfig, 'type'> {}
 const THUMB_REM = 1.35
 const TRACK_MIN_REM = 9
 const TRACK_MAX_REM = 26
-/** 刻度上限：与步进无关，最多 11 个（含两端） */
 const MAX_TICKS = 11
-/** 与 CSS `--slider-thumb` 一致（border-box，含边框） */
 const THUMB_PX = 20
 
 function clamp(n: number, min: number, max: number): number {
@@ -41,10 +25,9 @@ function defaultFormat(value: number, step: number): string {
     4,
     (String(step).split('.')[1] || '').length || 1,
   )
-  return value.toFixed(decimals).replace(/\.?0+$/, '')
+  return value.toFixed(decimals).replaceAll(/\.?0+$/g, '')
 }
 
-/** 轨道宽度仍可参考步进间隔，让短区间更短 */
 function trackWidthRem(stepIntervals: number): number {
   const n = Math.max(1, stepIntervals)
   const segment =
@@ -52,19 +35,11 @@ function trackWidthRem(stepIntervals: number): number {
   return clamp(THUMB_REM + n * segment, TRACK_MIN_REM, TRACK_MAX_REM)
 }
 
-/**
- * 动态分配刻度数量（与 step 无关）：
- * - 始终至少 2（两端）
- * - 最多 MAX_TICKS（11，覆盖常见 0–10 共 11 档）
- * - 按轨道视觉长度略作增减，短条少刻、长条多刻
- */
 function allocateTickCount(widthRem: number): number {
-  // ~每 2rem 一档，夹在 2…11
   const byWidth = Math.round(widthRem / 2)
   return clamp(byWidth, 2, MAX_TICKS)
 }
 
-/** 在 0–100% 上均匀铺开 tickCount 个点（含 0% 与 100%） */
 function buildEvenTicks(tickCount: number): {
   p: number
   end: boolean
@@ -122,7 +97,6 @@ export const SliderItem = React.memo<SliderItemProps>(
       safeMax,
     )
 
-    /** 仅用于轨道宽度估算；刻度不依赖它 */
     const stepIntervals = useMemo(() => {
       const n = (safeMax - safeMin) / safeStep
       if (!Number.isFinite(n) || n <= 0) return 1
@@ -199,8 +173,8 @@ export const SliderItem = React.memo<SliderItemProps>(
 
     const endActive = useCallback(() => setActive(false), [])
 
-    const id = `setting-slider-${itemKey || label.replace(/\s+/g, '-').toLowerCase()}`
-    const inputName = `myriad-slider-${itemKey || label.replace(/\s+/g, '-').toLowerCase()}`
+    const id = `setting-slider-${itemKey || label.replaceAll(/\s+/g, '-').toLowerCase()}`
+    const inputName = `myriad-slider-${itemKey || label.replaceAll(/\s+/g, '-').toLowerCase()}`
     const anchorProps = guideDomProps(guidePath)
 
     return (
@@ -253,10 +227,6 @@ export const SliderItem = React.memo<SliderItemProps>(
             data-intervals={stepIntervals}
             data-ticks={ticks.length}
           >
-            {/*
-              几何盒：刻度 / 两端数值 / 轨道 / 推荐标记 共享同一宽度。
-              定位全部用 CSS 行程公式，不再用 input 实测 px。
-            */}
             <div className="slider-geometry">
               {showEnds && (
                 <div className="slider-range-nums" aria-hidden>
@@ -288,10 +258,6 @@ export const SliderItem = React.memo<SliderItemProps>(
               )}
 
               <div className="slider-track-wrap">
-                {/*
-                  填充右缘 = 拇指中心行程；气泡挂在填充末端 translateX(50%)，
-                  与刻度同一套 CSS 公式，天然对齐进度数值。
-                */}
                 <div className="slider-track-fill" aria-hidden>
                   {showValue ? (
                     <span className="slider-value" aria-hidden>
@@ -331,7 +297,6 @@ export const SliderItem = React.memo<SliderItemProps>(
                 />
               </div>
 
-              {/* 轨道下方：两侧说明与推荐底部对齐 */}
               {(recommended ||
                 (showEnds && (startHint || endHint))) && (
                 <div className="slider-footer">

@@ -1,6 +1,5 @@
 import type { MotionLeaseHandle, RigMotionCoordinator } from './coordinator'
 
-/** One speech producer: claims the mouth and can only release its own handle. */
 export class SpeechMotionLease {
   private handle: MotionLeaseHandle | null = null
 

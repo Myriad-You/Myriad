@@ -1,16 +1,3 @@
-/**
- * 社交网络小组件 - 显示平台链接入口
- * 支持 1x1, 2x1, 2x2 三种尺寸
- * glass风格 + 微动态效果
- * 长按设置面板选择平台
- *
- * 核心特性:
- * - 全局单例弹窗管理（发布/订阅模式）
- * - 自定义平台支持（后端数据库持久化，随 ui_config.custom_platforms 保存）
- * - XSS 安全防护（URL/文本消毒）
- * - 动画级别自适应
- */
-
 import type { WidgetComponentProps } from '../widgetGridTypes'
 import {
   FaGithub,
@@ -52,11 +39,8 @@ import { WidgetLongPressHint } from './shared/WidgetLongPressHint'
 import { WidgetSettingsSection, WidgetSettingsTip } from './shared/WidgetSettingsTip'
 import { WidgetShell } from './shared/WidgetShell'
 
-// 使用内联 SVG 图标，避免 react-icons 全量导入
+// 内联 SVG，避免 react-icons 全量导入。
 
-// 安全验证工具函数
-
-// 预编译正则表达式（避免每次调用时重新创建）
 const HTML_TAG_REGEX = /<[^>]*>/g
 const DANGEROUS_CHARS_REGEX = /[<>"'`\\]/g
 const DANGEROUS_CHARS_WITH_AMP_REGEX = /[<>"'`\\&]/g
@@ -64,28 +48,24 @@ const VALID_PROTOCOLS_REGEX = /^(https?:\/\/|mailto:)/i
 const DANGEROUS_PROTOCOLS_REGEX = /^(javascript:|data:|vbscript:|file:)/i
 const SUSPICIOUS_CHARS_REGEX = /[<>"'`\\]/
 
-// HTML 实体转义，防止 XSS
 function escapeHtml(text: string): string {
   const div = document.createElement('div')
   div.textContent = text
   return div.innerHTML
 }
 
-// 验证 URL 模式是否安全
 function isValidUrlPattern(pattern: string): boolean {
-  if (!pattern) return true // 空字符串允许
+  if (!pattern) return true // 空 URL 允许。
 
-  // 必须以 http:// 或 https:// 或 mailto: 开头
+  // 只允许 http(s)/mailto。
   if (!VALID_PROTOCOLS_REGEX.test(pattern)) {
     return false
   }
 
-  // 禁止危险协议
   if (DANGEROUS_PROTOCOLS_REGEX.test(pattern)) {
     return false
   }
 
-  // 禁止包含可疑字符（防止注入）
   if (SUSPICIOUS_CHARS_REGEX.test(pattern.replace('{username}', ''))) {
     return false
   }
@@ -93,49 +73,37 @@ function isValidUrlPattern(pattern: string): boolean {
   return true
 }
 
-// 消毒平台名称
 function sanitizePlatformName(name: string): string {
-  // 移除 HTML 标签和危险字符，限制长度
   return name
-    .replace(HTML_TAG_REGEX, '') // 移除 HTML 标签
-    .replace(DANGEROUS_CHARS_REGEX, '') // 移除危险字符
+    .replace(HTML_TAG_REGEX, '')
+    .replace(DANGEROUS_CHARS_REGEX, '')
     .trim()
-    .slice(0, 50) // 限制长度
+    .slice(0, 50)
 }
 
-// 消毒用户名
 function sanitizeUsername(username: string): string {
-  // 移除危险字符，限制长度
   return username
-    .replace(DANGEROUS_CHARS_WITH_AMP_REGEX, '') // 移除危险字符
+    .replace(DANGEROUS_CHARS_WITH_AMP_REGEX, '')
     .trim()
-    .slice(0, 100) // 限制长度
+    .slice(0, 100)
 }
 
-// 消毒弹窗文本
 function sanitizePopupText(text: string): string {
-  // 转义 HTML 实体，限制长度
   return escapeHtml(text.trim().slice(0, 500))
 }
 
-// 消毒 URL 模式
 function sanitizeUrlPattern(pattern: string): string {
   if (!pattern) return ''
 
-  // 移除空白字符
   let cleaned = pattern.trim()
 
-  // 如果没有协议，添加 https://
   if (cleaned && !VALID_PROTOCOLS_REGEX.test(cleaned)) {
     cleaned = `https://${cleaned}`
   }
 
-  return cleaned.slice(0, 500) // 限制长度
+  return cleaned.slice(0, 500)
 }
 
-// 结束安全验证工具函数
-
-// 平台配置定义 - 移到组件外部避免重复创建
 interface PlatformInfo {
   id: string
   name: string
@@ -144,33 +112,30 @@ interface PlatformInfo {
   darkColor: string
   getUserUrl: (userId: string) => string
   configKey: string
-  isCustom?: boolean // 标识是否为自定义平台
+  isCustom?: boolean
 }
 
-// 自定义平台扩展数据
 interface CustomPlatformData {
-  id: string // 唯一标识
-  name: string // 平台名称
-  username: string // 用户名
-  iconType?: 'react-icons' | 'url' // 图标类型
-  iconLibrary?: string // react-icons库名称（fa/si/fa6）
-  iconName?: string // react-icons图标名称
-  iconUrl?: string // 外部图标URL
-  color: string // 主题色
-  darkColor: string // 暗色主题色
-  linkType: 'url' | 'popup' // 链接类型：URL或信息弹窗
-  linkPattern?: string // URL模式，例如: https://example.com/{username}
-  popupData?: CustomPlatformPopupData // 信息弹窗数据
+  id: string
+  name: string
+  username: string
+  iconType?: 'react-icons' | 'url'
+  iconLibrary?: string
+  iconName?: string
+  iconUrl?: string
+  color: string
+  darkColor: string
+  linkType: 'url' | 'popup'
+  linkPattern?: string
+  popupData?: CustomPlatformPopupData
 }
 
-// 信息弹窗数据
 interface CustomPlatformPopupData {
-  type: 'text' | 'qrcode' | 'both' // 显示类型：纯文本、二维码或两者
-  text?: string // 显示的文本（如ID、数字等）
-  qrcodeUrl?: string // 二维码图片URL
+  type: 'text' | 'qrcode' | 'both'
+  text?: string
+  qrcodeUrl?: string
 }
 
-// 静态平台配置 - 使用 Object.freeze 防止意外修改
 const PLATFORMS: readonly PlatformInfo[] = Object.freeze([
   {
     id: 'bilibili',
@@ -211,13 +176,13 @@ const PLATFORMS: readonly PlatformInfo[] = Object.freeze([
       if (id.startsWith('UC') && id.length >= 20) {
         return `https://www.youtube.com/channel/${id}`
       }
-      return `https://www.youtube.com/@${id.replace(/^@/, '')}`
+      return `https://www.youtube.com/@${id.replaceAll(/^@/g, '')}`
     },
     configKey: 'youtube_channel_id',
   },
   {
     id: 'netease',
-    name: 'NetEase Music', // Will be translated in component
+    name: 'NetEase Music',
     icon: <SiNeteasecloudmusic aria-hidden="true" />,
     color: '#E60026',
     darkColor: '#E60026',
@@ -251,12 +216,11 @@ const PLATFORMS: readonly PlatformInfo[] = Object.freeze([
     color: '#000000',
     darkColor: '#e7e9ea',
     getUserUrl: (username: string) =>
-      `https://x.com/${username.replace(/^@/, '')}`,
+      `https://x.com/${username.replaceAll(/^@/g, '')}`,
     configKey: 'x_username',
   },
 ])
 
-// 平台ID到索引的映射 - 避免重复查找
 const PLATFORM_INDEX_MAP: Record<string, number> = {
   bilibili: 0,
   steam: 1,
@@ -268,7 +232,6 @@ const PLATFORM_INDEX_MAP: Record<string, number> = {
   x: 7,
 }
 
-// 静态动画配置常量 - 避免每次渲染创建新对象
 const ICON_HOVER_ANIMATION = {
   scale: [1, 1.08, 1],
   rotate: [0, 5, -5, 0],
@@ -281,20 +244,19 @@ const ICON_STATIC_ANIMATION = {
 
 const ICON_STATIC_TRANSITION = { duration: 0.3 }
 
-// 循环动画过渡配置 - 有限次数（视觉上与无限循环等价但不会永久运行）
+// 循环动画用有限次数，避免永久运行。
 const LOOP_TRANSITION_FAST = {
   duration: 0.5,
-  repeat: 6, // ~3s
+  repeat: 6,
   ease: 'easeInOut' as const,
 }
 
 const LOOP_TRANSITION_NORMAL = {
   duration: 0.6,
-  repeat: 5, // ~3s
+  repeat: 5,
   ease: 'easeInOut' as const,
 }
 
-// 非循环版本 - 用于低端设备
 const NO_LOOP_TRANSITION_FAST = {
   duration: 0.5,
   ease: 'easeInOut' as const,
@@ -305,48 +267,40 @@ const NO_LOOP_TRANSITION_NORMAL = {
   ease: 'easeInOut' as const,
 }
 
-// 2x1/2x2 尺寸图标动画配置 - 更大的动画幅度
 const ICON_LARGE_HOVER_ANIMATION = {
   scale: [1, 1.1, 1],
   rotate: [0, 8, -8, 0],
 }
 
-// 提示文字动画
 const HINT_ANIMATION = {
   initial: { opacity: 0, y: 5 },
   animate: { opacity: 1, y: 0 },
   transition: { delay: 0.2 },
 }
 const HINT_ARROW_ANIMATION = { x: [0, 2, 0] }
-const HINT_LOOP_TRANSITION = { duration: 1, repeat: 3 } // ~3s
+const HINT_LOOP_TRANSITION = { duration: 1, repeat: 3 }
 const HINT_NO_LOOP_TRANSITION = { duration: 0.3 }
 
-// 自定义平台 PlatformInfo 缓存
-// 注意：需要在 saveCustomPlatforms 之前声明
 const platformInfoCache = new Map<
   string,
   { info: PlatformInfo; timestamp: number }
 >()
-const PLATFORM_INFO_CACHE_TTL = 60 * 1000 // 1分钟缓存
+const PLATFORM_INFO_CACHE_TTL = 60 * 1000
 const MAX_PLATFORM_INFO_CACHE = 50
 
-// 自定义平台存储管理
 let customPlatformsData: CustomPlatformData[] = []
-let customPlatformsLoaded = false // 标记是否已加载
+let customPlatformsLoaded = false
 let customPlatformsLoadPromise: Promise<CustomPlatformData[]> | null = null
 
 function getCustomPlatformsData(): CustomPlatformData[] {
   return Array.isArray(customPlatformsData) ? customPlatformsData : []
 }
 
-// 从后端API加载自定义平台
 function loadCustomPlatforms(): CustomPlatformData[] {
-  // 如果已加载，直接返回缓存的数据
   if (customPlatformsLoaded) {
     return getCustomPlatformsData()
   }
 
-  // 触发异步加载（如果还没有）
   if (!customPlatformsLoadPromise) {
     customPlatformsLoadPromise = loadCustomPlatformsAsync()
   }
@@ -354,7 +308,6 @@ function loadCustomPlatforms(): CustomPlatformData[] {
   return getCustomPlatformsData()
 }
 
-// 异步从后端加载自定义平台（使用去重机制）
 async function loadCustomPlatformsAsync(): Promise<CustomPlatformData[]> {
   if (customPlatformsLoaded) {
     return getCustomPlatformsData()
@@ -374,8 +327,7 @@ async function loadCustomPlatformsAsync(): Promise<CustomPlatformData[]> {
   return getCustomPlatformsData()
 }
 
-// 保存自定义平台：必须真正 POST 到后端并校验 response.ok。
-// 历史上只 dispatchEvent + Home 空 CSRF 头 → 内存有、刷新丢。
+// 必须 POST 并校验 ok；只 dispatch 的话刷新会丢。
 async function saveCustomPlatforms(platforms: CustomPlatformData[]) {
   const previous = getCustomPlatformsData()
   customPlatformsData = platforms
@@ -401,7 +353,7 @@ async function saveCustomPlatforms(platforms: CustomPlatformData[]) {
     if (!response.ok) {
       throw new Error(`Failed to save custom platforms: HTTP ${response.status}`)
     }
-    // Drop 30s UI config cache so refresh / other widgets see new list
+    // 清 30s UI 配置缓存，刷新和其他小组件才能看到新列表。
     clearDedupCache(`${API_URL}/api/config/ui`)
     window.dispatchEvent(
       new CustomEvent('custom-platforms-update', {
@@ -409,7 +361,7 @@ async function saveCustomPlatforms(platforms: CustomPlatformData[]) {
       }),
     )
   } catch (err) {
-    // Roll back in-memory state so UI matches server
+    // 失败则回滚内存，与服务器一致。
     customPlatformsData = previous
     platformInfoCache.clear()
     console.error('Failed to persist custom platforms:', err)
@@ -417,20 +369,17 @@ async function saveCustomPlatforms(platforms: CustomPlatformData[]) {
   }
 }
 
-// 添加自定义平台
 async function addCustomPlatform(platform: CustomPlatformData) {
   const updated = [...getCustomPlatformsData(), platform]
   await saveCustomPlatforms(updated)
   return platform.id
 }
 
-// 删除自定义平台
 async function removeCustomPlatform(platformId: string) {
   const updated = getCustomPlatformsData().filter((p) => p.id !== platformId)
   await saveCustomPlatforms(updated)
 }
 
-// 默认图标 - 预先创建避免重复
 const DEFAULT_ICON = (
   <svg
     className="w-full h-full"
@@ -442,11 +391,9 @@ const DEFAULT_ICON = (
   </svg>
 )
 
-// 将自定义平台数据转换为PlatformInfo - 带缓存
 function customPlatformToPlatformInfo(
   custom: CustomPlatformData,
 ): PlatformInfo {
-  // 检查缓存
   const cached = platformInfoCache.get(custom.id)
   const now = Date.now()
   if (cached && now - cached.timestamp < PLATFORM_INFO_CACHE_TTL) {
@@ -454,10 +401,8 @@ function customPlatformToPlatformInfo(
   }
   if (cached) platformInfoCache.delete(custom.id)
 
-  // 创建图标元素 - 支持 react-icons 名称映射和 URL
   let icon: React.ReactNode
 
-  // 优先使用 iconName（从图标库映射）
   if (custom.iconName) {
     const IconComponent = getIconByName(custom.iconName)
     if (IconComponent) {
@@ -465,7 +410,6 @@ function customPlatformToPlatformInfo(
     }
   }
 
-  // 如果没有找到图标组件，使用外部URL
   if (!icon && custom.iconUrl) {
     icon = (
       <img
@@ -477,12 +421,10 @@ function customPlatformToPlatformInfo(
     )
   }
 
-  // 如果没有图标，使用默认图标
   if (!icon) {
     icon = DEFAULT_ICON
   }
 
-  // 预先创建 getUserUrl 函数，避免每次调用创建闭包
   const linkPattern = custom.linkPattern
   const linkType = custom.linkType
   const hasUsername = custom.username && custom.username.trim() !== ''
@@ -490,7 +432,7 @@ function customPlatformToPlatformInfo(
     linkType === 'url' && linkPattern
       ? hasUsername
         ? (userId: string) => linkPattern.replace('{username}', userId)
-        : () => linkPattern // 无用户名时直接返回URL模式
+        : () => linkPattern
       : () => '#'
 
   const info: PlatformInfo = {
@@ -504,7 +446,6 @@ function customPlatformToPlatformInfo(
     isCustom: true,
   }
 
-  // 存入缓存
   platformInfoCache.delete(custom.id)
   platformInfoCache.set(custom.id, { info, timestamp: now })
   while (platformInfoCache.size > MAX_PLATFORM_INFO_CACHE) {
@@ -516,7 +457,6 @@ function customPlatformToPlatformInfo(
   return info
 }
 
-// 获取所有平台（包括预设和自定义）
 function getAllPlatforms(): PlatformInfo[] {
   const customPlatforms = getCustomPlatformsData().map(
     customPlatformToPlatformInfo,
@@ -524,7 +464,7 @@ function getAllPlatforms(): PlatformInfo[] {
   return [...PLATFORMS, ...customPlatforms]
 }
 
-// 全局设置弹窗管理器 - 确保只有一个弹窗实例
+// 全局只允许一个设置弹窗。
 interface SettingsModalState {
   isOpen: boolean
   selectedPlatformId: string
@@ -568,7 +508,6 @@ function subscribeToModalState(listener: () => void) {
   }
 }
 
-// 缓存平台配置数据
 interface PlatformUserIds {
   bilibili_uid?: string
   steam_id?: string
@@ -580,31 +519,26 @@ interface PlatformUserIds {
   x_username?: string
 }
 
-// 全局缓存 - 避免重复请求
 let cachedPlatformUserIds: PlatformUserIds | null = null
 let fetchPromise: Promise<PlatformUserIds> | null = null
 let cacheTimestamp = 0
-const CACHE_TTL = 5 * 60 * 1000 // 5分钟缓存
+const CACHE_TTL = 5 * 60 * 1000
 
 async function fetchPlatformUserIds(): Promise<PlatformUserIds> {
   const now = Date.now()
 
-  // 检查缓存是否有效
   if (cachedPlatformUserIds && now - cacheTimestamp < CACHE_TTL) {
     return cachedPlatformUserIds
   }
 
-  // 复用进行中的请求
   if (fetchPromise) return fetchPromise
 
   fetchPromise = (async () => {
     try {
-      // 使用公开端点，不需要登录认证；去重缓存与报告卡片共享同一次请求
+      // 公开端点；与报告卡共享去重缓存。
       const data = await getPublicConfigDeduped()
       const result: PlatformUserIds = {}
 
-      // 从 platforms 数组提取用户ID配置
-      // 只要字段已填即可（与报告页 enabled 开关无关；enabled 仅控制报告卡片展示）
       if (data.platforms && Array.isArray(data.platforms)) {
         for (const platform of data.platforms) {
           for (const field of platform.config_fields || []) {
@@ -674,7 +608,6 @@ async function fetchPlatformUserIds(): Promise<PlatformUserIds> {
   return fetchPromise
 }
 
-// 自定义平台表单组件
 const CustomPlatformForm = memo(
   ({
     formData,
@@ -698,7 +631,6 @@ const CustomPlatformForm = memo(
     const { t } = useI18n()
     return (
       <div className="space-y-4 max-h-96 overflow-y-auto">
-        {/* 平台名称 */}
         <div>
           <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
             {t.socialNetwork.platformName} *
@@ -712,7 +644,6 @@ const CustomPlatformForm = memo(
           />
         </div>
 
-        {/* 链接类型 */}
         <div>
           <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
             {t.socialNetwork.linkType}
@@ -743,7 +674,6 @@ const CustomPlatformForm = memo(
           </div>
         </div>
 
-        {/* URL类型显示用户名和URL模式 */}
         {formData.linkType === 'url' ? (
           <>
             <div>
@@ -807,7 +737,6 @@ const CustomPlatformForm = memo(
           </div>
         )}
 
-        {/* 按钮 */}
         <div className="flex gap-2 pt-2">
           <button
             type="button"
@@ -845,16 +774,13 @@ const CustomPlatformForm = memo(
 
 CustomPlatformForm.displayName = 'CustomPlatformForm'
 
-// 解析弹窗内容 - 自动识别图片URL
-// 安全验证图片 URL
 function isValidImageUrl(url: string): boolean {
   try {
     const parsed = new URL(url)
-    // 只允许 http 和 https 协议
+    // 图片 URL 只允许 http(s)。
     if (!['http:', 'https:'].includes(parsed.protocol)) {
       return false
     }
-    // 检查是否有可疑的路径
     if (
       parsed.pathname.includes('..') ||
       parsed.search.includes('<') ||
@@ -874,20 +800,16 @@ function parsePopupContent(text?: string): {
 } {
   if (!text) return { textContent: '', imageUrls: [] }
 
-  // 匹配图片URL的正则表达式
   const imageUrlRegex = /(https?:\/\/\S+\.(?:jpg|jpeg|png|gif|webp|bmp|svg))/gi
   const rawImageUrls = text.match(imageUrlRegex) || []
 
-  // 过滤不安全的图片 URL
   const imageUrls = rawImageUrls.filter(isValidImageUrl)
 
-  // 移除图片URL后的纯文本
   const textContent = text.replace(imageUrlRegex, '').trim()
 
   return { textContent, imageUrls }
 }
 
-// Tooltip 动画配置常量
 const TOOLTIP_ANIMATION = {
   initial: { opacity: 0, y: -4, x: '-50%', scale: 0.96 },
   animate: { opacity: 1, y: 0, x: '-50%', scale: 1 },
@@ -895,7 +817,6 @@ const TOOLTIP_ANIMATION = {
   transition: { duration: 0.12, ease: 'easeOut' as const },
 }
 
-// 信息提示组件 - hover 时在小组件下方显示，点击复制
 const InfoTooltip = memo(
   ({
     isVisible,
@@ -909,13 +830,11 @@ const InfoTooltip = memo(
     const { t } = useI18n()
     const [_copied, setCopied] = useState(false)
 
-    // 解析内容
     const { textContent, imageUrls } = useMemo(
       () => parsePopupContent(popupData.text),
       [popupData.text],
     )
 
-    // 计算位置 - 基于小组件中心对齐
     const position = useMemo(() => {
       if (!isVisible || !anchorRef.current) return { top: 0, left: 0 }
       const rect = anchorRef.current.getBoundingClientRect()
@@ -925,7 +844,6 @@ const InfoTooltip = memo(
       }
     }, [isVisible, anchorRef])
 
-    // 复制文本
     const handleCopy = useCallback(async () => {
       if (!textContent) return
       try {
@@ -956,7 +874,6 @@ const InfoTooltip = memo(
         >
           {hasContent ? (
             <div className="p-3 space-y-2">
-              {/* 文本内容 - 点击可复制 */}
               {textContent && (
                 <div className="cursor-pointer text-center">
                   <p className="text-sm font-medium text-gray-800 dark:text-gray-100 wrap-break-word whitespace-pre-wrap leading-relaxed">
@@ -965,7 +882,6 @@ const InfoTooltip = memo(
                 </div>
               )}
 
-              {/* 图片 - 紧凑显示 */}
               {imageUrls.length > 0 && (
                 <div className="flex flex-wrap justify-center gap-1.5">
                   {imageUrls.map((url, index) => (
@@ -983,7 +899,6 @@ const InfoTooltip = memo(
                 </div>
               )}
 
-              {/* 二维码 - 紧凑显示 */}
               {popupData.qrcodeUrl && (
                 <img
                   src={popupData.qrcodeUrl}
@@ -1009,25 +924,20 @@ const InfoTooltip = memo(
 
 InfoTooltip.displayName = 'InfoTooltip'
 
-// 全局设置弹窗组件 - 单例模式
 const GlobalSettingsModal = memo(() => {
-  // 订阅全局状态
   const [, forceUpdate] = useState({})
   const { t } = useI18n()
 
-  // 加载自定义平台
   const [allPlatforms, setAllPlatforms] = useState<PlatformInfo[]>(() => {
     return getAllPlatforms()
   })
 
-  // 异步加载自定义平台
   useEffect(() => {
     loadCustomPlatformsAsync().then(() => {
       setAllPlatforms(getAllPlatforms())
     })
   }, [])
 
-  // 自定义平台表单状态
   const [showCustomForm, setShowCustomForm] = useState(false)
   const [customFormData, setCustomFormData] = useState({
     name: '',
@@ -1046,7 +956,6 @@ const GlobalSettingsModal = memo(() => {
 
   const { isOpen, selectedPlatformId, anchorRect, onSelect } = globalModalState
 
-  // 处理平台选择
   const handleSelect = useCallback(
     (platformId: string) => {
       if (onSelect) {
@@ -1057,14 +966,12 @@ const GlobalSettingsModal = memo(() => {
     [onSelect],
   )
 
-  // 处理自定义平台表单提交
   const handleCustomFormSubmit = useCallback(async () => {
     if (!customFormData.name) {
       alert(t.socialNetworkWidget.fillPlatformName)
       return
     }
 
-    // URL类型需要用户名或URL模式其一，弹窗类型需要显示内容
     if (
       customFormData.linkType === 'url' &&
       !customFormData.username &&
@@ -1078,7 +985,6 @@ const GlobalSettingsModal = memo(() => {
       return
     }
 
-    // 安全验证：检查 URL 模式
     const urlPattern = customFormData.linkPattern || ''
     if (
       customFormData.linkType === 'url' &&
@@ -1092,10 +998,8 @@ const GlobalSettingsModal = memo(() => {
     setIsGeneratingIcon(true)
 
     try {
-      // 生成唯一ID
-      const customId = `custom_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`
+      const customId = `custom_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
 
-      // 调用AI推荐图标API
       let iconData: {
         iconType?: 'react-icons' | 'url'
         iconLibrary?: string
@@ -1124,21 +1028,18 @@ const GlobalSettingsModal = memo(() => {
             iconName: data.icon_name,
             iconUrl: data.icon_url,
             recommendedColor: data.color_suggestion,
-            urlPattern: data.url_pattern, // AI 生成的 URL 模式
+            urlPattern: data.url_pattern,
           }
         }
       } catch (error) {
         console.error('Failed to get AI icon recommendation:', error)
-        // 继续使用用户选择的颜色
       }
 
-      // 确定最终使用的 URL 模式：优先使用用户填写的，否则使用 AI 推荐的
       const rawLinkPattern =
         customFormData.linkPattern || iconData.urlPattern || ''
-      // 安全处理：消毒 URL 模式
       const finalLinkPattern = sanitizeUrlPattern(rawLinkPattern)
 
-      // 再次验证消毒后的 URL（AI 推荐的也需要验证）
+      // AI 推荐的 URL 也要再验一次。
       if (
         customFormData.linkType === 'url' &&
         finalLinkPattern &&
@@ -1151,38 +1052,36 @@ const GlobalSettingsModal = memo(() => {
 
       const newPlatform: CustomPlatformData = {
         id: customId,
-        name: sanitizePlatformName(customFormData.name), // 消毒平台名称
+        name: sanitizePlatformName(customFormData.name),
         username:
           customFormData.linkType === 'url'
             ? sanitizeUsername(customFormData.username)
-            : '', // 消毒用户名
+            : '',
         iconType: iconData.iconType || 'react-icons',
         iconLibrary: iconData.iconLibrary,
         iconName: iconData.iconName,
         iconUrl: iconData.iconUrl,
-        color: iconData.recommendedColor || '#6366f1', // 使用AI推荐的颜色或默认颜色
+        color: iconData.recommendedColor || '#6366f1',
         darkColor: iconData.recommendedColor || '#6366f1',
         linkType: customFormData.linkType,
         linkPattern:
           customFormData.linkType === 'url' &&
           isValidUrlPattern(finalLinkPattern)
             ? finalLinkPattern
-            : undefined, // 验证后存储
+            : undefined,
         popupData:
           customFormData.linkType === 'popup'
             ? {
                 type: 'text',
-                text: sanitizePopupText(customFormData.popupText), // 消毒弹窗文本
+                text: sanitizePopupText(customFormData.popupText),
               }
             : undefined,
       }
 
       await addCustomPlatform(newPlatform)
 
-      // 刷新平台列表
       setAllPlatforms(getAllPlatforms())
 
-      // 重置表单
       setCustomFormData({
         name: '',
         username: '',
@@ -1192,7 +1091,6 @@ const GlobalSettingsModal = memo(() => {
       })
       setShowCustomForm(false)
 
-      // 自动选择新建的平台
       if (onSelect) {
         onSelect(customId)
       }
@@ -1207,7 +1105,6 @@ const GlobalSettingsModal = memo(() => {
     }
   }, [customFormData, onSelect, t])
 
-  // 删除自定义平台
   const handleDeleteCustomPlatform = useCallback(
     async (platformId: string) => {
       if (confirm(t.socialNetworkWidget.confirmDeleteCustomPlatform)) {
@@ -1288,7 +1185,6 @@ const GlobalSettingsModal = memo(() => {
 
 GlobalSettingsModal.displayName = 'GlobalSettingsModal'
 
-// 平台按钮组件 - 单独 memo 避免列表重渲染
 const PlatformButton = memo(
   ({
     platform,
@@ -1392,7 +1288,6 @@ const PlatformButton = memo(
 
 PlatformButton.displayName = 'PlatformButton'
 
-// 主组件
 export const SocialNetworkWidget = memo(
   ({ config, isEditMode, isPreview, onConfigChange }: WidgetComponentProps) => {
     const { containerRef, fontScale } = useWidgetSize(
@@ -1402,42 +1297,33 @@ export const SocialNetworkWidget = memo(
     const anim = useAnimationLevel()
     const { t } = useI18n()
 
-    // 🆕 使用触发式动画 - 组件挂载时播放一次hover动画
     const { isAnimating } = useLoopAnimation({
-      duration: 600, // hover动画约0.6秒
-      trigger: 'mount', // 固定值，组件首次渲染时触发一次
-      enabled: anim.loop, // 低端设备禁用
+      duration: 600,
+      trigger: 'mount',
+      enabled: anim.loop,
     })
 
-    // 本地 ref 用于获取 DOM 元素引用（用于定位弹窗）
     const localRef = useRef<HTMLDivElement | null>(null)
 
-    // 深色模式检测 - 使用共享主题订阅器，避免每个组件都创建 MutationObserver
     const isDark = useThemeMode()
 
-    // 从配置获取选中的平台ID
     const [selectedPlatformId, setSelectedPlatformId] = useState<string>(
       config.config?.platformId || 'bilibili',
     )
     const [platformUserIds, setPlatformUserIds] = useState<PlatformUserIds>({})
     const [isHovered, setIsHovered] = useState(false)
 
-    // 信息提示状态 - hover 触发
     const [showInfoTooltip, setShowInfoTooltip] = useState(false)
 
-    // 自定义平台加载状态
     const [customPlatformsReady, setCustomPlatformsReady] = useState(
       customPlatformsLoaded,
     )
 
-    // 长按检测 - 使用 ReturnType<typeof setTimeout> 兼容浏览器和 Node 环境
     const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const isLongPressRef = useRef(false)
 
-    // hover 延迟计时器
     const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-    // 异步加载自定义平台数据
     useEffect(() => {
       if (!customPlatformsLoaded) {
         loadCustomPlatformsAsync().then(() => {
@@ -1446,15 +1332,12 @@ export const SocialNetworkWidget = memo(
       }
     }, [])
 
-    // 获取当前选中的平台信息 - 支持自定义平台
     const selectedPlatform = useMemo(() => {
-      // 先检查是否是预设平台
       const index = PLATFORM_INDEX_MAP[selectedPlatformId]
       if (index !== undefined) {
         return PLATFORMS[index]
       }
 
-      // 检查是否是自定义平台（确保数据已加载）
       if (customPlatformsReady) {
         const customPlatform = getCustomPlatformsData().find(
           (p) => p.id === selectedPlatformId,
@@ -1464,13 +1347,10 @@ export const SocialNetworkWidget = memo(
         }
       }
 
-      // 默认返回第一个平台
       return PLATFORMS[0]
     }, [selectedPlatformId, customPlatformsReady])
 
-    // 获取用户ID - 支持自定义平台
     const userId = useMemo(() => {
-      // 预设平台
       switch (selectedPlatformId) {
         case 'bilibili':
           return platformUserIds.bilibili_uid
@@ -1489,17 +1369,14 @@ export const SocialNetworkWidget = memo(
         case 'x':
           return platformUserIds.x_username
         default: {
-          // 自定义平台（确保数据已加载）
           if (customPlatformsReady) {
             const customPlatform = getCustomPlatformsData().find(
               (p) => p.id === selectedPlatformId,
             )
             if (customPlatform) {
-              // 信息弹窗类型返回特殊标识，表示已配置
               if (customPlatform.linkType === 'popup') {
                 return '__popup__'
               }
-              // 有用户名则返回用户名，否则如果有linkPattern则返回特殊标识表示直接访问
               if (
                 customPlatform.username &&
                 customPlatform.username.trim() !== ''
@@ -1516,13 +1393,11 @@ export const SocialNetworkWidget = memo(
       }
     }, [selectedPlatformId, platformUserIds, customPlatformsReady])
 
-    // 加载平台用户ID
     useEffect(() => {
       if (isPreview) return
       fetchPlatformUserIds().then(setPlatformUserIds)
     }, [isPreview])
 
-    // 同步配置中的 platformId
     useEffect(() => {
       if (
         config.config?.platformId &&
@@ -1532,15 +1407,12 @@ export const SocialNetworkWidget = memo(
       }
     }, [config.config?.platformId])
 
-    // 处理平台选择变化
     const handleSelectPlatform = useCallback(
       (platformId: string) => {
         setSelectedPlatformId(platformId)
-        // 优先通过 props.onConfigChange 上报
         if (typeof onConfigChange === 'function') {
           onConfigChange({ ...config.config, platformId })
         } else {
-          // 兼容旧逻辑
           window.dispatchEvent(
             new CustomEvent('widget-config-update', {
               detail: {
@@ -1554,7 +1426,6 @@ export const SocialNetworkWidget = memo(
       [config.id, config.config, onConfigChange],
     )
 
-    // 打开设置弹窗
     const openSettings = useCallback(() => {
       if (!localRef.current) return
 
@@ -1565,7 +1436,6 @@ export const SocialNetworkWidget = memo(
       )
     }, [selectedPlatformId, handleSelectPlatform])
 
-    // 长按开始
     const handlePressStart = useCallback(() => {
       if (!isEditMode) return
 
@@ -1576,7 +1446,6 @@ export const SocialNetworkWidget = memo(
       }, 500)
     }, [isEditMode, openSettings])
 
-    // 长按取消
     const handlePressEnd = useCallback(() => {
       if (longPressTimerRef.current) {
         clearTimeout(longPressTimerRef.current)
@@ -1584,7 +1453,6 @@ export const SocialNetworkWidget = memo(
       }
     }, [])
 
-    // 获取弹窗类型平台数据（合并查找逻辑避免重复）
     const popupPlatformData = useMemo(() => {
       loadCustomPlatforms()
       const customPlatform = getCustomPlatformsData().find(
@@ -1602,22 +1470,18 @@ export const SocialNetworkWidget = memo(
       return null
     }, [selectedPlatformId])
 
-    // 是否为弹窗类型（直接从 popupPlatformData 派生）
     const isPopupType = popupPlatformData !== null
     const hasInteraction = !isEditMode && !!userId
 
-    // 点击处理（跳转到用户页面或复制信息）
     const handleClick = useCallback(async () => {
-      // 如果是长按触发的设置弹窗，不处理点击
+      // 长按打开设置时不要当点击跳转。
       if (isLongPressRef.current) {
         isLongPressRef.current = false
         return
       }
 
-      // 编辑模式下不跳转
       if (isEditMode) return
 
-      // 信息弹窗类型：点击复制文本
       if (popupPlatformData?.popupData.text) {
         try {
           const { textContent } = parsePopupContent(
@@ -1635,9 +1499,7 @@ export const SocialNetworkWidget = memo(
         return
       }
 
-      // 如果有用户ID，则跳转
       if (userId && userId !== '__popup__') {
-        // __direct_url__ 表示直接访问URL模式（无用户名占位符）
         const url = selectedPlatform.getUserUrl(
           userId === '__direct_url__' ? '' : userId,
         )
@@ -1660,7 +1522,6 @@ export const SocialNetworkWidget = memo(
       [handleClick, hasInteraction],
     )
 
-    // 清理定时器
     useEffect(() => {
       return () => {
         if (longPressTimerRef.current) {
@@ -1675,13 +1536,11 @@ export const SocialNetworkWidget = memo(
       }
     }, [])
 
-    // 计算图标颜色 - 使用 useMemo 避免重复计算
     const iconColor = useMemo(
       () => (isDark ? selectedPlatform.darkColor : selectedPlatform.color),
       [isDark, selectedPlatform.darkColor, selectedPlatform.color],
     )
 
-    // 根据动画级别和调度器状态选择过渡配置
     const canLoopAnimate = anim.loop && isAnimating
     const loopTransitionFast = canLoopAnimate
       ? LOOP_TRANSITION_FAST
@@ -1693,9 +1552,7 @@ export const SocialNetworkWidget = memo(
       ? HINT_LOOP_TRANSITION
       : HINT_NO_LOOP_TRANSITION
 
-    // 使用 useMemo 渲染内容区域，避免不必要的重渲染
     const content = useMemo(() => {
-      // 1x1 尺寸 - 仅图标
       if (config.size === '1x1') {
         return (
           <div className="h-full w-full flex items-center justify-center">
@@ -1714,7 +1571,6 @@ export const SocialNetworkWidget = memo(
         )
       }
 
-      // 2x1 尺寸 - 图标 + 平台名称
       if (config.size === '2x1') {
         return (
           <div className="h-full w-full flex items-center justify-center gap-3 px-4">
@@ -1741,16 +1597,13 @@ export const SocialNetworkWidget = memo(
         )
       }
 
-      // 2x2 尺寸 - popup 类型重视内容显示
       const popupContent = popupPlatformData
         ? parsePopupContent(popupPlatformData.popupData.text)
         : null
       const is2x2Popup =
         userId === '__popup__' && popupContent && popupPlatformData
 
-      // 2x2 popup 类型：内容为主的布局
       if (is2x2Popup) {
-        // 判断是否只有图片内容（没有文本）
         const hasOnlyImages =
           !popupContent.textContent &&
           (popupContent.imageUrls.length > 0 ||
@@ -1758,7 +1611,6 @@ export const SocialNetworkWidget = memo(
 
         return (
           <div className="h-full w-full relative flex flex-col p-3 cursor-pointer group">
-            {/* 右上角：复制提示 - 仅在有文本内容时显示 */}
             {popupContent.textContent && (
               <div className="absolute top-2 right-2 text-[10px] text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
                 <span>{t.socialNetwork.copy}</span>
@@ -1778,7 +1630,6 @@ export const SocialNetworkWidget = memo(
               </div>
             )}
 
-            {/* 顶部：小图标 + 平台名 */}
             <div className="flex items-center gap-2 mb-1">
               <div className="text-lg shrink-0" style={{ color: iconColor }}>
                 {selectedPlatform.icon}
@@ -1788,7 +1639,6 @@ export const SocialNetworkWidget = memo(
               </span>
             </div>
 
-            {/* 中间：主要内容区域 - 扩大显示 */}
             <div className="flex-1 flex flex-col justify-center overflow-hidden">
               {popupContent.textContent && (
                 <p className="text-base font-medium text-gray-800 dark:text-gray-100 wrap-break-word whitespace-pre-wrap leading-snug line-clamp-4 text-center">
@@ -1827,7 +1677,6 @@ export const SocialNetworkWidget = memo(
         )
       }
 
-      // 2x2 尺寸 - 普通类型：图标 + 平台名称 + 描述
       return (
         <div className="h-full w-full flex flex-col items-center justify-center gap-2 p-4">
           <motion.div
@@ -1900,7 +1749,6 @@ export const SocialNetworkWidget = memo(
       anim.loop,
     ])
 
-    // 缓存容器的 hover/tap 动画配置 - 条件判断移到外部避免创建空对象
     const containerHoverProps = useMemo(
       () =>
         hasInteraction
@@ -1912,24 +1760,19 @@ export const SocialNetworkWidget = memo(
       [hasInteraction],
     )
 
-    // 背景光晕动画 - 直接使用条件渲染，无需 useMemo
     const shouldAnimateGlow = anim.loop
 
-    // tooltip 隐藏延迟计时器
     const tooltipHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
       null,
     )
 
-    // 缓存 onMouseLeave 和 onMouseEnter 回调
     const handleMouseLeave = useCallback(() => {
       handlePressEnd()
       setIsHovered(false)
-      // 清除 hover 延迟计时器
       if (hoverTimerRef.current) {
         clearTimeout(hoverTimerRef.current)
         hoverTimerRef.current = null
       }
-      // 延迟隐藏 tooltip，给用户一点时间移动到 tooltip 上
       if (tooltipHideTimerRef.current) {
         clearTimeout(tooltipHideTimerRef.current)
       }
@@ -1943,31 +1786,24 @@ export const SocialNetworkWidget = memo(
       if (!isEditMode && userId) {
         setIsHovered(true)
       }
-      // 对于 popup 类型，hover 延迟显示 tooltip（仅非 2x2 尺寸）
-      // 2x2 尺寸直接在小组件内显示内容
       if (
         !isEditMode &&
         isPopupType &&
         popupPlatformData &&
         config.size !== '2x2'
       ) {
-        // 清除之前的计时器
         if (hoverTimerRef.current) {
           clearTimeout(hoverTimerRef.current)
         }
-        // 300ms 延迟后显示 tooltip
         hoverTimerRef.current = setTimeout(() => {
           setShowInfoTooltip(true)
         }, 300)
       }
     }, [isEditMode, userId, isPopupType, popupPlatformData, config.size])
 
-    // 合并 ref 回调
     const mergedRef = useCallback(
       (node: HTMLDivElement | null) => {
-        // 设置本地 ref
         localRef.current = node
-        // 调用 containerRef 回调
         if (typeof containerRef === 'function') {
           containerRef(node)
         }
@@ -1985,7 +1821,7 @@ export const SocialNetworkWidget = memo(
             hasInteraction ? 'cursor-pointer' : ''
           } ${isEditMode ? 'cursor-grab' : ''}`}
           style={{
-            // 使用 filter 替代 box-shadow 避免布局影响
+            // 用 filter 替代 box-shadow，避免影响布局。
             transition: 'filter 0.3s ease, border-color 0.3s ease',
           }}
           background={
@@ -2013,7 +1849,6 @@ export const SocialNetworkWidget = memo(
             onTouchCancel: handlePressEnd,
           }}
         >
-          {/* 内容区域 */}
           {content}
           <WidgetLongPressHint
             visible={isEditMode}
@@ -2022,7 +1857,6 @@ export const SocialNetworkWidget = memo(
           />
         </WidgetShell>
 
-        {/* 信息提示 - hover 触发，点击复制 */}
         <AnimatePresence>
           {showInfoTooltip && popupPlatformData && (
             <InfoTooltip
@@ -2039,5 +1873,4 @@ export const SocialNetworkWidget = memo(
 
 SocialNetworkWidget.displayName = 'SocialNetworkWidget'
 
-// 导出全局弹窗组件供应用层级使用
 export { GlobalSettingsModal as SocialNetworkSettingsModal }

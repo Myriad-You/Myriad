@@ -1,15 +1,3 @@
-/**
- * 设置页「用户管理」模块的 admin API 客户端。
- *
- * 对应后端 backend/src/api/admin_users.rs：
- * - GET    /api/admin/users
- * - POST   /api/admin/users （创建本地用户，auth_local.rs）
- * - GET    /api/admin/users/{id}
- * - PATCH  /api/admin/users/{id}
- * - DELETE /api/admin/users/{id}
- * - DELETE /api/admin/users/{id}/identities/{identity_id}
- */
-
 import apiService from './api'
 
 export interface AdminUserIdentity {
@@ -43,11 +31,10 @@ export interface AdminUser {
   email: string | null
   avatar_url: string | null
   is_admin: boolean
-  /** Durable site owner flag (was: heuristic id === 1). */
   is_owner: boolean
   auth_provider: string
   local_login_disabled: boolean
-  /** 禁止该用户安装新 Tapp（不影响已装应用的运行/更新） */
+  /** Blocks new Tapp installs only. */
   tapp_install_disabled?: boolean
   has_password: boolean
   created_at: string | null
@@ -57,7 +44,6 @@ export interface AdminUser {
   online_seconds: number
   tapp_count: number
   identities: AdminUserIdentity[]
-  /** 仅详情接口返回 */
   tapps?: AdminUserTapp[]
 }
 
@@ -74,7 +60,7 @@ export interface AdminCreateUserInput {
   is_admin?: boolean
 }
 
-// apiService 的 API_BASE 已含 /api 前缀，这里不能再写 /api
+// API_BASE already includes /api.
 const BASE = '/admin/users'
 
 export const adminUsersApi = {

@@ -8,7 +8,7 @@
 //! - `creative-worker.md` → CreativeWorker
 //! - `system-worker.md` → SystemWorker
 //!
-//! Orchestrator 使用全局 SOUL.md 作为身份。
+//! Orchestrator maps to `None` here (no role file). Planner uses `get_speaking_soul` / SOUL.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -43,7 +43,7 @@ impl AgentIdentity {
         Self { soul, user_profile }
     }
 
-    /// 获取 Role 提示词（SOUL.md 内容，或 None 使用默认模板）
+    /// `self.soul` as-is (`None` if unloaded). Default copy lives in the caller.
     pub fn role_prompt(&self) -> Option<&str> {
         self.soul.as_deref()
     }
@@ -70,14 +70,14 @@ pub struct IdentityManager {
     role_identities: Arc<RwLock<HashMap<AgentRole, String>>>,
 }
 
-/// AgentRole.id → 文件名映射
+/// `AgentRole` → `agents/{id}.md` stem. Orchestrator has no file.
 fn role_file_id(role: AgentRole) -> Option<&'static str> {
     match role {
         AgentRole::DataWorker => Some("data-worker"),
         AgentRole::ContentWorker => Some("content-worker"),
         AgentRole::CreativeWorker => Some("creative-worker"),
         AgentRole::SystemWorker => Some("system-worker"),
-        AgentRole::Orchestrator => None, // 使用全局 SOUL.md
+        AgentRole::Orchestrator => None,
     }
 }
 
@@ -108,7 +108,7 @@ impl IdentityManager {
 
     /// 获取所有角色的简短描述（用于 Planner 注入上下文）
     ///
-    /// 返回格式：`" Data Worker: <第一行>\n Content Worker: <第一行>"`
+    /// Lines `{icon} {display_name}: {first non-# line}`, then `sort()`.
     pub async fn get_role_summaries(&self) -> String {
         let roles = self.role_identities.read().await;
         let mut summaries = Vec::new();

@@ -2,10 +2,8 @@ import type { SpeechGesture } from './phraseGestures'
 import type { VisemeSpan } from './visemeTimeline'
 
 export interface SpeechAccentAnchor {
-  /** Stable boundary in normalized text; audio-only accents use their order. */
   textOffset?: number
   gesture?: SpeechGesture | 'none'
-  /** Milliseconds from the first audible sample. */
   offsetMs: number
   intensity: number
 }
@@ -17,21 +15,14 @@ export interface SpeechProsodyTimeline {
 
 export interface SpeechProsodyPlan extends SpeechProsodyTimeline {
   utteranceId: string
-  /** Wall-clock origin shared with the motion runtime. */
   startedAtMs: number
 }
 
 const MIN_ACCENT_GAP_MS = 360
 export const MAX_AUDIO_PROSODY_MS = 30_000
-// Enough anchors for the entire accepted audio segment, not just its opening.
 export const MAX_AUDIO_PROSODY_ACCENTS =
   Math.ceil(MAX_AUDIO_PROSODY_MS / MIN_ACCENT_GAP_MS) + 1
 
-/**
- * Turns already-known TTS emphasis into future semantic anchors. Live energy
- * remains a magnitude correction and fallback; it no longer has to discover
- * every accent after the stressed sound has already happened.
- */
 export function speechProsodyTimeline(
   spans: readonly VisemeSpan[],
   durationSeconds: number,

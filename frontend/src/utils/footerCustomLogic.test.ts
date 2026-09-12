@@ -39,7 +39,6 @@ describe('footerCustomLogic', () => {
     const slots = parseFooterCustomSlots(draft)
     assert.equal(slots.length, 1)
     assert.equal(slots[0]?.text, '')
-    // display still empty
     assert.deepEqual(parseFooterCustom(draft), [])
   })
 

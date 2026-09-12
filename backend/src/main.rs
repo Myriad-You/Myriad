@@ -6,9 +6,7 @@
 //! target — keep the allow rather than trusting `cargo fix --all-targets`.
 #![allow(unused_imports)]
 #![allow(private_interfaces)]
-// Style fallout from the large modularization split (doc formatting, signature
-// shape, structural locals). Behavior is covered by unit/black-box tests;
-// tightening these lints is a follow-up hygiene pass, not a security gate.
+// Clippy style allows（doc / signature / locals）；不是安全闸。
 #![allow(clippy::needless_update)]
 #![allow(clippy::doc_lazy_continuation)]
 #![allow(clippy::type_complexity)]
@@ -17,8 +15,7 @@
 #![allow(clippy::empty_line_after_doc_comments)]
 #![allow(clippy::unnecessary_sort_by)]
 #![allow(clippy::redundant_guards)]
-// rustc 1.94 clippy gained several pedantic-style lints. Same deal: the
-// split left hundreds of nits; they are not this PR's security gate.
+// rustc 1.94 clippy pedantic-style lints: style nits, not a security gate.
 #![allow(clippy::needless_borrow)]
 #![allow(clippy::needless_borrows_for_generic_args)]
 #![allow(clippy::field_reassign_with_default)]
@@ -59,23 +56,27 @@ use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod api;
+#[cfg(test)]
+mod authored_comments;
 mod config;
 mod db;
 mod error;
 mod extract;
 mod federation;
+mod i18n;
 mod memory_audit_invariants;
 mod middleware;
 mod models;
 mod oauth_url_builder;
 mod router;
+mod runtime_role;
 mod services;
 mod state;
 
 use config::{AppConfig, DynamicConfig};
 use sea_orm::ConnectionTrait;
 use services::config_service::ConfigService;
-use std::sync::atomic::{AtomicBool, Ordering}; // P1: 用于数据库健康检查
+use std::sync::atomic::{AtomicBool, Ordering};
 
 // Global flag to indicate if server is running in configuration mode
 pub static CONFIG_MODE: AtomicBool = AtomicBool::new(false);
@@ -158,8 +159,28 @@ async fn main() -> anyhow::Result<()> {
     // Production compose de-roots backend (USER myriad). Warn once if still root.
     warn_if_running_as_root();
 
-    // Initialise the updater proxy client. None if env not set; routes still register
-    // and return a clean 503.
+    // Decide whether this server may federate, from its own public IP. Spawned
+    // rather than awaited so a slow third-party lookup cannot delay boot; the
+    // gate reads as enabled until the probe lands, and outbound delivery waits
+    // for a settled answer. Runs before the database branch because the answer
+    // is a property of this host, not of the installation.
+    services::federation_gate::spawn_startup_probe();
+
+    let role = runtime_role::RuntimeRole::from_env()?;
+    runtime_role::FEDERATION_HTTP_ISOLATED.store(
+        role == runtime_role::RuntimeRole::Web,
+        std::sync::atomic::Ordering::Release,
+    );
+    runtime_role::PERSONA_RUNTIME_LOCAL.store(
+        role != runtime_role::RuntimeRole::FederationWorker,
+        std::sync::atomic::Ordering::Release,
+    );
+    if role == runtime_role::RuntimeRole::FederationWorker {
+        return federation::worker::run().await;
+    }
+
+    // Initialise the updater proxy client. Unset env 在 production/容器内仍默认
+    // `http://updater-gateway:1104`；`None` 时路由仍注册、调用返回 503。
     let updater_client = services::updater_client::UpdaterClient::from_env();
     if let Some(c) = &updater_client {
         tracing::info!(
@@ -168,7 +189,7 @@ async fn main() -> anyhow::Result<()> {
             "updater client configured"
         );
         // Best-effort reachability probe. Don't block startup — the updater container may
-        // still be coming up, and admin routes return 503 cleanly when unreachable.
+        // still be coming up, and admin routes return 502 when unreachable.
         let probe = c.clone();
         tokio::spawn(async move {
             match probe.ping().await {
@@ -185,7 +206,7 @@ async fn main() -> anyhow::Result<()> {
     }
     api::updater_admin::init(updater_client);
 
-    run_server().await?;
+    run_server(role).await?;
 
     tracing::info!("👋 Backend shutdown complete");
     Ok(())
@@ -236,7 +257,7 @@ fn static_asset_cache_control(path: &str) -> &'static str {
     "no-cache"
 }
 
-async fn run_server() -> anyhow::Result<()> {
+async fn run_server(role: runtime_role::RuntimeRole) -> anyhow::Result<()> {
     SCHEMA_READY.store(false, Ordering::Release);
     // Load configuration
     let config = AppConfig::from_env()?;
@@ -246,6 +267,8 @@ async fn run_server() -> anyhow::Result<()> {
             "backend storage preflight failed; repair /app/data and /app/cache ownership/permissions for uid 1000: {error}"
         )
     })?;
+    crate::db::health::mark_storage_preflight_ok();
+    crate::db::health::record_storage_writable(true);
     tracing::info!(
         data_dir = %services::data_paths::paths().root.display(),
         cache_dir = %services::data_paths::paths().cache.display(),
@@ -295,7 +318,7 @@ async fn run_server() -> anyhow::Result<()> {
                 tracing::info!(db_target = %db_target, "✅ Database connection established");
 
                 // Run database migrations automatically on startup (idempotent).
-                // Folded 007–015 names are deleted from `seaql_migrations` first
+                // Folded 007–019 names are deleted from `seaql_migrations` first
                 // so SeaORM does not require no-op files for them; leftover
                 // `digital_life_*` experiment tables are dropped in the same
                 // step. Any remaining migration failure is fatal to full mode.
@@ -366,14 +389,13 @@ async fn run_server() -> anyhow::Result<()> {
                     }
                 }
 
-                // Validate GitHub OAuth configuration (after database config is loaded)
-                // This is informational only - OAuth will work if configured in database
+                // 日志 `base_url` 与已启用 oauth_providers 数量；始终 Ok（不拦启动）
                 use oauth_url_builder::OAuthUrlBuilder;
                 if let Err(e) = OAuthUrlBuilder::validate_github_oauth_config().await {
                     tracing::debug!("ℹ️  GitHub OAuth status: {}", e);
                 }
 
-                // Load OAuth provider registry (GitHub + future OIDC providers)
+                // Load OAuth provider registry（GitHub + OIDC）
                 services::oauth::registry::init().await;
                 tracing::info!(
                     "✅ OAuth providers loaded: {}",
@@ -385,14 +407,6 @@ async fn run_server() -> anyhow::Result<()> {
                 services::agent::notifications::init_notifications(db.clone()).await;
                 api::updater_admin::resume_pending_job_notifications().await;
                 tracing::info!("✅ Agent notification system initialized");
-
-                // Install governed-text sink before scheduler / declared-API AI builtins run.
-                api::tapp_runtime::install_governed_text_executor();
-                tracing::info!("✅ Governed text AI executor installed");
-
-                // Install Agent Interaction create sink before Executor handlers run.
-                api::tapp_runtime::install_agent_interaction_executor();
-                tracing::info!("✅ Agent interaction create executor installed");
 
                 // Initialize Tapp scheduler engine
                 api::tapp_scheduler::init_scheduler(db.clone()).await;
@@ -419,7 +433,7 @@ async fn run_server() -> anyhow::Result<()> {
                 tracing::info!("✅ Brew scheduler engine initialized");
 
                 // Initialize Agent identity system (SOUL.md / USER.md)
-                // MYR-044: single path authority via DataPaths (DATA_DIR-aware).
+                // Agent 数据目录走 DataPaths（DATA_DIR-aware）。
                 let agent_data_dir = services::data_paths::paths().agent.clone();
                 services::agent::identity::init_identity(agent_data_dir.clone()).await;
                 tracing::info!("✅ Agent identity system initialized");
@@ -709,7 +723,7 @@ async fn run_server() -> anyhow::Result<()> {
                     let mut interval = tokio::time::interval(std::time::Duration::from_secs(86400));
                     loop {
                         interval.tick().await;
-                        // 清理过期 Skill
+                        // prune_skills：失败率 > 0.70 或连续失败 >= 5
                         if let Some(evolution) =
                             services::agent::skill_evolution::get_skill_evolution()
                         {
@@ -777,8 +791,12 @@ async fn run_server() -> anyhow::Result<()> {
                 // Initialize Federation delivery worker (MFP Activity delivery queue).
                 // Required for createNote/publish fan-out: rows enqueued in
                 // fan_out_to_followers are drained here every ~15s.
-                federation::delivery::spawn_delivery_worker(db.clone());
-                tracing::info!("✅ Federation delivery worker started");
+                // The worker itself waits for the egress-location gate and logs
+                // its own outcome, so this only reports that it was scheduled.
+                if role == runtime_role::RuntimeRole::All {
+                    federation::delivery::spawn_delivery_worker(db.clone());
+                    tracing::info!("Federation delivery enabled in combined runtime");
+                }
 
                 services::channel_work::spawn_recovery_worker();
                 services::qq_bot::spawn_worker();
@@ -801,13 +819,6 @@ async fn run_server() -> anyhow::Result<()> {
                     }
                     Ok(_) => {}
                     Err(e) => tracing::error!("Configuration encryption migration failed: {e}"),
-                }
-                match services::retired_configuration::purge_retired_configuration_keys(&db).await {
-                    Ok(n) if n > 0 => {
-                        tracing::info!("✅ Retired configuration purge: {n} row(s)")
-                    }
-                    Ok(_) => {}
-                    Err(e) => tracing::error!("Retired configuration purge failed: {e}"),
                 }
                 let legacy_jwt_secret = {
                     let cfg = GLOBAL_CONFIG.read().await;
@@ -853,7 +864,7 @@ async fn run_server() -> anyhow::Result<()> {
 
     // Start the unified server. If this process booted without a DB, setup writes
     // DATABASE_URL and exits so the supervisor can restart with the full route table.
-    start_unified_server(config).await
+    start_unified_server(config, role).await
 }
 
 /// Middleware to check if route is allowed in configuration mode
@@ -873,20 +884,25 @@ async fn config_mode_middleware(req: Request, next: Next) -> Response {
         "/api/auth/me",              // Allow user info endpoint (for login state check)
         "/api/auth/logout",          // Allow logout endpoint
         "/api/auth/change-password", // Allow change password endpoint
-        "/api/auth/register",        // PR #4: 公开注册（自身有 allow_local_registration 检查）
-        "/api/auth/oauth/providers", // PR #2: 公开列出 OAuth providers
+        "/api/auth/register",        // 公开注册（自身有 allow_local_registration 检查）
+        "/api/auth/oauth/providers", // 公开列出 OAuth providers
     ];
 
     // If in config mode and path is not whitelisted, return 503
     if CONFIG_MODE.load(Ordering::Relaxed) && !allowed_paths.iter().any(|p| path.starts_with(p)) {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({
-                "error": "Service in configuration mode",
-                "message": "服务器正在配置模式，请先完成数据库配置和初始化",
-                "configure_endpoint": "/api/setup/database-config",
-                "hint": "After configuration, the service restarts to load the full route table"
-            })),
+            Json({
+                let mut v = AppError::service_unavailable("Service in configuration mode")
+                    .with_message("Finish database setup first.")
+                    .with_hint(
+                        "After configuration, the service restarts to load the full route table",
+                    )
+                    .with_code("configuration_mode")
+                    .to_json();
+                v["configure_endpoint"] = json!("/api/setup/database-config");
+                v
+            }),
         )
             .into_response();
     }
@@ -939,7 +955,7 @@ async fn export_settings(
     let Ok(user_id) = claims.sub.parse::<i32>() else {
         return (
             StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Invalid authenticated user"})),
+            Json(AppError::public_json("Invalid authenticated user")),
         )
             .into_response();
     };
@@ -982,7 +998,7 @@ async fn restore_settings(
     let Ok(user_id) = claims.sub.parse::<i32>() else {
         return (
             StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Invalid authenticated user"})),
+            Json(AppError::public_json("Invalid authenticated user")),
         )
             .into_response();
     };
@@ -997,8 +1013,11 @@ async fn restore_settings(
     (status, json).into_response()
 }
 
-async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
-    router::start_unified_server(config).await
+async fn start_unified_server(
+    config: AppConfig,
+    role: runtime_role::RuntimeRole,
+) -> anyhow::Result<()> {
+    router::start_unified_server(config, role).await
 }
 
 /// Common server startup logic
@@ -1143,8 +1162,7 @@ mod cache_control_tests {
         assert_eq!(static_asset_cache_control("/tapp/run/abc"), "no-cache");
     }
 
-    /// 前端产物必须是压缩后下发的。此前 Cargo.toml 开着 compression-gzip/br 却
-    /// 从未接过 CompressionLayer，3.2MB 的 JS/CSS 一直裸传；这里守住接线本身。
+    /// 前端产物必须经 CompressionLayer 下发。
     mod static_compression {
         use axum::http::{header, Request, StatusCode};
         use std::io::Write;
@@ -1167,7 +1185,7 @@ mod cache_control_tests {
         #[tokio::test]
         async fn assets_are_brotli_encoded_and_vary() {
             let dir = make_dist("br");
-            // 与 main.rs 里 fallback 的接线完全一致
+            // 仅测 CompressionLayer + ServeDir；SPA fallback 在 router/mod.rs
             let svc = tower::Layer::layer(&CompressionLayer::new(), ServeDir::new(&dir));
             let req = Request::builder()
                 .uri("/assets/app-deadbeef.js")
@@ -1216,3 +1234,4 @@ mod cache_control_tests {
         }
     }
 }
+use myriad_error::AppError;

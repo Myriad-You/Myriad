@@ -20,11 +20,6 @@ interface TimedPlaybackSample extends PlaybackSample {
   observedAtMs: number
 }
 
-/**
- * Count forward audible playback, not wall time or seek distance. Comparing
- * media progress with elapsed wall time keeps background playback countable
- * while a large seek cannot instantly qualify a listening block.
- */
 export class MusicListeningAccumulator {
   private previous: TimedPlaybackSample | null = null
   private accumulatedSeconds = 0
@@ -112,7 +107,6 @@ function playbackSample(snapshot: Record<string, unknown>): PlaybackSample {
   }
 }
 
-/** Mount once beside the global music state provider. */
 export function bindMusicMoodListening(): () => void {
   const accumulator = new MusicListeningAccumulator()
   let snapshot: Record<string, unknown> = {

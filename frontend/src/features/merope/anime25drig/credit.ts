@@ -1,4 +1,4 @@
-/** Anime2.5DRig is MIT licensed. https://github.com/852wa/Anime2.5DRig */
+/** Anime2.5DRig is MIT licensed. */
 export const ANIME25D_PROJECT_NAME = 'Anime2.5DRig'
 export const ANIME25D_PROJECT_URL = 'https://github.com/852wa/Anime2.5DRig'
 export const ANIME25D_LICENSE = 'MIT'

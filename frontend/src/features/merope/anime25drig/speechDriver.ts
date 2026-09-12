@@ -10,10 +10,7 @@ type EnergyDriverPatch = Pick<
   | 'mouthSeal'
   | 'talk'
 >
-/**
- * External audio/text articulation is an authored signal. Keep preview speech
- * disabled so the player never combines it with an unrelated random mouth.
- */
+/** Keep preview speech disabled so the player never combines it with an unrelated random mouth. */
 export function speechEnergyDriverPatch(
   energy: number | null,
 ): EnergyDriverPatch {
@@ -47,9 +44,6 @@ export function speechArticulationDriverPatch(
     mouthRound: articulation.viseme === 'round' ? amount : 0,
     mouthNarrow: articulation.viseme === 'narrow' ? amount : 0,
     mouthSeal: articulation.viseme === 'closed' ? amount : 0,
-    // Mouth corners belong to the current bearing/manual pose, not phonemes.
-    // Omitting mouthForm also preserves mood changes made mid-utterance and
-    // musical rest frames, without keeping a second cached copy of the face.
     talk: false,
   }
 }

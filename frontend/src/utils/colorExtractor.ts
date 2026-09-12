@@ -1,17 +1,3 @@
-/**
- * 颜色提取器
- *
- * 从图片中提取主色调配色方案
- * 支持壁纸和音乐封面两种场景
- *
- * 性能优化：
- * - 使用 Image 对象池减少 GC
- * - 使用 Canvas 对象池减少 DOM 创建
- *
- * @module colorExtractor
- * @version 3.4
- */
-
 import { syncCfgAccentColor } from './cfgAccent'
 import {
   harmonizeGradientPalette,
@@ -22,8 +8,6 @@ import { imagePool, withPooledCanvas } from './objectPool'
 import { wallpaperState } from './wallpaperState'
 
 export { coverUrlForColorExtract } from './coverUrlForColorExtract'
-
-// 类型定义
 
 export interface ColorPalette {
   primary: string
@@ -41,15 +25,8 @@ interface CachedColorData {
 }
 
 interface ExtractOptions {
-  /** 强制刷新，忽略缓存 */
   forceRefresh?: boolean
-  /** 提取上下文：wallpaper | music */
   context?: 'wallpaper' | 'music' | string
-  /**
-   * 仅 music 上下文：
-   * - high（默认）：当前曲取色，会取消上一个 high 与所有 low 预取
-   * - low：邻曲预取，不打断当前 high，彼此也可并行
-   */
   priority?: 'high' | 'low'
 }
 
@@ -63,15 +40,12 @@ interface ColorInfo {
   chroma: number
 }
 
-// 常量配置
-
 const CACHE_VERSION = 6
-const CACHE_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000 // 30天 (localStorage 长期缓存)
+const CACHE_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000 // 30d localStorage
 const MAX_CANVAS_SIZE = 150
 const SAMPLE_STEP = 4
 const COLOR_QUANTIZE_STEP = 16
 
-// 颜色检测阈值
 const COLOR_THRESHOLDS = {
   minSaturation: 0.35,
   minChroma: 50,
@@ -82,7 +56,6 @@ const COLOR_THRESHOLDS = {
   fallbackMinPercentage: 1,
 } as const
 
-// 默认配色（灰色系）— 表示取色失败/无有效色，禁止当成功结果缓存
 const DEFAULT_PALETTE: ColorPalette = Object.freeze({
   primary: '#6b7280',
   secondary: '#9ca3af',
@@ -91,20 +64,13 @@ const DEFAULT_PALETTE: ColorPalette = Object.freeze({
   dark: '#374151',
 })
 
-/** 音乐 high 取色：瞬时失败（网络/解码）自动重试次数 */
 const MUSIC_HIGH_MAX_ATTEMPTS = 3
-
-// 缓存管理
 
 const memoryCache = new Map<string, ColorPalette>()
 
-/** 内存缓存最大条数（超出后 LRU 淘汰最旧项，防止无限增长） */
+/** LRU cap. */
 const MAX_MEMORY_CACHE = 50
 
-/**
- * 是否为「取色失败占位」固定 DEFAULT 灰（网络/解码失败用）。
- * 注意：黑白封面分析出的真实灰阶 palette 不是它，应正常使用与缓存。
- */
 export function isDefaultPalette(
   palette: ColorPalette | null | undefined,
 ): boolean {
@@ -118,14 +84,9 @@ export function isDefaultPalette(
   )
 }
 
-/**
- * 写入内存缓存并维持 LRU 上限。
- * 命中失败时会回退 localStorage 或重算，因此淘汰是行为中性的。
- * 禁止写入默认灰，避免失败结果污染后续命中。
- */
+/** Do not cache placeholder grey. */
 function setMemoryCache(url: string, palette: ColorPalette): void {
   if (isDefaultPalette(palette)) return
-  // 重新插入到末尾，使其成为「最近使用」
   memoryCache.delete(url)
   memoryCache.set(url, palette)
   while (memoryCache.size > MAX_MEMORY_CACHE) {
@@ -135,15 +96,10 @@ function setMemoryCache(url: string, palette: ColorPalette): void {
   }
 }
 
-/** 当前正在进行的提取任务（壁纸 / 通用） */
 let currentExtractionController: AbortController | null = null
-/** 音乐封面：当前曲 high 优先级取色 */
 let musicHighController: AbortController | null = null
-/** 当前 high 任务对应的封面 URL（用于判断是否应 abort） */
 let musicHighUrl: string | null = null
-/** 音乐封面：邻曲 low 优先级预取（可并行） */
 const musicLowControllers = new Set<AbortController>()
-/** 同一封面 URL 的 in-flight 去重（预取与当前曲撞同一图时复用） */
 const musicInflight = new Map<string, Promise<ColorPalette>>()
 
 function isAbortError(error: unknown): boolean {
@@ -176,10 +132,7 @@ function sleepWithSignal(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-/**
- * 同步读内存调色板缓存（切歌热路径：避免再进 async extract）。
- * 默认灰视为未命中并剔除。
- */
+/** Placeholder grey is a miss. */
 export function getCachedPalette(url: string | null | undefined): ColorPalette | null {
   if (!url) return null
   const hit = memoryCache.get(url)
@@ -188,14 +141,10 @@ export function getCachedPalette(url: string | null | undefined): ColorPalette |
     memoryCache.delete(url)
     return null
   }
-  // LRU touch
   setMemoryCache(url, hit)
   return hit
 }
 
-/**
- * 写入内存调色板（供播放器 colorCache 与 extractor 双写对齐）。
- */
 export function setCachedPalette(
   url: string | null | undefined,
   palette: ColorPalette,
@@ -204,9 +153,6 @@ export function setCachedPalette(
   setMemoryCache(url, palette)
 }
 
-/**
- * 获取localStorage缓存
- */
 function getLocalStorageCache(url: string): ColorPalette | null {
   try {
     const cached = localStorage.getItem('wallpaperColorCache')
@@ -226,9 +172,6 @@ function getLocalStorageCache(url: string): ColorPalette | null {
   }
 }
 
-/**
- * 保存到localStorage缓存
- */
 function saveToLocalStorage(url: string, palette: ColorPalette): void {
   try {
     const data: CachedColorData = {
@@ -239,36 +182,28 @@ function saveToLocalStorage(url: string, palette: ColorPalette): void {
     }
     localStorage.setItem('wallpaperColorCache', JSON.stringify(data))
   } catch {
-    // 静默失败
   }
 }
 
-// 颜色计算函数
-
-/** 计算感知亮度 */
 function getPerceptualBrightness(r: number, g: number, b: number): number {
   return 0.299 * r + 0.587 * g + 0.114 * b
 }
 
-/** 计算饱和度 */
 function getSaturation(r: number, g: number, b: number): number {
   const max = Math.max(r, g, b)
   const min = Math.min(r, g, b)
   return max === 0 ? 0 : (max - min) / max
 }
 
-/** 计算色度 */
 function getChroma(r: number, g: number, b: number): number {
   return Math.max(r, g, b) - Math.min(r, g, b)
 }
 
-/** 计算与灰色的距离 */
 function getDistanceFromGray(r: number, g: number, b: number): number {
   const avg = (r + g + b) / 3
   return Math.sqrt((r - avg) ** 2 + (g - avg) ** 2 + (b - avg) ** 2)
 }
 
-/** 检测是否为鲜艳的彩色 */
 function isVividColor(r: number, g: number, b: number): boolean {
   const {
     minSaturation,
@@ -285,7 +220,6 @@ function isVividColor(r: number, g: number, b: number): boolean {
   if (getChroma(r, g, b) < minChroma) return false
   if (getDistanceFromGray(r, g, b) < minGrayDistance) return false
 
-  // 检查RGB值是否太接近（灰色特征）
   const max = Math.max(r, g, b)
   const min = Math.min(r, g, b)
   const mid = r + g + b - max - min
@@ -294,14 +228,12 @@ function isVividColor(r: number, g: number, b: number): boolean {
   return true
 }
 
-/** RGB转十六进制 */
 function rgbToHex(r: number, g: number, b: number): string {
   const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)))
   const toHex = (v: number) => clamp(v).toString(16).padStart(2, '0')
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`
 }
 
-/** RGB转HSL */
 function rgbToHsl(
   r: number,
   g: number,
@@ -326,7 +258,6 @@ function rgbToHsl(
   return { h, s, l }
 }
 
-/** HSL转RGB */
 function hslToRgb(
   h: number,
   s: number,
@@ -356,7 +287,6 @@ function hslToRgb(
   }
 }
 
-/** 生成亮色变体 */
 function lightenColor(r: number, g: number, b: number): string {
   const hsl = rgbToHsl(r, g, b)
   hsl.l = Math.min(0.85, hsl.l + 0.2)
@@ -365,7 +295,6 @@ function lightenColor(r: number, g: number, b: number): string {
   return rgbToHex(rgb.r, rgb.g, rgb.b)
 }
 
-/** 生成暗色变体 */
 function darkenColor(r: number, g: number, b: number): string {
   const hsl = rgbToHsl(r, g, b)
   hsl.l = Math.max(0.15, hsl.l - 0.25)
@@ -374,12 +303,6 @@ function darkenColor(r: number, g: number, b: number): string {
   return rgbToHex(rgb.r, rgb.g, rgb.b)
 }
 
-// 图片分析
-
-/**
- * 从像素采样构建量化色直方图。
- * @param vividOnly 仅鲜艳色（音乐封面优先）；false 时纳入灰/低饱和（黑白封面）
- */
 function sampleColorMap(
   pixels: Uint8ClampedArray | Uint8Array,
   vividOnly: boolean,
@@ -397,7 +320,6 @@ function sampleColorMap(
     if (vividOnly) {
       if (!isVividColor(r, g, b)) continue
     } else {
-      // 中性色路径：跳过近全透明逻辑后的极端黑白噪声
       const br = getPerceptualBrightness(r, g, b)
       if (br < 12 || br > 244) continue
     }
@@ -420,8 +342,9 @@ function paletteFromColorMap(
 ): ColorPalette | null {
   if (colorMap.size === 0 || totalSamples <= 0) return null
 
-  const sortedColors: ColorInfo[] = Array.from(colorMap.entries())
-    .sort((a, b) => b[1] - a[1])
+  const sortedColors: ColorInfo[] = Iterator.from(colorMap.entries())
+    .toArray()
+    .toSorted((a, b) => b[1] - a[1])
     .map(([color, count]) => {
       const [r, g, b] = color.split(',').map(Number)
       return {
@@ -458,7 +381,6 @@ function paletteFromColorMap(
       )
     }
   } else {
-    // 灰阶/低饱和：按占比取主色，不强制 chroma/saturation
     selectedColors = sortedColors.filter(
       (c) =>
         c.percentage > fallbackMinPercentage &&
@@ -492,11 +414,6 @@ function paletteFromColorMap(
   })
 }
 
-/**
- * 分析图片颜色。
- * 优先鲜艳色；无鲜艳色时（黑白/灰封面）回退中性采样，返回真实灰阶主题，
- * 而不是占位 DEFAULT_PALETTE（占位灰会被业务层当成失败丢弃）。
- */
 function analyzeImageColors(imageData: ImageData): ColorPalette {
   const pixels = imageData.data
 
@@ -519,10 +436,7 @@ function analyzeImageColors(imageData: ImageData): ColorPalette {
   return { ...DEFAULT_PALETTE }
 }
 
-/**
- * 代理 soft-fail / 损坏图：1×1 透明 PNG 等。
- * 这类图 onload 成功但采样为空，会落成 DEFAULT 灰并被业务层丢弃。
- */
+/** 1×1/empty images must not cache as success. */
 function isDegenerateImageSize(width: number, height: number): boolean {
   return (
     !Number.isFinite(width) ||
@@ -532,9 +446,6 @@ function isDegenerateImageSize(width: number, height: number): boolean {
   )
 }
 
-/**
- * 从已解码像素分析；退化图直接抛错以便走 URL 回退 / 重试。
- */
 function paletteFromRaster(
   width: number,
   height: number,
@@ -569,10 +480,7 @@ function paletteFromRaster(
   return palette
 }
 
-/**
- * 加载单张图并取色（对象池 Image）。
- * 注意：pool reset 会把 src 置空，避免「同 URL 不触发 onload」。
- */
+/** Pool reset must change src or same-URL skips onload. */
 async function extractFromSingleUrl(
   imageUrl: string,
   signal: AbortSignal,
@@ -601,7 +509,7 @@ async function extractFromSingleUrl(
         reject(new Error(`Failed to load image: ${imageUrl.slice(0, 120)}`))
       }
 
-      // 强制与当前 src 不同，保证缓存命中时也重新走 load 事件
+      // Must change src so a cached URL still fires load.
       if (img.src) {
         try {
           img.src = ''
@@ -627,9 +535,6 @@ async function extractFromSingleUrl(
   }
 }
 
-/**
- * 从 URL 取色；可选 fallback（音乐：小尺寸失败 → 原始封面）。
- */
 async function extractFromImage(
   imageUrl: string,
   signal: AbortSignal,
@@ -665,11 +570,6 @@ async function extractFromImage(
     : new Error('All image URL candidates failed')
 }
 
-// 公共 API
-
-/**
- * 从图片提取颜色配色
- */
 export async function extractColorsFromImage(
   imageUrl: string,
   options: ExtractOptions = {},
@@ -678,19 +578,18 @@ export async function extractColorsFromImage(
   const isWallpaper = options.context === 'wallpaper'
   const priority: 'high' | 'low' = options.priority ?? 'high'
 
-  // ── 音乐路径：缓存 / in-flight 优先，再按 priority 调度 ──
   if (isMusic) {
     if (!options.forceRefresh) {
       const cached = getCachedPalette(imageUrl)
       if (cached) return cached
     }
 
-    // 同封面 in-flight 去重：high/low 都 join，避免双请求互抢代理配额
+    // Dedupe in-flight by cover URL.
     if (!options.forceRefresh) {
       const inflight = musicInflight.get(imageUrl)
       if (inflight) {
         if (priority === 'high') {
-          // 切到该封面：取消「上一首」high（不同 URL），但不要 abort 本 URL 的 low
+          // Cancel previous high; do not abort this URL's low.
           if (
             musicHighController &&
             musicHighUrl &&
@@ -708,7 +607,7 @@ export async function extractColorsFromImage(
         try {
           const reused = await inflight
           if (!isDefaultPalette(reused)) return reused
-          // 预取失败得到 DEFAULT：high 必须自己再跑满重试；low 直接返回
+          // high must retry DEFAULT; low returns it.
           if (priority === 'low') return reused
         } catch (error) {
           if (isAbortError(error)) throw error
@@ -718,12 +617,11 @@ export async function extractColorsFromImage(
             error instanceof Error ? error.message : error,
           )
         }
-        // high + DEFAULT/失败 → fall through 新建 high（force 语义，不 join 旧 promise）
+        // high + DEFAULT: do not join the old promise.
       }
     }
 
-    // high：取消上一首 high + 其它封面的 low 预取（带宽让给当前曲）
-    // low：不打断 high，也不互取消
+    // low must not cancel high or other lows.
     if (priority === 'high') {
       if (musicHighController) {
         try {
@@ -750,10 +648,8 @@ export async function extractColorsFromImage(
       musicLowControllers.add(myController)
     }
 
-    // 小尺寸加速解码；失败则回退原始封面（显示用那张，通常已在缓存）
     const fetchUrl = coverUrlForColorExtract(imageUrl)
     const fallbackUrl = fetchUrl !== imageUrl ? imageUrl : null
-    // high：多次；low：2 次（含 URL 回退已在单次 attempt 内完成）
     const maxAttempts =
       priority === 'high' ? MUSIC_HIGH_MAX_ATTEMPTS : 2
 
@@ -773,7 +669,6 @@ export async function extractColorsFromImage(
             if (myController.signal.aborted) {
               throw new Error('Extraction cancelled')
             }
-            // extractFromImage 成功时已保证非 DEFAULT
             setMemoryCache(imageUrl, palette)
             return palette
           } catch (error) {
@@ -815,7 +710,6 @@ export async function extractColorsFromImage(
     }
   }
 
-  // ── 壁纸 / 通用路径 ──
   if (currentExtractionController) {
     currentExtractionController.abort()
   }
@@ -831,8 +725,8 @@ export async function extractColorsFromImage(
     }
 
     if (!options.forceRefresh) {
-      const cached = memoryCache.get(imageUrl) || getLocalStorageCache(imageUrl)
-      // 历史上失败的默认灰可能已落盘，视为未命中以便重取
+      const cached = memoryCache.get(imageUrl) ?? getLocalStorageCache(imageUrl)
+      // Persisted placeholder grey is a miss.
       if (cached && !isDefaultPalette(cached)) {
         setMemoryCache(imageUrl, cached)
         return cached
@@ -845,7 +739,7 @@ export async function extractColorsFromImage(
       throw new Error('Extraction cancelled')
     }
 
-    // 与 setMemoryCache 对齐：取色失败的占位灰不落盘，否则会被永久缓存
+    // Do not persist placeholder grey.
     setMemoryCache(imageUrl, palette)
     if (!isDefaultPalette(palette)) {
       saveToLocalStorage(imageUrl, palette)
@@ -875,9 +769,6 @@ export async function extractColorsFromImage(
   }
 }
 
-/**
- * 应用颜色配色到CSS变量
- */
 export function applyColorPalette(palette: ColorPalette): void {
   const root = document.documentElement
   root.style.setProperty('--color-primary', palette.primary)
@@ -885,13 +776,9 @@ export function applyColorPalette(palette: ColorPalette): void {
   root.style.setProperty('--color-accent', palette.accent)
   root.style.setProperty('--color-light', palette.light)
   root.style.setProperty('--color-dark', palette.dark)
-  // 设置强调色：与 Hero adaptive 同源（对比度可读）
   syncCfgAccentColor()
 }
 
-/**
- * 清除颜色缓存
- */
 export function clearColorCache(url?: string): void {
   if (url) {
     memoryCache.delete(url)
@@ -901,10 +788,7 @@ export function clearColorCache(url?: string): void {
   }
 }
 
-/**
- * 从已加载的 HTMLImageElement 直接提取颜色（零网络，封面 onload 热路径）。
- * 同源 / 已带 CORS 的图可读像素；跨域无 CORS 仍会失败并返回 DEFAULT。
- */
+/** Needs CORS on the image; else DEFAULT. */
 export function extractColorsFromLoadedImage(
   img: HTMLImageElement,
 ): ColorPalette {

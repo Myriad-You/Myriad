@@ -1,34 +1,9 @@
-/**
- * Pure helpers for updater panel check freshness and pre-update revalidation.
- *
- * Open About → Updater policy:
- * - On each panel mount (status OK, admin, not blocked): always silent
- *   checkAvailable once. Remounting About = a new check is desired.
- * - isCheckStale is for UI only (relative “ago”, unconfirmed badge, stale
- *   hints) — not a gate for the auto recheck path.
- * - Before applying “update to latest”: re-fetch available+status; abort if
- *   no longer necessary (no target / identical / same version). On recheck
- *   error, do not apply from stale cache.
- *
- * Stale age policy (display / messaging):
- * - Missing / invalid last_checked_at → stale (never checked).
- * - check_interval_secs > 0 → stale when age >= interval (same cadence as worker).
- * - check_interval_secs === 0 (auto-check off) → still stale after STALE_WHEN_OFF_SECS
- *   so the UI never presents multi-day cache as “fresh”.
- */
-
 import type { UpdateMode } from '../../services/updaterApi'
 
-/** When worker auto-check is off, treat last check as stale after this age (1h). */
 export const STALE_WHEN_OFF_SECS = 3600
 
-/** How often the UI re-renders relative “ago” labels. */
 export const AGO_TICK_MS = 30_000
 
-/**
- * Age of last check in seconds, or `null` if never checked / unparsable
- * (treat as infinitely stale).
- */
 export function checkAgeSecs(
   lastCheckedAt: string | null | undefined,
   nowMs: number = Date.now(),
@@ -39,14 +14,6 @@ export function checkAgeSecs(
   return Math.max(0, (nowMs - then) / 1000)
 }
 
-/**
- * Whether cached updater status is old enough that the UI should show
- * stale / unconfirmed messaging (not a gate for mount auto-recheck).
- *
- * @param lastCheckedAt ISO timestamp from status, or null/undefined if never checked
- * @param checkIntervalSecs effective interval from status (0 = worker auto-check off)
- * @param nowMs injectable clock for tests
- */
 export function isCheckStale(
   lastCheckedAt: string | null | undefined,
   checkIntervalSecs: number | null | undefined,
@@ -68,9 +35,6 @@ export type AgoParts =
   | { unit: 'hour'; n: number }
   | { unit: 'day'; n: number }
 
-/**
- * Relative-time breakdown for last_checked_at. Returns null if unparsable.
- */
 export function computeAgo(
   iso: string,
   nowMs: number = Date.now(),
@@ -87,9 +51,6 @@ export function computeAgo(
   return { unit: 'day', n: d }
 }
 
-// Pre-update revalidation (update to latest)
-
-/** Why applying “latest” is no longer necessary after a fresh check. */
 export type LatestUpdateAbortReason =
   | 'no_target'
   | 'identical'
@@ -105,7 +66,6 @@ export type LatestUpdatePlan =
       needsRisk: boolean
     }
 
-/** Minimal tip / latest_available shape for planning. */
 export interface LatestTipFields {
   version?: string | null
   mode?: UpdateMode | null
@@ -114,10 +74,6 @@ export interface LatestTipFields {
   is_downgrade?: boolean | null
 }
 
-/**
- * Formal release tags look like v0.4.0 (`v`-prefixed semver, matching DeployTag).
- * Kept local so planLatestUpdate stays free of UI imports.
- */
 function isReleaseTag(tag: string): boolean {
   return /^v\d+\.\d+\.\d+([.-][0-9A-Za-z.]+)?$/.test(tag.trim())
 }
@@ -132,14 +88,6 @@ function normalizeVersion(v: string): string {
   return v.trim().toLowerCase()
 }
 
-/**
- * Decide whether “update to latest” should still run after a fresh
- * available + status recheck. Pure — no I/O.
- *
- * Aborts when there is no target, relation is identical, or the tip version
- * equals the running version. Otherwise returns mode / risk flags from the
- * fresh tip (prefer `available` over status.latest_available).
- */
 export function planLatestUpdate(input: {
   available: LatestTipFields | null | undefined
   latestAvailable: LatestTipFields | null | undefined

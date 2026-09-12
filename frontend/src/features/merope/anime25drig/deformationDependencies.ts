@@ -109,7 +109,6 @@ export function createAnime25DDeformationChangeState(): Anime25DDeformationChang
   }
 }
 
-/** Captures only values consumed by shader-local vertex deformation. */
 export function captureAnime25DDeformationChanges(
   state: Anime25DDeformationChangeState,
   driver: Readonly<Anime25DDriver>,
@@ -220,7 +219,6 @@ export function createAnime25DLayerDeformationPlan(
   }
 }
 
-/** Queues hidden-frame changes and decides whether local geometry is stale. */
 export function shouldUpdateAnime25DLayerGeometry(
   plan: Anime25DLayerDeformationPlan,
   changeMask: number,

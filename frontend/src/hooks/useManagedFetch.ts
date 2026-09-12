@@ -1,13 +1,3 @@
-/**
- * 受控的 Fetch Hook
- *
- * 特性：
- * 1. 自动取消过期请求
- * 2. 组件卸载时自动清理
- * 3. 并发控制
- * 4. 支持优先级
- */
-
 import { useCallback, useEffect, useRef } from 'react'
 import { ApiError } from '../services/api'
 import { requestManager } from '../utils/concurrentRequestManager'
@@ -27,8 +17,9 @@ export function useManagedFetch() {
     isMountedRef.current = true
 
     return () => {
+      // 组件卸载时取消所有请求。
       isMountedRef.current = false
-      // 组件卸载时取消所有请求
+
       requestKeysRef.current.forEach((key) => {
         requestManager.cancelRequest(key)
       })
@@ -36,9 +27,6 @@ export function useManagedFetch() {
     }
   }, [])
 
-  /**
-   * 执行受控的 fetch 请求
-   */
   const fetch = useCallback(
     async <T = any>(
       url: string,
@@ -70,10 +58,8 @@ export function useManagedFetch() {
           config.timeout,
         )
 
-        // 请求完成后从集合中移除
         requestKeysRef.current.delete(key)
 
-        // 检查组件是否仍然挂载
         if (!isMountedRef.current) {
           return null
         }
@@ -82,9 +68,9 @@ export function useManagedFetch() {
       } catch (error) {
         requestKeysRef.current.delete(key)
 
-        // 如果是取消错误且组件已卸载，静默处理
         if (
           error instanceof Error &&
+          // 取消错误且组件已卸载则静默。
           error.message.includes('cancelled') &&
           !isMountedRef.current
         ) {
@@ -97,17 +83,11 @@ export function useManagedFetch() {
     [],
   )
 
-  /**
-   * 取消指定的请求
-   */
   const cancelRequest = useCallback((key: string) => {
     requestManager.cancelRequest(key)
     requestKeysRef.current.delete(key)
   }, [])
 
-  /**
-   * 取消所有该组件发起的请求
-   */
   const cancelAll = useCallback(() => {
     requestKeysRef.current.forEach((key) => {
       requestManager.cancelRequest(key)

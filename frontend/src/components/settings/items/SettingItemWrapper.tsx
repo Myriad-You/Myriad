@@ -13,14 +13,10 @@ import './SettingItem.css'
 export interface SettingItemWrapperProps extends Partial<BaseSettingItemConfig> {
   children: React.ReactNode
   className?: string
-  /** 表单控件 id（htmlFor）；锚点请用 guidePath */
   id?: string
   contentRight?: boolean
-  /** 覆盖 BaseSettingItemConfig.detail */
   detail?: ReactNode
-  /** 覆盖 BaseSettingItemConfig.guide */
   guide?: ReactNode
-  /** 点击「应用新默认」时写入选项值（字符串默认） */
   onApplyDefault?: (newDefault: string) => void
 }
 
@@ -44,10 +40,9 @@ export const SettingItemWrapper: React.FC<SettingItemWrapperProps> = ({
   onApplyDefault,
 }) => {
   const anchorProps = guideDomProps(guidePath)
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const expandHelp = Boolean(useSettingsHelp()?.showDetails)
   const detailText = detail != null && detail !== '' ? detail : null
-  /** 短说明常显；guide 点入口后在标题上方展开 */
   const expandedExtra =
     expandHelp && detailText ? (
       <span className="setting-description setting-description--detail">
@@ -61,10 +56,9 @@ export const SettingItemWrapper: React.FC<SettingItemWrapperProps> = ({
       {required && <span className="required">*</span>}
       {detailText && !expandHelp && (
         <SettingTitleHelp
-          ariaLabel={t.config.detailHelpAriaNamed.replace(
-            '{title}',
-            String(label),
-          )}
+          ariaLabel={format(t.config.detailHelpAriaNamed, {
+            title: String(label),
+          })}
         >
           {detailText}
         </SettingTitleHelp>
@@ -130,7 +124,6 @@ export const SettingItemWrapper: React.FC<SettingItemWrapperProps> = ({
       <div className="setting-control">{children}</div>
 
       {hint && <p className="setting-hint">{hint}</p>}
-      {/* 无 label 时无法贴标题，退回行下报错 */}
       {!label && error ? (
         <SettingFieldErrorTag className="setting-field-error-tag--solo">
           {error}

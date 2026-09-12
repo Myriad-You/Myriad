@@ -166,16 +166,16 @@ pub(super) async fn execute_profile_summary(
                     "itemCount": items.len()
                 });
 
-                // 收集兴趣
+                // 按平台 slug 推固定 activity 文案
                 match *platform {
-                    "steam" => activities.push("游戏".to_string()),
-                    "bilibili" => activities.push("追番".to_string()),
-                    "bangumi" => activities.push("收藏番剧/书籍/游戏".to_string()),
-                    "mal" => activities.push("动画/漫画列表".to_string()),
-                    "github" => activities.push("编程".to_string()),
-                    "netease" => activities.push("听歌".to_string()),
-                    "x" => activities.push("发帖与互动".to_string()),
-                    "discord" => activities.push("社区交流".to_string()),
+                    "steam" => activities.push("Gaming".to_string()),
+                    "bilibili" => activities.push("Watching anime".to_string()),
+                    "bangumi" => activities.push("Collecting anime/books/games".to_string()),
+                    "mal" => activities.push("Anime/manga list".to_string()),
+                    "github" => activities.push("Coding".to_string()),
+                    "netease" => activities.push("Listening to music".to_string()),
+                    "x" => activities.push("Posting and interacting".to_string()),
+                    "discord" => activities.push("Community chat".to_string()),
                     _ => {}
                 }
             }
@@ -201,7 +201,7 @@ pub(super) async fn execute_search_global(
         .unwrap_or_else(|| VALID_PLATFORMS.to_vec());
     let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
 
-    // 检查是否有有效的搜索关键词
+    // query.is_empty() 则空结果
     if query.is_empty() {
         return Ok(json!({
             "query": query,
@@ -209,7 +209,7 @@ pub(super) async fn execute_search_global(
             "total": 0,
             "message": crate::services::agent::response_agent::search_empty_hint(),
             "supportedPlatforms": VALID_PLATFORMS,
-            "hint": "试试搜索你已有数据中的内容，例如：'搜索我的 Steam 游戏'、'查看 GitHub 仓库'"
+            "hint": "Try searching your existing data, for example: 'search my Steam games' or 'look at GitHub repos'"
         }));
     }
 
@@ -223,7 +223,7 @@ pub(super) async fn execute_search_global(
                 let items = extract_platform_items(platform, &data);
 
                 for item in items {
-                    // 搜索标题、名称等字段
+                    // Match `name` then `title` only.
                     let matches = item
                         .get("name")
                         .or(item.get("title"))
@@ -250,7 +250,6 @@ pub(super) async fn execute_search_global(
         }
     }
 
-    // 提供更好的无结果提示
     let message = if results.is_empty() {
         crate::services::agent::response_agent::search_no_results(query)
     } else {
@@ -338,7 +337,7 @@ pub(super) async fn execute_task_status(
     }))
 }
 
-/// 元数据历史查询
+/// Filtered-cache snapshot (`modified` + `len`); not a history query.
 pub(super) async fn execute_metadata_history(
     params: &HashMap<String, Value>,
 ) -> Result<Value, String> {
@@ -348,7 +347,7 @@ pub(super) async fn execute_metadata_history(
         .unwrap_or("all");
     let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10);
 
-    // 读取缓存的历史数据
+    // `tokio::fs::metadata` on `{platform}_filtered.json` only.
     let mut history = Vec::new();
     let cache_file = platform_filtered_file(platform);
 
@@ -642,7 +641,7 @@ pub(super) async fn execute_database_query(
     let db_file = format!("data/{}_database.json", db_type);
     let content = tokio::fs::read_to_string(&db_file).await.map_err(|_| {
         format!(
-            "{} 数据库文件不存在（{}）。请先导入相关数据。",
+            "{} database file is missing ({}). Import the related data first.",
             db_type, db_file
         )
     })?;

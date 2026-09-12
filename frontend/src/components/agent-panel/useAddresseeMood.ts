@@ -1,7 +1,3 @@
-/**
- * 当前说话对象的心情档。人设关掉或未登录时没有档，聊天那枚贴就不画。
- */
-
 import type { MoodBand } from '../agent/meropeVitals'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'

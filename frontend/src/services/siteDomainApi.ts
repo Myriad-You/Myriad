@@ -1,9 +1,4 @@
-/**
- * Site public domain change API (non-federation).
- *
- * POST /api/admin/site/domain — rewrites BASE_URL, FRONTEND_URL, CORS_ORIGINS.
- * Does not perform ActivityPub / federation Move.
- */
+/** Rewrites CORS_ORIGINS; not a federation Move. */
 
 import apiService from './api'
 
@@ -47,7 +42,6 @@ export async function changeSiteDomain(
   return apiService.post<ChangeSiteDomainResponse>('/admin/site/domain', body)
 }
 
-/** Flatten checklist object into ordered items for UI. */
 export function checklistItems(
   checklist: DomainMigrationChecklist | undefined,
 ): DomainChecklistItem[] {

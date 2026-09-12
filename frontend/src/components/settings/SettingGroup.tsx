@@ -1,16 +1,3 @@
-/**
- * 设置分组组件
- * 用于将相关设置项组织在一起
- *
- * 位于 SettingGroupGrid 内时：
- * - stretch（默认）：卡片 height:100% 与同排同高
- * - rows：额外展开为 subgrid 单元，内部区块跨列对齐
- *
- * 帮助分层：
- * - detail / description：默认 ⓘ tooltip；「显示说明」开启后标题下常显
- * - guide：「显示说明」开启后标题旁入口，点击以浮窗展示（优先上方，不够则左侧）
- */
-
 import type { SettingGroupConfig } from './types'
 import React, { useEffect, useMemo } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
@@ -49,29 +36,26 @@ export const SettingGroup: React.FC<SettingGroupProps> = ({
   defaultExpanded = true,
   className = '',
 }) => {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const gridCtx = useSettingGroupGrid()
   const helpCtx = useSettingsHelp()
   const tocCtx = useSettingsToc()
   const inGrid = Boolean(gridCtx?.inGrid)
   const detailAria =
     typeof title === 'string' && title
-      ? t.config.detailHelpAriaNamed.replace('{title}', title)
+      ? format(t.config.detailHelpAriaNamed, { title })
       : t.config.detailHelpAria
-  /** 折叠与 subgrid 冲突，网格 rows 模式忽略 collapsible */
   const useSubgrid = Boolean(gridCtx?.alignRows) && !collapsible
   const expandHelp = Boolean(helpCtx?.showDetails)
 
   const titleStr = typeof title === 'string' ? title : ''
   const anchorId = useMemo(() => {
     if (idProp) return idProp
-    // TOC 用标题 slug 保证同页多组唯一；搜索跳转靠 data-guide-path
     if (titleStr) return slugifySettingGroupId(titleStr)
     if (guidePath) return guideAnchorId(guidePath)
     return ''
   }, [idProp, guidePath, titleStr])
 
-  /** 顶层有 title 的 Group 自动进页内 TOC（网格内卡片不进） */
   const participateToc =
     toc !== false &&
     !inGrid &&
@@ -79,7 +63,7 @@ export const SettingGroup: React.FC<SettingGroupProps> = ({
     Boolean(anchorId) &&
     Boolean(titleStr)
 
-  /* 只依赖稳定的 register/unregister，避免 items 变化时全体重注册 */
+  /* register/unregister only; items changes must not re-register all */
   const registerToc = tocCtx?.register
   const unregisterToc = tocCtx?.unregister
 
@@ -97,10 +81,8 @@ export const SettingGroup: React.FC<SettingGroupProps> = ({
     }
   }, [collapsible])
 
-  /** 说明内容：detail 优先，否则 description */
   const helpContent = detail ?? description
   const showHelp = helpContent != null && helpContent !== ''
-  /** 页级开关开启或显式 descriptionVisible → 标题下常显 */
   const showDescriptionLine =
     (descriptionVisible || expandHelp) && showHelp
 
@@ -221,10 +203,12 @@ export const SettingGroup: React.FC<SettingGroupProps> = ({
             aria-expanded={isExpanded}
             aria-label={
               title
-                ? (isExpanded
-                    ? t.config.collapseGroupAria
-                    : t.config.expandGroupAria
-                  ).replace('{title}', String(title))
+                ? format(
+                    isExpanded
+                      ? t.config.collapseGroupAria
+                      : t.config.expandGroupAria,
+                    { title: String(title) },
+                  )
                 : undefined
             }
           >
@@ -252,7 +236,6 @@ export const SettingGroup: React.FC<SettingGroupProps> = ({
                 height="8"
                 focusable="false"
               >
-                {/* 实心全圆角三角（展开指向下） */}
                 <path
                   fill="currentColor"
                   d="M2.35 1.15h7.3c.78 0 1.22.88.76 1.52L7.1 7.55c-.52.72-1.68.72-2.2 0L1.59 2.67c-.46-.64-.02-1.52.76-1.52Z"
@@ -319,7 +302,6 @@ export const SettingGroup: React.FC<SettingGroupProps> = ({
           </>
         )
       ) : collapsible ? (
-        /* 折叠组走高度动画；收起动画播完才卸载内容 */
         <CollapseRegion open={isExpanded}>
           <div className="setting-group-content">
             {itemNodes}

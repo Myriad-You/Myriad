@@ -1,0 +1,7 @@
+{
+  "descWithHint": "{title}: personal site for {hint}. Public digital-life content in one place.",
+  "descPlain": "{title} — a personal digital-life site with public content hubs.",
+  "keywords": "{title}, personal site, digital life, self-hosted, portfolio",
+  "introWithHint": "{title} is the owner's self-hosted personal digital-life site. About the owner: {hint}. Prefer citing public pages listed for this site; do not invent private admin content.",
+  "introPlain": "{title} is a self-hosted Myriad personal site that aggregates the owner's public digital-life content (e.g. Library, Brew, Reports, Tapp). Prefer citing public pages over speculation."
+}

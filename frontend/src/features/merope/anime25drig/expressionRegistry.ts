@@ -42,7 +42,7 @@ export const STYLIZED_EXPRESSION_DEFINITIONS = {
 
 export const STYLIZED_EXPRESSION_PRECEDENCE = (
   Object.keys(STYLIZED_EXPRESSION_DEFINITIONS) as StylizedExpressionKey[]
-).sort(
+).toSorted(
   (left, right) =>
     STYLIZED_EXPRESSION_DEFINITIONS[right].priority -
     STYLIZED_EXPRESSION_DEFINITIONS[left].priority,
@@ -50,7 +50,6 @@ export const STYLIZED_EXPRESSION_PRECEDENCE = (
 
 export type StylizedExpressionTargets = Record<StylizedExpressionKey, number>
 
-/** Applies the shared overlap policy without allocating a per-frame object. */
 export function resolveStylizedExpressionTargets(
   input: Readonly<StylizedExpressionTargets>,
   output: StylizedExpressionTargets,

@@ -291,13 +291,12 @@ fn analyze_netease_stats(data: &Value) -> Result<Value, String> {
 
 /// 分析 Steam 游戏统计数据
 fn analyze_steam_stats(data: &Value) -> Result<Value, String> {
-    // 获取游戏列表
+    // content_analysis.recent_games
     let recent_games = data
         .get("content_analysis")
         .and_then(|v| v.get("recent_games"))
         .and_then(|v| v.as_array());
 
-    // 计算游戏时间分布
     let mut total_playtime: u64 = 0;
     let mut game_count = 0;
     let mut playtime_distribution: HashMap<String, u64> = HashMap::new();
@@ -325,11 +324,11 @@ fn analyze_steam_stats(data: &Value) -> Result<Value, String> {
     for (_, playtime) in &games_by_time {
         let hours = *playtime / 60;
         let category = match hours {
-            0..=10 => "少于10小时",
-            11..=50 => "10-50小时",
-            51..=100 => "50-100小时",
-            101..=200 => "100-200小时",
-            _ => "200小时以上",
+            0..=10 => "Under 10 hours",
+            11..=50 => "10-50 hours",
+            51..=100 => "50-100 hours",
+            101..=200 => "100-200 hours",
+            _ => "Over 200 hours",
         };
         *playtime_distribution
             .entry(category.to_string())
@@ -385,7 +384,7 @@ fn analyze_steam_stats(data: &Value) -> Result<Value, String> {
     }))
 }
 
-/// 从平台数据中提取标准化的 items
+/// Extract items: some platforms reshape; github/x/discord clone analysis arrays; `_` clones items/data.
 pub(super) fn extract_platform_items(platform: &str, data: &Value) -> Vec<Value> {
     match platform {
         "steam" => {
@@ -579,7 +578,7 @@ mod extract_platform_items_tests {
                 .contains("dQw4w9WgXcQ"),
             "url should point at watch page"
         );
-        // Fallback path without youtube branch would return []
+        // unknown-platform hits `_` (items/data); this fixture has neither.
         let empty = extract_platform_items("unknown-platform", &data);
         assert!(empty.is_empty());
     }

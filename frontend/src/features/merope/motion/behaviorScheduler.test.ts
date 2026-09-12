@@ -249,8 +249,6 @@ test('keeps rhythmic and tracking behaviors open until an explicit interruption'
 test('an interruption mid-stroke leaves a timing that still reads forwards', () => {
   const scheduler = new BehaviorScheduler()
   scheduler.replace(plan(), 0)
-  // 300 <= now < 380 is the committed window: the stroke has peaked but has
-  // not finished, so `strokeEnd` is the one boundary still in the future.
   scheduler.tick(340)
   assert.equal(scheduler.snapshots(340)[0]?.phase, 'committed')
   scheduler.interrupt('behavior-1', 340)
@@ -264,8 +262,6 @@ test('an interruption mid-stroke leaves a timing that still reads forwards', () 
     retreating.relaxAtMs!,
     retreating.endsAtMs!,
   ]
-  // A `strokeEnd` left behind its own `relax` is what the realizer refuses as
-  // invalid timing, dropping the behavior in one frame instead of retreating.
   for (let index = 1; index < boundaries.length; index += 1) {
     assert.ok(
       boundaries[index]! >= boundaries[index - 1]!,
@@ -284,9 +280,6 @@ test('a retreat never walks back into the phase it was interrupted from', () => 
     if (event.type === 'phase') phases.push(`${event.from}->${event.phase}`)
   })
   for (const at of [350, 360, 370, 385, 450, 600, 900]) scheduler.tick(at)
-  // `committed` is what the reaction policy reads as an occupied resource, so
-  // returning to it keeps a behavior that is already invisible blocking the
-  // one meant to replace it.
   assert.deepEqual(
     phases.filter((step) => step.endsWith('->committed')),
     [],

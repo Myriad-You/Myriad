@@ -23,7 +23,7 @@ pub struct AiUsageSummaryQuery {
     pub from: Option<String>,
     /// Inclusive end day `YYYY-MM-DD`.
     pub to: Option<String>,
-    /// Optional filter: ledger subject (user id). `0` = anonymous / guest ledger rows.
+    /// Optional filter: ledger subject (user id). `0` is unattributed `internal` fallback; guests are negative ids.
     pub subject_id: Option<i32>,
     /// Optional exact model id filter.
     pub model: Option<String>,
@@ -163,7 +163,7 @@ ORDER BY day ASC
             tracing::warn!("ai usage daily failed: {}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "success": false, "error": "db_error" })),
+                Json(AppError::fail_json("db_error")),
             );
         }
     };
@@ -601,3 +601,4 @@ mod tests {
         assert_eq!(days, 10);
     }
 }
+use myriad_error::AppError;

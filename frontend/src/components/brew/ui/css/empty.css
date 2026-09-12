@@ -1,0 +1,67 @@
+/* 页面组合不要往这里塞业务。 */
+
+.brew-empty {
+  margin: 2rem 0;
+  padding: 0.95rem 1.05rem;
+  border: 1px solid var(--brew-frost-line, var(--brew-line));
+  border-radius: var(--brew-radius);
+  background: var(--brew-chip);
+  box-shadow: var(--brew-shadow);
+  color: var(--brew-fg-soft);
+  font-size: 0.875rem;
+}
+
+.brew-empty__mark {
+  display: block;
+  width: 2.5rem;
+  height: 2.5rem;
+  margin-bottom: 0.4rem;
+  opacity: 0.32;
+}
+
+.brew-empty__hint {
+  margin: 0.35rem 0 0;
+  color: var(--brew-fg-dim);
+  font-size: 0.8125rem;
+}
+
+.brew-empty__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.brew-empty__row p {
+  margin: 0;
+}
+
+.brew-empty__action {
+  height: 1.65rem;
+  padding: 0.22rem 0.65rem;
+  border: 1px solid var(--brew-accent-line);
+  border-radius: 0.45rem;
+  background: var(--brew-accent-fill);
+  color: var(--brew-accent-ink);
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: var(--sm-t-fill, background-color 140ms ease);
+}
+
+.brew-empty__action:hover {
+  background: var(
+    --cfg-accent-fill-hover,
+    color-mix(in srgb, var(--brew-accent) 26%, white)
+  );
+  border-color: var(
+    --cfg-accent-line-hover,
+    color-mix(in srgb, var(--brew-accent) 48%, white)
+  );
+}
+
+.brew-empty__action:active {
+  transform: scale(var(--sm-scale-press, 0.97));
+}
+

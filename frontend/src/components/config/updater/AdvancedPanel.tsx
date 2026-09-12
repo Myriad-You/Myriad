@@ -1,7 +1,3 @@
-/**
- * Updater advanced / transport / digests panel.
- */
-
 import type { ReleaseManifest, TransportMode, UpdaterStatus } from '../../../services/updaterApi'
 import type { U } from './helpers'
 import { LuRefreshCw } from '@lib/icons'

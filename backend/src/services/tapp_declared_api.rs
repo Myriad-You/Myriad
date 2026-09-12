@@ -1,7 +1,5 @@
 //! Declared Tapp API catalog (manifest `apis` parse cache + install binding).
 //!
-//! Domain lives in services so install/uninstall paths and future agent callers
-//! can invalidate/list without importing `api::tapp_runtime::declared_api`.
 //! HTTP handlers map [`DeclaredApiError`] to Axum and own grant/rate-limit checks.
 //! Actual outbound execution remains [`crate::services::tapp_api_service`].
 
@@ -171,7 +169,7 @@ pub async fn get_tapp_apis(
     apis
 }
 
-/// Tapp 更新/卸载时使缓存失效
+/// Drop in-process parsed API defs for this tapp_id.
 pub async fn invalidate_tapp_apis_cache(tapp_id: &str) {
     let mut cache = TAPP_APIS_CACHE.write().await;
     cache.retain(|_, entry| entry.tapp_id != tapp_id);
@@ -196,7 +194,7 @@ pub async fn resolve_declared_api_tapp(
     Ok(tapp)
 }
 
-/// Filter installed permissions through the caller's current role + dynamic config.
+/// Filter approved permissions to the granted set for this role + config.
 pub async fn filter_granted_permissions(
     installed_permissions: Vec<String>,
     role: UserRole,
@@ -219,9 +217,6 @@ pub fn installed_permissions_from_tapp(tapp: &tapps::Model) -> Vec<String> {
 }
 
 /// Parse Manifest `settings`. Missing or JSON `null` means “none declared”.
-///
-/// Install persists omitted optional fields as `null`. Treating that as a
-/// malformed declaration made every declared HTTP API return 400.
 pub fn declared_settings_from_manifest(
     manifest: &Value,
 ) -> Result<Vec<myriad_tapp_contract::manifest::TappSettingDef>, String> {
@@ -333,9 +328,6 @@ mod tests {
         assert!(declared_settings_from_manifest(&json!({ "settings": "nope" })).is_err());
     }
 
-    /// Declared API resolution uses `resolve_accessible_tapp`, which sorts by
-    /// `tapp_owner_priority`. Keep this contract aligned with ownership:
-    /// private install precedes same-id admin public install.
     #[test]
     fn declared_api_install_priority_matches_runtime_private_first() {
         assert_eq!(tapp_owner_priority(42, 42, 1), 0);

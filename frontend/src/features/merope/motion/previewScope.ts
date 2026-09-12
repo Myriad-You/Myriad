@@ -11,10 +11,7 @@ const PREVIEW_CHANNELS: readonly MotionChannel[] = [
   'headBody',
 ]
 
-/**
- * Isolated workbench scope. Preview outranks every live source on this
- * coordinator only; production faces never see these leases.
- */
+/** Preview outranks every live source on this coordinator only */
 export class PreviewMotionScope {
   readonly coordinator = new RigMotionCoordinator()
   private handle: MotionLeaseHandle | null = null

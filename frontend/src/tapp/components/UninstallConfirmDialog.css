@@ -1,8 +1,3 @@
-/**
- * 卸载确认浮层 — 对齐设置页 .setting-title-guide-float 的定位 / 进出场
- * 危险语义用红色强调（指南用 accent）
- */
-
 .uninstall-tip {
   --uninstall-tip-enter-ms: 280ms;
   --uninstall-tip-exit-ms: 260ms;
@@ -10,8 +5,6 @@
   --uninstall-tip-exit-ease: cubic-bezier(0.4, 0, 0.2, 1);
 
   position: fixed;
-
-  /* top/left 由 JS 平滑写入，避免滚动时硬跳 */
   top: 0;
   left: 0;
   z-index: 10050;
@@ -55,7 +48,6 @@
     box-shadow var(--uninstall-tip-enter-ms) var(--uninstall-tip-ease);
 }
 
-/* 按锚点方向设置 transform-origin 与初始位移（同指南） */
 .uninstall-tip--top {
   transform-origin: center bottom;
   transform: translate3d(0, 10px, 0) scale(0.96);
@@ -86,7 +78,6 @@
       color-mix(in srgb, #ef4444 18%, transparent);
 }
 
-/* 退出：沿锚点方向收回 + 淡出 */
 .uninstall-tip.is-leaving {
   opacity: 0;
   pointer-events: none;
@@ -143,8 +134,6 @@ html.dark .uninstall-tip.is-ready {
   font-weight: 700;
   line-height: 1.35;
   color: #dc2626;
-
-  /* 应用名可能较长：最多两行，超出省略 */
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;

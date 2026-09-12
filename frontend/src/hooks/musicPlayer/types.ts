@@ -82,10 +82,6 @@ export interface UseMusicPlayerReturn {
     textKey: 'singleRepeat' | 'shuffle' | 'listRepeat'
   }
 
-  /**
-   * 进度条 UI 可见性开关：不可见时 timeupdate 跳过 setCurrentTime，
-   * 避免宿主组件（GlobalControlPanel）在面板收起时仍以 5次/秒 重渲染。
-   * 对外的进度同步（Tapp 广播 / Media Session / 全局状态）不受影响。
-   */
+  /** 进度条不可见时 timeupdate 跳过 setCurrentTime；对外进度同步不受影响。 */
   setProgressUiVisible: (visible: boolean) => void
 }

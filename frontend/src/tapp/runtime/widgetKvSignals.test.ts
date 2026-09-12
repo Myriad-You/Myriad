@@ -1,7 +1,3 @@
-/**
- *   pnpm exec tsx --test src/tapp/runtime/widgetKvSignals.test.ts
- */
-
 import type { TappInstance, TappMessage } from '../types'
 import type { TappBridge } from './TappBridge.ts'
 import assert from 'node:assert/strict'
@@ -13,10 +9,12 @@ import { registerPlaygroundPreviewHandlers } from './sandbox/handlers/playground
 import { generateFullSDK, generateWidgetSDK } from './sandbox/sdkGenerator.ts'
 import {
   emitHostSettingsChange,
+  emitTappPrivateChange,
   emitTappSettingsChange,
   emitTappStorageChange,
   HOST_SETTINGS_WRITE_SOURCE,
   isForeignTappKvChange,
+  onTappPrivateChange,
   onTappSettingsChange,
   onTappStorageChange,
 } from './WidgetRuntimeSignals.ts'
@@ -141,6 +139,38 @@ describe('settings change bus', () => {
   })
 })
 
+describe('private change bus', () => {
+  it('does not leak onto the storage bus', () => {
+    const privateHits: string[] = []
+    const storageHits: string[] = []
+    const offPrivate = onTappPrivateChange((change) => {
+      privateHits.push(change.key ?? '')
+    })
+    const offStorage = onTappStorageChange((change) => {
+      storageHits.push(change.key ?? '')
+    })
+    try {
+      emitTappPrivateChange({
+        tappId: 'com.example.app',
+        key: 'token',
+        operation: 'set',
+        source: { id: 'writer' },
+      })
+      emitTappStorageChange({
+        tappId: 'com.example.app',
+        key: 'cache',
+        operation: 'set',
+        source: { id: 'writer' },
+      })
+      assert.deepEqual(privateHits, ['token'])
+      assert.deepEqual(storageHits, ['cache'])
+    } finally {
+      offPrivate()
+      offStorage()
+    }
+  })
+})
+
 describe('settingsChanged reaches sandbox onChanged', () => {
   it('delivers once on Page and Widget, and ignores storageChanged', () => {
     const page = evaluateSdk(generateFullSDK(instance, 'session-token', 'page'))
@@ -179,24 +209,37 @@ describe('settingsChanged reaches sandbox onChanged', () => {
 })
 
 describe('host remount policy', () => {
-  it('remounts on storage/shared, not on settings', () => {
+  it('remounts on storage/shared, not on settings or private', () => {
     const sandbox = readFileSync(
       fileURLToPath(new URL('./TappWidgetSandbox.tsx', import.meta.url)),
+      'utf8',
+    )
+    const pageSandbox = readFileSync(
+      fileURLToPath(new URL('./TappPageSandbox.tsx', import.meta.url)),
       'utf8',
     )
     const host = readFileSync(
       fileURLToPath(new URL('../../components/widgets/TappWidget.tsx', import.meta.url)),
       'utf8',
     )
-    assert.match(sandbox, /invalidateRef\.current\?\.\('storage-changed'\)/)
-    assert.match(sandbox, /invalidateRef\.current\?\.\('shared-changed'\)/)
-    const settingsStart = sandbox.indexOf('onTappSettingsChange((change)')
-    const settingsEnd = sandbox.indexOf('buildMediaState')
-    assert.ok(settingsStart > 0 && settingsEnd > settingsStart)
-    assert.doesNotMatch(
-      sandbox.slice(settingsStart, settingsEnd),
-      /invalidateRef/,
+    assert.match(sandbox, /bindAllTappKvChanges/)
+    assert.match(pageSandbox, /bindAllTappKvChanges/)
+    const signals = readFileSync(
+      fileURLToPath(new URL('./WidgetRuntimeSignals.ts', import.meta.url)),
+      'utf8',
     )
+    assert.match(signals, /remount: 'storage-changed'/)
+    assert.match(signals, /remount: 'shared-changed'/)
+    const privateRow = signals.match(
+      /subscribe: onTappPrivateChange, action: 'privateChanged'[^}]*/,
+    )?.[0]
+    assert.ok(privateRow, 'private must be in TAPP_KV_BRIDGES')
+    assert.doesNotMatch(privateRow, /remount/)
+    const settingsRow = signals.match(
+      /subscribe: onTappSettingsChange, action: 'settingsChanged'[^}]*/,
+    )?.[0]
+    assert.ok(settingsRow, 'settings must be in TAPP_KV_BRIDGES')
+    assert.doesNotMatch(settingsRow, /remount/)
     assert.doesNotMatch(host, /onTappSettingsChange/)
     assert.match(host, /onTappWidgetInvalidate/)
   })

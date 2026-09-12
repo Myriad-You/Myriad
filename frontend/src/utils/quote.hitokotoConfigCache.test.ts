@@ -1,12 +1,6 @@
 /**
- *   pnpm exec tsx --test src/utils/quote.hitokotoConfigCache.test.ts
- *
- * `/config/hitokoto` 曾经每次 getRandomQuote() 都回源，一次页面加载会被
- * QuoteWidget、GlobalControlPanel、/config 表单各打一发（线上实测 3 次）。
- * 这里锁住去重行为，以及几条必须回源 / 必须失效的例外路径。
- *
- * quote.ts 在模块加载时会挂 HITOKOTO_CONFIG_UPDATED_EVENT 监听（仅当有
- * window），所以 window 垫片必须在 import 之前装好——故用动态 import。
+ * `/config/hitokoto` 按页去重；例外路径必须回源 / 必须失效。
+ * quote.ts 模块加载会挂 HITOKOTO_CONFIG_UPDATED_EVENT（有 window 时），垫片必须先于 import。
  */
 
 import assert from 'node:assert/strict'

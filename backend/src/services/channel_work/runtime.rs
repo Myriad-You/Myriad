@@ -7,7 +7,7 @@ static LOCKS: Lazy<Mutex<HashMap<String, Weak<Mutex<()>>>>> =
 static ACTIVE: Lazy<Mutex<HashMap<String, ActiveWork>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 struct ActiveWork {
-    run: Arc<AgentRun>,
+    run: Option<Arc<AgentRun>>,
     binding: ChannelBinding,
     observer: tokio::task::AbortHandle,
 }
@@ -36,18 +36,21 @@ pub(super) async fn is_active(key: &str) -> bool {
     ACTIVE.lock().await.contains_key(key)
 }
 pub(super) async fn owns_run(key: &str, run_id: &str) -> bool {
-    ACTIVE
-        .lock()
-        .await
-        .get(key)
-        .is_some_and(|active| active.run.run_id() == run_id)
+    ACTIVE.lock().await.get(key).is_some_and(|active| {
+        active
+            .run
+            .as_ref()
+            .is_some_and(|run| run.run_id() == run_id)
+    })
 }
 
 pub(super) async fn stop_delivery(key: &str) {
     let active = ACTIVE.lock().await.remove(key);
     if let Some(active) = active {
         active.observer.abort();
-        active.run.abort_execution().await;
+        if let Some(run) = active.run {
+            run.abort_execution().await;
+        }
     }
 }
 
@@ -107,17 +110,19 @@ pub(super) async fn start_delivery(
             cancel_session_tasks(&db, user_id, observer_run.session_id().unwrap_or("")).await;
         }
         let mut active = ACTIVE.lock().await;
-        if active
-            .get(&observer_key)
-            .is_some_and(|entry| entry.run.run_id() == observer_run.run_id())
-        {
+        if active.get(&observer_key).is_some_and(|entry| {
+            entry
+                .run
+                .as_ref()
+                .is_some_and(|run| run.run_id() == observer_run.run_id())
+        }) {
             active.remove(&observer_key);
         }
     });
     ACTIVE.lock().await.insert(
         key,
         ActiveWork {
-            run,
+            run: Some(run),
             binding,
             observer: observer.abort_handle(),
         },
@@ -131,28 +136,56 @@ pub(crate) async fn revoke_pairing(db: &DatabaseConnection, provider: &str, user
     } else {
         provider
     };
-    let keys: Vec<_> = ACTIVE
+    let candidates: Vec<_> = ACTIVE
         .lock()
         .await
         .iter()
         .filter(|(_, work)| work.binding.user_id == user_id && work.binding.provider == provider)
-        .map(|(key, _)| key.clone())
+        .map(|(key, work)| (key.clone(), work.binding.clone()))
         .collect();
-    for key in keys {
-        stop_delivery(&key).await;
+    for (key, binding) in candidates {
+        if !binding.is_current(db).await {
+            stop_delivery(&key).await;
+        }
     }
     if let Ok(rows) = shared_registry::list(db, session_ns(platform), Some(user_id), None).await {
         for row in rows {
             if let Ok(session) = serde_json::from_value::<StoredSession>(row.payload) {
-                cancel_session_tasks(db, user_id, &session.session_id).await;
+                // A new pairing may already exist after the revocation transaction committed.
+                // Never sweep that generation's records or tasks.
+                if let Some(binding) = &session.binding {
+                    if binding.is_current(db).await {
+                        continue;
+                    }
+                }
+                destroy_session(db, platform, user_id, &row.record_id, &session).await;
             }
         }
     }
-    if let Err(error) = db.execute_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres,
-        "DELETE FROM tapp_runtime_registry WHERE subject_id = $1 AND namespace IN ($2, $3, $4, $5)",
-        [user_id.into(), session_ns(platform).into(), pending_ns(platform).into(), outbound_ns(platform).into(), inbound_ns(platform).into()])).await {
-        warn!(%error, "revoked channel projection cleanup failed");
-    }
+}
+
+async fn destroy_session(
+    db: &DatabaseConnection,
+    platform: &str,
+    user_id: i32,
+    key: &str,
+    session: &StoredSession,
+) {
+    with_chat_lock(key, async {
+        stop_delivery(key).await;
+        if let Some(run_id) = &session.last_run_id {
+            if let Some(run) = crate::services::agent::run_hub::get_run_for_user(run_id, user_id).await {
+                run.abort_execution().await;
+            }
+        }
+        cancel_session_tasks(db, user_id, &session.session_id).await;
+        if let Err(error) = db.execute_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres,
+            "DELETE FROM tapp_runtime_registry WHERE subject_id = $1 AND \
+             ((namespace IN ($2, $3, $4) AND record_id = $5) OR (namespace = $6 AND starts_with(record_id, $5 || ':')))",
+            [user_id.into(), session_ns(platform).into(), pending_ns(platform).into(), outbound_ns(platform).into(), key.into(), inbound_ns(platform).into()])).await {
+            warn!(%error, "revoked channel projection cleanup failed");
+        }
+    }).await;
 }
 
 #[cfg(test)]
@@ -203,19 +236,22 @@ pub(super) async fn recover_session(
     if !binding.is_current(db).await {
         return false;
     }
+    let outbox = shared_registry::list(db, outbound_ns(platform), Some(binding.user_id), None)
+        .await
+        .is_ok_and(|rows| rows.iter().any(|row| row.record_id == key));
     let Some(run) =
         crate::services::agent::run_hub::get_run_for_user(&run_id, binding.user_id).await
     else {
-        return false;
+        if outbox {
+            start_outbox_delivery(db.clone(), key.to_string(), sink).await;
+        }
+        return outbox;
     };
     let (events, _, _) = run.snapshot().await;
     let unseen = events.iter().any(|event| {
         event.sequence > session.last_event_seq
             && map_progress(&event.event, &session.original_input, &sink.capabilities()).is_some()
     });
-    let outbox = shared_registry::list(db, outbound_ns(platform), Some(binding.user_id), None)
-        .await
-        .is_ok_and(|rows| rows.iter().any(|row| row.record_id == key));
     if !unseen && !outbox && !run.is_executing().await {
         return false;
     }
@@ -229,6 +265,27 @@ pub(super) async fn recover_session(
     )
     .await;
     true
+}
+
+// An already projected result remains deliverable after run history expires.
+async fn start_outbox_delivery(db: DatabaseConnection, key: String, sink: ChannelSink) {
+    let (start, ready) = tokio::sync::oneshot::channel();
+    let binding = sink.binding.clone();
+    let task_key = key.clone();
+    let observer = tokio::spawn(async move {
+        let _ = ready.await;
+        flush_outbound(&db, sink.binding.user_id, &task_key, &sink).await;
+        ACTIVE.lock().await.remove(&task_key);
+    });
+    ACTIVE.lock().await.insert(
+        key,
+        ActiveWork {
+            run: None,
+            binding,
+            observer: observer.abort_handle(),
+        },
+    );
+    let _ = start.send(());
 }
 
 pub(crate) fn spawn_recovery_worker() {
@@ -251,10 +308,14 @@ pub(crate) fn spawn_recovery_worker() {
                     let Ok(session) = serde_json::from_value::<StoredSession>(row.payload) else {
                         continue;
                     };
-                    let (Some(binding), Some(address)) = (session.binding, session.address) else {
+                    let (Some(binding), Some(address)) =
+                        (session.binding.clone(), session.address.clone())
+                    else {
                         continue;
                     };
                     if !binding.is_current(&db).await {
+                        destroy_session(&db, platform, binding.user_id, &row.record_id, &session)
+                            .await;
                         continue;
                     }
                     let Some(transport) = address.connect(&db).await else {

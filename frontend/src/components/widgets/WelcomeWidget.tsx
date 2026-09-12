@@ -1,8 +1,3 @@
-/**
- * 欢迎小组件 - 4x2卡片
- * Glass风格设计，左右布局，动态引导内容
- */
-
 import type { WidgetComponentProps } from '../widgetGridTypes'
 import { MyriadStoreIcon } from '@lib/icons'
 import {
@@ -23,7 +18,6 @@ import { ClampText, FitText } from './shared/FitText'
 import { GlowBackground } from './shared/GlowBackground'
 import { WidgetShell } from './shared/WidgetShell'
 
-// Navigation guide type definition
 interface NavigationGuide {
   title: string
   description: string
@@ -36,7 +30,6 @@ const WELCOME_ICON_ASSET = '/icons/widgets/welcome.webp'
 
 export const WelcomeWidget = memo(
   ({ config, isEditMode, isPreview }: WidgetComponentProps) => {
-    // 如果是预览模式，强制 scale 为 1，因为外部容器已经进行了缩放
     const { containerRef, scale, fontScale, height } = useWidgetSize(
       config.size,
       isPreview ? 1 : undefined,
@@ -44,11 +37,10 @@ export const WelcomeWidget = memo(
     const anim = useAnimationLevel()
     const { t, locale } = useI18n()
 
-    // 🆕 使用触发式动画 - 组件挂载时播放一次箭头动画
     const { isAnimating } = useLoopAnimation({
-      duration: 1500, // 箭头动画约1.5秒周期
-      trigger: 'mount', // 固定值，组件首次渲染时触发一次
-      enabled: anim.loop, // 低端设备禁用
+      duration: 1500,
+      trigger: 'mount',
+      enabled: anim.loop,
     })
 
     const canAnimate = anim.loop && isAnimating
@@ -58,7 +50,6 @@ export const WelcomeWidget = memo(
     const [currentGuideIndex, setCurrentGuideIndex] = useState(0)
     const [greeting, setGreeting] = useState('')
 
-    // Navigation guides with i18n
     const navigationGuides = useMemo(
       () => [
         {
@@ -93,7 +84,6 @@ export const WelcomeWidget = memo(
       [t],
     )
 
-    // 动态问候语
     useEffect(() => {
       if (isPreview) {
         setGreeting(t.greeting.welcome)
@@ -109,7 +99,6 @@ export const WelcomeWidget = memo(
       else setGreeting(t.greeting.night)
     }, [isPreview, t])
 
-    // 首页可见性感知定时器轮播引导卡片；exlight 只显示当前概览页
     useHomeVisibilityInterval(
       () =>
         setCurrentGuideIndex((prev) => (prev + 1) % navigationGuides.length),
@@ -145,7 +134,6 @@ export const WelcomeWidget = memo(
       [welcomeIconSize],
     )
 
-    // 日期格式化 - 提取到 useMemo 避免每次渲染都格式化
     const formattedDate = useMemo(() => {
       return new Date().toLocaleDateString(locale, {
         month: 'long',
@@ -154,16 +142,11 @@ export const WelcomeWidget = memo(
       })
     }, [locale])
 
-    // 判断是否为2x2布局
     const is2x2 = config.size === '2x2'
 
-    // 问候语作为主视觉，给它一块「可用高度」让字号长满这块地方（而非停在固定值）。
-    // 2x2 只有问候+日期，纵向余量更大；4x2 还要与图标/日期/轮播点分享列高。
-    // height 尚未测得时用一个合理默认，避免首帧过大闪动。
-    // 4x2 预算收紧：英语两行问候不能撑满列高，要给日期/轮播点留出呼吸
+    // 4x2 英语两行问候不能撑满列高，要给日期/轮播点留空。
     const greetingBoxHeight = Math.round((height || 140) * (is2x2 ? 0.44 : 0.3))
 
-    // 渲染导航图标 - 使用 useCallback 避免重复创建，与导航岛图标保持一致
     const renderNavIcon = useCallback((guide: NavigationGuide) => {
       const iconClass = 'w-5 h-5'
       if (guide.path === '/library') {
@@ -217,11 +200,9 @@ export const WelcomeWidget = memo(
           </svg>
         )
       }
-      // Tapp 应用 - 使用 Myriad 自有商店线性图标
       return <MyriadStoreIcon className={iconClass} />
     }, [])
 
-    // 2x2 布局 - 简化版，只显示问候语，保持左上角布局
     if (is2x2) {
       return (
         <WidgetShell
@@ -276,7 +257,6 @@ export const WelcomeWidget = memo(
       )
     }
 
-    // 4x2 布局 - 完整版
     return (
       <WidgetShell
         containerRef={containerRef}
@@ -294,7 +274,6 @@ export const WelcomeWidget = memo(
           />
         }
       >
-        {/* 左侧：固定问候区 (42%) - 给 CJK 问候语更多单行空间 */}
         <div className="flex flex-col justify-between" style={{ width: '42%' }}>
           <motion.div
             initial={{ x: -20, opacity: 0 }}
@@ -330,7 +309,6 @@ export const WelcomeWidget = memo(
             </FitText>
           </motion.div>
 
-          {/* 轮播指示器 */}
           <motion.div
             className="flex gap-2 shrink-0 mt-2"
             style={{ gap: `${8 * scale}px` }}
@@ -359,7 +337,6 @@ export const WelcomeWidget = memo(
           </motion.div>
         </div>
 
-        {/* 右侧：动态引导卡片 (65%) */}
         <div className="flex-1 relative">
           <AnimatePresence mode="wait">
             <motion.div
@@ -405,7 +382,7 @@ export const WelcomeWidget = memo(
                     >
                       {currentGuide.title}
                     </FitText>
-                    {/* 1 行省略：高度确定，避免特性区被纵向裁出半行残影 */}
+                    {/* 一行省略，避免特性区裁出半行残影。 */}
                     <ClampText
                       as="p"
                       className="text-gray-500 dark:text-gray-400"
@@ -418,7 +395,6 @@ export const WelcomeWidget = memo(
                   </div>
                 </div>
 
-                {/* 功能特性 - flex-1 可压缩，超出裁剪，保证按钮始终可见 */}
                 <div
                   className="relative space-y-1.5 flex-1 min-h-0 overflow-hidden"
                   style={{ marginBottom: `${8 * scale}px` }}
@@ -454,7 +430,6 @@ export const WelcomeWidget = memo(
                   ))}
                 </div>
 
-                {/* 前往按钮 - 固定在卡片底部 */}
                 <motion.div
                   className="relative flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-gray-700 dark:text-white/60 shrink-0 mt-auto"
                   style={{
@@ -479,7 +454,7 @@ export const WelcomeWidget = memo(
                       canAnimate
                         ? {
                             duration: 1.5,
-                            repeat: 3, // ~4.5s
+                            repeat: 3,
                             ease: 'easeInOut',
                           }
                         : { duration: 0 }

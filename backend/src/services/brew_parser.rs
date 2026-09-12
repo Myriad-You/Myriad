@@ -134,7 +134,7 @@ impl ParseError {
 ///
 /// 出站请求经 `outbound_security` 做公网 DNS 钉扎与禁用重定向，防止 SSRF。
 pub struct FeedParser {
-    /// 保留字段供未来扩展；实际抓取使用 per-request 安全客户端
+    /// 未用于抓取；`fetch_and_parse` 用 per-request 安全客户端
     #[allow(dead_code)]
     client: Client,
 }
@@ -208,7 +208,7 @@ impl FeedParser {
 
         tracing::debug!("Feed content-type: {}", content_type);
 
-        // Cap body size before buffering: never read unbounded feed payloads (MYR-018).
+        // Cap body size before buffering: never read unbounded feed payloads.
         let body_bytes =
             crate::services::outbound_security::read_limited_body(response, MAX_FEED_BODY_BYTES)
                 .await
@@ -274,16 +274,16 @@ impl FeedParser {
                 rss_score += 2;
             }
 
-            // Atom 特征 - 必须是 <feed 作为根元素，不是命名空间声明
+            // Atom 特征：正文含 `<feed` 且不含 `<rss`（不把 xmlns 声明当成 feed 标签）
             if content_lower.contains("<feed") && !trimmed.contains("<rss") {
                 // 检查是否有 Atom 命名空间作为默认命名空间（不是 xmlns:atom）
                 if content_lower.contains("<feed")
                     && (content_lower.contains("xmlns=\"http://www.w3.org/2005/atom\"")
                         || content_lower.contains("xmlns='http://www.w3.org/2005/atom'"))
                 {
-                    atom_score += 10; // 明确的 Atom 根标签 + 默认命名空间
+                    atom_score += 10; // 含 `<feed` 且默认 xmlns 是 Atom
                 } else if content_lower.contains("<feed") {
-                    atom_score += 5; // 有 <feed> 标签但没有明确命名空间
+                    atom_score += 5; // 含 `<feed` 但没有 Atom 默认 xmlns
                 }
             }
             if trimmed.contains("<entry>") || trimmed.contains("<entry ") {
@@ -514,7 +514,7 @@ impl FeedParser {
                                 "title" => feed.title = trimmed_text.to_string(),
                                 "description" => feed.description = Some(trimmed_text.to_string()),
                                 "link" => {
-                                    // 只设置第一个有效的 link
+                                    // 只设置第一个非空 link
                                     if feed.site_url.is_none() {
                                         feed.site_url = Some(trimmed_text.to_string());
                                     }
@@ -572,7 +572,6 @@ impl FeedParser {
             buf.clear();
         }
 
-        // 修正 HTML 内容：quick_xml 会错误地解析转义的 HTML 标签
         // 从原始 XML 重新提取 description 和 content:encoded
         for item in &mut feed.items {
             let identifier = if !item.guid.is_empty() {
@@ -603,7 +602,7 @@ impl FeedParser {
             }
         }
 
-        // 如果没有找到 icon，尝试从 site_url 获取 favicon
+        // icon 缺省时拼 site_url/favicon.ico
         if feed.icon.is_none() {
             if let Some(ref site_url) = feed.site_url {
                 feed.icon = Some(format!("{}/favicon.ico", site_url.trim_end_matches('/')));
@@ -690,7 +689,7 @@ impl FeedParser {
 
                             if in_entry {
                                 if let Some(ref mut item) = current_item {
-                                    // 优先使用 alternate 或空 rel 的链接
+                                    // link 仍空时：空 rel / alternate / self 都可写入，先到先得，不覆盖
                                     if rel.is_empty() || rel == "alternate" {
                                         if item.link.is_empty() {
                                             item.link = href.clone();
@@ -872,7 +871,7 @@ impl FeedParser {
             }
         }
 
-        // 如果没有找到 icon，尝试从 site_url 获取 favicon
+        // icon 缺省时拼 site_url/favicon.ico
         if feed.icon.is_none() {
             if let Some(ref site_url) = feed.site_url {
                 feed.icon = Some(format!("{}/favicon.ico", site_url.trim_end_matches('/')));
@@ -884,8 +883,7 @@ impl FeedParser {
 
     /// 解析 RSS 1.0 (RDF)
     fn parse_rdf(&self, content: &str, source_url: &str) -> Result<ParsedFeed, ParseError> {
-        // RDF 格式与 RSS 2.0 类似，但结构略有不同
-        // 简化处理：复用 RSS 解析器
+        // 复用 parse_rss
         self.parse_rss(content, source_url)
     }
 
@@ -975,7 +973,7 @@ impl FeedParser {
                 let (content, content_format) = if item.content_html.is_some() {
                     (item.content_html, ContentFormat::Html)
                 } else if item.content_text.is_some() {
-                    // 检测 content_text 是否包含 Markdown 语法
+                    // 走 detect_content_format（先 HTML 再 Markdown 计分）
                     let text = item.content_text.as_ref().unwrap();
                     let format = detect_content_format(text);
                     (item.content_text, format)
@@ -1015,10 +1013,10 @@ impl FeedParser {
     }
 }
 
-/// 从原始 XML 中提取指定 item 的 HTML 内容字段
-/// 这是必要的，因为 quick_xml 会自动解码 XML 实体，导致转义的 HTML 被错误解析
+/// 从原始 XML 取指定 item 的 HTML 字段 inner。
+/// 未转义的 HTML 子标签会被 quick_xml 拆成事件，第一遍 Text 拿不全。
 fn extract_item_html_content(xml: &str, guid: &str, tag: &str) -> Option<String> {
-    // 首先找到包含这个 guid 的 item
+    // guid 先做 & < > 转义
     let guid_escaped = guid
         .replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -1164,7 +1162,7 @@ fn normalize_html_content(content: &str) -> String {
         normalized_lines.pop();
     }
 
-    // 5. 解码常见的 HTML 实体（保留标签本身）
+    // 拼回规范化后的行
     result = normalized_lines.join("\n");
 
     // 先处理数字实体（如 &#39; &#160; &#x27; 等）
@@ -1229,7 +1227,7 @@ fn decode_html_numeric_entities(input: &str) -> String {
                         is_numeric = true;
                     }
                 } else if entity.len() > 10 {
-                    // 实体太长，不是有效实体
+                    // 非实体字符则停（长度分支与 else 相同）
                     break;
                 } else {
                     break;
@@ -1316,7 +1314,7 @@ fn detect_content_format(content: &str) -> ContentFormat {
         }
     }
 
-    // 检测 Markdown 特征（按优先级检查）
+    // Markdown 特征计分
     let lines: Vec<&str> = trimmed.lines().collect();
     let mut md_score = 0;
 
@@ -1330,19 +1328,19 @@ fn detect_content_format(content: &str) -> ContentFormat {
             md_score += 3;
         }
 
-        // 列表语法: - * + 或 1.
+        // 列表: "- "/"* "/"+ " 或含 ". " 的数字开头行
         if (l.starts_with("- ") || l.starts_with("* ") || l.starts_with("+ "))
             || (l.len() > 2 && l.chars().next().unwrap_or(' ').is_ascii_digit() && l.contains(". "))
         {
             md_score += 1;
         }
 
-        // 代码块: ``` 或缩进4空格
+        // 代码块: 行已 trim，只认行首 ```（四空格缩进已被 trim 掉）
         if l.starts_with("```") || l.starts_with("    ") {
             md_score += 2;
         }
 
-        // 引用块: >
+        // 引用块: "> "
         if l.starts_with("> ") {
             md_score += 1;
         }
@@ -1364,7 +1362,7 @@ fn detect_content_format(content: &str) -> ContentFormat {
         md_score += 2;
     }
 
-    // 粗体/斜体: **text** *text* __text__ _text_
+    // 粗体: **text** 或 __text__
     if (trimmed.contains("**") && trimmed.matches("**").count() >= 2)
         || (trimmed.contains("__") && trimmed.matches("__").count() >= 2)
     {
@@ -1467,8 +1465,7 @@ pub fn calculate_reading_stats(content: &str) -> (i32, i32) {
         }
     }
 
-    // 阅读时间：中文 400 字/分钟，英文 200 词/分钟
-    // 这里简化处理，统一按 300 词/分钟
+    // 阅读时间：统一按 300 词/分钟
     let reading_time = (word_count as f32 / 300.0).ceil() as i32;
 
     (word_count, reading_time.max(1))
@@ -1506,7 +1503,7 @@ mod tests {
 
     #[test]
     fn oversize_body_surfaces_as_fetch_error() {
-        // fetch_and_parse maps read_limited_body failures to FetchError (no silent truncate).
+        // `user_message` keeps the oversize byte count on FetchError (no os-error dump).
         let err = ParseError::FetchError(format!("Response exceeds {} bytes", MAX_FEED_BODY_BYTES));
         let msg = err.user_message();
         assert!(msg.starts_with("Failed to fetch feed"));

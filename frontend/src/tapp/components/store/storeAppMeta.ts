@@ -1,5 +1,3 @@
-/** Language tags, icon style, permission level helpers for store UI. */
-
 import type { ReactElement } from 'react'
 import type { TappPermission } from '../../types'
 import type { IconStyle } from '../../utils/tappColors'
@@ -9,7 +7,6 @@ import { PERMISSION_LEVELS } from '../../runtime/permissionConfig'
 import { getTappIconStyle } from '../../utils/tappColors'
 import { hasStandaloneTappIcon } from '../TappIcon'
 
-/** Official store source / verified catalog — certification mark after title. */
 export function isOfficialStoreApp(app: UnifiedAppItem): boolean {
   if (
     app.fromOfficialSource ||
@@ -18,7 +15,6 @@ export function isOfficialStoreApp(app: UnifiedAppItem): boolean {
   ) {
     return true
   }
-  // Built-in examples (e.g. Hello World) tagged official
   if (app.tags?.some((tag) => tag.toLowerCase() === 'official')) {
     return true
   }
@@ -30,10 +26,6 @@ export function isOfficialStoreApp(app: UnifiedAppItem): boolean {
   return false
 }
 
-/**
- * Soft scalloped certification seal: rounder rim (low-amplitude 12-lobe wave).
- * Polar: r = 9.35 + 0.55·cos(12θ)
- */
 function OfficialVerifiedSealIcon() {
   return createElement(
     'svg',
@@ -56,7 +48,6 @@ function OfficialVerifiedSealIcon() {
   )
 }
 
-/** Official / verified certification seal with wavy rim. */
 export function OfficialVerifiedDot({
   label,
 }: {
@@ -74,20 +65,19 @@ export function OfficialVerifiedDot({
   )
 }
 
-/**
- * Infer catalog primary language from top-level name/description.
- * Myriad packages keep Chinese (etc.) as top-level fallback and only put
- * host overrides (en-US / ja-JP) under `locales` — so zh never appears as a key.
- */
+const TRADITIONAL_MARKERS =
+  /[說這個為與萬億軟體檔訊預設網連線憶臺裡麼迴]/
+
 export function inferPrimaryCatalogLocale(text: string): string | null {
   const sample = text.trim()
   if (!sample) return null
   if (/[\u3040-\u30FF]/.test(sample)) return 'ja-JP'
-  if (/[\u3400-\u9FFF\uF900-\uFAFF]/.test(sample)) return 'zh-CN'
+  if (/[\u3400-\u9FFF\uF900-\uFAFF]/.test(sample)) {
+    return TRADITIONAL_MARKERS.test(sample) ? 'zh-TW' : 'zh-CN'
+  }
   return null
 }
 
-/** Collect declared BCP-47 tags from manifest locales + package i18n. */
 export function collectAppLanguageTags(app: UnifiedAppItem): string[] {
   const tags = new Set<string>()
   const addKeys = (record?: Record<string, unknown> | null) => {
@@ -113,18 +103,19 @@ export function collectAppLanguageTags(app: UnifiedAppItem): string[] {
   const inferred = inferPrimaryCatalogLocale(primaryText)
   if (inferred) {
     const primary = inferred.split(/[-_]/)[0]!.toLowerCase()
-    const already = Array.from(tags).some(
+    const already = Iterator.from(tags).some(
       (tag) => tag.split(/[-_]/)[0]!.toLowerCase() === primary,
     )
     if (!already) tags.add(inferred)
   }
 
-  return Array.from(tags).sort((a, b) =>
-    a.localeCompare(b, undefined, { sensitivity: 'base' }),
-  )
+  return Iterator.from(tags)
+    .toArray()
+    .toSorted((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: 'base' }),
+    )
 }
 
-/** Format language tags for the current UI locale (e.g. zh-CN → 中文). */
 export function formatAppLanguages(tags: string[], uiLocale: string): string {
   if (tags.length === 0) return '—'
   let displayNames: Intl.DisplayNames | null = null
@@ -156,18 +147,12 @@ export function formatAppLanguages(tags: string[], uiLocale: string): string {
   return labels.join(' · ')
 }
 
-/** @see hasStandaloneTappIcon — store alias */
 export function hasStandaloneAppIcon(
   app: Pick<UnifiedAppItem, 'icon' | 'iconSvg' | 'iconShell'>,
 ): boolean {
   return hasStandaloneTappIcon(app)
 }
 
-/**
- * Accent surface for icons / feature cards (theme or category gradient).
- * `standalone` means the app ships a full icon — callers should not paint this
- * accent as a shell behind the icon (feature cards still use the accent fill).
- */
 export function getAppIconStyle(app: UnifiedAppItem): IconStyle {
   return getTappIconStyle({
     icon: app.icon,
@@ -180,7 +165,6 @@ export function getAppIconStyle(app: UnifiedAppItem): IconStyle {
   })
 }
 
-/** 权限级别（与后端一致，未知权限按基础处理） */
 export function getPermissionLevel(
   permission: string,
 ): 'basic' | 'elevated' | 'privileged' {

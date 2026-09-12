@@ -8,42 +8,32 @@ export interface QuoteData {
   author?: string
 }
 
-/** 一言源定义 */
 export interface HitokotoSource {
-  /** 源 ID */
   id: string
-  /** API 地址（自定义源为用户填写） */
   url: string
-  /** JSON 响应中一言正文对应的字段名 */
   textField: string
-  /** JSON 响应中出处/作者对应的字段名（可选） */
   authorField?: string
 }
 
-/** 内置一言源（含其他语言） */
 export const BUILTIN_HITOKOTO_SOURCES: Record<string, HitokotoSource> = {
-  // 中文 · 一言 hitokoto.cn（文学/诗词/哲学）
   'hitokoto-cn': {
     id: 'hitokoto-cn',
     url: 'https://v1.hitokoto.cn/?c=d&c=i&c=k&encode=json',
     textField: 'hitokoto',
     authorField: 'from',
   },
-  // 中文 · 动漫/漫画语录
   'hitokoto-anime': {
     id: 'hitokoto-anime',
     url: 'https://v1.hitokoto.cn/?c=a&c=b&encode=json',
     textField: 'hitokoto',
     authorField: 'from',
   },
-  // English · Quotable 名言
   'quotable-en': {
     id: 'quotable-en',
     url: 'https://api.quotable.io/random',
     textField: 'content',
     authorField: 'author',
   },
-  // 日本語 · 名言（meigen，返回数组）
   'meigen-ja': {
     id: 'meigen-ja',
     url: 'https://meigen.doodlenote.net/api/json.php',
@@ -52,18 +42,12 @@ export const BUILTIN_HITOKOTO_SOURCES: Record<string, HitokotoSource> = {
   },
 }
 
-/** 默认一言源 ID */
 export const DEFAULT_HITOKOTO_SOURCE_ID = 'hitokoto-cn'
 
-/** 一言配置（存储于后端数据库，随全局保存流程持久化） */
 export interface HitokotoConfig {
-  /** 选中的源 ID，或 'custom' 表示自定义 */
   sourceId: string
-  /** 自定义 API 地址（sourceId === 'custom' 时生效） */
   customUrl?: string
-  /** 自定义正文字段名 */
   customTextField?: string
-  /** 自定义出处字段名 */
   customAuthorField?: string
 }
 
@@ -93,32 +77,18 @@ export function normalizeHitokotoConfig(
   }
 }
 
-/*
- * 一言配置的进程内缓存。
- *
- * `/config/hitokoto` 此前每次 getRandomQuote() 都会打一发，而调用方有三处
- * （QuoteWidget、GlobalControlPanel 的动态内容、/config 的表单草稿），
- * 于是一次页面加载能看到 3 次同样的请求。这份配置是「用户偶尔改一次」
- * 的量级，值得缓存 + 合并在途请求。
- *
- * 失效路径：updateHitokotoConfig 保存后主动清除；跨标签页的修改由
- * HITOKOTO_CONFIG_UPDATED_EVENT + TTL 兜底。故意不落 localStorage——
- * 换设备改了配置后不该被本地旧值粘住。
- */
+/* Do not persist hitokoto config in localStorage. */
 const HITOKOTO_CONFIG_TTL = 5 * 60 * 1000
 let cachedHitokotoConfig: HitokotoConfig | null = null
 let cachedHitokotoConfigAt = 0
 let hitokotoConfigInflight: Promise<HitokotoConfig> | null = null
 
-/** 丢弃一言配置缓存，下次读取重新回源 */
 export function clearHitokotoConfigCache(): void {
   cachedHitokotoConfig = null
   cachedHitokotoConfigAt = 0
   hitokotoConfigInflight = null
 }
 
-// 任何来源派发的配置更新事件都让缓存跟上：updateHitokotoConfig 自己会带上
-// 权威值（直接采纳），其它派发方没带 detail 时保守清空。
 if (typeof window !== 'undefined') {
   window.addEventListener(HITOKOTO_CONFIG_UPDATED_EVENT, (event: Event) => {
     const detail = (event as CustomEvent<HitokotoConfig | undefined>).detail
@@ -132,7 +102,6 @@ if (typeof window !== 'undefined') {
   })
 }
 
-/** 从后端读取一言配置（进程内缓存 + 在途合并） */
 export async function fetchHitokotoConfig(
   options?: { force?: boolean },
 ): Promise<HitokotoConfig> {
@@ -163,7 +132,6 @@ export async function fetchHitokotoConfig(
   return hitokotoConfigInflight
 }
 
-/** 保存一言配置到后端，并清除本地一言缓存，使新设置立即生效 */
 export async function updateHitokotoConfig(
   config: HitokotoConfig,
 ): Promise<HitokotoConfig> {
@@ -177,11 +145,9 @@ export async function updateHitokotoConfig(
     )
   }
   const saved = normalizeHitokotoConfig(response.config)
-  // 刚拿到权威值，直接写进缓存，省掉保存后必然发生的一次回源
   cachedHitokotoConfig = saved
   cachedHitokotoConfigAt = Date.now()
   hitokotoConfigInflight = null
-  // 切换源后旧缓存失效
   localStorage.removeItem('quote_cache')
   localStorage.removeItem('quote_cache_time')
   localStorage.removeItem('quote_cache_source')
@@ -192,7 +158,6 @@ export async function updateHitokotoConfig(
   return saved
 }
 
-/** 比较两份一言配置是否等价（用于统一保存流程的脏检测） */
 export function areHitokotoConfigsEqual(
   left: HitokotoConfig,
   right: HitokotoConfig,
@@ -205,7 +170,6 @@ export function areHitokotoConfigsEqual(
   )
 }
 
-/** 根据配置解析出当前生效的一言源 */
 export async function resolveHitokotoSource(
   config?: HitokotoConfig,
 ): Promise<HitokotoSource | null> {
@@ -232,9 +196,6 @@ function resolveHitokotoSourceFromConfig(
   )
 }
 
-/**
- * 获取一言警句
- */
 export async function getRandomQuote(
   locale?: string,
 ): Promise<QuoteData | null> {
@@ -245,25 +206,22 @@ export async function getRandomQuote(
     console.warn('Failed to load hitokoto config:', error)
     return getLocalQuote(locale)
   }
-  // 自定义源未填写地址时，直接回退本地句库
   if (!source) return getLocalQuote(locale)
 
   try {
-    // 从 localStorage 读取缓存（缓存需匹配当前源地址）
+    // Cache must match the current source URL.
     const cachedQuote = localStorage.getItem('quote_cache')
     const cacheTime = localStorage.getItem('quote_cache_time')
     const cacheSource = localStorage.getItem('quote_cache_source')
 
     if (cachedQuote && cacheTime && cacheSource === source.url) {
       const cacheAge = Date.now() - Number.parseInt(cacheTime)
-      // 缓存 10 分钟
       if (cacheAge < 10 * 60 * 1000) {
         return JSON.parse(cachedQuote)
       }
     }
 
-    // 使用后端代理访问一言 API（解决 CORS 问题）
-    // 默认源无需传 url，自定义/其他语言源通过 url 参数转发
+    // Proxy (CORS).
     const proxyUrl =
       source.id === DEFAULT_HITOKOTO_SOURCE_ID
         ? `${API_URL}/api/proxy/hitokoto`
@@ -276,7 +234,6 @@ export async function getRandomQuote(
     if (!response.ok) throw new Error(httpStatusMessage(response.status))
 
     const data = await response.json()
-    // 部分源（如日语 meigen）返回数组，取首项
     const payload = Array.isArray(data) ? data[0] : data
 
     const text = payload?.[source.textField]
@@ -292,7 +249,6 @@ export async function getRandomQuote(
       author: typeof author === 'string' && author.trim() ? author : undefined,
     }
 
-    // 缓存结果
     localStorage.setItem('quote_cache', JSON.stringify(quoteData))
     localStorage.setItem('quote_cache_time', Date.now().toString())
     localStorage.setItem('quote_cache_source', source.url)
@@ -300,14 +256,10 @@ export async function getRandomQuote(
     return quoteData
   } catch (error) {
     console.warn('Failed to fetch quote:', error)
-    // 返回本地备用句子
     return getLocalQuote(locale)
   }
 }
 
-/**
- * 本地备用句子库
- */
 function getLocalQuote(locale?: string): QuoteData {
   const quotesZhCN = [
     { text: '代码如诗，优雅至上', author: '程序员格言' },
@@ -359,6 +311,9 @@ function getLocalQuote(locale?: string): QuoteData {
   let quotes: QuoteData[]
   switch (locale) {
     case 'en-US':
+    case 'ko-KR':
+    case 'fr-FR':
+    case 'de-DE':
       quotes = quotesEnUS
       break
     case 'ja-JP':

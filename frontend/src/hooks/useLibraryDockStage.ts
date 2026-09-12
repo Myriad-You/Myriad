@@ -1,9 +1,4 @@
-/**
- * Dock library Stage Manager: park / restore + motion values.
- * Pure geometry lives in `utils/libraryDockStage.ts`.
- * `parkable: false` still sizes the dock window but never stages it.
- */
-
+/** parkable: false 仍给停靠窗定尺寸，但从不入场。几何在 utils/libraryDockStage。 */
 import type { CSSProperties } from 'react'
 import type { HomeEditTourDockPose } from '../components/tour/tourLogic'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -95,8 +90,10 @@ export function useLibraryDockStage(input: {
   windowWidth: number
   windowHeight: number
   reducedMotion: boolean
+
   /** Sticker cell-pick: keep the dock parked and ignore grid clicks. */
   pausePointer?: boolean
+
   /** 编辑教程：小组件库步拉开，其余步锁停靠。 */
   tourDockPose?: HomeEditTourDockPose
 }) {

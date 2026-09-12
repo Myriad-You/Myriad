@@ -8,7 +8,7 @@ use crate::federation::types::*;
 use super::buffer::buffer_early_channel_activity;
 use super::types::E2eKeyExchangeResponse;
 
-// E2E helpers (from accept_e2e)
+// E2E helpers
 
 // E2E 会话辅助
 
@@ -68,7 +68,7 @@ pub async fn handle_key_exchange(
         "Invalid remote E2E public key".to_string()
     })?;
 
-    // 验证发送方是该 Channel 的远程方，并读取 properties
+    // 验证发送方是该 Channel 的远程方，并读取 status
     let ch_row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -123,12 +123,7 @@ pub async fn handle_key_exchange(
 
     // 合并 e2e 状态：写入 remote_public_key；若已有本地密钥则 established=true。
     //
-    // 必须在行锁下重读 properties。这里和 initiate_e2e_key_exchange 都是
-    // 「读整个 properties → 改 e2e → 整体写回」，两者用各自的快照互相覆盖：
-    // 本函数会抹掉刚写入的 local_private_key，下一次 initiate 因此认为本地
-    // 还没有密钥、重新生成一对并再发一条 KeyExchange —— 对端的 remote key 随之
-    // 作废，双方陷入密钥轮换循环，而循环前加密的历史永远解不开
-    // （截图里那串 "Encrypted · decrypting…" 就是这么来的）。
+    // 必须在行锁下重读 properties，再写入 remote_public_key。
     let locked = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -219,7 +214,7 @@ pub async fn handle_key_exchange(
     Ok(())
 }
 
-// accept / initiate e2e (merged)
+// accept / initiate e2e
 
 /// 接受 Channel（本地用户确认）
 pub async fn accept_channel(
@@ -244,7 +239,7 @@ pub async fn accept_channel(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Channel not found"})),
+                Json(AppError::public_json("Channel not found")),
             )
         })?;
 
@@ -333,8 +328,7 @@ pub async fn accept_channel(
 /// 处理收到的 ChannelAccept Activity（myriad:ChannelAccept）
 ///
 /// 远程方接受了我方发起的 Channel：把 status 置为 'accepted'。
-/// 与外部 `Accept`（object=myriad:ChannelOpen）等价的快捷形式，
-/// 来自仅实现 MFP 扩展的对端实例。
+/// `myriad:ChannelAccept`：pending → accepted（与 AS `Accept` 路径不完全相同）。
 pub async fn handle_channel_accept(
     db: &impl ConnectionTrait,
     actor_url_str: &str,
@@ -396,7 +390,7 @@ pub async fn handle_channel_accept(
     Ok(())
 }
 
-/// 发起 Channel E2E 密钥交换：生成 X25519 密钥对、写入 properties、投递 myriad:KeyExchange
+/// 发起 Channel E2E 密钥交换：复用已有本地密钥，缺则 mint，提交后再投递 KeyExchange。
 pub async fn initiate_e2e_key_exchange(
     user_id: i32,
     username: &str,
@@ -405,7 +399,7 @@ pub async fn initiate_e2e_key_exchange(
 ) -> Result<E2eKeyExchangeResponse, (StatusCode, Json<serde_json::Value>)> {
     let base_url = get_base_url().await;
 
-    // 全程持有 channel 行锁：入站 handle_key_exchange 会并发改写同一个
+    // 提交前持有 channel 行锁：入站 handle_key_exchange 会并发改写同一个
     // properties。两条路径各自「读 → 改 e2e → 整体写回」，谁后写谁获胜，于是
     // 本地私钥或对端公钥会被对方手里的旧快照抹掉。丢了 local_private_key，
     // 下一次调用就认为本地还没有密钥、重新生成一对并再发一条 KeyExchange，
@@ -426,7 +420,7 @@ pub async fn initiate_e2e_key_exchange(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Channel not found"})),
+                Json(AppError::public_json("Channel not found")),
             )
         })?;
 
@@ -659,3 +653,4 @@ pub async fn initiate_e2e_key_exchange(
         established,
     })
 }
+use myriad_error::AppError;

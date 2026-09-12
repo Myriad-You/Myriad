@@ -7,14 +7,14 @@ use tokio::sync::RwLock;
 
 use super::types::*;
 
-/// 全局 Lane Queue（控制并发和用户级串行）
+/// 全局 Lane Queue（控制并发和会话级串行；无 session 时退回 `user:{id}`）
 pub static LANE_QUEUE: Lazy<Arc<super::queue::LaneQueue>> =
     Lazy::new(|| Arc::new(super::queue::LaneQueue::new(4)));
 
 /// 系统用户 ID（Heartbeat 定时任务等无人值守场景）
 pub const SYSTEM_USER_ID: i32 = 0;
 
-/// 待确认配方存储
+/// 待确认配方热缓存（持久化在 tapp_registry `agent_recipe_confirmation`）
 pub(crate) static PENDING_CONFIRMATIONS: Lazy<
     Arc<RwLock<HashMap<String, PendingRecipeConfirmation>>>,
 > = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
@@ -48,7 +48,7 @@ pub(crate) struct PendingRecipeConfirmation {
     pub recipe: Recipe,
     /// 用户 ID
     pub user_id: i32,
-    /// 原始 PlannerOutput（用于升级重规划）
+    /// 原始 PlannerOutput（确认后续 `generate_response_message_v2`；升级重规划不读此字段）
     pub planner_output: PlannerOutput,
     /// 发起确认时的会话 ID（确认续跑需写回同一 session 历史）
     #[serde(default)]
@@ -63,9 +63,9 @@ pub(crate) struct PendingRecipeConfirmation {
 
 /// Agent 主入口
 ///
-/// 两层架构：Planner (Pro AI) → Executor
+/// Chat vs Work。Work 路径是 Planner → Executor。
 pub struct Agent {
-    /// 规划器（Pro AI 单次调用）
+    /// 规划器（请求 Pro；`resolve_ai_config` 可回落 Standard）
     pub(crate) planner: super::planner::Planner,
     /// 执行引擎
     pub(crate) executor: super::executor::Executor,

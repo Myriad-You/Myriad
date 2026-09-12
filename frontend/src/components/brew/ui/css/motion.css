@@ -1,0 +1,167 @@
+/* 页面组合不要往这里塞业务。 */
+
+.brew-bar__chip.is-enter,
+.brew-bar__panel.is-enter {
+  opacity: 0;
+  transform: translate3d(0, var(--sm-shift-sm, 6px), 0) scale(0.96);
+  animation: brew-tag-enter var(--sm-dur-slow, 320ms)
+    var(--sm-ease-enter, cubic-bezier(0.16, 1, 0.3, 1)) both;
+  animation-delay: calc(var(--brew-tag-i, 0) * var(--sm-stagger, 26ms));
+  transition: none;
+}
+
+.brew-bar__panel.is-exit,
+.brew-bar__row[data-chip-phase='exit'] .brew-bar__chip,
+.brew-view-lane[data-chip-phase='exit'] {
+  pointer-events: none;
+}
+
+.brew-bar__row[data-chip-phase='exit'] .brew-bar__chip.is-enter {
+  animation: none;
+}
+
+.brew-bar__row[data-chip-phase='exit'][data-chip-exit='css'] .brew-bar__chip,
+.brew-bar__panel.is-exit {
+  opacity: 0;
+  transform: translate3d(0, var(--sm-shift-sm, 6px), 0) scale(0.96);
+  transition:
+    opacity var(--sm-dur-base, 220ms) var(--sm-ease-exit, cubic-bezier(0.4, 0, 1, 1)),
+    transform var(--sm-dur-base, 220ms) var(--sm-ease-exit, cubic-bezier(0.4, 0, 1, 1));
+  transition-delay: calc(var(--brew-tag-i, 0) * var(--sm-stagger, 26ms));
+}
+
+.brew-view-lane[data-chip-phase='exit'][data-chip-exit='css'] [data-brew-chip],
+.brew-view-lane[data-chip-phase='exit'][data-chip-exit='css'] [data-brew-card],
+.brew-view-lane[data-chip-phase='exit'][data-chip-exit='css'] .brew-salon__card,
+.brew-view-lane[data-chip-phase='exit'][data-chip-exit='css'] .brew-stories .brew-story,
+.brew-view-lane[data-chip-phase='exit'][data-chip-exit='css'] .brew-site,
+.brew-view-lane[data-chip-phase='exit'][data-chip-exit='css'] .brew-feeds .brew-story,
+.brew-view-lane[data-chip-phase='exit'][data-chip-exit='css'] .brew-empty {
+  opacity: 0;
+  transform: translate3d(0, var(--sm-shift-sm, 6px), 0);
+  transition:
+    opacity var(--sm-dur-base, 220ms) var(--sm-ease-exit, cubic-bezier(0.4, 0, 1, 1)),
+    transform var(--sm-dur-base, 220ms) var(--sm-ease-exit, cubic-bezier(0.4, 0, 1, 1));
+}
+
+@keyframes brew-tag-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, var(--sm-shift-sm, 6px), 0) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes brew-card-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, var(--sm-shift-sm, 6px), 0);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.brew-salon__card.is-arrive,
+.brew-story.is-arrive,
+.brew-empty.is-arrive {
+  animation: brew-card-enter var(--sm-dur-slow, 320ms)
+    var(--sm-ease-enter, cubic-bezier(0.16, 1, 0.3, 1)) backwards;
+  animation-delay: calc(var(--brew-card-i, 0) * var(--sm-stagger, 26ms));
+}
+
+html[data-perf-mode='exlight'] .brew-bar__chip,
+html[data-perf-mode='exlight'] .brew-bar__chip.is-enter,
+html[data-perf-mode='exlight'] .brew-bar__chip.is-exit,
+html[data-perf-mode='exlight'] .brew-bar__set.is-arrive .brew-bar__chip,
+html[data-perf-mode='exlight'] .brew-bar__row[data-chip-phase='exit'] .brew-bar__chip,
+html[data-perf-mode='exlight'] .brew-bar__panel.is-enter,
+html[data-perf-mode='exlight'] .brew-bar__panel.is-exit,
+html[data-perf-mode='exlight'] .brew-bar__menu,
+html[data-perf-mode='exlight'] .brew-feeds__menu,
+html[data-perf-mode='exlight'] .brew-sheet__menu,
+html[data-perf-mode='exlight'] .brew-salon__card.is-arrive,
+html[data-perf-mode='exlight'] .brew-story.is-arrive,
+html[data-perf-mode='exlight'] .brew-empty.is-arrive,
+html[data-perf-mode='exlight'] .brew-view-lane[data-chip-phase='exit'] [data-brew-chip],
+html[data-perf-mode='exlight'] .brew-view-lane[data-chip-phase='exit'] [data-brew-card],
+html[data-perf-mode='exlight'] .brew-view-lane[data-chip-phase='exit'] .brew-site,
+html[data-perf-mode='exlight'] .brew-view-lane[data-chip-phase='exit'] .brew-story,
+html[data-perf-mode='exlight'] .brew-pick {
+  animation: none;
+  transition: none;
+  opacity: 1;
+  transform: none;
+}
+
+html[data-perf-mode='exlight'] .brew-bar__chip.is-conceal {
+  opacity: 0;
+  max-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brew-bar__chip,
+  .brew-bar__chip.is-enter,
+  .brew-bar__chip.is-exit,
+  .brew-bar__set.is-arrive .brew-bar__chip,
+  .brew-bar__row[data-chip-phase='exit'] .brew-bar__chip,
+  .brew-bar__panel.is-enter,
+  .brew-bar__panel.is-exit,
+  .brew-bar__menu,
+  .brew-feeds__menu,
+  .brew-sheet__menu,
+  .brew-salon__card.is-arrive,
+  .brew-story.is-arrive,
+  .brew-empty.is-arrive,
+  .brew-view-lane[data-chip-phase='exit'] [data-brew-chip],
+  .brew-view-lane[data-chip-phase='exit'] [data-brew-card],
+  .brew-view-lane[data-chip-phase='exit'] .brew-site,
+  .brew-view-lane[data-chip-phase='exit'] .brew-story,
+  .brew-pick {
+    animation: none;
+    transition: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  .brew-bar__chip.is-conceal {
+    opacity: 0;
+    max-width: 0;
+  }
+
+  #brew-veil-bloom,
+  .brew-feeds,
+  .brew-feeds__air,
+  .brew-feeds__items,
+  .brew-site,
+  .brew-story,
+  .brew-story__star,
+  .brew-salon__card,
+  .brew-empty__action {
+    transition: none;
+  }
+
+  .brew-feeds.is-sites-open .brew-feeds__sites-track,
+  .brew-feeds.is-sites-open .brew-feeds__items {
+    animation: none;
+    transform: none;
+  }
+
+  .brew-site[data-leaving='true'],
+  .brew-story[data-leaving='true'],
+  .brew-site:active,
+  .brew-story:hover,
+  .brew-story__hit:active,
+  .brew-salon__card:hover,
+  .brew-salon__card:active,
+  .brew-empty__action:active {
+    transform: none;
+  }
+}
+

@@ -1,9 +1,3 @@
-/**
- * Pure-function tests for list card order + public layout hold.
- * Run from frontend/:
- *   pnpm exec tsx --test src/tapp/utils/tappAppCardOrder.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
@@ -83,8 +77,7 @@ describe('isSiteOwnerLayoutPending', () => {
 
 describe('guest public order contract', () => {
   it('does not apply provisional localStorage-like order before remote', () => {
-    // Guest provisional order is always empty until remote site layout arrives
-    // (TappListPage never seeds cardOrder from personal localStorage for guests).
+    // 访客临时顺序为空，直到远程站点布局到达。
     const catalog = [{ id: '1' }, { id: '2' }, { id: '3' }]
     const guestProvisionalOrder: string[] = []
     assert.deepEqual(
@@ -92,7 +85,6 @@ describe('guest public order contract', () => {
       catalog,
     )
 
-    // Cards stay unmounted while pending — first paint uses site order only.
     assert.equal(
       isSiteOwnerLayoutPending({
         layoutReady: false,

@@ -1,16 +1,3 @@
-/**
- * Report share snapshot helpers for Aro chat / federation.
- *
- * Field names (stable contract): report_id, summary, platform, content_preview.
- * Snapshot is intentionally shallow — no full report JSON — so chat recipients
- * can render without user-scoped getReport.
- *
- * Aro embeds a mirrored copy in its page modules (sandbox cannot import this file).
- * Federation Article (content.rs) emits the same snake_case names plus mfp:* aliases.
- * Keep both in sync when changing field names or extraction rules.
- */
-
-/** Stable Aro/federation report-share snapshot field names (order fixed for docs/tests). */
 export const REPORT_SHARE_SNAPSHOT_FIELDS = [
   'report_id',
   'summary',
@@ -39,24 +26,19 @@ export interface ReportShareSource {
 
 const PREVIEW_MAX = 500
 
-/** Strip simple HTML to plain text (chat-safe). */
 export function stripReportHtml(html: string): string {
   if (!html) return ''
   return String(html)
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&amp;/g, '&')
+    .replaceAll(/<br\s*\/?>/gi, '\n')
+    .replaceAll(/<\/p>/gi, '\n')
+    .replaceAll(/<[^>]+>/g, '')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&amp;', '&')
     .trim()
 }
 
-/**
- * Format structured report content into readable plain text.
- * Never returns "[object Object]" — objects are walked for known fields.
- */
 export function formatReportContentBody(
   content: unknown,
   fallbackPreview = '',
@@ -90,7 +72,6 @@ export function formatReportContentBody(
 
   if (parts.length) return parts.join('\n')
 
-  // Last resort: primitive key/value lines (not JSON dump, not [object Object])
   try {
     for (const key of Object.keys(obj).slice(0, 12)) {
       const v = obj[key]
@@ -105,25 +86,18 @@ export function formatReportContentBody(
       }
     }
   } catch {
-    /* ignore */
   }
 
   if (parts.length) return parts.join('\n')
   return fallbackPreview || ''
 }
 
-/** Build chat/federation-safe snapshot from a catalog report or partial payload. */
 export function buildReportShareSnapshot(
   report: ReportShareSource | null | undefined,
 ): ReportShareSnapshot {
-  const reportId =
-    report && report.id != null
-      ? report.id
-      : report && report.report_id != null
-        ? report.report_id
-        : ''
+  const reportId = report?.id ?? report?.report_id ?? ''
   const platform =
-    (report && (report.platform || report.platform_id)) || ''
+    report?.platform || report?.platform_id || ''
 
   let summary = ''
   if (report) {
@@ -151,10 +125,6 @@ export function buildReportShareSnapshot(
   }
 }
 
-/**
- * Wire Aro message payload fields for a report share.
- * Always sets report_id, summary, platform, content_preview (never id-only).
- */
 export function wireReportSharePayload(
   base: Record<string, unknown>,
   attach: {

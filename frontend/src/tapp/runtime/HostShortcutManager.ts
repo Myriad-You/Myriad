@@ -1,12 +1,4 @@
-/**
- * Host-level keyboard shortcut binder for Tapp.shortcut.register.
- *
- * Backend only persists chords; the host must attach keydown listeners and
- * emit `shortcut:triggered` (as a tappEvent) into the owning sandbox.
- *
- * Bindings are scoped per bridge instance (session token) so multi-window
- * sandboxes of the same tappId do not overwrite or unbind each other.
- */
+/** 按 bridge 实例（session token）绑定，同 tappId 多窗互不覆盖。 */
 
 import type { TappBridge } from './TappBridge'
 import { isImeComposing } from '../../utils/ime'
@@ -23,7 +15,6 @@ export interface HostShortcutBinding {
 type InternalBinding = HostShortcutBinding & {
   chordParts: string[]
   mainKey: string
-  /** Bridge session token at bind time — identity for multi-window scoping. */
   sessionToken: string
 }
 
@@ -38,7 +29,6 @@ function bridgeSessionToken(bridge: TappBridge): string {
   }
 }
 
-/** Key includes bridge session so two windows of the same tapp can coexist. */
 function bindingKey(tappId: string, shortcutId: string, sessionToken: string): string {
   return `${tappId}\0${shortcutId}\0${sessionToken}`
 }
@@ -49,7 +39,7 @@ function normalizeKeys(keys: string): { parts: string[]; mainKey: string } | nul
     .map((p) => p.trim().toLowerCase())
     .filter(Boolean)
   if (parts.length === 0 || parts.length > 4) return null
-  const mainKey = parts[parts.length - 1]
+  const mainKey = parts.at(-1)!
   return { parts, mainKey }
 }
 
@@ -116,7 +106,6 @@ function emitShortcut(binding: InternalBinding): void {
       payload,
       occurredAt: new Date().toISOString(),
     })
-    // Direct event for listeners using addEventListener('shortcut:triggered')
     binding.bridge.emit('shortcut:triggered', payload)
   } catch (err) {
     console.warn('[HostShortcut] emit failed:', err)
@@ -145,14 +134,11 @@ function onKeyDown(e: KeyboardEvent) {
   if (isTypingTarget(e.target)) return
   if (bindings.size === 0) return
 
-  // Emit to every live binding that matches the chord (multi-window same tapp).
-  // Empty token / destroyed / inactive surface → skip (and GC dead entries).
-  // Never preventDefault for orphaned-only matches.
+  // 空 token / 已销毁 / 非活动表面跳过。孤儿匹配不 preventDefault。
   let matched = false
-  for (const [key, binding] of [...bindings.entries()]) {
+  for (const [key, binding] of Iterator.from(bindings.entries()).toArray()) {
     if (!matchesChord(e, binding)) continue
     if (!isLiveBridge(binding.bridge)) {
-      // GC destroyed / empty-token orphans so they cannot linger forever.
       if (
         !bridgeSessionToken(binding.bridge) ||
         (typeof binding.bridge.isDestroyed === 'function' &&
@@ -184,7 +170,6 @@ function maybeDetachListener() {
   listenerAttached = false
 }
 
-/** Bind (or replace on this bridge only) a host keydown handler for a shortcut. */
 export function hostBindShortcut(binding: HostShortcutBinding): void {
   const normalized = normalizeKeys(binding.keys)
   if (!normalized) {
@@ -203,7 +188,7 @@ export function hostBindShortcut(binding: HostShortcutBinding): void {
     return
   }
   const sessionToken = bridgeSessionToken(binding.bridge)
-  // Empty token is treated as dead — never bind orphan chords.
+  // 空 token 视为死，不绑定孤儿和弦。
   if (!sessionToken) {
     console.warn('[HostShortcut] bridge has no session token; skip bind')
     return
@@ -217,10 +202,7 @@ export function hostBindShortcut(binding: HostShortcutBinding): void {
   ensureListener()
 }
 
-/**
- * Remove a host keydown binding for one bridge instance.
- * Prefer passing `bridge` so multi-window peers keep their bindings.
- */
+/** 按 bridge 解绑，同 app 其他窗保留绑定。 */
 export function hostUnbindShortcut(
   tappId: string,
   shortcutId: string,
@@ -230,27 +212,22 @@ export function hostUnbindShortcut(
     const sessionToken = bridgeSessionToken(bridge)
     bindings.delete(bindingKey(tappId, shortcutId, sessionToken))
   } else {
-    // Legacy: drop every window's binding for this shortcutId under tappId.
-    for (const key of [...bindings.keys()]) {
+    for (const key of Iterator.from(bindings.keys()).toArray()) {
       if (key.startsWith(`${tappId}\0${shortcutId}\0`)) bindings.delete(key)
     }
   }
   maybeDetachListener()
 }
 
-/**
- * Drop every binding owned by this bridge (sandbox destroy cleanup).
- * Preferred over hostUnbindAllForTapp so peer windows keep their shortcuts.
- */
+/** 按 bridge 拆除（沙箱销毁）。不要用按 tapp 全解绑，以免误伤其他窗。 */
 export function hostUnbindAllForBridge(bridge: TappBridge): void {
   const sessionToken = bridgeSessionToken(bridge)
   if (!sessionToken) {
-    // Fall back to object identity if token is empty mid-teardown.
-    for (const [key, binding] of [...bindings.entries()]) {
+    for (const [key, binding] of Iterator.from(bindings.entries()).toArray()) {
       if (binding.bridge === bridge) bindings.delete(key)
     }
   } else {
-    for (const [key, binding] of [...bindings.entries()]) {
+    for (const [key, binding] of Iterator.from(bindings.entries()).toArray()) {
       if (binding.sessionToken === sessionToken || binding.bridge === bridge) {
         bindings.delete(key)
       }
@@ -259,12 +236,9 @@ export function hostUnbindAllForBridge(bridge: TappBridge): void {
   maybeDetachListener()
 }
 
-/**
- * Drop every binding for a Tapp across all bridges (true app-wide teardown).
- * Prefer {@link hostUnbindAllForBridge} for sandbox destroy.
- */
+/** 按 Tapp 跨桥拆除。沙箱销毁应走 hostUnbindAllForBridge。 */
 export function hostUnbindAllForTapp(tappId: string): void {
-  for (const key of [...bindings.keys()]) {
+  for (const key of Iterator.from(bindings.keys()).toArray()) {
     if (key.startsWith(`${tappId}\0`)) bindings.delete(key)
   }
   maybeDetachListener()

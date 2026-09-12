@@ -1,8 +1,3 @@
-/**
- * UI 基础配置区块
- * 使用通用设置组件重构
- */
-
 import type { FooterCustomItem } from '../../utils/footerCustomLogic'
 import {
   FaGlobe,
@@ -45,7 +40,6 @@ import { SettingTitleTag } from '../settings/SettingTitleTag'
 import { SiteUrlField } from './SiteUrlField'
 import './UiConfigSection.css'
 
-// EdgeOne Logo
 const EdgeOneIcon: React.FC = () => (
   <svg viewBox="0 0 32 32" fill="none">
     <path
@@ -55,7 +49,6 @@ const EdgeOneIcon: React.FC = () => (
   </svg>
 )
 
-// 又拍云 Logo
 const UpyunIcon: React.FC = () => (
   <svg viewBox="195 270 100 135">
     <path
@@ -75,9 +68,8 @@ interface ConfigField {
 }
 
 interface UiConfigSectionProps {
-  /** UI 配置字段数组 */
   configFields: ConfigField[]
-  /** 更新配置字段值（域名应用成功后请用 silent，避免触发统一保存 dirty） */
+  /** silent after domain apply so save dirty is not set */
   updateValue: (
     key: string,
     value: string,
@@ -97,22 +89,18 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
   description,
   sectionId,
 }) => {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const { catalog: g, bindGuide } = useSettingGuide()
   type SeoAiField = 'site_description' | 'site_keywords' | 'site_ai_intro'
 
-  /** Which SEO field is currently being AI-generated (tag loading state) */
   const [aiGenField, setAiGenField] = useState<SeoAiField | null>(null)
-  /** Feedback pinned under the field that was just generated */
   const [aiGenFeedback, setAiGenFeedback] = useState<{
     field: SeoAiField
     message: string
   } | null>(null)
-  /** Open anchored panel field + optional owner hint draft */
   const [aiGenTipField, setAiGenTipField] = useState<SeoAiField | null>(null)
   const [aiGenHint, setAiGenHint] = useState('')
 
-  // 标签归属本 Section，壳层不再维护死字段 label map
   const getFieldLabel = useCallback(
     (fieldKey: string, originalLabel: string): string => {
       const labels: Record<string, string> = {
@@ -149,7 +137,6 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
     [t],
   )
 
-  // 辅助函数：获取配置字段值
   const getFieldValue = useCallback(
     (key: string) => {
       return configFields.find((f) => f.key === key)?.value || ''
@@ -170,7 +157,6 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
     return getFieldValue('site_noindex') === 'true' ? 'private' : 'ai_full'
   }, [getFieldValue])
 
-  /** Per-policy tip with inline code for paths / technical tokens */
   const visibilityPolicyHint = useMemo(() => {
     const code = (text: string, key?: string) => (
       <code key={key ?? text} className="inline-code">
@@ -286,7 +272,7 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
               ? data.site_keywords
               : data.site_ai_intro
         if (!generated?.trim()) {
-          // HTTP 200 with empty field must not look like success
+          // HTTP 200 + empty field is not success
           setAiGenFeedback({
             field,
             message: t.config.siteAiGenerateError,
@@ -431,7 +417,6 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
 
   const baseUrlValue = getFieldValue('base_url')
 
-  /** 涟漪画质：配置存 0–1，UI 用 50–100 的整数百分比 */
   const rippleQualityPercent = useMemo(() => {
     const raw = Number.parseFloat(
       getFieldValue('evocative_ripple_quality') || '0.85',
@@ -481,7 +466,6 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
     [commitFooterCustom, footerCustomItems],
   )
 
-  // 站点元数据字段
   const siteMetadataFields = useMemo(
     () =>
       configFields.filter((f) =>
@@ -490,7 +474,7 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
     [configFields],
   )
 
-  // 背景主题：只认明确属于本组的字段（勿用排除法——ui_config 是跨页共用的大袋子）
+  // only fields that belong here; ui_config is a shared bag
   const backgroundFields = useMemo(() => {
     const order = ['wallpaper_url', 'wallpaper_blur'] as const
     const byKey = new Map(configFields.map((f) => [f.key, f]))
@@ -507,7 +491,6 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
       description={description}
       sectionId={sectionId}
     >
-      {/* 站点地址：只读 → 点击编辑 → 框内保存（独立 API + 运维清单） */}
       <SettingGroup
         title={t.config.siteUrlConfig}
         description={t.config.siteUrlFieldDesc}
@@ -517,7 +500,6 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
         <SiteUrlField value={baseUrlValue} onApplied={handleSiteUrlApplied} />
       </SettingGroup>
 
-      {/* 站点名片 + PWA：标题/简介/图标与可安装应用开关同组 */}
       <SettingGroup
         title={t.config.siteIdentity}
         description={t.config.siteIdentityDesc}
@@ -591,7 +573,6 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
         />
       </SettingGroup>
 
-      {/* SEO / GEO：可见性策略、AI 文案、关键词、分享图 */}
       <SettingGroup
         title={t.config.siteSeo}
         description={t.config.siteSeoDesc}
@@ -705,7 +686,6 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
         />
       </SettingGroup>
 
-      {/* 站点底部信息（备案和云赞助商） */}
       <SettingGroup
         title={t.config.siteFooterTitle}
         icon={<FaInfoCircle />}
@@ -782,10 +762,7 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
               >
                 <div className="site-footer-custom-card-head">
                   <span className="site-footer-custom-card-title">
-                    {t.config.siteFooterCustomItem.replace(
-                      '{n}',
-                      String(index + 1),
-                    )}
+                    {format(t.config.siteFooterCustomItem, { n: index + 1 })}
                   </span>
                   <button
                     type="button"

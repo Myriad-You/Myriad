@@ -1,5 +1,6 @@
 //! Local Channel CRUD and message send/get.
 use axum::{http::StatusCode, Json};
+use myriad_error::AppError;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde_json::json;
 
@@ -15,7 +16,7 @@ use super::types::{
 
 /// 创建（或打开）一个新 Channel
 ///
-/// 如果与该远程 Actor 已有 active/pending 的同类型 Channel，直接返回已有通道
+/// 如果与该远程 Actor 已有 pending/accepted/active 的同类型 Channel，直接返回已有通道
 pub async fn create_channel(
     user_id: i32,
     username: &str,
@@ -32,7 +33,7 @@ pub async fn create_channel(
     {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Invalid channel_type"})),
+            Json(AppError::public_json("Invalid channel_type")),
         ));
     }
     if serde_json::from_value::<crate::federation::types::ChannelTransport>(json!(transport))
@@ -40,7 +41,7 @@ pub async fn create_channel(
     {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Invalid transport"})),
+            Json(AppError::public_json("Invalid transport")),
         ));
     }
 
@@ -50,7 +51,9 @@ pub async fn create_channel(
     if same_actor_url(&remote_actor_url, &local_actor) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Cannot create a channel with your own federation actor"})),
+            Json(AppError::public_json(
+                "Cannot create a channel with your own federation actor",
+            )),
         ));
     }
 
@@ -70,7 +73,7 @@ pub async fn create_channel(
 
     let remote_actor_id: i32 = remote.id;
 
-    // 检查是否已有同类型的 active/pending Channel
+    // 检查是否已有同类型的 pending/accepted/active Channel
     let existing = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -305,7 +308,7 @@ pub async fn get_channel(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Channel not found"})),
+                Json(AppError::public_json("Channel not found")),
             )
         })?;
 
@@ -362,7 +365,7 @@ pub async fn close_channel(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Channel not found"})),
+                Json(AppError::public_json("Channel not found")),
             )
         })?;
 
@@ -370,7 +373,7 @@ pub async fn close_channel(
     if status == "closed" {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Channel already closed"})),
+            Json(AppError::public_json("Channel already closed")),
         ));
     }
 
@@ -485,7 +488,7 @@ pub async fn delete_channel(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Channel not found"})),
+                Json(AppError::public_json("Channel not found")),
             )
         })?;
 
@@ -493,7 +496,9 @@ pub async fn delete_channel(
     if status != "closed" {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Channel must be closed before delete"})),
+            Json(AppError::public_json(
+                "Channel must be closed before delete",
+            )),
         ));
     }
 
@@ -566,7 +571,15 @@ pub async fn send_message(
         return Err((
             StatusCode::PAYLOAD_TOO_LARGE,
             Json(
-                json!({"error": format!("Message payload too large: {} bytes (max {})", payload_size, max_payload)}),
+                AppError::from_status_u16(
+                    413,
+                    format!(
+                        "Message payload too large: {} bytes (max {})",
+                        payload_size, max_payload
+                    ),
+                )
+                .with_code("payload_too_large")
+                .to_json(),
             ),
         ));
     }
@@ -590,7 +603,7 @@ pub async fn send_message(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Channel not found"})),
+                Json(AppError::public_json("Channel not found")),
             )
         })?;
 
@@ -764,15 +777,14 @@ pub async fn send_message(
     }
 
     // 广播给该 Channel 的 WebSocket 连接。
-    // 本地展示用：若会话已建立，优先广播解密后的明文，避免 Aro 先渲染 ciphertext 信封、
+    // 本地展示用：密文则尝试解密后广播明文，避免 Aro 先渲染 ciphertext 信封、
     // 等 poll/getMessages 才正常（WS 回声还可能覆盖已解密内容）。
     // 成功解密后 is_encrypted 也必须改 false，否则客户端会按 flag 再解一次。
     // DB / ActivityPub fan-out 仍用 stored_payload 密文；HTTP 响应的 is_encrypted 反映存储形态。
     let mut ws_payload = stored_payload.clone();
     let mut ws_is_encrypted = is_encrypted;
     if is_encrypted {
-        // 解密不要求 established：信封自带发送方公钥，只要本地私钥在就能试。
-        // 这样即使 remote_public_key 曾经被并发写覆盖丢失，历史也还能读回来。
+        // 解密不要求 established：信封自带发送方公钥，本地私钥在就能试。
         if let Ok(session) = load_e2e_session(channel_id, properties.as_ref()).await {
             if let Ok(plain) =
                 crate::federation::e2e::decrypt_json_payload(&session, &stored_payload)
@@ -832,7 +844,7 @@ pub async fn get_messages(
         None => {
             return Err((
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Channel not found"})),
+                Json(AppError::public_json("Channel not found")),
             ))
         }
     };

@@ -1,9 +1,8 @@
 //! Short-lived Tapp runtime grants (registry namespace `runtime_grant`).
 //!
-//! Domain lives in services so agent/scheduler/host paths do not reach through
-//! `api::tapp_runtime` for grant storage, rebind, or revoke. The API layer maps
-//! [`RuntimeGrantError`] to Axum responses and owns HTTP extractors + revoke
-//! side-effects (AI cancel, event disconnect, …).
+//! Domain lives in services. The API layer maps [`RuntimeGrantError`] to Axum
+//! responses and owns HTTP extractors + revoke side-effects (AI cancel, event
+//! disconnect, …).
 
 use chrono::Utc;
 use sea_orm::{
@@ -21,7 +20,6 @@ use crate::services::permission_service::{
 };
 use crate::services::tapp_ownership;
 use crate::services::tapp_registry as shared_registry;
-use crate::GLOBAL_DYNAMIC_CONFIG;
 
 pub const RUNTIME_GRANT_HEADER: &str = "x-tapp-runtime-grant";
 const RUNTIME_GRANT_TTL: Duration = Duration::from_secs(5 * 60);
@@ -72,12 +70,12 @@ impl RuntimeGrant {
         self.stored.subject_id
     }
 
-    #[allow(dead_code)] // Public domain surface for agent/host callers.
+    #[allow(dead_code)]
     pub fn instance_id(&self) -> &str {
         &self.stored.instance_id
     }
 
-    #[allow(dead_code)] // Public domain surface for agent/host callers.
+    #[allow(dead_code)]
     pub fn kind(&self) -> RuntimeKind {
         self.stored.kind
     }
@@ -86,7 +84,7 @@ impl RuntimeGrant {
         self.stored.expires_at
     }
 
-    #[allow(dead_code)] // Public domain surface for agent/host callers.
+    #[allow(dead_code)]
     pub fn permissions(&self) -> &[String] {
         &self.stored.permissions
     }
@@ -126,9 +124,7 @@ pub enum RuntimeGrantError {
     ScopeChanged,
     SubjectMismatch,
     RoleChanged,
-    /// Installation carries the persistent re-authorization marker: the upgrade
-    /// migration removed retired permission strings and the operator has not
-    /// explicitly re-authorized this install yet.
+    /// Install-state marker: refuse until this install is explicitly re-authorized.
     NeedsReauthorization,
     UnknownPermission {
         permission: String,
@@ -271,8 +267,7 @@ fn map_db_err(error: impl std::fmt::Display) -> RuntimeGrantError {
 
 /// 重新授权 fail-closed gate 的最小纯判定。
 ///
-/// 安装仍标记为需重新授权（升级迁移清除了退役串、剩余权限都能解析，未知权限
-/// 检查不会再触发）时拒绝。runtime grant 签发（issue）与逐请求
+/// 安装仍标 needs_reauthorization 时拒绝。runtime grant 签发（issue）与逐请求
 /// rebind（validate）两条生产路径共用此判定，测试直接覆盖它本身。
 pub fn refuse_if_needs_reauthorization(
     needs_reauthorization: bool,
@@ -322,12 +317,13 @@ pub async fn validate_runtime_grant(
     let installed_permissions: Vec<String> =
         serde_json::from_value(tapp.approved_permissions).unwrap_or_default();
     // Refuse the rebind while the install still needs re-authorization.
-    // The migration already removed the retired strings, so the
-    // unknown-permission failure alone would no longer trip — the persistent
-    // marker carries the fail-closed gate until an explicit re-approval.
     refuse_if_needs_reauthorization(tapp.needs_reauthorization)?;
     let currently_allowed = {
-        let config = GLOBAL_DYNAMIC_CONFIG.read().await;
+        // Worker refresh intervals are not authorization grace periods. Every
+        // request observes committed delegation policy and fails closed on DB errors.
+        let config = crate::services::config_service::ConfigService::load_permission_config_on(db)
+            .await
+            .map_err(map_db_err)?;
         TappPermissionService::filter_permissions_for_role(&config, role, &installed_permissions)?
     };
     intersect_current_permissions(&mut grant.permissions, &currently_allowed);

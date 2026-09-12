@@ -54,6 +54,7 @@ fn youtube_api_key(config: &DynamicConfig) -> Result<String, HttpError> {
                 Json(json!({
                     "success": false,
                     "error": "YouTube API key not configured",
+                    "code": "youtube_api_key_required",
                     "message": "Set youtube_api_key in site config or YOUTUBE_API_KEY"
                 })),
             ))
@@ -78,10 +79,7 @@ pub async fn get_youtube_channel(
     if channel_id.is_empty() {
         return Err(HttpError::from((
             StatusCode::BAD_REQUEST,
-            Json(json!({
-                "success": false,
-                "error": "channel_id is required"
-            })),
+            Json(AppError::fail_json("channel_id is required")),
         )));
     }
 
@@ -128,10 +126,7 @@ pub async fn get_youtube_bundle(
     if channel_id.is_empty() {
         return Err(HttpError::from((
             StatusCode::BAD_REQUEST,
-            Json(json!({
-                "success": false,
-                "error": "channel_id is required"
-            })),
+            Json(AppError::fail_json("channel_id is required")),
         )));
     }
 
@@ -170,3 +165,4 @@ pub async fn get_youtube_bundle(
         }
     }
 }
+use myriad_error::AppError;

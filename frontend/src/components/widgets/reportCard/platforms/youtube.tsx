@@ -1,11 +1,4 @@
 import type { MouseEvent as ReactMouseEvent } from 'react'
-/**
- * YouTube report face — public channel stats + recent upload rotation.
- *
- * Overview: avatar/handle, vibe 评语, top-right stats, decorative right-side
- * YouTube play-button plaque (Creator Award metal by sub tier).
- * Detail: full-bleed cover only + top-right engagement; title is CardLogoPill.
- */
 import { LuClock, LuEye, LuHeart } from '@lib/icons'
 import {
   AnimatePresenceShim as AnimatePresence,
@@ -47,17 +40,6 @@ function normalizeHandle(raw?: string | null): string | null {
   return s.startsWith('@') ? s : `@${s}`
 }
 
-/**
- * YouTube Creator Awards (Play Button plaques) — thresholds at 1/100 of
- * official milestones so personal / mid-size channels still get metal look:
- *   Official   → card scale
- *   Silver 100K  → 1K
- *   Gold   1M    → 10K
- *   Diamond 10M  → 100K
- *   Red Diamond 100M → 1M
- * Below 1K → brand red (dimmed).
- * @see https://www.youtube.com/creators/grow/creator-awards/
- */
 type YtAwardTier = 'none' | 'silver' | 'gold' | 'diamond' | 'red_diamond'
 
 function awardTierFromSubs(subscribers: number): YtAwardTier {
@@ -70,22 +52,14 @@ function awardTierFromSubs(subscribers: number): YtAwardTier {
 
 interface GradStop { offset: string; color: string; opacity?: number }
 
-/**
- * Minimal award look at small card size: 3-stop body + soft light glow.
- * Avoid multi-layer blend stacks — they muddy at ~100px wide.
- */
 interface AwardStyle {
   wash: string
-  /** Soft tinted light glow (no near-black) */
   shadow: string
-  /** Body: light → mid → deep (3 stops only) */
   body: [string, string, string]
-  /** Metal type for channel_type caption */
   textGrad: GradStop[]
   textHalo: string
 }
 
-/** Official YouTube play-button silhouette (viewBox 0 0 68 48). */
 const YT_BADGE_PATH =
   'M66.52 7.74c-.78-2.93-2.49-5.41-5.42-6.19C55.79.13 34 0 34 0S12.21.13 6.9 1.55C3.97 2.33 2.27 4.81 1.48 7.74.06 13.05 0 24 0 24s.06 10.95 1.48 16.26c.78 2.93 2.49 5.41 5.42 6.19C12.21 47.87 34 48 34 48s21.79-.13 27.1-1.55c2.93-.78 4.64-3.26 5.42-6.19C67.94 34.95 68 24 68 24s-.06-10.95-1.48-16.26z'
 
@@ -95,14 +69,12 @@ function cssStops(stops: GradStop[], angleDeg: number): string {
     .join(', ')})`
 }
 
-/** Max tilt degrees for the large play-button medal (subtle). */
 const PLAQUE_TILT_MAX = 9
 
 const AWARD_STYLES: Record<YtAwardTier, AwardStyle> = {
   none: {
     wash: 'rgba(255, 140, 140, 0.14)',
     shadow: 'rgba(255, 190, 190, 0.45)',
-    // Light pre-award brand red
     body: ['#FFB0B0', '#FF7A7A', '#F05555'],
     textHalo: 'rgba(255, 235, 235, 0.9)',
     textGrad: [
@@ -211,7 +183,6 @@ const YoutubeStatsWidget = memo(({ data }: { data: any }) => {
     [data?.avatar, data?.profile],
   )
 
-  // AI 评语：与 X 卡一致只读 card_visuals.vibe（不回退 summary，避免长文撑破两行）
   const vibe = useMemo(() => {
     const raw = data?.vibe
     if (typeof raw !== 'string') return null
@@ -228,26 +199,18 @@ const YoutubeStatsWidget = memo(({ data }: { data: any }) => {
   const isEmptyChannel =
     data?.is_empty_channel === true || videos === 0
 
-  // Play Button plaque look from subscriber milestones (Creator Awards)
   const awardTier = useMemo(
     () => awardTierFromSubs(subscribers),
     [subscribers],
   )
   const award = AWARD_STYLES[awardTier]
-  const gradId = useId().replace(/:/g, '')
+  const gradId = useId().replaceAll(':', '')
 
   const subsDisplay = useCountUp(subscribers, 700, 80)
   const viewsDisplay = useCountUp(views, 700, 160)
   const videosDisplay = useCountUp(videos, 700, 220)
 
-  /*
-   * Card-local pointer → mild 3D tilt on the large play-button medal.
-   *
-   * 这里刻意不走 React state：倾斜是逐帧的视觉插值，setState 会让整张
-   * YouTube face（含全部渐变与 SVG）以 60fps 重渲染。改为在 rAF 里直接写
-   * DOM——medal 写 transform，高光/glint 写渐变坐标属性。
-   * 卡片矩形在指针进入时量一次，之后 mousemove 不再 getBoundingClientRect。
-   */
+  // 倾斜不走 React state，setState 会让整张 face 60fps 重绘。
   const cardRef = useRef<HTMLDivElement>(null)
   const medalRef = useRef<HTMLDivElement>(null)
   const specRef = useRef<SVGLinearGradientElement>(null)
@@ -384,7 +347,6 @@ const YoutubeStatsWidget = memo(({ data }: { data: any }) => {
         }}
       />
 
-      {/* 右上角统计 — 与 X 卡同 inset/字号 (top-3 right-3) */}
       <motion.div
         className="absolute top-3 right-3 z-20 flex items-baseline gap-2"
         initial={{ opacity: 0 }}
@@ -403,10 +365,6 @@ const YoutubeStatsWidget = memo(({ data }: { data: any }) => {
         ))}
       </motion.div>
 
-      {/*
-        Large Play Button medal: 3D bevel + pointer-follow tilt.
-        channel_type stays plain metal type under it (no plate chrome).
-      */}
       <motion.div
         className="pointer-events-none absolute right-5 bottom-5 z-10 flex w-[6.5rem] flex-col items-center gap-1.5"
         initial={{ x: 20, opacity: 0, scale: 0.92 }}
@@ -419,7 +377,6 @@ const YoutubeStatsWidget = memo(({ data }: { data: any }) => {
             : `YouTube ${awardTier.replace('_', ' ')} play button`
         }
       >
-        {/* Big medal only — mild 3D tilt following card pointer */}
         <div
           ref={medalRef}
           className="relative w-full will-change-transform"
@@ -448,8 +405,6 @@ const YoutubeStatsWidget = memo(({ data }: { data: any }) => {
                 <stop offset="48%" stopColor={award.body[1]} />
                 <stop offset="100%" stopColor={award.body[2]} />
               </linearGradient>
-              {/* Specular follows tilt slightly for live metal feel.
-                  坐标由 paintTilt 在 rAF 里直接写属性，见上方 tilt 注释 */}
               <linearGradient
                 ref={specRef}
                 id={`yt-spec-${gradId}`}
@@ -479,9 +434,7 @@ const YoutubeStatsWidget = memo(({ data }: { data: any }) => {
                 <path d={YT_BADGE_PATH} />
               </clipPath>
             </defs>
-            {/* Base metal */}
             <path d={YT_BADGE_PATH} fill={`url(#yt-body-${gradId})`} />
-            {/* Soft specular + corner glint */}
             <path
               d={YT_BADGE_PATH}
               fill={`url(#yt-spec-${gradId})`}
@@ -492,7 +445,6 @@ const YoutubeStatsWidget = memo(({ data }: { data: any }) => {
               fill={`url(#yt-glint-${gradId})`}
               style={{ mixBlendMode: 'screen' }}
             />
-            {/* Bevel rim (3D edge) */}
             <g clipPath={`url(#yt-clip-${gradId})`}>
               <path
                 d={YT_BADGE_PATH}
@@ -511,7 +463,6 @@ const YoutubeStatsWidget = memo(({ data }: { data: any }) => {
                 transform="translate(0.5 0.55)"
               />
             </g>
-            {/* Play triangle — slightly raised look */}
             <path d="M27 15v18l16-9-16-9z" fill="#F0F0F0" opacity={0.88} />
             <path
               d="M29.5 19.5v9.5l8.5-4.75-8.5-4.75z"
@@ -549,9 +500,7 @@ const YoutubeStatsWidget = memo(({ data }: { data: any }) => {
         )}
       </motion.div>
 
-      {/* 前景布局对齐 X：p-3 pb-9 + header + 居中 vibe */}
       <div className="relative z-10 flex h-full flex-col p-3 pb-9 pointer-events-none">
-        {/* header：头像 + 频道名 + @handle（同 X） */}
         <motion.div
           className="flex min-w-0 max-w-[70%] items-center gap-2"
           initial={{ y: 8, opacity: 0 }}
@@ -583,7 +532,6 @@ const YoutubeStatsWidget = memo(({ data }: { data: any }) => {
           </div>
         </motion.div>
 
-        {/* 主角：AI 评价 — 与 X 同字号 / 行数 / 宽度 / 垂直居中 */}
         {(vibe || isEmptyChannel) && (
           <div className="flex min-h-0 flex-1 items-center pt-2 pb-4">
             <motion.div
@@ -606,10 +554,8 @@ const YoutubeStatsWidget = memo(({ data }: { data: any }) => {
 })
 YoutubeStatsWidget.displayName = 'YoutubeStatsWidget'
 
-/** Fixed slot so glyph optical weight can be scaled without shifting layout. */
 function YtMetaIcon({
   Icon,
-  /** Clock fills its viewBox more than Eye/Heart — pull it down optically. */
   optical = 1,
 }: {
   Icon: typeof LuClock
@@ -642,7 +588,6 @@ const YoutubeVideoSlide = memo(({ item }: { item: YtVideoItem }) => {
   const likes =
     item.like_count != null ? safeNonNegInt(item.like_count) : null
 
-  // Icon + number only (no text labels); middle-dot separators
   const parts: string[] = []
   if (durationLabel) parts.push('dur')
   if (views != null) parts.push('views')
@@ -673,7 +618,6 @@ const YoutubeVideoSlide = memo(({ item }: { item: YtVideoItem }) => {
               )}
               {key === 'dur' && (
                 <span className="inline-flex items-center gap-0.5">
-                  {/* Clock glyph is optically heavier — scale to match eye/heart */}
                   <YtMetaIcon Icon={LuClock} optical={0.82} />
                   {durationLabel}
                 </span>
@@ -706,9 +650,7 @@ export const YoutubeWidget = memo(
       const recent = Array.isArray(data?.recent_videos)
         ? data.recent_videos
         : []
-      // Prefer library_items (card_visuals); fall back to full recent_videos sample
       const raw = lib.length > 0 ? lib : recent
-      // Old reports may omit duration/likes on library_items — patch from recent_videos
       const byId = new Map<string, any>()
       for (const r of recent) {
         if (r?.video_id) byId.set(String(r.video_id), r)

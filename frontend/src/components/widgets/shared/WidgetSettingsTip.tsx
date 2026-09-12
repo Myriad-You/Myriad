@@ -30,7 +30,7 @@ const exclusiveTip: {
   close: null,
 }
 
-/** 与 .widget-longpress-hint 的 top/left/size 对齐：锚的是齿轮，不是整张卡片。 */
+// 锚齿轮，不是整张卡片；与 .widget-longpress-hint 的 top/left/size 对齐。
 const HINT_INSET = 6.4
 const HINT_SIZE = 24.8
 

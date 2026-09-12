@@ -19,7 +19,7 @@ export function replaceMusicTrackSource(input: {
     if (lyric) facts.lyric = lyric
     const head = playing
       ? `${song.name} — ${song.artist}`
-      : `已暂停 ${song.name} — ${song.artist}`
+      : `Paused ${song.name} — ${song.artist}`
     perceptionRegistry.replace({
       sourceId: 'music_track',
       kind: 'music',
@@ -41,12 +41,12 @@ export function replaceSurfaceSource(input: { now: number; ttlMs: number }): voi
     expiresAt: input.now + input.ttlMs,
     summary:
       surface === 'control_panel'
-        ? '正在看控制中心'
+        ? 'Looking at the control center'
         : surface === 'notification'
-          ? '正在看通知'
+          ? 'Looking at notifications'
           : surface === 'user_modal'
-            ? '正在看用户面板'
-            : '没有打开浮层',
+            ? 'Looking at the user panel'
+            : 'No overlay open',
     safeFacts: { surface },
     privacy: 'local',
   })

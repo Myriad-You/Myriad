@@ -1,0 +1,6 @@
+---
+import sharedSource from '../i18n/parseLocale.shared.js?raw'
+import { localeLangInlineScript } from '../i18n/localeLangScript'
+---
+
+<script is:inline set:html={localeLangInlineScript(sharedSource)}></script>

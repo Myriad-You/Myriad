@@ -1,12 +1,13 @@
-//! 联邦信任策略模块（Phase 5 补全 — Layer 2 安全增强）
+//! 联邦信任策略（`enforce_inbound`）。
 //!
 //! 实际入站 enforcement（`enforce_inbound`）执行：
 //! 1. 域名黑名单（`federation_instances.is_blocked`）
-//! 2. 速率限制（进程内窗口计数 + DB `received_at` 统计）
-//! 3. allowlist / min_trust（`federation_policy_settings`，空 allowlist = 不限制）
+//! 2. allowlist / min_trust（`federation_policy_settings`，空 allowlist = 不限制）
+//! 3. 速率限制（进程内窗口计数 + DB `received_at` 统计）
 //! 4. 内容过滤（`federation_content_filters`）
 
 use axum::http::StatusCode;
+use myriad_error::AppError;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -16,8 +17,6 @@ use std::time::{Duration, Instant};
 
 use crate::federation::types::TrustLevel;
 
-// 类型定义
-
 /// 实例策略（allowlist / min_trust / auto_discover + 入站限流）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstancePolicy {
@@ -25,7 +24,7 @@ pub struct InstancePolicy {
     pub min_trust_level: TrustLevel,
     /// 允许的域名列表（空 = 允许所有未被封禁的）
     pub allowed_domains: Vec<String>,
-    /// 封禁的域名列表（优先级最高）
+    /// 入站封禁以 `federation_instances.is_blocked` 为准；此字段加载路径保持空。
     pub blocked_domains: Vec<String>,
     /// 是否自动登记新发现的实例（设为 Discovered）
     pub auto_discover: bool,
@@ -99,10 +98,8 @@ pub struct PolicyCheckResult {
 
 /// 检查实例是否被允许与本实例联邦
 ///
-/// 优先级：blocked_domains > allowed_domains > min_trust_level
-///
-/// `enforce_inbound` 会在 DB 黑名单与速率限制之后调用本函数
-/// （blocked_domains 字段通常为空，DB `is_blocked` 已先检查）。
+/// 本函数做 allowlist / min_trust（以及结构上的 `blocked_domains` 字段，加载路径保持空）。
+/// `enforce_inbound` 在 DB `is_blocked` 之后、速率限制之前调用本函数。
 pub async fn check_instance_policy(
     db: &DatabaseConnection,
     domain: &str,
@@ -264,10 +261,7 @@ fn check_and_record_memory_rate(domain: &str, max_requests: i64, window_seconds:
         Ok(g) => g,
         Err(poisoned) => poisoned.into_inner(),
     };
-    // Entries are keyed by peer-controlled domain and used to be kept forever:
-    // a host with wildcard DNS could grow this map without bound just by signing
-    // from a fresh subdomain each time. Windows that already rolled over carry no
-    // information, so drop them.
+    // Entries keyed by peer-controlled domain; prune windows that already rolled over.
     prune_expired_windows(&mut map, now, window_seconds);
     let prev = map.get(domain);
     let (next, exceeded) = record_window_hit(prev, now, window_seconds, max_requests);
@@ -298,7 +292,7 @@ fn effective_max_requests(policy: &RateLimitPolicy, trust: TrustLevel) -> i64 {
 /// 检查某域名的联邦请求是否超过速率限制
 ///
 /// 1. Process-local window counter (catches all inbound, not just stored activities)
-/// 2. Durable DB count using **received_at** (server-side), never client-spoofable published_at
+/// 2. Durable DB count：`COALESCE(received_at, published_at)`
 pub async fn check_rate_limit(
     db: &DatabaseConnection,
     domain: &str,
@@ -375,9 +369,7 @@ pub fn apply_content_filters(
 ) -> FilterVerdict {
     let activity_type = activity.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
-    // 关键词匹配需要活动的扁平化小写文本。以前每条 block_keyword 规则都重新
-    // `to_string().to_lowercase()` 一遍整个活动 —— INBOX_BODY_LIMIT 的入站活动配上 N 条
-    // 规则就是 N×2 次全量分配。这里改成惰性求值 + 全程只算一次。
+    // 关键词匹配用活动的扁平化小写文本；惰性求值，全程只算一次。
     let mut lowered_activity: Option<String> = None;
 
     for rule in rules {
@@ -532,7 +524,7 @@ pub async fn update_policy(
         if !(0..=4).contains(&level) {
             return Err((
                 StatusCode::BAD_REQUEST,
-                json!({"error": "min_trust_level must be 0..=4"}),
+                AppError::public_json("min_trust_level must be 0..=4"),
             ));
         }
         current.min_trust_level = TrustLevel::from_i16(level);
@@ -551,7 +543,7 @@ pub async fn update_policy(
         if !(1..=1_000_000).contains(&max) {
             return Err((
                 StatusCode::BAD_REQUEST,
-                json!({"error": "rate_max_requests must be 1..=1000000"}),
+                AppError::public_json("rate_max_requests must be 1..=1000000"),
             ));
         }
         current.rate_limit.max_requests_per_window = max;
@@ -560,7 +552,7 @@ pub async fn update_policy(
         if !(1..=86_400).contains(&win) {
             return Err((
                 StatusCode::BAD_REQUEST,
-                json!({"error": "rate_window_seconds must be 1..=86400"}),
+                AppError::public_json("rate_window_seconds must be 1..=86400"),
             ));
         }
         current.rate_limit.window_seconds = win;
@@ -569,7 +561,7 @@ pub async fn update_policy(
         if !(1..=100).contains(&mul) {
             return Err((
                 StatusCode::BAD_REQUEST,
-                json!({"error": "rate_trusted_multiplier must be 1..=100"}),
+                AppError::public_json("rate_trusted_multiplier must be 1..=100"),
             ));
         }
         current.rate_limit.trusted_multiplier = mul;
@@ -704,7 +696,7 @@ pub async fn update_instance_trust(
     if exists.is_none() {
         return Err((
             StatusCode::NOT_FOUND,
-            json!({"error": format!("Instance {} not found", domain)}),
+            AppError::not_found(format!("Instance {} not found", domain)).to_json(),
         ));
     }
 
@@ -863,7 +855,7 @@ pub async fn enforce_inbound(
 
 /// 出站投递策略检查（delivery 调用）
 ///
-/// 仅检查目标实例是否被封禁 —— 投递不消耗入站速率配额。
+/// 空域名拒绝；仅 `is_blocked`。投递不消耗入站速率配额。
 pub async fn enforce_outbound(db: &DatabaseConnection, target_domain: &str) -> Result<(), String> {
     if target_domain.is_empty() {
         return Err("Empty target domain".to_string());
@@ -888,7 +880,7 @@ async fn load_content_filter_rules(db: &DatabaseConnection) -> Vec<ContentFilter
     {
         Ok(r) => r,
         Err(e) => {
-            // Table may not exist yet on brand-new DBs before schema heal.
+            // 查询失败（旧库未 heal 缺表等）则返回空规则。
             tracing::debug!("load_content_filter_rules: {}", e);
             return Vec::new();
         }
@@ -956,7 +948,7 @@ pub async fn create_content_filter(
     if name.is_empty() || filter_type.is_empty() || value.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            json!({"error": "name, filter_type, and value are required"}),
+            AppError::public_json("name, filter_type, and value are required"),
         ));
     }
     if ![
@@ -968,7 +960,9 @@ pub async fn create_content_filter(
     {
         return Err((
             StatusCode::BAD_REQUEST,
-            json!({"error": "filter_type must be block_activity_type | block_keyword | require_trust_level"}),
+            AppError::public_json(
+                "filter_type must be block_activity_type | block_keyword | require_trust_level",
+            ),
         ));
     }
     let row = db
@@ -1014,7 +1008,7 @@ pub async fn update_content_filter(
     enabled: Option<bool>,
 ) -> Result<serde_json::Value, (StatusCode, serde_json::Value)> {
     if id <= 0 {
-        return Err((StatusCode::BAD_REQUEST, json!({"error": "invalid id"})));
+        return Err((StatusCode::BAD_REQUEST, AppError::public_json("invalid id")));
     }
     if let Some(ft) = filter_type {
         if ![
@@ -1026,7 +1020,7 @@ pub async fn update_content_filter(
         {
             return Err((
                 StatusCode::BAD_REQUEST,
-                json!({"error": "invalid filter_type"}),
+                AppError::public_json("invalid filter_type"),
             ));
         }
     }
@@ -1043,7 +1037,7 @@ pub async fn update_content_filter(
                 { tracing::error!("DB error: {}", e); json!({"error": "Database error", "code": "database_error"}) },
             )
         })?
-        .ok_or_else(|| (StatusCode::NOT_FOUND, json!({"error": "filter not found"})))?;
+        .ok_or_else(|| (StatusCode::NOT_FOUND, AppError::public_json("filter not found")))?;
 
     let new_name = name
         .map(|s| s.to_string())
@@ -1099,7 +1093,10 @@ pub async fn delete_content_filter(
             })
         })?;
     if result.rows_affected() == 0 {
-        return Err((StatusCode::NOT_FOUND, json!({"error": "filter not found"})));
+        return Err((
+            StatusCode::NOT_FOUND,
+            AppError::public_json("filter not found"),
+        ));
     }
     Ok(json!({ "success": true, "id": id }))
 }

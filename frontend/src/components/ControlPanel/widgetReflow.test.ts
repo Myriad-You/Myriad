@@ -1,10 +1,3 @@
-/**
- * 控制面板小组件行数切换重排的单元测试。
- *
- * Run from frontend/:
- *   pnpm test:unit -- src/components/ControlPanel/widgetReflow.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
@@ -19,7 +12,6 @@ import {
 interface W { id: string, size: string, position: { x: number, y: number } }
 const w = (id: string, size: string, x = 0, y = 0): W => ({ id, size, position: { x, y } })
 
-/** 断言结果里任意两个小组件都不相交。 */
 function assertNoOverlap(items: W[]) {
   for (let i = 0; i < items.length; i++) {
     for (let j = i + 1; j < items.length; j++) {
@@ -47,7 +39,6 @@ describe('parseWidgetSize', () => {
 
 describe('旧实现会造成的重叠（回归用例）', () => {
   it('默认布局的两个 2x2 压成 4x1 后不再重叠', () => {
-    // 旧实现：只改 size 保留 x → [0,4) 与 [2,6) 重叠两列
     const legacy = [w('a', '4x1', 0, 0), w('b', '4x1', 2, 0)]
     assert.equal(widgetsOverlap(legacy[0], legacy[1]), true, '前置条件：旧结果确实重叠')
 
@@ -57,7 +48,6 @@ describe('旧实现会造成的重叠（回归用例）', () => {
   })
 
   it('y 被归零的一组 2x2 切回 2 行后不再重叠', () => {
-    // 旧实现切回 2 行只恢复 size、不动 position，于是全挤在 y=0
     const legacy = [w('a', '2x2', 0, 0), w('b', '2x2', 0, 0)]
     assert.equal(widgetsOverlap(legacy[0], legacy[1]), true, '前置条件：旧结果确实重叠')
 
@@ -91,7 +81,7 @@ describe('打包规则', () => {
   })
 
   it('不跨页：一页装不下就整块挪到下一页', () => {
-    // 2x2 + 4x1：4x1 装不进同页剩下的 2 列，必须换页
+    // 2x2 旁的 4x1 装不进剩下 2 列，必须换页。
     const { placed } = packControlPanelWidgets([w('a', '2x2'), w('b', '4x1')], 2)
     assert.equal(placed[1].position.x, PAGE_COLS, '4x1 应落在第 2 页页首')
     assertNoOverlap(placed)
@@ -129,7 +119,6 @@ describe('打包规则', () => {
   })
 
   it('超出总容量的部分进 overflow，且不会挤占已放置的位置', () => {
-    // 1 行模式每页只放得下一个 4x1，共 3 页
     const { placed, overflow } = packControlPanelWidgets(
       Array.from({ length: 5 }, (_, i) => w(`w${i}`, '4x1')), 1,
     )

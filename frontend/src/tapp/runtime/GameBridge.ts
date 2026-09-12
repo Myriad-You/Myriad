@@ -1,8 +1,4 @@
-/**
- * Tapp.game — structured session helpers on federation rooms.
- * Handlers still call federation APIs; this layer only normalizes share IDs
- * and the game:<tappId>:<protocol> envelope.
- */
+/** 仍走联邦 API；本层只规范化 share id 与 game:<tappId>:<protocol> 信封。 */
 
 import type { TappInstance, TappMessage } from '../types'
 import type { TappBridge } from './TappBridge'
@@ -17,7 +13,7 @@ export function formatShareRoomId(
   homeServer?: string | null,
 ): string {
   const id = roomId.trim()
-  const home = (homeServer || '').trim().replace(/\/+$/, '')
+  const home = (homeServer || '').trim().replaceAll(/\/+$/g, '')
   if (!home || id.includes('@')) return id
   return `${id}@${home}`
 }

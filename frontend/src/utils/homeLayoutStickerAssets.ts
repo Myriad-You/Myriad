@@ -1,7 +1,4 @@
-/**
- * Fetch sticker originals for layout export, and re-store them on import.
- * Only same-site image-cache PNG/JPEG/WebP is read. No arbitrary URL fetch.
- */
+/** Same-site image-cache PNG/JPEG/WebP only. */
 
 import type { HomeDashboardLayouts } from './homeLayout'
 import type { HomeLayoutAsset, HomeLayoutAssetMap } from './homeLayoutTransfer'

@@ -1,32 +1,3 @@
-/**
- * 资料库页专用调度器 Hooks
- *
- * 资料库功能需求：
- * - Resize: 响应式网格布局
- * - Intersection: 无限滚动懒加载
- * - Idle: 预加载下一页数据
- *
- * @example
- * ```tsx
- * // 在 Library.tsx 中
- * import { useLibraryScheduler, useLibraryInView, useLibraryResize } from '@hooks/animation/pages/library';
- *
- * function Library() {
- *   useLibraryScheduler();
- *   return <LibraryGrid />;
- * }
- *
- * function LibraryItem({ item }) {
- *   const { ref, isInView } = useLibraryInView();
- *   return (
- *     <div ref={ref}>
- *       {isInView && <img src={item.cover} />}
- *     </div>
- *   );
- * }
- * ```
- */
-
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   getPageResizeManager,
@@ -37,29 +8,17 @@ import { Feature, hasFeature } from '../pageFeatures'
 
 const PAGE_ID = 'library'
 
-// 页面初始化
-
-/**
- * 资料库调度器初始化
- *
- * 注意：startPage('library') 由 useRouteScheduler 统一调用
- */
+/** startPage('library') 由 useRouteScheduler 统一调用。 */
 export function useLibraryScheduler(): void {
   useEffect(() => {
     return () => cleanupLibrary()
   }, [])
 }
 
-// Resize Hooks
-
-/** 获取资料库页 Resize 管理器 */
 function getResizeManager() {
   return getPageResizeManager(PAGE_ID)
 }
 
-/**
- * 资料库元素尺寸监听
- */
 export function useLibraryResize<T extends Element>(
   ref: React.RefObject<T | null>,
 ): { width: number; height: number } {
@@ -100,8 +59,6 @@ export function useLibraryResize<T extends Element>(
   return size
 }
 
-// Intersection Hooks
-
 let _libraryIntersectionObserver: IntersectionObserver | null = null
 const _libraryIntersectionCallbacks = new Map<
   Element,
@@ -126,10 +83,6 @@ function getLibraryIntersectionObserver(): IntersectionObserver {
   return _libraryIntersectionObserver
 }
 
-/**
- * 资料库视口可见性检测
- * 用于懒加载图片和无限滚动
- */
 export function useLibraryInView<T extends Element>(): {
   ref: React.RefObject<T | null>
   isInView: boolean
@@ -139,7 +92,6 @@ export function useLibraryInView<T extends Element>(): {
 
   useEffect(() => {
     if (!hasFeature(PAGE_ID, Feature.Intersection)) {
-      // 功能未启用，默认可见
       setIsInView(true)
       return
     }
@@ -164,10 +116,6 @@ export function useLibraryInView<T extends Element>(): {
   return { ref, isInView }
 }
 
-/**
- * 资料库懒加载 Hook
- * 只在元素进入视口后加载，且只触发一次
- */
 export function useLibraryLazyLoad<T extends Element>(): {
   ref: React.RefObject<T | null>
   shouldLoad: boolean
@@ -188,7 +136,7 @@ export function useLibraryLazyLoad<T extends Element>(): {
     const callback = (entry: IntersectionObserverEntry) => {
       if (entry.isIntersecting) {
         setShouldLoad(true)
-        // 加载后取消观察
+
         _libraryIntersectionCallbacks.delete(el)
         observer.unobserve(el)
       }
@@ -206,14 +154,6 @@ export function useLibraryLazyLoad<T extends Element>(): {
   return { ref, shouldLoad }
 }
 
-/**
- * 无限滚动触发器
- * 监听一个哨兵元素，进入视口时加载更多
- *
- * @param onLoadMore - 加载更多回调，可以是异步函数
- * @param hasMore - 是否还有更多数据
- * @param isLoading - 可选，外部传入的加载状态，用于更精确控制
- */
 export function useLibraryInfiniteScroll(
   onLoadMore: () => void | Promise<void>,
   hasMore: boolean,
@@ -222,7 +162,6 @@ export function useLibraryInfiniteScroll(
   const sentinelRef = useRef<HTMLDivElement>(null)
   const loadingRef = useRef(false)
 
-  // 同步外部 isLoading 状态
   useEffect(() => {
     if (isLoading !== undefined) {
       loadingRef.current = isLoading
@@ -244,7 +183,6 @@ export function useLibraryInfiniteScroll(
         try {
           await onLoadMore()
         } finally {
-          // 异步完成后才重置，确保不会重复触发
           loadingRef.current = false
         }
       }
@@ -262,19 +200,6 @@ export function useLibraryInfiniteScroll(
   return sentinelRef
 }
 
-/**
- * 资料库 Intersection 监听（命令式 API）
- * 用于 callback ref 或命令式场景
- *
- * @example
- * ```tsx
- * const { observeLibraryIntersection, unobserveLibraryIntersection } = useLibraryIntersectionObserver();
- * useEffect(() => {
- *   if (target) observeLibraryIntersection(target, (entry) => { ... });
- *   return () => unobserveLibraryIntersection(target);
- * }, [target]);
- * ```
- */
 export function useLibraryIntersectionObserver(): {
   observeLibraryIntersection: (
     el: Element,
@@ -285,7 +210,6 @@ export function useLibraryIntersectionObserver(): {
   const observeLibraryIntersection = useCallback(
     (el: Element, callback: (entry: IntersectionObserverEntry) => void) => {
       if (!hasFeature(PAGE_ID, Feature.Intersection)) {
-        // 功能未启用时，模拟一次 isIntersecting
         callback({ isIntersecting: true } as IntersectionObserverEntry)
         return
       }
@@ -306,11 +230,6 @@ export function useLibraryIntersectionObserver(): {
   return { observeLibraryIntersection, unobserveLibraryIntersection }
 }
 
-// Idle Hooks
-
-/**
- * 资料库空闲预加载
- */
 export function useLibraryPrefetch(
   prefetchFn: () => void,
   deps: React.DependencyList = [],
@@ -333,8 +252,6 @@ export function useLibraryPrefetch(
   }, deps)
 }
 
-// 清理
-
 export function cleanupLibrary(): void {
   getPageResizeManager(PAGE_ID).cleanup()
 
@@ -345,5 +262,4 @@ export function cleanupLibrary(): void {
   _libraryIntersectionCallbacks.clear()
 }
 
-// 自注册清理函数
 registerPageCleanup(PAGE_ID, cleanupLibrary)

@@ -1,9 +1,3 @@
-/* ============================================
-   工具类样式
-   从 index.astro 提取
-   ============================================ */
-
-/* Line clamp */
 .line-clamp-1 {
   display: -webkit-box;
   -webkit-line-clamp: 1;
@@ -20,7 +14,6 @@
   overflow: hidden;
 }
 
-/* 卡片样式 */
 .card {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
@@ -32,7 +25,6 @@
   box-shadow: 0 8px 24px var(--shadow-color);
 }
 
-/* 隐藏滚动条 */
 .scrollbar-hide {
   -ms-overflow-style: none;
   scrollbar-width: none;
@@ -42,42 +34,17 @@
   display: none;
 }
 
-/* ============================================
-   Content-visibility 性能优化
-   使用 content-visibility: auto 延迟渲染屏幕外内容
-   ============================================ */
-
-/* 大型列表容器优化 - 自动跳过屏幕外渲染 */
-
-/* 不同尺寸的预估高度 */
-
-/* Widget 卡片专用 - 基于典型 widget 尺寸 */
-
-/* 列表项专用 */
-
-/* 动画区域优化 - 配合 AnimationCoordinator 使用 */
-
-/* 严格 contain 用于完全隔离的组件 */
-
-/* ============================================
-   🔧 新增：动画性能优化类
-   用于精确控制 GPU 资源分配
-   ============================================ */
-
-/* 准备进入动画 - 提前创建 GPU 层 */
 .anim-prepare {
   will-change: opacity, transform;
   backface-visibility: hidden;
   perspective: 1000px;
 }
 
-/* 动画进行中 - 保持 GPU 加速 */
 .anim-active {
   will-change: opacity, transform;
   transform: translateZ(0);
 }
 
-/* 动画已完成 - 释放 GPU 资源 */
 .anim-done {
   will-change: auto;
   backface-visibility: visible;
@@ -85,109 +52,23 @@
   transform: none;
 }
 
-/* 等待动画 - 不分配资源，使用 visibility 避免布局影响 */
 .anim-waiting {
   opacity: 0;
   visibility: hidden;
 
-  /* 不设置 will-change，节省资源 */
+  /* no will-change */
 }
 
-/* 退出动画 - 脱离文档流，不影响其他元素 */
-
-/* ============================================
-   🔧 新增：DOM 节点稳定性优化
-   避免布局跳跃和重排
-   ============================================ */
-
-/* 占位容器 - 保持固定尺寸避免跳跃 */
-
-/* 内容替换容器 - 平滑切换内容 */
-
-/* 骨架屏到内容的平滑过渡 */
-
-/* ============================================
-   🔧 新增：渲染层优化
-   减少合成层数量
-   ============================================ */
-
-/* 强制创建独立合成层（谨慎使用） */
-
-/* 避免不必要的层创建 */
-
-/* 隔离渲染上下文 */
-
-/* ============================================
-   🔧 新增：交互状态优化
-   减少 hover/focus 时的重绘
-   ============================================ */
-
-/* 预设 hover 状态的 GPU 层（用于频繁交互的元素） */
-
-/* ============================================
-   🔧 新增：帧率优化 CSS
-   降低 GPU/CPU 负载
-   ============================================ */
-
-/* 减少重绘的过渡 - 只允许 transform 和 opacity */
-
-/* 禁用所有过渡（用于批量 DOM 操作） */
-
-/* 禁用所有动画 */
-
-/* 滚动时降级（通过 JS 添加） */
-.is-scrolling [class*='transition-'] {
-  transition-duration: 0s !important;
-}
-
-/* 拖拽时降级 */
-
-/* 高性能滚动容器 */
-
-/* 滚动时隐藏复杂内容 */
-
-/* 虚拟滚动占位 */
-
-/* ============================================
-   🔧 新增：Paint 优化
-   减少不必要的重绘
-   ============================================ */
-
-/* 隔离重绘区域 */
-
-/* 固定尺寸元素（避免布局计算） */
-
-/* 仅样式隔离 */
-
-/* 完全隔离（最高性能） */
-
-/* ============================================
-   🔧 新增：Transform 优化
-   使用 3D 变换促进 GPU 加速
-   ============================================ */
-
-/* 启用 3D 加速 */
 .gpu-accelerated {
   transform: translate3d(0, 0, 0);
   backface-visibility: hidden;
   perspective: 1000px;
 }
 
-/* 平滑的 transform 动画 */
+.is-scrolling [class*='transition-'] {
+  transition-duration: 0s !important;
+}
 
-/* 退出 GPU 加速（节省内存） */
-
-/* ============================================
-   🔧 新增：图片优化
-   ============================================ */
-
-/* 图片加载占位 */
-
-/* 图片加载完成后移除占位 */
-
-/* 懒加载图片容器 */
-
-/* 移动端禁用选择 */
 @media (width <= 767px) {
   .nav-item,
   .dynamic-island,
@@ -197,9 +78,9 @@
   }
 
   /*
-   * 移动端减弱 blur（仅 standard / 未写 data-perf-mode）。
-   * light、exlight 已在 performance.css 关模糊，这里再写 blur(8px)!important
-   * 会在部分层叠下把毛玻璃加回来。
+   * Mobile blur reduction applies only to standard / unset data-perf-mode.
+   * light and exlight already disable blur in performance.css; blur(8px)!important
+   * here would bring frosted glass back on some cascade paths.
    */
   html:not([data-perf-mode='light'], [data-perf-mode='exlight'])
     [class*='backdrop-blur-xl'],
@@ -210,11 +91,6 @@
     backdrop-filter: blur(8px) !important;
   }
 }
-
-/* ============================================
-   🔧 新增：Reduce Motion 支持
-   为偏好减少动画的用户提供支持
-   ============================================ */
 
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -227,11 +103,7 @@
   }
 }
 
-/* ============================================
-   Tapp app icon — default material shell (replaces old Tailwind gradients)
-   Multi-color shells OK; inset highlight finish is consistent.
-   Glyph art always comes from app icon / iconSvg (no host redraw).
-   ============================================ */
+/* Tapp icons: material shell, consistent inset highlight. Glyph from app icon / iconSvg. */
 .tapp-icon-badge--standalone {
   background: transparent !important;
   box-shadow: none !important;
@@ -245,7 +117,6 @@
   border-radius: inherit;
 }
 
-/* Existing monochrome SVG / emoji: slightly larger glyph, shell size unchanged */
 .tapp-icon-badge__glyph {
   display: block;
   object-fit: contain;
@@ -254,14 +125,14 @@
   transform: scale(1.12);
   transform-origin: center center;
 
-  /* Soften pure white glyph (Dock-like, not chalky) */
+  /* Soften pure white glyph */
   opacity: 0.86;
 
-  /* Prefer depth over bright rim — avoids large-page icons looking washed white */
+  /* Depth over a bright rim so large-page icons do not wash out */
   filter: drop-shadow(0 1px 1.5px rgb(0 0 0 / 28%));
 }
 
-/* Full-color custom art on material shell (`iconShell: true`) — no monochrome wash */
+/* Full-color art on the material shell (`iconShell: true`) — no monochrome wash. */
 .tapp-icon-badge__inset-media {
   display: block;
   object-fit: contain;
@@ -270,10 +141,7 @@
   filter: drop-shadow(0 1px 1.5px rgb(0 0 0 / 20%));
 }
 
-/*
- * Dual-stop fill — light white lift / black depth baked into hue (subtle).
- * No separate shine layer.
- */
+/* Dual-stop fill: light lift / black depth in-hue. No separate shine layer. */
 .tapp-icon-shell--fill {
   background: linear-gradient(
     160deg,
@@ -283,7 +151,6 @@
   );
 }
 
-/* Material rim: soft top highlight + bottom edge + outer depth */
 .tapp-icon-shell--material {
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 18%),
@@ -291,7 +158,7 @@
     0 2px 8px rgb(0 0 0 / 14%) !important;
 }
 
-/* Default Tapp pages (list / detail / run): size + squircle only */
+/* Tapp page icons: size + squircle only. */
 .tapp-page-icon {
   flex-shrink: 0;
   overflow: hidden;
@@ -300,12 +167,12 @@
 }
 
 .tapp-page-icon--md {
-  width: 3.5rem; /* ~w-14 */
+  width: 3.5rem;
   height: 3.5rem;
 }
 
 .tapp-page-icon--sm {
-  width: 1.75rem; /* ~w-7 */
+  width: 1.75rem;
   height: 1.75rem;
 }
 

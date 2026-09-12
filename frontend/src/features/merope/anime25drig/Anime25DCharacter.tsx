@@ -15,6 +15,9 @@ import {
   useRef,
   useState,
 } from 'react'
+import { bindCharacterTouch } from '../interaction/bindTouch'
+import { createTouchAppraisal } from '../interaction/touchAppraisalHost'
+import { getProductionMotionRuntime } from '../motion/runtimeHost'
 import { realizeAnime25DBehaviorPlan } from './behaviorRealizer'
 import { activityExpressionDriverPatch } from './expressionPresets'
 import { idleSpeechDriverPatch } from './performanceMotion'
@@ -34,8 +37,8 @@ interface Props {
   playback: Anime25DPlayback
   atlasUrl: string
   mood: number
-  /** Settings page: sliders own the base pose; live acting stays additive. */
   manualControl?: boolean
+  touchEnabled?: boolean
   onPlaybackError?: (error: unknown) => void
   onPlaybackReady?: () => void
 }
@@ -54,6 +57,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
       atlasUrl,
       mood,
       manualControl = false,
+      touchEnabled = false,
       onPlaybackError,
       onPlaybackReady,
     },
@@ -66,6 +70,27 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
     const [ready, setReady] = useState(false)
     const [gpuEpoch, setGpuEpoch] = useState(0)
     const wrapperRef = useRef<HTMLSpanElement>(null)
+    useEffect(() => {
+      const canvas = canvasRef.current
+      const player = playerRef.current
+      if (!touchEnabled || manualControl || !ready || !canvas || !player) return
+      const owner = crypto.randomUUID()
+      const source = getProductionMotionRuntime().touch
+      const appraisal = createTouchAppraisal(owner, source)
+      const cancelReaction = () => { appraisal.cancel(); source.release(owner) }
+      const unbind = bindCharacterTouch(canvas,
+        (x, y) => player.hitTestTouch(x, y),
+        (touch, now) => {
+          source.notePresented(owner, player.getPresentedTouch(), now)
+          source.update(owner, touch, now)
+          if (source.current() || touch.phase === 'end' || touch.phase === 'cancel') {
+            appraisal.observe(touch, source.version())
+          }
+        }, cancelReaction)
+      return () => {
+        appraisal.dispose(); unbind(); source.release(owner)
+      }
+    }, [touchEnabled, manualControl, ready, atlasUrl, playback, gpuEpoch])
     const activityRef = useRef(activity)
     const moodRef = useRef(mood)
     const speechActiveRef = useRef(false)
@@ -82,6 +107,8 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
     const behaviorPlanRef = useRef<BehaviorPlan | null>(null)
     const onPlaybackReadyRef = useRef(onPlaybackReady)
     onPlaybackReadyRef.current = onPlaybackReady
+    const onPlaybackErrorRef = useRef(onPlaybackError)
+    onPlaybackErrorRef.current = onPlaybackError
     manualRef.current = manualControl || manualRef.current
     const playbackRef = useRef(playback)
     const manifestRef = useRef(manifest)
@@ -170,8 +197,6 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
       playBehaviorPlan(plan) {
         const now = performance.now()
         const realization = realizeAnime25DBehaviorPlan(plan, now)
-        // Restating the whole live set is the entire protocol. The player
-        // reconciles it, so nothing here tracks what has already played.
         playerRef.current?.setBehaviorMotionUnits(realization.units, now)
         behaviorPlanRef.current = plan
         return realization.reports
@@ -228,7 +253,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
       } catch (error) {
         readyRef.current = false
         setReady(false)
-        if (!recoverGpu()) onPlaybackError?.(error)
+        if (!recoverGpu()) onPlaybackErrorRef.current?.(error)
         return undefined
       }
       playerRef.current = player
@@ -331,7 +356,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
       const onContextLost = (event: Event) => {
         event.preventDefault()
         if (cancelled) return
-        if (!recoverGpu()) onPlaybackError?.(event)
+        if (!recoverGpu()) onPlaybackErrorRef.current?.(event)
       }
       canvas.addEventListener('webglcontextlost', onContextLost)
       document.addEventListener('visibilitychange', onVisibilityChange)
@@ -350,7 +375,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
         readyRef.current = false
         setReady(false)
       }
-    }, [gpuEpoch, onPlaybackError])
+    }, [gpuEpoch])
 
     useEffect(() => {
       const player = playerRef.current
@@ -378,12 +403,12 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
           if (error instanceof Error && error.name === 'AbortError') return
           if (atlasReadyRef.current) return
           presentLiveRef.current(false)
-          if (!recoverGpuRef.current()) onPlaybackError?.(error)
+          if (!recoverGpuRef.current()) onPlaybackErrorRef.current?.(error)
         })
       return () => {
         cancelled = true
       }
-    }, [atlasUrl, gpuEpoch, manifest, onPlaybackError, playback])
+    }, [atlasUrl, gpuEpoch, manifest, playback])
 
     return (
       <span
@@ -392,7 +417,12 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
         data-rig-quality="layered-2d"
         data-runtime="Anime2.5DRig"
       >
-        <canvas key={gpuEpoch} ref={canvasRef} aria-hidden />
+        <canvas
+          key={gpuEpoch}
+          ref={canvasRef}
+          aria-hidden
+          style={{ touchAction: touchEnabled ? 'none' : undefined }}
+        />
       </span>
     )
   },

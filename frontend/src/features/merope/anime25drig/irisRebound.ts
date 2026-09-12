@@ -1,7 +1,4 @@
-/**
- * Upstream September iris squash/rebound, bounded for portrait conversation.
- * Uses the existing blink/player clock, not a new timer or director channel.
- */
+/** Uses the existing blink/player clock, not a new timer or director channel. */
 export class Anime25DIrisRebound {
   x = 1
   y = 1

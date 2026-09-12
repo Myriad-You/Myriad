@@ -3,7 +3,6 @@
 //! HTTP handlers keep Claims, DB, filesystem, and role-config permission
 //! filtering. Domain owns:
 //! - install/update source mode parsing (`direct` | `store`)
-//! - direct-mode CSS channel routing (declared styles vs generated sidecars)
 //! - approved-permission selection (manifest ∩ request / previous)
 //! - install/update DB column snapshots (paths, permissions JSON, default status)
 //! - multipart `.tapp` upload field classification + archive size gate
@@ -14,7 +13,7 @@
 /// Package provenance for install and update endpoints.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstallSource {
-    /// Client-supplied manifest + resources (or multipart archive path).
+    /// Client-supplied manifest + resources.
     Direct,
     /// Backend fetches from a configured store catalog.
     Store,
@@ -45,10 +44,9 @@ pub fn parse_install_source(source: &str) -> Result<InstallSource, InvalidInstal
 
 /// Select approved permissions for a **new** install.
 ///
-/// Product contract (matches API comment「可选，默认全部授权」and file-install
-/// callers that omit `permissions`):
+/// Product contract (`InstallTappRequest.permissions`: 可选；缺省则批准全部声明权限; file-install omits the field → empty vec):
 ///
-/// - Empty / omitted `requested` → **all** `manifest_permissions` (default full grant).
+/// - Empty / omitted `requested` → **all** `manifest_permissions` (default full approval).
 /// - Non-empty → intersection of manifest declarations with the request
 /// (unknown / undeclared names are dropped).
 pub fn select_install_approved_permissions(
@@ -70,7 +68,7 @@ pub fn select_install_approved_permissions(
 ///
 /// - `requested == None` → keep previous approvals that still exist in the new
 /// manifest (drop permissions the new version no longer declares).
-/// - `requested == Some([])` → **all** new manifest permissions (default full grant,
+/// - `requested == Some([])` → **all** new manifest permissions (default full approval,
 /// same empty-list product semantics as install).
 /// - `requested == Some(list)` → intersection with the new manifest.
 pub fn select_update_approved_permissions(
@@ -256,7 +254,7 @@ pub fn build_update_install_persist(
 
 // ── Multipart .tapp upload ──────────────────────────────────────────────────
 
-/// Recognized multipart field names on `POST /tapp/install/file`.
+/// Recognized multipart field names on POST /api/tapps/install-file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstallMultipartField {
     File,
@@ -283,7 +281,7 @@ pub fn archive_upload_too_large_message(max_bytes: usize) -> String {
     format!(".tapp file exceeds {max_bytes} bytes")
 }
 
-// ── Concurrent install capacity (MYR-025) ───────────────────────────────────
+// ── Concurrent install capacity ───────────────────────────────────
 
 /// Max concurrent Tapp install handlers (archive extract / stage / DB).
 ///
@@ -332,7 +330,7 @@ mod tests {
 
     #[test]
     fn install_concurrency_limits_are_generous_but_finite() {
-        // MYR-025: a few concurrent installs, not unbounded; fail fast when full.
+        // a few concurrent installs, not unbounded; fail fast when full.
         const {
             assert!(MAX_CONCURRENT_INSTALLS >= 2);
             assert!(MAX_CONCURRENT_INSTALLS <= 8);
@@ -368,7 +366,7 @@ mod tests {
             select_update_approved_permissions(&manifest, None, &previous),
             vec!["storage:read".to_string(), "network".to_string()]
         );
-        // Empty list: default full grant of new manifest (same as install).
+        // Empty list: default full approval of new manifest (same as install).
         assert_eq!(
             select_update_approved_permissions(&manifest, Some(&[]), &previous),
             manifest

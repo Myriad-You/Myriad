@@ -1,23 +1,3 @@
-/**
- * Updater 内联面板 — 以「用户一眼能看懂」为核心的重设计。
- *
- * 结构（自上而下）：
- *   1. 状态卡（hero）：一句话状态 + 一行解释 + 当前版本/通道/上次检查 + 唯一主按钮
- *   2. 新版本卡：解释这次更新是什么、更新时会发生什么（纯说明，不放按钮）
- *   3. 更新通道：三张单选卡片（稳定版 / 预览版 / 开发版·跟随提交），点选即保存
- *   4. 维护与恢复：仅在更新出问题时出现
- *   5. 更新器 / 边缘（两列卡片）
- *   6. 安装指定版本（折叠）
- *   7. 备份与回退（折叠）
- *   8. 高级与诊断（折叠）
- *
- * 原「更新模式 × 频道」两个下拉合并成单一通道选择（stable / preview /
- * preview+commit），「应用频道设置」按钮被移除——点选即保存，
- * 避免草稿态与服务器态不一致。
- *
- * 子 UI 拆在 ./updater/*（helpers / StatusHero / TargetPicker / AdvancedPanel）。
- */
-
 import type {
   Job,
   ReleaseManifest,
@@ -105,7 +85,7 @@ export interface UpdaterInlinePanelProps {
 export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
   heading,
 }) => {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const u = t.config
   const { catalog: g, bindGuide } = useSettingGuide()
 
@@ -124,7 +104,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
   const [status, setStatus] = useState<UpdaterStatus | null>(null)
   const [available, setAvailable] = useState<ReleaseManifest | null>(null)
   const [snapshots, setSnapshots] = useState<SnapshotMeta[]>([])
-  /** Retention diagnostics from last GET /snapshots (self-heal + counts). */
   const [snapshotStats, setSnapshotStats] = useState<Pick<
     SnapshotsResponse,
     | 'eligible_count'
@@ -137,35 +116,21 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [toast, setToast] = useState<Toast>(null)
-  /** Edge / updater outcome stays in the infra cards, not the app hero. */
   const [infraFeedback, setInfraFeedback] = useState<
     ({ scope: 'self' | 'proxy' } & NonNullable<Toast>) | null
   >(null)
-  /**
-   * True while an infra upgrade (updater self-update / proxy recreate) briefly
-   * drops the admin→updater path. Keep last-known status so the panel does not
-   * flash “offline”; the matching infra card explains the gap.
-   */
+  /** infra upgrade blip: keep last status, don't flash offline */
   const [linkDown, setLinkDown] = useState(false)
   const [drift, setDrift] = useState<{ build: string; current: string } | null>(
     null,
   )
   const [accessDenied, setAccessDenied] = useState(false)
   const [sel, setSel] = useState<ChannelKey>('stable')
-  /** 只在首次加载（或保存偏好后）用服务器值覆盖本地选择。 */
   const selHydratedRef = useRef(false)
   const pollRef = useRef<number | null>(null)
-  /**
-   * One silent availability check per panel mount (avoids StrictMode / refresh
-   * loops spamming GitHub). Remounting About starts a new session. Manual
-   * “Check now” is unaffected.
-   */
   const autoRecheckDoneRef = useRef(false)
-  /** Drives live relative “ago” labels without a full status refresh. */
   const [nowTick, setNowTick] = useState(() => Date.now())
-  /** True while the open-panel always-once auto-check is in flight. */
   const [autoRechecking, setAutoRechecking] = useState(false)
-  /** Local hide of the last-failed banner (survives old updater without dismiss API). */
   const [dismissedFailedJobId, setDismissedFailedJobId] = useState<
     string | null
   >(null)
@@ -176,12 +141,10 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     string | null
   >(null)
 
-  /** Job we are watching for maintenance → full-page navigate (once). */
   const maintWatchJobRef = useRef<string | null>(null)
   const maintPollStopRef = useRef<MaintenancePollStop | null>(null)
   /** In-memory once-guard (sessionStorage is the cross-reload guard). */
   const maintNavDoneRef = useRef<string | null>(null)
-  /** Latest status for the proxy poller fallback without re-subscribing. */
   const statusRef = useRef<UpdaterStatus | null>(null)
   statusRef.current = status
 
@@ -189,14 +152,13 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     (e: unknown): string => {
       if (e instanceof UpdaterError) {
         if (e.status === 401) {
-          // Backend admin session vs updater token are different failures.
           if (/admin|login|authorization|session/i.test(e.message)) {
             return u.updaterErr401Admin
           }
           return u.updaterErr401
         }
         if (e.status === 403) {
-          // Do NOT map every 403 to manual-override — CSRF / admin denials also 403.
+          // 403 is also CSRF / admin deny; not always manual-override
           if (/csrf/i.test(e.message)) return u.updaterErr403Csrf
           if (/admin|forbidden|permission/i.test(e.message)) {
             return u.updaterErr403Admin
@@ -236,7 +198,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     }
   }, [])
 
-  /** Full-page leave once per job when maintenance is active (or 503 HTML fallback). */
   const navigateToMaintOnce = useCallback(
     (jobId: string) => {
       if (!jobId) return
@@ -248,10 +209,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     [stopMaintPoll],
   )
 
-  /**
-   * After a successful triggerUpdate (or when a job is already in flight),
-   * poll /_proxy/status until maintenance.active then assign('/').
-   */
   const beginMaintWatch = useCallback(
     (jobId: string) => {
       if (!jobId) return
@@ -291,8 +248,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
           setLinkDown(false)
           return
         }
-        // Fallback: once a job is in flight, non-JSON 503 means proxy is
-        // serving maintenance HTML for /api/* — leave the SPA.
         const watchJob = maintWatchJobRef.current
         if (
           watchJob &&
@@ -303,15 +258,12 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
           navigateToMaintOnce(watchJob)
           return
         }
-        // Transient gap (proxy recreate / updater self-replace): keep last good
-        // status so About does not flip to offline mid-upgrade.
         if (statusRef.current && isTransientUpdaterError(e)) {
           setLinkDown(true)
           return
         }
       }
       if (!s) {
-        // First load truly offline, or non-transient failure without prior data.
         if (!statusRef.current) {
           setStatus(null)
           setSnapshots([])
@@ -321,9 +273,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
         return
       }
       setStatus(s)
-      // Snapshots are a dependent updater resource. Do not emit another 503/502
-      // after status has already established that the updater is unavailable.
-      // GET /snapshots also self-heals over-limit piles on modern updaters.
+      // snapshots depend on updater; don't emit another 503/502
       const snaps: SnapshotsResponse = await api
         .snapshots()
         .catch((): SnapshotsResponse => ({ schema_version: 1, items: [] }))
@@ -357,8 +307,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     })
   }, [refresh])
 
-  // Old updater has no dismiss API; keep a local ack and sync it once the
-  // endpoint exists so the banner stays gone after a later updater upgrade.
   useEffect(() => {
     const jobId = status?.last_failed_update?.job_id
     if (!jobId || !isDismissedLastFailed(jobId)) return
@@ -368,7 +316,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
         void refresh()
       },
       () => {
-        /* keep the local hide */
       },
     )
   }, [api, refresh, status?.last_failed_update?.job_id])
@@ -385,8 +332,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     }
   }, [status?.job_in_flight, refresh])
 
-  // Navigate when maintenance is already active while a job runs; watch otherwise.
-  // Clear the proxy poller on unmount or when the job ends without maintenance.
+  // clear proxy poller on unmount or when the job ends without maintenance
   useEffect(() => {
     const jobId = status?.job_in_flight
     if (!jobId) {
@@ -411,7 +357,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
 
   useEffect(() => () => stopMaintPoll(), [stopMaintPoll])
 
-  // Live “N minutes ago” for last_checked_at (does not hit the network).
   useEffect(() => {
     const id = window.setInterval(() => setNowTick(Date.now()), AGO_TICK_MS)
     return () => window.clearInterval(id)
@@ -422,14 +367,11 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     [sel],
   )
 
-  /** 服务器未公布 preview 轨道时，只展示稳定版。 */
   const visibleOptions = useMemo(() => {
     const fromServer = status?.available_channels
     if (!fromServer?.length) return CHANNEL_OPTIONS
     return CHANNEL_OPTIONS.filter((o) => fromServer.includes(o.channel))
   }, [status?.available_channels])
-
-  // 操作
 
   const checkAvailable = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -439,10 +381,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
       }
       setBusy('check')
       try {
-        // Check the saved updater preferences, without query overrides. The
-        // updater intentionally treats parameterized checks as ephemeral and
-        // does not write them to /status; using one here would let the fresh
-        // response disagree with the cached status shown by the same panel.
         const manifest = await api.available()
         setAvailable(manifest)
         if (!opts?.silent) {
@@ -458,14 +396,12 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     [api, refresh, tokenRequired, explain, u],
   )
 
-  // After first successful status(): always silent recheck once per mount.
-  // Do not gate on isCheckStale — opening About should always revalidate.
+  // opening About always revalidates; don't gate on isCheckStale
   useEffect(() => {
     if (autoRecheckDoneRef.current) return
     if (!status) return
     if (accessDenied || tokenRequired) return
     if (status.job_in_flight || status.maintenance_active) return
-    // Wait until any in-flight panel action finishes before deciding.
     if (busy) return
 
     autoRecheckDoneRef.current = true
@@ -495,7 +431,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
           text: format(u.updaterChannelSaved, { label: channelLabel(key, u) }),
         })
         setBusy(null)
-        // 偏好已保存；按 updater 的当前配置重查并同步 /status 缓存。
         await checkAvailable()
       } catch (e) {
         setSel(prev)
@@ -506,7 +441,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     [api, sel, busy, tokenRequired, explain, u, checkAvailable],
   )
 
-  /** 统一的更新派发：确认 → 触发 → 412 二次确认重试。 */
   const dispatchUpdate = useCallback(
     async (
       target: string,
@@ -549,12 +483,9 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
           kind: 'ok',
           text: format(u.updaterDispatched, { jobId: r.job_id }),
         })
-        // Start proxy-status watch immediately (before refresh) so we leave the
-        // SPA as soon as maintenance.json flips active.
         beginMaintWatch(r.job_id)
         await refresh()
       } catch (e) {
-        // 服务端要求 allow_downgrade / allow_risk —— 再确认一次后重试。
         if (
           e instanceof UpdaterError &&
           e.status === 412 &&
@@ -584,13 +515,11 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
               await refresh()
               return
             } catch (e2) {
-              // Preflight / trigger failure: stay on admin panel.
               setToast({ kind: 'error', text: explain(e2) })
               return
             }
           }
         }
-        // Preflight / trigger failure: stay on admin panel, no navigate.
         setToast({ kind: 'error', text: explain(e) })
       } finally {
         setBusy(null)
@@ -599,11 +528,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     [api, status, refresh, tokenRequired, explain, u, beginMaintWatch],
   )
 
-  /**
-   * Update to latest: silent recheck available+status first; abort if no longer
-   * needed (identical / same version / no target). On recheck error, do not
-   * apply from the previous cache.
-   */
+  /** recheck latest first; on error don't apply the previous cache */
   const updateToLatest = useCallback(async () => {
     if (tokenRequired) {
       setToast({ kind: 'error', text: u.updaterTokenRequiredDirect })
@@ -616,7 +541,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     let manifest: ReleaseManifest | null = null
     let freshStatus: UpdaterStatus | null = null
     try {
-      // Same path as checkAvailable: no query overrides so /available matches /status.
       manifest = await api.available()
       setAvailable(manifest)
       freshStatus = await api.status()
@@ -645,12 +569,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     })
   }, [api, busy, tokenRequired, explain, u, selOption.mode, dispatchUpdate])
 
-  /**
-   * After proxy/updater recreate the HTTP path blips. Poll durable
-   * `*_update_last` until a new outcome appears (up to ~90 minutes), keep last
-   * status on transient errors, and drive infra-card progress via linkDown.
-   * Progress / success / failure stay on the component cards — not the hero.
-   */
+  /** poll `*_update_last` through the HTTP blip; keep last status on errors */
   const waitInfraUpdateOutcome = useCallback(
     async (opts: {
       kind: 'self' | 'proxy'
@@ -707,7 +626,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
             return 'failed'
           }
         } catch {
-          // Updater image replace / proxy recreate: expected brief blip.
+          // updater/proxy replace: brief blip
           sawDisconnect = true
           setLinkDown(true)
         }
@@ -726,19 +645,16 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     [api, u],
   )
 
-  /** Full status + silent available recheck so version badges/buttons catch up. */
   const refreshAfterInfra = useCallback(async () => {
     try {
       await refresh()
     } catch {
-      /* refresh already soft-fails */
     }
     try {
       const manifest = await api.available()
       setAvailable(manifest)
       await refresh()
     } catch {
-      // Tip recheck is best-effort; durable outcome already shown on the card.
     }
   }, [api, refresh])
 
@@ -751,8 +667,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
       })
       return
     }
-    // Backend resolves the tip itself (release.json or Docker Hub). App
-    // `latest_available` is only a hint — it is cleared when already current.
     const tip = status?.latest_available?.version
     const ok = tip
       ? confirm(format(u.updaterSelfUpdateConfirm, { version: tip }))
@@ -762,8 +676,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     setBusy('self-update')
     setInfraFeedback(null)
     setLinkDown(false)
-    // Do not fall back to the app tip: POST success kills this process before
-    // new_updater_tag returns, and the app version is a different tag space.
+    // POST success kills this process; don't fall back to the app tip
     let target = ''
     let shouldWait = true
     try {
@@ -771,7 +684,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
         const report = await api.triggerSelfUpdate()
         target = report.new_updater_tag || ''
       } catch (e) {
-        // Schedule may have been accepted then the gateway died on recreate.
         if (!isTransientUpdaterError(e)) {
           setInfraFeedback({
             scope: 'self',
@@ -814,8 +726,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
       })
       return
     }
-    // Tip is optional. Empty body lets the updater pick
-    // the component tip from GitHub/Docker Hub when status has no app tip.
     const tip = status?.latest_available?.version
     const ok = tip
       ? confirm(format(u.updaterInfraProxyConfirm, { version: tip }))
@@ -832,11 +742,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
         const report = await api.triggerProxyUpdate(tip || undefined)
         target = report.new_proxy_tag || ''
       } catch (e) {
-        // Proxy recreate tears down the HTTP path mid-request even when the
-        // upgrade succeeds; durable proxy_update_last is the source of truth.
         if (!isTransientUpdaterError(e)) {
-          // Hard error before/after work: surface API message, still one
-          // refresh so last_failed / version lines catch up if written.
           await refresh().catch(() => {})
           setInfraFeedback({
             scope: 'proxy',
@@ -890,7 +796,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
       try {
         const r = await api.rollback(snap.id)
         setToast({ kind: 'ok', text: u.updaterRollbackDispatched })
-        // Same as upgrade: watch job_id immediately for maintenance redirect
         beginMaintWatch(r.job_id)
         await refresh()
       } catch (e) {
@@ -928,7 +833,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
       }
       const prev = snapshots
       setBusy(`delete-${snap.id}`)
-      // Optimistic remove so the row vanishes without a full panel refresh.
+      // optimistic remove; skip a full panel refresh
       setSnapshots((list) => list.filter((s) => s.id !== snap.id))
       try {
         await api.deleteSnapshot(snap.id)
@@ -952,7 +857,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     ],
   )
 
-  /** Persist backup retention prefs; prune may free older snapshots immediately. */
   const saveSnapshotLimitPrefs = useCallback(
     async (prefs: {
       snapshot_limit_enabled?: boolean
@@ -974,8 +878,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
             : (prefs.snapshot_limit ?? status?.snapshot_limit ?? 3)
         const eligible =
           typeof res.eligible_count === 'number' ? res.eligible_count : null
-        // 0 pruned while still over limit: protected pins/in_use, disk failure,
-        // or an old updater that ignores retention — do not claim silent success.
+        // don't claim silent success if retention is ignored
         if (enabled && eligible != null && eligible > limit && pruned === 0) {
           setToast({
             kind: 'error',
@@ -1047,7 +950,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
         kind: 'ok',
         text: `${u.updaterRescueContinueDispatched} · ${res.job_id.slice(0, 8)}`,
       })
-      // Same as upgrade: watch job_id immediately for maintenance redirect
       beginMaintWatch(res.job_id)
       await refresh()
     } catch (e) {
@@ -1066,7 +968,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
       await api.dismissLastFailed()
       await refresh()
     } catch {
-      /* Old updater: local ack is enough to keep this job's banner closed. */
     }
   }, [api, refresh, status?.last_failed_update])
 
@@ -1077,7 +978,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
       await api.dismissSelfUpdateLast()
       await refresh()
     } catch {
-      /* Old updater: local ack hides this outcome until a new one is written. */
     }
   }, [api, refresh, status?.self_update_last?.at])
 
@@ -1088,11 +988,8 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
       await api.dismissProxyUpdateLast()
       await refresh()
     } catch {
-      /* Old updater: local ack hides this outcome until a new one is written. */
     }
   }, [api, refresh, status?.proxy_update_last?.at])
-
-  // 渲染
 
   const mood = useMemo<Mood>(() => deriveMood(status), [status])
 
@@ -1105,14 +1002,10 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     )
   }, [status, nowTick])
 
-  /** Cached available/downgrade while last check is too old — not fully trusted. */
   const pendingConfirm = stale && (mood === 'available' || mood === 'downgrade')
 
-  // 非 admin：整段隐藏
   if (accessDenied && transport === 'backend') return null
 
-  // Scheme A: admin ProgressCard only for the brief pre-maintenance window.
-  // Once maintenance is active, full progress lives on the maintenance page.
   const jobRunning =
     !!activeJob &&
     !['succeeded', 'failed', 'needs_manual'].includes(activeJob.status)
@@ -1128,7 +1021,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
   const updaterHasUpdate =
     requiresSelfUpdate || infraComponentBehind(status?.updater_version, infraTip)
   const proxyHasUpdate = infraComponentBehind(status?.proxy_version, infraTip)
-  /** 业务侧有新版本（或强制要求先升更新器）时，在组件区给出提示 */
   const infraUpdateCue = updaterHasUpdate || proxyHasUpdate
   return (
     <div className="updater-panel">
@@ -1149,7 +1041,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
         </div>
       )}
 
-      {/* Auto-rollback / pre-swap cleanup leaves maintenance idle but records this. */}
       {status?.last_failed_update &&
         mood !== 'updating' &&
         dismissedFailedJobId !== status.last_failed_update.job_id &&
@@ -1220,7 +1111,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
         </p>
       )}
 
-      {/* ===== 更新通道：点选即保存 ===== */}
       {!showProgress && (
         <SettingGroup
           title={u.updaterChannelGroupTitle}
@@ -1264,7 +1154,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
         </SettingGroup>
       )}
 
-      {/* ===== 维护与恢复（仅出问题时出现）===== */}
       {showMaintenance && (
         <SettingGroup
           title={u.updaterMaintenanceGroup}
@@ -1305,7 +1194,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
         </SettingGroup>
       )}
 
-      {/* ===== 更新器 / 边缘：子分类 + 两列卡片 ===== */}
       {!showProgress && (
         <SettingGroup
           title={u.updaterInfraGroupTitle}
@@ -1423,9 +1311,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
                     size="sm"
                     variant={requiresSelfUpdate ? 'primary' : 'secondary'}
                     disabled={
-                      // Do not require latest_available: backend clears it when the
-                      // app is already current, but self/proxy update still resolve
-                      // their own component tips independently.
+                      // backend clears latest_available; don't require it
                       !!busy || tokenRequired || !status
                     }
                     loading={busy === 'self-update'}
@@ -1505,7 +1391,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
         </SettingGroup>
       )}
 
-      {/* ===== 安装指定版本（折叠）===== */}
       {!showProgress && (
         <SettingGroup
           title={u.updaterTargetGroupTitle}
@@ -1532,7 +1417,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
         </SettingGroup>
       )}
 
-      {/* ===== 备份与回退（折叠）===== */}
       <SettingGroup
         title={u.updaterSnapshotGroupTitle}
         description={u.updaterSnapshotGroupDesc}
@@ -1575,7 +1459,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
                       tone: 'warn',
                     }
                   : undefined,
-                subtitle: `${new Date(s.created_at).toLocaleString()} · ${formatBytes(s.size_bytes)}`,
+                subtitle: `${new Date(s.created_at).toLocaleString(locale)} · ${formatBytes(s.size_bytes)}`,
                 meta: deleteReason || undefined,
                 busy: rowBusy,
                 actions: [
@@ -1603,7 +1487,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
         </div>
       </SettingGroup>
 
-      {/* ===== 高级与诊断（折叠）===== */}
       <SettingGroup
         title={u.updaterGroupAdvanced}
         description={u.updaterGroupAdvancedDesc}

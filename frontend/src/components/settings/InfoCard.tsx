@@ -1,8 +1,3 @@
-/**
- * 信息卡片组件
- * 用于显示提示、警告等信息
- */
-
 import type { InfoCardConfig } from './types'
 import React from 'react'
 import './InfoCard.css'

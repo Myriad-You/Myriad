@@ -37,7 +37,6 @@ test('state streams and late GETs converge on the newest mood, and reset between
   dispatchMeropeState({ ...next, mood: { ...next.mood, after: 0 } })
   assert.equal(currentMeropeState()?.mood.after, 35)
   assert.deepEqual(resolveLoadedMeropeAffect(initial), { mood: 35, arousal: 50 })
-  // Reconnect fetch catches up even when the live event was lost.
   assert.deepEqual(resolveLoadedMeropeAffect({ mood: 58, arousal: 50, moodRevision: 15 }), { mood: 58, arousal: 50 })
   assert.equal(currentMeropeState()?.mood.revision, 15)
   resetMeropeState()

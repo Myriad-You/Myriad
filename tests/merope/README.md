@@ -13,6 +13,9 @@ node scripts/test-merope-behavior.mjs
 覆盖：
 
 - 前端 Merope 全量无浏览器回归：文本/音频句段、导演更新、统一调度、身体适配和口型。
+- Agent 服务与 API 层全部非 ignored 测试，包括触摸输入校验、在场状态、请求契约和权限边界；需要模型或专用数据库的测试仍不默认执行。
+- Merope 核心与 Rig API 契约，包括换装共用主图时的激活锚点；不冒充真实数据库并发验证。
+- 面板状态展示、共享运行时的多消费者挂载/卸载、重复清理和重新挂载隔离。
 - 长回复末句经过真实调度器/适配器产生动作；滚动窗口保持时间锚点和有界工作量，取消后回收。
 - 排队 TTS 短语保留、同片段修订、引用保护；迟到文本与断流保护分离，口型与文本预算一致。
 - Chat 正文与导演分离：生产文本转发、最新窗口合并、单请求并发、动作拥堵丢弃和取消屏障；不生成正文动作标注，不等待导演再发文字。
@@ -20,6 +23,8 @@ node scripts/test-merope-behavior.mjs
 - 阅读、选中、切页、切歌、暂停、撤销页面同意和清空；同一注册表/说话对象连续使用，验证旧内容被替换。
 - 明确选中的文字独立于页面正文同意；媒体地址不进入感知载荷。
 - 快速更新末次补报、失败有界重试、停止订阅、慢请求期间的过期处理（复用 inbound 回归）。
+- 人设开关无需重新挂载即可恢复/停止感知，迟到配置不能重新启用；普通在场上报携带白名单 Rig 语义状态。
+- 主动开口在异步生成后重新检查新输入、过期、勿扰及交付渠道；后台组句不重置前台活动状态。
 - 前后端感知过期契约、短期摘要与较长在场租约分离。
 - 记忆提取格式/证据/目标校验与请求失败处理；主动事件 gate、输出策略和开口意图生命周期（复用现有测试）。
 
@@ -72,13 +77,12 @@ node scripts/test-merope-semantics.mjs --replay /absolute/path/responses.json
 也可显式使用现有 Analyzer 调用提供方：
 
 ```sh
-# 先通过环境提供 MEROPE_SEMANTIC_PROVIDER、MEROPE_SEMANTIC_MODEL、MEROPE_SEMANTIC_API_KEY；
-# 可选 MEROPE_SEMANTIC_BASE_URL。不要把密钥提交或写到命令行参数。
+# 复用 backend/.env 与站点已有 Lite 配置，只读加载；不需要额外密钥。
 node scripts/test-merope-semantics.mjs --live
 ```
 
-只支持现有 openai / gemini 提供方适配，不绑定模型，不读取站点数据库或登录态。
-最多 20 个逻辑模型调用、顺序执行、每例 5 秒总时限，无评测层重试（Analyzer 自身可能协商请求格式）。
+使用现有严格 Lite 解析，不绑定模型；只读站点配置，不写角色状态或登录态。
+用 `--kind` 限定场景，`--repeat 1|2|3` 限定重复次数，顺序执行、每例最多 5 秒总时限，无评测层重试（Analyzer 自身可能协商请求格式）。
 该诊断时限不是生产 Chat 延迟指标。`--report NEW_FILE` 可指定新报告位置，拒绝覆盖文件。
 
 报告把 `request_failure`、`output_invalid`、`contract_failure`、`behavior_failure`、

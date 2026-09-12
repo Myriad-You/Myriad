@@ -1,12 +1,3 @@
-/**
- * 导航岛组件 - Apple Dynamic Island 风格
- *
- * 职责：
- * - 渲染一级导航（主页、资料库、Brew、报告、Tapp）
- * - 根据 NavigationContext 渲染页面声明的二级导航
- * - 处理一二级导航的切换动画
- */
-
 import type { ModuleVisibilityKey } from '../utils/moduleVisibility'
 import type { NavLayout } from '../utils/navLayout'
 import { MyriadStoreIcon } from '@lib/icons'
@@ -42,7 +33,7 @@ import {
 } from '../utils/navLayout'
 import { navigateAfterStageLeave } from './stageLeaveGate'
 
-/** Bottom ↔ rail crossfade timings (ms). Position only swaps while opacity≈0. */
+// 底栏↔侧轨交叉淡入时长；只在 opacity≈0 时换位置。
 const NAV_CHROME_OUT_MS = 200
 const NAV_CHROME_IN_MS = 280
 
@@ -51,29 +42,22 @@ interface ModeMetrics {
   width?: number
 }
 
-/** 一级导航项定义 - 数据驱动渲染，避免重复 JSX */
 interface PrimaryNavItem {
   id: string
   path: string
   icon: React.ReactNode
   tooltip: string
   ariaLabel: string
-  /** true → active 用前缀匹配（如 /tapp 匹配 /tapp/xxx） */
+  // prefix：/tapp 匹配 /tapp/xxx。
   matchPrefix?: boolean
-  /** 绑定到模块可见性设置；主页不设置 */
   moduleKey?: ModuleVisibilityKey
-  /**
-   * true → 渲染为 <a>（利于 SEO / 中键新开），点击直接 navigate；
-   * false → 渲染为 <button>，点击走 handleNavToPage（可触发二级导航自动展开）
-   */
+  // seo: <a> 直接 navigate；否则 <button> 走 handleNavToPage（可展开二级）。
   asAnchor?: boolean
 }
 
-// 常量
 const MIN_ISLAND_HEIGHT = 48
 const MAX_ISLAND_HEIGHT = 800
 
-// ─── 提取 SVG 图标为模块级常量，避免每次渲染重新创建 JSX ───
 const IconBack = (
   <svg
     className="w-5 h-5"
@@ -150,11 +134,6 @@ const IconReports = (
   </svg>
 )
 
-/**
- * 设备感知的动画时序配置
- * 桌面端：从容优雅，给用户充分感知动画层次
- * 移动端 / 触控平板：敏捷紧凑，触控反馈要快
- */
 function getAnimationTiming(layout: NavLayout = getNavLayoutSnapshot()) {
   const isMobile = layout === 'mobile'
   return {
@@ -168,16 +147,15 @@ function getAnimationTiming(layout: NavLayout = getNavLayoutSnapshot()) {
 const getVariant = (): NavLayout => getNavLayoutSnapshot()
 const isDesktop = () => isDesktopNavLayout()
 
-/** Clear inline size leftovers when mobile ↔ desktop chrome swaps. */
+// 底栏↔侧轨切换时清掉内联宽高残留。
 function resetIslandChromeForLayout(
   island: HTMLElement,
   layout: NavLayout,
 ): void {
   if (layout === 'desktop') {
-    // Desktop rail is fixed-width via CSS; never keep mobile measured width.
+    // 侧轨固定宽，勿保留移动端测得的宽；底栏按内容，勿保留桌面测得的高。
     island.style.removeProperty('width')
   } else {
-    // Mobile bottom bar sizes to content; never keep desktop measured height.
     island.style.removeProperty('width')
     island.style.removeProperty('height')
   }
@@ -203,7 +181,6 @@ function safeSetHeight(
   return false
 }
 
-/** 两帧延迟执行 - 确保浏览器完成布局后回调 */
 function doubleRaf(callback: () => void): () => void {
   let id2: number
   const id1 = requestAnimationFrame(() => {
@@ -215,7 +192,6 @@ function doubleRaf(callback: () => void): () => void {
   }
 }
 
-/** 计算 padding（带安全检查），结果可缓存 */
 function getPaddingVertical(island: HTMLElement | null): number {
   if (!island) return 0
   try {
@@ -231,11 +207,7 @@ function getPaddingVertical(island: HTMLElement | null): number {
   }
 }
 
-/**
- * 导航岛 Tooltip - 使用 Portal 渲染到 body，避免被 overflow:hidden 裁剪
- * 使用事件委托：pointerover/pointerout 冒泡事件，配合 relatedTarget 实现无闪烁切换
- * memo 化：避免父组件动画状态变化时重复渲染
- */
+// Tooltip 用 Portal，避免 overflow:hidden 裁剪；pointerover/out 委托，relatedTarget 防闪。
 const NavIslandTooltip = memo(
   ({ containerRef }: { containerRef: React.RefObject<HTMLElement | null> }) => {
     const [tooltip, setTooltip] = useState<{
@@ -266,7 +238,6 @@ const NavIslandTooltip = memo(
         const wasVisible = activeTargetRef.current !== null
         activeTargetRef.current = target
         setTooltip({ text, rect })
-        // 已经可见时直接更新内容和位置，无需延迟
         if (wasVisible) {
           setVisible(true)
         } else {
@@ -283,7 +254,6 @@ const NavIslandTooltip = memo(
         }, 60)
       }
 
-      // 使用 pointerover/pointerout（会冒泡）实现事件委托，仅响应鼠标
       const handlePointerOver = (e: PointerEvent) => {
         if (e.pointerType !== 'mouse') return
         const target = (e.target as HTMLElement)?.closest?.(
@@ -300,7 +270,7 @@ const NavIslandTooltip = memo(
           '[data-tooltip]',
         ) as HTMLElement | null
         if (!from) return
-        // 如果移向另一个 tooltip 元素，跳过 hide（让 pointerover 直接更新）
+        // 移向另一个 tooltip 时跳过 hide，让 pointerover 直接更新。
         const to = (e.relatedTarget as HTMLElement)?.closest?.(
           '[data-tooltip]',
         ) as HTMLElement | null
@@ -371,20 +341,13 @@ export function NavigationIsland() {
     immersiveMode,
   } = useNavigation()
 
-  /**
-   * Subscribe so this component re-renders when the store flips; morph runner
-   * still owns chrome via subscribeNavLayout(tryMorph). Snapshot seeds state.
-   */
+  // subscribe 以便 store 翻转时重绘；chrome 仍由 morph runner 经 subscribeNavLayout 拥有。
   useSyncExternalStore(
     subscribeNavLayout,
     getNavLayoutSnapshot,
     getServerNavLayoutSnapshot,
   )
-  /**
-   * Applied chrome layout (drives data-nav-layout + island CSS).
-   * Lags desired during bottom↔rail crossfade so the island fades out at the
-   * old anchor, swaps position while invisible, then fades in.
-   */
+  // 应用中的 chrome 落后于 desired，交叉淡入时先在旧锚点淡出、不可见时换位、再淡入。
   const [chromeLayout, setChromeLayout] = useState<NavLayout>(() =>
     getNavLayoutSnapshot(),
   )
@@ -393,7 +356,7 @@ export function NavigationIsland() {
   chromeLayoutRef.current = chromeLayout
   const chromeSwitchingRef = useRef(false)
   const chromeTimersRef = useRef<{ out?: number; in?: number }>({})
-  /** Keep latest helpers for morph timers (avoid effect re-entry cancel). */
+  // 给 morph 定时器最新 helpers，避免 effect 重入取消。
   const chromeHelpersRef = useRef<{
     getCachedPadding: (island: HTMLElement) => number
     updateModeMetrics: (
@@ -411,34 +374,27 @@ export function NavigationIsland() {
   const lastNavLayoutRef = useRef<NavLayout>(chromeLayout)
   const islandMetricsRef = useRef<Record<string, ModeMetrics>>({})
   const prevPathnameRef = useRef(location.pathname)
-  // 缓存 padding 值，避免每次动画都触发 getComputedStyle
   const cachedPaddingRef = useRef<number | null>(null)
-  // 追踪 handleTransition 内部定时器，组件卸载时清理
   const exitRafRef = useRef<number>(0)
   const exitTimerRef = useRef<number>(0)
-  // 用 ref 追踪 secondaryNav，供路由变化 effect 读取（不加入 deps）
+  // secondaryNav 用 ref 给路由 effect 读，不入 deps。
   const secondaryNavRef = useRef(secondaryNav)
   secondaryNavRef.current = secondaryNav
 
-  // 当前是否显示二级导航（子路由也匹配，如 /brew/item/xxx 匹配 /brew）
-  // 强制转为 boolean：secondaryNav 注销时若从 false 变为 undefined，
-  // 会导致进入动画 effect 的 deps 变化而中断进行中的动画（导航项卡在不可见态）
+  // showSecondary 必须是 boolean：false→undefined 会改进入动画 deps，导航项会卡在不可见。
   const showSecondary = Boolean(
     secondaryNav?.expanded &&
       location.pathname.startsWith(secondaryNav.routePath),
   )
 
-  // 动画期间锁定的渲染模式
   const currentRenderMode = isAnimating
     ? renderModeRef.current
     : showSecondary
       ? 'secondary'
       : 'normal'
 
-  // 记录是否已自动展开过（避免重复触发）
   const autoExpandedRef = useRef<string | null>(null)
 
-  // 获取缓存的 padding，仅首次调用时触发 getComputedStyle
   const getCachedPadding = useCallback((island: HTMLElement): number => {
     if (cachedPaddingRef.current !== null) return cachedPaddingRef.current
     const padding = getPaddingVertical(island)
@@ -498,32 +454,23 @@ export function NavigationIsland() {
     [buildMetricsKey, getCachedPadding],
   )
 
-  // 路由切换时重置状态
-  // 必须用 useLayoutEffect：本 effect 定义在进入动画 effect 之前，
-  // 同为 layout effect 时按定义顺序先执行——先清理残留标记、解锁渲染模式，
-  // 再由进入动画 effect 设置新标记。若用 useEffect（paint 之后执行），
-  // 会反过来摘掉进入动画刚设置的 data-transitioning，导致呼吸动画被中途
-  // 砍断、内容硬切闪屏（移动端系统返回时最明显）
+  // 路由重置必须 useLayoutEffect 且排在进入动画 effect 之前；useEffect 会摘掉刚设的 data-transitioning。
   useLayoutEffect(() => {
     if (prevPathnameRef.current !== location.pathname) {
       const prevPath = prevPathnameRef.current
       prevPathnameRef.current = location.pathname
 
-      // 中断进行中的 handleTransition — 防止退出定时器在路由切换后
-      // 继续执行 renderModeRef 写入和 data-entering 设置，导致导航项残留隐藏
+      // 中断 handleTransition，防止退出定时器在切路由后继续藏导航项。
       cancelAnimationFrame(exitRafRef.current)
       clearTimeout(exitTimerRef.current)
 
-      // 清除岛上可能残留的过渡标记
       const island = navContentRef.current?.closest(
         '.dynamic-island',
       ) as HTMLElement | null
       if (island) {
         island.removeAttribute('data-transitioning')
         island.removeAttribute('data-entering')
-        // 桌面端：重新测量并设置正常模式高度，而非直接移除
-        // 保留明确的内联高度值，为后续一级→二级过渡的 CSS transition 提供起始帧
-        // （若直接 removeProperty，高度变为 auto，auto → px 无法触发 CSS 过渡动画）
+        // 桌面保留明确内联高度作过渡起点；removeProperty 变 auto 后 auto→px 不会过渡。
         if (isDesktop()) {
           const content = navContentRef.current
           if (content) {
@@ -538,7 +485,6 @@ export function NavigationIsland() {
         }
       }
 
-      // 判断是否在同一二级导航组内导航（如 /brew → /brew/item/xxx）
       const nav = secondaryNavRef.current
       const stayingInSecondary =
         nav?.expanded &&
@@ -546,23 +492,17 @@ export function NavigationIsland() {
         location.pathname.startsWith(nav.routePath)
 
       if (stayingInSecondary) {
-        // 同组内导航：保持二级模式，不触发过渡动画
         renderModeRef.current = 'secondary'
       } else {
-        // 离开二级导航组：解锁渲染模式为正常模式。
-        // 注意不改写 lastModeRef —— 它表示"屏幕上当前渲染的模式"，
-        // 由进入动画 effect 对比 lastModeRef 与新模式检测到 secondary → normal
-        // 的切换后，播放完整的进入动画（呼吸 + 交错淡入 + 尺寸过渡），
-        // 而不是内容硬切（系统返回时退出动画丢失/闪屏的根因）
+        // 离组只解锁渲染模式，不改 lastModeRef（它表示屏上模式）；由进入动画对比后播完整过渡，避免系统返回硬切。
         renderModeRef.current = 'normal'
       }
       setIsAnimating(false)
-      // 重置自动展开标记，允许新页面自动展开
       autoExpandedRef.current = null
     }
   }, [location.pathname, renderModeRef, setIsAnimating, getCachedPadding])
 
-  // 安全机制：防止 isAnimating 卡死，超时强制重置
+  // isAnimating 超时强制重置，防止卡死。
   useEffect(() => {
     if (!isAnimating) return
     const safetyTimer = setTimeout(() => {
@@ -571,7 +511,6 @@ export function NavigationIsland() {
     return () => clearTimeout(safetyTimer)
   }, [isAnimating, setIsAnimating])
 
-  // 组件卸载时清理 handleTransition 内部的定时器和 rAF
   useEffect(() => {
     return () => {
       cancelAnimationFrame(exitRafRef.current)
@@ -579,9 +518,7 @@ export function NavigationIsland() {
     }
   }, [])
 
-  // 自动展开二级导航：当进入有二级导航的页面时
   useEffect(() => {
-    // 条件：有二级导航配置、当前在对应路由、尚未展开、未在动画中、还未自动展开过
     if (
       secondaryNav &&
       location.pathname.startsWith(secondaryNav.routePath) &&
@@ -589,11 +526,8 @@ export function NavigationIsland() {
       !isAnimating &&
       autoExpandedRef.current !== location.pathname
     ) {
-      // 标记已自动展开，避免重复触发
       autoExpandedRef.current = location.pathname
-      // 延迟触发展开，等待页面初始化完成
       const timer = setTimeout(() => {
-        // 触发展开事件，让页面自己处理
         window.dispatchEvent(
           new CustomEvent('nav-expand-secondary', {
             detail: { path: location.pathname },
@@ -604,10 +538,6 @@ export function NavigationIsland() {
     }
   }, [secondaryNav, location.pathname, isAnimating])
 
-  /**
-   * 统一模式切换动画处理
-   * @param targetMode - 目标模式（'secondary' = 展开, 'normal' = 收起）
-   */
   const handleTransition = useCallback(
     (targetMode: 'normal' | 'secondary') => {
       if (isAnimating || !secondaryNav) return
@@ -619,22 +549,20 @@ export function NavigationIsland() {
       }
 
       setIsAnimating(true)
-      // 锁定当前模式（退出阶段保持旧内容渲染）
+      // 退出阶段锁定旧模式，保持旧内容。
       renderModeRef.current =
         targetMode === 'secondary' ? 'normal' : 'secondary'
 
-      const groups = Array.from(content.querySelectorAll('.nav-group'))
+      const groups = Iterator.from(content.querySelectorAll('.nav-group')).toArray()
       const island = content.closest('.dynamic-island') as HTMLElement
 
-      // 标记过渡开始（启用 will-change、CSS 安全网）
       if (island) {
         island.setAttribute('data-transitioning', 'true')
       }
 
-      // 将当前尺寸固定为 px 值，为 CSS 过渡提供起始帧
       if (island) {
         if (isDesktop()) {
-          // 确保有明确的起始高度，避免 auto → px 无法触发 CSS 过渡
+          // 起始高度必须是 px；auto→px 不会走 CSS 过渡。
           if (!island.style.height) {
             island.style.height = `${island.offsetHeight}px`
           }
@@ -643,7 +571,6 @@ export function NavigationIsland() {
         }
       }
 
-      // 退出动画 - 使用单个 rAF 循环替代多个 setTimeout，减少定时器开销
       const timing = getAnimationTiming()
       const exitStartTime = performance.now()
 
@@ -664,23 +591,22 @@ export function NavigationIsland() {
           exitRafRef.current = requestAnimationFrame(runExitStagger)
         }
       }
-      // 先清除所有旧标记，然后启动 rAF 循环
       groups.forEach((group) => {
         ;(group as HTMLElement).removeAttribute('data-animation')
       })
       exitRafRef.current = requestAnimationFrame(runExitStagger)
 
-      // 退出完成后切换内容（保持 isAnimating=true 直到进入动画结束）
+      // 退出后切内容但保持 isAnimating，直到进入动画结束。
       exitTimerRef.current = window.setTimeout(
         () => {
-          // 标记即将加载新内容，CSS 安全网确保新 DOM 不闪现
+          // data-entering：新 DOM 不闪现。
           if (island) {
             island.setAttribute('data-entering', 'true')
           }
-          // 不清理旧 DOM 的 data-animation — 它们即将被 React 卸载
+          // 不清理旧 DOM 的 data-animation，它们即将被卸载。
           renderModeRef.current = targetMode
           secondaryNav.onToggleExpand()
-          // 不在此处 setIsAnimating(false)，等进入动画完成后再解锁
+          // 不在此处 setIsAnimating(false)，等进入动画完成再解锁。
         },
         groups.length * timing.exitStagger + timing.exitDuration,
       )
@@ -703,15 +629,11 @@ export function NavigationIsland() {
     }
   }, [])
 
-  // 导航到页面并展开二级导航
   const handleNavToPage = useCallback(
     (path: string) => {
       handlePrefetchPath(path)
       if (location.pathname === path) {
-        // 已在目标页面
         if (secondaryNav?.routePath === path) {
-          // 有二级导航，无论当前是否展开，都触发展开
-          // 如果已展开则不做任何事，如果未展开则展开
           if (!secondaryNav.expanded) {
             handleExpand()
           }
@@ -719,10 +641,8 @@ export function NavigationIsland() {
       } else {
         const go = () => {
           navigate(path)
-          // 等待路由更新后展开
           setTimeout(() => {
             if (window.location.pathname === path) {
-              // 通过事件通知页面展开二级导航
               window.dispatchEvent(
                 new CustomEvent('nav-expand-secondary', { detail: { path } }),
               )
@@ -735,7 +655,6 @@ export function NavigationIsland() {
     [location.pathname, secondaryNav, handleExpand, navigate, handlePrefetchPath],
   )
 
-  // 进入动画
   useLayoutEffect(() => {
     const content = navContentRef.current
     if (!content) return
@@ -750,18 +669,17 @@ export function NavigationIsland() {
     const groups = content.querySelectorAll('.nav-group')
     const island = content.closest('.dynamic-island') as HTMLElement
 
-    // 直接设置 enter-initial（跳过 removeAttribute — 新 DOM 没有残留标记）
+    // 新 DOM 无残留标记，直接设 enter-initial。
     groups.forEach((group) => {
       ;(group as HTMLElement).setAttribute('data-animation', 'enter-initial')
     })
 
     if (island) {
       island.setAttribute('data-transitioning', 'true')
-      // 移除 entering 标记 — enter-initial 已接管可见性控制，防闪安全网可解除
+      // enter-initial 接管可见性后即可摘 entering。
       island.removeAttribute('data-entering')
     }
 
-    // 两帧后读取尺寸并启动进入动画
     let sizeWidthRaf = 0
     const cancelSizeRaf = doubleRaf(() => {
       const currentContent = navContentRef.current
@@ -782,12 +700,10 @@ export function NavigationIsland() {
           currentIsland.style.removeProperty('height')
         }
       } else if (!isDesktop()) {
-        // 通过 force-reflow 测量新内容的自然宽度，触发 CSS 宽度过渡
         const fromWidth = currentIsland.offsetWidth
         currentIsland.style.removeProperty('width')
-        const naturalWidth = currentIsland.offsetWidth // force layout，获取新内容的自然宽度
+        const naturalWidth = currentIsland.offsetWidth
         if (naturalWidth > 0 && naturalWidth !== fromWidth) {
-          // 恢复起始值，下一帧设目标值，触发 CSS 过渡
           currentIsland.style.width = `${fromWidth}px`
           sizeWidthRaf = requestAnimationFrame(() => {
             sizeWidthRaf = 0
@@ -807,7 +723,6 @@ export function NavigationIsland() {
     let enterCleanupTimer: number
 
     const cancelEnterRaf = doubleRaf(() => {
-      // 使用单个 rAF 循环替代 N 个 setTimeout，减少定时器开销
       const enterStartTime = performance.now()
       const totalEnterDuration =
         groups.length * timing.enterStagger + timing.enterDelay
@@ -832,7 +747,6 @@ export function NavigationIsland() {
       }
       enterRafId = requestAnimationFrame(runEnterStagger)
 
-      // 清理定时器：等待所有进入动画完成后解锁
       enterCleanupTimer = window.setTimeout(() => {
         if (island) {
           island.removeAttribute('data-transitioning')
@@ -851,21 +765,16 @@ export function NavigationIsland() {
       cancelEnterRaf()
       cancelAnimationFrame(enterRafId)
       if (enterCleanupTimer) clearTimeout(enterCleanupTimer)
-      // 被中断时清理过渡标记
       if (island) {
         island.removeAttribute('data-transitioning')
         island.removeAttribute('data-entering')
       }
-      // 同时清理组标记：进入动画被中断时若残留 enter-initial（opacity: 0），
-      // 导航项会不可见直至 force-visible 兜底动画（约 2s）才恢复；
-      // 移除标记后 .nav-group:not([data-animation]) 的过渡会平滑淡回可见态
+      // 中断时清组标记：残留 enter-initial（opacity:0）会让导航项不可见直到 force-visible。
       groups.forEach((group) => {
         ;(group as HTMLElement).removeAttribute('data-animation')
       })
     }
-    // deps: showSecondary 是模式切换的唯一信号；不包含 secondaryNav 以避免
-    // activeId 变化时触发 cleanup（会中断进行中的进入动画）。
-    // lastModeRef guard 确保只在实际模式切换时执行动画。
+    // deps 只有 showSecondary；含 secondaryNav 会在 activeId 变化时 cleanup 打断进入动画。
   }, [
     showSecondary,
     isAnimating,
@@ -874,22 +783,11 @@ export function NavigationIsland() {
     updateModeMetrics,
   ])
 
-  // 正常模式高度：挂载后 + 一级导航可见项变化时重算（见下方 primaryNavItems 之后的 effect）。
-  // 不可只在 mount 量一次：鉴权/模块可见性异步生效后项数会变，否则岛高度会偏大。
-
-  // Apply chrome layout to <html> (section padding etc.)
   useLayoutEffect(() => {
     applyNavLayoutToDocument(chromeLayout)
   }, [chromeLayout])
 
-  /**
-   * Bottom bar ↔ side rail crossfade (single owner).
-   * - Fade out at old anchor
-   * - Swap data-nav-layout while opacity≈0
-   * - Fade in at new anchor
-   * Never interpolate translateX(-50%) ↔ translateY(-50%).
-   * Mid-morph desire changes are ignored until settle, then re-checked.
-   */
+  // 底栏↔侧轨交叉淡入唯一入口：不可见时才换 data-nav-layout；勿插值 translateX(-50%)↔translateY(-50%)。中途 desire 变化等 settle 再检。
   useEffect(() => {
     const clearTimers = () => {
       if (chromeTimersRef.current.out) {
@@ -932,7 +830,7 @@ export function NavigationIsland() {
       setChromeSwitch('out')
 
       if (nav) {
-        // Let CSS data-nav-switch own opacity/transform for this sequence.
+        // 这段 opacity/transform 交给 CSS data-nav-switch。
         nav.style.removeProperty('opacity')
         nav.style.removeProperty('transform')
         nav.style.removeProperty('pointer-events')
@@ -955,7 +853,7 @@ export function NavigationIsland() {
           if (nav) {
             nav.dispatchEvent(new Event(NAV_CHROME_SETTLED_EVENT))
           }
-          // Chain if desire moved during the morph.
+          // morph 中 desire 变了，settle 后再跟一次。
           requestAnimationFrame(() => tryMorph())
         }, NAV_CHROME_IN_MS)
       }, NAV_CHROME_OUT_MS)
@@ -971,7 +869,6 @@ export function NavigationIsland() {
     }
   }, [])
 
-  // Chrome settled / first desktop paint: lock height for secondary transitions
   useLayoutEffect(() => {
     if (chromeSwitch !== null) return
     lastNavLayoutRef.current = chromeLayout
@@ -989,7 +886,7 @@ export function NavigationIsland() {
     }
   }, [chromeLayout, chromeSwitch, getCachedPadding, updateModeMetrics])
 
-  // 窗口大小变化时更新尺寸 - 同布局内；跨布局由 crossfade 处理
+  // 同布局内随窗口改尺寸；跨布局走交叉淡入。
   useEffect(() => {
     let timeoutId: number | null = null
 
@@ -1018,7 +915,6 @@ export function NavigationIsland() {
     }
   }, [applyModeMetrics])
 
-  // 键盘辅助：Escape 收起二级导航，提升键盘可达性
   useEffect(() => {
     if (currentRenderMode !== 'secondary') return
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1030,7 +926,6 @@ export function NavigationIsland() {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [currentRenderMode, isAnimating, handleCollapse])
 
-  // 一级导航项 - 数据驱动，仅随语言变化重建（active 在渲染时按当前路由计算）
   const primaryNavItems = useMemo<PrimaryNavItem[]>(
     () => {
       const items: PrimaryNavItem[] = [
@@ -1070,7 +965,7 @@ export function NavigationIsland() {
           id: 'tapp',
           path: '/tapp',
           icon: <MyriadStoreIcon className="w-5 h-5" />,
-          // /tapp 是已安装应用列表，商店在 /tapp/store — tip 勿用 tappStore
+          // /tapp 是已装列表，商店在 /tapp/store — tip 勿用 tappStore。
           tooltip: t.nav.tapp,
           ariaLabel: t.nav.openTapp,
           matchPrefix: true,
@@ -1099,13 +994,11 @@ export function NavigationIsland() {
     ],
   )
 
-  /** 可见一级项签名：项增删时触发岛尺寸重测 */
   const primaryNavSignature = useMemo(
     () => primaryNavItems.map((item) => item.id).join('|'),
     [primaryNavItems],
   )
 
-  // 一级导航可见集合变化后重算正常模式高度/宽度（模块可见性、鉴权完成等）
   useLayoutEffect(() => {
     if (isAnimating || currentRenderMode !== 'normal') return
 
@@ -1136,7 +1029,7 @@ export function NavigationIsland() {
           updateModeMetrics('normal', { height: validHeight })
         }
       } else {
-        // 移动端：项数变化后按内容重测自然宽度，避免沿用全量项时的缓存宽度
+        // 移动端项数变化后按内容重测自然宽，避免沿用全量项缓存宽。
         island.style.removeProperty('height')
         const fromWidth = island.offsetWidth
         island.style.removeProperty('width')
@@ -1177,15 +1070,9 @@ export function NavigationIsland() {
       {...(chromeSwitch ? { 'aria-busy': 'true' } : {})}
     >
       <div className="dynamic-island" data-tour="nav">
-        {/*
-          nav-island-scroll：移动端横向滚动放在内层，外层 dynamic-island 只做
-          毛玻璃 + overflow:hidden。若把 overflow-x:auto 直接加在带
-          backdrop-filter 的岛上，二级菜单项较多时滑动会产生残影。
-          方向由 data-nav-layout 驱动 CSS（勿用 md:，否则平板触控带会错用侧轨样式）。
-        */}
+        {/* 横向滚动放内层；overflow-x:auto 加在带 backdrop-filter 的岛上会残影。方向用 data-nav-layout，勿用 md:。 */}
         <div className="nav-island-scroll flex items-center gap-1 relative">
           {currentRenderMode === 'secondary' && secondaryNav ? (
-            /* 二级导航模式 */
             <div
               ref={navContentRef}
               className="nav-island-content flex items-center gap-1"
@@ -1203,7 +1090,6 @@ export function NavigationIsland() {
                   : undefined
               }
             >
-              {/* 返回按钮 - Escape 也可收起 */}
               <div className="nav-group" data-group="back">
                 <button
                   onClick={handleCollapse}
@@ -1215,12 +1101,11 @@ export function NavigationIsland() {
                 </button>
               </div>
 
-              {/* 分隔符 — 横/竖由 .nav-island-divider + data-nav-layout 切换 */}
               <div className="nav-group nav-group-spaced" data-group="divider">
                 <div className="nav-island-divider bg-gray-300/50 dark:bg-neutral-700/50"></div>
               </div>
 
-              {/* 二级导航项。教程锚在上级 content，只 fit 分类钮，不圈返回。 */}
+              {/* 教程锚在上级 content，只 fit 分类钮，不圈返回。 */}
               <div className="contents">
                 {secondaryNav.items.map((item) => (
                   <div
@@ -1231,7 +1116,6 @@ export function NavigationIsland() {
                     <button
                       onClick={() => {
                         secondaryNav.onChange(item.id)
-                        // 在子路由（如 /brew/item/xxx）点击导航项时，返回基础路由
                         if (
                           location.pathname !== secondaryNav.routePath &&
                           location.pathname.startsWith(
@@ -1252,7 +1136,6 @@ export function NavigationIsland() {
               </div>
             </div>
           ) : (
-            /* 一级导航模式 */
             <div
               ref={navContentRef}
               className="nav-island-content flex items-center gap-1"

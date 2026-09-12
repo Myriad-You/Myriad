@@ -22,12 +22,10 @@ test('the fork comes first, then two lanes that never merge', () => {
 })
 
 test('back from either lane returns to the fork, not to the other lane', () => {
-  // step - 1 会让生成链第一页后退到导入页。它们是分岔口的两条路，不是前后关系。
+  // 两条路从分岔口分出，不是前后关系；step-1 会把生成链第一页退到导入页。
   assert.equal(previousOnboardingStep(GUIDED_FIRST_STEP), CHOICE_STEP)
   assert.equal(previousOnboardingStep(IMPORT_STEP), CHOICE_STEP)
-  // 分岔口再往回就是离开引导页。
   assert.equal(previousOnboardingStep(CHOICE_STEP), null)
-  // 生成链内部才是线性的。
   for (let step = GUIDED_FIRST_STEP + 1; step <= GUIDED_LAST_STEP; step += 1) {
     assert.equal(
       previousOnboardingStep(step as Parameters<typeof previousOnboardingStep>[0]),
@@ -37,8 +35,7 @@ test('back from either lane returns to the fork, not to the other lane', () => {
 })
 
 test('resume lands on the guided chain, never on the fork or the import lane', () => {
-  // 恢复只会落到已经持久化的引导阶段。导入是入口，不是可恢复的进度：
-  // 人设一存下来，下次进来就该接着引导链走。
+  // 恢复只落到已持久化的引导阶段。导入是入口，不是可恢复的进度。
   for (const profile of [
     null,
     {},
@@ -53,8 +50,7 @@ test('resume lands on the guided chain, never on the fork or the import lane', (
 })
 
 test('title and lead arrays are indexed by step, not step - 1', () => {
-  // 加了第 0 步之后还按 step - 1 取，导入页的标题会取到 undefined，
-  // 而第 1 步会顶着导入的标题。
+  // 标题数组按 step 索引；step-1 会让导入页拿到 undefined。
   for (const name of ['PersonaOnboardingPage.tsx', 'OnboardingWizard.tsx']) {
     const source = read(`./${name}`)
     assert.match(source, /o\.choiceTitle,\n\s*o\.importTitle,\n\s*o\.step1Title,/)
@@ -69,12 +65,12 @@ test('title and lead arrays are indexed by step, not step - 1', () => {
 test('the fork owns the choice, and no later step re-offers it', () => {
   const wizard = read('./OnboardingWizard.tsx')
   assert.match(wizard, /step === CHOICE_STEP && \(/)
-  // 去向锁在这里，「怎么去」（enterLane 的清场）由下面那条单独锁。
+  // 去向锁在这里；enterLane 清场由下面那条单独锁。
   assert.match(wizard, /onImport=\{\(\) => \w+\(IMPORT_STEP\)\}/)
   assert.match(wizard, /enterLane\(GUIDED_FIRST_STEP\)/)
   assert.match(wizard, /step === IMPORT_STEP && \(/)
 
-  // 词条页曾经自己挂过一个「直接导入」，那个决定已经上移到分岔口。
+  // 「直接导入」只在分岔口，词条页不得再挂。
   const tags = read('./steps/TagBubblesStep.tsx')
   assert.doesNotMatch(tags, /onImport|importEnter/)
 })
@@ -92,8 +88,7 @@ test('import saves the persona without touching the uploaded portrait', () => {
     .split('\n')
     .filter((line) => !line.trim().startsWith('//'))
     .join('\n')
-  // upload_portrait 选文件时就落库了。这里再带 portraitAssetId 会把 Keep
-  // 变成 Set/Clear，等于用前端的记忆去覆盖后端已经存下的那一张。
+  // upload_portrait 选文件时就落库。再带 portraitAssetId 会把 Keep 变成 Set/Clear。
   assert.doesNotMatch(code, /portraitAssetId/)
   assert.match(importPane, /visualProfile: \{/)
   assert.match(importPane, /onFinished\(\)/)
@@ -120,22 +115,24 @@ test('every locale carries the import copy', () => {
     'importFinish',
   ]
   const files = [
-    '../../../i18n/zh-CN.ts',
-    '../../../i18n/en-US.ts',
-    '../../../i18n/ja-JP.ts',
-    '../../../i18n/index.ts',
+    '../../../i18n/zh-CN.json',
+    '../../../i18n/en-US.json',
+    '../../../i18n/ja-JP.json',
   ]
   for (const file of files) {
     const source = read(file)
     for (const key of keys) {
-      assert.match(source, new RegExp(`\\b${key}\\b`), `${file} 缺 ${key}`)
+      assert.match(
+        source,
+        new RegExp(`\\b${RegExp.escape(key)}\\b`),
+        `${file} 缺 ${key}`,
+      )
     }
   }
 })
 
 test('generation and import are two flows, not one flow with import bolted on', () => {
-  // 生成流程里再挂导入，就会出现「起草到一半贴一份进来」这种半成品状态：
-  // 人设是导入的，视觉设定却是照着起草结果推的。分开之后每一条都自洽。
+  // 生成步骤不得挂导入件，否则人设是导入的、视觉却按起草推。
   const generationSteps = [
     './steps/TagBubblesStep.tsx',
     './steps/BasicsStep.tsx',
@@ -152,16 +149,14 @@ test('generation and import are two flows, not one flow with import bolted on', 
     )
   }
 
-  // 反过来：导入流程必须两件都在，否则「直接导入人设和主视觉图」只做了一半。
+  // 导入流程必须两件都在。
   const importStep = read('./steps/ImportStep.tsx')
   assert.match(importStep, /PersonaImportPanel/)
   assert.match(importStep, /PortraitImportButton/)
 })
 
 test('no lane hijacks the back arrow away from the fork', () => {
-  // 页面壳先问 header.onBack，再退到 previousOnboardingStep。所以一个步骤
-  // 自己报 onBack 就等于盖掉那条判定。导入页曾经这么干过，里面调的是
-  // onGuided —— 分岔口还不存在时那是对的，加了分岔口之后返回就跑去词条页了。
+  // 壳先问 header.onBack，再 previousOnboardingStep。步骤自己报 onBack 会盖掉。
   const page = read('./PersonaOnboardingPage.tsx')
   assert.match(page, /if \(header\.onBack\?\.\(\)\) return/)
 
@@ -174,15 +169,13 @@ test('no lane hijacks the back arrow away from the fork', () => {
     )
   }
 
-  // 换道走分岔口，导入页不再另挂一条去生成链的后悔按钮。
+  // 换道走分岔口；导入页不另挂去生成链的按钮。
   const importStep = read('./steps/ImportStep.tsx')
   assert.doesNotMatch(importStep, /importBackToGuided|onGuided/)
 })
 
 test('finishing either lane hands off to the motion workbench', () => {
-  // 后端的立绘流水线在出图之后还有分层 / 编译 / 激活，那一段在动作工作台。
-  // 引导原本走完就退回上一层，站长不知道另一个子页存在的话，拿到的是一张
-  // 不会动的立绘。
+  // 出图之后还有分层/编译/激活，在动作工作台。收尾必须送去那里，不能退回上一层。
   const page = read('./PersonaOnboardingPage.tsx')
   assert.match(page, /onFinished: \(\) => void/)
   assert.match(page, /onFinished=\{onFinished\}/)
@@ -191,11 +184,19 @@ test('finishing either lane hands off to the motion workbench', () => {
   const shell = read('../../config/AiConfigSection.tsx')
   assert.match(shell, /onFinished=\{\(\) => openAiSubpage\('merope'\)\}/)
 
-  // 两条路的收尾按钮都得说清楚它把人送去哪，不然「完成」之后换了个页面
-  // 会像是走错了。
-  for (const locale of ['zh-CN', 'en-US', 'ja-JP']) {
-    const copy = read(`../../../i18n/${locale}.ts`)
-    const finishes = copy.match(/(portraitFinish|importFinish): '([^']+)'/g) ?? []
+  // 两条路的收尾按钮都得说清楚送去哪。
+  for (const locale of [
+    'zh-CN',
+    'zh-TW',
+    'en-US',
+    'ja-JP',
+    'ko-KR',
+    'fr-FR',
+    'de-DE',
+  ]) {
+    const copy = read(`../../../i18n/${locale}.json`)
+    const finishes =
+      copy.match(/"(portraitFinish|importFinish)": "([^"]+)"/g) ?? []
     assert.equal(finishes.length, 2, `${locale} 缺收尾按钮文案`)
     for (const line of finishes) {
       assert.doesNotMatch(
@@ -209,15 +210,23 @@ test('finishing either lane hands off to the motion workbench', () => {
 
 test('the fork shows what each lane actually produces', () => {
   const choice = read('./steps/ChoiceStep.tsx')
-  // 流程条用各步骤自己的短名，不另写一份——改了步骤名这里跟着走，不会脱节。
+  // 流程条用各步骤自己的短名，不另写一份。
   assert.match(choice, /o\.step1Short,[\s\S]*?o\.step5Short,/)
   assert.match(choice, /flow: \[o\.step3Short, o\.step5Short\]/)
 
-  // 两张卡都要有各自的规模提示，否则「五步」和「一页」的差别看不出来。
+  // 两张卡都要有各自的规模提示。
   for (const key of ['choiceGuidedMeta', 'choiceImportMeta']) {
-    assert.match(choice, new RegExp(`o\\.${key}`))
-    for (const locale of ['zh-CN', 'en-US', 'ja-JP']) {
-      assert.match(read(`../../../i18n/${locale}.ts`), new RegExp(`\\b${key}\\b`))
+    assert.match(choice, new RegExp(`o\\.${RegExp.escape(key)}`))
+    for (const locale of [
+      'zh-CN',
+      'zh-TW',
+      'en-US',
+      'ja-JP',
+      'ko-KR',
+      'fr-FR',
+      'de-DE',
+    ]) {
+      assert.match(read(`../../../i18n/${locale}.json`), new RegExp(`\\b${RegExp.escape(key)}\\b`))
     }
   }
 })
@@ -226,8 +235,7 @@ test('the fork cards stay clickable as a whole', () => {
   const choice = read('./steps/ChoiceStep.tsx')
   assert.match(choice, /<button[\s\S]*?className="merope-ob-choice__lane"/)
 
-  // 整张卡是一个 button，所以卡「内部」只能放短语内容——<div>/<ol>/<p> 会让
-  // HTML 失效。外层容器不在此列，所以只切 button 那一段来看。
+  // 整张卡是 button，内部只能放短语；div/ol/p 会让 HTML 失效。只切 button 那段。
   const inside = choice.slice(
     choice.indexOf('<button'),
     choice.indexOf('</button>'),
@@ -238,7 +246,7 @@ test('the fork cards stay clickable as a whole', () => {
 
 test('switching lanes at the fork wipes what belongs to the other lane', () => {
   const wizard = read('./OnboardingWizard.tsx')
-  // 分岔口的两个出口都必须过 enterLane，不能直接 onStepChange。
+  // 分岔口两个出口都必须过 enterLane，不能直接 onStepChange。
   assert.match(wizard, /enterLane\(GUIDED_FIRST_STEP\)/)
   assert.match(wizard, /onImport=\{\(\) => enterLane\(IMPORT_STEP\)\}/)
 
@@ -247,10 +255,9 @@ test('switching lanes at the fork wipes what belongs to the other lane', () => {
     wizard.indexOf('const claimPersona'),
   )
   assert.ok(enter.length > 0, 'enterLane not found')
-  // 起草出来的人设、起草闩、导入的立绘缩略图都归清场管。
+  // 起草人设、起草闩、导入立绘缩略图都归清场。名字和性别是身份，清场不该碰。
   assert.match(enter, /invalidatePersonaAndVisual\(\)/)
   assert.match(enter, /setImportedPortraitUrl\(null\)/)
-  // 名字和性别是身份，两条路都要，清场不该碰。
   assert.doesNotMatch(enter, /setDisplayName|setGender\b/)
 })
 
@@ -261,15 +268,14 @@ test('the import lane edits identity without invalidating the imported persona',
     wizard.indexOf('<TagBubblesStep'),
   )
   assert.ok(importPane.length > 0, 'import pane not found')
-  // updateDisplayName / updateGender 里带着 invalidatePersonaAndVisual：
-  // 在导入页的名字框敲一个字，刚导入的人设就没了。
+  // updateDisplayName / updateGender 会 invalidatePersonaAndVisual，导入页不能用。
   assert.match(importPane, /onDisplayName=\{setDisplayName\}/)
   assert.match(importPane, /onGender=\{setGender\}/)
   assert.doesNotMatch(importPane, /updateDisplayName|updateGender/)
   // 起草闩归生成链，导入不碰。
   assert.doesNotMatch(importPane, /claimedAuto\.current\.persona = true/)
 
-  // 生成链那边仍然要用会作废草稿的那一套：改了起草输入，草稿就该作废。
+  // 生成链仍用会作废草稿的那一套。
   const basics = wizard.slice(
     wizard.indexOf('<BasicsStep'),
     wizard.indexOf('<PersonaEditStep'),
@@ -284,7 +290,7 @@ test('the import lane does not inherit the guided run visual profile', () => {
     wizard.indexOf('<ImportStep'),
     wizard.indexOf('<TagBubblesStep'),
   )
-  // 有主图时按图读出视觉特征；没有主图才写 null。词条和补充要求仍要显式清空，
+  // 有主图按图读视觉特征；没有才写 null。词条和补充要求仍要显式清空，
   // 不然 merge_visual_profile 会把上一次生成链的值补回来。
   assert.match(importPane, /observeVisualFromPortrait/)
   assert.match(importPane, /parseUpperBodyVisualIdentity/)
@@ -298,7 +304,7 @@ test('the import lane does not inherit the guided run visual profile', () => {
 })
 
 test('missing reports lock generate, not import', () => {
-  // 入口卡曾经用报告数挡住整个设定页，导入也被一起拦了。
+  // 缺报告只锁生成，不锁导入。
   const card = read('../../config/AiConfigSection.tsx')
   assert.match(card, /openAiSubpage\('merope-setup'\)/)
   assert.doesNotMatch(card, /reportCount >= 3/)
@@ -319,9 +325,8 @@ test('entering a lane cancels a draft that is still in flight', () => {
     wizard.indexOf('const enterLane'),
     wizard.indexOf('const claimPersona'),
   )
-  // 第 4 步的自动起草走它自己的 regenBusy，不是向导的 run()，所以起草在飞
-  // 的时候后退不被拦：连按两次返回到分岔口再选导入，那份 AI 草稿会晚一步
-  // 落进导入页。draftPersona 的回包按这个序号判断自己过没过期。
+  // 自动起草走 regenBusy，后退拦不住。enterLane 必须 bump personaWriteSeq，
+  // 否则草稿会晚一步写进导入页。
   assert.match(enter, /personaWriteSeq\.current \+= 1/)
 
   const draft = wizard.slice(

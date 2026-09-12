@@ -1,12 +1,4 @@
-/**
- * CSP 外泄 / 远端资源门控回归测试。
- *
- * connect-src 仅 blob:/data:，封掉 https fetch/XHR/WS。img-src / media-src 的裸 https:/http:
- * 挂在 network:fetch 上：需要外链图或远程媒体的 Tapp 必须在 manifest 声明。
- *
- * Run from frontend/:
- *   pnpm test:unit -- src/tapp/runtime/sandbox/cspExfiltration.test.ts
- */
+/** connect-src 仅 blob:/data:。img/media 的裸 http(s) 挂 network:fetch。 */
 
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
@@ -17,7 +9,6 @@ import {
   generateSecurityWrapper,
 } from './security.ts'
 
-/** 取出某条 directive 的完整文本。 */
 function directive(csp: string, name: string): string {
   const found = csp
     .split(';')
@@ -61,7 +52,6 @@ describe('generateCSP media directives', () => {
   })
 
   it('keeps media:audio and network:fetch independent', () => {
-    // media:audio 只放行 blob/data，不该顺带把远端 https 打开
     const audioOnly = generateCSP(
       'n',
       cspOptionsFromPermissions(['media:audio']),

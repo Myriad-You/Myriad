@@ -1,9 +1,3 @@
-/**
- * 基础 API 处理器
- *
- * 包含 Lifecycle, UI, Storage 等基础处理器
- */
-
 import type { PermissionLevel, TappInstance } from '../../../types'
 
 import type { OpenUrlRequest } from '../../../utils/openUrlAllowlist'
@@ -19,6 +13,7 @@ import {
   resolveOpenUrl,
 } from '../../../utils/openUrlAllowlist'
 import {
+  emitTappPrivateChange,
   emitTappSettingsChange,
   emitTappSharedChange,
   emitTappStorageChange,
@@ -33,13 +28,10 @@ import {
   triggerBrowserDownload,
 } from '../fileDownload'
 import { sanitizeStorageValue, validateStorageKey } from '../security'
+import { registerFullKvHandlers } from './kvHandlers'
 
-/** Per-tapp openUrl rate limit (host-side; shared across sandboxes in this tab). */
 const openUrlRateLimiter = new OpenUrlRateLimiter(8, 10_000)
 
-/**
- * 注册生命周期处理器
- */
 export function registerLifecycleHandlers(
   bridge: TappBridge,
   tappInstance: TappInstance,
@@ -70,9 +62,6 @@ export function registerLifecycleHandlers(
   })
 }
 
-/**
- * 注册 UI 处理器
- */
 export function registerUIHandlers(
   bridge: TappBridge,
   tappInstance: TappInstance,
@@ -93,7 +82,6 @@ export function registerUIHandlers(
   })
 
   bridge.registerHandler('ui.getLocale', async () => {
-    // Prefer host locale; fall back to document/html lang, then en-US (not zh-CN).
     let locale = getLocale?.()
     if (!locale) {
       try {
@@ -147,8 +135,7 @@ export function registerUIHandlers(
     return { success: true, data: result }
   })
 
-  // Declared-link navigation: host opens a tab after allowlist resolution.
-  // Never trust a free-form URL from the sandbox — only { id, path?, query? }.
+  // 只开声明链接。不信任沙箱里的自由 URL，只用 { id, path?, query? }。
   bridge.registerHandler('ui.listOpenUrls', async () => {
     return {
       success: true,
@@ -176,8 +163,6 @@ export function registerUIHandlers(
     }
 
     try {
-      // Prefer anchor-click: with `noopener`, `window.open` often returns null
-      // even on success, so we cannot treat a null handle as "blocked".
       const anchor = document.createElement('a')
       anchor.href = resolved.url
       anchor.target = '_blank'
@@ -203,9 +188,8 @@ export function registerUIHandlers(
     }
   })
 
-  bridge.registerHandler('ui.requestFullscreen', async () => {
+  bridge.registerHandler('ui.fullscreen.request', async () => {
     try {
-      // Safari/WebKit 兼容性：使用 webkitRequestFullscreen
       const docEl = document.documentElement as HTMLElement & {
         webkitRequestFullscreen?: () => Promise<void>
       }
@@ -222,9 +206,8 @@ export function registerUIHandlers(
     }
   })
 
-  bridge.registerHandler('ui.exitFullscreen', async () => {
+  bridge.registerHandler('ui.fullscreen.exit', async () => {
     try {
-      // Safari/WebKit 兼容性
       const doc = document as Document & {
         webkitExitFullscreen?: () => Promise<void>
       }
@@ -239,9 +222,8 @@ export function registerUIHandlers(
     }
   })
 
-  bridge.registerHandler('ui.toggleFullscreen', async () => {
+  bridge.registerHandler('ui.fullscreen.toggle', async () => {
     try {
-      // Safari/WebKit 兼容性
       const doc = document as Document & {
         webkitFullscreenElement?: Element
         webkitExitFullscreen?: () => Promise<void>
@@ -273,8 +255,7 @@ export function registerUIHandlers(
     }
   })
 
-  bridge.registerHandler('ui.isFullscreen', async () => {
-    // Safari/WebKit 兼容性
+  bridge.registerHandler('ui.fullscreen.isFullscreen', async () => {
     const doc = document as Document & {
       webkitFullscreenElement?: Element
     }
@@ -285,180 +266,28 @@ export function registerUIHandlers(
   })
 }
 
-/**
- * 注册 Storage 处理器
- *
- * 安全增强：
- * - 对所有 key 进行路径穿越检查
- * - 对 value 进行清理
- * - 限制存储大小
- */
 export function registerStorageHandlers(
   bridge: TappBridge,
   tappId: string,
 ): void {
-  // 存储值大小限制（单个值最大 1MB）
   const MAX_VALUE_SIZE = 1024 * 1024
 
-  bridge.registerHandler('storage.get', async (message) => {
-    const [key] = (message.payload as { args: unknown[] }).args || []
-    if (!key) return { success: false, error: 'Key is required' }
-
-    // 安全校验：验证 key 格式
-    const keyValidation = validateStorageKey(key as string)
-    if (!keyValidation.valid) {
-      return { success: false, error: `Invalid key: ${keyValidation.reason}` }
-    }
-
-    try {
-      const value = await TappApiService.getStorage(
-        tappId,
-        key as string,
-        await bridge.getRuntimeGrant(),
-      )
-      return { success: true, data: value }
-    } catch (error) {
-      return {
-        success: false,
-        error: userFacingError(error),
-      }
-    }
-  })
-
-  bridge.registerHandler('storage.set', async (message) => {
-    const [key, value] = (message.payload as { args: unknown[] }).args || []
-    if (!key) return { success: false, error: 'Key is required' }
-
-    // 安全校验：验证 key 格式
-    const keyValidation = validateStorageKey(key as string)
-    if (!keyValidation.valid) {
-      return { success: false, error: `Invalid key: ${keyValidation.reason}` }
-    }
-
-    // 安全校验：清理并检查 value 大小
-    const sanitizedValue = sanitizeStorageValue(value)
-    const valueSize = JSON.stringify(sanitizedValue).length
-    if (valueSize > MAX_VALUE_SIZE) {
-      return {
-        success: false,
-        error: `Value too large: ${valueSize} bytes (max ${MAX_VALUE_SIZE})`,
-      }
-    }
-
-    try {
-      await TappApiService.setStorage(
-        tappId,
-        key as string,
-        sanitizedValue,
-        await bridge.getRuntimeGrant(),
-      )
-      emitTappStorageChange({
-        tappId,
-        key: key as string,
-        operation: 'set',
-        source: bridge,
-      })
-      return { success: true, data: null }
-    } catch (error) {
-      return {
-        success: false,
-        error: userFacingError(error),
-      }
-    }
-  })
-
-  bridge.registerHandler('storage.remove', async (message) => {
-    const [key] = (message.payload as { args: unknown[] }).args || []
-    if (!key) return { success: false, error: 'Key is required' }
-
-    // 安全校验：验证 key 格式
-    const keyValidation = validateStorageKey(key as string)
-    if (!keyValidation.valid) {
-      return { success: false, error: `Invalid key: ${keyValidation.reason}` }
-    }
-
-    try {
-      await TappApiService.removeStorage(
-        tappId,
-        key as string,
-        await bridge.getRuntimeGrant(),
-      )
-      emitTappStorageChange({
-        tappId,
-        key: key as string,
-        operation: 'remove',
-        source: bridge,
-      })
-      return { success: true, data: null }
-    } catch (error) {
-      return {
-        success: false,
-        error: userFacingError(error),
-      }
-    }
-  })
-
-  bridge.registerHandler('storage.keys', async () => {
-    try {
-      const keys = await TappApiService.listStorageKeys(
-        tappId,
-        await bridge.getRuntimeGrant(),
-      )
-      return { success: true, data: keys }
-    } catch (error) {
-      return {
-        success: false,
-        error: userFacingError(error),
-      }
-    }
-  })
-
-  bridge.registerHandler('storage.getAll', async () => {
-    try {
-      const entries = await TappApiService.listStorageEntries(
-        tappId,
-        await bridge.getRuntimeGrant(),
-      )
-      return { success: true, data: entries }
-    } catch (error) {
-      return {
-        success: false,
-        error: userFacingError(error),
-      }
-    }
-  })
-
-  bridge.registerHandler('storage.clear', async () => {
-    try {
-      await TappApiService.clearStorage(tappId, await bridge.getRuntimeGrant())
-      emitTappStorageChange({
-        tappId,
-        operation: 'clear',
-        source: bridge,
-      })
-      return { success: true, data: null }
-    } catch (error) {
-      return {
-        success: false,
-        error: userFacingError(error),
-      }
-    }
-  })
-
-  bridge.registerHandler('storage.usage', async () => {
-    try {
-      const usage = await TappApiService.getStorageUsage(
-        tappId,
-        await bridge.getRuntimeGrant(),
-      )
-      return { success: true, data: usage }
-    } catch (error) {
-      return {
-        success: false,
-        error: userFacingError(error),
-      }
-    }
-  })
+  registerFullKvHandlers(
+    bridge,
+    tappId,
+    'storage',
+    {
+      get: TappApiService.getStorage,
+      set: TappApiService.setStorage,
+      remove: TappApiService.removeStorage,
+      keys: TappApiService.listStorageKeys,
+      getAll: TappApiService.listStorageEntries,
+      clear: TappApiService.clearStorage,
+      usage: TappApiService.getStorageUsage,
+    },
+    emitTappStorageChange,
+    { maxValueSize: MAX_VALUE_SIZE, withGrant: true },
+  )
 
   bridge.registerHandler('settings.get', async (message) => {
     const [key] = (message.payload as { args: unknown[] }).args || []
@@ -518,142 +347,42 @@ export function registerStorageHandlers(
     }
   })
 
-  bridge.registerHandler('shared.get', async (message) => {
-    const [key] = (message.payload as { args: unknown[] }).args || []
-    if (!key) return { success: false, error: 'Key is required' }
-    const keyValidation = validateStorageKey(key as string)
-    if (!keyValidation.valid) {
-      return { success: false, error: `Invalid key: ${keyValidation.reason}` }
-    }
-    try {
-      const value = await TappApiService.getShared(tappId, key as string)
-      return { success: true, data: value }
-    } catch (error) {
-      return {
-        success: false,
-        error: userFacingError(error),
-      }
-    }
-  })
+  registerFullKvHandlers(
+    bridge,
+    tappId,
+    'shared',
+    {
+      get: TappApiService.getShared,
+      set: TappApiService.setShared,
+      remove: TappApiService.removeShared,
+      keys: TappApiService.listSharedKeys,
+      getAll: TappApiService.listSharedEntries,
+      clear: TappApiService.clearShared,
+      usage: TappApiService.getSharedUsage,
+    },
+    emitTappSharedChange,
+    { maxValueSize: MAX_VALUE_SIZE, withGrant: false },
+  )
 
-  bridge.registerHandler('shared.set', async (message) => {
-    const [key, value] = (message.payload as { args: unknown[] }).args || []
-    if (!key) return { success: false, error: 'Key is required' }
-    const keyValidation = validateStorageKey(key as string)
-    if (!keyValidation.valid) {
-      return { success: false, error: `Invalid key: ${keyValidation.reason}` }
-    }
-    const sanitizedValue = sanitizeStorageValue(value)
-    const valueSize = JSON.stringify(sanitizedValue).length
-    if (valueSize > MAX_VALUE_SIZE) {
-      return {
-        success: false,
-        error: `Value too large: ${valueSize} bytes (max ${MAX_VALUE_SIZE})`,
-      }
-    }
-    try {
-      await TappApiService.setShared(tappId, key as string, sanitizedValue)
-      emitTappSharedChange({
-        tappId,
-        key: key as string,
-        operation: 'set',
-        source: bridge,
-      })
-      return { success: true, data: null }
-    } catch (error) {
-      return {
-        success: false,
-        error: userFacingError(error),
-      }
-    }
-  })
-
-  bridge.registerHandler('shared.remove', async (message) => {
-    const [key] = (message.payload as { args: unknown[] }).args || []
-    if (!key) return { success: false, error: 'Key is required' }
-    const keyValidation = validateStorageKey(key as string)
-    if (!keyValidation.valid) {
-      return { success: false, error: `Invalid key: ${keyValidation.reason}` }
-    }
-    try {
-      await TappApiService.removeShared(tappId, key as string)
-      emitTappSharedChange({
-        tappId,
-        key: key as string,
-        operation: 'remove',
-        source: bridge,
-      })
-      return { success: true, data: null }
-    } catch (error) {
-      return {
-        success: false,
-        error: userFacingError(error),
-      }
-    }
-  })
-
-  bridge.registerHandler('shared.keys', async () => {
-    try {
-      const keys = await TappApiService.listSharedKeys(tappId)
-      return { success: true, data: keys }
-    } catch (error) {
-      return {
-        success: false,
-        error: userFacingError(error),
-      }
-    }
-  })
-
-  bridge.registerHandler('shared.getAll', async () => {
-    try {
-      const entries = await TappApiService.listSharedEntries(tappId)
-      return { success: true, data: entries }
-    } catch (error) {
-      return {
-        success: false,
-        error: userFacingError(error),
-      }
-    }
-  })
-
-  bridge.registerHandler('shared.clear', async () => {
-    try {
-      await TappApiService.clearShared(tappId)
-      emitTappSharedChange({
-        tappId,
-        operation: 'clear',
-        source: bridge,
-      })
-      return { success: true, data: null }
-    } catch (error) {
-      return {
-        success: false,
-        error: userFacingError(error),
-      }
-    }
-  })
-
-  bridge.registerHandler('shared.usage', async () => {
-    try {
-      const usage = await TappApiService.getSharedUsage(tappId)
-      return { success: true, data: usage }
-    } catch (error) {
-      return {
-        success: false,
-        error: userFacingError(error),
-      }
-    }
-  })
+  registerFullKvHandlers(
+    bridge,
+    tappId,
+    'private',
+    {
+      get: TappApiService.getPrivate,
+      set: TappApiService.setPrivate,
+      remove: TappApiService.removePrivate,
+      keys: TappApiService.listPrivateKeys,
+      getAll: TappApiService.listPrivateEntries,
+      clear: TappApiService.clearPrivate,
+      usage: TappApiService.getPrivateUsage,
+    },
+    emitTappPrivateChange,
+    { maxValueSize: MAX_VALUE_SIZE, withGrant: false },
+  )
 }
 
-/**
- * When the catalog left userRole as guest (stale list / race), re-probe
- * context/user so logged-in viewers are not permanently guest-locked in Aro.
- *
- * Order:
- *  1) Runtime-grant context user (normal path)
- *  2) Session cookie /api/auth/me (works after destroyAll / grant mint failure)
- */
+/** userRole 仍是 guest 时重探：先 Runtime Grant context，再会话 cookie /api/auth/me（destroyAll 后仍可用）。 */
 async function resolveLiveUserRole(
   bridge: TappBridge,
   tappInstance: TappInstance,
@@ -714,7 +443,6 @@ async function resolveLiveUserRole(
     }
   }
 
-  // Session fallback: host cookie, no grant required
   try {
     const {
       fetchSessionUserSnapshot,
@@ -730,15 +458,11 @@ async function resolveLiveUserRole(
       })
     }
   } catch {
-    // remain catalog role
   }
 
   return role
 }
 
-/**
- * 注册用户角色处理器
- */
 export function registerUserHandlers(
   bridge: TappBridge,
   tappInstance: TappInstance,
@@ -796,12 +520,7 @@ export function registerUserHandlers(
   })
 }
 
-/**
- * 注册包内静态资源处理器
- *
- * 仅允许读取 Manifest `assets` 声明的路径；内容由宿主转 base64 交给沙箱
- * 在 iframe 内创建 blob URL（无 allow-same-origin 时不能跨上下文共享 blob）。
- */
+/** 只读 Manifest assets 声明路径；宿主转 base64。无 allow-same-origin 时不能跨上下文共享 blob。 */
 export function registerAssetHandlers(
   bridge: TappBridge,
   tappInstance: TappInstance,
@@ -842,11 +561,6 @@ export function registerAssetHandlers(
   })
 }
 
-/**
- * 注册文件处理器
- *
- * 提供文件下载功能，绕过 iframe 沙箱限制
- */
 export function registerFileHandlers(bridge: TappBridge): void {
   bridge.registerHandler('file.download', async (message) => {
     const [rawOptions] = (message.payload as { args: unknown[] }).args || []

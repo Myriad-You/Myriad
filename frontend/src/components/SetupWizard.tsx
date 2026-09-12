@@ -18,10 +18,9 @@ import React, {
 } from 'react'
 import { API_URL } from '../config'
 import { useI18n } from '../contexts/I18nContext'
-import { assertConfigWriteSuccess } from '../lib/api'
+import { updateConfig } from '../lib/api'
 import { ApiError } from '../services/api'
 import { parseAuthMeResponse } from '../utils/authMe'
-import { getCSRFHeaderName, getCSRFToken } from '../utils/csrf'
 import { consumeSetupSecretFromLocation } from '../utils/setupSecretFromUrl'
 import { userFacingError } from '../utils/userFacingError'
 import { InputItem, SegmentedControl, SwitchItem } from './settings'
@@ -57,10 +56,6 @@ type SetupNotice = {
   message: string
 } | null
 
-/**
- * 欢迎 → 数据库（连接 / 建表）→ 管理员 → 站点信息；
- * 终态（读取中 / 连不上 / 已完成）不占步骤位，顶栏右侧那行就整条不画。
- */
 type Stage =
   | 'blank'
   | 'loading'
@@ -75,13 +70,10 @@ type Stage =
 
 const TOTAL_STEPS = 4
 
-/** 完成页问候用：跨站点信息步 / 刷新仍能叫出刚建的管理员名 */
+// 问候名写入 session，完成页/刷新仍能叫出刚建的管理员。
 const SETUP_ADMIN_NAME_KEY = 'myriad-setup-admin-name'
 
-/**
- * 步骤时序秩：用于推算进场方向。
- * loading / error 等终态用负值，走淡入；同一步内细分（database→migrate）仍算前进。
- */
+// loading/error 用负秩走淡入；同一步内细分仍算前进。
 const STAGE_RANK: Record<Stage, number> = {
   blank: -2,
   loading: -1,
@@ -128,7 +120,7 @@ async function getResponseError(response: Response, fallback: string) {
 }
 
 const SetupWizard: React.FC = () => {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const [status, setStatus] = useState<SetupStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -139,13 +131,11 @@ const SetupWizard: React.FC = () => {
   })
   const pollTimerRef = useRef<number | null>(null)
   const cardRef = useRef<HTMLDivElement | null>(null)
-  /** 当前步骤的滚动容器：普通步是 div，带表单的步骤是 form —— 故走回调 ref */
   const paneRef = useRef<HTMLElement | null>(null)
   const bindPane = useCallback((node: HTMLElement | null) => {
     paneRef.current = node
   }, [])
 
-  // 数据库配置
   const [dbConfig, setDbConfig] = useState({
     host: 'localhost',
     port: '5432',
@@ -157,41 +147,28 @@ const SetupWizard: React.FC = () => {
   const [migratingDb, setMigratingDb] = useState(false)
   const [dbConfigured, setDbConfigured] = useState(false)
 
-  // 管理员账户
   const [adminForm, setAdminForm] = useState({
     username: '',
     password: '',
     confirmPassword: '',
-    /** 与 .env 里 MYRIAD_SETUP_SECRET 对暗号 */
     setupSecret: '',
   })
   const [creatingAdmin, setCreatingAdmin] = useState(false)
   const [adminCreated, setAdminCreated] = useState(false)
 
-  // 站点信息（第 4 步，全部选填，都有能用的默认值）
   const [siteForm, setSiteForm] = useState({
     title: '',
     description: '',
     favicon: '',
-    /** private / search_only / ai_citation / ai_full */
     visibility: 'ai_full',
     analytics: true,
-    /** 内存节约（高级设置同款 bag，默认可关） */
     memorySaver: false,
   })
   const [savingSite, setSavingSite] = useState(false)
-  /**
-   * 刚建完管理员：这一刻服务端的 is_setup_required 已经翻成 false，
-   * 状态机会直接冲到「完成」。用这个本地标记压住，把第 4 步走完再放行。
-   */
+  // 建完管理员后用本地标记压住第 4 步，避免状态机直接冲到完成。
   const [atSiteStep, setAtSiteStep] = useState(false)
-  /** 建号后自动登录成功——最后一屏就不用再叫人去登录了 */
   const [signedIn, setSignedIn] = useState(false)
-  /**
-   * 完成页「你好，xxx」用的名字。
-   * 不能只靠 adminForm：走完站点信息步、刷新、或直接打开已完成态时，
-   * 表单是空的，问候会被整段跳过。创建管理员时写入 session，done 时再兜底拉 /me。
-   */
+  // 问候名不能只靠 adminForm：刷新或直开完成态时表单是空的。
   const [doneUserName, setDoneUserName] = useState(
     () => sessionStorage.getItem(SETUP_ADMIN_NAME_KEY) || '',
   )
@@ -209,14 +186,12 @@ const SetupWizard: React.FC = () => {
       setError('')
       setSetupClaimedClosed(false)
 
-      // 先检查健康状态,看是否处于配置模式
       const healthResponse = await fetch(`${API_URL}/health`)
       if (!healthResponse.ok) {
         throw new Error(
-          t.errors.backendUnreachable.replace(
-            '{status}',
-            String(healthResponse.status),
-          ),
+          format(t.errors.backendUnreachable, {
+            status: healthResponse.status,
+          }),
         )
       }
       const healthData = await healthResponse.json()
@@ -224,10 +199,9 @@ const SetupWizard: React.FC = () => {
       const configResponse = await fetch(`${API_URL}/api/setup/config`)
       if (!configResponse.ok) {
         throw new Error(
-          t.errors.setupConfigFailed.replace(
-            '{status}',
-            String(configResponse.status),
-          ),
+          format(t.errors.setupConfigFailed, {
+            status: configResponse.status,
+          }),
         )
       }
       const setupConfig = await configResponse.json()
@@ -239,7 +213,6 @@ const SetupWizard: React.FC = () => {
         setLoading(false)
       }
 
-      // 如果处于配置模式(数据库未连接),显示数据库配置界面
       if (
         healthData.mode === 'configuration' ||
         !healthData.database_connected
@@ -261,10 +234,9 @@ const SetupWizard: React.FC = () => {
         return
       }
 
-      // 如果数据库已连接,检查详细的设置状态
       const response = await fetch(`${API_URL}/api/setup/status`)
       if (!response.ok) {
-        // 503: extract::Db 没有句柄。未认领才继续向导；认领后窗口已关，不画写步骤。
+        // 503 且未认领才继续向导；认领后窗口已关，不画写步骤。
         if (response.status === 503) {
           if (!windowOpen) {
             refuseClosedWindow()
@@ -277,17 +249,13 @@ const SetupWizard: React.FC = () => {
             setup_secret_required: setupSecretRequired,
             missing_configs: ['Database tables not initialized'],
           })
-          // Connection works → show the DB-configured column; init-database still required
           setDbConfigured(Boolean(healthData.database_connected))
           setAdminCreated(false)
           setLoading(false)
           return
         }
         throw new Error(
-          t.errors.setupCheckFailed.replace(
-            '{status}',
-            String(response.status),
-          ),
+          format(t.errors.setupCheckFailed, { status: response.status }),
         )
       }
       const data = await response.json()
@@ -296,8 +264,7 @@ const SetupWizard: React.FC = () => {
         return
       }
       setStatus(data)
-      // Connection ≠ tables: only mark DB configured when health says connected.
-      // Admin form still gated on data.has_database (tables initialized).
+      // 连通≠已建表：health 说 connected 才标数据库已配置。管理员表单仍闸在 has_database。
       setDbConfigured(Boolean(healthData.database_connected))
       setAdminCreated(data.has_admin_user)
       if (!data.is_setup_required) {
@@ -308,7 +275,7 @@ const SetupWizard: React.FC = () => {
     } finally {
       setLoading(false)
     }
-  }, [t])
+  }, [t, format])
 
   useEffect(() => {
     void checkSetupStatus()
@@ -335,12 +302,7 @@ const SetupWizard: React.FC = () => {
     setHasEnteredSetup(true)
   }
 
-  /**
-   * 顶栏左上角的返回：退回欢迎页，不动任何已填内容。
-   * 数据库 / 建表 / 管理员 / 站点四步共用同一个目的地——这个向导不记「上一步」，
-   * 只有「回到最开始」，所以左上角的返回箭头旁始终挂着「欢迎」。
-   * 顺手清掉 atSiteStep：不然从第 4 步按返回，本地标记还压着，画面纹丝不动。
-   */
+  // 返回只回欢迎页，清 atSiteStep，否则第 4 步本地标记会把画面卡住。
   const leaveSetup = () => {
     sessionStorage.removeItem('myriad-setup-started')
     setNotice(null)
@@ -418,7 +380,6 @@ const SetupWizard: React.FC = () => {
           message: `${t.setup.dbConfigSaved} ${t.setup.dbReconnecting} ${t.setup.waitingForConnection}`,
         })
 
-        // 后端会由受管环境重启；轮询直到新进程以完整路由表启动
         pollDatabaseConnection()
       } else {
         setNotice({
@@ -436,11 +397,10 @@ const SetupWizard: React.FC = () => {
     }
   }
 
-  // 轮询检查数据库连接状态
   const pollDatabaseConnection = async () => {
     let attempts = 0
-    const maxAttempts = 30 // 最多尝试30次（60秒）
-    const pollInterval = 2000 // 每2秒检查一次
+    const maxAttempts = 30
+    const pollInterval = 2000
 
     const checkConnection = async () => {
       attempts++
@@ -450,7 +410,6 @@ const SetupWizard: React.FC = () => {
         if (healthResponse.ok) {
           const healthData = await healthResponse.json()
 
-          // 检查是否已经连接到数据库（不再是配置模式）
           if (
             healthData.database_connected &&
             healthData.mode !== 'configuration'
@@ -465,11 +424,9 @@ const SetupWizard: React.FC = () => {
             return
           }
         }
-      } catch (_err) {
-        // 轮询检查失败，继续尝试
+      } catch {
       }
 
-      // 如果还没成功且未超过最大尝试次数，继续轮询
       if (attempts < maxAttempts) {
         pollTimerRef.current = window.setTimeout(checkConnection, pollInterval)
       } else {
@@ -482,7 +439,6 @@ const SetupWizard: React.FC = () => {
       }
     }
 
-    // 等待3秒后开始第一次检查（给后端一些处理时间）
     pollTimerRef.current = window.setTimeout(checkConnection, 3000)
   }
 
@@ -510,7 +466,7 @@ const SetupWizard: React.FC = () => {
       const heading =
         result.kind === 'initialized' ||
         (typeof result.message === 'string' &&
-          result.message.includes('初始化完成'))
+          /initialized|初始化完成/i.test(result.message))
           ? t.setup.dbInitialized
           : t.setup.dbMigrationChecked
       let message = heading
@@ -524,7 +480,6 @@ const SetupWizard: React.FC = () => {
       }
       setNotice({ tone: 'success', message })
 
-      // 重新检查状态以更新 UI
       await checkSetupStatus()
     } catch (err: unknown) {
       setNotice({
@@ -536,10 +491,7 @@ const SetupWizard: React.FC = () => {
     }
   }
 
-  /**
-   * 用刚建好的管理员换一个会话（HttpOnly Cookie）。
-   * /api/auth/login 在 CSRF 豁免名单里，这里不需要带 token。
-   */
+  // /api/auth/login 在 CSRF 豁免名单里，这里不需要 token。
   const signInAsNewAdmin = async () => {
     try {
       const response = await fetch(`${API_URL}/api/auth/login`, {
@@ -557,7 +509,6 @@ const SetupWizard: React.FC = () => {
     }
   }
 
-  /** 把当前生效的站点信息（可能来自 .env）读进第 4 步的表单，别让人对着空框猜。 */
   const loadSiteInfoDraft = async () => {
     try {
       const response = await fetch(`${API_URL}/api/config`, {
@@ -578,11 +529,9 @@ const SetupWizard: React.FC = () => {
         memorySaver: pick('memory_saver_enabled') === 'true',
       })
     } catch {
-      // 读不到就留空：这一步全是选填，填不填都能走完
     }
   }
 
-  /** 收尾：放开第 4 步的占位，让状态机按服务端结果落到完成页。 */
   const finishSetup = async () => {
     setSavingSite(false)
     setAtSiteStep(false)
@@ -596,8 +545,7 @@ const SetupWizard: React.FC = () => {
     setSavingSite(true)
 
     try {
-      // 后端 POST /api/config 收的是整份 ConfigResponse，不是局部 map：
-      // 先取全量，只改这几格，其余原样带回去，免得把别的配置抹平。
+      // POST /api/config 收整份 ConfigResponse：先取全量只改这几格，免得抹平别的配置。
       const current = await fetch(`${API_URL}/api/config`, {
         credentials: 'include',
       })
@@ -607,15 +555,11 @@ const SetupWizard: React.FC = () => {
       const config = await current.json()
       const fields = config?.ui_config?.config_fields
       if (!Array.isArray(fields)) {
-        // 拿回来的不是预期的 ConfigResponse：整份回写会把别的配置抹平，宁可停手
+        // 读回不是 ConfigResponse 就停手，整份回写会抹平别的配置。
         throw new TypeError(t.setup.siteInfoFailed)
       }
 
-      /*
-       * base_url 不在向导里改：域名走 /admin/site/domain（设置页 SiteUrlField），
-       * 整份回写只会写一半。site_noindex 是 site_visibility_policy 的派生位。
-       * memory_saver_enabled 与高级设置同一 bag，保存后后端会 apply 资源档。
-       */
+      // base_url 不在向导里改（域名走 /admin/site/domain）；整份回写只会写一半。site_noindex 是派生位。
       const patch: Record<string, string> = {
         site_title: siteForm.title.trim(),
         site_description: siteForm.description.trim(),
@@ -626,31 +570,12 @@ const SetupWizard: React.FC = () => {
         memory_saver_enabled: siteForm.memorySaver ? 'true' : 'false',
       }
       config.ui_config.config_fields = fields.map((field: any) =>
-        field && typeof field.key === 'string' && field.key in patch
+        field && typeof field.key === 'string' && Object.hasOwn(patch, field.key)
           ? { ...field, value: patch[field.key] }
           : field,
       )
 
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      }
-      const csrfToken = await getCSRFToken()
-      if (csrfToken) {
-        headers[getCSRFHeaderName()] = csrfToken
-      }
-
-      const saved = await fetch(`${API_URL}/api/config`, {
-        method: 'POST',
-        headers,
-        credentials: 'include',
-        body: JSON.stringify(config),
-      })
-      // 配置写入可能 200 + success:false，状态码不足以判成败
-      assertConfigWriteSuccess(
-        saved.status,
-        await saved.json().catch(() => null),
-        t.setup.siteInfoFailed,
-      )
+      await updateConfig(config)
 
       await finishSetup()
     } catch (err: unknown) {
@@ -718,14 +643,9 @@ const SetupWizard: React.FC = () => {
 
       setNotice({ tone: 'success', message: t.setup.adminCreated })
       setAdminCreated(true)
-      // 先记住名字：后面站点步 / 完成页 / 刷新都靠它拼「你好，xxx」
       rememberAdminName(adminForm.username)
 
-      /*
-       * 用刚填的凭据换一个会话：第 4 步写站点信息走的是已鉴权的
-       * POST /api/config（admin_middleware），没有会话就写不进去。
-       * 登录不上也不阻断——直接把人送到完成页，让他手动登录。
-       */
+      // 第 4 步 POST /api/config 要会话；登录不上也不阻断，送到完成页让他手动登录。
       const loggedIn = await signInAsNewAdmin()
       setSignedIn(loggedIn)
       if (loggedIn) {
@@ -745,8 +665,7 @@ const SetupWizard: React.FC = () => {
     }
   }
 
-  // atSiteStep 排在最前：建完号那一刻服务端已经说「不用再配了」，
-  // 但第 4 步还没走完，得由本地标记压住，不然会直接冲到完成页。
+  // atSiteStep 优先：建完号服务端已说不用再配，本地标记压住第 4 步。
   const stage: Stage = atSiteStep
     ? 'site'
     : loading
@@ -767,13 +686,9 @@ const SetupWizard: React.FC = () => {
                     ? 'migrate'
                     : 'admin'
 
-  // 顶栏色层随正文滚动加浓；换步时重新绑定滚动容器
   useTopBarDense(cardRef, paneRef, stage)
 
-  /**
-   * 换步进场方向：在 paint 前算好，避免首帧无 data-dir 闪一下。
-   * 卡片本身（毛玻璃）不动——只给 pane 贴 data-dir，动效打在内容层。
-   */
+  // 换步进场方向在 paint 前算好，避免首帧无 data-dir。动效打在内容层，卡片本身不动。
   const prevStageRef = useRef<Stage>(stage)
   const [enterDir, setEnterDir] = useState<EnterDir>('fade')
   useLayoutEffect(() => {
@@ -784,11 +699,6 @@ const SetupWizard: React.FC = () => {
     }
   }, [stage])
 
-  /**
-   * 完成页补全问候名与登录态：
-   * - 刚建号：rememberAdminName 已写入
-   * - 刷新 / 直接打开已完成：表单空，从 session 或 /api/auth/me 取
-   */
   useEffect(() => {
     if (stage !== 'done') return
 
@@ -812,7 +722,6 @@ const SetupWizard: React.FC = () => {
           rememberAdminName(parsed.user.username)
         }
       } catch {
-        // 未登录或探活失败：完成页仍可只显示「准备好开始了吗」
       }
     })()
 
@@ -823,10 +732,8 @@ const SetupWizard: React.FC = () => {
 
   if (stage === 'blank') return null
 
-  // 问候名：表单优先，其次 session /me 回填的 doneUserName
   const greetingName = adminForm.username.trim() || doneUserName.trim()
 
-  // 建表仍属「数据库」这一步：连接与迁移是同一件事的两半
   const stepIndex =
     stage === 'welcome'
       ? 1
@@ -861,19 +768,19 @@ const SetupWizard: React.FC = () => {
           stepName={stepName || undefined}
           current={stepIndex || undefined}
           total={stepIndex ? TOTAL_STEPS : undefined}
-          progressText={t.setup.stepOf
-            .replace('{current}', String(stepIndex))
-            .replace('{total}', String(TOTAL_STEPS))}
+          progressText={format(t.setup.stepOf, {
+            current: stepIndex,
+            total: TOTAL_STEPS,
+          })}
           back={
             stage === 'database' ||
             stage === 'migrate' ||
             stage === 'admin' ||
             stage === 'site' ? (
               <BackButton
-                label={t.setup.backTo.replace(
-                  '{step}',
-                  t.setup.welcomeStepShort,
-                )}
+                label={format(t.setup.backTo, {
+                  step: t.setup.welcomeStepShort,
+                })}
                 destination={t.setup.welcomeStepShort}
                 disabled={
                   savingDb || migratingDb || creatingAdmin || savingSite
@@ -961,10 +868,6 @@ const SetupWizard: React.FC = () => {
               data-dir={enterDir}
               key="done"
             >
-              {/*
-                排布跟欢迎首屏看齐：左对齐主体垂直居中。
-                完成打勾换成首页欢迎小组件同款招手（welcome.webp）。
-              */}
               <div className="setup-ob-welcome">
                 <img
                   src="/icons/widgets/welcome.webp"
@@ -977,7 +880,7 @@ const SetupWizard: React.FC = () => {
                   title={
                     greetingName ? (
                       <>
-                        {t.setup.doneGreeting.replace('{name}', greetingName)}
+                        {format(t.setup.doneGreeting, { name: greetingName })}
                         <br />
                         {t.setup.doneReadyTitle}
                       </>
@@ -990,7 +893,6 @@ const SetupWizard: React.FC = () => {
                 />
               </div>
               <ActionBar>
-                {/* 走完第 4 步的人已经是登录态，不必再被赶去登录页 */}
                 <a
                   href={signedIn ? '/' : '/login'}
                   className="setup-ob-cta"
@@ -1013,14 +915,12 @@ const SetupWizard: React.FC = () => {
               data-dir={enterDir}
               key="welcome"
             >
-              {/* logo 与欢迎文案是同一个主体：整块垂直居中、横向靠左 */}
               <div className="setup-ob-welcome">
                 <img
                   src="/logo.webp"
                   alt="Myriad"
                   className="setup-ob-welcome__logo"
                 />
-                {/* 眉标已经挂到左上角的占位上，正文里不再重复一遍 */}
                 <StepHero
                   title={t.setup.welcomeTitle}
                   lead={t.setup.welcomeDesc}
@@ -1048,7 +948,6 @@ const SetupWizard: React.FC = () => {
                   </div>
                 </StepBody>
               </div>
-              {/* 提示跟主按钮配成一对：左下角一句轻提示，右下角浮起的「开始」 */}
               <ActionBar split>
                 <p className="setup-ob-bar__note">{t.setup.welcomeFootnote}</p>
                 <PrimaryButton
@@ -1309,7 +1208,6 @@ const SetupWizard: React.FC = () => {
                   type="submit"
                   label={creatingAdmin ? t.setup.creating : t.setup.createAdmin}
                   busy={creatingAdmin}
-                  /* 建好之后按住不放，等自动登录把整卡推到下一步 */
                   disabled={adminCreated}
                 />
               </ActionBar>
@@ -1333,12 +1231,6 @@ const SetupWizard: React.FC = () => {
                 titleId="setup-ob-title"
                 notes={noticeNode}
               />
-              {/*
-                这一步的字段直接用设置页同款的选项组件（InputItem / SegmentedControl /
-                SwitchItem），跟正式设置页交互一致——以后从这里改的东西，
-                去设置页也认得出来是同一个控件。视觉语言因此跟向导其余几步不完全统一，
-                这是有意的取舍。站点地址不在此步配置（设置页「基础」里的 SiteUrlField）。
-              */}
               <StepBody>
                 <InputItem
                   itemKey="site_title"
@@ -1417,7 +1309,6 @@ const SetupWizard: React.FC = () => {
                   }
                   layout="horizontal"
                 />
-                {/* 内存节约：与高级设置同款；放在站点步最后，便于小内存主机首次部署勾选 */}
                 <SwitchItem
                   itemKey="memory_saver_enabled"
                   label={t.config.memorySaver}

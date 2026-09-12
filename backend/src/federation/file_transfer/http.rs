@@ -2,6 +2,7 @@
 
 use axum::{http::StatusCode, Json};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use myriad_error::AppError;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde_json::json;
 use tokio::fs;
@@ -10,20 +11,18 @@ use crate::federation::types::*;
 
 use super::storage::{
     admit_chunk_bytes, admit_new_transfer, bad_request, final_file_path,
-    finalize_uploaded_transfer, is_strictly_under, is_valid_transfer_id, lock_transfer_session,
-    part_file_path, path_to_db, prepare_chunk_file, resolve_transfer_path, safe_filename,
-    storage_err, storage_root, stored_bytes, upload_session_action, verify_chunk_bytes,
-    ChunkFileState, UploadSessionAction, DEFAULT_CHUNK_SIZE, MAX_FILE_SIZE,
+    finalize_uploaded_transfer, is_strictly_under, is_valid_transfer_id, lock_transfer_admission,
+    lock_transfer_session, part_file_path, path_to_db, prepare_chunk_file, resolve_transfer_path,
+    safe_filename, storage_err, storage_root, stored_bytes, upload_session_action,
+    verify_chunk_bytes, ChunkFileState, UploadSessionAction, DEFAULT_CHUNK_SIZE, MAX_FILE_SIZE,
 };
 use super::types::{
     InitTransferRequest, TransferDetail, TransferFileContent, TransferSummary, UploadChunkRequest,
 };
 
-// 文件传输功能
-
 /// 在 Channel 上发起文件传输
 ///
-/// 创建传输记录 + 通过 ChannelMessage 通知远程方
+/// 创建传输记录 + 发送 `myriad:FileTransfer` Activity
 pub async fn initiate_transfer(
     user_id: i32,
     username: &str,
@@ -33,7 +32,7 @@ pub async fn initiate_transfer(
 ) -> Result<TransferDetail, (StatusCode, Json<serde_json::Value>)> {
     let base_url = get_base_url().await;
 
-    // 验证 Channel 存在且支持 file-transfer
+    // Channel must exist; status active|accepted (channel_type is unread).
     let ch_row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -48,7 +47,7 @@ pub async fn initiate_transfer(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Channel not found"})),
+                Json(AppError::public_json("Channel not found")),
             )
         })?;
 
@@ -68,13 +67,15 @@ pub async fn initiate_transfer(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
-                json!({"error": format!("File size must be between 1 byte and {} bytes", MAX_FILE_SIZE)}),
+                AppError::bad_request(format!(
+                    "File size must be between 1 byte and {} bytes",
+                    MAX_FILE_SIZE
+                ))
+                .with_code("file_too_large")
+                .to_json(),
             ),
         ));
     }
-
-    // MYR-008: concurrent transfer admission (count + reserved bytes)
-    admit_new_transfer(db, req.file_size, Some(user_id)).await?;
 
     let remote_actor_url: String = ch_row.try_get("", "actor_url").unwrap_or_default();
     let remote_inbox: Option<String> = ch_row
@@ -90,7 +91,10 @@ pub async fn initiate_transfer(
     let final_path = final_file_path(&transfer_id, &req.filename).map_err(bad_request)?;
     let local_path = path_to_db(&final_path);
 
-    db.execute_raw(Statement::from_sql_and_values(
+    let txn = db.begin().await.map_err(db_err)?;
+    lock_transfer_admission(&txn).await.map_err(db_err)?;
+    admit_new_transfer(&txn, req.file_size, Some(user_id)).await?;
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_file_transfers
            (transfer_id, channel_id, filename, file_size, mime_type,
@@ -109,6 +113,7 @@ pub async fn initiate_transfer(
     ))
     .await
     .map_err(db_err)?;
+    txn.commit().await.map_err(db_err)?;
 
     // 发送 FileTransfer Activity 通知远程方
     let local_actor = actor_url(&base_url, username);
@@ -203,13 +208,13 @@ pub async fn initiate_room_transfer(
         .ok_or_else(|| {
             (
                 StatusCode::FORBIDDEN,
-                Json(json!({"error": "Not a room member"})),
+                Json(AppError::public_json("Not a room member")),
             )
         })?;
     if role == "observer" {
         return Err((
             StatusCode::FORBIDDEN,
-            Json(json!({"error": "Observers cannot upload files"})),
+            Json(AppError::public_json("Observers cannot upload files")),
         ));
     }
 
@@ -217,13 +222,15 @@ pub async fn initiate_room_transfer(
         return Err((
             StatusCode::BAD_REQUEST,
             Json(
-                json!({"error": format!("File size must be between 1 byte and {} bytes", MAX_FILE_SIZE)}),
+                AppError::bad_request(format!(
+                    "File size must be between 1 byte and {} bytes",
+                    MAX_FILE_SIZE
+                ))
+                .with_code("file_too_large")
+                .to_json(),
             ),
         ));
     }
-
-    // MYR-008: concurrent transfer admission (count + reserved bytes)
-    admit_new_transfer(db, req.file_size, Some(user_id)).await?;
 
     let chunks_total =
         ((req.file_size + DEFAULT_CHUNK_SIZE - 1) / DEFAULT_CHUNK_SIZE).max(1) as i32;
@@ -231,7 +238,10 @@ pub async fn initiate_room_transfer(
     let final_path = final_file_path(&transfer_id, &req.filename).map_err(bad_request)?;
     let local_path = path_to_db(&final_path);
 
-    db.execute_raw(Statement::from_sql_and_values(
+    let txn = db.begin().await.map_err(db_err)?;
+    lock_transfer_admission(&txn).await.map_err(db_err)?;
+    admit_new_transfer(&txn, req.file_size, Some(user_id)).await?;
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_file_transfers
            (transfer_id, channel_id, room_id, owner_user_id, filename, file_size, mime_type,
@@ -251,6 +261,7 @@ pub async fn initiate_room_transfer(
     ))
     .await
     .map_err(db_err)?;
+    txn.commit().await.map_err(db_err)?;
 
     let activity_id = generate_activity_id(&base_url);
     let file_activity = json!({
@@ -309,7 +320,7 @@ pub async fn upload_chunk(
     db: &DatabaseConnection,
     req: &UploadChunkRequest,
 ) -> Result<serde_json::Value, (StatusCode, Json<serde_json::Value>)> {
-    // MYR-001: reject unsafe transferId before any path construction / DB-driven FS write
+    // reject unsafe transferId before any path construction / DB-driven FS write
     if !is_valid_transfer_id(transfer_id) {
         return Err(bad_request(
             "Invalid transferId: must be 1-128 chars of [A-Za-z0-9_-] only",
@@ -341,7 +352,7 @@ pub async fn upload_chunk(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Transfer not found"})),
+                Json(AppError::public_json("Transfer not found")),
             )
         })?;
 
@@ -364,7 +375,7 @@ pub async fn upload_chunk(
     if !allowed {
         return Err((
             StatusCode::FORBIDDEN,
-            Json(json!({"error": "Not your transfer"})),
+            Json(AppError::public_json("Not your transfer")),
         ));
     }
 
@@ -406,7 +417,7 @@ pub async fn upload_chunk(
         )));
     }
 
-    // MYR-008: reserve decoded chunk budget before base64 decode / disk write
+    // reserve decoded chunk budget before base64 decode / disk write
     let _chunk_budget = admit_chunk_bytes(req.chunk_size)?;
 
     let decoded = BASE64
@@ -549,7 +560,9 @@ pub async fn upload_chunk(
                 .ok_or_else(|| {
                     (
                         StatusCode::CONFLICT,
-                        Json(json!({"error": "Transfer progress changed while uploading chunk"})),
+                        Json(AppError::public_json(
+                            "Transfer progress changed while uploading chunk",
+                        )),
                     )
                 })?;
 
@@ -560,8 +573,8 @@ pub async fn upload_chunk(
                 .try_get("", "status")
                 .unwrap_or_else(|_| target_status.to_string());
 
-            // Filesystem state is durable before database progress is committed.
-            // A retry either verifies this chunk or resumes finalization.
+            // Filesystem is durable before this UPDATE. Same-index retry CONFLICTs
+            // (VerifyCompletedRetry / ResumeFinalization are the other session_action arms).
             txn.commit().await.map_err(db_err)?;
 
             let should_fanout = if target_status == "finalizing" {
@@ -688,7 +701,7 @@ pub async fn open_transfer_file(
     username: &str,
     db: &DatabaseConnection,
 ) -> Result<TransferFileContent, (StatusCode, Json<serde_json::Value>)> {
-    // MYR-001: never open a path derived from an unvalidated transferId / DB local_path
+    // never open a path derived from an unvalidated transferId / DB local_path
     if !is_valid_transfer_id(transfer_id) {
         return Err(bad_request(
             "Invalid transferId: must be 1-128 chars of [A-Za-z0-9_-] only",
@@ -712,7 +725,7 @@ pub async fn open_transfer_file(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Transfer not found"})),
+                Json(AppError::public_json("Transfer not found")),
             )
         })?;
 
@@ -729,7 +742,7 @@ pub async fn open_transfer_file(
         if member.is_none() {
             return Err((
                 StatusCode::FORBIDDEN,
-                Json(json!({"error": "Not a room member"})),
+                Json(AppError::public_json("Not a room member")),
             ));
         }
     } else {
@@ -740,7 +753,7 @@ pub async fn open_transfer_file(
         if channel_user != user_id {
             return Err((
                 StatusCode::FORBIDDEN,
-                Json(json!({"error": "Not your transfer"})),
+                Json(AppError::public_json("Not your transfer")),
             ));
         }
     }
@@ -785,7 +798,7 @@ pub async fn open_transfer_file(
     if !meta.is_file() {
         return Err((
             StatusCode::NOT_FOUND,
-            Json(json!({"error": "Transfer path is not a file"})),
+            Json(AppError::public_json("Transfer path is not a file")),
         ));
     }
 
@@ -793,7 +806,7 @@ pub async fn open_transfer_file(
     if declared_size > 0 && file_size == 0 {
         return Err((
             StatusCode::CONFLICT,
-            Json(json!({"error": "Transfer file is empty"})),
+            Json(AppError::public_json("Transfer file is empty")),
         ));
     }
 
@@ -831,7 +844,7 @@ pub async fn get_transfer(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Transfer not found"})),
+                Json(AppError::public_json("Transfer not found")),
             )
         })?;
 
@@ -849,7 +862,7 @@ pub async fn get_transfer(
         {
             return Err((
                 StatusCode::FORBIDDEN,
-                Json(json!({"error": "Not a room member"})),
+                Json(AppError::public_json("Not a room member")),
             ));
         }
     } else {
@@ -860,7 +873,7 @@ pub async fn get_transfer(
         if channel_user != user_id {
             return Err((
                 StatusCode::FORBIDDEN,
-                Json(json!({"error": "Not your transfer"})),
+                Json(AppError::public_json("Not your transfer")),
             ));
         }
     }
@@ -928,14 +941,14 @@ pub async fn list_transfers(
             if channel_user != user_id {
                 return Err((
                     StatusCode::FORBIDDEN,
-                    Json(json!({"error": "Not your channel"})),
+                    Json(AppError::public_json("Not your channel")),
                 ));
             }
         }
         None => {
             return Err((
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Channel not found"})),
+                Json(AppError::public_json("Channel not found")),
             ));
         }
     }
@@ -1000,7 +1013,7 @@ pub async fn list_room_transfers(
     {
         return Err((
             StatusCode::FORBIDDEN,
-            Json(json!({"error": "Not a room member"})),
+            Json(AppError::public_json("Not a room member")),
         ));
     }
     let _ = user_id; // membership is the gate
@@ -1079,7 +1092,7 @@ pub async fn cancel_transfer(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Transfer not found"})),
+                Json(AppError::public_json("Transfer not found")),
             )
         })?;
 
@@ -1100,7 +1113,7 @@ pub async fn cancel_transfer(
     if !allowed {
         return Err((
             StatusCode::FORBIDDEN,
-            Json(json!({"error": "Not your transfer"})),
+            Json(AppError::public_json("Not your transfer")),
         ));
     }
 
@@ -1108,7 +1121,7 @@ pub async fn cancel_transfer(
     if !["pending", "in-progress"].contains(&status.as_str()) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Transfer is not ready"})),
+            Json(AppError::public_json("Transfer is not ready")),
         ));
     }
 

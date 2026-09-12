@@ -61,10 +61,6 @@ fn pick_msg<'a>(locale: &str, zh: &'a str, ja: &'a str, en: &'a str) -> &'a str 
 }
 
 /// 将底层抓取错误转成面向用户的说明（含 X 402、通用鉴权/限流等）。
-pub fn humanize_platform_fetch_error(platform: &str, error: &str) -> String {
-    humanize_platform_fetch_error_for(platform, error, "zh-CN")
-}
-
 pub fn humanize_platform_fetch_error_for(platform: &str, error: &str, locale: &str) -> String {
     let lower = error.to_ascii_lowercase();
     let label = platform_label(platform, locale);
@@ -208,7 +204,7 @@ pub fn resolve_platform_fetch_message_for(
     }
 }
 
-/// 一键获取所有平台数据（带缓存）
+/// 空载荷时的用户提示（默认 zh-CN）。
 
 pub fn platform_data_warning(platform: &str, data: Option<&Value>) -> Option<String> {
     platform_data_warning_for(platform, data, "zh-CN")
@@ -404,9 +400,10 @@ mod tests {
 
     #[test]
     fn humanize_x_402_credits_depleted() {
-        let msg = humanize_platform_fetch_error(
+        let msg = humanize_platform_fetch_error_for(
             "x",
             "X API error (402 Payment Required): credits depleted",
+            "zh-CN",
         );
         assert!(msg.contains("额度"), "{msg}");
         assert!(msg.contains("402") || msg.contains("Credits"), "{msg}");
@@ -438,10 +435,14 @@ mod tests {
 
     #[test]
     fn humanize_rate_limit_and_auth_generic() {
-        let r = humanize_platform_fetch_error("steam", "HTTP 429 Too Many Requests");
+        let r = humanize_platform_fetch_error_for("steam", "HTTP 429 Too Many Requests", "zh-CN");
         assert!(r.contains("频繁") || r.contains("配额"), "{r}");
         assert!(!r.contains("HTTP 429"), "{r}");
-        let a = humanize_platform_fetch_error("github", "401 Unauthorized: Bad credentials");
+        let a = humanize_platform_fetch_error_for(
+            "github",
+            "401 Unauthorized: Bad credentials",
+            "zh-CN",
+        );
         assert!(a.contains("鉴权"), "{a}");
         let en = humanize_platform_fetch_error_for("steam", "HTTP 429 Too Many Requests", "en-US");
         assert!(en.contains("rate-limited") || en.contains("quota"), "{en}");

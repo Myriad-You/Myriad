@@ -1,14 +1,9 @@
-/* ==========================================
-   配置侧栏横版 banner（收藏夹上方）
-   按时段问候 · 主次分明 · 无叠层装饰
-   ========================================== */
 
 .config-tips-banner {
   margin: 0 0.125rem 0.2rem;
   -webkit-tap-highlight-color: transparent;
 }
 
-/* 卡片：单层浅渐变，按时段换主色 */
 .config-tips-banner-card {
   --gb-ink: var(--cfg-label, #1d1d1f);
   --gb-muted: var(--cfg-label-2, rgb(60 60 67 / 72%));
@@ -69,7 +64,6 @@ html.dark .config-tips-banner-card {
     var(--cfg-subtle-bg, rgb(255 255 255 / 6%));
 }
 
-/* 内容：左图标 + 右文案 */
 .config-tips-banner-body .gb {
   padding: 0.7rem 0.75rem;
 }
@@ -96,7 +90,6 @@ html.dark .config-tips-banner-card {
   gap: 0.2rem;
 }
 
-/* 主：问候 */
 .config-tips-banner-body .gb-hello {
   margin: 0;
   font-size: 0.9375rem;
@@ -109,7 +102,6 @@ html.dark .config-tips-banner-card {
   white-space: nowrap;
 }
 
-/* 次：上次登录 */
 .config-tips-banner-body .gb-meta {
   margin: 0;
   display: flex;

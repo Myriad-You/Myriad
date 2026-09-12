@@ -47,7 +47,6 @@ test('订阅者只在状态真的变了的时候被叫醒', () => {
   assert.equal(getAgentStatusSnapshot().status, 'thinking')
   assert.equal(notifications, 1)
 
-  // 会话事件不改状态 —— 不该引起一次重渲染
   pushAgentStatusEvent({ type: 'session_created', sessionId: 's1' })
   assert.equal(notifications, 1)
 
@@ -110,7 +109,6 @@ test('完成与出错各自停留一会儿，然后自己退回空闲', () => {
   mock.timers.tick(1)
   assert.equal(getAgentStatusSnapshot().status, 'idle')
 
-  // 失败停得更久：完成的停留时间到了它还得在
   pushAgentStatusEvent({ type: 'error', message: '网络断了', code: 'NETWORK' })
   assert.equal(getAgentStatusSnapshot().status, 'error')
   mock.timers.tick(DONE_LINGER_MS)
@@ -127,7 +125,6 @@ test('中断立刻回空闲，不等停留时间，也不会被之前的定时�
   resetAgentStatus()
   assert.equal(getAgentStatusSnapshot().status, 'idle')
 
-  // 新一轮开始后，上一轮的停留定时器不该把它打回空闲
   pushAgentStatusEvent(runStarted)
   mock.timers.tick(ERROR_LINGER_MS * 2)
   assert.equal(getAgentStatusSnapshot().status, 'thinking')

@@ -23,10 +23,7 @@ use crate::services::tapp_validation::{
 pub enum DeclaredResourceKind {
     /// UTF-8 text entrypoint / CSS / HTML / widget templates.
     Text,
-    /// Page module under `page/` (same UTF-8 rule; distinct missing-file copy).
-    ///
-    /// 目前无构造点：安装期把 page/ 也按 Text 处理。校验分支保留，
-    /// 需要区分 page 模块的缺失文案时直接可用。
+    /// Unused. Install classifies page layer files as Text.
     #[allow(dead_code)]
     PageModule,
     /// Agent interaction JSON schema (size-bounded + subset schema rules).
@@ -123,10 +120,7 @@ pub fn collect_declared_install_resources(manifest: &TappManifest) -> Vec<Declar
     resources
 }
 
-/// 解析包内 `require` 目标：只接受字符串字面量的相对路径。
-///
-/// 这不是模块系统的第二份实现——运行时的装载与隔离仍只在宿主一侧。这里只做安装期
-/// 的存在性检查，让「引用了不存在的文件」在装包时就失败，而不是等到打开应用。
+/// 把 from_module 目录与 request 拼成包内相对路径；`..` 逃出包根则失败。
 pub fn resolve_require_target(from_module: &str, request: &str) -> Option<String> {
     let base = match from_module.rsplit_once('/') {
         Some((dir, _)) if !request.starts_with('/') => dir,
@@ -145,7 +139,7 @@ pub fn resolve_require_target(from_module: &str, request: &str) -> Option<String
         match segment {
             "" | "." => {}
             ".." => {
-                // 逃出包根不折叠回根内，见运行时解析器里的同一条注释。
+                // 逃出包根时 pop 失败并返回 None，不折叠回根内。
                 resolved.pop()?;
             }
             other => resolved.push(other),
@@ -319,7 +313,7 @@ Use a relative path with the .js extension; dynamic require and node_modules are
     )
 }
 
-/// Error when a declared path fails basic existence / sandbox file checks.
+/// Declared relative path cannot be joined under the install directory.
 pub fn invalid_declared_path(relative: &str) -> String {
     format!("Declared Tapp resource has invalid path: {relative}")
 }
@@ -359,7 +353,7 @@ pub fn asset_not_found(relative: &str) -> String {
     format!("Declared Tapp asset not found: {relative}")
 }
 
-/// Validate UTF-8 text declared resources (main/css/html/page modules).
+/// Reject non-UTF-8 bytes for declared text resources and scanned modules.
 pub fn validate_text_resource_bytes(relative: &str, bytes: &[u8]) -> Result<(), String> {
     std::str::from_utf8(bytes)
         .map(|_| ())
@@ -802,8 +796,7 @@ mod tests {
 
     /// 与运行时解析器共用的用例表。
     ///
-    /// 安装期这份只做存在性检查，运行时那份负责解析加装载，但两者必须对同一组
-    /// 输入给出同一个答案。改这张表时同步改
+    /// 两边都只做路径折叠；同一输入必须得到同一相对路径。改这张表时同步改
     /// `frontend/src/tapp/runtime/moduleRuntime.test.ts` 里的同名用例。
     const SHARED_RESOLUTION_CASES: &[(&str, &str, Option<&str>)] = &[
         ("page/index.js", "./state.js", Some("page/state.js")),

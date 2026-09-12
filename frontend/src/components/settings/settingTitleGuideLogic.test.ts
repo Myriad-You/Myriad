@@ -1,6 +1,3 @@
-/**
- * SettingTitleGuideEntry 纯逻辑：夹紧、拖动、固定关闭策略、锚点定位
- */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
@@ -134,7 +131,6 @@ describe('computeGuidePosition', () => {
   })
 
   it('falls back to left when top is tight but left is open', () => {
-    // trigger near top of viewport; plenty of space on the left
     const trigger = {
       top: 20,
       left: 500,
@@ -193,7 +189,6 @@ describe('isGuideAnchorVisible', () => {
   })
 
   it('false when only a sliver remains visible', () => {
-    // 5px visible height < GUIDE_MIN_VISIBLE_EDGE (10)
     assert.equal(
       isGuideAnchorVisible(
         { top: -30, left: 100, right: 200, bottom: 5, width: 100, height: 35 },

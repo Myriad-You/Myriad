@@ -64,7 +64,6 @@ export interface Anime25DSecondaryDeformationFrame {
   specialHeadOffset: number
   highCollar: boolean
   breath: number
-  /** Normalized sleeve lag from the arm follower, signed against the turn. */
   armSwing: number
   chestCenterX: number
   chestRegionCenterY: number
@@ -99,9 +98,7 @@ export interface Anime25DSecondaryDeformationBinding {
   frontCollar: boolean
   rearCollar: boolean
   handwear: boolean
-  /** Which sleeve this is, so the two can answer a turn differently. */
   handwearSide: Anime25DPlaybackLayer['side']
-  /** Where the sleeve's one rigid answer to a torso turn is evaluated. */
   handwearAnchorX: number
   frontHair: boolean
   frontHairParallaxScale: Float32Array | null
@@ -152,7 +149,6 @@ export function createAnime25DSecondaryDeformationBinding(input: {
   }
 }
 
-/** Apply neck/collar continuity, body breathing, chest, and rigid sleeve motion. */
 export function deformAnime25DSecondaryPoint(
   point: Anime25DMutableSecondaryPoint,
   restX: number,
@@ -217,6 +213,8 @@ export function deformAnime25DSecondaryPoint(
         BODY_HEAD_FOLLOW + (1 - BODY_HEAD_FOLLOW) * frontCollarHeadBlend
     }
     if (headFollow > 0) {
+      const localX = point.x
+      const localY = point.y
       const rotationX = point.x - frame.neckPivotX
       const rotationY = point.y - frame.neckPivotY
       const rotatedX =
@@ -227,13 +225,9 @@ export function deformAnime25DSecondaryPoint(
         rotationY * frame.headRotationCosine
       point.x += (rotatedX - rotationX) * headFollow
       point.y += (rotatedY - rotationY) * headFollow
-      const authoredPinWeight = binding.hairlinePinWeights?.[vertex] ?? 0
-      const shellActivation = frame.shellActivation
-      const pinWeight = authoredPinWeight * shellActivation
       let depthOffset =
         (source.depth - 1) *
-        (binding.frontHairParallaxScale?.[vertex] ?? 1) *
-        (1 - pinWeight)
+        (binding.frontHairParallaxScale?.[vertex] ?? 1)
       if (verticalNeckFollow) depthOffset *= 1 - neckHeadBlend
       else if (binding.frontCollar) depthOffset *= 1 - frontCollarHeadBlend
       const legacyX =
@@ -252,6 +246,10 @@ export function deformAnime25DSecondaryPoint(
               (point.y - frame.faceCenterY) *
               0.05)
       if (binding.shellMode && frame.shellProfile.enabled) {
+        // Yaw/pitch deform the head in its own coordinates. Roll is its parent
+        // transform; sampling an unrotated shell with rolled points changes shape.
+        point.x = localX
+        point.y = localY
         deformAnime25DShellPoint(
           point,
           restY,
@@ -259,8 +257,11 @@ export function deformAnime25DSecondaryPoint(
           frame.shellProfile,
           frame.shellRotation,
           source.depth,
-          pinWeight,
         )
+        const shellX = point.x - frame.neckPivotX
+        const shellY = point.y - frame.neckPivotY
+        point.x += (shellX * frame.headRotationCosine - shellY * frame.headRotationSine - shellX) * headFollow
+        point.y += (shellX * frame.headRotationSine + shellY * frame.headRotationCosine - shellY) * headFollow
         point.x = legacyX + (point.x - legacyX) * frame.shellBlend
         point.y = legacyY + (point.y - legacyY) * frame.shellBlend
       } else {
@@ -324,11 +325,7 @@ export function deformAnime25DSecondaryPoint(
     point.y += frame.chestOffsetY * chestWeight
   }
   if (binding.torsoShellMode === 'sleeve') {
-    // A sleeve is one rigid drawing hanging beside the cylinder, not a patch
-    // of its surface. Projecting it per point runs the silhouette gradient
-    // across the layer, which stretches the near sleeve and squashes the far
-    // one; evaluating the turn once at the layer's own anchor moves it
-    // without changing its width.
+    // A sleeve is one rigid drawing hanging beside the cylinder, not a patch of its surface.
     point.x += anime25DTorsoShellOffsetX(
       anime25DSleeveAnchorX(binding.handwearAnchorX, frame.torsoProfile),
       frame.torsoProfile,
@@ -352,20 +349,12 @@ export function deformAnime25DSecondaryPoint(
   }
   if (binding.handwear) {
     const sleeveWeight = smoothstep(((point.y - source.y) / source.h) * 1.15)
-    // Which way is inward belongs to the layer, decided once when the importer
-    // split it, and is not re-derived per vertex: a sleeve drawing that
-    // crosses the centre line had its own two halves pulled apart. An
-    // undivided sleeve layer has no inward direction and only takes the lift.
     const sleeveSide =
       binding.handwearSide === 'L' ? 1 : binding.handwearSide === 'R' ? -1 : 0
     point.y -= frame.expression.armY * 30 * frame.faceScale * sleeveWeight
     point.y += frame.expression.armPos * 40 * frame.faceScale
     point.x +=
       frame.expression.armY * 6 * frame.faceScale * sleeveWeight * sleeveSide
-    // Both sleeves trail the trunk the same way; the one being carried
-    // forward sweeps the wider arc, so it falls further behind. Scaling the
-    // spread by the swing itself keeps that side preference tied to the
-    // direction of travel without a sign test to jump across.
     point.x +=
       frame.armSwing *
       (ARM_SWING_TRAVEL + ARM_SWING_SPREAD * sleeveSide * frame.armSwing) *
@@ -374,7 +363,6 @@ export function deformAnime25DSecondaryPoint(
   }
 }
 
-/** Apply authored bang controls, then the already-integrated strand springs. */
 export function deformAnime25DHairPoint(
   point: Anime25DMutableSecondaryPoint,
   vertex: number,

@@ -1,13 +1,6 @@
 import type { ReactNode } from 'react'
 import { SiBangumi, SiMyanimelist } from '@lib/icons'
-/**
- * Anime-list report cards: Bangumi + MyAnimeList.
- *
- * Both platforms render the exact same face (overview stats + type-composition
- * bar + two-column cover carousel); only brand color, stat labels and the
- * subject-type vocabulary differ. They share one component so the two cards
- * cannot drift apart — a change to the Bangumi face is a change to MAL's.
- */
+// Bangumi/MAL 共用组件，避免两张卡漂移。
 import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,
@@ -28,36 +21,25 @@ import {
 
 type I18nT = ReturnType<typeof useI18n>['t']
 
-/** Per-platform strings pulled from i18n at render time. */
 interface AnimeListLabels {
-  /** Taste badge fallback when the report carries no `taste_profile`. */
   fallbackTaste: string
   done: string
   doing: string
   wish: string
-  /** subject_type key → localized name for the composition bar legend. */
   typeLabels: Record<string, string>
 }
 
 interface AnimeListTheme {
-  /** Overview background wash. */
   surfaceClass: string
-  /** Taste badge chip. */
   badgeClass: string
-  /** Detail-face placeholder when an item has no cover. */
   emptyCoverClass: string
-  /** Icon for that placeholder. */
   fallbackIcon: ReactNode
-  /** subject_type key → segment color. */
   typeColors: Record<string, string>
-  /** Segment color for keys outside `typeColors`. */
   fallbackTypeColor: string
   labels: (t: I18nT) => AnimeListLabels
 }
 
-/** Exported so tests can assert both platforms cover their own subject types. */
 export const ANIME_THEMES: Record<'bangumi' | 'mal', AnimeListTheme> = {
-  // Bangumi 覆盖动画/书/游戏/音乐/剧集五类
   bangumi: {
     surfaceClass:
       'bg-linear-to-br from-rose-50/50 to-transparent dark:from-rose-900/20 dark:to-transparent',
@@ -87,7 +69,6 @@ export const ANIME_THEMES: Record<'bangumi' | 'mal', AnimeListTheme> = {
       },
     }),
   },
-  // MAL 只有动画 / 漫画两类
   mal: {
     surfaceClass:
       'bg-linear-to-br from-blue-50/50 to-transparent dark:from-blue-900/20 dark:to-transparent',
@@ -140,14 +121,13 @@ const AnimeListFace = memo(
       () =>
         Object.entries(data?.subject_type_distribution || {})
           .filter(([, n]) => (n as number) > 0)
-          .sort((a, b) => (b[1] as number) - (a[1] as number)),
+          .toSorted((a, b) => (b[1] as number) - (a[1] as number)),
       [data?.subject_type_distribution],
     )
     const totalSubjects = useMemo(
       () => typeDist.reduce((sum, [, n]) => sum + (n as number), 0),
       [typeDist],
     )
-    // 构成条：按占比换算时长，各色段首尾相接连续填充
     const barSegments = useMemo(() => {
       if (totalSubjects === 0) return []
       const fillDuration = 0.9
@@ -166,7 +146,6 @@ const AnimeListFace = memo(
         return segment
       })
     }, [typeDist, totalSubjects])
-    // 概览态海报墙素材：有封面的收藏，最多 5 张
     const wallCovers = useMemo(
       () => libraryItems.filter((item: any) => item.cover).slice(0, 5),
       [libraryItems],
@@ -174,7 +153,6 @@ const AnimeListFace = memo(
     const [currentIndex, setCurrentIndex] = useState(0)
     const prevShowOverviewRef = useRef(showOverview)
 
-    // 与网易云卡片一致：从概览切到详情时推进两位
     useEffect(() => {
       if (
         prevShowOverviewRef.current &&
@@ -194,7 +172,6 @@ const AnimeListFace = memo(
       return () => window.clearInterval(timer)
     }, [showOverview, libraryItems.length])
 
-    // 一次展示两列封面（学网易云卡片）
     const currentItems = useMemo(() => {
       if (libraryItems.length === 0) return []
       if (libraryItems.length === 1) return [libraryItems[0]]
@@ -227,7 +204,6 @@ const AnimeListFace = memo(
           >
             <div className="relative h-full w-full overflow-hidden">
               <div className={`absolute inset-0 ${theme.surfaceClass}`} />
-              {/* 右侧背景：斜切海报墙，向左渐隐 */}
               {wallCovers.length > 0 && (
                 <div
                   className="absolute inset-y-0 right-0 w-[58%] opacity-70 dark:opacity-50"
@@ -271,9 +247,7 @@ const AnimeListFace = memo(
                   </div>
                 </div>
               )}
-              {/* 前景 */}
               <div className="relative z-10 h-full flex flex-col p-2.5">
-                {/* 顶部：品味徽章 */}
                 <motion.div
                   className={`w-fit max-w-[70%] px-2 py-0.5 rounded-md text-[9px] font-bold flex items-center gap-1 shadow-sm ${theme.badgeClass}`}
                   initial={{ scale: 0.8, opacity: 0 }}
@@ -285,7 +259,6 @@ const AnimeListFace = memo(
                     {data?.taste_profile || labels.fallbackTaste}
                   </span>
                 </motion.div>
-                {/* 中部：数字区在徽章与左下角 Logo 安全区之间垂直居中（pb 略小于 Logo 区高度，整体略下沉） */}
                 <div className="flex-1 min-h-0 flex items-center pb-9.5">
                   <div className="flex items-end gap-3 pl-1">
                     <motion.div
@@ -336,7 +309,6 @@ const AnimeListFace = memo(
                     </div>
                   </div>
                 </div>
-                {/* 底部右侧：类型构成堆叠条 + 图例，绝对定位钉在右下 */}
                 {barSegments.length > 0 && (
                   <div className="absolute bottom-3 right-3 w-[45%] flex flex-col items-end gap-1">
                     <div className="flex flex-wrap justify-end gap-x-2.5 gap-y-0.5">
@@ -397,7 +369,6 @@ const AnimeListFace = memo(
             transition={CONTENT_SLIDE_TRANSITION}
             className="h-full w-full p-1.5"
           >
-            {/* 两列封面（学网易云卡片） */}
             <div className="h-full w-full flex gap-1.5">
               {currentItems.map((item: any, idx: number) => (
                 <div key={idx} className="flex-1 h-full">
@@ -419,7 +390,6 @@ const AnimeListFace = memo(
                         </div>
                       )}
                     </div>
-                    {/* 资料库同款评分徽章（卡片内统一尺寸） */}
                     <RatingBadge
                       rate={item.rate}
                       className="absolute top-1.5 left-1.5 z-20"

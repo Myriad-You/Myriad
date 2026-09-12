@@ -10,8 +10,9 @@ import { SPEECH_GESTURES } from '../speech/phraseGestures'
 import { SpeechFormTransition } from './speechFormTransition'
 
 export interface Anime25DMotionUnit {
+  touch?: { x: number; y: number; strokeX: number; strokeY: number; caress?: number }
   behaviorId: string
-  family: 'co-speech' | 'music' | 'performance'
+  family: 'co-speech' | 'music' | 'performance' | 'touch'
   form: string
   kind: BehaviorKind
   timing: {
@@ -49,7 +50,6 @@ interface MutableBehaviorMotionSample {
   musicMode: MusicMode
 }
 
-/** Relative shares; the common co-speech gate applies the envelope once. */
 export interface CoSpeechGestureMix {
   hesitate: number
   tease: number
@@ -61,7 +61,6 @@ export interface CoSpeechGestureMix {
 }
 
 interface UnitRelease {
-  /** Envelope level the unit was last drawn at. */
   from: number
   startedAt: number
   duration: number
@@ -77,9 +76,7 @@ interface LocalMotionUnit extends Omit<Anime25DMotionUnit, 'timing'> {
     relax: number | null
     end: number | null
   }
-  /** Last sampled envelope, so a retreat can start from what was drawn. */
   envelope: number
-  /** Set once the unit leaves the plan; a second restatement never restarts it. */
   release: UnitRelease | null
   speechForm: SpeechFormTransition | null
 }
@@ -95,22 +92,9 @@ const DEFAULT_QUALITY: BehaviorQuality = {
   density: 0.8,
 }
 
-/**
- * Samples renderer-neutral motion units on the player's monotonic clock.
- *
- * Only the families that modulate an existing pose generator land here.
- * Performance units carry their own pose and go to the expression controller,
- * so an unmatched family is skipped rather than folded into music.
- */
+/** Only the families that modulate an existing pose generator land here. */
 export class Anime25DBehaviorMotionController {
   private units: LocalMotionUnit[] = []
-  /**
-   * The player writes on its own clock and reads one `predictedControlTime`
-   * ahead of it. A retreat that starts on the write clock is therefore already
-   * a whole lead into itself on its first frame — 42% of a short one — which
-   * is a snap toward rest, not a retreat. The drawn value belongs to the read
-   * clock, so the retreat away from it starts there too.
-   */
   private lastSampledAt = Number.NaN
   private readonly output: MutableBehaviorMotionSample = {
     coSpeechGesture: {
@@ -168,8 +152,6 @@ export class Anime25DBehaviorMotionController {
       }))
     for (const unit of next) {
       const old = previous.get(unit.behaviorId)
-      // A second event can cancel before the next sample. Retain the level
-      // actually drawn, even though this publish has not been sampled yet.
       if (old?.family === unit.family) unit.envelope = old.envelope
       if (unit.family !== 'co-speech') continue
       if (old?.speechForm && !old.release && old.envelope > 0) {
@@ -187,8 +169,6 @@ export class Anime25DBehaviorMotionController {
     for (const unit of this.units) {
       if (restated.has(unit.behaviorId)) continue
       if (unit.release) {
-        // Already retreating. Restating the plan is one release, not
-        // permission to start the retreat over from the top.
         next.push(unit)
       } else if (unit.envelope > 0) {
         next.push(releasingUnit(unit, this.releaseOrigin(localOrigin)))
@@ -197,14 +177,6 @@ export class Anime25DBehaviorMotionController {
     this.units = next
   }
 
-  /**
-   * Retires every live unit through the same retreat a plan revision uses.
-   *
-   * This is the stop command, not teardown: the expression controller it is
-   * called beside releases its cues rather than erasing them, and a body whose
-   * head snapped straight while its face eased out was the visible half of
-   * that disagreement.
-   */
   clear(playerTimeSeconds: number): void {
     const now = finite(playerTimeSeconds)
     const releasing: LocalMotionUnit[] = []
@@ -270,8 +242,7 @@ export class Anime25DBehaviorMotionController {
           for (const form of SPEECH_GESTURES)
             gesture[form] += extent * formShares[form]
           if (formShares.laugh > 0) {
-            // A short chuckle follows this behavior's resolved clock. Never
-            // restart an oscillator on a new frame or a plan restatement.
+            // Never restart an oscillator on a new frame or a plan restatement.
             gesture.laughPulse +=
               extent *
               formShares.laugh *
@@ -330,15 +301,6 @@ export function completeBehaviorQuality(
   }
 }
 
-/**
- * A unit that left the plan retreats from the level it was last drawn at.
- *
- * Without this the extent stepped straight to zero on the frame the plan
- * changed — the body dropped a half-finished gesture while the face, which
- * has always released its cues from their current value, eased out of the
- * same beat. The retreat is shaped like the scheduler's own: further out and
- * slower delivery take longer to put away, inside the same bounds.
- */
 function releasingUnit(
   unit: LocalMotionUnit,
   startedAt: number,

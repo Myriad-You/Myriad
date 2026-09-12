@@ -2,60 +2,61 @@
 
 /// Ground every claim in Data.
 pub const EVIDENCE: &str = "\
-只依据 Data。数字用原值，不换单位。*_summary 与各对象下的 summary 都是机器摘要，禁止复述或扩写。\
-没有的就跳过该轴，禁止用空话补全。禁止编造账号、作品、视频、播放量、服务器、合作品牌。";
+Use Data only. Keep numbers as-is; do not convert units. *_summary fields are machine digests: do not restate them. \
+Skip an empty axis. Do not invent accounts, works, videos, counts, servers, or brand deals.";
 
 /// What the user actually reads. Cards already show the raw numbers.
 pub const PROSE: &str = "\
-summary：一句画像，≤50 字。禁用户名、禁报账数字。\
-insights：3 条，各 ≤60 字，各占 Cover 里不同的一轴。薄数据宁可 2 条，禁止凑 5 条。\
-点名轴 = 判断 + Look 里一个真名。结构轴（数量/占比/日历）用字段说话，不编名字。\
-首页 hook 优先 vibe / taste_profile / mood_keywords；没有才用第一条 insight。禁复述 summary。\
-禁「观看偏好：」「收藏概况：」冒号标签。禁三条挤在同一现象。\
-会拿去蒸馏性格：写节奏/认真程度/社交距离，禁只列品类。";
+summary: one portrait, ≤50 chars. No username, no number dump. \
+insights: 3×≤60 chars on different Cover axes; thin data may use 2, never pad to 5. \
+Name axis = judgment + one Look name. Structure axes use fields only. \
+Home hook: vibe / taste_profile / mood_keywords, else first insight. Do not restate summary. \
+No 'xx overview:' labels. Do not stack three insights on one fact. \
+Write pace / seriousness / social distance; do not only list genres.";
 
 /// Shared refuse list. No "good" counterparts — those get copied as templates.
 pub const AVOID: &str = "\
-禁：内容丰富、涉猎广泛、很有个性、技术实力强、社交达人、很活跃、品味独特、数据丰富、\
+Refuse: content-rich, wide-ranging, very unique, social butterfly, TBD, content creator, interesting soul, seasoned fan. \
+Also refuse: 内容丰富、涉猎广泛、很有个性、技术实力强、社交达人、很活跃、品味独特、数据丰富、\
 二次元浓度高、深夜听歌、待观察、内容创作者、很有想法、细腻的收藏家、开源贡献突出、\
 很活跃的社区、硬核大佬、游戏库丰富、资深爱好者、有趣的灵魂。";
 
 /// Home-card vibe. YouTube / X / Discord.
 pub const VIBE: &str = "\
-vibe：≤20 汉字，一行。禁换行、引号、客套。\
-禁：待观察、内容创作者、很有想法、有趣的灵魂、持续输出。";
+vibe: ≤20 chars, one line. No newlines, quotes, or courtesy. \
+Refuse: TBD, content creator, interesting soul, always shipping, 待观察、内容创作者、很有想法、有趣的灵魂、持续输出。";
 
 /// X graphs: keep only identifiable taste; drop leftovers instead of a catch-all.
 pub const MASS_ACCOUNTS: &str = "\
-圈层只收 name/description 能看出兴趣的账号。看不清就丢弃，禁止收容圈层。\
-不同圈层覆盖不同切面，禁止多数挤进同一圈。\
-禁圈层名写成游戏、科技、娱乐这种大类。";
+Keep only accounts whose name/description shows a real interest. If unreadable, drop them; do not dump leftovers into a catch-all circle. \
+Circles must cover different facets; do not pile most accounts into one. \
+Do not name circles as generic bins like games, tech, entertainment, news, or 游戏、科技、娱乐、新闻.";
 
 /// Bangumi and MAL. taste_profile is the badge hook.
 pub const CATALOG_VISUALS: &str = "\
-taste_profile（≤20 字。禁：细腻的 ACG 收藏家、资深番剧爱好者、二次元浓度高）。";
+taste_profile (≤20 chars. Refuse: delicate ACG collector, seasoned anime fan, high anime density, 细腻的 ACG 收藏家、资深番剧爱好者、二次元浓度高).";
 
 /// Xbox / PSN: the source has no playtime.
 pub const CONSOLE_NO_PLAYTIME: &str = "\
-没有游玩时长。禁推断肝了多少小时。只从成就/奖杯进度和分数说话。";
+There is no playtime. Do not infer hours played. Speak only from achievement/trophy progress and scores.";
 
 /// Last instruction before Data.
 pub const CHECK: &str = "\
-写完核这七条，破一条就改：\
-1. 三条（或更少）各占 Cover 不同轴\
-2. 点名轴含 Look 真名；结构轴不编名字\
-3. summary 无用户名、无纯数字报账\
-4. 没有 AVOID 里的词，没有「xx概况：」\
-5. 没写 Look 里不存在的作品或账号\
-6. 若有 vibe / taste_profile / mood_keywords，短钩不在禁列\
-7. 用户可见文案语种与 # Language 一致";
+Before you finish, check these seven; fix any miss: \
+1. Three (or fewer) insights sit on different Cover axes \
+2. Name axes include a real Look name; structure axes invent no names \
+3. summary has no username and no raw number dump \
+4. No AVOID phrases, no 'xx overview:' labels \
+5. No works or accounts that are not in Look \
+6. If vibe / taste_profile / mood_keywords exist, the short hook is not on the refuse list \
+7. User-visible copy language matches # Language";
 
 /// JSON envelope the parser in generate.rs expects.
 pub const JSON_ENVELOPE: &str = "\
-只返回一个合法 JSON 对象，不要 markdown，不要代码块：\n\
+Return one valid JSON object only. No markdown, no code fence:\n\
 {\n\
-  \"summary\": \"不超过50字的画像\",\n\
-  \"insights\": [\"覆盖不同轴的洞察\"],\n\
+  \"summary\": \"portrait, ≤50 chars\",\n\
+  \"insights\": [\"insights on different axes\"],\n\
   \"card_visuals\": {}\n\
 }\n\
-card_visuals 按 # card_visuals：要求空对象就交 {}，否则按所列字段写。";
+Follow # card_visuals: if it asks for an empty object, return {}. Otherwise write the listed fields.";

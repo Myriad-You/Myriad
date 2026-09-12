@@ -1,4 +1,4 @@
-/** Governed AI task APIs. Runtime Grants stay in the host transport layer. */
+/** Runtime Grant 留在宿主传输层。 */
 
 import type {
   AITaskEvent,

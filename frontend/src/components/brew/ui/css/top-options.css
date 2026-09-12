@@ -1,0 +1,269 @@
+/* Align the option controls with the collapsed global control island. */
+.brew-shell .brew-feeds__bar,
+.brew-shell .brew-management--page {
+  position: absolute;
+  top: calc(1rem - var(--page-pad-top) - var(--page-stage-pad));
+  left: 0;
+  right: max(0px, calc(12rem - (100vw - 100%) / 2));
+  z-index: 30;
+  margin: 0;
+  padding: 0;
+  gap: 0.5rem;
+}
+
+.brew-shell .brew-management--page {
+  top: calc(1rem - var(--page-pad-top));
+  left: var(--page-stage-pad);
+}
+
+.brew-shell .brew-bar {
+  --brew-tag-h: 3rem;
+}
+
+.brew-shell .brew-feeds__bar {
+  --brew-tag-h: 3rem;
+}
+
+.brew-shell .brew-bar__row,
+.brew-shell .brew-bar__set {
+  gap: 0.5rem;
+}
+
+.brew-shell .brew-skin .brew-bar__tag,
+.brew-shell .brew-skin .brew-feeds__spread {
+  height: var(--brew-tag-h);
+  padding-inline: 1.125rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 2rem;
+  background: var(--surface-bg);
+  box-shadow: var(--surface-shadow);
+  backdrop-filter: var(--surface-filter);
+}
+
+.brew-shell .brew-skin .brew-bar__tag.is-on {
+  color: var(--brew-accent-ink);
+  border-color: var(--brew-accent-line);
+}
+
+/* One persistent surface: the icon and controls exchange inside a 3rem pill. */
+.brew-management {
+  position: relative;
+  width: 3rem;
+  height: 3rem;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--surface-border);
+  border-radius: 2rem;
+  background: var(--surface-bg);
+  box-shadow: var(--surface-shadow);
+  backdrop-filter: var(--surface-filter);
+  transition: width var(--brew-management-ms) cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.brew-management[data-open='true'] {
+  width: min(var(--brew-management-width, 3rem), calc(100vw - 6.5rem));
+  overflow: visible;
+}
+
+.brew-management__trigger {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--brew-fg);
+  cursor: pointer;
+  transition: opacity calc(var(--brew-management-ms) * 0.2) ease;
+  transition-delay: calc(var(--brew-management-ms) * 0.6);
+}
+
+.brew-management__trigger svg {
+  width: calc(1.15rem + 2px);
+  height: calc(1.15rem + 2px);
+}
+
+.brew-management[data-open='true'] .brew-management__trigger {
+  opacity: 0;
+  pointer-events: none;
+  transition-delay: 0s;
+}
+
+.brew-management__body {
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  height: 3rem;
+  width: max-content;
+  max-width: calc(100vw - 6.5rem);
+  padding: 0 0.25rem 0 0.4rem;
+  overflow: visible;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity calc(var(--brew-management-ms) * 0.2) ease,
+    visibility calc(var(--brew-management-ms) * 0.2);
+}
+
+.brew-management[data-open='true'] .brew-management__body {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: calc(var(--brew-management-ms) * 0.45);
+}
+
+.brew-management__close {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 0;
+  border-radius: 50%;
+  color: var(--brew-fg-soft);
+  background: transparent;
+  cursor: pointer;
+}
+
+.brew-management__close svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.brew-management__actions {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: visible;
+}
+
+.brew-shell .brew-management .brew-bar {
+  --brew-tag-h: 2.4rem;
+}
+
+.brew-shell .brew-management .brew-bar--page {
+  position: relative;
+  inset: auto;
+  margin: 0;
+  padding: 0;
+}
+
+.brew-management .brew-bar__row,
+.brew-management .brew-bar__set {
+  flex-wrap: nowrap;
+  width: max-content;
+  gap: 0.15rem;
+}
+
+.brew-shell .brew-management .brew-bar__tag,
+.brew-shell .brew-management .brew-feeds__spread {
+  height: var(--brew-tag-h);
+  padding-inline: 1.2rem;
+  border: 0;
+  border-radius: 1.2rem;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.brew-shell .brew-management .brew-bar__tag:hover,
+.brew-shell .brew-management .brew-feeds__spread:hover {
+  background: var(--brew-fill-hover);
+}
+
+.brew-shell .brew-management .brew-bar__tag.is-on,
+.brew-shell .brew-management .brew-feeds__spread[aria-pressed='true'] {
+  color: var(--brew-accent-ink);
+  background: var(--brew-accent-fill);
+}
+
+.brew-management__trigger:focus-visible,
+.brew-management__close:focus-visible {
+  outline: 2px solid var(--brew-accent);
+  outline-offset: 3px;
+}
+
+.brew-management[data-spatial='false'] {
+  transition: none;
+}
+
+.brew-management-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.brew-management-accessory:empty {
+  display: none;
+}
+
+.brew-search {
+  position: relative;
+}
+
+.brew-search__trigger {
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 50%;
+  background: var(--surface-bg);
+  box-shadow: var(--surface-shadow);
+  backdrop-filter: var(--surface-filter);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.brew-search svg {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex-shrink: 0;
+}
+
+.brew-search__trigger svg {
+  width: calc(1.125rem + 2px);
+  height: calc(1.125rem + 2px);
+}
+
+.brew-search__field {
+  position: absolute;
+  top: 3.5rem;
+  left: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: min(22rem, calc(100vw - 3rem));
+  padding: 0.85rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 1rem;
+  background: var(--surface-bg);
+  box-shadow: var(--surface-shadow);
+  backdrop-filter: var(--surface-filter);
+}
+
+.brew-search__field input {
+  width: 100%;
+  min-width: 0;
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.brew-search__field button {
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.brew-management-tools:has(.brew-search) .brew-management,
+.brew-management-tools:has(.brew-search) .brew-management__body {
+  max-width: calc(100vw - 6.5rem);
+}

@@ -1,14 +1,7 @@
-/**
- * 磁贴逻辑层的测试与 DEV 预览共用的 fixture 工厂。
- *
- * 时间全部相对固定的 `NOW`：单测不读 `Date.now()`，同一份数据永远算出同一个结果。
- */
-
 import type { BrewItem, BrewItemPreview, BrewSource } from '../../../types/brew'
 
 const MS_PER_DAY = 86_400_000
 
-/** 固定参照时刻（2025-06-15T00:00:00Z）。 */
 export const NOW = Date.UTC(2025, 5, 15)
 
 export function daysAgo(days: number, now: number = NOW): number {
@@ -32,7 +25,6 @@ export function makePreview(
   }
 }
 
-/** n 条预览，时间依次往前推一天。 */
 export function makePreviews(
   n: number,
   over: Partial<BrewItemPreview> = {},

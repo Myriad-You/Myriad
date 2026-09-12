@@ -25,16 +25,6 @@ const RESPONSE_HZ: Readonly<Pose> = {
   eyeY: 16,
 }
 
-/**
- * The actual displayed pose is the initial condition of every following step.
- * Position alone is insufficient: resetting velocity/acceleration on replacement
- * creates a visible corner. Carry all three across ALL sources, including idle
- * and pointer. This replaces (does not follow) the old first-order filter.
- * Three coincident real poles yield an exact, non-oscillating response with C2
- * continuity, even for discontinuous goals. No queued transition or reset pose.
- * Matching source velocity is also the key transition constraint in Bollo 2018:
- * https://media.gdcvault.com/gdc2018/presentations/bollo_david_inertialization_high_performance.pdf
- */
 export class PoseResponseController {
   private readonly velocity: Pose = {
     angleX: 0,
@@ -58,12 +48,6 @@ export class PoseResponseController {
     eyeY: 0,
   }
 
-  /**
-   * `responseScale` is the director's manner, applied to the rig's bandwidth.
-   * Stepping it between frames is safe: only jerk changes, exactly as it does
-   * when a new goal arrives, so x, x' and x'' stay continuous across the
-   * change and no smoothing of the scale itself is needed.
-   */
   step(
     current: Pose,
     target: Readonly<Pose>,
@@ -78,8 +62,7 @@ export class PoseResponseController {
     for (const key of CONTINUOUS_POSE_KEYS) {
       const omega = 2 * Math.PI * RESPONSE_HZ[key] * scale
       const goal = Number.isFinite(target[key]) ? target[key] : current[key]
-      // Exact solution of x''' = w³(goal-x) - 3w²x' - 3wx'' for this step.
-      // Only jerk changes when a new goal arrives; x, x' and x'' are retained.
+      // Only jerk changes when a new goal arrives
       const offset = current[key] - goal
       const c1 = this.velocity[key] + omega * offset
       const c2 =
@@ -101,28 +84,9 @@ export function isContinuousPoseKey(key: keyof Anime25DDriver): key is PoseKey {
   return (CONTINUOUS_POSE_KEYS as readonly string[]).includes(key)
 }
 
-/**
- * The band a delivery's manner may move the rig's bandwidth through.
- *
- * Deliberately narrow. `RESPONSE_HZ` is what this body can do; quality is what
- * the director asked for, and a pose that outran the secondary physics would
- * read as a different rig rather than a different mood.
- */
 export const MIN_RESPONSE_SCALE = 0.75
 export const MAX_RESPONSE_SCALE = 1.35
 
-/**
- * Manner of delivery as a multiplier on pose bandwidth.
- *
- * The planner already publishes eight quality dimensions per behavior and the
- * merge boundary scales them again by motion style, but until this the whole
- * vector stopped at amplitude and envelope pacing: `restrained` and `open`
- * reached the same pose at exactly the same speed, and a forceful `emphasize`
- * settled as gently as a `listen` nod. Four dimensions have a defensible
- * reading here and only those are used — extent, rebound, asymmetry and
- * density describe the shape of the pose, not how fast it is approached, and
- * are already spent where they belong.
- */
 export function poseResponseScale(
   quality: Readonly<BehaviorQuality>,
 ): number {
@@ -142,19 +106,11 @@ export function poseResponseScale(
 }
 
 export interface PoseResponseCandidate {
-  /** How much of the pose this source is currently responsible for. */
   weight: number
   quality: Readonly<BehaviorQuality> | null
 }
 
-/**
- * One scale for the composed pose.
- *
- * The response filter runs on the blended result, so it cannot take a manner
- * per source. Scales are averaged by how much of the pose each source is
- * actually carrying — averaging the quality vectors themselves would invent a
- * delivery nobody authored.
- */
+/** The response filter runs on the blended result, so it cannot take a manner per source. */
 export function resolvePoseResponseScale(
   candidates: readonly PoseResponseCandidate[],
 ): number {
@@ -168,8 +124,7 @@ export function resolvePoseResponseScale(
     weighted += weight * poseResponseScale(candidate.quality)
   }
   if (total <= 0) return 1
-  // Sources never sum to the whole pose; what they do not claim is idle
-  // motion, which has no authored manner and stays at the rig's own rate.
+  // Sources never sum to the whole pose
   const share = Math.min(1, total)
   return 1 + (weighted / total - 1) * share
 }

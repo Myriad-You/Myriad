@@ -1,20 +1,6 @@
-/*
- * 数据及统计 · 访客统计子分类（页面 / 事件 / 来源为组内分区）
- *
- * 表面与字级全部走设置页令牌（--cfg-*），与其它设置区块同一套外观。
- *
- * 图表配色是「强调编码」，不是分类色板：
- * - 柱 / 排行条 = --sa-mark，由 --cfg-accent 派生，并把 OKLCH 亮度钉进
- *   各主题的可读带（亮 0.62 / 暗 0.66）。壁纸主色再深再浅，图表都不会
- *   跌出 3:1 对比；代表性壁纸强调色实测 9/10 通过色板校验（余下是本身
- *   低彩度的青 / 灰强调色，此时身份靠形状与数字，不靠色相）。
- * - 访客折线 = --sa-ink 走中性去强调字色。两个序列靠「柱 vs 线 + 图例 +
- *   表格视图」区分，不靠色相，深浅主题都不需要换配色。
- * - 网格 / 基线 = 比表面深一档的发丝实线（不用虚线，虚线会读成阈值线）。
- */
+/* --cfg-* tokens; chart mark from --cfg-accent */
 
 .site-analytics {
-  /* 只用来给下面几个分组传令牌，本身不产生盒子（分组仍是 pane 的 flex 子项） */
   display: contents;
 
   --sa-mark: var(--cfg-accent);
@@ -27,13 +13,10 @@
   --sa-table-pad-x: 0.55rem;
 }
 
-/*
- * 表格表面挂在真正出盒的根上（.site-analytics 是 display:contents，
- * 自定义属性继承在部分环境下不稳）。一律不透明实色，禁止 subtle/frost alpha。
- */
+/* opaque; no subtle/frost alpha */
 .site-analytics-table-wrap,
 .site-analytics-rank {
-  /* 表体纯白；表头只比表体略沉一点，避免整块发灰 */
+  /* table: opaque; header slightly darker */
   --sa-table-bg: #fff;
   --sa-table-head-bg: #f7f7f8;
   --sa-table-border: rgb(0 0 0 / 8%);
@@ -50,15 +33,9 @@ html.dark .site-analytics-rank {
   --sa-table-row-hover: #1e1e1e;
 }
 
-/*
- * 访客 / AI 使用统计子分类内：概览 + 分区 + 侧栏网格 之间用「组间距」。
- * （默认 setting-group-content 是 --settings-gap-item，会显得过紧。）
- */
 #visitor-stats > .setting-group-content,
 #ai-usage-stats > .setting-group-content {
   gap: var(--settings-gap-group, 1.25rem);
-
-  /* 国家卡 hover tooltip 需要溢出 */
   overflow: visible;
 }
 
@@ -67,7 +44,6 @@ html.dark .site-analytics-rank {
   overflow: visible;
 }
 
-/* 采集关闭提示（历史数据仍可浏览） */
 .site-analytics-disabled-banner {
   margin: 0;
   padding: 0.55rem 0.75rem;
@@ -83,14 +59,9 @@ html.dark .site-analytics-rank {
   opacity: 0.72;
 }
 
-/*
- * 事件埋点 + 来源站点：保持 AnalyticsTextBlock 原样式，仅两列自适应排布。
- * 列宽不够时（约 16rem × 2 + gap）自动单列。
- */
+/* two-col; stack 18rem */
 .site-analytics-side-grid {
   display: grid;
-
-  /* 半幅约 ≥18rem 时排行表仍可读；再窄自动单列 */
   grid-template-columns: repeat(
     auto-fit,
     minmax(min(100%, 18rem), 1fr)
@@ -105,13 +76,11 @@ html.dark .site-analytics-rank {
   min-width: 0;
 }
 
-/* 半幅内排行表再收一点数字列，给名称/条留空 */
 .site-analytics-side-grid .site-analytics-rank {
   --sa-col-value: 3.15rem;
   --sa-col-second: 2.9rem;
 }
 
-/* 组内次级分区：无图标，弱于 SettingGroup 标题 */
 .site-analytics-block {
   display: flex;
   flex-direction: column;
@@ -140,7 +109,6 @@ html.dark .site-analytics-rank {
   min-width: 0;
 }
 
-/* 分区标题旁筛选（事件埋点等） */
 .site-analytics-block-title .setting-title-select {
   margin-left: 0.15rem;
 }
@@ -152,7 +120,6 @@ html.dark .site-analytics-rank {
   color: var(--cfg-text-3);
 }
 
-/* 支持相对颜色时把强调色亮度钉进可读带；否则原样使用强调色 */
 @supports (color: oklch(from red l c h)) {
   .site-analytics {
     --sa-mark: oklch(from var(--cfg-accent) 62% c h);
@@ -163,12 +130,7 @@ html.dark .site-analytics-rank {
   }
 }
 
-/*
- * 标题行：失败标签 + 刷新标签紧贴标题；范围切换靠右。
- * titleExtra 为 Fragment，子节点直接参与 SettingGroup h4 的 flex。
- */
 
-/* 范围切换单独推到行尾 */
 .site-analytics-scope-controls {
   display: flex;
   align-items: center;
@@ -178,18 +140,16 @@ html.dark .site-analytics-rank {
   min-width: 0;
 }
 
-/* 自定义：chip + Portal 月历（DateRangePopover） */
+
 .analytics-range-picker {
   justify-content: flex-end;
 }
 
-/* 时区跟着日期段走，是注脚不是数值 */
 .site-analytics-scope-tz {
   font-weight: 500;
   color: var(--cfg-text-3);
 }
 
-/* KPI 磁贴 */
 
 .site-analytics-visitors {
   display: flex;
@@ -198,9 +158,7 @@ html.dark .site-analytics-rank {
   min-width: 0;
 }
 
-/*
- * 访客 7 格 / AI 6 格默认一行；再窄 4 → 2 列，避免 5/3 列时末行孤儿卡。
- */
+/* 7/6 tiles one row; then 4→2 so last row is not an orphan */
 .site-analytics-tiles {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -228,7 +186,6 @@ html.dark .site-analytics-tile {
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 4%);
 }
 
-/* 访问国家：前三国旗 + hover 完整 tooltip */
 .site-analytics-tile--countries {
   position: relative;
   min-width: 0;
@@ -315,7 +272,6 @@ html.dark .site-analytics-tile {
     visibility 0.12s;
 }
 
-/* 末列靠右，tooltip 左缘对齐卡片以免溢出视口 */
 .site-analytics-tile--countries:last-child .site-analytics-country-tip {
   left: auto;
   right: 0;
@@ -409,7 +365,7 @@ html.dark .site-analytics-country-tip {
   font-size: 0.62rem;
 }
 
-/* 窄格里允许折两行，别把标签挤成溢出 */
+/* wrap up to 2 lines; do not overflow */
 .site-analytics-tile-label {
   display: flex;
   align-items: flex-start;
@@ -420,17 +376,13 @@ html.dark .site-analytics-country-tip {
   overflow-wrap: anywhere;
 }
 
-/* 内容区装饰图标跟标签字色走，不抢标题 SettingGroup 的强调色 */
 .site-analytics-tile-label svg {
   flex: 0 0 auto;
   margin-top: 0.05rem;
   color: currentcolor;
 }
 
-/*
- * 主数值 + 环比同一行：高度不变；放不下横向滚动。
- * 大号数字用默认比例数字（tabular 会把「121」撑松）。
- */
+/* metric + delta one row; overflow-x; proportional nums (tabular stretches 121) */
 .site-analytics-tile-metric {
   display: flex;
   align-items: baseline;
@@ -461,7 +413,6 @@ html.dark .site-analytics-country-tip {
   color: var(--cfg-text-1);
 }
 
-/* 无环比的卡片仍把数值顶到底部 */
 .site-analytics-tile > .site-analytics-tile-value {
   margin-top: auto;
 }
@@ -470,7 +421,6 @@ html.dark .site-analytics-country-tip {
   font-size: 0.95rem;
 }
 
-/* 日 / 周 / 月环比：跟在主数值后，略小于主数字 */
 .site-analytics-compare {
   display: inline-flex;
   align-items: baseline;
@@ -497,7 +447,6 @@ html.dark .site-analytics-country-tip {
   color: color-mix(in srgb, var(--cfg-text, #444) 62%, transparent);
 }
 
-/* Western / default: green rise, red fall */
 .site-analytics-compare[data-palette='green-up'].is-up {
   color: color-mix(in srgb, #16a34a 88%, var(--cfg-text, #111));
 }
@@ -506,7 +455,6 @@ html.dark .site-analytics-country-tip {
   color: color-mix(in srgb, #dc2626 88%, var(--cfg-text, #111));
 }
 
-/* East Asia boards (zh / ja / ko): 红涨绿跌 */
 .site-analytics-compare[data-palette='red-up'].is-up {
   color: color-mix(in srgb, #dc2626 88%, var(--cfg-text, #111));
 }
@@ -531,7 +479,6 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   color: color-mix(in srgb, #4ade80 80%, #fff);
 }
 
-/* 趋势图 */
 
 .site-analytics-chart-block {
   display: flex;
@@ -548,7 +495,6 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   flex-wrap: wrap;
 }
 
-/* 图例始终在场：序列身份不靠读者自己配色 */
 .site-analytics-legend {
   display: flex;
   align-items: center;
@@ -566,7 +512,6 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   gap: 0.35rem;
 }
 
-/* 图例键镜像图上的记号：柱是色块，折线是一段线 */
 .site-analytics-legend-key {
   flex: 0 0 auto;
   align-self: center;
@@ -589,8 +534,6 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   position: relative;
   min-width: 0;
   border-radius: 0.6rem;
-
-  /* 触控横扫读数时不抢页面滚动，也不顺手选中文字 */
   touch-action: none;
   user-select: none;
 }
@@ -600,13 +543,11 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--cfg-accent) 45%, transparent);
 }
 
-/* 实测宽度回来之前也不许把容器顶宽（父级窄化的那一帧） */
 .site-analytics-plot svg {
   display: block;
   max-width: 100%;
 }
 
-/* 刷新时保留上一帧，只降透明度——不闪骨架屏、不跳版 */
 .site-analytics-plot.is-refreshing,
 .site-analytics-rank.is-refreshing {
   opacity: 0.55;
@@ -637,7 +578,6 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   font-variant-numeric: tabular-nums;
 }
 
-/* 双轴右刻度：与左轴同级，略淡一点以免抢主读数 */
 .site-analytics-tick--secondary {
   fill: var(--cfg-text-3);
 }
@@ -659,14 +599,12 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   stroke-linejoin: round;
 }
 
-/* 只在读数时出现，落在柱面上也要认得出，所以留一圈表面色 */
 .site-analytics-dot {
   fill: var(--cfg-text-1);
   stroke: var(--sa-surface);
   stroke-width: 1.5;
 }
 
-/* 折线末端的直接标注：文字走字色，不穿数据色 */
 .site-analytics-end-label {
   fill: var(--cfg-text-2);
   font-size: 0.625rem;
@@ -696,7 +634,7 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   pointer-events: none;
 }
 
-/* 往没有柱的那一侧开，避免盖住正在读的那一列 */
+/* tooltip: open away from the bar */
 .site-analytics-tip[data-side='left'] {
   transform: translateX(-100%);
 }
@@ -707,7 +645,6 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   font-variant-numeric: tabular-nums;
 }
 
-/* 读数里数值领先、序列名跟随（与图例的层级正好相反） */
 .site-analytics-tip-row {
   display: inline-flex;
   align-items: center;
@@ -720,10 +657,9 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   font-variant-numeric: tabular-nums;
 }
 
-/* 趋势「表格」视图（与排行表同一套表面令牌） */
 
 .site-analytics-table-wrap {
-  /* 长区间（最多 365 天）内部滚动，不把设置页撑开 */
+  /* long range: scroll inside; do not grow page */
   max-height: min(15rem, 40vh);
   overflow: auto;
   border-radius: var(--sa-table-radius);
@@ -754,7 +690,7 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   top: 0;
   z-index: 1;
 
-  /* background-color 实色；避免 background 简写被别处覆盖成透明 */
+  /* background-color; shorthand can go transparent */
   background-color: var(--sa-table-head-bg);
   border-bottom: 1px solid var(--sa-table-divider);
   color: var(--cfg-text-3);
@@ -789,7 +725,6 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   background: var(--sa-table-row-hover);
 }
 
-/* 汇总元信息 + 脚注 */
 
 .site-analytics-meta {
   display: flex;
@@ -822,7 +757,6 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   white-space: nowrap;
 }
 
-/* 日期段里的箭头是连接符，不是数值 */
 .site-analytics-meta dd > span {
   color: var(--cfg-text-3);
   font-weight: 500;
@@ -839,14 +773,7 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   color: var(--cfg-text-3);
 }
 
-/* 排行表：页面 / 事件 / 来源（与趋势表同一套表面） */
 
-/*
- * 外壳 = 趋势 table-wrap；表头条 = thead；行分割 = tbody 线。
- * 头与行同一套 CSS Grid：
- *   宽：名称 | 条 | 主值 | 次值? | 第三?
- *   窄：名称独占一行；条 + 数字第二行
- */
 .site-analytics-rank {
   container-type: inline-size;
   container-name: sa-rank;
@@ -905,7 +832,6 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   white-space: nowrap;
 }
 
-/* 与行内条同列的占位；叠层时隐藏 */
 .site-analytics-rank-h-track {
   min-width: 0;
 }
@@ -955,10 +881,6 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   list-style: none;
   background: transparent;
 
-  /*
-   * 视口大约 8 行（单行 ~2.05rem：上下 padding + 文案行高）。
-   * DOM 可先挂 30 条，滚到尾再挂剩余；表头在外不跟着滚。
-   */
   --sa-rank-visible-rows: 8;
   --sa-rank-row-est: 2.05rem;
 
@@ -1017,14 +939,11 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   min-width: 0;
   height: 0.38rem;
   border-radius: 999px;
-
-  /* 条轨道略深于表体，叠在 elevated 底上仍能看见 */
   background: color-mix(in srgb, var(--cfg-text-3) 12%, transparent);
   box-shadow: inset 0 0 0 1px var(--sa-table-divider);
   overflow: hidden;
 }
 
-/* 数据端圆角、基线端平齐 */
 .site-analytics-rank-bar {
   height: 100%;
   border-radius: 0 3px 3px 0;
@@ -1058,11 +977,6 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   color: var(--cfg-text-3);
 }
 
-/*
- * 窄容器（事件/来源半幅、小屏全宽）：
- * 名称整行；第二行 = 条 + 数字列（与列头右侧对齐）。
- * 阈值取 26rem：两列 minmax(16rem) 半幅通常触发；全宽页面分析不触发。
- */
 @container sa-rank (width < 26rem) {
   .site-analytics-rank {
     --sa-rank-cols: minmax(0, 1fr) var(--sa-col-value);
@@ -1085,7 +999,6 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
     grid-column: 1 / -1;
   }
 
-  /* 条铺在名称下、数字列左侧占满剩余 */
   .site-analytics-rank-track {
     grid-column: 1;
     height: 0.34rem;
@@ -1096,12 +1009,10 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   }
 
   .site-analytics-rank-h-name {
-    /* 名称列头与数据名称同占整行语义；数字列头仍在第一行右侧 */
     min-width: 0;
   }
 
   .site-analytics-rank-head {
-    /* 窄宽列头：名称 | 值…（无条占位） */
     grid-template-columns: var(--sa-rank-cols);
   }
 
@@ -1123,12 +1034,6 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   }
 }
 
-/*
- * 极窄：三行叠放
- *   名称
- *   条（通栏）
- *   数字（右对齐）
- */
 @container sa-rank (width < 18rem) {
   .site-analytics-rank-row {
     grid-template-columns: minmax(0, 1fr) var(--sa-col-value);
@@ -1190,12 +1095,8 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   }
 }
 
-/* 空态 / 错误 */
 
-/*
- * 空态是一张占位卡，不是一行字：撑住区块高度，有数据后不跳版。
- * 虚线边框区分「这里还没有内容」与真实数据卡。
- */
+/* empty card holds height */
 .site-analytics-empty {
   display: flex;
   flex-direction: column;
@@ -1213,7 +1114,6 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   box-sizing: border-box;
 }
 
-/* 顶替趋势图时贴近图表高度 */
 .site-analytics-empty--tall {
   min-height: 9.5rem;
 }
@@ -1223,9 +1123,6 @@ html.dark .site-analytics-compare[data-palette='red-up'].is-down {
   opacity: 0.55;
 }
 
-/*
- * 加载失败：复用 setting-title-tag 骨架，改成危险色。
- */
 .site-analytics-error-tag {
   max-width: min(16rem, 100%);
   border-color: color-mix(in srgb, #ef4444 28%, transparent);
@@ -1247,7 +1144,6 @@ html.dark .site-analytics-error-tag {
   color: color-mix(in srgb, #f87171 92%, #fff);
 }
 
-/* 刷新 / 导出 / 导入标签：加载时弱化；刷新图标旋转 */
 .site-analytics-refresh-tag.is-loading,
 .site-analytics-io-tag.is-loading {
   pointer-events: none;
@@ -1264,7 +1160,6 @@ html.dark .site-analytics-error-tag {
   }
 }
 
-/* 隐藏文件选择器，仍挂在标题行 Fragment 内 */
 .site-analytics-import-input {
   position: absolute;
   width: 1px;
@@ -1288,9 +1183,7 @@ html.dark .site-analytics-error-tag {
   white-space: nowrap;
 }
 
-/* 窄屏 */
 
-/* 一行放不下：先 4 列，再 2 列（7 / 6 格共用） */
 @media (width <= 1180px) {
   .site-analytics-tiles,
   .site-analytics-tiles--6 {
@@ -1304,7 +1197,6 @@ html.dark .site-analytics-error-tag {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  /* 标题行放不下时，操作换到标题下面整行铺开 */
   .site-analytics-scope-controls {
     flex: 1 1 100%;
     margin-left: 0;

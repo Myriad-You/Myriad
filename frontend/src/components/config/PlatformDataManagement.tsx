@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { API_URL } from '../../config'
 import { useI18n } from '../../contexts/I18nContext'
 import { useBackgroundTasks } from '../../hooks/useBackgroundTasks'
+import { hostLocaleHeaders } from '../../i18n/hostLocaleHeaders'
 import { fetchJson } from '../../utils/apiHelper'
 import { getCSRFToken } from '../../utils/csrf'
 import { resolvePlatformId } from '../../utils/platformId'
@@ -50,7 +51,7 @@ export default function PlatformDataManagement({
   platformName,
   showMessage,
 }: PlatformDataManagementProps) {
-  const { t } = useI18n()
+  const { t, format, locale } = useI18n()
   const { catalog: g, bindGuide } = useSettingGuide()
   const platformId = useMemo(
     () => resolvePlatformId(platformName),
@@ -120,8 +121,7 @@ export default function PlatformDataManagement({
       setCache(cacheResult.value)
     }
 
-    // 单项失败时保留另一项的有效状态并在对应行显示“暂时不可用”；
-    // 只有整块都无法读取时才弹出全局失败提示。
+    // one failure: keep the other; global error only if both fail
     if (rawFailed && cacheFailed) {
       showMessage(t.dataManagement.loadStatusFailed, 'error')
     }
@@ -151,10 +151,9 @@ export default function PlatformDataManagement({
     if (!platformId) return
     if (
       !window.confirm(
-        t.dataManagement.confirmRefreshData.replace(
-          '{platform}',
-          platformName,
-        ),
+        format(t.dataManagement.confirmRefreshData, {
+          platform: platformName,
+        }),
       )
     ) {
       return
@@ -174,6 +173,7 @@ export default function PlatformDataManagement({
         headers: {
           'Content-Type': 'application/json',
           'X-CSRF-Token': csrfToken,
+          ...hostLocaleHeaders(),
         },
         body: JSON.stringify({ platform: platformId }),
       })
@@ -182,18 +182,17 @@ export default function PlatformDataManagement({
       if (!response.ok || !data.success) {
         throw new Error(
           data.message ||
-            t.errors.httpStatus.replace('{status}', String(response.status)),
+            format(t.errors.httpStatus, { status: response.status }),
         )
       }
 
       notifyRecentActivityUpdated()
       showMessage(
-        t.dataManagement.dataRefreshed.replace('{platform}', platformName),
+        format(t.dataManagement.dataRefreshed, { platform: platformName }),
         'success',
         5000,
       )
       await loadStatus()
-      // 原始数据已更新，智能过滤可能仍是旧的；仍刷新预览以同步时间戳/状态
       void previewRef.current?.reload()
     } catch (error) {
       showMessage(
@@ -212,10 +211,7 @@ export default function PlatformDataManagement({
     const taskId = await submitTask(platformId)
     if (!taskId) {
       showMessage(
-        t.dataManagement.submitTaskFailed.replace(
-          '{platform}',
-          platformName,
-        ),
+        format(t.dataManagement.submitTaskFailed, { platform: platformName }),
         'error',
       )
       return
@@ -229,10 +225,7 @@ export default function PlatformDataManagement({
     if (!platformId) return
     if (
       !window.confirm(
-        t.dataManagement.confirmClearCache.replace(
-          '{platform}',
-          platformName,
-        ),
+        format(t.dataManagement.confirmClearCache, { platform: platformName }),
       )
     ) {
       return
@@ -243,17 +236,14 @@ export default function PlatformDataManagement({
       const success = await clearPlatformCache(platformId)
       if (!success) {
         showMessage(
-          t.dataManagement.clearCacheFailed.replace(
-            '{platform}',
-            platformName,
-          ),
+          format(t.dataManagement.clearCacheFailed, { platform: platformName }),
           'error',
         )
         return
       }
 
       showMessage(
-        t.dataManagement.cacheCleared.replace('{platform}', platformName),
+        format(t.dataManagement.cacheCleared, { platform: platformName }),
         'success',
       )
       await loadStatus()
@@ -283,7 +273,7 @@ export default function PlatformDataManagement({
 
   const formatDateTime = (date: string | null | undefined): string => {
     if (!date) return t.dataManagement.unknown
-    return new Date(date).toLocaleString()
+    return new Date(date).toLocaleString(locale)
   }
 
   if (!platformId) return null

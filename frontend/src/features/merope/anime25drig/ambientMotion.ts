@@ -12,32 +12,9 @@ export interface AmbientPose {
 /** Normalized rig-space, not physiological degrees or scene perception. */
 export const AMBIENT_HEAD_GAZE_SHARE = { x: 0.62, y: 0.55 } as const
 
-/**
- * Least time a gaze shift takes, and what each further unit of travel adds.
- *
- * A minimum-jerk move of any size carries jerk proportional to 1/duration
- * cubed, so how smooth a glance looks is decided almost entirely by how long
- * it is given — not by how far it goes. The floor was 0.12s, which is seven
- * frames: enough for a full sweep to read as deliberate, not enough for the
- * small inspection glances that make up two thirds of the scanpath. Measured
- * over ten minutes at one seed, those scored 796 against 425 for the large
- * looks on the same smoothness measure.
- *
- * Paying more up front and less per unit brings the small ones to 429 and
- * costs the full-amplitude sweep nothing: 0.264s before, 0.260s now.
- */
 export const EYE_SACCADE_FLOOR_SECONDS = 0.17
 export const EYE_SACCADE_SECONDS_PER_UNIT = 0.05
 
-/**
- * Stateful free-viewing scanpath: inspect nearby points, sometimes reorient,
- * sometimes return attention toward the viewer, never an obligatory zero pose.
- * Eye/head latency + gaze stabilization: Andrist et al., CHI 2012,
- * https://graphics.cs.wisc.edu/Papers/2012/APMG12/APMG12.pdf
- * Smooth amplitude-dependent head recruitment: Hu et al., CHI 2026,
- * https://arxiv.org/abs/2602.06164
- * Timing/ranges below are art direction for this 2.5D asset, not fitted data.
- */
 export class AmbientMotionController {
   private readonly gazeX = new MinimumJerkMotion()
   private readonly gazeY = new MinimumJerkMotion()
@@ -86,8 +63,7 @@ export class AmbientMotionController {
         this.nextPoseAt = Number.POSITIVE_INFINITY
       }
     }
-    // Resolve at scheduled times, not the late frame: identical random draws
-    // and trajectories at 30/60/120Hz. Bound catch-up after a suspended tab.
+    // Resolve at scheduled times, not the late frame
     let steps = 0
     while (now >= this.nextPoseAt && steps < 8) {
       this.beginLook(this.nextPoseAt)
@@ -103,7 +79,6 @@ export class AmbientMotionController {
     const choice = this.unit()
     const inspect = this.inspectionCount < 3 && choice < 0.44
     if (inspect) {
-      // Correlated nearby fixations, not another independent random head pose.
       this.targetX = clamp(this.targetX + this.range(-0.23, 0.23), -1, 1)
       this.targetY = clamp(this.targetY + this.range(-0.18, 0.18), -0.7, 0.7)
       this.inspectionCount += 1
@@ -112,8 +87,6 @@ export class AmbientMotionController {
       this.targetY = this.range(-0.18, 0.2)
       this.inspectionCount = 0
     } else {
-      // A soft revisit penalty, not forced left/right alternation. Continuous
-      // positions within each region prevent a small catalog of canned poses.
       let region = Math.min(5, Math.floor(this.unit() * 6))
       if (region === this.previousRegion && this.unit() < 0.75) {
         region = (region + 1 + Math.floor(this.unit() * 5)) % 6
@@ -149,8 +122,7 @@ export class AmbientMotionController {
     this.gazeY.retarget(now, this.targetY, eyeDuration)
     this.headX.retarget(now, x, headDuration, latency)
     this.headY.retarget(now, y, headDuration, latency)
-    // A local inspection keeps the current tilt/weight; a broader look recruits
-    // a new asymmetric support posture, with the trunk arriving last.
+    let bodyDuration = 0
     if (!inspect) {
       this.headZ.retarget(
         now,
@@ -158,15 +130,17 @@ export class AmbientMotionController {
         headDuration * 1.1,
         latency,
       )
-      this.body.retarget(
-        now,
-        x * this.range(0.3, 0.5) + this.range(-0.07, 0.07),
+      // Small inspections stay eye/head-led; a broad look recruits the torso.
+      // Give its larger travel time instead of accelerating it to catch up.
+      const bodyTarget =
+        x * this.range(0.3 + recruitment * 0.3, 0.5 + recruitment * 0.22) +
+        this.range(-0.07, 0.07)
+      bodyDuration = Math.max(
         headDuration * 1.3,
-        latency + 0.12,
+        0.5 + Math.sqrt(Math.abs(bodyTarget - this.body.value)) * 0.8,
       )
+      this.body.retarget(now, bodyTarget, bodyDuration, latency + 0.12)
     }
-    // A bounded right-skewed dwell distribution allows brief inspections and
-    // occasional long interest. Randomness is sampled per fixation, not frame.
     const dwell = clamp(
       Math.exp(this.range(-0.8, 0.9) + this.range(-0.65, 0.65)),
       0.4,
@@ -174,7 +148,11 @@ export class AmbientMotionController {
     )
     this.nextPoseAt =
       now +
-      Math.max(headDuration + latency, eyeDuration) +
+      Math.max(
+        headDuration + latency,
+        bodyDuration + latency + 0.12,
+        eyeDuration,
+      ) +
       dwell * (inspect ? 0.75 : 1.2)
   }
 
@@ -183,10 +161,6 @@ export class AmbientMotionController {
     this.output.angleY = this.headY.sample(now)
     this.output.angleZ = this.headZ.sample(now)
     this.output.body = this.body.sample(now)
-    // Eye-in-head is the residual of a stable gaze-in-world target. Without
-    // this compensation the eyes drift past the object while the head follows.
-    // For a large reversal, wait for the head to bring the target within the
-    // ocular range rather than asking the iris to leave its visible socket.
     this.output.eyeX = clamp(
       this.gazeX.sample(now) - this.output.angleX * AMBIENT_HEAD_GAZE_SHARE.x,
       -1,

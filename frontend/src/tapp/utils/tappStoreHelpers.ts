@@ -1,10 +1,6 @@
-/**
- * Pure helpers for the host Tapp Store UI (version, source URL, progress labels).
- */
-
 import type { RemoteStoreSource } from '../services/RemoteStoreService'
+import { formatCurrent } from '../../i18n/localeCopy'
 
-/** 比较版本号：返回 1 表示前者较新，-1 表示后者较新，0 表示相等。 */
 export function compareVersions(left: string, right: string): number {
   const parts1 = left.split('.').map((n) => Number.parseInt(n, 10) || 0)
   const parts2 = right.split('.').map((n) => Number.parseInt(n, 10) || 0)
@@ -19,7 +15,6 @@ export function compareVersions(left: string, right: string): number {
   return 0
 }
 
-/** Normalize store source URLs so trailing slash / encoding differences still match. */
 export function normalizeStoreSourceUrl(url: string): string {
   const raw = (url || '').trim()
   if (!raw) return ''
@@ -27,11 +22,11 @@ export function normalizeStoreSourceUrl(url: string): string {
     const u = new URL(raw)
     u.hash = ''
     if (u.pathname.length > 1 && u.pathname.endsWith('/')) {
-      u.pathname = u.pathname.replace(/\/+$/, '')
+      u.pathname = u.pathname.replaceAll(/\/+$/g, '')
     }
     return u.href
   } catch {
-    return raw.replace(/\/+$/, '')
+    return raw.replaceAll(/\/+$/g, '')
   }
 }
 
@@ -41,12 +36,11 @@ export function findStoreSource(
 ): RemoteStoreSource | undefined {
   const target = normalizeStoreSourceUrl(sourceUrl)
   return (
-    sources.find((s) => s.url === sourceUrl) ||
+    sources.find((s) => s.url === sourceUrl) ??
     sources.find((s) => normalizeStoreSourceUrl(s.url) === target)
   )
 }
 
-/** 字节数格式化为可读大小 */
 export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   const units = ['KB', 'MB', 'GB'] as const
@@ -68,7 +62,6 @@ interface StoreProgressStrings {
   installDownloading: string
 }
 
-/** Map progress phase key → localized label (install vs update). */
 export function packageProgressLabel(
   tapp: StoreProgressStrings,
   mode: 'install' | 'update',
@@ -85,7 +78,6 @@ export function packageProgressLabel(
     p === 'register' ||
     p === 'install' ||
     p === 'done' ||
-    // Backend dual-path tags used to fall through as "Downloading…"
     p === 'server' ||
     p === 'apply'
   ) {
@@ -93,7 +85,7 @@ export function packageProgressLabel(
   } else {
     template = isUpdate ? tapp.updateDownloading : tapp.installDownloading
   }
-  let label = template.replace('{percent}', String(percent))
+  let label = formatCurrent(template, { percent })
   if (detail && (p === 'download' || p === 'fetch' || p === 'client')) {
     const short =
       detail.length > 28

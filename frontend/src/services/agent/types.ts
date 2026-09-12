@@ -1,11 +1,3 @@
-/**
- * Agent 服务类型定义
- *
- * AI 驱动的自然语言任务编排系统类型
- */
-
-// 处理上下文
-
 export type RigMotionStyle = 'restrained' | 'even' | 'open'
 export type RigMusicEnergy = 'quiet' | 'soft' | 'present' | 'strong'
 export type RigBeatPhase = 'rest' | 'downbeat' | 'pulse' | 'hold'
@@ -40,7 +32,6 @@ export interface RigStateSummary {
     lifecycle: RigBehaviorPhase | null
     remainingMs: number
   }
-  /** Concurrent semantic behaviors; `acting` above remains the primary cue. */
   activeBehaviors: {
     function: RigBehaviorFunction
     lifecycle: RigBehaviorPhase
@@ -68,47 +59,28 @@ export interface RigStateSummary {
   faceVisible: boolean
 }
 
-/** 处理上下文 */
 export interface ProcessContext {
-  /** 运行时路径：聊天只使用 Lite，办事保留完整 Agent。 */
   mode?: 'work' | 'chat'
-  /** 当前页面路由 */
   currentRoute?: string
-  /** 活跃的平台 */
   activePlatforms?: string[]
-  /** 会话 ID */
   sessionId?: string
-  /** 自定义数据 */
   customData?: Record<string, unknown>
-  /** 用户已接受、正在进入 Work 的自主提案。 */
   intentionId?: string
-  /** Semantic live-face snapshot. Event-scoped; never a driver. */
   rigState?: RigStateSummary
 }
 
-/** 处理请求 */
 export interface ProcessRequest {
-  /** 用户自然语言输入 */
   input: string
-  /** 上下文信息 */
   context?: ProcessContext
 }
 
-/** 澄清请求 */
 export interface ClarifyRequest {
-  /** 原始请求 */
   originalInput: string
-  /** 澄清点 ID */
   clarificationId: string
-  /** 用户回答 */
   answer: string
-  /** 上下文 */
   context?: ProcessContext
 }
 
-// 任务相关
-
-/** 任务状态 */
 export type TaskStatus =
   | 'pending'
   | 'running'
@@ -118,7 +90,6 @@ export type TaskStatus =
   | 'failed'
   | 'cancelled'
 
-/** 任务上的待回答问题（与后端 TaskInfo.pendingQuestion 对齐） */
 export interface TaskPendingQuestion {
   questionId: string
   questionType: string
@@ -129,7 +100,6 @@ export interface TaskPendingQuestion {
   defaultValue?: string
 }
 
-/** GET /tasks 和终态 TaskInfo 上的步骤记录 */
 export interface TaskStepHistoryItem {
   stepId: string
   capabilityName: string
@@ -141,7 +111,6 @@ export interface TaskStepHistoryItem {
   isDynamic?: boolean
 }
 
-/** 任务信息 */
 export interface TaskInfo {
   taskId: string
   status: TaskStatus
@@ -151,7 +120,6 @@ export interface TaskInfo {
   stepHistory?: TaskStepHistoryItem[]
 }
 
-/** 任务详情 */
 export interface TaskDetail {
   taskId: string
   recipeId: string
@@ -165,13 +133,9 @@ export interface TaskDetail {
   stepHistory?: TaskStepHistoryItem[]
 }
 
-// 澄清相关
-
-/** 澄清类型 */
 export type ClarificationType =
   'time_range' | 'target' | 'action' | 'missing_parameter' | 'ambiguity'
 
-/** 澄清点 */
 export interface ClarificationPoint {
   id: string
   type: ClarificationType
@@ -180,9 +144,6 @@ export interface ClarificationPoint {
   default?: string
 }
 
-// 响应相关
-
-/** 响应类型 */
 export type AgentResponseType =
   | 'answer'
   | 'clarification'
@@ -224,10 +185,6 @@ export interface PerformanceCue {
   tempo: number
   fadeInMs: number
   fadeOutMs: number
-  /**
-   * Scheduler-resolved `strokeEnd -> relax` span. Absent on a cue that came
-   * straight from the model; the player then falls back to its tempo heuristic.
-   */
   holdMs?: number
   interrupt: 'replace' | 'queue' | 'if-lower'
 }
@@ -236,7 +193,6 @@ export interface PerformanceDirective {
   phrases?: SpeechPhrase[]
   phase: PerformancePhase
   moodRevision: number
-  /** Persona-resolved movement quality for this whole round. */
   motionStyle: RigMotionStyle
   plan: {
     baseline?: PerformanceBaseline
@@ -245,7 +201,6 @@ export interface PerformanceDirective {
 }
 
 export interface SpeechPhrase {
-  /** Exact, uniquely occurring response fragment; never a model timestamp. */
   text: string
   intent:
     'ask' | 'hesitate' | 'tease' | 'explain' | 'check-in' | 'laugh' | 'none'
@@ -265,26 +220,20 @@ export interface MoodTransition {
   revision: number
 }
 
-/** Agent 响应 */
 export interface AgentResponse {
   success: boolean
   responseType: AgentResponseType
   message: string
   data?: unknown
-  /** 数据展示提示 */
   dataDisplay?: DataDisplayHint
   suggestions: string[]
   task?: TaskInfo
-  /** 敏感操作确认信息 */
   confirmation?: ConfirmationInfo
-  /** 前端操作指令 */
   frontendAction?: FrontendAction
-  /** Strict-Lite semantic performance; contains no raw rig driver values. */
   performance?: PerformanceDirective
   sessionId?: string
 }
 
-/** 待确认的敏感步骤 */
 export interface ConfirmationStep {
   stepId: string
   capabilityName: string
@@ -292,7 +241,6 @@ export interface ConfirmationStep {
   impact: string[]
 }
 
-/** 敏感操作确认信息 */
 export interface ConfirmationInfo {
   confirmationId: string
   riskLevel: string
@@ -300,32 +248,24 @@ export interface ConfirmationInfo {
   pendingSteps: ConfirmationStep[]
 }
 
-// SSE 进度事件
-
-/** 后端已接管运行；断线后使用 runId 重新订阅，不重复创建任务。 */
+/** Resume via runId; do not create a new task. */
 export interface RunStartedEvent {
   type: 'run_started'
   runId: string
   sessionId?: string
 }
 
-/** 任务创建事件 */
 export interface TaskCreatedEvent {
   type: 'task_created'
   taskId: string
   message: string
   totalSteps: number
-  /** 各步骤的描述（用于展示执行计划） */
   stepDescriptions?: string[]
-  /** 队列位置，0=立即执行 */
   queuePosition?: number
-  /** 触发的技能 ID */
   skillId?: string
-  /** 触发的技能名称 */
   skillName?: string
 }
 
-/** 步骤开始事件 */
 export interface StepStartedEvent {
   type: 'step_started'
   stepId: string
@@ -333,13 +273,10 @@ export interface StepStartedEvent {
   totalSteps: number
   capabilityName: string
   description: string
-  /** 能力分类，用于显示角色图标 */
   capabilityCategory?: string
-  /** 重试次数（0=首次） */
   retryAttempt?: number
 }
 
-/** 步骤完成事件 */
 export interface StepCompletedEvent {
   type: 'step_completed'
   stepId: string
@@ -347,28 +284,22 @@ export interface StepCompletedEvent {
   success: boolean
   durationMs: number
   outputSummary?: string
-  /** 实际使用的模型层级 */
   tierUsed?: 'pro' | 'standard'
-  /** 是否经历了降级（Pro→Standard） */
   degraded?: boolean
-  /** 图片生成结果 URL */
   imageUrl?: string
-  /** 本步立刻执行的前端动作（不要等整份 recipe 结束） */
+  /** Run immediately; do not wait for the recipe. */
   frontendActions?: FrontendAction[]
 }
 
-/** 步骤重试事件（智能重试：分析错误后修改参数） */
 export interface StepRetryingEvent {
   type: 'step_retrying'
   stepId: string
   stepIndex: number
   retryCount: number
   maxRetries: number
-  /** 重试原因（错误分析结果） */
   reason: string
 }
 
-/** 进度更新事件 */
 export interface ProgressUpdateEvent {
   type: 'progress'
   progress: number
@@ -377,7 +308,6 @@ export interface ProgressUpdateEvent {
   message: string
 }
 
-/** 任务完成事件 */
 export interface TaskCompletedEvent {
   type: 'task_completed'
   taskId: string
@@ -385,7 +315,6 @@ export interface TaskCompletedEvent {
   response: AgentResponse
 }
 
-/** 等待用户输入事件 */
 export interface WaitingForInputEvent {
   type: 'waiting_for_input'
   taskId: string
@@ -398,7 +327,6 @@ export interface WaitingForInputEvent {
   defaultValue?: string
 }
 
-/** 错误事件 */
 export interface ErrorEvent {
   type: 'error'
   taskId?: string
@@ -406,14 +334,12 @@ export interface ErrorEvent {
   code: string
 }
 
-/** AI 总结流式 token 事件 */
 export interface SummaryTokenEvent {
   type: 'summary_token'
   token: string
   done: boolean
 }
 
-/** 模型思考链流式 token。进过程区，不进正文。 */
 export interface ThinkingTokenEvent {
   type: 'thinking_token'
   token: string
@@ -441,14 +367,12 @@ export interface MusicControlEvent {
   action: string
 }
 
-/** 任务分配事件（多 Agent 协作时发送） */
 export interface TaskAssignedEvent {
   type: 'task_assigned'
   taskId: string
   assignment: TaskAssignment
 }
 
-/** 主 Agent（Planner）决策调试事件 */
 export interface PlannerDecisionEvent {
   type: 'planner_decision'
   status: string
@@ -463,7 +387,6 @@ export interface PlannerDecisionEvent {
   userRequest: string
 }
 
-/** 子 Agent 步骤执行调试事件 */
 export interface StepDebugEvent {
   type: 'step_debug'
   stepId: string
@@ -479,7 +402,6 @@ export interface StepDebugEvent {
   error?: string
 }
 
-/** 任务分配详情 */
 export interface TaskAssignment {
   agents: AgentAssignment[]
   totalAgents: number
@@ -487,7 +409,6 @@ export interface TaskAssignment {
   tierMix: 'pro' | 'standard' | 'mixed'
 }
 
-/** 单个 Agent 分配 */
 export interface AgentAssignment {
   role: AgentRole
   agentId: string
@@ -497,7 +418,6 @@ export interface AgentAssignment {
   capabilities: string[]
 }
 
-/** Agent 角色 */
 export type AgentRole =
   | 'orchestrator'
   | 'data_worker'
@@ -505,19 +425,16 @@ export type AgentRole =
   | 'creative_worker'
   | 'system_worker'
 
-/** 会话创建/确认事件 */
 export interface SessionCreatedEvent {
   type: 'session_created'
   sessionId: string
 }
 
-/** 会话标题已生成事件 */
 export interface SessionTitleUpdatedEvent {
   type: 'session_title_updated'
   title: string
 }
 
-/** 所有进度事件类型 */
 export type ProgressEvent =
   | RunStartedEvent
   | TaskCreatedEvent
@@ -540,12 +457,8 @@ export type ProgressEvent =
   | PlannerDecisionEvent
   | StepDebugEvent
 
-/** 进度回调函数 */
 export type ProgressCallback = (event: ProgressEvent) => void
 
-// 数据展示
-
-/** 列定义 */
 export interface ColumnDef {
   field: string
   title: string
@@ -553,7 +466,6 @@ export interface ColumnDef {
   sortable: boolean
 }
 
-/** 数据展示类型提示 */
 export type DataDisplayHint =
   | { type: 'table'; columns: ColumnDef[]; dataPath?: string }
   | { type: 'chart'; chartType: string; xField: string; yField: string }
@@ -568,9 +480,6 @@ export type DataDisplayHint =
   | { type: 'timeline'; timeField: string; contentField: string }
   | { type: 'raw' }
 
-// 前端动作
-
-/** 前端动作类型 */
 export type FrontendActionType =
   | 'query_windows'
   | 'open_window'
@@ -591,7 +500,6 @@ export type FrontendActionType =
   | 'download_file'
   | 'show_report'
 
-/** 窗口目标 */
 export interface WindowTarget {
   windowId?: string
   tappId?: string
@@ -599,7 +507,6 @@ export interface WindowTarget {
   position?: 'active' | 'left' | 'right' | 'next' | 'previous' | 'all'
 }
 
-/** 页面元素目标 */
 export interface PageElementTarget {
   selector?: string
   testId?: string
@@ -609,20 +516,17 @@ export interface PageElementTarget {
   index?: number
 }
 
-/** 滚动选项 */
 export interface ScrollOptions {
   direction?: 'top' | 'bottom' | 'left' | 'right'
   offset?: number
   smooth?: boolean
 }
 
-/** 等待条件 */
 export interface WaitCondition {
   visible?: boolean
   timeout?: number
 }
 
-/** 阅读列表载荷 */
 export interface ReadingListPayload {
   items?: Array<{
     id: number
@@ -634,7 +538,6 @@ export interface ReadingListPayload {
   name?: string
 }
 
-/** 前端操作指令 */
 export interface FrontendAction {
   type: FrontendActionType
   target?: WindowTarget | PageElementTarget
@@ -643,45 +546,26 @@ export interface FrontendAction {
   interactionId?: string
   script?: string
   timestamp: number
-  /** Multi-window geometry (ignored by single-window navigate fallback) */
   size?: { width?: number; height?: number }
   position?: { x?: number; y?: number }
-  /** 操作数据 */
   data?: Record<string, unknown>
-  /** 导航路径 */
   path?: string
-  /** 路由参数 */
   params?: Record<string, unknown>
-  /** 查询参数 */
   query?: Record<string, unknown>
-  /** 完整路径 */
   fullPath?: string
-  /** 控制动作 */
   action?: string
-  /** 控制值 */
   value?: string | number | boolean
-  /** 是否替换历史记录 */
   replace?: boolean
-  /** 歌单ID */
   playlistId?: string
-  /** 音乐来源 */
   source?: string
-  /** 是否自动播放 */
   autoPlay?: boolean
   selector?: string
-  /** 滚动选项 */
   scrollOptions?: ScrollOptions
-  /** 等待条件 */
   waitFor?: WaitCondition
-  /** 阅读列表载荷 */
   payload?: ReadingListPayload
-  /** 筛选条件描述 */
   criteria?: string
 }
 
-// 能力定义
-
-/** 能力定义 */
 export interface Capability {
   id: string
   name: string
@@ -691,50 +575,36 @@ export interface Capability {
   requiresAi: boolean
 }
 
-// 任务预设
-
-/** 预设类型 */
 export type PresetType = 'favorite' | 'history'
 
-/** 任务预设 */
 export interface TaskPreset {
   id: number
   input: string
   presetType: PresetType
   parsedSteps?: unknown
   intentSummary?: string
-  /** 对话标题（用于继续对话时显示） */
   title?: string
-  /** 完整对话记录 - 支持「继续对话」模式 */
   conversationData?: ConversationMessage[]
-  /** 是否有可继续的对话（conversationData 非空） */
   hasConversation?: boolean
   lastUsedAt: string
   useCount: number
   createdAt: string
 }
 
-/** 任务预设列表响应 */
 export interface TaskPresetListResponse {
   favorites: TaskPreset[]
   history: TaskPreset[]
 }
 
-/** 创建任务预设请求 */
 export interface CreatePresetRequest {
   input: string
   presetType: PresetType
   parsedSteps?: unknown
   intentSummary?: string
-  /** 对话标题 */
   title?: string
-  /** 对话记录（用于保存完整对话以支持「继续对话」） */
   conversationData?: ConversationMessage[]
 }
 
-// 会话相关
-
-/** 对话消息（存储在 TaskPreset 中） */
 export interface ConversationMessage {
   role: 'user' | 'assistant' | 'system'
   content: string
@@ -742,7 +612,6 @@ export interface ConversationMessage {
   createdAt: string
 }
 
-/** 会话信息 */
 export interface SessionInfo {
   id: string
   mode?: 'work' | 'chat'
@@ -753,7 +622,6 @@ export interface SessionInfo {
   lastActiveAt: string
 }
 
-/** 会话消息 */
 export interface SessionMessage {
   id: number
   role: 'user' | 'assistant' | 'system'
@@ -763,20 +631,13 @@ export interface SessionMessage {
   createdAt: string
 }
 
-// 队列状态 (Phase 1A)
-
-/** 队列状态 */
 export interface QueueStatus {
   total_lanes: number
   max_concurrent: number
   available_permits: number
-  /** 正在排队等待许可的请求数 */
   waiting?: number
 }
 
-// Heartbeat (Phase 4)
-
-/** Heartbeat 定时任务 */
 export interface HeartbeatTask {
   id: string
   name: string
@@ -787,9 +648,6 @@ export interface HeartbeatTask {
   lastResult?: string
 }
 
-// 执行追踪
-
-/** 步骤追踪详情 */
 export interface StepTrace {
   stepId: string
   capabilityId: string
@@ -805,7 +663,6 @@ export interface StepTrace {
   isDynamic?: boolean
 }
 
-/** 执行追踪 */
 export interface ExecutionTrace {
   traceId: string
   totalDurationMs: number
@@ -824,9 +681,6 @@ export interface ExecutionTrace {
   }
 }
 
-// 记忆 (Phase 3)
-
-/** 记忆条目 */
 export interface MemoryEntry {
   id: string
   memoryType:
@@ -848,9 +702,6 @@ export interface MemoryEntry {
   relatedCapabilities?: string[]
 }
 
-// 技能 (Phase 2B)
-
-/** 技能信息 */
 export interface SkillInfo {
   id: string
   name: string
@@ -861,7 +712,3 @@ export interface SkillInfo {
   failureCount?: number
   tierHint?: 'pro' | 'standard'
 }
-
-// 中断/转向 (Phase 1A)
-
-// 多 Agent (Phase 6)

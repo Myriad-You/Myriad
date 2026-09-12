@@ -1,12 +1,3 @@
-/**
- * 一条消息。
- *
- * 助手说的话可能带着四样东西：走过的步骤、反过来问你的话、产出的图、答完之后的
- * 建议。**顺序是有讲究的** —— 过程在最上（读之前先知道它怎么来的），正文在中间，
- * 需要你动手的（问题、建议）在最下，因为那是读完之后才轮到的事。
- * 复制、收藏、重试不进气泡，统一挂在右侧外面。
- */
-
 import type { AgentMessage } from './agentMessages'
 import React, {
   useCallback,
@@ -31,7 +22,6 @@ import { invalidateComposerFavorites } from './composerFavorites'
 
 export interface AgentPanelMessageProps {
   message: AgentMessage
-  /** 点建议、点选项之外的重发 */
   onRetry?: () => void
   onAnswer: (messageId: string, answer: string) => void
   onSuggest: (text: string) => void
@@ -68,10 +58,7 @@ function useHeldOpen(open: boolean, holdMs: number): boolean {
   return open || held
 }
 
-/**
- * 高度只跟内部内容走。外框是写进去的，不能再拿来当目标，否则会越跟越大。
- * 动画过程不 setState，解开 auto 只发生一次，避免抖完再撑满整列。
- */
+/** Follow inner content height, never the written outer box. */
 function useBubbleHeight(open: boolean): {
   ref: React.RefObject<HTMLDivElement | null>
   growRef: React.RefObject<HTMLDivElement | null>
@@ -174,7 +161,6 @@ function useBubbleHeight(open: boolean): {
       }
       if (!running.current) {
         if (to < currentH.current - BUBBLE_SETTLE_PX) {
-          // 收的时候不要读已经跳矮的 visual，锁住上一帧的 currentH。
           el.style.height = `${currentH.current}px`
           el.style.overflow = 'hidden'
         }
@@ -219,11 +205,10 @@ export const AgentPanelMessage: React.FC<AgentPanelMessageProps> = React.memo(
         ?.writeText(message.content)
         .then(() => {
           setCopied(true)
-          // 只是给个「收到」的回执，不需要一直亮着
           setTimeout(setCopied, 1600, false)
         })
         .catch(() => {
-          // 剪贴板被浏览器挡住时不谎报成功
+          /* clipboard blocked */
         })
     }, [message.content])
 
@@ -318,7 +303,6 @@ export const AgentPanelMessage: React.FC<AgentPanelMessageProps> = React.memo(
                         </div>
                       ) : null}
                       {message.content ? (
-                        // 用户自己打的字不当 Markdown 认 —— 他写的星号就是星号
                         <p className="agent-md-p">{message.content}</p>
                       ) : null}
                     </>

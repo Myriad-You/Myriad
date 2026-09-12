@@ -1,13 +1,4 @@
-/**
- * Host-side save-as for Tapp.file.download.
- *
- * Modes (exactly one source):
- * - `content`: UTF-8 text the sandbox already holds
- * - `url`: this site's image-cache or public 3D asset path (host fetches;
- *   sandbox connect-src cannot). Arbitrary http(s) is rejected (SSRF).
- * - `base64`: binary the sandbox already holds (TTS audio, data URLs, blob
- *   reads). The iframe has no allow-downloads.
- */
+/** content / 本站生成资源 url / base64。任意 http(s) 拒绝。iframe 无 allow-downloads。 */
 
 export const FILE_DOWNLOAD_CONTENT_MAX_BYTES = 32 * 1024 * 1024
 export const FILE_DOWNLOAD_BLOB_MAX_BYTES = 32 * 1024 * 1024
@@ -43,7 +34,6 @@ function sitePathFromUrl(url: string): string | null {
   return null
 }
 
-/** Resolve a public generated-asset URL to the site-relative path the host may fetch. */
 export function parseHostDownloadUrl(url: string): HostDownloadRef | null {
   const path = sitePathFromUrl(url)
   if (!path) return null
@@ -130,7 +120,6 @@ function nestedGeneratedUrl(raw: Record<string, unknown>): string | undefined {
   return undefined
 }
 
-/** Flatten TTS / AI task / model3d getUrl result objects into one source. */
 export function normalizeFileDownloadOptions(
   raw: unknown,
 ): FileDownloadOptions | null {
@@ -164,7 +153,7 @@ export function decodeDownloadBase64(
     mimeType = dataUrl[1]
     payload = dataUrl[2]
   }
-  const compact = payload.replace(/\s/g, '')
+  const compact = payload.replaceAll(/\s/g, '')
   if (!compact) return null
   try {
     const binary = atob(compact)

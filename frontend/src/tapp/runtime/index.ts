@@ -1,21 +1,14 @@
-/**
- * Tapp Runtime 模块导出
- */
-
-// 类型导出
 export type {
   SafeInsets,
   TappNotificationOptions,
   SandboxMode as TappSandboxMode,
   WidgetRenderProps,
 } from './sandbox'
-// 资源加载
 export {
   getResourceLoader,
   loadWidgetResources,
 } from './sandbox/resourceLoader'
 export { createTappBridge, TappBridge } from './TappBridge'
-// 沙箱组件
 export { TappPageSandbox } from './TappPageSandbox'
 
 export type { TappPageSandboxProps } from './TappPageSandbox'

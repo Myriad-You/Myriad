@@ -23,7 +23,8 @@ use super::validate::{
     validate_endpoint_settings,
 };
 use super::{
-    denial, strip_api_version, validate_identifier, GuardState, DOCKER_API_TIMEOUT, SELF_UPDATE_GATE,
+    denial, strip_api_version, validate_identifier, GuardState, DOCKER_API_TIMEOUT,
+    SELF_UPDATE_GATE,
 };
 
 const MAX_REQUEST_BODY: usize = 1024 * 1024;
@@ -211,7 +212,10 @@ async fn authorize_network_mutation(
     Ok(())
 }
 
-pub(crate) async fn discover_host_compose_root(socket: &Path, container_id: &str) -> Result<PathBuf> {
+pub(crate) async fn discover_host_compose_root(
+    socket: &Path,
+    container_id: &str,
+) -> Result<PathBuf> {
     validate_identifier(container_id).map_err(anyhow::Error::msg)?;
     let value = daemon_json(socket, &format!("/containers/{container_id}/json")).await?;
     let mounts = value

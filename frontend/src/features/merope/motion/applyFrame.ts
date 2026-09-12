@@ -24,10 +24,7 @@ export function createMotionApplyState(): MotionApplyState {
   }
 }
 
-/**
- * The only production writer. Sources never call the rig; each mounted
- * face consumes the same frame through this function.
- */
+/** The only production writer. */
 export function applyMotionFrame(
   rig: Pick<
     RigMotionPort,
@@ -51,15 +48,6 @@ export function applyMotionFrame(
   onRealizer?: (feedback: MotionRealizerFeedback) => void,
 ): MotionApplyState {
   // Writes come in three kinds and only one of them is motion.
-  //
-  //   standing — ownership, the bearing held between behaviors, and mood;
-  //   signals  — the speech and audio streams the mouth and groove generators
-  //              consume, which carry no pose of their own;
-  //   behavior — the single path that puts transient motion on the body.
-  //
-  // A second behavior path would be a second scheduler, which is the thing the
-  // behavior protocol exists to prevent. Signals are not that: a signal and a
-  // line of text are inputs, and they compete for nothing.
   applyStanding(rig, frame, state)
   applySignals(rig, frame, state)
   applyBehaviorPlan(rig, frame, state, onRealizer)
@@ -76,7 +64,6 @@ function applyStanding(
   if (frame.mood) rig.setMood(frame.mood.mood, frame.mood.activity)
 }
 
-/** Music writes last: it may take the mouth that speech just claimed. */
 function applySignals(
   rig: Pick<
     RigMotionPort,
@@ -157,7 +144,6 @@ function applySpeech(
   }
 }
 
-/** Same utterance may be revised as alignment evidence arrives. */
 function speechProsodyKey(
   prosody: import('../speech/prosody').SpeechProsodyPlan | null,
 ): string | null {

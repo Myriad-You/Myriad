@@ -32,14 +32,14 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(BrewSources::Name).string_len(255).not_null())
                     // 订阅源 URL
                     .col(ColumnDef::new(BrewSources::Url).text().not_null())
-                    // 订阅源类型: rss, atom, json_feed
+                    // varchar(20) NOT NULL default rss；本 migration 无 CHECK
                     .col(
                         ColumnDef::new(BrewSources::FeedType)
                             .string_len(20)
                             .not_null()
                             .default("rss"),
                     )
-                    // 来源类型: link(纯链接), rss(RSS订阅), brewlia(AI增强订阅)
+                    // varchar(20) NOT NULL default rss；本 migration 无 CHECK
                     .col(
                         ColumnDef::new(BrewSources::SourceType)
                             .string_len(20)
@@ -95,7 +95,7 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(0),
                     )
-                    // 卡片显示尺寸: full, mini
+                    // optional varchar(20)；本 migration 无 CHECK
                     .col(ColumnDef::new(BrewSources::CardSize).string_len(20))
                     // 主题颜色
                     .col(ColumnDef::new(BrewSources::ThemeColor).string_len(20))
@@ -200,7 +200,7 @@ impl MigrationTrait for Migration {
                     )
                     // 关联订阅源
                     .col(ColumnDef::new(BrewItems::SourceId).integer().not_null())
-                    // RSS guid / Atom id（唯一标识）
+                    // varchar(512) NOT NULL
                     .col(ColumnDef::new(BrewItems::Guid).string_len(512).not_null())
                     // 文章标题
                     .col(ColumnDef::new(BrewItems::Title).text().not_null())
@@ -246,13 +246,19 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(false),
                     )
-                    // 预定义主题 key（关键词或 AI 离线写入）。NULL = 未分类，
-                    // 聚类侧靠 NULL 把文章留在源磁贴里，不建「其他」桶。
+                    // nullable text；本 migration 无 CHECK
                     .col(ColumnDef::new(BrewItems::Topic).text())
                     // 手记原文（Markdown）。只有 source_type = note 的源下的
                     // 条目有值；抓来的文章恒为 NULL。`content` 存的是渲染后的
                     // HTML，全站只认它 —— 阅读器、RSS、联邦、SEO 都读 content。
                     .col(ColumnDef::new(BrewItems::ContentMd).text())
+                    // 正文版本。已有库由 schema_check 补列和触发器。
+                    .col(
+                        ColumnDef::new(BrewItems::ContentRevision)
+                            .big_integer()
+                            .not_null()
+                            .default(1),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -297,8 +303,8 @@ impl MigrationTrait for Migration {
             .await?;
 
         // 索引：主题过滤。绝大多数行的 topic 是 NULL，做成部分索引。
-        // 与 `schema_check::ensure_brew_item_topic_index` 的 DDL 必须一字不差 ——
-        // 通用索引路径不支持 WHERE 子句，两边形状不一致就会一直报漂移。
+        // 与 `ensure_brew_item_topic_index` 的 DDL 必须一字不差；不进
+        // `get_expected_indexes`（通用路径没有 WHERE）。
         manager
             .get_connection()
             .execute_unprepared(
@@ -352,12 +358,19 @@ impl MigrationTrait for Migration {
                     )
                     // 阅读时间
                     .col(ColumnDef::new(BrewUserStates::ReadAt).timestamp_with_time_zone())
-                    // 阅读进度 (0.0 - 1.0)
+                    // 阅读进度 float；本 migration 无 CHECK
                     .col(ColumnDef::new(BrewUserStates::ReadProgress).float())
                     // 收藏时间
                     .col(ColumnDef::new(BrewUserStates::StarredAt).timestamp_with_time_zone())
                     // 用户笔记
                     .col(ColumnDef::new(BrewUserStates::Notes).text())
+                    // 阅读状态版本。已有库由 schema_check 补列和触发器。
+                    .col(
+                        ColumnDef::new(BrewUserStates::Revision)
+                            .big_integer()
+                            .not_null()
+                            .default(1),
+                    )
                     // 更新时间
                     .col(
                         ColumnDef::new(BrewUserStates::UpdatedAt)
@@ -495,7 +508,7 @@ impl MigrationTrait for Migration {
                     )
                     // 关联文章 ID
                     .col(ColumnDef::new(BrewAnnotations::ItemId).integer().not_null())
-                    // 注释类型: term, reference, implicit, context, abbreviation
+                    // varchar(20) NOT NULL default term；本 migration 无 CHECK
                     .col(
                         ColumnDef::new(BrewAnnotations::AnnotationType)
                             .string_len(20)
@@ -644,7 +657,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(BrewComments::ContextAfter).text())
                     // 评论颜色标记
                     .col(ColumnDef::new(BrewComments::Color).string_len(20))
-                    // 是否公开（预留）
+                    // 是否公开，默认 false
                     .col(
                         ColumnDef::new(BrewComments::IsPublic)
                             .boolean()
@@ -653,6 +666,8 @@ impl MigrationTrait for Migration {
                     )
                     // 父评论 ID（用于嵌套回复，NULL 表示顶级评论）
                     .col(ColumnDef::new(BrewComments::ParentId).integer())
+                    // 创建时的正文版本（可空）
+                    .col(ColumnDef::new(BrewComments::ContentRevision).big_integer())
                     // 创建时间
                     .col(
                         ColumnDef::new(BrewComments::CreatedAt)
@@ -760,7 +775,7 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(true),
                     )
-                    // 健康状态: healthy, degraded, unhealthy, unknown
+                    // varchar(20) NOT NULL default unknown；本 migration 无 CHECK
                     .col(
                         ColumnDef::new(RsshubInstances::HealthStatus)
                             .string_len(20)
@@ -826,7 +841,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // 索引：按优先级和健康状态查询可用实例
+        // 索引：`(user_id, enabled, priority)`
         manager
             .create_index(
                 Index::create()
@@ -979,6 +994,7 @@ enum BrewItems {
     FulltextFetched,
     Topic,
     ContentMd,
+    ContentRevision,
 }
 
 #[derive(DeriveIden)]
@@ -993,6 +1009,7 @@ enum BrewUserStates {
     ReadProgress,
     StarredAt,
     Notes,
+    Revision,
     UpdatedAt,
 }
 
@@ -1048,6 +1065,7 @@ enum BrewComments {
     Color,
     IsPublic,
     ParentId,
+    ContentRevision,
     CreatedAt,
     UpdatedAt,
 }

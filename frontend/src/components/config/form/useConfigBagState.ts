@@ -31,7 +31,7 @@ export function useConfigBagState(
         auto_fetch: data.auto_fetch || DEFAULT_AUTO_FETCH_CONFIG,
       }
       setConfig(normalizedData)
-      setInitialConfig(JSON.parse(JSON.stringify(normalizedData)))
+      setInitialConfig(structuredClone(normalizedData))
       notifyDirtyState(false)
       window.dispatchEvent(new CustomEvent('config-loaded', { detail: data }))
     } catch {
@@ -52,10 +52,9 @@ export function useConfigBagState(
       const sectionKey = `${section}_config` as
         'ai_config' | 'tripo_config' | 'ui_config'
       const sanitized = sanitizeMaskedFieldValue(value)
-      // 用 ref 在同步 updater 内标记是否真正改到字段（避免闭包依赖 config）
+      // mark in the updater via ref; don't close over config
       let applied = false
 
-      // 函数式更新：连续改多个字段（切换 Provider 时写 provider+base+model）不会互相覆盖
       setConfig((prev) => {
         if (!prev) return prev
         const sectionConfig = prev[sectionKey]
@@ -101,7 +100,6 @@ export function useConfigBagState(
           return { ...prev, [sectionKey]: nextPrevSection }
         })
       } else if (applied) {
-        // React 18 同步执行 updater，applied 此处可读
         notifyDirtyState(true)
       }
     },
@@ -111,7 +109,7 @@ export function useConfigBagState(
   const updateFieldValue = useCallback(
     (platformIndex: number, fieldKey: string, value: string) => {
       if (!config) return
-      const newPlatforms = [...config.platforms]
+      const newPlatforms = Iterator.from(config.platforms).toArray()
       const field = newPlatforms[platformIndex].config_fields.find(
         (f) => f.key === fieldKey,
       )
@@ -148,7 +146,7 @@ export function useConfigBagState(
   const togglePlatform = useCallback(
     (platformIndex: number) => {
       if (!config) return
-      const newPlatforms = [...config.platforms]
+      const newPlatforms = Iterator.from(config.platforms).toArray()
       newPlatforms[platformIndex].enabled = !newPlatforms[platformIndex].enabled
       setConfig({ ...config, platforms: newPlatforms })
       notifyDirtyState(true)
@@ -177,9 +175,11 @@ export function useConfigBagState(
       ) {
         return
       }
-      const newPlatforms = [...config.platforms]
-      const [moved] = newPlatforms.splice(fromIndex, 1)
-      newPlatforms.splice(toIndex, 0, moved)
+      const moved = config.platforms[fromIndex]
+      if (moved === undefined) return
+      const newPlatforms = config.platforms
+        .toSpliced(fromIndex, 1)
+        .toSpliced(toIndex, 0, moved)
       setConfig({ ...config, platforms: newPlatforms })
       notifyDirtyState(true)
     },

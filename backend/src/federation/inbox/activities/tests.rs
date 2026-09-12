@@ -242,7 +242,6 @@ fn accept_ambiguous_id_hits_on_same_host_no_silent_pick() {
         &candidates,
     );
     assert!(got.is_none());
-    // Same user but two candidate rows with same normalized id → ambiguous.
     let got2 = resolve_follow_accept_target(
         "https://a.example/activities/1",
         "https://b.example/users/bob",
@@ -707,8 +706,7 @@ fn resolve_follow_accept_prefers_actor_auth_over_host_only() {
             "https://b.example/users/bob".into()
         ))
     );
-    // Carol citing bob's id must fail when she has no own pending row
-    // (if she also has a pending, empty-id fallback could match her).
+    // Carol citing bob's id must fail when she has no own pending row.
     let bob_only = vec![candidates[0].clone()];
     assert!(resolve_follow_accept_target(
         "https://a.example/activities/1",

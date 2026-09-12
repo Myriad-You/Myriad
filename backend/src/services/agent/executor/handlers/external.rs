@@ -408,7 +408,7 @@ async fn execute_proxy_image(params: &HashMap<String, Value>) -> Result<Value, S
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
 
-    // Dual-path: only hotlink hosts rewrite to proxy; others keep original URL.
+    // Hotlink hosts → /api/proxy/image; other http:// and // upgrade to https.
     let proxy_url = myriad_image_proxy::proxy_image_url(url);
 
     Ok(json!({
@@ -638,7 +638,7 @@ async fn execute_web_scrape(params: &HashMap<String, Value>) -> Result<Value, St
         .and_then(|s| document.select(&s).next())
         .map(|el| el.text().collect::<String>().trim().to_string());
 
-    // 移除 script/style 标签后提取文本
+    // Extract text; skip nodes whose direct parent is script|style|noscript|svg|iframe.
     let sel = scraper::Selector::parse(selector_str)
         .map_err(|_| format!("Invalid CSS selector: {}", selector_str))?;
 

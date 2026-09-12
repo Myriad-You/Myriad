@@ -12,7 +12,6 @@ class RecordingSink implements AgentFaceSink {
   readonly utterances: SpeechUtteranceInput[] = []
   readonly performances: unknown[] = []
   readonly states: unknown[] = []
-  /** 按发生顺序记录，用来断言表演与说话的先后。 */
   readonly order: string[] = []
 
   speech = (detail: MeropeSpeechEventDetail): void => {
@@ -165,7 +164,6 @@ test('the spoken ledger stays bounded', () => {
   for (let index = 0; index < 220; index += 1) {
     channel.deliver({ messageId: `msg-${index}`, text: `第 ${index} 句` })
   }
-  // 最早的记录已被丢弃，同一句可以再说一次；最近的仍然去重。
   channel.deliver({ messageId: 'msg-0', text: '第 0 句' })
   channel.deliver({ messageId: 'msg-219', text: '第 219 句' })
   assert.equal(sink.utterances.length, 221)
@@ -176,7 +174,7 @@ test('proactive lines share the ledger without colliding with replies', () => {
   const sink = new RecordingSink()
   const channel = new AgentFaceChannel(sink)
 
-  // 通知与回复是两套 id 空间：同样的正文互不遮挡。
+  // 通知与回复 id 空间互不遮挡。
   channel.deliver({
     messageId: 'notif-1',
     text: '报告生成好了',
@@ -191,7 +189,6 @@ test('proactive lines share the ledger without colliding with replies', () => {
     ],
   )
 
-  // 同一条通知重复投递不再说第二遍。
   channel.deliver({
     messageId: 'notif-1',
     text: '报告生成好了',

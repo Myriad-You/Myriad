@@ -1,5 +1,7 @@
 # Agent 运输适配层
 
+当前实现的模块划分、撤销与恢复保证见 [私聊通道生命周期](../development/AGENT_CHANNELS.md)。
+
 外部聊天软件走进站点已经存在的办事流水线，结果回到原来那条聊天。
 不是另造一个 bot 大脑，也不是把 Telegram / QQ 的线程 id 漏进 Planner。
 

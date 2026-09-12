@@ -198,8 +198,7 @@ impl NeteaseService {
                         }
                     }
 
-                    // 处理大歌单（超过1000首）- 使用串行批量获取
-                    // 优化：改为串行处理，减少内存峰值和 OOM 风险
+                    // 处理大歌单（超过1000首）：串行批量获取，限制 `MAX_TRACKS_LIMIT`。
                     if track_count > loaded_tracks && loaded_tracks >= 1000 {
                         // 内存保护：限制最大获取数量，避免 OOM
                         let effective_track_count = std::cmp::min(track_count, MAX_TRACKS_LIMIT);
@@ -212,7 +211,7 @@ impl NeteaseService {
                         );
 
                         if let Some(track_ids_array) = track_ids {
-                            // 改进：不再克隆 tracks_array，直接收集新歌曲
+                            // 不克隆已加载曲目，只按 `track_ids_array` 补齐
                             let batch_size = 200; // 批次大小
                             let target_count =
                                 std::cmp::min(track_ids_array.len(), effective_track_count);
@@ -291,7 +290,7 @@ impl NeteaseService {
                                                 if batch_data.get("code").and_then(|c| c.as_i64()) == Some(200) {
                                                     if let Some(songs) = batch_data.get("songs").and_then(|s| s.as_array()) {
                                                         for song in songs {
-                                                            // 只提取必要字段，减少内存
+                                                            // `fee` → `isVip`；整首 `clone` 进列表
                                                             let fee = song.get("fee").and_then(|f| f.as_i64()).unwrap_or(0);
                                                             let is_vip = fee == 1 || fee == 4;
                                                             if is_vip {

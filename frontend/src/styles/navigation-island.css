@@ -1,13 +1,8 @@
-/* ============================================
-   导航岛样式 (Dynamic Island)
-   从 index.astro 提取
-
-   布局由 html[data-nav-layout="mobile|desktop"] 驱动（见 utils/navLayout.ts）。
-   宽度 media 仅作 FOUC 回退；平板触控段 (768–1023) 以 data 属性为准，
-   避免 iPad 竖屏被错判成桌面侧轨。
-   ============================================ */
-
-/* 导航容器 — 默认底栏（mobile-first） */
+/*
+ * Layout is html[data-nav-layout="mobile|desktop"] (utils/navLayout.ts).
+ * Width media is FOUC fallback only; tablet touch (768–1023) follows the
+ * data attribute so iPad portrait is not treated as a desktop rail.
+ */
 .nav-container {
   position: fixed;
   inset: auto auto 1rem 50%;
@@ -15,7 +10,7 @@
   z-index: 50;
 }
 
-/* FOUC：宽屏先按侧轨摆，等 data-nav-layout 校正平板触控 */
+/* FOUC: wide viewports start as a rail until data-nav-layout corrects tablet touch. */
 @media (width >= 768px) {
   .nav-container {
     left: 1.5rem;
@@ -25,7 +20,7 @@
   }
 }
 
-/* 权威：JS 写入的 layout token（覆盖 media，修平板/切换残留） */
+/* JS layout token beats media (tablet / leftover switch). */
 html[data-nav-layout='mobile'] .nav-container {
   inset: auto auto 1rem 50%;
   inset: auto auto 1rem 50%;
@@ -47,7 +42,7 @@ html[data-nav-layout='desktop'] .nav-container {
 .nav-container[data-nav-switch='in'] {
   pointer-events: none !important;
 
-  /* Override auto-hide inline transition during morph */
+  /* Override auto-hide inline transition during the morph. */
   transition:
     opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1),
     transform 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
@@ -57,7 +52,7 @@ html[data-nav-layout='desktop'] .nav-container {
   opacity: 0 !important;
 }
 
-/* Tuck toward the edge that owns the chrome (still on OLD layout token) */
+/* Tuck toward the edge that still owns the chrome (outgoing layout token). */
 html[data-nav-layout='mobile'] .nav-container[data-nav-switch='out'] {
   transform: translateX(-50%) translateY(14px) scale(0.96) !important;
 }
@@ -102,7 +97,7 @@ html[data-nav-layout='desktop'] .nav-container[data-nav-switch='in'] {
   }
 }
 
-/* Prefer reduced motion: snap without multi-phase morph length */
+/* prefers-reduced-motion: snap; no multi-phase morph. */
 @media (prefers-reduced-motion: reduce) {
   .nav-container[data-nav-switch='out'],
   .nav-container[data-nav-switch='in'] {
@@ -119,7 +114,7 @@ html[data-nav-layout='desktop'] .nav-container[data-nav-switch='in'] {
   }
 }
 
-/* exlight 可以没有 prefers-reduced-motion（弱硬件低档），同样硬切 */
+/* exlight may lack prefers-reduced-motion (weak hardware, low tier); snap too. */
 html[data-perf-mode='exlight'] .nav-container[data-nav-switch='out'],
 html[data-perf-mode='exlight'] .nav-container[data-nav-switch='in'] {
   transition: opacity 0.01ms !important;
@@ -134,7 +129,6 @@ html[data-perf-mode='exlight'] .nav-container[data-nav-switch='in'] {
   opacity: 1 !important;
 }
 
-/* Dynamic Island - 主岛 */
 .dynamic-island {
   background: var(--chrome-sheen), var(--chrome-fill);
   backdrop-filter: blur(20px);
@@ -166,7 +160,6 @@ html[data-perf-mode='exlight'] .dynamic-island {
   backdrop-filter: none;
 }
 
-/* 流动渐变边框（自 astro 页面级样式迁移，原双份声明已删） */
 .dynamic-island::before {
   content: '';
   position: absolute;
@@ -192,10 +185,7 @@ html[data-perf-mode='exlight'] .dynamic-island {
   transition: opacity 0.3s ease;
 }
 
-/*
- * Hover 仅限真悬停设备。触屏点按会“粘住”:hover，
- * 岛体发亮 / 项放大残留到下次点别的地方，观感很差。
- */
+/* Hover only on true hover devices. Touch would stick :hover (glow / scale) until the next tap. */
 @media (hover: hover) {
   .dynamic-island:hover {
     background: var(--chrome-sheen), var(--chrome-fill-hover);
@@ -229,7 +219,6 @@ html[data-perf-mode='exlight'] .dynamic-island {
   }
 }
 
-/* 桌面端纵向岛限高 */
 @media (width >= 768px) {
   .dynamic-island {
     max-height: 85vh;
@@ -244,14 +233,12 @@ html[data-nav-layout='mobile'] .dynamic-island {
   max-height: none;
 }
 
-/* 折叠状态 */
 .dynamic-island.collapsed {
   padding: 10px;
 }
 
-/* 折叠态过渡（历史 API，当前组件未使用 collapsed class）
- * 注意：默认态不要写 transform，否则会与移动端内层横向滚动叠在同一
- * 合成层上，加重滑动残影。transform 仅在真正折叠时施加。 */
+/* Default state must not set transform — it shares a compositing layer with
+ * mobile inner horizontal scroll and worsens smear. Apply transform only when .collapsed. */
 .dynamic-island > .nav-island-scroll,
 .dynamic-island > div:first-child {
   transition:
@@ -268,7 +255,6 @@ html[data-nav-layout='mobile'] .dynamic-island {
   position: absolute;
 }
 
-/* 导航项 */
 .nav-item {
   position: relative;
   padding: 12px;
@@ -322,14 +308,12 @@ html.dark .nav-item:active {
   }
 }
 
-/* 焦点状态（键盘导航，自 astro 迁移） */
 .nav-item:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 4px;
   border-radius: 18px;
 }
 
-/* 选中状态 — 默认桌面：左侧圆点 */
 [aria-current='page'].nav-item {
   color: var(--color-primary);
   background: color-mix(in srgb, var(--color-primary) 15%, white);
@@ -362,7 +346,6 @@ html.dark [aria-current='page'].nav-item::after {
   box-shadow: 0 0 8px color-mix(in srgb, var(--color-primary) 60%, transparent);
 }
 
-/* 移动底栏：选中点在下方 */
 @media (width <= 767px) {
   [aria-current='page'].nav-item::after {
     left: 50%;
@@ -386,7 +369,6 @@ html[data-nav-layout='desktop'] [aria-current='page'].nav-item::after {
   transform: translateY(-50%);
 }
 
-/* 导航组 */
 .nav-group {
   display: flex;
   flex-direction: row;
@@ -407,7 +389,6 @@ html[data-nav-layout='desktop'] .nav-group {
   flex-direction: column;
 }
 
-/* 一二级分隔线：底栏竖线 / 侧轨横线 */
 .nav-island-divider {
   width: 1px;
   height: 1.5rem;
@@ -433,32 +414,30 @@ html[data-nav-layout='desktop'] .nav-island-divider {
   height: 1px;
 }
 
-/* 移动端 / 触控底栏外观 */
 @media (width <= 767px) {
   .dynamic-island {
-    /* 外层只留薄边；垂直呼吸空间交给 .nav-island-scroll 内边距 */
+    /* Thin outer pad; vertical breathing room is .nav-island-scroll padding. */
     padding: 4px 6px;
     max-width: calc(100vw - 2rem);
     display: flex;
     flex-direction: row;
     align-items: center;
 
-    /* 圆角裁剪与毛玻璃同层；滚动见 .nav-island-scroll（AppLayout.css） */
+    /* Clip radius on the same layer as the glass; scroll is .nav-island-scroll (AppLayout.css). */
     overflow: hidden;
   }
 
-  /* 渐变边框动画降档：省电，静态呈现 */
+  /* Static gradient border on mobile — skip the looping animation. */
   .dynamic-island::before {
     animation: none;
     opacity: 0.6;
   }
 
-  /* 图标间距（压过 Tailwind gap-1 的 4px） */
+  /* gap 6px, not Tailwind gap-1. */
   .dynamic-island > .nav-island-scroll {
     gap: 6px;
   }
 
-  /* 交互元素禁用文本选择 */
   .dynamic-island,
   .nav-item,
   button {
@@ -467,7 +446,7 @@ html[data-nav-layout='desktop'] .nav-island-divider {
   }
 }
 
-/* 平板触控等：data=mobile 时强制底栏 chrome（覆盖 ≥768 的 FOUC 桌面规则） */
+/* data=mobile forces bar chrome over the ≥768 FOUC desktop rules (tablet touch). */
 html[data-nav-layout='mobile'] .dynamic-island {
   padding: 4px 6px;
   max-width: calc(100vw - 2rem);
@@ -493,14 +472,14 @@ html[data-nav-layout='mobile'] .nav-container button {
   -webkit-touch-callout: none;
 }
 
-/* 桌面侧轨：恢复常规内边距（清掉 mobile padding 残留） */
+/* Desktop rail: restore padding (clear leftover mobile padding). */
 html[data-nav-layout='desktop'] .dynamic-island {
   padding: 10px;
   max-width: 95vw;
   display: block;
   flex-direction: unset;
 
-  /* width 由 AppLayout.css 的 65px 控制；勿在此写 auto */
+  /* Width is 65px in AppLayout.css; do not set auto here. */
   overflow: hidden;
 }
 
@@ -517,7 +496,6 @@ html[data-nav-layout='desktop'] .dynamic-island::before {
   }
 }
 
-/* 小屏收紧（自 astro 迁移） */
 @media (width <= 480px) {
   .dynamic-island > .nav-island-scroll {
     gap: 4px;
@@ -540,7 +518,6 @@ html[data-nav-layout='desktop'] .dynamic-island::before {
   }
 }
 
-/* 安全区域适配（刘海屏/底部指示条） */
 @supports (padding: env(safe-area-inset-bottom)) {
   @media (width <= 767px) {
     .nav-container {
@@ -557,11 +534,7 @@ html[data-nav-layout='desktop'] .dynamic-island::before {
   }
 }
 
-/*
- * 触屏：仅保留按下反馈。
- * 岛 / 导航项 :hover 已包在 @media (hover: hover) 内，
- * 点按不会再粘住高亮或 scale（旧逻辑只清了一部分，仍会残留）。
- */
+/* Touch: press feedback only. Island / item :hover is inside @media (hover: hover). */
 @media (hover: none) and (pointer: coarse) {
   .nav-item:active {
     transform: scale(0.95);
@@ -569,18 +542,16 @@ html[data-nav-layout='desktop'] .dynamic-island::before {
     transition-duration: 0.1s;
   }
 
-  /* 触摸反馈（自 astro 迁移） */
   .dynamic-island:active {
     transform: scale(0.98);
   }
 
-  /* 桌面侧轨在触控大屏上：勿给整个岛 scale（会与 translateY 定位打架） */
+  /* Desktop rail on a large touch screen: do not scale the island (fights translateY). */
   html[data-nav-layout='desktop'] .dynamic-island:active {
     transform: none;
   }
 }
 
-/* 沉浸模式 - 隐藏导航岛 */
 .nav-container.immersive {
   opacity: 0 !important;
   pointer-events: none !important;
@@ -598,4 +569,4 @@ html[data-nav-layout='desktop'] .dynamic-island::before {
   backdrop-filter: none !important;
 }
 
-/* 教程不得把沉浸态导航岛拉回来：首页编辑会藏岛，编辑教程也不讲导航。 */
+/* Tutorials must not unhide an immersive island: home edit hides it, and the edit tutorial does not cover nav. */

@@ -21,9 +21,7 @@ impl MetadataService {
 
     /// 保存或更新平台元数据，并记录内部差异和用户可读活动。
     ///
-    /// 所有平台共用同一条 upsert 路径。PostgreSQL JSONB 可以直接保存当前规模的
-    /// 平台快照；旧 BatchSaver 只识别 `liked_songs`，会让其他大平台绕过
-    /// 变化检测并重复插入 `platform_metadata`。
+    /// 所有平台共用同一条 upsert 路径。PostgreSQL JSONB 保存完整快照。
     pub async fn save_platform_metadata(
         &self,
         user_id: i32,
@@ -65,7 +63,7 @@ impl MetadataService {
 
                 tracing::info!("   Detected {} field changes", changed_fields.len());
 
-                // 更新现有记录（使用截断后的数据）
+                // 更新现有记录（完整 `raw_data` 克隆）
                 let mut active_model: platform_metadata::ActiveModel = old_metadata.clone().into();
                 active_model.raw_data = Set(data_to_save.clone());
                 active_model.fetched_at = Set(now);
@@ -89,7 +87,7 @@ impl MetadataService {
                 Ok(metadata_id)
             }
             None => {
-                // 创建新记录（使用截断后的数据）
+                // 创建新记录（完整 `raw_data` 克隆）
                 let new_metadata = platform_metadata::ActiveModel {
                     user_id: Set(user_id),
                     platform_name: Set(platform_name.to_string()),
@@ -126,7 +124,7 @@ impl MetadataService {
 
     /// 检测两个JSON对象之间的变化
     /// 对于大型数据结构，使用迭代而非递归以避免栈溢出
-    /// 优化：对超大数组（如歌曲列表）只检测数量变化，避免逐项比较导致OOM
+    /// 超大数组（len>200）不展开字段路径；等长时仍做整数组相等比较。
     fn detect_changes(&self, old_data: &Value, new_data: &Value) -> Vec<String> {
         let mut changed_fields = Vec::new();
 
@@ -196,7 +194,7 @@ impl MetadataService {
                     const MAX_ARRAY_COMPARE: usize = 50; // 数组最多比较前50个元素
 
                     // 大数组不展开字段路径，但内容变化仍必须触发语义事件。
-                    // 上层 Object 比较已经确认数组不同，这里只记一个轻量标记。
+                    // 超大数组不展开字段路径，只记长度/内容变化标记。
                     if old_arr.len() > 200 || new_arr.len() > 200 {
                         if old_arr.len() != new_arr.len() {
                             changed_fields.push(format!(
@@ -248,7 +246,7 @@ impl MetadataService {
                     }
                 }
                 _ => {
-                    // 基本类型变化
+                    // 其余形状（标量或混型）；根级空 prefix 不记。
                     if old != new && !prefix.is_empty() {
                         changed_fields.push(prefix);
                     }
@@ -259,13 +257,7 @@ impl MetadataService {
         changed_fields
     }
 
-    /// 记录元数据变化历史
-    /// 彻底优化：历史记录只保存变化字段列表和摘要，不保存完整数据
-    ///
-    /// 设计理念：
-    /// - metadata_history 用于记录"什么字段变化了"，而不是"完整的数据是什么"
-    /// - 完整数据已经保存在 platform_metadata 表中，通过 metadata_id 关联
-    /// - 对于超大数据集(如1919首歌曲)，只保存统计摘要，避免OOM和数据库膨胀
+    /// 记录元数据变化历史。`< 50KB` 存完整 JSON；`>= 50KB` 只存变化摘要。完整库仍在 `platform_metadata`。
     async fn record_metadata_change(
         &self,
         metadata_id: i32,
@@ -275,8 +267,8 @@ impl MetadataService {
         old_data: Option<Value>,
         new_data: Value,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // 彻底方案：默认不保存完整数据，只保存变化摘要
-        const MAX_SUMMARY_SIZE: usize = 50_000; // 50KB 摘要限制(远小于原来的256KB)
+        // 输入体积开关：>= 此值只存摘要
+        const MAX_SUMMARY_SIZE: usize = 50_000;
 
         let now = Utc::now().naive_utc();
         let activity = build_activity_payload(
@@ -297,7 +289,7 @@ impl MetadataService {
                 new_data_size
             );
 
-            // 创建轻量级摘要(只包含变化统计)
+            // 创建轻量摘要（changed_fields.len() + 当前快照计数，不是完整 raw）
             let new_summary =
                 Self::create_change_summary(&new_data, platform_name, &changed_fields);
             let old_summary = old_data
@@ -341,7 +333,7 @@ impl MetadataService {
             ..Default::default()
         };
         if let Err(error) = activity_event.insert(&self.db).await {
-            // 原始快照和审计历史已成功；让旧历史兼容层可以继续提供降级摘要。
+            // 原始快照和审计历史已成功；activity_event 失败只记 warn。
             tracing::warn!(
                 "Failed to persist normalized activity event for history {}: {}",
                 inserted_history.id,
@@ -413,8 +405,7 @@ impl MetadataService {
         }
     }
 
-    /// 创建轻量级变化摘要（只包含统计信息，不包含完整数据）
-    /// 这是最彻底的方案：只记录"变化了什么"，而不是"数据是什么"
+    /// 轻量摘要：变化字段计数 + 当前快照里的计数/id，不含完整 raw。
     fn create_change_summary(
         data: &Value,
         platform_name: &str,
@@ -527,7 +518,7 @@ impl MetadataService {
     }
 
     /// 获取所有平台的最新元数据
-    /// 自动合并旧版遗留的分片数据（如网易云音乐的 liked_songs）。
+    /// 合并 `platform_name` 为 `*_chunk_*` 的分片行（如网易云 liked_songs）。
     pub async fn get_all_latest_metadata(
         &self,
         user_id: i32,
@@ -622,7 +613,7 @@ impl MetadataService {
 fn platform_activity_summary(platform: &str, activity: &ActivityPayload) -> String {
     let label = platform_label(platform);
     if activity.event_type == "imported" {
-        return format!("{label} 完成了首次导入");
+        return format!("{label} finished the first import");
     }
     let heads: Vec<&str> = activity
         .changes
@@ -631,8 +622,8 @@ fn platform_activity_summary(platform: &str, activity: &ActivityPayload) -> Stri
         .take(3)
         .collect();
     if heads.is_empty() {
-        format!("{label}：{}", activity.title)
+        format!("{label}: {}", activity.title)
     } else {
-        format!("{label}：{}", heads.join("、"))
+        format!("{label}: {}", heads.join(", "))
     }
 }

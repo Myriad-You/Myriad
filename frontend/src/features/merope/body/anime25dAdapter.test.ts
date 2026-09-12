@@ -1,12 +1,107 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import test from 'node:test'
+import test, { mock } from 'node:test'
 import { realizeAnime25DBehaviorPlan } from '../anime25drig/behaviorRealizer'
 import { setLiveFaceVisible } from '../faceVisible'
 import { RigMotionCoordinator } from '../motion/coordinator'
 import { setLiveMotionGeneration } from '../motion/liveGeneration'
 import { MotionRuntime } from '../motion/runtime'
+import { SpeechPipelineHost } from '../speech/speechPipelineHost'
 import { Anime25DBodyAdapter } from './anime25dAdapter'
+
+test('only explicit touch speech arms continuity before the speech outlet', () => {
+  const runtime = new MotionRuntime(new RigMotionCoordinator())
+  const release = runtime.retain()
+  const body = new Anime25DBodyAdapter(runtime)
+  const order: string[] = []
+  const arm = mock.method(runtime.touch, 'accompanySpeech', (id: string) => { order.push(`touch:${id}`) })
+  const speak = mock.method(SpeechPipelineHost.prototype, 'speakLine', () => { order.push('speech'); return true })
+  setLiveFaceVisible(true)
+  try {
+    body.intend({ source: 'proactive', messageId: 'touch', speechText: '先别碰啦。', touchContinuation: true })
+    assert.deepEqual(order, ['touch:touch', 'speech'])
+    order.length = 0
+    body.intend({ source: 'proactive', messageId: 'greeting', speechText: '你好。' })
+    body.intend({ source: 'reply', messageId: 'chat', speechText: '你好。', touchContinuation: true })
+    assert.deepEqual(order, ['speech', 'speech'])
+    assert.equal(arm.mock.callCount(), 1)
+  } finally { arm.mock.restore(); speak.mock.restore(); release(); setLiveFaceVisible(false) }
+})
+
+test('late proactive direction requires matching live text playback and never starts speech', () => {
+  const runtime = new MotionRuntime(new RigMotionCoordinator())
+  const release = runtime.retain()
+  const body = new Anime25DBodyAdapter(runtime)
+  const speak = mock.method(SpeechPipelineHost.prototype, 'speakLine', () => true)
+  setLiveFaceVisible(true)
+  const applied: unknown[] = []
+  runtime.performance.handle = (event) => {
+    applied.push(event)
+  }
+  const refinement = {
+    source: 'proactive' as const,
+    messageId: 'touch-line',
+    speechRefinement: true,
+    speechText: 'This must never be replayed.',
+    performance: {
+      phase: 'proactive' as const,
+      moodRevision: 1,
+      motionStyle: 'even' as const,
+      plan: { cues: [] },
+    },
+  }
+  try {
+    body.intend(refinement)
+    assert.equal(applied.length, 0)
+    runtime.speech.handleForTest({
+      phase: 'start',
+      messageId: 'touch-line',
+      utteranceId: 'u',
+      source: 'proactive',
+    })
+    body.intend(refinement)
+    assert.equal(applied.length, 1)
+    const reject = mock.method(runtime.touch, 'acceptsSpeechRefinement', () => false)
+    body.intend(refinement)
+    assert.equal(applied.length, 1, 'conflicting delayed direction never reaches the realizer')
+    assert.equal(reject.mock.callCount(), 1)
+    reject.mock.restore()
+    assert.equal(
+      runtime.speech.hasPlayback({
+        messageId: 'touch-line',
+        source: 'proactive',
+      }),
+      true,
+    )
+    body.intend({ ...refinement, messageId: 'old-line' })
+    assert.equal(applied.length, 1)
+    runtime.speech.handleForTest({ phase: 'energy', messageId: 'touch-line', utteranceId: 'u', source: 'proactive', energy: 0.4 })
+    runtime.speech.handleForTest({ phase: 'end', messageId: 'touch-line', utteranceId: 'u', source: 'proactive' })
+    body.intend(refinement)
+    assert.equal(applied.length, 1)
+    runtime.speech.handleForTest({ phase: 'start', messageId: 'touch-line', utteranceId: 'u2', source: 'proactive' })
+    runtime.speech.handleForTest({
+      phase: 'cancel',
+      messageId: 'touch-line',
+      source: 'proactive',
+    })
+    body.intend(refinement)
+    assert.equal(applied.length, 1)
+    runtime.speech.handleForTest({
+      phase: 'start',
+      messageId: 'new-chat',
+      utteranceId: 'v',
+      source: 'reply',
+    })
+    body.intend(refinement)
+    assert.equal(applied.length, 1)
+    assert.equal(speak.mock.callCount(), 0)
+  } finally {
+    speak.mock.restore()
+    release()
+    setLiveFaceVisible(false)
+  }
+})
 
 test('production adapter keeps run identity and does not label proactive performance as Chat', () => {
   const runtime = new MotionRuntime(new RigMotionCoordinator())
@@ -61,7 +156,7 @@ test('Anime2.5D adapter exposes semantic capabilities and state, not drivers', (
   const state = body.state()
   assert.equal(state.expression, 'steady')
   assert.equal(typeof state.speaking, 'boolean')
-  assert.equal('mouthOpen' in state, false)
+  assert.equal(Object.hasOwn(state, 'mouthOpen'), false)
   release()
 })
 

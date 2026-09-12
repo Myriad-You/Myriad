@@ -72,10 +72,9 @@ pub fn skips_user_review(verdict: &AutonomyVerdict) -> bool {
 
 /// Action-time check used by `validate_intention_work_request`.
 ///
-/// A live grant must still `AllowPersonalWork` after re-filtering current
-/// granted permissions. `RequireUserReview` (revoked, dropped permissions,
-/// heartbeat) must not enter Work. A user-accepted proposal with no grant
-/// row may proceed — that path already went through the proposal card.
+/// Heartbeat is blocked for every source. `RequireUserReview` (revoked, dropped
+/// permissions, missing grant) blocks Autonomy entry only; User-accepted may
+/// proceed with missing/revoked grant (proposal card already used).
 pub fn intention_may_enter_work(
     actor_user_id: i32,
     grant: Option<&AutonomyGrantView>,

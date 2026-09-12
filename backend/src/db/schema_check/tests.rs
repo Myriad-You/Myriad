@@ -20,8 +20,7 @@ fn test_expected_schema_tables() {
     assert!(table_names.contains(&"platforms"));
 }
 
-/// 近一个月新功能：须在 get_expected_schema / indexes 有完整条目
-/// （数字系列 001/004/005 已 CREATE；本列表只校验 schema_check 侧期望）。
+/// 001/004/005 扩展表：须在 get_expected_schema / indexes 有完整条目。
 #[test]
 fn test_recent_month_features_in_expected_schema() {
     let tables = get_expected_schema();
@@ -44,7 +43,7 @@ fn test_recent_month_features_in_expected_schema() {
         "federation_policy_settings",
         "federation_domain_aliases",
         "federation_object_interactions",
-        // 005（原 012/013）
+        // 005
         "federation_inbox_receipts",
     ] {
         assert!(
@@ -175,6 +174,22 @@ fn test_users_schema_includes_token_version() {
         .expect("users must define token_version (MYR-005 session epoch)");
     assert!(!col.is_nullable);
     assert_eq!(col.default_value.as_deref(), Some("0"));
+}
+
+#[test]
+fn test_users_schema_includes_locale() {
+    let tables = get_expected_schema();
+    let users = tables
+        .iter()
+        .find(|t| t.name == "users")
+        .expect("users table");
+    let col = users
+        .columns
+        .iter()
+        .find(|c| c.name == "locale")
+        .expect("users must define locale (account UI language)");
+    assert!(col.is_nullable);
+    assert_eq!(col.data_type, "character varying");
 }
 
 #[test]
@@ -428,9 +443,7 @@ fn test_generate_create_index_ddl() {
 /// **CI 漂移闸门。**
 ///
 /// 在一个刚跑完 `Migrator::up` 的全新数据库上，`report_schema_drift` 必须返回空。
-/// 一旦不为空，就说明 `migrations/` 里的建表语句与本文件的权威结构列表
-/// （49 个 TableDef / 554 个 ColumnDef）已经不一致 —— 也就是审计指出的
-/// "5228 行 runtime healer 与 migration 重复定义并已发生漂移"。
+/// 一旦不为空，就说明 `migrations/` 里的建表语句与 `get_expected_schema()` 已经不一致。
 ///
 /// 需要真实 PostgreSQL。没有 `MYRIAD_SCHEMA_DRIFT_DB` 时静默跳过，
 /// 这样本地 `cargo test` 不受影响；CI 里由 postgres service 提供该变量。
@@ -481,9 +494,7 @@ VALUES
         "tapp_storage must reject encrypted payloads outside _credentials.*"
     );
 
-    // A review deployment may already have recorded the short-lived first
-    // 012 migration while retaining its scope-less table. 012/013 names are
-    // purged from seaql_migrations before up; schema_check rebuilds that shape.
+    // Scope-less `federation_inbox_receipts` shape; `ensure_schema` must heal it.
     db.execute_unprepared(
         r#"
 DROP TABLE federation_inbox_receipts;
@@ -507,9 +518,67 @@ CREATE TABLE federation_inbox_receipts (
     .await
     .expect("create the legacy receipt shape");
 
+    db.execute_unprepared(
+        r#"
+DROP INDEX idx_delivery_queue_activity_target;
+DROP INDEX idx_timeline_user_activity;
+INSERT INTO federation_delivery_queue (id, activity_id, target_inbox, target_domain, attempts)
+VALUES (-2, 2147483647, 'https://schema.test/inbox', 'schema.test', 3),
+       (-1, 2147483647, 'https://schema.test/inbox', 'schema.test', 0);
+INSERT INTO federation_timeline (id, user_id, activity_id, is_read)
+VALUES (-2, 2147483647, 'https://schema.test/activity', TRUE),
+       (-1, 2147483647, 'https://schema.test/activity', FALSE);
+"#,
+    )
+    .await
+    .expect("seed duplicate rows in the legacy schema without unique indexes");
+
     ensure_schema(&db)
         .await
-        .expect("schema heal must upgrade a database that recorded old 012");
+        .expect("schema heal must upgrade legacy receipts and deduplicate before creating indexes");
+
+    for table in ["federation_delivery_queue", "federation_timeline"] {
+        let rows = db
+            .query_all_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                format!("SELECT id FROM {table} WHERE id IN (-2, -1)"),
+            ))
+            .await
+            .expect("read deduplicated rows");
+        assert_eq!(rows.len(), 1, "{table} must retain one row");
+        assert_eq!(rows[0].try_get::<i32>("", "id").unwrap(), -2);
+    }
+
+    // Statement triggers also reject DELETEs that would affect zero rows.
+    db.execute_unprepared(
+        r#"
+CREATE FUNCTION reject_schema_dedup_delete() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'valid unique indexes must skip dedup DELETE';
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER reject_schema_dedup_delete BEFORE DELETE ON federation_delivery_queue
+    FOR EACH STATEMENT EXECUTE FUNCTION reject_schema_dedup_delete();
+CREATE TRIGGER reject_schema_dedup_delete BEFORE DELETE ON federation_timeline
+    FOR EACH STATEMENT EXECUTE FUNCTION reject_schema_dedup_delete();
+"#,
+    )
+    .await
+    .expect("guard normal startup against unconditional deduplication");
+    ensure_schema(&db)
+        .await
+        .expect("repeated startup must not issue dedup DELETE when unique indexes exist");
+    db.execute_unprepared(
+        r#"
+DROP TRIGGER reject_schema_dedup_delete ON federation_delivery_queue;
+DROP TRIGGER reject_schema_dedup_delete ON federation_timeline;
+DROP FUNCTION reject_schema_dedup_delete();
+DELETE FROM federation_delivery_queue WHERE id = -2;
+DELETE FROM federation_timeline WHERE id = -2;
+"#,
+    )
+    .await
+    .expect("remove deduplication test fixtures");
     let upgraded_drift = report_schema_drift(&db)
         .await
         .expect("upgraded receipt schema drift report must succeed");
@@ -540,8 +609,7 @@ CREATE TABLE federation_inbox_receipts (
         "healer must remove every column unique to the scope-less receipt shape"
     );
 
-    // Permanent handler rejection must preserve the claimed receipt while
-    // removing every DB effect performed after the handler savepoint.
+    // `ROLLBACK TO SAVEPOINT` must drop post-savepoint writes in this txn.
     let txn = db.begin().await.expect("begin receipt savepoint probe");
     txn.execute_unprepared(
         "CREATE TEMP TABLE receipt_savepoint_probe (value INTEGER) ON COMMIT DROP",
@@ -1030,8 +1098,7 @@ VALUES
     assert_eq!(after_reject.try_get::<i32>("", "failure_count").unwrap(), 4);
     assert!(!after_reject.try_get::<bool>("", "streak_cleared").unwrap());
 
-    // Phase 3 — count alone must not revoke. A fan-out to one peer can burn an
-    // arbitrary failure count inside a single worker tick while it restarts.
+    // 单靠次数不能撤销。worker 每 tick `LIMIT 1`，次数闸门必须配 streak 窗口。
     outer
         .execute_unprepared(
             "UPDATE federation_instances SET failure_count = 500, failing_since = NOW()

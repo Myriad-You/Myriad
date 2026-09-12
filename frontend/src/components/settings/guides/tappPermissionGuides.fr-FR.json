@@ -1,0 +1,290 @@
+{
+  "widget:register": {
+    "what": "Permet d’enregistrer des widgets personnalisés sur la grille d’accueil.",
+    "chain": "1) L’application se voit accorder cette autorisation.\n2) L’API d’enregistrement place les cartes sur la grille d’accueil.\n3) Niveau administrateur ; tous les visiteurs voient ces widgets.",
+    "frontend": "Grille de widgets d’accueil ; commandes d’enregistrement/retrait dans l’application.",
+    "notes": "N’installez que des applications de confiance — les widgets apparaissent sur tout le site."
+  },
+  "platform:read": {
+    "what": "Permet de lire les données de plateforme existantes (jeux, vidéos, musiques, etc.).",
+    "chain": "1) L’application appelle les API de lecture de plateforme.\n2) Les données viennent des plateformes configurées et synchronisées.\n3) Lecture seule ; ne modifie pas les identifiants de plateforme.",
+    "frontend": "Statistiques, listes et vues de progression dans l’application.",
+    "notes": "Une plateforme non configurée renvoie en général des données vides."
+  },
+  "platform:write": {
+    "what": "Permet d’écrire ou de mettre à jour des entrées de données de plateforme.",
+    "chain": "1) L’application appelle les API d’écriture.\n2) Les données sont stockées dans le stockage de plateforme du site.\n3) Les rapports / vues bibliothèque qui en dépendent peuvent changer.",
+    "frontend": "Import/synchronisation dans l’application ; affichages ultérieurs du site.",
+    "notes": "Fort impact — une mauvaise écriture peut polluer les statistiques."
+  },
+  "platform:register": {
+    "what": "Permet d’enregistrer un type de plateforme personnalisé sur le site.",
+    "chain": "1) L’application enregistre une définition de plateforme.\n2) Elle apparaît parmi les plateformes connectables.\n3) Les administrateurs peuvent configurer et synchroniser ce type.",
+    "frontend": "Config → Plateformes.",
+    "notes": "Extension au niveau du site ; vérifiez la source de l’application."
+  },
+  "analytics:read": {
+    "what": "Permet de lire les statistiques agrégées du site (visites, pages populaires, référents, etc.).",
+    "chain": "1) L’application se voit accorder cette autorisation.\n2) Appelle Tapp.analytics pour des cartes de synthèse.\n3) Agrégats uniquement — pas de hachages de visiteurs ni de journaux bruts.",
+    "frontend": "Cartes d’analyse dans l’application ; statistiques du site comme source.",
+    "notes": "Agrégats en lecture seule ; pas d’import/export de sauvegarde ni de registres d’usage IA."
+  },
+  "ai:generate": {
+    "what": "Permet la génération de contenu IA (texte/résumés selon les modèles du site).",
+    "chain": "1) L’application demande une génération.\n2) La passerelle IA du site et les quotas s’appliquent.\n3) Le résultat revient à l’application.",
+    "frontend": "Actions de génération dans l’application ; paramètres et quotas IA.",
+    "notes": "Consomme le quota IA ; clés/modèles vivent dans la config IA du site."
+  },
+  "ai:analyze": {
+    "what": "Permet l’analyse IA de données ou une interprétation structurée.",
+    "chain": "1) L’application soumet du contenu à analyser.\n2) Les appels d’analyse consomment le quota.\n3) Les analyses s’affichent dans l’application.",
+    "frontend": "Fonctions d’analyse / d’insight dans l’application.",
+    "notes": "Les charges volumineuses peuvent être lentes ou échouer."
+  },
+  "ai:chat": {
+    "what": "Permet un chat IA multi-tours via la passerelle du site.",
+    "chain": "1) L’application ouvre une session de chat.\n2) Les messages passent par le chat IA.\n3) L’historique peut rester uniquement dans l’application.",
+    "frontend": "Interface de chat dans l’application (distincte du panneau Agent global).",
+    "notes": "Chaque tour peut consommer du quota."
+  },
+  "ai:image": {
+    "what": "Permet la génération d’images par IA.",
+    "chain": "1) L’application demande une image.\n2) Utilise la config du modèle d’image du site.\n3) Renvoie une URL/des données d’image.",
+    "frontend": "Génération d’images dans l’application.",
+    "notes": "Souvent plus lent/coûteux ; la capacité image doit être configurée."
+  },
+  "ai:search": {
+    "what": "Permet Tapp.ai.tasks.create({ operation: \"search\" }) pour une recherche web en direct.",
+    "chain": "1) L’application soumet une requête.\n2) L’hôte privilégie TinyFish Search, sinon Gemini grounding.\n3) Les secrets de l’hôte n’entrent jamais dans le bac à sable ; le résultat est une enveloppe JSON.",
+    "frontend": "Recherche dans l’application ; autorisations IA du site et clé TinyFish.",
+    "notes": "Déléguée séparément de ai:generate. Le chat Agent ne peut toujours pas chercher. Sortant."
+  },
+  "3d:generate": {
+    "what": "Permet à Tripo de générer, monter le rig ou réappliquer l’animation de modèles 3D (image/multivue → GLB).",
+    "chain": "1) L’application envoie une image ou un modèle de référence.\n2) L’hôte appelle Tripo ; la clé API n’entre jamais dans le bac à sable.\n3) Le GLB persisté renvoie un asset_id ; Tapp.model3d.getUrl le charge dans le bac à sable.",
+    "frontend": "Génération/aperçu 3D dans l’application ; paramètres du site « 3D & Tripo ».",
+    "notes": "Consomme les crédits Tripo du site ; non déléguée par défaut. Lire des GLB existants ne nécessite pas cette autorisation."
+  },
+  "report:read": {
+    "what": "Permet de lire les rapports déjà générés.",
+    "chain": "1) L’application demande le contenu d’un rapport.\n2) Lecture depuis le stockage des rapports.\n3) Affichage dans l’application.",
+    "frontend": "Module Rapports ; vues de rapports dans l’application.",
+    "notes": "Ne crée pas de rapports à elle seule."
+  },
+  "report:write": {
+    "what": "Permet de créer, mettre à jour ou supprimer des rapports.",
+    "chain": "1) L’application écrit via les API de rapports.\n2) La liste/le contenu des rapports change.\n3) La page Rapports se met à jour.",
+    "frontend": "Liste et détail des rapports.",
+    "notes": "Peut supprimer des rapports visibles — sensible."
+  },
+  "storage:read": {
+    "what": "Permet de lire le stockage clé-valeur privé de cette application (lecture seule).",
+    "chain": "1) L’application appelle les API de lecture du stockage.\n2) Données isolées par application.\n3) La lecture n’enregistre jamais d’écritures.",
+    "frontend": "Préférences, brouillons, lectures d’état en cache.",
+    "notes": "Lecture seule : n’enregistre jamais d’écritures ; n’y mettez pas de secrets dans une application non fiable."
+  },
+  "storage:write": {
+    "what": "Permet d’écrire dans le stockage clé-valeur privé de cette application (écriture seule, sans lecture).",
+    "chain": "1) L’application appelle les API d’écriture.\n2) Données isolées par application.\n3) Les écritures affectent l’état ultérieur de l’application.",
+    "frontend": "Préférences, brouillons et état persistant.",
+    "notes": "L’écriture est désactivée par défaut ; ne déléguez qu’aux applications de confiance."
+  },
+  "ui:notification": {
+    "what": "Permet d’envoyer des notifications système à l’utilisateur.",
+    "chain": "1) L’application appelle les API de notification.\n2) Livraison via le centre / l’îlot / les toasts.\n3) Les préférences utilisateur s’appliquent toujours.",
+    "frontend": "Centre de notifications, toasts, push navigateur si autorisé.",
+    "notes": "Évitez le spam ; les utilisateurs peuvent couper les canaux."
+  },
+  "ui:fullscreen": {
+    "what": "Permet de demander le plein écran du navigateur.",
+    "chain": "1) L’application appelle l’API plein écran.\n2) Le navigateur peut demander confirmation.\n3) L’utilisateur peut quitter à tout moment.",
+    "frontend": "Expérience d’exécution en plein écran.",
+    "notes": "Requiert en général un geste utilisateur."
+  },
+  "ui:theme": {
+    "what": "Permet de lire le thème actuel du site pour l’adapter à l’interface.",
+    "chain": "1) L’application interroge les API de thème.\n2) Reçoit les jetons de thème.\n3) S’habille elle-même ; ne change pas le thème du site.",
+    "frontend": "Chrome de l’application aligné sur clair/sombre et l’accent.",
+    "notes": "Lecture seule ; changez le thème dans les paramètres d’interface."
+  },
+  "ui:confirm": {
+    "what": "Permet d’afficher des boîtes de confirmation système.",
+    "chain": "1) L’application demande une confirmation.\n2) L’utilisateur accepte ou annule.\n3) Le résultat revient à l’application.",
+    "frontend": "Confirmations modales pendant l’exécution.",
+    "notes": "Trop de invites agacent les utilisateurs."
+  },
+  "ui:openUrl": {
+    "what": "Permet à l’hôte d’ouvrir les liens déclarés dans Manifest openUrls (toute autre URL est refusée).",
+    "chain": "1) L’application déclare openUrls + cette autorisation et est approuvée à l’installation.\n2) Appelle Tapp.ui.openUrl({ id }) (chemin/requête facultatifs dans les règles de correspondance).\n3) L’hôte vérifie la liste autorisée et ouvre un nouvel onglet — sans dialogue supplémentaire.",
+    "frontend": "Boutons/cartes de l’application qui ouvrent des liens externes ; texte d’autorisation sur la page de détail.",
+    "notes": "Seuls les liens déclarés fonctionnent ; window.open du bac à sable reste désactivé. Vérifiez les hôtes déclarés à l’installation."
+  },
+  "network:fetch": {
+    "what": "Permet du HTTP déclaratif et le chargement de médias/images distants.",
+    "chain": "1) L’application déclare des points d’accès ou des ressources distantes.\n2) L’hôte proxifie/valide l’accès réseau.\n3) La réponse revient au bac à sable.",
+    "frontend": "Données externes, pochettes, médias dans l’application.",
+    "notes": "Soumis à la politique proxy/CORS/sécurité ; risque sortant."
+  },
+  "media:control": {
+    "what": "Permet de contrôler la lecture (lecture, pause, piste suivante, etc.).",
+    "chain": "1) L’application appelle les API de contrôle média.\n2) Affecte l’état du lecteur du site.\n3) La musique du panneau de contrôle peut se mettre à jour.",
+    "frontend": "Lecteur de musique global ; commandes de transport dans l’application.",
+    "notes": "Peut interrompre ce que l’utilisateur écoute."
+  },
+  "media:read": {
+    "what": "Permet de lire l’état média actuel (piste, progression, lecture).",
+    "chain": "1) L’application interroge l’état média.\n2) Infos de session en lecture seule.\n3) Sert aux paroles/visualisations.",
+    "frontend": "Interface « en cours de lecture » dans l’application.",
+    "notes": "Ne modifie pas la file (c’est le contrôle)."
+  },
+  "media:audio": {
+    "what": "Permet de lire de l’audio package/blob/data dans le bac à sable.",
+    "chain": "1) L’application démarre l’audio.\n2) Seules les sources autorisées sont lues.\n3) Pas un contrôle distant arbitraire.",
+    "frontend": "Effets / extraits audio dans l’application.",
+    "notes": "Différent de media:control — se concentre sur les sources du bac à sable."
+  },
+  "component:theme": {
+    "what": "Permet d’enregistrer des styles de thème personnalisés pour le site.",
+    "chain": "1) L’application enregistre un thème.\n2) La liste des thèmes gagne une entrée.\n3) Le choisir change l’apparence globale.",
+    "frontend": "Paramètres d’apparence / de thème.",
+    "notes": "Impact visuel sur tout le site — vérifiez la source."
+  },
+  "component:agent": {
+    "what": "Permet d’enregistrer des capacités auprès de l’Agent.",
+    "chain": "1) L’application enregistre des outils Agent.\n2) L’assistant peut les invoquer.\n3) Le chat peut déclencher ces actions.",
+    "frontend": "Panneau Agent et actions pilotées par l’Agent.",
+    "notes": "S’accroche à l’assistant global — privilège très élevé."
+  },
+  "shortcut:register": {
+    "what": "Permet d’enregistrer des raccourcis clavier.",
+    "chain": "1) L’application déclare des raccourcis.\n2) Les touches sont gérées lorsqu’elle a le focus.\n3) Les actions de l’application se déclenchent.",
+    "frontend": "Raccourcis globaux/de page pendant la navigation.",
+    "notes": "Peut entrer en conflit avec le navigateur ou d’autres applications."
+  },
+  "event:publish": {
+    "what": "Permet de publier des événements sur le bus système.",
+    "chain": "1) L’application publie un événement.\n2) Les abonnés le traitent.\n3) Permet des réactions inter-modules.",
+    "frontend": "Actualisations d’interface / notifications pilotées par événements.",
+    "notes": "Utilisez des noms d’événements convenus ; évitez le bruit."
+  },
+  "event:subscribe": {
+    "what": "Permet de s’abonner aux événements système.",
+    "chain": "1) L’application s’abonne.\n2) Les publications déclenchent des rappels.\n3) L’application met à jour son état.",
+    "frontend": "Parties de l’application qui s’actualisent seules.",
+    "notes": "Moins risqué que publier."
+  },
+  "scheduler:register": {
+    "what": "Permet d’enregistrer des tâches planifiées/en arrière-plan.",
+    "chain": "1) L’application enregistre des tâches.\n2) L’hôte les déclenche selon le planning.\n3) Les tâches utilisent d’autres API accordées.",
+    "frontend": "Synchronisation / rappels en arrière-plan.",
+    "notes": "Des plannings agressifs gaspillent des ressources ; nettoyez à la désinstallation."
+  },
+  "speech:tts": {
+    "what": "Permet la synthèse vocale.",
+    "chain": "1) L’application envoie du texte.\n2) La config TTS du site synthétise l’audio.\n3) Lecture ou renvoi de l’audio.",
+    "frontend": "« Lire à voix haute » dans l’application.",
+    "notes": "Nécessite un TTS configuré ; peut consommer du quota."
+  },
+  "speech:asr": {
+    "what": "Permet la reconnaissance vocale (parole vers texte).",
+    "chain": "1) L’application capture/envoie de l’audio.\n2) Le service ASR transcrit.\n3) Le texte revient à l’application.",
+    "frontend": "Saisie vocale dans l’application.",
+    "notes": "Nécessite en général un microphone ; sensible pour la vie privée."
+  },
+  "tappList:read": {
+    "what": "Permet de lire la liste des Tapp installés et leurs métadonnées de base.",
+    "chain": "1) L’application interroge les API de liste.\n2) Reçoit des résumés d’installation.\n3) Sert à l’affichage ou aux flux inter-applications.",
+    "frontend": "Vues « applications installées » dans l’application.",
+    "notes": "Peut révéler quelles applications vous avez installées."
+  },
+  "tappList:manage": {
+    "what": "Permet d’installer, mettre à jour, démarrer/arrêter ou désinstaller des Tapp.",
+    "chain": "1) L’application appelle les API de gestion.\n2) L’état d’installation change.\n3) Listes et état d’exécution se mettent à jour.",
+    "frontend": "Liste Tapp et commandes d’exécution/installation du détail.",
+    "notes": "Parmi les octrois les plus risqués."
+  },
+  "brew:read": {
+    "what": "Permet de lire les sources et articles Brew.",
+    "chain": "1) L’application demande des données Brew.\n2) Lit les abonnements du site.\n3) Affiche une interface de lecture.",
+    "frontend": "Module Brew et lecteurs dans l’application.",
+    "notes": "Lecture seule ; ne peut pas changer l’état de lecture, les favoris ni écrire de commentaires."
+  },
+  "brew:write": {
+    "what": "Permet d’écrire des données Brew telles que l’état de lecture et les favoris.",
+    "chain": "1) L’application met à jour l’état d’un élément.\n2) Le stockage Brew est modifié.\n3) Filtres et badges peuvent se mettre à jour.",
+    "frontend": "État de lecture et favoris Brew.",
+    "notes": "Modifie votre état de lecture ; vérifiez le comportement de l’application avant d’accorder."
+  },
+  "brew:commentWrite": {
+    "what": "Permet de créer, modifier et supprimer des commentaires et réponses Brew.",
+    "chain": "1) L’application publie des commentaires.\n2) Les commentaires s’attachent aux articles.\n3) D’autres peuvent les voir selon la politique.",
+    "frontend": "Commentaires d’articles Brew.",
+    "notes": "Expression publique — respectez les normes de contenu ; déléguée par les administrateurs uniquement par défaut."
+  },
+  "brew:manage": {
+    "what": "Permet de gérer les sources Brew et les paramètres avancés.",
+    "chain": "1) L’application appelle les API de gestion des sources.\n2) L’ensemble des abonnements change.\n3) Récupération/liste se met à jour.",
+    "frontend": "Gestionnaire de sources Brew, OPML, découverte.",
+    "notes": "Peut ajouter/retirer des flux Brew pour tout le site."
+  },
+  "federation:read": {
+    "what": "Permet de lire les salons, canaux et membres de la fédération.",
+    "chain": "1) L’application interroge les API de fédération.\n2) Renvoie les données autorisées par la politique de confiance.\n3) Affiche l’état de la fédération.",
+    "frontend": "Pages de fédération / vues dans l’application.",
+    "notes": "La visibilité reste limitée par les règles de confiance."
+  },
+  "federation:post": {
+    "what": "Permet de publier/dépublier, créer des Notes, envoyer des médias et gérer la livraison sortante.",
+    "chain": "1) L’application écrit via les API de fédération.\n2) Le contenu arrive sur les instances locales et distantes.\n3) Les abonnés voient le nouveau contenu.",
+    "frontend": "Publication, envoi de médias, gestion de la file de livraison.",
+    "notes": "Les publications se synchronisent vers des instances distantes — accordez avec prudence."
+  },
+  "federation:interact": {
+    "what": "Permet de suivre/ne plus suivre, aimer/ne plus aimer, mettre en favori/retirer, et relayer/annuler le relais.",
+    "chain": "1) L’application effectue des interactions.\n2) L’interaction est stockée et diffusée aux auteurs.\n3) Les auteurs voient le résultat.",
+    "frontend": "Points d’entrée suivre, aimer, favori et relais.",
+    "notes": "Les interactions sont diffusées à d’autres utilisateurs ; une connexion durable est requise."
+  },
+  "federation:channel": {
+    "what": "Permet de créer, accepter, fermer, supprimer des canaux et configurer les clés E2E de canal.",
+    "chain": "1) L’application crée/gouverne des canaux.\n2) La structure du canal et l’état des clés changent.\n3) Les membres voient les mises à jour.",
+    "frontend": "Flux de création et de gestion des canaux.",
+    "notes": "La gouvernance des canaux se synchronise vers les instances distantes."
+  },
+  "federation:room": {
+    "what": "Permet de créer/mettre à jour/supprimer des salons, rejoindre/inviter, gouverner les membres, les clés E2E, stickers et épingles.",
+    "chain": "1) L’application opère sur les salons.\n2) Structure et membres du salon changent.\n3) Les membres voient les mises à jour.",
+    "frontend": "Écrans de création, d’adhésion, de membres et de gouvernance.",
+    "notes": "La gouvernance des salons se synchronise vers les instances distantes."
+  },
+  "federation:ring": {
+    "what": "Permet la gestion des membres Ring et les opérations pair/synchronisation.",
+    "chain": "1) L’application gère les membres et pairs Ring.\n2) L’adhésion et l’état de synchronisation changent.\n3) Les pairs distants reçoivent la synchronisation.",
+    "frontend": "Gestion Ring, listes de pairs et déclencheurs de synchronisation.",
+    "notes": "La synchronisation Ring envoie des données vers des pairs distants."
+  },
+  "federation:message": {
+    "what": "Permet d’envoyer et de recevoir des messages de fédération.",
+    "chain": "1) L’application envoie/reçoit des messages.\n2) La file de livraison gère le transport.\n3) Les pairs peuvent recevoir du contenu.",
+    "frontend": "Interface de messagerie fédérée.",
+    "notes": "Le contenu peut quitter le site — risque de vie privée/abus."
+  },
+  "federation:trust": {
+    "what": "Permet de gérer les relations de confiance de la fédération.",
+    "chain": "1) L’application ajuste la politique de confiance.\n2) Affecte l’acceptation/le rejet des pairs.\n3) Le filtrage et la livraison changent.",
+    "frontend": "Config → Confiance/politique de fédération.",
+    "notes": "Une mauvaise config peut casser la fédération ou faire confiance à de mauvais pairs."
+  },
+  "federation:files": {
+    "what": "Permet le transfert de fichiers de la fédération.",
+    "chain": "1) L’application utilise les API de fichiers.\n2) Les fichiers passent par le canal fichiers de la fédération.\n3) Arrivent à distance ou se téléchargent localement.",
+    "frontend": "Pièces jointes/fichiers de fédération.",
+    "notes": "Des limites de taille/type peuvent s’appliquer ; risque de logiciels malveillants."
+  },
+  "game:session": {
+    "what": "Permet de créer et rejoindre des salons de jeu fédérés et d’échanger des messages de jeu structurés.",
+    "chain": "1) L’application appelle Tapp.game.\n2) L’hôte envoie des enveloppes game:<tappId>:<protocol> sur un salon.\n3) Les membres de cette instance ou d’une instance paire reçoivent l’intention/l’état.",
+    "frontend": "Lobby de jeu, partage room_id@home_server, synchronisation de partie.",
+    "notes": "Les autorisations de fédération lecture/écriture/message restent requises. L’autorité reste chez le client hôte."
+  }
+}

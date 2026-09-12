@@ -33,7 +33,6 @@ export interface RigDiagnosticReport {
   }
 }
 
-/** Exact facial subset of the current Anime2.5D character-asset contract. */
 export function anime25DFacialVariantsComplete(
   parts: MeropeRigManifest['parts'],
 ): boolean {

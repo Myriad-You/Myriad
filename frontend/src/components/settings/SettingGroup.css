@@ -1,19 +1,9 @@
-/**
- * 设置分组样式
- *
- * 间距原则：
- * - 组与组：父级 .config-form 的 gap（--settings-gap-group）
- * - 组内项：.setting-group-content 的 gap（--settings-gap-item）
- * - 折叠块：开合 **不改任何外部 margin**，避免上下元素跳变
- *   · 标题 → 内容 的间距放在 CollapseRegion 内，随高度动画一起收放
- *   · 连续折叠组之间用固定略紧间距（与展开/收起无关）
- */
+/* group gap from parent; item gap inside; collapse must not change outer margin */
 
 .setting-group {
   margin-bottom: 0;
 }
 
-/* 页内 TOC 跳转时避开粘顶栏 / 移动 section 顶栏 */
 .setting-group.has-toc-anchor {
   scroll-margin-top: calc(var(--cfg-sticky-top, 5rem) + 0.75rem);
 }
@@ -24,34 +14,20 @@
   }
 }
 
-/* 无 .config-form 包裹时（零星用法）仍保留组间距。
- * 网格内的卡片必须排除：间距由 SettingGroupGrid 的 gap 负责，
- * 这里再补 margin-top 会把「除首张外」的每张卡整体压低一个 gap，
- * 首行左右卡因此错位（两条规则特异性同为 0,3,0，纯靠加载顺序决胜）。 */
+/* no .config-form: keep group gap; skip grid cards (same specificity as grid gap) */
 :not(.config-form, .ai-pane)
   > .setting-group:not(.setting-group--in-grid)
   + .setting-group:not(.setting-group--in-grid) {
   margin-top: var(--settings-gap-group, 1.25rem);
 }
 
-/* ==========================================
-   折叠组：稳定布局模型
-   ==========================================
- *
- * 不在 is-collapsed / is-expanded 上改 margin。
- * 父级 gap 恒定；连续两个折叠组之间用固定略紧值（状态无关 → 无跳变）。
- */
-
 .setting-group.is-collapsible {
-  /* 不参与 flex free-space 拉伸，避免 sm-collapse 的 1fr 被撑高 */
+  /* do not consume parent free space (1fr grows) */
   flex: 0 0 auto;
   min-width: 0;
 }
 
-/*
- * 连续折叠组：固定间距（与开合无关）。
- * net = collapsible-gap；用负 margin 只抵消父级多出来的 group-gap 差额。
- */
+/* collapsible-gap minus parent group-gap */
 .config-form
   > .setting-group.is-collapsible
   + .setting-group.is-collapsible {
@@ -66,26 +42,19 @@
   margin-top: var(--settings-gap-collapsible, 0.1rem);
 }
 
-/* 折叠标题：永远不占 header→content 的 item gap（该间距在折叠区内） */
 .setting-group.is-collapsible > .setting-group-header,
 .setting-group.is-collapsible
   > .setting-group-header.setting-group-header--collapsible {
   margin-bottom: 0;
 }
 
-/*
- * 标题 → 内容 间距：写在折叠内容顶部，随 0fr→1fr 一起动画。
- * 展开时自然出现，收起时自然消失，不会在开合瞬间跳 margin。
- */
+/* title→content gap on collapse inner; animates with 0fr→1fr */
 .setting-group.is-collapsible
   .sm-collapse-inner
   > .setting-group-content {
   padding-top: var(--settings-gap-item, 0.625rem);
 }
 
-/* ==========================================
-   分组头部
-   ========================================== */
 
 .setting-group-header {
   display: flex;
@@ -105,14 +74,13 @@
   margin-bottom: var(--settings-gap-item, 0.625rem);
 }
 
-/* 折叠专用头：间距由 is-collapsible 规则锁死为 0（优先级高于 --with-extra） */
 .setting-group-header--collapsible {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
-/* ⓘ / 指南入口不能放进折叠 <button>，否则会套 button */
+/* help/guide must not nest inside collapse <button> */
 .setting-group-header-leading {
   display: flex;
   align-items: center;
@@ -172,7 +140,6 @@ html.dark .setting-group-header-leading:hover {
   align-items: center;
 }
 
-/* 标题行右侧模块开关 */
 .setting-group-header-switch {
   display: flex;
   align-items: center;
@@ -181,8 +148,6 @@ html.dark .setting-group-header-leading:hover {
   padding-top: 0.05rem;
 }
 
-/* 开关关闭时弱化组内内容（交互仍由各控件 disabled 控制）。
-   折叠组的内容多包一层动画容器（.sm-collapse），两条路径都要覆盖 */
 .setting-group.is-switch-off > .setting-group-content,
 .setting-group.is-switch-off
   > .sm-collapse
@@ -200,10 +165,7 @@ html.dark .setting-group-header-leading:hover {
   box-sizing: border-box;
   cursor: pointer;
 
-  /*
-   * 命中区恒定：开合不得改 padding / 纵向 margin。
-   * 仅水平负 margin，让 hover 底略宽于文字。
-   */
+  /* hit area: no padding/vertical-margin change on toggle */
   padding: 0.4rem 0.5rem;
   margin: 0 -0.5rem;
   border-radius: 0.5rem;
@@ -264,7 +226,7 @@ html.dark .setting-group-header-toggle:hover {
   width: 1.75rem;
   height: 1.75rem;
 
-  /* 防止 flex 按 img 固有尺寸（如 192² webp）把标题行撑高 */
+  /* cap icon box; webp intrinsic size must not grow the row */
   min-width: 1.75rem;
   min-height: 1.75rem;
   max-width: 1.75rem;
@@ -294,7 +256,7 @@ html.dark .setting-group-header-toggle:hover {
   opacity: 0.4;
 }
 
-/* svg / 位图 / 配置图标统一收进盒子，避免 raster 固有宽高泄漏 */
+/* icons stay in box; no intrinsic size leak */
 .setting-group-icon svg,
 .setting-group-icon img,
 .setting-group-icon .myriad-config-icon {
@@ -354,9 +316,6 @@ html.dark .setting-group-description a {
   color: var(--cfg-accent);
 }
 
-/* ==========================================
-   折叠箭头：实心全圆角三角
-   ========================================== */
 
 .setting-group-chevron {
   display: inline-flex;
@@ -398,9 +357,6 @@ html.dark .setting-group-header-toggle:hover .setting-group-chevron {
   transform: rotate(-90deg);
 }
 
-/* ==========================================
-   分组内容
-   ========================================== */
 
 .setting-group-content {
   display: flex;
@@ -408,7 +364,7 @@ html.dark .setting-group-header-toggle:hover .setting-group-chevron {
   gap: var(--settings-gap-item, 0.625rem);
 }
 
-/* 组内设置项改由 gap 排距，去掉底部 margin 以免叠高 */
+/* items: gap only; zero item margin */
 .setting-group-content > .setting-item,
 .setting-group-content > .permission-checkbox-group,
 .setting-group-content > .quota-number-group {
@@ -416,7 +372,6 @@ html.dark .setting-group-header-toggle:hover .setting-group-chevron {
   margin-top: 0;
 }
 
-/* 组内自定义堆叠（非 SettingItem 的控件 + 入口） */
 .settings-stack {
   display: flex;
   flex-direction: column;

@@ -36,12 +36,12 @@ impl NoteError {
     /// 给用户看的一句话。不含内部术语。
     pub fn message(&self) -> String {
         match self {
-            Self::EmptyTitle => "标题不能为空".to_string(),
+            Self::EmptyTitle => "A title is required".to_string(),
             Self::TitleTooLong { chars } => {
-                format!("标题最多 {MAX_TITLE_CHARS} 字，现在有 {chars} 字")
+                format!("Titles can be at most {MAX_TITLE_CHARS} characters (this one is {chars})")
             }
             Self::BodyTooLong { chars } => {
-                format!("正文最多 {MAX_NOTE_CHARS} 字，现在有 {chars} 字")
+                format!("Notes can be at most {MAX_NOTE_CHARS} characters (this one is {chars})")
             }
         }
     }
@@ -443,6 +443,19 @@ mod tests {
     #[test]
     fn a_valid_note_passes() {
         assert_eq!(validate_note(" 标题 ", "正文"), Ok(()));
+    }
+
+    #[test]
+    fn validation_messages_are_english() {
+        assert_eq!(NoteError::EmptyTitle.message(), "A title is required");
+        assert_eq!(
+            NoteError::TitleTooLong { chars: 201 }.message(),
+            "Titles can be at most 200 characters (this one is 201)"
+        );
+        assert_eq!(
+            NoteError::BodyTooLong { chars: 200_001 }.message(),
+            "Notes can be at most 200000 characters (this one is 200001)"
+        );
     }
 
     #[test]

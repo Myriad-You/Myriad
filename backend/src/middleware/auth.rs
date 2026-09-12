@@ -8,6 +8,7 @@ use axum::{
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use hmac::{Hmac, KeyInit, Mac};
 use jsonwebtoken::{decode, DecodingKey, Validation};
+use myriad_error::AppError;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -31,13 +32,12 @@ pub struct Claims {
     pub sub: String,      // User ID
     pub username: String, // Username
     pub is_admin: bool,   // Admin status
-    /// Durable site owner (`users.is_owner`). Defaults false for older tokens.
+    /// Durable site owner (`users.is_owner`). Claim omitted → serde default false.
     #[serde(default)]
     pub is_owner: bool,
     pub exp: i64, // Expiration time
     pub iat: i64, // Issued at
-    /// Session epoch (`users.token_version`). Defaults `0` for pre-MYR-005 tokens
-    /// so existing sessions keep working until the first revoke bump.
+    /// Session epoch (`users.token_version`). Claim omitted → serde default 0.
     #[serde(default)]
     pub tv: i64,
 }
@@ -357,8 +357,6 @@ async fn ensure_auth_cache_listener(db: &DatabaseConnection) {
 
 /// Authentication middleware - verifies JWT token + session epoch
 /// Returns 401 if token is missing, invalid, or revoked
-///
-/// Requires `Router<AppState>` so `State<DatabaseConnection>` resolves via FromRef.
 pub async fn auth_middleware(
     State(db): State<DatabaseConnection>,
     req: Request,
@@ -406,7 +404,7 @@ pub async fn optional_current_auth_middleware(
 /// 每用户至少间隔 60s 才落一次库，避免高频请求放大写入。
 const PRESENCE_WRITE_INTERVAL: Duration = Duration::from_secs(60);
 /// Drop map entries older than this so long-lived processes do not retain every
-/// user_id forever (MYR-037). Must be ≥ [`PRESENCE_WRITE_INTERVAL`].
+/// user_id forever. Must be ≥ [`PRESENCE_WRITE_INTERVAL`].
 const PRESENCE_MAP_TTL: Duration = Duration::from_secs(15 * 60);
 /// 两次活跃间隔 ≤300s 视为持续在线，计入 online_seconds；更长间隔视为离线后重新上线。
 const PRESENCE_SESSION_GAP_SECS: i64 = 300;
@@ -465,8 +463,7 @@ pub fn record_user_presence(claims: &Claims, db: DatabaseConnection) {
 /// Admin-only middleware - verifies JWT token and checks admin status
 /// Returns 403 if user is not an admin
 ///
-/// Checks both the signed claim and the current database role.
-/// Used for dangerous operations like deleting all reports
+/// Checks both the signed claim and the current database role (`ensure_current_admin_on`)。
 pub async fn admin_middleware(
     State(db): State<DatabaseConnection>,
     req: Request,
@@ -491,8 +488,7 @@ pub async fn admin_middleware(
                 claims.username
             );
 
-            // 关键修复: 将 claims 注入到 request extensions 中
-            // 这样后续的 Extension(claims) 提取器才能正常工作
+            // 注入 claims，供后续 `Extension(Claims)`。
             let mut req = req;
             req.extensions_mut().insert(claims);
             next.run(req).await
@@ -505,7 +501,6 @@ pub async fn admin_middleware(
 ///
 /// This prevents a demoted admin from keeping admin access until the old JWT
 /// expires.
-/// Preferred: verify admin with an explicit DB handle (handlers / middleware State).
 pub async fn ensure_current_admin_on(
     claims: &Claims,
     db: &DatabaseConnection,
@@ -778,13 +773,14 @@ pub async fn authenticate_optional_request(
     authenticate_request(headers, db).await.map(Some)
 }
 
-/// Atomically bump `users.token_version` and return the new value.
+/// Atomically revoke the expected session epoch and return the new value.
 ///
-/// Used on logout and password change so all previously issued JWTs fail
-/// [`ensure_session_epoch`]. Returns `None` if the user row is gone.
+/// logout 调用。后续 JWT 对不上 `session_epoch_matches` 即 401。
+/// 密码修改自行 `UPDATE token_version`。用户不存在或版本已变化返回 `None`。
 pub async fn bump_token_version(
     db: &DatabaseConnection,
     user_id: i32,
+    expected_version: i64,
 ) -> Result<Option<i64>, sea_orm::DbErr> {
     if user_id <= 0 {
         return Ok(None);
@@ -793,8 +789,8 @@ pub async fn bump_token_version(
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "UPDATE users SET token_version = COALESCE(token_version, 0) + 1, updated_at = NOW() \
-             WHERE id = $1 RETURNING token_version",
-            [user_id.into()],
+             WHERE id = $1 AND COALESCE(token_version, 0)::BIGINT = $2 RETURNING token_version",
+            [user_id.into(), expected_version.into()],
         ))
         .await?;
     let new_version = row.and_then(|r| {
@@ -803,6 +799,9 @@ pub async fn bump_token_version(
             .map(i64::from)
             .or_else(|| r.try_get::<i64>("", "token_version").ok())
     });
+    if new_version.is_none() {
+        return Ok(None);
+    }
     // Remove the local entry even if NOTIFY cannot be delivered.  Publishing
     // after the committed UPDATE keeps peer caches bounded by the five-second
     // TTL in the event of a transient notification failure.
@@ -875,11 +874,8 @@ fn verify_guest_session(secret: &[u8], token: &str) -> Option<String> {
 /// (real users are non-negative).
 ///
 /// ## Hash material
-/// Full SHA-256 is XOR-folded into 31 bits (previous scheme used only 4 raw
-/// prefix bytes). Cookie session tokens themselves are unchanged (HMAC of the
-/// 32-hex session id); only the derived numeric subject remaps. Existing
-/// guest storage rows under the old mapping become orphaned after upgrade —
-/// acceptable for ephemeral guest sandbox data (no migration).
+/// Full SHA-256 is XOR-folded into 31 bits. Cookie session tokens are HMAC of the
+/// 32-hex session id; only the derived numeric subject is this fold.
 ///
 /// A true 63-bit negative `i64` would need `BIGINT` subject columns site-wide;
 /// until then this is the strongest scheme that still fits the DB type.
@@ -900,19 +896,15 @@ fn guest_id(session_id: &str) -> i32 {
 
 /// Optional authentication middleware - allows guest access
 ///
-/// 用于支持权限下放的 API：
-/// - 如果有有效 token，验证并注入 Claims
-/// - 如果没有 token，注入游客 Claims
-/// - 如果提交了无效、已撤销或状态过期的 token，拒绝请求而不是降级为游客
+/// 给允许游客主体的路由注入 Claims：有效 token → Claims；无 token → 游客 Claims；
+/// 无效/已撤销 token 拒绝，不降级为游客。本中间件只注入 Claims，不计算授予权限。
 ///
 /// 游客 ID 策略：
 /// - 使用浏览器持有的 HttpOnly 签名 session，而不是共享出口 IP
 /// - 同一浏览器 session 获得稳定的负数 ID
 /// - 负数 ID 与正数用户 ID 区分，便于管理
 ///
-/// 安全说明：
-/// - 游客 Claims 的 is_admin 为 false
-/// - API 端点需要自行检查权限（通过 TappPermissionService）
+/// 游客 Claims 的 is_admin 为 false。
 pub async fn optional_auth_middleware(
     State(db): State<DatabaseConnection>,
     req: Request,
@@ -934,7 +926,9 @@ pub async fn optional_auth_middleware(
                 _ => {
                     return (
                         StatusCode::SERVICE_UNAVAILABLE,
-                        Json(json!({"error": "Guest session signing is unavailable"})),
+                        Json(AppError::public_json(
+                            "Guest session signing is unavailable",
+                        )),
                     )
                         .into_response()
                 }
@@ -1115,7 +1109,7 @@ mod tests {
 
     fn ensure_jwt_secret() {
         INIT_JWT.call_once(|| {
-            // Copilot #294: missing *and* empty JWT_SECRET are both unsafe for HS256.
+            // Missing *and* empty JWT_SECRET are both unsafe for HS256.
             if jwt_secret_is_unset() {
                 // SAFETY: unit tests, set once before concurrent use.
                 std::env::set_var("JWT_SECRET", TEST_JWT_SECRET);
@@ -1194,6 +1188,183 @@ mod tests {
             HeaderValue::from_str(&format!("Bearer {bad}")).expect("header"),
         );
         assert!(verify_jwt_token(&headers).is_err());
+    }
+
+    #[test]
+    fn site_management_routes_reject_ordinary_and_anonymous_users() {
+        use axum::{body::Body, http::Request};
+        use tower::ServiceExt;
+
+        ensure_jwt_secret();
+        let _test_guard = auth_cache_test_guard();
+        clear_auth_cache_for_test();
+        auth_cache_put(
+            79,
+            Some(AuthSnapshot {
+                token_version: 0,
+                is_admin: false,
+                is_owner: false,
+            }),
+        );
+        let token = encode_session_token(&mint_session_claims(79, "ordinary", false, false, 0))
+            .expect("token");
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            let app = crate::router::test_api_router(crate::state::AppState::new(
+                DatabaseConnection::default(),
+                crate::config::AppConfig::default(),
+                crate::config::DynamicConfig::default(),
+            ));
+            for (method, path, body) in [
+                ("GET", "/api/config", ""),
+                (
+                    "POST",
+                    "/api/config/test",
+                    r#"{"platform":"Discord","config":{}}"#,
+                ),
+                (
+                    "POST",
+                    "/api/prompt/generate",
+                    r#"{"title":"test","summary":"test"}"#,
+                ),
+            ] {
+                for authenticated in [false, true] {
+                    let mut request = Request::builder()
+                        .method(method)
+                        .uri(path)
+                        .header(header::CONTENT_TYPE, "application/json");
+                    if authenticated {
+                        request = request.header(header::AUTHORIZATION, format!("Bearer {token}"));
+                    }
+                    let response = app
+                        .clone()
+                        .oneshot(request.body(Body::from(body)).expect("request"))
+                        .await
+                        .expect("response");
+                    assert_eq!(
+                        response.status(),
+                        if authenticated {
+                            StatusCode::FORBIDDEN
+                        } else {
+                            StatusCode::UNAUTHORIZED
+                        },
+                        "{method} {path}, authenticated={authenticated}"
+                    );
+                }
+            }
+        });
+    }
+
+    /// Run against an explicit test DB; a single-connection TEMP table keeps
+    /// the fixture separate from durable users and exercises the actual SQL.
+    #[tokio::test]
+    async fn logout_epoch_update_rejects_stale_and_concurrent_replays() {
+        use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseBackend, Statement};
+
+        let Ok(url) = std::env::var("AUTH_TEST_DATABASE_URL") else {
+            return;
+        };
+        let mut options = ConnectOptions::new(url);
+        options.max_connections(1).min_connections(1);
+        let db = Database::connect(options).await.expect("connect test DB");
+        db.execute_raw(Statement::from_string(DatabaseBackend::Postgres,
+            "CREATE TEMP TABLE users (id INTEGER PRIMARY KEY, token_version INTEGER, updated_at TIMESTAMPTZ)"))
+            .await.unwrap();
+        db.execute_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "INSERT INTO users (id, token_version) VALUES (1, 4), (2, 9)",
+        ))
+        .await
+        .unwrap();
+
+        let (a, b) = tokio::join!(
+            super::bump_token_version(&db, 1, 4),
+            super::bump_token_version(&db, 1, 4)
+        );
+        let (a, b) = (a.unwrap(), b.unwrap());
+        assert!(matches!((a, b), (Some(5), None) | (None, Some(5))));
+        assert_eq!(super::bump_token_version(&db, 1, 4).await.unwrap(), None);
+        assert_eq!(super::bump_token_version(&db, 1, 5).await.unwrap(), Some(6));
+        assert_eq!(super::bump_token_version(&db, 1, 4).await.unwrap(), None);
+        assert_eq!(super::bump_token_version(&db, 999, 0).await.unwrap(), None);
+        let rows = db
+            .query_all_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT token_version FROM users ORDER BY id",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(rows[0].try_get::<i32>("", "token_version").unwrap(), 6);
+        assert_eq!(rows[1].try_get::<i32>("", "token_version").unwrap(), 9);
+        db.close().await.unwrap();
+    }
+
+    #[test]
+    fn brew_private_comment_routes_reject_revoked_sessions() {
+        use axum::{
+            body::{to_bytes, Body},
+            http::Request,
+        };
+        use tower::ServiceExt;
+
+        ensure_jwt_secret();
+        let _test_guard = auth_cache_test_guard();
+        clear_auth_cache_for_test();
+        let token = encode_session_token(&mint_session_claims(80, "revoked", false, false, 0))
+            .expect("token");
+        auth_cache_put(
+            80,
+            Some(AuthSnapshot {
+                token_version: 1,
+                is_admin: false,
+                is_owner: false,
+            }),
+        );
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            let state = crate::state::AppState::new(
+                DatabaseConnection::default(),
+                crate::config::AppConfig::default(),
+                crate::config::DynamicConfig::default(),
+            );
+            let app = axum::Router::new()
+                .nest("/api/brew", crate::api::brew::create_brew_routes(state.clone()))
+                .with_state(state);
+            for (path, field) in [
+                ("/api/brew/items/1/comments", "comments"),
+                ("/api/brew/comments/1/replies", "replies"),
+            ] {
+                let response = app
+                    .clone()
+                    .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::OK, "anonymous {path}");
+                let body = to_bytes(response.into_body(), 4096).await.unwrap();
+                let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                assert_eq!(body[field], serde_json::json!([]));
+                for value in [format!("Bearer {token}"), "Bearer invalid".to_string()] {
+                    let response = app
+                        .clone()
+                        .oneshot(
+                            Request::builder()
+                                .uri(path)
+                                .header(header::AUTHORIZATION, value)
+                                .body(Body::empty())
+                                .unwrap(),
+                        )
+                        .await
+                        .unwrap();
+                    assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{path}");
+                }
+            }
+        });
     }
 
     #[test]
@@ -1529,7 +1700,7 @@ mod tests {
 
     #[test]
     fn claims_tv_defaults_when_absent_in_json() {
-        // Pre-MYR-005 tokens omit `tv`; serde default keeps them at epoch 0.
+        // Claim omitted `tv` → serde default 0.
         let json = r#"{"sub":"1","username":"u","is_admin":false,"exp":1,"iat":0}"#;
         let claims: super::Claims = serde_json::from_str(json).expect("deserialize");
         assert_eq!(claims.tv, 0);

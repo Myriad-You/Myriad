@@ -97,7 +97,10 @@ pub async fn create_speaking_analyzer() -> Option<crate::services::analyzer::AiA
 
 pub fn refuse_new_task_message(mood_before: Option<f64>) -> Option<String> {
     if mood_before.is_some_and(is_extremely_low) {
-        Some("我现在心情很低，不想接新的事情。我们先说说话吧。".to_string())
+        Some(
+            "I'm in a very low mood and don't want to take on anything new. Let's just talk."
+                .to_string(),
+        )
     } else {
         None
     }
@@ -176,7 +179,7 @@ pub async fn note_user_turn(
     Some((transition, saved.last_user_message_at?))
 }
 
-/// After planning, so this turn is not already sitting in the diary the model just read.
+/// Chat writes this before the model; Work writes after `plan_for`.
 pub async fn note_chat_diary(db: &sea_orm::DatabaseConnection, user_id: i32, text: &str) {
     if !is_logged_in_addressee(user_id) {
         return;
@@ -231,14 +234,14 @@ pub fn format_addressee_label(
     username: Option<&str>,
 ) -> String {
     if !is_logged_in_addressee(user_id) {
-        return "游客".to_string();
+        return "Guest".to_string();
     }
     display_name
         .map(str::trim)
         .filter(|name| !name.is_empty())
         .or_else(|| username.map(str::trim).filter(|name| !name.is_empty()))
         .map(str::to_string)
-        .unwrap_or_else(|| format!("用户#{user_id}"))
+        .unwrap_or_else(|| format!("User#{user_id}"))
 }
 
 pub async fn resolve_addressee_label(db: &sea_orm::DatabaseConnection, user_id: i32) -> String {
@@ -439,8 +442,11 @@ mod tests {
             super::format_addressee_label(7, Some("   "), Some("hitomi")),
             "hitomi"
         );
-        assert_eq!(super::format_addressee_label(7, None, None), "用户#7");
-        assert_eq!(super::format_addressee_label(-12, Some("瞳"), None), "游客");
+        assert_eq!(super::format_addressee_label(7, None, None), "User#7");
+        assert_eq!(
+            super::format_addressee_label(-12, Some("瞳"), None),
+            "Guest"
+        );
         assert_eq!(super::public_persona_name(false, Some("瞳")), "Agent");
         assert_eq!(super::public_persona_name(true, Some("  瞳  ")), "瞳");
         assert_eq!(super::public_persona_name(true, Some("   ")), "Arael");
@@ -483,7 +489,7 @@ mod tests {
             ..blank.clone()
         };
         let named_text = super::format_persona(&named).unwrap();
-        assert!(named_text.starts_with("你是瞳。"));
+        assert!(named_text.starts_with("You are 瞳."));
         assert!(named_text.contains(super::speaking_prompts::PERSONA_SPEAKING_CONTRACT));
         assert!(super::has_custom_persona(&named));
     }
@@ -504,12 +510,12 @@ mod tests {
         assert!(super::refuse_new_task_message(Some(10.0)).is_some());
         assert!(super::refuse_new_task_message(Some(10.1)).is_none());
         assert!(super::refuse_new_task_message(None).is_none());
-        assert!(super::speaking_prompts::PERSONA_SPEAKING_CONTRACT.contains("不要念心情"));
-        assert!(super::mood_tone_instruction(8.0, 48.0).contains("极低"));
-        assert!(super::mood_tone_instruction(30.0, 40.0).contains("偏低"));
-        assert!(super::mood_tone_instruction(30.0, 70.0).contains("烦躁"));
-        assert!(super::mood_tone_instruction(90.0, 48.0).contains("平常语气"));
-        assert!(super::mood_tone_instruction(90.0, 70.0).contains("轻松"));
+        assert!(super::speaking_prompts::PERSONA_SPEAKING_CONTRACT.contains("Do not name the mood"));
+        assert!(super::mood_tone_instruction(8.0, 48.0).contains("Very low"));
+        assert!(super::mood_tone_instruction(30.0, 40.0).contains("A bit low"));
+        assert!(super::mood_tone_instruction(30.0, 70.0).contains("Irritable"));
+        assert!(super::mood_tone_instruction(90.0, 48.0).contains("ordinary tone"));
+        assert!(super::mood_tone_instruction(90.0, 70.0).contains("lighter"));
         let section = super::format_mood_section(72.4, 48.0);
         assert!(!section.contains("72/100"));
         assert!(!section.contains("72.4"));
@@ -519,12 +525,12 @@ mod tests {
     fn diary_section_skips_empty_and_compacts() {
         assert!(super::format_recent_section(&[]).is_none());
         let block = super::format_remembered_section(&["今天晚上想打独立游戏".into()]).unwrap();
-        assert!(block.contains("## 关于这个人"));
-        assert!(block.contains("你留下的事实"));
+        assert!(block.contains("## About this person"));
+        assert!(block.contains("facts you kept"));
         assert!(block.contains("- 今天晚上想打独立游戏"));
         assert!(super::format_recent_section(&["Steam 解锁了成就".into()])
             .unwrap()
-            .contains("## 最近"));
+            .contains("## Recently"));
     }
 
     #[test]
@@ -537,7 +543,7 @@ mod tests {
         let remembered = super::format_remembered_section(&["晚上想打独立游戏".into()]).unwrap();
         let event_line = "正在收尾一篇文章，还差最后一段";
         let prompt = super::speaking_prompt_plain(&[remembered]);
-        assert!(prompt.contains("## 关于这个人"));
+        assert!(prompt.contains("## About this person"));
         assert!(prompt.contains("晚上想打独立游戏"));
         assert!(!prompt.contains(event_line));
         let recent_src = include_str!("mod.rs")
@@ -580,8 +586,8 @@ mod tests {
 
     #[test]
     fn guest_and_addressee_sections_name_the_other_person() {
-        assert!(super::guest_speaking_section().contains("游客"));
-        assert!(super::addressee_speaking_section("瞳").contains("对瞳说话"));
+        assert!(super::guest_speaking_section().contains("guest"));
+        assert!(super::addressee_speaking_section("瞳").contains("speaking to 瞳"));
         assert_eq!(
             super::speaking_prompt_plain(&[
                 super::addressee_speaking_section("瞳"),

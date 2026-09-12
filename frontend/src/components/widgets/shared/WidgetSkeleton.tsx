@@ -1,45 +1,20 @@
-/**
- * Shared widget loading skeleton.
- *
- * - One visual language for all home widgets (shimmer bones).
- * - Accent is optional and platform-card-friendly: pass brand hex (or soft fill)
- *   so report cards / social / friend-links can tint the skeleton like their UI.
- * - Use presets for common layouts, or compose with {@link SkeletonBone}.
- */
-
 import type { CSSProperties, ReactNode } from 'react'
 import { memo, useEffect, useMemo, useState } from 'react'
 import './WidgetSkeleton.css'
 
-/**
- * Host-side defaults for third-party Tapp tiles.
- * - deferMs: skip paint if load finishes faster (avoids flash + wasted work)
- * - block preset: single bone, cheapest layout
- */
 export const TAPP_WIDGET_SKELETON = {
   preset: 'block' as const,
-  /**
-   * Suspense / sandbox / library-preview: wait before painting shimmer.
-   * Runtime `loading` after chunk resolve uses deferMs=0 (already past Suspense).
-   */
   deferMs: 100,
-  /**
-   * Off-viewport: zero bone DOM + soft fill only (`hold` surface).
-   * No continuous animation.
-   */
   offscreenHold: true as const,
-  /** Sandbox: if iframe never signals ready, show stall hint after this ms */
+  // iframe 一直不 ready 时，超过此时长显示卡住提示。
   readyTimeoutMs: 12_000,
-  /** Fade/scale out duration (must match CSS --ws-exit-ms) */
   exitMs: 280,
 } as const
 
 export type WidgetSkeletonAccent =
   | string
   | {
-      /** Brand / platform solid color (e.g. PLATFORM_CONFIG.color) */
       color: string
-      /** Optional soft fill override (else derived from color) */
       soft?: string
     }
 
@@ -56,50 +31,26 @@ export type WidgetSkeletonPreset =
 export interface SkeletonBoneProps {
   className?: string
   style?: CSSProperties
-  /** Width: CSS length or number → rem */
   w?: string | number
-  /** Height: CSS length or number → rem */
   h?: string | number
   rounded?: 'none' | 'sm' | 'md' | 'lg' | 'xl' | 'full'
-  /** Lower emphasis fill */
   muted?: boolean
 }
 
 export interface WidgetSkeletonProps {
   preset?: WidgetSkeletonPreset
-  /** Brand tint — same idea as platform card identity color */
   accent?: WidgetSkeletonAccent
   className?: string
   style?: CSSProperties
-  /** media-grid tile count */
   count?: number
-  /** media-grid columns */
   columns?: number
-  /** lines / list row count */
   rows?: number
-  /** Custom layout (ignores preset structure; still gets accent CSS vars) */
   children?: ReactNode
-  /** Accessible label */
   label?: string
-  /**
-   * Run shimmer sweep. Prefer `false` for static soft bones without motion.
-   * @default true
-   */
   animated?: boolean
-  /**
-   * Delay before painting bones (ms). `0` = immediate.
-   * Tapp host layers use {@link TAPP_WIDGET_SKELETON.deferMs} so sub-100ms
-   * loads never pay a skeleton paint.
-   * @default 0
-   */
+  // deferMs=0 立刻画；Tapp 宿主用 TAPP_WIDGET_SKELETON.deferMs，避免 <100ms 闪骨架。
   deferMs?: number
-  /**
-   * Ultra-cheap surface: soft fill only, **no bone DOM**, no animation.
-   * Use for off-viewport Tapp tiles (many cards, zero shimmer cost).
-   * @default false
-   */
   hold?: boolean
-  /** Optional stall caption (e.g. sandbox ready timeout) */
   stallMessage?: string
 }
 
@@ -134,7 +85,6 @@ export function resolveSkeletonAccent(accent?: WidgetSkeletonAccent): {
   return { color: accent.color, soft: accent.soft }
 }
 
-/** Single shimmer bone — compose free-form skeletons. */
 export const SkeletonBone = memo(({
   className,
   style,
@@ -239,8 +189,6 @@ function StatsGridLayout({ count }: { count: number }) {
 }
 
 function ReportLayout() {
-  // Lines sit top/mid; logo owns the bottom-left row (matches CardLogoPill).
-  // Avoid stacking body bones on the logo — they used to collide at bottom.
   return (
     <>
       <span className="ws-report-wash" aria-hidden />
@@ -256,15 +204,6 @@ function ReportLayout() {
   )
 }
 
-/**
- * Full-widget skeleton. Defaults to primary theme accent when `accent` omitted.
- *
- * Efficiency rules (host convention):
- * 1. Prefer `preset="block"` for third-party shells (one bone).
- * 2. Use `deferMs` on Tapp paths so fast loads skip paint entirely.
- * 3. Use `animated={false}` for off-viewport holds (no shimmer loop).
- * 4. Do not nest multiple animated skeletons for the same tile stage.
- */
 export const WidgetSkeleton = memo(({
   preset = 'lines',
   accent,
@@ -309,7 +248,6 @@ export const WidgetSkeleton = memo(({
     return vars
   }, [resolved, columns])
 
-  // Hold surface: no defer arming cost beyond one soft fill (skip timer if hold)
   if (hold) {
     return (
       <div
@@ -374,12 +312,6 @@ export const WidgetSkeleton = memo(({
   )
 })
 
-/**
- * Overlay skeleton that **fades out** before unmount so content under it can
- * appear smoothly (sandbox ready, data load finish).
- *
- * Prefer this over `{loading && <WidgetSkeleton />}` which unmounts instantly.
- */
 export const WidgetSkeletonCover = memo(({
   active,
   className,
@@ -388,9 +320,7 @@ export const WidgetSkeletonCover = memo(({
   exitMs = TAPP_WIDGET_SKELETON.exitMs,
   ...skeletonProps
 }: WidgetSkeletonProps & {
-  /** When false, play exit then unmount */
   active: boolean
-  /** absolute inset-0 cover (default). Set false for in-flow full height. */
   fill?: boolean
   exitMs?: number
 }) => {
@@ -432,7 +362,6 @@ export const WidgetSkeletonCover = memo(({
     >
       <WidgetSkeleton
         {...skeletonProps}
-        /* Freeze shimmer on exit for a clean dissolve */
         animated={exiting ? false : skeletonProps.animated}
         deferMs={exiting ? 0 : skeletonProps.deferMs}
       />

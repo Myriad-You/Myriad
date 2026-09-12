@@ -1,12 +1,3 @@
-/**
- * 设置页通用「锚定浮层面板」：点击触发器打开，Portal + fixed，避免 overflow 裁切。
- *
- * 与 SettingTitleHelp（ⓘ hover 只读说明）共用同一套浮层视觉（setting-title-help-tooltip），
- * 但面向可交互内容（表单、按钮），点外 / Esc 关闭。
- *
- * 结构化长指南仍用 SettingTitleGuideEntry；短只读说明用 SettingTitleHelp。
- */
-
 import type { ReactNode } from 'react'
 import React, {
   useCallback,
@@ -25,36 +16,26 @@ export type SettingAnchoredPanelPlacement = 'top' | 'bottom'
 export interface SettingAnchoredPanelTriggerApi {
   open: boolean
   disabled: boolean
-  /** 切换开合（busy/preventClose 时关不掉） */
   toggle: () => void
-  /** 强制打开 */
   openPanel: () => void
-  /** 强制关闭（忽略 preventClose 时请用 forceClose） */
   closePanel: () => void
 }
 
 export interface SettingAnchoredPanelProps {
-  /** 触发器：节点或 render props（推荐，便于接 tag/按钮状态） */
   trigger:
     | ReactNode
     | ((api: SettingAnchoredPanelTriggerApi) => ReactNode)
-  /** 面板内容（可放表单、按钮） */
   children: ReactNode
-  /** 受控开合 */
   open?: boolean
   onOpenChange?: (open: boolean) => void
-  /** 非受控默认 */
   defaultOpen?: boolean
-  /** true 时禁止点外/Esc/toggle 关闭（如请求进行中） */
+  /** true: no outside/Esc/toggle close */
   preventClose?: boolean
   disabled?: boolean
   placement?: SettingAnchoredPanelPlacement
-  /** 相对触发器水平对齐 */
   align?: 'start' | 'center'
-  /** 面板无障碍名 */
   ariaLabel?: string
   className?: string
-  /** 附加到浮层表面 */
   panelClassName?: string
 }
 
@@ -200,7 +181,6 @@ export const SettingAnchoredPanel: React.FC<SettingAnchoredPanelProps> = ({
       if (triggerWrapRef.current?.contains(node)) return
       setOpen(false)
     }
-    // Skip the opening click
     const tid = window.setTimeout(() => {
       window.addEventListener('mousedown', onPointer)
     }, 0)

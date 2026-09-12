@@ -2,11 +2,9 @@ use sea_orm_migration::prelude::*;
 
 /// Myriad Federation Protocol (MFP) 数据库结构
 ///
-/// 支持 ActivityPub 兼容 + MFP 扩展：
-/// - Layer 1: 发现（WebFinger, NodeInfo）
-/// - Layer 2: 实例核心（Actor, Inbox/Outbox, 投递队列）
-/// - Layer 3: Channel(1↔1) / Room(N↔N) / Ring(去中心化)
-/// - Layer 4: 内容发布 + 联邦 Timeline
+/// ActivityPub 兼容表（keys / remote actors / instances / follows / activities /
+/// delivery queue）+ MFP Channel / Room / Ring / published content / timeline /
+/// file transfers。WebFinger 与 NodeInfo 是 HTTP 发现端点，不在本 migration。
 #[derive(DeriveMigrationName)]
 pub struct Migration;
 
@@ -14,7 +12,7 @@ pub struct Migration;
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         // ==================== 1. FEDERATION_KEYS 表 ====================
-        // 联邦密钥对（RSA-SHA256 / Ed25519）
+        // 联邦密钥对（RSA-SHA256）
         manager
             .create_table(
                 Table::create()
@@ -39,13 +37,13 @@ impl MigrationTrait for Migration {
                             .text()
                             .not_null(),
                     )
-                    // AES-256-GCM 加密的私钥（用 JWT_SECRET 派生密钥加密）
+                    // 私钥密文（text）
                     .col(
                         ColumnDef::new(FederationKeys::PrivateKeyEncrypted)
                             .text()
                             .not_null(),
                     )
-                    // Key ID URL: https://domain/users/username#main-key
+                    // Key ID（unique text）
                     .col(
                         ColumnDef::new(FederationKeys::KeyId)
                             .text()
@@ -169,7 +167,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(FederationInstances::MfpVersion).string_len(20))
                     .col(ColumnDef::new(FederationInstances::NodeinfoUrl).text())
                     .col(ColumnDef::new(FederationInstances::SharedInboxUrl).text())
-                    // 信任层级：0=unknown, 1=discovered, 2=followed, 3=trusted, 4=federated
+                    // trust_level：smallint NOT NULL default 0（无 CHECK）
                     .col(
                         ColumnDef::new(FederationInstances::TrustLevel)
                             .small_integer()
@@ -198,7 +196,7 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(0),
                     )
-                    // 当前连续投递失败的起点（原 015）。已存在的表由 schema_check 通用 ADD 补列。
+                    // failing_since
                     .col(
                         ColumnDef::new(FederationInstances::FailingSince)
                             .timestamp_with_time_zone(),
@@ -389,7 +387,7 @@ impl MigrationTrait for Migration {
             .await?;
 
         // ==================== 6. FEDERATION_DELIVERY_QUEUE 表 ====================
-        // 持久化投递队列（指数退避重试）
+        // 持久化投递队列（attempts / max_attempts / next_retry_at）
         manager
             .create_table(
                 Table::create()
@@ -485,8 +483,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // 同一条活动对同一个 inbox 只应排队一次。25 个入队点都是裸 INSERT，
-        // 没有这个约束就无法阻止重复投递（远端会收到两次同一条活动）。
+        // 同一条活动对同一个 inbox 只应排队一次。
         // 入队处配合 ON CONFLICT (activity_id, target_inbox) DO NOTHING。
         manager
             .create_index(
@@ -501,7 +498,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // 按目标域名扫队列（原 015）。LOWER() 表达式索引 SeaORM Iden 建不了。
+        // 按目标域名扫队列。LOWER() 表达式索引 SeaORM Iden 建不了。
         manager
             .get_connection()
             .execute_unprepared(
@@ -1119,8 +1116,7 @@ CREATE INDEX IF NOT EXISTS idx_delivery_queue_target_domain
             )
             .await?;
 
-        // 同一用户的同一条活动只应出现一次。6 个写入点原先各自用
-        // `WHERE NOT EXISTS` 去重，那是先查后插，并发下会双双插入。
+        // 同一用户的同一条活动只应出现一次：`(user_id, activity_id)` 唯一索引。
         manager
             .create_index(
                 Index::create()
@@ -1286,7 +1282,7 @@ CREATE INDEX IF NOT EXISTS idx_fed_interactions_object_kind
 CREATE INDEX IF NOT EXISTS idx_fed_interactions_user_kind_created
     ON federation_object_interactions (user_id, kind, created_at DESC);
 
--- 联邦 inbox 幂等回执（原 012/013；已跑过旧 005 的库由 schema_check 建表/修旧形）
+-- 联邦 inbox 幂等回执；已跑过旧 005 的库由 schema_check 建表/修旧形
 CREATE TABLE IF NOT EXISTS federation_inbox_receipts (
     signer TEXT NOT NULL,
     activity_id TEXT NOT NULL,

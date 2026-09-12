@@ -16,15 +16,6 @@ export function zeroOccupancyOffset(): OccupancyOffset {
   return offset
 }
 
-/**
- * Rest plus channel-weighted offsets.
- *
- * Every source that contends for the pose contributes one layer here instead
- * of mutating the driver in turn, so what the character does is decided by the
- * lease table and the situation rather than by the order the player happens to
- * call things in. High occupancy compresses toward the bound; it never drops a
- * layer outright.
- */
 export function composeOccupancyOffsets(
   layers: readonly OccupancyLayer[],
   output: OccupancyOffset = zeroOccupancyOffset(),
@@ -36,7 +27,6 @@ export function composeOccupancyOffsets(
   return output
 }
 
-/** Adds one already-sampled layer into a reusable composition buffer. */
 export function accumulateOccupancyOffset(
   output: OccupancyOffset,
   offset: Readonly<Partial<OccupancyOffset>>,
@@ -57,7 +47,6 @@ export function accumulateOccupancyOffset(
   }
 }
 
-/** Adds one channel without constructing a temporary one-field layer. */
 export function accumulatePoseChannel(
   output: OccupancyOffset,
   key: PoseKey,

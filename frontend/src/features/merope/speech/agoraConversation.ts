@@ -90,7 +90,6 @@ async function openConversation(
   try {
     checkCurrent()
     const [rtcModule, rtmModule] = await Promise.all([
-      // Default self-contained SDKs; the optional ESM tree has separate deps.
       import('agora-rtc-sdk-ng'),
       import('agora-rtm'),
     ])
@@ -99,8 +98,6 @@ async function openConversation(
     if (typeof AgoraRTC?.createClient !== 'function') {
       throw new TypeError('Agora RTC SDK failed to load')
     }
-    // Official WORD timing requires this runtime API, omitted from the SDK's
-    // default-entry declarations (it is declared on its ESM entry).
     const ptsSdk = AgoraRTC as typeof AgoraRTC & {
       setParameter: (key: 'ENABLE_AUDIO_PTS_METADATA', value: boolean) => void
     }
@@ -187,7 +184,6 @@ async function openConversation(
             try {
               owned.remoteTrack.stop()
             } catch {
-              // already stopped
             }
           }
           owned.remoteTrack = track
@@ -211,7 +207,6 @@ async function openConversation(
       try {
         owned.remoteTrack?.stop()
       } catch {
-        // already stopped
       }
       owned.remoteTrack = null
       if (owned.energyTimer != null) window.clearInterval(owned.energyTimer)
@@ -260,7 +255,6 @@ async function openConversation(
     try {
       await stopConvoSession(session.agent_id)
     } catch {
-      // already stopped
     }
     if (!current()) return false
     patchVoicePresence({
@@ -299,7 +293,6 @@ async function releaseMedia(session: LiveSession): Promise<void> {
         session.rtmMessage as import('agora-rtm').RTMEvents.RTMClientEventMap['message'],
       )
     } catch {
-      // already detached
     }
     session.rtmMessage = null
   }
@@ -314,23 +307,19 @@ async function releaseMedia(session: LiveSession): Promise<void> {
     session.mic.stop()
     session.mic.close()
   } catch {
-    // already closed
   }
   try {
     await session.client.leave()
   } catch {
-    // already left
   }
   await releaseRtm(session.rtm, session.channel)
   try {
     await session.audioContext?.close()
   } catch {
-    // already closed
   }
   try {
     await session.bargeContext?.close()
   } catch {
-    // already closed
   }
 }
 
@@ -341,12 +330,10 @@ async function releaseRtm(
   try {
     await rtm.unsubscribe(channel)
   } catch {
-    // already unsubscribed
   }
   try {
     await rtm.logout()
   } catch {
-    // already logged out
   }
 }
 

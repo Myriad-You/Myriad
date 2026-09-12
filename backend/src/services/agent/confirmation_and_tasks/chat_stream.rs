@@ -249,7 +249,7 @@ fn spawn_model_outfit_overlay(
 }
 
 impl Agent {
-    /// 真正的流式 Chat 回复：使用 analyze_stream 从 AI 模型逐 token 输出
+    /// 真正的流式 Chat 回复：使用 `analyze_stream_parts` 从 AI 模型逐 token 输出
     ///
     /// 构建包含人格 + 对话历史的 prompt，调用流式 AI 接口，
     /// 每个 token 实时推送给前端。AI 不可用时回退到模拟流式。

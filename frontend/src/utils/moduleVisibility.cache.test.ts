@@ -1,5 +1,4 @@
 /**
- * Session cache for module visibility — must not re-block route mounts.
  * @vitest-environment node
  */
 

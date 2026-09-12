@@ -32,6 +32,7 @@ export { SettingGuideBody } from './SettingGuideBody'
 export {
   getTappPermissionGuide,
   getTappPermissionGuides,
+  loadTappPermissionGuides,
   tappPermissionGuidePath,
 } from './tappPermissionGuides'
 export type { TappPermissionGuides } from './tappPermissionGuides'

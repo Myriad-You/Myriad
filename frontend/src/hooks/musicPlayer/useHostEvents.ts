@@ -35,9 +35,7 @@ export interface MusicPlayerHostEventOpts {
   broadcastStateChange: () => void
 }
 
-/**
- * 窗口 / Media Session / 可见性事件。回调经 optsRef 读最新闭包，监听器只绑一次。
- */
+/** 回调经 optsRef 读最新闭包，监听器只绑一次。 */
 export function useMusicPlayerHostEvents(opts: MusicPlayerHostEventOpts): void {
   const optsRef = useRef(opts)
   optsRef.current = opts
@@ -70,9 +68,10 @@ export function useMusicPlayerHostEvents(opts: MusicPlayerHostEventOpts): void {
           }
           if (audio.paused) {
             try {
+              // 后台 play 可能被拒，回前台时再恢复。
               await audio.play()
             } catch {
-              // 后台 play 可能被拒，回前台时再恢复
+
             }
           }
         }

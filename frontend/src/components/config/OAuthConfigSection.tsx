@@ -1,12 +1,3 @@
-/**
- * OAuth 配置区块
- *
- * 添加入口与 AI 服务商同款：标题栏 CheckboxCard + 预设浮窗。
- * 卡片未填凭证时展开并显示 SetupFlow；配好后收起。
- *
- * 详见 docs/development/OAUTH.md + oauthPresets.ts
- */
-
 import type { OAuthProviderEntry } from '../../utils/oauthSettings'
 
 import {
@@ -147,7 +138,7 @@ export const OAuthConfigSection: React.FC<OAuthConfigSectionProps> = ({
 
   const baseUrl = (
     configFields.find((field) => field.key === 'base_url')?.value || ''
-  ).replace(/\/$/, '')
+  ).replaceAll(/\/$/g, '')
 
   const updateProvider = (idx: number, patch: Partial<OAuthProviderEntry>) => {
     onProvidersChange(
@@ -300,7 +291,7 @@ function ProviderCard({
   onChange: (patch: Partial<OAuthProviderEntry>) => void
   onRemove: () => void
 }) {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const { catalog: g, bindGuide } = useSettingGuide()
   const providerGuide = bindGuide('oauth.provider', g.oauth.provider).guide
   const configured = hasOAuthCredential(entry)
@@ -367,10 +358,10 @@ function ProviderCard({
           className="ai-vendor-card-hit"
           onClick={() => setOpen((value) => !value)}
           aria-expanded={open}
-          aria-label={(open
-            ? t.config.collapseGroupAria
-            : t.config.expandGroupAria
-          ).replace('{title}', title)}
+          aria-label={format(
+            open ? t.config.collapseGroupAria : t.config.expandGroupAria,
+            { title },
+          )}
         />
         <div className="oidc-provider-title">
           <ProviderIcon entry={entry} />

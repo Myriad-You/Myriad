@@ -10,9 +10,9 @@ Tapp (Third-party App) 是 Myriad 的扩展应用系统，允许开发者创建�
 Agent 和 CI 应固定包版本、显式指定 `myriad-tapp` binary，并始终使用 `--json`：
 
 ```bash
-npx --yes --package=@myriad-you/tapp-cli@0.1.2 myriad-tapp init ./my-tapp --type page
-npx --yes --package=@myriad-you/tapp-cli@0.1.2 myriad-tapp check ./my-tapp --json
-npx --yes --package=@myriad-you/tapp-cli@0.1.2 myriad-tapp pack ./my-tapp --json
+npx --yes --package=@myriad-you/tapp-cli@0.1.4 myriad-tapp init ./my-tapp --type page
+npx --yes --package=@myriad-you/tapp-cli@0.1.4 myriad-tapp check ./my-tapp --json
+npx --yes --package=@myriad-you/tapp-cli@0.1.4 myriad-tapp pack ./my-tapp --json
 ```
 
 任何非零退出状态都表示失败。`check` 返回状态 `1` 时，读取 `diagnostics`、修复项目并重新
@@ -25,7 +25,7 @@ npx --yes --package=@myriad-you/tapp-cli@0.1.2 myriad-tapp pack ./my-tapp --json
 starter：
 
 ```bash
-npm install --global @myriad-you/tapp-cli@0.1.2
+npm install --global @myriad-you/tapp-cli@0.1.4
 myriad-tapp init ./my-tapp --type page
 ```
 
@@ -358,6 +358,7 @@ Widget / Page **不能**直接 `fetch`。外部 HTTP 必须写在 `manifest.apis
 `Tapp.api(name, params)`。同一 **subject** 的 Page、Widget、headless 共享 `Tapp.storage`；
 宿主默认在 storage 变更时刷新可见 Widget（`widgets[].refreshPolicy`）。公开部署要展示
 站长数据时写 `Tapp.shared`（安装级，访客可读），不要写 `Tapp.storage`（每人一份空仓库）。
+仅 owner / 管理员可见的非密数据写 `Tapp.private`；出站密钥仍用 Manifest `credentials`。
 
 ### 推荐模式
 
@@ -432,7 +433,7 @@ Tapp.widgets["feed"] = {
 | storage 写入 | `await Tapp.storage.set(k, v)` | **Page / Widget / headless** | **默认路径**：同 Tapp 广播，刷新全部可见 Widget（与 `mode` 无关） |
 | 显式 invalidate（自己） | `await Tapp.widget.invalidate("reason")` | **仅 Widget 沙箱** | 当前实例 remount |
 | 定向 invalidate | `await Tapp.widget.invalidate("reason", { target: { widgetId } })` | Page / headless / Widget | 需授予的 `storage:write`；每卡 15s、每 Tapp 2 次/分；没有 `all` |
-| 订阅变更 | `Tapp.storage` / `settings` / `shared.onChanged(cb)` | Page / Widget / headless | 局部改 DOM；`settings` **只通知不拆卡**；写者自己不会收到 |
+| 订阅变更 | `Tapp.storage` / `settings` / `shared` / `private.onChanged(cb)` | Page / Widget / headless | 局部改 DOM；`settings` / `private` **只通知不拆卡**；写者自己不会收到 |
 | 可见轮询 | `refreshPolicy.mode: "interval"` | 宿主计时器 | 额外的可见节拍；**不要**当后台同步 |
 | 后台同步 | `backgroundRequirements` + scheduler / headless | headless core | 离开 UI 后仍要跑的任务 |
 

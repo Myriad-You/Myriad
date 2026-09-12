@@ -1,24 +1,13 @@
-/**
- * 选项指南 DOM 锚点：搜索结果点击后滚到具体配置项。
- * 约定 id = cfg-g-{area}-{key}，data-guide-path = area.key
- */
-
 import { prefersReducedMotion, SETTINGS_DURATION_MS } from '../motion'
 
 export const GUIDE_PATH_ATTR = 'data-guide-path'
 
-/** advanced.proxyEnable → cfg-g-advanced-proxyEnable（可选 id，可重复场景慎用） */
 export function guideAnchorId(path: string): string {
-  const cleaned = path.trim().replace(/^\.+|\.+$/g, '')
+  const cleaned = path.trim().replaceAll(/^\.+|\.+$/g, '')
   if (!cleaned) return ''
-  return `cfg-g-${cleaned.replace(/\./g, '-')}`
+  return `cfg-g-${cleaned.replaceAll('.', '-')}`
 }
 
-/**
- * 供 SettingGroup / SettingItem 根节点展开。
- * 只用 data-guide-path，不写 id——同一 path 可能出现多次（如多源通知），
- * 重复 id 会破坏 TOC / 无障碍；跳转用 querySelector 取第一个即可。
- */
 export function guideDomProps(guidePath?: string | null): {
   [GUIDE_PATH_ATTR]?: string
 } {
@@ -28,19 +17,17 @@ export function guideDomProps(guidePath?: string | null): {
 
 export function findGuideElement(path: string): HTMLElement | null {
   if (typeof document === 'undefined' || !path.trim()) return null
-  // 可选显式 id（手动挂的）优先
   const id = guideAnchorId(path)
   if (id) {
     const byId = document.getElementById(id)
     if (byId) return byId
   }
-  const safe = path.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  const safe = path.replaceAll('\\', '\\\\').replaceAll('"', '\\"')
   return document.querySelector<HTMLElement>(
     `[${GUIDE_PATH_ATTR}="${safe}"]`,
   )
 }
 
-/** 展开折叠祖先，使目标可见 */
 export function expandCollapsibleAncestors(el: HTMLElement): boolean {
   let expanded = false
   let node: HTMLElement | null = el
@@ -65,10 +52,7 @@ export function expandCollapsibleAncestors(el: HTMLElement): boolean {
 const FLASH_CLASS = 'is-guide-flash'
 const FLASH_MS = 1600
 
-/**
- * 滚到指南对应选项。返回是否找到元素。
- * 若需展开折叠区，会短暂延迟再滚动。
- */
+/** delay scroll if a collapse was opened */
 export function scrollToSettingGuide(
   path: string,
   options?: { highlight?: boolean },
@@ -84,8 +68,7 @@ export function scrollToSettingGuide(
     el.scrollIntoView({ behavior, block: 'center' })
     if (!highlight) return
     el.classList.remove(FLASH_CLASS)
-    // 强制重启动画
-    void el.offsetWidth
+    void el.offsetWidth // restart CSS animation
     el.classList.add(FLASH_CLASS)
     window.setTimeout(() => {
       el.classList.remove(FLASH_CLASS)
@@ -105,10 +88,7 @@ export function scrollToSettingGuide(
   return true
 }
 
-/**
- * 切换分类后：等 SectionSwitch commit + 内容挂载再滚。
- * 可多次 retry（部分区块异步渲染）。
- */
+/** after SectionSwitch commit; retry for async sections */
 export function scheduleScrollToSettingGuide(
   path: string,
   options?: { attempts?: number; delayMs?: number },

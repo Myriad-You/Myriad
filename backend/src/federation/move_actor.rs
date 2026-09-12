@@ -3,15 +3,15 @@
 //!
 //! ## Admin job order (`domain_move_all_users`)
 //! 1. Validate old/new base URLs
-//! 2. dry_run counts (users, keys, rewrite rows)
+//! 2. Load all users (writes still gated by dry_run on B/G/C/E)
 //! 3. **B** — store domain alias so actor docs expose `alsoKnownAs` / `movedTo`
 //! 4. **G** — retarget `federation_keys.key_id` to new host; **same PEM** (no new keypair)
 //! 5. **C** — enqueue Move to followers
-//! 6. **E** — rewrite this instance’s stored absolute URLs (whitelist only; never third-party)
+//! 6. **E** — whitelist columns; prefix `LIKE old_base%` (not origin-safe)
 //! 7. Full report
 //!
 //! ## Receive (D)
-//! Fail-closed: HTTP Signature, actor/object, old `movedTo`, new `alsoKnownAs`.
+//! Fail-closed here: actor == signed actor == object; target distinct. Signature is inbox; movedTo/alsoKnownAs are separate helpers.
 
 use axum::http::StatusCode;
 use axum::Json;
@@ -45,7 +45,7 @@ pub struct DomainMoveUserResult {
     pub old_actor: String,
     pub new_actor: String,
     pub status: String,
-    /// G: same RSA material retained; keyId host will be new domain `#main-key`.
+    /// True when `federation_keys.public_key_pem` is non-empty.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shared_key: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -70,7 +70,7 @@ pub struct LocalRewriteReport {
     pub dry_run: bool,
     pub total_rows: u32,
     pub columns: Vec<RewriteColumnStat>,
-    /// Foreign URLs must never match rewrite prefix (invariant for tests/ops).
+    /// Not computed; always serialized true.
     pub foreign_urls_untouched: bool,
 }
 
@@ -81,7 +81,7 @@ pub struct SharedKeysReport {
     pub users_with_keys: u32,
     /// `key_id` rows rewritten old host → new host (same PEM).
     pub key_ids_retargeted: u32,
-    /// Users missing keys (will generate on first actor fetch under new base — same once).
+    /// Users with no `federation_keys` row (this job does not insert keys).
     pub users_without_keys: u32,
     /// Explicit: no fresh keypair generated during this job.
     pub regenerated_keys: u32,
@@ -93,7 +93,7 @@ pub struct DomainMoveResponse {
     pub dry_run: bool,
     pub old_base_url: String,
     pub new_base_url: String,
-    /// **B** — domain alias stored (or would be stored).
+    /// **B** — `federation_domain_aliases` written (always false on dry_run).
     pub alias_stored: bool,
     pub total_users: u32,
     pub enqueued: u32,
@@ -114,8 +114,7 @@ pub struct DomainMoveAlias {
 
 /// Whitelist of text columns that may hold **this instance's** absolute federation URLs.
 ///
-/// Only values whose prefix is exactly `old_base` are rewritten. Third-party domains
-/// never match and are never touched.
+/// Rewritten when the text value matches escaped `old_base || '%'`. Host-origin safety is `url_is_under_base`, not this SQL.
 pub const LOCAL_URL_REWRITE_WHITELIST: &[(&str, &str)] = &[
     ("federation_keys", "key_id"),
     ("federation_remote_actors", "actor_url"),
@@ -169,8 +168,7 @@ pub fn url_is_under_base(url: &str, base: &str) -> bool {
     if url.is_empty() || base.is_empty() {
         return false;
     }
-    // Case-insensitive scheme+host via normalize_actor_url for actor-like URLs;
-    // for general paths keep byte-prefix after lowercasing host via Url parse.
+    // Prefix compare after `normalize_actor_url` (host lowercased; path kept; query/fragment dropped).
     let url_norm = normalize_actor_url(url);
     let base_norm = normalize_actor_url(base);
     if url_norm == base_norm {
@@ -353,7 +351,7 @@ pub fn build_move_activity(
     })
 }
 
-/// Best-effort followers collection URL from an actor id (`…/users/u` → `…/followers`).
+/// Best-effort `{actor_id}/followers`.
 fn followers_collection_hint(actor: &str) -> String {
     let trimmed = actor.trim().trim_end_matches('/');
     format!("{}/followers", trimmed)
@@ -397,7 +395,7 @@ pub fn parse_also_known_as(actor_json: &serde_json::Value) -> Vec<String> {
         .collect()
 }
 
-/// Fail-closed structural + document checks for Move (no HTTP Signature here).
+/// Fail-closed structural checks on the Move activity (no HTTP Signature, no actor documents).
 ///
 /// Returns `Ok((old_actor, new_actor))` or a permanent error string.
 pub fn verify_move_structure(
@@ -503,7 +501,7 @@ pub async fn fetch_actor_document(
         return local_actor_document(db, &base_url, &local_username).await;
     }
 
-    // Host may match an old-base alias on this instance
+    // URL may match a recorded old or new base on this instance.
     let aliases = load_domain_aliases(db).await;
     for a in &aliases {
         if let Some(uname) = local_username_from_actor_url(&a.old_base_url, actor_url_str) {
@@ -675,7 +673,7 @@ pub async fn migrate_follows_old_to_new(
     old_actor_url: &str,
     new_actor_url: &str,
 ) -> Result<u32, String> {
-    // Ensure both are in remote_actors cache (new may need fetch)
+    // Old must already be in `federation_remote_actors`; fetch (and cache) new.
     let old_remote = match db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -817,7 +815,6 @@ pub async fn migrate_follows_old_to_new(
         }
     }
 
-    // Optionally note moved_to on old remote_actors row for debugging (no schema change)
     tracing::info!(
         old = %old_actor_url,
         new = %new_actor_url,
@@ -854,7 +851,7 @@ pub async fn store_domain_alias(
 ///
 /// **Never** generates a new RSA keypair. PEM material is left untouched.
 /// Choice: `keyId` becomes `{new_base}/users/{username}#main-key` (new domain host)
-/// with the **same** `public_key_pem` as before (Mastodon-style continuity).
+/// with the same stored `public_key_pem` (Mastodon-style continuity).
 pub async fn retarget_shared_keys(
     db: &DatabaseConnection,
     old_base: &str,
@@ -1012,8 +1009,8 @@ async fn rewrite_prefix_column(
 
 /// **E** — Rewrite this instance’s stored absolute federation URLs `old_base` → `new_base`.
 ///
-/// Whitelist only. Never rewrites third-party domains (prefix match on old_base).
-/// `federation_remote_actors.domain` is updated only when `actor_url` was under old_base.
+/// Whitelist columns; `LIKE` prefix on `old_base` (substring hosts can match).
+/// `federation_remote_actors.domain` set to new host when `domain` is old and `actor_url` LIKE old_base% or new_base%.
 pub async fn rewrite_local_federation_urls(
     db: &DatabaseConnection,
     old_base: &str,
@@ -1209,7 +1206,7 @@ async fn user_has_shared_key(db: &DatabaseConnection, user_id: i32) -> Result<bo
 
 /// Admin domain-move job: **B + G + C + E** (or dry_run counts).
 ///
-/// Order: validate → counts → alias (B) → shared keys (G) → Move enqueue (C) → local rewrite (E).
+/// Order: validate → alias (B, skipped if dry_run) → shared keys (G) → Move enqueue (C) → local rewrite (E).
 pub async fn domain_move_all_users(
     db: &DatabaseConnection,
     req: &DomainMoveRequest,
@@ -1233,7 +1230,9 @@ pub async fn domain_move_all_users(
     if normalize_actor_url(&old_base) == normalize_actor_url(&new_base) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "old_base_url and new_base_url must differ"})),
+            Json(AppError::public_json(
+                "old_base_url and new_base_url must differ",
+            )),
         ));
     }
 
@@ -1250,7 +1249,6 @@ pub async fn domain_move_all_users(
 
     let dry = req.dry_run;
 
-    // 2–4. dry_run: G + E counts without writes; live: apply G after B.
     // 3. B — actor document fields (alias)
     let alias_stored = if dry {
         false
@@ -1592,7 +1590,6 @@ mod tests {
                 promote_new_to_accepted: false
             }
         );
-        // Idempotent second pass: already only on new → Update path not used;
         // Drop with no promote when old was pending
         assert_eq!(
             plan_follow_repoint("pending", Some("accepted")),
@@ -1839,3 +1836,4 @@ mod tests {
         assert_eq!(activity_id_string(&serde_json::json!({})), None);
     }
 }
+use myriad_error::AppError;

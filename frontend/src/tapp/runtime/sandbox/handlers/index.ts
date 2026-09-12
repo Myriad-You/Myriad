@@ -1,7 +1,3 @@
-/**
- * 处理器模块索引
- */
-
 export { registerAgentInteractionHandlers } from '../../AgentInteractionBroker'
 export { registerDataExchangeHandlers } from '../../DataExchangeBroker'
 export { registerEventHandlers } from '../../EventBroker'

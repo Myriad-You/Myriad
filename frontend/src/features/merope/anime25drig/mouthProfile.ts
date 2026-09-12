@@ -46,10 +46,6 @@ interface BaseBridgeProfile {
   expectedDifference: number
 }
 
-/**
- * Builds a character-specific mouth bridge from the six raster alpha masks.
- * The robust 1.5% contour excludes isolated antialiasing and PSD fringe pixels.
- */
 export function analyzeAnime25DMouthProfile(
   layers: readonly MouthRasterLayer[],
   frame: Readonly<MouthAnalysisFrame>,

@@ -1,5 +1,3 @@
-/** Runtime grants, federation access and one-shot data exchange contracts. */
-
 import type { TimelineResponse } from '../../types/federation'
 import type { PermissionLevel } from '../types'
 import { apiRequest } from './TappHttpClient'
@@ -69,10 +67,6 @@ export interface FederationRoomsFeedResponse extends TimelineResponse {
   audience: 'rooms'
 }
 
-/**
- * Public posts from every instance that shares a joined group chat with this
- * one — scoped by instance, not by who the viewer follows.
- */
 export async function getFederationRoomsFeed(
   runtimeGrant: string,
 ): Promise<FederationRoomsFeedResponse> {

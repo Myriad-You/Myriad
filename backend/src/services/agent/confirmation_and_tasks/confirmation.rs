@@ -20,6 +20,25 @@ enum ConfirmationOutcome {
 }
 
 impl Agent {
+    /// Explicit session cancellation invalidates sensitive-operation approvals as well as tasks.
+    pub(crate) async fn revoke_session_confirmations(
+        &self,
+        user_id: i32,
+        session_id: &str,
+    ) -> Result<(), String> {
+        use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+        self.db.execute_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres,
+            "DELETE FROM tapp_runtime_registry WHERE namespace = $1 AND subject_id = $2 AND payload->>'session_id' = $3",
+            [CONFIRMATION_REGISTRY_NAMESPACE.into(), user_id.into(), session_id.into()])).await.map_err(|error| {
+                tracing::error!(%error, "Failed to revoke session confirmations");
+                "Failed to revoke session confirmations".to_string()
+            })?;
+        PENDING_CONFIRMATIONS.write().await.retain(|_, pending| {
+            pending.user_id != user_id || pending.session_id.as_deref() != Some(session_id)
+        });
+        Ok(())
+    }
+
     /// 处理用户确认
     ///
     /// 只有「真的要跑 recipe」这一段进预算作用域。取消、越权、找不到、已过期、
@@ -51,7 +70,7 @@ impl Agent {
         &self,
         confirmation: UserConfirmation,
     ) -> Result<ConfirmationOutcome, String> {
-        // PostgreSQL provides atomic, owner-scoped consumption across replicas.
+        // PostgreSQL provides atomic, subject-scoped consumption across replicas.
         // The local map is only a hot cache and is cleared after the shared take.
         let pending =
             crate::services::tapp_registry::take_for_subject::<PendingRecipeConfirmation>(
@@ -174,7 +193,7 @@ impl Agent {
         let result = self.extract_final_result(&task_state);
         let frontend_action = self.extract_frontend_action(&result);
 
-        // v3 记忆记录（确认后的敏感操作也需要记录）
+        // 确认后的敏感操作也写入执行记忆
         {
             let ok = task_state.status == TaskStatus::Completed;
             record_execution_memory(MemoryRecordParams {
@@ -304,7 +323,7 @@ impl Agent {
                 .await;
         }
 
-        // 构建响应 — task 就是 TaskState，前端通过 SSE 得到 WaitingForInput
+        // 构建响应 — `TaskCompleted` 带着 `WaitingForInput` 的 TaskState
         Ok(Some(AgentResponse {
             response_type: AgentResponseType::TaskCompleted,
             message: String::new(),
@@ -318,8 +337,7 @@ impl Agent {
         }))
     }
 
-    /// 检查配方中的敏感步骤
-    /// 系统任务对敏感步骤的自动确认门控
+    /// 系统任务对敏感步骤的自动确认门控（不遍历 recipe）
     ///
     /// 无人值守场景（Heartbeat 定时任务）等待人工确认只会让任务静默空跑，因此：
     /// - High / Critical：拒绝自动执行，返回说明性响应
@@ -555,11 +573,8 @@ impl Agent {
             .collect::<Vec<_>>()
             .join("\n");
 
-        response_agent::confirmation_dialog(prefix, &step_names.join("、"), &impact_text)
+        response_agent::confirmation_dialog(prefix, &step_names.join(", "), &impact_text)
     }
-
-    // NOTE: Old execute_recipe / execute_with_escalation / build_response_from_result
-    // removed — escalation is now handled by Planner.replan_with_progress_for() in execute_recipe_with_progress_v2
 
     /// 从步骤构建 Recipe
     pub(crate) fn build_recipe_from_steps(

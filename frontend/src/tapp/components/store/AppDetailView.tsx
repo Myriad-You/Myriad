@@ -1,5 +1,3 @@
-/** Store app detail view + permission groups. */
-
 import type { TappPermission } from '../../types'
 import type { StorePermissionLevel, UnifiedAppItem } from './types'
 import { FaGithub, FaHome, FaLock, FaTrash } from '@lib/icons'
@@ -86,7 +84,6 @@ export function DetailHeaderActions({ app }: { app: UnifiedAppItem }) {
   )
 }
 
-/** 商店应用详情视图（模态框内的二级页面） */
 export function AppDetailView({
   app,
   isInstalled,
@@ -161,8 +158,7 @@ export function AppDetailView({
 
       const remote = app.remoteApp
       const localPageHtml = app.localTapp?.code.pageHtml
-      // Catalog snapshot / page_template, or built-in example pageHtml.
-      // Do not re-render installed package resources (empty white shells).
+      // 不要重渲染已安装包资源（空白壳）。
       const snapshot = app.preview ?? remote?.preview
       const previewDeclared = Boolean(
         snapshot?.html || remote?.download.page_template || localPageHtml,
@@ -250,7 +246,7 @@ export function AppDetailView({
       ? [
           {
             label: t.tapp.updatedAtLabel,
-            value: new Date(app.updatedAt).toLocaleDateString(),
+            value: new Date(app.updatedAt).toLocaleDateString(locale),
           },
         ]
       : []),
@@ -284,7 +280,7 @@ export function AppDetailView({
       ? [
           {
             label: t.tapp.updatedAtLabel,
-            value: new Date(app.updatedAt).toLocaleDateString(),
+            value: new Date(app.updatedAt).toLocaleDateString(locale),
           },
         ]
       : []),

@@ -1,6 +1,3 @@
-/**
- * 标题旁标签提示 — 轻量 chip，可静态展示或点击跳转
- */
 
 .setting-title-tag {
   display: inline-flex;
@@ -44,7 +41,6 @@
   text-overflow: ellipsis;
 }
 
-/* 可点击（跳转 / 操作） */
 button.setting-title-tag {
   cursor: pointer;
   transition:
@@ -74,7 +70,6 @@ button.setting-title-tag:disabled {
   cursor: not-allowed;
 }
 
-/* 中性信息标签（非强调操作）→ 微透 */
 .setting-title-tag--muted {
   border-color: var(--cfg-subtle-border);
   background: var(--cfg-subtle-bg);
@@ -97,7 +92,6 @@ html.dark button.setting-title-tag--muted:hover:not(:disabled) {
   color: var(--cfg-text-2);
 }
 
-/* 实验标记：和操作/报错 chip 区分开 */
 .setting-title-tag--beta {
   padding: 0.12rem 0.42rem 0.1rem;
   border-color: color-mix(in srgb, #7dd3fc 48%, transparent);
@@ -130,7 +124,6 @@ html.dark .setting-title-tag--beta {
     0 0 10px color-mix(in srgb, #38bdf8 16%, transparent);
 }
 
-/* 报错标签：选项/分组标题旁（与 SiteAnalytics error-tag 同色） */
 .setting-title-tag--danger {
   max-width: min(16rem, 100%);
   border-color: color-mix(in srgb, #ef4444 28%, transparent);
@@ -154,13 +147,11 @@ html.dark .setting-title-tag--danger {
   color: color-mix(in srgb, #f87171 92%, #fff);
 }
 
-/* 可关闭（默认值变更等）：右侧 × */
 .setting-title-tag--dismissible {
   padding-right: 0.28rem;
   gap: 0.2rem;
 }
 
-/* 主区域可点（应用新默认）：内嵌 button 继承 chip 外观 */
 .setting-title-tag-main {
   display: inline-flex;
   align-items: center;

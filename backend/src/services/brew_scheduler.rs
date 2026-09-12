@@ -463,8 +463,7 @@ impl BrewSchedulerEngine {
                 word_count: Set(Some(word_count)),
                 reading_time: Set(Some(reading_time)),
                 fulltext_fetched: Set(item.content.is_some()),
-                // 入库同步关键词打标，成本接近零。命中不了保持 NULL，
-                // 留给每小时的 AI 批（只处理近 30 天 topic IS NULL）。
+                // 入库同步关键词打标；命中不了保持 NULL。
                 topic: Set(crate::services::brew_topics::infer_topic_by_keywords(
                     &item.title,
                     item.summary.as_deref(),

@@ -1,17 +1,4 @@
-/**
- * 访客统计小组件（访客视角）
- *
- * 主角是「你是今天第 N 位访客」——那个序号是访客唯一在这张卡里能找到自己的
- * 地方，所以它占据视觉重心，站点总量退成陪衬。
- *
- * 数据走公开端点 `/api/analytics/visitor`：站点总量 + 7 日趋势 + 调用者自己的
- * 到达序号。页面 / 来源 / 国家 / 停留等细分仍然只在设置页的 admin summary 里。
- *
- * 序号缺席有两种情况，文案要分开讲清楚，不能都显示成空白：
- * - `counted === false`：管理员会话无到达序号（小组件不展示说明文案）
- * - `counted === true` 但序号还是 null：本次访问的 beacon 还没落库
- *   （批处理最长 4s + sendBeacon 只保证入队），等 flush 事件再取一次
- */
+// counted===false：管理员无序号，不展示说明。counted 但序号仍 null：beacon 还没落库。
 
 import type { WidgetComponentProps } from '../widgetGridTypes'
 
@@ -34,13 +21,10 @@ import { WidgetSkeletonCover } from './shared/WidgetSkeleton'
 const CACHE_KEY = 'visitor_card_cache_v1'
 const CACHE_DURATION = 60 * 1000
 const POLL_INTERVAL = 5 * 60 * 1000
-/** sendBeacon 只确认入队，给服务端一点时间落库再回查序号 */
 const FLUSH_SETTLE_MS = 900
 
-/** 柱/线的顶部留白（%），峰值不贴顶 */
 const TOP_HEADROOM = 10
 const PLOT_SPAN = 100 - TOP_HEADROOM
-/** 折线只展示最近 N 天 */
 const TREND_DAYS = 5
 
 interface DailyPoint {
@@ -51,12 +35,9 @@ interface DailyPoint {
 
 interface VisitorCard {
   success?: boolean
-  /** 站长关掉了访客统计总开关 */
   enabled?: boolean
   days?: number
-  /** 本次调用者今天的到达序号；null = 未知 */
   your_ordinal_today?: number | null
-  /** false = 该会话不计入统计（管理员） */
   counted?: boolean
   today: { views: number; unique_visitors: number }
   all_time: { views: number; unique_visitors: number }
@@ -98,7 +79,6 @@ function saveCachedCard(data: VisitorCard): void {
       JSON.stringify({ data, timestamp: Date.now() }),
     )
   } catch {
-    // 内存缓存仍然有效
   }
 }
 
@@ -110,7 +90,6 @@ async function requestCard(force = false): Promise<VisitorCard> {
   if (globalFetchPromise) return globalFetchPromise
 
   globalFetchPromise = (async () => {
-    // vid 只读不建：没被计入统计的人（比如已 opt-out）本来也没有序号可查
     const vid = peekVisitorId()
     const url = `${API_URL}/api/analytics/visitor${vid ? `?vid=${vid}` : ''}`
     const res = await fetchJson<VisitorCard>(
@@ -154,7 +133,6 @@ function previewCard(): VisitorCard {
   }
 }
 
-/** 英文要序数后缀（37th）；中日直接用数字 */
 function formatOrdinal(n: number, locale: string): string {
   if (!locale.startsWith('en')) return String(n)
   const rem100 = n % 100
@@ -171,14 +149,6 @@ function formatOrdinal(n: number, locale: string): string {
   }
 }
 
-/**
- * 迷你趋势图：柱（浏览量）用 CSS 等宽列排布，折线（独立访客）用一层
- * `preserveAspectRatio="none"` 的 SVG 覆盖。
- *
- * 列不用 gap 而是靠内层柱体的水平内边距留缝——列宽因此严格等分，
- * 折线的 x = (i + 0.5) / n 才和柱心真正对齐（有 gap 就会系统性偏移）。
- * 非等比拉伸下用 `vector-effect: non-scaling-stroke` 保住发丝线宽。
- */
 const MiniTrend = memo(
   ({
     points,
@@ -224,7 +194,6 @@ const MiniTrend = memo(
         <div className="flex h-full w-full items-end">
           {points.map((p, i) => {
             const isLast = i === n - 1
-            // 由远到近略提亮，今日柱最实
             const opacity =
               n <= 1 ? 0.88 : 0.22 + ((i + 1) / n) * (isLast ? 0.66 : 0.42)
             return (
@@ -232,12 +201,7 @@ const MiniTrend = memo(
                 key={p.day}
                 className={`flex h-full min-w-0 flex-1 items-end ${padX}`}
               >
-                {/*
-                  柱高是静态样式，不走 motion：motionShim 在 framer-motion
-                  到货前（或 chunk 加载失败后永久地）会把 `initial` 直接写成
-                  内联样式，`initial={{ height: 0 }}` 就等于把整张图压平。
-                  数据的几何形状不能依赖动画跑完。
-                */}
+                {/* 柱高用静态样式；motionShim 会把 initial.height:0 写成内联，整图压平。 */}
                 <div
                   className="w-full"
                   style={{
@@ -254,7 +218,6 @@ const MiniTrend = memo(
           })}
         </div>
 
-        {/* 独立访客折线：中性色，不与柱的主题色抢注意力 */}
         <svg
           className="pointer-events-none absolute inset-0 h-full w-full overflow-visible text-gray-600/65 dark:text-gray-200/55"
           viewBox="0 0 100 100"
@@ -272,7 +235,6 @@ const MiniTrend = memo(
           />
         </svg>
 
-        {/* 末端点用 CSS 定位：圆点在非等比 viewBox 里会被拉成椭圆 */}
         <span
           className="pointer-events-none absolute -translate-x-1/2 translate-y-1/2 rounded-full bg-gray-700 shadow-sm ring-2 ring-white/80 dark:bg-gray-100 dark:ring-black/35"
           style={{
@@ -290,7 +252,6 @@ const MiniTrend = memo(
 
 MiniTrend.displayName = 'MiniTrend'
 
-/** 图标 + 标签 + 值，横排轻量统计 */
 const StatCell = memo(
   ({
     icon,
@@ -342,7 +303,7 @@ export const VisitorStatsWidget = memo(
       isPreview ? 1 : undefined,
     )
     const anim = useAnimationLevel()
-    const { t, locale } = useI18n()
+    const { t, locale, format } = useI18n()
     const v = t.visitorStats
     const compact = config.size === '2x2'
 
@@ -351,8 +312,7 @@ export const VisitorStatsWidget = memo(
     const [failed, setFailed] = useState(false)
     const settleTimer = useRef<number | null>(null)
 
-    const numberLocale =
-      locale === 'zh-CN' ? 'zh-CN' : locale === 'ja-JP' ? 'ja-JP' : 'en-US'
+    const numberLocale = locale
     const count = useCallback(
       (n: number) => formatCount(n, numberLocale),
       [numberLocale],
@@ -387,7 +347,6 @@ export const VisitorStatsWidget = memo(
       }
       void refresh(false)
 
-      // 本次访问刚被计入 → 再取一次，把序号补上
       const handleFlushed = () => {
         if (settleTimer.current != null) return
         settleTimer.current = window.setTimeout(() => {
@@ -413,7 +372,6 @@ export const VisitorStatsWidget = memo(
       }
     }, [isPreview, refresh])
 
-    /** 折线只展示最近 TREND_DAYS 天 */
     const points = useMemo(() => {
       const all = (data?.daily ?? []).filter((d) => typeof d.day === 'string')
       return all.length > TREND_DAYS ? all.slice(-TREND_DAYS) : all
@@ -425,7 +383,6 @@ export const VisitorStatsWidget = memo(
       data.your_ordinal_today > 0
         ? data.your_ordinal_today
         : null
-    /** BE disabled payload is only `{success,enabled:false}` — no today/all_time. */
     const collectionOff = data?.enabled === false
 
     const body = (() => {
@@ -453,9 +410,7 @@ export const VisitorStatsWidget = memo(
         )
       }
 
-      // Build hero/stats only after enabled checks — disabled card has no today/all_time.
       const heroBlock = ordinal != null ? (
-        // 访客视角的重心：先说「你」，数字最大，单位收尾
         <div
           className="flex min-w-0 flex-col justify-center"
           style={{ gap: `${3 * scale}px` }}
@@ -470,10 +425,6 @@ export const VisitorStatsWidget = memo(
             className="flex min-w-0 items-baseline"
             style={{ gap: `${5 * scale}px` }}
           >
-            {/*
-              同理不做入场动画：`initial={{ opacity: 0 }}` 会在 motion 缺席时
-              把这张卡最重要的那个数字永久藏起来。卡片级入场由 WidgetGrid 负责。
-            */}
             <span
               className="font-black leading-none tracking-tight text-gray-900 tabular-nums dark:text-white"
               style={{
@@ -495,7 +446,6 @@ export const VisitorStatsWidget = memo(
           </span>
         </div>
       ) : (
-        // 没有序号时退成今日访客数，并说明原因
         <div
           className="flex min-w-0 flex-col justify-center"
           style={{ gap: `${2 * scale}px` }}
@@ -519,8 +469,7 @@ export const VisitorStatsWidget = memo(
           >
             {count(data?.today?.unique_visitors ?? 0)}
           </span>
-          {/* No ordinal yet (beacon pending). Staff also have no ordinal by design —
-              do not surface “admin not counted” on the public widget. */}
+          {/* 管理员本来就没有序号，公开卡片不要写「管理员不计数」。 */}
           {data?.counted !== false ? (
             <span
               className="truncate text-gray-400 dark:text-gray-500"
@@ -555,7 +504,6 @@ export const VisitorStatsWidget = memo(
         </div>
       )
 
-      // 主行：序号在左 · 趋势在右（宽收窄、左右拉开；高度约主行 3/4）
       const chartBox = hasTrend ? (
         <div
           className="min-w-0 shrink-0 self-center"
@@ -576,7 +524,7 @@ export const VisitorStatsWidget = memo(
           <MiniTrend
             points={points}
             tight={compact}
-            ariaLabel={v.chartAria.replace('{n}', nDays)}
+            ariaLabel={format(v.chartAria, { n: Number(nDays) })}
           />
         </div>
       ) : !compact ? (

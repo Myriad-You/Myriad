@@ -1,6 +1,6 @@
 //! 数据路径配置模块
 //!
-//! 统一管理应用程序中所有数据目录的路径配置
+//! DATA_DIR / CACHE_DIR layout for brew, tapps, agent, cache, widget-fonts.
 //! 支持从环境变量覆盖默认值，便于容器化部署
 
 use once_cell::sync::Lazy;
@@ -131,9 +131,8 @@ fn storage_error(action: &str, path: &Path, error: io::Error) -> io::Error {
 /// Prove that the backend uid can create and remove a file in `directory`.
 ///
 /// Checking metadata or `Permissions::readonly` is insufficient for ACLs,
-/// read-only mounts and network filesystems, so use the exact operation needed
-/// by Tapp staging. `create_new` prevents following or truncating an attacker-
-/// controlled pre-existing path.
+/// read-only mounts and network filesystems. Probe is `create_new` then unlink
+/// (`create_new` will not follow or truncate a pre-existing path).
 fn verify_directory_writable(directory: &Path) -> io::Result<()> {
     fs::create_dir_all(directory)
         .map_err(|error| storage_error("create storage directory", directory, error))?;
@@ -205,7 +204,7 @@ mod tests {
         assert_eq!(paths.brew, PathBuf::from("data/brew"));
         assert_eq!(paths.tapps, PathBuf::from("data/tapps"));
         assert_eq!(paths.agent, PathBuf::from("data/agent"));
-        // Canonical cache layout (some call sites still use string literals)
+        // Canonical cache layout under CACHE_DIR.
         assert_eq!(paths.cache_platforms, PathBuf::from("cache/platforms"));
         assert_eq!(paths.cache_raw, PathBuf::from("cache/raw"));
         assert_eq!(paths.cache_images, PathBuf::from("cache/images"));

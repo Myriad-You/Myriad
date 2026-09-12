@@ -413,8 +413,6 @@ test('a rejected plan reports once instead of retrying every frame', () => {
   applyMotionFrame(rig, frame(coordinator, 2, { performance }), state)
   assert.equal(calls.filter((call) => call === 'play').length, 1)
 
-  // A new semantic plan may be offered; changing renderer state alone may not
-  // replay the rejected command without planner feedback.
   accept = true
   const nextPerformance = performanceIntent('next-plan', 31)
   applyMotionFrame(
@@ -437,15 +435,13 @@ test('the frame writer keeps exactly one behavior path', () => {
     new URL('./applyFrame.ts', import.meta.url),
     'utf8',
   )
-  // Motion reaches the body through the behavior protocol or not at all. A
-  // second call site here is a second scheduler, which is what the protocol
-  // exists to prevent; signals (speech text, audio signal) are inputs to a
-  // generator and are deliberately not counted.
-  const behaviorWrites = [...source.matchAll(/rig\.playBehaviorPlan\(/g)]
+  const behaviorWrites = Iterator.from(
+    source.matchAll(/rig\.playBehaviorPlan\(/g),
+  ).reduce((count) => count + 1, 0)
   assert.equal(
-    behaviorWrites.length,
+    behaviorWrites,
     1,
-    `applyFrame plays ${behaviorWrites.length} behavior paths, expected 1`,
+    `applyFrame plays ${behaviorWrites} behavior paths, expected 1`,
   )
   assert.match(source, /applyStanding\(rig, frame, state\)/)
   assert.match(source, /applySignals\(rig, frame, state\)/)

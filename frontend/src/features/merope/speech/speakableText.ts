@@ -1,8 +1,3 @@
-/**
- * Turns model output into something a TTS engine should read.
- * Markdown, code, and URLs stay on screen; they are not spoken.
- */
-
 const FENCE = /```[\s\S]*?```/g
 const INLINE_CODE = /`[^`]+`/g
 const IMAGE = /!\[[^\]]*\]\([^)]+\)/g
@@ -16,7 +11,7 @@ const HTML = /<\/?[a-z][^>]*>/gi
 const TABLE_ROW = /^\s*\|.*\|\s*$/gm
 
 export function speakableText(raw: string): string {
-  let text = raw.replace(/\r\n/g, '\n')
+  let text = raw.replaceAll('\r\n', '\n')
   text = text.replace(FENCE, ' ')
   text = text.replace(INLINE_CODE, ' ')
   text = text.replace(IMAGE, ' ')
@@ -28,7 +23,7 @@ export function speakableText(raw: string): string {
   text = text.replace(TABLE_ROW, ' ')
   text = text.replace(HTML, ' ')
   text = text.replace(EMPHASIS, '')
-  text = text.replace(/[^\S\n]+/g, ' ')
-  text = text.replace(/ *\n */g, '\n')
-  return text.replace(/\n{2,}/g, '\n').trim()
+  text = text.replaceAll(/[^\S\n]+/g, ' ')
+  text = text.replaceAll(/ *\n */g, '\n')
+  return text.replaceAll(/\n{2,}/g, '\n').trim()
 }

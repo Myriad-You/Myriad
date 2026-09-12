@@ -185,7 +185,29 @@ mod postgres_tests {
         )
         .await
         .unwrap();
+        shared_registry::put(
+            &db,
+            "feishu_p2p_session",
+            &first.session_key("chat"),
+            RegistryIdentity {
+                subject_id: Some(101),
+                owner_id: Some(101),
+                tapp_id: None,
+                runtime_id: None,
+            },
+            &serde_json::json!({"session_id": "", "binding": first}),
+            Utc::now().timestamp() + 600,
+        )
+        .await
+        .unwrap();
+        let revoked_code = mint_code(&db, FEISHU, 101).await.unwrap();
         assert!(unpair(&db, FEISHU, 101).await.unwrap());
+        assert_eq!(
+            bind_openids(&db, FEISHU, 101, &keys, &first.scope, &revoked_code.code)
+                .await
+                .unwrap(),
+            PairingBindResult::InvalidOrExpired
+        );
         assert!(!first.is_current(&db).await);
         ensure_aliases(&db, FEISHU, 101, &keys).await.unwrap();
         assert_eq!(
@@ -210,6 +232,7 @@ mod postgres_tests {
             .unwrap()
             .unwrap();
         assert_ne!(first.session_key("chat"), second.session_key("chat"));
+        let unused_code = mint_code(&db, FEISHU, 101).await.unwrap();
         crate::GLOBAL_DYNAMIC_CONFIG
             .write()
             .await
@@ -221,7 +244,7 @@ mod postgres_tests {
         );
         // An old code must not authorize a different bot configuration.
         assert_eq!(
-            consume_code_keys(&db, FEISHU, &keys, &code.code)
+            consume_code_keys(&db, FEISHU, &keys, &unused_code.code)
                 .await
                 .unwrap(),
             PairingBindResult::InvalidOrExpired

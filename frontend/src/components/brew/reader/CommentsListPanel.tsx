@@ -1,10 +1,5 @@
-/**
- * 阅读器评论面板组件
- * 包含: 评论列表、回复功能、删除功能
- */
-
 import type { CommentItem } from '../../../services/brewApi'
-import type { ThemeConfig } from './types'
+import type { ReaderCopy, ThemeConfig } from './types'
 import {
   LuChevronDown as ChevronDown,
   LuChevronUp as ChevronUp,
@@ -19,23 +14,29 @@ import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,
 } from '@lib/motionShim'
+import { useI18n } from '../../../contexts/I18nContext'
 import { Spinner } from '../../Spinner'
-import { DATE_FORMAT_FULL, STYLE_MAX_HEIGHT_60VH } from './constants'
+import {
+  DATE_FORMAT_FULL,
+  READER_COMMENTS_PANEL_ID,
+  READER_COMMENTS_TITLE_ID,
+  STYLE_MAX_HEIGHT_60VH,
+} from './constants'
+import { useReaderDialogFocus } from './useReaderDialogFocus'
 
 interface CommentsListPanelProps {
-  // 主题
+  focusedCommentIds: number[]
+  clearCommentFocus: () => void
+  unresolvedCommentIds: ReadonlySet<number>
   currentTheme: ThemeConfig
   isDark: boolean
 
-  // 面板控制
   showCommentsPanel: boolean
   setShowCommentsPanel: (show: boolean) => void
 
-  // 评论数据
   comments: CommentItem[]
   commentsLoading: boolean
 
-  // 回复状态
   replyingTo: CommentItem | null
   setReplyingTo: (comment: CommentItem | null) => void
   replyInput: string
@@ -43,22 +44,21 @@ interface CommentsListPanelProps {
   replySubmitting: boolean
   submitReply: () => void
 
-  // 展开/收起回复
   expandedComments: Set<number>
   toggleReplies: (commentId: number) => void
   commentReplies: Record<number, CommentItem[]>
 
-  // 删除
   deleteComment: (commentId: number) => void
 
-  // 动画
   enableAnimations: boolean
 
-  // 翻译
-  t: Record<string, any>
+  t: ReaderCopy
 }
 
 export default function CommentsListPanel({
+  focusedCommentIds,
+  clearCommentFocus,
+  unresolvedCommentIds,
   currentTheme,
   isDark,
   showCommentsPanel,
@@ -78,11 +78,18 @@ export default function CommentsListPanel({
   enableAnimations,
   t,
 }: CommentsListPanelProps) {
+  const { locale } = useI18n()
+  const closeRef = useReaderDialogFocus(
+    showCommentsPanel,
+    READER_COMMENTS_PANEL_ID,
+  )
+  const visibleComments = focusedCommentIds.length > 0
+    ? comments.filter(comment => focusedCommentIds.includes(comment.id))
+    : comments
   return (
     <AnimatePresence>
       {showCommentsPanel && (
         <>
-          {/* 点击空白处关闭的遮罩层 */}
           <motion.div
             initial={enableAnimations ? { opacity: 0 } : false}
             animate={enableAnimations ? { opacity: 1 } : undefined}
@@ -110,13 +117,17 @@ export default function CommentsListPanel({
             }
             className={`fixed left-0 right-0 top-0 z-60 shadow-2xl border-b ${currentTheme.border} ${currentTheme.surfaceSolid} overflow-hidden`}
             style={STYLE_MAX_HEIGHT_60VH}
+            id={READER_COMMENTS_PANEL_ID}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={READER_COMMENTS_TITLE_ID}
           >
-            {/* 面板头部 */}
             <div
               className={`flex items-center justify-between px-6 py-3 border-b ${currentTheme.border}`}
             >
               <div className="flex items-center gap-2">
                 <button
+                  ref={closeRef}
                   onClick={() => setShowCommentsPanel(false)}
                   className={`p-1 rounded-lg ${currentTheme.secondary} hover:${currentTheme.text} transition-all duration-200 ease-out`}
                   title={t.brew.closeCommentPanel}
@@ -124,18 +135,25 @@ export default function CommentsListPanel({
                   <X className="w-4 h-4" />
                 </button>
                 <MessageSquare className={`w-5 h-5 ${currentTheme.accent}`} />
-                <h3 className={`font-medium ${currentTheme.text}`}>
+                <h3
+                  id={READER_COMMENTS_TITLE_ID}
+                  className={`font-medium ${currentTheme.text}`}
+                >
                   {t.brew.myComments}
                 </h3>
                 <span
                   className={`text-xs px-1.5 py-0.5 rounded ${isDark ? 'bg-white/10' : 'bg-black/10'} ${currentTheme.secondary}`}
                 >
-                  {comments.length}
+                  {visibleComments.length}
                 </span>
               </div>
             </div>
 
-            {/* 评论列表 - 横向滚动布局 */}
+            {focusedCommentIds.length > 0 && (
+              <button type="button" onClick={clearCommentFocus} className={`px-6 py-2 text-sm ${currentTheme.accent}`}>
+                {t.brew.showAllComments}
+              </button>
+            )}
             <div className="overflow-x-auto overflow-y-hidden p-4">
               {commentsLoading ? (
                 <div className="flex items-center justify-center py-8">
@@ -151,13 +169,13 @@ export default function CommentsListPanel({
                 </div>
               ) : (
                 <div className="flex gap-4 pb-2">
-                  {comments.map((comment) => (
+                  {visibleComments.map((comment) => (
                     <div
                       key={comment.id}
                       data-panel-comment-id={comment.id}
+                      tabIndex={-1}
                       className={`shrink-0 w-80 rounded-xl border ${currentTheme.border} ${isDark ? 'bg-white/5' : 'bg-black/2'} group overflow-hidden`}
                     >
-                      {/* 选中的原文 */}
                       {comment.selected_text && (
                         <div
                           className={`px-4 py-2.5 ${isDark ? 'bg-white/5' : 'bg-black/3'} border-b ${currentTheme.border}`}
@@ -166,6 +184,9 @@ export default function CommentsListPanel({
                             className={`text-xs ${currentTheme.secondary} mb-1`}
                           >
                             {t.brew.originalExcerpt}
+                            {unresolvedCommentIds.has(comment.id) && (
+                              <span className="block mt-1" role="status">{t.brew.commentAnchorUnresolved}</span>
+                            )}
                           </p>
                           <p
                             className={`text-sm ${currentTheme.text} line-clamp-2 leading-relaxed`}
@@ -175,9 +196,7 @@ export default function CommentsListPanel({
                         </div>
                       )}
 
-                      {/* 评论主体 */}
                       <div className="p-4">
-                        {/* 用户信息 */}
                         <div
                           className={`flex items-center gap-2 mb-2.5 ${currentTheme.secondary}`}
                         >
@@ -202,20 +221,18 @@ export default function CommentsListPanel({
                           <span className="text-xs opacity-50">·</span>
                           <span className="text-xs opacity-70">
                             {new Date(comment.created_at).toLocaleDateString(
-                              'zh-CN',
+                              locale,
                               DATE_FORMAT_FULL,
                             )}
                           </span>
                         </div>
 
-                        {/* 评论内容 */}
                         <p
                           className={`text-sm ${currentTheme.text} leading-relaxed`}
                         >
                           {comment.comment}
                         </p>
 
-                        {/* 操作栏 */}
                         <div
                           className="flex items-center justify-between mt-3 pt-3 border-t border-dashed"
                           style={{
@@ -225,7 +242,6 @@ export default function CommentsListPanel({
                           }}
                         >
                           <div className="flex items-center gap-2">
-                            {/* 回复数量和展开按钮 */}
                             {(comment.reply_count || 0) > 0 && (
                               <button
                                 onClick={() => toggleReplies(comment.id)}
@@ -242,7 +258,6 @@ export default function CommentsListPanel({
                             )}
                           </div>
                           <div className="flex items-center gap-1">
-                            {/* 回复按钮 */}
                             <button
                               onClick={() => setReplyingTo(comment)}
                               className={`p-1.5 rounded-md ${currentTheme.secondary} hover:${currentTheme.text} ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'} transition-all`}
@@ -250,7 +265,6 @@ export default function CommentsListPanel({
                             >
                               <Reply className="w-4 h-4" />
                             </button>
-                            {/* 删除按钮 */}
                             <button
                               onClick={() => deleteComment(comment.id)}
                               className="p-1.5 rounded-md text-red-500/70 hover:text-red-500 hover:bg-red-500/10 transition-all"
@@ -262,7 +276,6 @@ export default function CommentsListPanel({
                         </div>
                       </div>
 
-                      {/* 回复输入框 */}
                       {replyingTo?.id === comment.id && (
                         <div className="px-4 pb-4">
                           <p
@@ -313,7 +326,6 @@ export default function CommentsListPanel({
                         </div>
                       )}
 
-                      {/* 回复列表 */}
                       {expandedComments.has(comment.id) &&
                         commentReplies[comment.id] && (
                           <div className="px-4 pb-4 space-y-3 max-h-48 overflow-y-auto">
@@ -322,7 +334,6 @@ export default function CommentsListPanel({
                                 key={reply.id}
                                 className={`relative pl-3 py-2 rounded-lg ${isDark ? 'bg-white/5' : 'bg-black/2'} group/reply`}
                               >
-                                {/* 回复用户信息 */}
                                 <div
                                   className={`flex items-center gap-2 mb-1.5 ${currentTheme.secondary}`}
                                 >
@@ -348,7 +359,7 @@ export default function CommentsListPanel({
                                   <span className="text-xs opacity-60">
                                     {new Date(
                                       reply.created_at,
-                                    ).toLocaleDateString('zh-CN', {
+                                    ).toLocaleDateString(locale, {
                                       month: 'short',
                                       day: 'numeric',
                                       hour: '2-digit',
@@ -356,13 +367,11 @@ export default function CommentsListPanel({
                                     })}
                                   </span>
                                 </div>
-                                {/* 回复内容 */}
                                 <p
                                   className={`text-sm ${currentTheme.text} leading-relaxed pr-12`}
                                 >
                                   {reply.comment}
                                 </p>
-                                {/* 操作按钮 */}
                                 <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-0 group-hover/reply:opacity-100 transition-opacity">
                                   <button
                                     onClick={() => setReplyingTo(reply)}
@@ -382,7 +391,6 @@ export default function CommentsListPanel({
                               </div>
                             ))}
 
-                            {/* 回复某条回复的输入框 */}
                             {replyingTo &&
                               commentReplies[comment.id]?.some(
                                 (r) => r.id === replyingTo.id,

@@ -1,9 +1,9 @@
+import type { QqPairingStatus } from '../../services/agent/agentApi'
 import { LuCopy } from '@lib/icons'
-import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { agentService } from '../../services/agent'
-import type { QqPairingStatus } from '../../services/agent/agentApi'
 import { userFacingError } from '../../utils/userFacingError'
 import { pairingCodeLive } from './channelPairing'
 import './ChannelPairingPanel.css'

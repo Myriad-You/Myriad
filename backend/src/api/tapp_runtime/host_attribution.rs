@@ -1,4 +1,4 @@
-//! Optional server-side Tapp attribution for host-proxied legacy routes.
+//! Optional server-side Tapp attribution for host-proxied Brew / speech / federation REST.
 //!
 //! Brew, speech, and federation are host capabilities that Tapp sandboxes reach
 //! through the same REST routes the host UI uses. When a request carries the

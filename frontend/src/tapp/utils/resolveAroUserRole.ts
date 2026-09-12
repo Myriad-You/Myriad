@@ -1,18 +1,3 @@
-/**
- * Pure role resolution for Aro guest-lock.
- *
- * Mirrors the loadUserRole() algorithm in official Aro
- * (tapp-store apps/com.myriad.aro page/helpers.js):
- *   1. getRole user/admin → use it
- *   2. getRole 'guest' is SOFT — host often returns `userRole || 'guest'`
- *      when instance.userRole is unset; verify via isAdmin / getUser
- *   3. isAdmin API → admin or user (never guest)
- *   4. context.getUser → authenticated user → user/admin
- *   5. Remain guest only when no auth user or context role is guest
- *
- * Extracted so the fallback chain can be unit-tested without the sandbox.
- */
-
 export type AroUserRole = 'guest' | 'user' | 'admin'
 
 export interface AroRoleState {
@@ -21,7 +6,6 @@ export interface AroRoleState {
   isAdmin: boolean
 }
 
-/** Minimal user context shape from Tapp.context.getUser(). */
 export interface AroUserContextLike {
   id?: string | null
   username?: string | null
@@ -31,22 +15,10 @@ export interface AroUserContextLike {
 }
 
 export interface ResolveAroUserRoleInput {
-  /**
-   * Result of Tapp.user.getRole() when the call succeeded.
-   * Omit / undefined / null / '' = unavailable (fall through).
-   * 'guest' alone is not definitive when getUser shows a real member.
-   */
+  /** getRole 的 guest 单独不算定论；getUser 显示成员时继续下探。 */
   roleFromGetRole?: string | null
-  /**
-   * Result of Tapp.user.isAdmin() when the call succeeded.
-   * Omit / undefined / null = unavailable (fall through).
-   * Note: false still means "logged-in non-admin", not guest.
-   */
+  /** isAdmin false 表示已登录非管理员，不是访客。 */
   isAdminFromApi?: boolean | null
-  /**
-   * Result of Tapp.context.getUser() when the call succeeded.
-   * Omit / null = unavailable.
-   */
   userFromContext?: AroUserContextLike | null
 }
 
@@ -63,10 +35,6 @@ function normalizeRole(raw: string): AroUserRole {
   return 'guest'
 }
 
-/**
- * True when context user looks like an authenticated (non-guest) account.
- * Explicit role 'guest' always loses; role user/admin or clear identity wins.
- */
 export function isAuthenticatedAroUser(
   user: AroUserContextLike | null | undefined,
 ): boolean {
@@ -82,18 +50,12 @@ export function isAuthenticatedAroUser(
 
   const id = user.id != null ? String(user.id).trim() : ''
   const username = user.username != null ? String(user.username).trim() : ''
-  // Guest / anonymous ids look like user_-N or "guest"
   if (!id && !username) return false
   if (id === 'guest' || id === '0' || id === '-1') return false
   if (/^user_?-\d+$/i.test(id)) return false
   return !!(id || username)
 }
 
-/**
- * Resolve Aro role flags from available host signals.
- * Callers supply only the signals that actually succeeded; missing
- * signals fall through so a broken/false-guest getRole does not lock the UI.
- */
 export function resolveAroUserRole(
   input: ResolveAroUserRoleInput = {},
 ): AroRoleState {
@@ -107,7 +69,6 @@ export function resolveAroUserRole(
         isAdmin: userRole === 'admin',
       }
     }
-    // Soft guest from getRole — fall through (host may have defaulted).
   }
 
   if (typeof input.isAdminFromApi === 'boolean') {

@@ -72,16 +72,6 @@ pub fn spawn_agent_interaction_expiry_worker(db: DatabaseConnection) {
     tapp_agent_interaction::spawn_expiry_worker(db);
 }
 
-/// Install the services-facing create sink so Agent Executor shares the domain
-/// registry, mailbox, and expiry path.
-pub fn install_agent_interaction_executor() {
-    crate::services::agent_interaction::install_create_executor(|db, request| async move {
-        tapp_agent_interaction::create_from_agent(&db, request)
-            .await
-            .map_err(|error| error.agent_message())
-    });
-}
-
 pub async fn get_agent_interaction(
     State(db): State<DatabaseConnection>,
     runtime: RuntimeGrantContext,

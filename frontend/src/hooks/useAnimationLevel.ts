@@ -17,38 +17,26 @@ import {
   usePerformanceProfile,
 } from './usePerformanceProfile'
 
-/**
- * Effective animation / visual-effects tier after hardware mapping.
- *
- * User still toggles two preferences only (`light` | `standard` in storage):
- * - Meets hardware bar:  low → `light`,  high → `standard`
- * - Below hardware bar:  low → `exlight`, high → `light`
- *
- * `prefers-reduced-motion` also resolves to `exlight`.
- */
+/** 硬件映射后的生效档；用户存储仍只有 light | standard（外加 auto）。 */
 export type AnimationLevel = 'exlight' | 'light' | 'standard'
 
-/** User-facing two-way preference stored in localStorage (plus `auto`). */
 export type AnimationUserPreference = 'auto' | 'standard' | 'light'
 
 export interface AnimationConfig {
   level: AnimationLevel
-  /** Allow infinite loops (CSS/JS). */
+
   loop: boolean
-  /** Allow spring physics. */
+
   spring: boolean
-  /** Multiply base duration. */
+
   durationScale: number
-  /** Widget GlowBackground (static or animated). */
+
   widgetGlow: boolean
-  /** Widget UI carousels / overview↔detail auto flip. */
+
   widgetUiRotation: boolean
 }
 
-/**
- * Minimal tier — weak-hardware "low" slot AND prefers-reduced-motion.
- * Global backdrop kill is CSS-driven via `html[data-perf-mode=exlight]`.
- */
+/** 弱硬件 low 档与 prefers-reduced-motion。毛玻璃由 html[data-perf-mode=exlight] 关。 */
 const CONFIG_EXLIGHT: AnimationConfig = {
   level: 'exlight',
   loop: false,
@@ -58,10 +46,6 @@ const CONFIG_EXLIGHT: AnimationConfig = {
   widgetUiRotation: false,
 }
 
-/**
- * Mid / capable-hardware "low" / weak-hardware "high".
- * Same visual budget as the former `light` tier.
- */
 const CONFIG_LIGHT: AnimationConfig = {
   level: 'light',
   loop: false,
@@ -80,7 +64,6 @@ const CONFIG_STANDARD: AnimationConfig = {
   widgetUiRotation: true,
 }
 
-/** Anything with a `.level` field (AnimationConfig, sandbox ref, etc.). */
 type LevelLike = AnimationLevel | { level: AnimationLevel } | null | undefined
 
 function asLevel(input?: LevelLike): AnimationLevel | undefined {
@@ -89,45 +72,31 @@ function asLevel(input?: LevelLike): AnimationLevel | undefined {
   return input.level
 }
 
-/** Full-effects tier (standard only). */
 export function isStandardAnimation(input?: LevelLike): boolean {
   return asLevel(input ?? currentAnimationConfig) === 'standard'
 }
 
-/** Minimal tier (exlight). */
 export function isExlight(input?: LevelLike): boolean {
   return asLevel(input ?? currentAnimationConfig) === 'exlight'
 }
 
-/** Any non-standard tier (light | exlight) — prefer this over duplicating level checks. */
 export function isReducedAnimation(input?: LevelLike): boolean {
   const level = asLevel(input ?? currentAnimationConfig)
   return level === 'exlight' || level === 'light'
 }
 
-/**
- * Whether the device may run the full `standard` tier as its "high" slot.
- * Rules: `utils/deviceHardwareTier.ts` → `perf.highHardware`.
- */
 export function meetsAnimationHardwareRequirement(
   perf: PerformanceProfile,
 ): boolean {
   return perf.highHardware === true
 }
 
-/**
- * Map two-way user preference → effective config under current hardware.
- *
- * - prefers-reduced-motion → always `exlight` (not overridable)
- * - `wantHigh === true`  →  capable: standard · weak: light
- * - `wantHigh === false` →  capable: light    · weak: exlight
- * - `auto`：默认高档；采样仅在帧质**明显很差**时降为低档，记 localStorage（可降不可升）
- * - 手动 standard / light：不走采样
- */
+/** reduced-motion 一律 exlight，不可覆盖。auto 默认真高档，采样只降不升。 */
 export function resolveAnimationConfig(
   userPref: AnimationUserPreference | null | undefined,
   perf: PerformanceProfile,
-  /** auto 是否选高档（localStorage）；仅 userPref 为 auto 时生效 */
+
+  /** auto 是否选高档（localStorage）；仅 userPref 为 auto 时生效。 */
   autoWantHigh: boolean = true,
 ): AnimationConfig {
   if (perf.reduceMotion) {
@@ -141,7 +110,6 @@ export function resolveAnimationConfig(
   } else if (userPref === 'standard') {
     wantHigh = true
   } else {
-    // auto / unset
     wantHigh = autoWantHigh
   }
 
@@ -164,10 +132,7 @@ function readStoredUserPreference(): AnimationUserPreference | null {
   return null
 }
 
-/**
- * 同步获取动画配置（用于模块初始化时）
- * 注意：首次渲染前可能尚未读到用户手动偏好；偏好生效后请用 getCurrentAnimationConfig
- */
+/** 模块初始化用；偏好生效后改读 getCurrentAnimationConfig。 */
 export function getAnimationConfigSync(): AnimationConfig {
   const perf = getPerformanceProfileSync()
   const pref = readStoredUserPreference() ?? 'auto'
@@ -176,13 +141,9 @@ export function getAnimationConfigSync(): AnimationConfig {
   return resolveAnimationConfig(pref, perf, autoWantHigh)
 }
 
-/** 模块级缓存：供非 React 回调（如音乐呼吸动画）读取用户偏好后的真实级别 */
+/** 供非 React 回调读取用户偏好后的真实级别。 */
 let currentAnimationConfig: AnimationConfig = getAnimationConfigSync()
 
-/**
- * 获取当前生效的动画配置（含用户手动「低/高」偏好 + 硬件映射）
- * 由 useAnimationLevel 挂载后持续更新
- */
 export function getCurrentAnimationConfig(): AnimationConfig {
   return currentAnimationConfig
 }
@@ -192,12 +153,7 @@ function syncPerfModeToDocument(level: AnimationLevel): void {
   document.documentElement.dataset.perfMode = level
 }
 
-/*
- * 模块加载时立刻写 data-perf-mode（仅客户端）。
- * 避免首屏在 useEffect 前仍按 standard 画毛玻璃；
- * 解析结果与 resolveAnimationConfig 一致：正常硬件默认仍是 standard/light，
- * 不会把正常设备误标成 exlight。
- */
+// 模块加载立刻写 data-perf-mode，避免 useEffect 前按 standard 画毛玻璃。
 if (typeof document !== 'undefined') {
   try {
     syncPerfModeToDocument(currentAnimationConfig.level)
@@ -206,20 +162,7 @@ if (typeof document !== 'undefined') {
   }
 }
 
-/* ============================================================
-   全局副作用去重
-   ------------------------------------------------------------
-   resolveAnimationConfig 返回的是三个模块常量之一，所有实例本来就
-   拿到同一个对象；但下面三件事都是**全局**副作用，此前每个消费者
-   （首页十几个小组件都经此 hook）挂载时各跑一遍：
-     · 写 <html data-perf-mode>        → N 次全文档样式失效
-     · 写 currentAnimationConfig      → N 次同值赋值
-     · configureAnimationCoordinator  → N 次同参重配全局协调器
-     · startAutoFrameAdapt 的 demote 监听 → N 份监听器
-   这里用模块级「上次已应用」闸门收敛成一次。
-   ============================================================ */
-
-/** demote 后 +1；订阅者据此重读 localStorage 的 auto 高低档 */
+/** demote 后 +1；订阅者据此重读 localStorage 的 auto 高低档。 */
 let _autoEpoch = 0
 const _autoEpochListeners = new Set<() => void>()
 let _autoAdaptStarted = false
@@ -231,7 +174,7 @@ function getAutoEpochSnapshot(): number {
 function subscribeAutoEpoch(onStoreChange: () => void): () => void {
   _autoEpochListeners.add(onStoreChange)
 
-  // 全局只注册一份 demote 监听（探测本身另有 probeStarted 闸）
+  // 全局只注册一份 demote 监听（探测本身另有 probeStarted 闸）。
   if (!_autoAdaptStarted) {
     _autoAdaptStarted = true
     startAutoFrameAdapt({
@@ -248,7 +191,7 @@ function subscribeAutoEpoch(onStoreChange: () => void): () => void {
   }
 }
 
-/** 已应用到全局的档位/形态，避免同值重复写 DOM 与重配协调器 */
+// 已应用到全局的档位/形态，避免同值重复写 DOM 与重配协调器。
 let _appliedCoordinatorLevel: AnimationLevel | null = null
 let _appliedCoordinatorIsMobile: boolean | null = null
 
@@ -305,8 +248,7 @@ export function useAnimationLevel(): AnimationConfig {
     readStoredUserPreference() ??
     'auto') as AnimationUserPreference
 
-  // localStorage 为 auto 高/低真源；epoch 在 demote 后 +1 触发重读。
-  // 手动档不订阅（也就不会启动采样探测），与此前 `pref !== 'auto'` 早退等价。
+  // localStorage 为 auto 高/低真源；手动档不订阅，也就不会启动采样。
   const isAuto = pref === 'auto' && !perf.reduceMotion
   const autoEpoch = useSyncExternalStore(
     isAuto ? subscribeAutoEpoch : noopSubscribe,
@@ -315,7 +257,7 @@ export function useAnimationLevel(): AnimationConfig {
   )
 
   const autoWantHigh = useMemo(() => {
-    // autoEpoch 在 demote 后 +1，仅用于触发重读 localStorage，不参与计算
+    // autoEpoch 只用来触发重读 localStorage，不参与计算。
     void autoEpoch
     if (pref !== 'auto' && pref != null) return true
     return getStoredAutoWantHigh()

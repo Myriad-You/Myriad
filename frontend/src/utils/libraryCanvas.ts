@@ -42,7 +42,6 @@ function appendSquareRing(candidates: Array<[number, number]>, radius: number) {
   for (let y = radius - 1; y > -radius; y--) candidates.push([-radius, y])
 }
 
-/** Stable center-out placement. It grows rings on demand, so no item is dropped. */
 export function buildCenterOutCanvasLayout<T extends { id: string }>(
   items: T[],
   getGridSize: (item: T) => { w: number; h: number },
@@ -161,10 +160,6 @@ export function getLibraryCanvasViewportBounds(
   }
 }
 
-/**
- * Stable key for viewport spatial bins. Used to decide when React must remount
- * virtualized cards; pan within the same bins stays DOM-only for absolute follow.
- */
 export function getLibraryCanvasViewportBinKey(
   transform: LibraryCanvasTransform,
   viewport: LibraryCanvasViewport,

@@ -1,6 +1,6 @@
 //! 网易云音乐歌手数据库
 //!
-//! 预置常见歌手信息，用于快速分类用户音乐品味
+//! JSON loader (`data/artist_database.json`, default `[]`) plus region/genre analysis.
 
 #![allow(dead_code)]
 
@@ -15,7 +15,7 @@ use tracing::{error, info};
 pub struct ArtistEntry {
     pub name: String,
     pub genres: Vec<String>,
-    pub region: String, // 地区：华语、欧美、日韩等
+    pub region: String, // detect_region: 韩国 / 日本 / 华语 / 欧美
     pub style: Vec<String>,
 }
 
@@ -165,8 +165,7 @@ impl ArtistDatabase {
         } else if has_simplified {
             "华语".to_string()
         } else if has_hanzi {
-            // 只有汉字但没有假名和简体字，对于该用户群体，大概率是日文歌（如纯汉字标题）
-            // 或者是繁体中文，但考虑到用户画像，倾向于日本
+            // Hanzi without Hangul/kana/simplified → hardcoded "日本" (no user profile).
             "日本".to_string()
         } else {
             "欧美".to_string()
@@ -236,7 +235,7 @@ impl ArtistDatabase {
                         percentage,
                     }
                 })
-                .filter(|a| a.percentage >= 5.0 || a.count > 1) // 过滤掉占比过低或只有1个歌手的风格
+                .filter(|a| a.percentage >= 5.0 || a.count > 1) // keep if ≥5% or count>1
                 .collect();
 
             // 按数量排序
@@ -265,16 +264,16 @@ impl ArtistDatabase {
 
         let summary = if favorite_artists.is_empty() {
             if preference_str.is_empty() {
-                format!("收藏了 {} 首歌曲", total_songs)
+                format!("Collected {total_songs} songs")
             } else {
-                format!("收藏了 {} 首歌曲，偏好{}音乐", total_songs, preference_str)
+                format!("Collected {total_songs} songs, prefers {preference_str} music")
             }
         } else {
             format!(
-                "收藏了 {} 首歌曲，偏好{}音乐，常听{}",
+                "Collected {} songs, prefers {} music, often listens to {}",
                 total_songs,
                 if preference_str.is_empty() {
-                    "多元化"
+                    "diverse"
                 } else {
                     &preference_str
                 },
@@ -283,7 +282,7 @@ impl ArtistDatabase {
                     .take(3)
                     .cloned()
                     .collect::<Vec<_>>()
-                    .join("、")
+                    .join(", ")
             )
         };
 

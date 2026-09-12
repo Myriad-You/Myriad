@@ -167,20 +167,18 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
   const [isTransitioning, setIsTransitioning] = useState(false)
   const transitionTimersRef = useRef<ReturnType<typeof setTimeout>[]>([])
 
-  // 布局状态：preferred 来自用户设置；低端设备强制列表（见 resolveLibraryLayoutMode）
   const [layouts, setLayouts] = useState<Map<string, CardLayout>>(new Map())
   const [preferredLayout, setPreferredLayout] =
     useState<LibraryLayoutMode>('list')
   const { highHardware } = usePerformanceProfile()
   const layoutMode = resolveLibraryLayoutMode(preferredLayout, highHardware)
-  const [visibleCount, setVisibleCount] = useState(20) // 初始显示数量
+  const [visibleCount, setVisibleCount] = useState(20)
   const [libraryHasMore, setLibraryHasMore] = useState(false)
   const nextLibraryOffsetRef = useRef<number | null>(null)
   const libraryPageLoadingRef = useRef(false)
   const libraryFetchGenerationRef = useRef(0)
   const loadNextLibraryPageRef = useRef<() => Promise<void>>(async () => {})
   const containerRef = useRef<HTMLDivElement>(null)
-  // Mount-time only: avoid flipping scale when rotating/resizing mid-session.
   const canvasDefaultScaleRef = useRef(readCanvasDefaultScale())
   const worldRef = useRef<HTMLDivElement | null>(null)
   const canvasViewportRef = useRef({ width: 0, height: 0 })
@@ -202,7 +200,6 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
   const lastCanvasPaintWorldRef = useRef<HTMLElement | null>(null)
   const canvasPaintCacheRef = useRef(createCanvasCardPaintCache())
   const tourCardIdRef = useRef<string | null>(null)
-  /** Tracks prior canvas effective mode for one-shot paint cleanup on leave. */
   const wasCanvasLayoutRef = useRef(false)
   const canvasTourNotifiedRef = useRef(false)
   const [canvasLiveVisibleItems, setCanvasLiveVisibleItems] = useState<
@@ -290,7 +287,6 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
     [],
   )
 
-  // React transform commits when spatial bins change (chrome props) or on force flush.
   const shouldCommitCanvasTransform = useCallback(
     (next: LibraryCanvasTransform, committed: LibraryCanvasTransform) => {
       const viewport = canvasViewportRef.current
@@ -342,8 +338,6 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
   })
   canvasViewportRef.current = canvasViewport
 
-  // Layout phase: mark canvas + cache wallpaper from-frame before paint so
-  // entering /library from another route eases parallax out instead of hard-cutting.
   useLayoutEffect(() => {
     const root = document.documentElement
     const active = layoutMode === 'canvas'
@@ -371,8 +365,7 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
     }
   }, [layoutMode])
 
-  const containerWidthRef = useRef<number>(0) // 缓存容器宽度，避免重复读取
-  // 父级只跟 songId / isPlaying / musicColor，切句不重渲染整表
+  const containerWidthRef = useRef<number>(0)
   const {
     songId: liveSongId,
     isPlaying: globalIsPlaying,
@@ -382,15 +375,13 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
   const { getExtraInfo, renderWatchProgressPanel, handlePlayMusic } =
     useLibraryCardActions()
 
-  // 换歌/播完切走：旧卡保留离场窗口（见 LIBRARY_LIVE_MS.leaveHold）
   const prevLiveSongIdRef = useRef<string | null>(liveSongId)
   const [leavingSongId, setLeavingSongId] = useState<string | null>(null)
   useEffect(() => {
     const prev = prevLiveSongIdRef.current
     prevLiveSongIdRef.current = liveSongId
     if (prev && prev !== liveSongId) {
-      // 注意：此处 return 后不会执行下面的 liveSongId===null 清理，
-      // 否则会立刻清掉 leavingSongId，退场动画被掐断。
+      // 此处 return 后不要落到 liveSongId===null 清理，否则会掐断退场。
       setLeavingSongId(prev)
       const t = window.setTimeout(
         setLeavingSongId,
@@ -399,18 +390,15 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
       )
       return () => window.clearTimeout(t)
     }
-    // 仅「本来就没有曲 / 清空」时卸离场标记（非换歌路径）
     if (!liveSongId) setLeavingSongId(null)
   }, [liveSongId])
 
-  // 筛选后的所有项目
   const filteredAllItems = useMemo(() => {
     return filter === 'all'
       ? allItems
       : allItems.filter((item) => item.item_type === filter)
   }, [filter, allItems])
 
-  // 核心布局算法：完全避免空隙
   const computeLayout = useCallback(() => {
     if (!containerRef.current || filteredAllItems.length === 0) return
 
@@ -430,8 +418,6 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
       return
     }
 
-    // 使用缓存的容器宽度，避免强制重排
-    // 只有缓存无效时才读取
     if (containerWidthRef.current === 0) {
       containerWidthRef.current = containerRef.current.offsetWidth
     }
@@ -444,10 +430,8 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
     )
   }, [filteredAllItems, filter, layoutMode])
 
-  // 使用共享的 resize 监听器
   useSharedResize(
     () => {
-      // resize 时刷新容器宽度缓存
       if (containerRef.current) {
         containerWidthRef.current = containerRef.current.offsetWidth
         if (layoutMode === 'canvas') {
@@ -462,15 +446,13 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
     { debounce: 150 },
   )
 
-  // 初始计算布局
   useEffect(() => {
     computeLayout()
   }, [computeLayout])
 
-  // 滚动加载更多 -  添加节流防止过快触发
   const loadMoreRef = useRef<number | null>(null)
   const loadMore = useCallback(() => {
-    if (loadMoreRef.current) return // 防止重复触发
+    if (loadMoreRef.current) return
     loadMoreRef.current = requestAnimationFrame(() => {
       if (visibleCount < filteredAllItems.length) {
         setVisibleCount((prev) => Math.min(prev + 20, filteredAllItems.length))
@@ -483,7 +465,6 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
     })
   }, [filteredAllItems.length, libraryHasMore, visibleCount])
 
-  // 清理 RAF
   useEffect(() => {
     return () => {
       if (loadMoreRef.current) {
@@ -496,7 +477,6 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
     layoutMode === 'list' &&
     (visibleCount < filteredAllItems.length || libraryHasMore)
 
-  // 🆕 使用资料库原子化 IntersectionObserver
   const { observeLibraryIntersection, unobserveLibraryIntersection } =
     useLibraryIntersectionObserver()
   const observerTarget = useRef<HTMLDivElement>(null)
@@ -522,11 +502,13 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
   ])
 
   const laidOutItems = useMemo(
-    () => filteredAllItems.filter((item) => layouts.has(item.id)),
+    () =>
+      Iterator.from(filteredAllItems)
+        .filter((item) => layouts.has(item.id))
+        .toArray(),
     [filteredAllItems, layouts],
   )
 
-  // 画布空间索引只在数据或布局变化时重建；拖拽时仅查询视口附近的分桶。
   const canvasSpatialIndex = useMemo(() => {
     const bins = new Map<string, LibraryItem[]>()
     const order = new Map<string, number>()
@@ -562,13 +544,22 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
   laidOutItemsRef.current = laidOutItems
   canvasSpatialIndexRef.current = canvasSpatialIndex
 
-  // 排序后的可见项目
+  // Pagination changes the slice, not the layout order.
+  const listOrderedItems = useMemo(() => {
+    if (layoutMode === 'canvas') return []
+    return laidOutItems.toSorted((a, b) => {
+      const layoutA = layouts.get(a.id)!
+      const layoutB = layouts.get(b.id)!
+      if (Math.abs(layoutA.top - layoutB.top) > 10)
+        return layoutA.top - layoutB.top
+      return layoutA.left - layoutB.left
+    })
+  }, [laidOutItems, layoutMode, layouts])
+
   const visibleItems = useMemo(() => {
     if (layouts.size === 0) return []
 
     if (layoutMode === 'canvas') {
-      // Live set is owned by paintCanvasTransform (absolute-follow pose).
-      // Fall back while viewport is measuring or before the first paint.
       if (canvasLiveVisibleItems.length > 0) return canvasLiveVisibleItems
       return queryCanvasVisibleItems(
         canvasTransform,
@@ -579,16 +570,7 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
       )
     }
 
-    // 按布局位置排序 (top, then left) - 实际上布局算法已经大致按顺序了，但为了确保渲染顺序
-    const sortedItems = [...laidOutItems].sort((a, b) => {
-      const layoutA = layouts.get(a.id)!
-      const layoutB = layouts.get(b.id)!
-      if (Math.abs(layoutA.top - layoutB.top) > 10)
-        return layoutA.top - layoutB.top
-      return layoutA.left - layoutB.left
-    })
-
-    return sortedItems.slice(0, visibleCount)
+    return listOrderedItems.slice(0, visibleCount)
   }, [
     canvasLiveVisibleItems,
     canvasSpatialIndex,
@@ -597,6 +579,7 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
     laidOutItems,
     layoutMode,
     layouts,
+    listOrderedItems,
     visibleCount,
   ])
 
@@ -618,7 +601,6 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
     [laidOutItems, layoutMode, tourCardId, visibleItems],
   )
 
-  // 动态计算容器高度
   const containerHeight = useMemo(() => {
     if (layoutMode === 'canvas') return 0
     if (visibleItems.length === 0) return 400
@@ -642,7 +624,6 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
       nextLibraryOffsetRef.current = null
       libraryPageLoadingRef.current = false
       setLibraryHasMore(false)
-      // 首屏只取一批；无限画布在接近已加载边界时继续扩展。
       const data: LibraryResponse = await getLibraryDataPageDeduped(
         0,
         LIBRARY_PAGE_SIZE,
@@ -714,7 +695,9 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
       setAllItems((current) => {
         if (incoming.length === 0) return current
         const known = new Set(current.map((item) => item.id))
-        const unique = incoming.filter((item) => !known.has(item.id))
+        const unique = Iterator.from(incoming)
+          .filter((item) => !known.has(item.id))
+          .toArray()
         return unique.length > 0 ? [...current, ...unique] : current
       })
       nextLibraryOffsetRef.current = data.next_offset ?? null
@@ -750,11 +733,6 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
     void loadNextLibraryPage()
   }
 
-  // After every React commit while canvas is active, re-paint the live pose.
-  // Covers: virtualized card mount, music/live re-renders stomping chrome
-  // disabled attrs, and first layout after viewport measure.
-  // Leaving canvas: one-shot strip of absolute-follow surface paint (cards clear
-  // via React list styles: transform none / zIndex auto).
   useLayoutEffect(() => {
     if (layoutMode === 'canvas') {
       wasCanvasLayoutRef.current = true
@@ -779,7 +757,6 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
     resetCanvasView()
   }, [filter, layoutMode, resetCanvasView])
 
-  // 空状态图标
   const emptyIcon = useMemo(
     () => (
       <svg
@@ -802,7 +779,6 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
   const emptyTitle = error ? t.library.emptyLibrary : t.library.emptyCategory
   const showEmpty = !loading && filteredAllItems.length === 0
 
-  // 画布 surface 在首屏加载后才挂上；偏好已在上一拍写下，这里补 surface 再通知。
   useLayoutEffect(() => {
     if (typeof document === 'undefined') return
     if (layoutMode !== 'canvas') {
@@ -849,7 +825,6 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
       setPrevFilter(filter)
       setIsTransitioning(false)
     }
-    // 切换分类时重置显示数量
     setVisibleCount(20)
   }, [filter, prevFilter])
 
@@ -860,7 +835,6 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
     }
   }, [])
 
-  // 首屏加载：单一 Spinner，垂直居中（扣除顶/底安全区，与 Brew 观感一致）
   if (loading && allItems.length === 0) {
     return (
       <div
@@ -894,22 +868,20 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
               ref={containerRef}
               className={
                 layoutMode === 'canvas'
-                  ? // inset-0 铺满 fixed 视口；勿再写死 h-dvh（iOS 地址栏伸缩时会短一截）
+                  ?
                     'fixed inset-0 z-0 min-h-lvh w-full overflow-hidden touch-none cursor-grab bg-white/5 dark:bg-black/5'
                   : 'relative w-full'
               }
               style={
                 layoutMode === 'canvas'
                   ? {
-                      // Size/position painted via paintCanvasTransform for absolute follow.
                       backgroundImage:
                         'radial-gradient(circle, color-mix(in srgb, var(--text-color, currentColor) 18%, transparent) 1px, transparent 1.2px)',
                     }
                   : {
                       height: `${containerHeight}px`,
                       minHeight: '400px',
-                      // Dragging the custom scrollbar locks page-height math.
-                      // Don't ease the grid taller mid-drag or the thumb slips.
+                      // 拖自定义滚动条时不要把网格高度缓动，否则 thumb 会打滑。
                       transition:
                         typeof document !== 'undefined' &&
                         document.documentElement.dataset.scrollbarDragging ===
@@ -974,7 +946,6 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
                 style={
                   layoutMode === 'canvas'
                     ? {
-                        // Transform painted via paintCanvasTransform (absolute follow).
                         transformOrigin: '0 0',
                       }
                     : undefined
@@ -985,7 +956,6 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
                   if (!layout) return null
 
                   const platformColor = getPlatformColor(item.platform)
-                  // VIP badge is Netease-only (fee/isVip); Bangumi music has no fee model
                   const isNeteaseMusic =
                     item.item_type === 'music' &&
                     !isBangumiPlatform(item.platform) &&
@@ -998,12 +968,10 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
                     item.metadata.id || item.id.replace('netease_song_', '')
                   ).toString()
 
-                  // 轻量身份：切句不刷整表；换歌离场保留短窗口
                   const isCurrentSong = liveSongId === currentSongId
                   const isLeavingSong = leavingSongId === currentSongId
                   const showMusicLive = isCurrentSong || isLeavingSong
                   const isPlaying = Boolean(isCurrentSong && globalIsPlaying)
-                  // 播放中 + 退场窗口：锁 hover，避免中途放大/藏词打断动画
                   const hoverLocked = isPlaying || isLeavingSong
 
                   const rowIndex = Math.floor(layout.top / 300)
@@ -1021,14 +989,12 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
                       : null
                   const canvasPriority = layoutMode === 'canvas'
 
-                  // Bangumi / MAL 用户评分（0 表示未评分），显示在卡片左上角
                   const isBangumi = isBangumiPlatform(item.platform)
                   const userRate = hasUserRatingBadge(item.platform)
                     ? Number(
                         item.metadata.rate ?? item.metadata?.list_status?.score,
                       ) || 0
                     : 0
-                  // Bangumi 游戏使用竖版，渲染为封面卡片
                   const isBangumiGame = isBangumi && item.item_type === 'game'
 
                   const ratingBadge =
@@ -1099,12 +1065,9 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
                           width: `${layout.width}px`,
                           height: `${layout.height}px`,
                           '--platform-color': platformColor,
-                          // List fadeInUp stagger only; canvas enter delay lives on the shell.
                           ...(layoutMode === 'list'
                             ? { animationDelay: `${listAnimationDelay}s` }
                             : {}),
-                          // Canvas focus scale is painted each frame (absolute follow).
-                          // List must set transform/zIndex so React clears leftover paint.
                           transformOrigin:
                             layoutMode === 'canvas'
                               ? 'center center'
@@ -1114,8 +1077,6 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
                           zIndex: layoutMode === 'canvas' ? undefined : 'auto',
                         } as CSSProperties
                       }
-                      // 入场动画播放一次后移除，避免卡片滚出/滚入视口时
-                      // 浏览器重建绘制层导致 fadeInUp 重播（表现为瞬间透明再恢复）
                       onAnimationEnd={(e) => {
                         if (e.target === e.currentTarget) {
                           ;(e.currentTarget as HTMLElement).style.animation =
@@ -1154,13 +1115,11 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
                           >
                             {showMusicLive && (
                               <>
-                                {/* active=当前曲（含暂停，光晕冻结保留）；playing=频谱动画 */}
                                 <LibraryPlayingWaveBorder
                                   musicColor={musicColor}
                                   active={isCurrentSong}
                                   playing={isPlaying}
                                 />
-                                {/* active=当前曲（含暂停）；换歌时 false 走退场 */}
                                 <LibraryCardLyrics
                                   active={isCurrentSong}
                                   musicColor={musicColor}
@@ -1348,7 +1307,7 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
             </div>
           </QuickTransition>
 
-          {/* 无限滚动哨兵：不可见，避免底部常驻 Spinner 造成「卡住/双重加载」 */}
+          {/* 无限滚动哨兵不可见，避免底部常驻 Spinner。 */}
           {hasMore && (
             <div
               ref={observerTarget}

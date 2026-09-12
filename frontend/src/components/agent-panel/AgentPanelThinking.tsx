@@ -1,10 +1,3 @@
-/**
- * 思考过程 —— 气泡里、正文还没来的时候。
- *
- * 有思考正文就只出字，扫一层高亮。工具调用另排一行，不和思考挤在一起。
- * 正文一到，整块卸掉。
- */
-
 import type { AgentMessageStep } from './agentThinking'
 import React, { useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'

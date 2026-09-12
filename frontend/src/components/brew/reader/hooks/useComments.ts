@@ -1,22 +1,20 @@
-/**
- * 用户评论 Hook
- * 管理评论的加载、创建、删除、回复等功能
- */
-
 import type {
   CommentItem,
   CreateCommentRequest,
 } from '../../../../services/brewApi'
-import type { ThemeKey } from '../types'
-import { useCallback, useRef, useState } from 'react'
+import type { ReaderCopy, ThemeKey } from '../types'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import * as brewApi from '../../../../services/brewApi'
 import { userFacingError } from '../../../../utils/userFacingError'
+import { RequestTurn } from '../../logic/requestTurn'
+import { highlightAnchoredComments } from '../commentAnchors'
+import { useArticleTaskScope } from './useArticleTaskScope'
 
 export interface UseCommentsOptions {
   itemId: number
   isAuthenticated: boolean
   showToastMessage: (message: string, duration?: number) => void
-  t: Record<string, any>
+  t: ReaderCopy
 }
 
 export interface SelectionRange {
@@ -27,12 +25,10 @@ export interface SelectionRange {
 }
 
 export interface UseCommentsReturn {
-  // 评论列表状态
   comments: CommentItem[]
   commentsLoading: boolean
   hasComments: boolean
 
-  // 评论弹窗状态
   showCommentPopup: boolean
   commentPopupPosition: { x: number; y: number }
   selectedText: string
@@ -40,20 +36,16 @@ export interface UseCommentsReturn {
   commentInput: string
   commentSubmitting: boolean
 
-  // 评论面板状态
   showCommentsPanel: boolean
 
-  // 回复状态
   replyingTo: CommentItem | null
   replyInput: string
   replySubmitting: boolean
   expandedComments: Set<number>
   commentReplies: Record<number, CommentItem[]>
 
-  // 评论 tooltip
   commentTooltip: { comment: CommentItem; x: number; y: number } | null
 
-  // 操作
   setComments: (comments: CommentItem[]) => void
   setShowCommentPopup: (show: boolean) => void
   setCommentPopupPosition: (position: { x: number; y: number }) => void
@@ -74,14 +66,12 @@ export interface UseCommentsReturn {
   toggleReplies: (commentId: number) => Promise<void>
   submitReply: () => Promise<void>
 
-  // 高亮函数
   highlightComments: (
     html: string,
     commentList: CommentItem[],
     theme: ThemeKey,
   ) => string
 
-  // Refs
   commentsLoadingRef: React.RefObject<boolean>
 }
 
@@ -91,12 +81,21 @@ export function useComments({
   showToastMessage,
   t,
 }: UseCommentsOptions): UseCommentsReturn {
-  // 评论列表状态
+  const captureTask = useArticleTaskScope(itemId)
+  const turns = useRef(new RequestTurn())
+  const itemAbort = useRef(new AbortController())
+  useEffect(() => {
+    const controller = new AbortController()
+    itemAbort.current = controller
+    return () => {
+      controller.abort()
+      turns.current.cancel()
+    }
+  }, [itemId])
   const [comments, setComments] = useState<CommentItem[]>([])
   const [commentsLoading, setCommentsLoading] = useState(false)
   const [hasComments, setHasComments] = useState(false)
 
-  // 评论弹窗状态
   const [showCommentPopup, setShowCommentPopup] = useState(false)
   const [commentPopupPosition, setCommentPopupPosition] = useState({
     x: 0,
@@ -109,10 +108,8 @@ export function useComments({
   const [commentInput, setCommentInput] = useState('')
   const [commentSubmitting, setCommentSubmitting] = useState(false)
 
-  // 评论面板状态
   const [showCommentsPanel, setShowCommentsPanel] = useState(false)
 
-  // 回复状态
   const [replyingTo, setReplyingTo] = useState<CommentItem | null>(null)
   const [replyInput, setReplyInput] = useState('')
   const [replySubmitting, setReplySubmitting] = useState(false)
@@ -123,38 +120,38 @@ export function useComments({
     Record<number, CommentItem[]>
   >({})
 
-  // 评论 tooltip
   const [commentTooltip, setCommentTooltip] = useState<{
     comment: CommentItem
     x: number
     y: number
   } | null>(null)
 
-  // Refs
   const commentsLoadingRef = useRef(false)
 
-  // 加载评论
   const loadComments = useCallback(async () => {
     if (!isAuthenticated || commentsLoadingRef.current) return
 
+    const isCurrent = captureTask()
+    const signal = turns.current.begin()
     commentsLoadingRef.current = true
     setCommentsLoading(true)
     try {
-      const response = await brewApi.getComments(itemId)
+      const response = await brewApi.getComments(itemId, undefined, { signal })
+      if (!isCurrent() || signal.aborted) return
       if (response.success && response.comments) {
         setComments(response.comments)
         setHasComments(response.comments.length > 0)
       }
     } catch (err) {
+      if (!isCurrent() || signal.aborted) return
       console.error('Failed to load comments:', err)
       showToastMessage(userFacingError(err, t.errors.commentLoadFailed))
     } finally {
-      setCommentsLoading(false)
       commentsLoadingRef.current = false
+      if (isCurrent() && !signal.aborted) setCommentsLoading(false)
     }
-  }, [isAuthenticated, itemId, showToastMessage, t.errors.commentLoadFailed])
+  }, [captureTask, isAuthenticated, itemId, showToastMessage, t.errors.commentLoadFailed])
 
-  // 提交评论
   const submitComment = useCallback(async () => {
     if (
       !isAuthenticated ||
@@ -165,6 +162,7 @@ export function useComments({
       return
     }
 
+    const isCurrent = captureTask()
     setCommentSubmitting(true)
     try {
       const request: CreateCommentRequest = {
@@ -179,24 +177,26 @@ export function useComments({
       }
 
       const response = await brewApi.createComment(itemId, request)
+      if (!isCurrent()) return
       if (response.success && response.comment) {
         setComments((prev) => [...prev, response.comment!])
         setHasComments(true)
         showToastMessage(t.brew.commentAdded)
 
-        // 清理状态
         setShowCommentPopup(false)
         setSelectedText('')
         setSelectionRange(null)
         setCommentInput('')
       }
     } catch (err) {
+      if (!isCurrent()) return
       console.error('Failed to submit comment:', err)
       showToastMessage(userFacingError(err, t.brew.addCommentFailed))
     } finally {
-      setCommentSubmitting(false)
+      if (isCurrent()) setCommentSubmitting(false)
     }
   }, [
+    captureTask,
     isAuthenticated,
     selectedText,
     commentInput,
@@ -207,28 +207,34 @@ export function useComments({
     t,
   ])
 
-  // 删除评论
   const deleteComment = useCallback(
     async (commentId: number) => {
+      const isCurrent = captureTask()
       try {
         const response = await brewApi.deleteComment(commentId)
+        if (!isCurrent()) return
         if (response.success) {
           setComments((prev) => prev.filter((c) => c.id !== commentId))
           setHasComments(comments.length > 1)
           showToastMessage(t.brew.commentDeleted)
         }
       } catch (err) {
+        if (!isCurrent()) return
         console.error('Failed to delete comment:', err)
         showToastMessage(userFacingError(err, t.errors?.commentDeleteFailed))
       }
     },
-    [comments.length, showToastMessage, t],
+    [captureTask, comments.length, showToastMessage, t],
   )
 
-  // 加载回复
   const loadReplies = useCallback(async (commentId: number) => {
+    const isCurrent = captureTask()
+    const signal = itemAbort.current.signal
     try {
-      const response = await brewApi.getCommentReplies(commentId)
+      const response = await brewApi.getCommentReplies(commentId, undefined, {
+        signal,
+      })
+      if (!isCurrent() || signal.aborted) return
       if (response.success) {
         setCommentReplies((prev) => ({
           ...prev,
@@ -236,12 +242,12 @@ export function useComments({
         }))
       }
     } catch (err) {
+      if (!isCurrent() || signal.aborted) return
       console.error('Failed to load replies:', err)
       showToastMessage(userFacingError(err, t.errors.commentRepliesLoadFailed))
     }
-  }, [showToastMessage, t.errors.commentRepliesLoadFailed])
+  }, [captureTask, showToastMessage, t.errors.commentRepliesLoadFailed])
 
-  // 展开/收起回复
   const toggleReplies = useCallback(
     async (commentId: number) => {
       const isExpanded = expandedComments.has(commentId)
@@ -261,7 +267,6 @@ export function useComments({
     [expandedComments, commentReplies, loadReplies],
   )
 
-  // 提交回复
   const submitReply = useCallback(async () => {
     if (
       !isAuthenticated ||
@@ -272,6 +277,7 @@ export function useComments({
       return
     }
 
+    const isCurrent = captureTask()
     setReplySubmitting(true)
     try {
       const topLevelCommentId = replyingTo.parent_id || replyingTo.id
@@ -280,6 +286,7 @@ export function useComments({
         topLevelCommentId,
         replyInput.trim(),
       )
+      if (!isCurrent()) return
 
       if (response.success && response.comment) {
         setCommentReplies((prev) => ({
@@ -306,12 +313,14 @@ export function useComments({
         showToastMessage(response.error || t.brew.addReplyFailed)
       }
     } catch (err) {
+      if (!isCurrent()) return
       console.error('Failed to submit reply:', err)
       showToastMessage(t.brew.addReplyFailed)
     } finally {
-      setReplySubmitting(false)
+      if (isCurrent()) setReplySubmitting(false)
     }
   }, [
+    captureTask,
     isAuthenticated,
     replyingTo,
     replyInput,
@@ -321,96 +330,13 @@ export function useComments({
     t,
   ])
 
-  // 高亮评论（适配主题，豁免嵌入卡片）
-  const highlightComments = useCallback(
-    (html: string, commentList: CommentItem[], theme: ThemeKey): string => {
-      if (!commentList.length) return html
-
-      // 提取并保存需要豁免的嵌入卡片
-      const exemptElements: { placeholder: string; content: string }[] = []
-      let result = html
-
-      const exemptRegex =
-        /<[^>]*data-embed-exempt="true"[^>]*>[\s\S]*?<\/[^>]+>/gi
-      result = result.replace(exemptRegex, (match) => {
-        const placeholder = `___EXEMPT_EMBED_${exemptElements.length}___`
-        exemptElements.push({ placeholder, content: match })
-        return placeholder
-      })
-
-      // 按长度降序排序
-      const sortedComments = [...commentList].sort(
-        (a, b) => b.selected_text.length - a.selected_text.length,
-      )
-
-      // 主题颜色
-      const defaultColors: Record<ThemeKey, string> = {
-        light: '#fef08a',
-        sepia: '#f5d78e',
-        dark: '#854d0e',
-        night: '#1e3a5f',
-      }
-      const borderColors: Record<ThemeKey, string> = {
-        light: '#eab308',
-        sepia: '#ca8a04',
-        dark: '#fbbf24',
-        night: '#3b82f6',
-      }
-      const defaultColor = defaultColors[theme] || '#fef08a'
-      const borderColor = borderColors[theme] || '#eab308'
-
-      const isValidColor = (color: string): boolean => {
-        return /^#([0-9A-F]{3}|[0-9A-F]{6}|[0-9A-F]{8})$/i.test(color)
-      }
-
-      // 高亮处理
-      for (const comment of sortedComments) {
-        if (!comment.selected_text) continue
-
-        const escapedText = comment.selected_text.replace(
-          /[.*+?^${}()|[\]\\]/g,
-          '\\$&',
-        )
-        const regex = new RegExp(`(?<!<[^>]*)${escapedText}(?![^<]*>)`, 'g')
-
-        const bgColor =
-          comment.color && isValidColor(comment.color)
-            ? comment.color
-            : defaultColor
-        const underlineColor =
-          comment.color && isValidColor(comment.color)
-            ? comment.color
-            : borderColor
-
-        // id 声明为 number，但这里是拼进 HTML 属性的裸插值 —— 用 Number()
-        // 把"后端某天返回字符串"这一类失误挡在属性注入之外。
-        const safeCommentId = Number(comment.id)
-        if (!Number.isFinite(safeCommentId)) continue
-
-        result = result.replace(
-          regex,
-          (match) =>
-            `<mark class="user-comment-highlight" data-comment-id="${safeCommentId}" style="background-color: ${bgColor}40; cursor: pointer; border-radius: 2px; padding: 0 2px; border-bottom: 2px solid ${underlineColor};">${match}</mark>`,
-        )
-      }
-
-      // 还原豁免的嵌入卡片
-      for (const { placeholder, content } of exemptElements) {
-        result = result.replace(placeholder, content)
-      }
-
-      return result
-    },
-    [],
-  )
+  const highlightComments = highlightAnchoredComments
 
   return {
-    // 评论列表状态
     comments,
     commentsLoading,
     hasComments,
 
-    // 评论弹窗状态
     showCommentPopup,
     commentPopupPosition,
     selectedText,
@@ -418,20 +344,16 @@ export function useComments({
     commentInput,
     commentSubmitting,
 
-    // 评论面板状态
     showCommentsPanel,
 
-    // 回复状态
     replyingTo,
     replyInput,
     replySubmitting,
     expandedComments,
     commentReplies,
 
-    // 评论 tooltip
     commentTooltip,
 
-    // 操作
     setComments,
     setShowCommentPopup,
     setCommentPopupPosition,

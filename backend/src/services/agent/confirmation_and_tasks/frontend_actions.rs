@@ -7,8 +7,7 @@ use super::super::response_agent;
 use super::super::types::*;
 
 impl Agent {
-    /// 提取任务最终结果
-    /// 改进：对于多步骤任务，合并所有相关结果
+    /// Successful step outputs: one success → that output; else last success (+ optional frontendActions).
     pub(crate) fn extract_final_result(&self, task_state: &TaskState) -> serde_json::Value {
         // 找到所有成功的步骤结果
         let mut results: Vec<_> = task_state
@@ -71,7 +70,7 @@ impl Agent {
         if let Some(last) = last_result {
             // 检查是否是 AI 分析结果
             if let Some((analysis, analysis_type)) = analysis_from_step_output(last) {
-                // 合并搜索结果和分析结果
+                // Seed `{analysis,type}`; attach search `sources` `{query,source}` (not `results`).
                 let mut combined = json!({
                     "analysis": analysis,
                     "type": analysis_type
@@ -184,8 +183,8 @@ fn typed_frontend_action(value: &Value) -> Option<Value> {
 
 /// Collect executable frontend actions from step outputs.
 ///
-/// Prefers `frontendAction` when it has a `type`; otherwise accepts `action`
-/// with a `type` (brew.generateReadingList). Skips nulls and bare strings.
+/// Prefer `frontendActions` array; else typed `frontendAction`; else typed `action`.
+/// Skip nulls and bare strings.
 pub(crate) fn collect_step_frontend_actions<'a, I>(outputs: I) -> Vec<Value>
 where
     I: IntoIterator<Item = &'a Value>,
@@ -211,9 +210,8 @@ where
 
 /// Pull a frontend action out of a step/final result.
 ///
-/// `tapp.understand` sets `frontendAction: null` on purpose — analysis is not
-/// an executable command. If that key is present we must not fall through to
-/// `plan.steps` and synthesize a `page_interact` / `navigate`.
+/// `tapp.understand` sets `frontendAction: null` (analysis is not executable).
+/// This extractor does not read `plan.steps` or synthesize navigate.
 pub(crate) fn extract_frontend_action_from_result(result: &Value) -> Option<Value> {
     if let Some(action) = result.get("frontendAction") {
         if action.get("type").and_then(Value::as_str).is_some() {

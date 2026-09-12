@@ -1,9 +1,3 @@
-/**
- * 对话列表的位移滚动：跟手、有惯性，不给列表设 overflow。
- * 切聊天档时输入行头顶会留出人的高度，封顶窗口要在同一段 --agent-move 里重测，
- * 贴底的卡片才会跟着上移、回来时下移。
- */
-
 import type { RefObject } from 'react'
 import { useLayoutEffect, useRef } from 'react'
 import { agentPanelStaggerSteps } from './agentPanelStage'
@@ -93,8 +87,10 @@ export function useConversationPan(
         target += delta
       }
       trackH = nextH
-      cards = [...track.querySelectorAll<HTMLElement>(cardSelector)].map(
-        (el) => {
+      cards = Iterator.from(
+        track.querySelectorAll<HTMLElement>(cardSelector),
+      )
+        .map((el) => {
           const box =
             (el.closest('.agent-panel-presence') as HTMLElement | null) ?? el
           return {
@@ -104,8 +100,8 @@ export function useConversationPan(
             height: box.offsetHeight,
             key: '',
           }
-        },
-      )
+        })
+        .toArray()
     }
 
     const measure = () => {
@@ -143,7 +139,7 @@ export function useConversationPan(
     const writeExitStagger = () => {
       const ranked = cards
         .filter((card) => card.el.style.visibility !== 'hidden')
-        .sort((a, b) => b.top + b.height - (a.top + a.height))
+        .toSorted((a, b) => b.top + b.height - (a.top + a.height))
       ranked.forEach((card, index) => {
         card.box.style.setProperty(
           '--agent-exit-stagger',
@@ -163,9 +159,6 @@ export function useConversationPan(
       const leaving =
         anchor?.dataset.phase === 'closing' || slot?.dataset.exiting === 'true'
       if (leaving) {
-        // 越界的淡出冻住，不拉回实心胶囊。半截露在 2/3 窗口外的那张
-        // 若先复原再交给 CSS 收，会闪一整张再播退场。
-        // 错开仍按位置：贴着输入行的先走，顶上那张半截最后才收。
         for (const card of cards) {
           const style = conversationExitStyle(
             card.top - current,
@@ -215,8 +208,7 @@ export function useConversationPan(
       const max = maxScroll()
       writeCap(max)
       track.style.transform = max > 0 ? `translate3d(0, ${-current}px, 0)` : ''
-      // 贴底时 current 可能仍小于 72（整列刚好比窗口高一点）。
-      // 首次加载不能当「滚到顶了」去翻页，否则一边滑向底部一边塞旧记录。
+      // pinned-bottom current can still be < 72; that is not "scrolled to top"
       if (max > 0 && !nearBottom && current <= CONVERSATION_LOAD_MORE_PX) {
         nearStartRef.current?.()
       }
@@ -248,7 +240,6 @@ export function useConversationPan(
       const dt = last ? Math.min(0.032, (now - last) / 1000) : 1 / 60
       last = now
       const following = now < followUntil
-      // 预留高度跟 CSS 同一条缓动。贴底时每帧钉住新窗口，不要再套一层 follow tau。
       if (following) measure()
       const max = maxScroll()
 
@@ -383,8 +374,7 @@ export function useConversationPan(
       measure()
       const max = maxScroll()
       if (nearBottom) target = max
-      // 首次从 0 高拉满、或本来就贴底：直接钉在底部，不要从顶上滑下来。
-      // 滑的过程会把还在窗口里的卡片写成 hidden，再重测时又还不回去。
+      // pin to bottom; sliding from the top would hide in-view cards
       if (nearBottom && (wasPinned || current <= CONVERSATION_NEAR_BOTTOM_PX)) {
         current = target
         write()

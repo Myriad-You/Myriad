@@ -66,11 +66,6 @@ export function deriveAnime25DShellProfile(
   }
 }
 
-/**
- * Fit the default scalp shell gently toward trustworthy hair-layer bounds.
- * The narrow clamps intentionally keep a noisy accessory or oversized layer
- * from changing the renderer's geometry model.
- */
 function deriveHairShellEllipsoid(
   head: Anime25DShellEllipsoid,
   layers: readonly Anime25DPlaybackLayer[],
@@ -129,10 +124,6 @@ function deriveHairShellEllipsoid(
   }
 }
 
-/**
- * Crown wrap is enabled only when several distributed strand roots confirm
- * that the top of the front-hair layer is actual scalp hair, not an ornament.
- */
 function deriveCrownRound(
   head: Anime25DShellEllipsoid,
   layers: readonly Anime25DPlaybackLayer[],

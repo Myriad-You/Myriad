@@ -1,8 +1,3 @@
-/**
- * Edit-mode widget catalog (Stage Manager dock).
- * Sibling of WidgetGrid — the page that owns edit mode mounts both.
- */
-
 import type { TappCategory } from '../tapp/types'
 import type { HomeLayoutMode } from '../utils/homeLayout'
 import type { HomeEditTourDockPose } from './tour/tourLogic'
@@ -65,7 +60,7 @@ function libraryFilterLabel(
   if (id === 'all') return t.widgetGrid.filterAll
   if (id === 'report') return t.widgetGrid.filterReports
   const tappCategory = tappCategoryFromKindFilter(id)
-  if (tappCategory && tappCategory in TAPP_CATEGORY_I18N_KEYS) {
+  if (tappCategory && Object.hasOwn(TAPP_CATEGORY_I18N_KEYS, tappCategory)) {
     return t.tapp[TAPP_CATEGORY_I18N_KEYS[tappCategory as TappCategory]]
   }
   return tappCategory || id
@@ -238,16 +233,10 @@ export interface WidgetLibraryIslandProps {
     e: React.MouseEvent | React.TouchEvent,
     id: string,
   ) => void
-  /** Home free/standard switch: skip park tween for one frame. */
   layoutMode?: HomeLayoutMode
-  /**
-   * Stage Manager park. Home keeps the thumbnail; control-panel catalog
-   * stays a full window (`parkable={false}`).
-   */
   parkable?: boolean
-  /** Home sticker pick: do not restore/park from grid clicks. */
+  // 首页贴纸挑选：不要从网格点击 restore/park。
   pausePointer?: boolean
-  /** 编辑教程只在小组件库那一步拉开。 */
   tourDockPose?: HomeEditTourDockPose
 }
 

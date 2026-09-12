@@ -1,7 +1,4 @@
-/**
- * 访客统计图表共用：数值 / 时长格式化与坐标轴取整
- */
-
+import { formatMessage, localeOrFallback } from '../../../i18n'
 import { copyForLocale } from '../../../i18n/localeCopy'
 
 export function formatCount(n: number, locale: string): string {
@@ -20,32 +17,22 @@ export function formatDuration(ms: number, locale: string): string {
   if (!Number.isFinite(ms) || ms <= 0) return '—'
   const sec = Math.round(ms / 1000)
   const t = copyForLocale(locale).common
+  const loc = localeOrFallback(locale)
   if (sec < 60) {
-    return t.durationSeconds.replace('{sec}', String(sec))
+    return formatMessage(loc, t.durationSeconds, { sec })
   }
   const min = Math.floor(sec / 60)
   const rem = sec % 60
   return rem
-    ? t.durationMinutesSeconds
-        .replace('{min}', String(min))
-        .replace('{sec}', String(rem))
-    : t.durationMinutes.replace('{min}', String(min))
+    ? formatMessage(loc, t.durationMinutesSeconds, { min, sec: rem })
+    : formatMessage(loc, t.durationMinutes, { min })
 }
 
-/** `2026-07-30` → `07-30`（轴与行内标签用短日期） */
 export function shortDay(day: string): string {
   return day.length > 5 ? day.slice(5) : day
 }
 
-/**
- * Calendar day label for analytics backup download filenames.
- *
- * BE day buckets use the process local calendar (`analytics_today` / TZ).
- * Order: (1) `bucket_today` from BE (authoritative), (2) `exported_at` in
- * `backup.timezone`, (3) max `day` key in payload tables only as last resort
- * when timestamp invalid. Never prefer max day over today — empty today
- * buckets would pin filenames to yesterday.
- */
+/** BE calendar: bucket_today, then exported_at in backup.timezone; never browser-local */
 export function analyticsBackupFilenameDay(backup: {
   timezone?: unknown
   exported_at?: unknown
@@ -69,7 +56,6 @@ export function analyticsBackupFilenameDay(backup: {
   const instant = exportedAt ? new Date(exportedAt) : new Date()
 
   if (Number.isFinite(instant.getTime())) {
-    // `UTC+8` / `UTC-5` from analytics_tz_label when TZ env unset
     const offsetMatch = /^UTC([+-]\d+)$/i.exec(tz)
     if (offsetMatch) {
       const hours = Number(offsetMatch[1])
@@ -79,15 +65,12 @@ export function analyticsBackupFilenameDay(backup: {
       }
     }
 
-    // Bare UTC, or BE "local" when process offset hours==0 (UTC container, no TZ).
-    // Must NOT use the browser's local calendar — that drifts from analytics_today.
+    // not the browser calendar — drifts from analytics_today
     if (!tz || tz === 'local' || /^UTC$/i.test(tz)) {
       return instant.toISOString().slice(0, 10)
     }
 
-    // IANA zone (e.g. Asia/Shanghai) when TZ env is set
     try {
-      // en-CA → YYYY-MM-DD
       return new Intl.DateTimeFormat('en-CA', {
         timeZone: tz,
         year: 'numeric',
@@ -95,19 +78,16 @@ export function analyticsBackupFilenameDay(backup: {
         day: '2-digit',
       }).format(instant)
     } catch {
-      /* invalid IANA — fall through to max payload day / UTC */
     }
   }
 
-  // Timestamp missing/invalid: fall back to latest day key in tables
   const payloadDay = maxAnalyticsPayloadDay(backup)
   if (payloadDay) return payloadDay
 
-  // Absolute last resort: UTC calendar of "now" (still not browser-local)
+  // last resort: UTC calendar of now (not browser-local)
   return new Date().toISOString().slice(0, 10)
 }
 
-/** Latest YYYY-MM-DD among analytics table rows in a backup payload. */
 function maxAnalyticsPayloadDay(backup: {
   page_daily?: unknown
   event_daily?: unknown
@@ -129,13 +109,11 @@ function maxAnalyticsPayloadDay(backup: {
     }
   }
   if (days.length === 0) return null
-  days.sort()
-  return days[days.length - 1]!
+  return days.toSorted().at(-1)!
 }
 
 const NICE_STEPS = [1, 2, 5, 10]
 
-/** 把一格的粗略高度吸附到 1/2/5/10×10ⁿ 的整数刻度 */
 function niceStep(rough: number): number {
   if (rough <= 1) return 1
   const mag = 10 ** Math.floor(Math.log10(rough))
@@ -146,10 +124,6 @@ function niceStep(rough: number): number {
   return Math.max(1, Math.round(10 * mag))
 }
 
-/**
- * 计数轴刻度：2~4 格里挑「上限最贴近数据」的一组，
- * 刻度值保持整数（浏览量没有半次），留白不会浪费半张图。
- */
 export function niceAxis(rawMax: number): { max: number; ticks: number[] } {
   const target = Math.max(1, Math.ceil(rawMax))
   let best = { max: Number.POSITIVE_INFINITY, step: 1, count: 2 }

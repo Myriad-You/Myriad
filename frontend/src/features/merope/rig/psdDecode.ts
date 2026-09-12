@@ -6,7 +6,6 @@ const MAX_EDGE = 2048
 const MAX_LAYERS = 64
 const MAX_PIXELS = 32 * 1024 * 1024
 
-/** Header/metadata checks run before allocating decoded layer pixels. */
 export function validateRigPsdHeader(buffer: ArrayBuffer): void {
   if (buffer.byteLength < 26 || buffer.byteLength > MAX_PSD_BYTES)
     throw new Error('psdSpecInvalid')
@@ -56,7 +55,6 @@ export function validateRigPsdStructure(psd: Psd): void {
   if (!visible || visible > MAX_LAYERS) throw new Error('psdLayerCountInvalid')
 }
 
-/** Worker-owned parser; never falls back to synchronous UI-thread decoding. */
 export function decodeRigPsd(buffer: ArrayBuffer): Psd {
   validateRigPsdHeader(buffer)
   const options = {

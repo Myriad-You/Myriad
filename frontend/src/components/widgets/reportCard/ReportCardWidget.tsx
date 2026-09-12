@@ -1,8 +1,5 @@
 import type { CardContent } from './CardLogoPill'
 import type { ReportCardClickAction, ReportCardWidgetProps } from './types'
-/**
- * Report card shell: fetch/coerce platform report, overview flip, host platform faces.
- */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useI18n } from '../../../contexts/I18nContext'
@@ -44,8 +41,6 @@ export const ReportCardWidget = memo(
     const { t } = useI18n()
     const navigate = useNavigate()
     const localRef = useRef<HTMLDivElement | null>(null)
-    // Prefer config.platformId; fall back to widget type `report-{platform}` so
-    // saved home layouts without nested config still load the right report.
     const platformId = resolveReportPlatformId(config)
     const [reportData, setReportData] = useState<any>(null)
     const [loading, setLoading] = useState(true)
@@ -64,29 +59,21 @@ export const ReportCardWidget = memo(
         return
       }
 
-      // 外部直接提供数据（报告页复用）：不再自行请求，跟随 prop 更新
       if (externalData !== undefined) {
-        // Coerce full PlatformReport JSON → flat card_visuals the widgets read.
-        // Without this, nested card_visuals leaves reportData truthy but empty UI.
         const visuals = coerceReportVisuals(externalData)
         setReportData(hasRenderableCardVisuals(visuals) ? visuals : null)
         setLoading(false)
         return
       }
 
-      // Home path: fetch site-owner latest reports and map to this platform's
-      // card_visuals. Guard against unmount races so a cancelled fetch cannot
-      // leave loading forever or wipe a newer successful result.
+      // 取消的 fetch 不能把 loading 留在已卸载实例上。
       let cancelled = false
       const fetchReport = async (forceRefresh = false) => {
         try {
-          // 使用去重机制避免多个 ReportCardWidget 同时请求
           let data = await getLatestReportDeduped({ forceRefresh })
           if (cancelled) return
-          // Fail closed on empty / mismatched mapping so home never mounts a
-          // blank shell when card_visuals is missing or {}.
+          // 映射空/不对就失败，首页不要挂空白壳。
           let visuals = pickPlatformCardVisuals(data, platformId)
-          // One forced re-fetch if mapping missed (stale empty cache / race with generate).
           if (!visuals && !forceRefresh) {
             data = await getLatestReportDeduped({ forceRefresh: true })
             if (cancelled) return
@@ -105,7 +92,6 @@ export const ReportCardWidget = memo(
       }
       fetchReport()
 
-      // 5分钟刷新一次 - timeout 链 + 可见性暂停
       let timeoutId: number | null = null
       const schedule = () => {
         if (cancelled || document.hidden) return
@@ -131,29 +117,22 @@ export const ReportCardWidget = memo(
       }
     }, [platformId, isPreview, externalData])
 
-    // Detail faces need real material. library_items covers most platforms
-    // (covers/guilds); X uses following_highlights/sample after tweet carousel
-    // removal. Gating only on library_items stuck low-post X cards on overview.
     const hasDetailContent = useMemo(
       () => hasReportDetailContent(reportData),
       [reportData],
     )
 
     useEffect(() => {
-      // 预览态 / 外部控制概览态时不启用内部自动轮播
       if (isPreview || isOverviewControlled) return
-      // No detail material → stay on overview so stats stay visible
       if (!hasDetailContent) {
         setInternalShowOverview(true)
         return
       }
-      // exlight：只显示概览，不自动翻面
       if (!animLevel.widgetUiRotation) {
         setInternalShowOverview(true)
         return
       }
 
-      // 10秒切换概览/详情 - timeout 链 + 可见性暂停
       let cancelled = false
       let timeoutId: number | null = null
       const tick = () => {
@@ -189,8 +168,6 @@ export const ReportCardWidget = memo(
       setCardContent(content)
     }, [])
 
-    // 长按点击行为设置（参考社交组件：编辑模式下按住 500ms 打开设置）
-    // 仅作为仪表盘小组件时启用（报告页 bare / 预览态不干预）
     const interactive = !bare && !isPreview
     const clickAction: ReportCardClickAction =
       config.config?.clickAction === 'social' ? 'social' : 'report'
@@ -278,7 +255,6 @@ export const ReportCardWidget = memo(
     }, [])
 
     const handleCardClick = useCallback(() => {
-      // 长按触发的设置不当作点击
       if (isLongPressRef.current) {
         isLongPressRef.current = false
         return
@@ -292,7 +268,6 @@ export const ReportCardWidget = memo(
         )
         return
       }
-      // report 模式，或社交模式下未配置用户ID的兜底
       navigate('/reports')
     }, [
       interactive,
@@ -326,8 +301,6 @@ export const ReportCardWidget = memo(
       <WidgetShell
         containerRef={localRef}
         padding={0}
-        // `contents` drops the inner padding wrapper box so absolute/full-height
-        // platform widgets size against the shell root (home empty-face fix).
         contentClassName="contents"
         glass={!bare}
         className={interactive && !isEditMode ? 'cursor-pointer' : ''}
@@ -341,7 +314,6 @@ export const ReportCardWidget = memo(
           onTouchCancel: interactive ? handlePressEnd : undefined,
         }}
         background={
-          /* 动态背景光效（bare 模式下由外层容器负责，避免重复叠加） */
           !bare && (
             <GlowBackground
               color={platformConfig.color}
@@ -355,7 +327,6 @@ export const ReportCardWidget = memo(
           )
         }
       >
-        {/* 主内容区：fill the shell root so h-full platform widgets paint */}
         {reportData ? (
           <div className="absolute inset-0 z-10 flex min-h-0 flex-col">
             <PlatformFace

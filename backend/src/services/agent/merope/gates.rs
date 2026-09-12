@@ -53,6 +53,9 @@ pub fn is_task_outcome(event_key: &str) -> bool {
 }
 
 pub fn worth_notifying(event_key: &str) -> bool {
+    if event_key == "agent.merope.touch" {
+        return false;
+    }
     is_valuable_event(event_key) || event_key.starts_with("agent.merope.")
 }
 
@@ -60,6 +63,14 @@ pub fn worth_notifying(event_key: &str) -> bool {
 /// Looking at the panel → no toast.
 /// Not looking at the panel → notify when `worth_notifying`.
 pub fn decide_ingest(event_key: &str, sight: &IngestSight) -> IngestDecision {
+    if event_key == "agent.merope.touch" && !sight.on_page {
+        return IngestDecision {
+            allow_model: false,
+            notify: false,
+            live: false,
+            reason: "touch_not_present",
+        };
+    }
     if sight.executing && !is_task_outcome(event_key) {
         return IngestDecision {
             allow_model: false,
@@ -105,6 +116,35 @@ pub fn decide_ingest(event_key: &str, sight: &IngestSight) -> IngestDecision {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn touch_only_speaks_in_person_and_never_notifies() {
+        let event = "agent.merope.touch";
+        assert!(!worth_notifying(event));
+        assert!(!decide_ingest(event, &IngestSight::default()).allow_model);
+        let here = IngestSight {
+            on_page: true,
+            ..Default::default()
+        };
+        assert!(decide_ingest(event, &here).live);
+        assert!(!decide_ingest(event, &here).notify);
+        for busy in [
+            IngestSight {
+                executing: true,
+                ..here.clone()
+            },
+            IngestSight {
+                working: true,
+                ..here.clone()
+            },
+            IngestSight {
+                do_not_disturb: true,
+                ..here
+            },
+        ] {
+            assert!(!decide_ingest(event, &busy).allow_model);
+        }
+    }
 
     fn looking() -> IngestSight {
         IngestSight {

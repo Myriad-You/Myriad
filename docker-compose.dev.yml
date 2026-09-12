@@ -1,7 +1,7 @@
 # Myriad 本地开发 Docker Compose 配置
 #
 # 默认仅启动 PostgreSQL 数据库供本地开发使用：
-#   - backend: 在宿主机 `cargo run --bin myriad-backend`
+#   - backend: 在宿主机 `MYRIAD_PROCESS_ROLE=all cargo run --bin myriad-backend`
 #   - frontend: 在宿主机 `pnpm dev`（frontend/）
 #
 # 使用方法:

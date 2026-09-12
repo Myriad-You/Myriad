@@ -1,30 +1,10 @@
-/**
- * First-party site analytics client (production-oriented).
- *
- * - pageview / engagement / custom events
- * - Batch → POST /api/analytics/collect (proxy-friendly relative URL)
- * - Idle scheduling + sendBeacon; one network retry on hard failure
- * - Opt-out, Save-Data, offline, bots, setup routes
- * - Staff self-traffic excluded (admin/owner client flag; server also drops is_admin JWT)
- */
-
 import { API_URL } from '../config'
 import { getUIConfigDeduped } from './requestDedup'
 
-/**
- * Fired after a pageview batch was handed off successfully — `sendBeacon`
- * accepted it for delivery, or the `fetch` fallback returned 2xx.
- *
- * A first-time visitor is only counted once that beacon lands, and it is
- * idle-scheduled up to {@link FLUSH_INTERVAL_MS} later, so the visitor card
- * mounts before its own "you are today's Nth visitor" exists. Listeners use
- * this to fetch once more instead of polling. Note `sendBeacon` only confirms
- * queueing, so listeners should still allow the write a moment to land.
- */
 export const ANALYTICS_PAGEVIEW_FLUSHED_EVENT = 'myriad:analytics-pageview-flushed'
 
 const VID_KEY = 'myriad_vid'
-/** Must stay in sync with the server's `is_valid_vid` (analytics.rs). */
+/** Keep in sync with is_valid_vid. */
 const VID_PATTERN = /^[\w-]{16,64}$/
 const OPT_OUT_KEY = 'myriad_analytics_optout'
 const SESSION_LAST_KEY = 'myriad_pv_last'
@@ -36,7 +16,7 @@ const FLUSH_INTERVAL_MS = 4000
 const MAX_ENGAGEMENT_FLUSH_MS = 30 * 60 * 1000
 const MIN_ENGAGEMENT_MS = 800
 const ENGAGE_TICK_MS = 15000
-/** After a failed flush, re-queue once then drop */
+/** Re-queue once, then drop. */
 const MAX_FLUSH_RETRIES = 1
 
 type CollectKind = 'pageview' | 'engagement' | 'event'
@@ -47,12 +27,11 @@ interface CollectItem {
   referrer?: string
   ms?: number
   name?: string
-  /** Event dimension (tapp id, platform, brew source, …); server-normalized. */
   target?: string
 }
 
 let excludeStaffSelf = false
-/** null = not loaded yet (optimistically allow; server enforces) */
+/** Fail open until loaded; server enforces. */
 let siteCollectionEnabled: boolean | null = null
 let siteCollectionLoad: Promise<boolean> | null = null
 let queue: CollectItem[] = []
@@ -68,7 +47,7 @@ let engageTickTimer: ReturnType<typeof setInterval> | null = null
 let listenersBound = false
 
 function collectUrl(): string {
-  const base = (API_URL || '').replace(/\/$/, '')
+  const base = (API_URL || '').replaceAll(/\/$/g, '')
   return `${base}/api/analytics/collect`
 }
 
@@ -116,12 +95,6 @@ export function isAnalyticsOptedOut(): boolean {
   }
 }
 
-/**
- * 访客自己的退出开关（本机 localStorage）。
- *
- * 设置页「本机退出采集」写入；`isAnalyticsOptedOut` 在每次上报前读取。
- * 退出时丢掉未发送队列，避免开关打上之后还把积压的 beacon 发出去。
- */
 export function setAnalyticsOptOut(optOut: boolean) {
   try {
     if (optOut) localStorage.setItem(OPT_OUT_KEY, '1')
@@ -146,7 +119,7 @@ function ensureSiteCollectionFlag(): void {
       return enabled
     })
     .catch(() => {
-      // Fail open: server enforces when disabled
+      // Fail open; server enforces.
       siteCollectionEnabled = true
       return true
     })
@@ -175,10 +148,7 @@ function haltCollection() {
   clearEngagementTimers()
 }
 
-/**
- * Staff browsing own site must not inflate stats.
- * Call with isAdmin / isOwner from AuthContext.
- */
+/** Staff must not inflate stats. */
 export function setAnalyticsStaffSession(opts: {
   isAdmin?: boolean
   isOwner?: boolean
@@ -213,14 +183,6 @@ function pathAllowed(pathname: string): boolean {
   )
 }
 
-/**
- * Existing visitor id, or null — never mints one.
- *
- * The visitor card reads this to ask the server "what is *my* ordinal today".
- * A reader must not create identity as a side effect: someone opted out (or a
- * bot) never gets counted, so minting a vid for them would write to storage to
- * answer a question whose answer is always "no number".
- */
 export function peekVisitorId(): string | null {
   try {
     const existing = localStorage.getItem(VID_KEY)
@@ -249,7 +211,7 @@ export function getOrCreateVisitorId(): string {
     } else {
       for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256)
     }
-    id = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+    id = Iterator.from(bytes).map((b) => b.toString(16).padStart(2, '0')).toArray().join('')
   }
   try {
     localStorage.setItem(VID_KEY, id)
@@ -298,7 +260,7 @@ function markSessionPath(path: string) {
 function enqueue(item: CollectItem) {
   if (queue.length >= MAX_QUEUE) {
     const dropIdx = queue.findIndex((q) => q.type !== 'pageview')
-    queue.splice(dropIdx >= 0 ? dropIdx : 0, 1)
+    queue = queue.toSpliced(dropIdx >= 0 ? dropIdx : 0, 1)
   }
   queue.push(item)
   scheduleFlush()
@@ -334,16 +296,15 @@ async function flushQueue() {
 
   flushInFlight = true
   flushAgainAfter = false
-  const items = queue.splice(0, MAX_QUEUE)
+  const items = queue.slice(0, MAX_QUEUE)
+  queue = queue.toSpliced(0, MAX_QUEUE)
   const body = JSON.stringify({
     vid: getOrCreateVisitorId(),
     items,
   })
   const url = collectUrl()
 
-  // Prefer fetch so we observe HTTP status. sendBeacon only tells us the browser
-  // accepted the payload — a 503 (e.g. analytics_unavailable) still returns true
-  // and would false-fire ANALYTICS_PAGEVIEW_FLUSHED_EVENT.
+  // Prefer fetch; sendBeacon ignores 503.
   let ok = false
   try {
     const res = await fetch(url, {
@@ -353,14 +314,14 @@ async function flushQueue() {
       credentials: 'same-origin',
       keepalive: true,
     })
-    // 2xx and "skipped" staff/bot are fine; 429/5xx → retry once
+    // 429/5xx: retry once.
     ok = res.ok || res.status === 204
     if (res.status === 429 || res.status >= 500) {
       ok = false
     }
   } catch {
     ok = false
-    // Page unload / network dead: best-effort beacon without claiming flush success.
+    // Beacon on unload; do not claim flush success.
     if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
       try {
         navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }))
@@ -383,7 +344,7 @@ async function flushQueue() {
       }
     }
   }
-  // if !ok and no retries: drop items (avoid unbounded memory)
+  // Drop after retry to bound memory.
 
   flushInFlight = false
   if (queue.length > 0 || flushAgainAfter) {
@@ -497,7 +458,6 @@ function ensureLifecycleListeners() {
   )
 }
 
-/** Track a SPA / full page view. */
 export function trackPageview(path?: string) {
   if (typeof window === 'undefined') return
   const p = path || location.pathname || '/'
@@ -520,28 +480,16 @@ export function trackPageview(path?: string) {
   })
 }
 
-/** Sanitize event target dim (mirror of BE `normalize_target`). */
 export function sanitizeAnalyticsTarget(raw?: string | null): string | undefined {
   if (raw == null) return undefined
   const s = String(raw)
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9._:@+-]/g, '')
+    .replaceAll(/[^a-z0-9._:@+-]/g, '')
     .slice(0, 64)
   return s.length >= 1 ? s : undefined
 }
 
-/**
- * Custom event 埋点.
- * Name: 2–48 chars, `[a-z0-9_-]` (no leading `_` / reserved `__*`).
- *
- * Events enqueue **synchronously** (unlike pageviews, which wait for idle).
- * Login/register hard-navigate ~100ms later; idle deferral was dropping
- * `login_success` / `register_success` before they ever hit the queue.
- * Pass `flush: true` to also kick an immediate network flush (still best-effort
- * under unload — `pagehide` + keepalive cover the rest).
- * Pass `target` for per-entity breakdown (tapp id, platform, source, …).
- */
 export function trackEvent(
   name: string,
   opts?: { path?: string; flush?: boolean; target?: string },

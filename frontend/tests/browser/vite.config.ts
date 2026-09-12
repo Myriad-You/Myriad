@@ -5,6 +5,9 @@ import { defineConfig } from 'vite'
 // every service request in this harness must be explicitly mocked by the test.
 export default defineConfig({
   root: fileURLToPath(new URL('./fixture', import.meta.url)),
+  build: {
+    target: 'es2025',
+  },
   resolve: {
     alias: {
       'agora-rtc-sdk-ng': fileURLToPath(

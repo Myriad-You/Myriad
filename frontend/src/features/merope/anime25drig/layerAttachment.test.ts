@@ -6,6 +6,7 @@ import type {
   Anime25DPlaybackLayer,
 } from './types'
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import {
   deriveGeometryChestProfile,
@@ -14,6 +15,8 @@ import {
 import { IDENTITY_DRIVER } from './driver'
 import {
   bindAnime25DLayerAttachment,
+  bindNeckwearBridge,
+  deformNeckwearBridge,
   writeAnime25DAttachmentTransform,
 } from './layerAttachment'
 import { resolveAnime25DLayerDeformationPolicy } from './layerDeformationPolicy'
@@ -56,6 +59,125 @@ const source = {
 }
 const shell = deriveAnime25DShellProfile(source)
 const chest = deriveGeometryChestProfile(source)
+
+test(
+  'real split accessory asset binds without missing surfaces',
+  { skip: !process.env.MEROPE_ACCESSORY_ASSET },
+  async () => {
+    const sharp = (await import('sharp')).default
+    const root = process.env.MEROPE_ACCESSORY_ASSET!
+    const manifest = JSON.parse(await readFile(`${root}/manifest.json`, 'utf8'))
+    const playback = manifest.anime25dPlayback as Anime25DPlayback
+    const atlas = `${root}/atlas.png`
+      const meta = await sharp(atlas).metadata()
+    const images = new Map<Anime25DPlaybackLayer, Anime25DAttachmentPixels>()
+    for (const l of playback.layers) {
+      if (
+        ![
+          'neckwear',
+          'headwear',
+          'earwear',
+          'front-hair',
+          'back-hair',
+          'neck',
+          'topwear',
+          'face',
+          'ears',
+        ].includes(l.role)
+      ) {
+        continue
+}
+      const { data, info } = await sharp(atlas)
+        .extract({
+          left: Math.round(l.atlas.x * meta.width!),
+          top: Math.round(l.atlas.y * meta.height!),
+          width: Math.round(l.atlas.w * meta.width!),
+          height: Math.round(l.atlas.h * meta.height!),
+        })
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true })
+      images.set(l, {
+        pixels: new Uint8ClampedArray(data),
+        width: info.width,
+        height: info.height,
+      })
+    }
+    const read = (l: Anime25DPlaybackLayer) => images.get(l) ?? null
+    const actualHosts = playback.layers.map(host)
+    for (const art of playback.layers.filter((l) =>
+      ['neckwear', 'headwear'].includes(l.role),
+    )) {
+      const binding = bindAnime25DLayerAttachment(
+        art,
+        actualHosts,
+        playback.anchors,
+        null,
+        playback.pixelCanvas.width,
+        read,
+      )
+      assert.ok(binding, art.name)
+      console.log(`${art.name} -> ${binding.hostName}`)
+      if (art.role === 'neckwear') {
+        const bridge = bindNeckwearBridge(
+          art,
+          actualHosts,
+          playback.anchors,
+          null,
+          playback.pixelCanvas.width,
+          new Float32Array([art.x, art.y, art.x, art.y + art.h]),
+          read,
+        )
+        assert.ok(
+          bridge,
+          'real neckwear should connect both supported surfaces',
+        )
+      }
+    }
+  },
+)
+
+test('headwear chooses supported back hair over unsupported front hair', () => {
+  const art = layer('headwear', 'head', 10, 10, 10, 10)
+  const front = layer('front-hair', 'head', 0, 0, 30, 30)
+  const back = layer('back-hair', 'head', 0, 0, 30, 30)
+  const attachment = bindAnime25DLayerAttachment(
+    art,
+    [host(front), host(back)],
+    anchors,
+    null,
+    1024,
+    (l) => pixels(30, 30, () => l !== front),
+  )
+  assert.equal(attachment?.hostName, back.name)
+})
+
+test('cross-surface neckwear follows both ends without mutating rest geometry', () => {
+  const rest = new Float32Array([520, 690, 520, 800])
+  const bridge = bindNeckwearBridge(
+    necklace,
+    hosts,
+    anchors,
+    null,
+    1024,
+    rest,
+    (l) => pixels(Math.round(l.w), Math.round(l.h), () => true),
+  )
+  assert.ok(bridge)
+  assert.equal(bridge.weights[0], 0)
+  assert.equal(bridge.weights[1], 1)
+  const output = rest.slice()
+  deformNeckwearBridge(bridge, frame(0.7), rest, output)
+  const a = transform(bridge.upperMatrix, rest[0], rest[1])
+  const b = transform(bridge.lowerMatrix, rest[2], rest[3])
+  assert.ok(Math.hypot(output[0] - a.x, output[1] - a.y) < 1e-3)
+  assert.ok(Math.hypot(output[2] - b.x, output[3] - b.y) < 1e-3)
+  assert.deepEqual(Iterator.from(rest).toArray(), [520, 690, 520, 800])
+  assert.equal(
+    bindNeckwearBridge(necklace, hosts, anchors, null, 1024, rest, () => null),
+    null,
+  )
+})
 
 test('neckwear and unknown body ornaments ride the garment, not a separate projection', () => {
   for (const decoration of [
@@ -111,7 +233,7 @@ test('rigid attachment preserves distances, orientation and area at all bounded 
     for (let i = 0; i <= 40; i++) {
       const pose = frame(i / 20 - 1, Math.sin(i) * 0.2, 0.6)
       writeAnime25DAttachmentTransform(attachment, pose, matrix)
-      assert.ok([...matrix].every(Number.isFinite))
+      assert.ok(Iterator.from(matrix).every(Number.isFinite))
       assert.ok(Math.abs(Math.hypot(matrix[0], matrix[1]) - 1) < 1e-6)
       assert.ok(Math.abs(Math.hypot(matrix[3], matrix[4]) - 1) < 1e-6)
       assert.ok(
@@ -300,13 +422,8 @@ function pixels(
   return { width, height, pixels: data }
 }
 
-test('GPU compilation actually binds independent accessories to their surfaces', () => {
-  const eyewear = layer('eyewear', 'head', 360, 430, 300, 80)
-  const playback = {
-    ...source,
-    layers: [...source.layers, necklace, eyewear],
-  } as Anime25DPlayback
-  const gl = {
+function meshGl(): WebGL2RenderingContext {
+  return {
     ARRAY_BUFFER: 1,
     ELEMENT_ARRAY_BUFFER: 2,
     DYNAMIC_DRAW: 3,
@@ -323,6 +440,15 @@ test('GPU compilation actually binds independent accessories to their surfaces',
     deleteBuffer() {},
     deleteVertexArray() {},
   } as unknown as WebGL2RenderingContext
+}
+
+test('GPU compilation actually binds independent accessories to their surfaces', () => {
+  const eyewear = layer('eyewear', 'head', 360, 430, 300, 80)
+  const playback = {
+    ...source,
+    layers: [...source.layers, necklace, eyewear],
+  } as Anime25DPlayback
+  const gl = meshGl()
   const previousDocument = globalThis.document
   let reads = 0
   Object.assign(globalThis, {
@@ -358,13 +484,17 @@ test('GPU compilation actually binds independent accessories to their surfaces',
       assert.ok(drawing?.attachment)
       assert.equal(drawing.attachment.hostName, parent)
       assert.equal(drawing.localDynamic, false)
-      assert.equal(drawing.deformed, drawing.rest)
+      if (drawing.neckwearBridge) {
+        assert.notEqual(drawing.deformed, drawing.rest)
+        assert.deepEqual(drawing.deformed, drawing.rest)
+      } else { assert.equal(drawing.deformed, drawing.rest)
+}
       writeAnime25DAttachmentTransform(
         drawing.attachment,
         frame(0.8),
         drawing.layerTransform,
       )
-      assert.ok([...drawing.layerTransform].every(Number.isFinite))
+      assert.ok(Iterator.from(drawing.layerTransform).every(Number.isFinite))
     }
     assert.equal(
       reads,
@@ -406,6 +536,97 @@ test('attachment includes shader-owned host motion when shell projection is disa
   )
   assert.ok(Math.hypot(actual.x - expected.x, actual.y - expected.y) < 0.0001)
   assert.ok(Math.hypot(actual.x - attachment.x, actual.y - attachment.y) > 1)
+})
+
+test('high-collar ornaments sample the rendered aperture instead of the unused neck grid', () => {
+  const neck = layer('neck', 'body', 95, 180, 50, 60)
+  const collar = layer('collar-front', 'body', 100, 200, 40, 40)
+  collar.atlas = { x: 0.5, y: 0, w: 1 / 3, h: 1 / 3 }
+  const ornament = layer('neckwear', 'body', 118, 184, 4, 4)
+  const playback = {
+    ...source,
+    anchors: { ...anchors, neckPivot: { x: 120, y: 220 }, neckTop: 180, neckBottom: 240 },
+    layers: [neck, collar, ornament],
+  } as Anime25DPlayback
+  const previousDocument = globalThis.document
+  Object.assign(globalThis, {
+    document: {
+      createElement: () => {
+        let collarCrop = false
+        return { getContext: () => ({
+          drawImage(_atlas: unknown, sx: number) { collarCrop = sx === 60 },
+          getImageData(_x: number, _y: number, w: number, h: number) {
+            return { data: pixels(w, h, (x, y) => {
+              if (!collarCrop) return true
+              const halfGap = y < 16 ? Math.max(2, 10 - Math.floor(y / 2)) : 0
+              return x >= 2 && x < w - 2 && !(halfGap > 0 && x > 20 - halfGap && x < 20 + halfGap)
+            }).pixels }
+          },
+        }) }
+      },
+    },
+  })
+  const gl = meshGl()
+  let compiled: ReturnType<typeof compileAnime25DGpuLayers> | undefined
+  try {
+    compiled = compileAnime25DGpuLayers(gl, {} as WebGLProgram, playback, shell,
+      { ...IDENTITY_DRIVER }, null, { width: 120, height: 120 } as HTMLImageElement)
+    const clip = compiled.collarClip
+    assert.ok(clip)
+    const neckLayer = compiled.layers.find(l => l.source === neck)!
+    assert.equal(neckLayer.vertexBuffer, null)
+    const art = compiled.layers.find(l => l.source === ornament)!
+    const attachment = art.attachment!
+    assert.equal(attachment.hostSource, neck)
+    assert.equal(attachment.meshSamples?.[0].mesh.deformed, clip.deformed)
+    assert.notEqual(attachment.meshSamples?.[0].mesh.deformed, neckLayer.deformed)
+    const original = clip.rest.slice()
+    for (let step = 0; step <= 60; step++) {
+      for (let i = 0; i < clip.rest.length; i += 2) {
+        clip.deformed[i] = clip.rest[i] + step * 0.1
+        clip.deformed[i + 1] = clip.rest[i + 1] - step * 0.2
+      }
+      writeAnime25DAttachmentTransform(attachment, frame(0.9), art.layerTransform)
+      const point = transform(art.layerTransform, attachment.x, attachment.y)
+      assert.ok(Math.abs(point.x - attachment.x - step * 0.1) < 0.0001)
+      assert.ok(Math.abs(point.y - attachment.y + step * 0.2) < 0.0001)
+    }
+    assert.deepEqual(clip.rest, original, 'sampling cannot alter the high-collar aperture')
+  } finally {
+    if (compiled) disposeAnime25DGpuLayers(gl, compiled)
+    Object.assign(globalThis, { document: previousDocument })
+  }
+})
+
+test('a bound shader host supplies its actual local deformation and transform, not a replay of driver math', () => {
+  const base = host(face)
+  base.secondaryDeformation.shaderGlobalTransform = true
+  const rest = new Float32Array([
+    face.x, face.y, face.x + face.w, face.y,
+    face.x, face.y + face.h, face.x + face.w, face.y + face.h,
+  ])
+  const surface = {
+    ...base, rest, deformed: rest.slice(),
+    indices: new Uint16Array([0, 1, 2, 1, 3, 2]),
+    layerTransform: new Float32Array([0, 1, 0, -1, 0, 0, 800, -90, 1]),
+  }
+  const attachment = bindAnime25DLayerAttachment(
+    layer('eyewear', 'head', 360, 430, 300, 80), [surface], anchors, null, 1024,
+  )!
+  assert.ok(attachment.meshSamples)
+  const matrix = new Float32Array(9)
+  for (let step = 0; step < 30; step++) {
+    for (let i = 0; i < rest.length; i += 2) {
+      surface.deformed[i] = rest[i] + step * 0.5
+      surface.deformed[i + 1] = rest[i + 1] - step
+    }
+    // A deliberately unrelated driver proves that the final surface is authoritative.
+    writeAnime25DAttachmentTransform(attachment, frame(-0.9), matrix)
+    const actual = transform(matrix, attachment.x, attachment.y)
+    assert.ok(Math.abs(actual.x - (800 - attachment.y + step)) < 1e-4)
+    assert.ok(Math.abs(actual.y - (attachment.x + step * 0.5 - 90)) < 1e-4)
+    assert.ok(Math.abs(Math.hypot(matrix[0], matrix[1]) - 1) < 1e-6)
+  }
 })
 
 test('ordinary neck root takes torso yaw while the head end remains free', () => {
@@ -523,8 +744,12 @@ function frame(
 test('125 combined poses keep the neck mesh unfolded and its lower join near the garment', () => {
   const neckBinding = hosts[1].secondaryDeformation
   const bodyBinding = hosts[2].secondaryDeformation
-  const at = (x: number, y: number, binding: typeof neckBinding,
-    pose: Anime25DSecondaryDeformationFrame) => {
+  const at = (
+    x: number,
+    y: number,
+    binding: typeof neckBinding,
+    pose: Anime25DSecondaryDeformationFrame,
+  ) => {
     const point = { x, y }
     deformAnime25DSecondaryPoint(point, x, y, 0, binding, pose)
     assert.ok(Number.isFinite(point.x) && Number.isFinite(point.y))
@@ -536,8 +761,8 @@ test('125 combined poses keep the neck mesh unfolded and its lower join near the
         const pose = frame(yaw, roll, 0.5, pitch)
         for (let row = 0; row < 10; row++) {
           for (let column = 0; column < 6; column++) {
-            const x = neck.x + column * neck.w / 6
-            const y = neck.y + row * neck.h / 10
+            const x = neck.x + (column * neck.w) / 6
+            const y = neck.y + (row * neck.h) / 10
             const a = at(x, y, neckBinding, pose)
             const b = at(x + neck.w / 6, y, neckBinding, pose)
             const c = at(x, y + neck.h / 10, neckBinding, pose)
@@ -545,12 +770,18 @@ test('125 combined poses keep the neck mesh unfolded and its lower join near the
             assert.ok(area > 0, `folded neck at ${yaw},${pitch},${roll}`)
           }
         }
-        for (const x of [neck.x + neck.w * 0.25, anchors.neckPivot.x, neck.x + neck.w * 0.75]) {
+        for (const x of [
+          neck.x + neck.w * 0.25,
+          anchors.neckPivot.x,
+          neck.x + neck.w * 0.75,
+        ]) {
           const y = anchors.neckBottom - 10
           const a = at(x, y, neckBinding, pose)
           const b = at(x, y, bodyBinding, pose)
-          assert.ok(Math.hypot(a.x - b.x, a.y - b.y) < neck.w * 0.04,
-            `join drift at ${yaw},${pitch},${roll}: ${Math.hypot(a.x - b.x, a.y - b.y)}`)
+          assert.ok(
+            Math.hypot(a.x - b.x, a.y - b.y) < neck.w * 0.04,
+            `join drift at ${yaw},${pitch},${roll}: ${Math.hypot(a.x - b.x, a.y - b.y)}`,
+          )
         }
       }
     }

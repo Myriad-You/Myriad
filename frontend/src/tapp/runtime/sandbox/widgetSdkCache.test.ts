@@ -27,14 +27,15 @@ describe('generateWidgetSDK session token isolation', () => {
     assert.match(b, /token-bbb-222/)
     assert.doesNotMatch(a, /token-bbb-222/)
     assert.doesNotMatch(b, /token-aaa-111/)
-    // Placeholder must never leak into the final SDK source
+    // 占位符不得泄漏进最终 SDK。
     assert.doesNotMatch(a, /__TAPP_WIDGET_SESSION_TOKEN__/)
     assert.doesNotMatch(b, /__TAPP_WIDGET_SESSION_TOKEN__/)
   })
 
   it('still freezes Tapp and exposes storage/lifecycle for the hot path', () => {
     const sdk = generateWidgetSDK(baseInstance, 'tok')
-    assert.match(sdk, /Object\.freeze\(Tapp\)/)
+    assert.match(sdk, /Object\.freeze\(tapp\)/)
+    assert.match(sdk, /\)\(window\.Tapp\)/)
     assert.match(sdk, /storage:\s*\{/)
     assert.match(sdk, /lifecycle:\s*\{/)
   })

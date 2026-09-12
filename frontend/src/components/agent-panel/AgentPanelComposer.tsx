@@ -1,26 +1,3 @@
-/**
- * 输入那一行 —— 输入框，外加右侧一枚动作。
- *
- * 语音、发送、终止占同一个位置：空着是语音，框里有字变成发送，正在跑则是终止。
- * 语音服务没配置时，空着那一枚不画 —— 没有麦克风可点，不要占一个空位。
- *
- * 左边那枚既是状态灯也是添加附件：待命是加号，亮状态时收成一颗状态色在里面游的圆。
- * 上下文、附件和操作贴同一行、同一高度。选中或当前页后面紧跟着能做的事。
- * 框里只写字，写满就换行，高度跟着走。
- *
- * 这一行长在卡片外面，输入框和动作各自一块玻璃：套在 `.glass` 里的子层采不到
- * 卡片背后的画面，再滤一次只会糊成乳白带（theme.css 记过这一跤）。
- *
- * Quick Overlay 和 Full 共用这一行 —— 同一个动作在两档里不该是两套手感。
- * 办事 / 聊天一枚贴在输入框上面，贴里写着 Tab；聊天档只留这枚贴和右边的心情。
- * 人设形象叠在贴行之上，贴仍贴着输入框，不跟着人挪上去。
- * 人按面板整宽居中，不按输入框；聊天档用头顶那截预留把对话顶上去。
- * 人从输入框里托出来，办事贴先让；心情跟人对齐晚一拍。进出同一条缓动。
- * 切模式是一座固定舞台：贴行三列钉死，左右贴位不动，中间只做透明度。
- * 常用问法在中间列一行横滑，新对话 / 历史钉在右边。
- * 叠层绝不用 visibility —— 隐藏那一层退出占位的话，淡出结束胶囊会突然收窄。
- */
-
 import type { RefObject } from 'react'
 import type { MoodBand } from '../agent/meropeVitals'
 import type { AgentAttachment, AttachError } from './agentAttachments'
@@ -89,11 +66,8 @@ export interface AgentPanelComposerProps {
     attachments?: AgentAttachment[],
     mode?: AgentPanelMode,
   ) => void
-  /** 展开动画期间就聚焦，用户一开口就能打字 */
   autoFocus?: boolean
-  /** 跟在上下文后面的操作：撤销 */
   leading?: React.ReactNode
-  /** 同一行靠右：展开、新话题、历史 */
   trailing?: React.ReactNode
 }
 
@@ -492,7 +466,7 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
           const next = await loadComposerFavorites()
           if (!cancelled) setFavorites(next)
         } catch {
-          // 拿不到收藏不影响问话
+          /* favorites are optional */
         }
       })()
     }
@@ -530,7 +504,6 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      // 组字途中按回车是在选候选词；Shift+Enter 是换行
       if (event.key !== 'Enter' || event.shiftKey || isImeComposing(event)) {
         return
       }
@@ -542,7 +515,7 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
 
   const handlePaste = useCallback(
     (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      const files = Array.from(event.clipboardData.files)
+      const files = Iterator.from(event.clipboardData.files).toArray()
       if (!files.length) return
       event.preventDefault()
       void addFiles(files)
@@ -554,7 +527,7 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
     (event: React.DragEvent<HTMLDivElement>) => {
       event.preventDefault()
       setDropping(false)
-      const files = Array.from(event.dataTransfer.files)
+      const files = Iterator.from(event.dataTransfer.files).toArray()
       if (files.length) void addFiles(files)
     },
     [addFiles],

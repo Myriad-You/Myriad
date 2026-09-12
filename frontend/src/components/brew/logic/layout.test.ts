@@ -1,10 +1,3 @@
-/**
- * 构图与尺寸派生的单元测试。
- *
- * Run from frontend/:
- *   pnpm test:unit -- src/components/brew/logic/layout.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { daysAgo, makePreviews, makeSource, NOW } from './fixtures.ts'
@@ -41,7 +34,7 @@ describe('tileLayout', () => {
   })
 
   it('游客永不进入 numeric', () => {
-    // 后端对游客恒回 0，但即使某天回了真数字，游客也不该看到未读数字墙
+    // 游客不该看到未读数字墙。
     const s = makeSource({ unread_count: 400, recent_items: makePreviews(8) })
     assert.equal(tileLayout(s, 'guest', NOW), 'list')
   })
@@ -85,7 +78,6 @@ describe('tileLayout', () => {
   })
 
   it('沉寂源即使条目很多也不掉进 list', () => {
-    // list 会摆出一排几年前的标题，读不出任何东西
     const s = makeSource({
       last_success_at: daysAgo(400),
       recent_items: makePreviews(12, { published_at: daysAgo(400) }),
@@ -119,7 +111,7 @@ describe('tileLayout', () => {
   })
 
   it('补拉后的条数覆盖 recent_items 长度', () => {
-    // 后端预览只回 3 条，但网格补拉到 8 条 —— 不传 itemCount 会误判
+    // 不传 itemCount 会按 3 条预览误判。
     const s = makeSource({ recent_items: makePreviews(1) })
     assert.equal(tileLayout(s, 'guest', NOW), 'feature')
     assert.equal(tileLayout(s, 'guest', NOW, 8), 'list')
@@ -159,8 +151,6 @@ describe('downgradeForBand', () => {
 })
 
 describe('tileSize', () => {
-  // 3 条预览 = 正常的 list 源。空源会被「内容撑不起来」那条压到 4x2，
-  // 那是另一个用例要验的事。
   const s = () => makeSource({ id: 1, recent_items: makePreviews(5) })
 
   it('源太少（< 6）一律撑满', () => {
@@ -223,23 +213,18 @@ describe('tileSize', () => {
   it('内容撑不起来的源不给 4x4：无封面且不满一页列表 → 最多 4x2', () => {
     const thin = makeSource({ recent_items: makePreviews(2), error_count: 7 })
     assert.equal(tileSize(0.9, thin, 'desktop', 20), '4x2')
-    // 三四条纯文字也撑不起 320px
     const few = makeSource({ recent_items: makePreviews(4) })
     assert.equal(tileSize(0.9, few, 'desktop', 20), '4x2')
-    // ≤2 条 + 封面 = feature 通栏大图，撑得起 4x4
     const covered = makeSource({
       recent_items: makePreviews(2, { image: 'https://example.com/c.png' }),
     })
     assert.equal(tileSize(0.9, covered, 'desktop', 20), '4x4')
-    // 三四条只配 52px 小方图，有封面也撑不起
     const fewCovered = makeSource({
       recent_items: makePreviews(4, { image: 'https://example.com/c.png' }),
     })
     assert.equal(tileSize(0.9, fewCovered, 'desktop', 20), '4x2')
-    // 够铺满一页列表（5 条）也行
     const listy = makeSource({ recent_items: makePreviews(5) })
     assert.equal(tileSize(0.9, listy, 'desktop', 20), '4x4')
-    // 「源太少一律撑满」不受这条影响
     assert.equal(tileSize(0.9, thin, 'desktop', 3), '4x4')
   })
 

@@ -1,11 +1,11 @@
 import { getPublicConfigDeduped } from '../../utils/requestDedup'
 
-/** 人设开着但没写名字时的默认名，不是产品名。 */
+/** Default when persona is on but unnamed; not the product name. */
 export const PERSONA_DEFAULT_NAME = 'Arael'
-/** 人设关掉时的对外名。产品名，不翻译。 */
+/** Product name when persona is off. Do not translate. */
 export const PERSONA_OFF_NAME = 'Agent'
 
-/** 对齐后端 `public_persona_name`：关 → Agent，开且无名 → Arael。 */
+/** Matches backend `public_persona_name`: off → Agent, on and unnamed → Arael. */
 export function publicPersonaName(
   enabled: boolean,
   storedName?: string | null,

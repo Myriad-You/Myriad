@@ -2,6 +2,7 @@ import type { AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig } from 
 import axios from 'axios'
 
 import { API_URL } from '../config'
+import { hostLocaleHeaders } from '../i18n/hostLocaleHeaders'
 import { currentCopy } from '../i18n/localeCopy'
 import { parseApiErrorBody } from '../services/api'
 import { aiRequestTimeoutMs } from '../utils/aiRequestTimeout.mjs'
@@ -14,14 +15,11 @@ import { checkRateLimit, RateLimitError } from '../utils/rateLimiter'
 import TokenManager from '../utils/tokenManager'
 import { isUselessErrorText, userFacingError } from '../utils/userFacingError'
 
-// 智能 API URL 检测（与 config.ts 保持一致）
-// 生产环境使用相对路径（空字符串），开发环境使用 localhost
 const API_BASE_URL =
   API_URL || (typeof window !== 'undefined' ? window.location.origin : '')
 
-// 验证 API URL 格式
 function isValidUrl(url: string): boolean {
-  // 空字符串是有效的（表示使用相对路径）
+  // Empty string is a valid same-origin /api base.
   if (url === '') {
     return true
   }
@@ -37,17 +35,14 @@ if (!isValidUrl(API_BASE_URL)) {
   throw new Error('Invalid API_BASE_URL configuration')
 }
 
-/** Mark a request as already retried after a CSRF failure (single retry only). */
+/** CSRF retry once. */
 type CsrfRetryableConfig = InternalAxiosRequestConfig & {
   __csrfRetried?: boolean
 }
 
 const MUTATING_METHODS = new Set(['post', 'put', 'patch', 'delete'])
 
-/**
- * Detect CSRF rejection bodies from backend csrf middleware.
- * Matches: "CSRF token missing/expired/invalid/not found" and message text.
- */
+/** CSRF 403 bodies from csrf middleware. */
 export function isCsrfFailure(
   status: number,
   data: unknown,
@@ -69,22 +64,15 @@ function extractApiErrorMessage(
   return userFacingError(raw, fallback)
 }
 
-/**
- * Assert a mutating config write succeeded.
- * With validateStatus accepting 4xx, callers must not treat error JSON as OK.
- */
-export function assertConfigWriteSuccess(
-  status: number,
+/** A successful HTTP response can still reject a configuration write. */
+function assertConfigWriteSuccess(
   data: unknown,
   fallbackMessage: string,
 ): void {
-  if (status >= 400) {
-    throw new Error(extractApiErrorMessage(data, fallbackMessage))
-  }
   if (
     data &&
     typeof data === 'object' &&
-    'success' in data &&
+    Object.hasOwn(data, 'success') &&
     (data as { success: unknown }).success !== true
   ) {
     throw new Error(extractApiErrorMessage(data, fallbackMessage))
@@ -96,24 +84,20 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 30000, // 30秒超时
-  // Keep 4xx as fulfilled responses so callers (and CSRF retry) can inspect
-  // body/status. Writers must still fail closed via assertConfigWriteSuccess.
-  validateStatus: (status) => status < 500, // 只有5xx才算网络错误
-  withCredentials: true, // 自动发送 HttpOnly Cookie
+  timeout: 30000,
+  withCredentials: true,
 })
 
-// Add request interceptor to include auth token
 api.interceptors.request.use(
   async (config) => {
     const aiTimeoutMs = aiRequestTimeoutMs(config.url || '')
     if (aiTimeoutMs) {
       config.timeout = Math.max(config.timeout ?? 0, aiTimeoutMs)
     }
-    // 异步获取 CSRF Token（从服务器）
-    // 只有状态变更请求需要：后端 csrf_middleware 仅校验 POST/PUT/PATCH/DELETE。
-    // Guest contract: GET /api/csrf-token returns 200 + csrf_token:null (not 401).
-    // Still skip on GET to avoid wasted probe traffic on every read.
+    for (const [key, value] of Object.entries(hostLocaleHeaders())) {
+      config.headers.set(key, value)
+    }
+    // CSRF only on POST/PUT/PATCH/DELETE. GET /api/csrf-token is 200 + csrf_token:null (not 401).
     if (MUTATING_METHODS.has(config.method?.toLowerCase() ?? 'get')) {
       const csrfToken = await getCSRFToken()
       if (csrfToken) {
@@ -121,11 +105,6 @@ api.interceptors.request.use(
       }
     }
 
-    // HttpOnly Cookie 用于身份验证（自动发送，无需手动添加）
-    // TokenManager.getToken() 返回 null（HttpOnly Cookie 无法被 JS 读取）
-    // Axios 通过 withCredentials: true 自动发送 Cookie
-
-    // Rate Limiting 检查（仅针对修改操作）
     if (
       config.method &&
       ['post', 'put', 'patch', 'delete'].includes(config.method.toLowerCase())
@@ -166,14 +145,13 @@ api.interceptors.request.use(
   },
 )
 
-/** Parse HTTP Retry-After (seconds, or HTTP-date) into milliseconds for RateLimitError. */
 function retryAfterHeaderToMs(header: unknown, fallbackSeconds = 60): number {
   if (header == null || header === '') {
     return fallbackSeconds * 1000
   }
   const raw = String(header).trim()
   const asInt = Number.parseInt(raw, 10)
-  // Numeric Retry-After is seconds (RFC 9110); treat reasonable values as seconds.
+  // Numeric Retry-After is seconds (RFC 9110).
   if (Number.isFinite(asInt) && String(asInt) === raw) {
     return Math.max(1, asInt) * 1000
   }
@@ -184,7 +162,7 @@ function retryAfterHeaderToMs(header: unknown, fallbackSeconds = 60): number {
   return fallbackSeconds * 1000
 }
 
-/** Prefer Retry-After header, then body.retry_after, then 60s. */
+/** Retry-After header, then body.retry_after, else 60s. */
 function waitMsFrom429(
   headers: Record<string, unknown> | undefined,
   data: unknown,
@@ -212,21 +190,17 @@ function rateLimitErrorFromAxios(headers: unknown, data: unknown): RateLimitErro
   return new RateLimitError(formatRateLimitMessage(waitSec, serverMsg), waitMs)
 }
 
-// Response interceptor: CSRF + 429 on fulfilled path (validateStatus: status < 500),
-// 401/network on rejected path.
 api.interceptors.response.use(
-  async (response) => {
-    const config = response.config as CsrfRetryableConfig
-    const method = config.method?.toLowerCase() ?? 'get'
+  (response) => response,
+  async (error: AxiosError | RateLimitError) => {
+    if (error instanceof RateLimitError) throw error
 
-    // 429 is "success" under validateStatus — handle here, not only in error branch.
-    if (response.status === 429) {
-      return Promise.reject(
-        rateLimitErrorFromAxios(response.headers as Record<string, unknown>, response.data),
-      )
-    }
-
+    const response = error.response
+    const config = error.config as CsrfRetryableConfig | undefined
+    const method = config?.method?.toLowerCase() ?? 'get'
     if (
+      response &&
+      config &&
       MUTATING_METHODS.has(method) &&
       isCsrfFailure(response.status, response.data) &&
       !config.__csrfRetried
@@ -250,17 +224,7 @@ api.interceptors.response.use(
       }
     }
 
-    return response
-  },
-  (error: AxiosError | RateLimitError) => {
-    // 处理 Rate Limit 错误
-    if (error instanceof RateLimitError) {
-      return Promise.reject(error)
-    }
-
-    // 处理 Axios 错误
     if (error.response?.status === 401) {
-      // Token expired or invalid, clear it and redirect to login
       TokenManager.removeToken()
       clearCSRFToken()
       window.dispatchEvent(
@@ -270,7 +234,6 @@ api.interceptors.response.use(
       )
     }
 
-    // 429 can still land here if validateStatus is overridden on a call.
     if (error.response?.status === 429) {
       return Promise.reject(
         rateLimitErrorFromAxios(
@@ -280,12 +243,14 @@ api.interceptors.response.use(
       )
     }
 
-    return Promise.reject(error)
+    if (response) {
+      error.message = parseApiErrorBody(response.data, response.status).message
+    }
+    throw error
   },
 )
 
-// Configuration
-// Setup 流程由 SetupWizard 直接 fetch，不经本模块。
+// SetupWizard fetches setup itself; not this module.
 export async function fetchConfig() {
   const response = await api.get('/api/config')
   return response.data
@@ -294,7 +259,6 @@ export async function fetchConfig() {
 export async function updateConfig(config: any) {
   const response = await api.post('/api/config', config)
   assertConfigWriteSuccess(
-    response.status,
     response.data,
     currentCopy().errors.configSaveFailed,
   )
@@ -320,7 +284,7 @@ export interface SettingsRestorePreview {
 
 export async function previewSettingsBackup(backup: unknown) {
   const response = await api.post('/api/config/settings-backup/preview', backup)
-  if (response.status >= 400 || !response.data?.preview) {
+  if (!response.data?.preview) {
     const previewError =
       typeof response.data?.error === 'string' ? response.data.error : ''
     throw new Error(
@@ -334,7 +298,7 @@ export async function previewSettingsBackup(backup: unknown) {
 
 export async function restoreSettingsBackup(backup: unknown) {
   const response = await api.post('/api/config/settings-backup', backup)
-  if (response.status >= 400 || response.data?.success !== true) {
+  if (response.data?.success !== true) {
     const restoreError =
       typeof response.data?.error === 'string' ? response.data.error : ''
     throw new Error(
@@ -346,7 +310,6 @@ export async function restoreSettingsBackup(backup: unknown) {
   return response.data
 }
 
-// Config Permissions
 export async function fetchPermissionsConfig() {
   const response = await api.get('/api/config/permissions')
   return response.data
@@ -357,18 +320,15 @@ export async function updatePermissionsConfig(
 ) {
   const response = await api.post('/api/config/permissions', permissions)
   assertConfigWriteSuccess(
-    response.status,
     response.data,
     currentCopy().errors.configSaveFailed,
   )
   return response.data
 }
 
-// System
 export async function reloadSystemConfig() {
   const response = await api.post('/api/system/reload-config')
   assertConfigWriteSuccess(
-    response.status,
     response.data,
     currentCopy().errors.configReloadFailed,
   )

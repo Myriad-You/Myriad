@@ -7,9 +7,9 @@ use tokio::fs;
 
 use super::storage::{
     admit_chunk_bytes_str, admit_new_transfer_str, final_file_path, finalize_part_file,
-    http_err_to_string, is_strictly_under, is_valid_transfer_id, lock_transfer_session,
-    part_file_path, path_to_db, prepare_chunk_file, resolve_transfer_path, sha256_file,
-    storage_root, ChunkFileState, DEFAULT_CHUNK_SIZE, MAX_FILE_SIZE,
+    http_err_to_string, is_strictly_under, is_valid_transfer_id, lock_transfer_admission,
+    lock_transfer_session, part_file_path, path_to_db, prepare_chunk_file, resolve_transfer_path,
+    sha256_file, storage_root, ChunkFileState, DEFAULT_CHUNK_SIZE, MAX_FILE_SIZE,
 };
 
 // Inbox 处理
@@ -34,7 +34,7 @@ pub async fn handle_file_transfer(
         .get("transferId")
         .and_then(|v| v.as_str())
         .ok_or("Missing transferId")?;
-    // MYR-001: remote transferId must pass strict validation before any path use
+    // remote transferId must pass strict validation before any path use
     if !is_valid_transfer_id(transfer_id) {
         return Err("Invalid transferId: must be 1-128 chars of [A-Za-z0-9_-] only".into());
     }
@@ -64,7 +64,11 @@ pub async fn handle_file_transfer(
         return Err("Invalid chunksTotal".to_string());
     }
 
-    // MYR-008: global concurrent transfer admission for inbound FileMeta
+    // Same admission lock as outbound initiate. Inbox receipt already holds a
+    // transaction, so the xact lock covers check + insert until commit.
+    lock_transfer_admission(db)
+        .await
+        .map_err(|error| error.to_string())?;
     admit_new_transfer_str(db, file_size).await?;
 
     if let Some(cid) = channel_id {
@@ -145,12 +149,12 @@ async fn handle_file_chunk(
         .get("transferId")
         .and_then(|v| v.as_str())
         .ok_or("Missing transferId")?;
-    // MYR-001: reject path-traversal transferIds before FS write
+    // reject path-traversal transferIds before FS write
     if !is_valid_transfer_id(transfer_id) {
         return Err("Invalid transferId: must be 1-128 chars of [A-Za-z0-9_-] only".into());
     }
-    // Inbox dispatch supplies the enclosing receipt transaction, so this lock
-    // covers the filesystem mutation until the receipt/database commit.
+    // Advisory lock on the transfer session. Inbound `myriad:FileChunk` currently
+    // 503s in mfp and does not reach this handler.
     lock_transfer_session(db, transfer_id)
         .await
         .map_err(|error| error.to_string())?;
@@ -173,7 +177,7 @@ async fn handle_file_chunk(
             DEFAULT_CHUNK_SIZE
         ));
     }
-    // MYR-008: reserve decoded chunk budget for inbound FileChunk
+    // reserve decoded chunk budget for inbound FileChunk
     let _chunk_budget = admit_chunk_bytes_str(chunk_size)?;
 
     let row = db

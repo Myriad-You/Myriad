@@ -1,5 +1,3 @@
-/* Agent 人设设定引导：词条 / 命名 / 人设。 */
-
 .setting-section--persona,
 .merope-ob {
   --merope-ink: color-mix(in srgb, var(--text-primary, #171923) 92%, transparent);
@@ -14,10 +12,6 @@ html.dark .merope-ob {
   --merope-surface-rgb: var(--surface-rgb, 24 24 27);
 }
 
-/*
- * 内容区贴玻璃卡左 / 右 / 下沿，只留标题下的上边距。
- * 标题栏自己补回原来的左右内边距，避免和内容一起被拉出去。
- */
 .setting-section.setting-section--persona {
   padding-right: 0;
   padding-bottom: 0;
@@ -36,7 +30,6 @@ html.dark .merope-ob {
   }
 }
 
-/* 分岔口自己管标题到内容的空隙，不再叠一层 settings header gap。 */
 .setting-section.setting-section--persona:has(.merope-ob-choice) > .section-header {
   margin-bottom: 0;
 }
@@ -85,7 +78,6 @@ html.dark .merope-ob {
   }
 }
 
-/* ============ 错误提示 ============ */
 
 .merope-error {
   display: flex;
@@ -104,10 +96,6 @@ html.dark .merope-ob {
   width: 100%;
 }
 
-/*
- * 低开销流体玻璃绘制令牌（无额外 backdrop）：镜面边 · 顶线/发丝 · 轻 sheen，
- * 跟样式系统 liquid 同源、开销可缓存。挂在设置二级页上，按钮仍用同一套语言。
- */
 .setting-section--persona,
 .merope-ob {
   --ob-liq-border: var(
@@ -152,8 +140,6 @@ html.dark .merope-ob {
   --ob-liq-soft-shadow: var(--ob-liq-inset), 0 8px 22px -12px rgb(0 0 0 / 28%);
 }
 
-/* ---------- 卡片：贴设置页，不再自带毛玻璃 ---------- */
-
 .merope-ob__card {
   --ob-pad: clamp(18px, 3vw, 32px);
   --ob-label-gap: 8px;
@@ -181,7 +167,6 @@ html.dark .merope-ob {
   min-height: 0;
 }
 
-/* 底部留白给悬浮按钮让路。 */
 .merope-ob__pane > section {
   flex: 1 1 auto;
   min-height: 0;
@@ -203,7 +188,6 @@ html.dark .merope-ob {
   text-align: left;
 }
 
-/* ---------- 悬浮操作簇：取消底栏，动作贴着卡片右下角浮起 ---------- */
 
 .merope-ob-bar {
   position: absolute;
@@ -220,7 +204,6 @@ html.dark .merope-ob {
   min-height: 44px;
 }
 
-/* 「下一步」：流体玻璃圆钮——吸色透底 + 镜面边 + 色散环 + 凝胶手感 */
 .merope-ob-bar .merope-ob-cta {
   position: relative;
   isolation: isolate;
@@ -325,7 +308,6 @@ html.dark .merope-ob {
     0 22px 44px -14px color-mix(in srgb, var(--merope-accent) 48%, transparent);
 }
 
-/* 悬停时箭头往前探一探，指向「下一步」 */
 .merope-ob-bar .merope-ob-cta:hover:not(:disabled) svg {
   transform: translateX(3px);
 }
@@ -387,8 +369,6 @@ html.dark .merope-ob-bar .merope-ob-cta {
   cursor: wait;
 }
 
-/* 主操作按钮走与卡片同源的流体玻璃：镜面边 + sheen + 斜向发丝 + 内高光，
-   底色仍是实心主题色，保证白字可读；圆形那版靠更高优先级保留自己的形状。 */
 .merope-ob-cta {
   display: inline-flex;
   gap: 9px;
@@ -421,8 +401,6 @@ html.dark .merope-ob-bar .merope-ob-cta {
   transform: scale(0.94);
 }
 
-/* 不可用时收掉彩色光晕、底色换成中性灰，但保留同一层玻璃质感，
-   一眼看出是按不动，而不是一颗没渲染好的主按钮 */
 .merope-ob-cta:disabled {
   color: color-mix(in srgb, var(--merope-ink) 45%, transparent);
   background:
@@ -606,8 +584,6 @@ html.dark .merope-ob-bar .merope-ob-cta {
   }
 }
 
-/* 词条圆泡的基座；选中勾和悬停位移由这里提供，形状由 --bubble 覆盖。 */
-
 .merope-choice {
   position: relative;
   border: 1px solid var(--ob-liq-border, var(--merope-line));
@@ -625,8 +601,7 @@ html.dark .merope-ob-bar .merope-ob-cta {
     scale var(--sm-dur-slow) var(--sm-ease-spring);
 }
 
-/* 入场动画带 fill:both，会一直压住 transform；
-   悬停和按压改用 translate / scale 这两个独立属性才生效。 */
+/* fill:both holds transform; hover uses translate/scale */
 .merope-choice:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--merope-accent) 40%, var(--merope-line));
   box-shadow: var(
@@ -684,11 +659,6 @@ html.dark .merope-ob-bar .merope-ob-cta {
   transform: none;
 }
 
-/* ---------- 词条画布：一簇随机散布的彩色圆泡 ----------
-   配色以壁纸 primary↔accent 为锚，再掺自由色相——相关但不强制锁死；
-   另有轻微色相偏移与明度差，让同批词也能互相区分。
-   直径主要由权重拉开，浮动用 translate、按压用 scale，
-   避免和入场动画抢 transform。 */
 .merope-bubble-canvas {
   position: relative;
   overflow: hidden;
@@ -698,13 +668,11 @@ html.dark .merope-ob-bar .merope-ob-cta {
   contain: layout style;
 }
 
-/* 气泡都定位在这一层上，拖拽时整层平移 */
 .merope-bubble-canvas__layer {
   position: absolute;
   inset: 0;
 }
 
-/* 摆不下才可拖：给抓手光标，并让触屏的拖动用来平移而不是滚页面 */
 .merope-bubble-canvas.is-pannable {
   cursor: grab;
   touch-action: none;
@@ -714,7 +682,6 @@ html.dark .merope-ob-bar .merope-ob-cta {
   cursor: grabbing;
 }
 
-/* 词条步白板铺满卡片，不另起边框。 */
 .merope-ob__card:has(.merope-ob-tags) > .merope-ob__viewport {
   position: absolute;
   inset: 0;
@@ -729,7 +696,6 @@ html.dark .merope-ob-bar .merope-ob-cta {
   overflow: hidden;
 }
 
-/* 无边框白板层：贴齐卡片四边 */
 .merope-ob-tags__board {
   position: absolute;
   inset: 0;
@@ -750,8 +716,6 @@ html.dark .merope-ob-bar .merope-ob-cta {
   margin: 0;
   border: 0;
   border-radius: 0;
-
-  /* 触控优先平移，避免整页跟着滚 */
   touch-action: none;
 }
 
@@ -802,7 +766,6 @@ html.dark .merope-ob-bar .merope-ob-cta {
   z-index: 5;
 }
 
-/* 左下角：纯文本，叠在底渐变之上 */
 .merope-ob-tags .merope-ob-tags__status {
   position: absolute;
   left: max(12px, calc(var(--ob-pad) - 4px));
@@ -855,27 +818,20 @@ html.dark .merope-ob-bar .merope-ob-cta {
     var(--color-primary, #7c6ee6) calc(var(--bubble-mix) * 1%),
     var(--color-accent, #6ee7f0)
   );
-
-  /* 壁纸锚点为主，自由色相作辅，整体仍相关 */
   --bubble-tint: color-mix(
     in oklab,
     var(--bubble-wallpaper) calc(var(--bubble-kin) * 1%),
     oklch(72% 0.15 calc(var(--bubble-hue) * 1deg))
   );
 
-  /* 填充抽成变量：.merope-choice.is-on 的浅色底特异性更高，
-     选中态必须自己再声明一次，否则圆泡会被刷成白的 */
+  /* .merope-choice.is-on fill is more specific; redeclare selected fill */
   --bubble-fill: radial-gradient(
     circle at 30% 24%,
     color-mix(in oklab, var(--bubble-tint) 16%, white),
     color-mix(in oklab, var(--bubble-tint) 44%, white) 58%,
     color-mix(in oklab, var(--bubble-tint) 68%, white)
   );
-
-  /* 文字用同一色相压深，而不是白色——这是网易云那套气泡的关键 */
   --bubble-ink: color-mix(in oklab, var(--bubble-tint) 72%, black);
-
-  /* 选中蒙层：用本泡色相压暗，白勾叠在上面 */
   --bubble-veil: color-mix(
     in oklab,
     color-mix(in oklab, var(--bubble-tint) 55%, black) 58%,
@@ -890,16 +846,12 @@ html.dark .merope-ob-bar .merope-ob-cta {
   height: var(--bubble-size);
   overflow: hidden;
 
-  /* 百分比 padding 会按容器宽度算，圆泡必须用自己的直径推 */
+  /* % padding uses container width */
   padding: calc(var(--bubble-size) * 0.13);
-
-  /* 无描边：压过 .merope-choice 基座的 1px line，全程视觉无边框 */
   border: none;
   border-radius: 50%;
   color: var(--bubble-ink);
   background: var(--bubble-fill);
-
-  /* 只靠柔光，不用硬描边/描边色环 */
   box-shadow:
     inset 0 2px 10px rgb(255 255 255 / 48%),
     0 8px 22px color-mix(in oklab, var(--bubble-tint) 22%, transparent);
@@ -920,7 +872,6 @@ html.dark .merope-ob-bar .merope-ob-cta {
     scale var(--sm-dur-slow) var(--sm-ease-spring);
 }
 
-/* 悬停 / 选中 / 焦点都不要冒出 line 边框（基座 .merope-choice 会改 border-color） */
 .merope-choice--bubble:hover:not(:disabled),
 .merope-choice--bubble.is-on,
 .merope-choice--bubble.is-on:hover:not(:disabled),
@@ -938,7 +889,6 @@ html.dark .merope-ob-bar .merope-ob-cta {
     0 10px 26px color-mix(in oklab, var(--bubble-tint) 28%, transparent);
 }
 
-/* 画布里的泡按圆心定位，所以要往回挪半个直径 */
 .merope-bubble-canvas .merope-choice--bubble {
   position: absolute;
   margin: calc(var(--bubble-size) / -2) 0 0 calc(var(--bubble-size) / -2);
@@ -980,7 +930,6 @@ html.dark .merope-ob-bar .merope-ob-cta {
   scale: 0.95;
 }
 
-/* 选中：无描边，仅蒙层 + 对勾 + 稍亮的柔光 */
 .merope-choice--bubble.is-on {
   border: none;
   color: var(--bubble-ink);
@@ -1001,7 +950,6 @@ html.dark .merope-ob-bar .merope-ob-cta {
   scale: 1.09;
 }
 
-/* 蒙层铺满圆泡；对勾居中。覆盖基座里小角标尺寸 */
 .merope-choice--bubble .merope-choice__tick {
   inset: 0;
   z-index: 2;
@@ -1030,10 +978,7 @@ html.dark .merope-ob-bar .merope-ob-cta {
   border: 0;
 }
 
-/*
- * fieldset + legend 多数浏览器不吃 gap：用同一 --ob-label-gap 作下边距，
- * 性别等 FieldGroup 与普通 Field 视觉一致。
- */
+/* fieldset+legend ignore gap in most browsers */
 fieldset.merope-ob-field {
   gap: 0;
 }
@@ -1103,7 +1048,6 @@ fieldset.merope-ob-field > .merope-ob-field__hint {
   transition: var(--sm-t-control);
 }
 
-/* Step 2: one field, style/roll chip inset on the right */
 .merope-ob-name-field {
   --name-dice-inset: 4px;
 
@@ -1122,7 +1066,6 @@ fieldset.merope-ob-field > .merope-ob-field__hint {
     box-shadow var(--sm-dur-base) var(--sm-ease-standard);
 }
 
-/* 菜单会盖住下面的性别选项；打开时把整列抬到后面字段之上，避免点到下层。 */
 .merope-ob-body > .merope-ob-field:has(.merope-ob-name-dice.is-open) {
   position: relative;
   z-index: 6;
@@ -1437,8 +1380,6 @@ fieldset.merope-ob-field > .merope-ob-field__hint {
   text-align: center;
 }
 
-/* Choice: left column is the pitch + two compact lanes; right is the
-   clothing preview (5/7). Both panes share InfoActionCard + liquid sheen. */
 .merope-ob__pane > section.merope-ob-choice {
   display: grid;
   padding: 1.5rem 1.85rem 1.7rem;
@@ -1522,7 +1463,6 @@ fieldset.merope-ob-field > .merope-ob-field__hint {
   min-width: 0;
 }
 
-/* 窄屏：介绍 → 选项轨 → 预览。 */
 @media (width <= 720px) {
   .merope-ob__pane > section.merope-ob-choice {
     overflow-y: auto;
@@ -1611,7 +1551,6 @@ fieldset.merope-ob-field > .merope-ob-field__hint {
     color-mix(in srgb, var(--choice-accent) 28%, transparent);
 }
 
-/* 触屏上 :hover 点完会粘住，所以抬起只给真有指针的设备。 */
 @media (hover: hover) and (pointer: fine) {
   .merope-ob-choice__lane:hover:not(:disabled) {
     background:
@@ -1682,7 +1621,6 @@ fieldset.merope-ob-field > .merope-ob-field__hint {
   overflow-wrap: anywhere;
 }
 
-/* 一次露出 3 张角色预览，横向循环滚过视觉设计的全部服装风格。 */
 .merope-ob-choice__reel {
   --choice-reel-gap: var(--choice-preview-pad);
   --choice-reel-shown: 3;
@@ -1736,7 +1674,6 @@ fieldset.merope-ob-field > .merope-ob-field__hint {
 
 @keyframes merope-choice-reel {
   to {
-    /* 一张卡宽 + 缝：N 张之后第二份拷贝对齐视口左沿。 */
     transform: translate3d(
       calc(
         -1 * var(--choice-reel-n, 17) *
@@ -1748,7 +1685,6 @@ fieldset.merope-ob-field > .merope-ob-field__hint {
   }
 }
 
-/* 这条路会经过什么。编号胶囊，不是句号串起来的短名。 */
 .merope-ob-choice__flow {
   display: flex;
   grid-area: flow;
@@ -1791,7 +1727,6 @@ fieldset.merope-ob-field > .merope-ob-field__hint {
   font-variant-numeric: tabular-nums;
 }
 
-/* 箭头常驻，悬停变亮。只在 hover 出现的话，触屏上就没有「可点」的提示了。 */
 .merope-ob-choice__go {
   display: grid;
   grid-area: go;
@@ -1838,7 +1773,6 @@ fieldset.merope-ob-field > .merope-ob-field__hint {
   }
 }
 
-/* Import: form left, portrait stage right. Same glass as the fork. */
 .merope-ob__pane > section.merope-ob-import {
   display: grid;
   padding: 8px var(--ob-pad) 76px;
@@ -2103,7 +2037,6 @@ fieldset.merope-ob-field > .merope-ob-field__hint {
   }
 }
 
-/* Step 5: master portrait on the shared 3:4 character-asset contract. */
 .merope-ob-master__layout {
   display: grid;
   justify-items: center;
@@ -2360,7 +2293,6 @@ fieldset.merope-ob-field > .merope-ob-field__hint {
   cursor: wait;
 }
 
-/* ---------- 忙碌 ---------- */
 
 .merope-ob-bg {
   display: flex;

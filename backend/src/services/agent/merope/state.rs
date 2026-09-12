@@ -76,7 +76,6 @@ pub const APPRAISAL_PRAISE: Appraisal = Appraisal {
     arousal: 58.0,
 };
 /// Below `MOOD_FLOOR` so repeated scolding can actually reach 极低.
-/// 22 sat above the floor and made `is_extremely_low` a dead branch.
 pub const APPRAISAL_SCOLD: Appraisal = Appraisal {
     emotion: 8.0,
     arousal: 70.0,
@@ -281,8 +280,8 @@ pub fn lite_appraisal(valence: i32, arousal: i32) -> Appraisal {
     }
 }
 
-/// Reads through a stale activity. `age_secs` comes from `updated_at`, which
-/// other writes also touch, so this can only ever be generous, never early.
+/// Reads through a stale activity. Caller passes `activity_updated_at` age
+/// (affect/DND writes bump `updated_at` without resetting this).
 pub fn effective_activity(activity: &str, age_secs: i64) -> &str {
     if activity == "idle" || age_secs < ACTIVITY_STALE_SECS {
         activity

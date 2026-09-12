@@ -26,7 +26,7 @@ pub(crate) async fn heartbeat_tasks(
     let manager = crate::services::agent::heartbeat::get_heartbeat().ok_or_else(|| {
         HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "Heartbeat not initialized" })),
+            Json(AppError::public_json("Heartbeat not initialized")),
         ))
     })?;
 
@@ -44,7 +44,7 @@ pub(crate) async fn toggle_heartbeat(
     let manager = crate::services::agent::heartbeat::get_heartbeat().ok_or_else(|| {
         HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "Heartbeat not initialized" })),
+            Json(AppError::public_json("Heartbeat not initialized")),
         ))
     })?;
 
@@ -52,7 +52,7 @@ pub(crate) async fn toggle_heartbeat(
         Some(enabled) => Ok(Json(json!({ "task_id": task_id, "enabled": enabled }))),
         None => Err(HttpError::from((
             StatusCode::NOT_FOUND,
-            Json(json!({ "error": "Task not found" })),
+            Json(AppError::public_json("Task not found")),
         ))),
     }
 }
@@ -76,7 +76,7 @@ pub(crate) async fn update_heartbeat(
     let manager = crate::services::agent::heartbeat::get_heartbeat().ok_or_else(|| {
         HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "Heartbeat not initialized" })),
+            Json(AppError::public_json("Heartbeat not initialized")),
         ))
     })?;
 
@@ -93,11 +93,11 @@ pub(crate) async fn update_heartbeat(
         Ok(task) => Ok(Json(json!({ "task": task }))),
         Err(e) if e.contains("not found") => Err(HttpError::from((
             StatusCode::NOT_FOUND,
-            Json(json!({ "error": e })),
+            Json(AppError::public_json(e)),
         ))),
         Err(e) => Err(HttpError::from((
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": e })),
+            Json(AppError::public_json(e)),
         ))),
     }
 }
@@ -126,7 +126,7 @@ pub(crate) async fn create_heartbeat(
     let manager = crate::services::agent::heartbeat::get_heartbeat().ok_or_else(|| {
         HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "Heartbeat not initialized" })),
+            Json(AppError::public_json("Heartbeat not initialized")),
         ))
     })?;
 
@@ -137,11 +137,11 @@ pub(crate) async fn create_heartbeat(
         Ok(task) => Ok(Json(json!({ "task": task }))),
         Err(e) if e.contains("already exists") => Err(HttpError::from((
             StatusCode::CONFLICT,
-            Json(json!({ "error": e })),
+            Json(AppError::public_json(e)),
         ))),
         Err(e) => Err(HttpError::from((
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": e })),
+            Json(AppError::public_json(e)),
         ))),
     }
 }
@@ -156,7 +156,7 @@ pub(crate) async fn delete_heartbeat(
     let manager = crate::services::agent::heartbeat::get_heartbeat().ok_or_else(|| {
         HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "Heartbeat not initialized" })),
+            Json(AppError::public_json("Heartbeat not initialized")),
         ))
     })?;
 
@@ -164,11 +164,11 @@ pub(crate) async fn delete_heartbeat(
         Ok(()) => Ok(Json(json!({ "deleted": true, "task_id": task_id }))),
         Err(e) if e.contains("not found") => Err(HttpError::from((
             StatusCode::NOT_FOUND,
-            Json(json!({ "error": e })),
+            Json(AppError::public_json(e)),
         ))),
         Err(e) => Err(HttpError::from((
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": e })),
+            Json(AppError::public_json(e)),
         ))),
     }
 }
@@ -190,7 +190,7 @@ pub(crate) async fn reload_mcp(
         }
         Err(e) => Err(HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": e })),
+            Json(AppError::public_json(e)),
         ))),
     }
 }
@@ -204,7 +204,7 @@ pub(crate) async fn mcp_status(
     let manager = crate::services::agent::mcp::get_mcp_manager().ok_or_else(|| {
         HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "MCP manager not initialized" })),
+            Json(AppError::public_json("MCP manager not initialized")),
         ))
     })?;
     let servers = manager.list_server_status().await;
@@ -221,10 +221,15 @@ pub(crate) async fn mcp_get_config(
     let manager = crate::services::agent::mcp::get_mcp_manager().ok_or_else(|| {
         HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "MCP manager not initialized" })),
+            Json(AppError::public_json("MCP manager not initialized")),
         ))
     })?;
-    let config = manager.read_config().await;
+    let config = manager.read_config().await.map_err(|error| {
+        HttpError::from((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(AppError::public_json(error)),
+        ))
+    })?;
     let status = manager.list_server_status().await;
     let tools = manager.list_tools().await.len();
     Ok(Json(json!({
@@ -247,7 +252,7 @@ pub(crate) async fn mcp_put_config(
     let manager = crate::services::agent::mcp::get_mcp_manager().ok_or_else(|| {
         HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "MCP manager not initialized" })),
+            Json(AppError::public_json("MCP manager not initialized")),
         ))
     })?;
 
@@ -327,7 +332,7 @@ pub(crate) async fn list_skills() -> Result<Json<Value>, HttpError> {
     let registry = crate::services::agent::skill::get_skill_registry().ok_or_else(|| {
         HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "Skill registry not initialized" })),
+            Json(AppError::public_json("Skill registry not initialized")),
         ))
     })?;
 
@@ -370,7 +375,7 @@ pub(crate) async fn list_memories(
     let memory = crate::services::agent::memory::get_memory().ok_or_else(|| {
         HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "Memory not initialized" })),
+            Json(AppError::public_json("Memory not initialized")),
         ))
     })?;
 
@@ -404,7 +409,7 @@ pub(crate) async fn delete_memory(
     let memory = crate::services::agent::memory::get_memory().ok_or_else(|| {
         HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "Memory not initialized" })),
+            Json(AppError::public_json("Memory not initialized")),
         ))
     })?;
 
@@ -413,7 +418,7 @@ pub(crate) async fn delete_memory(
     } else {
         Err(HttpError::from((
             StatusCode::NOT_FOUND,
-            Json(json!({ "error": "Memory not found" })),
+            Json(AppError::public_json("Memory not found")),
         )))
     }
 }
@@ -428,14 +433,14 @@ pub(crate) async fn update_memory(
     let content = body["content"].as_str().ok_or_else(|| {
         HttpError::from((
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Missing field: content" })),
+            Json(AppError::public_json("Missing field: content")),
         ))
     })?;
 
     let memory = crate::services::agent::memory::get_memory().ok_or_else(|| {
         HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "Memory not initialized" })),
+            Json(AppError::public_json("Memory not initialized")),
         ))
     })?;
 
@@ -444,7 +449,7 @@ pub(crate) async fn update_memory(
     } else {
         Err(HttpError::from((
             StatusCode::NOT_FOUND,
-            Json(json!({ "error": "Memory not found" })),
+            Json(AppError::public_json("Memory not found")),
         )))
     }
 }
@@ -459,13 +464,13 @@ pub(crate) async fn delete_skill(
     let evo = crate::services::agent::skill_evolution::get_skill_evolution().ok_or_else(|| {
         HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "Skill evolution not initialized" })),
+            Json(AppError::public_json("Skill evolution not initialized")),
         ))
     })?;
 
     evo.delete_skill(&skill_id)
         .await
-        .map_err(|e| HttpError::from((StatusCode::BAD_REQUEST, Json(json!({ "error": e })))))?;
+        .map_err(|e| HttpError::from((StatusCode::BAD_REQUEST, Json(AppError::public_json(e)))))?;
 
     Ok(Json(json!({ "success": true })))
 }
@@ -486,14 +491,13 @@ pub(crate) async fn cancel_chat_turn(
     Ok(Json(json!({ "success": cancelled })))
 }
 
-/// 中断当前正在执行的任务并替换为新请求
+/// Cancel every cancellable task for the user (Pending/Running/WaitingForInput/Paused), then `process`.
 pub(crate) async fn interrupt_session(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, HttpError> {
-    // 这里提交的新请求 `context: None`，落到 Agent 里就是 Work。之前只解析
-    // 了 user_id，等于绕过了模块可见性这道门。
+    // `context: None` → Work. Gate: module visibility and granted `AiChat` (non-admin).
     let user_id = parse_user_id_with_agent_access(&claims, &db).await?;
     let new_input = body
         .get("input")
@@ -501,7 +505,7 @@ pub(crate) async fn interrupt_session(
         .ok_or_else(|| {
             HttpError::from((
                 StatusCode::BAD_REQUEST,
-                Json(json!({ "error": "Missing 'input' field" })),
+                Json(AppError::public_json("Missing 'input' field")),
             ))
         })?
         .to_string();
@@ -520,7 +524,8 @@ pub(crate) async fn interrupt_session(
                 let _ = waiting.done_tx.send(json!({
                     "success": false,
                     "responseType": "error",
-                    "message": "任务已取消",
+                    "message": "The task was cancelled",
+                    "code": "task_cancelled",
                     "streamTerminal": true,
                     "task": {
                         "taskId": task.task_id,
@@ -541,7 +546,10 @@ pub(crate) async fn interrupt_session(
         )
         .await
         .map_err(|e| {
-            HttpError::from((StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": e }))))
+            HttpError::from((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(AppError::public_json(e)),
+            ))
         })?;
 
     let request = crate::services::agent::UserRequest {
@@ -565,7 +573,7 @@ pub(crate) async fn interrupt_session(
         }
         Err(e) => Err(HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": e })),
+            Json(AppError::public_json(e)),
         ))),
     }
 }
@@ -583,7 +591,7 @@ pub(crate) async fn steer_session(
         .ok_or_else(|| {
             HttpError::from((
                 StatusCode::BAD_REQUEST,
-                Json(json!({ "error": "Missing 'instruction' field" })),
+                Json(AppError::public_json("Missing 'instruction' field")),
             ))
         })?;
 
@@ -591,7 +599,9 @@ pub(crate) async fn steer_session(
     if instruction.is_empty() || instruction.chars().count() > MAX_INPUT_LEN {
         return Err(HttpError::from((
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Instruction must be non-empty and within length limits" })),
+            Json(AppError::public_json(
+                "Instruction must be non-empty and within length limits",
+            )),
         )));
     }
 
@@ -608,7 +618,7 @@ pub(crate) async fn steer_session(
             .ok_or_else(|| {
                 HttpError::from((
                     StatusCode::NOT_FOUND,
-                    Json(json!({ "error": "Running task not found" })),
+                    Json(AppError::public_json("Running task not found")),
                 ))
             })?;
         task.task_id
@@ -618,13 +628,15 @@ pub(crate) async fn steer_session(
             [] => {
                 return Err(HttpError::from((
                     StatusCode::CONFLICT,
-                    Json(json!({ "error": "No running task to steer" })),
+                    Json(AppError::public_json("No running task to steer")),
                 )));
             }
             _ => {
                 return Err(HttpError::from((
                     StatusCode::CONFLICT,
-                    Json(json!({ "error": "Multiple tasks are running; taskId is required" })),
+                    Json(AppError::public_json(
+                        "Multiple tasks are running; taskId is required",
+                    )),
                 )));
             }
         }
@@ -646,7 +658,7 @@ pub(crate) async fn steer_session(
     // Keep an audit/session trace after the instruction is accepted for execution.
     if let Some(mem) = crate::services::agent::memory::get_memory() {
         mem.remember(
-            &format!("用户中途转向指令: {}", instruction),
+            &format!("Mid-task steering instruction: {}", instruction),
             crate::services::agent::memory::MemoryType::SessionInsight,
             user_id,
         )
@@ -661,3 +673,4 @@ pub(crate) async fn steer_session(
         "instruction": instruction,
     })))
 }
+use myriad_error::AppError;

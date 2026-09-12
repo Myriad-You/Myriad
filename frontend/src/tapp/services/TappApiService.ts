@@ -1,5 +1,3 @@
-/** Unified facade for the domain-specific Tapp API modules. */
-
 import {
   cancelAITask,
   createAITask,
@@ -72,9 +70,9 @@ import {
   listEnabledPlatforms,
 } from './TappPlatformApi'
 import {
-  getPlatformReport,
-  getReport,
-  listReports,
+  byPlatform,
+  getPlatform,
+  listPlatform,
 } from './TappReportCatalogApi'
 import {
   clearStorage,
@@ -147,9 +145,9 @@ export default {
   cancelAITask,
   getAIUsage,
   streamAITaskEvents,
-  listReports,
-  getReport,
-  getPlatformReport,
+  listPlatform,
+  getPlatform,
+  byPlatform,
   dataTransform,
   getContextApp,
   getContextUser,

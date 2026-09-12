@@ -1,4 +1,4 @@
-//! 联邦发现层（Layer 1）
+//! 联邦发现（WebFinger RFC 7033 + NodeInfo 2.1）
 //!
 //! WebFinger (RFC 7033) + NodeInfo 2.1 端点
 //! 这些端点不需要认证，是联邦互通的入口。
@@ -8,6 +8,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use myriad_error::AppError;
 use sea_orm::DatabaseConnection;
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde::Deserialize;
@@ -42,7 +43,9 @@ pub async fn webfinger(
     let (username, domain) = parse_acct_uri(resource).ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Invalid resource format. Expected acct:user@domain"})),
+            Json(AppError::public_json(
+                "Invalid resource format. Expected acct:user@domain",
+            )),
         )
     })?;
 
@@ -51,7 +54,7 @@ pub async fn webfinger(
     let our_domain = local_webfinger_domain(&domain, &base_url).ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
-            Json(json!({"error": "User not found on this instance"})),
+            Json(AppError::public_json("User not found on this instance")),
         )
     })?;
 
@@ -67,14 +70,14 @@ pub async fn webfinger(
         .map_err(|_| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database query failed"})),
+                Json(AppError::public_json("Database query failed")),
             )
         })?;
 
     if user_exists.is_none() {
         return Err((
             StatusCode::NOT_FOUND,
-            Json(json!({"error": "User not found"})),
+            Json(AppError::public_json("User not found")),
         ));
     }
 
@@ -99,8 +102,8 @@ pub async fn webfinger(
         ],
     };
 
-    // RFC 7033 §10.2 要求 JRD 用 application/jrd+json；axum 的 Json 只会发
-    // application/json。多数实现不校验，但规范一致性没有代价。
+    // RFC 7033 §10.2 注册的类型是 application/jrd+json（无 charset）。axum Json 默认
+    // application/json，这里覆盖 Content-Type。
     Ok((
         StatusCode::OK,
         [(
@@ -158,10 +161,10 @@ pub async fn nodeinfo(
             },
             local_posts,
         },
-        open_registrations: false, // Myriad 通常是个人实例
+        open_registrations: false, // hardcoded; unread allow_local_registration
         metadata: Some(NodeInfoMetadata {
             mfp_version: Some("1.0".to_string()),
-            tapp_capabilities: None, // Phase 5 补充
+            tapp_capabilities: None, // NodeInfo 未填此字段
             channel_types: Some(vec![
                 "text".to_string(),
                 "file-transfer".to_string(),
@@ -179,22 +182,14 @@ pub async fn nodeinfo(
 
 // 辅助函数
 
-/// 解析 acct:user@domain 格式
 /// Canonical `acct:` domain for a WebFinger resource addressed at this instance.
 ///
 /// Returns `None` when the resource belongs to some other host.
 ///
-/// An instance on a non-default port (lab / self-hosted, e.g.
-/// `http://127.0.0.1:1103`) has to accept both `host` and `host:port`: handles
-/// are written to match the Actor URL's authority (`@alice@127.0.0.1:1103`),
-/// but [`extract_domain`] drops the port, so our own WebFinger answered 404 for
-/// our own users. The caller turns any non-2xx into 502, which is why
-/// `@user@domain` reported a bare Bad Gateway while the same person's profile
-/// URL worked — a profile URL carries its own scheme and takes
-/// `resolve_actor_reference`'s pass-through branch, never touching WebFinger.
-///
-/// The returned value is the addressable form, so `subject` stays consistent
-/// with the Actor URL's host.
+/// An instance on a non-default port must accept both `host` and `host:port`
+/// because [`extract_domain`] drops the port. The returned value is the
+/// addressable form so `subject` stays consistent with the Actor URL's host.
+/// http(s) actor/profile URLs skip WebFinger (`resolve_actor_reference` pass-through).
 fn local_webfinger_domain(resource_domain: &str, base_url: &str) -> Option<String> {
     let host = extract_domain(base_url)?;
     let host_port = extract_host_port(base_url).unwrap_or_else(|| host.clone());
@@ -289,10 +284,6 @@ mod tests {
     }
 
     /// An instance on a non-default port must resolve its own users by handle.
-    ///
-    /// `@alice@127.0.0.1:1103` used to 404 here because the port was compared
-    /// away, and the caller reported that 404 as a 502 — the "New chat" box
-    /// rejected every handle while the equivalent profile URL worked.
     #[test]
     fn webfinger_accepts_handle_with_non_default_port() {
         let base = "http://127.0.0.1:1103";

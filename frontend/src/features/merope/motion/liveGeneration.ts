@@ -1,9 +1,5 @@
 import { noteTurnTraceDrop } from '../turnTrace'
 
-/**
- * In-memory Chat generation seen by speech and motion producers.
- * Preview / proactive events omit generation and still apply.
- */
 let liveGeneration = 0
 
 export function setLiveMotionGeneration(generation: number): void {

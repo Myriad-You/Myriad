@@ -1,17 +1,3 @@
-/**
- * Toggle / press chip — same visual language as 权限下放 / CheckboxGroupItem.
- * (title + optional description / icon; switch keeps status dot)
- *
- * Variants:
- * - `switch` (default) — click flips `checked`; sticky active chrome
- * - `action` — press control (搜索 / 刷新 / 新建); flash on press, no sticky
- *              toggle unless parent sets `checked` (e.g. filter active)
- *
- * Sizes:
- * - `default` — full card (permissions / notifications)
- * - `sm` / `stat` — dense list chip (ManagedList top row)
- */
-
 import type { ReactNode } from 'react'
 import React, { useCallback, useRef } from 'react'
 import { Spinner } from '../../Spinner'
@@ -19,31 +5,21 @@ import './SettingItem.css'
 
 export type CheckboxCardVariant = 'switch' | 'action'
 export type CheckboxCardSize = 'default' | 'sm' | 'stat'
-/** Soft accent for action chips (bulk retry / clear). */
 export type CheckboxCardTone = 'default' | 'primary' | 'danger'
 
 export interface CheckboxCardProps {
   label: ReactNode
   checked: boolean
-  /**
-   * `switch`: called with the next boolean.
-   * `action`: called with `true` on press (checked is not flipped by the card).
-   */
   onChange: (checked: boolean) => void
   description?: ReactNode
   icon?: ReactNode
   disabled?: boolean
   loading?: boolean
-  /** Native tooltip */
   title?: string
   className?: string
   variant?: CheckboxCardVariant
   size?: CheckboxCardSize
-  /** Action accent (primary / danger bulk tools). Default neutral. */
   tone?: CheckboxCardTone
-  /**
-   * Dot indicator. Default: on for `switch`, off for `action`.
-   */
   showIndicator?: boolean
   'aria-label'?: string
   'aria-expanded'?: boolean
@@ -77,7 +53,6 @@ export const CheckboxCard = React.memo<CheckboxCardProps>(({
     const el = btnRef.current
     if (!el || !isAction) return
     el.classList.remove('is-pressing')
-    // Force reflow so re-click restarts the animation
     void el.offsetWidth
     el.classList.add('is-pressing')
     if (flashTimer.current) clearTimeout(flashTimer.current)
@@ -102,7 +77,6 @@ export const CheckboxCard = React.memo<CheckboxCardProps>(({
 
   const hasIcon = icon != null && icon !== false
 
-  // Loading leading slot: spin icon in place (refresh), else spinner ring.
   let leading: ReactNode = null
   if (loading && hasIcon) {
     leading = (
@@ -142,7 +116,6 @@ export const CheckboxCard = React.memo<CheckboxCardProps>(({
         .filter(Boolean)
         .join(' ')}
       onClick={handleClick}
-      // Keep focusable during load so layout doesn't jump; block via pointer-events.
       disabled={disabled && !loading}
       aria-disabled={busy || undefined}
       title={title}
@@ -158,10 +131,6 @@ export const CheckboxCard = React.memo<CheckboxCardProps>(({
             {icon}
           </span>
         ) : null}
-        {/*
-          Text column: title + desc share the same start edge (after leading),
-          so multi-line chips align with short action chips like 刷新.
-        */}
         <span className="checkbox-group-card-text">
           <span className="checkbox-group-card-label">{label}</span>
           {description != null &&

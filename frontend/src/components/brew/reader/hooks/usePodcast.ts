@@ -1,15 +1,12 @@
-/**
- * AI 播客 Hook
- * 管理 Brewlia AI 播客的加载、播放控制、TTS 引擎切换等功能
- */
-
 import type { PodcastDialogue } from '../../../../services/brewliaApi'
 import type {
   ArticleCacheResponse,
   TTSEngine,
   VoiceInfo,
 } from '../../../../services/speechApi'
+import type { ReaderCopy } from '../types'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { getDefaultLocale } from '../../../../i18n'
 import * as brewliaApi from '../../../../services/brewliaApi'
 import { PodcastPlayer } from '../../../../services/brewliaApi'
 import {
@@ -19,31 +16,29 @@ import {
   getSpeechStatus,
   getTTSSettings,
   getVoiceList,
+  isFemaleVoice,
+  isMaleVoice,
   saveTTSSettings,
 } from '../../../../services/speechApi'
 import { userFacingError } from '../../../../utils/userFacingError'
+import { RequestTurn } from '../../logic/requestTurn'
+import { useArticleTaskScope } from './useArticleTaskScope'
 
 export interface UsePodcastOptions {
   itemId: number
   sourceId: number
   isBrewlia: boolean
   showToastMessage: (message: string, duration?: number) => void
-  t: Record<string, any>
+  t: ReaderCopy
 }
 
-/**
- * 检测完整的云端缓存
- * 支持两种场景:
- * 1. 单音色缓存: 一个音色包含所有对话索引
- * 2. 双音色缓存: host音色包含偶数索引, guest音色包含奇数索引
- */
+/** 完整缓存：单音色覆盖全部索引，或 host 偶数 / guest 奇数。 */
 function findCompleteCacheVoices(
   cache: ArticleCacheResponse,
   dialogueCount: number,
 ): { hostVoiceId: number; guestVoiceId: number; voiceName: string } | null {
   if (!cache.voices.length || dialogueCount <= 0) return null
 
-  // 场景1: 单音色包含所有对话
   const singleVoice = cache.voices.find((v) => v.file_count >= dialogueCount)
   if (singleVoice) {
     return {
@@ -53,7 +48,6 @@ function findCompleteCacheVoices(
     }
   }
 
-  // 场景2: 双音色 (host = 偶数索引, guest = 奇数索引)
   const hostVoice = cache.voices.find((v) => v.role === 'host')
   const guestVoice = cache.voices.find((v) => v.role === 'guest')
 
@@ -80,7 +74,6 @@ function findCompleteCacheVoices(
 }
 
 export interface UsePodcastReturn {
-  // 播客状态
   podcastDialogues: PodcastDialogue[]
   podcastLoading: boolean
   podcastError: string | null
@@ -89,25 +82,21 @@ export interface UsePodcastReturn {
   podcastCurrentIndex: number
   podcastLanguage: string
 
-  // TTS 引擎状态
   ttsEngine: TTSEngine
   cloudTtsAvailable: boolean | null
   cloudTtsError: string | null
   cloudTtsLoading: boolean
   cloudTtsLoadProgress: { loaded: number; total: number }
 
-  // TTS 音色状态
   voiceList: VoiceInfo[]
   showVoiceSettings: boolean
   hostVoiceId: number | undefined
   guestVoiceId: number | undefined
 
-  // 文章缓存状态
   articleCache: ArticleCacheResponse | null
   articleCacheLoading: boolean
   clearingVoiceId: number | null
 
-  // 分组音色（优化渲染性能）
   groupedVoices: {
     ultra: VoiceInfo[]
     llm: VoiceInfo[]
@@ -121,7 +110,6 @@ export interface UsePodcastReturn {
   }
   voiceNameById: Map<number, string>
 
-  // 操作
   setShowPodcastPlayer: (show: boolean) => void
   setShowVoiceSettings: (show: boolean) => void
   loadPodcast: () => Promise<void>
@@ -133,7 +121,6 @@ export interface UsePodcastReturn {
   handleClearVoiceCache: (voiceId: number) => Promise<void>
   reloadCloudTTS: () => Promise<void>
 
-  // 播放控制
   handlePodcastPlay: () => Promise<void>
   handlePodcastPause: () => void
   handlePodcastStop: () => void
@@ -141,7 +128,6 @@ export interface UsePodcastReturn {
   handlePodcastNext: () => Promise<void>
   handlePodcastSeek: (index: number) => Promise<void>
 
-  // Refs
   podcastListRef: React.RefObject<HTMLDivElement | null>
 }
 
@@ -152,7 +138,9 @@ export function usePodcast({
   showToastMessage,
   t,
 }: UsePodcastOptions): UsePodcastReturn {
-  // 播客状态
+  const captureTask = useArticleTaskScope(itemId)
+  const turns = useRef(new RequestTurn())
+  useEffect(() => () => turns.current.cancel(), [itemId])
   const [podcastDialogues, setPodcastDialogues] = useState<PodcastDialogue[]>(
     [],
   )
@@ -163,9 +151,10 @@ export function usePodcast({
     'stopped' | 'playing' | 'paused'
   >('stopped')
   const [podcastCurrentIndex, setPodcastCurrentIndex] = useState(0)
-  const [podcastLanguage, setPodcastLanguage] = useState<string>('zh-CN')
+  const [podcastLanguage, setPodcastLanguage] = useState<string>(() =>
+    getDefaultLocale(),
+  )
 
-  // TTS 引擎状态
   const [ttsEngine, setTtsEngine] = useState<TTSEngine>(
     () => getTTSSettings().engine,
   )
@@ -179,7 +168,6 @@ export function usePodcast({
     total: 0,
   })
 
-  // TTS 音色状态
   const [voiceList, setVoiceList] = useState<VoiceInfo[]>([])
   const [showVoiceSettings, setShowVoiceSettings] = useState(false)
   const [hostVoiceId, setHostVoiceId] = useState<number | undefined>(
@@ -189,58 +177,47 @@ export function usePodcast({
     () => getTTSSettings().guestVoiceId,
   )
 
-  // 文章缓存状态
   const [articleCache, setArticleCache] = useState<ArticleCacheResponse | null>(
     null,
   )
   const [articleCacheLoading, setArticleCacheLoading] = useState(false)
   const [clearingVoiceId, setClearingVoiceId] = useState<number | null>(null)
 
-  // Refs
   const podcastPlayerRef = useRef<PodcastPlayer | null>(null)
   const cloudPodcastPlayerRef = useRef<CloudPodcastPlayer | null>(null)
   const podcastListRef = useRef<HTMLDivElement>(null)
 
-  // 音色 ID -> 名称映射
   const voiceNameById = useMemo(() => {
     const map = new Map<number, string>()
     voiceList.forEach((v) => map.set(v.id, v.name))
     return map
   }, [voiceList])
 
-  // 分组音色列表
   const groupedVoices = useMemo(() => {
-    const ultra: VoiceInfo[] = []
-    const llm: VoiceInfo[] = []
-    const premium: VoiceInfo[] = []
-
-    voiceList.forEach((voice) => {
-      if (voice.voice_type === 'ultra_natural') {
-        ultra.push(voice)
-      } else if (voice.voice_type === 'llm') {
-        llm.push(voice)
-      } else {
-        premium.push(voice)
-      }
-    })
-
-    const isMale = (v: VoiceInfo) => v.gender === '男' || v.gender === '男童'
-    const isFemale = (v: VoiceInfo) => v.gender === '女' || v.gender === '女童'
+    const byBucket = Object.groupBy(voiceList, (voice) =>
+      voice.voice_type === 'ultra_natural'
+        ? 'ultra'
+        : voice.voice_type === 'llm'
+          ? 'llm'
+          : 'premium',
+    )
+    const ultra = byBucket.ultra ?? []
+    const llm = byBucket.llm ?? []
+    const premium = byBucket.premium ?? []
 
     return {
       ultra,
       llm,
       premium,
-      ultraMale: ultra.filter(isMale),
-      ultraFemale: ultra.filter(isFemale),
-      llmMale: llm.filter(isMale),
-      llmFemale: llm.filter(isFemale),
-      premiumMale: premium.filter((v) => v.gender === '男'),
-      premiumFemale: premium.filter((v) => v.gender === '女'),
+      ultraMale: ultra.filter((v) => isMaleVoice(v.gender)),
+      ultraFemale: ultra.filter((v) => isFemaleVoice(v.gender)),
+      llmMale: llm.filter((v) => isMaleVoice(v.gender)),
+      llmFemale: llm.filter((v) => isFemaleVoice(v.gender)),
+      premiumMale: premium.filter((v) => isMaleVoice(v.gender)),
+      premiumFemale: premium.filter((v) => isFemaleVoice(v.gender)),
     }
   }, [voiceList])
 
-  // 检测云端 TTS 是否可用 & 获取音色列表
   useEffect(() => {
     if (!isBrewlia) return
 
@@ -254,9 +231,7 @@ export function usePodcast({
       .catch((err) => {
         console.error('[TTS] Failed to get speech status:', err)
         setCloudTtsAvailable(false)
-        setCloudTtsError(
-          userFacingError(err, t.brew.cannotConnectVoiceService),
-        )
+        setCloudTtsError(userFacingError(err, t.brew.cannotConnectVoiceService))
       })
 
     getVoiceList()
@@ -268,7 +243,6 @@ export function usePodcast({
       })
   }, [isBrewlia, t])
 
-  // 初始化系统播客播放器
   useEffect(() => {
     if (!isBrewlia) return
 
@@ -293,7 +267,6 @@ export function usePodcast({
     }
   }, [isBrewlia])
 
-  // 初始化云端播客播放器
   useEffect(() => {
     if (!isBrewlia) return
 
@@ -316,7 +289,6 @@ export function usePodcast({
     }
   }, [isBrewlia])
 
-  // 获取当前活动的播放器
   const getActivePlayer = useCallback(() => {
     if (
       ttsEngine === 'cloud' &&
@@ -328,12 +300,13 @@ export function usePodcast({
     return podcastPlayerRef.current
   }, [ttsEngine, cloudTtsAvailable])
 
-  // 切换 TTS 引擎
   const handleTtsEngineChange = useCallback(
     async (engine: TTSEngine) => {
+      const isCurrent = captureTask()
+      if (!isCurrent()) return
+
       if (engine === ttsEngine) return
 
-      // 停止当前播放
       if (podcastState !== 'stopped') {
         podcastPlayerRef.current?.stop()
         cloudPodcastPlayerRef.current?.stop()
@@ -346,11 +319,12 @@ export function usePodcast({
 
       if (podcastDialogues.length > 0) {
         if (engine === 'cloud') {
-          // 检查云端TTS状态
           if (cloudTtsAvailable === null) {
             showToastMessage(t.brew.checkingCloudTts)
             try {
               const status = await getSpeechStatus()
+              if (!isCurrent()) return
+
               if (!status.available || !status.tts_enabled) {
                 setCloudTtsAvailable(false)
                 setCloudTtsError(status.error || t.brew.cloudTtsUnavailable)
@@ -364,6 +338,8 @@ export function usePodcast({
               }
               setCloudTtsAvailable(true)
             } catch (err) {
+              if (!isCurrent()) return
+
               const errMsg = userFacingError(err, t.brew.cannotConnectSpeech)
               setCloudTtsAvailable(false)
               setCloudTtsError(errMsg)
@@ -382,13 +358,14 @@ export function usePodcast({
             return
           }
 
-          // 检查云端缓存
           if (cloudPodcastPlayerRef.current?.hasAudio()) {
             showToastMessage(t.brew.switchedToCloudTts)
           } else {
             showToastMessage(t.brew.checkingCloudCache)
             try {
               const cache = await getArticleCacheInfo(sourceId, itemId)
+              if (!isCurrent()) return
+
               const completeCache = findCompleteCacheVoices(
                 cache,
                 podcastDialogues.length,
@@ -405,7 +382,6 @@ export function usePodcast({
                   `${t.brew.switchedToCloudTts}（${t.brew.cached}: ${completeCache.voiceName}）`,
                 )
               } else {
-                // 无完整缓存，回退
                 setTtsEngine('system')
                 saveTTSSettings({ engine: 'system' })
                 if (podcastPlayerRef.current) {
@@ -414,6 +390,8 @@ export function usePodcast({
                     podcastLanguage,
                   )
                   const voices = await PodcastPlayer.getAvailableVoices()
+                  if (!isCurrent()) return
+
                   const { voiceA, voiceB } = PodcastPlayer.selectVoicePair(
                     voices,
                     podcastLanguage,
@@ -429,12 +407,16 @@ export function usePodcast({
                 )
               }
             } catch (err) {
+              if (!isCurrent()) return
+
               console.error('[TTS] Failed to check cache:', err)
               setTtsEngine('system')
               saveTTSSettings({ engine: 'system' })
               if (podcastPlayerRef.current) {
                 podcastPlayerRef.current.load(podcastDialogues, podcastLanguage)
                 const voices = await PodcastPlayer.getAvailableVoices()
+                if (!isCurrent()) return
+
                 const { voiceA, voiceB } = PodcastPlayer.selectVoicePair(
                   voices,
                   podcastLanguage,
@@ -447,10 +429,11 @@ export function usePodcast({
             }
           }
         } else {
-          // 切换到系统 TTS
           if (podcastPlayerRef.current) {
             podcastPlayerRef.current.load(podcastDialogues, podcastLanguage)
             const voices = await PodcastPlayer.getAvailableVoices()
+            if (!isCurrent()) return
+
             const { voiceA, voiceB } = PodcastPlayer.selectVoicePair(
               voices,
               podcastLanguage,
@@ -483,7 +466,6 @@ export function usePodcast({
     ],
   )
 
-  // 音色选择处理
   const handleVoiceChange = useCallback(
     (role: 'host' | 'guest', voiceId: number) => {
       const newVoiceId = voiceId === 0 ? undefined : voiceId
@@ -501,21 +483,28 @@ export function usePodcast({
     [showToastMessage, t],
   )
 
-  // 加载文章缓存信息
   const loadArticleCache = useCallback(async () => {
+    const isCurrent = captureTask()
+    if (!isCurrent()) return
+
     if (articleCacheLoading) return
     setArticleCacheLoading(true)
     try {
       const cache = await getArticleCacheInfo(sourceId, itemId)
+      if (!isCurrent()) return
+
       setArticleCache(cache)
     } catch (error) {
+      if (!isCurrent()) return
+
       console.error('[ArticleCache] Failed to load:', error)
     } finally {
-      setArticleCacheLoading(false)
+      if (isCurrent()) {
+        setArticleCacheLoading(false)
+      }
     }
   }, [sourceId, itemId, articleCacheLoading])
 
-  // 打开设置面板
   const handleOpenSettings = useCallback(() => {
     setShowVoiceSettings(!showVoiceSettings)
     if (!showVoiceSettings && ttsEngine === 'cloud') {
@@ -523,9 +512,11 @@ export function usePodcast({
     }
   }, [showVoiceSettings, ttsEngine, loadArticleCache])
 
-  // 切换到已缓存的音色
   const handleSwitchToVoice = useCallback(
     async (voiceId: number, role: string) => {
+      const isCurrent = captureTask()
+      if (!isCurrent()) return
+
       if (role === 'host') {
         setHostVoiceId(voiceId)
         saveTTSSettings({ hostVoiceId: voiceId })
@@ -546,7 +537,6 @@ export function usePodcast({
         return
       }
 
-      // 缓存完整，加载
       if (podcastDialogues.length > 0 && cloudPodcastPlayerRef.current) {
         cloudPodcastPlayerRef.current.stop()
         setPodcastState('stopped')
@@ -568,6 +558,7 @@ export function usePodcast({
               guestVoiceId: newGuestVoiceId,
             },
           )
+          if (!isCurrent()) return
 
           if (result) {
             if (result.cacheHits === result.total) {
@@ -579,10 +570,14 @@ export function usePodcast({
             }
           }
         } catch (err) {
+          if (!isCurrent()) return
+
           console.error('Failed to switch voice:', err)
           showToastMessage(t.brew.switchFailed)
         } finally {
-          setCloudTtsLoading(false)
+          if (isCurrent()) {
+            setCloudTtsLoading(false)
+          }
         }
       } else {
         showToastMessage(`${voiceName}`)
@@ -600,13 +595,17 @@ export function usePodcast({
     ],
   )
 
-  // 清除特定音色缓存
   const handleClearVoiceCache = useCallback(
     async (voiceId: number) => {
+      const isCurrent = captureTask()
+      if (!isCurrent()) return
+
       if (clearingVoiceId !== null) return
       setClearingVoiceId(voiceId)
       try {
         const result = await clearArticleVoiceCache(sourceId, itemId, voiceId)
+        if (!isCurrent()) return
+
         if (result.success) {
           const voiceName =
             articleCache?.voices.find((v) => v.voice_id === voiceId)
@@ -615,10 +614,14 @@ export function usePodcast({
           await loadArticleCache()
         }
       } catch (error) {
+        if (!isCurrent()) return
+
         console.error('[ArticleCache] Failed to clear voice cache:', error)
         showToastMessage(t.brew.clearFailed)
       } finally {
-        setClearingVoiceId(null)
+        if (isCurrent()) {
+          setClearingVoiceId(null)
+        }
       }
     },
     [
@@ -632,25 +635,30 @@ export function usePodcast({
     ],
   )
 
-  // 加载播客脚本
   const loadPodcast = useCallback(async () => {
+    const isCurrent = captureTask()
+    if (!isCurrent()) return
+
     if (!isBrewlia || podcastLoading || cloudTtsLoading) return
 
+    const signal = turns.current.begin()
     setPodcastLoading(true)
     setPodcastError(null)
 
     try {
-      const response = await brewliaApi.getPodcastScript(itemId)
+      const response = await brewliaApi.getPodcastScript(itemId, signal)
+      if (!isCurrent() || signal.aborted) return
 
       if (response.success) {
         setPodcastDialogues(response.dialogues)
-        setPodcastLanguage(response.language || 'zh-CN')
+        setPodcastLanguage(response.language || getDefaultLocale())
         setShowPodcastPlayer(true)
 
-        // 优先检查云端缓存
         if (cloudTtsAvailable) {
           try {
             const cache = await getArticleCacheInfo(sourceId, itemId)
+            if (!isCurrent()) return
+
             const completeCache = findCompleteCacheVoices(
               cache,
               response.dialogues.length,
@@ -683,12 +691,13 @@ export function usePodcast({
                   guestVoiceId: completeCache.guestVoiceId,
                 },
               )
+              if (!isCurrent()) return
+
               if (result) {
                 showToastMessage(`${t.brew.cached}: ${completeCache.voiceName}`)
               }
               setCloudTtsLoading(false)
             } else {
-              // 无缓存，使用系统 TTS
               setTtsEngine('system')
               saveTTSSettings({ engine: 'system' })
 
@@ -698,9 +707,11 @@ export function usePodcast({
                   response.language,
                 )
                 const voices = await PodcastPlayer.getAvailableVoices()
+                if (!isCurrent()) return
+
                 const { voiceA, voiceB } = PodcastPlayer.selectVoicePair(
                   voices,
-                  response.language || 'zh-CN',
+                  response.language || getDefaultLocale(),
                 )
                 if (voiceA && voiceB) {
                   podcastPlayerRef.current.setVoices(voiceA, voiceB)
@@ -713,6 +724,8 @@ export function usePodcast({
               )
             }
           } catch (cacheErr) {
+            if (!isCurrent()) return
+
             console.error(
               '[TTS] Failed to check cache in loadPodcast:',
               cacheErr,
@@ -726,9 +739,11 @@ export function usePodcast({
                 response.language,
               )
               const voices = await PodcastPlayer.getAvailableVoices()
+              if (!isCurrent()) return
+
               const { voiceA, voiceB } = PodcastPlayer.selectVoicePair(
                 voices,
-                response.language || 'zh-CN',
+                response.language || getDefaultLocale(),
               )
               if (voiceA && voiceB) {
                 podcastPlayerRef.current.setVoices(voiceA, voiceB)
@@ -737,14 +752,15 @@ export function usePodcast({
             showToastMessage(`${response.dialogues.length}`)
           }
         } else {
-          // 云端 TTS 不可用
           setTtsEngine('system')
           if (podcastPlayerRef.current) {
             podcastPlayerRef.current.load(response.dialogues, response.language)
             const voices = await PodcastPlayer.getAvailableVoices()
+            if (!isCurrent()) return
+
             const { voiceA, voiceB } = PodcastPlayer.selectVoicePair(
               voices,
-              response.language || 'zh-CN',
+              response.language || getDefaultLocale(),
             )
             if (voiceA && voiceB) {
               podcastPlayerRef.current.setVoices(voiceA, voiceB)
@@ -756,10 +772,14 @@ export function usePodcast({
         setPodcastError(response.error || t.brew.generateFailed)
       }
     } catch (err) {
+      if (!isCurrent() || signal.aborted) return
+
       console.error('Failed to load podcast:', err)
       setPodcastError(userFacingError(err, t.brew.generatePodcastFailed))
     } finally {
-      setPodcastLoading(false)
+      if (isCurrent() && !signal.aborted) {
+        setPodcastLoading(false)
+      }
     }
   }, [
     isBrewlia,
@@ -772,10 +792,13 @@ export function usePodcast({
     t,
   ])
 
-  // 强制重新生成播客稿
   const regeneratePodcast = useCallback(async () => {
+    const isCurrent = captureTask()
+    if (!isCurrent()) return
+
     if (!isBrewlia || podcastLoading || cloudTtsLoading) return
 
+    const signal = turns.current.begin()
     podcastPlayerRef.current?.stop()
     cloudPodcastPlayerRef.current?.stop()
     setPodcastState('stopped')
@@ -786,11 +809,12 @@ export function usePodcast({
     showToastMessage(t.brew.regeneratingScript)
 
     try {
-      const response = await brewliaApi.regeneratePodcastScript(itemId)
+      const response = await brewliaApi.regeneratePodcastScript(itemId, signal)
+      if (!isCurrent() || signal.aborted) return
 
       if (response.success) {
         setPodcastDialogues(response.dialogues)
-        setPodcastLanguage(response.language || 'zh-CN')
+        setPodcastLanguage(response.language || getDefaultLocale())
         setShowPodcastPlayer(true)
 
         setTtsEngine('system')
@@ -799,9 +823,11 @@ export function usePodcast({
         if (podcastPlayerRef.current) {
           podcastPlayerRef.current.load(response.dialogues, response.language)
           const voices = await PodcastPlayer.getAvailableVoices()
+          if (!isCurrent()) return
+
           const { voiceA, voiceB } = PodcastPlayer.selectVoicePair(
             voices,
-            response.language || 'zh-CN',
+            response.language || getDefaultLocale(),
           )
           if (voiceA && voiceB) {
             podcastPlayerRef.current.setVoices(voiceA, voiceB)
@@ -813,17 +839,23 @@ export function usePodcast({
         showToastMessage(response.error || t.brew.regenerateFailed, 3000)
       }
     } catch (err) {
+      if (!isCurrent() || signal.aborted) return
+
       console.error('Failed to regenerate podcast:', err)
       const errMsg = userFacingError(err, t.brew.generatePodcastFailed)
       setPodcastError(errMsg)
       showToastMessage(errMsg, 3000)
     } finally {
-      setPodcastLoading(false)
+      if (isCurrent() && !signal.aborted) {
+        setPodcastLoading(false)
+      }
     }
   }, [isBrewlia, podcastLoading, cloudTtsLoading, itemId, showToastMessage, t])
 
-  // 重新加载云端 TTS
   const reloadCloudTTS = useCallback(async () => {
+    const isCurrent = captureTask()
+    if (!isCurrent()) return
+
     if (!podcastDialogues.length || !cloudTtsAvailable || cloudTtsLoading)
       return
 
@@ -846,6 +878,8 @@ export function usePodcast({
           forceRegenerate: true,
         },
       )
+      if (!isCurrent()) return
+
       if (result) {
         if (result.generated > 0) {
           showToastMessage(`${result.generated}`)
@@ -854,11 +888,15 @@ export function usePodcast({
         }
       }
     } catch (err) {
+      if (!isCurrent()) return
+
       const errMsg = userFacingError(err, t.brew.loadFailed)
       console.error('Failed to reload cloud TTS:', errMsg, err)
       showToastMessage(`${t.brew.cloudTtsUnavailable}: ${errMsg}`, 3000)
     } finally {
-      setCloudTtsLoading(false)
+      if (isCurrent()) {
+        setCloudTtsLoading(false)
+      }
     }
   }, [
     podcastDialogues,
@@ -872,11 +910,15 @@ export function usePodcast({
     t,
   ])
 
-  // 播放控制
   const handlePodcastPlay = useCallback(async () => {
+    const isCurrent = captureTask()
+    if (!isCurrent()) return
+
     const player = getActivePlayer()
     if (player && 'play' in player && typeof player.play === 'function') {
       await player.play()
+      if (!isCurrent()) return
+
       setPodcastState('playing')
     }
   }, [getActivePlayer])
@@ -899,12 +941,17 @@ export function usePodcast({
   }, [getActivePlayer])
 
   const handlePodcastPrev = useCallback(async () => {
+    const isCurrent = captureTask()
+    if (!isCurrent()) return
+
     if (podcastCurrentIndex <= 0) return
     const newIndex = podcastCurrentIndex - 1
     const player = getActivePlayer()
     if (player) {
       if (ttsEngine === 'cloud') {
         await player.seekTo(newIndex)
+        if (!isCurrent()) return
+
         if (podcastState === 'playing') {
           await (player as CloudPodcastPlayer).play()
         }
@@ -915,12 +962,17 @@ export function usePodcast({
   }, [podcastCurrentIndex, podcastState, getActivePlayer, ttsEngine])
 
   const handlePodcastNext = useCallback(async () => {
+    const isCurrent = captureTask()
+    if (!isCurrent()) return
+
     if (podcastCurrentIndex >= podcastDialogues.length - 1) return
     const newIndex = podcastCurrentIndex + 1
     const player = getActivePlayer()
     if (player) {
       if (ttsEngine === 'cloud') {
         await player.seekTo(newIndex)
+        if (!isCurrent()) return
+
         if (podcastState === 'playing') {
           await (player as CloudPodcastPlayer).play()
         }
@@ -938,11 +990,18 @@ export function usePodcast({
 
   const handlePodcastSeek = useCallback(
     async (index: number) => {
+      const isCurrent = captureTask()
+      if (!isCurrent()) return
+
       const player = getActivePlayer()
       if (player) {
         if (ttsEngine === 'cloud') {
           await player.seekTo(index)
+          if (!isCurrent()) return
+
           await (player as CloudPodcastPlayer).play()
+          if (!isCurrent()) return
+
           setPodcastState('playing')
         } else {
           ;(player as PodcastPlayer).seekTo(index, true)
@@ -952,7 +1011,6 @@ export function usePodcast({
     [getActivePlayer, ttsEngine],
   )
 
-  // 自动滚动到当前播放的对话
   useEffect(() => {
     if (!showPodcastPlayer || podcastDialogues.length === 0) return
 
@@ -989,7 +1047,6 @@ export function usePodcast({
   }, [podcastCurrentIndex, showPodcastPlayer, podcastDialogues.length])
 
   return {
-    // 播客状态
     podcastDialogues,
     podcastLoading,
     podcastError,
@@ -998,29 +1055,24 @@ export function usePodcast({
     podcastCurrentIndex,
     podcastLanguage,
 
-    // TTS 引擎状态
     ttsEngine,
     cloudTtsAvailable,
     cloudTtsError,
     cloudTtsLoading,
     cloudTtsLoadProgress,
 
-    // TTS 音色状态
     voiceList,
     showVoiceSettings,
     hostVoiceId,
     guestVoiceId,
 
-    // 文章缓存状态
     articleCache,
     articleCacheLoading,
     clearingVoiceId,
 
-    // 分组音色
     groupedVoices,
     voiceNameById,
 
-    // 操作
     setShowPodcastPlayer,
     setShowVoiceSettings,
     loadPodcast,
@@ -1032,7 +1084,6 @@ export function usePodcast({
     handleClearVoiceCache,
     reloadCloudTTS,
 
-    // 播放控制
     handlePodcastPlay,
     handlePodcastPause,
     handlePodcastStop,
@@ -1040,7 +1091,6 @@ export function usePodcast({
     handlePodcastNext,
     handlePodcastSeek,
 
-    // Refs
     podcastListRef,
   }
 }

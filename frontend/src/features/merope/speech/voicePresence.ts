@@ -1,7 +1,3 @@
-/**
- * Local voice facts for echo control and perception. Not sent as audio frames.
- */
-
 export interface VoicePresenceState {
   listening: boolean
   ttsPlaying: boolean

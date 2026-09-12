@@ -1,0 +1,290 @@
+{
+  "widget:register": {
+    "what": "Ermöglicht das Registrieren eigener Widgets auf dem Startseitenraster.",
+    "chain": "1) Der App wird diese Berechtigung erteilt.\n2) Die Widget-Registrierungs-API platziert Karten auf dem Startseitenraster.\n3) Admin-Ebene; alle Besucher sehen diese Widgets.",
+    "frontend": "Widget-Raster der Startseite; Registrieren/Entfernen in der App.",
+    "notes": "Nur vertrauenswürdige Apps installieren — Widgets erscheinen seitenweit."
+  },
+  "platform:read": {
+    "what": "Ermöglicht das Lesen vorhandener Plattformdaten (Spiele, Video, Musik usw.).",
+    "chain": "1) Die App ruft Lese-APIs der Plattform auf.\n2) Daten stammen von konfigurierten, synchronisierten Plattformen.\n3) Nur Lesen; Plattformzugangsdaten bleiben unverändert.",
+    "frontend": "Statistiken, Listen und Fortschrittsansichten in der App.",
+    "notes": "Nicht konfigurierte Plattformen liefern meist leere Daten."
+  },
+  "platform:write": {
+    "what": "Ermöglicht das Schreiben oder Aktualisieren von Plattformdateneinträgen.",
+    "chain": "1) Die App ruft Schreib-APIs auf.\n2) Daten landen im Plattformspeicher der Site.\n3) Berichte und Bibliotheksansichten, die davon abhängen, können sich ändern.",
+    "frontend": "Import/Sync in der App; spätere Anzeigen auf der Site.",
+    "notes": "Hohe Wirkung — fehlerhafte Schreibvorgänge können Statistiken verfälschen."
+  },
+  "platform:register": {
+    "what": "Ermöglicht das Registrieren eines eigenen Plattformtyps auf der Site.",
+    "chain": "1) Die App registriert eine Plattformdefinition.\n2) Sie erscheint bei den verbindbaren Plattformen.\n3) Admins können diesen Typ konfigurieren und synchronisieren.",
+    "frontend": "Konfiguration → Plattformen.",
+    "notes": "Erweiterung auf Site-Ebene; der App-Quelle vertrauen."
+  },
+  "analytics:read": {
+    "what": "Ermöglicht das Lesen aggregierter Site-Statistiken (Besuche, Top-Seiten, Referrer usw.).",
+    "chain": "1) Der App wird diese Berechtigung erteilt.\n2) Ruft Tapp.analytics für Übersichtskarten auf.\n3) Nur Aggregate — keine Besucher-Hashes oder Rohprotokolle.",
+    "frontend": "Analysekarten in der App; Site-Statistik als Datenquelle.",
+    "notes": "Nur Lese-Aggregate; kein Backup-Import/Export und keine KI-Nutzungsbücher."
+  },
+  "ai:generate": {
+    "what": "Ermöglicht KI-Inhaltserzeugung (Text/Zusammenfassungen gemäß Site-Modellen).",
+    "chain": "1) Die App fordert Erzeugung an.\n2) Site-KI-Gateway und Kontingentprüfung laufen.\n3) Das Ergebnis kehrt zur App zurück.",
+    "frontend": "Erzeugungsaktionen in der App; KI-Einstellungen und Kontingente.",
+    "notes": "Verbraucht KI-Kontingent; Schlüssel/Modelle liegen in der Site-KI-Konfiguration."
+  },
+  "ai:analyze": {
+    "what": "Ermöglicht KI-Analyse von Daten oder strukturierte Interpretation.",
+    "chain": "1) Die App sendet zu analysierenden Inhalt.\n2) Analyseaufrufe verbrauchen Kontingent.\n3) Erkenntnisse erscheinen in der App.",
+    "frontend": "Analyse- und Insight-Funktionen in der App.",
+    "notes": "Große Nutzlasten können langsam sein oder fehlschlagen."
+  },
+  "ai:chat": {
+    "what": "Ermöglicht mehrstufigen KI-Chat über das Site-Gateway.",
+    "chain": "1) Die App öffnet eine Chat-Sitzung.\n2) Nachrichten laufen über den KI-Chat.\n3) Der Verlauf kann nur in der App bleiben.",
+    "frontend": "Chat-UI in der App (getrennt vom globalen Agent-Panel).",
+    "notes": "Jeder Zug kann Kontingent verbrauchen."
+  },
+  "ai:image": {
+    "what": "Ermöglicht KI-Bilderzeugung.",
+    "chain": "1) Die App fordert ein Bild an.\n2) Nutzt die Bildmodellkonfiguration der Site.\n3) Liefert Bild-URL/Daten.",
+    "frontend": "Bilderzeugung in der App.",
+    "notes": "Oft langsamer/teurer; Bildfähigkeit muss konfiguriert sein."
+  },
+  "ai:search": {
+    "what": "Ermöglicht Tapp.ai.tasks.create({ operation: \"search\" }) für Live-Websuche.",
+    "chain": "1) Die App sendet eine Anfrage.\n2) Der Host bevorzugt TinyFish Search, sonst Gemini Grounding.\n3) Host-Geheimnisse gelangen nie in die Sandbox; das Ergebnis ist eine JSON-Hülle.",
+    "frontend": "Suche in der App; Site-KI-Berechtigungen und TinyFish-Schlüssel.",
+    "notes": "Wird getrennt von ai:generate delegiert. Agent-Chat kann weiterhin nicht suchen. Ausgehend."
+  },
+  "3d:generate": {
+    "what": "Ermöglicht Tripo, 3D-Modelle zu erzeugen, zu riggen oder umzubinden (Bild/Multiview → GLB).",
+    "chain": "1) Die App lädt ein Referenzbild oder Modell hoch.\n2) Der Host ruft Tripo auf; der API-Schlüssel gelangt nie in die Sandbox.\n3) Ein gespeichertes GLB liefert eine asset_id; Tapp.model3d.getUrl lädt es in der Sandbox.",
+    "frontend": "3D-Erzeugung/Vorschau in der App; Site-Einstellungen „3D & Tripo“.",
+    "notes": "Verbraucht Site-Tripo-Guthaben; standardmäßig nicht delegiert. Vorhandene GLBs lesen braucht diese Berechtigung nicht."
+  },
+  "report:read": {
+    "what": "Ermöglicht das Lesen vorhandener erzeugter Berichte.",
+    "chain": "1) Die App fordert Berichtsinhalt an.\n2) Liest aus dem Berichtsspeicher.\n3) Rendert in der App.",
+    "frontend": "Berichtsmodul; Berichtansichten in der App.",
+    "notes": "Erstellt selbst keine Berichte."
+  },
+  "report:write": {
+    "what": "Ermöglicht das Anlegen, Aktualisieren oder Löschen von Berichten.",
+    "chain": "1) Die App schreibt über Berichts-APIs.\n2) Berichtsliste/-inhalt ändert sich.\n3) Die Berichtsseite aktualisiert sich.",
+    "frontend": "Berichtsliste und Detail.",
+    "notes": "Kann für Nutzer sichtbare Berichte löschen — sensibel."
+  },
+  "storage:read": {
+    "what": "Ermöglicht das Lesen des privaten Schlüsselwertspeichers dieser App (nur Lesen).",
+    "chain": "1) Die App ruft Speicher-Lese-APIs auf.\n2) Daten sind je App isoliert.\n3) Lesen speichert keine Schreibvorgänge.",
+    "frontend": "App-Einstellungen, Entwürfe, gelesener Cache-Zustand.",
+    "notes": "Nur Lesen: speichert keine Schreibvorgänge; keine Geheimnisse in nicht vertrauenswürdigen Apps ablegen."
+  },
+  "storage:write": {
+    "what": "Ermöglicht das Schreiben in den privaten Schlüsselwertspeicher dieser App (nur Schreiben, kein Lesen).",
+    "chain": "1) Die App ruft Schreib-APIs auf.\n2) Daten sind je App isoliert.\n3) Schreibvorgänge wirken auf späteren App-Zustand.",
+    "frontend": "App-Einstellungen, Entwürfe und persistenter Zustand.",
+    "notes": "Schreibzugriff ist standardmäßig aus; nur an vertrauenswürdige Apps delegieren."
+  },
+  "ui:notification": {
+    "what": "Ermöglicht das Senden von Systembenachrichtigungen an den Nutzer.",
+    "chain": "1) Die App ruft Benachrichtigungs-APIs auf.\n2) Zustellung über Zentrale / Insel / Toast.\n3) Nutzereinstellungen gelten weiter.",
+    "frontend": "Benachrichtigungszentrale, Toasts, Browser-Push falls erlaubt.",
+    "notes": "Kein Spam; Nutzer können Kanäle stummschalten."
+  },
+  "ui:fullscreen": {
+    "what": "Ermöglicht das Anfordern des Browser-Vollbilds.",
+    "chain": "1) Die App ruft die Vollbild-API auf.\n2) Der Browser kann nachfragen.\n3) Der Nutzer kann jederzeit beenden.",
+    "frontend": "Vollbild-Laufumgebung.",
+    "notes": "Erfordert meist eine Nutzergeste."
+  },
+  "ui:theme": {
+    "what": "Ermöglicht das Lesen des aktuellen Site-Designs zur UI-Anpassung.",
+    "chain": "1) Die App fragt Design-APIs ab.\n2) Erhält Design-Tokens.\n3) Gestaltet sich selbst; ändert das Site-Design nicht.",
+    "frontend": "App-Rahmen passend zu Hell/Dunkel und Akzent.",
+    "notes": "Nur Lesen; Design in den UI-Einstellungen ändern."
+  },
+  "ui:confirm": {
+    "what": "Ermöglicht System-Bestätigungsdialoge.",
+    "chain": "1) Die App fordert eine Bestätigung an.\n2) Der Nutzer nimmt an oder bricht ab.\n3) Das Ergebnis kehrt zur App zurück.",
+    "frontend": "Modale Bestätigungen während die App läuft.",
+    "notes": "Zu viele Dialoge stören."
+  },
+  "ui:openUrl": {
+    "what": "Ermöglicht dem Host, in Manifest openUrls deklarierte Links zu öffnen (alle anderen URLs werden abgelehnt).",
+    "chain": "1) Die App deklariert openUrls plus diese Berechtigung und wird bei der Installation genehmigt.\n2) Ruft Tapp.ui.openUrl({ id }) auf (optional Pfad/Query innerhalb der Match-Regeln).\n3) Der Host prüft die Allowlist und öffnet einen neuen Tab — kein Extra-Dialog.",
+    "frontend": "Schaltflächen/Karten in der App, die externe Links öffnen; Berechtigungstext auf der Detailseite.",
+    "notes": "Nur deklarierte Links funktionieren; sandbox window.open bleibt deaktiviert. Deklarierte Hosts bei der Installation prüfen."
+  },
+  "network:fetch": {
+    "what": "Ermöglicht deklaratives HTTP und das Laden entfernter Medien/Bilder.",
+    "chain": "1) Die App deklariert Endpunkte oder Remote-Assets.\n2) Der Host prüft/proxied den Netzzugriff.\n3) Die Antwort kehrt in die Sandbox zurück.",
+    "frontend": "Externe Daten, Cover, Medien in der App.",
+    "notes": "Unterliegt Proxy-/CORS-/Sicherheitsrichtlinie; ausgehendes Risiko."
+  },
+  "media:control": {
+    "what": "Ermöglicht die Steuerung der Wiedergabe (Play, Pause, Skip usw.).",
+    "chain": "1) Die App ruft Mediensteuer-APIs auf.\n2) Wirkt auf den Site-Player-Zustand.\n3) Die Musik im Steuerpanel kann sich aktualisieren.",
+    "frontend": "Globaler Musikplayer; Transportsteuerung in der App.",
+    "notes": "Kann unterbrechen, was gerade gehört wird."
+  },
+  "media:read": {
+    "what": "Ermöglicht das Lesen des aktuellen Medienzustands (Titel, Fortschritt, Wiedergabe).",
+    "chain": "1) Die App fragt den Medienzustand ab.\n2) Nur Sitzungsinfo zum Lesen.\n3) Für Lyrics/Visualisierer.",
+    "frontend": "„Wird abgespielt“-UI in der App.",
+    "notes": "Ändert die Warteschlange nicht (das ist Steuerung)."
+  },
+  "media:audio": {
+    "what": "Ermöglicht das Abspielen von Paket-/Blob-/Data-Audio in der Sandbox.",
+    "chain": "1) Die App startet Audio.\n2) Nur erlaubte Quellen spielen.\n3) Keine beliebige Remote-Steuerung.",
+    "frontend": "SFX / Audioclips in der App.",
+    "notes": "Anders als media:control — fokussiert auf Quellen in der Sandbox."
+  },
+  "component:theme": {
+    "what": "Ermöglicht das Registrieren eigener Designstile für die Site.",
+    "chain": "1) Die App registriert ein Design.\n2) Die Designliste erhält einen Eintrag.\n3) Die Auswahl ändert das globale Erscheinungsbild.",
+    "frontend": "Darstellung / Design-Einstellungen.",
+    "notes": "Siteweites Erscheinungsbild — der Quelle vertrauen."
+  },
+  "component:agent": {
+    "what": "Ermöglicht das Registrieren von Fähigkeiten beim Agent.",
+    "chain": "1) Die App registriert Agent-Tools.\n2) Der Assistent kann sie aufrufen.\n3) Chat kann diese Aktionen auslösen.",
+    "frontend": "Agent-Panel und agentgesteuerte Aktionen.",
+    "notes": "Hängt am globalen Assistenten — sehr hohes Privileg."
+  },
+  "shortcut:register": {
+    "what": "Ermöglicht das Registrieren von Tastenkürzeln.",
+    "chain": "1) Die App deklariert Kürzel.\n2) Tasten greifen im Fokus.\n3) App-Aktionen feuern.",
+    "frontend": "Globale/Seiten-Hotkeys beim Surfen.",
+    "notes": "Kann mit Browser oder anderen Apps kollidieren."
+  },
+  "event:publish": {
+    "what": "Ermöglicht das Veröffentlichen von Ereignissen auf dem Systembus.",
+    "chain": "1) Die App veröffentlicht ein Ereignis.\n2) Abonnenten verarbeiten es.\n3) Ermöglicht modulübergreifende Reaktionen.",
+    "frontend": "UI-Aktualisierungen / Benachrichtigungen durch Ereignisse.",
+    "notes": "Vereinbarte Ereignisnamen nutzen; kein Rauschen."
+  },
+  "event:subscribe": {
+    "what": "Ermöglicht das Abonnieren von Systemereignissen.",
+    "chain": "1) Die App abonniert.\n2) Veröffentlichungen liefern Callbacks.\n3) Die App aktualisiert ihren Zustand.",
+    "frontend": "Sich selbst aktualisierende App-Teile.",
+    "notes": "Geringeres Risiko als Veröffentlichen."
+  },
+  "scheduler:register": {
+    "what": "Ermöglicht das Registrieren geplanter/Hintergrundaufgaben.",
+    "chain": "1) Die App registriert Jobs.\n2) Der Host führt sie nach Zeitplan aus.\n3) Jobs nutzen andere erteilte APIs.",
+    "frontend": "Hintergrund-Sync / Erinnerungen.",
+    "notes": "Aggressive Zeitpläne verschwenden Ressourcen; bei der Deinstallation aufräumen."
+  },
+  "speech:tts": {
+    "what": "Ermöglicht Sprachausgabe.",
+    "chain": "1) Die App sendet Text.\n2) Die Site-TTS-Konfiguration erzeugt Audio.\n3) Spielt oder liefert Audio.",
+    "frontend": "„Vorlesen“ in der App.",
+    "notes": "TTS muss konfiguriert sein; kann Kontingent verbrauchen."
+  },
+  "speech:asr": {
+    "what": "Ermöglicht Spracherkennung.",
+    "chain": "1) Die App nimmt Audio auf oder lädt es hoch.\n2) Der ASR-Dienst transkribiert.\n3) Text kehrt zur App zurück.",
+    "frontend": "Spracheingabe in der App.",
+    "notes": "Braucht meist Mikrofon; datenschutzsensibel."
+  },
+  "tappList:read": {
+    "what": "Ermöglicht das Lesen der installierten Tapp-Liste und grundlegender Metadaten.",
+    "chain": "1) Die App fragt Listen-APIs ab.\n2) Erhält Installationsübersichten.\n3) Für Anzeige oder appübergreifende Abläufe.",
+    "frontend": "Ansichten „Installierte Apps“ in der App.",
+    "notes": "Kann zeigen, welche Apps Sie installiert haben."
+  },
+  "tappList:manage": {
+    "what": "Ermöglicht Installieren, Aktualisieren, Starten/Stoppen oder Deinstallieren von Tapps.",
+    "chain": "1) Die App ruft Verwaltungs-APIs auf.\n2) Der Installationszustand ändert sich.\n3) Listen und Laufzustand aktualisieren sich.",
+    "frontend": "Tapp-Liste und Start-/Installationssteuerung im Detail.",
+    "notes": "Eine der risikoreichsten Erteilungen."
+  },
+  "brew:read": {
+    "what": "Ermöglicht das Lesen von Brew-Quellen und Artikeln.",
+    "chain": "1) Die App fordert Brew-Daten an.\n2) Liest Site-Abonnements.\n3) Rendert die Lese-UI.",
+    "frontend": "Brew-Modul und Reader in der App.",
+    "notes": "Nur Lesen; kein Lesestatus, keine Favoriten, keine Kommentare."
+  },
+  "brew:write": {
+    "what": "Ermöglicht das Schreiben von Brew-Daten wie Lesestatus und Sternen.",
+    "chain": "1) Die App aktualisiert den Eintragszustand.\n2) Der Brew-Speicher ändert sich.\n3) Filter und Badges können sich aktualisieren.",
+    "frontend": "Brew-Lese- und Favoritenstatus.",
+    "notes": "Ändert Ihren Lesestatus; App-Verhalten vor der Erteilung prüfen."
+  },
+  "brew:commentWrite": {
+    "what": "Ermöglicht Anlegen, Bearbeiten und Löschen von Brew-Kommentaren und Antworten.",
+    "chain": "1) Die App schreibt Kommentare.\n2) Kommentare hängen an Artikeln.\n3) Andere können sie je nach Richtlinie sehen.",
+    "frontend": "Brew-Artikelkommentare.",
+    "notes": "Öffentliche Äußerung — Inhaltsregeln beachten; standardmäßig nur von Admins delegiert."
+  },
+  "brew:manage": {
+    "what": "Ermöglicht die Verwaltung von Brew-Quellen und erweiterten Einstellungen.",
+    "chain": "1) Die App ruft Quellenverwaltungs-APIs auf.\n2) Der Abo-Satz ändert sich.\n3) Abruf/Liste aktualisieren sich.",
+    "frontend": "Brew-Quellenverwaltung, OPML, Entdecken.",
+    "notes": "Kann Feeds siteweit für Brew hinzufügen/entfernen."
+  },
+  "federation:read": {
+    "what": "Ermöglicht das Lesen föderierter Räume, Kanäle und Mitglieder.",
+    "chain": "1) Die App fragt Föderations-APIs ab.\n2) Liefert Daten gemäß Vertrauensrichtlinie.\n3) Rendert den Föderationszustand.",
+    "frontend": "Föderationsseiten / Ansichten in der App.",
+    "notes": "Sichtbarkeit bleibt durch Vertrauensregeln begrenzt."
+  },
+  "federation:post": {
+    "what": "Ermöglicht Veröffentlichen/Zurückziehen, Anlegen von Notes, Medienupload und Verwaltung ausgehender Zustellung.",
+    "chain": "1) Die App schreibt Föderations-APIs.\n2) Inhalt landet auf lokalen und entfernten Instanzen.\n3) Follower sehen neuen Inhalt.",
+    "frontend": "Beiträge, Medienupload, Zustellungswarteschlange.",
+    "notes": "Beiträge synchronisieren zu entfernten Instanzen — sparsam erteilen."
+  },
+  "federation:interact": {
+    "what": "Ermöglicht Folgen/Entfolgen, Like/Unlike, Lesezeichen setzen/entfernen und Ankündigen/Zurückziehen.",
+    "chain": "1) Die App führt Interaktionen aus.\n2) Die Interaktion wird gespeichert und an Autoren gesendet.\n3) Autoren sehen das Ergebnis.",
+    "frontend": "Einstiege für Folgen, Like, Lesezeichen und Boost.",
+    "notes": "Interaktionen gehen an andere Nutzer; eine dauerhafte Anmeldung ist nötig."
+  },
+  "federation:channel": {
+    "what": "Ermöglicht Anlegen, Annehmen, Schließen, Löschen von Kanälen und E2E-Schlüssel für Kanäle.",
+    "chain": "1) Die App legt Kanäle an oder verwaltet sie.\n2) Kanalstruktur und Schlüsselzustand ändern sich.\n3) Mitglieder sehen Kanalaktualisierungen.",
+    "frontend": "Kanalanlage und -verwaltung.",
+    "notes": "Kanalverwaltung synchronisiert zu entfernten Instanzen."
+  },
+  "federation:room": {
+    "what": "Ermöglicht Anlegen/Aktualisieren/Löschen von Räumen, Beitreten/Einladen, Mitgliederverwaltung, E2E-Schlüssel, Sticker und Pins.",
+    "chain": "1) Die App arbeitet mit Räumen.\n2) Raumstruktur und Mitgliedschaft ändern sich.\n3) Mitglieder sehen Raumaktualisierungen.",
+    "frontend": "Raum anlegen, beitreten, Mitglieder und Verwaltung.",
+    "notes": "Raumverwaltung synchronisiert zu entfernten Instanzen."
+  },
+  "federation:ring": {
+    "what": "Ermöglicht Ring-Mitgliedschaft sowie Peer-/Sync-Operationen.",
+    "chain": "1) Die App verwaltet Ring-Mitglieder und Peers.\n2) Ring-Mitgliedschaft und Sync-Zustand ändern sich.\n3) Entfernte Peers erhalten Sync.",
+    "frontend": "Ring-Verwaltung, Peer-Listen und Sync-Auslöser.",
+    "notes": "Ring-Sync schiebt Daten zu entfernten Peers."
+  },
+  "federation:message": {
+    "what": "Ermöglicht Senden und Empfangen föderierter Nachrichten.",
+    "chain": "1) Die App sendet/empfängt Nachrichten.\n2) Die Zustellungswarteschlange übernimmt den Transport.\n3) Peers können Inhalt empfangen.",
+    "frontend": "Föderations-Nachrichten-UI.",
+    "notes": "Inhalt kann die Site verlassen — Datenschutz-/Missbrauchsrisiko."
+  },
+  "federation:trust": {
+    "what": "Ermöglicht die Verwaltung föderierter Vertrauensbeziehungen.",
+    "chain": "1) Die App ändert die Vertrauensrichtlinie.\n2) Wirkt auf Annehmen/Ablehnen von Peers.\n3) Filterung und Zustellung ändern sich.",
+    "frontend": "Konfiguration → Föderation Vertrauen/Richtlinie.",
+    "notes": "Fehlkonfiguration kann Föderation stören oder schlechten Peers vertrauen."
+  },
+  "federation:files": {
+    "what": "Ermöglicht föderierte Dateiübertragung.",
+    "chain": "1) Die App nutzt Datei-APIs.\n2) Dateien laufen über den Föderations-Dateikanal.\n3) Kommen remote an oder werden lokal heruntergeladen.",
+    "frontend": "Föderationsanhänge/Dateien.",
+    "notes": "Größen-/Typgrenzen können gelten; Malware-Risiko."
+  },
+  "game:session": {
+    "what": "Ermöglicht Anlegen und Beitreten föderierter Spielräume sowie den Austausch strukturierter Spielnachrichten.",
+    "chain": "1) Die App ruft Tapp.game auf.\n2) Der Host sendet game:<tappId>:<protocol>-Hüllen in einem Raum.\n3) Mitglieder auf dieser oder einer Peer-Instanz erhalten Intent/State.",
+    "frontend": "Spiellobby, room_id@home_server teilen, Match-Sync.",
+    "notes": "Föderation Lesen/Schreiben/Nachricht bleibt nötig. Die Autorität bleibt beim Host-Client."
+  }
+}

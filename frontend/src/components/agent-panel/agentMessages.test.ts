@@ -30,7 +30,6 @@ test('换了内容才叫醒订阅者', () => {
   setAgentMessages([message()])
   assert.equal(notifications, 1)
 
-  // 流式回复每个 token 都会重建数组，逐条比过才不会白重渲染
   setAgentMessages([message()])
   assert.equal(notifications, 1)
 

@@ -1,8 +1,3 @@
-/**
- * 移动端阅读器底栏组件
- * 在小屏设备上替代左右两侧的控制栏
- */
-
 import type { MobileReaderBarProps } from './types'
 
 import {
@@ -38,11 +33,26 @@ import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,
 } from '@lib/motionShim'
-import { memo, useState } from 'react'
-import * as brewliaApi from '../../../services/brewliaApi'
+import { memo } from 'react'
 
 import { Spinner } from '../../Spinner'
-import { STYLE_MAX_HEIGHT_60VH, THEMES } from './constants'
+import { annotationChrome } from './annotationChrome'
+import {
+  READER_COMMENTS_PANEL_ID,
+  READER_MOBILE_CONTROLS_ID,
+  READER_TOOL_SHEET_ID,
+  READER_TOOL_TITLE_ID,
+  STYLE_MAX_HEIGHT_60VH,
+  THEMES,
+} from './constants'
+import {
+  applyExclusivePanel,
+  currentReaderPanel,
+  readerDialogTrigger,
+  readerPopupTrigger,
+} from './readerPanels'
+import { ReaderProgressPercent } from './ReaderProgress'
+import { useReaderDialogFocus } from './useReaderDialogFocus'
 
 export const MobileReaderBar = memo(
   ({
@@ -60,6 +70,8 @@ export const MobileReaderBar = memo(
     showMobileControls,
     setShowMobileControls,
     toc,
+    showToc,
+    setShowToc,
     activeHeadingId,
     scrollToHeading,
     comments,
@@ -69,6 +81,8 @@ export const MobileReaderBar = memo(
     annotations,
     annotationsLoading,
     showAnnotations,
+    showBrewliaPanel,
+    setShowBrewliaPanel,
     toggleAnnotations,
     loadAnnotations,
     regenerateAnnotations,
@@ -80,6 +94,8 @@ export const MobileReaderBar = memo(
     podcastLoading,
     cloudTtsLoading,
     podcastState,
+    showPodcastPlayer,
+    setShowPodcastPlayer,
     loadPodcast,
     podcastCurrentIndex,
     ttsEngine,
@@ -105,31 +121,49 @@ export const MobileReaderBar = memo(
     onTouchEnd,
     t,
   }: MobileReaderBarProps) => {
-    // 当前激活的全屏面板
-    const [activePanel, setActivePanel] = useState<
-      'toc' | 'annotations' | 'podcast' | 'comments' | null
-    >(null)
+    const toolPanel = currentReaderPanel({
+      toc: showToc,
+      brewlia: showBrewliaPanel,
+      podcast: showPodcastPlayer,
+    })
+    const commentsOn = showCommentsPanel
+    const activePanel = toolPanel
+    const sheetOpen = activePanel !== null
+    const closeRef = useReaderDialogFocus(sheetOpen, READER_TOOL_SHEET_ID)
 
-    // 打开面板
     const openPanel = (
       panel: 'toc' | 'annotations' | 'podcast' | 'comments',
     ) => {
-      setActivePanel(panel)
+      if (panel === 'comments') {
+        const next = !showCommentsPanel
+        setShowCommentsPanel(next)
+        if (next) {
+          setShowToc(false)
+          setShowBrewliaPanel(false)
+          setShowPodcastPlayer(false)
+        }
+      } else {
+        setShowCommentsPanel(false)
+        const next = applyExclusivePanel(toolPanel, panel)
+        setShowToc(next.toc)
+        setShowBrewliaPanel(next.brewlia)
+        setShowPodcastPlayer(next.podcast)
+      }
       setShowMobileControls(false)
     }
 
-    // 关闭面板
     const closePanel = () => {
-      setActivePanel(null)
+      setShowCommentsPanel(false)
+      setShowToc(false)
+      setShowBrewliaPanel(false)
+      setShowPodcastPlayer(false)
     }
 
-    // 计算最小目录层级
     const minTocLevel =
       toc.length > 0 ? Math.min(...toc.map((t) => t.level)) : 1
 
     return (
       <>
-        {/* 移动端底栏控制条 */}
         <div
           className="sm:hidden fixed bottom-0 left-0 right-0 z-30"
           onTouchStart={onTouchStart}
@@ -148,13 +182,11 @@ export const MobileReaderBar = memo(
                 }
                 className={`flex flex-col-reverse border-t ${currentTheme.border} ${currentTheme.surface}`}
               >
-                {/* 主控制栏 - 始终显示（在底部） */}
                 <div className="flex items-center justify-between px-3 py-2 safe-area-inset-bottom">
-                  {/* 左侧：返回 + 来源 */}
                   <div className="flex items-center gap-2">
                     <button
                       onClick={onClose}
-                      className={`p-2 rounded-xl ${currentTheme.secondary} hover:${currentTheme.text} ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}
+                      className="brew-reader__btn"
                       title={t.brew.backEsc}
                     >
                       <ChevronLeft className="w-5 h-5" />
@@ -173,17 +205,19 @@ export const MobileReaderBar = memo(
                     </span>
                   </div>
 
-                  {/* 右侧：进度 + 展开按钮 */}
                   <div className="flex items-center gap-2">
-                    <span
+                    <ReaderProgressPercent
+                      progress={readingProgress}
                       className={`text-xs font-medium ${currentTheme.secondary} tabular-nums`}
-                    >
-                      {readingProgress}%
-                    </span>
+                    />
                     <button
                       onClick={() => setShowMobileControls(!showMobileControls)}
-                      className={`p-2 rounded-xl ${showMobileControls ? currentTheme.text : currentTheme.secondary} ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}
+                      className={`brew-reader__btn${showMobileControls ? ' is-on' : ''}`}
                       title={t.brew.moreOptions}
+                      {...readerPopupTrigger(
+                        showMobileControls,
+                        READER_MOBILE_CONTROLS_ID,
+                      )}
                     >
                       <ChevronUp
                         className={`w-5 h-5 transition-transform ${showMobileControls ? 'rotate-180' : ''}`}
@@ -192,10 +226,12 @@ export const MobileReaderBar = memo(
                   </div>
                 </div>
 
-                {/* 展开的控制面板（在主控制栏上方） */}
                 <AnimatePresence>
                   {showMobileControls && (
                     <motion.div
+                      id={READER_MOBILE_CONTROLS_ID}
+                      role="region"
+                      aria-label={t.brew.moreOptions}
                       initial={{ height: 0, opacity: 0 }}
                       animate={{ height: 'auto', opacity: 1 }}
                       exit={{ height: 0, opacity: 0 }}
@@ -203,25 +239,26 @@ export const MobileReaderBar = memo(
                       className={`overflow-hidden border-b ${currentTheme.border}`}
                     >
                       <div className="px-3 py-3 space-y-3">
-                        {/* 第一行：导航与功能按钮 */}
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-1">
-                            {/* 目录 */}
                             {toc.length > 0 && (
                               <button
                                 onClick={() => openPanel('toc')}
-                                className={`p-2 rounded-xl ${activePanel === 'toc' ? (isDark ? 'bg-white/10' : 'bg-black/5') : ''} ${currentTheme.secondary} hover:${currentTheme.text}`}
+                                className={`brew-reader__btn${activePanel === 'toc' ? ' is-on' : ''}`}
                                 title={t.brew.tableOfContents}
+                                {...readerDialogTrigger(
+                                  activePanel === 'toc',
+                                  READER_TOOL_SHEET_ID,
+                                )}
                               >
                                 <List className="w-5 h-5" />
                               </button>
                             )}
 
-                            {/* 收藏 */}
                             {isAuthenticated && (
                               <button
                                 onClick={onToggleStar}
-                                className={`p-2 rounded-xl ${item.is_starred ? 'text-amber-500 bg-amber-500/10' : `${currentTheme.secondary} hover:text-amber-500`}`}
+                                className={`brew-reader__btn${item.is_starred ? ' is-star' : ''}`}
                                 title={
                                   item.is_starred
                                     ? t.brew.unstar
@@ -234,13 +271,14 @@ export const MobileReaderBar = memo(
                               </button>
                             )}
 
-                            {/* 评论 */}
                             {isAuthenticated && (
                               <button
-                                onClick={() =>
-                                  setShowCommentsPanel(!showCommentsPanel)
-                                }
-                                className={`p-2 rounded-xl relative ${currentTheme.secondary} hover:${currentTheme.text}`}
+                                onClick={() => openPanel('comments')}
+                                className={`brew-reader__btn relative${commentsOn ? ' is-on' : ''}`}
+                                {...readerDialogTrigger(
+                                  commentsOn,
+                                  READER_COMMENTS_PANEL_ID,
+                                )}
                                 title={
                                   hasComments
                                     ? `${t.brew.viewComments} (${comments.length})`
@@ -258,11 +296,14 @@ export const MobileReaderBar = memo(
                               </button>
                             )}
 
-                            {/* AI 注释 */}
                             {isBrewlia &&
                               (isAdmin || item.has_ai_annotations) && (
                                 <button
                                   onClick={() => openPanel('annotations')}
+                                  {...readerDialogTrigger(
+                                    activePanel === 'annotations',
+                                    READER_TOOL_SHEET_ID,
+                                  )}
                                   disabled={annotationsLoading}
                                   className={`p-2 rounded-xl ${
                                     activePanel === 'annotations' ||
@@ -284,7 +325,6 @@ export const MobileReaderBar = memo(
                                 </button>
                               )}
 
-                            {/* AI 播客 */}
                             {isBrewlia && (isAdmin || item.has_ai_podcast) && (
                               <button
                                 onClick={() => {
@@ -293,6 +333,10 @@ export const MobileReaderBar = memo(
                                   }
                                   openPanel('podcast')
                                 }}
+                                {...readerDialogTrigger(
+                                  activePanel === 'podcast',
+                                  READER_TOOL_SHEET_ID,
+                                )}
                                 disabled={podcastLoading || cloudTtsLoading}
                                 className={`p-2 rounded-xl ${
                                   podcastState === 'playing'
@@ -315,12 +359,11 @@ export const MobileReaderBar = memo(
                               </button>
                             )}
 
-                            {/* 外部链接 */}
                             <a
                               href={item.link}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className={`p-2 rounded-xl ${currentTheme.secondary} hover:${currentTheme.text}`}
+                              className="brew-reader__btn"
                               title={t.brew.readOriginal}
                             >
                               <ExternalLink className="w-5 h-5" />
@@ -328,21 +371,19 @@ export const MobileReaderBar = memo(
                           </div>
 
                           <div className="flex items-center gap-1">
-                            {/* 编辑手记。只有站长打开自己写的那篇时才有 */}
                             {onEditNote && (
                               <button
                                 onClick={onEditNote}
-                                className={`p-2 rounded-xl ${currentTheme.secondary} hover:${currentTheme.text}`}
+                                className="brew-reader__btn"
                                 title={t.brew.noteEdit}
                               >
                                 <Edit3 className="w-5 h-5" />
                               </button>
                             )}
 
-                          {/* 分享 */}
                           <button
                             onClick={handleShare}
-                            className={`p-2 rounded-xl ${currentTheme.secondary} hover:${currentTheme.text}`}
+                            className="brew-reader__btn"
                             title={t.brew.share}
                           >
                             <svg
@@ -362,9 +403,7 @@ export const MobileReaderBar = memo(
                           </div>
                         </div>
 
-                        {/* 第二行：阅读设置 */}
                         <div className="flex items-center justify-between">
-                          {/* 主题 */}
                           <button
                             onClick={cycleTheme}
                             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg ${isDark ? 'bg-white/5' : 'bg-black/5'} ${currentTheme.secondary}`}
@@ -376,22 +415,16 @@ export const MobileReaderBar = memo(
                             </span>
                           </button>
 
-                          {/* 字体 */}
                           <button
                             onClick={cycleFont}
                             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg ${isDark ? 'bg-white/5' : 'bg-black/5'} ${currentTheme.secondary}`}
                             style={{ fontFamily: currentFont.family }}
-                            title={
-                              (t.brew as Record<string, string>)[
-                                currentFont.labelKey
-                              ]
-                            }
+                            title={t.brew[currentFont.labelKey]}
                           >
                             <Type className="w-4 h-4" />
                             <span className="text-xs">{t.brew.fontLabel}</span>
                           </button>
 
-                          {/* 字号调整 */}
                           <div
                             className={`flex items-center gap-1 px-2 py-1 rounded-lg ${isDark ? 'bg-white/5' : 'bg-black/5'}`}
                           >
@@ -416,7 +449,6 @@ export const MobileReaderBar = memo(
                             </button>
                           </div>
 
-                          {/* 行高调整 */}
                           <div
                             className={`flex items-center gap-1 px-2 py-1 rounded-lg ${isDark ? 'bg-white/5' : 'bg-black/5'}`}
                           >
@@ -450,7 +482,6 @@ export const MobileReaderBar = memo(
           </AnimatePresence>
         </div>
 
-        {/* 移动端全屏面板 */}
         <AnimatePresence>
           {activePanel && (
             <motion.div
@@ -460,22 +491,23 @@ export const MobileReaderBar = memo(
               transition={{ duration: 0.2, ease: 'easeOut' }}
               className="sm:hidden fixed inset-0 z-40 flex flex-col"
             >
-              {/* 背景遮罩 */}
               <div
                 className="absolute inset-0 bg-black/50"
                 onClick={closePanel}
               />
 
-              {/* 面板内容 - 从底部滑出 */}
               <motion.div
                 initial={{ y: '100%' }}
                 animate={{ y: 0 }}
                 exit={{ y: '100%' }}
                 transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+                id={READER_TOOL_SHEET_ID}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={READER_TOOL_TITLE_ID}
                 className={`absolute bottom-0 left-0 right-0 rounded-t-2xl ${currentTheme.surfaceSolid} border-t ${currentTheme.border} overflow-hidden`}
                 style={STYLE_MAX_HEIGHT_60VH}
               >
-                {/* 面板头部 */}
                 <div
                   className={`flex items-center justify-between px-4 py-3 border-b ${currentTheme.border}`}
                 >
@@ -483,7 +515,10 @@ export const MobileReaderBar = memo(
                     {activePanel === 'toc' && (
                       <>
                         <List className="w-5 h-5 text-amber-500" />
-                        <span className={`font-medium ${currentTheme.text}`}>
+                        <span
+                          id={READER_TOOL_TITLE_ID}
+                          className={`font-medium ${currentTheme.text}`}
+                        >
                           {t.brew.tocTitle}
                         </span>
                         <span className={`text-sm ${currentTheme.secondary}`}>
@@ -494,7 +529,10 @@ export const MobileReaderBar = memo(
                     {activePanel === 'annotations' && (
                       <>
                         <Sparkles className="w-5 h-5 text-purple-500" />
-                        <span className={`font-medium ${currentTheme.text}`}>
+                        <span
+                          id={READER_TOOL_TITLE_ID}
+                          className={`font-medium ${currentTheme.text}`}
+                        >
                           {t.brew.aiAnnotations}
                         </span>
                         {annotations.length > 0 && (
@@ -507,7 +545,10 @@ export const MobileReaderBar = memo(
                     {activePanel === 'podcast' && (
                       <>
                         <Mic className="w-5 h-5 text-emerald-500" />
-                        <span className={`font-medium ${currentTheme.text}`}>
+                        <span
+                          id={READER_TOOL_TITLE_ID}
+                          className={`font-medium ${currentTheme.text}`}
+                        >
                           {t.brew.aiPodcast}
                         </span>
                         {podcastDialogues.length > 0 && (
@@ -519,20 +560,19 @@ export const MobileReaderBar = memo(
                     )}
                   </div>
                   <button
+                    ref={closeRef}
                     onClick={closePanel}
-                    className={`p-2 rounded-xl ${currentTheme.secondary} hover:${currentTheme.text} ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`}
+                    className="brew-reader__btn"
                     title={t.brew.close}
                   >
                     <X className="w-5 h-5" />
                   </button>
                 </div>
 
-                {/* 面板内容区 */}
                 <div
                   className="overflow-y-auto"
                   style={{ maxHeight: 'calc(60vh - 60px)' }}
                 >
-                  {/* 目录面板 */}
                   {activePanel === 'toc' && (
                     <nav className="p-3 space-y-0.5">
                       {toc.map((item) => {
@@ -563,10 +603,8 @@ export const MobileReaderBar = memo(
                     </nav>
                   )}
 
-                  {/* AI 注释面板 */}
                   {activePanel === 'annotations' && (
                     <div className="p-3">
-                      {/* 操作栏 */}
                       <div className="flex items-center justify-between mb-3">
                         <button
                           onClick={toggleAnnotations}
@@ -601,7 +639,6 @@ export const MobileReaderBar = memo(
                         )}
                       </div>
 
-                      {/* 注释列表 */}
                       {annotations.length === 0 ? (
                         <div
                           className={`py-8 text-center ${currentTheme.secondary}`}
@@ -629,10 +666,7 @@ export const MobileReaderBar = memo(
                       ) : (
                         <div className="space-y-2">
                           {annotations.map((annotation, index) => {
-                            const typeConfig =
-                              brewliaApi.ANNOTATION_TYPE_CONFIG[
-                                annotation.type
-                              ] || brewliaApi.ANNOTATION_TYPE_CONFIG.term
+                            const typeConfig = annotationChrome(annotation.type)
                             const isSelected =
                               selectedAnnotation?.term === annotation.term
 
@@ -656,9 +690,7 @@ export const MobileReaderBar = memo(
                                   <span
                                     className={`text-xs px-1.5 py-0.5 rounded ${typeConfig.bgColor} ${typeConfig.color} shrink-0 whitespace-nowrap`}
                                   >
-                                    {brewliaApi.annotationTypeLabel(
-                                      annotation.type,
-                                    )}
+                                    {typeConfig.label}
                                   </span>
                                   <span
                                     className={`text-sm font-medium ${currentTheme.text} min-w-0 flex-1 truncate`}
@@ -680,7 +712,6 @@ export const MobileReaderBar = memo(
                         </div>
                       )}
 
-                      {/* 错误提示 */}
                       {annotationsError && (
                         <div className="mt-3 px-3 py-2 text-sm text-red-500 bg-red-500/10 rounded-lg">
                           {annotationsError}
@@ -689,10 +720,8 @@ export const MobileReaderBar = memo(
                     </div>
                   )}
 
-                  {/* AI 播客面板 */}
                   {activePanel === 'podcast' && (
                     <div className="p-3">
-                      {/* TTS 引擎切换 */}
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
                           <button
@@ -718,14 +747,13 @@ export const MobileReaderBar = memo(
                                   : `${currentTheme.secondary} ${isDark ? 'bg-white/5' : 'bg-black/5'} opacity-60`
                             } disabled:opacity-50`}
                           >
-                            {/* 加载环由下方带进度的状态行独担，按钮不再重复转圈 */}
+                            {/* 加载环由下方状态行独担，按钮不再转圈。 */}
                             <Cloud className="w-4 h-4" />
                             {t.brew.cloudTts}
                           </button>
                         </div>
                       </div>
 
-                      {/* 云端 TTS 加载状态 */}
                       {cloudTtsLoading && (
                         <div
                           className={`mb-3 px-3 py-2 text-sm ${currentTheme.secondary} bg-emerald-500/10 rounded-lg flex items-center gap-2`}
@@ -739,7 +767,6 @@ export const MobileReaderBar = memo(
                         </div>
                       )}
 
-                      {/* 播放控制 */}
                       {podcastDialogues.length > 0 && (
                         <div
                           className={`flex items-center justify-center gap-4 mb-4 p-3 rounded-xl ${isDark ? 'bg-white/5' : 'bg-black/2'}`}
@@ -787,7 +814,6 @@ export const MobileReaderBar = memo(
                         </div>
                       )}
 
-                      {/* 对话列表 */}
                       {podcastDialogues.length === 0 ? (
                         <div
                           className={`py-8 text-center ${currentTheme.secondary}`}

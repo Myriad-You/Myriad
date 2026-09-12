@@ -157,7 +157,6 @@ test('only treats a layered Anime2.5D package as a live site face', () => {
   assert.equal(isLiveMeropeManifest(live), true)
   live.anime25dPlayback.shellProfile.torso.yawFollowScale = 1.4
   assert.equal(isLiveMeropeManifest(live), false)
-  // Compiled before the follow became per-model: still live, turns fully.
   delete live.anime25dPlayback.shellProfile.torso.yawFollowScale
   assert.equal(isLiveMeropeManifest(live), true)
   live.anime25dPlayback.chestProfile = {

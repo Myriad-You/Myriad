@@ -4,10 +4,6 @@ interface SpeechExpressionOffset {
   angleY: number
 }
 
-/**
- * Extra range reserved for active expression. Pose values join the compositor;
- * eye openness stays a non-pose expression response.
- */
 const SEMANTIC_VERTICAL_EXTRA = 0.1
 const SEMANTIC_ROLL_EXTRA = 0.18
 const SPEECH_HEAD_EXTRA = 0.15

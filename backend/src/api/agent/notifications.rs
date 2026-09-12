@@ -28,8 +28,18 @@ pub(crate) async fn notification_stream(
 
     // 后台转发 broadcast → mpsc（过滤非当前用户的通知）
     tokio::spawn(async move {
+        let mut recovery = tokio::time::interval(Duration::from_secs(30));
+        recovery.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        recovery.tick().await;
         loop {
-            match rx.recv().await {
+            let received = tokio::select! {
+                _ = tx.closed() => break,
+                value = rx.recv() => value,
+                _ = recovery.tick() => Ok(
+                    crate::services::agent::notifications::NotificationEvent::Resync { lagged_by: 0 }
+                ),
+            };
+            match received {
                 Ok(event) => {
                     let should_send =
                         crate::services::agent::notifications::event_is_for_user(&event, user_id);
@@ -108,7 +118,7 @@ pub(crate) async fn delete_notification(
     if !removed {
         return Err(HttpError::from((
             StatusCode::NOT_FOUND,
-            Json(json!({"error": "Notification not found"})),
+            Json(AppError::public_json("Notification not found")),
         )));
     }
     Ok(Json(json!({"success": true})))
@@ -138,3 +148,4 @@ pub(crate) async fn clear_notifications(
 pub(crate) struct NotificationListParams {
     limit: Option<usize>,
 }
+use myriad_error::AppError;

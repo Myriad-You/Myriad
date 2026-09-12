@@ -1,14 +1,3 @@
-/**
- * Tapp 快捷方式小组件
- *
- * 在主页放置已安装 Tapp 的快捷入口：
- * - 1x1 仅图标 / 2x1 图标+名称 / 2x2 图标+名称+描述
- * - 编辑模式长按打开设置选择 Tapp
- * - 非编辑模式点击跳转 /tapp/run/:id
- *
- * 交互与设置弹窗模式对齐 SocialNetworkWidget / GamePresenceWidget。
- */
-
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import type {
   RecentTappItem,
@@ -47,25 +36,18 @@ import { WidgetLongPressHint } from './shared/WidgetLongPressHint'
 import { WidgetSettingsSection, WidgetSettingsTip } from './shared/WidgetSettingsTip'
 import { WidgetShell } from './shared/WidgetShell'
 
-// Types
-
 interface ResolvedTapp {
   id: string
   name: string
   description?: string
   icon?: string
   iconSvg?: string
-  /** manifest 主题色（与 Tapp 页实际渲染一致） */
   themeColor?: string
-  /** manifest.locales 透传，渲染时按当前语言解析 */
   locales?: TappManifestLocales
 }
 
 const DEFAULT_GLOW = '#6366f1'
 
-// Per-Tapp accent color —— 与 Tapp 页实际渲染保持一致
-
-/** 由 Tapp id 稳定散列出一个色相；仅用于 manifest 未提供主题色时的兜底 */
 function accentHue(seed: string): number {
   let h = 0
   for (let i = 0; i < seed.length; i++) {
@@ -74,7 +56,6 @@ function accentHue(seed: string): number {
   return h % 360
 }
 
-/** 给任意 CSS 颜色（hex / hsl）叠加透明度，用于渐变/描边/投影 */
 function withAlpha(color: string, alpha: number): string {
   const c = color.trim()
   const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c)
@@ -96,7 +77,6 @@ function withAlpha(color: string, alpha: number): string {
   return c
 }
 
-/** App 图标风格的实底样式：主题色实底 + 顶部高光 + 柔和同色投影，衬托白色图标 */
 function appIconFill(color: string) {
   return {
     background: `linear-gradient(145deg, ${withAlpha(color, 1)} 0%, ${withAlpha(color, 0.78)} 100%)`,
@@ -104,10 +84,6 @@ function appIconFill(color: string) {
   }
 }
 
-/**
- * App 图标风格的图标底座（2x1 / 2x2 用）。
- * 自有整图图标铺满圆角区，不套主题色壳。
- */
 const IconTile = memo(
   ({
     color,
@@ -143,8 +119,6 @@ const IconTile = memo(
 )
 
 IconTile.displayName = 'TappShortcutIconTile'
-
-// Global settings modal (singleton, same pattern as SocialNetworkWidget)
 
 interface SettingsModalState {
   isOpen: boolean
@@ -185,7 +159,6 @@ function subscribeToModalState(listener: () => void) {
   }
 }
 
-/** 最近使用优先排序已安装列表 */
 function sortTappsByRecent(
   tapps: TappListItem[],
   recent: RecentTappItem[],
@@ -277,7 +250,6 @@ const GlobalSettingsModal = memo(() => {
 
   const { isOpen, selectedTappId, anchorRect, onSelect } = globalModalState
 
-  // 仅在弹窗打开时请求列表，避免预览/未打开时乱请求
   useEffect(() => {
     if (!isOpen) return
     let cancelled = false
@@ -354,8 +326,6 @@ const GlobalSettingsModal = memo(() => {
 
 GlobalSettingsModal.displayName = 'TappShortcutSettingsModal'
 
-// Widget
-
 export const TappShortcutWidget = memo(
   ({ config, isEditMode, isPreview, onConfigChange }: WidgetComponentProps) => {
     const { t, locale } = useI18n()
@@ -379,13 +349,11 @@ export const TappShortcutWidget = memo(
     const [missing, setMissing] = useState(false)
     const [loading, setLoading] = useState(false)
 
-    // 同步外部 config
     useEffect(() => {
       const next = config.config?.tappId as string | undefined
       setTappId((prev) => (prev === next ? prev : next))
     }, [config.config?.tappId])
 
-    // 解析已配置的 Tapp；preview 不请求
     useEffect(() => {
       if (isPreview) {
         setResolved(null)
@@ -402,7 +370,6 @@ export const TappShortcutWidget = memo(
 
       let cancelled = false
       setLoading(true)
-      // list：拿 iconSvg（详情接口不含）；details：拿 manifest 主题色
       Promise.all([
         listTapps(),
         listTappDetails().catch(() => []),
@@ -494,8 +461,6 @@ export const TappShortcutWidget = memo(
 
     const canLaunch = !isEditMode && !!resolved?.id
 
-    // 强调色（光晕 + 图标底座）：优先用 Tapp manifest 主题色，与 Tapp 页
-    // 实际渲染一致；manifest 未提供时才退回按 id 散列的稳定色。
     const tileColor = useMemo(() => {
       if (!resolved?.id) return null
       const theme = resolved.themeColor?.trim()
@@ -547,9 +512,7 @@ export const TappShortcutWidget = memo(
     })()
 
     const content = useMemo(() => {
-      // 占位：未配置 / 已卸载 / preview
       if (isPlaceholder) {
-        // 编辑模式下未配置：呈现「添加」态（虚线 + 加号），其余为中性玻璃底
         const isAddState = isEditMode && !missing && !tappId && !isPreview
         const tileClass =
           config.size === '1x1'
@@ -557,7 +520,6 @@ export const TappShortcutWidget = memo(
             : config.size === '2x1'
               ? 'w-10 h-10'
               : 'w-14 h-14'
-        // 编辑未配置：虚线 +；加载中：Spinner；其余默认空状态：Tapp 网格图标提示
         const spinnerPx =
           (config.size === '2x2' ? 22 : config.size === '1x1' ? 20 : 18) *
           fontScale
@@ -619,7 +581,6 @@ export const TappShortcutWidget = memo(
           )
         }
 
-        // 2x2
         return (
           <div className="h-full w-full flex flex-col items-center justify-center gap-2.5 text-center">
             {tile}
@@ -635,7 +596,6 @@ export const TappShortcutWidget = memo(
 
       const { name, description } = resolveManifestText(resolved!, locale)
 
-      // 1x1 — 原生玻璃底 + 主题色图标（无底座），光晕同为主题色
       if (config.size === '1x1') {
         return (
           <div
@@ -656,7 +616,6 @@ export const TappShortcutWidget = memo(
 
       const standaloneIcon = hasStandaloneTappIcon(resolved!)
 
-      // 2x1 — 图标 + 名称
       if (config.size === '2x1') {
         return (
           <div className="h-full w-full flex items-center justify-center gap-3">
@@ -687,7 +646,6 @@ export const TappShortcutWidget = memo(
         )
       }
 
-      // 2x2 — 图标 + 名称 + 描述
       return (
         <div className="h-full w-full flex flex-col items-center justify-center gap-2.5 text-center">
           <IconTile

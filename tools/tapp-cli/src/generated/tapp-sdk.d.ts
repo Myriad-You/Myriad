@@ -3,7 +3,7 @@
  * Generated from the runtime permission catalog. Call sites still need
  * matching Manifest permissions and a handler in the current sandbox profile.
  *
- * Headless-denied Bridge actions: component.list, component.registerAgent, component.registerTheme, component.unregister, dynamicContent.get, dynamicContent.remove, dynamicContent.set, dynamicContent.update, file.download, model3d.awaitTask, model3d.createTask, model3d.getMetadata, model3d.getTask, model3d.getUrl, model3d.status, model3d.upload, shortcut.list, shortcut.register, shortcut.unregister, tappList.export, tappList.get, tappList.getInstallPackage, tappList.getRecent, tappList.install, tappList.list, tappList.resolveStoreSource, tappList.start, tappList.stop, tappList.uninstall, ui.confirm, ui.exitFullscreen, ui.isFullscreen, ui.listOpenUrls, ui.openUrl, ui.requestFullscreen, ui.setTitle, ui.toggleFullscreen, widget.listRegistered, widget.register, widget.unregister, widget.updateConfig
+ * Headless-denied Bridge actions: component.list, component.registerAgent, component.registerTheme, component.unregister, dynamicContent.get, dynamicContent.remove, dynamicContent.set, dynamicContent.update, file.download, model3d.awaitTask, model3d.createTask, model3d.getMetadata, model3d.getTask, model3d.getUrl, model3d.status, model3d.upload, shortcut.list, shortcut.register, shortcut.unregister, tappList.export, tappList.get, tappList.getInstallPackage, tappList.getRecent, tappList.install, tappList.list, tappList.resolveStoreSource, tappList.start, tappList.stop, tappList.uninstall, ui.confirm, ui.fullscreen.exit, ui.fullscreen.isFullscreen, ui.fullscreen.request, ui.fullscreen.toggle, ui.listOpenUrls, ui.openUrl, ui.setTitle, widget.listRegistered, widget.register, widget.unregister, widget.updateConfig
  *
  * Do not edit by hand — run: npm run sync-contract
  */
@@ -135,6 +135,28 @@ export interface TappSdk {
   }
 
   storage: {
+    get(key: string): Promise<unknown>
+    set(key: string, value: unknown): Promise<unknown>
+    remove(key: string): Promise<unknown>
+    keys(): Promise<string[]>
+    getAll(): Promise<Record<string, unknown>>
+    clear(): Promise<unknown>
+    usage(): Promise<unknown>
+    onChanged(callback: (event: { key?: string; operation?: string }) => void): () => void
+  }
+
+  shared: {
+    get(key: string): Promise<unknown>
+    set(key: string, value: unknown): Promise<unknown>
+    remove(key: string): Promise<unknown>
+    keys(): Promise<string[]>
+    getAll(): Promise<Record<string, unknown>>
+    clear(): Promise<unknown>
+    usage(): Promise<unknown>
+    onChanged(callback: (event: { key?: string; operation?: string }) => void): () => void
+  }
+
+  private: {
     get(key: string): Promise<unknown>
     set(key: string, value: unknown): Promise<unknown>
     remove(key: string): Promise<unknown>
@@ -497,20 +519,13 @@ export interface TappSdk {
     create(...args: unknown[]): Promise<unknown> // permission: report:write
     delete(...args: unknown[]): Promise<unknown> // permission: report:write
     get(...args: unknown[]): Promise<unknown> // permission: report:read
-    getPlatformReport(...args: unknown[]): Promise<unknown> // permission: report:read
-    getReport(...args: unknown[]): Promise<unknown> // permission: report:read
     list(...args: unknown[]): Promise<unknown> // permission: report:read
-    listReports(...args: unknown[]): Promise<unknown> // permission: report:read
     update(...args: unknown[]): Promise<unknown> // permission: report:write
-  }
-  shared: {
-    clear(...args: unknown[]): Promise<unknown> // permission: storage:write
-    get(...args: unknown[]): Promise<unknown> // permission: storage:read
-    getAll(...args: unknown[]): Promise<unknown> // permission: storage:read
-    keys(...args: unknown[]): Promise<unknown> // permission: storage:read
-    remove(...args: unknown[]): Promise<unknown> // permission: storage:write
-    set(...args: unknown[]): Promise<unknown> // permission: storage:write
-    usage(...args: unknown[]): Promise<unknown> // permission: storage:read
+    platform: {
+      byPlatform(...args: unknown[]): Promise<unknown> // permission: report:read
+      get(...args: unknown[]): Promise<unknown> // permission: report:read
+      list(...args: unknown[]): Promise<unknown> // permission: report:read
+    }
   }
   shortcut: {
     list(...args: unknown[]): Promise<unknown>
@@ -556,10 +571,11 @@ export interface TappSdk {
   }
 }
 
-declare const Tapp: TappSdk
-
-interface Window {
-  Tapp: TappSdk
+declare global {
+  const Tapp: TappSdk
+  interface Window {
+    Tapp: TappSdk
+  }
 }
 
 export {}

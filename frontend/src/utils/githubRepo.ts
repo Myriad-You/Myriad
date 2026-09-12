@@ -1,8 +1,3 @@
-/**
- * GitHub 仓库卡共用：解析输入、打站点 /api/github/repo、语言色。
- * 阅读器嵌入卡和首页小组件走同一条出站链。
- */
-
 import type { GithubRepoRef } from '../components/settings/githubProject'
 import { parseGithubRepoUrl } from '../components/settings/githubProject'
 
@@ -35,7 +30,7 @@ export function parseGithubRepoInput(raw: string): GithubRepoRef | null {
   const candidate =
     /github\.com/i.test(trimmed) || trimmed.includes('://')
       ? trimmed
-      : `https://github.com/${trimmed.replace(/^\/+/, '')}`
+      : `https://github.com/${trimmed.replaceAll(/^\/+/g, '')}`
   return parseGithubRepoUrl(candidate)
 }
 
@@ -83,10 +78,10 @@ export function readGithubRepoCard(body: {
 
 export function formatGithubCount(count: number): string {
   if (count >= 1_000_000) {
-    return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
+    return `${(count / 1_000_000).toFixed(1).replaceAll(/\.0$/g, '')}M`
   }
   if (count >= 1000) {
-    return `${(count / 1000).toFixed(1).replace(/\.0$/, '')}k`
+    return `${(count / 1000).toFixed(1).replaceAll(/\.0$/g, '')}k`
   }
   return String(count)
 }

@@ -1,11 +1,3 @@
-/**
- * Shared parsing for GET /api/auth/me session probe.
- *
- * Durable contract (backend): always HTTP 200 for guest/expired/invalid
- * session → `{ authenticated: false }`. Authenticated → `{ authenticated: true, id, ... }`.
- * Never rely on HTTP 401 for "is guest".
- */
-
 export interface AuthMeUser {
   id: number
   username: string
@@ -18,9 +10,8 @@ export interface AuthMeUser {
   avatar_url?: string
   bio?: string
   has_password?: boolean
-  /** ISO-8601 last successful login when provided by server */
   last_login_at?: string | null
-  /** Linked OAuth/OIDC rows when server includes them */
+  locale?: import('../i18n').Locale | null
   identities?: Array<{
     id?: number
     provider?: string
@@ -36,10 +27,6 @@ export type AuthMeResult =
   | { authenticated: false }
   | { authenticated: true; user: AuthMeUser }
 
-/**
- * Parse /api/auth/me JSON after a successful (2xx) response.
- * Treats missing id / explicit authenticated:false as guest.
- */
 export function parseAuthMeResponse(data: unknown): AuthMeResult {
   if (!data || typeof data !== 'object') {
     return { authenticated: false }
@@ -66,7 +53,6 @@ export function parseAuthMeResponse(data: unknown): AuthMeResult {
     return { authenticated: false }
   }
 
-  // authenticated:true preferred; legacy servers may omit it when id is present.
   return {
     authenticated: true,
     user: {
@@ -74,14 +60,12 @@ export function parseAuthMeResponse(data: unknown): AuthMeResult {
       id: numericId,
       username,
       is_admin: body.is_admin === true,
-      // Contract: always boolean when authenticated (BE sends COALESCE is_owner)
       is_owner: body.is_owner === true,
       authenticated: true,
     },
   }
 }
 
-/** True when the HTTP status is a successful probe response (including guest 200). */
 export function isAuthMeHttpOk(status: number): boolean {
   return status >= 200 && status < 300
 }

@@ -54,7 +54,6 @@ export function resolveAnime25DUpstreamFeature(
   return null
 }
 
-/** Build once per layer; the driver object is mutated in place by the player. */
 export function bindAnime25DUpstreamFeature(
   source: Pick<
     Anime25DPlaybackLayer,
@@ -77,10 +76,6 @@ export function bindAnime25DUpstreamFeature(
   }
 }
 
-/**
- * Mutates one point with the exact eye/eyebrow-local sequence from upstream
- * `deform`. Global head, breath, and body transforms remain separate stages.
- */
 export function deformAnime25DUpstreamFeaturePoint(
   point: Anime25DMutablePoint,
   input: Readonly<Anime25DUpstreamFeatureInput>,

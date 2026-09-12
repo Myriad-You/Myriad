@@ -9,7 +9,6 @@ import {
 export interface Anime25DNeckSurface {
   neck: Anime25DPlaybackLayer
   body: Anime25DPlaybackLayer
-  /** Rest-space UV interval, above the contaminated cut edge of the neck. */
   fadeStart: number
   fadeEnd: number
   contour: NeckSurfaceContour
@@ -17,12 +16,6 @@ export interface Anime25DNeckSurface {
 
 type ReadPixels = (layer: Anime25DPlaybackLayer) => CroppedLayerPixels | null
 
-/**
- * See-through can inpaint exposed skin into topwear. Painting it over the neck
- * clips the authored chin shadow into a straight line. Recover the open-neck
- * overlap only when a fully supported, colour-agreeing lower join exists.
- * This is not high-collar recovery and must never override collar topology.
- */
 export function resolveAnime25DNeckSurface(
   layers: readonly Anime25DPlaybackLayer[],
   anchors: Anime25DPlaybackAnchors,
@@ -65,6 +58,7 @@ export function resolveAnime25DNeckSurface(
       let rowPixels = 0
       let opaquePixels = 0
       let matches = 0
+      let blendMatches = 0
       let unsupported = 0
       let rowCovered = 0
       for (let x = bounds.left; x < bounds.right; x++) {
@@ -86,6 +80,7 @@ export function resolveAnime25DNeckSurface(
         const g = neckPixels.pixels[n + 1] - bodyPixels.pixels[b + 1]
         const blue = neckPixels.pixels[n + 2] - bodyPixels.pixels[b + 2]
         const match = r * r * 2 + g * g * 4 + blue * blue <= 12 * 12 * 7
+        if (r * r * 2 + g * g * 4 + blue * blue <= 24 * 24 * 7) blendMatches++
         agreement[y * neckPixels.width + x] = match ? 2 : 1
         if (match) matches++
       }
@@ -97,12 +92,12 @@ export function resolveAnime25DNeckSurface(
       const usable =
         supported[y] && opaquePixels >= Math.max(4, visibleWidth * 0.2)
       matching[y] = usable && matches / opaquePixels >= 0.85 ? 1 : 0
-      // A real lower join can contain a local pendant shadow. Expand only
-      // around strongly matching rows; a loose colour match cannot seed it.
-      blending[y] = usable && matches / opaquePixels >= 0.7 ? 1 : 0
+      // Strong seeds still require the original 12-level agreement. Allow a
+      // gradual shadow difference only in the fully supported blend around
+      // those seeds; it must not turn a matching stripe into a garment match.
+      blending[y] = usable && blendMatches / opaquePixels >= 0.7 ? 1 : 0
     }
-    // An unsplit high collar covers the upper neck too. Even a pale garment
-    // that resembles skin cannot qualify through the lower colour test alone.
+    // Even a pale garment that resembles skin cannot qualify through the lower colour test alone.
     const exposedRows =
       (Math.max(0, anchors.neckBottom - top) / neck.h) * neckPixels.height
     const openAperture = openRows >= Math.max(3, exposedRows * 0.12)

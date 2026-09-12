@@ -447,6 +447,7 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             columns: vec!["last_used_at".into()],
             is_unique: false,
         },
+        // agent_diary / agent_proactive_messages 索引
         IndexDef {
             name: "idx_agent_diary_user_created".into(),
             table: "agent_diary".into(),
@@ -611,7 +612,7 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             columns: vec!["user_id".into(), "received_at".into()],
             is_unique: false,
         },
-        // 近月新功能索引（001 analytics / 004 heartbeat / 005 fed 扩展）
+        // analytics / heartbeat_claims / agent_intentions / federation extensions
         IndexDef {
             name: "idx_analytics_page_daily_day".into(),
             table: "analytics_page_daily".into(),

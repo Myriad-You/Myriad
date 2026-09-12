@@ -8,8 +8,8 @@ use super::super::CapabilityRegistry;
 pub fn register(registry: &mut CapabilityRegistry) {
     registry.register(Capability {
         id: "model3d.status".to_string(),
-        name: "3D 服务状态".to_string(),
-        description: "查询 Tripo 3D 是否启用且已配置（不返回密钥）".to_string(),
+        name: "3D status".to_string(),
+        description: "Check whether 3D generation is configured (no secrets).".to_string(),
         category: CapabilityCategory::ResourceCreate,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({ "type": "object", "properties": {} }),
@@ -29,10 +29,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
 
     registry.register(Capability {
         id: "model3d.generate".to_string(),
-        name: "3D 模型生成".to_string(),
-        description:
-            "从图或本站缓存图生成 GLB（image_to_model / multiview_to_model），服务端等待并持久化"
-                .to_string(),
+        name: "Generate 3D model".to_string(),
+        description: "Generate a GLB model from an image and store it.".to_string(),
         category: CapabilityCategory::ResourceCreate,
         supported_actions: vec![IntentAction::Create],
         input_schema: json!({
@@ -45,7 +43,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 },
                 "imageUrl": {
                     "type": "string",
-                    "description": "仅本站 /api/brew/image-cache/... 路径，禁止任意外网抓取"
+                    "description": "Only this site's /api/brew/image-cache/... path; no arbitrary outbound fetch"
                 },
                 "imageBase64": { "type": "string" },
                 "fileName": { "type": "string" },
@@ -53,7 +51,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "fileToken": { "type": "string" },
                 "views": {
                     "type": "object",
-                    "description": "multiview 方向 → imageUrl / imageBase64 / fileToken"
+                    "description": "multiview direction → imageUrl / imageBase64 / fileToken"
                 },
                 "payload": { "type": "object" }
             }
@@ -74,8 +72,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
 
     registry.register(Capability {
         id: "model3d.rig".to_string(),
-        name: "3D 骨骼绑定".to_string(),
-        description: "对已有 Tripo 任务做 rig_check 或 rig".to_string(),
+        name: "Rig 3D model".to_string(),
+        description: "Check or apply a rig on a Tripo job.".to_string(),
         category: CapabilityCategory::ResourceCreate,
         supported_actions: vec![IntentAction::Create],
         input_schema: json!({
@@ -86,7 +84,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
                     "enum": ["rig_check", "rig"],
                     "default": "rig"
                 },
-                "input": { "type": "string", "description": "上游 task id 或 file token" },
+                "input": { "type": "string", "description": "Upstream task id or file token" },
                 "payload": { "type": "object" }
             },
             "required": ["input"]
@@ -107,14 +105,14 @@ pub fn register(registry: &mut CapabilityRegistry) {
 
     registry.register(Capability {
         id: "model3d.retarget".to_string(),
-        name: "3D 动画重定向".to_string(),
-        description: "对已绑定模型做动画 retarget 并持久化 GLB".to_string(),
+        name: "Retarget animation".to_string(),
+        description: "Retarget animation onto a rigged model.".to_string(),
         category: CapabilityCategory::ResourceCreate,
         supported_actions: vec![IntentAction::Create],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "input": { "type": "string", "description": "已 rig 的 task id" },
+                "input": { "type": "string", "description": "Rigged task id" },
                 "animation": { "type": "string" },
                 "animations": { "type": "array", "items": { "type": "string" } },
                 "payload": { "type": "object" }

@@ -1,20 +1,12 @@
-/**
- * 设置项通用样式
- * 与 ConfigForm.css 共享基础样式变量
- */
 
-/* ==========================================
-   设置项基础容器
-   ========================================== */
 
 .setting-item {
   position: relative;
 
-  /* 默认保留，便于弹层等独立用法；在 .config-form / .setting-group-content / .settings-stack 内由 gap 接管并清零 */
+  /* standalone margin; gap zeros it in form/group/stack */
   margin-bottom: var(--settings-gap-item, 0.625rem);
 }
 
-/* 搜索点指南：滚到选项时短时高亮 */
 .setting-item.has-guide-anchor,
 .setting-group.has-guide-anchor {
   scroll-margin-top: calc(var(--cfg-sticky-top, 5rem) + 0.75rem);
@@ -33,7 +25,6 @@
   border-radius: var(--cfg-radius-md, 0.75rem);
 }
 
-/* 搜索跳转到指南锚点：壁纸主色高亮 */
 @keyframes setting-guide-flash {
   0% {
     box-shadow: 0 0 0 0 transparent;
@@ -73,7 +64,7 @@
   margin-bottom: 0;
 }
 
-/* 自定义下拉展开时抬高，避免被后续设置项盖住 */
+/* raise z-index while select is open */
 .setting-item:has(.field-select-wrap.is-open) {
   z-index: 30;
 }
@@ -83,9 +74,6 @@
   pointer-events: none;
 }
 
-/* ==========================================
-   水平布局（横向排列）
-   ========================================== */
 
 .setting-horizontal .setting-item-content {
   display: flex;
@@ -126,7 +114,7 @@ html.dark .setting-horizontal .setting-item-content:hover {
   max-width: 100%;
 }
 
-/* 窄屏：标签与控件上下排，避免按钮把文案挤成竖排一字一列 */
+/* <1024: stack label/control */
 @media (width < 1024px) {
   .setting-horizontal .setting-item-content {
     flex-wrap: wrap;
@@ -151,9 +139,6 @@ html.dark .setting-horizontal .setting-item-content:hover {
   }
 }
 
-/* ==========================================
-   垂直布局
-   ========================================== */
 
 .setting-vertical .setting-label {
   display: block;
@@ -164,9 +149,6 @@ html.dark .setting-horizontal .setting-item-content:hover {
   width: 100%;
 }
 
-/* ==========================================
-   标签样式
-   ========================================== */
 
 .setting-label {
   display: flex;
@@ -184,7 +166,6 @@ html.dark .setting-horizontal .setting-item-content:hover {
   color: var(--cfg-text-1);
 }
 
-/* 无 label 时单独一行的报错标签 */
 .setting-field-error-tag--solo {
   display: inline-flex;
   margin-top: 0.25rem;
@@ -211,9 +192,6 @@ html.dark .setting-description {
   color: var(--cfg-text-2);
 }
 
-/* ==========================================
-   提示与错误
-   ========================================== */
 
 .setting-hint {
   font-size: 0.6875rem;
@@ -237,9 +215,6 @@ html.dark .setting-error {
   color: #f87171;
 }
 
-/* ==========================================
-   输入框包装器
-   ========================================== */
 
 .input-wrapper {
   position: relative;
@@ -281,12 +256,7 @@ html.dark .input-wrapper .copy-btn:hover {
   background: rgb(255 255 255 / 8%);
 }
 
-/* ==========================================
-   InputItem variant: clickToEdit
-   复用 .field-input 壳，展示/编辑同高
-   ========================================== */
 
-/* 只读展示：本身就是 field-input，右侧 action 绝对定位 */
 button.field-input.field-input--static {
   display: block;
   position: relative;
@@ -300,8 +270,6 @@ button.field-input.field-input--static {
   background: var(--cfg-input-bg);
   border: 1.5px solid var(--cfg-input-border);
   cursor: pointer;
-
-  /* 给右侧编辑 chip 留空 */
   padding-right: 4.75rem;
 }
 
@@ -376,19 +344,15 @@ button.field-input.field-input--static:hover:not(:disabled)
   border-color: var(--cfg-accent-line-hover);
 }
 
-/* 编辑复合壳：仍是 field-input 外观，内嵌 input + actions */
 .field-input.field-input--composite {
   display: block;
   position: relative;
-
-  /* 右侧留给保存/取消 */
   padding-right: 6.25rem;
   color: var(--cfg-text-1);
   background: var(--cfg-input-bg);
   border: 1.5px solid var(--cfg-input-border);
 }
 
-/* 内嵌 input 聚焦时，外壳跟 focus 态 */
 .field-input.field-input--composite:focus-within,
 .field-input.field-input--image:focus-within {
   outline: none;
@@ -407,7 +371,6 @@ html.dark .field-input.field-input--image:focus-within {
     0 4px 12px -3px color-mix(in srgb, var(--cfg-accent) 30%, transparent);
 }
 
-/* 错误态：变种外壳与普通 field-input 一致 */
 .field-input.field-input--composite.has-error,
 .field-input.field-input--image.has-error,
 button.field-input.field-input--static.has-error {
@@ -482,7 +445,7 @@ html.dark .field-input.field-input--image.has-error:focus-within {
   opacity: 1;
 }
 
-/* 内嵌 autofill 不改外壳，只保字色 */
+/* autofill: text color only */
 .field-input-inner:-webkit-autofill,
 .field-input-inner:-webkit-autofill:hover,
 .field-input-inner:-webkit-autofill:focus {
@@ -503,7 +466,6 @@ html.dark .field-input.field-input--image.has-error:focus-within {
   z-index: 1;
 }
 
-/* 壳内按钮：深色下用更实的底，避免融进输入井 */
 .field-input-actions .settings-btn.settings-btn--sm {
   box-sizing: border-box;
   height: 1.55rem;
@@ -520,6 +482,7 @@ html.dark .field-input.field-input--image.has-error:focus-within {
   padding: 0;
 }
 
+/* dark: solid chip fill so buttons don't blend */
 html.dark .field-input-actions .settings-btn--ghost {
   color: var(--cfg-text-2);
   background: rgb(255 255 255 / 8%);
@@ -553,10 +516,6 @@ html.dark .field-input-actions .btn-secondary:hover:not(:disabled) {
   }
 }
 
-/* ==========================================
-   InputItem variant: imageUpload
-   左侧预览 + URL / 本地标签 + 上传/清除
-   ========================================== */
 
 .field-input.field-input--image {
   display: flex;
@@ -567,8 +526,6 @@ html.dark .field-input-actions .btn-secondary:hover:not(:disabled) {
   color: var(--cfg-text-1);
   background: var(--cfg-input-bg);
   border: 1.5px solid var(--cfg-input-border);
-
-  /* 左侧预览 + 右侧 actions 由 flex 占位，内边距收紧 */
   padding-top: 0.45rem;
   padding-bottom: 0.45rem;
   padding-left: 0.5rem;
@@ -582,7 +539,6 @@ html.dark .field-input-actions .btn-secondary:hover:not(:disabled) {
   padding-right: 7.25rem;
 }
 
-/* 预览格：比输入井再实一档，深色下不糊成一片 */
 .field-input-preview {
   flex-shrink: 0;
   width: 2.15rem;
@@ -664,9 +620,6 @@ html.dark .field-input-preview.is-empty {
   }
 }
 
-/* ==========================================
-   数字输入包装器
-   ========================================== */
 
 .number-input-wrapper {
   display: flex;
@@ -684,15 +637,12 @@ html.dark .number-unit {
   color: var(--cfg-text-3);
 }
 
-/* ==========================================
-   SliderItem：滑动条
-   色彩原则：只用 --cfg-accent + 黑/白/透明/中性灰，禁止掺其他色相
-   ========================================== */
+/* accent + neutrals only; no extra hues */
 
 .slider-control {
   --slider-track-h: 0.7rem;
 
-  /* 与 SliderItem THUMB_PX=20 一致；拇指 border-box */
+  /* THUMB_PX=20; border-box */
   --slider-thumb: 20px;
   --slider-thumb-px: 20;
   --slider-track-w: 16rem;
@@ -704,8 +654,6 @@ html.dark .number-unit {
   --slider-rail-ring: rgb(0 0 0 / 5%);
   --slider-rail-inset: rgb(0 0 0 / 7%);
   --slider-tick: rgb(120 120 128 / 42%);
-
-  /* 气泡 idle：与设置页 chip 同思路 */
   --slider-value-fg: var(--slider-p);
   --slider-value-bg: color-mix(in srgb, var(--slider-p) 12%, #fff);
   --slider-value-border: color-mix(in srgb, var(--slider-p) 22%, transparent);
@@ -735,11 +683,7 @@ html.dark .number-unit {
   box-sizing: border-box;
 }
 
-/*
- * 气泡绝对定位在轨道上方，不参与文档流。
- * 有首尾数值/刻度时它们已占高度，气泡可叠上去，只需极少顶距；
- * 否则才用 padding-top 单独给气泡留空（避免贴到标题）。
- */
+/* value bubble out of flow; padding-top only without range/ticks */
 .slider-control.has-value:not(.has-range, .has-ticks) {
   padding-top: 1.55rem;
 }
@@ -749,11 +693,9 @@ html.dark .number-unit {
 }
 
 .slider-control.has-value.has-range {
-  /* 首尾行已在上方，气泡叠在数值上；略留一点不贴标题 */
   padding-top: 0.35rem;
 }
 
-/* 滑动条标题与控件间距 */
 .setting-item-slider.setting-vertical .setting-label {
   margin-bottom: 0.35rem;
 }
@@ -763,7 +705,7 @@ html.dark .number-unit {
   pointer-events: none;
 }
 
-/* 深色：仅调中性层与主色透明度，不改色相 */
+/* dark: neutrals + accent alpha; no extra hues */
 html.dark .slider-control {
   --slider-p: var(--cfg-accent, #60a5fa);
   --slider-fill: var(--slider-p);
@@ -795,11 +737,7 @@ html.dark .slider-control {
   --slider-thumb-outer: color-mix(in srgb, var(--slider-p) 36%, transparent);
 }
 
-/*
- * 几何盒：刻度 / 两端数值 / 轨道 / 推荐标记 必须同宽。
- * 行程公式统一：thumb/2 + pct/100 * (100% − thumb)
- * （与原生 range 拇指中心行程一致）
- */
+/* ticks/range/track/recommended share width; thumb-center travel */
 .slider-geometry {
   position: relative;
   width: 100%;
@@ -836,14 +774,13 @@ html.dark .slider-control.has-error .slider-track-wrap {
     0 0 0 2px rgb(248 113 113 / 36%);
 }
 
-/* 已走过进度：宽度 = 拇指中心 x；气泡挂在其右缘 */
 .slider-track-fill {
   position: absolute;
   top: 0;
   left: 0;
   bottom: 0;
 
-  /* fallback：与原生拇指行程一致 */
+  /* native thumb-center travel */
   width: calc(
     (var(--slider-thumb) / 2) +
       (var(--slider-pct) / 100) * (100% - var(--slider-thumb))
@@ -859,8 +796,6 @@ html.dark .slider-control.has-error .slider-track-wrap {
   pointer-events: none;
   transition: width 0.06s linear;
   z-index: 0;
-
-  /* 允许气泡溢出到轨道上方 */
   overflow: visible;
 }
 
@@ -885,7 +820,6 @@ html.dark .slider-control.is-active .slider-track-fill {
     inset 0 1px 0 rgb(255 255 255 / 20%);
 }
 
-/* 档位刻度：与轨道同宽，同一行程公式 */
 .slider-ticks {
   position: relative;
   width: 100%;
@@ -916,7 +850,6 @@ html.dark .slider-control.is-active .slider-track-fill {
     opacity var(--sm-dur-fast) var(--sm-ease-standard);
 }
 
-/* 两端刻度略长，更易辨认起止 */
 .slider-tick.is-end {
   height: 0.4rem;
   width: 1.5px;
@@ -931,10 +864,6 @@ html.dark .slider-tick.is-passed {
   background: color-mix(in srgb, var(--slider-p) 70%, #fff);
 }
 
-/*
- * 数值气泡：挂在 .slider-track-fill 右缘（= 拇指中心）。
- * right:0 + translateX(50%) → 中心落在填充末端，与拇指几何对齐。
- */
 .slider-value {
   position: absolute;
   left: auto;
@@ -966,7 +895,7 @@ html.dark .slider-tick.is-passed {
     color var(--sm-dur-fast) var(--sm-ease-standard);
 }
 
-/* 顶部高光（中性白，不改色相） */
+/* sheen: white only */
 .slider-value::before {
   content: '';
   position: absolute;
@@ -1015,7 +944,7 @@ html.dark .slider-value::after {
   border-color: var(--slider-value-active-border);
   box-shadow: var(--slider-value-active-shadow);
 
-  /* 仍以填充右缘为中心，仅略上抬 */
+  /* keep centered on fill edge */
   transform: translateX(50%) translateY(-2px) scale(1.05);
 }
 
@@ -1032,7 +961,6 @@ html.dark .slider-value::after {
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 18%);
 }
 
-/* range 输入：透明，只保留拇指 */
 .field-slider {
   position: absolute;
   top: 50%;
@@ -1096,7 +1024,7 @@ html.dark .slider-value::after {
   border-radius: 50%;
   border: 2px solid var(--slider-thumb-ring);
 
-  /* 仅 primary × 白，保持色相 */
+  /* accent × white only */
   background:
     radial-gradient(
       circle at 34% 30%,
@@ -1147,7 +1075,6 @@ html.dark .slider-value::after {
     0 0 0 4px color-mix(in srgb, var(--slider-p) 18%, transparent);
 }
 
-/* 起止数值：与轨道同宽，对齐拇指行程两端 */
 .slider-range-nums {
   position: relative;
   width: 100%;
@@ -1186,11 +1113,7 @@ html.dark .slider-range-num {
   color: var(--cfg-text-3);
 }
 
-/*
- * 轨道下方 footer：
- * - 推荐始终贴轨道下方（top），不往上挪
- * - 推荐参与高度撑开；两侧说明 absolute bottom，与推荐底边对齐
- */
+/* recommended under track; hints absolute to its bottom */
 .slider-footer {
   position: relative;
   width: 100%;
@@ -1198,7 +1121,7 @@ html.dark .slider-range-num {
   box-sizing: border-box;
 }
 
-/* 推荐：贴轨道下方；relative 撑开 footer 高度，left 按进度偏移 */
+/* recommended: relative height; left by pct */
 .slider-recommended {
   --slider-rec-pct: 0;
 
@@ -1263,7 +1186,6 @@ html.dark .slider-recommended-label {
   border-color: color-mix(in srgb, var(--slider-p) 24%, transparent);
 }
 
-/* 无推荐：两侧说明正常流式排布 */
 .slider-range-hints {
   display: flex;
   justify-content: space-between;
@@ -1274,7 +1196,6 @@ html.dark .slider-recommended-label {
   box-sizing: border-box;
 }
 
-/* 有推荐：说明贴 footer 底边，与推荐底对齐（推荐位置不动） */
 .slider-control.has-recommended .slider-range-hints {
   position: absolute;
   left: 0;
@@ -1318,11 +1239,7 @@ html.dark .slider-range-hint {
   min-width: 0;
 }
 
-/* ==========================================
-   尺寸变体
-   ========================================== */
 
-/* 小尺寸 */
 .setting-sm .setting-label-text {
   font-size: 0.8125rem;
 }
@@ -1331,7 +1248,6 @@ html.dark .slider-range-hint {
   padding: 0.75rem;
 }
 
-/* 大尺寸 */
 .setting-lg .setting-label-text {
   font-size: 1rem;
 }
@@ -1340,9 +1256,6 @@ html.dark .slider-range-hint {
   padding: 1.25rem;
 }
 
-/* ==========================================
-   按钮设置项样式
-   ========================================== */
 
 .setting-button-row {
   display: flex;
@@ -1377,14 +1290,8 @@ html.dark .setting-button-row .test-result.error {
   background: rgb(248 113 113 / 15%);
 }
 
-/* ==========================================
-   复选框组 (CheckboxGroupItem)
-   ========================================== */
 
-/*
- * 权限 / 多选组：auto-fit 网格铺满整行（含末行不满列时拉伸）。
- * 勿用固定 max-width + flex wrap，宽屏末列会空一截。
- */
+/* auto-fit fill; no max-width flex wrap */
 .checkbox-group-options {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
@@ -1393,7 +1300,7 @@ html.dark .setting-button-row .test-result.error {
   width: 100%;
 }
 
-/* 组内卡必须吃满格子；工具栏 action/stat 不在 .checkbox-group-options 内 */
+/* cards fill grid cells */
 .checkbox-group-options > .checkbox-group-card {
   width: 100%;
   max-width: none;
@@ -1401,7 +1308,6 @@ html.dark .setting-button-row .test-result.error {
   box-sizing: border-box;
 }
 
-/* Checkbox / 选项卡：内层 → 微透 */
 .checkbox-group-card {
   display: flex;
   flex-direction: column;
@@ -1435,7 +1341,6 @@ html.dark .setting-button-row .test-result.error {
   background: var(--cfg-accent-fill-hover);
 }
 
-/* 开启指示器 - 小圆点 */
 .checkbox-group-card-indicator {
   width: 0.375rem;
   height: 0.375rem;
@@ -1461,7 +1366,6 @@ html.dark .checkbox-group-card.active .checkbox-group-card-indicator {
     color-mix(in srgb, var(--cfg-accent, #60a5fa) 50%, transparent);
 }
 
-/* 标签行：圆点/图标 + 文本列（标题与说明左缘对齐） */
 .checkbox-group-card-header {
   display: flex;
   align-items: center;
@@ -1479,7 +1383,6 @@ html.dark .checkbox-group-card.active .checkbox-group-card-indicator {
   flex: 1 1 auto;
 }
 
-/* 有说明时：图标与标题首行对齐，不跟整块文本垂直居中 */
 .checkbox-group-card-header:has(.checkbox-group-card-desc) {
   align-items: flex-start;
 }
@@ -1488,11 +1391,9 @@ html.dark .checkbox-group-card.active .checkbox-group-card-indicator {
   > .checkbox-group-card-indicator,
 .checkbox-group-card-header:has(.checkbox-group-card-desc)
   > .checkbox-group-card-icon {
-  /* 与首行 0.8125rem / lh 1.2 视觉居中 */
   margin-top: 0.2rem;
 }
 
-/* 卡片图标（可选；与圆点并列） */
 .checkbox-group-card-icon {
   display: inline-flex;
   align-items: center;
@@ -1514,7 +1415,6 @@ html.dark .checkbox-group-card.active .checkbox-group-card-indicator {
   color: var(--cfg-accent-ink);
 }
 
-/* 卡片标签 */
 .checkbox-group-card-label {
   min-width: 0;
   font-size: 0.8125rem;
@@ -1529,7 +1429,6 @@ html.dark .checkbox-group-card.active .checkbox-group-card-indicator {
   color: var(--cfg-accent-ink);
 }
 
-/* 卡片说明 */
 .checkbox-group-card-desc {
   font-size: 0.6875rem;
   color: var(--cfg-text-2);
@@ -1541,11 +1440,7 @@ html.dark .checkbox-group-card-desc {
   color: var(--cfg-text-2);
 }
 
-/*
- * Dense list chip — same shell as ManagedList metric chips when on the top row
- * (height/padding overridden by .managed-list-top vars). Card language: dot + title + desc.
- * `--stat` is a legacy alias of `--sm`.
- */
+/* sm chip: ManagedList 顶栏指标。 */
 .checkbox-group-card--sm {
   justify-content: center;
   flex: 0 0 auto;
@@ -1573,7 +1468,7 @@ html.dark .checkbox-group-card-desc {
   gap: 0.3rem;
 }
 
-/* 标题↔说明间距：switch / action 共用同一 token */
+/* title/desc gap: same token as switch/action */
 .checkbox-group-card--sm .checkbox-group-card-text {
   gap: 0.1rem;
 }
@@ -1592,7 +1487,7 @@ html.dark .checkbox-group-card-desc {
   max-width: 100%;
 }
 
-/* ⓘ 不撑高标题行，与「刷新」首行行高一致 */
+/* ⓘ must not grow title line */
 .checkbox-group-card--sm .checkbox-group-card-label .setting-title-help {
   margin-left: 0;
   flex-shrink: 0;
@@ -1638,7 +1533,6 @@ html.dark .checkbox-group-card-desc {
   height: 0.85rem;
 }
 
-/* sm 有说明：圆点/图标贴标题首行中线（行高 0.72×1.25） */
 .checkbox-group-card--sm
   .checkbox-group-card-header:has(.checkbox-group-card-desc)
   > .checkbox-group-card-indicator {
@@ -1651,10 +1545,7 @@ html.dark .checkbox-group-card-desc {
   margin-top: 0.05rem;
 }
 
-/*
- * Action press chips (搜索 / 刷新 / 新建…):
- * not a sticky toggle — clear hover + press feedback.
- */
+/* press chips: hover/press, not sticky toggle */
 .checkbox-group-card--action {
   user-select: none;
   -webkit-tap-highlight-color: transparent;
@@ -1692,7 +1583,6 @@ html.dark .checkbox-group-card-desc {
   color: var(--cfg-accent-ink);
 }
 
-/* 所有 CheckboxCard（开关 / 操作）统一 focus-visible，不只 --action */
 .checkbox-group-card:focus-visible {
   outline: none;
   box-shadow:
@@ -1740,7 +1630,6 @@ html.dark .checkbox-group-card:focus-visible {
       color-mix(in srgb, var(--cfg-accent, #60a5fa) 50%, transparent);
 }
 
-/* —— Action tones (bulk retry / clear) —— */
 
 .checkbox-group-card--action.checkbox-group-card--tone-primary:hover:not(:disabled, .is-disabled) {
   border-color: var(--cfg-accent-line);
@@ -1763,7 +1652,6 @@ html.dark .checkbox-group-card:focus-visible {
   color: var(--cfg-accent-ink);
 }
 
-/* danger：与 btn-danger 同红系，但默认更克制；说明保持默认灰 */
 .checkbox-group-card--action.checkbox-group-card--tone-danger
   .checkbox-group-card-icon,
 .checkbox-group-card--action.checkbox-group-card--tone-danger
@@ -1862,7 +1750,6 @@ html.dark
   color: #fca5a5;
 }
 
-/* Dense action: allow press scale (sm used to force transform:none) */
 .checkbox-group-card--action.checkbox-group-card--sm:hover:not(:disabled) {
   transform: none;
 }
@@ -1872,10 +1759,7 @@ html.dark
   transform: scale(var(--sm-scale-press));
 }
 
-/*
- * Loading (refresh etc.): keep chip in place, spin icon, mild primary chrome.
- * Do not grey out like disabled — reads as “working”, not “broken”.
- */
+/* loading: spin in place; not disabled grey */
 .checkbox-group-card.is-loading {
   cursor: progress;
   pointer-events: none;
@@ -1929,7 +1813,6 @@ html.dark .checkbox-group-card-icon.is-spinning {
   color: var(--cfg-accent, #60a5fa);
 }
 
-/* danger loading：保持克制红系，不吃 primary 加载色 */
 .checkbox-group-card--action.checkbox-group-card--tone-danger.is-loading {
   border-color: rgb(239 68 68 / 42%);
   background: rgb(239 68 68 / 10%);
@@ -1971,14 +1854,10 @@ html.dark
 }
 
 .checkbox-group-card.is-loading.is-disabled {
-  /* loading wins over disabled grey */
   opacity: 1;
   cursor: progress;
 }
 
-/* ==========================================
-   数字输入组 (NumberGroupItem)
-   ========================================== */
 
 .number-group-options {
   display: grid;
@@ -2034,11 +1913,7 @@ html.dark .number-group-card:hover {
   word-break: break-word;
 }
 
-/*
- * 移动 / 窄栏：固定两列 minmax(0,1fr)，保证始终铺满行宽。
- * 末行只剩一张时跨满整行，避免半空。
- * 与桌面 auto-fit 解耦，窄屏不再靠「算得下几列」。
- */
+/* narrow: 2-col 1fr; last item spans */
 @media (width < 1024px) {
   .checkbox-group-options,
   .number-group-options {
@@ -2127,11 +2002,7 @@ html.dark .number-group-card-unit {
   color: var(--cfg-text-3);
 }
 
-/* ==========================================
-   紧凑布局适配 (config-compact-group)
-   ========================================== */
 
-/* 紧凑组：可换行；窄屏整行堆叠（单一真相源，覆盖 ConfigForm 旧 grid） */
 .config-compact-group {
   display: flex;
   flex-wrap: wrap;
@@ -2167,19 +2038,12 @@ html.dark .number-group-card-unit {
   }
 }
 
-/* ==========================================
-   按钮设置项 — 使用 SettingsButton，不再覆写 btn-* 皮肤
-   ========================================== */
 
 .setting-item-button.setting-vertical .setting-control {
   margin-top: 0;
 }
 
-/* ==========================================
-   统一开关 ToggleSwitch（平台卡 / OAuth / SwitchItem / Updater）
-   ========================================== */
 
-/* 开关 — OFF/ON 需在 light/dark 下都清晰可辨 */
 .toggle-switch {
   position: relative;
   display: inline-block;
@@ -2194,7 +2058,7 @@ html.dark .number-group-card-unit {
   height: 0;
 }
 
-/* OFF: 中性轨（token）+ 细边框，避免与 ON 混淆 */
+/* OFF: token rail; distinct from ON */
 .toggle-slider {
   position: absolute;
   cursor: pointer;
@@ -2202,8 +2066,6 @@ html.dark .number-group-card-unit {
   background-color: color-mix(in srgb, var(--cfg-text-3) 55%, transparent);
   border: 1.5px solid color-mix(in srgb, var(--cfg-text-3) 70%, transparent);
   box-shadow: inset 0 1px 2px rgb(0 0 0 / 14%);
-
-  /* 轨道换色与滑块位移同一档时长，开关整体像一个物件在动 */
   transition:
     background-color var(--sm-dur-base) var(--sm-ease-standard),
     border-color var(--sm-dur-base) var(--sm-ease-standard),
@@ -2220,8 +2082,6 @@ html.dark .number-group-card-unit {
   left: 2.5px;
   bottom: 2.5px;
   background-color: var(--cfg-frost-elevated-bg);
-
-  /* 滑块用回弹曲线：到位时有一下轻微过冲，是开关最主要的手感来源 */
   transition:
     transform var(--sm-dur-base) var(--sm-ease-spring),
     box-shadow var(--sm-dur-base) var(--sm-ease-standard);
@@ -2229,7 +2089,6 @@ html.dark .number-group-card-unit {
   box-shadow: 0 1px 3px rgb(0 0 0 / 28%);
 }
 
-/* ON: 主题渐变 + 更强光晕，与 OFF 灰轨形成鲜明对比 */
 .toggle-switch input:checked + .toggle-slider {
   background: linear-gradient(
     135deg,
@@ -2252,7 +2111,7 @@ html.dark .number-group-card-unit {
   outline-offset: 2px;
 }
 
-/* 深色模式 OFF：凹陷暗轨 + 可见边框，避免亮灰轨看起来像“已开” */
+/* dark OFF: inset rail + border; not lit like ON */
 html.dark .toggle-slider {
   background-color: color-mix(in srgb, var(--cfg-text-3) 42%, transparent);
   border-color: color-mix(in srgb, var(--cfg-text-3) 55%, transparent);
@@ -2294,7 +2153,6 @@ html.dark .toggle-switch.disabled .toggle-slider {
   box-shadow: none;
 }
 
-/* 悬停预告：关着时轨道/滑块先演一遍开启；开着时只加强光晕 */
 .toggle-switch.is-previewing:not(.disabled, :has(input:checked))
   .toggle-slider {
   background: linear-gradient(

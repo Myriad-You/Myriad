@@ -1,11 +1,17 @@
-/**
- * AI 配置区块
- * 使用通用设置组件重构
- */
-
+import type {
+  DiscordBotPhase,
+  DiscordBotStatus,
+  FeishuBotPhase,
+  FeishuBotStatus,
+  QqBotPhase,
+  QqBotStatus,
+  TelegramBotPhase,
+  TelegramBotStatus,
+} from '../../services/agent/agentApi'
 import type { OnboardingPageChrome } from '../agent/onboarding/onboardingTypes'
 import type { SettingOption } from '../settings/types'
 import type { VendorUsageId, VendorUsageMap } from './AiVendorSources'
+
 import {
   FaMicrophone,
   FaVolumeUp,
@@ -20,30 +26,13 @@ import {
   SiOpenai,
   SiOpenrouter,
 } from '@lib/icons'
-
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import {
   FACE_UPDATED_EVENT,
 } from '../../features/merope/events'
 import SiteMotionWorkbench from '../../features/merope/SiteMotionWorkbench'
-import { ChannelPairingPanel } from '../channel/ChannelPairingPanel'
-import {
-  discordOpenHref,
-  formatInboundTime,
-  telegramOpenHref,
-} from '../channel/channelPairing'
 import { agentService } from '../../services/agent'
-import type {
-  DiscordBotPhase,
-  DiscordBotStatus,
-  FeishuBotPhase,
-  FeishuBotStatus,
-  QqBotPhase,
-  QqBotStatus,
-  TelegramBotPhase,
-  TelegramBotStatus,
-} from '../../services/agent/agentApi'
 import { invalidatePublicConfigCache } from '../../utils/requestDedup'
 import { userFacingError } from '../../utils/userFacingError'
 import {
@@ -53,6 +42,12 @@ import {
 } from '../agent/meropeVitals'
 import { parseFlattenedPersona } from '../agent/onboarding/onboardingTypes'
 import PersonaOnboardingPage from '../agent/onboarding/PersonaOnboardingPage'
+import {
+  discordOpenHref,
+  formatInboundTime,
+  telegramOpenHref,
+} from '../channel/channelPairing'
+import { ChannelPairingPanel } from '../channel/ChannelPairingPanel'
 import {
   AutoHeight,
   guideDomProps,
@@ -96,11 +91,7 @@ interface ConfigField {
 const OPENAI_BASE_URL = 'https://api.openai.com/v1'
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 
-/**
- * 推断展示用的 Provider。
- * OpenRouter 是 OpenAI 兼容服务，后端仍以 provider=openai + openai_base_url 处理，
- * 因此这里根据 base_url 反推该高亮 OpenAI 还是 OpenRouter。
- */
+/** openai + openrouter.ai base_url displays as openrouter */
 function resolveProvider(rawProvider: string, openaiBaseUrl: string): string {
   if (
     rawProvider === 'openai' &&
@@ -112,14 +103,10 @@ function resolveProvider(rawProvider: string, openaiBaseUrl: string): string {
 }
 
 interface AiConfigSectionProps {
-  /** AI 配置字段数组 */
   configFields: ConfigField[]
-  /** 更新配置字段值 */
   updateValue: (key: string, value: string) => void
-  /** ui bag：Agent 人设总开关存在这里，控件挂在 Lite / Pro 旁边 */
   uiConfigFields: Array<{ key: string; value: string }>
   updateUiFieldValue: (key: string, value: string) => void
-  /** 语音测试回调 */
   onSpeechTest: () => Promise<{ success: boolean; message: string }>
   title: string
   icon: React.ReactNode
@@ -352,7 +339,6 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     string | null
   >(null)
 
-  // 辅助函数：获取配置字段值
   const getFieldValue = useCallback(
     (key: string, defaultValue = '') => {
       return configFields.find((f) => f.key === key)?.value || defaultValue
@@ -397,14 +383,12 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
   const imageSourceOptions = sourceOptions('image')
   const speechSourceOptions = sourceOptions('speech')
 
-  // 当前 AI Provider (标准模型)。OpenRouter 依据 base_url 从 openai 中区分出来，未配置时默认 OpenRouter
   const currentProvider = useMemo(() => {
     const raw = getFieldValue('provider')
     if (!raw) return 'openrouter'
     return resolveProvider(raw, getFieldValue('openai_base_url'))
   }, [getFieldValue])
 
-  // Lite 模型是否启用（关闭时回退 Standard）
   const liteEnabled = useMemo(() => {
     const val = getFieldValue('lite_enabled', 'false')
     return val === 'true' || val === '1'
@@ -430,23 +414,18 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     return resolveProvider(raw, getFieldValue('lite_openai_base_url'))
   }, [getFieldValue])
 
-  // Pro 模型是否启用（关闭时回退 Standard）
   const proEnabled = useMemo(() => {
     const val = getFieldValue('pro_enabled', 'false')
     return val === 'true' || val === '1'
   }, [getFieldValue])
 
-  // 当前 Pro AI Provider（同样未配置时默认 OpenRouter）
   const currentProProvider = useMemo(() => {
     const raw = getFieldValue('pro_provider')
     if (!raw) return 'openrouter'
     return resolveProvider(raw, getFieldValue('pro_openai_base_url'))
   }, [getFieldValue])
 
-  /**
-   * 切换 Provider。OpenRouter 落到 provider=openai，并切 base_url。
-   * 用户手填的自定义地址不覆盖。模型名不代填。
-   */
+  /** OpenRouter → provider=openai + base_url; never overwrite a custom URL; don't fill models */
   const handleProviderChange = useCallback(
     (providerKey: string, baseUrlKey: string, next: string) => {
       if (next === 'openrouter') {
@@ -457,7 +436,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       if (next === 'openai') {
         updateValue(providerKey, 'openai')
         const base = getFieldValue(baseUrlKey).trim().toLowerCase()
-        // OpenRouter → 官方；空地址和自定义兼容端点都不代填
+        // empty or custom endpoints: don't fill
         if (base.includes('openrouter.ai')) {
           updateValue(baseUrlKey, OPENAI_BASE_URL)
         }
@@ -520,7 +499,6 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       ? currentProProvider
       : ''
 
-  // 当前图片生成 Provider
   const currentImageProvider = useMemo(
     () => getFieldValue('ai_image_provider', 'openrouter'),
     [getFieldValue],
@@ -608,7 +586,6 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
         if (!hasVendorSpeech) updateValue('speech_provider', '')
         return
       }
-      // 只改源。转写/播报/音色不代填。
       updateValue('speech_source', slug)
       const source = vendorSources.find((item) => item.slug === slug)
       updateValue(
@@ -619,7 +596,6 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     [updateValue, vendorSources],
   )
 
-  // AI Provider 选项。OpenRouter 默认在前，其次 OpenAI 兼容，最后 Gemini
   const aiProviderOptions: SettingOption<string>[] = useMemo(
     () => [
       {
@@ -641,7 +617,6 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     ],
   )
 
-  // 图片生成 Provider 选项（OpenAI 兼容复用文本侧同名文案）
   const imageProviderOptions: SettingOption<string>[] = useMemo(
     () => [
       {
@@ -712,7 +687,6 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     [configFields, currentProProvider],
   )
 
-  // 处理语音测试
   const handleSpeechTest = useCallback(async () => {
     setSpeechTesting(true)
     setSpeechTestResult(null)
@@ -1048,7 +1022,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
 
   const personaCardCopy = useMemo(() => {
     if (!meropeOn || !hasSavedPersona) return null
-    const summary = parseFlattenedPersona(personality).summary.replace(/\s+/g, ' ').trim()
+    const summary = parseFlattenedPersona(personality).summary.replaceAll(/\s+/g, ' ').trim()
     return {
       summary,
       mood: vitalsReady ? o.mood[moodBand(mood, arousal)] : '—',
@@ -1763,7 +1737,6 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
         <AgentOptionsPanel />
       </SettingGroup>
 
-      {/* 图片生成模型 */}
       <SettingGroup
         title={t.config.aiImageTitle}
         icon={<LuPalette />}
@@ -1804,7 +1777,6 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
         />
       </SettingGroup>
 
-      {/* 语音服务配置 */}
       <SettingGroup
         title={t.config.speechServiceTitle}
         icon={<FaMicrophone />}

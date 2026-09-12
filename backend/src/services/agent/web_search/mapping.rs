@@ -242,7 +242,7 @@ pub fn hits_to_web_search_results(hits: &[SearchHit], max: usize) -> Vec<Value> 
                 "name": hit.title,
                 "url": hit.url,
                 "description": if hit.snippet.is_empty() {
-                    format!("来源: {}", hit.site_name)
+                    format!("Source: {}", hit.site_name)
                 } else {
                     hit.snippet.clone()
                 },
@@ -314,11 +314,11 @@ pub fn hits_to_reading_list(
                     },
                     "author": "",
                     "publishedAt": hit.date.clone().unwrap_or_default(),
-                    "relevanceReason": "联网搜索结果",
+                    "relevanceReason": "Web search result",
                 }),
                 index,
                 "",
-                "联网搜索结果",
+                "Web search result",
             )
         })
         .collect()
@@ -338,7 +338,7 @@ pub fn normalize_reading_list_item(
     item["id"] = json!(id);
 
     if json_str(&item, "title").is_empty() {
-        item["title"] = json!("未知标题");
+        item["title"] = json!("Untitled");
     }
 
     let link = json_str(&item, "link").to_string();
@@ -546,7 +546,7 @@ mod tests {
         )
         .expect("cleaned google redirect");
         assert_eq!(ok["id"], 3);
-        assert_eq!(ok["title"], "未知标题");
+        assert_eq!(ok["title"], "Untitled");
         assert_eq!(ok["link"], "https://example.com/post");
         assert_eq!(ok["sourceName"], "example.com");
         assert_eq!(ok["publishedAt"], "2026-09-05T00:00:00Z");

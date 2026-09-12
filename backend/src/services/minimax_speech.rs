@@ -82,7 +82,7 @@ pub fn map_speed(tencent_speed: Option<f32>) -> f32 {
     (1.0 + raw * 0.25).clamp(0.5, 2.0)
 }
 
-/// Tencent-shaped volume `[-10, 10]` (0 = unity) → MiniMax `(0, 10]`.
+/// Tencent-shaped volume `[-10, 10]` (0 = unity) → MiniMax vol; Tencent ±10 maps ~0.1..2.0.
 pub fn map_volume(tencent_volume: Option<f32>) -> f32 {
     let raw = tencent_volume.unwrap_or(0.0);
     (1.0 + raw * 0.1).clamp(0.1, 10.0)

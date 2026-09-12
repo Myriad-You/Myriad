@@ -1,8 +1,3 @@
-/**
- * 首页视图组件
- * 显示可视化编辑的小组件网格
- */
-
 import type { ReactNode } from 'react'
 import type {
   WidgetConfig,
@@ -119,19 +114,18 @@ function HomeStatusBarSlot({
 }
 
 export default function Home() {
-  // 🆕 初始化首页调度器（Visibility + Resize + RAF + Idle）
   useHomeScheduler()
 
   const { isAuthenticated, hasChecked, checkAuth, isAdmin } = useAuth()
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const navigate = useNavigate()
   const isPageReady = usePageReady()
-  // 与 WidgetGrid 列档同一套 viewportBands（phone≤767 / tablet / desktop≥1078）
+  // Same viewportBands as WidgetGrid (phone≤767 / desktop≥1078).
   const { isMobile: isPhoneBand } = useBreakpoints()
   const isDesktopBand = useDesktopLayoutBand()
   const isNotPhoneBand = !isPhoneBand
 
-  // 站级 title/description；固定 canonical 为 /
+  // Site title/description; canonical is always /.
   usePageSeo(useMemo(() => buildHomePageSeo(), []))
   const [layouts, setLayouts] = useState<HomeDashboardLayouts>({
     standard: [],
@@ -198,22 +192,18 @@ export default function Home() {
     },
     [],
   )
-  // 站长资料：HTTP 层缓存 + avatar-changed 强制 no-store 刷新，换头像来源后立即同步
+  // HTTP cache; avatar-changed forces no-store.
   const { profile: userInfo, avatarEpoch } = useSiteOwnerProfile({
     fallbackName: 'Myriad Dashboard',
     fallbackBio: t.home.defaultBio,
   })
-  // 空字符串代表「尚未拿到服务端真实值」，不用写死的 'Dashboard' 占位
-  // 文本，避免每个访客首次加载都要闪一下错误文字再跳到真实标题
+  // '' = server value not yet loaded; never flash a hardcoded 'Dashboard'.
   const [dashboardTitle, setDashboardTitle] = useState('')
   const [csrfToken, setCsrfToken] = useState<string>('')
 
-  // 标题字体 Hook
   const { currentFont, titleFontSize } = useTitleFont()
-  // 自适应色对齐 Tapp 音乐播放器歌词：对比度推导，随主题/壁纸色更新
   const titleColorCss = useResolvedTitleColor()
 
-  // 默认小组件布局
   const DEFAULT_WIDGETS: WidgetConfig[] = useMemo(
     () => [
       {
@@ -238,16 +228,13 @@ export default function Home() {
     [],
   )
 
-  // Shared built-in catalog (same source as Control Panel)
   const AVAILABLE_WIDGETS: WidgetType[] = useMemo(
     () => getBuiltinWidgets(t.widgets, 'home'),
     [t.widgets],
   )
 
-  // 获取 Tapp 注册的小组件
   const { tappWidgets, isLoading: isTappWidgetsLoading } = useTappWidgets()
 
-  // 合并系统小组件和 Tapp 小组件
   const ALL_AVAILABLE_WIDGETS = useMemo(() => {
     return [...AVAILABLE_WIDGETS, ...tappWidgets]
   }, [AVAILABLE_WIDGETS, tappWidgets])
@@ -283,15 +270,13 @@ export default function Home() {
   const [stickerError, setStickerError] = useState('')
   const showHomeAdminActions = Boolean(isAdmin && isDesktopBand)
 
-  // 智能检测：如果有登录迹象（会话提示标志），主动检查认证状态
   useEffect(() => {
     if (!hasChecked && hasSessionHint()) {
-      // 检测到可能存在活跃会话，触发认证检查
       checkAuth()
     }
   }, [hasChecked, checkAuth])
 
-  // 登录后获取 CSRF Token（强制从服务器拉，避免与 axios 轮换后的双缓存脱节）
+  // Force server CSRF; avoid dual-cache drift after axios rotation.
   useEffect(() => {
     async function fetchCsrfToken() {
       if (isAuthenticated && hasChecked) {
@@ -304,33 +289,26 @@ export default function Home() {
             setCsrfToken(token)
           }
         } catch {
-          // CSRF Token 获取失败时静默处理
+          // CSRF fetch is best-effort.
         }
       }
     }
     fetchCsrfToken()
   }, [isAuthenticated, hasChecked])
 
-  // 从后端加载小组件配置（使用去重机制）
-  // 存储原始布局数据，用于 Tapp widgets 加载后重新验证
   const [rawLayouts, setRawLayouts] = useState<HomeDashboardLayouts | null>(
     null,
   )
-  // 首屏 applyLayouts 会 await 预热；Tapp 注册表就绪后的恢复必须能作废
-  // 那次迟到的 setLayouts，否则缓存命中时第三方格子会被滤空结果盖掉。
+  // Invalidate a late first-paint setLayouts once the Tapp registry is ready.
   const layoutApplyGenerationRef = useRef(0)
 
-  // motion 与配置请求并行；网格入场依赖真 motion，避免 shim 攒帧闪现
+  // Motion loads with config; grid entry needs real motion, not shim frames.
   useEffect(() => {
     void ensureMotionReady()
   }, [])
 
   useEffect(() => {
-    // 挂载网格前预热：
-    // - 布局内 lazy 小组件（shared Promise）
-    // - 若含 report-*：整包报告卡（壳+全平台 face，禁止渲染期再拆）
-    // - motion/react
-    // 3s 超时兜底。
+    // Preload lazy widgets + report-card pack before mount (3s cap). report-* must not split during render.
     const fallbackLayouts = (): HomeDashboardLayouts => ({
       standard: DEFAULT_WIDGETS,
       free: cloneHomeWidgets(DEFAULT_WIDGETS),
@@ -373,8 +351,7 @@ export default function Home() {
           try {
             const parsed = parseDashboardLayoutJson(data.dashboard_layout)
             setRawLayouts(parsed)
-            // 首屏不按注册表过滤：此时 Tapp 类型几乎总是还没进 catalog。
-            // WidgetGrid 对未知类型已有占位；控制面板同样先原样落布局。
+            // First paint: do not filter by registry; unknown types already have placeholders.
             await applyLayouts(
               homeLayoutsHaveTiles(parsed)
                 ? layoutsForFirstPaint(parsed)
@@ -401,7 +378,6 @@ export default function Home() {
     loadDashboardConfig()
   }, [])
 
-  // 当 Tapp widgets 加载完成后，重新验证布局中的小组件
   useEffect(() => {
     if (isTappWidgetsLoading || !rawLayouts || tappWidgets.length === 0) return
 
@@ -537,10 +513,9 @@ export default function Home() {
         clearDedupCache(`${API_URL}/api/config/ui`)
         if (restored.failed.length > 0) {
           showWarning(
-            t.home.importLayoutPartial.replace(
-              '{count}',
-              String(restored.failed.length),
-            ),
+            format(t.home.importLayoutPartial, {
+              count: restored.failed.length,
+            }),
           )
         } else {
           showSuccess(t.home.importLayoutSuccess)
@@ -552,7 +527,7 @@ export default function Home() {
         layoutImportInFlightRef.current = false
       }
     },
-    [csrfToken, isAdmin, t],
+    [csrfToken, isAdmin, t, format],
   )
 
   const handleLayoutModeToggle = () => {
@@ -586,7 +561,7 @@ export default function Home() {
     }, 180)
   }
 
-  // 保存小组件配置到后端（防抖 500ms，与控制面板一致；UI 立即更新）
+  // Debounce 500ms (same as control panel); UI updates immediately.
   const handleWidgetsChange = (newWidgets: WidgetConfig[]) => {
     if (layoutImportInFlightRef.current) return
     const registeredWidgetIds = new Set(ALL_AVAILABLE_WIDGETS.map((w) => w.id))
@@ -731,11 +706,9 @@ export default function Home() {
     }
   }
 
-  // 保存标题
   const handleTitleChange = async (newTitle: string) => {
     setDashboardTitle(newTitle)
 
-    // 只有管理员可以保存
     if (!isAdmin) return
 
     try {
@@ -766,8 +739,7 @@ export default function Home() {
     }
   }
 
-  // SocialNetworkWidget now persists custom platforms itself (with CSRF + ok check).
-  // Keep a hardened fallback for any other publisher that only dispatches the event.
+  // Widget persists itself; fallback only if the event was not persisted.
   useEffect(() => {
     const handleCustomPlatformsUpdate = async (event: Event) => {
       const customEvent = event as CustomEvent<{
@@ -838,7 +810,6 @@ export default function Home() {
     >
       <div className="home-shell__inner h-full flex flex-col">
         <div className="home-shell__stage flex-1 mx-auto w-full flex flex-col gap-4 relative min-h-0">
-          {/* 小组件网格区域 - 占满整个可用空间 */}
           <WidgetLibraryIsland
             visible={isEditMode && isDesktopBand}
             availableWidgets={ALL_AVAILABLE_WIDGETS}
@@ -927,14 +898,13 @@ export default function Home() {
                     delay: isPageReady ? 0.1 : 0,
                   }}
                 >
-                  {/* 用户信息卡片：编辑槽位 0fr↔1fr，条子 fit-content 跟着变长 */}
                   <div className="home-status-bar glass shadow-sm">
                     <div className="home-status-bar__row">
                       {userInfo ? (
                         <>
                           <div className="w-8 h-8 rounded-full overflow-hidden border border-gray-200 dark:border-white/10">
                             <Avatar
-                              // avatarEpoch：强制刷新后即使代理 URL 未变也 remount，避开 <img> 磁盘缓存
+                              // Remount on avatarEpoch so <img> disk cache cannot keep the old proxy URL.
                               key={`${userInfo.avatar ?? ''}:${avatarEpoch}`}
                               src={userInfo.avatar}
                               name={userInfo.name}
@@ -962,7 +932,7 @@ export default function Home() {
                         </div>
                       )}
 
-                      {/* 编辑按钮 - 管理员 + desktop 档（≥1078，与 16 列网格同阈值） */}
+                      {/* Admin + desktop band (≥1078, same threshold as 16-col grid). */}
                       {showHomeAdminActions && (
                         <div className="home-status-bar__actions">
                           <div className="home-status-bar__sep" />

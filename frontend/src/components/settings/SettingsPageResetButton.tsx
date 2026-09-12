@@ -1,7 +1,3 @@
-/**
- * 设置页右上角「重置本页」：CheckboxCard 原地二次确认（默认灰 / hover 红 / 无弹窗）
- */
-
 import { FaUndo } from '@lib/icons'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
@@ -75,7 +71,6 @@ export const SettingsPageResetButton: React.FC<SettingsPageResetButtonProps> = (
     arm()
   }, [disabled, busy, armed, arm, runReset])
 
-  // 点外侧取消武装
   useEffect(() => {
     if (!armed) return
     const onPointerDown = (e: PointerEvent) => {

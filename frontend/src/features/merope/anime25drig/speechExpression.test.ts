@@ -3,7 +3,6 @@ import test from 'node:test'
 import { completeBehaviorQuality } from './behaviorMotion'
 import { CoSpeechExpressionController } from './speechExpression'
 
-/** 不带 authored energy 的那一路：直接把三个包络喂进 writeOffset。 */
 function envelopeOnly(
   expression: CoSpeechExpressionController,
   phraseActivity: number,
@@ -93,7 +92,6 @@ test('derives a delayed visual beat from authored energy without frame allocatio
   const expression = new CoSpeechExpressionController()
   const neutral = expression.sample(0, true, 0, 0, 0, 0)
   const onset = expression.sample(0.1, true, 0.8, 0, 0, 0)
-  // Same points of the accent's own shape as before; its arrival doubled.
   const browLead = { ...expression.sample(0.18, true, 0.8, 0, 0, 0) }
   const headFollow = { ...expression.sample(0.26, true, 0.8, 0, 0, 0) }
 
@@ -153,8 +151,6 @@ test('a suppressed TTS accent cannot reappear as a generic head beat', () => {
   let largestPitch = 0
   for (let frame = 0; frame < 60; frame++) {
     const now = frame / 60
-    // Loudness is still allowed to animate the mouth/activity, but must not
-    // recreate the beat explicitly removed by semantic deduplication.
     const pose = expression.sample(now, true, now >= 0.35 ? 0.8 : 0.2, 0, 0, 0)
     largestPitch = Math.max(largestPitch, Math.abs(pose.angleY))
   }

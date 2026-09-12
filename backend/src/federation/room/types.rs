@@ -80,7 +80,7 @@ pub struct SendRoomMessageRequest {
     pub payload: serde_json::Value,
     pub thread_id: Option<String>,
     pub reply_to: Option<String>,
-    /// 是否使用 Room E2E 多方加密（需成员已完成密钥发布）
+    /// 是否尝试 Room E2E；无对端密钥时降级明文
     #[serde(default)]
     pub encrypt: Option<bool>,
 }
@@ -225,10 +225,10 @@ pub struct PinRoomMessageRequest {
 }
 
 /// Add a sticker to the room shared pack (`shared_data_config.stickers`).
-/// Opt-in group share — any active member may publish their own images.
+/// Pack edit is owner/admin only; active members can send stickers.
 #[derive(Debug, Deserialize)]
 pub struct AddRoomStickerRequest {
-    /// data:image/*;base64,... (already client-compressed)
+    /// `data:image/` prefix; length-capped in the handler
     pub data: String,
     pub name: Option<String>,
 }

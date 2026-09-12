@@ -1,24 +1,3 @@
-/**
- * Federation Bridge — Tapp 运行时联邦能力桥接
- *
- * 为 Tapp 沙箱提供联邦 API 访问能力
- * 通过 TappBridge 消息机制暴露受限的联邦操作
- *
- * 支持的操作域：
- * - federation.getIdentity / rotateKeys — 联邦身份与显式密钥轮换（confirm:true）
- * - federation.timeline — 读取联邦时间线
- * - federation.follow / unfollow — 关注管理
- * - federation.channels — Channel 读取与消息发送
- * - federation.rooms — Room 读取与消息发送
- * - federation.rings — Ring 信息读取
- * - federation.publish / unpublish — 内容发布管理
- * - federation.trust — 实例信任策略管理
- * - federation.delivery* — stats/list/retry/cancel/dismiss/purge（bulk retry 跳过 cancelled: dead）
- * - federation.transfers — 文件传输
- * - federation.subscribeChannel / subscribeRoom — WS 实时事件订阅
- *   (mint one-time `tapp_ws_ticket` via grant-authenticated REST, then upgrade)
- */
-
 import type { ComposeXShareRequest } from '../../services/xShareApi'
 import type { TappInstance, TappMessage } from '../types'
 import type { TappBridge } from './TappBridge'
@@ -37,26 +16,8 @@ import {
   isValidFederationMediaUrl,
 } from '../utils/federationMediaUrl'
 
-/**
- * 访客闸 —— 确定未登录时，per-user 的联邦读取不必真发请求。
- *
- * 背景：Aro 这类后台通知型 Tapp 会以 core 模式在首页常驻轮询
- * getChannels/getRooms。访客根本没有私信和房间，这些请求只可能拿到
- * 401，却每 15 秒重复一次、每个访客每个页面都来一遍——网络面板和
- * 服务端日志里全是红的，还白白占限流额度。
- *
- * 刻意只盖 Channel/Room 的读取：它们天然是「我的会话」，语义上访客一定
- * 为空；时间线、关注列表、Ring 这些可能有公开语义，不在此列。写操作也
- * 不盖——那些由用户动作触发，不会空转，真失败了该让调用方看见原因。
- *
- * fail-open：只有 isKnownGuest() 为 true（/api/auth/me 给出确定答案）
- * 才短路；状态未知一律照旧走网络，绝不误挡真实用户。鉴权仍在后端。
- */
-/**
- * 返回「空成功」而非错误：访客没有会话是正常状态，不是故障。
- * Aro 的 loadConversations 在两个列表都 reject 时会弹错误横幅，
- * 空列表才是它期望的访客表现。
- */
+/** 确定访客时短路 Channel/Room 读。仅 isKnownGuest() 为 true 才短路；未知一律走网络。鉴权仍在后端。 */
+/** 访客无会话返回空成功，不是错误。 */
 function guestEmptyChannels() {
   return { success: true as const, data: { channels: [], total: 0 } }
 }
@@ -79,7 +40,6 @@ function opFailed(fallback = currentCopy().errors.federationActionFailed) {
   }
 }
 
-/** Map API failures for Tapp sandbox — preserve ROOM_INVITE_PENDING etc. */
 function federationFail(error: unknown, fallback: string) {
   if (error instanceof ApiError) {
     return {
@@ -87,7 +47,6 @@ function federationFail(error: unknown, fallback: string) {
       error: userFacingError(error, fallback),
       code: error.code,
       status: error.status,
-      // Pending invite: Aro can show accept/reject instead of generic 403
       membership_status:
         error.code === 'ROOM_INVITE_PENDING' ? ('pending' as const) : undefined,
     }
@@ -98,7 +57,6 @@ function federationFail(error: unknown, fallback: string) {
   }
 }
 
-/** Convert a data URL or raw base64 string to a Blob for multipart upload. */
 function dataUrlOrBase64ToBlob(data: string, fallbackMime: string): Blob {
   let mime = fallbackMime
   let b64 = data
@@ -113,16 +71,10 @@ function dataUrlOrBase64ToBlob(data: string, fallbackMime: string): Blob {
   return new Blob([bytes], { type: mime })
 }
 
-/**
- * 注册联邦处理器到 TappBridge
- *
- * 返回 cleanup 函数 — 调用以关闭由该 bridge 持有的所有 WebSocket 订阅。
- */
 export function registerFederationHandlers(
   bridge: TappBridge,
   _tappInstance: TappInstance,
 ): () => void {
-  // 此 bridge 持有的实时订阅
   const channelSockets = new Map<string, WebSocket>()
   const roomSockets = new Map<string, WebSocket>()
 
@@ -130,7 +82,6 @@ export function registerFederationHandlers(
     try {
       ws.close()
     } catch {
-      /* ignore */
     }
   }
 
@@ -141,7 +92,6 @@ export function registerFederationHandlers(
     roomSockets.clear()
   }
 
-  /** Normalize WS/HTTP publicKey vs public_key for E2E consumers. */
   const pickPublicKey = (data: Record<string, unknown>): string | undefined => {
     const camel = data.publicKey
     const snake = data.public_key
@@ -167,13 +117,11 @@ export function registerFederationHandlers(
               event: 'closed',
             })
           } else if (data.type === 'channel_accepted') {
-            // Remote accepted our pending ChannelOpen — unlock Aro composer.
             bridge.emit('federation:channelUpdate', {
               channelId,
               event: 'accepted',
             })
           } else if (data.type === 'key_exchange') {
-            // Typed E2E key fan-out (WS uses publicKey; HTTP uses public_key).
             const publicKey = pickPublicKey(data as Record<string, unknown>)
             bridge.emit('federation:channelUpdate', {
               channelId,
@@ -188,7 +136,6 @@ export function registerFederationHandlers(
           }
         }
       } catch {
-        /* ignore non-JSON */
       }
     })
     ws.addEventListener('close', () => {
@@ -228,7 +175,6 @@ export function registerFederationHandlers(
               event: 'deleted',
             })
           } else if (data.type === 'key_exchange') {
-            // Room E2E: refresh published_keys via typed roomUpdate (not raw message only).
             const publicKey = pickPublicKey(data as Record<string, unknown>)
             bridge.emit('federation:roomUpdate', {
               roomId,
@@ -255,7 +201,6 @@ export function registerFederationHandlers(
           }
         }
       } catch {
-        /* ignore non-JSON */
       }
     })
     ws.addEventListener('close', () => {
@@ -265,11 +210,7 @@ export function registerFederationHandlers(
     })
   }
 
-  // 身份
-
   bridge.registerHandler('federation.getIdentity', async () => {
-    // Prefer grant-attributed call; session-only works for this endpoint and
-    // unblocks Aro after runtime-grant destroy/mint failures.
     try {
       try {
         const runtimeGrant = await bridge.getRuntimeGrant()
@@ -288,10 +229,7 @@ export function registerFederationHandlers(
     }
   })
 
-  /**
-   * Explicit key rotation — mirrors POST /api/federation/keys/rotate.
-   * Payload: [confirm] where confirm must be boolean true (UI confirm gate).
-   */
+  /** 显式密钥轮换。payload confirm 必须为 true。 */
   bridge.registerHandler(
     'federation.rotateKeys',
     async (message: TappMessage) => {
@@ -314,8 +252,6 @@ export function registerFederationHandlers(
       }
     },
   )
-
-  // 时间线
 
   bridge.registerHandler('federation.getFeed', async () => {
     try {
@@ -379,8 +315,6 @@ export function registerFederationHandlers(
     },
   )
 
-  // 关注管理
-
   bridge.registerHandler('federation.follow', async (message: TappMessage) => {
     const [target] = (message.payload as { args: unknown[] }).args || []
     if (!target || typeof target !== 'string')
@@ -442,8 +376,6 @@ export function registerFederationHandlers(
     }
   })
 
-  // 内容发布
-
   bridge.registerHandler('federation.publish', async (message: TappMessage) => {
     const [req] = (message.payload as { args: unknown[] }).args || []
     if (!req) return missingArg()
@@ -493,11 +425,10 @@ export function registerFederationHandlers(
         return missingArg()
       try {
         const noteReq = req as Parameters<typeof federationApi.createNote>[0]
-        // Align with backend federation/limits.rs hard caps (fail early)
         const NOTE_TEXT_CHAR_LIMIT = 100_000
         const NOTE_ATTACHMENT_COUNT_LIMIT = 32
         const text = typeof noteReq.text === 'string' ? noteReq.text : ''
-        if ([...text].length > NOTE_TEXT_CHAR_LIMIT) {
+        if (Iterator.from(text).reduce((n: number) => n + 1, 0) > NOTE_TEXT_CHAR_LIMIT) {
           return {
             success: false,
             error: currentCopy().errors.agentInputTooLong,
@@ -623,8 +554,7 @@ export function registerFederationHandlers(
     }
   })
 
-  // External share intent (X Web Intent only)
-  // Compose share text + intent_url. Never posts server-side; user opens intent_url.
+  // 只拼 share 文本 + intent_url；不服务端发帖。
 
   bridge.registerHandler('federation.getExternalShareStatus', async () => {
     try {
@@ -665,7 +595,6 @@ export function registerFederationHandlers(
           max_length:
             typeof body.max_length === 'number' ? body.max_length : undefined,
         })
-        // Explicitly refuse post mode if backend ever changes (defense in depth).
         if (data && (data as { can_post?: boolean }).can_post === true) {
           return {
             success: false,
@@ -767,24 +696,17 @@ export function registerFederationHandlers(
     }
   })
 
-  // Channel
-
   bridge.registerHandler('federation.getChannels', async () => {
     try {
-      // Channels require a durable user session. Guests would only get 401s.
-      // 改用 authState 的权威结论：此前这里读 hasSessionHint()，那是
-      // localStorage 启发式，fail-closed——已登录但清过 localStorage 的
-      // 用户会拿到空会话列表。现在只有确定是访客才短路，未知一律放行。
       if (isKnownGuest()) return guestEmptyChannels()
       const runtimeGrant = await bridge.getRuntimeGrant()
       const data = await federationApi.getChannels(runtimeGrant)
       return { success: true, data }
     } catch (error) {
-      // Expired JWT with a stale session hint still 401s — treat as empty for guests.
       const status =
         error &&
         typeof error === 'object' &&
-        'status' in error &&
+        Object.hasOwn(error, 'status') &&
         typeof (error as { status: unknown }).status === 'number'
           ? (error as { status: number }).status
           : undefined
@@ -981,22 +903,17 @@ export function registerFederationHandlers(
     },
   )
 
-  // Room
-
   bridge.registerHandler('federation.getRooms', async () => {
     try {
-      // 与 getChannels 同理：房间是 per-user 的，访客必然 401。
-      // 线上实测这里被 Aro 的后台轮询每 15s 打一次，每个访客每个页面都在红。
       if (isKnownGuest()) return guestEmptyRooms()
       const runtimeGrant = await bridge.getRuntimeGrant()
       const data = await federationApi.getRooms(runtimeGrant)
       return { success: true, data }
     } catch (error) {
-      // 会话过期（hint 还在）同样按空列表处理，与 getChannels 对齐
       const status =
         error &&
         typeof error === 'object' &&
-        'status' in error &&
+        Object.hasOwn(error, 'status') &&
         typeof (error as { status: unknown }).status === 'number'
           ? (error as { status: number }).status
           : undefined
@@ -1235,7 +1152,6 @@ export function registerFederationHandlers(
           channelId,
           runtimeGrant,
         )
-        // HTTP uses public_key; dual-emit camelCase + typed channelUpdate for UI refresh.
         const publicKey =
           (data as { public_key?: string; publicKey?: string }).public_key ||
           (data as { publicKey?: string }).publicKey
@@ -1268,7 +1184,6 @@ export function registerFederationHandlers(
       try {
         const runtimeGrant = await bridge.getRuntimeGrant()
         const data = await federationApi.initiateRoomE2e(roomId, runtimeGrant)
-        // HTTP snake_case → dual publicKey; typed roomUpdate so UI can refresh published_keys.
         const publicKey =
           (data as { public_key?: string; publicKey?: string }).public_key ||
           (data as { publicKey?: string }).publicKey
@@ -1404,8 +1319,6 @@ export function registerFederationHandlers(
     },
   )
 
-  // Pin Room Message
-
   bridge.registerHandler(
     'federation.pinRoomMessage',
     async (message: TappMessage) => {
@@ -1436,8 +1349,6 @@ export function registerFederationHandlers(
       }
     },
   )
-
-  // Ring (只读)
 
   bridge.registerHandler('federation.getRings', async () => {
     try {
@@ -1584,8 +1495,6 @@ export function registerFederationHandlers(
     },
   )
 
-  // Trust 策略管理
-
   bridge.registerHandler('federation.getTrustPolicy', async () => {
     try {
       const runtimeGrant = await bridge.getRuntimeGrant()
@@ -1683,7 +1592,6 @@ export function registerFederationHandlers(
     'federation.cancelDelivery',
     async (message: TappMessage) => {
       const [queueIdRaw] = (message.payload as { args: unknown[] }).args || []
-      // Sandbox may pass string ids from data attributes; accept number | numeric string.
       const queueId =
         typeof queueIdRaw === 'number'
           ? queueIdRaw
@@ -1886,8 +1794,6 @@ export function registerFederationHandlers(
     },
   )
 
-  // 文件传输
-
   bridge.registerHandler(
     'federation.initiateTransfer',
     async (message: TappMessage) => {
@@ -2035,10 +1941,7 @@ export function registerFederationHandlers(
     },
   )
 
-  /**
-   * Download a completed channel transfer and trigger a browser save dialog
-   * in the host document (sandbox cannot reliably stream multi-MB blobs alone).
-   */
+  /** 在宿主文档触发保存；沙箱不能可靠地流式传输数 MB blob。 */
   bridge.registerHandler(
     'federation.downloadTransfer',
     async (message: TappMessage) => {
@@ -2047,14 +1950,12 @@ export function registerFederationHandlers(
         return missingArg()
       try {
         const runtimeGrant = await bridge.getRuntimeGrant()
-        // Prefer status check for clearer errors before streaming large bodies
         try {
           const meta = await federationApi.getTransfer(transferId, runtimeGrant)
           if (meta && meta.status && meta.status !== 'completed') {
             return opFailed(currentCopy().errors.transferNotReady)
           }
         } catch {
-          // fall through — content endpoint will return a precise error
         }
 
         const { blob, filename, contentType } =
@@ -2075,7 +1976,6 @@ export function registerFederationHandlers(
           a.click()
           a.remove()
         } finally {
-          // Revoke after the browser has a chance to start the download
           setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
         }
 
@@ -2145,8 +2045,6 @@ export function registerFederationHandlers(
     },
   )
 
-  // WS 实时事件订阅
-
   bridge.registerHandler(
     'federation.subscribeChannel',
     async (message: TappMessage) => {
@@ -2166,8 +2064,7 @@ export function registerFederationHandlers(
         safeClose(current)
       }
       try {
-        // Browser WS cannot carry X-Tapp-Runtime-Grant; mint a one-time ticket
-        // over REST with the grant, then present it on the upgrade URL.
+        // 浏览器 WS 不能带 X-Tapp-Runtime-Grant；发一次性 ticket。
         const runtimeGrant = await bridge.getRuntimeGrant()
         const { ticket } = await federationApi.mintChannelWsTicket(
           channelId,

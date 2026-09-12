@@ -1467,8 +1467,8 @@ start_backend() {
 
     ensure_backend_env || return 1
 
-    local -a run_cmd=(cargo run)
-    [[ "$CARGO_RELEASE" -eq 1 ]] && run_cmd=(cargo run --release)
+    local -a run_cmd=(env MYRIAD_PROCESS_ROLE=all cargo run)
+    [[ "$CARGO_RELEASE" -eq 1 ]] && run_cmd=(env MYRIAD_PROCESS_ROLE=all cargo run --release)
     local updater_url="http://127.0.0.1:1104"
     local gw_secret=""
     local inject_updater=0
@@ -1561,15 +1561,27 @@ stop_backend() {
     print_success "Backend stopped"
 }
 
+# True when node_modules is missing or older than the lockfile / workspace
+# config. Directory existence is not enough: after a pull or merge, pnpm 11
+# will try to heal itself inside `pnpm run` and abort without a TTY.
+frontend_deps_stale() {
+    [[ ! -d "$FRONTEND_DIR/node_modules" ]] && return 0
+    local stamp="$FRONTEND_DIR/node_modules/.modules.yaml"
+    [[ ! -f "$stamp" ]] && return 0
+    local f
+    for f in "$FRONTEND_DIR/pnpm-lock.yaml" "$FRONTEND_DIR/package.json" "$FRONTEND_DIR/pnpm-workspace.yaml"; do
+        if [[ -f "$f" && "$f" -nt "$stamp" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 ensure_frontend_deps() {
     [[ "$SKIP_INSTALL" -eq 1 ]] && return 0
-    [[ -d "$FRONTEND_DIR/node_modules" ]] && return 0
-    if [[ "$DEV_START_NOWAIT" -eq 1 ]]; then
-        print_error "frontend/node_modules missing — run: (cd frontend && pnpm install)"
-        return 1
-    fi
+    frontend_deps_stale || return 0
     print_step "Installing frontend dependencies…"
-    ( cd "$FRONTEND_DIR" && pnpm install ) || return 1
+    ( cd "$FRONTEND_DIR" && pnpm install --yes ) || return 1
 }
 
 start_frontend() {
@@ -1582,6 +1594,10 @@ start_frontend() {
     fi
 
     ensure_frontend_deps || return 1
+    # After a lockfile install the dep browserHash changes; leftover
+    # node_modules/.vite then 504s "Outdated Optimize Dep" and lazy routes
+    # (Brew.tsx) fail to fetch. Server is down here, so the wipe is safe.
+    clear_vite_cache
 
     if [[ "$DEV_START_BG" -eq 1 ]]; then
         launch_logged "$FRONTEND_DIR" "$PROJECT_ROOT/frontend.log" pnpm run dev
@@ -1589,19 +1605,33 @@ start_frontend() {
         return 0
     fi
 
+    local opened=0
     if [[ "$OSTYPE" == "darwin"* ]]; then
-        osascript -e 'tell application "Terminal" to do script "cd '"$FRONTEND_DIR"' && echo \"* Myriad Frontend\" && pnpm run dev"' 2>/dev/null
+        osascript -e 'tell application "Terminal" to do script "cd '"$FRONTEND_DIR"' && echo \"* Myriad Frontend\" && pnpm run dev"' >/dev/null 2>&1 && opened=1
     elif command -v gnome-terminal &> /dev/null; then
-        gnome-terminal -- bash -c "cd '$FRONTEND_DIR' && echo '* Myriad Frontend' && pnpm run dev; exec bash" 2>/dev/null
-    else
+        gnome-terminal -- bash -c "cd '$FRONTEND_DIR' && echo '* Myriad Frontend' && pnpm run dev; exec bash" >/dev/null 2>&1 && opened=1
+    fi
+
+    if [[ "$opened" -eq 1 && "$DEV_START_NOWAIT" -eq 0 ]]; then
+        local n=0
+        while [[ $n -lt 8 ]]; do
+            if frontend_port_in_use || [[ -n "$(list_frontend_pids)" ]]; then
+                print_success "Frontend starting on http://localhost:${FRONTEND_PORT}"
+                return 0
+            fi
+            sleep 1
+            n=$((n + 1))
+        done
+        print_warning "Terminal launch did not bind :${FRONTEND_PORT} — using frontend.log"
+        opened=0
+    fi
+
+    if [[ "$opened" -eq 0 ]]; then
         launch_logged "$FRONTEND_DIR" "$PROJECT_ROOT/frontend.log" pnpm run dev
         print_info "Frontend running in background (pid $LAUNCH_PID, logs: frontend.log)"
         return 0
     fi
 
-    if [[ "$DEV_START_NOWAIT" -eq 1 ]]; then
-        return 0
-    fi
     print_success "Frontend starting on http://localhost:${FRONTEND_PORT}"
 }
 
@@ -1761,14 +1791,15 @@ start_foreground_stack() {
 
     if [[ "$RUN_FRONTEND" -eq 1 ]]; then
         ensure_frontend_deps || return 1
+        clear_vite_cache
     fi
 
     print_step "Starting services (Ctrl-C to stop)…"
     trap fg_shutdown INT TERM
 
     if [[ "$RUN_BACKEND" -eq 1 ]]; then
-        local -a cargo_cmd=(cargo run)
-        [[ "$CARGO_RELEASE" -eq 1 ]] && cargo_cmd=(cargo run --release)
+        local -a cargo_cmd=(env MYRIAD_PROCESS_ROLE=all cargo run)
+        [[ "$CARGO_RELEASE" -eq 1 ]] && cargo_cmd=(env MYRIAD_PROCESS_ROLE=all cargo run --release)
         if dev_updater_enabled && [[ "$USE_NATIVE" -eq 0 ]]; then
             ensure_dev_updater_files
             export MYRIAD_UPDATER_URL="http://127.0.0.1:1104"
@@ -2019,7 +2050,7 @@ show_help() {
     echo -e "  ${DIM}--backend-only${NC}     Start only the backend"
     echo -e "  ${DIM}--frontend-only${NC}    Start only the frontend"
     echo -e "  ${DIM}--release${NC}          Build/run the backend in release mode"
-    echo -e "  ${DIM}--skip-install${NC}     Skip pnpm install even if node_modules is missing"
+    echo -e "  ${DIM}--skip-install${NC}     Skip pnpm install even if node_modules is missing or stale"
     echo -e "  ${DIM}--watch${NC}            With status: open the live TUI"
     echo ""
     echo -e "${BOLD}Environment:${NC}"

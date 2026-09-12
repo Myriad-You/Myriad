@@ -1,5 +1,3 @@
-/** Per-addressee vitals already returned by GET /api/agent/persona. */
-
 export const ADDRESSEE_UPDATED_EVENT = 'arael-addressee-updated'
 
 export type MoodBand = 'floor' | 'sad' | 'tense' | 'calm' | 'excited'
@@ -8,7 +6,6 @@ export type ActivityKey = 'idle' | 'working' | 'thinking' | 'talking'
 const DEFAULT_MOOD = 70
 const DEFAULT_AROUSAL = 48
 
-/** Same circumplex as `mood_tone_instruction` — UI shows the band, not the number. */
 export function moodBand(
   mood: number | undefined,
   arousal: number | undefined = DEFAULT_AROUSAL,

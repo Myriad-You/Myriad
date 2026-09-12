@@ -2,7 +2,9 @@ import type { SpeechStatus } from '../../../services/speechApi'
 import type { MeropeSpeechSource } from '../speechEvents'
 import type { SpeechInterruptMode, SpeechSegment } from './speechSegmenter'
 import { getSpeechStatus, textToSpeech } from '../../../services/speechApi'
+import { authSubject } from '../../../utils/authSubject'
 import { dispatchMeropeSpeech } from '../speechEvents'
+import { estimateAutoSpeechDurationMs } from '../speechLifecycle'
 import { markTurnTraceOnce, noteTurnTraceCancelToSilence } from '../turnTrace'
 import { speakableText } from './speakableText'
 import { SpeechSegmenter } from './speechSegmenter'
@@ -10,7 +12,6 @@ import { TtsPipeline } from './ttsPipeline'
 import { playTtsBuffer } from './ttsPlayer'
 import { patchVoicePresence } from './voicePresence'
 
-/** Map /api/speech/status onto the persona pipeline. Missing flag = off. */
 export function personaSpeechFlags(status: {
   available: boolean
   tts_enabled: boolean
@@ -29,9 +30,6 @@ function audioFromBase64(base64: string): ArrayBuffer {
   return bytes.buffer
 }
 
-/**
- * One live-face TTS outlet. Synthesis may run ahead; playback stays ordered.
- */
 export class SpeechPipelineHost {
   readonly pipeline: TtsPipeline
   private enabled = false
@@ -46,6 +44,7 @@ export class SpeechPipelineHost {
     this.pipeline = new TtsPipeline({
       synthesize: (segment, signal) => this.synthesize(segment, signal),
       play: (audio, segment, onEnded) => this.play(audio, segment, onEnded),
+      fallback: (segment, onEnded) => this.playText(segment, onEnded),
     })
     void this.probe()
   }
@@ -54,9 +53,14 @@ export class SpeechPipelineHost {
     return this.wantsSpeech && this.ttsReady
   }
 
-  /** Owner opted the persona into speaking. Independent of TTS being ready. */
   get speechEnabled(): boolean {
     return this.wantsSpeech
+  }
+
+  /** Invalidate status probes too: a late old-account response cannot re-enable TTS. */
+  resetSubject(): void {
+    this.cancel()
+    this.applyStatus({ available: false, tts_enabled: false, persona_speech_enabled: false })
   }
 
   applyStatus(
@@ -114,10 +118,6 @@ export class SpeechPipelineHost {
     return this.pipeline.isBusyWith(messageId)
   }
 
-  /**
-   * One finished line through the same TTS queue as streamed Chat.
-   * Returns false when TTS is off so callers may fall back to text visemes.
-   */
   speakLine(input: {
     messageId: string
     text: string
@@ -125,8 +125,6 @@ export class SpeechPipelineHost {
     source?: MeropeSpeechSource
     interrupt?: SpeechInterruptMode
   }): boolean {
-    // A late completed response must not resurrect an interrupted stream, nor
-    // ask its caller to replay the same line through the text-mouth fallback.
     if (this.cancelledMessageIds.has(input.messageId)) return true
     if (!this.enabled) return false
     const text = speakableText(input.text)
@@ -162,8 +160,6 @@ export class SpeechPipelineHost {
       this.cancelledAt = null
       return
     }
-    // stop() publishes silence before the pipeline advances. A targeted cancel
-    // may already have started the next message; do not overwrite its presence.
     this.noteSilence()
   }
 
@@ -193,8 +189,6 @@ export class SpeechPipelineHost {
     segment: SpeechSegment,
     onEnded: () => void,
   ): { stop: () => void } {
-    // Preserve the producing turn, not whichever Chat happens to be live
-    // when asynchronous synthesis finishes (proactive speech is unscoped).
     const generation = segment.generation
     const source = segment.source ?? 'reply'
     const utteranceId = `tts-${segment.segmentId}`
@@ -242,8 +236,6 @@ export class SpeechPipelineHost {
         })
       },
       onEnded: () => {
-        // End THIS segment before advancing. Otherwise a synthesis gap leaves
-        // its mouth and co-speech plan alive until the next segment arrives.
         dispatchMeropeSpeech({
           phase: 'end',
           messageId: segment.messageId,
@@ -273,6 +265,31 @@ export class SpeechPipelineHost {
     }
   }
 
+  private playText(
+    segment: SpeechSegment,
+    onEnded: () => void,
+  ): { stop: () => void } {
+    const base = {
+      messageId: segment.messageId,
+      source: segment.source ?? 'reply',
+      generation: segment.generation,
+      utteranceId: `text-${segment.segmentId}`,
+    }
+    dispatchMeropeSpeech({ ...base, phase: 'start' })
+    dispatchMeropeSpeech({ ...base, phase: 'chunk', text: segment.text })
+    dispatchMeropeSpeech({ ...base, phase: 'end' })
+    const timer = setTimeout(
+      onEnded,
+      Math.max(180, estimateAutoSpeechDurationMs(segment.text, segment.locale)),
+    )
+    return {
+      stop: () => {
+        clearTimeout(timer)
+        dispatchMeropeSpeech({ ...base, phase: 'cancel' })
+      },
+    }
+  }
+
   private noteSilence(): void {
     if (this.cancelledAt == null) return
     noteTurnTraceCancelToSilence(nowMs() - this.cancelledAt)
@@ -282,6 +299,7 @@ export class SpeechPipelineHost {
 }
 
 let host: SpeechPipelineHost | null = null
+authSubject.subscribe(() => host?.resetSubject())
 
 export function getSpeechPipeline(): SpeechPipelineHost {
   if (!host) host = new SpeechPipelineHost()

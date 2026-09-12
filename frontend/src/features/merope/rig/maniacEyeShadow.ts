@@ -24,10 +24,6 @@ export function maniacEyeShadowGeneratedSize(eye: {
   }
 }
 
-/**
- * Paints a short, nose-biased lower-eye shadow. Its upper edge stays defined
- * while the lower edge diffuses into the cheek, avoiding a second-eye shape.
- */
 export function createManiacEyeShadowBitmap(
   requestedSize: Readonly<ManiacEyeShadowSize>,
   eyelashTint: Readonly<RgbColor>,
@@ -47,8 +43,6 @@ export function createManiacEyeShadowBitmap(
       if (tipWeight <= 0) continue
 
       const inward = nx * direction
-      // The outer corner sits a little lower than the nose-side corner on
-      // both eyes; mirror that lower-lid angle instead of drawing a flat bar.
       const centerY = 0.33 + nx * nx * 0.07 - inward * 0.06
       const upperThickness = 0.082 * tipWeight ** 0.84
       const lowerThickness = (0.28 + inward * 0.026) * tipWeight ** 0.68

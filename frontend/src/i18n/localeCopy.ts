@@ -1,21 +1,41 @@
-import type { Locale, TranslationKeys } from './index'
-import { enUS } from './en-US'
-import { getDefaultLocale } from './index'
+import type { TranslationKeys } from './assembleLocale'
+import type { Locale } from './locales'
+import agentCaps from './agentCaps.en-US.json' with { type: 'json' }
+import { assembleLocale } from './assembleLocale'
+import brew from './brew.en-US.json' with { type: 'json' }
+import config from './config.en-US.json' with { type: 'json' }
+import core from './en-US.json' with { type: 'json' }
+import errors from './errors.en-US.json' with { type: 'json' }
+import { formatMessage } from './formatMessage'
 import { getCachedLocale, loadLocale } from './loadLocale'
+import { getDefaultLocale, localeOrFallback } from './locales'
+import merope from './merope.en-US.json' with { type: 'json' }
+import tapp from './tapp.en-US.json' with { type: 'json' }
 
-function asLocale(value: string): Locale {
-  if (value === 'zh-CN' || value === 'ja-JP') return value
-  return 'en-US'
+const enUS: TranslationKeys = assembleLocale(core, {
+  config,
+  tapp,
+  brew,
+  merope,
+  errors,
+  agentCaps,
+})
+
+function asLocale(value: string) {
+  return localeOrFallback(value)
 }
 
-/**
- * Copy for an explicitly selected UI language.
- *
- * ja / zh stay out of the static graph. The first call kicks off `loadLocale`;
- * until that chunk arrives, English is the sync fallback so service-layer
- * errors never throw. After I18nProvider (or a test) awaits the same locale,
- * later calls hit the cache.
- */
+function resolveServiceCopy(): { locale: Locale; t: TranslationKeys } {
+  const target = getDefaultLocale()
+  const cached = getCachedLocale(target)
+  if (cached) return { locale: target, t: cached }
+  void loadLocale(target)
+  const loaded = getCachedLocale(target)
+  if (loaded) return { locale: target, t: loaded }
+  return { locale: 'en-US', t: getCachedLocale('en-US') ?? enUS }
+}
+
+/** ja/zh stay out of the static graph; English is the sync fallback until loadLocale resolves. */
 export function copyForLocale(locale: string): TranslationKeys {
   const key = asLocale(locale)
   const cached = getCachedLocale(key)
@@ -24,7 +44,15 @@ export function copyForLocale(locale: string): TranslationKeys {
   return getCachedLocale(key) ?? getCachedLocale('en-US') ?? enUS
 }
 
-/** Current UI language copy for service-layer errors (outside React). */
+/** Non-React service-layer copy. Same pack `formatCurrent` formats against. */
 export function currentCopy(): TranslationKeys {
-  return copyForLocale(getDefaultLocale())
+  return resolveServiceCopy().t
+}
+
+/** ICU against the catalog `currentCopy()` actually returned, not the in-flight target. */
+export function formatCurrent(
+  template: string,
+  params: Record<string, string | number> = {},
+): string {
+  return formatMessage(resolveServiceCopy().locale, template, params)
 }

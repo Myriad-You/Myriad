@@ -6,23 +6,12 @@ export const VISUAL_SPEECH_MINOR_PAUSE_SECONDS = 0.18
 export const VISUAL_SPEECH_MAJOR_PAUSE_SECONDS = 0.32
 export const VISUAL_SPEECH_HESITATION_SECONDS = 0.24
 
-/**
- * Visual speech runs slower than the voice it stands in for. With no audio the
- * mouth is the only cue, and articulating at true speaking rate reads as
- * chattering rather than talking. Pauses keep their natural length — only
- * articulation stretches — so phrasing stays recognizable.
- */
 export const VISUAL_SPEECH_ARTICULATION_SCALE = 1.28
 
 const CJK_UNIT =
   /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u
 const LATIN_OR_NUMBER_RUN = /[\p{Script=Latin}\p{Number}]+/gu
 
-/**
- * Shared phrasing for visual-only speech. Text visemes and the lifecycle tail
- * must agree about silence, otherwise the mouth either races the sentence or
- * gets cut off before its final pause.
- */
 export function visualSpeechPauseSeconds(symbol: string): number | null {
   if (/[\r\n]/u.test(symbol)) return VISUAL_SPEECH_MAJOR_PAUSE_SECONDS
   if (/\s/u.test(symbol)) return VISUAL_SPEECH_WORD_GAP_SECONDS
@@ -36,10 +25,6 @@ export function isMajorVisualSpeechPause(durationSeconds: number): boolean {
   return durationSeconds >= VISUAL_SPEECH_MAJOR_PAUSE_SECONDS - 0.001
 }
 
-/**
- * Body expression stays present between words, softens at commas, and rests
- * completely at a sentence boundary.
- */
 export function visualSpeechPauseActivity(durationSeconds: number): number {
   if (isMajorVisualSpeechPause(durationSeconds)) return 0
   if (durationSeconds >= VISUAL_SPEECH_HESITATION_SECONDS - 0.001) return 0.08
@@ -47,11 +32,6 @@ export function visualSpeechPauseActivity(durationSeconds: number): number {
   return 0.58
 }
 
-/**
- * Synchronous duration estimate for speech without audio. It follows the same
- * pause vocabulary as the viseme compiler and intentionally models a calm
- * conversational cadence rather than token arrival speed.
- */
 export function estimateVisualSpeechDurationMs(
   text: string,
   locale?: string,
@@ -59,7 +39,6 @@ export function estimateVisualSpeechDurationMs(
   return estimateSpeechMs(text, locale, 1)
 }
 
-/** The mouth may realize a slower pace; lifecycle safety is not a beat clock. */
 export function estimateVisualSpeechTailMs(
   text: string,
   locale?: string,
@@ -73,13 +52,12 @@ function estimateSpeechMs(
   pace: number,
 ): number {
   const clock = visualSpeechPrefixSeconds(text, locale)
-  // The text budget bounds this clock. Transport timeouts must not clamp it.
+  // Transport timeouts must not clamp it.
   return Math.round(
     Math.max(clock.at(-1)! * 1_000 * pace, MIN_VISUAL_SPEECH_MS),
   )
 }
 
-/** Build once per text update, then address any normalized UTF-16 boundary. */
 export function visualSpeechPrefixMs(
   text: string,
   locale?: string,
@@ -97,7 +75,6 @@ function visualSpeechPrefixSeconds(text: string, locale?: string): number[] {
   const clock = [seconds]
   const appendSymbols = (symbols: string) => {
     for (const symbol of symbols) {
-      // An incomplete surrogate has no spoken duration of its own.
       for (let unit = 1; unit < symbol.length; unit++) clock.push(seconds)
       seconds += estimateSymbols(symbol, language)
       clock.push(seconds)
@@ -152,7 +129,6 @@ function estimateSymbols(text: string, language: string): number {
       ) {
         seconds += 0.165 * VISUAL_SPEECH_ARTICULATION_SCALE
       } else {
-        // A rounded initial (w) uses 0.06s + a 0.145s final in the compiler.
         seconds += 0.205 * VISUAL_SPEECH_ARTICULATION_SCALE
       }
     }

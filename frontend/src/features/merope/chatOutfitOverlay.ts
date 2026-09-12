@@ -1,8 +1,3 @@
-/**
- * Chat-session overlay of a saved wardrobe set. Panel chat may play it;
- * the worn outfit and the home widget stay on `/active`.
- */
-
 import { useSyncExternalStore } from 'react'
 
 type Listener = () => void
@@ -23,7 +18,7 @@ export function stripChatWearMarker(text: string): string {
     .replace(WEAR_MARK, '')
     .replace(WEAR_MARK_UNI, '')
     .replace(MUSIC_MARK, '')
-    .replace(/\n{3,}/g, '\n\n')
+    .replaceAll(/\n{3,}/g, '\n\n')
     .trim()
 }
 

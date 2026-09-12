@@ -1,5 +1,3 @@
-/** Store sources configuration secondary page. */
-
 import type { RemoteStoreSource } from '../../services/RemoteStoreService'
 import {
   FaEdit,
@@ -33,7 +31,6 @@ interface SourceDraft {
   url: string
 }
 
-/** 可扩展的商店配置二级页；各设置分组继续复用现有数据服务与设置组件。 */
 export function StoreConfigurationView({
   sources,
   onToggle,
@@ -65,7 +62,6 @@ export function StoreConfigurationView({
   const [draft, setDraft] = useState<SourceDraft>({ name: '', url: '' })
   const [formError, setFormError] = useState('')
   const [saving, setSaving] = useState(false)
-  /** 站内确认删除商店源（替代 window.confirm） */
   const [pendingDelete, setPendingDelete] = useState<{
     url: string
     name: string

@@ -1,7 +1,3 @@
-/**
- * 平台与 Widget 处理器
- */
-
 import type {
   CustomPlatformConfig,
   NewPlatformItem,
@@ -13,9 +9,6 @@ import { userFacingError } from '../../../../utils/userFacingError'
 import * as TappApiService from '../../../services/TappApiService'
 import { getTappRuntime } from '../../TappRuntime'
 
-/**
- * 注册 Widget 处理器
- */
 export function registerWidgetHandlers(
   bridge: TappBridge,
   tappInstance: TappInstance,
@@ -101,12 +94,6 @@ export function registerWidgetHandlers(
   })
 }
 
-/**
- * 注册 Platform 处理器
- */
-/**
- * 注册站点访问统计处理器（聚合数据，需 analytics:read）
- */
 export function registerAnalyticsHandlers(bridge: TappBridge): void {
   bridge.registerHandler('analytics.getSummary', async (message) => {
     const [options] = (message.payload as { args: unknown[] }).args || []
@@ -147,9 +134,6 @@ export function registerAnalyticsHandlers(bridge: TappBridge): void {
   })
 }
 
-/**
- * 注册 Platform 处理器
- */
 export function registerPlatformHandlers(
   bridge: TappBridge,
   tappInstance: TappInstance,

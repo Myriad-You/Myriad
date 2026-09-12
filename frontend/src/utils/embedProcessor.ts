@@ -1,16 +1,3 @@
-/**
- * 嵌入内容处理器
- * 将文章中的 iframe 和特定链接转换为精美卡片
- *
- * 支持：
- * - 网易云音乐 iframe → 音乐播放卡片（触发临时播放）
- * - Steam 链接 → 游戏卡片
- * - Bilibili 嵌入/链接 → 视频卡片
- * - GitHub 链接 → 仓库卡片
- *
- * GitHub 仓库卡跟设置控件同一套信息层级；其它嵌入仍走各自卡片。
- */
-
 import { currentCopy } from '../i18n/localeCopy'
 import {
   fetchGithubRepoCard,
@@ -21,9 +8,7 @@ import { getNeteaseAudioUrlImmediate } from './musicPlayer'
 import { proxyImageUrlOr } from './proxyImageUrl'
 import { isTrustedIframeHost } from './rssContentProcessor'
 
-// 缓存系统
-// 简单的内存缓存，避免同一篇文章里重复打卡片接口
-const CACHE_TTL = 5 * 60 * 1000 // 5分钟缓存
+const CACHE_TTL = 5 * 60 * 1000 // 5 min
 
 interface CacheEntry<T> {
   data: T
@@ -36,7 +21,6 @@ function getCached<T>(key: string): T | null {
   const entry = embedDataCache.get(key)
   if (!entry) return null
 
-  // 检查是否过期
   if (Date.now() - entry.timestamp > CACHE_TTL) {
     embedDataCache.delete(key)
     return null
@@ -48,29 +32,20 @@ function getCached<T>(key: string): T | null {
 function setCache<T>(key: string, data: T): void {
   embedDataCache.set(key, { data, timestamp: Date.now() })
 
-  // 简单的缓存清理：超过100条时清理最旧的
+  // Cap 100; drop oldest.
   if (embedDataCache.size > 100) {
-    const entries = Array.from(embedDataCache.entries())
-    entries.sort((a, b) => a[1].timestamp - b[1].timestamp)
-    // 删除最旧的 20 条
+    const entries = Iterator.from(embedDataCache.entries())
+      .toArray()
+      .toSorted((a, b) => a[1].timestamp - b[1].timestamp)
     for (let i = 0; i < 20; i++) {
       embedDataCache.delete(entries[i][0])
     }
   }
 }
 
-// 类型定义
-// 嵌入类型
 export type EmbedType =
   'netease-music' | 'steam-game' | 'bilibili-video' | 'github-repo'
 
-// 嵌入信息
-
-/**
- * 从网易云音乐 iframe 提取歌曲 ID
- * 支持格式：
- * - https://music.163.com/outchain/player?type=2&id=2114614108&auto=1&height=66
- */
 function extractNeteaseSongId(iframeSrc: string): string | null {
   const match = iframeSrc.match(
     /music\.163\.com\/outchain\/player\?.*?id=(\d+)/,
@@ -78,34 +53,18 @@ function extractNeteaseSongId(iframeSrc: string): string | null {
   return match ? match[1] : null
 }
 
-/**
- * 从网易云音乐链接提取歌曲 ID
- * 支持格式：
- * - https://music.163.com/song?id=33911781
- * - https://music.163.com/#/song?id=33911781
- * - https://y.music.163.com/m/song?id=33911781
- * - https://music.163.com/song/33911781
- */
 function extractNeteaseSongIdFromUrl(url: string): string | null {
-  // 处理 ?id=xxx 格式
   const queryMatch = url.match(
     /music\.163\.com\/(?:#\/)?(?:m\/)?song\?.*?id=(\d+)/,
   )
   if (queryMatch) return queryMatch[1]
 
-  // 处理 /song/xxx 格式
   const pathMatch = url.match(/music\.163\.com\/(?:#\/)?(?:m\/)?song\/(\d+)/)
   if (pathMatch) return pathMatch[1]
 
   return null
 }
 
-/**
- * 从 Steam 链接提取 AppID
- * 支持格式：
- * - https://store.steampowered.com/app/1234567
- * - steam://store/1234567
- */
 function extractSteamAppId(url: string): string | null {
   const storeMatch = url.match(/store\.steampowered\.com\/app\/(\d+)/)
   if (storeMatch) return storeMatch[1]
@@ -116,49 +75,26 @@ function extractSteamAppId(url: string): string | null {
   return null
 }
 
-/**
- * 从 Bilibili 链接/嵌入/纯文本提取视频 ID
- * 支持格式：
- * - https://www.bilibili.com/video/BV1xx411c7XW
- * - https://m.bilibili.com/video/BV1xx411c7XW
- * - https://b23.tv/xxxxx（短链，需 BV/av 已在 URL 或展开后）
- * - https://player.bilibili.com/player.html?bvid=BV1xx411c7XW
- * - https://www.bilibili.com/blackboard/html5mobileplayer.html?bvid=BV1xx411c7XW
- * - av号：https://www.bilibili.com/video/av170001 或 aid=170001
- * - 纯 BV 号：BV1xx411c7XW
- * - 纯 av 号：av170001
- */
 function extractBilibiliVideoId(
   url: string,
 ): { type: 'bv' | 'av'; id: string } | null {
-  // 处理可能被破坏的 URL（RSS 有时会丢失分隔符）
-  // 例如：amp;bvid=BV... 应该是 &bvid=BV...
-  const cleanUrl = url.replace(/amp;/gi, '&')
+  const cleanUrl = url.replaceAll(/amp;/gi, '&')
 
-  // 优先匹配 BV 号（各种格式）
   const bvMatch = cleanUrl.match(/(?:video\/|bvid=|[?&]bvid=)(BV[a-z0-9]+)/i)
   if (bvMatch) return { type: 'bv', id: bvMatch[1] }
 
-  // 匹配 AV 号（各种格式）
   const avMatch = cleanUrl.match(/(?:video\/av|aid=|[?&]aid=)(\d+)/i)
   if (avMatch) return { type: 'av', id: avMatch[1] }
 
-  // 匹配纯 BV 号（BV + 10-12 位字母数字）
   const pureBvMatch = cleanUrl.match(/\b(BV[a-z0-9]{10,12})\b/i)
   if (pureBvMatch) return { type: 'bv', id: pureBvMatch[1] }
 
-  // 匹配纯 av 号（av + 数字）
   const pureAvMatch = cleanUrl.match(/\bav(\d+)\b/i)
   if (pureAvMatch) return { type: 'av', id: pureAvMatch[1] }
 
   return null
 }
 
-/**
- * 从 GitHub 链接提取仓库信息
- * 支持格式：
- * - https://github.com/owner/repo
- */
 function extractGithubRepo(
   url: string,
 ): { owner: string; repo: string } | null {
@@ -167,12 +103,7 @@ function extractGithubRepo(
   return null
 }
 
-/**
- * 生成网易云音乐卡片 HTML - 与资料库音乐卡片风格一致
- * 正方形封面，悬停显示信息，平台图标气泡
- * 使用 my-4 作为默认margin（小尺寸卡片）
- */
-function generateNeteaseMusicCard(songId: string, _isDark: boolean): string {
+function generateNeteaseMusicCard(songId: string): string {
   return `
     <div class="brew-embed-card brew-netease-music brew-embed-exempt not-prose block group cursor-pointer"
          data-embed-type="netease-music"
@@ -193,7 +124,7 @@ function generateNeteaseMusicCard(songId: string, _isDark: boolean): string {
             <div>
               <div class="flex items-start gap-1">
                 <h3 class="brew-embed-title font-bold text-white text-xs leading-tight line-clamp-2 mb-1 flex-1">
-                  加载中...
+                  ${currentCopy().common.loading}
                 </h3>
               </div>
               <p class="brew-embed-artist text-[10px] text-white/75 line-clamp-1">
@@ -207,12 +138,7 @@ function generateNeteaseMusicCard(songId: string, _isDark: boolean): string {
   `
 }
 
-/**
- * 生成 Steam 游戏卡片 HTML - 与GitHub卡片尺寸一致
- * 横版卡片，悬停显示信息遮罩，无平台图标
- * 使用 my-6 作为默认margin（大尺寸卡片）
- */
-function generateSteamGameCard(appId: string, _isDark: boolean): string {
+function generateSteamGameCard(appId: string): string {
   const storeUrl = `https://store.steampowered.com/app/${appId}`
   const headerImg = `https://cdn.cloudflare.steamstatic.com/steam/apps/${appId}/header.jpg`
 
@@ -241,7 +167,7 @@ function generateSteamGameCard(appId: string, _isDark: boolean): string {
               App ID: ${appId}
             </h3>
             <p class="brew-embed-desc text-sm text-white/80 line-clamp-1">
-              点击访问 Steam 商店
+              ${currentCopy().brew.embedSteamStore}
             </p>
           </div>
         </div>
@@ -250,16 +176,10 @@ function generateSteamGameCard(appId: string, _isDark: boolean): string {
   `
 }
 
-/**
- * 生成 Bilibili 官方嵌入 iframe
- * 使用 B站官方播放器，响应式容器
- * margin 由 BrewReader 统一控制
- */
 function generateBilibiliIframe(videoId: {
   type: 'bv' | 'av'
   id: string
 }): string {
-  // 构建官方播放器 URL
   const playerUrl =
     videoId.type === 'bv'
       ? `//player.bilibili.com/player.html?bvid=${videoId.id}&autoplay=0`
@@ -285,14 +205,7 @@ function generateBilibiliIframe(videoId: {
   `
 }
 
-/**
- * 生成 GitHub 仓库卡片 HTML。
- * 表面跟设置控件同一套微透边框；仓库名主、owner / 描述 / 语言次。
- */
-function generateGithubRepoCard(
-  repo: { owner: string; repo: string },
-  _isDark: boolean,
-): string {
+function generateGithubRepoCard(repo: { owner: string; repo: string }): string {
   const repoUrl = `https://github.com/${repo.owner}/${repo.repo}`
   const ownerAvatar = `https://github.com/${repo.owner}.png?size=48`
 
@@ -344,7 +257,6 @@ function generateGithubRepoCard(
   `
 }
 
-/** 同一仓库第二次起：设置页小标签，作者头像 + 仓库名。 */
 function generateGithubRepoChip(repo: { owner: string; repo: string }): string {
   const repoUrl = `https://github.com/${repo.owner}/${repo.repo}`
   const ownerAvatar = `https://github.com/${repo.owner}.png?size=48`
@@ -364,36 +276,27 @@ function generateGithubRepoChip(repo: { owner: string; repo: string }): string {
   </a>`
 }
 
-/**
- * 处理内容中的嵌入
- * @param content HTML 内容
- * @param isDark 是否为暗色主题
- * @returns 处理后的 HTML 内容
- */
-export function processEmbeds(content: string, isDark: boolean): string {
+export function processEmbeds(content: string): string {
   let result = content
 
-  // 1. 处理网易云音乐 iframe
-  // 匹配: <iframe ... src="https://music.163.com/outchain/player?..." ...></iframe>
   const neteaseIframeRegex =
     /<iframe[^>]*src=["']([^"']*music\.163\.com\/outchain\/player[^"']*)["'][^>]*>[\s\S]*?<\/iframe>/gi
   result = result.replace(neteaseIframeRegex, (match, src) => {
     const songId = extractNeteaseSongId(src)
     if (songId) {
-      return generateNeteaseMusicCard(songId, isDark)
+      return generateNeteaseMusicCard(songId)
     }
     return match // 无法解析则保留原样
   })
 
   // 1.1 处理网易云音乐链接（<a> 标签形式）
-  // 匹配: <a href="https://music.163.com/song?id=xxx">...</a>
-  // 支持多种格式：/song?id=xxx, /#/song?id=xxx, /m/song?id=xxx, /song/xxx
+  // 匹配: <a href="https:
   const neteaseLinkRegex =
     /<a[^>]*href=["'](https?:\/\/(?:y\.)?music\.163\.com\/(?:#\/)?(?:m\/)?song(?:\?[^"']*id=\d|\/\d)[^"']*)["'][^>]*>[\s\S]*?<\/a>/gi
   result = result.replace(neteaseLinkRegex, (match, url) => {
     const songId = extractNeteaseSongIdFromUrl(url)
     if (songId) {
-      return generateNeteaseMusicCard(songId, isDark)
+      return generateNeteaseMusicCard(songId)
     }
     return match
   })
@@ -405,7 +308,7 @@ export function processEmbeds(content: string, isDark: boolean): string {
   result = result.replace(steamLinkRegex, (match, url) => {
     const appId = extractSteamAppId(url)
     if (appId) {
-      return generateSteamGameCard(appId, isDark)
+      return generateSteamGameCard(appId)
     }
     return match
   })
@@ -435,8 +338,6 @@ export function processEmbeds(content: string, isDark: boolean): string {
     return url
   })
 
-  // 3.2 处理纯文本中的 BV 号或 AV 号（不在链接内的）-> 转为官方 iframe
-  // 匹配独立的 BV1xxxxxxxxx 或 av12345678 格式
   const bilibiliPlainTextRegex =
     /(?<!<[^>]*|href=["'][^"']*|>)\b(BV[a-z0-9]{10,12}|av\d{1,12})\b(?![^<]*<\/a>)/gi
   result = result.replace(bilibiliPlainTextRegex, (match) => {
@@ -453,9 +354,8 @@ export function processEmbeds(content: string, isDark: boolean): string {
   const githubLinkRegex =
     /<a[^>]*href=["'](https?:\/\/github\.com\/[^/]+\/[^/?#"']+)["'][^>]*>[\s\S]*?<\/a>/gi
   result = result.replace(githubLinkRegex, (match, url) => {
-    // 排除 github.com/user/repo/xxx 这种子页面链接
     const cleanUrl = url.split('?')[0].split('#')[0]
-    const parts = cleanUrl.replace(/^https?:\/\/github\.com\//, '').split('/')
+    const parts = cleanUrl.replaceAll(/^https?:\/\/github\.com\//g, '').split('/')
     if (parts.length === 2 && parts[0] && parts[1]) {
       const repo = extractGithubRepo(url)
       if (repo) {
@@ -464,16 +364,16 @@ export function processEmbeds(content: string, isDark: boolean): string {
           return generateGithubRepoChip(repo)
         }
         seenGithubRepos.add(key)
-        return generateGithubRepoCard(repo, isDark)
+        return generateGithubRepoCard(repo)
       }
     }
     return match
   })
 
-  // 5. 剥离仍残留的非可信 iframe（与 rssContentProcessor 共用主机白名单）
-  result = result.replace(/<iframe\b[\s\S]*?<\/iframe>/gi, (match) => {
+  // Strip iframes not on the shared host allowlist.
+  result = result.replaceAll(/<iframe\b[\s\S]*?<\/iframe>/gi, (match) => {
     const srcMatch =
-      match.match(/\bsrc\s*=\s*(["'])([^"']*)\1/i) ||
+      match.match(/\bsrc\s*=\s*(["'])([^"']*)\1/i) ??
       match.match(/\bsrc\s*=\s*([^\s>]+)/i)
     if (!srcMatch) return ''
     const rawSrc = (srcMatch[2] || srcMatch[1] || '').trim()
@@ -489,13 +389,7 @@ export function processEmbeds(content: string, isDark: boolean): string {
   return result
 }
 
-/**
- * 加载所有嵌入卡片的真实数据
- * 在内容渲染后调用此函数，异步获取数据并更新 DOM
- * @param container 包含嵌入卡片的容器元素
- */
 export async function loadEmbedData(container: HTMLElement): Promise<void> {
-  // 并行加载所有类型的嵌入数据
   await Promise.all([
     loadNeteaseMusicData(container),
     loadSteamGameData(container),
@@ -503,31 +397,24 @@ export async function loadEmbedData(container: HTMLElement): Promise<void> {
   ])
 }
 
-/**
- * 加载网易云音乐卡片数据
- * 使用并行加载提升性能
- */
 async function loadNeteaseMusicData(container: HTMLElement): Promise<void> {
-  const cards = Array.from(
+  const unloadedCards = Iterator.from(
     container.querySelectorAll('.brew-netease-music[data-song-id]'),
   )
-
-  // 过滤出未加载的卡片
-  const unloadedCards = cards.filter(
-    (card) =>
-      card.getAttribute('data-song-id') &&
-      card.getAttribute('data-loaded') !== 'true',
-  )
+    .filter(
+      (card) =>
+        card.getAttribute('data-song-id') &&
+        card.getAttribute('data-loaded') !== 'true',
+    )
+    .toArray()
 
   if (unloadedCards.length === 0) return
 
-  // 并行加载所有卡片数据
   await Promise.all(
     unloadedCards.map(async (card) => {
       const songId = card.getAttribute('data-song-id')
       if (!songId) return
 
-      // 立即标记为加载中，防止重复请求
       card.setAttribute('data-loaded', 'loading')
 
       try {
@@ -543,12 +430,11 @@ async function loadNeteaseMusicData(container: HTMLElement): Promise<void> {
           return
         }
 
-        // 更新封面
         const coverContainer = card.querySelector('.brew-embed-cover')
         if (coverContainer && songData.album?.picUrl) {
           const coverUrl = songData.album.picUrl || songData.al?.picUrl
           if (coverUrl) {
-            // 安全：使用 DOM API 创建元素，避免 XSS
+            // DOM APIs only; no innerHTML.
             const img = document.createElement('img')
             img.src = coverUrl
             img.alt = songData.name || ''
@@ -560,13 +446,11 @@ async function loadNeteaseMusicData(container: HTMLElement): Promise<void> {
           }
         }
 
-        // 更新标题
         const titleEl = card.querySelector('.brew-embed-title')
         if (titleEl) {
           titleEl.textContent = songData.name
         }
 
-        // 更新艺术家
         const artistEl = card.querySelector('.brew-embed-artist')
         if (artistEl) {
           const artists = songData.artists || songData.ar || []
@@ -576,7 +460,6 @@ async function loadNeteaseMusicData(container: HTMLElement): Promise<void> {
           artistEl.textContent = artistText
         }
 
-        // 添加 VIP 标记
         if (songData.isVip || songData.fee === 1 || songData.fee === 4) {
           const titleContainer =
             card.querySelector('.brew-embed-title')?.parentElement
@@ -589,7 +472,6 @@ async function loadNeteaseMusicData(container: HTMLElement): Promise<void> {
           }
         }
 
-        // 标记已加载
         card.setAttribute('data-loaded', 'true')
       } catch (error) {
         console.warn(`[embedProcessor] 加载网易云音乐 ${songId} 失败:`, error)
@@ -599,36 +481,29 @@ async function loadNeteaseMusicData(container: HTMLElement): Promise<void> {
   )
 }
 
-/**
- * 加载 Steam 游戏卡片数据
- * 通过后端API获取游戏详情（避免CORS问题）
- * 使用并行加载 + 缓存提升性能
- */
+/** Proxy (CORS). */
 async function loadSteamGameData(container: HTMLElement): Promise<void> {
-  const cards = Array.from(
+  const unloadedCards = Iterator.from(
     container.querySelectorAll('.brew-steam-game[data-app-id]'),
   )
-
-  // 过滤出未加载的卡片
-  const unloadedCards = cards.filter(
-    (card) =>
-      card.getAttribute('data-app-id') &&
-      card.getAttribute('data-loaded') !== 'true',
-  )
+    .filter(
+      (card) =>
+        card.getAttribute('data-app-id') &&
+        card.getAttribute('data-loaded') !== 'true',
+    )
+    .toArray()
 
   if (unloadedCards.length === 0) return
 
-  // 并行加载所有卡片数据
   await Promise.all(
     unloadedCards.map(async (card) => {
       const appId = card.getAttribute('data-app-id')
       if (!appId) return
 
-      // 立即标记为加载中
       card.setAttribute('data-loaded', 'loading')
 
       try {
-        // Locale-aware cache key (name/desc differ by Steam `l=` / Accept-Language)
+        // Cache key includes locale.
         let steamLang = 'english'
         try {
           const locale =
@@ -643,7 +518,6 @@ async function loadSteamGameData(container: HTMLElement): Promise<void> {
         let gameData = getCached<any>(cacheKey)
 
         if (!gameData) {
-          // 使用后端代理API获取游戏详情（按站点 locale / Accept-Language 选 l=）
           const response = await fetch(
             `/api/steam/game/${appId}?lang=${encodeURIComponent(steamLang)}`,
             {
@@ -665,16 +539,14 @@ async function loadSteamGameData(container: HTMLElement): Promise<void> {
         }
 
         if (gameData) {
-          // 更新游戏名称
           const titleEl = card.querySelector('.brew-embed-title')
           if (titleEl && gameData.name) {
             titleEl.textContent = gameData.name
           }
 
-          // 更新游戏描述
           const descEl = card.querySelector('.brew-embed-desc')
           if (descEl && gameData.short_description) {
-            // 安全：使用 DOMParser 提取纯文本，避免 innerHTML 触发脚本
+            // DOMParser text; no innerHTML.
             try {
               const parser = new DOMParser()
               const doc = parser.parseFromString(
@@ -684,8 +556,7 @@ async function loadSteamGameData(container: HTMLElement): Promise<void> {
               const plainText = doc.body.textContent || ''
               descEl.textContent = plainText
             } catch {
-              // 回退：直接移除所有 HTML 标签
-              descEl.textContent = gameData.short_description.replace(
+              descEl.textContent = gameData.short_description.replaceAll(
                 /<[^>]*>/g,
                 '',
               )
@@ -702,32 +573,25 @@ async function loadSteamGameData(container: HTMLElement): Promise<void> {
   )
 }
 
-/**
- * 加载 GitHub 仓库卡片数据
- * 走站点 `/api/github/repo`（数据平台同一条出站：代理 / token / 基址）。
- */
 async function loadGithubRepoData(container: HTMLElement): Promise<void> {
-  const cards = Array.from(
+  const unloadedCards = Iterator.from(
     container.querySelectorAll('.brew-github-repo[data-owner][data-repo]'),
   )
-
-  // 过滤出未加载的卡片
-  const unloadedCards = cards.filter((card) => {
-    const owner = card.getAttribute('data-owner')
-    const repo = card.getAttribute('data-repo')
-    return owner && repo && card.getAttribute('data-loaded') !== 'true'
-  })
+    .filter((card) => {
+      const owner = card.getAttribute('data-owner')
+      const repo = card.getAttribute('data-repo')
+      return owner && repo && card.getAttribute('data-loaded') !== 'true'
+    })
+    .toArray()
 
   if (unloadedCards.length === 0) return
 
-  // 并行加载所有卡片数据
   await Promise.all(
     unloadedCards.map(async (card) => {
       const owner = card.getAttribute('data-owner')
       const repo = card.getAttribute('data-repo')
       if (!owner || !repo) return
 
-      // 立即标记为加载中
       card.setAttribute('data-loaded', 'loading')
 
       try {
@@ -783,7 +647,7 @@ async function loadGithubRepoData(container: HTMLElement): Promise<void> {
           '.brew-github-card-meta',
         ) as HTMLElement | null
         if (meta) {
-          const visible = Array.from(meta.children).some(
+          const visible = Iterator.from(meta.children).some(
             (el) => el instanceof HTMLElement && !el.hidden,
           )
           meta.hidden = !visible
@@ -814,17 +678,12 @@ async function loadGithubRepoData(container: HTMLElement): Promise<void> {
   )
 }
 
-/**
- * 从网易云音乐卡片获取歌曲信息并触发播放。
- * 先用同步 URL 立刻开播，详情（歌名/封面）后台补全，避免 await 详情接口拖慢点击。
- * @param songId 歌曲 ID
- */
 export async function playNeteaseSong(songId: string): Promise<void> {
   try {
     const fallbackCover =
       'https://p1.music.126.net/UeTuwE7pvjBpypWLudqukA==/3132508627578625.jpg'
 
-    // 立刻开播：不 await 详情 / geo（Library 临时播放同策略）
+    // Do not await detail/geo on click.
     const song = {
       id: songId,
       name: `${currentCopy().widgets.reportNetease} #${songId}`,
@@ -844,7 +703,6 @@ export async function playNeteaseSong(songId: string): Promise<void> {
       }),
     )
 
-    // 后台补歌名/封面（不重载音频）
     try {
       const detailResponse = await fetch(
         `/api/proxy/music/netease/song/${songId}`,
@@ -877,12 +735,11 @@ export async function playNeteaseSong(songId: string): Promise<void> {
           songData?.fee === 1 ||
           songData?.fee === 4
         ),
-        // 保留当前正在缓冲/播放的 url，避免触发重载
+        // Keep the playing url; do not reload.
         url: cur.url || song.url,
       }
       g!.currentSong = nextSong
-      // 宿主 React 态不会听 partial state-change；专用 patch 避免控制中心一直显示占位歌名，
-      // 以及后续全量广播用旧 currentSong 把 global 里的 enrichment 冲掉。
+      // Patch enrichment; a full broadcast would clobber it.
       window.dispatchEvent(
         new CustomEvent('music-player-patch-current-song', {
           detail: { song: nextSong },

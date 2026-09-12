@@ -22,8 +22,7 @@ test('old Chat generation cannot keep applying after a newer Chat send', () => {
   const engine = source('../../components/agent-panel/AgentEngine.tsx')
   assert.match(engine, /isCurrentChatGeneration\(generation/)
   assert.match(engine, /setTurnGeneration\(chatGeneration\)/)
-  // Motion and face must advance together; the facade is the only place that
-  // can let them disagree, so assert the pairing there rather than in the engine.
+  // Motion and face must advance together.
   const facade = source('../../features/merope/engineFace.ts')
   assert.match(
     facade,
@@ -82,7 +81,9 @@ test('SSE disconnect resumes the same Work run instead of cancelling it', () => 
     'reject_user_abort',
   )
   const process = source('../../../../backend/src/api/agent/process.rs')
-  assert.match(process, /刻意不在 SSE 断连时取消任务/)
+  assert.match(process, /let run = create_run\(/)
+  assert.match(process, /pub async fn cancel_task/)
+  assert.match(process, /cancel_task_for_user/)
   assert.match(process, /claim_chat_turn/)
 })
 
@@ -92,7 +93,7 @@ test('replace and cancel stay idempotent and do not look like faults', () => {
     true,
   )
   const speech = source('../../features/merope/agentFaceChannel.ts')
-  assert.match(speech, /end and cancel are idempotent|close\('cancel'\)/)
+  assert.match(speech, /close\('cancel'\)/)
   const lease = source('../../features/merope/motion/speechLease.ts')
   assert.match(lease, /release/)
 })
@@ -115,8 +116,7 @@ test('hidden face and motion timeout leave a local floor without blocking text',
   const stream = source(
     '../../../../backend/src/services/agent/confirmation_and_tasks/chat_stream.rs',
   )
-  // Spoken text reaches the transport first. Observing it for motion must
-  // not precede that outlet, even when the director mailbox is congested.
+  // Do not drive motion from speech before the transport outlet.
   const textOutlet = stream.indexOf(
     'response_agent::emit_stream_delta(tx, delta).await',
   )

@@ -2,11 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 /// 后台数据处理系统
 ///
-/// 功能：
-/// 1. 异步处理平台数据，避免阻塞前台请求
-/// 2. 任务队列管理，防止重复处理
-/// 3. 进度跟踪和状态管理
-/// 4. 错误恢复和重试机制
+/// In-memory task records + `processing_platforms` dedup.
+/// Offload spawn lives in `api/tasks.rs`; `queue` is push-only (never drained).
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
@@ -32,7 +29,7 @@ pub struct ProcessingTask {
 }
 
 pub struct BackgroundProcessor {
-    /// 当前处理中的任务
+    /// All task records (Pending/Processing/Completed/Failed) until cleanup.
     tasks: Arc<RwLock<HashMap<String, ProcessingTask>>>,
     /// 任务队列
     queue: Arc<Mutex<Vec<String>>>,
@@ -157,7 +154,7 @@ impl BackgroundProcessor {
             .await;
     }
 
-    /// 清理旧任务（保留最近的50个已完成任务）
+    /// 总数 > 100 时，在已有 `completed_at` 的任务里只留最近 50 个。
     pub async fn cleanup_old_tasks(&self) {
         let mut tasks = self.tasks.write().await;
 

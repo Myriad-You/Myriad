@@ -1,9 +1,3 @@
-/**
- * Pure helpers for TApp list card order.
- * Kept free of React/CSS so unit tests can import without DOM loaders.
- */
-
-/** Apply preferred order to a list of ids (unknown ids keep relative catalog order). */
 export function applyTappAppCardOrder<T extends { id: string }>(
   items: T[],
   order: string[],
@@ -25,12 +19,7 @@ export function applyTappAppCardOrder<T extends { id: string }>(
   return out
 }
 
-/**
- * Whether the public TApp list must wait for remote site-owner layout hydrate.
- * Guest primary view and regular-user **site** scope use site-owner order;
- * painting catalog/localStorage order first causes a visible one-time reorder.
- * Personal **mine** scope may use local cache immediately.
- */
+/** 公开列表须等站主布局。先画目录/本地顺序会造成一次重排。 */
 export function isSiteOwnerLayoutPending(params: {
   layoutReady: boolean
   isAuthenticated: boolean

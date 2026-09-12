@@ -1,14 +1,3 @@
-/**
- * useLongPress - 长按检测 hook
- *
- * 全局长按手势：
- * - 检测 mouse/touch 长按事件
- * - 超过阈值后触发回调；没有回调时只走指示动效与震动
- * - 移动超过 10px 自动取消
- * - 只认主键（左键 / 触控）；右键 / 中键不触发，避免抢系统菜单
- * - 自动排除交互元素
- */
-
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 interface LongPressIndicator {
@@ -17,22 +6,13 @@ interface LongPressIndicator {
   active: boolean
 }
 
-/**
- * 长按不该抢走的地方：面板自己、可交互控件、站点 chrome。
- *
- * 这里没有 Tapp 窗口。窗口内容跑在 iframe 里，mousedown 根本不冒泡到宿主文档，
- * 长按天然够不着；窗口 chrome（标题栏、边框）则该和页面其他空白处一样能唤起，
- * 它自己的按钮和输入框由下面的通用控件选择器兜住。
- */
 const EXCLUDED_SELECTORS =
-  '.agent-panel-overlay-anchor, input, textarea, button, a, [contenteditable], .global-control-bar, .control-panel-overlay, .tour-overlay, .tour-card'
+  '.agent-panel-overlay-anchor, input, textarea, button, a, [contenteditable], [data-merope-touch-active], .global-control-bar, .control-panel-overlay, .tour-overlay, .tour-card'
 
-/** 按住多久算长按 (ms)。 */
 export const LONG_PRESS_DURATION = 500
 
 export function useLongPress(
   duration: number,
-  /** 手势达成后的落点。留空表示手势仍然识别，但不接任何动作。 */
   onTrigger: (() => void) | undefined,
   enabled: boolean,
 ) {
@@ -61,7 +41,6 @@ export function useLongPress(
   const start = useCallback(
     (e: MouseEvent | TouchEvent) => {
       if (!enabled) return
-      // MouseEvent only: primary button (0). Right/middle must not open agent.
       if ('button' in e && e.button !== 0) return
       const target = e.target as HTMLElement
       if (target.closest(EXCLUDED_SELECTORS)) return

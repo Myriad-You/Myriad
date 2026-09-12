@@ -222,7 +222,6 @@ function expressionFrame(
   }
 }
 
-// Frozen copy of the former Anime25DPlayer special-expression sequence.
 function legacyDeformExpressionPoint(
   point: { x: number; y: number },
   restY: number,

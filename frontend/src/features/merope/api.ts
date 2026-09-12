@@ -1,7 +1,6 @@
 import type { MeropeRigImportSource, MeropeRigManifest } from './rig/types'
 import { currentCopy } from '../../i18n/localeCopy'
 import api from '../../lib/api'
-import { httpStatusMessage } from '../../utils/userFacingError'
 import { isLiveMeropeManifest, isRigManifest } from './rig/types'
 
 const PREFIX = '/api/merope/rig'
@@ -41,23 +40,6 @@ function payloadCode(payload: Record<string, unknown>): string | undefined {
     : undefined
 }
 
-function assertSuccess(status: number, data: unknown, _fallback: string): void {
-  if (status < 400) return
-  const payload =
-    data && typeof data === 'object' ? (data as Record<string, unknown>) : {}
-  throw new MeropeApiError(
-    typeof payload.error === 'string'
-      ? payload.error
-      : typeof payload.message === 'string'
-        ? payload.message
-        : typeof data === 'string' && data.trim()
-          ? data
-          : httpStatusMessage(status),
-    status,
-    payloadCode(payload),
-  )
-}
-
 function readPortraitUrl(data: { portraitUrl?: unknown }): string | null {
   return typeof data.portraitUrl === 'string' && data.portraitUrl.trim()
     ? data.portraitUrl
@@ -95,20 +77,26 @@ let siteFaceInflight: Promise<SiteFace> | null = null
 
 export async function getSiteFace(): Promise<SiteFace> {
   if (siteFaceInflight) return siteFaceInflight
-  siteFaceInflight = loadSiteFace().finally(() => {
+  siteFaceInflight = loadFace(`${PREFIX}/active`).finally(() => {
     siteFaceInflight = null
   })
   return siteFaceInflight
 }
 
-async function loadSiteFace(): Promise<SiteFace> {
-  const response = await api.get<{
-    manifest?: unknown
-    portraitUrl?: unknown
-    generationFingerprint?: unknown
-    assetId?: unknown
-  }>(`${PREFIX}/active`)
-  return readFaceResponse(response.status, response.data)
+async function loadFace(path: string): Promise<SiteFace> {
+  try {
+    const response = await api.get<{
+      manifest?: unknown
+      portraitUrl?: unknown
+      generationFingerprint?: unknown
+      assetId?: unknown
+    }>(path)
+    return readFaceResponse(response.data)
+  } catch (reason) {
+    const error = meropeError(reason, currentCopy().merope.loadFailed)
+    if (error.status === 404) return readFaceResponse({})
+    throw error
+  }
 }
 
 export async function getWardrobeFace(outfitId: string): Promise<SiteFace> {
@@ -121,17 +109,10 @@ export async function getWardrobeFace(outfitId: string): Promise<SiteFace> {
       assetId: null,
     }
   }
-  const response = await api.get<{
-    manifest?: unknown
-    portraitUrl?: unknown
-    generationFingerprint?: unknown
-    assetId?: unknown
-  }>(`/api/agent/wardrobe/${encodeURIComponent(id)}/face`)
-  return readFaceResponse(response.status, response.data)
+  return loadFace(`/api/agent/wardrobe/${encodeURIComponent(id)}/face`)
 }
 
 function readFaceResponse(
-  status: number,
   data: {
     manifest?: unknown
     portraitUrl?: unknown
@@ -139,15 +120,6 @@ function readFaceResponse(
     assetId?: unknown
   },
 ): SiteFace {
-  if (status === 404) {
-    return {
-      manifest: null,
-      portraitUrl: null,
-      generationFingerprint: null,
-      assetId: null,
-    }
-  }
-  assertSuccess(status, data, currentCopy().merope.loadFailed)
   const manifest = isLiveMeropeManifest(data.manifest) ? data.manifest : null
   return {
     manifest,
@@ -164,11 +136,6 @@ function readFaceResponse(
 export async function getSeeThroughStatus(): Promise<SeeThroughStatus> {
   const response = await api.get<Partial<SeeThroughStatus>>(
     `${PREFIX}/see-through/status`,
-  )
-  assertSuccess(
-    response.status,
-    response.data,
-    currentCopy().merope.seeThroughStatusFailed,
   )
   return {
     provider:
@@ -190,11 +157,6 @@ export async function updateSeeThroughToken(
   const response = await api.patch<Partial<SeeThroughStatus>>(
     `${PREFIX}/see-through/token`,
     { token },
-  )
-  assertSuccess(
-    response.status,
-    response.data,
-    currentCopy().merope.motionSeeThroughTokenFailed,
   )
   return {
     provider:
@@ -252,13 +214,6 @@ export async function decomposeSitePortraitWithSeeThrough(input: {
         timeout: SEE_THROUGH_TIMEOUT_MS,
       },
     )
-    if (response.status >= 400) {
-      throw await binaryApiError(
-        response.status,
-        response.data,
-        currentCopy().merope.motionSeeThroughUpstream,
-      )
-    }
     if (!(response.data instanceof Blob) || response.data.size === 0) {
       throw new MeropeApiError(
         currentCopy().merope.motionSeeThroughUpstream,
@@ -321,8 +276,6 @@ async function submitMeropeRigImport(
   let response
   try {
     response = await api.post<{ manifest: unknown }>(`${PREFIX}${path}`, body, {
-      // The shared Axios instance defaults to application/json. Clearing it is
-      // required so the browser can generate the multipart boundary.
       headers: { 'Content-Type': undefined },
       timeout: RIG_MUTATION_TIMEOUT_MS,
     })
@@ -334,13 +287,6 @@ async function submitMeropeRigImport(
         : currentCopy().merope.rigImportFailed,
     )
   }
-  assertSuccess(
-    response.status,
-    response.data,
-    action === 'commit'
-      ? currentCopy().merope.rigCommitFailed
-      : currentCopy().merope.rigImportFailed,
-  )
   if (!isRigManifest(response.data.manifest)) {
     throw new Error(currentCopy().merope.rigCompileFailed)
   }
@@ -365,11 +311,6 @@ export async function uploadSitePortrait(image: Blob): Promise<{
         timeout: RIG_MUTATION_TIMEOUT_MS,
       },
     )
-    assertSuccess(
-      response.status,
-      response.data,
-      currentCopy().merope.portraitUploadFailed,
-    )
     const portraitUrl = readPortraitUrl(response.data)
     if (!portraitUrl) {
       throw new MeropeApiError(currentCopy().merope.portraitUploadFailed, 502)
@@ -381,10 +322,6 @@ export async function uploadSitePortrait(image: Blob): Promise<{
   }
 }
 
-/**
- * 生成人设的 Q 版贴纸头像。身份锚是已确认的主立绘，所以没有主立绘时后端会
- * 直接拒（`portrait_required`）；换主立绘会把旧头像清掉，需要重新生成。
- */
 export async function generateStickerAvatar(): Promise<{
   avatarUrl: string | null
 }> {
@@ -393,11 +330,6 @@ export async function generateStickerAvatar(): Promise<{
       `${PREFIX}/avatar`,
       {},
       { timeout: PORTRAIT_GENERATION_TIMEOUT_MS },
-    )
-    assertSuccess(
-      response.status,
-      response.data,
-      currentCopy().merope.avatarFailed,
     )
     return {
       avatarUrl:
@@ -427,11 +359,6 @@ export async function generateSitePortrait(
       `${PREFIX}/portrait`,
       { prompt, edit: options?.edit === true },
       { timeout: PORTRAIT_GENERATION_TIMEOUT_MS },
-    )
-    assertSuccess(
-      response.status,
-      response.data,
-      currentCopy().merope.visualFailed,
     )
     const fingerprint =
       typeof response.data.generationFingerprint === 'string' &&

@@ -300,7 +300,7 @@ fn enrich_stored_platform_report(mut report: Value) -> Value {
 }
 
 /// Stamp platform + normalize card_visuals so home ReportCard widgets can match
-/// and render stats even when older stored JSON is missing / double-encoded.
+/// and render stats even when stored JSON is missing fields or double-encoded.
 pub(crate) fn finalize_public_platform_report(platform: &str, report: Value) -> Value {
     let report = crate::api::reports::locale::unwrap_stored_report_json(report);
 
@@ -314,7 +314,6 @@ pub(crate) fn finalize_public_platform_report(platform: &str, report: Value) -> 
         let normalized_visuals = match obj.get("card_visuals") {
             Some(v) if v.is_object() => {
                 // 双层嵌套 { card_visuals: { …stats } } 时剥一层；否则用对象本身
-                // （旧逻辑只返回内层，导致普通对象走 None、读路径从不 normalize）
                 Some(
                     v.get("card_visuals")
                         .filter(|inner| inner.is_object())

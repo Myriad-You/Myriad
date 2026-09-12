@@ -1,32 +1,15 @@
-/**
- * 把包内 `.js` 文件编译成沙箱里可执行的一段经典脚本。
- *
- * 沙箱主动禁用了 `eval` 与 `Function`（runtime/sandbox/security.ts），所以模块
- * 工厂只能由宿主在生成 srcdoc 时静态拼成函数字面量注入：模块系统是宿主编译期
- * 的产物，不是沙箱内的运行时能力。不要试图在沙箱里 `new Function` 还原它。
- */
+/** 沙箱禁用 eval/Function；模块工厂由宿主注入。不要在沙箱里 new Function。 */
 
-/** 层执行计划：要注入哪些模块，从哪些入口开始跑。 */
 export interface LayerExecutionPlan {
-  /** 注入 srcdoc 的脚本源码。 */
   source: string
-  /** 实际打进这段脚本的模块路径，按依赖图顺序无关的稳定排序。 */
   includedModules: string[]
-  /** 依次执行的入口，`core` 永远在最前。 */
   entries: string[]
 }
 
 const REQUIRE = 'require'
 const IDENTIFIER_BYTE = /[\w$]/
 
-/**
- * 顺序扫描出模块直接 `require` 的字面量目标（原样，未解析）。
- *
- * 跳过注释与字符串字面量，所以 `var s = "require('./x.js')"` 不是依赖；遇到真正的
- * `require(` 会立刻消费它的字符串参数，因此参数本身不会被当成「要跳过的字符串」。
- * 这与安装期的 `extract_require_requests` 同构，两边共用同一组用例
- * （见 moduleRuntime.test.ts 的 SHARED_EXTRACTION_SOURCE）。
- */
+/** 跳过注释与字符串。与安装期 extract_require_requests 同构，共用 SHARED_EXTRACTION_SOURCE。 */
 export function extractRequireRequests(source: string): string[] {
   const requests: string[] = []
   let index = 0
@@ -91,10 +74,6 @@ function dirnameOf(path: string): string {
   return index === -1 ? '' : path.slice(0, index)
 }
 
-/**
- * 按 POSIX 规则解析相对路径。宿主侧解析一次，沙箱里只做表查找，
- * 这样「引用了不存在的文件」在生成阶段就能发现。
- */
 export function resolveModulePath(
   fromModule: string,
   request: string,
@@ -108,8 +87,6 @@ export function resolveModulePath(
   for (const segment of segments) {
     if (segment === '' || segment === '.') continue
     if (segment === '..') {
-      // 逃出包根不折叠回根内：折叠会让 `widget/index.js` 里的 `../../core.js`
-      // 悄悄命中 `core.js`，作者拿不到写错了的信号。
       if (resolved.length === 0) return null
       resolved.pop()
       continue
@@ -119,7 +96,6 @@ export function resolveModulePath(
   return resolved.length > 0 ? resolved.join('/') : null
 }
 
-/** 解析候选：允许省略 `.js`，但不支持目录 index 与 json。 */
 function resolveAgainstModules(
   fromModule: string,
   request: string,
@@ -127,18 +103,15 @@ function resolveAgainstModules(
 ): string | undefined {
   const resolved = resolveModulePath(fromModule, request)
   if (resolved === null) return undefined
-  if (resolved in modules) return resolved
+  if (Object.hasOwn(modules, resolved)) return resolved
   const withExtension = `${resolved}.js`
-  if (withExtension in modules) return withExtension
+  if (Object.hasOwn(modules, withExtension)) return withExtension
   return undefined
 }
 
-/** 一个模块的 require 解析结果：原样请求 → 解析后的模块路径。 */
 export type RequireResolution = Map<string, string>
-/** 后端预解析的 require 表：模块路径 → 原样请求 → 目标模块路径。 */
 export type ModuleResolutionTable = Record<string, Record<string, string>>
 
-/** 静态解析一个模块直接 require 的目标。 */
 export function collectRequires(
   fromModule: string,
   source: string,
@@ -154,29 +127,23 @@ export function collectRequires(
   return { resolved, missing }
 }
 
-/**
- * 从入口出发做闭包，只收该层真正用到的模块。
- *
- * 这条边界是有意的：widget 沙箱不该拿到 Page 的 JS，注入范围必须按依赖图算，
- * 不能因为「安装时扫描登记了整包」就把整包塞进每个 iframe。
- */
+/** 从入口做闭包。widget 沙箱不拿 Page JS；注入按依赖图，不按整包。 */
 export function collectLayerModules(
   modules: Record<string, string>,
   entries: string[],
 ): {
   included: string[]
   missing: string[]
-  /** 每个纳入模块的 require 解析表，供生成阶段直接复用。 */
   resolution: Map<string, RequireResolution>
 } {
   const included: string[] = []
   const missing: string[] = []
   const resolution = new Map<string, RequireResolution>()
   const seen = new Set<string>()
-  const queue = entries.filter((entry) => entry in modules)
+  const queue = entries.filter((entry) => Object.hasOwn(modules, entry))
 
   for (const entry of entries) {
-    if (!(entry in modules)) missing.push(entry)
+    if (!Object.hasOwn(modules, entry)) missing.push(entry)
   }
 
   while (queue.length > 0) {
@@ -198,7 +165,7 @@ export function collectLayerModules(
     }
   }
 
-  return { included: included.sort(), missing, resolution }
+  return { included: included.toSorted(), missing, resolution }
 }
 
 function collectResolvedLayerModules(
@@ -209,10 +176,10 @@ function collectResolvedLayerModules(
   const included: string[] = []
   const missing: string[] = []
   const seen = new Set<string>()
-  const queue = entries.filter((entry) => entry in modules)
+  const queue = entries.filter((entry) => Object.hasOwn(modules, entry))
 
   for (const entry of entries) {
-    if (!(entry in modules)) missing.push(entry)
+    if (!Object.hasOwn(modules, entry)) missing.push(entry)
   }
 
   while (queue.length > 0) {
@@ -223,7 +190,7 @@ function collectResolvedLayerModules(
     for (const [request, target] of Object.entries(
       resolutions[current] || {},
     )) {
-      if (!(target in modules)) {
+      if (!Object.hasOwn(modules, target)) {
         missing.push(`${current} → ${request}`)
       } else if (!seen.has(target)) {
         queue.push(target)
@@ -231,26 +198,22 @@ function collectResolvedLayerModules(
     }
   }
 
-  return { included: included.sort(), missing }
+  return { included: included.toSorted(), missing }
 }
 
 function escapeModuleSource(source: string): string {
-  // 模块体作为函数字面量嵌进外层 script，必须切断提前闭合 script 的可能。
-  return source.replace(/<\/script/gi, '<\\/script')
+  // 模块体嵌进 script，须切断提前闭合 script。
+  return source.replaceAll(/<\/script/gi, '<\\/script')
 }
 
-/**
- * 生成一层的可执行脚本。
- *
- * 语义是 CommonJS 子集：同步 require、模块级缓存、循环依赖拿到部分导出、
- * 每个模块顶层声明彼此隔离。`Tapp` 与 `window._TAPP_*` 这些真全局不受影响。
- */
 export function buildLayerRuntime(
   modules: Record<string, string>,
   entries: string[],
   moduleResolutions?: ModuleResolutionTable,
 ): LayerExecutionPlan {
-  const orderedEntries = entries.filter((entry) => entry in modules)
+  const orderedEntries = entries.filter((entry) =>
+    Object.hasOwn(modules, entry),
+  )
   const collected = moduleResolutions
     ? collectResolvedLayerModules(modules, entries, moduleResolutions)
     : collectLayerModules(modules, entries)
@@ -267,7 +230,6 @@ export function buildLayerRuntime(
     })
     .join(',\n')
 
-  // 解析表沿用依赖图那一遍的结果：沙箱内只查表，路径解析不实现第二遍。
   const resolutionTable: Record<string, Record<string, string>> = {}
   if (moduleResolutions) {
     for (const path of included) {
@@ -286,20 +248,21 @@ export function buildLayerRuntime(
   return {
     source: `(function () {
   'use strict';
-  var __factories = {
+  const __factories = {
 ${registry}
   };
-  var __resolve = ${JSON.stringify(resolutionTable)};
-  var __cache = {};
+  const __resolve = ${JSON.stringify(resolutionTable)};
+  const __cache = {};
+  const __hasOwn = Object.hasOwn;
   function __require(from, request) {
-    var target = (__resolve[from] && __resolve[from][request]) || request;
-    if (!Object.prototype.hasOwnProperty.call(__factories, target)) {
+    const target = (__resolve[from] && __resolve[from][request]) || request;
+    if (!__hasOwn(__factories, target)) {
       throw new Error('Cannot find module ' + JSON.stringify(request) + ' from ' + JSON.stringify(from));
     }
-    if (Object.prototype.hasOwnProperty.call(__cache, target)) {
+    if (__hasOwn(__cache, target)) {
       return __cache[target].exports;
     }
-    var module = { exports: {} };
+    const module = { exports: {} };
     // 先入缓存再执行：循环依赖拿到的是部分导出，而不是无限递归。
     __cache[target] = module;
     __factories[target](module, module.exports, function (request) {

@@ -1,9 +1,6 @@
 import type { TappCategory, TappManifest, WidgetCategory } from '../types'
 
-/**
- * Tapp 用途分类的稳定 ID。运行形态（Page / Widget）和发布阶段
- * （demo / test）不属于用途分类。
- */
+/** 用途分类的稳定 ID。运行形态与发布阶段不属于此字段。 */
 export const TAPP_CATEGORIES = [
   'ai',
   'data',
@@ -15,7 +12,6 @@ export const TAPP_CATEGORIES = [
   'utility',
 ] as const satisfies readonly TappCategory[]
 
-/** Widget `category` 与应用用途使用同一套稳定 ID。 */
 export const TAPP_WIDGET_CATEGORIES = TAPP_CATEGORIES
 
 export function parseTappWidgetCategory(
@@ -66,7 +62,6 @@ const CATEGORY_ALIASES: Record<string, TappCategory> = {
   widget: 'utility',
 }
 
-/** 将商店或旧 Manifest 的分类值归一为稳定 ID。 */
 export function normalizeTappCategory(
   category: string | null | undefined,
 ): TappCategory {
@@ -74,10 +69,6 @@ export function normalizeTappCategory(
   return CATEGORY_ALIASES[category.trim().toLowerCase()] ?? 'utility'
 }
 
-/**
- * 解析 Manifest 分类。旧 Manifest 缺少 category 时仅作能力推断；
- * 新 Manifest 应始终显式声明 category。
- */
 export function resolveTappCategory(
   manifest: Pick<TappManifest, 'category' | 'permissions'>,
 ): TappCategory {

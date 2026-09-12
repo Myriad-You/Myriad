@@ -15,19 +15,16 @@ use crate::services::agent::types::{FailureStrategy, RecipeStep};
 pub struct DagScheduler {
     /// step_id -> 步骤定义
     steps: HashMap<String, RecipeStep>,
-    /// 已完成的步骤（成功或 Skip/Continue 策略的失败步骤）
+    /// 已完成的步骤（成功，或 Skip / UseDefault / Fallback 的失败）
     completed: HashSet<String>,
     /// 已失败的步骤（Abort 策略，阻塞依赖链）
     failed: HashSet<String>,
-    /// 步骤执行顺序（用于无依赖时的默认顺序）
+    /// 切片插入顺序。仅 1 步时按此取下一未完成项；2+ 步走并行 ready-wave。
     order: Vec<String>,
 }
 
 impl DagScheduler {
-    /// 从 RecipeSteps 构建 DAG
-    ///
-    /// 如果所有步骤的 `depends_on` 都为空，则按 `order` 字段顺序执行（兼容现有行为）。
-    /// 如果有依赖关系，则构建 DAG 并并行执行。
+    /// 从 RecipeSteps 构建 DAG。`order` 是切片插入顺序，不是 `RecipeStep.order`。
     pub fn new(steps: &[RecipeStep]) -> Result<Self, String> {
         let mut step_map = HashMap::new();
         let mut order: Vec<String> = Vec::new();
@@ -52,9 +49,8 @@ impl DagScheduler {
 
     /// 是否使用并行模式
     ///
-    /// 当有 2 个以上步骤时启用并行模式：
-    /// - 有显式 `depends_on` 时：按 DAG 拓扑排序，依赖满足的步骤并行执行
-    /// - 全部 `depends_on` 为空时：所有步骤视为独立，整波并行执行
+    /// 当有 2 个以上步骤时启用并行模式（`steps.len() > 1`）：
+    /// 依赖满足的步骤进入同一 ready-wave（HashMap 迭代，不按拓扑排序）。
     ///
     /// 仅当唯一 1 个步骤时退化为顺序执行。
     pub fn is_parallel_mode(&self) -> bool {
@@ -82,7 +78,7 @@ impl DagScheduler {
                 // 未完成且未失败
                 !self.completed.contains(&step.id)
                     && !self.failed.contains(&step.id)
-                    // 所有依赖已完成（成功或 Skip/Continue 策略）
+                    // 所有依赖已完成（成功或非 Abort 失败）
                     && step
                         .depends_on
                         .iter()
@@ -116,10 +112,6 @@ impl DagScheduler {
         self.completed.insert(step_id.to_string());
     }
 
-    /// 标记步骤失败，根据 on_failure 策略决定是否阻塞依赖链
-    ///
-    /// - Skip/Continue: 视为"完成"（依赖步骤可继续执行）
-    /// - Abort: 标记为失败（依赖步骤将被跳过）
     /// Mark step failed. Returns `true` if dependents are blocked (Abort).
     pub fn mark_failed(&mut self, step_id: &str, strategy: &FailureStrategy) -> bool {
         match strategy {

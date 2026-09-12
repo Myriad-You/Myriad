@@ -1,11 +1,7 @@
-/**
- * Session-cookie fallback for tapp user/role when Runtime Grant is dead or
- * /api/tapp/context/user fails. Uses the same /api/auth/me session as the host.
- *
- * Guest contract: /api/auth/me returns HTTP 200 + authenticated:false (not 401).
- */
+/** Runtime Grant 失效时用会话 cookie。访客：/api/auth/me 为 200 + authenticated:false，不是 401。 */
 
 import { API_URL } from '../../config'
+import { hostLocaleHeaders } from '../../i18n/hostLocaleHeaders'
 import {
   isAuthMeHttpOk,
   parseAuthMeResponse,
@@ -24,14 +20,12 @@ export interface SessionUserSnapshot {
   authenticated: boolean
 }
 
-/**
- * Probe the host session via cookie. Returns null when unauthenticated / error.
- * Does not use Runtime Grant — safe after AuthContext.destroyAll().
- */
+/** 用 cookie 探宿主会话。不用 Runtime Grant；destroyAll 后仍安全。 */
 export async function fetchSessionUserSnapshot(): Promise<SessionUserSnapshot | null> {
   try {
     const response = await fetch(`${API_URL}/api/auth/me`, {
       credentials: 'include',
+      headers: hostLocaleHeaders(),
       signal: AbortSignal.timeout(5000),
     })
     if (!isAuthMeHttpOk(response.status)) return null

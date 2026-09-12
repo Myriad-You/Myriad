@@ -9,7 +9,7 @@ import { standingBearingFromAffect } from './bearing'
 const DEFAULT_MOOD = 70
 const DEFAULT_AROUSAL = 48
 
-/** Mood/activity baseline. Expression only; thinking is gated as ambient. */
+/** Expression only; thinking is gated as ambient. */
 export class MoodMotionSource {
   private handle: MotionLeaseHandle | null = null
   private intent: MoodIntent = {

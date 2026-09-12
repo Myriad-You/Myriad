@@ -51,7 +51,7 @@ fn test_smart_filter_integration() {
         Err(e) => println!("Failed to process platform data: {}", e),
     }
 
-    // 验证分平台文件是否已创建
+    // 列出分平台过滤文件（println，无 assert）
     let platforms_dir = crate::services::data_paths::platforms_cache_dir();
     if platforms_dir.exists() {
         println!("Platform filtered files:");
@@ -129,7 +129,7 @@ fn filter_x_builds_engagement_summary() {
     }
 }
 
-/// Fixture shaped like Data API v3 `channels` + `videos` (public, no OAuth).
+/// Fixture uses a single `channel` object plus `videos` (public, no OAuth).
 #[test]
 fn filter_youtube_channel_and_videos() {
     let raw = serde_json::json!({
@@ -211,11 +211,11 @@ fn filter_youtube_channel_and_videos() {
                 .as_deref()
                 .unwrap_or("")
                 .contains("GoogleDevelopers"));
-            assert!(analysis.video_summary.contains("订阅"));
+            assert!(analysis.video_summary.contains("subscribers"));
         }
         other => panic!("expected YouTube analysis, got {:?}", other),
     }
-    // Round-trip through SmartFilteredData JSON (cache shape)
+    // Serialize SmartFilteredData (not a disk cache round-trip)
     let as_json = serde_json::to_value(&filtered).expect("serialize");
     assert_eq!(as_json["platform"], "youtube");
     assert!(as_json["content_analysis"]["recent_videos"].is_array());
@@ -254,7 +254,8 @@ fn filter_youtube_empty_channel_is_valid() {
             assert_eq!(a.video_count, 0);
             assert!(a.recent_videos.is_empty());
             assert!(
-                a.video_summary.contains("暂无上传") || a.video_summary.contains("空频道"),
+                a.video_summary.contains("no uploaded videos")
+                    || a.video_summary.contains("empty channel"),
                 "summary should say empty is ok: {}",
                 a.video_summary
             );
@@ -265,7 +266,7 @@ fn filter_youtube_empty_channel_is_valid() {
 
 #[test]
 fn test_filter_bilibili_user_key() {
-    // 抓取写入 `user`（与 steam/github 一致）；filter 内部期望 user_info
+    // 抓取写入 `user`；filter 接受 `user` 或 `user_info`
     let raw = serde_json::json!({
         "user": {
             "mid": 10398973,

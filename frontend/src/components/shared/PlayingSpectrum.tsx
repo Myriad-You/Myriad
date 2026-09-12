@@ -1,28 +1,12 @@
-/**
- * 正在播放频谱柱（4 柱，低-高-高-低视觉）
- * 复用 audioManager.getSpectrumData；低性能模式退化为静态/轻脉冲高度。
- *
- * variant:
- * - bottom：底对齐，向上长（列表 / 小组件）
- * - center：中线对齐，向上下对称扩展（默认页右上角）
- */
-
 import { memo, useEffect, useMemo, useRef } from 'react'
 import { isPageVisible, onVisibility } from '../../hooks/animation'
 import { audioManager } from '../../utils/musicPlayer'
 
 export interface PlayingSpectrumProps {
-  /** 柱体颜色；可用 CSS 变量 */
   themeColor?: string
-  /** 尺寸倍率，1 ≈ 高 16px / 柱宽 2px（center 模式底高约 18px） */
   scale?: number
   isPlaying?: boolean
-  /**
-   * 是否走实时频谱。false 时用静态/轻量高度（低性能或暂停）。
-   * 默认 true（由调用方结合 animation level 决定）。
-   */
   useSpectrum?: boolean
-  /** 生长方向：bottom 向上；center 中线上下 */
   variant?: 'bottom' | 'center'
   className?: string
 }
@@ -60,7 +44,6 @@ const PlayingSpectrum = memo(({
         animationRef.current = null
       }
       connectedRef.current = false
-      // 暂停 / 低性能：固定高度；播放但无频谱时略抬高中柱
       if (isPlaying) {
         applyHeights('35%', '70%', '55%', '40%')
       } else {
@@ -73,7 +56,6 @@ const PlayingSpectrum = memo(({
     let lastUpdateTime = 0
     const UPDATE_INTERVAL = 60
 
-    /** 仅在 connect 真正成功时置 true；失败则后续 tick 重试 */
     const ensureConnected = () => {
       if (connectedRef.current) return true
       const audio = audioManager.getCurrentAudio()
@@ -98,10 +80,8 @@ const PlayingSpectrum = memo(({
       }
 
       if (timestamp - lastUpdateTime >= UPDATE_INTERVAL) {
-        // audio 晚于组件挂载 / 分析器曾失败时按帧重试
         ensureConnected()
         const data = audioManager.getSpectrumData()
-        // 中线模式柱高稍大，上下伸展更明显
         const base = centered ? 22 : 30
         const amp = centered ? 78 : 70
         applyHeights(
@@ -124,7 +104,7 @@ const PlayingSpectrum = memo(({
     pageVisibleRef.current = isPageVisible()
     ensureConnected()
 
-    // 页签隐藏时停 rAF；回到前台必须重启（仅改 ref 不会恢复循环）
+    // 回到前台必须重启循环，只改 ref 不够。
     const unsubscribe = onVisibility((visible) => {
       pageVisibleRef.current = visible
       if (visible) startLoop()
@@ -143,7 +123,6 @@ const PlayingSpectrum = memo(({
   const containerStyle = useMemo(
     () => ({
       gap: `${Math.max(1.25, 1.75 * scale)}px`,
-      // center 略高以容纳上下扩展
       height: `${(centered ? 16 : 16) * scale}px`,
       display: 'flex' as const,
       alignItems: (centered ? 'center' : 'flex-end') as
@@ -158,7 +137,6 @@ const PlayingSpectrum = memo(({
       background: themeColor,
       width: `${2 * scale}px`,
       transition: live ? 'height 0.06s linear' : undefined,
-      // 中线模式：高度变化时视觉上下对称
       alignSelf: centered ? ('center' as const) : undefined,
     }),
     [themeColor, scale, live, centered],

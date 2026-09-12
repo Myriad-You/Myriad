@@ -20,7 +20,6 @@ export interface CanvasCardPaintCache {
   nodes: CanvasCardPaintNode[]
 }
 
-/** Skip a style write when the focus scale would not move a pixel of stacking. */
 export const CANVAS_FOCUS_WRITE_EPS = 0.004
 
 export function createCanvasCardPaintCache(): CanvasCardPaintCache {

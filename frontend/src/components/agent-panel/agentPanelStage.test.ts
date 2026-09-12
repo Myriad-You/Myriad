@@ -31,9 +31,7 @@ test('收起时内容留到动画播完，不硬切', () => {
 
   const closing = step(open, { type: 'close' })
   assert.deepEqual(closing, { stage: 'overlay', phase: 'closing' })
-  // 还在 DOM 里，只是正在退场
   assert.equal(agentPanelShowsStage(closing, 'overlay'), true)
-  // 但已经不算展开着 —— 键盘和点外部不该再被它接管
   assert.equal(agentPanelIsOpen(closing), false)
 
   assert.deepEqual(step(closing, { type: 'settle' }), start)
@@ -75,7 +73,6 @@ test('已经在岛上时收起是空操作，settle 也不会乱改', () => {
 })
 
 test('丢了动画事件也能靠超时把状态推回落定', () => {
-  // settle 是唯一的落定入口，无论它来自 transitionend 还是超时
   const opening = step(start, { type: 'open', stage: 'overlay' })
   assert.equal(step(opening, { type: 'settle' }).phase, 'settled')
 })

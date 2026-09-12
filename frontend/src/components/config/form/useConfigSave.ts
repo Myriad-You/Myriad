@@ -95,7 +95,6 @@ interface ConfigI18n {
   bangumiCredentialMissing: string
   savingConfig: string
   configSaveFailed: string
-  /** When some sections already committed before a later step failed */
   partialSaveWarning: string
   librarySourceSaveFailed: string
   librarySourceSaved: string
@@ -313,8 +312,7 @@ export function useConfigSave(args: {
         if (result?.success === false) {
           throw new Error(result.message || t.config.configSaveFailed)
         }
-        resultMessage = result.message || t.config.configSaved
-        const snapshot = JSON.parse(JSON.stringify(config)) as Config
+        const snapshot = structuredClone(config)
         pendingClean.push(() => setInitialConfig(snapshot))
       }
 
@@ -426,7 +424,7 @@ export function useConfigSave(args: {
       }
 
       if (hasFavoriteChanges) {
-        const nextFav = [...favorites]
+        const nextFav = Iterator.from(favorites).toArray()
         pendingClean.push(() => {
           localStorage.setItem('config_favorites', JSON.stringify(nextFav))
           setSavedFavorites(nextFav)
@@ -489,10 +487,9 @@ export function useConfigSave(args: {
         notifyPersonaUpdated()
       }
 
-      // Soft side-effects (no full-page reload): wallpaper, library cache, etc.
       if (needWallpaperReload) {
         clearDedupCache(`${API_URL}/api/config/ui`)
-        // Bust 1s lastLoadResult debounce so soft reload is not a no-op
+        // bust 1s lastLoadResult debounce so soft reload is not a no-op
         void import('../../../hooks/useWallpaper').then((m) => {
           m.invalidateWallpaperLoadCache()
           window.dispatchEvent(new CustomEvent('wallpaperConfigChanged'))
@@ -536,13 +533,13 @@ export function useConfigSave(args: {
         )
       }
 
-      // Proxy / API mirrors: backend hot-reload only — no location.reload.
+      // proxy/mirrors: backend hot-reload only
       if (needRuntimeReload && !needHardReload) {
         try {
           await getCSRFToken(true)
           await reloadSystemConfig()
         } catch {
-          // Config is already persisted; outbound clients may lag until next restart.
+          // config is persisted; outbound clients may lag until restart
         }
         refreshPersonaPublicName()
         showMessage(t.config.savedSuccessRuntimeReload, 'success', 4000)
@@ -550,21 +547,19 @@ export function useConfigSave(args: {
       }
 
       if (!needHardReload) {
-        // AI / platforms / auto_fetch / pure UI bags: toast only (side-effects above).
         refreshPersonaPublicName()
         showMessage(t.config.savedSuccess, 'success', 3000)
         return
       }
 
-      // Hard-reload path: sticky toast that keeps “full page reload” intent
-      // (do not overwrite with generic savedSuccess — that hid the reload cue).
+      // don't overwrite with generic savedSuccess
       showMessage(t.config.hardReloadPreparing, 'success', 0)
 
       try {
         await getCSRFToken(true)
         await reloadSystemConfig()
       } catch {
-        // Config already persisted; still reload so UI picks up full state.
+        // config is persisted; reload so UI picks up full state
       }
       showMessage(t.config.savedSuccessHardReload, 'success', 0)
       snapshotConfigNavScroll()
@@ -572,8 +567,7 @@ export function useConfigSave(args: {
         window.location.reload()
       }, 2000)
     } catch (error) {
-      // Some sections may already have succeeded (pendingClean filled).
-      // Commit those so UI dirty flags only reflect remaining unsaved drafts.
+      // commit succeeded sections so dirty flags match remaining drafts
       const applied: PendingClean[] = []
       for (const apply of pendingClean) {
         try {

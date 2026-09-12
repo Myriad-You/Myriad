@@ -1,13 +1,11 @@
 //! Agent API — sessions
 use super::*;
 use crate::error::HttpError;
+use myriad_error::AppError;
 
 fn session_store_http(context: &'static str, error: impl std::fmt::Display) -> HttpError {
     tracing::error!(%error, context, "agent session store failed");
-    HttpError::from((
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(json!({ "error": format!("Failed to {context}") })),
-    ))
+    HttpError(AppError::internal(format!("Failed to {context}")))
 }
 
 fn session_store_failed(context: &'static str, error: impl std::fmt::Display) -> String {
@@ -83,6 +81,28 @@ pub(crate) fn default_limit() -> u64 {
     20
 }
 
+const SESSION_PAGE_MIN: u64 = 1;
+const SESSION_LIMIT_MIN: u64 = 1;
+const SESSION_LIMIT_MAX: u64 = 100;
+
+fn session_pagination(query: &SessionListQuery) -> Result<(u64, u64), HttpError> {
+    if query.page < SESSION_PAGE_MIN {
+        return Err(HttpError(AppError::bad_request("page must be >= 1")));
+    }
+    if query.limit < SESSION_LIMIT_MIN || query.limit > SESSION_LIMIT_MAX {
+        return Err(HttpError(AppError::bad_request(format!(
+            "limit must be between {SESSION_LIMIT_MIN} and {SESSION_LIMIT_MAX}"
+        ))));
+    }
+    let page_index = query.page - 1;
+    if page_index.checked_mul(query.limit).is_none() {
+        return Err(HttpError(AppError::bad_request(
+            "pagination offset overflow",
+        )));
+    }
+    Ok((query.limit, page_index))
+}
+
 /// 列出最近会话
 /// GET /api/agent/sessions
 pub async fn list_sessions(
@@ -95,12 +115,13 @@ pub async fn list_sessions(
         crate::services::agent::merope::spawn_presence(user_id);
     }
 
+    let (limit, page_index) = session_pagination(&query)?;
     let sessions = agent_sessions::Entity::find()
         .filter(agent_sessions::Column::UserId.eq(user_id))
         .filter(agent_sessions::Column::Archived.eq(false))
         .order_by_desc(agent_sessions::Column::LastActiveAt)
-        .paginate(&db, query.limit)
-        .fetch_page(query.page.saturating_sub(1))
+        .paginate(&db, limit)
+        .fetch_page(page_index)
         .await
         .map_err(|error| session_store_http("list sessions", error))?;
 
@@ -141,15 +162,16 @@ pub async fn get_session_messages(
     if session.is_none() {
         return Err(HttpError::from((
             StatusCode::NOT_FOUND,
-            Json(json!({"error": "Session not found"})),
+            Json(AppError::public_json("Session not found")),
         )));
     }
 
+    let (limit, page_index) = session_pagination(&query)?;
     let messages = agent_messages::Entity::find()
         .filter(agent_messages::Column::SessionId.eq(&session_id))
         .order_by_asc(agent_messages::Column::CreatedAt)
-        .paginate(&db, query.limit)
-        .fetch_page(query.page.saturating_sub(1))
+        .paginate(&db, limit)
+        .fetch_page(page_index)
         .await
         .map_err(|error| session_store_http("load session messages", error))?;
 
@@ -189,7 +211,7 @@ pub async fn archive_session(
     if session.is_none() {
         return Err(HttpError::from((
             StatusCode::NOT_FOUND,
-            Json(json!({"error": "Session not found"})),
+            Json(AppError::public_json("Session not found")),
         )));
     }
 
@@ -228,7 +250,7 @@ pub async fn update_session(
     if session.is_none() {
         return Err(HttpError::from((
             StatusCode::NOT_FOUND,
-            Json(json!({"error": "Session not found"})),
+            Json(AppError::public_json("Session not found")),
         )));
     }
 
@@ -268,11 +290,11 @@ pub async fn generate_session_title(
     if session.is_none() {
         return Err(HttpError::from((
             StatusCode::NOT_FOUND,
-            Json(json!({"error": "Session not found"})),
+            Json(AppError::public_json("Session not found")),
         )));
     }
 
-    // 加载最近几条消息作为标题生成上下文
+    // Oldest four messages (`order_by_asc` + page 0) as title context.
     let messages = agent_messages::Entity::find()
         .filter(agent_messages::Column::SessionId.eq(&session_id))
         .order_by_asc(agent_messages::Column::CreatedAt)
@@ -284,7 +306,7 @@ pub async fn generate_session_title(
     if messages.is_empty() {
         return Err(HttpError::from((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "No messages in session"})),
+            Json(AppError::public_json("No messages in session")),
         )));
     }
 
@@ -414,7 +436,6 @@ pub(crate) async fn persist_assistant_message(
     if let Ok(Some(session)) = agent_sessions::Entity::find_by_id(session_id).one(db).await {
         let mut active: agent_sessions::ActiveModel = session.into();
         active.last_active_at = Set(now);
-        // message_count 用 raw SQL 更新可能更好，但这里简单处理
         if let Ok(count) = agent_messages::Entity::find()
             .filter(agent_messages::Column::SessionId.eq(session_id))
             .count(db)
@@ -460,7 +481,7 @@ pub(crate) async fn load_session_history(
         .collect())
 }
 
-/// 确保会话存在，如果 session_id 为 None 则自动创建
+/// Return the session if id+user+mode match; otherwise insert a new row (None, missing, or mode mismatch).
 pub(crate) async fn ensure_session(
     db: &DatabaseConnection,
     session_id: Option<&str>,
@@ -468,7 +489,6 @@ pub(crate) async fn ensure_session(
     mode: crate::services::agent::AgentInteractionMode,
 ) -> Result<String, String> {
     if let Some(sid) = session_id {
-        // 验证会话存在且属于当前用户
         if let Some(session) = agent_sessions::Entity::find_by_id(sid)
             .filter(agent_sessions::Column::UserId.eq(user_id))
             .one(db)
@@ -524,5 +544,27 @@ mod mode_tests {
         let context = session_context(AgentInteractionMode::Chat);
         assert_eq!(context, json!({ "mode": "chat" }));
         assert_eq!(session_mode(Some(&context)), AgentInteractionMode::Chat);
+    }
+
+    fn assert_pagination_400(query: SessionListQuery) {
+        let error = session_pagination(&query).expect_err("expected 400");
+        assert_eq!(error.0.status_u16(), 400);
+    }
+
+    #[test]
+    fn session_pagination_rejects_zero_and_overflow() {
+        assert_pagination_400(SessionListQuery { page: 1, limit: 0 });
+        assert_pagination_400(SessionListQuery { page: 0, limit: 20 });
+        assert_pagination_400(SessionListQuery {
+            page: 1,
+            limit: SESSION_LIMIT_MAX + 1,
+        });
+        assert_pagination_400(SessionListQuery {
+            page: u64::MAX,
+            limit: 2,
+        });
+
+        let ok = session_pagination(&SessionListQuery { page: 2, limit: 20 }).expect("ok");
+        assert_eq!(ok, (20, 1));
     }
 }

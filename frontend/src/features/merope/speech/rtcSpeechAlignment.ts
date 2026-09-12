@@ -47,7 +47,6 @@ type TextVisemeCompiler = (
   locale?: string,
 ) => Promise<TextVisemeCue[]>
 
-/** Provider word timestamps own the clock; Myriad's existing compiler owns shape. */
 export async function compileRtcVisemeTimeline(
   words: readonly RtcTranscriptWord[],
   locale?: string,
@@ -86,11 +85,7 @@ export async function compileRtcVisemeTimeline(
   return spans
 }
 
-/**
- * A bounded transport-only timing cache, not another transcript/Chat store.
- * RTM can arrive before the authenticated run notice. Buffer those words, but
- * never drive a mouth until that exact provider turn is adopted by Agent Chat.
- */
+/** A bounded transport-only timing cache, not another transcript/Chat store. */
 export class RtcSpeechAlignment {
   private providerTurnId: number | null = null
   private cancelledThrough = -1
@@ -145,7 +140,7 @@ export class RtcSpeechAlignment {
   }
 
   noteAudioPts(ptsMs: number, observedAtMs = monotonicNow()): void {
-    // PTS can be Unix milliseconds. Do not cap it to a session duration.
+    // Do not cap it to a session duration.
     if (!timestamp(ptsMs) || (this.ptsMs !== null && ptsMs <= this.ptsMs))
       return
     this.ptsMs = ptsMs
@@ -183,19 +178,19 @@ export class RtcSpeechAlignment {
     turn.locale = frame.locale || turn.locale
     for (const word of frame.words) turn.words.set(word.start_ms, word)
     const oldestPts = this.ptsMs === null ? 0 : this.ptsMs - 1_000
-    const retained = [...turn.words.values()]
+    const retained = Iterator.from(turn.words.values()).toArray()
       .filter(
         (word) =>
           word.start_ms +
             Math.max(word.duration_ms, DEFAULT_WORD_DURATION_MS) >=
           oldestPts,
       )
-      .sort((a, b) => a.start_ms - b.start_ms)
+      .toSorted((a, b) => a.start_ms - b.start_ms)
       .slice(-MAX_WORDS)
     turn.words = new Map(retained.map((word) => [word.start_ms, word]))
     this.turns.set(frame.turnId, turn)
     // Only a few in-flight turns can overtake their server notices.
-    const ids = [...this.turns.keys()].sort((a, b) => a - b)
+    const ids = Iterator.from(this.turns.keys()).toArray().toSorted((a, b) => a - b)
     while (ids.length > 3) this.turns.delete(ids.shift()!)
     return frame.turnId === this.providerTurnId ? this.rebuild() : false
   }
@@ -205,7 +200,7 @@ export class RtcSpeechAlignment {
     if (turnId === null || turnId <= this.cancelledThrough) return false
     const turn = this.turns.get(turnId)
     if (!turn || !turn.words.size) return false
-    const words = [...turn.words.values()]
+    const words = Iterator.from(turn.words.values()).toArray()
     const locale = turn.locale || this.locale
     const signature = JSON.stringify([locale, words])
     if (signature === this.requestedSignature) return false
@@ -346,7 +341,6 @@ function parseTranscript(
     ) {
       continue
     }
-    // The official protocol can omit duration; the next word then bounds it.
     const duration = item.duration_ms === undefined ? 0 : item.duration_ms
     if (
       typeof duration !== 'number' ||

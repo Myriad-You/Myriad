@@ -53,7 +53,7 @@ fn get_scheduler() -> Result<Arc<RwLock<TappSchedulerEngine>>, HttpError> {
     service_scheduler().map_err(|_| {
         HttpError::from((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "Scheduler not initialized" })),
+            Json(AppError::public_json("Scheduler not initialized")),
         ))
     })
 }
@@ -206,7 +206,7 @@ fn normalize_retry_config(retry: Option<RetryConfigRequest>) -> Result<Option<Va
 fn bad_request(message: impl Into<String>) -> HttpError {
     HttpError::from((
         StatusCode::BAD_REQUEST,
-        Json(json!({ "error": message.into() })),
+        Json(AppError::public_json(message)),
     ))
 }
 
@@ -260,7 +260,7 @@ fn parse_user_id(claims: &Claims) -> Result<i32, HttpError> {
     claims.sub.parse().map_err(|_| {
         HttpError::from((
             StatusCode::UNAUTHORIZED,
-            Json(json!({ "error": "Invalid user ID" })),
+            Json(AppError::public_json("Invalid user ID")),
         ))
     })
 }
@@ -397,7 +397,7 @@ pub async fn register_task(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e })),
+                Json(AppError::public_json(e)),
             )
         })?;
 
@@ -427,7 +427,7 @@ pub async fn unregister_task(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e })),
+                Json(AppError::public_json(e)),
             )
         })?;
 
@@ -454,7 +454,7 @@ pub async fn list_tasks(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e })),
+                Json(AppError::public_json(e)),
             )
         })?;
 
@@ -487,7 +487,7 @@ pub async fn list_tapp_tasks(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e })),
+                Json(AppError::public_json(e)),
             )
         })?;
 
@@ -521,13 +521,13 @@ pub async fn get_task(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e })),
+                Json(AppError::public_json(e)),
             )
         })?
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({ "error": "Task not found" })),
+                Json(AppError::public_json("Task not found")),
             )
         })?;
 
@@ -557,7 +557,7 @@ pub async fn enable_task(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e })),
+                Json(AppError::public_json(e)),
             )
         })?;
 
@@ -587,7 +587,7 @@ pub async fn disable_task(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e })),
+                Json(AppError::public_json(e)),
             )
         })?;
 
@@ -617,7 +617,7 @@ pub async fn trigger_task(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": e })),
+                Json(AppError::public_json(e)),
             )
         })?;
 
@@ -862,3 +862,4 @@ mod tests {
         assert_eq!(missed_policy_name(&MissedPolicy::RunOnce), "run-once");
     }
 }
+use myriad_error::AppError;

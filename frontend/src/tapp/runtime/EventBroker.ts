@@ -8,10 +8,7 @@ import { onSpaNavigation } from './spaNavigation'
 
 const RECONNECT_DELAY_MS = 500
 
-/**
- * Connect one Page/Widget/headless runtime to the online event broker.
- * Runtime Grants remain host-only; the sandbox receives validated envelopes.
- */
+/** Runtime Grant 仅宿主持有；沙箱只收校验后的信封。 */
 export function registerEventHandlers(
   bridge: TappBridge,
   tappInstance: TappInstance,
@@ -20,13 +17,11 @@ export function registerEventHandlers(
   let streamController: AbortController | null = null
   const cleanupSystemProducers: Array<() => void> = []
   const subscriptions = new Set(tappInstance.manifest.events?.subscribe ?? [])
-  const hasServerSubscriptions = [...subscriptions].some(
+  const hasServerSubscriptions = Iterator.from(subscriptions).some(
     (topic) => !topic.startsWith('system.'),
   )
 
-  // system.* topics are produced by the trusted host, never by sandbox code.
-  // They are browser-local facts, so delivering them directly also avoids
-  // pretending that theme/network/visibility state is global server state.
+  // system.* 由可信宿主产生，沙箱代码不得发。
   let hostRuntimeId = 'host'
   void bridge
     .getRuntimeId()
@@ -70,7 +65,6 @@ export function registerEventHandlers(
   if (subscriptions.has('system.locale.changed')) {
     let lastLocale: string | null = null
     const onLocale = (event?: Event) => {
-      // storage 是全局事件；只响应其他标签页真正改写 locale 的情况。
       if (event instanceof StorageEvent && event.key !== 'locale') return
       const locale = getDefaultLocale()
       if (locale === lastLocale) return
@@ -100,7 +94,6 @@ export function registerEventHandlers(
     let lastKey = ''
     const onNavigation = () => {
       const key = `${location.pathname}${location.search}${location.hash}`
-      // Always emit on first call; skip exact duplicates from multi-sources
       if (key === lastKey && lastKey !== '') return
       lastKey = key
       emitSystem('system.navigation.changed', {
@@ -109,7 +102,6 @@ export function registerEventHandlers(
         hash: location.hash,
       })
     }
-    // pushState/replaceState (React Router) + popstate/hash via shared helper
     const unsubSpa = onSpaNavigation(onNavigation)
     document.addEventListener('astro:page-load', onNavigation)
     onNavigation()
@@ -122,6 +114,13 @@ export function registerEventHandlers(
   bridge.registerHandler('event.publish', async (message) => {
     const [request] = (message.payload as { args: unknown[] }).args || []
     if (!request) return { success: false, error: 'Event request required' }
+    const topic = (request as PublishEventRequest).topic
+    if (typeof topic === 'string' && topic.startsWith('system.')) {
+      return {
+        success: false,
+        error: 'system.* events can only be produced by the host',
+      }
+    }
     try {
       const result = await TappApiService.publishEvent(
         request as PublishEventRequest,

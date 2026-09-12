@@ -9,31 +9,31 @@ use std::collections::HashMap;
 /// 获取能力的友好名称
 pub fn get_capability_friendly_name(capability_id: &str) -> String {
     match capability_id {
-        "platform.read" => "获取平台数据".to_string(),
-        "platform.bilibili" => "获取 B 站数据".to_string(),
-        "platform.steam" => "获取 Steam 数据".to_string(),
-        "platform.github" => "获取 GitHub 数据".to_string(),
-        "platform.netease" => "获取网易云数据".to_string(),
-        "platform.mal" => "获取 MyAnimeList 数据".to_string(),
-        "ai.summarize" => "AI 总结".to_string(),
-        "ai.analyze" => "AI 分析".to_string(),
-        "ai.chat" => "AI 对话".to_string(),
-        "ai.webSearch" => "网络搜索".to_string(),
-        "brew.discover" => "发现 RSS 源".to_string(),
-        "brew.subscribe" => "订阅 RSS 源".to_string(),
-        "brew.read" => "获取订阅内容".to_string(),
-        "brew.items" => "获取文章列表".to_string(),
-        "brew.article" => "获取文章内容（仅在已知ID或URL的情况下使用）".to_string(),
-        "brew.sources" => "获取订阅源".to_string(),
-        "brew.stats" => "阅读统计".to_string(),
-        "tapp.list" => "获取 Tapp 列表".to_string(),
-        "tapp.page" => "获取 Tapp 页面".to_string(),
-        "ai.image" => "生成图片".to_string(),
-        "prompt.generate" => "生成提示词".to_string(),
-        "compare.content" => "内容对比".to_string(),
-        "speech.tts" => "文字转语音".to_string(),
-        "search.global" => "全局搜索".to_string(),
-        "report.generate" => "生成报告".to_string(),
+        "platform.read" => "Loading platform data".to_string(),
+        "platform.bilibili" => "Loading Bilibili data".to_string(),
+        "platform.steam" => "Loading Steam data".to_string(),
+        "platform.github" => "Loading GitHub data".to_string(),
+        "platform.netease" => "Loading NetEase data".to_string(),
+        "platform.mal" => "Loading MyAnimeList data".to_string(),
+        "ai.summarize" => "Summarizing".to_string(),
+        "ai.analyze" => "Analyzing".to_string(),
+        "ai.chat" => "Chatting".to_string(),
+        "ai.webSearch" => "Searching the web".to_string(),
+        "brew.discover" => "Discovering feeds".to_string(),
+        "brew.subscribe" => "Subscribing to a feed".to_string(),
+        "brew.read" => "Loading feed content".to_string(),
+        "brew.items" => "Loading articles".to_string(),
+        "brew.article" => "Loading article".to_string(),
+        "brew.sources" => "Loading feeds".to_string(),
+        "brew.stats" => "Reading stats".to_string(),
+        "tapp.list" => "Listing apps".to_string(),
+        "tapp.page" => "Opening an app".to_string(),
+        "ai.image" => "Generating an image".to_string(),
+        "prompt.generate" => "Generating a prompt".to_string(),
+        "compare.content" => "Comparing content".to_string(),
+        "speech.tts" => "Reading aloud".to_string(),
+        "search.global" => "Searching".to_string(),
+        "report.generate" => "Generating a report".to_string(),
         _ => {
             // Skill 能力：从 ID 提取可读名称
             if let Some(skill_id) = capability_id.strip_prefix("skill:") {
@@ -45,17 +45,17 @@ pub fn get_capability_friendly_name(capability_id: &str) -> String {
                     .collect();
                 let trimmed = name.trim();
                 if !trimmed.is_empty() {
-                    return format!("执行技能: {}", truncate_str(trimmed, 20));
+                    return format!("Running skill: {}", truncate_str(trimmed, 20));
                 }
-                return "执行技能".to_string();
+                return "Running skill".to_string();
             }
             // MCP 工具：提取工具名
             if let Some(rest) = capability_id.strip_prefix("mcp.") {
                 // mcp.server_id.tool_name → 取最后一段
                 if let Some(tool_name) = rest.rsplit('.').next() {
-                    return format!("调用工具: {}", tool_name);
+                    return format!("Calling tool: {}", tool_name);
                 }
-                return "调用外部工具".to_string();
+                return "Calling a tool".to_string();
             }
             // 尝试提取友好名称
             if let Some(name) = capability_id.split('.').next_back() {
@@ -76,7 +76,7 @@ pub fn get_capability_friendly_name(capability_id: &str) -> String {
 }
 
 /// 获取步骤的详细描述（带上下文参数）
-/// 返回类似 "搜索知乎日报"、"订阅知乎日报" 的描述
+/// 返回类似 `Search {target}` / `Subscribe {target}` 的描述
 pub fn get_step_description(step: &RecipeStep) -> String {
     // Skill 和 MCP 步骤：使用 planner 提供的 action 描述（已是人类可读的）
     if step.capability_id.starts_with("skill:") || step.capability_id.starts_with("mcp.") {
@@ -107,119 +107,119 @@ pub fn get_step_description(step: &RecipeStep) -> String {
 
     // 获取页面类型的友好名称
     let page_name = page_type.map(|pt| match pt {
-        "brew" => "订阅",
-        "tapp" => "应用",
-        "report" => "报告",
-        "dashboard" => "仪表盘",
-        _ => "当前页面",
+        "brew" => "feeds",
+        "tapp" => "apps",
+        "report" => "reports",
+        "dashboard" => "dashboard",
+        _ => "this page",
     });
 
     match step.capability_id.as_str() {
         // RSS/Brew 相关
         "brew.discover" => {
             if !target.is_empty() {
-                format!("搜索 {}", target)
+                format!("Search {}", target)
             } else if let Some(u) = url {
-                format!("发现 RSS 源: {}", truncate_str(u, 30))
+                format!("Discovering feeds: {}", truncate_str(u, 30))
             } else {
-                "发现 RSS 源".to_string()
+                "Discovering feeds".to_string()
             }
         }
         "brew.subscribe" => {
             if !target.is_empty() {
-                format!("订阅 {}", target)
+                format!("Subscribe {}", target)
             } else if let Some(u) = url {
-                format!("订阅: {}", truncate_str(u, 30))
+                format!("Subscribe: {}", truncate_str(u, 30))
             } else {
-                "订阅 RSS 源".to_string()
+                "Subscribing to a feed".to_string()
             }
         }
         "brew.read" | "brew.list" => {
             if let Some(pn) = page_name {
-                format!("获取{}内容", pn)
+                format!("Loading {pn} content")
             } else if !target.is_empty() {
-                format!("获取 {} 的内容", target)
+                format!("Loading content from {target}")
             } else {
-                "获取订阅内容".to_string()
+                "Loading feed content".to_string()
             }
         }
         "brew.items" => {
             if !target.is_empty() {
-                format!("获取 {} 的文章列表", target)
+                format!("Loading articles from {target}")
             } else {
-                "获取文章列表".to_string()
+                "Loading articles".to_string()
             }
         }
         "brew.article" => {
             if !target.is_empty() {
-                format!("获取文章: {}", truncate_str(&target, 30))
+                format!("Loading article: {}", truncate_str(&target, 30))
             } else {
-                "获取文章内容".to_string()
+                "Loading article".to_string()
             }
         }
 
         // AI 相关
         "ai.webSearch" => {
             if !target.is_empty() {
-                format!("搜索: {}", truncate_str(&target, 20))
+                format!("Search: {}", truncate_str(&target, 20))
             } else {
-                "网络搜索".to_string()
+                "Searching the web".to_string()
             }
         }
         "ai.summarize" => {
             if let Some(pn) = page_name {
-                format!("总结{}内容", pn)
+                format!("Summarizing {pn}")
             } else if !target.is_empty() {
-                format!("总结: {}", truncate_str(&target, 20))
+                format!("Summarizing: {}", truncate_str(&target, 20))
             } else {
-                "AI 总结".to_string()
+                "Summarizing".to_string()
             }
         }
         "ai.analyze" => {
             if let Some(pn) = page_name {
-                format!("分析{}内容", pn)
+                format!("Analyzing {pn}")
             } else if !target.is_empty() {
-                format!("分析: {}", truncate_str(&target, 20))
+                format!("Analyzing: {}", truncate_str(&target, 20))
             } else {
-                "AI 分析".to_string()
+                "Analyzing".to_string()
             }
         }
-        "ai.chat" => "AI 对话".to_string(),
+        "ai.chat" => "Chatting".to_string(),
         "ai.image" => {
             let desc = params
                 .get("description")
                 .and_then(|v| v.as_str())
                 .or(params.get("prompt").and_then(|v| v.as_str()));
             if let Some(d) = desc {
-                format!("生成图片: {}", truncate_str(d, 20))
+                format!("Generating an image: {}", truncate_str(d, 20))
             } else if !target.is_empty() {
-                format!("生成图片: {}", truncate_str(&target, 20))
+                format!("Generating an image: {}", truncate_str(&target, 20))
             } else {
-                "生成图片".to_string()
+                "Generating an image".to_string()
             }
         }
         "prompt.generate" => {
             let desc = params.get("description").and_then(|v| v.as_str());
             if let Some(d) = desc {
-                format!("生成提示词: {}", truncate_str(d, 20))
+                format!("Generating a prompt: {}", truncate_str(d, 20))
             } else if !target.is_empty() {
-                format!("生成提示词: {}", truncate_str(&target, 20))
+                format!("Generating a prompt: {}", truncate_str(&target, 20))
             } else {
-                "生成提示词".to_string()
+                "Generating a prompt".to_string()
             }
         }
         "compare.content" => {
             if !target.is_empty() {
-                format!("对比: {}", truncate_str(&target, 20))
+                format!("Comparing: {}", truncate_str(&target, 20))
             } else {
-                "内容对比".to_string()
+                "Comparing content".to_string()
             }
         }
         "speech.tts" => {
             if !target.is_empty() {
-                format!("朗读: {}", truncate_str(&target, 20))
+                format!("Reading aloud: {}", truncate_str(&target, 20))
             } else {
-                "文字转语音".to_string()
+                "Reading aloud".to_string()
             }
         }
 
@@ -227,49 +227,45 @@ pub fn get_step_description(step: &RecipeStep) -> String {
         "platform.read" | "platform.bilibili" | "platform.bangumi" | "platform.steam"
         | "platform.github" | "platform.netease" | "platform.mal" => {
             let platform_name = match step.capability_id.as_str() {
-                "platform.bilibili" => "B站",
+                "platform.bilibili" => "Bilibili",
                 "platform.bangumi" => "Bangumi",
                 "platform.mal" => "MyAnimeList",
                 "platform.steam" => "Steam",
                 "platform.github" => "GitHub",
-                "platform.netease" => "网易云",
-                _ => platform.unwrap_or("平台"),
+                "platform.netease" => "NetEase",
+                _ => platform.unwrap_or("platform"),
             };
-            if let Some(pn) = page_name {
-                format!("获取{}的{}数据", pn, platform_name)
-            } else {
-                format!("获取{}数据", platform_name)
-            }
+            format!("Loading {platform_name} data")
         }
 
         // Tapp 相关
-        "tapp.list" => "获取 Tapp 列表".to_string(),
+        "tapp.list" => "Listing apps".to_string(),
         "tapp.page" => {
             if !target.is_empty() {
-                format!("打开 Tapp: {}", target)
+                format!("Opening app: {target}")
             } else {
-                "打开 Tapp".to_string()
+                "Opening an app".to_string()
             }
         }
 
         // 搜索
         "search.global" => {
             if !target.is_empty() {
-                format!("全局搜索: {}", truncate_str(&target, 20))
+                format!("Search: {}", truncate_str(&target, 20))
             } else {
-                "全局搜索".to_string()
+                "Searching".to_string()
             }
         }
 
         // 报告
-        "report.generate" => "生成报告".to_string(),
+        "report.generate" => "Generating a report".to_string(),
 
         // 缓存
         "cache.clear" => {
             if let Some(p) = platform {
-                format!("清除 {} 缓存", p)
+                format!("Clearing {p} cache")
             } else {
-                "清除缓存".to_string()
+                "Clearing cache".to_string()
             }
         }
 
@@ -293,98 +289,134 @@ pub fn truncate_str(s: &str, max_len: usize) -> String {
 pub fn get_sensitive_capabilities() -> HashMap<&'static str, (&'static str, RiskLevel)> {
     let mut map = HashMap::new();
 
-    // 高风险 - 不可逆操作
+    // 风险映射（High / Medium / Low 见各条）
     map.insert(
         "cache.clear",
         (
-            "此操作将清除指定平台的所有缓存数据，需要重新获取",
+            "This will clear cached data for the selected platform. It will need to be fetched again.",
             RiskLevel::High,
         ),
     );
     map.insert(
         "brew.unsubscribe",
-        ("此操作将取消订阅并删除相关数据", RiskLevel::High),
+        (
+            "This will unsubscribe and delete related data.",
+            RiskLevel::High,
+        ),
     );
     map.insert(
         "brew.subscribe",
-        ("此操作将添加新的 RSS/Atom 订阅源", RiskLevel::Medium),
+        ("This will add a new RSS/Atom feed.", RiskLevel::Medium),
     );
     map.insert(
         "brew.schedule",
         (
-            "此操作将控制 Brew 订阅调度器（启动/停止/刷新）",
+            "This will control the Brew scheduler (start/stop/refresh).",
             RiskLevel::Medium,
         ),
     );
     map.insert(
         "http.fetch",
         (
-            "此操作将向外部 URL 发起 HTTP 请求（出站网络）",
+            "This will make an outbound HTTP request to an external URL.",
             RiskLevel::Medium,
         ),
     );
     map.insert(
         "tapp.delete",
-        ("此操作将删除 Tapp 及其所有数据", RiskLevel::High),
+        (
+            "This will delete the app and all of its data.",
+            RiskLevel::High,
+        ),
     );
     map.insert(
         "storage.delete",
-        ("此操作将删除存储的数据，不可恢复", RiskLevel::High),
+        ("This will permanently delete stored data.", RiskLevel::High),
     );
 
-    // 中风险 - 可能影响数据
+    // 后续条目各自带 RiskLevel
     map.insert(
         "platform.write",
-        ("此操作将修改平台数据", RiskLevel::Medium),
+        ("This will change platform data.", RiskLevel::Medium),
     );
     map.insert(
         "tapp.install",
-        ("此操作将安装第三方 Tapp 组件", RiskLevel::Medium),
+        ("This will install a third-party app.", RiskLevel::Medium),
     );
     map.insert(
         "scheduler.create",
         (
-            "此操作将创建 Tapp 定时任务，可能影响系统资源",
+            "This will create a scheduled app task and may use system resources.",
             RiskLevel::Medium,
         ),
     );
     map.insert(
         "scheduler.trigger",
-        ("此操作将立即触发调度任务", RiskLevel::Medium),
+        (
+            "This will run the scheduled task immediately.",
+            RiskLevel::Medium,
+        ),
     );
     map.insert(
         "heartbeat.create",
         (
-            "此操作将创建 Agent 心跳定时任务（HEARTBEAT.md）",
+            "This will create an agent heartbeat task (HEARTBEAT.md).",
             RiskLevel::Medium,
         ),
     );
     map.insert(
         "heartbeat.update",
-        ("此操作将修改 Agent 心跳任务配置", RiskLevel::Medium),
+        (
+            "This will change the agent heartbeat task.",
+            RiskLevel::Medium,
+        ),
     );
     map.insert(
         "heartbeat.delete",
-        ("此操作将删除 Agent 心跳定时任务", RiskLevel::High),
+        (
+            "This will delete the agent heartbeat task.",
+            RiskLevel::High,
+        ),
     );
     map.insert(
         "heartbeat.toggle",
-        ("此操作将启用或禁用心跳任务", RiskLevel::Low),
+        (
+            "This will enable or disable the heartbeat task.",
+            RiskLevel::Low,
+        ),
     );
-    map.insert("config.set", ("此操作将修改系统配置", RiskLevel::Medium));
+    map.insert(
+        "config.set",
+        ("This will change site configuration.", RiskLevel::Medium),
+    );
     map.insert(
         "platform.refresh",
-        ("此操作将刷新平台数据，可能消耗 API 配额", RiskLevel::Medium),
+        (
+            "This will refresh platform data and may use API quota.",
+            RiskLevel::Medium,
+        ),
     );
     map.insert(
         "task.submit",
-        ("此操作将提交后台平台数据处理任务", RiskLevel::Medium),
+        (
+            "This will submit a background platform-data task.",
+            RiskLevel::Medium,
+        ),
     );
 
     // 低风险 - 可逆操作
-    map.insert("brew.mark", ("此操作将批量标记文章状态", RiskLevel::Low));
-    map.insert("storage.set", ("此操作将存储数据到本地", RiskLevel::Low));
-    map.insert("export.data", ("此操作将导出您的数据", RiskLevel::Low));
+    map.insert(
+        "brew.mark",
+        ("This will batch-update article status.", RiskLevel::Low),
+    );
+    map.insert(
+        "storage.set",
+        ("This will store data locally.", RiskLevel::Low),
+    );
+    map.insert(
+        "export.data",
+        ("This will export your data.", RiskLevel::Low),
+    );
 
     map
 }
@@ -394,10 +426,8 @@ pub fn get_sensitive_capabilities() -> HashMap<&'static str, (&'static str, Risk
 /// 优先用 [`get_capability_usage_hint`] 里人工编写的提示（它带「什么时候该选这个」
 /// 的触发语），缺失时回退到能力自己的 `description`。
 ///
-/// 回退是必需的：hint 表的兜底分支返回空串，而 `description` 从不进入 Planner 的
-/// prompt，两者叠加会让漏登记的能力以 `"h": ""` 进入索引——模型只看得到一个能力 ID，
-/// 于是永远不会选它。此前有 20 个能力处于这个状态（`translate.text`、`code.explain`、
-/// `web.scrape`、`steam.game` 等），表现为「功能做了却调不起来」。
+/// 回退是必需的：hint 表的兜底分支返回空串，漏登记的能力会以 `"h": ""` 进入索引——
+/// 模型只看得到一个能力 ID。
 pub fn resolve_capability_hint(capability: &Capability) -> &str {
     let hint = get_capability_usage_hint(&capability.id);
     if hint.is_empty() {
@@ -414,142 +444,142 @@ pub fn resolve_capability_hint(capability: &Capability) -> &str {
 pub fn get_capability_usage_hint(capability_id: &str) -> &'static str {
     match capability_id {
         // Brew 订阅系统
-        "brew.items" => "获取文章。用户说'看看订阅'、'最新文章'、'打开文章'、'总结文章'、'看看 X'时用这个。优先 sourceId；也可用 sourceName 宽松匹配。本地有文章时不要 webSearch",
+        "brew.items" => "Get articles. Use when the user says look at feeds / 看看订阅 / 最新文章 / 打开文章 / 总结文章 / 看看 X. Prefer sourceId; sourceName is a loose match. Do not webSearch when local articles exist.",
         "brew.article" => {
-            "【内部能力】根据已知ID获取文章详情。不要直接选择，由系统在已知文章ID时自动调用"
+            "[internal] Load one article by a known id. Do not pick this directly; the system calls it when the article id is already known."
         }
-        "brew.sources" => "【推荐·本地优先】从数据库列出/查找订阅源。用户说'友情链接'、'友链'时用 category=友情链接（或 friends）；说'我订阅了哪些'、'订阅源列表'、'看看 X'、'有没有 X 这个源'时使用。支持 sourceType=link|rss|brewlia。匹配后把 sourceId 传给 brew.items。本地有该源时不要改用 ai.webSearch",
-        "brew.discover" => "发现/搜索 RSS 源。用户想找某个网站的 RSS 时使用",
-        "brew.subscribe" => "添加新订阅。用户说'订阅xxx'、'添加订阅'时使用",
-        "brew.stats" => "阅读统计。用户问'读了多少文章'、'订阅统计'时使用",
-        "brew.read" => "通用订阅数据获取。读取 Brew RSS 订阅内容",
-        "brew.page" => "Brew 页面内容。level=sources 返回含 sourceType/category 的订阅源列表；问友情链接可用 category=友情链接",
-        "brew.schedule" => "Brew 调度控制。控制订阅调度器的启动/停止/刷新",
-        "brew.generateReadingList" => "【推荐】生成阅读列表。用户说'给我推荐几篇文章'、'找些关于xx的文章'、'生成阅读列表'、'有什么值得看的'时使用",
+        "brew.sources" => "[preferred, local first] List or find feeds. For friend links / 友情链接 / 友链 use category=友情链接 (or friends). Use when the user asks which feeds they have, feed list, or whether a named feed exists. sourceType=link|rss|brewlia. Pass sourceId to brew.items. Do not switch to ai.webSearch when the feed exists locally.",
+        "brew.discover" => "Discover RSS feeds. Use when the user wants the RSS for a site.",
+        "brew.subscribe" => "Add a feed. Use when the user says subscribe / 订阅 / 添加订阅.",
+        "brew.stats" => "Reading stats. Use when the user asks how many articles they have read or for feed stats.",
+        "brew.read" => "Generic feed read. Load Brew RSS content.",
+        "brew.page" => "Brew page content. level=sources returns feeds with sourceType/category. Friend links: category=友情链接.",
+        "brew.schedule" => "Brew scheduler. Start, stop, or refresh.",
+        "brew.generateReadingList" => "[preferred] Build a reading list. Use when the user asks for article recommendations, articles about X, a reading list, or what is worth reading.",
 
         // AI 智能处理
-        "ai.summarize" => "【必选】总结内容。用户说'总结'、'概括'、'讲讲大意'时必须使用",
-        "ai.analyze" => "【必选】深度分析。用户说'分析'、'研究'、'评估'时必须使用",
-        "ai.webSearch" => "【必选】联网搜索。查询外部实时信息时使用（新闻、公司、产品、天气等）",
-        "ai.recommend" => "智能推荐。用户说'推荐'、'有什么好的'、'建议'时使用",
-        "ai.chat" => "普通对话。用户闲聊或问通用问题时使用",
-        "ai.image" => "AI 图片生成。用户说'生成图片'、'画一张'时使用；可选 width/height（256–2048，默认1024）指定分辨率，竖图/横图/壁纸时务必传入",
+        "ai.summarize" => "[required] Summarize. Use when the user says summarize / 总结 / 概括 / 讲讲大意 / 要約.",
+        "ai.analyze" => "[required] Analyze. Use when the user says analyze / 分析 / 研究 / 评估 / 分析して.",
+        "ai.webSearch" => "[required] Web search. Use for live external facts (news, companies, products, weather).",
+        "ai.recommend" => "Recommend. Use when the user says recommend / 推荐 / 有什么好的 / おすすめ.",
+        "ai.chat" => "Chat. Use for small talk or general questions.",
+        "ai.image" => "Generate an image. Use when the user says generate an image / 生成图片 / 画一张. Optional width/height (256–2048, default 1024); pass them for portrait, landscape, or wallpaper.",
 
         // 平台数据
-        "platform.read" => "通用平台数据读取。获取平台缓存数据",
-        "platform.stats" => "平台统计数据。获取平台数据的统计信息",
-        "platform.write" => "平台数据写入。向平台缓存写入数据",
-        "platform.refresh" => "刷新平台数据。触发平台数据重新获取",
-        "bilibili.user" => "B站用户查询。获取 B 站用户信息、收藏、追番",
-        "bangumi.user" => "Bangumi 用户查询。获取 Bangumi 用户基本信息",
-        "bangumi.collections" => "Bangumi 收藏查询。获取 Bangumi 收藏、评分和观看状态",
-        "steam.user" => "Steam 用户查询。获取 Steam 用户信息和游戏库",
-        "netease.playlist" => "网易云歌单。获取用户网易云歌单和听歌记录",
-        "github.repos" => "GitHub 仓库查询。查询 GitHub 仓库、贡献和活动",
+        "platform.read" => "Read cached platform data.",
+        "platform.stats" => "Read platform statistics.",
+        "platform.write" => "Write to platform cache.",
+        "platform.refresh" => "Refresh platform data.",
+        "bilibili.user" => "Bilibili user. Profile, favorites, following.",
+        "bangumi.user" => "Bangumi user profile.",
+        "bangumi.collections" => "Bangumi collections, scores, and watch status.",
+        "steam.user" => "Steam profile and library from cache.",
+        "netease.playlist" => "NetEase playlists and listening history.",
+        "github.repos" => "GitHub repositories, contributions, and activity.",
 
         // 音乐播放器
-        "music.control" => "【播放器控制】直接控制音乐播放器的当前状态。仅用于纯播放器操作：播放/暂停/下一首/上一首/静音/调音量。注意：用户说'放点音乐'、'找点音乐听'、'播放ACG音乐'等要求搜索音乐内容的，不要用这个，应该用 netease.searchPlaylist + music.playlist",
-        "music.status" => "播放状态。向浏览器请求当前播放器状态，后端没有播放器",
-        "music.playlist" => "根据歌单ID加载并播放指定歌单。需要先通过 netease.searchPlaylist 获取歌单ID，然后用本能力加载。不要单独使用",
-        "netease.searchPlaylist" => "搜索网易云歌单。用户说'放点音乐'、'找点音乐听'、'播放ACG音乐'、'推荐个歌单'时，先用这个搜索，然后配合 music.playlist 播放",
+        "music.control" => "[player control] Play/pause/next/previous/mute/volume only. If the user asks to find or play some music (放点音乐 / 找点音乐听 / 播放ACG音乐), use netease.searchPlaylist then music.playlist instead.",
+        "music.status" => "Player status from the browser. The backend has no player.",
+        "music.playlist" => "Load and play a playlist by id. Get the id from netease.searchPlaylist first. Do not use alone.",
+        "netease.searchPlaylist" => "Search NetEase playlists. Use when the user says play some music / 放点音乐 / 找点音乐听 / 播放ACG音乐 / 推荐个歌单, then play with music.playlist.",
 
         // Tapp 应用系统
-        "tapp.list" => "Tapp 应用列表。用户说'有哪些应用'、'应用列表'时使用",
-        "tapp.page" => "Tapp 页面内容。获取应用列表/详情/组件/存储数据等",
-        "tapp.generate" => "Tapp 生成。根据描述生成 Tapp 应用代码",
-        "tapp.install" => "安装 Tapp。安装新的 Tapp 应用",
-        "tapp.ui" => "Tapp UI 结构。解析 Tapp 应用的 HTML 结构和可交互元素",
-        "tapp.understand" => "Tapp UI 智能理解。AI 分析 Tapp UI 并生成操作指令",
-        "tapp.interact" => "Tapp 声明式交互。按 Manifest 声明的类型和 schema 请求 Tapp 处理数据",
-        "tapp.windows" => "窗口状态查询。查询当前打开的 Tapp 窗口状态",
-        "tapp.window.open" => "打开窗口。在多窗口模式下打开新的 Tapp 窗口",
-        "tapp.window.close" => "关闭窗口。关闭指定的 Tapp 窗口",
-        "tapp.window.focus" => "聚焦窗口。将指定窗口置为活跃状态",
+        "tapp.list" => "Installed apps. Use when the user asks which apps they have.",
+        "tapp.page" => "App page content: list, detail, widgets, storage.",
+        "tapp.generate" => "Generate app code from a description.",
+        "tapp.install" => "Install an app.",
+        "tapp.ui" => "Parse app HTML and interactive elements.",
+        "tapp.understand" => "Analyze app UI and produce actions.",
+        "tapp.interact" => "Declared app interaction. Send Manifest type and schema to the app.",
+        "tapp.windows" => "List open app windows.",
+        "tapp.window.open" => "Open an app window in multi-window mode.",
+        "tapp.window.close" => "Close an app window.",
+        "tapp.window.focus" => "Focus an app window.",
 
         // 报告系统
-        "report.create" => "生成报告。用户说'生成报告'、'做个总结报告'时使用",
-        "report.list" => "报告列表。平台报告读 platform_reports；无 platform 时附带当前用户 Agent report.create 的记录",
+        "report.create" => "Create a report. Use when the user says generate a report / 生成报告 / 做个总结报告.",
+        "report.list" => "List reports. Platform reports from platform_reports; without platform, include this user's Agent report.create records.",
 
         // 路由导航
-        "router.state" => "路由状态。获取当前页面路由状态，了解用户在哪个页面",
-        "router.navigate" => "【导航】路由导航。用户说'打开'、'跳转'、'去xx页面'时使用",
+        "router.state" => "Current route. What page the user is on.",
+        "router.navigate" => "[navigate] Go to a page. Use when the user says open / go to / 打开 / 跳转 / 去xx页面.",
 
         // 页面交互
-        "page.interact" => "页面元素交互。点击按钮、链接、标签页、菜单项等",
-        "page.understand" => "页面 UI 智能理解。AI 分析当前页面 UI 并生成操作指令",
-        "page.content" => "页面内容。有前端快照则用快照，否则转发 brew.page / tapp.page / platform.read",
+        "page.interact" => "Click buttons, links, tabs, menus.",
+        "page.understand" => "Analyze the current page UI and produce actions.",
+        "page.content" => "Page content. Use a frontend snapshot if present, otherwise brew.page / tapp.page / platform.read.",
 
         // 搜索
-        "search.global" => "全局搜索。跨平台搜索内容",
-        "search.fuzzy" => "模糊搜索。Brew 源匹配名称/category/site_url；查询'友情链接'可命中友链分类源",
+        "search.global" => "Search across platforms.",
+        "search.fuzzy" => "Fuzzy search. Brew sources match name/category/site_url; 友情链接 hits the friend-link category.",
 
         // 系统操作
-        "system.metrics" => "系统监控。本进程内存/uptime/任务计数（非完整主机监控）",
-        "cache.status" => "缓存状态。获取各平台缓存状态",
-        "cache.clear" => "清除缓存。清除指定平台的缓存数据",
-        "config.get" => "获取配置。AI 为 Standard（enabled/provider/model，不含密钥）；platforms 为接通标志；ui 为公开展示字段",
-        "setup.status" => "系统设置状态。库表与管理员（与 HTTP /api/setup/status 一致，不含 AI 钥）",
-        "auth.status" => "认证状态。检查用户认证和权限状态",
-        "permission.check" => "授予权限检查。按当前会话角色；带 tappId 时与该安装批准权限求交，需重新授权则 granted 为 false",
-        "export.data" => "数据导出。导出平台数据为指定格式",
-        "image.cache" => "图片缓存。传入 url 下载到本站 image-cache；无 url 时 action=status 查询、action=clear 清理",
-        "proxy.image" => "图片代理。代理获取外链图片",
+        "system.metrics" => "This process: memory, uptime, task counts (not full host monitoring).",
+        "cache.status" => "Cache status per platform.",
+        "cache.clear" => "Clear cached data for a platform.",
+        "config.get" => "Read config. AI is Standard (enabled/provider/model, no secrets); platforms are connection flags; ui is public display fields.",
+        "setup.status" => "Setup status: tables and owner (same as HTTP /api/setup/status, no AI keys).",
+        "auth.status" => "Sign-in and permission status.",
+        "permission.check" => "Granted permissions for this session role. With tappId, intersect with that install's approved permissions; granted is false if re-auth is needed.",
+        "export.data" => "Export platform data.",
+        "image.cache" => "With url, download into image-cache. Without url, action=status or action=clear.",
+        "proxy.image" => "Fetch an external image through the image proxy.",
 
         // Tapp 定时任务（tapp_scheduled_tasks）
-        "scheduler.create" => "创建 Tapp 定时任务（需 tappId）。仅用于已安装 Tapp 的调度，不是 Agent 心跳",
-        "scheduler.list" => "Tapp 定时任务列表。获取当前用户的 Tapp 调度任务（非 HEARTBEAT.md）",
-        "scheduler.trigger" => "立即触发 Tapp 定时任务",
+        "scheduler.create" => "Create a scheduled app task (needs tappId). For installed apps only, not agent heartbeat.",
+        "scheduler.list" => "List this user's app scheduled tasks (not HEARTBEAT.md).",
+        "scheduler.trigger" => "Run an app scheduled task now.",
 
         // Agent Heartbeat（HEARTBEAT.md，自然语言指令）
-        "heartbeat.list" => "【推荐·心跳列表】列出 Agent 心跳任务。用户问「有哪些定时任务」「心跳任务」时优先用这个（非 platform 自动刷新、非 Tapp scheduler）",
-        "heartbeat.create" => "【推荐·创建心跳】创建 Agent 心跳任务。用户说「定时」「每天」「每隔」「心跳」「帮我每小时检查」「每天早上总结」时必须用这个。params: name, schedule(5字段cron), action(自然语言指令), enabled默认true。例: schedule=\"0 * * * *\" action=\"检查 akiday 有没有更新\"。不要用 scheduler.create",
-        "heartbeat.update" => "更新心跳任务。按 id 修改 name/schedule/action/enabled",
-        "heartbeat.delete" => "删除心跳任务。按 id 删除 HEARTBEAT.md 中的任务",
-        "heartbeat.toggle" => "切换心跳任务启停。按 id 启用或禁用",
+        "heartbeat.list" => "[preferred] List agent heartbeat tasks. Use when the user asks which scheduled/heartbeat tasks they have. Not platform auto-refresh, not Tapp scheduler.",
+        "heartbeat.create" => "[preferred] Create an agent heartbeat. Use when the user says schedule / every day / every hour / heartbeat / 定时 / 每天 / 每隔 / 心跳. params: name, schedule (5-field cron), action (natural language), enabled default true. Example: schedule=\"0 * * * *\" action=\"check whether akiday updated\". Do not use scheduler.create.",
+        "heartbeat.update" => "Update a heartbeat by id (name/schedule/action/enabled).",
+        "heartbeat.delete" => "Delete a HEARTBEAT.md task by id.",
+        "heartbeat.toggle" => "Enable or disable a heartbeat by id.",
 
         // 后台任务
-        "task.submit" => "提交后台任务。提交平台数据处理任务",
-        "task.status" => "任务状态查询。按 taskId 查 agent 任务，或列出最近任务",
+        "task.submit" => "Submit a background platform-data task.",
+        "task.status" => "Agent task status by taskId, or recent tasks.",
 
         // 数据处理
-        "data.transform" => "数据转换。对数据进行过滤、排序、聚合等操作",
-        "smart.filter" => "智能内容过滤。对原始数据进行智能分类和过滤",
-        "compare.content" => "内容比较。比较不同时间点的平台数据变化",
+        "data.transform" => "Filter, sort, or aggregate data.",
+        "smart.filter" => "Classify and filter raw data.",
+        "compare.content" => "Compare platform data across time.",
 
         // 数据库查询
-        "database.anime" => "番剧数据库查询。查询预置番剧/电视剧/电影数据库",
-        "database.game" => "游戏数据库查询。查询预置游戏数据库",
-        "database.artist" => "艺术家数据库查询。查询预置歌手/艺术家数据库",
-        "metadata.history" => "元数据历史。查询平台元数据变化历史",
+        "database.anime" => "Query the built-in anime/TV/film database.",
+        "database.game" => "Query the built-in game database.",
+        "database.artist" => "Query the built-in artist database.",
+        "metadata.history" => "Platform metadata history.",
 
         // 用户画像
-        "profile.summary" => "用户画像。获取用户跨平台综合画像",
+        "profile.summary" => "Cross-platform profile summary.",
 
         // 外部集成
-        "http.fetch" => "HTTP 请求。发起外部 HTTP 请求",
-        "notion.query" => "Notion 数据查询。查询 Notion 数据库内容",
-        "rsshub.instances" => "RSSHub 实例列表。读取 Brew 已配置实例及健康状态",
-        "rsshub.healthcheck" => "RSSHub 健康检查。探测已配置实例（可指定 instanceId）",
-        "hitokoto.get" => "获取一言。获取随机一言/语录",
-        "weather.get" => "获取天气。获取天气信息",
-        "time.info" => "时间信息。按 IANA/UTC/local/+08:00 换算墙钟，未知时区失败",
+        "http.fetch" => "Outbound HTTP request.",
+        "notion.query" => "Query a Notion database.",
+        "rsshub.instances" => "Configured RSSHub instances and health.",
+        "rsshub.healthcheck" => "Probe configured RSSHub instances (optional instanceId).",
+        "hitokoto.get" => "Random quote.",
+        "weather.get" => "Weather.",
+        "time.info" => "Convert wall-clock time (IANA/UTC/local/+08:00). Unknown zones fail.",
 
         // AI 增强阅读
-        "brewlia.annotate" => "AI 文章注释。为文章生成 AI 智能注释和解读",
-        "brewlia.podcast" => "AI 播客生成。将文章转换为对话式播客文稿",
+        "brewlia.annotate" => "AI notes and reading help for an article.",
+        "brewlia.podcast" => "Turn an article into a spoken-dialogue script.",
 
         // 语音服务
-        "speech.tts" => "文字转语音。与 /api/speech/tts 相同路径，合成后由前端播放",
+        "speech.tts" => "Text to speech. Same path as /api/speech/tts; the frontend plays it.",
 
         // 存储
-        "storage.set" => "存储数据。保存数据到 Tapp 存储",
+        "storage.set" => "Save data to app storage.",
 
         // 其他
-        "icon.recommend" => "图标推荐。根据平台名称推荐合适的图标",
-        "prompt.generate" => "提示词生成。为图片生成提供优化的提示词。必须在 description 参数中传入角色/场景的详细描述（角色全名、来源作品、外貌特征含发型发色瞳色服装等、场景、画风）。你应该利用自己的知识补充角色细节",
-        "random.content" => "随机内容。获取随机推荐内容",
-        "content.write" => "内容写入。写入内容数据",
-        "context.reference" => "引用前序步骤输出。params.stepId 为步骤 ID，path 为字段路径（如 results[0].title），transform 可选 none/stringify/parse/join/first/last",
+        "icon.recommend" => "Recommend an icon for a platform name.",
+        "prompt.generate" => "Write a better image prompt. description must include character/scene detail (full name, work, appearance including hair/eyes/clothes, scene, style). Fill in character details from your knowledge.",
+        "random.content" => "Random recommendation from platform data.",
+        "content.write" => "Write content data.",
+        "context.reference" => "Reuse earlier step output. params.stepId is the step id, path is a field path (e.g. results[0].title), transform is none/stringify/parse/join/first/last.",
 
         _ => "",
     }
@@ -558,97 +588,97 @@ pub fn get_capability_usage_hint(capability_id: &str) -> &'static str {
 /// 快速参考表：常见意图到能力的映射
 pub fn get_quick_reference() -> Value {
     json!({
-        "意图->能力快速映射": {
-            "总结/概括/讲讲": ["ai.summarize"],
-            "分析/研究/评估": ["ai.analyze"],
-            "打开/跳转/前往/进入": ["router.navigate", "brew.items"],
-            "搜索外部信息/新闻/公司/产品": ["ai.webSearch"],
-            "看订阅/文章/最新文章": ["brew.items"],
-            "生成阅读列表/推荐文章/找文章看": ["brew.generateReadingList"],
-            "订阅/添加RSS": ["brew.discover", "brew.subscribe"],
-            "B站/bilibili": ["platform.read", "bilibili.user"],
-            "Bangumi/番组计划/动画收藏": ["platform.read", "bangumi.user", "bangumi.collections"],
-            "MyAnimeList/MAL/动画列表/漫画列表": ["platform.read"],
-            "Steam/游戏": ["platform.read", "steam.user"],
-            "GitHub/代码/仓库": ["platform.read", "github.repos"],
-            "网易云/音乐数据": ["platform.read", "netease.playlist"],
-            "播放/暂停/下一首/上一首/音量": ["music.control"],
-            "放点音乐/找点音乐听/播放ACG音乐": ["netease.searchPlaylist", "music.playlist"],
-            "当前播放什么/播放状态": ["music.status"],
-            "Tapp/应用列表": ["tapp.list"],
-            "打开应用/Tapp窗口": ["tapp.window.open"],
-            "与Tapp交互/点击按钮": ["tapp.interact", "tapp.understand"],
-            "生成报告": ["report.create"],
-            "推荐/建议": ["ai.recommend"],
-            "对话/聊天": ["ai.chat"],
-            "当前页面内容": ["page.content", "brew.page", "tapp.page"],
-            "刷新数据": ["platform.refresh"],
-            "清除缓存": ["cache.clear"],
-            "导出数据": ["export.data"],
-            "定时任务/每天/每隔/心跳/heartbeat": ["heartbeat.create", "heartbeat.list", "heartbeat.update", "heartbeat.delete"],
-            "Tapp定时任务": ["scheduler.create", "scheduler.list"],
-            "生成图片/画图": ["prompt.generate", "ai.image"],
-            "翻译": ["translate.text"],
-            "文字转语音/朗读": ["speech.tts"],
-            "天气": ["weather.get"],
-            "一言/语录": ["hitokoto.get"]
+        "intent_to_capability": {
+            "summarize / 总结 / 概括 / 讲讲": ["ai.summarize"],
+            "analyze / 分析 / 研究 / 评估": ["ai.analyze"],
+            "open / go to / 打开 / 跳转 / 前往 / 进入": ["router.navigate", "brew.items"],
+            "search news/company/product / 搜索外部信息": ["ai.webSearch"],
+            "feeds / articles / 看订阅 / 最新文章": ["brew.items"],
+            "reading list / 生成阅读列表 / 推荐文章": ["brew.generateReadingList"],
+            "subscribe / 订阅 / 添加RSS": ["brew.discover", "brew.subscribe"],
+            "Bilibili / B站": ["platform.read", "bilibili.user"],
+            "Bangumi / 番组计划 / 动画收藏": ["platform.read", "bangumi.user", "bangumi.collections"],
+            "MyAnimeList / MAL": ["platform.read"],
+            "Steam / games / 游戏": ["platform.read", "steam.user"],
+            "GitHub / repos / 仓库": ["platform.read", "github.repos"],
+            "NetEase / 网易云": ["platform.read", "netease.playlist"],
+            "play/pause/next/previous/volume / 播放/暂停/下一首/上一首/音量": ["music.control"],
+            "play some music / 放点音乐 / 找点音乐听 / 播放ACG音乐": ["netease.searchPlaylist", "music.playlist"],
+            "now playing / 当前播放 / 播放状态": ["music.status"],
+            "apps / Tapp / 应用列表": ["tapp.list"],
+            "open app window / 打开应用": ["tapp.window.open"],
+            "app UI / 与Tapp交互 / 点击按钮": ["tapp.interact", "tapp.understand"],
+            "report / 生成报告": ["report.create"],
+            "recommend / 推荐 / 建议": ["ai.recommend"],
+            "chat / 对话 / 聊天": ["ai.chat"],
+            "current page / 当前页面内容": ["page.content", "brew.page", "tapp.page"],
+            "refresh / 刷新数据": ["platform.refresh"],
+            "clear cache / 清除缓存": ["cache.clear"],
+            "export / 导出数据": ["export.data"],
+            "schedule / heartbeat / 定时任务 / 每天 / 每隔 / 心跳": ["heartbeat.create", "heartbeat.list", "heartbeat.update", "heartbeat.delete"],
+            "app scheduled task / Tapp定时任务": ["scheduler.create", "scheduler.list"],
+            "generate image / 生成图片 / 画图": ["prompt.generate", "ai.image"],
+            "translate / 翻译": ["translate.text"],
+            "tts / 文字转语音 / 朗读": ["speech.tts"],
+            "weather / 天气": ["weather.get"],
+            "quote / 一言 / 语录": ["hitokoto.get"]
         },
-        "多步工作流模板": {
-            "总结文章": {
+        "workflow_templates": {
+            "summarize_article": {
                 "steps": ["brew.items → ai.summarize"],
-                "note": "先获取文章内容，再传给 ai.summarize（contentFrom 引用前步）"
+                "note": "Load the article first, then ai.summarize with contentFrom."
             },
-            "搜索并分析": {
+            "search_then_analyze": {
                 "steps": ["ai.webSearch → ai.analyze"],
-                "note": "先搜索获取资料，再用 ai.analyze 深度分析"
+                "note": "Search first, then ai.analyze."
             },
-            "播放指定音乐": {
+            "play_music": {
                 "steps": ["netease.searchPlaylist → music.playlist"],
-                "note": "先搜索歌单获取ID，再加载播放。两步必须有 depends_on"
+                "note": "Search for a playlist id, then load it. The second step must depend_on the first."
             },
-            "生成AI图片": {
+            "generate_image": {
                 "steps": ["prompt.generate → ai.image"],
-                "note": "先用 prompt.generate 生成优化 prompt（description 必须详细），再传给 ai.image；分辨率用 ai.image 的 width/height（256–2048，默认1024），竖图/横图/用户口述尺寸时写入 params，不要写进 prompt"
+                "note": "Write a detailed prompt first, then ai.image. Size is ai.image width/height (256–2048, default 1024); put portrait/landscape/user size in params, not in the prompt."
             },
-            "多平台对比": {
+            "compare_platforms": {
                 "steps": ["platform.read(A) + platform.read(B) → ai.analyze"],
-                "note": "并行获取各平台数据，然后汇总分析。analysisType=custom"
+                "note": "Read platforms in parallel, then analyze. analysisType=custom."
             },
-            "发现并订阅RSS": {
+            "discover_and_subscribe": {
                 "steps": ["brew.discover → brew.subscribe"],
-                "note": "先搜索 RSS 源，再用返回的 URL 订阅"
+                "note": "Find the RSS URL, then subscribe with that URL."
             },
-            "翻译后朗读": {
+            "translate_then_speak": {
                 "steps": ["translate.text → speech.tts"],
-                "note": "先翻译文本，再将翻译结果转语音"
+                "note": "Translate first, then speak the translation."
             }
         },
-        "特殊规则": [
-            "用户说'打开最新的xx' -> action=navigate + brew.items",
-            "用户说'总结文章' -> brew.items获取文章 + ai.summarize",
-            "用户说'最近有什么xx新闻' -> ai.webSearch (外部信息)",
-            "用户在brew页面说'总结' -> ai.summarize (使用pageContext)",
-            "涉及'当前页面'/'这个'时 -> target.type=current_page",
-            "用户说'播放/暂停/下一首/上一首' -> music.control",
-            "用户说'放点音乐/找点音乐听/播放ACG音乐' -> netease.searchPlaylist + music.playlist (两步)",
-            "用户说'播放歌单ID xxx' -> music.playlist",
-            "用户说'给我推荐/找几篇文章/生成阅读列表' -> brew.generateReadingList",
-            "用户说'注释文章/解读文章' -> brewlia.annotate (需要文章ID)",
-            "用户说'做成播客/对话形式' -> brewlia.podcast (需要文章ID)",
-            "brew.article 是内部能力，不要主动使用，由 brew.items 链式调用",
-            "用户说'帮我每天/每小时/每隔/定时检查/总结' -> heartbeat.create（Agent 心跳，action 用自然语言；不要用 scheduler.create）",
-            "用户说'有哪些定时任务/心跳任务' -> heartbeat.list",
-            "platform 自动刷新、Tapp 内调度 -> 分别用 platform.refresh / scheduler.*，不要和 heartbeat 混淆"
+        "special_rules": [
+            "open latest X -> action=navigate + brew.items",
+            "summarize article / 总结文章 -> brew.items then ai.summarize",
+            "recent news about X -> ai.webSearch (external)",
+            "summarize on a brew page -> ai.summarize with pageContext",
+            "this page / 当前页面 / 这个 -> target.type=current_page",
+            "play/pause/next/previous -> music.control",
+            "play some music / 放点音乐 -> netease.searchPlaylist + music.playlist (two steps)",
+            "play playlist id X -> music.playlist",
+            "recommend articles / reading list -> brew.generateReadingList",
+            "annotate article / 注释文章 -> brewlia.annotate (needs article id)",
+            "make a podcast / 做成播客 -> brewlia.podcast (needs article id)",
+            "brew.article is internal; brew.items chains to it",
+            "every day/hour / 定时检查/总结 -> heartbeat.create with a natural-language action; not scheduler.create",
+            "which scheduled/heartbeat tasks -> heartbeat.list",
+            "platform auto-refresh vs app scheduler vs heartbeat are different: platform.refresh / scheduler.* / heartbeat.*"
         ],
-        "常见参数示例": {
+        "param_examples": {
             "platform.read": {"platform": "bilibili|bangumi|mal|steam|github|netease|x|discord|xbox|psn", "type": "overview|favorites|recent"},
-            "ai.summarize": {"content": "文章内容或 contentFrom 引用", "maxLength": 300},
-            "ai.analyze": {"content": "待分析文本", "analysisType": "sentiment|trends|custom", "customPrompt": "自定义分析角度"},
-            "brew.items": {"limit": 10, "source_id": "可选源ID", "unread_only": true},
+            "ai.summarize": {"content": "article text or contentFrom", "maxLength": 300},
+            "ai.analyze": {"content": "text to analyze", "analysisType": "sentiment|trends|custom", "customPrompt": "custom angle"},
+            "brew.items": {"limit": 10, "source_id": "optional source id", "unread_only": true},
             "router.navigate": {"path": "/, /library, /brew, /reports, /config, /tapp"},
             "music.control": {"action": "play|pause|toggle|next|previous|mute|unmute|volume", "volume": 50},
-            "scheduler.create": {"tappId": "已安装TappID", "name": "任务名", "scheduleType": "cron", "schedule": {"cron": "*/30 * * * *"}},
-            "heartbeat.create": {"name": "Brew早间总结", "schedule": "0 9 * * *", "action": "总结 brew 订阅", "enabled": true}
+            "scheduler.create": {"tappId": "installed app id", "name": "task name", "scheduleType": "cron", "schedule": {"cron": "*/30 * * * *"}},
+            "heartbeat.create": {"name": "Brew morning summary", "schedule": "0 9 * * *", "action": "summarize brew feeds", "enabled": true}
         }
     })
 }

@@ -1,7 +1,6 @@
 import React, { forwardRef } from 'react'
 import { useLazyMotion } from './lazyMotion'
 
-// 支持的 HTML 标签类型
 type SupportedTag =
   | 'div'
   | 'span'
@@ -34,7 +33,7 @@ type SupportedTag =
   | 'polyline'
   | 'polygon'
 
-// Framer Motion 特有的 props，需要在回退到原生元素时过滤掉
+// Drop motion-only props when falling back to a native tag.
 const MOTION_PROPS = [
   'initial',
   'animate',
@@ -64,7 +63,6 @@ const MOTION_PROPS = [
   'custom',
 ] as const
 
-// 过滤掉 framer-motion 特有的 props
 function filterMotionProps(props: any): any {
   const filtered: any = {}
   for (const key in props) {
@@ -75,35 +73,26 @@ function filterMotionProps(props: any): any {
   return filtered
 }
 
-/**
- * 从 initial 或 variants.initial 提取初始样式
- * 用于在 motion 未加载时应用正确的初始状态，防止闪屏
- * 🔧 性能优化：扩展支持的属性列表，减少动画加载前的视觉跳变
- */
+/** Apply variants.initial / initial as CSS until motion loads (no flash). */
 function getInitialStyle(props: any): React.CSSProperties | undefined {
   let initialState: any = null
 
-  // 优先使用 variants 中的 initial
   if (props.variants && props.initial && typeof props.initial === 'string') {
     initialState = props.variants[props.initial]
   }
-  // 直接使用 initial 对象
   else if (props.initial && typeof props.initial === 'object') {
     initialState = props.initial
   }
 
   if (!initialState) return undefined
 
-  // 将 motion 属性转换为 CSS 样式
   const style: React.CSSProperties = {}
   const transforms: string[] = []
 
-  // 透明度
   if (typeof initialState.opacity === 'number') {
     style.opacity = initialState.opacity
   }
 
-  // 缩放 - 支持 scale, scaleX, scaleY
   if (typeof initialState.scale === 'number') {
     transforms.push(`scale(${initialState.scale})`)
   }
@@ -114,7 +103,6 @@ function getInitialStyle(props: any): React.CSSProperties | undefined {
     transforms.push(`scaleY(${initialState.scaleY})`)
   }
 
-  // 平移 - 支持数字和字符串（如 '-100%'）
   if (initialState.y !== undefined) {
     const yVal =
       typeof initialState.y === 'number'
@@ -130,7 +118,6 @@ function getInitialStyle(props: any): React.CSSProperties | undefined {
     transforms.push(`translateX(${xVal})`)
   }
 
-  // 新增：旋转支持
   if (typeof initialState.rotate === 'number') {
     transforms.push(`rotate(${initialState.rotate}deg)`)
   }
@@ -141,7 +128,6 @@ function getInitialStyle(props: any): React.CSSProperties | undefined {
     transforms.push(`rotateY(${initialState.rotateY}deg)`)
   }
 
-  // 新增：斜切支持
   if (typeof initialState.skewX === 'number') {
     transforms.push(`skewX(${initialState.skewX}deg)`)
   }
@@ -149,7 +135,6 @@ function getInitialStyle(props: any): React.CSSProperties | undefined {
     transforms.push(`skewY(${initialState.skewY}deg)`)
   }
 
-  // 新增：filter 支持
   const filters: string[] = []
   if (typeof initialState.blur === 'number' && initialState.blur > 0) {
     filters.push(`blur(${initialState.blur}px)`)
@@ -175,7 +160,6 @@ function getInitialStyle(props: any): React.CSSProperties | undefined {
     style.transform = transforms.join(' ')
   }
 
-  // 新增：transformOrigin 支持
   if (
     initialState.originX !== undefined ||
     initialState.originY !== undefined
@@ -188,11 +172,9 @@ function getInitialStyle(props: any): React.CSSProperties | undefined {
   return Object.keys(style).length > 0 ? style : undefined
 }
 
-// 轻量 shim：提供 motion.div / motion.span / motion.svg 等接口，但内部按需加载 framer-motion
-// 使用 forwardRef 支持 ref 传递
 function createShim(tag: SupportedTag) {
   const MotionShim = forwardRef<any, any>((props, ref) => {
-    // 保守策略：只要传了动画相关 props 就认为需要动画
+    // Any animation-related prop needs real motion.
     const hasAnimation =
       props?.initial ||
       props?.animate ||
@@ -207,22 +189,22 @@ function createShim(tag: SupportedTag) {
       props?.exit
     const { motion } = useLazyMotion(Boolean(hasAnimation))
 
+    const { key, ...rest } = props ?? {}
+
     if (motion) {
-      // motion 已加载，使用真实的 motion 组件
       const Comp: any = motion[tag]
-      return <Comp ref={ref} {...props} />
+      return <Comp key={key} ref={ref} {...rest} />
     } else {
-      // motion 未加载，使用原生元素
-      // 重要：应用 initial 状态的样式，防止内容闪现
+      // Apply initial CSS so content does not flash.
       const Tag = tag as any
-      const filteredProps = filterMotionProps(props)
+      const filteredProps = filterMotionProps(rest)
       const initialStyle = getInitialStyle(props)
 
       if (initialStyle) {
         filteredProps.style = { ...filteredProps.style, ...initialStyle }
       }
 
-      return <Tag ref={ref} {...filteredProps} />
+      return <Tag key={key} ref={ref} {...filteredProps} />
     }
   })
   MotionShim.displayName = `MotionShim(${tag})`
@@ -230,27 +212,21 @@ function createShim(tag: SupportedTag) {
 }
 
 export const motionShim = {
-  // 基础布局元素
   div: createShim('div'),
   span: createShim('span'),
   p: createShim('p'),
-  // 标题元素
   h1: createShim('h1'),
   h2: createShim('h2'),
   h3: createShim('h3'),
   h4: createShim('h4'),
   h5: createShim('h5'),
   h6: createShim('h6'),
-  // 交互元素
   button: createShim('button'),
   a: createShim('a'),
-  // 列表元素
   ul: createShim('ul'),
   ol: createShim('ol'),
   li: createShim('li'),
-  // 媒体元素
   img: createShim('img'),
-  // 语义化元素
   section: createShim('section'),
   article: createShim('article'),
   header: createShim('header'),
@@ -258,7 +234,6 @@ export const motionShim = {
   nav: createShim('nav'),
   main: createShim('main'),
   aside: createShim('aside'),
-  // SVG 元素
   svg: createShim('svg'),
   path: createShim('path'),
   g: createShim('g'),
@@ -269,8 +244,7 @@ export const motionShim = {
   polygon: createShim('polygon'),
 }
 
-// AnimatePresence 懒加载 shim：
-// 未加载 framer-motion 时直接渲染 children，加载后使用真实 AnimatePresence
+// Render children until motion loads; then real AnimatePresence.
 export function AnimatePresenceShim(props: any) {
   const { AnimatePresence } = useLazyMotion(
     Boolean(

@@ -1,7 +1,4 @@
-/**
- * MYR-010: RSS content must use a real HTML sanitizer (DOMPurify allowlist),
- * not regex denylist + innerHTML as the XSS boundary.
- */
+/** XSS: DOMPurify allowlist, not regex denylist + innerHTML. */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
@@ -64,13 +61,24 @@ describe('sanitizeRssHtml (DOMPurify allowlist)', () => {
     const out = sanitizeRssHtml(
       '<div><scr<script>ipt>alert(1)</script></div>',
     )
-    // DOMPurify must not leave an executable script element (text residue is OK)
+    // DOMPurify must not leave an executable <script>.
     assert.equal(/<script/i.test(out), false)
     assert.equal(/on\w+\s*=/i.test(out), false)
   })
 })
 
 describe('processRssContent', () => {
+  it('keeps presentation classes theme-agnostic', () => {
+    const out = processRssContent(
+      '<blockquote>q</blockquote><pre>code</pre><table><tr><td>1</td></tr></table><mark>m</mark><hr>',
+    )
+    assert.match(out, /rss-content-blockquote/)
+    assert.match(out, /rss-content-pre/)
+    assert.match(out, /rss-content-table/)
+    assert.match(out, /rss-content-mark/)
+    assert.equal(/bg-white\/|bg-black\/|bg-yellow-/.test(out), false)
+  })
+
   it('still sanitizes end-to-end after presentation rewrites', () => {
     const out = processRssContent(
       '<p onclick="evil()">hi</p><script>x</script>'

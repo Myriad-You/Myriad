@@ -29,21 +29,21 @@ pub fn capability_input_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "query": { "type": "string", "description": "搜索查询内容" },
+            "query": { "type": "string", "description": "Search query" },
             "searchType": {
                 "type": "string",
                 "enum": ["rss_source", "api_docs", "general"],
                 "default": "general",
-                "description": "搜索类型：rss_source 搜索 RSS 源，api_docs 搜索 API 文档，general 通用搜索"
+                "description": "Search type: rss_source for RSS feeds, api_docs for API docs, general for a web search"
             },
             "maxResults": {
                 "type": "integer",
                 "default": 5,
-                "description": "最大返回结果数"
+                "description": "Maximum number of results"
             },
             "searchPrompt": {
                 "type": "string",
-                "description": "自定义搜索提示词"
+                "description": "Custom search prompt"
             }
         },
         "required": ["query"]
@@ -55,11 +55,11 @@ pub fn capability_output_schema() -> Value {
         "type": "object",
         "properties": {
             "success": { "type": "boolean" },
-            "query": { "type": "string", "description": "回显的查询" },
-            "searchType": { "type": "string", "description": "回显的搜索类型" },
-            "aiSummary": { "type": "string", "description": "AI 对搜索结果的综述" },
-            "results": { "type": "array", "description": "搜索结果列表" },
-            "totalResults": { "type": "integer", "description": "结果条数" }
+            "query": { "type": "string", "description": "Echoed query" },
+            "searchType": { "type": "string", "description": "Echoed search type" },
+            "aiSummary": { "type": "string", "description": "AI summary of the search results" },
+            "results": { "type": "array", "description": "Search result list" },
+            "totalResults": { "type": "integer", "description": "Number of results" }
         }
     })
 }

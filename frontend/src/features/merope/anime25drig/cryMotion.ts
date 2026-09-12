@@ -5,7 +5,6 @@ export interface CryMouthMotion {
   mouthScale: number
 }
 
-/** Samples a restrained sobbing mouth without allocating in the render loop. */
 export function sampleCryMouthMotion(
   intensity: number,
   timeSeconds: number,

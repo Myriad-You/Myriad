@@ -1,12 +1,6 @@
-/**
- * 后台任务管理 Hook
- *
- * 提供任务提交、状态查询、批量管理等功能
- */
-
 import type { Task } from '../components/TaskStatus'
 import { useCallback, useState } from 'react'
-import { currentCopy } from '../i18n/localeCopy'
+import { currentCopy, formatCurrent } from '../i18n/localeCopy'
 import { fetchJson } from '../utils/apiHelper'
 import { getCSRFToken } from '../utils/csrf'
 import {
@@ -58,9 +52,6 @@ export function useBackgroundTasks() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  /**
-   * 提交平台数据处理任务
-   */
   const submitTask = useCallback(
     async (platform: string): Promise<string | null> => {
       setIsSubmitting(true)
@@ -87,10 +78,9 @@ export function useBackgroundTasks() {
         if (!response.ok || !data.success) {
           throw new Error(
             data.error ||
-              currentCopy().errors.httpStatus.replace(
-                '{status}',
-                String(response.status),
-              ),
+              formatCurrent(currentCopy().errors.httpStatus, {
+                status: response.status,
+              }),
           )
         }
 
@@ -110,9 +100,6 @@ export function useBackgroundTasks() {
     [],
   )
 
-  /**
-   * 获取任务状态
-   */
   const getTaskStatus = useCallback(
     async (taskId: string): Promise<Task | null> => {
       try {
@@ -135,9 +122,6 @@ export function useBackgroundTasks() {
     [],
   )
 
-  /**
-   * 获取平台当前任务
-   */
   const getPlatformTask = useCallback(
     async (platform: string): Promise<Task | null> => {
       try {
@@ -160,9 +144,6 @@ export function useBackgroundTasks() {
     [],
   )
 
-  /**
-   * 获取缓存状态
-   */
   const getCacheStatus =
     useCallback(async (): Promise<CacheStatusResponse | null> => {
       try {
@@ -183,9 +164,6 @@ export function useBackgroundTasks() {
       }
     }, [])
 
-  /**
-   * 获取平台缓存状态
-   */
   const getPlatformCacheStatus = useCallback(
     async (platform: string): Promise<CacheInfo | null> => {
       try {
@@ -204,9 +182,6 @@ export function useBackgroundTasks() {
     [],
   )
 
-  /**
-   * 清除平台缓存
-   */
   const clearPlatformCache = useCallback(
     async (platform: string): Promise<boolean> => {
       try {
@@ -239,9 +214,6 @@ export function useBackgroundTasks() {
     [],
   )
 
-  /**
-   * 批量清除缓存
-   */
   const clearCaches = useCallback(
     async (platforms?: string[]): Promise<boolean> => {
       try {
@@ -276,9 +248,6 @@ export function useBackgroundTasks() {
     [],
   )
 
-  /**
-   * 清除所有缓存
-   */
   const clearAllCaches = useCallback(async (): Promise<boolean> => {
     try {
       const csrfToken = await getCSRFToken()
@@ -309,20 +278,17 @@ export function useBackgroundTasks() {
   }, [])
 
   return {
-    // 任务管理
     submitTask,
     getTaskStatus,
     getPlatformTask,
     isSubmitting,
 
-    // 缓存管理
     getCacheStatus,
     getPlatformCacheStatus,
     clearPlatformCache,
     clearCaches,
     clearAllCaches,
 
-    // 错误状态
     error,
     clearError: () => setError(null),
   }

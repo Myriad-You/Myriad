@@ -6,7 +6,6 @@ import {
   FULL_SLIP_RADIANS,
 } from './armFollow'
 
-/** Torso yaw held still, then turned over `turnSeconds`, then held again. */
 function turn(
   follow: ArmFollowController,
   turnSeconds: number,
@@ -43,11 +42,10 @@ test('a torso that is not turning leaves the sleeves alone', () => {
 
 test('the sleeve falls behind a turn and then closes the gap', () => {
   const swept = turn(new ArmFollowController(), 0.3, 0.45, 3)
-  // Against the turn while it happens: the sleeve is still where the torso was.
   assert.ok(swept.at(0.1) < 0, `${swept.at(0.1)}`)
   assert.ok(swept.at(0.2) < swept.at(0.1), 'lag stopped opening mid-turn')
   assert.ok(swept.at(0.3) < -0.1, `${swept.at(0.3)}`)
-  // A lag, not an offset: once the torso stands still, the sleeve arrives.
+  // A lag, not an offset
   assert.ok(swept.at(0.6) > swept.at(0.3), 'lag stopped closing after the turn')
   assert.ok(Math.abs(swept.at(1.2)) < Math.abs(swept.peak) * 0.25)
   assert.ok(Math.abs(swept.at(3)) < 0.01, `${swept.at(3)}`)
@@ -85,7 +83,6 @@ test('the lift is the swing, so it can never disagree with it', () => {
   for (let index = 0; index <= 120; index += 1) {
     const yaw = index < 18 ? (index / 18) * 0.45 : 0.45
     const state = follow.step(yaw, 1 / 60, 1)
-    // A pendulum rises whichever way it swings.
     assert.ok(state.lift >= 0)
     assert.ok(
       Math.abs(state.lift - state.swing * state.swing * ARM_SWING_LIFT) < 1e-12,
@@ -96,9 +93,6 @@ test('the lift is the swing, so it can never disagree with it', () => {
 })
 
 test('30, 60 and 120 fps answer the same turn the same way', () => {
-  // A step is the exact case: the two lag stages are integrated in closed
-  // form, so the same elapsed time has to give the same lag whatever the
-  // frame rate split it into.
   const lagAt = (fps: number, seconds: number): number => {
     const dt = 1 / fps
     const follow = new ArmFollowController()

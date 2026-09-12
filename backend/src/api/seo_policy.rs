@@ -6,8 +6,7 @@ pub const VISIBILITY_SEARCH_ONLY: &str = "search_only";
 pub const VISIBILITY_AI_CITATION: &str = "ai_citation";
 pub const VISIBILITY_AI_FULL: &str = "ai_full";
 
-/// Normalize a raw policy string. Empty / unknown → derive from `noindex`
-/// (legacy installs: noindex=true → private, else ai_full to match historical open robots).
+/// Normalize a raw policy string. Empty / unknown → `noindex=true` → private, else ai_full.
 pub fn normalize_visibility_policy(raw: &str, noindex: bool) -> &'static str {
     match raw.trim().to_ascii_lowercase().as_str() {
         VISIBILITY_PRIVATE => VISIBILITY_PRIVATE,

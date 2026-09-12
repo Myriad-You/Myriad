@@ -20,15 +20,9 @@ export interface PlatformAutoFetchConfig {
 
 interface PlatformAutoRefreshSettingsProps {
   value: PlatformAutoFetchConfig
-  /** 已配置（有凭证）的平台数；与报告页 enabled 无关 */
   configuredPlatformCount: number
   onChange: (value: PlatformAutoFetchConfig) => void
-  /**
-   * 是否参与页内 TOC。嵌在「接入平台」子分类内时应为 false，
-   * 与平台列表共享同一 TOC 芯片；此时标题退化为纯文本（无图标）。
-   */
   toc?: boolean
-  /** 可选扩展内容 */
   children?: React.ReactNode
 }
 
@@ -43,7 +37,7 @@ const PlatformAutoRefreshSettings: React.FC<
   toc = true,
   children,
 }) => {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const { catalog: g, bindGuide, renderGuide } = useSettingGuide()
   const helpCtx = useSettingsHelp()
   const expandHelp = Boolean(helpCtx?.showDetails)
@@ -52,12 +46,12 @@ const PlatformAutoRefreshSettings: React.FC<
     : 24
   const selectedValue = value.enabled ? String(interval) : 'off'
 
-  // 当前状态短文案（标题旁标签）；用途说明走 description → ⓘ tooltip
   const status = value.enabled
     ? configuredPlatformCount > 0
-      ? t.config.autoRefreshSummary
-          .replace('{count}', String(configuredPlatformCount))
-          .replace('{hours}', String(interval))
+      ? format(t.config.autoRefreshSummary, {
+          count: configuredPlatformCount,
+          hours: interval,
+        })
       : t.config.autoRefreshNoPlatforms
     : t.config.autoRefreshDisabledHint
 
@@ -66,13 +60,10 @@ const PlatformAutoRefreshSettings: React.FC<
       { value: 'off', label: t.config.autoRefreshOff },
       ...INTERVAL_OPTIONS.map((hours) => ({
         value: String(hours),
-        label: t.config.autoRefreshEveryHours.replace(
-          '{hours}',
-          String(hours),
-        ),
+        label: format(t.config.autoRefreshEveryHours, { hours }),
       })),
     ]
-  }, [t.config.autoRefreshOff, t.config.autoRefreshEveryHours])
+  }, [format, t.config.autoRefreshOff, t.config.autoRefreshEveryHours])
 
   const controls = (
     <div className="settings-stack">
@@ -103,7 +94,6 @@ const PlatformAutoRefreshSettings: React.FC<
     </>
   )
 
-  // 嵌在「接入平台」内：退化为文本分区，不与带图标子分类抢视觉权重
   if (!toc) {
     const title = t.config.autoRefreshTitle
     return (
@@ -117,10 +107,7 @@ const PlatformAutoRefreshSettings: React.FC<
             {title}
             {!expandHelp ? (
               <SettingTitleHelp
-                ariaLabel={t.config.detailHelpAriaNamed.replace(
-                  '{title}',
-                  title,
-                )}
+                ariaLabel={format(t.config.detailHelpAriaNamed, { title })}
               >
                 {description}
               </SettingTitleHelp>

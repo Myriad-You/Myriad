@@ -1,7 +1,6 @@
-/* 网格布局由 SettingGroupGrid 负责；此处仅保留通知页局部微调 */
+/* layout: SettingGroupGrid; local tweaks only */
 
 .notification-source-grid {
-  /* 与表单主题控件一致 */
   color-scheme: light;
 }
 
@@ -17,7 +16,6 @@ html.dark .notification-source-grid {
   margin-bottom: 0;
 }
 
-/* 事件较多时允许换行，轨道仍贴合选项宽度 */
 .notification-event-choices.choice-segmented,
 .notification-choice-group .choice-segmented {
   max-width: 100%;

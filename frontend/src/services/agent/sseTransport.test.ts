@@ -206,7 +206,6 @@ describe('abortSseSubscriptions', () => {
 
     assert.equal(controllers.size, 0)
     assert.equal(controller.signal.aborted, true)
-    // Decision path uses the same intent label as abortSseSubscriptions('user')
     assert.equal(
       decideStreamDropAction({
         hasFinalResponse: false,
@@ -222,8 +221,7 @@ describe('abortSseSubscriptions', () => {
 
 describe('AgentStreamError', () => {
   it('keeps the backend code so quota rejections are distinguishable', () => {
-    // The stream is HTTP 200 before anything can fail, so this code is the only
-    // way a caller can tell a budget rejection from a processing failure.
+    // HTTP 200 already; distinguish quota via error.code.
     for (const code of [
       'AI_COOLDOWN_ACTIVE',
       'AI_DAILY_CALL_LIMIT',

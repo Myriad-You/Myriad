@@ -1,9 +1,3 @@
-/**
- * Pure-function tests for layer entry selection and iframe fingerprints.
- * Run from frontend/:
- *   node --experimental-strip-types --test src/tapp/runtime/codeStructure.test.ts
- */
-
 import type { TappCodeStructure } from '../types'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
@@ -27,7 +21,7 @@ function sampleCode(): TappCodeStructure {
 }
 
 describe('getLayerEntries', () => {
-  /// core 是共享层：三种模式都先执行它，模块化不改变这一点。
+  // core 是共享层：三种模式都先执行。
   it('always runs core first', () => {
     const code = sampleCode()
     assert.deepEqual(getLayerEntries(code, 'page'), [
@@ -47,8 +41,7 @@ describe('getLayerEntries', () => {
     assert.ok(!getLayerEntries(code, 'page').includes('widget/index.js'))
   })
 
-  /// 一个 widget 的 iframe 不该执行同 Tapp 其它 widget 的代码；想共用就各自
-  /// require 同一个文件。
+  // 一个 widget 的 iframe 不执行同 Tapp 其它 widget 的代码；想共用就各自 require。
   it('loads only the named widget entry', () => {
     const code = sampleCode()
     code.modules['widget-a.js'] = 'a();'
@@ -64,7 +57,6 @@ describe('getLayerEntries', () => {
     assert.ok(!source.includes('"widget-b.js"'))
   })
 
-  /// 漏传 widgetId 不该退化成「装入全部 widget」——那会让漏传看起来正常工作。
   it('loads no widget entry without a widget id', () => {
     assert.deepEqual(getLayerEntries(sampleCode(), 'widget'), ['core.js'])
   })
@@ -90,12 +82,10 @@ describe('buildLayerScript', () => {
     assert.ok(source.includes('"core.js"'))
     assert.ok(source.includes('"page/index.js"'))
     assert.ok(!source.includes('"widget/index.js"'))
-    // 计划同时给出装入清单，调用方不必为调试输出再算一遍依赖图
     assert.deepEqual(includedModules, ['core.js', 'page/index.js'])
   })
 
-  /// iframe 不能 eval，宿主把这段源码原样塞进 srcdoc。这里按同一条注入路径
-  /// 执行：core 先跑、跨文件只走 exports、另一层的模块不进脚本。
+  // iframe 不能 eval；宿主把源码原样塞进 srcdoc。
   it('runs the injected srcdoc script the way an iframe would', () => {
     const code = sampleCode()
     code.modules['core.js'] = 'module.exports = { appName: "My Tapp" };'
@@ -129,7 +119,7 @@ describe('getCodeStructureFingerprint', () => {
     assert.notEqual(before, getCodeStructureFingerprint(code, 'page'))
   })
 
-  /// 无关层的代码变化不该重建这个 iframe。
+  // 无关层的代码变化不该重建这个 iframe。
   it('ignores modules outside the layer graph', () => {
     const before = getCodeStructureFingerprint(sampleCode(), 'page')
     const code = sampleCode()

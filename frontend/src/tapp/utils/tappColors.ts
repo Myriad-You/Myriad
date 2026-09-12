@@ -1,11 +1,3 @@
-/**
- * Tapp 颜色与图标壳（默认方案）
- *
- * 默认：多色 material 壳 + 现有 iconSvg/emoji/URL 白 glyph。
- * 不做宿主重绘；standalone 全彩图铺满不套壳。
- * 质感与 Dock「应用」入口一致：顶内高光 / 底边压暗 / 可选斜向 glaze。
- */
-
 import type { CSSProperties } from 'react'
 import type { TappCategory, TappPermission } from '../types'
 import {
@@ -14,7 +6,6 @@ import {
 } from '../components/TappIcon'
 import { normalizeTappCategory } from './tappCategories'
 
-/** 类别渐变色（hex；壳填充用） */
 export const CATEGORY_COLORS: Record<
   TappCategory,
   { fromHex: string; toHex: string }
@@ -29,33 +20,18 @@ export const CATEGORY_COLORS: Record<
   data: { fromHex: '#14b8a6', toHex: '#06b6d4' },
 }
 
-/** 图标样式返回类型（默认 material 方案） */
 export interface IconStyle {
-  /** Shell fill class (`tapp-icon-shell--fill`) or empty when standalone */
   className: string
-  /** CSS vars `--tapp-shell-a/b` for the dual-stop fill */
   style?: CSSProperties
-  /**
-   * Self-contained app icon — no tinted shell behind it.
-   * Accent still describes brand color for non-icon surfaces.
-   */
   standalone: boolean
-  /**
-   * Full-color custom art forced onto a material shell (`iconShell: true`).
-   * Badge keeps shell but skips monochrome glyph wash (opacity / white plate).
-   */
   insetMedia: boolean
-  /** Solid accent (hex) for dock dots, glows, etc. */
   accentColor: string
-  /** True when non-standalone — badge applies material inset finish */
   material: boolean
 }
 
-/** Minimal fields for shell / accent resolution. */
 export interface TappIconStyleSource {
   icon?: string
   iconSvg?: string
-  /** Optional: keep material shell under custom full-color icon */
   iconShell?: boolean
   themeColor?: string
   category?: string
@@ -103,14 +79,12 @@ function mixHex(
 
 function shellStopsFromTheme(themeColor: string): { from: string; to: string } {
   const base = themeColor.trim()
-  // Subtle dual-stop: light white up top, light black down bottom
   return {
     from: mixHex(base, '#ffffff', 0.07),
     to: mixHex(base, '#000000', 0.1),
   }
 }
 
-/** Resolve shell gradient stops (theme → category → id/permissions → default). */
 function resolveShellStops(source: TappIconStyleSource): {
   from: string
   to: string
@@ -136,7 +110,7 @@ function resolveShellStops(source: TappIconStyleSource): {
 
   const id = source.id || ''
   const idParts = id.split('.')
-  const lastPart = idParts[idParts.length - 1]?.toLowerCase() || ''
+  const lastPart = idParts.at(-1)?.toLowerCase() || ''
   const idLower = id.toLowerCase()
   for (const [category, colors] of Object.entries(CATEGORY_COLORS)) {
     if (lastPart.includes(category) || idLower.includes(category)) {
@@ -182,15 +156,9 @@ function resolveShellStops(source: TappIconStyleSource): {
   }
 }
 
-/**
- * Default icon presentation: material multi-stop shell + existing glyph art.
- * `standalone` → full-bleed media, no shell.
- * `iconShell: true` → keep shell even for full-color custom icons.
- */
 export function getTappIconStyle(source: TappIconStyleSource): IconStyle {
   const standalone = hasStandaloneTappIcon(source)
   const stops = resolveShellStops(source)
-  // Full-color media sitting on a forced shell (not monochrome glyph treatment)
   const insetMedia =
     !standalone &&
     source.iconShell === true &&
@@ -216,13 +184,8 @@ export function getTappIconStyle(source: TappIconStyleSource): IconStyle {
   }
 }
 
-/** SVG data-URI / canvas 等无法解析 CSS 变量时的实色回退 */
 export const DEFAULT_TAPP_ACCENT_HEX = '#6366f1'
 
-/**
- * 实心强调色：Dock 指示点 / 装饰光晕。
- * 始终返回可绘制颜色（themeColor 或分类 hex）。
- */
 export function getTappIconAccentColor(source: TappIconStyleSource): string {
   return resolveShellStops(source).accent
 }

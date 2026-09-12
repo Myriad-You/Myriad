@@ -1,8 +1,3 @@
-/**
- * Snapshot retention prefs above the backup list.
- * Plain label + controls — no card chrome / hover effects.
- */
-
 import type { SnapshotsResponse, UpdaterStatus } from '../../../services/updaterApi'
 import type { U } from './helpers'
 import React, { useMemo } from 'react'
@@ -21,7 +16,6 @@ import { format } from './helpers'
 
 export interface SnapshotLimitPrefsProps {
   status: UpdaterStatus | null
-  /** Latest list response (diagnostics / self-heal counts when present). */
   snapshotStats?: Pick<
     SnapshotsResponse,
     'eligible_count' | 'protected_count' | 'total_count' | 'snapshot_limit'
@@ -35,7 +29,6 @@ export interface SnapshotLimitPrefsProps {
   }) => void | Promise<void>
 }
 
-/** True when status carries explicit snapshot-limit fields (updater image is new enough). */
 export function statusHasSnapshotLimitFields(
   status: UpdaterStatus | null | undefined,
 ): boolean {
@@ -61,12 +54,9 @@ export const SnapshotLimitPrefs: React.FC<SnapshotLimitPrefsProps> = ({
   ).guide
 
   const limitFieldsKnown = statusHasSnapshotLimitFields(status)
-  // Default ON only when fields are present-and-true, or when fields are known
-  // defaults from a modern updater. When status omits the fields entirely,
-  // still show the control as "on" for UX continuity, but warn below.
+  // ON only if fields present-and-true, or known-absent (old backend)
   const limitEnabled = status?.snapshot_limit_enabled !== false
   const rawLimit = status?.snapshot_limit ?? SNAPSHOT_LIMIT_DEFAULT
-  // Show any in-range value (1–20), not only presets — BE may store 4, 7, …
   const limitValue = clampSnapshotLimit(rawLimit)
   const knownLimit = (SNAPSHOT_LIMIT_PRESETS as readonly number[]).includes(
     limitValue as (typeof SNAPSHOT_LIMIT_PRESETS)[number],
@@ -77,7 +67,6 @@ export const SnapshotLimitPrefs: React.FC<SnapshotLimitPrefsProps> = ({
       value: String(n),
       label: format(u.updaterSnapshotLimitOption, { n: String(n) }),
     }))
-    // Surface non-preset current values so the select stays controlled.
     if (!knownLimit) {
       base.push({
         value: String(limitValue),
@@ -85,7 +74,7 @@ export const SnapshotLimitPrefs: React.FC<SnapshotLimitPrefsProps> = ({
           n: String(limitValue),
         }),
       })
-      base.sort((a, b) => Number(a.value) - Number(b.value))
+      return base.toSorted((a, b) => Number(a.value) - Number(b.value))
     }
     return base
   }, [knownLimit, limitValue, u.updaterSnapshotLimitOption])

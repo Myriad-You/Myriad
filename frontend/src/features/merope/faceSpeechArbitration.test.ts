@@ -7,6 +7,7 @@ import type {
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { authSubject } from '../../utils/authSubject'
 import { AgentFaceChannel } from './agentFaceChannel'
 import {
   arbitrateFaceSpeech,
@@ -37,6 +38,37 @@ function disablePersonaSpeech(): void {
     persona_speech_enabled: false,
   })
 }
+
+test('an old reply end cannot release the new Chat occupancy', () => {
+  const gate = new FaceSpeechGate(() => 'chat')
+  gate.beginIncoming('chat', 'old')
+  gate.beginIncoming('chat', 'new')
+  gate.endIncoming('chat', 'old')
+  assert.equal(gate.chatBusy, true)
+  gate.endIncoming('chat', 'new')
+  assert.equal(gate.chatBusy, false)
+})
+
+test('old text mouth handles cannot emit or release a new subject utterance', () => {
+  const sink = new RecordingSink()
+  const channel = new AgentFaceChannel(sink)
+  const gate = new FaceSpeechGate(() => 'chat')
+  const old = openGatedReply(channel, gate, 'chat', 'old-subject')
+  old.chunk('Hello')
+  channel.resetSubject()
+  authSubject.change('another', true)
+  gate.releaseChat()
+  const fresh = openGatedReply(channel, gate, 'chat', 'new-subject')
+  const count = sink.speechEvents.length
+  old.chunk('Late old text')
+  old.end()
+  assert.equal(sink.speechEvents.length, count)
+  assert.equal(gate.chatBusy, true)
+  fresh.chunk('New text')
+  fresh.end()
+  assert.equal(gate.chatBusy, false)
+  authSubject.change('guest', true)
+})
 
 class RecordingSink implements AgentFaceSink {
   readonly speechEvents: MeropeSpeechEventDetail[] = []
@@ -135,7 +167,7 @@ test('Chat mid-utterance continues while a background Work completion is recorde
     sink.speechEvents.map((event) => [
       event.phase,
       event.messageId,
-      'text' in event ? event.text : '',
+      Object.hasOwn(event, 'text') ? (event as { text: string }).text : '',
     ]),
     [
       ['start', 'chat-msg', ''],
@@ -204,7 +236,6 @@ test('Chat start then engine cancel releases occupancy so visible Work may speak
   const gate = new FaceSpeechGate(() => visible)
   const chat = openGatedReply(channel, gate, 'chat', 'chat-msg')
   chat.chunk('说到一半')
-  // Engine cancel path — not the ReplyUtterance wrapper's cancel().
   cancelGatedSpeech(channel, gate, 'chat-msg')
   visible = 'work'
 
@@ -369,6 +400,27 @@ test('proactive face records while Chat currently holds the mouth', () => {
   })
   assert.equal(result.surface, 'record')
   assert.equal(sink.utterances.length, 0)
+})
+
+test('late touch speech cannot overwrite a speaking body or its state', () => {
+  setLiveFaceVisible(true)
+  const sink = new RecordingSink()
+  const channel = new AgentFaceChannel(sink)
+  const gate = new FaceSpeechGate(() => 'chat')
+  setLiveBody({
+    capabilities: () => ({ semantic: [] }),
+    state: () => ({ expression: 'neutral', posture: 'idle', acting: null,
+      speaking: true, faceVisible: true, capabilities: [] }),
+    intend: () => assert.fail('busy body must not receive touch speech'),
+  })
+  try {
+    assert.equal(deliverProactiveFace(channel, gate, {
+      id: 'late-touch', eventKey: 'agent.merope.touch', body: '嗯？',
+      meropeState: { activity: 'talking' },
+    }).surface, 'record')
+    assert.deepEqual(sink.states, [])
+    assert.deepEqual(sink.utterances, [])
+  } finally { setLiveBody(null) }
 })
 
 test('Work completion still speaks when Chat is not talking and Work is visible', () => {

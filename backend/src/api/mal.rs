@@ -165,14 +165,11 @@ pub async fn get_mal_anime_list(
 
     let fetcher = PlatformFetcher::new().await;
     match fetcher.fetch_mal_anime_list(username, client_id).await {
-        Ok(list) => {
-            let count = list.len();
-            Ok(Json(ApiResponse {
-                success: true,
-                data: Some(list),
-                message: format!("获取成功，共 {} 部动画", count),
-            }))
-        }
+        Ok(list) => Ok(Json(ApiResponse {
+            success: true,
+            data: Some(list),
+            message: "ok".to_string(),
+        })),
         Err(e) => {
             tracing::error!("Failed to fetch MAL anime list for {}: {}", username, e);
             Ok(Json(ApiResponse {
@@ -202,14 +199,11 @@ pub async fn get_mal_manga_list(
 
     let fetcher = PlatformFetcher::new().await;
     match fetcher.fetch_mal_manga_list(username, client_id).await {
-        Ok(list) => {
-            let count = list.len();
-            Ok(Json(ApiResponse {
-                success: true,
-                data: Some(list),
-                message: format!("获取成功，共 {} 部漫画", count),
-            }))
-        }
+        Ok(list) => Ok(Json(ApiResponse {
+            success: true,
+            data: Some(list),
+            message: "ok".to_string(),
+        })),
         Err(e) => {
             tracing::error!("Failed to fetch MAL manga list for {}: {}", username, e);
             Ok(Json(ApiResponse {

@@ -1,17 +1,3 @@
-/* ============================================
-   初始化向导 — 沿用设定引导的流体玻璃语言
-   一张定高玻璃卡：顶栏（返回 + 步骤位置）→ 标题区 → 正文 → 右下悬浮动作。
-   没有进度条，位置全靠顶栏右侧那一行文字交代。
-
-   动效分层（与 settings-motion 同哲学）：
-   1. 令牌      --sob-dur-* / --sob-ease-* / --sob-shift-* / --sob-stagger
-   2. 禁区      .setup-ob / .setup-ob__card 永不挂 opacity·transform 动画
-   3. 换步      pane 只淡入；方向由 data-dir → 内部 rise 位移表达
-   4. 编排      hero / body / features / bar 错落入场
-   5. 微交互    悬停抬升、FAB 亮度呼吸、招手、note 弹出
-   6. 降级      prefers-reduced-motion + data-perf-mode=exlight
-   ============================================ */
-
 @property --sob-top-dense {
   syntax: '<number>';
   inherits: true;
@@ -28,8 +14,6 @@
   --sob-line: color-mix(in srgb, var(--border-color, #d8dbe6) 72%, transparent);
   --sob-accent: var(--color-primary, #7c6ee6);
   --sob-surface-rgb: var(--surface-rgb, 255 255 255);
-
-  /* —— 动效令牌：一处改、全向导同步 —— */
   --sob-dur-fast: 160ms;
   --sob-dur-base: 280ms;
   --sob-dur-slow: 420ms;
@@ -40,13 +24,9 @@
   --sob-scale-press: 0.94;
   --sob-scale-hover: 1.04;
   --sob-lift: -2px;
-
-  /* 出场缓入、果冻回弹、玻璃滑移、退场 */
   --sob-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --sob-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --sob-ease-glide: cubic-bezier(0.32, 0.72, 0, 1);
-
-  /* 语义过渡：控件直接 transition: var(...) */
   --sob-t-fill:
     background-color var(--sob-dur-fast) var(--sob-ease-glide),
     border-color var(--sob-dur-fast) var(--sob-ease-glide),
@@ -60,11 +40,6 @@
     border-color var(--sob-dur-fast) var(--sob-ease-glide),
     box-shadow var(--sob-dur-base) var(--sob-ease-glide),
     background-color var(--sob-dur-fast) var(--sob-ease-glide);
-
-  /*
-   * 低开销流体玻璃绘制令牌（不额外开 backdrop）：镜面边 · 顶线发丝 · 轻 sheen。
-   * 卡片、悬浮钮、输入框共用这一份，抄开了就会各自漂移、不再是同一种玻璃。
-   */
   --sob-liq-border: var(
     --surface-border,
     color-mix(in srgb, var(--sob-line) 48%, white 36%)
@@ -85,8 +60,6 @@
     inset 0 1px 0 rgb(255 255 255 / 44%), inset 0 -1px 0 rgb(0 0 0 / 6%);
   --sob-liq-soft-shadow:
     var(--sob-liq-inset), 0 8px 22px -12px rgb(31 38 135 / 12%);
-
-  /* 边缘色散弯光环：玻璃边框的灵魂 */
   --sob-liq-ring: conic-gradient(
     from 0deg,
     rgb(255 255 255 / 62%) 0deg,
@@ -104,11 +77,7 @@
   margin: 0 auto;
   color: var(--sob-ink);
 
-  /*
-   * 禁止在此节点（或 .setup-ob__card）上挂 opacity / transform 动画：
-   * 祖先一旦形成合成层，子级毛玻璃的 backdrop-filter 就采不到壁纸。
-   * 入场只打在 pane / hero / body 等内容层。
-   */
+  /* 此节点不要挂 opacity/transform，祖先合成层会让 backdrop-filter 采不到壁纸。 */
 }
 
 html.dark .setup-ob {
@@ -141,8 +110,6 @@ html.dark .setup-ob {
     rgb(255 255 255 / 20%) 360deg
   );
 }
-
-/* ---------- 玻璃背后的漂移光斑：backdrop-filter 需要可折射的内容 ---------- */
 
 .setup-ob__aurora {
   position: absolute;
@@ -189,7 +156,6 @@ html.dark .setup-ob {
   animation-delay: -4s;
 }
 
-/* 只位移 / 缩放，不改 opacity：透过毛玻璃时 opacity 呼吸会像整卡在闪 */
 @keyframes setup-ob-drift-a {
   0%,
   100% {
@@ -220,32 +186,17 @@ html.dark .setup-ob {
   }
 }
 
-/* ---------- 卡片外壳 ---------- */
-
 .setup-ob__card {
-  /* 内容到卡片上下沿的距离；顶栏高度与悬浮钮的下沿都吃它 */
   --sob-pad: clamp(18px, 3vw, 34px);
-
-  /* 两侧留白单独一个量：默认跟纵向同宽，个别步骤可以单独放宽 */
   --sob-pad-x: var(--sob-pad);
-
-  /* 顶栏占位：绝对顶栏 + 正文避让共用 */
   --sob-top-h: calc((var(--sob-pad) - 6px) + 34px + 14px);
-
-  /* 标题 → 控件 */
   --sob-label-gap: 10px;
-
-  /* 统一毛玻璃透明度 */
   --sob-glass: rgb(var(--sob-surface-rgb) / 42%);
   --sob-glass-strong: rgb(var(--sob-surface-rgb) / 34%);
   --sob-glass-soft: rgb(var(--sob-surface-rgb) / 22%);
-
-  /* 顶栏色层：随正文滚动 0→1，只抬不透明度、不改范围 */
   --sob-top-dense: 0;
 
   transition: --sob-top-dense 140ms ease-out;
-
-  /* 定高：整卡不随各步内容多少变化，正文区内部滚动，换步时卡片不忽高忽低 */
   position: relative;
   z-index: 1;
   display: flex;
@@ -274,7 +225,6 @@ html.dark .setup-ob {
   backdrop-filter: blur(28px) saturate(1.45);
 }
 
-/* 主卡边缘色散弯光环（纯绘制层） */
 @supports (mask-composite: exclude) or (-webkit-mask-composite: xor) {
   .setup-ob__card::after {
     content: '';
@@ -292,8 +242,6 @@ html.dark .setup-ob {
   }
 }
 
-/* ---------- 顶栏：左边返回，右边一行淡淡的步骤名与位置 ---------- */
-
 .setup-ob-top {
   position: absolute;
   z-index: 7;
@@ -310,8 +258,6 @@ html.dark .setup-ob {
   border: 0;
   background: transparent;
   isolation: isolate;
-
-  /* 整条顶栏不挡下层；只让返回 / 步骤文字吃点击 */
   pointer-events: none;
 }
 
@@ -351,7 +297,6 @@ html.dark .setup-ob {
     backwards;
 }
 
-/* 右上角只是「你在哪」的轻提示，压得比正文更淡 */
 .setup-ob-top__step {
   display: flex;
   flex: 0 0 auto;
@@ -387,8 +332,6 @@ html.dark .setup-ob {
   letter-spacing: 0.02em;
   opacity: 0.72;
 }
-
-/* ---------- 左上角返回：只有圆底箭头可点，旁挂上一页名称 ---------- */
 
 .setup-ob-back {
   display: inline-flex;
@@ -475,10 +418,6 @@ html.dark .setup-ob {
   cursor: not-allowed;
 }
 
-/*
- * 无处可返回时的同款占位：骨架照抄返回按钮，只去掉「可按」的那部分手感。
- * 旁挂文字这时是唯一的信息载体，允许选中。
- */
 .setup-ob-back.is-static .setup-ob-back__hit {
   cursor: default;
 }
@@ -495,7 +434,6 @@ html.dark .setup-ob {
   user-select: auto;
 }
 
-/* 没有可返回的地方时，用同款药丸标签占住这个位置 */
 .setup-ob-brand {
   display: inline-flex;
   align-items: center;
@@ -524,12 +462,9 @@ html.dark .setup-ob {
   object-fit: contain;
 }
 
-/* 只有文字的那版（欢迎屏）：主体已经是大 logo，这里不再小抄一份 */
 .setup-ob-brand.is-textonly {
   padding: 6px 13px;
 }
-
-/* ---------- 视口 / 步骤面 ---------- */
 
 .setup-ob__viewport {
   display: grid;
@@ -537,7 +472,6 @@ html.dark .setup-ob {
   flex: 1 1 auto;
 }
 
-/* 顶栏始终 absolute：正文用 --sob-top-h 避让；底部留白给悬浮按钮让路 */
 .setup-ob__pane {
   width: 100%;
   min-height: 0;
@@ -550,14 +484,7 @@ html.dark .setup-ob {
   scrollbar-color: color-mix(in srgb, var(--sob-muted) 34%, transparent)
     transparent;
 
-  /*
-   * 换步：只动内容层的 opacity。
-   * 不在 pane 上挂 transform——否则它会变成 absolute 悬浮钮的包含块，
-   * 动画结束时 FAB 会从「相对 pane」跳回「相对 card」。
-   * 方向感交给内部 hero / body 的位移错落（见下方 data-dir 规则）。
-   * fill 用 backwards（不要 both），播完不留残余样式。
-   * 毛玻璃卡本体绝不参与此动画。
-   */
+  /* pane 不要挂 transform，否则会变成 FAB 的包含块。fill 用 backwards。 */
   animation: setup-ob-pane-fade var(--sob-dur-enter) var(--sob-ease-out)
     backwards;
 }
@@ -578,7 +505,6 @@ html.dark .setup-ob {
   }
 }
 
-/* 前进：内容从右侧轻托入；返回：从左侧；淡入：略上浮 */
 .setup-ob__pane[data-dir='forward'] .setup-ob-hero > *,
 .setup-ob__pane[data-dir='forward'] .setup-ob-body > *,
 .setup-ob__pane[data-dir='forward'] .setup-ob-welcome > *:not(.setup-ob-body) {
@@ -600,7 +526,6 @@ html.dark .setup-ob {
   --sob-enter-y: var(--sob-shift-sm);
 }
 
-/* 状态页（读取中 / 已完成）：内容居中，不做滚动 */
 .setup-ob__pane.is-centered {
   display: flex;
   flex-direction: column;
@@ -608,14 +533,8 @@ html.dark .setup-ob {
   overflow: hidden;
 }
 
-/*
- * 欢迎屏：logo + 文案是一个主体，整块在卡里垂直居中、横向靠左。
- * 内容比一屏高时才滚动（justify-content: center 会顶掉溢出方向的可滚区，
- * 所以用 auto margin 顶住上下，而不是 center）。
- */
+/* 用 auto margin 撑开，不要 justify-content:center（会顶掉溢出方向的可滚区）。 */
 .setup-ob__pane.is-welcome {
-  /* 欢迎屏是一张海报，不是表单：只有正文两侧放宽一档，
-     顶栏与右下角的悬浮钮仍锚在卡的原位，各步之间不跳。 */
   --sob-pad-x: clamp(26px, 4.6vw, 54px);
 
   display: flex;
@@ -636,21 +555,16 @@ html.dark .setup-ob {
   margin: 0 0 9px var(--sob-pad-x);
   object-fit: contain;
   filter: drop-shadow(0 18px 30px rgb(15 23 42 / 22%));
-
-  /* 入场后轻浮：rise 播完再接 float，互不抢 transform 终点 */
   animation:
     setup-ob-rise var(--sob-dur-slow) var(--sob-ease-out) backwards,
     setup-ob-logo-float 5.2s var(--sob-ease-glide) var(--sob-dur-slow) infinite;
 }
 
-/* 完成屏：首页欢迎小组件同款招手，比 logo 略收一档，避免 emoji 裁切发糊 */
 .setup-ob-welcome__wave {
   width: clamp(72px, 11vw, 108px);
   height: clamp(72px, 11vw, 108px);
   filter: drop-shadow(0 12px 22px rgb(15 23 42 / 18%));
   transform-origin: 70% 70%;
-
-  /* 先 rise，结束后再招手两下；错开 transform 占用期 */
   animation:
     setup-ob-rise var(--sob-dur-slow) var(--sob-ease-out) backwards,
     setup-ob-wave 2.4s var(--sob-ease-spring) calc(var(--sob-dur-slow) + 40ms) 2
@@ -668,7 +582,6 @@ html.dark .setup-ob {
   }
 }
 
-/* 招手两下再停：完成页的小庆祝 */
 @keyframes setup-ob-wave {
   0%,
   100% {
@@ -696,13 +609,11 @@ html.dark .setup-ob {
   }
 }
 
-/* 主体这一屏的字压得比其它步骤更大，标题才压得住那颗 logo */
 .setup-ob-welcome .setup-ob-hero h1 {
   font-size: clamp(28px, 4vw, 44px);
   letter-spacing: -0.04em;
 }
 
-/* 标题 → 副标题也松一档，字大了就压不住原来那 6px */
 .setup-ob-welcome .setup-ob-hero {
   gap: 10px;
 }
@@ -718,8 +629,6 @@ html.dark .setup-ob {
   padding-top: 26px;
 }
 
-/* ---------- 标题区：标题 → 副标题 → 提示 ---------- */
-
 .setup-ob-hero {
   display: grid;
   gap: 6px;
@@ -727,7 +636,6 @@ html.dark .setup-ob {
   text-align: left;
 }
 
-/* 标题区错落入场：pane 整体已在滑，这里只补极轻上浮，不叠 opacity */
 .setup-ob-hero > * {
   animation: setup-ob-rise var(--sob-dur-base) var(--sob-ease-out) backwards;
 }
@@ -784,14 +692,11 @@ html.dark .setup-ob {
   line-height: 1.6;
 }
 
-/* 操作提示固定在副标题下，不进正文混排 */
 .setup-ob-hero__notes {
   display: grid;
   gap: 8px;
   margin-top: 2px;
 }
-
-/* ---------- 正文 ---------- */
 
 .setup-ob-body {
   display: grid;
@@ -801,10 +706,6 @@ html.dark .setup-ob {
   text-align: left;
 }
 
-/*
- * 正文子块错落：只位移不改 opacity——
- * pane 已在做整层淡入，再叠透明度会发闷、发脏。
- */
 .setup-ob-body > * {
   animation: setup-ob-rise var(--sob-dur-base) var(--sob-ease-out) backwards;
   animation-delay: calc(var(--sob-stagger) * 1.5);
@@ -826,7 +727,6 @@ html.dark .setup-ob {
   animation-delay: calc(var(--sob-stagger) * 4.5);
 }
 
-/* 方向由 pane[data-dir] 注入 --sob-enter-x / --sob-enter-y，默认上浮 */
 @keyframes setup-ob-rise {
   from {
     transform: translate3d(
@@ -841,21 +741,15 @@ html.dark .setup-ob {
   }
 }
 
-/* ---------- 悬浮操作簇：取消底栏，动作贴着卡片右下角浮起 ---------- */
-
 .setup-ob-bar {
   position: absolute;
   z-index: 3;
-
-  /* 悬浮钮锚在卡角，不跟正文的两侧留白走——各步之间它得钉在同一个点上 */
   right: var(--sob-pad);
   bottom: max(16px, calc(var(--sob-pad) - 6px));
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
-
-  /* 比正文晚半拍入场，主动作最后出现 */
   animation: setup-ob-bar-in var(--sob-dur-slow) var(--sob-ease-out)
     calc(var(--sob-stagger) * 2) backwards;
 }
@@ -872,7 +766,6 @@ html.dark .setup-ob {
   }
 }
 
-/* 「下一步」：流体玻璃圆钮——吸色透底 + 镜面边 + 色散环 + 凝胶手感 */
 .setup-ob-bar .setup-ob-cta {
   position: relative;
   width: 58px;
@@ -915,8 +808,6 @@ html.dark .setup-ob {
   color: color-mix(in srgb, var(--sob-accent) 78%, var(--sob-ink));
   isolation: isolate;
   backdrop-filter: blur(12px) saturate(1.85) brightness(1.05);
-
-  /* 呼吸只动 filter，不改 box-shadow（省 paint）也不抢 hover 的 transform */
   animation: setup-ob-fab-breathe 4.6s var(--sob-ease-glide) infinite;
   transition: var(--sob-t-elevate);
 }
@@ -948,7 +839,6 @@ html.dark .setup-ob {
   }
 }
 
-/* 圆钮里文案只留给读屏与 tooltip */
 .setup-ob-bar .setup-ob-cta > span {
   position: absolute;
   width: 1px;
@@ -979,7 +869,6 @@ html.dark .setup-ob {
   animation-play-state: paused;
 }
 
-/* 悬停时箭头往前探一探，指向「下一步」 */
 .setup-ob-bar .setup-ob-cta:hover:not(:disabled) svg {
   transform: translate3d(3px, 0, 0);
 }
@@ -1017,7 +906,6 @@ html.dark .setup-ob-bar .setup-ob-cta {
   color: color-mix(in srgb, var(--sob-accent) 70%, white);
 }
 
-/* 呼吸只走亮度，不动位移 / 阴影，免得和悬停的形变打架、也省 paint */
 @keyframes setup-ob-fab-breathe {
   0%,
   100% {
@@ -1029,7 +917,6 @@ html.dark .setup-ob-bar .setup-ob-cta {
   }
 }
 
-/* 正文里的主按钮仍是药丸（文案可见）；进了 .setup-ob-bar 才收成圆钮 */
 .setup-ob-cta {
   display: inline-flex;
   min-height: 44px;
@@ -1075,10 +962,6 @@ html.dark .setup-ob-bar .setup-ob-cta {
     0 0 0 4px color-mix(in srgb, var(--sob-accent) 26%, transparent);
 }
 
-/*
- * 不可用时收掉彩色光晕、底色换成中性灰，但保留同一层玻璃质感，
- * 一眼看出是按不动，而不是一颗没渲染好的主按钮。
- */
 .setup-ob-cta:disabled {
   background:
     var(--sob-liq-sheen), color-mix(in srgb, var(--sob-ink) 8%, transparent);
@@ -1089,7 +972,6 @@ html.dark .setup-ob-bar .setup-ob-cta {
   animation: none;
 }
 
-/* 悬浮的次要按钮：保留 blur，叠低开销镜面边 */
 .setup-ob-ghost {
   display: inline-flex;
   min-height: 44px;
@@ -1133,8 +1015,6 @@ html.dark .setup-ob-bar .setup-ob-cta {
     transform: rotate(360deg);
   }
 }
-
-/* ---------- 表单字段 ---------- */
 
 .setup-ob-field {
   display: grid;
@@ -1200,7 +1080,6 @@ html.dark .setup-ob-bar .setup-ob-cta {
   font-size: 12.5px;
 }
 
-/* 两列字段：主机 / 端口这类成对信息并排 */
 .setup-ob-grid {
   display: grid;
   gap: 14px;
@@ -1210,8 +1089,6 @@ html.dark .setup-ob-bar .setup-ob-cta {
 .setup-ob-grid > .is-wide {
   grid-column: 1 / -1;
 }
-
-/* ---------- 提示 / 状态 ---------- */
 
 .setup-ob-note {
   display: flex;
@@ -1250,7 +1127,6 @@ html.dark .setup-ob-bar .setup-ob-cta {
   opacity: 0.75;
 }
 
-/* 琥珀 / 翠绿 / 绯红都按 ink 令牌调和，明暗两套主题共用一份 */
 .setup-ob-note.is-warn {
   background: color-mix(in srgb, #f59e0b 12%, transparent);
   color: color-mix(in srgb, #f59e0b 70%, var(--sob-ink));
@@ -1286,9 +1162,6 @@ html.dark .setup-ob-bar .setup-ob-cta {
   color: color-mix(in srgb, var(--sob-ink) 74%, var(--sob-muted));
 }
 
-/* ---------- 欢迎步的四张特性卡 ---------- */
-
-/* 四步对应四张卡，一行四列 */
 .setup-ob-features {
   display: grid;
   gap: 10px;
@@ -1313,8 +1186,6 @@ html.dark .setup-ob-bar .setup-ob-cta {
   line-height: 1.45;
   text-align: center;
   transition: var(--sob-t-elevate);
-
-  /* 逐张弹出，盖过 body 子块的统一 delay */
   animation: setup-ob-feature-in var(--sob-dur-slow) var(--sob-ease-out)
     backwards;
 }
@@ -1365,10 +1236,6 @@ html.dark .setup-ob-bar .setup-ob-cta {
   transition: transform var(--sob-dur-fast) var(--sob-ease-spring);
 }
 
-/*
- * split 变体：右边仍是浮起的主按钮——不动 right，跟其余步骤钉在同一个点；
- * 左边配一句轻提示，起点对齐这一屏更宽的内容留白（--sob-pad-x）。
- */
 .setup-ob-bar.is-split {
   left: var(--sob-pad-x);
   justify-content: space-between;
@@ -1382,8 +1249,6 @@ html.dark .setup-ob-bar .setup-ob-cta {
   line-height: 1.5;
   text-align: left;
 }
-
-/* ---------- 状态页：读取中 / 已完成 ---------- */
 
 .setup-ob-state {
   display: grid;
@@ -1469,8 +1334,6 @@ html.dark .setup-ob-bar .setup-ob-cta {
   color: color-mix(in srgb, #ef4444 76%, var(--sob-ink));
 }
 
-/* ---------- 响应式 ---------- */
-
 @media (width <= 560px) {
   .setup-ob__card {
     height: clamp(460px, 78vh, 680px);
@@ -1497,10 +1360,6 @@ html.dark .setup-ob-bar .setup-ob-cta {
     display: none;
   }
 
-  /*
-   * 四张卡堆成一列后比原来三张多占一整行；窄屏把 logo 与几处纵向间距
-   * 一起收紧，免得最后一条 footnote 被右下角悬浮钮盖住。
-   */
   .setup-ob-welcome {
     gap: 6px;
   }
@@ -1520,8 +1379,6 @@ html.dark .setup-ob-bar .setup-ob-cta {
     gap: 7px;
   }
 }
-
-/* ---------- 降级：令牌归零 + 关掉循环/入场 ---------- */
 
 @media (prefers-reduced-motion: reduce) {
   .setup-ob {
@@ -1565,10 +1422,6 @@ html.dark .setup-ob-bar .setup-ob-cta {
   }
 }
 
-/*
- * exlight：保留「有变化」的信息，去掉循环与位移幅度。
- * 毛玻璃是否关由 performance.css 统一处理，这里只收动效。
- */
 html[data-perf-mode='exlight'] .setup-ob {
   --sob-dur-enter: var(--sob-dur-base);
   --sob-dur-slow: var(--sob-dur-base);

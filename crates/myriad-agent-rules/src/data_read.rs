@@ -92,16 +92,16 @@ mod tests {
 use chrono::{DateTime, Utc};
 use serde_json::json;
 
-/// Weekday label (zh) for a chrono weekday.
+/// Weekday label used in time.info chrome.
 pub fn weekday_zh(weekday: chrono::Weekday) -> &'static str {
     match weekday {
-        chrono::Weekday::Mon => "星期一",
-        chrono::Weekday::Tue => "星期二",
-        chrono::Weekday::Wed => "星期三",
-        chrono::Weekday::Thu => "星期四",
-        chrono::Weekday::Fri => "星期五",
-        chrono::Weekday::Sat => "星期六",
-        chrono::Weekday::Sun => "星期日",
+        chrono::Weekday::Mon => "Monday",
+        chrono::Weekday::Tue => "Tuesday",
+        chrono::Weekday::Wed => "Wednesday",
+        chrono::Weekday::Thu => "Thursday",
+        chrono::Weekday::Fri => "Friday",
+        chrono::Weekday::Sat => "Saturday",
+        chrono::Weekday::Sun => "Sunday",
     }
 }
 
@@ -203,8 +203,8 @@ mod time_tests {
         assert_eq!(out["day"], 31);
         assert_eq!(out["hour"], 20);
         assert_eq!(out["minute"], 30);
-        assert_eq!(out["weekday"], "星期五"); // 2026-07-31 20:30 +08 is Friday
-        assert_eq!(weekday_zh(chrono::Weekday::Fri), "星期五");
+        assert_eq!(out["weekday"], "Friday"); // 2026-07-31 20:30 +08 is Friday
+        assert_eq!(weekday_zh(chrono::Weekday::Fri), "Friday");
         assert_eq!(out["timestamp"], now.timestamp());
         assert!(out["datetime"]
             .as_str()
@@ -260,7 +260,7 @@ pub fn parse_rsshub_radar_rules(content: &str) -> Value {
                     routes.push(json!({
                         "name": format!("{} - {}", name, title),
                         "path": target,
-                        "description": format!("{} 的 {} 订阅", name, title),
+                        "description": format!("{name} / {title} feed"),
                         "domain": domain,
                         "requiresConfig": requires_config
                     }));

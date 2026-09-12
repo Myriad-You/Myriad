@@ -1,10 +1,3 @@
-/**
- * 控制面板小组件自动翻页闸门的单元测试。
- *
- * Run from frontend/:
- *   pnpm test:unit -- src/components/ControlPanel/widgetCarousel.test.ts
- */
-
 import type { WidgetCarouselGate } from './widgetCarousel.ts'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
@@ -13,7 +6,6 @@ import {
   shouldAutoAdvanceWidgets,
 } from './widgetCarousel.ts'
 
-/** 唯一会自动翻页的组合。 */
 const RUNNING: WidgetCarouselGate = {
   isEditMode: false,
   maxPage: 1,

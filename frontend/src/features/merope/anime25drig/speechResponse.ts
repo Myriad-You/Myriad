@@ -6,11 +6,6 @@ const MOUTH_SEAL_ATTACK_RATE = 32
 const MOUTH_SEAL_RELEASE_RATE = 19
 const RESPONSE_EPSILON = 1e-5
 
-/**
- * Present speech targets with a quick opening and a softer return to rest.
- * The exponential step is time-based, so identical target timelines produce
- * the same response at common rendering frame rates.
- */
 export function stepMouthOpen(
   current: number,
   target: number,
@@ -24,7 +19,6 @@ export function stepMouthOpen(
   )
 }
 
-/** Mouth shape changes more slowly than jaw opening to avoid corner twitch. */
 export function stepMouthForm(
   current: number,
   target: number,

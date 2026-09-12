@@ -1,11 +1,8 @@
-/**
- * Updater status hero, progress card, and auto-check prefs.
- */
-
 import type { Job, ReleaseManifest, UpdaterStatus } from '../../../services/updaterApi'
 import type { ChannelKey, Mood, Toast, Tone, U } from './helpers'
 import { LuRefreshCw } from '@lib/icons'
 import React from 'react'
+import { useI18n } from '../../../contexts/I18nContext'
 import {
   FieldSelect,
   SettingsButton,
@@ -68,6 +65,7 @@ export function StatusHero({
     auto_install?: boolean
   }) => Promise<void>
 }) {
+  const { locale } = useI18n()
   const { title: moodTitle, hint, tone: moodTone } = moodText(mood, u)
   const latest = status?.latest_available
   const targetVersion = available?.version ?? latest?.version
@@ -95,7 +93,6 @@ export function StatusHero({
   } else if (relation === 'unknown') {
     freshness = u.updaterFreshnessUnknown
   }
-  // While cache is stale, prefer recheck over acting on cached “update available”.
   const showCheckPrimary =
     mood === 'healthy' ||
     mood === 'firstRun' ||
@@ -115,7 +112,6 @@ export function StatusHero({
     tone = 'warn'
   }
 
-  // direct 模式没填 token 时连不上是意料之中——提示填 token，而不是让用户去查 backend 配置。
   let effectiveHint: string | null =
     mood === 'offline' && tokenRequired ? u.updaterTokenRequiredDirect : hint
   if (stale && mood !== 'offline' && mood !== 'updating') {
@@ -174,7 +170,7 @@ export function StatusHero({
   }
 
   const lastCheckedAbs = status?.last_checked_at
-    ? new Date(status.last_checked_at).toLocaleString()
+    ? new Date(status.last_checked_at).toLocaleString(locale)
     : null
   const checking = busy === 'check' || autoRechecking
 
@@ -304,16 +300,12 @@ export function StatusHero({
   )
 }
 
-// 进度卡
-
 export function ProgressCard({ job, u }: { job: Job; u: U }) {
   const done = job.steps.filter((s) => s.ok === true).length
   const total = Math.max(job.steps.length, done + 1)
   const pct = Math.min(99, Math.round((done / total) * 100))
   const currentStep = job.steps.at(-1)
   const currentPhase = currentStep?.phase ?? job.status
-  // Preflight has no sub-steps; the phase line already shows the status.
-  // Full step history lives on the maintenance page after the site goes offline.
   const showStepLog = currentPhase !== 'preflight' && job.steps.length > 0
   return (
     <div className="updater-progress">
@@ -373,8 +365,6 @@ export function ProgressCard({ job, u }: { job: Job; u: U }) {
   )
 }
 
-// 自动检查频率 + 自动安装
-
 const INTERVAL_OPTIONS: Array<{
   value: number
   labelKey:
@@ -429,7 +419,7 @@ export function AutoUpdatePrefs({
   return (
     <div className="updater-hero-auto">
       <div className="updater-auto-prefs">
-        {/* 频率行用 div：自定义下拉不能包在 label 里，否则会误触 */}
+        {/* frequency row is a div; select inside label would misfire */}
         <div
           id="cfg-g-updater-checkInterval"
           data-guide-path="updater.checkInterval"

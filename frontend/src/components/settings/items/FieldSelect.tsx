@@ -1,13 +1,3 @@
-/**
- * 设置页自定义下拉（替代原生 select option 列表）。
- * 原生 option 弹层由系统绘制，深色模式几乎不可样式化。
- *
- * - 视口空间不足时向上翻转（is-up）
- * - listbox：Arrow / Home / End / Enter / Space / Escape
- * - 字母/数字 typeahead（聚合输入，约 750ms 清空；searchable 时改用搜索框）
- * - searchable：菜单顶部搜索框，按 label/value 过滤
- */
-
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { SettingOption } from '../types'
 import {
@@ -28,15 +18,10 @@ export interface FieldSelectProps<T extends string = string> {
   onChange: (value: T) => void
   disabled?: boolean
   className?: string
-  /** 触发按钮 aria-label；缺省用当前选中项文案 */
   'aria-label'?: string
-  /** 紧凑模式（列表行内使用） */
   size?: 'md' | 'sm'
-  /** 菜单顶部搜索框，过滤选项 */
   searchable?: boolean
-  /** 搜索框 placeholder */
   searchPlaceholder?: string
-  /** 无匹配结果时的文案 */
   emptySearchText?: string
 }
 
@@ -79,8 +64,8 @@ export function FieldSelect<T extends string = string>({
     typeof setTimeout
   > | 0 })
   const autoId = useId()
-  const listboxId = `${(id || autoId).replace(/:/g, '')}-listbox`
-  const searchId = `${(id || autoId).replace(/:/g, '')}-search`
+  const listboxId = `${(id || autoId).replaceAll(':', '')}-listbox`
+  const searchId = `${(id || autoId).replaceAll(':', '')}-search`
   const options = optionsProp ?? []
 
   const selected =
@@ -212,7 +197,6 @@ export function FieldSelect<T extends string = string>({
 
   useEffect(() => {
     if (!open || !searchable) return
-    // Query change may resize menu
     placeMenu()
   }, [query, open, searchable, placeMenu])
 
@@ -319,7 +303,6 @@ export function FieldSelect<T extends string = string>({
           const opt = filteredOptions[enabled[0]]
           if (opt) commit(opt.value, opt.disabled)
         } else if (enabled.length > 0) {
-          // Prefer exact label/value match, else first
           const q = query.trim().toLowerCase()
           const exact = filteredOptions.find(
             (o, i) =>

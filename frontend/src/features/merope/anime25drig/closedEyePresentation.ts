@@ -20,7 +20,6 @@ export class ClosedEyePresentation {
     }
   }
 
-  /** Read the composed expression BEFORE the automatic blink closes its lids. */
   step(
     expression: Pick<Anime25DDriver, 'eyeOpenL' | 'eyeOpenR'>,
     dt: number,

@@ -1,11 +1,4 @@
 import type { MeropeStateEventDetail } from '../features/merope/performanceEvents'
-/**
- * 通知中心 API
- *
- * 对接后端 /api/agent/notifications 系列端点：
- * - SSE 实时流（EventSource，cookie 认证）
- * - 历史列表 / 未读数
- */
 import { API_URL } from '../config'
 import apiService from './api'
 
@@ -53,7 +46,6 @@ export interface TappNotificationRequest {
   notification_type?: 'success' | 'info' | 'warning' | 'error'
 }
 
-/** SSE 流事件均由后端按 user_id 过滤，只发给通知 owner。 */
 export interface LiveSpeechEvent {
   id: string
   body: string
@@ -69,20 +61,22 @@ export type NotificationStreamEvent =
   | { event: 'notification_read'; id: string; user_id: number }
   | { event: 'notification_deleted'; id: string; user_id: number }
   | { event: 'notifications_cleared'; user_id: number }
-  /** 订阅方落后丢消息：应重新 list() 补全 */
   | { event: 'resync'; lagged_by: number }
-  /** On-page persona speech. Not a notification-center item. */
   | { event: 'live_speech'; user_id: number; speech: LiveSpeechEvent }
-  /** Persisted state update, never a notification-center item or a spoken line. */
-  | ({ event: 'merope_state_changed'; user_id: number } & MeropeStateEventDetail)
+  | {
+      event: 'live_speech_motion'
+      user_id: number
+      id: string
+      performance: unknown
+    }
+  | ({
+      event: 'merope_state_changed'
+      user_id: number
+    } & MeropeStateEventDetail)
 
 const BASE = '/agent/notifications'
 
 export interface NotificationSubscribeOptions {
-  /**
-   * EventSource 断线后浏览器自动重连成功时回调（首次 open 不触发）。
-   * 用于 list() 补拉断线窗口内漏掉的通知。
-   */
   onReconnect?: () => void
 }
 
@@ -107,11 +101,7 @@ export const notificationApi = {
     return apiService.post(`${BASE}/clear`)
   },
 
-  /**
-   * 订阅实时通知流。返回关闭函数。
-   * EventSource 断线自动重连；认证走 cookie（withCredentials）。
-   * 重连成功后触发 onReconnect（若提供），便于补拉历史。
-   */
+  /** EventSource: withCredentials. */
   subscribe(
     onEvent: (event: NotificationStreamEvent) => void,
     options?: NotificationSubscribeOptions,
@@ -132,7 +122,6 @@ export const notificationApi = {
     }
 
     source.onerror = () => {
-      // 浏览器会自动重连；标记后 onopen 触发 onReconnect
       wasError = true
     }
 
@@ -142,7 +131,6 @@ export const notificationApi = {
         const event = JSON.parse(msg.data) as NotificationStreamEvent
         onEvent(event)
       } catch {
-        // 忽略无法解析的心跳/保活行
       }
     }
 

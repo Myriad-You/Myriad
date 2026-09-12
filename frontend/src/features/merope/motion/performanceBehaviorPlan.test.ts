@@ -58,7 +58,7 @@ test('compiles only transient functions and monotonic time pegs', () => {
     .map((peg) => peg.atMs)
   assert.deepEqual(
     times,
-    [...times].sort((left, right) => left - right),
+    times.toSorted((left, right) => left - right),
   )
 })
 
@@ -96,7 +96,6 @@ test('recompiling a realized cue does not shrink it', () => {
   const holdMs = Math.round(
     pegAt(first, 'plan-1:cue-greet-0:relax') - pegAt(first, 'plan-1:cue-greet-0:stroke-end'),
   )
-  // Feed the realized hold straight back in: peg spacing must not move.
   const second = compilePerformanceBehaviorPlan(
     { ...directive, plan: { cues: [{ ...cue, holdMs }] } },
     0,
@@ -117,7 +116,6 @@ test('a repeated beat keeps its identity so a refinement can continue it', () =>
     refinement.behaviors.map((behavior) => behavior.id),
     floor.behaviors.map((behavior) => behavior.id),
   )
-  // Same beat, restated: the scheduler must see a retime, not a replacement.
   assert.notEqual(
     pegAt(refinement, 'performance:cue-emphasize-0:start'),
     pegAt(floor, 'performance:cue-emphasize-0:start'),

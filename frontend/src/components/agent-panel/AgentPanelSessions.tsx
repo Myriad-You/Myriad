@@ -1,13 +1,3 @@
-/**
- * 之前聊过的。
- *
- * 不是另一块面板：每段对话自己是一张卡片，和当前对话的气泡同一套语言。
- * 选中之后只发一条事件，真正去取消息的仍然是执行方。
- *
- * 滚动和对话同一套：轨道位移，越界整张化开，不设 overflow。
- * 最近的在下面贴着输入行；往上滑才是更早的，顶上再去取一页。
- */
-
 import type { SessionInfo } from '../../services/agent'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
@@ -167,7 +157,7 @@ export const AgentPanelSessions: React.FC<AgentPanelSessionsProps> = ({
   }
 
   const visible = useMemo(
-    () => (sessions ? [...sessions].reverse() : []),
+    () => (sessions ? sessions.toReversed() : []),
     [sessions],
   )
 

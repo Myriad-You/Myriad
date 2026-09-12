@@ -1,11 +1,4 @@
-/**
- * 磁贴封面。
- *
- * 唯一的硬规则：**没有图就返回 `null`**。调用方看到 null 必须切纯文本布局，
- * 不允许画灰色占位块 —— 占位块只是把「没有内容」画成「有一块脏东西」。
- *
- * 文字永不压在封面上：封面独占一块，文字另占一块。
- */
+/** 没有图返回 null，调用方必须切纯文本，不画灰占位。文字不压封面。 */
 
 import { memo, useEffect, useState } from 'react'
 
@@ -13,20 +6,14 @@ import { WIDGET_RADIUS_NESTED } from '../../widgets/shared/WidgetShell'
 import { getImageUrl } from '../constants'
 
 export interface TileCoverProps {
-  /** 原始 image 字段；内部走 getImageUrl，不要自己拼代理 URL */
+  /** 内部走 getImageUrl，不要自己拼代理 URL。 */
   image: string | null | undefined
-  /** 通栏封面高（px，已缩放）；不传则吃满父容器高度 */
   height?: number
-  /** 方图边长（px，已缩放）。给了就忽略 height，画正方形 */
   square?: number
   className?: string
-  /** 圆角类，默认 nested（8px） */
   radiusClassName?: string
 }
 
-/**
- * 有图渲染 `object-fit: cover` 的一块；无图 / 加载失败 / 软失败占位图 → `null`。
- */
 export const TileCover = memo(
   ({
     image,
@@ -63,7 +50,7 @@ export const TileCover = memo(
           draggable={false}
           className="h-full w-full object-cover"
           onLoad={(e) => {
-            // 图片代理软失败会返回 1×1 透明 PNG（HTTP 200），当作没有图
+            // 软失败 1×1 PNG 当作没有图。
             const img = e.currentTarget
             if (img.naturalWidth <= 1 && img.naturalHeight <= 1) setBroken(true)
           }}
@@ -76,11 +63,7 @@ export const TileCover = memo(
 
 TileCover.displayName = 'TileCover'
 
-/**
- * 主题卡的 2×2 拼贴。
- *
- * 不足 4 张封面就少画几格，**不补灰块**；一张都没有返回 null。
- */
+/** 不足 4 张少画，不补灰块；没有则 null。 */
 export const TileCoverMosaic = memo(
   ({
     images,

@@ -1,6 +1,6 @@
 //! Admin 用户管理 API（设置页「用户管理」模块）。
 //!
-//! 所有路由要求管理员：main.rs 挂 `admin_middleware`，handler 内再复核一次
+//! 所有路由要求管理员：router/base.rs 挂 `admin_middleware`，handler 内再复核一次
 //! `ensure_current_admin_on`（与 auth_local.rs 既有做法一致，防止 wrapper 绕过）。
 //!
 //! - GET    /api/admin/users                              用户列表（含 OAuth identities、tapp 数、在线状态）
@@ -10,10 +10,11 @@
 //! - DELETE /api/admin/users/{id}/identities/{identity_id} 解绑某用户的 OAuth identity
 //! - DELETE /api/admin/users/{id}/tapps/{tapp_id}         卸载某用户的已安装 Tapp
 //!
-//! Privilege model: durable `users.is_owner` (previously heuristic `id = 1`).
+//! Privilege model: durable `users.is_owner`.
 
 use axum::{extract::Path, http::StatusCode, Json};
 use chrono::{DateTime, Utc};
+use myriad_error::AppError;
 use sea_orm::Value as SeaValue;
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, QueryResult, Statement, TransactionTrait,
@@ -34,7 +35,7 @@ fn db_error<E: std::fmt::Display>(context: &'static str) -> impl FnOnce(E) -> Ap
         tracing::error!(%error, context, "admin users store failed");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Failed to {context}") })),
+            Json(AppError::public_json(format!("Failed to {context}"))),
         )
     }
 }
@@ -48,7 +49,7 @@ fn http_to_api(err: crate::error::HttpError) -> ApiError {
 fn not_found() -> ApiError {
     (
         StatusCode::NOT_FOUND,
-        Json(json!({"error": "User not found"})),
+        Json(AppError::public_json("User not found")),
     )
 }
 
@@ -140,7 +141,7 @@ async fn require_admin(
     let claims = authenticate_request(headers, db).await.map_err(|_| {
         (
             StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Unauthorized"})),
+            Json(AppError::public_json("Unauthorized")),
         )
     })?;
     crate::middleware::auth::ensure_current_admin_on(&claims, db).await?;
@@ -369,16 +370,15 @@ pub async fn update_user(
     // is_admin 变更保护：仅站点 owner 可改任何用户的 is_admin
     if req.is_admin.is_some() {
         if let Some(msg) = non_owner_is_admin_change_error(actor_is_owner) {
-            return Err((StatusCode::FORBIDDEN, Json(json!({"error": msg}))));
+            return Err((StatusCode::FORBIDDEN, Json(AppError::public_json(msg))));
         }
         if let Some(msg) = cannot_demote_owner_error(target_is_owner, req.is_admin) {
-            return Err((StatusCode::BAD_REQUEST, Json(json!({"error": msg}))));
+            return Err((StatusCode::BAD_REQUEST, Json(AppError::public_json(msg))));
         }
-        // Owner：不能撤销自己的管理员（owner always stays admin)
         if req.is_admin == Some(false) && target_is_admin && user_id == self_id {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error": "Cannot revoke your own admin role"})),
+                Json(AppError::public_json("Cannot revoke your own admin role")),
             ));
         }
         // 不能降级最后一位管理员
@@ -396,40 +396,52 @@ pub async fn update_user(
             if admin_count <= 1 {
                 return Err((
                     StatusCode::BAD_REQUEST,
-                    Json(json!({"error": "Cannot demote the last administrator"})),
+                    Json(AppError::public_json(
+                        "Cannot demote the last administrator",
+                    )),
                 ));
             }
         }
     }
 
-    // 防锁死：没有任何 OAuth 绑定时，本地登录是唯一登录方式，不允许禁用
-    if req.local_login_disabled == Some(true) {
-        let identity_count = db
-            .query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                format!(
-                    "SELECT COUNT(*) AS n FROM user_identities WHERE user_id = $1 \
-                     AND {}",
-                    crate::services::channel_pairing::SQL_NOT_PAIRING_PROVIDER
-                ),
-                [user_id.into()],
-            ))
+    let login_methods_txn = if req.local_login_disabled.is_some() {
+        let txn = db
+            .begin()
             .await
-            .map_err(db_error("count identities"))?
-            .and_then(|r| r.try_get::<i64>("", "n").ok())
-            .unwrap_or(0);
-        if identity_count == 0 {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(
-                    json!({"error": "Cannot disable local login: user has no linked OAuth identity"}),
-                ),
-            ));
+            .map_err(db_error("begin login-method update"))?;
+        crate::api::oauth::lock_login_methods(&txn, user_id)
+            .await
+            .map_err(db_error("lock login methods"))?;
+        if req.local_login_disabled == Some(true) {
+            let identity_count = txn
+                .query_one_raw(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    format!(
+                        "SELECT COUNT(*) AS n FROM user_identities WHERE user_id = $1 AND {}",
+                        crate::services::channel_pairing::SQL_NOT_PAIRING_PROVIDER
+                    ),
+                    [user_id.into()],
+                ))
+                .await
+                .map_err(db_error("count identities"))?
+                .and_then(|r| r.try_get::<i64>("", "n").ok())
+                .unwrap_or(0);
+            if crate::api::oauth::disable_local_login_blocks(identity_count) {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(AppError::public_json(
+                        "Cannot disable local login: user has no linked OAuth identity",
+                    )),
+                ));
+            }
         }
-    }
+        Some(txn)
+    } else {
+        None
+    };
 
     if let Some(msg) = cannot_restrict_owner_install(target_is_owner, req.tapp_install_disabled) {
-        return Err((StatusCode::BAD_REQUEST, Json(json!({"error": msg}))));
+        return Err((StatusCode::BAD_REQUEST, Json(AppError::public_json(msg))));
     }
 
     let mut sets: Vec<String> = Vec::new();
@@ -466,7 +478,7 @@ pub async fn update_user(
     if sets.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "No fields to update"})),
+            Json(AppError::public_json("No fields to update")),
         ));
     }
 
@@ -476,13 +488,19 @@ pub async fn update_user(
         sets.join(", "),
         params.len()
     );
-    db.execute_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        &sql,
-        params,
-    ))
-    .await
-    .map_err(db_error("update user"))?;
+    let update = Statement::from_sql_and_values(DatabaseBackend::Postgres, &sql, params);
+    if let Some(txn) = login_methods_txn {
+        txn.execute_raw(update)
+            .await
+            .map_err(db_error("update user"))?;
+        txn.commit()
+            .await
+            .map_err(db_error("commit login-method update"))?;
+    } else {
+        db.execute_raw(update)
+            .await
+            .map_err(db_error("update user"))?;
+    }
 
     // Role changes are authorization facts, not merely profile fields.  Drop
     // this process's snapshot and fan out a PostgreSQL invalidation so a
@@ -505,7 +523,7 @@ pub async fn update_user(
         req
     );
 
-    // 返回更新后的完整行，前端直接原位替换；promote/demote 附带 re-login 提示
+    // 返回更新后的完整行；promote 附带 re-login 提示，demote 附带立即生效提示
     let Json(mut body) = get_user(crate::extract::Db(db), Path(user_id), headers).await?;
     if req.is_admin == Some(true) && !target_is_admin {
         body["notice"] = json!(PROMOTE_RELOGIN_NOTICE);
@@ -538,7 +556,15 @@ pub async fn unlink_identity(
 ) -> Result<Json<Value>, ApiError> {
     let claims = require_admin(&headers, &db).await?;
 
-    let info = db
+    let txn = db
+        .begin()
+        .await
+        .map_err(db_error("begin identity unlink"))?;
+    crate::api::oauth::lock_login_methods(&txn, user_id)
+        .await
+        .map_err(db_error("lock login methods"))?;
+
+    let info = txn
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT u.password_hash IS NOT NULL AS has_password, u.local_login_disabled, \
@@ -557,7 +583,7 @@ pub async fn unlink_identity(
     {
         return Err((
             StatusCode::NOT_FOUND,
-            Json(json!({"error": "Identity not found for this user"})),
+            Json(AppError::public_json("Identity not found for this user")),
         ));
     }
     let has_password = info.try_get::<bool>("", "has_password").unwrap_or(false);
@@ -566,20 +592,29 @@ pub async fn unlink_identity(
         .unwrap_or(false);
     let identity_count = info.try_get::<i64>("", "identity_count").unwrap_or(0);
     // 防锁死：这是最后一个 OAuth 绑定，且本地登录不可用（无密码或已禁用）时禁止解绑
-    if identity_count <= 1 && (!has_password || local_login_disabled) {
+    if crate::api::oauth::unlink_blocks_last_signin(
+        has_password,
+        local_login_disabled,
+        identity_count,
+    ) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Cannot unlink the user's only sign-in method"})),
+            Json(AppError::public_json(
+                "Cannot unlink the user's only sign-in method",
+            )),
         ));
     }
 
-    db.execute_raw(Statement::from_sql_and_values(
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "DELETE FROM user_identities WHERE id = $1 AND user_id = $2",
         [identity_id.into(), user_id.into()],
     ))
     .await
     .map_err(db_error("unlink identity"))?;
+    txn.commit()
+        .await
+        .map_err(db_error("commit identity unlink"))?;
 
     tracing::info!(
         "✅ Admin {} unlinked identity {} from user {}",
@@ -664,7 +699,7 @@ async fn cleanup_user_related_data(
 ///
 /// 安全规则：
 /// - 不能删除自己（JWT sub == target id）→ 400
-/// - 不能删除站点 owner → 400/403
+/// - 不能删除站点 owner → 400
 /// - 非 owner 不得删除管理员 → 403
 /// - 不能删除最后一位管理员 → 400
 pub async fn delete_user(
@@ -679,7 +714,7 @@ pub async fn delete_user(
     if user_id == self_id {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Cannot delete your own account"})),
+            Json(AppError::public_json("Cannot delete your own account")),
         ));
     }
 
@@ -702,7 +737,7 @@ pub async fn delete_user(
         } else {
             StatusCode::FORBIDDEN
         };
-        return Err((status, Json(json!({"error": msg}))));
+        return Err((status, Json(AppError::public_json(msg))));
     }
 
     if target_is_admin {
@@ -719,7 +754,9 @@ pub async fn delete_user(
         if admin_count <= 1 {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error": "Cannot delete the last administrator"})),
+                Json(AppError::public_json(
+                    "Cannot delete the last administrator",
+                )),
             ));
         }
     }
@@ -866,7 +903,6 @@ mod tests {
 
     #[test]
     fn is_owner_gates_are_boolean_not_id() {
-        // Regression: gates no longer key off actor_id == 1
         assert!(non_owner_is_admin_change_error(false).is_some());
         assert!(non_owner_is_admin_change_error(true).is_none());
     }

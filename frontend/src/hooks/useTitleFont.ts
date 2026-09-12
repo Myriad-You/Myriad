@@ -1,15 +1,3 @@
-/**
- * 标题字体管理 Hook
- * 按需加载 Astro Fonts API 自托管的标题装饰字体，并管理全局标题字体、大小和颜色设置
- *
- * 性能优化：
- * - 字体懒加载 + 缓存（仅当前/默认字体在 init 时加载；全量预加载仅在选择器打开时）
- * - document.fonts.load 使用各字体实际字重，避免拉错 face
- * - 防抖保存
- * - 全局状态共享避免重复请求
- * - useMemo 缓存计算结果
- */
-
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { API_URL } from '../config'
@@ -21,15 +9,14 @@ import { useThemeMode } from '../utils/themeSubscriber'
 import { showError } from '../utils/toastManager'
 import { userFacingError } from '../utils/userFacingError'
 
-// 类型定义
-
 export interface FontOption {
   id: string
   name: string
   family: string
   cssVariable: string
   cssClass: string
-  /** 实际注册/使用的字重，与 fonts.css .title-font-* 和 astro.config 对齐 */
+
+  /** 实际注册/使用的字重，与 fonts.css / astro.config 对齐。 */
   weight: 400 | 700
 }
 
@@ -48,16 +35,13 @@ interface TitleStyle {
 
 type TitleStyleListener = (style: TitleStyle) => void
 
-// 常量配置
-
-// 颜色选项（基于全局壁纸色变量）
-// 自适应为默认，放在首位便于发现
 export const AVAILABLE_COLORS: readonly ColorOption[] = Object.freeze([
   {
     id: 'adaptive',
     nameKey: 'colorAdaptive',
     value: 'adaptive',
-    // 静态兜底：运行时由 getTitleColorCss / deriveAdaptiveTitleColor 按对比度重算
+
+    // 静态兜底：运行时按对比度重算。
     cssValue: 'var(--color-primary)',
   },
   {
@@ -92,7 +76,6 @@ export const AVAILABLE_COLORS: readonly ColorOption[] = Object.freeze([
   },
 ])
 
-// 字体大小选项
 export const FONT_SIZE_OPTIONS: readonly {
   id: string
   nameKey: string
@@ -104,7 +87,6 @@ export const FONT_SIZE_OPTIONS: readonly {
   { id: 'xxl', nameKey: 'sizeXXLarge', value: 1.4 },
 ])
 
-// 可用字体（weight 与 fonts.css / astro.config 单 face 注册对齐）
 export const AVAILABLE_FONTS: readonly FontOption[] = Object.freeze([
   {
     id: 'qwitcher-grypen',
@@ -188,43 +170,37 @@ export const AVAILABLE_FONTS: readonly FontOption[] = Object.freeze([
   },
 ])
 
-// 创建快速查找 Map
 const fontMap = new Map(AVAILABLE_FONTS.map((f) => [f.id, f]))
 const colorMap = new Map(AVAILABLE_COLORS.map((c) => [c.id, c]))
 const sizeMap = new Map(FONT_SIZE_OPTIONS.map((s) => [s.value, s]))
-
-// 字体加载器
 
 const loadedFonts = new Set<string>()
 const loadingFonts = new Map<string, Promise<void>>()
 
 function loadFont(font: FontOption): Promise<void> {
-  // 已加载
   if (loadedFonts.has(font.id)) {
     return Promise.resolve()
   }
 
-  // 正在加载，返回现有 Promise
+  // 正在加载，返回现有 Promise。
   const existing = loadingFonts.get(font.id)
   if (existing) {
     return existing
   }
 
-  // Astro Fonts API 已在构建时声明 @font-face 并自托管；按实际字重触发下载
-  // 从 CSS 变量读取实际的哈希字体名，用 document.fonts.load() 触发浏览器下载
+  // CSS 变量可能含 fallback 列表；fonts.load 只要第一个字体名。
   const computedValue = getComputedStyle(document.documentElement)
     .getPropertyValue(font.cssVariable)
     .trim()
-  // CSS 变量值可能包含 fallback 列表（如 "Inter-hash, -apple-system, ..."），
-  // document.fonts.load() 仅需第一个字体名
+
   const primaryFamily = computedValue
     ? computedValue
         .split(',')[0]
         .trim()
-        .replace(/^["']|["']$/g, '')
+        .replaceAll(/^["']|["']$/g, '')
     : font.name
 
-  // 带字重加载，确保拉取与 @font-face / hero 使用一致的 face
+  // 带字重加载，确保拉取与 @font-face / hero 使用一致的 face。
   const promise = document.fonts
     .load(`${font.weight} 16px "${primaryFamily}"`)
     .then(() => {
@@ -241,12 +217,10 @@ function loadFont(font: FontOption): Promise<void> {
   return promise
 }
 
-// 全局状态管理
-
 let globalState: TitleStyle = {
   font: 'qwitcher-grypen',
   fontSize: 1.0,
-  // 默认自适应：随主题/壁纸色对比度推导可读标题色
+
   color: 'adaptive',
 }
 
@@ -264,7 +238,6 @@ function updateGlobalState(updates: Partial<TitleStyle>) {
   notifyListeners()
 }
 
-// 防抖保存：合并 500ms 窗口内的多次字段修改，避免后写整包冲掉前写
 let saveTimeout: ReturnType<typeof setTimeout> | null = null
 const SAVE_DEBOUNCE_MS = 500
 let pendingSave: Partial<{
@@ -318,7 +291,6 @@ async function debouncedSave(
   }, SAVE_DEBOUNCE_MS)
 }
 
-// 初始化全局状态
 async function initGlobalState(): Promise<void> {
   if (isGlobalInitialized) return
   if (initPromise) return initPromise
@@ -328,13 +300,12 @@ async function initGlobalState(): Promise<void> {
       const data = await getUIConfigDeduped()
       if (!data) return
 
-      // 批量更新状态
       const updates: Partial<TitleStyle> = {}
 
       if (data.title_font && fontMap.has(data.title_font)) {
         updates.font = data.title_font
         const font = fontMap.get(data.title_font)
-        if (font) loadFont(font) // 异步加载，不阻塞
+        if (font) loadFont(font)
       }
 
       if (data.title_font_size != null) {
@@ -359,35 +330,30 @@ async function initGlobalState(): Promise<void> {
     }
   })()
 
-  // 预加载默认字体
   const defaultFont = AVAILABLE_FONTS[0]
   loadFont(defaultFont)
 
   return initPromise
 }
 
-// Hook
-
 export function useTitleFont() {
   const [state, setState] = useState<TitleStyle>(globalState)
   const [isLoading, setIsLoading] = useState(false)
   const mountedRef = useRef(true)
 
-  // 缓存当前配置
   const currentFont = useMemo(
-    () => fontMap.get(state.font) || AVAILABLE_FONTS[0],
+    () => fontMap.get(state.font) ?? AVAILABLE_FONTS[0],
     [state.font],
   )
   const currentColor = useMemo(
-    () => colorMap.get(state.color) || AVAILABLE_COLORS[0],
+    () => colorMap.get(state.color) ?? AVAILABLE_COLORS[0],
     [state.color],
   )
   const currentFontSizeOption = useMemo(
-    () => sizeMap.get(state.fontSize) || FONT_SIZE_OPTIONS[1],
+    () => sizeMap.get(state.fontSize) ?? FONT_SIZE_OPTIONS[1],
     [state.fontSize],
   )
 
-  // 订阅全局状态
   useEffect(() => {
     mountedRef.current = true
 
@@ -398,7 +364,7 @@ export function useTitleFont() {
     }
 
     listeners.add(listener)
-    initGlobalState() // 触发初始化
+    initGlobalState()
 
     return () => {
       mountedRef.current = false
@@ -406,7 +372,6 @@ export function useTitleFont() {
     }
   }, [])
 
-  // 设置字体
   const setTitleFont = useCallback(
     async (fontId: string, csrfToken?: string) => {
       const font = fontMap.get(fontId)
@@ -428,7 +393,6 @@ export function useTitleFont() {
     [],
   )
 
-  // 设置字体大小
   const setTitleFontSize = useCallback((size: number, csrfToken?: string) => {
     updateGlobalState({ fontSize: size })
     if (csrfToken) {
@@ -436,7 +400,6 @@ export function useTitleFont() {
     }
   }, [])
 
-  // 设置颜色
   const setTitleColor = useCallback((colorId: string, csrfToken?: string) => {
     updateGlobalState({ color: colorId })
     if (csrfToken) {
@@ -444,7 +407,6 @@ export function useTitleFont() {
     }
   }, [])
 
-  // 预加载所有字体
   const preloadAllFonts = useCallback(() => {
     return Promise.all(AVAILABLE_FONTS.map(loadFont))
   }, [])
@@ -467,12 +429,7 @@ export function useTitleFont() {
   }
 }
 
-// 工具函数
-
-/**
- * 解析标题颜色 CSS 值。
- * adaptive：对齐 Tapp 音乐播放器歌词填色 —— 基于 WCAG 对比度在主题背景下推导可读色。
- */
+/** adaptive：按 WCAG 对比度在主题背景下推导可读色。 */
 export function getTitleColorCss(colorId?: string, isDark?: boolean): string {
   const id = colorId || globalState.color
   const color = colorMap.get(id)
@@ -490,22 +447,19 @@ export function getTitleColorCss(colorId?: string, isDark?: boolean): string {
   return color.cssValue
 }
 
-/**
- * 响应式标题色：跟随标题色设置、明暗主题、壁纸主色变化自动重算。
- * 页面 Hero 统一用此 hook，避免各处重复 MutationObserver + adaptive 逻辑。
- */
 export function useResolvedTitleColor(
   colorType: 'primary' | 'accent' = 'primary',
 ): string {
   const { titleColor } = useTitleFont()
   const isDark = useThemeMode()
-  // 壁纸取色变更时触发重算（adaptive 依赖 --color-*）
+
   const primaryColor = usePrimaryColor()
 
   return useMemo(() => {
-    // primaryColor 作为壁纸色指纹：CSS 变量更新时强制重算 adaptive
+    // primaryColor 作壁纸色指纹：CSS 变量更新时强制重算 adaptive。
     void primaryColor
-    // Reports 默认双色：仅当用户未改标题色时，第二标题可用 accent
+
+    // Reports 默认双色：仅当用户未改标题色时，第二标题可用 accent。
     if (titleColor === 'primary' && colorType === 'accent') {
       return 'color-mix(in srgb, var(--color-accent) 70%, transparent)'
     }

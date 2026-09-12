@@ -1,13 +1,3 @@
-/**
- * 性能优化 CSS
- * 为动画、滚动和渲染性能提供关键优化提示
- */
-
-/* ============================================
-   GPU 加速层提示
-   ============================================ */
-
-/* 动画元素默认开启 GPU 加速 */
 [data-animation],
 .animate-fade-in,
 .animate-scale-in {
@@ -16,95 +6,23 @@
   transform: translateZ(0);
 }
 
-/* 拖拽元素：在拖拽期间开启加速 */
 [data-dragging='true'] {
   will-change: transform;
   transform: translateZ(0);
   backface-visibility: hidden;
 }
 
-/* 横向滚动容器 */
-
-/* ============================================
-   Contain 属性优化 - 限制重排/重绘范围
-   ============================================ */
-
-/* 独立组件：不受外部布局影响，不影响外部 */
-
-/* 布局独立：布局计算不扩散到外部 */
-
-/* 绘制独立：绘制不会影响外部 */
-
-/* 内容独立：尺寸由内部决定 */
-
-/* 卡片类组件：推荐使用 layout paint */
 .card,
 .widget,
 [data-card] {
   contain: layout paint;
 }
 
-/* 虚拟列表项：使用 content 避免全局重排 */
-
-/* ============================================
-   content-visibility: auto 优化
-   用于视口外内容的渲染跳过
-   ============================================ */
-
-/* 长列表中的单项 */
-
-/* 资料库网格项 */
-
-/* 大型卡片 */
-
-/* ============================================
-   Transform 优化
-   仅使用 GPU 友好的属性进行动画
-   ============================================ */
-
-/* 避免在这些属性上做动画 - 仅作为提示注释 */
-
-/*
- * 避免动画的属性（会触发 Layout/Paint）:
- * - width, height
- * - top, left, right, bottom
- * - margin, padding
- * - border-width
- * - font-size
- *
- * 推荐动画的属性（仅 Composite）:
- * - transform: translate, scale, rotate
- * - opacity
- * - filter (部分场景)
- */
-
-/* 强制 GPU 层 - 用于需要高性能的元素 */
-
-/* ============================================
-   滚动性能优化
-   ============================================ */
-
-/* 滚动时隐藏复杂元素 */
-
-/* 滚动时简化的元素 */
-
-/* ============================================
-   图片加载优化
-   ============================================ */
-
-/* 异步解码提示 */
 img[loading='lazy'] {
-  /* 提示浏览器异步解码图片 */
   image-rendering: auto;
 }
 
-/* ============================================
-   动画性能保护
-   ============================================ */
-
-/* 当检测到低性能时自动降级 */
 @media (prefers-reduced-motion: reduce) {
-  /* 禁用所有复杂动画 */
   *,
   *::before,
   *::after {
@@ -112,23 +30,21 @@ img[loading='lazy'] {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-
-  /* 禁用昂贵的视觉效果 */
 }
 
 /*
- * 动效降级只认 data-perf-mode（useAnimationLevel）：
+ * Motion downgrade keys off data-perf-mode (useAnimationLevel):
  *
- * - light：只关 Tailwind backdrop-blur 工具类（保留半透明玻璃观感）
- * - exlight：关全部 backdrop-filter，并抬「玻璃/frost」不透明度。
- *   只关 blur、半透明底仍叠壁纸，读起来还是毛玻璃。
- *   令牌（--cfg-frost-* / --surface-*）先改；白名单只兜硬编码底。
+ * - light: drop Tailwind backdrop-blur utilities; keep translucent glass.
+ * - exlight: drop all backdrop-filter and raise glass/frost opacity.
+ *   Blur off with a still-translucent fill still reads as frosted glass.
+ *   Tokens (--cfg-frost-* / --surface-*) first; the whitelist only covers
+ *   hardcoded fills.
  *
- * 作用域必须带 html[data-perf-mode=…] 前缀，standard 不受影响。
- * 不改写壁纸 filter（#bg-container 等）。
+ * Selectors must be prefixed with html[data-perf-mode=…] so standard is
+ * untouched. Do not rewrite wallpaper filters (#bg-container and kin).
  */
 
-/* light + exlight：关掉 Tailwind 毛玻璃工具类 */
 html[data-perf-mode='light'] [class*='backdrop-blur'],
 html[data-perf-mode='exlight'] [class*='backdrop-blur'] {
   /* stylelint-disable-next-line property-no-vendor-prefix -- Safari < 16.4 needs the prefix; dropping it keeps the blur on in low-perf mode. */
@@ -136,15 +52,13 @@ html[data-perf-mode='exlight'] [class*='backdrop-blur'] {
   backdrop-filter: none !important;
 }
 
-/* exlight only（弱硬件低档 / prefers-reduced-motion） */
-
 /*
- * 令牌：清 --surface-filter。
- * theme.css 里 :root[data-surface=liquid|outline] 特异性 (0,2,0) 会压过
- * 单写 html[data-perf-mode=exlight] (0,1,1)，导致变量仍是 blur(...)，
- * 虽有 * { backdrop-filter:none !important } 兜底，但令牌应自洽。
- * 用 !important + 带 data-surface 的选择器压过 surface 主题。
- * 默认玻璃抬 --surface-alpha；liquid/outline 的实底回退在 theme.css。
+ * Clear --surface-filter. :root[data-surface=liquid|outline] in theme.css
+ * is (0,2,0) and beats a bare html[data-perf-mode=exlight] (0,1,1), so the
+ * variable would stay blur(...) even with * { backdrop-filter:none !important }.
+ * !important plus a [data-surface] selector beats the surface theme.
+ * Default glass raises --surface-alpha; liquid/outline solid fallbacks live
+ * in theme.css.
  */
 html[data-perf-mode='exlight'],
 html[data-perf-mode='exlight'][data-surface] {
@@ -172,7 +86,6 @@ html[data-perf-mode='exlight']:not([data-surface]) {
   --surface-alpha: 96%;
 }
 
-/* 全局关 backdrop（含 .glass / 组件 CSS / 内联 / WebKit 前缀） */
 html[data-perf-mode='exlight'],
 html[data-perf-mode='exlight'] *,
 html[data-perf-mode='exlight'] *::before,
@@ -184,9 +97,9 @@ html[data-perf-mode='exlight'] ::backdrop {
 }
 
 /*
- * 默认玻璃表面（无 data-surface）：.glass / .glass-surface 走令牌背景时
- * 抬不透明度即可。不用 background:!important，以免压掉带渐变的特殊卡。
- * solid / flat 保持各自底色；liquid / outline 的实底回退在 theme.css。
+ * Default glass (no data-surface): raise opacity on token backgrounds.
+ * Do not use background:!important — that would clobber gradient cards.
+ * solid / flat keep their own fills; liquid / outline fallbacks are in theme.css.
  */
 html[data-perf-mode='exlight']:not([data-surface])
   .glass,
@@ -198,8 +111,8 @@ html[data-perf-mode='exlight']:not([data-surface])
 }
 
 /*
- * 硬编码半透明底的浮动 chrome（导航岛 / 控制岛 / 页脚）不读 --surface-alpha。
- * 仅默认玻璃表面时抬不透明；用户切了表面主题时跟随主题令牌（见 theme.css）。
+ * Floating chrome with hardcoded translucent fills does not read --surface-alpha.
+ * Raise opacity only on default glass; a chosen surface theme follows theme.css.
  */
 html[data-perf-mode='exlight']:not([data-surface])
   .dynamic-island,
@@ -231,7 +144,7 @@ html.dark[data-perf-mode='exlight']:not(
   background: rgb(26 26 26 / 96%) !important;
 }
 
-/* 装饰性光晕：exlight 不画（GlowBackground 组件也会 return null） */
+/* Decorative glow: CSS hide; GlowBackground also returns null. */
 html[data-perf-mode='exlight'] .glow-orb,
 html[data-perf-mode='exlight'] .music-play-btn::before,
 html[data-perf-mode='exlight'] .agent-panel-aurora {
@@ -243,8 +156,8 @@ html[data-perf-mode='exlight'] .animate-pulse {
 }
 
 /*
- * 装饰性无限循环：exlight 可以没有 prefers-reduced-motion
- * （弱硬件 + 用户选低档），那些 @media reduce 规则覆盖不到。
+ * Decorative infinite loops: exlight can be set without prefers-reduced-motion
+ * (weak hardware + user chose the low tier), so @media reduce does not cover them.
  */
 html[data-perf-mode='exlight'] .dynamic-island::before,
 html[data-perf-mode='exlight'] .secondary-island::before {
@@ -277,12 +190,11 @@ html[data-perf-mode='exlight'] .playground-text-shimmer {
 }
 
 /*
- * 硬编码 CSS 玻璃面板（有 backdrop-filter:blur 的命名类）。
- * blur 已被全局关掉；这里只抬「亮色半透明面板」不透明度。
- * 浮层若把 --cfg-frost-bg 再和 transparent 混一次（88%/90%），
- * 令牌抬到 96% 后实际仍约 84%，必须进白名单直接盖实底。
- * 全屏 scrim 不抬实心，只保留无 blur。
- * 仅 exlight。
+ * Named CSS glass panels (backdrop-filter:blur). Blur is already globally off;
+ * raise light translucent fills only. Overlays that mix --cfg-frost-bg with
+ * transparent again (88%/90%) still land ~84% after the token is 96%, so they
+ * must be whitelisted to an opaque fill. Full-screen scrims stay unblurred,
+ * not solid. exlight only.
  */
 html[data-perf-mode='exlight'] .music-volume-popup,
 html[data-perf-mode='exlight'] .config-sidebar,
@@ -348,7 +260,7 @@ html.dark[data-perf-mode='exlight'] .uninstall-tip {
   background: rgb(26 26 26 / 96%) !important;
 }
 
-/* 这两处本就是近黑面板，不能吃上面的浅色白名单 */
+/* Near-black panels must not take the light whitelist. */
 html[data-perf-mode='exlight'] [data-perf-monitor].pm-root {
   background: rgb(0 0 0 / 96%) !important;
 }
@@ -357,7 +269,7 @@ html[data-perf-mode='exlight'] .playground-diff-side-head {
   background: rgb(13 15 20 / 96%) !important;
 }
 
-/* 页脚 tooltip 本色近黑 + 浅字，不能吃浅色白名单 */
+/* Footer tooltip is near-black with light type; skip the light whitelist. */
 html[data-perf-mode='exlight'] .tooltip-content {
   background: rgb(23 23 23 / 96%) !important;
 }
@@ -366,7 +278,7 @@ html.dark[data-perf-mode='exlight'] .tooltip-content {
   background: rgb(10 10 10 / 96%) !important;
 }
 
-/* 音乐条：保留主题色，不透明混色 */
+/* Music bar: keep theme color, opaque mix. */
 html[data-perf-mode='exlight'] .music-player-container {
   background: linear-gradient(
     135deg,
@@ -383,7 +295,7 @@ html.dark[data-perf-mode='exlight'] .music-player-container {
   ) !important;
 }
 
-/* glass-* 档：连 --surface-bg 一起重声明，压过 theme.css 已烘焙的档位底 */
+/* glass-* tiers: redeclare --surface-bg so it beats theme.css baked fills. */
 html[data-perf-mode='exlight']:not([data-surface]) .glass-30,
 html[data-perf-mode='exlight']:not([data-surface]) .glass-45,
 html[data-perf-mode='exlight']:not([data-surface]) .glass-60,
@@ -395,39 +307,19 @@ html[data-perf-mode='exlight']:not([data-surface]) .glass-95 {
   --surface-bg: rgb(var(--surface-rgb) / 96%);
 }
 
-/* glass-solid 保持 100%，压过同元素上 .glass-surface 的 96% */
+/* glass-solid stays 100%, beating .glass-surface 96% on the same element. */
 html[data-perf-mode='exlight']:not([data-surface]) .glass-solid {
   --surface-alpha: 100%;
   --surface-bg: rgb(var(--surface-rgb) / 100%);
 }
 
-/* ============================================
-   帧率保护
-   在动画期间减少复杂渲染
-   ============================================ */
-
-/* 动画期间的优化 */
 .animating {
-  /* 提示浏览器即将发生变化 */
   will-change: transform, opacity;
-
-  /* 简化渲染 */
   text-rendering: optimizespeed;
   image-rendering: auto;
 }
 
-/* 长动画完成后清理 */
-
-/* ============================================
-   Dark Mode 性能优化
-   ============================================ */
-
-/* ============================================
-   打印优化
-   ============================================ */
-
 @media print {
-  /* 打印时禁用所有动画和过渡 */
   *,
   *::before,
   *::after {
@@ -435,7 +327,6 @@ html[data-perf-mode='exlight']:not([data-surface]) .glass-solid {
     transition: none !important;
   }
 
-  /* 移除阴影和模糊 */
   * {
     box-shadow: none !important;
     backdrop-filter: none !important;
@@ -443,40 +334,18 @@ html[data-perf-mode='exlight']:not([data-surface]) .glass-solid {
   }
 }
 
-/* ============================================
-   常用样式工具类（避免内联 style）
-   ============================================ */
-
-/* Georgia 字体（用于引用等装饰性文字） */
 .font-georgia {
   font-family: Georgia, serif;
 }
 
-/* 热力图单元格优化 */
-
-/* 弹幕动画项 */
-
-/* 小组件卡片容器 */
 .widget-card {
   contain: content;
 }
 
-/* ============================================
-   报告页专用样式
-   ============================================ */
-
-/* 对角分割背景裁剪 */
 .clip-diagonal {
   clip-path: polygon(0 0, 70% 0, 45% 100%, 0 100%);
 }
 
-/* 大标题装饰文字位置 */
-
-/* 主题色透明混合文字 */
-
-/* 强调色透明混合文字 */
-
-/* 弹幕文字颜色 */
 .danmaku-text-color {
   color: #b3e5ff;
 }

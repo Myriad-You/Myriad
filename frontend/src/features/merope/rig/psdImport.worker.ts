@@ -42,7 +42,6 @@ globalThis.onmessage = async (event: MessageEvent<RigPsdImportRequest>) => {
       sourceGenerationFingerprint,
       sourceReference,
     )
-    // Intermediate pixels remain worker-owned; only final manifest/PNGs cross back.
     reply({ prepared })
   } catch (error) {
     reply({
@@ -51,7 +50,6 @@ globalThis.onmessage = async (event: MessageEvent<RigPsdImportRequest>) => {
   }
 }
 
-/** Same centered square transform as See-through and the former page importer. */
 async function alignSourceMaster(
   url: string,
   width: number,

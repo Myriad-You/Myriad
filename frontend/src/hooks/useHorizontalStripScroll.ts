@@ -1,14 +1,3 @@
-/**
- * Horizontal strip scroll: mouse wheel (vertical → horizontal) + pointer drag.
- *
- * Native overflow-x only handles trackpad / shift+wheel / touch. Desktop mouse
- * users need explicit mapping and drag-to-scroll for a usable carousel.
- *
- * Important: do **not** `setPointerCapture` on pointerdown. Capturing the strip
- * retargets the subsequent click to the strip, so child card `onClick` (e.g.
- * report stage mode) never fires. Capture only after the drag threshold.
- */
-
 import type {
   CSSProperties,
   MouseEvent as ReactMouseEvent,
@@ -28,13 +17,12 @@ export interface HorizontalStripScrollBind {
   onPointerUp: (e: ReactPointerEvent<HTMLDivElement>) => void
   onPointerCancel: (e: ReactPointerEvent<HTMLDivElement>) => void
   onClickCapture: (e: ReactMouseEvent<HTMLDivElement>) => void
-  /** Append to the strip className (cursor + optional snap suppress). */
   className: string
-  /** Merge into the strip style while dragging (disables snap). */
   style: CSSProperties | undefined
   isDragging: boolean
 }
 
+/** 原生 overflow-x 不管普通鼠标滚轮；桌面需要把纵向滚轮映射成横向，并支持拖拽。 */
 export function useHorizontalStripScroll(): HorizontalStripScrollBind {
   const ref = useRef<HTMLDivElement | null>(null)
   const [isDragging, setIsDragging] = useState(false)
@@ -45,12 +33,12 @@ export function useHorizontalStripScroll(): HorizontalStripScrollBind {
     startScrollLeft: 0,
     moved: false,
     active: false,
-    /** True once setPointerCapture succeeded for this gesture. */
+
     captured: false,
   })
-  /** After a drag, suppress the synthetic click that would open a card. */
+
   const suppressClickRef = useRef(false)
-  /** Window listeners while a gesture is active but not yet captured. */
+
   const winListenersRef = useRef<(() => void) | null>(null)
 
   const removeWinListeners = useCallback(() => {
@@ -91,7 +79,6 @@ export function useHorizontalStripScroll(): HorizontalStripScrollBind {
     [removeWinListeners],
   )
 
-  // Unmount: drop window listeners / drag state
   useEffect(() => () => removeWinListeners(), [removeWinListeners])
 
   const applyDragScroll = useCallback((clientX: number) => {
@@ -104,8 +91,9 @@ export function useHorizontalStripScroll(): HorizontalStripScrollBind {
       if (Math.abs(dx) < DRAG_THRESHOLD_PX) return
       state.moved = true
       setIsDragging(true)
-      // Capture only after threshold so a plain click still targets the card.
+
       try {
+        // Capture only after threshold so a plain click still targets the card.
         el.setPointerCapture(state.pointerId)
         state.captured = true
         removeWinListeners()
@@ -122,8 +110,7 @@ export function useHorizontalStripScroll(): HorizontalStripScrollBind {
   }, [removeWinListeners])
 
   const onWheel = useCallback((e: ReactWheelEvent<HTMLDivElement>) => {
-    // Same rule as WidgetGrid: only pure vertical wheel; leave trackpad
-    // horizontal (deltaX) to the browser so inertia does not fight us.
+    // 只映射纯纵向滚轮；横向 deltaX 留给浏览器，以免和惯性对打。
     if (e.deltaX !== 0 || e.deltaY === 0) return
     const el = e.currentTarget
     const maxScrollLeft = el.scrollWidth - el.clientWidth
@@ -137,9 +124,9 @@ export function useHorizontalStripScroll(): HorizontalStripScrollBind {
 
   const onPointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
-      // Mouse primary button only; touch/pen keep native pan via touch-action.
+      // 只主键拖；touch/pen 靠 touch-action 走原生平移。
       if (e.pointerType !== 'mouse' || e.button !== 0) return
-      // Interactive controls inside the strip should not start a drag.
+
       const target = e.target as HTMLElement | null
       if (
         target?.closest('button, a, input, textarea, select, [role="button"]')
@@ -152,7 +139,6 @@ export function useHorizontalStripScroll(): HorizontalStripScrollBind {
       const maxScrollLeft = el.scrollWidth - el.clientWidth
       if (maxScrollLeft <= 0) return
 
-      // End any prior incomplete gesture
       removeWinListeners()
 
       dragRef.current = {
@@ -164,9 +150,8 @@ export function useHorizontalStripScroll(): HorizontalStripScrollBind {
         captured: false,
       }
 
-      // Before capture, track pointer on window so drag still works if the
-      // cursor leaves the strip; also ensures pointerup always ends the gesture.
       const pointerId = e.pointerId
+      // 捕获前在 window 跟指针，离开条带也能拖完，并保证 pointerup 一定结束手势。
       const onWinMove = (ev: PointerEvent) => {
         if (ev.pointerId !== pointerId) return
         if (ev.cancelable) ev.preventDefault()
@@ -217,6 +202,7 @@ export function useHorizontalStripScroll(): HorizontalStripScrollBind {
 
   const onClickCapture = useCallback((e: ReactMouseEvent<HTMLDivElement>) => {
     if (!suppressClickRef.current) return
+    // After a drag, suppress the synthetic click that would open a card.
     suppressClickRef.current = false
     e.preventDefault()
     e.stopPropagation()

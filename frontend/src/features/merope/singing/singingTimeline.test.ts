@@ -37,7 +37,7 @@ test('compiles verbatim tokens onto their absolute clock', async () => {
   })
   assert.ok(cues.length > 0)
   assert.equal(cues[0].start, 0.5)
-  assert.ok(cues[cues.length - 1].end <= 0.9 + 1e-9)
+  assert.ok(cues.at(-1)!.end <= 0.9 + 1e-9)
   assert.ok(
     cues.some((cue) => cue.viseme === 'closed' || cue.viseme === 'open'),
   )

@@ -39,8 +39,6 @@ test('a performance behavior realizes as a unit, not back into a cue', () => {
   const unit = realized.units[0]!
   assert.equal(unit.family, 'performance')
   assert.equal(unit.form, 'emphasize')
-  // The unit keeps the pegs the scheduler resolved. Nothing repacks them into
-  // a cue's three durations, so nothing has to guess them back out.
   const behavior = plan.behaviors[0]!
   const at = (id: string): number =>
     plan.pegs.find((peg) => peg.id === id)!.atMs
@@ -143,7 +141,6 @@ test('a scheduled cue carries the resolved hold span instead of a tempo guess', 
     interrupt: 'replace',
   }
   const { holdMs: _dropped, ...unscheduled } = scheduled
-  // 0.72 / 1.6 = 0.45s is what the heuristic would have produced.
   assert.equal(cueVisualEnvelope(scheduled).hold, 0.9)
   assert.equal(
     Math.round(cueVisualEnvelope(unscheduled).hold * 100) / 100,
@@ -168,10 +165,7 @@ test('a behavior interrupted mid-stroke still realizes as a retreating unit', ()
   assert.equal(scheduler.snapshots(midStroke)[0]?.phase, 'committed')
   scheduler.interrupt(behaviorId, midStroke)
 
-  // The retreat only exists if the adapter can still read the timing. A
-  // `strokeEnd` stranded past its own `relax` is refused as invalid, and the
-  // behavior vanishes on the interrupting frame rather than putting itself
-  // away over the recovery the scheduler just granted.
+  // The retreat only exists if the adapter can still read the timing.
   const snapshot = scheduler.snapshots(midStroke)[0]!
   const retreating: BehaviorPlan = {
     ...plan,
@@ -204,9 +198,6 @@ test('motion style survives all the way to the pose response, not just to size',
     const realized = realizeAnime25DBehaviorPlan(merged, 1_000)
     return poseResponseScale(realized.units[0]!.quality)
   }
-  // `restrained` and `open` used to reach the same pose at the same speed:
-  // the merge boundary scaled eight quality dimensions and the last filter,
-  // the one that decides how one pose becomes the next, ignored all of them.
   assert.ok(scaleFor('open') > scaleFor('even'))
   assert.ok(scaleFor('even') > scaleFor('restrained'))
 })

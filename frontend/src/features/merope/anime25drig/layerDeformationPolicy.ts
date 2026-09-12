@@ -44,7 +44,6 @@ export type Anime25DLayerDeformationExtension =
   | 'elliptic-torso-shell'
   | 'rigid-surface-attachment'
 
-/** Mirrors the explicit local-deformation branches owned by Anime25DPlayer. */
 export function resolveAnime25DLayerDeformationPolicy(input: {
   baseRole: string
   fade: Anime25DFade | null

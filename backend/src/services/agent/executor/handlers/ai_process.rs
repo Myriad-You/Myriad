@@ -27,7 +27,7 @@ fn ai_step_failed(label: &str, error: impl std::fmt::Display) -> String {
     classify_outbound_fetch(label, &detail)
 }
 
-/// 注入执行上下文到 AI 参数：角色身份 + 对话历史
+/// 注入执行上下文到 AI 参数：角色身份、记忆、对话历史
 fn inject_role_identity(
     capability_id: &str,
     params: &HashMap<String, Value>,
@@ -58,7 +58,7 @@ fn inject_role_identity(
         }
     }
 
-    // 2. 注入记忆上下文（对话/分析/推荐类能力，帮助 AI 基于用户历史偏好生成回复）
+    // 2. 注入记忆上下文（`capability_needs_memory`）
     if capability_needs_memory(capability_id) {
         if let Some(ref mem_ctx) = exec_ctx.memory_context {
             let existing = params
@@ -72,7 +72,7 @@ fn inject_role_identity(
         }
     }
 
-    // 3. 注入对话历史（仅对话/分析类能力需要，纯处理类不注入）
+    // 3. 注入对话历史（`capability_needs_conversation_context`，params 已有 `context` 则跳过）
     if capability_needs_conversation_context(capability_id) && !params.contains_key("context") {
         if let Some(ref history) = exec_ctx.conversation_context {
             if !history.is_empty() {
@@ -102,14 +102,14 @@ pub async fn execute(
     params: &HashMap<String, Value>,
     ctx: &HandlerContext<'_>,
 ) -> Result<Value, String> {
-    // speech.tts 走腾讯云语音服务，不依赖 AI analyzer
+    // speech.tts 走独立 TTS（OpenAI / Gemini / MiniMax / 腾讯），不依赖 AI analyzer
     if capability_id == "speech.tts" {
         return execute_speech_tts(params).await;
     }
 
     let analyzer = ctx.ai_analyzer.ok_or("AI analyzer not configured")?;
 
-    // 注入角色身份上下文到 systemPrompt（如果 Orchestrator 提供了角色 identity）
+    // 注入角色身份 / 记忆 / 对话到 params
     let mut params = inject_role_identity(capability_id, params, ctx);
 
     // 从 __directive (Planner 主 Agent 的具体指令) 和 __user_request 提取上下文
@@ -178,18 +178,21 @@ async fn execute_ai_summarize(
 
     let (style_instruction, format_guide) = match style {
         "detailed" => (
-            "详细总结",
-            "请提供完整的结构化总结，包含主要观点、关键论据和结论。使用清晰的段落结构。",
+            "a detailed summary",
+            "Write a structured summary with main points, key arguments, and a conclusion. Use clear paragraphs.",
         ),
         "bullet" => (
-            "要点式总结",
-            "请以要点列表形式返回，每个要点一行（使用 - 开头），提取 5-10 个最重要的要点。",
+            "a bullet summary",
+            "Return a bullet list, one point per line (start with -). Extract the 5–10 most important points.",
         ),
-        _ => ("简要总结", "请用 2-3 句话概括核心内容，抓住最关键的信息。"),
+        _ => (
+            "a brief summary",
+            "Summarize the core in 2–3 sentences. Keep only the most important information.",
+        ),
     };
 
     let length_hint = match max_length {
-        Some(n) => format!("总结长度不超过 {} 字。", n),
+        Some(n) => format!("Keep the summary under {n} characters."),
         None => String::new(),
     };
 
@@ -206,18 +209,18 @@ async fn execute_ai_summarize(
         .map(str::trim)
         .filter(|s| !s.is_empty());
     let focus_hint = focus
-        .map(|f| format!("额外关注点：{}\n", f))
+        .map(|f| format!("Also focus on: {}\n", f))
         .unwrap_or_default();
 
     let prompt = with_system_guidance(
         params,
         format!(
-            "你是一个专业的内容分析师。请对以下内容进行{}。\n\n\
+            "You are a professional content analyst. Produce {} of the following.\n\n\
             {}\n\
             {}\n\
             {}\n\
-            请使用与原文相同的语言回复。\n\n\
-            内容：\n{}",
+            Reply in the same language as the source.\n\n\
+            Content:\n{}",
             style_instruction, format_guide, length_hint, focus_hint, truncated_input
         ),
     );
@@ -244,10 +247,10 @@ async fn execute_ai_analyze(
         .unwrap_or("general");
     let instruction = params.get("instruction").and_then(|v| v.as_str());
 
-    // 智能提取输入数据的文本内容，避免把原始 JSON 数组丢给 AI
+    // 提取输入文本；非对象会落到 pretty JSON
     let input_text = extract_semantic_text(&input);
     let truncated_input: String = input_text.chars().take(USER_TEXT_MAX_CHARS).collect();
-    // 同 `execute_summarize`：`data` 是上游输出，来源不可信。
+    // `data` 是上游输出，来源不可信（summarize 用 `input` 标签）。
     let truncated_input = untrusted_block("data", &truncated_input);
 
     // 当 Planner 提供了具体 instruction 时，instruction 是主要驱动指令，
@@ -258,51 +261,51 @@ async fn execute_ai_analyze(
         if let Some(inst) = instruction {
             let safe_inst: String = sanitize_prompt_input(inst);
             format!(
-                "请根据以下指示处理数据，直接回复用户需要的内容。\n\n\
-                指示：{}\n\n\
-                数据：\n{}",
+                "Follow the instruction below and answer with what the user needs.\n\n\
+                Instruction: {}\n\n\
+                Data:\n{}",
                 safe_inst, truncated_input
             )
         } else {
             match analysis_type {
                 "trend" => format!(
-                    "你是一个数据分析专家。请分析以下数据中的趋势和模式。\n\n\
-                    要求：\n\
-                    1. 识别数据中的增长/下降趋势\n\
-                    2. 指出异常值或转折点\n\
-                    3. 提供可能的原因解释\n\
-                    4. 给出趋势预测\n\n\
-                    数据：\n{}",
+                    "You are a data analyst. Find trends and patterns in the data below.\n\n\
+                    Requirements:\n\
+                    1. Identify rising/falling trends\n\
+                    2. Call out outliers or turning points\n\
+                    3. Suggest possible causes\n\
+                    4. Offer a short forecast\n\n\
+                    Data:\n{}",
                     truncated_input
                 ),
                 "sentiment" => format!(
-                    "你是一个情感分析专家。请分析以下内容的情感倾向。\n\n\
-                    要求：\n\
-                    1. 判断整体情感（正面/中性/负面）及置信度\n\
-                    2. 识别关键情感词汇和表达\n\
-                    3. 如果有多个主题，分别分析每个主题的情感\n\
-                    4. 总结情感分布\n\n\
-                    内容：\n{}",
+                    "You are a sentiment analyst. Judge the tone of the text below.\n\n\
+                    Requirements:\n\
+                    1. Overall sentiment (positive/neutral/negative) and confidence\n\
+                    2. Key sentiment words and phrases\n\
+                    3. If there are several topics, score each\n\
+                    4. Summarize the sentiment mix\n\n\
+                    Content:\n{}",
                     truncated_input
                 ),
                 "compare" => format!(
-                    "你是一个数据比较分析专家。请对以下数据进行对比分析。\n\n\
-                    要求：\n\
-                    1. 列出各项数据的关键维度\n\
-                    2. 逐维度对比异同\n\
-                    3. 总结主要差异和共同点\n\
-                    4. 给出比较结论和建议\n\n\
-                    数据：\n{}",
+                    "You are a comparison analyst. Compare the data below.\n\n\
+                    Requirements:\n\
+                    1. List key dimensions for each item\n\
+                    2. Compare sameness and difference per dimension\n\
+                    3. Summarize the main gaps and overlaps\n\
+                    4. Give a conclusion and advice\n\n\
+                    Data:\n{}",
                     truncated_input
                 ),
                 _ => format!(
-                    "你是一个数据分析专家。请深入分析以下数据并提供洞察。\n\n\
-                    要求：\n\
-                    1. 概括数据的整体特征\n\
-                    2. 提取 3-5 个关键发现\n\
-                    3. 指出值得注意的亮点或问题\n\
-                    4. 给出可行的建议\n\n\
-                    数据：\n{}",
+                    "You are a data analyst. Analyze the data below and give insights.\n\n\
+                    Requirements:\n\
+                    1. Overall shape of the data\n\
+                    2. 3–5 key findings\n\
+                    3. Highlights or problems worth noticing\n\
+                    4. Actionable advice\n\n\
+                    Data:\n{}",
                     truncated_input
                 ),
             }
@@ -333,7 +336,7 @@ async fn execute_ai_recommend(
 
     let prefs_str = if preferences != json!({}) {
         format!(
-            "\n用户偏好：\n{}",
+            "\nUser preferences:\n{}",
             serde_json::to_string_pretty(&preferences).unwrap_or_default()
         )
     } else {
@@ -343,14 +346,14 @@ async fn execute_ai_recommend(
     let prompt = with_system_guidance(
         params,
         format!(
-            "你是一个个性化推荐专家。基于以下用户数据，推荐 {} 个用户可能感兴趣的内容。\n\n\
-            要求：\n\
-            1. 每条推荐包含名称和推荐理由\n\
-            2. 推荐应多样化，覆盖用户的不同兴趣点\n\
-            3. 优先推荐与用户已有偏好相关但可能尚未发现的内容\n\
-            4. 请直接返回 JSON 数组格式：[{{\"name\": \"...\", \"reason\": \"...\"}}]\n\
+            "You are a recommendation specialist. Based on the user data below, recommend {} items they may like.\n\n\
+            Requirements:\n\
+            1. Each item has a name and a reason\n\
+            2. Diversify across their interests\n\
+            3. Prefer related items they may not have found yet\n\
+            4. Return a JSON array only: [{{\"name\": \"...\", \"reason\": \"...\"}}]\n\
             {}\n\n\
-            用户数据：\n{}",
+            User data:\n{}",
             count, prefs_str, truncated_context
         ),
     );
@@ -389,11 +392,11 @@ async fn execute_ai_chat(
     let system_prompt = params
         .get("systemPrompt")
         .and_then(|v| v.as_str())
-        .unwrap_or("你是 Agent，Myriad 平台的 AI 助手。你友好、博学，擅长帮助用户处理各种问题。回复时保持简洁和有用。");
+        .unwrap_or("You are Agent, Myriad's AI assistant. Be concise and useful.");
 
     let context = params.get("context").and_then(|v| v.as_array());
 
-    let mut full_prompt = format!("系统提示：{}\n\n", system_prompt);
+    let mut full_prompt = format!("System prompt: {}\n\n", system_prompt);
 
     if let Some(history) = context {
         // 限制对话历史条数，防止 token 超限和费用滥用
@@ -414,7 +417,7 @@ async fn execute_ai_chat(
         }
     }
 
-    full_prompt.push_str(&format!("用户：{}\n\n请回复：", message));
+    full_prompt.push_str(&format!("User: {}\n\nReply:", message));
 
     let result = analyzer.analyze(&full_prompt).await.map_err(|e| {
         tracing::error!(error = %e, "AI chat failed");
@@ -454,20 +457,20 @@ async fn execute_brewlia_annotate(
         .content
         .as_deref()
         .unwrap_or_else(|| item.summary.as_deref().unwrap_or(""));
-    // 截断过长文章，保留核心内容
+    // 按字符上限截断文章前缀
     let truncated_content: String = content.chars().take(USER_TEXT_MAX_CHARS).collect();
 
     let prompt = format!(
-        "你是一个专业的阅读理解助手。请为以下文章生成详细的阅读注释。\n\n\
-        文章标题：{}\n\
-        文章内容：\n{}\n\n\
-        请生成以下类型的注释：\n\
-        1. 关键术语解释 — 文章中的专业术语、缩写、技术概念等\n\
-        2. 背景知识补充 — 帮助读者理解的相关背景信息\n\
-        3. 延伸阅读建议 — 相关主题和概念\n\n\
-        请以 JSON 数组格式返回，每个元素包含：\n\
-        {{\"type\": \"term|background|extension\", \"term\": \"关键词\", \"explanation\": \"解释内容\"}}\n\n\
-        请直接返回 JSON 数组，不要包含 markdown 标记。",
+        "You are a reading-comprehension assistant. Write detailed annotations for the article below.\n\n\
+        Title: {}\n\
+        Content:\n{}\n\n\
+        Produce these kinds of notes:\n\
+        1. Term — jargon, abbreviations, technical concepts\n\
+        2. Background — context the reader needs\n\
+        3. Extension — related topics\n\n\
+        Write explanations in the same language as the article.\n\
+        Return a JSON array only, no markdown. Each item:\n\
+        {{\"type\": \"term|background|extension\", \"term\": \"keyword\", \"explanation\": \"explanation\"}}",
         title, truncated_content
     );
 
@@ -481,7 +484,7 @@ async fn execute_brewlia_annotate(
         if arr.is_empty() {
             json!([{
                 "type": "note",
-                "term": "AI 生成注释",
+                "term": "AI annotation",
                 "explanation": result
             }])
         } else {
@@ -527,28 +530,29 @@ async fn execute_brewlia_podcast(
         .as_deref()
         .unwrap_or_else(|| item.summary.as_deref().unwrap_or(""));
     let truncated_content: String = content.chars().take(USER_TEXT_MAX_CHARS).collect();
-    let author = item.author.as_deref().unwrap_or("未知");
+    let author = item.author.as_deref().unwrap_or("Unknown");
 
     let style_desc = match style {
-        "professional" => "专业、正式的商业播客风格。使用严谨的语言，适当引用数据",
-        "educational" => "教育性质、通俗易懂的讲解风格。多用类比和举例帮助理解",
-        _ => "轻松、对话式的闲聊风格。语气亲切自然，可以加入幽默元素",
+        "professional" => "Professional, formal business-podcast tone. Precise language; cite figures when useful.",
+        "educational" => "Educational and plain. Use analogies and examples.",
+        _ => "Casual two-host chat. Warm, natural, humor allowed.",
     };
 
     let prompt = format!(
-        "你是一个专业的播客编剧。请将以下文章转换为双人播客对话文稿。\n\n\
-        文章标题：{}\n\
-        文章作者：{}\n\
-        文章内容：\n{}\n\n\
-        风格要求：{}\n\n\
-        格式要求：\n\
-        - 两个主持人（A 和 B）的对话\n\
-        - 结构：开场介绍（简要引出话题）→ 正文讨论（深入探讨文章要点）→ 结尾总结（核心观点回顾）\n\
-        - 每段对话以 A：或 B：开头\n\
-        - 对话应自然流畅，A 主要负责引导话题，B 负责补充观点和提问\n\
-        - 忠实于原文内容，不要编造文章中没有的事实\n\
-        - 总长度约 800-1500 字\n\n\
-        请直接输出对话文稿。",
+        "You are a podcast script writer. Turn the article below into a two-host dialogue.\n\n\
+        Title: {}\n\
+        Author: {}\n\
+        Content:\n{}\n\n\
+        Style: {}\n\n\
+        Format:\n\
+        - Dialogue between hosts A and B\n\
+        - Structure: intro (set up the topic) → discussion (cover the article's points) → close (takeaways)\n\
+        - Each turn starts with A: or B:\n\
+        - A steers the topic; B adds points and questions\n\
+        - Stay faithful to the article; do not invent facts\n\
+        - About 800–1500 characters\n\
+        - Write in the same language as the article\n\n\
+        Output the script only.",
         title, author, truncated_content, style_desc
     );
 
@@ -591,8 +595,7 @@ async fn execute_speech_tts(params: &HashMap<String, Value>) -> Result<Value, St
         })
         .map(|v| v as i32);
 
-    // Agent schema uses speed as relative multiplier (default 1.0).
-    // Product / Tencent API expects speed in roughly [-2, 6]; map 1.0 → 0.0.
+    // Agent schema 语速是倍率（缺省 1.0）；[0.5, 2.0] 映射为 (s-1)*2（1.0→0.0），其余原样传给 TTS。
     let speed = params.get("speed").and_then(|v| v.as_f64()).map(|s| {
         let mapped = if (0.5..=2.0).contains(&s) {
             (s - 1.0) * 2.0
@@ -699,21 +702,21 @@ async fn execute_smart_filter(
         if let Ok(raw_data) = serde_json::from_str::<Value>(&content) {
             let raw_str = serde_json::to_string_pretty(&raw_data).unwrap_or_default();
             let truncated: String = raw_str.chars().take(USER_TEXT_MAX_CHARS).collect();
-            // 检查截断是否在 JSON 中间，尝试保持完整性
+            // 超长则追加 truncated 标记（不解析 JSON 边界）
             let safe_truncated = if truncated.len() < raw_str.len() {
-                format!("{}... (数据已截断)", truncated)
+                format!("{}... (truncated)", truncated)
             } else {
                 truncated
             };
 
             let prompt = format!(
-                "你是一个平台数据分析专家。请分析以下 {} 平台的数据，提取关键信息并进行分类。\n\n\
-                要求：\n\
-                1. 提取用户活跃度指标（数量、频率等）\n\
-                2. 识别内容类型和偏好分布\n\
-                3. 标注有价值的数据点\n\
-                4. 返回结构化的 JSON 结果\n\n\
-                数据：\n{}",
+                "You are a platform data analyst. Analyze the {} data below, extract key facts, and classify them.\n\n\
+                Requirements:\n\
+                1. Activity metrics (counts, frequency)\n\
+                2. Content types and preference mix\n\
+                3. Call out valuable data points\n\
+                4. Return structured JSON\n\n\
+                Data:\n{}",
                 platform, safe_truncated
             );
 
@@ -755,21 +758,21 @@ async fn execute_compare_content(
             let truncated: String = data_str.chars().take(USER_TEXT_MAX_CHARS).collect();
 
             let time_range = match (start_date, end_date) {
-                (Some(s), Some(e)) => format!("时间范围：{} 到 {}", s, e),
-                (Some(s), None) => format!("起始时间：{}", s),
-                (None, Some(e)) => format!("截止时间：{}", e),
-                _ => "时间范围：全部可用数据".to_string(),
+                (Some(s), Some(e)) => format!("Time range: {s} to {e}"),
+                (Some(s), None) => format!("From: {s}"),
+                (None, Some(e)) => format!("Until: {e}"),
+                _ => "Time range: all available data".to_string(),
             };
 
             let prompt = format!(
-                "你是一个数据分析专家。请分析以下 {} 平台的数据快照，提供洞察和分析。\n\n\
+                "You are a data analyst. Analyze this {} platform snapshot and give insights.\n\n\
                 {}\n\n\
-                注意：这是当前时间点的数据快照。请基于数据中可见的信息进行分析：\n\
-                1. 数据量和内容分布概况\n\
-                2. 用户的内容偏好和兴趣方向\n\
-                3. 活跃度评估\n\
-                4. 值得关注的发现或亮点\n\n\
-                数据：\n{}",
+                This is a snapshot at the current time. Use only what is visible:\n\
+                1. Volume and content mix\n\
+                2. Preferences and interests\n\
+                3. Activity level\n\
+                4. Highlights worth noticing\n\n\
+                Data:\n{}",
                 platform, time_range, truncated
             );
 
@@ -917,19 +920,19 @@ async fn execute_translate_text(
     let target_lang = params
         .get("targetLang")
         .and_then(|v| v.as_str())
-        .unwrap_or("zh-CN");
+        .unwrap_or("en-US");
     let source_lang = params.get("sourceLang").and_then(|v| v.as_str());
 
     let prompt = with_system_guidance(
         params,
         format!(
-            "请将以下文本翻译成{}：\n\n{}\n\n直接输出翻译结果。",
+            "Translate the following text into {}.\n\n{}\n\nOutput the translation only.",
             match target_lang {
-                "zh-CN" | "zh" => "简体中文",
-                "zh-TW" => "繁体中文",
-                "en" => "英文",
-                "ja" => "日文",
-                "ko" => "韩文",
+                "zh-CN" | "zh" => "Simplified Chinese",
+                "zh-TW" => "Traditional Chinese",
+                "en" => "English",
+                "ja" => "Japanese",
+                "ko" => "Korean",
                 _ => target_lang,
             },
             text
@@ -962,8 +965,8 @@ async fn execute_code_explain(
     let prompt = with_system_guidance(
         params,
         format!(
-            "请解释以下{}代码的功能和逻辑：\n\n```{}\n{}\n```\n\n\
-            请包含：代码整体功能、主要逻辑步骤、关键变量说明。",
+            "Explain what this {} code does and how it works:\n\n```{}\n{}\n```\n\n\
+            Cover: overall purpose, main steps, and key variables.",
             language.unwrap_or(""),
             language.unwrap_or(""),
             code
@@ -976,11 +979,11 @@ async fn execute_code_explain(
         .map_err(|error| ai_step_failed("Code explanation failed", error))?;
 
     let complexity = if code.len() < 100 {
-        "简单"
+        "simple"
     } else if code.len() < 500 {
-        "中等"
+        "medium"
     } else {
-        "复杂"
+        "complex"
     };
 
     Ok(json!({

@@ -1,13 +1,4 @@
-/**
- * 手记编辑器：工具栏 + 纯文本框 + 服务端预览。
- *
- * 刻意**不做**所见即所得。理由是全站只允许存在一套 Markdown 语法实现 ——
- * 预览调的是后端渲染接口，和发布时用的是同一个函数，所以「预览好看、发出去
- * 变形」在结构上不可能发生。前端一行 Markdown 解析代码都没有。
- *
- * 预览用 `dangerouslySetInnerHTML` 是安全的：那段 HTML 由后端白名单消毒后
- * 才返回，与阅读器里将来渲染的是同一份字节。
- */
+/** 不做所见即所得：预览与发布走同一套后端渲染。dangerouslySetInnerHTML 只吃后端白名单消毒后的 HTML。 */
 
 import type { BrewNoteInput } from '../../../types/brew'
 
@@ -39,20 +30,16 @@ import {
   wrapSelection,
   writeNoteDraft,
 } from './noteDraft'
+import '../ui/brew.css'
 import './NoteEditor.css'
 
-/** 预览请求的防抖。停手大约四分之一秒后才发，打字过程中不发。 */
 const PREVIEW_DEBOUNCE_MS = 260
-/** 草稿自动保存的节流。 */
 const DRAFT_SAVE_MS = 800
 
 export interface NoteEditorProps {
-  /** 要改的那篇；不传就是写新的。 */
   noteId?: number
   onClose: () => void
-  /** 保存成功。`id` 是这篇手记的条目 id。 */
   onSaved: (id: number) => void
-  /** 删除成功。只有改稿时才可能触发。 */
   onDeleted?: (id: number) => void
 }
 
@@ -69,7 +56,6 @@ export default function NoteEditor({
 
   const [title, setTitle] = useState('')
   const [contentMd, setContentMd] = useState('')
-  /** 服务端上已保存的那份，用来判断「有没有未保存的改动」。 */
   const [saved, setSaved] = useState({ title: '', contentMd: '' })
   const [loading, setLoading] = useState(Boolean(noteId))
   const [saving, setSaving] = useState(false)
@@ -77,15 +63,14 @@ export default function NoteEditor({
   const [error, setError] = useState<string | null>(null)
   const [html, setHtml] = useState('')
   const [previewing, setPreviewing] = useState(false)
-  /** 窄屏一次只显示一栏。宽屏两栏并排，这个值不参与布局。 */
+  /** 窄屏一栏；宽屏两栏并排，此值不参与布局。 */
   const [pane, setPane] = useState<Pane>('write')
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // 载入原文。新写的直接看有没有本地草稿。
   useEffect(() => {
-    let cancelled = false
+    const controller = new AbortController()
     const run = async () => {
       if (noteId === undefined) {
         const draft = readNoteDraft('new')
@@ -96,10 +81,10 @@ export default function NoteEditor({
         return
       }
       try {
-        const note = await brewApi.getNoteDraft(noteId)
-        if (cancelled) return
+        const note = await brewApi.getNoteDraft(noteId, controller.signal)
+        if (controller.signal.aborted) return
         setSaved({ title: note.title, contentMd: note.content_md })
-        // 本地草稿比服务端的新才用它 —— 上次没保存就关掉了标签页
+        // 本地草稿比服务端新才用。
         const draft = readNoteDraft(noteId)
         const useDraft = draftDiffersFrom(draft, {
           title: note.title,
@@ -108,25 +93,26 @@ export default function NoteEditor({
         setTitle(useDraft && draft ? draft.title : note.title)
         setContentMd(useDraft && draft ? draft.contentMd : note.content_md)
       } catch (err) {
-        if (!cancelled) setError(userFacingError(err, t.brew.errorLoadFailed))
+        if (!controller.signal.aborted) {
+          setError(userFacingError(err, t.brew.errorLoadFailed))
+        }
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!controller.signal.aborted) setLoading(false)
       }
     }
     void run()
     return () => {
-      cancelled = true
+      controller.abort()
     }
   }, [noteId, t.brew.errorLoadFailed])
 
-  // 草稿自动保存
   useEffect(() => {
     if (loading) return
     const timer = setTimeout(writeNoteDraft, DRAFT_SAVE_MS, draftKey, { title, contentMd })
     return () => clearTimeout(timer)
   }, [draftKey, title, contentMd, loading])
 
-  // 预览。防抖 + AbortController：连着打字只会有最后一次请求落地。
+  // 预览防抖 + AbortController：只落地最后一次。
   useEffect(() => {
     if (loading) return
     if (!contentMd.trim()) {
@@ -140,7 +126,7 @@ export default function NoteEditor({
         const rendered = await brewApi.previewNote(contentMd, controller.signal)
         if (!controller.signal.aborted) setHtml(rendered)
       } catch {
-        // 预览失败不打断写作，保留上一次渲染结果
+        // 预览失败不打断写作。
       } finally {
         if (!controller.signal.aborted) setPreviewing(false)
       }
@@ -158,7 +144,6 @@ export default function NoteEditor({
     [title, contentMd, saved],
   )
 
-  /** 工具栏统一入口：改文本、把焦点和选区还给文本框。 */
   const applyEdit = useCallback(
     (
       fn: (
@@ -171,7 +156,7 @@ export default function NoteEditor({
       if (!el) return
       const result = fn(el.value, el.selectionStart, el.selectionEnd)
       setContentMd(result.value)
-      // setState 之后 DOM 还没更新，选区要等下一帧再设
+      // setState 后等下一帧再设选区。
       requestAnimationFrame(() => {
         el.focus()
         el.setSelectionRange(result.selectionStart, result.selectionEnd)
@@ -227,7 +212,7 @@ export default function NoteEditor({
           ? await brewApi.createNote(payload)
           : await brewApi.updateNote(noteId, payload)
       clearNoteDraft(draftKey)
-      // 新写的那篇发布之后，`new` 草稿位要空出来给下一篇
+      // 发布后清掉 `new` 草稿位。
       if (noteId === undefined) clearNoteDraft('new')
       onSaved(result.id)
     } catch (err) {
@@ -267,7 +252,7 @@ export default function NoteEditor({
     t.brew.errorDeleteFailed,
   ])
 
-  // Esc 关闭；有未保存改动时先确认
+  // Esc 关闭；有未保存改动时先确认。
   const requestClose = useCallback(() => {
     if (dirty && !window.confirm(t.brew.noteDiscardConfirm)) return
     onClose()
@@ -276,7 +261,6 @@ export default function NoteEditor({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') requestClose()
-      // Ctrl/Cmd + S 保存 —— 写字的人手会自己按下去
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault()
         void handleSave()
@@ -285,9 +269,6 @@ export default function NoteEditor({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [requestClose, handleSave])
-
-  const toolbarButton =
-    'flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-black/5 hover:text-gray-800 dark:text-gray-400 dark:hover:bg-white/8 dark:hover:text-gray-100'
 
   const tools = [
     {
@@ -335,34 +316,33 @@ export default function NoteEditor({
   ]
 
   return createPortal(
-    <div className="fixed inset-0 z-9999 flex flex-col bg-black/50 backdrop-blur-sm p-0 sm:p-6">
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-none glass-surface glass-90 shadow-2xl sm:rounded-2xl">
-        {/* 标题行 */}
-        <div className="flex items-center gap-2 border-b border-gray-200/60 px-3 py-2 dark:border-neutral-700/60 sm:px-4">
+    <div className="brew-skin brew-note">
+      <div className="brew-note__frame">
+        <div className="brew-note__head">
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder={t.brew.noteTitlePlaceholder}
             aria-label={t.brew.noteTitlePlaceholder}
-            className="min-w-0 flex-1 bg-transparent px-1 py-1.5 text-base font-semibold text-gray-800 outline-hidden placeholder:font-normal placeholder:text-gray-400 dark:text-gray-100"
+            className="brew-note__title"
           />
-          {noteId !== undefined && (
+          {noteId !== undefined ? (
             <button
               type="button"
               onClick={handleDelete}
               disabled={saving}
-              className={`${toolbarButton} hover:text-red-500! hover:bg-red-500/10!`}
+              className="brew-note__tool is-danger"
               title={t.brew.noteDelete}
               aria-label={t.brew.noteDelete}
             >
-              <Trash2 className="h-4 w-4" />
+              <Trash2 />
             </button>
-          )}
+          ) : null}
           <button
             type="button"
             onClick={handleSave}
             disabled={saving || loading}
-            className="flex h-8 items-center gap-1.5 rounded-lg bg-linear-to-r from-orange-500 to-amber-500 px-3.5 text-xs font-medium text-white shadow-sm transition-all hover:from-orange-600 hover:to-amber-600 disabled:opacity-60"
+            className="brew-note__publish"
           >
             {saving ? <Spinner size="sm" /> : null}
             {t.brew.notePublish}
@@ -370,22 +350,21 @@ export default function NoteEditor({
           <button
             type="button"
             onClick={requestClose}
-            className={toolbarButton}
+            className="brew-note__tool"
             title={t.brew.close}
             aria-label={t.brew.close}
           >
-            <X className="h-4 w-4" />
+            <X />
           </button>
         </div>
 
-        {/* 工具栏 */}
-        <div className="flex flex-wrap items-center gap-0.5 border-b border-gray-200/60 px-2 py-1 dark:border-neutral-700/60 sm:px-3">
+        <div className="brew-note__tools">
           {tools.map((tool) => (
             <button
               key={tool.key}
               type="button"
               onClick={tool.run}
-              className={toolbarButton}
+              className="brew-note__tool"
               title={tool.label}
               aria-label={tool.label}
             >
@@ -396,26 +375,24 @@ export default function NoteEditor({
             type="button"
             onClick={() => fileRef.current?.click()}
             disabled={uploading}
-            className={toolbarButton}
+            className="brew-note__tool"
             title={t.brew.noteToolImage}
             aria-label={t.brew.noteToolImage}
           >
-            {uploading ? <Spinner size="sm" /> : <Image className="h-4 w-4" />}
+            {uploading ? <Spinner size="sm" /> : <Image />}
           </button>
           <input
             ref={fileRef}
             type="file"
             accept="image/*"
-            className="hidden"
+            className="brew-bar__file"
             onChange={(e) => {
               const file = e.target.files?.[0]
-              // 同一张图连传两次也要触发 change，先把 value 清掉
               e.target.value = ''
               if (file) void handleUpload(file)
             }}
           />
 
-          {/* 窄屏切栏。宽屏两栏并排，这组按钮藏起来 */}
           <div className="ml-auto flex items-center gap-0.5 lg:hidden">
             {(['write', 'preview'] as Pane[]).map((value) => (
               <button
@@ -423,11 +400,7 @@ export default function NoteEditor({
                 type="button"
                 onClick={() => setPane(value)}
                 aria-pressed={pane === value}
-                className={`h-8 rounded-lg px-2.5 text-xs font-medium transition-colors ${
-                  pane === value
-                    ? 'bg-orange-500/10 text-orange-500'
-                    : 'text-gray-500 hover:bg-black/5 dark:text-gray-400 dark:hover:bg-white/8'
-                }`}
+                className={`brew-note__pane${pane === value ? ' is-on' : ''}`}
               >
                 {value === 'write' ? t.brew.noteTabWrite : t.brew.noteTabPreview}
               </button>
@@ -435,20 +408,16 @@ export default function NoteEditor({
           </div>
         </div>
 
-        {error ? (
-          <div className="border-b border-red-500/20 bg-red-500/8 px-4 py-2 text-xs text-red-600 dark:text-red-400">
-            {error}
-          </div>
-        ) : null}
+        {error ? <div className="brew-note__alert">{error}</div> : null}
 
         {loading ? (
           <div className="flex flex-1 items-center justify-center">
-            <Spinner size="lg" className="text-orange-500" />
+            <Spinner size="lg" />
           </div>
         ) : (
-          <div className="flex min-h-0 flex-1 lg:divide-x lg:divide-gray-200/60 lg:dark:divide-neutral-700/60">
+          <div className="brew-note__body">
             <div
-              className={`min-h-0 flex-1 ${pane === 'write' ? 'flex' : 'hidden'} lg:flex`}
+              className={`brew-note__write${pane === 'write' ? '' : ' is-hidden'}`}
             >
               <textarea
                 ref={textareaRef}
@@ -457,28 +426,22 @@ export default function NoteEditor({
                 placeholder={t.brew.noteBodyPlaceholder}
                 aria-label={t.brew.noteBodyPlaceholder}
                 spellCheck={false}
-                className="h-full w-full resize-none bg-transparent px-4 py-4 font-mono text-sm leading-7 text-gray-700 outline-hidden placeholder:text-gray-400 dark:text-gray-200 sm:px-6"
               />
             </div>
             <div
-              className={`min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 ${
-                pane === 'preview' ? 'block' : 'hidden'
-              } lg:block`}
+              className={`brew-note__read${pane === 'preview' ? '' : ' is-hidden'}`}
             >
               {previewing && !html ? (
                 <div className="flex justify-center py-8">
-                  <Spinner size="md" className="text-orange-500" />
+                  <Spinner size="md" />
                 </div>
               ) : html ? (
-                // 后端已按白名单消毒，这里渲染的就是发布后的那份 HTML
                 <div
                   className="brew-note-preview"
                   dangerouslySetInnerHTML={{ __html: html }}
                 />
               ) : (
-                <p className="text-sm text-gray-400 dark:text-gray-500">
-                  {t.brew.notePreviewEmpty}
-                </p>
+                <p className="brew-note__empty">{t.brew.notePreviewEmpty}</p>
               )}
             </div>
           </div>

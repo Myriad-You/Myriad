@@ -87,7 +87,7 @@ pub struct HostRouteEntry {
     pub permission: String,
 }
 
-/// One compiled fixture row used for O(n) lookup (n is small, ~80 routes).
+/// Compiled fixture row; linear lookup (n is the fixture route list).
 #[derive(Debug, Clone)]
 pub struct CompiledHostRoute {
     pub method: String,
@@ -100,7 +100,7 @@ struct HostRouteIndex {
     speech: Vec<CompiledHostRoute>,
     brew: Vec<CompiledHostRoute>,
     federation: Vec<CompiledHostRoute>,
-    /// Full fixture rows (for reverse coverage tests / introspection).
+    /// Full fixture rows for tests.
     #[cfg(test)]
     entries: Vec<HostRouteEntry>,
 }
@@ -186,9 +186,7 @@ pub fn speech_permission(method: &str, path: &str) -> Option<TappPermission> {
 }
 
 /// Route → permission map for `/api/brew` (mirrors sandbox `brewList.*` actions).
-/// Paths that no sandbox handler exposes (WebSocket, RSSHub instance admin,
-/// cache management, offline sync) stay unmapped so grant-bearing requests to
-/// them are rejected.
+/// Host-only brew paths (WebSocket, RSSHub instance admin, offline sync) stay unmapped so grant-bearing requests to them are rejected.
 pub fn brew_permission(method: &str, path: &str) -> Option<TappPermission> {
     permission_for(HostDomain::Brew, method, path)
 }
@@ -554,7 +552,7 @@ mod tests {
 
     #[test]
     fn federation_write_routes_are_bound_to_action_domains() {
-        // 跨域归属（handoff 映射表）：每条写路由只绑定一个动作域权限。
+        // 跨域归属：每条写路由只绑定一个动作域权限。
         // Basic 域（interact/ring）路由绝不绑定 Elevated 权限，反之亦然。
         // interact 域
         assert_eq!(

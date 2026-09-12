@@ -1,13 +1,3 @@
-/**
- * 对比度感知的可读色推导
- *
- * 移植自 Tapp 音乐播放器（com.myriad.music-player）歌词填色逻辑：
- * 1. 在候选色中挑第一个相对背景达到 WCAG 对比度阈值的颜色
- * 2. 若均不达标，保留色相，沿 HSL 明度方向步进，直到对比度够用
- *
- * 用于页面 Hero 标题「自适应」色，以及其它需要主题可读性的着色场景。
- */
-
 export interface RgbColor {
   r: number
   g: number
@@ -21,23 +11,15 @@ export interface HslColor {
 }
 
 export interface DeriveReadableColorOptions {
-  /** 按优先级排列的候选色（hex） */
   candidates: Array<string | null | undefined>
-  /** 当前是否深色主题 */
   isDark: boolean
-  /** 目标明度（不达标时向该方向拉） */
   targetLightness?: number
-  /** 最小对比度（大号装饰字约 3:1 即可） */
   minContrast?: number
-  /** 全部失败时的回退色 */
   fallback?: string
-  /** 估算背景色；默认按明暗主题取页面底色近似值 */
   backdrop?: RgbColor
 }
 
-/** 浅色主题下页面底色近似（--bg-primary: #f5f5f5） */
 const LIGHT_BACKDROP: RgbColor = { r: 245, g: 245, b: 245 }
-/** 深色主题下页面底色近似（--bg-primary: #0a0a0a） */
 const DARK_BACKDROP: RgbColor = { r: 10, g: 10, b: 10 }
 
 const DEFAULT_FALLBACK = '#8b5cf6'
@@ -49,7 +31,7 @@ export function clampNumber(value: number, min: number, max: number): number {
 export function normalizeHexColor(value: string | null | undefined): string | null {
   if (!value) return null
   let hex = String(value).trim()
-  if (hex.charAt(0) !== '#') return null
+  if (!hex.startsWith('#')) return null
   hex = hex.slice(1)
   if (hex.length === 3) {
     hex =
@@ -78,14 +60,7 @@ export function hexToRgb(value: string | null | undefined): RgbColor | null {
   }
 }
 
-/**
- * 解析任意 CSS 颜色字符串为 RGB：`#rgb` / `#rrggbb` / `#rrggbbaa`，
- * 以及 `rgb()` / `rgba()`（逗号或空格分隔，可带 `/ alpha`，通道支持百分比）。
- * alpha 一律丢弃。
- *
- * ⚠️ 读 CSS 自定义属性时必须用它而不是 hexToRgb：注册为 @property <color>
- * 的变量，其 computed value 是 `rgb(r, g, b)` 而非写入时的 hex（如 --music-*）。
- */
+/** @property <color> computes rgb(); do not hexToRgb. */
 export function parseCssColor(
   value: string | null | undefined,
 ): RgbColor | null {
@@ -214,9 +189,6 @@ function toColorCandidates(
   return Array.isArray(value) ? value : [value]
 }
 
-/**
- * 从候选色中挑第一个相对背景达标的 hex；都不行则返回 null
- */
 export function pickReadableCandidate(
   candidates: Array<string | null | undefined> | string | null | undefined,
   isDark: boolean,
@@ -234,10 +206,6 @@ export function pickReadableCandidate(
   return null
 }
 
-/**
- * 在达标候选里挑「最亮」的（浅色主题专用）
- * 避免 music-player 式 first-hit 直接命中 --color-dark 把标题压成深色块
- */
 export function pickBrightestReadableCandidate(
   candidates: Array<string | null | undefined> | string | null | undefined,
   minContrast: number,
@@ -264,29 +232,22 @@ function firstUsableRgb(
     const rgb = hexToRgb(value)
     if (rgb) return rgb
   }
-  return hexToRgb(fallbackColor) || hexToRgb(DEFAULT_FALLBACK)!
+  return hexToRgb(fallbackColor) ?? hexToRgb(DEFAULT_FALLBACK)!
 }
 
-/**
- * 从 base 色适度压暗，直到对比够用 + 标题略加重
- * 不走 --color-dark；比「几乎原色」略深一档，仍远浅于 dark token
- */
 function softDarkenFromPrimary(
   primaryHex: string,
   backdrop: RgbColor,
   minContrast: number,
 ): string {
-  const rgb = hexToRgb(primaryHex) || hexToRgb(DEFAULT_FALLBACK)!
+  const rgb = hexToRgb(primaryHex) ?? hexToRgb(DEFAULT_FALLBACK)!
   const hsl = rgbToHsl(rgb)
-  // 饱和略抬，避免压暗后发灰
   const s = clampNumber(hsl.s * 1.06, 0.3, 0.84)
   const floor = 0.36
-  // 标题字重：亮色先下压一截（约 0.08），再按对比度微调
   let l = hsl.l > 0.5 ? Math.max(floor, hsl.l - 0.08) : hsl.l
   let candidate = hslToRgb({ h: hsl.h, s, l })
   let guard = 0
 
-  // 对比不够继续加深
   while (
     guard < 40 &&
     l > floor &&
@@ -297,7 +258,6 @@ function softDarkenFromPrimary(
     guard += 1
   }
 
-  // 对比已够时再略加重 2 步（字重），不突破 floor
   let weightSteps = 0
   while (
     weightSteps < 2 &&
@@ -315,10 +275,6 @@ function softDarkenFromPrimary(
   return rgbToHex(candidate)
 }
 
-/**
- * 推导在当前主题背景下可读的着色
- * 深色主题仍对齐音乐播放器提亮策略；浅色见 deriveAdaptiveTitleColor
- */
 export function deriveReadableColor(
   options: DeriveReadableColorOptions,
 ): string {
@@ -333,8 +289,6 @@ export function deriveReadableColor(
 
   const bg = backdrop ?? getThemeBackdropRgb(isDark)
 
-  // 浅色：以 primary（fallback）为主做适度压暗；不用 dark token
-  // 若 primary 不可解析，再退到最亮达标候选
   if (!isDark) {
     const base =
       normalizeHexColor(fallback) ||
@@ -343,7 +297,6 @@ export function deriveReadableColor(
       ) ||
       DEFAULT_FALLBACK
     const weighted = softDarkenFromPrimary(base, bg, minContrast)
-    // soft 结果仍过亮且对比不足时，再从其它候选里取最亮达标色
     const weightedRgb = hexToRgb(weighted)
     if (
       weightedRgb &&
@@ -383,13 +336,6 @@ export function deriveReadableColor(
   return rgbToHex(candidate)
 }
 
-/**
- * 从壁纸主题 CSS 变量推导 Hero 标题自适应色
- *
- * 浅色关键修正：
- * 以前候选含 `--color-dark`，primary 略浅时会直接命中 dark（对比极高但很深），
- * 调 pull/target 完全无效。浅色路径不再使用 dark token。
- */
 export function deriveAdaptiveTitleColor(isDark: boolean): string {
   if (typeof document === 'undefined') {
     return isDark ? '#ffffff' : '#111111'
@@ -403,14 +349,12 @@ export function deriveAdaptiveTitleColor(isDark: boolean): string {
   const accent = read('--color-accent') || secondary
   const light = read('--color-light') || primary
 
-  // 背景优先读 --bg-primary，解析失败再回落到主题近似
   let backdrop = getThemeBackdropRgb(isDark)
   const bgPrimary = normalizeHexColor(read('--bg-primary'))
   const bgRgb = hexToRgb(bgPrimary)
   if (bgRgb) backdrop = bgRgb
 
   if (isDark) {
-    // 深色：可把 light 变体作提亮候选（音乐播放器同思路）
     return deriveReadableColor({
       candidates: [primary, light, secondary, accent],
       isDark: true,
@@ -421,8 +365,7 @@ export function deriveAdaptiveTitleColor(isDark: boolean): string {
     })
   }
 
-  // 浅色：只用 primary/secondary/accent/light，禁止 --color-dark 进候选
-  // minContrast 2.7：比纯保色略严，标题略加重但仍远浅于 dark token
+  // Light theme: do not use --color-dark.
   return deriveReadableColor({
     candidates: [primary, secondary, accent, light],
     isDark: false,

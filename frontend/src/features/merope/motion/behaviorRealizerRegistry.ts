@@ -15,7 +15,6 @@ export type BehaviorFormRealizer<Output> = (
   context: BehaviorRealizerContext,
 ) => Output | null
 
-/** Maps renderer-neutral behavior forms onto one body adapter's vocabulary. */
 export class BehaviorRealizerRegistry<Output> {
   private readonly forms = new Map<string, BehaviorFormRealizer<Output>>()
 

@@ -1,11 +1,3 @@
-/**
- * Tapp Playground multi-session persistence.
- *
- * - Migrates once from the legacy sessionStorage record
- * - Caps sessions / revisions / rough JSON size to avoid quota blow-ups
- * - Pure helpers — page owns React state, calls save on change
- */
-
 import type { PlaygroundLastFailedAttempt } from '../components/PlaygroundComposer'
 import type {
   PlaygroundAgentStep,
@@ -19,16 +11,11 @@ import type {
 export const LEGACY_SESSION_STORAGE_KEY = 'myriad:tapp-playground:session:v1'
 export const SESSIONS_STORAGE_KEY = 'myriad:tapp-playground:sessions:v2'
 
-/** Soft cap on concurrent sessions (evict least-recently-updated). */
 export const MAX_SESSIONS = 10
-/** Cap revisions per session (same as previous single-session cap). */
 export const MAX_REVISIONS = 20
-/** Rough localStorage budget (bytes of JSON); leave headroom under ~5MB. */
 export const MAX_STORE_BYTES = 4_500_000
-/** Title length from first user instruction. */
 export const TITLE_MAX_CHARS = 36
 
-/** Coalesce rapid manual edits into one revision when the last is also manual. */
 export const MANUAL_REVISION_MERGE_MS = 4_000
 
 export interface PlaygroundRevision {
@@ -74,12 +61,11 @@ export function createRevisionId(): string {
   return randomId('rev')
 }
 
-/** Truncate instruction into a session title; empty → ''. */
 export function titleFromInstruction(
   instruction: string,
   maxChars = TITLE_MAX_CHARS,
 ): string {
-  const text = instruction.replace(/\s+/g, ' ').trim()
+  const text = instruction.replaceAll(/\s+/g, ' ').trim()
   if (!text) return ''
   if (text.length <= maxChars) return text
   return `${text.slice(0, Math.max(1, maxChars - 1))}…`
@@ -178,7 +164,7 @@ function normalizeSession(raw: unknown): PlaygroundSession | null {
   const updatedAt =
     typeof s.updatedAt === 'number' && Number.isFinite(s.updatedAt)
       ? s.updatedAt
-      : revisions[revisions.length - 1]?.createdAt || createdAt
+      : revisions.at(-1)?.createdAt || createdAt
   const title =
     typeof s.title === 'string'
       ? s.title
@@ -208,7 +194,7 @@ function loadV1Session(): PlaygroundSession | null {
       title: titleFromInstruction(value.revisions[0]?.instruction || ''),
       createdAt: value.revisions[0]?.createdAt || Date.now(),
       updatedAt:
-        value.revisions[value.revisions.length - 1]?.createdAt || Date.now(),
+        value.revisions.at(-1)?.createdAt || Date.now(),
       revisions: value.revisions,
       revisionIndex: value.revisionIndex,
       lastFailedAttempt: value.lastFailedAttempt,
@@ -219,13 +205,9 @@ function loadV1Session(): PlaygroundSession | null {
   }
 }
 
-/** Result of localStorage budget pruning (for one-shot UI notice). */
 export interface PruneStoreMeta {
-  /** Sessions removed (cap or size budget). */
   sessionsDropped: number
-  /** Revision entries removed (per-session cap or size budget). */
   revisionsTrimmed: number
-  /** True when any session or revision was dropped/trimmed. */
   changed: boolean
 }
 
@@ -240,7 +222,6 @@ const EMPTY_PRUNE_META: PruneStoreMeta = {
   changed: false,
 }
 
-/** Cap sessions by updatedAt; always keep active. Cap revisions per session. */
 export function pruneStoreWithMeta(
   store: PlaygroundSessionsStore,
 ): PruneStoreResult {
@@ -261,7 +242,6 @@ export function pruneStoreWithMeta(
     if (revisions.length === 0) {
       revisionIndex = -1
     } else {
-      // If we dropped from the front, shift index
       if (dropped > 0) {
         revisionIndex = Math.max(0, revisionIndex - dropped)
       }
@@ -270,19 +250,17 @@ export function pruneStoreWithMeta(
     return { ...session, revisions, revisionIndex }
   })
 
-  // Evict oldest by updatedAt, but never drop active if possible
   if (sessions.length > MAX_SESSIONS) {
     const active = sessions.find((s) => s.id === store.activeSessionId)
     const others = sessions
       .filter((s) => s.id !== store.activeSessionId)
-      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .toSorted((a, b) => b.updatedAt - a.updatedAt)
     const keep = others.slice(0, MAX_SESSIONS - (active ? 1 : 0))
     const next = active ? [active, ...keep] : keep
     sessionsDropped += sessions.length - next.length
     sessions = next
   }
 
-  // Size budget: drop oldest non-active sessions, then oldest revisions
   const measure = (list: PlaygroundSession[]) =>
     JSON.stringify({
       activeSessionId: store.activeSessionId,
@@ -290,9 +268,9 @@ export function pruneStoreWithMeta(
     }).length
 
   while (sessions.length > 1 && measure(sessions) > MAX_STORE_BYTES) {
-    const sorted = [...sessions].sort((a, b) => a.updatedAt - b.updatedAt)
+    const sorted = sessions.toSorted((a, b) => a.updatedAt - b.updatedAt)
     const victim =
-      sorted.find((s) => s.id !== store.activeSessionId) || sorted[0]
+      sorted.find((s) => s.id !== store.activeSessionId) ?? sorted[0]
     if (!victim) break
     sessions = sessions.filter((s) => s.id !== victim.id)
     sessionsDropped += 1
@@ -302,7 +280,6 @@ export function pruneStoreWithMeta(
     let trimmed = false
     sessions = sessions.map((session) => {
       if (session.revisions.length <= 1) return session
-      // Prefer trimming non-active sessions first
       if (
         session.id === store.activeSessionId &&
         sessions.some((s) => s.id !== store.activeSessionId && s.revisions.length > 1)
@@ -319,7 +296,6 @@ export function pruneStoreWithMeta(
       return { ...session, revisions, revisionIndex }
     })
     if (!trimmed) {
-      // Last resort: drop agentTrace/knowledgeSources from oldest revs
       sessions = sessions.map((session) => ({
         ...session,
         revisions: session.revisions.map((rev, i) =>
@@ -329,7 +305,6 @@ export function pruneStoreWithMeta(
         ),
       }))
       if (measure(sessions) <= MAX_STORE_BYTES) break
-      // Still too big — give up further trimming to avoid empty store
       break
     }
   }
@@ -340,7 +315,8 @@ export function pruneStoreWithMeta(
 
   let activeSessionId = store.activeSessionId
   if (!sessions.some((s) => s.id === activeSessionId)) {
-    activeSessionId = sessions.sort((a, b) => b.updatedAt - a.updatedAt)[0].id
+    sessions = sessions.toSorted((a, b) => b.updatedAt - a.updatedAt)
+    activeSessionId = sessions[0].id
   }
 
   const nextStore = { activeSessionId, sessions }
@@ -352,7 +328,6 @@ export function pruneStoreWithMeta(
   return { store: nextStore, meta }
 }
 
-/** Cap sessions by updatedAt; always keep active. Cap revisions per session. */
 export function pruneStore(store: PlaygroundSessionsStore): PlaygroundSessionsStore {
   return pruneStoreWithMeta(store).store
 }
@@ -361,8 +336,8 @@ export function getActiveSession(
   store: PlaygroundSessionsStore,
 ): PlaygroundSession {
   return (
-    store.sessions.find((s) => s.id === store.activeSessionId) ||
-    store.sessions[0] ||
+    store.sessions.find((s) => s.id === store.activeSessionId) ??
+    store.sessions[0] ??
     createEmptySession()
   )
 }
@@ -380,7 +355,6 @@ export function updateActiveSessionWithMeta(
   const sessions = store.sessions.map((s) =>
     s.id === active.id ? updated : s,
   )
-  // If active was missing (empty store edge), ensure it exists
   if (!store.sessions.some((s) => s.id === active.id)) {
     sessions.push(updated)
   }
@@ -418,14 +392,15 @@ export function deleteSessionWithMeta(
   store: PlaygroundSessionsStore,
   sessionId: string,
 ): PruneStoreResult {
-  const remaining = store.sessions.filter((s) => s.id !== sessionId)
+  let remaining = store.sessions.filter((s) => s.id !== sessionId)
   if (!remaining.length) {
     return { store: createEmptyStore(), meta: EMPTY_PRUNE_META }
   }
-  const activeSessionId =
-    store.activeSessionId === sessionId
-      ? remaining.sort((a, b) => b.updatedAt - a.updatedAt)[0].id
-      : store.activeSessionId
+  let activeSessionId = store.activeSessionId
+  if (activeSessionId === sessionId) {
+    remaining = remaining.toSorted((a, b) => b.updatedAt - a.updatedAt)
+    activeSessionId = remaining[0].id
+  }
   return pruneStoreWithMeta({ activeSessionId, sessions: remaining })
 }
 
@@ -442,13 +417,6 @@ export function clearSessionContent(
   }
 }
 
-/**
- * Build full multi-turn modification memory for the generate API.
- *
- * Uses `revisions.slice(0, revisionIndex + 1)` so redo-stack versions after the
- * active checkpoint are excluded. Each successful turn carries the full project
- * snapshot. When `lastFailedAttempt` is present it is appended as a failed tail.
- */
 export function buildPlaygroundMemoryHistory(
   session: PlaygroundSession,
 ): PlaygroundMemoryTurn[] {
@@ -469,10 +437,7 @@ export function buildPlaygroundMemoryHistory(
 
   const failed = session.lastFailedAttempt
   if (failed?.instruction?.trim()) {
-    const baseProject =
-      upToCurrent.length > 0
-        ? upToCurrent[upToCurrent.length - 1].project
-        : undefined
+    const baseProject = upToCurrent.at(-1)?.project
     turns.push({
       instruction: failed.instruction,
       explanation: '',
@@ -484,19 +449,13 @@ export function buildPlaygroundMemoryHistory(
     })
   }
 
-  // Backend accepts at most 20 turns; keep the most recent window.
   return turns.slice(-MAX_REVISIONS)
 }
 
-/**
- * Append a successful generation revision: truncates redo stack, caps length,
- * auto-titles empty sessions from the first user instruction.
- */
 export function pushRevision(
   session: PlaygroundSession,
   revision: Omit<PlaygroundRevision, 'id'> & { id?: string },
 ): PlaygroundSession {
-  // Truncate redo stack only; length / size caps are applied by pruneStore.
   const revisions = session.revisions.slice(0, session.revisionIndex + 1)
   revisions.push({
     ...revision,
@@ -518,16 +477,6 @@ export function pushRevision(
   }
 }
 
-/**
- * Apply a manual code edit as a new revision (or merge into the last manual
- * revision when within {@link MANUAL_REVISION_MERGE_MS}).
- *
- * Returns the session unchanged when `nextProject` is structurally equal to
- * the current revision project (no spam revisions).
- *
- * Pass localized `labels` from the page (i18n); English fallbacks keep the
- * pure helper usable without React context.
- */
 export function pushManualEditRevision(
   session: PlaygroundSession,
   nextProject: TappPlaygroundProject,
@@ -546,7 +495,6 @@ export function pushManualEditRevision(
       return session
     }
   } catch {
-    // If stringify fails, still attempt to record the edit.
   }
 
   const instruction = labels?.instruction ?? `Manual edit: ${fileLabel}`
@@ -590,7 +538,6 @@ export function pushManualEditRevision(
 export function loadSessionsStore(): PlaygroundSessionsStore {
   if (typeof window === 'undefined') return createEmptyStore()
 
-  // Prefer the current multi-session localStorage record.
   try {
     const raw = localStorage.getItem(SESSIONS_STORAGE_KEY)
     if (raw) {
@@ -616,10 +563,8 @@ export function loadSessionsStore(): PlaygroundSessionsStore {
       }
     }
   } catch {
-    // Fall through to v1 migration / empty
   }
 
-  // One-shot migrate from v1 sessionStorage
   const migrated = loadV1Session()
   if (migrated && (migrated.revisions.length > 0 || migrated.lastFailedAttempt)) {
     const store = pruneStore({
@@ -630,7 +575,6 @@ export function loadSessionsStore(): PlaygroundSessionsStore {
     try {
       sessionStorage.removeItem(LEGACY_SESSION_STORAGE_KEY)
     } catch {
-      // ignore
     }
     return store
   }
@@ -638,11 +582,6 @@ export function loadSessionsStore(): PlaygroundSessionsStore {
   return createEmptyStore()
 }
 
-/**
- * Persist sessions to localStorage after pruning.
- * Returns prune meta so the page can surface a one-shot notice when
- * sessions/revisions were dropped to stay under budget.
- */
 export function saveSessionsStore(
   store: PlaygroundSessionsStore,
 ): PruneStoreMeta {
@@ -652,7 +591,6 @@ export function saveSessionsStore(
     localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(pruned))
     return meta
   } catch {
-    // Quota or private mode — try a more aggressive prune once
     try {
       const beforeIds = new Set(pruned.sessions.map((s) => s.id))
       const beforeRevCount = pruned.sessions.reduce(
@@ -681,9 +619,9 @@ export function saveSessionsStore(
         (n, s) => n + s.revisions.length,
         0,
       )
-      const dropped = [...beforeIds].filter(
-        (id) => !emergency.sessions.some((s) => s.id === id),
-      ).length
+      const dropped = Iterator.from(beforeIds)
+        .filter((id) => !emergency.sessions.some((s) => s.id === id))
+        .toArray().length
       const trimmed = Math.max(0, beforeRevCount - afterRevCount)
       return {
         sessionsDropped: meta.sessionsDropped + dropped,
@@ -691,7 +629,6 @@ export function saveSessionsStore(
         changed: meta.changed || dropped > 0 || trimmed > 0,
       }
     } catch {
-      // Give up silently — in-memory state still works for the tab
       return meta
     }
   }

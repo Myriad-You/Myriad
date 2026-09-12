@@ -1,8 +1,3 @@
-/**
- * 数字输入组设置项组件
- * 将多个数字输入选项组合为卡片组，共享标签和描述
- */
-
 import type { ReactNode } from 'react'
 import React, { useCallback } from 'react'
 import { guideDomProps } from '../guides/guideAnchor'
@@ -11,41 +6,25 @@ import { SettingTitleGuideEntry } from '../SettingTitleGuideEntry'
 import './SettingItem.css'
 
 export interface NumberGroupOption {
-  /** 唯一标识 */
   key: string
-  /** 选项显示文本 */
   label: string
-  /** 选项说明文本 */
   description?: string
-  /** 当前值 */
   value: number
-  /** 最小值 */
   min?: number
-  /** 最大值 */
   max?: number
-  /** 步进 */
   step?: number
-  /** 单位 */
   unit?: string
 }
 
 export interface NumberGroupItemProps {
-  /** 组标签 */
   label: string
-  /** 描述说明 */
   description?: string
-  /** 选项指南 */
   guide?: ReactNode
-  /** 指南路径（搜索跳转） */
   guidePath?: string
-  /** 提示文本 */
   hint?: string
-  /** 选项列表 */
   options: NumberGroupOption[]
-  /** 值变化回调 */
   onChange: (key: string, value: number) => void
   disabled?: boolean
-  /** 自定义 class */
   className?: string
 }
 
@@ -65,7 +44,6 @@ export const NumberGroupItem = React.memo<NumberGroupItemProps>(
       (key: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
         if (disabled) return
         const raw = e.target.value.trim()
-        // Allow empty while typing; commit 0 only when field is cleared on blur-equivalent empty string
         if (raw === '') {
           onChange(key, 0)
           return

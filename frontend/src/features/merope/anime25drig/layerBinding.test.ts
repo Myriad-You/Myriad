@@ -62,6 +62,59 @@ test('unextended player mesh and atlas UVs preserve upstream binding values', ()
   assert.deepEqual(enhanced.atlasUvs, atlasUvs(upstream.uv, source))
 })
 
+test('eye curves have feature-scaled sampling while neutral UV coverage stays intact', () => {
+  for (const role of ['eyewhite', 'eyelash', 'irides', 'eye-close', 'eye-close2', 'eyebrow']) {
+    for (const scale of [0.5, 1, 2]) {
+      const source = playbackLayer({ name: role, role, x: 270 * scale, y: 180 * scale, w: 80 * scale, h: 24 * scale })
+      const binding = buildAnime25DLayerBinding({ source, canvasWidth: CANVAS_WIDTH * scale,
+        face: { ...ANCHORS.face, x0: ANCHORS.face.x0 * scale, x1: ANCHORS.face.x1 * scale }, layerZ: 4 })
+      assert.ok(binding.extensions.includes('eye-mesh-density'))
+      assert.equal(binding.cols, 8)
+      assert.equal(binding.rows, 4)
+      assert.equal(binding.rest[0], source.x)
+      assert.equal(binding.rest[1], source.y)
+      assert.equal(binding.rest.at(-2), source.x + source.w)
+      assert.equal(binding.rest.at(-1), source.y + source.h)
+      for (let i = 0; i < binding.rest.length; i += 2) {
+        const [u, v] = localToAtlasUv(source.atlas, (binding.rest[i] - source.x) / source.w, (binding.rest[i + 1] - source.y) / source.h)
+        assert.ok(Math.abs(binding.atlasUvs[i] - u) < 1e-7)
+        assert.ok(Math.abs(binding.atlasUvs[i + 1] - v) < 1e-7)
+      }
+    }
+  }
+})
+
+test('face mesh resolves nonuniform depth landmarks without changing atlas coverage or other layers', () => {
+  const source = playbackLayer({ name: 'face', role: 'face', x: 200, y: 80, w: 360, h: 400 })
+  const faceShell = {
+    head: { centerX: 384, centerY: 240, radiusX: 190, radiusY: 230, radiusZ: 140 },
+    faceProfile: { enabled: true, startY: 80, endY: 460, points: [{ v: 0.06, z: 0.1 }, { v: 0.31, z: 0.02 }, { v: 0.65, z: 0.3 }, { v: 0.78, z: 0.06 }, { v: 0.97, z: 0.14 }] },
+  }
+  const input = { source, faceShell, canvasWidth: CANVAS_WIDTH, face: ANCHORS.face, layerZ: 1 }
+  const mesh = buildAnime25DLayerBinding(input)
+  assert.deepEqual(mesh.extensions, ['face-profile-grid'])
+  assert.ok(mesh.rest.includes(faceShell.head.centerX))
+  for (const point of faceShell.faceProfile.points) {
+    assert.ok(mesh.rest.includes(Math.fround(80 + point.v * 380)))
+  }
+  assert.equal(mesh.rest[0], source.x)
+  assert.equal(mesh.rest[1], source.y)
+  assert.equal(mesh.rest.at(-2), source.x + source.w)
+  assert.equal(mesh.rest.at(-1), source.y + source.h)
+  for (let i = 0; i < mesh.rest.length; i += 2) {
+    const [u, v] = localToAtlasUv(source.atlas, (mesh.rest[i] - source.x) / source.w, (mesh.rest[i + 1] - source.y) / source.h)
+    assert.ok(Math.abs(mesh.atlasUvs[i] - u) < 1e-7)
+    assert.ok(Math.abs(mesh.atlasUvs[i + 1] - v) < 1e-7)
+  }
+  assert.ok(mesh.rest.length / 2 < 1500, 'landmark refinement stays local and bounded for this fixture')
+  for (const role of ['neck', 'collar-front', 'front-hair', 'topwear']) {
+    const layer = { ...source, role }
+    const withProfile = buildAnime25DLayerBinding({ ...input, source: layer })
+    const withoutProfile = buildAnime25DLayerBinding({ ...input, source: layer, faceShell: undefined })
+    assert.deepEqual(withProfile, withoutProfile, role)
+  }
+})
+
 test('hair keeps upstream topology, progress, bang blocks, and spring phase', () => {
   const source = playbackLayer({
     name: 'front-hair-2',
@@ -210,7 +263,7 @@ function upstreamBinding(source: Anime25DPlaybackLayer) {
             ? 'front hair'
             : source.role === 'back-hair'
               ? 'back hair'
-              : source.role.replace(/-/g, '_'),
+              : source.role.replaceAll('-', '_'),
         x: source.x,
         y: source.y,
         w: source.w,

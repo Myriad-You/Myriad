@@ -6,6 +6,8 @@
 //! 持久化：通知写入 `agent_notifications` 表，启动时恢复最近历史，
 //! 已读状态落库，保留 30 天自动清理。内存中的环形缓冲作为热缓存。
 
+mod bridge;
+
 use std::collections::VecDeque;
 use std::sync::{Arc, OnceLock};
 
@@ -44,13 +46,13 @@ pub enum NotificationType {
     BrewNewItems,
     /// Brew 订阅源连续抓取失败
     BrewSourceError,
-    /// Tapp 定时任务排队的用户通知
+    /// Tapp 用户通知（`source_key` = `tapp_notification`）
     TappNotification,
     /// 系统更新/回滚任务状态
     UpdaterStatus,
-    /// 系统提示（如能力更新、记忆归档）
+    /// 系统提示（未知字符串也落到这里）
     SystemInfo,
-    /// 升级/澄清请求
+    /// `waiting_for_input` 澄清
     AgentClarification,
     /// 联邦私信 / 群聊新消息
     FederationMessage,
@@ -159,7 +161,7 @@ pub struct Notification {
     pub priority: NotificationPriority,
     pub title: String,
     pub body: String,
-    /// 目标用户 ID。用户可见通知必须有明确 owner；None 仅兼容旧数据，不再下发。
+    /// 目标用户 ID。用户可见通知必须有明确 owner；`user_id=None` 拒绝下发。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_id: Option<i32>,
     /// 可选的结构化数据（如任务 ID、链接等）
@@ -219,6 +221,12 @@ pub enum NotificationEvent {
     Resync { lagged_by: u64 },
     /// On-page persona speech. Not history, not a toast.
     LiveSpeech { user_id: i32, speech: LiveSpeech },
+    /// Late direction for an already delivered line; never contains speech text.
+    LiveSpeechMotion {
+        user_id: i32,
+        id: String,
+        performance: serde_json::Value,
+    },
     /// Ephemeral addressee state. No notification history, toast or speech.
     MeropeStateChanged {
         user_id: i32,
@@ -250,6 +258,7 @@ pub fn event_is_for_user(event: &NotificationEvent, user_id: i32) -> bool {
         | NotificationEvent::NotificationDeleted { user_id: owner, .. }
         | NotificationEvent::NotificationsCleared { user_id: owner }
         | NotificationEvent::LiveSpeech { user_id: owner, .. }
+        | NotificationEvent::LiveSpeechMotion { user_id: owner, .. }
         | NotificationEvent::MeropeStateChanged { user_id: owner, .. } => *owner == user_id,
         // resync 对所有订阅者广播；由 SSE 转发层无条件下发
         NotificationEvent::Resync { .. } => true,
@@ -289,7 +298,7 @@ impl NotificationManager {
         if let Some(event_key) = notification.event_key() {
             preferences.allows(event_key)
         } else {
-            // 旧数据/第三方生产者缺少精细事件键时，仍必须服从总开关和来源开关。
+            // 缺少精细事件键时，仍必须服从总开关和来源开关。
             preferences.enabled
                 && preferences
                     .sources
@@ -305,8 +314,7 @@ impl NotificationManager {
         let (tx, _) = broadcast::channel(512);
         let mut history = VecDeque::with_capacity(max_history);
 
-        // 旧版本把 user_id=NULL 当作共享广播；该记录允许任意用户删除，且可能包含
-        // Heartbeat/Agent 私有结果。新模型不再支持共享可变通知，启动时安全清理。
+        // 启动时删除 `user_id IS NULL` 的通知：没有共享可变通知。
         match notif_entity::Entity::delete_many()
             .filter(notif_entity::Column::UserId.is_null())
             .exec(&db)
@@ -368,14 +376,14 @@ impl NotificationManager {
         }
     }
 
-    /// 发布用户通知（实时事件 + 热缓存 + 持久化）
-    pub async fn notify(&self, notification: Notification) {
+    /// 发布用户通知（实时事件 + 热缓存 + 持久化）。返回是否被通知系统接收，非阅读回执。
+    pub async fn notify(&self, notification: Notification) -> bool {
         if notification.user_id.is_none() {
             tracing::error!(
                 id = %notification.id,
                 "[Notifications] Rejected ownerless user notification"
             );
-            return;
+            return false;
         }
         if !self.notification_is_enabled(&notification).await {
             tracing::debug!(
@@ -383,7 +391,7 @@ impl NotificationManager {
                 event_key = notification.event_key().unwrap_or("unknown"),
                 "Notification disabled by user preference"
             );
-            return;
+            return false;
         }
         tracing::debug!(
             id = %notification.id,
@@ -401,21 +409,9 @@ impl NotificationManager {
             history.push_back(notification.clone());
         }
 
-        // 落库（best-effort，失败不影响实时推送）
         if let Some(db) = &self.db {
-            let record = notif_entity::ActiveModel {
-                id: Set(notification.id.clone()),
-                notification_type: Set(notification.notification_type.as_str().to_string()),
-                priority: Set(notification.priority.as_str().to_string()),
-                title: Set(notification.title.clone()),
-                body: Set(notification.body.clone()),
-                user_id: Set(notification.user_id),
-                metadata: Set(notification.metadata.clone()),
-                read: Set(notification.read),
-                created_at: Set(notification.created_at.into()),
-            };
-            if let Err(e) = record.insert(db).await {
-                tracing::warn!(id = %notification.id, "[Notifications] Persist failed: {}", e);
+            if let Err(error) = bridge::persist(db, &notification, false).await {
+                tracing::warn!(id = %notification.id, %error, "notification persistence failed");
             }
         }
 
@@ -423,12 +419,26 @@ impl NotificationManager {
         let _ = self
             .tx
             .send(NotificationEvent::NewNotification { notification });
+        true
     }
 
-    pub fn emit_live_speech(&self, user_id: i32, speech: LiveSpeech) {
-        let _ = self
-            .tx
-            .send(NotificationEvent::LiveSpeech { user_id, speech });
+    pub fn emit_live_speech(&self, user_id: i32, speech: LiveSpeech) -> bool {
+        self.tx
+            .send(NotificationEvent::LiveSpeech { user_id, speech })
+            .is_ok()
+    }
+
+    pub fn emit_live_speech_motion(
+        &self,
+        user_id: i32,
+        id: String,
+        performance: serde_json::Value,
+    ) {
+        let _ = self.tx.send(NotificationEvent::LiveSpeechMotion {
+            user_id,
+            id,
+            performance,
+        });
     }
 
     pub fn emit_merope_state(
@@ -492,44 +502,8 @@ impl NotificationManager {
         }
 
         if let Some(db) = &self.db {
-            match notif_entity::Entity::find_by_id(&notification.id)
-                .one(db)
-                .await
-            {
-                Ok(Some(model)) => {
-                    let mut record = model.into_active_model();
-                    record.notification_type =
-                        Set(notification.notification_type.as_str().to_string());
-                    record.priority = Set(notification.priority.as_str().to_string());
-                    record.title = Set(notification.title.clone());
-                    record.body = Set(notification.body.clone());
-                    record.user_id = Set(notification.user_id);
-                    record.metadata = Set(notification.metadata.clone());
-                    record.read = Set(notification.read);
-                    record.created_at = Set(notification.created_at.into());
-                    if let Err(e) = record.update(db).await {
-                        tracing::warn!(id = %notification.id, "[Notifications] Update failed: {}", e);
-                    }
-                }
-                Ok(None) => {
-                    let record = notif_entity::ActiveModel {
-                        id: Set(notification.id.clone()),
-                        notification_type: Set(notification.notification_type.as_str().to_string()),
-                        priority: Set(notification.priority.as_str().to_string()),
-                        title: Set(notification.title.clone()),
-                        body: Set(notification.body.clone()),
-                        user_id: Set(notification.user_id),
-                        metadata: Set(notification.metadata.clone()),
-                        read: Set(notification.read),
-                        created_at: Set(notification.created_at.into()),
-                    };
-                    if let Err(e) = record.insert(db).await {
-                        tracing::warn!(id = %notification.id, "[Notifications] Insert failed: {}", e);
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(id = %notification.id, "[Notifications] Lookup failed: {}", e);
-                }
+            if let Err(error) = bridge::persist(db, &notification, true).await {
+                tracing::warn!(id = %notification.id, %error, "notification upsert failed");
             }
         }
 
@@ -913,10 +887,23 @@ impl NotificationManager {
     }
 }
 
+/// Trusted background producers persist events without an SSE listener or cleanup jobs.
+pub async fn init_notification_publisher(db: DatabaseConnection) {
+    let (tx, _) = broadcast::channel(32);
+    let manager = NotificationManager {
+        tx,
+        history: RwLock::new(VecDeque::new()),
+        max_history: 200,
+        db: Some(db),
+    };
+    let _ = NOTIFICATION_MANAGER.set(Arc::new(manager));
+}
+
 /// 初始化全局通知管理器（带持久化 + 每日过期清理）
 pub async fn init_notifications(db: DatabaseConnection) {
     let manager = Arc::new(NotificationManager::new_with_db(200, db).await);
     let _ = NOTIFICATION_MANAGER.set(manager.clone());
+    bridge::spawn(manager.clone());
 
     // 每日清理 30 天前的通知
     tokio::spawn(async move {
@@ -938,6 +925,46 @@ pub fn get_notification_manager() -> Option<&'static Arc<NotificationManager>> {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn live_speech_reports_transport_acceptance_and_disconnect() {
+        let manager = test_manager();
+        let speech = || LiveSpeech {
+            id: "delivery-test".into(),
+            body: "hello".into(),
+            event_key: "agent.merope.greeting".into(),
+            performance: None,
+            merope_state: None,
+            intention_id: None,
+        };
+        assert!(!manager.emit_live_speech(2, speech()));
+        let mut stream = manager.subscribe();
+        assert!(manager.emit_live_speech(2, speech()));
+        assert!(matches!(
+            stream.recv().await.unwrap(),
+            NotificationEvent::LiveSpeech { user_id: 2, .. }
+        ));
+        drop(stream);
+        assert!(!manager.emit_live_speech(2, speech()));
+    }
+
+    #[tokio::test]
+    async fn notification_acceptance_distinguishes_rejected_and_retained() {
+        let manager = test_manager();
+        let mut notification = Notification::new(
+            2,
+            NotificationType::SystemInfo,
+            NotificationPriority::Normal,
+            "test",
+            "hello",
+        );
+        notification.user_id = None;
+        assert!(!manager.notify(notification.clone()).await);
+        assert!(manager.get_history_for_user(2, 10).await.is_empty());
+        notification.user_id = Some(2);
+        assert!(manager.notify(notification).await);
+        assert_eq!(manager.get_history_for_user(2, 10).await.len(), 1);
+    }
+
     use super::*;
 
     #[test]
@@ -1082,6 +1109,17 @@ mod tests {
         };
         assert!(event_is_for_user(&live, 2));
         assert!(!event_is_for_user(&live, 1));
+        let refinement = NotificationEvent::LiveSpeechMotion {
+            user_id: 2,
+            id: "spk_1".into(),
+            performance: serde_json::json!({"phrases": []}),
+        };
+        assert!(event_is_for_user(&refinement, 2));
+        assert!(!event_is_for_user(&refinement, 1));
+        let wire = serde_json::to_value(refinement).unwrap();
+        assert_eq!(wire["event"], "live_speech_motion");
+        assert!(wire.get("body").is_none());
+        assert!(wire.get("speech").is_none());
     }
 
     #[tokio::test]
@@ -1354,4 +1392,14 @@ mod tests {
             assert_eq!(NotificationType::from_str(stored).as_str(), stored);
         }
     }
+}
+
+/// First-party, ephemeral cross-process observation; never returned to a TAPP.
+pub async fn publish_persona_observation(
+    db: &DatabaseConnection,
+    user_id: i32,
+    event_key: &str,
+    summary: &str,
+) {
+    bridge::publish_persona_observation(db, user_id, event_key, summary).await;
 }

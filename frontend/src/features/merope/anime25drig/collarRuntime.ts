@@ -17,6 +17,8 @@ export const FRONT_COLLAR_INNER_REGION = 0.72
 export interface CollarClipMesh {
   rest: Float32Array
   deformed: Float32Array
+  atlasUvs: Float32Array
+  indices: Uint16Array
   vao: WebGLVertexArrayObject
   vertexBuffer: WebGLBuffer
   uvBuffer: WebGLBuffer
@@ -169,6 +171,8 @@ export function createCollarClipMesh(
   return {
     rest,
     deformed,
+    atlasUvs: uvs,
+    indices,
     vao: mesh.vao,
     vertexBuffer: mesh.positionBuffer,
     uvBuffer: mesh.uvBuffer,

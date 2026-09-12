@@ -1,6 +1,6 @@
 //! 番剧/电视剧/电影数据库
 //!
-//! 预置常见高评分内容，用于快速分类用户观看内容
+//! JSON loader (`anime_database.json`; bootstraps `entries: []` if missing) plus category analysis.
 
 #![allow(dead_code)]
 
@@ -61,7 +61,7 @@ pub struct CategoryAnalysis {
     pub count: usize,
     pub percentage: f32,
     pub genres: HashMap<String, usize>,
-    pub examples: Vec<String>, // 代表性例子（3-5个）
+    pub examples: Vec<String>, // up to 5 (`take(5)`); may be empty
     pub summary: String,       // 判断摘要
 }
 
@@ -100,8 +100,7 @@ impl AnimeDatabase {
                                         aliases: json_entry.aliases.clone(),
                                     };
                                     entries.insert(json_entry.title.clone(), entry.clone());
-                                    // Index aliases too? Maybe not in the main map to avoid duplicates in iteration,
-                                    // but find() should handle it.
+                                    // 主 map 只按 title 插入；别名由 find() 扫描 aliases。
                                 } else {
                                     error!("Invalid category for entry: {}", json_entry.title);
                                 }
@@ -221,7 +220,7 @@ impl AnimeDatabase {
                     *genre_map.entry(genre.clone()).or_insert(0) += 1;
                 }
             } else {
-                // 未知内容 - 保留原样（不进入外部自学习链路）
+                // Unknown titles are pushed then discarded (`analyze` returns known categories only).
                 unknown_items.push(title.clone());
             }
         }
@@ -252,19 +251,19 @@ impl AnimeDatabase {
 
             // 生成摘要
             let category_name = match category {
-                ContentCategory::Anime => "番剧",
-                ContentCategory::TvSeries => "电视剧",
-                ContentCategory::Movie => "电影",
+                ContentCategory::Anime => "anime",
+                ContentCategory::TvSeries => "TV series",
+                ContentCategory::Movie => "movies",
             };
 
             let summary = if top_genres.is_empty() {
-                format!("观看了 {} 部{}", count, category_name)
+                format!("Watched {count} {category_name}")
             } else {
                 format!(
-                    "观看了 {} 部{}，基于这些内容，推测可能对{}类型感兴趣",
+                    "Watched {} {}, likely interested in {}",
                     count,
                     category_name,
-                    top_genres.join("、")
+                    top_genres.join(", ")
                 )
             };
 

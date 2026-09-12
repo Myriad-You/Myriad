@@ -26,12 +26,51 @@ function deferred<T>(): {
   promise: Promise<T>
   resolve: (value: T) => void
 } {
-  let resolve!: (value: T) => void
-  const promise = new Promise<T>((next) => {
-    resolve = next
-  })
-  return { promise, resolve }
+  return Promise.withResolvers<T>()
 }
+
+test('failed synthesis falls back in order and cancellation releases the successor', async () => {
+  const outputs: string[] = []
+  let finishFallback = () => {}
+  let stopped = 0
+  const late = deferred<ArrayBuffer | null>()
+  const pipeline = new TtsPipeline({
+    synthesize: (item) =>
+      item.text === 'late'
+        ? late.promise
+        : Promise.resolve(item.text === 'failed' ? null : buffer(item.text)),
+    fallback: (item, end) => {
+      outputs.push(`text:${item.text}`)
+      finishFallback = end
+      return {
+        stop: () => {
+          stopped++
+        },
+      }
+    },
+    play: (_audio, item) => {
+      outputs.push(`audio:${item.text}`)
+      return { stop() {} }
+    },
+  })
+  pipeline.enqueue([
+    segment(1, 'failed', 'old'),
+    segment(2, 'late', 'old'),
+    segment(1, 'new', 'new'),
+  ])
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(outputs, ['text:failed'])
+  pipeline.cancel('old')
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(outputs, ['text:failed', 'audio:new'])
+  assert.equal(stopped, 1)
+  finishFallback()
+  late.resolve(buffer('late'))
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(outputs, ['text:failed', 'audio:new'])
+  assert.equal(pipeline.isBusyWith('new'), true)
+  pipeline.cancel()
+})
 
 test('synthesizes at most two segments and plays in sequence order', async () => {
   const played: string[] = []

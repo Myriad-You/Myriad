@@ -1,66 +1,35 @@
-/**
- * Tapp Scheduler - 定时任务调度器
- * 前端调度器，与后端调度引擎协同工作
- *
- * 混合架构：
- * - 后端负责调度逻辑和后端任务执行
- * - 前端通过 WebSocket 接收任务推送
- * - 前端执行 UI 相关任务（widget 更新、通知等）
- */
-
 import type { TappAPIResponse } from '../types'
+import { hostLocaleHeaders } from '../../i18n/hostLocaleHeaders'
 import { currentCopy } from '../../i18n/localeCopy'
 import { getCSRFToken } from '../../utils/csrf'
 import { httpStatusMessage, userFacingError } from '../../utils/userFacingError'
 import { TappRuntimeGrant } from './TappRuntimeGrant'
 
-// 类型定义
-
-/** 调度类型 */
 export type ScheduleType = 'cron' | 'interval' | 'once' | 'daily'
 
-/** 执行目标 */
 export type ExecutionTarget = 'backend' | 'frontend' | 'both'
 
-/** 错过执行策略 */
 export type MissedPolicy = 'skip' | 'run-once' | 'run-all'
 
-/** 任务作用域 */
 export type TaskScope = 'user' | 'tapp' | 'tapp-per-user' | 'global'
 
-/** 任务执行状态 */
 export type TaskExecutionStatus =
   'pending' | 'running' | 'success' | 'failed' | 'cancelled'
 
-/** 调度配置 */
 export interface ScheduleConfig {
-  /** cron 表达式（type=cron 时） */
   cron?: string
-  /** 间隔毫秒（type=interval 时） */
   interval?: number
-  /** 执行时间戳（type=once 时） */
   at?: number
-  /**
-   * 每日时间 HH:mm（type=daily 时）。
-   * 按 timezone 墙钟解释；默认 process local（容器 `TZ` / 主机时区），不是 UTC。
-   */
+  /** 每日 HH:mm 按 timezone 墙钟；默认 process local，不是 UTC。 */
   time?: string
-  /**
-   * 墙钟时区：`local`（默认）| `UTC` | 固定偏移如 `+08:00`。
-   * 未设 IANA 名（无 chrono-tz）；部署用 `TZ=Asia/Shanghai` 即可让 local=站点墙钟。
-   */
   timezone?: string
 }
 
-/** 重试配置 */
 export interface RetryConfig {
-  /** 最大重试次数 */
   maxRetries?: number
-  /** 重试延迟（毫秒） */
   retryDelay?: number
 }
 
-/** 后端操作定义（与 BE BackendAction / 文档对齐；SDK 用 type，落库前 normalize 为 action） */
 export type BackendAction =
   | { type: 'platform.sync'; platform: string }
   | { type: 'storage.set'; key: string; value: unknown }
@@ -87,31 +56,19 @@ export type BackendAction =
       template?: string
     }
 
-/** 任务注册选项 */
 export interface TaskRegistrationOptions {
-  /** 任务 ID（Tapp 内唯一） */
   taskId: string
-  /** 任务名称 */
   name: string
-  /** 调度类型 */
   scheduleType: ScheduleType
-  /** 调度配置 */
   schedule: ScheduleConfig
-  /** 任务负载（传递给回调的数据） */
   payload?: unknown
-  /** 执行目标（默认：frontend） */
   executionTarget?: ExecutionTarget
-  /** 后端操作列表（executionTarget=backend|both 时） */
   backendActions?: BackendAction[]
-  /** 错过执行策略（默认：skip） */
   missedPolicy?: MissedPolicy
-  /** 任务作用域（默认：user；跨用户作用域受后端权限约束） */
   scope?: TaskScope
-  /** 重试配置 */
   retry?: RetryConfig
 }
 
-/** 已注册的任务信息 */
 export interface RegisteredTask {
   id: number
   taskId: string
@@ -136,7 +93,6 @@ export interface RegisteredTask {
   createdAt: string
 }
 
-/** 任务执行事件 */
 export interface TaskExecutionEvent {
   type: 'task:execute'
   task: {
@@ -145,9 +101,7 @@ export interface TaskExecutionEvent {
     tappId: string
     userId: number
     scope?: string
-    /** RFC3339 (aligned with outer scheduledAt) */
     scheduledAt?: string
-    /** RFC3339 */
     executedAt?: string
     isCompensation?: boolean
     payload?: unknown
@@ -157,13 +111,11 @@ export interface TaskExecutionEvent {
   executionId: number
 }
 
-/** 任务回调函数 */
 export type TaskCallback = (
   payload: unknown,
   event: TaskExecutionEvent,
 ) => void | Promise<void>
 
-/** WebSocket 消息类型 */
 interface SchedulerWebSocketMessage {
   type: 'connected' | 'task:execute' | 'pong'
   user_id?: number
@@ -174,60 +126,38 @@ interface SchedulerWebSocketMessage {
   executionId?: number
 }
 
-// TappScheduler 类
-
-/**
- * Tapp 调度器
- * 管理定时任务的注册、接收和执行
- */
 export class TappScheduler {
   private static instance: TappScheduler | null = null
 
-  /** WebSocket 连接 */
   private ws: WebSocket | null = null
 
-  /** 连接状态 */
   private connected: boolean = false
 
-  /** 重连定时器 */
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
-  /** 重连间隔（毫秒） */
   private reconnectInterval: number = 3000
 
-  /** 最大重连次数 */
   private maxReconnectAttempts: number = 10
 
-  /** 当前重连次数 */
   private reconnectAttempts: number = 0
 
-  /** 心跳定时器 */
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
 
-  /** 心跳间隔（毫秒） */
   private heartbeatInterval: number = 30000
 
-  /** 任务回调注册栈；同任务只执行最后挂载且仍存活的 runtime。 */
   private taskCallbacks: Map<string, Array<{ callback: TaskCallback }>> =
     new Map()
 
-  /** 全局任务回调（接收所有任务） */
   private globalCallbacks: Set<TaskCallback> = new Set()
 
-  /** 连接状态监听器 */
   private connectionListeners: Set<(connected: boolean) => void> = new Set()
 
-  /** API 基础 URL */
   private apiBaseUrl: string = ''
 
-  /** 认证 token */
   private authToken: string = ''
 
   private constructor() {}
 
-  /**
-   * 获取单例实例
-   */
   static getInstance(): TappScheduler {
     if (!TappScheduler.instance) {
       TappScheduler.instance = new TappScheduler()
@@ -240,22 +170,13 @@ export class TappScheduler {
     TappScheduler.instance = null
   }
 
-  /**
-   * 初始化调度器
-   * @param apiBaseUrl API 基础 URL
-   * @param authToken 认证 token
-   */
   initialize(apiBaseUrl: string, authToken: string): void {
-    this.apiBaseUrl = apiBaseUrl.replace(/\/$/, '')
+    this.apiBaseUrl = apiBaseUrl.replaceAll(/\/$/g, '')
     this.authToken = authToken
 
-    // 建立 WebSocket 连接
     this.connect()
   }
 
-  /**
-   * 销毁调度器
-   */
   destroy(): void {
     this.disconnect()
     this.taskCallbacks.clear()
@@ -263,25 +184,20 @@ export class TappScheduler {
     this.connectionListeners.clear()
   }
 
-  /**
-   * 建立 WebSocket 连接
-   */
   private connect(): void {
     if (this.ws) {
       this.disconnect()
     }
 
-    // 构建 WebSocket URL
-    // apiBaseUrl 可能是绝对（https://host/api）或相对（/api，生产同源）。
-    // 相对时用 window.location 补全为绝对 ws(s):// 地址，否则 new WebSocket 会抛错。
     let base = this.apiBaseUrl
+    // 相对路径须补成绝对 ws(s) URL，否则 new WebSocket 会抛错。
     if (!/^https?:/i.test(base)) {
       const origin = typeof window !== 'undefined' ? window.location.origin : ''
       base = origin + (base.startsWith('/') ? base : `/${base}`)
     }
     const wsUrl = base
-      .replace(/^http/i, 'ws')
-      .replace(/\/api$/, '/api/tapp/scheduler/ws')
+      .replaceAll(/^http/gi, 'ws')
+      .replaceAll(/\/api$/g, '/api/tapp/scheduler/ws')
 
     try {
       this.ws = new WebSocket(wsUrl)
@@ -315,9 +231,6 @@ export class TappScheduler {
     }
   }
 
-  /**
-   * 断开 WebSocket 连接
-   */
   private disconnect(): void {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer)
@@ -327,7 +240,7 @@ export class TappScheduler {
     this.stopHeartbeat()
 
     if (this.ws) {
-      this.ws.onclose = null // 防止触发重连
+      this.ws.onclose = null
       this.ws.close()
       this.ws = null
     }
@@ -335,9 +248,6 @@ export class TappScheduler {
     this.connected = false
   }
 
-  /**
-   * 安排重连
-   */
   private scheduleReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.warn('[TappScheduler] Max reconnect attempts reached')
@@ -361,9 +271,6 @@ export class TappScheduler {
     }, delay)
   }
 
-  /**
-   * 启动心跳
-   */
   private startHeartbeat(): void {
     this.stopHeartbeat()
     this.heartbeatTimer = setInterval(() => {
@@ -371,9 +278,6 @@ export class TappScheduler {
     }, this.heartbeatInterval)
   }
 
-  /**
-   * 停止心跳
-   */
   private stopHeartbeat(): void {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer)
@@ -381,22 +285,15 @@ export class TappScheduler {
     }
   }
 
-  /**
-   * 发送心跳
-   */
   private sendPing(): void {
     if (this.ws && this.connected) {
       try {
         this.ws.send(JSON.stringify({ type: 'ping' }))
       } catch {
-        // 忽略发送错误
       }
     }
   }
 
-  /**
-   * 处理 WebSocket 消息
-   */
   private handleMessage(data: string): void {
     try {
       const message = JSON.parse(data) as SchedulerWebSocketMessage
@@ -411,7 +308,6 @@ export class TappScheduler {
           break
 
         case 'pong':
-          // 心跳响应，忽略
           break
 
         default:
@@ -422,9 +318,6 @@ export class TappScheduler {
     }
   }
 
-  /**
-   * 处理任务执行事件
-   */
   private async handleTaskExecution(
     message: SchedulerWebSocketMessage,
   ): Promise<void> {
@@ -442,9 +335,8 @@ export class TappScheduler {
 
     const callbackKey = `${message.task.tappId}:${message.task.taskId}`
     const registrations = this.taskCallbacks.get(callbackKey)
-    const callback = registrations?.[registrations.length - 1]?.callback
+    const callback = registrations?.at(-1)?.callback
 
-    // 执行特定任务回调
     if (callback) {
       try {
         await callback(message.payload, event)
@@ -465,7 +357,6 @@ export class TappScheduler {
       )
     }
 
-    // 执行全局回调
     for (const globalCallback of this.globalCallbacks) {
       try {
         await globalCallback(message.payload, event)
@@ -475,9 +366,6 @@ export class TappScheduler {
     }
   }
 
-  /**
-   * 报告任务完成状态
-   */
   private reportTaskComplete(
     executionId: number,
     success: boolean,
@@ -494,36 +382,23 @@ export class TappScheduler {
           }),
         )
       } catch {
-        // 忽略发送错误
       }
     }
   }
 
-  /**
-   * 通知连接状态变化
-   */
   private notifyConnectionChange(connected: boolean): void {
     for (const listener of this.connectionListeners) {
       try {
         listener(connected)
       } catch {
-        // 忽略监听器错误
       }
     }
   }
 
-  // 公共 API
-
-  /**
-   * 检查是否已连接
-   */
   isConnected(): boolean {
     return this.connected
   }
 
-  /**
-   * 监听连接状态变化
-   */
   onConnectionChange(callback: (connected: boolean) => void): () => void {
     this.connectionListeners.add(callback)
     return () => {
@@ -531,9 +406,6 @@ export class TappScheduler {
     }
   }
 
-  /**
-   * 注册定时任务
-   */
   async registerTask(
     tappId: string,
     options: TaskRegistrationOptions,
@@ -568,9 +440,6 @@ export class TappScheduler {
     return response.task
   }
 
-  /**
-   * 注销定时任务
-   */
   async unregisterTask(
     tappId: string,
     taskId: string,
@@ -584,9 +453,6 @@ export class TappScheduler {
     )
   }
 
-  /**
-   * 获取任务列表
-   */
   async listTasks(
     tappId?: string,
     runtimeGrant?: string,
@@ -599,9 +465,6 @@ export class TappScheduler {
     return response.tasks || []
   }
 
-  /**
-   * 获取单个任务
-   */
   async getTask(
     tappId: string,
     taskId: string,
@@ -618,9 +481,6 @@ export class TappScheduler {
     }
   }
 
-  /**
-   * 启用任务
-   */
   async enableTask(
     tappId: string,
     taskId: string,
@@ -634,9 +494,6 @@ export class TappScheduler {
     )
   }
 
-  /**
-   * 禁用任务
-   */
   async disableTask(
     tappId: string,
     taskId: string,
@@ -650,9 +507,6 @@ export class TappScheduler {
     )
   }
 
-  /**
-   * 手动触发任务
-   */
   async triggerTask(
     tappId: string,
     taskId: string,
@@ -666,29 +520,23 @@ export class TappScheduler {
     )
   }
 
-  /**
-   * 注册任务回调（特定任务）
-   */
   onTask(tappId: string, taskId: string, callback: TaskCallback): () => void {
     const key = `${tappId}:${taskId}`
     const registration = { callback }
-    const registrations = this.taskCallbacks.get(key) || []
+    const registrations = this.taskCallbacks.get(key) ?? []
     registrations.push(registration)
     this.taskCallbacks.set(key, registrations)
     return () => {
       const current = this.taskCallbacks.get(key)
       if (!current) return
       const index = current.indexOf(registration)
-      if (index >= 0) current.splice(index, 1)
-      if (current.length === 0) {
-        this.taskCallbacks.delete(key)
-      }
+      if (index < 0) return
+      const next = current.toSpliced(index, 1)
+      if (next.length === 0) this.taskCallbacks.delete(key)
+      else this.taskCallbacks.set(key, next)
     }
   }
 
-  /**
-   * 注册全局任务回调（接收所有任务）
-   */
   onAnyTask(callback: TaskCallback): () => void {
     this.globalCallbacks.add(callback)
     return () => {
@@ -696,9 +544,6 @@ export class TappScheduler {
     }
   }
 
-  /**
-   * API 请求辅助方法
-   */
   private async apiRequest<T = TappAPIResponse>(
     method: string,
     endpoint: string,
@@ -710,10 +555,9 @@ export class TappScheduler {
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      ...hostLocaleHeaders(),
     }
 
-    // 认证：与全站一致使用 cookie 会话 + CSRF（非 GET）。
-    // authToken 保留为可选 Bearer（兼容 token 部署），但默认走 cookie。
     if (this.authToken) {
       headers.Authorization = `Bearer ${this.authToken}`
     }
@@ -762,9 +606,6 @@ export class TappScheduler {
   }
 }
 
-/**
- * 获取调度器实例
- */
 export function getTappScheduler(): TappScheduler {
   return TappScheduler.getInstance()
 }

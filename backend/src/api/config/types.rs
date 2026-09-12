@@ -51,7 +51,6 @@ pub struct ConfigField {
 }
 
 /// 管理端 `ai_config`：只暴露 bag（`config_fields`）。
-/// 历史 typed 镜像（provider / model / api_key / enabled / image_provider）已废弃。
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AiConfig {
@@ -72,8 +71,7 @@ pub struct ReportConfig {
 }
 
 /// 管理端 `ui_config`：**只暴露 bag**（`config_fields`）。
-/// 历史 typed 镜像字段（wallpaper/pet/theme/proxy…）已废弃——保存只读 bag，
-/// 公开运行时配置走 `GET /api/config/ui`。
+/// 保存只读 bag，公开运行时配置走 `GET /api/config/ui`。
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct UiConfig {

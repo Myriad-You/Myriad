@@ -101,7 +101,9 @@ pub async fn process(
     {
         return Err(HttpError::from((
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "An accepted intention must enter Work mode" })),
+            Json(AppError::public_json(
+                "An accepted intention must enter Work mode",
+            )),
         )));
     }
     validate_intention_work_request(&db, source_intent_id.as_deref(), user_id, &req.input).await?;
@@ -123,7 +125,7 @@ pub async fn process(
             tracing::error!(%error, "[Agent API] Failed to ensure session");
             HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Could not prepare Agent session" })),
+                Json(AppError::public_json("Could not prepare Agent session")),
             ))
         })?;
     let lane_key = LaneQueue::make_lane_key(user_id, Some(&session_id));
@@ -138,14 +140,14 @@ pub async fn process(
         tracing::error!(%error, "[Agent API] Failed to load session history");
         HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Could not load Agent session" })),
+            Json(AppError::public_json("Could not load Agent session")),
         ))
     })?;
     if let Err(error) = persist_user_message(&db, &session_id, &req.input).await {
         tracing::error!(%error, "[Agent API] Failed to persist user message");
         return Err(HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Could not save Agent message" })),
+            Json(AppError::public_json("Could not save Agent message")),
         )));
     }
 
@@ -184,7 +186,7 @@ pub async fn process(
         ctx.autonomy_permission_cap = autonomy_cap;
     }
 
-    // 获取 Lane Queue 执行许可（同一用户串行，全局并发上限 4）
+    // 同一 lane 串行；全局许可 4；`acquire_timeout` 默认 60s
     let _guard = LANE_QUEUE
         .acquire_timeout(
             &lane_key,
@@ -193,7 +195,10 @@ pub async fn process(
         .await
         .map_err(|e| {
             tracing::warn!(error = %e, "[Agent API] Queue acquisition failed");
-            HttpError::from((StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": e }))))
+            HttpError::from((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(AppError::public_json(e)),
+            ))
         })?;
 
     begin_intention_work(
@@ -301,7 +306,9 @@ pub(crate) async fn start_process_run(
     {
         return Err(HttpError::from((
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "An accepted intention must enter Work mode" })),
+            Json(AppError::public_json(
+                "An accepted intention must enter Work mode",
+            )),
         )));
     }
     validate_intention_work_request(&db, source_intent_id.as_deref(), user_id, &req.input).await?;
@@ -324,15 +331,15 @@ pub(crate) async fn start_process_run(
             Ok(sid) => sid,
             Err(e) => {
                 tracing::warn!("[Agent API] Failed to ensure session: {}", e);
-                // Chat and accepted autonomous proposals require a durable
-                // identity. Otherwise memory/history can fork silently, and
-                // accepted Work cannot recover after a crash.
+                // Chat 或带 `source_intent_id` 的接单必须有持久会话，否则历史会分叉。
                 if source_intent_id.is_some()
                     || interaction_mode == crate::services::agent::AgentInteractionMode::Chat
                 {
                     return Err(HttpError::from((
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({ "error": "Could not prepare durable Agent session" })),
+                        Json(AppError::public_json(
+                            "Could not prepare durable Agent session",
+                        )),
                     )));
                 }
                 // 不阻塞主流程，降级为无会话模式
@@ -342,7 +349,7 @@ pub(crate) async fn start_process_run(
 
     let has_session = !session_id.is_empty();
 
-    // 从数据库加载会话历史（替代前端传入的 conversation_history）
+    // 从数据库加载最近 20 条会话历史（替代前端传入的 conversation_history）
     let conversation_history = if has_session {
         let history = load_session_history(
             &db,
@@ -355,7 +362,7 @@ pub(crate) async fn start_process_run(
             tracing::error!(%error, "[Agent API] Failed to load session history");
             HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Could not load Agent session" })),
+                Json(AppError::public_json("Could not load Agent session")),
             ))
         })?;
         if !history.is_empty() {
@@ -378,7 +385,9 @@ pub(crate) async fn start_process_run(
             {
                 return Err(HttpError::from((
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({ "error": "Could not save durable Agent message" })),
+                    Json(AppError::public_json(
+                        "Could not save durable Agent message",
+                    )),
                 )));
             }
         }
@@ -425,8 +434,8 @@ pub(crate) async fn start_process_run(
     }
 
     // 后端 run 独立于本次 HTTP 连接；前端只订阅事件。
-    // 刻意不在 SSE 断连时取消任务：刷新 / reattach 依赖 run 继续存活；
-    // 用户中断走 cancelTask API + is_cancelled 协作取消。
+    // SSE 断连不取消任务：刷新 / reattach 依赖 run 继续存活；
+    // 用户中断走 cancel_task / cancel_task_for_user。
     let run = create_run(user_id, has_session.then_some(session_id.clone())).await;
     let run_id_for_meta = run.run_id().to_string();
     begin_intention_work(
@@ -443,8 +452,7 @@ pub(crate) async fn start_process_run(
     }
 
     // Agent/executor 继续使用有背压的 mpsc；独立转发器负责写入 run hub。
-    // On TaskCreated, persist runId/taskId into session history so mid-run
-    // panel refresh can reattach (criterion 4) before wait/final complete.
+    // TaskCreated 时把 runId/taskId 写入会话历史，刷新后可 reattach。
     let (tx, rx) = tokio::sync::mpsc::channel::<ProgressEvent>(256);
     let run_for_forwarder = run.clone();
     let session_for_identity = session_id.clone();
@@ -467,10 +475,10 @@ pub(crate) async fn start_process_run(
                     None
                 };
 
-            // Criterion 5: live fanout first — never await DB on this hot path.
+            // 先 `publish`（hub fanout）；会话身份 persist 另 spawn，不挡热路径。
             run_for_forwarder.publish(event).await;
 
-            // Criterion 4: best-effort session identity for reattach; fire-and-forget.
+            // TaskCreated 后 best-effort 写会话身份，fire-and-forget。
             if let Some((task_id, message)) = mid_run_identity {
                 mid_run_identity_persisted = true;
                 let db = db_for_identity.clone();
@@ -522,7 +530,7 @@ pub(crate) async fn start_process_run(
     };
     // tx 会被移动到 spawn 中，确保 channel 在任务完成前不会关闭
     let execution = tokio::spawn(async move {
-        // 获取 Lane Queue 执行许可（同一用户串行，全局并发上限 4）
+        // 同一 lane 串行；全局许可 4；`acquire_timeout` 默认 60s
         // 注意：进入 wait-for-input 后必须释放，否则最多 4 个等待任务会堵死全局槽位
         {
             let qs = queue.get_status().await;
@@ -533,7 +541,7 @@ pub(crate) async fn start_process_run(
                         progress: 0,
                         completed_steps: 0,
                         total_steps: 0,
-                        message: format!("排队中（前方约 {} 个任务）…", ahead),
+                        message: format!("Queued (about {ahead} ahead)…"),
                     })
                     .await;
             }
@@ -610,8 +618,8 @@ pub(crate) async fn start_process_run(
 
         // 使用带进度回调的处理方法
         // New Chat replaces the previous Chat run. Work is never registered here,
-        // so a Chat send cannot cancel background Work. Dropping this future
-        // does not run on SSE disconnect — only claim_chat_turn fires.
+        // so a Chat send cannot cancel background Work. This select is Chat
+        // supersession or cancel_chat_turn/cancel_chat_run — not SSE disconnect.
         let turn_result = if let Some(cancelled) = chat_cancel.take() {
             tokio::select! {
                 biased;
@@ -712,9 +720,9 @@ pub(crate) async fn start_process_run(
                     )
                     .await;
                 } else {
-                    // 非 waiting 路径：正常流程结束时 guard 会在 spawn 结束时 drop
+                    // 非 waiting 路径：立即 `lane_guard.take()`，不等 spawn 结束
                     let _ = lane_guard.take();
-                    // 正常流程：立即发送 TaskCompleted
+                    // 非 waiting：先落会话元数据，再发 TaskCompleted
 
                     let is_confirmation = api_response.confirmation.is_some()
                         || api_response.response_type == "confirmation_required";
@@ -765,7 +773,7 @@ pub(crate) async fn start_process_run(
                         park_confirmation_run(&api_response, &parked_task_id)
                     } else {
                         serde_json::to_value(&api_response)
-                            .unwrap_or_else(|_| json!({"error": "serialization failed"}))
+                            .unwrap_or_else(|_| AppError::public_json("serialization failed"))
                     };
                     advance_intention_work(
                         &db_clone,
@@ -839,7 +847,7 @@ pub(crate) async fn start_process_run(
             crate::services::agent::turn::finish_chat_turn(user_id, &session_id_clone, slot_id)
                 .await;
         }
-        // tx 在这里被 drop，channel 关闭，SSE 流结束
+        // spawn 结束；HTTP SSE 随 hub 终端事件结束，不是这里 drop mpsc。
     });
 
     run.register_execution(execution.abort_handle());
@@ -857,7 +865,9 @@ pub async fn subscribe_run_stream(
     let run = get_run_for_user(&run_id, user_id).await.ok_or_else(|| {
         HttpError::from((
             StatusCode::NOT_FOUND,
-            Json(json!({ "error": "Run not found, expired, or access denied" })),
+            Json(AppError::public_json(
+                "Run not found, expired, or access denied",
+            )),
         ))
     })?;
 
@@ -912,7 +922,7 @@ pub async fn get_task(
         }
         None => Err(HttpError::from((
             StatusCode::NOT_FOUND,
-            Json(json!({ "error": "Task not found or access denied" })),
+            Json(AppError::public_json("Task not found or access denied")),
         ))),
     }
 }
@@ -922,7 +932,7 @@ pub async fn get_task(
 /// 任务列表分页参数
 #[derive(Debug, Deserialize, Default)]
 pub struct TaskListQuery {
-    /// 最多返回多少条，默认 20，最大 100
+    /// 最多返回多少条，默认 20。`list_tasks` 上限 100，`list_traces` 上限 50。
     #[serde(default = "default_task_limit")]
     pub limit: usize,
     /// 偏移量，默认 0
@@ -983,8 +993,7 @@ pub async fn list_tasks(
     })))
 }
 
-/// 获取执行追踪列表
-/// GET /api/agent/traces?limit=20
+/// 获取执行追踪列表。GET /api/agent/traces；limit 默认 20，上限 50。
 pub async fn list_traces(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
@@ -996,7 +1005,7 @@ pub async fn list_traces(
     let agent = Agent::new(db).await;
     let all_tasks = agent.get_user_tasks(user_id).await;
 
-    // 只返回有 execution_trace 的已完成任务（all_tasks 已按最新优先）
+    // 只返回带 execution_trace 的任务（all_tasks 已按最新优先；不按 status 过滤）。
     let traces: Vec<Value> = all_tasks
         .iter()
         .filter_map(|t| {
@@ -1067,13 +1076,13 @@ pub async fn cancel_task(
     let cancelled = agent.cancel_task_for_user(&task_id, user_id).await;
 
     if cancelled {
-        // 等待输入中的 run 正阻塞在 done_rx；显式取消必须立即唤醒它，
-        // 否则通知会在最多十分钟内仍错误显示为“等待回答”。
+        // 等待输入的 run 堵在 `done_rx`（boot 里 2s timeout 再轮询）；取消必须立刻 send。
         if let Some(waiting) = take_waiting_task(&task_id, user_id).await {
             let _ = waiting.done_tx.send(json!({
                 "success": false,
                 "responseType": "error",
-                "message": "任务已取消",
+                "message": "The task was cancelled",
+                "code": "task_cancelled",
                 "task": {
                     "taskId": task_id,
                     "status": "cancelled",
@@ -1089,7 +1098,7 @@ pub async fn cancel_task(
     } else {
         Err(HttpError::from((
             StatusCode::NOT_FOUND,
-            Json(json!({ "error": "Task not found or access denied" })),
+            Json(AppError::public_json("Task not found or access denied")),
         )))
     }
 }
@@ -1129,7 +1138,7 @@ pub async fn frontend_step_ack(
     {
         return Err(HttpError::from((
             StatusCode::NOT_FOUND,
-            Json(json!({ "error": "Task not found" })),
+            Json(AppError::public_json("Task not found")),
         )));
     }
     let accepted = crate::services::agent::executor::submit_frontend_ack(
@@ -1146,7 +1155,7 @@ pub async fn frontend_step_ack(
 /// 回答任务中的问题
 /// POST /api/agent/tasks/{task_id}/answer
 ///
-/// 使用 resume_with_answer 从暂停点恢复执行，而不是重新从头处理。
+/// `Agent::resume_task`（内部 `executor.resume_with_answer`），不从头 `process`。
 pub async fn answer_task_question(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
@@ -1321,11 +1330,16 @@ fn spawn_answer_resume(
                     .map(|t| t.task_id.clone())
                     .unwrap_or_default();
                 let success = api_response.success;
+
                 let response_value = serde_json::to_value(&api_response)
-                    .unwrap_or_else(|_| json!({"error": "serialization failed"}));
+                    .unwrap_or_else(|_| AppError::public_json("serialization failed"));
+
+                // 唤醒 `spawn_restored_wait_loop` 的 `done_tx`（不是 process_stream 本体）
                 if let Some(ctx) = waiting_ctx {
                     let _ = ctx.done_tx.send(response_value.clone());
                 }
+
+                // 仍等待或已完成都发 TaskCompleted（payload 里的 status 区分）
                 let _ = tx
                     .send(AgentProgressEvent::TaskCompleted {
                         task_id: final_task_id,
@@ -1339,6 +1353,8 @@ fn spawn_answer_resume(
                 if code == "RESUME_ERROR" {
                     tracing::error!(error = %e, "[Agent API] Resume failed");
                 }
+
+                // 回传错误给 wait-loop 的 `done_tx`
                 if let Some(ctx) = waiting_ctx {
                     let _ = ctx.done_tx.send(json!({
                         "success": false,
@@ -1389,7 +1405,7 @@ pub async fn clarify(
     );
 
     // 将澄清合并到原始请求
-    let combined_input = format!("{}\n补充说明：{}", req.original_input, req.answer);
+    let combined_input = format!("{}\nAdditional context: {}", req.original_input, req.answer);
 
     let user_request = UserRequest {
         raw_input: combined_input,
@@ -1443,7 +1459,7 @@ pub(crate) async fn start_confirm_run(
         .map_err(|error| {
             HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": error })),
+                Json(AppError::public_json(error)),
             ))
         })?;
     let session_id = resume_ctx
@@ -1475,7 +1491,7 @@ pub(crate) async fn start_confirm_run(
     let run_for_task = run.clone();
     let db_clone = db.clone();
     let execution = tokio::spawn(async move {
-        // Agent/executor progress events share the same run hub as the SSE subscriber.
+        // Session and result events publish into the original run hub.
         let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentProgressEvent>(256);
         let run_for_forwarder = run_for_task.clone();
         tokio::spawn(async move {
@@ -1786,3 +1802,4 @@ mod quota_error_tests {
         );
     }
 }
+use myriad_error::AppError;

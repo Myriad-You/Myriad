@@ -1,12 +1,3 @@
-/**
- * 头像来源选择器样式。
- *
- * 从 UserModal.css 迁出：选择器现在也用在设置页「用户管理」里，而
- * UserModal 是懒加载的——样式留在那边时，设置页会拿到没有样式的裸列表。
- * 类名保留 `user-modal-` 前缀以免动到既有 DOM 快照与用户自定义 CSS。
- */
-
-/** 展示来源页：头像源 / 文案源两段标题（UserModal 与设置页共用） */
 .user-modal-profile-source-section {
   margin-bottom: 1.25rem;
 }

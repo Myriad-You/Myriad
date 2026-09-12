@@ -1,21 +1,3 @@
-/**
- * 头像来源选择器 —— 用户中心与设置页用户管理共用同一份。
- *
- * 来源全部保留、显式二选一：
- * - 自动：站长优先平台画像，其余人用账号头像（即历史行为）
- * - 账号：`users.avatar_url`
- * - 每个已绑定 OAuth 身份
- * - 站长的每个平台画像（B站 / GitHub / YouTube / Steam）
- * - 站点人设的 Q 版贴纸头像（生成过才出现，人设关掉就收回）
- *
- * 同站合并由后端 `list_avatar_sources` 完成（如 GitHub OAuth + 站长 GitHub
- * 抓取 → 一行 `kind=platform`）；本组件只消费列表，不二次去重。
- *
- * 选定后后端把解析结果落成快照，`/api/auth/me`、`/api/profile/user-info`、
- * `/api/tapp/context/user`、`/api/admin/users` 读到的是同一张脸；本组件切换成功
- * 后广播 `notifyAvatarChanged()`，让同页其它头像位置立即跟上。
- */
-
 import type {
   AvatarSourceItem,
   AvatarSourceKind,
@@ -31,18 +13,11 @@ import { Spinner } from './Spinner'
 import './AvatarSourcePicker.css'
 
 interface AvatarSourcePickerProps {
-  /** 省略 = 改自己；传 id = 管理员改他人 */
   userId?: number
-  /**
-   * 管理员改他人时：目标是否为站长。
-   * 仅 viewer / 站长切换才广播全局 avatar-changed（首页信息条）。
-   */
   targetIsSiteOwner?: boolean
-  /** 切换成功后的回调（刷新外层头像 / 关闭弹窗） */
   onApplied?: () => void
 }
 
-/** 选中项的稳定标识：kind 单独不够（identity/platform 有多个） */
 function sourceKey(kind: AvatarSourceKind, ref: string | null): string {
   return `${kind}:${ref ?? ''}`
 }
@@ -68,9 +43,6 @@ export function AvatarSourcePicker({
           ? await avatarSourceApi.listMine()
           : await avatarSourceApi.listForUser(userId)
       setSources(data.sources ?? [])
-      // Prefer a listed source with is_current so merged rows (e.g. GitHub OAuth
-      // + platform scrape → kind=platform) still highlight when the DB still
-      // stores the underlying identity selection.
       const currentFromList = (data.sources ?? []).find((s) => s.is_current)
       setCurrentKey(
         currentFromList
@@ -116,7 +88,6 @@ export function AvatarSourcePicker({
     return <p className="user-modal-oauth-empty">…</p>
   }
 
-  // 「自动」不是后端列出的来源，是取消显式选择；始终排在最前
   const rows: Array<{
     key: string
     kind: AvatarSourceKind
@@ -137,7 +108,6 @@ export function AvatarSourcePicker({
       key: sourceKey(source.kind, source.ref || null),
       kind: source.kind,
       ref: source.ref || null,
-      // account / persona 的 label 由后端固定返回标识串，文案在前端本地化
       label:
         source.kind === 'account'
           ? t.userModal.profileSourceAccount

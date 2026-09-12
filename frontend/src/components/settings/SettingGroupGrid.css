@@ -1,10 +1,3 @@
-/**
- * SettingGroupGrid
- *
- * stretch（默认）: 2 列 grid + align-items:stretch → 同排卡片外框同高
- * rows: 按行切开 + subgrid → 同高 + 内部区块对齐
- * start: 高度随内容
- */
 
 .setting-group-grid {
   --sg-grid-gap: var(--settings-gap-group, 1.25rem);
@@ -16,7 +9,6 @@
   min-width: 0;
 }
 
-/* —— 列模板 —— */
 
 .setting-group-grid--cols-1 {
   --sg-cols-template: minmax(0, 1fr);
@@ -58,7 +50,6 @@
   }
 }
 
-/* —— stretch / start：扁平多列 —— */
 
 .setting-group-grid--align-stretch,
 .setting-group-grid--align-start {
@@ -67,7 +58,6 @@
   gap: var(--sg-grid-gap);
 }
 
-/* 关键：同排卡片被拉成与最高卡相同高度 */
 .setting-group-grid--align-stretch {
   align-items: stretch;
 }
@@ -76,9 +66,6 @@
   align-items: start;
 }
 
-/**
- * 网格内卡片：纵向 flex，height 100% 吃满格子 → 左右外框同高、底边齐
- */
 .setting-group-grid--align-stretch > .setting-group.setting-group--in-grid {
   min-width: 0;
   margin: 0;
@@ -111,7 +98,7 @@
   gap: var(--sg-row-gap);
 }
 
-/* 网格内折叠：接住 stretch 链，但 open 时仍按内容高度，勿 1fr 撑满格子 */
+/* collapse: stretch closed; content height when open; no 1fr fill */
 .setting-group-grid--align-stretch
   > .setting-group.setting-group--in-grid
   > .sm-collapse {
@@ -127,7 +114,6 @@
 .setting-group-grid--align-stretch
   > .setting-group.setting-group--in-grid
   > .sm-collapse[data-state='open'] {
-  /* 覆盖全局 align-self:start，横线仍拉满卡宽 */
   align-self: stretch;
 }
 
@@ -138,7 +124,6 @@
   flex-direction: column;
 }
 
-/* —— rows：按行 + subgrid —— */
 
 .setting-group-grid--align-rows {
   display: flex;
@@ -189,7 +174,6 @@
   opacity: 0.52;
 }
 
-/* 网格分组卡：内层 → 微透（无蓝调渐变） */
 .setting-group-grid.is-card .setting-group {
   padding: 0.85rem 0.95rem 1rem;
   border-radius: 0.85rem;

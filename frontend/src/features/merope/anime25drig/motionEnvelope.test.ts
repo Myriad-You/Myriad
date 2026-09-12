@@ -154,10 +154,6 @@ test('clipped energy changes sides continuously instead of snapping across', () 
   const step = 0.002
   let previous: number | null = null
   let worst = 0
-  // Roll drifts through upright constantly while idle. Choosing the side with
-  // a hard sign flipped the entire lateral redistribution at that crossing:
-  // one 0.002 step of roll moved yaw by 0.105, which reads as the head being
-  // yanked the other way for no reason anyone asked for.
   for (let index = -30; index <= 30; index += 1) {
     const target = {
       ...IDENTITY_DRIVER,

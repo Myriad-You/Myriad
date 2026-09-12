@@ -1,4 +1,5 @@
 use crate::error::HttpError;
+use myriad_error::AppError;
 
 use axum::{
     extract::{Path, Query, State},
@@ -125,7 +126,7 @@ pub fn create_brew_routes(app_state: crate::state::AppState) -> Router<crate::st
             "/rsshub/health-check-all",
             post(comments_rsshub::health_check_all_rsshub_instances),
         )
-        // 图标静态文件服务（带缓存头和压缩支持）
+        // 图标静态文件：Cache-Control max-age=86400；本层无 CompressionLayer
         .nest_service(
             "/icons",
             tower::ServiceBuilder::new()
@@ -163,6 +164,7 @@ struct ItemPreview {
     image: Option<String>,
     published_at: Option<i64>,
     is_read: bool,
+    is_starred: bool,
     /// 预定义主题 key。首页「精选」磁贴靠预览里的 topic 聚类，
     /// 这样主题卡不需要额外接口。
     topic: Option<String>,
@@ -175,19 +177,18 @@ struct SourceWithRecentItems {
     source: brew_sources::SourceResponse,
     recent_items: Vec<ItemPreview>,
     /// 近 `PULSE_WINDOW_DAYS` 天每篇文章距今天数，最多 `PULSE_MAX_POINTS` 个，
-    /// 已按新→旧。派生字段、不落库；前端节律图直接画，不需要再换算时间戳。
+    /// 已按新→旧。派生字段、不落库。`pulses` 为空时前端仍可从 `published_at` 合成。
     pulses: Vec<i32>,
 }
 
-/// 节律图窗口（天）。前端 x 轴按 sqrt(days / 730) 压缩，改这里要同步改前端。
+/// 节律图窗口（天）。与前端 `CADENCE_WINDOW_DAYS` 同为 730。
 const PULSE_WINDOW_DAYS: i64 = 730;
 /// 每个源最多回多少根节律线。上千篇的源必须截断，否则响应体白胀几十倍。
 const PULSE_MAX_POINTS: i64 = 60;
 
 /// 节律查询 SQL：一次窗口查询覆盖全部源，禁止 N+1。
 ///
-/// `source_count` 决定 `$1..$n` 占位符个数。返回的是「距今天数」而不是时间戳 ——
-/// 前端节律图不需要也不应该自己换算。
+/// `source_count` 决定 `$1..$n` 占位符个数。返回「距今天数」不是时间戳。
 pub(crate) fn build_pulses_sql(source_count: usize) -> String {
     let src_ph = (1..=source_count)
         .map(|i| format!("${i}"))
@@ -199,7 +200,7 @@ pub(crate) fn build_pulses_sql(source_count: usize) -> String {
 }
 
 /// 获取订阅源列表（带最新文章预览）
-/// 游客可访问（只读），但不会计算已读状态以节约计算
+/// 游客可访问（只读）。未读聚合跳过；预览 SQL 仍 LEFT JOIN 出 is_read/is_starred（游客 $1=-1）。
 /// 非管理员用户看不到 admin_only=true 的订阅源
 pub(crate) async fn list_sources(
     State(db): State<DatabaseConnection>,
@@ -225,9 +226,9 @@ pub(crate) async fn list_sources(
     // 获取所有订阅源的最新文章（每个源最多 8 篇）
     let source_ids: Vec<i32> = sources.iter().map(|s| s.id).collect();
 
-    // 并行执行两个 SQL 查询，均只传输必要字段：
+    // 并行三个 SQL 查询，均只传输必要字段：
     // (a) 每源未读数：SQL 聚合，避免把所有 item_id 拉到内存再过滤
-    // (b) 每源最新3篇预览：窗口函数精确返回3条，仅加载预览字段，不加载 content 等大字段
+    // (b) 每源最新 8 篇预览：窗口函数 `rn <= 8`，仅加载预览字段
     // (c) 每源节律：一次窗口查询拿全部源的近两年发布时间，绝不 N+1
     let (source_unread_counts, mut items_by_source, mut pulses_by_source) = tokio::join!(
         // (a) 未读数：LEFT JOIN brew_user_states，统计无已读状态的文章数
@@ -264,8 +265,7 @@ pub(crate) async fn list_sources(
             }
             counts
         },
-        // (b) 每源最新 8 篇预览：ROW_NUMBER() OVER PARTITION，只选预览字段。
-        // 磁贴的列表构图每页 4~5 条、满两页才轮播；3 条永远撑不起一张 4x4。
+        // (b) 每源最新 8 篇预览（`rn <= 8`）。
         async {
             let mut map: std::collections::HashMap<i32, Vec<ItemPreview>> =
                 std::collections::HashMap::new();
@@ -279,10 +279,11 @@ pub(crate) async fn list_sources(
                 // $1 = user_id（游客传 -1，不存在的 ID，LEFT JOIN 不会匹配任何行）
                 let sql = format!(
                     "SELECT id, source_id, title, summary, image, published_at, topic, \
-                            COALESCE(is_read, false) AS is_read \
+                            COALESCE(is_read, false) AS is_read, \
+                            COALESCE(is_starred, false) AS is_starred \
                      FROM ( \
                        SELECT i.id, i.source_id, i.title, i.summary, i.image, \
-                              i.published_at, i.topic, s.is_read, \
+                              i.published_at, i.topic, s.is_read, s.is_starred, \
                               ROW_NUMBER() OVER \
                                 (PARTITION BY i.source_id ORDER BY i.published_at DESC NULLS LAST) AS rn \
                        FROM brew_items i \
@@ -306,6 +307,7 @@ pub(crate) async fn list_sources(
                         let published_at: Option<sea_orm::entity::prelude::DateTimeWithTimeZone> =
                             row.try_get("", "published_at").ok();
                         let is_read: bool = row.try_get("", "is_read").unwrap_or(false);
+                        let is_starred: bool = row.try_get("", "is_starred").unwrap_or(false);
                         let topic: Option<String> = row.try_get("", "topic").ok().flatten();
                         map.entry(source_id).or_default().push(ItemPreview {
                             id,
@@ -314,6 +316,7 @@ pub(crate) async fn list_sources(
                             image,
                             published_at: published_at.map(|dt| dt.timestamp_millis()),
                             is_read,
+                            is_starred,
                             topic,
                         });
                     }
@@ -322,7 +325,7 @@ pub(crate) async fn list_sources(
             map
         },
         // (c) 每源节律：ROW_NUMBER() 截到 PULSE_MAX_POINTS，窗口内按新→旧。
-        // 后端直接算成「距今天数」返回，前端不碰时间戳。
+        // 后端算「距今天数」；`pulses` 为空时前端仍可从预览时间戳合成。
         async {
             let mut map: std::collections::HashMap<i32, Vec<i32>> =
                 std::collections::HashMap::new();
@@ -342,8 +345,7 @@ pub(crate) async fn list_sources(
                         }
                     }
                     Err(e) => {
-                        // 节律图是装饰性信息：查不到就让构图降级为 feature，
-                        // 不该把整个源列表打成 500。
+                        // 节律查询失败只记日志、pulses 为空；不把源列表打成 500。
                         tracing::warn!(error = %e, "brew pulses query failed; tiles fall back");
                     }
                 }
@@ -378,7 +380,7 @@ pub struct AddSourceRequest {
     name: Option<String>,
     category: Option<String>,
     update_interval: Option<i32>,
-    /// 来源类型: link, rss, brewlia
+    /// 来源类型：`link` / `brewlia` / 其余 → Rss。手记不走本 DTO。
     source_type: Option<String>,
     /// Feed 类型: rss, atom, json_feed, notion, rsshub
     feed_type: Option<String>,
@@ -409,7 +411,7 @@ pub(crate) async fn add_source(
     if url.is_empty() {
         return Err(HttpError::from((
             StatusCode::BAD_REQUEST,
-            Json(json!({ "success": false, "error": "URL is required" })),
+            Json(AppError::fail_json("URL is required")),
         )));
     }
 
@@ -423,7 +425,7 @@ pub(crate) async fn add_source(
     if let Ok(Some(_)) = existing {
         return Err(HttpError::from((
             StatusCode::CONFLICT,
-            Json(json!({ "success": false, "error": "Already subscribed to this feed" })),
+            Json(AppError::fail_json("Already subscribed to this feed")),
         )));
     }
 
@@ -462,10 +464,9 @@ pub(crate) async fn add_source(
             let Some(token) = token else {
                 return Err(HttpError::from((
                     StatusCode::BAD_REQUEST,
-                    Json(json!({
-                        "success": false,
-                        "error": "Notion source requires extra_config with token"
-                    })),
+                    Json(AppError::fail_json(
+                        "Notion source requires extra_config with token",
+                    )),
                 )));
             };
 
@@ -688,7 +689,7 @@ pub(crate) async fn get_source(
             if source.admin_only && !is_admin {
                 return Err(HttpError::from((
                     StatusCode::NOT_FOUND,
-                    Json(json!({ "success": false, "error": "Source not found" })),
+                    Json(AppError::fail_json("Source not found")),
                 )));
             }
             let response: brew_sources::SourceResponse = source.into();
@@ -696,7 +697,7 @@ pub(crate) async fn get_source(
         }
         Ok(None) => Err(HttpError::from((
             StatusCode::NOT_FOUND,
-            Json(json!({ "success": false, "error": "Source not found" })),
+            Json(AppError::fail_json("Source not found")),
         ))),
         Err(e) => Err(brew_store_http("find source", e)),
     }
@@ -745,9 +746,7 @@ pub(crate) async fn update_source(
                 active.enabled = Set(enabled);
             }
             if let Some(card_size) = req.card_size {
-                // 空字符串清除锁定（与 theme_color / icon 同一约定）。
-                // card_size 现在的语义是「用户锁定磁贴尺寸」，必须可解锁 ——
-                // 否则锁一次就再也回不到按分数派生。
+                // 空字符串清除档位锁（与 theme_color / icon 同一约定）。
                 active.card_size = Set(if card_size.is_empty() {
                     None
                 } else {
@@ -826,7 +825,7 @@ pub(crate) async fn update_source(
         }
         Ok(None) => Err(HttpError::from((
             StatusCode::NOT_FOUND,
-            Json(json!({ "success": false, "error": "Source not found" })),
+            Json(AppError::fail_json("Source not found")),
         ))),
         Err(e) => Err(brew_store_http("find source", e)),
     }
@@ -863,7 +862,7 @@ pub(crate) async fn delete_source(
         }
         Ok(None) => Err(HttpError::from((
             StatusCode::NOT_FOUND,
-            Json(json!({ "success": false, "error": "Source not found" })),
+            Json(AppError::fail_json("Source not found")),
         ))),
         Err(e) => Err(brew_store_http("find source", e)),
     }
@@ -908,13 +907,13 @@ pub(crate) async fn refresh_source(
             } else {
                 Err(HttpError::from((
                     StatusCode::SERVICE_UNAVAILABLE,
-                    Json(json!({ "success": false, "error": "Scheduler not available" })),
+                    Json(AppError::fail_json("Scheduler not available")),
                 )))
             }
         }
         Ok(None) => Err(HttpError::from((
             StatusCode::NOT_FOUND,
-            Json(json!({ "success": false, "error": "Source not found" })),
+            Json(AppError::fail_json("Source not found")),
         ))),
         Err(e) => Err(brew_store_http("find source", e)),
     }
@@ -966,7 +965,7 @@ pub(crate) async fn discover_source(
         Err(error) => {
             return Err(HttpError::from((
                 StatusCode::BAD_REQUEST,
-                Json(json!({ "success": false, "error": error })),
+                Json(AppError::fail_json(error)),
             )))
         }
     };
@@ -1027,7 +1026,7 @@ pub(crate) async fn import_opml(
     if feeds.is_empty() {
         return Err(HttpError::from((
             StatusCode::BAD_REQUEST,
-            Json(json!({ "success": false, "error": "No feeds found in OPML" })),
+            Json(AppError::fail_json("No feeds found in OPML")),
         )));
     }
 
@@ -1197,7 +1196,7 @@ pub(crate) async fn update_category(
         }
         Ok(None) => Err(HttpError::from((
             StatusCode::NOT_FOUND,
-            Json(json!({ "success": false, "error": "Category not found" })),
+            Json(AppError::fail_json("Category not found")),
         ))),
         Err(e) => Err(brew_store_http("find category", e)),
     }
@@ -1223,7 +1222,7 @@ pub(crate) async fn delete_category(
         },
         Ok(None) => Err(HttpError::from((
             StatusCode::NOT_FOUND,
-            Json(json!({ "success": false, "error": "Category not found" })),
+            Json(AppError::fail_json("Category not found")),
         ))),
         Err(e) => Err(brew_store_http("find category", e)),
     }
@@ -1257,12 +1256,30 @@ pub(crate) async fn list_items(
             "items": [],
             "total": 0,
             "page": 1,
-            "per_page": 20
+            "per_page": 20,
+            "next_cursor": null
         })));
     }
 
     let page = query.page.unwrap_or(1).max(1);
-    let per_page = query.per_page.unwrap_or(20).min(100);
+    let per_page = query.per_page.unwrap_or(20).clamp(1, 100);
+    let cursor = match query
+        .cursor
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        None => None,
+        Some(raw) => match brew_items::decode_item_cursor(raw) {
+            Some(cursor) => Some(cursor),
+            None => {
+                return Err(brew_http_err(
+                    StatusCode::BAD_REQUEST,
+                    "Invalid list cursor",
+                ));
+            }
+        },
+    };
     let filter_type = query.filter.as_deref().unwrap_or("all");
 
     // 游客不支持 starred 和 unread 过滤（需要登录才能使用这些过滤）
@@ -1287,7 +1304,8 @@ pub(crate) async fn list_items(
                         "items": [],
                         "total": 0,
                         "page": page,
-                        "per_page": per_page
+                        "per_page": per_page,
+                        "next_cursor": null
                     })));
                 }
                 Some(ids)
@@ -1373,7 +1391,8 @@ pub(crate) async fn list_items(
                 "items": [],
                 "total": 0,
                 "page": page,
-                "per_page": per_page
+                "per_page": per_page,
+                "next_cursor": null
             })));
         }
         items_query = items_query.filter(brew_items::Column::SourceId.is_in(cat_sources));
@@ -1381,24 +1400,37 @@ pub(crate) async fn list_items(
 
     // 排序
     let sort_order = query.sort_order.as_deref().unwrap_or("desc");
-    items_query = if sort_order == "asc" {
-        items_query.order_by_asc(brew_items::Column::PublishedAt)
+    items_query = brew_items::ordered_list_query(items_query, sort_order == "asc");
+    if let Some(ref cursor) = cursor {
+        items_query = brew_items::apply_item_cursor(items_query, sort_order == "asc", cursor);
+    }
+
+    // Extra row tells has-more. COUNT only on the first page; cursor pages skip it.
+    let total = if cursor.is_some() {
+        0
     } else {
-        items_query.order_by_desc(brew_items::Column::PublishedAt)
+        items_query.clone().count(&db).await.unwrap_or(0)
     };
 
-    // 获取总数
-    let total = items_query.clone().count(&db).await.unwrap_or(0);
+    let preview = query.projection == Some(brew_items::ItemProjection::Preview);
+    if preview {
+        items_query = brew_items::preview_query(items_query);
+    }
 
-    // 分页
-    let items = items_query
-        .offset(((page - 1) * per_page) as u64)
-        .limit(per_page as u64)
-        .all(&db)
-        .await;
+    let fetch = per_page as u64 + 1;
+    let items = if cursor.is_some() {
+        items_query.limit(fetch).all(&db).await
+    } else {
+        items_query
+            .offset(((page - 1) * per_page) as u64)
+            .limit(fetch)
+            .all(&db)
+            .await
+    };
 
     match items {
         Ok(items) => {
+            let (items, next_cursor) = brew_items::split_list_page(items, per_page);
             let item_ids: Vec<i32> = items.iter().map(|i| i.id).collect();
 
             // 性能优化：并行执行多个独立查询
@@ -1488,12 +1520,15 @@ pub(crate) async fn list_items(
                 })
                 .collect();
 
+            let response_items = brew_items::list_response_items(response_items, preview)
+                .map_err(|error| brew_store_http("serialize articles", error))?;
             Ok(Json(json!({
                 "success": true,
                 "items": response_items,
                 "total": total,
                 "page": page,
                 "per_page": per_page,
+                "next_cursor": next_cursor,
             })))
         }
         Err(e) => Err(brew_store_http("list articles", e)),

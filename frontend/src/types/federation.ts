@@ -1,9 +1,3 @@
-/**
- * 联邦功能相关类型定义
- */
-
-// 关注相关
-
 export interface FollowRequest {
   target: string
 }
@@ -28,17 +22,17 @@ export interface FederationIdentity {
   followers_url: string
   following_url: string
   profile_url: string
-  /** Present when keys exist; may be omitted for cold identity. */
+  /** Present when keys exist; omitted for a cold identity. */
   key_id?: string
   public_key_pem?: string
 }
 
-/** POST /api/federation/keys/rotate response (confirm:true required). */
+/** POST /api/federation/keys/rotate; confirm:true required. */
 export interface FederationKeyRotationResult {
   public_key_pem: string
   key_id: string
   previous_public_key_pem?: string | null
-  /** Update(Person) fan-out rows enqueued (0 if no followers / enqueue fail). */
+  /** Update(Person) fan-out rows (0 if none / enqueue fail). */
   update_queued: number
   note?: string
 }
@@ -57,16 +51,12 @@ export interface FollowListResponse {
   total: number
 }
 
-// 时间线
-
 export interface TimelineItem {
   activity_id: string
   activity_type?: string
   object_type?: string
   content_preview?: string
-  /** AP Note/Article object (or Create envelope) for rich render. */
   content_json?: Record<string, unknown> | null
-  /** Canonical AP object id (Note URL) when resolved. */
   object_id?: string
   is_read: boolean
   is_bookmarked?: boolean
@@ -77,7 +67,6 @@ export interface TimelineItem {
   bookmark_count?: number
   announce_count?: number
   reply_count?: number
-  /** ISO timestamp when the activity was received (preferred for federated timeAgo) */
   created_at?: string
   received_at?: string
   timestamp?: string
@@ -95,8 +84,6 @@ export interface TimelineResponse {
   total: number
 }
 
-// 内容发布
-
 export interface NoteAttachmentInput {
   url: string
   media_type: string
@@ -105,13 +92,12 @@ export interface NoteAttachmentInput {
 
 export interface PublishRequest {
   content_type: 'report' | 'brew-article' | 'tapp' | 'library' | 'note'
-  /** Required except for freeform notes (server generates id). */
+  /** Required except freeform notes (server generates id). */
   content_id?: string
   visibility?: 'public' | 'followers' | 'direct'
-  /** Freeform note body when content_type is `note`. */
+  /** Freeform body when content_type is note. */
   text?: string
   attachments?: NoteAttachmentInput[]
-  /** Parent object id for replies (AP inReplyTo). */
   in_reply_to?: string
   inReplyTo?: string
 }
@@ -120,7 +106,6 @@ export interface CreateNoteRequest {
   text?: string
   attachments?: NoteAttachmentInput[]
   visibility?: 'public' | 'followers' | 'direct'
-  /** Parent Note/Article id for replies (AP inReplyTo). */
   in_reply_to?: string
   inReplyTo?: string
 }
@@ -129,7 +114,7 @@ export interface ObjectIdRequest {
   object_id: string
 }
 
-/** Quote-repost body. `content` is required by the backend (non-empty). */
+/** Backend requires non-empty content. */
 export interface AnnounceRequest {
   object_id: string
   content: string
@@ -168,26 +153,19 @@ export interface PublishResponse {
   content_type: string
   content_id: string
   visibility: string
-  /** Follower inboxes enqueued for best-effort delivery (fan-out). */
   delivered_queued?: number
-  /** Whether the Create was written to the author's local timeline. */
   author_timeline?: boolean
 }
 
 export interface UnpublishRequest {
-  /** Content kind: note, report, library, brew-article, tapp… */
   content_type?: string
-  /** Bare id, or Note object URL (`…/notes/{id}`). */
   content_id?: string
-  /** Original Create activity_id — alternative to content_type+content_id. */
   activity_id?: string
 }
 
-/** Media on a published Note (from joined Create object.attachment). */
 export interface PublishedAttachment {
   url: string
   media_type?: string
-  /** AP attachment type (`Image` / `Video`). */
   type?: string
   name?: string
 }
@@ -199,17 +177,11 @@ export interface PublishedItem {
   activity_id: string
   visibility: string
   published_at: string
-  /** Plain-text body/title preview from joined Create object (federated published list). */
   content_preview?: string
-  /** AP object name / report title when present. */
   title?: string
-  /** AP summary when present. */
   summary?: string
-  /** Note Image/Video attachments for federated published media preview. */
   attachments?: PublishedAttachment[]
-  /** Full AP object for quote-reposts (nested mfp:quotedObject). */
   content_json?: Record<string, unknown> | null
-  /** Canonical object id when known. */
   object_id?: string
 }
 
@@ -217,10 +189,6 @@ export interface PublishedListResponse {
   items: PublishedItem[]
   total: number
 }
-
-// 视图状态
-
-// Channel 通信
 
 export interface CreateChannelRequest {
   remote_actor: string
@@ -284,7 +252,7 @@ export interface MessageListResponse {
   total: number
 }
 
-/** Immediate outbound enqueue result (before HTTP delivery worker). */
+/** Outbound enqueue result (before the HTTP delivery worker). */
 export interface DeliveryEnqueueInfo {
   queued: number
   remote_targets: number
@@ -322,11 +290,11 @@ export interface DeliveryQueueItem {
   created_at: string
   last_attempt_at?: string | null
   next_retry_at?: string | null
-  /** Server: error_message is intentional `cancelled:…` (not a peer fail) */
+  /** Intentional `cancelled:…`; not a peer fail. */
   intentional_cancel?: boolean
-  /** Server: host should offer Retry for this row */
+  /** Host should offer Retry for this row. */
   retryable?: boolean
-  /** Server: RoomDissolve / ChannelClose teardown fan-out */
+  /** RoomDissolve / ChannelClose teardown fan-out. */
   is_teardown_activity?: boolean
 }
 
@@ -334,8 +302,6 @@ export interface DeliveryListResponse {
   items: DeliveryQueueItem[]
   total: number
 }
-
-// Room 多方通信
 
 export interface CreateRoomRequest {
   name: string
@@ -374,7 +340,7 @@ export interface RoomSummary {
   max_members: number
   is_public: boolean
   my_role?: string
-  /** active | pending (remote invite not yet accepted) */
+  /** active | pending (remote invite not yet accepted). */
   my_membership_status?: string
   last_message_at?: string
   created_at: string
@@ -395,7 +361,7 @@ export interface RoomDetail {
   max_members: number
   is_public: boolean
   enabled_tapps?: unknown
-  /** Includes e2e.published_keys and stickers (room shared image pack) */
+  /** Includes e2e.published_keys and stickers. */
   shared_data_config?: {
     e2e?: {
       published_keys?: Record<string, string>
@@ -411,7 +377,7 @@ export interface RoomDetail {
     [key: string]: unknown
   }
   my_role?: string
-  /** active | pending */
+  /** active | pending (remote invite not yet accepted). */
   my_membership_status?: string
   member_count: number
   created_at: string
@@ -428,7 +394,7 @@ export interface RoomMember {
   display_name?: string
   avatar_url?: string
   role: string
-  /** active | pending */
+  /** active | pending (remote invite not yet accepted). */
   membership_status?: string
   joined_at: string
   invited_by?: string
@@ -485,15 +451,13 @@ export interface PinRoomMessageResponse {
   is_pinned: boolean
 }
 
-// Ring 相关
-
 export interface CreateRingRequest {
   name: string
   ring_type: string
   fanout?: number
   ttl?: number
   interval?: number
-  /** Optional brew category filter (brew-recommend only). Alias: brew_category. */
+  /** brew-recommend only. Alias: brew_category. */
   category?: string
   brew_category?: string
 }
@@ -537,11 +501,7 @@ export interface AddPeerRequest {
   peer: string
 }
 
-// Trust 策略管理
-
-/** Effective trust enforcement snapshot from GET /trust/policy */
 export interface TrustPolicyResponse {
-  /** What enforce_inbound / enforce_outbound actually apply today */
   enforcement: {
     domain_blocklist: boolean
     rate_limit: boolean
@@ -556,11 +516,11 @@ export interface TrustPolicyResponse {
     allowlist?: string
     min_trust_level?: string
   }
-  /** Domains with federation_instances.is_blocked = true */
+  /** federation_instances.is_blocked = true. */
   blocked_domains: string[]
-  /** Empty = allow all non-blocked domains */
+  /** Empty = allow all non-blocked domains. */
   allowed_domains?: string[]
-  /** 0=Unknown … 4=Federated; floor for inbound */
+  /** 0=Unknown … 4=Federated; inbound floor. */
   min_trust_level?: number
   auto_discover?: boolean
   rate_limit: {
@@ -580,7 +540,7 @@ export interface UpdateTrustPolicyRequest {
   min_trust_level?: number
   allowed_domains?: string[]
   auto_discover?: boolean
-  /** Inbound rate limit (advanced). Trusted+ domains use trusted_multiplier. */
+  /** Inbound rate limit; Trusted+ uses trusted_multiplier. */
   rate_limit?: {
     max_requests_per_window?: number
     window_seconds?: number
@@ -634,8 +594,6 @@ export interface ToggleBlockRequest {
   block: boolean
 }
 
-// 文件传输
-
 export interface InitTransferRequest {
   filename: string
   file_size: number
@@ -659,7 +617,7 @@ export interface TransferSummary {
 export interface TransferDetail {
   transfer_id: string
   channel_id: string
-  /** Set for group (room) transfers; empty/omitted for DM channel transfers */
+  /** Set for room transfers; omit for DM. */
   room_id?: string
   filename: string
   file_size: number
@@ -680,7 +638,7 @@ export interface TransferListResponse {
   total: number
 }
 
-/** Group attachment library item (no payload bytes) */
+/** Library item; no payload bytes. */
 export interface RoomFileItem {
   key: string
   message_id: string
@@ -706,7 +664,7 @@ export interface ListRoomFilesParams {
   limit?: number
   /** all | image | file */
   filter?: string
-  /** filename substring */
+  /** Filename substring. */
   q?: string
 }
 

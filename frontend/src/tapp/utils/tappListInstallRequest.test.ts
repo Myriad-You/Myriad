@@ -127,7 +127,6 @@ describe('resolveTappListInstallRequest (shipped install shape)', () => {
       }).kind,
       'error',
     )
-    // 空模块表等于没给源码
     assert.equal(
       resolveTappListInstallRequest({
         source: 'direct',

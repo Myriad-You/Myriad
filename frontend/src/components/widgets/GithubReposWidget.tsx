@@ -1,9 +1,3 @@
-/**
- * GitHub 仓库小组件：一张卡一个仓库。
- * 排版跟阅读器仓库卡同一套：头像 | 仓库名+owner | star，下面简介和语言。
- * 2x1 只留顶栏；2x2 / 4x2 出完整卡。
- */
-
 import type { CSSProperties } from 'react'
 import type { GithubRepoCardData } from '../../utils/githubRepo'
 import type { WidgetComponentProps } from '../widgetGridTypes'

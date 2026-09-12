@@ -1,9 +1,6 @@
-/**
- * Compact 环比 inline after a KPI tile value (same row; overflow scrolls).
- */
-
 import type { CompareKind, CompareLabels, MetricDelta } from './compareDeltaLogic'
 import React from 'react'
+import { formatMessage, localeOrFallback } from '../../../i18n'
 import {
   compareColorPalette,
 
@@ -19,7 +16,6 @@ export interface CompareDeltaProps {
   delta?: MetricDelta | null
   labels: CompareLabels
   locale: string
-  /** Hide while first skeleton load */
   hidden?: boolean
   formatPrevious?: (n: number) => string
 }
@@ -44,7 +40,9 @@ export function CompareDelta({
   const prevText = formatPrevious
     ? formatPrevious(prev)
     : String(prev)
-  const title = labels.vsPrevious.replace('{n}', prevText)
+  const title = formatMessage(localeOrFallback(locale), labels.vsPrevious, {
+    n: prevText,
+  })
 
   return (
     <span

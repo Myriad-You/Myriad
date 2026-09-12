@@ -148,6 +148,20 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
             )),
         )
         .route(
+            "/addressee/touch",
+            post(super::touch::appraise).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
+        .route(
+            "/addressee/touch/complete",
+            post(super::touch::complete).route_layer(from_fn_with_state(
+                app_state.clone(),
+                middleware::auth::auth_middleware,
+            )),
+        )
+        .route(
             "/presence",
             post(super::post_live_presence).route_layer(from_fn_with_state(
                 app_state.clone(),
@@ -186,7 +200,7 @@ pub fn create_agent_routes(app_state: crate::state::AppState) -> Router<crate::s
                 middleware::auth::auth_middleware,
             )),
         )
-        // 提供澄清（需要认证）
+        // 表演方向读写（需要认证）
         .route(
             "/runs/{run_id}/performance",
             get(super::playback_direction::read)

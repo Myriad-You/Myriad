@@ -1,15 +1,13 @@
 //! Pack `SmartFilteredData` for the report prompt, and parse the model JSON.
 //!
-//! Pretty-print + a hard 12k slice was dropping Look fields that sit late in
-//! the blob (GitHub calendar, Discord guilds). Compact JSON, strip display
-//! noise, and shrink arrays so the budget keeps evaluation keys.
+//! Compact JSON, strip display noise, and shrink arrays so the budget keeps Look paths.
 
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
 use crate::services::smart_filter::SmartFilteredData;
 
-/// Compact Data budget. Instruction body stays under 4200; this is the payload.
+/// Compact Data budget. Instruction body stays under 4600; this is the payload.
 pub const REPORT_DATA_CHAR_BUDGET: usize = 16_000;
 
 const DROP_KEYS: &[&str] = &[

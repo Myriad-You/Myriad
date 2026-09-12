@@ -53,9 +53,9 @@ pub fn split_chat_music_directive(raw: &str) -> (String, Option<ChatMusicAction>
 pub fn format_chat_player_section(music: Option<&Value>) -> String {
     let status = player_status_line(music);
     format!(
-        "## 播放器\n{status}\n\
-         要播、暂停、下一首、上一首时，在全文最后单独一行写 [[music:play]]、[[music:pause]]、\
-         [[music:next]] 或 [[music:prev]]。搜歌、换歌单去办事档。不要念这一行。不操作就不要写。"
+        "## Player\n{status}\n\
+         To play, pause, skip next, or skip previous, put [[music:play]], [[music:pause]], \
+         [[music:next]], or [[music:prev]] on its own last line. Finding tracks and switching the queue belong in Work. Do not read that line aloud. Omit it if you are not changing playback."
     )
 }
 
@@ -94,11 +94,11 @@ fn parse_music_inner(inner: &str) -> Option<ChatMusicAction> {
 
 fn player_status_line(music: Option<&Value>) -> String {
     let Some(music) = music else {
-        return "现在没在放歌。".to_string();
+        return "Nothing is playing.".to_string();
     };
     let song = music.get("currentSong");
     if song.is_none() || song.is_some_and(Value::is_null) {
-        return "现在没在放歌。".to_string();
+        return "Nothing is playing.".to_string();
     }
     let song = song.unwrap();
     let name: String = song
@@ -110,7 +110,7 @@ fn player_status_line(music: Option<&Value>) -> String {
         .take(80)
         .collect();
     if name.trim().is_empty() {
-        return "现在没在放歌。".to_string();
+        return "Nothing is playing.".to_string();
     }
     let artist: String = song
         .get("artist")
@@ -123,7 +123,7 @@ fn player_status_line(music: Option<&Value>) -> String {
         .get("isPlaying")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let label = if playing { "正在播放" } else { "已暂停" };
+    let label = if playing { "Playing" } else { "Paused" };
     if artist.trim().is_empty() {
         format!("{label}：{}", name.trim())
     } else {
@@ -173,9 +173,9 @@ mod tests {
             "isPlaying": true,
             "currentSong": { "name": "星河", "artist": "A" }
         })));
-        assert!(section.contains("正在播放：星河 — A"));
+        assert!(section.contains("Playing：星河 — A"));
         assert!(section.contains("[[music:play]]"));
-        assert!(section.contains("办事档"));
+        assert!(section.contains("Work"));
         assert!(!section.contains("playlist"));
         assert!(!section.contains("search"));
     }

@@ -1,7 +1,3 @@
-/**
- * Widget-library preview fixtures for report cards (no network).
- * SVG data URIs keep previews offline-safe for avatar walls / posters.
- */
 import type { useI18n } from '../../../contexts/I18nContext'
 
 type I18nT = ReturnType<typeof useI18n>['t']
@@ -19,8 +15,6 @@ const previewCover = (letter: string, bg: string, w = 160, h = 200) => {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
 }
 
-// YouTube: channel stats + recent uploads (matches generate.rs card_visuals)
-// DEV force-mock on home — rotate fixtures freely while tuning the face.
 if (platformId === 'youtube') {
   const thumb = (letter: string, bg: string) => {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${bg}"/><stop offset="100%" stop-color="#111827"/></linearGradient></defs><rect width="320" height="180" fill="url(#g)"/><text x="160" y="98" text-anchor="middle" fill="#fff" font-size="28" font-family="system-ui,sans-serif" font-weight="700" opacity="0.92">${letter}</text></svg>`
@@ -28,7 +22,6 @@ if (platformId === 'youtube') {
   }
   const daysAgo = (n: number) =>
     new Date(Date.now() - n * 86_400_000).toISOString()
-  // Widget-library / isPreview fixture — gold-tier tech channel (representative)
   const videos = [
     {
       title: '从零搭一个个人站：技术选型与踩坑',
@@ -86,10 +79,8 @@ if (platformId === 'youtube') {
     custom_url: '@myriadstudio',
     channel_url: 'https://www.youtube.com/@myriadstudio',
     channel_id: 'UCpreviewYouTubeMock',
-    // vibe ≤20 字 / line-clamp-2（与 X 卡 + AI prompt 同规）
     vibe: '技术日志型创作者，上传稳均播不虚',
     channel_type: '稳定更新',
-    // 24.8K → Gold on card award scale (≥10K)
     subscriber_count: 24_800,
     view_count: 1_920_000,
     video_count: 64,
@@ -131,8 +122,6 @@ if (platformId === 'youtube') {
   }
 }
 
-// Discord 卡片字段结构与其他平台差异较大（profile/stats/library_items
-// 形状不同），单独给一份预览数据，避免与通用预览字段互相污染。
 if (platformId === 'discord') {
   const guildTile = (letter: string, bg: string) => {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" rx="24" fill="${bg}"/><text x="48" y="62" text-anchor="middle" fill="#fff" font-size="44" font-family="system-ui,sans-serif" font-weight="700">${letter}</text></svg>`
@@ -242,18 +231,14 @@ const sampleManga = t.reportCardWidget.sampleManga
 const sampleGame2 = t.reportCardWidget.sampleGame2
 const sampleAnime2 = t.reportCardWidget.sampleAnime2
 
-// Bangumi 与 MAL 的条目类型词表并不重合（MAL 只有 anime/manga，Bangumi 没有
-// manga）。共用一份并集会让两张卡都画出对方的类型段，且落到未翻译的原始键 +
-// 兜底颜色，所以这两个字段按平台分发。
+// 条目类型按平台分发，并集会画出对方的未翻译段。
 const isMal = platformId === 'mal'
 const animeTypeDistribution = isMal
   ? { anime: 80, manga: 28 }
   : { anime: 80, book: 28, game: 22, music: 12, real: 8 }
 
 return {
-  // —— 通用评分 / 身份标签 ——
   hardcore_score: 85,
-  // Stable enum key (FE maps via i18n); not a localized string
   player_type: 'hardcore',
   gamer_type: t.reportCardWidget.xboxGamerDefault,
   hunter_type: t.reportCardWidget.psnHunterDefault,
@@ -262,7 +247,6 @@ return {
     ? t.reportCardWidget.malTasteDefault
     : t.reportCardWidget.bangumiTasteDefault,
 
-  // —— Steam ——
   games_count: 120,
   total_playtime: 2500,
   personaname: 'PreviewGamer',
@@ -272,20 +256,17 @@ return {
   avatar: previewAvatar('S', '#1b2838'),
   recent_2weeks_minutes: 840,
 
-  // —— Xbox ——
   gamertag: 'PreviewGamer',
   gamerscore: 12500,
   total_achievements: 340,
   completion_rate: 42,
   completed_games: 8,
 
-  // —— PSN ——
   online_id: 'PreviewPSN',
   trophy_level: 245,
   platinum_count: 18,
   total_trophies: 1260,
 
-  // —— GitHub ——
   total_contributions: 1200,
   repos_count: 45,
   total_stars: 890,
@@ -296,7 +277,6 @@ return {
     { name: 'Go', percentage: 12 },
   ],
 
-  // —— 网易云 ——
   follower_count: 1200,
   playlist_count: 15,
   level: 8,
@@ -308,13 +288,10 @@ return {
     t.reportCardWidget.nightMood,
   ],
 
-  // —— Bilibili 弹幕 + 右下角统计 ——
   danmaku: t.reportCard.danmakuDefault as unknown as string[],
   user_level: 6,
   following_count: 86,
 
-  // —— Bangumi / MAL 收藏结构 ——
-  // Widget overview only shows done / doing / wish
   status_counts: {
     done: 128,
     doing: 12,
@@ -322,7 +299,6 @@ return {
   },
   subject_type_distribution: animeTypeDistribution,
 
-  // —— 详情轮播 / 海报墙（多平台共用，字段取并集） ——
   library_items: [
     {
       title: sampleProject,
@@ -381,7 +357,6 @@ return {
       cover: previewCover('♫', '#7B68EE', 200, 200),
     },
   ],
-  // Xbox / PSN 无 library 封面时的回退列表
   top_titles: [
     {
       name: sampleGame,
@@ -415,7 +390,6 @@ return {
     },
   ],
 
-  // —— X 关注图谱 + 人设 ——
   vibe: t.reportCardWidget.xVibeDefault,
   engagement_level: t.reportCardWidget.xEngagementDefault,
   signature_topics: [

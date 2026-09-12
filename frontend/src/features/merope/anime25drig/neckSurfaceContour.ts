@@ -35,11 +35,6 @@ export function opaquePixelBounds(
   return right > left && bottom > top ? { left, right, top, bottom } : null
 }
 
-/**
- * Refine an already verified, fully supported skin join. Every column remains
- * inside that safe band: local shadows cannot push the fade into unknown art.
- * Small neighbourhoods and bounded adjacent slopes reject single-pixel edges.
- */
 export function buildNeckSurfaceContour(
   width: number,
   height: number,
@@ -81,8 +76,7 @@ export function buildNeckSurfaceContour(
     bands[column * 2] = (bestStart + 0.5) / height
     bands[column * 2 + 1] = (bestEnd + 0.5) / height
   }
-  // Convex smoothing keeps both boundaries inside supported skin and keeps
-  // start strictly before end. Two passes remove local notches, not the slope.
+  // Two passes remove local notches, not the slope.
   for (let pass = 0; pass < 2; pass++) {
     const previous = bands.slice()
     for (let column = 1; column < NECK_SURFACE_COLUMNS - 1; column++) {

@@ -1,7 +1,7 @@
 //! 组件注册 API
 //!
 //! Domain registry: [`crate::services::tapp_components`]. This module owns
-//! grant/permission checks, installation-write gating, and Axum DTOs.
+//! runtime grant checks, approved-permission checks, installation-write gating, and Axum DTOs.
 
 use axum::{
     extract::{Path, Query, State},
@@ -214,7 +214,7 @@ pub async fn list_all_components_by_type(
     let user_id: i32 = claims.sub.parse().map_err(|_| {
         (
             StatusCode::UNAUTHORIZED,
-            Json(json!({ "error": "Invalid user" })),
+            Json(AppError::public_json("Invalid user")),
         )
     })?;
 
@@ -227,3 +227,4 @@ pub async fn list_all_components_by_type(
         json!({ "success": true, "type": component_type, "components": components }),
     ))
 }
+use myriad_error::AppError;

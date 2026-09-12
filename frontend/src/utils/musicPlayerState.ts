@@ -1,10 +1,3 @@
-/**
- * 音乐播放器状态发布 / 合并的纯逻辑
- *
- * 宿主唯一写入 __musicPlayerState；Tapp 沙箱用 merge 规则消费事件，
- * 避免「部分字段事件」把进度/歌词编造成 0 或串曲。
- */
-
 export interface MusicColorPalette {
   primary: string
   secondary: string
@@ -13,7 +6,6 @@ export interface MusicColorPalette {
   dark: string
 }
 
-/** 与宿主 Song 结构兼容（不强加 index signature，避免与接口冲突） */
 export interface MusicPlayerSongLike {
   id?: string | number
   name?: string
@@ -29,7 +21,6 @@ export interface MusicPlayerSongLike {
 }
 
 export interface MusicPlayerSnapshotInput {
-  // 用宽松对象类型接纳宿主 Song，避免结构赋值摩擦
   song: MusicPlayerSongLike | null | Record<string, unknown>
   index: number
   colors: MusicColorPalette | null
@@ -39,20 +30,15 @@ export interface MusicPlayerSnapshotInput {
   playMode: string
   playlist: ReadonlyArray<MusicPlayerSongLike | Record<string, unknown>>
   isTempPlay: boolean
-  /** 切歌时 true：进度归零并清空歌词字段 */
   resetProgress: boolean
-  /** 实时音频时钟；resetProgress 时忽略 */
   liveCurrentTime?: number
   liveDuration?: number
-  /** 非切歌时保留的歌词（切歌时强制空） */
   lyrics?: unknown[]
   verbatimLyrics?: unknown[]
   hasVerbatimLyrics?: boolean
   verbatimLyricsSource?: string
   currentLyricIndex?: number
-  /** 切歌世代，供 Tapp 丢弃过期事件 */
   generation?: number
-  /** 音频缓冲/切歌加载中 */
   isLoading?: boolean
 }
 
@@ -60,7 +46,6 @@ export type MusicPlayerSnapshot = Record<string, unknown>
 
 export const DEFAULT_MUSIC_COLOR = '#ef4444'
 
-/** 优先当前 palette，否则沿用上一首；都没有才 null（调用方再 fallback 默认色）。 */
 export function resolveMusicPalette(
   preferred: MusicColorPalette | null | undefined,
   previous: MusicColorPalette | null | undefined,
@@ -68,9 +53,6 @@ export function resolveMusicPalette(
   return preferred ?? previous ?? null
 }
 
-/**
- * 从 audio 元素读取实时进度（切歌热路径外使用，避免 React state 滞后）。
- */
 export function readLiveAudioProgress(
   audio: {
     currentTime?: number
@@ -91,10 +73,6 @@ export function readLiveAudioProgress(
   return { currentTime, audioDuration }
 }
 
-/**
- * 构建可写入 __musicPlayerState 并派发 music-player-state-change 的完整快照。
- * 颜色-only 更新时 resetProgress=false，保留 live 进度与歌词。
- */
 export function buildMusicPlayerSnapshot(
   input: MusicPlayerSnapshotInput,
 ): MusicPlayerSnapshot {
@@ -132,7 +110,6 @@ export function buildMusicPlayerSnapshot(
     : (input.verbatimLyricsSource ?? '')
   const currentLyricIndex = resetProgress ? -1 : (input.currentLyricIndex ?? -1)
 
-  // colors 为 null 时不写死默认红（调用方应先 resolve 上一首色；首启无色才 fallback）
   const musicColor = colors?.primary ?? null
 
   return {
@@ -160,9 +137,7 @@ export function buildMusicPlayerSnapshot(
   }
 }
 
-/**
- * Tapp 侧合并规则：detail 覆盖 global；切歌时禁止沿用旧曲歌词/进度。
- */
+/** On song change, do not keep old lyrics/progress. */
 export function mergeMusicPlayerEventDetail(
   globalState: Record<string, unknown>,
   detail: Record<string, unknown>,
@@ -186,19 +161,19 @@ export function mergeMusicPlayerEventDetail(
     String(detailId) !== String(globalId)
 
   if (songChanged) {
-    if (!('lyrics' in detail)) {
+    if (!Object.hasOwn(detail, 'lyrics')) {
       merged.lyrics = []
       merged.currentLyricIndex = -1
     }
-    if (!('verbatimLyrics' in detail)) {
+    if (!Object.hasOwn(detail, 'verbatimLyrics')) {
       merged.verbatimLyrics = []
       merged.hasVerbatimLyrics = false
       merged.verbatimLyricsSource = ''
     }
-    if (!('currentTime' in detail)) {
+    if (!Object.hasOwn(detail, 'currentTime')) {
       merged.currentTime = 0
     }
-    if (!('audioDuration' in detail)) {
+    if (!Object.hasOwn(detail, 'audioDuration')) {
       merged.audioDuration = detailSong?.duration || 0
     }
   }
@@ -206,9 +181,6 @@ export function mergeMusicPlayerEventDetail(
   return merged
 }
 
-/**
- * 从宿主快照构建 Tapp mediaStateChange payload（字段映射）。
- */
 export function buildTappMediaState(detail: Record<string, unknown>) {
   const modeMap: Record<string, string> = {
     loop: 'loop',
@@ -224,7 +196,6 @@ export function buildTappMediaState(detail: Record<string, unknown>) {
   const volume = (detail.volume as number) ?? 0.7
   const playMode = (detail.playMode as string) || 'loop'
   const musicColors = detail.musicColors as MusicColorPalette | null
-  // 有完整 palette 时以其 primary 为准；无色时仍给占位，Tapp 端会忽略 fallback 并保留 lastColors
   const musicColor =
     musicColors?.primary ||
     (detail.musicColor as string) ||
@@ -275,9 +246,7 @@ export function buildTappMediaState(detail: Record<string, unknown>) {
       ? musicColors!.light || '#ffffff'
       : '#ffffff',
     darkColor: hasRealPalette ? musicColors!.dark || '#000000' : '#000000',
-    /** true 表示 primary 来自真实 palette，非仅占位默认色 */
     hasThemePalette: hasRealPalette,
-    // 宿主播放错误码（如 playback_failed）；成功加载后为 null
     lastError:
       (detail.lastPlaybackError as string | null | undefined) ??
       (detail.lastError as string | null | undefined) ??
@@ -285,13 +254,7 @@ export function buildTappMediaState(detail: Record<string, unknown>) {
   }
 }
 
-/**
- * Context 订阅层只认这些字段，禁止把 currentTime:0 等事件碎片写回全局态。
- *
- * 收敛规则和字段名放在同一张表里：事件从宿主和沙箱两边来，值的类型不保证，
- * 写回前要统一。这张表以前在 MusicPlayerContext 里手抄了两份，加字段时漏改
- * 一处的表现是该字段静默不同步 —— 不报错、不崩，只是传不过去。
- */
+/** Do not write event fragments (currentTime:0) into global state. */
 const MUSIC_CONTEXT_COERCERS = {
   currentSong: (v: unknown) => v ?? null,
   isEnabled: (v: unknown) => Boolean(v),
@@ -314,13 +277,25 @@ export const MUSIC_CONTEXT_OWNED_KEYS = Object.keys(
   MUSIC_CONTEXT_COERCERS,
 ) as MusicContextOwnedKey[]
 
-/** 挑出 Context 拥有的字段并按上表收敛；未出现的键不会进结果。 */
+/** Preserve snapshot identity when an event changes only host-owned fields. */
+export function mergeMusicContextState<T extends object>(
+  previous: T,
+  patch: Partial<T>,
+): T {
+  for (const key of Object.keys(patch) as (keyof T)[]) {
+    if (!Object.is(previous[key], patch[key])) {
+      return { ...previous, ...patch }
+    }
+  }
+  return previous
+}
+
 export function pickMusicContextState(
   detail: Record<string, unknown>,
 ): Partial<Record<MusicContextOwnedKey, unknown>> {
   const out: Record<string, unknown> = {}
   for (const key of MUSIC_CONTEXT_OWNED_KEYS) {
-    if (key in detail) out[key] = MUSIC_CONTEXT_COERCERS[key](detail[key])
+    if (Object.hasOwn(detail, key)) out[key] = MUSIC_CONTEXT_COERCERS[key](detail[key])
   }
   return out
 }

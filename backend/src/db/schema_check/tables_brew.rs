@@ -296,11 +296,23 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     is_nullable: true,
                     default_value: None,
                 },
+                ColumnDef {
+                    name: "content_revision".into(),
+                    data_type: "bigint".into(),
+                    is_nullable: false,
+                    default_value: Some("1".into()),
+                },
             ],
         },
         TableDef {
             name: "brew_user_states".to_string(),
             columns: vec![
+                ColumnDef {
+                    name: "revision".into(),
+                    data_type: "bigint".into(),
+                    is_nullable: false,
+                    default_value: Some("1".into()),
+                },
                 ColumnDef {
                     name: "id".into(),
                     data_type: "integer".into(),
@@ -596,6 +608,12 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     data_type: "timestamp with time zone".into(),
                     is_nullable: false,
                     default_value: Some("CURRENT_TIMESTAMP".into()),
+                },
+                ColumnDef {
+                    name: "content_revision".into(),
+                    data_type: "bigint".into(),
+                    is_nullable: true,
+                    default_value: None,
                 },
             ],
         },

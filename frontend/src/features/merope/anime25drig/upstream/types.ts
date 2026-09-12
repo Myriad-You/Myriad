@@ -1,10 +1,4 @@
-/**
- * Typed contract of Anime2.5DRig's upstream `lib/rigger.js` boundary.
- *
- * Keep this contract independent from Myriad's post-processing types: it is the
- * compatibility seam used to keep the standalone TypeScript module's behavior
- * stable before Myriad applies its intentional replacements.
- */
+/** Anime2.5DRig `lib/rigger.js` boundary. Independent of Myriad post-processing types. */
 
 export type UpstreamPixelArray =
   | Uint8ClampedArray

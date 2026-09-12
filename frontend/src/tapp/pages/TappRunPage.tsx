@@ -1,11 +1,4 @@
-/**
- * Tapp 运行页面
- * 在沙箱中运行 Tapp
- *
- * 布局：标题与内容同一 max-w-6xl 列；内容挂在 relative 槽内，
- * 普通模式 absolute inset-0、全屏 fixed inset-0，iframe 不卸载。
- * 支持多窗口模式（TappWindowManager）。
- */
+/** 内容挂在槽内；全屏只切 fixed，iframe 不卸载。 */
 
 import type { CSSProperties } from 'react'
 
@@ -58,20 +51,15 @@ import {
   tappRunPath,
 } from '../utils/tappPaths'
 
-/**
- * Tapp 运行页面入口（含 /tapp/run 与 /tapp/run/:id）
- * 支持单窗口 / 多窗口 / 商店宿主重定向
- */
 export function TappRunPage() {
   const { id } = useParams<{ id: string }>()
-  // react-router already decodes path params; avoid double-decode (throws on lone `%`)
+  // react-router 已解码；不要二次 decode。
   const tappId = id ?? ''
   const { isMobile } = useBreakpoints()
   const isMultiWindow = useTappMultiWindowSession()
   const navigate = useNavigate()
   const { t } = useI18n()
 
-  // /tapp/run?multi=true — 无 seed id
   if (!tappId) {
     if (isMultiWindow) {
       return <TappWindowManager onBack={() => navigate(TAPP_LIST_PATH)} />
@@ -83,7 +71,6 @@ export function TappRunPage() {
     )
   }
 
-  // 宿主商店：单窗口走正式商店页，多窗口进窗口管理器
   if (isStoreHostPanel(tappId)) {
     if (isMultiWindow) {
       return (
@@ -108,9 +95,6 @@ export function TappRunPage() {
   return <TappRunPageStandard tappId={tappId} isMobile={isMobile} />
 }
 
-/**
- * 标准版单窗口运行页
- */
 function TappRunPageStandard({
   tappId,
   isMobile,
@@ -126,9 +110,6 @@ function TappRunPageStandard({
     { isAuthenticated: false, isAdmin: false },
   )
 
-  // Agent ui.open / open_window: multi-window registers via TappWindowManager;
-  // single-window must still handle open_window (navigate to /tapp/run/:id).
-  // windowsRef used to stay empty, so close/focus/query_windows always missed.
   const runWindowId = `run:${tappId}`
   const windowsRef = useRef<Array<{ windowId: string; tappId: string }>>([
     { windowId: runWindowId, tappId },
@@ -146,7 +127,6 @@ function TappRunPageStandard({
     navigate(TAPP_LIST_PATH)
   }, [navigate])
   const focusWindow = useCallback((_windowId: string) => {
-    /* single-window: already focused */
   }, [])
   useWindowAgentHandler({
     windowsRef,
@@ -156,7 +136,6 @@ function TappRunPageStandard({
     focusWindow,
   })
 
-  // 动画配置
   const animConfig = useAnimationLevel()
   const noAnimation = isExlight(animConfig)
 
@@ -168,7 +147,6 @@ function TappRunPageStandard({
   const [retryGeneration, setRetryGeneration] = useState(0)
   const runtime = getTappRuntime()
 
-  // 路由级 SEO：应用名 / 描述 / 可见性 noindex
   usePageSeo(
     useMemo(
       () =>
@@ -184,7 +162,6 @@ function TappRunPageStandard({
 
   useTappFullscreenChrome(isFullscreen, setIsFullscreen)
 
-  // 加载 Tapp
   useEffect(() => {
     let cancelled = false
     const loadTapp = async () => {
@@ -193,8 +170,6 @@ function TappRunPageStandard({
       setTapp(null)
       setCode(null)
       try {
-        // Force a fresh catalog sync so userRole matches the logged-in viewer
-        // (stale guest role from a public list freezes soft-guest UX).
         await runtime.syncFromBackend(true)
         if (cancelled) return
 
@@ -231,8 +206,8 @@ function TappRunPageStandard({
         }
         if (cancelled) return
 
-        // Re-read after start/sync — sandbox must not keep a pre-start guest instance.
-        instance = runtime.getTapp(tappId) || instance
+        // start/sync 后再读；沙箱不得保留启动前的 guest 实例。
+        instance = runtime.getTapp(tappId) ?? instance
 
         setTapp(instance)
         setCode(tappCode)
@@ -257,7 +232,6 @@ function TappRunPageStandard({
     t.tapp.stopped,
   ])
 
-  // 安装更新完成后，资源代际已由 runtime 提升；重新走完整 Page 加载并重建 iframe。
   useEffect(() => {
     return runtime.on('tapp:updated', (data) => {
       if ((data as { id: string }).id === tappId) {
@@ -266,12 +240,10 @@ function TappRunPageStandard({
     })
   }, [runtime, tappId])
 
-  // 重试加载
   const handleRetry = useCallback(() => {
     setRetryGeneration((generation) => generation + 1)
   }, [])
 
-  // 壳层进退场：无回弹 + 可选淡入淡出（WebKit 默认不在列上 opacity，防 iframe）
   const {
     shellClassName,
     scrimClassName,
@@ -301,7 +273,6 @@ function TappRunPageStandard({
     navigate(TAPP_LIST_PATH)
   }, [navigate])
 
-  // 全屏时先退出全屏再壳退场，避免 presence 被关掉导致瞬间跳走
   const goBack = useTappShellClose({
     isFullscreen,
     setIsFullscreen,
@@ -309,7 +280,6 @@ function TappRunPageStandard({
     onClosed: navigateHome,
   })
 
-  // 停止应用
   const handleStop = useCallback(async () => {
     try {
       await runtime.stopTapp(tappId)
@@ -320,24 +290,20 @@ function TappRunPageStandard({
     }
   }, [runtime, tappId, goBack, t.tapp.stopAppFailed])
 
-  // 切换全屏
   const toggleFullscreen = useCallback(() => {
     setIsFullscreen((prev) => !prev)
   }, [])
 
-  // 打开设置
   const openSettings = useCallback(() => {
     navigate(tappDetailPath(tappId))
   }, [navigate, tappId])
 
-  // 稳定的 safeInsets 对象，避免每次渲染都创建新对象
   const safeInsets = useMemo(() => {
     return isFullscreen
       ? { top: 72, right: 16, left: 16, bottom: 0 }
       : undefined
   }, [isFullscreen])
 
-  // 独立合成层：减轻 WebKit 在 overflow:hidden 祖先下的 iframe 绘制问题
   const contentLayerStyle = useMemo(
     (): CSSProperties => ({
       WebkitTransform: 'translateZ(0)',
@@ -347,11 +313,9 @@ function TappRunPageStandard({
     [],
   )
 
-  // 动画配置 - 基于性能级别
   const transitions = useMemo(() => {
     const scale = animConfig.durationScale
     return {
-      // 元素进入
       elementEnter: animConfig.spring
         ? { type: 'spring' as const, stiffness: 320, damping: 28 }
         : {
@@ -359,13 +323,11 @@ function TappRunPageStandard({
             duration: 0.35 * scale,
             ease: [0.22, 1, 0.36, 1],
           },
-      // 快速过渡（全屏切换）
       quick: {
         type: 'tween' as const,
         duration: 0.25 * scale,
         ease: [0.4, 0, 0.2, 1],
       },
-      // 状态切换（头部内容变化）
       stateSwitch: {
         type: 'tween' as const,
         duration: 0.2 * scale,
@@ -374,11 +336,10 @@ function TappRunPageStandard({
     }
   }, [animConfig.spring, animConfig.durationScale])
 
-  // 内容状态
   const isReady = !loading && !error && !!tapp && !!code
   const hasError = !loading && (error || !tapp || !code)
 
-  // 与 Runtime 一致：访客/普通用户不能启停站主公开装
+  // 与 Runtime 一致：访客/普通用户不能启停站主公开装。
   const canStartStop = !!tapp && runtime.canControlLifecycle(tapp)
   const canConfigure = canStartStop
   const iconStyle = tapp ? getTappIconStyle(tapp.manifest) : null
@@ -386,8 +347,6 @@ function TappRunPageStandard({
     ? resolveManifestText(tapp.manifest, locale).name
     : ''
 
-  // Host chrome z-ladder（勿把 TApp 抬过 GCP）:
-  // shell 40 · NavigationIsland 50 · FS toolbar 900 · GCP 998/9999
   const fsToolbar = (
     <AnimatePresence>
       {isFullscreen && isReady && tapp && (

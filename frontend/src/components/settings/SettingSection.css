@@ -1,14 +1,8 @@
-/**
- * 设置区块样式
- * 继承并扩展 ConfigForm.css 的 config-section 样式
- */
 
-/* 设置区块继承 config-section 基础样式 */
 .setting-section {
-  /* 样式继承自 ConfigForm.css 的 .config-section */
+  /* chrome from ConfigForm .config-section */
 }
 
-/* 右上角：本页 TOC | 特殊操作 | 分割线 | 常驻（重置 / [夹心] / 说明） */
 .section-header-actions-extra,
 .section-header-actions-pinned {
   display: flex;
@@ -18,7 +12,6 @@
   flex-shrink: 0;
 }
 
-/* 「重置」与「显示说明」之间的页专属操作（如添加服务商 / 登录方式） */
 .section-header-actions-between {
   display: flex;
   align-items: center;
@@ -27,7 +20,6 @@
   flex-shrink: 0;
 }
 
-/* —— 本页子分类快速跳转（标题栏右侧） —— */
 
 .section-toc {
   display: flex;
@@ -110,7 +102,6 @@ html.dark .section-toc-chip:focus-visible {
       color-mix(in srgb, var(--cfg-accent, #60a5fa) 50%, transparent);
 }
 
-/* TOC 与右侧操作之间的轻分隔 */
 .section-header-right > .section-toc + .section-header-actions-extra,
 .section-header-right > .section-toc + .section-header-actions-pinned {
   margin-left: 0.15rem;
@@ -146,7 +137,6 @@ html.dark .section-header-actions-divider {
   background: color-mix(in srgb, currentcolor 22%, transparent);
 }
 
-/* 右上角特殊操作卡（与重置 / 显示说明同密度） */
 .setting-section-header-action.checkbox-group-card {
   max-width: min(16rem, 44vw);
   min-width: 0;
@@ -170,10 +160,7 @@ html.dark .section-header-actions-divider {
   white-space: nowrap;
 }
 
-/*
- * 移动端：标题与动作不要横排硬挤。
- * 动作换到第二行铺满，避免「第三方登录」等标题被按钮挤成竖排一字一列。
- */
+/* <1024: actions wrap; do not squash title */
 @media (width < 1024px) {
   .setting-section > .section-header {
     flex-wrap: wrap;
@@ -196,13 +183,10 @@ html.dark .section-header-actions-divider {
     padding-top: 0;
   }
 
-  /*
-   * 移动端 TOC：独占第二行整宽横滑，避免与重置/说明挤成一团。
-   * 触控：nowrap + overflow-x + 边缘渐隐提示可滑。
-   */
+  /* <1024 TOC: full-width scroll */
   .section-toc {
     flex: 1 1 100%;
-    order: -1; /* 在 header-right 内排在操作芯片之前且整行 */
+    order: -1; /* full row before action chips */
     max-width: none;
     justify-content: flex-start;
     flex-wrap: nowrap;
@@ -210,8 +194,6 @@ html.dark .section-header-actions-divider {
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
     padding-bottom: 0.15rem;
-
-    /* 右缘淡出，暗示可横滑 */
     mask-image: linear-gradient(
       to right,
       #000 0%,
@@ -220,7 +202,7 @@ html.dark .section-header-actions-divider {
     );
   }
 
-  /* TOC 整行后，操作区不再要左边框分隔（上下分行） */
+  /* TOC on own row: no left border on actions */
   .section-header-right > .section-toc + .section-header-actions-extra,
   .section-header-right > .section-toc + .section-header-actions-pinned {
     margin-left: 0;
@@ -229,7 +211,6 @@ html.dark .section-header-actions-divider {
   }
 
   .section-toc-chip {
-    /* 触控略加大热区 */
     min-height: 1.85rem;
     padding: 0.35rem 0.65rem;
     font-size: 0.75rem;

@@ -68,16 +68,7 @@ type RandomSource = () => number
 
 const DRIVER_KEYS = Object.keys(IDENTITY_DRIVER) as Array<keyof Anime25DDriver>
 
-/**
- * The authored pose, with the pointer blended over it.
- *
- * `authority` is a weight, not a switch. Every other source that contends for
- * the head crossfades — the pose gate, occupancy, the sticker mouth share all
- * ease their contribution in and out — and pointer gaze was the one exception:
- * it replaced the goal outright while the cursor was over the character and
- * dropped it the instant the cursor left, so leaving snapped the head back to
- * rest and skimming the edge of the character twitched it in and out.
- */
+/** `authority` is a weight. Pointer gaze crossfades like every other head source. */
 export function prepareAnime25DWorkingTarget(
   output: Anime25DDriver,
   authored: Readonly<Anime25DDriver>,
@@ -348,9 +339,7 @@ export function applyAnime25DStylizedExpression(
     target.mouthOpen,
     stylized.mouthOpen * stylizedWeight,
   )
-  // The silly mouth beside this one has always taken the same quantity as a
-  // ratio the player eases; this took it as a boolean and stepped 0.82 of the
-  // mouth within one frame every time speech started or stopped.
+  // Lovestruck mouth share is an eased ratio, not a boolean 0.82 step.
   const lovestruckMouthShare = 0.18 + 0.82 * clamp(vocalRest, 0, 1)
   target.mouthOpen = Math.max(
     target.mouthOpen,
@@ -480,10 +469,7 @@ export function stepAnime25DBlink(
   suppressed: boolean,
   random: RandomSource = Math.random,
 ): void {
-  // A blink already in flight finishes, whatever happens to the reasons for
-  // starting one. Both of these used to return without writing the lid at all,
-  // so a sticker crossing its threshold — or automation being switched off —
-  // while the eyes were shut threw them open from wherever they were.
+  // 进行中的眨眼必须写完眼皮；抑制或关掉自动化也不能从半闭处弹开。
   if (suppressed || !enabled) {
     if (suppressed) state.nextAtSeconds = timeSeconds + 1.8
     if (state.activeSeconds < 0) return

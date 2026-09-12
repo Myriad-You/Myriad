@@ -1,0 +1,107 @@
+/* 页面组合不要往这里塞业务。 */
+
+/* 不逐行重写 Tailwind，用更高特异性盖灰阶。 */
+.brew-rsshub {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.brew-rsshub [class*='border-gray'],
+.brew-rsshub [class*='border-neutral'] {
+  border-color: var(--brew-line);
+}
+
+.brew-rsshub [class*='bg-gray'],
+.brew-rsshub [class*='bg-neutral'],
+.brew-rsshub [class*='bg-white'] {
+  background-color: var(--brew-fill);
+}
+
+.brew-rsshub [class*='text-gray-400'],
+.brew-rsshub [class*='text-gray-500'],
+.brew-rsshub [class*='text-gray-300'] {
+  color: var(--brew-fg-dim);
+}
+
+.brew-rsshub [class*='text-gray-600'],
+.brew-rsshub [class*='text-gray-700'] {
+  color: var(--brew-fg-soft);
+}
+
+.brew-rsshub [class*='text-gray-800'],
+.brew-rsshub [class*='text-gray-100'],
+.brew-rsshub [class*='text-gray-900'] {
+  color: var(--brew-fg);
+}
+
+.brew-rsshub [class*='text-orange'],
+.brew-rsshub [class*='text-amber'] {
+  color: var(--brew-accent-ink);
+}
+
+.brew-rsshub [class~='bg-orange-50'],
+.brew-rsshub [class~='dark:bg-orange-900/20'] {
+  background-color: var(--brew-accent-fill);
+  border-color: var(--brew-accent-line);
+}
+
+.brew-rsshub [class~='border-orange-300'],
+.brew-rsshub [class~='dark:border-orange-700'] {
+  border-color: var(--brew-accent-line);
+}
+
+.brew-rsshub [class*='hover:bg-orange']:hover {
+  background-color: var(--brew-accent-fill);
+}
+
+.brew-rsshub [class*='hover:border-orange']:hover {
+  border-color: var(--brew-accent-line);
+}
+
+.brew-rsshub input:not([type='checkbox'], [type='radio']),
+.brew-rsshub select,
+.brew-rsshub textarea {
+  border: 1px solid var(--brew-frost-line, var(--brew-line));
+  border-radius: 0.42rem;
+  background: var(--brew-chip);
+  color: var(--brew-fg);
+  box-shadow: none;
+}
+
+.brew-rsshub input:focus,
+.brew-rsshub select:focus,
+.brew-rsshub textarea:focus {
+  outline: none;
+  border-color: var(--brew-accent-line);
+  box-shadow: var(--brew-focus);
+}
+
+.brew-rsshub button[class*='bg-gray-800'] {
+  background: var(--brew-accent);
+  border-color: transparent;
+  color: #fff;
+}
+
+.brew-rsshub__status {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.08rem 0.32rem;
+  border-radius: 999px;
+  background: var(--brew-fill);
+  color: var(--brew-fg-dim);
+  font-size: 0.5625rem;
+  font-weight: 650;
+}
+
+.brew-rsshub__status.is-ok {
+  background: var(--brew-accent-fill);
+  color: var(--brew-accent-ink);
+}
+
+.brew-rsshub__status.is-warn,
+.brew-rsshub__status.is-bad {
+  background: var(--brew-fill);
+  color: var(--brew-fg-soft);
+}
+

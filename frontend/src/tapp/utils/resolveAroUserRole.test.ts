@@ -1,9 +1,3 @@
-/**
- * Unit tests for Aro guest-lock role resolution.
- *
- *   pnpm exec tsx --test src/tapp/utils/resolveAroUserRole.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
@@ -39,7 +33,6 @@ describe('resolveAroUserRole', () => {
   })
 
   it('soft-guest from getRole falls through when getUser shows a real member', () => {
-    // Host getRole often returns userRole||'guest' when instance.userRole is unset.
     const result = resolveAroUserRole({
       roleFromGetRole: 'guest',
       userFromContext: { id: 'user_1', username: 'alice', role: 'user' },

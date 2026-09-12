@@ -1,10 +1,9 @@
 //! Enka.Network 角色元数据（名字 / 图标 / 稀有度）
 //!
 //! Enka 的 UID 接口只返回 avatarId，展柜要显示角色名和头像必须查映射表。
-//! 数据源（GitHub raw，磁盘缓存 + 内存缓存，7 天过期）：
+//! 数据源（GitHub raw；磁盘 `DISK_TTL` 7 天，内存 `OnceLock` 不过期）：
 //! - 原神：EnkaNetwork/API-docs `store/characters.json` + `store/loc.json`
-//! - 星铁：EnkaNetwork/API-docs `store/hsr/honker_characters.json`
-//! （名字哈希在该文件里精度已损坏，改用 Mar-7th/StarRailRes 的 `index_min/{lang}/characters.json`）
+//! - 星铁：Enka `store/hsr/honker_characters.json` + Mar-7th/StarRailRes `index_min/{lang}/characters.json`（名字）
 //! - 绝区零：EnkaNetwork/API-docs `store/zzz/avatars.json` + `store/zzz/locs.json`
 //! （avatars 的 `Name` 是代号，locs 里用代号做 key 换取本地化名）
 //!
@@ -241,7 +240,7 @@ pub async fn gi_character(avatar_id: i64, lang: &str) -> CharacterMeta {
     meta
 }
 
-/// 原神：资料头像（profilePicture）。新版接口给 pfp id，旧版给 avatarId。
+/// 原神：资料头像。先 `profilePicture.avatarId`，再 `profilePicture.id`。
 pub async fn gi_profile_picture(pfp_id: Option<i64>, avatar_id: Option<i64>) -> Option<String> {
     if let Some(avatar_id) = avatar_id {
         let meta = gi_character(avatar_id, "en").await;

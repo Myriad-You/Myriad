@@ -6,11 +6,7 @@ function source(relative: string): string {
   return readFileSync(new URL(relative, import.meta.url), 'utf8')
 }
 
-/**
- * Only "this path does not exist" belongs here: a regex over source text can
- * prove an absence, never a behaviour. Everything these tests used to assert
- * positively now has a real test, named alongside it.
- */
+/** 只证路径不存在。行为在同目录具名测试里。 */
 
 test('speech never reaches the run hub and never persists visemes', () => {
   // Behaviour: speech/ttsPlayer.test.ts, speech/ttsPipeline.test.ts.

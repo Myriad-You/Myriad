@@ -33,14 +33,14 @@ pub async fn get_tapp_metrics(
         tracing::error!(%error, "[TAPP] Failed to collect scheduler metrics");
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "Failed to collect scheduler metrics" })),
+            Json(AppError::public_json("Failed to collect scheduler metrics")),
         )
     })?;
     let scheduler_mailbox = scheduler_mailbox_depth(&db).await.map_err(|error| {
         tracing::error!(%error, "[TAPP] Failed to collect scheduler mailbox metrics");
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "Failed to collect scheduler metrics" })),
+            Json(AppError::public_json("Failed to collect scheduler metrics")),
         )
     })?;
     let active_runtime_grants = runtime_grant::active_runtime_grant_count(&db)
@@ -49,7 +49,7 @@ pub async fn get_tapp_metrics(
             tracing::error!(%error, "[TAPP] Failed to collect runtime grant metrics");
             (
                 StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({ "error": "Failed to collect runtime metrics" })),
+                Json(AppError::public_json("Failed to collect runtime metrics")),
             )
         })?;
 
@@ -75,7 +75,7 @@ pub async fn get_rate_limit_status(
     let user_id: i32 = claims.sub.parse().map_err(|_| {
         (
             StatusCode::UNAUTHORIZED,
-            Json(json!({ "error": "Invalid user" })),
+            Json(AppError::public_json("Invalid user")),
         )
     })?;
 
@@ -102,3 +102,4 @@ pub async fn get_rate_limit_status(
         "limits": limits
     })))
 }
+use myriad_error::AppError;

@@ -1,11 +1,7 @@
-/**
- * 宿主对 window.__musicPlayerState 的唯一写入入口。
- * Context / Tapp 只读全局态并消费事件，禁止把碎片字段回写。
- */
-
 import type { MusicPlayerSnapshotInput } from '../../utils/musicPlayerState'
 import { buildMusicPlayerSnapshot } from '../../utils/musicPlayerState'
 
+/** 宿主对 window.__musicPlayerState 的唯一写入入口。Context / Tapp 只读。 */
 export type MusicPlayerWindowState = Record<string, unknown>
 
 type MusicPlayerWindow = Window & {
@@ -30,10 +26,7 @@ export function setGlobalState(state: Record<string, unknown>): void {
   }
 }
 
-/**
- * 立即补丁加载/错误标志并通知 Tapp（不依赖 React 下一帧）。
- * 用于 canplay / error 热路径，让缓冲条与错误提示及时出现。
- */
+/** 立即补丁加载/错误标志并通知 Tapp（不依赖 React 下一帧）。 */
 export function patchPlaybackFlags(flags: {
   isAudioLoading?: boolean
   lastPlaybackError?: string | null

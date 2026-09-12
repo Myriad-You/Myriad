@@ -73,7 +73,7 @@ pub(super) async fn execute_brew_discover(
             }
         }
 
-        // 策略4: 如果前面的策略都没找到结果，尝试 AI 联网搜索
+        // 策略4: 若仍为空且有 analyzer，用已有知识推断 RSS URL（无实时联网）
         if feeds.is_empty() && ctx.ai_analyzer.is_some() {
             discovery_methods.push("ai_web_search");
             if let Ok(ai_results) = ai_search_rss_feeds(search_query, ctx).await {
@@ -104,12 +104,12 @@ pub(super) async fn execute_brew_discover(
             json!({
                 "message": crate::services::agent::response_agent::no_rss_found(),
                 "tips": [
-                    "尝试更具体的关键词",
-                    "直接提供 RSS/Atom URL",
-                    "可以让 AI 联网搜索"
+                    "Try a more specific keyword",
+                    "Provide an RSS/Atom URL directly",
+                    "You can let AI search the web"
                 ],
                 "aiSearchPrompt": format!(
-                    "请帮我搜索「{}」的 RSS 订阅地址",
+                    "Search for an RSS feed URL for \"{}\"",
                     query.unwrap_or("")
                 )
             })
@@ -119,22 +119,21 @@ pub(super) async fn execute_brew_discover(
     }))
 }
 
-/// 使用 AI 联网搜索 RSS 订阅源
+/// 用 AI 已有知识推断 RSS 地址（无实时联网）
 async fn ai_search_rss_feeds(query: &str, ctx: &HandlerContext<'_>) -> Result<Vec<Value>, String> {
     let analyzer = ctx.ai_analyzer.ok_or("AI analyzer not available")?;
 
-    // 构建搜索查询
     let search_query = format!("{} RSS feed URL", query);
 
     // 使用 AI 推断常见 RSS 地址（注意：AI 没有实时联网能力，依赖已有知识）
     let prompt = format!(
-        "根据你的知识，推断「{}」可能的 RSS/Atom 订阅源地址。\n\n\
-        规则：\n\
-        1. 优先返回常见平台的已知 RSS 格式（如 WordPress 的 /feed/、GitHub 的 .atom、Reddit 的 .rss 等）\n\
-        2. 可以返回 RSSHub (rsshub.app) 提供的路由\n\
-        3. 只返回你有较高把握的 URL，不确定的不要返回\n\
-        4. 以 JSON 数组格式返回：[{{\"url\": \"...\", \"name\": \"...\", \"confidence\": \"high|medium\"}}]\n\n\
-        请直接返回 JSON 数组。",
+        "From your knowledge, infer likely RSS/Atom feed URLs for \"{}\".\n\n\
+        Rules:\n\
+        1. Prefer known feed patterns on common platforms (WordPress /feed/, GitHub .atom, Reddit .rss, etc.)\n\
+        2. RSSHub (rsshub.app) routes are allowed\n\
+        3. Only return URLs you are fairly confident about\n\
+        4. Return a JSON array: [{{\"url\": \"...\", \"name\": \"...\", \"confidence\": \"high|medium\"}}]\n\n\
+        Return the JSON array only.",
         search_query
     );
 
@@ -145,7 +144,6 @@ async fn ai_search_rss_feeds(query: &str, ctx: &HandlerContext<'_>) -> Result<Ve
 
     let mut feeds = Vec::new();
 
-    // 预编译正则表达式
     let url_re =
         regex::Regex::new(r#"https?://[^\s<>"')\]]+(?:rss|feed|atom|xml)[^\s<>"')\]]*"#).unwrap();
 
@@ -160,7 +158,7 @@ async fn ai_search_rss_feeds(query: &str, ctx: &HandlerContext<'_>) -> Result<Ve
             feeds.push(json!({
                 "url": url,
                 "name": "",
-                "description": "AI 联网搜索发现",
+                "description": "Found by AI web search",
                 "source": "ai_web_search",
                 "verified": false
             }));
@@ -264,7 +262,7 @@ async fn query_rsshub_routes(query: &str) -> Result<Vec<Value>, String> {
                     .unwrap_or(false);
                 let config_params = route.get("configParams").and_then(|v| v.as_array());
 
-                // 排除需要额外配置的路由（如需要 cookie、token、key 等）
+                // Skip requiresConfig (parser: extra `:` in target). `configParams` is not in cache JSON.
                 if requires_config {
                     continue;
                 }
@@ -345,11 +343,10 @@ async fn load_rsshub_routes_cache() -> Option<Value> {
     fetch_rsshub_routes().await.ok()
 }
 
-/// 从 RSSHub 官方获取路由数据
+/// Fetch DIYGod/RSSHub `lib/radar-rules.js` from GitHub; on failure return [].
 async fn fetch_rsshub_routes() -> Result<Value, String> {
     use crate::services::data_paths::paths;
 
-    // 从 RSSHub 的 radar-rules 获取（包含大量路由信息）
     let radar_url = "https://raw.githubusercontent.com/DIYgod/RSSHub/master/lib/radar-rules.js";
 
     let (target, client) = crate::services::outbound_security::build_public_http_client(

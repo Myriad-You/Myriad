@@ -1,15 +1,3 @@
-/**
- * 助手回复里那点 Markdown。
- *
- * 从旧面板那段渲染代码里把「认字」和「画出来」拆开：这里只负责认字，产出一棵
- * 纯数据的树，画由组件去做。拆开的理由很实际 —— 边界情况（没闭合的代码块、
- * 少一列的表格、`**` 跨行）全在认字这一步，而认字可以脱离浏览器测。
- *
- * 支持的语法与旧面板保持一致，不多也不少：代码块、1–3 级标题、水平线、引用、
- * 表格、有序/无序列表、段落；行内是代码、图片、链接、粗体、斜体。**没打算做成
- * 通用 Markdown 实现** —— 这是助手说话的格式，不是文档系统。
- */
-
 const INLINE_RE =
   /(`[^`]+`)|!\[([^\]]*)\]\(([^)]+)\)|\[([^\]]+)\]\(([^)]+)\)|\*\*(.+?)\*\*|\*([^*]+)\*/g
 const HEADING_RE = /^(#{1,3})\s+(.+)/
@@ -38,7 +26,7 @@ export type MarkdownBlock =
 
 export function parseInlineTokens(text: string): InlineToken[] {
   const tokens: InlineToken[] = []
-  // 正则带 g，复用同一个实例会把 lastIndex 带到下一次调用里
+  // clone: /g lastIndex leaks across calls
   const inlineRe = new RegExp(INLINE_RE.source, INLINE_RE.flags)
   let lastIndex = 0
 
@@ -113,8 +101,7 @@ function parseBlocksFrom(
     const line = lines[i]
     if (line === undefined) break
 
-    // 代码块。流式回复里经常只到了开头那三个反引号，没闭合也要当代码块收下，
-    // 否则半截代码会被当成段落，一边流一边变形。
+    // unclosed fence still counts as a code block (streaming)
     if (line.trimStart().startsWith('```')) {
       const lang = line.trimStart().slice(3).trim()
       const codeLines: string[] = []
@@ -167,7 +154,6 @@ function parseBlocksFrom(
       continue
     }
 
-    // 表格必须有分隔行才算表格，否则一句带竖线的话会被排成表
     if (
       line.includes('|') &&
       line.trim().startsWith('|') &&
@@ -213,9 +199,7 @@ function parseBlocksFrom(
   return { blocks, ranges }
 }
 
-/**
- * 流式追加时前面已经认完的块沿用原对象，气泡里写完的标题/列表不用每字重绘。
- */
+/** Reuse unchanged prefix blocks while streaming. */
 export function parseMarkdownBlocks(source: string): MarkdownBlock[] {
   if (source === cache.source) return cache.blocks
   const lines = source.split('\n')

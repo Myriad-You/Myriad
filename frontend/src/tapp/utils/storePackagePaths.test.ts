@@ -1,9 +1,3 @@
-/**
- * Pure-function tests for store package asset path resolution.
- *
- *   cd frontend && node --experimental-strip-types --test src/tapp/utils/storePackagePaths.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { storeAssetStorePath, storePackageRoot } from './storePackagePaths.ts'

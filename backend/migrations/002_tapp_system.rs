@@ -2,7 +2,9 @@ use sea_orm_migration::prelude::*;
 
 /// Tapp 系统数据库结构
 ///
-/// 包含 Tapp 应用、小组件和存储表
+/// tapps / widgets / storage / quota / store sources / scheduled tasks /
+/// executions / user activities / runtime registry·mailbox / AI cost ledger /
+/// storage 8388608 字节触发器。
 #[derive(DeriveMigrationName)]
 pub struct Migration;
 
@@ -118,8 +120,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // 状态约束 (仅 PostgreSQL 支持)
-        // 对于其他数据库，在应用层验证状态值
+        // 状态约束（仅 PostgreSQL `check_tapp_status`）
         let db_backend = manager.get_database_backend();
         if matches!(db_backend, sea_orm::DatabaseBackend::Postgres) {
             let _ = manager
@@ -257,9 +258,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // Host-only credential payloads share tapp_storage by design, but the
-        // database still enforces that sensitive columns can only appear on
-        // reserved credential records.
+        // encrypted_value / binding_fingerprint 仅允许 key 以 `_credentials.` 开头，且必须同时非空。
         manager
             .get_connection()
             .execute_unprepared(
@@ -374,7 +373,7 @@ ALTER TABLE tapp_storage
             .await?;
 
         // ==================== 5. TAPP_STORE_SOURCES 表 ====================
-        // 存储远程商店源配置（仅管理员可管理）
+        // 存储远程商店源配置
         manager
             .create_table(
                 Table::create()
@@ -476,7 +475,7 @@ ALTER TABLE tapp_storage
                             .auto_increment()
                             .primary_key(),
                     )
-                    // 任务 ID（Tapp 内唯一）
+                    // varchar(255) NOT NULL；唯一性见 idx_tapp_scheduled_tasks_unique
                     .col(
                         ColumnDef::new(TappScheduledTasks::TaskId)
                             .string_len(255)
@@ -500,22 +499,21 @@ ALTER TABLE tapp_storage
                             .string_len(255)
                             .not_null(),
                     )
-                    // 调度类型: cron, interval, once, daily
+                    // varchar(20) NOT NULL；本 migration 无 CHECK
                     .col(
                         ColumnDef::new(TappScheduledTasks::ScheduleType)
                             .string_len(20)
                             .not_null(),
                     )
                     // 调度配置 (JSON)
-                    // { cron?: string, interval?: number, at?: number, time?: string }
                     .col(
                         ColumnDef::new(TappScheduledTasks::ScheduleConfig)
                             .json()
                             .not_null(),
                     )
-                    // 任务负载 (JSON) - 传递给回调的数据
+                    // json，可空
                     .col(ColumnDef::new(TappScheduledTasks::Payload).json())
-                    // 执行目标: backend, frontend, both
+                    // varchar(20) NOT NULL default frontend；本 migration 无 CHECK
                     .col(
                         ColumnDef::new(TappScheduledTasks::ExecutionTarget)
                             .string_len(20)
@@ -531,17 +529,14 @@ ALTER TABLE tapp_storage
                             .not_null()
                             .default(true),
                     )
-                    // 错过执行时的策略: skip, run-once, run-all
+                    // varchar(20) NOT NULL default skip；本 migration 无 CHECK
                     .col(
                         ColumnDef::new(TappScheduledTasks::MissedPolicy)
                             .string_len(20)
                             .not_null()
                             .default("skip"),
                     )
-                    // 任务作用域: user, tapp, global
-                    // user: 只影响注册任务的用户
-                    // tapp: 影响所有安装该 Tapp 的用户
-                    // global: 系统级任务
+                    // varchar(20) NOT NULL default user；本 migration 无 CHECK
                     .col(
                         ColumnDef::new(TappScheduledTasks::Scope)
                             .string_len(20)
@@ -549,7 +544,6 @@ ALTER TABLE tapp_storage
                             .default("user"),
                     )
                     // 重试配置 (JSON)
-                    // { maxRetries?: number, retryDelay?: number }
                     .col(ColumnDef::new(TappScheduledTasks::RetryConfig).json())
                     // 下次执行时间
                     .col(ColumnDef::new(TappScheduledTasks::NextRunAt).timestamp_with_time_zone())
@@ -689,13 +683,13 @@ ALTER TABLE tapp_storage
                     )
                     // 完成时间
                     .col(ColumnDef::new(TappTaskExecutions::CompletedAt).timestamp_with_time_zone())
-                    // 执行目标: backend, frontend
+                    // varchar(20) NOT NULL；本 migration 无 CHECK
                     .col(
                         ColumnDef::new(TappTaskExecutions::ExecutionTarget)
                             .string_len(20)
                             .not_null(),
                     )
-                    // 执行状态: pending, running, success, failed, timeout
+                    // varchar(20) NOT NULL default pending；本 migration 无 CHECK
                     .col(
                         ColumnDef::new(TappTaskExecutions::Status)
                             .string_len(20)
@@ -764,7 +758,7 @@ ALTER TABLE tapp_storage
             .await?;
 
         // ==================== 8. TAPP_USER_ACTIVITIES 表 ====================
-        // 记录用户使用 Tapp 的活动历史（解决普通用户运行管理员 Tapp 时无法记录 last_run_at 的问题）
+        // 每用户每 Tapp 的活动记录（含 last_run_at）
         manager
             .create_table(
                 Table::create()
@@ -835,7 +829,8 @@ ALTER TABLE tapp_storage
             .await?;
 
         // ==================== 9. TAPP RUNTIME SHARED STATE ====================
-        // 多副本运行时使用的短期 registry/mailbox，以及存储总量硬限制。
+        // tapp_runtime_registry、tapp_runtime_mailbox、tapp_ai_cost_ledger，
+        // 以及 tapp_storage 8388608 字节 INSERT/UPDATE 触发器。
         manager
             .get_connection()
             .execute_unprepared(

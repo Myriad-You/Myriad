@@ -18,7 +18,6 @@ describe('acquireCoverDecodeSlot', () => {
       ninthResolved = true
       releases.push(release)
     })
-    // Still saturated — ninth waits.
     await Promise.resolve()
     assert.equal(ninthResolved, false)
     assert.equal(__coverDecodeSlotStatsForTest().waiting, 1)

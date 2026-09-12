@@ -1,21 +1,8 @@
-/**
- * Tapp run / store shell open & close.
- *
- * - No overshoot / bounce — single ease curve in and out.
- * - Column may fade (opacity) when `.tapp-shell-presence--fade` is set.
- *   WebKit run pages omit fade so opacity never sits on an iframe ancestor.
- * - After enter settles (`--shown`), animation & will-change clear so in-page
- *   element enter/exit (header AnimatePresence, loading, etc.) stay independent.
- * - Fullscreen callers disable presence (fixed descendants × transform).
- */
-
-/* ── Chrome column ─────────────────────────────────────────────────── */
+/** WebKit 运行页不加列 opacity，以免 iframe 祖先带 opacity。 */
 
 .tapp-shell-presence {
   --tapp-shell-enter-duration: 0.48s;
   --tapp-shell-exit-duration: 0.32s;
-
-  /* Smooth ease-out — no spring / overshoot */
   --tapp-shell-enter-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --tapp-shell-exit-ease: cubic-bezier(0.4, 0, 0.2, 1);
 
@@ -24,7 +11,6 @@
 }
 
 .tapp-shell-presence--enter {
-  /* will-change only while animating — release on --shown for child compositing */
   will-change: transform, opacity;
   animation: tapp-shell-in var(--tapp-shell-enter-duration)
     var(--tapp-shell-enter-ease) both;
@@ -34,7 +20,6 @@
   animation-name: tapp-shell-in-fade;
 }
 
-/* Settled: identity, no animation — page chrome / sandbox free to animate */
 .tapp-shell-presence--shown {
   transform: none;
   opacity: 1;
@@ -52,7 +37,7 @@
   animation-name: tapp-shell-out-fade;
 }
 
-/* Transform only (WebKit-safe for iframe) */
+/* 只用 transform（WebKit iframe 安全）。 */
 @keyframes tapp-shell-in {
   from {
     transform: translate3d(0, 1.25rem, 0) scale(0.97);
@@ -73,7 +58,6 @@
   }
 }
 
-/* Transform + fade (Chromium / Firefox / store panel) */
 @keyframes tapp-shell-in-fade {
   from {
     opacity: 0;
@@ -98,7 +82,7 @@
   }
 }
 
-/* ── Ambient scrim (always opacity — sibling of column, never iframe parent) */
+/* 氛围 scrim 用 opacity；是列的兄弟，不是 iframe 父节点。 */
 
 .tapp-shell-scrim {
   --tapp-shell-enter-duration: 0.48s;

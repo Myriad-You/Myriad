@@ -28,9 +28,9 @@ pub(crate) fn tapp_interaction_wait_question(output: &Value) -> Option<UserQuest
     Some(UserQuestion {
         question_id: format!("tapp_interaction:{interaction_id}"),
         question_type: QuestionType::FreeText,
-        question: "等待 Tapp 完成交互".to_string(),
+        question: "Waiting for the Tapp to finish interacting".to_string(),
         context: format!(
-            "Tapp Agent Interaction {interaction_id} 将在提交结构化结果后自动恢复此任务"
+            "Tapp Agent Interaction {interaction_id} will resume this task after a structured result is submitted"
         ),
         options: None,
         required: true,
@@ -43,8 +43,8 @@ pub(crate) fn tapp_interaction_wait_question(output: &Value) -> Option<UserQuest
 /// Run a capability with wall-clock timeout and cooperative mid-step cancel.
 ///
 /// Cancel is polled every 500ms while the handler future is in flight so a user
-/// interrupt does not wait for the full step timeout (handlers themselves are
-/// still non-preemptive until they complete or hit their own HTTP timeouts).
+/// interrupt does not wait for the full step timeout. Dropping the pinned future
+/// aborts at the next `.await`.
 pub(crate) async fn execute_capability_with_timeout_and_cancel(
     capability_id: &str,
     action: &str,

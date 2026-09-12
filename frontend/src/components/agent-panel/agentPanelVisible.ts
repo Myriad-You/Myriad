@@ -1,7 +1,3 @@
-/**
- * 面板现在人能不能看见。正在看的时候不展示、不推送 Agent 通知。
- */
-
 let visible = false
 const listeners = new Set<() => void>()
 
@@ -9,7 +5,7 @@ export function getAgentPanelVisible(): boolean {
   return visible
 }
 
-/** Open on this visible tab. Hidden tab with the panel still mounted is not looking. */
+/** Hidden tab with the panel mounted is not looking. */
 export function isLookingAtAgentPanel(): boolean {
   return visible && (typeof document === 'undefined' || !document.hidden)
 }

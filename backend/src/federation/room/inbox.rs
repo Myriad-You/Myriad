@@ -43,10 +43,7 @@ pub async fn handle_room_invite(
 
     // 查找本地接收者（从 "to" 字段推断）
     //
-    // 收件人必须是**本实例**的 Actor URL。过去这里取任意 URL 的最后一段当用户名，
-    // 于是 `to: ["https://evil.example/users/alice"]` 会解析成本地的 alice ——
-    // 邀请方因此可以点名把任意本地用户拖进房间。这与
-    // `inbox::receive::local_user_id_from_actorish_url` 修过的是同一个洞。
+    // 收件人必须是**本实例**的 Actor URL（`local_username_from_actor_url`），不能取任意 URL 的最后一段当用户名。
     let to = activity.get("to").and_then(|v| v.as_array());
     let local_user_id: Option<i32> = if let Some(targets) = to {
         let mut found_id = None;
@@ -96,7 +93,7 @@ pub async fn handle_room_invite(
         }
     };
 
-    // 查找或创建本地用户对应的 actor_url
+    // 用 `users.username` 拼本地 actor URL；找不到行则 `actor_url(…, "unknown")`。
     let local_actor = if let Some(row) = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -112,9 +109,7 @@ pub async fn handle_room_invite(
         actor_url(&base_url_val, "unknown")
     };
 
-    // Ensure Room row exists; if it already exists with empty/fallback name and
-    // the invite carries a real name, upgrade it (ON CONFLICT DO NOTHING left
-    // invitees stuck on "Room rm_xxxx" forever after a partial insert).
+    // Ensure Room row exists; empty/fallback name is upgraded when the invite carries a real name.
     let home_server = object
         .get("homeServer")
         .and_then(|v| v.as_str())
@@ -324,7 +319,7 @@ pub async fn handle_room_message(
         .and_then(|v| v.as_str())
         .ok_or("Missing room")?;
 
-    // Prefer signed activity actor; fall back to object.from
+    // Use object.from when present, else the signed actor; they must match.
     let sender_actor = object
         .get("from")
         .and_then(|v| v.as_str())
@@ -410,7 +405,7 @@ pub async fn handle_room_message(
 
     // 广播到本地 WebSocket。
     // E2E 时尽量解密后再广播：多方信封对各收件人明文相同，任一本地成员密钥成功即可。
-    // 失败则仍推密文（与 get_messages 在无密钥时行为一致），避免挡住投递。
+    // 失败则仍推密文（与 get_room_messages 无密钥时一致），避免挡住投递。
     let mut ws_payload = payload.clone();
     let mut ws_is_encrypted = is_encrypted;
     if is_encrypted {
@@ -512,10 +507,7 @@ pub async fn handle_room_leave(
         && !same_actor_url(removed, actor_url_str);
 
     if is_kick {
-        // 踢人必须是 owner/admin。这里过去只 warn 然后照删：任何拿到 room_id 的
-        // 签名实例都能把任意成员从我们的名册上抹掉（包括本地用户），而被踢者
-        // 只会看到一条 member_removed 广播。名册滞后现在表现为一次可重试的
-        // 拒绝，而不是一次静默的越权删除。
+        // 踢人必须是 owner/admin。非管理员拒绝，不照删。
         let kicker_role = get_member_role(db, room_id, actor_url_str)
             .await
             .map_err(|e| e.to_string())?;
@@ -594,13 +586,9 @@ pub(crate) struct RoomJoinAuth<'a> {
 
 /// Who may act on an inbound `myriad:RoomJoin`.
 ///
-/// The handler used to check only that the room existed, so any signed instance
-/// that learned a `room_id` could write itself (or a third party) onto the
-/// roster — with `role: "owner"`, which then satisfied the admin gate in
-/// [`handle_room_governance`]. The rule below mirrors the local invite policy
-/// enforced in `members.rs` so the three legitimate producers still pass:
+/// Mirrors the local invite policy in `members.rs` so the three legitimate producers still pass:
 ///
-/// - **accept invite** — self-join, invitee already on the roster as `pending`
+/// - **accept invite** — self-join, invitee already on the roster
 /// - **open/public join** — self-join, `invite_policy = open` or `is_public`
 /// - **roster announce** — owner/admin (or any active member under
 ///   `member-invite` / `open`) telling peers about a new member
@@ -619,17 +607,16 @@ pub(crate) fn room_join_authorized(auth: RoomJoinAuth<'_>) -> bool {
         (_, None) => false,
         ("member-invite" | "open", Some(_)) => true,
         // `admin-only` and any unrecognized policy fall back to owner/admin,
-        // matching the `_ if !is_admin_role(..)` arm in `invite_to_room`.
+        // matching the `_ if !is_admin_role(..)` arm in `invite_member`.
         (_, Some(role)) => is_admin_role(role),
     }
 }
 
 /// Role a `myriad:RoomJoin` may write.
 ///
-/// `owner` / `admin` are minted only by `RoomGovernance.set_member_role`
-/// (owner-only) and by the room's own invite. RoomJoin may seed a fresh row at a
-/// non-privileged role and must never overwrite a role already on the roster —
-/// otherwise a self-announced join is a free promotion.
+/// `admin` is minted by invite and `set_member_role` (owner-only); `owner` by
+/// invite seed / `transfer_owner`. RoomJoin may seed member/observer and must
+/// never overwrite a role already on the roster.
 pub(crate) fn room_join_effective_role(prior_role: Option<&str>, requested: &str) -> String {
     if let Some(existing) = prior_role {
         return existing.to_string();
@@ -644,7 +631,7 @@ pub(crate) fn room_join_effective_role(prior_role: Option<&str>, requested: &str
 /// 处理远程 RoomJoin (myriad:RoomJoin)
 ///
 /// - 自报加入：`actor` = 新成员
-/// - 名册同步：`object.member` = 新成员，`actor` = 邀请者（3+ 方 roster）
+/// - 名册同步：`object.member` = 新成员，`actor` = 公告者
 pub async fn handle_room_join(
     db: &impl ConnectionTrait,
     actor_url_str: &str,
@@ -676,8 +663,7 @@ pub async fn handle_room_join(
         .map_err(|e| e.to_string())?;
 
     let Some(room_row) = room_row else {
-        // Alignment: RoomJoin can race ahead of RoomInvite. Soft-ack used to drop the
-        // join forever (202) so inviter never saw accept. Signal retry instead.
+        // Alignment: RoomJoin can race ahead of RoomInvite. Signal retry instead of 202.
         tracing::info!(
             "[Room] RoomJoin for {} from {} (joining={}) — room not yet present; signaling retry",
             room_id,
@@ -803,7 +789,7 @@ pub async fn handle_room_join(
     )
     .await;
 
-    // Notify local inviter / owner when a pending invite is accepted
+    // Notify local inviter (else owner/admin cap 5) on pending accept or new join
     if was_pending || is_new {
         notify_local_members_of_join(db, room_id, joining).await;
     }
@@ -819,7 +805,7 @@ pub async fn handle_room_join(
 }
 
 /// Replay the roster in both directions when a member becomes active, from the
-/// room's home instance.
+/// owner's local instance.
 ///
 /// A `RoomInvite` carries the roster as it stood when the invite was written,
 /// and every later announcement is fanned out to *active* members only — so a
@@ -827,12 +813,11 @@ pub async fn handle_room_join(
 /// their accept. Two peers invited before either accepted therefore end up
 /// invisible to whichever of them accepted second: the missing peer's
 /// `RoomMessage` is refused as `not_member`, and their `KeyExchange` never
-/// arrived, so anything they encrypt is undecryptable. The home instance is the
-/// only party holding the full roster, so it is the one that repairs the gap.
+/// arrived, so anything they encrypt is undecryptable. The owner's local
+/// instance is the one that repairs the gap.
 ///
-/// Best-effort: the join itself is already committed, and a peer we cannot
-/// reach right now is repaired by the next join or roster poll rather than by
-/// failing (and retrying) an otherwise-good membership write.
+/// Best-effort: errors here do not fail the membership write. A peer we cannot
+/// reach right now does not fail this write (no roster retry here).
 pub(crate) async fn backfill_roster_for_new_member(
     db: &impl ConnectionTrait,
     room_id: &str,
@@ -841,7 +826,7 @@ pub(crate) async fn backfill_roster_for_new_member(
     joining_role: &str,
 ) {
     let base_url = get_base_url().await;
-    // Only the home instance speaks for the roster — otherwise every member's
+    // Only the owner's local instance speaks for the roster — otherwise every member's
     // server would announce the same rows to everyone else.
     if owner_actor.is_empty() || local_username_from_actor_url(&base_url, owner_actor).is_none() {
         return;
@@ -1194,7 +1179,7 @@ pub(crate) fn require_remote_inbox(
     }
 }
 
-/// Notify local users (inviter preferred, else owner) that someone joined/accepted.
+/// Notify local users (inviter preferred, else owner/admin cap 5) that someone joined/accepted.
 pub(crate) async fn notify_local_members_of_join(
     db: &impl ConnectionTrait,
     room_id: &str,

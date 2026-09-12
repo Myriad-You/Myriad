@@ -43,7 +43,7 @@ fn spawn_report_auto_regen(db: DatabaseConnection, user_id: i32, platforms: Vec<
 pub async fn get_latest_report(
     crate::extract::Db(db): crate::extract::Db,
 ) -> Result<Json<Value>, crate::error::HttpError> {
-    // Public dashboard: site owner first; historical rows may live under another admin.
+    // Public dashboard: site owner first; else the user_id that most recently wrote a non-`all` report.
     let preferred = public_report_owner_user_id(&db).await;
     let user_id = resolve_report_user_id_for_public_read(&db, preferred).await?;
 
@@ -93,6 +93,7 @@ pub async fn get_latest_report(
         return Ok(Json(json!({
             "success": false,
             "message": "No valid report found",
+            "code": "no_valid_report",
         })));
     }
 

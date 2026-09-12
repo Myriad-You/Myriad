@@ -26,7 +26,7 @@ export function widgetPreviewConfig(widgetType: {
 }
 
 export function widgetTranslationKey(id: string): string {
-  return id.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())
+  return id.replaceAll(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())
 }
 
 export function widgetDisplayLabel(

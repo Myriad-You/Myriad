@@ -1,6 +1,3 @@
-/* ==========================================
-   用户信息按钮样式
-   ========================================== */
 .user-info-button {
   background: transparent;
   border: none;
@@ -9,11 +6,9 @@
   border-radius: 0.75rem;
   transition: all 0.2s ease;
   text-align: left;
-
-  /* 根据内容自适应宽度，不设置固定宽度 */
   width: auto;
   min-width: 0;
-  max-width: 66%; /* 为关闭按钮留空间 */
+  max-width: 66%;
 }
 
 .user-info-button:hover {
@@ -28,13 +23,6 @@ html.dark .user-info-button:hover {
   transform: scale(0.98);
 }
 
-/* ==========================================
-   音乐播放器小组件动画
-   ========================================== */
-
-/* ==========================================
-   用户弹窗样式
-   ========================================== */
 .user-modal {
   position: fixed;
   top: 50%;
@@ -42,14 +30,7 @@ html.dark .user-info-button:hover {
   width: 90%;
   max-width: 400px;
 
-  /*
-   * Designed shell floor so short secondary pages (e.g. password) aren't stubby.
-   * 20rem ≈ 320px — fits head + password form + padding without empty-huge look.
-   * min() keeps floor ≤ max-height on short viewports.
-   * JS clampModalHeight must use the same floor (reads computed min-height / this var).
-   * Do NOT put min-height on .user-modal-content or .user-modal-page — that fakes
-   * natural height and breaks content-based shrink animation.
-   */
+  /* 短二级页保底高度，避免又矮又空。 */
   --user-modal-min-height: 20rem;
 
   min-height: min(var(--user-modal-min-height), 85vh);
@@ -65,17 +46,12 @@ html.dark .user-info-button:hover {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-
-  /* 初始隐藏状态 */
   opacity: 0;
   visibility: hidden;
   transform: translate(-50%, -50%) scale(0.92);
-
-  /* 初始状态不设置 transition，避免首次渲染时触发过渡 */
   pointer-events: none;
 }
 
-/* 可见状态 - 只在这里启用 transition */
 .user-modal.animate-in {
   opacity: 1;
   visibility: visible;
@@ -88,8 +64,6 @@ html.dark .user-info-button:hover {
     visibility 0s linear 0s;
 }
 
-/* 滚动层：外层 height 钉住且内容超过 max-height 时在此滚动。
-   关闭钮 / 二级顶栏都在 outer 上，不随滚。测量自然高度见 .user-modal-content。 */
 .user-modal-inner {
   display: flex;
   flex-direction: column;
@@ -99,8 +73,6 @@ html.dark .user-info-button:hover {
   -webkit-overflow-scrolling: touch;
 }
 
-/* 自然高度测量盒：height:auto、不 flex-grow，不受外层钉高影响。
-   ResizeObserver 读此节点高度驱动 .user-modal 的 height 过渡。 */
 .user-modal-content {
   flex: 0 0 auto;
   display: flex;
@@ -108,7 +80,6 @@ html.dark .user-info-button:hover {
   min-height: 0;
 }
 
-/* 关闭状态 */
 .user-modal.closing {
   opacity: 0;
   visibility: visible;
@@ -120,10 +91,6 @@ html.dark .user-info-button:hover {
   pointer-events: none;
 }
 
-/*
- * 顶栏圆钮 token：登录弹窗和已登录弹窗共用。
- * 登录壳以前没定义这些变量，关闭钮 top/right 失效后叠在标题上。
- */
 .user-modal,
 .user-modal-login-only {
   --user-modal-chrome-inset: 1rem;
@@ -161,10 +128,6 @@ html.dark .user-modal {
     inset 0 1px 0 rgb(255 255 255 / 5%);
 }
 
-/*
- * 圆形顶栏按钮：照抄 onboarding / setup `.setup-ob-back__hit`。
- * 关闭和返回同一套 hover：描边点亮、左移 2px、图标再左移 1px；按下 scale(0.94)。
- */
 .user-modal-chrome-hit {
   display: grid;
   flex-shrink: 0;
@@ -231,7 +194,6 @@ html.dark .user-modal-chrome-hit {
     color-mix(in srgb, var(--um-chrome-accent) 18%, transparent);
 }
 
-/* 主页：关闭钮仍浮在右上，尺寸 / 交互跟顶栏圆钮同一套 */
 .user-modal-close-float {
   position: absolute;
   top: var(--user-modal-chrome-inset);
@@ -239,7 +201,6 @@ html.dark .user-modal-chrome-hit {
   z-index: 10;
 }
 
-/* 上部区域 - Hero */
 .user-modal-hero {
   flex: 0 0 auto;
   display: flex;
@@ -250,7 +211,6 @@ html.dark .user-modal-chrome-hit {
   overflow: hidden;
 }
 
-/* 装饰背景 */
 .user-modal-hero-bg {
   position: absolute;
   top: -50%;
@@ -308,7 +268,6 @@ html.dark .user-modal-hero-bg {
     );
 }
 
-/* 头像容器 */
 .user-modal-avatar-wrapper {
   position: relative;
   margin-bottom: 1rem;
@@ -357,7 +316,6 @@ html.dark .user-modal-avatar-lg {
     0 6px 16px rgb(0 0 0 / 15%);
 }
 
-/* 可点击头像：进入画像源选择 */
 .user-modal-avatar-btn {
   position: relative;
   display: block;
@@ -398,10 +356,6 @@ html.dark .user-modal-avatar-lg {
   opacity: 1;
 }
 
-/* 头像来源选择器的样式已迁到 AvatarSourcePicker.css（设置页也要用，
-   而 UserModal 是懒加载的） */
-
-/* 在线状态指示器 */
 .user-modal-online-dot {
   position: absolute;
   bottom: 4px;
@@ -432,7 +386,6 @@ html.dark .user-modal-online-dot {
   }
 }
 
-/* 用户身份信息 */
 .user-modal-identity {
   text-align: center;
   margin-bottom: 0.75rem;
@@ -452,10 +405,8 @@ html.dark .user-modal-username {
   color: #f3f4f6;
 }
 
-/* 真实本地账号名（标题是平台昵称时用它区分「你是谁」和「站点显示成谁」） */
 .user-modal-account-name {
-  /* 负上边距抵消标题的 margin-bottom(0.5rem)，与昵称贴成一组；
-     标题那条不能改——没有本行时它还要负责与徽章组的间距 */
+  /* 标题那条间距不能改，没有本行时还要隔开徽章组。 */
   margin: -0.35rem 0 0.5rem;
   line-height: 1.25;
   font-size: 0.8125rem;
@@ -468,7 +419,6 @@ html.dark .user-modal-account-name {
   color: rgb(255 255 255 / 55%);
 }
 
-/* 徽章组 */
 .user-modal-badges {
   display: flex;
   flex-wrap: wrap;
@@ -551,7 +501,6 @@ html.dark .badge-local {
   color: #93c5fd;
 }
 
-/* 简介 */
 .user-modal-bio {
   text-align: center;
   font-size: 0.875rem;
@@ -567,7 +516,6 @@ html.dark .user-modal-bio {
   color: #9ca3af;
 }
 
-/* 操作按钮组 */
 .user-modal-actions {
   display: flex;
   flex-wrap: wrap;
@@ -673,7 +621,6 @@ html.dark .action-logout:hover {
   transform: none;
 }
 
-/* 修改密码表单 */
 .user-modal-password-form {
   width: 100%;
   max-width: 320px;
@@ -710,7 +657,6 @@ html.dark .user-modal-input {
   color: #9ca3af;
 }
 
-/* 下部区域 - Tapp */
 .user-modal-tapps {
   flex: 0 0 auto;
   display: flex;
@@ -718,8 +664,6 @@ html.dark .user-modal-input {
   padding: 1rem 1.5rem 1.5rem;
   background: rgb(0 0 0 / 2%);
   border-top: 1px solid rgb(0 0 0 / 6%);
-
-  /* 固定最小高度，防止 Tapp 加载导致高度变化 */
   min-height: 120px;
 }
 
@@ -822,9 +766,6 @@ html.dark .user-modal-tapps-count-btn:hover {
   color: #9ca3af;
 }
 
-/* 加载环已统一使用 Spinner 组件 */
-
-/* 最近使用的 Tapp */
 .user-modal-recent-tapps {
   margin-bottom: 0.75rem;
 }
@@ -872,7 +813,6 @@ html.dark .user-modal-tapp-item:hover {
   box-shadow: 0 6px 20px rgb(0 0 0 / 30%);
 }
 
-/* 尺寸 only；默认 material 色壳来自 TappIconBadge */
 .user-modal-tapp-icon {
   display: flex;
   align-items: center;
@@ -904,7 +844,6 @@ html.dark .user-modal-tapp-name {
   color: #d1d5db;
 }
 
-/* Tapp 骨架屏加载状态 */
 .user-modal-tapp-skeleton {
   min-width: 4.5rem;
   min-height: 4rem;
@@ -939,7 +878,6 @@ html.dark .user-modal-tapp-skeleton {
   }
 }
 
-/* 无最近使用时的空状态 */
 .user-modal-recent-empty {
   font-size: 0.75rem;
   color: #9ca3af;
@@ -950,12 +888,10 @@ html.dark .user-modal-recent-empty {
   color: #6b7280;
 }
 
-/* 移动端适配 */
 @media (width <= 640px) {
   .user-modal {
     width: 95%;
 
-    /* Slightly tighter floor on small screens; still ≤ max-height via min() */
     --user-modal-min-height: 18rem;
 
     min-height: min(var(--user-modal-min-height), 90vh);
@@ -986,23 +922,16 @@ html.dark .user-modal-recent-empty {
   }
 }
 
-/* ==========================================
-   用户弹窗遮罩层
-   ========================================== */
 .user-modal-overlay {
   position: fixed;
   inset: 0;
   background: rgb(0 0 0 / 30%);
   z-index: 10050;
-
-  /* 初始隐藏状态 */
   opacity: 0;
   visibility: hidden;
 
-  /* 初始状态不设置 transition */
 }
 
-/* 可见状态 - 只在这里启用 transition */
 .user-modal-overlay.animate-in {
   opacity: 1;
   visibility: visible;
@@ -1011,7 +940,6 @@ html.dark .user-modal-recent-empty {
     visibility 0s linear 0s;
 }
 
-/* 关闭状态 */
 .user-modal-overlay.closing {
   opacity: 0;
   visibility: visible;
@@ -1024,11 +952,6 @@ html.dark .user-modal-overlay {
   background: rgb(0 0 0 / 50%);
 }
 
-/* ==========================================
-   仅登录弹窗
-   表面交给 .glass / .surface-dialog，这里只负责定位和开关动画。
-   表单不再内套一层 glass，避免和本壳叠两层背景。
-   ========================================== */
 .user-modal-login-only {
   position: fixed;
   top: 50%;
@@ -1038,21 +961,15 @@ html.dark .user-modal-overlay {
   border-radius: 1.75rem;
   z-index: 10051;
 
-  /* 比共用 1rem 宽一圈，表单别贴边；关闭钮跟着 inset 走，仍和标题同一行 */
   --user-modal-chrome-inset: 1.8rem;
 
   padding: var(--user-modal-chrome-inset);
-
-  /* 初始隐藏状态 */
   opacity: 0;
   visibility: hidden;
   transform: translate(-50%, -50%) scale(0.92);
-
-  /* 初始状态不设置 transition */
   pointer-events: none;
 }
 
-/* 可见状态 - 只在这里启用 transition */
 .user-modal-login-only.animate-in {
   opacity: 1;
   visibility: visible;
@@ -1064,7 +981,6 @@ html.dark .user-modal-overlay {
     visibility 0s linear 0s;
 }
 
-/* 关闭状态 */
 .user-modal-login-only.closing {
   opacity: 0;
   visibility: visible;
@@ -1076,8 +992,6 @@ html.dark .user-modal-overlay {
   pointer-events: none;
 }
 
-/* 第三方账号绑定 */
-
 .user-modal-oauth-list {
   margin: 0;
   padding: 0;
@@ -1087,7 +1001,6 @@ html.dark .user-modal-overlay {
   gap: 0.5rem;
 }
 
-/* 每个平台一张卡片 */
 .user-modal-oauth-row {
   display: flex;
   align-items: center;
@@ -1120,7 +1033,6 @@ html.dark .user-modal-oauth-row:hover {
   opacity: 0.75;
 }
 
-/* Provider 图标：裸放 logo，不加底座，仅固定尺寸保证对齐 */
 .user-modal-oauth-icon {
   display: flex;
   align-items: center;
@@ -1135,7 +1047,6 @@ html.dark .user-modal-oauth-icon {
   color: #e5e7eb;
 }
 
-/* 名称 + 状态两行 */
 .user-modal-oauth-info {
   flex: 1;
   min-width: 0;
@@ -1271,7 +1182,6 @@ html.dark .user-modal-qq-row {
     color-mix(in srgb, var(--color-primary, #94a3b8) 25%, transparent);
 }
 
-/* OAuth 账户徽章（OIDC 提供方创建） */
 .badge-oauth {
   background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%);
   color: #6d28d9;
@@ -1287,8 +1197,7 @@ html.dark .badge-oauth {
   color: #c4b5fd;
 }
 
-/* 弹窗二级页面（第三方绑定 / 修改密码）
-   按内容自然高度布局，不填满外层钉住高度，否则短页（密码）量不到真实高度。 */
+/* 二级页按内容高度，不要填满外层，否则短页量不到真实高度。 */
 
 .user-modal-page {
   display: flex;
@@ -1309,9 +1218,6 @@ html.dark .badge-oauth {
   }
 }
 
-/*
- * 二级页顶栏：提出滚动层。左返回 + 标题，右关闭，两颗圆钮同一行对齐。
- */
 .user-modal-page-head {
   display: flex;
   flex: 0 0 auto;
@@ -1347,18 +1253,15 @@ html.dark .user-modal-page-title {
 }
 
 .user-modal-page-body {
-  /* 内容定高，不 stretch 吃掉外层多余空白；超高时由 .user-modal-inner 滚动 */
   flex: 0 0 auto;
   padding: 1rem 1.25rem 1.25rem;
 }
 
-/* 二级页面中的密码表单占满内容区宽度 */
 .user-modal-page-body .user-modal-password-form {
   max-width: none;
   margin-top: 0;
 }
 
-/* 设置密码（纯 OAuth 账户）页的说明区 */
 .user-modal-password-intro {
   margin-bottom: 1rem;
   padding: 0.75rem 0.875rem;

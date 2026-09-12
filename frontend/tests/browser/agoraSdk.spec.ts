@@ -3,10 +3,10 @@ import { expect, test } from '@playwright/test'
 import { createServer } from 'vite'
 import astroConfig from '../../astro.config.mjs'
 
-// The speech harness aliases transports. This separate check must load the
-// installed SDKs using the site's actual dependency settings, without credentials
-// or contacting Agora. Excluding their UMD entries used to pass the mocked tests
-// while returning undefined createClient / RTM in the real browser.
+// The speech harness aliases transports. This check loads the installed SDKs
+// with the site's actual optimizeDeps, without credentials or contacting Agora.
+// UMD entries must stay in the prebundle; excluding them yields undefined
+// createClient / RTM in the browser.
 test('real Agora SDKs expose RTC, audio PTS and RTM in the browser', async ({
   page,
 }, testInfo) => {

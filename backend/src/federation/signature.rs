@@ -1,7 +1,7 @@
 //! HTTP Signature 签名与验签
 //!
 //! 实现 HTTP Signatures (draft-cavage-http-signatures) 用于 ActivityPub 联邦通信。
-//! 所有发出的联邦请求必须签名，所有收到的 inbox 请求必须验签。
+//! Inbox POST 必须验签。出站投递 POST 走 `sign_request`；WebFinger / Actor GET 不签名。
 
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
@@ -24,7 +24,7 @@ pub struct SignatureParams<'a> {
     pub path: &'a str,
     /// 目标主机（如 bob.example.com）
     pub host: &'a str,
-    /// 请求体摘要（POST 时需要）
+    /// 原始请求体（有则算 Digest）
     pub body: Option<&'a [u8]>,
 }
 
@@ -32,7 +32,7 @@ pub struct SignatureParams<'a> {
 pub struct SignedHeaders {
     /// Date 头
     pub date: String,
-    /// Digest 头（仅 POST 时需要）
+    /// Digest 头（有 body 时）
     pub digest: Option<String>,
     /// Signature 头
     pub signature: String,
@@ -42,7 +42,7 @@ pub struct SignedHeaders {
 pub fn sign_request(key_pair: &KeyPair, params: &SignatureParams) -> Result<SignedHeaders> {
     let date = Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string();
 
-    // 计算 body digest（POST 时）
+    // 计算 body digest（有 body 时）
     let digest = params.body.map(|body| {
         let hash = Sha256::digest(body);
         format!("SHA-256={}", BASE64.encode(hash))

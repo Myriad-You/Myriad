@@ -308,7 +308,7 @@ impl SkillEvolution {
                 let skill_id = stats_key;
                 if let Some(skill) = registry.get(skill_id).await {
                     if skill.origin == SkillOrigin::Manual {
-                        // 手动 Skill 不自动修改，仅记录警告
+                        // 手动 Skill 不自动修改；should_prune 时才记警告
                         if should_prune {
                             tracing::warn!(
                                 skill_id = skill_id,
@@ -330,8 +330,8 @@ impl SkillEvolution {
                             failure_reason = failure_reason,
                             "[SkillEvolution] Triggering AI-powered improvement"
                         );
-                        // 临时标记为"改进中"（使用未来时间戳防止并发重复触发）
-                        // 成功后更新为实际时间，失败后回滚
+                        // 写入 `Utc::now()` 作改进中标记；冷却看 elapsed > `IMPROVE_COOLDOWN_SECS`
+                        // 成功后再写成实际完成时间，失败回滚
                         let improving_marker = Utc::now();
                         {
                             let mut stats = self.stats.lock().await;
@@ -371,7 +371,7 @@ impl SkillEvolution {
                                             nm.notify_skill_evolution(
                                                 &skill_id_owned,
                                                 "improved",
-                                                "AI 已根据近期失败原因改写该自动技能。",
+                                                "AI rewrote this auto-skill based on recent failures.",
                                             )
                                             .await;
                                         }
@@ -407,7 +407,7 @@ impl SkillEvolution {
 
     /// AI 驱动的 Skill 抽象化创建
     ///
-    /// 与 `auto_create_skill` 不同：不是把用户原始输入当 trigger/name，
+    /// 与 `auto_create_skill_with_params` 不同：不是把用户原始输入当 trigger/name，
     /// 而是用 AI 从成功执行中提取可复用的抽象模式。
     ///
     /// 例如用户说"帮我看看最近B站有没有新番更新"，AI 会抽象为：
@@ -428,18 +428,18 @@ impl SkillEvolution {
             .ok_or("AI analyzer not available")?;
 
         let prompt = format!(
-            "你是一个 Skill 模板抽象专家。从以下成功执行中提取可复用的抽象 Skill 模板。\n\n\
-            用户原始请求：{}\n\n\
-            实际执行步骤：\n{}\n\n\
-            使用到的能力：{}\n\n\
-            请输出以下 JSON（不要多余解释）：\n\
+            "You extract reusable Skill templates from a successful run.\n\n\
+            Original request: {}\n\n\
+            Steps that ran:\n{}\n\n\
+            Capabilities used: {}\n\n\
+            Output this JSON only (no extra prose):\n\
             {{\n\
-              \"name\": \"简洁的 Skill 名称（不要包含具体人名/番名/平台名，要抽象化）\",\n\
-              \"description\": \"一句话描述这个 Skill 能做什么（抽象化）\",\n\
-              \"category\": \"分类（如 media, social, game, data, creative）\",\n\
-              \"triggers\": [\"3-6个抽象化的触发关键词，包含中英文\"],\n\
-              \"parameters\": [\"从具体值中提取的参数槽位名\"],\n\
-              \"instructions\": \"参数化的执行指令，用 ${{param}} 表示可变部分\"\n\
+              \"name\": \"short Skill name (abstract; no person/show/platform names)\",\n\
+              \"description\": \"one sentence on what this Skill does (abstract)\",\n\
+              \"category\": \"category (media, social, game, data, creative)\",\n\
+              \"triggers\": [\"3-6 abstract trigger phrases, include Chinese and English\"],\n\
+              \"parameters\": [\"parameter slot names extracted from concrete values\"],\n\
+              \"instructions\": \"parameterized instructions; use ${{param}} for variable parts\"\n\
             }}\n",
             user_input,
             step_descriptions,
@@ -567,17 +567,17 @@ impl SkillEvolution {
             .ok_or("AI analyzer not available")?;
 
         let reason_ctx = failure_reason
-            .map(|r| format!("\n最近失败原因：{}", r))
+            .map(|r| format!("\nRecent failure reason: {}", r))
             .unwrap_or_default();
 
         let prompt = format!(
-            "你是一个 Skill 优化专家。以下是一个执行 Skill 的指令，它最近频繁失败。\n\n\
-            当前指令：\n{}\n{}\n\n\
-            请改写这段指令，使其更健壮、更准确。改进要求：\n\
-            1. 保持原有功能意图不变\n\
-            2. 添加错误处理和边界条件检查\n\
-            3. 使参数匹配更精确\n\
-            4. 只输出改进后的指令文本，不要解释\n",
+            "You improve Skill instructions. The Skill below has been failing often.\n\n\
+            Current instructions:\n{}\n{}\n\n\
+            Rewrite them to be more robust and precise:\n\
+            1. Keep the original intent\n\
+            2. Add error handling and edge-case checks\n\
+            3. Make parameter matching more exact\n\
+            4. Output the improved instruction text only, no explanation\n",
             old_instructions, reason_ctx
         );
 
@@ -668,13 +668,12 @@ impl SkillEvolution {
 
         // 去重检查：如果已有高度相似的 Skill，跳过创建或改进已有 Skill
         if let Some(registry) = get_skill_registry() {
-            // 用新 skill 的描述+触发词构建查询文本
+            // 用 name+描述+触发词构建查询文本
             let query_text = format!("{} {} {}", name, description, triggers.join(" "));
             let existing_matches = registry.get_relevant_skills(&query_text, 3).await;
 
             for m in &existing_matches {
                 if m.relevance > 1.5 {
-                    // 高度相似的 Skill 已存在 — 尝试改进而非创建
                     if m.skill.origin != SkillOrigin::Manual {
                         tracing::info!(
                             existing = %m.skill.name,
@@ -927,7 +926,7 @@ origin: agent_generated
 
     /// 能力缺口检测：当用户请求无法被任何能力/Skill 满足时
     ///
-    /// 由 Planner 在返回 unsupported 或 Executor 找不到能力时调用。
+    /// 由 `process_work` 在 Planner 返回 `PlannerStatus::Unsupported` 时调用。
     pub async fn detect_capability_gap(
         &self,
         user_request: &str,
@@ -939,7 +938,7 @@ origin: agent_generated
         };
 
         let workaround = if has_http_fetch {
-            Some("可以尝试通过 http.fetch 调用外部 API 实现".to_string())
+            Some("Try implementing it by calling an external API with http.fetch".to_string())
         } else {
             None
         };
@@ -963,7 +962,7 @@ origin: agent_generated
             description: user_request.to_string(),
             missing_capability: missing_description.to_string(),
             workaround,
-            suggestion: format!("建议添加新的 handler 以支持: {}", missing_description),
+            suggestion: format!("Suggest adding a new handler for: {missing_description}"),
             confidence: 0.3,
             first_seen: Utc::now().to_rfc3339(),
             report_count: 1,
@@ -1054,7 +1053,7 @@ origin: agent_generated
                         &skill.id,
                         "pruned",
                         &format!(
-                            "自动技能「{}」因失败率过高被淘汰（已移入回收站）。",
+                            "Auto-skill \"{}\" was pruned for a high failure rate (moved to trash).",
                             skill.name
                         ),
                     )
@@ -1134,7 +1133,7 @@ origin: agent_generated
 }
 
 /// 将 skill 文件移入 `skills/_trash/`（带时间戳前缀），避免物理删除无法恢复。
-/// `_trash` 以 `_` 开头，加载器会跳过该目录下的文件。
+/// 加载器只读 skills 目录顶层 `.md`，不进入子目录。
 async fn soft_delete_skill_file(skill: &Skill) -> Result<PathBuf, String> {
     if !skill.file_path.exists() {
         return Err(format!("Skill file missing: {}", skill.file_path.display()));

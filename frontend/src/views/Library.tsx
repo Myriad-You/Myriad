@@ -1,8 +1,3 @@
-/**
- * 资料库视图组件
- * 显示用户的多平台数据收藏
- */
-
 import type { SecondaryNavItem } from '../contexts/NavigationContext'
 
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
@@ -22,7 +17,6 @@ import {
   useModuleVisibilityPreferences,
 } from '../utils/moduleVisibility'
 
-// 资料库筛选图标
 const FilterIcons = {
   all: (
     <svg
@@ -142,7 +136,6 @@ type FilterType =
   'all' | 'game' | 'video' | 'music' | 'anime' | 'tv_series' | 'book'
 
 export default function Library() {
-  // 🆕 初始化资料库调度器（Resize + Intersection + Idle）
   useLibraryScheduler()
   const canvasTour = useSyncExternalStore(
     subscribeLibraryCanvasTourSurface,
@@ -170,7 +163,6 @@ export default function Library() {
     ),
   )
 
-  // 构建二级导航项
   const navItems: SecondaryNavItem[] = useMemo(
     () => [
       {
@@ -226,7 +218,6 @@ export default function Library() {
     [t],
   )
 
-  // 使用二级导航 Hook
   const { activeId, setExpanded } = useSecondaryNav({
     routePath: '/library',
     items: navItems,
@@ -234,7 +225,6 @@ export default function Library() {
     expandHint: t.nav.expandFilters,
   })
 
-  // 监听展开事件
   useEffect(() => {
     const handleExpandSecondary = (e: CustomEvent<{ path: string }>) => {
       if (e.detail.path === '/library') {
@@ -254,7 +244,7 @@ export default function Library() {
     }
   }, [setExpanded])
 
-  // Filter chip engagement (not a new pageview — SPA stays on /library)
+  // Filter chips are not a new pageview; SPA stays on /library.
   useEffect(() => {
     if (!activeId || activeId === 'all') return
     void import('../utils/analyticsEvents').then(

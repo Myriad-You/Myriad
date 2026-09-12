@@ -1,8 +1,3 @@
-/**
- * IslandInput — 控制岛内嵌输入行
- * 图标 + 输入框 + 可选 slot + 提交按钮
- */
-
 import { Spinner } from '../../Spinner'
 import {
   ISLAND_BTN_PRIMARY,
@@ -16,13 +11,9 @@ export interface IslandInputProps {
   onSubmit: () => void
   placeholder: string
   loading?: boolean
-  /** 提交按钮文字 */
   buttonLabel: string
-  /** 左侧图标 */
   icon?: React.ReactNode
-  /** 按钮与输入框之间的额外 slot */
   children?: React.ReactNode
-  /** mobile 时 input flex-1 */
   isMobile?: boolean
 }
 

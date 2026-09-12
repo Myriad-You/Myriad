@@ -1,6 +1,3 @@
-/**
- * 显示说明 — 与重置本页同款 CheckboxCard 布局微调
- */
 
 .settings-help-toggle.checkbox-group-card {
   max-width: min(16rem, 44vw);
@@ -18,7 +15,7 @@
   -webkit-line-clamp: 2;
 }
 
-/* 与 SettingSection 移动头同断点（<1024）：描述收起，芯片可撑满一行 */
+/* <1024: desc collapses; chip may fill row */
 @media (width < 1024px) {
   .settings-help-toggle.checkbox-group-card {
     max-width: none;

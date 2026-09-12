@@ -1,10 +1,3 @@
-/**
- * 共享歌词波浪视口 — 对齐 Tapp music-player / 资料库卡片：
- * - 容器不滚；行 absolute + 位置/缩放弹簧
- * - 统一字号，激活靠 scale（零重排）
- * - 粘性窗口化 DOM；顺序推进波浪；大跨度 seek 瞬移
- */
-
 import type { CSSProperties } from 'react'
 import {
 
@@ -26,22 +19,12 @@ export interface LyricWaveScrollProps {
   lyrics: LyricWaveLine[]
   currentLyricIndex: number
   variant?: LyricWaveVariant
-  /** 主题色（passed 行 / 面板变量回退） */
   musicColor?: string
   className?: string
-  /**
-   * 为 false 时停波浪 rAF（面板收起 / 歌词 keep-alive 隐藏）。
-   * 默认 true。
-   */
   paused?: boolean
 }
 
-/** 焦点行中心落在视口垂直中线 */
 const FOCAL = 0.5
-/**
- * 当前句 scale≤1 不向外「鼓」；非当前句缩小。
- * 放大用 CSS 字号/字重，避免 center-origin scale 视觉溢出被 overflow 裁切。
- */
 const SCALE_ACTIVE = 1
 const SCALE_INACTIVE = 0.78
 const WAVE_DELAY = 40
@@ -51,16 +34,10 @@ const WINDOW = 12
 const WIN_MARGIN = 4
 const EST_LINE_H = 18
 const K = 150
-/** 临界阻尼：避免位置过冲 */
 const C = 2 * Math.sqrt(K)
 const KS = 240
 const CS = 2 * Math.sqrt(KS)
 
-/**
- * transform-origin: top center 时：
- * visualTop = pos，visualBottom = pos + h * scale
- * 在可居中时尽量保留 desiredS（中线），仅当会裁切时才钳制
- */
 function clampFocusS(
   lineY: number,
   lineH: number,
@@ -70,12 +47,9 @@ function clampFocusS(
   if (viewH < 8) return desiredS
   const visualH = lineH * SCALE_ACTIVE
   const pad = 2
-  // pos = lineY - s
-  // pad ≤ pos 且 pos + visualH ≤ viewH - pad
   const minS = lineY + visualH - viewH + pad
   const maxS = lineY - pad
   if (minS > maxS) {
-    // 比视口还高：垂直居中整块
     return lineY + visualH / 2 - viewH / 2
   }
   return Math.max(minS, Math.min(maxS, desiredS))
@@ -93,7 +67,6 @@ function clampActivePos(
   const minPos = pad
   const maxPos = viewH - visualH - pad
   if (maxPos < minPos) {
-    // 超高：居中
     return (viewH - visualH) / 2
   }
   return Math.max(minPos, Math.min(maxPos, pos))
@@ -195,7 +168,6 @@ export const LyricWaveScroll = memo(({
     [],
   )
 
-  // 首帧就给出有效窗口，避免 winEnd<=winStart 时 layout 清空 + opacity 永远 0
   const [winRange, setWinRange] = useState(() => {
     const cleaned = cleanLyricLines(lyrics)
     const n = cleaned.length
@@ -246,14 +218,6 @@ export const LyricWaveScroll = memo(({
 
   const writeItemTransform = useCallback((it: WaveItem) => {
     if (!it.el) return
-    /**
-     * transform-origin: top center 时，scale 只往下缩/放。
-     * 布局 y 按「未缩放行高」首尾相接，若直接 pos 当 top：
-     *   视觉中心 = pos + h*scale/2  （偏上）
-     *   布局中心 = pos + h/2
-     * 非当前句 scale 缩小时视觉中心上移 → 到上一句看起来更远、到下一句更近。
-     * 补偿 yAdjust = h*(1-scale)/2，使视觉中心回到布局槽中线，上下句距对称。
-     */
     const yAdjust = (it.h * (1 - it.scale)) / 2
     const drawY = it.pos + yAdjust
     const wy = Math.round(drawY * 100)
@@ -348,7 +312,6 @@ export const LyricWaveScroll = memo(({
     const w = vp.clientWidth
     if (outerH < 24 || w < 40) return false
     void vp.offsetHeight
-    // 行坐标相对 inner；高度用 inner 可用区，避免上下 padding 导致钳制偏差
     const inner = vp.querySelector('.lyric-wave__inner') as HTMLElement | null
     const h = Math.max(24, inner?.clientHeight || outerH)
 
@@ -362,7 +325,6 @@ export const LyricWaveScroll = memo(({
       if (!el) continue
       const prev = el.style.transform
       el.style.transform = 'none'
-      // scrollHeight 含完整换行高度，比 offsetHeight 更稳
       const hh = Math.max(el.offsetHeight || 0, el.scrollHeight || 0)
       el.style.transform = prev
       if (hh > 0) {
@@ -466,7 +428,6 @@ export const LyricWaveScroll = memo(({
           moving = true
         }
 
-        // 焦点行强制留在安全区（含 scale），杜绝动画过程裁切
         if (it.idx === focusK) {
           const clamped = clampActivePos(it.pos, it.h, it.scale, viewH)
           if (clamped !== it.pos) {
@@ -490,12 +451,11 @@ export const LyricWaveScroll = memo(({
       if (items.length === 0) return
       if (!measuredRef.current && !measureLayout()) return
 
-      // 先切 class（active 字号变大），再测高，否则安全区按小字号算会裁切
+      // 先切 class 再测高，否则安全区按小字号算会裁切。
       for (let j = 0; j < items.length; j++) {
         const o = items[j]
         if (o.el) o.el.className = rowClass(o.idx, globalK)
       }
-      // 强制样式生效后再量
       void viewportRef.current?.offsetHeight
 
       const heights = heightsRef.current
@@ -511,7 +471,6 @@ export const LyricWaveScroll = memo(({
           heights[o.idx] = hh
         }
       }
-      // 高度变了要重算绝对 y
       let yAcc = 0
       const ys: number[] = Array.from({ length: heights.length })
       for (let i = 0; i < heights.length; i++) {
@@ -538,8 +497,6 @@ export const LyricWaveScroll = memo(({
       }
 
       const viewH = viewHRef.current
-      // 行中心对齐视口垂直中线：pos + h/2 = viewH * FOCAL
-      // => s = y - viewH*FOCAL + h/2
       const rawDesired =
         focusItemLocal.y - viewH * FOCAL + focusItemLocal.h / 2
       const desiredS = clampFocusS(
@@ -622,11 +579,9 @@ export const LyricWaveScroll = memo(({
 
     const settle = () => {
       if (cancelled) return
-      // 行 ref 可能尚未挂上：重建一次再量
       rebuildWindowItems(lines, k0)
       if (!measureLayout()) {
         if (attempt++ >= maxAttempts) {
-          // 最终兜底：即使量高失败也显示，避免资料库卡片永久透明
           snapAll()
           setLayoutReady(true)
           return
@@ -686,7 +641,7 @@ export const LyricWaveScroll = memo(({
       if (measureLayout()) {
         const k = focusKRef.current >= 0 ? focusKRef.current : 0
         focusItem(k, true)
-        // 关键：量高成功后必须亮起，否则首帧失败时资料库歌词会一直 opacity:0
+        // 量高成功后必须亮起，否则资料库歌词会一直 opacity:0。
         setLayoutReady(true)
       }
     })
@@ -696,7 +651,6 @@ export const LyricWaveScroll = memo(({
 
   useEffect(() => () => stopWave(), [stopWave])
 
-  // 面板收起等：停 rAF；恢复后强制再测（is-hidden 时 clientHeight 常为 0）
   useEffect(() => {
     if (paused) {
       stopWave()
@@ -717,17 +671,14 @@ export const LyricWaveScroll = memo(({
         setLayoutReady(true)
         return
       }
-      // 父容器高度尚未展开时再试几次
       if (attempts++ < 8) {
         retryTimer = window.setTimeout(() => {
           raf1 = requestAnimationFrame(tryResume)
         }, attempts < 3 ? 16 : 40)
       } else {
-        // 兜底显示，避免永久 opacity:0
         setLayoutReady(true)
       }
     }
-    // 等 is-hidden 卸掉后再量（双 rAF 对齐布局）
     raf1 = requestAnimationFrame(() => {
       raf2 = requestAnimationFrame(tryResume)
     })

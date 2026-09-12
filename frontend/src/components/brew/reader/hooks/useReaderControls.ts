@@ -1,26 +1,30 @@
-/**
- * 阅读进度、目录跟踪、标题跳转与键盘快捷键
- */
-
-import type { TocItem } from '../types'
+import type { ReadingProgress } from '../progressStore'
+import type { ReaderCopy, TocItem } from '../types'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import * as brewApi from '../../../../services/brewApi'
+import { brewSubject } from '../../../../utils/brewSubject'
+import { BrewSyncConflictError } from '../../../../utils/brewSyncConflict'
+import { RequestTurn } from '../../logic/requestTurn'
+import { progressOutbox } from '../progressOutbox'
+import { createReadingProgress } from '../progressStore'
+import { ProgressSync } from '../progressSync'
+import { useArticleTaskScope } from './useArticleTaskScope'
 
 export interface UseReaderControlsOptions {
   articleRef: React.RefObject<HTMLElement | null>
   contentRef: React.RefObject<HTMLDivElement | null>
   itemId: number
   readProgress: number | null | undefined
+  stateRevision?: number
   contentReady: boolean
   isAuthenticated: boolean
-  onClose: () => void
   adjustFontSize: (delta: number) => void
   showToastMessage: (message: string, duration?: number) => void
-  t: Record<string, any>
+  t: ReaderCopy
 }
 
 export interface UseReaderControlsReturn {
-  readingProgress: number
+  readingProgress: ReadingProgress
   toc: TocItem[]
   setToc: (toc: TocItem[]) => void
   showToc: boolean
@@ -30,6 +34,9 @@ export interface UseReaderControlsReturn {
   handleProgressPointerDown: () => void
   handleProgressPointerUp: () => void
   handleProgressPointerLeave: () => void
+  syncPaused: boolean
+  recoverLocalProgress: () => Promise<void>
+  recoverRemoteProgress: () => Promise<void>
 }
 
 export function useReaderControls({
@@ -37,19 +44,112 @@ export function useReaderControls({
   contentRef,
   itemId,
   readProgress,
+  stateRevision,
   contentReady,
   isAuthenticated,
-  onClose,
   adjustFontSize,
   showToastMessage,
   t,
 }: UseReaderControlsOptions): UseReaderControlsReturn {
-  const [readingProgress, setReadingProgress] = useState(0)
+  const captureTask = useArticleTaskScope(itemId)
+  const recoverTurn = useRef(new RequestTurn())
+  useEffect(() => () => recoverTurn.current.cancel(), [itemId])
+  const readingProgress = useRef(createReadingProgress()).current
+  const [syncPaused, setSyncPaused] = useState(false)
   const progressRafRef = useRef<number | null>(null)
-  const lastSyncedProgressRef = useRef<number>(-1)
-  const progressSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  )
+  const syncRef = useRef<ProgressSync | null>(null)
+  const expectedRevisionRef = useRef(stateRevision)
+  const conflictNoticeRef = useRef(() => {})
+  conflictNoticeRef.current = () => showToastMessage(t.brew.readingSyncConflict, 8000)
+  useEffect(() => {
+    expectedRevisionRef.current = stateRevision
+  }, [itemId, stateRevision])
+  useEffect(() => {
+    if (!isAuthenticated || itemId <= 0) return
+    const subject = brewSubject.getSnapshot()
+    setSyncPaused(false)
+    const persist =
+      typeof sessionStorage === 'undefined'
+        ? undefined
+        : progressOutbox(
+            sessionStorage,
+            subject.key,
+            subject.generation,
+            itemId,
+          )
+    const sync = new ProgressSync(async (progress, observedAt) => {
+      brewSubject.assert(subject)
+      const confirmedRevision = await brewApi.updateReadProgress(itemId, progress, {
+        isRead: progress >= 95 ? true : undefined,
+        observedAt,
+        expectedRevision: expectedRevisionRef.current,
+      })
+      if (confirmedRevision !== undefined) expectedRevisionRef.current = confirmedRevision
+    }, subject.signal, (error) => {
+      if (error instanceof BrewSyncConflictError && syncRef.current === sync) {
+        setSyncPaused(true)
+        conflictNoticeRef.current()
+      }
+    }, persist)
+    syncRef.current = sync
+    const hidden = () => {
+      if (document.visibilityState === 'hidden') void sync.flush()
+    }
+    document.addEventListener('visibilitychange', hidden)
+    return () => {
+      document.removeEventListener('visibilitychange', hidden)
+      syncRef.current = null
+      setSyncPaused(false)
+      sync.release()
+    }
+  }, [itemId, isAuthenticated])
+  const pinProgress = useCallback((value: number) => {
+    const el = articleRef.current
+    readingProgress.set(value)
+    if (!el) return
+    const prevBehavior = el.style.scrollBehavior
+    el.style.scrollBehavior = 'auto'
+    if (value > 0 && value < 100) {
+      const max = el.scrollHeight - el.clientHeight
+      if (max > 0) el.scrollTop = (value / 100) * max
+    } else {
+      el.scrollTo({ top: 0, behavior: 'auto' })
+    }
+    el.style.scrollBehavior = prevBehavior
+  }, [articleRef])
+  const recoverLocalProgress = useCallback(async () => {
+    const isCurrent = captureTask()
+    const signal = recoverTurn.current.begin()
+    try {
+      const fresh = await brewApi.getItem(itemId, undefined, { signal })
+      if (!isCurrent() || signal.aborted) return
+      expectedRevisionRef.current = fresh.state_revision
+      syncRef.current?.resume()
+      setSyncPaused(false)
+    } catch (error) {
+      if (!isCurrent() || signal.aborted) return
+      throw error
+    }
+  }, [captureTask, itemId])
+  const recoverRemoteProgress = useCallback(async () => {
+    const isCurrent = captureTask()
+    const signal = recoverTurn.current.begin()
+    try {
+      const fresh = await brewApi.getItem(itemId, undefined, { signal })
+      if (!isCurrent() || signal.aborted) return
+      expectedRevisionRef.current = fresh.state_revision
+      const progress =
+        typeof fresh.read_progress === 'number'
+          ? Math.max(0, Math.min(100, Math.round(fresh.read_progress)))
+          : 0
+      syncRef.current?.adopt(progress)
+      pinProgress(progress)
+      setSyncPaused(false)
+    } catch (error) {
+      if (!isCurrent() || signal.aborted) return
+      throw error
+    }
+  }, [captureTask, itemId, pinProgress])
   const [toc, setToc] = useState<TocItem[]>([])
   const [showToc, setShowToc] = useState(false)
   const [activeHeadingId, setActiveHeadingId] = useState<string>('')
@@ -60,26 +160,17 @@ export function useReaderControls({
   )
   const isLongPressRef = useRef(false)
 
-  // 切换文章：恢复服务端进度或回到顶部。
-  // 正文是动画后再灌进 DOM 的，只在 itemId 时滚一次会停在占位高度上；
-  // contentReady 后再钉一次。behavior:auto 避开容器上的 smooth。
+  // 正文动画后再灌 DOM；contentReady 后再钉进度。behavior:auto 避开容器 smooth。
   useEffect(() => {
-    lastSyncedProgressRef.current = -1
-    if (progressSyncTimerRef.current) {
-      clearTimeout(progressSyncTimerRef.current)
-      progressSyncTimerRef.current = null
-    }
     const saved =
       typeof readProgress === 'number' && readProgress > 0
         ? Math.min(100, Math.round(readProgress))
         : 0
-    setReadingProgress(saved)
+    readingProgress.set(saved)
     const pin = () => {
       const el = articleRef.current
       if (!el) return
-      // 复位必须瞬间完成：容器带 scroll-behavior: smooth，直接赋 scrollTop 也会
-      // 平滑滚一段，正好落在新正文淡入的那 260ms 里，看起来像内容在往上飘。
-      // `scrollTo` 的 behavior 只管它自己那一次，管不到赋值那一支。
+      // 复位必须瞬间完成：容器有 scroll-behavior:smooth，直接赋 scrollTop 也会平滑滚。
       const prevBehavior = el.style.scrollBehavior
       el.style.scrollBehavior = 'auto'
       if (saved > 0 && saved < 100) {
@@ -90,92 +181,60 @@ export function useReaderControls({
       }
       el.style.scrollBehavior = prevBehavior
     }
-    requestAnimationFrame(pin)
+    const frame = requestAnimationFrame(pin)
+    return () => cancelAnimationFrame(frame)
   }, [itemId, contentReady])
 
-  // 计算阅读进度（本地 UI + 登录用户 debounce 同步到服务端）
   const updateReadingProgress = useCallback(() => {
-    // RAF 节流：每帧最多更新一次，避免每像素滚动都触发 React re-render
-    if (progressRafRef.current !== null) return
+    const el = articleRef.current
+    if (!el || !contentReady) return
+    const denom = el.scrollHeight - el.clientHeight
+    const progress =
+      denom <= 0
+        ? 100
+        : Math.max(0, Math.min(100, Math.round((el.scrollTop / denom) * 100)))
+    if (!Number.isFinite(progress)) return
+    // Capture before RAF: close may happen before the next paint.
+    if (isAuthenticated) syncRef.current?.record(progress)
+    if (progressRafRef.current !== null)
+      cancelAnimationFrame(progressRafRef.current)
     progressRafRef.current = requestAnimationFrame(() => {
       progressRafRef.current = null
-      if (articleRef.current) {
-        const { scrollTop, scrollHeight, clientHeight } = articleRef.current
-        const denom = scrollHeight - clientHeight
-        const progress =
-          denom <= 0
-            ? 100
-            : Math.min(100, Math.round((scrollTop / denom) * 100))
-        if (Number.isNaN(progress)) return
-        setReadingProgress((prev) => (prev === progress ? prev : progress))
-
-        if (!isAuthenticated) return
-        // Debounce server sync (2s) and only when delta ≥ 5% or finished
-        if (progressSyncTimerRef.current) {
-          clearTimeout(progressSyncTimerRef.current)
-        }
-        progressSyncTimerRef.current = setTimeout(() => {
-          progressSyncTimerRef.current = null
-          const last = lastSyncedProgressRef.current
-          if (progress < 100 && last >= 0 && Math.abs(progress - last) < 5) {
-            return
-          }
-          lastSyncedProgressRef.current = progress
-          void brewApi
-            .updateReadProgress(itemId, progress, {
-              isRead: progress >= 95 ? true : undefined,
-            })
-            .catch(() => {
-              /* best-effort */
-            })
-        }, 2000)
-      }
+      readingProgress.set(progress)
     })
-  }, [isAuthenticated, itemId])
+  }, [isAuthenticated, itemId, contentReady])
 
-  // Flush progress on unmount / article leave
-  useEffect(() => {
-    return () => {
-      if (progressSyncTimerRef.current) {
-        clearTimeout(progressSyncTimerRef.current)
-        progressSyncTimerRef.current = null
-      }
-      if (!isAuthenticated) return
-      const p = lastSyncedProgressRef.current
-      // readingProgress state may be stale in cleanup; use last known via ref only if we ever set it
-      void p
-    }
-  }, [isAuthenticated, itemId])
+  useEffect(
+    () => () => {
+      if (progressRafRef.current !== null)
+        cancelAnimationFrame(progressRafRef.current)
+      progressRafRef.current = null
+      if (progressLongPressRef.current)
+        clearTimeout(progressLongPressRef.current)
+    },
+    [itemId],
+  )
 
-  // 保持 ref 与 state 同步，供滚动回调读取（避免把 activeHeadingId 放入 effect 依赖）
   activeHeadingIdRef.current = activeHeadingId
 
-  // 监听滚动更新当前标题
   useEffect(() => {
     const article = articleRef.current
     const content = contentRef.current
     if (!article || !content || toc.length === 0) return
 
-    // 缓存标题元素引用，避免每次滚动都调用 querySelectorAll
-    const headings = Array.from(
-      content.querySelectorAll('h1, h2, h3, h4, h5, h6'),
-    ) as HTMLElement[]
+    const headings = Iterator.from(content.querySelectorAll('h1, h2, h3, h4, h5, h6')).toArray() as HTMLElement[]
     if (headings.length === 0) return
 
     const handleScrollForToc = () => {
-      let currentId = ''
-
-      for (const heading of headings) {
-        const rect = heading.getBoundingClientRect()
-        // 标题进入视口上方 150px 范围内就算当前标题
-        if (rect.top <= 150) {
-          currentId = heading.id
-        }
-      }
+      // The result is the last qualifying heading in DOM order. Search from
+      // that end and stop, without caching positions that images/fonts can move.
+      const heading = headings.findLast(
+        (item) => item.getBoundingClientRect().top <= 150,
+      )
+      const currentId = heading?.id ?? ''
 
       const prevId = activeHeadingIdRef.current
       if (currentId !== prevId) {
-        // 记录标题访问历史（去重，只记录最近 20 个）
         if (currentId && prevId) {
           setHeadingHistory((prev) => {
             const newHistory = prev.filter((id) => id !== prevId)
@@ -191,7 +250,6 @@ export function useReaderControls({
     return () => article.removeEventListener('scroll', handleScrollForToc)
   }, [toc])
 
-  // 监听滚动
   useEffect(() => {
     const article = articleRef.current
     if (article) {
@@ -200,7 +258,6 @@ export function useReaderControls({
     }
   }, [updateReadingProgress])
 
-  // 跳转到指定标题 - useCallback 缓存
   const scrollToHeading = useCallback((id: string) => {
     const heading = document.getElementById(id)
     if (heading && articleRef.current) {
@@ -218,15 +275,13 @@ export function useReaderControls({
     }
   }, [])
 
-  // 返回上一个标题 - useCallback 缓存
   const goToPreviousHeading = useCallback(() => {
     if (headingHistory.length > 0) {
-      const prevId = headingHistory[headingHistory.length - 1]
+      const prevId = headingHistory.at(-1)!
       setHeadingHistory((prev) => prev.slice(0, -1))
       scrollToHeading(prevId)
       showToastMessage(t.brew.backToPrevParagraph, 1500)
     } else if (activeHeadingId && toc.length > 0) {
-      // 没有历史时，跳转到当前标题的上一个
       const currentIndex = toc.findIndex((t) => t.id === activeHeadingId)
       if (currentIndex > 0) {
         scrollToHeading(toc[currentIndex - 1].id)
@@ -235,7 +290,6 @@ export function useReaderControls({
     }
   }, [headingHistory, activeHeadingId, toc, scrollToHeading, showToastMessage])
 
-  // 返回顶部 - useCallback 缓存
   const scrollToTop = useCallback(() => {
     if (articleRef.current) {
       articleRef.current.scrollTo({
@@ -248,28 +302,24 @@ export function useReaderControls({
     }
   }, [showToastMessage])
 
-  // 进度按钮按下 - useCallback 缓存
   const handleProgressPointerDown = useCallback(() => {
     isLongPressRef.current = false
     progressLongPressRef.current = setTimeout(() => {
       isLongPressRef.current = true
       scrollToTop()
-    }, 500) // 500ms 触发长按
+    }, 500)
   }, [scrollToTop])
 
-  // 进度按钮抬起 - useCallback 缓存
   const handleProgressPointerUp = useCallback(() => {
     if (progressLongPressRef.current) {
       clearTimeout(progressLongPressRef.current)
       progressLongPressRef.current = null
     }
-    // 如果不是长按，则执行点击
     if (!isLongPressRef.current) {
       goToPreviousHeading()
     }
   }, [goToPreviousHeading])
 
-  // 进度按钮离开 - useCallback 缓存
   const handleProgressPointerLeave = useCallback(() => {
     if (progressLongPressRef.current) {
       clearTimeout(progressLongPressRef.current)
@@ -277,16 +327,20 @@ export function useReaderControls({
     }
   }, [])
 
-  // 键盘快捷键
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (
+        e.target instanceof HTMLElement &&
+        e.target.closest('input, textarea, select, [contenteditable="true"]')
+      ) {
+        return
+}
       if (e.key === '+' || e.key === '=') adjustFontSize(1)
       if (e.key === '-') adjustFontSize(-1)
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
+  }, [adjustFontSize])
 
   return {
     readingProgress,
@@ -299,5 +353,8 @@ export function useReaderControls({
     handleProgressPointerDown,
     handleProgressPointerUp,
     handleProgressPointerLeave,
+    syncPaused,
+    recoverLocalProgress,
+    recoverRemoteProgress,
   }
 }

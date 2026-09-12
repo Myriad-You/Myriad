@@ -60,7 +60,7 @@ impl MigrationTrait for Migration {
         .await?;
 
         // ==================== 2. 回填现有 GitHub identity ====================
-        // 2a. 从 github_id 列回填（auth_provider='github' 的独立用户 + 已绑定的 admin）
+        // 2a. Backfill from `github_id IS NOT NULL`. `is_primary` is auth_provider='github'. Bound locals are 2b (`linked_github_id`).
         db.execute_unprepared(
             r#"
             INSERT INTO user_identities (
@@ -203,7 +203,7 @@ impl MigrationTrait for Migration {
         )
         .await?;
 
-        // 1. drop user_identities（CASCADE 同步删索引）
+        // DROP TABLE drops table-local indexes; CASCADE drops dependent objects.
         db.execute_unprepared("DROP TABLE IF EXISTS user_identities CASCADE")
             .await?;
 

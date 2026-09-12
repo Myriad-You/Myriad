@@ -1,17 +1,15 @@
-/**
- *   pnpm exec tsx --test src/services/agent/frontendActions.test.ts
- *
- * Locks the Agent frontendAction chain: every type the backend emits must
- * either have a typed handler, or be listed here as a known gap.
- */
-
 import type { FrontendActionType } from './types.ts'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { frontendActionDedupeKey } from './frontendActions.ts'
+import {
+  clearAllHandlers,
+  executeFrontendAction,
+  frontendActionDedupeKey,
+  registerActionHandler,
+} from './frontendActions.ts'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../..')
 
@@ -19,7 +17,6 @@ function source(rel: string): string {
   return readFileSync(join(root, rel), 'utf8')
 }
 
-/** Types `execute_*` handlers put on `frontendAction.type`. */
 const BACKEND_EMITTED: string[] = [
   'query_windows',
   'open_window',
@@ -62,16 +59,56 @@ const TYPED: FrontendActionType[] = [
   'show_report',
 ]
 
-/** Emitted by the backend, but no typed `registerActionHandler` exists. */
 const KNOWN_ORPHANS = [] as const
 
 describe('frontendAction chain', () => {
+  it('aborted global handlers cannot fall through into another handler', async () => {
+    const subject = new AbortController()
+    const held = Promise.withResolvers<void>()
+    const entered = Promise.withResolvers<void>()
+    let laterCalls = 0
+    registerActionHandler(async (_action, signal) => {
+      assert.equal(signal, subject.signal)
+      entered.resolve()
+      await held.promise
+      return false
+    })
+    registerActionHandler(async () => { laterCalls++; return true })
+    try {
+      const pending = executeFrontendAction({ type: 'show_data' }, subject.signal)
+      await entered.promise
+      subject.abort()
+      held.resolve()
+      assert.equal(await pending, undefined)
+      assert.equal(laterCalls, 0)
+    } finally { held.resolve(); clearAllHandlers() }
+  })
+
+  it('typed handler receives cancellation and its stale result is discarded', async () => {
+    const subject = new AbortController()
+    const held = Promise.withResolvers<void>()
+    const entered = Promise.withResolvers<void>()
+    registerActionHandler('show_data', async (_action, signal) => {
+      assert.equal(signal, subject.signal)
+      entered.resolve()
+      await held.promise
+      return { private: 'A' }
+    })
+    try {
+      const pending = executeFrontendAction({ type: 'show_data' }, subject.signal)
+      await entered.promise
+      subject.abort()
+      held.resolve()
+      assert.equal(await pending, undefined)
+    } finally { held.resolve(); clearAllHandlers() }
+  })
+
   it('every backend-emitted type is either typed or a known orphan', () => {
     const typed = new Set<string>(TYPED)
     const orphans = new Set<string>(KNOWN_ORPHANS)
-    const leftover = BACKEND_EMITTED.filter(
-      (type) => !typed.has(type) && !orphans.has(type),
-    )
+    const leftover = Iterator.from(
+      new Set(BACKEND_EMITTED).difference(typed.union(orphans)),
+    ).toArray()
     assert.deepEqual(leftover, [])
   })
 
@@ -92,7 +129,7 @@ describe('frontendAction chain', () => {
     assert.match(app, /action\.type !== 'agent_interaction'/)
     assert.match(app, /action\.type === 'close_window'/)
 
-    const missing = TYPED.filter((type) => !registered.has(type))
+    const missing = Iterator.from(new Set(TYPED).difference(registered)).toArray()
     assert.deepEqual(
       missing,
       [],

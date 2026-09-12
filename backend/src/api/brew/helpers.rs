@@ -3,21 +3,20 @@
 //! Kept as a real submodule so feeds / reading / comments do not need `include!`.
 
 use axum::{http::StatusCode, Json};
+use myriad_error::AppError;
 use reqwest::Url;
 use sea_orm::DatabaseConnection;
 use serde_json::json;
 
 use crate::error::HttpError;
 use crate::middleware::auth::{
-    authenticate_request, ensure_current_admin_on, verify_current_admin_from_headers,
+    authenticate_optional_request, authenticate_request, ensure_current_admin_on,
+    verify_current_admin_from_headers,
 };
 use crate::models::entities::brew_sources;
 
 pub(crate) fn brew_http_err(status: StatusCode, error: impl Into<String>) -> HttpError {
-    HttpError::from((
-        status,
-        Json(json!({ "success": false, "error": error.into() })),
-    ))
+    HttpError::from((status, Json(AppError::fail_json(error))))
 }
 
 pub(crate) fn brew_store_http(context: &'static str, error: impl std::fmt::Display) -> HttpError {
@@ -42,15 +41,21 @@ pub(crate) async fn get_user_id_from_headers(
     }
 }
 
-/// 从请求头获取可选用户 ID（用于游客访问）
-/// 游客返回 None，登录用户返回 Some(user_id)
-///
-/// Crypto-only: soft optional paths; revoked tokens may still appear signed.
-/// Prefer `authenticate_request` when a DB handle is available.
-pub(crate) fn get_optional_user_id_from_headers(headers: &axum::http::HeaderMap) -> Option<i32> {
-    crate::middleware::auth::verify_jwt_token(headers)
-        .ok()
-        .and_then(|claims| claims.sub.parse::<i32>().ok())
+/// 无凭据返回 None；提供凭据时必须通过当前会话校验。
+pub(crate) async fn get_optional_user_id_from_headers(
+    headers: &axum::http::HeaderMap,
+    db: &DatabaseConnection,
+) -> Result<Option<i32>, HttpError> {
+    authenticate_optional_request(headers, db)
+        .await
+        .map_err(|response| HttpError::from(response.status()))?
+        .map(|claims| {
+            claims
+                .sub
+                .parse::<i32>()
+                .map_err(|_| brew_http_err(StatusCode::UNAUTHORIZED, "Invalid user ID"))
+        })
+        .transpose()
 }
 
 /// 检查请求头中的用户是否为管理员
@@ -85,7 +90,8 @@ pub(crate) async fn get_admin_user_id_from_headers(
         .map_err(|_| brew_http_err(StatusCode::UNAUTHORIZED, "Invalid user ID"))
 }
 
-pub(crate) const OPML_UNCATEGORIZED: &str = "未分类";
+pub(crate) const OPML_UNCATEGORIZED: &str = "Uncategorized";
+const OPML_UNCATEGORIZED_LEFTOVER: &str = "未分类";
 
 pub(crate) struct OpmlFeed {
     pub title: String,
@@ -123,7 +129,10 @@ fn outline_attr(tag: &str, key: &str) -> Option<String> {
 fn normalized_opml_category(name: Option<String>) -> Option<String> {
     name.and_then(|raw| {
         let trimmed = raw.trim();
-        if trimmed.is_empty() || trimmed == OPML_UNCATEGORIZED {
+        if trimmed.is_empty()
+            || trimmed == OPML_UNCATEGORIZED
+            || trimmed == OPML_UNCATEGORIZED_LEFTOVER
+        {
             None
         } else {
             Some(trimmed.to_string())
@@ -196,7 +205,7 @@ pub(crate) fn parse_feed_type_label(label: &str) -> brew_sources::FeedType {
 }
 
 /// 请求里的 `rss` 是添加表单默认值，不能盖掉解析结果。
-/// 只有明确的 atom / json_feed / rsshub / notion 才覆盖。
+/// 只有明确的 atom / json / json_feed / rsshub / notion 才覆盖。
 pub(crate) fn overlay_requested_feed_type(
     parsed: brew_sources::FeedType,
     requested: Option<&str>,
@@ -232,7 +241,7 @@ pub(crate) fn generate_opml(sources: &[brew_sources::Model]) -> String {
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <opml version="2.0">
   <head>
-    <title>Myriad Brew 订阅导出</title>
+    <title>Myriad Brew subscriptions</title>
   </head>
   <body>
 "#,
@@ -412,6 +421,16 @@ mod tests {
             None,
         )]);
         let feeds = parse_opml(&opml);
+        assert_eq!(feeds.len(), 1);
+        assert_eq!(feeds[0].category, None);
+        assert!(opml.contains("Uncategorized"));
+        assert!(opml.contains("Myriad Brew subscriptions"));
+    }
+
+    #[test]
+    fn parse_opml_maps_leftover_chinese_uncategorized_folder_to_none() {
+        let opml = r#"<outline text="未分类"><outline text="Plain" xmlUrl="https://plain.example/rss"/></outline>"#;
+        let feeds = parse_opml(opml);
         assert_eq!(feeds.len(), 1);
         assert_eq!(feeds[0].category, None);
     }

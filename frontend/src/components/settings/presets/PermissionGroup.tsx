@@ -1,8 +1,3 @@
-/**
- * 权限设置组组件
- * 预设组合：使用 CheckboxGroupItem 卡片式渲染权限开关
- */
-
 import type { CheckboxGroupOption } from '../items/CheckboxGroupItem'
 import type { PermissionGroupConfig } from '../types'
 import React, { useCallback, useMemo } from 'react'

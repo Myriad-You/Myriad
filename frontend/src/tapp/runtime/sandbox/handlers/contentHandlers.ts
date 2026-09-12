@@ -1,7 +1,3 @@
-/**
- * 内容列表处理器 — Tapp 管理与 Brew 全功能
- */
-
 import type { TappInstance } from '../../../types'
 import type { TappListInstallRequestInput } from '../../../utils/tappListInstallRequest'
 import type { TappBridge } from '../../TappBridge'
@@ -14,7 +10,6 @@ import {
 
 } from '../../../utils/tappListInstallRequest'
 
-// 统一错误返回
 function fail(error: unknown) {
   return {
     success: false,
@@ -22,18 +17,14 @@ function fail(error: unknown) {
   }
 }
 
-// 从 message payload 取参数
 function getArgs(message: { payload: unknown }): unknown[] {
   return (message.payload as { args?: unknown[] }).args || []
 }
-
-// Tapp 列表处理器
 
 export function registerTappListHandlers(
   bridge: TappBridge,
   _tappInstance: TappInstance,
 ): void {
-  // 列出所有已安装 Tapp
   bridge.registerHandler('tappList.list', async () => {
     try {
       const tapps = await TappApiService.listTapps()
@@ -58,7 +49,6 @@ export function registerTappListHandlers(
     }
   })
 
-  // 获取单个 Tapp 详情
   bridge.registerHandler('tappList.get', async (message) => {
     const [tappId] = getArgs(message) as [string]
     try {
@@ -82,7 +72,6 @@ export function registerTappListHandlers(
     }
   })
 
-  // 获取最近使用的 Tapp
   bridge.registerHandler('tappList.getRecent', async (message) => {
     const [limit] = getArgs(message) as [number?]
     try {
@@ -93,10 +82,6 @@ export function registerTappListHandlers(
     }
   })
 
-  // 安装 Tapp — source: 'store' | 'direct' | http(s) catalog URL
-  // Shape resolution: utils/tappListInstallRequest.ts (shared with docs gating tests).
-  // Correct store install: { source: 'store', storeSource: id|url, tappId }
-  // or { source: 'https://…/index.json', tappId }. Bare source:"1" alone fails.
   bridge.registerHandler('tappList.install', async (message) => {
     const [request] = getArgs(message) as [TappListInstallRequestInput]
     try {
@@ -140,7 +125,6 @@ export function registerTappListHandlers(
     }
   })
 
-  // Resolve portable catalog URL for an installed/store Tapp (for chat share).
   bridge.registerHandler('tappList.resolveStoreSource', async (message) => {
     const [tappId] = getArgs(message) as [string]
     if (!tappId || typeof tappId !== 'string') {
@@ -154,7 +138,6 @@ export function registerTappListHandlers(
     }
   })
 
-  // Build a shareable direct-install package from an installed Tapp.
   bridge.registerHandler('tappList.getInstallPackage', async (message) => {
     const [tappId, opts] = getArgs(message) as [
       string,
@@ -174,7 +157,6 @@ export function registerTappListHandlers(
     }
   })
 
-  // 卸载 Tapp
   bridge.registerHandler('tappList.uninstall', async (message) => {
     const [tappId] = getArgs(message) as [string]
     try {
@@ -185,7 +167,6 @@ export function registerTappListHandlers(
     }
   })
 
-  // 启动 Tapp
   bridge.registerHandler('tappList.start', async (message) => {
     const [tappId] = getArgs(message) as [string]
     try {
@@ -196,7 +177,6 @@ export function registerTappListHandlers(
     }
   })
 
-  // 停止 Tapp
   bridge.registerHandler('tappList.stop', async (message) => {
     const [tappId] = getArgs(message) as [string]
     try {
@@ -207,7 +187,6 @@ export function registerTappListHandlers(
     }
   })
 
-  // 导出 Tapp
   bridge.registerHandler('tappList.export', async (message) => {
     const [tappId] = getArgs(message) as [string]
     try {
@@ -219,15 +198,10 @@ export function registerTappListHandlers(
   })
 }
 
-// Brew 处理器
-
 export function registerBrewListHandlers(
   bridge: TappBridge,
   _tappInstance: TappInstance,
 ): void {
-  // Brew 读取
-
-  // 文章列表
   bridge.registerHandler('brewList.list', async (message) => {
     const [options = {}] = getArgs(message) as [Record<string, unknown>?]
     try {
@@ -265,7 +239,6 @@ export function registerBrewListHandlers(
     }
   })
 
-  // 单篇文章详情
   bridge.registerHandler('brewList.get', async (message) => {
     const [id] = getArgs(message) as [number]
     try {
@@ -293,7 +266,6 @@ export function registerBrewListHandlers(
     }
   })
 
-  // 订阅源列表
   bridge.registerHandler('brewList.sources', async () => {
     try {
       const { getSources } = await import('../../../../services/brewApi')
@@ -316,7 +288,6 @@ export function registerBrewListHandlers(
     }
   })
 
-  // 分类列表
   bridge.registerHandler('brewList.categories', async () => {
     try {
       const { getCategories } = await import('../../../../services/brewApi')
@@ -329,7 +300,6 @@ export function registerBrewListHandlers(
     }
   })
 
-  // 统计信息
   bridge.registerHandler('brewList.stats', async () => {
     try {
       const { getStats } = await import('../../../../services/brewApi')
@@ -340,7 +310,6 @@ export function registerBrewListHandlers(
     }
   })
 
-  // 发现 RSS 源
   bridge.registerHandler('brewList.discover', async (message) => {
     const [url] = getArgs(message) as [string]
     try {
@@ -355,7 +324,6 @@ export function registerBrewListHandlers(
     }
   })
 
-  // 导出 OPML
   bridge.registerHandler('brewList.exportOpml', async () => {
     try {
       const { exportOpml } = await import('../../../../services/brewApi')
@@ -365,8 +333,6 @@ export function registerBrewListHandlers(
       return fail(error)
     }
   })
-
-  // Brew 写入
 
   bridge.registerHandler('brewList.markRead', async (message) => {
     const [itemId] = getArgs(message) as [number]
@@ -427,8 +393,6 @@ export function registerBrewListHandlers(
       return fail(error)
     }
   })
-
-  // Brew 评论
 
   bridge.registerHandler('brewList.getComments', async (message) => {
     const [itemId] = getArgs(message) as [number]
@@ -532,8 +496,6 @@ export function registerBrewListHandlers(
       return fail(error)
     }
   })
-
-  // Brew 管理
 
   bridge.registerHandler('brewList.addSource', async (message) => {
     const [req] = getArgs(message) as [{ url: string; category?: string }]

@@ -1,4 +1,4 @@
-//! Atomic platform-report persist (MYR-020) and bounded fan-out (MYR-021).
+//! Atomic platform-report persist and bounded fan-out.
 
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set,
@@ -9,15 +9,15 @@ use crate::models::entities::platform_reports;
 
 use super::PlatformReport;
 
-/// Max concurrent platform/AI report tasks (MYR-021).
+/// Max concurrent platform/AI report tasks.
 /// Generous enough for multi-platform generate-all (~11 platforms) while
-/// preventing unbounded cost amplification from `join_all` fan-out.
+/// preventing unbounded cost amplification from `buffer_unordered` fan-out.
 pub(crate) const MAX_CONCURRENT_PLATFORM_REPORTS: usize = 6;
 
 /// Atomically replace the stored report for `(user_id, platform)`.
 ///
 /// DELETE + INSERT run in one DB transaction so a failed insert never leaves
-/// the platform without its previous report (MYR-020). Serialization happens
+/// the platform without its previous report. Serialization happens
 /// *before* the transaction begins, so a serialize failure also never deletes.
 pub(super) async fn persist_platform_report_atomic(
     db: &DatabaseConnection,
@@ -106,8 +106,7 @@ mod report_persist_concurrency_tests {
         );
     }
 
-    /// Mirrors MYR-021 fan-out: many platform tasks, at most N in flight.
-    /// Also models partial cancel — dropping the stream keeps completed work.
+    /// Mirrors bounded fan-out: many platform tasks, at most N in flight.
     #[tokio::test]
     async fn platform_report_fanout_respects_concurrency_bound() {
         let current = Arc::new(AtomicUsize::new(0));
@@ -143,7 +142,7 @@ mod report_persist_concurrency_tests {
     }
 
     /// Dropping the consumer mid-flight must not lose already-finished units
-    /// (MYR-021 partial cancel + MYR-020 persist-as-you-go model).
+    /// (partial cancel + persist-as-you-go model).
     #[tokio::test]
     async fn partial_cancel_keeps_completed_units() {
         let completed = Arc::new(AtomicUsize::new(0));

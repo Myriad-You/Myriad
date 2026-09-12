@@ -86,7 +86,10 @@ pub fn analyze_error(
             category: ErrorCategory::Configuration,
             retryable: false,
             param_fixes: HashMap::new(),
-            description: format!("配置缺失（不可重试）: {}", truncate_str(error, 100)),
+            description: format!(
+                "Configuration missing (not retryable): {}",
+                truncate_str(error, 100)
+            ),
             delay_multiplier: 1.0,
             suggested_prepend_capability: None,
             suggested_prepend_params: HashMap::new(),
@@ -109,7 +112,7 @@ pub fn analyze_error(
             category: ErrorCategory::RateLimited,
             retryable: true,
             param_fixes: HashMap::new(),
-            description: "API 速率限制，等待后重试".into(),
+            description: "Rate limited; wait and retry".into(),
             delay_multiplier: 5.0,
             suggested_prepend_capability: None,
             suggested_prepend_params: HashMap::new(),
@@ -122,7 +125,7 @@ pub fn analyze_error(
             category: ErrorCategory::ServiceUnavailable,
             retryable: true,
             param_fixes: HashMap::new(),
-            description: "服务暂时不可用，等待后重试".into(),
+            description: "Service temporarily unavailable; wait and retry".into(),
             delay_multiplier: 3.0,
             suggested_prepend_capability: None,
             suggested_prepend_params: HashMap::new(),
@@ -135,7 +138,7 @@ pub fn analyze_error(
             category: ErrorCategory::ParseError,
             retryable: true,
             param_fixes: HashMap::new(),
-            description: "API 响应解析失败，重试可能产生有效响应".into(),
+            description: "Failed to parse the API response; retrying may help".into(),
             delay_multiplier: 1.5,
             suggested_prepend_capability: None,
             suggested_prepend_params: HashMap::new(),
@@ -148,7 +151,7 @@ pub fn analyze_error(
             category: ErrorCategory::PermissionDenied,
             retryable: false,
             param_fixes: HashMap::new(),
-            description: "权限不足，需要用户授权".into(),
+            description: "Permission denied; user authorization is required".into(),
             delay_multiplier: 1.0,
             suggested_prepend_capability: None,
             suggested_prepend_params: HashMap::new(),
@@ -161,7 +164,7 @@ pub fn analyze_error(
             category: ErrorCategory::NotFound,
             retryable: false,
             param_fixes: HashMap::new(),
-            description: "请求的资源不存在".into(),
+            description: "The requested resource does not exist".into(),
             delay_multiplier: 1.0,
             suggested_prepend_capability: None,
             suggested_prepend_params: HashMap::new(),
@@ -173,7 +176,7 @@ pub fn analyze_error(
         category: ErrorCategory::Unknown,
         retryable: true,
         param_fixes: HashMap::new(),
-        description: format!("未知错误: {}", truncate_str(error, 100)),
+        description: format!("Unknown error: {}", truncate_str(error, 100)),
         delay_multiplier: 2.0,
         suggested_prepend_capability: None,
         suggested_prepend_params: HashMap::new(),
@@ -277,7 +280,7 @@ fn check_content_policy(
         category: ErrorCategory::ContentPolicy,
         retryable: true,
         param_fixes,
-        description: "内容策略违规，尝试清理敏感内容后重试".into(),
+        description: "Content policy violation; retry after removing sensitive content".into(),
         delay_multiplier: 1.0,
         suggested_prepend_capability: None,
         suggested_prepend_params: HashMap::new(),
@@ -359,7 +362,7 @@ fn check_missing_param(
                 .or_else(|| params.get("query"))
                 .or_else(|| params.get("name"))
                 .cloned()
-                .unwrap_or_else(|| Value::String("推荐歌单".to_string()));
+                .unwrap_or_else(|| Value::String("recommended playlists".to_string()));
             suggested_prepend_params.insert("keyword".to_string(), keyword);
         }
         "music.control" if error_lower.contains("action") => {
@@ -381,7 +384,7 @@ fn check_missing_param(
         category: ErrorCategory::MissingParameter,
         retryable: !param_fixes.is_empty() || suggested_prepend.is_some(),
         param_fixes,
-        description: format!("参数缺失: {}", truncate_str(error_lower, 80)),
+        description: format!("Missing parameter: {}", truncate_str(error_lower, 80)),
         delay_multiplier: 1.0,
         suggested_prepend_capability: suggested_prepend,
         suggested_prepend_params,

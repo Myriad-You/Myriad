@@ -1,5 +1,3 @@
-/* WidgetGrid 专用样式 */
-
 .widget-grid-host {
   position: relative;
   width: 100%;
@@ -15,9 +13,7 @@
   justify-content: center;
 }
 
-/* 网格容器：高度由 inline height / aspect-ratio 驱动 */
 .widget-grid-container {
-  /* fallback before JS height style lands */
   aspect-ratio: 4 / 1;
 }
 
@@ -25,18 +21,12 @@
   aspect-ratio: 16 / 8;
 }
 
-/*
- * 同档内（仅窗口微调）才缓动高度。
- * 跨 4/8/16 档由 data-band-switch 淡入淡出 + 硬切，勿 height 插值。
- */
+/* 跨档用 data-band-switch 淡入+硬切，勿 height 插值。 */
 .widget-grid-container--layout-motion:not([data-band-switch]) {
   transition: height 0.45s cubic-bezier(0.25, 1, 0.5, 1);
 }
 
-/*
- * 跨列档 crossfade：淡出 → 硬切坐标系 → 淡入。
- * 禁止 left/top 在 compact 装箱与桌面保存坐标之间插值（会产生「乱飞」中间态）。
- */
+/* 跨档淡出→硬切→淡入；勿插值 compact 与桌面 left/top。 */
 .widget-grid-container[data-band-switch='out'],
 .widget-grid-container[data-band-switch='in'] {
   pointer-events: none;
@@ -52,10 +42,7 @@
   transition: opacity 0.22s cubic-bezier(0.22, 1, 0.36, 1) !important;
 }
 
-/*
- * 同档几何过渡：只动 left/top/width/height。
- * 跨档时不挂 --layout-motion，避免与硬切叠出中间态。
- */
+/* 跨档不挂 --layout-motion，避免与硬切叠出中间态。 */
 .widget-grid-item--layout-motion {
   transition:
     left 0.45s cubic-bezier(0.25, 1, 0.5, 1),
@@ -64,11 +51,6 @@
     height 0.45s cubic-bezier(0.25, 1, 0.5, 1);
 }
 
-/*
- * 每个格子自成一个布局/绘制单元：小组件内部的重排（FitText 定字号、
- * 列表数据到货、骨架切正文）不再冒泡成整张网格的重排。
- * 不加 size —— 尺寸本来就由外层的百分比几何决定，加了反而丢掉自适应。
- */
 .widget-grid-item {
   --widget-edit-chip-size: 1.55rem;
   --widget-edit-chip-inset: 0.4rem;
@@ -78,14 +60,11 @@
   contain: layout paint style;
 }
 
-/* Die-cut stickers must paint outside the cell; contain:paint would clip them. */
 .widget-grid-item--sticker {
   overflow: visible;
   contain: layout style;
 }
 
-/* Hide the live tile during flight; uncover is instant so first paint
- * happens under the still-opaque preview, then the preview dissolves. */
 .widget-grid-item-handoff.is-held {
   opacity: 0;
   visibility: hidden;
@@ -96,7 +75,6 @@
   pointer-events: none;
 }
 
-/* Edit-mode corner chips: same size/inset as the long-press gear. */
 .widget-grid-item-remove,
 .widget-grid-item-sticker {
   position: absolute;
@@ -178,7 +156,6 @@ html.dark .widget-grid-item-sticker:hover {
   }
 }
 
-/* Body portal: above dock stage-root (10000) and outside the GCP stacking context. */
 .widget-grid-drag-ghost {
   position: fixed;
   pointer-events: none;
@@ -282,11 +259,6 @@ html.dark .widget-grid-drag-ghost-tile.is-floating {
   }
 }
 
-/*
- * 网格背景线：两层 repeating-linear-gradient 画完，一个盒子搞定。
- * 此前是 cols×rows 个带 border 的空 div（桌面 16×4 = 64 个），
- * 纯装饰却要参与布局与绘制。格距由 --cell-w / --cell-h 下发。
- */
 .widget-grid-background {
   background-image:
     repeating-linear-gradient(
@@ -299,35 +271,29 @@ html.dark .widget-grid-drag-ghost-tile.is-floating {
       var(--widget-grid-line) 0 1px,
       transparent 1px var(--widget-grid-cell-h)
     );
-
-  /* 右/下各补一条收边线，与原来「每格四边都有 border」的观感一致 */
   box-shadow:
     inset -1px 0 0 0 var(--widget-grid-line),
     inset 0 -1px 0 0 var(--widget-grid-line);
 }
 
 :root {
-  --widget-grid-line: rgb(229 231 235 / 30%); /* gray-200/30 */
+  --widget-grid-line: rgb(229 231 235 / 30%);
 }
 
 html.dark {
   --widget-grid-line: rgb(255 255 255 / 5%);
 }
 
-/* 拖拽时的流畅过渡 */
 .widget-drag-preview {
   transition: transform 0.1s ease-out;
   will-change: transform;
 }
 
-/* 触摸优化 - 仅在编辑模式下禁用触摸滚动 */
 @media (hover: none) and (pointer: coarse) {
-  /* 编辑模式下禁用触摸滚动，允许拖拽 */
   .widget-grid-container.edit-mode {
     touch-action: none;
   }
 
-  /* 非编辑模式下允许正常滚动 */
   .widget-grid-container:not(.edit-mode) {
     touch-action: pan-y;
   }

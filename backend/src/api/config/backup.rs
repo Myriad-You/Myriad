@@ -1,5 +1,6 @@
 //! Settings backup export / preview / restore and the retired-key denylist.
 use axum::{extract::State, http::StatusCode, Json};
+use myriad_error::AppError;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -53,6 +54,26 @@ pub struct SettingsBackupEntry {
 pub struct SettingsBackupUserPreferences {
     pub notification_preferences:
         crate::services::agent::notification_preferences::NotificationPreferences,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locale: Option<String>,
+}
+
+async fn load_user_locale(db: &DatabaseConnection, user_id: i32) -> Option<String> {
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT locale FROM users WHERE id = $1",
+            vec![user_id.into()],
+        ))
+        .await
+        .ok()
+        .flatten()?;
+    row.try_get::<Option<String>>("", "locale")
+        .ok()
+        .flatten()
+        .as_deref()
+        .and_then(crate::api::reports::locale::parse_stored_ui_locale)
+        .map(str::to_string)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -116,8 +137,7 @@ pub(crate) fn validate_settings_backup(backup: &SettingsBackup) -> Result<(), St
 
 /// 敏感 key 判定。
 ///
-/// 单一定义放在 `data_key`，这样"标记为已加密"和"实际加密"永远同源 ——
-/// 修复前这个列只是个标签，值仍然明文落库。
+/// Sensitivity lives in `data_key::is_sensitive_config_key` (seal/open), not the `is_encrypted` label.
 fn is_sensitive_configuration_key(key: &str) -> bool {
     crate::services::data_key::is_sensitive_config_key(key)
 }
@@ -327,10 +347,8 @@ pub async fn export_settings(
         };
         let entry = SettingsBackupEntry {
             value: match row.try_get("", "value") {
-                // 备份**明文**导出：这样导出的文件可以恢复到任意新实例，不必
-                // 同时带上密钥文件。这是有意的取舍 —— 导出是管理员主动执行的
-                // 认证操作（双重 admin 校验），同一个管理员在设置页本来就能看到
-                // 这些值；而加密要挡的是数据库副本泄露，那条路径上库里仍是密文。
+                // Plaintext export (admin, dual `ensure_current_admin_on`).
+                // Settings GET stays masked (`build_config(..., false)`). At rest still ciphertext.
                 Ok(value) => crate::services::data_key::open_config_value(&key, value),
                 Err(error) => {
                     tracing::error!("Failed to decode configuration value: {}", error);
@@ -377,6 +395,7 @@ pub async fn export_settings(
 
     let notification_preferences =
         crate::services::agent::notification_preferences::load(Some(&db), user_id).await;
+    let locale = load_user_locale(&db, user_id).await;
     let backup = SettingsBackup {
         format: SETTINGS_BACKUP_FORMAT.to_string(),
         version: SETTINGS_BACKUP_VERSION,
@@ -386,6 +405,7 @@ pub async fn export_settings(
         effective_config,
         user_preferences: SettingsBackupUserPreferences {
             notification_preferences,
+            locale,
         },
     };
 
@@ -397,7 +417,10 @@ pub async fn preview_settings_restore(
     Json(backup): Json<SettingsBackup>,
 ) -> (StatusCode, Json<Value>) {
     if let Err(message) = validate_settings_backup(&backup) {
-        return (StatusCode::BAD_REQUEST, Json(json!({"error": message})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(AppError::public_json(message)),
+        );
     }
 
     let mut plan = build_settings_restore_plan(&backup);
@@ -432,7 +455,10 @@ pub async fn restore_settings(
     Json(backup): Json<SettingsBackup>,
 ) -> (StatusCode, Json<Value>) {
     if let Err(message) = validate_settings_backup(&backup) {
-        return (StatusCode::BAD_REQUEST, Json(json!({"error": message})));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(AppError::public_json(message)),
+        );
     }
 
     let mut plan = build_settings_restore_plan(&backup);
@@ -504,8 +530,18 @@ pub async fn restore_settings(
         let update_result = transaction
             .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                "UPDATE users SET notification_preferences = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-                vec![notification_value.into(), user_id.into()],
+                "UPDATE users SET notification_preferences = $1, locale = COALESCE($3, locale), updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+                vec![
+                    notification_value.into(),
+                    user_id.into(),
+                    backup
+                        .user_preferences
+                        .locale
+                        .as_deref()
+                        .and_then(crate::api::reports::locale::parse_stored_ui_locale)
+                        .map(|value| value.to_string())
+                        .into(),
+                ],
             ))
             .await?;
         if update_result.rows_affected() == 0 {
@@ -545,7 +581,9 @@ pub async fn restore_settings(
             tracing::error!("Settings restored but runtime reload failed: {}", error);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Settings restored, but runtime reload failed"})),
+                Json(AppError::public_json(
+                    "Settings restored, but runtime reload failed",
+                )),
             );
         }
     }
@@ -557,9 +595,9 @@ pub async fn restore_settings(
         );
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({
-                "error": "Settings restored, but platform auto-refresh could not be updated"
-            })),
+            Json(AppError::public_json(
+                "Settings restored, but platform auto-refresh could not be updated",
+            )),
         );
     }
 
@@ -602,6 +640,7 @@ mod settings_backup_tests {
             effective_config: empty_config(),
             user_preferences: SettingsBackupUserPreferences {
                 notification_preferences: Default::default(),
+                locale: None,
             },
         }
     }
@@ -1523,7 +1562,7 @@ mod settings_backup_tests {
     fn platform_env_fields_write_empty_but_skip_masks() {
         assert!(is_masked_secret_value("••••••••"));
         assert!(is_masked_secret_value("********"));
-        // Empty platform secrets/usernames must clear .env (not keep).
+        // Empty is not a mask; persist path clears DB to null (not .env).
         assert!(!is_masked_secret_value(""));
         assert!(!is_masked_secret_value("ghp_real_token"));
         assert!(!is_masked_secret_value("octocat"));

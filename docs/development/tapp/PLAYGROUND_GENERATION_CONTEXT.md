@@ -19,8 +19,9 @@ Playground 项目至少需要 **Page** 或 **Widgets** 之一（允许 Widget-on
   Manifest Widget 仍预注册）。保持 `page` / `pageHtml` 为空。
   Widget 可见 UI **必须**注册 `Tapp.widgets[<id>] = { render(container, props) { ... } }`
   （宿主调用 `render`）。**不要**在 Widget 层写 `Tapp.widget.register`（那是 Page 动态注册）。
-  Widget 沙箱没有 `confirm` / `setTitle` / `fullscreen` / `Tapp.game` / 联邦 /
-  `tappList` / `brewList`。详见 [WIDGET.md](./WIDGET.md)。
+  Widget 沙箱没有 `confirm` / `setTitle` / `fullscreen` / `Tapp.model3d` /
+  `Tapp.game` / 联邦 / `tappList` / `brewList`。全屏只用 `Tapp.ui.fullscreen.*`
+  （仅 Page）。详见 [WIDGET.md](./WIDGET.md)。
 - core 是共享层，三种沙箱都先执行它。Playground 一层一个文件（`core.js` /
   `page/index.js` / `widget/index.js`）；跨层共享在 core 里 `module.exports`，层入口
   `require('../core.js')`。再拆文件只在导出 `.tapp` 并用 CLI 打开之后。
@@ -47,7 +48,8 @@ Playground 项目至少需要 **Page** 或 **Widgets** 之一（允许 Widget-on
   `THREE` / `GLTFLoader`；**包内**贴图和 `.glb` 走 `Tapp.assets`（Playground 预览从
   工作区内存提供 `list` / `get`，与安装后同一 API）。
   站点 Tripo 产物用 `Tapp.model3d.getUrl(assetId)` 拿沙箱 blob，不要 `load('/api/...')`。
-  `Tapp.model3d.createTask` / `upload` / `3d:generate` 只在正式安装后可用。
+  `Tapp.model3d` 只在 **Page**；Widget / headless 没有这个对象。
+  `createTask` / `upload` / `3d:generate` 只在正式安装后可用。
   先 `Tapp.assets.getUrlMap()`，再用 `rewriteUrl` 接 LoadingManager。
   `fetch` 只能打 blob/data。详见 [GRAPHICS.md](GRAPHICS.md)。
 - 不要在预览里调用 `Tapp.game` 或联邦房间。联机只写正式安装后的代码。
@@ -135,6 +137,10 @@ await Tapp.shared.get('posts');
 await Tapp.shared.set('posts', []);
 await Tapp.shared.keys();
 
+await Tapp.private.get('queue');
+await Tapp.private.set('queue', []);
+await Tapp.private.keys();
+
 const urls = await Tapp.assets.getUrlMap();
 const file = await Tapp.assets.getUrl('assets/icon.png');
 
@@ -150,7 +156,7 @@ const card = await Tapp.persona.get();
 // 预览里 portraitUrl 可能为 null；安装后是宿主同源路径，可直接 <img src>
 ```
 
-**仅 Page 预览**另有 `Tapp.ui.setTitle` / `confirm` / `requestFullscreen`。
+**仅 Page 预览**另有 `Tapp.ui.setTitle` / `confirm` / `fullscreen`。
 **Widget 预览没有这些方法。** Widget 入口这样写：
 
 ```javascript
@@ -184,8 +190,8 @@ Tapp.widgets['my-widget'] = {
 下列能力在完整 SDK 里可能有方法名，但 **Playground 预览中不可用**（失败或明确错误）：
 
 - **Federation** 全套（`uploadMedia` → `createNote` 附件 URL、Channel/Room/Ring 等）
-- **Tapp.model3d** / `3d:generate`（生成要 Grant；预览无 handlers。包内 GLB 仍走 `Tapp.assets`）
-- **platform** / **report** / **brewList** / **tappList**（含列表与商店/直接安装）
+- **Tapp.model3d** / `3d:generate`（仅 Page 有对象；预览无 handlers。包内 GLB 仍走 `Tapp.assets`）
+- **platform** / **report**（含 `Tapp.report.platform.*` 平台分析与本安装 `list`/`get`/`create`）/ **brewList** / **tappList**
 - **dataExchange**、**ai**、**agent**、**event** Broker、**scheduler**、宿主 **media** 控制
 - 声明式 **`Tapp.api` 执行**（预览仅 list 空表）
 - **`Tapp.background.require`**（预览无常驻；勿空写 `backgroundRequirements`）
@@ -310,7 +316,7 @@ Bridge 默认 payload 约 **1 MiB**；正式运行特例：`file.download` 文�
 - 不读取 Cookie、localStorage、sessionStorage、父窗口 DOM 或宿主 token。
 - 页面在窄屏和宽屏都必须可用，并支持浅色/深色背景。
 - Manifest 只声明代码真实调用的权限；读取主题和语言不需要额外权限。读取
-  `Tapp.storage` / `Tapp.settings` / `Tapp.shared` 需要 `storage:read`，写入、删除与清空需要
+  `Tapp.storage` / `Tapp.settings` / `Tapp.shared` / `Tapp.private` 需要 `storage:read`，写入、删除与清空需要
   `storage:write`。`Tapp.file.download` 是 public，不要为了把生成文件存到本机去申请
   `storage:read`。不要再声明已移除的 `storage`。确认和全屏分别需要
   `ui:confirm` 与 `ui:fullscreen`。
@@ -320,7 +326,8 @@ Bridge 默认 payload 约 **1 MiB**；正式运行特例：`file.download` 文�
   主题（写 `media` 进媒体）。声明 `widgets` 时安装校验要求声明权限含
   `widget:register`；不要把它理解成「普通用户运行时可以动态注册 Widget」。
 - 顶层 `manifest.settings` 是安装级设置；用户个人偏好放入 `Tapp.storage`，要给访客看的
-  站长数据放入 `Tapp.shared`，单个 Widget 实例偏好放入对应的 `widgets[].settings`。
+  站长数据放入 `Tapp.shared`，仅 owner/管理员可见的非密数据放入 `Tapp.private`，单个 Widget
+  实例偏好放入对应的 `widgets[].settings`。
 - 所有设置定义的默认值字段都必须写成 `defaultValue`；`default` 不是合法别名。
 - 应用用途分类只使用 `ai`、`data`、`developer`、`game`、`media`、`productivity`、
   `social`、`utility`。

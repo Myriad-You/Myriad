@@ -10,6 +10,7 @@
 //!
 //! Produce does not write a sentence. Redeem does not call `consider_event`.
 
+mod delivery_claim;
 mod produce;
 mod redeem;
 

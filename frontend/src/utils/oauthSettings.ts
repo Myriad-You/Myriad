@@ -15,15 +15,13 @@ export interface OAuthProviderEntry {
   icon_url?: string | null
 }
 
-/** How private (non-admin) user Tapp installs are cleaned up. */
 export type PrivateTappInstallCleanup = 'logout' | 'inactivity'
 
 export interface OAuthSettings {
   providers: OAuthProviderEntry[]
   allowLocalRegistration: boolean
-  /** logout = wipe on logout; inactivity = prune after N days without login/seen */
   privateTappInstallCleanup: PrivateTappInstallCleanup
-  /** Used when privateTappInstallCleanup === 'inactivity' (1–365). */
+  /** 1–365 */
   privateTappInstallInactivityDays: number
 }
 
@@ -82,7 +80,7 @@ export function cloneOAuthSettings(settings: OAuthSettings): OAuthSettings {
     ...settings,
     providers: settings.providers.map((provider) => ({
       ...provider,
-      scopes: [...provider.scopes],
+      scopes: Iterator.from(provider.scopes).toArray(),
     })),
   }
 }
@@ -131,7 +129,7 @@ export async function updateOAuthSettings(
   try {
     await putOnce(false)
   } catch (error) {
-    // Align with brewApi / lib/api: one CSRF refresh + retry on 403 CSRF failures.
+    // CSRF: one refresh + retry on 403.
     const message =
       error instanceof Error ? error.message.toLowerCase() : String(error)
     if (message.includes('csrf')) {
@@ -144,6 +142,6 @@ export async function updateOAuthSettings(
     }
   }
 
-  // 后端会规范化 slug 并重新掩码 secret，保存后以服务端快照为准。
+  // Save uses the server snapshot (secret masked).
   return fetchOAuthSettings()
 }

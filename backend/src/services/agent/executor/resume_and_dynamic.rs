@@ -64,12 +64,10 @@ impl Executor {
             );
         }
 
-        // 根据回答类型处理，返回是否应跳过后续步骤
         let should_skip = if let Some(question) = &task_state.pending_question {
             // 校验 answer.question_id 是否匹配当前待回答的问题
             if answer.question_id != question.question_id {
                 // 宽容模式：如果只有唯一一个待回答问题，接受不匹配的 answer
-                // （前端可能缓存了旧的 question_id 格式）
                 if context.pending_questions.is_empty() {
                     tracing::warn!(
                         task_id = %task_id,
@@ -105,21 +103,24 @@ impl Executor {
                                 step_id: format!("question_{}", question.question_id),
                                 phase: "expired".to_string(),
                                 capability_id: "system.question".to_string(),
-                                directive: Some("用户回答已过期，继续执行剩余步骤".to_string()),
+                                directive: Some(
+                                    "The answer expired; continuing with remaining steps"
+                                        .to_string(),
+                                ),
                                 user_request: None,
                                 params: None,
                                 output_preview: None,
                                 is_dynamic: false,
                                 duration_ms: None,
                                 success: Some(false),
-                                error: Some("回答超时".to_string()),
+                                error: Some("The answer timed out".to_string()),
                             })
                             .await;
                     }
                     context.record_decision(
                         DecisionType::SkipStep,
-                        "用户回答已过期，跳过该问题",
-                        "问题超时未回答，继续执行剩余步骤",
+                        "The answer expired; skip this question",
+                        "The question timed out unanswered; continue remaining steps",
                         None,
                     );
                     false // 不跳过剩余步骤，继续执行
@@ -143,7 +144,7 @@ impl Executor {
             false
         };
 
-        // 持久化写回参数后的 recipe，供后续 resume / 执行使用
+        // 写回 task_state.recipe，供后续 resume / 执行使用
         task_state.recipe = Some(recipe.clone());
 
         // 用户选择 retry：仅在确实存在错误步骤时触发重试逻辑
@@ -157,7 +158,6 @@ impl Executor {
                 task_state.step_results.remove(&step_id);
                 // 同时清除该步骤的输出，避免旧错误输出影响后续依赖
                 context.step_outputs.remove(&step_id);
-                // 在 DAG 中重置该步骤状态（如果有 DAG）
                 tracing::info!(
                     task_id = %task_id,
                     step_id = %step_id,
@@ -257,7 +257,7 @@ impl Executor {
         let all_steps: Vec<RecipeStep> = recipe.steps.clone();
         let mut step_index = task_state.current_step;
 
-        // 构建 DAG 调度器（检测是否有并行依赖）
+        // 构建 DAG；len>1 且无 tapp.interact 才走 ready-set（本路径一次一步）
         let mut dag_scheduler = dag::DagScheduler::new(&all_steps).ok();
         let mut use_dag = dag_scheduler.as_ref().is_some_and(|d| d.is_parallel_mode())
             && !all_steps
@@ -293,14 +293,14 @@ impl Executor {
             if is_cancelled(&task_state.task_id).await {
                 tracing::info!(task_id = %task_id, "[Executor] Resume cancelled by user");
                 task_state.status = TaskStatus::Failed;
-                task_state.error = Some("用户取消了任务".to_string());
+                task_state.error = Some("The task was cancelled".to_string());
                 break;
             }
             // 步骤上限保护
             total_executed += 1;
             if total_executed > MAX_RESUME_STEPS {
                 tracing::warn!(task_id = %task_id, "[Executor] Resume exceeded max step limit");
-                task_state.error = Some("恢复执行超出步骤上限".to_string());
+                task_state.error = Some("Resume exceeded the step cap".to_string());
                 break;
             }
 
@@ -509,7 +509,7 @@ impl Executor {
                     }
                 }
 
-                // 动态步骤并行化：注入 DAG 调度器
+                // 动态步骤>1 时写入 DAG ready-set（resume 仍串行取 next）
                 let post_dynamic_count = context.pending_dynamic_steps.len();
                 if post_dynamic_count > pre_dynamic_count {
                     let new_count = post_dynamic_count - pre_dynamic_count;
@@ -631,7 +631,7 @@ impl Executor {
             }
         }
 
-        // 检查是否有排队的待提问（从 DAG 执行阶段延迟的问题）
+        // 循环结束后若仍有 pending_questions，发下一个
         // 跳过 resume 执行期间已过期的问题
         let now = chrono::Utc::now();
         context
@@ -731,7 +731,7 @@ impl Executor {
         let qid_key = format!("answer_{}", answer.question_id);
         context.set_var(&qid_key, json!(answer.answer.clone()));
 
-        // 同步存入 step_outputs，供下游步骤通过 xxxFrom 引用用户回答
+        // 写入 step_outputs，键为 answer_{question_id}
         context.add_output(
             &qid_key,
             json!({
@@ -808,7 +808,7 @@ impl Executor {
                             "Continue without this step",
                             None,
                         );
-                        // 不跳过后续所有步骤，只跳过当前出错的
+                        // 不跳过后续步骤
                         return false;
                     }
                     "retry" => {
@@ -818,35 +818,35 @@ impl Executor {
                             "Retry the failed step",
                             None,
                         );
-                        // 实际的重试逻辑由 resume_with_answer 处理（清除步骤结果、重置 DAG 状态）
+                        // 实际的重试逻辑由 resume_with_answer 处理（清除步骤结果与输出）
                         return false;
                     }
                     _ => {
                         context.record_decision(
                             DecisionType::ModifyParams,
-                            &format!("用户选择了: {}", answer.answer),
-                            "根据用户选择调整执行参数",
+                            &format!("User chose: {}", answer.answer),
+                            "Adjust params from the user's choice",
                             None,
                         );
                     }
                 }
             }
             QuestionType::FreeText => {
-                // 验证必填问题不能为空
+                // 必填空答时写入占位符并继续
                 if question.required && answer.answer.trim().is_empty() {
                     tracing::warn!(
                         question_id = %question.question_id,
                         "[Executor] Required question received empty answer, using placeholder"
                     );
-                    context.set_var("user_input", json!("（用户未提供输入）"));
+                    context.set_var("user_input", json!("(no input provided)"));
                 } else {
                     context.set_var("user_input", json!(answer.answer.clone()));
                 }
 
                 context.record_decision(
                     DecisionType::ModifyParams,
-                    &format!("用户输入了: {}", answer.answer),
-                    "使用用户提供的信息",
+                    &format!("User entered: {}", answer.answer),
+                    "Use the information the user provided",
                     None,
                 );
             }
@@ -854,27 +854,27 @@ impl Executor {
                 if answer.answer == "yes" {
                     context.record_decision(
                         DecisionType::GenerateSteps,
-                        "用户确认继续执行",
-                        "用户确认了操作",
+                        "User confirmed; continue",
+                        "The user confirmed the action",
                         None,
                     );
                 } else {
                     context.record_decision(
                         DecisionType::SkipStep,
-                        "用户拒绝，跳过相关操作",
-                        "用户选择不执行该操作",
+                        "User declined; skip related steps",
+                        "The user chose not to run this action",
                         None,
                     );
                     return true; // 用户拒绝确认 → 跳过后续步骤
                 }
             }
             QuestionType::Numeric | QuestionType::Date => {
-                // Numeric/Date 类型与 FreeText 同样处理：存储用户原始输入
+                // Numeric/Date：原样写入 user_input（无必填空答占位）
                 context.set_var("user_input", json!(answer.answer.clone()));
                 context.record_decision(
                     DecisionType::ModifyParams,
-                    &format!("用户输入了: {}", answer.answer),
-                    "使用用户提供的信息",
+                    &format!("User entered: {}", answer.answer),
+                    "Use the information the user provided",
                     None,
                 );
             }
@@ -895,7 +895,7 @@ impl Executor {
         context: &mut ExecutionContext,
         recipe: &Recipe,
     ) -> Option<UserQuestion> {
-        // 限制动态分析次数，防止无限循环
+        // 动态步骤队列已达 MAX_DYNAMIC_QUEUE(15) 则跳过分析
         const MAX_DYNAMIC_STEPS: usize = 15;
         if context.dynamic_steps_generated >= MAX_DYNAMIC_STEPS {
             tracing::warn!(
@@ -917,9 +917,7 @@ impl Executor {
             return None;
         }
 
-        // AI 处理类步骤（ai.analyze、ai.chat、ai.summarize 等）的输出已经是
-        // AI 经过推理后的结果，不需要另一个 AI 来二次审查是否有歧义。
-        // 仅对数据获取类步骤（搜索、平台读取）做动态分析。
+        // 跳过 ai.* / compare.* / prompt.generate / translate.text / code.explain。
         if step.capability_id.starts_with("ai.")
             || step.capability_id.starts_with("compare.")
             || step.capability_id == "prompt.generate"
@@ -959,17 +957,19 @@ impl Executor {
                     &crate::services::agent::response_agent::step_error_question(error),
                     &crate::services::agent::response_agent::step_error_title(),
                     vec![
-                        QuestionOption::new("retry", "重试").with_description("重新执行这个步骤"),
-                        QuestionOption::new("skip", "跳过")
-                            .with_description("跳过这个步骤继续执行"),
-                        QuestionOption::new("cancel", "取消").with_description("取消整个任务"),
+                        QuestionOption::new("retry", "Retry")
+                            .with_description("Run this step again"),
+                        QuestionOption::new("skip", "Skip")
+                            .with_description("Skip this step and continue"),
+                        QuestionOption::new("cancel", "Cancel")
+                            .with_description("Cancel the whole task"),
                     ],
                     true,
                 ));
             }
         }
 
-        // 获取 AI 分析器（使用 Standard 层级，节省 token 开销）
+        // 获取 AI 分析器（ModelTier::Standard）
         let analyzer = self.get_analyzer_for_tier(ModelTier::Standard);
         let Some(analyzer) = analyzer else {
             tracing::debug!("[Executor] No AI analyzer available, skipping step analysis");
@@ -980,51 +980,53 @@ impl Executor {
         let output_str = {
             let full = serde_json::to_string_pretty(output).unwrap_or_default();
             if full.len() > 3000 {
-                // 在 char boundary 安全截断（stable：truncate_str）
+                // 按 UTF-8 字符边界截断到 3000 字节
                 format!("{}...(truncated)", truncate_str(&full, 3000))
             } else {
                 full
             }
         };
 
-        let system_prompt = r#"你是一个任务执行分析器。你的职责是判断步骤执行结果是否足够明确，还是需要用户介入。
+        let system_prompt = r#"You analyze a step result and decide whether it is clear enough, or the user must step in.
 
-## 核心原则
-优先自主完成任务，仅在关键歧义时才提问。不要反复对已经回答过的内容再次提问。
+## Principle
+Prefer finishing autonomously. Ask only on a real ambiguity. Do not re-ask what was already answered.
 
-## 必须提问的场景（返回 ask）
-- 操作涉及不可逆的修改、删除等，用户尚未确认
-- 搜索返回多个完全不同的实体，无法判断用户想要哪个（仅当差异很大时）
-- 用户提供的关键参数缺失且无法合理推断
+## Must ask (return ask)
+- Irreversible change/delete that the user has not confirmed
+- Search returned several very different entities and you cannot tell which they want
+- A required param is missing and cannot be reasonably inferred
 
-## 应该继续的场景（返回 continue）
-- 结果合理匹配用户需求，即使不是100%精确
-- 搜索返回多条结果但最相关的那条足够明显
-- 纯信息查询
-- 用户之前已经回答过类似问题（见下方已有回答记录）
-- 可以根据上下文合理推断用户意图
+## Should continue (return continue)
+- The result reasonably matches, even if not 100% exact
+- Several hits, but the best one is obvious
+- Pure information lookup
+- They already answered a similar question (see answered record below)
+- Intent can be inferred from context
 
-## 输出格式
-不需要提问：{"action":"continue"}
-需要提问：
+Write question/context/label in the addressee's language.
+
+## Output
+No question: {"action":"continue"}
+Need a question:
 {
   "action": "ask",
   "questionType": "single_choice" | "free_text" | "confirmation",
-  "question": "简洁明了的问题",
-  "context": "补充说明，帮助用户理解为什么需要回答",
-  "options": [{"value": "v1", "label": "显示文本", "description": "可选说明"}],
+  "question": "a short question",
+  "context": "why they need to answer",
+  "options": [{"value": "v1", "label": "shown text", "description": "optional note"}],
   "required": true
 }
 
-只返回 JSON，不要其他内容。"#;
+JSON only."#;
 
         // 构建已有 Q&A 历史，让 AI 知道用户已回答过什么
         let qa_history = if context.answered_questions.is_empty() {
             String::new()
         } else {
-            let mut history = String::from("\n\n已有的用户回答记录（不要重复提问这些内容）：\n");
+            let mut history = String::from("\n\nAlready answered (do not ask these again):\n");
             for (qid, ans) in &context.answered_questions {
-                history.push_str(&format!("- 问题 {}: 用户回答了 \"{}\"\n", qid, ans));
+                history.push_str(&format!("- Question {}: they answered \"{}\"\n", qid, ans));
             }
             history
         };
@@ -1033,20 +1035,20 @@ impl Executor {
         let var_context = {
             let mut parts = Vec::new();
             if let Some(choice) = context.variables.get("user_choice") {
-                parts.push(format!("用户已选择: {}", choice));
+                parts.push(format!("Already chose: {}", choice));
             }
             if let Some(input) = context.variables.get("user_input") {
-                parts.push(format!("用户已输入: {}", input));
+                parts.push(format!("Already entered: {}", input));
             }
             if parts.is_empty() {
                 String::new()
             } else {
-                format!("\n用户已提供的信息：{}", parts.join("，"))
+                format!("\nAlready provided: {}", parts.join("; "))
             }
         };
 
         let user_prompt = format!(
-            "用户意图：{}\n步骤：{} (capability: {})\n执行结果：\n{}{}{}",
+            "Intent: {}\nStep: {} (capability: {})\nResult:\n{}{}{}",
             context.user_intent,
             step.action,
             step.capability_id,
@@ -1082,7 +1084,7 @@ impl Executor {
                         let question_text = parsed
                             .get("question")
                             .and_then(|q| q.as_str())
-                            .unwrap_or("请提供更多信息");
+                            .unwrap_or("Please provide more information");
                         let ctx = parsed.get("context").and_then(|c| c.as_str()).unwrap_or("");
                         let required = parsed
                             .get("required")
@@ -1136,8 +1138,8 @@ impl Executor {
 
                         context.record_decision(
                             DecisionType::AskUser,
-                            &format!("AI 判断需要用户介入: {}", question_text),
-                            &format!("步骤 {} 的输出需要用户澄清", step.id),
+                            &format!("AI asked the user to step in: {question_text}"),
+                            &format!("Step {} output needs clarification", step.id),
                             Some(&step.id),
                         );
 
@@ -1322,7 +1324,7 @@ impl Executor {
         // 2. "step_id.field" → 检查指定步骤输出中 field 的真值
         // 3. "output.field == value" → 相等比较
         // 4. "output.field > 0" → 数值比较
-        // 5. "output.field != null" → 非空检查
+        // 5. "output.field != null" → 非 null
 
         let condition = condition.trim();
 

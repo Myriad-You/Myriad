@@ -19,6 +19,8 @@ pub struct SpeakIntent {
     pub source_event_id: String,
     pub topic: String,
     pub gist: String,
+    /// Short-lived evidence behind the sentence, for its accompanying director.
+    pub observation: Option<String>,
     pub priority: EventUrgency,
     pub created_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
@@ -71,15 +73,21 @@ pub fn new_speak_intent(
     work_intent_id: Option<String>,
 ) -> SpeakIntent {
     let now = Utc::now();
+    let ttl = if topic == "agent.merope.touch" {
+        20
+    } else {
+        SPEAK_INTENT_TTL_SECS
+    };
     SpeakIntent {
         id: format!("spk_{}", uuid::Uuid::new_v4().simple()),
         user_id,
         source_event_id,
         topic,
         gist,
+        observation: None,
         priority,
         created_at: now,
-        expires_at: now + Duration::seconds(SPEAK_INTENT_TTL_SECS),
+        expires_at: now + Duration::seconds(ttl),
         work_intent_id,
     }
 }
@@ -87,6 +95,41 @@ pub fn new_speak_intent(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn observation_survives_the_queue_without_changing_the_spoken_sentence() {
+        let mut value = new_speak_intent(
+            905,
+            "touch-observation".into(),
+            "agent.merope.touch".into(),
+            "先别摸啦。".into(),
+            EventUrgency::Normal,
+            None,
+        );
+        value.observation = Some("最后呈现的反应：躲避".into());
+        enqueue_speak_intent(value);
+        let queued = drain_speak_intents(Utc::now())
+            .into_iter()
+            .find(|v| v.user_id == 905)
+            .unwrap();
+        assert_eq!(queued.gist, "先别摸啦。");
+        assert_eq!(queued.observation.as_deref(), Some("最后呈现的反应：躲避"));
+    }
+
+    #[test]
+    fn touch_expires_quickly_without_changing_other_events() {
+        for (topic, seconds) in [("agent.merope.touch", 20), ("agent.merope.greeting", 900)] {
+            let value = new_speak_intent(
+                1,
+                "event".into(),
+                topic.into(),
+                "你好".into(),
+                EventUrgency::Normal,
+                None,
+            );
+            assert_eq!((value.expires_at - value.created_at).num_seconds(), seconds);
+        }
+    }
 
     fn intent(user_id: i32, source: &str, expires_in_secs: i64) -> SpeakIntent {
         let now = Utc::now();
@@ -96,6 +139,7 @@ mod tests {
             source_event_id: source.into(),
             topic: "agent.merope.platform_activity".into(),
             gist: "想说一声刚才的事".into(),
+            observation: None,
             priority: EventUrgency::Normal,
             created_at: now,
             expires_at: now + Duration::seconds(expires_in_secs),

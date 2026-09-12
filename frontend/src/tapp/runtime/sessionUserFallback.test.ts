@@ -1,7 +1,3 @@
-/**
- *   pnpm exec tsx --test src/tapp/runtime/sessionUserFallback.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
 import { fetchSessionUserSnapshot } from './sessionUserFallback.ts'

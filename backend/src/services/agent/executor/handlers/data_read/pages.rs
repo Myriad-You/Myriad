@@ -82,7 +82,7 @@ pub(super) async fn execute_brew_page_content(
                 })
                 .collect();
 
-            let title = category_filter.as_deref().unwrap_or("订阅源").to_string();
+            let title = category_filter.as_deref().unwrap_or("Feeds").to_string();
 
             Ok(json!({
                 "level": "sources",

@@ -1,15 +1,3 @@
-/**
- * Shared fixed chrome for Tapp run / store (single-tree layout).
- *
- * Structure:
- *   fixed root (z-40)
- *     fullscreen toolbar (caller; WebKit portal optional)
- *     presence scrim
- *     column: top spacer → pad → max-w-6xl (presence)
- *       header (back + leading | actions)
- *       slot → content shell (absolute | fixed fullscreen)
- */
-
 import type { AnimationEvent, CSSProperties, ReactNode } from 'react'
 import { FaArrowLeft } from '@lib/icons'
 import { motionShim as motion } from '@lib/motionShim'
@@ -32,23 +20,17 @@ export interface TappAppShellPresence {
 }
 
 export interface TappAppShellProps {
-  /** data-tapp-run-shell | data-tapp-store-shell */
   shellAttr: 'data-tapp-run-shell' | 'data-tapp-store-shell'
   isMobile: boolean
   isFullscreen: boolean
   presence: TappAppShellPresence
-  /** Rendered when fullscreen; portaled to body on WebKit */
   fullscreenToolbar: ReactNode
-  /** After back button */
   headerLeading: ReactNode
-  /** Right-side actions (hidden chrome when fullscreen) */
   headerActions: ReactNode
   onBack: () => void
   backTitle: string
   backAriaLabel: string
-  /** Inner content of the content shell */
   children: ReactNode
-  /** Extra classes on content shell (bg, store frame, …) */
   contentClassName?: string
   contentStyle?: CSSProperties
 }

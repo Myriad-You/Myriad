@@ -8,7 +8,7 @@ test('stretches the compiled shapes onto the audio that says them', async () => 
   assert.ok(cues.length > 0)
   const spans = alignVisemeTimeline(cues, 2)
   assert.equal(spans.length, cues.filter((cue) => cue.duration > 0).length)
-  assert.ok(Math.abs(spans[spans.length - 1]!.endsAt - 2) < 1e-9)
+  assert.ok(Math.abs(spans.at(-1)!.endsAt - 2) < 1e-9)
   for (let i = 1; i < spans.length; i++) {
     assert.ok(spans[i]!.endsAt > spans[i - 1]!.endsAt)
   }
@@ -59,8 +59,6 @@ test('emphasis opens the mouth further and never past the bound', () => {
   assert.equal(visemeAmount(-1, false), 0)
 })
 
-// Han characters alone cannot say whether a line is Chinese or Japanese, and
-// reading Japanese kanji as pinyin gives the wrong mouth for the sentence.
 test('the locale decides how han characters are read', async () => {
   const japanese = await compileTextVisemes('日本語', 'ja-JP')
   const chinese = await compileTextVisemes('日本語', 'zh-CN')

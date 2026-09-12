@@ -1,7 +1,4 @@
-/**
- * Only the mounted Agent engine may adopt voice runs. The transport never
- * creates its own Chat store, response handler, or director.
- */
+/** Only the mounted Agent engine may adopt voice runs. */
 export interface VoiceRunNotice {
   runId: string
   sessionId: string

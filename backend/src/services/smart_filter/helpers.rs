@@ -63,8 +63,8 @@ pub struct UserStats {
 
 /// Untagged: order matters. Prefer variants with distinctive required fields.
 /// YouTube before Bilibili — both have `video_summary` + `recent_videos`; Bilibili
-/// also needs `anime_analysis`, but unknown fields are ignored so a YouTube blob
-/// must not be attempted as Bilibili first in edge cases.
+/// also needs `anime_analysis`. YouTube `deny_unknown_fields` stops a Bilibili blob
+/// matching YouTube.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ContentAnalysis {
@@ -133,7 +133,7 @@ pub struct XboxAnalysis {
     pub gaming_summary: String,
     pub gamerscore: i64,
     pub games_count: usize,
-    /// 带成就系统的游戏数（totalAchievements > 0）
+    /// 带成就系统的游戏数（`achievements_total > 0 || gamerscore_total > 0`）
     #[serde(default)]
     pub achievement_games: usize,
     /// 成就进度 100% 的游戏数
@@ -298,7 +298,7 @@ pub struct DiscordGuildStats {
     pub total_member_reach: u64,
     /// 各服在线人数之和（approximate_presence_count）
     pub total_online_reach: u64,
-    /// 官方认证 / 合作 / 已开启社区功能的服务器数量
+    /// `COMMUNITY` feature 的服务器数量
     pub community_guild_count: usize,
     pub partnered_or_verified_count: usize,
 }
@@ -406,7 +406,7 @@ pub struct SteamAnalysis {
     pub game_summary: String,
     pub genre_analysis: Vec<crate::services::content_databases::game_database::GameGenreAnalysis>,
     pub recent_games: Vec<GameItem>,
-    /// Owned library size (not “recent only”). Default 0 for older cache files.
+    /// Owned library size (not “recent only”). Serde default 0.
     #[serde(default)]
     pub games_count: usize,
     /// Sum of `playtime_forever` over owned games, **minutes** (Steam API unit).
@@ -421,7 +421,7 @@ pub struct GameItem {
     /// Steam app id — needed for cover URLs and stable item ids.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub appid: Option<i64>,
-    /// CDN header image derived from appid (or upstream cover).
+    /// CDN header image derived from appid（无 appid 则为空）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
 }

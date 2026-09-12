@@ -32,8 +32,6 @@ export interface MeropeStateEventDetail {
   activity: string
 }
 
-// One ordered snapshot for the current authenticated addressee. Both the run
-// stream and the long-lived notification stream feed this same state outlet.
 let currentState: MeropeStateEventDetail | null = null
 
 export function currentMeropeState(): MeropeStateEventDetail | null {
@@ -44,7 +42,7 @@ export function resetMeropeState(): void {
   currentState = null
 }
 
-/** A slow GET must not undo a newer live event; a fresh GET repairs a missed event. */
+/** A slow GET must not undo a newer live event */
 export function resolveLoadedMeropeAffect(snapshot: {
   mood?: number
   arousal?: number

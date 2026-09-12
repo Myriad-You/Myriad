@@ -39,7 +39,6 @@ export interface AiVendorPreset {
   defaultVoice?: string
 }
 
-/** 添加服务商浮窗里的预设。 */
 export const AI_VENDOR_PRESETS: AiVendorPreset[] = [
   {
     id: 'openrouter',
@@ -326,7 +325,7 @@ export const AI_VENDOR_PRESETS: AiVendorPreset[] = [
 ]
 
 function slugBase(slug: string): string {
-  return slug.trim().replace(/-\d+$/, '')
+  return slug.trim().replaceAll(/-\d+$/g, '')
 }
 
 export function findVendorPreset(source: {
@@ -441,7 +440,6 @@ export function vendorSupports(
   }
 }
 
-/** 按 slug 精确认源；仅当该渠道只有一条时才回退 preset/kind。 */
 export function resolveUsedVendorSlug(
   raw: string,
   sources: AiVendorSource[],
@@ -477,7 +475,7 @@ export function sourceFromPreset(
   const copy =
     slug === preset.defaultSlug
       ? ''
-      : slug.slice(preset.defaultSlug.length).replace(/^-+/, '')
+      : slug.slice(preset.defaultSlug.length).replaceAll(/^-+/g, '')
   return {
     slug,
     kind: preset.kind,

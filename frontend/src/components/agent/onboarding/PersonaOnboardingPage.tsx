@@ -44,13 +44,6 @@ function samePageChrome(left: OnboardingPageChrome, right: OnboardingPageChrome)
 
 interface Props {
   onBack: () => void
-  /**
-   * 主立绘到手之后去哪。
-   *
-   * 后端的立绘流水线还没走完——出图之后还要分层、编译、激活，那一段在动作
-   * 工作台里。引导原本走完就退回上一层，站长得自己知道另一个子页的存在，
-   * 不知道的话拿到的是一张不会动的立绘。
-   */
   onFinished: () => void
   onChromeChange: (chrome: OnboardingPageChrome) => void
   meropeOn: boolean
@@ -88,7 +81,6 @@ export default function PersonaOnboardingPage({
   const onChromeChangeRef = useRef(onChromeChange)
   onChromeChangeRef.current = onChromeChange
   const chromeRef = useRef<OnboardingPageChrome | null>(null)
-  // 按 step 取，不是 step - 1：0 是分岔口、1 是导入，生成链从 2 起。
   const pageTitle = meropeOn
     ? [
         o.choiceTitle,
@@ -144,7 +136,6 @@ export default function PersonaOnboardingPage({
         setStep(
           hasStructuredPersona
             ? completedPersonaResumeStep(persona?.visualProfile)
-            // 有正文但结构化人设不完整：回到「起草人设」那页让站长补齐。
             : 4,
         )
       } else {
@@ -152,7 +143,7 @@ export default function PersonaOnboardingPage({
         setSavedVisualProfile(null)
       }
     } catch {
-      /* 预填失败就从空称呼开始 */
+      /* start empty */
     } finally {
       setReady(true)
     }
@@ -194,8 +185,6 @@ export default function PersonaOnboardingPage({
 
   const handleBack = useCallback(() => {
     if (header.onBack?.()) return
-    // `step - 1` 会让生成链的第一页后退到导入页——它们是分岔口的两条路，
-    // 不是前后关系。上一页由 previousOnboardingStep 说了算。
     if (previousStep !== null) {
       if (!wizardBusy) setStep(previousStep)
       return

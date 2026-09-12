@@ -1,14 +1,6 @@
 /**
- * Pure resolution of `Tapp.tappList.install` request shape.
- *
- * Authority: must stay lockstep with the sandbox handler in
- * `runtime/sandbox/handlers/contentHandlers.ts` (store vs direct path).
- *
- * Catalog ref for store install comes only from:
- *   1. explicit `storeSource`, or
- *   2. `source` when it is an http(s) URL.
- * Bare non-HTTP `source` values (including numeric store ids like `"1"`) are
- * NOT treated as catalog refs unless also provided via `storeSource`.
+ * 与 contentHandlers 同步。目录引用只来自 storeSource，或 source 为 http(s) URL。裸非 HTTP
+ * source（含数字 id）不是目录引用。
  */
 
 export interface TappListInstallRequestInput {
@@ -47,17 +39,12 @@ export type TappListInstallResolved =
     }
   | {
       kind: 'store'
-      /** Catalog URL or store source id — passed to installFromStore as `source`. */
       catalogRef: string
       tappId: string
       permissions?: string[]
     }
   | { kind: 'error'; error: string }
 
-/**
- * Resolve SDK install args into direct/store/error without calling the network.
- * Used by the Bridge handler and by docs gating tests.
- */
 export function resolveTappListInstallRequest(
   request: TappListInstallRequestInput | null | undefined,
 ): TappListInstallResolved {
@@ -100,7 +87,6 @@ export function resolveTappListInstallRequest(
     }
   }
 
-  // Store path: mode "store", or legacy where source itself is the catalog URL.
   const isStoreMode =
     sourceLower === 'store' ||
     isHttp ||
@@ -111,7 +97,7 @@ export function resolveTappListInstallRequest(
     if (!tappId) {
       return { kind: 'error', error: 'tappId is required for store install' }
     }
-    // Prefer explicit storeSource; then HTTP source; never use mode "store".
+    // 优先显式 storeSource，其次 HTTP source；不用 mode store。
     const catalogRef = storeSourceCandidate
     if (
       !catalogRef ||

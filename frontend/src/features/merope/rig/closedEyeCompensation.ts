@@ -19,10 +19,7 @@ const ANGLE_TOLERANCE_DEGREES = 2
 const MAX_CORRECTION_DEGREES = 10
 const CLOSED_EYE_VERTICAL_ALIGNMENT = 0.55
 
-/**
- * Correct only generated close-eye diffs against their own open eyelashes.
- * Authored close-eye layers and the opposite eye are never used as references.
- */
+/** Correct only generated close-eye diffs against their own open eyelashes. */
 export function compensateSyntheticClosedEyeAngles(
   parts: ClosedEyeCompensationPart[],
 ): void {
@@ -98,7 +95,6 @@ function rotatePartAroundPlacementAnchor(
   part.y = Math.round(closeY - image.height * CLOSED_EYE_VERTICAL_ALIGNMENT)
 }
 
-/** Positive degrees rotate clockwise in canvas coordinates. */
 function rotateRgba(source: RgbaLayerImage, degrees: number): RgbaLayerImage {
   const radians = (degrees * Math.PI) / 180
   const cosine = Math.cos(radians)

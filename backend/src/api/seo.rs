@@ -1,15 +1,14 @@
 //! Public SEO: sitemap, robots, llms.txt, Tapp/Brew share summary, crawler shells.
 //!
 //! Indexability (guest / crawler):
-//! - Site not `site_noindex` for sitemap entries (shell still returns noindex meta)
+//! - Not `branding.noindex` (`site_noindex` or private visibility policy) for sitemap entries (shell still returns noindex meta)
 //! - Module visibility = `all` (`tapp` / `brew`)
 //! - Tapp: site-owner public install with `visibility = all`
 //! - Brew: only sources categorized as site-owner original content (`我`);
 //! never index friend-links or third-party RSS items
 //!
-//! Humans keep using the SPA via the reverse proxy; only known crawler UAs
-//! (and direct API clients) hit HTML shells on `/`, `/tapp`, `/brew`,
-//! `/library`, `/reports`, `/tapp/run/{id}` and `/brew/item/{id}`.
+//! Ordinary browsers get the SPA via the proxy. Crawler UAs and WeChat/Weibo/WeCom
+//! in-app UAs get these HTML shells (`?_spa=1` → SPA). Direct backend GETs skip the UA split.
 
 use axum::{
     extract::{Path, State},
@@ -17,6 +16,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use myriad_error::AppError;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -29,8 +29,7 @@ use myriad_module_visibility::load_module_visibility_preferences;
 /// Fixed DB category label for site-owner original Brew content.
 /// Must match frontend `BREW_MINE_CATEGORY` (`frontend/src/components/brew/constants.ts`).
 ///
-/// `api::brew::notes` seeds the notes source with this exact value — a note that
-/// lands anywhere else is invisible to both the notes board and the sitemap.
+/// `api::brew::notes` writes this value only when creating a notes source. Sitemap still requires `brew_source_is_own`; the notes board keeps `source_type = note` even if category is no longer `我`.
 pub(crate) const BREW_MINE_CATEGORY: &str = "我";
 /// Cap brew item URLs in sitemap (newest first).
 const BREW_SITEMAP_ITEM_LIMIT: u64 = 200;
@@ -39,7 +38,6 @@ const BREW_SHELL_BODY_LIMIT: usize = 8000;
 /// Links on the Brew list crawler shell.
 const BREW_LIST_SHELL_LIMIT: u64 = 30;
 /// Fallback bio from `profile_text` — guests see it, crawlers should not.
-const LAZY_PROFILE_BIO: &str = "这家伙很懒，没有介绍呢";
 
 // ── types ───────────────────────────────────────────────────────────────────
 
@@ -52,7 +50,7 @@ pub struct TappSeoSummary {
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
-    /// Absolute canonical URL for this install (run page).
+    /// Canonical run-page URL: absolute when `FRONTEND_URL`/`BASE_URL` is set, otherwise the path only.
     pub canonical_url: String,
     pub path: String,
     pub noindex: bool,
@@ -119,8 +117,8 @@ struct SeoChrome {
 impl Default for SeoChrome {
     fn default() -> Self {
         Self {
-            html_lang: "zh-CN",
-            og_locale: "zh_CN",
+            html_lang: "en",
+            og_locale: "en_US",
             site_name: "Myriad".to_string(),
             keywords: String::new(),
             google_site_verification: String::new(),
@@ -272,34 +270,57 @@ fn render_seo_html(doc: SeoDocument<'_>) -> String {
     )
 }
 
+const TRADITIONAL_MARKERS: &str = "說這個為與萬億軟體檔訊預設網連線憶臺裡麼迴";
+
+fn host_site_locale(tag: &str) -> SiteLocale {
+    match tag {
+        "zh-TW" => SiteLocale {
+            html_lang: "zh-TW",
+            og_locale: "zh_TW",
+        },
+        "zh-CN" => SiteLocale {
+            html_lang: "zh-CN",
+            og_locale: "zh_CN",
+        },
+        "ja-JP" => SiteLocale {
+            html_lang: "ja",
+            og_locale: "ja_JP",
+        },
+        _ => SiteLocale {
+            html_lang: "en",
+            og_locale: "en_US",
+        },
+    }
+}
+
 fn infer_site_locale(texts: &[&str]) -> SiteLocale {
     let mut cjk = 0usize;
     let mut kana = 0usize;
+    let mut traditional = 0usize;
     for text in texts {
         for ch in text.chars() {
             match ch {
                 '\u{3040}'..='\u{30FF}' | '\u{FF66}'..='\u{FF9D}' => kana += 1,
-                '\u{4E00}'..='\u{9FFF}' => cjk += 1,
+                '\u{4E00}'..='\u{9FFF}' => {
+                    cjk += 1;
+                    if TRADITIONAL_MARKERS.contains(ch) {
+                        traditional += 1;
+                    }
+                }
                 _ => {}
             }
         }
     }
     if kana >= 4 || (kana > 0 && kana * 3 >= cjk.max(1)) {
-        return SiteLocale {
-            html_lang: "ja",
-            og_locale: "ja_JP",
-        };
+        return host_site_locale("ja-JP");
     }
     if cjk >= 4 {
-        return SiteLocale {
-            html_lang: "zh-CN",
-            og_locale: "zh_CN",
-        };
+        if traditional * 2 >= cjk.max(1) || traditional >= 2 {
+            return host_site_locale("zh-TW");
+        }
+        return host_site_locale("zh-CN");
     }
-    SiteLocale {
-        html_lang: "en",
-        og_locale: "en_US",
-    }
+    host_site_locale("en-US")
 }
 
 fn is_inapp_share_ua(ua: &str) -> bool {
@@ -311,12 +332,19 @@ fn is_inapp_share_ua(ua: &str) -> bool {
 }
 
 fn seo_chrome(branding: &SiteBranding, headers: &HeaderMap) -> SeoChrome {
-    let loc = infer_site_locale(&[
+    let inferred = infer_site_locale(&[
         branding.title.as_str(),
         branding.description.as_str(),
         branding.ai_intro.as_str(),
         branding.keywords.as_str(),
     ]);
+    let loc = if inferred.html_lang == "en" {
+        crate::api::reports::locale::locale_from_headers(headers)
+            .map(host_site_locale)
+            .unwrap_or(inferred)
+    } else {
+        inferred
+    };
     let ua = headers
         .get(header::USER_AGENT)
         .and_then(|v| v.to_str().ok())
@@ -368,19 +396,19 @@ fn list_links_html(items: &[(String, String, Option<String>)]) -> String {
 
 fn humanize_widget_type(id: &str) -> String {
     match id {
-        "welcome" => "欢迎".to_string(),
+        "welcome" => "Welcome".to_string(),
         "agent-persona" => "Merope".to_string(),
-        "quick-stats" => "速览".to_string(),
-        "recent-activity" => "最近动态".to_string(),
-        "friend-links" => "友情链接".to_string(),
-        "weather" => "天气".to_string(),
-        "quote" => "一言".to_string(),
-        "music-player" => "音乐".to_string(),
-        "social-network" => "社交网络".to_string(),
-        "tapp-shortcut" => "应用捷径".to_string(),
-        "game-presence" => "正在游玩".to_string(),
-        "visitor-stats" => "访客".to_string(),
-        id if id.starts_with("report-") => format!("报告 · {}", &id["report-".len()..]),
+        "quick-stats" => "At a glance".to_string(),
+        "recent-activity" => "Recent activity".to_string(),
+        "friend-links" => "Friend links".to_string(),
+        "weather" => "Weather".to_string(),
+        "quote" => "Quote".to_string(),
+        "music-player" => "Music".to_string(),
+        "social-network" => "Social".to_string(),
+        "tapp-shortcut" => "App shortcut".to_string(),
+        "game-presence" => "Now playing".to_string(),
+        "visitor-stats" => "Visitors".to_string(),
+        id if id.starts_with("report-") => format!("Report · {}", &id["report-".len()..]),
         other => other.replace('-', " "),
     }
 }
@@ -467,7 +495,7 @@ fn encode_path_segment(s: &str) -> String {
     out
 }
 
-/// Absolute URL for share images; drop data: and bare emoji/svg markup.
+/// Share-image URL: drop `data:`, svg/xml markup, and tokens with neither `/` nor `.`; prefix durable origin onto `/` paths (path-only if origin unset).
 fn absolute_share_image(base: &str, raw: &str) -> Option<String> {
     let t = raw.trim();
     if t.is_empty() || t.starts_with("data:") {
@@ -757,7 +785,7 @@ fn render_brew_item_seo_html(summary: &BrewItemSeoSummary, chrome: &SeoChrome) -
     }
 
     let body_inner = format!(
-        "    <h1>{name}</h1>\n    {source_line}\n    {article}<p><a href=\"{canonical}\">阅读全文</a> · <a href=\"/brew\">Brew</a></p>\n",
+        "    <h1>{name}</h1>\n    {source_line}\n    {article}<p><a href=\"{canonical}\">Read more</a> · <a href=\"/brew\">Brew</a></p>\n",
         name = html_escape(&summary.title),
         source_line = source_line,
         article = article_html,
@@ -908,7 +936,7 @@ fn render_tapp_seo_html(summary: &TappSeoSummary, chrome: &SeoChrome) -> String 
         json_ld["image"] = json!(image);
     }
     let body_inner = format!(
-        "    <h1>{name}</h1>\n    <p>{desc_body}</p>\n    <p><a href=\"{canonical}\">打开应用</a> · <a href=\"/tapp\">全部应用</a></p>\n",
+        "    <h1>{name}</h1>\n    <p>{desc_body}</p>\n    <p><a href=\"{canonical}\">Open app</a> · <a href=\"/tapp\">All apps</a></p>\n",
         name = html_escape(&summary.name),
         desc_body = html_escape(desc),
         canonical = html_escape(&summary.canonical_url),
@@ -951,12 +979,14 @@ pub async fn tapp_seo_summary(
         Ok(summary) => (StatusCode::OK, Json(summary)).into_response(),
         Err(StatusCode::BAD_REQUEST) => (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Invalid tapp id" })),
+            Json(AppError::public_json("Invalid tapp id")),
         )
             .into_response(),
-        Err(StatusCode::NOT_FOUND) => {
-            (StatusCode::NOT_FOUND, Json(json!({ "error": "Not found" }))).into_response()
-        }
+        Err(StatusCode::NOT_FOUND) => (
+            StatusCode::NOT_FOUND,
+            Json(AppError::public_json("Not found")),
+        )
+            .into_response(),
         Err(status) => (
             status,
             Json(json!({ "error": "Internal error", "code": "internal_error" })),
@@ -1002,12 +1032,14 @@ pub async fn brew_item_seo_summary(
         Ok(summary) => (StatusCode::OK, Json(summary)).into_response(),
         Err(StatusCode::BAD_REQUEST) => (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Invalid item id" })),
+            Json(AppError::public_json("Invalid item id")),
         )
             .into_response(),
-        Err(StatusCode::NOT_FOUND) => {
-            (StatusCode::NOT_FOUND, Json(json!({ "error": "Not found" }))).into_response()
-        }
+        Err(StatusCode::NOT_FOUND) => (
+            StatusCode::NOT_FOUND,
+            Json(AppError::public_json("Not found")),
+        )
+            .into_response(),
         Err(status) => (
             status,
             Json(json!({ "error": "Internal error", "code": "internal_error" })),
@@ -1046,12 +1078,12 @@ pub async fn brew_item_seo_html(
 fn simple_error_html(title: &str, message: &str) -> String {
     format!(
         r#"<!DOCTYPE html>
-<html lang="zh-CN"><head>
+<html lang="en"><head>
 <meta charset="UTF-8" /><meta name="robots" content="noindex, nofollow" />
 <title>{title}</title></head>
 <body><main style="max-width:40rem;margin:3rem auto;font-family:system-ui,sans-serif">
 <h1>{title}</h1><p>{message}</p>
-<p><a href="/">首页</a></p>
+<p><a href="/">Home</a></p>
 </main></body></html>
 "#,
         title = html_escape(title),
@@ -1145,12 +1177,12 @@ async fn own_brew_item_links(
 }
 
 fn module_nav_html(modules: &std::collections::HashMap<String, String>) -> String {
-    let mut parts: Vec<(&str, &str)> = vec![("/", "首页")];
+    let mut parts: Vec<(&str, &str)> = vec![("/", "Home")];
     for (key, path, label) in [
-        ("library", "/library", "资料库"),
+        ("library", "/library", "Library"),
         ("brew", "/brew", "Brew"),
-        ("reports", "/reports", "报告"),
-        ("tapp", "/tapp", "应用"),
+        ("reports", "/reports", "Reports"),
+        ("tapp", "/tapp", "Apps"),
     ] {
         let level = modules.get(key).map(String::as_str).unwrap_or("all");
         if module_is_public_all(level) {
@@ -1197,7 +1229,7 @@ pub async fn home_seo_html(State(db): State<DatabaseConnection>, headers: Header
         if let Ok(text) = crate::services::profile_text::resolve_profile_text(&db, uid).await {
             owner_name = text.name.filter(|s| !s.trim().is_empty());
             let bio = text.bio.trim();
-            if !bio.is_empty() && bio != LAZY_PROFILE_BIO {
+            if !crate::services::avatar::is_placeholder_bio(bio) {
                 owner_bio = Some(bio.to_string());
             }
         }
@@ -1226,7 +1258,7 @@ pub async fn home_seo_html(State(db): State<DatabaseConnection>, headers: Header
         body.push_str("</p>\n");
     }
     if !widgets.is_empty() {
-        body.push_str("    <h2>主页</h2>\n    <ul>\n");
+        body.push_str("    <h2>Home</h2>\n    <ul>\n");
         for label in &widgets {
             body.push_str("      <li>");
             body.push_str(&html_escape(label));
@@ -1317,7 +1349,7 @@ async fn module_list_seo_html(
     };
     let prefs = load_module_visibility_preferences(db).await;
     let empty_note = if listing && links.is_empty() {
-        "    <p>暂无公开条目。</p>\n"
+        "    <p>No public items yet.</p>\n"
     } else {
         ""
     };
@@ -1360,8 +1392,8 @@ pub async fn tapp_list_seo_html(
         &headers,
         "tapp",
         "/tapp",
-        "应用",
-        "本站公开的 Tapp 应用。",
+        "Apps",
+        "Public Tapp apps on this site.",
         links,
         true,
     )
@@ -1384,7 +1416,7 @@ pub async fn brew_list_seo_html(
         "brew",
         "/brew",
         "Brew",
-        "站长的原创文章。",
+        "Original writing from the site owner.",
         links,
         true,
     )
@@ -1401,8 +1433,8 @@ pub async fn library_seo_html(
         &headers,
         "library",
         "/library",
-        "资料库",
-        "来自已连接平台的游戏、番剧、音乐与活动轨迹。",
+        "Library",
+        "Games, anime, music, and activity from connected platforms.",
         Vec::new(),
         false,
     )
@@ -1419,18 +1451,17 @@ pub async fn reports_seo_html(
         &headers,
         "reports",
         "/reports",
-        "报告",
-        "根据本站数据整理的阶段性报告。",
+        "Reports",
+        "Periodic reports from this site's data.",
         Vec::new(),
         false,
     )
     .await
 }
 
-/// GET /robots.txt — absolute Sitemap line only when durable env origin is set.
-/// Disallow private SPA routes (login/setup/admin/playground); public modules
-/// remain Allow. Client-side noindex is still applied on those pages for bots
-/// that execute JS.
+/// GET /robots.txt — `Sitemap:` only when policy is not private and durable origin is set.
+/// Non-private: `Allow: /` plus Disallow `/login` `/register` `/setup` `/config` `/tapp/playground` `/tapp/detail/`.
+/// Those SPA pages also set client noindex.
 pub async fn robots_txt(State(db): State<DatabaseConnection>, _headers: HeaderMap) -> Response {
     let branding = load_site_branding(&db).await;
     let base = resolve_public_base_url();
@@ -1744,7 +1775,7 @@ mod tests {
             r#"{"v":2,"standard":[{"type":"welcome"},{"type":"weather"},{"type":"welcome"}]}"#;
         assert_eq!(
             collect_widget_labels(Some(json)),
-            vec!["欢迎".to_string(), "天气".to_string()]
+            vec!["Welcome".to_string(), "Weather".to_string()]
         );
     }
 
@@ -1826,6 +1857,40 @@ mod tests {
     fn locale_from_latin_is_english() {
         let loc = infer_site_locale(&["A myriad of lights, in one place."]);
         assert_eq!(loc.html_lang, "en");
+    }
+
+    #[test]
+    fn locale_from_traditional_is_taiwan() {
+        let loc = infer_site_locale(&["這個網站提供軟體與網路服務"]);
+        assert_eq!(loc.html_lang, "zh-TW");
+        assert_eq!(loc.og_locale, "zh_TW");
+    }
+
+    #[test]
+    fn locale_from_simplified_is_china() {
+        let loc = infer_site_locale(&["这个网站提供软件与网络服务"]);
+        assert_eq!(loc.html_lang, "zh-CN");
+        assert_eq!(loc.og_locale, "zh_CN");
+    }
+
+    #[test]
+    fn english_branding_follows_accept_language() {
+        let branding = SiteBranding {
+            title: "Myriad - A myriad of lights, in one place.".into(),
+            description: "A myriad of lights, in one place.".into(),
+            favicon: String::new(),
+            og_image: String::new(),
+            noindex: false,
+            policy: String::new(),
+            ai_intro: String::new(),
+            keywords: String::new(),
+            google_site_verification: String::new(),
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ACCEPT_LANGUAGE, "zh-TW,zh;q=0.8".parse().unwrap());
+        let chrome = seo_chrome(&branding, &headers);
+        assert_eq!(chrome.html_lang, "zh-TW");
+        assert_eq!(chrome.og_locale, "zh_TW");
     }
 
     #[test]

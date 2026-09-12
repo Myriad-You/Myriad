@@ -1,7 +1,3 @@
-/**
- * Structural deep equality for plain JSON-like values.
- * Key order independent on objects; array order matters.
- */
 export function deepEqual(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true
   if (typeof a !== typeof b) return false
@@ -22,8 +18,8 @@ export function deepEqual(a: unknown, b: unknown): boolean {
 
   const aObj = a as Record<string, unknown>
   const bObj = b as Record<string, unknown>
-  const aKeys = Object.keys(aObj).sort()
-  const bKeys = Object.keys(bObj).sort()
+  const aKeys = Object.keys(aObj).toSorted()
+  const bKeys = Object.keys(bObj).toSorted()
   if (aKeys.length !== bKeys.length) return false
   for (let i = 0; i < aKeys.length; i++) {
     if (aKeys[i] !== bKeys[i]) return false

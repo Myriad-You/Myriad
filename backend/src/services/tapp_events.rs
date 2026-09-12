@@ -3,8 +3,7 @@
 //! Events are transient notifications, not a data transport or task queue.
 //! Cross-Tapp data bodies must use the consent-gated Data Exchange API.
 //!
-//! Domain lives in services so runtime-grant teardown and future agent paths do
-//! not import `api::tapp_runtime::events`. The API layer maps [`EventError`] to
+//! Domain lives in services. The API layer maps [`EventError`] to
 //! Axum, enforces permissions/rate limits, and owns the SSE stream shell.
 
 use std::collections::HashSet;

@@ -39,7 +39,6 @@ const BEHAVIOR_PHASES = [
   'complete',
   'rejected',
 ] as const
-/** Mirrors `RIG_STATE_BEHAVIOR_FUNCTIONS`; locked to the producers by test. */
 export const BEHAVIOR_FUNCTIONS = [
   'orient',
   'attend',
@@ -69,11 +68,6 @@ const CAPABILITY_MAP = [
 ] as const
 const MAX_RECENT = 6
 const MAX_ACTIVE_BEHAVIORS = 8
-/**
- * A behavior's producer. `MOTION_SOURCES` is the wider lease vocabulary —
- * mood and ambient own channels without ever publishing a behavior, so an
- * active behavior claiming one of them is not a state this rig can reach.
- */
 export const BEHAVIOR_SOURCES = ['performance', 'coSpeech', 'music'] as const
 
 const BEHAVIOR_RESOURCES = [
@@ -116,7 +110,7 @@ export function semanticRigCapabilities(
   for (const [internal, semantic] of CAPABILITY_MAP) {
     if (hasAnime25DCapability(layers, internal)) capabilities.add(semantic)
   }
-  return [...capabilities]
+  return Iterator.from(capabilities).toArray()
 }
 
 export function captureRigStateSummary(
@@ -245,7 +239,6 @@ export function sanitizeRigStateSummary(
   }
 }
 
-/** Furthest along first; a running behavior outranks a merely scheduled one. */
 const LIFECYCLE_RANK: Record<BehaviorSnapshot['phase'], number> = {
   holding: 0,
   committed: 1,
@@ -256,21 +249,7 @@ const LIFECYCLE_RANK: Record<BehaviorSnapshot['phase'], number> = {
   rejected: 6,
 }
 
-/**
- * What the director needs to decide with, not the first eight behaviors.
- *
- * The prompt tells the model two things about this list: do not repeat a
- * function that is already in flight, and drop a cue whose resources are busy.
- * Both are questions about *which* functions and resources are live, not about
- * how many times one of them recurs — so one entry per source and function is
- * the whole signal, and the twelfth queued speech accent adds nothing.
- *
- * Taking the earliest eight instead put a whole utterance of prosody accents
- * in front of the director: seven identical `emphasize` rows, most of them not
- * yet started, telling a model under a no-repeat rule to stop choosing the one
- * cue that reads as emphasis. The kept instance is the one furthest along,
- * because that is the one whose `remainingMs` says when the resource frees.
- */
+/** What the director needs to decide with, not the first eight behaviors. */
 function activeBehaviorSummaries(
   behaviors: readonly BehaviorSnapshot[],
 ): RigStateSummary['activeBehaviors'] {
@@ -279,7 +258,7 @@ function activeBehaviorSummaries(
       (behavior) =>
         behavior.phase !== 'complete' && behavior.phase !== 'rejected',
     )
-    .sort(
+    .toSorted(
       (left, right) =>
         LIFECYCLE_RANK[left.phase] - LIFECYCLE_RANK[right.phase] ||
         left.startedAtMs - right.startedAtMs,
@@ -289,13 +268,16 @@ function activeBehaviorSummaries(
     const key = `${behavior.source}:${behavior.function}`
     if (!kept.has(key)) kept.set(key, behavior)
   }
-  return [...kept.values()].slice(0, MAX_ACTIVE_BEHAVIORS).map((behavior) => ({
-    function: behavior.function,
-    lifecycle: behavior.phase,
-    source: behavior.source,
-    resources: [...behavior.resources],
-    remainingMs: clampMs(behavior.remainingMs),
-  }))
+  return Iterator.from(kept.values())
+    .take(MAX_ACTIVE_BEHAVIORS)
+    .map((behavior) => ({
+      function: behavior.function,
+      lifecycle: behavior.phase,
+      source: behavior.source,
+      resources: Iterator.from(behavior.resources).toArray(),
+      remainingMs: clampMs(behavior.remainingMs),
+    }))
+    .toArray()
 }
 
 function sanitizeActiveBehavior(

@@ -1,17 +1,8 @@
-/**
- * 米哈游游戏卡片 —— 系统字体与 logo
- *
- * 默认三家都用 system-ui，用字重 / 斜体区分。可选自定义字体通过
- * `--gp-font` 注入（数据目录上传，不进发行物）。
- * logo（Wikimedia/Wikipedia 官方 wordmark）经 CSS mask 上色，跟随主题色。
- */
-
 .gp-font-genshin,
 .gp-font-genshin * {
   font-family: var(--gp-font, system-ui, sans-serif);
 }
 
-/* 星铁/绝区零整卡加粗。用 !important 压过子元素上的 Tailwind font-* 工具类 */
 .gp-font-hsr,
 .gp-font-hsr * {
   font-family: var(--gp-font, system-ui, sans-serif);
@@ -26,8 +17,6 @@
   letter-spacing: 0.01em;
 }
 
-/* 聚焦立绘：放大 90% 让角色更近；聚焦切换时缓慢推近（Ken Burns），
-   元素随聚焦 key 重挂载，动画自动重播 */
 .gp-art {
   transform: scale(1.9);
 }
@@ -56,7 +45,6 @@
   }
 }
 
-/* 官方 wordmark 以 mask 方式渲染，颜色跟随 currentColor（明暗主题自适应） */
 .gp-logo {
   display: inline-block;
   flex-shrink: 0;

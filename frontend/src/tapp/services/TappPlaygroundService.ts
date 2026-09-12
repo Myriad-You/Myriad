@@ -1,15 +1,11 @@
 import type { TappManifest } from '../types'
 import { API_URL } from '../../config'
+import { hostLocaleHeaders } from '../../i18n/hostLocaleHeaders'
 import { currentCopy } from '../../i18n/localeCopy'
 import { ApiError, parseApiErrorBody } from '../../services/api'
 import { getCSRFToken } from '../../utils/csrf'
 
-/**
- * Playground 的编辑态代码：按层分成几个编辑框，而不是运行时那张模块表。
- *
- * 打包时映射到固定三文件 `core.js` / `page/index.js` / `widget/index.js`；
- * 作者要拆更多文件走 CLI 或手写包，Playground 的文件树是另一个议题。
- */
+/** 编辑态按层分框，不是运行时模块表。打包映射到 core.js / page/index.js / widget/index.js。 */
 export interface TappPlaygroundCode {
   core: string
   page: string
@@ -46,10 +42,6 @@ export interface PlaygroundValidationReport {
   checks: string[]
 }
 
-/**
- * One turn in the multi-turn modification memory chain sent to the agent.
- * Successful turns include a full project snapshot; failed tails may omit it.
- */
 export type PlaygroundRevisionOrigin = 'user' | 'runtime-repair' | 'manual'
 
 export interface PlaygroundMemoryTurn {
@@ -59,9 +51,7 @@ export interface PlaygroundMemoryTurn {
   createdAt: number
   warnings?: string[]
   validation?: PlaygroundValidationReport
-  /** Full project snapshot after this turn (required for successful turns). */
   project?: TappPlaygroundProject
-  /** Marks a failed attempt tail entry. */
   failed?: boolean
   error?: string
 }
@@ -70,7 +60,6 @@ export interface GeneratePlaygroundRequest {
   instruction: string
   currentProject?: TappPlaygroundProject
   runtimeFeedback?: string[]
-  /** Chronological multi-turn memory (revisions + optional failed tail). */
   history?: PlaygroundMemoryTurn[]
 }
 
@@ -107,23 +96,12 @@ export type PlaygroundStreamEvent =
   | PlaygroundStreamErrorEvent
 
 export interface GeneratePlaygroundOptions {
-  /** Optional abort signal (user cancel). Combined with the request timeout. */
   signal?: AbortSignal
   retryOnCsrf?: boolean
-  /**
-   * Prefer SSE `/generate-stream` for progressive agent steps.
-   * Falls back to one-shot `/generate` when stream is unavailable.
-   * Default: true.
-   */
   preferStream?: boolean
-  /** Called for each real agent step when streaming is active. */
   onStep?: (step: PlaygroundAgentStep) => void
 }
 
-/**
- * Combine a user AbortController with a hard timeout so either can abort the fetch.
- * Caller owns `userSignal` lifecycle; timeout is internal.
- */
 function combineAbortSignals(
   userSignal: AbortSignal | undefined,
   timeoutMs: number,
@@ -165,6 +143,7 @@ function combineAbortSignals(
 function buildGenerateHeaders(csrfToken: string | null): HeadersInit {
   return {
     'Content-Type': 'application/json',
+    ...hostLocaleHeaders(),
     ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
   }
 }
@@ -181,7 +160,6 @@ async function throwIfGenerateHttpError(
       : `HTTP ${response.status}`
   if (response.status === 403 && retryOnCsrf && /csrf/i.test(message)) {
     await getCSRFToken(true)
-    // Caller re-enters generatePlaygroundProject with retryOnCsrf: false.
     throw Object.assign(new ApiError(message, response.status, parsed.code), {
       __csrfRetry: true as const,
     })
@@ -195,18 +173,13 @@ function isPlaygroundStreamEvent(value: unknown): value is PlaygroundStreamEvent
   return type === 'step' || type === 'done' || type === 'error'
 }
 
-/**
- * Parse SSE frames from a growing text buffer.
- * Returns complete events and the unconsumed remainder.
- */
 export function consumeSseDataEvents(buffer: string): {
   events: unknown[]
   rest: string
 } {
   const events: unknown[] = []
   let rest = buffer
-  // Normalize CRLF; frames are separated by a blank line.
-  rest = rest.replace(/\r\n/g, '\n')
+  rest = rest.replaceAll('\r\n', '\n')
   while (true) {
     const sep = rest.indexOf('\n\n')
     if (sep < 0) break
@@ -224,7 +197,6 @@ export function consumeSseDataEvents(buffer: string): {
     try {
       events.push(JSON.parse(payload))
     } catch {
-      // Ignore malformed frames; stream may still complete via done/error.
     }
   }
   return { events, rest }
@@ -248,7 +220,6 @@ async function generateViaStream(
   )
 
   if (!response.ok) {
-    // 404 / 405 → caller falls back to one-shot generate.
     if (response.status === 404 || response.status === 405) {
       throw Object.assign(new Error(`HTTP ${response.status}`), {
         __streamUnavailable: true as const,
@@ -290,17 +261,14 @@ async function generateViaStream(
       }
     }
     if (finalResponse || streamError) {
-      // Drain is optional; abort remaining body on terminal event.
       try {
         await reader.cancel()
       } catch {
-        // ignore
       }
       break
     }
   }
 
-  // Flush trailing frame without trailing blank line.
   if (buffer.trim()) {
     const { events } = consumeSseDataEvents(`${buffer}\n\n`)
     for (const raw of events) {
@@ -357,7 +325,6 @@ export async function generatePlaygroundProject(
   request: GeneratePlaygroundRequest,
   options: GeneratePlaygroundOptions | boolean = true,
 ): Promise<GeneratePlaygroundResponse> {
-  // Back-compat: second arg was `retryOnCsrf = true`.
   const opts: GeneratePlaygroundOptions =
     typeof options === 'boolean'
       ? { retryOnCsrf: options }
@@ -365,8 +332,6 @@ export async function generatePlaygroundProject(
   const retryOnCsrf = opts.retryOnCsrf !== false
   const preferStream = opts.preferStream !== false
 
-  // Keep equal to PLAYGROUND_PROXY_TIMEOUT_MS in frontend/astro.config.mjs
-  // (planner + up to 3 repairs; each model call may take up to 1080s).
   const { signal, cleanup } = combineAbortSignals(opts.signal, 30 * 60 * 1000)
   try {
     if (preferStream) {
@@ -376,7 +341,7 @@ export async function generatePlaygroundProject(
         if (
           error &&
           typeof error === 'object' &&
-          '__csrfRetry' in error &&
+          Object.hasOwn(error, '__csrfRetry') &&
           retryOnCsrf
         ) {
           return generatePlaygroundProject(request, {
@@ -387,9 +352,9 @@ export async function generatePlaygroundProject(
         if (
           error &&
           typeof error === 'object' &&
-          '__streamUnavailable' in error
+          Object.hasOwn(error, '__streamUnavailable')
         ) {
-          // Fall through to one-shot.
+          // fall through to the one-shot generator
         } else if (
           error instanceof DOMException &&
           (error.name === 'AbortError' || error.name === 'TimeoutError')
@@ -403,7 +368,7 @@ export async function generatePlaygroundProject(
               error.message,
             ))
         ) {
-          // Fall through.
+          // fall through to the one-shot generator
         } else {
           throw error
         }
@@ -420,7 +385,7 @@ export async function generatePlaygroundProject(
       if (
         error &&
         typeof error === 'object' &&
-        '__csrfRetry' in error &&
+        Object.hasOwn(error, '__csrfRetry') &&
         retryOnCsrf
       ) {
         return generatePlaygroundProject(request, {

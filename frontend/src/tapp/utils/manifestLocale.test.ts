@@ -1,12 +1,6 @@
-/**
- * Pure-function tests for resolveManifestText.
- * Run from frontend/:
- *   node --experimental-strip-types --test src/tapp/utils/manifestLocale.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { resolveManifestText } from './manifestLocale.ts'
+import { pickLocaleEntry, resolveManifestText } from './manifestLocale.ts'
 
 const source = {
   name: '我的应用',
@@ -58,5 +52,25 @@ describe('resolveManifestText', () => {
       name: 'Base',
       description: undefined,
     })
+  })
+
+  it('does not let zh-TW prefix-match zh-CN', () => {
+    const locales = {
+      'zh-CN': { name: '简体' },
+      'en-US': { name: 'English' },
+    }
+    assert.equal(pickLocaleEntry(locales, 'zh-TW'), undefined)
+    assert.equal(pickLocaleEntry(locales, 'zh-HK')?.name, undefined)
+    assert.equal(pickLocaleEntry(locales, 'zh-CN')?.name, '简体')
+  })
+
+  it('matches Traditional Chinese variants to zh-TW', () => {
+    const locales = {
+      'zh-TW': { name: '繁體' },
+      'zh-CN': { name: '简体' },
+    }
+    assert.equal(pickLocaleEntry(locales, 'zh-HK')?.name, '繁體')
+    assert.equal(pickLocaleEntry(locales, 'zh-Hant')?.name, '繁體')
+    assert.equal(pickLocaleEntry(locales, 'zh-Hans')?.name, '简体')
   })
 })

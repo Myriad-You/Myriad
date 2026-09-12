@@ -1,9 +1,4 @@
-/**
- * InfoActionCard — status / identity summary + action buttons.
- * Aligns with ManagedList / settings glass tokens.
- */
 
-/* 信息操作卡：内层 → 微透 */
 .info-action-card {
   display: flex;
   flex-direction: column;
@@ -21,7 +16,7 @@ html.dark .info-action-card {
   background: var(--cfg-subtle-bg);
 }
 
-/* Nested under expand panels / other cards — no second surface */
+/* nested: no second surface */
 .info-action-card.is-embedded {
   padding: 0.15rem 0 0;
   border: none;
@@ -35,7 +30,6 @@ html.dark .info-action-card.is-embedded {
   background: transparent;
 }
 
-/* —— Tones —— */
 
 .info-action-card--info {
   border-color: color-mix(in srgb, var(--cfg-accent) 28%, transparent);
@@ -81,7 +75,6 @@ html.dark .info-action-card--danger {
   background: rgb(244 63 94 / 10%);
 }
 
-/* —— Header —— */
 
 .info-action-card-header {
   display: flex;
@@ -119,7 +112,6 @@ html.dark .info-action-card-title {
   color: var(--cfg-text-1);
 }
 
-/* —— Body / fields —— */
 
 .info-action-card-main {
   display: flex;
@@ -376,7 +368,6 @@ html.dark .info-action-card-copy.is-copied {
   height: 0.85rem;
 }
 
-/* —— Actions —— */
 
 .info-action-card-actions {
   display: flex;

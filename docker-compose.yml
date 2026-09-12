@@ -127,6 +127,7 @@ services:
         limits: { cpus: '2.0', memory: 2G }
         reservations: { cpus: '0.5', memory: 512M }
     environment:
+      MYRIAD_PROCESS_ROLE: web
       DATABASE_URL: postgres://myriad:${POSTGRES_PASSWORD}@postgres:5432/myriad
       SERVER_HOST: 0.0.0.0
       SERVER_PORT: 1103
@@ -202,6 +203,63 @@ services:
       driver: "json-file"
       options: { max-size: "10m", max-file: "3" }
 
+  federation-worker:
+    image: ${BACKEND_IMAGE:-docker.io/somekawahitomi/myriad-backend}:${MYRIAD_TAG}
+    container_name: myriad-federation-worker
+    command: ["/app/myriad-federation-worker"]
+    user: "1000:1000"
+    deploy:
+      resources:
+        limits: { cpus: '0.5', memory: 512M, pids: 64 }
+        reservations: { cpus: '0.1', memory: 64M }
+    pids_limit: 64
+    environment:
+      MYRIAD_PROCESS_ROLE: federation-worker
+      DATABASE_URL: postgres://myriad:${POSTGRES_PASSWORD}@postgres:5432/myriad
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 1103
+      DATA_DIR: /app/data
+      CACHE_DIR: /tmp/cache
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      FRONTEND_URL: ${FRONTEND_URL:-}
+      BASE_URL: ${BASE_URL:-}
+      TRUST_PROXY_HEADERS: "true"
+      TRUST_PROXY_PEERS: ${TRUST_PROXY_PEERS:-127.0.0.0/8,::1,172.17.0.0/16,172.28.0.0/16}
+      RUST_LOG: ${RUST_LOG:-info}
+    depends_on:
+      backend: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "/usr/bin/wget", "--spider", "-q", "http://localhost:1103/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    volumes:
+      - backend_data:/app/data:ro
+      - type: volume
+        source: backend_data
+        target: /app/data/federation
+        volume: { subpath: federation, nocopy: true }
+      - type: volume
+        source: backend_data
+        target: /app/data/federation_media
+        volume: { subpath: federation_media, nocopy: true }
+      - type: volume
+        source: backend_cache
+        target: /tmp/cache/images
+        volume: { subpath: images, nocopy: true }
+    networks: [myriad-net]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs: ["/tmp:size=32m,mode=1777"]
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
   frontend:
     image: ${FRONTEND_IMAGE:-docker.io/somekawahitomi/myriad-frontend}:${MYRIAD_TAG}
     container_name: myriad-frontend
@@ -237,6 +295,7 @@ services:
     environment:
       PROXY_STATE_FILE: /state/maintenance.json
       PROXY_BACKEND_UPSTREAM: http://backend:1103
+      PROXY_FEDERATION_UPSTREAM: http://federation-worker:1103
       PROXY_FRONTEND_UPSTREAM: http://frontend:1102
       # Rescue path resolves updater on admin-net when PROXY_ALLOW_DIRECT_UPDATER=true.
       PROXY_UPDATER_UPSTREAM: http://updater:1101

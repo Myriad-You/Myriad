@@ -4,8 +4,6 @@
 //! - Hoyoverse 展柜：Enka.Network（原神 / 星铁 / 绝区零）
 //! - Xbox：OpenXBL（需服务端 OPENXBL_API_KEY）
 //! - PlayStation：PSN 非公开 API（需服务端 PSN_NPSSO，只读他人公开资料）
-//!
-//! 标识符存在前端小组件 config 中，不在全局配置页新增设置项。
 
 use crate::config::DynamicConfig;
 use crate::error::HttpError;
@@ -94,7 +92,7 @@ pub struct PresenceQuery {
     pub lang: Option<String>,
 }
 
-// Cache (per platform+id+game, stale-while-revalidate style)
+// Cache (per platform+id+game+lang; presence SWR)
 
 #[derive(Clone)]
 enum CachedResult {
@@ -105,9 +103,7 @@ enum CachedResult {
 struct CacheEntry {
     result: CachedResult,
     fetched_at: Instant,
-    /// live presence（在线状态/正在玩）上次刷新时间。
-    /// Xbox / PSN 报告卡把这个接口当实时状态用，presence 部分单独走短 TTL；
-    /// 其余平台（Enka 展柜）没有 live 数据，该字段恒等于 fetched_at。
+    /// Xbox/PSN presence 短 TTL；Enka 无 live，写入时等于 `fetched_at`。
     presence_refreshed_at: Instant,
 }
 
@@ -119,9 +115,7 @@ fn cache_map() -> &'static Mutex<HashMap<String, CacheEntry>> {
 
 /// 展柜/成就类数据变化以天计，6 小时一次足够新鲜
 const CACHE_TTL: Duration = Duration::from_secs(6 * 3600);
-/// Xbox / PSN 的 live presence 短 TTL：前端报告卡 120s 轮询在线状态，
-/// 必须明显短于轮询间隔缓存才有意义。刷新只花 1 次上游调用
-/// （身份/GS/奖杯沿用 6h 快照），配额由 credential-spend guard 兜底。
+/// Xbox / PSN live presence TTL（90s）；身份/GS/奖杯沿用 `CACHE_TTL`（6h）。
 const PRESENCE_TTL: Duration = Duration::from_secs(90);
 /// 失败结果（无效 id / 上游拒绝等）缓存更短，避免一直被当活的打上游，
 /// 但也不会因为长期缓存把后来纠正过的 id 也一直判定失败。
@@ -192,7 +186,7 @@ fn store_cache(key: &str, result: CachedResult) {
                 presence_refreshed_at: now,
             },
         );
-        // 简单上限，避免无限增长
+        // len>256 时丢掉超过 12h 的条目（新鲜条目不封顶）
         if guard.len() > 256 {
             let oldest: Vec<String> = guard
                 .iter()
@@ -210,9 +204,8 @@ fn store_cache(key: &str, result: CachedResult) {
 //
 // 这个接口本身必须公开（无 Cookie 的展示型小组件，访客不登录也要能看到），
 // 不能像 /api/x/user 那样直接挂 auth_middleware。但 Xbox / PSN 分支花的是
-// 服务端自己的第三方凭据（OPENXBL_API_KEY / PSN_NPSSO），换 IP 或换 id 就能绕开
-// 按 IP 算的全局限流。这里单独给"真正花凭据的上游请求"加一个和调用方身份无关的
-// 全局节流，兜底防止配额被刷爆或触发 Sony/Xbox 的异常访问检测。
+// 服务端自己的第三方凭据（OPENXBL_API_KEY / PSN_NPSSO）。换 IP 可绕开按 IP 限流；
+// 换 id 只打穿 per-id 缓存。对花凭据的调用做与调用方无关的全局节流。
 
 #[derive(Clone, Copy)]
 enum Platform {
@@ -332,7 +325,7 @@ pub async fn get_game_presence(
             return Ok(Json(match cached {
                 CachedResult::Ok(data) => ApiResponse {
                     success: true,
-                    // 缓存里存原始 URL；出口统一代理，兼容旧缓存直链
+                    // 缓存里存原始 URL；出口走 `proxy_presence_media`
                     data: Some(proxy_presence_media(*data)),
                     message: "ok (cache)".to_string(),
                 },
@@ -396,7 +389,7 @@ pub async fn get_game_presence(
 
 // Enka.Network (Hoyoverse showcase)
 
-/// 展柜条目上限（前端 3x2 网格）
+/// 展柜条目上限
 const SHOWCASE_LIMIT: usize = 6;
 
 /// 标签本地化：展柜数据面向访客展示，跟随前端语言
@@ -455,7 +448,7 @@ async fn parse_enka_gi(uid: &str, lang: &str, body: &Value) -> Result<GamePresen
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    // 资料头像：新版接口给 pfp id，旧版给 avatarId
+    // 资料头像：`profilePicture.id` 与 `profilePicture.avatarId`
     let avatar = crate::services::enka_assets::gi_profile_picture(
         player
             .pointer("/profilePicture/id")
@@ -1073,8 +1066,7 @@ async fn refresh_psn_presence(
     let access_token = get_psn_access_token(&npsso).await?;
     let auth = format!("Bearer {access_token}");
 
-    // 快照走过 search 回退路径时 identity.id 是纯数字 accountId
-    // （online ID 必须以字母开头，不会与之混淆），直接查 basicPresences
+    // identity.id 全数字时当 accountId，走 basicPresences
     let account_id = data.identity.id.trim();
     if !account_id.is_empty() && account_id.chars().all(|c| c.is_ascii_digit()) {
         let url = format!(
@@ -1151,10 +1143,9 @@ async fn fetch_psn(
         return Err("Too many PSN lookups right now, try again in a bit".to_string());
     }
 
-    // NPSSO → access token（缓存 token 本身，不要每次 120s 缓存 miss 都重新走一遍 OAuth）
+    // NPSSO → access token（crate 内 ~50min 缓存，按 NPSSO fingerprint 隔离）
     let access_token = get_psn_access_token(&npsso).await?;
 
-    // Resolve accountId by onlineId
     let profile_url = format!(
         "https://us-prof.np.community.playstation.net/userProfile/v1/users/{}/profile2?fields=onlineId,aboutMe,languagesUsed,plus,trophySummary(@default,progress,earnedTrophies),isOfficiallyVerified,personalDetail(@default,profilePictureUrls),personalDetailSharing,personalDetailSharingRequestMessageFlag,primaryOnlineStatus,presences(@titleInfo,hasBroadcastData),friendRelation,requestMessageFlag,blocking,mutualFriendsCount,following,followerCount,friendsCount,followingUsersCount&avatarSizes=s,m,l,xl&profilePictureSizes=s,m,l,xl&languagesUsedLanguageSet=set4&psVitaSupport=true&friendStatusSummary=true&npIdHash=true",
         urlencoding_simple(online_id)

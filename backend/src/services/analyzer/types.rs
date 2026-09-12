@@ -4,8 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize)]
 pub(super) struct GeminiRequest {
     pub(super) contents: Vec<GeminiContent>,
-    /// Only set for structured-output requests; omitted otherwise so ordinary
-    /// calls keep their exact previous request body.
+    /// Set when structured output or an output budget is present; omitted on ordinary calls.
     #[serde(rename = "generationConfig", skip_serializing_if = "Option::is_none")]
     pub(super) generation_config: Option<GeminiGenerationConfig>,
 }
@@ -68,8 +67,7 @@ pub(super) struct GeminiResponsePart {
 pub(super) struct OpenAIRequest {
     pub(super) model: String,
     pub(super) messages: Vec<OpenAIMessage>,
-    /// Only set for structured-output requests; omitted otherwise so ordinary
-    /// calls keep their exact previous request body.
+    /// Only set for structured-output requests; omitted on ordinary calls.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) response_format: Option<serde_json::Value>,
     /// Only set for bounded calls; see [`OutputBudget`].

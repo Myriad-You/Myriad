@@ -1,8 +1,3 @@
-/**
- * 设置里第三方 GitHub 仓库小徽章：图标 + 项目名 + star。
- * star 拉不到就只显示图标和名字，不转圈。
- */
-
 import { FaGithub, FaStar } from '@lib/icons'
 import React, { useEffect, useState } from 'react'
 import {
@@ -16,7 +11,6 @@ import './GitHubProjectBadge.css'
 
 export interface GitHubProjectBadgeProps {
   url: string
-  /** 展示名；默认用仓库短名。 */
   name?: string
   className?: string
 }

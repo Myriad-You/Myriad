@@ -1,9 +1,3 @@
-/**
- * Restore confirmation cards and follow-up questions from persisted session
- * metadata. Live SSE already has the overlay; opening a session must rebuild
- * it from what was written on the assistant message.
- */
-
 import type { ConfirmationStep } from '../../services/agent'
 import type { AgentPendingAction } from './agentAction'
 import type { ChatMessage, PendingQuestion } from './engineTypes'
@@ -41,7 +35,7 @@ export function pendingQuestionFromMetadata(
 ): PendingQuestion | undefined {
   const taskMeta = asRecord(meta?.task)
   const pq =
-    asRecord(meta?.pendingQuestion) || asRecord(taskMeta?.pendingQuestion)
+    asRecord(meta?.pendingQuestion) ?? asRecord(taskMeta?.pendingQuestion)
   if (!pq || typeof pq.question !== 'string') return undefined
   const pendingSteps = pendingStepsFrom(pq.pendingSteps ?? pq.pending_steps)
   const confirmationId =
@@ -85,40 +79,40 @@ export function restorePendingActionFromMessages(
   messages: readonly ChatMessage[],
   nowMs: number,
 ): AgentPendingAction | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index]
-    if (message.role !== 'assistant' || message.selectedAnswer) continue
-    const question = message.pendingQuestion
-    if (!question?.confirmationId || !question.question) continue
+  const message = messages.findLast((item) => {
+    if (item.role !== 'assistant' || item.selectedAnswer) return false
+    const question = item.pendingQuestion
+    if (!question?.confirmationId || !question.question) return false
     if (
-      message.taskExecution?.status &&
-      message.taskExecution.status !== 'waiting'
+      item.taskExecution?.status &&
+      item.taskExecution.status !== 'waiting'
     ) {
-      continue
+      return false
     }
-    return buildAgentPendingAction({
-      confirmation: {
-        confirmationId: question.confirmationId,
-        riskLevel: question.riskLevel ?? 'critical',
-        expiresInSeconds: question.expiresInSeconds ?? 0,
-        pendingSteps: question.pendingSteps ?? [],
-      },
-      prompt: question.question,
-      nowMs: question.receivedAtMs ?? nowMs,
-    })
-  }
-  return null
+    return true
+  })
+  const question = message?.pendingQuestion
+  if (!message || !question?.confirmationId || !question.question) return null
+  return buildAgentPendingAction({
+    confirmation: {
+      confirmationId: question.confirmationId,
+      riskLevel: question.riskLevel ?? 'critical',
+      expiresInSeconds: question.expiresInSeconds ?? 0,
+      pendingSteps: question.pendingSteps ?? [],
+    },
+    prompt: question.question,
+    nowMs: question.receivedAtMs ?? nowMs,
+  })
 }
 
 export function restoreFollowUpQuestion(
   messages: readonly ChatMessage[],
 ): string | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index]
-    if (message.selectedAnswer) continue
-    const question = message.pendingQuestion
-    if (!question?.question || question.confirmationId) continue
-    if (message.taskExecution?.status === 'waiting') return question.question
-  }
-  return null
+  const message = messages.findLast((item) => {
+    if (item.selectedAnswer) return false
+    const question = item.pendingQuestion
+    if (!question?.question || question.confirmationId) return false
+    return item.taskExecution?.status === 'waiting'
+  })
+  return message?.pendingQuestion?.question ?? null
 }

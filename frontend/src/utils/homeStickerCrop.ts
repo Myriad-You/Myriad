@@ -1,10 +1,8 @@
 import { widgetSizeSpan } from './widgetSizeScale'
 
 export interface StickerCrop {
-  /** Focal point in the image, 0–1. */
   x: number
   y: number
-  /** 1 = cover the slot; larger zooms in. */
   zoom: number
 }
 
@@ -39,7 +37,6 @@ export function stickerSlotAspect(size: string): number {
   return span.w / Math.max(1, span.h)
 }
 
-/** Cover-crop the slot when the bitmap aspect does not match. */
 export function stickerCropForSlot(
   imageWidth: number,
   imageHeight: number,

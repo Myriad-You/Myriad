@@ -60,11 +60,6 @@ export function cryEyeDisplayScale(
   )
 }
 
-/**
- * Builds a complete per-eye crying replacement. The chevron is copied from the
- * existing squeeze artwork while the asymmetric water stream occupies only the
- * lower portion, allowing runtime flow without moving the eye mark itself.
- */
 export function createCryEyeBitmap(
   requestedSize: Readonly<CryEyeSize>,
   eyeTint: Readonly<RgbColor>,

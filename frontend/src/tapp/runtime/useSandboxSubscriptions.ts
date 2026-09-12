@@ -1,12 +1,3 @@
-/**
- * 沙箱共享订阅 Hook
- *
- * 提取 TappPageSandbox 和 TappWidgetSandbox 之间的重复订阅逻辑：
- * - 主题变化监听
- * - 主色调变化监听
- * - 生命周期暂停/恢复（document 可见性 + host minimize/paused 合成）
- */
-
 import type { TappBridge } from './TappBridge'
 import { useEffect, useRef } from 'react'
 import { isPageVisible, onVisibility } from '../../hooks/animation'
@@ -17,17 +8,7 @@ import {
 } from '../../utils/colorSubscriber'
 import { subscribeToTheme } from '../../utils/themeSubscriber'
 
-/**
- * 管理沙箱公共事件订阅（主题、主色调、可见性/暂停）
- *
- * Host "should run" is composed as `!paused && isPageVisible()`. A single
- * emitter owns lifecycle:pause / lifecycle:resume so visibility and minimize
- * cannot override each other.
- *
- * @param bridgeRef - TappBridge 引用
- * @param isReady - 沙箱是否就绪
- * @param paused - Host has hidden this surface (e.g. multi-window minimize)
- */
+/** shouldRun = !paused && isPageVisible()。单一发射器拥有 pause/resume，可见性与最小化不能互相覆盖。 */
 export function useSandboxSubscriptions(
   bridgeRef: React.RefObject<TappBridge | null>,
   isReady: boolean,
@@ -37,11 +18,7 @@ export function useSandboxSubscriptions(
   const pausedRef = useRef(paused)
   pausedRef.current = paused
 
-  /**
-   * Last emitted "should run" for the current ready cycle.
-   * `null` means nothing has been emitted yet for this bridge/iframe
-   * (after remount we always re-emit current state).
-   */
+  /** 当前 ready 周期上次发射的 shouldRun；null 表示尚未发射。 */
   const lastShouldRunRef = useRef<boolean | null>(null)
 
   const emitShouldRun = (shouldRun: boolean, force = false) => {
@@ -54,11 +31,7 @@ export function useSandboxSubscriptions(
 
   const composedShouldRun = () => !pausedRef.current && pageVisibleRef.current
 
-  // Reset tracking when the bridge/iframe is torn down.
-  // Ready edge: only force-emit pause when shouldRun is false (remount while
-  // minimized/hidden). When shouldRun is true, mark last without emitting
-  // resume — running is the default until pause, and force-resume here would
-  // double-start with onReady init.
+  // iframe 拆除时重置。ready 边沿：shouldRun 为 false 才强制 pause；为 true 只记账不发 resume，以免与 onReady 双启动。
   useEffect(() => {
     if (!isReady) {
       lastShouldRunRef.current = null
@@ -72,13 +45,11 @@ export function useSandboxSubscriptions(
     }
   }, [isReady, bridgeRef])
 
-  // Host minimize / hide
   useEffect(() => {
     if (!isReady) return
     emitShouldRun(composedShouldRun())
   }, [paused, isReady, bridgeRef])
 
-  // Document visibility
   useEffect(() => {
     return onVisibility((visible) => {
       pageVisibleRef.current = visible
@@ -88,7 +59,6 @@ export function useSandboxSubscriptions(
     })
   }, [isReady, bridgeRef])
 
-  // 主题变化监听
   useEffect(() => {
     if (!isReady) return
     return subscribeToTheme((isDark) => {
@@ -99,7 +69,6 @@ export function useSandboxSubscriptions(
     })
   }, [isReady, bridgeRef])
 
-  // 主色调变化监听（isReady 时立即发送当前颜色 + 订阅后续变化）
   useEffect(() => {
     if (!isReady) return
 

@@ -27,13 +27,8 @@ import { SpeechMotionLease } from './speechLease'
 const REST: SpeechArticulation = { energy: 0, viseme: 'rest', amount: 0 }
 const MAX_QUEUED_TEXT = 32
 const SPEECH_LOOKAHEAD_MS = 4_000
-// Longest co-speech recovery: laugh hold (580) + relax (84) + release (360).
 const SPEECH_RECOVERY_MS = 1_100
 
-/**
- * One speech producer for a coordinator. Publishes semantic mouth intent
- * and a co-speech lease; never writes a rig.
- */
 export class SpeechMotionSource {
   private readonly mouth: SpeechMotionLease
   private speechBehaviorPlan: BehaviorPlan | null = null
@@ -130,9 +125,6 @@ export class SpeechMotionSource {
           if (prosody) {
             this.externalProsody = true
             this.prosodyText = text ?? ''
-            // handle() binds the accepted event's message before publishing.
-            // A segment may open with prosody; never annotate it with the
-            // previous segment's direction, even for a single emission.
             this.rawProsody = prosody
             return
           } else {
@@ -269,11 +261,7 @@ export class SpeechMotionSource {
     this.planFromPredictedText(detail.utteranceId)
   }
 
-  /**
-   * Predicted prosody is the floor, not a bonus: an utterance without a plan
-   * has no co-speech behavior at all, so every path that loses real prosody
-   * falls back here rather than leaving the plan null.
-   */
+  /** Predicted prosody is the floor, not a bonus */
   private planFromPredictedText(utteranceId: string): void {
     const predictedProsody = continueTextProsody(
       predictTextProsody({

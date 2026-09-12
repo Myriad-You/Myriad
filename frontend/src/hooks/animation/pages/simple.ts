@@ -1,64 +1,29 @@
-/**
- * 简单页面通用调度器 Hooks
- *
- * 适用于：Config、Login、Setup、Details
- * 这些页面只需要基础的 Timeout 功能（防抖、延迟跳转等）
- *
- * @example
- * ```tsx
- * import { useSimplePageScheduler, useSimpleTimeout, useSimpleDebounce } from '@hooks/animation/pages/simple';
- *
- * function Config() {
- *   useSimplePageScheduler('config');
- *
- *   const debouncedSave = useSimpleDebounce((value) => {
- *     saveConfig(value);
- *   }, 500);
- *
- *   return <ConfigForm onChange={debouncedSave} />;
- * }
- * ```
- */
-
 import { useCallback, useEffect, useRef } from 'react'
 import { Feature, hasFeature } from '../pageFeatures'
 
-// 支持的简单页面
 type SimplePageId = 'config' | 'login' | 'setup'
 
-// 页面初始化
-// 注意：startPage 由 useRouteScheduler 统一调用
-// 这些简单页面的 Scheduler 保留为占位符，保持 API 一致性
-
 export function useSimplePageScheduler(_pageId: SimplePageId): void {
-  // startPage 由 useRouteScheduler 统一调用
+
 }
 
-// Config 专用
+// startPage 由 useRouteScheduler 统一调用。
 export function useConfigScheduler(): void {
-  // startPage('config') 由 useRouteScheduler 统一调用
+
 }
 
-// Login 专用
 export function useLoginScheduler(): void {
-  // startPage('login') 由 useRouteScheduler 统一调用
+
 }
 
-// Setup 专用
 export function useSetupScheduler(): void {
-  // startPage('setup') 由 useRouteScheduler 统一调用
+
 }
 
-// Details 专用
 export function useDetailsScheduler(): void {
-  // startPage('details') 由 useRouteScheduler 统一调用
+
 }
 
-// Timeout Hooks
-
-/**
- * 简单页面延时器
- */
 export function useSimpleTimeout(
   callback: () => void,
   delay: number | null,
@@ -80,9 +45,6 @@ export function useSimpleTimeout(
   }, [delay, pageId])
 }
 
-/**
- * 简单页面防抖
- */
 export function useSimpleDebounce<T extends (...args: any[]) => void>(
   callback: T,
   delay: number,
@@ -98,7 +60,6 @@ export function useSimpleDebounce<T extends (...args: any[]) => void>(
   const debounced = useCallback(
     (...args: any[]) => {
       if (!hasFeature(pageId, Feature.Timeout)) {
-        // 功能未启用，直接调用
         savedCallback.current(...args)
         return
       }
@@ -126,9 +87,6 @@ export function useSimpleDebounce<T extends (...args: any[]) => void>(
   return debounced
 }
 
-/**
- * 简单页面节流
- */
 export function useSimpleThrottle<T extends (...args: any[]) => void>(
   callback: T,
   delay: number,

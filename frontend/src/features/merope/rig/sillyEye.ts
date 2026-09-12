@@ -20,11 +20,9 @@ export interface SillyEyePalette {
 
 const FALLBACK_SCLERA = { red: 250, green: 247, blue: 249 }
 const FALLBACK_IRIS = { red: 102, green: 78, blue: 188 }
-/** Frame ellipse and rim, shared by the drawing and the travel budget. */
 const SCLERA_RADIUS_X = 0.94
 const SCLERA_RADIUS_Y = 0.985
 const RIM_THICKNESS = 3.2
-/** Share of the free room spent on the resting divergence, not on drift. */
 export const SILLY_IRIS_REST_SHARE = 0.45
 
 export function sillyEyeGeneratedSize(eye: {
@@ -49,11 +47,6 @@ export function sillyEyeGeneratedSize(eye: {
   }
 }
 
-/**
- * Pixels the iris can move before it slides under the drawn rim. Import splits
- * this between the resting divergence and the runtime drift, so the vacant
- * gaze reads as two unfocused eyes rather than two half-eaten ones.
- */
 export function sillyIrisTravelRoom(size: Readonly<SillyEyeSize>): {
   x: number
   y: number
@@ -75,8 +68,6 @@ export function sampleSillyEyePalette(
     FALLBACK_IRIS,
     0.14,
   )
-  // Barely nudged toward neutral: a tinted sclera is part of the portrait and
-  // should survive into the expression instead of being bleached to paper.
   const sclera = mixColor(
     sampleLightNeutralColor(scleraPixels) ?? FALLBACK_SCLERA,
     FALLBACK_SCLERA,
@@ -93,7 +84,6 @@ export function sampleSillyEyePalette(
   }
 }
 
-/** Complete near-circular eye frame. The iris is rendered as another layer. */
 export function createSillyEyeWhiteBitmap(
   requestedSize: Readonly<SillyEyeSize>,
   palette: Readonly<SillyEyePalette>,
@@ -150,12 +140,6 @@ export function createSillyEyeWhiteBitmap(
   return { width, height, data }
 }
 
-/**
- * Reuses the character's own iris drawing for the wandering silly gaze.
- * Only the framing changes: the eye colour, gradient, rim, and catchlights all
- * stay exactly as the portrait drew them, which no generated disc can match.
- * Returns null when the source layer carries no visible pixels to reuse.
- */
 export function createSillyIrisFromArtwork(
   source: Readonly<{
     data: Uint8ClampedArray
@@ -170,8 +154,6 @@ export function createSillyIrisFromArtwork(
   const data = new Uint8ClampedArray(edge * edge * 4)
   const artWidth = bounds.x1 - bounds.x0 + 1
   const artHeight = bounds.y1 - bounds.y0 + 1
-  // A square window keeps the drawn iris round instead of stretching it to
-  // whatever aspect the eyelid happened to crop in the source layer.
   const span = Math.max(artWidth, artHeight)
   const originX = bounds.x0 + (artWidth - span) / 2
   const originY = bounds.y0 + (artHeight - span) / 2
@@ -189,7 +171,6 @@ export function createSillyIrisFromArtwork(
   return { width: edge, height: edge, data }
 }
 
-/** Fallback disc for portraits whose PSD carries no separate iris layer. */
 export function createSillyIrisBitmap(
   requestedSize: number,
   palette: Readonly<SillyEyePalette>,

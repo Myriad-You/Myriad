@@ -1,27 +1,14 @@
-//! 请求提取器（axum `FromRequestParts`）
+//! 请求提取器（axum `FromRequestParts`）。
 //!
-//! # 为什么存在
-//!
-//! `main.rs` 里曾有 129 个 `*_wrapper` 函数，占了这个 7.5k 行文件的绝大部分。
-//! 它们全是同一段样板：
-//!
-//! ```ignore
-//! async fn get_config_wrapper() -> Response {
-//! // (historical) wrappers used to pull a process-global DB here
-//! }
-//! ```
-//!
-//! 「从路由 State 取 DB，取不到就 503」正是提取器的职责。把它写成 `FromRequestParts`
-//! 之后，路由可以直接指向 `api::` 里的处理函数，样板整体消失。
-//!
-//! 优先从 `AppState` / `DatabaseConnection` 路由状态取 DB。
-//! `FromRequestParts<()>` **hard-503s** — there is no process-global DB fallback
-//! (CONFIG_MODE setup routes must not use `extract::Db`).
+//! 从 `AppState` / `DatabaseConnection` 取 DB；取不到 503。
+//! `FromRequestParts<()>` hard-503s. Config-mode handlers that need DB still
+//! take `extract::Db` and get 503 until a connection exists.
 
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use axum::http::StatusCode;
 use axum::Json;
+use myriad_error::AppError;
 use sea_orm::DatabaseConnection;
 use serde_json::{json, Value};
 
@@ -29,7 +16,7 @@ use crate::middleware::auth::Claims;
 
 /// 已连接的数据库。
 ///
-/// 数据库不可用时以 503 短路，与旧 wrapper 的行为逐字一致。
+/// 数据库不可用时 503。
 #[derive(Debug)]
 pub struct Db(pub DatabaseConnection);
 
@@ -66,8 +53,8 @@ impl FromRequestParts<DatabaseConnection> for Db {
     }
 }
 
-/// Stateless routers must not pull a process DB — that hid missing `AppState`
-/// wiring. Config-mode setup routes use handlers that do not take `extract::Db`.
+/// Stateless routers must not pull a process DB.
+/// Config-mode handlers that need DB take `extract::Db` (503 until wired).
 /// Full-mode routes are always registered under `Router<AppState>`.
 ///
 /// This impl remains so unit tests can assert a clean 503 when state is `()`,
@@ -99,7 +86,7 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthedClaims {
             .ok_or_else(|| {
                 (
                     StatusCode::UNAUTHORIZED,
-                    Json(json!({"error": "Not authenticated"})),
+                    Json(AppError::public_json("Not authenticated")),
                 )
             })
     }
@@ -107,22 +94,8 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthedClaims {
 
 /// 当前仍然是管理员的调用者。
 ///
-/// # 为什么是提取器而不是删掉
-///
-/// 12 个处理函数原本在函数体里手写这段检查（`federation_admin_required` /
-/// `verify_current_admin_from_headers`）。其中一半的路由已经挂了
-/// `admin_middleware`，看起来是纯冗余；但**另一半没有** —— 那 6 个 ring 端点
-/// 的路由只有 router 级的 `auth_middleware`（普通登录），函数体里那次检查
-/// 是它们唯一的管理员防线。
-///
-/// 把检查搬进提取器同时解决两件事：
-///
-/// - 样板消失，且**要求写在函数签名里**，不会因为路由被挪动、重挂中间件
-/// 而悄悄丢掉（这个仓库刚出过同类问题：inbox 白名单加了、分派没加）。
-/// - 与 `admin_middleware` 叠加时是幂等的，重复检查只是多一次数据库查询。
-///
-/// `ensure_current_admin_on` 不只看 JWT 里的 `is_admin`，还会回查数据库确认账号
-/// **当前**仍是管理员 —— 防的是「降权之后旧 token 仍然生效」。
+/// 5 个 ring 写端点 + `federation_update_trust_policy` 的路由只有 router 级 `auth_middleware`，`AdminClaims` 是它们唯一的管理员防线。
+/// 与 `admin_middleware` 叠加时幂等。`ensure_current_admin_on` 回查数据库，不只看 JWT `is_admin`。
 #[derive(Debug)]
 pub struct AdminClaims(pub Claims);
 
@@ -245,15 +218,14 @@ mod tests {
 
     /// 每个管理端点的签名里都必须带 `AdminClaims`。
     ///
-    /// 对 6 个 ring 端点这是**唯一**的管理员防线（它们的路由只有 router 级
-    /// `auth_middleware`）；对站点管理端点它与 `admin_middleware` 叠加，
+    /// 对 5 个 ring 写端点 + `federation_update_trust_policy` 这是**唯一**的管理员防线
+    /// （路由只有 router 级 `auth_middleware`）；对站点管理端点它与 `admin_middleware` 叠加，
     /// 保证路由被重挂时防护不会随之消失。
     ///
     /// 降级成 `AuthedClaims` 会把这些能力开放给任何登录用户。
     #[test]
     fn admin_endpoints_keep_the_admin_extractor() {
-        // Federation HTTP handlers live under api/federation; site admin wrappers
-        // remain in main.rs after the P0 relocate.
+        // Federation HTTP handlers live under api/federation; site admin wrappers remain in main.rs.
         let src = [
             include_str!("main.rs"),
             concat!(

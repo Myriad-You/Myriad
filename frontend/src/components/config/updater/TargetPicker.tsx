@@ -1,13 +1,10 @@
-/**
- * Install-specific-version target picker (releases / commits / docker builds).
- */
-
 import type {
   CompareResult,
   makeUpdaterApi, ReleaseListItem,
 } from '../../../services/updaterApi'
 import type { ChannelOption, U } from './helpers'
 import React, { useEffect, useRef, useState } from 'react'
+import { useI18n } from '../../../contexts/I18nContext'
 import { InputItem, SettingsButton, SettingTitleTag } from '../../settings'
 import { Spinner } from '../../Spinner'
 import {
@@ -45,6 +42,7 @@ export function TargetPicker({
     opts: { isDowngrade: boolean; needsRisk: boolean },
   ) => void
 }) {
+  const { locale } = useI18n()
   const [items, setItems] = useState<PickerItem[]>([])
   const [selected, setSelected] = useState('')
   const [input, setInput] = useState('')
@@ -86,9 +84,6 @@ export function TargetPicker({
         return
       }
 
-      // Dev / commit mode: show formal releases + commit builds.
-      // Prefer Docker Hub common builds (includes vX.Y.Z + dev-sha); fall back to
-      // GitHub commits + releases when builds are empty.
       try {
         const builds = await api.builds({ limit: 25 })
         const buildItems = builds.items ?? []
@@ -116,7 +111,6 @@ export function TargetPicker({
           return
         }
       } catch {
-        // fall through to GitHub
       }
 
       const next: PickerItem[] = []
@@ -133,7 +127,6 @@ export function TargetPicker({
           })
         }
       } catch {
-        /* optional */
       }
       try {
         const response = await api.commits({
@@ -152,25 +145,23 @@ export function TargetPicker({
           })
         }
       } catch {
-        /* optional */
       }
-      // Sort by date when both sides have dates. Never bury formal releases below
-      // commits solely because release list items lack published_at.
-      next.sort((a, b) => {
-        const da = a.date ? Date.parse(a.date) : Number.NaN
-        const db = b.date ? Date.parse(b.date) : Number.NaN
-        const aOk = !Number.isNaN(da)
-        const bOk = !Number.isNaN(db)
-        if (aOk && bOk) return db - da
-        if (a.kind === 'release' && b.kind !== 'release') return -1
-        if (b.kind === 'release' && a.kind !== 'release') return 1
-        if (aOk && !bOk) return -1
-        if (!aOk && bOk) return 1
-        return 0
-      })
       if (!cancelled) {
         setTargetSource('github')
-        setItems(next)
+        setItems(
+          next.toSorted((a, b) => {
+            const da = a.date ? Date.parse(a.date) : Number.NaN
+            const db = b.date ? Date.parse(b.date) : Number.NaN
+            const aOk = !Number.isNaN(da)
+            const bOk = !Number.isNaN(db)
+            if (aOk && bOk) return db - da
+            if (a.kind === 'release' && b.kind !== 'release') return -1
+            if (b.kind === 'release' && a.kind !== 'release') return 1
+            if (aOk && !bOk) return -1
+            if (!aOk && bOk) return 1
+            return 0
+          }),
+        )
       }
     }
 
@@ -186,7 +177,6 @@ export function TargetPicker({
     }
   }, [api, option, isCommit, u.updaterDockerHubBuild])
 
-  // 输入/选中目标后，防抖对比新旧关系。
   useEffect(() => {
     if (compareTimerRef.current) {
       window.clearTimeout(compareTimerRef.current)
@@ -285,7 +275,7 @@ export function TargetPicker({
                   </span>
                   {item.date && (
                     <span className="updater-commit-date">
-                      {new Date(item.date).toLocaleString()}
+                      {new Date(item.date).toLocaleString(locale)}
                     </span>
                   )}
                 </button>
@@ -329,7 +319,7 @@ export function TargetPicker({
             if (!target) return
             const isDowngrade = compare?.is_downgrade === true
             const isUpgrade = compare?.is_upgrade === true
-            // Clear upgrades (including time-based / unknown ancestry) skip risk dialog.
+            // clear upgrades skip the risk dialog
             const needsRisk =
               !compare ||
               compare.relation === 'diverged' ||

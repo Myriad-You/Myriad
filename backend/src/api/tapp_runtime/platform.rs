@@ -53,10 +53,9 @@ pub async fn get_platform_data(
             } else {
                 StatusCode::INTERNAL_SERVER_ERROR
             };
-            return Err(HttpError::from((
-                status,
-                Json(json!({ "error": error, "platform": platform })),
-            )));
+            let mut body = AppError::from_status_u16(status.as_u16(), error).to_json();
+            body["platform"] = json!(platform);
+            return Err(HttpError::from((status, Json(body))));
         }
     };
 
@@ -181,7 +180,21 @@ pub struct PlatformItemResult {
 fn cache_http_error(err: PlatformCacheError) -> (StatusCode, Json<Value>) {
     let status =
         StatusCode::from_u16(err.status_hint()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    (status, Json(json!({ "error": err.message() })))
+    let code = match &err {
+        PlatformCacheError::InvalidName(_) => "bad_request",
+        PlatformCacheError::InvalidStructure => "invalid_cache",
+        PlatformCacheError::Read(_) => "cache_read_failed",
+        PlatformCacheError::Parse(_) => "cache_parse_failed",
+        PlatformCacheError::Write(_) => "cache_write_failed",
+    };
+    (
+        status,
+        Json(
+            AppError::from_status_u16(status.as_u16(), err.message())
+                .with_code(code)
+                .to_json(),
+        ),
+    )
 }
 
 fn new_item_document(item_id: &str, tapp_id: &str, item: &NewPlatformItem) -> Value {
@@ -218,7 +231,7 @@ pub async fn add_platform_item(
     .await?;
 
     validate_platform_name(&req.item.platform)
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))))?;
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(AppError::public_json(e))))?;
 
     tracing::info!(
         "[TAPP] add_platform_item - User: {}, Tapp: {}, Platform: {}",
@@ -267,7 +280,7 @@ pub async fn add_platform_items_batch(
 
     for item in &req.items {
         validate_platform_name(&item.platform)
-            .map_err(|e| (StatusCode::BAD_REQUEST, Json(json!({ "error": e }))))?;
+            .map_err(|e| (StatusCode::BAD_REQUEST, Json(AppError::public_json(e))))?;
     }
 
     let mut grouped_items: HashMap<String, Vec<&NewPlatformItem>> = HashMap::new();
@@ -299,14 +312,13 @@ pub async fn add_platform_items_batch(
             }
             Err(PlatformCacheError::InvalidStructure) => {
                 for _ in ids {
-                    results
-                        .push(json!({ "success": false, "error": "Invalid cache file structure" }));
+                    results.push(AppError::fail_json("Invalid cache file structure"));
                 }
             }
             Err(error) => {
                 let message = error.message();
                 for _ in ids {
-                    results.push(json!({ "success": false, "error": message }));
+                    results.push(AppError::fail_json(message.clone()));
                 }
             }
         }
@@ -324,3 +336,4 @@ pub async fn add_platform_items_batch(
         "successCount": success_count
     })))
 }
+use myriad_error::AppError;

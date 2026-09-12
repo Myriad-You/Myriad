@@ -3,8 +3,7 @@
 
 use serde_json::{Map, Value};
 
-/// Live capture currently emits 8 source ids. Readers keep slack so a ninth
-/// source is not silently dropped. Frontend `MAX_PERCEPTION_ITEMS` must match.
+/// Cap for perception items. Frontend `MAX_PERCEPTION_ITEMS` must match.
 pub const MAX_PERCEPTION_ITEMS: usize = 12;
 
 pub fn perception_facts_line(obj: &Map<String, Value>) -> String {

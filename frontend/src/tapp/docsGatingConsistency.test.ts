@@ -1,17 +1,11 @@
 import type { TappInstance } from './types'
-/**
- * Gating consistency between Tapp developer docs and shipped code.
- *
- * Drives real modules (categories, install progress, store paths, permission
- * fixtures) and asserts key doc claim classes still match. Failures mean the
- * docs under docs/development/tapp drifted from code authority.
- */
 import assert from 'node:assert/strict'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { describe, it } from 'node:test'
 
 import { fileURLToPath } from 'node:url'
+import { compileFunction } from 'node:vm'
 import { classifyWidgetLibraryKind } from '../components/widgetLibrarySearch.ts'
 import { PERMISSION_LEVELS } from './runtime/permissionConfig.ts'
 import {
@@ -34,13 +28,11 @@ import {
 import { resolveTappListInstallRequest } from './utils/tappListInstallRequest.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-/** frontend/src/tapp → repo root */
 const REPO = resolve(HERE, '../../..')
 const DOCS_TAPP = join(REPO, 'docs/development/tapp')
 const DOCS_INDEX = join(REPO, 'docs/development/TAPP_DEVELOPMENT.md')
 const FIXTURES = join(DOCS_TAPP, 'fixtures')
 const TAPP_STORE_RS = join(REPO, 'backend/src/api/tapp_store.rs')
-/** Router assembly (routes moved out of main.rs into router/*). */
 const ROUTER_DIR = join(REPO, 'backend/src/router')
 const CONTRACT_RULES = join(REPO, 'crates/tapp-contract/src/contract_rules.rs')
 
@@ -58,7 +50,7 @@ function collectRustRoutePathLiterals(dir: string): Set<string> {
       const text = read(p)
       for (const m of text.matchAll(/"(\/api\/tapp(?:\/[^"]*)?)"/g)) {
         if (!m[1].startsWith('/api/tapps')) {
-          paths.add(m[1].replace(/\{[^}]+\}/g, '{}'))
+          paths.add(m[1].replaceAll(/\{[^}]+\}/g, '{}'))
         }
       }
     }
@@ -118,12 +110,14 @@ describe('tapp docs gating consistency', () => {
     const manifest = read(join(DOCS_TAPP, 'MANIFEST.md'))
     const section = manifest.split('### 应用分类')[1] ?? ''
     const tableChunk = section.split('###')[0] ?? ''
-    const ids = [...tableChunk.matchAll(/^\|\s*`([a-z-]+)`\s*\|/gm)].map(
-      (m) => m[1],
+    const ids = Iterator.from(
+      tableChunk.matchAll(/^\|\s*`([a-z-]+)`\s*\|/gm),
     )
+      .map((m) => m[1])
+      .toArray()
     assert.deepEqual(
-      [...ids].sort(),
-      [...TAPP_CATEGORIES].sort(),
+      ids.toSorted(),
+      TAPP_CATEGORIES.toSorted(),
       'MANIFEST category table must match TAPP_CATEGORIES',
     )
     assert.equal(normalizeTappCategory('games'), 'game')
@@ -134,26 +128,26 @@ describe('tapp docs gating consistency', () => {
 
   it('widget categories match system Tapp IDs one-to-one', () => {
     assert.deepEqual(
-      [...TAPP_WIDGET_CATEGORIES],
-      [...TAPP_CATEGORIES],
+      Iterator.from(TAPP_WIDGET_CATEGORIES).toArray(),
+      Iterator.from(TAPP_CATEGORIES).toArray(),
       'Widget categories must be the same stable IDs as app categories',
     )
     const manifest = read(join(DOCS_TAPP, 'MANIFEST.md'))
     const section =
       manifest.split('### Widget 分类')[1]?.split('### templates')[0] ?? ''
-    const ids = [...section.matchAll(/^\|\s*`([a-z-]+)`\s*\|/gm)].map(
-      (m) => m[1],
-    )
+    const ids = Iterator.from(section.matchAll(/^\|\s*`([a-z-]+)`\s*\|/gm))
+      .map((m) => m[1])
+      .toArray()
     assert.deepEqual(
-      [...ids].sort(),
-      [...TAPP_CATEGORIES].sort(),
+      ids.toSorted(),
+      TAPP_CATEGORIES.toSorted(),
       'MANIFEST Widget 分类 table must match TAPP_CATEGORIES',
     )
     assert.match(section, /同一套/)
     assert.match(section, /\*\*限制\*\*/)
     assert.match(section, /只能写上表八个/)
     for (const category of TAPP_CATEGORIES) {
-      assert.match(section, new RegExp(`\`tapp:${category}\``))
+      assert.match(section, new RegExp(`\`tapp:${RegExp.escape(category)}\``))
       assert.equal(
         classifyWidgetLibraryKind({
           id: `com.example.${category}`,
@@ -243,7 +237,7 @@ describe('tapp docs gating consistency', () => {
       const path = m[1]
       const method = m[2].toUpperCase()
       const full =
-        path === '/' ? '/api/tapps' : `/api/tapps${path}`.replace(/\{[^}]+\}/g, '{}')
+        path === '/' ? '/api/tapps' : `/api/tapps${path}`.replaceAll(/\{[^}]+\}/g, '{}')
       codePaths.add(`${method} ${full}`)
     }
 
@@ -252,16 +246,41 @@ describe('tapp docs gating consistency', () => {
       /^\|\s*(GET|POST|DELETE|PUT|PATCH)\s*\|\s*`(\/api\/tapps[^`]*)`/gm,
     )) {
       const method = m[1]
-      const path = m[2].split('?')[0].replace(/\{[^}]+\}/g, '{}')
+      const path = m[2].split('?')[0].replaceAll(/\{[^}]+\}/g, '{}')
       docPairs.push(`${method} ${path}`)
     }
     assert.ok(docPairs.length >= 20, 'expected substantial /api/tapps table')
-    const missing = docPairs.filter((p) => !codePaths.has(p))
+    const missing = Iterator.from(
+      new Set(docPairs).difference(codePaths),
+    ).toArray()
     assert.deepEqual(
       missing,
       [],
       `REST_API /api/tapps routes missing from tapp_store.rs:\n${missing.join('\n')}`,
     )
+  })
+
+  it('keeps every /private route on authenticated_routes, never optional_auth', () => {
+    const storeRs = read(TAPP_STORE_RS)
+    const auth =
+      storeRs.split('let authenticated_routes')[1]?.split('let public_routes')[0] ??
+      ''
+    const optional = storeRs.split('let optional_subject_routes')[1] ?? ''
+    assert.match(auth, /auth_middleware/)
+    assert.match(optional, /optional_auth_middleware/)
+    for (const handler of [
+      'list_private_keys',
+      'clear_private',
+      'list_private_entries',
+      'get_private_usage',
+      'get_private',
+      'set_private',
+      'delete_private',
+    ]) {
+      assert.match(auth, new RegExp(`\\b${RegExp.escape(handler)}\\b`))
+      assert.doesNotMatch(optional, new RegExp(`\\b${RegExp.escape(handler)}\\b`))
+    }
+    assert.doesNotMatch(optional, /\/private/)
   })
 
   it('rEST_API documented /api/tapp method+path pairs exist in backend router modules', () => {
@@ -273,7 +292,7 @@ describe('tapp docs gating consistency', () => {
     for (const m of rest.matchAll(
       /^\|\s*(GET|POST|DELETE|PUT|PATCH|GET \(WS\))\s*\|\s*`(\/api\/tapp[^`]*)`/gm,
     )) {
-      const path = m[2].split('?')[0].replace(/\{[^}]+\}/g, '{}')
+      const path = m[2].split('?')[0].replaceAll(/\{[^}]+\}/g, '{}')
       if (path.startsWith('/api/tapps')) continue
       if (!registeredPaths.has(path)) {
         missing.push(path)
@@ -368,13 +387,15 @@ describe('tapp docs gating consistency', () => {
     for (const name of names) {
       const text = read(join(DOCS_TAPP, name))
       // Allowed only as explicit negation
-      const positives = [
-        ...text.matchAll(/\/api\/tapp-store[^\s`]*/g),
-      ].filter((m) => {
-        const start = Math.max(0, m.index! - 40)
-        const ctx = text.slice(start, m.index! + m[0].length + 10)
-        return !/不存在|没有|不是|obsolete|removed/i.test(ctx)
-      })
+      const positives = Iterator.from(
+        text.matchAll(/\/api\/tapp-store[^\s`]*/g),
+      )
+        .filter((m) => {
+          const start = Math.max(0, m.index! - 40)
+          const ctx = text.slice(start, m.index! + m[0].length + 10)
+          return !/不存在|没有|不是|obsolete|removed/i.test(ctx)
+        })
+        .toArray()
       assert.deepEqual(
         positives.map((m) => m[0]),
         [],
@@ -427,9 +448,9 @@ describe('tapp docs gating consistency', () => {
     const apiRef = read(join(DOCS_TAPP, 'API_REFERENCE.md'))
     const listSection =
       apiRef.split('## Tapp 列表 API')[1]?.split('## ')[0] ?? ''
-    // Must document canonical store shape with storeSource
+    // 必须用 storeSource 写规范商店形态。
     assert.match(listSection, /storeSource:\s*"1"/)
-    // Must not claim bare source:"1" is a valid equivalent without marking invalid
+    // 不得把裸 source:"1" 写成合法等价。
     assert.ok(
       !/等价[^\n]*source:\s*"1"/.test(listSection) &&
         !/await Tapp\.tappList\.install\(\{\s*source:\s*"1"/.test(listSection),
@@ -469,11 +490,11 @@ describe('tapp docs gating consistency', () => {
   })
 
   it('MANIFEST permission-table tokens equal the shipped catalog', () => {
-    const catalog = Object.keys(PERMISSION_LEVELS).sort()
+    const catalog = Object.keys(PERMISSION_LEVELS).toSorted()
     const contract = JSON.parse(
       read(join(REPO, 'tools/tapp-cli/src/generated/contract.json')),
     ) as { permissionLevels: Record<string, string> }
-    const contractTokens = Object.keys(contract.permissionLevels).sort()
+    const contractTokens = Object.keys(contract.permissionLevels).toSorted()
     assert.deepEqual(
       contractTokens,
       catalog,
@@ -482,11 +503,13 @@ describe('tapp docs gating consistency', () => {
 
     const manifest = read(join(DOCS_TAPP, 'MANIFEST.md'))
     const section = manifest.split('## 权限列表')[1] ?? ''
-    const tokens = [
-      ...section.matchAll(/^\|\s*`([a-z0-9:]+)`\s*\|/gim),
-    ].map((m) => m[1])
+    const tokens = Iterator.from(
+      section.matchAll(/^\|\s*`([a-z0-9:]+)`\s*\|/gim),
+    )
+      .map((m) => m[1])
+      .toArray()
     assert.deepEqual(
-      [...tokens].sort(),
+      tokens.toSorted(),
       catalog,
       `MANIFEST 权限列表 must list every TappPermission catalog token (missing ${catalog
         .filter((t) => !tokens.includes(t))
@@ -497,14 +520,13 @@ describe('tapp docs gating consistency', () => {
 
   it('API_REFERENCE capability table includes every frozen full-SDK namespace', () => {
     const gen = read(
-      join(REPO, 'frontend/src/tapp/runtime/sandbox/sdkFull.ts'),
+      join(REPO, 'frontend/src/tapp/runtime/sandbox/sdkBody.ts'),
     )
-    const fullFn = gen.slice(gen.indexOf('export function generateFullSDK'))
-    const frozen = [
-      ...fullFn.matchAll(/Object\.freeze\(Tapp\.(\w+)/g),
-    ].map((m) => m[1])
-    const frozenNs = [...new Set(frozen)]
-    assert.ok(frozenNs.includes('game'), 'generateFullSDK must freeze Tapp.game')
+    const shared = read(
+      join(REPO, 'frontend/src/tapp/runtime/sandbox/sdkShared.ts'),
+    )
+    assert.match(shared, /skip = \{ widgets: 1, pages: 1 \}/)
+    assert.match(gen, /SDK_FREEZE_TAPP_CODE/)
 
     const perms = Object.keys(PERMISSION_LEVELS) as never[]
     const instance: TappInstance = {
@@ -530,11 +552,61 @@ describe('tapp docs gating consistency', () => {
     assert.match(widgetSdk, /api:\s*Object\.assign\(/)
     assert.equal(/\n\s+game:\s*\{/.test(widgetSdk), false)
 
+    const sandboxWindow: Record<string, any> = {
+      addEventListener: () => undefined,
+      parent: { postMessage: () => undefined },
+      _TAPP_I18N: {},
+      _TAPP_LOCALE: 'en-US',
+    }
+    const sandboxDocument = {
+      addEventListener: () => undefined,
+      createElement: () => ({ style: {}, appendChild: () => undefined }),
+      body: {
+        style: {},
+        classList: { toggle: () => undefined },
+        offsetHeight: 0,
+      },
+      documentElement: { style: { setProperty: () => undefined } },
+    }
+    const run = compileFunction(pageSdk, [
+      'window',
+      'document',
+      'crypto',
+      'setTimeout',
+      'URL',
+      'Blob',
+      'atob',
+    ])
+    run(
+      sandboxWindow,
+      sandboxDocument,
+      globalThis.crypto,
+      () => 0,
+      URL,
+      Blob,
+      globalThis.atob,
+    )
+    const tapp = sandboxWindow.Tapp as Record<string, unknown>
+    const frozenNs = Object.keys(tapp).filter((key) => {
+      if (key === 'widgets' || key === 'pages') return false
+      const value = tapp[key]
+      if (value == null) return false
+      if (Array.isArray(value)) return false
+      if (typeof value === 'function') {
+        const extra = Object.keys(value as object).filter(
+          (k) => k !== 'length' && k !== 'name' && k !== 'prototype',
+        )
+        return extra.length > 0
+      }
+      return typeof value === 'object'
+    })
+    assert.ok(frozenNs.includes('game'), 'generateFullSDK must freeze Tapp.game')
+
     const apiRef = read(join(DOCS_TAPP, 'API_REFERENCE.md'))
     const cap = apiRef.split('## 能力边界与完整命名空间')[1] ?? ''
     const capUntilNext = cap.split(/^## /m)[0] ?? cap
     const missing = frozenNs.filter(
-      (ns) => !new RegExp(`\`${ns}\``).test(capUntilNext),
+      (ns) => !new RegExp(`\`${RegExp.escape(ns)}\``).test(capUntilNext),
     )
     assert.deepEqual(
       missing,
@@ -564,8 +636,8 @@ describe('tapp docs gating consistency', () => {
     for (const file of files) {
       const text = read(file)
       for (const token of retired) {
-        const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-        // Only permission arrays / permission-table cells, not namespace names.
+        const escaped = RegExp.escape(token)
+        // 只对权限数组 / 权限表单元格，不是命名空间名。
         const re = new RegExp(
           `permissions[\\s\\S]{0,200}[\`'"]${escaped}[\`'"]`,
           'g',
@@ -582,7 +654,7 @@ describe('tapp docs gating consistency', () => {
             continue
           }
           live.push(
-            `${file.replace(`${REPO}/`, '')}:${token} :: ${ctx.replace(/\s+/g, ' ').slice(0, 140)}`,
+            `${file.replace(`${REPO}/`, '')}:${token} :: ${ctx.replaceAll(/\s+/g, ' ').slice(0, 140)}`,
           )
         }
       }

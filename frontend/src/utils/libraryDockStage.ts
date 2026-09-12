@@ -1,11 +1,3 @@
-/**
- * Dock library Stage Manager park (left of the grid).
- * Island box size is owned here (`libraryDockIslandBoxStyle`); CSS only paints.
- * Home edit hides the nav island (`useImmersiveChrome('home-edit-mode')`),
- * so the thumbnail sits on a left inset instead of clearing the rail.
- * Scene perspective is applied from `LIBRARY_DOCK_STAGE_PERSPECTIVE`.
- */
-
 export const LIBRARY_DOCK_WIDTH_VW = 94
 export const LIBRARY_DOCK_HEIGHT_VH = 70
 export const LIBRARY_DOCK_MAX_WIDTH_REM = 64
@@ -13,47 +5,31 @@ export const LIBRARY_DOCK_MAX_HEIGHT_REM = 40
 export const LIBRARY_DOCK_SIZE_FACTOR = 5 / 6
 export const LIBRARY_DOCK_BOTTOM_REM = 5.25
 
-/** Left inset while parked. Nav rail is hidden in edit mode. */
 export const LIBRARY_DOCK_STAGE_INSET_REM = 1.5
 
-/** Matches `.global-control-bar { top; right }`. */
 export const CONTROL_PANEL_INSET_REM = 1
-/** Matches `@media (width <= 640px) { .global-control-bar { top; right } }`. */
 export const CONTROL_PANEL_MOBILE_MAX_PX = 640
 export const CONTROL_PANEL_MOBILE_INSET_REM = 0.75
-/** Matches `.control-bar-trigger.expanded { width }`. */
 export const CONTROL_PANEL_EXPANDED_WIDTH_PX = 400
-/** Matches `.control-bar-trigger.expanded { border-radius }`. */
 export const CONTROL_PANEL_EXPANDED_RADIUS_REM = 1.5
-/** Matches `GlobalControlPanel` height: `ceil(scrollHeight * 1.08)`. */
 export const CONTROL_PANEL_HEIGHT_COMPENSATION = 1.08
-/** Matches `.control-bar-trigger` collapsed chrome. */
 export const CONTROL_PANEL_COLLAPSED_WIDTH_PX = 160
 export const CONTROL_PANEL_COLLAPSED_HEIGHT_REM = 3
 export const CONTROL_PANEL_COLLAPSED_RADIUS_REM = 2
-/** Gap between the unparkable catalog and the expanded control panel. */
 export const LIBRARY_BESIDE_PANEL_GAP_REM = 1
 export const LIBRARY_BESIDE_PANEL_ANCHOR =
   '.global-control-bar .control-bar-trigger'
 
 export const LIBRARY_DOCK_STAGE_SCALE = 0.3
 export const LIBRARY_DOCK_STAGE_SCALE_HOVER = 0.33
-/**
- * CSS +Y: clockwise from above, so the right edge comes toward the camera.
- * Keep this a single-axis tilt — extra X rotation reads as warped.
- */
 export const LIBRARY_DOCK_STAGE_ROTATE_Y = 74
 export const LIBRARY_DOCK_STAGE_ROTATE_X = 0
 export const LIBRARY_DOCK_STAGE_BADGE_HANG_PX = 6
 export const LIBRARY_DOCK_STAGE_PERSPECTIVE = 1800
-/** Framer `originX` / `originY`: shrink and hinge from the left edge. */
 export const LIBRARY_DOCK_STAGE_ORIGIN_X = 0
 export const LIBRARY_DOCK_STAGE_ORIGIN_Y = 0.5
 
-/**
- * Clicks on these roots must not park/restore the dock.
- * Home-owned chrome uses the data attr; nav / control bar are platform chrome.
- */
+/** Clicks on these roots must not park/restore the dock. */
 export const LIBRARY_DOCK_CHROME_ATTR = 'data-library-dock-chrome'
 export const LIBRARY_DOCK_POINTER_CHROME = `[${LIBRARY_DOCK_CHROME_ATTR}], [data-sticker-pick], .nav-container, .global-control-bar, .tour-overlay`
 export const LIBRARY_DOCK_RESTORE_BLOCK =
@@ -79,10 +55,7 @@ export const LIBRARY_DOCK_PARK_TRANSITION = {
   opacity: { duration: 0.26, ease: [0.25, 0.1, 0.25, 1] },
 } as const
 
-/**
- * Motion’s `transformTemplate` values are already unit-suffixed
- * (`-100px`, `36deg`). Re-adding units makes the whole transform invalid.
- */
+/** transformTemplate values already have units. */
 function asCss(
   value: number | string | undefined,
   unit: string,
@@ -96,13 +69,7 @@ function asCss(
   return value
 }
 
-/**
- * CSS applies the transform list right-to-left. Framer’s default string is
- * `scale() rotateY()`, which rotates the full-size window and then shrinks
- * the projected result — that is the stretch. Put rotate left of scale so
- * the box is scaled first, then tilted. Parent `.widget-library-stage-scene`
- * already supplies perspective; do not add `perspective()` here.
- */
+/** Do not add perspective(); the parent already has it. */
 export function libraryDockStageTransform(latest: {
   x?: number | string
   y?: number | string
@@ -168,7 +135,6 @@ export function controlPanelChromeInset(
   return (mobile ? CONTROL_PANEL_MOBILE_INSET_REM : CONTROL_PANEL_INSET_REM) * rem
 }
 
-/** 展开终态外壳：右上 inset + 宽 400 / 窄屏铺满，不读 morph 中的 width。 */
 export function expandedControlPanelMetrics(
   viewportWidth: number,
   rootFontSize = 16,
@@ -197,7 +163,6 @@ export function predictExpandedControlPanelBox(
   }
 }
 
-/** 收缩终态控制岛：右上 inset + 160×3rem，不读收起 morph 中的尺寸。 */
 export function predictCollapsedControlPanelBox(
   viewportWidth: number,
   rootFontSize = 16,
@@ -213,10 +178,6 @@ export function predictCollapsedControlPanelBox(
   }
 }
 
-/**
- * Unparkable catalog: sit in the slot left of the expanded control panel.
- * Home dock size is the preferred cap; the slot may shrink it.
- */
 export function libraryBesidePanelBox(input: {
   preferred: { width: number; height: number }
   viewportWidth: number
@@ -253,7 +214,6 @@ export function libraryBesidePanelBox(input: {
   }
 }
 
-/** Inline box for `.widget-library-island` — CSS does not repeat these numbers. */
 export function libraryDockIslandBoxStyle(
   island: { width: number; height: number },
   rootFontSize = 16,
@@ -274,7 +234,6 @@ export function libraryDockIslandBoxStyle(
   }
 }
 
-/** Rest pose: centered, `left: 50%` + `translateX(-width/2)`, `bottom: 5.25rem`. */
 export function predictRestoredLibraryDockBox(
   viewportWidth: number,
   viewportHeight: number,
@@ -291,7 +250,6 @@ export function predictRestoredLibraryDockBox(
   }
 }
 
-/** Left edge of the parked thumbnail. */
 export function libraryDockStageLeft(rootFontSize = 16): number {
   const rem = rootFontSize > 0 ? rootFontSize : 16
   return LIBRARY_DOCK_STAGE_INSET_REM * rem
@@ -315,12 +273,6 @@ export function libraryDockStageVisualSize(input: {
   }
 }
 
-/**
- * Motion `x` / `y` on the dock island (CSS `left: 50%; bottom: 5.25rem`).
- * Unstaged rest `x` is `-width / 2`. Staged `x` parks the unscaled left
- * edge on the left inset. Scale/rotate hinge from originX=0 so the
- * window collapses into that left edge instead of shrinking from center.
- */
 export function libraryDockStageOffset(input: {
   viewportWidth: number
   viewportHeight: number
@@ -339,7 +291,6 @@ export function libraryDockStageOffset(input: {
   }
 }
 
-/** Flat app icon at the visual lower-left corner, facing the camera. */
 export function libraryDockStageBadgePos(input: {
   islandHeight: number
   scale?: number

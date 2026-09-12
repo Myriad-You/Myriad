@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { localFallbackAvatar, resolveAvatar } from './avatar'
 
-/** data URI → 内联 SVG 源码 */
 function decodeSvg(dataUri: string): string {
   assert.ok(
     dataUri.startsWith('data:image/svg+xml;charset=utf-8,'),
@@ -26,7 +25,6 @@ describe('localFallbackAvatar', () => {
   })
 
   it('不同名字给不同底色', () => {
-    // 全部撞色会让兜底头像失去辨识度
     const colors = new Set(
       ['alice', 'bob', 'carol', 'dave'].map(
         (n) => decodeSvg(localFallbackAvatar(n)).match(/fill="(#[0-9a-f]{6})"/)?.[1],
@@ -50,7 +48,7 @@ describe('localFallbackAvatar', () => {
   it('空名字也要有脸', () => {
     for (const seed of ['', '   ', null, undefined]) {
       const svg = decodeSvg(localFallbackAvatar(seed))
-      assert.match(svg, /<text[^>]*>U<\/text>/) // 'User'
+      assert.match(svg, /<text[^>]*>U<\/text>/)
     }
   })
 })

@@ -101,11 +101,6 @@ export interface ChestDeformationRegion {
   radiusY: number
 }
 
-/**
- * One immutable spatial truth shared by dynamic topwear response and the
- * yaw-projected torso volume. It is derived entirely from the persisted v2
- * profile, so existing assets need no contract migration.
- */
 export interface ChestSpatialField {
   source: Anime25DChestProfile['source']
   lobeCenter: number
@@ -146,9 +141,7 @@ type ChestSpatialProfile = Pick<
 >
 
 export interface ChestDynamicsTuning {
-  /** Fraction of the authored chest attachment travel visible through topwear. */
   followScale: number
-  /** Fraction of the imported soft response visible through the garment. */
   responseScale: number
   frequencyScale: number
   dampingScale: number
@@ -160,10 +153,6 @@ export interface ChestDynamicsTuning {
   breathVolumeScale: number
 }
 
-/**
- * AI vision authors the complete two-dimensional deformation region. Geometry
- * profiles use the rig's authored chest weights instead.
- */
 export function chestProfileUsesGeometryWeights(
   profile: ChestWeightProfile,
 ): boolean {
@@ -181,7 +170,6 @@ export function resolveChestDeformationRegion(
   }
 }
 
-/** Derive garment-aware shape and motion coefficients once per player. */
 export function resolveChestSpatialField(
   profile: ChestSpatialProfile,
 ): ChestSpatialField {
@@ -220,7 +208,6 @@ export function resolveChestSpatialField(
   }
 }
 
-/** Creates the complete current profile before optional AI refinement. */
 export function deriveGeometryChestProfile(
   playback: Readonly<
     Pick<Anime25DPlayback, 'pixelCanvas' | 'layers' | 'anchors'>
@@ -279,12 +266,6 @@ export function deriveGeometryChestProfile(
   }
 }
 
-/**
- * Shape AI-authored motion as two continuous lobes within the shared envelope.
- * The restrained bridge keeps the sternum, central seams, and ornaments from
- * receiving the maximum displacement. This uses one exponential per vertex,
- * matching the previous hot-path cost.
- */
 export function chestDeformationWeight(
   field: Readonly<ChestSpatialField>,
   normalizedX: number,
@@ -309,7 +290,6 @@ export function chestDeformationWeight(
   )
 }
 
-/** Sample the asymmetric upper-chest → peak → lower-chest envelope. */
 export function sampleChestVerticalWeight(normalizedY: number): number {
   if (!Number.isFinite(normalizedY)) return 0
   for (let index = 1; index < CHEST_VERTICAL_CURVE.length; index += 1) {
@@ -324,7 +304,6 @@ export function sampleChestVerticalWeight(normalizedY: number): number {
   return 0
 }
 
-/** Zero-mean breathing signal shared by spring and projected volume. */
 export function chestBreathResidual(timeSeconds: number): number {
   const time = Number.isFinite(timeSeconds) ? timeSeconds : 0
   return 0.5 * Math.sin((time * Math.PI * 2) / 3.4)
@@ -344,11 +323,6 @@ export function chestBreathTargetY(
   )
 }
 
-/**
- * Bound AI-authored displacement by apparent soft-tissue size. The eased ramp
- * keeps small profiles restrained without introducing a hard size threshold;
- * `min` preserves the more conservative of the authored and derived limits.
- */
 export function resolveChestMotionScale(profile: ChestMotionProfile): number {
   if (!profile.enabled) return 0
   const authoredScale = clamp(profile.motionScale, 0, 1.25)
@@ -366,11 +340,6 @@ export function resolveChestMotionScale(profile: ChestMotionProfile): number {
   return Math.min(authoredScale, sizeLimit)
 }
 
-/**
- * Combine apparent size with garment support. Size owns the base inertia;
- * support changes coupling and damping, while garment motion controls how much
- * of the tissue response reaches the visible topwear surface.
- */
 export function resolveChestDynamics(
   profile: ChestDynamicsProfile,
   field: Readonly<ChestSpatialField> = resolveChestSpatialField(profile),
@@ -389,9 +358,7 @@ export function resolveChestDynamics(
   }
   const support = clamp(profile.supportScale, 0, 1)
   const garmentMotion = clamp(profile.garmentMotionScale, 0, 1)
-  // Visual estimates near the restrained end must not erase the authored
-  // motion. A perceptual curve preserves strong differentiation while leaving
-  // a small visible response even through rigid or heavily layered clothing.
+  // Visual estimates near the restrained end must not erase the authored motion.
   const garmentTransmission =
     MIN_GARMENT_TRANSMISSION +
     (1 - MIN_GARMENT_TRANSMISSION) * garmentMotion ** 0.25
@@ -430,7 +397,6 @@ export function resolveChestDynamics(
   }
 }
 
-/** Keep flat/minimal profiles quiet, then rapidly open the dynamic range. */
 function resolveChestDynamicBoost(visibleScale: number): number {
   return smoothstep(
     clamp(
@@ -442,11 +408,6 @@ function resolveChestDynamicBoost(visibleScale: number): number {
   )
 }
 
-/**
- * Apparent size controls how much local attachment travel reaches the visible
- * garment. The smooth gate strongly restrains small AI regions without a hard
- * threshold, while medium and large regions converge to the authored response.
- */
 function resolveChestSizeTransmission(profile: ChestDynamicsProfile): number {
   if (profile.source !== 'ai-vision') return 1
   const progress = clamp(
@@ -471,7 +432,6 @@ function resolveChestSizeTransmission(profile: ChestDynamicsProfile): number {
   )
 }
 
-/** Convert the workbench strength into bounded primary attachment travel. */
 export function chestFollowMix(
   bustControl: number,
   followScale: number,
@@ -480,7 +440,6 @@ export function chestFollowMix(
   return clamp(followScale * authoredStrength, 0, MAX_FOLLOW_MIX)
 }
 
-/** Convert the workbench strength into a bounded physical response blend. */
 export function chestResponseMix(
   bustControl: number,
   responseScale: number,
@@ -523,13 +482,6 @@ export function createChestSpringState(): ChestSpringState {
   }
 }
 
-/**
- * Resolve the authored chest attachment travel. This preserves direct pointer
- * ownership: horizontal and vertical gaze pose move the attachment in the same
- * direction before the tissue response is evaluated. `body` is intentionally
- * excluded: the renderer applies that whole-layer rotation after all local mesh
- * deformation, so adding it here would count the same motion twice.
- */
 export function chestMotionTarget(
   driver: ChestMotionDriver,
   faceScale: number,
@@ -537,17 +489,12 @@ export function chestMotionTarget(
 ): ChestMotionTarget {
   const scale = Math.max(0.01, faceScale)
   target.x = (driver.angleX * 5.5 - driver.angleZ * 4.5) * scale
-  // Subtracted rather than negated so a neutral pose resolves to +0. A -0
-  // travel target is inert in the spring but leaks into equality checks.
+  // Subtracted rather than negated so a neutral pose resolves to +0.
   target.y = 0 - driver.angleY * 4.5 * scale
   return target
 }
 
-/**
- * Whole-body rotation is rendered globally, so it must not be added to direct
- * chest travel. Feeding it only to the relative spring restores inertial lag
- * without counting the rigid torso transform twice.
- */
+/** Whole-body rotation is rendered globally, so it must not be added to direct chest travel. */
 export function chestBodyExcitationY(
   body: number,
   faceScale: number,
@@ -561,7 +508,6 @@ export function chestBodyExcitationY(
   )
 }
 
-/** Resolve the parent topwear displacement already applied by the renderer. */
 export function topwearMotionAtChest(
   driver: ChestMotionDriver,
   geometry: ChestMotionGeometry,
@@ -593,11 +539,6 @@ export function topwearMotionAtChest(
   return target
 }
 
-/**
- * Extract the importer-authored `a25d-chest` skinning influence from the
- * compiled regular topwear grid. The field stays in Rig IR coordinates;
- * playback vertices sample it after converting pixels by the frame width.
- */
 export function buildChestWeightField(
   source: ChestRigSource | null | undefined,
 ): ChestWeightField | null {
@@ -655,12 +596,6 @@ export function sampleChestWeight(
   return clamp(mix(top, bottom, ySample.mix), 0, 1)
 }
 
-/**
- * Follow a moving attachment base with a Kelvin-Voigt spring. Damping uses
- * relative velocity (`baseVelocity - tissueVelocity`), allowing the tissue to
- * travel with the torso first and only reverse after the base slows or turns.
- * The relative offset still settles to zero at a held pose.
- */
 export function stepChestSpring(
   state: ChestSpringState,
   targetX: number,
@@ -687,11 +622,7 @@ export function stepChestSpring(
   const fromX = state.previousTargetX
   const fromY = state.previousTargetY
   for (let step = 0; step < steps; step += 1) {
-    // The attachment base slides across the frame instead of teleporting at
-    // the frame boundary. Holding it still inside the substeps made a 30fps
-    // frame integrate a different trajectory than the two 60fps frames
-    // covering the same motion, which is exactly what the substeps exist to
-    // avoid. This also matches the constant target velocity used below.
+    // The attachment base slides across the frame instead of teleporting at the frame boundary.
     const blend = (step + 1) / steps
     const stepTargetX = fromX + (targetX - fromX) * blend
     const stepTargetY = fromY + (targetY - fromY) * blend
@@ -721,12 +652,12 @@ export function stepChestSpring(
 function uniqueCoordinates(values: number[]): number[] {
   const sorted = values
     .filter(Number.isFinite)
-    .sort((left, right) => left - right)
+    .toSorted((left, right) => left - right)
   const unique: number[] = []
   for (const value of sorted) {
     if (
       unique.length === 0 ||
-      Math.abs(value - unique[unique.length - 1]) > COORDINATE_EPSILON
+      Math.abs(value - unique.at(-1)!) > COORDINATE_EPSILON
     ) {
       unique.push(value)
     }

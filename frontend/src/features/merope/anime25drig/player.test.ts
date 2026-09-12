@@ -250,7 +250,6 @@ test('vacant-stare artwork owns both eyes and the mouth while it is up', () => {
   assert.ok(Math.abs(fadeOpacity(eye('eyeSilly'), half) - 0.5) < 1e-12)
   assert.ok(Math.abs(fadeOpacity(eye('eyeOpen'), half) - 0.5) < 1e-12)
 
-  // A cue landing mid-reply keeps the stare but gives the mouth back.
   assert.equal(fadeOpacity(mouth('mouthSilly'), silly, undefined, 0), 0)
   assert.equal(fadeOpacity(mouth('mouthOpen'), silly, undefined, 0), 1)
   assert.equal(fadeOpacity(eye('eyeSilly'), silly, undefined, 0), 1)

@@ -38,7 +38,7 @@ pub async fn invite_member(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Room not found"})),
+                Json(AppError::public_json("Room not found")),
             )
         })?;
 
@@ -63,15 +63,15 @@ pub async fn invite_member(
         "admin-only" if !is_admin_role(&my_role) => {
             return Err((
                 StatusCode::FORBIDDEN,
-                Json(json!({"error": "Only admins can invite"})),
+                Json(AppError::public_json("Only admins can invite")),
             ));
         }
         "member-invite" => {} // 任何成员可邀请
-        "open" => {}          // 无限制
+        "open" => {}          // 与 member-invite 相同：active 成员即可邀请
         _ if !is_admin_role(&my_role) => {
             return Err((
                 StatusCode::FORBIDDEN,
-                Json(json!({"error": "Insufficient permissions"})),
+                Json(AppError::public_json("Insufficient permissions")),
             ));
         }
         _ => {}
@@ -95,7 +95,7 @@ pub async fn invite_member(
     if current_count >= max_members {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Room is full"})),
+            Json(AppError::public_json("Room is full")),
         ));
     }
 
@@ -103,7 +103,7 @@ pub async fn invite_member(
     if !["member", "admin", "observer"].contains(&role) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Invalid role"})),
+            Json(AppError::public_json("Invalid role")),
         ));
     }
 
@@ -112,7 +112,7 @@ pub async fn invite_member(
     if raw_target_actor.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Actor reference is required"})),
+            Json(AppError::public_json("Actor reference is required")),
         ));
     }
 
@@ -131,7 +131,9 @@ pub async fn invite_member(
         if same_actor_url(&target_actor, &local_actor) {
             return Err((
                 StatusCode::CONFLICT,
-                Json(json!({"error": "You are already a member of this room"})),
+                Json(AppError::public_json(
+                    "You are already a member of this room",
+                )),
             ));
         }
 
@@ -170,7 +172,7 @@ pub async fn invite_member(
         if insert_result.rows_affected() == 0 {
             return Err((
                 StatusCode::CONFLICT,
-                Json(json!({"error": "Actor is already a room member"})),
+                Json(AppError::public_json("Actor is already a room member")),
             ));
         }
 
@@ -214,9 +216,9 @@ pub async fn invite_member(
             None => {
                 return Err((
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({
-                        "error": "Room name is missing; cannot send invite with empty name"
-                    })),
+                    Json(AppError::public_json(
+                        "Room name is missing; cannot send invite with empty name",
+                    )),
                 ));
             }
         };
@@ -299,7 +301,9 @@ pub async fn invite_member(
         if same_actor_url(&local_target_actor, &local_actor) {
             return Err((
                 StatusCode::CONFLICT,
-                Json(json!({"error": "You are already a member of this room"})),
+                Json(AppError::public_json(
+                    "You are already a member of this room",
+                )),
             ));
         }
 
@@ -317,7 +321,9 @@ pub async fn invite_member(
         let target_user_id = target_user_id.ok_or_else(|| {
             (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error": "Local user not found. Use Actor URL or @user@domain for remote users"})),
+                Json(AppError::public_json(
+                    "Local user not found. Use Actor URL or @user@domain for remote users",
+                )),
             )
         })?;
 
@@ -343,11 +349,11 @@ pub async fn invite_member(
         if insert_result.rows_affected() == 0 {
             return Err((
                 StatusCode::CONFLICT,
-                Json(json!({"error": "Actor is already a room member"})),
+                Json(AppError::public_json("Actor is already a room member")),
             ));
         }
 
-        // Tell remote members about this same-instance join (3+ federated roster)
+        // 向远程成员 fan-out RoomJoin。
         let join_activity_id = generate_activity_id(&base_url);
         let join_activity = json!({
             "@context": build_context(),
@@ -461,7 +467,7 @@ pub async fn get_public_room(
     if !room_id.starts_with("rm_") {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Invalid room id"})),
+            Json(AppError::public_json("Invalid room id")),
         ));
     }
     let row = db
@@ -481,7 +487,7 @@ pub async fn get_public_room(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Public room not found"})),
+                Json(AppError::public_json("Public room not found")),
             )
         })?;
 
@@ -635,8 +641,7 @@ pub(crate) fn validate_remote_public_room_doc(
     Ok((home, invite_policy, max_members))
 }
 
-/// Whether an existing local private room may be upgraded public from a remote
-/// document (homes must match; local authority never upgraded via remote join).
+/// existing_home 空则允许，否则须与 document home 匹配。不判断本机是否为 home。
 pub(crate) fn may_promote_private_room_to_public(existing_home: &str, document_home: &str) -> bool {
     if existing_home.trim().is_empty() {
         return true;
@@ -780,7 +785,7 @@ pub async fn join_room(
     if !room_id.starts_with("rm_") {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Invalid room id"})),
+            Json(AppError::public_json("Invalid room id")),
         ));
     }
     let home_hint = req
@@ -837,7 +842,7 @@ pub async fn join_room(
         if !local_home.is_empty() && home_servers_match(&home, &local_home) {
             return Err((
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Room not found"})),
+                Json(AppError::public_json("Room not found")),
             ));
         }
         let info = fetch_remote_public_room(&home, &room_id)
@@ -951,7 +956,7 @@ pub async fn join_room(
     let room_row = room_row.ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
-            Json(json!({"error": "Room not found"})),
+            Json(AppError::public_json("Room not found")),
         )
     })?;
 
@@ -986,7 +991,7 @@ pub async fn join_room(
     if current >= max_members {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Room is full"})),
+            Json(AppError::public_json("Room is full")),
         ));
     }
 
@@ -1013,7 +1018,7 @@ pub async fn join_room(
     if insert_result.rows_affected() == 0 {
         return Err((
             StatusCode::CONFLICT,
-            Json(json!({"error": "Could not join room"})),
+            Json(AppError::public_json("Could not join room")),
         ));
     }
 
@@ -1089,7 +1094,7 @@ pub async fn accept_room_invite(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "No membership for this room"})),
+                Json(AppError::public_json("No membership for this room")),
             )
         })?;
     let (role, status) = membership;
@@ -1212,7 +1217,7 @@ pub async fn reject_room_invite(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "No local membership for this room"})),
+                Json(AppError::public_json("No local membership for this room")),
             )
         })?;
 
@@ -1222,7 +1227,9 @@ pub async fn reject_room_invite(
     if status != "pending" {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Only pending invites can be rejected"})),
+            Json(AppError::public_json(
+                "Only pending invites can be rejected",
+            )),
         ));
     }
     let invited_by: Option<String> = row.try_get("", "invited_by").ok().flatten();
@@ -1315,9 +1322,8 @@ pub async fn reject_room_invite(
     }))
 }
 
-/// Set a member's role (`admin` | `member`). Owner only for promote/demote of admins;
-/// owner or admin may demote? Spec: **owner only** can grant/revoke admin.
-/// Cannot change owner role here (use transfer ownership).
+/// Set a member's role (`admin` | `member`). Owner only; cannot change owner
+/// (use transfer ownership). Admins cannot mint more admins.
 pub async fn set_member_role(
     user_id: i32,
     username: &str,
@@ -1332,7 +1338,7 @@ pub async fn set_member_role(
     if new_role != "admin" && new_role != "member" {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Role must be admin or member"})),
+            Json(AppError::public_json("Role must be admin or member")),
         ));
     }
 
@@ -1342,7 +1348,9 @@ pub async fn set_member_role(
     if my_role != "owner" {
         return Err((
             StatusCode::FORBIDDEN,
-            Json(json!({"error": "Only the room owner can change member roles"})),
+            Json(AppError::public_json(
+                "Only the room owner can change member roles",
+            )),
         ));
     }
 
@@ -1352,14 +1360,16 @@ pub async fn set_member_role(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Target is not an active member"})),
+                Json(AppError::public_json("Target is not an active member")),
             )
         })?;
 
     if target_role == "owner" || same_actor_url(&target_stored, &local_actor) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Cannot change the owner's role; use transfer ownership"})),
+            Json(AppError::public_json(
+                "Cannot change the owner's role; use transfer ownership",
+            )),
         ));
     }
 
@@ -1398,7 +1408,7 @@ pub async fn set_member_role(
     });
     crate::federation::ws_gateway::broadcast_to_room(room_id, &system_msg).await;
 
-    // Fan-out so remote homes mirror role (governance admin-only).
+    // fan-out RoomGovernance.set_member_role（仅 owner 可发）。
     let activity_id = generate_activity_id(&base_url);
     let gov_activity = json!({
         "@context": build_context(),
@@ -1467,7 +1477,7 @@ pub async fn remove_member(
     if !is_admin_role(&my_role) {
         return Err((
             StatusCode::FORBIDDEN,
-            Json(json!({"error": "Only admins can remove members"})),
+            Json(AppError::public_json("Only admins can remove members")),
         ));
     }
 
@@ -1479,11 +1489,11 @@ pub async fn remove_member(
     if target_role.as_deref() == Some("owner") {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Cannot remove the room owner"})),
+            Json(AppError::public_json("Cannot remove the room owner")),
         ));
     }
 
-    let _ = user_id; // validated via my_role check
+    let _ = user_id; // fan-out 投递用 user_id；角色校验不读它
 
     // Fan-out kick before local delete so remotes still have membership for delivery targets
     // (fanout uses remaining remote members; kicked target is still in the list here —
@@ -1552,7 +1562,7 @@ pub async fn transfer_room_ownership(
     if new_owner.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "new_owner is required"})),
+            Json(AppError::public_json("new_owner is required")),
         ));
     }
 
@@ -1567,20 +1577,22 @@ pub async fn transfer_room_ownership(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Room not found"})),
+                Json(AppError::public_json("Room not found")),
             )
         })?;
     let owner_actor: String = row.try_get("", "owner_actor").unwrap_or_default();
     if !same_actor_url(&owner_actor, &local_actor) {
         return Err((
             StatusCode::FORBIDDEN,
-            Json(json!({"error": "Only the room owner can transfer ownership"})),
+            Json(AppError::public_json(
+                "Only the room owner can transfer ownership",
+            )),
         ));
     }
     if same_actor_url(&owner_actor, new_owner) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Already the owner"})),
+            Json(AppError::public_json("Already the owner")),
         ));
     }
 
@@ -1603,13 +1615,17 @@ pub async fn transfer_room_ownership(
         .ok_or_else(|| {
             (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error": "New owner must already be a room member"})),
+                Json(AppError::public_json(
+                    "New owner must already be a room member",
+                )),
             )
         })?;
     if target_role == "observer" {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Cannot transfer ownership to an observer"})),
+            Json(AppError::public_json(
+                "Cannot transfer ownership to an observer",
+            )),
         ));
     }
     // Canonical stored owner URL (same_actor_url may have matched differently)
@@ -1675,7 +1691,9 @@ pub async fn transfer_room_ownership(
     if promoted.rows_affected() == 0 {
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to promote new owner membership row"})),
+            Json(AppError::public_json(
+                "Failed to promote new owner membership row",
+            )),
         ));
     }
 
@@ -1756,14 +1774,16 @@ pub async fn leave_room(
         .ok_or_else(|| {
             (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error": "Not a member"})),
+                Json(AppError::public_json("Not a member")),
             )
         })?;
 
     if my_role == "owner" {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Owner cannot leave. Transfer ownership or delete the room."})),
+            Json(AppError::public_json(
+                "Owner cannot leave. Transfer ownership or delete the room.",
+            )),
         ));
     }
 
@@ -1816,3 +1836,4 @@ pub async fn leave_room(
 
     Ok(json!({ "success": true, "room_id": room_id }))
 }
+use myriad_error::AppError;

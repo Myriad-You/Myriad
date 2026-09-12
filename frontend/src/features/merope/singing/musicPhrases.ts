@@ -4,7 +4,6 @@ import type { SingingTimelineInput } from './singingTimeline'
 export const MUSIC_PHRASE_PREPARATION_SECONDS = 0.28
 export const MUSIC_PHRASE_RELEASE_SECONDS = 0.75
 
-/** Retain line boundaries before phoneme compilation flattens them away. */
 export function compileMusicPhrases(
   input: SingingTimelineInput,
 ): MusicPhrase[] {
@@ -17,7 +16,7 @@ export function compileMusicPhrases(
         )
         if (!words.length) return []
         const first = words[0]
-        const last = words[words.length - 1]
+        const last = words.at(-1)!
         const next = input.verbatim?.[index + 1]?.words?.[0]?.time
         const end =
           last.time +
@@ -35,7 +34,7 @@ export function compileMusicPhrases(
           },
         ]
       })
-      .sort((a, b) => a.start - b.start)
+      .toSorted((a, b) => a.start - b.start)
   }
   return (input.lines ?? [])
     .flatMap((line, index, lines) => {
@@ -48,10 +47,9 @@ export function compileMusicPhrases(
         ? [{ start: line.time, end, confidence: 0.55 }]
         : []
     })
-    .sort((a, b) => a.start - b.start)
+    .toSorted((a, b) => a.start - b.start)
 }
 
-/** Seek-safe binary lookup; a close incoming phrase takes over the old release. */
 export function sampleMusicPhrase(
   phrases: readonly MusicPhrase[],
   time: number,

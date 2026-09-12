@@ -1,36 +1,33 @@
 ---
-/**
- * SPA 外壳页面
- * 这是唯一的 Astro 页面，用于挂载 React 应用
- */
 import { Font } from 'astro:assets'
 import MachineReadableMetadata from '@components/MachineReadableMetadata.astro'
 import NoScriptFallback from '@components/NoScriptFallback.astro'
+import LocaleLang from '@components/LocaleLang.astro'
 import PageLoader from '@components/PageLoader.astro'
 import StripSpaQuery from '@components/StripSpaQuery.astro'
 import App from '../App'
+import en from '../i18n/en-US.json' with { type: 'json' }
 import '../styles/tailwind.css'
 
-const title = 'Myriad - A myriad of lights, in one place.'
-const description =
-  'Myriad 是一个自托管的个人数字生活展示入口，用于聚合、整理和展示来自多个平台的个人数据。'
-// Build-time version stamp consumed by the Myriad updater health probe.
-// Falls back to `dev` outside of release builds.
+const title = en.chrome.title
+const description = en.chrome.description
+// Build-time version stamp for the updater health probe; `dev` outside release builds.
 const myriadVersion = import.meta.env.PUBLIC_MYRIAD_VERSION || 'dev'
 const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
 ---
 
 <!doctype html>
-<html lang="zh-CN" class="light">
+<html lang="en-US" class="light">
   <head>
     <meta charset="UTF-8" />
+    <LocaleLang />
     <StripSpaQuery />
     <meta name="description" content={description} id="meta-description" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f5f5f5" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)" />
     <link rel="icon" type="image/webp" href="/favicon.webp" id="favicon-link" />
-    <!-- PWA manifest / install meta are applied by utils/pwa when pwa_enabled -->
+    <!-- utils/pwa applies manifest/install meta when pwa_enabled. -->
     <link rel="manifest" href="/manifest.webmanifest" id="pwa-manifest-link" />
     <link rel="apple-touch-icon" href="/icons/pwa/icon-192.png" />
     <meta name="mobile-web-app-capable" content="yes" />
@@ -38,19 +35,15 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
     <meta name="apple-mobile-web-app-title" content="Myriad" />
     <title>{title}</title>
 
-    <!-- 安全策略 -->
     <meta name="referrer" content="strict-origin-when-cross-origin" />
 
-    <!-- Build-time version stamp; consumed by the Myriad updater health probe to detect
-         stale browser caches after an upgrade. -->
+    <!-- Build-time version stamp for the updater health probe (stale-cache detect). -->
     <meta name="myriad-version" content={myriadVersion} />
     <meta name="myriad-commit" content={myriadCommit} />
     <MachineReadableMetadata description={description} version={myriadVersion} />
 
-    <!-- Astro 6 内置 Fonts API: 全部字体自托管，消除 Google Fonts 外部请求 -->
-    <!-- 主体字体（预加载） -->
+    <!-- Self-hosted Fonts API; no Google Fonts. -->
     <Font cssVariable="--font-inter" preload />
-    <!-- 标题装饰字体（@font-face 预声明，浏览器按需下载字体文件） -->
     <Font
       cssVariable="--font-qwitcher-grypen"
       preload={[{ weight: 700, style: 'normal' }]}
@@ -65,15 +58,12 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
     <Font cssVariable="--font-unifraktur-maguntia" />
     <Font cssVariable="--font-cinzel" />
 
-    <!-- Resource Hints优化 - DNS预解析和预连接 -->
     <link rel="dns-prefetch" href="https://api.fuukei.org" />
     <link rel="dns-prefetch" href="https://api.open-meteo.com" />
     <link rel="dns-prefetch" href="https://avatars.githubusercontent.com" />
-    <!-- 关键外部 API 预连接（Lighthouse 建议） -->
     <link rel="preconnect" href="https://api.fuukei.org" crossorigin />
     <link rel="preconnect" href="https://avatars.githubusercontent.com" crossorigin />
 
-    <!-- 关键CSS内联 - 优化FCP -->
     <style>
       :root {
         --color-primary: #94a3b8;
@@ -122,9 +112,7 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
           opacity: 1;
         }
       }
-      /* .glass 表面样式统一由 theme.css 的表面令牌驱动。
-         勿在页面级重复声明：html.dark .glass 的特异性 (0,2,1) 会
-         盖掉令牌系统，导致 data-surface 主题在暗色下永远不生效 */
+      /* Do not redeclare .glass here: html.dark .glass (0,2,1) would override theme.css tokens. */
       .nav-container {
         position: fixed;
         bottom: 1rem;
@@ -151,38 +139,32 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
       }
     </style>
 
-    <!-- PWA：生产按 pwa_enabled 注册 SW；开发始终注销，避免旧缓存劫持 API -->
+    <!-- Prod registers SW when pwa_enabled; always unregister in dev. -->
     <script>
       import { initPwaLifecycle } from '../utils/pwa'
       initPwaLifecycle()
     </script>
 
-    <!-- 动态加载网站元数据 - 使用新的元数据管理工具 -->
     <script>
-      // 导入元数据管理工具（需要在构建时处理）
       import { initSiteMetadata } from '../utils/siteMetadata'
 
-      // 立即初始化元数据（优先使用缓存，避免闪烁）
       initSiteMetadata()
     </script>
   </head>
   <body class="antialiased">
-    <!-- 页面加载器 -->
     <PageLoader />
     <NoScriptFallback description={description} />
 
-    <!-- React 应用容器 - 初始隐藏，等待完全加载后显示 -->
     <div id="app-root">
       <App client:only="react" />
     </div>
 
-    <!-- 初始化主题 -->
     <script>
       function initializeTheme() {
         const html = document.documentElement
         const stored = localStorage.getItem('theme')
         const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-        // 'auto' 或未设置时跟随系统外观
+        // 'auto' or unset follows the system.
         const theme =
           stored === 'light' || stored === 'dark' ? stored : prefersDark ? 'dark' : 'light'
 
@@ -194,7 +176,7 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
           html.classList.remove('dark')
         }
 
-        // 使用壁纸颜色（--color-primary）作为浏览器主题色
+        // Browser theme-color tracks --color-primary.
         const updateThemeColor = () => {
           const primaryColor =
             getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() || '#94a3b8'
@@ -206,7 +188,6 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
 
         updateThemeColor()
 
-        // 监听 CSS 变量变化，实时更新浏览器主题色
         const observer = new MutationObserver(updateThemeColor)
         observer.observe(document.documentElement, {
           attributes: true,
@@ -224,7 +205,6 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
               html.classList.add('light')
               html.classList.remove('dark')
             }
-            // 更新主题色
             updateThemeColor()
           }
         })
@@ -233,105 +213,14 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
       initializeTheme()
     </script>
 
-    <!-- 全局样式 (从 Layout.astro 提取) -->
     <style is:global>
-      /* 深色模式变量 */
+      /* .glass comes from theme.css tokens; do not redeclare. */
 
-      /* 全局过渡 */
-
-      /* Qwitcher Grypen 字体 - Astro 6 Fonts API 自托管 */
-
-      /* Glass effect：统一由 theme.css 表面令牌驱动（见上方说明，勿在此重复声明） */
-
-      /* 深色模式背景 - 纯色 */
-
-      /* 深色模式下的背景网格 */
-
-      /* 导航容器 - 移动端底部 / 桌面端左侧 */
-
-      /* 桌面端样式 */
-
-      /* Dynamic Island - 灵动岛样式 */
-
-      /* 导航岛内容容器 */
-
-      /* 主岛折叠状态 - 只显示返回按钮 */
-
-      /* 主岛内容容器 - 用于淡入淡出动画 */
-
-      /* 主岛折叠状态下淡出内容 */
-
-      /* 关键帧动画定义 - 供 JS 使用 */
-
-      /* 桌面端样式 */
-
-      /* Secondary Island - 副岛样式（纵向排列） */
-
-      /* 副岛内容容器 - 用于淡入淡出动画 */
-
-      /* 副岛折叠状态 - 只显示一个图标 */
-
-      /* 副岛折叠状态下淡出内容 */
-
-      /* 深色模式下的副岛 */
-
-      /* 副岛导航项样式 */
-
-      /* 副岛激活状态 */
-
-      /* 深色模式下的灵动岛 */
-
-      /* 动态渐变边框动画 */
-
-      /* 导航组 - 移动端横向 / 桌面端纵向 */
-
-      /* 不同间距的导航组 - 移动端左右间距 / 桌面端上下间距 */
-
-      /* 分隔线样式 - 移动端竖线 / 桌面端横线 */
-
-      /* Navigation items */
-
-      /* 深色模式下的导航按钮 */
-
-      /* Active nav item indicator */
-
-      /* 深色模式下的选中状态 */
-
-      /* 用户头像特殊样式 */
-
-      /* Generate button with gradient border - 简洁旋转版 */
-
-      /* 加载时变圆形 */
-
-      /* 边框容器 */
-
-      /* 渐变层 - 旋转 */
-
-      /* 彩虹边框旋转 */
-
-      /* 移动端导航岛优化 - 水平布局 */
-
-      /* 小屏幕进一步优化 */
-
-      /* 超小屏幕 */
-
-      /* 触摸设备优化 */
-
-      /* 移动端优化 */
-
-      /* 用户头像角标样式 */
-
-      /* 焦点状态（键盘导航） */
-
-      /* Smooth scrolling + 彻底隐藏所有原生滚动条 */
-
-      /* 动态颜色样式 - 替代内联样式 */
       .progress-bar-fill {
         background-color: var(--color-primary);
         box-shadow: 0 0 10px color-mix(in srgb, var(--color-primary) 50%, transparent);
       }
 
-      /* 进度条宽度通过 JavaScript 动态设置 */
       .progress-bar-fill[data-progress] {
         width: calc(var(--progress, 0) * 1%);
       }
@@ -369,7 +258,6 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
         border-color: transparent;
       }
 
-      /* 弹窗动画 */
       @keyframes fade-in {
         from {
           opacity: 0;
@@ -400,13 +288,10 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
         }
       }
 
-
-
       .animate-pulse-slow {
         animation: pulse-slow 2s ease-in-out infinite;
       }
 
-      /* 平台链接样式 */
       .platform-link {
         background: linear-gradient(
           135deg,
@@ -453,7 +338,6 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
         transition-duration: 0.1s;
       }
 
-      /* 自定义滚动条 */
       .custom-scrollbar::-webkit-scrollbar {
         width: 6px;
       }
@@ -472,29 +356,22 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
         background: color-mix(in srgb, var(--color-primary) 60%, transparent);
       }
 
-      /* 弹窗样式 - 确保在视口中心 */
-
-      /* 深色模式弹窗 */
-
-      /* 移动端弹窗优化 - 底部滑出样式 */
       @media (max-width: 640px) {
         .modal-overlay,
         .modal-overlay-portal {
           padding: 0;
-          align-items: flex-end; /* 对齐到底部 */
+          align-items: flex-end;
         }
 
         .modal-content {
-          border-radius: 1.5rem 1.5rem 0 0; /* 顶部圆角,底部直角 */
+          border-radius: 1.5rem 1.5rem 0 0;
           max-height: 85vh;
           margin: 0;
           width: 100%;
           max-width: 100%;
-          /* 添加拖动指示器空间 */
           padding-top: 1.5rem;
         }
 
-        /* 拖动指示器 */
         .modal-content::before {
           content: '';
           position: absolute;
@@ -508,7 +385,6 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
           opacity: 0.4;
         }
 
-        /* 修改动画方向 - 从底部滑入 */
         .modal-overlay-portal.modal-opening .modal-content {
           animation: slideUpMobile 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
@@ -540,42 +416,37 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
         }
       }
 
-      /* 超小屏幕弹窗 */
       @media (max-width: 375px) {
         .modal-content {
-          max-height: 90vh; /* 更大的高度占比 */
+          max-height: 90vh;
         }
       }
 
-      /* 横屏移动设备弹窗优化 */
       @media (max-width: 640px) and (orientation: landscape) {
         .modal-content {
           max-height: 80vh;
-          border-radius: 1rem; /* 横屏时恢复四周圆角 */
+          border-radius: 1rem;
         }
 
         .modal-overlay,
         .modal-overlay-portal {
-          align-items: center; /* 横屏时居中 */
+          align-items: center;
         }
       }
 
-      /* 渐变工具类 */
-
-      /* 萌宠走动动画 - 精灵图 */
       .pet-walker {
         transition:
           left 0.05s linear,
           transform 0.3s ease;
         display: flex;
-        align-items: flex-end; /* 底部对齐 */
+        align-items: flex-end; 
       }
 
       .pet-sprite {
         background-image: var(--pet-image-url, url('https://api.fuukei.org/myriad/frontend/public/furina.png'));
-        background-size: 100% 100%; /* 填充整个容器 */
+        background-size: 100% 100%;
         background-repeat: no-repeat;
-        background-position: center bottom; /* 底部对齐 */
+        background-position: center bottom; 
         image-rendering: pixelated;
         image-rendering: -moz-crisp-edges;
         image-rendering: crisp-edges;
@@ -634,10 +505,6 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
         animation: pet-excited 0.6s ease-out;
       }
 
-      /* ========================================
-         Library Grid - Waterfall Layout Styles
-         ======================================== */
-
       @keyframes fadeInUp {
         from {
           opacity: 0;
@@ -649,56 +516,21 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
         }
       }
 
-      /* 移除旧的library样式，使用新的瀑布流布局 */
-
-      /* ========================================
-         Tailwind 颜色类全局覆盖 - 使用 CSS 变量
-         ======================================== */
-
-      /* 文本颜色覆盖 */
-
-      /* 背景颜色覆盖 */
-
-      /* 边框颜色覆盖 */
-
-      /* 主题色覆盖 */
-
-      /* ========================================
-         Form and Input Styles - Dark Mode Support
-         ======================================== */
-
-      /* 输入框通用样式 */
-
-      /* 占位符样式 */
-
-      /* 按钮通用样式 */
-
-      /* 卡片样式 */
-
-      /* 深色模式下的文本选择 */
-
-      /* ========================================
-         Mobile Responsive Enhancements
-         ======================================== */
-
-      /* 移动端文字大小优化 */
       @media (max-width: 640px) {
 
-        /* 仅限 prose 内容区域的标题缩放，避免覆盖卡片组件中的 Tailwind 字体类 */
+        /* Scale headings inside .prose only; do not override card Tailwind type. */
         .prose h1 {
-          font-size: 1.75rem; /* 28px */
+          font-size: 1.75rem;
         }
 
         .prose h2 {
-          font-size: 1.5rem; /* 24px */
+          font-size: 1.5rem;
         }
 
         .prose h3 {
-          font-size: 1.25rem; /* 20px */
+          font-size: 1.25rem;
         }
 
-        /* 移动端按钮最小触摸区域 */
-        /* 移动端间距优化 */
         .px-4 {
           padding-left: 1rem !important;
           padding-right: 1rem !important;
@@ -710,7 +542,6 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
         }
       }
 
-      /* 超小屏幕优化 (iPhone SE等) */
       @media (max-width: 375px) {
 
         .px-4 {
@@ -719,7 +550,6 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
         }
       }
 
-      /* 横屏模式优化 */
       @media (max-height: 500px) and (orientation: landscape) {
         .min-h-screen {
           min-height: auto;
@@ -730,21 +560,6 @@ const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''
         }
       }
 
-      /* 减少动画效果 (用户偏好) */
-
-      /* 高对比度模式支持 */
-
-      /* ========================================
-         Mobile Performance Optimizations
-         ======================================== */
-
-      /* 移动端性能优化（.glass 的移动端降级由 theme.css 表面令牌统一处理） */
-
-      /* 移动端安全区域适配 (刘海屏、底部指示条) */
-
-      /* iOS平滑滚动优化 */
-
-      /* 移动端禁用文本选择 (交互元素) */
     </style>
   </body>
 </html>

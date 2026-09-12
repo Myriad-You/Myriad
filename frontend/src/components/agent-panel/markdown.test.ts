@@ -69,7 +69,6 @@ test('表格要有分隔行才算表格', () => {
   assert.equal(table[0].kind === 'table' && table[0].headers.length, 2)
   assert.equal(table[0].kind === 'table' && table[0].rows.length, 1)
 
-  // 一句带竖线的话不该被排成表
   const notTable = parseMarkdownBlocks('| 这只是一句话 |\n下一行')
   assert.deepEqual(
     notTable.map((b) => b.kind),

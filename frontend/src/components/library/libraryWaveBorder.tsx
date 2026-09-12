@@ -97,7 +97,6 @@ function readCardCornerRadius(el: HTMLElement): { rx: number; ry: number } {
   }
 }
 
-/** 圆角矩形周长 t∈[0,1] → 点 + 内法线（像素）；角用椭圆参数方程保证连续 */
 function pointOnRoundedRect(
   w: number,
   h: number,
@@ -109,7 +108,6 @@ function pointOnRoundedRect(
   const ay = Math.max(0.5, Math.min(ry, h / 2 - 0.01))
   const sw = Math.max(0, w - 2 * ax)
   const sh = Math.max(0, h - 2 * ay)
-  // 四分椭圆弧长（Ramanujan 近似）
   const arc =
     (Math.PI * (3 * (ax + ay) - Math.sqrt((3 * ax + ay) * (ax + 3 * ay)))) / 8
   const segs = [sw, arc, sh, arc, sw, arc, sh, arc]
@@ -120,7 +118,6 @@ function pointOnRoundedRect(
     const a = a0 + (a1 - a0) * u
     const cos = Math.cos(a)
     const sin = Math.sin(a)
-    // 椭圆外法线 ∝ (cos/rx, sin/ry)，取反为内
     const nx = cos / ax
     const ny = sin / ay
     const len = Math.hypot(nx, ny) || 1
@@ -188,18 +185,11 @@ function sampleBand(bands: number[], t: number): number {
   return bands[i0] * (1 - f) + bands[i1] * f
 }
 
-/** 圆周距离 [0, 0.5] */
 function circDist(a: number, b: number): number {
   const d = Math.abs((((a - b) % 1) + 1) % 1)
   return d > 0.5 ? 1 - d : d
 }
 
-/**
- * 光晕即波浪（面积靠宽 stroke + blur）：
- * - 整圈厚度/起伏跟 8 段频谱 + 相位流动
- * - 最多 2 个高峰鼓包（高度/宽/位置可随机 + 频谱）
- * - presence 只负责淡入淡出，不抹平动态范围
- */
 function buildSpectrumWavePath(
   w: number,
   h: number,
@@ -213,9 +203,7 @@ function buildSpectrumWavePath(
     bass: number
     mid: number
     flux: number
-    /** 频谱绕边流动相位 */
     wavePhase: number
-    /** 次级随机相位 */
     noisePhase: number
     peak1T: number
     peak2T: number
@@ -251,14 +239,10 @@ function buildSpectrumWavePath(
 
   const peakCap = Math.max(12, maxOutPx - 1)
 
-  // 底环：安静薄、响乐厚（始终外侧有光，但不锁死固定厚度）
   const basePx = (2.2 + energy * 5.5 + bass * 4.2 + mid * 1.6) * p
-  // 频谱沿边起伏幅度（主动态来源）
   const flowAmp = (3.5 + energy * 7 + treble * 6 + flux * 4 + onset * 3.5) * p
-  // 高峰额外鼓出
   const peakAmp = (5 + energy * 6 + treble * 10 + onset * 8 + bass * 2) * p
 
-  // 峰宽：跟 peakW + 频谱（低音宽、高频尖）
   const sig1 = Math.max(
     0.032,
     Math.min(0.12, (0.042 + bass * 0.04 - treble * 0.015) * peak1W),
@@ -270,7 +254,6 @@ function buildSpectrumWavePath(
   const sharp1 = 1.9 + treble * 0.9 + (1 - Math.min(1, peak1W)) * 0.6
   const sharp2 = 2.0 + treble * 1.1 + (1 - Math.min(1, peak2W)) * 0.7
 
-  // 频谱绕边滚动：相位把 8 段「转」起来 → 能感到流动且跟音乐
   const bandSpin = wavePhase * 0.09
   const bandSpin2 = wavePhase * 0.055 + noisePhase * 0.03
 
@@ -281,12 +264,10 @@ function buildSpectrumWavePath(
     const t = i / samples
     const { x, y, nx, ny } = pointOnRoundedRect(w, h, rx, ry, t)
 
-    // 局部频谱（滚动采样）— 这是「不固定」的核心
     const local = sampleBand(bands, t + bandSpin)
     const localB = sampleBand(bands, t * 1.7 + bandSpin2)
     const localC = sampleBand(bands, t * 0.55 - bandSpin * 0.6)
 
-    // 双峰超高斯：高度完全由 peakH * 局部频谱调制，可落到很低
     const d1 = circDist(t, peak1T) / sig1
     const d2 = circDist(t, peak2T) / sig2
     const e1 =
@@ -299,12 +280,10 @@ function buildSpectrumWavePath(
       (0.3 + local * 1.0 + treble * 0.5 + onset * 0.45)
     const peakBlob = Math.max(e1, e2)
 
-    // 沿边频谱起伏（无峰处也有高低，避免「死环」）
     const flow =
       local * 0.55 +
       localB * 0.28 +
       localC * 0.17 +
-      // 弱谐波：用频谱能量缩放，不是固定正弦波
       Math.sin(wavePhase * 0.9 + t * Math.PI * 2 * (1.4 + mid * 0.8)) *
         (0.08 + treble * 0.18 + energy * 0.1) *
         (0.25 + local) +
@@ -312,13 +291,11 @@ function buildSpectrumWavePath(
         (0.05 + flux * 0.12) *
         (0.2 + localB)
 
-    // 像素外扩：底 + 频谱流 + 高峰
     let outPx =
       basePx * (0.75 + energy * 0.35) +
       Math.max(0, flow) * flowAmp +
       peakBlob * peakAmp
 
-    // 谷区仍保持外侧底光，但不锁成固定环
     const floor = basePx * (0.55 + bass * 0.2)
     outPx = Math.max(floor, Math.min(peakCap, outPx))
 
@@ -340,7 +317,6 @@ function buildSpectrumWavePath(
   return d
 }
 
-/** 直边≈1、圆角中心≈0：角上少起伏，贴圆角更稳 */
 function cornerWeight(
   t: number,
   w: number,
@@ -359,10 +335,8 @@ function cornerWeight(
   let dist = (((t % 1) + 1) % 1) * total
   for (let i = 0; i < 8; i++) {
     if (dist <= segs[i]) {
-      // 奇数段是角
       if (i % 2 === 1) {
         const u = segs[i] > 0 ? dist / segs[i] : 0
-        // 角中心最贴边（weight 低），两端过渡到直边
         return 0.25 + 0.75 * Math.sin(u * Math.PI)
       }
       return 1
@@ -376,34 +350,26 @@ function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t
 }
 
-/** 圆周上最短弧插值 → 0..1 */
 function circLerp(a: number, b: number, t: number): number {
   const d = ((b - a + 1.5) % 1) - 0.5
   return (a + d * t + 1) % 1
 }
 
-/** smoothstep：淡入淡出更柔和 */
 function smoothstep01(x: number): number {
   const t = Math.max(0, Math.min(1, x))
   return t * t * (3 - 2 * t)
 }
 
-/** 出场：前段加速到位（弹起感） */
 function easeOutCubic(t: number): number {
   const x = Math.max(0, Math.min(1, t))
   return 1 - (1 - x) ** 3
 }
 
-/** 退场：先慢后快收束，避免突然塌缩 */
 function easeInCubic(t: number): number {
   const x = Math.max(0, Math.min(1, t))
   return x * x * x
 }
 
-/**
- * 有机随机游走（Ornstein–Uhlenbeck 近似）
- * 均值回归 + 噪声，不会瞬跳
- */
 function ouStep(
   value: number,
   mean: number,
@@ -416,15 +382,7 @@ function ouStep(
   return value + (mean - value) * reversion * dt * 30 + n
 }
 
-/**
- * 真实频谱驱动的连续四边柔光带
- * 频谱快响应 + 可见随机漂移；
- * 出场弹起 / 退场频谱残留收束，避免硬切与塌成细环
- *
- * active  = 当前曲（含暂停）→ 光晕保持显示
- * playing = 真正在播 → 频谱动画；暂停只冻结末帧，不隐藏
- * !active = 换歌离场 → 残留收束后卸载
- */
+// 退场收束频谱残留，避免硬切。active=当前曲（含暂停）亮光晕；playing 才跑频谱。
 export const LibraryPlayingWaveBorder = memo(
   ({
     musicColor,
@@ -432,9 +390,7 @@ export const LibraryPlayingWaveBorder = memo(
     playing = false,
   }: {
     musicColor: string
-    /** true=当前曲（含暂停）；false=换歌离场 */
     active: boolean
-    /** true=正在播放（驱动频谱）；false=暂停冻结 */
     playing?: boolean
   }) => {
     const wrapRef = useRef<HTMLDivElement>(null)
@@ -443,7 +399,6 @@ export const LibraryPlayingWaveBorder = memo(
     const midRef = useRef<SVGPathElement>(null)
     const prevBandsRef = useRef<number[]>([0, 0, 0, 0, 0, 0, 0, 0])
     const smoothBandsRef = useRef<number[]>([0, 0, 0, 0, 0, 0, 0, 0])
-    /** 暂停冻结 / 退场残留频谱 */
     const residualBandsRef = useRef<number[]>([0, 0, 0, 0, 0, 0, 0, 0])
     const energyHistRef = useRef<number[]>([])
     const wavePhaseRef = useRef(Math.random() * Math.PI * 2)
@@ -469,7 +424,6 @@ export const LibraryPlayingWaveBorder = memo(
     const introRef = useRef(0)
     const bodySmoothRef = useRef(0)
     const opacitySmoothRef = useRef(0)
-    /** 出场瞬间高亮 kick（0→1 后衰减） */
     const enterKickRef = useRef(0)
     const speedSmoothRef = useRef(0.06)
     const noiseSpeedRef = useRef(0.03 + Math.random() * 0.04)
@@ -488,7 +442,6 @@ export const LibraryPlayingWaveBorder = memo(
     useEffect(() => {
       if (!mounted) return
 
-      // 刚切入当前曲：重置形态并打一记出场 kick（暂停再播不走这里）
       if (active && introRef.current < 0.08) {
         const t1 = Math.random()
         const t2 = (t1 + 0.28 + Math.random() * 0.4) % 1
@@ -514,7 +467,6 @@ export const LibraryPlayingWaveBorder = memo(
         opacitySmoothRef.current = 0
         bodySmoothRef.current = 0
         enterKickRef.current = 1
-        // 给一点初始环，避免首帧全空
         residualBandsRef.current = residualBandsRef.current.map(
           () => 0.18 + Math.random() * 0.12,
         )
@@ -527,9 +479,8 @@ export const LibraryPlayingWaveBorder = memo(
       }
 
       const wrap = wrapRef.current
-      // 点击层无圆角；尺寸/圆角以 .library-card-shell 为准（缺省再退回 parent）
       const shell =
-        (wrap?.closest('.library-card-shell') as HTMLElement | null) ||
+        (wrap?.closest('.library-card-shell') as HTMLElement | null) ??
         (wrap?.parentElement as HTMLElement | null)
       const PAD = 28
 
@@ -569,19 +520,16 @@ export const LibraryPlayingWaveBorder = memo(
       const reducedMotion = preferReducedMotion()
       let raf = 0
       let last = 0
-      /** reduced-motion / 暂停冻结：到位后停 rAF，playing/active 变化会重跑 effect */
       let settled = false
 
       const tick = (now: number) => {
         const dt = last ? Math.min(0.05, (now - last) / 1000) : 0.032
-        // ~45fps：频谱更跟得上；减动效略降采样
         const frameMs = reducedMotion ? 48 : 22
         if (now - last >= frameMs) {
           last = now
           const live = activeRef.current
           const isPlaying = playingRef.current
 
-          // 从暂停恢复播放：补 kick，不重置整圈形态
           if (isPlaying && !prevPlayingRef.current) {
             enterKickRef.current = Math.max(enterKickRef.current, 0.85)
             settled = false
@@ -593,7 +541,6 @@ export const LibraryPlayingWaveBorder = memo(
           }
           prevPlayingRef.current = isPlaying
 
-          // 出场/保持由 live 决定；暂停仍 full presence，只有换歌才退场
           const introTarget = live ? 1 : 0
           const introRate = live ? 2.55 : 0.72
           introRef.current = lerp(
@@ -602,16 +549,13 @@ export const LibraryPlayingWaveBorder = memo(
             1 - Math.exp(-introRate * dt * 30),
           )
           const intro = Math.max(0, Math.min(1, introRef.current))
-          // 几何 presence：出场 easeOut 弹开，退场 easeIn 先稳后收
           const presence = live
             ? easeOutCubic(smoothstep01(intro))
             : easeInCubic(smoothstep01(intro))
-          // 透明度：出场略滞后；退场略快于几何收缩，避免「空壳还亮」
           const opacityPresence = live
             ? easeOutCubic(smoothstep01(Math.max(0, intro * 1.08 - 0.05)))
             : easeInCubic(smoothstep01(Math.min(1, intro * 1.25)))
 
-          // 出场 kick 衰减（~0.45s）
           enterKickRef.current = lerp(
             enterKickRef.current,
             0,
@@ -619,7 +563,6 @@ export const LibraryPlayingWaveBorder = memo(
           )
           const kick = reducedMotion ? 0 : enterKickRef.current
 
-          // 仅换歌离场后卸载；暂停不卸
           if (
             !live &&
             introRef.current < 0.012 &&
@@ -638,7 +581,6 @@ export const LibraryPlayingWaveBorder = memo(
             return
           }
 
-          // 暂停冻结 / reduced 静环：到位后停 rAF，保留末帧
           if (live && !isPlaying && presence > 0.98 && settled) {
             return
           }
@@ -654,13 +596,11 @@ export const LibraryPlayingWaveBorder = memo(
 
           const { w, h, rx, ry } = sizeRef.current
           if (w > 0 && h > 0) {
-            // 暂停且已到位：完全不改 path/opacity，末帧定格
             if (live && !isPlaying && presence > 0.98) {
               settled = true
             } else {
               let raw: number[]
               if (reducedMotion) {
-                // 静态柔环，不读频谱、不流动
                 const level = live ? 0.32 : 0.12 * presence
                 raw = [
                   level,
@@ -674,16 +614,13 @@ export const LibraryPlayingWaveBorder = memo(
                 ]
               } else if (isPlaying) {
                 raw = audioManager.getSpectrumBands()
-                // 缓存末帧，供暂停冻结 / 退场残留
                 for (let i = 0; i < 8; i++) {
                   residualBandsRef.current[i] =
                     raw[i] ?? residualBandsRef.current[i]
                 }
               } else if (live) {
-                // 暂停：沿用残留频谱，不衰减、不流动
                 raw = residualBandsRef.current
               } else {
-                // 换歌退场：残留频谱缓衰减，保持环形态再收
                 const decay = Math.exp(-2.8 * dt)
                 for (let i = 0; i < 8; i++) {
                   residualBandsRef.current[i] *= decay
@@ -695,7 +632,6 @@ export const LibraryPlayingWaveBorder = memo(
 
               let energy = 0
               let flux = 0
-              // 播放轻平滑；暂停冻结用粘滞；退场更黏
               const bandLag = isPlaying ? 0.55 : live ? 0.92 : 0.82
               for (let i = 0; i < 8; i++) {
                 const v = raw[i] ?? 0
@@ -706,7 +642,6 @@ export const LibraryPlayingWaveBorder = memo(
               }
               energy /= 8
               flux = Math.min(1.2, flux * 0.65)
-              // 出场 kick 补一点假能量，频谱还没上来时也有光
               if (isPlaying && kick > 0.02) {
                 energy = Math.min(1.15, energy + kick * 0.42)
                 flux = Math.min(1.2, flux + kick * 0.25)
@@ -727,13 +662,11 @@ export const LibraryPlayingWaveBorder = memo(
                 onsetRaw + (isPlaying ? kick * 0.55 : 0),
               )
 
-              // 仅播放时推进相位 / 峰漂移；暂停完全冻结形态
               const motion = isPlaying ? presence : 0
               if (isPlaying) {
                 timeAccRef.current += dt
               }
 
-              // 相位速度：跟能量/高频/flux 强绑定
               const speedTarget =
                 0.035 +
                 bass * 0.04 +
@@ -752,7 +685,6 @@ export const LibraryPlayingWaveBorder = memo(
               noisePhaseRef.current +=
                 (noiseSpeedRef.current + treble * 0.05 + flux * 0.04) * motion
 
-              // 随机偏置：仅播放时游走
               if (isPlaying) {
                 hBias1Ref.current = ouStep(
                   hBias1Ref.current,
@@ -799,7 +731,6 @@ export const LibraryPlayingWaveBorder = memo(
                   Math.min(0.7, wBias2Ref.current),
                 )
 
-                // 峰速：频谱推 + 随机游走（可见漂移）
                 v1Ref.current = ouStep(
                   v1Ref.current,
                   (smooth[1] - smooth[4]) * 0.004,
@@ -831,7 +762,6 @@ export const LibraryPlayingWaveBorder = memo(
                   onset * 0.005) *
                 motion
 
-              // 频谱重心吸引：峰1偏低频能量位置，峰2偏高频
               if (isPlaying) {
                 const bassFocus =
                   (0 * smooth[0] +
@@ -845,7 +775,6 @@ export const LibraryPlayingWaveBorder = memo(
                     0.85 * smooth[6] +
                     1.0 * smooth[7]) /
                   Math.max(0.08, smooth[4] + smooth[5] + smooth[6] + smooth[7])
-                // 映射到周长，并加相位，避免钉死在固定边
                 const spin = (wavePhaseRef.current * 0.02) % 1
                 anchor1Ref.current =
                   (bassFocus * 0.35 + spin + hBias1Ref.current * 0.08 + 1) % 1
@@ -878,7 +807,6 @@ export const LibraryPlayingWaveBorder = memo(
                   peak2TRef.current = (peak2TRef.current + push + 1) % 1
                 }
 
-                // 强 onset / 定时：猛推随机态（仍平滑到目标）
                 if (
                   presence > 0.45 &&
                   (timeAccRef.current >= nextReseedAtRef.current ||
@@ -903,7 +831,6 @@ export const LibraryPlayingWaveBorder = memo(
                     (1 - onset) * 1.2
                 }
 
-                // 峰高：可很低可很高 — 频谱主导 + 大随机偏置
                 const h1Target = Math.max(
                   0.08,
                   0.2 +
@@ -924,7 +851,6 @@ export const LibraryPlayingWaveBorder = memo(
                     hBias2Ref.current +
                     kick * 0.4,
                 )
-                // 较快追上频谱
                 peak1HRef.current = lerp(peak1HRef.current, h1Target, 0.14)
                 peak2HRef.current = lerp(peak2HRef.current, h2Target, 0.15)
                 const w1Target = Math.max(
@@ -978,8 +904,6 @@ export const LibraryPlayingWaveBorder = memo(
               softRef.current?.setAttribute('d', d)
               midRef.current?.setAttribute('d', d)
 
-              // 线宽/透明度：出场 kick 更亮更厚；退场跟 opacityPresence 先灭
-              // 暂停：保持当前 body/opacity，不向 0 收敛
               const bodyTarget = isPlaying
                 ? (energy * 0.5 +
                     bass * 0.25 +
@@ -1046,10 +970,9 @@ export const LibraryPlayingWaveBorder = memo(
               if (live && !isPlaying && presence > 0.98) {
                 settled = true
               }
-            } // end non-frozen draw
+            }
           }
         }
-        // 冻结 / reduced 静环已静定则停环；否则续帧
         if (!(
           settled &&
           activeRef.current &&

@@ -42,7 +42,7 @@ pub async fn list_reports(
     let user_id = claims.sub.parse::<i32>().map_err(|_| {
         (
             StatusCode::UNAUTHORIZED,
-            Json(json!({ "error": "Invalid user" })),
+            Json(AppError::public_json("Invalid user")),
         )
     })?;
 
@@ -88,6 +88,7 @@ pub async fn get_runtime_report(
             ReportCatalogError::Database => {
                 let (status, Json(mut body)) = catalog_http_error(err);
                 body["error"] = json!("Failed to fetch report");
+                body["code"] = json!("fetch_failed");
                 (status, Json(body))
             }
             other => catalog_http_error(other),
@@ -110,6 +111,7 @@ pub async fn get_runtime_platform_report(
             ReportCatalogError::Database => {
                 let (status, Json(mut body)) = catalog_http_error(err);
                 body["error"] = json!("Failed to fetch report");
+                body["code"] = json!("fetch_failed");
                 (status, Json(body))
             }
             other => catalog_http_error(other),
@@ -342,3 +344,4 @@ pub async fn delete_tapp_report(
         .map_err(crud_http_error)?;
     Ok(Json(json!({ "success": true, "deleted": report_id })))
 }
+use myriad_error::AppError;

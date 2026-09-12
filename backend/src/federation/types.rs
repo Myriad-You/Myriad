@@ -4,23 +4,21 @@
 //!
 //! ## 关于本文件的 allow(dead_code)
 //!
-//! 本文件里约十来个结构/枚举没有构造点：入站 handler 从 `serde_json::Value`
-//! 里逐个字符串挖字段，出站用 `json!` 直接拼——两边都不经过这些类型。
+//! 不少结构没有构造点：入站常从 `serde_json::Value` 挖字段，不少出站用 `json!`。
+//! 已接线的包括 `ChannelType` / `ChannelTransport`、`Actor`、`OrderedCollectionPage`、
+//! `NodeInfo`、`Activity`。
 //!
 //! **不要机械地把它们接到 handler 上**：抽查发现它们与真实线上格式已经对不上，
 //! 例如 `ChannelOpenObject` 缺了出站实际会发的 `id`（channel/crud.rs 的
-//! ChannelOpen 构造点），而已删掉的 `SyncDataRequest` 带着一个从没发过的
-//! `origin_peer`、却少了 handler 真正要读的 `ring` / `ringType`。按现状接上去
-//! 会丢字段或拒收当前能收的消息。
+//! ChannelOpen 构造点）。按现状接上去会丢字段或拒收当前能收的消息。
 //!
-//! 已经接上的：`ChannelType` / `ChannelTransport` 的 serde 表示就是频道创建
-//! 校验的取值表（见本文件测试 `channel_enums_serialize_to_the_mfp_wire_values`）。
-//! 其余每一个都需要先按各自的线上站点核对字段，再决定是补齐还是当废稿删掉。
+//! `ChannelType` / `ChannelTransport` 的 serde 就是频道创建校验表
+//! （测试 `channel_enums_serialize_to_the_mfp_wire_values`）。其余先按线上核对。
 #![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 
-// ActivityPub 标准上下文
+// JSON-LD 上下文
 
 /// ActivityStreams 2.0 标准上下文 URL
 pub const AS_CONTEXT: &str = "https://www.w3.org/ns/activitystreams";
@@ -59,11 +57,7 @@ pub struct Actor {
     pub icon: Option<MediaObject>,
     pub image: Option<MediaObject>,
 
-    /// `endpoints.sharedInbox` —— 实例级共享收件箱。
-    ///
-    /// 实例一直在 `POST /inbox` 上提供共享收件箱，却从不在 Actor 文档里声明它，
-    /// 于是远端只会逐个 Actor 投递（同一条公开活动有多少本地粉丝就投多少次），
-    /// 共享收件箱的去重收益完全拿不到。
+    /// `endpoints.sharedInbox` —— 实例级共享收件箱 `{base}/inbox`。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub endpoints: Option<ActorEndpoints>,
 
@@ -133,7 +127,7 @@ pub struct TappCapability {
     pub channel_types: Option<Vec<String>>,
 }
 
-// Activity 相关类型
+// Activity / Collection
 
 /// ActivityPub Activity（通用）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -151,7 +145,7 @@ pub struct Activity {
     pub published: Option<String>,
     /// 可以是内嵌对象，也可以是 URL 字符串
     pub object: serde_json::Value,
-    /// 某些 Activity 需要 target（如 Add）
+    /// Move 等用 target；Accept 构造里为 `None`
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<serde_json::Value>,
 }
@@ -344,7 +338,7 @@ pub struct ChannelProperties {
     pub stream_types: Option<Vec<String>>,
 }
 
-/// MFP ChannelOpen Activity（myriad:ChannelOpen）
+/// ChannelOpen.object（`myriad:Channel`）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChannelOpenObject {
     #[serde(rename = "type")]
@@ -462,7 +456,7 @@ impl TrustLevel {
 
 // 联邦内容发布可见性
 
-/// 内容发布可见性
+/// 本文件枚举含 `Mentioned`。发布路径用 `audience::Visibility` 三值（`mentioned` 收成 Direct）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Visibility {
@@ -472,7 +466,7 @@ pub enum Visibility {
     Direct,
 }
 
-/// 内容类型（本地内容 → 联邦发布的映射）
+/// 本文件枚举。线上 `ap_object` 分支是 note / report / brew-article / tapp / library。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum FederatedContentType {
@@ -636,7 +630,7 @@ pub fn same_activity_id(left: &str, right: &str) -> bool {
 }
 
 /// Normalize an HTTP Signature `keyId` URL: host case, trailing slash on path,
-/// **preserve fragment** (`#main-key`). Actor URL normalization drops fragments.
+/// drop query, **preserve fragment** (`#main-key`). Actor URL normalization drops fragments.
 ///
 /// Also tolerates common peer quirks that otherwise cause permanent 401s:
 /// - scheme-less host/path (`example.com/users/a#main-key` → assume `https://`)
@@ -673,9 +667,6 @@ pub fn normalize_key_id(raw: &str) -> String {
     trimmed.trim_end_matches('/').to_string()
 }
 
-/// Compare Signature keyId values (host case / trailing slash / fragment).
-///
-/// Empty / whitespace-only inputs never match.
 /// 某个存储的 keyId 是否归属于给定的 serve base。
 ///
 /// 用规范化后的**前缀**判断，而不是 `contains`。`stored.contains(base)` 会把
@@ -699,6 +690,8 @@ pub fn key_id_belongs_to_base(stored_kid: &str, base_url: &str) -> bool {
         || stored.starts_with(&format!("{}#", base))
 }
 
+/// Compare Signature keyId values (host case / trailing slash / fragment).
+/// Empty / whitespace-only inputs never match.
 pub fn same_key_id(left: &str, right: &str) -> bool {
     let l = normalize_key_id(left);
     let r = normalize_key_id(right);
@@ -799,7 +792,7 @@ pub fn db_err(e: sea_orm::DbErr) -> (axum::http::StatusCode, axum::Json<serde_js
 ///
 /// When `MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND=1`, loopback/private targets are
 /// allowed after scheme validation so local dual-instance federation labs work.
-/// Production must leave that env unset.
+/// 生产里 `federation_lab_private_outbound_enabled()` 仍返回 false（即使设了该 env）。
 pub fn is_internal_url(url_str: &str) -> bool {
     let parsed = match url::Url::parse(url_str) {
         Ok(u) => u,
@@ -1311,7 +1304,7 @@ mod tests {
     #[test]
     fn build_ap_context_is_activitystreams_only() {
         let ctx = build_ap_context();
-        // AP-only context is a string or single-element list
+        // `build_ap_context` is `[AS_CONTEXT, SECURITY_CONTEXT]`
         if let Some(s) = ctx.as_str() {
             assert!(s.contains("activitystreams"));
         } else if let Some(arr) = ctx.as_array() {
@@ -1348,7 +1341,7 @@ mod tests {
 
     #[test]
     fn same_actor_url_ignores_default_https_port_if_present() {
-        // Explicit :443 is uncommon; if parser keeps it, host identity still holds via normalize.
+        // Host case and trailing slash still match.
         let a = "https://a.example/users/alice";
         let b = "https://A.Example/users/alice/";
         assert!(same_actor_url(a, b));
@@ -1489,8 +1482,8 @@ mod tests {
         assert_eq!(inbox_url(base, "u"), "https://a.example/users/u/inbox");
     }
 
-    /// 频道创建校验现在直接反序列化这两个枚举（channel/crud.rs），
-    /// 所以它们的 serde 表示就是 MFP 的线上取值表——钉死，改名即改协议。
+    /// 频道创建校验直接反序列化这两个枚举（channel/crud.rs），
+    /// 它们的 serde 表示就是 MFP 的线上取值表——钉死，改名即改协议。
     #[test]
     fn channel_enums_serialize_to_the_mfp_wire_values() {
         use serde_json::json;

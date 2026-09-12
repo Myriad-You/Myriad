@@ -1,36 +1,11 @@
-/* ==========================================
-   全局控制面板样式 - Apple 风格智能岛
-   单一容器 + JS 控制状态
-
-   Host chrome z-ladder（与 TappRunPage 对齐）:
-   - App 内容 / TApp shell: 远低于 998（main z-10 内，TApp shell ~40）
-   - NavigationIsland: 50
-   - TApp 全屏工具栏: 900（< overlay，避免与 GCP 同级）
-   - GCP overlay: 998
-   - GCP bar / 展开面板: 9999
-   - Widget library dock (body portal): 10000
-   - Widget drag ghost (body portal): 10001
-   - Tour overlay / card: 10040 / 10041
-   - Toast / login modal: 10050 / 10051
-   ========================================== */
-
-/* ==========================================
-   1. 容器与定位
-   ========================================== */
-
 .global-control-bar {
   position: fixed;
   top: 1rem;
   right: 1rem;
-  z-index: 9999; /* host chrome 顶层：高于 overlay(998) 与 TApp 工具栏(900) */
+  z-index: 9999;
   pointer-events: none;
 }
 
-/*
- * 移动端 WebKit/Chrome：全屏 fixed iframe 即使 z-index 更低也可能抢 hit-test。
- * 面板展开时（html.gcp-panel-open）关闭 TApp 运行壳指针事件，保证遮罩/面板可点。
- * 不改 opacity/transform，避免破坏既有触摸/合成层修复。
- */
 html.gcp-panel-open [data-tapp-run-shell] {
   pointer-events: none !important;
 }
@@ -38,10 +13,6 @@ html.gcp-panel-open [data-tapp-run-shell] {
 .control-bar-content {
   pointer-events: auto;
 }
-
-/* ==========================================
-   2. 智能岛容�?
-   ========================================== */
 
 .control-bar-trigger {
   position: relative;
@@ -57,25 +28,12 @@ html.gcp-panel-open [data-tapp-run-shell] {
   cursor: pointer;
   transform-origin: top right;
   overflow: hidden;
-
-  /* 默认收缩状态 */
   flex-direction: row;
   justify-content: flex-start;
   width: 160px;
   height: 3rem;
   border-radius: 2rem;
-
-  /* padding 全程保持展开终值，不参与 morph：
-     收缩态唯一的可见内容 .dynamic-content-wrapper 是绝对定位
-     （相对 padding box 定位，padding 改变不影响它），展开态内容宽度固定，
-     因此收缩态的 padding 不产生任何视觉差异 —— 少一个每帧触发布局的属性。
-     改回逐帧过渡 padding 前请先确认这两个前提仍然成立 */
   padding: 1.125rem 1.375rem;
-
-  /* 形变动画 - Apple 标准曲线。
-     时长由 --gcp-morph 下发（见 ControlPanel/panelTransition.ts 的档位表），
-     展开/收缩内容的 delay 与 duration 都按同一变量的比例计算，
-     两条时间线不会因为改时长而错位 */
   transition:
     width var(--gcp-morph, 700ms) cubic-bezier(0.32, 0.72, 0, 1),
     height var(--gcp-morph, 700ms) cubic-bezier(0.32, 0.72, 0, 1),
@@ -85,16 +43,10 @@ html.gcp-panel-open [data-tapp-run-shell] {
     border-color 0.25s ease,
     box-shadow 0.35s ease;
 
-  /* 固定为独立合成层，避免尺寸 morph 时整岛重绘；
-   * 注意 width/height/padding 等布局属性不适用 will-change（非合成属性，纯开销） */
+  /* width/height/padding 不要 will-change。 */
   transform: translateZ(0);
 }
 
-/*
- * 岛上模糊按档位常开/常关，不在 morph 期间临时开关。
- * light：关掉本岛硬编码 blur（performance.css 的 light 只清 Tailwind 工具类）。
- * exlight：performance.css 已全局 backdrop-filter:none，这里写明以免只看本文件漏掉。
- */
 html[data-perf-mode='light'] .control-bar-trigger,
 html[data-perf-mode='exlight'] .control-bar-trigger {
   /* stylelint-disable-next-line property-no-vendor-prefix -- Safari < 16.4 */
@@ -102,8 +54,6 @@ html[data-perf-mode='exlight'] .control-bar-trigger {
   backdrop-filter: none;
 }
 
-/* 非空间档位（reduced-motion / 最低档）：外壳直接换形，只保留一次短促的
-   opacity 交接。同一状态机、同一 DOM，只换 transition profile */
 .control-bar-trigger.gcp-no-morph {
   transition:
     background 0.25s ease,
@@ -111,19 +61,9 @@ html[data-perf-mode='exlight'] .control-bar-trigger {
     box-shadow 0.25s ease;
 }
 
-/*
- * 悬停/按下缩放：仅闲置收缩态。
- * 必须排除 .gcp-animating：点右上角关闭时手指仍按在岛内，
- * 收起当帧 .expanded 摘掉后若仍匹配 :active，会套上 scale(0.96)
- * 与 width/height 收起动画抢 transform，Android 上表现为关闭动画错误；
- * 点遮罩关闭时手指不在岛上，不会踩这条路径。
- */
+/* 必须排除 .gcp-animating：收起当帧若仍 :active 会抢 transform。 */
 
-/* 必须限定 hover: hover —— 安卓 Chrome 上触摸后 :hover 会粘滞在元素上，
-   直到点击别处才清除。收起动画期间 .gcp-animating 挡住了这条分支，
-   但 morph 结束摘掉该类的瞬间粘滞的 hover 立刻生效，岛会自己再涨一下；
-   点遮罩关闭时手指不在岛上则没有这条尾巴 —— 两条关闭路径观感因此不一致。
-   :active 不加限定：触屏上按下反馈是正常的，且已被 .gcp-animating 排除 */
+/* hover 能力媒体查询；避免触屏粘滞 :hover。 */
 @media (hover: hover) {
   .control-bar-trigger:not(.expanded, .gcp-animating):hover {
     background: var(--chrome-sheen), var(--chrome-fill-hover);
@@ -140,13 +80,10 @@ html[data-perf-mode='exlight'] .control-bar-trigger {
   transition: transform 0.1s cubic-bezier(0.4, 0, 1, 1);
 }
 
-/* 展开状�? */
 .control-bar-trigger.expanded {
   flex-direction: column;
   align-items: stretch;
   width: 400px;
-
-  /* 高度通过 JS 动态设置；padding 见基础规则（全程保持此终值，不参与 morph） */
   border-radius: 1.5rem;
   box-shadow:
     var(--chrome-shine),
@@ -155,11 +92,6 @@ html[data-perf-mode='exlight'] .control-bar-trigger {
   cursor: default;
 }
 
-/* ==========================================
-   3. 动态内容层
-   ========================================== */
-
-/* 动态内容 - 收缩时显示 */
 .dynamic-content-wrapper {
   display: flex;
   align-items: center;
@@ -167,9 +99,7 @@ html[data-perf-mode='exlight'] .control-bar-trigger {
   position: absolute;
   top: 50%;
 
-  /* 右缘锚定 + 固定宽度 = 收缩终值（160px 外壳 - 2px 边框 - 左右各 0.875rem）。
-     不再用 left/right 双向锚定：那会让宽度跟着外壳 morph 逐帧变化，
-     每帧重排图标/文本，并让跑马灯的溢出测量在动画中途失真 */
+  /* 不要 left/right 双向锚定，宽度会跟外壳 morph 逐帧重排。 */
   right: 0.875rem;
   width: calc(160px - 2px - 1.75rem);
   transform: translateY(-50%);
@@ -185,14 +115,9 @@ html[data-perf-mode='exlight'] .control-bar-trigger {
 .dynamic-content-wrapper.hidden {
   opacity: 0;
   pointer-events: none;
-
-  /* 柔和的淡出效果 - 使用 ease-in 曲线，从慢到快 */
   transition: opacity 0.3s cubic-bezier(0.4, 0, 1, 1);
 }
 
-/* 收起阶段：收缩内容在外壳缩到大半时接手淡入，与 morph 共用同一条时间线。
-   延迟按 --gcp-morph 比例计算，不是写死的毫秒数，改档位不会错位。
-   只作用于收起相位，轮播换页的淡入不受影响 */
 .control-bar-trigger.gcp-closing .dynamic-content-wrapper {
   transition-delay: calc(var(--gcp-morph, 700ms) * 0.35);
 }
@@ -202,7 +127,6 @@ html[data-perf-mode='exlight'] .control-bar-trigger {
   transition-duration: var(--gcp-morph, 120ms);
 }
 
-/* 无内容时的居中样�? */
 .dynamic-content-wrapper.empty-state {
   justify-content: center;
 }
@@ -242,9 +166,7 @@ html[data-perf-mode='exlight'] .control-bar-trigger {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  max-width: calc(100% - 3rem); /* 预留图标和箭头空�? */
-
-  /* 固定高度�?行，用于裁剪溢出内容 */
+  max-width: calc(100% - 3rem);
   max-height: 2.2rem;
 }
 
@@ -252,32 +174,24 @@ html[data-perf-mode='exlight'] .control-bar-trigger {
   font-size: 0.8125rem;
   font-weight: 600;
   color: var(--text-primary, #1f2937);
-
-  /* 允许换行 */
   white-space: normal;
   overflow-wrap: anywhere;
   max-width: 100%;
   line-height: 1.3;
-
-  /* 歌词切换时的淡入淡出效果 - 更柔和 */
   transition:
     color 0.3s ease,
     opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   opacity: 1;
 
-  /* 性能优化 - 隔离布局计算
-     注：will-change/translateZ 仅在 .scrolling 滚动期间挂载，
-     避免静止文本常驻合成层 */
+  /* will-change/translateZ 只在 .scrolling 时挂，避免静止文本常驻合成层。 */
   contain: layout style paint;
 }
 
-/* 歌词切换时的淡出效果 - 通过 JS 添加此类 */
 .dynamic-text-main.lyric-transition {
   opacity: 0;
   transition: opacity 0.15s cubic-bezier(0.4, 0, 1, 1);
 }
 
-/* 超过2行时启用垂直滚动动画 */
 .dynamic-text-main.scrolling {
   animation: text-scroll-vertical var(--scroll-duration, 12s) linear forwards;
   animation-delay: var(--scroll-delay, 1.5s);
@@ -295,7 +209,7 @@ html[data-perf-mode='exlight'] .control-bar-trigger {
   }
 }
 
-/* 悬停时暂停滚动。限定 hover: hover：触屏上粘滞的 hover 会让跑马灯一直停住 */
+/* hover 能力媒体查询；触屏粘滞 hover 会让跑马灯停住。 */
 @media (hover: hover) {
   .control-bar-trigger:hover .dynamic-text-main.scrolling {
     animation-play-state: paused;
@@ -384,33 +298,22 @@ html.dark .dynamic-text-sub {
   transform: translateY(3px) scale(1.05);
 }
 
-/* 控制面板内容 - 展开时显�? */
 .expanded-panel-content {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
 
-  /* 宽度固定为展开终值（400px 容器 - 2×1.375rem 内边距），
-     而非跟随容器动画的 100%：morph 期间内容不再逐帧重排，
-     容器只是揭示（clip）已布局好的内容。
-     右缘锚定（align-self: flex-end）— 容器右缘在屏幕上是固定的，
-     内容因此在 morph 期间保持静止 */
+  /* 内容宽钉在展开终值，不要 100% 跟随容器 morph。 */
   width: 356px;
   align-self: flex-end;
 
-  /* 禁止 flex 压缩：无论收缩态（row 主轴=宽）还是展开态（column 主轴=高），
-     容器尺寸动画都不得挤压内容触发重排，超出部分由 overflow: hidden 裁剪 */
+  /* 禁止 flex 压缩，尺寸动画不得挤内容重排。 */
   flex-shrink: 0;
-
-  /* 内容布局与容器尺寸动画彻底隔离 */
   contain: layout style;
   opacity: 0;
   transform: scale(0.96);
 
-  /* visibility 延迟到淡出结束后再翻转为 hidden：
-   * 收起时 .expanded 与 .visible 同帧移除，若 visibility 立即生效，
-   * opacity 淡出完全不可见（退出动画丢失的根因之一）。
-   * 时长按 --gcp-morph 比例取（0.36/0.43 ≈ 标准档的 0.25s/0.3s） */
+  /* visibility 等到淡出后再 hidden；与 .expanded 同帧摘掉会让 opacity 淡出不可见。 */
   transition:
     opacity calc(var(--gcp-morph, 700ms) * 0.36) ease-in,
     transform calc(var(--gcp-morph, 700ms) * 0.43) ease-in,
@@ -423,17 +326,10 @@ html.dark .dynamic-text-sub {
   visibility: visible;
 }
 
-/* 折叠闲置态跳过隐藏面板的样式/布局/绘制。
-   排除 .gcp-animating（收起动画进行中）：保证 0.25s 淡出仍可见，
-   动画结束（gcp-animation-end 摘类）后才整体跳过渲染 */
 .control-bar-trigger:not(.expanded, .gcp-animating) .expanded-panel-content {
   content-visibility: hidden;
 }
 
-/* 展开内容与外壳同一帧开始参与渲染，靠 transition-delay 在 morph 露出足够
-   面积后接手淡入（标准档 ≈ 210ms 起、350ms 完成）。
-   旧实现用固定 400ms 定时器再 setState，掉帧或改时长都会错位，
-   并且必然先出现一段空壳 —— 这里的 delay/duration 全部由 --gcp-morph 派生 */
 .expanded-panel-content.visible {
   opacity: 1;
   transform: scale(1);
@@ -447,7 +343,6 @@ html.dark .dynamic-text-sub {
     visibility 0s;
 }
 
-/* 非空间档位：不做缩放，只留一次短促淡入淡出 */
 .control-bar-trigger.gcp-no-morph .expanded-panel-content {
   transform: none;
   transition:
@@ -462,10 +357,6 @@ html.dark .dynamic-text-sub {
     visibility 0s;
 }
 
-/* ==========================================
-   4. 面板头部
-   ========================================== */
-
 .control-panel-header {
   display: flex;
   align-items: center;
@@ -473,7 +364,6 @@ html.dark .dynamic-text-sub {
   padding-bottom: 0.125rem;
 }
 
-/* Tapp 商店返回钮的观感：白玻璃圆 + 色散细环 + 顶侧高光 */
 .control-close-btn {
   position: relative;
   isolation: isolate;
@@ -588,10 +478,6 @@ html.dark .control-close-btn {
   transition-duration: 90ms;
 }
 
-/* ==========================================
-   5. 信息卡片
-   ========================================== */
-
 .info-card-wrapper {
   position: relative;
 }
@@ -630,7 +516,7 @@ html.dark .info-card {
   border-color: var(--chrome-inner-stroke);
 }
 
-/* 限定 hover: hover：触屏点按后 :hover 会粘滞，会让某个控制项一直停在悬停态 */
+/* hover 能力媒体查询；避免触屏粘滞 :hover。 */
 @media (hover: hover) {
   .info-card:hover {
     background: var(--chrome-inner-hover);
@@ -667,20 +553,12 @@ html.dark .info-card-title {
   color: rgb(255 255 255 / 60%);
 }
 
-/* ==========================================
-   7. 控制项网�?
-   ========================================== */
-
 .control-items-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 0.625rem;
   contain: layout;
 }
-
-/* ==========================================
-   8. 控制�?
-   ========================================== */
 
 .control-item {
   display: flex;
@@ -708,7 +586,7 @@ html.dark .control-item {
   border-color: var(--chrome-inner-stroke);
 }
 
-/* 限定 hover: hover：触屏点按后 :hover 会粘滞，会让某个控制项一直停在悬停态 */
+/* hover 能力媒体查询；避免触屏粘滞 :hover。 */
 @media (hover: hover) {
   .control-item:hover {
     background: var(--chrome-inner-hover);
@@ -846,10 +724,6 @@ html.dark .icon-theme {
   font-size: 0.625rem;
 }
 
-/* ==========================================
-   9. 切换开关和操作按钮
-   ========================================== */
-
 .control-toggle {
   position: relative;
   width: 3rem;
@@ -875,7 +749,7 @@ html.dark .icon-theme {
   min-height: 1.375rem;
 }
 
-/* 限定 hover: hover：触屏点按后 :hover 会粘滞，会让某个控制项一直停在悬停态 */
+/* hover 能力媒体查询；避免触屏粘滞 :hover。 */
 @media (hover: hover) {
   .control-toggle:hover {
     background: color-mix(in srgb, var(--text-tertiary) 68%, transparent);
@@ -944,7 +818,6 @@ html.dark .control-toggle-slider {
   transform: translateX(18px);
 }
 
-/* 语言切换按钮 */
 .language-switch-btn {
   display: flex;
   align-items: center;
@@ -977,7 +850,7 @@ html.dark .language-switch-btn {
   color: #ebebf0;
 }
 
-/* 限定 hover: hover：触屏点按后 :hover 会粘滞，会让某个控制项一直停在悬停态 */
+/* hover 能力媒体查询；避免触屏粘滞 :hover。 */
 @media (hover: hover) {
   .language-switch-btn:hover {
     color: #1d1d1f;
@@ -1055,7 +928,7 @@ html.dark .control-action-btn {
   height: 1rem;
 }
 
-/* 限定 hover: hover：触屏点按后 :hover 会粘滞，会让某个控制项一直停在悬停态 */
+/* hover 能力媒体查询；避免触屏粘滞 :hover。 */
 @media (hover: hover) {
   .control-action-btn:hover {
     color: #1d1d1f;
@@ -1078,14 +951,6 @@ html.dark .control-action-btn {
   transform: scale(0.95);
 }
 
-/* ==========================================
-   10. 账户信息
-   ========================================== */
-
-/* ==========================================
-   11. 遮罩�?
-   ========================================== */
-
 .control-panel-overlay {
   position: fixed;
   inset: 0;
@@ -1099,14 +964,9 @@ html.dark .control-action-btn {
   visibility: visible;
 }
 
-/* Widget-grid edit: Stage Manager owns page clicks; no dim overlay. */
 html.gcp-widget-edit .control-panel-overlay.visible {
   pointer-events: none;
 }
-
-/* ==========================================
-   12. 移动端适配
-   ========================================== */
 
 @media (width <= 640px) {
   .global-control-bar {
@@ -1118,9 +978,6 @@ html.gcp-widget-edit .control-panel-overlay.visible {
     width: calc(100vw - 1.5rem);
   }
 
-  /* 展开终值宽度 = (100vw - 1.5rem) 容器 - 2×1.375rem 内边距。
-     注意 .expanded 的 padding(1.375rem) 特异性高于本媒体块的
-     .control-bar-trigger(1rem)，实际生效的是 1.375rem */
   .expanded-panel-content {
     width: calc(100vw - 4.25rem);
     max-width: 100%;
@@ -1133,7 +990,6 @@ html.gcp-widget-edit .control-panel-overlay.visible {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  /* 控制项移动端适配 - 防止塌陷 */
   .control-item {
     padding: 0.625rem 0.75rem;
     min-height: 3.5rem;
@@ -1269,7 +1125,6 @@ html.gcp-widget-edit .control-panel-overlay.visible {
     height: 1rem;
   }
 
-  /* 用户信息按钮移动端适配 */
   .user-info-button {
     padding: 0.5rem 0.625rem;
     max-width: calc(100% - 2.5rem);
@@ -1289,11 +1144,6 @@ html.gcp-widget-edit .control-panel-overlay.visible {
   }
 }
 
-/* ==========================================
-   通知中心（智能岛集成）
-   ========================================== */
-
-/* 收缩态未读计数徽标：占据下箭头的位置（替换展示） */
 .dynamic-arrow-badge {
   display: inline-flex;
   align-items: center;
@@ -1309,8 +1159,6 @@ html.gcp-widget-edit .control-panel-overlay.visible {
   line-height: 1;
   flex-shrink: 0;
   box-shadow: 0 1px 3px rgb(0 0 0 / 25%);
-
-  /* 与 .dynamic-arrow 相同的悬停动效节奏 */
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -1326,7 +1174,6 @@ html.gcp-widget-edit .control-panel-overlay.visible {
   transform: scale(1.05);
 }
 
-/* 面板内 tab：设置页 choice-segmented 的 inset 轨 + 凸起滑块 */
 .notif-tab-bar {
   position: relative;
   display: grid;
@@ -1467,7 +1314,6 @@ html.dark .notif-tab.active {
   }
 }
 
-/* 面板内容区：控制内容定义高度，通知覆盖层跟随 */
 .notif-panel-body {
   position: relative;
   display: flex;
@@ -1478,8 +1324,6 @@ html.dark .notif-tab.active {
   max-width: 100%;
 }
 
-/* 控制面板内容：保持原有 flex 纵向布局与间距；
-   min-width:0 让子项（含音乐播放器时间轴）在窄屏可收缩 */
 .notif-control-content {
   display: flex;
   flex-direction: column;
@@ -1490,20 +1334,13 @@ html.dark .notif-tab.active {
   transition: opacity var(--gcp-tab, 180ms) ease;
 }
 
-/* 切到通知 tab 时隐藏但保留布局（懒加载项出现仍可触发高度重测）。
-   必须用容器级 opacity 而非 visibility：visibility 会继承给子元素，
-   且作为离散可过渡属性会被子元素各自的 transition: all（0.2s/0.3s
-   不等）拖延到各自时长结束才消失——表现为元素一个个错峰退场。
-   opacity 不继承、只在容器层合成，整块作为一个表面一起进出 */
+/* 用容器 opacity 不要 visibility：会继承且被子元素 transition:all 错峰拖死。 */
 .notif-control-content.inactive {
   opacity: 0;
   pointer-events: none;
 }
 
-/* 通知覆盖层：完全跟随控制面板内容的尺寸。
-   两个表面共用容器与稳定高度，用一次同步的交叉淡入换页：
-   旧表面淡完才 visibility:hidden（不卸载 → 不触发外壳重新 morph），
-   也不会出现「先空一下再逐个出现」的硬切 */
+/* 两表面交叉淡入；旧表面淡完才 visibility:hidden，不卸载以免外壳再 morph。 */
 .notif-overlay {
   position: absolute;
   inset: 0;
@@ -1527,10 +1364,7 @@ html.dark .notif-tab.active {
     visibility 0s;
 }
 
-/* 通知列表是懒挂载的：首次切过去时元素带着 .active 直接插入 DOM，
-   没有前一帧的计算值就不会产生过渡，表现为控制面板淡出、通知硬切进来。
-   @starting-style 给出插入前的初始值，让首次进入与之后的往返一样是交叉淡入
-   （不用 rAF/定时器补一帧，避免再引入一条独立时间线） */
+/* 通知首次插入就带 .active，没有前一帧就没有过渡，会硬切。 */
 @starting-style {
   .notif-overlay.active {
     opacity: 0;

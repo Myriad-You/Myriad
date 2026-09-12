@@ -305,7 +305,7 @@ fn parse_room_stickers_rejects_oversized() {
     let list = parse_room_stickers(&shared);
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].id, "stk_ok");
-    let _ = big; // silence unused if compiler optimizes
+    let _ = big; // unused_variables: `big` is only constructed, not asserted.
 }
 
 #[test]
@@ -374,7 +374,7 @@ fn room_join_allows_invitee_accepting() {
 
 #[test]
 fn room_join_allows_open_and_public_self_join() {
-    // join_public_room gate is `invite_policy == "open" || is_public`.
+    // `room_join_authorized`: open invite_policy or is_public.
     assert!(join_auth(|a| a.invite_policy = "open"));
     assert!(join_auth(|a| a.room_is_public = true));
 }
@@ -388,7 +388,7 @@ fn room_join_roster_announce_requires_invite_rights() {
         a.is_self_join = false;
         a.announcer_role = Some("member");
     }));
-    // ...but can under member-invite / open, matching invite_to_room.
+    // ...but can under member-invite / open, matching invite_member.
     assert!(join_auth(|a| {
         a.is_self_join = false;
         a.announcer_role = Some("member");
@@ -428,7 +428,7 @@ fn room_join_accepts_home_roster_backfill() {
 
 #[test]
 fn room_join_unknown_policy_falls_back_to_admin_only() {
-    // Mirrors the `_ if !is_admin_role(..)` arm in invite_to_room.
+    // Mirrors the `_ if !is_admin_role(..)` arm in invite_member.
     assert!(!join_auth(|a| {
         a.is_self_join = false;
         a.announcer_role = Some("member");

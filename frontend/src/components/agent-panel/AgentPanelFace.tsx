@@ -1,11 +1,3 @@
-/**
- * 聊天档：输入框上面的人设形象。
- *
- * 和首页小组件同一份主立绘 / Rig。放大 2.5，裁掉底下 1/5，底边模糊收。
- * 不套小组件外壳，也不是玻璃。
- * 这块不是玻璃 —— 输入框已经是 .glass，再套一层会糊成乳白带。
- */
-
 import type { CSSProperties } from 'react'
 import type { RigCharacterHandle } from '../../features/merope/rig/RigCharacter'
 import type { MeropeRigManifest } from '../../features/merope/rig/types'
@@ -284,6 +276,7 @@ export function AgentPanelFace({
             mounted ? (
               <RigCharacter
                 ref={rigRef}
+                touchEnabled={motionReady && ready && personaOn}
                 activity={activity}
                 fallbackUrl={playableRig ? null : portraitUrl}
                 manifest={playsLive || mounted ? manifest : null}

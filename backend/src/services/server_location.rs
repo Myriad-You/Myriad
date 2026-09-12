@@ -33,6 +33,12 @@ pub struct ServerLocationAssessment {
     pub region: Option<String>,
     pub country: Option<String>,
     pub country_code: Option<String>,
+    /// Every country code observed, one per responding source, deduplicated.
+    ///
+    /// `country_code` above reports the *primary* source only. Consumers that
+    /// must not be defeated by source ordering — the federation egress gate —
+    /// read this instead, so a single dissenting source is still visible.
+    pub country_codes: Vec<String>,
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
     pub agreement_km: Option<f64>,
@@ -220,6 +226,7 @@ pub fn unavailable_assessment(app_proxy_bypassed: bool) -> ServerLocationAssessm
         region: None,
         country: None,
         country_code: None,
+        country_codes: Vec::new(),
         latitude: None,
         longitude: None,
         agreement_km: None,
@@ -249,6 +256,12 @@ fn assess_observations(
         .iter()
         .map(|observation| observation.source.to_string())
         .collect::<Vec<_>>();
+    let mut country_codes = observations
+        .iter()
+        .map(|observation| observation.country_code.to_uppercase())
+        .collect::<Vec<_>>();
+    country_codes.sort();
+    country_codes.dedup();
 
     let (status, confidence, reason, agreement_km) = if let Some(secondary) = observations.get(1) {
         let distance = distance_km(primary, secondary);
@@ -275,6 +288,7 @@ fn assess_observations(
         region: primary.region.clone(),
         country: primary.country.clone(),
         country_code: Some(primary.country_code.clone()),
+        country_codes,
         latitude: Some(primary.latitude),
         longitude: Some(primary.longitude),
         agreement_km,

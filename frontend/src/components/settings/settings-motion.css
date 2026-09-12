@@ -1,76 +1,33 @@
-/* ==========================================
-   Myriad 设置页动效系统（Settings Motion）
-
-   一处定义、全设置页消费：所有时长 / 缓动 / 位移都从这里取值，
-   组件里不再出现裸数字。降级也只改这里的令牌——
-   reduced-motion 与 exlight 直接压令牌，无需逐条规则去关。
-
-   分层：
-   1. 令牌      --sm-dur-* / --sm-ease-* / --sm-shift-* / --sm-scale-*
-   2. 语义过渡  --sm-t-*（组合好的 transition 值，组件直接 transition: var(...)）
-   3. 关键帧    sm-*（进入 / 层级推入 / 折叠 / 反馈）
-   4. 工具类    .sm-enter / .sm-pane / .sm-stagger / .sm-press …
-   5. 降级      prefers-reduced-motion + data-perf-mode='exlight'
-
-   JS 侧（framer-motion / setTimeout）取值见同目录 motion.ts，
-   两边数值必须一致。
-   ========================================== */
+/* tokens only; keep numeric values in sync with motion.ts */
 
 :root {
-  /* 时长：一次交互只在四档里选 */
-  --sm-dur-fast: 140ms; /* 悬停、按下、图标 */
-  --sm-dur-base: 220ms; /* 控件状态、下拉、开关 */
-  --sm-dur-slow: 320ms; /* 区块进入、层级推入、折叠 */
-
-  /* 缓动 */
-
-  /* 标准曲线：起步快、收尾长——Apple 设置面板的手感基准 */
+  --sm-dur-fast: 140ms;
+  --sm-dur-base: 220ms;
+  --sm-dur-slow: 320ms;
   --sm-ease-standard: cubic-bezier(0.32, 0.72, 0, 1);
-
-  /* 进入（从无到有）/ 退出（从有到无） */
   --sm-ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
   --sm-ease-exit: cubic-bezier(0.4, 0, 1, 1);
-
-  /* 层级推入 / 弹出：比标准更「有去处」 */
   --sm-ease-emphasis: cubic-bezier(0.22, 1, 0.36, 1);
-
-  /* 回弹：按下释放、收藏星、开关滑块 */
   --sm-ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
-
-  /* 位移与形变：动效幅度也统一 */
   --sm-shift-xs: 2px;
   --sm-shift-sm: 6px;
   --sm-shift-md: 12px;
   --sm-shift-lg: 1rem;
   --sm-scale-press: 0.97;
   --sm-scale-pop: 1.07;
-  --sm-lift: -1px; /* 卡片 / 行的悬停抬升 */
-  --sm-lift-strong: -4px; /* 浮动操作条这类要「离页面更远」的 */
-
-  /* 列表逐个进入的步进 */
+  --sm-lift: -1px;
+  --sm-lift-strong: -4px;
   --sm-stagger: 26ms;
-
-  /* 语义过渡：组件只写 transition: var(--sm-t-xxx) */
-
-  /* 表面填充（背景 / 边框 / 文字色）——最常见的一档 */
   --sm-t-fill:
     background-color var(--sm-dur-fast) var(--sm-ease-standard),
     border-color var(--sm-dur-fast) var(--sm-ease-standard),
     color var(--sm-dur-fast) var(--sm-ease-standard);
-
-  /* 抬升（阴影 + 位移）：卡片悬停 */
   --sm-t-elevate:
     box-shadow var(--sm-dur-base) var(--sm-ease-standard),
     transform var(--sm-dur-base) var(--sm-ease-standard),
     border-color var(--sm-dur-base) var(--sm-ease-standard);
-
-  /* 形变：按下、图标缩放、滑块位移 */
   --sm-t-transform: transform var(--sm-dur-fast) var(--sm-ease-spring);
-
-  /* 显隐 */
   --sm-t-fade: opacity var(--sm-dur-base) var(--sm-ease-standard);
-
-  /* 控件状态（开关 / 单选 / 输入框）：填充 + 形变 + 阴影一起 */
   --sm-t-control:
     background-color var(--sm-dur-base) var(--sm-ease-standard),
     border-color var(--sm-dur-base) var(--sm-ease-standard),
@@ -79,11 +36,6 @@
     transform var(--sm-dur-base) var(--sm-ease-spring);
 }
 
-/* ==========================================
-   关键帧
-   ========================================== */
-
-/* 兄弟层级切换（换分类）：淡入 + 极短上浮，不带方向 */
 @keyframes sm-enter {
   from {
     opacity: 0;
@@ -96,7 +48,6 @@
   }
 }
 
-/* 纯淡入：给已经有自己位移的容器用 */
 @keyframes sm-fade-in {
   from {
     opacity: 0;
@@ -107,7 +58,6 @@
   }
 }
 
-/* 下钻（列表 → 详情）：新页从右侧推入 */
 @keyframes sm-push-forward {
   from {
     opacity: 0;
@@ -120,7 +70,6 @@
   }
 }
 
-/* 返回（详情 → 列表）：从左侧弹回 */
 @keyframes sm-push-back {
   from {
     opacity: 0;
@@ -133,9 +82,6 @@
   }
 }
 
-/* 分类切换（侧边栏换页）：旧页先让位，新页再进场。
-   方向由 --sm-switch-dir 决定（+1 = 往列表下方走，-1 = 往上），
-   一对关键帧覆盖两个方向 */
 @keyframes sm-switch-out {
   from {
     opacity: 1;
@@ -168,7 +114,6 @@
   }
 }
 
-/* 浮层出现（下拉菜单 / 气泡）：贴着触发点长出来 */
 @keyframes sm-pop-in {
   from {
     opacity: 0;
@@ -181,7 +126,6 @@
   }
 }
 
-/* 常驻操作条 / 提示条：从底部升起 */
 @keyframes sm-rise-in {
   from {
     opacity: 0;
@@ -194,18 +138,11 @@
   }
 }
 
-/* ==========================================
-   工具类
-   ========================================== */
-
-/* 区块 / 面板进入：换分类、内容首次出现。
-   fill 用 backwards 而不是 both——both 会把 transform: translate3d(0,0,0)
-   永久留在元素上，从而成为固定定位后代（模态遮罩等）的包含块 */
+/* backwards not both: both leaves transform and becomes a containing block for fixed descendants */
 .sm-enter {
   animation: sm-enter var(--sm-dur-slow) var(--sm-ease-enter) backwards;
 }
 
-/* 层级面板：data-nav 决定推入方向，同一套时长 */
 .sm-pane {
   min-width: 0;
 }
@@ -223,8 +160,7 @@
   animation: sm-fade-in var(--sm-dur-base) var(--sm-ease-standard) backwards;
 }
 
-/* 分类切换容器：出场比进场快（旧页别赖着不走），方向由 data-dir 给。
- * 高度过渡由内层 AutoHeight（.sm-auto-height）负责，此处不再自管 data-height。 */
+/* height via AutoHeight; do not manage data-height here */
 .sm-switch {
   min-width: 0;
 }
@@ -257,16 +193,10 @@
 }
 
 .sm-switch[data-phase='out'] {
-  /* 正在退场的旧页不再接收点击 */
   pointer-events: none;
 }
 
-/*
- * 只移动卡片内部内容，毛玻璃表面本身保持静止、持续采样。
- * 若在 .sm-switch / .config-section 上做 opacity 或 transform，
- * backdrop-filter 会被浏览器重建合成层，切换瞬间就容易闪。
- * 选择器穿透 AutoHeight 包裹层（不再要求 .config-section 为直接子节点）。
- */
+/* animate inner content only; opacity/transform on frost rebuilds backdrop-filter */
 .sm-switch[data-phase='out'] .config-section > * {
   animation: sm-switch-out var(--sm-dur-fast) var(--sm-ease-exit) forwards;
 }
@@ -275,15 +205,11 @@
   animation: sm-switch-in var(--sm-dur-slow) var(--sm-ease-enter) backwards;
 }
 
-/*
- * 切换容器已负责整页进出场，内层区块不要再各播一次自己的进入动画
- * （两层透明度相乘会显得又慢又脏）。
- */
+/* switch already animates the page; nested .sm-enter would multiply opacity */
 .sm-switch .sm-enter {
   animation: none;
 }
 
-/* 层级推入同理：动画期间内层卡临时改实底（data-nav 播完由调用方清掉） */
 .sm-pane[data-nav] .platform-card {
   background: var(--cfg-subtle-bg-hover);
   backdrop-filter: none;
@@ -293,7 +219,6 @@ html.dark .sm-pane[data-nav] .platform-card {
   background: var(--cfg-subtle-bg-hover);
 }
 
-/* 列表逐个进入：只给前 10 个排延迟，之后一起出（避免长列表拖尾） */
 .sm-stagger > * {
   animation: sm-enter var(--sm-dur-base) var(--sm-ease-enter) backwards;
 }
@@ -334,18 +259,11 @@ html.dark .sm-pane[data-nav] .platform-card {
   animation-delay: calc(var(--sm-stagger) * 8);
 }
 
-/* ==========================================
-   折叠区域（CollapseRegion 消费）
-   grid-template-rows 0fr→1fr：无需测高的高度动画。
-   外部间距由 SettingGroup 固定，不在此改 margin。
-   展开落定后放开 overflow，否则组内下拉 / 气泡被裁。
-   ========================================== */
-
 .sm-collapse {
   display: grid;
   grid-template-rows: 0fr;
 
-  /* 不吃 flex/grid 父级 free space（1fr 轨会跟着长高） */
+  /* do not consume parent free space (1fr track grows) */
   flex: 0 0 auto;
   align-self: start;
   width: 100%;
@@ -362,7 +280,6 @@ html.dark .sm-pane[data-nav] .platform-card {
   opacity: 1;
 }
 
-/* 未落定前不接收点击，避免半露控件幽灵命中 */
 .sm-collapse:not([data-state='open']) {
   pointer-events: none;
 }
@@ -373,14 +290,10 @@ html.dark .sm-pane[data-nav] .platform-card {
   overflow: hidden;
 }
 
-/* 展开落定后放开裁剪（下拉 / 气泡需要溢出） */
+/* overflow visible when open so dropdowns/popovers escape */
 .sm-collapse[data-state='open'] > .sm-collapse-inner {
   overflow: visible;
 }
-
-/* ==========================================
-   降级：只改令牌，全站动效同步变化
-   ========================================== */
 
 @media (prefers-reduced-motion: reduce) {
   :root {
@@ -406,10 +319,7 @@ html.dark .sm-pane[data-nav] .platform-card {
   }
 }
 
-/*
- * exlight（低性能档）：保留「有变化」的信息，去掉位移与回弹。
- * 时长压短一档，动画仍在但不抢帧。
- */
+/* exlight: keep change, drop shift/spring */
 html[data-perf-mode='exlight'] {
   --sm-dur-slow: var(--sm-dur-base);
   --sm-shift-sm: 0px;

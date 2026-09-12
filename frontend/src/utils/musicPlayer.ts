@@ -1,10 +1,6 @@
-/**
- * 音乐播放器 - 支持网易云音乐和QQ音乐歌单播放
- */
-
 import type { MotionAudioFeatures } from './audioMotionAnalysis'
 import { API_URL } from '../config'
-import { currentCopy } from '../i18n/localeCopy'
+import { currentCopy, formatCurrent } from '../i18n/localeCopy'
 import { analyzeMotionAudio } from './audioMotionAnalysis'
 import { getCachedIsChinaMainland, isUserInChinaMainland } from './geoLocation'
 import { shouldPreserveNativeAudioOutput } from './platformDetect'
@@ -12,43 +8,25 @@ import { proxyImageUrlOr } from './proxyImageUrl'
 
 export { shouldPreserveNativeAudioOutput }
 
-/**
- * 网易云「仅解析播放链」接口：后端 302 到 HTTPS CDN，音频字节仍直连网易。
- * 替代已失效于 HTTPS 站点的 outer/url（会跳到 http CDN → Mixed Content）。
- *
- * ⚠️ 最终 CDN 无 Access-Control-Allow-Origin。桌面 createMediaElementSource
- * 会得到全 0 频谱，严重时 AudioContext 接管后静音——桌面应走全量代理。
- */
+/** play-url CDN has no CORS; desktop Web Audio needs the full proxy. */
 export function getNeteasePlayUrl(songId: string): string {
   return `${API_URL}/api/proxy/music/netease/play-url/${songId}`
 }
 
-/**
- * 网易云全量音频代理（字节经本机回传）。
- * 海外 / 桌面 Web Audio 频谱（需同源 CORS）/ 方案 C 降级时使用。
- */
 export function getNeteaseProxyAudioUrl(songId: string): string {
   return `${API_URL}/api/proxy/music/netease/audio/${songId}`
 }
 
-/**
- * 桌面会把 HTMLAudio 接入 Web Audio 做频谱（createMediaElementSource）。
- * 此时必须同源可 CORS 的音频字节；play-url→CDN 无 ACAO 会全 0 甚至静音。
- * 移动端保留原生 HTMLAudio、不接图，可用 play-url 省带宽。
- */
 export function prefersSameOriginMusicProxy(): boolean {
   return !shouldPreserveNativeAudioOutput()
 }
 
-/**
- * 是否为网易「直连」播放地址（play-url / 旧 outer / 已解析的 CDN）。
- * 已是全量代理 `/audio/` 时返回 false，避免方案 C 死循环。
- */
+/** False for /audio/ to avoid fallback loops. */
 export function isNeteaseDirectPlayUrl(url: string): boolean {
   if (!url) return false
   if (url.includes('/api/proxy/music/netease/audio/')) return false
   if (url.includes('/api/proxy/music/netease/play-url/')) return true
-  // 旧缓存 outer、或 302 后浏览器侧偶发残留的 CDN 绝对地址
+  // Treat leftover outer/CDN URLs as direct play-url.
   if (
     url.includes('music.126.net') ||
     url.includes('music.163.com/song/media') ||
@@ -59,18 +37,13 @@ export function isNeteaseDirectPlayUrl(url: string): boolean {
   return false
 }
 
-/**
- * play-url / 外站 CDN：对 MediaElementAudioSource 不安全（CORS → 零输出 / 可能静音）。
- */
+/** play-url/CDN is unsafe for MediaElementAudioSource (CORS). */
 export function isWebAudioUnsafeMediaUrl(url: string): boolean {
   if (!url) return false
   return isNeteaseDirectPlayUrl(url) || isQQDirectPlayUrl(url)
 }
 
-/**
- * 桌面频谱路径：若仍是 play-url / CDN，升级为同源全量代理。
- * 移动端或已是 `/audio/` 时原样返回。用于旧歌单缓存与热路径兜底。
- */
+/** Desktop: upgrade play-url/CDN to same-origin proxy. */
 export function ensureSpectrumSafePlaybackUrl(
   song: Pick<Song, 'id' | 'source' | 'url'>,
 ): string {
@@ -82,7 +55,6 @@ export function ensureSpectrumSafePlaybackUrl(
   if (song.source === 'qq' && isQQDirectPlayUrl(song.url)) {
     return getQQProxyAudioUrl(song.id)
   }
-  // source 缺失但 URL 形态可识别时仍升级（嵌入/外部入口）
   if (isNeteaseDirectPlayUrl(song.url) && song.id) {
     return getNeteaseProxyAudioUrl(song.id)
   }
@@ -92,16 +64,12 @@ export function ensureSpectrumSafePlaybackUrl(
   return song.url
 }
 
-/** 返回带频谱安全 URL 的 Song 副本（URL 未变则返回原引用）。 */
 export function withSpectrumSafePlaybackUrl<T extends Song>(song: T): T {
   const url = ensureSpectrumSafePlaybackUrl(song)
   return url === song.url ? song : { ...song, url }
 }
 
-/**
- * 国内 geo 下的网易播放 URL：移动 play-url；桌面全量代理（Web Audio CORS）。
- * 海外一律全量代理。
- */
+/** CN mobile: play-url; desktop/overseas: full proxy (CORS). */
 export function getNeteaseGeoPlaybackUrl(
   songId: string,
   inChina: boolean,
@@ -111,10 +79,7 @@ export function getNeteaseGeoPlaybackUrl(
   return getNeteasePlayUrl(songId)
 }
 
-/**
- * 方案 C：直连失败时的全量代理 URL。
- * 非网易、或已经是代理地址时返回 null。
- */
+/** Fallback full-proxy URL; null if already proxied. */
 export function getNeteaseProxyFallbackUrl(
   song: Pick<Song, 'id' | 'source' | 'url'>,
 ): string | null {
@@ -123,44 +88,27 @@ export function getNeteaseProxyFallbackUrl(
   return getNeteaseProxyAudioUrl(song.id)
 }
 
-/**
- * 网易云音频 URL（同步、不阻塞点击）。
- * - 桌面（频谱 / Web Audio）：始终全量代理（同源 CORS）
- * - 移动 + geo 国内：play-url；海外 / 未缓存：全量代理
- *
- * 临时播放入口必须用这个，禁止在点击路径上 await isUserInChinaMainland。
- */
 export function getNeteaseAudioUrlImmediate(songId: string): string {
-  // 桌面要接 createMediaElementSource：不能走 play-url→CDN
+  // createMediaElementSource cannot use play-url CDN.
   if (prefersSameOriginMusicProxy()) return getNeteaseProxyAudioUrl(songId)
 
   const cached = getCachedIsChinaMainland()
   if (cached === true) return getNeteasePlayUrl(songId)
   if (cached === false) return getNeteaseProxyAudioUrl(songId)
-  // 未缓存：不 await geo；优先全量代理保证首播真实出声
+  // Uncached geo: do not await; full proxy so playback starts.
   void isUserInChinaMainland()
   return getNeteaseProxyAudioUrl(songId)
 }
 
-/**
- * QQ「仅解析播放链」：后端 302 到 HTTPS CDN，音频字节仍直连 QQ。
- * 与网易 play-url 对称。CDN 同样无 ACAO，桌面频谱须走全量代理。
- */
+/** QQ CDN has no CORS; desktop needs the full proxy. */
 export function getQQPlayUrl(songMid: string): string {
   return `${API_URL}/api/proxy/music/qq/play-url/${songMid}`
 }
 
-/**
- * QQ 全量音频代理（字节经本机回传）。海外 / 桌面 Web Audio / 直连失败降级时使用。
- */
 export function getQQProxyAudioUrl(songMid: string): string {
   return `${API_URL}/api/proxy/music/qq/audio/${songMid}`
 }
 
-/**
- * 是否为 QQ「直连」播放地址（play-url / 已解析 CDN）。
- * 已是全量代理 `/audio/` 时返回 false，避免降级死循环。
- */
 export function isQQDirectPlayUrl(url: string): boolean {
   if (!url) return false
   if (url.includes('/api/proxy/music/qq/audio/')) return false
@@ -175,18 +123,12 @@ export function isQQDirectPlayUrl(url: string): boolean {
   return false
 }
 
-/**
- * 国内 geo 下的 QQ 播放 URL：移动 play-url；桌面全量代理（Web Audio CORS）。
- */
 export function getQQGeoPlaybackUrl(songMid: string, inChina: boolean): string {
   if (!inChina) return getQQProxyAudioUrl(songMid)
   if (prefersSameOriginMusicProxy()) return getQQProxyAudioUrl(songMid)
   return getQQPlayUrl(songMid)
 }
 
-/**
- * 直连失败时的全量代理 URL。非 QQ 或已是代理地址时返回 null。
- */
 export function getQQProxyFallbackUrl(
   song: Pick<Song, 'id' | 'source' | 'url'>,
 ): string | null {
@@ -195,9 +137,6 @@ export function getQQProxyFallbackUrl(
   return getQQProxyAudioUrl(song.id)
 }
 
-/**
- * 方案 C：网易 / QQ 直连失败时的全量代理 URL。其它源或已是代理地址时返回 null。
- */
 export function getMusicProxyFallbackUrl(
   song: Pick<Song, 'id' | 'source' | 'url'>,
 ): string | null {
@@ -206,9 +145,6 @@ export function getMusicProxyFallbackUrl(
   return null
 }
 
-/**
- * QQ 音频 URL（同步、不阻塞点击）。语义同 getNeteaseAudioUrlImmediate。
- */
 export function getQQAudioUrlImmediate(songMid: string): string {
   if (prefersSameOriginMusicProxy()) return getQQProxyAudioUrl(songMid)
 
@@ -219,11 +155,6 @@ export function getQQAudioUrlImmediate(songMid: string): string {
   return getQQProxyAudioUrl(songMid)
 }
 
-/**
- * 节流函数 - 限制函数执行频率
- * @param func 要节流的函数
- * @param wait 等待时间（毫秒）
- */
 export function throttle<T extends (...args: any[]) => any>(
   func: T,
   wait: number,
@@ -241,12 +172,12 @@ export function throttle<T extends (...args: any[]) => any>(
         timeout = null
       }
       previous = now
-      func.apply(this, args)
+      func.call(this, ...args)
     } else if (!timeout) {
       timeout = setTimeout(() => {
         previous = Date.now()
         timeout = null
-        func.apply(this, args)
+        func.call(this, ...args)
       }, remaining)
     }
   } as ((...args: Parameters<T>) => void) & { cancel: () => void }
@@ -271,43 +202,36 @@ export interface Song {
   album: string
   cover: string
   url: string
-  duration: number // 秒
+  duration: number
   source: MusicSource
-  // VIP歌曲标识
-  isVip?: boolean // 是否为VIP歌曲
-  isTrial?: boolean // 是否为试听版本
-  trialDuration?: number // 试听时长（秒）
+  isVip?: boolean
+  isTrial?: boolean
+  trialDuration?: number
 }
 
 export interface LyricLine {
-  time: number // 秒
+  time: number
   text: string
-  translation?: string // 整行翻译（按时间就近对齐挂载，见 attachLyricTranslation）
+  translation?: string
 }
 
-// 逐字歌词单个 token（一个字/词）
 export interface WordLyricToken {
-  time: number // 秒，绝对开始时间
-  duration: number // 秒，该字/词的持续时长
+  time: number
+  duration: number
   text: string
 }
 
-// 逐字歌词单行（含逐字 token）
 export interface WordLyricLine {
-  time: number // 秒，行开始时间
-  duration: number // 秒，行持续时长
-  text: string // 整行文本（token 拼接）
+  time: number
+  duration: number
+  text: string
   words: WordLyricToken[]
-  translation?: string // 整行翻译（按时间就近对齐挂载）
+  translation?: string
 }
 
-// 逐字歌词结果：逐行(lines) 作为兜底 + 逐字(verbatim) 作为增强
 export interface VerbatimLyricsResult {
   lines: LyricLine[]
   verbatim: WordLyricLine[]
-  // 逐行翻译原始数组（网易 ytlrc 优先、tlyric 兜底，目前恒为中文）。
-  // 已按时间就近挂到 lines/verbatim 各行 translation 字段；保留原始数组
-  // 供跨源（酷狗）verbatim 采纳后再次对齐
   translation: LyricLine[]
 }
 
@@ -318,21 +242,18 @@ export interface LyricsWithVerbatimResult extends VerbatimLyricsResult {
   hasVerbatim: boolean
   verbatimSource: VerbatimLyricsSource
   hasTranslation: boolean
-  translationLang: 'zh' | '' // 翻译目标语言（Phase 1 只有网易中文翻译源）
+  translationLang: 'zh' | ''
 }
 
-// 歌词缓存（限制最大100首，使用LRU策略）
+// Lyrics LRU cap 100.
 const lyricsCache = new Map<string, LyricLine[]>()
 const MAX_LYRICS_CACHE_SIZE = 100
 
-// 添加歌词到缓存（LRU策略）
 function addToLyricsCache(key: string, lyrics: LyricLine[]): void {
-  // 如果已存在，先删除再添加（保证最新的在最后）
   if (lyricsCache.has(key)) {
     lyricsCache.delete(key)
   }
 
-  // 如果达到上限，删除最旧的（第一个）
   if (lyricsCache.size >= MAX_LYRICS_CACHE_SIZE) {
     const firstKey = lyricsCache.keys().next().value
     if (firstKey) {
@@ -343,15 +264,14 @@ function addToLyricsCache(key: string, lyrics: LyricLine[]): void {
   lyricsCache.set(key, lyrics)
 }
 
-// 歌单缓存（内存 + SessionStorage）
 interface PlaylistCacheEntry {
   data: Song[]
   timestamp: number
 }
 
 const playlistMemoryCache = new Map<string, PlaylistCacheEntry>()
-const PLAYLIST_CACHE_DURATION = 7 * 24 * 60 * 60 * 1000 // 7天
-// v3：网易国内改 play-url（HTTPS CDN 302），淘汰 outer/url 旧缓存
+const PLAYLIST_CACHE_DURATION = 7 * 24 * 60 * 60 * 1000
+// Drop outer/url play-url leftovers.
 const PLAYLIST_STORAGE_KEY = 'myriad_playlist_cache_v3'
 const MAX_PLAYLIST_CACHE_SIZE = 5
 
@@ -368,20 +288,14 @@ function setPlaylistMemoryCache(
   }
 }
 
-// 头部制作信息行（制作人/作词/作曲/编曲…）：网易云 lrc 常把 credit 挤在 0~10s，
-// 它们不是歌词——最后一行 credit 会作为「歌词」高亮挂到真人声进来为止（乱轴观感）
 const CREDIT_LINE_RE =
   /^(制作人|出品|监制|作词|作曲|编曲|歌词|翻译|混音|母带|录音|和声|吉他|贝斯|键盘|弦乐|[鼓词曲]|企划|统筹|发行|OP|SP|Produce[rd]?|Lyric(?:s|ist)?|Compose[rd]?|Arrange[rd]?|Mix(?:ing)?|Master(?:ing)?)\s*[:：]/i
 
-/**
- * 解析LRC格式歌词
- */
 export function parseLyrics(lrcText: string): LyricLine[] {
   const lines = lrcText.split('\n')
   const lyrics: LyricLine[] = []
 
   for (const line of lines) {
-    // 匹配时间标签 [mm:ss.xx] 或 [mm:ss]
     const match = line.match(/\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\](.*)/)
     if (match) {
       const minutes = Number.parseInt(match[1], 10)
@@ -392,35 +306,26 @@ export function parseLyrics(lrcText: string): LyricLine[] {
       const text = match[4].trim()
       const time = minutes * 60 + seconds + milliseconds / 1000
 
-      // 过滤头部 credit 行（双条件：前 15s + 命中制作信息模式，避免误杀真歌词）
       if (text && !(time < 15 && CREDIT_LINE_RE.test(text))) {
         lyrics.push({ time, text })
       }
     }
   }
 
-  // 按时间排序
-  return lyrics.sort((a, b) => a.time - b.time)
+  return lyrics.toSorted((a, b) => a.time - b.time)
 }
 
-/**
- * 解析网易云 yrc 逐字歌词格式
- *
- * 行格式: `[行起始ms,行时长ms](字起始ms,字时长ms,0)字(字起始ms,字时长ms,0)字...`
- * 以 `{` 开头的行是 JSON 元数据（作词/翻译等），跳过。
- */
 export function parseYrc(yrcText: string): WordLyricLine[] {
   if (!yrcText) return []
 
   const rawLines = yrcText.split('\n')
   const result: WordLyricLine[] = []
   const headerRe = /^\[(\d+),(\d+)\]/
-  // 每个 token: (起始ms,时长ms,附加)文本 —— 文本读到下一个左括号前
   const wordRe = /\((\d+),(\d+),\d+\)([^(]*)/g
 
   for (const raw of rawLines) {
     const line = raw.trim()
-    if (!line || line.charAt(0) === '{') continue
+    if (!line || line.startsWith('{')) continue
 
     const header = headerRe.exec(line)
     if (!header) continue
@@ -431,7 +336,6 @@ export function parseYrc(yrcText: string): WordLyricLine[] {
     const words: WordLyricToken[] = []
     let text = ''
     wordRe.lastIndex = 0
-    // 正则逐个 exec：赋值移出条件，满足 no-cond-assign
     let m: RegExpExecArray | null = wordRe.exec(line)
     while (m !== null) {
       const wordText = m[3]
@@ -453,30 +357,22 @@ export function parseYrc(yrcText: string): WordLyricLine[] {
     })
   }
 
-  return result.sort((a, b) => a.time - b.time)
+  return result.toSorted((a, b) => a.time - b.time)
 }
 
-/**
- * 解析酷狗 KRC 逐字歌词格式
- *
- * 行格式: `[行起始ms,行时长ms]<字偏移ms,字时长ms,0>字<字偏移ms,字时长ms,0>字...`
- * 注意：字偏移是相对「行起始」的，绝对时间 = 行起始 + 字偏移（与网易云 yrc 的绝对时间不同）。
- * 以 `[ti:]` `[ar:]` `[offset:]` 等元数据行不匹配 `[数字,数字]`，自动跳过。
- */
 export function parseKrc(krcText: string): WordLyricLine[] {
   if (!krcText) return []
 
   const result: WordLyricLine[] = []
   const headerRe = /^\[(\d+),(\d+)\]/
-  // token: <偏移ms,时长ms,附加>文本 —— 文本读到下一个 `<` 前
   const wordRe = /<(\d+),(\d+),\d+>([^<]*)/g
 
   for (const raw of krcText.split('\n')) {
     const line = raw.trim()
-    if (!line || line.charAt(0) !== '[') continue
+    if (!line || !line.startsWith('[')) continue
 
     const header = headerRe.exec(line)
-    if (!header) continue // 跳过 [ti:]/[ar:]/[offset:] 等元数据行
+    if (!header) continue
 
     const lineStart = Number(header[1]) / 1000
     const lineDuration = Number(header[2]) / 1000
@@ -484,12 +380,11 @@ export function parseKrc(krcText: string): WordLyricLine[] {
     const words: WordLyricToken[] = []
     let text = ''
     wordRe.lastIndex = 0
-    // 赋值移出条件，满足 no-cond-assign
     let m: RegExpExecArray | null = wordRe.exec(line)
     while (m !== null) {
       const wordText = m[3]
       words.push({
-        time: lineStart + Number(m[1]) / 1000, // 相对偏移转绝对时间
+        time: lineStart + Number(m[1]) / 1000,
         duration: Number(m[2]) / 1000,
         text: wordText,
       })
@@ -506,10 +401,10 @@ export function parseKrc(krcText: string): WordLyricLine[] {
     })
   }
 
-  return result.sort((a, b) => a.time - b.time)
+  return result.toSorted((a, b) => a.time - b.time)
 }
 
-/** 读缓存时再规范化封面（兼容会话里旧的 126.net 直链） */
+/** Normalize cached 126.net covers. */
 function normalizeSongCovers(songs: Song[]): Song[] {
   return songs.map((s) => ({
     ...s,
@@ -517,23 +412,17 @@ function normalizeSongCovers(songs: Song[]): Song[] {
   }))
 }
 
-/**
- * 从缓存获取歌单
- */
 function getPlaylistFromCache(cacheKey: string): Song[] | null {
-  // 1. 先检查内存缓存
   const memoryCache = playlistMemoryCache.get(cacheKey)
   if (
     memoryCache &&
     Date.now() - memoryCache.timestamp < PLAYLIST_CACHE_DURATION
   ) {
-    // 刷新 LRU 顺序，避免常用歌单被优先淘汰。
     setPlaylistMemoryCache(cacheKey, memoryCache)
     return normalizeSongCovers(memoryCache.data)
   }
   if (memoryCache) playlistMemoryCache.delete(cacheKey)
 
-  // 2. 检查 SessionStorage
   try {
     const storageData = sessionStorage.getItem(PLAYLIST_STORAGE_KEY)
     if (storageData) {
@@ -544,51 +433,40 @@ function getPlaylistFromCache(cacheKey: string): Song[] | null {
       const cached = allCache[cacheKey]
 
       if (cached && Date.now() - cached.timestamp < PLAYLIST_CACHE_DURATION) {
-        // 恢复到内存缓存
         setPlaylistMemoryCache(cacheKey, cached)
         return normalizeSongCovers(cached.data)
       }
     }
-  } catch (_error) {
-    // SessionStorage 读取失败，静默处理
+  } catch {
   }
 
   return null
 }
 
-/**
- * 将歌单存入缓存
- */
 function savePlaylistToCache(cacheKey: string, songs: Song[]): void {
   const entry: PlaylistCacheEntry = {
     data: songs,
     timestamp: Date.now(),
   }
 
-  // 1. 存入内存缓存
   setPlaylistMemoryCache(cacheKey, entry)
 
-  // 2. 存入 SessionStorage（限制总大小）
   try {
     const storageData = sessionStorage.getItem(PLAYLIST_STORAGE_KEY)
     const allCache: Record<string, PlaylistCacheEntry> = storageData
       ? JSON.parse(storageData)
       : {}
 
-    // 清理过期缓存
     Object.keys(allCache).forEach((key) => {
       if (Date.now() - allCache[key].timestamp > PLAYLIST_CACHE_DURATION) {
         delete allCache[key]
       }
     })
 
-    // 添加新缓存
     allCache[cacheKey] = entry
 
-    // 限制缓存数量（与内存缓存一致，最多5个歌单）
     const keys = Object.keys(allCache)
     if (keys.length > MAX_PLAYLIST_CACHE_SIZE) {
-      // 删除最旧的
       const oldestKey = keys.reduce((oldest, key) => {
         return allCache[key].timestamp < allCache[oldest].timestamp
           ? key
@@ -599,50 +477,35 @@ function savePlaylistToCache(cacheKey: string, songs: Song[]): void {
 
     sessionStorage.setItem(PLAYLIST_STORAGE_KEY, JSON.stringify(allCache))
   } catch (error) {
-    // SessionStorage 写入失败（可能配额已满），仅保留内存缓存
     console.warn('Failed to save playlist to SessionStorage:', error)
   }
 }
 
-/**
- * 清空歌单缓存
- */
 export function clearPlaylistCache(): void {
   playlistMemoryCache.clear()
   try {
     sessionStorage.removeItem(PLAYLIST_STORAGE_KEY)
-  } catch (_error) {
-    // 静默处理
+  } catch {
   }
 }
 
-/**
- * 清空歌词缓存
- */
 export function clearLyricsCache(): void {
   lyricsCache.clear()
   verbatimLyricsCache.clear()
   kugouVerbatimCache.clear()
 }
 
-/**
- * 获取网易云音乐歌单（带缓存）
- * 会根据用户地理位置自动决定音频URL是使用代理还是直连
- */
 export async function getNeteasePlaylist(playlistId: string): Promise<Song[]> {
   const cacheKey = `netease-${playlistId}`
 
-  // 检查缓存
   const cached = getPlaylistFromCache(cacheKey)
   if (cached) {
     return cached
   }
 
   try {
-    // 预先检测用户地理位置（并行执行，不阻塞歌单请求）
     const geoPromise = isUserInChinaMainland()
 
-    // 通过后端代理访问网易云音乐API（歌单信息始终通过代理获取，确保稳定性）
     const response = await fetch(
       `${API_URL}/api/proxy/music/netease/playlist/${playlistId}`,
     )
@@ -660,13 +523,7 @@ export async function getNeteasePlaylist(playlistId: string): Promise<Song[]> {
 
     const data = await response.json()
 
-    // NetEase API 返回格式: { code: 200, result: { playlist: { tracks: [...] } } }
-    // 或者可能是: { playlist: { tracks: [...] } }
     if (data.code && data.code !== 200) {
-      // 网易云常见错误码:
-      // -447: 服务器忙碌/频率限制
-      // -460: 地理位置限制(海外IP)
-      // -462: 版权限制
       if (data.code === -447) {
         throw new Error('RATE_LIMITED')
       } else if (data.code === -460 || data.code === -462) {
@@ -684,7 +541,6 @@ export async function getNeteasePlaylist(playlistId: string): Promise<Song[]> {
       throw new Error('PLAYLIST_EMPTY')
     }
 
-    // 等待地理位置检测结果
     const inChina = await geoPromise
     const useSameOriginProxy = prefersSameOriginMusicProxy()
     console.log(
@@ -696,19 +552,15 @@ export async function getNeteasePlaylist(playlistId: string): Promise<Song[]> {
     )
 
     const songs = tracks.map((track: any) => {
-      // 网易云音乐API v6返回格式：ar(艺术家数组), al(专辑对象), dt(时长毫秒)
-      // 兼容旧格式：artists, album, duration
       const artists = track.ar || track.artists || []
       const album = track.al || track.album || {}
       const duration = track.dt || track.duration || 0
 
-      // 直接使用后端返回的isVip字段（后端已经根据fee字段处理好了）
       const isVip = track.isVip || false
-      const isTrial = false // 网易云playlist接口不返回试听信息
+      const isTrial = false
       const trialDuration = undefined
 
-      // 国内移动：play-url 302 CDN；国内桌面 / 海外：全量代理（桌面需 CORS 频谱）
-      // 方案 C：直连失败时在 useMusicPlayer 降级到 getNeteaseProxyAudioUrl
+      // CN mobile: play-url; desktop/overseas: full proxy (CORS).
       const audioUrl = getNeteaseGeoPlaybackUrl(String(track.id), inChina)
 
       return {
@@ -716,7 +568,7 @@ export async function getNeteasePlaylist(playlistId: string): Promise<Song[]> {
         name: track.name,
         artist: artists.map((a: any) => a.name).join(', ') || 'Unknown',
         album: album.name || '',
-        // 126.net 封面常有防盗链；与报告卡同一套 proxyImageUrl
+        // 126.net covers: proxy (hotlink).
         cover: proxyImageUrlOr(album.picUrl || album.blurPicUrl || ''),
         url: audioUrl,
         duration: Math.floor(duration / 1000),
@@ -727,7 +579,6 @@ export async function getNeteasePlaylist(playlistId: string): Promise<Song[]> {
       }
     })
 
-    // 存入缓存
     savePlaylistToCache(cacheKey, songs)
 
     return songs
@@ -737,23 +588,17 @@ export async function getNeteasePlaylist(playlistId: string): Promise<Song[]> {
   }
 }
 
-/**
- * 获取QQ音乐歌单（带缓存）
- */
 export async function getQQPlaylist(playlistId: string): Promise<Song[]> {
   const cacheKey = `qq-${playlistId}`
 
-  // 检查缓存
   const cached = getPlaylistFromCache(cacheKey)
   if (cached) {
     return cached
   }
 
   try {
-    // 预先检测地理位置（并行，不阻塞歌单）
     const geoPromise = isUserInChinaMainland()
 
-    // 通过后端代理访问QQ音乐API
     const response = await fetch(
       `${API_URL}/api/proxy/music/qq/playlist/${playlistId}`,
     )
@@ -790,7 +635,6 @@ export async function getQQPlaylist(playlistId: string): Promise<Song[]> {
 
     const songs = songlist
       .map((song: any) => {
-        // QQ音乐返回格式：singer(歌手数组), albumname(专辑名), interval(时长秒)
         const singers = Array.isArray(song.singer) ? song.singer : []
         const songMid = String(song.songmid || song.id || '').trim()
         if (!songMid) {
@@ -808,17 +652,15 @@ export async function getQQPlaylist(playlistId: string): Promise<Song[]> {
           cover: song.albummid
             ? `https://y.gtimg.cn/music/photo_new/T002R300x300M000${song.albummid}.jpg`
             : '',
-          // 国内移动 play-url；国内桌面 / 海外全量代理（对齐网易，桌面频谱 CORS）
+          // CN mobile: play-url; desktop/overseas: full proxy (CORS).
           url: getQQGeoPlaybackUrl(songMid, inChina),
           duration: song.interval || 0,
           source: 'qq' as MusicSource,
-          // 后端会补 isVip；无字段时默认 false
           isVip: Boolean(song.isVip),
         } satisfies Song
       })
       .filter((song: Song | null): song is Song => song !== null)
 
-    // 存入缓存
     savePlaylistToCache(cacheKey, songs)
 
     return songs
@@ -828,14 +670,8 @@ export async function getQQPlaylist(playlistId: string): Promise<Song[]> {
   }
 }
 
-// 逐字歌词缓存（复用 LRU 大小上限）
 const verbatimLyricsCache = new Map<string, VerbatimLyricsResult>()
 
-/**
- * 获取网易云逐字歌词（yrc）+ 逐行兜底
- *
- * 返回 { lines, verbatim }：verbatim 为空时消费方应回退到 lines。
- */
 export async function getNeteaseVerbatimLyrics(
   songId: string,
 ): Promise<VerbatimLyricsResult> {
@@ -857,10 +693,9 @@ export async function getNeteaseVerbatimLyrics(
 
     if (!response.ok) {
       throw new Error(
-        currentCopy().errors.lyricsFailed.replace(
-          '{status}',
-          String(response.status),
-        ),
+        formatCurrent(currentCopy().errors.lyricsFailed, {
+          status: response.status,
+        }),
       )
     }
 
@@ -873,8 +708,6 @@ export async function getNeteaseVerbatimLyrics(
       ? parseYrc(data.yrc.lyric)
       : []
 
-    // 逐行翻译：ytlrc 与 yrc 同轴（优先），tlyric 与 lrc 同轴（兜底）。
-    // 均为标准 LRC 文本；非中文歌通常有，中文歌为空
     const translationRaw = data.ytlrc?.lyric || data.tlyric?.lyric || ''
     const translation: LyricLine[] = translationRaw
       ? parseLyrics(translationRaw)
@@ -884,7 +717,7 @@ export async function getNeteaseVerbatimLyrics(
 
     const result: VerbatimLyricsResult = { lines, verbatim, translation }
 
-    // LRU：超上限删最旧 — 缓存保留 translation（lines/verbatim 已挂载）
+    // LRU drop oldest; keep translation.
     if (verbatimLyricsCache.size >= MAX_LYRICS_CACHE_SIZE) {
       const firstKey = verbatimLyricsCache.keys().next().value
       if (firstKey) verbatimLyricsCache.delete(firstKey)
@@ -898,20 +731,14 @@ export async function getNeteaseVerbatimLyrics(
   }
 }
 
-/**
- * 把逐行翻译按时间就近挂到歌词行的 translation 字段
- *
- * 翻译（tlyric）时间戳与 lrc 逐行一致，但展示行可能来自 yrc/KRC（同一行
- * 起始时间有数百毫秒级出入），所以按「最近时间 + 容差」匹配而不按索引对位。
- * 每条翻译只认领一个最近的行（更近者胜出），避免密集行重复同一条翻译。
- */
+/** Match translation by nearest time, not index (ms skew). */
 export function attachLyricTranslation(
   entries: Array<{ time: number; translation?: string }>,
   translation: LyricLine[],
   toleranceSec = 1.0,
 ): void {
   if (entries.length === 0 || translation.length === 0) return
-  const claimed = new Map<number, number>() // 行下标 → 已挂翻译的时间差
+  const claimed = new Map<number, number>()
   for (const t of translation) {
     let best = -1
     let bestD = toleranceSec
@@ -931,22 +758,12 @@ export function attachLyricTranslation(
   }
 }
 
-/**
- * 跨源歌词时间轴校准
- *
- * 酷狗 KRC 按「歌名+时长」匹配，可能命中不同版本（现场/remix/不同剪辑），
- * 时间轴相对当前音频整体偏移甚至结构不符 → 歌词「乱轴」。
- * 用同源可信的逐行时间轴（网易云 lrc）做中位数对齐：
- *  - 常数偏移 → 整体平移校正（含逐字 token）
- *  - 平移后残差仍大（结构不符 = 不同版本/不同歌）→ 返回 null 拒绝
- */
 export function alignVerbatimToLines(
   verbatim: WordLyricLine[],
   lines: LyricLine[],
 ): WordLyricLine[] | null {
-  if (verbatim.length < 4 || lines.length < 4) return verbatim // 样本不足，无法校验
+  if (verbatim.length < 4 || lines.length < 4) return verbatim
 
-  // 每条可信行找最近的 verbatim 行，收集时间差
   const diffs: number[] = []
   for (const ln of lines) {
     let bestDiff = Infinity
@@ -958,15 +775,16 @@ export function alignVerbatimToLines(
   }
   if (diffs.length < 4) return verbatim
 
-  diffs.sort((a, b) => a - b)
-  const median = diffs[Math.floor(diffs.length / 2)]
-  const residuals = diffs.map((d) => Math.abs(d - median)).sort((a, b) => a - b)
+  const sortedDiffs = diffs.toSorted((a, b) => a - b)
+  const median = sortedDiffs[Math.floor(sortedDiffs.length / 2)]
+  const residuals = sortedDiffs
+    .map((d) => Math.abs(d - median))
+    .toSorted((a, b) => a - b)
   const medResidual = residuals[Math.floor(residuals.length / 2)]
 
-  if (medResidual > 1.2) return null // 结构不符：拒绝该源
-  if (Math.abs(median) < 0.08) return verbatim // 已对齐
+  if (medResidual > 1.2) return null
+  if (Math.abs(median) < 0.08) return verbatim
 
-  // 常数偏移：整体平移
   return verbatim.map((v) => ({
     ...v,
     time: Math.max(0, v.time - median),
@@ -974,15 +792,9 @@ export function alignVerbatimToLines(
   }))
 }
 
-// 酷狗逐字歌词缓存（按 关键词|时长秒 缓存）
+// Kugou cache key: keyword|durationSeconds.
 const kugouVerbatimCache = new Map<string, WordLyricLine[]>()
 
-/**
- * 获取酷狗逐字歌词（KRC）—— 网易云 yrc 缺失时的补充第三方源
- *
- * @param keyword 建议「歌名 歌手」
- * @param durationSec 歌曲时长（秒），用于挑最接近的版本
- */
 export async function getKugouVerbatimLyrics(
   keyword: string,
   durationSec = 0,
@@ -1009,10 +821,9 @@ export async function getKugouVerbatimLyrics(
     }
     if (!response.ok) {
       throw new Error(
-        currentCopy().errors.lyricsFailed.replace(
-          '{status}',
-          String(response.status),
-        ),
+        formatCurrent(currentCopy().errors.lyricsFailed, {
+          status: response.status,
+        }),
       )
     }
 
@@ -1037,7 +848,6 @@ export async function getQQLyricsWithTranslation(
 ): Promise<{ lines: LyricLine[]; translation: LyricLine[] }> {
   const cacheKey = `qq-${songId}`
 
-  // 检查缓存：lines 上已挂 translation 字段，可从中还原 translation 数组
   if (lyricsCache.has(cacheKey)) {
     const lines = lyricsCache.get(cacheKey)!
     const translation: LyricLine[] = lines
@@ -1051,7 +861,6 @@ export async function getQQLyricsWithTranslation(
       `${API_URL}/api/proxy/music/qq/lyrics/${songId}`,
     )
 
-    // 429 → Retry-After toast (same as netease / brew native-fetch paths)
     if (response.status === 429) {
       const { notifyHttpRateLimit } = await import('./httpRateLimitToast')
       notifyHttpRateLimit(response)
@@ -1059,7 +868,6 @@ export async function getQQLyricsWithTranslation(
     }
 
     if (!response.ok) {
-      // BE returns 404 + { retcode: -1 } on normalize failure — treat as empty
       try {
         const errBody = await response.json()
         if (typeof errBody?.retcode === 'number' && errBody.retcode !== 0) {
@@ -1069,16 +877,14 @@ export async function getQQLyricsWithTranslation(
         /* ignore body parse */
       }
       throw new Error(
-        currentCopy().errors.lyricsFailed.replace(
-          '{status}',
-          String(response.status),
-        ),
+        formatCurrent(currentCopy().errors.lyricsFailed, {
+          status: response.status,
+        }),
       )
     }
 
     const data = await response.json()
 
-    // 规范化契约：retcode === 0 且有 lyric
     const retcode =
       typeof data.retcode === 'number'
         ? data.retcode
@@ -1089,7 +895,6 @@ export async function getQQLyricsWithTranslation(
       return { lines: [], translation: [] }
     }
 
-    // FE 侧再做一次实体 unescape（BE 已做；兼容旧缓存/直连）
     const lyricText = unescapeQQLyricText(String(data.lyric))
     const transText = data.trans ? unescapeQQLyricText(String(data.trans)) : ''
 
@@ -1099,7 +904,7 @@ export async function getQQLyricsWithTranslation(
       attachLyricTranslation(lines, translation)
     }
 
-    // Cache lines with translation attached so cache hits keep 译
+    // Cache hits must keep translation.
     addToLyricsCache(cacheKey, lines)
     return { lines, translation }
   } catch (error) {
@@ -1108,26 +913,19 @@ export async function getQQLyricsWithTranslation(
   }
 }
 
-/** QQ 歌词 HTML 实体（nobase64=1 仍会转义） */
 export function unescapeQQLyricText(s: string): string {
   return s
-    .replace(/&apos;/g, "'")
-    .replace(/&#39;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/&#34;/g, '"')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&#10;/g, '\n')
-    .replace(/&#13;/g, '\r')
+    .replaceAll('&apos;', "'")
+    .replaceAll('&#39;', "'")
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#34;', '"')
+    .replaceAll('&amp;', '&')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&#10;', '\n')
+    .replaceAll('&#13;', '\r')
 }
 
-/**
- * 获取歌曲歌词：逐字优先，多源兜底。
- *
- * 主源：网易云 yrc / QQ 逐行；逐字兜底：酷狗 KRC（按歌名 + 主歌手 + 时长）。
- * 返回的 lines 始终是逐行兜底，verbatim 为空时消费方应退回 lines。
- */
 export async function getLyricsWithVerbatim(
   song: Pick<Song, 'id' | 'source' | 'name' | 'artist' | 'duration'>,
 ): Promise<LyricsWithVerbatimResult> {
@@ -1160,7 +958,6 @@ export async function getLyricsWithVerbatim(
       if (aligned) {
         verbatim = aligned
         verbatimSource = 'kugou'
-        // 酷狗行已校准到网易时间轴，翻译（网易）可直接就近挂载
         attachLyricTranslation(verbatim, translation)
       } else {
         console.debug(
@@ -1191,30 +988,22 @@ export async function getLyricsWithVerbatim(
   }
 }
 
-/**
- * 根据当前播放时间获取当前歌词索引
- * 重构版：精确匹配，正确处理所有边界情况
- */
 export function getCurrentLyricIndex(
   lyrics: LyricLine[],
   currentTime: number,
 ): number {
   if (!lyrics || lyrics.length === 0) return -1
 
-  // 如果还没到第一句歌词的时间，返回 -1 表示没有当前歌词
   if (currentTime < lyrics[0].time) {
     return -1
   }
 
-  // 找到当前时间应该显示的歌词索引
-  // 规则：显示最后一个时间小于等于当前时间的歌词
   let currentIndex = -1
 
   for (let i = 0; i < lyrics.length; i++) {
     if (lyrics[i].time <= currentTime) {
       currentIndex = i
     } else {
-      // 因为歌词已按时间排序，后面的都不会匹配了
       break
     }
   }
@@ -1222,19 +1011,12 @@ export function getCurrentLyricIndex(
   return currentIndex
 }
 
-/**
- * 格式化时间（秒 -> mm:ss）
- */
 export function formatTime(seconds: number): string {
   const mins = Math.floor(seconds / 60)
   const secs = Math.floor(seconds % 60)
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
 }
 
-/**
- * 从网易云曲目 metadata（资料库 / 原始 API）判断是否 VIP。
- * fee: 1 / 4 = 会员曲；兼容 isVip / is_vip / privilege.fee；fee 可能是字符串数字。
- */
 export function isNeteaseVipFromMeta(meta: unknown): boolean {
   if (!meta || typeof meta !== 'object') return false
   const m = meta as Record<string, unknown>
@@ -1253,9 +1035,6 @@ export function isNeteaseVipFromMeta(meta: unknown): boolean {
   return fee === 1 || fee === 4
 }
 
-/**
- * 检查歌曲是否为VIP或试听版本
- */
 export function getSongVipStatus(song: {
   isVip?: boolean
   isTrial?: boolean
@@ -1267,29 +1046,21 @@ export function getSongVipStatus(song: {
   const isVip = song.isVip || false
   const isTrial = song.isTrial || false
 
-  // 简化显示：VIP歌曲直接显示VIP标识
   const displayText = isVip ? 'VIP' : ''
 
   return { isVip, isTrial, displayText }
 }
 
-/**
- * 过滤播放列表
- * @param songs 歌曲列表
- * @param query 搜索关键词
- * @param options 过滤选项
- */
 export function filterPlaylist(
   songs: Song[],
   query: string,
   options?: {
-    hideVip?: boolean // 隐藏VIP歌曲
-    hideTrial?: boolean // 隐藏试听歌曲
+    hideVip?: boolean
+    hideTrial?: boolean
   },
 ): Song[] {
   let filtered = songs
 
-  // 根据VIP状态过滤
   if (options?.hideVip) {
     filtered = filtered.filter((song) => !song.isVip)
   }
@@ -1297,7 +1068,6 @@ export function filterPlaylist(
     filtered = filtered.filter((song) => !song.isTrial)
   }
 
-  // 根据搜索关键词过滤
   if (query && query.trim()) {
     const lowerQuery = query.toLowerCase().trim()
     filtered = filtered.filter(
@@ -1311,10 +1081,6 @@ export function filterPlaylist(
   return filtered
 }
 
-/**
- * 随机模式下一首：排除当前曲与（可选）VIP。无可选项时回退到任意可播曲。
- * 列表为空、仅一首、或过滤后为空时返回 -1。
- */
 export function pickShuffleIndex(
   playlist: ReadonlyArray<Pick<Song, 'isVip'>>,
   currentIndex: number,
@@ -1338,9 +1104,6 @@ export function pickShuffleIndex(
   return randomItem.idx
 }
 
-/**
- * 上一首 / 下一首索引。开启跳过 VIP 且全部为 VIP 时返回 null。
- */
 export function pickAdjacentIndex(
   playlist: ReadonlyArray<Pick<Song, 'isVip'>>,
   fromIndex: number,
@@ -1374,9 +1137,6 @@ export function pickAdjacentIndex(
   return newIndex
 }
 
-/**
- * 进度条 seek：夹到 [0, duration-1]（短于 1s 的曲目用 95%）。
- */
 export function clampSeekTime(time: number, duration: number): number {
   let safeTime = Math.max(0, time)
   if (duration > 0) {
@@ -1387,40 +1147,27 @@ export function clampSeekTime(time: number, duration: number): number {
   return safeTime
 }
 
-/**
- * 高亮搜索关键词
- * @param text 原文本
- * @param query 搜索关键词
- */
 export function escapeHtmlText(text: string): string {
   return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
 }
 
 export function highlightText(text: string, query: string): string {
-  // 先转义 HTML 元字符，防止 XSS
+  // Escape before innerHTML.
   const escaped = escapeHtmlText(text)
 
   if (!query || !query.trim()) {
     return escaped
   }
 
-  const regex = new RegExp(
-    `(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`,
-    'gi',
-  )
+  const regex = new RegExp(`(${RegExp.escape(query)})`, 'gi')
   return escaped.replace(regex, '<mark>$1</mark>')
 }
 
-/**
- * 创建适合移动端后台播放的 Audio 元素。
- * - 挂入 DOM（部分 WebKit 对 detached Audio 后台限流更狠）
- * - playsinline，避免被当成需全屏的媒体
- */
 export function createPlaybackAudioElement(
   volume: number = 1,
 ): HTMLAudioElement {
@@ -1430,7 +1177,7 @@ export function createPlaybackAudioElement(
   audio.setAttribute('playsinline', 'true')
   audio.setAttribute('webkit-playsinline', 'true')
   audio.setAttribute('data-myriad-audio', 'playback')
-  // 不可见但保留在文档树中，便于系统识别为页面媒体会话
+  // Keep in the document (hidden) for Media Session.
   Object.assign(audio.style, {
     position: 'fixed',
     width: '0',
@@ -1445,7 +1192,7 @@ export function createPlaybackAudioElement(
   return audio
 }
 
-/** 预加载用 Audio：不挂 DOM，仅缓冲下一首。 */
+/** Preload Audio: no DOM; buffer next only. */
 export function createPreloadAudioElement(
   volume: number = 1,
 ): HTMLAudioElement {
@@ -1455,7 +1202,6 @@ export function createPreloadAudioElement(
   return audio
 }
 
-/** 销毁由 createPlaybackAudioElement 创建的音频元素 */
 export function destroyPlaybackAudioElement(
   audio: HTMLAudioElement | null | undefined,
 ): void {
@@ -1466,24 +1212,18 @@ export function destroyPlaybackAudioElement(
     audio.load()
     audio.remove()
   } catch {
-    // 清理失败可忽略
   }
 }
 
-/**
- * 全局音频管理器 - 确保同一时间只有一个音频在播放
- * 支持实时音频频谱分析
- */
 class GlobalAudioManager {
   private static instance: GlobalAudioManager
   private currentAudio: HTMLAudioElement | null = null
   private currentSong: Song | null = null
 
-  // Web Audio API 相关 - 用于频谱分析
   private audioContext: AudioContext | null = null
   private analyser: AnalyserNode | null = null
   private sourceNode: MediaElementAudioSourceNode | null = null
-  private connectedAudio: HTMLAudioElement | null = null // 追踪已连接的音频元素
+  private connectedAudio: HTMLAudioElement | null = null
   private frequencyData: Uint8Array | null = null
   private motionAnalyser: AnalyserNode | null = null
   private motionWaveform = new Float32Array(2048)
@@ -1495,7 +1235,7 @@ class GlobalAudioManager {
     presence: 0,
   }
 
-  /** 一旦为 true，本会话内不再尝试把媒体元素接入 AudioContext */
+  /** Do not reconnect AudioContext this session. */
   private nativeOutputLocked = false
 
   private constructor() {}
@@ -1507,47 +1247,32 @@ class GlobalAudioManager {
     return GlobalAudioManager.instance
   }
 
-  /**
-   * 设置当前音频实例
-   * 会自动停止并清理之前的音频
-   */
   setCurrentAudio(
     audio: HTMLAudioElement | null,
     song: Song | null = null,
   ): void {
-    // 如果有之前的音频在播放，先停止并清理
     if (this.currentAudio && this.currentAudio !== audio) {
       this.currentAudio.pause()
       this.currentAudio.src = ''
-      this.currentAudio.load() // 重置音频元素
+      this.currentAudio.load()
     }
 
     this.currentAudio = audio
     this.currentSong = song
 
-    // 如果设置了新音频和歌曲信息，更新 Media Session
     if (audio && song) {
       this.updateMediaSession(song)
     }
   }
 
-  /**
-   * 获取当前音频实例
-   */
   getCurrentAudio(): HTMLAudioElement | null {
     return this.currentAudio
   }
 
-  /**
-   * 获取当前歌曲信息
-   */
   getCurrentSong(): Song | null {
     return this.currentSong
   }
 
-  /**
-   * 停止当前音频
-   */
   stopCurrentAudio(): void {
     if (this.currentAudio) {
       this.currentAudio.pause()
@@ -1559,9 +1284,6 @@ class GlobalAudioManager {
     }
   }
 
-  /**
-   * 更新 Media Session API (移动端系统级媒体控制)
-   */
   private updateMediaSession(song: Song): void {
     if ('mediaSession' in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
@@ -1580,18 +1302,12 @@ class GlobalAudioManager {
     }
   }
 
-  /**
-   * 清除 Media Session
-   */
   private clearMediaSession(): void {
     if ('mediaSession' in navigator) {
       navigator.mediaSession.metadata = null
     }
   }
 
-  /**
-   * 设置 Media Session 操作处理器
-   */
   setMediaSessionHandlers(handlers: {
     play?: () => void
     pause?: () => void
@@ -1602,12 +1318,10 @@ class GlobalAudioManager {
     seekto?: (details: { seekTime: number }) => void
   }): void {
     if ('mediaSession' in navigator) {
-      // 设置播放/暂停
       if (handlers.play) {
         try {
           navigator.mediaSession.setActionHandler('play', handlers.play)
         } catch {
-          // Media Session action not supported
         }
       }
 
@@ -1615,11 +1329,9 @@ class GlobalAudioManager {
         try {
           navigator.mediaSession.setActionHandler('pause', handlers.pause)
         } catch {
-          // Media Session action not supported
         }
       }
 
-      // 设置上一首/下一首
       if (handlers.previoustrack) {
         try {
           navigator.mediaSession.setActionHandler(
@@ -1627,7 +1339,6 @@ class GlobalAudioManager {
             handlers.previoustrack,
           )
         } catch {
-          // Media Session action not supported
         }
       }
 
@@ -1638,11 +1349,9 @@ class GlobalAudioManager {
             handlers.nexttrack,
           )
         } catch {
-          // Media Session action not supported
         }
       }
 
-      // 设置快进/快退
       if (handlers.seekbackward) {
         try {
           navigator.mediaSession.setActionHandler(
@@ -1650,7 +1359,6 @@ class GlobalAudioManager {
             handlers.seekbackward,
           )
         } catch {
-          // Media Session action not supported
         }
       }
 
@@ -1661,11 +1369,9 @@ class GlobalAudioManager {
             handlers.seekforward,
           )
         } catch {
-          // Media Session action not supported
         }
       }
 
-      // 设置进度跳转
       if (handlers.seekto) {
         try {
           navigator.mediaSession.setActionHandler('seekto', (details) => {
@@ -1674,25 +1380,17 @@ class GlobalAudioManager {
             }
           })
         } catch {
-          // Media Session action not supported
         }
       }
     }
   }
 
-  /**
-   * 更新播放状态
-   */
   setPlaybackState(state: 'none' | 'paused' | 'playing'): void {
     if ('mediaSession' in navigator) {
       navigator.mediaSession.playbackState = state
     }
   }
 
-  /**
-   * 更新 Media Session 位置状态（移动端后台播放关键）
-   * 需要定期调用以保持系统媒体控制的同步
-   */
   updatePositionState(
     duration: number,
     position: number,
@@ -1703,7 +1401,6 @@ class GlobalAudioManager {
       navigator.mediaSession.setPositionState
     ) {
       try {
-        // 确保参数有效
         if (duration > 0 && position >= 0 && position <= duration) {
           navigator.mediaSession.setPositionState({
             duration,
@@ -1712,29 +1409,19 @@ class GlobalAudioManager {
           })
         }
       } catch {
-        // Position state update not supported or invalid parameters
       }
     }
   }
 
-  /**
-   * 恢复 AudioContext（移动端后台播放时可能被暂停）
-   * 当页面恢复可见时调用
-   */
   async resumeAudioContext(): Promise<void> {
-    if (this.audioContext && this.audioContext.state === 'suspended') {
+    if (this.audioContext?.state === 'suspended') {
       try {
         await this.audioContext.resume()
       } catch {
-        // AudioContext resume failed
       }
     }
   }
 
-  /**
-   * 初始化 Web Audio API 用于频谱分析
-   * 注意：由于 CORS 限制，跨域音频无法进行频谱分析
-   */
   private initAudioContext(): boolean {
     if (this.audioContext) return true
 
@@ -1746,16 +1433,13 @@ class GlobalAudioManager {
       )()
       this.analyser = this.audioContext.createAnalyser()
 
-      // 配置分析器 - 使用较小的 FFT 以获得更快的响应
-      this.analyser.fftSize = 64 // 32 个频段
-      this.analyser.smoothingTimeConstant = 0.6 // 平滑系数，0-1
+      this.analyser.fftSize = 64
+      this.analyser.smoothingTimeConstant = 0.6
       this.analyser.minDecibels = -90
       this.analyser.maxDecibels = -10
 
-      // 连接到音频输出
       this.analyser.connect(this.audioContext.destination)
 
-      // 初始化频率数据数组
       this.frequencyData = new Uint8Array(this.analyser.frequencyBinCount)
 
       return true
@@ -1768,23 +1452,14 @@ class GlobalAudioManager {
     }
   }
 
-  /**
-   * 连接音频元素到分析器。
-   *
-   * ⚠️ 移动端默认拒绝接入：MediaElementAudioSourceNode 会劫持原生输出，
-   * AudioContext 在页面后台被 suspend 后音乐无法继续，表现为「不能后台播放」。
-   * 桌面端可安全使用实时频谱；移动端 media.getSpectrum 返回静默（0）。
-   *
-   * ⚠️ play-url / 外站 CDN：最终响应无 ACAO 时 MediaElementSource 输出全 0，
-   * 且会劫持元素扬声器输出 → 可能静音。此类 URL 绝不接入（频谱退 CSS 柱）。
-   */
+  /** Mobile: do not attach MediaElementAudioSource (breaks background audio). */
   connectAudioToAnalyser(audio: HTMLAudioElement): boolean {
     if (this.nativeOutputLocked || shouldPreserveNativeAudioOutput()) {
       this.nativeOutputLocked = true
       return false
     }
 
-    // 防御：直连 CDN / play-url 无 CORS，接入会导致频谱全 0 甚至整轨静音
+    // play-url/CDN has no CORS; connecting mutes or zeros the analyser.
     const mediaUrl = audio.currentSrc || audio.src || ''
     if (isWebAudioUnsafeMediaUrl(mediaUrl)) {
       return false
@@ -1794,14 +1469,12 @@ class GlobalAudioManager {
       return false
     }
 
-    // 如果已经连接了相同的音频元素，跳过
     if (this.connectedAudio === audio && this.sourceNode) {
       return true
     }
 
     try {
-      // 创建新的源节点
-      // 注意：每个音频元素只能创建一次 MediaElementAudioSourceNode
+      // One MediaElementAudioSourceNode per element.
       this.sourceNode = this.audioContext.createMediaElementSource(audio)
       this.sourceNode.connect(this.analyser)
       if (this.motionAnalyser) this.sourceNode.connect(this.motionAnalyser)
@@ -1809,8 +1482,6 @@ class GlobalAudioManager {
 
       return true
     } catch (e) {
-      // 如果音频元素已经被连接过，会抛出错误
-      // 这种情况下频谱分析可能仍然可用
       console.warn(
         'Failed to connect audio to analyser (may already be connected):',
         e,
@@ -1819,53 +1490,40 @@ class GlobalAudioManager {
     }
   }
 
-  /**
-   * 获取当前频谱数据
-   * 返回一个包含 4 个值的数组，索引对应：[bar1, bar2, bar3, bar4]
-   * 优化策略：中间的bar2和bar3显示最高的频率点，形成视觉中心
-   * 性能优化：
-   *   - 复用所有数组，零GC压力
-   *   - 使用选择算法O(n)代替排序O(n log n)
-   *   - 避免创建临时对象
-   */
-  private spectrumResult: number[] = [0, 0, 0, 0] // 复用数组
+  private spectrumResult: number[] = [0, 0, 0, 0]
   private lastSpectrumTime = 0
-  private readonly SPECTRUM_THROTTLE = 50 // 节流间隔 ms
-  private tempBands: number[] = [0, 0, 0, 0, 0, 0, 0, 0] // 临时存储8个频段数据
-  private bandIndices: number[] = [0, 1, 2, 3, 4, 5, 6, 7] // 复用索引数组，避免创建对象
+  private readonly SPECTRUM_THROTTLE = 50 // ms
+  private tempBands: number[] = [0, 0, 0, 0, 0, 0, 0, 0]
+  private bandIndices: number[] = [0, 1, 2, 3, 4, 5, 6, 7]
 
   getSpectrumData(): number[] {
-    // 节流：避免过于频繁的计算
     const now = performance.now()
     if (now - this.lastSpectrumTime < this.SPECTRUM_THROTTLE) {
       return this.spectrumResult
     }
     this.lastSpectrumTime = now
 
-    // Windows/Chromium 常在首播后把 AudioContext 挂起；频谱全 0 时视觉效果全灭
-    if (this.audioContext && this.audioContext.state === 'suspended') {
+    // Resume AudioContext if Chromium suspends it.
+    if (this.audioContext?.state === 'suspended') {
       void this.audioContext.resume().catch(() => {})
     }
 
     if (!this.analyser || !this.frequencyData) {
-      // 移除随机频响后退方案：无分析器时返回静默
+      // No analyser: silence; no fake spectrum.
       this.spectrumResult.fill(0)
       return this.spectrumResult
     }
 
     try {
-      // 获取频率数据
       this.analyser.getByteFrequencyData(
         this.frequencyData as Uint8Array<ArrayBuffer>,
       )
 
-      // 将32个频段分成8个区域，每个区域4个bin，获得更精细的频率分布
-      const binCount = this.frequencyData.length // 32 个频段
-      const bandSize = binCount >> 3 // 除以8 = 4个bin per band
+      const binCount = this.frequencyData.length
+      const bandSize = binCount >> 3
 
       let hasData = false
 
-      // 计算8个频段的平均值
       for (let i = 0; i < 8; i++) {
         let sum = 0
         const start = i * bandSize
@@ -1875,111 +1533,85 @@ class GlobalAudioManager {
           sum += this.frequencyData[j]
         }
 
-        // 归一化到 0-1 范围，应用 1.8x 增益（提高灵敏度）
         const value = Math.min(1, (sum / bandSize / 255) * 1.8)
         this.tempBands[i] = value
-        if (value > 0.01) hasData = true // 降低阈值，检测更细微的声音
+        if (value > 0.01) hasData = true
       }
 
       if (!hasData) {
-        // 移除随机频响后退方案：无数据时返回静默
+        // No data: silence; no fake spectrum.
         this.spectrumResult.fill(0)
         return this.spectrumResult
       }
 
-      // ⚡ 性能优化：使用选择算法找前4大的值，O(n)时间复杂度
-      // 避免完整排序和创建临时对象
-
-      // 使用部分选择排序：只需要找到前4大的值
-      // 索引数组按值降序排列前4个元素
       const bands = this.tempBands
       const indices = this.bandIndices
 
-      // 找到最大值的索引（第1大）
       let maxIdx = 0
       for (let i = 1; i < 8; i++) {
         if (bands[indices[i]] > bands[indices[maxIdx]]) {
           maxIdx = i
         }
       }
-      // 交换到位置0
       if (maxIdx !== 0) {
         const temp = indices[0]
         indices[0] = indices[maxIdx]
         indices[maxIdx] = temp
       }
 
-      // 找到第二大值的索引
       maxIdx = 1
       for (let i = 2; i < 8; i++) {
         if (bands[indices[i]] > bands[indices[maxIdx]]) {
           maxIdx = i
         }
       }
-      // 交换到位置1
       if (maxIdx !== 1) {
         const temp = indices[1]
         indices[1] = indices[maxIdx]
         indices[maxIdx] = temp
       }
 
-      // 找到第三大值的索引
       maxIdx = 2
       for (let i = 3; i < 8; i++) {
         if (bands[indices[i]] > bands[indices[maxIdx]]) {
           maxIdx = i
         }
       }
-      // 交换到位置2
       if (maxIdx !== 2) {
         const temp = indices[2]
         indices[2] = indices[maxIdx]
         indices[maxIdx] = temp
       }
 
-      // 找到第四大值的索引
       maxIdx = 3
       for (let i = 4; i < 8; i++) {
         if (bands[indices[i]] > bands[indices[maxIdx]]) {
           maxIdx = i
         }
       }
-      // 交换到位置3
       if (maxIdx !== 3) {
         const temp = indices[3]
         indices[3] = indices[maxIdx]
         indices[maxIdx] = temp
       }
 
-      // 分配策略：
-      // - bar2 (中间左): 最高频段
-      // - bar3 (中间右): 次高频段
-      // - bar1 (左边): 第三高频段
-      // - bar4 (右边): 第四高频段
-      // 形成 "低-高-高-低" 的对称视觉效果
-
-      this.spectrumResult[1] = bands[indices[0]] // bar2: 最高
-      this.spectrumResult[2] = bands[indices[1]] // bar3: 次高
-      this.spectrumResult[0] = bands[indices[2]] // bar1: 第三
-      this.spectrumResult[3] = bands[indices[3]] // bar4: 第四
+      this.spectrumResult[1] = bands[indices[0]]
+      this.spectrumResult[2] = bands[indices[1]]
+      this.spectrumResult[0] = bands[indices[2]]
+      this.spectrumResult[3] = bands[indices[3]]
 
       return this.spectrumResult
     } catch {
-      // 移除随机频响后退方案：异常时返回静默
+      // On error: silence; no fake spectrum.
       this.spectrumResult.fill(0)
       return this.spectrumResult
     }
   }
 
-  /**
-   * 获取原始 8 频段数据（bass→high 自然顺序，0-1 归一化）
-   * 与 getSpectrumData 不同：后者是为 4 根柱视觉重排过的（低-高-高-低），
-   * 不适合做频谱可视化；此方法返回未重排的频段，供 Tapp 可视化使用
-   */
   private bandsResult: number[] = [0, 0, 0, 0, 0, 0, 0, 0]
 
   getSpectrumBands(): number[] {
-    // 刷新 tempBands（内部自带 50ms 节流）
+    // 50ms throttle.
     this.getSpectrumData()
     if (!this.analyser || !this.frequencyData) {
       this.bandsResult.fill(0)
@@ -1991,12 +1623,7 @@ class GlobalAudioManager {
     return this.bandsResult
   }
 
-  /**
-   * One analysis-only tap on the existing source, never a second speaker path.
-   * Null means unavailable (native output/CORS/suspended), not measured silence.
-   * 2048 samples give bass resolution; a 25ms caller hop keeps evidence fresh.
-   * Do not reuse the visualizer's cached, smoothed, equal-width display bars.
-   */
+  /** Null = unavailable (CORS/native/suspended), not silence. Do not reuse visualizer bars. */
   getMotionAudioFeatures(
     audio: HTMLAudioElement,
   ): Readonly<MotionAudioFeatures> | null {
@@ -2027,9 +1654,6 @@ class GlobalAudioManager {
     )
   }
 
-  /**
-   * 检查是否支持频谱分析
-   */
   isSpectrumSupported(): boolean {
     return !!(
       window.AudioContext ||
@@ -2039,7 +1663,4 @@ class GlobalAudioManager {
   }
 }
 
-/**
- * 导出全局音频管理器实例
- */
 export const audioManager = GlobalAudioManager.getInstance()

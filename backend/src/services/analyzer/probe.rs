@@ -25,6 +25,9 @@ pub(crate) struct Policy {
 #[derive(Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Observation {
+    pub headers_ms: Option<u64>,
+    pub first_body_ms: Option<u64>,
+    pub body_complete_ms: Option<u64>,
     pub status: Option<u16>,
     pub finish: Option<String>,
     pub prompt_tokens: Option<u64>,
@@ -74,6 +77,7 @@ impl AiAnalyzer {
             self.gateway() == Gateway::OpenRouter,
             "probe requires configured OpenRouter gateway"
         );
+        let started = std::time::Instant::now();
         let mut response = self
             .client
             .post(openai_chat_completions_url(self.base_url.as_deref()))
@@ -89,15 +93,20 @@ impl AiAnalyzer {
             .send()
             .await?;
         observation.status = Some(response.status().as_u16());
+        observation.headers_ms = Some(started.elapsed().as_millis() as u64);
         anyhow::ensure!(response.status().is_success(), "probe HTTP failure");
         let mut bytes = Vec::new();
         while let Some(chunk) = response.chunk().await? {
+            observation
+                .first_body_ms
+                .get_or_insert(started.elapsed().as_millis() as u64);
             anyhow::ensure!(
                 bytes.len() + chunk.len() <= 65536,
                 "probe response exceeded limit"
             );
             bytes.extend_from_slice(&chunk);
         }
+        observation.body_complete_ms = Some(started.elapsed().as_millis() as u64);
         let value: Value = serde_json::from_slice(&bytes)?;
         extract_answer(&value, observation)
     }

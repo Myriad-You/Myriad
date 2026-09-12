@@ -1,8 +1,3 @@
-/**
- * 安装 Tapp 浮层 — 对齐卸载确认 / 设置页指南浮窗的定位与进出场
- * 中性主色强调（卸载用红色危险语义）
- */
-
 .install-tip {
   --install-tip-enter-ms: 280ms;
   --install-tip-exit-ms: 260ms;

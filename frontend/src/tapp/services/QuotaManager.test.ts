@@ -1,7 +1,3 @@
-/**
- *   pnpm exec tsx --test src/tapp/services/QuotaManager.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { getQuotaManager } from './QuotaManager.ts'
@@ -11,7 +7,6 @@ describe('QuotaManager bridge soft limits', () => {
     const q = getQuotaManager()
     const tappId = `quota-test-${Date.now()}`
     let blocked = 0
-    // lifecyclePerMinute = 30 — carve-out, does not share the global bridge bucket
     for (let i = 0; i < 40; i++) {
       const check = q.checkQuota(tappId, 'lifecycle.ready')
       if (!check.allowed) {
@@ -26,7 +21,6 @@ describe('QuotaManager bridge soft limits', () => {
   it('applies global bridge.action bucket to platform reads', () => {
     const q = getQuotaManager()
     const tappId = `quota-plat-${Date.now()}`
-    // platform.read is 60/min; each also counts toward bridge.action 180
     for (let i = 0; i < 5; i++) {
       const check = q.checkQuota(tappId, 'platform.getData')
       assert.equal(check.allowed, true)
@@ -39,21 +33,24 @@ describe('QuotaManager bridge soft limits', () => {
   it('carves storage.* out of the global bridge.action bucket', () => {
     const q = getQuotaManager()
     const tappId = `quota-storage-${Date.now()}`
-    // Fill global bridge.action with platform reads (60/min family + global)
     for (let i = 0; i < 180; i++) {
-      // Use a generic bridge action that hits only the global bucket
       const check = q.checkQuota(tappId, 'context.getApp')
       if (!check.allowed) break
       q.recordUsage(tappId, 'context.getApp')
     }
-    // Global should be exhausted for generic actions
     const generic = q.checkQuota(tappId, 'context.getApp')
     assert.equal(generic.allowed, false, 'global bridge bucket should be full')
 
-    // storage and ui.getTheme remain available via their carve-out buckets
     const storage = q.checkQuota(tappId, 'storage.get')
     assert.equal(storage.allowed, true, 'storage should be carved out')
     q.recordUsage(tappId, 'storage.get')
+
+    const priv = q.checkQuota(tappId, 'private.get')
+    assert.equal(priv.allowed, true, 'private should share the storage bucket')
+    const shared = q.checkQuota(tappId, 'shared.set')
+    assert.equal(shared.allowed, true, 'shared should share the storage bucket')
+    const settings = q.checkQuota(tappId, 'settings.get')
+    assert.equal(settings.allowed, true, 'settings should share the storage bucket')
 
     const theme = q.checkQuota(tappId, 'ui.getTheme')
     assert.equal(theme.allowed, true, 'ui.getTheme should be carved out')
@@ -63,8 +60,6 @@ describe('QuotaManager bridge soft limits', () => {
     const q = getQuotaManager()
     const tappId = `quota-storage-cap-${Date.now()}`
     let blocked = 0
-    // storagePerMinute = 600 — probe beyond a small burst is enough to prove
-    // the bucket exists; full 600-loop is slow so we just assert headroom.
     for (let i = 0; i < 50; i++) {
       const check = q.checkQuota(tappId, 'storage.set')
       if (!check.allowed) {
@@ -76,10 +71,29 @@ describe('QuotaManager bridge soft limits', () => {
     assert.equal(blocked, 0, 'storage should allow at least 50/min freely')
   })
 
+  it('counts private/shared/settings against the same storage cap', () => {
+    const q = getQuotaManager()
+    const tappId = `quota-kv-shared-cap-${Date.now()}`
+    for (let i = 0; i < 600; i++) {
+      const check = q.checkQuota(tappId, 'private.get')
+      assert.equal(check.allowed, true, `private.get #${i} should be in storage bucket`)
+      q.recordUsage(tappId, 'private.get')
+    }
+    const deniedPrivate = q.checkQuota(tappId, 'private.set')
+    assert.equal(deniedPrivate.allowed, false, 'private writes share the storage cap')
+    const deniedStorage = q.checkQuota(tappId, 'storage.get')
+    assert.equal(deniedStorage.allowed, false, 'storage.get shares the cap with private')
+    const deniedShared = q.checkQuota(tappId, 'shared.get')
+    assert.equal(deniedShared.allowed, false)
+    const deniedSettings = q.checkQuota(tappId, 'settings.set')
+    assert.equal(deniedSettings.allowed, false)
+    const generic = q.checkQuota(tappId, 'context.getApp')
+    assert.equal(generic.allowed, true, 'bridge.action bucket stays independent')
+  })
+
   it('returns retryAfter when a dedicated lifecycle bucket is exhausted', () => {
     const q = getQuotaManager()
     const tappId = `quota-retry-${Date.now()}`
-    // lifecyclePerMinute = 30
     for (let i = 0; i < 30; i++) {
       const check = q.checkQuota(tappId, 'lifecycle.ready')
       assert.equal(check.allowed, true)

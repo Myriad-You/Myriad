@@ -3,6 +3,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     Json,
 };
+use myriad_error::AppError;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use sea_orm_migration::MigratorTrait;
 use serde::{Deserialize, Serialize};
@@ -194,9 +195,8 @@ pub async fn init_database(
 ) -> Result<Json<Value>, HttpError> {
     crate::api::setup_bootstrap::require_setup_secret(&headers, body_setup_secret(&body))
         .map_err(HttpError)?;
-    // Setup switches out of CONFIG_MODE as soon as the database can be reached.
-    // Keep the recovery migration available until the installation is claimed,
-    // then lock it permanently once an administrator exists.
+    // Lock this endpoint once an administrator exists. CONFIG_MODE is not
+    // flipped here; a live setup-only process needs schedule_setup_restart.
     let admin_exists = check_admin_user_exists(&db).await;
 
     if admin_exists {
@@ -205,10 +205,11 @@ pub async fn init_database(
         );
         return Err(status_json_to_http((
             StatusCode::FORBIDDEN,
-            Json(json!({
-                "error": "Setup already completed",
-                "message": "Database has been initialized and an admin user exists. Use the authenticated administration workflow for maintenance."
-            })),
+            Json(
+                AppError::forbidden("Setup already completed").with_message(
+                    "Database has been initialized and an admin user exists. Use the authenticated administration workflow for maintenance.",
+                ).to_json(),
+            ),
         )));
     }
 
@@ -216,7 +217,7 @@ pub async fn init_database(
     let tables_existed = check_database_tables(&db).await;
 
     // Never drop feature tables from an unauthenticated setup endpoint.
-    // Migrator::up strips folded 007–015 history rows, drops leftover
+    // Migrator::up strips folded 007–019 history rows, drops leftover
     // `digital_life_*` experiment tables, then applies pending work;
     // other damaged migration state requires explicit operator intervention.
     // Import the migrator from migrations module
@@ -437,7 +438,7 @@ pub async fn save_database_config(
     crate::api::setup_bootstrap::require_setup_secret(&headers, config.setup_secret.as_deref())
         .map_err(HttpError)?;
 
-    // P0 安全修复：强制要求 CONFIG_MODE
+    // 必须 `CONFIG_MODE=true`。
     let config_mode = crate::CONFIG_MODE.load(std::sync::atomic::Ordering::Relaxed);
 
     if !config_mode {

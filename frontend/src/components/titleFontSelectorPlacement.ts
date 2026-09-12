@@ -31,7 +31,6 @@ function readViewport(
   return { width: window.innerWidth, height: window.innerHeight }
 }
 
-/** 贴着触发按钮放：下方不够就翻到上方，并夹在视口内。 */
 export function placeStylePanel(
   button: StylePanelBox,
   panelWidth: number,

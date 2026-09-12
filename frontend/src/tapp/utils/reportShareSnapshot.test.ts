@@ -1,9 +1,3 @@
-/**
- * Unit tests for report share snapshot helpers.
- *
- *   node --experimental-strip-types --test src/tapp/utils/reportShareSnapshot.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {

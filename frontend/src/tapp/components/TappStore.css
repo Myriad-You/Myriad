@@ -1,11 +1,3 @@
-/**
- * Tapp Store content surface.
- *
- * Desktop follows the macOS App Store hierarchy: persistent navigation,
- * editorial discovery, compact app rows, and a contextual detail page.
- * The outer route chrome intentionally lives in TappStorePage and is untouched.
- */
-
 .as-store {
   --as-blue: var(--color-primary, #0a84ff);
   --as-blue-soft: color-mix(in srgb, var(--as-blue) 13%, transparent);
@@ -16,8 +8,6 @@
   --as-fill: color-mix(in srgb, var(--as-label) 6%, transparent);
   --as-fill-strong: color-mix(in srgb, var(--as-label) 10%, transparent);
   --as-sep: color-mix(in srgb, var(--as-label) 5%, transparent);
-
-  /* Set from TappStore via style; 1 = standard, ~0.6 light, ~0.4 exlight */
   --as-dur-scale: 1;
   --as-enter-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --as-enter-dur: calc(0.3s * var(--as-dur-scale));
@@ -37,7 +27,7 @@
   text-size-adjust: 100%;
 }
 
-/* Catalog / row / feature enter — CSS-only so motionShim 不能卡死透明度 */
+/* 目录进入动画只用 CSS，以免 motionShim 卡死透明度。 */
 @keyframes as-store-fade-up {
   from {
     opacity: 0;
@@ -108,7 +98,6 @@
   }
 }
 
-/* fill-mode: backwards only — free transform/opacity after enter for hover/press */
 .as-store[data-store-anim='on'] .as-store-row {
   animation: as-store-fade-up var(--as-enter-dur) var(--as-enter-ease) backwards;
   animation-delay: calc(
@@ -123,13 +112,11 @@
   );
 }
 
-/* Page title cross-swap when category / search context changes */
 .as-store[data-store-anim='on'] .as-store__page-title {
   animation: as-store-fade-up
     calc(0.26s * var(--as-dur-scale)) var(--as-enter-ease) backwards;
 }
 
-/* Empty / loading / error center state */
 .as-store[data-store-anim='on'] .as-store__state {
   animation: as-store-fade-up
     calc(0.32s * var(--as-dur-scale)) var(--as-enter-ease) backwards;
@@ -140,13 +127,11 @@
     calc(0.28s * var(--as-dur-scale)) var(--as-enter-ease) backwards;
 }
 
-/* Search clear pop-in */
 .as-store[data-store-anim='on'] .as-store__search-clear {
   animation: as-store-pop-in
     calc(0.2s * var(--as-dur-scale)) cubic-bezier(0.34, 1.4, 0.64, 1) backwards;
 }
 
-/* Install progress rails */
 .as-store[data-store-anim='on'] .as-store-row__progress {
   animation: as-store-progress-in
     calc(0.28s * var(--as-dur-scale)) var(--as-enter-ease) backwards;
@@ -158,7 +143,6 @@
     calc(0.28s * var(--as-dur-scale)) var(--as-enter-ease) backwards;
 }
 
-/* Detail page staggered content */
 .as-store[data-store-anim='on'] .as-detail__hero {
   animation: as-store-fade-up
     calc(0.32s * var(--as-dur-scale)) var(--as-enter-ease) backwards;
@@ -196,35 +180,21 @@
   );
 }
 
-/* Get button label swap */
 .as-store[data-store-anim='on'] .as-get__label {
   animation: as-store-label-swap
     calc(0.2s * var(--as-dur-scale)) var(--as-enter-ease) backwards;
 }
 
-/* Config confirm + form enter */
 .as-store[data-store-anim='on'] .as-store-configuration__confirm-card {
   animation: as-store-fade-up
     calc(0.28s * var(--as-dur-scale)) var(--as-enter-ease) backwards;
 }
 
-/* Section titles on catalog remount */
 .as-store[data-store-anim='on'] .as-store__section-title {
   animation: as-store-fade-up
     calc(0.26s * var(--as-dur-scale)) var(--as-enter-ease) backwards;
 }
 
-/*
- * Explicit compact density for multi-window host panels, in addition to
- * @container width breakpoints.
- * Do not override .as-store__page-title here — title scale is owned by the
- * base + @container rules below (not unified under embeddedChrome).
- *
- * Keep a real horizontal gutter while the desktop sidebar is visible.
- * Zeroing left/right on scroll-pad (mobile pattern) only makes sense after
- * the sidebar is hidden and children own the inset.
- * Density is a gentle step down from the full-page store — not phone-tight.
- */
 .as-store[data-store-compact='true'] .as-store__workspace {
   grid-template-columns: 12.5rem minmax(0, 1fr);
 }
@@ -253,7 +223,6 @@
   padding: 0 0.2rem 0.75rem;
 }
 
-/* Discover home only — roomier title rhythm (other tabs keep base). */
 .as-store[data-store-compact='true']
   .as-store__scroll-pad--discover
   .as-store__page-head {
@@ -335,22 +304,13 @@
   transition: padding-top 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/*
- * Fullscreen page shell only: the floating control strip sits at
- * fixed top-4 left-4 (~1rem + ~2.6rem bar).
- * - Desktop: pad sidebar (search + nav); main canvas stays edge-to-edge.
- * - Mobile (sidebar hidden): pad the whole store so chrome/list/detail
- *   clear the floating exit toolbar + status safe-area.
- */
 .as-store[data-fullscreen='true'] .as-store__sidebar {
-  /* top-4 + bar (~2.65rem) + 0.55rem air */
   padding-top: max(
     4.25rem,
     calc(env(safe-area-inset-top, 0px) + 3.75rem)
   );
 }
 
-/* Compact multi-window never sets fullscreen; keep override explicit. */
 .as-store[data-store-compact='true'][data-fullscreen='true'] .as-store__sidebar {
   padding-top: max(
     4.25rem,
@@ -358,7 +318,6 @@
   );
 }
 
-/* Narrow surface = mobile chrome (sidebar display:none). */
 @container tapp-store (width <= 859px) {
   .as-store[data-fullscreen='true'] {
     padding-top: max(
@@ -369,11 +328,6 @@
   }
 }
 
-/*
- * Standard route only: keep a direct optical path from the page wallpaper to
- * the sidebar. The main store canvas remains opaque, and fullscreen keeps its
- * regular solid foundation through TappStorePage.
- */
 .tapp-store-frame--wallpaper,
 .tapp-store-frame--wallpaper .as-store {
   background: transparent;
@@ -387,7 +341,6 @@
   backdrop-filter: var(--surface-filter);
 }
 
-/* Paint the standard frame edge without consuming 1px on either side. */
 .tapp-store-standard-content {
   outline: 1px solid var(--surface-border);
   outline-offset: -1px;
@@ -403,11 +356,6 @@
   margin: 0 0.15rem 0.9rem;
 }
 
-/*
- * The surrounding sidebar / compact chrome owns the single backdrop pass.
- * Search stays highly transparent and adds only painted edge light, depth,
- * a moving caustic, and focus optics; nested backdrop filters create bands.
- */
 .as-store__search-shell {
   --search-shell-radius: 0.72rem;
 
@@ -438,7 +386,6 @@ html[data-perf-mode='exlight'] .as-store__search-shell {
     box-shadow 160ms ease;
 }
 
-/* A caustic travels across the lens on intent, without another backdrop pass. */
 .as-store__search-shell::after {
   position: absolute;
   inset: -80% -35%;
@@ -632,7 +579,6 @@ html.dark .as-store__search-shell:focus-within {
   color: var(--as-secondary);
 }
 
-/* Refresh busy state: Spinner is a span, keep icon column aligned. */
 .as-store__nav-item > .spinner {
   width: 0.92rem;
   height: 0.92rem;
@@ -681,7 +627,6 @@ html.dark .as-store__search-shell:focus-within {
   background: var(--as-bg);
 }
 
-/* Mobile-only in-content toolbar. The route's top bar is outside this scope. */
 .as-store__chrome {
   display: none;
   flex-shrink: 0;
@@ -892,10 +837,6 @@ html[data-perf-mode='exlight'] .as-store__chrome {
   letter-spacing: -0.025em;
 }
 
-/*
- * Discover home only — looser title rhythm.
- * Category / installed / all-apps / search keep the base rules above.
- */
 .as-store__scroll-pad--discover .as-store__page-head {
   padding: 0.55rem 0.15rem 0.85rem;
 }
@@ -1098,8 +1039,6 @@ html[data-perf-mode='exlight'] .as-store__chrome {
   background: transparent;
   border: 0;
   border-radius: inherit;
-
-  /* Allow parent horizontal snap-scroll; pan-y alone steals the gesture. */
   touch-action: manipulation;
 }
 
@@ -1203,7 +1142,6 @@ html[data-perf-mode='exlight'] .as-store__chrome {
   }
 }
 
-/* Size/shape only — fill + material highlight come from TappIconBadge defaults */
 .as-store-row__icon {
   position: relative;
   display: grid;
@@ -1239,7 +1177,6 @@ html[data-perf-mode='exlight'] .as-store__chrome {
   min-width: 0;
 }
 
-/* Official store certification seal — wavy rim + check (after titles). */
 .as-store-verified-mark {
   --as-store-verified-check: #fff;
 
@@ -1273,7 +1210,6 @@ html[data-perf-mode='exlight'] .as-store__chrome {
   min-width: 0;
 }
 
-/* ManagedList title line: keep name + verified dot on one baseline */
 .as-store-configuration__list .managed-list-row-title {
   display: inline-flex;
   align-items: center;
@@ -1297,7 +1233,6 @@ html[data-perf-mode='exlight'] .as-store__chrome {
   color: var(--as-blue);
 }
 
-/* Single subtitle line; rotates via RotatingSubtitle (same motion as detail). */
 .as-store-row__sub {
   color: var(--as-secondary);
   font-size: 0.8125rem;
@@ -1424,7 +1359,6 @@ html[data-perf-mode='exlight'] .as-store__chrome {
   transition: width 350ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* Catalog skeleton — same geometry as featured + rows, no fake app copy */
 .as-store__skeleton {
   pointer-events: none;
 }
@@ -1619,7 +1553,6 @@ html[data-perf-mode='exlight'] .as-store__skel-feature::after {
   transform: scale(0.96);
 }
 
-/* Partial catalog failure: keep list, surface error + retry */
 .as-store__error-banner {
   display: flex;
   align-items: center;
@@ -1652,7 +1585,6 @@ html[data-perf-mode='exlight'] .as-store__skel-feature::after {
   font-size: 0.78rem !important;
 }
 
-/* Delete store source — in-panel confirm (no window.confirm) */
 .as-store-configuration__confirm {
   position: sticky;
   bottom: 0;
@@ -1687,7 +1619,6 @@ html[data-perf-mode='exlight'] .as-store__skel-feature::after {
   gap: 0.5rem;
 }
 
-/* Detail */
 .as-detail__scroll {
   overflow-anchor: none;
 }
@@ -1735,7 +1666,6 @@ html[data-perf-mode='exlight'] .as-store__skel-feature::after {
   min-height: 6.5rem;
 }
 
-/* Size/shape only — material shell is the default finish */
 .as-detail__icon {
   position: relative;
   display: grid;
@@ -1890,8 +1820,6 @@ html[data-perf-mode='exlight'] .as-store__skel-feature::after {
   opacity: 0.7;
 }
 
-/* Liquid mode already supplies environment-driven sheen/refraction through the
-   shared glass lens. Avoid stacking a fixed highlight over the live optics. */
 :root[data-surface='liquid'] .as-detail__fluid-control::after,
 .as-detail__fluid-control.glass-liquid::after {
   opacity: 0;
@@ -2171,7 +2099,6 @@ html.dark .as-detail__preview-placeholder {
     );
 }
 
-/* Size only — default material finish from TappIconBadge */
 .as-detail__preview-placeholder-icon {
   position: relative;
   z-index: 1;
@@ -2293,7 +2220,6 @@ html.dark .as-detail__perm-card--privileged.checkbox-group-card {
   border-color: rgb(248 113 113 / 24%);
 }
 
-/* Store configuration reuses the App Store detail shell and settings primitives. */
 .as-store-configuration {
   max-width: 58rem;
   padding-top: 1rem;
@@ -2330,17 +2256,12 @@ html.dark .as-detail__perm-card--privileged.checkbox-group-card {
   margin-bottom: var(--settings-gap-item, 0.625rem);
 }
 
-/*
- * TappStore can live inside a resizable Tapp window. Responsive decisions
- * therefore follow the store surface itself instead of the outer page viewport.
- */
 @container tapp-store (width >= 1280px) {
   .as-store__list {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
-/* —— Narrow / mobile store surface —— */
 @container tapp-store (width <= 859px) {
   .as-store__workspace {
     display: block;
@@ -2355,7 +2276,6 @@ html.dark .as-detail__perm-card--privileged.checkbox-group-card {
     height: 100%;
   }
 
-  /* In-content search + category chrome (route top bar stays outside). */
   .as-store__chrome {
     display: block;
     z-index: 12;
@@ -2377,7 +2297,6 @@ html.dark .as-detail__perm-card--privileged.checkbox-group-card {
     gap: 0.45rem;
   }
 
-  /* ≥16px avoids iOS auto-zoom on focus. */
   .as-store__search-row .as-store__search-input {
     height: 2.5rem;
     padding: 0 2.15rem;
@@ -2443,10 +2362,6 @@ html.dark .as-detail__perm-card--privileged.checkbox-group-card {
     padding: 0.85rem 0 calc(3.25rem + env(safe-area-inset-bottom, 0px));
   }
 
-  /*
-   * Compact multi-window on a phone-width surface: drop the sidebar-gutter
-   * again so section/page-head own the horizontal inset (no double pad).
-   */
   .as-store[data-store-compact='true'] .as-store__scroll-pad {
     padding: 0.85rem 0 calc(2.75rem + env(safe-area-inset-bottom, 0px));
   }
@@ -2549,16 +2464,13 @@ html.dark .as-detail__perm-card--privileged.checkbox-group-card {
   .as-store__skel-feature,
   .as-store__featured > .as-store__skel-feature:first-child,
   .as-store__featured > .as-store__skel-feature:nth-child(2) {
-    /* Fixed rem basis — cqw can reflow mid-gesture if the store shell
-       resizes (nav/chrome), which reads as title text shrinking. */
+    /* 标题用固定 rem。cqw 会在手势中随壳层缩放。 */
     flex: 0 0 min(82%, 19.5rem);
     min-width: min(82%, 19.5rem);
     min-height: 10.25rem;
     padding: 1rem 1.05rem;
     scroll-snap-align: start;
     border-radius: 1rem;
-
-    /* pan-x only would block vertical page scroll from the strip. */
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
   }
@@ -2634,7 +2546,6 @@ html.dark .as-detail__perm-card--privileged.checkbox-group-card {
     min-height: 2.15rem;
   }
 
-  /* Keep Get / Start compact on mobile — not oversized touch slabs. */
   .as-get {
     min-width: 3.75rem;
     height: 1.7rem;
@@ -2761,10 +2672,6 @@ html.dark .as-detail__perm-card--privileged.checkbox-group-card {
     gap: 0.55rem;
   }
 
-  .as-detail__block--info .info-action-card {
-    /* Tighter card padding on phone-width store surfaces */
-  }
-
   .as-store-configuration {
     padding: 1.15rem 1.4rem calc(2.5rem + env(safe-area-inset-bottom, 0px));
   }
@@ -2775,7 +2682,6 @@ html.dark .as-detail__perm-card--privileged.checkbox-group-card {
   }
 }
 
-/* —— Phone —— */
 @container tapp-store (width <= 520px) {
   .as-store__chrome-inner {
     padding-right: 1.25rem;
@@ -2878,7 +2784,6 @@ html.dark .as-detail__perm-card--privileged.checkbox-group-card {
     left: 3.95rem;
   }
 
-  /* Hero: slightly tighter, CTA more prominent */
   .as-detail {
     padding: 1.25rem 1.3rem calc(3.75rem + env(safe-area-inset-bottom, 0px));
   }
@@ -2973,7 +2878,6 @@ html.dark .as-detail__perm-card--privileged.checkbox-group-card {
   }
 }
 
-/* —— Very small phones —— */
 @container tapp-store (width <= 380px) {
   .as-store__page-title {
     font-size: 1.35rem;
@@ -3010,7 +2914,6 @@ html.dark .as-detail__perm-card--privileged.checkbox-group-card {
   }
 }
 
-/* Coarse pointer: drop hover-only affordances that feel sticky on touch. */
 @media (hover: none) and (pointer: coarse) {
   .as-store-row:hover {
     background: transparent;
@@ -3020,10 +2923,6 @@ html.dark .as-detail__perm-card--privileged.checkbox-group-card {
     color: var(--as-label);
   }
 
-  /*
-   * Featured strip scrolls horizontally on phone. :active scale + transform
-   * transition make titles flash-shrink on every finger-down swipe.
-   */
   .as-store__feature-card {
     transition: box-shadow 240ms ease;
   }

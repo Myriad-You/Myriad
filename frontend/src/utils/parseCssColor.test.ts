@@ -13,7 +13,6 @@ describe('parseCssColor', () => {
     assert.deepEqual(parseCssColor('#94a3b880'), { r: 148, g: 163, b: 184 })
   })
 
-  // 注册为 @property <color> 的自定义属性，computed value 就是这个形态
   it('parses comma-separated rgb()', () => {
     assert.deepEqual(parseCssColor('rgb(107, 114, 128)'), {
       r: 107,

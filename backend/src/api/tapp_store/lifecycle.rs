@@ -32,7 +32,7 @@ use myriad_error::AppError;
 ///
 /// 权限模型（private-first，与 list/detail/runtime 一致）：
 /// - 主体有同 `tapp_id` 的私有安装时：更新该私有行状态
-/// - 否则站点主公开安装：管理员写库；非管理员只记活动（前端会话态）
+/// - 否则站点主公开安装：管理员写库；非管理员在 Running 行上记 `tapp_user_activities`
 /// - 普通用户可以启动自己临时安装的 Tapp
 ///
 /// 所有用户启动 Tapp 时都会记录到 tapp_user_activities 表
@@ -88,8 +88,8 @@ pub(super) async fn start_tapp(
             let tapp = private_tapp.expect("has_private");
             // Refuse startup while the install needs re-authorization.
             // The frontend already blocks this; the backend gate is the server-side
-            // half of the same fail-closed contract. Both start branches share the
-            // pure decision below.
+            // half of the same fail-closed contract. Three success arms share
+            // `refuse_marked_start` below.
             refuse_marked_start(tapp.needs_reauthorization)?;
             let mut active: tapps::ActiveModel = tapp.into();
             active.status = Set(tapps::TappStatus::Running);
@@ -312,7 +312,7 @@ pub(super) async fn get_recent_tapps(
 
     let is_admin = current_is_admin(&claims, &db).await;
 
-    // 合并 Tapp 列表，建立 tapp_id -> tapp 映射（private wins for same id）
+    // 合并 Tapp 列表：先插公开再 `or_insert` 私有（同 id 公开胜出）
     let mut tapp_map: std::collections::HashMap<String, &tapps::Model> =
         std::collections::HashMap::new();
     for tapp in &admin_tapps {

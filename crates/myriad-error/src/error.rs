@@ -8,6 +8,8 @@ use crate::redact::redact_secrets;
 use http::StatusCode;
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::sync::OnceLock;
 
 /// Stable JSON body shape returned to clients.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -33,27 +35,53 @@ pub struct AppError {
     code: Option<String>,
 }
 
-impl AppError {
-    /// Stable machine code for well-known public labels.
-    pub fn inferred_code(label: &str) -> Option<&'static str> {
-        match label.trim() {
-            "Database error" | "Database query failed" | "Database not connected" => {
-                Some("database_error")
+fn is_resource_not_found(label: &str) -> bool {
+    let lower = label.to_ascii_lowercase();
+    lower.ends_with(" not found") && lower != "method not found"
+}
+
+fn shared_label_codes() -> &'static HashMap<String, String> {
+    static MAP: OnceLock<HashMap<String, String>> = OnceLock::new();
+    MAP.get_or_init(|| {
+        let spec: Value = serde_json::from_str(include_str!("../../../shared/error_codes.json"))
+            .expect("shared/error_codes.json");
+        let mut map = HashMap::new();
+        if let Some(labels) = spec.get("labels").and_then(Value::as_object) {
+            for (label, code) in labels {
+                let Some(code) = code.as_str() else { continue };
+                map.insert(label.clone(), code.to_string());
+                map.insert(label.to_ascii_lowercase(), code.to_string());
             }
-            "Failed to fetch data" => Some("fetch_failed"),
-            "Failed to process password" | "Failed to verify password" => Some("password_failed"),
-            "Failed to create account" => Some("account_create_failed"),
-            "Failed to create session token" | "Failed to refresh session token" => {
-                Some("session_failed")
-            }
-            _ => None,
         }
+        map
+    })
+}
+
+impl AppError {
+    /// Stable machine code for well-known public labels (`shared/error_codes.json`).
+    pub fn inferred_code(label: &str) -> Option<&'static str> {
+        let trimmed = label.trim();
+        let map = shared_label_codes();
+        if let Some(code) = map
+            .get(trimmed)
+            .or_else(|| map.get(&trimmed.to_ascii_lowercase()))
+        {
+            return Some(code.as_str());
+        }
+        if is_resource_not_found(trimmed) {
+            return Some("not_found");
+        }
+        None
     }
 
     /// Build with an explicit status. `error` is the short public label.
     pub fn new(status: StatusCode, error: impl Into<String>) -> Self {
         let error = redact_secrets(&error.into());
-        let code = Self::inferred_code(&error).map(str::to_string);
+        let code = Some(
+            Self::inferred_code(&error)
+                .unwrap_or("unmapped")
+                .to_string(),
+        );
         Self {
             status,
             error,
@@ -159,9 +187,23 @@ impl AppError {
         if let Some(ref h) = self.hint {
             v["hint"] = json!(h);
         }
-        if let Some(ref c) = self.code {
-            v["code"] = json!(c);
-        }
+        v["code"] = json!(self.code.clone().unwrap_or_else(|| "unmapped".into()));
+        v
+    }
+
+    /// `{error, code}` for handlers that still return raw JSON instead of [`AppError`].
+    pub fn public_json(label: impl Into<String>) -> Value {
+        let error = redact_secrets(&label.into());
+        json!({
+            "error": error,
+            "code": Self::inferred_code(&error).unwrap_or("unmapped"),
+        })
+    }
+
+    /// Brew-style `{success: false, error, code?}`.
+    pub fn fail_json(label: impl Into<String>) -> Value {
+        let mut v = Self::public_json(label);
+        v["success"] = json!(false);
         v
     }
 }
@@ -223,7 +265,20 @@ mod tests {
         assert_eq!(v["error"], "missing");
         assert!(v.get("message").is_none());
         assert!(v.get("hint").is_none());
-        assert!(v.get("code").is_none());
+        assert_eq!(v["code"], "unmapped");
+    }
+
+    #[test]
+    fn shared_label_codes_cover_inferred_public_labels() {
+        let spec: Value =
+            serde_json::from_str(include_str!("../../../shared/error_codes.json")).unwrap();
+        for (label, code) in spec["labels"].as_object().unwrap() {
+            assert_eq!(
+                AppError::inferred_code(label.as_str()),
+                Some(code.as_str().unwrap()),
+                "{label}"
+            );
+        }
     }
 
     #[test]
@@ -231,6 +286,99 @@ mod tests {
         let v = AppError::internal("Database error").to_json();
         assert_eq!(v["error"], "Database error");
         assert_eq!(v["code"], "database_error");
+    }
+
+    #[test]
+    fn generic_http_labels_get_stable_codes() {
+        assert_eq!(
+            AppError::unauthorized("Unauthorized").to_json()["code"],
+            "unauthorized"
+        );
+        assert_eq!(
+            AppError::forbidden("Forbidden").to_json()["code"],
+            "forbidden"
+        );
+        assert_eq!(
+            AppError::not_found("Not found").to_json()["code"],
+            "not_found"
+        );
+        assert_eq!(
+            AppError::bad_request("Bad request").to_json()["code"],
+            "bad_request"
+        );
+        assert_eq!(AppError::conflict("Conflict").to_json()["code"], "conflict");
+        assert_eq!(
+            AppError::internal("Internal server error").to_json()["code"],
+            "internal_error"
+        );
+        assert_eq!(
+            AppError::service_unavailable("Service unavailable").to_json()["code"],
+            "service_unavailable"
+        );
+        assert_eq!(
+            AppError::service_unavailable("Service in configuration mode").to_json()["code"],
+            "configuration_mode"
+        );
+        assert_eq!(
+            AppError::forbidden("Setup already completed").to_json()["code"],
+            "setup_completed"
+        );
+        assert_eq!(
+            AppError::unauthorized("Setup window closed").to_json()["code"],
+            "setup_window_closed"
+        );
+        assert_eq!(
+            AppError::unauthorized("Setup secret required").to_json()["code"],
+            "setup_secret_mismatch"
+        );
+        assert_eq!(
+            AppError::service_unavailable("Activity not ready").to_json()["code"],
+            "activity_not_ready"
+        );
+        assert_eq!(
+            AppError::forbidden("Access denied").to_json()["code"],
+            "forbidden"
+        );
+        assert_eq!(
+            AppError::not_found("User not found").to_json()["code"],
+            "not_found"
+        );
+        assert_eq!(
+            AppError::internal("Failed to find Tapp").to_json()["code"],
+            "tapp_not_found"
+        );
+        assert_eq!(
+            AppError::not_found("missing").to_json()["code"],
+            "unmapped"
+        );
+        assert_eq!(
+            AppError::internal("Method not found").to_json()["code"],
+            "unmapped"
+        );
+        assert_eq!(
+            AppError::internal("Failed to update user").to_json()["code"],
+            "account_update_failed"
+        );
+        assert_eq!(
+            AppError::internal("Failed to load config").to_json()["code"],
+            "config_load_failed"
+        );
+        assert_eq!(
+            AppError::internal("Failed to persist Tapp").to_json()["code"],
+            "tapp_save_failed"
+        );
+        assert_eq!(
+            AppError::internal("Failed to save MCP config").to_json()["code"],
+            "mcp_config_save_failed"
+        );
+        let unauthorized = AppError::public_json("Unauthorized");
+        assert_eq!(unauthorized["error"], "Unauthorized");
+        assert_eq!(unauthorized["code"], "unauthorized");
+        let user_missing = AppError::public_json("User not found");
+        assert_eq!(user_missing["code"], "not_found");
+        let brew = AppError::fail_json("Source not found");
+        assert_eq!(brew["success"], false);
+        assert_eq!(brew["code"], "not_found");
     }
 
     #[test]
@@ -256,5 +404,6 @@ mod tests {
         let (st, v): (StatusCode, Value) = AppError::conflict("exists").into();
         assert_eq!(st, StatusCode::CONFLICT);
         assert_eq!(v["error"], "exists");
+        assert_eq!(v["code"], "unmapped");
     }
 }

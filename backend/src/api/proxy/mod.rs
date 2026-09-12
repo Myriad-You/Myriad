@@ -17,9 +17,6 @@ mod unbounded_read_tests {
     /// 一个超大响应，都会变成本进程的内存放大 —— 而这里有**公开未认证**的
     /// 图片代理。
     ///
-    /// 之前的写法是先 `bytes()` 再判断长度，代码注释自己承认
-    /// "body is already buffered"：上限只能事后拒绝，拦不住内存消耗。
-    ///
     /// 类型系统区分不了「这次读取有上限」，所以对源码断言。
     #[test]
     fn proxy_never_buffers_an_upstream_body_without_a_cap() {

@@ -1,4 +1,3 @@
-/** Audio evidence, not a claim that the mix contains a singer. */
 export interface MotionAudioFeatures {
   energy: number
   bass: number
@@ -6,11 +5,6 @@ export interface MotionAudioFeatures {
   presence: number
 }
 
-/**
- * Read physical frequency ranges instead of the visualizer's eight equal-width
- * bars (whose first bar includes most of the voice). No source separation or
- * pitch detection is implied by `presence`. The caller owns reusable buffers.
- */
 export function analyzeMotionAudio(
   waveform: Float32Array,
   decibels: Float32Array,
@@ -18,8 +12,7 @@ export function analyzeMotionAudio(
   output: MotionAudioFeatures,
   playbackVolume = 1,
 ): MotionAudioFeatures {
-  // MediaElementAudioSource includes the element's volume. Choreography follows
-  // the recording's dynamics, not the listener's speaker-volume preference.
+  // Analyser follows the recording, not speaker volume.
   const gain =
     Number.isFinite(playbackVolume) && playbackVolume > 0
       ? 1 / playbackVolume

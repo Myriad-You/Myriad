@@ -80,7 +80,7 @@ export function startTour(def: TourDefinition): boolean {
   if (first < 0) return false
   const step = def.steps[first]!
   revealTourAnchor(step.anchor, step.id)
-  visible = [...def.steps]
+  visible = Iterator.from(def.steps).toArray()
   setTourDomActive(true)
   emit({
     active: true,
@@ -126,7 +126,7 @@ export function nextTourStep(): void {
   showIndex(next)
 }
 
-/** 实操完成：紧后介绍步还没挂上就等，不要跨到后面。 */
+// 紧后介绍步还没挂上就等，不要跨过去。
 export function completeTourAction(): void {
   if (!snapshot.active || !snapshot.step?.action) return
   if (tourStepBlocksAdvance(snapshot.step)) return
@@ -150,7 +150,7 @@ export function previousTourStep(): void {
   showIndex(prev)
 }
 
-/** If the current anchor vanished or cannot be measured, jump forward or stop. */
+// 当前锚消失或量不到就前跳或停。
 export function recoverTourStep(): void {
   if (!snapshot.active || !snapshot.step) return
   if (isTourStepAvailable(snapshot.step)) return

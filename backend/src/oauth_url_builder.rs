@@ -1,4 +1,5 @@
-/// 站点配置 - 统一管理 base_url 相关功能
+/// Public site URL for OAuth callback / Cookie Secure / frontend redirect.
+/// Federation Actor URLs use a separate `GLOBAL_CONFIG` fallback chain.
 ///
 /// 设计原则：
 /// 1. 数据库优先，配置为空时回退到环境变量
@@ -10,8 +11,9 @@ impl SiteConfig {
     ///
     /// # 优先级
     /// 1. 数据库 DynamicConfig.base_url
-    /// 2. 环境变量 BASE_URL 或 FRONTEND_URL
-    /// 3. 开发默认值 http://localhost:1102
+    /// 2. 环境变量 `BASE_URL`
+    /// 3. 环境变量 `FRONTEND_URL`
+    /// 4. 开发默认值 `http://localhost:1102`
     pub async fn get_base_url() -> String {
         use crate::GLOBAL_DYNAMIC_CONFIG;
         use std::env;
@@ -55,8 +57,8 @@ impl SiteConfig {
     /// `http://host:port` during bring-up; marking cookies Secure there makes
     /// the browser drop login/guest cookies and drifts Tapp grant subjects.
     ///
-    /// Other production gates (CORS, analytics salt) still use
-    /// [`AppConfig::is_production_environment`].
+    /// CORS uses [`AppConfig::is_production_environment`]. Analytics salt has
+    /// its own `is_production_environment()` in `intake_helpers`.
     pub async fn is_production() -> bool {
         let base_url = Self::get_base_url().await;
         base_url.starts_with("https://")
@@ -70,7 +72,7 @@ impl SiteConfig {
 pub struct OAuthUrlBuilder;
 
 impl OAuthUrlBuilder {
-    /// 启动时检查 base_url + GitHub 凭证状态，仅输出日志，不阻塞启动
+    /// 启动时检查 base_url 与已启用 OAuth provider 条数，仅日志，不阻塞启动。
     pub async fn validate_github_oauth_config() -> Result<(), String> {
         let base_url = SiteConfig::get_base_url().await;
         if base_url.contains("localhost") {

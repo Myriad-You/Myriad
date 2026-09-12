@@ -1,18 +1,21 @@
-/**
- * 板块划分与深链别名的单元测试。
- *
- * Run from frontend/:
- *   pnpm test:unit -- src/components/brew/logic/board.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   boardEntry,
+  collectSourceCategories,
+  eatSearchKeys,
+  filterLaneItems,
+  filterSourcesByQuery,
   isBrewBoard,
+  isFriendSource,
+  isNotesSource,
   isSiteSource,
+  refreshableSourceCount,
   resolveBoardParam,
+  showsFilterLane,
+  sortSourcesForBoard,
   sourcesForBoard,
+  viewForBoardEntry,
 } from './board.ts'
 import { makeSource } from './fixtures.ts'
 
@@ -20,13 +23,66 @@ describe('isSiteSource', () => {
   it('只认 source_type === link', () => {
     assert.equal(isSiteSource(makeSource({ source_type: 'link' })), true)
     assert.equal(isSiteSource(makeSource({ source_type: 'rss' })), false)
-    assert.equal(isSiteSource(makeSource({ source_type: 'brewlia' })), false)
-    assert.equal(isSiteSource(makeSource({ source_type: 'rsshub' })), false)
+    assert.equal(
+      refreshableSourceCount([
+        makeSource({ source_type: 'link' }),
+        makeSource({ source_type: 'rss' }),
+      ]),
+      1,
+    )
+  })
+})
+
+describe('isFriendSource', () => {
+  it('入口型算朋友', () => {
+    assert.equal(isFriendSource(makeSource({ source_type: 'link' })), true)
   })
 
-  it('分类不参与判断：挂着「友情链接」的真订阅源仍属订阅板块', () => {
+  it('挂着「友情链接」的 RSS 算朋友', () => {
     const s = makeSource({ source_type: 'rss', category: '友情链接' })
+    assert.equal(isFriendSource(s), true)
     assert.equal(isSiteSource(s), false)
+  })
+
+  it('认 friend_links / Friend Links 别名', () => {
+    assert.equal(
+      isFriendSource(makeSource({ source_type: 'rss', category: 'friend_links' })),
+      true,
+    )
+    assert.equal(
+      isFriendSource(makeSource({ source_type: 'rss', category: 'Friend Links' })),
+      true,
+    )
+  })
+
+  it('自有源不去朋友们', () => {
+    const s = makeSource({
+      source_type: 'rss',
+      category: '我,友情链接',
+    })
+    assert.equal(isNotesSource(s), true)
+    assert.equal(isFriendSource(s), false)
+  })
+})
+
+describe('isNotesSource', () => {
+  it('手记源和「我」分类都算', () => {
+    assert.equal(
+      isNotesSource(makeSource({ source_type: 'note', category: '我' })),
+      true,
+    )
+    assert.equal(
+      isNotesSource(makeSource({ source_type: 'rss', category: '我' })),
+      true,
+    )
+    assert.equal(
+      isNotesSource(makeSource({ source_type: 'rss', category: '科技' })),
+      false,
+    )
+    assert.equal(
+      isNotesSource(makeSource({ source_type: 'rss', category: 'mine' })),
+      true,
+    )
   })
 })
 
@@ -34,53 +90,39 @@ describe('sourcesForBoard', () => {
   const link = makeSource({ id: 1, source_type: 'link' })
   const rss = makeSource({ id: 2, source_type: 'rss' })
   const mine = makeSource({ id: 3, source_type: 'rss', category: '我' })
-  const all = [link, rss, mine]
+  const friendRss = makeSource({
+    id: 5,
+    source_type: 'rss',
+    category: '友情链接',
+  })
+  const note = makeSource({ id: 4, source_type: 'note', category: '我' })
+  const all = [link, rss, mine, friendRss, note]
 
-  it('sites 只要入口型', () => {
+  it('sites 收入口和友情链接订阅，不收自有源', () => {
     assert.deepEqual(
       sourcesForBoard(all, 'sites').map((s) => s.id),
-      [1],
+      [1, 5],
     )
   })
 
-  it('feeds 要其余全部，包括「我」分类的自有源', () => {
+  it('feeds 不再收朋友源', () => {
     assert.deepEqual(
       sourcesForBoard(all, 'feeds').map((s) => s.id),
-      [2, 3],
+      [2, 3, 4],
     )
   })
 
-  it('notes 不是源墙，返回空', () => {
-    assert.deepEqual(sourcesForBoard(all, 'notes'), [])
-  })
-
-  it('手记源落在订阅板块 —— 它是一张能点进去的磁贴，不是入口', () => {
-    const note = makeSource({ id: 4, source_type: 'note', category: '我' })
+  it('notes 收手记源和「我」分类', () => {
     assert.deepEqual(
-      sourcesForBoard([note], 'feeds').map((s) => s.id),
-      [4],
-    )
-    assert.deepEqual(sourcesForBoard([note], 'sites'), [])
-  })
-
-  it('保持输入顺序 —— 排序由调用方决定', () => {
-    const reversed = [mine, rss, link]
-    assert.deepEqual(
-      sourcesForBoard(reversed, 'feeds').map((s) => s.id),
-      [3, 2],
+      sourcesForBoard(all, 'notes').map((s) => s.id),
+      [3, 4],
     )
   })
 })
 
 describe('boardEntry', () => {
-  it('手记直接进合并文章流', () => {
-    assert.deepEqual(boardEntry('notes'), {
-      view: 'category-feed',
-      board: 'notes',
-    })
-  })
-
-  it('订阅与站点进源墙', () => {
+  it('三个板块都进源墙', () => {
+    assert.deepEqual(boardEntry('notes'), { view: 'sources', board: 'notes' })
     assert.deepEqual(boardEntry('feeds'), { view: 'sources', board: 'feeds' })
     assert.deepEqual(boardEntry('sites'), { view: 'sources', board: 'sites' })
   })
@@ -103,7 +145,7 @@ describe('resolveBoardParam', () => {
       board: 'sites',
     })
     assert.deepEqual(resolveBoardParam('mine'), {
-      view: 'category-feed',
+      view: 'sources',
       board: 'notes',
     })
   })
@@ -117,16 +159,105 @@ describe('resolveBoardParam', () => {
 
   it('认不出的取值返回 null，不回落默认板块', () => {
     assert.equal(resolveBoardParam('nope'), null)
-    assert.equal(resolveBoardParam(''), null)
+  })
+})
+
+describe('viewForBoardEntry / eatSearchKeys / filterLaneItems', () => {
+  it('游客收藏深链降到源墙；query 落地后吃掉', () => {
+    assert.equal(
+      viewForBoardEntry({ view: 'starred', board: 'feeds' }, false),
+      'sources',
+    )
+    assert.equal(
+      viewForBoardEntry({ view: 'starred', board: 'feeds' }, true),
+      'starred',
+    )
+    const next = eatSearchKeys(
+      new URLSearchParams('board=notes&keep=1'),
+      ['board', 'category'],
+    )
+    assert.equal(next.get('board'), null)
+    assert.equal(next.get('keep'), '1')
+    assert.deepEqual(filterLaneItems('sources', [1], []), [])
+    assert.deepEqual(filterLaneItems('starred', [1], []), [1])
+    assert.equal(showsFilterLane('starred', false, true), true)
+    assert.equal(showsFilterLane('starred', false, false), false)
+    assert.equal(showsFilterLane('topic-feed', true, false), true)
   })
 })
 
 describe('isBrewBoard', () => {
   it('只认三个板块 id', () => {
     assert.equal(isBrewBoard('feeds'), true)
-    assert.equal(isBrewBoard('notes'), true)
-    assert.equal(isBrewBoard('sites'), true)
-    assert.equal(isBrewBoard('all'), false)
+    assert.equal(isBrewBoard('friends'), false)
     assert.equal(isBrewBoard('starred'), false)
+  })
+})
+
+describe('collectSourceCategories', () => {
+  it('拆逗号、去空、去重', () => {
+    assert.deepEqual(
+      collectSourceCategories([
+        makeSource({ category: '技术, 我' }),
+        makeSource({ category: '技术' }),
+        makeSource({ category: null }),
+      ]).toSorted(),
+      ['我', '技术'],
+    )
+  })
+})
+
+describe('filterSourcesByQuery', () => {
+  it('空词原样拷贝', () => {
+    const sources = [makeSource({ name: 'A' })]
+    const next = filterSourcesByQuery(sources, '  ')
+    assert.deepEqual(next.map((s) => s.id), sources.map((s) => s.id))
+    assert.notEqual(next, sources)
+  })
+
+  it('按名 / 址 / 简介收', () => {
+    const sources = [
+      makeSource({ name: '星辰博客', url: 'https://a.com', description: null }),
+      makeSource({ name: '其他', url: 'https://b.com/feed', description: 'hello' }),
+    ]
+    assert.equal(filterSourcesByQuery(sources, '星辰')[0]?.name, '星辰博客')
+    assert.equal(filterSourcesByQuery(sources, 'B.COM')[0]?.name, '其他')
+    assert.equal(filterSourcesByQuery(sources, 'hello')[0]?.name, '其他')
+  })
+})
+
+describe('sortSourcesForBoard', () => {
+  it('拼音按名字', () => {
+    const sorted = sortSourcesForBoard(
+      [
+        makeSource({ id: 2, name: '星辰' }),
+        makeSource({ id: 1, name: '白的' }),
+      ],
+      'pinyin',
+      'guest',
+      0,
+      'zh-CN',
+    )
+    assert.deepEqual(
+      sorted.map((s) => s.name),
+      ['白的', '星辰'],
+    )
+  })
+
+  it('分类按主分类再按名', () => {
+    const sorted = sortSourcesForBoard(
+      [
+        makeSource({ id: 2, name: 'one-b', category: 'aaa' }),
+        makeSource({ id: 1, name: 'two', category: 'zzz' }),
+        makeSource({ id: 3, name: 'one-a', category: 'aaa' }),
+      ],
+      'category',
+      'guest',
+      0,
+    )
+    assert.deepEqual(
+      sorted.map((s) => s.name),
+      ['one-a', 'one-b', 'two'],
+    )
   })
 })

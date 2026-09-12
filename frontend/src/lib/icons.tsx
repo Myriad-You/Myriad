@@ -1,13 +1,7 @@
-/**
- * 统一图标导出
- * 从 react-icons 和 lucide-react 精确导入需要的图标，保持包体积最小化
- *
- * ⚠️ 重要：不要使用 import * as 语法，否则会导入整个图标库
- */
+/** 不要 `import * as`，会打进整个图标库。 */
 
 import type { LucideIcon } from 'lucide-react'
 import type { IconType } from 'react-icons'
-// Lucide Icons (Lu*) - 用于 Brew 阅读器等现代 UI
 import {
   Activity as LuActivity,
   AlertCircle as LuAlertCircle,
@@ -134,7 +128,6 @@ import {
 } from 'lucide-react'
 
 import { BsNintendoSwitch } from 'react-icons/bs'
-// Font Awesome Icons (Fa*) - 通用图标
 import {
   FaAlipay,
   FaAmazon,
@@ -274,9 +267,7 @@ import {
   FaWrench,
   FaXbox,
 } from 'react-icons/fa'
-// Font Awesome 6 Icons (Fa6*) - 用于 FaGrip 等
 import { FaGrip } from 'react-icons/fa6'
-// Simple Icons (Si*) - 品牌图标
 import {
   SiAnilist as SiAnilistRaw,
   SiApple as SiAppleRaw,
@@ -399,7 +390,6 @@ function withIconA11y(Icon: IconType): IconType {
   return AccessibleIcon
 }
 
-// Wrap all Simple Icons exports (decorative default)
 const SiAnilist = withIconA11y(SiAnilistRaw)
 const SiApple = withIconA11y(SiAppleRaw)
 const SiArtstation = withIconA11y(SiArtstationRaw)
@@ -481,10 +471,7 @@ const SiZhihu = withIconA11y(SiZhihuRaw)
 
 const SiCodepen = withIconA11y(FaCodepen)
 
-/**
- * OpenAI 品牌图标
- * Simple Icons 中已移除 SiOpenai（商标原因），使用官方 blossom 标志的自定义 SVG
- */
+/** Simple Icons 已移除 SiOpenai（商标），用官方 blossom SVG。 */
 const OpenAiIconRaw: IconType = ({ size, style, title, ...props }) => {
   const iconSize = size ?? '1em'
 
@@ -543,10 +530,7 @@ const BangumiIconRaw: IconType = ({ size, style, title, ...props }) => {
 const BangumiIcon = withIconA11y(BangumiIconRaw)
 const SiBangumi = BangumiIcon
 
-/**
- * QQ 音乐品牌图标
- * Simple Icons 仅有 SiQq（QQ 通讯），无 QQ 音乐；使用官方圆标 + 音符剪影的单色 currentColor 版
- */
+/** Simple Icons 只有 SiQq（通讯），没有 QQ 音乐。 */
 const QqMusicIconRaw: IconType = ({ size, style, title, ...props }) => {
   const iconSize = size ?? '1em'
 
@@ -616,7 +600,6 @@ const MyriadStoreIconRaw: IconType = ({ size, style, title, ...props }) => {
 
 const MyriadStoreIcon = withIconA11y(MyriadStoreIconRaw)
 
-// 导出 Simple Icons
 export {
   BangumiIcon,
   MyriadStoreIcon,
@@ -705,7 +688,6 @@ export {
   SiZhihu,
 }
 
-// 导出 Font Awesome
 export {
   FaAlipay,
   FaAmazon,
@@ -846,7 +828,6 @@ export {
 }
 export { FaGrip }
 
-// 导出 Lucide Icons
 export {
   LuActivity,
   LuAlertCircle,
@@ -860,16 +841,13 @@ export {
   LuCalendar,
   LuCheck,
   LuCheckCircle,
-  // 选择 & 复选框
   LuCheckSquare,
   LuChevronDown,
-  // 导航 & 方向
   LuChevronLeft,
   LuChevronRight,
   LuChevronUp,
   LuCircleDashed,
   LuClipboardList,
-  // 时间 & 用户
   LuClock,
   LuCloud,
   LuCloudFog,
@@ -975,20 +953,12 @@ export {
   LuZoomOut,
 }
 
-// 别名
 export const FaXTwitter = SiX
 
-// 品牌图标别名 - 来自其他图标库
-
-/**
- * Nintendo Switch 品牌图标
- * Simple Icons 已移除此图标，使用 Bootstrap Icons 的 BsNintendoSwitch 替代
- */
+/** Simple Icons 已移除，改用 BsNintendoSwitch。 */
 export const SiNintendoswitch = withIconA11y(BsNintendoSwitch)
 
-// 图标映射表 - 用于动态查找 (getIconByName)
 export const iconMap: Record<string, IconType> = {
-  // Simple Icons - 品牌图标
   SiSinaweibo,
   SiX,
   SiFacebook,
@@ -1070,7 +1040,6 @@ export const iconMap: Record<string, IconType> = {
   SiNeteasecloudmusic,
   SiBilibili,
   SiMaildotru,
-  // Font Awesome - 通用图标
   FaMusic,
   FaVideo,
   FaBroadcastTower,
@@ -1147,7 +1116,6 @@ export const iconMap: Record<string, IconType> = {
   FaGithub,
   FaPlay,
   FaPause,
-  // Font Awesome 6
   FaGrip,
   FaFreeCodeCamp,
   FaVolumeUp,
@@ -1155,26 +1123,14 @@ export const iconMap: Record<string, IconType> = {
   FaHeadphones,
   FaClipboard,
   FaExchangeAlt,
-  // 别名
   FaXTwitter: SiX,
 }
 
-/**
- * 根据名称获取图标组件
- * @param name 图标名称（如 "SiGithub", "FaHeart"）
- * @returns 图标组件或 null
- */
 export function getIconByName(name: string): IconType | null {
   return iconMap[name] || null
 }
 
-// 自定义 SVG 图标组件
-
-/**
- * RSSHub 品牌图标
- * 官方设计：地球 + 网状图案，代表全球化的 RSS 聚合
- * Simple Icons 中没有此图标，使用自定义 SVG
- */
+/** Simple Icons 没有 RSSHub，用自定义 SVG。 */
 export function RSSHubIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="currentColor">
@@ -1183,8 +1139,6 @@ export function RSSHubIcon({ className }: { className?: string }) {
   )
 }
 
-// 为了兼容性，导出 NotionIcon 别名（使用 SiNotion）
 export const NotionIcon = SiNotion
 
-// 导出类型
 export type { IconType, LucideIcon }

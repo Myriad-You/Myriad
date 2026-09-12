@@ -1,11 +1,6 @@
-/**
- * Pure-function tests for the host-side module compiler.
- * Run from frontend/:
- *   node --experimental-strip-types --test src/tapp/runtime/moduleRuntime.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { runInNewContext } from 'node:vm'
 import {
   buildLayerRuntime,
   collectLayerModules,
@@ -13,13 +8,7 @@ import {
   resolveModulePath,
 } from './moduleRuntime.ts'
 
-/**
- * 与安装期解析器共用的用例表。
- *
- * 运行时这份负责解析加装载，安装期那份只做存在性检查，但两者必须对同一组输入给出
- * 同一个答案。改这张表时同步改 `backend/src/services/tapp_install_resources.rs`
- * 里的 `SHARED_RESOLUTION_CASES`。
- */
+/** 与安装期解析器共用。两边必须对同一输入给出同一答案。改表时同步 backend SHARED_RESOLUTION_CASES。 */
 const SHARED_RESOLUTION_CASES: Array<[string, string, string | null]> = [
   ['page/index.js', './state.js', 'page/state.js'],
   ['page/index.js', '../core.js', 'core.js'],
@@ -43,10 +32,7 @@ describe('resolveModulePath', () => {
   })
 })
 
-/**
- * 与安装期提取器共用的用例。改这里时同步改
- * `backend/src/services/tapp_install_resources.rs` 的 `SHARED_EXTRACTION_SOURCE`。
- */
+/** 与安装期提取器共用。改这里时同步 backend SHARED_EXTRACTION_SOURCE。 */
 const SHARED_EXTRACTION_SOURCE = `
         var a = require('./a.js')
         var b = require("../b.js")
@@ -60,7 +46,7 @@ const SHARED_EXTRACTION_SOURCE = `
 
 describe('collectRequires', () => {
   it('agrees with the install-time extractor on every shared case', () => {
-    // 入口放在层目录里，`./a.js` 与 `../b.js` 才都是合法写法。
+    // 入口放在层目录里，./a.js 与 ../b.js 才都合法。
     const { resolved, missing } = collectRequires(
       'page/index.js',
       SHARED_EXTRACTION_SOURCE,
@@ -70,7 +56,7 @@ describe('collectRequires', () => {
         'b.js': '',
       },
     )
-    assert.deepEqual([...resolved.keys()], ['./a.js', '../b.js'])
+    assert.deepEqual(Iterator.from(resolved.keys()).toArray(), ['./a.js', '../b.js'])
     assert.deepEqual(missing, [])
   })
 })
@@ -85,7 +71,7 @@ describe('collectLayerModules', () => {
     'orphan.js': 'module.exports = 1;',
   }
 
-  /// widget 沙箱不能拿到 Page 的 JS：注入范围按依赖图算，不是整包。
+  // widget 沙箱不能拿到 Page 的 JS：注入按依赖图，不是整包。
   it('walks only the dependency closure of the given entries', () => {
     const page = collectLayerModules(modules, ['core.js', 'page/index.js'])
     assert.deepEqual(page.included, [
@@ -163,6 +149,19 @@ describe('buildLayerRuntime', () => {
     // eslint-disable-next-line no-new-func -- host-side test only
     new Function(plan.source)()
     assert.equal((globalThis as { __count?: number }).__count, 1)
+  })
+
+  it('keeps module ownership checks intact when app code replaces Object.hasOwn', () => {
+    const plan = buildLayerRuntime({
+      'core.js': 'module.exports = { value: 7 };',
+      'page/index.js': `
+        const core = require('../core.js');
+        Object.hasOwn = () => true;
+        if (require('../core.js') !== core) throw new Error('Lost module cache');
+        require('toString');
+      `,
+    }, ['core.js', 'page/index.js'])
+    assert.throws(() => runInNewContext(plan.source), /Cannot find module "toString"/)
   })
 
   it('breaks require cycles with partial exports', () => {

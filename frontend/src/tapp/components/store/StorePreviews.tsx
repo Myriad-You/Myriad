@@ -1,5 +1,3 @@
-/** Featured + static store previews (sanitized iframes). */
-
 import type { PreviewRenderState } from '../../utils/tappStorePreview'
 import type { UnifiedAppItem } from './types'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -18,7 +16,6 @@ import {
 import { TappIconBadge } from '../TappIconBadge'
 import { getAppIconStyle } from './storeAppMeta'
 
-/** Lazy, non-interactive 1280×720 preview used as an editorial-card backdrop. */
 export function FeaturedTappPreview({ app }: { app: UnifiedAppItem }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const [shouldLoad, setShouldLoad] = useState(false)
@@ -55,8 +52,6 @@ export function FeaturedTappPreview({ app }: { app: UnifiedAppItem }) {
     let cancelled = false
 
     const loadPreview = async () => {
-      // Catalog snapshot / page_template, or built-in example pageHtml.
-      // No installed-package re-render.
       const remote = app.remoteApp
       const localPageHtml = app.localTapp?.code.pageHtml
       const snapshot = app.preview ?? remote?.preview
@@ -130,7 +125,6 @@ export function FeaturedTappPreview({ app }: { app: UnifiedAppItem }) {
     return () => observer.disconnect()
   }, [canvas, srcDoc])
 
-  // onLoad 可能不触发；超时后展示内容，避免永久 opacity:0
   useEffect(() => {
     if (!srcDoc || renderState !== 'checking') return
     const timer = window.setTimeout(() => {
@@ -140,8 +134,6 @@ export function FeaturedTappPreview({ app }: { app: UnifiedAppItem }) {
   }, [srcDoc, renderState])
 
   const handleLoad = useCallback(() => {
-    // Featured backdrop: always show sanitized doc (timeout also promotes ready).
-    // Strict adapted check is reserved for detail StaticTappPreview.
     setRenderState('ready')
   }, [])
 
@@ -267,7 +259,6 @@ export function StaticTappPreview({
 
   const handleLoad = useCallback(
     (event: React.SyntheticEvent<HTMLIFrameElement>) => {
-      // Extreme overflow → fallback; otherwise prefer showing sanitized content
       const ok = isRenderedPreviewAdapted(event.currentTarget, canvas)
       setRenderState(ok ? 'ready' : 'fallback')
     },

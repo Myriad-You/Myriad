@@ -65,7 +65,8 @@ fn resolve_name(key: &str, default: &str, env_file: Option<&Path>) -> String {
 }
 
 /// Services recreated during update / rollback `compose up` paths.
-pub const UPDATE_RECREATE_SERVICES: &[&str] = &["backend", "frontend", "postgres"];
+pub const UPDATE_RECREATE_SERVICES: &[&str] =
+    &["backend", "federation-worker", "frontend", "postgres"];
 
 /// Collect Docker network names that compose will attach for the given services.
 ///

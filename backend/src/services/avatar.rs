@@ -6,21 +6,18 @@
 //!
 //! | 来源 | 存放 | 写入方 |
 //! |------|------|--------|
-//! | 账号 | `users.avatar_url` | 本地注册播种 / OAuth 登录同步 |
+//! | 账号 | `users.avatar_url` | OAuth 登录同步；本地注册不落库 |
 //! | OAuth 身份 | `user_identities.avatar_url` | 登录时 upsert（每个 provider 一份快照） |
 //! | 平台画像 | `platform_metadata` | 站长抓取 B站 / GitHub / YouTube / Steam |
 //! | 人设贴纸头像 | `agent_persona.avatar_asset_id` | 站长在人设页生成的 Q 版贴纸 |
-//! | 生成兜底 | 无 | 前端 `localFallback`（不再依赖 ui-avatars.com 外链） |
+//! | 生成兜底 | 无 | 前端 `localFallbackAvatar`（不再依赖 ui-avatars.com 外链） |
 //!
 //! 选择器列表里，OAuth 与同站平台抓取会**合并为一行**（见
 //! [`list_avatar_sources`]），避免 GitHub 出现两次；存储仍用既有
 //! `identity` / `platform` kind，不新增 DB 类型。
 //!
-//! 出口散落在 `/api/auth/me`、`/api/tapp/context/user`、`/api/auth/identities`、
-//! `/api/admin/users`、`/api/profile/user-info` 五处。此前每处各写一遍优先级与
-//! 代理判断，导致同一个人在首页和控制面板可能是两张脸。本模块是唯一解析处：
-//! 出口只允许读这里，且**一律经 `proxy_image_url`** —— hdslb 等 CDN 有防盗链，
-//! 直链在浏览器里必裂。
+//! HTTP JSON 出口走 `proxied_avatar` / `resolve_avatar`（`proxy_image_url`）。
+//! 联邦 Actor 文档走 `avatar_snapshot_expr` → `/users/{username}/avatar`，不经代理 URL。
 
 use std::collections::HashMap;
 
@@ -31,13 +28,12 @@ use sea_orm::{
 };
 use serde_json::{json, Value};
 
-/// 站长平台画像的固定考察顺序（auto 模式下的兜底优先级，与历史行为一致）。
+/// 站长平台画像的固定考察顺序（auto 模式兜底优先级）。
 pub const PLATFORM_ORDER: [&str; 4] = ["bilibili", "github", "youtube", "steam"];
 
 /// 未选择画像源（auto）时的隐式阶梯，`{alias}` 为 `users` 表别名。
 ///
-/// `users.avatar_url`（排除历史播种的 ui-avatars 占位外链）→ 该用户最优的一条
-/// identity 快照（primary 优先，其次最近登录 / 最近绑定）→ `users.avatar_url` 原值。
+/// `users.avatar_url`（SQL `LIKE` 大小写敏感排除 ui-avatars）→ 最优 identity 快照 → `avatar_url` 原值。
 const IMPLICIT_LADDER_TEMPLATE: &str = r#"COALESCE(
     NULLIF(
         CASE
@@ -61,7 +57,7 @@ const IMPLICIT_LADDER_TEMPLATE: &str = r#"COALESCE(
     NULLIF({alias}.avatar_url, '')
 )"#;
 
-/// 解析器专用：只要隐式阶梯，不含显式快照那一层。
+/// 只要隐式阶梯，不含 `avatar_resolved_url`。
 ///
 /// `resolve_avatar` 要重新算出 auto 的结果，若读进 `avatar_resolved_url` 就会
 /// 自我循环——刷新一次便把旧快照当输入固化下来。
@@ -71,15 +67,13 @@ fn implicit_ladder_expr(alias: &str) -> String {
 
 /// 头像的 SELECT 表达式片段，`alias` 是 `users` 表在该查询里的别名。
 ///
-/// 优先级：`avatar_resolved_url`（用户显式选定画像源后的解析快照）→ 隐式阶梯。
+/// 优先级：`avatar_resolved_url`（解析快照，含 Auto+平台画像）→ 隐式阶梯。
 /// 显式快照是"改一处、处处同步"的落点：所有出口读的是同一个字段。
 ///
 /// 全 NULL 时返回 NULL，由调用方决定兜底 —— 后端不再编造 `ui-avatars.com`
 /// 或 `github.com/ghost.png`，那会让"没有头像"和"头像就是这张"无法区分。
 ///
-/// **这段 SQL 曾在七处逐字抄写**（`/auth/me`、`/tapp/context/user`、联邦 actor 四处、
-/// 房间成员、发帖署名、社交时间线…），改一处漏六处：联邦那边就一直没跟上用户
-/// 选定的画像源。所有需要它的查询都必须调本函数，不要再抄。
+/// 所有需要它的查询都必须调本函数。
 pub fn avatar_snapshot_expr(alias: &str) -> String {
     format!(
         "COALESCE(NULLIF({alias}.avatar_resolved_url, ''), {ladder})",
@@ -107,11 +101,7 @@ pub fn avatar_presence_expr(alias: &str) -> String {
     )
 }
 
-/// 历史播种的 ui-avatars.com 占位地址（`name=Admin` 渲染出来就是那张 "Ad"）。
-///
-/// 占位头像是**显示时的兜底**，不是账号数据。注册处已不再播种，但存量库里还留着；
-/// 这里统一当「没有头像」处理，于是不用数据迁移也能退到前端本地生成的兜底图。
-/// SQL 侧的同名判断在 [`avatar_snapshot_expr`] 的阶梯里，两边必须同进退。
+/// ui-avatars.com 占位地址。Rust 账号源滤掉；SQL 末级 COALESCE 仍可能回落原值。
 pub fn is_placeholder_avatar(url: &str) -> bool {
     let u = url.trim().to_ascii_lowercase();
     u.starts_with("https://ui-avatars.com/") || u.starts_with("http://ui-avatars.com/")
@@ -142,7 +132,7 @@ pub fn proxied_avatar_value(url: Option<String>) -> serde_json::Value {
     }
 }
 
-/// 画像源类型。`Auto` 表示未选择，沿用 [`avatar_snapshot_expr`] 的隐式阶梯。
+/// 画像源类型。`Auto` 表示未选择：解析时站长先按 `PLATFORM_ORDER` 取平台画像，没有再回落隐式阶梯。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AvatarSourceKind {
     Auto,
@@ -164,7 +154,7 @@ impl AvatarSourceKind {
         }
     }
 
-    /// 未知/空值一律归为 `Auto` —— 库里存了脏值时退回隐式阶梯，而不是让用户没头像。
+    /// 未知/空值一律归为 `Auto`：站长先平台画像再隐式阶梯，非站长只走阶梯。
     pub fn parse(raw: Option<&str>) -> Self {
         match raw.map(str::trim).unwrap_or_default() {
             "account" => Self::Account,
@@ -221,8 +211,8 @@ fn str_field(value: &Value, keys: &[&str]) -> Option<String> {
 
 /// 从 YouTube channel 载荷提取公开资料。
 ///
-/// 存储形态是 Data API `channels.list` 条目（`snippet.*`）；同时兼容
-/// smart_filter / 旧版扁平键。
+/// 存储形态是 Data API `channels.list` 条目（`snippet.*`）；
+/// 也读顶层 `title` / `name` / `customUrl` / `avatar` / `face`。
 fn youtube_profile(yt_user: &Value) -> Option<PlatformProfile> {
     let snip = yt_user.get("snippet");
     let name = snip
@@ -268,12 +258,15 @@ fn youtube_profile(yt_user: &Value) -> Option<PlatformProfile> {
     })
 }
 
-const LAZY_BIO: &str = "这家伙很懒，没有介绍呢";
+pub(crate) const LAZY_BIO: &str = "No bio available";
+const LAZY_BIO_LEFTOVER: &str = "这家伙很懒，没有介绍呢";
+
+pub(crate) fn is_placeholder_bio(bio: &str) -> bool {
+    let bio = bio.trim();
+    bio.is_empty() || bio == LAZY_BIO || bio == LAZY_BIO_LEFTOVER
+}
 
 /// 从单个平台的原始载荷提取公开画像。
-///
-/// `/api/profile/user-info` 的 DB 路径与缓存路径此前各抄了一遍这四个分支
-/// （共八份），任何字段调整都要改八处；两边现在都走这里。
 pub fn platform_profile(platform: &str, data: &Value) -> Option<PlatformProfile> {
     match platform {
         "bilibili" => {
@@ -314,7 +307,7 @@ pub fn platform_profile(platform: &str, data: &Value) -> Option<PlatformProfile>
                     .or_else(|| user.get("avatar"))
                     .and_then(Value::as_str)
                     .map(str::to_string),
-                bio: "Steam 玩家".to_string(),
+                bio: "Steam player".to_string(),
             })
         }
         _ => None,
@@ -344,8 +337,8 @@ async fn load_user_is_owner(db: &DatabaseConnection, user_id: i32) -> bool {
     .unwrap_or(false)
 }
 
-/// 站长的全部平台原始数据：优先数据库，空则回落磁盘缓存（与 profile 的历史行为一致）。
-/// 第二个返回值是数据来源标记（`"database"` / `"cache"` / `"none"`），出口要透出。
+/// 站长的全部平台原始数据：优先数据库，空则回落磁盘缓存。
+/// 第二个返回值是 `"database"` / `"cache"` / `"none"`。
 ///
 /// Disk-cache fallback is **site-owner only**. For non-owners, empty DB → empty map
 /// (never the site-owner cache under another user_id).
@@ -413,7 +406,7 @@ struct UserAvatarRow {
     kind: AvatarSourceKind,
     source_ref: Option<String>,
     account_avatar: Option<String>,
-    /// 未选择时的隐式阶梯结果
+    /// SQL 隐式阶梯结果（Auto 无平台画像，或显式源落空时回落）
     implicit: Option<String>,
     is_owner: bool,
 }
@@ -454,8 +447,7 @@ async fn load_user_avatar_row<C: ConnectionTrait>(
             .try_get::<Option<String>>("", "avatar_source_ref")
             .ok()
             .flatten(),
-        // 存量库里的 ui-avatars 占位值在这里就滤掉：选「账号头像」不该把一张
-        // 外部图床的字母图当成真头像用（SQL 阶梯里同样滤，两边同进退）
+        // 存量库里的 ui-avatars 占位值在这里滤掉。
         account_avatar: row
             .try_get::<Option<String>>("", "avatar_url")
             .ok()
@@ -498,10 +490,8 @@ async fn identity_avatar<C: ConnectionTrait>(
 
 /// 解析结果 + 它是否来自 SQL 阶梯。
 ///
-/// 区分这一点是为了决定要不要写快照：SQL 能自己算出的结果写进
-/// `avatar_resolved_url` 只会固化成陈旧值，而平台画像 SQL 够不到（它藏在
-/// `platform_metadata` 的 JSON 里，各平台字段还不同形），必须落快照，
-/// `/api/auth/me` 那种单查询出口才看得见。
+/// `from_sql_ladder` = `selected.is_none()`：回落阶梯则快照写 NULL；
+/// 平台/账号/身份/人设命中则落 `avatar_resolved_url`。
 struct ResolvedAvatar {
     url: Option<String>,
     from_sql_ladder: bool,
@@ -549,9 +539,7 @@ async fn resolve_detail<C: ConnectionTrait>(
     };
 
     let selected = match row.kind {
-        // 站长未选择时保持历史行为：站点形象优先用平台画像（首页信息条与控制面板
-        // 此前都是这张脸），平台没有数据才回落账号阶梯。普通用户没有平台数据，
-        // 直接走阶梯。
+        // Auto：站长按 PLATFORM_ORDER 取平台画像；非站长 `is_owner == false`，不查平台。
         AvatarSourceKind::Auto => owner_platform_avatar(None).await,
         AvatarSourceKind::Account => row.account_avatar.clone(),
         AvatarSourceKind::Identity => {
@@ -840,7 +828,7 @@ fn build_merged_identity_platform_sources(
     out
 }
 
-/// 列出该用户全部可选画像源：账号 + 每个已绑定 OAuth 身份 +（站长）每个平台画像。
+/// 列出可选画像源：账号 + OAuth 身份 +（站长）平台画像 + 人设贴纸。
 ///
 /// **同站合并**：OAuth identity 与站长 `platform_metadata` 若映射到同一平台键
 /// （如 github），只返回一行（`kind=platform`）。详见
@@ -905,7 +893,7 @@ pub async fn list_avatar_sources(
         });
     }
 
-    // 平台画像只属于站长：普通用户没有 platform_metadata，列出来也是空的
+    // 平台画像只属于站长：非 `is_owner` 不查 platform_metadata
     let platforms = if row.is_owner {
         owner_platform_profiles(db, user_id).await
     } else {
@@ -959,8 +947,7 @@ pub async fn current_avatar_source(
 /// 校验：来源必须真实属于该用户 —— 管理员替他人切换时也只能在**对方已有的**
 /// 来源里选，不能塞任意 URL。
 ///
-/// Multi-step writes (`avatar_source_*`, optional `is_primary`, optional
-/// `linked_github_id`) run in a single DB transaction.
+/// `avatar_source_*` 与 Identity 时的 `is_primary` 同事务写入。
 pub async fn set_avatar_source(
     db: &DatabaseConnection,
     user_id: i32,
@@ -970,7 +957,7 @@ pub async fn set_avatar_source(
     set_avatar_source_txn(db, user_id, kind, source_ref, None).await
 }
 
-/// OAuth `POST /identities/:id/primary`: set identity as avatar source and
+/// OAuth `POST /api/auth/identities/{identity_id}/primary`: set identity as avatar source and
 /// optionally backfill `users.linked_github_id` in the same transaction.
 pub async fn set_primary_identity_source(
     db: &DatabaseConnection,
@@ -1124,7 +1111,7 @@ mod tests {
             assert!(sql.contains(&format!("ui.user_id = {alias}.id")));
             assert!(!sql.contains("{alias}"), "模板占位符未被替换");
         }
-        // primary 优先是画像源选择的落点，顺序不能被改
+        // identity 阶梯按 is_primary 优先，顺序不能改
         assert!(avatar_snapshot_expr("u").contains("ORDER BY ui.is_primary DESC"));
     }
 
@@ -1205,7 +1192,7 @@ mod tests {
         );
         assert_eq!(bilibili.bio, "hi");
 
-        // 旧缓存用 user_info 而非 user
+        // 也认 `user_info`（不仅 `user`）
         assert!(platform_profile("bilibili", &json!({"user_info": {"name": "x"}})).is_some());
 
         // GitHub 无 name 时回落 login；空 bio 用默认文案
@@ -1456,7 +1443,7 @@ mod tests {
                         platform: "Steam",
                         name: Some("gaben".into()),
                         avatar: None,
-                        bio: "Steam 玩家".into(),
+                        bio: "Steam player".into(),
                     },
                 ),
             ],

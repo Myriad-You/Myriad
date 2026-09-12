@@ -44,7 +44,6 @@ interface AdvancedConfigSectionProps {
   icon: React.ReactNode
   description: string
   sectionId?: string
-  /** UI config fields (network proxy / API mirrors). */
   uiConfigFields: UiConfigField[]
   updateUiFieldValue: (key: string, value: string) => void
   onMessage?: (
@@ -75,7 +74,7 @@ interface ClientPreferenceRestorePlan {
   invalidKeys: string[]
 }
 
-// 浏览器设置的唯一备份注册表；新增或删除本地设置只需要维护这里。
+// only registry of browser prefs; add/remove local settings here
 const CLIENT_PREFERENCE_REGISTRY: ClientPreferenceDescriptor[] = [
   { key: 'theme', schemaVersion: 1 },
   { key: 'locale', schemaVersion: 1 },
@@ -118,15 +117,15 @@ function planClientPreferenceRestore(
     ]),
   )
   const values: Record<string, string> = {}
-  const ignoredKeys = Object.keys(preferences).filter(
-    (key) => !registry.has(key),
-  )
+  const ignoredKeys = Iterator.from(
+    new Set(Object.keys(preferences)).difference(new Set(registry.keys())),
+  ).toArray()
   const invalidKeys: string[] = []
 
   for (const descriptor of CLIENT_PREFERENCE_REGISTRY) {
     const raw = preferences[descriptor.key]
     if (typeof raw === 'string') {
-      // v1 客户端偏好是扁平字符串。
+      // v1 client prefs are flat strings
       values[descriptor.key] = raw
       continue
     }
@@ -220,7 +219,6 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
   const { t } = useI18n()
   const { catalog: g, bindGuide } = useSettingGuide()
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
-  /** 按钮原地二次确认：第一次点亮，第二次执行 */
   const [cachePurgeArmed, setCachePurgeArmed] = useState(false)
   const [cachePurgeLoading, setCachePurgeLoading] = useState(false)
   const cachePurgeArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -322,7 +320,6 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
         }
       }
       reader.readAsText(file)
-      // 重置 input 以便再次选择同一文件
       e.target.value = ''
     },
     [t, onMessage],
@@ -410,10 +407,8 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
     >
       <RuntimeDiagnostics onMessage={onMessage} />
 
-      {/* MCP 工具服务器（admin；配置在服务器 mcp_servers.json） */}
       <McpConfigPanel onMessage={onMessage} />
 
-      {/* 内存节约：收紧并发预算 / 缓存 / 连接池（~1 GiB 主机） */}
       <SettingGroup
         title={t.config.memorySaverGroup}
         description={t.config.memorySaverGroupDesc}
@@ -433,7 +428,6 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
         />
       </SettingGroup>
 
-      {/* 代理 + API 镜像 */}
       <SettingGroup
         title={t.config.network}
         description={t.config.networkDesc}
@@ -583,7 +577,6 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
         />
       </SettingGroup>
 
-      {/* Reset Confirmation Modal */}
       {resetConfirmOpen && (
         <div
           className="modal-overlay"
@@ -632,7 +625,6 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
         </div>
       )}
 
-      {/* Import Confirmation Modal */}
       {importConfirmOpen && (
         <div className="modal-overlay" onClick={closeImportConfirm}>
           <div

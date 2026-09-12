@@ -243,10 +243,61 @@ impl ComposeRunner {
         })
     }
 
+    /// Optional on older host compose files. New topology uses the same backend
+    /// image with a fixed dedicated executable; role support is an image capability.
+    pub async fn federation_worker_image(&self) -> Result<Option<String>> {
+        let config = self.config_json().await?;
+        let Some(worker) = config.pointer("/services/federation-worker") else {
+            return Ok(None);
+        };
+        let image = worker
+            .get("image")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| UpdaterError::Precondition("federation worker image missing".into()))?;
+        if config
+            .pointer("/services/backend/image")
+            .and_then(serde_json::Value::as_str)
+            != Some(image)
+        {
+            return Err(UpdaterError::Precondition(
+                "federation worker must use the backend image".into(),
+            ));
+        }
+        Ok(Some(image.into()))
+    }
+
+    async fn application_services<'a>(
+        &self,
+        requested: &[&'a str],
+        starting: bool,
+    ) -> Result<Vec<&'a str>> {
+        let mut services = requested.to_vec();
+        if requested.contains(&"backend") && !requested.contains(&"federation-worker") {
+            if let Some(image) = self.federation_worker_image().await? {
+                let supported = !starting
+                    || super::DockerClient::connect()
+                        .await?
+                        .supports_federation_worker(&image)
+                        .await?;
+                if supported {
+                    services.insert(0, "federation-worker");
+                }
+            }
+        }
+        Ok(services)
+    }
+
     pub async fn stop(&self, services: &[&str], timeout_secs: u32) -> Result<ComposeOutput> {
+        if services.contains(&"backend") {
+            super::DockerClient::connect()
+                .await?
+                .stop_federation_worker()
+                .await?;
+        }
+        let services = self.application_services(services, false).await?;
         let timeout_str = timeout_secs.to_string();
         let mut args: Vec<&str> = vec!["stop", "-t", &timeout_str];
-        args.extend_from_slice(services);
+        args.extend_from_slice(&services);
         self.run(&args, Duration::from_secs((timeout_secs as u64) + 60))
             .await
     }
@@ -272,11 +323,12 @@ impl ComposeRunner {
         services: &[&str],
         force_recreate: bool,
     ) -> Result<ComposeOutput> {
+        let services = self.application_services(services, true).await?;
         let mut args: Vec<&str> = vec!["up", "-d", "--no-deps"];
         if force_recreate {
             args.push("--force-recreate");
         }
-        args.extend_from_slice(services);
+        args.extend_from_slice(&services);
         self.run(&args, Duration::from_secs(600)).await
     }
 

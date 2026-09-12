@@ -1,6 +1,7 @@
 import type { TappInstance, TappMessage } from '../../../types'
 import type { TappBridge } from '../../TappBridge'
 import {
+  emitTappPrivateChange,
   emitTappSettingsChange,
   emitTappSharedChange,
   emitTappStorageChange,
@@ -13,6 +14,7 @@ export interface PlaygroundPreviewStores {
   storage: PreviewStore
   settings: PreviewStore
   shared: PreviewStore
+  private: PreviewStore
 }
 
 export interface PreviewAssetPayload {
@@ -56,13 +58,12 @@ function guessPreviewAssetMime(path: string): string {
 }
 
 function byteLengthFromBase64(base64: string): number {
-  const clean = base64.replace(/\s/g, '')
+  const clean = base64.replaceAll(/\s/g, '')
   if (!clean) return 0
   const padding = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0
   return Math.max(0, Math.floor((clean.length * 3) / 4) - padding)
 }
 
-/** Decode a Playground `code.assets` payload into the host asset envelope. */
 export function previewAssetFromPackage(
   path: string,
   raw: string,
@@ -75,14 +76,19 @@ export function previewAssetFromPackage(
   let base64: string
   if (dataUrl) {
     mimeType = dataUrl[1]
-    base64 = dataUrl[2].replace(/\s/g, '')
-  } else if (/^[A-Z0-9+/=\s]+$/i.test(raw) && raw.replace(/\s/g, '').length % 4 === 0) {
+    base64 = dataUrl[2].replaceAll(/\s/g, '')
+  } else if (/^[A-Z0-9+/=\s]+$/i.test(raw) && raw.replaceAll(/\s/g, '').length % 4 === 0) {
     mimeType = guessPreviewAssetMime(path)
-    base64 = raw.replace(/\s/g, '')
+    base64 = raw.replaceAll(/\s/g, '')
   } else {
     mimeType = guessPreviewAssetMime(path)
     try {
-      base64 = btoa(unescape(encodeURIComponent(raw)))
+      base64 = btoa(
+        Iterator.from(new TextEncoder().encode(raw))
+          .map((b) => String.fromCharCode(b))
+          .toArray()
+          .join(''),
+      )
     } catch {
       return null
     }
@@ -100,7 +106,80 @@ function argsOf(message: TappMessage): unknown[] {
   return (message.payload as { args?: unknown[] } | undefined)?.args || []
 }
 
-/** Preview `Tapp.context.getApp` — host fields plus no invented `mode: page`. */
+function registerPreviewFullKv(
+  bridge: TappBridge,
+  tappId: string,
+  api: 'storage' | 'shared' | 'private',
+  store: PreviewStore,
+  emit: (change: {
+    tappId: string
+    key?: string
+    operation: 'set' | 'remove' | 'clear'
+    source: object
+  }) => void,
+  validateKey: (key: unknown) => string | null,
+): void {
+  bridge.registerHandler(`${api}.get`, async (message) => {
+    const key = validateKey(argsOf(message)[0])
+    if (!key) return { success: false, error: `Invalid ${api} key` }
+    return { success: true, data: store.get(key) ?? null }
+  })
+  bridge.registerHandler(`${api}.set`, async (message) => {
+    const [rawKey, rawValue] = argsOf(message)
+    const key = validateKey(rawKey)
+    if (!key) return { success: false, error: `Invalid ${api} key` }
+    const value = sanitizeStorageValue(rawValue)
+    let serialized: string
+    try {
+      serialized = JSON.stringify(value)
+    } catch {
+      return {
+        success: false,
+        error: `Preview ${api} value is not JSON-serializable`,
+      }
+    }
+    if (serialized === undefined) {
+      return {
+        success: false,
+        error: `Preview ${api} value is not JSON-serializable`,
+      }
+    }
+    if (serialized.length > 1024 * 1024) {
+      return { success: false, error: `Preview ${api} value is too large` }
+    }
+    store.set(key, value)
+    emit({ tappId, key, operation: 'set', source: bridge })
+    return { success: true, data: null }
+  })
+  bridge.registerHandler(`${api}.remove`, async (message) => {
+    const key = validateKey(argsOf(message)[0])
+    if (!key) return { success: false, error: `Invalid ${api} key` }
+    store.delete(key)
+    emit({ tappId, key, operation: 'remove', source: bridge })
+    return { success: true, data: null }
+  })
+  bridge.registerHandler(`${api}.keys`, async () => ({
+    success: true,
+    data: Iterator.from(store.keys()).toArray(),
+  }))
+  bridge.registerHandler(`${api}.getAll`, async () => ({
+    success: true,
+    data: Object.fromEntries(store),
+  }))
+  bridge.registerHandler(`${api}.clear`, async () => {
+    store.clear()
+    emit({ tappId, operation: 'clear', source: bridge })
+    return { success: true, data: null }
+  })
+  bridge.registerHandler(`${api}.usage`, async () => {
+    const used = new Blob([JSON.stringify(Object.fromEntries(store))]).size
+    return {
+      success: true,
+      data: { used, quota: 8 * 1024 * 1024 },
+    }
+  })
+}
+
 export function previewContextApp(tapp: TappInstance) {
   return {
     version: tapp.manifest.version,
@@ -110,7 +189,6 @@ export function previewContextApp(tapp: TappInstance) {
   }
 }
 
-/** Preview `Tapp.context.getSystem` — production fields plus the preview marker. */
 export function previewContextSystem() {
   return {
     online: true,
@@ -163,12 +241,7 @@ export function previewContextPlayer() {
   }
 }
 
-/**
- * Host APIs available before a generated Tapp is installed.
- *
- * No handler in this set asks for a backend Runtime Grant. State is scoped to
- * the current Playground tab and disappears with the preview component.
- */
+/** 安装前可用。不向后端要 Runtime Grant。状态随预览组件消失。 */
 export function registerPlaygroundPreviewHandlers(
   bridge: TappBridge,
   tappInstance: TappInstance,
@@ -176,70 +249,21 @@ export function registerPlaygroundPreviewHandlers(
   settings: PreviewStore,
   packageAssets: Record<string, string> = {},
   sharedStore?: PreviewStore,
+  privateStore?: PreviewStore,
 ): void {
   const validateKey = (key: unknown): string | null => {
     if (typeof key !== 'string') return null
     return validateStorageKey(key).valid ? key : null
   }
 
-  bridge.registerHandler('storage.get', async (message) => {
-    const key = validateKey(argsOf(message)[0])
-    if (!key) return { success: false, error: 'Invalid storage key' }
-    return { success: true, data: storage.get(key) ?? null }
-  })
-  bridge.registerHandler('storage.set', async (message) => {
-    const [rawKey, rawValue] = argsOf(message)
-    const key = validateKey(rawKey)
-    if (!key) return { success: false, error: 'Invalid storage key' }
-    const value = sanitizeStorageValue(rawValue)
-    if (JSON.stringify(value).length > 1024 * 1024) {
-      return { success: false, error: 'Preview storage value is too large' }
-    }
-    storage.set(key, value)
-    emitTappStorageChange({
-      tappId: tappInstance.id,
-      key,
-      operation: 'set',
-      source: bridge,
-    })
-    return { success: true, data: null }
-  })
-  bridge.registerHandler('storage.remove', async (message) => {
-    const key = validateKey(argsOf(message)[0])
-    if (!key) return { success: false, error: 'Invalid storage key' }
-    storage.delete(key)
-    emitTappStorageChange({
-      tappId: tappInstance.id,
-      key,
-      operation: 'remove',
-      source: bridge,
-    })
-    return { success: true, data: null }
-  })
-  bridge.registerHandler('storage.keys', async () => ({
-    success: true,
-    data: Array.from(storage.keys()),
-  }))
-  bridge.registerHandler('storage.getAll', async () => ({
-    success: true,
-    data: Object.fromEntries(storage),
-  }))
-  bridge.registerHandler('storage.clear', async () => {
-    storage.clear()
-    emitTappStorageChange({
-      tappId: tappInstance.id,
-      operation: 'clear',
-      source: bridge,
-    })
-    return { success: true, data: null }
-  })
-  bridge.registerHandler('storage.usage', async () => {
-    const used = new Blob([JSON.stringify(Object.fromEntries(storage))]).size
-    return {
-      success: true,
-      data: { used, quota: 8 * 1024 * 1024 },
-    }
-  })
+  registerPreviewFullKv(
+    bridge,
+    tappInstance.id,
+    'storage',
+    storage,
+    emitTappStorageChange,
+    validateKey,
+  )
 
   bridge.registerHandler('settings.get', async (message) => {
     const key = validateKey(argsOf(message)[0])
@@ -264,65 +288,22 @@ export function registerPlaygroundPreviewHandlers(
     data: Object.fromEntries(settings),
   }))
 
-  const shared: PreviewStore = sharedStore ?? new Map()
-  bridge.registerHandler('shared.get', async (message) => {
-    const key = validateKey(argsOf(message)[0])
-    if (!key) return { success: false, error: 'Invalid shared key' }
-    return { success: true, data: shared.get(key) ?? null }
-  })
-  bridge.registerHandler('shared.set', async (message) => {
-    const [rawKey, rawValue] = argsOf(message)
-    const key = validateKey(rawKey)
-    if (!key) return { success: false, error: 'Invalid shared key' }
-    const value = sanitizeStorageValue(rawValue)
-    if (JSON.stringify(value).length > 1024 * 1024) {
-      return { success: false, error: 'Preview shared value is too large' }
-    }
-    shared.set(key, value)
-    emitTappSharedChange({
-      tappId: tappInstance.id,
-      key,
-      operation: 'set',
-      source: bridge,
-    })
-    return { success: true, data: null }
-  })
-  bridge.registerHandler('shared.remove', async (message) => {
-    const key = validateKey(argsOf(message)[0])
-    if (!key) return { success: false, error: 'Invalid shared key' }
-    shared.delete(key)
-    emitTappSharedChange({
-      tappId: tappInstance.id,
-      key,
-      operation: 'remove',
-      source: bridge,
-    })
-    return { success: true, data: null }
-  })
-  bridge.registerHandler('shared.keys', async () => ({
-    success: true,
-    data: Array.from(shared.keys()),
-  }))
-  bridge.registerHandler('shared.getAll', async () => ({
-    success: true,
-    data: Object.fromEntries(shared),
-  }))
-  bridge.registerHandler('shared.clear', async () => {
-    shared.clear()
-    emitTappSharedChange({
-      tappId: tappInstance.id,
-      operation: 'clear',
-      source: bridge,
-    })
-    return { success: true, data: null }
-  })
-  bridge.registerHandler('shared.usage', async () => {
-    const used = new Blob([JSON.stringify(Object.fromEntries(shared))]).size
-    return {
-      success: true,
-      data: { used, quota: 8 * 1024 * 1024 },
-    }
-  })
+  registerPreviewFullKv(
+    bridge,
+    tappInstance.id,
+    'shared',
+    sharedStore ?? new Map(),
+    emitTappSharedChange,
+    validateKey,
+  )
+  registerPreviewFullKv(
+    bridge,
+    tappInstance.id,
+    'private',
+    privateStore ?? new Map(),
+    emitTappPrivateChange,
+    validateKey,
+  )
 
   bridge.registerHandler('ui.showNotification', async () => ({
     success: false,

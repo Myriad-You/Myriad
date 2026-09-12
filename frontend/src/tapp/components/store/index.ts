@@ -1,5 +1,3 @@
-/** Host Tapp Store subcomponents (page / multi-window panel). */
-
 export {
   AppDetailView,
   DetailHeaderActions,

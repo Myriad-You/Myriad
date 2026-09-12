@@ -1,16 +1,4 @@
-/**
- * Installed Tapp card — widget-style sizes:
- * - 1x1 (1 track)
- * - 2x1 wide (2 tracks, same row height as 1x1)
- *
- * Height is a fraction of track width via --tapp-app-card-h-ratio
- * (1 = square; lower = shorter cards).
- *
- * Rest / hover detail faces; surface matches glass chrome without borders.
- */
-
 .tapp-app-card {
-  /* height = trackWidth × ratio (shared by 1x1 + 2x1) */
   --tapp-app-card-h-ratio: 0.78;
 
   container-type: inline-size;
@@ -21,10 +9,8 @@
   width: 100%;
   min-width: 0;
   overflow: hidden;
-  border-radius: 0.75rem; /* rounded-xl — WidgetShell / status bar */
+  border-radius: 0.75rem;
   cursor: default;
-
-  /* Kill .glass border + any theme border-color reclaim */
   border: none !important;
   border-color: transparent !important;
   transition:
@@ -33,38 +19,22 @@
     filter 180ms ease;
 }
 
-/* 1x1 — width W, height = W × h-ratio (lock: content must not expand the box) */
+/* 1x1：宽 W，高 W×h-ratio；内容不得撑大盒子。 */
 .tapp-app-card--1x1 {
   aspect-ratio: 1 / var(--tapp-app-card-h-ratio);
   min-height: 0;
   max-height: 100%;
 
-  /* Prefer aspect-ratio over content min-size so padding/wrap never “撑大” the card */
+  /* 用 aspect-ratio，不要靠内容 min-size，以免撑大卡片。 */
   overflow: hidden;
 }
 
-/*
- * 2x1 — two tracks wide, same height as a 1x1 neighbor.
- * width = 2W + gap; want height = W × h-ratio.
- *
- * Do NOT use 100cqi here: cqi resolves to the nearest *ancestor* container
- * (the grid), not the card itself — that made height ≈ half the whole grid.
- *
- * Do NOT put body in the same grid cell as the sizer without removing its
- * size contribution: rest/detail content (large icon, desc, perms, dock)
- * expands the row past target height and cards become tall empty panels.
- *
- * Pattern: only ::before is in-flow (half-width × aspect-ratio → height).
- * Body (and glow orbs, already absolute) overlay via position:absolute.
- */
+/* 2x1 高度与 1x1 相同。不要用 100cqi（cqi 是网格）。只有 ::before 参与文档流。 */
 .tapp-app-card--2x1 {
-  /* block so only the sizer contributes intrinsic height */
   display: block;
   aspect-ratio: auto;
   height: auto;
   min-height: 0;
-
-  /* clip faces denser than the lowered height */
   overflow: hidden;
 }
 
@@ -73,14 +43,12 @@
   display: block;
   width: calc((100% - var(--tapp-app-card-gap, 0.55rem)) / 2);
   max-width: 100%;
-
-  /* same height ratio as 1x1: height = W × h-ratio */
   aspect-ratio: 1 / var(--tapp-app-card-h-ratio);
   pointer-events: none;
   visibility: hidden;
 }
 
-/* Fill the sizer box; never grow the card */
+/* 填满 sizer，不得撑大卡片。 */
 .tapp-app-card--2x1 > .tapp-app-card__body {
   position: absolute;
   inset: 0;
@@ -102,16 +70,12 @@
   transform: scale(0.992);
 }
 
-/* Hover elevates via soft shadow only — no outline / ring */
 .tapp-app-card.is-hovered:not(.is-dragging),
 .tapp-app-card:focus-visible:not(.is-dragging) {
   filter: brightness(1.02);
 }
 
-/* —— Drag reorder (floating top-right handle) —— */
-
 .tapp-app-card {
-  /* Space reserved so rest + hover content clear the floating handle */
   --tapp-app-card-drag-size: 1.45rem;
   --tapp-app-card-drag-inset: 0.35rem;
   --tapp-app-card-drag-clearance: calc(
@@ -123,7 +87,7 @@
   position: absolute;
   top: var(--tapp-app-card-drag-inset);
   right: var(--tapp-app-card-drag-inset);
-  z-index: 8; /* above rest + detail faces */
+  z-index: 8;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -132,8 +96,6 @@
   color: var(--text-muted, #6b7280);
   cursor: grab;
   touch-action: none;
-
-  /* Floating chip — soft glass so it reads over hover content */
   background: color-mix(in srgb, var(--text-primary, #111) 7%, #fff 72%);
   border: 0;
   border-radius: 0.45rem;
@@ -174,7 +136,6 @@ html.dark[data-perf-mode='exlight'] .tapp-app-card__drag-handle {
   pointer-events: none;
 }
 
-/* Always readable on hover (floats above detail face) */
 .tapp-app-card.is-hovered .tapp-app-card__drag-handle,
 .tapp-app-card:focus-within .tapp-app-card__drag-handle {
   opacity: 1;
@@ -233,34 +194,25 @@ html.dark[data-perf-mode='exlight'] .tapp-app-card__drag-handle {
   filter: brightness(1.04);
 }
 
-/*
- * Mobile / touch-primary: hide reorder handle.
- * Desktop hover-capable UIs keep the floating drag handle.
- * (width matches the 2-col phone grid breakpoint below.)
- */
 @media (hover: none) and (pointer: coarse), (width <= 639px) {
   .tapp-app-card__drag-handle {
     display: none !important;
     pointer-events: none !important;
   }
 
-  /* No reserved clearance when handle is gone */
   .tapp-app-card.is-reorderable {
     --tapp-app-card-drag-clearance: 0px;
   }
 }
 
-/*
- * Rest face: title does NOT yield to the drag handle (handle floats on top).
- * Hover (1x1 detail head): keep a small right inset so name stays readable.
- */
+/* rest 面标题不给拖柄让位（拖柄浮在上面）。 */
 .tapp-app-card.is-reorderable .tapp-app-card__detail-head {
   padding-right: var(--tapp-app-card-drag-clearance);
   box-sizing: border-box;
   max-width: 100%;
 }
 
-/* While dragging, keep rest face (don't flip to detail under the cursor) */
+/* 拖拽时保持 rest 面。 */
 .tapp-app-card.is-dragging .tapp-app-card__face--rest {
   opacity: 1 !important;
   transform: none !important;
@@ -272,13 +224,10 @@ html.dark[data-perf-mode='exlight'] .tapp-app-card__drag-handle {
   pointer-events: none !important;
 }
 
-/* Stack rest + detail faces in the same cell */
 .tapp-app-card__body {
   position: relative;
   z-index: 1;
   display: grid;
-
-  /* One track that always fills the body — faces get a real height for pin-to-bottom */
   grid-template-rows: minmax(0, 1fr);
   grid-template-columns: minmax(0, 1fr);
   align-content: stretch;
@@ -306,8 +255,6 @@ html.dark[data-perf-mode='exlight'] .tapp-app-card__drag-handle {
     transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* —— Rest face (default) —— */
-
 .tapp-app-card__face--rest {
   align-items: stretch;
   justify-content: center;
@@ -318,7 +265,6 @@ html.dark[data-perf-mode='exlight'] .tapp-app-card__drag-handle {
   pointer-events: auto;
 }
 
-/* 2x1 rest: horizontal (icon | meta), top-aligned — not vertically centered */
 .tapp-app-card--2x1 .tapp-app-card__face--rest {
   flex-direction: row;
   align-items: flex-start;
@@ -328,11 +274,9 @@ html.dark[data-perf-mode='exlight'] .tapp-app-card__drag-handle {
 }
 
 .tapp-app-card--2x1 .tapp-app-card__body {
-  /* Slightly roomier inset so content breathes without growing the card */
   padding: 0.7rem 0.8rem;
 
-  /* Must stretch — align-content:start collapsed the row to content height,
-     so margin-top:auto on the dock could never pin to the card bottom. */
+  /* 必须 stretch，否则 margin-top:auto 无法把 dock 钉在底部。 */
   align-content: stretch;
   height: 100%;
 }
@@ -363,14 +307,12 @@ html.dark[data-perf-mode='exlight'] .tapp-app-card__drag-handle {
   flex-shrink: 0;
 }
 
-/* Shell / background size (unchanged box); glyph/media scaled inside */
 .tapp-app-card__icon--rest .tapp-page-icon,
 .tapp-app-card__icon--rest.tapp-page-icon {
   width: 2.85rem;
   height: 2.85rem;
 }
 
-/* 2x1 rest: modestly larger shell than 1x1; keep glyph roomy inside padding */
 .tapp-app-card--2x1 .tapp-app-card__icon--rest .tapp-page-icon {
   width: 3.15rem;
   height: 3.15rem;
@@ -381,19 +323,12 @@ html.dark[data-perf-mode='exlight'] .tapp-app-card__drag-handle {
   height: 2rem;
 }
 
-/*
- * Icon shell always flex-centers its content.
- * - Standalone (third-party full-color): media fills the box — no inset “extra
- *   background” band, no off-center 78% art.
- * - Material shell + glyph: glyph size comes from glyphSizeClass only.
- */
 .tapp-app-card__icon .tapp-page-icon {
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-/* Third-party / full-color: full-bleed into squircle (same as store rows) */
 .tapp-app-card__icon .tapp-icon-badge--standalone {
   background: transparent !important;
   box-shadow: none !important;
@@ -409,7 +344,6 @@ html.dark[data-perf-mode='exlight'] .tapp-app-card__drag-handle {
   border-radius: inherit;
 }
 
-/* iconShell full-color on material: keep art contained & centered */
 .tapp-app-card__icon .tapp-icon-badge__inset-media {
   width: auto;
   height: auto;
@@ -458,8 +392,6 @@ html.dark[data-perf-mode='exlight'] .tapp-app-card__drag-handle {
   min-height: 0;
   padding: 0;
   text-align: left;
-
-  /* allow desc to clamp within remaining height */
   overflow: hidden;
 }
 
@@ -473,7 +405,6 @@ html.dark[data-perf-mode='exlight'] .tapp-app-card__drag-handle {
 }
 
 .tapp-app-card--2x1 .tapp-app-card__title-row {
-  /* Title · version · running sit in one cluster after the name (not row-end) */
   justify-content: flex-start;
   flex-wrap: nowrap;
   gap: 0.3rem;
@@ -497,10 +428,6 @@ html.dark[data-perf-mode='exlight'] .tapp-app-card__drag-handle {
   white-space: nowrap;
 }
 
-/*
- * 2x1 rest: title sizes to text; version + running follow immediately.
- * Title can shrink (ellipsis) so trailing meta never wraps to a new line.
- */
 .tapp-app-card--2x1 .tapp-app-card__face--rest .tapp-app-card__name {
   flex: 0 1 auto;
   min-width: 0;
@@ -513,7 +440,6 @@ html.dark .tapp-app-card__name {
   color: var(--text-primary, #f3f4f6);
 }
 
-/* 2x1 rest: category chip */
 .tapp-app-card__rest-cat {
   display: inline-flex;
   flex-shrink: 0;
@@ -545,7 +471,6 @@ html.dark .tapp-app-card__rest-cat {
   );
 }
 
-/* 2x1 rest: always-visible description (3-line clamp) */
 .tapp-app-card__rest-desc {
   margin: 0;
   width: 100%;
@@ -567,7 +492,6 @@ html.dark .tapp-app-card__rest-desc {
   color: var(--text-muted, #9ca3af);
 }
 
-/* 2x1 rest: version immediately after title */
 .tapp-app-card__rest-version {
   flex: 0 0 auto;
   margin: 0;
@@ -680,13 +604,7 @@ html.dark .tapp-app-card__sub {
   white-space: nowrap;
 }
 
-/* —— Detail face (hover replaces rest) —— */
-
 .tapp-app-card__face--detail {
-  /*
-   * Dock is position:absolute bottom — always fixed to the card bottom.
-   * Mid/head get padding-bottom so content never sits under the dock.
-   */
   --tapp-app-card-dock-h: 1.85rem;
   --tapp-app-card-detail-gap: 0.35rem;
 
@@ -696,8 +614,6 @@ html.dark .tapp-app-card__sub {
   justify-content: flex-start;
   gap: var(--tapp-app-card-detail-gap);
   padding: 0.05rem 0.05rem 0;
-
-  /* reserve dock band + gap */
   padding-bottom: calc(
     var(--tapp-app-card-dock-h) + var(--tapp-app-card-detail-gap)
   );
@@ -709,7 +625,6 @@ html.dark .tapp-app-card__sub {
   pointer-events: none;
 }
 
-/* 2x1 detail: compact dock + slightly tighter mid gap */
 .tapp-app-card--2x1 .tapp-app-card__face--detail,
 .tapp-app-card--2x1 .tapp-app-card__face--detail-perms {
   --tapp-app-card-dock-h: 1.85rem;
@@ -728,11 +643,7 @@ html.dark .tapp-app-card__sub {
   pointer-events: auto;
 }
 
-/*
- * Mobile / touch-primary: never flip to hover/detail face (1x1 and 2x1).
- * Rest face only — dock actions are desktop hover UX; mobile opens via tap.
- * Also covers sticky is-hovered / :focus-within after touch.
- */
+/* 触控：只显示 rest 面。 */
 @media (hover: none) and (pointer: coarse), (width <= 639px) {
   .tapp-app-card .tapp-app-card__face--rest,
   .tapp-app-card.is-hovered .tapp-app-card__face--rest,
@@ -756,10 +667,7 @@ html.dark .tapp-app-card__sub {
   }
 }
 
-/*
- * Mobile / touch-primary: hide 1x1↔2x1 size toggle.
- * Keep run / settings / uninstall; collapse 4-col dock to 3.
- */
+/* 触控：隐藏尺寸切换。 */
 @media (hover: none) and (pointer: coarse), (width <= 639px) {
   .tapp-app-card__dock-btn--size {
     display: none !important;
@@ -826,8 +734,6 @@ html.dark .tapp-app-card__version {
 
 .tapp-app-card__detail-mid {
   display: flex;
-
-  /* Grow to fill face so dock can pin to bottom even with short content */
   flex: 1 1 0;
   flex-direction: column;
   min-width: 0;
@@ -842,8 +748,6 @@ html.dark .tapp-app-card__version {
   color: var(--text-muted, #6b7280);
   font-size: 0.6875rem;
   line-height: 1.4;
-
-  /* Multi-line clamp for the square middle */
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 5;
@@ -855,15 +759,12 @@ html.dark .tapp-app-card__detail-desc {
   color: var(--text-muted, #9ca3af);
 }
 
-/* 2x1 hover: entire mid is permissions (scroll if many); dock is absolute */
 .tapp-app-card--2x1 .tapp-app-card__detail-mid--perms-only {
   flex: 1 1 0;
   min-height: 0;
   max-height: 100%;
   overflow: hidden;
 }
-
-/* —— Permission chips / full list —— */
 
 .tapp-app-card__perms {
   display: flex;
@@ -877,7 +778,6 @@ html.dark .tapp-app-card__detail-desc {
   overflow: hidden;
 }
 
-/* 2x1 hover: every permission (icon / label), wrap inside mid; mid grows, dock stays bottom */
 .tapp-app-card__perms--full {
   flex: 1 1 auto;
   flex-wrap: wrap;
@@ -917,7 +817,6 @@ html.dark .tapp-app-card__perms-empty {
   border-radius: 0.375rem;
 }
 
-/* Labeled chips in full list */
 .tapp-app-card__perm--labeled {
   width: auto;
   max-width: 100%;
@@ -985,8 +884,6 @@ html.dark .tapp-app-card__perm--privileged {
   letter-spacing: 0.01em;
 }
 
-/* —— Bottom dock (detail face only) —— */
-
 .tapp-app-card__dock {
   position: absolute;
   left: 0;
@@ -1003,7 +900,6 @@ html.dark .tapp-app-card__perm--privileged {
   box-sizing: border-box;
 }
 
-/* Guest / no-action: “click to open” band (same slot as action dock) */
 .tapp-app-card__dock--open-hint {
   display: flex;
   align-items: center;
@@ -1012,7 +908,7 @@ html.dark .tapp-app-card__perm--privileged {
   height: var(--tapp-app-card-dock-h, 1.85rem);
   min-height: 0;
   padding: 0;
-  pointer-events: none; /* clicks pass through to the card */
+  pointer-events: none;
 }
 
 .tapp-app-card__open-hint {
@@ -1055,7 +951,6 @@ html.dark .tapp-app-card__open-hint {
   );
 }
 
-/* run + settings + uninstall (+ size when allowed) */
 .tapp-app-card__dock--3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -1075,8 +970,6 @@ html.dark .tapp-app-card__open-hint {
   color: var(--text-muted, #6b7280);
   cursor: pointer;
   appearance: none;
-
-  /* Soft fill only — no border (matches status-bar chips) */
   background: color-mix(in srgb, var(--text-primary, #111) 5.5%, transparent);
   border: 0;
   border-radius: 0.5rem;
@@ -1097,7 +990,6 @@ html.dark .tapp-app-card__open-hint {
   height: 0.72rem;
 }
 
-/* 2x1 hover perms: slightly denser chips */
 .tapp-app-card--2x1 .tapp-app-card__perms--full {
   gap: 0.25rem;
 }
@@ -1109,7 +1001,6 @@ html.dark .tapp-app-card__open-hint {
 }
 
 .tapp-app-card--2x1 .tapp-app-card__perm--labeled {
-  /* Override square icon size from .tapp-app-card--2x1 .tapp-app-card__perm */
   width: auto;
   max-width: 100%;
   height: auto;
@@ -1247,8 +1138,6 @@ html.dark .tapp-app-card__dock-btn--stop:not(:disabled) {
   }
 }
 
-/* —— Empty state —— */
-
 .tapp-app-empty {
   position: relative;
   overflow: hidden;
@@ -1374,11 +1263,6 @@ html.dark .tapp-app-empty__btn--ghost {
   }
 }
 
-/*
- * Adaptive grid — max 8 columns (1x1 tracks).
- * 2x1 cards span 2 tracks when the grid has room (container query).
- * grid-auto-flow: dense packs later 1x1 cards into holes left by 2x1 spans.
- */
 .tapp-app-card-grid {
   --tapp-app-card-gap: 0.55rem;
   --tapp-app-card-min: 6.25rem;
@@ -1387,8 +1271,6 @@ html.dark .tapp-app-empty__btn--ghost {
   container-name: tapp-app-card-grid;
   display: grid;
   gap: var(--tapp-app-card-gap);
-
-  /* Keep row tops aligned; height comes from each card, not stretch */
   place-items: start stretch;
   grid-template-columns: repeat(
     auto-fill,
@@ -1400,18 +1282,14 @@ html.dark .tapp-app-empty__btn--ghost {
       1fr
     )
   );
-
-  /* dense: fill holes left by 2x1 spans with later 1x1 cards */
   grid-auto-flow: dense;
   grid-auto-rows: auto;
 }
 
 .tapp-app-card-grid.is-reordering {
-  /* Slightly dim grid while dragging for focus */
   user-select: none;
 }
 
-/* Phones: 2 columns (auto-fill with ~6.5rem min was fitting 3 on ~360–400px) */
 @media (width <= 639px) {
   .tapp-app-card-grid {
     --tapp-app-card-gap: 0.5rem;
@@ -1435,17 +1313,13 @@ html.dark .tapp-app-empty__btn--ghost {
   }
 }
 
-/* Span 2 tracks once ≥2 columns fit (~2×min + gap) */
 @container tapp-app-card-grid (min-width: 13.5rem) {
   .tapp-app-card--2x1 {
     grid-column: span 2;
   }
 }
 
-/*
- * Very narrow: single column — 2x1 becomes full-width banner.
- * Avoid leaving half-row holes (no multi-col packing).
- */
+/* 极窄：单列。2x1 变全宽，避免半行空洞。 */
 @container tapp-app-card-grid (max-width: 13.49rem) {
   .tapp-app-card--2x1 {
     grid-column: span 1;
@@ -1457,7 +1331,6 @@ html.dark .tapp-app-empty__btn--ghost {
     display: none;
   }
 
-  /* body stays absolute inset 0 and fills the aspect-ratio box */
   .tapp-app-card--2x1 > .tapp-app-card__body {
     position: absolute;
     inset: 0;

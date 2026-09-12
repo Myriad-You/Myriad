@@ -1,8 +1,3 @@
-/**
- * Run from frontend/:
- *   pnpm test:unit -- src/components/config/analytics/format.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { before, describe, it } from 'node:test'
 import { loadLocale } from '../../../i18n/loadLocale.ts'
@@ -55,7 +50,7 @@ describe('niceAxis', () => {
     const axis = niceAxis(0)
     assert.ok(axis.max >= 1)
     assert.equal(axis.ticks[0], 0)
-    assert.equal(axis.ticks[axis.ticks.length - 1], axis.max)
+    assert.equal(axis.ticks.at(-1), axis.max)
   })
 
   it('produces integer ticks that cover the data', () => {

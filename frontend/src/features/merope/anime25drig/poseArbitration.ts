@@ -7,21 +7,6 @@ import {
   allowsCoSpeechHead,
 } from '../motion/policy'
 
-/**
- * Where the coordinator's lease table meets the rig.
- *
- * The channel table in `motion/channels.ts` decided who owns what, and the
- * player then wrote every source into one driver in a fixed order anyway — so
- * ownership described the rig without governing it. `music` sat in the
- * expression priority list as a rule nothing exercised, and three policy
- * predicates had no callers at all.
- *
- * This resolves one weight per (source, channel) from ownership and occupancy
- * together: ownership says who is entitled to the channel, occupancy says how
- * much of it the situation wants. Nothing downstream improvises a scale.
- */
-
-/** Pose channels the compositor arbitrates, grouped by lease. */
 export const POSE_CHANNEL_OF_KEY = {
   angleX: 'headBody',
   angleY: 'headBody',
@@ -45,43 +30,24 @@ export interface PoseChannelWeights {
   expression: number
 }
 
-/**
- * A source that has lost a channel is attenuated, not silenced.
- *
- * Occupancy's own rule is that weights tilt rather than exclusive-zero living
- * sources; a hard ownership gate would make the character freeze the instant a
- * plan landed. Losing the lease means stop competing, not stop breathing.
- */
 export const UNOWNED_POSE_KEEP = 0.25
 
 export interface PoseGate {
-  /** Idle drift: slow head/eye wander. */
   ambient: PoseChannelWeights
-  /** Autonomous fidgeting between beats. */
   random: PoseChannelWeights
-  /** Music groove. */
   groove: PoseChannelWeights
-  /** The constrained thinking loop. */
   thinking: PoseChannelWeights
-  /**
-   * The director's own plan. It writes eyes as well as brows — `think` looks
-   * away — so it answers to the gaze lease like anything else.
-   */
   performance: PoseChannelWeights
-  /** Staged sticker motion, including renderer-local geometry. */
   stylized: PoseChannelWeights
-  /** Brow/eye accents and head nods that ride the voice. */
   coSpeech: PoseChannelWeights
   speechMouth: number
   grooveMouth: number
 }
 
 export interface PoseGateScales {
-  /** Director attention: a focused baseline quiets ambient motion. */
+  touch?: number
   performance: number
-  /** Sticker faces hold the pose; secondary motion steps back. */
   stylized: number
-  /** A large random action damps the ambient drift underneath it. */
   randomAmbient: number
 }
 
@@ -98,13 +64,7 @@ const GATE_CHANNELS = ['gaze', 'headBody', 'expression'] as const
 const GATE_ATTACK_FREQUENCY_HZ = 8
 const GATE_RELEASE_FREQUENCY_HZ = 4.5
 
-/**
- * Velocity-preserving ownership transition.
- *
- * Lease winners are discrete, but a body cannot change contribution weight in
- * one frame. An exact critically damped step keeps position and velocity
- * continuous while converging quickly enough for interactive reactions.
- */
+/** Lease winners are discrete, but a body cannot change contribution weight in one frame. */
 export class PoseGateController {
   private readonly output = zeroPoseGate()
   private readonly velocity = zeroPoseGate()
@@ -149,13 +109,17 @@ export function resolvePoseGate(
   scales: PoseGateScales,
 ): PoseGate {
   const ambientScale = occupancy.glance * scales.performance * scales.stylized
+  const touch = clamp(scales.touch ?? 0, 0, 1)
+  const share = (owner: MotionChannelPolicy['headBody'], keep: number, normal: number) =>
+    owner === 'performance' ? normal + (keep - normal) * touch : normal
   return {
     ambient: idleClassWeights(policy, ambientScale * scales.randomAmbient),
     random: idleClassWeights(
       policy,
       occupancy.random * scales.performance * scales.stylized,
     ),
-    groove: musicWeights(policy, occupancy.groove),
+    groove: { ...musicWeights(policy, occupancy.groove),
+      headBody: occupancy.groove * share(policy.headBody, 0.75, ownership(policy.headBody, ownedByMusic)) },
     thinking: idleClassWeights(policy, occupancy.thinking),
     performance: performanceWeights(policy),
     stylized: stylizedWeights(policy),
@@ -163,16 +127,15 @@ export function resolvePoseGate(
       gaze: 0,
       expression:
         occupancy.coSpeech *
-        ownership(policy.expression, allowsCoSpeechExpression),
+        share(policy.expression, 0.85, ownership(policy.expression, allowsCoSpeechExpression)),
       headBody:
-        occupancy.coSpeech * ownership(policy.headBody, allowsCoSpeechHead),
+        occupancy.coSpeech * share(policy.headBody, 0.65, ownership(policy.headBody, allowsCoSpeechHead)),
     },
     speechMouth: occupancy.speechMouth,
     grooveMouth: occupancy.grooveMouth,
   }
 }
 
-/** Ambient, random action and thinking are the rig's own idle behaviour. */
 function idleClassWeights(
   policy: MotionChannelPolicy,
   amount: number,
@@ -184,7 +147,6 @@ function idleClassWeights(
   }
 }
 
-/** Preview and live performance publish through the same directed-pose path. */
 function performanceWeights(policy: MotionChannelPolicy): PoseChannelWeights {
   return {
     gaze: ownership(policy.gaze, ownedByPerformance),
@@ -226,10 +188,6 @@ function ownedByMusic(owner: MotionChannelPolicy['mouth']): boolean {
   return owner === 'music'
 }
 
-/**
- * Preview is the one genuinely exclusive owner — the workbench must show
- * exactly what it drives, with nothing living underneath it.
- */
 function ownership(
   owner: MotionChannelPolicy['mouth'],
   allows: (owner: MotionChannelPolicy['mouth']) => boolean,
@@ -281,9 +239,7 @@ function stepCritical(
   dt: number,
 ): { value: number; velocity: number } {
   if (dt <= 0) return { value, velocity }
-  // Bring the newly entitled source in quickly while the previous source
-  // releases at the calmer rate. Their overlap is a smooth crossfade, not an
-  // extra wait before the reaction becomes visible.
+  // Their overlap is a smooth crossfade, not an extra wait before the reaction becomes visible.
   const frequency =
     target > value ? GATE_ATTACK_FREQUENCY_HZ : GATE_RELEASE_FREQUENCY_HZ
   const omega = Math.PI * 2 * frequency
@@ -303,27 +259,6 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value))
 }
 
-/**
- * Behavior units modulate how big a motion is; they do not decide whether it
- * exists. Occupancy already resolved who owns the channel — multiplying by a
- * missing unit makes it a second, independent kill switch, and then any hiccup
- * upstream (a plan that ends before the mouth does, a rejected claim, a surface
- * with no music source) reads as a talking head on a frozen body.
- *
- * "The mouth still moves" is not a defence: the mouth moving while the body is
- * dead is the exact symptom this returns 1 to prevent.
- *
- * The ceiling is 1 because this scales a weight, and a weight above 1 lets one
- * source write past its authored offset into the shared accumulator. A strong
- * unit therefore opens its channel fully and stops there. That costs nothing:
- * quality already reaches the pose generators it belongs to — the co-speech
- * controller and the groove take `coSpeechQuality` and `musicQuality` directly
- * — so a boost here would scale the same extent and power a second time.
- *
- * This is about how big a motion is. How fast one pose becomes the next is a
- * separate reading of the same vector, spent once in `poseResponseScale`; the
- * two do not overlap and neither is a duplicate of the other.
- */
 export function behaviorMotionScale(extent: number, power: number): number {
   if (extent <= 0) return 1
   return Math.min(1, extent * (0.82 + power * 0.18))
@@ -342,8 +277,7 @@ export function applyBehaviorMotionGate(
   gate.groove.headBody *= music
   gate.groove.expression *= music
   if (motion.music > 0 && motion.musicMode === 'settle') {
-    // Attentive stilling is a body decision, not a frozen face. Keep gaze,
-    // blink and breathing available while reducing unrelated body fidgets.
+    // Attentive stilling is a body decision, not a frozen face.
     gate.ambient.headBody *= 0.18
     gate.random.headBody *= 0.18
   }

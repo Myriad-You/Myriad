@@ -51,7 +51,6 @@ function sandbox(profile: 'page' | 'widget' | 'headless') {
     : generateFullSDK(instance, 'session-token', profile)
   vm.runInNewContext(source, Object.assign(windowLike, {
     window: windowLike,
-    // Lifecycle notifications / request deadlines are outside this transport test.
     setTimeout: () => 0,
     clearTimeout: () => {},
     console: { log: () => {} },

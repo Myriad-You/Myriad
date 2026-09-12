@@ -1,7 +1,3 @@
-/**
- * cd frontend && pnpm exec tsx --test src/tapp/utils/tappStorePreview.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
@@ -37,7 +33,6 @@ describe('tappStorePreview helpers', () => {
       ...canvas,
       fit: 'contain',
     })
-    // height-limited: 200/720
     assert.ok(Math.abs(contain.scale - 200 / 720) < 1e-9)
   })
 })

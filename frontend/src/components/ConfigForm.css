@@ -1,28 +1,5 @@
-/* ==========================================
-   Modern Config Form Styles
-   支持深色/浅色模式，移动端优化
-   ========================================== */
+/* 强调色走 --cfg-accent（与 Hero adaptive 同源），不要用 --color-primary。 */
 
-/* 注意：壁纸取色写入 theme.css 全局变量
-   --color-primary / --color-secondary / --color-accent / --color-light / --color-dark
-   设置页强调色不要直接用 --color-primary：
-   走 --cfg-accent（cfgAccent.ts，与页面 Hero adaptive 同源对比度推导）
-*/
-
-/* ==========================================
-   设置页表面 + 文字（深色无蓝调）
-   表面两档：
-   - 微透 subtle：内层内容卡 / 行 / chip，无模糊
-   - 低中透模糊 frost：外层壳（侧栏、分区、大卡片），带 blur
-   文字三级（对齐中性灰，避免 slate 蓝灰）：
-   - text-1 标题 / 主标签
-   - text-2 正文 / 次要说明
-   - text-3 提示 / 元信息 / 占位
-   强调色：
-   - --cfg-accent：自适应可读强调色（JS 写入，fallback 到壁纸主色）
-   - --cfg-accent-fill / -ink / -line：壁纸强调色混入白与黑，给按钮做填色/字色/描边
-     （避免壁纸色底 + 壁纸色字糊成一团，也不要直接改成纯黑白字）
-   ========================================== */
 :root {
   --cfg-subtle-bg: rgb(255 255 255 / 42%);
   --cfg-subtle-bg-hover: rgb(255 255 255 / 58%);
@@ -43,13 +20,7 @@
   --cfg-input-border: rgb(209 213 219 / 60%);
   --cfg-card-shadow-sm: 0 4px 16px -4px rgb(0 0 0 / 6%);
   --cfg-card-shadow-md: 0 8px 24px -6px rgb(0 0 0 / 10%);
-
-  /* 强调色：JS 同步前先回落到壁纸主色 */
   --cfg-accent: var(--color-primary, #8b5cf6);
-
-  /*
-   * 按钮用：浅色填色多掺白、不掺黑；字色掺黑拉开对比。
-   */
   --cfg-accent-fill: color-mix(in srgb, var(--cfg-accent) 18%, white);
   --cfg-accent-fill-2: color-mix(
     in srgb,
@@ -77,18 +48,11 @@
     color-mix(in srgb, var(--cfg-accent) 48%, white) 72%,
     black
   );
-
-  /* 文字层级（亮色） */
   --cfg-text-1: #1d1d1f;
   --cfg-text-2: rgb(60 60 67 / 72%);
   --cfg-text-3: rgb(60 60 67 / 48%);
   --cfg-text-placeholder: rgb(60 60 67 / 36%);
 }
-
-/* ==========================================
-   设置页共用表面 / 文字 / 语义 chip
-   内嵌卡与弹层文案统一走 token，避免 Tailwind gray 实底
-   ========================================== */
 
 .settings-inset-card {
   padding: 0.75rem;
@@ -123,7 +87,6 @@ html.dark .settings-inset-card {
   line-height: 1.55;
 }
 
-/* 导入预览等语义统计条：半透明，非 pastel 实心 */
 .settings-stat-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -204,13 +167,10 @@ html.dark .settings-stat-chip.is-danger {
 }
 
 html.dark {
-  /* 微透：中性白膜，无 slate 蓝灰 */
   --cfg-subtle-bg: rgb(255 255 255 / 5%);
   --cfg-subtle-bg-hover: rgb(255 255 255 / 8.5%);
   --cfg-subtle-border: rgb(255 255 255 / 10%);
   --cfg-subtle-border-hover: rgb(255 255 255 / 16%);
-
-  /* 低中透模糊：近黑中性底 + 中透 + blur */
   --cfg-frost-bg: rgb(16 16 16 / 58%);
   --cfg-frost-border: rgb(255 255 255 / 12%);
   --cfg-frost-filter: blur(20px) saturate(140%);
@@ -222,22 +182,17 @@ html.dark {
     0 6px 16px -6px rgb(0 0 0 / 48%);
   --cfg-frost-elevated-bg: rgb(20 20 20 / 92%);
 
-  /* exlight 下 --cfg-frost-* 由 performance.css 改写（关 blur + 抬不透明） */
+  /* exlight 下 --cfg-frost-* 由 performance.css 改写（关 blur + 抬不透明）。 */
 
-  /* 输入井：比 subtle 卡略实，深色下可读、可辨认 */
   --cfg-input-bg: rgb(255 255 255 / 11%);
   --cfg-input-bg-focus: rgb(255 255 255 / 15%);
   --cfg-input-border: rgb(255 255 255 / 18%);
   --cfg-card-shadow-sm: 0 4px 16px -4px rgb(0 0 0 / 30%);
   --cfg-card-shadow-md: 0 8px 24px -6px rgb(0 0 0 / 40%);
-
-  /* 文字层级（暗色）：提高次级对比，去掉蓝灰 */
   --cfg-text-1: #f5f5f7;
   --cfg-text-2: rgb(235 235 245 / 78%);
   --cfg-text-3: rgb(235 235 245 / 52%);
   --cfg-text-placeholder: rgb(235 235 245 / 42%);
-
-  /* 按钮用：壁纸色先掺黑再掺一点白，填色能从暗底里抬出来 */
   --cfg-accent-fill: color-mix(
     in srgb,
     color-mix(in srgb, var(--cfg-accent) 32%, black) 86%,
@@ -275,41 +230,6 @@ html.dark {
   );
 }
 
-/* ==========================================
-   统一按钮设计系统
-   ========================================== */
-
-/* 使用指南:
- *
- * 在HTML中使用组合类名:
- *
- * 1. 主要操作按钮 (保存/提交):
- *    <button class="btn-base btn-primary">保存</button>
- *
- * 2. 危险操作按钮 (删除/重置):
- *    <button class="btn-base btn-danger">删除</button>
- *
- * 3. 次要操作按钮 (品牌色):
- *    <button class="btn-base btn-secondary">取消</button>
- *
- * 4. 图标按钮:
- *    <button class="btn-base btn-icon"><svg>...</svg></button>
- *
- * 5. 小尺寸按钮:
- *    <button class="btn-base btn-primary btn-sm">保存</button>
- *
- * 6. 大尺寸按钮:
- *    <button class="btn-base btn-primary btn-lg">提交</button>
- *
- * 特点:
- * - 统一的 glass 效果和 backdrop-filter
- * - 一致的 hover/active 状态动画
- * - SVG 图标自动缩放效果
- * - 伪元素光泽层
- * - 响应式深色模式支持
- */
-
-/* 按钮基础样式 */
 .btn-base {
   display: inline-flex;
   align-items: center;
@@ -357,7 +277,6 @@ html.dark {
   transform: scale(1.1);
 }
 
-/* 主要按钮：壁纸色掺白/黑，填色与字色拉开，不再透壁纸 */
 .btn-primary {
   background: linear-gradient(
     135deg,
@@ -382,7 +301,6 @@ html.dark {
     color-mix(in srgb, var(--cfg-accent) 35%, transparent);
 }
 
-/* 危险按钮 - 重置/删除 */
 .btn-danger {
   background: rgb(239 68 68 / 12%);
   color: #dc2626;
@@ -410,7 +328,6 @@ html.dark .btn-danger:hover {
   box-shadow: 0 4px 12px -2px rgb(239 68 68 / 40%);
 }
 
-/* 次要按钮：同套壁纸色掺白/黑，单色填，和主按钮梯度区分 */
 .btn-secondary {
   background: var(--cfg-accent-fill);
   color: var(--cfg-accent-ink);
@@ -427,7 +344,6 @@ html.dark .btn-danger:hover {
     color-mix(in srgb, var(--cfg-accent) 30%, transparent);
 }
 
-/* 图标按钮 */
 .btn-icon {
   width: 2.25rem;
   height: 2.25rem;
@@ -457,23 +373,19 @@ html.dark .btn-danger:hover {
   transform: rotate(90deg);
 }
 
-/* 小尺寸按钮 */
 .btn-sm {
   padding: 0.5rem 1rem;
   font-size: 0.8125rem;
   border-radius: 0.625rem;
 }
 
-/* 大尺寸按钮 */
 .btn-lg {
   padding: 0.875rem 1.5rem;
   font-size: 0.9375rem;
   border-radius: 0.875rem;
 }
 
-/* 容器 */
 .modern-config-container {
-  /* 侧边栏 + 内容双栏，比单栏时代更宽 */
   max-width: 82rem;
   margin: 0 auto;
   padding: 0 0 6rem;
@@ -490,7 +402,7 @@ html.dark .btn-danger:hover {
 
 .floating-save-btn {
   padding: 0.75rem 2rem;
-  border-radius: 9999px; /* Pill shape */
+  border-radius: 9999px;
   font-size: 1rem;
   box-shadow:
     0 8px 32px rgb(0 0 0 / 12%),
@@ -517,7 +429,6 @@ html.dark .floating-save-btn:hover {
     0 4px 12px rgb(0 0 0 / 40%);
 }
 
-/* 与 sm-rise-in 同一手感，只是要保留居中的 translateX(-50%) */
 @keyframes slideUpFade {
   from {
     opacity: 0;
@@ -530,11 +441,6 @@ html.dark .floating-save-btn:hover {
   }
 }
 
-/* 加载状态 */
-
-/* 加载样式已统一使用 Spinner 组件 */
-
-/* 警告文本样式 */
 .warning-text {
   margin-top: 0.5rem;
   color: #f59e0b;
@@ -544,7 +450,6 @@ html.dark .warning-text {
   color: #fbbf24;
 }
 
-/* 错误状态 */
 .modern-config-loading {
   display: flex;
   flex-direction: column;
@@ -645,7 +550,6 @@ html.dark .modern-config-error-icon {
   }
 }
 
-/* 卡片头部 - 简化样式 */
 .card-header {
   margin-bottom: 1rem;
 }
@@ -670,7 +574,6 @@ html.dark .card-header p {
   color: var(--cfg-text-3);
 }
 
-/* 通用搜索元素 */
 .search-input-wrapper {
   position: relative;
   width: 100%;
@@ -716,16 +619,8 @@ html.dark .search-clear:hover {
   color: var(--cfg-text-3);
 }
 
-/* ==========================================
-   设置页外壳：左侧分类栏 + 右侧内容
-   风格参照 Apple System Settings：中性填充态、细分隔线、
-   紧凑行高、克制的圆角与动效（无重投影、无描边噪音）。
-   ========================================== */
 .config-shell {
-  /* 与 Config 视图的 pt-20 对齐；改动那边的上内边距时这里要跟着改 */
   --cfg-sticky-top: 5rem;
-
-  /* Apple 语义色：中性填充 / 分隔线 / 文字三级（复用 --cfg-text-*） */
   --cfg-fill: rgb(116 116 128 / 8%);
   --cfg-fill-strong: rgb(118 118 128 / 12%);
   --cfg-separator: rgb(60 60 67 / 12%);
@@ -755,7 +650,6 @@ html.dark .config-shell {
   }
 }
 
-/* 侧边栏：外层壳 → 低中透模糊 */
 .config-sidebar {
   display: flex;
   flex-direction: column;
@@ -781,29 +675,19 @@ html.dark .config-sidebar:hover {
   border-color: rgb(255 255 255 / 18%);
 }
 
-/*
- * 桌面端粘顶：内容长滚时分类栏常驻。
- * top 必须等于页面自身的上内边距（Config 视图的 pt-20 = 5rem）——
- * 大于它的话，滚动位置为 0 时 sticky 会把侧栏往下推，
- * 于是侧栏比内容卡低一截，滚动/换分类时又弹回去，看起来就是「莫名位移」。
- */
+/* sticky top: --cfg-sticky-top (page pt-20). */
 @media (width >= 1024px) {
   .config-sidebar {
     position: sticky;
     top: var(--cfg-sticky-top);
-
-    /* 高度只由自己的行数决定：显式声明 align-self，避免哪天 shell 的
-       align-items 变回 stretch 时，侧栏被右侧长内容拉成一整页高 */
     align-self: start;
     max-height: calc(100dvh - var(--cfg-sticky-top) - 3rem);
   }
 
-  /* 已置顶到收藏组的行不在「全部」里重复出现（移动端滑轨没有收藏组，仍显示） */
   .config-nav-item.is-pinned {
     display: none;
   }
 
-  /* 全部收藏后「全部」组会空掉，连标题一起收起 */
   .config-nav-group--all:not(:has(.config-nav-item:not(.is-pinned))) {
     display: none;
   }
@@ -820,7 +704,6 @@ html.dark .config-sidebar:hover {
   min-width: 0;
 }
 
-/* 导航图标：直接显示透明 PNG，不添加独立底板。 */
 .nav-icon {
   width: 2.25rem;
   height: 2.25rem;
@@ -852,7 +735,6 @@ html.dark .config-sidebar:hover {
   white-space: nowrap;
 }
 
-/* 搜索框（Apple 风格中性填充，无描边） */
 .config-sidebar-search {
   padding: 0 0.25rem;
 }
@@ -908,7 +790,6 @@ html.dark .config-sidebar-search .search-input:focus {
   color: var(--cfg-label-2);
 }
 
-/* 列表容器 */
 .config-sidebar-scroll,
 .config-sidebar-results {
   display: flex;
@@ -953,7 +834,6 @@ html.dark .config-sidebar-search .search-input:focus {
   font-size: 0.625rem;
 }
 
-/* 分类行 */
 .config-nav-item {
   position: relative;
   display: flex;
@@ -1024,7 +904,6 @@ html.dark .config-sidebar-search .search-input:focus {
   white-space: nowrap;
 }
 
-/* 收藏星：指针设备上悬停/聚焦才浮现（已收藏的常亮） */
 .config-nav-item-star {
   flex: 0 0 auto;
   display: grid;
@@ -1071,7 +950,6 @@ html.dark .config-sidebar-search .search-input:focus {
   color: #fbbf24;
 }
 
-/* 搜索结果行 */
 .config-nav-result {
   display: flex;
   align-items: center;
@@ -1168,13 +1046,11 @@ html.dark .config-sidebar-search .search-input:focus {
   font-weight: 400;
 }
 
-/* 移动端：一级分类列表 ↔ 二级内容（平台详情为三级） */
 @media (width < 1024px) {
   .config-shell {
     gap: 0;
   }
 
-  /* 一级：完整纵向列表（不再用横向 pill 滑轨） */
   .config-shell[data-mobile-pane='nav'] .config-content {
     display: none;
   }
@@ -1213,7 +1089,6 @@ html.dark .config-sidebar-search .search-input:focus {
     font-size: 0.75rem;
   }
 
-  /* 移动端列表行：更大触控区 + 右侧 chevron（收藏星保留） */
   .config-nav-item {
     min-height: 2.75rem;
     padding: 0.55rem 0.55rem 0.55rem 0.45rem;
@@ -1230,12 +1105,10 @@ html.dark .config-sidebar-search .search-input:focus {
   }
 
   .config-nav-item-star {
-    /* 列表模式下仍可收藏，但触控目标不抢主行点击 */
     opacity: 1;
   }
 
   .config-nav-item.is-active {
-    /* 一级页无「当前内容」概念，减弱选中底，强调可点入 */
     background: transparent;
     color: var(--cfg-label);
   }
@@ -1258,10 +1131,6 @@ html.dark .config-sidebar-search .search-input:focus {
     max-height: none;
   }
 
-  /*
-   * 移动端选项页返回：与平台二级页共用 .section-header-back
-   * （标题栏内嵌，不再使用独立 fixed 圆形 glass 键）
-   */
   .config-shell[data-mobile-pane='section'] .config-section {
     margin-bottom: 0.5rem;
   }
@@ -1271,7 +1140,6 @@ html.dark .config-sidebar-search .search-input:focus {
   }
 }
 
-/* 桌面：不显示移动 chevron */
 @media (width >= 1024px) {
   .config-nav-item-chevron {
     display: none;
@@ -1292,7 +1160,6 @@ html.dark .config-sidebar-search .search-input:focus {
   }
 }
 
-/* Myriad 设置分类彩绘 PNG：导航与分类标题复用同一套资产。 */
 .myriad-config-icon {
   display: block;
   width: 1.25rem;
@@ -1302,7 +1169,6 @@ html.dark .config-sidebar-search .search-input:focus {
   filter: drop-shadow(0 1px 1px rgb(0 0 0 / 12%));
 }
 
-/* Tripo 官方标铺满画布，视觉上偏大，统一缩到约 74%。 */
 .myriad-config-icon--tripo {
   transform: scale(0.74);
   transform-origin: center;
@@ -1333,30 +1199,23 @@ html.dark .config-sidebar-search .search-input:focus {
   }
 }
 
-/* 配置内容区域 */
 .config-content {
   min-width: 0;
 }
 
-/* 配置章节 - 增强glass风格
- * 间距令牌：子级用 gap 承接，避免再叠 margin 导致「空一截 / 贴死」 */
-
-/* 分区壳 → 低中透模糊 */
 .config-section {
-  --settings-gap-item: 0.625rem; /* 组内设置项 / 控件 */
-  --settings-gap-group: 1.25rem; /* 子分类与区块内容块之间 */
-
-  /* 连续两个折叠组之间的固定间距（与开合无关，避免跳变） */
+  --settings-gap-item: 0.625rem;
+  --settings-gap-group: 1.25rem;
   --settings-gap-collapsible: 0.1rem;
-  --settings-gap-header: 0.75rem; /* 区块标题 → 内容 */
+  --settings-gap-header: 0.75rem;
 
   background: var(--cfg-frost-bg);
   backdrop-filter: var(--cfg-frost-filter);
   border: 1px solid var(--cfg-frost-border);
   box-shadow: var(--cfg-frost-shadow);
-  border-radius: 1.25rem; /* rounded-2xl */
-  padding: 1.5rem; /* p-6 */
-  margin-bottom: 1rem; /* mb-4 */
+  border-radius: 1.25rem;
+  padding: 1.5rem;
+  margin-bottom: 1rem;
   transition: all var(--sm-dur-slow) var(--sm-ease-standard);
 }
 
@@ -1366,12 +1225,11 @@ html.dark .config-sidebar-search .search-input:focus {
 
 @media (width >= 768px) {
   .config-section {
-    padding: 1.25rem; /* md:p-5 */
-    margin-bottom: 1.5rem; /* md:mb-6 */
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
   }
 }
 
-/* 章节头部 */
 .section-header {
   display: flex;
   align-items: center;
@@ -1393,8 +1251,6 @@ html.dark .config-sidebar-search .search-input:focus {
   gap: 0.45rem;
   flex: 1 1 auto;
   min-width: 0;
-
-  /* 桌面：标题左、操作右，TOC 占用右侧有限宽度 */
   max-width: min(36rem, 58%);
   margin-left: auto;
   align-self: flex-start;
@@ -1418,7 +1274,7 @@ html.dark .section-description.is-warning {
 .section-header-left {
   display: flex;
   align-items: center;
-  gap: 0.75rem; /* gap-3 */
+  gap: 0.75rem;
   flex: 1;
   min-width: 0;
 }
@@ -1429,7 +1285,6 @@ html.dark .section-description.is-warning {
   flex-shrink: 0;
 }
 
-/* 标题栏返回（平台二级页等） */
 .section-header-back {
   display: inline-flex;
   align-items: center;
@@ -1478,7 +1333,6 @@ html.dark .section-header-back:disabled:hover {
   background: transparent;
 }
 
-/* 章节图标：透明 PNG 本体，无渐变底板、阴影或高光遮罩。 */
 .section-icon {
   width: 3rem;
   height: 3rem;
@@ -1489,7 +1343,6 @@ html.dark .section-header-back:disabled:hover {
   line-height: 1;
 }
 
-/* text-base sm:text-lg font-bold */
 .section-header-text {
   min-width: 0;
 }
@@ -1501,8 +1354,8 @@ html.dark .section-header-back:disabled:hover {
   gap: 0.35rem 0.5rem;
   min-width: 0;
   max-width: 100%;
-  font-size: 1rem; /* text-base */
-  font-weight: 700; /* font-bold */
+  font-size: 1rem;
+  font-weight: 700;
   color: var(--cfg-text-1);
   margin-bottom: 0;
 }
@@ -1517,7 +1370,7 @@ html.dark .section-header-back:disabled:hover {
 
 @media (width >= 640px) {
   .section-title {
-    font-size: 1.125rem; /* sm:text-lg */
+    font-size: 1.125rem;
   }
 }
 
@@ -1525,20 +1378,17 @@ html.dark .section-title {
   color: var(--cfg-text-1);
 }
 
-/* text-xs mt-0.5 */
 .section-description {
-  font-size: 0.75rem; /* text-xs */
+  font-size: 0.75rem;
   color: var(--cfg-text-2);
-  margin-top: 0.125rem; /* mt-0.5 */
+  margin-top: 0.125rem;
 }
 
 html.dark .section-description {
   color: var(--cfg-text-2);
 }
 
-/* 关于页面 - 配色取自 logo */
 .about {
-  /* 取自 logo：粉色发色 → 淡紫色发尾，珊瑚星星点缀 */
   --about-rose: #c98aa3;
   --about-rose-soft: #d9a3a7;
   --about-tagline: #8b6b75;
@@ -1600,7 +1450,6 @@ html.dark .about-name {
   gap: 0.75rem;
 }
 
-/* About 信息卡：内层 → 微透 */
 .about-card {
   position: relative;
   display: flex;
@@ -1731,20 +1580,9 @@ html.dark .about-card.is-link:hover {
   }
 }
 
-/* Evocative 动效说明文本 */
-
-/* 配置项列表 */
-
-/* 配置详情模态框 */
-
-/* fadeIn 动画已移至 animations.css */
-
-/* slideUp 动画已移至 animations.css */
-
-/* 平台网格 — 默认最多 3 列，按最小列宽自适应减列 */
 .platforms-grid {
   --platforms-grid-gap: var(--settings-gap-item, 0.625rem);
-  --platforms-grid-min: 12.5rem; /* 窄于此时减列 */
+  --platforms-grid-min: 12.5rem;
   --platforms-grid-columns: 3;
 
   display: grid;
@@ -1768,8 +1606,6 @@ html.dark .about-card.is-link:hover {
   );
 }
 
-/* 平台卡片：内层内容卡 → 微透（外层 section 已是 frost，避免叠模糊）
- * 统一最小高度（≈ 标题 + 概览 2 行），无数据时内部垂直居中 */
 .platform-card {
   --platform-card-min-h: 5.35rem;
 
@@ -1777,14 +1613,12 @@ html.dark .about-card.is-link:hover {
   flex-direction: column;
   background: var(--cfg-subtle-bg);
   border: 1px solid var(--cfg-subtle-border);
-  border-radius: 1rem; /* rounded-xl */
-  padding: 1rem; /* p-4 */
+  border-radius: 1rem;
+  padding: 1rem;
   transition:
     var(--sm-t-elevate),
     background-color var(--sm-dur-base) var(--sm-ease-standard);
   box-shadow: var(--cfg-card-shadow-sm);
-
-  /* tooltip 可溢出；网格 stretch + 固定 min-height → 全卡同高 */
   overflow: visible;
   height: 100%;
   min-height: max(100%, var(--platform-card-min-h));
@@ -1813,7 +1647,6 @@ html.dark .platform-card:focus-visible {
   transform: translateY(calc(var(--sm-shift-xs) * -1));
 }
 
-/* 卡片整块可点：按下给一次统一的回弹反馈 */
 .platform-card:active {
   transform: scale(var(--sm-scale-press));
 }
@@ -1822,7 +1655,7 @@ html.dark .platform-card:focus-visible {
   .platform-card {
     --platform-card-min-h: 5.65rem;
 
-    padding: 1.25rem; /* sm:p-5 */
+    padding: 1.25rem;
   }
 }
 
@@ -1838,7 +1671,6 @@ html.dark .platform-card:hover {
   border-color: var(--cfg-subtle-border-hover);
 }
 
-/* 已启用平台：轻微主题色描边，与关闭态卡片区分 */
 .platform-card.platform-card--enabled {
   border-color: color-mix(
     in srgb,
@@ -1904,7 +1736,6 @@ html.dark .platform-card.platform-card--enabled:hover {
   flex-shrink: 0;
 }
 
-/* 平台拖拽手柄：默认序号，hover 切换为 grip；本节点才是 draggable */
 .platform-drag-handle {
   display: grid;
   place-items: center;
@@ -1930,7 +1761,7 @@ html.dark .platform-card.platform-card--enabled:hover {
 .platform-drag-grip {
   display: block;
   grid-area: 1 / 1;
-  pointer-events: none; /* 拖拽事件落在 handle 上，不被子节点吃掉 */
+  pointer-events: none;
   transition: opacity var(--sm-dur-fast) var(--sm-ease-standard);
 }
 
@@ -1977,9 +1808,6 @@ html.dark .platform-drag-handle:hover {
   color: var(--cfg-text-1);
 }
 
-/* —— 拖拽排序反馈 —— */
-
-/* 正在被拖走的源卡片（仍接收 drop 相关事件由目标卡处理） */
 .platform-card.dragging {
   opacity: 0.42;
   cursor: grabbing;
@@ -2002,7 +1830,6 @@ html.dark .platform-card.dragging {
   );
 }
 
-/* 拖拽悬停的目标卡片：落点高亮 + 顶部插入条 */
 .platform-card.drag-over {
   position: relative;
   z-index: 2;
@@ -2041,7 +1868,6 @@ html.dark .platform-card.drag-over {
     0 12px 32px -10px rgb(0 0 0 / 45%);
 }
 
-/* 拖拽进行中：非目标卡略降噪，突出落点 */
 .platforms-grid:has(.platform-card.dragging)
   .platform-card:not(.dragging, .drag-over) {
   opacity: 0.78;
@@ -2094,10 +1920,6 @@ html.dark .platform-card.drag-over {
   white-space: nowrap;
 }
 
-/*
- * 移动端 / 平板竖屏：一行一张平台卡
- * 与设置分层导航断点一致（<1024）
- */
 @media (width < 1024px) {
   .platforms-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -2121,7 +1943,6 @@ html.dark .platform-name {
   color: var(--cfg-text-1);
 }
 
-/* 刷新与管理 — 当前状态短标签（titleExtra） */
 .platform-auto-refresh-status {
   font-size: 0.6875rem;
   font-weight: 550;
@@ -2134,9 +1955,6 @@ html.dark .platform-auto-refresh-status {
   color: var(--cfg-text-3);
 }
 
-/* toggle-switch 样式见 settings/items/SettingItem.css（ToggleSwitch 组件） */
-
-/* 平台配置状态：绿=已配置并启用 / 蓝=已配置未启用 / 灰=未配置 */
 .platform-status-dot {
   display: inline-block;
   width: 0.5rem;
@@ -2146,7 +1964,6 @@ html.dark .platform-auto-refresh-status {
   box-shadow: 0 0 0 2px rgb(255 255 255 / 55%);
 }
 
-/* 配置完成并启用 */
 .platform-status-dot.is-enabled {
   background: #10b981;
   box-shadow:
@@ -2154,7 +1971,6 @@ html.dark .platform-auto-refresh-status {
     0 0 6px rgb(16 185 129 / 45%);
 }
 
-/* 配置完成但未启用（报告页开关关） */
 .platform-status-dot.is-configured {
   background: #3b82f6;
   box-shadow:
@@ -2162,7 +1978,6 @@ html.dark .platform-auto-refresh-status {
     0 0 6px rgb(59 130 246 / 40%);
 }
 
-/* 未配置 */
 .platform-status-dot.is-unconfigured {
   background: #9ca3af;
   box-shadow:
@@ -2191,12 +2006,6 @@ html.dark .platform-status-dot.is-unconfigured {
     0 0 6px rgb(107 114 128 / 25%);
 }
 
-/* 配置图标按钮 - 继承统一基类 */
-
-/**
- * 平台列表 / AI 一级 ↔ 二级页：方向与时长由 .sm-pane[data-nav] 提供，
- * 这里只留布局。
- */
 .platforms-pane,
 .ai-pane {
   display: flex;
@@ -2205,12 +2014,10 @@ html.dark .platform-status-dot.is-unconfigured {
   min-width: 0;
 }
 
-/* 接入平台子分类：平台网格 + 自动刷新之间用组间距 */
 #connected-platforms > .setting-group-content {
   gap: var(--settings-gap-group, 1.25rem);
 }
 
-/* 大语言模型档位：标准 / Lite / Pro */
 .ai-llm-tier {
   display: flex;
   flex-direction: column;
@@ -2232,7 +2039,6 @@ html.dark .platform-status-dot.is-unconfigured {
   min-width: 0;
 }
 
-/* 开关本身 40×22，低于教程洞的 24px 下限；锚在整行上并保证能量到。 */
 .ai-llm-tier-head[data-tour] {
   min-height: 2rem;
 }
@@ -2317,7 +2123,6 @@ html.dark .platform-status-dot.is-unconfigured {
   color: var(--cfg-text-3);
 }
 
-/* 平台配置二级页（替换列表区域，非弹窗） */
 .platform-detail {
   display: flex;
   flex-direction: column;
@@ -2341,8 +2146,6 @@ html.dark .platform-status-dot.is-unconfigured {
 .platform-data-management-task {
   margin-bottom: var(--settings-gap-item, 0.625rem);
 }
-
-/* 紧凑型配置项组样式见 settings/items/SettingItem.css（单一真相源） */
 
 .field-label {
   display: block;
@@ -2377,7 +2180,6 @@ html.dark .field-label {
   box-shadow: 0 2px 8px -2px rgb(0 0 0 / 4%);
 }
 
-/* button 型触发器 / 变种只读壳：清掉 UA 默认底色与系统字色 */
 button.field-input,
 button.field-select {
   appearance: none;
@@ -2388,7 +2190,6 @@ button.field-select {
   text-align: left;
 }
 
-/* 浏览器自动填充在深色下常刷成浅黄/白底，压回输入 token */
 .field-input:-webkit-autofill,
 .field-input:-webkit-autofill:hover,
 .field-input:-webkit-autofill:focus,
@@ -2477,7 +2278,6 @@ html.dark .field-select:focus {
   background: var(--cfg-input-bg-focus);
 }
 
-/* Checkbox 开关样式 */
 .checkbox-wrapper {
   display: flex;
   align-items: center;
@@ -2564,11 +2364,6 @@ html.dark .checkbox-hint {
   color: var(--cfg-text-3);
 }
 
-/* 测试按钮 - 使用主题渐变色 */
-
-/* button-spinner 已统一使用 ButtonSpinner 组件 */
-
-/* 配置表单主体：统一用 gap 排子分类 / 内容块，子项勿再叠 margin-bottom */
 .config-form {
   display: flex;
   flex-direction: column;
@@ -2587,7 +2382,6 @@ html.dark .config-form {
   color-scheme: dark;
 }
 
-/* 信息卡片 - 使用主题色 */
 .info-card {
   background: color-mix(in srgb, var(--cfg-accent) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--cfg-accent) 20%, transparent);
@@ -2617,12 +2411,6 @@ html[data-perf-mode='exlight'] .info-card {
 html.dark[data-perf-mode='exlight'] .info-card {
   background: color-mix(in srgb, var(--cfg-accent) 12%, #1a1a1a);
 }
-
-/* 功能介绍区布局容器 - 左侧介绍右侧功能 */
-
-/* 功能介绍卡片（左侧） */
-
-/* 功能控件区（右侧） */
 
 .info-title {
   font-size: 0.8125rem;
@@ -2654,29 +2442,16 @@ html.dark .info-text a {
   color: var(--cfg-accent, #60a5fa);
 }
 
-/* 移动端优化 - 仅保留必要的响应式调整 */
-
-/*
- * 这里原有一条「深色模式过渡」兜底规则，把上面这些元素的 transition
- * 整条重写成 background/border/color 三项——同特异性且更靠后，
- * 于是卡片与侧边栏声明的 box-shadow / transform 过渡从未生效
- * （悬停抬升是硬跳的）。各元素自己的 transition 已覆盖颜色项，规则删除。
- */
-
-/* 自定义 textarea */
-
 .resizable-textarea {
   resize: vertical;
 }
 
-/* 提供商选择器（胶囊形状） */
 .provider-selector {
   display: flex;
   gap: 0.75rem;
   flex-wrap: wrap;
 }
 
-/* 提供商胶囊：内层 → 微透 */
 .provider-option {
   display: inline-flex;
   align-items: center;
@@ -2684,7 +2459,7 @@ html.dark .info-text a {
   padding: 0.75rem 1.25rem;
   background: var(--cfg-subtle-bg);
   border: 1.5px solid var(--cfg-subtle-border);
-  border-radius: 999px; /* 完全圆角 */
+  border-radius: 999px;
   font-size: 0.875rem;
   font-weight: 600;
   color: var(--cfg-text-2);
@@ -2757,7 +2532,6 @@ html.dark .provider-badge {
   color: var(--cfg-text-3);
 }
 
-/* 提供商选择网格（废弃，保留用于兼容） */
 .provider-grid {
   grid-template-columns: repeat(2, 1fr);
 }
@@ -2769,16 +2543,10 @@ html.dark .provider-badge {
   gap: 0.5rem;
 }
 
-/* 尺寸输入网格 */
-
-/* 元数据部分 */
-
-/* 带间距的信息卡片 */
 .info-card-spaced {
   margin-bottom: 1rem;
 }
 
-/* 内联代码 — 中性微透，跟随主题 */
 .inline-code {
   background: var(--cfg-subtle-bg);
   padding: 2px 4px;
@@ -2791,8 +2559,6 @@ html.dark .inline-code {
   background: var(--cfg-subtle-bg);
   color: var(--cfg-text-1);
 }
-
-/* OAuth 回调地址：只读输入井 + 中性复制钮，无固定蓝 */
 
 .callback-url-code {
   flex: 1;
@@ -2814,7 +2580,6 @@ html.dark .callback-url-code {
   border-color: var(--cfg-input-border);
 }
 
-/* 全局 copy-btn（OAuth 回调等）；输入框内另有 .input-wrapper .copy-btn 覆盖 */
 .copy-btn {
   display: inline-flex;
   align-items: center;
@@ -2849,15 +2614,10 @@ html.dark .copy-btn:hover {
   border-color: var(--cfg-subtle-border-hover);
 }
 
-/* ============================================================
-   OAuth providers — section layout (compact, divider-free)
-   ============================================================ */
-
 .oidc-section {
   margin-top: 0.75rem;
 }
 
-/* 空状态 — 可点击：内层 → 微透 */
 .oidc-empty {
   font-size: 0.8125rem;
   color: var(--cfg-text-3);
@@ -2868,23 +2628,18 @@ html.dark .copy-btn:hover {
   background: var(--cfg-subtle-bg);
 }
 
-/* 底部保存条 — 紧贴列表，不画线 */
-
 .oidc-loading {
   font-size: 0.875rem;
   color: var(--cfg-text-3);
   padding: 0.5rem 0;
 }
 
-/* OIDC 提供商卡：内层 → 微透 */
 .oidc-provider-card {
   border: 1px solid var(--cfg-subtle-border);
   border-radius: 0.625rem;
   padding: 0.75rem 0.875rem;
   margin-bottom: 0.625rem;
   background: var(--cfg-subtle-bg);
-
-  /* 允许标题 ⓘ tooltip 溢出 */
   overflow: visible;
   transition:
     border-color var(--sm-dur-base) var(--sm-ease-standard),
@@ -2905,7 +2660,6 @@ html.dark .copy-btn:hover {
   opacity: 0.6;
 }
 
-/* 卡片头 — 不画分隔线，靠间距分组 */
 .oidc-provider-header {
   display: flex;
   justify-content: space-between;
@@ -2965,8 +2719,6 @@ html.dark .copy-btn:hover {
   }
 }
 
-/* Provider 卡片 — icon / callback / preset hint / advanced 折叠 */
-
 .oidc-provider-title-text {
   display: inline-flex;
   align-items: center;
@@ -2981,7 +2733,6 @@ html.dark .copy-btn:hover {
   flex-shrink: 0;
 }
 
-/* 允许 ⓘ tooltip 溢出卡片，不被 title 裁切 */
 .oidc-provider-title-text .setting-title-help {
   flex-shrink: 0;
   overflow: visible;
@@ -3022,7 +2773,6 @@ html.dark .oidc-callback-row {
   border-color: var(--cfg-subtle-border);
 }
 
-/* dark 已由 token 自动切换；保留 hover 略加强 */
 html.dark .oidc-provider-card:hover {
   border-color: color-mix(
     in srgb,
@@ -3054,10 +2804,6 @@ html.dark .oidc-provider-card:hover {
   height: 2rem;
 }
 
-/*
- * 移动端 OAuth 卡：头栏与回调行勿与按钮横挤。
- * 标题一行、开关/删除下一行；回调标签独占一行，URL + 复制可换行。
- */
 @media (width < 1024px) {
   .oidc-provider-header {
     flex-direction: column;
@@ -3113,7 +2859,6 @@ html.dark .oidc-provider-card:hover {
   }
 }
 
-/* 高级折叠 — 无分割线 */
 .oidc-advanced {
   margin-top: 0.25rem;
 }
@@ -3259,12 +3004,6 @@ html.dark .oidc-preset-card {
   }
 }
 
-/* 宠物预览 */
-
-/* ==========================================
-   弹窗样式
-   ========================================== */
-
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -3276,13 +3015,10 @@ html.dark .oidc-preset-card {
   justify-content: center;
   z-index: 1000;
   padding: 1rem;
-  overflow-y: auto; /* width/height/overflow-y 自 astro 页面级样式迁移 */
+  overflow-y: auto;
   animation: fadeIn var(--sm-dur-slow) var(--sm-ease-standard);
 }
 
-/* fadeIn 动画已移至 animations.css */
-
-/* 弹窗：浮层壳 → 低中透模糊（elevated 略实以保可读） */
 .modal-content {
   background: var(--cfg-frost-elevated-bg);
   backdrop-filter: var(--cfg-frost-filter);
@@ -3309,8 +3045,6 @@ html.dark .modal-content {
     0 12px 24px -8px rgb(0 0 0 / 40%),
     0 0 0 1px rgb(255 255 255 / 10%);
 }
-
-/* slideUp 动画已移至 animations.css */
 
 .modal-content.modal-small {
   max-width: 480px;
@@ -3430,10 +3164,3 @@ html.dark .modal-footer {
   border-top-color: rgb(255 255 255 / 10%);
 }
 
-/* ==========================================
-   权限配置样式
-   ========================================== */
-
-/* ==========================================
-   AI 限额配置样式
-   ========================================== */

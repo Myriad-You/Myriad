@@ -14,6 +14,7 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     Json,
 };
+use myriad_error::AppError;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -51,6 +52,7 @@ pub(crate) fn reject_query_access_token(access_token: &Option<String>) -> Result
             Json(json!({
                 "success": false,
                 "error": "access_token_not_allowed",
+                "code": "access_token_not_allowed",
                 "message": "Do not pass Discord access tokens in the query string; connect Discord via OAuth so the server stores discord_access_token"
             })),
         )));
@@ -70,6 +72,7 @@ async fn server_discord_access_token() -> Result<String, HttpError> {
                 Json(json!({
                     "success": false,
                     "error": "discord_token_not_configured",
+                    "code": "discord_token_not_configured",
                     "message": "Discord platform token not configured. Use Connect Discord (OAuth) in settings."
                 })),
             ))
@@ -128,7 +131,7 @@ fn resolve_discord_oauth_app(config: &DynamicConfig) -> Result<(String, String),
         }
     }
     Err(
-        "请先在「OAuth 登录」中添加并启用 Discord 应用（client_id / client_secret）。数据授权会复用同一 Application。"
+        "Add and enable a Discord app in OAuth login first. Data authorization reuses that application."
             .to_string(),
     )
 }
@@ -327,7 +330,7 @@ pub async fn oauth_start(
     let user_id: i32 = claims.sub.parse().map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Invalid user id"})),
+            Json(AppError::public_json("Invalid user id")),
         )
     })?;
 
@@ -337,6 +340,7 @@ pub async fn oauth_start(
             StatusCode::BAD_REQUEST,
             Json(json!({
                 "error": "discord_app_not_configured",
+                "code": "discord_app_not_configured",
                 "message": msg,
             })),
         )
@@ -376,7 +380,7 @@ pub async fn oauth_start(
         .append_pair("redirect_uri", &redirect_uri)
         .append_pair("scope", DISCORD_DATA_SCOPES)
         .append_pair("state", &issued.token)
-        // 确保用户能看到权限列表（含 connections / guilds）
+        // prompt=consent only (no in-repo permission-list UI).
         .append_pair("prompt", "consent");
 
     tracing::info!(
@@ -385,7 +389,7 @@ pub async fn oauth_start(
         redirect_uri
     );
 
-    // MYR-003: bind state to this browser via oauth_tx cookie.
+    // bind state to this browser via oauth_tx cookie.
     let is_production = SiteConfig::is_production().await;
     let mut response = no_store_redirect(url.as_str());
     if let Ok(value) = HeaderValue::from_str(&oauth_tx_set_cookie_value(
@@ -457,7 +461,7 @@ pub async fn oauth_callback(
         }
     };
 
-    // Verify state without burning nonce; cookie must match first (MYR-003).
+    // Verify state without burning nonce; cookie must match first.
     let verified = match verify_state(&state_param).await {
         Ok(v) => v,
         Err(err) => {
@@ -470,7 +474,7 @@ pub async fn oauth_callback(
         }
     };
 
-    // MYR-003: require oauth_tx cookie match (fail closed) BEFORE mark_used.
+    // require oauth_tx cookie match (fail closed) BEFORE mark_used.
     let cookie_header = headers.get(header::COOKIE).and_then(|v| v.to_str().ok());
     if !oauth_tx_cookie_matches(cookie_header, verified.browser_tx()) {
         tracing::warn!("Discord platform OAuth: missing/mismatched oauth_tx cookie");
@@ -601,7 +605,7 @@ pub async fn oauth_callback(
         None
     };
 
-    // 拉一次 @me 校验 token，并写入 user_id
+    // @me: warn-and-save token on failure; discord_user_id is optional.
     let fetcher = PlatformFetcher::new().await;
     let user_id_discord = match fetcher.fetch_discord_me(&access_token).await {
         Ok(user) => user

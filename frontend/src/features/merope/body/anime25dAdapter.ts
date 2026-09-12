@@ -13,10 +13,7 @@ import {
 import { captureRigStateSummary } from '../motion/rigStateSummary'
 import { getSpeechPipeline } from '../speech/speechPipelineHost'
 
-/**
- * The only body adapter Myriad ships: Anime2.5D over the existing runtime.
- * Lite never sees drivers. A second body would have to prove this enough.
- */
+/** The only body adapter Myriad ships */
 export class Anime25DBodyAdapter implements BodyAdapter {
   constructor(private readonly runtime: MotionRuntime) {}
 
@@ -40,7 +37,22 @@ export class Anime25DBodyAdapter implements BodyAdapter {
     if (!liveFaceVisible()) return
     const source = intent.source ?? 'reply'
     const generation = source === 'reply' ? liveMotionGeneration() : 0
-    if (intent.speechText && intent.messageId) {
+    if (intent.touchContinuation && !intent.speechRefinement && source === 'proactive'
+      && intent.messageId && intent.speechText) {
+      this.runtime.touch.accompanySpeech(intent.messageId, performance.now())
+    }
+    if (
+      intent.speechRefinement &&
+      (!intent.messageId ||
+        !this.runtime.speech.hasPlayback({
+          messageId: intent.messageId,
+          source,
+          generation,
+        }))
+    ) {
+      return
+}
+    if (!intent.speechRefinement && intent.speechText && intent.messageId) {
       getSpeechPipeline().speakLine({
         messageId: intent.messageId,
         text: intent.speechText,
@@ -50,8 +62,17 @@ export class Anime25DBodyAdapter implements BodyAdapter {
       })
     }
     if (intent.performance?.plan) {
+      if (intent.speechRefinement && source === 'proactive' && intent.messageId
+        && !this.runtime.touch.acceptsSpeechRefinement(intent.messageId, intent.performance, performance.now())) { return
+}
       this.runtime.performance.handle({
-        text: intent.speechText ?? '',
+        text: intent.speechRefinement
+          ? this.runtime.speech.upcomingText({
+              messageId: intent.messageId!,
+              source,
+              generation,
+            })
+          : (intent.speechText ?? ''),
         source,
         ...(intent.runId ? { runId: intent.runId } : {}),
         ...(intent.messageId ? { messageId: intent.messageId } : {}),

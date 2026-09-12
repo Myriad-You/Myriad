@@ -1,10 +1,3 @@
-/**
- * 登录 / 注册表单
- *
- * 表单本身不带玻璃底。页面用 .auth-card.glass，弹窗用
- * .user-modal-login-only.glass，避免卡套卡叠两层背景。
- */
-
 .auth-card {
   width: 100%;
   max-width: 400px;
@@ -29,7 +22,6 @@ html.dark .login-form-title {
   color: #f3f4f6;
 }
 
-/* 关闭钮浮在右上：标题与圆钮同一行等高，文字让开钮宽 */
 .user-modal-login-only .login-form-title {
   display: flex;
   align-items: center;
@@ -204,11 +196,6 @@ html.dark .login-form-footer {
   text-decoration: underline;
 }
 
-/**
- * OAuth provider 按钮样式
- * PR #5/#6
- */
-
 .oauth-provider-btn {
   display: flex;
   align-items: center;
@@ -276,12 +263,9 @@ html.dark .login-form-footer {
 .oauth-provider-label {
   flex: 1;
   text-align: center;
-
-  /* keep the visual center despite the icon on the left */
   padding-right: 1.25rem;
 }
 
-/* GitHub variant */
 .oauth-provider-btn-github {
   background: #1f2328;
   color: #fff;
@@ -306,7 +290,6 @@ html.dark .oauth-provider-btn-github:hover {
   box-shadow: 0 4px 16px rgb(255 255 255 / 15%);
 }
 
-/* Generic OIDC variant */
 .oauth-provider-btn-oidc {
   background: var(--bg-card, #fff);
   color: var(--text-primary, #1f2937);

@@ -109,7 +109,6 @@ test('same-size model refinement reaches the scheduler; replay after speech end 
     const speech = channel.openReply('reply')
     speech.chunk('a completed spoken reply')
     speech.end()
-    // deliver() assigns a new transport intent id to this replay.
     channel.deliver({ messageId: 'reply', performance: delivery })
     const after = runtime.frame()
     assert.equal(after.bearing?.expression, 'warm')

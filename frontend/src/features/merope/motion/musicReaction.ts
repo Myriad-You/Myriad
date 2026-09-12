@@ -46,23 +46,8 @@ export const MUSIC_QUALITY: Readonly<Record<MusicMode, BehaviorQuality>> = {
 
 /** Below this the character is listening rather than joining in. */
 const PARTICIPATION_ENERGY = 0.12
-/**
- * How long the music has to stay under that line before it counts.
- *
- * The silence threshold above already refuses to read the gap between two
- * drum hits as a change of heart. This line needed the same protection and
- * did not have it: a track whose energy rides on the threshold crosses it
- * twice a bar, and each crossing rewrote the whole quality vector — a fine
- * buzz locked to the rhythm, on exactly the songs that sit at that level.
- */
 const PARTICIPATION_HOLD_MS = 400
 
-/**
- * Sparse music participation decisions for the existing behavior scheduler.
- * Listening is not permanent singing or perpetual motion. Musical stilling:
- * Upham et al. 2024, https://doi.org/10.1177/20592043241233422
- * Humming bouts below are character art direction, not vocal detection.
- */
 export class MusicReactionPlanner {
   private quietSince = Number.NaN
   private quietParticipationSince = Number.NaN

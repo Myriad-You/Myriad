@@ -42,21 +42,18 @@ const CONTINUOUS_MOUTH_FADES = new Set<Anime25DPlaybackLayer['fade']>([
   'mouthSilly',
 ])
 
-/** The generated mouth materials that share Myriad's continuous morph mesh. */
 export function isAnime25DContinuousMouth(
   fade: Anime25DPlaybackLayer['fade'],
 ): boolean {
   return CONTINUOUS_MOUTH_FADES.has(fade)
 }
 
-/** Every mouth layer whose local geometry is owned by the Myriad extension. */
 export function isAnime25DMouthDeformation(
   fade: Anime25DPlaybackLayer['fade'],
 ): boolean {
   return resolveAnime25DMouthDeformation(fade) !== null
 }
 
-/** Resolve once per layer so the vertex loop does not repeat set lookups. */
 export function resolveAnime25DMouthDeformation(
   fade: Anime25DPlaybackLayer['fade'],
 ): Anime25DMouthDeformationKind | null {
@@ -64,11 +61,6 @@ export function resolveAnime25DMouthDeformation(
   return isAnime25DContinuousMouth(fade) ? 'continuous' : null
 }
 
-/**
- * Applies the complete Myriad mouth extension in its established order.
- * The rest coordinate is deliberately separate from the staged point because
- * rail weights, sob falloff, and special-mouth masks are authored in rest space.
- */
 export function deformAnime25DMouthPoint(
   point: Anime25DMutableMouthPoint,
   restX: number,
@@ -144,15 +136,10 @@ export function deformAnime25DMouthPoint(
     source.fade === 'mouthManiac'
   ) {
     if (source.fade === 'mouthManiac') {
-      // Authored extreme expression keeps its own small curvature response.
       const halfWidth = (mouth.x1 - mouth.x0) / 2
       const q = Math.abs(point.x - mouth.cx) / (halfWidth + 4)
       point.y -= expression.mouthForm * 0.28 * 6 * frame.faceScale * (q ** 1.5 - 0.35)
     } else {
-      // Ordinary materials share one curve throughout the crossfade. Measure
-      // it in the live mouth's space, not an anchor or a fixed pixel gain:
-      // the old closed-mouth attenuation left authored smiles smiling even
-      // with a negative bearing. Width-relative curvature scales with assets.
       const localX = clamp((restX - source.x - source.w / 2) / Math.max(1, source.w / 2), -1, 1)
       const articulation = 1 - morph.openMix * (0.2 + morph.round * 0.45 + morph.narrow * 0.1)
       const amplitude = morph.width * expression.mouthScale * 0.28 * articulation
@@ -218,7 +205,6 @@ export function deformAnime25DMouthPoint(
   }
 }
 
-/** Couples the imported face silhouette to the same smoothed jaw state. */
 export function deformAnime25DFaceJawPoint(
   point: Anime25DMutableMouthPoint,
   restY: number,

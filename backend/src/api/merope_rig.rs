@@ -1,8 +1,8 @@
 //! Site-wide Anime2.5D face for Agent 人设.
 //!
 //! Owner writes the compiled package. Guests read the same public atlas and
-//! manifest. Hand artwork is one optional layer with bounded follow-through;
-//! independently articulated limbs are outside this API contract.
+//! manifest. Arm fragments (`rigid-*-arm-fragment`) are required.
+//! Independently articulated limbs are outside this API contract.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -18,6 +18,7 @@ use axum::{
     routing::{get, patch, post},
     Extension, Json, Router,
 };
+use myriad_error::AppError;
 use myriad_merope::{
     build_character_asset_contract, build_character_visual_edit_prompt,
     build_character_visual_prompt, build_sticker_avatar_contract, build_sticker_avatar_prompt,
@@ -30,7 +31,7 @@ use myriad_merope::{
     PORTRAIT_CANVAS_WIDTH, PORTRAIT_GENERATION_HEIGHT, PORTRAIT_GENERATION_WIDTH,
     RIG_SCHEMA_VERSION, STICKER_AVATAR_CONTRACT_VERSION, STICKER_AVATAR_SIZE,
 };
-use sea_orm::{ConnectionTrait, DatabaseConnection, TransactionTrait};
+use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, QuerySelect, TransactionTrait};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -101,7 +102,10 @@ pub fn create_routes(app_state: AppState) -> Router<AppState> {
 }
 
 fn bad_request(message: &str) -> ApiError {
-    (StatusCode::BAD_REQUEST, Json(json!({ "error": message })))
+    (
+        StatusCode::BAD_REQUEST,
+        Json(AppError::public_json(message)),
+    )
 }
 
 fn portrait_generation_config_error(error: image_generation::ImageGenerationError) -> ApiError {
@@ -123,7 +127,7 @@ fn portrait_generation_provider_error(error: image_generation::ImageGenerationEr
 }
 
 fn not_found(message: &str) -> ApiError {
-    (StatusCode::NOT_FOUND, Json(json!({ "error": message })))
+    (StatusCode::NOT_FOUND, Json(AppError::public_json(message)))
 }
 
 fn internal_error(error: impl std::fmt::Display) -> ApiError {
@@ -207,7 +211,7 @@ async fn require_owner(claims: &Claims, db: &DatabaseConnection) -> ApiResult<i3
     let user_id = claims.sub.parse::<i32>().map_err(|_| {
         (
             StatusCode::UNAUTHORIZED,
-            Json(json!({ "error": "Invalid user" })),
+            Json(AppError::public_json("Invalid user")),
         )
     })?;
     if user_id != owner {
@@ -222,18 +226,12 @@ async fn require_owner(claims: &Claims, db: &DatabaseConnection) -> ApiResult<i3
     Ok(user_id)
 }
 
-fn active_asset_id(config: &crate::config::DynamicConfig) -> Option<String> {
-    config
-        .agent_rig_asset_id
-        .as_deref()
-        .and_then(merope_rig::normalize_asset_id)
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct MasterProvenance {
     asset_id: String,
     generation_fingerprint: Option<String>,
     gender: String,
+    outfit_id: Option<String>,
 }
 
 fn valid_generation_fingerprint(value: &str) -> bool {
@@ -288,6 +286,12 @@ async fn current_master(db: &DatabaseConnection) -> ApiResult<Option<MasterProve
     let Some(persona) = persona else {
         return Ok(None);
     };
+    Ok(master_from_persona(&persona))
+}
+
+fn master_from_persona(
+    persona: &crate::models::entities::agent_persona::Model,
+) -> Option<MasterProvenance> {
     let gender = persona
         .visual_profile
         .as_ref()
@@ -296,10 +300,8 @@ async fn current_master(db: &DatabaseConnection) -> ApiResult<Option<MasterProve
         .filter(|value| matches!(*value, "female" | "male" | "nonbinary" | "unspecified"))
         .unwrap_or("unspecified")
         .to_string();
-    let Some(asset_id) = persona.portrait_asset_id else {
-        return Ok(None);
-    };
-    Ok(Some(MasterProvenance {
+    let asset_id = persona.portrait_asset_id.clone()?;
+    Some(MasterProvenance {
         asset_id,
         generation_fingerprint: myriad_merope::active_outfit_generation_fingerprint(
             persona.visual_profile.as_ref(),
@@ -313,7 +315,13 @@ async fn current_master(db: &DatabaseConnection) -> ApiResult<Option<MasterProve
             .unwrap_or(None)
         }),
         gender,
-    }))
+        outfit_id: persona
+            .visual_profile
+            .as_ref()
+            .and_then(|profile| profile.get("activeOutfitId"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    })
 }
 
 async fn require_master_match(
@@ -397,14 +405,31 @@ async fn bind_and_activate_outfit_rig(
     db: &DatabaseConnection,
     user_id: i32,
     asset_id: &str,
+    expected: &MasterProvenance,
 ) -> ApiResult<()> {
     let transaction = db.begin().await.map_err(internal_error)?;
-    let persona = merope::get_persona_on(&transaction)
-        .await
-        .map_err(internal_error)?;
-    if let Some(row) = persona {
+    // The row lock spans provenance validation, outfit binding and activation.
+    // A concurrent portrait/outfit UPDATE cannot slip between those operations.
+    let row =
+        crate::models::entities::agent_persona::Entity::find_by_id(merope::store::PERSONA_ROW_ID)
+            .lock_exclusive()
+            .one(&transaction)
+            .await
+            .map_err(internal_error)?;
+    if row.as_ref().and_then(master_from_persona).as_ref() != Some(expected) {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": "Character master or worn outfit changed before rig activation",
+                "code": "character_asset_provenance_changed"
+            })),
+        ));
+    }
+    if let Some(row) = row {
         let mut profile = row.visual_profile.clone().unwrap_or_else(|| json!({}));
-        myriad_merope::bind_active_outfit_rig(&mut profile, asset_id);
+        if !myriad_merope::bind_active_outfit_rig(&mut profile, asset_id) {
+            return Err(bad_request("The worn outfit is missing"));
+        }
         if let Err(error) = merope::upsert_persona_on(
             &transaction,
             row.name,
@@ -662,8 +687,9 @@ async fn parse_rig_import(mut multipart: Multipart) -> ApiResult<ParsedRigImport
         fingerprint.make_ascii_lowercase();
     }
     let atlas_bytes = atlas_bytes.ok_or_else(|| bad_request("Rig import is missing atlas PNG"))?;
-    let dimensions =
-        merope_rig::png_dimensions(&atlas_bytes).map_err(|error| bad_request(&error))?;
+    let (atlas_bytes, dimensions) = merope_rig::validate_png_dimensions(atlas_bytes)
+        .await
+        .map_err(png_validation_error)?;
     if dimensions != (source.atlas.width, source.atlas.height) {
         return Err(bad_request(
             "Rig atlas dimensions do not match source metadata",
@@ -677,12 +703,16 @@ async fn parse_rig_import(mut multipart: Multipart) -> ApiResult<ParsedRigImport
     {
         return Err(bad_request("Rig atlas contract is invalid"));
     }
-    if let Some(reference) = analysis_reference_bytes.as_deref() {
-        merope_rig::png_dimensions(reference).map_err(|error| {
-            tracing::error!(%error, "Invalid rig analysis reference");
-            bad_request("Invalid rig import")
-        })?;
-    }
+    let analysis_reference_bytes = if let Some(reference) = analysis_reference_bytes {
+        Some(
+            merope_rig::validate_png_dimensions(reference)
+                .await
+                .map_err(png_validation_error)?
+                .0,
+        )
+    } else {
+        None
+    };
     Ok(ParsedRigImport {
         source,
         atlas_bytes,
@@ -690,9 +720,30 @@ async fn parse_rig_import(mut multipart: Multipart) -> ApiResult<ParsedRigImport
     })
 }
 
+fn png_validation_error(error: merope_rig::PngValidationError) -> ApiError {
+    match error {
+        merope_rig::PngValidationError::Invalid(message) => bad_request(&message),
+        merope_rig::PngValidationError::Busy => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(AppError::public_json(
+                "Rig image validation is busy; retry shortly",
+            )),
+        ),
+        merope_rig::PngValidationError::WorkerFailed => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(AppError::public_json("Rig image validation failed")),
+        ),
+    }
+}
+
 pub async fn get_active_rig(crate::extract::Db(db): crate::extract::Db) -> ApiResult<Json<Value>> {
-    let master = current_master(&db).await?;
-    let asset_id = active_asset_id(&*crate::GLOBAL_DYNAMIC_CONFIG.read().await);
+    // Read portrait and worn rig from the same committed persona snapshot.
+    // A late configuration mirror must never select a different package.
+    let persona = merope::get_persona(&db).await.map_err(internal_error)?;
+    let master = persona.as_ref().and_then(master_from_persona);
+    let asset_id = myriad_merope::active_outfit_rig_asset_id(
+        persona.as_ref().and_then(|row| row.visual_profile.as_ref()),
+    );
     if let (Some(asset_id), Some(master)) = (asset_id, master.as_ref()) {
         match load_stored_manifest(&asset_id).await {
             Ok(mut manifest) if manifest_matches_master(&manifest, master) => {
@@ -776,6 +827,7 @@ pub(crate) async fn wardrobe_outfit_face(
                         asset_id: portrait.to_string(),
                         generation_fingerprint: look.generation_fingerprint.clone(),
                         gender: gender.to_string(),
+                        outfit_id: Some(outfit_id.to_string()),
                     },
                 ),
                 None => manifest.validate().is_ok(),
@@ -816,7 +868,7 @@ pub async fn get_atlas(Path(asset_id): Path<String>) -> ApiResult<Response> {
     let bytes = merope_rig::read_atlas_bytes(&asset_id).await.map_err(|_| {
         (
             StatusCode::NOT_FOUND,
-            Json(json!({ "error": "Rig atlas not found" })),
+            Json(AppError::public_json("Rig atlas not found")),
         )
     })?;
     Response::builder()
@@ -1048,15 +1100,7 @@ pub async fn import_site_rig(
     merope_rig::persist_package(&asset_id, &atlas_bytes, &json)
         .await
         .map_err(internal_error)?;
-    // Portrait/persona writes can race a long compile. Never activate a rig
-    // whose provenance stopped being current while the package was built.
-    require_master_match(
-        &db,
-        &source_master_asset_id,
-        source_generation_fingerprint.as_deref(),
-    )
-    .await?;
-    bind_and_activate_outfit_rig(&db, user_id, &asset_id).await?;
+    bind_and_activate_outfit_rig(&db, user_id, &asset_id, &master).await?;
     Ok(Json(json!({ "manifest": manifest, "assetId": asset_id })))
 }
 
@@ -1233,7 +1277,7 @@ pub async fn generate_portrait(
             .unwrap_or_else(|| {
                 json!({
                     "gender": "unspecified",
-                    "language": "zh-CN"
+                    "language": "en-US"
                 })
             });
         let gender = profile
@@ -1244,7 +1288,7 @@ pub async fn generate_portrait(
         let language = profile
             .get("language")
             .and_then(Value::as_str)
-            .unwrap_or("zh-CN")
+            .unwrap_or("en-US")
             .to_string();
         if let Some(identity) = profile.get("visualIdentity").cloned() {
             if !identity.is_null() {
@@ -1532,8 +1576,8 @@ async fn cleanup_uncommitted_avatar(
 
 /// POST /api/merope/rig/avatar
 ///
-/// 从已确认的主立绘派生一张 Q 版贴纸头像。主立绘是身份锚，项目 logo 是造型
-/// 参考——两张都作为参考图上传，文字只负责把最容易漂的颜色钉住。
+/// Derive a Q-sticker from the confirmed master. Master is identity; project
+/// logo is style. Both images upload; prompt also pins school/framing/pose/die-cut.
 pub async fn generate_sticker_avatar(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
@@ -1718,12 +1762,9 @@ mod rig_invalidation_tests {
         &rest[..end]
     }
 
-    /// 写 `portrait_asset_id` 的入口，必须在同一次写入里作废旧 Rig。
+    /// 写 `portrait_asset_id` 的入口必须在同一次事务里 persist_active_asset；PUT 同步穿着套的 live pointer，不是一律作废。
     ///
-    /// Rig 的血统锚在主图上。换了主图不清 `agent_rig_asset_id`，读路径的
-    /// `manifest_matches_master` 虽然拦得住，但那是每个请求重读一遍旧包再丢
-    /// 掉，而 `/active` 是公开路由。`upload_portrait` 就是这么漏的——另外三处
-    /// 都清了，只有它没有。
+    /// 四个 portrait writer 必须在人设同一次事务里 persist_active_asset；`/active` 仍从该 persona 快照取穿着套，不读 configuration mirror。
     #[test]
     fn every_portrait_writer_clears_the_active_rig() {
         let rig = include_str!("merope_rig.rs");
@@ -1743,8 +1784,8 @@ mod rig_invalidation_tests {
 
     /// 作废必须落在事务里，并且提交后镜像出去。
     ///
-    /// 分成两步写（先 upsert 后清 asset）而不用事务的话，中间失败会留下
-    /// 「新主图 + 旧 Rig」这种谁也修不回来的状态。
+    /// Split write without a txn can leave a stale package; `/active` drops it
+    /// and serves portrait-only. Clear must still be transactional.
     #[test]
     fn upload_portrait_clears_the_rig_transactionally() {
         let body = body_of(include_str!("merope_rig.rs"), "upload_portrait");
@@ -1768,6 +1809,67 @@ mod rig_invalidation_tests {
 mod portrait_contract_tests {
     use super::*;
     use sha2::Digest;
+
+    #[test]
+    fn active_reader_uses_one_persona_snapshot_not_the_configuration_mirror() {
+        let source = include_str!("merope_rig.rs");
+        let reader = source
+            .split("pub async fn get_active_rig(")
+            .nth(1)
+            .unwrap()
+            .split("\npub ")
+            .next()
+            .unwrap();
+        assert_eq!(reader.matches("merope::get_persona(&db)").count(), 1);
+        assert!(reader.contains("active_outfit_rig_asset_id("));
+        assert!(!reader.contains("GLOBAL_DYNAMIC_CONFIG"));
+        let a = "a".repeat(64);
+        let b = "b".repeat(64);
+        let mut profile = json!({"activeOutfitId":"a", "wardrobe":[
+            {"id":"a", "rigAssetId":a}, {"id":"b", "rigAssetId":b}
+        ]});
+        assert_eq!(
+            myriad_merope::active_outfit_rig_asset_id(Some(&profile)),
+            Some(a)
+        );
+        profile["activeOutfitId"] = json!("b");
+        assert_eq!(
+            myriad_merope::active_outfit_rig_asset_id(Some(&profile)),
+            Some(b)
+        );
+        profile["wardrobe"][1]["rigAssetId"] = Value::Null;
+        assert_eq!(
+            myriad_merope::active_outfit_rig_asset_id(Some(&profile)),
+            None
+        );
+    }
+
+    #[test]
+    fn activation_anchor_tracks_outfit_even_when_portrait_is_shared() {
+        let mut persona = crate::models::entities::agent_persona::Model {
+            id: "site".into(),
+            name: "Merope".into(),
+            personality: String::new(),
+            persona_json: None,
+            visual_profile: Some(json!({"activeOutfitId": "a", "gender": "female"})),
+            portrait_asset_id: Some("master-a".into()),
+            portrait_generation: None,
+            avatar_asset_id: None,
+            avatar_generation: None,
+            updated_by: None,
+            updated_at: chrono::Utc::now().fixed_offset(),
+        };
+        let original = master_from_persona(&persona).unwrap();
+        persona.name = "Renamed".into();
+        assert_eq!(master_from_persona(&persona).as_ref(), Some(&original));
+        persona.visual_profile.as_mut().unwrap()["activeOutfitId"] = json!("b");
+        assert_ne!(master_from_persona(&persona).as_ref(), Some(&original));
+        persona.visual_profile.as_mut().unwrap()["activeOutfitId"] = json!("a");
+        persona.portrait_asset_id = Some("master-b".into());
+        assert_ne!(master_from_persona(&persona).as_ref(), Some(&original));
+        persona.portrait_asset_id = None;
+        assert!(master_from_persona(&persona).is_none());
+    }
 
     #[test]
     fn portrait_adjustments_are_bounded_to_rendering_changes() {
@@ -1870,6 +1972,7 @@ mod portrait_contract_tests {
             asset_id: "/master.png".to_string(),
             generation_fingerprint: Some(fingerprint.clone()),
             gender: "female".to_string(),
+            outfit_id: Some("default".into()),
         };
         let mut manifest = layered_stub_manifest("/master.png", Some(fingerprint.clone()));
         assert!(manifest_matches_master(&manifest, &master));

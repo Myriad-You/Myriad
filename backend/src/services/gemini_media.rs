@@ -124,10 +124,10 @@ pub fn tts_request_body(text: &str, voice: &str) -> Value {
 
 pub fn stt_request_body(audio: &[u8], mime: &str, language: Option<&str>) -> Value {
     let hint = match language.map(str::trim).filter(|value| !value.is_empty()) {
-        Some(code) if code.starts_with("en") => {
-            "Transcribe this audio. Return only the transcript."
+        Some(code) => {
+            format!("Transcribe this audio (language: {code}). Return only the transcript.")
         }
-        _ => "请把这段音频转写成文字，只输出转写结果，不要解释。",
+        None => "Transcribe this audio. Return only the transcript.".to_string(),
     };
     json!({
         "contents": [{
@@ -487,5 +487,27 @@ mod tests {
         assert_eq!(&wav[0..4], b"RIFF");
         assert_eq!(u32::from_le_bytes(wav[24..28].try_into().unwrap()), 24_000);
         assert_eq!(&wav[44..], &[1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn stt_hint_is_english() {
+        let none = stt_request_body(b"abc", "audio/wav", None);
+        let ja = stt_request_body(b"abc", "audio/wav", Some("ja-JP"));
+        let none_hint = none["contents"][0]["parts"][0]["text"].as_str().unwrap();
+        let ja_hint = ja["contents"][0]["parts"][0]["text"].as_str().unwrap();
+        assert_eq!(
+            none_hint,
+            "Transcribe this audio. Return only the transcript."
+        );
+        assert_eq!(
+            ja_hint,
+            "Transcribe this audio (language: ja-JP). Return only the transcript."
+        );
+        assert!(!none_hint.chars().any(is_cjk));
+        assert!(!ja_hint.chars().any(is_cjk));
+    }
+
+    fn is_cjk(ch: char) -> bool {
+        ('\u{4e00}'..='\u{9fff}').contains(&ch)
     }
 }

@@ -60,7 +60,7 @@ function readImageFiles(
   onEach: (url: string, name: string) => void,
 ): void {
   if (!files || limit <= 0) return
-  const picked = Array.from(files)
+  const picked = Iterator.from(files).toArray()
     .filter((file) => file.type.startsWith('image/'))
     .slice(0, limit)
   for (const file of picked) {
@@ -82,7 +82,7 @@ export function HomeStickerDialog({
   onGenerate,
   onUpload,
 }: HomeStickerDialogProps) {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const refFileId = useId()
   const uploadFileId = useId()
   const panelRef = useRef<HTMLDivElement>(null)
@@ -273,10 +273,9 @@ export function HomeStickerDialog({
               size,
             ) ? (
               <p className="home-sticker-guide__desc">
-                {t.home.stickerGenerateCropHint.replace(
-                  '{aspect}',
-                  stickerAspectKey(size),
-                )}
+                {format(t.home.stickerGenerateCropHint, {
+                  aspect: stickerAspectKey(size),
+                })}
               </p>
             ) : null}
           </>

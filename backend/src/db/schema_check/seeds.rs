@@ -170,12 +170,11 @@ pub async fn ensure_default_platforms(db: &DatabaseConnection) -> Result<usize, 
     Ok(inserted)
 }
 
-/// Return the complete runtime configuration seed set.
+/// Return runtime configuration seeds except the two default-open permission keys.
 ///
-/// `DynamicConfig::default()` is the single source for values; serializing it
-/// here keeps seed defaults aligned with the values used before a database row
-/// exists. Optional values are seeded as JSON null so the database has an
-/// explicit row for every runtime field.
+/// `DynamicConfig::default()` is the value source for keys this function returns.
+/// Optional values serialize as JSON null. `user_perm_component_theme` and
+/// `user_perm_shortcut_register` are inserted separately in `ensure_default_config`.
 pub fn default_config_seeds() -> Vec<(String, Value)> {
     let defaults = serde_json::to_value(DynamicConfig::default())
         .expect("DynamicConfig defaults must remain JSON serializable");

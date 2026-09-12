@@ -1,7 +1,8 @@
 //! Role-aware Tapp catalog and detail queries.
 //!
-//! Projection lives in [`crate::services::tapp_catalog`]. This module only
-//! resolves identity, loads install rows, and wraps domain DTOs in API envelopes.
+//! Projection lives in [`crate::services::tapp_catalog`]. This module resolves
+//! identity, loads install rows, wraps list/detail DTOs, and writes
+//! `tapps.visibility` (`set_tapp_visibility`).
 
 use super::{
     current_is_admin, find_admin_user_id, find_visible_tapp, optional_authenticated_user_id,

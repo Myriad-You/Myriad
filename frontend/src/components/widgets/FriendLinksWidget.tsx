@@ -1,10 +1,3 @@
-/**
- * Brew 友情链接小组件
- *
- * 直接读取 Brew 的订阅源列表，并复用数据库中的固定分类值“友情链接”。
- * 因此 Brew 中的增删、排序、图标、主题色和标签都会同步到这里。
- */
-
 import type { CSSProperties } from 'react'
 import type { BrewSource } from '../../types/brew'
 import type { WidgetComponentProps } from '../widgetGridTypes'
@@ -25,12 +18,11 @@ import {
 } from '../../hooks/useAnimationLevel'
 import { useWidgetSize } from '../../hooks/useWidgetSize'
 import { getSources } from '../../services/brewApi'
-import { getIconUrl } from '../brew/constants'
+import { getIconUrl, isFriendLinkCategory } from '../brew/constants'
 import { WidgetShell } from './shared/WidgetShell'
 import { WidgetSkeletonCover } from './shared/WidgetSkeleton'
 import './FriendLinksWidget.css'
 
-const FRIEND_LINK_CATEGORY = '友情链接'
 const REFRESH_INTERVAL = 60 * 1000
 const BATCH_INTERVAL = 5 * 1000
 const BATCH_TRANSITION_DURATION = 810
@@ -49,18 +41,22 @@ function belongsToFriendLinks(source: BrewSource): boolean {
     source.category
       ?.split(',')
       .map((category) => category.trim())
-      .includes(FRIEND_LINK_CATEGORY),
+      .some(isFriendLinkCategory),
   )
 }
 
-function compareSources(a: BrewSource, b: BrewSource): number {
+function compareSources(
+  a: BrewSource,
+  b: BrewSource,
+  locale: string,
+): number {
   const aHasOrder = typeof a.sort_order === 'number'
   const bHasOrder = typeof b.sort_order === 'number'
   if (aHasOrder && bHasOrder && a.sort_order !== b.sort_order) {
     return a.sort_order! - b.sort_order!
   }
   if (aHasOrder !== bHasOrder) return aHasOrder ? -1 : 1
-  return a.name.localeCompare(b.name, 'zh-CN')
+  return a.name.localeCompare(b.name, locale)
 }
 
 function safeLink(source: BrewSource): string {
@@ -76,7 +72,7 @@ function sourceSubtitle(source: BrewSource): string | null {
   if (description) return description
 
   try {
-    return new URL(safeLink(source)).hostname.replace(/^www\./, '') || null
+    return new URL(safeLink(source)).hostname.replaceAll(/^www\./g, '') || null
   } catch {
     return null
   }
@@ -98,7 +94,6 @@ function randomRank(id: number, seed: number): number {
   return value - Math.floor(value)
 }
 
-/** Icon avatar: custom image when available, LuLink placeholder on missing/broken. */
 function FriendLinkIcon({
   icon,
   color,
@@ -134,7 +129,7 @@ function FriendLinkIcon({
           decoding="async"
           className="absolute inset-0 h-full w-full object-cover"
           onLoad={(e) => {
-            // Soft-fail proxy returns 1×1 PNG for dead remote icons
+            // 失效远程图标代理回 1×1 PNG。
             const img = e.currentTarget
             if (img.naturalWidth <= 1 && img.naturalHeight <= 1) {
               setFailed(true)
@@ -151,7 +146,7 @@ function FriendLinkIcon({
 
 export const FriendLinksWidget = memo(
   ({ config, isEditMode, isPreview }: WidgetComponentProps) => {
-    const { t } = useI18n()
+    const { t, format, locale } = useI18n()
     const navigate = useNavigate()
     const anim = useAnimationLevel()
     const { containerRef, scale, fontScale } = useWidgetSize(
@@ -241,16 +236,16 @@ export const FriendLinksWidget = memo(
       if (isPreview) return previewEntries
       return sources
         .filter(belongsToFriendLinks)
-        .sort(compareSources)
+        .toSorted((left, right) => compareSources(left, right, locale))
         .map(toEntry)
-    }, [isPreview, previewEntries, sources])
+    }, [isPreview, previewEntries, sources, locale])
 
     const isStrip = config.size === '4x1'
     const isWide = config.size === '4x2'
     const batchSize = isWide ? 4 : 1
     const randomizedEntries = useMemo(
       () =>
-        [...entries].sort(
+        entries.toSorted(
           (a, b) => randomRank(a.id, randomSeed) - randomRank(b.id, randomSeed),
         ),
       [entries, randomSeed],
@@ -360,14 +355,12 @@ export const FriendLinksWidget = memo(
       [isEditMode, isPreview],
     )
 
-    // 编辑/预览时禁用指针事件，让父级 WidgetGrid 可以拖拽。
-    // 不要用 native disabled：全局 button:disabled { opacity: 0.5 } 会把预览整片洗灰。
+    // 不要用 native disabled：全局 button:disabled 会把预览洗灰。
     const interactionLocked = isEditMode || isPreview
     const pointerEventsStyle = interactionLocked
       ? { pointerEvents: 'none' as const }
       : {}
     const shellClassName = isEditMode ? 'cursor-grab' : undefined
-    // 仅真实无跳转链接在可交互模式下才标 disabled（空 url / 过渡层用 class 挡点击）
     const entryDisabled = (entryUrl: string, incoming: boolean) =>
       !interactionLocked && (incoming || !entryUrl)
 
@@ -434,10 +427,9 @@ export const FriendLinksWidget = memo(
                       onClick={() => openFriendLink(entry)}
                       disabled={entryDisabled(entry.url, layer.incoming)}
                       className="friend-links-entry group/link relative flex min-w-0 flex-1 cursor-pointer items-center gap-3 overflow-hidden rounded-lg px-3 text-left disabled:cursor-default disabled:opacity-100"
-                      aria-label={t.friendLinksWidget.visitSite.replace(
-                        '{name}',
-                        entry.name,
-                      )}
+                      aria-label={format(t.friendLinksWidget.visitSite, {
+                        name: entry.name,
+                      })}
                     >
                       <FriendLinkIcon
                         icon={entry.icon}
@@ -549,10 +541,9 @@ export const FriendLinksWidget = memo(
                       onClick={() => openFriendLink(entry)}
                       disabled={entryDisabled(entry.url, layer.incoming)}
                       className="friend-links-entry group/link relative flex min-h-0 min-w-0 flex-1 cursor-pointer flex-col items-center justify-center overflow-hidden p-3 text-center disabled:cursor-default disabled:opacity-100"
-                      aria-label={t.friendLinksWidget.visitSite.replace(
-                        '{name}',
-                        entry.name,
-                      )}
+                      aria-label={format(t.friendLinksWidget.visitSite, {
+                        name: entry.name,
+                      })}
                     >
                       <FriendLinkIcon
                         icon={entry.icon}
@@ -616,10 +607,9 @@ export const FriendLinksWidget = memo(
               className="shrink-0 text-gray-400 dark:text-gray-500"
               style={{ fontSize: `${10 * fontScale}px` }}
             >
-              {t.friendLinksWidget.siteCount.replace(
-                '{count}',
-                String(entries.length),
-              )}
+              {format(t.friendLinksWidget.siteCount, {
+                count: entries.length,
+              })}
             </span>
           )}
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-gray-400 transition-transform group-hover/header:translate-x-0.5 dark:text-gray-500" />
@@ -686,10 +676,9 @@ export const FriendLinksWidget = memo(
                       onClick={() => openFriendLink(entry)}
                       disabled={entryDisabled(entry.url, layer.incoming)}
                       className="friend-links-entry group/link flex min-h-0 cursor-pointer items-center gap-2 overflow-hidden rounded-lg bg-black/3 px-2 text-left transition-colors hover:bg-black/6 disabled:cursor-default disabled:opacity-100 dark:bg-white/4 dark:hover:bg-white/8"
-                      aria-label={t.friendLinksWidget.visitSite.replace(
-                        '{name}',
-                        entry.name,
-                      )}
+                      aria-label={format(t.friendLinksWidget.visitSite, {
+                        name: entry.name,
+                      })}
                     >
                       <FriendLinkIcon
                         icon={entry.icon}

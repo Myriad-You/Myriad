@@ -63,11 +63,44 @@ test('thinking motion stays constrained and releases smoothly', () => {
 
 test('holds each thought point instead of shifting continuously', () => {
   const motion = new ThinkingMotionController(() => 0.5)
-  motion.sample(0, true)
-  const settled = { ...motion.sample(1.5, true) }
-  const held = { ...motion.sample(3.1, true) }
+  for (let frame = 0; frame <= 120; frame++) motion.sample(frame / 60, true)
+  const settled = { ...motion.sample(2, true) }
+  const held = { ...motion.sample(3.4, true) }
   assert.deepEqual(held, settled)
-  assert.notDeepEqual({ ...motion.sample(3.3, true) }, settled)
+  let checkedBack = false
+  for (let frame = 205; frame <= 900; frame++) {
+    const pose = motion.sample(frame / 60, true)
+    checkedBack ||= Math.abs(pose.eyeX) < 0.01
+  }
+  assert.ok(checkedBack, 'a long thought occasionally acknowledges the user')
+})
+
+test('gaze changes do not flip the thinking head from side to side', () => {
+  for (const fps of [30, 60, 120]) {
+    const motion = new ThinkingMotionController(sequence(0, 1, 0.3, 0.8, 0.5))
+    let previous = { ...motion.sample(0, true) }
+    let left = false
+    let right = false
+    for (let frame = 1; frame <= fps * 30; frame++) {
+      const pose = motion.sample(frame / fps, true)
+      assert.ok(pose.angleX <= 0 && pose.angleZ <= 0)
+      assert.ok(Math.abs(pose.angleX - previous.angleX) * fps < 0.2)
+      assert.ok(Math.abs(pose.angleZ - previous.angleZ) * fps < 0.2)
+      left ||= pose.eyeX < -0.1
+      right ||= frame > fps * 2 && Math.abs(pose.eyeX) < 0.02
+      previous = { ...pose }
+    }
+    assert.ok(
+      left && right,
+      'eyes look away and check back without alternating sides',
+    )
+    const delayed = { ...motion.sample(60, true) }
+    assert.deepEqual(
+      delayed,
+      previous,
+      'a delayed frame cannot skip into a new thought',
+    )
+  }
 })
 
 test('keeps gaze, head, and mouth curves continuous at 60 fps', () => {
@@ -88,4 +121,27 @@ test('keeps gaze, head, and mouth curves continuous at 60 fps', () => {
 test('sampling reuses its output object', () => {
   const motion = new ThinkingMotionController(() => 0.5)
   assert.equal(motion.sample(0, true), motion.sample(1, true))
+})
+
+test('check-ins counter the authored gaze and answer handoff starts immediately', () => {
+  const motion = new ThinkingMotionController(() => 0.5)
+  const base = { eyeX: 0.58, eyeY: -0.42 }
+  let checked = false
+  let returned = false
+  for (let frame = 0; frame <= 900; frame++) {
+    const pose = motion.sample(frame / 60, true, base)
+    if (
+      frame > 60 &&
+      Math.abs(base.eyeX + pose.eyeX) < 0.02 &&
+      Math.abs(base.eyeY + pose.eyeY) < 0.02
+    ) {
+      checked = true
+    }
+    if (checked && base.eyeX + pose.eyeX > 0.3) returned = true
+  }
+  assert.ok(checked && returned)
+  const before = { ...motion.sample(15, true, base) }
+  assert.deepEqual(motion.sample(15, false, base), before)
+  assert.ok(magnitude(motion.sample(15.1, false)) < magnitude(before))
+  assert.ok(magnitude(motion.sample(15.7, false)) < 1e-8)
 })

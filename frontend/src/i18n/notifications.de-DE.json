@@ -1,0 +1,92 @@
+{
+  "sources": {
+    "agent": {
+      "title": "Agent-Aufgaben",
+      "description": "Aufgabenfortschritt, Ergebnisse, Abbruch, Rückfragen und wichtige Plattformaktivität"
+    },
+    "heartbeat": {
+      "title": "Heartbeat",
+      "description": "Ergebnisse geplanter Agent-Hintergrundaufgaben"
+    },
+    "mcp": {
+      "title": "MCP-Dienste",
+      "description": "Verbindungsstatus der Tool-Server"
+    },
+    "brew": {
+      "title": "Brew",
+      "description": "Neue Feed-Einträge und wiederholte Abruffehler"
+    },
+    "tapp": {
+      "title": "Tapp",
+      "description": "App-Meldungen, Warnungen und Aufgabenfehler"
+    },
+    "updater": {
+      "title": "Systemupdate",
+      "description": "Status von Update, Rollback und Wiederherstellung"
+    },
+    "federation": {
+      "title": "Föderation",
+      "description": "Föderierte Nachrichten, Folgen und Einladungen"
+    },
+    "system": {
+      "title": "System",
+      "description": "Wichtige Hinweise von Myriad"
+    }
+  },
+  "events": {
+    "agent.task_progress": "Aufgabenfortschritt",
+    "agent.task_completed": "Aufgabe abgeschlossen",
+    "agent.task_failed": "Aufgabe fehlgeschlagen",
+    "agent.task_cancelled": "Aufgabe abgebrochen",
+    "agent.clarification": "Wartet auf eine Antwort",
+    "agent.merope.platform_activity": "Plattformaktivität",
+    "heartbeat.succeeded": "Geplante Aufgabe erfolgreich",
+    "heartbeat.failed": "Geplante Aufgabe fehlgeschlagen",
+    "mcp.connected": "MCP verbunden",
+    "mcp.disconnected": "MCP getrennt oder fehlgeschlagen",
+    "brew.new_items": "Neue Inhalte gefunden",
+    "brew.source_error": "Feed wiederholt fehlgeschlagen",
+    "platform.sync.failed": "Plattform-Sync fehlgeschlagen",
+    "tapp.message": "Nachricht",
+    "tapp.warning": "Warnung",
+    "tapp.error": "Fehler oder Aufgabenfehler",
+    "updater.submitted": "Auftrag übermittelt",
+    "updater.running": "Auftrag läuft",
+    "updater.succeeded": "Update erfolgreich",
+    "updater.failed": "Update fehlgeschlagen",
+    "updater.needs_manual": "Manuelle Wiederherstellung nötig",
+    "updater.unknown": "Status nicht bestätigbar",
+    "federation.channel_message": "Direktnachricht",
+    "federation.room_message": "Raumnachricht",
+    "federation.new_follower": "Neuer Follower",
+    "federation.follow_accepted": "Folgeanfrage angenommen",
+    "federation.channel_invite": "Einladung zur Direktnachricht",
+    "federation.room_invite": "Raumeinladung",
+    "federation.channel_accepted": "Direktkanal eingerichtet",
+    "federation.room_invite_accepted": "Raumeinladung angenommen",
+    "system.info": "Systemhinweis",
+    "skill.pruned": "Skill automatisch entfernt",
+    "skill.improved": "Skill automatisch verbessert",
+    "skill.changed": "Skill geändert"
+  },
+  "ui": {
+    "master": "Benachrichtigungszentrale aktivieren",
+    "masterDesc": "Bei Deaktivierung entstehen keine neuen Benachrichtigungen; der Verlauf bleibt erhalten",
+    "delivery": "Darstellung",
+    "island": "Karussell der Steuerinsel",
+    "islandDesc": "Neue Benachrichtigungen in der oberen Steuerinsel anzeigen",
+    "toast": "Toast-Benachrichtigungen",
+    "toastDesc": "Globale Hinweise anzeigen, wenn neue Benachrichtigungen eintreffen",
+    "browser": "Systembenachrichtigungen des Browsers",
+    "browserDesc": "Im Hintergrund anzeigen, sofern erlaubt",
+    "sourceEnabled": "Diese Quelle zulassen",
+    "sources": "Benachrichtigungsquellen",
+    "locations": "Anzeigeorte",
+    "locationsDesc": "Wirkt zusammen mit den globalen Darstellungsoptionen oben",
+    "events": "Benachrichtigungsereignisse",
+    "panelLocation": "Benachrichtigungsleiste",
+    "toastLocation": "Toast",
+    "islandLocation": "Steuerinsel",
+    "browserLocation": "Systembenachrichtigung"
+  }
+}

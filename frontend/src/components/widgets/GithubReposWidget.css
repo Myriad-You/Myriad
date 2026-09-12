@@ -1,11 +1,3 @@
-/**
- * 阅读器仓库卡的同一套层级，用小组件自己的节点画出来。
- *
- * 头像 | 仓库名 + owner | star
- * 简介两行
- * 语言 · fork          GitHub 角标
- */
-
 .github-repos-card {
   position: relative;
   display: flex;

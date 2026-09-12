@@ -45,17 +45,20 @@ import { useMeropeWidgetFaceSlot } from '../../features/merope/widgetFaceSlot'
 import { agentService } from '../../services/agent'
 import { useAgentStatus } from '../agent-panel/agentStatusStore'
 import { ADDRESSEE_UPDATED_EVENT, moodBand } from '../agent/meropeVitals'
+import {
+  nameplateHidden,
+  previewMoodBand,
+  previewPortraitSrc,
+  readyKeyAfterMotionChange,
+  shouldShowNameplate,
+} from './meropeWidgetPresence'
 import { WidgetShell } from './shared/WidgetShell'
 import { WidgetSkeletonCover } from './shared/WidgetSkeleton'
 import './MeropeWidget.css'
 
 const DEFAULT_MOOD = 70
 const DEFAULT_AROUSAL = 48
-/** 立绘生成时附上的技法参考图；小组件库预览用同一张。 */
-const STYLE_REFERENCE_PREVIEW = '/merope/style-reference.png'
-const PREVIEW_MOOD_BAND: MoodBand = 'calm'
 
-/** 四格：很低 1，偏低/烦躁 2，平常 3，轻松 4 */
 const MOOD_LEVEL: Record<MoodBand, number> = {
   floor: 1,
   sad: 2,
@@ -144,10 +147,6 @@ function hasPlayableRig(
   )
 }
 
-/**
- * 取景框与人物画布同比 → 播放器的等比缩放由宽度决定，人物横向铺满卡片，
- * 纵向溢出的身体被卡片裁掉。没有 rig 时交给 CSS 回落到 master portrait 的 3:4。
- */
 function portraitFrameStyle(
   canvas: { width: number; height: number } | undefined,
 ): CSSProperties | undefined {
@@ -165,12 +164,12 @@ function MeropeWidgetPreview({ compact }: { compact?: boolean }) {
         data-rig-quality="static"
       >
         <span className="merope-rig is-ready" data-rig-quality="static">
-          <img src={STYLE_REFERENCE_PREVIEW} alt="" draggable={false} />
+          <img src={previewPortraitSrc()} alt="" draggable={false} />
         </span>
       </div>
       <Nameplate
         name={PERSONA_DEFAULT_NAME}
-        band={compact ? null : PREVIEW_MOOD_BAND}
+        band={previewMoodBand(compact)}
         compact={compact}
       />
     </MeropeWidgetChrome>
@@ -180,9 +179,11 @@ function MeropeWidgetPreview({ compact }: { compact?: boolean }) {
 function LiveMeropeWidget({
   compact,
   playbackId,
+  isEditMode,
 }: {
   compact: boolean
   playbackId: string
+  isEditMode: boolean
 }) {
   const { t } = useI18n()
   const { hasChecked, isAuthenticated, user } = useAuth()
@@ -225,7 +226,7 @@ function LiveMeropeWidget({
   const ready = readyKey === packageKey && packageKey !== ''
   const handleRigPlaybackError = useCallback(() => setRigFailed(true), [])
   useLayoutEffect(() => {
-    if (!motionReady) setReadyKey('')
+    setReadyKey((current) => readyKeyAfterMotionChange(motionReady, current))
   }, [motionReady])
   useRigMotionLifecycle(rigRef, {
     mood,
@@ -380,6 +381,7 @@ function LiveMeropeWidget({
             mounted ? (
               <RigCharacter
                 ref={rigRef}
+                touchEnabled={motionReady && ready && !isEditMode}
                 activity={activity}
                 fallbackUrl={playableRig ? null : portraitUrl}
                 manifest={playsLive || mounted ? manifest : null}
@@ -391,12 +393,12 @@ function LiveMeropeWidget({
           }
         </FacePresence>
       </div>
-      {agentName ? (
+      {shouldShowNameplate(agentName) ? (
         <Nameplate
-          name={agentName}
+          name={agentName ?? ''}
           band={band}
           compact={compact}
-          hidden={!wantLive}
+          hidden={nameplateHidden(wantLive)}
         />
       ) : null}
 
@@ -422,7 +424,7 @@ function MeropeWidgetDuplicate({ compact }: { compact: boolean }) {
 }
 
 export const MeropeWidget = memo(
-  ({ isPreview = false, config }: WidgetComponentProps) => {
+  ({ isPreview = false, config, isEditMode }: WidgetComponentProps) => {
     const compact = config.size === '2x2'
     const holdsFace = useMeropeWidgetFaceSlot(config.id, !isPreview)
     if (isPreview) return <MeropeWidgetPreview compact={compact} />
@@ -430,6 +432,7 @@ export const MeropeWidget = memo(
     return (
       <LiveMeropeWidget
         compact={compact}
+        isEditMode={isEditMode}
         playbackId={`widget:${config.id}`}
       />
     )

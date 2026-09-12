@@ -24,10 +24,6 @@ import {
 import { PerformanceMotionLeases } from './performanceLeases'
 import { HumanReactionPolicy } from './reactionPolicy'
 
-/**
- * One Lite performance producer for a coordinator. Publishes the directive
- * and timed leases; never writes a rig.
- */
 export class PerformanceMotionSource {
   private readonly leases: PerformanceMotionLeases
   private readonly reactionPolicy = new HumanReactionPolicy()
@@ -66,7 +62,6 @@ export class PerformanceMotionSource {
     return this.bearing
   }
 
-  /** Mood-band standing face takes over; a later round may revise it. */
   clearBearing(): void {
     this.bearing = null
   }
@@ -127,7 +122,6 @@ export class PerformanceMotionSource {
           ])
         : undefined
     const startedAtMs = currentNow()
-    // Mood can finish evaluating while the reply's director is still running.
     // Keep that reply's gesture, but never reinstall its outdated standing face.
     if (!this.preview) {
       performance = performanceAtMoodRevision(
@@ -171,9 +165,6 @@ export class PerformanceMotionSource {
       return true
     }
     const motionIntentId = newMotionIntentId()
-    // The intent id identifies this publish for lifecycle and telemetry; the
-    // plan is keyed by the producer so the scheduler can match beats across
-    // publishes.
     const behaviorPlan = compilePerformanceBehaviorPlan(
       selected,
       startedAtMs,

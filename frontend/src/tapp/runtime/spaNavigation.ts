@@ -1,10 +1,4 @@
-/**
- * Shared SPA navigation observer.
- *
- * React Router uses history.pushState / replaceState, which do **not** fire
- * `popstate`. System event producers (and launch-param sync) need one place
- * that covers push/replace/pop/hash.
- */
+/** pushState/replaceState 不触发 popstate。一处覆盖 push/replace/pop/hash。 */
 
 type NavListener = () => void
 
@@ -42,10 +36,6 @@ function ensurePatched() {
   window.addEventListener('hashchange', notify)
 }
 
-/**
- * Subscribe to SPA URL changes (pushState / replaceState / popstate / hash).
- * Returns an unsubscribe function.
- */
 export function onSpaNavigation(listener: NavListener): () => void {
   ensurePatched()
   listeners.add(listener)

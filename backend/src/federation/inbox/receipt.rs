@@ -33,7 +33,7 @@ pub enum ReceiptClaim {
     /// A committed success already exists.  The caller should answer 202 and
     /// must not run any handler.
     AlreadyAccepted,
-    /// The same signer/activity id was seen with different bytes.
+    /// Same (signer, activity_id, inbox_scope) with a different body digest.
     Conflict { stored_digest: String },
     /// A permanent handler rejection was committed for this exact digest.
     Rejected {
@@ -46,7 +46,7 @@ pub enum ReceiptClaim {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReceiptOutcome {
     Accepted,
-    /// Deterministic malformed/unauthorized state after trust checks.
+    /// Permanent handler 4xx except 429.
     Rejected,
 }
 
@@ -80,7 +80,7 @@ fn signer_from_opaque(raw: &str) -> String {
     raw.trim().to_ascii_lowercase()
 }
 
-/// SHA-256 digest of the exact signed request bytes.
+/// SHA-256 hex of the Activity body (not the HTTP Signature string).
 pub fn body_digest(body: &[u8]) -> String {
     hex::encode(Sha256::digest(body))
 }

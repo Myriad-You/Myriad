@@ -1,8 +1,3 @@
-/**
- * 一言小组件
- * 现代化Glass风格设计
- */
-
 import type { QuoteData } from '../../utils/dynamicContent'
 
 import type { WidgetConfig } from '../widgetGridTypes'
@@ -21,9 +16,8 @@ import { Spinner } from '../Spinner'
 import { GlowBackground } from './shared/GlowBackground'
 import { WidgetShell } from './shared/WidgetShell'
 
-// 缓存配置
 const CACHE_KEY = 'quote_data_cache'
-const CACHE_DURATION = 60 * 60 * 1000 // 1小时
+const CACHE_DURATION = 60 * 60 * 1000
 
 export interface QuoteWidgetProps {
   config: WidgetConfig
@@ -44,7 +38,6 @@ export const QuoteWidget = memo(
     const [fetchError, setFetchError] = useState('')
     const [themeColor, setThemeColor] = useState('#a855f7')
 
-    // 从缓存加载
     const loadFromCache = useCallback(() => {
       try {
         const cached = localStorage.getItem(CACHE_KEY)
@@ -61,7 +54,6 @@ export const QuoteWidget = memo(
       return false
     }, [t])
 
-    // 保存到缓存
     const saveToCache = useCallback(
       (data: QuoteData) => {
         try {
@@ -81,7 +73,6 @@ export const QuoteWidget = memo(
 
     const fetchQuote = useCallback(async () => {
       try {
-        // Pass host UI locale so local fallback + source pick match language
         const quote = await getRandomQuote(locale)
         if (quote) {
           setQuoteData(quote)
@@ -108,13 +99,11 @@ export const QuoteWidget = memo(
         return
       }
 
-      // 先尝试从缓存加载
       const hasCache = loadFromCache()
       if (hasCache) {
         setLoading(false)
       }
 
-      // 然后获取最新一言
       fetchQuote()
     }, [
       loadFromCache,
@@ -124,7 +113,6 @@ export const QuoteWidget = memo(
       t.quoteWidget.anonymous,
     ])
 
-    // Config save (hitokoto source change) → drop local caches and refetch
     useEffect(() => {
       if (isPreview) return
       const onConfigUpdated = () => {
@@ -134,7 +122,6 @@ export const QuoteWidget = memo(
           localStorage.removeItem('quote_cache_time')
           localStorage.removeItem('quote_cache_source')
         } catch {
-          /* ignore */
         }
         void fetchQuote()
       }
@@ -147,12 +134,9 @@ export const QuoteWidget = memo(
       }
     }, [fetchQuote, isPreview])
 
-    // 使用首页原子化可见性感知定时器，页面隐藏时自动暂停
     useHomeVisibilityInterval(fetchQuote, CACHE_DURATION, !isPreview)
 
-    // 主题色获取 - 优化：使用 requestAnimationFrame 批处理避免强制重排
     const updateThemeColor = useCallback(() => {
-      // 使用 requestAnimationFrame 延迟读取，避免同步强制重排
       requestAnimationFrame(() => {
         const primaryColor =
           getComputedStyle(document.documentElement)
@@ -164,14 +148,13 @@ export const QuoteWidget = memo(
 
     useEffect(() => {
       updateThemeColor()
-      // 监听主题色变化 - 使用节流
       let throttleTimer: ReturnType<typeof setTimeout> | null = null
       const throttledUpdate = () => {
         if (throttleTimer) return
         throttleTimer = setTimeout(() => {
           throttleTimer = null
           updateThemeColor()
-        }, 300) // 增加节流时间到 300ms
+        }, 300)
       }
 
       const observer = new MutationObserver(throttledUpdate)
@@ -204,7 +187,6 @@ export const QuoteWidget = memo(
       )
     }
 
-    // 4x2 宽版布局 - 上下结构重构
     if (config.size === '4x2') {
       return (
         <WidgetShell
@@ -227,7 +209,6 @@ export const QuoteWidget = memo(
             </>
           }
         >
-          {/* 上半部分：引言内容 (占据主要空间) */}
           <div className="flex-1 flex items-center justify-center relative z-10 w-full min-h-0 overflow-hidden">
             <motion.p
               className="text-lg font-medium text-gray-800 dark:text-gray-100 leading-relaxed font-serif italic text-center w-full line-clamp-2 transition-all duration-300 ease-out"
@@ -243,7 +224,6 @@ export const QuoteWidget = memo(
             </motion.p>
           </div>
 
-          {/* 下半部分：作者信息 (底部右侧) */}
           {quoteData.author && (
             <motion.div
               className="shrink-0 flex items-center justify-end gap-3 pt-3 mt-1 border-t border-gray-200/10 dark:border-white/5 w-full"
@@ -264,7 +244,6 @@ export const QuoteWidget = memo(
       )
     }
 
-    // 4x1 紧凑横版布局
     if (config.size === '4x1') {
       return (
         <WidgetShell
@@ -282,7 +261,6 @@ export const QuoteWidget = memo(
             />
           }
         >
-          {/* 引言内容 - 增加右侧内边距避开作者信息 */}
           <motion.p
             className="text-sm font-medium text-gray-800 dark:text-gray-100 leading-relaxed font-serif italic w-full pr-12 line-clamp-2"
             style={{ fontSize: `${14 * fontScale}px` }}
@@ -293,7 +271,6 @@ export const QuoteWidget = memo(
             {quoteData.text}
           </motion.p>
 
-          {/* 作者信息 - 绝对定位在右下角 */}
           {quoteData.author && (
             <motion.div
               className="absolute bottom-1.5 right-3 z-10 max-w-[40%] truncate"
@@ -329,7 +306,6 @@ export const QuoteWidget = memo(
           />
         }
       >
-        {/* 顶部：图标 */}
         <motion.div
           className="mb-1"
           initial={{ scale: 0.5, opacity: 0, rotate: -15 }}
@@ -357,7 +333,6 @@ export const QuoteWidget = memo(
           </svg>
         </motion.div>
 
-        {/* 中部：引言内容 */}
         <div className="flex-1 flex flex-col justify-center min-h-0">
           <motion.p
             className="text-sm font-medium text-gray-800 dark:text-gray-100 leading-relaxed line-clamp-3"
@@ -374,7 +349,6 @@ export const QuoteWidget = memo(
           </motion.p>
         </div>
 
-        {/* 底部：作者信息 */}
         {quoteData.author && (
           <motion.div
             className="text-[10px] text-gray-500 dark:text-gray-500 text-right"

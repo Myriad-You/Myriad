@@ -9,8 +9,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 数据转换
     registry.register(Capability {
         id: "data.transform".to_string(),
-        name: "数据转换".to_string(),
-        description: "对数据进行过滤、排序、聚合等操作".to_string(),
+        name: "Transform data".to_string(),
+        description: "Filter, sort, or aggregate data.".to_string(),
         category: CapabilityCategory::SystemOp,
         supported_actions: vec![IntentAction::Query, IntentAction::Analyze],
         input_schema: json!({
@@ -37,16 +37,15 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 创建 Tapp 定时任务（tapp_scheduled_tasks，非 Agent Heartbeat）
     registry.register(Capability {
         id: "scheduler.create".to_string(),
-        name: "创建 Tapp 定时任务".to_string(),
-        description: "为已安装的 Tapp 创建真实可执行的定时任务（Tapp 调度器，非 Agent Heartbeat）"
-            .to_string(),
+        name: "Create scheduled task".to_string(),
+        description: "Create a scheduled app task.".to_string(),
         category: CapabilityCategory::SystemOp,
         supported_actions: vec![IntentAction::Monitor, IntentAction::Create],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "tappId": { "type": "string", "description": "任务所属的已安装 Tapp ID" },
-                "taskId": { "type": "string", "description": "Tapp 内唯一任务 ID；省略时自动生成" },
+                "tappId": { "type": "string", "description": "Installed Tapp id that owns the task" },
+                "taskId": { "type": "string", "description": "Task id unique inside the Tapp; generated if omitted" },
                 "name": { "type": "string" },
                 "scheduleType": {
                     "type": "string",
@@ -56,9 +55,9 @@ pub fn register(registry: &mut CapabilityRegistry) {
                     "type": "object",
                     "properties": {
                         "cron": { "type": "string" },
-                        "interval": { "type": "integer", "description": "间隔毫秒" },
-                        "at": { "type": "integer", "description": "Unix 毫秒时间戳" },
-                        "time": { "type": "string", "description": "每日 HH:mm" }
+                        "interval": { "type": "integer", "description": "Interval in milliseconds" },
+                        "at": { "type": "integer", "description": "Unix timestamp in milliseconds" },
+                        "time": { "type": "string", "description": "Daily HH:mm" }
                     }
                 },
                 "payload": {},
@@ -98,7 +97,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
         requires_ai: false,
         estimated_duration_ms: Some(300),
         requires_confirmation: true,
-        confirmation_message: Some("即将创建 Tapp 定时任务".to_string()),
+        confirmation_message: Some("This will create a scheduled Tapp task".to_string()),
         risk_level: RiskLevel::Medium,
         ..Default::default()
     });
@@ -106,8 +105,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // Tapp 定时任务列表
     registry.register(Capability {
         id: "scheduler.list".to_string(),
-        name: "Tapp 定时任务列表".to_string(),
-        description: "获取当前用户的 Tapp 定时任务列表（非 Agent Heartbeat）".to_string(),
+        name: "Scheduled tasks".to_string(),
+        description: "List scheduled app tasks.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -133,14 +132,14 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 立即执行 Tapp 任务
     registry.register(Capability {
         id: "scheduler.trigger".to_string(),
-        name: "立即执行 Tapp 任务".to_string(),
-        description: "立即触发当前用户的指定 Tapp 定时任务".to_string(),
+        name: "Run scheduled task".to_string(),
+        description: "Run a scheduled app task now.".to_string(),
         category: CapabilityCategory::SystemOp,
         supported_actions: vec![IntentAction::Update],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "tappId": { "type": "string", "description": "任务 ID 不唯一时必须提供" },
+                "tappId": { "type": "string", "description": "Required when task id is not unique" },
                 "taskId": { "type": "string" }
             },
             "required": ["taskId"]
@@ -158,7 +157,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
         requires_ai: false,
         estimated_duration_ms: Some(1000),
         requires_confirmation: true,
-        confirmation_message: Some("即将立即触发 Tapp 定时任务".to_string()),
+        confirmation_message: Some("This will run a scheduled Tapp task now".to_string()),
         risk_level: RiskLevel::Medium,
         ..Default::default()
     });
@@ -167,15 +166,14 @@ pub fn register(registry: &mut CapabilityRegistry) {
 
     registry.register(Capability {
         id: "heartbeat.list".to_string(),
-        name: "心跳任务列表".to_string(),
-        description: "列出 Agent Heartbeat 定时任务（HEARTBEAT.md，按 cron 主动执行自然语言指令）"
-            .to_string(),
+        name: "Heartbeat tasks".to_string(),
+        description: "List agent heartbeat tasks.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "enabled": { "type": "boolean", "description": "可选：按启用状态过滤" }
+                "enabled": { "type": "boolean", "description": "Optional: filter by enabled" }
             }
         }),
         output_schema: json!({
@@ -193,24 +191,24 @@ pub fn register(registry: &mut CapabilityRegistry) {
 
     registry.register(Capability {
         id: "heartbeat.create".to_string(),
-        name: "创建心跳任务".to_string(),
-        description: "创建 Agent Heartbeat 定时任务。用户说「定时」「每天」「每隔」「心跳」时用这个，而非 scheduler.create。schedule 为 5 字段 cron，action 为自然语言指令".to_string(),
+        name: "Create heartbeat".to_string(),
+        description: "Create an agent heartbeat task.".to_string(),
         category: CapabilityCategory::SystemOp,
         supported_actions: vec![IntentAction::Create, IntentAction::Monitor],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "name": { "type": "string", "description": "任务显示名称" },
+                "name": { "type": "string", "description": "Display name" },
                 "schedule": {
                     "type": "string",
-                    "description": "标准 5 字段 cron（分 时 日 月 星期），如 0 9 * * * 表示每天 9:00"
+                    "description": "Standard 5-field cron (min hour day month weekday), e.g. 0 9 * * * for 09:00 daily"
                 },
                 "action": {
                     "type": "string",
-                    "description": "到期时 Agent 执行的自然语言指令"
+                    "description": "Natural-language instruction for Agent when due"
                 },
                 "enabled": { "type": "boolean", "default": true },
-                "id": { "type": "string", "description": "可选自定义 id；省略则从 name 生成" }
+                "id": { "type": "string", "description": "Optional custom id; generated from name if omitted" }
             },
             "required": ["name", "schedule", "action"]
         }),
@@ -229,8 +227,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
 
     registry.register(Capability {
         id: "heartbeat.update".to_string(),
-        name: "更新心跳任务".to_string(),
-        description: "按 id 更新 Agent Heartbeat 任务的 name/schedule/action/enabled".to_string(),
+        name: "Update heartbeat".to_string(),
+        description: "Update an agent heartbeat task.".to_string(),
         category: CapabilityCategory::SystemOp,
         supported_actions: vec![IntentAction::Update],
         input_schema: json!({
@@ -238,7 +236,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "properties": {
                 "id": { "type": "string" },
                 "name": { "type": "string" },
-                "schedule": { "type": "string", "description": "5 字段 cron" },
+                "schedule": { "type": "string", "description": "5-field cron" },
                 "action": { "type": "string" },
                 "enabled": { "type": "boolean" }
             },
@@ -259,8 +257,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
 
     registry.register(Capability {
         id: "heartbeat.delete".to_string(),
-        name: "删除心跳任务".to_string(),
-        description: "按 id 删除 Agent Heartbeat 定时任务".to_string(),
+        name: "Delete heartbeat".to_string(),
+        description: "Delete an agent heartbeat task.".to_string(),
         category: CapabilityCategory::SystemOp,
         supported_actions: vec![IntentAction::Delete],
         input_schema: json!({
@@ -285,8 +283,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
 
     registry.register(Capability {
         id: "heartbeat.toggle".to_string(),
-        name: "切换心跳任务".to_string(),
-        description: "启用或禁用指定的 Agent Heartbeat 任务".to_string(),
+        name: "Toggle heartbeat".to_string(),
+        description: "Enable or disable a heartbeat task.".to_string(),
         category: CapabilityCategory::SystemOp,
         supported_actions: vec![IntentAction::Update],
         input_schema: json!({
@@ -312,9 +310,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 系统监控（进程级：内存/uptime/任务计数，非完整主机监控）
     registry.register(Capability {
         id: "system.metrics".to_string(),
-        name: "系统监控".to_string(),
-        description: "获取本进程运行状态：内存、uptime、后台/agent 任务计数（非完整主机监控）"
-            .to_string(),
+        name: "System metrics".to_string(),
+        description: "Read process memory, uptime, and task counts.".to_string(),
         category: CapabilityCategory::SystemOp,
         supported_actions: vec![IntentAction::Query, IntentAction::Monitor],
         input_schema: json!({
@@ -340,8 +337,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 缓存状态
     registry.register(Capability {
         id: "cache.status".to_string(),
-        name: "缓存状态".to_string(),
-        description: "获取各平台缓存状态".to_string(),
+        name: "Cache status".to_string(),
+        description: "Show cache status for each platform.".to_string(),
         category: CapabilityCategory::SystemOp,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -366,8 +363,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 清除缓存
     registry.register(Capability {
         id: "cache.clear".to_string(),
-        name: "清除缓存".to_string(),
-        description: "清除指定平台的缓存数据".to_string(),
+        name: "Clear cache".to_string(),
+        description: "Clear cached data for a platform.".to_string(),
         category: CapabilityCategory::SystemOp,
         supported_actions: vec![IntentAction::Delete],
         input_schema: json!({
@@ -393,19 +390,18 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 图片缓存
     registry.register(Capability {
         id: "image.cache".to_string(),
-        name: "图片缓存".to_string(),
-        description: "缓存外部图片到本地；无 url 时 action=status 查询 / action=clear 清理"
-            .to_string(),
+        name: "Image cache".to_string(),
+        description: "Cache a remote image, or check or clear the image cache.".to_string(),
         category: CapabilityCategory::SystemOp,
         supported_actions: vec![IntentAction::Create, IntentAction::Query],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "url": { "type": "string", "description": "要缓存的外部图片 URL" },
+                "url": { "type": "string", "description": "External image URL to cache" },
                 "action": {
                     "type": "string",
                     "enum": ["status", "clear"],
-                    "description": "无 url 时：查询或清理本地图片缓存"
+                    "description": "Without url: list or clear the local image cache"
                 }
             }
         }),
@@ -428,8 +424,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 获取配置
     registry.register(Capability {
         id: "config.get".to_string(),
-        name: "获取配置".to_string(),
-        description: "获取系统配置。AI 为 Standard（enabled/provider/model，不含密钥）；platforms 为接通标志；ui 为公开展示字段".to_string(),
+        name: "Read config".to_string(),
+        description: "Read public system configuration (no secrets).".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -453,10 +449,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 系统设置状态
     registry.register(Capability {
         id: "setup.status".to_string(),
-        name: "系统设置状态".to_string(),
-        description:
-            "检查系统初始化状态（库表与管理员；与 HTTP /api/setup/status 一致，不含 AI 钥）"
-                .to_string(),
+        name: "Setup status".to_string(),
+        description: "Check setup status (tables and owner; no AI keys).".to_string(),
         category: CapabilityCategory::SystemOp,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -481,8 +475,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 认证状态
     registry.register(Capability {
         id: "auth.status".to_string(),
-        name: "认证状态".to_string(),
-        description: "检查用户认证和权限状态".to_string(),
+        name: "Auth status".to_string(),
+        description: "Check sign-in and permission status.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -506,8 +500,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 权限检查
     registry.register(Capability {
         id: "permission.check".to_string(),
-        name: "权限检查".to_string(),
-        description: "检查当前会话角色的授予权限；带 tappId 时再与该安装的批准权限求交，需重新授权则 granted 为 false".to_string(),
+        name: "Check permission".to_string(),
+        description: "Check granted permissions for this session.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -536,8 +530,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 统计概览
     registry.register(Capability {
         id: "stats.overview".to_string(),
-        name: "统计概览".to_string(),
-        description: "获取跨平台数据统计概览".to_string(),
+        name: "Stats overview".to_string(),
+        description: "Read cross-platform stats.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query, IntentAction::Analyze],
         input_schema: json!({
@@ -560,8 +554,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 存储数据
     registry.register(Capability {
         id: "storage.set".to_string(),
-        name: "存储数据".to_string(),
-        description: "保存数据到 Tapp 存储".to_string(),
+        name: "Store data".to_string(),
+        description: "Save data to app storage.".to_string(),
         category: CapabilityCategory::DataWrite,
         supported_actions: vec![IntentAction::Create, IntentAction::Update],
         input_schema: json!({
@@ -588,8 +582,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 数据导出
     registry.register(Capability {
         id: "export.data".to_string(),
-        name: "数据导出".to_string(),
-        description: "导出平台数据为指定格式".to_string(),
+        name: "Export data".to_string(),
+        description: "Export platform data.".to_string(),
         category: CapabilityCategory::SystemOp,
         supported_actions: vec![IntentAction::Create],
         input_schema: json!({
@@ -617,8 +611,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 后台任务提交
     registry.register(Capability {
         id: "task.submit".to_string(),
-        name: "提交后台任务".to_string(),
-        description: "提交平台数据处理任务".to_string(),
+        name: "Submit task".to_string(),
+        description: "Submit a background platform-data task.".to_string(),
         category: CapabilityCategory::SystemOp,
         supported_actions: vec![IntentAction::Create],
         input_schema: json!({
@@ -640,7 +634,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
         requires_ai: false,
         estimated_duration_ms: Some(100),
         requires_confirmation: true,
-        confirmation_message: Some("即将提交后台平台数据处理任务".to_string()),
+        confirmation_message: Some("This will submit a background platform data job".to_string()),
         risk_level: RiskLevel::Medium,
         ..Default::default()
     });
@@ -648,16 +642,15 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 任务状态查询（agent_tasks / TASK_STORE，需 taskId 或返回最近任务列表）
     registry.register(Capability {
         id: "task.status".to_string(),
-        name: "任务状态查询".to_string(),
-        description: "查询 agent 任务状态与进度（按 taskId；省略则返回当前用户最近任务）"
-            .to_string(),
+        name: "Task status".to_string(),
+        description: "Read agent task status and progress.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "taskId": { "type": "string", "description": "Agent 任务 ID" },
-                "limit": { "type": "integer", "description": "未指定 taskId 时返回的最近任务数", "default": 20 }
+                "taskId": { "type": "string", "description": "Agent task id" },
+                "limit": { "type": "integer", "description": "How many recent tasks to return when taskId is omitted", "default": 20 }
             }
         }),
         output_schema: json!({
@@ -676,19 +669,18 @@ pub fn register(registry: &mut CapabilityRegistry) {
         ..Default::default()
     });
 
-    // 语音服务（与 /api/speech/tts 同一实现：缓存 + 腾讯云合成）
+    // Same synthesize_standalone_tts as POST /api/speech/tts (configured provider; else Tencent).
     registry.register(Capability {
         id: "speech.tts".to_string(),
-        name: "文字转语音".to_string(),
-        description: "将文字转为语音（与产品 /api/speech/tts 相同路径，返回 base64 音频）"
-            .to_string(),
+        name: "Text to speech".to_string(),
+        description: "Turn text into speech.".to_string(),
         category: CapabilityCategory::AiProcess,
         supported_actions: vec![IntentAction::Create],
         input_schema: json!({
             "type": "object",
             "properties": {
                 "text": { "type": "string" },
-                "voice": { "type": "string", "description": "音色 ID（腾讯云 voice_type）" },
+                "voice": { "type": "string", "description": "Voice id (Tencent Cloud voice_type)" },
                 "speed": { "type": "number", "default": 1.0 }
             },
             "required": ["text"]
@@ -696,7 +688,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
-                "audio": { "type": "string", "description": "base64 音频（与 /api/speech/tts 一致）" },
+                "audio": { "type": "string", "description": "base64 audio (same as /api/speech/tts)" },
                 "duration": { "type": "number" },
                 "codec": { "type": "string" },
                 "cached": { "type": "boolean" }

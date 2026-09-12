@@ -11,7 +11,6 @@ function rawText(reason: unknown): string {
   return ''
 }
 
-/** Map report generate/skip dumps to a reason the user can act on. */
 export function reportUserFacingError(
   reason: unknown,
   fallback: string,
@@ -31,7 +30,7 @@ export function reportUserFacingError(
   if (/failed to save report|serialize report|insert report|report persist/i.test(text)) {
     return fallback
   }
-  if (/未能生成报告/.test(text) && isUselessErrorText(text.split('：').pop() || '')) {
+  if (text.includes('未能生成报告') && isUselessErrorText(text.split('：').pop() || '')) {
     return fallback
   }
   return userFacingError(reason, fallback)

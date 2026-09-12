@@ -1,4 +1,3 @@
-/** Shared types for report card platform widgets. */
 import type { WidgetConfig } from '../../widgetGridTypes'
 
 export interface LangSegment {
@@ -26,15 +25,10 @@ export interface ReportCardWidgetProps {
   config: WidgetConfig
   isEditMode: boolean
   isPreview?: boolean
-  /** 外部直接提供 card_visuals，提供时不再自行请求（用于报告页复用） */
+  // 外部已给 card_visuals 时不再自行请求。
   data?: any
-  /** 去掉自带 glass 外壳与背景光效，供已有外壳的容器内嵌 */
   bare?: boolean
-  /**
-   * 外部控制概览/详情切换（如舞台模式按篇章驱动）。
-   * 传入后禁用内部 10s 自动轮播，与外部状态完全同步。
-   */
+  // 外部控制翻转时禁用内部 10s 轮播，与外部状态完全同步。
   showOverview?: boolean
-  /** 小组件配置变更回调（用于持久化长按设置） */
   onConfigChange?: (newConfig: any) => void
 }

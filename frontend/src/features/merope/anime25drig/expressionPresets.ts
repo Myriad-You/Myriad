@@ -47,14 +47,13 @@ const NEUTRAL_ACTIVITY_EXPRESSION: Readonly<ActivityExpressionDriver> = {
   browAngSym: 0,
 }
 
-/** Persistent, speech-safe face pose while the Agent is actually thinking. */
 export const THINKING_ACTIVITY_EXPRESSION: Readonly<ActivityExpressionDriver> =
   {
     angleX: -0.12,
     angleY: 0.1,
     angleZ: -0.18,
-    eyeOpenL: 1,
-    eyeOpenR: 1,
+    eyeOpenL: 0.78,
+    eyeOpenR: 0.9,
     eyeDizzy: 0,
     eyeSqueeze: 0,
     eyeCry: 0,
@@ -65,43 +64,37 @@ export const THINKING_ACTIVITY_EXPRESSION: Readonly<ActivityExpressionDriver> =
     lovestruck: 0,
     eyeX: 0.58,
     eyeY: -0.42,
-    irisScale: 1,
-    brow: 0.18,
-    browAngL: 0.16,
-    browAngR: 0,
+    irisScale: 0.94,
+    brow: 0.24,
+    browAngL: 0.48,
+    browAngR: -0.12,
     browAngSym: 0,
   }
 
-/** Dedicated artwork replacement; no unrelated facial or body channel is changed. */
 export const DIZZY_EXPRESSION_PRESET: Readonly<Partial<Anime25DDriver>> = {
   eyeDizzy: 1,
 }
 
-/** Dedicated inward-facing chevron eye artwork, independent of blink state. */
 export const SQUEEZE_EXPRESSION_PRESET: Readonly<Partial<Anime25DDriver>> = {
   eyeSqueeze: 1,
 }
 
-/** Complete per-eye crying artwork; runtime adds restrained sobbing mouth motion. */
 export const CRY_EXPRESSION_PRESET: Readonly<Partial<Anime25DDriver>> = {
   eyeCry: 1,
   brow: 0.28,
   browAngSym: -0.34,
 }
 
-/** Facial deformation carries the expression; the vein mark is secondary. */
 export const ANGRY_EXPRESSION_PRESET: Readonly<Partial<Anime25DDriver>> = {
   anger: 1,
   speechless: 0,
 }
 
-/** Half-lidded side glance with a restrained temple sweat accent. */
 export const SPEECHLESS_EXPRESSION_PRESET: Readonly<Partial<Anime25DDriver>> = {
   anger: 0,
   speechless: 1,
 }
 
-/** Wide open laugh with rolled-up gaze; runtime adds restrained instability. */
 export const MANIAC_EXPRESSION_PRESET: Readonly<Partial<Anime25DDriver>> = {
   anger: 0,
   speechless: 0,
@@ -110,10 +103,6 @@ export const MANIAC_EXPRESSION_PRESET: Readonly<Partial<Anime25DDriver>> = {
   eyeOpenR: 0.94,
 }
 
-/**
- * Vacant stare with its own eye artwork. The two irides drift apart on the
- * expression's private schedule, so no shared gaze channel is touched here.
- */
 export const SILLY_EXPRESSION_PRESET: Readonly<Partial<Anime25DDriver>> = {
   anger: 0,
   speechless: 0,
@@ -121,7 +110,6 @@ export const SILLY_EXPRESSION_PRESET: Readonly<Partial<Anime25DDriver>> = {
   silly: 1,
 }
 
-/** Half-lidded heart pupils with a face-local blush and restrained soft mouth. */
 export const LOVESTRUCK_EXPRESSION_PRESET: Readonly<Partial<Anime25DDriver>> = {
   anger: 0,
   speechless: 0,
@@ -140,14 +128,25 @@ export const THINKING_EXPRESSION_PRESET: Readonly<Partial<Anime25DDriver>> = {
   angleZ: -0.22,
   eyeX: 0.68,
   eyeY: -0.48,
-  brow: 0.22,
-  browAngL: 0.2,
   mouthOpen: 0,
-  mouthForm: 0,
+  mouthForm: -0.16,
 }
 
 export function activityExpressionDriverPatch(
   thinking: boolean,
 ): Readonly<ActivityExpressionDriver> {
   return thinking ? THINKING_ACTIVITY_EXPRESSION : NEUTRAL_ACTIVITY_EXPRESSION
+}
+
+/** Release only the authored thinking values; a newer/custom face is not ours. */
+export function releaseThinkingExpression(target: Anime25DDriver): void {
+  if (!target.thinking) return
+  for (const key of Object.keys(THINKING_ACTIVITY_EXPRESSION) as (keyof ActivityExpressionDriver)[]) {
+    if (target[key] === THINKING_ACTIVITY_EXPRESSION[key]
+      || target[key] === THINKING_EXPRESSION_PRESET[key]) {
+      target[key] = NEUTRAL_ACTIVITY_EXPRESSION[key]
+    }
+  }
+  if (target.mouthForm === THINKING_EXPRESSION_PRESET.mouthForm) target.mouthForm = 0
+  target.thinking = false
 }

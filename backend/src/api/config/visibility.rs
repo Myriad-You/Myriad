@@ -50,7 +50,8 @@ pub async fn update_module_visibility_preferences(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({
                     "success": false,
-                    "message": "Failed to save module visibility preferences"
+                    "message": "Failed to save module visibility preferences",
+                    "code": "module_visibility_save_failed",
                 })),
             )
         }

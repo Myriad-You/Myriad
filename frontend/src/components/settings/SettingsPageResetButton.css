@@ -1,6 +1,3 @@
-/**
- * 重置本页 — 默认灰 / hover 红 / 原地确认武装态
- */
 
 .settings-page-reset-wrap {
   flex-shrink: 0;
@@ -23,7 +20,6 @@
   -webkit-line-clamp: 2;
 }
 
-/* —— 默认：与普通卡片同灰（压过 tone-danger 静息色） —— */
 .settings-page-reset.checkbox-group-card--action.checkbox-group-card--tone-danger
   .checkbox-group-card-icon,
 .settings-page-reset.checkbox-group-card--action.checkbox-group-card--tone-danger
@@ -51,7 +47,6 @@ html.dark
   color: var(--cfg-text-3);
 }
 
-/* —— hover：红色（未武装） —— */
 .settings-page-reset.checkbox-group-card--action.checkbox-group-card--tone-danger:hover:not(:disabled, .is-disabled, .is-confirming, .is-loading)
   .checkbox-group-card-icon,
 .settings-page-reset.checkbox-group-card--action.checkbox-group-card--tone-danger:hover:not(:disabled, .is-disabled, .is-confirming, .is-loading)
@@ -80,7 +75,6 @@ html.dark
   background: rgb(239 68 68 / 10%);
 }
 
-/* —— 武装确认：持续红态 —— */
 .settings-page-reset.is-confirming.checkbox-group-card--action,
 .settings-page-reset.is-confirming.checkbox-group-card--action:hover:not(
     :disabled
@@ -126,7 +120,6 @@ html.dark
   color: var(--cfg-text-3);
 }
 
-/* 与 SettingSection 移动头同断点（<1024） */
 @media (width < 1024px) {
   .settings-page-reset-wrap {
     max-width: none;

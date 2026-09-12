@@ -156,7 +156,7 @@ where
         let claims = parts.extensions.get::<Claims>().ok_or_else(|| {
             HttpError::from((
                 StatusCode::UNAUTHORIZED,
-                Json(json!({ "error": "Authentication context is missing" })),
+                Json(AppError::public_json("Authentication context is missing")),
             ))
         })?;
         let token = parts
@@ -187,8 +187,6 @@ pub async fn issue_runtime_grant(
     let subject_id = parse_user_id(&claims)?;
     let tapp = resolve_accessible_tapp(&db, subject_id, &tapp_id).await?;
     // Refuse to issue grants while the install needs re-authorization.
-    // After the migration, remaining permissions parse fine, so the persistent
-    // marker — not the unknown-permission check — carries this fail-closed gate.
     // Shared pure decision lives in services::tapp_runtime_grant so issue and
     // validate exercise the exact same branch.
     tapp_runtime_grant::refuse_if_needs_reauthorization(tapp.needs_reauthorization)
@@ -233,9 +231,7 @@ fn issued_to_response(issued: IssuedRuntimeGrant) -> RuntimeGrantResponse {
     }
 }
 
-/// 未知权限的运行时签发失败响应（纯映射，无副作用）。
-/// 供生产路径与测试共用同一边界：fail-closed 语义不变，不创建任何别名；
-/// 错误文案通过 `UnknownTappPermission::message` 复用共享 replacement hint。
+/// 未知权限的 authorize 失败响应（纯映射，无副作用）。签发未知权限走 RuntimeGrantError → 409。
 fn authorize_unknown_permission_response(
     permission: &str,
 ) -> (StatusCode, Json<serde_json::Value>) {
@@ -253,9 +249,7 @@ fn authorize_unknown_permission_response(
 
 /// POST /api/tapps/{tapp_id}/runtime-grants/authorize
 ///
-/// Browser-hosted capabilities (for example media control and speech) use this
-/// endpoint immediately before acting. The Runtime Grant extractor rebinds the
-/// token to the current installation, role and delegation config on every call.
+/// Host pre-authorize for capabilities such as media:control. Speech uses the grant header / extractor, not this endpoint. The extractor rebinds the token to the current installation, role and delegation config on every call.
 pub async fn authorize_runtime_permission(
     runtime_grant: RuntimeGrantContext,
     Path(tapp_id): Path<String>,
@@ -297,7 +291,7 @@ pub async fn revoke_runtime_grant(
     })))
 }
 
-/// Revoke every active runtime for a Tapp subject, used by stop/uninstall flows.
+/// Revoke every active runtime for a Tapp subject (stop path). Uninstall/replace call `revoke_all_tapp_runtime_grants`.
 /// Registry delete is domain; AI/event/data-exchange teardown stays HTTP-adjacent.
 pub async fn revoke_tapp_runtime_grants(
     db: &DatabaseConnection,
@@ -361,3 +355,4 @@ mod tests {
         assert!(TappPermission::from_str("storage:write").is_some());
     }
 }
+use myriad_error::AppError;

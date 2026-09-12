@@ -218,7 +218,7 @@ pub async fn cancel_local_task(task_id: &str) -> bool {
     }
 }
 
-/// Mark task running and persist + broadcast state.
+/// Persist + broadcast the given task status (caller chooses the status).
 pub async fn update_task_state(task_id: &str, status: AiTaskStatus) {
     let mut tasks = AI_TASKS.write().await;
     let persisted = if let Some(task) = tasks.get_mut(task_id) {

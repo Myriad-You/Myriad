@@ -1,10 +1,3 @@
-/**
- * 将 Agent 前端操作处理逻辑从 TappWindowManager 解耦
- *
- * 通过 Hook 封装 registerActionHandler / unregisterActionHandler 调用，
- * TappWindowManager 不再直接依赖 agent 服务实现细节。
- */
-
 import type { FrontendAction, WindowTarget } from '../../services/agent'
 import type { WindowRef } from './windowAgentTarget'
 
@@ -18,11 +11,8 @@ import { resolveCloseWindowIds, resolveWindowTarget } from './windowAgentTarget'
 export type { WindowRef }
 
 interface UseWindowAgentHandlerOptions {
-  /** 当前所有窗口的 ref（避免 useEffect 依赖频繁变化） */
   windowsRef: React.RefObject<WindowRef[]>
-  /** 当前活跃窗口 ID 的 ref */
   activeWindowIdRef: React.RefObject<string | null>
-  /** 打开一个 Tapp 窗口 */
   openTappWindow: (
     tappId: string,
     opts?: {
@@ -30,17 +20,10 @@ interface UseWindowAgentHandlerOptions {
       position?: { x?: number; y?: number }
     },
   ) => Promise<void>
-  /** 关闭窗口 */
   closeWindow: (windowId: string) => void
-  /** 聚焦窗口 */
   focusWindow: (windowId: string) => void
 }
 
-/**
- * 注册 Agent 前端操作处理器（typed），在卸载时自动注销。
- * Typed 优先于全局 fallback（App GlobalAgentWindowHandler），
- * 多窗挂载时接管 open_window；卸载后全局 navigate 回退生效。
- */
 export function useWindowAgentHandler({
   windowsRef,
   activeWindowIdRef,

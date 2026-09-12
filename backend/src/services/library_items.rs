@@ -15,7 +15,7 @@ use crate::services::image_proxy_urls::proxy_image_url;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LibraryItem {
     pub id: String,
-    pub item_type: String, // "game", "video", "music"
+    pub item_type: String, // LIBRARY_ITEM_TYPES
     pub title: String,
     pub cover: Option<String>,
     pub platform: String,
@@ -45,8 +45,7 @@ pub fn cached_library_items(user_id: i32) -> Option<CachedLibraryItems> {
 }
 
 pub fn store_library_items(user_id: i32, items: Vec<LibraryItem>) -> CachedLibraryItems {
-    // One pass before cache: medium covers + slim metadata so every page response
-    // (and the assembly cache) stays compact for large libraries / infinite canvas.
+    // One pass: prefer_card_cover_url + slim_library_metadata.
     let items = Arc::new(
         items
             .into_iter()
@@ -72,7 +71,7 @@ pub fn normalize_library_item_for_client(mut item: LibraryItem) -> LibraryItem {
     item
 }
 
-/// Prefer medium/common assets over large/original for library cards (~184–400 CSS px).
+/// Prefer Bangumi `/c/` and Netease `param=300y300`; skip Bangumi `/r/{width}/` resize paths.
 pub fn prefer_card_cover_url(url: &str) -> String {
     let trimmed = url.trim();
     if trimmed.is_empty() {
@@ -92,9 +91,8 @@ pub fn prefer_card_cover_url(url: &str) -> String {
 }
 
 fn prefer_raw_card_cover_url(trimmed: &str) -> String {
-    // Bangumi: legacy /pic/cover/{l|c|m|s|g}/… — common is enough for cards.
-    // Current API common/medium/grid are /r/{width}/pic/cover/l/… — `l` is the
-    // source file. Rewriting those to /c/ is a 400 on lain.bgm.tv.
+    // Bangumi: legacy /pic/cover/{l|c|m|s|g}/… — rewrite l|g → c.
+    // Current API `/r/{width}/pic/cover/l/` — `l` is the source; skip resize paths.
     if trimmed.contains("bgm.tv") || trimmed.contains("lain.bgm") {
         if is_bangumi_resize_cover(trimmed) {
             return trimmed.to_string();
@@ -247,7 +245,7 @@ fn slim_album(value: &Value) -> Value {
     }
 }
 
-/// Keep only fields LibraryGrid / watch-progress / play-song need.
+/// Keep FLAT_KEYS plus slim artist lists (display, links, progress, playback).
 pub fn slim_library_metadata(metadata: &Value) -> Value {
     let Some(obj) = metadata.as_object() else {
         return metadata.clone();
@@ -606,7 +604,8 @@ pub fn paginate_library_items(
 
 /// Canonical library type for Bangumi subject type codes.
 /// Type 6 ("real"/实景) → tv_series when platform looks like TV drama, else video.
-/// Shared by Library, report cards, and platform_items normalize.
+/// Called from `append_bangumi_library_items`. Reports use `bangumi_label_to_library_type`;
+/// `platform_items` uses `bangumi_real_item_type`.
 pub fn bangumi_library_item_type(subject_type: i64, platform: Option<&str>) -> &'static str {
     match subject_type {
         1 => "book",
@@ -675,7 +674,7 @@ pub fn append_bangumi_library_items(library_items: &mut Vec<LibraryItem>, bangum
             .unwrap_or(0);
         let subject_platform = subject.get("platform").and_then(|v| v.as_str());
         let item_type = bangumi_library_item_type(subject_type, subject_platform);
-        // Card display is ~184–400 CSS px; prefer common/medium over large.
+        // Prefer common, then medium, then large, then small.
         let cover = subject
             .get("images")
             .and_then(|images| {
@@ -731,7 +730,7 @@ pub fn append_mal_library_items(library_items: &mut Vec<LibraryItem>, mal_data: 
                 .get("title")
                 .and_then(|v| v.as_str())
                 .unwrap_or("Unknown");
-            // medium is typically ~225px; large is ~400+ and overkill for cards.
+            // Prefer main_picture.medium over large.
             let cover = node
                 .pointer("/main_picture/medium")
                 .or_else(|| node.pointer("/main_picture/large"))

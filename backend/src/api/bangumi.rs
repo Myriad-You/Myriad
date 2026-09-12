@@ -5,6 +5,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use myriad_error::AppError;
 use serde::{Deserialize, Serialize};
 
 use crate::services::fetcher::PlatformFetcher;
@@ -17,6 +18,7 @@ pub(crate) fn reject_query_access_token(access_token: &Option<String>) -> Result
             Json(serde_json::json!({
                 "success": false,
                 "error": "access_token_not_allowed",
+                "code": "access_token_not_allowed",
                 "message": "Do not pass Bangumi access tokens in the query string; configure bangumi_access_token server-side"
             })),
         )));
@@ -89,7 +91,7 @@ fn value_username(value: &serde_json::Value) -> Option<String> {
 
 /// 获取 Bangumi 用户完整信息。
 ///
-/// `username` 可选；缺省时需要 `access_token`，并通过 `/v0/me` 解析用户名。
+/// `username` 可选；缺省时用服务端 `bangumi_access_token` 调 `/v0/me`。查询串 token 会被拒绝。
 pub async fn get_bangumi_user(
     Query(params): Query<BangumiQuery>,
 ) -> Result<Json<ApiResponse<BangumiUserResponse>>, HttpError> {
@@ -112,11 +114,9 @@ pub async fn get_bangumi_user(
             .fetch_bangumi_me(access_token, user_agent.as_deref())
             .await
     } else {
-        return Ok(Json(ApiResponse {
-            success: false,
-            data: None,
-            message: "username 或 access_token 至少需要提供一个".to_string(),
-        }));
+        return Err(AppError::bad_request("Bangumi credentials required")
+            .with_code("bangumi_credentials_required")
+            .into());
     };
 
     let user_info = match user_result {
@@ -160,7 +160,7 @@ pub async fn get_bangumi_user(
             collections,
             total_collections,
         }),
-        message: format!("获取成功，共 {} 个收藏", total_collections),
+        message: "ok".to_string(),
     }))
 }
 
@@ -185,7 +185,7 @@ pub async fn get_bangumi_user_info(
         Ok(info) => Ok(Json(ApiResponse {
             success: true,
             data: Some(info),
-            message: "获取成功".to_string(),
+            message: "ok".to_string(),
         })),
         Err(e) => {
             tracing::error!("Failed to fetch Bangumi user {}: {}", username, e);
@@ -227,7 +227,7 @@ pub async fn get_bangumi_me(
         Ok(info) => Ok(Json(ApiResponse {
             success: true,
             data: Some(info),
-            message: "获取成功".to_string(),
+            message: "ok".to_string(),
         })),
         Err(e) => {
             tracing::error!("Failed to fetch Bangumi /me: {}", e);
@@ -258,14 +258,11 @@ pub async fn get_bangumi_collections(
         .fetch_bangumi_collections(&username, access_token.as_deref(), user_agent.as_deref())
         .await
     {
-        Ok(collections) => {
-            let count = collections.len();
-            Ok(Json(ApiResponse {
-                success: true,
-                data: Some(collections),
-                message: format!("获取成功，共 {} 个收藏", count),
-            }))
-        }
+        Ok(collections) => Ok(Json(ApiResponse {
+            success: true,
+            data: Some(collections),
+            message: "ok".to_string(),
+        })),
         Err(e) => {
             tracing::error!(
                 "Failed to fetch Bangumi collections for {}: {}",

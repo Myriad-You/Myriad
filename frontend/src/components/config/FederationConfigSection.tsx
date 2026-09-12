@@ -1,10 +1,3 @@
-/**
- * 联邦信任策略管理（管理员）
- * - allowlist / min_trust / auto_discover / rate limit（草稿，随 ConfigForm 统一保存）
- * - 实例列表：信任层级 + 封禁（即时写入）
- * - 内容过滤规则 CRUD（即时写入）
- */
-
 import type {
   ContentFilterItem,
   DeliveryQueueItem,
@@ -52,7 +45,7 @@ import {
 } from '../settings'
 import { FederationDeliveryQueue } from './FederationDeliveryQueue'
 
-/** Trust / rate-limit policy draft — owned by ConfigForm for unified save. */
+/** owned by ConfigForm save */
 export interface FederationPolicyDraft {
   minTrust: number
   allowlistText: string
@@ -122,7 +115,6 @@ interface FederationConfigSectionProps {
   icon: React.ReactNode
   description: string
   sectionId?: string
-  /** Controlled policy draft (ConfigForm unified save). */
   policyDraft: FederationPolicyDraft
   onPolicyChange: (patch: Partial<FederationPolicyDraft>) => void
   onMessage?: (
@@ -139,13 +131,7 @@ const FILTER_TYPES = [
 
 type FilterType = (typeof FILTER_TYPES)[number]
 
-/**
- * Known ActivityPub + MFP activity `type` values handled (or accepted) by the
- * federation inbox. Values are stored as-is for `block_activity_type` filters.
- * Align with `backend/src/federation/inbox.rs`.
- */
 const ACTIVITY_TYPES = [
-  // Standard ActivityPub
   'Follow',
   'Accept',
   'Reject',
@@ -156,7 +142,6 @@ const ACTIVITY_TYPES = [
   'Announce',
   'Like',
   'Move',
-  // MFP extensions (inbox whitelist)
   'myriad:ChannelOpen',
   'myriad:ChannelClose',
   'myriad:ChannelAccept',
@@ -175,10 +160,6 @@ const ACTIVITY_TYPES = [
   'myriad:KeyExchange',
 ] as const
 
-/**
- * Fallback when a stored activity type has no i18n entry (custom / future types).
- * Prefer `activityTypeLabels` from config keys when available.
- */
 function activityTypeFallbackLabel(type: string): string {
   if (type.startsWith('myriad:')) {
     return `${type.slice('myriad:'.length)} (MFP)`
@@ -209,7 +190,7 @@ export const FederationConfigSection: React.FC<
   onPolicyChange,
   onMessage,
 }) => {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const c = t.config
   const { catalog: g, bindGuide } = useSettingGuide()
   const [instances, setInstances] = useState<FederationInstance[]>([])
@@ -219,7 +200,6 @@ export const FederationConfigSection: React.FC<
   const [deliveryStats, setDeliveryStats] = useState<DeliveryStats | null>(null)
   const [deliveryItems, setDeliveryItems] = useState<DeliveryQueueItem[]>([])
 
-  // New filter draft
   const [newFilterName, setNewFilterName] = useState('')
   const [newFilterType, setNewFilterType] =
     useState<FilterType>('block_keyword')
@@ -227,10 +207,8 @@ export const FederationConfigSection: React.FC<
   const [filterFormOpen, setFilterFormOpen] = useState(false)
   const [instanceBusy, setInstanceBusy] = useState<Record<string, boolean>>({})
   const [instanceSearch, setInstanceSearch] = useState('')
-  /** all | active | blocked | level:0 … level:4 */
   const [instanceFilter, setInstanceFilter] = useState('all')
   const [contentFilterSearch, setContentFilterSearch] = useState('')
-  /** all | enabled | disabled | type:<filter_type> */
   const [contentFilterChip, setContentFilterChip] = useState('all')
   const [filterBusy, setFilterBusy] = useState<
     Record<number, 'toggle' | 'delete' | undefined>
@@ -247,7 +225,6 @@ export const FederationConfigSection: React.FC<
     [c],
   )
 
-  /** Short chip labels for trust-level category filters. */
   const trustFilterLabels = useMemo(
     () => [
       { value: 0, label: c.federationInstanceFilterLevel0 },
@@ -286,7 +263,6 @@ export const FederationConfigSection: React.FC<
     [filterTypeLabels],
   )
 
-  /** Maps stored ActivityPub type values → localized display labels. */
   const activityTypeLabels = useMemo((): Record<string, string> => {
     return {
       Follow: c.federationActivityFollow,
@@ -341,11 +317,7 @@ export const FederationConfigSection: React.FC<
     }
   }, [c])
 
-  /**
-   * Soft re-fetch for the delivery panel.
-   * Only apply successful responses — never replace a good optimistic list
-   * with `[]` / null when one endpoint blips.
-   */
+  /** apply successful responses only; never wipe a good list on a blip */
   const loadDelivery = useCallback(async (status?: string) => {
     const statusParam =
       status && status !== 'all' ? status : undefined
@@ -359,7 +331,7 @@ export const FederationConfigSection: React.FC<
     if (listResult.status === 'fulfilled' && listResult.value) {
       setDeliveryItems(listResult.value.items || [])
     }
-    // First paint with neither: leave empty (initial state). Do not wipe.
+    // first paint: leave empty; do not wipe
   }, [])
 
   const load = useCallback(async () => {
@@ -687,9 +659,10 @@ export const FederationConfigSection: React.FC<
 
   const instanceFooter =
     instanceQueryActive && instances.length > 0 && !instanceListTruncated
-      ? c.federationInstanceShowing
-          .replace('{shown}', String(filteredInstances.length))
-          .replace('{total}', String(instances.length))
+      ? format(c.federationInstanceShowing, {
+          shown: filteredInstances.length,
+          total: instances.length,
+        })
       : undefined
 
   const filterStats = useMemo((): ManagedListStat[] => {
@@ -732,7 +705,7 @@ export const FederationConfigSection: React.FC<
     for (const f of filters) {
       if (f.enabled) enabled++
       else disabled++
-      if (f.filter_type in typeCounts) {
+      if (Object.hasOwn(typeCounts, f.filter_type)) {
         typeCounts[f.filter_type]++
       }
     }
@@ -801,9 +774,10 @@ export const FederationConfigSection: React.FC<
 
   const contentFilterFooter =
     contentFilterQueryActive && filters.length > 0
-      ? c.federationFilterShowing
-          .replace('{shown}', String(filteredContentFilters.length))
-          .replace('{total}', String(filters.length))
+      ? format(c.federationFilterShowing, {
+          shown: filteredContentFilters.length,
+          total: filters.length,
+        })
       : undefined
 
   const filterListItems: ManagedListItem[] = useMemo(
@@ -825,7 +799,6 @@ export const FederationConfigSection: React.FC<
           actions: [
             {
               key: 'toggle',
-              /* badge 用 On/Off 状态；按钮用动词 */
               label: f.enabled
                 ? c.federationFilterDisableAction
                 : c.federationFilterEnableAction,
@@ -869,7 +842,6 @@ export const FederationConfigSection: React.FC<
         contentKey={`${identity?.actor_url ?? 'none'}-${instances.length}-${filters.length}`}
         className="federation-content-height"
       >
-        {/* 1. 身份 → 2. 策略 → 3. 实例 → 4. 过滤 → 5. 投递队列 → 6. 限流 */}
         <SettingGroup
           title={c.federationKeysIdentity}
           description={c.federationKeysIdentityDesc}
@@ -942,7 +914,6 @@ export const FederationConfigSection: React.FC<
               </span>
             }
           />
-          {/* 轮换指南挂在卡片底部入口；按钮 title 仍用 what 作短提示 */}
         </SettingGroup>
 
         <SettingGroup
@@ -1018,9 +989,7 @@ export const FederationConfigSection: React.FC<
               instances.length > 8 ? INSTANCE_LIST_CAP : null
             }
             truncateFooter={(shown, total) =>
-              c.federationInstanceShowing
-                .replace('{shown}', String(shown))
-                .replace('{total}', String(total))
+              format(c.federationInstanceShowing, { shown, total })
             }
           />
         </SettingGroup>

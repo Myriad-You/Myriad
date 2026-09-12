@@ -1,15 +1,3 @@
-/**
- * Pure helpers for federation Note media attachment URLs.
- *
- * Mirrors backend `validate_attachment_url` path shape:
- *   {origin}/media/federation/{userId}/{filename}
- * where filename is a single path segment of [A-Za-z0-9._-]+.
- *
- * Host/base enforcement stays on the server; the client rejects empty and
- * obviously wrong paths early so compose never half-publishes bad attachments.
- */
-
-// \w = [A-Za-z0-9_]; also allow . and - in stored filenames
 const FEDERATION_MEDIA_PATH = /^\/media\/federation\/(\d+)\/([\w.-]+)$/
 
 export interface FederationMediaUrlParts {
@@ -18,16 +6,10 @@ export interface FederationMediaUrlParts {
   origin: string
 }
 
-/**
- * Returns true when `url` is a well-formed absolute federation media URL.
- */
 export function isValidFederationMediaUrl(url: unknown): boolean {
   return parseFederationMediaUrl(url) !== null
 }
 
-/**
- * Parse a federation media URL; null if invalid.
- */
 export function parseFederationMediaUrl(
   url: unknown,
 ): FederationMediaUrlParts | null {
@@ -35,7 +17,6 @@ export function parseFederationMediaUrl(
   const trimmed = url.trim()
   if (!trimmed) return null
 
-  // Reject path tricks in the raw string before URL normalization resolves ".."
   if (trimmed.includes('..')) return null
 
   let parsed: URL
@@ -66,10 +47,6 @@ export function parseFederationMediaUrl(
   }
 }
 
-/**
- * Stable label when a federation media URL is rejected.
- * Display copy is localized by FederationBridge / userFacingError.
- */
 export function federationMediaUrlRejectionReason(url: unknown): string | null {
   if (parseFederationMediaUrl(url)) return null
   return 'Invalid attachment URL'

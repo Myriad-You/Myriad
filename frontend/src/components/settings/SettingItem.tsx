@@ -1,8 +1,3 @@
-/**
- * 设置项工厂组件
- * 根据 type 自动选择渲染对应的设置项组件
- */
-
 import type { SettingItemConfig } from './types'
 import React from 'react'
 import { ButtonItem } from './items/ButtonItem'

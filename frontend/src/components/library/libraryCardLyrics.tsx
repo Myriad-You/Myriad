@@ -112,10 +112,6 @@ injectLibraryStyle(
   `,
 )
 
-/**
- * 父级轻量订阅：仅 songId / isPlaying / musicColor
- * 切句不触发 LibraryGrid 重渲染
- */
 interface LibraryMusicIdentity {
   songId: string | null
   isPlaying: boolean
@@ -137,9 +133,7 @@ function readLibraryMusicIdentity(): LibraryMusicIdentity {
 export function useLibraryMusicIdentity(): LibraryMusicIdentity {
   const [snap, setSnap] = useState(readLibraryMusicIdentity)
   useEffect(() => {
-    // 事件只作通知：一律读 __musicPlayerState（宿主完整合并后的真相）。
-    // 禁止从 detail 重建——embed 等路径会发 partial（仅 currentSong），
-    // 缺字段会被当成 null/false/默认红，卡片「正在播」状态会假掉。
+    // 禁止从 detail 重建：embed 会发 partial，缺字段会把正在播状态弄假。
     const applyFromGlobal = () => {
       const next = readLibraryMusicIdentity()
       setSnap((prev) =>
@@ -158,19 +152,12 @@ export function useLibraryMusicIdentity(): LibraryMusicIdentity {
   return snap
 }
 
-/**
- * 资料库卡片歌词外壳：进出场 + 封面色遮罩；
- * 切换引擎见共享 LyricWaveScroll（与控制面板同一套）
- *
- * 退场时冻结歌词快照：换歌会 resetLyrics，不能靠 live hasLyrics 决定是否卸载，
- * 否则 is-leaving 会被短路硬切。
- */
+// 退场冻结歌词快照；换歌会 resetLyrics，不能靠 live hasLyrics 决定卸载。
 export const LibraryCardLyrics = memo(
   ({
     active,
     musicColor,
   }: {
-    /** true=当前曲（含暂停）；false=换歌离场 */
     active: boolean
     musicColor: string
   }) => {
@@ -183,14 +170,11 @@ export const LibraryCardLyrics = memo(
 
     const [mounted, setMounted] = useState(false)
     const [visible, setVisible] = useState(false)
-    /** 展示用（active 时跟随 live；leave 期间冻结） */
     const [displayLyrics, setDisplayLyrics] = useState(liveLyrics)
     const [displayIndex, setDisplayIndex] = useState(liveIndex)
     const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-    /** 是否曾成功进场；从未进场则不走 leave 计时（避免首帧无词误卸） */
     const everShownRef = useRef(false)
 
-    // active 且有词：同步展示；leave 时不写，保留上一曲快照
     useEffect(() => {
       if (active && hasLiveLyrics) {
         setDisplayLyrics(liveLyrics)
@@ -209,8 +193,7 @@ export const LibraryCardLyrics = memo(
         const raf = requestAnimationFrame(() => setVisible(true))
         return () => cancelAnimationFrame(raf)
       }
-      // 仍是当前曲但歌词暂空（切歌 reset / 二次加载中）：只等词，绝不 leave
-      // 否则 everShown 时会误走退场，把已挂载歌词卸掉，且二次加载失败时永久空白
+      // 当前曲歌词暂空只等词，不要 leave，否则会卸掉已挂载歌词。
       if (active) {
         if (!everShownRef.current) {
           setMounted(false)
@@ -218,13 +201,11 @@ export const LibraryCardLyrics = memo(
         }
         return
       }
-      // 从未进场：保持未挂载
       if (!everShownRef.current) {
         setMounted(false)
         setVisible(false)
         return
       }
-      // 非当前曲退场：冻结 display 快照；时长对齐 CSS is-leaving
       setVisible(false)
       leaveTimerRef.current = setTimeout(() => {
         setMounted(false)

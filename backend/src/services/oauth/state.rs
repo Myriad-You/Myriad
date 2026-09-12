@@ -1,13 +1,12 @@
 //! OAuth CSRF state — HMAC-signed tokens shared by all providers.
 //!
 //! Process-local memory alone breaks multi-instance / restart deployments:
-//! the callback lands on a different process that never saw `insert_state`.
+//! the callback lands on a different process that never saw `issue_state`.
 //! Signed state embeds purpose + slug + expiry; any process with the shared
 //! secret can verify. Optional in-memory nonces provide anti-replay within a
-//! process lifetime; after restart a still-valid signature is accepted
-//! (provider authorization codes remain one-time).
+//! process lifetime; after restart a still-valid signature is accepted.
 //!
-//! **Browser binding (MYR-003):** the payload nonce `n` is also issued as an
+//! **Browser binding:** the payload nonce `n` is also issued as an
 //! HttpOnly cookie (`oauth_tx`). Callbacks must present the matching cookie so
 //! a completed OAuth URL cannot be swapped onto another browser session.
 //!
@@ -17,7 +16,7 @@
 //! Payload fields:
 //! `v` (version), `n` (nonce hex / browser_tx / OIDC nonce), `s` (slug),
 //! `p` (login|link|platform), `uid?`, `plat?`, `exp` (unix seconds),
-//! `cv?` (PKCE code_verifier, MYR-011)
+//! `cv?` (PKCE code_verifier)
 //!
 //! Secret: `OAUTH_STATE_SECRET` if set, else `JWT_SECRET`.
 
@@ -62,15 +61,14 @@ pub struct StoredState {
 ///
 /// Callers must set [`OAUTH_TX_COOKIE`] to `browser_tx` on the login/link
 /// redirect response so the callback can prove same-browser continuity.
-/// OIDC providers also use `browser_tx` as the OpenID `nonce` and
-/// `code_verifier` for PKCE S256 (MYR-011).
+/// OIDC uses `browser_tx` as the OpenID `nonce`; PKCE uses the separate `code_verifier` field.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IssuedState {
     pub token: String,
     /// High-entropy transaction id (payload `n`); mirror into `oauth_tx` cookie.
     /// Also the OIDC `nonce` value for id_token binding.
     pub browser_tx: String,
-    /// RFC 7636 PKCE code_verifier (payload `cv`); OIDC only.
+    /// RFC 7636 PKCE code_verifier (payload `cv`)。
     pub code_verifier: String,
 }
 
@@ -125,7 +123,7 @@ impl ConsumeOutcome {
     }
 }
 
-/// Cookie name for OAuth browser transaction binding (MYR-003).
+/// Cookie name for OAuth browser transaction binding.
 ///
 /// Not `__Host-` prefixed: issuance must work on local HTTP (dev) as well as
 /// production HTTPS; `__Host-` requires Secure always.
@@ -133,7 +131,7 @@ pub const OAUTH_TX_COOKIE: &str = "oauth_tx";
 
 /// `Set-Cookie` value that stores the browser transaction id.
 ///
-/// HttpOnly + SameSite=Lax + Path=/; Secure in production. Max-Age matches
+/// HttpOnly + SameSite=Lax + Path=/; Secure when the public site URL is `https://`. Max-Age matches
 /// [`STATE_TTL`] so a stale cookie cannot outlive state acceptance.
 pub fn oauth_tx_set_cookie_value(browser_tx: &str, is_production: bool) -> String {
     format!(
@@ -185,8 +183,7 @@ pub fn oauth_tx_cookie_matches(cookie_header: Option<&str>, expected: &str) -> b
     a.len() == b.len() && bool::from(a.ct_eq(b))
 }
 
-/// Why `consume_state` failed — distinguishes never-seen vs TTL-elapsed vs
-/// unrecoverable replay (when handlers surface `state_replay` after soft-recover fails).
+/// `verify_state` 只返回 `Missing`（畸形/坏签/坏载荷）或 `Expired`（过 `exp`）。未出现过的 nonce 仍成功。`Replay` 变体仅供 handler `as_str`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConsumeStateError {
     /// Token missing/malformed/bad signature.
@@ -195,8 +192,7 @@ pub enum ConsumeStateError {
     Expired,
     /// Valid signature but nonce already used — used as a redirect/error code
     /// when soft-recover cannot confirm the first attempt succeeded.
-    /// `consume_state` itself returns [`ConsumeOutcome::Replay`] with payload
-    /// instead of this error when the token is fully parseable.
+    /// Not returned by [`verify_state`]. Handlers use `as_str` (`replay`) when [`ConsumeOutcome::Replay`] cannot soft-recover.
     Replay,
 }
 
@@ -222,13 +218,12 @@ struct StatePayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     plat: Option<String>,
     exp: i64,
-    /// PKCE code_verifier (MYR-011). Optional for backward-compat with in-flight
-    /// states issued before this field existed.
+    /// PKCE code_verifier. Optional; missing `cv` means no PKCE verifier.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     cv: Option<String>,
 }
 
-/// Process-local used-nonce table with O(1) oldest eviction (MYR-016 pattern).
+/// Process-local used-nonce table with O(1) oldest eviction.
 struct UsedNonceStore {
     /// nonce → drop-after Instant
     map: HashMap<String, Instant>,
@@ -279,7 +274,6 @@ impl UsedNonceStore {
 }
 
 /// Used nonces for optional anti-replay within this process.
-/// Value = Instant when the entry may be dropped (exp + small grace).
 static USED_NONCES: Lazy<Arc<RwLock<UsedNonceStore>>> = Lazy::new(|| {
     let store: Arc<RwLock<UsedNonceStore>> = Arc::new(RwLock::new(UsedNonceStore::new()));
     let store_clone = store.clone();
@@ -472,10 +466,10 @@ pub struct VerifiedState {
     stored: StoredState,
     browser_tx: String,
     code_verifier: String,
-    /// Grace TTL for the used-nonce table entry once marked.
+    /// Keep used-nonce until remaining `exp` plus 60s grace.
     remaining_ttl: Duration,
     /// Snapshot of "nonce already in used map" at verify time (hint only).
-    #[allow(dead_code)] // 仅测试调用：这些访问器锁的是 state 单次消费的不变量。
+    #[allow(dead_code)]
     already_used: bool,
 }
 
@@ -488,7 +482,7 @@ impl VerifiedState {
         &self.browser_tx
     }
 
-    /// PKCE code_verifier from signed state (empty if pre-MYR-011 state).
+    /// PKCE code_verifier from signed state (empty when `cv` was omitted).
     pub fn code_verifier(&self) -> &str {
         &self.code_verifier
     }
@@ -535,8 +529,7 @@ impl VerifiedState {
 
 /// Verify HMAC / expiry / payload **without** marking the nonce used.
 ///
-/// Prefer this over [`consume_state`] when a browser cookie must bind first
-/// (MYR-003): cookie mismatch must not burn a fresh state token.
+/// Does not mark the nonce used. Cookie mismatch must not burn a fresh state token.
 pub async fn verify_state(token: &str) -> Result<VerifiedState, ConsumeStateError> {
     let prefix = state_prefix(token);
 
@@ -631,7 +624,7 @@ pub async fn verify_state(token: &str) -> Result<VerifiedState, ConsumeStateErro
 /// mismatched `oauth_tx` does not burn the nonce.
 ///
 /// After process restart the used-nonce map is empty; a still-valid signature is
-/// accepted as Fresh (provider authorization codes remain one-time).
+/// accepted as Fresh.
 #[cfg(test)]
 pub async fn consume_state(token: &str) -> Result<ConsumeOutcome, ConsumeStateError> {
     let verified = verify_state(token).await?;

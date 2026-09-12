@@ -1,7 +1,8 @@
 //! 语音服务 API
 //!
 //! 提供 TTS（文本转语音）和 ASR（语音转文本）的 HTTP API。
-//! 服务商由设置里的 `speech_provider` 决定：腾讯云、OpenAI、OpenRouter、Gemini 或 MiniMax。
+//! 探测/单条 TTS 走 `configured_provider`（`speech_source` 优先，否则 `speech_provider`）。
+//! batch 播客路径固定 `TencentSpeechService`。
 
 use crate::middleware::auth::Claims;
 use axum::{
@@ -72,7 +73,7 @@ pub fn create_speech_routes(app_state: crate::state::AppState) -> Router<crate::
             app_state.clone(),
             crate::api::tapp_runtime::speech_host_attribution,
         ))
-        // TTS/ASR 端点需要认证（调用付费 API）
+        // 以上路由走 auth_middleware
         .route_layer(from_fn_with_state(
             app_state,
             crate::middleware::auth::auth_middleware,
@@ -100,13 +101,13 @@ pub struct BatchTtsApiRequest {
     pub article_id: i32,
     /// 对话列表
     pub dialogues: Vec<BatchTtsDialogue>,
-    /// 返回格式: wav, mp3, pcm，默认mp3
+    /// 音频格式（缺省 mp3；本层不校验枚举）
     #[serde(default)]
     pub codec: Option<String>,
-    /// 采样率: 8000, 16000, 24000，默认16000
+    /// 采样率（缺省 16000；本层不校验取值）
     #[serde(default)]
     pub sample_rate: Option<i32>,
-    /// 强制重新生成（跳过任意音色缓存回退）
+    /// 强制重新生成（跳过 exact 与 any-voice 缓存）
     #[serde(default)]
     pub force_regenerate: bool,
 }
@@ -116,14 +117,14 @@ pub struct BatchTtsApiRequest {
 pub struct BatchTtsDialogue {
     /// 对话索引（用于排序）
     pub index: usize,
-    /// 说话者: "host" 或 "guest"
+    /// 说话者：`host` → 智斌，其余 → 爱小溪（见 `get_default_voice_for_speaker`）
     pub speaker: String,
     /// 对话文本
     pub text: String,
     /// 音色ID（可选，不提供则根据speaker自动选择）
     #[serde(default)]
     pub voice_type: Option<i32>,
-    /// 语速 [-2, 6]，默认0
+    /// 语速（缺省 0.0；本层不校验区间）
     #[serde(default)]
     pub speed: Option<f32>,
 }
@@ -191,7 +192,7 @@ fn get_default_voice_for_speaker(speaker: &str) -> i32 {
 }
 
 /// 获取文章 TTS 文件路径（按音色分文件夹，索引为文件名）
-/// 结构: data/brew/{source_id}/{article_id}/tts/{voice_type}/{index}.{codec}
+/// 结构: `{brew}/{source_id}/{article_id}/tts/{voice_type}/{index}.{codec}`
 fn get_article_tts_file_path(
     source_id: i32,
     article_id: i32,
@@ -298,22 +299,22 @@ async fn write_article_tts_file(
 /// ASR 请求体
 #[derive(Debug, Deserialize)]
 pub struct AsrApiRequest {
-    /// Base64编码的音频数据（与url二选一）
+    /// Base64 音频。与 `url` 同时出现时本层优先用它；非 Tencent 路径只认这个字段。
     #[serde(default)]
     pub audio_data: Option<String>,
-    /// 音频URL（与audio_data二选一）
+    /// 音频 URL。仅 Tencent ASR 使用；非 Tencent 有 URL 无 `audio_data` 会拒。
     #[serde(default)]
     pub url: Option<String>,
-    /// 音频格式: wav, pcm, mp3, m4a, aac, amr，默认wav
+    /// 音频格式（缺省 wav；本层不校验枚举）
     #[serde(default)]
     pub format: Option<String>,
-    /// 引擎类型: 16k_zh, 16k_en, 16k_yue等，默认16k_zh
+    /// 引擎类型（缺省 16k_zh；本层不校验枚举）
     #[serde(default)]
     pub engine: Option<String>,
-    /// 是否返回词级别时间戳: 0-不返回, 1-返回(不含标点), 2-返回(含标点)
+    /// 词级时间戳（透传给 ASR；缺省不填）
     #[serde(default)]
     pub word_info: Option<i32>,
-    /// 是否过滤脏词: 0-不过滤, 1-过滤, 2-替换为*
+    /// 脏词过滤（透传给 ASR；缺省不填）
     #[serde(default)]
     pub filter_dirty: Option<i32>,
     /// 临时热词表 (格式: "热词1|权重,热词2|权重")
@@ -539,7 +540,7 @@ async fn batch_text_to_speech_inner(request: BatchTtsApiRequest) -> impl IntoRes
 
         // force_regenerate：跳过 exact + any-voice 缓存，强制按指定音色重新合成
         if !request.force_regenerate {
-            // 1. 精确缓存（音色分文件夹 data/brew/.../tts/{voice_type}/{index}.mp3）
+            // 1. 精确缓存（音色分文件夹 `{brew}/.../tts/{voice_type}/{index}.{codec}`）
             if let Some(cached_audio) = find_article_exact_tts(
                 request.source_id,
                 request.article_id,
@@ -560,7 +561,7 @@ async fn batch_text_to_speech_inner(request: BatchTtsApiRequest) -> impl IntoRes
                 continue;
             }
 
-            // 2. 任意音色缓存（只要该对话有任何缓存就用）
+            // 2. 任意音色文件夹下的 `{index}.{codec}`
             if let Some(cached_audio) =
                 find_article_any_tts(request.source_id, request.article_id, dialogue.index, codec)
                     .await
@@ -579,7 +580,7 @@ async fn batch_text_to_speech_inner(request: BatchTtsApiRequest) -> impl IntoRes
 
         tracing::info!("TTS cache miss for index {}, will generate", dialogue.index);
 
-        // 3. 完全没有缓存，需要生成新音频
+        // 3. 缓存未命中或 force_regenerate：Tencent 合成
         if service.is_none() {
             match TencentSpeechService::new().await {
                 Ok(s) => service = Some(s),
@@ -958,7 +959,7 @@ pub async fn start_convo_session(
     Extension(claims): Extension<Claims>,
     Json(request): Json<ConvoStartRequest>,
 ) -> impl IntoResponse {
-    let language = request.language.unwrap_or_else(|| "zh-CN".to_string());
+    let language = request.language.unwrap_or_else(|| "en-US".to_string());
     let language = crate::services::agora_convo::conversation_language(&language);
     let user_id = claims.sub.parse().unwrap_or(0);
     if user_id <= 0
@@ -968,7 +969,7 @@ pub async fn start_convo_session(
     {
         return (
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"success": false, "error": "Agent is unavailable"})),
+            Json(AppError::fail_json("Agent is unavailable")),
         )
             .into_response();
     }
@@ -1003,11 +1004,13 @@ pub async fn start_convo_session(
     .await
     {
         Ok(id) => id,
-        Err(_) => return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"success": false, "error": "Could not prepare Chat session"})),
-        )
-            .into_response(),
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(AppError::fail_json("Could not prepare Chat session")),
+            )
+                .into_response()
+        }
     };
     let (chat, key) = match crate::services::agora_chat::ChatSession::register(
         claims,
@@ -1019,7 +1022,7 @@ pub async fn start_convo_session(
         Err(message) => {
             return (
                 StatusCode::TOO_MANY_REQUESTS,
-                Json(serde_json::json!({"success": false, "error": message})),
+                Json(AppError::fail_json(message)),
             )
                 .into_response();
         }
@@ -1074,16 +1077,22 @@ fn json_ok_session(session: crate::services::agora_convo::ConvoSession) -> serde
 
 fn convo_error(error: crate::services::agora_convo::AgoraConvoError) -> impl IntoResponse {
     use crate::services::agora_convo::AgoraConvoError;
-    let (status, message) = match &error {
+    let (status, message, code) = match &error {
         AgoraConvoError::SessionUnavailable => (
             StatusCode::NOT_FOUND,
             "Realtime session is unavailable".to_string(),
+            "realtime_session_unavailable",
         ),
-        AgoraConvoError::NotConfigured(msg) => (StatusCode::SERVICE_UNAVAILABLE, msg.clone()),
-        AgoraConvoError::Token(e) => (StatusCode::BAD_REQUEST, e.to_string()),
+        AgoraConvoError::NotConfigured(msg) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            msg.clone(),
+            "speech_not_configured",
+        ),
+        AgoraConvoError::Token(e) => (StatusCode::BAD_REQUEST, e.to_string(), "bad_request"),
         AgoraConvoError::Network(msg) => (
             StatusCode::BAD_GATEWAY,
             format!("Speech service is unreachable: {msg}"),
+            "speech_upstream_failed",
         ),
         AgoraConvoError::Api {
             status: http_status,
@@ -1092,15 +1101,16 @@ fn convo_error(error: crate::services::agora_convo::AgoraConvoError) -> impl Int
             // Provider errors may echo the LLM callback key or TTS credentials.
             let detail =
                 format!("Realtime voice provider rejected the request (HTTP {http_status})");
-            (StatusCode::BAD_GATEWAY, detail)
+            (StatusCode::BAD_GATEWAY, detail, "speech_upstream_failed")
         }
     };
     (
         status,
-        Json(serde_json::json!({
-            "success": false,
-            "error": message,
-        })),
+        Json(
+            AppError::from_status_u16(status.as_u16(), message)
+                .with_code(code)
+                .to_json(),
+        ),
     )
 }
 
@@ -1171,99 +1181,99 @@ pub async fn get_voice_list() -> impl IntoResponse {
             VoiceInfo {
                 id: voice_types::ZHI_XIAO_WU,
                 name: "智小悟".to_string(),
-                gender: "男".to_string(),
-                language: "中英文".to_string(),
-                description: "聊天男声，自然流畅".to_string(),
+                gender: "male".to_string(),
+                language: "zh-en".to_string(),
+                description: "Natural male chat voice".to_string(),
                 voice_type: "ultra_natural".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::ZHI_XIAO_JIE,
                 name: "智小解".to_string(),
-                gender: "男".to_string(),
-                language: "中英文".to_string(),
-                description: "解说男声，适合播客".to_string(),
+                gender: "male".to_string(),
+                language: "zh-en".to_string(),
+                description: "Male narrator, good for podcasts".to_string(),
                 voice_type: "ultra_natural".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::ZHI_XIAO_ROU,
                 name: "智小柔".to_string(),
-                gender: "女".to_string(),
-                language: "中英文".to_string(),
-                description: "聊天女声，温柔自然".to_string(),
+                gender: "female".to_string(),
+                language: "zh-en".to_string(),
+                description: "Gentle female chat voice".to_string(),
                 voice_type: "ultra_natural".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::ZHI_XIAO_MIN,
                 name: "智小敏".to_string(),
-                gender: "女".to_string(),
-                language: "中英文".to_string(),
-                description: "聊天女声，活泼清晰".to_string(),
+                gender: "female".to_string(),
+                language: "zh-en".to_string(),
+                description: "Bright, clear female chat voice".to_string(),
                 voice_type: "ultra_natural".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::ZHI_XIAO_MAN,
                 name: "智小满".to_string(),
-                gender: "女".to_string(),
-                language: "中英文".to_string(),
-                description: "营销女声，热情大方".to_string(),
+                gender: "female".to_string(),
+                language: "zh-en".to_string(),
+                description: "Warm female marketing voice".to_string(),
                 voice_type: "ultra_natural".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::NUAN_XIN_A_CAN,
                 name: "暖心阿灿".to_string(),
-                gender: "男".to_string(),
-                language: "中英文".to_string(),
-                description: "聊天男声，温暖亲切".to_string(),
+                gender: "male".to_string(),
+                language: "zh-en".to_string(),
+                description: "Warm, friendly male chat voice".to_string(),
                 voice_type: "ultra_natural".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::ZHUAN_YE_ZI_XIN,
                 name: "专业梓欣".to_string(),
-                gender: "女".to_string(),
-                language: "中英文".to_string(),
-                description: "聊天女声，专业稳重".to_string(),
+                gender: "female".to_string(),
+                language: "zh-en".to_string(),
+                description: "Steady professional female chat voice".to_string(),
                 voice_type: "ultra_natural".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::SUI_HE_LAO_LI,
                 name: "随和老李".to_string(),
-                gender: "男".to_string(),
-                language: "中英文".to_string(),
-                description: "聊天男声，沉稳随和".to_string(),
+                gender: "male".to_string(),
+                language: "zh-en".to_string(),
+                description: "Calm, easygoing male chat voice".to_string(),
                 voice_type: "ultra_natural".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::WEN_ROU_XIAO_NING,
                 name: "温柔小柠".to_string(),
-                gender: "女".to_string(),
-                language: "中英文".to_string(),
-                description: "聊天女声，温柔甜美".to_string(),
+                gender: "female".to_string(),
+                language: "zh-en".to_string(),
+                description: "Soft, sweet female chat voice".to_string(),
                 voice_type: "ultra_natural".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::ZHI_XIN_DA_LIN,
                 name: "知心大林".to_string(),
-                gender: "男".to_string(),
-                language: "中英文".to_string(),
-                description: "聊天男声，知性稳重".to_string(),
+                gender: "male".to_string(),
+                language: "zh-en".to_string(),
+                description: "Thoughtful, steady male chat voice".to_string(),
                 voice_type: "ultra_natural".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::ZHI_XIAO_HU,
                 name: "智小虎".to_string(),
-                gender: "男童".to_string(),
-                language: "中英文".to_string(),
-                description: "聊天童声，活泼可爱".to_string(),
+                gender: "boy".to_string(),
+                language: "zh-en".to_string(),
+                description: "Lively child chat voice".to_string(),
                 voice_type: "ultra_natural".to_string(),
                 emotion_support: false,
             },
@@ -1271,162 +1281,162 @@ pub async fn get_voice_list() -> impl IntoResponse {
             VoiceInfo {
                 id: voice_types::ZHI_BIN,
                 name: "智斌".to_string(),
-                gender: "男".to_string(),
-                language: "中英文".to_string(),
-                description: "阅读男声，适合新闻播报".to_string(),
+                gender: "male".to_string(),
+                language: "zh-en".to_string(),
+                description: "Male reading voice for news".to_string(),
                 voice_type: "llm".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::ZHI_LAN,
                 name: "智兰".to_string(),
-                gender: "女".to_string(),
-                language: "中英文".to_string(),
-                description: "资讯女声，专业清晰".to_string(),
+                gender: "female".to_string(),
+                language: "zh-en".to_string(),
+                description: "Clear female news voice".to_string(),
                 voice_type: "llm".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::ZHI_JU,
                 name: "智菊".to_string(),
-                gender: "女".to_string(),
-                language: "中英文".to_string(),
-                description: "阅读女声，温和大气".to_string(),
+                gender: "female".to_string(),
+                language: "zh-en".to_string(),
+                description: "Calm, full female reading voice".to_string(),
                 voice_type: "llm".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::ZHI_YU_LLM,
                 name: "智宇".to_string(),
-                gender: "男".to_string(),
-                language: "中英文".to_string(),
-                description: "阅读男声，稳重磁性".to_string(),
+                gender: "male".to_string(),
+                language: "zh-en".to_string(),
+                description: "Deep, steady male reading voice".to_string(),
                 voice_type: "llm".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::YUE_HUA,
                 name: "月华".to_string(),
-                gender: "女".to_string(),
-                language: "中英文".to_string(),
-                description: "聊天女声，温柔亲和".to_string(),
+                gender: "female".to_string(),
+                language: "zh-en".to_string(),
+                description: "Gentle female chat voice".to_string(),
                 voice_type: "llm".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::FEI_JING,
                 name: "飞镜".to_string(),
-                gender: "男".to_string(),
-                language: "中英文".to_string(),
-                description: "聊天男声，阳光开朗".to_string(),
+                gender: "male".to_string(),
+                language: "zh-en".to_string(),
+                description: "Bright, upbeat male chat voice".to_string(),
                 voice_type: "llm".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::QIAN_ZHANG,
                 name: "千嶂".to_string(),
-                gender: "男".to_string(),
-                language: "中英文".to_string(),
-                description: "聊天男声，成熟稳重".to_string(),
+                gender: "male".to_string(),
+                language: "zh-en".to_string(),
+                description: "Mature, steady male chat voice".to_string(),
                 voice_type: "llm".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::QIAN_CAO,
                 name: "浅草".to_string(),
-                gender: "男".to_string(),
-                language: "中英文".to_string(),
-                description: "聊天男声，清新自然".to_string(),
+                gender: "male".to_string(),
+                language: "zh-en".to_string(),
+                description: "Fresh, natural male chat voice".to_string(),
                 voice_type: "llm".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::AI_XIAO_XI,
                 name: "爱小溪".to_string(),
-                gender: "女".to_string(),
-                language: "中文".to_string(),
-                description: "聊天女声，支持多种情感".to_string(),
+                gender: "female".to_string(),
+                language: "zh".to_string(),
+                description: "Female chat voice with emotions".to_string(),
                 voice_type: "llm".to_string(),
                 emotion_support: true,
             },
             VoiceInfo {
                 id: voice_types::AI_XIAO_LUO,
                 name: "爱小洛".to_string(),
-                gender: "女".to_string(),
-                language: "中文".to_string(),
-                description: "阅读女声，支持多种情感".to_string(),
+                gender: "female".to_string(),
+                language: "zh".to_string(),
+                description: "Female reading voice with emotions".to_string(),
                 voice_type: "llm".to_string(),
                 emotion_support: true,
             },
             VoiceInfo {
                 id: voice_types::AI_XIAO_CHEN,
                 name: "爱小辰".to_string(),
-                gender: "男".to_string(),
-                language: "中文".to_string(),
-                description: "聊天男声，支持多种情感".to_string(),
+                gender: "male".to_string(),
+                language: "zh".to_string(),
+                description: "Male chat voice with emotions".to_string(),
                 voice_type: "llm".to_string(),
                 emotion_support: true,
             },
             VoiceInfo {
                 id: voice_types::AI_XIAO_HE,
                 name: "爱小荷".to_string(),
-                gender: "女".to_string(),
-                language: "中文".to_string(),
-                description: "阅读女声，支持故事/广播/诗歌等".to_string(),
+                gender: "female".to_string(),
+                language: "zh".to_string(),
+                description: "Female reading voice for stories, radio, and poetry".to_string(),
                 voice_type: "llm".to_string(),
                 emotion_support: true,
             },
             VoiceInfo {
                 id: voice_types::AI_XIAO_SHU,
                 name: "爱小树".to_string(),
-                gender: "男".to_string(),
-                language: "中文".to_string(),
-                description: "资讯男声，支持多种情感".to_string(),
+                gender: "male".to_string(),
+                language: "zh".to_string(),
+                description: "Male news voice with emotions".to_string(),
                 voice_type: "llm".to_string(),
                 emotion_support: true,
             },
             VoiceInfo {
                 id: voice_types::AI_XIAO_JING,
                 name: "爱小静".to_string(),
-                gender: "女".to_string(),
-                language: "中文".to_string(),
-                description: "聊天女声，支持多种情感".to_string(),
+                gender: "female".to_string(),
+                language: "zh".to_string(),
+                description: "Female chat voice with emotions".to_string(),
                 voice_type: "llm".to_string(),
                 emotion_support: true,
             },
             VoiceInfo {
                 id: voice_types::AI_XIAO_HAO,
                 name: "爱小豪".to_string(),
-                gender: "男".to_string(),
-                language: "中文".to_string(),
-                description: "聊天男声，支持多种情感".to_string(),
+                gender: "male".to_string(),
+                language: "zh".to_string(),
+                description: "Male chat voice with emotions".to_string(),
                 voice_type: "llm".to_string(),
                 emotion_support: true,
             },
             VoiceInfo {
                 id: voice_types::AI_XIAO_TONG,
                 name: "爱小童".to_string(),
-                gender: "男童".to_string(),
-                language: "中文".to_string(),
-                description: "男童声，支持多种情感".to_string(),
+                gender: "boy".to_string(),
+                language: "zh".to_string(),
+                description: "Boy voice with emotions".to_string(),
                 voice_type: "llm".to_string(),
                 emotion_support: true,
             },
             VoiceInfo {
                 id: voice_types::WE_JAMES,
                 name: "WeJames".to_string(),
-                gender: "男".to_string(),
-                language: "英文".to_string(),
-                description: "英文男声，外语专用".to_string(),
+                gender: "male".to_string(),
+                language: "en".to_string(),
+                description: "English male voice".to_string(),
                 voice_type: "llm".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::WE_WINNY,
                 name: "WeWinny".to_string(),
-                gender: "女".to_string(),
-                language: "英文".to_string(),
-                description: "英文女声，外语专用".to_string(),
+                gender: "female".to_string(),
+                language: "en".to_string(),
+                description: "English female voice".to_string(),
                 voice_type: "llm".to_string(),
                 emotion_support: false,
             },
@@ -1434,72 +1444,72 @@ pub async fn get_voice_list() -> impl IntoResponse {
             VoiceInfo {
                 id: voice_types::ZHI_YUN,
                 name: "智云".to_string(),
-                gender: "男".to_string(),
-                language: "中文".to_string(),
-                description: "通用男声，稳重大气".to_string(),
+                gender: "male".to_string(),
+                language: "zh".to_string(),
+                description: "Steady general male voice".to_string(),
                 voice_type: "premium".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::ZHI_YU,
                 name: "智瑜".to_string(),
-                gender: "女".to_string(),
-                language: "中文".to_string(),
-                description: "情感女声，温柔细腻".to_string(),
+                gender: "female".to_string(),
+                language: "zh".to_string(),
+                description: "Soft emotional female voice".to_string(),
                 voice_type: "premium".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::ZHI_XI,
                 name: "智希".to_string(),
-                gender: "女".to_string(),
-                language: "中文".to_string(),
-                description: "通用女声，清新自然".to_string(),
+                gender: "female".to_string(),
+                language: "zh".to_string(),
+                description: "Fresh general female voice".to_string(),
                 voice_type: "premium".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::ZHI_KE,
                 name: "智柯".to_string(),
-                gender: "男".to_string(),
-                language: "中文".to_string(),
-                description: "通用男声，年轻活力".to_string(),
+                gender: "male".to_string(),
+                language: "zh".to_string(),
+                description: "Young, energetic male voice".to_string(),
                 voice_type: "premium".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::ZHI_HUI,
                 name: "智辉".to_string(),
-                gender: "男".to_string(),
-                language: "中文".to_string(),
-                description: "新闻男声，专业播报".to_string(),
+                gender: "male".to_string(),
+                language: "zh".to_string(),
+                description: "Professional male news voice".to_string(),
                 voice_type: "premium".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::ZHI_YAN,
                 name: "智燕".to_string(),
-                gender: "女".to_string(),
-                language: "中文".to_string(),
-                description: "新闻女声，端庄大方".to_string(),
+                gender: "female".to_string(),
+                language: "zh".to_string(),
+                description: "Poised female news voice".to_string(),
                 voice_type: "premium".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::ZHI_TONG,
                 name: "智彤".to_string(),
-                gender: "女".to_string(),
-                language: "粤语".to_string(),
-                description: "粤语女声，地道流畅".to_string(),
+                gender: "female".to_string(),
+                language: "yue".to_string(),
+                description: "Cantonese female voice".to_string(),
                 voice_type: "premium".to_string(),
                 emotion_support: false,
             },
             VoiceInfo {
                 id: voice_types::WE_JACK,
                 name: "WeJack".to_string(),
-                gender: "男".to_string(),
-                language: "英文".to_string(),
-                description: "英文男声，标准发音".to_string(),
+                gender: "male".to_string(),
+                language: "en".to_string(),
+                description: "English male voice, standard accent".to_string(),
                 voice_type: "premium".to_string(),
                 emotion_support: false,
             },
@@ -1530,51 +1540,52 @@ pub async fn get_engine_list() -> impl IntoResponse {
         engines: vec![
             EngineInfo {
                 id: asr_engines::ZH_16K.to_string(),
-                name: "中文通用".to_string(),
-                language: "中文".to_string(),
-                description: "16kHz采样率，适用于通用中文语音识别".to_string(),
+                name: "Chinese general".to_string(),
+                language: "zh".to_string(),
+                description: "16 kHz, general Chinese speech recognition".to_string(),
             },
             EngineInfo {
                 id: asr_engines::EN_16K.to_string(),
-                name: "英文通用".to_string(),
-                language: "英文".to_string(),
-                description: "16kHz采样率，适用于通用英文语音识别".to_string(),
+                name: "English general".to_string(),
+                language: "en".to_string(),
+                description: "16 kHz, general English speech recognition".to_string(),
             },
             EngineInfo {
                 id: asr_engines::YUE_16K.to_string(),
-                name: "粤语".to_string(),
-                language: "粤语".to_string(),
-                description: "16kHz采样率，适用于粤语语音识别".to_string(),
+                name: "Cantonese".to_string(),
+                language: "yue".to_string(),
+                description: "16 kHz, Cantonese speech recognition".to_string(),
             },
             EngineInfo {
                 id: asr_engines::JA_16K.to_string(),
-                name: "日语".to_string(),
-                language: "日语".to_string(),
-                description: "16kHz采样率，适用于日语语音识别".to_string(),
+                name: "Japanese".to_string(),
+                language: "ja".to_string(),
+                description: "16 kHz, Japanese speech recognition".to_string(),
             },
             EngineInfo {
                 id: asr_engines::KO_16K.to_string(),
-                name: "韩语".to_string(),
-                language: "韩语".to_string(),
-                description: "16kHz采样率，适用于韩语语音识别".to_string(),
+                name: "Korean".to_string(),
+                language: "ko".to_string(),
+                description: "16 kHz, Korean speech recognition".to_string(),
             },
             EngineInfo {
                 id: asr_engines::ZH_PY_16K.to_string(),
-                name: "中英粤混合".to_string(),
-                language: "混合".to_string(),
-                description: "16kHz采样率，支持中文、英文、粤语混合识别".to_string(),
+                name: "Chinese/English/Cantonese mix".to_string(),
+                language: "mixed".to_string(),
+                description: "16 kHz, mixed Chinese, English, and Cantonese recognition"
+                    .to_string(),
             },
             EngineInfo {
                 id: asr_engines::ZH_8K.to_string(),
-                name: "中文电话".to_string(),
-                language: "中文".to_string(),
-                description: "8kHz采样率，适用于电话录音识别".to_string(),
+                name: "Chinese telephony".to_string(),
+                language: "zh".to_string(),
+                description: "8 kHz, Chinese telephone-audio recognition".to_string(),
             },
             EngineInfo {
                 id: asr_engines::EN_8K.to_string(),
-                name: "英文电话".to_string(),
-                language: "英文".to_string(),
-                description: "8kHz采样率，适用于英文电话录音识别".to_string(),
+                name: "English telephony".to_string(),
+                language: "en".to_string(),
+                description: "8 kHz, English telephone-audio recognition".to_string(),
             },
         ],
     })
@@ -1625,7 +1636,7 @@ pub struct VoiceCacheInfo {
     pub voice_id: i32,
     /// 音色名称（如果已知）
     pub voice_name: Option<String>,
-    /// 角色类型 (host/guest)
+    /// 角色类型：偶索引全 host、奇索引全 guest，否则 mixed
     pub role: String,
     /// 文件数量
     pub file_count: usize,
@@ -1839,3 +1850,4 @@ pub async fn clear_article_voice_cache(
     })
     .into_response()
 }
+use myriad_error::AppError;

@@ -1,17 +1,4 @@
-/**
- * Progressive Web App lifecycle: Service Worker + web app manifest.
- *
- * Controlled by site setting `pwa_enabled` (default true). Production only —
- * dev always unregisters SW so local API/proxy work is not hijacked by cache.
- *
- * Install icons are composed at runtime from `site_favicon` (site logo):
- * white canvas background (transparent logos), contained logo with controllable
- * scale, 192/512 + maskable PNGs as **data:** URLs (not blob:). Chrome's
- * installability pipeline cannot fetch page-scoped blob: icon URLs, which made
- * the install affordance appear then vanish after branding.
- * Unproxied cross-origin favicons are skipped (no ACAO → canvas taint / CORS
- * error); the static `/icons/pwa/*` set stays installable.
- */
+/** Dev always unregisters SW (must not cache API/proxy). */
 
 import { API_URL } from '../config'
 import { proxyImageUrl } from './proxyImageUrl'
@@ -20,26 +7,18 @@ const SW_URL = '/sw.js'
 const MANIFEST_HREF = '/manifest.webmanifest'
 const APPLE_TOUCH_HREF = '/icons/pwa/icon-192.png'
 
-/** Solid fill behind site logos that have transparency (iOS/Android icons). */
 export const PWA_ICON_BACKGROUND = '#ffffff'
 
-/**
- * How large the logo is drawn inside the square icon (0.35–1).
- * 0.8 leaves ~10% padding on each side for “any” purpose icons.
- */
 export const DEFAULT_PWA_LOGO_SCALE = 0.8
 export const PWA_LOGO_SCALE_MIN = 0.35
 export const PWA_LOGO_SCALE_MAX = 1
 
-/** Maskable safe-zone is ~80% of the canvas; scale logo relative to that. */
 const MASKABLE_SAFE_ZONE = 0.8
 
 let lastAppliedEnabled: boolean | null = null
 let applyInFlight: Promise<void> | null = null
 let brandingGeneration = 0
-/** Last composed apple-touch href (data: or static); kept across SW re-apply. */
 let lastAppleTouchHref: string | null = null
-/** Last branding payload so re-enabling PWA can rebuild icons without a full reload. */
 let lastBrandingOptions: {
   name?: string
   description?: string
@@ -53,7 +32,6 @@ function isProdBrowser(): boolean {
   return (
     typeof window !== 'undefined' &&
     typeof navigator !== 'undefined' &&
-    // Vite / Astro: DEV is true in astro dev; PROD when built.
     Boolean(import.meta.env.PROD)
   )
 }
@@ -140,7 +118,6 @@ function setAppleWebAppMeta(enabled: boolean): void {
     el.setAttribute('content', 'yes')
   }
 
-  // Keep install title meta only while PWA is on; content is set by branding.
   if (!enabled) {
     document
       .querySelectorAll(
@@ -150,10 +127,6 @@ function setAppleWebAppMeta(enabled: boolean): void {
   }
 }
 
-/**
- * Sync home-screen / install title metas with site branding.
- * (Static HTML ships `Myriad` as SSR fallback until metadata loads.)
- */
 function setInstallAppTitle(title: string): void {
   if (typeof document === 'undefined') return
   const value = title.trim()
@@ -172,14 +145,6 @@ function setInstallAppTitle(title: string): void {
   }
 }
 
-/**
- * Resolve a manifest URL field against the document origin.
- * Blob-served manifests treat relative paths as invalid (they resolve against
- * `blob:https://host/uuid` rather than the site origin).
- *
- * `data:` and `blob:` icons are already absolute — leave them unchanged.
- * Prefer `data:` for install icons; `blob:` icons break Chrome installability.
- */
 export function resolveManifestUrl(
   value: unknown,
   origin: string,
@@ -204,10 +169,6 @@ interface ManifestIcon {
   [key: string]: unknown
 }
 
-/**
- * Rewrite relative start_url / scope / id / icon src to absolute URLs so a
- * blob: manifest link remains installable.
- */
 export function absolutizeManifestUrls(
   manifest: Record<string, unknown>,
   origin: string,
@@ -220,8 +181,6 @@ export function absolutizeManifestUrls(
   const scope = resolveManifestUrl(manifest.scope ?? '/', origin)
   if (scope) next.scope = scope
 
-  // `id` is resolved as a URL against the manifest URL in the installability
-  // pipeline; keep it absolute for the same blob: reason.
   const id = resolveManifestUrl(manifest.id ?? '/', origin)
   if (id) next.id = id
 
@@ -236,7 +195,6 @@ export function absolutizeManifestUrls(
   return next
 }
 
-/** Clamp logo scale used when compositing site logo into PWA icons. */
 export function clampPwaLogoScale(scale: unknown): number {
   const n = typeof scale === 'number' ? scale : Number(scale)
   if (!Number.isFinite(n)) return DEFAULT_PWA_LOGO_SCALE
@@ -246,10 +204,6 @@ export function clampPwaLogoScale(scale: unknown): number {
   )
 }
 
-/**
- * Contain-fit the logo inside a square canvas at `logoScale` of the canvas size.
- * Pure geometry — unit-tested without canvas.
- */
 export function computeContainedLogoRect(
   sourceWidth: number,
   sourceHeight: number,
@@ -291,11 +245,7 @@ export function computeContainedLogoRect(
   }
 }
 
-/**
- * Resolve site logo URL for canvas readback.
- * Same-origin / data: stay as-is; hotlink CDNs use image proxy (CORS + Referer);
- * other external hosts keep original URL (dual-path — not on proxy allowlist).
- */
+/** Hotlink CDNs via proxy (CORS); else original URL. */
 export function resolvePwaIconSourceUrl(
   iconUrl: string,
   origin: string,
@@ -310,13 +260,10 @@ export function resolvePwaIconSourceUrl(
     if (abs.origin === origin || abs.origin === new URL(origin).origin) {
       return abs.href
     }
-    // Dual-path via shared proxyImageUrl (needs-proxy hosts only).
-    // Temporarily override API_URL base if caller passed a custom apiBase.
     const proxied = proxyImageUrl(abs.href)
     if (!proxied) return abs.href
     if (apiBase && proxied.includes('/api/proxy/image')) {
-      const base = apiBase.replace(/\/$/, '')
-      // Re-base absolute API host if proxyImageUrl used CONFIG API_URL
+      const base = apiBase.replaceAll(/\/$/g, '')
       const q = proxied.indexOf('/api/proxy/image')
       if (q >= 0) return `${base}${proxied.slice(q)}`
     }
@@ -326,12 +273,7 @@ export function resolvePwaIconSourceUrl(
   }
 }
 
-/**
- * Canvas readback needs a CORS-clean bitmap. Same-origin, data/blob, and the
- * image proxy qualify. Unproxied cross-origin URLs usually have no ACAO
- * (static file hosts, personal CDNs) — fetching them with mode:cors only
- * produces a console error and cannot be drawn.
- */
+/** Canvas readback needs CORS. */
 export function pwaIconIsCanvasReadable(src: string, origin: string): boolean {
   const trimmed = src.trim()
   if (!trimmed) return false
@@ -349,15 +291,10 @@ type DrawableImage = CanvasImageSource & {
   height: number
 }
 
-/**
- * Load a logo for canvas draw. Prefer fetch + createImageBitmap (better ICO /
- * odd MIME handling); fall back to HTMLImageElement.
- */
 async function loadImageForCanvas(src: string): Promise<DrawableImage> {
   const fail = (reason: string) =>
     new Error(`[PWA] failed to load icon source (${reason}): ${src.slice(0, 120)}`)
 
-  // Same-origin proxy / data: — fetch avoids partial Image() ICO failures.
   if (!src.startsWith('blob:')) {
     try {
       const response = await fetch(src, {
@@ -380,7 +317,6 @@ async function loadImageForCanvas(src: string): Promise<DrawableImage> {
           }
           bitmap.close()
         } catch {
-          /* try Image() below with object URL */
         }
       }
       const objectUrl = URL.createObjectURL(blob)
@@ -394,11 +330,9 @@ async function loadImageForCanvas(src: string): Promise<DrawableImage> {
         }
       }
     } catch (error) {
-      // Fall through to direct Image() for data: or when fetch is blocked.
       if (src.startsWith('data:')) {
         return loadHtmlImage(src)
       }
-      // Last attempt: Image with crossOrigin (proxy may still work).
       try {
         return await loadHtmlImage(src, true)
       } catch {
@@ -444,10 +378,6 @@ function sourcePixelSize(img: DrawableImage): { width: number; height: number } 
   return { width: img.width, height: img.height }
 }
 
-/**
- * Export canvas as a PNG data URL for web-app-manifest icons.
- * data: is self-contained and installable; blob: is not (out-of-process fetch).
- */
 export function canvasToPngDataUrl(canvas: HTMLCanvasElement): string {
   let dataUrl: string
   try {
@@ -462,16 +392,12 @@ export function canvasToPngDataUrl(canvas: HTMLCanvasElement): string {
   if (!dataUrl.startsWith('data:image/png')) {
     throw new Error('[PWA] canvas.toDataURL did not return image/png data URL')
   }
-  // Reject near-empty exports (encode failure / fully transparent glitch).
   if (dataUrl.length < 64) {
     throw new Error('[PWA] composed PNG data URL is too small')
   }
   return dataUrl
 }
 
-/**
- * Draw a loaded logo onto a square canvas and export PNG data URL.
- */
 function renderLogoToPngDataUrl(
   img: DrawableImage,
   size: number,
@@ -522,7 +448,6 @@ async function composeBrandedIconSet(options: {
     if (!pwaIconIsCanvasReadable(fetchUrl, options.origin)) {
       return null
     }
-    // Decode once — reuse for 192 / 512 / maskable (ICO + proxy more reliable).
     img = await loadImageForCanvas(fetchUrl)
 
     const icon192 = renderLogoToPngDataUrl(img, 192, scale, bg)
@@ -572,38 +497,22 @@ async function composeBrandedIconSet(options: {
   }
 }
 
-/**
- * Update manifest name/short_name/icons from site branding when possible.
- * Manifest document is served as a blob: URL (no backend endpoint). Icons use
- * **data:** PNG URLs so Chrome installability still holds after branding.
- *
- * Relative start_url / scope / id / static icon paths are absolutized — blob
- * manifests resolve relative URLs against `blob:https://host/uuid`.
- */
 export function updateManifestBranding(options: {
   name?: string
   description?: string
   themeColor?: string
-  /** Site logo / favicon URL (relative, absolute, or data:) */
   iconUrl?: string
-  /**
-   * Logo size inside the icon square (0.35–1). Default 0.8.
-   * Maskable icons use 80% of this so the mark stays in the safe zone.
-   */
   logoScale?: number
-  /** Icon canvas fill; default `#ffffff` for transparent logos */
   iconBackground?: string
 }): void {
   if (typeof document === 'undefined' || !import.meta.env.PROD) return
 
-  // Always remember latest branding so toggling PWA back on can recompose.
   lastBrandingOptions = { ...options }
   if (lastAppliedEnabled === false) return
 
   const name = options.name?.trim()
   if (!name) return
 
-  // iOS/Android install title (home screen label) — sync even before blob manifest lands.
   setInstallAppTitle(name)
 
   const origin = window.location.origin
@@ -650,7 +559,6 @@ export function updateManifestBranding(options: {
         }
       }
 
-      // data: icons pass through; HTTPS static icons are absolutized.
       const next = absolutizeManifestUrls(branded, origin)
       const blob = new Blob([JSON.stringify(next)], {
         type: 'application/manifest+json',
@@ -672,7 +580,6 @@ export function updateManifestBranding(options: {
         }
       }
     } catch {
-      /* keep static manifest */
     }
   })()
 }
@@ -710,17 +617,13 @@ async function registerServiceWorker(): Promise<void> {
   }
 }
 
-/**
- * Apply PWA on/off: SW + manifest + Apple install meta.
- * Safe to call repeatedly; skips work when state is unchanged.
- */
 export async function applyPwaEnabled(enabled: boolean): Promise<void> {
   if (applyInFlight) {
     await applyInFlight
   }
 
   const run = async () => {
-    // Dev: always strip SW so HMR / API proxy are never cached by production SW.
+    // Dev: strip SW so HMR/API are never cached.
     if (!isProdBrowser()) {
       ensureManifestLink(false)
       ensureAppleTouchIcon(false)
@@ -730,7 +633,6 @@ export async function applyPwaEnabled(enabled: boolean): Promise<void> {
       await unregisterAllServiceWorkers()
       await clearMyriadCaches()
       lastAppliedEnabled = false
-      // One-shot reload so an already-controlling SW drops control after unregister.
       if (
         hadController &&
         !sessionStorage.getItem('myriad-dev-sw-reset')
@@ -750,7 +652,6 @@ export async function applyPwaEnabled(enabled: boolean): Promise<void> {
 
     if (enabled) {
       await registerServiceWorker()
-      // Rebuild name/icons from last site metadata (static → site logo).
       if (lastBrandingOptions) {
         updateManifestBranding(lastBrandingOptions)
       }
@@ -774,14 +675,9 @@ function parsePwaEnabled(raw: unknown): boolean {
     if (s === 'false' || s === '0' || s === 'off' || s === 'no') return false
     return true
   }
-  // Missing key → keep historical default (PWA on)
   return true
 }
 
-/**
- * Read public UI config and sync PWA state.
- * Call on boot and after admin saves `pwa_enabled`.
- */
 export async function syncPwaFromServer(): Promise<boolean> {
   let enabled = true
   try {
@@ -796,16 +692,11 @@ export async function syncPwaFromServer(): Promise<boolean> {
       enabled = parsePwaEnabled(data?.pwa_enabled)
     }
   } catch {
-    // Network failure: leave prior state; first boot still applies default true via apply.
   }
   await applyPwaEnabled(enabled)
   return enabled
 }
 
-/**
- * Boot entry for Astro shell scripts: after load, sync from server.
- * DEV unregisters; PROD registers only when `pwa_enabled` is true.
- */
 export function initPwaLifecycle(): void {
   if (typeof window === 'undefined') return
 

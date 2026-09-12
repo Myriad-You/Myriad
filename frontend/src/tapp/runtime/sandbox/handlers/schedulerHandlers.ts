@@ -1,13 +1,4 @@
-/**
- * Scheduler 处理器
- *
- * 接通前端 TappScheduler（WebSocket 客户端）与后端已就绪的调度引擎
- * （/api/tapp/scheduler/*）。让 Tapp 通过 `Tapp.scheduler` 注册定时任务，
- * 后端到期后经 WS 推送 frontend 任务，这里转发进沙箱触发 onTask 回调。
- *
- * 懒连接：仅在 Tapp 首次调用 scheduler.* 时才初始化并建立 WebSocket，
- * 未使用调度的会话不会空开连接。后端权限（scheduler:register）由服务端强制。
- */
+/** 首次 scheduler.* 才连 WS。scheduler:register 由服务端强制。 */
 
 import type { TappInstance } from '../../../types'
 import type { TappBridge } from '../../TappBridge'
@@ -19,11 +10,9 @@ import { getTappScheduler, TappScheduler } from '../../TappScheduler'
 let schedulerInitialized = false
 let schedulerUsers = 0
 
-/** 懒初始化调度器（设置 apiBaseUrl 并建立 WS，仅一次） */
 function getOrInitScheduler() {
   const scheduler = getTappScheduler()
   if (!schedulerInitialized) {
-    // cookie 会话鉴权：authToken 传空，依赖同源 cookie（见 TappScheduler.apiRequest/connect）
     scheduler.initialize(`${API_URL}/api`, '')
     schedulerInitialized = true
   }
@@ -68,21 +57,25 @@ export function registerSchedulerHandlers(
       tappInstance.id,
       taskId,
       (payload, event) => {
-        return new Promise<void>((resolve, reject) => {
-          if (!event.executionId) {
-            reject(new Error('Scheduler execution ID missing'))
-            return
-          }
-          const timeout = setTimeout(
-            () => {
-              pendingExecutions.delete(event.executionId)
-              reject(new Error('Sandbox scheduler callback timed out'))
-            },
-            5 * 60 * 1000,
-          )
-          pendingExecutions.set(event.executionId, { resolve, reject, timeout })
-          bridge.emit('schedulerTask', { taskId, payload, event })
+        const deferred = Promise.withResolvers<void>()
+        if (!event.executionId) {
+          deferred.reject(new Error('Scheduler execution ID missing'))
+          return deferred.promise
+        }
+        const timeout = setTimeout(
+          () => {
+            pendingExecutions.delete(event.executionId)
+            deferred.reject(new Error('Sandbox scheduler callback timed out'))
+          },
+          5 * 60 * 1000,
+        )
+        pendingExecutions.set(event.executionId, {
+          resolve: deferred.resolve,
+          reject: deferred.reject,
+          timeout,
         })
+        bridge.emit('schedulerTask', { taskId, payload, event })
+        return deferred.promise
       },
     )
     taskSubscriptions.set(taskId, unsubscribe)
@@ -109,8 +102,7 @@ export function registerSchedulerHandlers(
           await bridge.getRuntimeGrant(),
         )
       } catch (error) {
-        // core 会在 Page/Widget/headless 生命周期中重复启动。注册操作保持幂等：
-        // 若后端已有同 ID 任务，复用现有定义并重新绑定本次沙箱回调。
+        // core 会在各生命周期重复启动。注册保持幂等。
         task = await scheduler.getTask(
           tappInstance.id,
           opts.taskId,
@@ -199,8 +191,6 @@ export function registerSchedulerHandlers(
     })
   }
 
-  // onTask 是沙箱内的同步事件 API；subscribe/unsubscribe 只负责把宿主 WS
-  // 回调绑定到当前 bridge，任务本身无需重新注册。
   bridge.registerHandler('scheduler.subscribe', async (message) => {
     const [taskId] = (message.payload as { args: unknown[] }).args || []
     if (!taskId) return { success: false, error: 'taskId required' }

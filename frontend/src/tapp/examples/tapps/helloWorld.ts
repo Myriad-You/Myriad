@@ -1,12 +1,5 @@
-/**
- * Hello World Tapp
- * 官方入门示例，演示 Tapp 生命周期与常用 API
- * @version 1.0.0
- */
-
 import type { ExampleTapp, TappPlaygroundCode } from './types'
 
-// 页面 HTML 模板
 const PAGE_HTML = `<!-- 背景层 -->
 <div id="tapp-background">
   <div class="hw-bg-base"></div>
@@ -98,7 +91,6 @@ const PAGE_HTML = `<!-- 背景层 -->
 </div>
 `
 
-// CSS 样式
 const STYLES = `/* ========== CSS 变量 ========== */
 :root {
   --hw-primary: var(--tapp-primary, #10B981);
@@ -365,9 +357,8 @@ body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
 }
 `
 
-// 核心代码
 const CORE_CODE = `// ========== i18n 翻译表 ==========
-var i18n = {
+const i18n = {
   'zh-CN': {
     title: 'Hello World',
     subtitle: '欢迎使用 Tapp 系统！探索下方卡片了解核心功能。',
@@ -413,24 +404,40 @@ var i18n = {
     },
     footer: 'Myriad Tapp System で動作中',
   },
+  'zh-TW': {
+    title: 'Hello World',
+    subtitle: '歡迎使用 Tapp 系統！探索下方卡片了解核心功能。',
+    features: {
+      lifecycle: { title: '生命週期', desc: 'onReady/onDestroy 完整生命週期管理' },
+      storage: { title: '儲存 API', desc: '持久化資料儲存，跨工作階段保持' },
+      theme: { title: '主題適配', desc: '自動適應系統明暗主題' },
+      page: { title: '頁面元件', desc: '註冊自訂頁面，支援全螢幕模式' },
+      security: { title: 'DOM 安全', desc: '內建 XSS 防護的安全渲染' },
+      responsive: { title: '自適應尺寸', desc: 'CSS 變數驅動的回應式設計' },
+      i18n: { title: '國際化', desc: '多語言支援，即時切換' },
+      cssArch: { title: 'CSS 架構', desc: '支援統一/分離/混合三種模式' },
+    },
+    footer: '由 Myriad Tapp 系統驅動',
+  },
 };
 
-var currentLocale = 'zh-CN';
+let currentLocale = 'en-US';
 
 function normalizeLocale(locale) {
-  if (!locale) return 'zh-CN';
-  var l = locale.toLowerCase();
+  if (!locale) return 'en-US';
+  const l = String(locale).toLowerCase().replaceAll('_', '-');
+  if (l.startsWith('zh-tw') || l.startsWith('zh-hk') || l.startsWith('zh-mo') || l.includes('hant')) return 'zh-TW';
   if (l.startsWith('zh')) return 'zh-CN';
   if (l.startsWith('en')) return 'en-US';
   if (l.startsWith('ja')) return 'ja-JP';
-  return 'zh-CN';
+  return 'en-US';
 }
 
 function t(key) {
-  var keys = key.split('.');
-  var value = i18n[currentLocale] || i18n['zh-CN'];
-  for (var i = 0; i < keys.length; i++) {
-    value = value[keys[i]];
+  const keys = key.split('.');
+  let value = i18n[currentLocale] || i18n['en-US'];
+  for (const part of keys) {
+    value = value[part];
     if (!value) return key;
   }
   return value;
@@ -438,7 +445,7 @@ function t(key) {
 
 // 更新页面文本（i18n）
 function updateTexts() {
-  var el;
+  let el;
   
   // 标题区域
   el = document.getElementById('hw-title');
@@ -448,7 +455,7 @@ function updateTexts() {
   if (el) Tapp.dom.setText(el, t('subtitle'));
   
   // 功能卡片
-  var features = ['lifecycle', 'storage', 'theme', 'page', 'security', 'responsive', 'i18n', 'cssArch'];
+  const features = ['lifecycle', 'storage', 'theme', 'page', 'security', 'responsive', 'i18n', 'cssArch'];
   features.forEach(function(key) {
     el = document.getElementById('hw-feat-' + key + '-title');
     if (el) Tapp.dom.setText(el, t('features.' + key + '.title'));
@@ -461,22 +468,25 @@ function updateTexts() {
   el = document.getElementById('hw-footer');
   if (el) Tapp.dom.setText(el, t('footer'));
 }
+
+module.exports = {
+  setLocale(locale) {
+    currentLocale = normalizeLocale(locale);
+    updateTexts();
+  },
+};
 `
 
-// 页面代码
-const PAGE_CODE = `var isPaused = false;
+const PAGE_CODE = `const { setLocale } = require('../core.js');
+let isPaused = false;
 
 Tapp.lifecycle.onReady(async function() {
   // 获取当前语言并更新文本
-  var locale = await Tapp.ui.getLocale();
-  currentLocale = normalizeLocale(locale);
-  updateTexts();
+  const locale = await Tapp.ui.getLocale();
+  setLocale(locale);
   
   // 监听语言变化
-  Tapp.ui.onLocaleChange(function(newLocale) {
-    currentLocale = normalizeLocale(newLocale);
-    updateTexts();
-  });
+  Tapp.ui.onLocaleChange(setLocale);
 });
 
 // 页面不可见时暂停
@@ -494,7 +504,7 @@ Tapp.lifecycle.onDestroy(async function() {
 });
 `
 
-// 导出 Tapp 定义。core 是共享层，打包时落到 core.js，page 落到 page/index.js。
+// core 落到 core.js，page 落到 page/index.js。
 const codeStructure: TappPlaygroundCode = {
   core: CORE_CODE,
   page: PAGE_CODE,

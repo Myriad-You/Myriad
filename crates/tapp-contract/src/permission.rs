@@ -318,6 +318,27 @@ impl TappPermission {
         )
     }
 
+    /// Capabilities served by the federation component, across every level.
+    ///
+    /// Catalog fact only: it says which permissions *belong to* federation, not
+    /// whether federation is reachable. Whether the component is live is an
+    /// I/O-derived runtime decision and stays on the backend side of the I/O
+    /// wall (`services::federation_gate`).
+    pub fn is_federation(&self) -> bool {
+        matches!(
+            self,
+            TappPermission::FederationRead
+                | TappPermission::FederationMessage
+                | TappPermission::FederationFiles
+                | TappPermission::FederationInteract
+                | TappPermission::FederationRing
+                | TappPermission::FederationPost
+                | TappPermission::FederationChannel
+                | TappPermission::FederationRoom
+                | TappPermission::FederationTrust
+        )
+    }
+
     /// 获取权限等级
     pub fn level(&self) -> PermissionLevel {
         match self {
@@ -536,6 +557,21 @@ impl PermissionLevel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `is_federation` is a hand-written match; the permission names are the
+    /// source of truth. Adding a `federation:*` capability without listing it
+    /// there would leave it granted while the component is switched off.
+    #[test]
+    fn is_federation_matches_the_permission_namespace() {
+        for permission in TappPermission::ALL {
+            assert_eq!(
+                permission.is_federation(),
+                permission.as_str().starts_with("federation:"),
+                "{} disagrees with its namespace",
+                permission.as_str()
+            );
+        }
+    }
 
     fn assert_catalog_covers(permission: TappPermission) {
         match permission {

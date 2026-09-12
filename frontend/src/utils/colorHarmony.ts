@@ -1,11 +1,3 @@
-/**
- * 封面双色渐变和谐化。
- *
- * 取色常会抽出互补主次色（棕↔蓝、红↔青）。直接铺 135° 渐变时，
- * sRGB 中间段会混出脏灰或过电的「雷霆」色。这里把次色拉回主色邻近色相，
- * 并压一点饱和，让两端像同一束光。
- */
-
 export interface GradientPalette {
   primary: string
   secondary: string
@@ -30,12 +22,10 @@ interface Hsl {
   l: number
 }
 
-/** Analogous window for a gradient pair (~58°). Beyond this the mid-mix goes muddy. */
+/** ~58° */
 const MAX_GRADIENT_HUE = 0.16
-/** Past this, treat the candidate as a clash and synthesize a companion. */
 const CLASH_HUE = 0.28
 const NEAR_GRAY_SATURATION = 0.12
-/** Soft cap so the play button doesn't go neon. */
 const MAX_STOP_SATURATION = 0.68
 const MIN_LIGHTNESS_GAP = 0.1
 
@@ -43,13 +33,13 @@ function wrapHue(h: number): number {
   return ((h % 1) + 1) % 1
 }
 
-/** Circular hue distance in [0, 0.5] (0.5 = 180°). */
+/** [0, 0.5]; 0.5 = 180° */
 function hueDistance(a: number, b: number): number {
   const d = Math.abs(a - b)
   return Math.min(d, 1 - d)
 }
 
-/** Signed shortest path from `from` to `to` in (-0.5, 0.5]. */
+/** (-0.5, 0.5] */
 function signedHueDelta(from: number, to: number): number {
   let d = to - from
   if (d > 0.5) d -= 1
@@ -158,7 +148,7 @@ function darkenColor(r: number, g: number, b: number): string {
   return rgbToHex(rgb.r, rgb.g, rgb.b)
 }
 
-/** Hue delta in degrees [0, 180]. */
+/** [0, 180] */
 export function hexHueDelta(a: string, b: string): number {
   const A = parseHex(a)
   const B = parseHex(b)

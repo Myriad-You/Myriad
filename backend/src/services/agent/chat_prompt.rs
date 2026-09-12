@@ -1,10 +1,20 @@
-//! Chat Lite prompt reconstruction. Work artifacts never belong here.
+//! Chat Lite prompt reconstruction. Chat (`for_chat`) drops Work artifacts;
+//! Work (`!for_chat`) still appends planner extras from metadata.
 
 use serde_json::Value;
 
 use super::types::ConversationMessage;
 
-const WORK_ARTIFACT_PREFIXES: &[&str] = &["[输出数据:", "[展示类型:", "[前端动作:", "[确认"];
+const WORK_ARTIFACT_PREFIXES: &[&str] = &[
+    "[输出数据:",
+    "[展示类型:",
+    "[前端动作:",
+    "[确认",
+    "[output data:",
+    "[display type:",
+    "[frontend action:",
+    "[confirm:",
+];
 
 /// Rebuild a stored session row for a model prompt.
 ///
@@ -56,10 +66,10 @@ pub fn chat_safe_content(content: &str) -> String {
 /// Closer for Chat Lite. Tone follows the persona; do not flatten everyone
 /// into a short, warm assistant.
 const CHAT_REPLY_INSTRUCTION: &str = "\
-请以你的角色回复。用对方的语言。说话风格必须由设定里的性格决定，并被心情调节。\
-接住这一句。禁止输出 AI 味的文本，也不要改成攻击。正文用纯文本，不要 JSON。\
-若衣服段或播放器段要求写 [[wear:…]] / [[music:…]]，写在全文最后，不要念出来。\
-对方要你查资料、生成、订阅、改设置或处理整页正文时，不要假装已经做完。";
+Reply in character. Use the addressee's language. Style must come from the saved personality and be shaped by mood. \
+Catch this line. Do not output AI-flavored text, and do not turn it into an attack. Body text is plain text, not JSON. \
+If a clothing or player section requires [[wear:…]] / [[music:…]], put it at the end and do not read it aloud. \
+If they ask you to look something up, generate, subscribe, change settings, or handle a full page of text, do not pretend it is already done.";
 
 pub fn build_chat_lite_prompt_with_perception(
     soul: &str,
@@ -86,13 +96,13 @@ pub fn build_chat_lite_prompt_with_perception(
     };
     if history_text.is_empty() {
         format!(
-            "{soul}\n\n{merope_prefix}用户对你说：{input}{perception_block}\n\n\
+            "{soul}\n\n{merope_prefix}They said: {input}{perception_block}\n\n\
              {CHAT_REPLY_INSTRUCTION}",
         )
     } else {
         format!(
-            "{soul}\n\n{merope_prefix}以下是对话历史：\n{history_text}\n\n\
-             用户最新消息：{input}{perception_block}\n\n\
+            "{soul}\n\n{merope_prefix}Conversation:\n{history_text}\n\n\
+             Latest message: {input}{perception_block}\n\n\
              {CHAT_REPLY_INSTRUCTION}",
         )
     }
@@ -156,20 +166,20 @@ pub fn format_chat_scene(perception: Option<&Value>, page: Option<&Value>, input
 
     let mut lines = Vec::new();
     if !selected.is_empty() {
-        lines.push(format!("选中：{selected}"));
+        lines.push(format!("Selected: {selected}"));
     }
     if !listening.is_empty() {
-        lines.push(format!("在听：{listening}"));
+        lines.push(format!("Listening: {listening}"));
     }
     if excerpt.is_empty() {
         if !watching.is_empty() {
-            lines.push(format!("在看：{watching}"));
+            lines.push(format!("Looking at: {watching}"));
         }
     } else {
         lines.push(excerpt);
     }
     if !overlay.is_empty() {
-        lines.push(format!("浮层：{overlay}"));
+        lines.push(format!("Overlay: {overlay}"));
     }
     lines.join("\n")
 }
@@ -293,7 +303,7 @@ pub fn chat_reply_data(reply: &str, input: &str) -> Value {
     Value::Object(data)
 }
 
-/// Bounded page excerpt for Chat Lite. Full body stays on `__page_context__`.
+/// Bounded page excerpt for Chat Lite (`title` / `author` / `content` / `summary`).
 pub fn format_page_excerpt(value: Option<&Value>) -> String {
     let Some(Value::Object(page)) = value else {
         return String::new();
@@ -348,7 +358,7 @@ fn work_artifact_extras(metadata: Option<&Value>) -> Option<String> {
             let serialized = data.to_string();
             if serialized.len() > 2 && serialized != "null" {
                 let truncated: String = serialized.chars().take(500).collect();
-                extras.push(format!("[输出数据: {truncated}]"));
+                extras.push(format!("[output data: {truncated}]"));
             }
         }
     }
@@ -357,21 +367,21 @@ fn work_artifact_extras(metadata: Option<&Value>) -> Option<String> {
         .and_then(|value| value.get("type"))
         .and_then(Value::as_str)
     {
-        extras.push(format!("[展示类型: {display_type}]"));
+        extras.push(format!("[display type: {display_type}]"));
     }
     if let Some(action) = meta
         .get("frontendAction")
         .and_then(|value| value.get("action"))
         .and_then(Value::as_str)
     {
-        extras.push(format!("[前端动作: {action}]"));
+        extras.push(format!("[frontend action: {action}]"));
     }
     if let Some(confirmation_id) = meta
         .get("confirmation")
         .and_then(|value| value.get("confirmationId").or_else(|| value.get("id")))
         .and_then(Value::as_str)
     {
-        extras.push(format!("[确认: {confirmation_id}]"));
+        extras.push(format!("[confirm: {confirmation_id}]"));
     }
     if extras.is_empty() {
         None
@@ -406,9 +416,11 @@ mod tests {
         );
         assert_eq!(chat.content, "天气不错。");
         assert!(!chat.content.contains("输出数据"));
+        assert!(!chat.content.contains("output data"));
         assert!(!chat.content.contains("展示类型"));
+        assert!(!chat.content.contains("display type"));
         assert!(!chat.content.contains("前端动作"));
-        assert!(!chat.content.contains("确认"));
+        assert!(!chat.content.contains("frontend action"));
 
         let work = reconstruct_conversation_message(
             "assistant".into(),
@@ -417,10 +429,10 @@ mod tests {
             Some(&work_metadata()),
             false,
         );
-        assert!(work.content.contains("[输出数据:"));
-        assert!(work.content.contains("[展示类型: table]"));
-        assert!(work.content.contains("[前端动作: navigate]"));
-        assert!(work.content.contains("[确认: cnf_1]"));
+        assert!(work.content.contains("[output data:"));
+        assert!(work.content.contains("[display type: table]"));
+        assert!(work.content.contains("[frontend action: navigate]"));
+        assert!(work.content.contains("[confirm: cnf_1]"));
         assert_eq!(chat_safe_content("行啊。\n[[wear:舞台装]]"), "行啊。");
         assert_eq!(chat_safe_content("唱。\n[[music:play]]"), "唱。");
     }
@@ -454,9 +466,9 @@ mod tests {
         assert!(!prompt.contains("stepHistory"));
         assert!(!prompt.contains("task"));
         assert!(!prompt.contains("保持简短、温暖、自然"));
-        assert!(prompt.contains("由设定里的性格决定"));
-        assert!(prompt.contains("禁止输出 AI 味"));
-        assert!(prompt.contains("心情调节"));
+        assert!(prompt.contains("saved personality"));
+        assert!(prompt.contains("Do not output AI-flavored"));
+        assert!(prompt.contains("shaped by mood"));
     }
 
     #[test]
@@ -465,11 +477,11 @@ mod tests {
             build_chat_lite_prompt_with_perception("你是瞳。气质：毒舌。", "", &[], "嗨", "");
         assert!(prompt.contains("你是瞳。气质：毒舌。"));
         assert!(prompt.contains(CHAT_REPLY_INSTRUCTION));
-        assert!(CHAT_REPLY_INSTRUCTION.contains("禁止输出 AI 味"));
-        assert!(CHAT_REPLY_INSTRUCTION.contains("性格决定"));
-        assert!(CHAT_REPLY_INSTRUCTION.contains("接住这一句"));
-        assert!(CHAT_REPLY_INSTRUCTION.contains("不要改成攻击"));
-        assert!(CHAT_REPLY_INSTRUCTION.contains("不要假装已经做完"));
+        assert!(CHAT_REPLY_INSTRUCTION.contains("Do not output AI-flavored"));
+        assert!(CHAT_REPLY_INSTRUCTION.contains("saved personality"));
+        assert!(CHAT_REPLY_INSTRUCTION.contains("Catch this line"));
+        assert!(CHAT_REPLY_INSTRUCTION.contains("do not turn it into an attack"));
+        assert!(CHAT_REPLY_INSTRUCTION.contains("do not pretend it is already done"));
         assert!(CHAT_REPLY_INSTRUCTION.contains("[[wear:"));
         assert!(CHAT_REPLY_INSTRUCTION.contains("[[music:"));
         assert!(!prompt.contains("温暖"));
@@ -486,9 +498,9 @@ mod tests {
         let block = crate::services::agent::merope::speaking_prompt_plain(&[remembered, recent]);
         let prompt =
             build_chat_lite_prompt_with_perception("你是瞳。", &block, &[], "今晚打游戏吗", "");
-        assert!(prompt.contains("## 关于这个人"));
+        assert!(prompt.contains("## About this person"));
         assert!(prompt.contains("晚上想打独立游戏"));
-        assert!(prompt.contains("## 最近"));
+        assert!(prompt.contains("## Recently"));
         assert!(!prompt.contains("ExecutionLesson"));
         assert!(!prompt.contains("effective_pattern"));
         let chat_prompt_prod = include_str!("chat_prompt.rs")
@@ -540,7 +552,7 @@ mod tests {
             None,
             "你好",
         );
-        assert!(scene.contains("浮层：surface=control_panel"));
+        assert!(scene.contains("Overlay: surface=control_panel"));
         assert!(!scene.contains("正在看控制中心"));
     }
 
@@ -658,8 +670,8 @@ mod tests {
             None,
             "这首呢",
         );
-        assert!(scene.contains("选中：这一段话"));
-        assert!(scene.contains("在听：Night — Lantern · harbour light"));
+        assert!(scene.contains("Selected: 这一段话"));
+        assert!(scene.contains("Listening: Night — Lantern · harbour light"));
         assert!(!scene.contains("music idle"));
         assert!(!scene.contains("stale track"));
         assert!(!scene.contains("page visible"));
@@ -684,11 +696,11 @@ mod tests {
             "safeFacts": { "title": "Harbour Notes", "hasBody": true }
         }]);
         let hi = format_chat_scene(Some(&perception), Some(&page), "你好");
-        assert!(hi.contains("在看：Harbour Notes"));
+        assert!(hi.contains("Looking at: Harbour Notes"));
         assert!(!hi.contains("must not be the watching line"));
         assert!(!hi.contains("quiet after midnight"));
         let asked = format_chat_scene(Some(&perception), Some(&page), "这篇在说什么");
-        assert!(!asked.contains("在看："));
+        assert!(!asked.contains("Looking at:"));
         assert!(asked.contains("Harbour Notes / Lantern"));
         assert!(asked.contains("The harbour was quiet after midnight."));
     }

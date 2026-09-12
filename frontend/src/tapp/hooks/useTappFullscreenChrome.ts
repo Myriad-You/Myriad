@@ -1,8 +1,3 @@
-/**
- * Immersive nav + Escape-to-exit for Tapp fixed shells.
- * Escape is optional (store had it; run did not — keep parity via enableEscape).
- */
-
 import { useEffect } from 'react'
 import { useImmersiveChrome } from '../../contexts/NavigationContext'
 

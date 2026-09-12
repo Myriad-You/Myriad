@@ -1,4 +1,3 @@
-/* 页脚自定义项编辑器（基础设置 → 站点底部） */
 .site-footer-custom-editor {
   display: flex;
   flex-direction: column;
@@ -69,7 +68,6 @@
 }
 
 
-/* SEO AI generate tag sits inline in field titles */
 .seo-ai-gen-tag-anchor {
   margin-left: 0.15rem;
 }

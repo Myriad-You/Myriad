@@ -1,14 +1,4 @@
-/**
- * 列表型磁贴的整页轮播 —— 纯 CSS keyframes，零定时器。
- *
- * 轨道高度 = 页数 × 可视高度，所以「翻一页」就是 translateY(-100% / 页数)。
- * 每页停留 ~5s、切换 ~0.55s；每张卡用不同的负 animation-delay 错峰，避免
- * 一屏十几张卡同一帧一起跳。
- *
- * 停：`.brew-rotate-paused` 挂在任意祖先上即可（非当前页、滚出视口、
- * 标签页隐藏）。exlight / prefers-reduced-motion 由组件侧不加动画类来处理 ——
- * 停在第一条，不是「动画暂停在随机位置」。
- */
+/** 错峰负 delay。暂停靠不加动画类，停在第一条，不是停在随机位置。 */
 
 .brew-rotate-track {
   will-change: transform;
@@ -25,7 +15,6 @@
   }
 }
 
-/* 2 页：每页停 45% 的周期，5% 用来切 */
 @keyframes brew-rotate-2 {
   0%,
   45% {

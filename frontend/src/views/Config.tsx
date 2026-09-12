@@ -1,7 +1,3 @@
-/**
- * 系统配置视图组件
- */
-
 import { useEffect, useMemo, useState } from 'react'
 
 import { useNavigate } from 'react-router-dom'
@@ -15,7 +11,6 @@ import { buildPrivatePageSeo } from '../utils/modulePageSeo'
 import { hasSessionHint } from '../utils/sessionDetection'
 
 export default function Config() {
-  // 🆕 初始化页面级调度器
   useConfigScheduler()
 
   const navigate = useNavigate()
@@ -35,15 +30,11 @@ export default function Config() {
     ),
   )
 
-  // 使用 AuthContext 检查管理员权限
   useEffect(() => {
     if (!isAuthenticated) {
-      // 智能检测：检查是否有登录迹象
       if (hasSessionHint()) {
-        // 有登录迹象，触发认证检查
         checkAuth()
       } else {
-        // 无登录迹象，直接重定向到登录页
         navigate('/login', { replace: true })
       }
     } else {
@@ -66,7 +57,6 @@ export default function Config() {
 
   return (
     <AnimatedView className="min-h-screen px-4 sm:px-6 pt-20 pb-24 md:pb-12">
-      {/* 宽度由 .modern-config-container 控制（侧边栏 + 内容双栏） */}
       <ConfigForm />
     </AnimatedView>
   )

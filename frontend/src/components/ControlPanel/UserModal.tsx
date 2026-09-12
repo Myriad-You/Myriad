@@ -19,8 +19,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { API_URL } from '../../config'
 import { useI18n } from '../../contexts/I18nContext'
-import { isChannelPairingProvider } from '../channel/channelPairing'
-import { ChannelPairingPanel } from '../channel/ChannelPairingPanel'
 import { TappIconBadge } from '../../tapp/components/TappIconBadge'
 import { getRecentTapps, listTapps } from '../../tapp/services/TappLifecycleApi'
 import { resolveManifestText } from '../../tapp/utils/manifestLocale'
@@ -32,6 +30,8 @@ import { showError } from '../../utils/toastManager'
 import { userFacingError } from '../../utils/userFacingError'
 import { Avatar } from '../Avatar'
 import { AvatarSourcePicker } from '../AvatarSourcePicker'
+import { isChannelPairingProvider } from '../channel/channelPairing'
+import { ChannelPairingPanel } from '../channel/ChannelPairingPanel'
 import OAuthIconImage from '../OAuthIconImage'
 import { ProfileTextSourcePicker } from '../ProfileTextSourcePicker'
 import { Spinner } from '../Spinner'
@@ -55,7 +55,6 @@ interface OAuthIdentity {
 
 interface UserInfo {
   name: string
-  /** 可能为空：<Avatar> 负责本地兜底，后端不再编造 ui-avatars 地址 */
   avatar: string | null
   bio: string
   platform: string
@@ -68,18 +67,11 @@ interface UserModalProps {
   canAnimate: boolean
   onClose: () => void
   onLogout: () => void
-  /**
-   * 从控制面板内导航（收起面板并替换 GCP 历史哨兵）。
-   * 必须用此路径跳转 Tapp 等页，不能直接 navigate——否则关面板时 history.back() 会退回打开面板前的路由。
-   */
+  // 面板内跳转必须走收起+替换哨兵，不能直接 navigate，否则 history.back() 会退到开面板前。
   onNavigateFromPanel?: (path: string) => void
-  /** 切换画像源后刷新外侧头像/名称 */
   onProfileApplied?: () => void
 }
 
-/**
- * 二级页顶栏：左返回、中当前页标题、右关闭。两颗圆钮同一套交互。
- */
 function UserModalPageHead({
   title,
   backLabel,
@@ -122,10 +114,6 @@ function UserModalPageHead({
   )
 }
 
-/**
- * 用户信息弹窗组件（已登录状态）
- * 全新设计：头像居中、信息整合、浮动关闭按钮
- */
 export const UserModal: FC<UserModalProps> = ({
   user,
   userInfo,
@@ -139,8 +127,6 @@ export const UserModal: FC<UserModalProps> = ({
   const [page, setPage] = useState<
     'main' | 'oauth' | 'password' | 'profileSource'
   >('main')
-  // 是否已有本地密码：有 → 修改密码；没有（纯 OAuth 账户）→ 设置密码
-  // 旧版后端没有 has_password 字段时按 auth_provider 兜底
   const [hasPassword, setHasPassword] = useState(
     user.has_password ?? user.auth_provider === 'local',
   )
@@ -156,25 +142,21 @@ export const UserModal: FC<UserModalProps> = ({
   const [unbindingId, setUnbindingId] = useState<number | null>(null)
   const { t, locale, format } = useI18n()
   const navigate = useNavigate()
-  /** 自然高度测量目标：不受外层钉住 height / 滚动容器 max-height 约束 */
   const contentRef = useRef<HTMLDivElement>(null)
   const pageHeadRef = useRef<HTMLDivElement>(null)
   const modalRef = useRef<HTMLDivElement>(null)
   const [modalHeight, setModalHeight] = useState<number>()
 
-  // 与 UserModal.css 的 max-height（85vh / 移动端 90vh）保持一致
   const getModalMaxHeightPx = useCallback(() => {
     if (typeof window === 'undefined') return Number.POSITIVE_INFINITY
     const mobile = window.matchMedia('(max-width: 640px)').matches
     return window.innerHeight * (mobile ? 0.9 : 0.85)
   }, [])
 
-  // 与 UserModal.css --user-modal-min-height / min-height 保持一致（外层 shell 地板）
   const getModalMinHeightPx = useCallback(() => {
     if (typeof window === 'undefined') return 0
     const el = modalRef.current
     if (el) {
-      // Computed min-height is already min(designedMin, maxvh) resolved to px
       const minH = Number.parseFloat(getComputedStyle(el).minHeight)
       if (Number.isFinite(minH) && minH > 0) return minH
       const raw = getComputedStyle(el).getPropertyValue('--user-modal-min-height').trim()
@@ -188,7 +170,6 @@ export const UserModal: FC<UserModalProps> = ({
         return n
       }
     }
-    // Fallback before ref attach — keep in sync with UserModal.css
     const mobile = window.matchMedia('(max-width: 640px)').matches
     const rem = mobile ? 18 : 20
     const rootFs =
@@ -196,7 +177,6 @@ export const UserModal: FC<UserModalProps> = ({
     return rem * rootFs
   }, [])
 
-  // height = clamp(natural, effectiveMin, max) where effectiveMin = min(designedMin, max)
   const clampModalHeight = useCallback(
     (natural: number) => {
       const maxH = getModalMaxHeightPx()
@@ -206,10 +186,9 @@ export const UserModal: FC<UserModalProps> = ({
     [getModalMaxHeightPx, getModalMinHeightPx],
   )
 
-  // .user-modal 全局 border-box：钉 height 时边框/内边距占额度，需加回壳层 chrome
   const getShellChromePx = useCallback(() => {
     const modalEl = modalRef.current
-    if (!modalEl) return 2 // 与 CSS border: 1px 上下合计兜底
+    if (!modalEl) return 2
     const style = getComputedStyle(modalEl)
     return (
       (Number.parseFloat(style.borderTopWidth) || 0) +
@@ -219,21 +198,15 @@ export const UserModal: FC<UserModalProps> = ({
     )
   }, [])
 
-  // 内容自然高度 → 外层 shell 应钉的 height（含 chrome）。
-  // 用 offsetHeight：不受 pre-animate 的 scale(0.92) 影响（getBoundingClientRect 会缩水）。
   const measureShellHeightFromContent = useCallback(() => {
     const el = contentRef.current
     if (!el) return 0
     const contentH = el.offsetHeight
     if (contentH <= 0) return 0
-    // 顶栏已提出滚动层，量高时加回它的占位
     const headH = pageHeadRef.current?.offsetHeight ?? 0
     return Math.ceil(contentH + headH + getShellChromePx())
   }, [getShellChromePx])
 
-  // 跟随内容自然高度，让主页/二级页切换（及内容加载）时的高度变化有过渡动画。
-  // 测量 .user-modal-content（非滚动层），避免外层 height 钉住时 scrollHeight 卡在旧高度。
-  // 外层高度 clamp 到 [min, max]；短内容时 shell 落在 min，内层 .user-modal-inner 填满。
   useEffect(() => {
     const el = contentRef.current
     if (!el) return
@@ -254,14 +227,11 @@ export const UserModal: FC<UserModalProps> = ({
     }
   }, [clampModalHeight, measureShellHeightFromContent, page])
 
-  // 换页后等 DOM 绘制再量一次，确保从当前外层高度过渡到新内容 clamp 后高度
   useEffect(() => {
     const el = contentRef.current
     if (!el) return
-    // 先钉住当前渲染高度，避免内容瞬间变矮时外层还没 transition 就塌掉
     const modalEl = modalRef.current
     if (modalEl) {
-      // offsetHeight：布局高度（含 border），不受 scale 变换影响
       const current = modalEl.offsetHeight
       if (current > 0) {
         setModalHeight(clampModalHeight(current))
@@ -282,7 +252,6 @@ export const UserModal: FC<UserModalProps> = ({
     }
   }, [page, clampModalHeight, measureShellHeightFromContent])
 
-  // 加载可用 provider 与当前用户已绑定的 identities
   const loadOAuthBindings = useCallback(async () => {
     setOAuthLoading(true)
     try {
@@ -338,7 +307,6 @@ export const UserModal: FC<UserModalProps> = ({
     }
   }, [t.userModal.oauthLoadFailed])
 
-  // 主页徽章需要 identities；进入 OAuth 页再拉一次以同步解绑/绑定
   useEffect(() => {
     void loadOAuthBindings()
   }, [loadOAuthBindings])
@@ -349,7 +317,6 @@ export const UserModal: FC<UserModalProps> = ({
     }
   }, [page, loadOAuthBindings])
 
-  /** Prefer live bindings list; fall back to /me identities + legacy linked_github_id */
   const linkedProviders = useMemo(() => {
     const fromLive = identities
       .map((i) => i.provider)
@@ -358,7 +325,9 @@ export const UserModal: FC<UserModalProps> = ({
           !!p && p.trim().length > 0 && !isChannelPairingProvider(p),
       )
     if (fromLive.length > 0) {
-      return [...new Set(fromLive.map((p) => p.trim().toLowerCase()))]
+      return Iterator.from(
+        new Set(fromLive.map((p) => p.trim().toLowerCase())),
+      ).toArray()
     }
     const fromUser = (user.identities ?? [])
       .map((i) => i.provider)
@@ -368,7 +337,7 @@ export const UserModal: FC<UserModalProps> = ({
       )
       .map((p) => p.trim().toLowerCase())
     if (fromUser.length > 0) {
-      return [...new Set(fromUser)]
+      return Iterator.from(new Set(fromUser)).toArray()
     }
     if (user.linked_github_id || user.github_id) {
       return ['github']
@@ -384,8 +353,7 @@ export const UserModal: FC<UserModalProps> = ({
         (p) => p.slug.toLowerCase() === key,
       )
       if (match?.display_name?.trim()) return match.display_name.trim()
-      // oidc-google → Google-style fallback
-      const bare = key.replace(/^oidc[-_]?/, '')
+      const bare = key.replaceAll(/^oidc[-_]?/g, '')
       if (bare.length === 0) return slug
       return bare.charAt(0).toUpperCase() + bare.slice(1)
     },
@@ -396,7 +364,6 @@ export const UserModal: FC<UserModalProps> = ({
     const count = linkedProviders.length
     const onlyGithub = count === 1 && linkedProviders[0] === 'github'
 
-    // 单个平台写名字；多个只标数量，避免徽章被平台名撑开。
     if (onlyGithub || (count === 0 && user.auth_provider === 'github')) {
       return { kind: 'github' as const, text: 'GitHub' }
     }
@@ -434,7 +401,6 @@ export const UserModal: FC<UserModalProps> = ({
     t.userModal,
   ])
 
-  // 返回主页面，清空二级页面的临时状态
   const backToMain = () => {
     setPage('main')
     setOAuthError('')
@@ -445,7 +411,6 @@ export const UserModal: FC<UserModalProps> = ({
     setPage('profileSource')
   }
 
-  // 解绑某个 OAuth identity
   const handleUnbind = async (identity: OAuthIdentity) => {
     if (!window.confirm(t.userModal.oauthUnbindConfirm)) return
     setOAuthError('')
@@ -484,14 +449,12 @@ export const UserModal: FC<UserModalProps> = ({
     }
   }
 
-  // 加载 Tapp 列表和最近使用记录
   useEffect(() => {
     const loadData = async () => {
       try {
-        // 并行加载 Tapp 列表和最近使用记录
         const [tappList, recentList] = await Promise.all([
           listTapps(),
-          getRecentTapps(3).catch(() => [] as RecentTappItem[]), // 如果获取失败返回空数组
+          getRecentTapps(3).catch(() => [] as RecentTappItem[]),
         ])
         setTapps(tappList)
         setRecentTapps(recentList)
@@ -505,7 +468,6 @@ export const UserModal: FC<UserModalProps> = ({
     loadData()
   }, [t.tapp.listLoadFailed])
 
-  // 处理修改密码
   const handleChangePassword = async (e: SubmitEvent<HTMLFormElement>) => {
     e.preventDefault()
     setPasswordError('')
@@ -520,7 +482,7 @@ export const UserModal: FC<UserModalProps> = ({
       return
     }
 
-    // 与后端 validate_password 一致：必须同时包含字母和数字（Unicode 语义）
+    // 与后端 validate_password 一致：必须同时有字母和数字。
     if (!/\p{L}/u.test(newPassword) || !/\p{N}/u.test(newPassword)) {
       setPasswordError(t.userModal.passwordNeedsLetterAndDigit)
       return
@@ -579,7 +541,6 @@ export const UserModal: FC<UserModalProps> = ({
     }
   }
 
-  // 处理设置密码（纯 OAuth 账户后补本地密码）
   const handleSetPassword = async (e: SubmitEvent<HTMLFormElement>) => {
     e.preventDefault()
     setPasswordError('')
@@ -593,7 +554,7 @@ export const UserModal: FC<UserModalProps> = ({
       return
     }
 
-    // 与后端 validate_password 一致：必须同时包含字母和数字（Unicode 语义）
+    // 与后端 validate_password 一致：必须同时有字母和数字。
     if (!/\p{L}/u.test(newPassword) || !/\p{N}/u.test(newPassword)) {
       setPasswordError(t.userModal.passwordNeedsLetterAndDigit)
       return
@@ -698,16 +659,12 @@ export const UserModal: FC<UserModalProps> = ({
         />
       )}
 
-      {/* 滚动容器：外层 height 封顶时在此滚动；不参与自然高度测量 */}
       <div className="user-modal-inner">
-        {/* 测量目标：height auto，不受外层钉高影响，供 ResizeObserver 读自然高度 */}
         <div className="user-modal-content" ref={contentRef}>
         {page !== 'main' ? (
-          /* 二级页面正文：顶栏已提出滚动层 */
           <div className="user-modal-page">
             {page === 'profileSource' ? (
               <div className="user-modal-page-body">
-                {/* 两套来源分开管理：切头像不改文案，切文案不改头像 */}
                 <section className="user-modal-profile-source-section">
                   <h4 className="user-modal-profile-source-section-title">
                     {t.userModal.profileSourceTitle}
@@ -740,7 +697,6 @@ export const UserModal: FC<UserModalProps> = ({
                   </p>
                 ) : (
                   <ul className="user-modal-oauth-list">
-                    {/* 已启用的 provider */}
                     {oauthProviders.map((provider) => {
                       const bound = identities.find(
                         (identity) => identity.provider === provider.slug,
@@ -795,7 +751,6 @@ export const UserModal: FC<UserModalProps> = ({
                         </li>
                       )
                     })}
-                    {/* 已绑定但 provider 已被停用/删除的 identity：仍允许解绑 */}
                     {identities
                       .filter(
                         (identity) =>
@@ -861,7 +816,6 @@ export const UserModal: FC<UserModalProps> = ({
                 )}
               </div>
             ) : (
-              /* 二级页面：修改密码 / 设置密码（纯 OAuth 账户后补本地密码） */
               <div className="user-modal-page-body">
                 {!hasPassword && (
                   <div className="user-modal-password-intro">
@@ -932,14 +886,9 @@ export const UserModal: FC<UserModalProps> = ({
           </div>
         ) : (
           <>
-            {/* 上部区域：用户信息（约60%） */}
             <div className="user-modal-hero">
-              {/* 装饰背景 */}
               <div className="user-modal-hero-bg" />
 
-              {/* 头像：点击选择画像源。
-                  这里不再要求「已绑定 OAuth」—— 账号本身就是一个可选来源，
-                  站长还多出平台画像，所以任何人都有得选。 */}
               <div className="user-modal-avatar-wrapper">
                 <button
                   type="button"
@@ -957,20 +906,15 @@ export const UserModal: FC<UserModalProps> = ({
                     {t.userModal.profileSourceAvatarHint}
                   </span>
                 </button>
-                {/* 在线状态指示器 */}
                 <div className="user-modal-online-dot" />
               </div>
 
-              {/* 用户名和角色 */}
               <div className="user-modal-identity">
                 <h3 className="user-modal-username">{userInfo.name}</h3>
-                {/* 真实本地账号名：面板上方显示的是平台昵称（站点形象），
-                    和登录用的账号不是一回事，这里明确标出来 */}
                 {user.username && user.username !== userInfo.name && (
                   <p className="user-modal-account-name">@{user.username}</p>
                 )}
                 <div className="user-modal-badges">
-                  {/* 角色徽章 */}
                   <span
                     className={`user-modal-badge ${user.is_admin ? 'badge-admin' : 'badge-user'}`}
                   >
@@ -984,7 +928,6 @@ export const UserModal: FC<UserModalProps> = ({
                       </>
                     )}
                   </span>
-                  {/* 账户类型：有绑定时只标平台，不再单独写「本地 +」 */}
                   {accountBadge.kind === 'github' ? (
                     <span className="user-modal-badge badge-github">
                       <FaGithub size={13} className="inline" />
@@ -1004,14 +947,11 @@ export const UserModal: FC<UserModalProps> = ({
                 </div>
               </div>
 
-              {/* 简介 */}
               {userInfo.bio && userInfo.bio !== t.userModal.defaultBio && (
                 <p className="user-modal-bio">{userInfo.bio}</p>
               )}
 
-              {/* 操作按钮组 */}
               <div className="user-modal-actions">
-                {/* 第三方账号绑定入口（管理面板为二级页面） */}
                 <button
                   onClick={() => setPage('oauth')}
                   className="user-modal-action-btn action-oauth"
@@ -1020,7 +960,6 @@ export const UserModal: FC<UserModalProps> = ({
                   {t.userModal.oauthBindings}
                 </button>
 
-                {/* 已有本地密码 → 修改密码；纯 OAuth 账户 → 设置密码（补本地登录通道） */}
                 <button
                   onClick={() => setPage('password')}
                   className="user-modal-action-btn action-password"
@@ -1043,7 +982,6 @@ export const UserModal: FC<UserModalProps> = ({
                     : t.userModal.setPassword}
                 </button>
 
-                {/* 退出登录 - 所有用户显示 */}
                 <button
                   onClick={onLogout}
                   className="user-modal-action-btn action-logout"
@@ -1066,14 +1004,12 @@ export const UserModal: FC<UserModalProps> = ({
               </div>
             </div>
 
-            {/* 下部区域：Tapp 信息（约40%） */}
             <div className="user-modal-tapps">
               <div className="user-modal-tapps-header">
                 <div className="user-modal-tapps-title">
                   <MyriadStoreIcon className="w-4 h-4" />
                   <span>Tapp</span>
                 </div>
-                {/* 已安装数 + 查看全部合并 */}
                 <button
                   onClick={handleViewAllTapps}
                   className="user-modal-tapps-count-btn"
@@ -1107,14 +1043,12 @@ export const UserModal: FC<UserModalProps> = ({
                 </button>
               </div>
 
-              {/* 最近使用的 Tapp - 始终渲染容器，避免高度跳变 */}
               <div className="user-modal-recent-tapps">
                 <p className="user-modal-recent-label">
                   {t.userModal.recentlyUsed || 'Recently used'}
                 </p>
                 <div className="user-modal-recent-list">
                   {tappsLoading ? (
-                    // 加载中显示骨架屏
                     <>
                       <div className="user-modal-tapp-item user-modal-tapp-skeleton" />
                       <div className="user-modal-tapp-item user-modal-tapp-skeleton" />
@@ -1152,7 +1086,6 @@ export const UserModal: FC<UserModalProps> = ({
                       )
                     })
                   ) : (
-                    // 无最近使用时显示空状态
                     <span className="user-modal-recent-empty">
                       {t.userModal.noRecentTapps}
                     </span>

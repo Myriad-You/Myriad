@@ -39,10 +39,6 @@ export interface MoodIntent {
   activity: MeropeActivity
 }
 
-/**
- * One generation of semantic motion. Sources publish intents; each live
- * rig consumes this frame. Algorithms stay in the player.
- */
 export interface MotionFrame {
   snapshot: MotionSnapshot
   bearing: RigBearing | null
@@ -50,7 +46,6 @@ export interface MotionFrame {
   performance: PerformanceIntent | null
   music: SingingFrame | null
   mood: MoodIntent | null
-  /** One executable graph shared by every semantic motion source. */
   behaviorPlan: BehaviorPlan | null
   behaviorRevision: number
   behaviors: readonly BehaviorSnapshot[]

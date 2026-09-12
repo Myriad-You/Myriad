@@ -1,8 +1,3 @@
-/**
- * 音乐播放器组件
- * 从 GlobalControlPanel 分离出来的音乐播放器 UI
- */
-
 import type { UseMusicPlayerReturn } from '../../hooks/useMusicPlayer'
 import {
   LuAlertTriangle,
@@ -37,7 +32,7 @@ interface MusicPlayerProps {
   player: UseMusicPlayerReturn
   /**
    * 控制面板是否处于可交互展开态。
-   * 收起时停频谱 / 卸载歌词与列表引擎，仅保留 info DOM（封面缓存）。
+   * 收起时停频谱；歌词/列表 keep-alive（is-hidden），info 降频且封面不卸载。
    * 默认 true，便于单独挂载时行为不变。
    */
   panelVisible?: boolean
@@ -45,7 +40,7 @@ interface MusicPlayerProps {
 
 interface MusicInfoViewProps {
   player: UseMusicPlayerReturn
-  /** 是否为当前展示的视图；false 时停频谱/高频重渲染，仅保留封面 DOM */
+  /** false 时停频谱并跳过进度 tick 重渲染；整块 info DOM 保留（含封面）。 */
   visible: boolean
 }
 
@@ -78,9 +73,7 @@ function musicInfoHiddenEqual(
   )
 }
 
-/**
- * 音乐信息视图（常驻 DOM；不可见时降频）
- */
+/** 常驻 DOM；不可见时降频 */
 const MusicInfoView = memo(({
   player,
   visible,
@@ -118,7 +111,6 @@ const MusicInfoView = memo(({
     musicErrorDetail,
   } = player
 
-  // 获取翻译后的错误消息
   const musicError = musicErrorKey
     ? formatMusicError(
         (t.music as Record<string, string>)[musicErrorKey] || musicErrorKey,
@@ -149,7 +141,6 @@ const MusicInfoView = memo(({
     }
   }, [showVolumePopup, setShowVolumePopup, volumeControlRef])
 
-  // Escape 关闭 + 打开时焦点进滑块，关闭后回到音量按钮
   useEffect(() => {
     if (!showVolumePopup) return
     const t = window.setTimeout(() => {
@@ -264,7 +255,6 @@ const MusicInfoView = memo(({
       : 0
   const spectrumLive = visible && isPlaying
 
-  // 加载中跟随进度；settle/exit 用冻结坐标
   if (loadDotPhase === 'active') {
     loadDotAtRef.current = progressPercent
   }
@@ -273,7 +263,6 @@ const MusicInfoView = memo(({
 
   return (
     <>
-      {/* 默认页右上角：中线上下扩展频谱（隐藏时不驱动） */}
       <div
         className={`music-info-spectrum${spectrumLive ? ' is-playing' : ''}`}
         aria-hidden
@@ -287,7 +276,6 @@ const MusicInfoView = memo(({
         />
       </div>
 
-      {/* 封面和歌曲信息 + 进度条 */}
       <div className="music-info-main">
         <div className="music-album-cover-large">
           {currentSong.cover ? (
@@ -420,9 +408,7 @@ const MusicInfoView = memo(({
         </div>
       </div>
 
-      {/* 播放控制按钮 + 音量 + 视图切换 */}
       <div className="music-control-row">
-        {/* 左侧：歌词按钮和播放顺序按钮 */}
         <div className="music-view-switcher">
           {lyrics.length > 0 && (
             <button
@@ -432,7 +418,6 @@ const MusicInfoView = memo(({
               aria-label={t.music.lyrics}
               title={t.music.lyrics}
             >
-              {/* 线框气泡 + 两行（对齐原实心 chat-alt，比 MessageSquareText 三行更干净） */}
               <svg
                 className="music-ctrl-icon"
                 viewBox="0 0 24 24"
@@ -449,7 +434,6 @@ const MusicInfoView = memo(({
               </svg>
             </button>
           )}
-          {/* 播放顺序按钮 - 临时播放模式下隐藏 */}
           {!isTempPlayMode && (
             <button
               onClick={togglePlayMode}
@@ -462,7 +446,6 @@ const MusicInfoView = memo(({
           )}
         </div>
 
-        {/* 中间：核心控制按钮 */}
         <div className="music-control-buttons">
           <button
             onClick={playPrevious}
@@ -501,9 +484,7 @@ const MusicInfoView = memo(({
           </button>
         </div>
 
-        {/* 右侧：音量和播放列表 */}
         <div className="music-view-switcher music-view-switcher-right">
-          {/* 音量控制（弹出式） */}
           <div className="music-volume-control" ref={volumeControlRef}>
             <button
               ref={volumeBtnRef}
@@ -530,7 +511,6 @@ const MusicInfoView = memo(({
                 strokeWidth={2}
                 aria-hidden
               />
-              {/* 与播放进度同一套自绘轨道 + hover 圆点 */}
               <div className="music-progress-track music-volume-track">
                 <div className="music-progress-rail" aria-hidden>
                   <div
@@ -557,7 +537,6 @@ const MusicInfoView = memo(({
             </div>
           </div>
 
-          {/* 临时播放：关闭按钮替换列表；正常模式：播放列表 */}
           {isTempPlayMode ? (
             <button
               type="button"
@@ -654,10 +633,7 @@ const MusicLyricsCover = memo(({
   )
 })
 
-/**
- * 歌词视图 — 切换逻辑与资料库卡片共用 LyricWaveScroll（Tapp 波浪）
- * visible=false 时 is-hidden 保 DOM（封面不卸载），波浪引擎 paused
- */
+/** visible=false 时 is-hidden 保 DOM（封面不卸载），波浪引擎 paused */
 const MusicLyricsView = memo(({
   player,
   visible,
@@ -752,9 +728,6 @@ const MusicLyricsView = memo(({
   )
 })
 
-/**
- * 单个播放列表项 - 使用 memo 避免不必要的重渲染
- */
 const PlaylistItem = memo<{
   song: {
     id: string
@@ -766,7 +739,6 @@ const PlaylistItem = memo<{
   originalIndex: number
   isActive: boolean
   isPlaying: boolean
-  /** 是否启用实时频谱（由父级 animation level 决定） */
   useSpectrum: boolean
   searchQuery: string
   onSelect: (song: any, index: number, autoPlay: boolean) => void
@@ -797,9 +769,7 @@ const PlaylistItem = memo<{
         <span className="music-playlist-index">{originalIndex + 1}</span>
         <div className="music-playlist-info">
           <div className="music-playlist-name-row">
-            {/* 曲名/艺人名来自远端音乐 API，属于不可信数据。highlightText 内部
-                会转义 HTML 元字符；无搜索词时也必须走转义，不能直接把原值塞进
-                innerHTML —— 那条分支曾经是一个可执行的 XSS。 */}
+            {/* 远端曲名不可信；无搜索词也必须走 highlightText，不得把原值塞进 innerHTML。 */}
             <div
               className="music-playlist-name"
               dangerouslySetInnerHTML={{
@@ -841,10 +811,7 @@ const PlaylistItem = memo<{
 
 PlaylistItem.displayName = 'PlaylistItem'
 
-/**
- * 播放列表视图
- * visible=false 时 is-hidden 保 DOM（滚动位置/列表不卸载）
- */
+/** visible=false 时 is-hidden 保 DOM（滚动位置/列表不卸载） */
 const MusicPlaylistView: React.FC<{
   player: UseMusicPlayerReturn
   visible: boolean
@@ -866,10 +833,8 @@ const MusicPlaylistView: React.FC<{
     playlistScrollRef,
   } = player
 
-  // 监听面板动画状态，动画期间简化渲染
   const [isPanelAnimating, setIsPanelAnimating] = useState(false)
 
-  // 监听面板动画事件
   useEffect(() => {
     const handleAnimationStart = () => setIsPanelAnimating(true)
     const handleAnimationEnd = () => setIsPanelAnimating(false)
@@ -973,7 +938,6 @@ const MusicPlaylistView: React.FC<{
     return map
   }, [playlist])
 
-  // 关闭播放列表的回调
   const handleClosePlaylist = useCallback(() => {
     setMusicPlayerView('info')
     setPlaylistSearchQuery('')
@@ -983,7 +947,6 @@ const MusicPlaylistView: React.FC<{
     return null
   }
 
-  // 过滤播放列表
   const displayPlaylist = playlistSearchQuery.trim()
     ? playlist.filter((song) => {
         const query = playlistSearchQuery.toLowerCase()
@@ -994,7 +957,6 @@ const MusicPlaylistView: React.FC<{
       })
     : playlist
 
-  // 动画期间只显示简化视图（当前歌曲附近的几首）
   const visiblePlaylist =
     isPanelAnimating && displayPlaylist.length > 20
       ? displayPlaylist.slice(
@@ -1003,7 +965,6 @@ const MusicPlaylistView: React.FC<{
         )
       : displayPlaylist
 
-  // 计算动画期间的偏移索引
   const indexOffset =
     isPanelAnimating && displayPlaylist.length > 20
       ? Math.max(0, currentSongIndex - 3)
@@ -1048,7 +1009,6 @@ const MusicPlaylistView: React.FC<{
           </span>
         </div>
 
-        {/* 排除VIP开关 */}
         <button
           type="button"
           onClick={() => setExcludeVipSongs(!excludeVipSongs)}
@@ -1063,7 +1023,6 @@ const MusicPlaylistView: React.FC<{
           </svg>
         </button>
 
-        {/* 搜索框 */}
         <div className="music-playlist-search-compact">
           <svg
             className="music-search-icon"
@@ -1109,7 +1068,6 @@ const MusicPlaylistView: React.FC<{
       >
         {visiblePlaylist.length > 0 ? (
           visiblePlaylist.map((song, idx) => {
-            // 使用 Map 查找，O(1) 复杂度
             const originalIndex =
               songIdToIndex.get(song.id) ?? indexOffset + idx
 
@@ -1144,9 +1102,6 @@ const MusicPlaylistView: React.FC<{
   )
 }
 
-/**
- * 主音乐播放器组件
- */
 export const MusicPlayer: React.FC<MusicPlayerProps> = ({
   player,
   panelVisible = true,
@@ -1172,7 +1127,6 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
   // 视图切换时触发父容器重测高度（仅面板展开时有意义）
   useEffect(() => {
     if (!panelVisible) return
-    // 延迟触发，等待 DOM 更新完成
     const timer = setTimeout(() => {
       window.dispatchEvent(new CustomEvent('gcp-remeasure'))
     }, 50)
@@ -1236,7 +1190,7 @@ export const MusicPlayer: React.FC<MusicPlayerProps> = ({
       {/*
         用 is-hidden + display:none !important，而不是 HTML hidden：
         .music-view { display:flex } 会盖掉 UA 的 [hidden]{display:none}
-        隐藏时 MusicInfoView 停频谱 / 跳过进度 tick 重渲染，只保留封面 DOM
+        隐藏时停频谱并跳过进度 tick 重渲染；整块 info DOM 保留（含封面）。
       */}
       <div
         className={`music-view music-view-info${showInfo ? '' : ' is-hidden'}`}

@@ -228,7 +228,7 @@ container.textContent = userInput;
 持久 storage 命名空间跟随 Runtime Grant **subject**（持久用户或**签名游客 session**），
 即使运行的是站点公开安装也不会读取安装 owner 的 storage。每个 subject 读写自己的
 `user_id + tapp_id` 空间（游客为负 id）；`storage:read` 为 guest-safe basic，签名游客可获
-Grant 与持久 storage。`_settings.`、`_shared.`、`_component:`、`_shortcut:`、`_report:` 是宿主保留
+Grant 与持久 storage。`_settings.`、`_shared.`、`_private.`、`_component:`、`_shortcut:`、`_report:` 是宿主保留
 前缀，不能通过 `Tapp.storage` 读取、写入、列举或清除。
 
 Manifest **安装级 settings** 由 owner / 管理员写入 installation owner 命名空间；通过
@@ -237,6 +237,9 @@ Manifest **安装级 settings** 由 owner / 管理员写入 installation owner �
 
 **安装级 shared** 与 settings 同一隔离、同一读写角色，但键不必在 Manifest 声明，语义是
 站长数据仓库。公开部署把要展示的 owner 数据写入 `Tapp.shared`，不要塞进 settings。
+
+**安装级 private** 同样落在 owner 命名空间，但是仅 owner / 管理员可读可写。游客打开公开安装
+会 401/403，不泄漏键是否存在。明文进入沙箱；出站密钥仍用 Manifest `credentials`。
 
 ## 开发检查清单
 

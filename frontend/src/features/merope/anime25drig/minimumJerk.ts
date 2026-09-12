@@ -1,4 +1,3 @@
-/** A finite quintic trajectory with position/velocity/acceleration boundaries. */
 export class MinimumJerkMotion {
   value = 0
   velocity = 0

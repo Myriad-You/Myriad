@@ -1,63 +1,58 @@
-/**
- * Package-asset URL rewriting for guest loaders (Three.js LoadingManager, etc.).
- * Keep this file free of TypeScript syntax inside the helper source so it can
- * be inlined into the sandbox SDK / security wrapper.
- */
+/** helper 源码不要含 TypeScript 语法，以便内联进沙箱。 */
 
 export const ASSET_URL_HELPER_SOURCE = `
 function normalizeDeclaredAssetPath(url) {
   if (typeof url !== 'string') return '';
-  var path = url.trim();
+  let path = url.trim();
   if (!path) return '';
   if (/^blob:/i.test(path) || /^data:/i.test(path)) return '';
-  if (/^https?:\\/\\//i.test(path) || path.indexOf('//') === 0) return '';
-  try { path = decodeURI(path); } catch (e) {}
-  var cut = path.split('#')[0].split('?')[0];
-  var marker = cut.indexOf('assets/');
+  if (/^https?:\\/\\//i.test(path) || path.startsWith('//')) return '';
+  try { path = decodeURI(path); } catch {}
+  let cut = path.split('#')[0].split('?')[0];
+  const marker = cut.indexOf('assets/');
   if (marker >= 0) cut = cut.slice(marker);
-  cut = cut.replace(/^(\\.\\/)+/, '');
-  if (cut.indexOf('..') >= 0 || cut.indexOf('\\\\') >= 0 || cut.indexOf('assets/') !== 0) return '';
+  cut = cut.replaceAll(/^(\\.\\/)+/g, '');
+  if (cut.includes('..') || cut.includes('\\\\') || !cut.startsWith('assets/')) return '';
   if (cut.length > 512) return '';
   return cut;
 }
 
 function isSandboxedFetchUrl(url) {
   if (typeof url !== 'string') return false;
-  var value = url.trim().toLowerCase();
-  return value.indexOf('blob:') === 0 || value.indexOf('data:') === 0;
+  const value = url.trim().toLowerCase();
+  return value.startsWith('blob:') || value.startsWith('data:');
 }
 
 function rewriteAssetUrl(url, urls) {
   if (typeof url !== 'string' || !url || !urls) return '';
   if (isSandboxedFetchUrl(url)) return url;
-  if (/^https?:\\/\\//i.test(url) || url.indexOf('//') === 0) return '';
-  var declared = normalizeDeclaredAssetPath(url);
+  if (/^https?:\\/\\//i.test(url) || url.startsWith('//')) return '';
+  const declared = normalizeDeclaredAssetPath(url);
   if (declared && urls[declared]) return urls[declared];
   if (urls[url]) return urls[url];
-  var base = url.split('?')[0].split('#')[0].split('/').pop();
+  const base = url.split('?')[0].split('#')[0].split('/').pop();
   if (!base) return '';
-  var hits = [];
-  for (var key in urls) {
-    if (!Object.prototype.hasOwnProperty.call(urls, key)) continue;
-    if (key === base || key.slice(-(base.length + 1)) === '/' + base) hits.push(key);
+  const hits = [];
+  for (const key of Object.keys(urls)) {
+    if (key === base || key.endsWith('/' + base)) hits.push(key);
   }
   return hits.length === 1 ? urls[hits[0]] : '';
 }
 
 function resolveDeclaredAssetPath(url, urls) {
-  var declared = normalizeDeclaredAssetPath(url);
+  const declared = normalizeDeclaredAssetPath(url);
   if (declared) return declared;
   if (typeof url !== 'string' || !url || !urls) return '';
-  var rewritten = rewriteAssetUrl(url, urls);
+  const rewritten = rewriteAssetUrl(url, urls);
   if (!rewritten) return '';
-  for (var key in urls) {
-    if (Object.prototype.hasOwnProperty.call(urls, key) && urls[key] === rewritten) return key;
+  for (const key of Object.keys(urls)) {
+    if (urls[key] === rewritten) return key;
   }
   return '';
 }
 `
 
-/** Host/test copy of `ASSET_URL_HELPER_SOURCE` — keep behavior in lockstep. */
+/** 与 ASSET_URL_HELPER_SOURCE 行为保持一致。 */
 export function normalizeDeclaredAssetPath(url: string): string {
   if (typeof url !== 'string') return ''
   let path = url.trim()
@@ -66,14 +61,12 @@ export function normalizeDeclaredAssetPath(url: string): string {
   if (/^https?:\/\//i.test(path) || path.startsWith('//')) return ''
   try {
     path = decodeURI(path)
-  }
-  catch {
-    // keep the raw path
+  } catch {
   }
   let cut = path.split('#')[0].split('?')[0]
   const marker = cut.indexOf('assets/')
   if (marker >= 0) cut = cut.slice(marker)
-  cut = cut.replace(/^(\.\/)+/, '')
+  cut = cut.replaceAll(/^(\.\/)+/g, '')
   if (cut.includes('..') || cut.includes('\\') || !cut.startsWith('assets/')) return ''
   if (cut.length > 512) return ''
   return cut
@@ -113,17 +106,16 @@ export function resolveDeclaredAssetPath(url: string, urls: Record<string, strin
   return ''
 }
 
-/** Inlined into the sandbox wrapper so FileLoader can `fetch(new Request(blobUrl))`. */
 export const SANDBOXED_FETCH_INSTALL_SOURCE = `
 ${ASSET_URL_HELPER_SOURCE}
 function installSandboxedFetch(window) {
-  var _nativeFetch = typeof window.fetch === 'function' ? window.fetch.bind(window) : null;
+  const _nativeFetch = typeof window.fetch === 'function' ? window.fetch.bind(window) : null;
   window.fetch = function(input, init) {
-    var url = '';
+    let url = '';
     try {
       if (typeof input === 'string') url = input;
       else if (input && typeof input.url === 'string') url = input.url;
-    } catch (e) {}
+    } catch {}
     if (_nativeFetch && isSandboxedFetchUrl(url)) {
       return _nativeFetch(input, init);
     }

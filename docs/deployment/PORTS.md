@@ -22,7 +22,8 @@ else goes to the frontend SPA). Match path-only (no query):
 | Path | Role |
 | --- | --- |
 | `/api/*` | App API (includes federation REST + WebSocket upgrades for `/api/*`) |
-| `/health` | Backend health |
+| `/health` | Backend liveness (process up). Not business readiness. |
+| `/ready` | Backend readiness (live DB probe, migrations, full routes, storage). 503 when not ready. |
 | `/sitemap.xml` | Public SEO sitemap (also `/api/seo/sitemap.xml`); empty urlset when durable origin (`FRONTEND_URL`/`BASE_URL`) is unset — no client Host fallback |
 | `/robots.txt` | Dynamic robots; absolute `Sitemap:` line only when `FRONTEND_URL` or `BASE_URL` is set (omitted when unset) |
 | `/llms.txt` | AI-facing site index (when GEO policy allows) |

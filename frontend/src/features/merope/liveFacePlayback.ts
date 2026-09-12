@@ -1,14 +1,3 @@
-/**
- * 全站现场形象只跑一套 WebGL。面板聊天档优先于首页小组件；
- * 没拿到租约的表面只出说明，不另开播放器，也不用主立绘占位。
- *
- * 和小组件张数租约是两件事：多张卡片里只有一张是「那张卡」，
- * 这张卡和面板之间还要再争一次播放权。
- *
- * 播放权易手时，现持有者先卸掉播放器（退场用最后一帧平面影像），
- * 下一处才挂上 WebGL 入场。两处同时想要时也不并行开第二套现场。
- */
-
 import { useLayoutEffect, useSyncExternalStore } from 'react'
 
 type Listener = () => void
@@ -123,10 +112,6 @@ export function dropLiveFaceClaim(id: string): void {
   emit()
 }
 
-/**
- * 现持有者已经卸掉现场播放器。换包装时仍是赢家就留下租约；
- * 否则把播放权交给下一个。
- */
 export function notifyLiveFaceUnmounted(id: string): void {
   if (holder !== id) return
   const next = pickWanted()

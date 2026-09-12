@@ -16,7 +16,11 @@ fn require_db(state: &AppState) -> Result<sea_orm::DatabaseConnection, (StatusCo
     state.db().ok_or_else(|| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({"success": false, "message": "Database is not connected"})),
+            Json(json!({
+                "success": false,
+                "message": "Database is not connected",
+                "code": "database_error",
+            })),
         )
     })
 }

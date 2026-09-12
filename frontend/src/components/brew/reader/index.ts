@@ -1,10 +1,5 @@
-/**
- * Brew 阅读器子组件导出
- */
-
 export { default as CommentsListPanel } from './CommentsListPanel'
 
-// 常量导出
 export {
   DATE_FORMAT_FULL,
   DATE_FORMAT_SHORT,
@@ -22,7 +17,6 @@ export { useContentPostprocess } from './contentPostprocess'
 export { getImageUrl, useContentRender } from './contentRender'
 
 export { restoreEmbedElements, saveEmbedElements } from './embedRestore'
-// Hooks 导出
 export {
   useAnnotations,
   useComments,
@@ -49,22 +43,22 @@ export type {
   UseReaderSettingsReturn,
 } from './hooks'
 export { Lightbox } from './Lightbox'
-// 组件导出
 export { MobileReaderBar } from './MobileReaderBar'
 export { ReaderArticleBody } from './ReaderArticleBody'
 export { default as ReaderLeftPanel } from './ReaderLeftPanel'
+export { ReaderProgressRail } from './ReaderProgress'
 export { default as ReaderRightPanel } from './ReaderRightPanel'
 export {
   AnnotationTooltip,
   CommentInputPopup,
   CommentTooltip,
 } from './ReaderTooltips'
-// 类型导出
 export type {
   FontOption,
   LayoutKey,
   LayoutOption,
   MobileReaderBarProps,
+  ReaderCopy,
   ReaderLeftPanelProps,
   ReaderRightPanelProps,
   ThemeConfig,

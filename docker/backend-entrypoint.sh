@@ -7,7 +7,15 @@ if [ "${MYRIAD_VOLUME_INIT_ONLY:-false}" = "true" ]; then
         exit 1
     fi
 
-    mkdir -p /app/cache /app/data
+    # Subpath mounts must exist before Docker creates the federation container.
+    # Preserve the existing volume data; reject redirects before root mkdir/chown.
+    for dir in /app/data/federation /app/data/federation_media /app/cache/images; do
+        if [ -L "$dir" ]; then
+            echo "refusing symlink in federation volume subpath: $dir" >&2
+            exit 1
+        fi
+    done
+    mkdir -p /app/cache/images /app/data/federation /app/data/federation_media
     chown -R --no-dereference myriad:myriad /app/cache /app/data
     # Ownership alone is insufficient when an older/root deployment left
     # directories without owner-write/search bits (for example 0555). Restore

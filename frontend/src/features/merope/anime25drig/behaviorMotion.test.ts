@@ -49,9 +49,7 @@ test('sustained rhythm remains active until explicitly replaced', () => {
   controller.replace([sustained], 1_000, 2)
   assert.ok(controller.sample(4).music > 0.7)
   controller.clear(4)
-  // Stopping the plan is not teardown. This used to assert an immediate zero,
-  // which is the hard cut the paired expression controller never made: it has
-  // always released its cues from their current value.
+  // 停计划不是拆台：从当前值放掉，不当帧归零。
   assert.ok(controller.sample(4.02).music > 0)
   assert.equal(controller.sample(4.5).music, 0)
 })

@@ -63,7 +63,7 @@ fn json_str(row: &Value, key: &str) -> String {
         .to_string()
 }
 
-/// Non-negative integer as decimal string for hashing (must match import validation).
+/// Non-negative integer as decimal string for hashing.
 fn json_metric_str(row: &Value, key: &str) -> Option<String> {
     let n = i64_nonneg(row.get(key))?;
     Some(n.to_string())
@@ -176,8 +176,7 @@ fn digest_table(
 /// Field-canonical SHA-256 of the backup payload (hex).
 ///
 /// Key order and pretty-print do not affect the hash — only declared field
-/// values. Metadata such as `exported_at` / `timezone` / `integrity` is
-/// intentionally excluded so renames of those labels do not break restore.
+/// values. `exported_at` / `timezone` / `integrity` are excluded from the hash.
 pub(crate) fn content_hash(
     format: &str,
     version: u32,
@@ -282,7 +281,7 @@ pub(crate) fn verify_integrity(integrity: &Value, expected_hash: &str) -> Result
         return Err("integrity_token_mismatch");
     }
 
-    // Optional key fingerprint check (warn-only would be soft; fail closed if present and wrong).
+    // Optional key fingerprint: present non-empty mismatch is Err(integrity_key_mismatch).
     if let Some(fp) = integrity.get("key_fingerprint").and_then(|v| v.as_str()) {
         if !fp.is_empty() && fp != myriad_data_key::data_key().fingerprint() {
             return Err("integrity_key_mismatch");
@@ -304,7 +303,7 @@ pub(crate) fn validate_counts_object(
     country_visitor: usize,
 ) -> Result<(), &'static str> {
     let Some(counts) = counts else {
-        return Ok(()); // older hand-built payloads without counts
+        return Ok(()); // `counts` 省略则跳过这项校验
     };
     if !counts.is_object() {
         return Err("invalid_counts");
@@ -346,8 +345,8 @@ fn metric_in_range(n: i64) -> bool {
 
 /// Structural pre-check used before DB writes.
 ///
-/// Returns the number of rows that would be skipped by the import loops
-/// (invalid day / path / hash / …). Import rejects when `skipped > 0`.
+/// Returns a skip count for invalid day/path/hash/range. Import rejects when `skipped > 0`;
+/// insert loops coerce some optional metrics to 0 instead of skipping.
 pub(crate) fn prevalidate_rows(
     page_daily: &[Value],
     visitor_seen: &[Value],
@@ -496,7 +495,6 @@ pub(crate) fn prevalidate_rows(
         }
     }
 
-    // Sanity: format constant must never be empty in callers; keep pure here.
     let _ = ANALYTICS_BACKUP_FORMAT;
 
     Ok(skipped)

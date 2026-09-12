@@ -19,9 +19,9 @@ export default {
       },
       fontFamily: {
         sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],
-        // JetBrains Mono 没有自托管（astro.config fonts 里没有它），没装的机器会掉到
-        // 通用 monospace —— 中文 Windows 上那是宋体等宽，代码块难看且对不齐。
-        // 显式列出各平台的系统等宽字体兜底。
+        // JetBrains Mono is not self-hosted (not in astro.config fonts). Uninstalled
+        // machines would fall through to generic monospace — on Chinese Windows that
+        // is SimSun-style and code blocks misalign. List per-platform system mono.
         mono: [
           'JetBrains Mono',
           'ui-monospace',

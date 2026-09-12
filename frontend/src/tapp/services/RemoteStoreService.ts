@@ -1,15 +1,7 @@
-/**
- * 远程应用商店服务
- * 从 GitHub 托管的远程商店获取和安装 Tapp
- *
- * 商店源配置存储在后端数据库中，通过 API 进行管理
- * 缓存仅保存在内存中，刷新页面后重新获取
- */
-
 import type { TappManifest } from '../types'
 import type { RemoteStoreLocales } from '../utils/storeLocale'
 import type { StorePreviewDescriptor } from '../utils/storePreview'
-import { currentCopy } from '../../i18n/localeCopy'
+import { currentCopy, formatCurrent } from '../../i18n/localeCopy'
 import api from '../../lib/api'
 import {
   httpStatusMessage,
@@ -31,127 +23,72 @@ export {
 } from '../utils/storePackagePaths'
 export type { StorePreviewDescriptor } from '../utils/storePreview'
 
-// 类型定义
-
-/** 远程商店源配置 */
 export interface RemoteStoreSource {
-  /** 数据库 ID */
   id?: number
-  /** 商店名称 */
   name: string
-  /** 商店描述 */
   description?: string
-  /** 商店 URL（index.json 的 URL） */
   url: string
   enabled: boolean
-  /** 是否为官方商店 */
   official?: boolean
   icon?: string
 }
 
-/** 远程商店索引 */
 export interface RemoteStoreIndex {
-  /** 商店名称 */
   name: string
-  /** 商店描述 */
   description: string
-  /** API 版本 */
   api_version: number
-  /** 最后更新时间 */
   last_updated: string
-  /** 基础 URL */
   base_url: string
-  /** 应用列表 */
   apps: RemoteApp[]
-  /** 分类列表 */
   categories?: RemoteCategory[]
 }
 
-/** 远程应用信息 */
 export interface RemoteApp {
-  /** 应用 ID */
   id: string
-  /** 应用名称 */
   name: string
-  /** 版本号 */
   version: string
-  /** 简短描述 */
   description: string
-  /** 详细描述（可选） */
   long_description?: string
-  /**
-   * 商店展示覆盖（BCP-47 → name / description / long_description / preview）。
-   * name/description 与 manifest.locales 同源；长介绍与预览只属于 catalog。
-   */
+  /** name/description 与 manifest.locales 同源；长介绍与预览只属 catalog。 */
   locales?: RemoteStoreLocales
-  /** 作者 */
   author: {
     name: string
     email?: string
     url?: string
   }
-  /** 图标（emoji 或 URL） */
   icon?: string
-  /** 内联 SVG 图标代码（优先于 icon） */
   icon_svg?: string
-  /**
-   * 可选：全彩自定义图标仍保留 material 色壳（catalog → install manifest 同源语义）。
-   * 缺省 false / 未声明 = auto（全彩图 standalone 铺满）。
-   */
+  /** 缺省 auto：全彩图 standalone。 */
   icon_shell?: boolean
-  /** 主题色（十六进制，如 #6366f1） */
   theme_color?: string
-  /** 分类 */
   category: string
   tags?: string[]
-  /** 所需权限 */
   permissions: string[]
-  /** 下载链接 */
   download: {
-    /** manifest.json URL（相对于 base_url） */
     manifest: string
-    /** 代码文件 URL（相对于 base_url） */
     code: string
-    /** README URL（可选） */
     readme?: string
-    /** 统一样式 CSS（可选） */
     styles?: string
-    /** Widget 样式 CSS */
     widget_styles?: string
-    /** Page 样式 CSS */
     page_styles?: string
-    /** Page 模板 HTML */
     page_template?: string
-    /** Widget 模板（Widget ID → 尺寸） */
     widget_templates?: Record<string, Record<string, string>>
-    /** i18n 翻译文件（lang → 相对路径） */
     i18n?: Record<string, string>
-    /** Page 模块（filename → 相对路径） */
     modules?: Record<string, string>
   }
-  /** 许可证 */
   license?: string
-  /** 主页 URL */
   homepage?: string
-  /** 仓库 URL */
   repository?: string
-  /** 截图 URL 列表 */
   screenshots?: string[]
-  /** 商店专用、无脚本的静态预览场景 */
   preview?: StorePreviewDescriptor
-  /** 文件大小（字节） */
   size?: number
-  /** 是否推荐应用 */
   featured?: boolean
-  /** 是否官方验证 */
   verified?: boolean
-  /** 安装次数（index 占位或 edge overlay） */
   downloads?: number
   created_at?: string
   updated_at?: string
 }
 
-/** 远程分类 */
 export interface RemoteCategory {
   id: string
   name: string
@@ -159,9 +96,6 @@ export interface RemoteCategory {
   icon?: string
 }
 
-// 默认官方商店（用于 API 不可用时的降级）
-
-/** 官方远程商店 */
 export const OFFICIAL_STORE: RemoteStoreSource = {
   get name() {
     return currentCopy().tapp.officialStoreName
@@ -175,11 +109,7 @@ export const OFFICIAL_STORE: RemoteStoreSource = {
   icon: TAPP_ICON_TOKENS.store,
 }
 
-// 缓存配置
-
-const CACHE_TTL = 5 * 60 * 1000 // 5 分钟缓存
-
-// 缓存结构（仅内存）
+const CACHE_TTL = 5 * 60 * 1000
 
 interface CacheEntry {
   data: RemoteStoreIndex
@@ -187,29 +117,19 @@ interface CacheEntry {
   url: string
 }
 
-// 服务实现
-
 class RemoteStoreServiceImpl {
-  /** 商店源列表（从后端 API 获取） */
   private sources: RemoteStoreSource[] = []
-  /** 商店索引缓存（仅内存） */
   private cache: Map<string, CacheEntry> = new Map()
-  /** 同一商店只保留一个在途索引请求；删除源时可中止。 */
+  /** 同一商店一个在途索引请求；删源时可中止。 */
   private pendingIndexRequests = new Map<
     string,
     { promise: Promise<RemoteStoreIndex>; controller: AbortController }
   >()
 
-  /** 是否已从 API 加载 */
   private sourcesLoaded = false
-  /** 加载 Promise（防止并发加载） */
   private loadingPromise: Promise<void> | null = null
 
-  // 商店源管理（通过后端 API）
-
-  /** 从后端 API 加载商店源 */
   private async loadSourcesFromApi(): Promise<void> {
-    // 防止并发加载
     if (this.loadingPromise) {
       return this.loadingPromise
     }
@@ -227,7 +147,6 @@ class RemoteStoreServiceImpl {
             official: s.official,
             icon: s.icon,
           }))
-          // 确保至少有官方商店
           if (this.sources.length === 0) {
             this.sources = [OFFICIAL_STORE]
           }
@@ -256,20 +175,17 @@ class RemoteStoreServiceImpl {
     return this.loadingPromise
   }
 
-  /** 确保商店源已加载 */
   private async ensureSourcesLoaded(): Promise<void> {
     if (!this.sourcesLoaded) {
       await this.loadSourcesFromApi()
     }
   }
 
-  /** 获取所有商店源 */
   async getSources(): Promise<RemoteStoreSource[]> {
     await this.ensureSourcesLoaded()
-    return [...this.sources]
+    return Iterator.from(this.sources).toArray()
   }
 
-  /** 获取启用的商店源 */
   async getEnabledSources(): Promise<RemoteStoreSource[]> {
     const sources = await this.getSources()
     return sources.filter((s) => s.enabled)
@@ -290,7 +206,6 @@ class RemoteStoreServiceImpl {
     )
   }
 
-  /** 添加商店源（需要管理员权限） */
   async addSource(
     source: Omit<RemoteStoreSource, 'id' | 'official'>,
   ): Promise<void> {
@@ -312,7 +227,6 @@ class RemoteStoreServiceImpl {
         )
       }
 
-      // 添加成功，刷新本地缓存
       const newSource: RemoteStoreSource = {
         id: response.data.data.id,
         name: response.data.data.name,
@@ -334,7 +248,6 @@ class RemoteStoreServiceImpl {
     }
   }
 
-  /** 移除商店源（需要管理员权限） */
   async removeSource(sourceId: number): Promise<void> {
     const source = this.sources.find((s) => s.id === sourceId)
     if (source?.official) {
@@ -353,9 +266,7 @@ class RemoteStoreServiceImpl {
         )
       }
 
-      // 删除成功，更新本地缓存
       this.sources = this.sources.filter((s) => s.id !== sourceId)
-      // 同时清除该商店的索引缓存
       if (source) this.clearCachedSource(source.url)
     } catch (error: any) {
       if (error.response?.status === 403) {
@@ -368,7 +279,6 @@ class RemoteStoreServiceImpl {
     }
   }
 
-  /** 启用/禁用商店源（需要管理员权限） */
   async toggleSource(sourceId: number, enabled: boolean): Promise<void> {
     try {
       const response = await api.post(`/api/tapps/store/sources/${sourceId}`, {
@@ -384,7 +294,6 @@ class RemoteStoreServiceImpl {
         )
       }
 
-      // 更新成功，更新本地缓存
       const source = this.sources.find((s) => s.id === sourceId)
       if (source) {
         source.enabled = enabled
@@ -400,10 +309,6 @@ class RemoteStoreServiceImpl {
     }
   }
 
-  /**
-   * 更新商店源名称 / URL 等（需要管理员权限）。
-   * 官方源不可改 URL；自定义源改 URL 后会清索引缓存。
-   */
   async updateSource(
     sourceId: number,
     patch: {
@@ -476,15 +381,11 @@ class RemoteStoreServiceImpl {
     }
   }
 
-  /** 刷新商店源列表（从 API 重新加载） */
   async refreshSources(): Promise<void> {
     this.sourcesLoaded = false
     await this.loadSourcesFromApi()
   }
 
-  // 商店数据获取
-
-  /** 获取商店索引（带内存缓存） */
   async fetchStoreIndex(
     source: RemoteStoreSource,
     forceRefresh = false,
@@ -492,7 +393,6 @@ class RemoteStoreServiceImpl {
     const cacheKey = source.url
     const now = Date.now()
 
-    // 检查内存缓存
     if (!forceRefresh) {
       const cached = this.cache.get(cacheKey)
       if (cached && now - cached.timestamp < CACHE_TTL) {
@@ -525,10 +425,9 @@ class RemoteStoreServiceImpl {
 
   private pruneCacheToSources(): void {
     const activeUrls = new Set(this.sources.map((source) => source.url))
-    const knownUrls = new Set([
-      ...this.cache.keys(),
-      ...this.pendingIndexRequests.keys(),
-    ])
+    const knownUrls = new Set(this.cache.keys()).union(
+      new Set(this.pendingIndexRequests.keys()),
+    )
     for (const url of knownUrls) {
       if (!activeUrls.has(url)) this.clearCachedSource(url)
     }
@@ -539,12 +438,11 @@ class RemoteStoreServiceImpl {
     cacheKey: string,
     signal: AbortSignal,
   ): Promise<RemoteStoreIndex> {
-    // 从远程获取
     try {
       const response = await fetch(
         this.withStoreCacheBust(source.url, this.newStoreDownloadSessionId()),
         {
-          // Simple request only — see storeResourceFetchInit CORS note.
+          // 只发简单请求；见 storeResourceFetchInit 的 CORS 约束。
           headers: {
             Accept: 'application/json',
           },
@@ -562,7 +460,6 @@ class RemoteStoreServiceImpl {
       if (signal.aborted)
         throw new DOMException('Request aborted', 'AbortError')
 
-      // 验证数据
       if (!data.name || !data.apps || !Array.isArray(data.apps)) {
         throw new Error(currentCopy().tapp.storeInvalidIndex)
       }
@@ -577,7 +474,6 @@ class RemoteStoreServiceImpl {
         ),
       }))
 
-      // 更新内存缓存
       this.cache.set(cacheKey, {
         data,
         timestamp: Date.now(),
@@ -596,7 +492,6 @@ class RemoteStoreServiceImpl {
     }
   }
 
-  /** 获取所有启用商店的应用列表 */
   async fetchAllApps(forceRefresh = false): Promise<{
     apps: Array<
       RemoteApp & {
@@ -611,7 +506,7 @@ class RemoteStoreServiceImpl {
     const enabledSources = await this.getEnabledSources()
     const prioritizedSources = enabledSources
       .map((source, configuredIndex) => ({ source, configuredIndex }))
-      .sort((a, b) => {
+      .toSorted((a, b) => {
         const officialRank =
           Number(Boolean(b.source.official)) -
           Number(Boolean(a.source.official))
@@ -619,7 +514,7 @@ class RemoteStoreServiceImpl {
       })
       .map(({ source }) => source)
 
-    // 并行获取，但保持显式源优先级；不能让网络返回顺序决定同 id 应用的来源。
+    // 并行拉取；同 id 来源由源优先级决定，不是返回顺序。
     const results = await Promise.all(
       prioritizedSources.map(async (source) => {
         try {
@@ -634,7 +529,7 @@ class RemoteStoreServiceImpl {
       }),
     )
 
-    // 多源同 id：官方源优先；其余按配置顺序优先。同一 id 只产生一个安装来源。
+    // 同 id：官方源优先，其余按配置顺序；只产生一个安装来源。
     const apps: Array<
       RemoteApp & {
         sourceUrl: string
@@ -664,7 +559,6 @@ class RemoteStoreServiceImpl {
       }
     }
 
-    // Overlay live install counts from edge stats (non-blocking on failure).
     try {
       const { fetchStoreDownloadCounts } = await import('./storeStats')
       const officialIds = apps
@@ -678,7 +572,6 @@ class RemoteStoreServiceImpl {
         }
       }
     } catch {
-      // stats optional
     }
 
     return {
@@ -687,62 +580,42 @@ class RemoteStoreServiceImpl {
     }
   }
 
-  /** 获取远程分类列表 */
   async fetchCategories(source: RemoteStoreSource): Promise<RemoteCategory[]> {
     const index = await this.fetchStoreIndex(source)
     return index.categories || []
   }
 
-  // 应用下载
-
-  /**
-   * Store package fetches must bypass browser/CDN intermediate caches.
-   * GitHub raw serves `Cache-Control: max-age=300`; without this, delete+reinstall
-   * on a production host can mix a fresh manifest with a stale page.css/page.html.
-   *
-   * **CORS:** Do not set `Cache-Control` / `Pragma` request headers. They are not
-   * CORS-safelisted and force a preflight OPTIONS that raw.githubusercontent.com
-   * rejects (install fallback then fails with "Failed to fetch" from localhost).
-   * Use `cache: 'no-store'` + query cache-bust instead.
-   */
+  /** 包下载须绕过中间缓存。禁止 Cache-Control/Pragma 请求头（非 CORS 简单头，会预检失败）。用 cache:no-store + query bust。 */
   private storeResourceFetchInit(
     extraHeaders?: Record<string, string>,
   ): RequestInit {
     const headers: Record<string, string> = {
-      // Keep Accept simple (CORS-safelisted) when provided by callers.
+      // Accept 保持 CORS 简单头。
       ...(extraHeaders || {}),
     }
     return {
       cache: 'no-store',
-      // mode default is cors for cross-origin; omit credentials for public store URLs
+      // 公共商店 URL 不带 credentials。
       credentials: 'omit',
       headers,
     }
   }
 
-  /**
-   * Unique token per install/download session so every package file is fetched
-   * with the same bust id (consistent snapshot) but never reuses a prior session.
-   */
+  /** 同一次下载共用 bust id；不复用上次会话。 */
   private newStoreDownloadSessionId(): string {
     if (
       typeof crypto !== 'undefined' &&
       typeof crypto.randomUUID === 'function'
     ) {
-      return crypto.randomUUID().replace(/-/g, '')
+      return crypto.randomUUID().replaceAll('-', '')
     }
     return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
   }
 
-  /**
-   * Append cache-bust query so CDN/browser cannot serve a previous package file.
-   * Applied to **all** store hosts (not only GitHub) for install-path downloads.
-   * CORS-safe: no non-simple request headers required.
-   */
+  /** 所有商店宿主都 bust；不靠非简单请求头。 */
   private withStoreCacheBust(url: string, sessionId: string): string {
     try {
       const parsed = new URL(url)
-      // Stable per download session; replace any prior bust params.
       parsed.searchParams.delete('_myriad_cb')
       parsed.searchParams.delete('_')
       parsed.searchParams.set('_myriad_cb', sessionId)
@@ -764,7 +637,6 @@ class RemoteStoreServiceImpl {
     )
   }
 
-  /** 下载应用的 manifest */
   async downloadManifest(
     app: RemoteApp,
     storeIndex: RemoteStoreIndex,
@@ -791,7 +663,6 @@ class RemoteStoreServiceImpl {
     return manifest
   }
 
-  /** 下载应用代码 */
   async downloadCode(
     app: RemoteApp,
     storeIndex: RemoteStoreIndex,
@@ -815,13 +686,7 @@ class RemoteStoreServiceImpl {
     return code
   }
 
-  /**
-   * Static resources for store detail / featured previews.
-   *
-   * Prefer catalog `preview` (type: snapshot) paths. If none, fall back to
-   * `download.page_template` (+ page styles). Never re-renders local installed
-   * package HTML — that path produced empty white shells after sanitization.
-   */
+  /** 优先 catalog preview；否则 page_template。不用已安装包 HTML。 */
   async downloadAppPreview(
     app: RemoteApp,
     baseUrl: string,
@@ -839,7 +704,6 @@ class RemoteStoreServiceImpl {
       return text.slice(0, 512 * 1024)
     }
 
-    // 1. Explicit merchandising snapshot (caller may pass a locale-resolved one)
     if (snapshot?.html) {
       const [html, ...styles] = await Promise.all([
         downloadText(snapshot.html),
@@ -851,7 +715,6 @@ class RemoteStoreServiceImpl {
       }
     }
 
-    // 2. Catalog page_template (static shell only — not local install resources)
     const htmlPath = app.download.page_template
     if (!htmlPath) return {}
 
@@ -869,15 +732,7 @@ class RemoteStoreServiceImpl {
     }
   }
 
-  /**
-   * 在浏览器侧完整下载远程应用包（供后端无法出站时的安装回退）
-   *
-   * 商店列表本就由浏览器直连远程 index；当 server 侧 /api/tapps/install(store)
-   * 因容器无外网/GitHub 不可达返回 502 时，可用此方法拉取后走 direct 安装。
-   *
-   * When `manifest.assets` is present, also downloads each binary asset as base64
-   * (path → base64) so `Tapp.assets` works after install.
-   */
+  /** 浏览器整包下载，供后端无法出站时走 direct。 */
   async downloadAppPackage(
     app: RemoteApp,
     storeIndex: RemoteStoreIndex,
@@ -889,21 +744,19 @@ class RemoteStoreServiceImpl {
     manifest: TappManifest
     code: string
     styles?: string
-    /** 作者声明的 widget 层 CSS（`download.widget_styles`），不是宿主预编译产物 */
+    /** 作者 widget 层 CSS，不是宿主预编译产物。 */
     widgetStyles?: string
     pageCss?: string
     pageTemplate?: string
     widgetTemplates?: Record<string, Record<string, string>>
     i18n?: Record<string, unknown>
     modules?: Record<string, string>
-    /** Package-static assets (manifest path → standard base64) */
     assets?: Record<string, string>
   }> {
     const baseUrl = storeIndex.base_url || this.deriveBaseUrl(storeIndex)
     const { clampInstallPercent } = await import('../utils/tappInstallProgress')
     const report = options?.onProgress
-    // One session id for the whole package so all files share the same bust
-    // token (coherent snapshot) and never hit a prior install's CDN entry.
+    // 同一次下载共用 bust id；不复用上次会话。
     const downloadSessionId = this.newStoreDownloadSessionId()
 
     const downloadText = async (
@@ -913,10 +766,9 @@ class RemoteStoreServiceImpl {
       if (!relativePath) {
         if (requiredLabel) {
           throw new Error(
-            currentCopy().tapp.storeDownloadFailed.replace(
-              '{name}',
-              requiredLabel,
-            ),
+            formatCurrent(currentCopy().tapp.storeDownloadFailed, {
+              name: requiredLabel,
+            }),
           )
         }
         return undefined
@@ -929,10 +781,9 @@ class RemoteStoreServiceImpl {
             throw new Error(
               userFacingError(
                 `HTTP ${response.status}`,
-                currentCopy().tapp.storeDownloadFailed.replace(
-                  '{name}',
-                  requiredLabel,
-                ),
+                formatCurrent(currentCopy().tapp.storeDownloadFailed, {
+                  name: requiredLabel,
+                }),
               ),
             )
           }
@@ -946,10 +797,9 @@ class RemoteStoreServiceImpl {
             : new Error(
                 userFacingError(
                   e,
-                  currentCopy().tapp.storeDownloadFailed.replace(
-                    '{name}',
-                    requiredLabel,
-                  ),
+                  formatCurrent(currentCopy().tapp.storeDownloadFailed, {
+                    name: requiredLabel,
+                  }),
                 ),
               )
         }
@@ -982,7 +832,7 @@ class RemoteStoreServiceImpl {
     })
 
     const indexWithBase = { ...storeIndex, base_url: baseUrl }
-    // Manifest first so we know which layer resources are required (page.styles etc.)
+    // 先下 manifest，才能知道哪些层资源必填。
     const downloadedManifest = await this.downloadManifest(
       app,
       indexWithBase,
@@ -990,16 +840,17 @@ class RemoteStoreServiceImpl {
     )
     const manifest: TappManifest = downloadedManifest
 
-    // Catalog entry version must match the package we just pulled (stale index / CDN).
+    // catalog version 必须等于刚拉到的包。
     if (
       app.version &&
       manifest.version &&
       app.version.trim() !== manifest.version.trim()
     ) {
       throw new Error(
-        currentCopy().tapp.storeVersionMismatch
-          .replace('{catalog}', app.version.trim())
-          .replace('{manifest}', manifest.version.trim()),
+        formatCurrent(currentCopy().tapp.storeVersionMismatch, {
+          catalog: app.version.trim(),
+          manifest: manifest.version.trim(),
+        }),
       )
     }
 
@@ -1080,14 +931,13 @@ class RemoteStoreServiceImpl {
       if (Object.keys(i18nData).length > 0) i18n = i18nData
     }
 
-    // `download.modules` 的 key 是包内相对路径，覆盖任意层的入口与层内文件。
+    // download.modules 的 key 是包内相对路径。
     let modules: Record<string, string> | undefined
     if (app.download.modules) {
       const entries = Object.entries(app.download.modules)
       const downloaded: Record<string, string> = {}
       const total = entries.length
       let done = 0
-      // Bound concurrency (same idea as assets) + progress for multi-file packages
       const concurrency = 4
       let next = 0
       const worker = async () => {
@@ -1097,15 +947,13 @@ class RemoteStoreServiceImpl {
           const content = await downloadText(path, `module ${relative}`)
           if (!content) {
             throw new Error(
-              currentCopy().tapp.storeDownloadFailed.replace(
-                '{name}',
-                `${relative}`,
-              ),
+              formatCurrent(currentCopy().tapp.storeDownloadFailed, {
+                name: `${relative}`,
+              }),
             )
           }
           downloaded[relative] = content
           done++
-          // Map module downloads into 20–75% of the download bar
           const frac = total > 0 ? done / total : 1
           report?.({
             phase: 'download',
@@ -1123,7 +971,6 @@ class RemoteStoreServiceImpl {
       if (Object.keys(downloaded).length > 0) modules = downloaded
     }
 
-    // Binary package assets declared in manifest.assets
     const packageRoot = storePackageRoot(
       app.download.code || app.download.manifest || '',
     )
@@ -1158,11 +1005,6 @@ class RemoteStoreServiceImpl {
     }
   }
 
-  /**
-   * Download manifest.assets files as base64 map for direct install.
-   * URL = `{base}/{packageRoot}/{assetPath}` e.g.
-   * `…/apps/com.myriad.doudizhu/assets/felt/table_felt.png`
-   */
   private async downloadPackageAssets(
     manifest: TappManifest,
     packageRoot: string,
@@ -1188,7 +1030,7 @@ class RemoteStoreServiceImpl {
     const total = declared.length
     let completed = 0
 
-    // Bound concurrency so progress updates are visible and we don't melt the browser
+    // 并发上限，避免打满浏览器。
     const concurrency = 4
     let nextIndex = 0
 
@@ -1214,17 +1056,15 @@ class RemoteStoreServiceImpl {
           throw new Error(
             userFacingError(
               `HTTP ${response.status}`,
-              currentCopy().tapp.storeDownloadFailed.replace(
-                '{name}',
-                assetPath,
-              ),
+              formatCurrent(currentCopy().tapp.storeDownloadFailed, {
+                name: assetPath,
+              }),
             ),
           )
         }
         const buffer = await response.arrayBuffer()
         out[assetPath] = arrayBufferToBase64(buffer)
         completed += 1
-        // Assets occupy ~20%–90% of the install bar
         const pct = 20 + (completed / total) * 70
         report?.({
           phase: 'download',
@@ -1243,12 +1083,10 @@ class RemoteStoreServiceImpl {
     return out
   }
 
-  /** index 未提供 base_url 时返回空，由调用方用商店 URL 推导 */
   private deriveBaseUrl(storeIndex: RemoteStoreIndex): string {
     return storeIndex.base_url || ''
   }
 
-  /** 下载应用的 README */
   async downloadReadme(
     app: RemoteApp,
     storeIndex: RemoteStoreIndex,
@@ -1269,30 +1107,23 @@ class RemoteStoreServiceImpl {
     }
   }
 
-  /** 解析相对 URL */
   private resolveUrl(relativePath: string, baseUrl: string): string {
-    // 如果是绝对 URL，直接返回
     if (
       relativePath.startsWith('http://') ||
       relativePath.startsWith('https://')
     ) {
       return relativePath
     }
-    // 组合基础 URL 和相对路径
     const base = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
     return base + relativePath
   }
 
-  // 缓存管理
-
-  /** 清除内存缓存 */
   clearCache(): void {
     this.cache.clear()
   }
 
-  /** 获取缓存状态 */
   getCacheStatus(): { count: number; oldestEntry: number | null } {
-    const entries = Array.from(this.cache.values())
+    const entries = Iterator.from(this.cache.values()).toArray()
     const oldestEntry =
       entries.length > 0 ? Math.min(...entries.map((e) => e.timestamp)) : null
 
@@ -1313,7 +1144,6 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary)
 }
 
-// 单例导出
 export const RemoteStoreService = new RemoteStoreServiceImpl()
 
 export default RemoteStoreService

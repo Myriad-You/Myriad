@@ -11,22 +11,16 @@ import {
   AI_REQUEST_TIMEOUT_FLOOR_MS,
   aiRequestTimeoutMs,
 } from './src/utils/aiRequestTimeout.mjs'
-// rollup-plugin-visualizer 与 Vite 7 (Rolldown) 不兼容，仅在构建时按需加载
+// rollup-plugin-visualizer is incompatible with Vite/Rolldown; do not import it.
 // import { visualizer } from 'rollup-plugin-visualizer'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
-// 读取 package.json 版本号
 const pkg = JSON.parse(
   readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'),
 )
 const APP_VERSION = pkg.version || '0.4.9'
 
-/**
- * 自定义 Vite 插件：SPA 路由回退
- * 将动态路由（如 /tapp/run/:id）在服务端重定向到 catch-all 页面
- * 但保留原始 URL，让 React Router 在客户端正确解析参数
- */
 /** Align with proxy/backend: document-level geolocation for weather. */
 const DOCUMENT_PERMISSIONS_POLICY =
   'geolocation=(self), microphone=(self), camera=()'
@@ -55,36 +49,29 @@ function stripDevSourcemapsPlugin() {
   }
 }
 
+/** Rewrite dynamic routes to catch-all files; leave the browser URL intact for React Router. */
 function spaFallbackPlugin() {
   return {
     name: 'spa-fallback',
-    enforce: 'pre', // 确保在其他中间件之前执行
+    enforce: 'pre', // SPA fallback must run before other middleware.
     configureServer(server) {
-      // 直接添加中间件，不返回函数
       server.middlewares.use((req, res, next) => {
-        // Dev: document gets Permissions-Policy without going through Myriad proxy
+        // Dev: document gets Permissions-Policy without going through Myriad proxy.
         if (!res.getHeader('Permissions-Policy')) {
           res.setHeader('Permissions-Policy', DOCUMENT_PERMISSIONS_POLICY)
         }
 
         const url = req.url || ''
 
-        // 动态 Tapp 路由回退：/tapp/run/* 和 /tapp/detail/*
-        // 服务端将这些路径重写为占位路径，但浏览器 URL 保持不变
         if (/^\/tapp\/run\/[^_/][^/]*/.test(url)) {
           req.url = '/tapp/run/_'
         } else if (/^\/tapp\/run(\?|$)/.test(url)) {
-          // 多任务模式：/tapp/run 或 /tapp/run?multi=true
           req.url = '/tapp/run/_'
         } else if (/^\/tapp\/detail\/[^_/][^/]*/.test(url)) {
           req.url = '/tapp/detail/_'
-        }
-        // Brew 自有文章 SEO 路径：/brew/item/:id
-        else if (/^\/brew\/item\/[^/]+/.test(url)) {
+        } else if (/^\/brew\/item\/[^/]+/.test(url)) {
           req.url = '/brew'
-        }
-        // 联邦动态路由回退
-        else if (/^\/federation\/chat\/[^_/][^/]*/.test(url)) {
+        } else if (/^\/federation\/chat\/[^_/][^/]*/.test(url)) {
           req.url = '/federation/chat/_'
         } else if (/^\/federation\/room\/[^_/][^/]*/.test(url)) {
           req.url = '/federation/room/_'
@@ -108,8 +95,7 @@ function spaFallbackPlugin() {
 
 const BACKEND_TARGET = 'http://127.0.0.1:1103'
 
-// Must stay >= TappPlaygroundService AbortSignal and cover planner + up to 3
-// repair model calls (each may use backend MODEL_REQUEST_TIMEOUT of 1080s).
+// Must stay >= TappPlaygroundService AbortSignal (30m).
 // Node http.request timeout is socket-idle; playground holds the connection
 // with no response bytes until generation finishes.
 const PLAYGROUND_PROXY_TIMEOUT_MS = 30 * 60 * 1000
@@ -169,7 +155,6 @@ function isAgentSsePath(urlPath) {
   )
 }
 
-/** Long-running federation transfer REST (initiate / list / chunk / cancel / get). */
 function isFederationTransferApiPath(urlPath) {
   const path = requestPathname(urlPath)
   if (path.startsWith('/api/federation/transfers/')) return true
@@ -180,10 +165,9 @@ function isFederationTransferApiPath(urlPath) {
 }
 
 async function readRequestBody(req) {
-  const chunks = []
-  for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
-  }
+  const chunks = await Array.fromAsync(req, (chunk) =>
+    Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk),
+  )
   return Buffer.concat(chunks)
 }
 
@@ -208,21 +192,20 @@ function proxyBackendRequest(targetUrl, method, headers, body, timeoutMs) {
         timeout: timeoutMs,
       },
       (backendRes) => {
-        // Headers arrived: do not keep the idle timer for a small JSON body.
+        // Headers arrived: drop the idle timer for a small JSON body.
         backendReq.setTimeout(0)
-        const chunks = []
-        backendRes.on('data', (chunk) =>
-          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)),
+        void Array.fromAsync(backendRes, (chunk) =>
+          Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk),
         )
-        backendRes.on('end', () => {
-          resolve({
-            statusCode: backendRes.statusCode || 502,
-            statusMessage: backendRes.statusMessage || 'Bad Gateway',
-            headers: backendRes.headers,
-            body: Buffer.concat(chunks),
+          .then((chunks) => {
+            resolve({
+              statusCode: backendRes.statusCode || 502,
+              statusMessage: backendRes.statusMessage || 'Bad Gateway',
+              headers: backendRes.headers,
+              body: Buffer.concat(chunks),
+            })
           })
-        })
-        backendRes.on('error', reject)
+          .catch(reject)
       },
     )
 
@@ -341,17 +324,6 @@ function proxyBackendRequestStreaming(
   })
 }
 
-/**
- * Paths that must hit the backend in dev, matching production proxy
- * `is_backend_path` in `proxy/src/main.rs`. Path-only (query stripped).
- * Does NOT proxy ACME challenge under .well-known.
- *
- * TODO: This one-shot node:http proxy does not perform WebSocket upgrades.
- * Federation WS under /api/federation/.../ws is not available through the
- * Astro dev proxy; use a production-like proxy stack or hit backend:1103
- * directly for WS during local development. REST ActivityPub paths are the
- * critical fix.
- */
 function isSeoCrawlerUserAgent(ua) {
   const s = String(ua || '').toLowerCase()
   const markers = [
@@ -390,7 +362,6 @@ function isSeoCrawlerUserAgent(ua) {
   return s.includes('bot/') || s.includes('spider') || s.includes('crawler')
 }
 
-/** WeChat / Weibo / WeCom in-app browsers that also fetch share previews. */
 function isInappShareUserAgent(ua) {
   const s = String(ua || '').toLowerCase()
   return (
@@ -419,6 +390,14 @@ function wantsSeoHtmlShell(userAgent) {
 }
 
 /**
+ * Paths that must hit the backend in dev, matching production proxy
+ * `is_backend_path` in `proxy/src/main.rs`. Path-only (query stripped).
+ * Does not proxy ACME under .well-known.
+ *
+ * This one-shot node:http proxy does not upgrade WebSockets. Federation WS
+ * under /api/federation/.../ws is not available through the Astro dev proxy;
+ * use a production-like proxy stack or hit backend:1103 directly for WS.
+ *
  * @param {string} urlPath
  * @param {string} [userAgent]
  */
@@ -427,13 +406,14 @@ function isBackendDevProxyPath(urlPath, userAgent) {
   if (
     path.startsWith('/api/') ||
     path === '/health' ||
+    path === '/ready' ||
     path === '/sitemap.xml' ||
     path === '/robots.txt' ||
     path === '/llms.txt'
   ) {
     return true
   }
-  // Crawler HTML shells (humans stay on SPA)
+  // Crawler HTML shells; humans stay on the SPA.
   const seoShellExact = new Set(['/', '/tapp', '/brew', '/library', '/reports'])
   if (
     (seoShellExact.has(path) ||
@@ -450,7 +430,7 @@ function isBackendDevProxyPath(urlPath, userAgent) {
     path === '/nodeinfo/2.1' ||
     path === '/inbox' ||
     path.startsWith('/users/') ||
-    // Federation Note attachment media (must match proxy is_backend_path)
+    // Federation Note attachment media (must match proxy is_backend_path).
     path.startsWith('/media/federation/')
   )
 }
@@ -532,7 +512,7 @@ function backendDevProxyPlugin() {
               method,
               headers,
               body,
-              // content download: idle timeout 10m; SSE playground still uses 0
+              // Content download: idle timeout 10m; SSE playground still uses 0.
               isFederationTransferContentPath(originalUrl)
                 ? FEDERATION_TRANSFER_PROXY_TIMEOUT_MS
                 : 0,
@@ -601,7 +581,7 @@ function backendDevProxyPlugin() {
         }
       }
 
-      // Post-hook: run after Astro unshifts sec-fetch, then put API proxy first.
+      // Post-hook: run after Astro unshifts sec-fetch, then put the API proxy first.
       return () => {
         server.middlewares.stack.unshift({
           route: '',
@@ -613,34 +593,25 @@ function backendDevProxyPlugin() {
 }
 
 /**
- * 首屏 CSS 瘦身：Astro/Vite 会把懒加载路由的 CSS 也写成 HTML <link>，
- * 阻塞首页 FCP。将非首屏样式从 HTML 剥离，并在对应 JS chunk 执行时再注入。
- *
- * 保留（首屏/全局需要）：
- * - tailwind / index / App 全局样式
- *
- * 已 defer（从 HTML 剥离，随拥有方 JS 注入）：
- * - Toast：Toast 组件 chunk；若并入 shell 则 App 也注入（幂等）
- * - MusicPlayer：控制面板懒加载 MusicPlayer chunk
- * - AraelPanel / Config / ConfigForm / Setup / TappPlaygroundPage
+ * Astro/Vite emits lazy-route CSS as HTML <link>, which blocks FCP.
+ * Strip non-shell styles from HTML and inject them when the owning JS chunk runs.
+ * Keep tailwind / index / App on the first paint.
  */
 function deferNonCriticalCssIntegration() {
-  /** CSS 文件名前缀 → 应注入该 CSS 的 JS chunk 前缀列表 */
+  /** @type {{ cssPrefix: string, jsPrefixes: string[] }[]} */
   const DEFER = [
     { cssPrefix: 'AraelPanel-', jsPrefixes: ['AraelPanel-'] },
     { cssPrefix: 'Config-', jsPrefixes: ['Config-'] },
     { cssPrefix: 'ConfigForm-', jsPrefixes: ['Config-'] },
     { cssPrefix: 'Setup-', jsPrefixes: ['Setup-'] },
     { cssPrefix: 'TappPlaygroundPage-', jsPrefixes: ['TappPlaygroundPage-'] },
-    // Toast.css 来自 Toast.tsx；ToastContainer 在 AppLayout 同步引用，
-    // chunk 可能是 Toast-* 或并入 App-*，两者都注入（createElement 幂等）。
+    // Toast.css is owned by Toast.tsx; ToastContainer is sync in AppLayout, so
+    // the chunk may be Toast-* or merged into App-*. Inject both (idempotent).
     { cssPrefix: 'Toast-', jsPrefixes: ['Toast-', 'App-'] },
-    // MusicPlayer.css 由 ControlPanel/MusicPlayer 懒加载引入
     { cssPrefix: 'MusicPlayer-', jsPrefixes: ['MusicPlayer-'] },
   ]
 
   function cssInjectorSnippet(href) {
-    // 幂等：已存在则跳过（含 HTML 误保留或重复执行）
     return `(function(){try{var h=${JSON.stringify(href)};if(document.querySelector('link[href="'+h+'"]'))return;var l=document.createElement("link");l.rel="stylesheet";l.href=h;document.head.appendChild(l)}catch(e){}})();`
   }
 
@@ -660,9 +631,9 @@ function deferNonCriticalCssIntegration() {
         const cssFiles = assetFiles.filter((f) => f.endsWith('.css'))
         const jsFiles = assetFiles.filter((f) => f.endsWith('.js'))
 
-        /** @type {Map<string, string[]>} jsFileName -> css hrefs to inject */
+        /** @type {Map<string, string[]>} */
         const injectMap = new Map()
-        /** @type {Set<string>} basenames stripped from HTML */
+        /** @type {Set<string>} */
         const stripCss = new Set()
 
         for (const rule of DEFER) {
@@ -683,11 +654,9 @@ function deferNonCriticalCssIntegration() {
           }
         }
 
-        // 注入到异步 chunk 头部
         for (const [jsName, hrefs] of injectMap) {
           const jsPath = path.join(assetsDir, jsName)
           const original = readFileSync(jsPath, 'utf8')
-          // 避免重复注入
           if (
             hrefs.every(
               (h) =>
@@ -695,7 +664,7 @@ function deferNonCriticalCssIntegration() {
                 original.includes('createElement("link")'),
             )
           ) {
-            // 可能已有 vite 注入；仍确保我们的幂等片段存在
+            // Vite may already inject; still prepend the idempotent snippet below.
           }
           const banner = hrefs.map(cssInjectorSnippet).join('')
           if (!original.startsWith('(function(){try{var h=')) {
@@ -703,10 +672,9 @@ function deferNonCriticalCssIntegration() {
           }
         }
 
-        // 从所有 HTML 去掉对应 <link rel="stylesheet">
         const stripRe = new RegExp(
           `<link[^>]+href="/assets/(${[...stripCss]
-            .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+            .map((s) => RegExp.escape(s))
             .join('|')})"[^>]*>`,
           'g',
         )
@@ -736,11 +704,8 @@ function deferNonCriticalCssIntegration() {
   }
 }
 
-// https://astro.build/config
 export default defineConfig({
   integrations: [react(), deferNonCriticalCssIntegration()],
-  // 使用 hybrid 模式：默认静态预渲染，但允许特定页面动态渲染
-  // 这样可以支持 /tapp/run/:id 等动态路由
   output: 'static',
   server: {
     port: 1102,
@@ -748,16 +713,14 @@ export default defineConfig({
   },
   build: {
     inlineStylesheets: 'auto',
-    // 与下方 trailingSlash: 'never' 配对：产出 dist/setup.html 而非
-    // dist/setup/index.html。否则每个预渲染路由都是目录，后端 tower-http
-    // ServeDir 对无斜杠的目录请求会 307 到 /setup/，与前端"URL 不带斜杠"
-    // 的约定冲突，触发 /setup ↔ /setup/ 无限重定向。file 格式下无目录、无 307。
+    // Pair with trailingSlash: 'never' so we emit dist/setup.html, not
+    // dist/setup/index.html. Directory output makes tower-http ServeDir 307
+    // slashless directory requests to /setup/, which fights the no-trailing-slash
+    // URL convention and loops /setup ↔ /setup/. file format has no directory, no 307.
     format: 'file',
   },
-  // Astro 6: 内置 Fonts API - 自动下载并自托管 Google Fonts，优化性能和隐私
-  // 所有字体均通过此 API 自托管，消除对 Google Fonts CDN 的运行时请求
+  // Astro Fonts API self-hosts these faces; no runtime Google Fonts CDN.
   fonts: [
-    // 主体字体
     {
       provider: fontProviders.google(),
       name: 'Inter',
@@ -771,8 +734,8 @@ export default defineConfig({
         'sans-serif',
       ],
     },
-    // 标题装饰字体（由 useTitleFont hook 按需切换）
-    // 每个字体只注册实际使用的字重（与 fonts.css .title-font-* 对齐），避免多余 face
+    // Title faces, switched on demand by useTitleFont. Register only weights
+    // that fonts.css .title-font-* actually uses.
     {
       provider: fontProviders.google(),
       name: 'Qwitcher Grypen',
@@ -854,10 +817,9 @@ export default defineConfig({
       fallbacks: ['serif'],
     },
   ],
-  // SPA 模式：所有路由都重定向到 index.html
   trailingSlash: 'never',
-  // 本仓库的代码高亮在 React 侧走 Prism，不走 Astro Markdown / Shiki。
-  // 关掉默认 highlighter，避免 dev overlay 以外的路径再去动态 import('shiki/wasm')。
+  // Highlighting is Prism on the React side, not Astro Markdown / Shiki.
+  // Disable the default highlighter so non-overlay paths do not import('shiki/wasm').
   markdown: {
     syntaxHighlight: false,
   },
@@ -888,7 +850,7 @@ export default defineConfig({
         'react-dom',
         'react-dom/client',
         'react-router-dom',
-        // Dynamic imports that are not on the first-paint graph.
+        // Not on the first-paint graph; still prebundle so mid-session discovery does not 504.
         'ag-psd',
         'motion/react',
         'pinyin-pro',
@@ -937,9 +899,9 @@ export default defineConfig({
       ],
     },
     plugins: [
-      tailwindcss(), // Tailwind CSS v4 Vite plugin
-      backendDevProxyPlugin(), // 开发环境 API 转发，绕开 Vite http-proxy 的 socket 500
-      spaFallbackPlugin(), // 自定义 SPA 路由回退
+      tailwindcss(),
+      backendDevProxyPlugin(),
+      spaFallbackPlugin(),
       stripDevSourcemapsPlugin(),
     ],
     resolve: {
@@ -949,71 +911,70 @@ export default defineConfig({
         '@layouts': path.resolve(__dirname, './src/layouts'),
         '@lib': path.resolve(__dirname, './src/lib'),
         '@config': path.resolve(__dirname, './src/config.ts'),
-        // 与后端共用的静态契约（image_proxy_hosts.json 等）
         '@shared': path.resolve(__dirname, '../shared'),
       },
     },
-    // Astro 6 / Vite 7: 客户端 Rollup 输出配置迁移到 environments.client
     environments: {
       client: {
         build: {
+          target: 'es2025',
           rollupOptions: {
             output: {
-              manualChunks: (id) => {
-                // React 核心 + React Router 合并到同一 chunk
-                // 避免 React Router v7 在 React Context 初始化前加载导致 hydration 错误
-                if (
-                  id.includes('node_modules/react/') ||
-                  id.includes('node_modules/react-dom/') ||
-                  id.includes('node_modules/react-router') ||
-                  id.includes('node_modules/@remix-run') ||
-                  // jsx-runtime 的模块 id 可能不带 node_modules/react/ 前缀
-                  // （pnpm 布局 / 虚拟模块）。不显式归类的话，Rolldown 会把它
-                  // 塞进任意 chunk（实测进了 motion），导致所有 JSX chunk
-                  // 为了 1KB 的 jsx-runtime 静态依赖整个 124K motion chunk
-                  id.includes('jsx-runtime')
-                ) {
-                  return 'react-vendor'
-                }
-                // Chart.js
-                if (
-                  id.includes('node_modules/chart.js') ||
-                  id.includes('node_modules/react-chartjs-2')
-                ) {
-                  return 'chart-vendor'
-                }
-                // Motion — 注意 motion-dom / motion-utils 是独立包，
-                // 路径同样含 node_modules/motion，若并入同一 chunk，
-                // 其中被共享的小工具会让整个 124K chunk 变成静态依赖，
-                // 破坏 lazyMotion 的动态加载设计
-                if (id.includes('node_modules/motion-utils')) {
-                  return 'motion-utils'
-                }
-                if (id.includes('node_modules/motion-dom')) {
-                  return 'motion-dom'
-                }
-                if (id.includes('node_modules/motion')) {
-                  return 'motion'
-                }
-                // react-icons 各子包分开打包（仅动态导入时使用）
-                if (id.includes('node_modules/react-icons/fa6/')) {
-                  return 'icons-fa6'
-                }
-                if (id.includes('node_modules/react-icons/fa/')) {
-                  return 'icons-fa'
-                }
-                if (id.includes('node_modules/react-icons/si/')) {
-                  return 'icons-si'
-                }
-                if (id.includes('node_modules/react-icons')) {
-                  return 'icons-base'
-                }
-                // Axios
-                if (id.includes('node_modules/axios')) {
-                  return 'axios'
-                }
+              codeSplitting: {
+                groups: [
+                  {
+                    // Claim React before other groups recursively capture their
+                    // dependencies. A manualChunks name alone lets Motion take
+                    // jsx-runtime and forces every JSX entry to load Motion.
+                    name: 'react-vendor',
+                    priority: 100,
+                    test: (id) =>
+                      id.includes('node_modules/react/') ||
+                      id.includes('node_modules/react-dom/') ||
+                      id.includes('node_modules/react-router') ||
+                      id.includes('node_modules/@remix-run') ||
+                      id.includes('jsx-runtime'),
+                  },
+                  {
+                    name: (id) => {
+                      if (
+                        id.includes('node_modules/chart.js') ||
+                        id.includes('node_modules/react-chartjs-2')
+                      ) {
+                        return 'chart-vendor'
+                      }
+                      // motion-dom / motion-utils are separate packages whose paths
+                      // also contain node_modules/motion. Merging them into `motion`
+                      // would make shared helpers a static dep of the 124K chunk and
+                      // break lazyMotion's dynamic load.
+                      if (id.includes('node_modules/motion-utils')) {
+                        return 'motion-utils'
+                      }
+                      if (id.includes('node_modules/motion-dom')) {
+                        return 'motion-dom'
+                      }
+                      if (id.includes('node_modules/motion')) {
+                        return 'motion-vendor'
+                      }
+                      if (id.includes('node_modules/react-icons/fa6/')) {
+                        return 'icons-fa6'
+                      }
+                      if (id.includes('node_modules/react-icons/fa/')) {
+                        return 'icons-fa'
+                      }
+                      if (id.includes('node_modules/react-icons/si/')) {
+                        return 'icons-si'
+                      }
+                      if (id.includes('node_modules/react-icons')) {
+                        return 'icons-base'
+                      }
+                      if (id.includes('node_modules/axios')) {
+                        return 'axios'
+                      }
+                    },
+                  },
+                ],
               },
-              // 优化文件名用于长期缓存
               chunkFileNames: 'assets/[name]-[hash].js',
               entryFileNames: 'assets/[name]-[hash].js',
               assetFileNames: 'assets/[name]-[hash].[ext]',
@@ -1023,6 +984,7 @@ export default defineConfig({
       },
     },
     build: {
+      target: 'es2025',
       cssCodeSplit: true,
       minify: 'terser',
       terserOptions: {
@@ -1032,12 +994,8 @@ export default defineConfig({
           drop_debugger: true,
           passes: 2,
         },
-        mangle: {
-          safari10: true,
-        },
       },
       assetsInlineLimit: 4096,
-      // 启用 gzip 和 brotli 压缩报告
       reportCompressedSize: true,
       chunkSizeWarningLimit: 1000,
     },

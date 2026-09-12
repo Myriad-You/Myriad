@@ -5,8 +5,14 @@ import type {
 } from './musicSource'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { AmbientMotionController } from '../anime25drig/ambientMotion'
 import { Anime25DBehaviorMotionController } from '../anime25drig/behaviorMotion'
 import { realizeAnime25DBehaviorPlan } from '../anime25drig/behaviorRealizer'
+import {
+  PoseGateController,
+  resolvePoseGate,
+} from '../anime25drig/poseArbitration'
+import { PoseOccupancyController } from '../anime25drig/poseOccupancy'
 import { RigMotionCoordinator } from './coordinator'
 import { HumanPerformanceRuntime } from './humanPerformanceRuntime'
 import {
@@ -51,6 +57,77 @@ const visible: MusicMotionVisibility = {
   isPageVisible: () => true,
   onVisibility: () => () => {},
 }
+
+test('media end releases music and restores moving idle even when playback UI remains playing', () => {
+  const coordinator = new RigMotionCoordinator()
+  const audio = { paused: false, ended: false, currentTime: 0 }
+  const source = new MusicMotionSource(
+    coordinator,
+    fakeClock(),
+    {
+      ...silentAudio(),
+      getCurrentAudio: () => audio,
+    },
+    visible,
+  )
+  source.setPlayback(true, false)
+  let seed = 0x12345678
+  const ambient = new AmbientMotionController(() => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
+    return seed / 0x100000000
+  })
+  const occupancy = new PoseOccupancyController()
+  const gate = new PoseGateController()
+  let low = Infinity
+  let high = -Infinity
+  for (let i = 0; i <= 60 * 20; i++) {
+    const t = i / 60
+    audio.currentTime = Math.min(t, 5)
+    audio.ended = t >= 5
+    audio.paused = audio.ended
+    const frame = source.sampleNow(t * 1000)
+    const policy = coordinator.snapshot(t * 1000).owners
+    const pose = ambient.sample(t, true)
+    const weights = gate.sample(
+      1 / 60,
+      resolvePoseGate(
+        policy,
+        occupancy.sample(1 / 60, {
+          singing: frame.apply.writeGroove,
+          speaking: false,
+          thinking: false,
+          pointerDriven: false,
+          automation: true,
+          sticker: 0,
+        }),
+        { performance: 1, stylized: 1, randomAmbient: 1 },
+      ),
+    )
+    if (t >= 5) {
+      assert.equal(frame.apply.release, true)
+      assert.equal(frame.behaviorPlan, null)
+      assert.equal(policy.headBody, 'idle')
+    }
+    if (t >= 6) {
+      assert.ok(weights.ambient.headBody > 0.98)
+      assert.ok(weights.random.headBody > 0.98)
+      const value = pose.angleX * weights.ambient.headBody
+      low = Math.min(low, value)
+      high = Math.max(high, value)
+    }
+  }
+  // This seed includes small inspections: restoration must not force a new
+  // exaggerated gesture, but its normal idle motion must remain visible.
+  assert.ok(high - low > 0.1, `post-song observation range ${high - low}`)
+  audio.ended = false
+  audio.paused = false
+  audio.currentTime = 0
+  assert.equal(
+    source.sampleNow(21000).apply.writeGroove,
+    true,
+    'next song resumes without toggling the UI flag',
+  )
+})
 
 test('phrase participation reaches the shared scheduler and body without restarting the lifecycle', async () => {
   const audio = { paused: false, currentTime: 1 }
@@ -228,8 +305,7 @@ test('a duplicate face binding cannot cancel an active track-switch hold', () =>
   source.setPlayback(false, false)
   source.markSwitching()
 
-  // A second mounted face repeats the same external playback snapshot. It
-  // must not overwrite the source's newer, internal switching state.
+  // It must not overwrite the source's newer, internal switching state.
   source.setPlayback(false, false)
   const frame = source.sampleNow(10)
   assert.equal(frame.apply.release, false)
@@ -260,6 +336,21 @@ test('playing music claims mouth and body until speech takes the mouth', () => {
   assert.equal(yielded.apply.writeMouth, false)
   assert.equal(yielded.apply.writeGroove, true)
   assert.equal(coordinator.owner('headBody', 90), 'music')
+
+  const takeover = coordinator.claim(
+    'performance',
+    ['headBody', 'expression'],
+    { nowMs: 100 },
+  )
+  const shared = source.sampleNow(100)
+  assert.equal(coordinator.owner('headBody', 100), 'performance')
+  assert.equal(shared.apply.writeGroove, true)
+  assert.ok(shared.signal, 'temporary ownership must not cut audio evidence')
+  assert.equal(shared.apply.writeMouth, false, 'speech keeps its articulation')
+  assert.equal(shared.behaviorPlan?.id, frame.behaviorPlan?.id)
+  coordinator.release(takeover)
+  assert.equal(source.sampleNow(110).apply.writeGroove, true)
+  assert.equal(coordinator.owner('headBody', 110), 'music')
 })
 
 test('stopping music withdraws its candidate plan for global recovery', () => {
@@ -385,7 +476,6 @@ test('reconnects the analyser when the player swaps its audio element', () => {
   source.sampleNow(20)
   assert.equal(connected.length, 1)
 
-  // The player rebuilt its element; the analyser must follow it there.
   current = { paused: false, currentTime: 0 }
   source.sampleNow(30)
   assert.equal(connected.length, 2)

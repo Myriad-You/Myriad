@@ -74,8 +74,6 @@ test('mouth stage preserves the frozen sequence outside ordinary expression curv
             },
     }
     for (const [fadeIndex, fade] of FADES.entries()) {
-      // Ordinary curvature now belongs to the shared live morph; preserve the
-      // frozen oracle for all other stages and for special-expression artwork.
       expression.mouthForm = fade === 'mouthManiac' ? Math.sin(progress * 9.2) * 0.9 : 0
       const source = mouthLayer(fade, fadeIndex)
       for (let row = 0; row <= 5; row += 1) {
@@ -181,8 +179,6 @@ function mouthLayer(
   }
 }
 
-// Frozen copy of the former Anime25DPlayer inline branch. It intentionally
-// shares no production helpers with the extracted stage.
 function legacyDeformMouthPoint(
   point: { x: number; y: number },
   restX: number,

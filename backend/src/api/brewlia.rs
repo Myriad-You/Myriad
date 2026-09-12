@@ -3,8 +3,8 @@
 //! 提供 AI 阅读辅助注释、内容理解等增强阅读功能
 //!
 //! 权限说明：
-//! - 获取注释/播客：游客和一般用户均可访问（只读）
-//! - 生成/重新生成：仅管理员可操作
+//! - 获取注释/播客：缓存命中谁都能读；无缓存仅管理员生成
+//! - 重新生成 / 风格标签：仅管理员
 
 use axum::{
     extract::{Path, State},
@@ -43,7 +43,7 @@ fn brewlia_store_failed(
 
 // 权限验证辅助函数
 
-/// 验证是否是管理员（用于生成/编辑操作）
+/// 验证是否是管理员（生成 / 重新生成 / 风格标签）
 #[allow(clippy::result_large_err)]
 async fn verify_admin(
     headers: &axum::http::HeaderMap,
@@ -58,7 +58,7 @@ async fn verify_admin(
 /// 创建 Brewlia API 路由
 pub fn create_brewlia_routes(_app_state: crate::state::AppState) -> Router<crate::state::AppState> {
     Router::<crate::state::AppState>::new()
-        // 获取文章注释（优先从数据库，不存在则生成）
+        // 获取文章注释：缓存命中即返回；无缓存仅管理员生成
         .route("/items/{item_id}/annotations", get(get_annotations))
         // 重新生成注释
         .route(
@@ -112,7 +112,7 @@ pub struct AnnotationsResponse {
 /// 播客对话项
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PodcastDialogue {
-    /// 说话者：host_a（主持人A）或 host_b（主持人B）
+    /// 说话者字符串（提示词示例 host_a/host_b；本层不校验枚举）
     pub speaker: String,
     /// 对话内容
     pub text: String,
@@ -205,7 +205,7 @@ async fn get_annotations(
         Ok(None) => {
             return (
                 StatusCode::NOT_FOUND,
-                Json(json!({ "success": false, "error": "Article not found" })),
+                Json(AppError::fail_json("Article not found")),
             )
                 .into_response();
         }
@@ -220,7 +220,7 @@ async fn get_annotations(
     if content.trim().is_empty() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "success": false, "error": "Article has no content" })),
+            Json(AppError::fail_json("Article has no content")),
         )
             .into_response();
     }
@@ -240,7 +240,7 @@ async fn regenerate_annotations(
         return e.into_response();
     }
 
-    // 删除旧注释
+    // 删除该 item 已有 brew_annotations
     let _ = brew_annotations::Entity::delete_many()
         .filter(brew_annotations::Column::ItemId.eq(item_id))
         .exec(&db)
@@ -253,7 +253,7 @@ async fn regenerate_annotations(
         Ok(None) => {
             return (
                 StatusCode::NOT_FOUND,
-                Json(json!({ "success": false, "error": "Article not found" })),
+                Json(AppError::fail_json("Article not found")),
             )
                 .into_response();
         }
@@ -268,7 +268,7 @@ async fn regenerate_annotations(
     if content.trim().is_empty() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "success": false, "error": "Article has no content" })),
+            Json(AppError::fail_json("Article has no content")),
         )
             .into_response();
     }
@@ -282,20 +282,20 @@ async fn generate_and_save_annotations(
     item_id: i32,
     content: &str,
 ) -> axum::response::Response {
-    // 调用 AI 服务（provider 感知：Gemini/OpenAI 兼容均正确路由，不再硬编码 Gemini 端点）
+    // `create_ai_analyzer_for_tier(Standard)`（按配置 provider 路由）
     let ai_analyzer = match create_ai_analyzer_for_tier(crate::config::ModelTier::Standard).await {
         Some(analyzer) => analyzer,
         None => {
             tracing::error!("AI analyzer unavailable: no API key configured");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "success": false, "error": "AI service unavailable" })),
+                Json(AppError::fail_json("AI service unavailable")),
             )
                 .into_response();
         }
     };
 
-    // 限制内容长度
+    // 截到 30000 字节（`.len()`，可能落在 UTF-8 边界）
     let max_len = 30000;
     let truncated = if content.len() > max_len {
         &content[..max_len]
@@ -421,14 +421,8 @@ enum BrewliaAiFailure {
     Unusable(String),
 }
 
-/// 一次「调模型 → 严格解析」，模型这一把没写好就再抽一次。
-///
-/// 这三个端点原本是「自由文本 → 严格解析 → 解析不了就 500」。模型一次没把
-/// JSON 写对，读者就在文章页上吃一个 `ai_response_invalid`——那是把重试写成了
-/// 给人看的错误。
-///
-/// 供应商本身失败（没配 key、网关挂了）立刻上抛：那不是这一把的问题，重试
-/// 只会多烧一次钱、多等一轮。
+/// 一次「调模型 → 严格解析」，模型这一把没写好就再抽一次（[`BREWLIA_AI_ATTEMPTS`]）。
+/// 供应商失败（没配 key、网关挂了）立刻上抛，不重试。
 async fn ai_parse_with_retry<T, F, Fut>(
     mut call: F,
     parse: impl Fn(&str) -> Result<T, String>,
@@ -488,7 +482,7 @@ Analyze the content and identify items that need annotation:
 Output in JSON format:
 ```json
 {{
-  "language": "detected language code (e.g., zh-CN, en-US, ja-JP)",
+  "language": "detected language code (e.g., zh-CN, zh-TW, en-US, ja-JP, ko-KR, fr-FR, de-DE)",
   "annotations": [
     {{
       "type": "reference",
@@ -665,7 +659,6 @@ fn clean_trailing_incomplete(json_str: &str) -> String {
 
         // 移除不完整的键值对（以冒号结尾）
         if let Some(stripped) = trimmed.strip_suffix(':') {
-            // 找到这个键的开始位置并删除整个键
             if let Some(quote_pos) = stripped.rfind('"') {
                 fixed = trimmed[..quote_pos].trim_end().to_string();
                 // 如果以逗号结尾，也删除
@@ -692,9 +685,9 @@ fn clean_trailing_incomplete(json_str: &str) -> String {
     fixed
 }
 
-/// 找到最后一个完整的值位置
+/// 从后往前找到 depth==0 的逗号，返回其前缀
 fn find_last_complete_value(s: &str) -> Option<String> {
-    // 从后往前找到最后一个完整闭合的 } 或 ]
+    // 反向扫描：`}`/`]` 加深、`{`/`[` 变浅；真正截断点是 depth==0 的 `,`
     let mut depth = 0i32;
     let mut in_string = false;
     // 收集字符及其字节索引
@@ -885,7 +878,7 @@ async fn get_podcast_script(
         Ok(None) => {
             return (
                 StatusCode::NOT_FOUND,
-                Json(json!({ "success": false, "error": "Article not found" })),
+                Json(AppError::fail_json("Article not found")),
             )
                 .into_response();
         }
@@ -902,7 +895,7 @@ async fn get_podcast_script(
     if content.trim().is_empty() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "success": false, "error": "Article has no content" })),
+            Json(AppError::fail_json("Article has no content")),
         )
             .into_response();
     }
@@ -914,13 +907,13 @@ async fn get_podcast_script(
             tracing::error!("AI analyzer unavailable: no API key configured");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "success": false, "error": "AI service unavailable" })),
+                Json(AppError::fail_json("AI service unavailable")),
             )
                 .into_response();
         }
     };
 
-    // 限制内容长度
+    // 截到 20000 字节（`.len()`，可能落在 UTF-8 边界）
     let max_len = 20000;
     let content = if content.len() > max_len {
         &content[..max_len]
@@ -947,7 +940,7 @@ async fn get_podcast_script(
     .await
     {
         Ok((dialogues, language)) => {
-            // 估算时长：平均每个字符 0.15 秒（中文），0.06 秒（英文）
+            // 估算时长：按 UTF-8 字节计，中文 0.15 秒/字节、英文 0.06 秒/字节；下限 60 秒。
             let is_chinese = language.as_deref().is_some_and(|l| l.starts_with("zh"));
             let char_count: usize = dialogues.iter().map(|d| d.text.len()).sum();
             let estimated_duration = if is_chinese {
@@ -957,7 +950,7 @@ async fn get_podcast_script(
             };
             let estimated_duration = estimated_duration.max(60); // 最少 60 秒
 
-            let podcast_title = format!("深度解读：{}", title);
+            let podcast_title = format!("Deep dive: {}", title);
 
             // 保存到数据库
             let podcast_model = brew_podcasts::ActiveModel {
@@ -1034,7 +1027,7 @@ async fn regenerate_podcast_script(
         Ok(None) => {
             return (
                 StatusCode::NOT_FOUND,
-                Json(json!({ "success": false, "error": "Article not found" })),
+                Json(AppError::fail_json("Article not found")),
             )
                 .into_response();
         }
@@ -1055,7 +1048,7 @@ async fn regenerate_podcast_script(
     }
 
     // 清理 TTS 音频缓存目录
-    // 结构: {brew}/{source_id}/{article_id}/tts/
+    // 结构: `{brew}/{source_id}/{item_id}/tts/`
     let tts_dir = paths()
         .brew
         .join(source_id.to_string())
@@ -1073,7 +1066,7 @@ async fn regenerate_podcast_script(
         }
     }
 
-    // 调用原有生成逻辑（get_podcast_script 会发现没有缓存而重新生成）
+    // 接着走 `get_podcast_script`（无缓存则生成）
     get_podcast_script(State(db), headers, Path(item_id))
         .await
         .into_response()
@@ -1103,11 +1096,11 @@ fn build_podcast_prompt(title: &str, content: &str) -> String {
 Output in JSON format:
 ```json
 {{
-  "language": "detected language code (zh-CN, en-US, ja-JP, etc.)",
+  "language": "detected language code (zh-CN, zh-TW, en-US, ja-JP, ko-KR, fr-FR, de-DE)",
   "dialogues": [
-    {{ "speaker": "host_a", "text": "欢迎收听本期节目！今天我们要聊一个很有意思的话题。" }},
-    {{ "speaker": "host_b", "text": "没错，这个话题最近确实引起了很多关注。" }},
-    {{ "speaker": "host_a", "text": "那我们就开始吧，首先..." }}
+    {{ "speaker": "host_a", "text": "Welcome to the show. Today we have a really interesting topic." }},
+    {{ "speaker": "host_b", "text": "Yes, this one has been getting a lot of attention lately." }},
+    {{ "speaker": "host_a", "text": "Let's dive in. First..." }}
   ]
 }}
 ```
@@ -1293,7 +1286,7 @@ async fn generate_style_tags(
         Ok(None) => {
             return (
                 StatusCode::NOT_FOUND,
-                Json(json!({ "success": false, "error": "Source not found" })),
+                Json(AppError::fail_json("Source not found")),
             )
                 .into_response();
         }
@@ -1320,7 +1313,7 @@ async fn generate_style_tags(
     if items.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({ "success": false, "error": "No articles found for this source" })),
+            Json(AppError::fail_json("No articles found for this source")),
         )
             .into_response();
     }
@@ -1351,7 +1344,7 @@ async fn generate_style_tags(
             .unwrap_or_default();
 
         articles_summary.push_str(&format!(
-            "{}. 标题：{}\n   摘要：{}\n\n",
+            "{}. Title: {}\n   Summary: {}\n\n",
             i + 1,
             item.title,
             content
@@ -1373,7 +1366,7 @@ async fn generate_style_tags(
             tracing::error!("AI analyzer unavailable: no API key configured");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "success": false, "error": "AI service unavailable" })),
+                Json(AppError::fail_json("AI service unavailable")),
             )
                 .into_response();
         }
@@ -1430,8 +1423,7 @@ async fn generate_style_tags(
                     "success": false,
                     "error": "Failed to parse AI response",
                     "code": "ai_response_invalid",
-                    // 原本这里回的是整段模型输出。改成解析原因：更短，
-                    // 也不再把任意模型文本原样吐给客户端。
+                    // 回解析原因，不把任意模型文本原样吐给客户端。
                     "reason": e
                 })),
             )
@@ -1455,25 +1447,26 @@ async fn generate_style_tags(
 /// 构建风格标签提示词
 fn build_style_tags_prompt(source_name: &str, articles_summary: &str) -> String {
     format!(
-        r#"你是一个有创意的内容分析师。请仔细阅读以下订阅源的真实文章内容，为该订阅源生成 2 个简短且有特色的标签。
+        r#"You are a creative content analyst. Read the real articles below and produce 2 short, distinctive tags for this feed.
 
-## 订阅源名称
+## Feed name
 {source_name}
 
-## 最近的文章内容（请认真分析）
+## Recent articles (read them)
 {articles_summary}
 
-## 要求
-1. **必须根据文章的实际内容来判断**，不要只看订阅源名称
-2. 标签应该简短精炼，每个标签 2-4 个字
-3. 标签可以是：内容主题、写作风格、作者特点、情感基调、阅读体验等任何角度
-4. **鼓励创意**：可以用有趣、形象、独特的词汇，比如"码农日常"、"深夜食堂"、"硬核科普"、"佛系更新"等
-5. **避免过于宽泛无特色的标签**如"技术"、"生活"、"博客"、"分享"
-6. 两个标签应该从不同角度描述，让读者能快速了解这个订阅源的独特之处
+## Rules
+1. Judge from the actual article content, not just the feed name
+2. Keep tags short: 2–4 characters for CJK, or 1–3 words for Latin scripts
+3. Tags may cover topic, writing style, author voice, mood, reading experience, or any other angle
+4. Be inventive: vivid, specific words are good, e.g. "码农日常", "深夜食堂", "硬核科普", "佛系更新", "late-night kitchen"
+5. Avoid generic tags like "技术", "生活", "博客", "分享", "tech", "life", "blog"
+6. The two tags should describe different angles so a reader sees what is distinctive
+7. Write tags in the same language as the articles
 
-## 输出格式
-只输出 JSON 数组格式，不要任何解释：
-["标签1", "标签2"]
+## Output
+JSON array only, no explanation:
+["tag1", "tag2"]
 "#,
         source_name = source_name,
         articles_summary = articles_summary
@@ -1521,11 +1514,7 @@ fn extract_json_array_from_response(response: &str) -> Result<String, String> {
 
 #[cfg(test)]
 mod ai_retry_tests {
-    /// 三个读者可见的 AI 端点都不许「解析不了就 500」。
-    ///
-    /// 它们原本是「自由文本 → 严格解析 → `ai_response_invalid`」。模型一次没
-    /// 把 JSON 写对，读者在文章页上就吃一个 500——那是把重试写成了给人看的
-    /// 错误。和引导那边的名字生成是同一个病。
+    /// annotate/podcast/style_tags 三次调用都必须先 `ai_parse_with_retry`。
     #[test]
     fn every_reader_facing_call_retries_before_failing() {
         let source = include_str!("brewlia.rs");
@@ -1558,8 +1547,7 @@ mod ai_retry_tests {
         assert!(shell.contains("BrewliaAiFailure::Unusable(last)"));
     }
 
-    /// 两个对象根的端点改走 `json_object`，把「不是 JSON」那道闸从源头消掉；
-    /// 风格标签解析的是顶层数组，强制对象会砸掉它，所以保持自由文本。
+    /// annotate/podcast 走 `analyze_json`；style_tags 走 `analyze`（顶层数组）。
     #[test]
     fn only_the_object_rooted_calls_ask_for_json_mode() {
         let source = include_str!("brewlia.rs");
@@ -1577,3 +1565,4 @@ mod ai_retry_tests {
         );
     }
 }
+use myriad_error::AppError;

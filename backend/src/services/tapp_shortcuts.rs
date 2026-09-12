@@ -74,7 +74,7 @@ impl std::fmt::Display for ShortcutRegistryError {
 
 impl std::error::Error for ShortcutRegistryError {}
 
-/// Validate chord format: modifiers + one key, max 4 parts, max 50 chars.
+/// Chord: 1–4 `+`-parts, ≤50 bytes; last part is the key, earlier parts must be modifiers.
 pub fn validate_shortcut_keys(keys: &str) -> bool {
     if keys.is_empty() || keys.len() > 50 {
         return false;

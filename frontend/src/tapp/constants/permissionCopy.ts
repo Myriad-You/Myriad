@@ -1,8 +1,4 @@
-/**
- * Permission i18n copy keys, independent of icon components.
- *
- * Keep this free of `@lib/icons` so catalog/copy tests can run under node:test.
- */
+/** 权限文案键。不要依赖 @lib/icons，以便 node:test。 */
 
 import type { TappPermission } from '../types'
 

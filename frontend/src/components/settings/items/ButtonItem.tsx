@@ -1,7 +1,3 @@
-/**
- * 按钮设置项组件 — 行标签壳 + SettingsButton
- */
-
 import type { ReactNode } from 'react'
 import type { ButtonSettingConfig } from '../types'
 import React, { useCallback, useState } from 'react'
@@ -10,14 +6,11 @@ import { SettingsButton } from './SettingsButton'
 import './SettingItem.css'
 
 export interface ButtonItemProps extends Omit<ButtonSettingConfig, 'type'> {
-  /** 异步操作 */
   asyncAction?: boolean
-  /** 操作结果 */
   result?: {
     success: boolean
     message: string
   } | null
-  /** 自定义结果渲染 */
   renderResult?: (result: { success: boolean; message: string }) => ReactNode
 }
 
@@ -55,7 +48,7 @@ export const ButtonItem = React.memo<ButtonItemProps>(
 
       setInternalLoading(true)
       try {
-        await Promise.resolve(onClick())
+        await Promise.try(onClick)
       } finally {
         setInternalLoading(false)
       }

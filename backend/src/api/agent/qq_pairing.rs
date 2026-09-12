@@ -9,7 +9,7 @@ pub async fn get_qq_pairing(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Value>, HttpError> {
-    let user_id = parse_user_id_with_agent_access(&claims, &db).await?;
+    let user_id = parse_pairing_user_id(&claims)?;
     let status = qq_pairing::status_for_user(&db, user_id)
         .await
         .map_err(pairing_db_error)?;
@@ -57,7 +57,7 @@ pub async fn delete_qq_pairing(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<Value>, HttpError> {
-    let user_id = parse_user_id_with_agent_access(&claims, &db).await?;
+    let user_id = parse_pairing_user_id(&claims)?;
     let unbound = qq_pairing::unpair(&db, user_id)
         .await
         .map_err(pairing_db_error)?;

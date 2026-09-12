@@ -133,7 +133,7 @@ pub fn validate_store_source_url(url: &str) -> Result<(), StoreSourcePolicyError
             message: "Internal network store source URLs are not allowed".to_string(),
         });
     }
-    // Normalize is intentional no-op for validity; ensures trailing index.json forms are accepted.
+    // `normalize_store_catalog_url` is discarded; trailing `/index.json` already passed parse/scheme/host.
     let _ = normalize_store_catalog_url(trimmed);
     Ok(())
 }

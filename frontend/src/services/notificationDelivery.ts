@@ -17,8 +17,6 @@ export function notificationSourceFor(
   const eventKey = notification.metadata?.event_key
   if (typeof eventKey === 'string') {
     const source = eventKey.split('.')[0]
-    // skill.* events are Agent skill lifecycle (pruned/improved/changed) —
-    // no dedicated source icon; fold into agent.
     if (source === 'skill') return 'agent'
     if (
       source === 'agent' ||
@@ -46,11 +44,6 @@ export function notificationSourceFor(
   return 'system'
 }
 
-/**
- * 所有通知展示位置共用的唯一投递判断。
- * 后端会按总开关、来源和事件过滤创建；这里再次应用相同偏好，并叠加展示位置，
- * 从而让实时通知和刷新后的面板历史使用完全一致的策略。
- */
 export function shouldDeliverNotification(
   preferences: NotificationPreferences,
   notification: AppNotification,
@@ -75,10 +68,7 @@ export function shouldDeliverNotification(
   return preferences.delivery[location]
 }
 
-/**
- * Looking at the Agent panel: Agent notifications stay in the conversation.
- * No list, island, toast, or browser push.
- */
+/** No list/island/toast/push while the Agent panel is open. */
 export function shouldSurfaceNotification(
   preferences: NotificationPreferences,
   notification: AppNotification,
@@ -91,9 +81,7 @@ export function shouldSurfaceNotification(
   return shouldDeliverNotification(preferences, notification, location)
 }
 
-/**
- * Toast 只在人看不见 Agent 面板时弹。面板开着，通知已经在对话里，不必再盖一层。
- */
+/** No toast while the Agent panel is visible. */
 export function shouldEmitNotificationToast(
   preferences: NotificationPreferences,
   notification: AppNotification,

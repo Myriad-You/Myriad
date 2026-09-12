@@ -1,3 +1,4 @@
+use myriad_error::AppError;
 // 权限配置 API
 
 use crate::middleware::auth::authenticate_optional_request;
@@ -18,7 +19,7 @@ pub async fn get_permissions(
         Err(response) => {
             return (
                 response.status(),
-                Json(json!({"success": false, "error": "Invalid authentication state"})),
+                Json(AppError::fail_json("Invalid authentication state")),
             );
         }
     };
@@ -79,7 +80,7 @@ pub async fn get_permissions(
 /// 更新 Tapp 权限下放配置（仅管理员）
 #[derive(Debug, Deserialize)]
 pub struct UpdatePermissionsPayload {
-    // 普通用户可下放的 elevated 权限
+    // 普通用户下放字段（含 elevated；media:control 为 basic，授予路径不读此字段）
     pub user_perm_ai_generate: Option<bool>,
     pub user_perm_ai_analyze: Option<bool>,
     pub user_perm_ai_chat: Option<bool>,
@@ -163,7 +164,7 @@ pub async fn update_permissions(
     let Some(db) = app.db() else {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "Database not connected" })),
+            Json(AppError::public_json("Database not connected")),
         );
     };
     let dynamic_config = app.dynamic_config.clone();
@@ -171,7 +172,7 @@ pub async fn update_permissions(
     let config_service = crate::services::config_service::ConfigService::new(db);
     let mut updates = std::collections::HashMap::new();
 
-    // 普通用户权限（elevated）
+    // 普通用户权限字段（含 elevated 与 media:control 占位）
     if let Some(v) = payload.user_perm_ai_generate {
         updates.insert("user_perm_ai_generate".to_string(), json!(v));
     }
@@ -190,7 +191,7 @@ pub async fn update_permissions(
     if let Some(v) = payload.user_perm_3d_generate {
         updates.insert("user_perm_3d_generate".to_string(), json!(v));
     }
-    // report:write 不再下放：强制写入 false
+    // report:write 为 privileged：保存强制 false
     updates.insert("user_perm_report_write".to_string(), json!(false));
     if let Some(v) = payload.user_perm_network_fetch {
         updates.insert("user_perm_network_fetch".to_string(), json!(v));
@@ -251,7 +252,7 @@ pub async fn update_permissions(
     if let Some(v) = payload.guest_perm_3d_generate {
         updates.insert("guest_perm_3d_generate".to_string(), json!(v));
     }
-    // report:write 不再下放：强制写入 false
+    // report:write 为 privileged：保存强制 false
     updates.insert("guest_perm_report_write".to_string(), json!(false));
     if let Some(v) = payload.guest_perm_network_fetch {
         updates.insert("guest_perm_network_fetch".to_string(), json!(v));
@@ -302,7 +303,8 @@ pub async fn update_permissions(
             StatusCode::BAD_REQUEST,
             Json(json!({
                 "success": false,
-                "message": "No permission settings provided"
+                "message": "No permission settings provided",
+                "code": "no_permission_settings",
             })),
         );
     }
@@ -337,12 +339,12 @@ pub async fn update_permissions(
         StatusCode::OK,
         Json(json!({
             "success": true,
-            "message": "Permission settings updated successfully"
+            "message": "ok"
         })),
     )
 }
 
-// PR #6: OAuth Providers + 本地注册开关 — 专用端点
+// OAuth Providers + 本地注册开关 — 专用端点
 // 详见 docs/development/OAUTH.md
 //
 // GitHub 走 kind="github" 的 provider entry，和 OIDC 一起放在 oauth_providers。
@@ -350,7 +352,7 @@ pub async fn update_permissions(
 
 /// GET /api/config/oauth-providers
 ///
-/// 返回 OIDC providers 列表 + 本地注册开关。
+/// 返回 oauth_providers（含 GitHub）+ 本地注册开关 + tapp_private_install_*。
 /// `client_secret` 字段在响应中被掩码（仅在数据库已设置时返回 `***`），
 /// 前端不应展示明文；保存时若收到 `***` 表示用户没改，沿用旧值。
 pub async fn get_oauth_providers(
@@ -393,7 +395,7 @@ pub async fn get_oauth_providers(
 pub struct UpdateOAuthProvidersPayload {
     pub providers: Vec<crate::config::OAuthProviderEntry>,
     pub allow_local_registration: bool,
-    /// Optional so older clients still work; omitted fields leave existing config unchanged.
+    /// 省略则保持现有配置。
     #[serde(default)]
     pub tapp_private_install_cleanup: Option<String>,
     #[serde(default)]
@@ -416,7 +418,7 @@ pub async fn update_oauth_providers(
     let Some(db) = app.db() else {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({ "error": "Database not connected" })),
+            Json(AppError::public_json("Database not connected")),
         );
     };
     let dynamic_config = app.dynamic_config.clone();
@@ -436,7 +438,7 @@ pub async fn update_oauth_providers(
                     })),
                 );
             }
-            // slug 必须 URL-safe（路由参数）：字母数字 + 连字符/下划线，2-32 字符
+            // slug 必须 URL-safe（路由参数）：字母数字 + 连字符/下划线，非空且 ≤32 字符
             if slug.len() > 32
                 || !slug
                     .chars()

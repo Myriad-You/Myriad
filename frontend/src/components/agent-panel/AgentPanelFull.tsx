@@ -1,17 +1,3 @@
-/**
- * Full 层 —— 三档里最大的那一档。
- *
- * 只有真的有话要读的时候才走到这里：复杂对话、长任务、翻回去看之前说了什么。
- * 它仍然贴在底部，仍然是同一块东西长出来的，不是另一个页面。
- *
- * 现在只负责**读**：消息由执行引擎放进 `agentMessages`，这里取出来画。
- * 对话不再套在一块玻璃底上，每条自己是一颗独立胶囊。
- *
- * 运行状态在输入框里。新话题和历史跟上下文贴同一行。
- * 看哪一面（对话 / 历史 / 设置）由外壳持有 —— 「设置那一面没有输入框」这条
- * 规矩得由摆放它的人执行。
- */
-
 import React, { useEffect, useRef, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { useAgentMessages, useAgentSessionId } from './agentMessages'
@@ -63,7 +49,6 @@ function useHeldView(
   return { held, exiting }
 }
 
-/** 同一档里的三面：读当前对话、翻历史、改设置。 */
 export type AgentPanelFullView = 'messages' | 'sessions' | 'manage'
 
 export interface AgentPanelFullProps {
@@ -71,7 +56,6 @@ export interface AgentPanelFullProps {
   onView: (view: AgentPanelFullView) => void
   onSubmit: (text: string) => void
   onWorkOffer: (input: string) => void
-  /** 设置那一面没有输入框，操作贴改由这里自己摆 */
   showChrome?: boolean
 }
 
@@ -210,8 +194,7 @@ export const AgentPanelFull: React.FC<AgentPanelFullProps> = ({
                     )
                     const asked = messages
                       .slice(0, index)
-                      .reverse()
-                      .find((item) => item.role === 'user')
+                      .findLast((item) => item.role === 'user')
                     if (asked) onSubmit(asked.content)
                   }}
                 />

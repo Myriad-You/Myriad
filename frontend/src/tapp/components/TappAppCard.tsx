@@ -1,11 +1,3 @@
-/**
- * Installed Tapp card for the list page.
- *
- * Sizes (widget-style spans), toggled from the hover dock:
- * - 1x1: square — dock: run / settings / uninstall / expand
- * - 2x1: two tracks wide — dock: run / settings / uninstall / shrink
- */
-
 import type { CSSProperties, DragEvent, KeyboardEvent, MouseEvent } from 'react'
 import type { TappInstance, TappPermission } from '../types'
 import type { IconStyle } from '../utils/tappColors'
@@ -52,11 +44,9 @@ import { getTappIconStyle as getTappIconStyleFromManifest } from '../utils/tappC
 import { TappIconBadge } from './TappIconBadge'
 import './TappAppCard.css'
 
-/** Widget-style list card sizes (column span). */
 export type TappAppCardSize = '1x1' | '2x1'
 
 const SUBTITLE_ROTATE_MS = 3200
-/** v2: `{ sizes, order }` — still reads bare sizes map from v1 */
 const CARD_LAYOUT_STORAGE_KEY = 'tapp.listCardLayout.v2'
 const CARD_SIZE_STORAGE_KEY_LEGACY = 'tapp.listCardSizes.v1'
 
@@ -83,14 +73,13 @@ function normalizeLocalLayout(parsed: unknown): TappAppCardLayoutLocal {
   const order: string[] = []
   const seen = new Set<string>()
 
-  if ('sizes' in obj && obj.sizes && typeof obj.sizes === 'object') {
+  if (Object.hasOwn(obj, 'sizes') && obj.sizes && typeof obj.sizes === 'object') {
     for (const [id, size] of Object.entries(
       obj.sizes as Record<string, unknown>,
     )) {
       if (isCardSize(size)) sizes[id] = size
     }
   } else {
-    // Legacy bare map
     for (const [id, size] of Object.entries(obj)) {
       if (id === 'sizes' || id === 'order') continue
       if (isCardSize(size)) sizes[id] = size
@@ -110,7 +99,6 @@ function normalizeLocalLayout(parsed: unknown): TappAppCardLayoutLocal {
   return { sizes, order }
 }
 
-/** Load full local layout (sizes + order). */
 export function loadTappAppCardLayout(): TappAppCardLayoutLocal {
   if (typeof window === 'undefined') return { sizes: {}, order: [] }
   try {
@@ -124,7 +112,6 @@ export function loadTappAppCardLayout(): TappAppCardLayoutLocal {
   }
 }
 
-/** Persist full local layout. */
 export function saveTappAppCardLayout(layout: TappAppCardLayoutLocal): void {
   if (typeof window === 'undefined') return
   try {
@@ -136,16 +123,13 @@ export function saveTappAppCardLayout(layout: TappAppCardLayoutLocal): void {
       }),
     )
   } catch {
-    // quota / private mode — ignore
   }
 }
 
-/** Load persisted list card sizes (tappId → size). */
 export function loadTappAppCardSizes(): Record<string, TappAppCardSize> {
   return loadTappAppCardLayout().sizes
 }
 
-// Re-export pure order helpers (implementation lives in utils for unit tests).
 export {
   applyTappAppCardOrder,
   isSiteOwnerLayoutPending,
@@ -155,21 +139,15 @@ export function toggleTappAppCardSize(size: TappAppCardSize): TappAppCardSize {
   return size === '2x1' ? '1x1' : '2x1'
 }
 
-/** Prefer granted permissions; fall back to manifest. */
+/** 优先授予权限；否则回退 Manifest。 */
 function resolveCardPermissions(
   granted: readonly TappPermission[] | undefined,
   manifestPerms: readonly string[] | undefined,
 ): TappPermission[] {
-  if (granted && granted.length > 0) return [...granted]
+  if (granted && granted.length > 0) return Iterator.from(granted).toArray()
   return (manifestPerms ?? []) as TappPermission[]
 }
 
-/**
- * Permission list for card hover.
- * - chips: compact icon-only
- * - full: 2x1 hover — non-basic (elevated/privileged) show icon+label;
- *   basic permissions are icon-only (tooltip still has the name)
- */
 function CardPermissionIndicators({
   permissions,
   variant = 'chips',
@@ -200,8 +178,7 @@ function CardPermissionIndicators({
         : p
       out.push({ key: p, level, label })
     }
-    out.sort((a, b) => rank[a.level] - rank[b.level])
-    return out
+    return out.toSorted((a, b) => rank[a.level] - rank[b.level])
   }, [permissions, t.tapp])
 
   if (items.length === 0) {
@@ -235,7 +212,6 @@ function CardPermissionIndicators({
     >
       {visible.map(({ key, level, label }) => {
         const Icon = PERMISSION_CONFIG[key]?.icon ?? FaLock
-        // full mode: only elevated / privileged get text; basic = icon only
         const showLabel = showAll && level !== 'basic'
         return (
           <span
@@ -271,7 +247,6 @@ function CardPermissionIndicators({
   )
 }
 
-/** One-line subtitle that cycles description → category → version (1x1). */
 function RotatingCardSubtitle({
   lines,
   phaseOffset = 0,
@@ -361,9 +336,8 @@ function CardActionsDock({
   canStartStop: boolean
   canConfigure: boolean
   canUninstall: boolean
-  /** Guests cannot change public layout — hide size control */
+  /** 访客不能改公开布局。 */
   canResize: boolean
-  /** Card can open a page (guest open-hint dock) */
   hasPage: boolean
   onToggleRun: (e: MouseEvent) => void
   onConfigure: () => void
@@ -383,11 +357,7 @@ function CardActionsDock({
   const showSize = canResize && typeof onToggleSize === 'function'
   const hasLifecycle = canStartStop || canConfigure || canUninstall
 
-  /*
-   * Guests (and other no-action viewers): no run/settings/uninstall/size.
-   * Keep the bottom dock band and show “click to open” instead of empty space.
-   * Do NOT stopPropagation — click should bubble to the card and open the app.
-   */
+  /* 无操作访客：底栏显示「点击打开」。不要 stopPropagation。 */
   if (!hasLifecycle && !showSize) {
     if (!hasPage) return null
     return (
@@ -461,7 +431,6 @@ function CardActionsDock({
         <FaTrash className="tapp-app-card__dock-icon" />
       </button>
 
-      {/* 4th: toggle 1x1 ↔ 2x1 — logged-in only (guests cannot change layout) */}
       {showSize && (
         <button
           type="button"
@@ -492,20 +461,12 @@ export interface TappAppCardProps {
   onUninstall: (anchor: HTMLElement) => void
   onConfigure: () => void
   onOpen: () => void
-  /** Stagger index for list enter animation */
   index: number
-  /** Widget-style span (controlled by list page + localStorage). */
   size: TappAppCardSize
-  /**
-   * Toggle 1x1 ↔ 2x1. Omit / leave undefined for guests —
-   * public layout is read-only (site owner only).
-   */
+  /** 切换 1x1↔2x1。访客只读公开布局。 */
   onToggleSize?: () => void
-  /** When false, size control is hidden (guests). Default true if onToggleSize set. */
   canResize?: boolean
-  /** Show top-right drag handle (logged-in layout editing). */
   canReorder?: boolean
-  /** i18n for drag handle title/aria */
   dragLabel?: string
   isDragging?: boolean
   isDragOver?: boolean
@@ -549,8 +510,6 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
     const animConfig = useAnimationLevel()
     const [isHovered, setIsHovered] = useState(false)
 
-    // After HTML5 drag, browsers often leave :hover / local hover out of sync.
-    // Force rest-face when drag starts or ends so detail/dock/outline don't stick.
     useEffect(() => {
       if (isDragging) {
         setIsHovered(false)
@@ -559,7 +518,6 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
 
     useEffect(() => {
       if (!isDragOver) return
-      // Drop target highlight ended — don't leave hover face from drag traversal
       return () => {
         setIsHovered(false)
       }
@@ -574,7 +532,6 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
 
     const categoryId = resolveTappCategory(manifest)
     const needsReauthorization = tapp.needsReauthorization === true
-    // 安装记录被判为 error：包与当前格式不符。给出原因，并且不再当作可打开/可运行的应用。
     const isUnusable =
       tapp.installationStatus === 'error' || tapp.status === 'error'
     const unusableReason = isUnusable
@@ -683,7 +640,6 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
           glyphSizeClass={glyphSize}
           glyphTextClass={glyphText}
         >
-          {/* Running pulse only on rest face — hover omits run state */}
           {isRunning && face === 'rest' && (
             <div className="tapp-app-card__icon-pulse" aria-hidden />
           )}
@@ -720,9 +676,8 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
         whileTap={animationsEnabled && hasPage ? { scale: 0.99 } : {}}
         onClick={handleCardClick}
         onMouseEnter={() => {
-          // Ignore synthetic hover while this card (or any reorder) is mid-drag
           if (isDragging) return
-          // Mobile / touch: never enter hover/detail face (1x1 and 2x1)
+          // 触控：不进入 hover/detail 面。
           if (
             typeof window !== 'undefined' &&
             window.matchMedia('(hover: none)').matches
@@ -738,7 +693,7 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
           'glass-chrome-free',
           `tapp-app-card--${size}`,
           hasPage ? 'is-openable' : '',
-          // Never show hover face while dragging this card
+          // 拖拽时不显示 hover 面。
           isHovered && !isDragging ? 'is-hovered' : '',
           canReorder ? 'is-reorderable' : '',
           isDragging ? 'is-dragging' : '',
@@ -790,7 +745,6 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
           opacity={isRunning ? 0.24 : 0.15}
         />
 
-        {/* Top-right drag hint / handle (logged-in only) */}
         {canReorder && (
           <div
             className="tapp-app-card__drag-handle"
@@ -810,7 +764,6 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
               e.stopPropagation()
               setIsHovered(false)
               onDragHandleStart?.(e, tapp.id)
-              // Prefer dragging the whole card visual
               const card = e.currentTarget.closest(
                 '.tapp-app-card',
               ) as HTMLElement | null
@@ -818,20 +771,17 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
                 try {
                   e.dataTransfer.setDragImage(card, 28, 20)
                 } catch {
-                  /* ignore */
                 }
               }
               e.dataTransfer.effectAllowed = 'move'
               e.dataTransfer.setData('text/plain', tapp.id)
             }}
             onDragEnd={(e) => {
-              // dragend targets the draggable handle — clear local + parent state
               e.stopPropagation()
               setIsHovered(false)
               try {
                 ;(e.currentTarget as HTMLElement).blur()
               } catch {
-                /* ignore */
               }
               onDragEndCard?.()
             }}
@@ -841,12 +791,10 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
         )}
 
         <div className="tapp-app-card__body">
-          {/* Rest face */}
           <div className="tapp-app-card__face tapp-app-card__face--rest">
             <div className="tapp-app-card__icon-wrap">
               {iconBadge(
                 'rest',
-                /* shell size fixed in CSS; glyph only smaller */
                 isWide ? 'w-7 h-7' : 'w-6 h-6',
                 isWide ? 'text-xl' : 'text-xl',
               )}
@@ -854,7 +802,6 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
             <div className="tapp-app-card__meta">
               <div className="tapp-app-card__title-row">
                 <h3 className="tapp-app-card__name">{displayName}</h3>
-                {/* 2x1 rest: version + running tip immediately after title */}
                 {isWide && versionLabel ? (
                   <span className="tapp-app-card__rest-version">{versionLabel}</span>
                 ) : null}
@@ -881,7 +828,6 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
                   />
                 )}
               </div>
-              {/* 2x1: category tag + desc; 1x1: rotating subtitle */}
               {isWide ? (
                 <>
                   {isUnusable ? (
@@ -908,7 +854,6 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
             </div>
           </div>
 
-          {/* Detail face */}
           <div
             className={[
               'tapp-app-card__face',
@@ -918,7 +863,6 @@ export const TappAppCard = forwardRef<HTMLDivElement, TappAppCardProps>(
               .filter(Boolean)
               .join(' ')}
           >
-            {/* 2x1 hover: permissions only + dock (no title/desc/icon) */}
             {isWide ? (
               <div className="tapp-app-card__detail-mid tapp-app-card__detail-mid--perms-only">
                 {isUnusable ? (

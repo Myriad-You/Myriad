@@ -1,16 +1,9 @@
-/**
- * 站点底部信息组件
- * 显示版本号、备案号、云基础设施 Logo、自定义图标+文本
- *
- * 注意：DOM class 避免使用 sponsor/ad 等易被广告拦截规则误杀的词。
- * 折叠逻辑：非首页或移动端 → compact（仅图标 + tooltip）
- */
-
 import type { FooterCustomItem } from '../utils/footerCustomLogic'
 
 import { SiCloudflare } from '@lib/icons'
 
 import React, { memo, useCallback, useEffect, useState } from 'react'
+import { useI18n } from '../contexts/I18nContext'
 import { getBuildInfo } from '../utils/buildInfo'
 import {
 
@@ -27,7 +20,6 @@ interface SiteConfig {
   site_footer_custom?: string
 }
 
-// 又拍云 Logo（官方 logo 主体，移除文字）
 const UpyunLogo: React.FC<{ className?: string }> = ({ className }) => (
   <svg viewBox="195 270 100 135" className={className}>
     <path
@@ -51,7 +43,6 @@ L282.639,281.223L282.639,281.223
   </svg>
 )
 
-// EdgeOne Logo
 const EdgeOneLogo: React.FC<{ className?: string }> = ({ className }) => (
   <svg viewBox="0 0 32 32" fill="none" className={className}>
     <path
@@ -61,7 +52,6 @@ const EdgeOneLogo: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 )
 
-// 云服务商 Logo 配置（config key 仍为 cloud_sponsors；class 用中性名避免广告插件误杀）
 const CLOUD_PROVIDERS: Record<
   string,
   { name: string; icon: React.ReactNode; url: string; className: string }
@@ -79,14 +69,13 @@ const CLOUD_PROVIDERS: Record<
     icon: <EdgeOneLogo />,
   },
   upyun: {
-    name: '又拍云',
+    name: 'Upyun',
     url: 'https://www.upyun.com',
     className: 'cdn-upyun',
     icon: <UpyunLogo />,
   },
 }
 
-// 优雅的 Tooltip 组件
 const Tooltip: React.FC<{ content: string; children: React.ReactNode }> = ({
   content,
   children,
@@ -126,11 +115,18 @@ interface SiteFooterProps {
 
 export const SiteFooter: React.FC<SiteFooterProps> = memo(
   ({ isHomePage = false }) => {
+    const { t } = useI18n()
     const [config, setConfig] = useState<SiteConfig | null>(null)
     const [isMobile, setIsMobile] = useState(false)
     const buildInfo = getBuildInfo()
 
-    // 检测移动端（带防抖，避免拖拽窗口时频繁 setState）
+    const providerName = (key: string, fallback: string) => {
+      if (key === 'upyun') return t.config.upyun
+      if (key === 'cloudflare') return t.config.cloudflare
+      if (key === 'edgeone') return t.config.edgeone
+      return fallback
+    }
+
     useEffect(() => {
       const checkMobile = () => setIsMobile(window.innerWidth < 768)
       checkMobile()
@@ -151,7 +147,6 @@ export const SiteFooter: React.FC<SiteFooterProps> = memo(
         const data = await getUIConfigDeduped()
         setConfig(data as SiteConfig)
       } catch {
-        /* silent */
       }
     }, [])
 
@@ -166,7 +161,6 @@ export const SiteFooter: React.FC<SiteFooterProps> = memo(
       }
     }, [loadConfig])
 
-    // 解析云基础设施展示（config: cloud_sponsors）
     const providers = config?.cloud_sponsors
       ? config.cloud_sponsors
           .split(',')
@@ -178,14 +172,12 @@ export const SiteFooter: React.FC<SiteFooterProps> = memo(
       config?.site_footer_custom,
     )
 
-    // 如果没有任何内容要显示，不渲染（完整模式仍有版本号）
     const hasContent =
       config?.site_icp ||
       config?.site_gongan ||
       providers.length > 0 ||
       customItems.length > 0
 
-    // 移动端强制使用简化模式
     const useCompactMode = !isHomePage || isMobile
 
     const renderCustomCompact = () =>
@@ -242,7 +234,6 @@ export const SiteFooter: React.FC<SiteFooterProps> = memo(
         )
       })
 
-    // 简化模式（非首页或移动端）：只显示图标
     if (useCompactMode) {
       const hasAnyIcon =
         config?.site_icp ||
@@ -254,7 +245,6 @@ export const SiteFooter: React.FC<SiteFooterProps> = memo(
       return (
         <footer className="site-footer site-footer-compact">
           <div className="site-footer-content">
-            {/* 备案信息图标 */}
             {config?.site_icp && (
               <Tooltip content={config.site_icp}>
                 <a
@@ -263,7 +253,7 @@ export const SiteFooter: React.FC<SiteFooterProps> = memo(
                   rel="noopener noreferrer"
                   className="footer-icon-link footer-icon-icp"
                 >
-                  <span className="text-icon">备</span>
+                  <span className="text-icon">{t.config.icpBadge}</span>
                 </a>
               </Tooltip>
             )}
@@ -276,16 +266,15 @@ export const SiteFooter: React.FC<SiteFooterProps> = memo(
                   rel="noopener noreferrer"
                   className="footer-icon-link footer-icon-gongan"
                 >
-                  <span className="text-icon">公</span>
+                  <span className="text-icon">{t.config.gonganBadge}</span>
                 </a>
               </Tooltip>
             )}
 
-            {/* 云基础设施图标 */}
             {providers.map((key) => {
               const provider = CLOUD_PROVIDERS[key]
               return (
-                <Tooltip key={key} content={provider.name}>
+                <Tooltip key={key} content={providerName(key, provider.name)}>
                   <a
                     href={provider.url}
                     target="_blank"
@@ -304,11 +293,9 @@ export const SiteFooter: React.FC<SiteFooterProps> = memo(
       )
     }
 
-    // 完整模式（首页）
     return (
       <footer className="site-footer">
         <div className="site-footer-content">
-          {/* 版本号 */}
           <div className="footer-version">
             <span className="version-label">Myriad</span>
             {buildInfo.commitUrl ? (
@@ -326,10 +313,8 @@ export const SiteFooter: React.FC<SiteFooterProps> = memo(
             )}
           </div>
 
-          {/* 分隔符 */}
           {hasContent && <span className="footer-divider">·</span>}
 
-          {/* 备案信息 */}
           {config?.site_icp && (
             <a
               href="https://beian.miit.gov.cn/"
@@ -348,17 +333,16 @@ export const SiteFooter: React.FC<SiteFooterProps> = memo(
               rel="noopener noreferrer"
               className="footer-gongan"
             >
-              <span className="gongan-text-icon">公</span>
+              <span className="gongan-text-icon">{t.config.gonganBadge}</span>
               {config.site_gongan}
             </a>
           )}
 
-          {/* 云基础设施 */}
           {providers.length > 0 && (
             <>
               <span className="footer-divider">·</span>
               <div className="footer-infra">
-                <span className="infra-label">Powered by</span>
+                <span className="infra-label">{t.config.poweredBy}</span>
                 {providers.map((key) => {
                   const provider = CLOUD_PROVIDERS[key]
                   return (
@@ -368,7 +352,7 @@ export const SiteFooter: React.FC<SiteFooterProps> = memo(
                       target="_blank"
                       rel="noopener noreferrer"
                       className={`infra-link ${provider.className}`}
-                      title={provider.name}
+                      title={providerName(key, provider.name)}
                     >
                       {provider.icon}
                     </a>
@@ -378,7 +362,6 @@ export const SiteFooter: React.FC<SiteFooterProps> = memo(
             </>
           )}
 
-          {/* 自定义区块 */}
           {customItems.length > 0 && (
             <>
               <span className="footer-divider">·</span>

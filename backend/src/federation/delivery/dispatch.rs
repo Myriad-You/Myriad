@@ -60,8 +60,8 @@ pub(crate) async fn deliver_activity(
 
     let kid = resolve_signing_key_id(activity_type, base_url, username, stored_key_id);
 
-    // Host 头/签名的 host 必须与 URL 一致（含非默认端口），否则对端验签失败；
-    // target_domain（不带端口）仅用于信任策略与实例统计。
+    // Signed Host matches the URL (including non-default port). Parse-fail Host
+    // falls back to `target_domain` (port-less queued field; also trust/stats).
     let (path, host_header) = match url::Url::parse(target_inbox) {
         Ok(u) => {
             let path = u.path().to_string();
@@ -276,7 +276,7 @@ pub(crate) async fn load_user_keypair_ensuring(
     }
 }
 
-/// True only for missing/empty key material (exact SELECT-no-row path).
+/// True when `err.contains("No federation keys found for user")` (no row or empty PEMs).
 /// Decrypt failures must not match — regenerating would rotate the public key.
 pub(crate) fn is_missing_federation_keys_error(err: &str) -> bool {
     err.contains("No federation keys found for user")

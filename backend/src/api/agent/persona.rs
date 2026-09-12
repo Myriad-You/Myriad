@@ -14,13 +14,11 @@ use crate::middleware::auth::Claims;
 use crate::services::site_owner::site_owner_user_id;
 use crate::services::{agent::merope, merope_rig};
 use axum::http::StatusCode;
+use myriad_error::AppError;
 
 fn persona_store_http(context: &'static str, error: impl std::fmt::Display) -> HttpError {
     tracing::error!(%error, context, "persona store failed");
-    HttpError::from((
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(json!({ "error": format!("Failed to {context}") })),
-    ))
+    HttpError(AppError::internal(format!("Failed to {context}")))
 }
 
 #[derive(Debug, Deserialize)]
@@ -126,18 +124,11 @@ pub struct ReportSignalsRequest {
 }
 
 fn default_signals_language() -> String {
-    "zh-CN".to_string()
+    "en-US".to_string()
 }
 
 fn normalize_signals_language(raw: &str) -> &'static str {
-    let value = raw.trim();
-    if value.starts_with("zh") {
-        "zh-CN"
-    } else if value.starts_with("ja") {
-        "ja-JP"
-    } else {
-        "en-US"
-    }
+    crate::api::reports::locale::normalize_report_locale(raw)
 }
 
 fn merope_disabled() -> HttpError {
@@ -193,7 +184,7 @@ async fn require_site_owner(claims: &Claims, db: &DatabaseConnection) -> Result<
         tracing::error!(%error, "[Agent persona] Failed to resolve site owner");
         HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Failed to resolve site owner" })),
+            Json(AppError::public_json("Failed to resolve site owner")),
         ))
     })?;
     if user_id != owner {
@@ -1088,7 +1079,7 @@ fn sanitize_structured_persona(
     let language = visual_profile
         .and_then(|profile| profile.get("language"))
         .and_then(Value::as_str)
-        .unwrap_or("zh-CN");
+        .unwrap_or("en-US");
     let fallback = myriad_merope::fallback_persona_draft(name, language, &[]);
     let persona = myriad_merope::sanitize_persona_draft(value, &fallback)
         .filter(myriad_merope::persona_draft_is_complete)
@@ -1113,11 +1104,21 @@ fn required_visual_gender(value: &str) -> Option<&str> {
 
 fn required_visual_language(value: &str) -> Option<&'static str> {
     let language = value.trim();
-    if language.starts_with("zh") {
+    if language.is_empty() {
+        return None;
+    }
+    let lower = language.to_ascii_lowercase().replace('_', "-");
+    if lower.starts_with("zh-tw")
+        || lower.starts_with("zh-hk")
+        || lower.starts_with("zh-mo")
+        || lower.contains("hant")
+    {
+        Some("zh-TW")
+    } else if lower.starts_with("zh") {
         Some("zh-CN")
-    } else if language.starts_with("ja") {
+    } else if lower.starts_with("ja") {
         Some("ja-JP")
-    } else if language.starts_with("en") {
+    } else if lower.starts_with("en") {
         Some("en-US")
     } else {
         None
@@ -1265,7 +1266,7 @@ fn sanitize_visual_profile(value: &Value) -> Result<Value, HttpError> {
             let language = profile
                 .get("language")
                 .and_then(Value::as_str)
-                .unwrap_or("zh-CN");
+                .unwrap_or("en-US");
             if let Some(fixed) =
                 myriad_merope::ensure_visual_identity_states_gender(&sanitized, gender, language)
             {
@@ -1380,11 +1381,8 @@ fn visual_profile_issue(issue: myriad_merope::VisualProfileIssue) -> HttpError {
 mod tests {
     /// 导入的人设不该继承上一次生成留下的视觉痕迹。
     ///
-    /// `merge_visual_profile` 会把「缺席」的键从旧值补上，所以导入必须把这
-    /// 四个键显式写空。曾经它只发 `{gender, language}`，结果上一次生成的
-    /// visualIdentity / clothingStyle / sourceTags / personaExtraRequirements
-    /// 整套跟到导入的人设身上——那份视觉设定描述的是另一个角色，而且会让
-    /// 恢复直接跳到主立绘那一步，跳过从没做过的视觉设定。
+    /// `merge_visual_profile` 会把缺席键从旧值补上，导入必须把这四个键显式写空：
+    /// visualIdentity / clothingStyle / sourceTags / personaExtraRequirements。
     #[test]
     fn an_imported_persona_inherits_nothing_from_a_generated_one() {
         let previous = json!({
@@ -1397,7 +1395,7 @@ mod tests {
             "wardrobe": [{ "id": "w-old", "clothingStyle": "uniform" }],
             "activeOutfitId": "w-old"
         });
-        // 导入页真正发出去的载荷，键名与 OnboardingWizard 的提交一致。
+        // 本测试的 merge 输入（不是完整 OnboardingWizard 提交）。
         let incoming = json!({
             "gender": "female",
             "language": "zh-CN",
@@ -1685,6 +1683,8 @@ mod tests {
     #[test]
     fn visual_design_requires_an_explicit_supported_language() {
         assert_eq!(required_visual_language("zh-CN"), Some("zh-CN"));
+        assert_eq!(required_visual_language("zh-TW"), Some("zh-TW"));
+        assert_eq!(required_visual_language("zh-HK"), Some("zh-TW"));
         assert_eq!(required_visual_language(" ja-JP "), Some("ja-JP"));
         assert_eq!(required_visual_language("en-US"), Some("en-US"));
         assert_eq!(required_visual_language(""), None);

@@ -9,6 +9,7 @@ use axum::{
     http::StatusCode,
     Extension, Json,
 };
+use myriad_error::AppError;
 use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -29,7 +30,7 @@ fn declared_http_error(err: DeclaredApiError) -> (StatusCode, Json<Value>) {
         StatusCode::from_u16(err.status_hint()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     match &err {
         DeclaredApiError::Access(access) => {
-            // Preserve ownership adapter body shape used by resolve_accessible_tapp.
+            // AccessDenied/Database/NoAdmin codes differ from tapp_access_http_error; PermissionNotGranted shares the adapter shape.
             match access {
                 TappAccessError::PermissionNotGranted { .. } => (
                     status,
@@ -44,22 +45,28 @@ fn declared_http_error(err: DeclaredApiError) -> (StatusCode, Json<Value>) {
                     Json(json!({
                         "error": access.error_code(),
                         "message": access.message(),
+                        "code": err.code(),
                     })),
                 ),
-                TappAccessError::Database | TappAccessError::NoAdmin => {
-                    (status, Json(json!({ "error": access.error_code() })))
-                }
+                TappAccessError::Database | TappAccessError::NoAdmin => (
+                    status,
+                    Json(json!({
+                        "error": access.error_code(),
+                        "code": err.code(),
+                    })),
+                ),
             }
         }
-        DeclaredApiError::GrantScopeChanged | DeclaredApiError::UnknownPermission { .. } => (
+        DeclaredApiError::GrantScopeChanged
+        | DeclaredApiError::UnknownPermission { .. }
+        | DeclaredApiError::ApiNotFound { .. }
+        | DeclaredApiError::InvalidUser => (
             status,
             Json(json!({
                 "error": err.message(),
                 "code": err.code(),
             })),
         ),
-        DeclaredApiError::ApiNotFound { .. } => (status, Json(json!({ "error": err.message() }))),
-        DeclaredApiError::InvalidUser => (status, Json(json!({ "error": err.message() }))),
     }
 }
 
@@ -146,7 +153,7 @@ pub async fn execute_tapp_api(
         }
     }
 
-    // 3. 读取安装时授权；下面还会按调用者当前角色动态过滤。
+    // 3. 读取安装批准权限；再按当前角色过滤为授予权限。
     let installed_permissions = tapp_declared_api::installed_permissions_from_tapp(&tapp);
 
     // 4. 获取客户端 IP
@@ -211,10 +218,7 @@ pub async fn execute_tapp_api(
         .map_err(|_| {
             HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({
-                    "success": false,
-                    "error": "Failed to load Tapp settings"
-                })),
+                Json(AppError::fail_json("Failed to load Tapp settings")),
             ))
         })?
     } else {
@@ -244,7 +248,9 @@ pub async fn execute_tapp_api(
     } else {
         Err(HttpError::from((
             StatusCode::BAD_REQUEST,
-            Json(json!({ "success": false, "error": result.error })),
+            Json(AppError::fail_json(
+                result.error.unwrap_or_else(|| "request failed".into()),
+            )),
         )))
     }
 }

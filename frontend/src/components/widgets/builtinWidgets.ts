@@ -1,8 +1,3 @@
-/**
- * Shared built-in widget catalog for Home and Control Panel.
- * Single source of truth for ids, components, sizes, and i18n name keys.
- */
-
 import type { ComponentType } from 'react'
 import type { TranslationKeys } from '../../i18n'
 import type { WidgetComponentProps, WidgetSize, WidgetType } from '../widgetGridTypes'
@@ -12,8 +7,7 @@ import {
   ReportCardHost,
 } from './reportCardHost'
 
-// 非报告小组件：React.lazy + 与 preload 共用 Promise。
-// 报告卡见 ReportCardHost——禁止渲染期 lazy（会破坏多卡 face 入场）。
+// 报告卡走 ReportCardHost，禁止渲染期 lazy。
 function lazyWidget<K extends string>(
   factory: () => Promise<Record<K, ComponentType<WidgetComponentProps>>>,
   name: K,
@@ -29,8 +23,6 @@ function lazyWidget<K extends string>(
   return component
 }
 
-// Brew 磁贴：与 /brew 页共用同一组组件（`components/brew/tiles`），
-// 首页与 Brew 的差异全靠 props / 注册配置，不复制第二份实现。
 const BrewFeaturedWidget = lazyWidget(
   () => import('../brew/tiles/BrewFeaturedTile'),
   'BrewFeaturedWidget',
@@ -92,7 +84,6 @@ const GithubReposWidget = lazyWidget(
 
 type WidgetsI18n = TranslationKeys['widgets']
 
-/** Base config without localized name — useful for static references / tests */
 export const BUILTIN_WIDGET_BASE_CONFIG = {
   welcome: {
     defaultSize: '4x2' as WidgetSize,
@@ -210,8 +201,6 @@ export const BUILTIN_WIDGET_BASE_CONFIG = {
     component: VisitorStatsWidget,
     supportedSizes: ['2x2', '4x2'] as WidgetSize[],
   },
-  // 三档尺寸与 Brew 页一致（logic/layout 的 BREW_TILE_SIZES）；
-  // 首页由用户手摆，Brew 页由 tileSize() 派生，物理格子是同一套。
   'brew-source': {
     defaultSize: '4x2' as WidgetSize,
     component: BrewSourceWidget,
@@ -236,7 +225,6 @@ export const BUILTIN_WIDGET_BASE_CONFIG = {
 
 export type BuiltinWidgetId = keyof typeof BUILTIN_WIDGET_BASE_CONFIG
 
-/** Stable catalog order (library UI) */
 const BUILTIN_WIDGET_ORDER: BuiltinWidgetId[] = [
   'welcome',
   'agent-persona',
@@ -267,7 +255,6 @@ const BUILTIN_WIDGET_ORDER: BuiltinWidgetId[] = [
   'github-repos',
 ]
 
-/** Map widget id → t.widgets key */
 const WIDGET_NAME_KEY: Record<BuiltinWidgetId, keyof WidgetsI18n> = {
   welcome: 'welcome',
   'agent-persona': 'agentPersona',
@@ -292,21 +279,14 @@ const WIDGET_NAME_KEY: Record<BuiltinWidgetId, keyof WidgetsI18n> = {
   'tapp-shortcut': 'tappShortcut',
   'game-presence': 'gamePresence',
   'visitor-stats': 'visitorStats',
-  // id 是 kebab、i18n key 是 camel；getWidgetTranslationKey 也做这个转换，
-  // 但这张表仍要显式写，别指望隐式推导。
   'brew-source': 'brewSource',
   'brew-topic': 'brewTopic',
   'brew-featured': 'brewFeatured',
   'github-repos': 'githubRepos',
 }
 
-/**
- * 预加载布局中用到的小组件实现（须在 setWidgets / 入场前 await）。
- * - report-*：壳 + **仅布局出现的平台 face**（非全平台）
- * - 其它：lazyWidget shared Promise
- */
 export function preloadBuiltinWidgets(types: Iterable<string>): Promise<void> {
-  const typeList = Array.from(types)
+  const typeList = Iterator.from(types).toArray()
   const jobs: Promise<unknown>[] = []
   const seen = new Set<unknown>()
   let hasReport = false
@@ -314,7 +294,7 @@ export function preloadBuiltinWidgets(types: Iterable<string>): Promise<void> {
   for (const type of typeList) {
     if (type.startsWith('report-')) {
       hasReport = true
-      continue // 报告走下面专用预热，避免只 preload 壳漏 face
+      continue
     }
     const base = BUILTIN_WIDGET_BASE_CONFIG[type as BuiltinWidgetId]
     if (!base || seen.has(base.component)) continue
@@ -332,10 +312,6 @@ export function preloadBuiltinWidgets(types: Iterable<string>): Promise<void> {
   return Promise.all(jobs).then(() => undefined)
 }
 
-/**
- * Built-in WidgetType[] with localized names.
- * Used by Home and ControlPanelWidgets (plus Tapp widgets merged by callers).
- */
 export type BuiltinWidgetHost = 'home' | 'control-panel'
 
 export function getBuiltinWidgets(
@@ -356,7 +332,7 @@ export function getBuiltinWidgets(
       name: widgetsI18n[WIDGET_NAME_KEY[id]],
       defaultSize: base.defaultSize,
       component: base.component,
-      supportedSizes: [...base.supportedSizes],
+      supportedSizes: Iterator.from(base.supportedSizes).toArray(),
       settings:
         id === 'github-repos'
           ? [

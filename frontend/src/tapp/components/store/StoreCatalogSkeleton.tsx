@@ -1,5 +1,3 @@
-/** Layout-matching catalog skeleton — not a fake app list. */
-
 import { useI18n } from '../../../contexts/I18nContext'
 import {
   CATALOG_SKELETON_DISCOVER_ALL_ROWS,

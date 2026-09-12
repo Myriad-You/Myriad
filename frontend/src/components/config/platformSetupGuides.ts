@@ -1,11 +1,6 @@
-/**
- * 各数据平台配置步骤（去哪里 / 做什么）
- * 文案走 i18n；外链与站内动作在此定义。
- */
-
 import type { SetupFlowStep } from '../settings/SetupFlow'
 
-/** 精简 config 文案切片（避免耦合完整 I18n 类型） */
+/** i18n slice; don't import full I18n */
 export interface PlatformSetupI18n {
   platformSetupTitle: string
   platformSetupOptional: string
@@ -70,9 +65,7 @@ export interface PlatformSetupI18n {
 }
 
 export interface PlatformSetupHandlers {
-  /** Discord 一键授权 */
   connectDiscordOAuth?: () => void
-  /** 跳转设置页 OAuth 区块 */
   openOAuthSection?: () => void
 }
 

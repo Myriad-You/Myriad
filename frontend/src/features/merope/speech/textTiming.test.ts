@@ -7,7 +7,6 @@ import {
   visualSpeechPrefixMs,
 } from './textTiming'
 
-/** Matches the pace ceiling `AutoSpeechController.prepareTextCue` clamps to. */
 const MAX_REALIZED_PACE = 1.32
 
 const SAMPLES: Array<[string, string | undefined]> = [
@@ -78,8 +77,6 @@ test('visual articulation stays slower than a real speaking rate', async () => {
   const cues = await compileTextVisemes(text, 'zh-CN')
   const seconds = cues.reduce((total, cue) => total + cue.duration, 0)
   const perSyllable = seconds / text.length
-  // Read-aloud Mandarin sits near 0.2s per syllable. Without audio the mouth is
-  // the only cue, so it must stay clearly below that rate to read as speech.
   assert.ok(
     perSyllable > 0.22,
     `${perSyllable.toFixed(3)}s per syllable is too fast`,

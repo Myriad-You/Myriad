@@ -33,6 +33,7 @@ interface Props {
   manifest: MeropeRigManifest | null
   mood: number
   manualControl?: boolean
+  touchEnabled?: boolean
   onPlaybackError?: (error: unknown) => void
   onPlaybackReady?: () => void
 }
@@ -48,6 +49,7 @@ const RigCharacter = forwardRef<RigCharacterHandle, Props>(
       manifest,
       mood,
       manualControl = false,
+      touchEnabled = false,
       onPlaybackError,
       onPlaybackReady,
     },
@@ -224,6 +226,7 @@ const RigCharacter = forwardRef<RigCharacterHandle, Props>(
           atlasUrl={atlasUrl}
           mood={mood}
           manualControl={manualControl}
+          touchEnabled={touchEnabled}
           onPlaybackError={handlePlaybackError}
           onPlaybackReady={onPlaybackReady}
         />

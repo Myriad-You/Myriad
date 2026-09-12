@@ -1,7 +1,3 @@
-/**
- * 服务商配置步骤。文案走 i18n；控制台链接按预设 id。
- */
-
 import type { SetupFlowStep } from '../settings/SetupFlow'
 import { findVendorPreset } from './aiVendorPresets'
 

@@ -13,7 +13,6 @@ import OAuthIconImage from './OAuthIconImage'
 import { Spinner } from './Spinner'
 import './LoginForm.css'
 
-// PR #2/#3：后端返回的 OAuth provider 描述
 interface ProviderInfo {
   slug: string
   kind: 'github' | 'oidc'
@@ -41,11 +40,9 @@ const LoginForm: FC = () => {
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [allowRegister, setAllowRegister] = useState(false)
 
-  // oauth_error / desc are surfaced as toasts by useAuthUrlFeedback (AppLayout)
-  // so authenticated users redirected from /login by GuestOnly still see them.
+  // oauth_error 由 useAuthUrlFeedback 以 toast 展示，GuestOnly 从 /login 重定向后仍能看见。
 
   useEffect(() => {
-    // 并发拉 provider 列表 + setup config（注册开关）
     void (async () => {
       try {
         const data = await fetchJson(`${API_URL}/api/auth/oauth/providers`)
@@ -56,14 +53,12 @@ const LoginForm: FC = () => {
           preloadOAuthIcons(normalizedProviders.map((provider) => provider.icon))
           setProviders(normalizedProviders)
         }
-      } catch (_err) {
-        // 静默：provider 列表不可用时仅显示本地登录
+      } catch {
       }
       try {
         const data = await fetchJson(`${API_URL}/api/setup/config`)
         setAllowRegister(Boolean(data?.allow_local_registration))
-      } catch (_err) {
-        // 静默：取不到时默认关闭注册
+      } catch {
       }
     })()
   }, [])
@@ -72,25 +67,21 @@ const LoginForm: FC = () => {
     e.preventDefault()
     setError('')
 
-    // 输入验证
     if (!formData.username || !formData.password) {
       setError(t.auth.fillUsernameAndPassword)
       return
     }
 
-    // 验证用户名格式
     if (formData.username.length < 3 || formData.username.length > 50) {
       setError(t.auth.usernameLengthError)
       return
     }
 
-    // 验证用户名只包含字母、数字、下划线
     if (!/^\w+$/.test(formData.username)) {
       setError(t.auth.usernameFormatError)
       return
     }
 
-    // 验证密码长度
     if (formData.password.length < 8 || formData.password.length > 128) {
       setError(t.auth.passwordLengthError)
       return
@@ -115,13 +106,11 @@ const LoginForm: FC = () => {
         throw new Error(t.auth.userInfoIncomplete)
       }
 
-      // The JWT is intentionally available only through the HttpOnly cookie.
+      // JWT 只走 HttpOnly cookie。
 
-      // 只存储会话提示标志，不存储用户信息
-      // 用户信息（包括 is_admin）将通过后端 API 实时验证
+      // 只存会话提示标志，用户信息（含 is_admin）走后端实时校验。
       setSessionHint()
 
-      // 产品埋点：登录成功（管理员 / 站长自访不计入）
       try {
         const { setAnalyticsStaffSession } = await import(
           '../utils/siteAnalytics',
@@ -136,14 +125,12 @@ const LoginForm: FC = () => {
             isOwner: Boolean(data.user?.is_owner),
           })
         } else {
-          // Sync enqueue + immediate flush: hard redirect below is ~100ms
+          // 硬跳转约 100ms，先同步入队并立刻 flush。
           trackProductEvent(AnalyticsEvents.LOGIN_SUCCESS, { flush: true })
         }
       } catch {
-        /* ignore */
       }
 
-      // 触发自定义事件通知Layout更新用户信息（携带管理员状态）
       window.dispatchEvent(
         new CustomEvent('auth-login-success', {
           detail: {
@@ -153,7 +140,6 @@ const LoginForm: FC = () => {
         }),
       )
 
-      // 同时触发认证状态变化事件
       window.dispatchEvent(
         new CustomEvent('auth-state-changed', {
           detail: {
@@ -163,7 +149,6 @@ const LoginForm: FC = () => {
         }),
       )
 
-      // 延迟一下再跳转，让事件处理器先执行
       setTimeout(() => {
         window.location.href = '/'
       }, 100)

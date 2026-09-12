@@ -1,12 +1,3 @@
-/**
- * Reports status bar — one card that carries the whole page state:
- * - Rotating tip carousel; highlight copy scrolls before the next tip
- * - Merged actions (play-all / stage transport)
- * - Large hero title that tracks the active tip
- * Controls follow the home page status bar (Home.tsx user card): rounded-xl
- * glass, round avatar, hairline divider, rounded-lg ghost buttons in the
- * theme color. Styling lives in reportsStatusBar.css.
- */
 import type { CSSProperties } from 'react'
 import type {
   ReportHighlight,
@@ -42,7 +33,7 @@ const MARQUEE_START_HOLD_MS = 1400
 const MARQUEE_END_HOLD_MS = 900
 const SLIDE_EASE = [0.32, 0.72, 0, 1] as const
 
-/** Signed-in viewer, for the avatar on their own report tips. Null when guest. */
+/** Signed-in viewer for own-report tips. Null when guest. */
 export interface ViewerIdentity {
   name?: string | null
   avatarUrl?: string | null
@@ -54,14 +45,14 @@ interface Props {
   stagePaused: boolean
   stagePlatformId?: string | null
   stagePlatformName?: string | null
-  /** Latin platform name for the stage hero — display names get localized to CJK */
+  /** Latin stage hero; display names localize to CJK. */
   stagePlatformHero?: string | null
   enabledPlatformCount: number
   reportCount: number
   hasEnabledPlatforms: boolean
   isAdmin: boolean
   refreshingStage: boolean
-  /** Null for guests — then empty-state tips carry no glyph at all */
+  /** Guests: empty-state tips have no glyph. */
   viewer?: ViewerIdentity | null
   highlights?: ReportHighlight[]
   copy: ReportsStatusCopy
@@ -80,14 +71,14 @@ interface Props {
     webkitTextStroke: string
     top: string
   }
-  /** Hide hero on small screens during stage (desktop still shows) */
+  /** Hide hero on small screens during stage. */
   stageCompactHero?: boolean
   onPlayAll: () => void
   onRefreshStage: () => void
   onCloseStage: () => void
 }
 
-/** Reports are the viewer's own data — their face stays on the bar. */
+/** Viewer's face stays on their own report tips. */
 function TipGlyph({ viewer }: { viewer?: ViewerIdentity | null }) {
   if (!viewer) return null
   return (
@@ -245,7 +236,7 @@ export default function ReportsStatusBar({
 
   const tipsSignature = tips.map((item) => item.id).join('|')
   const [tipIndex, setTipIndex] = useState(0)
-  // 指针停在条子上就按住轮播：正在读（或正要点）的时候别把字换掉
+  // Hold the carousel while the pointer is on the bar.
   const [held, setHeld] = useState(false)
 
   useEffect(() => {
@@ -269,7 +260,6 @@ export default function ReportsStatusBar({
       onMouseEnter={() => setHeld(true)}
       onMouseLeave={() => setHeld(false)}
     >
-      {/* Dynamic hero title tracks active tip */}
       <div
         className={`rsb-hero ${stageCompactHero ? 'hidden md:block' : ''}`}
         style={{
@@ -305,10 +295,7 @@ export default function ReportsStatusBar({
           delay: isPageReady ? 0.1 : 0,
         }}
       >
-        {/* layout: the bar morphs to each tip's width instead of reserving a
-            fixed slab with dead space in the middle. It only stays smooth
-            because popLayout below pulls the outgoing tip out of flow —
-            otherwise the two tips fight over the width mid-swap. */}
+        {/* Width follows the current tip; popLayout pulls the outgoing tip out of flow. */}
         <motion.div
           className="rsb-bar glass"
           layout

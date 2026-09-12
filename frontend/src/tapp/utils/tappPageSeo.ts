@@ -1,12 +1,4 @@
-/**
- * Tapp 列表 / 运行 / 详情页的 SEO 策略（客户端 P0）
- *
- * 可收录条件（与可见性产品语义对齐）：
- * - 站级未 noindex
- * - 模块 tapp 对「全体」可见（由调用方判断）
- * - 应用为站点公开安装且 visibility !== 'admin'
- * 私有临时安装、仅管理员应用 → noindex
- */
+/** 可收录：站未 noindex、模块全体可见、公开安装且 visibility !== admin。 */
 
 import type { PageSeoInput } from '../../utils/siteMetadata'
 import type { TappInstance } from '../types'
@@ -25,7 +17,6 @@ import {
 
 export function isTappIndexable(tapp: TappInstance | null | undefined): boolean {
   if (!tapp) return false
-  // 仅站主公开安装可进索引；用户私有副本不分享给搜索引擎
   if (!tapp.isAdminTapp) return false
   if (tapp.visibility === 'admin') return false
   return true
@@ -35,7 +26,6 @@ export function buildTappRunPageSeo(opts: {
   tapp: TappInstance | null
   tappId: string
   locale: string
-  /** 模块 tapp 是否对爬虫/游客可见（visibility level === 'all'） */
   moduleOpenToAll: boolean
 }): PageSeoInput {
   const { tapp, tappId, locale, moduleOpenToAll } = opts
@@ -66,9 +56,8 @@ export function buildTappDetailPageSeo(opts: {
   const run = buildTappRunPageSeo(opts)
   return {
     ...run,
-    // 详情页规范到 run（避免 run/detail 重复收录）；分享仍可用 detail URL 作 og:url
+    // 详情规范到 run，避免重复收录。索引只留 run。
     path: tappDetailPath(opts.tappId),
-    // 索引只保留 run：详情默认 noindex
     noindex: true,
   }
 }

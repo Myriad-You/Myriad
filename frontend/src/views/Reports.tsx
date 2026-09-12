@@ -49,6 +49,7 @@ import {
   useResolvedTitleColor,
   useTitleFont,
 } from '../hooks/useTitleFont'
+import { hostLocaleHeaders } from '../i18n/hostLocaleHeaders'
 import { getCSRFToken } from '../utils/csrf'
 import { notifyHttpRateLimit } from '../utils/httpRateLimitToast'
 import { buildModulePageSeo } from '../utils/modulePageSeo'
@@ -70,6 +71,14 @@ import {
   REPORT_CAROUSEL_CSS_VARS,
   REPORT_STRIP_ALIGN_PAD,
 } from './reports/types'
+
+function jsonLocaleHeaders(csrfToken: string): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    'X-CSRF-Token': csrfToken,
+    ...hostLocaleHeaders(),
+  }
+}
 
 interface PlatformReport {
   platform: string
@@ -111,12 +120,12 @@ interface PlatformReport {
 }
 
 interface CrossPlatformReport {
-  id?: number // 报告ID
+  id?: number
   platform_reports: PlatformReport[]
   created_at: string
 }
 
-// 平台配置常量（已在组件外部，避免重复创建）
+// Module-level so the array is not recreated.
 const PLATFORMS = [
   {
     id: 'bilibili',
@@ -160,7 +169,7 @@ const PLATFORMS = [
   },
   {
     id: 'netease',
-    name: '网易云',
+    name: 'NetEase',
     icon: <SiNeteasecloudmusic />,
     color: 'from-red-500 to-red-600',
     bg: 'bg-red-50/10 dark:bg-red-900/10',
@@ -244,7 +253,6 @@ const STAGE_PLACEHOLDER_TRANSITION = {
   ease: STAGE_PLACEHOLDER_EASE,
 }
 
-/** 舞台模式播放中：入口卡片简洁占位 */
 const StagePlayingCardPlaceholder = memo(({
   icon,
   name,
@@ -284,15 +292,14 @@ const StagePlayingCardPlaceholder = memo(({
 })
 
 export default function Reports() {
-  // 🆕 初始化报告页调度器（Visibility + Interval + RAF + DOMBatch）
   useReportsScheduler()
 
-  // 进页即预热全部平台 face（非 React.lazy）：数据到达时可同步挂载，保住入场
+  // Eager-load platform faces (not React.lazy) so data can mount synchronously.
   useEffect(() => {
     void preloadPlatformFaces(REPORT_PLATFORM_IDS).catch(() => {})
   }, [])
 
-  const { t, locale } = useI18n()
+  const { t, format } = useI18n()
   const { preferences: moduleVisibility } = useModuleVisibilityPreferences()
   const moduleOpenToAll = canAccessModuleVisibility(
     moduleVisibility.modules.reports,
@@ -313,11 +320,8 @@ export default function Reports() {
   )
 
   const isPageReady = usePageReady()
-  // 🆕 标题字体 Hook
   const { currentFont, titleFontSize } = useTitleFont()
-  // 自适应色对齐 Tapp 音乐播放器歌词：对比度推导
   const titleColorPrimary = useResolvedTitleColor('primary')
-  // 平台报告卡片条：滚轮横向滚动 + 鼠标拖拽
   const platformStripScroll = useHorizontalStripScroll()
 
   const [loadingPlatform, setLoadingPlatform] = useState<string | null>(null)
@@ -327,15 +331,15 @@ export default function Reports() {
   const [platformVisibilityReady, setPlatformVisibilityReady] =
     useState(false)
 
-  // 舞台模式状态
   const [isStageMode, setIsStageMode] = useState(false)
-  const [stagePaused, setStagePaused] = useState(false) // 舞台模式暂停状态
-  const [refreshingStage, setRefreshingStage] = useState(false) // 刷新舞台报告加载状态
-  const [toastMessage, setToastMessage] = useState<string>('') // Toast消息
+  const [stagePaused, setStagePaused] = useState(false)
+  const [refreshingStage, setRefreshingStage] = useState(false)
+  const [toastMessage, setToastMessage] = useState<string>('')
   const [toastType, setToastType] = useState<ToastType>('info')
-  const [playAllMode, setPlayAllMode] = useState(false) // 播放所有模式
-  const [_playAllQueue, setPlayAllQueue] = useState<string[]>([]) // 播放队列
-  const playAllQueueRef = useRef<string[]>([]) // 用ref保存队列，避免闭包问题
+  const [playAllMode, setPlayAllMode] = useState(false)
+  const [_playAllQueue, setPlayAllQueue] = useState<string[]>([])
+  // Ref so play-all queue is not stale in closures.
+  const playAllQueueRef = useRef<string[]>([])
   const [stageReportData, setStageReportData] = useState<{
     platform?: string
     summary?: string
@@ -352,7 +356,6 @@ export default function Reports() {
     [],
   )
 
-  // i18n: 翻译后的平台配置
   const translatedPlatforms = useMemo(
     () =>
       PLATFORMS.map((p) => ({
@@ -376,8 +379,7 @@ export default function Reports() {
     ],
   )
 
-  // 🆕 按 enabledPlatformIds 的顺序排列（该顺序来自后端 platform_order 配置），
-  // 使报告页平台卡片的出现顺序与设置里的平台排序一致
+  // Order follows backend platform_order.
   const visiblePlatforms = useMemo(
     () =>
       enabledPlatformIds
@@ -391,7 +393,6 @@ export default function Reports() {
 
   const hasEnabledPlatforms = visiblePlatforms.length > 0
 
-  // 监听舞台暂停状态
   useEffect(() => {
     const handlePauseStateChange = (e: CustomEvent<{ isPaused: boolean }>) => {
       setStagePaused(e.detail.isPaused)
@@ -410,7 +411,6 @@ export default function Reports() {
     }
   }, [])
 
-  // 缓存平台报告映射，避免重复查找
   const platformReportsMap = useMemo(() => {
     const map = new Map<string, PlatformReport>()
     report?.platform_reports?.forEach((r) => map.set(r.platform, r))
@@ -433,7 +433,7 @@ export default function Reports() {
     return items
   }, [visiblePlatforms, platformReportsMap])
 
-  // 稳定的 ReportCardWidget config，避免每次渲染新建对象打破 memo
+  // Stable config objects so ReportCardWidget memo holds.
   const platformWidgetConfigs = useMemo(() => {
     const map: Record<string, WidgetConfig> = {}
     PLATFORMS.forEach((p) => {
@@ -442,7 +442,6 @@ export default function Reports() {
     return map
   }, [])
 
-  // 打开舞台模式
   const openStageMode = useCallback(
     (platformId: string) => {
       const platformReport = platformReportsMap.get(platformId)
@@ -468,22 +467,19 @@ export default function Reports() {
     [platformReportsMap],
   )
 
-  // 关闭舞台模式
   const closeStageMode = useCallback(() => {
     setIsStageMode(false)
     setPlayAllMode(false)
     setPlayAllQueue([])
     playAllQueueRef.current = []
-    // 不立即清除数据，以便播放退出动画
-    // setStageReportData(null);
+    // Keep data through the exit animation.
   }, [])
 
-  // 用户手动关闭舞台（无论什么模式都完全退出）
   const handleUserCloseStage = useCallback(() => {
     closeStageMode()
   }, [closeStageMode])
 
-  // 切页：先播完舞台内容退场，再让导航岛真正换路由。光幕 1s，内容 0.5s。
+  // 等内容淡出再放行路由（exlight 0，否则 520ms）。
   useEffect(() => {
     if (!isStageMode) {
       setStageLeaveHandler(null)
@@ -517,19 +513,17 @@ export default function Reports() {
     stageReportData,
   ])
 
-  // 开始播放所有平台
   const startPlayAll = useCallback(() => {
-    // 获取所有有报告的平台
-    const platformsWithReports = visiblePlatforms.filter((p) =>
-      platformReportsMap.has(p.id),
-    ).map((p) => p.id)
+    const platformsWithReports = Iterator.from(visiblePlatforms)
+      .filter((p) => platformReportsMap.has(p.id))
+      .map((p) => p.id)
+      .toArray()
 
     if (platformsWithReports.length === 0) {
       showToastMessage(t.reportsPage.noPlatformReports, 'error')
       return
     }
 
-    // 播放第一个平台，将剩余平台放入队列
     const firstPlatformId = platformsWithReports[0]
     const remainingPlatforms = platformsWithReports.slice(1)
 
@@ -558,23 +552,20 @@ export default function Reports() {
     }
   }, [platformReportsMap, t.reportsPage.noPlatformReports, visiblePlatforms])
 
-  // 播放下一个平台（播放所有模式）
   const playNextPlatform = useCallback(() => {
     if (playAllQueueRef.current.length === 0) {
-      // 所有平台播放完毕，退出舞台模式
       closeStageMode()
       showToastMessage(t.reportsPage.allPlaybackComplete, 'success')
       return
     }
 
-    // 取出下一个平台并更新队列
     const nextPlatformId = playAllQueueRef.current[0]
     const remainingQueue = playAllQueueRef.current.slice(1)
 
     playAllQueueRef.current = remainingQueue
     setPlayAllQueue(remainingQueue)
 
-    // 不关闭舞台，只更新reportData，StageMode会自动重置章节
+    // Keep stage open; StageMode resets chapters from reportData.
     const platformReport = platformReportsMap.get(nextPlatformId)
     if (platformReport) {
       setStageReportData({
@@ -587,11 +578,9 @@ export default function Reports() {
     }
   }, [platformReportsMap, closeStageMode])
 
-  // 监听StageMode结束事件，在播放所有模式下自动播放下一个
   useEffect(() => {
     const handleStageComplete = () => {
       if (playAllMode && isStageMode) {
-        // 等待一小段时间再播放下一个
         setTimeout(() => {
           playNextPlatform()
         }, 500)
@@ -604,7 +593,7 @@ export default function Reports() {
     }
   }, [playAllMode, isStageMode, playNextPlatform])
 
-  // 将单个平台报告合并进列表，避免整表替换导致其它卡片重渲染
+  // Merge one platform; do not replace the whole list.
   const mergePlatformReport = useCallback((updated: PlatformReport) => {
     setReport((prev) => {
       const existing = prev?.platform_reports ?? []
@@ -621,7 +610,6 @@ export default function Reports() {
     })
   }, [])
 
-  // 刷新当前舞台模式的平台报告
   const refreshStageReport = useCallback(async () => {
     if (!stageReportData?.platform || stageReportData.type !== 'platform') {
       return
@@ -642,22 +630,16 @@ export default function Reports() {
       }
 
       showToastMessage(
-        t.reportsPage.refreshingReport.replace('{platform}', platformName),
+        format(t.reportsPage.refreshingReport, { platform: platformName }),
         'success',
       )
 
-      // 1. 刷新该平台的数据
       try {
         const fetchResponse = await fetch(
           `${API_URL}/api/profile/fetch-platform`,
           {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-CSRF-Token': csrfToken,
-              'X-Myriad-Locale': locale,
-              'Accept-Language': locale,
-            },
+            headers: jsonLocaleHeaders(csrfToken),
             credentials: 'include',
             body: JSON.stringify({ platform: platformId }),
           },
@@ -671,15 +653,9 @@ export default function Reports() {
         console.warn(`Refresh ${platformId} data request error:`, fetchErr)
       }
 
-      // 2. 生成新报告（仅当前平台）
       const response = await fetch(`${API_URL}/api/reports/platform`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken,
-          'X-Myriad-Locale': locale,
-          'Accept-Language': locale,
-        },
+        headers: jsonLocaleHeaders(csrfToken),
         credentials: 'include',
         body: JSON.stringify({ platforms: [platformId] }),
       })
@@ -695,7 +671,7 @@ export default function Reports() {
         )
       }
 
-      // 解析生成结果，透出后端给出的跳过原因（数据未抓取/为空等）
+      // Surface backend skip reasons (empty/unfetched).
       const genBody = await response.json().catch(() => null)
       const skippedReason =
         genBody?.success === false
@@ -716,7 +692,7 @@ export default function Reports() {
         return
       }
 
-      // 3. 用生成接口返回的单份报告做局部 merge，不拉全量 latest
+      // Merge the generate payload; do not refetch latest.
       const updatedPlatformReport: PlatformReport | undefined = Array.isArray(
         genBody?.reports,
       )
@@ -724,7 +700,7 @@ export default function Reports() {
         : undefined
 
       if (updatedPlatformReport) {
-        // Drop home-widget empty cache so own-page ReportCards re-fetch content
+        // Drop home-widget empty cache so own-page ReportCards re-fetch.
         invalidateLatestReportCache()
         mergePlatformReport(updatedPlatformReport)
         setStageReportData({
@@ -735,10 +711,9 @@ export default function Reports() {
           card_visuals: updatedPlatformReport.card_visuals,
         })
         showToastMessage(
-          t.reportsPage.reportRefreshSuccess.replace(
-            '{platform}',
-            platformName,
-          ),
+          format(t.reportsPage.reportRefreshSuccess, {
+            platform: platformName,
+          }),
           'success',
         )
       } else {
@@ -747,15 +722,14 @@ export default function Reports() {
     } catch (err) {
       console.error('Refresh stage report failed:', err)
       showToastMessage(
-        t.reportsPage.refreshReportFailed.replace('{platform}', platformName),
+        format(t.reportsPage.refreshReportFailed, { platform: platformName }),
         'error',
       )
     } finally {
       setRefreshingStage(false)
     }
-  }, [stageReportData, mergePlatformReport, t.reportsPage, translatedPlatforms, showToastMessage, locale])
+  }, [stageReportData, mergePlatformReport, t.reportsPage, translatedPlatforms, showToastMessage, format])
 
-  // 使用 AuthContext 获取管理员状态
   const {
     isAdmin: authIsAdmin,
     isAuthenticated,
@@ -764,7 +738,6 @@ export default function Reports() {
     user,
   } = useAuth()
 
-  // 智能检测：如果有登录迹象且未检查过，触发认证检查
   useEffect(() => {
     if (!hasChecked && hasSessionHint()) {
       checkAuth()
@@ -829,7 +802,6 @@ export default function Reports() {
     setIsAdmin(authIsAdmin)
   }, [authIsAdmin, isAuthenticated])
 
-  // 加载最新平台报告
   useEffect(() => {
     const fetchLatestReport = async () => {
       try {
@@ -860,8 +832,7 @@ export default function Reports() {
     fetchLatestReport()
   }, [])
 
-  // 生成单个平台报告 - 性能优化：使用 useCallback
-  // 失败路径必须 toast（勿只 console）：用户点「点击生成」后 spinner 消失且无反馈即「静默失败」
+  // Failures must toast; spinner-only is a silent fail.
   const generatePlatformReport = useCallback(
     async (platformId: string) => {
       setLoadingPlatform(platformId)
@@ -874,34 +845,27 @@ export default function Reports() {
           return
         }
 
-        // 1. 先刷新该平台的数据
         let fetchWarning: string | null = null
         try {
           const fetchResponse = await fetch(
             `${API_URL}/api/profile/fetch-platform`,
             {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': csrfToken,
-                'X-Myriad-Locale': locale,
-                'Accept-Language': locale,
-              },
+              headers: jsonLocaleHeaders(csrfToken),
               credentials: 'include',
               body: JSON.stringify({ platform: platformId }),
             },
           )
           notifyHttpRateLimit(fetchResponse)
 
-          // 后端现在会在数据为空时返回 success:false + 可读原因
+          // Empty fetch returns success:false plus a readable reason.
           const fetchBody = await fetchResponse.json().catch(() => null)
           if (!fetchResponse.ok || fetchBody?.success === false) {
             fetchWarning = reportUserFacingError(
               typeof fetchBody?.message === 'string' ? fetchBody.message : null,
-              t.reportsPage.refreshReportFailed.replace(
-                '{platform}',
-                platformName,
-              ),
+              format(t.reportsPage.refreshReportFailed, {
+                platform: platformName,
+              }),
               t.reportsPage,
             )
             console.warn(fetchWarning)
@@ -909,22 +873,15 @@ export default function Reports() {
             notifyRecentActivityUpdated()
           }
         } catch (fetchErr) {
-          fetchWarning = t.reportsPage.refreshReportFailed.replace(
-            '{platform}',
-            platformName,
-          )
+          fetchWarning = format(t.reportsPage.refreshReportFailed, {
+            platform: platformName,
+          })
           console.warn(`刷新 ${platformId} 数据请求出错:`, fetchErr)
         }
 
-        // 2. 生成报告（仅当前平台）
         const response = await fetch(`${API_URL}/api/reports/platform`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': csrfToken,
-            'X-Myriad-Locale': locale,
-            'Accept-Language': locale,
-          },
+          headers: jsonLocaleHeaders(csrfToken),
           credentials: 'include',
           body: JSON.stringify({ platforms: [platformId] }),
         })
@@ -946,7 +903,6 @@ export default function Reports() {
           return
         }
 
-        // 解析生成结果，把后端给出的跳过原因透出给用户
         if (genBody.success === false) {
           showToastMessage(
             reportUserFacingError(
@@ -973,7 +929,6 @@ export default function Reports() {
           return
         }
 
-        // 3. 局部 merge 生成结果，避免整表替换其它平台报告
         const updated: PlatformReport | undefined = Array.isArray(
           genBody.reports,
         )
@@ -982,7 +937,7 @@ export default function Reports() {
         if (updated) {
           invalidateLatestReportCache()
           mergePlatformReport(updated)
-          // 抓取失败但用缓存生成成功时，仍提示抓取问题，避免「半失败」无感
+          // Fetch failed but cache generated: still warn.
           if (fetchWarning) {
             showToastMessage(fetchWarning, 'warning')
           }
@@ -1006,12 +961,11 @@ export default function Reports() {
         setLoadingPlatform(null)
       }
     },
-    [t.reportsPage, translatedPlatforms, mergePlatformReport, showToastMessage, locale],
+    [t.reportsPage, translatedPlatforms, mergePlatformReport, showToastMessage, format],
   )
 
   return (
     <AnimatedView className="min-h-screen md:h-screen md:overflow-hidden">
-      {/* Toast提示 */}
       {toastMessage && (
         <Toast
           message={toastMessage}
@@ -1020,7 +974,6 @@ export default function Reports() {
         />
       )}
 
-      {/* 🎭 舞台模式组件 - 固定在顶部 */}
       <StageMode
         isOpen={isStageMode}
         onClose={handleUserCloseStage}
@@ -1030,10 +983,8 @@ export default function Reports() {
       />
       <div className="flex flex-col pt-20 pb-24 md:pb-6 px-3 xs:px-4 sm:px-6 min-h-dvh md:h-dvh">
         <div className="flex-1 max-w-7xl mx-auto w-full flex flex-col gap-4 p-2">
-          {/* 上半部分：报告详情展示区域 - 移动端弹性占位抨卡片到底部，桌面端60% */}
           <div className="flex-1 md:flex-none md:h-[60%] rounded-2xl relative overflow-hidden" />
 
-          {/* 下半部分：卡片列表区域 - 移动端/桌面端都在下半部分 */}
           <div
             className="md:h-[40%] flex flex-col relative justify-end md:justify-start"
             data-tour="reports-cards"
@@ -1135,9 +1086,7 @@ export default function Reports() {
                     >
                       {visiblePlatforms.map((platform, cardIndex) => {
                         const isLoading = loadingPlatform === platform.id
-                        // 使用 Map 查找，O(1) 复杂度
                         const platformReport = platformReportsMap.get(platform.id)
-                        // 舞台模式正在播放该平台：入口卡片改为占位提示
                         const isPlayingOnStage =
                           isStageMode &&
                           stageReportData?.type === 'platform' &&
@@ -1169,13 +1118,11 @@ export default function Reports() {
                     shrink-0 min-w-0 snap-start
                   `}
                             style={{
-                              // Matches home 4x2 at all breakpoints (1 / sm:2 / lg:4); see REPORT_CARD_FLEX_BASIS
                               flexBasis: REPORT_CARD_FLEX_BASIS,
                               willChange: 'transform, opacity',
-                            }} // GPU加速
+                            }}
                             onClick={() => {
                               if (isPlayingOnStage) {
-                                // 点击正在舞台播放的入口卡片：关闭舞台，恢复卡片内容
                                 closeStageMode()
                                 return
                               }
@@ -1191,7 +1138,6 @@ export default function Reports() {
                               }
                             }}
                           >
-                          {/* 动态背景光效 */}
                           <div
                             className={`absolute -right-10 -top-10 w-40 h-40 bg-linear-to-br ${platform.color} opacity-10 rounded-full blur-3xl group-hover:opacity-20 transition-opacity`}
                           />
@@ -1215,7 +1161,7 @@ export default function Reports() {
                               </div>
                             ) : (
                               <>
-                                {/* 保持挂载：舞台占位时仅淡出，避免轮播计时器重置导致与其它卡片脱节 */}
+                                {/* Stay mounted during stage placeholder so carousel timers do not reset. */}
                                 <motion.div
                                   className="absolute inset-0"
                                   initial={false}
@@ -1255,9 +1201,7 @@ export default function Reports() {
                             )}
                           </div>
 
-                          {/* 左下角平台标识：未生成/加载态也保留，避免丢失平台信息
-                              （已生成态由 ReportCardWidget 自带的浮动 Logo 负责；
-                               舞台播放占位态已在中心展示图标，此处不再重复） */}
+                          {/* Keep the corner mark while empty/loading; generated cards use ReportCardWidget's logo. */}
                           {!platformReport && (
                             <div className="absolute bottom-3 left-3 z-20">
                               <div

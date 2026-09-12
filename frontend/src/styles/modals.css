@@ -1,9 +1,3 @@
-/* ============================================
-   模态框样式
-   从 index.astro 提取
-   ============================================ */
-
-/* 模态框遮罩 */
 .modal-overlay-portal {
   position: fixed;
   inset: 0;
@@ -33,7 +27,6 @@ html.dark .modal-overlay-portal {
   transition: opacity 0.2s ease-in;
 }
 
-/* 模态框内容 */
 .modal-content {
   position: relative;
   background-color: rgb(255 255 255 / 98%);
@@ -55,7 +48,6 @@ html.dark .modal-content {
   border: 1px solid rgb(255 255 255 / 15%);
 }
 
-/* 模态框动画 */
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -86,7 +78,6 @@ html.dark .modal-content {
   animation: scale-in 0.35s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* 移动端模态框优化 */
 @media (width <= 640px) {
   .modal-overlay-portal {
     padding: 0;
@@ -102,7 +93,6 @@ html.dark .modal-content {
     padding-top: 1.5rem;
   }
 
-  /* 拖动指示器 */
   .modal-content::before {
     content: '';
     position: absolute;
@@ -149,7 +139,6 @@ html.dark .modal-content {
   }
 }
 
-/* 横屏模式 */
 @media (width <= 640px) and (orientation: landscape) {
   .modal-content {
     max-height: 80vh;

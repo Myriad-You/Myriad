@@ -1,8 +1,4 @@
-/**
- * Runtime grant lifecycle — destroyed grants must not block re-mint.
- *
- *   pnpm exec tsx --test src/tapp/runtime/TappRuntimeGrant.test.ts
- */
+/** 已销毁的 grant 不得挡住重铸。 */
 
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
@@ -32,7 +28,6 @@ describe('TappRuntimeGrant destroy / re-mint seed', () => {
 
   it('recoverRejectedToken returns null for destroyed owners', async () => {
     const g = new TappRuntimeGrant('com.x', 'i', 'page')
-    // No token issued yet — recover with fake token should be null
     const r = await TappRuntimeGrant.recoverRejectedToken('not-a-real-token')
     assert.equal(r, null)
     g.destroy()

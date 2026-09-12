@@ -46,10 +46,7 @@ fn state_with_visible_root(visible_root: PathBuf) -> GuardState {
             guard_network: "myriad-docker-guard-net".into(),
             compose_dir: visible_root,
             state_dir: "/host/state".into(),
-            expected_guard_image: format!(
-                "{TRUSTED_GUARD_REPOSITORY}@sha256:{}",
-                "a".repeat(64)
-            ),
+            expected_guard_image: format!("{TRUSTED_GUARD_REPOSITORY}@sha256:{}", "a".repeat(64)),
             self_update_token: SecretString::new("g7N2pQ8xV4mK6rT9wY3zA5bC1dF0hJ8l"),
             allow_unpinned_dev: false,
             allowed_images: [
@@ -62,6 +59,10 @@ fn state_with_visible_root(visible_root: PathBuf) -> GuardState {
             .collect(),
             service_images: [
                 ("backend".into(), "docker.io/example/backend".into()),
+                (
+                    "federation-worker".into(),
+                    "docker.io/example/backend".into(),
+                ),
                 (
                     "backend-volume-init".into(),
                     "docker.io/example/backend".into(),
@@ -169,8 +170,7 @@ fn guard_identity_requires_trusted_repository_and_exact_digest() {
     assert!(validate_guard_image_ref(&valid, false).is_ok());
     assert!(validate_guard_image_ref("evil.example/guard@sha256:aaaaaaaa", false).is_err());
     assert!(
-        validate_guard_image_ref("docker.io/somekawahitomi/myriad-updater:latest", false)
-            .is_err()
+        validate_guard_image_ref("docker.io/somekawahitomi/myriad-updater:latest", false).is_err()
     );
     assert!(validate_guard_image_ref(
         &format!("{TRUSTED_GUARD_REPOSITORY}@sha256:{}", "g".repeat(64)),
@@ -185,10 +185,8 @@ fn trusted_digest_canonicalizes_engine_repodigests_without_registry_prefix() {
     let digest = "869973a4d9b4aba6383fdc6aba62b6a908328aebcce748f34ac1f5590193b0b9";
     let canonical = format!("{TRUSTED_GUARD_REPOSITORY}@sha256:{digest}");
     assert_eq!(
-        canonicalize_trusted_digest_ref(&format!(
-            "somekawahitomi/myriad-updater@sha256:{digest}"
-        ))
-        .unwrap(),
+        canonicalize_trusted_digest_ref(&format!("somekawahitomi/myriad-updater@sha256:{digest}"))
+            .unwrap(),
         canonical
     );
     assert_eq!(
@@ -199,10 +197,10 @@ fn trusted_digest_canonicalizes_engine_repodigests_without_registry_prefix() {
         "evil.example/myriad-updater@sha256:{digest}"
     ))
     .is_err());
-    assert!(canonicalize_trusted_digest_ref(&format!(
-        "somekawahitomi/myriad-updater:{digest}"
-    ))
-    .is_err());
+    assert!(
+        canonicalize_trusted_digest_ref(&format!("somekawahitomi/myriad-updater:{digest}"))
+            .is_err()
+    );
 }
 
 #[test]
@@ -263,10 +261,7 @@ fn ensure_host_policy_file_heals_legacy_compose_path() {
     .unwrap();
     assert!(ensure_host_policy_file(&cfg, &path).is_ok());
     let healed = fs::read_to_string(&path).unwrap();
-    assert!(healed.contains(&format!(
-        "DOCKER_GUARD_IMAGE={}",
-        cfg.expected_guard_image
-    )));
+    assert!(healed.contains(&format!("DOCKER_GUARD_IMAGE={}", cfg.expected_guard_image)));
     assert!(healed.contains(&format!("GUARD_SELF_UPDATE_TOKEN={token}")));
     assert!(healed.contains("MYRIAD_GUARD_ENV_FILE=guard-policy/docker-guard.env"));
     assert!(!healed.contains("MYRIAD_GUARD_ENV_FILE=/etc/myriad/docker-guard.env"));
@@ -595,11 +590,10 @@ async fn orphaned_pending_handoff_becomes_a_fresh_failure() {
     let mut state = state();
     Arc::make_mut(&mut state.config).state_dir = root.path().to_path_buf();
     let path = root.path().join("self-update-last.json");
-    let pending =
-        super::super::self_update_helper::SelfUpdateLastStatus::pending_before_handoff(
-            "v1.2.3".into(),
-            "v1.2.2".into(),
-        );
+    let pending = super::super::self_update_helper::SelfUpdateLastStatus::pending_before_handoff(
+        "v1.2.3".into(),
+        "v1.2.2".into(),
+    );
     super::super::self_update_helper::write_status(&path, &pending).unwrap();
 
     assert!(!finalize_or_fail_orphaned_pending_handoff(&state).await);
@@ -640,10 +634,8 @@ fn recovery_retry_budget_survives_guard_restart() {
     assert_eq!(recovery_attempt_from_status(&state, &attempt), 1);
 
     let status: super::super::self_update_helper::SelfUpdateLastStatus =
-        serde_json::from_slice(
-            &std::fs::read(root.path().join("self-update-last.json")).unwrap(),
-        )
-        .unwrap();
+        serde_json::from_slice(&std::fs::read(root.path().join("self-update-last.json")).unwrap())
+            .unwrap();
     assert!(matches!(
         status.status,
         super::super::self_update_helper::SelfUpdateOutcome::Pending
@@ -759,8 +751,7 @@ fn exec_and_unknown_mutations_are_denied() {
 
 #[test]
 fn initializer_logs_remain_project_scoped_read_only_access() {
-    let request =
-        Uri::from_static("/v1.51/containers/init-container-id/logs?stdout=1&stderr=1");
+    let request = Uri::from_static("/v1.51/containers/init-container-id/logs?stdout=1&stderr=1");
     assert_eq!(
         classify_request(&state(), &Method::GET, &request, &Bytes::new()).unwrap(),
         Decision::ProjectContainer("init-container-id".into())
@@ -810,9 +801,7 @@ fn image_pull_is_repository_allowlisted() {
         "/v1.51/images/create?fromImage=docker.io%2Fexample%2Fbackend&tag=v1&fromSrc=https%3A%2F%2Fevil.invalid%2Fimage.tar",
     );
     assert!(validate_image_pull(&state(), &imported, &Bytes::new()).is_err());
-    assert!(
-        validate_image_pull(&state(), &allowed, &Bytes::from_static(b"tar payload")).is_err()
-    );
+    assert!(validate_image_pull(&state(), &allowed, &Bytes::from_static(b"tar payload")).is_err());
 }
 
 #[test]
@@ -824,19 +813,13 @@ fn image_tag_requires_allowlisted_source_and_target() {
     assert!(classify_request(&state(), &Method::POST, &denied_source, &Bytes::new()).is_err());
 
     let cross_repository = Uri::from_static("/v1.51/images/docker.io%2Fexample%2Fbackend:v1/tag?repo=docker.io%2Fexample%2Ffrontend&tag=v1");
-    assert!(
-        classify_request(&state(), &Method::POST, &cross_repository, &Bytes::new()).is_err()
-    );
+    assert!(classify_request(&state(), &Method::POST, &cross_repository, &Bytes::new()).is_err());
 
     let unescaped_slashes = Uri::from_static("/v1.51/images/docker.io/example/backend:v1/tag?repo=docker.io%2Fexample%2Fbackend&tag=myriad-rollback");
-    assert!(
-        classify_request(&state(), &Method::POST, &unescaped_slashes, &Bytes::new()).is_ok()
-    );
+    assert!(classify_request(&state(), &Method::POST, &unescaped_slashes, &Bytes::new()).is_ok());
 
     let restore_version_ref = Uri::from_static("/v1.51/images/docker.io%2Fexample%2Fbackend:myriad-rollback/tag?repo=docker.io%2Fexample%2Fbackend&tag=v1");
-    assert!(
-        classify_request(&state(), &Method::POST, &restore_version_ref, &Bytes::new()).is_ok()
-    );
+    assert!(classify_request(&state(), &Method::POST, &restore_version_ref, &Bytes::new()).is_ok());
 }
 
 #[test]
@@ -1040,30 +1023,21 @@ fn endpoint_identity_overrides_are_denied() {
 #[test]
 fn guard_network_attachment_policy_is_updater_only() {
     let s = state();
-    assert!(authorize_guard_network_attachment(
-        "backend",
-        "myriad-docker-guard-net",
-        &s.config
-    )
-    .is_err());
-    assert!(authorize_guard_network_attachment(
-        "frontend",
-        "myriad-docker-guard-net",
-        &s.config
-    )
-    .is_err());
-    assert!(authorize_guard_network_attachment(
-        "postgres",
-        "myriad-docker-guard-net",
-        &s.config
-    )
-    .is_err());
-    assert!(authorize_guard_network_attachment(
-        "updater",
-        "myriad-docker-guard-net",
-        &s.config
-    )
-    .is_ok());
+    assert!(
+        authorize_guard_network_attachment("backend", "myriad-docker-guard-net", &s.config)
+            .is_err()
+    );
+    assert!(
+        authorize_guard_network_attachment("frontend", "myriad-docker-guard-net", &s.config)
+            .is_err()
+    );
+    assert!(
+        authorize_guard_network_attachment("postgres", "myriad-docker-guard-net", &s.config)
+            .is_err()
+    );
+    assert!(
+        authorize_guard_network_attachment("updater", "myriad-docker-guard-net", &s.config).is_ok()
+    );
 }
 
 #[test]
@@ -1072,8 +1046,7 @@ fn network_connect_classify_requires_container_field() {
     let missing = classify_request(&state(), &Method::POST, &uri, &Bytes::from_static(b"{}"));
     assert!(missing.unwrap_err().contains("Container"));
 
-    let body =
-        Bytes::from(serde_json::to_vec(&json!({"Container": "myriad-backend-1"})).unwrap());
+    let body = Bytes::from(serde_json::to_vec(&json!({"Container": "myriad-backend-1"})).unwrap());
     let decision = classify_request(&state(), &Method::POST, &uri, &body).unwrap();
     assert_eq!(
         decision,
@@ -1144,4 +1117,96 @@ fn managed_project_service_and_network_helpers() {
     let network = allowlisted_network_name(&compose_net, &s.config).unwrap();
     let service = managed_project_service(&backend, &s.config).unwrap();
     assert!(authorize_guard_network_attachment(&service, &network, &s.config).is_ok());
+}
+
+#[test]
+fn federation_worker_has_fixed_role_and_resource_boundary() {
+    let state = state();
+    let request = json!({
+        "Image": "docker.io/example/backend:v1.2.3", "User": "1000:1000",
+        "Cmd": ["/app/myriad-federation-worker"],
+        "Env": ["MYRIAD_PROCESS_ROLE=federation-worker", "DATA_DIR=/app/data",
+            "CACHE_DIR=/tmp/cache", "SERVER_PORT=1103", "SERVER_HOST=0.0.0.0"],
+        "Labels": {"com.docker.compose.project": "myriad", "com.docker.compose.service": "federation-worker"},
+        "Healthcheck": {"Test": ["CMD", "/usr/bin/wget", "--spider", "-q", "http://localhost:1103/health"]},
+        "HostConfig": {"ReadonlyRootfs": true, "CapDrop": ["ALL"], "Memory": 536870912,
+            "NanoCpus": 500000000, "PidsLimit": 64, "SecurityOpt": ["no-new-privileges:true"],
+            "Tmpfs": {"/tmp": "size=32m,mode=1777"},
+            "Binds": ["myriad_backend_data:/app/data:ro"], "NetworkMode": "myriad-net"}
+    });
+    let validate = |value: &Value| {
+        validate_container_create(&state, &Bytes::from(serde_json::to_vec(value).unwrap()))
+    };
+    assert!(validate(&request).is_ok());
+    // Writable access is restricted to exact volume/subpath/destination tuples.
+    for (source, subpath, target) in [
+        ("myriad_backend_data", "federation", "/app/data/federation"),
+        (
+            "myriad_backend_data",
+            "federation_media",
+            "/app/data/federation_media",
+        ),
+        ("myriad_backend_cache", "images", "/tmp/cache/images"),
+    ] {
+        let mount = json!({"Type":"volume", "Source":source, "Target":target,
+            "ReadOnly":false, "VolumeOptions":{"Subpath":subpath, "NoCopy":true}});
+        let mut mounted = request.clone();
+        mounted["HostConfig"]["Mounts"] = json!([mount]);
+        assert!(validate(&mounted).is_ok(), "rejected {subpath}");
+        for (pointer, replacement) in [
+            ("/HostConfig/Mounts/0/VolumeOptions/Subpath", json!("agent")),
+            (
+                "/HostConfig/Mounts/0/VolumeOptions/Subpath",
+                json!("../federation"),
+            ),
+            ("/HostConfig/Mounts/0/VolumeOptions/Subpath", json!("")),
+            ("/HostConfig/Mounts/0/Target", json!("/app/data")),
+            ("/HostConfig/Mounts/0/Source", json!("other_backend_data")),
+            ("/HostConfig/Mounts/0/VolumeOptions/NoCopy", json!(false)),
+        ] {
+            let mut invalid = mounted.clone();
+            *invalid.pointer_mut(pointer).unwrap() = replacement;
+            assert!(
+                validate(&invalid).is_err(),
+                "accepted {pointer} for {subpath}"
+            );
+        }
+    }
+    for (path, value) in [
+        ("/Cmd", json!(["/app/myriad-backend"])),
+        ("/Entrypoint", json!(["/bin/sh"])),
+        ("/User", json!("0:0")),
+        ("/HostConfig/ReadonlyRootfs", json!(false)),
+        ("/HostConfig/PidsLimit", json!(-1)),
+        ("/HostConfig/Memory", json!(0)),
+        ("/HostConfig/NanoCpus", json!(0)),
+        ("/HostConfig/Tmpfs", json!({"/app": "size=32m"})),
+        ("/HostConfig/NetworkMode", json!("myriad-admin-net")),
+        (
+            "/HostConfig/Binds",
+            json!(["myriad_backend_data:/app/data:rw"]),
+        ),
+        (
+            "/HostConfig/Binds",
+            json!(["myriad_backend_cache:/app/cache:ro"]),
+        ),
+        (
+            "/Healthcheck/Test",
+            json!(["CMD-SHELL", "touch /tmp/escape"]),
+        ),
+    ] {
+        let mut altered = request.clone();
+        if path == "/Entrypoint" {
+            altered["Entrypoint"] = value;
+        } else {
+            *altered.pointer_mut(path).unwrap() = value;
+        }
+        assert!(validate(&altered).is_err(), "accepted override {path}");
+    }
+    let mut altered = request.clone();
+    altered["Env"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("LD_PRELOAD=/app/data/payload.so"));
+    assert!(validate(&altered).is_err());
 }

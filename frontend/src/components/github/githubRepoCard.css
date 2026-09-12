@@ -1,8 +1,3 @@
-/**
- * Brew 阅读器 GitHub 仓库卡 — 跟设置里 CheckboxCard / GitHubProjectBadge 同一套
- * 微透表面、标题主 / 说明次 / 计数徽章。不吃设置页 --cfg 字色，跟阅读器正文走。
- */
-
 .brew-github-repo {
   max-width: 24rem;
 }
@@ -203,7 +198,6 @@
   }
 }
 
-/* 后文重复仓库：尺寸跟完整卡标题一样，只把颜色/字重收淡 */
 [data-brew-reader] a.brew-github-chip {
   margin: 0 0.12em;
   padding: 0.18rem 0.5rem 0.18rem 0.42rem;

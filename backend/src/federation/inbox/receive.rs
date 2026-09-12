@@ -5,6 +5,7 @@ use axum::{
     http::{Request, StatusCode},
     Json,
 };
+use myriad_error::AppError;
 use sea_orm::{
     ConnectionTrait, DatabaseBackend, DatabaseConnection, DatabaseTransaction, Statement,
     TransactionTrait,
@@ -213,7 +214,7 @@ pub async fn post_inbox(
     let (user_id, _) = get_local_user(&db, &username).await?;
 
     let headers = request.headers().clone();
-    // MYR-002: reserve concurrent raw-body budget *before* buffering; release on drop.
+    // reserve concurrent raw-body budget *before* buffering; release on drop.
     // Exhausted raw-body budget → 429 before allocating the request body.
     let (body, _inflight) = buffer_inbox_body(request).await?;
 
@@ -227,17 +228,19 @@ pub async fn post_inbox(
     let _parse_permit = try_acquire_inbox_parse().ok_or_else(|| {
         (
             StatusCode::TOO_MANY_REQUESTS,
-            Json(json!({"error": "Inbox delivery budget exhausted; retry later"})),
+            Json(AppError::public_json(
+                "Inbox delivery budget exhausted; retry later",
+            )),
         )
     })?;
     validate_inbox_json_budget(&body)
-        .map_err(|error| (StatusCode::BAD_REQUEST, Json(json!({"error": error}))))?;
+        .map_err(|error| (StatusCode::BAD_REQUEST, Json(AppError::public_json(error))))?;
 
     // 解析 Activity JSON
     let activity: serde_json::Value = serde_json::from_slice(&body).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Invalid JSON body"})),
+            Json(AppError::public_json("Invalid JSON body")),
         )
     })?;
 
@@ -248,11 +251,11 @@ pub async fn post_inbox(
     if actor_url_str.is_empty() || activity_type.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Missing actor or type in activity"})),
+            Json(AppError::public_json("Missing actor or type in activity")),
         ));
     }
 
-    // 验证 HTTP Signature（MYR-022: actor fetch is ephemeral until verified）
+    // 验证 HTTP Signature（actor fetch is ephemeral until verified）
     let request_path = format!("/users/{}/inbox", username);
     verify_request_signature(&db, &headers, &body, &actor_url_str, &request_path).await?;
 
@@ -270,7 +273,7 @@ pub async fn post_inbox(
         );
         return Err((
             StatusCode::FORBIDDEN,
-            Json(json!({"error": "Rejected by trust policy"})),
+            Json(AppError::public_json("Rejected by trust policy")),
         ));
     }
 
@@ -282,7 +285,7 @@ pub async fn post_inbox(
             tracing::warn!(actor = %actor_url_str, error = %e, "Failed to resolve Follow actor");
             (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error": "Cannot resolve remote actor"})),
+                Json(AppError::public_json("Cannot resolve remote actor")),
             )
         })?)
     } else {
@@ -296,7 +299,7 @@ pub async fn post_inbox(
             tracing::warn!(actor = %actor_url_str, error = %e, "Failed to resolve content actor");
             (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error": "Cannot resolve remote actor"})),
+                Json(AppError::public_json("Cannot resolve remote actor")),
             )
         })?)
     } else {
@@ -398,9 +401,9 @@ async fn dispatch_personal_activity<C: ConnectionTrait>(
         // never claim a receipt and then execute crash-partial DB effects.
         "Move" => Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({
-                "error": "Move handling temporarily unavailable while transactional verification is pending"
-            })),
+            Json(AppError::public_json(
+                "Move handling temporarily unavailable while transactional verification is pending",
+            )),
         )),
         "Create" | "Update" | "Delete" | "Announce" | "Like" => {
             handle_content_activity(
@@ -417,7 +420,11 @@ async fn dispatch_personal_activity<C: ConnectionTrait>(
             if !super::mfp::ALLOWED_MFP_TYPES.contains(&ty) {
                 return Err((
                     StatusCode::BAD_REQUEST,
-                    Json(json!({"error": format!("Unknown MFP activity type: {ty}")})),
+                    Json(
+                        AppError::bad_request(format!("Unknown MFP activity type: {ty}"))
+                            .with_code("unknown_activity")
+                            .to_json(),
+                    ),
                 ));
             }
             handle_mfp_activity(db, Some(local_user_id), actor_url_str, ty, activity).await
@@ -434,7 +441,7 @@ pub async fn post_shared_inbox(
     request: Request<axum::body::Body>,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     let headers = request.headers().clone();
-    // MYR-002: reserve concurrent raw-body budget *before* buffering; release on drop.
+    // reserve concurrent raw-body budget *before* buffering; release on drop.
     // Exhausted raw-body budget → 429 before allocating the request body.
     let (body, _inflight) = buffer_inbox_body(request).await?;
 
@@ -446,16 +453,18 @@ pub async fn post_shared_inbox(
     let _parse_permit = try_acquire_inbox_parse().ok_or_else(|| {
         (
             StatusCode::TOO_MANY_REQUESTS,
-            Json(json!({"error": "Inbox delivery budget exhausted; retry later"})),
+            Json(AppError::public_json(
+                "Inbox delivery budget exhausted; retry later",
+            )),
         )
     })?;
     validate_inbox_json_budget(&body)
-        .map_err(|error| (StatusCode::BAD_REQUEST, Json(json!({"error": error}))))?;
+        .map_err(|error| (StatusCode::BAD_REQUEST, Json(AppError::public_json(error))))?;
 
     let activity: serde_json::Value = serde_json::from_slice(&body).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Invalid JSON body"})),
+            Json(AppError::public_json("Invalid JSON body")),
         )
     })?;
 
@@ -465,11 +474,11 @@ pub async fn post_shared_inbox(
     if actor_url_str.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Missing actor in activity"})),
+            Json(AppError::public_json("Missing actor in activity")),
         ));
     }
 
-    // 验证签名（MYR-022: actor fetch is ephemeral until verified）
+    // 验证签名（actor fetch is ephemeral until verified）
     verify_request_signature(&db, &headers, &body, &actor_url_str, "/inbox").await?;
 
     let activity_id = activity["id"].as_str().unwrap_or("");
@@ -486,7 +495,7 @@ pub async fn post_shared_inbox(
         );
         return Err((
             StatusCode::FORBIDDEN,
-            Json(json!({"error": "Rejected by trust policy"})),
+            Json(AppError::public_json("Rejected by trust policy")),
         ));
     }
 
@@ -506,7 +515,7 @@ pub async fn post_shared_inbox(
             tracing::warn!("Failed to fetch remote actor {}: {}", actor_url_str, e);
             (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error": "Unknown actor"})),
+                Json(AppError::public_json("Unknown actor")),
             )
         })?;
         if activity_type == "Create" {
@@ -518,7 +527,7 @@ pub async fn post_shared_inbox(
                 tracing::warn!(error = %e, "Shared inbox Create rejected by ownership check");
                 (
                     StatusCode::FORBIDDEN,
-                    Json(json!({"error": "Object ownership check failed"})),
+                    Json(AppError::public_json("Object ownership check failed")),
                 )
             })?;
         }
@@ -531,7 +540,7 @@ pub async fn post_shared_inbox(
             tracing::warn!(actor = %actor_url_str, error = %e, "Failed to resolve Follow actor");
             (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error": "Cannot resolve remote actor"})),
+                Json(AppError::public_json("Cannot resolve remote actor")),
             )
         })?)
     } else {
@@ -542,7 +551,7 @@ pub async fn post_shared_inbox(
             tracing::warn!(actor = %actor_url_str, error = %e, "Failed to resolve content actor");
             (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error": "Cannot resolve remote actor"})),
+                Json(AppError::public_json("Cannot resolve remote actor")),
             )
         })?)
     } else {
@@ -628,9 +637,9 @@ async fn dispatch_shared_activity<C: ConnectionTrait>(
     if activity_type == "Move" {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(json!({
-                "error": "Move handling temporarily unavailable while transactional verification is pending"
-            })),
+            Json(AppError::public_json(
+                "Move handling temporarily unavailable while transactional verification is pending",
+            )),
         ));
     }
 
@@ -768,9 +777,8 @@ async fn resolve_shared_inbox_local_user(
 
 /// Resolve a local user id from an actor-ish URL.
 ///
-/// Exact `{base_url}/users/{username}` form only. The previous implementation
-/// fell back to "last path segment" for any URL, so a remote
-/// `https://evil.example/users/alice` resolved to the **local** `alice`.
+/// 只认 `{base_url}/users/{username}`。远端 `https://evil.example/users/alice`
+/// 不得落到本地 `alice`。
 async fn local_user_id_from_actorish_url(db: &impl ConnectionTrait, url: &str) -> Option<i32> {
     let base = get_base_url().await;
     let local = local_username_from_actor_url(&base, url)?;
@@ -802,7 +810,7 @@ pub(crate) async fn get_local_user(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "User not found"})),
+                Json(AppError::public_json("User not found")),
             )
         })?;
 

@@ -55,12 +55,10 @@ export function useConfigNavigation(isAdmin: boolean, t: NavI18n) {
     useState<SectionSwitchDirection>('forward')
   const [mobilePane, setMobilePane] = useState<'nav' | 'section'>(() => {
     if (typeof window === 'undefined') return 'nav'
-    // 恢复到具体分类时，移动端应直接进内容 pane
     const stored = loadConfigNavPersisted()
     const initial = resolveInitialConfigSection(isAdmin)
     if (stored?.mobilePane) return stored.mobilePane
     if (initial !== 'platforms' || stored?.section) return 'section'
-    // 有 URL section 时进内容
     try {
       if (new URLSearchParams(window.location.search).get('section')) {
         return 'section'
@@ -76,7 +74,7 @@ export function useConfigNavigation(isAdmin: boolean, t: NavI18n) {
     return stored?.platformFocus ?? null
   })
   const pendingGuideScrollRef = React.useRef<string | null>(null)
-  /** 仅首屏恢复滚动一次，避免切分类时抢滚动 */
+  /** restore scroll once on first paint */
   const didRestoreScrollRef = useRef(false)
   const [favorites, setFavorites] = useState<string[]>(loadConfigFavorites)
   const [savedFavorites, setSavedFavorites] =
@@ -185,7 +183,6 @@ export function useConfigNavigation(isAdmin: boolean, t: NavI18n) {
     return () => mq.removeEventListener('change', sync)
   }, [])
 
-  // 持久化当前导航（section / pane / focus）
   useEffect(() => {
     saveConfigNavPersisted({
       section: activeSection,
@@ -196,7 +193,6 @@ export function useConfigNavigation(isAdmin: boolean, t: NavI18n) {
     refreshConfigTourSurface()
   }, [activeSection, mobilePane, platformFocus])
 
-  // 节流记录滚动，供硬刷新后恢复
   useEffect(() => {
     if (typeof window === 'undefined') return
     let ticking = false
@@ -212,7 +208,6 @@ export function useConfigNavigation(isAdmin: boolean, t: NavI18n) {
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
-  // 首屏：恢复滚动位置（等布局 / config-loaded）
   useEffect(() => {
     if (typeof window === 'undefined' || didRestoreScrollRef.current) return
     const stored = loadConfigNavPersisted()
@@ -257,7 +252,7 @@ export function useConfigNavigation(isAdmin: boolean, t: NavI18n) {
   const handleSectionChange = useCallback(
     (section: string, options?: { guidePath?: string | null }) => {
       const next = LEGACY_CONFIG_SECTION_MAP[section] ?? section
-      // Non-admin must not land on federation (nav item is admin-only)
+      // non-admin must not land on federation
       if (next === 'federation' && !isAdmin) {
         return
       }
@@ -273,7 +268,7 @@ export function useConfigNavigation(isAdmin: boolean, t: NavI18n) {
       setActiveSection(next)
       setPlatformFocus(null)
       setMobilePane('section')
-      // 换分类默认回顶；滚动快照清零，避免恢复到上一分类的 scrollY
+      // new section: scroll top; drop previous snapshot
       saveConfigNavPersisted({
         section: next,
         mobilePane: 'section',
@@ -295,7 +290,6 @@ export function useConfigNavigation(isAdmin: boolean, t: NavI18n) {
     [quickAccessItems, activeSection, isAdmin],
   )
 
-  // Deep link / 后退：/config?section=about|advanced|…
   useEffect(() => {
     if (typeof window === 'undefined') return
     const applySectionFromUrl = () => {
@@ -306,13 +300,10 @@ export function useConfigNavigation(isAdmin: boolean, t: NavI18n) {
       const known = quickAccessItems.some((item) => item.section === next)
       if (!known) return
       setActiveSection(next)
-      // Preserve platform focus after Discord OAuth / ?platform=discord
-      // (clearing here races ConfigForm oauth effect and drops the highlight)
       const platformQ = params.get('platform')
       if (platformQ === 'discord' || params.get('discord_oauth')) {
         setPlatformFocus('Discord')
       } else {
-        // 仅 URL 驱动切换时清 focus；OAuth 参数保留
         setPlatformFocus(null)
       }
       setMobilePane('section')

@@ -67,6 +67,8 @@ ENV MYRIAD_VERSION=${MYRIAD_VERSION}
 ARG MYRIAD_COMMIT_SHA=unknown
 ENV MYRIAD_COMMIT_SHA=${MYRIAD_COMMIT_SHA}
 LABEL org.opencontainers.image.revision=${MYRIAD_COMMIT_SHA}
+LABEL io.myriad.runtime.federation-worker="1"
+LABEL io.myriad.runtime.federation-http="1"
 
 # Install runtime dependencies
 RUN apt-get update && \
@@ -84,7 +86,9 @@ COPY --from=builder /build/myriad-backend /app/myriad-backend
 COPY docker/backend-entrypoint.sh /usr/local/bin/myriad-backend-entrypoint
 
 # Create cache directory
-RUN mkdir -p /app/cache
+# The dedicated path is absent in older images, so an old image can never
+# accidentally run a full backend when a worker is requested during rollback.
+RUN mkdir -p /app/cache && ln -s /app/myriad-backend /app/myriad-federation-worker
 
 # Create a non-root user
 RUN useradd -m -u 1000 myriad && \

@@ -127,7 +127,7 @@ impl PreparedTappPackageHttp for PreparedTappPackage {
                     })?;
             }
             None => {
-                // MYR-025: share Arc into extract; do not clone the full zip.
+                // share Arc into extract; do not clone the full zip.
                 let file_data = self.archive_arc().expect("archive package has bytes");
                 extract_archive(self, tapp_dir, file_data, context).await?;
             }
@@ -151,7 +151,7 @@ async fn write_resources(
     resources: &PreparedTappResources,
     context: PackageStageContext,
 ) -> Result<(), PackageError> {
-    // 层入口与层内被 require 的文件按各自的包内相对路径落盘。
+    // `resources.modules` 整表按包内相对路径落盘。
     for (relative, content) in &resources.modules {
         write_text(package, tapp_dir, relative, content, "module", context).await?;
     }
@@ -338,7 +338,7 @@ async fn extract_archive(
 ) -> Result<(), PackageError> {
     let tapp_dir = tapp_dir.to_path_buf();
     let extraction_dir = tapp_dir.clone();
-    // MYR-025: move Arc into blocking task — refcount share, not full zip clone.
+    // move Arc into blocking task — refcount share, not full zip clone.
     let result = tokio::task::spawn_blocking(move || -> Result<(), std::io::Error> {
         use std::io::Read;
 
@@ -536,7 +536,7 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    /// 安装 → 落盘 → 扫描登记 → 按入口闭包分发，一条链路走完。
+    /// 落盘后 `validate_installed_package_modules`，再用 `collect_tapp_module_graph` 按入口闭包收模块。
     ///
     /// 文件故意不放进 `page/` / `widget/`：层归属必须来自 manifest 入口和
     /// require 图，不能来自目录名。
@@ -663,7 +663,7 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    /// 层内文件引用了不存在的模块，装包时就要失败，而不是等打开应用才白屏。
+    /// 层内 require 目标不存在时 `stage_into` 返回 400。
     #[tokio::test]
     async fn staging_rejects_a_require_target_that_does_not_exist() {
         let root = std::env::temp_dir().join(format!(
@@ -806,8 +806,7 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    /// 层内多文件必须真的能装上：入口 require 进来的文件不在 Manifest 里声明，
-    /// 但要落盘、要受检，且 require 目标缺失时安装必须失败。
+    /// 入口 require 进来、未在 Manifest 声明的文件也要落盘，并由 `validate_installed_resources` 受检。
     #[tokio::test]
     async fn stages_layer_internal_modules_and_checks_require_targets() {
         let root = std::env::temp_dir().join(format!(
@@ -863,7 +862,7 @@ mod tests {
         assert!(root.join("page/state.js").is_file());
         super::super::validate_installed_resources(&package.manifest, &root).unwrap();
 
-        // 指向不存在文件的 require 必须在安装期就失败
+        // 落盘后再改入口 require 到不存在文件：`validate_installed_resources` 失败
         std::fs::write(root.join("page/index.js"), "require('./ghost.js');").unwrap();
         let error = super::super::validate_installed_resources(&package.manifest, &root)
             .expect_err("missing require target must fail install validation");
@@ -965,7 +964,7 @@ mod tests {
         );
     }
 
-    /// 宿主预编译产物不能顶替作者声明的层样式——它们落在不同路径上。
+    /// 声明了 `page.styles` 但内容为空时拒绝；宿主 `generated_page_css` 不能顶替。
     #[test]
     fn validate_rejects_empty_page_styles_even_with_host_css() {
         let manifest: TappManifest = serde_json::from_value(json!({

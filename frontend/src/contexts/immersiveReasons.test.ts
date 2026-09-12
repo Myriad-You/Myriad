@@ -10,14 +10,12 @@ test('单个理由进出，chrome 跟着藏和回', () => {
 
 test('两方同时沉浸时，先退出的一方不会替另一方把 chrome 放出来', () => {
   const reasons = new Set<string>()
-  // Tapp 全屏中，用户唤起 Agent 岛
   toggleImmersiveReason(reasons, 'tapp-fullscreen', true)
   toggleImmersiveReason(reasons, 'agent-panel', true)
 
-  // 收起 Agent 岛 —— 全屏还在，导航岛不该冒出来
+  // Agent closed; fullscreen still hides chrome.
   assert.equal(toggleImmersiveReason(reasons, 'agent-panel', false), true)
 
-  // 退出全屏，最后一个理由撤销，这才恢复
   assert.equal(toggleImmersiveReason(reasons, 'tapp-fullscreen', false), false)
 })
 

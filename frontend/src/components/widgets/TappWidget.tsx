@@ -1,20 +1,3 @@
-/**
- * Tapp Widget 组件
- * 用于在 Dashboard 中渲染 Tapp 提供的小组件
- *
- * 使用 TappWidgetSandbox 实现 Widget 范围的 Tapp SDK API
- *
- * 架构说明：
- * - Widget 从 manifest 预注册，安装后即可在 Dashboard 中添加
- * - 只有当 Tapp 运行中时，Widget 才会真正渲染
- * - 未运行时显示提示，引导用户启动 Tapp
- *
- * 预览模式优化：
- * - 预览模式下渲染美观的 Glass 风格预览卡片
- * - 支持图标、名称、主题色
- * - 添加光晕背景效果，与普通小组件保持一致
- */
-
 import type {
   RegisteredWidget,
   TappCodeStructure,
@@ -51,14 +34,9 @@ import {
 } from './tappWidgetViewport'
 
 export interface TappWidgetProps extends WidgetComponentProps {
-  /** Tapp Widget 完整 ID (tapp.{tappId}.{widgetId}) */
   tappWidgetId: string
 }
 
-/**
- * 获取 Tapp Widget 的预览信息
- * 同步方法，从 runtime 缓存中获取信息
- */
 function getTappWidgetPreviewInfo(
   tappWidgetId: string,
   locale?: string,
@@ -79,7 +57,6 @@ function getTappWidgetPreviewInfo(
     const widget = widgets.find((w) => w.id === tappWidgetId)
 
     if (!widget) {
-      // 从 ID 提取基本信息
       const parts = tappWidgetId.split('.')
       const widgetName = parts.pop() || 'Widget'
       return {
@@ -89,7 +66,6 @@ function getTappWidgetPreviewInfo(
       }
     }
 
-    // 获取 Tapp 实例以获取主题色 / 官方 mark id
     const tapp = runtime.getTapp(widget.tappId)
 
     return {
@@ -106,7 +82,6 @@ function getTappWidgetPreviewInfo(
         : undefined,
     }
   } catch {
-    // 返回默认值
     const parts = tappWidgetId.split('.')
     const widgetName = parts.pop() || 'Widget'
     return {
@@ -117,15 +92,6 @@ function getTappWidgetPreviewInfo(
   }
 }
 
-/**
- * Tapp Widget 预览组件
- * 用于在小组件库中显示实际的 widget 渲染效果
- *
- * 优化策略：
- * - 尝试渲染实际的 widget HTML 内容
- * - 只渲染一次，不监听任何更新事件（节约性能）
- * - 如果无法获取代码则回退到静态预览
- */
 const TappWidgetPreview = memo(
   ({
     tappWidgetId,
@@ -138,7 +104,6 @@ const TappWidgetPreview = memo(
   }) => {
     const { locale } = useI18n()
 
-    // 使用 ref 确保只加载一次（但尺寸变化时需要重新加载）
     const loadedRef = useRef(false)
     const prevSizeRef = useRef(config?.size)
     const prevTappWidgetIdRef = useRef(tappWidgetId)
@@ -147,20 +112,16 @@ const TappWidgetPreview = memo(
       code: TappCodeStructure
       widget: RegisteredWidget
     } | null>(null)
-    /** loading → sandbox | static */
     const [previewPhase, setPreviewPhase] = useState<'loading' | 'static'>(
       'loading',
     )
 
-    // 获取预览信息（用于回退显示）
     const previewInfo = useMemo(
       () => getTappWidgetPreviewInfo(tappWidgetId, locale),
       [tappWidgetId, locale],
     )
 
-    // ⚡ 优化：监听尺寸变化，重新加载资源
     useEffect(() => {
-      // 尺寸变化时重置加载状态，触发重新加载
       if (
         prevSizeRef.current !== config?.size ||
         prevTappWidgetIdRef.current !== tappWidgetId
@@ -173,7 +134,6 @@ const TappWidgetPreview = memo(
       }
     }, [config?.size, tappWidgetId])
 
-    // 加载预览数据（尺寸变化时会重新触发）
     useEffect(() => {
       if (loadedRef.current) return
       loadedRef.current = true
@@ -183,10 +143,8 @@ const TappWidgetPreview = memo(
         try {
           const runtime = getTappRuntime()
 
-          // 等待 runtime 同步
           await runtime.waitForSync()
 
-          // 查找 widget
           const widgets = runtime.getRegisteredWidgets()
           const widget = widgets.find((w) => w.id === tappWidgetId)
           if (!widget) {
@@ -194,22 +152,18 @@ const TappWidgetPreview = memo(
             return
           }
 
-          // 获取 Tapp 实例
           const tapp = runtime.getTapp(widget.tappId)
           if (!tapp) {
             if (!cancelled) setPreviewPhase('static')
             return
           }
 
-          // 检查 Tapp 是否运行中
           const running = runtime.isRunning(widget.tappId)
           if (!running) {
             if (!cancelled) setPreviewPhase('static')
             return
           }
 
-          // 使用新的资源加载器获取 Widget 专用资源
-          // ⚡ 优化：使用当前尺寸加载对应的资源
           const widgetSize = config?.size || widget.config.defaultSize || '4x2'
 
           try {
@@ -219,7 +173,6 @@ const TappWidgetPreview = memo(
               widget.config.id,
             )
 
-            // 转换为 TappWidgetSandbox 需要的 TappCodeStructure
             const tappCode: TappCodeStructure = {
               modules: resources.modules,
               moduleResolutions: resources.moduleResolutions,
@@ -248,7 +201,6 @@ const TappWidgetPreview = memo(
       }
     }, [tappWidgetId, config?.size])
 
-    // 构造 widgetProps - 只计算一次
     const widgetProps = useMemo(() => {
       const isDark = document.documentElement.classList.contains('dark')
       const primaryColor =
@@ -266,7 +218,6 @@ const TappWidgetPreview = memo(
       }
     }, [config.size, config.config, locale])
 
-    // 如果有预览数据，渲染实际的 TappWidgetSandbox
     if (previewData) {
       return (
         <div
@@ -284,20 +235,15 @@ const TappWidgetPreview = memo(
             widgetProps={widgetProps}
             className="w-full h-full"
           />
-          {/* 透明覆盖层 - 确保完全阻止交互 */}
           <div className="absolute inset-0 z-50" />
         </div>
       )
     }
 
-    // Prefer CSS var — avoid getComputedStyle in render.
+    // 用 CSS 变量，渲染期不要 getComputedStyle。
     const themeColor =
       previewInfo?.themeColor?.trim() || 'var(--color-primary, #6366f1)'
 
-    // 加载中 / 退出淡出：盖在静态预览或空白上
-    // 回退：显示静态预览
-
-    // 根据尺寸判断布局
     const isCompact = config.size === '1x1' || config.size === '2x1'
     const isLarge =
       config.size === '4x2' || config.size === '4x4' || config.size === '2x4'
@@ -327,12 +273,10 @@ const TappWidgetPreview = memo(
                 size={isLarge ? 'lg' : 'md'}
                 opacity={0.15}
               />
-              {/* 边框效果 */}
               <div className="absolute inset-0 rounded-xl ring-1 ring-inset ring-black/5 dark:ring-white/10 pointer-events-none" />
             </>
           }
         >
-          {/* 图标 */}
           <TappIconBadge
             icon={previewInfo?.icon}
             iconSvg={previewInfo?.iconSvg}
@@ -357,7 +301,6 @@ const TappWidgetPreview = memo(
             }
           />
 
-          {/* 文本信息 - 紧凑模式不显示 */}
           {!isCompact && (
             <div className="text-center w-full px-2">
               <div
@@ -366,14 +309,12 @@ const TappWidgetPreview = memo(
                 {previewInfo?.name || 'Widget'}
               </div>
 
-              {/* 大尺寸显示描述 */}
               {isLarge && previewInfo?.description && (
                 <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2 leading-relaxed">
                   {previewInfo.description}
                 </div>
               )}
 
-              {/* Tapp 名称 - 仅大尺寸显示 */}
               {isLarge && previewInfo?.tappName && (
                 <div className="mt-2 flex items-center justify-center gap-1.5">
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-black/5 dark:bg-white/10 text-gray-500 dark:text-gray-400">
@@ -397,9 +338,6 @@ const TappWidgetPreview = memo(
 
 TappWidgetPreview.displayName = 'TappWidgetPreview'
 
-/**
- * Tapp Widget 组件（使用 TappWidgetSandbox 隔离运行）
- */
 interface TappWidgetRuntimeProps extends TappWidgetProps {
   anim: ReturnType<typeof useAnimationLevel>
 }
@@ -423,33 +361,20 @@ function TappWidgetRuntime({
   const [loading, setLoading] = useState(true)
   const [isRunning, setIsRunning] = useState(false)
 
-  // ⚡ 记录上一次的尺寸，用于检测尺寸变化
   const prevSizeRef = useRef(config?.size)
 
-  // 集成动画调度器的页面可见性感知
-  // 页面不可见时跳过非必要的状态更新，减少后台 CPU 开销
   const [pageVisible, setPageVisible] = useState(isPageVisible())
   useEffect(() => {
     return onVisibility(setPageVisible)
   }, [])
 
-  // 视口门控：widget 的 iframe 沙箱仅在进入视口（附近 300px）时挂载，
-  // 远离视口则卸载以释放内存。需要后台常驻数据的 Tapp 由 TappBackgroundRunner
-  // 用 headless core 保活，数据不丢；纯展示 widget 重新进入视口时重新挂载即可。
-  // 默认 true 避免首屏闪烁；observer 首次回调会立即校正离屏项。
-  //
-  // 防误判（issue #72）：刷新后页面可能处于入场动画（transform 位移）、浏览器
-  // 滚动位置恢复或布局未完成的窗口期。0×0 或未撑开的盒子不能当离屏——
-  // 缓存命中时宿主挂得更早，首次回调更容易是空盒子；此后没有滚动/重排
-  // 就不会再估，widget 会永久卡在 hold。非交叉且已有真实盒子时也不立即
-  // 采纳：入场 spring/tween 约 480ms，复查几次再用稳定几何判定。
+  // iframe 仅近视口挂载。0×0/未撑开不能当离屏；400ms×3 复查后再判离屏。
   const [inViewport, setInViewport] = useState(true)
   const viewportObserverRef = useRef<IntersectionObserver | null>(null)
   const viewportNodeRef = useRef<HTMLDivElement | null>(null)
   const viewportRecheckRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const viewportRecheckCountRef = useRef(0)
-  // 复查等待中：期间到达的非交叉回调直接忽略，只有超时后 re-observe
-  // 投递的结果才能决定离屏，避免等待期内动画/滚动抖动把 debounce 击穿。
+  // 复查等待中忽略非交叉回调，只有超时后 re-observe 的结果才能判离屏。
   const viewportRecheckPendingRef = useRef(false)
   const sandboxHostRef = useCallback((node: HTMLDivElement | null) => {
     viewportObserverRef.current?.disconnect()
@@ -472,10 +397,7 @@ function TappWidgetRuntime({
           setInViewport(true)
           return
         }
-        // 复查等待中：忽略后续非交叉回调，等待 re-observe 的稳定结果。
         if (viewportRecheckPendingRef.current) return
-        // 已复查足够次数（re-observe 后仍非交叉）才采纳离屏，
-        // 保持屏外省电设计。
         if (
           viewportRecheckCountRef.current >=
           TAPP_WIDGET_VIEWPORT_OFFSCREEN_RECHECKS
@@ -514,8 +436,7 @@ function TappWidgetRuntime({
     [],
   )
 
-  // 宿主级刷新统一做去抖，避免同一批 storage 写入或多个 invalidate 请求
-  // 连续销毁/重建 iframe。刷新只在页面与 Widget 都可见时执行。
+  // 宿主刷新去抖，避免一批 storage/invalidate 连续毁建 iframe。只在页与 Widget 都可见时刷新。
   const [refreshGeneration, setRefreshGeneration] = useState(0)
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const requestRefresh = useCallback(() => {
@@ -545,9 +466,8 @@ function TappWidgetRuntime({
     })
   }, [tappInstance, widget, requestRefresh])
 
-  // ⚡ 监听尺寸变化，重新加载资源
   useEffect(() => {
-    // 尺寸变化使用独立的 widgetId + size 缓存键，无需清空整个 Tapp 缓存。
+    // 尺寸变化走独立缓存键，不必清空整个 Tapp 缓存。
     if (prevSizeRef.current !== config?.size) {
       prevSizeRef.current = config?.size
       if (widget) {
@@ -558,7 +478,6 @@ function TappWidgetRuntime({
     }
   }, [config?.size, widget])
 
-  // 加载 Widget 元数据 + 运行时资源（合并路径，避免二次 effect 多等一帧）
   useEffect(() => {
     let cancelled = false
 
@@ -614,7 +533,6 @@ function TappWidgetRuntime({
           return
         }
 
-        // 运行中：直接拉取 widget 投影资源（与元数据同一路径，减少状态机往返）
         const resources = await loadWidgetResources(
           tapp,
           widgetSize,
@@ -653,7 +571,6 @@ function TappWidgetRuntime({
     }
   }, [tappWidgetId, runtime])
 
-  // 监听 Tapp 启动/停止/更新 — 触发资源补拉路径（不重复 waitForSync 全量重载）
   useEffect(() => {
     if (!widget) return
 
@@ -696,7 +613,6 @@ function TappWidgetRuntime({
     }
   }, [widget, runtime])
 
-  // 启动/更新后 loading=true 时补拉资源（与初次挂载路径共用 loadWidgetResources）
   useEffect(() => {
     if (!loading || !isRunning || !widget || !tappInstance || code) return
     let cancelled = false
@@ -747,9 +663,6 @@ function TappWidgetRuntime({
     }
   }, [loading, isRunning, widget, tappInstance, config?.size, code])
 
-  // 使用 useMemo 稳定 widgetProps，避免 TappWidgetSandbox 不必要的重渲染
-  // scale 和 fontScale 由 TappWidgetSandbox 内部自动计算并注入到 iframe
-  // 使用 JSON.stringify 稳定 config.config 的依赖比较
   const configString = JSON.stringify(config.config || {})
   const declaredDefaults = useMemo(
     () =>
@@ -762,7 +675,6 @@ function TappWidgetRuntime({
   )
   const widgetProps = useMemo(() => {
     const isDark = document.documentElement.classList.contains('dark')
-    // 获取主题色
     const primaryColor =
       getComputedStyle(document.documentElement)
         .getPropertyValue('--color-primary')
@@ -826,7 +738,7 @@ function TappWidgetRuntime({
     [config.config, onConfigChange, widget],
   )
 
-  // interval 是可选策略，并且只在可见、运行中的实例上计时。
+  // interval 可选，只在可见且运行中的实例上计时。
   useEffect(() => {
     const policy = widget?.config.refreshPolicy
     if (
@@ -861,7 +773,6 @@ function TappWidgetRuntime({
     [runtime, tappInstance],
   )
 
-  // 启动 Tapp（仅 canControlLifecycle）
   const handleStartTapp = useCallback(async () => {
     if (!widget || !canControlLifecycle) return
     try {
@@ -871,7 +782,7 @@ function TappWidgetRuntime({
     }
   }, [widget, runtime, canControlLifecycle, t.tapp.startAppFailed])
 
-  // 所有者挂载小组件时：若自己的装仍是 stopped，自动拉起（不帮访客启动站主已停的 Tapp）。
+  // 所有者挂载时若自己的装是 stopped 则拉起；不帮访客启动站主已停的 Tapp。
   const autoStartKeyRef = useRef<string | null>(null)
   useEffect(() => {
     if (isPreview) return
@@ -911,22 +822,19 @@ function TappWidgetRuntime({
     canControlLifecycle,
   ])
 
-  // 跳转到 Tapp 详情
   const handleGoToTapp = useCallback(() => {
     if (!widget) return
     navigate(tappDetailPath(widget.tappId))
   }, [widget, navigate])
 
-  // 编辑模式下禁用指针事件，允许父级处理拖拽
   const pointerEventsStyle =
     isEditMode || isPreview ? { pointerEvents: 'none' as const } : {}
 
-  // Prefer CSS var — avoid getComputedStyle on loading path.
+  // 用 CSS 变量，加载路径不要 getComputedStyle。
   const shellThemeColor =
     tappInstance?.manifest?.themeColor?.trim() ||
     'var(--color-primary, #6366f1)'
 
-  // 加载中：整卡骨架（chunk 已过 Suspense；defer=0 接上一段）
   if (loading) {
     return (
       <div
@@ -945,7 +853,6 @@ function TappWidgetRuntime({
     )
   }
 
-  // 错误状态
   if (error || !widget || !tappInstance) {
     return (
       <div
@@ -960,7 +867,6 @@ function TappWidgetRuntime({
     )
   }
 
-  // Tapp 未运行 - 显示启动提示（使用 Glass 风格）
   if (!isRunning || !code) {
     const themeColor =
       tappInstance.manifest.themeColor?.trim() ||
@@ -994,12 +900,10 @@ function TappWidgetRuntime({
               size="md"
               opacity={0.12}
             />
-            {/* 边框效果 */}
             <div className="absolute inset-0 rounded-xl ring-1 ring-inset ring-black/5 dark:ring-white/10 pointer-events-none" />
           </>
         }
       >
-        {/* 图标 */}
         <TappIconBadge
           icon={widget.config.icon || tappInstance.manifest.icon}
           iconSvg={tappInstance.manifest.iconSvg}
@@ -1014,17 +918,15 @@ function TappWidgetRuntime({
           glyphTextClass="text-2xl"
         />
 
-        {/* 名称 */}
         <div className="text-sm font-bold text-gray-800 dark:text-gray-100 mb-1 text-center">
           {widget.config.name}
         </div>
 
-        {/* 提示 */}
         <div className="text-xs text-gray-500 dark:text-gray-400 mb-4 text-center">
           {canControlLifecycle ? t.tapp.needStartToShow : t.tapp.stopped}
         </div>
 
-        {/* 操作：仅所有者可启动；访客只能看详情，不能把站长已停的 Tapp 拉起来 */}
+        {/* 访客只能看详情，不能把站长已停的 Tapp 拉起来。 */}
         {!isEditMode && (
           <div className="flex gap-2 justify-center">
             {canControlLifecycle && (
@@ -1035,14 +937,14 @@ function TappWidgetRuntime({
                   background: `linear-gradient(135deg, ${themeColor}, color-mix(in srgb, ${themeColor} 80%, black))`,
                 }}
               >
-                启动
+                {t.tapp.start}
               </button>
             )}
             <button
               onClick={handleGoToTapp}
               className="px-3 py-1.5 text-xs font-medium bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15 text-gray-700 dark:text-gray-200 rounded-lg transition-colors"
             >
-              详情
+              {t.tapp.details}
             </button>
           </div>
         )}
@@ -1050,7 +952,7 @@ function TappWidgetRuntime({
     )
   }
 
-  // Prefer CSS var over getComputedStyle (avoids forced style recalc on render).
+  // 用 CSS 变量，避免渲染期强制样式重算。
   const runningThemeColor =
     tappInstance.manifest.themeColor?.trim() || 'var(--color-primary, #6366f1)'
 
@@ -1061,7 +963,7 @@ function TappWidgetRuntime({
       style={pointerEventsStyle}
       data-no-ripple
     >
-      {/* sandboxHostRef 常驻挂载作为视口观察目标；沙箱本身按 inViewport 挂/卸 */}
+      {/* sandboxHostRef 常驻作观察目标；沙箱按 inViewport 挂/卸。 */}
       <div ref={sandboxHostRef} className="w-full h-full">
         {inViewport ? (
           <TappWidgetSandbox
@@ -1078,7 +980,7 @@ function TappWidgetRuntime({
             className="w-full h-full"
           />
         ) : (
-          // 屏外 hold：无 bone DOM、无动画、content-visibility（多卡零 shimmer 成本）
+          // 屏外 hold：无 bone DOM、无动画、content-visibility。
           <WidgetSkeleton
             hold
             accent={runningThemeColor}
@@ -1107,8 +1009,7 @@ export const TappWidgetComponent = memo(
     return <TappWidgetRuntime {...props} anim={anim} />
   },
   (prevProps, nextProps) => {
-    // 自定义比较函数，优化重渲染
-    // 预览也必须比较具体 Tapp、尺寸和实例配置，不能复用另一应用的画面。
+    // 预览也必须比较具体 Tapp/尺寸/实例配置，不能复用另一应用的画面。
     if (prevProps.isPreview && nextProps.isPreview) {
       return (
         prevProps.tappWidgetId === nextProps.tappWidgetId &&
@@ -1118,7 +1019,6 @@ export const TappWidgetComponent = memo(
           JSON.stringify(nextProps.config.config)
       )
     }
-    // 非预览模式下进行更详细的比较
     return (
       prevProps.tappWidgetId === nextProps.tappWidgetId &&
       prevProps.isEditMode === nextProps.isEditMode &&

@@ -287,8 +287,7 @@ export function useConfigSideDrafts(
 
   const loadHitokotoSettings = useCallback(async () => {
     try {
-      // 配置编辑器必须看到权威值，不吃 fetchHitokotoConfig 的进程内缓存，
-      // 否则草稿可能基于最多 5 分钟前的旧配置，保存时把别处的改动覆盖掉
+      // skip hitokoto process cache or save can overwrite a fresher config
       const config = await fetchHitokotoConfig({ force: true })
       setSavedHitokotoConfig(config)
       setHitokotoDraft(config)
@@ -310,7 +309,6 @@ export function useConfigSideDrafts(
     }
   }, [showMessage, t.config.reportSettingsLoadFailed])
 
-  /** 立即写入库来源（用于 modules 重置等旁路路径） */
   const writeLibrarySourcePreferences = useCallback(
     async (draft: LibrarySourcePreferences) => {
       const saved = await apiService.put<SaveLibrarySourcePreferencesResponse>(

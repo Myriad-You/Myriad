@@ -1,0 +1,37 @@
+<!doctype html>
+<html data-surface="liquid" data-perf-mode="standard">
+  <meta charset="utf-8" />
+  <title>Liquid glass integration</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { background: transparent !important; margin: 0; padding: 48px; min-height: 1800px; font: 16px system-ui; color: #17243a; }
+    #test-backdrop { position: fixed; inset: 0; z-index: 0; background: repeating-linear-gradient(90deg, transparent 0 38px, #294a7770 39px 41px, transparent 42px 80px), repeating-linear-gradient(0deg, transparent 0 38px, #294a7750 39px 41px, transparent 42px 80px), linear-gradient(125deg, #becde8, #e7b9bd 45%, #7ec3c1); }
+    h1, main, #island, #offscreen, #probe { position: relative; z-index: 1; }
+    main { display: flex; gap: 24px; flex-wrap: wrap; max-width: 1000px; }
+    .sample { box-sizing: border-box; width: 300px; height: 180px; border-radius: 28px; padding: 24px; }
+    h1 { font-size: 34px; margin: 0 0 32px; }
+    h2 { font-size: 20px; }
+    .dark { color-scheme: dark; }
+    .dark body { color: #f4f7ff; }
+    .dark #test-backdrop { background: repeating-linear-gradient(90deg, transparent 0 38px, #8aafdb70 39px 41px, transparent 42px 80px), linear-gradient(125deg, #18314d, #bb8ab0 45%, #295653); }
+    #island { position: relative; inset: auto; margin-top: 28px; }
+    #offscreen { position: absolute; top: 1400px; }
+    #plain-child { width: 80px; height: 25px; }
+    #probe { position: absolute; left: 48px; top: 700px; width: 300px; height: 180px; border-radius: 28px; backdrop-filter: var(--hyalite, none); }
+  </style>
+  <body>
+    <div id="test-backdrop"></div>
+    <h1>Myriad · Liquid Glass</h1>
+    <main>
+      <article id="card" class="glass sample"><h2>按轮廓折射</h2><p>中心保持清晰，边缘呈现厚度。</p><div id="plain-child"></div></article>
+      <article id="twin" class="glass sample"><h2>共享几何缓存</h2><p>独立生命周期与动态尺寸。</p></article>
+      <article id="local" class="glass glass-liquid sample" style="width:240px;border-radius:12px 36px 24px 8px"><h2>局部流体</h2><p>四个圆角分别计算。</p></article>
+      <article id="dialog" class="glass surface-dialog sample"><h2>内容表面</h2><p>文字区域保留底色，边缘透光。</p></article>
+      <article id="agent" class="glass agent-panel-overlay-anchor sample"><h2>Agent</h2><p>阅读区保留不透明材质。</p></article>
+    </main>
+    <div id="island" class="control-bar-trigger">控制岛</div>
+    <article id="offscreen" class="glass sample">滚动进入后才建立透镜。</article>
+    <div id="probe"></div>
+    <script type="module" src="./liquidGlass.ts"></script>
+  </body>
+</html>

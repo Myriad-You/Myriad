@@ -1,6 +1,6 @@
 //! 资源创建能力处理器
 //!
-//! 处理 tapp.generate, report.create, reminder.create 等资源创建类能力。
+//! 处理 tapp.generate、tapp.install、report.create、reminder.create、note.create、bookmark.save。
 //! 纯投影见 [`crate::services::agent::resource_create_pure`]。
 
 use super::HandlerContext;
@@ -174,12 +174,12 @@ async fn execute_tapp_generate(
         .get("description")
         .and_then(Value::as_str)
         .or_else(|| params.get("requirements").and_then(Value::as_str))
-        .unwrap_or("一个简单的 Tapp 应用");
+        .unwrap_or("A simple Tapp app");
     let input_data = params.get("input").or_else(|| params.get("data"));
     let input_context = if let Some(data) = input_data {
         let truncated = truncate_json_for_prompt(data, 4000);
         format!(
-            "\n\n以下是需要可视化/展示的数据（来自上游步骤的输出）：\n```json\n{}\n```\n\n请基于这些数据生成可视化看板或交互界面。",
+            "\n\nData to visualize from an upstream step:\n```json\n{}\n```\n\nBuild a dashboard or interactive view from this data.",
             truncated
         )
     } else {
@@ -187,18 +187,18 @@ async fn execute_tapp_generate(
     };
 
     let prompt = format!(
-        r#"请根据以下描述生成一个 Myriad Tapp 应用。
+        r#"Generate a Myriad Tapp from the description below.
 
-描述：{description}{input_context}
+Description: {description}{input_context}
 
-要求：
-1. 输出浏览器可直接运行的 JavaScript，不要输出需要构建的 TypeScript
-2. 使用全局 Tapp SDK（例如 Tapp.storage、Tapp.pages、Tapp.widgets）
-3. core 只放共享状态和后台逻辑，Page/Widget 只负责视图；需要刷新后自动常驻时在 manifest.backgroundRequirements 声明
-4. manifest 必须包含 permissions 和 category，按需包含 core / page / widgets / backgroundRequirements。不要写 main、hasPage、cssMode、styles、pageTemplate、pageStyles、widgetStyles、pageModules
-5. 如果有数据输入，将数据内嵌到代码中直接展示
+Rules:
+1. Output browser-runnable JavaScript, not TypeScript that needs a build
+2. Use the global Tapp SDK (Tapp.storage, Tapp.pages, Tapp.widgets)
+3. core holds shared state and background logic; Page/Widget are views only. If it must persist across refresh, declare manifest.backgroundRequirements
+4. manifest must include permissions and category, and may include core / page / widgets / backgroundRequirements. Do not write main, hasPage, cssMode, styles, pageTemplate, pageStyles, widgetStyles, pageModules
+5. If data is provided, embed it in the code and display it
 
-只返回合法 JSON：
+Return valid JSON only:
 {{
   "manifest": {{
     "name": "...",
@@ -209,7 +209,7 @@ async fn execute_tapp_generate(
     "core": {{ "entry": "core.js" }},
     "page": {{ "entry": "page/index.js" }}
   }},
-  "code": "完整 JavaScript 代码（将写入 core.js；page/index.js 会 require 它）"
+  "code": "full JavaScript (written to core.js; page/index.js will require it)"
 }}"#
     );
 
@@ -321,9 +321,9 @@ async fn execute_report_create(
     let title = params
         .get("title")
         .and_then(|v| v.as_str())
-        .unwrap_or("未命名报告");
+        .unwrap_or("Untitled report");
 
-    // 读取上游步骤通过 inputFrom/analysisFrom 解析后注入的数据
+    // 读取 resolve 后的 analysis / input / data
     let analysis = params
         .get("analysis")
         .or_else(|| params.get("input"))

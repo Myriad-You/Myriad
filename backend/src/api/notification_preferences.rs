@@ -14,7 +14,7 @@ fn user_id(claims: &Claims) -> Result<i32, HttpError> {
     claims.sub.parse::<i32>().map_err(|_| {
         HttpError::from((
             StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Invalid authenticated user"})),
+            Json(AppError::public_json("Invalid authenticated user")),
         ))
     })
 }
@@ -148,3 +148,4 @@ mod tests {
         .unwrap();
     }
 }
+use myriad_error::AppError;

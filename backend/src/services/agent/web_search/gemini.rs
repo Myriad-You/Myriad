@@ -53,7 +53,7 @@ pub async fn search(
             results.push(json!({
                 "name": title,
                 "url": url,
-                "description": format!("来源: {}", title),
+                "description": format!("Source: {}", title),
                 "source": "google_search"
             }));
         }
@@ -61,7 +61,7 @@ pub async fn search(
 
     if results.is_empty() && !ai_text.is_empty() {
         results.push(json!({
-            "name": "AI 搜索结果",
+            "name": "Search results",
             "description": ai_text,
             "source": "gemini_grounding"
         }));
@@ -108,7 +108,7 @@ pub async fn search_reading_list(
             .take(max_items)
         {
             let title = if title.is_empty() {
-                "未知标题".to_string()
+                "Untitled".to_string()
             } else {
                 title
             };
@@ -117,7 +117,7 @@ pub async fn search_reading_list(
                 .map(|parts| parts.join(" "))
                 .filter(|s| s.len() > 20)
                 .unwrap_or_else(|| {
-                    format!("来自 {} 的文章: {}", extract_domain_from_url(&uri), &title)
+                    format!("Article from {}: {}", extract_domain_from_url(&uri), &title)
                 });
             results.push(json!({
                 "title": title,
@@ -136,7 +136,7 @@ pub async fn search_reading_list(
     let results: Vec<Value> = results
         .into_iter()
         .enumerate()
-        .filter_map(|(idx, item)| normalize_reading_list_item(item, idx, &now, "AI 联网搜索推荐"))
+        .filter_map(|(idx, item)| normalize_reading_list_item(item, idx, &now, "AI web search"))
         .take(max_items)
         .collect();
 
@@ -210,40 +210,42 @@ async fn grounding_generate(
 
 fn grounding_reading_list_prompt(query: &str, max_items: usize) -> String {
     format!(
-        r#"你是一个智能阅读助手。用户想要阅读关于「{query}」的文章。
+        r#"You are a reading assistant. The user wants articles about "{query}".
 
-任务：使用 Google Search 搜索相关的新闻、文章或资讯，然后整理成阅读列表。
+Task: use Google Search to find related news/articles, then return a reading list.
 
-输出要求：
-1. 返回 {max_items} 篇最相关的文章
-2. 必须是纯 JSON 数组格式，不要任何其他文字、解释或 markdown 标记
-3. 每篇文章必须包含以下字段：
-   - "id": 从 1 开始的数字
-   - "title": 文章完整标题（string，不要截断）
-   - "link": 文章的原始 URL（⚠️ 重要：必须是文章页面的真实 URL，不能是 Google 搜索结果页面或重定向链接，必须以 https:// 或 http:// 开头）
-   - "summary": 文章内容摘要（string，⚠️ 重要：150-300 字，详细描述文章的主要内容、核心观点和关键信息，让读者无需点开就能了解文章大意）
-   - "sourceName": 来源网站名称（string）
-   - "author": 作者（string，如不确定填 ""）
-   - "publishedAt": ISO 8601 日期时间格式（string，如 "2026-01-10T12:00:00Z"）
-   - "relevanceReason": 推荐理由（string，一句话说明为什么这篇文章值得阅读）
+Output:
+1. Return {max_items} most relevant articles
+2. Pure JSON array only — no extra prose, no markdown
+3. Each item must have:
+   - "id": number starting at 1
+   - "title": full article title (string, do not truncate)
+   - "link": the real article URL (must be the article page, not a Google result or redirect; must start with https:// or http://)
+   - "summary": 150–300 characters covering the main points so the reader need not open the page
+   - "sourceName": site name (string)
+   - "author": author (string; "" if unknown)
+   - "publishedAt": ISO 8601 datetime (string, e.g. "2026-01-10T12:00:00Z")
+   - "relevanceReason": one sentence on why it is worth reading
 
-筛选标准：
-- 优先选择权威媒体和专业网站的内容
-- 内容必须与「{query}」高度相关
-- 优先最新发布的内容
-- 排除付费墙、需要登录的内容
-- 排除聚合页面、搜索结果页，只要实际文章页
+Write title, summary, and relevanceReason in the same language as the query.
 
-⚠️ 关于 link 字段的特别说明：
-- 必须是可以直接访问的文章页面 URL
-- 不要使用 Google AMP 链接（google.com/amp/...）
-- 不要使用搜索结果链接（google.com/url?...）
-- 如果原始 URL 包含追踪参数，保留主要路径即可
+Selection:
+- Prefer reputable publishers
+- Must be highly relevant to "{query}"
+- Prefer recent pieces
+- Skip paywalls and login walls
+- Skip aggregator/search pages; article pages only
 
-示例输出格式：
-[{{"id":1,"title":"完整的文章标题","link":"https://www.example.com/news/article-123","summary":"这篇文章详细介绍了...（150-300字的详细摘要）","sourceName":"Example新闻","author":"张三","publishedAt":"2026-01-10T12:00:00Z","relevanceReason":"推荐理由"}}]
+link field:
+- Must be a directly openable article URL
+- No Google AMP (google.com/amp/...)
+- No search-result wrappers (google.com/url?...)
+- Tracking params may be dropped; keep the main path
 
-现在请搜索并返回 JSON 数组："#,
+Example:
+[{{"id":1,"title":"Full article title","link":"https://www.example.com/news/article-123","summary":"This article covers... (150–300 chars)","sourceName":"Example News","author":"Jane Doe","publishedAt":"2026-01-10T12:00:00Z","relevanceReason":"why it is relevant"}}]
+
+Search now and return the JSON array:"#,
         query = query,
         max_items = max_items
     )

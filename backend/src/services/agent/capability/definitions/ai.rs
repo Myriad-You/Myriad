@@ -9,8 +9,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // AI 内容总结
     registry.register(Capability {
         id: "ai.summarize".to_string(),
-        name: "AI 内容总结".to_string(),
-        description: "使用 AI 对内容进行智能总结".to_string(),
+        name: "Summarize".to_string(),
+        description: "Summarize content with AI.".to_string(),
         category: CapabilityCategory::AiProcess,
         supported_actions: vec![IntentAction::Summarize],
         input_schema: json!({
@@ -22,8 +22,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "maxLength": { "type": "integer" }
             }
         }),
-        // `execute_ai_summarize` 只返回摘要正文和回显的 style；声明过的 `keyPoints`
-        // 从未被产出，留在这里只会让 Planner 去引用一个取不到的字段。
+        // `execute_ai_summarize` 只返回摘要正文和回显的 style。
         output_schema: json!({
             "type": "object",
             "properties": {
@@ -31,8 +30,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "value": {
                     "type": "object",
                     "properties": {
-                        "summary": { "type": "string", "description": "摘要正文" },
-                        "style": { "type": "string", "description": "回显的摘要风格" }
+                        "summary": { "type": "string", "description": "Summary body" },
+                        "style": { "type": "string", "description": "Echoed summary style" }
                     }
                 },
                 "contextProvenance": { "type": "array" }
@@ -47,8 +46,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // AI 数据分析
     registry.register(Capability {
         id: "ai.analyze".to_string(),
-        name: "AI 数据分析".to_string(),
-        description: "使用 AI 进行深度数据分析".to_string(),
+        name: "Analyze".to_string(),
+        description: "Analyze data in depth with AI.".to_string(),
         category: CapabilityCategory::AiProcess,
         supported_actions: vec![IntentAction::Analyze],
         input_schema: json!({
@@ -67,8 +66,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "value": {
                     "type": "object",
                     "properties": {
-                        "analysis": { "type": "string", "description": "AI 分析正文" },
-                        "type": { "type": "string", "description": "回显的 analysisType" }
+                        "analysis": { "type": "string", "description": "Analysis body" },
+                        "type": { "type": "string", "description": "Echoed analysisType" }
                     }
                 },
                 "contextProvenance": { "type": "array" }
@@ -83,8 +82,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // AI 推荐
     registry.register(Capability {
         id: "ai.recommend".to_string(),
-        name: "AI 推荐".to_string(),
-        description: "基于用户数据进行智能推荐".to_string(),
+        name: "Recommend".to_string(),
+        description: "Recommend items from your data.".to_string(),
         category: CapabilityCategory::AiProcess,
         supported_actions: vec![IntentAction::Recommend],
         input_schema: json!({
@@ -106,9 +105,9 @@ pub fn register(registry: &mut CapabilityRegistry) {
                     "properties": {
                         "recommendations": {
                             "type": ["array", "string"],
-                            "description": "推荐列表；AI 未返回合法 JSON 数组时退化为原始文本"
+                            "description": "Recommendations; falls back to raw text if the model did not return a JSON array"
                         },
-                        "count": { "type": "integer", "description": "请求的推荐条数" }
+                        "count": { "type": "integer", "description": "Requested recommendation count" }
                     }
                 },
                 "contextProvenance": { "type": "array" }
@@ -123,28 +122,28 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // AI 图片生成
     registry.register(Capability {
         id: "ai.image".to_string(),
-        name: "AI 图片生成".to_string(),
-        description: "使用 AI 生成图片；可选 width/height（像素 256–2048，默认 1024）指定分辨率"
+        name: "Generate image".to_string(),
+        description: "Generate an image. Optional width and height (256–2048, default 1024)."
             .to_string(),
         category: CapabilityCategory::AiProcess,
         supported_actions: vec![IntentAction::Create],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "prompt": { "type": "string", "description": "图片生成提示词" },
+                "prompt": { "type": "string", "description": "Image prompt" },
                 "width": {
                     "type": "integer",
                     "minimum": 256,
                     "maximum": 2048,
                     "default": 1024,
-                    "description": "宽度像素；竖图建议 768，横图建议 1024/1344，省略默认 1024"
+                    "description": "Width in pixels; portrait 768, landscape 1024/1344; omit for 1024"
                 },
                 "height": {
                     "type": "integer",
                     "minimum": 256,
                     "maximum": 2048,
                     "default": 1024,
-                    "description": "高度像素；竖图建议 1024/1344，横图建议 768，省略默认 1024"
+                    "description": "Height in pixels; portrait 1024/1344, landscape 768; omit for 1024"
                 },
                 "style": { "type": "string" }
             },
@@ -174,8 +173,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // AI 对话
     registry.register(Capability {
         id: "ai.chat".to_string(),
-        name: "AI 对话".to_string(),
-        description: "与 AI 进行自由对话".to_string(),
+        name: "Chat".to_string(),
+        description: "Have a free-form conversation with AI.".to_string(),
         category: CapabilityCategory::AiProcess,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -191,7 +190,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "type": "object",
             "properties": {
                 "format": { "type": "string" },
-                "value": { "type": "string", "description": "回复正文" },
+                "value": { "type": "string", "description": "Reply body" },
                 "contextProvenance": { "type": "array" }
             }
         }),
@@ -204,8 +203,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // AI 联网搜索
     registry.register(Capability {
         id: "ai.webSearch".to_string(),
-        name: "AI 联网搜索".to_string(),
-        description: "联网搜索获取实时信息（如 RSS 源、API 文档等）。优先 TinyFish Search，未配置时回退 Gemini Google Search".to_string(),
+        name: "Web search".to_string(),
+        description: "Search the web for live information.".to_string(),
         category: CapabilityCategory::AiProcess,
         supported_actions: vec![
             IntentAction::Query,
@@ -221,11 +220,11 @@ pub fn register(registry: &mut CapabilityRegistry) {
         ..Default::default()
     });
 
-    // AI Grounding 搜索（ai.webSearch 的别名，用于强调事实性搜索）
+    // AI Grounding 搜索（独立 registry id，不是 `ai.webSearch` 别名；无 Compare）
     registry.register(Capability {
         id: "ai.groundingSearch".to_string(),
-        name: "AI Grounding 搜索".to_string(),
-        description: "联网搜索验证事实、获取实时信息。与 ai.webSearch 同一后端".to_string(),
+        name: "Grounded search".to_string(),
+        description: "Search the web to check facts and get live information.".to_string(),
         category: CapabilityCategory::AiProcess,
         supported_actions: vec![
             IntentAction::Query,
@@ -243,8 +242,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // AI 文章注释
     registry.register(Capability {
         id: "brewlia.annotate".to_string(),
-        name: "AI 文章注释".to_string(),
-        description: "为文章生成 AI 智能注释和解读".to_string(),
+        name: "Annotate article".to_string(),
+        description: "Add AI notes and reading help to an article.".to_string(),
         category: CapabilityCategory::AiProcess,
         supported_actions: vec![IntentAction::Analyze],
         input_schema: json!({
@@ -260,7 +259,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "properties": {
                 "annotations": { "type": "array" },
                 "fromCache": { "type": "boolean" },
-                "itemId": { "type": "integer", "description": "回显的文章 ID" }
+                "itemId": { "type": "integer", "description": "Echoed article id" }
             }
         }),
         required_permissions: vec!["ai:analyze".to_string()],
@@ -272,8 +271,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // AI 播客生成
     registry.register(Capability {
         id: "brewlia.podcast".to_string(),
-        name: "AI 播客生成".to_string(),
-        description: "将文章转换为对话式播客文稿".to_string(),
+        name: "Generate podcast".to_string(),
+        description: "Turn an article into a spoken-dialogue script.".to_string(),
         category: CapabilityCategory::AiProcess,
         supported_actions: vec![IntentAction::Create],
         input_schema: json!({
@@ -289,8 +288,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "properties": {
                 "script": { "type": "string" },
                 "duration": { "type": "number" },
-                "style": { "type": "string", "description": "回显的播客风格" },
-                "itemId": { "type": "integer", "description": "回显的文章 ID" }
+                "style": { "type": "string", "description": "Echoed podcast style" },
+                "itemId": { "type": "integer", "description": "Echoed article id" }
             }
         }),
         required_permissions: vec!["ai:generate".to_string()],
@@ -302,8 +301,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 智能内容过滤
     registry.register(Capability {
         id: "smart.filter".to_string(),
-        name: "智能内容过滤".to_string(),
-        description: "对原始数据进行智能分类和过滤".to_string(),
+        name: "Filter content".to_string(),
+        description: "Classify and filter raw data.".to_string(),
         category: CapabilityCategory::AiProcess,
         supported_actions: vec![IntentAction::Analyze],
         input_schema: json!({
@@ -332,8 +331,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 内容比较
     registry.register(Capability {
         id: "compare.content".to_string(),
-        name: "内容比较".to_string(),
-        description: "比较不同时间点的平台数据变化".to_string(),
+        name: "Compare content".to_string(),
+        description: "Compare platform data across time.".to_string(),
         category: CapabilityCategory::AiProcess,
         supported_actions: vec![IntentAction::Analyze],
         input_schema: json!({
@@ -362,18 +361,18 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 提示词生成
     registry.register(Capability {
         id: "prompt.generate".to_string(),
-        name: "提示词生成".to_string(),
-        description: "为图片生成提供优化的提示词。在 description 中传入详细描述（角色名、出处、外貌特征、场景和风格等），或用 descriptionFrom 引用前序步骤的输出".to_string(),
+        name: "Generate prompt".to_string(),
+        description: "Write a better image prompt from a description.".to_string(),
         category: CapabilityCategory::AiProcess,
         supported_actions: vec![IntentAction::Create],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "title": { "type": "string", "description": "主题/标题" },
-                "summary": { "type": "string", "description": "简要说明" },
-                "description": { "type": "string", "description": "详细描述：角色全名、来源作品、外貌特征（发型发色、瞳色、服装配饰等）、场景、姿势、画风等。可用 descriptionFrom 引用前序步骤" },
+                "title": { "type": "string", "description": "Topic / title" },
+                "summary": { "type": "string", "description": "Short summary" },
+                "description": { "type": "string", "description": "Detailed description: character full name, source work, looks (hair, eyes, outfit), scene, pose, style. Use descriptionFrom to cite a prior step" },
                 "category": { "type": "string" },
-                "style": { "type": "string", "description": "画风偏好，例如 anime, photorealistic, watercolor 等" }
+                "style": { "type": "string", "description": "Style preference, e.g. anime, photorealistic, watercolor" }
             }
         }),
         output_schema: json!({
@@ -381,7 +380,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "properties": {
                 "prompt": { "type": "string" },
                 "negativePrompt": { "type": "string" },
-                "title": { "type": "string", "description": "回显的主题；调用方未传时为空字符串" }
+                "title": { "type": "string", "description": "Echoed title; empty string if the caller omitted it" }
             }
         }),
         required_permissions: vec!["ai:generate".to_string()],
@@ -393,15 +392,15 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 文本翻译
     registry.register(Capability {
         id: "translate.text".to_string(),
-        name: "文本翻译".to_string(),
-        description: "使用 AI 翻译文本内容，支持中英日韩等多语言".to_string(),
+        name: "Translate".to_string(),
+        description: "Translate text.".to_string(),
         category: CapabilityCategory::AiProcess,
         supported_actions: vec![IntentAction::Create],
         input_schema: json!({
             "type": "object",
             "properties": {
                 "text": { "type": "string" },
-                "targetLang": { "type": "string", "enum": ["zh-CN", "zh-TW", "en", "ja", "ko"], "default": "zh-CN" },
+                "targetLang": { "type": "string", "enum": ["zh-CN", "zh-TW", "en", "ja", "ko"], "default": "en-US" },
                 "sourceLang": { "type": "string" }
             },
             "required": ["text"]
@@ -409,12 +408,12 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
-                "originalText": { "type": "string", "description": "回显的原文" },
+                "originalText": { "type": "string", "description": "Echoed source text" },
                 "translated": { "type": "string" },
                 "targetLang": { "type": "string" },
                 "sourceLang": {
                     "type": ["string", "null"],
-                    "description": "调用方传入的源语言；未传时为 null"
+                    "description": "Caller-supplied source language; null if omitted"
                 }
             }
         }),
@@ -427,8 +426,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 代码解释
     registry.register(Capability {
         id: "code.explain".to_string(),
-        name: "代码解释".to_string(),
-        description: "使用 AI 解释代码功能和逻辑".to_string(),
+        name: "Explain code".to_string(),
+        description: "Explain what code does.".to_string(),
         category: CapabilityCategory::AiProcess,
         supported_actions: vec![IntentAction::Analyze],
         input_schema: json!({
@@ -442,10 +441,10 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
-                "code": { "type": "string", "description": "截断后的代码回显" },
+                "code": { "type": "string", "description": "Truncated code echo" },
                 "language": {
                     "type": ["string", "null"],
-                    "description": "调用方传入的语言；未传时为 null"
+                    "description": "Caller-supplied language; null if omitted"
                 },
                 "explanation": { "type": "string" },
                 "complexity": { "type": "string" }
@@ -460,8 +459,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 图标推荐
     registry.register(Capability {
         id: "icon.recommend".to_string(),
-        name: "图标推荐".to_string(),
-        description: "根据平台名称推荐合适的图标".to_string(),
+        name: "Recommend icon".to_string(),
+        description: "Recommend an icon for a platform name.".to_string(),
         category: CapabilityCategory::AiProcess,
         supported_actions: vec![IntentAction::Recommend],
         input_schema: json!({
@@ -474,7 +473,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
         output_schema: json!({
             "type": "object",
             "properties": {
-                "platformName": { "type": "string", "description": "回显的平台名" },
+                "platformName": { "type": "string", "description": "Echoed platform name" },
                 "iconType": { "type": "string" },
                 "iconName": { "type": "string" },
                 "colorSuggestion": { "type": "string" }

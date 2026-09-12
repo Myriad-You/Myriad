@@ -3,26 +3,20 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use myriad_error::AppError;
 use serde_json::json;
 
 use crate::error::status_json_to_http;
 use crate::extract;
 use crate::federation;
 
-/// 小请求体联邦端点的上限（64 KiB）。
-///
-/// 这些端点原本用 `to_bytes(req.into_body(), 64 * 1024)` 自己封顶。改用 `Json<T>`
-/// 提取器后上限由 layer 决定，若不显式加这一层就会退回到 AUTHENTICATED_BODY_LIMIT ——
-/// 一个只需要几百字节 JSON 的端点没有理由缓冲满额 body。
-/// `?limit=` 查询参数。
-///
-/// 用 `Option<String>` 而不是 `Option<i64>` 是为了保持原有的宽松语义：
-/// 手写解析对 `limit=abc` / `limit=` 是静默回落到默认值，而 `Option<i64>`
-/// 会让 serde 直接拒绝成 400。行为改变不该夹带在重构里。
+/// 查询参数 `limit` / `status`。
+/// `limit` 用 `Option<String>`：`limit=abc` / `limit=` 静默回落到默认值，不用
+/// `Option<i64>`（serde 会直接 400）。
 #[derive(serde::Deserialize)]
 pub(crate) struct LimitQuery {
     pub(crate) limit: Option<String>,
-    /// Optional status filter: pending | delivering | delivered | dead
+    /// Optional status filter: pending | delivering | delivered | failed | dead
     pub(crate) status: Option<String>,
 }
 
@@ -69,16 +63,15 @@ fn federation_user_error(context: &'static str, error: impl std::fmt::Display) -
 fn federation_store_response(context: &'static str, error: impl std::fmt::Display) -> Response {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(json!({ "error": federation_user_error(context, error) })),
+        Json(AppError::public_json(federation_user_error(context, error))),
     )
         .into_response()
 }
 
 /// `?limit=&cancelled_only=` 查询参数。
 ///
-/// `cancelled_only` 保持原有的宽松真值解析（`1|true|yes|on`，其余一律 false）。
-/// 换成 `Option<bool>` 会让 serde 只认 `true`/`false`，把 `?cancelled_only=1`
-/// 变成 400 —— 前端正在用的写法。
+/// `cancelled_only` 认 `1|true|yes|on`，其余一律 false。
+/// `Option<bool>` 只认 `true`/`false`，`1`/`yes`/`on` 会 400。
 #[derive(serde::Deserialize)]
 pub(crate) struct PurgeDeadQuery {
     pub(crate) limit: Option<String>,
@@ -103,9 +96,9 @@ impl PurgeDeadQuery {
 
 /// 分页与过滤查询参数（消息列表、房间文件列表共用）。
 ///
-/// 全部字段用 `Option<String>`：手写解析对 `limit=abc` 是静默忽略、回落到
-/// 「不限制」，而 `Option<i64>` 会让 serde 直接拒成 400。`filter` / `q` 本就是
-/// 字符串，`list_room_files` 才用得到。
+/// 全部字段用 `Option<String>`：`limit=abc` 解析失败 → `None`。
+/// 下游 `get_messages` / `get_room_messages`：`unwrap_or(50).min(200)`；`list_room_files`：`unwrap_or(50).clamp(1, 200)`。
+/// `filter` / `q` 是字符串，`list_room_files` 才用得到。
 #[derive(serde::Deserialize)]
 pub(crate) struct ListQuery {
     pub(crate) before: Option<String>,
@@ -135,35 +128,30 @@ impl ListQuery {
 
 /// 把 `Json<T>` 提取失败翻译成本项目的 JSON 错误体。
 ///
-/// 直接用 `Json<T>` 会让超限 body 拿到 axum 的纯文本 413，丢掉
-/// `send_room_message` 原有的那句运维指引（"内联图片上限 ~32 MiB，
-/// 更大的走分块传输"）—— 那是用户真正需要看到的下一步动作。
-///
-/// 体积类拒绝（413）附带 `size_hint`，其余按原状态码返回解析错误详情。
-/// Shared by federation HTTP adapters and `federation::limits` extract helpers.
+/// 直接用 `Json<T>` 会让超限 body 拿到 axum 的纯文本 413，丢掉分块传输指引。
+/// HTTP 上限是路由上的 `live_*_body_limit`。413 附带调用方给的 `size_hint`；
+/// 其余按原状态码返回解析错误详情。
 pub fn json_rejection_response(
     rejection: axum::extract::rejection::JsonRejection,
     size_hint: Option<&str>,
 ) -> Response {
     let status = rejection.status();
     if status == StatusCode::PAYLOAD_TOO_LARGE {
-        let mut body = json!({"error": "Request body too large or unreadable"});
+        let mut body = AppError::public_json("Request body too large or unreadable");
         if let Some(hint) = size_hint {
             body["hint"] = json!(hint);
         }
         return (status, Json(body)).into_response();
     }
-    (status, Json(json!({"error": rejection.body_text()}))).into_response()
+    (status, Json(AppError::public_json("Invalid JSON body"))).into_response()
 }
 
 // Federation Wrappers
 
 /// POST /api/admin/federation/domain-move
 ///
-/// POST /api/admin/federation/domain-move
-///
 /// Emit ActivityPub Move for every local user (domain migration). Admin only.
-/// `AdminClaims` 取代函数体里的 `federation_admin_required`。
+/// 管理员校验由 `AdminClaims` 承担。
 pub async fn admin_federation_domain_move(
     extract::AdminClaims(_claims): extract::AdminClaims,
     extract::Db(db): extract::Db,
@@ -189,10 +177,9 @@ pub(crate) async fn federation_identity(
 ///
 /// 路由已挂 auth_middleware。
 ///
-/// 这里用 `Bytes` 而不是 `Json<Value>`：原实现是
-/// `from_slice(..).unwrap_or(json!({}))`，空 body / 畸形 JSON 会落到「缺少
-/// confirm」这条**带操作指引**的 400；换成 `Json` 提取器会先被 axum 拒成一条
-/// 通用错误，用户看不到"需要 {\"confirm\": true}"这句提示。
+/// 用 `Bytes` 而不是 `Json<Value>`：`from_slice(..).unwrap_or(json!({}))`
+/// 让空 body / 畸形 JSON 落到「缺少 confirm」这条带操作指引的 400；
+/// `Json` 提取器会先被 axum 拒成通用错误，看不到 "{\"confirm\": true}"。
 pub(crate) async fn federation_keys_rotate(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -219,7 +206,7 @@ pub(crate) async fn federation_keys_rotate(
 
 /// POST /api/federation/follow — 关注远程用户
 /// 路由已挂 auth_middleware；claims / body / db 走提取器。
-/// body 上限仍由路由的 DefaultBodyLimit 决定（与改造前一致）。
+/// body 上限由路由的 `live_authenticated_body_limit`（默认 `AUTHENTICATED_BODY_LIMIT` 24 MiB）决定。
 pub(crate) async fn federation_follow(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -234,7 +221,7 @@ pub(crate) async fn federation_follow(
 
 /// POST /api/federation/unfollow — 取消关注远程用户
 /// 路由已挂 auth_middleware；claims / body / db 走提取器。
-/// body 上限仍由路由的 DefaultBodyLimit 决定（与改造前一致）。
+/// body 上限由路由的 `live_authenticated_body_limit`（默认 `AUTHENTICATED_BODY_LIMIT` 24 MiB）决定。
 pub(crate) async fn federation_unfollow(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -287,11 +274,11 @@ pub(crate) async fn federation_timeline(
     }
 }
 
-// Phase 2: Content Publishing Wrappers
+// Content Publishing Wrappers
 
 /// POST /api/federation/publish — 发布内容到联邦网络
 /// 路由已挂 auth_middleware；claims / body / db 走提取器。
-/// body 上限仍由路由的 DefaultBodyLimit 决定（与改造前一致）。
+/// body 上限由路由的 `live_authenticated_body_limit`（默认 `AUTHENTICATED_BODY_LIMIT` 24 MiB）决定。
 pub(crate) async fn federation_publish(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -434,7 +421,7 @@ pub(crate) async fn federation_get_object(
 }
 
 /// POST /api/federation/notes — 创建 freeform Note（文本 + 附件）
-/// 路由已挂 auth_middleware；body 上限仍由路由的 DefaultBodyLimit 决定。
+/// 路由已挂 auth_middleware；body 上限由 `live_authenticated_body_limit`（默认 24 MiB）决定。
 pub(crate) async fn federation_create_note(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -475,7 +462,7 @@ pub(crate) async fn federation_media_upload(
             Err(_) => {
                 return (
                     StatusCode::BAD_REQUEST,
-                    Json(json!({"error": "Failed to read file field"})),
+                    Json(AppError::public_json("Failed to read file field")),
                 )
                     .into_response()
             }
@@ -486,7 +473,7 @@ pub(crate) async fn federation_media_upload(
     let Some(bytes) = file_bytes else {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Missing multipart field 'file'"})),
+            Json(AppError::public_json("Missing multipart field 'file'")),
         )
             .into_response();
     };
@@ -497,7 +484,7 @@ pub(crate) async fn federation_media_upload(
     }
 }
 
-/// 路由已挂 auth_middleware；body 上限仍由路由的 DefaultBodyLimit 决定。
+/// 路由已挂 auth_middleware；body 上限由 `live_authenticated_body_limit`（默认 24 MiB）决定。
 pub(crate) async fn federation_unpublish(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -511,9 +498,9 @@ pub(crate) async fn federation_unpublish(
     if !has_activity && !has_content {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({
-                "error": "Provide activity_id, or content_type + content_id"
-            })),
+            Json(AppError::public_json(
+                "Provide activity_id, or content_type + content_id",
+            )),
         )
             .into_response();
     }
@@ -562,9 +549,9 @@ pub(crate) async fn federation_published_list(
     }
 }
 
-// Phase 3: Channel Wrapper Functions
+// Channel Wrapper Functions
 
-/// 路由已挂 auth_middleware；body 上限仍由路由的 DefaultBodyLimit 决定。
+/// 路由已挂 auth_middleware；body 上限由 `live_authenticated_body_limit`（默认 24 MiB）决定。
 pub(crate) async fn federation_create_channel(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -671,7 +658,7 @@ pub(crate) async fn federation_e2e_key_exchange(
     }
 }
 
-/// 路由已声明 `{channel_id}`；body 上限来自 federation 路由层。
+/// 路由已声明 `{channel_id}`；body 上限由 `live_authenticated_body_limit`（默认 24 MiB）决定。
 pub(crate) async fn federation_send_message(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -719,11 +706,10 @@ pub(crate) async fn federation_get_messages(
     }
 }
 
-// Phase 4: Room 多方通信 Wrapper
+// Room 多方通信 Wrapper
 
-/// 路由通过 `DefaultBodyLimit::max(FEDERATION_SMALL_BODY_LIMIT)` 保留原有的
-/// 64 KiB 上限 —— 换成 Json 提取器后若不显式加这层，端点会退回到
-/// 路由级的 AUTHENTICATED_BODY_LIMIT，等于放大可缓冲的请求体。
+/// body 上限由路由的 `live_small_control_body_limit`（`SMALL_CONTROL_BODY_LIMIT` 256 KiB）。
+/// 不加这层会退回到 AUTHENTICATED_BODY_LIMIT。
 pub(crate) async fn federation_create_room(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -767,7 +753,7 @@ pub(crate) async fn federation_get_room(
 }
 
 /// 路由已声明该路径参数并挂了 auth_middleware；
-/// body 上限由路由的 `FEDERATION_SMALL_BODY_LIMIT` 层提供（原为内联 64 KiB）。
+/// body 上限由路由的 `live_small_control_body_limit`（`SMALL_CONTROL_BODY_LIMIT` 256 KiB）。
 pub(crate) async fn federation_update_room(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -813,7 +799,7 @@ pub(crate) async fn federation_get_room_members(
 }
 
 /// 路由已声明该路径参数并挂了 auth_middleware；
-/// body 上限由路由的 `FEDERATION_SMALL_BODY_LIMIT` 层提供（原为内联 64 KiB）。
+/// body 上限由路由的 `live_small_control_body_limit`（`SMALL_CONTROL_BODY_LIMIT` 256 KiB）。
 pub(crate) async fn federation_invite_room_member(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -828,9 +814,7 @@ pub(crate) async fn federation_invite_room_member(
 }
 
 /// 路由声明的是 `{room_id}/members/{actor}`。
-///
-/// `Path<(String, String)>` 会对每段做百分号解码，与原先手工
-/// `urlencoding::decode(actor)` 等价 —— actor 是完整 URL，必然带编码。
+/// `Path<(String, String)>` 会对每段做百分号解码；actor 是完整 URL，必然带编码。
 pub(crate) async fn federation_remove_room_member(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -887,7 +871,7 @@ pub(crate) async fn federation_reject_room_invite(
 }
 
 /// 路由已声明 `{room_id}`。
-/// body 上限由路由的 `FEDERATION_SMALL_BODY_LIMIT` 层提供（原为内联 64 KiB）。
+/// body 上限由路由的 `live_small_control_body_limit`（`SMALL_CONTROL_BODY_LIMIT` 256 KiB）。
 pub(crate) async fn federation_transfer_room_ownership(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -945,7 +929,6 @@ pub(crate) async fn federation_set_room_member_role(
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    // Path may be percent-encoded actor URL
     let actor = urlencoding::decode(&actor)
         .map(|s| s.into_owned())
         .unwrap_or(actor);
@@ -992,9 +975,9 @@ pub(crate) async fn federation_remove_room_sticker(
     }
 }
 
-/// 路由已声明 `{room_id}`；body 上限来自 federation 路由层（见 `federation::limits`）。
+/// 路由已声明 `{room_id}`；body 上限由 `live_authenticated_body_limit`（默认 24 MiB）决定。
 ///
-/// 用 `Result<Json<T>, JsonRejection>` 而不是裸 `Json<T>`：超限时要保住原有的
+/// 用 `Result<Json<T>, JsonRejection>` 而不是裸 `Json<T>`：超限时保住
 /// 413 + 分块传输指引，而不是 axum 的纯文本拒绝。
 pub(crate) async fn federation_send_room_message(
     extract::AuthedClaims(claims): extract::AuthedClaims,
@@ -1011,7 +994,7 @@ pub(crate) async fn federation_send_room_message(
             tracing::warn!(
                 room_id = %room_id,
                 error = %e,
-                "[Room] send message body rejected (likely over DefaultBodyLimit)"
+                "[Room] send message body rejected (likely over live_authenticated_body_limit / MESSAGE_PAYLOAD_LIMIT)"
             );
             return json_rejection_response(
                 e,
@@ -1057,9 +1040,8 @@ pub(crate) async fn federation_get_room_messages(
 }
 
 /// 路由声明的是 `{room_id}/messages/{message_id}/pin`。
-/// `Path<(String, String)>` 对每段做百分号解码，与原先手工
-/// `urlencoding::decode(message_id)` 等价。
-/// body 上限由路由的 `FEDERATION_SMALL_BODY_LIMIT` 层提供（原为内联 16 KiB）。
+/// `Path<(String, String)>` 对每段做百分号解码。
+/// body 上限由路由的 `live_small_control_body_limit`（`SMALL_CONTROL_BODY_LIMIT` 256 KiB）。
 pub(crate) async fn federation_pin_room_message(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -1082,11 +1064,10 @@ pub(crate) async fn federation_pin_room_message(
     }
 }
 
-// Phase 5: Ring 去中心化环网
+// Ring 去中心化环网
 
-/// `AdminClaims` 取代函数体里的 `federation_admin_required` —— 这些 ring 端点的
-/// 路由只有 router 级 `auth_middleware`（普通登录），管理员校验必须留在这里。
-/// 写进签名后，路由被挪动或重挂中间件也带不走它。
+/// 管理员校验由 `AdminClaims` 承担。这些 ring 端点的路由只有 router 级
+/// `auth_middleware`（普通登录）；写进签名后，路由被挪动或重挂中间件也带不走它。
 pub(crate) async fn federation_create_ring(
     extract::AdminClaims(claims): extract::AdminClaims,
     extract::Db(db): extract::Db,
@@ -1163,8 +1144,7 @@ pub(crate) async fn federation_add_ring_peer(
 
 /// 见 [`federation_create_ring`]：管理员校验由 `AdminClaims` 承担。
 ///
-/// `Path<(String, String)>` 会对每段做百分号解码，与原先手工
-/// `urlencoding::decode(peer)` 等价 —— peer 是完整 Actor URL，必然带编码。
+/// `Path<(String, String)>` 会对每段做百分号解码；peer 是完整 Actor URL，必然带编码。
 pub(crate) async fn federation_remove_ring_peer(
     extract::AdminClaims(claims): extract::AdminClaims,
     extract::Db(db): extract::Db,
@@ -1188,7 +1168,7 @@ pub(crate) async fn federation_trigger_ring_sync(
     }
 }
 
-// Phase 5 补全: Trust 策略管理
+// Trust 策略管理
 
 /// GET /api/federation/delivery/stats — user delivery queue counters
 /// 路由已挂 auth_middleware；claims 由 AuthedClaims 提取。
@@ -1204,7 +1184,7 @@ pub(crate) async fn federation_delivery_stats(
 }
 
 /// POST /api/federation/delivery/{id}/retry — requeue a dead/stuck item
-/// 路由已声明该数值路径参数；`Path<i32>` 取代手工 strip + parse。
+/// 路径参数走 `Path<i32>`。
 pub(crate) async fn federation_retry_delivery(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -1218,7 +1198,7 @@ pub(crate) async fn federation_retry_delivery(
 }
 
 /// POST /api/federation/delivery/{id}/cancel — cancel pending/delivering item
-/// 路由已声明该数值路径参数；`Path<i32>` 取代手工 strip + parse。
+/// 路径参数走 `Path<i32>`。
 pub(crate) async fn federation_cancel_delivery(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -1231,7 +1211,7 @@ pub(crate) async fn federation_cancel_delivery(
     }
 }
 
-/// 路由已挂 auth_middleware；`Query<LimitQuery>` 取代手工切 query 串。
+/// 查询参数走 `Query<LimitQuery>`。
 pub(crate) async fn federation_retry_all_dead_delivery(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -1244,7 +1224,7 @@ pub(crate) async fn federation_retry_all_dead_delivery(
     }
 }
 
-/// 路由已挂 auth_middleware；`Query<LimitQuery>` 取代手工切 query 串。
+/// 查询参数走 `Query<LimitQuery>`。
 pub(crate) async fn federation_cancel_all_pending_delivery(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -1258,7 +1238,7 @@ pub(crate) async fn federation_cancel_all_pending_delivery(
 }
 
 /// DELETE /api/federation/delivery/{id} — purge a dead queue row (user-owned dismiss)
-/// 路由已声明该数值路径参数；`Path<i32>` 取代手工 strip + parse。
+/// 路径参数走 `Path<i32>`。
 pub(crate) async fn federation_dismiss_delivery(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -1273,7 +1253,7 @@ pub(crate) async fn federation_dismiss_delivery(
     }
 }
 
-/// 路由已挂 auth_middleware；`Query<PurgeDeadQuery>` 保留原有的宽松真值解析。
+/// 路由已挂 auth_middleware；`Query<PurgeDeadQuery>` 认 `1|true|yes|on`。
 pub(crate) async fn federation_purge_dead_delivery(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -1301,10 +1281,7 @@ pub(crate) async fn federation_purge_dead_delivery(
 /// `Option<Json<T>>` 而不是 `Json<T>` —— 后者会把「不带 body 加入房间」
 /// 这个正常用法拒成 400。
 ///
-/// 与原实现有一处**有意的差异**：畸形 JSON 原先被 `unwrap_or_default()` 静默
-/// 吞掉，现在会返回 400。用户写错 `home_server` 时显式报错优于静默忽略。
-/// 行为已由 `federation::limits` 里的 `optional_json_distinguishes_absent_from_malformed`
-/// 实测锁定。
+/// 畸形 JSON 返回 400（`optional_json_distinguishes_absent_from_malformed`）。
 pub(crate) async fn federation_join_room(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -1333,7 +1310,7 @@ pub async fn federation_get_public_room(
     }
 }
 
-/// 路由已挂 auth_middleware；`Query<LimitQuery>` 取代手工 form_urlencoded 解析。
+/// 查询参数走 `Query<LimitQuery>`。
 pub(crate) async fn federation_list_delivery(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -1361,7 +1338,7 @@ pub(crate) async fn federation_get_trust_policy(extract::Db(db): extract::Db) ->
 }
 
 /// 见 [`federation_create_ring`]：管理员校验由 `AdminClaims` 承担。
-/// body 上限由路由的 `FEDERATION_SMALL_BODY_LIMIT` 层提供（原为内联 64 KiB）。
+/// body 上限由路由的 `live_small_control_body_limit`（`SMALL_CONTROL_BODY_LIMIT` 256 KiB）。
 pub(crate) async fn federation_update_trust_policy(
     extract::AdminClaims(_claims): extract::AdminClaims,
     extract::Db(db): extract::Db,
@@ -1379,8 +1356,7 @@ pub(crate) async fn federation_update_trust_policy(
         })
     });
     let auto_discover = payload.get("auto_discover").and_then(|v| v.as_bool());
-    // Prefer nested rate_limit { max_requests_per_window, window_seconds, trusted_multiplier }
-    // with flat keys as fallback for older clients.
+    // 优先 nested `rate_limit`；否则读顶层 `rate_max_requests` / `rate_window_seconds` / `rate_trusted_multiplier`。
     let rate_obj = payload.get("rate_limit");
     let rate_max = rate_obj
         .and_then(|r| r.get("max_requests_per_window"))
@@ -1417,8 +1393,8 @@ pub(crate) async fn federation_list_instances(extract::Db(db): extract::Db) -> R
     }
 }
 
-/// 路由已挂 admin_middleware；`AuthedClaims` 保留原 wrapper 的 401 行为。
-/// body 上限由路由的 `FEDERATION_SMALL_BODY_LIMIT` 层提供（原为内联 64 KiB）。
+/// 路由已挂 admin_middleware；`AuthedClaims` 无凭证 → 401。
+/// body 上限由路由的 `live_small_control_body_limit`（`SMALL_CONTROL_BODY_LIMIT` 256 KiB）。
 pub(crate) async fn federation_update_instance_trust(
     extract::AuthedClaims(_claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -1429,7 +1405,7 @@ pub(crate) async fn federation_update_instance_trust(
         None => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error": "domain required"})),
+                Json(AppError::public_json("domain required")),
             )
                 .into_response()
         }
@@ -1451,8 +1427,8 @@ pub(crate) async fn federation_list_content_filters(extract::Db(db): extract::Db
     }
 }
 
-/// 路由已挂 admin_middleware；`AuthedClaims` 保留原 wrapper 的 401 行为。
-/// body 上限由路由的 `FEDERATION_SMALL_BODY_LIMIT` 层提供（原为内联 64 KiB）。
+/// 路由已挂 admin_middleware；`AuthedClaims` 无凭证 → 401。
+/// body 上限由路由的 `live_small_control_body_limit`（`SMALL_CONTROL_BODY_LIMIT` 256 KiB）。
 pub(crate) async fn federation_create_content_filter(
     extract::AuthedClaims(_claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -1485,7 +1461,7 @@ pub(crate) async fn federation_create_content_filter(
 }
 
 /// 路由已声明该数值路径参数并挂了 admin_middleware；
-/// body 上限由路由的 `FEDERATION_SMALL_BODY_LIMIT` 层提供（原为内联 64 KiB）。
+/// body 上限由路由的 `live_small_control_body_limit`（`SMALL_CONTROL_BODY_LIMIT` 256 KiB）。
 pub(crate) async fn federation_update_content_filter(
     extract::AuthedClaims(_claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -1515,8 +1491,8 @@ pub(crate) async fn federation_delete_content_filter(
     }
 }
 
-/// 路由已挂 admin_middleware；`AuthedClaims` 保留原 wrapper 的 401 行为。
-/// body 上限由路由的 `FEDERATION_SMALL_BODY_LIMIT` 层提供（原为内联 64 KiB）。
+/// 路由已挂 admin_middleware；`AuthedClaims` 无凭证 → 401。
+/// body 上限由路由的 `live_small_control_body_limit`（`SMALL_CONTROL_BODY_LIMIT` 256 KiB）。
 pub(crate) async fn federation_toggle_instance_block(
     extract::AuthedClaims(_claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -1527,7 +1503,7 @@ pub(crate) async fn federation_toggle_instance_block(
         None => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error": "domain required"})),
+                Json(AppError::public_json("domain required")),
             )
                 .into_response()
         }
@@ -1542,10 +1518,10 @@ pub(crate) async fn federation_toggle_instance_block(
     }
 }
 
-// Phase 5 补全: 文件传输
+// 文件传输
 
 /// 路由已声明该路径参数并挂了 auth_middleware；
-/// body 上限由路由的 `FEDERATION_SMALL_BODY_LIMIT` 层提供（原为内联 64 KiB）。
+/// body 上限由路由的 `live_small_control_body_limit`（`SMALL_CONTROL_BODY_LIMIT` 256 KiB）。
 pub(crate) async fn federation_initiate_transfer(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -1762,7 +1738,7 @@ pub(crate) async fn get_federation_timeline(
                 "content_json": content_json,
                 "object_id": object_id,
                 "is_read": r.try_get::<bool>("", "is_read").unwrap_or(false),
-                // Frontend (Aro) expects created_at / timestamp for timeAgo()
+                // created_at 与 received_at 同值
                 "created_at": received_at.clone(),
                 "received_at": received_at,
                 "actor": actor,

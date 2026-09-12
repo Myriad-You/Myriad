@@ -5,18 +5,13 @@ import type {
 } from '../types'
 import { apiRequest, streamRuntimeEvents } from './TappHttpClient'
 
-// Component Registration API
-
-/** 组件类型 */
 export type ComponentType = 'theme' | 'agent'
 
-/** 组件配置基础接口 */
 export interface ComponentConfig {
   id: string
   [key: string]: unknown
 }
 
-/** 已注册组件 */
 export interface RegisteredComponent {
   id: string
   type: ComponentType
@@ -26,9 +21,6 @@ export interface RegisteredComponent {
   enabled: boolean
 }
 
-/**
- * 注册组件
- */
 export async function registerComponent(
   tappId: string,
   componentType: ComponentType,
@@ -46,9 +38,6 @@ export async function registerComponent(
   })
 }
 
-/**
- * 注销组件
- */
 export async function unregisterComponent(
   tappId: string,
   componentType: ComponentType,
@@ -67,9 +56,6 @@ export async function unregisterComponent(
   )
 }
 
-/**
- * 列出 Tapp 的已注册组件
- */
 export async function listComponents(
   tappId: string,
   type?: ComponentType,
@@ -81,9 +67,6 @@ export async function listComponents(
   return apiRequest(url, { runtimeGrant })
 }
 
-/**
- * 列出所有指定类型的组件
- */
 export async function listAllComponentsByType(
   componentType: ComponentType,
   runtimeGrant?: string,
@@ -97,9 +80,6 @@ export async function listAllComponentsByType(
   })
 }
 
-// Shortcut Registration API
-
-/** 快捷键配置 */
 export interface ShortcutConfig {
   id: string
   keys: string
@@ -108,7 +88,6 @@ export interface ShortcutConfig {
   scope?: 'global' | 'tapp' | 'editor'
 }
 
-/** 已注册快捷键 */
 export interface RegisteredShortcut {
   id: string
   tappId: string
@@ -120,9 +99,6 @@ export interface RegisteredShortcut {
   enabled: boolean
 }
 
-/**
- * 注册快捷键
- */
 export async function registerShortcut(
   tappId: string,
   config: ShortcutConfig,
@@ -142,9 +118,6 @@ export async function registerShortcut(
   })
 }
 
-/**
- * 注销快捷键
- */
 export async function unregisterShortcut(
   tappId: string,
   shortcutId: string,
@@ -159,9 +132,6 @@ export async function unregisterShortcut(
   )
 }
 
-/**
- * 列出快捷键
- */
 export async function listShortcuts(
   tappId?: string,
   runtimeGrant?: string,
@@ -171,8 +141,6 @@ export async function listShortcuts(
     : '/api/tapp/shortcuts'
   return apiRequest(url, { runtimeGrant })
 }
-
-// Event Broker API
 
 export async function publishEvent(
   request: PublishEventRequest,

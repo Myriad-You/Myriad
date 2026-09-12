@@ -34,8 +34,8 @@
 | **DOM / `file.download`** | ✅ | ✅ | ❌ 无此对象 |
 | **`Tapp.assets`** | ✅ | ✅ | ✅ |
 | **AI Task** | ✅ 按授予权限（含 `ai:search`）；否则调用会报缺权限 | ✅ | ✅ |
-| **`Tapp.model3d`** | 调用会报缺权限 | ✅ | ❌ 无此对象 |
-| **平台 / 报告** | ✅ 只读 | ✅ 读写 | ✅ 读写 |
+| **`Tapp.model3d`** | ❌ 无此对象 | ✅ | ❌ 无此对象 |
+| **平台 / 报告** | ✅ 读（`report.platform.*` 与 `list`/`get`）；写入方法不存在 | ✅ 读写 | ✅ 读写 |
 | **媒体 / 语音 / 动画 / 调度 / 事件 / Data Exchange / Agent** | ✅ 按授予权限 | ✅ | ✅ |
 | **`Tapp.api(name, params)` / `Tapp.api.list()`** | ✅ | ✅ | ✅ |
 | **生命周期** | ✅ `onReady` / `onDestroy` / `onPause` / `onResume`（隐藏≠销毁） | ✅ | ✅ |
@@ -836,12 +836,13 @@ Tapp.widgets["stats"] = {
 };
 ```
 
-### 五种触发更新的方式
+### 触发更新的方式
 
 | 方式 | 谁发起 | 宿主行为 | 适用场景 |
 | ---- | ------ | -------- | -------- |
 | **`Tapp.storage.set/remove/clear`**（以及 `Tapp.shared` 写入） | Page / Widget / headless | 同 Tapp 广播 `onChanged`，并刷新**全部**可见 Widget（兼容垫，与 `refreshPolicy.mode` 无关） | **首选数据路径**：后台同步、core 写缓存。落盘成功 ≠ 视图命令 |
 | **`Tapp.settings.set`** | 安装 owner / 管理员 | 只广播 `Tapp.settings.onChanged`；**不** remount Widget | 开关、主题、间隔。要重跑 `render()` 再 invalidate |
+| **`Tapp.private.set/remove/clear`** | 安装 owner / 管理员 | 只广播 `Tapp.private.onChanged`；**不** remount Widget | 站长之间共用、游客不可见的非密数据。密钥走 credentials |
 | **`Tapp.widget.invalidate(reason)`** | **仅当前 Widget 沙箱** | 对该实例 remount（与 storage 刷新一样 500ms 去抖） | `render()` 过期、或内存态算完只想刷自己。与有没有落盘无关 |
 | **`Tapp.widget.invalidate(reason, { target: { widgetId } })`** | Page / headless / Widget（需授予的 `storage:write`） | 只刷该本地 `widgetId` 的可见实例；不可见 no-op；每卡 15s 冷却，每 Tapp 每分钟最多 2 次 | 定向醒一张卡。**没有 `target: "all"`** |
 | **`refreshPolicy.mode: "interval"`** | 宿主计时器 | **额外**的可见轮询，不关掉 storage 刷新；`intervalSeconds` 15–86400 | 可见节拍；**不要**用它做后台同步 |

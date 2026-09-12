@@ -15,18 +15,15 @@ pub(crate) struct MemoryRecordParams<'a> {
     pub(crate) planner_steps_len: usize,
     pub(crate) success: bool,
     pub(crate) error_msg: Option<&'a str>,
-    /// 日志前缀（区分来源: "", "saved:", "confirmed:"）
+    /// 日志前缀（"" / "saved:" / "confirmed:" / "resume:"）
     pub(crate) log_prefix: &'a str,
-    /// 是否记录会话归档（仅完整 process 流程需要）
+    /// 对话上下文：供记忆提取；满 4 条才归档
     pub(crate) conversation_context: Option<&'a [ConversationMessage]>,
     /// 实际步骤执行结果（用于丰富记忆提取的上下文）
     pub(crate) step_results: Option<&'a std::collections::HashMap<String, StepResult>>,
 }
 
 /// 统一的执行后记忆记录
-///
-/// 提取自 process / process_with_progress / execute_saved_recipe /
-/// execute_simple_query_v2 / process_confirmation 中的重复逻辑。
 pub(crate) async fn record_execution_memory(params: MemoryRecordParams<'_>) {
     let Some(mem) = memory::get_memory() else {
         return;
@@ -84,9 +81,7 @@ pub(crate) async fn record_execution_memory(params: MemoryRecordParams<'_>) {
                 .filter_map(|m| serde_json::to_value(m).ok())
                 .collect()
         });
-    // AI 提取整轮记忆是一次完整的 Standard 往返，此前同步 await 在响应路径上——
-    // 用户每次请求都要为一件自己看不见的后台整理白等一个来回。旁边的 Skill 自动
-    // 创建早就是 spawn 的。
+    // AI 提取整轮记忆是一次完整的 Standard 往返，`tokio::spawn` 到响应路径之外。
     //
     // 归属需要显式带进去：detached task 的 task-local 是空的，不带就会从成本账里
     // 消失。用量计量器**不**带——它属于本回合的配额预留，而这份工作在预留结算之后
@@ -186,11 +181,6 @@ pub(crate) async fn record_execution_memory(params: MemoryRecordParams<'_>) {
 
 /// 一次 Agent 回合的 AI 预算：先按估算预留，结束后按实际消耗结算。
 ///
-/// 此前 Agent 路径只有 `with_ai_ledger_attribution` 的**事后记账**，没有任何
-/// 上限。一次回合会打出规划、每个数据步骤的动态分析、各 AI 步骤、结果汇总、
-/// 记忆提取，失败还要 replan 重跑——跑飞时没有任何东西会拦，只会在账单里被看到。
-/// Tapp AI 任务早就走 `reserve_ai_quota` 全套，Agent 只是没接上。
-///
 /// Admin（含 `SYSTEM_USER_ID` 的定时任务）在 `limits_for_role` 里是 unlimited，
 /// 预留是空操作，所以这条门只对普通用户和访客生效。
 pub(crate) struct AgentTurnBudget {
@@ -202,8 +192,7 @@ pub(crate) struct AgentTurnBudget {
 /// 一次回合的预留额度。
 ///
 /// 回合的真实开销要到跑完才知道（步骤数、是否 replan 都不确定），所以这里只预留
-/// 一个够判断「预算是不是已经见底」的基数：Planner 的 system prompt 本身就约
-/// 30k 字符 ≈ 7.6k tokens，再留一点余量给用户 prompt 和至少一个下游 AI 步骤。
+/// 一个够判断「预算是不是已经见底」的基数：`AGENT_TURN_TOKEN_ESTIMATE` = 10_000。
 /// 低估不会漏账——`settle_ai_quota` 会按实际用量补差，超出的部分记在这一回合，
 /// 由下一回合的预留检查拦下。
 const AGENT_TURN_TOKEN_ESTIMATE: usize = 10_000;
@@ -282,17 +271,8 @@ impl AgentTurnBudget {
 
     /// 在预算作用域内运行整个回合。
     ///
-    /// 同时装上归属和计量：归属让 Planner 的调用第一次被记进成本账（此前它在
-    /// 任何 attribution 作用域之外，executor 里那层只覆盖执行阶段），计量则跨越
-    /// executor 内层重新设置的归属，保证统计的是整个回合。
-    ///
-    /// **调用方必须传入 `Box::pin(...)` 的回合体。** `process` /
-    /// `process_with_progress` 的状态机本来就极大，再套两层 task-local 作用域后，
-    /// 等着它们的 API handler 在计算类型布局时会超过 rustc 的递归上限
-    /// （`queries overflow the depth limit`，深度 +130）。装箱让布局查询在指针处
-    /// 终止；一次回合多一次堆分配，相对一次模型调用可以忽略。
-    ///
-    /// 注意这个错误只在**全新编译**时出现——增量缓存会让本地 `cargo check` 假通过。
+    /// 同时装上归属和计量：归属覆盖 Planner 调用，计量跨越 executor 内层重新设置的归属，
+    /// 保证统计的是整个回合。
     pub(crate) async fn scope<F, T>(&self, fut: F) -> T
     where
         F: std::future::Future<Output = T>,
@@ -321,18 +301,13 @@ impl AgentTurnBudget {
 
     /// 预留 → 在作用域内跑 `body` → 结算，一次做完（用户发起的新回合）。
     ///
-    /// 所有会消耗 AI 的入口都该走这里。此前只有 `process` /
-    /// `process_with_progress` 有预留，于是「规划后要确认」的流程是：首轮预留、
-    /// 规划、返回确认、**结算**——随后确认接口把整条 recipe 跑完，全程无预留。
-    /// 额度耗尽的用户只要点一次确认，仍然能把昂贵的活干完；预设执行更是从未
-    /// 碰到过这道门。
-    ///
     /// 确认 / 恢复采用**重新预留**而不是把首轮的预留挂着：确认之间隔着一次用户
     /// 往返，可能是几分钟，长时间占着额度只会让并发用户互相饿死。代价是一次
     /// 「规划 + 确认后执行」记两次调用，这在语义上也说得通——它确实是两次请求。
     /// 但那第二次是续跑，不该再过冷却门，见 [`Self::run_continuation`]。
     ///
-    /// `body` 用 `Pin<Box<...>>` 接收：见 [`Self::scope`] 关于类型布局递归的说明。
+    /// `body` 用 `Pin<Box<...>>` 接收：装箱让 rustc 类型布局查询在指针处终止
+    /// （`queries overflow the depth limit`；增量缓存会让本地 `cargo check` 假通过）。
     /// 用 `AssertUnwindSafe` + `catch_unwind` 包一层，让 body panic 时预留也能被
     /// 结算掉，否则预留的 tokens 会一直挂到当天配额重置。
     pub(crate) async fn run<T>(
@@ -390,7 +365,7 @@ impl AgentTurnBudget {
         match outcome {
             Ok(result) => result,
             Err(panic) => {
-                // 结算已经完成，这里只把 panic 继续抛出去，保持原有崩溃语义。
+                // 结算已经完成，这里只把 panic 继续抛出去。
                 std::panic::resume_unwind(panic)
             }
         }
@@ -400,7 +375,7 @@ impl AgentTurnBudget {
 /// Agent 在配额与成本账里的 bucket key（与 `AiLedgerAttribution.tapp_id` 一致）
 pub(crate) const AGENT_LEDGER_TAPP_ID: &str = "__agent__";
 
-/// Discovery list filtered by the same grant set the planner uses.
+/// Discovery list filtered by the same granted permissions the planner uses (`TappPermissionService::check`).
 pub async fn get_capabilities_summary_for_user(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
@@ -443,7 +418,7 @@ pub async fn user_is_current_admin(db: &sea_orm::DatabaseConnection, user_id: i3
     }
 }
 
-/// Agent 能力预设（与 Tapp 权限页「开关模板」对应；运行时以 Tapp 开关为准）
+/// Agent 能力预设（权限页模板）。生产从 Elevated 候选集再经授予权限过滤。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentUsageMode {
     /// 禁用（Agent 相关 elevated 全关）
@@ -482,7 +457,7 @@ fn permissions_for_usage_mode(mode: AgentUsageMode) -> std::collections::HashSet
                 perms.insert((*p).to_string());
             }
         }
-        // 共享订阅库：普通用户永不授予 brew:manage（加/改/删源仅管理员）
+        // 共享订阅库：候选集不含 brew:manage（加/改/删源仅管理员）
         AgentUsageMode::Standard | AgentUsageMode::Elevated => {
             for p in &[
                 "platform:read",
@@ -568,7 +543,7 @@ pub async fn ensure_agent_usage_allowed(
         return Err("Agent is admin only".to_string());
     }
 
-    // 能力真相源：Tapp 权限（设置页预设模板会批量开关这些项）
+    // 授予权限：TappPermissionService::check(..., AiChat)
     let config = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
     if !TappPermissionService::check(&config, UserRole::User, TappPermission::AiChat) {
         return Err("Agent chat is not enabled for this account".to_string());
@@ -576,16 +551,12 @@ pub async fn ensure_agent_usage_allowed(
     Ok(false)
 }
 
-/// Agent 权限串 → Tapp 权限（强制对齐；未映射的权限非管理员一律拒绝，仅 `system:read` 例外）
+/// Agent 权限串 → Tapp 权限。未映射则非管理员拒绝；`host_agent_permission`（system/router/ui/page）例外。
 ///
-/// 非管理员能力 = 候选全集 ∩ Tapp 下放开关（与权限页预设模板同一真相源）
+/// 非管理员能力 = 候选全集 ∩ 角色授予（`TappPermissionService::check`；下放只影响 elevated）
 ///
-/// `mcp:execute` 故意不在这里：它曾经挂在 `NetworkFetch` 上，于是站长为了让
-/// Tapp 能抓个网页而打开「网络请求」时，顺带把「调用本站接入的所有 MCP 工具」
-/// 也下放给了普通用户。MCP 服务器是站长在 `agent/mcp_servers.json` 里配的，
-/// 每个工具都会变成一个 `required_permissions: ["mcp:execute"]` 的能力，范围
-/// 完全不在那个开关的语义里。没有映射 → 非管理员一律拒；管理员走
-/// `get_user_permissions` 里单独 insert 的那一条，不受影响。
+/// `mcp:execute` 不映射到 NetworkFetch。Capability 注册写 `required_permissions: ["mcp:execute"]`。
+/// 无映射 → 非管理员拒；管理员走 `get_user_permissions` 里单独 insert 的那一条。
 fn agent_perm_to_tapp(perm: &str) -> Option<crate::services::permission_service::TappPermission> {
     use crate::services::permission_service::TappPermission;
     match perm {
@@ -596,13 +567,13 @@ fn agent_perm_to_tapp(perm: &str) -> Option<crate::services::permission_service:
         "3d:generate" => Some(TappPermission::ThreeDGenerate),
         "ai:search" => Some(TappPermission::AiSearch),
         "ai:generate" => Some(TappPermission::AiGenerate),
-        // 读（basic，默认全员）
+        // 读（basic）
         "brew:read" => Some(TappPermission::BrewRead),
         "report:read" => Some(TappPermission::ReportRead),
         "platform:read" | "steam:read" | "bilibili:read" | "bangumi:read" | "github:read"
         | "netease:read" | "weather:read" | "metadata:read" => Some(TappPermission::PlatformRead),
         "tapp:read" => Some(TappPermission::TappListRead),
-        // 写 / 出站（elevated 或 privileged）
+        // 写 / 出站 / 媒体（Tapp 映射）
         "brew:manage" => Some(TappPermission::BrewManage),
         "report:write" => Some(TappPermission::ReportWrite),
         "http:fetch" | "web:scrape" | "proxy:read" => Some(TappPermission::NetworkFetch),
@@ -693,10 +664,10 @@ pub(crate) fn scheduler_create_actions_within_grants(
     Ok(())
 }
 
-/// 获取用户在 Agent 系统中的权限集
+/// 获取用户在 Agent 系统中的授予权限。
 ///
 /// - 管理员 / 系统用户：全部能力权限
-/// - 其他：候选全集 ∩ Tapp 权限检查（强制对齐；无独立 agentUsage 天花板）
+/// - 其他：候选全集 ∩ `TappPermissionService::check`（角色下放后的授予权限，不是安装批准）
 pub async fn get_user_permissions(
     db: &sea_orm::DatabaseConnection,
     user_id: i32,
@@ -724,7 +695,7 @@ pub async fn get_user_permissions(
 
     let mut perms = max_user_agent_permissions();
 
-    // 强制与 Tapp 对齐
+    // 候选集 ∩ 角色授予（TappPermissionService::check）
     let config = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
     perms.retain(|p| {
         if host_agent_permission(p) {
@@ -764,7 +735,6 @@ pub async fn cleanup_expired_confirmations() {
     }
 }
 
-/// 将字段名转换为用户友好的标题
 /// 子任务：AI 生成会话标题（在 tokio::spawn 中调用，与 executor 并行）
 pub(crate) async fn generate_session_title_ai(user_input: &str, reasoning: Option<&str>) -> String {
     use crate::config::ModelTier;
@@ -811,7 +781,7 @@ pub(crate) async fn generate_session_title_ai(user_input: &str, reasoning: Optio
     }
 }
 
-/// 标题降级：截取用户输入前 50 字符
+/// 标题降级：超过 50 个 Unicode scalar 时取前 47 再加 `...`
 fn fallback_title_text(input: &str) -> String {
     let count = input.chars().count();
     if count > 50 {
@@ -894,7 +864,7 @@ pub(crate) fn pre_param_question_id(step_id: &str, param_name: &str) -> String {
     format!("pre_param:{}:{}", step_id, param_name)
 }
 
-/// 解析 `pre_param:{step_id}:{param_name}`；兼容旧格式 `pre_param_{param_name}`
+/// 解析 `pre_param:{step_id}:{param_name}`，或 `pre_param_{param_name}`（无 step 映射）。
 pub fn parse_pre_param_question_id(question_id: &str) -> Option<(String, String)> {
     if let Some(rest) = question_id.strip_prefix("pre_param:") {
         let mut parts = rest.splitn(2, ':');
@@ -905,7 +875,7 @@ pub fn parse_pre_param_question_id(question_id: &str) -> Option<(String, String)
         }
         return Some((step_id, param_name));
     }
-    // 兼容旧版 pre_param_{name}（无 step 映射，调用方用第一个匹配步骤）
+    // `pre_param_{name}`：无 step 映射，调用方用第一个匹配步骤。
     if let Some(param_name) = question_id.strip_prefix("pre_param_") {
         if !param_name.is_empty() && param_name != "s" {
             return Some((String::new(), param_name.to_string()));
@@ -925,7 +895,7 @@ pub fn apply_pre_param_answer_to_recipe(
     };
     let value = serde_json::Value::String(answer.trim().to_string());
     if step_id.is_empty() {
-        // 旧格式：写入第一个缺少该参数的步骤，否则第一个步骤
+        // question_id 无 step_id：写入第一个缺少该参数的步骤，否则第一个步骤
         let idx = recipe
             .steps
             .iter()

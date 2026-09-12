@@ -2,6 +2,11 @@ import type { TappInstance } from '../../types'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { PERMISSION_MAP } from '../permissionConfig.ts'
+import { TappBridge } from '../TappBridge.ts'
+import {
+  applySandboxCapabilityProfile,
+  HEADLESS_DENIED_ACTIONS,
+} from './capabilityProfiles.ts'
 import { generateFullSDK } from './sdkGenerator.ts'
 
 const instance: TappInstance = {
@@ -31,7 +36,6 @@ function evaluateSdk(profile: 'page' | 'headless'): Record<string, unknown> {
     addEventListener: () => undefined,
     createElement: () => ({ style: {}, appendChild: () => undefined }),
   }
-  // The SDK is generated JavaScript; executing it is the contract under test.
   // eslint-disable-next-line no-new-func -- isolated test sandbox
   const run = new Function(
     'window',
@@ -58,27 +62,19 @@ function evaluateSdk(profile: 'page' | 'headless'): Record<string, unknown> {
 describe('sandbox capability profiles', () => {
   it('keeps every generated SDK action governed by PERMISSION_MAP', () => {
     const sdk = generateFullSDK(instance, 'session-token', 'page')
-    // `\s*` 必须同时出现在 `(` 之后：SDK 里的调用可以是
-    // sendRequest('media', 'getStatus', [])
-    // 也可以因为参数变长而被格式化成
-    // sendRequest(
-    // 'media',
-    // 'playTrack',
-    // 少了这个 `\s*`，多行写法会被整条漏掉，于是该 action 看起来"从 SDK 消失了"。
-    // 断言的是能力面而不是源码排版，不该被换行影响。
     const sdkActions = new Set(
-      [...sdk.matchAll(/sendRequest\(\s*'([^']+)',\s*'([^']+)'/g)].map(
+      Iterator.from(sdk.matchAll(/sendRequest\(\s*'([^']+)',\s*'([^']+)'/g)).map(
         ([, namespace, operation]) => `${namespace}.${operation}`,
       ),
     )
 
     const permissionActions = new Set(PERMISSION_MAP.keys())
     assert.deepEqual(
-      [...sdkActions].filter(action => !permissionActions.has(action)),
+      Iterator.from(sdkActions.difference(permissionActions)).toArray(),
       [],
     )
     assert.deepEqual(
-      [...permissionActions].filter(action => !sdkActions.has(action)).sort(),
+      Iterator.from(permissionActions.difference(sdkActions)).toArray().toSorted(),
       ['widget.instanceSettings.update', 'widget.invalidate'],
       'only Widget-SDK-specific actions may be absent from the Page SDK',
     )
@@ -87,6 +83,7 @@ describe('sandbox capability profiles', () => {
   it('keeps the full Page control surface', () => {
     const tapp = evaluateSdk('page')
     assert.ok(tapp.widget)
+    assert.ok(tapp.private)
     assert.equal(
       typeof (tapp.settings as Record<string, unknown>).onChanged,
       'function',
@@ -101,6 +98,15 @@ describe('sandbox capability profiles', () => {
     assert.ok(tapp.model3d)
     assert.ok(tapp.persona)
     assert.equal(typeof (tapp.ui as Record<string, unknown>).confirm, 'function')
+    assert.equal(
+      (tapp.ui as Record<string, unknown>).requestFullscreen,
+      undefined,
+    )
+    assert.equal(
+      typeof ((tapp.ui as Record<string, unknown>).fullscreen as Record<string, unknown>)
+        .request,
+      'function',
+    )
   })
 
   it('exposes targeted invalidate on Page and headless, not Widget self-invalidate', () => {
@@ -115,9 +121,24 @@ describe('sandbox capability profiles', () => {
     )
   })
 
+  it('freezes KV namespaces and still lets Page widgets/pages register', () => {
+    const tapp = evaluateSdk('page')
+    for (const name of ['storage', 'shared', 'private', 'settings']) {
+      assert.equal(Object.isFrozen(tapp[name]), true, name)
+    }
+    const widgets = tapp.widgets as Record<string, unknown>
+    widgets.demo = { render() {} }
+    assert.equal(typeof (widgets.demo as { render: unknown }).render, 'function')
+    assert.match(
+      generateFullSDK(instance, 'session-token', 'page'),
+      /\)\(window\.Tapp\)/,
+    )
+  })
+
   it('keeps background APIs but removes visible/control-plane APIs in headless core', () => {
     const tapp = evaluateSdk('headless')
     assert.ok(tapp.storage)
+    assert.ok(tapp.private)
     assert.equal(
       typeof (tapp.settings as Record<string, unknown>).onChanged,
       'function',
@@ -139,5 +160,49 @@ describe('sandbox capability profiles', () => {
     assert.equal(typeof ui.showNotification, 'function')
     assert.equal(ui.confirm, undefined)
     assert.equal(ui.fullscreen, undefined)
+  })
+
+  it('does not emit headless-denied sendRequest in the headless SDK source', () => {
+    const sdk = generateFullSDK(instance, 'session-token', 'headless')
+    for (const action of HEADLESS_DENIED_ACTIONS) {
+      const dot = action.indexOf('.')
+      const api = action.slice(0, dot)
+      const method = action.slice(dot + 1)
+      assert.equal(
+        sdk.includes(`sendRequest('${api}', '${method}'`),
+        false,
+        action,
+      )
+    }
+    assert.match(sdk, /sendRequest\('widget', 'invalidateTarget'/)
+    assert.match(sdk, /sendRequest\('federation', 'getFeed'/)
+    assert.match(sdk, /sendRequest\('ui', 'showNotification'/)
+  })
+
+  it('unregisters only HEADLESS_DENIED_ACTIONS and keeps KV handlers', () => {
+    const bridge = new TappBridge()
+    const handlers = (
+      bridge as unknown as { messageHandlers: Map<string, unknown> }
+    ).messageHandlers
+    const kv = [
+      'storage.get',
+      'shared.get',
+      'private.get',
+      'settings.get',
+      'private.set',
+    ]
+    for (const action of [...HEADLESS_DENIED_ACTIONS, ...kv]) {
+      bridge.registerHandler(action, async () => ({ success: true, data: null }))
+    }
+    applySandboxCapabilityProfile(bridge, 'page')
+    assert.equal(handlers.has('ui.confirm'), true)
+    applySandboxCapabilityProfile(bridge, 'headless')
+    for (const action of HEADLESS_DENIED_ACTIONS) {
+      assert.equal(handlers.has(action), false, action)
+    }
+    for (const action of kv) {
+      assert.equal(handlers.has(action), true, action)
+    }
+    bridge.destroy()
   })
 })

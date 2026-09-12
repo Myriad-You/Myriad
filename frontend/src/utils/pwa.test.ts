@@ -1,7 +1,4 @@
-/**
- * PWA install assets (manifest + icons under public/).
- * @vitest-environment node
- */
+/** @vitest-environment node */
 
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -21,7 +18,6 @@ import {
   resolvePwaIconSourceUrl,
 } from './pwa'
 
-/** Minimal 1×1 PNG data URL used in install-icon tests. */
 const TINY_PNG_DATA_URL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
 
@@ -54,7 +50,7 @@ describe('PWA assets', () => {
       const iconFile = resolve(
         here,
         '../../public',
-        icon!.src.replace(/^\//, ''),
+        icon!.src.replaceAll(/^\//g, ''),
       )
       assert.ok(
         readFileSync(iconFile).length > 100,
@@ -189,12 +185,10 @@ describe('PWA logo compositing geometry', () => {
       resolvePwaIconSourceUrl('data:image/png;base64,abc', origin),
       'data:image/png;base64,abc',
     )
-    // Non-hotlink external — original URL (not open proxy)
     assert.equal(
       resolvePwaIconSourceUrl('https://cdn.example/logo.png', origin, ''),
       'https://cdn.example/logo.png',
     )
-    // Must-proxy host — goes through image proxy (re-base api host when given)
     const bilibili = 'https://i0.hdslb.com/bfs/face/x.jpg'
     assert.equal(
       resolvePwaIconSourceUrl(bilibili, origin, ''),

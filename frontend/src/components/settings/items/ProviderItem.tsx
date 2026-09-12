@@ -1,8 +1,3 @@
-/**
- * 服务商选择器设置项组件
- * 显示为带图标的按钮组。默认再点一次已选项即取消，不强制必须选中。
- */
-
 import type { ProviderSettingConfig, SettingOption } from '../types'
 import React, { useCallback } from 'react'
 import { guideDomProps } from '../guides/guideAnchor'

@@ -78,7 +78,7 @@ pub async fn get_bilibili_user(
             favorites,
             bangumi,
         }),
-        message: "获取成功".to_string(),
+        message: "ok".to_string(),
     }))
 }
 
@@ -94,7 +94,7 @@ pub async fn get_bilibili_user_info(
             Ok(Json(ApiResponse {
                 success: true,
                 data: Some(data),
-                message: "获取成功".to_string(),
+                message: "ok".to_string(),
             }))
         }
         Err(e) => {
@@ -121,11 +121,10 @@ pub async fn get_bilibili_favorites(
                 .filter_map(|f| serde_json::to_value(f).ok())
                 .collect();
 
-            let count = data.len();
             Ok(Json(ApiResponse {
                 success: true,
                 data: Some(data),
-                message: format!("获取成功，共 {} 个收藏夹", count),
+                message: "ok".to_string(),
             }))
         }
         Err(e) => {
@@ -154,20 +153,10 @@ pub async fn get_bilibili_bangumi(
                 .filter_map(|b| serde_json::to_value(b).ok())
                 .collect();
 
-            let type_name = match bangumi_type {
-                1 => "动画",
-                2 => "电影",
-                3 => "纪录片",
-                4 => "国创",
-                5 => "电视剧",
-                _ => "其他",
-            };
-
-            let count = data.len();
             Ok(Json(ApiResponse {
                 success: true,
                 data: Some(data),
-                message: format!("获取成功，共 {} 个{}", count, type_name),
+                message: "ok".to_string(),
             }))
         }
         Err(e) => {
@@ -186,7 +175,7 @@ pub struct BanguminQuery {
     pub bangumi_type: Option<i32>, // 1: 动画, 2: 电影, 3: 纪录片, 4: 国创, 5: 电视剧
 }
 
-/// 获取所有 Bilibili 追番/追剧
+/// 获取所有 Bilibili 番剧+电影（fetcher type=1 和 type=2）
 pub async fn get_all_bilibili_bangumi(
     Path(uid): Path<i64>,
 ) -> Result<Json<ApiResponse<Vec<serde_json::Value>>>, HttpError> {
@@ -199,11 +188,10 @@ pub async fn get_all_bilibili_bangumi(
                 .filter_map(|b| serde_json::to_value(b).ok())
                 .collect();
 
-            let count = data.len();
             Ok(Json(ApiResponse {
                 success: true,
                 data: Some(data),
-                message: format!("获取成功，共 {} 项", count),
+                message: "ok".to_string(),
             }))
         }
         Err(e) => {

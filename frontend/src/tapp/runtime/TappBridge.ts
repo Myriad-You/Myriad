@@ -1,17 +1,3 @@
-/**
- * Tapp Bridge - 消息桥接层
- * 负责主应用与 Tapp 沙箱之间的安全通信
- *
- * 安全特性：
- * - 严格的消息来源验证（event.source）
- * - request/event 会话 token
- * - 显式 sandbox inbound event 白名单
- * - 细粒度权限检查（含用户角色验证）
- * - 输入、大小和时间戳验证
- * - 会话内请求 ID 防重放
- * - 每 Bridge 软限速 + 并发上限（防 iframe 洪水）
- */
-
 import type { RuntimeGrantKind } from '../services/TappApiService'
 import type {
   TappAPIRequest,
@@ -38,17 +24,11 @@ import { TappRuntimeGrant } from './TappRuntimeGrant'
 
 type MessageHandler = (message: TappMessage) => Promise<TappAPIResponse>
 
-/** Soft host-side abuse limits (defense-in-depth; backend still authoritative). */
 const BRIDGE_LIMITS = {
-  /** Max validated inbound messages (request+event) per sliding minute */
   messagesPerMinute: 240,
-  /** Max concurrent in-flight request handlers */
   maxConcurrentRequests: 32,
-  /** Invalid messages before short mute */
   invalidBeforeMute: 40,
-  /** Mute duration after invalid burst */
   invalidMuteMs: 10_000,
-  /** Acceptable clock skew for message timestamps */
   timestampSkewMs: 2 * 60 * 1000,
 } as const
 
@@ -60,7 +40,6 @@ function serializedUtf8Bytes(value: unknown): number | null {
     return null
   }
   if (serialized === undefined) return null
-  // Count without allocating a second full-size Uint8Array for large packages.
   let bytes = 0
   for (let index = 0; index < serialized.length; index += 1) {
     const code = serialized.charCodeAt(index)
@@ -78,14 +57,12 @@ function serializedUtf8Bytes(value: unknown): number | null {
       bytes += 4
       index += 1
     } else {
-      // BMP code points and unpaired surrogates (UTF-8 replacement character).
       bytes += 3
     }
   }
   return bytes
 }
 
-/** Tiny sliding-window counter for bridge-local limits. */
 class BridgeWindowCounter {
   private stamps: number[] = []
   constructor(
@@ -100,7 +77,6 @@ class BridgeWindowCounter {
     return true
   }
 
-  /** Ms until the oldest stamp leaves the window (0 if under cap). */
   retryAfterMs(now = Date.now()): number {
     this.prune(now)
     if (this.stamps.length < this.max) return 0
@@ -121,54 +97,35 @@ class BridgeWindowCounter {
   }
 }
 
-/**
- * 生成唯一消息 ID（使用加密安全的随机数）
- */
 function generateMessageId(): string {
   const array = new Uint8Array(16)
   crypto.getRandomValues(array)
-  return `${Date.now()}-${Array.from(array)
+  return `${Date.now()}-${Iterator.from(array)
     .map((b) => b.toString(16).padStart(2, '0'))
+    .toArray()
     .join('')}`
 }
 
-/**
- * 消息验证结果
- */
 interface MessageValidationResult {
   valid: boolean
   error?: string
 }
 
-/**
- * 权限验证详情
- */
 interface PermissionCheckResult {
   allowed: boolean
   reason?: string
   requiredPermission?: TappPermission | 'public'
 }
 
-// 仅浏览器侧执行、没有可强制权限的后端端点的能力才需要行前 authorize。
-// speech/brew 走真实宿主端点并携带 Runtime Grant 头，由服务端就地强制。
+// 仅 media:control 在前端 authorize；speech/brew 走 Runtime Grant 头，由服务端强制。
 const SERVER_AUTHORITATIVE_HOST_PERMISSIONS = new Set<TappPermission>([
   'media:control',
 ])
 
-/**
- * Tapp Bridge 类
- * 处理主应用与沙箱之间的双向通信
- */
 export interface TappBridgeInitOptions {
-  /**
-   * When set, destroy() releases a shared grant instead of destroying it.
-   * Used by multi-widget same-Tapp sandboxes (refcount on TappRuntimeGrant).
-   */
+  /** destroy() 释放共享 grant 引用，不销毁 grant 本身。 */
   releaseSharedGrant?: () => void
-  /**
-   * Re-acquire shared grant after subject reset (login/logout destroyAll).
-   * Must return a fresh { grant, release } pair so refcounts stay correct.
-   */
+  /** 主体重置后须返回新的 { grant, release }，以免引用计数错乱。 */
   reacquireSharedGrant?: () => {
     grant: TappRuntimeGrant
     release: () => void
@@ -182,13 +139,9 @@ export class TappBridge {
   private eventListeners: Map<string, Set<(data: unknown) => void>> = new Map()
   private seenRequestIds = new Set<string>()
 
-  /**
-   * Sandbox → host event actions this bridge instance will dispatch.
-   * Empty until {@link allowSandboxEvent}; host must opt in per action.
-   */
+  /** 空直到 allowSandboxEvent；宿主须按 action 显式放行。 */
   private allowedSandboxEvents = new Set<string>()
 
-  /** Soft per-bridge rate limit for validated inbound traffic. */
   private readonly inboundRate = new BridgeWindowCounter(
     60_000,
     BRIDGE_LIMITS.messagesPerMinute,
@@ -199,33 +152,22 @@ export class TappBridge {
   private mutedUntil = 0
 
   /**
-   * postMessage 目标 origin（发送消息用）
-   * srcdoc iframe 未启用 allow-same-origin，origin 为 null
-   * 浏览器不接受字符串 'null' 作为 postMessage 目标，使用 '*' 代替
-   * 安全性由 event.source === iframe.contentWindow 检查保证
+   * srcdoc 无 allow-same-origin，origin 为 null；postMessage 目标用 *。边界是 event.source
+   * === iframe.contentWindow。
    */
   private postMessageTarget: string = '*'
 
-  /** 会话 token（用于验证消息来源） */
   private sessionToken: string = ''
 
-  /** True after {@link destroy}; host shortcuts treat the bridge as dead. */
+  /** destroy 后为 true；宿主快捷键视桥为死。 */
   private destroyed = false
 
-  /**
-   * Host surface visibility (multi-window minimize / lifecycle pause).
-   * When false, host keyboard shortcuts skip this bridge.
-   * Set by sandboxes from the `paused` prop (and related lifecycle).
-   */
+  /** 宿主隐藏此表面时为 false；快捷键跳过。由 paused / lifecycle 设置。 */
   private surfaceActive = true
 
-  /** Host-only backend identity for this concrete Page/Widget/headless runtime. */
   private runtimeGrant: TappRuntimeGrant | null = null
 
-  /**
-   * Params to mint a replacement grant after subject reset (`destroyAll`).
-   * Destroyed grants cannot issue tokens; live sandboxes re-mint with these.
-   */
+  /** 主体重置后用这些参数重铸 grant。已销毁的 grant 不能发 token。 */
   private grantSeed: {
     tappId: string
     instanceId: string
@@ -242,16 +184,12 @@ export class TappBridge {
 
   private registeredSource: MessageEventSource | null = null
 
-  /**
-   * Single window-level router for all bridges (N widgets → 1 listener).
-   * Routing key remains event.source === iframe.contentWindow (isolation intact).
-   */
+  /** 窗口级单路由。路由键仍是 event.source === iframe.contentWindow。 */
   private static readonly bridgesBySource = new Map<
     MessageEventSource,
     TappBridge
   >()
 
-  /** Live bridges for srcdoc attach race: ready may fire before attachSource. */
   private static readonly activeBridges = new Set<TappBridge>()
   private static sharedListenerAttached = false
 
@@ -270,11 +208,7 @@ export class TappBridge {
     TappBridge.sharedListenerAttached = false
   }
 
-  /**
-   * Resolve bridge for an inbound message.
-   * Prefer O(1) source map; fall back to contentWindow scan so early
-   * tapp.ready is not lost when srcdoc scripts race attachSource().
-   */
+  /** 先走 source 映射；srcdoc 竞态 attachSource 时回退扫描 contentWindow，以免丢掉早期 tapp.ready。 */
   private static resolveBridgeForSource(
     source: MessageEventSource,
   ): TappBridge | null {
@@ -283,7 +217,6 @@ export class TappBridge {
     for (const bridge of TappBridge.activeBridges) {
       const win = bridge.iframe?.contentWindow
       if (win && win === source) {
-        // Heal the map for subsequent messages
         bridge.attachSource()
         return bridge
       }
@@ -300,18 +233,10 @@ export class TappBridge {
   }
 
   constructor() {
-    // bound instance methods for handler registration
     this.handleMessage = this.handleMessage.bind(this)
     void refreshFederationLimits()
   }
 
-  /**
-   * 初始化 Bridge，连接到 iframe
-   *
-   * @param iframe - 沙箱 iframe 元素
-   * @param tappInstance - Tapp 实例
-   * @param sessionToken - 会话 token（用于消息验证）
-   */
   initialize(
     iframe: HTMLIFrameElement,
     tappInstance: TappInstance,
@@ -334,28 +259,23 @@ export class TappBridge {
         }
       : null
 
-    // 设置会话 token（如果未提供则生成一个）
     if (sessionToken) {
       this.sessionToken = sessionToken
     } else {
-      // 生成安全的随机 token
       const array = new Uint8Array(32)
       crypto.getRandomValues(array)
-      this.sessionToken = Array.from(array, (b) =>
-        b.toString(16).padStart(2, '0'),
-      ).join('')
+      this.sessionToken = Iterator.from(array)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .toArray()
+        .join('')
     }
 
-    // 集中式 message 路由（同 Tapp 多 Widget 时只挂一个 window listener）
     TappBridge.ensureSharedListener()
     TappBridge.activeBridges.add(this)
     this.attachSource()
   }
 
-  /**
-   * Register iframe.contentWindow as the routing key.
-   * Call after the iframe is in the document (srcdoc parse may recreate the window).
-   */
+  /** iframe 入 DOM 后再登记；srcdoc 解析可能重建 window。 */
   attachSource(): void {
     const win = this.iframe?.contentWindow
     if (!win) return
@@ -366,31 +286,20 @@ export class TappBridge {
     TappBridge.bridgesBySource.set(win, this)
   }
 
-  /**
-   * 获取会话 token（供沙箱 HTML 生成时使用）。
-   * Empty string after {@link destroy} so host shortcut bindings treat the bridge as dead.
-   */
+  /** destroy 后为空；宿主快捷键视桥为死。 */
   getSessionToken(): string {
     return this.destroyed ? '' : this.sessionToken
   }
 
-  /** Whether this bridge has been destroyed (session cleared, no longer live). */
   isDestroyed(): boolean {
     return this.destroyed
   }
 
-  /**
-   * Host surface active flag (multi-window minimize / lifecycle pause).
-   * Sandboxes should call this from the `paused` prop effect.
-   */
   setSurfaceActive(active: boolean): void {
     this.surfaceActive = active
   }
 
-  /**
-   * Whether host keyboard shortcuts should target this bridge.
-   * False when destroyed, host-paused, iframe gone/disconnected, or CSS-hidden.
-   */
+  /** 已销毁、宿主暂停、iframe 断开或 CSS 隐藏时为 false。 */
   isSurfaceActive(): boolean {
     if (this.destroyed || !this.surfaceActive) return false
     const iframe = this.iframe
@@ -403,31 +312,23 @@ export class TappBridge {
         }
       }
     } catch {
-      /* ignore getComputedStyle failures */
     }
     return true
   }
 
-  /**
-   * After AuthContext `destroyAll()` (login/logout), previous grants are dead.
-   * Re-mint from seed so open Aro (and others) can call context.getUser /
-   * federation again without requiring a full browser reload.
-   */
+  /** AuthContext destroyAll 后旧 grant 已死；按 seed 重铸。 */
   private ensureLiveRuntimeGrant(): TappRuntimeGrant {
     if (this.runtimeGrant && !this.runtimeGrant.isDestroyed()) {
       return this.runtimeGrant
     }
-    // Shared widget grants: re-enter the refcounted pool after destroyAll.
     if (this.reacquireSharedGrant) {
-      // Drop the previous shared-pool hold before (or as we) re-acquire so
-      // refcounts do not leak across subject resets.
+      // 共享 widget grant：destroyAll 后重新入池，引用计数不跨主体泄漏。
       const previousRelease = this.releaseSharedGrant
       this.releaseSharedGrant = null
       if (previousRelease) {
         try {
           previousRelease()
         } catch {
-          /* ignore stale release */
         }
       }
       const next = this.reacquireSharedGrant()
@@ -455,11 +356,7 @@ export class TappBridge {
     return this.ensureLiveRuntimeGrant().getToken()
   }
 
-  /**
-   * 宿主 API 归因头：把 speech/brew 等宿主路径调用绑定到当前 Tapp 运行时，
-   * 由服务端校验 Grant 并强制权限。预览模式没有 Grant，返回 undefined
-   * （请求按宿主自身身份执行，与旧行为一致）。
-   */
+  /** speech/brew 等宿主路径带 Runtime Grant 头。预览无 Grant，返回 undefined。 */
   async hostAttributionHeaders(): Promise<Record<string, string> | undefined> {
     if (!this.runtimeGrant && !this.grantSeed) return undefined
     return {
@@ -475,13 +372,9 @@ export class TappBridge {
     return this.ensureLiveRuntimeGrant().getRuntimeId()
   }
 
-  /**
-   * 销毁 Bridge
-   */
   destroy(): void {
     this.destroyed = true
     this.surfaceActive = false
-    // Clear session first so host shortcut checks see a dead bridge immediately.
     this.sessionToken = ''
 
     TappBridge.activeBridges.delete(this)
@@ -516,24 +409,14 @@ export class TappBridge {
     this.reacquireSharedGrant = null
   }
 
-  /**
-   * 注册 API 处理器
-   */
   registerHandler(action: string, handler: MessageHandler): void {
     this.messageHandlers.set(action, handler)
   }
 
-  /**
-   * 注销 API 处理器
-   */
   unregisterHandler(action: string): void {
     this.messageHandlers.delete(action)
   }
 
-  /**
-   * Opt-in: allow a sandbox → host event action on this bridge instance.
-   * Action format: same as postMessage action (`[\w.]+`, max 50).
-   */
   allowSandboxEvent(action: string): void {
     if (!/^[\w.]+$/.test(action) || action.length > 50) {
       throw new Error(`Invalid sandbox event action: ${action}`)
@@ -541,19 +424,14 @@ export class TappBridge {
     this.allowedSandboxEvents.add(action)
   }
 
-  /** Remove a previously allowed sandbox → host event action. */
   disallowSandboxEvent(action: string): void {
     this.allowedSandboxEvents.delete(action)
   }
 
-  /** Whether this bridge will dispatch the given sandbox event action. */
   isSandboxEventAllowed(action: string): boolean {
     return this.allowedSandboxEvents.has(action)
   }
 
-  /**
-   * 向 Tapp 发送事件
-   */
   emit(event: string, data: unknown): void {
     if (!this.iframe?.contentWindow) {
       console.warn('[TappBridge] Cannot emit event: iframe not ready')
@@ -571,9 +449,6 @@ export class TappBridge {
     this.iframe.contentWindow.postMessage(message, this.postMessageTarget)
   }
 
-  /**
-   * 验证消息格式和内容
-   */
   private validateMessage(message: unknown): MessageValidationResult {
     if (!message || typeof message !== 'object') {
       return { valid: false, error: 'Invalid message format' }
@@ -581,7 +456,6 @@ export class TappBridge {
 
     const msg = message as Record<string, unknown>
 
-    // 必需字段检查
     if (!msg.type || typeof msg.type !== 'string') {
       return { valid: false, error: 'Missing or invalid type field' }
     }
@@ -590,23 +464,19 @@ export class TappBridge {
       return { valid: false, error: 'Missing or invalid id field' }
     }
 
-    // ID 格式验证（防止注入攻击）
     if (!/^[\w-]+$/.test(msg.id) || msg.id.length > 100) {
       return { valid: false, error: 'Invalid message ID format' }
     }
 
-    // 类型验证
-    // iframe -> host 方向只接受 API request 和轻量 event；response 仅由 host 发给 SDK。
+    // iframe→host 只接受 request 与轻量 event；response 仅 host→SDK。
     if (!['request', 'event'].includes(msg.type)) {
       return { valid: false, error: 'Unknown message type' }
     }
 
-    // action 字段验证
     if (!msg.action || typeof msg.action !== 'string') {
       return { valid: false, error: 'Missing or invalid action field' }
     }
 
-    // action 格式验证（防止注入攻击）
     if (msg.action && typeof msg.action === 'string') {
       if (!/^[\w.]+$/.test(msg.action) || msg.action.length > 50) {
         return { valid: false, error: 'Invalid action format' }
@@ -633,9 +503,6 @@ export class TappBridge {
       }
     }
 
-    // payload 大小检查（防止内存攻击）
-    // 默认 1 MiB；action-specific higher caps (media / packages / chat) —
-    // tens of MiB, not unbounded. Align with backend where applicable.
     if (msg.payload !== undefined) {
       if (msg.action === 'file.download') {
         const args = (msg.payload as { args?: unknown[] }).args
@@ -647,7 +514,6 @@ export class TappBridge {
           }
         }
       } else if (msg.action === 'federation.uploadMedia') {
-        // Align with live note image/video caps (default 32/256; saver 8/32).
         const limits = federationLiveLimits()
         const MAX_IMAGE_RAW_BYTES = limits.noteImageBytes
         const MAX_VIDEO_RAW_BYTES = limits.noteVideoBytes
@@ -679,13 +545,11 @@ export class TappBridge {
           /\.(jpe?g|png|gif|webp|avif|svg)(\?|$)/i.test(
             String(options.name || ''),
           )
-        // Unknown type: allow up to video cap (BE still enforces by actual MIME)
         const maxRaw = isImage
           ? MAX_IMAGE_RAW_BYTES
           : isVideo
             ? MAX_VIDEO_RAW_BYTES
             : MAX_VIDEO_RAW_BYTES
-        // Bridge carries data URL / base64 (~4/3 raw) + small JSON envelope.
         const maxDataChars = Math.ceil((maxRaw * 4) / 3) + 256
         if (options.data.length > maxDataChars) {
           return {
@@ -782,8 +646,6 @@ export class TappBridge {
         const hasImageReferences = msg.action === 'ai.tasks.create'
           && request?.operation === 'image'
           && Array.isArray(request.input?.referenceImages)
-        // Image tasks need room for 10 MiB of base64 images, 256 KiB of text,
-        // and the envelope (backend ai_task_image enforces decoded/text limits).
         const maxPayloadBytes = hasImageReferences
           ? 14 * 1024 * 1024
           : 1024 * 1024 + 64 * 1024
@@ -796,10 +658,7 @@ export class TappBridge {
       }
     }
 
-    // iframe → host: request 与 event 都必须携带 session token。
-    // event.source 已校验具体 WindowProxy；token 防止同页其它脚本在
-    // 误获 contentWindow 引用时伪造宿主监听的事件（如 tapp.ready）。
-    // host → iframe 的 emit 不走此路径。
+    // iframe→host 的 request/event 必须带 session token。
     if ((msg.type === 'request' || msg.type === 'event') && this.sessionToken) {
       const sessionToken = msg._sessionToken as string | undefined
       if (
@@ -828,19 +687,14 @@ export class TappBridge {
     }
   }
 
-  /**
-   * 处理来自 Tapp 的消息（增强安全版本）
-   */
   private async handleMessage(event: MessageEvent): Promise<void> {
-    // srcdoc 沙箱的 origin 为 null；真实安全边界是具体 iframe WindowProxy。
+    // srcdoc origin 为 null；边界是具体 iframe WindowProxy。
     if (event.source !== this.iframe?.contentWindow) {
       return
     }
 
     const now = Date.now()
-    // While muted: cheap request-shape check only (answer BRIDGE_MUTED so the
-    // iframe unblocks). Defer full payload validation (JSON size, token, …)
-    // until unmuted — large invalid payloads must not burn CPU during mute.
+    // 静音期间不校验完整载荷，以免无效大包烧 CPU。
     if (now < this.mutedUntil) {
       const candidate = event.data as Record<string, unknown> | undefined
       if (
@@ -861,7 +715,6 @@ export class TappBridge {
       return
     }
 
-    // 验证消息格式
     const validation = this.validateMessage(event.data)
     if (!validation.valid) {
       this.noteInvalidMessage()
@@ -882,7 +735,6 @@ export class TappBridge {
       return
     }
 
-    // Soft rate limit after validation (token + shape OK)
     if (!this.inboundRate.tryTake(now)) {
       const candidate = event.data as TappMessage
       if (candidate.type === 'request' && typeof candidate.id === 'string') {
@@ -896,14 +748,12 @@ export class TappBridge {
       return
     }
 
-    // Valid traffic gradually cools the invalid counter
     if (this.invalidCount > 0) this.invalidCount -= 1
 
     const message = event.data as TappMessage
 
     if (message.type === 'request') {
       if (this.seenRequestIds.has(message.id)) {
-        // Structured reply so the SDK does not hang on a silent drop.
         this.sendResponse(message.id, {
           success: false,
           error: 'Duplicate request id',
@@ -929,9 +779,6 @@ export class TappBridge {
     }
   }
 
-  /**
-   * 处理 API 请求（增强安全版本）
-   */
   private async handleRequest(
     message: TappMessage<TappAPIRequest>,
   ): Promise<void> {
@@ -946,7 +793,6 @@ export class TappBridge {
       return
     }
 
-    // method 允许多级命名空间（例如 widget.instanceSettings.update）。
     const identifier = /^[a-z][a-z0-9]*$/i
     const namespacedMethod = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)*$/i
     if (
@@ -972,7 +818,6 @@ export class TappBridge {
       return
     }
 
-    // 配额检查（含全局 bridge 软限速）
     if (this.tappInstance) {
       const quotaManager = getQuotaManager()
       const quotaCheck = quotaManager.checkQuota(this.tappInstance.id, action)
@@ -987,7 +832,6 @@ export class TappBridge {
       }
     }
 
-    // 权限检查（增强版）
     const permissionCheck = await this.checkPermissionDetailed(action)
     if (!permissionCheck.allowed) {
       this.sendResponse(id, {
@@ -998,7 +842,6 @@ export class TappBridge {
       return
     }
 
-    // 查找处理器
     const handler = this.messageHandlers.get(action)
     if (!handler) {
       if (this.tappInstance?.previewMode) {
@@ -1021,7 +864,7 @@ export class TappBridge {
     try {
       const response = await handler(message)
 
-      // 记录配额使用：成功与失败都计入，避免刷失败绕过
+      // 成功与失败都计入配额，避免刷失败绕过。
       if (this.tappInstance) {
         const quotaManager = getQuotaManager()
         quotaManager.recordUsage(this.tappInstance.id, action)
@@ -1043,9 +886,6 @@ export class TappBridge {
     }
   }
 
-  /**
-   * 处理来自沙箱的事件（仅本实例 allowSandboxEvent 白名单）
-   */
   private handleEvent(message: TappMessage): void {
     if (!this.allowedSandboxEvents.has(message.action)) {
       console.warn(
@@ -1065,9 +905,6 @@ export class TappBridge {
     }
   }
 
-  /**
-   * 发送响应到 Tapp
-   */
   private sendResponse(requestId: string, response: TappAPIResponse): void {
     if (!this.iframe?.contentWindow) {
       console.warn('[TappBridge] Cannot send response: iframe not ready')
@@ -1085,11 +922,6 @@ export class TappBridge {
     this.iframe.contentWindow.postMessage(message, this.postMessageTarget)
   }
 
-  /**
-   * 详细权限检查（返回检查结果和原因）
-   *
-   * 性能优化：使用模块级别的静态 Map 避免每次调用都创建对象
-   */
   private async checkPermissionDetailed(
     action: string,
   ): Promise<PermissionCheckResult> {
@@ -1097,15 +929,12 @@ export class TappBridge {
       return { allowed: false, reason: 'Tapp instance not initialized' }
     }
 
-    // 使用静态 Map 查找权限（O(1) 时间复杂度）
     const requiredPermission = PERMISSION_MAP.get(action)
 
-    // 公开 API
     if (requiredPermission === 'public') {
       return { allowed: true, requiredPermission }
     }
 
-    // 未知 action 默认拒绝
     if (!requiredPermission) {
       console.warn(
         `[TappBridge] Unknown action for permission check: ${action}`,
@@ -1113,9 +942,7 @@ export class TappBridge {
       return { allowed: false, reason: `Unknown action: ${action}` }
     }
 
-    // 检查是否已授权
-    // 后端已经根据权限下放配置过滤了 grantedPermissions
-    // 如果权限在列表中，说明后端已批准，前端无需再次验证角色
+    // 授予权限已由后端按角色与下放过滤；在列即已授予，前端不再验角色。
     const granted =
       this.tappInstance.grantedPermissions.includes(requiredPermission)
     if (!granted) {
@@ -1135,7 +962,7 @@ export class TappBridge {
         }
       }
       try {
-        // Re-mint if subject reset destroyed the previous grant.
+        // 主体重置销毁旧 grant 后重铸。
         await this.ensureLiveRuntimeGrant().authorize(requiredPermission)
       } catch {
         return {
@@ -1149,9 +976,6 @@ export class TappBridge {
     return { allowed: true, requiredPermission }
   }
 
-  /**
-   * 监听来自 Tapp 的事件
-   */
   on(event: string, callback: (data: unknown) => void): () => void {
     let listeners = this.eventListeners.get(event)
     if (!listeners) {
@@ -1160,7 +984,6 @@ export class TappBridge {
     }
     listeners.add(callback)
 
-    // 返回取消监听的函数
     return () => {
       listeners?.delete(callback)
       if (listeners?.size === 0) this.eventListeners.delete(event)
@@ -1168,9 +991,6 @@ export class TappBridge {
   }
 }
 
-/**
- * 创建 Bridge 实例
- */
 export function createTappBridge(): TappBridge {
   return new TappBridge()
 }

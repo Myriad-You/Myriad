@@ -1,6 +1,3 @@
-/**
- * SettingAnchoredPanel — 可交互锚定浮层（基于 SettingTitleHelp 表面）
- */
 
 .setting-anchored-panel {
   display: inline-flex;
@@ -9,7 +6,6 @@
   flex-shrink: 0;
 }
 
-/* 交互面板：可点、可滚动表单，略宽于只读 ⓘ */
 .setting-anchored-panel-surface {
   pointer-events: auto;
   width: min(18.5rem, calc(100vw - 1rem));
@@ -21,7 +17,7 @@
   gap: 0.4rem;
   z-index: 10060;
 
-  /* 覆盖只读 tooltip 的 pointer-events:none（未 ready 时仍 none，ready 由 is-ready 打开） */
+  /* override tooltip pointer-events:none until is-ready */
 }
 
 .setting-anchored-panel-title {

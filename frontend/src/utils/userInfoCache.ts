@@ -1,21 +1,8 @@
-/**
- * CSRF Token 内存缓存。
- *
- * ⚠️ 安全：CSRF Token 存内存不存 localStorage，刷新即失效。
- *
- * 历史：本文件曾另有一份「站长展示信息」的 30 分钟 localStorage 缓存，
- * 只在登录/登出时失效——站长换了头像来源或重抓平台数据后，首页信息条最长
- * 半小时不更新。现已改为 HTTP 层缓存（后端 Cache-Control + 内容 ETag）+
- * `avatar-changed` 广播，见 hooks/useSiteOwnerProfile.ts。
- */
+/** CSRF token is memory-only; not localStorage. */
 
-/**
- * 获取 CSRF Token（带内存缓存）
- * 与 csrf.ts sessionStorage 对齐：session 被 clearCSRFToken 清掉后，
- * 内存缓存也必须失效（监听 csrf-token-cleared）。
- */
+/** Memory CSRF cache must clear with sessionStorage. */
 let csrfTokenCache: { token: string; timestamp: number } | null = null
-const CSRF_CACHE_DURATION = 10 * 60 * 1000 // CSRF Token 缓存 10 分钟
+const CSRF_CACHE_DURATION = 10 * 60 * 1000 // 10 min
 
 if (typeof window !== 'undefined') {
   window.addEventListener('csrf-token-cleared', () => {
@@ -26,7 +13,7 @@ if (typeof window !== 'undefined') {
 export async function getCsrfTokenWithCache(
   forceRefresh = false,
 ): Promise<string> {
-  // Prefer sessionStorage if present and matches memory (post-axios-rotate)
+  // Prefer sessionStorage when it matches memory.
   let sessionToken: string | null = null
   try {
     sessionToken = sessionStorage.getItem('csrf_token')
@@ -39,7 +26,7 @@ export async function getCsrfTokenWithCache(
     csrfTokenCache &&
     Date.now() - csrfTokenCache.timestamp < CSRF_CACHE_DURATION
   ) {
-    // Stale if sessionStorage was rotated/cleared to a different value
+    // Stale when sessionStorage differs.
     if (!sessionToken || sessionToken === csrfTokenCache.token) {
       if (sessionToken) return csrfTokenCache.token
     }
@@ -47,7 +34,7 @@ export async function getCsrfTokenWithCache(
   }
 
   try {
-    // Use shared getCSRFToken so sessionStorage + server stay one source of truth
+    // Single source: getCSRFToken.
     const { getCSRFToken } = await import('./csrf')
     const token = await getCSRFToken(forceRefresh || !sessionToken)
     if (token) {
@@ -63,18 +50,10 @@ export async function getCsrfTokenWithCache(
   return ''
 }
 
-/**
- * 清除 CSRF Token 内存缓存（sessionStorage 由 clearCSRFToken 负责）
- */
 export function invalidateCsrfCache(): void {
   csrfTokenCache = null
 }
 
-/**
- * 清除本模块持有的全部用户相关缓存。
- *
- * 登出 / 缓存清理面板会调用；站长展示信息已不再由前端缓存，这里只剩 CSRF。
- */
 export function clearAllUserCache(): void {
   invalidateCsrfCache()
 }

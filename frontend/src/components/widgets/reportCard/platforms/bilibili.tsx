@@ -22,7 +22,6 @@ import {
 import { useLibraryItemRotation } from '../hooks'
 import { getBilibiliProxyUrl } from '../media'
 
-// B站组件（完整版）
 export const DanmakuWidget = memo(
   ({
     data,
@@ -40,15 +39,12 @@ export const DanmakuWidget = memo(
       [data?.danmaku, defaultDanmaku],
     )
 
-    // 🆕 使用触发式动画 - triggerKey 变化时播放一轮，完成后自动释放
     useLoopAnimation({
-      duration: 11000, // 弹幕滚动约8秒 + 额外保持3秒
-      trigger: triggerKey, // 状态切换时触发
-      enabled: allowLoop, // 低端设备禁用
+      duration: 11000,
+      trigger: triggerKey,
+      enabled: allowLoop,
     })
 
-    // 🆕 低性能模式：限制弹幕数量不超过3条
-    // 用 useMemo 锁定：仅在 loop 状态变化时重算随机，避免每次渲染重新洗牌弹幕
     const maxDanmakuCount = useMemo(
       () =>
         allowLoop
@@ -62,8 +58,7 @@ export const DanmakuWidget = memo(
     )
 
     const animations = useMemo(() => {
-      // 使用预生成的 LANES_ARRAY 进行洗牌
-      const availableLanes = [...LANES_ARRAY]
+      const availableLanes = Iterator.from(LANES_ARRAY).toArray()
       for (let i = availableLanes.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1))
         ;[availableLanes[i], availableLanes[j]] = [
@@ -114,7 +109,6 @@ export const BilibiliWidget = memo(
       showOverview,
     )
 
-    // BE card_visuals: user_level / follower_count / following_count
     const userLevel = Number(data?.user_level) || 0
     const followerCount = Number(data?.follower_count) || 0
     const followingCount = Number(data?.following_count) || 0
@@ -165,7 +159,6 @@ export const BilibiliWidget = memo(
               allowLoop={allowLoop}
               triggerKey={showOverview}
             />
-            {/* 概览：等级 / 粉丝 / 关注，走 .glass 表面令牌 */}
             {stats.length > 0 && (
               <motion.div
                 className="absolute bottom-3 right-3 z-20 pointer-events-none"
@@ -212,7 +205,6 @@ export const BilibiliWidget = memo(
                 />
                 <div className="absolute inset-0 bg-linear-to-t from-black/80 via-black/40 to-transparent" />
               </div>
-              {/* 追番进度：extract 从 bangumi 写入的 progress */}
               {(currentItem.progress || currentItem.title) && (
                 <div className="absolute inset-x-0 bottom-0 p-2.5 z-10 flex flex-col gap-0.5">
                   <span className="text-[11px] font-bold text-white line-clamp-1 drop-shadow">

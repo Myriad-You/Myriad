@@ -132,7 +132,7 @@ pub(crate) async fn collect_room_e2e_recipients(
     Ok(out)
 }
 
-/// 发起 Room E2E 密钥发布：生成本地密钥、登记到 published_keys、fan-out KeyExchange
+/// Publish Room E2E keys: reuse existing local key first; skip fan-out/WS when already published.
 pub async fn initiate_e2e_key_exchange(
     user_id: i32,
     username: &str,
@@ -147,16 +147,13 @@ pub async fn initiate_e2e_key_exchange(
     if my_role == "observer" {
         return Err((
             StatusCode::FORBIDDEN,
-            Json(json!({"error": "Observers cannot publish E2E keys"})),
+            Json(AppError::public_json("Observers cannot publish E2E keys")),
         ));
     }
 
     // 1) 读取成员行；已有本地密钥则复用，避免每次打开会话轮换公钥导致解密失败。
     //
-    // 成员行和房间行都在一个事务里加锁，且加锁顺序固定为「先房间后成员」，
-    // 与 handle_key_exchange 一致。两条路径过去各自「读 → 改 → 整体写回」，
-    // 互相覆盖时会出现 published_keys 里是 K1、成员行私钥却是 K2 的错配：
-    // 对端按 K1 加密，本端只有 K2 —— 房间历史就此永久解不开。
+    // Lock room then member. `handle_key_exchange` only `FOR UPDATE`s `federation_rooms`.
     let txn = db.begin().await.map_err(db_err)?;
     let room_row = txn
         .query_one_raw(Statement::from_sql_and_values(
@@ -169,7 +166,7 @@ pub async fn initiate_e2e_key_exchange(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Room not found"})),
+                Json(AppError::public_json("Room not found")),
             )
         })?;
 
@@ -186,7 +183,7 @@ pub async fn initiate_e2e_key_exchange(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Member row not found"})),
+                Json(AppError::public_json("Member row not found")),
             )
         })?;
 
@@ -399,9 +396,8 @@ pub async fn handle_key_exchange(
     crate::federation::e2e::validate_public_key_b64(public_key)
         .map_err(|e| format!("Invalid remote E2E public key: {e}"))?;
 
-    // Room may not exist yet if RoomInvite is still in flight — ask peer to retry
-    // (transient). Permanent not_found only after room row is known-absent and we
-    // already completed invite handling (see ensure below).
+    // Missing room → transient `not yet present; retry after RoomInvite`.
+    // `not_found:` here is a TOCTOU on the second SELECT after the row was seen.
     let room_exists = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -483,3 +479,4 @@ pub async fn handle_key_exchange(
     );
     Ok(())
 }
+use myriad_error::AppError;

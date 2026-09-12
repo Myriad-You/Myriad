@@ -1,29 +1,18 @@
 //! Capability output contract.
 //!
-//! `Capability::output_schema` used to be declared on every capability and read
-//! by nothing. Two consequences:
+//! `Capability::output_schema` is load-bearing:
 //!
-//! - The planner could not see what a step produces, so cross-step references
-//!   (`"dataFrom": "search"`) were untyped guesses resolved by per-capability
-//!   fallbacks at execution time.
-//! - A handler returning the wrong shape ("hollow success") flowed straight into
-//!   downstream steps, and only surfaced later as an escalation heuristic.
-//!
-//! This module makes the declaration load-bearing:
-//!
-//! - [`declared_output_fields`] feeds the compact capability index, so the
-//!   planner can reference a concrete field (`"dataFrom": "search.results"`).
+//! - [`declared_output_fields`] feeds the compact capability index
+//!   (`"dataFrom": "search.results"`).
 //! - [`check_output_contract`] runs after a step completes.
 //!
 //! **Runtime:** [`ContractViolation::Breach`] fails the step. [`ContractViolation::Drift`]
-//! is still log-only. CI sample-output table asserts covered capabilities
+//! 只打日志，不失败步骤。CI sample-output table asserts covered capabilities
 //! produce no Breach.
-//!
-//! The two severities therefore describe *confidence*, not runtime behaviour:
 //!
 //! - [`ContractViolation::Breach`] — a declared field is present with the wrong
 //!   JSON type, a `required` field is missing, or an enum/range bound is
-//!   exceeded. Unambiguous: one side is definitely wrong, so CI rejects it.
+//!   exceeded. Unambiguous: one side is definitely wrong; runtime fails the step and CI rejects it.
 //! - [`ContractViolation::Drift`] — the handler returned an object sharing no
 //!   key at all with the declared properties. Logged only, not a step failure:
 //!   remaining mismatches belong in the registry, not as a runtime abort.
@@ -48,8 +37,7 @@ pub enum ContractViolation {
 impl ContractViolation {
     /// Whether the mismatch is unambiguous enough to gate on.
     ///
-    /// Only selects the log message at runtime (see the module docs); the CI
-    /// sample table is what actually rejects a `Breach`.
+    /// Runtime fails the step on Breach; Drift only warns. CI also rejects sampled Breach.
     pub fn is_fatal(&self) -> bool {
         matches!(self, ContractViolation::Breach(_))
     }
@@ -120,7 +108,7 @@ pub fn check_output_contract(schema: &Value, output: &Value) -> Option<ContractV
         myriad_json_schema::validate_inline_json_value(&strip_any_types(schema), output)
     {
         return Some(ContractViolation::Breach(format!(
-            "输出不符合声明的 output_schema：{error}"
+            "Output does not match the declared output_schema: {error}"
         )));
     }
 
@@ -137,7 +125,7 @@ pub fn check_output_contract(schema: &Value, output: &Value) -> Option<ContractV
     }
 
     Some(ContractViolation::Drift(format!(
-        "输出未包含任何声明字段（声明 [{}]，实际 [{}]）",
+        "Output included none of the declared fields (declared [{}], actual [{}])",
         join_keys(declared.keys()),
         join_keys(actual.keys())
     )))
@@ -222,7 +210,7 @@ mod tests {
 
     #[test]
     fn extra_undeclared_fields_are_tolerated() {
-        // Handlers routinely add envelope fields; only declared ones are checked.
+        // Handlers routinely add extra undeclared fields; only declared ones are checked.
         let output = json!({ "summary": "x", "tookMs": 12, "source": "cache" });
         assert!(check_output_contract(&summarize_schema(), &output).is_none());
     }
@@ -257,7 +245,7 @@ mod tests {
 
     #[test]
     fn hollow_output_is_reported_as_non_fatal_drift() {
-        // The exact shape `steam.user` returns on its degraded path today.
+        // Hollow object with no declared summarize fields (Drift fixture).
         let output = json!({ "message": "未连接", "hint": "先绑定账号" });
         let violation = check_output_contract(&summarize_schema(), &output)
             .expect("zero declared fields must be reported");
@@ -317,7 +305,7 @@ mod tests {
 
     /// Sample outputs mirroring what each handler actually returns on success.
     ///
-    /// Runtime now fails on Breach. This table keeps sampled handlers honest in CI.
+    /// This table keeps sampled handlers honest in CI (no Breach, no Drift).
     ///
     /// Add a row when you add a capability. Two rows for a handler that returns
     /// different shapes on different branches.
@@ -516,8 +504,7 @@ mod tests {
     #[tokio::test]
     async fn sampled_capabilities_declare_the_fields_the_planner_will_reference() {
         // `declared_output_fields` feeds the planner's `o` index. A declared field
-        // the handler never emits sends the planner after data that cannot exist —
-        // which is how `ai.analyze` came to advertise `insights` and `confidence`.
+        // the handler never emits sends the planner after data that cannot exist.
         let registry = crate::services::agent::capability::get_registry().await;
         let mut phantom = Vec::new();
 

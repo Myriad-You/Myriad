@@ -1,15 +1,3 @@
-/**
- * 「显示说明」开启时，标题旁「选项指南」入口。
- * 点击后以浮窗（Portal + fixed）展示大号介绍。
- * 定位：优先触发器上方；上方不够 → 左边。
- * 滚动：位置向目标平滑跟（平抑）；选项滚出视口则自动关闭（带退出动效）。
- *
- * 固定（pin）：
- * - 仅关闭按钮可关（点外 / Esc / 滚出视口 / 点触发器 均不关）
- * - 停止跟随锚点；可拖动手柄自由移动
- * - 取消固定后恢复跟随与自动关闭行为
- */
-
 import type { ReactNode } from 'react'
 import type { GuidePlacement } from './settingTitleGuideLogic'
 import { FaTimes, LuGripVertical, LuPin } from '@lib/icons'
@@ -36,55 +24,32 @@ import {
 import './SettingTitleGuideEntry.css'
 
 export interface SettingTitleGuideTriggerApi {
-  /** 浮窗是否处于打开态（含退出动画中可作 active 样式） */
   open: boolean
   closing: boolean
-  /** 切换开合；自定义触发器可无事件调用。固定时点触发器不会关闭 */
   toggle: (e?: React.MouseEvent) => void
   panelId: string
   mounted: boolean
   ariaLabel: string
-  /** 当前是否固定 */
   pinned: boolean
 }
 
 export interface SettingTitleGuideEntryProps {
-  /** 关联选项名（无障碍 / 浮窗标题） */
   title: string
-  /**
-   * 指南正文（通常为 SettingGuideBody）。
-   * 未提供时不渲染。
-   */
   guide?: ReactNode
   className?: string
-  /**
-   * 默认 true：仅「显示说明」开启时显示入口。
-   * 设 false 用于页头常驻入口（如 AI「添加服务商」），仍走同一套浮窗。
-   */
   requireShowDetails?: boolean
-  /** 覆盖触发器文案（收起态）；默认「选项指南」 */
   openLabel?: string
-  /** 覆盖触发器文案（展开态）；默认「收起指南」 */
   closeLabel?: string
-  /** 附加到浮窗根节点（宽内容目录等） */
   panelClassName?: string
-  /**
-   * 自定义触发器（如与「显示说明」同款 CheckboxCard）。
-   * 提供时不再渲染默认文字 chip；定位锚点为外包一层 host。
-   */
   renderTrigger?: (api: SettingTitleGuideTriggerApi) => ReactNode
 }
 
-/** 浮窗目标宽度；窄屏自动收缩 */
 const PANEL_MAX_W = 36 * 16 // 36rem
-/** 每帧向目标靠近的比例（越小越慢、越平抑） */
 const LERP = 0.12
-/** 与目标距离小于此视为贴合，停 rAF */
+/** stop rAF when close enough */
 const SNAP_EPS = 0.45
-/** 退出动效时长（与 CSS --guide-float-exit-ms 对齐） */
 const EXIT_MS = 260
 
-/** 浮窗生命周期：挂载后 ready 才进入可见；closing 播退出动画后卸载 */
 type FloatPhase = 'closed' | 'open' | 'closing'
 
 function prefersReducedMotion(): boolean {
@@ -92,7 +57,6 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
-/** 优先用最近的选项/分组锚点判断「选项是否看得见」 */
 function resolveVisibilityTarget(trigger: HTMLElement): HTMLElement {
   const anchor = trigger.closest(
     '.has-guide-anchor, .setting-item, .setting-group, .section-header-text',
@@ -129,10 +93,9 @@ export const SettingTitleGuideEntry: React.FC<SettingTitleGuideEntryProps> = ({
   panelClassName = '',
   renderTrigger,
 }) => {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const help = useSettingsHelp()
   const panelId = useId()
-  /** 默认按钮或自定义触发器外包 host */
   const triggerRef = useRef<HTMLElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
 
@@ -142,7 +105,7 @@ export const SettingTitleGuideEntry: React.FC<SettingTitleGuideEntryProps> = ({
   const [pinned, setPinned] = useState(false)
   const [dragging, setDragging] = useState(false)
 
-  /** 平滑跟随后的实际坐标（直接写 DOM，避免滚动时 React 重渲染） */
+  /** write DOM; skip React re-render while scrolling */
   const displayRef = useRef({ top: 0, left: 0 })
   const targetRef = useRef({
     top: 0,
@@ -153,7 +116,7 @@ export const SettingTitleGuideEntry: React.FC<SettingTitleGuideEntryProps> = ({
   const exitTimerRef = useRef(0)
   const phaseRef = useRef<FloatPhase>('closed')
   const pinnedRef = useRef(false)
-  /** 本次打开是否已经播过进入动效；避免 guide 内容更新时闪一下位移 */
+  /** don't replay enter when guide content updates */
   const enteredRef = useRef(false)
   const dragSessionRef = useRef<{
     pointerId: number
@@ -186,7 +149,6 @@ export const SettingTitleGuideEntry: React.FC<SettingTitleGuideEntryProps> = ({
   const tickSmooth = useCallback(() => {
     rafRef.current = 0
     if (phaseRef.current !== 'open') return
-    // 固定 / 拖动中不跟随锚点
     if (pinnedRef.current || dragSessionRef.current) return
 
     const target = targetRef.current
@@ -224,11 +186,7 @@ export const SettingTitleGuideEntry: React.FC<SettingTitleGuideEntryProps> = ({
     setPhase('closed')
   }, [stopSmooth])
 
-  /**
-   * 关闭浮窗。
-   * force=true：关闭按钮 / 内部强制；固定时外部关闭路径不得调用 force。
-   * 固定时非 force 的 close 会被忽略。
-   */
+  /** pinned: ignore close unless force */
   const close = useCallback(
     (opts?: { force?: boolean }) => {
       const force = opts?.force === true
@@ -253,11 +211,7 @@ export const SettingTitleGuideEntry: React.FC<SettingTitleGuideEntryProps> = ({
     [finishUnmount, stopSmooth],
   )
 
-  /**
-   * 测量目标位；snap=true 时立刻贴合（打开瞬间）。
-   * 固定时不跟随、不因不可见而关闭。
-   * 返回 false 表示选项已不可见（并已关闭）。
-   */
+  /** pinned: no follow / no auto-close on hide */
   const measureTarget = useCallback(
     (opts?: { snap?: boolean }): boolean => {
       const trigger = triggerRef.current
@@ -267,7 +221,6 @@ export const SettingTitleGuideEntry: React.FC<SettingTitleGuideEntryProps> = ({
       const vw = window.innerWidth
       const vh = window.innerHeight
 
-      // 固定：只做视口夹紧，不跟锚点、不自动关
       if (pinnedRef.current) {
         const panelW = panel.offsetWidth
         const panelH = panel.offsetHeight
@@ -327,7 +280,6 @@ export const SettingTitleGuideEntry: React.FC<SettingTitleGuideEntryProps> = ({
     [applyDisplay, close, startSmooth, stopSmooth],
   )
 
-  /* 关闭「显示说明」时：未固定才收起（固定后仅关闭钮可关） */
   useEffect(() => {
     if (requireShowDetails && !help?.showDetails && !pinnedRef.current) {
       close()
@@ -353,7 +305,6 @@ export const SettingTitleGuideEntry: React.FC<SettingTitleGuideEntryProps> = ({
       e?.preventDefault()
       e?.stopPropagation()
       if (phaseRef.current === 'open') {
-        // 固定时点入口不关闭，只能点关闭钮
         if (!shouldToggleCloseGuide(true, pinnedRef.current)) return
         close({ force: true })
       } else if (phaseRef.current === 'closing') {
@@ -376,10 +327,8 @@ export const SettingTitleGuideEntry: React.FC<SettingTitleGuideEntryProps> = ({
         const next = !prev
         pinnedRef.current = next
         if (next) {
-          // 固定：停在当前位置，停止跟随
           stopSmooth()
         } else {
-          // 取消固定：重新贴回触发器
           requestAnimationFrame(() => {
             measureTarget({ snap: true })
           })
@@ -390,11 +339,9 @@ export const SettingTitleGuideEntry: React.FC<SettingTitleGuideEntryProps> = ({
     [measureTarget, stopSmooth],
   )
 
-  /* —— 固定后拖动 —— */
   const onDragPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (!pinnedRef.current || phaseRef.current !== 'open') return
-      // 仅主指针；忽略按钮/链接上的按下（手柄本身无按钮）
       if (e.button !== 0) return
       e.preventDefault()
       e.stopPropagation()
@@ -464,8 +411,7 @@ export const SettingTitleGuideEntry: React.FC<SettingTitleGuideEntryProps> = ({
     setDragging(false)
   }, [])
 
-  /* 打开瞬间：先贴合（隐藏态），再加 is-ready 触发进入动效。
-   * guide 随添加结果重绘时不要把 ready 打回 false，否则会重播 8px 进入位移。 */
+  /* snap hidden, then is-ready; don't clear ready on guide rerender */
   useLayoutEffect(() => {
     if (phase !== 'open') {
       if (phase === 'closed') stopSmooth()
@@ -474,7 +420,7 @@ export const SettingTitleGuideEntry: React.FC<SettingTitleGuideEntryProps> = ({
       }
       return
     }
-    // 固定中重渲染 guide 内容时不要 snap 回锚点
+    // pinned guide rerender: don't snap to anchor
     if (pinnedRef.current) {
       enteredRef.current = true
       setReady(true)
@@ -482,7 +428,7 @@ export const SettingTitleGuideEntry: React.FC<SettingTitleGuideEntryProps> = ({
     }
     const replayEnter = !enteredRef.current
     if (replayEnter) setReady(false)
-    // 内容随添加结果变高时只平滑跟位，不要 snap，否则浮窗会闪一下。
+    // content grew: lerp only, don't snap
     measureTarget({ snap: replayEnter })
     if (!replayEnter) return
     let raf2 = 0
@@ -500,7 +446,7 @@ export const SettingTitleGuideEntry: React.FC<SettingTitleGuideEntryProps> = ({
     }
   }, [phase, guide, measureTarget, stopSmooth])
 
-  /* 滚动 / 缩放：未固定时跟随+不可见则关；固定时仅 resize 夹紧 */
+  /* unpinned: follow + close if hidden; pinned: clamp on resize */
   useEffect(() => {
     if (phase !== 'open') return
 
@@ -513,7 +459,6 @@ export const SettingTitleGuideEntry: React.FC<SettingTitleGuideEntryProps> = ({
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
-      // 固定时 Esc 也不关，仅关闭按钮
       if (pinnedRef.current) return
       e.stopPropagation()
       close()
@@ -567,23 +512,22 @@ export const SettingTitleGuideEntry: React.FC<SettingTitleGuideEntryProps> = ({
     }
   }, [phase, pinned, close, measureTarget, stopSmooth])
 
-  // 固定态仍显示入口（即使关掉了「显示说明」）；未固定且依赖说明模式时隐藏
   if (requireShowDetails && !help?.showDetails && !pinned) return null
   if (guide == null || guide === false || guide === '') return null
 
-  const heading = t.config.optionGuideHeading.replace('{title}', title)
-  const openAria = t.config.openOptionGuide.replace('{title}', title)
+  const heading = format(t.config.optionGuideHeading, { title })
+  const openAria = format(t.config.openOptionGuide, { title })
   const closeAria = t.common.close
   const pinAria = pinned
-    ? t.config.unpinOptionGuideAria.replace('{title}', title)
-    : t.config.pinOptionGuideAria.replace('{title}', title)
+    ? format(t.config.unpinOptionGuideAria, { title })
+    : format(t.config.pinOptionGuideAria, { title })
   const triggerLabel = isActive
     ? (closeLabel ?? t.config.hideOptionGuide)
     : (openLabel ?? t.config.optionGuide)
   const triggerAria = isActive
     ? pinned
-      ? pinAria // 固定时触发器文案提示已固定，不暗示「点此关闭」
-      : t.config.hideOptionGuideAria.replace('{title}', title)
+      ? pinAria // pinned: don't imply "click to close"
+      : format(t.config.hideOptionGuideAria, { title })
     : openAria
 
   const canPortal = typeof document !== 'undefined'
@@ -640,7 +584,6 @@ export const SettingTitleGuideEntry: React.FC<SettingTitleGuideEntryProps> = ({
               </div>
             )}
 
-            {/* 固定 + 关闭：右下角操作组 */}
             <div className="setting-title-guide-actions">
               <button
                 type="button"

@@ -21,7 +21,6 @@ describe('resolveReportPlatformId', () => {
   })
 
   it('falls back to report-* type suffix when config missing (home layout bug)', () => {
-    // Saved dashboard layouts sometimes omit config; type still encodes platform.
     assert.equal(
       resolveReportPlatformId({ type: 'report-steam' }),
       'steam',
@@ -156,7 +155,6 @@ describe('pickPlatformCardVisuals', () => {
   })
 
   it('does not treat empty card_visuals as renderable (empty shell bug)', () => {
-    // Regression: setReportData({}) is truthy → platform widget mounts with no stats
     const picked = pickPlatformCardVisuals(
       {
         success: true,
@@ -311,8 +309,6 @@ describe('hasReportDetailContent', () => {
   })
 
   it('is true for X following highlights/sample even when library_items empty', () => {
-    // Regression: #155 Discord empty-face gate only checked library_items,
-    // so low-post X cards never auto-flipped to the following carousel.
     assert.equal(
       hasReportDetailContent({
         library_items: [],

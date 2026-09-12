@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 
-/** Absence scans only: which lifecycle a surface must not take. */
+/** Absence scans only */
 test('live faces share one motion owner; workbench preview stays isolated', () => {
   const panel = readFileSync(
     new URL(

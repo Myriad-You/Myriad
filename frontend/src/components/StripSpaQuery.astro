@@ -1,18 +1,14 @@
 ---
-/**
- * WeChat / Weibo in-app share flow lands on `?_spa=1` after the OG HTML bounce.
- * Drop the flag from the address bar before React Router boots.
- */
 ---
 
 <script is:inline>
   ;(function () {
     try {
-      var u = new URL(location.href)
+      const u = new URL(location.href)
       if (u.searchParams.get('_spa') !== '1') return
       u.searchParams.delete('_spa')
-      var q = u.searchParams.toString()
+      const q = u.searchParams.toString()
       history.replaceState(null, '', u.pathname + (q ? '?' + q : '') + u.hash)
-    } catch (e) {}
+    } catch {}
   })()
 </script>

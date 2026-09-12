@@ -1,9 +1,3 @@
-/**
- * 进出场记账：DOM 不能说卸就卸，退场那段动画还得留着这行。
- *
- * 纯函数，时间从外面喂，方便测。真正的卸载时机由 hook 用 until 来掐。
- */
-
 export const AGENT_ROW_MS = 480
 export const AGENT_SWAP_MS = 320
 
@@ -83,7 +77,7 @@ export function reconcilePresence<T>(
     incomingKeys.push(key)
   }
 
-  const result: PresenceEntry<T>[] = []
+  let result: PresenceEntry<T>[] = []
   const placed = new Set<string>()
 
   const keep = (key: string) => {
@@ -129,7 +123,7 @@ export function reconcilePresence<T>(
     const item = incoming.get(key)
     if (!item) continue
     placed.add(key)
-    result.splice(at, 0, { key, item, phase: 'in', until: 0 })
+    result = result.toSpliced(at, 0, { key, item, phase: 'in', until: 0 })
   }
 
   return result

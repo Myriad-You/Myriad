@@ -1,0 +1,628 @@
+/* 页面组合不要往这里塞业务。 */
+
+.brew-sheet {
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
+  border: 1px solid var(--brew-frost-line, var(--brew-line));
+  border-radius: var(--brew-radius);
+  background: var(--brew-chip);
+  box-shadow: var(--brew-shadow);
+}
+
+.brew-sheet__body {
+  display: flex;
+  overflow: auto;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: min(50vh, 28rem);
+  padding: 0.85rem 0.9rem;
+}
+
+.brew-sheet--edit .brew-sheet__body {
+  max-height: min(62vh, 36rem);
+}
+
+.brew-sheet__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.brew-sheet__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.brew-sheet__label {
+  color: var(--brew-fg-soft);
+  font-size: 0.75rem;
+  font-weight: 550;
+  letter-spacing: 0.01em;
+}
+
+.brew-sheet__req {
+  color: #dc2626;
+}
+
+.brew-sheet__hint {
+  margin: 0;
+  color: var(--brew-fg-dim);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+}
+
+.brew-sheet__choices {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.32rem;
+}
+
+.brew-sheet__choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.28rem;
+  padding: 0.45rem 0.2rem;
+  border: 1px solid var(--brew-frost-line, var(--brew-line));
+  border-radius: 0.42rem;
+  background: transparent;
+  color: var(--brew-fg-dim);
+  cursor: pointer;
+  transition: var(--sm-t-fill, background-color 140ms ease);
+}
+
+.brew-sheet__choice svg {
+  display: block;
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.brew-sheet__choice span {
+  font-size: 0.625rem;
+  font-weight: 550;
+  letter-spacing: 0.01em;
+}
+
+.brew-sheet__choice:hover,
+.brew-sheet__choice.is-on {
+  background: var(--brew-fill-hover);
+  border-color: var(--brew-line-hover);
+  color: var(--brew-fg);
+}
+
+.brew-sheet__choice.is-on {
+  background: var(--brew-accent-fill);
+  border-color: var(--brew-accent-line);
+  color: var(--brew-accent-ink);
+}
+
+.brew-sheet__choice small {
+  color: var(--brew-fg-dim);
+  font-size: 0.5625rem;
+  line-height: 1.25;
+}
+
+.brew-sheet__choices--mode {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.brew-sheet__pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.32rem;
+}
+
+.brew-sheet__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  min-height: 1.45rem;
+  padding: 0 0.42rem 0 0.5rem;
+  border: 1px solid var(--brew-frost-line, var(--brew-line));
+  border-radius: 999px;
+  background: var(--brew-fill);
+  color: var(--brew-fg-soft);
+  font-size: 0.6875rem;
+}
+
+.brew-sheet__pill svg {
+  width: 0.7rem;
+  height: 0.7rem;
+}
+
+.brew-sheet__pill button {
+  display: grid;
+  place-items: center;
+  width: 1rem;
+  height: 1rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--brew-fg-dim);
+  cursor: pointer;
+}
+
+.brew-sheet__pill button:hover {
+  background: var(--brew-fill-hover);
+  color: var(--brew-fg);
+}
+
+.brew-sheet__swatch {
+  position: relative;
+  display: block;
+  width: 2.1rem;
+  height: 2.1rem;
+  overflow: hidden;
+  border: 1px solid var(--brew-frost-line, var(--brew-line));
+  border-radius: 0.42rem;
+  background: var(--brew-fill);
+  cursor: pointer;
+}
+
+.brew-sheet__swatch input {
+  position: absolute;
+  inset: -20%;
+  width: 140%;
+  height: 140%;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+}
+
+.brew-sheet__switch {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--brew-frost-line, var(--brew-line));
+  border-radius: 0.42rem;
+  background: var(--brew-fill);
+}
+
+.brew-sheet__switch > svg {
+  flex-shrink: 0;
+  width: 0.9rem;
+  height: 0.9rem;
+  color: var(--brew-accent-ink);
+}
+
+.brew-sheet__switch-copy {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.brew-sheet__switch-copy strong {
+  color: var(--brew-fg);
+  font-size: 0.75rem;
+  font-weight: 550;
+}
+
+.brew-sheet__switch-copy span {
+  overflow: hidden;
+  color: var(--brew-fg-dim);
+  font-size: 0.6875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brew-sheet__toggle {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  width: 2.05rem;
+  height: 1.2rem;
+  padding: 0.12rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--brew-line);
+  cursor: pointer;
+  transition: background-color var(--sm-dur-base, 220ms) var(--sm-ease-standard, ease);
+}
+
+.brew-sheet__toggle.is-on {
+  background: var(--brew-accent);
+}
+
+.brew-sheet__toggle i {
+  display: block;
+  width: 0.96rem;
+  height: 0.96rem;
+  border-radius: 999px;
+  background: #fff;
+  transform: translateX(0);
+  transition: transform var(--sm-dur-fast, 140ms) var(--sm-ease-spring, cubic-bezier(0.34, 1.4, 0.64, 1));
+}
+
+.brew-sheet__toggle.is-on i {
+  transform: translateX(0.85rem);
+}
+
+.brew-sheet__input,
+.brew-sheet select,
+.brew-sheet textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: var(--brew-tag-h);
+  padding: 0 0.7rem;
+  border: 1px solid var(--brew-frost-line, var(--brew-line));
+  border-radius: 0.42rem;
+  background: var(--brew-chip);
+  color: var(--brew-fg);
+  font-family: inherit;
+  font-size: var(--brew-tag-type);
+  font-weight: 550;
+}
+
+.brew-sheet textarea {
+  height: auto;
+  min-height: 6rem;
+  padding: 0.55rem 0.7rem;
+  resize: vertical;
+}
+
+.brew-sheet__input:focus,
+.brew-sheet select:focus,
+.brew-sheet textarea:focus {
+  outline: none;
+  border-color: var(--brew-line-hover);
+}
+
+.brew-sheet__input::placeholder {
+  color: var(--brew-fg-dim);
+  font-weight: 500;
+}
+
+.brew-sheet__input.is-with-mark {
+  padding-left: 1.85rem;
+}
+
+button.brew-sheet__input {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+  cursor: pointer;
+}
+
+.brew-sheet__ghost.is-fit {
+  width: auto;
+}
+
+.brew-sheet__field-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.brew-sheet__field-row .brew-sheet__grow {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.brew-sheet__field-row .brew-bar__mark {
+  position: absolute;
+  top: 50%;
+  left: 0.5rem;
+  color: var(--brew-fg-dim);
+  transform: translateY(-50%);
+}
+
+.brew-sheet__pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.brew-sheet__notice {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  color: var(--brew-fg-soft);
+  font-size: 0.75rem;
+}
+
+.brew-sheet__notice svg,
+.brew-sheet__menu-item svg,
+.brew-sheet__submit svg,
+.brew-sheet__ghost svg {
+  flex-shrink: 0;
+  width: 0.78rem;
+  height: 0.78rem;
+}
+
+.brew-sheet__menu-item svg {
+  margin-left: auto;
+}
+
+.brew-sheet__notice.is-ok {
+  color: var(--brew-accent-ink);
+}
+
+.brew-sheet__notice.is-bad {
+  color: #dc2626;
+}
+
+.brew-sheet__mark {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  width: 2rem;
+  height: 2rem;
+  border: 1px dashed var(--brew-line);
+  border-radius: 0.42rem;
+  background: var(--brew-fill);
+  color: var(--brew-fg-dim);
+}
+
+.brew-sheet__mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.brew-sheet__mark svg {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+.brew-sheet__menu {
+  position: absolute;
+  top: calc(100% + 0.28rem);
+  left: 0;
+  z-index: 22;
+  overflow: hidden;
+  width: 100%;
+  border: 1px solid var(--brew-frost-line, var(--brew-line));
+  border-radius: 0.42rem;
+  background: var(--brew-chip);
+  box-shadow: var(--brew-shadow);
+  animation: sm-pop-in var(--sm-dur-base, 220ms)
+    var(--sm-ease-enter, cubic-bezier(0.16, 1, 0.3, 1)) backwards;
+}
+
+.brew-sheet__menu-body {
+  overflow: auto;
+  max-height: 8rem;
+  padding: 0.2rem;
+}
+
+.brew-sheet__menu-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: var(--brew-tag-h);
+  padding: 0 0.55rem;
+  border: 0;
+  border-radius: 0.3rem;
+  background: transparent;
+  color: var(--brew-fg-soft);
+  font-size: var(--brew-tag-type);
+  font-weight: 550;
+  text-align: left;
+  cursor: pointer;
+}
+
+.brew-sheet__menu-item:hover,
+.brew-sheet__menu-item.is-on {
+  background: var(--brew-fill-hover);
+  color: var(--brew-fg);
+}
+
+.brew-sheet__menu-item.is-on {
+  background: var(--brew-accent-fill);
+  color: var(--brew-accent-ink);
+}
+
+.brew-sheet__drop {
+  padding: 1rem 0.75rem;
+  border: 1px dashed var(--brew-line);
+  border-radius: 0.42rem;
+  background: transparent;
+  color: var(--brew-fg-soft);
+  text-align: center;
+  cursor: pointer;
+  transition: var(--sm-t-fill, background-color 140ms ease);
+}
+
+.brew-sheet__drop:hover,
+.brew-sheet__drop.is-on {
+  background: var(--brew-fill-hover);
+  border-color: var(--brew-accent-line);
+  color: var(--brew-fg);
+}
+
+.brew-sheet__drop svg {
+  display: block;
+  width: 1.6rem;
+  height: 1.6rem;
+  margin: 0 auto 0.35rem;
+  opacity: 0.45;
+}
+
+.brew-sheet__drop.is-on svg {
+  opacity: 0.8;
+  color: var(--brew-accent-ink);
+}
+
+.brew-sheet__drop p {
+  margin: 0;
+  font-size: 0.75rem;
+}
+
+.brew-sheet__drop small {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--brew-fg-dim);
+  font-size: 0.6875rem;
+}
+
+.brew-sheet__submit,
+.brew-sheet__ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  width: 100%;
+  height: var(--brew-tag-h);
+  padding: 0 0.8rem;
+  border-radius: 0.42rem;
+  font-size: var(--brew-tag-type);
+  font-weight: 550;
+  cursor: pointer;
+  transition: var(--sm-t-fill, background-color 140ms ease);
+}
+
+label.brew-sheet__ghost {
+  position: relative;
+}
+
+.brew-sheet__submit {
+  border: 1px solid var(--brew-accent-line);
+  background: var(--brew-accent-fill);
+  color: var(--brew-accent-ink);
+}
+
+.brew-sheet__submit:hover {
+  background: var(
+    --cfg-accent-fill-hover,
+    color-mix(in srgb, var(--brew-accent) 26%, white)
+  );
+}
+
+.brew-sheet__ghost {
+  border: 1px solid var(--brew-frost-line, var(--brew-line));
+  background: transparent;
+  color: var(--brew-fg-soft);
+}
+
+.brew-sheet__ghost:hover {
+  background: var(--brew-fill-hover);
+  color: var(--brew-fg);
+}
+
+.brew-sheet__submit:disabled,
+.brew-sheet__ghost:disabled,
+.brew-sheet__choice:disabled,
+.brew-sheet__toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.brew-sheet__foot {
+  display: flex;
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0.5rem 0.65rem;
+  border-top: 1px solid var(--brew-line);
+}
+
+.brew-sheet__tab {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 0.34rem;
+  height: var(--brew-tag-h);
+  padding: 0 0.65rem;
+  border: 1px solid transparent;
+  border-radius: 0.42rem;
+  background: transparent;
+  color: var(--brew-fg-soft);
+  font-size: var(--brew-tag-type);
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.brew-sheet__tab svg {
+  width: var(--brew-tag-mark);
+  height: var(--brew-tag-mark);
+}
+
+.brew-sheet__tab:hover,
+.brew-sheet__tab.is-on {
+  background: var(--brew-fill-hover);
+  color: var(--brew-fg);
+}
+
+.brew-sheet__tab.is-on {
+  border-color: var(--brew-frost-line, var(--brew-line));
+  background: var(--brew-fill-hover);
+}
+
+.brew-sheet__keys {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+
+.brew-sheet__group {
+  padding: 0.55rem 0.6rem;
+  border: 1px solid var(--brew-line);
+  border-radius: 0.42rem;
+  background: var(--brew-fill);
+}
+
+.brew-sheet__group-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--brew-line);
+  color: var(--brew-fg-dim);
+  font-size: 0.625rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.brew-sheet__count {
+  margin-left: auto;
+  padding: 0.08rem 0.32rem;
+  border-radius: 999px;
+  background: var(--brew-chip);
+  color: var(--brew-fg-dim);
+  font-size: 0.5625rem;
+  font-weight: 650;
+}
+
+.brew-sheet__shortcut {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  min-height: 1.45rem;
+}
+
+.brew-sheet__shortcut span {
+  overflow: hidden;
+  color: var(--brew-fg-soft);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brew-sheet__kbd {
+  flex-shrink: 0;
+  min-width: 1.15rem;
+  padding: 0.08rem 0.35rem;
+  border: 1px solid var(--brew-line);
+  border-radius: 0.28rem;
+  background: var(--brew-chip);
+  color: var(--brew-fg-dim);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.625rem;
+  line-height: 1.2;
+  text-align: center;
+}
+

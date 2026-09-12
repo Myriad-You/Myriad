@@ -1,8 +1,3 @@
-/**
- * 配置侧栏横版 banner（收藏夹上方）。
- * 按时段问候 + 上次登录；多 slide 时自动轮播（悬停/聚焦暂停）。
- */
-
 import type { GreetingIconName } from '../../utils/dynamicContent'
 import React, { useEffect, useId, useMemo, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
@@ -60,13 +55,12 @@ function periodFromHour(hour: number): GreetingPeriod {
 
 function escapeHtml(s: string): string {
   return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
 }
 
-/** Compact local datetime for the narrow sidebar meta line. */
 function formatLastLogin(iso: string, locale: string): string | null {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return null
@@ -78,7 +72,6 @@ function formatLastLogin(iso: string, locale: string): string | null {
   })
 }
 
-/** 主：问候 · 次：上次登录 */
 function buildGreetingHtml(opts: {
   period: GreetingPeriod
   text: string
@@ -104,7 +97,7 @@ function buildGreetingHtml(opts: {
 export const ConfigTipsBanner: React.FC<ConfigTipsBannerProps> = ({
   className = '',
 }) => {
-  const { t, locale } = useI18n()
+  const { t, locale, format } = useI18n()
   const { user } = useAuth()
   const labelId = useId()
   const [now, setNow] = useState(() => new Date())
@@ -140,10 +133,9 @@ export const ConfigTipsBanner: React.FC<ConfigTipsBannerProps> = ({
     if (user?.last_login_at) {
       const formatted = formatLastLogin(user.last_login_at, locale)
       if (formatted) {
-        lastLoginLine = tpl.replace('{time}', formatted)
+        lastLoginLine = format(tpl, { time: formatted })
       }
     } else if (user) {
-      // Logged in but no timestamp (legacy row / never set)
       lastLoginLine = neverLabel
     }
 
@@ -159,7 +151,6 @@ export const ConfigTipsBanner: React.FC<ConfigTipsBannerProps> = ({
     }
   }, [now, t, locale, user?.username, user?.last_login_at, user])
 
-  // 后续可在此追加 slide；>1 时自动轮播
   const slides = useMemo<BannerSlide[]>(
     () => [greetingSlide],
     [greetingSlide],
@@ -207,7 +198,7 @@ export const ConfigTipsBanner: React.FC<ConfigTipsBannerProps> = ({
         </span>
         <div
           className="config-tips-banner-body"
-          // 信任源：本组件拼装 + i18n 静态文案
+          // html from this component + i18n only
           dangerouslySetInnerHTML={{ __html: current.html }}
           data-tip-id={current.id}
         />

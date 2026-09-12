@@ -1,8 +1,3 @@
-/**
- * RSSHub 配置组件
- * 统一使用后端 API 管理实例，支持健康检查和故障转移
- */
-
 import type { RSSHubConfig, RSSHubQueryParams } from '../../../types/brew'
 import {
   LuActivity as Activity,
@@ -43,15 +38,13 @@ import { useI18n } from '../../../contexts/I18nContext'
 
 import { getCSRFHeaderName, getCSRFToken } from '../../../utils/csrf'
 import { Spinner } from '../../Spinner'
+import '../ui/brew.css'
 
-// Framer Motion transition 配置常量
 const TRANSITION_NORMAL = { duration: 0.15 } as const
 const TRANSITION_SLOW = { duration: 0.2 } as const
 
-// API 基础路径
 const API_BASE = `${API_URL}/api/brew`
 
-// RSSHub 实例类型（统一使用后端类型）
 interface RsshubInstance {
   id: number
   user_id: number | null
@@ -68,35 +61,29 @@ interface RsshubInstance {
   created_at: number
 }
 
-// 健康状态配置 - 标签使用翻译键
 const HEALTH_STATUS_CONFIG = {
   healthy: {
     labelKey: 'rsshubHealthy' as const,
-    color: 'text-gray-600 dark:text-gray-300',
-    bgColor: 'bg-gray-100 dark:bg-neutral-700',
+    bgColor: 'brew-rsshub__status is-ok',
     icon: Check,
   },
   degraded: {
     labelKey: 'rsshubDegraded' as const,
-    color: 'text-gray-500',
-    bgColor: 'bg-gray-100 dark:bg-neutral-700',
+    bgColor: 'brew-rsshub__status is-warn',
     icon: AlertCircle,
   },
   unhealthy: {
     labelKey: 'rsshubUnhealthy' as const,
-    color: 'text-gray-500',
-    bgColor: 'bg-gray-100 dark:bg-neutral-700',
+    bgColor: 'brew-rsshub__status is-bad',
     icon: X,
   },
   unknown: {
     labelKey: 'rsshubUnknown' as const,
-    color: 'text-gray-400',
-    bgColor: 'bg-gray-100 dark:bg-neutral-700',
+    bgColor: 'brew-rsshub__status',
     icon: Activity,
   },
 }
 
-// RSSHub 图标
 function RSSHubIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="currentColor">
@@ -105,7 +92,6 @@ function RSSHubIcon({ className }: { className?: string }) {
   )
 }
 
-// 常用查询参数说明 - 使用翻译键
 const COMMON_QUERY_PARAMS_KEYS = [
   {
     key: 'limit',
@@ -174,7 +160,6 @@ const COMMON_QUERY_PARAMS_KEYS = [
   },
 ]
 
-// 常用路由分类 - 使用翻译键
 const ROUTE_CATEGORIES_KEYS = [
   {
     id: 'social',
@@ -218,258 +203,174 @@ const ROUTE_CATEGORIES_KEYS = [
   },
 ]
 
-// 路由需要的配置类型
 type RouteConfigRequirement = 'none' | 'server' | 'optional'
 
 interface RouteTemplate {
   path: string
-  name: string
-  params: string[]
-  /** 是否需要服务端配置（如 TWITTER_AUTH_TOKEN 等环境变量） */
   requiresConfig?: RouteConfigRequirement
-  /** 需要的服务端配置说明 */
   configNote?: string
 }
 
-// 热门路由模板（精选经过官方测试验证的可用路由）
-// 标注：✓ Passed Test = 官方测试通过，无需额外配置即可使用
+function rsshubRouteName(
+  names: Record<string, string>,
+  path: string,
+): string {
+  return names[path] || path
+}
+
 const POPULAR_ROUTES: { category: string; routes: RouteTemplate[] }[] = [
   {
     category: 'social',
     routes: [
-      // Bluesky - ✓ Passed Test
       {
         path: '/bsky/profile/:handle',
-        name: 'Bluesky 用户',
-        params: ['用户handle'],
       },
-      // 豆瓣 - 无需配置
       {
         path: '/douban/people/:id/status',
-        name: '豆瓣用户广播',
-        params: ['用户ID'],
       },
-      { path: '/douban/group/:groupid', name: '豆瓣小组', params: ['小组ID'] },
-      { path: '/douban/movie/playing', name: '豆瓣正在热映', params: [] },
-      { path: '/douban/explore', name: '豆瓣浏览发现', params: [] },
-      // Telegram - 公开频道无需配置
+      { path: '/douban/group/:groupid' },
+      { path: '/douban/movie/playing' },
+      { path: '/douban/explore' },
       {
         path: '/telegram/channel/:id',
-        name: 'Telegram 频道',
-        params: ['频道名'],
       },
-      // 微博 - 需要配置才能稳定使用
       {
         path: '/weibo/oasis/user/:userid',
-        name: '微博绿洲',
-        params: ['用户ID'],
       },
     ],
   },
   {
     category: 'video',
     routes: [
-      // B站 - ✓ Passed Test
       {
         path: '/bilibili/user/video/:uid',
-        name: 'B站UP主视频',
-        params: ['UID'],
       },
       {
         path: '/bilibili/ranking/:rid?',
-        name: 'B站排行榜',
-        params: ['分区(可选)'],
       },
-      { path: '/bilibili/popular/all', name: 'B站综合热门', params: [] },
-      { path: '/bilibili/weekly', name: 'B站每周必看', params: [] },
-      { path: '/bilibili/precious', name: 'B站入站必刷', params: [] },
-      { path: '/bilibili/hot-search', name: 'B站热搜', params: [] },
+      { path: '/bilibili/popular/all' },
+      { path: '/bilibili/weekly' },
+      { path: '/bilibili/precious' },
+      { path: '/bilibili/hot-search' },
       {
         path: '/bilibili/bangumi/media/:mediaid',
-        name: 'B站番剧',
-        params: ['剧集ID'],
       },
       {
         path: '/bilibili/user/article/:uid',
-        name: 'B站UP主图文',
-        params: ['UID'],
       },
-      { path: '/bilibili/audio/:id', name: 'B站歌单', params: ['歌单ID'] },
-      // AcFun
+      { path: '/bilibili/audio/:id' },
       {
         path: '/acfun/user/video/:uid',
-        name: 'AcFun用户视频',
-        params: ['用户ID'],
       },
     ],
   },
   {
     category: 'news',
     routes: [
-      // 少数派 - ✓ Passed Test
-      { path: '/sspai/index', name: '少数派首页', params: [] },
-      { path: '/sspai/matrix', name: '少数派Matrix', params: [] },
+      { path: '/sspai/index' },
+      { path: '/sspai/matrix' },
       {
         path: '/sspai/author/:id',
-        name: '少数派作者',
-        params: ['作者ID或slug'],
       },
-      { path: '/sspai/tag/:keyword', name: '少数派标签', params: ['标签名'] },
-      { path: '/sspai/topic/:id', name: '少数派专题', params: ['专题ID'] },
-      // 36氪 - ✓ Passed Test
-      { path: '/36kr/hot-list', name: '36氪热榜', params: [] },
-      { path: '/36kr/newsflashes', name: '36氪快讯', params: [] },
-      // 澎湃新闻 - ✓ Passed Test
-      { path: '/thepaper/featured', name: '澎湃新闻头条', params: [] },
-      // 知乎日报
-      { path: '/zhihu/daily', name: '知乎日报', params: [] },
-      // 财经
-      { path: '/cls/telegraph', name: '财联社电报', params: [] },
+      { path: '/sspai/tag/:keyword' },
+      { path: '/sspai/topic/:id' },
+      { path: '/36kr/hot-list' },
+      { path: '/36kr/newsflashes' },
+      { path: '/thepaper/featured' },
+      { path: '/zhihu/daily' },
+      { path: '/cls/telegraph' },
     ],
   },
   {
     category: 'programming',
     routes: [
-      // GitHub - 大部分无需配置
       {
         path: '/github/repos/:user',
-        name: 'GitHub 用户仓库',
-        params: ['用户名'],
       },
       {
         path: '/github/issue/:user/:repo',
-        name: 'GitHub Issues',
-        params: ['用户', '仓库'],
       },
       {
         path: '/github/pull/:user/:repo',
-        name: 'GitHub PRs',
-        params: ['用户', '仓库'],
       },
       {
         path: '/github/wiki/:user/:repo/:page?',
-        name: 'GitHub Wiki',
-        params: ['用户', '仓库', '页面(可选)'],
       },
       {
         path: '/github/topics/:name',
-        name: 'GitHub Topics',
-        params: ['话题名'],
       },
-      // HelloGitHub - ✓ Passed Test
-      { path: '/hellogithub/home', name: 'HelloGitHub 开源项目', params: [] },
-      { path: '/hellogithub/volume', name: 'HelloGitHub 月刊', params: [] },
-      // Huggingface - ✓ Passed Test
+      { path: '/hellogithub/home' },
+      { path: '/hellogithub/volume' },
       {
         path: '/huggingface/daily-papers',
-        name: 'HuggingFace 每日论文',
-        params: [],
       },
-      // Anthropic
-      { path: '/anthropic/news', name: 'Anthropic 新闻', params: [] },
-      { path: '/anthropic/research', name: 'Anthropic 研究', params: [] },
-      // web.dev - ✓ Passed Test
-      { path: '/web/articles', name: 'web.dev 文章', params: [] },
-      { path: '/web/blog', name: 'web.dev 博客', params: [] },
-      // Hacker News
-      { path: '/hackernews/best', name: 'Hacker News Best', params: [] },
+      { path: '/anthropic/news' },
+      { path: '/anthropic/research' },
+      { path: '/web/articles' },
+      { path: '/web/blog' },
+      { path: '/hackernews/best' },
     ],
   },
   {
     category: 'blog',
     routes: [
-      // RSSHub 自身
       {
         path: '/rsshub/routes/:lang?',
-        name: 'RSSHub 路由列表',
-        params: ['语言(可选)'],
       },
-      // 竹白
-      { path: '/zhubai/:id', name: '竹白专栏', params: ['专栏ID'] },
-      // Substack
-      { path: '/substack/:id', name: 'Substack', params: ['作者ID'] },
-      // xLog
-      { path: '/xlog/:handle', name: 'xLog 博客', params: ['用户handle'] },
-      // WordPress
-      { path: '/wordpress/:domain', name: 'WordPress 博客', params: ['域名'] },
-      // 知园 - ✓ Passed Test
+      { path: '/zhubai/:id' },
+      { path: '/substack/:id' },
+      { path: '/xlog/:handle' },
+      { path: '/wordpress/:domain' },
       {
         path: '/zhiy/letters/:author',
-        name: '知园Newsletter',
-        params: ['作者ID'],
       },
     ],
   },
   {
     category: 'design',
     routes: [
-      // Dribbble
       {
         path: '/dribbble/popular/:timeframe?',
-        name: 'Dribbble 热门',
-        params: ['时间(可选)'],
       },
       {
         path: '/dribbble/user/:name',
-        name: 'Dribbble 用户',
-        params: ['用户名'],
       },
-      // 站酷
       {
         path: '/zcool/discover/:type?',
-        name: '站酷发现',
-        params: ['类型(可选)'],
       },
-      { path: '/zcool/user/:uid', name: '站酷用户', params: ['用户ID'] },
-      // TOPYS - ✓ Passed Test
-      { path: '/topys', name: 'TOPYS 创意内容', params: [] },
+      { path: '/zcool/user/:uid' },
+      { path: '/topys' },
     ],
   },
   {
     category: 'shopping',
     routes: [
-      // 什么值得买
       {
         path: '/smzdm/keyword/:keyword',
-        name: '什么值得买关键词',
-        params: ['关键词'],
       },
       {
         path: '/smzdm/ranking/:rank_type/:rank_id',
-        name: '什么值得买榜单',
-        params: ['类型', '榜单ID'],
       },
     ],
   },
   {
     category: 'other',
     routes: [
-      // 豆瓣 - 图书/音乐
-      { path: '/douban/book/latest', name: '豆瓣新书', params: [] },
-      // Bangumi
-      { path: '/bangumi/calendar/today', name: 'Bangumi 每日放送', params: [] },
-      // Steam
+      { path: '/douban/book/latest' },
+      { path: '/bangumi/calendar/today' },
       {
         path: '/steam/search/:params',
-        name: 'Steam 搜索',
-        params: ['搜索参数'],
       },
-      // 地震
       {
         path: '/earthquake/:region?',
-        name: '地震速报',
-        params: ['地区(可选)'],
       },
     ],
   },
 ]
 
 interface RSSHubConfigProps {
-  /** 当前配置（编辑模式时传入） */
   initialConfig?: RSSHubConfig
-  /** 配置变更回调 */
   onConfigChange: (config: RSSHubConfig, fullUrl: string) => void
-  /** 是否为编辑模式 */
   isEditMode?: boolean
   disabled?: boolean
 }
@@ -480,47 +381,40 @@ export default function RSSHubConfigComponent({
   isEditMode: _isEditMode = false,
   disabled = false,
 }: RSSHubConfigProps) {
-  const { t, locale } = useI18n()
+  const { t, locale, format } = useI18n()
 
-  // 实例管理 - 全部从后端 API 获取
   const [instances, setInstances] = useState<RsshubInstance[]>([])
   const [loadingInstances, setLoadingInstances] = useState(true)
   const [instanceError, setInstanceError] = useState<string | null>(null)
 
-  // 选中的实例（使用 ID）
   const [selectedInstanceId, setSelectedInstanceId] = useState<number | null>(
     null,
   )
 
-  // 路由配置
   const [routePath, setRoutePath] = useState(initialConfig?.routePath || '')
   const [routeParams, setRouteParams] = useState<Record<string, string>>(
-    initialConfig?.routeParams || {},
+    initialConfig?.routeParams ?? {},
   )
 
-  // 查询参数配置（高级选项）
   const [queryParams, setQueryParams] = useState<RSSHubQueryParams>(
-    initialConfig?.queryParams || {},
+    initialConfig?.queryParams ?? {},
   )
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(
-    Object.keys(initialConfig?.queryParams || {}).length > 0,
+    Object.keys(initialConfig?.queryParams ?? {}).length > 0,
   )
   const [customQueryKey, setCustomQueryKey] = useState('')
   const [customQueryValue, setCustomQueryValue] = useState('')
 
-  // 当前选中路由的配置要求提示
   const [currentRouteConfig, setCurrentRouteConfig] = useState<{
     requiresConfig?: RouteConfigRequirement
     configNote?: string
   } | null>(null)
 
-  // UI 状态
   const [showInstancePanel, setShowInstancePanel] = useState(false)
   const [showRouteExplorer, setShowRouteExplorer] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
 
-  // 实例管理状态
   const [showAddForm, setShowAddForm] = useState(false)
   const [newName, setNewName] = useState('')
   const [newUrl, setNewUrl] = useState('')
@@ -535,25 +429,21 @@ export default function RSSHubConfigComponent({
   const [checkingHealth, setCheckingHealth] = useState<number | null>(null)
   const [checkingAllHealth, setCheckingAllHealth] = useState(false)
 
-  // 测试状态
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{
     success: boolean
     message: string
   } | null>(null)
 
-  // 当前选中的实例
   const currentInstance = useMemo(
     () =>
-      instances.find((i) => i.id === selectedInstanceId) ||
-      instances.find((i) => i.enabled) ||
+      instances.find((i) => i.id === selectedInstanceId) ??
+      instances.find((i) => i.enabled) ??
       instances[0],
     [instances, selectedInstanceId],
   )
 
-  // 获取认证头（包含 CSRF token）
   const getAuthHeaders = useCallback(async () => {
-    // 从 cookie 获取 auth token
     const cookies = document.cookie.split(';').reduce(
       (acc, cookie) => {
         const [key, value] = cookie.trim().split('=')
@@ -564,7 +454,7 @@ export default function RSSHubConfigComponent({
     )
     const authToken = cookies.auth_token
 
-    // 强制从服务器获取最新 CSRF token
+    // CSRF 从服务端取最新。
     const csrfToken = await getCSRFToken(true)
 
     return {
@@ -574,7 +464,6 @@ export default function RSSHubConfigComponent({
     }
   }, [])
 
-  // 加载实例列表
   const loadInstances = useCallback(async () => {
     try {
       setLoadingInstances(true)
@@ -586,7 +475,6 @@ export default function RSSHubConfigComponent({
       if (data.success) {
         const loadedInstances = data.instances || []
         setInstances(loadedInstances)
-        // 如果有初始配置，尝试匹配实例
         if (initialConfig?.instanceUrl && !selectedInstanceId) {
           const matched = loadedInstances.find(
             (i: RsshubInstance) => i.url === initialConfig.instanceUrl,
@@ -594,7 +482,6 @@ export default function RSSHubConfigComponent({
           if (matched) {
             setSelectedInstanceId(matched.id)
           } else if (loadedInstances.length > 0) {
-            // 选择第一个启用的实例
             const enabled = loadedInstances.find(
               (i: RsshubInstance) => i.enabled,
             )
@@ -614,12 +501,10 @@ export default function RSSHubConfigComponent({
     }
   }, [getAuthHeaders, initialConfig?.instanceUrl, selectedInstanceId])
 
-  // 组件加载时获取实例列表
   useEffect(() => {
     loadInstances()
   }, [])
 
-  // 添加实例
   const handleAddInstance = async () => {
     if (!newName.trim() || !newUrl.trim()) return
     try {
@@ -629,7 +514,7 @@ export default function RSSHubConfigComponent({
         headers: await getAuthHeaders(),
         body: JSON.stringify({
           name: newName.trim(),
-          url: newUrl.trim().replace(/\/$/, ''),
+          url: newUrl.trim().replaceAll(/\/$/g, ''),
           access_key: newAccessKey.trim() || null,
           priority: newPriority,
         }),
@@ -653,7 +538,6 @@ export default function RSSHubConfigComponent({
     }
   }
 
-  // 更新实例
   const handleUpdateInstance = async (id: number) => {
     try {
       const response = await fetch(`${API_BASE}/rsshub/instances/${id}`, {
@@ -661,7 +545,7 @@ export default function RSSHubConfigComponent({
         headers: await getAuthHeaders(),
         body: JSON.stringify({
           name: editName.trim() || undefined,
-          url: editUrl.trim().replace(/\/$/, '') || undefined,
+          url: editUrl.trim().replaceAll(/\/$/g, '') || undefined,
           access_key: editAccessKey.trim() || undefined,
           priority: editPriority,
         }),
@@ -680,7 +564,6 @@ export default function RSSHubConfigComponent({
     }
   }
 
-  // 删除实例
   const handleDeleteInstance = async (id: number) => {
     if (!confirm(t.brew.rsshubConfirmDelete)) return
     try {
@@ -705,7 +588,6 @@ export default function RSSHubConfigComponent({
     }
   }
 
-  // 切换实例启用状态
   const handleToggleEnabled = async (instance: RsshubInstance) => {
     try {
       const response = await fetch(
@@ -727,7 +609,6 @@ export default function RSSHubConfigComponent({
     }
   }
 
-  // 单个实例健康检查
   const handleHealthCheck = async (id: number) => {
     try {
       setCheckingHealth(id)
@@ -746,7 +627,6 @@ export default function RSSHubConfigComponent({
     }
   }
 
-  // 所有实例健康检查
   const handleHealthCheckAll = async () => {
     try {
       setCheckingAllHealth(true)
@@ -765,7 +645,6 @@ export default function RSSHubConfigComponent({
     }
   }
 
-  // 重置实例统计
   const handleResetInstance = async (id: number) => {
     try {
       const response = await fetch(`${API_BASE}/rsshub/instances/${id}/reset`, {
@@ -781,7 +660,6 @@ export default function RSSHubConfigComponent({
     }
   }
 
-  // 开始编辑实例
   const startEditInstance = (instance: RsshubInstance) => {
     setEditingId(instance.id)
     setEditName(instance.name)
@@ -790,7 +668,6 @@ export default function RSSHubConfigComponent({
     setEditPriority(instance.priority)
   }
 
-  // 格式化时间
   const formatTime = (timestamp: number | null) => {
     if (!timestamp) return t.brew.rsshubNever
     const date = new Date(timestamp)
@@ -802,24 +679,19 @@ export default function RSSHubConfigComponent({
     })
   }
 
-  // 构建完整 URL（包含查询参数）
   const fullUrl = useMemo(() => {
     if (!routePath || !currentInstance) return ''
     const baseUrl = currentInstance.url
     let path = routePath
-    // 替换路由参数
     Object.entries(routeParams).forEach(([key, value]) => {
       if (value) {
         path = path.replace(`:${key}`, value).replace(`:${key}?`, value)
       }
     })
-    // 移除未填写的可选参数
-    path = path.replace(/\/:[^/]+\?/g, '')
+    path = path.replaceAll(/\/:[^/]+\?/g, '')
 
-    // 构建查询字符串
     const queryParts: string[] = []
 
-    // 添加其他查询参数
     Object.entries(queryParams).forEach(([key, value]) => {
       if (value !== undefined && value !== '' && value !== null) {
         queryParts.push(
@@ -832,16 +704,14 @@ export default function RSSHubConfigComponent({
     return `${baseUrl}${path}${queryString}`
   }, [currentInstance, routePath, routeParams, queryParams])
 
-  // 提取路由中的参数
   const extractedParams = useMemo(() => {
-    const matches = routePath.match(/:([^/]+)/g) || []
+    const matches = routePath.match(/:([^/]+)/g) ?? []
     return matches.map((m) => ({
       name: m.slice(1).replace('?', ''),
       required: !m.endsWith('?'),
     }))
   }, [routePath])
 
-  // 配置变更时通知父组件
   useEffect(() => {
     if (routePath && currentInstance) {
       const config: RSSHubConfig = {
@@ -862,7 +732,6 @@ export default function RSSHubConfigComponent({
     onConfigChange,
   ])
 
-  // 测试实例连接
   const handleTestConnection = async () => {
     if (!fullUrl) return
     setTesting(true)
@@ -880,14 +749,8 @@ export default function RSSHubConfigComponent({
     }
   }
 
-  // 选择路由模板
   const handleSelectRoute = (route: RouteTemplate) => {
     setRoutePath(route.path)
-    const newParams: Record<string, string> = {}
-    route.params.forEach((p) => {
-      const paramName = p.replace(/[\s(可选)]/g, '').toLowerCase()
-      newParams[paramName] = ''
-    })
     setRouteParams({})
     setCurrentRouteConfig(
       route.requiresConfig
@@ -900,7 +763,6 @@ export default function RSSHubConfigComponent({
     setShowRouteExplorer(false)
   }
 
-  // 过滤路由
   const filteredRoutes = useMemo(() => {
     if (!searchQuery && !selectedCategory) return POPULAR_ROUTES
 
@@ -909,18 +771,21 @@ export default function RSSHubConfigComponent({
       routes: category.routes.filter((route) => {
         const matchesCategory =
           !selectedCategory || category.category === selectedCategory
+        const label = rsshubRouteName(
+          t.brew.rsshubRouteNames as Record<string, string>,
+          route.path,
+        )
         const matchesSearch =
           !searchQuery ||
-          route.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          label.toLowerCase().includes(searchQuery.toLowerCase()) ||
           route.path.toLowerCase().includes(searchQuery.toLowerCase())
         return matchesCategory && matchesSearch
       }),
     })).filter((category) => category.routes.length > 0)
-  }, [searchQuery, selectedCategory])
+  }, [searchQuery, selectedCategory, t.brew.rsshubRouteNames])
 
   return (
-    <div className="space-y-4">
-      {/* 错误提示 */}
+    <div className="brew-skin brew-rsshub">
       <AnimatePresence>
         {instanceError && (
           <motion.div
@@ -946,9 +811,7 @@ export default function RSSHubConfigComponent({
         )}
       </AnimatePresence>
 
-      {/* 实例选择与管理（合并面板） */}
       <div className="border border-gray-200/80 dark:border-neutral-700/80 rounded-xl overflow-hidden">
-        {/* 头部：当前选中实例 + 展开按钮 */}
         <button
           type="button"
           onClick={() => !disabled && setShowInstancePanel(!showInstancePanel)}
@@ -975,7 +838,10 @@ export default function RSSHubConfigComponent({
                       </span>
                     )}
                     <span
-                      className={`px-1 py-0.5 text-[9px] rounded ${HEALTH_STATUS_CONFIG[currentInstance.health_status].bgColor} ${HEALTH_STATUS_CONFIG[currentInstance.health_status].color}`}
+                      className={
+                        HEALTH_STATUS_CONFIG[currentInstance.health_status]
+                          .bgColor
+                      }
                     >
                       {
                         t.brew[
@@ -997,10 +863,9 @@ export default function RSSHubConfigComponent({
           <div className="flex items-center gap-2 shrink-0">
             {instances.length > 0 && (
               <span className="text-xs text-gray-400">
-                {t.brew.rsshubInstanceCount.replace(
-                  '{count}',
-                  String(instances.length),
-                )}
+                {format(t.brew.rsshubInstanceCount, {
+                  count: instances.length,
+                })}
               </span>
             )}
             <ChevronDown
@@ -1009,7 +874,6 @@ export default function RSSHubConfigComponent({
           </div>
         </button>
 
-        {/* 展开的实例管理面板 */}
         <AnimatePresence>
           {showInstancePanel && (
             <motion.div
@@ -1020,7 +884,6 @@ export default function RSSHubConfigComponent({
               className="overflow-hidden border-t border-gray-200/80 dark:border-neutral-700/80"
             >
               <div className="p-3 space-y-3 bg-white dark:bg-neutral-800">
-                {/* 工具栏 */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <button
@@ -1047,7 +910,6 @@ export default function RSSHubConfigComponent({
                   </div>
                 </div>
 
-                {/* 添加实例表单 */}
                 <AnimatePresence>
                   {showAddForm && (
                     <motion.div
@@ -1138,7 +1000,6 @@ export default function RSSHubConfigComponent({
                   )}
                 </AnimatePresence>
 
-                {/* 实例列表 */}
                 {loadingInstances ? (
                   <div className="flex items-center justify-center py-6">
                     <Spinner size="sm" className="text-orange-500" />
@@ -1175,7 +1036,6 @@ export default function RSSHubConfigComponent({
                           }
                         >
                           {isEditing ? (
-                            /* 编辑模式 */
                             <div
                               className="space-y-2"
                               onClick={(e) => e.stopPropagation()}
@@ -1243,7 +1103,6 @@ export default function RSSHubConfigComponent({
                               </div>
                             </div>
                           ) : (
-                            /* 显示模式 */
                             <>
                               <div className="flex items-start justify-between mb-1.5">
                                 <div className="flex items-center gap-2 min-w-0">
@@ -1252,7 +1111,7 @@ export default function RSSHubConfigComponent({
                                     title={t.brew[status.labelKey]}
                                   >
                                     <StatusIcon
-                                      className={`w-3 h-3 ${status.color}`}
+                                      className="w-3 h-3"
                                     />
                                   </div>
                                   <div className="min-w-0">
@@ -1271,7 +1130,6 @@ export default function RSSHubConfigComponent({
                                     </div>
                                   </div>
                                 </div>
-                                {/* 启用开关 */}
                                 <button
                                   type="button"
                                   onClick={(e) => {
@@ -1299,7 +1157,6 @@ export default function RSSHubConfigComponent({
                                 </button>
                               </div>
 
-                              {/* 统计信息 */}
                               <div className="grid grid-cols-4 gap-1.5 mb-1.5">
                                 <div className="p-1 rounded bg-gray-100 dark:bg-neutral-800">
                                   <div className="text-[9px] text-gray-400">
@@ -1342,7 +1199,6 @@ export default function RSSHubConfigComponent({
                                 </div>
                               </div>
 
-                              {/* 操作按钮 */}
                               <div
                                 className="flex items-center gap-1"
                                 onClick={(e) => e.stopPropagation()}
@@ -1402,7 +1258,6 @@ export default function RSSHubConfigComponent({
         </AnimatePresence>
       </div>
 
-      {/* 路由配置 */}
       <div>
         <div className="flex items-center justify-between mb-1.5">
           <label className="flex items-center gap-2 text-xs font-medium text-gray-600 dark:text-gray-400">
@@ -1431,7 +1286,6 @@ export default function RSSHubConfigComponent({
           />
         </div>
 
-        {/* 路由浏览器 */}
         <AnimatePresence>
           {showRouteExplorer && (
             <motion.div
@@ -1441,7 +1295,6 @@ export default function RSSHubConfigComponent({
               className="mt-2 overflow-hidden"
             >
               <div className="p-3 bg-gray-50/80 dark:bg-neutral-800/50 border border-gray-200/50 dark:border-neutral-700/50 rounded-xl space-y-3">
-                {/* 搜索和分类筛选 */}
                 <div className="flex gap-2">
                   <div className="relative flex-1">
                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
@@ -1455,7 +1308,6 @@ export default function RSSHubConfigComponent({
                   </div>
                 </div>
 
-                {/* 分类标签 */}
                 <div className="flex flex-wrap gap-1.5">
                   <button
                     type="button"
@@ -1477,7 +1329,6 @@ export default function RSSHubConfigComponent({
                   ))}
                 </div>
 
-                {/* 配置要求图例 */}
                 <div className="flex items-center gap-3 text-[10px] text-gray-500 dark:text-gray-400 py-1 border-b border-gray-200/50 dark:border-neutral-700/50">
                   <span className="flex items-center gap-1">
                     <span className="px-1 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded">
@@ -1493,7 +1344,6 @@ export default function RSSHubConfigComponent({
                   </span>
                 </div>
 
-                {/* 路由列表 */}
                 <div className="max-h-48 overflow-y-auto space-y-2">
                   {filteredRoutes.map((category) => (
                     <div key={category.category}>
@@ -1520,7 +1370,10 @@ export default function RSSHubConfigComponent({
                           >
                             <div className="min-w-0 flex-1">
                               <div className="font-medium text-gray-800 dark:text-gray-100 truncate flex items-center gap-1">
-                                {route.name}
+                                {rsshubRouteName(
+                                  t.brew.rsshubRouteNames as Record<string, string>,
+                                  route.path,
+                                )}
                                 {route.requiresConfig === 'server' && (
                                   <span
                                     className="px-1 py-0.5 text-[10px] bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded"
@@ -1566,7 +1419,6 @@ export default function RSSHubConfigComponent({
         </AnimatePresence>
       </div>
 
-      {/* 路由参数 */}
       {extractedParams.length > 0 && (
         <div>
           <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">
@@ -1592,10 +1444,9 @@ export default function RSSHubConfigComponent({
                       [param.name]: e.target.value,
                     }))
                   }
-                  placeholder={t.brew.rsshubEnterParam.replace(
-                    '{param}',
-                    param.name,
-                  )}
+                  placeholder={format(t.brew.rsshubEnterParam, {
+                    param: param.name,
+                  })}
                   disabled={disabled}
                   className="flex-1 px-2.5 py-1.5 text-sm rounded-lg bg-gray-50 dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 focus:outline-none focus:ring-1 focus:ring-orange-500/50 disabled:opacity-50"
                 />
@@ -1605,7 +1456,6 @@ export default function RSSHubConfigComponent({
         </div>
       )}
 
-      {/* 路由配置要求提示 */}
       {currentRouteConfig && currentRouteConfig.requiresConfig && (
         <div
           className={`p-3 rounded-xl flex items-start gap-2 ${
@@ -1680,7 +1530,6 @@ export default function RSSHubConfigComponent({
         </div>
       )}
 
-      {/* 高级选项（查询参数） */}
       <div className="border border-gray-200/80 dark:border-neutral-700/80 rounded-xl overflow-hidden">
         <button
           type="button"
@@ -1711,7 +1560,6 @@ export default function RSSHubConfigComponent({
               className="overflow-hidden"
             >
               <div className="p-3 space-y-4 border-t border-gray-200/80 dark:border-neutral-700/80">
-                {/* 常用查询参数 */}
                 <div>
                   <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
                     {t.brew.rsshubQueryParams}
@@ -1778,12 +1626,10 @@ export default function RSSHubConfigComponent({
                   </div>
                 </div>
 
-                {/* 自定义查询参数 */}
                 <div>
                   <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
                     {t.brew.rsshubCustomParams}
                   </label>
-                  {/* 已添加的自定义参数 */}
                   {Object.entries(queryParams)
                     .filter(
                       ([key]) =>
@@ -1806,21 +1652,18 @@ export default function RSSHubConfigComponent({
                               return rest
                             })
                           }
-                          title={t.brew.rsshubDeleteParam.replace(
-                            '{param}',
-                            key,
-                          )}
-                          aria-label={t.brew.rsshubDeleteParam.replace(
-                            '{param}',
-                            key,
-                          )}
+                          title={format(t.brew.rsshubDeleteParam, {
+                            param: key,
+                          })}
+                          aria-label={format(t.brew.rsshubDeleteParam, {
+                            param: key,
+                          })}
                           className="p-1 text-gray-400 hover:text-red-500 rounded"
                         >
                           <X className="w-3 h-3" />
                         </button>
                       </div>
                     ))}
-                  {/* 添加新参数 */}
                   <div className="flex items-center gap-2">
                     <input
                       type="text"
@@ -1881,7 +1724,6 @@ export default function RSSHubConfigComponent({
         </AnimatePresence>
       </div>
 
-      {/* 预览 URL */}
       {fullUrl && (
         <div className="p-3 bg-gray-50 dark:bg-neutral-800/50 border border-gray-200 dark:border-neutral-700 rounded-xl">
           <div className="flex items-center justify-between mb-1">

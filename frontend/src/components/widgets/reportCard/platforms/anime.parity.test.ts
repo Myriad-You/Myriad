@@ -1,33 +1,21 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { zhCN } from '../../../../i18n/zh-CN'
+import zhCN from '../../../../i18n/zh-CN.json' with { type: 'json' }
 import { buildReportCardPreviewData } from '../previewData'
 import { ANIME_THEMES } from './anime'
-
-/**
- * Bangumi and MyAnimeList render the same face component, so layout parity is
- * structural. What can still drift is each platform's *vocabulary*: a subject
- * type with no entry in `typeColors` falls back to a flat brand color, and one
- * with no entry in `typeLabels` renders its raw English key in the legend.
- *
- * These tests pin that vocabulary against the data each card actually receives.
- */
 
 type Locale = Parameters<typeof buildReportCardPreviewData>[1]
 const t = zhCN as unknown as Locale
 
-/** Subject types the backend can emit per platform (smart_filter.rs). */
 const BACKEND_SUBJECT_TYPES = {
-  // Self::bangumi_subject_type_label
   bangumi: ['book', 'anime', 'game', 'music', 'real'],
-  // filter_mal pushes only these two media kinds
   mal: ['anime', 'manga'],
 } as const
 
 describe('anime report cards — Bangumi / MAL parity', () => {
   it('both platforms declare every theme slot', () => {
-    const slots = Object.keys(ANIME_THEMES.bangumi).sort()
-    assert.deepEqual(Object.keys(ANIME_THEMES.mal).sort(), slots)
+    const slots = Object.keys(ANIME_THEMES.bangumi).toSorted()
+    assert.deepEqual(Object.keys(ANIME_THEMES.mal).toSorted(), slots)
     for (const [platform, theme] of Object.entries(ANIME_THEMES)) {
       for (const slot of slots) {
         assert.ok(

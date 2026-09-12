@@ -2,15 +2,10 @@ import type { TappCodeStructure, TappInstance } from '../types'
 import type { LayerExecutionPlan } from './moduleRuntime'
 import { buildLayerRuntime } from './moduleRuntime'
 
-/** 沙箱模式。`background` 是 headless core，只跑共享层。 */
+/** background 是 headless core，只跑共享层。 */
 export type TappSandboxMode = 'widget' | 'page' | 'background'
 
-/**
- * 组装某个模式要执行的入口序列。
- *
- * core 是三层共享层，三种模式都先执行它——模块化只改变层内文件从哪来，
- * 不改变 core 的地位。后台专属逻辑靠 `_TAPP_MODE === 'core'` 自行守卫。
- */
+/** 组装该模式入口。core 三种模式都先执行。 */
 export function getLayerEntries(
   code: TappCodeStructure,
   mode: TappSandboxMode,
@@ -20,9 +15,7 @@ export function getLayerEntries(
   if (code.coreEntry) entries.push(code.coreEntry)
   if (mode === 'page' && code.pageEntry) entries.push(code.pageEntry)
   if (mode === 'widget' && widgetId) {
-    // 只装这一个 widget 的入口。同一 Tapp 的其它 widget 不进这个 iframe——
-    // 想共用代码就各自 require 同一个文件。id 对不上必须失败，不能退化成
-    // 「只跑 core」——那看起来像成功的空 widget。
+    // 只装这一个 widget 的入口。想共用就各自 require 同一文件。id 对不上必须失败。
     const widgetEntry = code.widgetEntries?.[widgetId]
     if (!widgetEntry) {
       throw new Error(`Unknown widget id: ${widgetId}`)
@@ -32,12 +25,6 @@ export function getLayerEntries(
   return entries
 }
 
-/**
- * 编译某个模式要注入 iframe 的脚本。
- *
- * 返回执行计划而不是裸字符串：调用方常常还需要知道实际装入了哪些模块（调试输出、
- * 指纹），分开取会导致同一份依赖图被算两遍。
- */
 export function buildLayerScript(
   code: TappCodeStructure,
   mode: TappSandboxMode,
@@ -76,16 +63,11 @@ function hashParts(parts: string[]): string {
 function sortedRecordParts(record?: Record<string, string>): string[] {
   if (!record) return []
   return Object.entries(record)
-    .sort(([left], [right]) => left.localeCompare(right))
+    .toSorted(([left], [right]) => left.localeCompare(right))
     .flatMap(([key, value]) => [key, value])
 }
 
-/**
- * 内容级 iframe 指纹。
- *
- * 只对该模式实际执行的模块取指纹：无关层的代码变化不该重建这个 iframe，
- * 而它真正依赖的文件变了必须重建（等长更新也要能识别出来）。
- */
+/** 只对该模式实际执行的模块取指纹。无关层变化不重建；依赖文件变了必须重建。 */
 export function getCodeStructureFingerprint(
   code: TappCodeStructure,
   mode: TappSandboxMode,
@@ -127,11 +109,10 @@ export function getCodeStructureFingerprint(
   ])
 }
 
-/** Manifest/runtime contract changes require a new SDK and handler set. */
 export function getTappRuntimeFingerprint(instance: TappInstance): string {
   return hashParts([
     JSON.stringify(instance.manifest),
-    JSON.stringify([...instance.grantedPermissions].sort()),
+    JSON.stringify(instance.grantedPermissions.toSorted()),
     instance.userRole,
     String(instance.isTemporary ?? false),
     String(instance.isAdminTapp ?? false),

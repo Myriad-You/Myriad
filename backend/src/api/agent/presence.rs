@@ -16,7 +16,7 @@ use serde_json::{json, Value};
 fn invalid_presence_payload() -> HttpError {
     HttpError::from((
         StatusCode::BAD_REQUEST,
-        Json(json!({ "error": "Invalid payload" })),
+        Json(AppError::public_json("Invalid payload")),
     ))
 }
 
@@ -55,11 +55,13 @@ mod tests {
     fn parse_failure_does_not_echo_raw_json() {
         let raw = br#"{"presence":{"__admin":true,"secret":"leak"}"#;
         let err = parse_presence_body(raw).unwrap_err();
-        let json = err.0.to_json().to_string();
+        let body = err.0.to_json();
+        let json = body.to_string();
+        assert_eq!(body["error"], "Invalid payload");
+        assert_eq!(body["code"], "unmapped");
         assert!(!json.contains("__admin"), "{json}");
         assert!(!json.contains("secret"), "{json}");
         assert!(!json.contains("leak"), "{json}");
-        assert_eq!(json, r#"{"error":"Invalid payload"}"#);
         let response = HttpError(err.0).into_response();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
@@ -94,3 +96,4 @@ mod tests {
         assert!(remember_at < spawn_at);
     }
 }
+use myriad_error::AppError;

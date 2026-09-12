@@ -1,8 +1,3 @@
-/**
- * 配额设置组组件
- * 预设组合：使用 NumberGroupItem 卡片式渲染配额输入
- */
-
 import type { NumberGroupOption } from '../items/NumberGroupItem'
 import type { QuotaGroupConfig } from '../types'
 import React, { useCallback, useMemo } from 'react'

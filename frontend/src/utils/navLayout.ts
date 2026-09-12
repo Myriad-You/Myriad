@@ -1,15 +1,3 @@
-/**
- * Navigation island layout resolver.
- *
- * Two chrome modes:
- * - `mobile`  — bottom horizontal island (phones + touch tablets in the mid band)
- * - `desktop` — left vertical rail (wide viewports + pointer/keyboard desktops)
- *
- * Pure width breakpoints mis-classify tablets as desktop rail. We refine the
- * tablet band (768 … desktopMin-1, desktopMin from viewportBands = 1078) with
- * pointer / Apple-touch signals so rotation and docked keyboards stay stable.
- */
-
 import {
   isAppleTouchDevice,
   isCoarsePointerPrimary,
@@ -21,9 +9,7 @@ import {
 
 export type NavLayout = 'mobile' | 'desktop'
 
-/** Match Tailwind `md` / viewportBands phone edge. */
 export const NAV_MOBILE_MAX_WIDTH = VIEWPORT_PHONE_MAX
-/** ≥ this is always desktop rail (viewportBands desktop min). */
 export const NAV_DESKTOP_MIN_WIDTH = VIEWPORT_DESKTOP_MIN
 
 export interface NavLayoutSignals {
@@ -32,16 +18,6 @@ export interface NavLayoutSignals {
   appleTouch: boolean
 }
 
-/**
- * Pure resolver (testable). Prefer {@link getNavLayout} in app code.
- *
- * Rules:
- * 1. width ≤ 767 → mobile
- * 2. width ≥ VIEWPORT_DESKTOP_MIN (1078) → desktop
- * 3. tablet band in between:
- *    - coarse pointer or Apple touch → mobile (iPad portrait, Android tablets)
- *    - fine pointer + hover capable → desktop (narrow desktop window)
- */
 export function resolveNavLayout(signals: NavLayoutSignals): NavLayout {
   const width = Number.isFinite(signals.width) ? signals.width : 0
   if (width <= NAV_MOBILE_MAX_WIDTH) return 'mobile'
@@ -63,7 +39,6 @@ export function readNavLayoutSignals(
   }
 }
 
-/** Current nav layout for this viewport / input class. */
 export function getNavLayout(
   win?: Window,
 ): NavLayout {
@@ -79,10 +54,6 @@ export function isMobileNavLayout(win?: Window): boolean {
   return getNavLayout(win) === 'mobile'
 }
 
-/**
- * Sync layout token onto <html> so CSS can key off it without JS class thrash.
- *  dataset.navLayout  ↔  data-nav-layout
- */
 export function applyNavLayoutToDocument(
   layout: NavLayout,
   doc: Document = typeof document !== 'undefined' ? document : (undefined as never),
@@ -100,13 +71,9 @@ let cachedLayout: NavLayout | null = null
 let mqWidth: MediaQueryList | null = null
 let mqPointer: MediaQueryList | null = null
 
-/** Resize debounce — avoid thrashing mid-drag across 768/1024. */
+/** Debounce resize across 768/1024. */
 const LAYOUT_RESIZE_DEBOUNCE_MS = 48
 
-/**
- * Document `data-nav-layout` is applied by NavigationIsland after chrome
- * crossfade (not here on every resize). First subscribe still seeds FOUC.
- */
 function recomputeAndNotify(): void {
   const next = getNavLayout()
   if (cachedLayout === next) return
@@ -128,7 +95,7 @@ function ensureSubscribed(): void {
       recomputeAndNotify()
     }, LAYOUT_RESIZE_DEBOUNCE_MS)
   }
-  // Orientation: apply on next frame (no long debounce)
+  // Orientation: next frame; no long debounce.
   const onOrientation = () => {
     if (resizeTimer) clearTimeout(resizeTimer)
     resizeTimer = null
@@ -139,8 +106,7 @@ function ensureSubscribed(): void {
   window.addEventListener('orientationchange', onOrientation, { passive: true })
 
   try {
-    // Fire when crossing phone / tablet / desktop bands without waiting for
-    // every pixel of resize (cheaper than raw resize alone on some engines).
+    // Apply on band crossing; do not wait for debounce.
     mqWidth = window.matchMedia(
       `(max-width: ${NAV_MOBILE_MAX_WIDTH}px), (min-width: ${NAV_DESKTOP_MIN_WIDTH}px)`,
     )
@@ -156,13 +122,8 @@ function ensureSubscribed(): void {
   }
 }
 
-/** Fired on `.nav-container` after bottom↔rail chrome crossfade settles. */
 export const NAV_CHROME_SETTLED_EVENT = 'navChromeSettled'
 
-/**
- * Subscribe to nav layout changes (resize, orientation, pointer class).
- * Returns unsubscribe. Safe to call on the server (no-op).
- */
 export function subscribeNavLayout(listener: Listener): () => void {
   if (typeof window === 'undefined') return () => {}
   ensureSubscribed()
@@ -172,7 +133,6 @@ export function subscribeNavLayout(listener: Listener): () => void {
   }
 }
 
-/** Snapshot for useSyncExternalStore. */
 export function getNavLayoutSnapshot(): NavLayout {
   if (typeof window === 'undefined') return 'desktop'
   ensureSubscribed()

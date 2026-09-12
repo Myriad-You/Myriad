@@ -1,10 +1,3 @@
-/**
- * 智能岛展开/收起状态机的单元测试（issue #320）。
- *
- * Run from frontend/:
- *   pnpm test:unit -- src/components/ControlPanel/panelTransition.test.ts
- */
-
 import type { PanelAction, PanelState } from './panelTransition.ts'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
@@ -25,12 +18,10 @@ import {
   showsProgressUi,
 } from './panelTransition.ts'
 
-/** 依次施加动作，返回终态。 */
 function run(state: PanelState, ...actions: PanelAction[]): PanelState {
   return actions.reduce(panelReducer, state)
 }
 
-/** 完成一次 morph：用当前世代号 settle。 */
 function settle(state: PanelState): PanelState {
   return panelReducer(state, { type: 'settle', generation: state.generation })
 }
@@ -77,9 +68,7 @@ describe('过期回调作废（快速连点）', () => {
   it('旧世代的 settle 不会推进新动画', () => {
     const opening = panelReducer(initialPanelState, { type: 'open' })
     const staleGen = opening.generation
-    // 展开动画还没结束就被关掉
     const closing = panelReducer(opening, { type: 'close' })
-    // 上一次展开的 transitionend / 超时迟到
     const after = panelReducer(closing, { type: 'settle', generation: staleGen })
     assert.equal(after, closing)
     assert.equal(after.phase, 'closing')
@@ -101,7 +90,6 @@ describe('过期回调作废（快速连点）', () => {
   it('settle 后再次 settle 同一世代不会二次推进', () => {
     const opening = panelReducer(initialPanelState, { type: 'open' })
     const expanded = settle(opening)
-    // transitionend 与兜底超时同时到达
     const again = panelReducer(expanded, {
       type: 'settle',
       generation: opening.generation,
@@ -167,7 +155,6 @@ describe('tab 切换', () => {
 
     const back = panelReducer(onNotif, { type: 'selectTab', tab: 'control' })
     assert.equal(back.tab, 'control')
-    // 淡出中的旧表面仍需在 DOM 里
     assert.equal(mountsNotifications(back), true)
   })
 

@@ -74,32 +74,8 @@ export interface AwaitTripoTaskOptions {
   onProgress?: (task: TripoTask) => void
 }
 
-function assertTripoHttpSuccess(
-  status: number,
-  data: unknown,
-  fallback: string,
-): void {
-  if (status < 400) return
-  const body =
-    data && typeof data === 'object'
-      ? (data as { error?: unknown; message?: unknown })
-      : {}
-  const message =
-    typeof body.error === 'string'
-      ? body.error
-      : typeof body.message === 'string'
-        ? body.message
-        : fallback
-  throw new Error(userFacingError(message, currentCopy().errors.model3dFailed))
-}
-
 export async function getTripoStatus(): Promise<TripoStatus> {
   const response = await api.get<TripoStatus>('/api/model3d/status')
-  assertTripoHttpSuccess(
-    response.status,
-    response.data,
-    currentCopy().errors.model3dFailed,
-  )
   return response.data
 }
 
@@ -110,8 +86,7 @@ export async function uploadTripoFile(file: File): Promise<string> {
   const csrf = await getCSRFToken()
   if (csrf) headers[getCSRFHeaderName()] = csrf
 
-  // Do not use the shared Axios instance here: its JSON default would prevent
-  // the browser from generating the multipart boundary.
+  // Do not use shared Axios (breaks multipart boundary).
   const response = await fetch(`${API_URL}/api/model3d/files`, {
     method: 'POST',
     headers,
@@ -142,33 +117,18 @@ export async function createTripoTask(
     '/api/model3d/tasks',
     { operation, payload },
   )
-  assertTripoHttpSuccess(
-    response.status,
-    response.data,
-    currentCopy().errors.model3dFailed,
-  )
   if (!response.data.task_id)
     throw new Error(currentCopy().errors.model3dFailed)
   return response.data.task_id
 }
 
-/**
- * Query once. When Tripo reports success, the backend downloads and validates
- * the expiring provider URL and returns a stable content-addressed asset.
- */
 export async function getTripoTask(
   taskId: string,
   signal?: AbortSignal,
 ): Promise<TripoTask> {
   const response = await api.get<TripoTask>(
     `/api/model3d/tasks/${encodeURIComponent(taskId)}`,
-    // A successful query also downloads and validates provider model outputs.
     { timeout: 15 * 60_000, signal },
-  )
-  assertTripoHttpSuccess(
-    response.status,
-    response.data,
-    currentCopy().errors.model3dFailed,
   )
   return response.data
 }
@@ -200,8 +160,7 @@ export async function pollTripoTask(
   options: AwaitTripoTaskOptions = {},
 ): Promise<TripoTask> {
   const intervalMs = Math.max(2_000, options.intervalMs ?? 2_000)
-  // Backend configuration is capped at 60 minutes; leave one minute for the
-  // final model download/validation response.
+  // Cap 60 min; leave 1 min for download.
   const timeoutMs = Math.max(intervalMs, options.timeoutMs ?? 61 * 60_000)
   const deadline = Date.now() + timeoutMs
 
@@ -225,7 +184,7 @@ export async function pollTripoTask(
   throw new Error(currentCopy().errors.timeout)
 }
 
-/** Browser-safe polling; avoids one HTTP request being held for up to an hour. */
+/** Poll; do not hold one HTTP request for an hour. */
 export async function awaitTripoTask(
   taskId: string,
   options: AwaitTripoTaskOptions = {},

@@ -1,10 +1,3 @@
-/**
- * Tapp 商店正式页面
- *
- * 壳层：TappAppShell（与 run 同构）；单树布局，全屏只切 fixed。
- * 多窗口统一走 /tapp/run/:hostStoreId?multi=true（不在本页挂 WindowManager）。
- */
-
 import { FaCompress, FaExpand, FaTh } from '@lib/icons'
 import {
   AnimatePresenceShim as AnimatePresence,
@@ -36,7 +29,6 @@ import { TAPP_LIST_PATH, tappRunPath } from '../utils/tappPaths'
 export function TappStorePage() {
   const [searchParams] = useSearchParams()
   const { isMobile } = useBreakpoints()
-  // 多窗统一入口：/tapp/run/:storeHost?multi=true（Run 页挂 WindowManager）
   const wantsMulti =
     searchParams.get('multi') === 'true' && !isWebKit && !isMobile
   if (wantsMulti) {

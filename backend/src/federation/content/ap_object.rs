@@ -38,7 +38,9 @@ pub(super) async fn build_ap_object(
             if text.is_empty() && attachments.is_empty() {
                 return Err((
                     StatusCode::BAD_REQUEST,
-                    Json(json!({"error": "Note requires text and/or attachments"})),
+                    Json(AppError::public_json(
+                        "Note requires text and/or attachments",
+                    )),
                 ));
             }
             if text.chars().count() > MAX_NOTE_TEXT_CHARS {
@@ -64,7 +66,7 @@ pub(super) async fn build_ap_object(
                 let kind = classify_media_mime(&mime.to_ascii_lowercase()).ok_or_else(|| {
                     (
                         StatusCode::BAD_REQUEST,
-                        Json(json!({"error": "Unsupported attachment type"})),
+                        Json(AppError::public_json("Unsupported attachment type")),
                     )
                 })?;
                 if let Some(reason) =
@@ -136,7 +138,7 @@ pub(super) async fn build_ap_object(
             let name = title
                 .clone()
                 .filter(|t| !t.is_empty())
-                .unwrap_or_else(|| format!("{} 平台报告", platform));
+                .unwrap_or_else(|| format!("{} report", platform));
 
             // Align with Aro chat snapshot fields: report_id, summary, platform, content_preview
             // so remote instances can render without a user-scoped catalog lookup.
@@ -280,60 +282,59 @@ pub(super) async fn build_ap_object(
             // Library 发布：content_id = platform_metadata.id（平台收藏快照）
             // 或 platform 名（取该用户该平台最新一条 metadata）。
             // 无独立 library_items 表；数据来自 platform_metadata.raw_data 摘要。
-            let (meta_id, platform_name, raw): (i32, String, serde_json::Value) = if let Ok(id) =
-                content_id.parse::<i32>()
-            {
-                let row = db
-                    .query_one_raw(Statement::from_sql_and_values(
-                        DatabaseBackend::Postgres,
-                        r#"SELECT id, platform_name, raw_data
+            let (meta_id, platform_name, raw): (i32, String, serde_json::Value) =
+                if let Ok(id) = content_id.parse::<i32>() {
+                    let row = db
+                        .query_one_raw(Statement::from_sql_and_values(
+                            DatabaseBackend::Postgres,
+                            r#"SELECT id, platform_name, raw_data
                                FROM platform_metadata
                                WHERE id = $1 AND user_id = $2"#,
-                        [id.into(), user_id.into()],
-                    ))
-                    .await
-                    .map_err(db_err)?
-                    .ok_or_else(|| not_found("Library metadata not found"))?;
-                (
-                    row.try_get::<i32>("", "id").unwrap_or(id),
-                    row.try_get::<String>("", "platform_name")
-                        .unwrap_or_default(),
-                    row.try_get::<serde_json::Value>("", "raw_data")
-                        .unwrap_or(json!({})),
-                )
-            } else {
-                let platform = content_id.trim();
-                if platform.is_empty() {
-                    return Err((
-                        StatusCode::BAD_REQUEST,
-                        Json(json!({
-                            "error": "library content_id must be platform_metadata id or platform name"
-                        })),
-                    ));
-                }
-                let row = db
-                    .query_one_raw(Statement::from_sql_and_values(
-                        DatabaseBackend::Postgres,
-                        r#"SELECT id, platform_name, raw_data
+                            [id.into(), user_id.into()],
+                        ))
+                        .await
+                        .map_err(db_err)?
+                        .ok_or_else(|| not_found("Library metadata not found"))?;
+                    (
+                        row.try_get::<i32>("", "id").unwrap_or(id),
+                        row.try_get::<String>("", "platform_name")
+                            .unwrap_or_default(),
+                        row.try_get::<serde_json::Value>("", "raw_data")
+                            .unwrap_or(json!({})),
+                    )
+                } else {
+                    let platform = content_id.trim();
+                    if platform.is_empty() {
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            Json(AppError::public_json(
+                                "library content_id must be platform_metadata id or platform name",
+                            )),
+                        ));
+                    }
+                    let row = db
+                        .query_one_raw(Statement::from_sql_and_values(
+                            DatabaseBackend::Postgres,
+                            r#"SELECT id, platform_name, raw_data
                                FROM platform_metadata
                                WHERE user_id = $1 AND lower(platform_name) = lower($2)
                                ORDER BY fetched_at DESC NULLS LAST, id DESC
                                LIMIT 1"#,
-                        [user_id.into(), platform.into()],
-                    ))
-                    .await
-                    .map_err(db_err)?
-                    .ok_or_else(|| {
-                        not_found(&format!("No library metadata for platform '{}'", platform))
-                    })?;
-                (
-                    row.try_get::<i32>("", "id").unwrap_or(0),
-                    row.try_get::<String>("", "platform_name")
-                        .unwrap_or_else(|_| platform.to_string()),
-                    row.try_get::<serde_json::Value>("", "raw_data")
-                        .unwrap_or(json!({})),
-                )
-            };
+                            [user_id.into(), platform.into()],
+                        ))
+                        .await
+                        .map_err(db_err)?
+                        .ok_or_else(|| {
+                            not_found(&format!("No library metadata for platform '{}'", platform))
+                        })?;
+                    (
+                        row.try_get::<i32>("", "id").unwrap_or(0),
+                        row.try_get::<String>("", "platform_name")
+                            .unwrap_or_else(|_| platform.to_string()),
+                        row.try_get::<serde_json::Value>("", "raw_data")
+                            .unwrap_or(json!({})),
+                    )
+                };
 
             let (item_count, sample_titles) = summarize_library_raw(&raw);
             let name = format!("{} library", platform_name);
@@ -373,7 +374,7 @@ pub(super) async fn build_ap_object(
         }
         _ => Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Unsupported content type"})),
+            Json(AppError::public_json("Unsupported content type")),
         )),
     }
 }
@@ -402,7 +403,7 @@ pub(crate) async fn fan_out_to_followers(
 ) -> u32 {
     let base_url = get_base_url().await;
 
-    // 查询所有 incoming followers 的远程 inbox
+    // 查询 accepted incoming followers 的 inbox（含同实例，随后走本地捷径）
     let followers = match db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -655,8 +656,8 @@ fn local_username_from_inbox_url(base_url: &str, inbox_url: &str) -> Option<Stri
     local_username_from_actor_url(base_url, actor)
 }
 
-/// Insert Create into a same-instance follower's timeline.
-/// Returns Ok(true) when inserted (or already present), Ok(false) if user missing.
+/// Deliver a non-Move activity into a same-instance follower's timeline.
+/// Like returns Ok(true) without insert. Ok(false) if the user is missing.
 async fn deliver_create_to_local_follower(
     db: &DatabaseConnection,
     follower_username: &str,
@@ -703,7 +704,7 @@ async fn deliver_create_to_local_follower(
     let object = &activity_json["object"];
     let object_type = object["type"].as_str().map(|s| s.to_string());
     let preview = preview_from_ap_object(object);
-    // For Announce with a bare object id string, store as-is; Create stores the Note.
+    // Store `object` as-is (string id or embedded object).
     let content_json = object.clone();
 
     db.execute_raw(Statement::from_sql_and_values(
@@ -833,8 +834,7 @@ async fn ensure_remote_actor_stub(
 
 /// 解析观众列表。
 ///
-/// 每个 [`Visibility`] 分支都必须产出**非空**的 `to` —— 空收件人集合是过去
-/// 隐私缺陷的根源：接收端拿不到任何寻址信息，只能按投递通道去猜。
+/// 每个 [`Visibility`] 分支都必须产出**非空**的 `to`。
 ///
 /// `Direct` 目前没有可表达的收件人字段（`PublishRequest` 不带 recipients），
 /// 所以自寻址给作者本人：语义上等于"仅自己可见"，且绝不 fan-out。
@@ -962,7 +962,7 @@ fn extract_report_summary_plain(report_json: &serde_json::Value) -> String {
 fn extract_report_summary(report_json: &serde_json::Value) -> String {
     let plain = extract_report_summary_plain(report_json);
     if plain.is_empty() {
-        return "<p>数据分析报告</p>".to_string();
+        return "<p>Data report</p>".to_string();
     }
     format!("<p>{}</p>", escape_html(&plain))
 }
@@ -983,7 +983,7 @@ fn escape_html(s: &str) -> String {
 }
 
 fn not_found(msg: &str) -> (StatusCode, Json<serde_json::Value>) {
-    (StatusCode::NOT_FOUND, Json(json!({"error": msg})))
+    (StatusCode::NOT_FOUND, Json(AppError::public_json(msg)))
 }
 
 #[cfg(test)]
@@ -1012,7 +1012,7 @@ mod tests {
     fn extract_report_summary_html_escapes_and_falls_back() {
         let xss = json!({"summary": "a<b>&c"});
         assert_eq!(extract_report_summary(&xss), "<p>a&lt;b&gt;&amp;c</p>");
-        assert_eq!(extract_report_summary(&json!({})), "<p>数据分析报告</p>");
+        assert_eq!(extract_report_summary(&json!({})), "<p>Data report</p>");
     }
 
     /// Contract: Aro chat + federation report shares use these field names for the viewable snapshot.
@@ -1055,8 +1055,7 @@ mod tests {
         let (to2, cc2) = resolve_audience(Visibility::Followers, base, "alice");
         assert!(to2.iter().any(|u| u.ends_with("/users/alice/followers")));
         assert!(cc2.is_empty());
-        // Direct 自寻址给作者本人，绝不留空 to —— 空收件人集合曾让接收端
-        // 只能按投递通道猜测意图。
+        // Direct 自寻址给作者本人，绝不留空 to。
         let (to3, cc3) = resolve_audience(Visibility::Direct, base, "alice");
         assert_eq!(to3, vec!["https://myriad.example/users/alice".to_string()]);
         assert!(cc3.is_empty());
@@ -1102,3 +1101,4 @@ mod tests {
         );
     }
 }
+use myriad_error::AppError;

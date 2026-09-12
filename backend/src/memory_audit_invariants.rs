@@ -6,7 +6,7 @@
 mod tests {
     use myriad_process_info::{MEMORY_CRITICAL_MB, MEMORY_WARNING_MB};
 
-    /// Alert line aligns with 1 GiB product story (500 MiB load is OK).
+    /// Alert line: `MEMORY_WARNING_MB` 600, `MEMORY_CRITICAL_MB` 750.
     #[test]
     fn shipped_memory_alerts_are_600_warn_750_critical() {
         assert_eq!(MEMORY_WARNING_MB, 600);
@@ -79,7 +79,7 @@ mod tests {
             "audio proxy must read the live profile cap, not a local 128 MiB constant"
         );
         assert!(!src.contains("const MAX_AUDIO_BYTES"));
-        assert!(src.contains("MEDIA_FETCH_CLIENT") || src.contains("media fetch"));
+        assert!(src.contains("MEDIA_FETCH_CLIENT"));
     }
 
     #[test]

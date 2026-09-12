@@ -1,10 +1,3 @@
-/**
- *   pnpm exec tsx --test src/services/agent/routerNavigate.contract.test.ts
- *
- * `router.navigate` must allow the live SPA routes in App.tsx, not the
- * historical /home /platform /report /settings prefixes.
- */
-
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -22,11 +15,15 @@ function parseRouterPrefixes(rust: string): string[] {
     /pub const VALID_ROUTER_PREFIXES: &\[&str\] = &\[([\s\S]*?)\];/,
   )
   assert.ok(block, 'VALID_ROUTER_PREFIXES must exist')
-  return [...block[1].matchAll(/"([^"]+)"/g)].map((match) => match[1])
+  return Iterator.from(block[1].matchAll(/"([^"]+)"/g))
+    .map((match) => match[1])
+    .toArray()
 }
 
 function parseAppRoutes(tsx: string): string[] {
-  return [...tsx.matchAll(/path=["']([^"']+)["']/g)].map((match) => match[1])
+  return Iterator.from(tsx.matchAll(/path=["']([^"']+)["']/g))
+    .map((match) => match[1])
+    .toArray()
 }
 
 describe('router.navigate allow-list', () => {

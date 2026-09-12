@@ -1,7 +1,3 @@
-/**
- * 面板此刻看得到的上下文。输入框和动作贴共用这一份，免得两处各算各的。
- */
-
 import { useState, useSyncExternalStore } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { usePageContentOptional } from '../../contexts/PageContentContext'

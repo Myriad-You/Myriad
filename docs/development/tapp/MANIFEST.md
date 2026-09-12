@@ -560,9 +560,10 @@ const allSettings = await Tapp.settings.getAll();
 
 Manifest 设置属于安装级配置：安装 owner 或管理员可修改；能打开该安装的运行者（含游客打开
 **公开**安装）可通过 `Tapp.settings.get` / `getAll` 读取已保存值，未保存则用上表
-`defaultValue`。`Tapp.storage` 是当前登录用户的私有空间，不能使用 `_settings.` / `_shared.`
+`defaultValue`。`Tapp.storage` 是当前登录用户的私有空间，不能使用 `_settings.` / `_shared.` / `_private.`
 等宿主保留前缀访问安装级数据。要给访客看的站长数据用 `Tapp.shared`，不要塞进 settings。
-公开安装请勿把密钥写入 settings 或 shared。
+站长之间共用且游客不可见的非密数据用 `Tapp.private`。公开安装请勿把密钥写入 settings、
+shared 或 private。
 
 ### 安装级 API 凭据 (`credentials`)
 

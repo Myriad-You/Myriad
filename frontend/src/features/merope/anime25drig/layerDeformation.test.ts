@@ -182,7 +182,7 @@ function runtimeLayer(source: Anime25DPlaybackLayer): UpstreamRuntimeLayer {
   const base = vertices(source)
   return {
     name: source.name,
-    bn: source.role.replace(/-/g, '_'),
+    bn: source.role.replaceAll('-', '_'),
     group: source.group,
     side: source.side,
     fade:

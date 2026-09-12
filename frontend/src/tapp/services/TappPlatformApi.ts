@@ -1,5 +1,3 @@
-/** Platform data APIs exposed to the Tapp host runtime. */
-
 import type {
   NewPlatformItem,
   PlatformInfo,
@@ -7,13 +5,11 @@ import type {
 } from '../types'
 import { apiRequest } from './TappHttpClient'
 
-/** Raw `/api/platforms` row — host UI keeps numeric id + display name. */
 interface ApiPlatformRow {
   id: number | string
   name: string
   enabled?: boolean
   icon?: string
-  /** Stable slug (DB name), e.g. "steam" */
   slug?: string
   key?: string
   description?: string
@@ -22,15 +18,6 @@ interface ApiPlatformRow {
   tappId?: string
 }
 
-/**
- * List enabled platforms for Tapp SDK.
- * Maps `id`/`key` to the stable slug so `platform.getData(id)` hits
- * `cache/platforms/{slug}_filtered.json`. Display name stays in `name`.
- *
- * Backend marks `enabled` when the catalog flag is on OR when a filtered
- * library cache exists (seed defaults only enable GitHub; Steam/MAL/etc.
- * become available once they have library data).
- */
 export async function listEnabledPlatforms(
   runtimeGrant?: string,
 ): Promise<PlatformInfo[]> {
@@ -44,7 +31,6 @@ export async function listEnabledPlatforms(
       const slug =
         (platform.slug && String(platform.slug).trim()) ||
         (platform.key && String(platform.key).trim()) ||
-        // Legacy fallback: some environments may already send slug as id
         (typeof platform.id === 'string' &&
         platform.id &&
         !/^\d+$/.test(platform.id)

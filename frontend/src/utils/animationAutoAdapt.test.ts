@@ -10,7 +10,6 @@ describe('animationAutoAdapt evaluateSample', () => {
   })
 
   it('does not demote mild occasional jank', () => {
-    // 少数 20ms 尖刺，平均仍健康
     const intervals = Array.from({ length: 40 }, (_, i) =>
       i % 10 === 0 ? 22 : 16,
     )
@@ -19,7 +18,6 @@ describe('animationAutoAdapt evaluateSample', () => {
   })
 
   it('demotes only when clearly bad', () => {
-    // 大量 40ms+ 与若干 50ms+，平均也差
     const intervals = Array.from({ length: 40 }, (_, i) =>
       i % 3 === 0 ? 55 : 40,
     )

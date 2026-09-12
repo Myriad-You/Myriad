@@ -49,16 +49,11 @@ interface LibraryCanvasControlsOptions {
   maxScale: number
   minScale: number
   surfaceRef: RefObject<HTMLDivElement | null>
-  /**
-   * Every committed visual frame (pointer / wheel / keyboard). Write world
-   * transform, card focus, chrome labels here — must not go through React.
-   */
+
+  /** 每帧已提交的视觉。世界变换/焦点/标签写这里，不得走 React。 */
   onPaint?: (transform: LibraryCanvasTransform) => void
-  /**
-   * When true, push transform into React state (virtualization / committed UI).
-   * Return false for pure pans that stay in the same spatial bins so React does
-   * not re-render every frame. Discrete actions force-commit regardless.
-   */
+
+  /** true 才把 transform 推进 React。同空间 bin 的纯平移返回 false。 */
   shouldCommit?: (
     next: LibraryCanvasTransform,
     committed: LibraryCanvasTransform,
@@ -81,10 +76,11 @@ export function useLibraryCanvasControls({
   }).current
   const [transform, setTransform] =
     useState<LibraryCanvasTransform>(initialTransform)
-  /** Live pose — always matches the last painted frame (absolute follow). */
+
+  /** Live pose — always matches the last painted frame. */
   const transformRef = useRef(initialTransform)
   const pendingTransformRef = useRef(initialTransform)
-  /** Last transform pushed into React state. */
+
   const committedTransformRef = useRef(initialTransform)
   const transformRafRef = useRef<number | null>(null)
   const forceCommitRef = useRef(false)
@@ -113,7 +109,8 @@ export function useLibraryCanvasControls({
     (next: LibraryCanvasTransform, forceCommit: boolean) => {
       transformRef.current = next
       pendingTransformRef.current = next
-      // Paint first so the frame the user sees never waits on React.
+
+      // 先绘制，用户看见的那帧不等 React。
       onPaintRef.current?.(next)
 
       const committed = committedTransformRef.current
@@ -181,7 +178,7 @@ export function useLibraryCanvasControls({
     [applyFrame],
   )
 
-  /** Flush live pose into React immediately (gesture end / leave). */
+  /** 手势结束 / 离开时立刻把 live pose 刷进 React。 */
   const flushCommit = useCallback(() => {
     if (transformRafRef.current !== null) {
       cancelAnimationFrame(transformRafRef.current)
@@ -259,7 +256,8 @@ export function useLibraryCanvasControls({
         motion.frame = requestAnimationFrame(tick)
       } else {
         motion.frame = null
-        // Settle React state when keyboard pan coasts to a stop.
+
+        // 键盘平移惯性停住时再 settle React 态。
         flushCommit()
       }
     }
@@ -342,7 +340,8 @@ export function useLibraryCanvasControls({
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId)
       }
-      // Absolute follow during drag is DOM-only; flush React for virtualization.
+
+      // 拖拽期间绝对跟随只走 DOM；松手再 flush 给虚拟化。
       if (wasDragging) flushCommit()
     },
     [flushCommit],
@@ -403,7 +402,8 @@ export function useLibraryCanvasControls({
     if (!active) return
     const frame = requestAnimationFrame(() => {
       surfaceRef.current?.focus({ preventScroll: true })
-      // Ensure first canvas frame is painted even before the first gesture.
+
+      // 即使还没有手势，也要画出第一帧画布。
       applyFrame(transformRef.current, true)
     })
     return () => cancelAnimationFrame(frame)
@@ -451,7 +451,7 @@ export function useLibraryCanvasControls({
       if (transformRafRef.current !== null) {
         cancelAnimationFrame(transformRafRef.current)
       }
-      // Don't flushCommit here — unmount may already be tearing down DOM.
+      // 不要在这里 flushCommit：卸载时 DOM 可能已在拆除。
       pressedPanKeysRef.current.clear()
       const motion = keyboardMotionRef.current
       if (motion.frame !== null) cancelAnimationFrame(motion.frame)
@@ -462,10 +462,7 @@ export function useLibraryCanvasControls({
   return {
     atMaxZoom: transform.scale >= maxScale - 0.001,
     atMinZoom: transform.scale <= minScale + 0.001,
-    /**
-     * Committed React pose (virtualization). Live focus / world follow
-     * `transformRef` + onPaint — same visual frame as the gesture.
-     */
+
     focusTransform: transform,
     handleClickCapture,
     handleBlur: stopKeyboardMotion,
@@ -481,7 +478,7 @@ export function useLibraryCanvasControls({
     flushCommit,
     reset,
     transform,
-    /** Live transform; prefer this (or onPaint) for absolute-follow visuals. */
+
     transformRef,
     zoom,
     zoomPercent: Math.round(transform.scale * 100),

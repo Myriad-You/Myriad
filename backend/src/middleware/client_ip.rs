@@ -51,7 +51,7 @@ pub fn parse_proxy_peer_allowlist(raw: &str) -> Vec<ipnet::IpNet> {
         .collect()
 }
 
-/// Built-in default when `TRUST_PROXY_PEERS` is unset or empty (MYR-026).
+/// Built-in default when `TRUST_PROXY_PEERS` is unset or empty.
 ///
 /// **Not** entire RFC1918. Prefer:
 /// - loopback (`127.0.0.0/8`, `::1`) for host Nginx / local tooling
@@ -70,7 +70,7 @@ pub fn default_trust_proxy_peer_nets() -> Vec<ipnet::IpNet> {
 /// Env: `TRUST_PROXY_PEERS` — CIDR/IP allowlist of reverse-proxy TCP peers.
 ///
 /// - **Unset/empty** ⇒ narrow built-in default (loopback + docker0), **not**
-///   entire RFC1918 (MYR-026).
+///   entire RFC1918.
 /// - **Non-empty** ⇒ only listed peers may supply XFF / X-Real-IP.
 ///
 /// Rate-limit middleware uses the same [`extract_client_ip`] path, so peer
@@ -92,9 +92,8 @@ pub fn trusted_proxy_peer_allowlist() -> &'static [ipnet::IpNet] {
 
 /// RFC1918 / loopback / link-local (and IPv6 ULA / link-local).
 ///
-/// Used for weather/geo private-IP heuristics and the pure-function path when
-/// callers pass an empty allowlist explicitly. Production env wiring uses
-/// [`trusted_proxy_peer_allowlist`] (narrow default, not full RFC1918).
+/// Used for weather/geo private-IP heuristics. Empty `TRUST_PROXY_PEERS` uses
+/// [`default_trust_proxy_peer_nets`] (loopback+docker0), not this helper.
 pub fn is_private_or_local(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => v4.is_private() || v4.is_loopback() || v4.is_link_local(),
@@ -125,7 +124,7 @@ pub fn peer_in_proxy_allowlist(peer: IpAddr, allowlist: &[ipnet::IpNet]) -> bool
 /// the TCP peer is on `allowlist`.
 ///
 /// When `allowlist` is empty (test / explicit), fall back to the narrow built-in
-/// default (loopback + docker0) — **not** entire RFC1918 (MYR-026).
+/// default (loopback + docker0) — **not** entire RFC1918.
 pub fn should_trust_proxy_headers(
     peer_ip: Option<IpAddr>,
     trust_proxy_headers: bool,
@@ -262,7 +261,7 @@ mod tests {
 
     #[test]
     fn empty_allowlist_uses_narrow_default_not_full_rfc1918() {
-        // MYR-026: empty allowlist ⇒ loopback + docker0 only, not 10/8 etc.
+        // empty allowlist ⇒ loopback + docker0 only, not 10/8 etc.
         let mut headers = HeaderMap::new();
         headers.insert("x-real-ip", HeaderValue::from_static("203.0.113.50"));
 

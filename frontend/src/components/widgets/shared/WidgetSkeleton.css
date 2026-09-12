@@ -1,16 +1,3 @@
-/**
- * Widget skeleton — shared loading surface for home widgets.
- * Accent: --ws-accent / --ws-soft / --ws-shine (see WidgetSkeleton.tsx).
- *
- * Perf:
- * - contain limits invalidation
- * - shimmer via transform translateX (compositor-friendly)
- * - --static / --hold / --placeholder skip animation
- * - deferMs in TS avoids sub-100ms paint flash
- * - exit: opacity + scale on .widget-skeleton-cover (GPU)
- */
-
-/* —— enter / exit cover (content underneath, skeleton on top) —— */
 .widget-skeleton-cover {
   position: absolute;
   inset: 0;
@@ -24,7 +11,7 @@
     opacity var(--ws-exit-ms, 280ms) cubic-bezier(0.22, 1, 0.36, 1),
     transform var(--ws-exit-ms, 280ms) cubic-bezier(0.22, 1, 0.36, 1);
 
-  /* will-change only while exiting — avoid permanent layer promotion */
+  /* will-change 只在退出时挂，避免永久提升合成层。 */
 }
 
 .widget-skeleton-cover--fill {
@@ -36,7 +23,6 @@
   transform: translate3d(0, 0, 0) scale(1);
 }
 
-/* Soft dissolve: slight zoom + fade so content appears under */
 .widget-skeleton-cover--exit {
   opacity: 0;
   transform: translate3d(0, 0, 0) scale(1.03);
@@ -82,16 +68,12 @@ html[data-perf-mode='exlight'] .widget-skeleton-cover {
   contain: layout style paint;
 }
 
-/* deferMs arming: zero bones */
 .widget-skeleton--placeholder {
   background: transparent;
 }
 
-/* Off-viewport / cheap hold: one paint layer, no bone DOM, no animation */
 .widget-skeleton--hold {
   background: var(--ws-soft);
-
-  /* Allow browser to skip work when tile is far off-screen */
   content-visibility: auto;
   contain-intrinsic-size: auto 8rem;
 }
@@ -108,7 +90,6 @@ html[data-perf-mode='exlight'] .widget-skeleton-cover {
   background: var(--ws-muted);
 }
 
-/* GPU-friendly sweep (transform) instead of animating background-position */
 .widget-skeleton-bone::after {
   content: '';
   position: absolute;
@@ -129,7 +110,6 @@ html[data-perf-mode='exlight'] .widget-skeleton-cover {
   opacity: 0.85;
 }
 
-/* Static / hold: no sweep */
 .widget-skeleton--static .widget-skeleton-bone::after,
 .widget-skeleton--hold .widget-skeleton-bone::after {
   display: none;
@@ -144,8 +124,6 @@ html[data-perf-mode='exlight'] .widget-skeleton-cover {
     transform: translate3d(100%, 0, 0);
   }
 }
-
-/* —— presets —— */
 
 .widget-skeleton--block {
   justify-content: stretch;
@@ -275,8 +253,6 @@ html[data-perf-mode='exlight'] .widget-skeleton-cover {
 .widget-skeleton--report {
   position: absolute;
   inset: 0;
-
-  /* top: line bones · bottom: logo row (same corner as CardLogoPill) */
   padding: 0.75rem;
   justify-content: space-between;
   gap: 0.65rem;
@@ -300,8 +276,6 @@ html[data-perf-mode='exlight'] .widget-skeleton-cover {
   gap: 0.4rem;
   width: 100%;
   max-width: 78%;
-
-  /* keep bones away from the bottom-left logo strip */
   padding-bottom: 0.15rem;
   margin-top: 0.1rem;
 }
@@ -326,7 +300,6 @@ html[data-perf-mode='exlight'] .widget-skeleton-cover {
   box-shadow: 0 4px 14px color-mix(in srgb, var(--ws-accent) 12%, transparent);
 }
 
-/* Sandbox stall footer (ready timeout) */
 .widget-skeleton-stall {
   position: absolute;
   left: 0;

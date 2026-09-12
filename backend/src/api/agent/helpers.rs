@@ -31,7 +31,7 @@ pub(crate) fn build_request_context(ctx: ProcessContext) -> RequestContext {
         conversation_history,
         custom_data: ctx.custom_data,
         lane_key: None, // 由 API 层在调用处注入
-        run_id: None,   // 由 process_stream 在 create_run 后注入
+        run_id: None,   // 由 `start_process_run`（及 Chat 同等路径）在 `create_run` 后注入
         source_intent_id: ctx.intention_id,
         autonomy_permission_cap: ctx.autonomy_permission_cap,
         rig_state: ctx
@@ -96,9 +96,21 @@ pub(crate) fn parse_user_id(claims: &Claims) -> Result<i32, HttpError> {
     claims.sub.parse::<i32>().map_err(|_| {
         HttpError::from((
             StatusCode::UNAUTHORIZED,
-            Json(json!({ "error": "Invalid user" })),
+            Json(AppError::public_json("Invalid user")),
         ))
     })
+}
+
+/// Existing pairings must remain revocable after Agent access is withdrawn.
+pub(crate) fn parse_pairing_user_id(claims: &Claims) -> Result<i32, HttpError> {
+    let id = parse_user_id(claims)?;
+    if id <= 0 {
+        return Err(HttpError::from((
+            StatusCode::UNAUTHORIZED,
+            Json(AppError::public_json("Login required")),
+        )));
+    }
+    Ok(id)
 }
 
 /// 解析 user_id 并校验 Agent 可见性/使用权限
@@ -136,15 +148,17 @@ pub(crate) fn validate_input(input: &str) -> Result<(), HttpError> {
     if input.chars().count() > MAX_INPUT_LEN {
         return Err(HttpError::from((
             StatusCode::BAD_REQUEST,
-            Json(json!({
-                "error": crate::services::agent::response_agent::input_too_long(MAX_INPUT_LEN)
-            })),
+            Json(AppError::public_json(
+                crate::services::agent::response_agent::input_too_long(MAX_INPUT_LEN),
+            )),
         )));
     }
     if input.trim().is_empty() {
         return Err(HttpError::from((
             StatusCode::BAD_REQUEST,
-            Json(json!({ "error": crate::services::agent::response_agent::input_empty() })),
+            Json(AppError::public_json(
+                crate::services::agent::response_agent::input_empty(),
+            )),
         )));
     }
     Ok(())
@@ -162,8 +176,7 @@ mod agent_entry_gate_tests {
 
     /// 能把一轮 Work 提交进 Agent 的 HTTP 入口，必须走带可见性判定的解析。
     ///
-    /// `interrupt_session` 曾经只解析 user_id，而它提交的请求 `context: None`
-    /// 落进 Agent 就是 Work——模块可见性关成 admin 也拦不住它。
+    /// `interrupt_session` 提交 `context: None` 即 Work；只解析 user_id 拦不住。
     #[test]
     fn every_work_entry_checks_module_visibility() {
         let cases: [(&str, &str, &str); 6] = [
@@ -212,3 +225,4 @@ mod agent_entry_gate_tests {
         }
     }
 }
+use myriad_error::AppError;

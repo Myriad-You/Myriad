@@ -1,7 +1,4 @@
-/**
- * 站点地址：仅运维结果区样式
- * 输入壳由 InputItem clickToEdit 变体（.field-input）提供
- */
+/* chrome: InputItem clickToEdit */
 
 .site-url-field {
   display: flex;
@@ -42,7 +39,6 @@ html.dark .site-url-result.is-err {
   color: #f87171;
 }
 
-/* 运维结果卡：内层 → 微透 */
 .site-url-applied {
   display: flex;
   flex-direction: column;

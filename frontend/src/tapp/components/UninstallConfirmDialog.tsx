@@ -1,8 +1,3 @@
-/**
- * Tapp 卸载确认 — 锚定触发按钮的浮层
- * 生命周期见 useAnchoredFloatTip（点外/Esc 关闭、session 防竞态）
- */
-
 import { FaTrash } from '@lib/icons'
 import { useCallback, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -15,7 +10,6 @@ import './UninstallConfirmDialog.css'
 export interface UninstallConfirmDialogProps {
   isOpen: boolean
   appName: string
-  /** 定位锚点（卸载按钮） */
   anchorEl?: HTMLElement | null
   onCancel: () => void
   onConfirm: (keepData: boolean) => Promise<void>
@@ -71,7 +65,6 @@ export function UninstallConfirmDialog({
     setUninstalling(true)
     try {
       await onConfirmRef.current(keepData)
-      // 父级成功后通常 isOpen=false；仅当前 open 会话再本地收起
       if (!isCurrentSession(startedSession)) return
       close({ notifyParent: false })
     } catch {

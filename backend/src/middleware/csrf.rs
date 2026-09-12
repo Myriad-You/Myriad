@@ -26,13 +26,12 @@ type HmacSha256 = Hmac<Sha256>;
 /// from one format being interpreted as another format after a rolling deploy.
 const CSRF_TOKEN_VERSION: u8 = 1;
 const CSRF_TOKEN_VERSION_PREFIX: &str = "v1";
-/// Keep the existing one-hour browser/server lifetime. The frontend refreshes
-/// a little before this deadline, while the signed expiry remains authoritative.
+/// One-hour browser/server lifetime. The frontend refreshes a little before
+/// this deadline; the signed expiry remains authoritative.
 pub(crate) const CSRF_TOKEN_TTL_SECS: i64 = 60 * 60;
 const CSRF_CLOCK_SKEW_SECS: i64 = 60;
 const CSRF_NONCE_BYTES: usize = 32;
-/// Reject oversized values before decoding or running HMAC to keep this public
-/// header endpoint bounded even when a client sends an arbitrary string.
+/// Reject tokens longer than 1024 bytes before decode/HMAC.
 const CSRF_TOKEN_MAX_LEN: usize = 1024;
 const CSRF_KEY_CONTEXT: &[u8] = b"myriad-csrf-token-signing-key-v1\0";
 
@@ -59,8 +58,7 @@ struct CsrfTokenPayload {
     iat: i64,
     /// Unix seconds when the token expires.
     exp: i64,
-    /// Randomness prevents response caching from yielding one stable value;
-    /// it is authenticated but otherwise has no server-side state.
+    /// Authenticated 32-byte nonce so two issuances at the same `iat` still differ.
     n: String,
 }
 
@@ -240,8 +238,7 @@ fn verify_csrf_token_with_key(
 
 /// Extract raw JWT string preferring `auth_token` cookie over Bearer.
 fn extract_raw_jwt(headers: &HeaderMap) -> Option<String> {
-    // Prefer cookie when present so store key matches browser session even if
-    // a stale Authorization header is also sent.
+    // Prefer cookie JWT over Bearer so the signed CSRF binding matches the browser session.
     if let Some(cookie_header) = headers.get(header::COOKIE) {
         if let Ok(cookies) = cookie_header.to_str() {
             for cookie in cookies.split(';') {
@@ -271,9 +268,6 @@ fn extract_raw_jwt(headers: &HeaderMap) -> Option<String> {
     None
 }
 
-/// Extract the stable session identifier retained for compatibility with the
-/// old unit-level helper. The stateless token itself stores only a SHA-256
-/// digest of this verified signature segment.
 /// Session id used by the CSRF unit tests: the verified JWT signature segment.
 ///
 /// 生产路径走 `extract_session_context`；这一对只服务本文件的 #[cfg(test)]，
@@ -401,8 +395,7 @@ pub async fn csrf_middleware(req: Request, next: Next) -> Response {
     // epoch used by the browser session (cookie preferred when present for
     // session continuity).
     let Some(session) = extract_session_context(headers) else {
-        // Cookie parse edge case: has_auth_token_cookie true but signature
-        // extract failed — fail closed.
+        // JWT-shaped `auth_token` cookie present but JWT verify failed — fail closed.
         tracing::warn!("🚨 CSRF check failed: auth cookie present but session id missing");
         return (
             StatusCode::FORBIDDEN,
@@ -475,7 +468,7 @@ pub async fn csrf_middleware(req: Request, next: Next) -> Response {
 pub(crate) fn is_csrf_exempt(path: &str) -> bool {
     // 公开接口、登录接口、健康检查等不需要 CSRF 保护
     path.starts_with("/api/auth/login")
-        || path.starts_with("/api/auth/logout") // 退出登录不需要 CSRF（已经在退出了）
+        || path.starts_with("/api/auth/logout") // Logout is hard-exempt.
         || path.starts_with("/api/setup/")
         || path.starts_with("/health")
         || path.starts_with("/api/proxy/") // 图片代理等公开接口
@@ -745,8 +738,7 @@ mod tests {
         let id_a = extract_session_id(&first).expect("verified jwt a");
         let id_b = extract_session_id(&second).expect("verified jwt b");
         assert_ne!(id_a, id_b);
-        // Compatibility helper returns the exact signature segment; signed
-        // CSRF payloads retain only its fixed-size digest.
+        // Test helper returns the JWT signature segment; CSRF `sid` is its SHA-256 digest.
         assert_eq!(id_a, jwt_signature_segment(&jwt_a).unwrap());
         assert_eq!(id_b, jwt_signature_segment(&jwt_b).unwrap());
     }
@@ -805,12 +797,13 @@ mod tests {
         assert!(!is_csrf_exempt("/api/analytics/export"));
         assert!(!is_csrf_exempt("/api/analytics/import"));
 
-        // Tapp API 不在豁免列表（通过 session 检查决定是否需要 CSRF）
+        // 这些路径不在豁免列表；Cookie 会话仍需 CSRF。
         assert!(!is_csrf_exempt("/api/auth/oauth/github/callback"));
         assert!(!is_csrf_exempt("/api/tapp/ai/v2/tasks"));
         assert!(!is_csrf_exempt("/api/tapps/install"));
         assert!(!is_csrf_exempt("/api/tapps/my-app/start"));
         assert!(!is_csrf_exempt("/api/tapps/my-app/credentials/wegame"));
+        assert!(!is_csrf_exempt("/api/tapps/my-app/private/token"));
 
         assert!(!is_csrf_exempt("/api/config"));
         assert!(!is_csrf_exempt("/api/auth/change-password"));
@@ -850,6 +843,27 @@ mod tests {
             format!("{AUTH_TOKEN_COOKIE}=deleted").parse().unwrap(),
         );
         assert!(!has_auth_token_cookie(&empty));
+    }
+
+    #[test]
+    fn csrf_check_needed_cookie_session_on_tapp_private_writes() {
+        let jwt = "hdr.pay.sig-private";
+        let cookie = cookie_headers(jwt);
+        let bearer = bearer_headers(jwt);
+        let empty = HeaderMap::new();
+        let item = "/api/tapps/com.example.app/private/token";
+        let collection = "/api/tapps/com.example.app/private";
+        let shared = "/api/tapps/com.example.app/shared/posts";
+
+        assert!(csrf_check_needed(item, &Method::POST, &cookie));
+        assert!(csrf_check_needed(item, &Method::DELETE, &cookie));
+        assert!(csrf_check_needed(collection, &Method::DELETE, &cookie));
+        assert!(csrf_check_needed(shared, &Method::POST, &cookie));
+
+        assert!(!csrf_check_needed(item, &Method::GET, &cookie));
+        assert!(!csrf_check_needed(collection, &Method::GET, &cookie));
+        assert!(!csrf_check_needed(item, &Method::POST, &bearer));
+        assert!(!csrf_check_needed(item, &Method::POST, &empty));
     }
 
     #[test]
@@ -936,5 +950,70 @@ mod tests {
             extract_session_id(&h).as_deref(),
             jwt_signature_segment(&bearer_jwt).as_deref()
         );
+    }
+
+    #[tokio::test]
+    async fn cookie_private_post_without_csrf_header_is_forbidden() {
+        use axum::body::Body;
+        use axum::middleware::from_fn;
+        use axum::routing::{get, post};
+        use axum::Router;
+        use tower::ServiceExt;
+
+        async fn ok() -> &'static str {
+            "ok"
+        }
+
+        let app = Router::new()
+            .route("/api/tapps/{tapp_id}/private/{key}", get(ok).post(ok))
+            .layer(from_fn(csrf_middleware));
+        let jwt = mint_test_jwt("21", "private-writer");
+
+        let denied = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/tapps/com.example.app/private/token")
+                    .header(header::COOKIE, format!("{AUTH_TOKEN_COOKIE}={jwt}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("response");
+        assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+        let denied_body = to_bytes(denied.into_body(), 2048).await.expect("body");
+        let denied_json: serde_json::Value = serde_json::from_slice(&denied_body).expect("json");
+        assert_eq!(denied_json["error"], "CSRF token missing");
+
+        let allowed_get = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/tapps/com.example.app/private/token")
+                    .header(header::COOKIE, format!("{AUTH_TOKEN_COOKIE}={jwt}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("response");
+        assert_eq!(allowed_get.status(), StatusCode::OK);
+
+        let session = verified_session_from_jwt(&jwt).expect("session");
+        let token = issue_csrf_token(&session, unix_now()).expect("csrf");
+        let allowed_post = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/tapps/com.example.app/private/token")
+                    .header(header::COOKIE, format!("{AUTH_TOKEN_COOKIE}={jwt}"))
+                    .header("X-CSRF-Token", token)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .expect("response");
+        assert_eq!(allowed_post.status(), StatusCode::OK);
     }
 }

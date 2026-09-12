@@ -1,14 +1,9 @@
 //! Tapp 共享基础模块
 //!
 //! 提供：
-//! - 通用 TTL 缓存
-//! - 全局 HTTP Client
-//! - 平台数据缓存
-//! - AI 配置缓存
-//! - 速率限制器
-//! - 安全验证
-//! - 权限检查
-//! - 性能指标
+//! - `platform_cache` 再导出
+//! - 速率限制 HTTP 适配
+//! - 安装解析 / 批准权限校验 HTTP 适配
 
 use axum::{http::StatusCode, Json};
 use sea_orm::DatabaseConnection;
@@ -21,10 +16,6 @@ use crate::services::permission_service::{TappPermission, TappPermissionService,
 use crate::services::tapp_ownership::{self, TappAccessError};
 use crate::services::tapp_rate_limit::{self, RateLimitError};
 
-// 全局 HTTP Client
-// Outbound Tapp HTTP client: `services::http_client::TAPP_HTTP_CLIENT`
-// (declared-API, AI image providers). Not re-exported here.
-
 // 平台数据缓存
 // Domain implementation: `services::platform_cache`.
 
@@ -32,11 +23,7 @@ pub use crate::services::platform_cache::{
     get_available_platforms, get_cached_platform_data, validate_platform_name,
 };
 // acquire_platform_lock / update_cached_platform_data: import from services::platform_cache
-// (write paths use platform_cache::append/write_filtered_document).
-
-// AI 配置缓存
-// Domain implementation: `services::ai_config` (used by ai_tasks / governed text).
-// Types and getters are not re-exported here; import from services directly.
+// (write paths use append_filtered_items / write_filtered_document).
 
 // 速率限制器
 // Domain implementation: `services::tapp_rate_limit`. This module only adapts
@@ -193,9 +180,8 @@ pub async fn get_admin_user_id(db: &DatabaseConnection) -> Result<i32, HttpError
 
 /// 验证用户是否有权访问指定的 Tapp
 ///
-/// 安全校验规则：
-/// - 站点所有者、管理员和普通用户：只能运行站点所有者的公开 Tapp 或自己的安装
-/// - 游客：只能运行站点所有者的公开 Tapp
+/// 安全校验规则：站点所有者/管理员/普通用户只能跑自己的安装或站点所有者公开安装；
+/// 公开 `visibility=admin` 还要求观看者是管理员。游客只能跑站点所有者对游客可见的公开安装。
 ///
 /// 管理员的控制面权限不能隐式变成其他用户 Tapp 的代码、授权或私有数据访问权。
 pub async fn verify_tapp_ownership(
@@ -211,8 +197,7 @@ pub async fn verify_tapp_ownership(
 /// Resolve the exact installation record used to execute a Tapp for this subject.
 ///
 /// When the subject has a private install of the same `tapp_id`, that record wins over the
-/// site-owner public install so code, resources, APIs, grants and storage all come from the
-/// private copy. Guests and users without a private copy use the public admin install.
+/// site-owner public install. This helper only returns the install row; grants are rebound later from approved ∩ role.
 pub async fn resolve_accessible_tapp(
     db: &DatabaseConnection,
     user_id: i32,
@@ -223,10 +208,10 @@ pub async fn resolve_accessible_tapp(
         .map_err(tapp_access_http_error)
 }
 
-/// 验证当前可访问的 Tapp 安装记录确实获得了指定权限。
+/// 验证当前可访问安装的批准权限包含指定项。
 ///
-/// 角色级权限下放只能说明调用者角色可以使用该能力；这里再检查安装时授权，
-/// 防止客户端伪造 tapp_id 绕过 manifest/approved_permissions。
+/// 角色级授予只能说明调用者角色可以使用该能力；这里再检查安装的批准权限，
+/// 防止客户端伪造 tapp_id 绕过 `approved_permissions`。
 pub async fn verify_tapp_approved_permissions(
     db: &DatabaseConnection,
     user_id: i32,
@@ -244,7 +229,7 @@ pub use tapp_ownership::tapp_owner_priority;
 
 /// 完整授权一个带 `tapp_id` 的运行时能力调用。
 ///
-/// 同时验证角色级权限下放、当前用户可访问该 Tapp，以及安装记录确实获授此权限。
+/// 同时验证角色级授予、当前用户可访问该 Tapp，以及安装的批准权限包含此项。
 /// 返回解析后的用户 ID，避免各端点重复且容易漏掉其中一层检查。
 pub async fn authorize_tapp_permission(
     db: &DatabaseConnection,
@@ -276,7 +261,7 @@ pub fn parse_user_id(claims: &Claims) -> Result<i32, HttpError> {
     claims.sub.parse().map_err(|_| {
         HttpError::from((
             StatusCode::UNAUTHORIZED,
-            Json(json!({ "error": "Invalid user ID" })),
+            Json(AppError::public_json("Invalid user ID")),
         ))
     })
 }
@@ -341,9 +326,6 @@ pub async fn current_tapp_user_role(db: &DatabaseConnection, claims: &Claims) ->
 /// 验证提示词安全性（后端层）
 pub use myriad_prompt_security::validate_prompt_security;
 
-// Image prompt security: call `myriad_prompt_security::validate_image_prompt_security`
-// directly (used by services::ai_task_prepare).
-
 #[cfg(test)]
 mod tests {
     use super::tapp_owner_priority;
@@ -359,3 +341,4 @@ mod tests {
         assert_eq!(tapp_owner_priority(99, -1, 1), 2);
     }
 }
+use myriad_error::AppError;

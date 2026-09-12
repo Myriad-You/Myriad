@@ -1,7 +1,3 @@
-/**
- * 站点地址：InputItem clickToEdit + 域名 API / 运维清单
- */
-
 import type {
   ChangeSiteDomainResponse,
   DomainChecklistItem,
@@ -18,19 +14,18 @@ import './SiteUrlField.css'
 
 export interface SiteUrlFieldProps {
   value: string
-  /** 应用成功后同步展示（应 silent） */
   onApplied: (url: string) => void
 }
 
 function normalizeOrigin(url: string): string {
-  return url.trim().replace(/\/$/, '')
+  return url.trim().replaceAll(/\/$/g, '')
 }
 
 export const SiteUrlField: React.FC<SiteUrlFieldProps> = ({
   value,
   onApplied,
 }) => {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const [error, setError] = useState<string | undefined>()
   const [resultOk, setResultOk] = useState<string | null>(null)
   const [applied, setApplied] = useState<
@@ -40,7 +35,6 @@ export const SiteUrlField: React.FC<SiteUrlFieldProps> = ({
 
   const current = normalizeOrigin(value)
 
-  /** 仅清错误（进编辑/取消时）；成功结果与清单保留到下次提交 */
   const clearError = useCallback(() => {
     setError(undefined)
   }, [])
@@ -63,20 +57,17 @@ export const SiteUrlField: React.FC<SiteUrlFieldProps> = ({
         throw new Error(msg)
       }
 
-      // 未改动：直接收起
       if (current && next === current) {
         setError(undefined)
         return
       }
 
       if (
-        !window.confirm(t.config.domainChangeConfirm.replace('{origin}', next))
+        !window.confirm(format(t.config.domainChangeConfirm, { origin: next }))
       ) {
-        // 取消确认：保持编辑态，不写 error
         throw new Error('cancelled')
       }
 
-      // 新一次提交：清掉上次结果
       setError(undefined)
       setResultOk(null)
       setChecklist([])
@@ -87,7 +78,6 @@ export const SiteUrlField: React.FC<SiteUrlFieldProps> = ({
           new_origin: next,
           previous_origin: current || undefined,
         })
-        // 200 正常返回；4xx/5xx 由 apiService 抛 ApiError
         if (res.success === false || !res.applied) {
           const fail = userFacingError(res.message, t.config.domainChangeFailed)
           setError(fail)
@@ -117,7 +107,6 @@ export const SiteUrlField: React.FC<SiteUrlFieldProps> = ({
         label={t.config.baseUrl}
         value={value}
         onChange={() => {
-          // 编辑中输入时清掉上次错误，避免旧红字一直挂着
           clearError()
         }}
         variant="clickToEdit"

@@ -9,8 +9,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 平台数据读取
     registry.register(Capability {
         id: "platform.read".to_string(),
-        name: "平台数据读取".to_string(),
-        description: "读取各平台（Bilibili/Steam/GitHub等）的缓存数据".to_string(),
+        name: "Read platform data".to_string(),
+        description: "Read cached platform data.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -39,8 +39,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 平台统计数据
     registry.register(Capability {
         id: "platform.stats".to_string(),
-        name: "平台统计数据".to_string(),
-        description: "获取平台数据的统计信息".to_string(),
+        name: "Platform stats".to_string(),
+        description: "Read platform statistics.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query, IntentAction::Analyze],
         input_schema: json!({
@@ -66,8 +66,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 平台数据写入
     registry.register(Capability {
         id: "platform.write".to_string(),
-        name: "平台数据写入".to_string(),
-        description: "向平台缓存写入数据".to_string(),
+        name: "Write platform data".to_string(),
+        description: "Write to platform cache.".to_string(),
         category: CapabilityCategory::DataWrite,
         supported_actions: vec![IntentAction::Create, IntentAction::Update],
         input_schema: json!({
@@ -94,8 +94,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 刷新平台数据
     registry.register(Capability {
         id: "platform.refresh".to_string(),
-        name: "刷新平台数据".to_string(),
-        description: "触发平台数据重新获取".to_string(),
+        name: "Refresh platform data".to_string(),
+        description: "Refresh platform data.".to_string(),
         category: CapabilityCategory::DataWrite,
         supported_actions: vec![IntentAction::Update],
         input_schema: json!({
@@ -121,8 +121,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // Bilibili 用户查询
     registry.register(Capability {
         id: "bilibili.user".to_string(),
-        name: "Bilibili 用户查询".to_string(),
-        description: "获取 Bilibili 用户信息、收藏、追番".to_string(),
+        name: "Bilibili user".to_string(),
+        description: "Read Bilibili profile, favorites, and following.".to_string(),
         category: CapabilityCategory::ExternalIntegration,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -149,15 +149,15 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // Bangumi 用户查询
     registry.register(Capability {
         id: "bangumi.user".to_string(),
-        name: "Bangumi 用户查询".to_string(),
-        description: "获取 Bangumi 用户基本信息".to_string(),
+        name: "Bangumi user".to_string(),
+        description: "Read Bangumi profile information.".to_string(),
         category: CapabilityCategory::ExternalIntegration,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
             "type": "object",
             "properties": {
                 "username": { "type": "string" },
-                "access_token": { "type": "string", "description": "可选，用于访问需要授权的数据" },
+                "access_token": { "type": "string", "description": "Optional; for data that needs authorization" },
                 "user_agent": { "type": "string", "default": "myriad/Myriad" }
             },
             "required": ["username"]
@@ -177,15 +177,15 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // Bangumi 收藏查询
     registry.register(Capability {
         id: "bangumi.collections".to_string(),
-        name: "Bangumi 收藏查询".to_string(),
-        description: "查询用户的 Bangumi 收藏、评分和观看状态".to_string(),
+        name: "Bangumi collections".to_string(),
+        description: "Read Bangumi collections, scores, and watch status.".to_string(),
         category: CapabilityCategory::ExternalIntegration,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
             "type": "object",
             "properties": {
                 "username": { "type": "string" },
-                "access_token": { "type": "string", "description": "可选，用于访问私有收藏" },
+                "access_token": { "type": "string", "description": "Optional; for private collections" },
                 "user_agent": { "type": "string", "default": "myriad/Myriad" }
             },
             "required": ["username"]
@@ -206,8 +206,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // Steam 用户查询
     registry.register(Capability {
         id: "steam.user".to_string(),
-        name: "Steam 用户查询".to_string(),
-        description: "读取本站已同步的 Steam 缓存（不是按 steamId 实时查询）".to_string(),
+        name: "Steam user".to_string(),
+        description: "Read cached Steam data.".to_string(),
         category: CapabilityCategory::ExternalIntegration,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -230,8 +230,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // GitHub 仓库查询
     registry.register(Capability {
         id: "github.repos".to_string(),
-        name: "GitHub 仓库查询".to_string(),
-        description: "查询 GitHub 仓库、贡献和活动".to_string(),
+        name: "GitHub repositories".to_string(),
+        description: "Read GitHub repositories and activity.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -244,7 +244,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "type": "object",
             "properties": {
                 "type": { "type": "string" },
-                "data": { "description": "repos / contributions / starred 对应的数据" }
+                "data": { "description": "Data for repos / contributions / starred" }
             }
         }),
         required_permissions: vec!["github:read".to_string()],
@@ -256,8 +256,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 网易云歌单
     registry.register(Capability {
         id: "netease.playlist".to_string(),
-        name: "网易云歌单".to_string(),
-        description: "获取用户网易云歌单和听歌记录".to_string(),
+        name: "NetEase playlists".to_string(),
+        description: "Read NetEase playlists and listening history.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -270,7 +270,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "type": "object",
             "properties": {
                 "type": { "type": "string" },
-                "data": { "description": "playlists / recent / favorites 对应的数据" },
+                "data": { "description": "Data for playlists / recent / favorites" },
                 "playlists": { "type": "array" },
                 "songs": { "type": "array" }
             }
@@ -284,8 +284,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // Bilibili 追番查询
     registry.register(Capability {
         id: "bilibili.bangumi".to_string(),
-        name: "Bilibili 追番查询".to_string(),
-        description: "读取本站已同步的 B 站追番缓存（不是按 uid 实时查询）".to_string(),
+        name: "Bilibili following".to_string(),
+        description: "Read cached Bilibili following data.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -310,8 +310,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // Bilibili 视频查询
     registry.register(Capability {
         id: "bilibili.video".to_string(),
-        name: "Bilibili 视频查询".to_string(),
-        description: "通过 BV 号或 AV 号查询 Bilibili 视频详情".to_string(),
+        name: "Bilibili videos".to_string(),
+        description: "Look up a Bilibili video by BV or AV id.".to_string(),
         category: CapabilityCategory::ExternalIntegration,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -339,8 +339,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // Steam 愿望单
     registry.register(Capability {
         id: "steam.wishlist".to_string(),
-        name: "Steam 愿望单".to_string(),
-        description: "读取本站已同步的 Steam 愿望单缓存（不是按 steamId 实时查询）".to_string(),
+        name: "Steam wishlist".to_string(),
+        description: "Read cached Steam wishlist data.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -365,14 +365,14 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // Steam 游戏详情
     registry.register(Capability {
         id: "steam.game".to_string(),
-        name: "Steam 游戏详情".to_string(),
-        description: "查询 Steam 游戏详细信息".to_string(),
+        name: "Steam game details".to_string(),
+        description: "Read Steam game details.".to_string(),
         category: CapabilityCategory::ExternalIntegration,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
             "type": "object",
             "properties": {
-                "appId": { "type": "integer", "description": "也接受字符串 / app_id" },
+                "appId": { "type": "integer", "description": "Also accepts a string / app_id" },
                 "app_id": { "type": "integer" }
             },
             "required": ["appId"]
@@ -395,8 +395,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 平台连接状态
     registry.register(Capability {
         id: "platform.connection".to_string(),
-        name: "平台连接状态".to_string(),
-        description: "查询各平台数据连接和同步状态".to_string(),
+        name: "Platform connection".to_string(),
+        description: "Check platform connection and sync status.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({
@@ -421,10 +421,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 网易云歌单搜索
     registry.register(Capability {
         id: "netease.searchPlaylist".to_string(),
-        name: "搜索网易云歌单".to_string(),
-        description:
-            "搜索网易云音乐歌单，支持关键词搜索（如轻音乐、放松、工作等），返回歌单列表及ID"
-                .to_string(),
+        name: "Search NetEase playlists".to_string(),
+        description: "Search NetEase playlists by keyword.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query, IntentAction::Recommend],
         input_schema: json!({
@@ -432,12 +430,12 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "properties": {
                 "keyword": {
                     "type": "string",
-                    "description": "搜索关键词，如：轻音乐、放松、工作、睡眠、纯音乐等"
+                    "description": "Search keyword, e.g. relax, work, sleep, light music. Leftover Chinese tags such as 轻音乐 still work."
                 },
                 "limit": {
                     "type": "integer",
                     "default": 5,
-                    "description": "返回结果数量"
+                    "description": "How many results to return"
                 }
             },
             "required": ["keyword"]
@@ -450,8 +448,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
                     "items": {
                         "type": "object",
                         "properties": {
-                            "id": { "type": "string", "description": "歌单ID" },
-                            "name": { "type": "string", "description": "歌单名称" },
+                            "id": { "type": "string", "description": "Playlist id" },
+                            "name": { "type": "string", "description": "Playlist name" },
                             "coverUrl": { "type": "string" },
                             "playCount": { "type": "integer" },
                             "trackCount": { "type": "integer" }
@@ -460,7 +458,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 },
                 "recommendedPlaylistId": {
                     "type": "string",
-                    "description": "推荐的歌单ID（可直接用于播放）"
+                    "description": "Recommended playlist id (can be played directly)"
                 }
             }
         }),

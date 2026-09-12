@@ -6,7 +6,7 @@
 //!
 //! 集中在这里是因为同一份判定有三个调用方，各写一遍 SQL 必然漂移：
 //!
-//! 1. 出站扇出 —— 本地公开帖除粉丝外还要投给群邻实例（`content::publish_media`）；
+//! 1. 出站扇出 —— 本地公开帖除粉丝外还要投给群邻实例（`publish_content` → `fan_out_to_room_peers`）；
 //! 2. 入站放行 —— 共享收件箱是否留存「没有任何本地粉丝」的公开帖（`inbox::receive`）；
 //! 3. 首页查询 —— Aro Home 按群邻 domain 过滤联邦活动（`api::tapp_runtime::federation`）。
 //!
@@ -17,8 +17,8 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DbErr, Statement};
 
 /// 从 actor URL 取 authority 段的 Postgres 表达式（`ra.domain` 缺失时的兜底）。
 ///
-/// 远端成员在 `federation_remote_actors` 里可能还没落行（邀请刚到、actor 文档
-/// 尚未抓取），此时 `ra.domain` 为 NULL，但 `actor_url` 一定在成员表里。
+/// LEFT JOIN fallback when `ra.domain` is NULL: take `actor_url` authority.
+/// Only `COALESCE(membership_status,'active')='active'` (pending invites are out).
 const ACTOR_URL_DOMAIN: &str = "substring({col} from '^[a-zA-Z][a-zA-Z0-9+.-]*://([^/]+)')";
 
 fn actor_url_domain(col: &str) -> String {

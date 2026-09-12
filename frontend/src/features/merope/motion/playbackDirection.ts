@@ -12,7 +12,6 @@ export interface PlaybackDirectionScope {
   generation: number
 }
 
-/** Testable authenticated feedback boundary; capture only after async auth. */
 export async function sendPlaybackObservation(
   url: string,
   signal: AbortSignal,
@@ -53,7 +52,7 @@ interface Dependencies {
   note: (reason: string, scope: PlaybackDirectionScope) => void
 }
 
-/** Owns only transport lifetime. Playback truth stays in speech/TTS owners. */
+/** Owns only transport lifetime. */
 export class PlaybackDirectionClient {
   private active:
     | (PlaybackDirectionScope & {
@@ -93,7 +92,6 @@ export class PlaybackDirectionClient {
     this.check()
   }
 
-  /** Called on lifecycle changes and a low-frequency host check, not rig frames. */
   check(nowMs: number = performance.now()): void {
     const active = this.active
     if (
@@ -104,7 +102,6 @@ export class PlaybackDirectionClient {
       this.stop()
       return
     }
-    // Single-flight, bounded telemetry; neither reply nor playback awaits it.
     if (active && !active.observing && nowMs - active.observedAt >= 500) {
       active.observing = true
       active.observedAt = nowMs
@@ -140,7 +137,7 @@ export class PlaybackDirectionClient {
           active.controller.signal,
         )
         if (this.active !== active) return
-        this.check() // Recheck after I/O: playback may have ended while awaiting.
+        this.check()
         if (this.active !== active) {
           this.deps.note('expired', active)
           return
@@ -161,8 +158,7 @@ export class PlaybackDirectionClient {
           }
         }
         if (result.closed) {
-          // Closed producer can carry its last result. Closing transport must
-          // never clear plans that are already playing on the body.
+          // Closing transport must never clear plans that are already playing on the body.
           this.stop()
           return
         }

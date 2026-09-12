@@ -5,6 +5,7 @@
 //! on rooms/channels that will never exist again.
 
 use axum::http::StatusCode;
+use myriad_error::AppError;
 use serde_json::{json, Value};
 
 /// Errors that mean "peer will never accept this activity as-is".
@@ -93,10 +94,9 @@ pub fn map_inbox_handler_error(e: String) -> (StatusCode, axum::Json<Value>) {
         || lower.contains("retry after channelopen")
         || lower.contains("retry after roominvite")
     {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            axum::Json(json!({"error": public, "retry": true})),
-        );
+        let mut body = AppError::public_json(public);
+        body["retry"] = json!(true);
+        return (StatusCode::SERVICE_UNAVAILABLE, axum::Json(body));
     }
 
     if is_permanent_federation_error(&e) {
@@ -114,12 +114,12 @@ pub fn map_inbox_handler_error(e: String) -> (StatusCode, axum::Json<Value>) {
         } else {
             StatusCode::NOT_FOUND
         };
-        return (status, axum::Json(json!({"error": public})));
+        return (status, axum::Json(AppError::public_json(public)));
     }
 
     (
         StatusCode::INTERNAL_SERVER_ERROR,
-        axum::Json(json!({"error": public})),
+        axum::Json(AppError::public_json(public)),
     )
 }
 
@@ -127,12 +127,12 @@ pub fn map_inbox_handler_error(e: String) -> (StatusCode, axum::Json<Value>) {
 ///
 /// Covers:
 /// - `PERMANENT HTTP 4xx …` (correct remote)
-/// - `HTTP 500: …not_found…` (legacy remotes that mis-map permanent errors)
+/// - `HTTP 500: …not_found…` (peer mapped a permanent error onto 500)
 pub fn is_permanent_delivery_error(err: &str) -> bool {
     if err.starts_with("PERMANENT ") {
         return true;
     }
-    // Body after status line — still permanent if message says so
+    // 整段再走 is_permanent_federation_error（不只看 status line）
     is_permanent_federation_error(err)
 }
 
@@ -157,11 +157,15 @@ mod tests {
         let (st, body) = map_inbox_handler_error(msg.into());
         assert_eq!(st, StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(body.0.get("retry").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            body.0.get("code").and_then(|v| v.as_str()),
+            Some("activity_not_ready")
+        );
     }
 
     #[test]
     fn room_not_yet_present_not_confused_with_not_found() {
-        // Must stay transient even though message contains the room id token
+        // Transient via `not yet present` / `retry after RoomInvite` (not because of a room-id token).
         let msg = "Room rm_deadbeef not yet present; retry after RoomInvite";
         assert!(!is_permanent_federation_error(msg));
         assert!(!msg.to_lowercase().contains("not found") || !is_permanent_federation_error(msg));
@@ -171,8 +175,12 @@ mod tests {
     fn room_not_found_is_permanent_404() {
         let msg = "not_found: Room rm_abc not found";
         assert!(is_permanent_federation_error(msg));
-        let (st, _) = map_inbox_handler_error(msg.into());
+        let (st, body) = map_inbox_handler_error(msg.into());
         assert_eq!(st, StatusCode::NOT_FOUND);
+        assert_eq!(
+            body.0.get("code").and_then(|v| v.as_str()),
+            Some("not_found")
+        );
         assert!(is_permanent_delivery_error(&format!(
             "HTTP 500: {{\"error\":\"{msg}\"}}"
         )));

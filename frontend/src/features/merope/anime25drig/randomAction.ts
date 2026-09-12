@@ -78,37 +78,14 @@ const NEUTRAL_FRAME: RandomActionFrame = {
 const RELEASE_DURATION = 0.38
 const RESUME_DELAY_MIN = 0.24
 const RESUME_DELAY_MAX = 0.42
-/**
- * Automation switching back on wants life immediately; being displaced by
- * something that owns the body does not. Sharing the toggle's delay let a beat
- * manufacture idle motion rather than merely yield to it: every displacement
- * short-circuited the ordinary 2.8-7.5s gap, so the layer fired more often
- * during a conversation than during silence. Still short enough not to read
- * as a freeze — that is the other failure, and the reason this is not the
- * full idle gap either.
- */
+/** Displaced resume: longer than the toggle delay so a beat does not manufacture idle; shorter than the full idle gap. */
 const DISPLACED_RESUME_MIN = 0.9
 const DISPLACED_RESUME_MAX = 1.8
 
-/**
- * Cue envelope at which the idle layer stops competing for the body.
- *
- * Occupancy already thins idle motion while speaking or singing, because
- * those run alongside a gesture by design. The director's discrete beats have
- * no such term: they were only ever attenuated, never rescheduled, so a
- * `shoulderEase` could begin on the frame an `emphasize` landed and the two
- * wrote the same `body` at once.
- */
+/** Idle stops competing for the body at this cue envelope. Director beats block rather than only attenuate. */
 export const DIRECTED_BODY_BLOCK_LEVEL = 0.15
 
-/**
- * Handoff between two clips, in seconds of real time.
- *
- * This used to be a fraction of the incoming clip's own duration, which made
- * the window 0.45s after a `softBlink` and 1.29s after a `shoulderEase` — the
- * length was set by whoever arrived, when what has to be shed is whatever the
- * outgoing clip left behind.
- */
+/** 两段 clip 交接窗口（秒）。长度由出段残留决定，不看出段/入段各自时长。 */
 export const HANDOFF_MIN = 0.28
 export const HANDOFF_MAX = 0.62
 /** Largest offset an idle clip authors, so residue reads as a 0-1 share. */

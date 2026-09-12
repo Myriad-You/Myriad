@@ -19,7 +19,6 @@ import { UserModal } from './UserModal'
 
 interface UserInfo {
   name: string
-  /** 可能为空：<Avatar> 负责本地兜底 */
   avatar: string | null
   bio: string
   platform: string
@@ -27,17 +26,10 @@ interface UserInfo {
 
 interface UserSectionProps {
   onClosePanel: () => void
-  /** 面板内路由跳转：收起 GCP 并替换历史哨兵（见 GlobalControlPanel.handleNavigateFromPanel） */
+  // 面板内跳转：收起 GCP 并替换历史哨兵。
   onNavigateFromPanel: (path: string) => void
 }
 
-/**
- * 用户区域组件
- * 包含顶部用户信息按钮和用户弹窗逻辑
- *
- * memo：宿主 GlobalControlPanel 因音乐进度/歌词轮播频繁重渲染，
- * 本组件仅依赖稳定的 onClosePanel / onNavigateFromPanel 回调，隔离后不再跟随重渲染
- */
 export const UserSection: React.FC<UserSectionProps> = memo(
   ({ onClosePanel, onNavigateFromPanel }) => {
     const {
@@ -50,23 +42,19 @@ export const UserSection: React.FC<UserSectionProps> = memo(
     const [user, setUser] = useState<User | null>(null)
     const [isAuthenticated, setIsAuthenticated] = useState(false)
 
-    // 弹窗状态机：'closed' -> 'mounting' -> 'visible' -> 'closing' -> 'closed'
     const [modalState, setModalState] = useState<
       'closed' | 'mounting' | 'visible' | 'closing'
     >('closed')
 
-    // 处理弹窗状态机转换
     useEffect(() => {
       if (modalState === 'mounting') {
-        // mounting 阶段：DOM 已渲染但不可见，等待布局稳定后进入 visible
         const timer = setTimeout(() => {
           setModalState('visible')
-        }, 16) // 一帧时间
+        }, 16)
         return () => clearTimeout(timer)
       }
 
       if (modalState === 'closing') {
-        // closing 阶段：播放关闭动画后进入 closed
         const timer = setTimeout(() => {
           setModalState('closed')
         }, 300)
@@ -74,26 +62,17 @@ export const UserSection: React.FC<UserSectionProps> = memo(
       }
     }, [modalState])
 
-    // 滚动锁定：必须锁 html —— 本站 html 带 overflow，滚动容器是它不是 body
+    // 必须锁 html：本站滚动容器是 html 不是 body。
     useEffect(() => {
       if (modalState !== 'closed') {
         return lockScroll()
       }
     }, [modalState])
 
-    // 站长的展示名/简介沿用平台画像（站点形象），与首页信息条同一份数据；
-    // 普通用户没有平台资料，不必为此多打一次公开接口。
     const { profile: ownerProfile } = useSiteOwnerProfile({
       enabled: authUser?.is_owner === true,
     })
 
-    /**
-     * 头像一律取会话身份自己的（`/api/auth/me` 读的是画像源快照，与首页同源），
-     * 名称/简介对站长优先用平台画像。
-     *
-     * 头像不再走 `/api/profile/user-info` 分支：来源已由用户显式选定并落成快照，
-     * 前端不需要再分支，也不需要切换画像源后临时翻转策略的那套 ref。
-     */
     const userInfo: UserInfo | null = useMemo(() => {
       if (!authUser) return null
       const sessionName =
@@ -112,20 +91,15 @@ export const UserSection: React.FC<UserSectionProps> = memo(
       }
     }, [authUser, ownerProfile, t])
 
-    // 同步 AuthContext 的用户信息
     useEffect(() => {
       setIsAuthenticated(authIsAuthenticated)
       setUser(authUser as User | null)
     }, [authIsAuthenticated, authUser])
 
-    // 别处（含其它标签页）换了头像 / 名称简介来源 → 重新探一次会话。
-    // 只听 profile-display-changed：notifyAvatarChanged 会双发 avatar + profile-display，
-    // 若两边都 checkAuth 会跨标签页打两次 /auth/me。
     useEffect(() => {
       return onProfileDisplayChanged(() => void checkAuth())
     }, [checkAuth])
 
-    // 打开弹窗。登录/注册页已经是同一套表单，再叠一层弹窗会双卡背景。
     const openModal = useCallback(() => {
       if (
         !authIsAuthenticated &&
@@ -147,7 +121,6 @@ export const UserSection: React.FC<UserSectionProps> = memo(
       }
     }, [authIsAuthenticated, location.pathname, modalState, onClosePanel])
 
-    // 关闭弹窗
     const closeModal = useCallback(() => {
       if (modalState === 'visible' || modalState === 'mounting') {
         setModalState('closing')
@@ -155,7 +128,6 @@ export const UserSection: React.FC<UserSectionProps> = memo(
       }
     }, [modalState])
 
-    // 监听登录成功事件
     useEffect(() => {
       const handleLoginSuccess = () => {
         closeModal()
@@ -168,7 +140,6 @@ export const UserSection: React.FC<UserSectionProps> = memo(
       }
     }, [closeModal])
 
-    // 监听打开用户弹窗事件（从其他组件触发）
     useEffect(() => {
       const handleOpenUserModal = () => {
         openModal()
@@ -180,12 +151,10 @@ export const UserSection: React.FC<UserSectionProps> = memo(
       }
     }, [openModal])
 
-    // 处理用户信息区域点击
     const handleUserInfoClick = () => {
       openModal()
     }
 
-    // 处理退出登录
     const handleLogout = useCallback(async () => {
       onClosePanel()
 
@@ -195,7 +164,6 @@ export const UserSection: React.FC<UserSectionProps> = memo(
         },
       )
 
-      // 触发认证状态变化事件
       window.dispatchEvent(
         new CustomEvent('auth-state-changed', {
           detail: {
@@ -206,13 +174,11 @@ export const UserSection: React.FC<UserSectionProps> = memo(
       )
 
       try {
-        // 站点策略：登出即删 / 或顺带清理未活跃用户的个人安装
         const { cleanupTemporaryTapps } = await import(
           '../../tapp/services/TappApiService',
         )
         await cleanupTemporaryTapps()
       } catch (error) {
-        // 静默处理清理错误
         console.warn('[UserSection] Failed to cleanup temporary tapps:', error)
       }
 
@@ -221,21 +187,16 @@ export const UserSection: React.FC<UserSectionProps> = memo(
           method: 'POST',
           credentials: 'include',
         })
-      } catch (_error) {
-        // 静默处理退出错误
+      } catch {
       }
 
-      // 清除用户信息缓存
       clearAllUserCache()
 
-      // 彻底清理所有本地状态和存储
       localStorage.clear()
       sessionStorage.clear()
 
-      // 清空音乐播放器缓存
       clearPlaylistCache()
 
-      // 手动删除所有Cookie
       document.cookie.split(';').forEach((cookie) => {
         const name = cookie.split('=')[0].trim()
         document.cookie = `${name}=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Strict`
@@ -247,7 +208,6 @@ export const UserSection: React.FC<UserSectionProps> = memo(
 
     return (
       <>
-        {/* 头部 - 用户信息按钮 */}
         <button
           onClick={handleUserInfoClick}
           className="user-info-button flex items-center gap-3"
@@ -265,7 +225,7 @@ export const UserSection: React.FC<UserSectionProps> = memo(
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
                   {userInfo.bio.length > 30
-                    ? `${userInfo.bio.substring(0, 30)}...`
+                    ? `${userInfo.bio.slice(0, 30)}...`
                     : userInfo.bio}
                 </p>
               </div>
@@ -292,7 +252,6 @@ export const UserSection: React.FC<UserSectionProps> = memo(
           )}
         </button>
 
-        {/* 用户信息/登录弹窗 - 使用 Portal 渲染到 body */}
         {modalState !== 'closed' &&
           createPortal(
             <>
@@ -309,7 +268,6 @@ export const UserSection: React.FC<UserSectionProps> = memo(
                   onClose={closeModal}
                   onLogout={handleLogout}
                   onNavigateFromPanel={onNavigateFromPanel}
-                  // 头像/文案来源已切换：重新探会话拿新快照（本弹窗内立即回显）
                   onProfileApplied={() => void checkAuth()}
                 />
               ) : (
@@ -341,7 +299,6 @@ export const UserSection: React.FC<UserSectionProps> = memo(
 
 UserSection.displayName = 'UserSection'
 
-// 导出用户和用户信息类型供外部使用
 export type { UserInfo }
 
 export default UserSection

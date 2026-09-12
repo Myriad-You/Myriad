@@ -1,7 +1,7 @@
 //! Lane Queue 请求队列
 //!
 //! 每个用户会话一个 Lane（串行锁），全局并发上限。
-//! 防止同一用户的并发请求竞态条件，控制系统整体负载。
+//! 防止同一 lane 的并发请求竞态，控制系统整体负载。
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -17,7 +17,7 @@ use tokio::sync::{Mutex, OwnedMutexGuard, OwnedSemaphorePermit, RwLock, Semaphor
 ///
 /// 使用方式：
 /// ```ignore
-/// let guard = queue.acquire("user:1").await?;
+/// let guard = queue.acquire_timeout("user:1", timeout).await?;
 /// let result = agent.process(request).await;
 /// drop(guard); // 释放锁，下一个请求可以执行
 /// ```
@@ -47,7 +47,7 @@ impl LaneQueue {
 
     /// 生成 lane key
     ///
-    /// 同一用户的请求串行执行；不同用户可并行（受全局上限约束）。
+    /// 有 session 时 `user:{id}:session:{sid}`，否则 `user:{id}`。同一 lane 串行；全局 Semaphore 限并发。
     pub fn make_lane_key(user_id: i32, session_id: Option<&str>) -> String {
         match session_id {
             Some(sid) if !sid.is_empty() => format!("user:{}:session:{}", user_id, sid),
@@ -61,7 +61,7 @@ impl LaneQueue {
     /// Priority:
     /// 1. Stored task lane_id (set from recipe.lane_key at execute time)
     /// 2. Explicit session id (from WAITING_TASKS or caller)
-    /// 3. User-only lane (legacy / no session)
+    /// 3. User-only lane (no session)
     pub fn resolve_answer_lane_key(
         user_id: i32,
         task_lane_id: Option<&str>,
@@ -119,7 +119,7 @@ impl LaneQueue {
         self.waiting.fetch_add(1, Ordering::Relaxed);
 
         let acquire_fut = async {
-            // 先获取 lane 串行锁（同用户排队）
+            // 先获取 lane 串行锁（按 `lane_key`，会话不同则不共享）
             let lane_lock = lane_mutex.lock_owned().await;
 
             tracing::debug!(
@@ -153,7 +153,7 @@ impl LaneQueue {
             Some(dur) => match tokio::time::timeout(dur, acquire_fut).await {
                 Ok(result) => result,
                 Err(_) => Err(format!(
-                    "系统繁忙，排队超过 {} 秒仍未获得执行许可，请稍后重试",
+                    "The system is busy. Waited more than {} seconds without a slot. Try again later.",
                     dur.as_secs().max(1)
                 )),
             },
@@ -265,7 +265,7 @@ mod tests {
             Ok(_) => panic!("should time out while slot held"),
         };
         assert!(
-            err.contains("繁忙") || err.contains("排队"),
+            err.contains("busy") || err.contains("Waited more than"),
             "user-visible queue message, got: {err}"
         );
         drop(held);
@@ -293,7 +293,7 @@ mod tests {
         assert_eq!(LaneQueue::make_lane_key(3, Some("sess_xyz")), key);
     }
 
-    /// P1-3: 等待用户输入时必须释放全局 permit，否则 max=N 个 waiting 会堵死队列
+    /// 等待用户输入时必须释放全局 permit，否则 max=N 个 waiting 会堵死队列。
     #[tokio::test]
     async fn releasing_guard_returns_global_permit_for_other_lanes() {
         let queue = Arc::new(LaneQueue::new(1));

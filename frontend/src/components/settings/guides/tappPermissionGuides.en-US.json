@@ -1,0 +1,290 @@
+{
+  "widget:register": {
+    "what": "Allows registering custom widgets on the home grid.",
+    "chain": "1) App is granted this permission.\n2) Widget register API places cards on the home grid.\n3) Admin-level; all visitors can see those widgets.",
+    "frontend": "Home widget grid; in-app register/unregister controls.",
+    "notes": "Only install trusted apps — widgets appear site-wide."
+  },
+  "platform:read": {
+    "what": "Allows reading existing platform data (games, video, music entries, etc.).",
+    "chain": "1) App calls platform read APIs.\n2) Data comes from configured, synced platforms.\n3) Read-only; does not change platform credentials.",
+    "frontend": "In-app stats, lists, progress views.",
+    "notes": "Unconfigured platforms usually return empty data."
+  },
+  "platform:write": {
+    "what": "Allows writing or updating platform data entries.",
+    "chain": "1) App calls write APIs.\n2) Data is stored in site platform storage.\n3) Reports / library views that depend on it may change.",
+    "frontend": "In-app import/sync; later site displays.",
+    "notes": "High impact — bad writes can pollute stats."
+  },
+  "platform:register": {
+    "what": "Allows registering a custom platform type on the site.",
+    "chain": "1) App registers a platform definition.\n2) It appears among connectable platforms.\n3) Admins can configure and sync that type.",
+    "frontend": "Config → Platforms.",
+    "notes": "Site-level extension; trust the app source."
+  },
+  "analytics:read": {
+    "what": "Allows reading aggregated site analytics (visits, top pages, referrers, etc.).",
+    "chain": "1) App is granted this permission.\n2) Calls Tapp.analytics for summary cards.\n3) Aggregate-only — no visitor hashes or raw logs.",
+    "frontend": "In-app analytics cards; site analytics as the data source.",
+    "notes": "Read-only aggregates; no backup import/export or AI usage ledgers."
+  },
+  "ai:generate": {
+    "what": "Allows AI content generation (text/summaries per site models).",
+    "chain": "1) App requests generation.\n2) Site AI gateway + quota checks run.\n3) Result returns to the app.",
+    "frontend": "In-app generate actions; AI settings & quotas.",
+    "notes": "Consumes AI quota; keys/models live in site AI config."
+  },
+  "ai:analyze": {
+    "what": "Allows AI analysis of data or structured interpretation.",
+    "chain": "1) App submits content to analyze.\n2) Analysis calls consume quota.\n3) Insights render in the app.",
+    "frontend": "In-app analysis / insight features.",
+    "notes": "Large payloads may be slow or fail."
+  },
+  "ai:chat": {
+    "what": "Allows multi-turn AI chat through the site gateway.",
+    "chain": "1) App opens a chat session.\n2) Messages go through AI chat.\n3) History may stay only in the app.",
+    "frontend": "In-app chat UI (separate from the global Agent panel).",
+    "notes": "Each turn can consume quota."
+  },
+  "ai:image": {
+    "what": "Allows AI image generation.",
+    "chain": "1) App requests an image.\n2) Uses the site image model config.\n3) Returns image URL/data.",
+    "frontend": "In-app image generation.",
+    "notes": "Often slower/costlier; image capability must be configured."
+  },
+  "ai:search": {
+    "what": "Allows Tapp.ai.tasks.create({ operation: \"search\" }) for live web search.",
+    "chain": "1) App submits a query.\n2) Host prefers TinyFish Search, else Gemini grounding.\n3) Host secrets never enter the sandbox; result is a JSON envelope.",
+    "frontend": "In-app search; site AI permissions and TinyFish key.",
+    "notes": "Delegated separately from ai:generate. Agent Chat still cannot search. Outbound."
+  },
+  "3d:generate": {
+    "what": "Allows Tripo to generate, rig, or retarget 3D models (image/multiview → GLB).",
+    "chain": "1) App uploads a reference image or model.\n2) Host calls Tripo; the API key never enters the sandbox.\n3) Persisted GLB returns an asset_id; Tapp.model3d.getUrl loads it in-sandbox.",
+    "frontend": "In-app 3D generation/preview; site “3D & Tripo” settings.",
+    "notes": "Spends site Tripo credits; not delegated by default. Reading existing GLBs does not need this permission."
+  },
+  "report:read": {
+    "what": "Allows reading existing generated reports.",
+    "chain": "1) App requests report content.\n2) Reads from report storage.\n3) Renders inside the app.",
+    "frontend": "Reports module; in-app report views.",
+    "notes": "Does not create reports by itself."
+  },
+  "report:write": {
+    "what": "Allows creating, updating, or deleting reports.",
+    "chain": "1) App writes via report APIs.\n2) Report list/content changes.\n3) Reports page updates.",
+    "frontend": "Reports list and detail.",
+    "notes": "Can delete user-visible reports — sensitive."
+  },
+  "storage:read": {
+    "what": "Allows reading this app’s private key-value storage (read-only).",
+    "chain": "1) App calls storage read APIs.\n2) Data is isolated per app.\n3) Reading never persists writes.",
+    "frontend": "App preferences, drafts, cached state reads.",
+    "notes": "Read-only: never persists writes; do not store secrets in untrusted apps."
+  },
+  "storage:write": {
+    "what": "Allows writing to this app’s private key-value storage (write-only, no read).",
+    "chain": "1) App calls write APIs.\n2) Data is isolated per app.\n3) Writes affect later app state.",
+    "frontend": "App preferences, drafts, and persistent state.",
+    "notes": "Write access is disabled by default; delegate only to trusted apps."
+  },
+  "ui:notification": {
+    "what": "Allows sending system notifications to the user.",
+    "chain": "1) App calls notification APIs.\n2) Delivery via center / island / toast channels.\n3) User preferences still apply.",
+    "frontend": "Notification center, toasts, browser push if allowed.",
+    "notes": "Avoid spam; users can mute channels."
+  },
+  "ui:fullscreen": {
+    "what": "Allows requesting browser fullscreen.",
+    "chain": "1) App calls fullscreen API.\n2) Browser may prompt.\n3) User can exit anytime.",
+    "frontend": "Fullscreen run experience.",
+    "notes": "Usually requires a user gesture."
+  },
+  "ui:theme": {
+    "what": "Allows reading the current site theme for UI matching.",
+    "chain": "1) App queries theme APIs.\n2) Receives theme tokens.\n3) Styles itself; does not change site theme.",
+    "frontend": "App chrome matching light/dark and accent.",
+    "notes": "Read-only; change theme in UI settings."
+  },
+  "ui:confirm": {
+    "what": "Allows showing system confirm dialogs.",
+    "chain": "1) App requests a confirm box.\n2) User accepts or cancels.\n3) Result returns to the app.",
+    "frontend": "Modal confirms while the app runs.",
+    "notes": "Excessive prompts annoy users."
+  },
+  "ui:openUrl": {
+    "what": "Allows the host to open links declared in Manifest openUrls (all other URLs are rejected).",
+    "chain": "1) App declares openUrls + this permission and is approved at install.\n2) Calls Tapp.ui.openUrl({ id }) (optional path/query within match rules).\n3) Host checks the allowlist and opens a new tab — no extra confirm dialog.",
+    "frontend": "In-app buttons/cards that open external links; permission copy on the detail page.",
+    "notes": "Only declared links work; sandbox window.open stays disabled. Review declared hosts at install time."
+  },
+  "network:fetch": {
+    "what": "Allows declarative HTTP and loading remote media/images.",
+    "chain": "1) App declares endpoints or remote assets.\n2) Host proxies/validates network access.\n3) Response returns to the sandbox.",
+    "frontend": "External data, covers, media in the app.",
+    "notes": "Subject to proxy/CORS/security policy; outbound risk."
+  },
+  "media:control": {
+    "what": "Allows controlling playback (play, pause, skip, etc.).",
+    "chain": "1) App calls media control APIs.\n2) Affects site player state.\n3) Control-panel music may update.",
+    "frontend": "Global music player; in-app transport controls.",
+    "notes": "May interrupt what the user is listening to."
+  },
+  "media:read": {
+    "what": "Allows reading current media state (track, progress, playing).",
+    "chain": "1) App queries media state.\n2) Read-only session info.\n3) Used for lyrics/visualizers.",
+    "frontend": "In-app “now playing” UI.",
+    "notes": "Does not change the queue (that is control)."
+  },
+  "media:audio": {
+    "what": "Allows playing package/blob/data audio inside the sandbox.",
+    "chain": "1) App starts audio.\n2) Only allowed sources play.\n3) Not full arbitrary remote control.",
+    "frontend": "In-app SFX / audio clips.",
+    "notes": "Different from media:control — focuses on sandboxed sources."
+  },
+  "component:theme": {
+    "what": "Allows registering custom theme styles for the site.",
+    "chain": "1) App registers a theme.\n2) Theme list gains an entry.\n3) Choosing it changes global look.",
+    "frontend": "Appearance / theme settings.",
+    "notes": "Site-wide visual impact — trust the source."
+  },
+  "component:agent": {
+    "what": "Allows registering capabilities with Agent.",
+    "chain": "1) App registers agent tools.\n2) Assistant can invoke them.\n3) Chat may trigger those actions.",
+    "frontend": "Agent panel and agent-driven actions.",
+    "notes": "Hooks into the global assistant — very high privilege."
+  },
+  "shortcut:register": {
+    "what": "Allows registering keyboard shortcuts.",
+    "chain": "1) App declares shortcuts.\n2) Keys are handled when focused.\n3) App actions fire.",
+    "frontend": "Global/page hotkeys while browsing.",
+    "notes": "May conflict with browser or other apps."
+  },
+  "event:publish": {
+    "what": "Allows publishing events on the system bus.",
+    "chain": "1) App publishes an event.\n2) Subscribers handle it.\n3) Enables cross-module reactions.",
+    "frontend": "UI refreshes / notifications driven by events.",
+    "notes": "Use agreed event names; avoid noise."
+  },
+  "event:subscribe": {
+    "what": "Allows subscribing to system events.",
+    "chain": "1) App subscribes.\n2) Publishes deliver callbacks.\n3) App updates its state.",
+    "frontend": "Auto-refreshing parts of the app.",
+    "notes": "Lower risk than publish."
+  },
+  "scheduler:register": {
+    "what": "Allows registering scheduled/background tasks.",
+    "chain": "1) App registers jobs.\n2) Host fires them on schedule.\n3) Jobs use other granted APIs.",
+    "frontend": "Background sync / reminders.",
+    "notes": "Aggressive schedules waste resources; clean up on uninstall."
+  },
+  "speech:tts": {
+    "what": "Allows text-to-speech.",
+    "chain": "1) App submits text.\n2) Site TTS config synthesizes audio.\n3) Plays or returns audio.",
+    "frontend": "In-app “read aloud”.",
+    "notes": "Needs TTS configured; may use quota."
+  },
+  "speech:asr": {
+    "what": "Allows speech-to-text recognition.",
+    "chain": "1) App captures/uploads audio.\n2) ASR service transcribes.\n3) Text returns to the app.",
+    "frontend": "In-app voice input.",
+    "notes": "Usually needs microphone; privacy-sensitive."
+  },
+  "tappList:read": {
+    "what": "Allows reading the installed Tapp list and basic metadata.",
+    "chain": "1) App queries list APIs.\n2) Receives install summaries.\n3) Used for display or cross-app flows.",
+    "frontend": "In-app “installed apps” views.",
+    "notes": "Can reveal which apps you installed."
+  },
+  "tappList:manage": {
+    "what": "Allows installing, updating, starting/stopping, or uninstalling Tapps.",
+    "chain": "1) App calls manage APIs.\n2) Install state changes.\n3) Lists and run state update.",
+    "frontend": "Tapp list and detail run/install controls.",
+    "notes": "Among the highest-risk grants."
+  },
+  "brew:read": {
+    "what": "Allows reading Brew sources and articles.",
+    "chain": "1) App requests Brew data.\n2) Reads site subscriptions.\n3) Renders reading UI.",
+    "frontend": "Brew module and in-app readers.",
+    "notes": "Read-only; cannot change read state, favorite, or write comments."
+  },
+  "brew:write": {
+    "what": "Allows writing Brew data such as read state and stars.",
+    "chain": "1) App updates item state.\n2) Brew storage is changed.\n3) Filters and badges may update.",
+    "frontend": "Brew read and favorite state.",
+    "notes": "Changes your reading state; verify the app behavior before granting."
+  },
+  "brew:commentWrite": {
+    "what": "Allows creating, editing, and deleting Brew comments and replies.",
+    "chain": "1) App posts comments.\n2) Comments attach to articles.\n3) Others may see them per policy.",
+    "frontend": "Brew article comments.",
+    "notes": "Public expression — follow content norms; delegated by admins only by default."
+  },
+  "brew:manage": {
+    "what": "Allows managing Brew sources and advanced settings.",
+    "chain": "1) App calls source-management APIs.\n2) Subscription set changes.\n3) Fetch/list update.",
+    "frontend": "Brew source manager, OPML, discover.",
+    "notes": "Can add/remove feeds site-wide for Brew."
+  },
+  "federation:read": {
+    "what": "Allows reading federation rooms, channels, and members.",
+    "chain": "1) App queries federation APIs.\n2) Returns data allowed by trust policy.\n3) Renders federation state.",
+    "frontend": "Federation pages / in-app views.",
+    "notes": "Visibility still limited by trust rules."
+  },
+  "federation:post": {
+    "what": "Allows publish/unpublish, creating Notes, uploading media, and managing outbound delivery.",
+    "chain": "1) App writes federation APIs.\n2) Content lands on local and remote instances.\n3) Followers see new content.",
+    "frontend": "Posting, media upload, delivery queue management.",
+    "notes": "Posts sync to remote instances — grant carefully."
+  },
+  "federation:interact": {
+    "what": "Allows follow/unfollow, like/unlike, bookmark/unbookmark, and announce/unannounce.",
+    "chain": "1) App performs interactions.\n2) Interaction is stored and broadcast to authors.\n3) Authors see the result.",
+    "frontend": "Follow, like, bookmark, and boost entry points.",
+    "notes": "Interactions broadcast to other users; a durable login is required."
+  },
+  "federation:channel": {
+    "what": "Allows creating, accepting, closing, deleting channels and channel E2E key setup.",
+    "chain": "1) App creates/governs channels.\n2) Channel structure and key state change.\n3) Members see channel updates.",
+    "frontend": "Channel creation and management flows.",
+    "notes": "Channel governance syncs to remote instances."
+  },
+  "federation:room": {
+    "what": "Allows create/update/delete rooms, join/invite, member governance, E2E keys, stickers and pins.",
+    "chain": "1) App operates on rooms.\n2) Room structure and membership change.\n3) Members see room updates.",
+    "frontend": "Room create, join, member and governance screens.",
+    "notes": "Room governance syncs to remote instances."
+  },
+  "federation:ring": {
+    "what": "Allows Ring membership management and peer/sync operations.",
+    "chain": "1) App manages ring members and peers.\n2) Ring membership and sync state change.\n3) Remote peers receive sync.",
+    "frontend": "Ring management, peer lists and sync triggers.",
+    "notes": "Ring sync pushes data to remote peers."
+  },
+  "federation:message": {
+    "what": "Allows sending and receiving federation messages.",
+    "chain": "1) App sends/receives messages.\n2) Delivery queue handles transport.\n3) Peers may receive content.",
+    "frontend": "Federation messaging UI.",
+    "notes": "Content can leave the site — privacy/abuse risk."
+  },
+  "federation:trust": {
+    "what": "Allows managing federation trust relationships.",
+    "chain": "1) App adjusts trust policy.\n2) Affects accept/reject of peers.\n3) Filtering and delivery change.",
+    "frontend": "Config → Federation trust/policy.",
+    "notes": "Misconfig can break federation or trust bad peers."
+  },
+  "federation:files": {
+    "what": "Allows federation file transfer capabilities.",
+    "chain": "1) App uses file APIs.\n2) Files go through federation file channel.\n3) Arrive remotely or download locally.",
+    "frontend": "Federation attachments/files.",
+    "notes": "Size/type limits may apply; malware risk."
+  },
+  "game:session": {
+    "what": "Allows creating and joining federation game rooms and exchanging structured game messages.",
+    "chain": "1) App calls Tapp.game.\n2) Host sends game:<tappId>:<protocol> envelopes on a room.\n3) Members on this or a peer instance receive intent/state.",
+    "frontend": "Game lobby, share room_id@home_server, match sync.",
+    "notes": "Federation read/write/message are still required. Authority stays with the host client."
+  }
+}

@@ -1,37 +1,16 @@
-/**
- * Tapp 图标渲染组件
- * 统一处理 emoji、URL、内联 SVG 三种图标类型
- *
- * iOS/Safari 兼容性：使用 img+data URI 方式渲染 SVG
- */
-
 import React, { useMemo } from 'react'
 import { resolveTappIconAsset } from '../constants/icons'
 
-/** 图标属性 */
 export interface TappIconProps {
-  /** emoji、URL 或 Myriad 图标 token */
   icon?: string
-  /** 内联 SVG 代码（优先于 icon） */
   iconSvg?: string
-  /** 应用名称（用于 fallback 显示首字母） */
   name: string
-  /** 图标尺寸 class，如 "w-4 h-4" */
   sizeClass?: string
-  /** 字体尺寸 class，如 "text-2xl"（用于 emoji） */
   textSizeClass?: string
-  /** 额外的 className */
   className?: string
-  /**
-   * SVG 颜色（替换 currentColor，默认 white）。
-   * 传 `null` 时不替换 — 用于全彩 SVG 坐在 iconShell 上。
-   */
   svgColor?: string | null
 }
 
-/**
- * 检查字符串是否为 URL（用于区分 emoji 和图片 URL）
- */
 export function isIconUrl(icon: string | undefined): boolean {
   if (!icon) return false
   return (
@@ -42,26 +21,16 @@ export function isIconUrl(icon: string | undefined): boolean {
   )
 }
 
-/**
- * 检查字符串是否为内联 SVG
- */
 export function isIconSvg(icon: string | undefined): boolean {
   if (!icon) return false
   return icon.trim().startsWith('<svg')
 }
 
-/**
- * True when the app ships a self-contained icon (bitmap / full-color SVG).
- * Monochrome glyph SVGs (`currentColor`) and emoji still need a tinted shell.
- *
- * `iconShell: true` opts out: custom full-color art still sits on a material shell.
- */
 export function hasStandaloneTappIcon(source: {
   icon?: string
   iconSvg?: string
   iconShell?: boolean
 }): boolean {
-  // Optional: force material shell even for URL / full-color SVG.
   if (source.iconShell === true) return false
 
   if (
@@ -79,10 +48,6 @@ export function hasStandaloneTappIcon(source: {
   return true
 }
 
-/**
- * Natural full-color media (URL / non-currentColor SVG) regardless of iconShell.
- * Used to avoid monochrome glyph filters (opacity / white plate) on inset art.
- */
 export function isTappIconFullColorMedia(source: {
   icon?: string
   iconSvg?: string
@@ -101,14 +66,10 @@ export function isTappIconFullColorMedia(source: {
   return !/currentColor/i.test(svg)
 }
 
-/**
- * 将 SVG 转换为 data URI（iOS/Safari 兼容方式）
- * 这种方式比 dangerouslySetInnerHTML 更可靠
- */
 function svgToDataUri(svg: string, color?: string | null): string {
   let normalized = svg.trim()
 
-  // 添加 xmlns（如果缺失）- 必须用于 data URI
+  // data URI 必须带 xmlns。
   if (!normalized.includes('xmlns=')) {
     normalized = normalized.replace(
       '<svg',
@@ -116,23 +77,18 @@ function svgToDataUri(svg: string, color?: string | null): string {
     )
   }
 
-  // 替换 currentColor（data URI 无法继承 CSS）；null = 保留原样
   if (color) {
-    normalized = normalized.replace(/currentColor/g, color)
+    normalized = normalized.replaceAll('currentColor', color)
   }
 
-  // 编码为 data URI
   const encoded = encodeURIComponent(normalized)
-    .replace(/'/g, '%27')
-    .replace(/"/g, '%22')
+    .replaceAll("'", '%27')
+    .replaceAll('"', '%22')
 
   return `data:image/svg+xml,${encoded}`
 }
 
-/**
- * 渲染 Tapp 图标
- * 优先级：iconSvg > icon (URL/token) > icon (emoji) > 名称首字母
- */
+/** iconSvg > URL/token > emoji > 名称首字母 */
 export function TappIcon({
   icon,
   iconSvg,
@@ -144,7 +100,6 @@ export function TappIcon({
 }: TappIconProps): React.ReactElement {
   const assetIcon = resolveTappIconAsset(icon)
 
-  // 将 SVG 转换为 data URI（使用 useMemo 避免重复计算）
   const svgDataUri = useMemo(() => {
     // null → leave currentColor; undefined falls back to white via default param
     const color = svgColor === null ? null : (svgColor ?? 'white')
@@ -157,7 +112,6 @@ export function TappIcon({
     return null
   }, [iconSvg, icon, svgColor])
 
-  // 1. 优先使用内联 SVG（通过 img + data URI 渲染）
   if (svgDataUri) {
     return (
       <img
@@ -172,7 +126,6 @@ export function TappIcon({
     )
   }
 
-  // 2. 检查 icon 是否为 URL 或 Myriad 图标 token
   if (assetIcon || (icon && isIconUrl(icon))) {
     return (
       <img
@@ -185,12 +138,10 @@ export function TappIcon({
     )
   }
 
-  // 3. 使用 emoji
   if (icon) {
     return <span className={`${textSizeClass} ${className}`}>{icon}</span>
   }
 
-  // 4. Fallback：显示名称首字母
   return (
     <span className={`font-bold ${textSizeClass} ${className}`}>
       {name.charAt(0).toUpperCase()}

@@ -1,7 +1,3 @@
-/**
- * Brew 订阅包（.brewpack）清单：导出字段与导入写回同源。
- * Notion token / RSSHub access_key 不进包。
- */
 import type {
   AddSourceRequest,
   BrewCategory,
@@ -24,7 +20,7 @@ export function isSupportedBrewpackVersion(version: string): boolean {
 }
 
 export function normalizeBrewpackUrl(url: string): string {
-  return url.trim().replace(/\/+$/, '')
+  return url.trim().replaceAll(/\/+$/g, '')
 }
 
 const DATA_IMAGE_RE =

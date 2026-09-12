@@ -1,5 +1,3 @@
-/** First-party site analytics aggregates for Tapp runtimes. */
-
 import { apiRequest } from './TappHttpClient'
 
 export interface AnalyticsSummaryQuery {
@@ -8,7 +6,6 @@ export interface AnalyticsSummaryQuery {
   to?: string
 }
 
-/** Subset of admin summary — aggregates only, no visitor hashes. */
 export interface AnalyticsSummary {
   success?: boolean
   enabled?: boolean
@@ -90,10 +87,7 @@ export interface AnalyticsVisitorCard {
   [key: string]: unknown
 }
 
-/**
- * Full site analytics summary for the selected window.
- * Requires Runtime Grant with `analytics:read`.
- */
+/** 需要授予 analytics:read。 */
 export async function getAnalyticsSummary(
   options?: AnalyticsSummaryQuery,
   runtimeGrant?: string,
@@ -106,10 +100,7 @@ export async function getAnalyticsSummary(
   return apiRequest(`/api/tapp/analytics/summary${query}`, { runtimeGrant })
 }
 
-/**
- * Compact visitor-card aggregates (today / all-time / short trend).
- * Requires Runtime Grant with `analytics:read`.
- */
+/** 需要授予 analytics:read。 */
 export async function getAnalyticsVisitorCard(
   runtimeGrant?: string,
 ): Promise<AnalyticsVisitorCard> {

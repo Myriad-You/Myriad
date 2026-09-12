@@ -1,7 +1,3 @@
-/**
- * 阅读器正文 prose 类名（浅色 / 暗色两套）
- */
-
 export function getArticleProseClass(
   isDark: boolean,
   themeTextClass: string,

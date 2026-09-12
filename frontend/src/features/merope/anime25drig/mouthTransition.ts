@@ -27,11 +27,6 @@ export interface MouthTransitionSample {
 
 const MATERIALS = ANIME25D_MOUTH_MATERIALS
 
-/**
- * Chooses one visible raster mouth while preserving a continuous shared mesh.
- * The two strongest visemes form a dominance bridge, so a texture swap lands
- * near their common pose instead of at an arbitrary global threshold.
- */
 export class MouthTransitionController {
   private readonly scores = new Float32Array(MATERIALS.length)
   private readonly widthScales = new Float32Array(MATERIALS.length ** 2)
@@ -138,7 +133,6 @@ function dominantMouthMaterial(
   return MATERIALS[strongest]
 }
 
-/** Regular viseme under a maniac mix, so the laugh can fade into speech or rest. */
 export function regularMouthMaterial(
   input: MouthTransitionInput,
   active: SpeechMouthMaterial | undefined,

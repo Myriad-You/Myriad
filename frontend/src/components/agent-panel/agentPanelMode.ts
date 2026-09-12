@@ -1,10 +1,3 @@
-/**
- * 面板双模式：办事是现在这条 Agent 路径，聊天是对着人设说话。
- *
- * 先只存在界面上。输入行、Tab、形象槽都读这里；真正分路径是下一步。
- * 默认办事 —— 现在的面板行为不能因为多了一档就换掉。
- */
-
 import { useSyncExternalStore } from 'react'
 import { isImeComposing } from '../../utils/ime'
 
@@ -57,10 +50,7 @@ export function useAgentPanelMode(): AgentPanelMode {
   return useSyncExternalStore(subscribeAgentPanelMode, getAgentPanelMode)
 }
 
-/**
- * 面板开着、焦点在外壳里时，Tab 用来换模式，不再走浏览器的焦点环。
- * 组字途中、已经有人 preventDefault、或焦点在面板外，都不管。
- */
+/** Tab cycles modes inside the shell; skip IME, defaultPrevented, and outside focus. */
 export function shouldCaptureModeTab(
   event: KeyboardEvent,
   root: { contains: (node: Node) => boolean } | null,

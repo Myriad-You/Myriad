@@ -1,9 +1,3 @@
-/**
- * TAPP persona card projection.
- *
- *   pnpm exec tsx --test src/tapp/runtime/sandbox/personaCard.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
@@ -74,14 +68,14 @@ describe('projectPersonaCard', () => {
       personality: 'secret soul',
       visualProfile: { hair: 'black' },
     } as never)
-    assert.deepEqual(Object.keys(card).sort(), [...CARD_FIELDS])
+    assert.deepEqual(Object.keys(card).toSorted(), Iterator.from(CARD_FIELDS).toArray())
     assert.equal(card.moodBand, 'tense')
     assert.equal(card.activity, 'working')
     assert.equal(card.portraitUrl, '/api/brew/image-cache/ab/face.png')
-    assert.equal('mood' in card, false)
-    assert.equal('arousal' in card, false)
-    assert.equal('personality' in card, false)
-    assert.equal('visualProfile' in card, false)
+    assert.equal(Object.hasOwn(card, 'mood'), false)
+    assert.equal(Object.hasOwn(card, 'arousal'), false)
+    assert.equal(Object.hasOwn(card, 'personality'), false)
+    assert.equal(Object.hasOwn(card, 'visualProfile'), false)
   })
 
   it('keeps the off-state name the caller already resolved', () => {
@@ -115,9 +109,9 @@ describe('persona.get handler wall', () => {
       /registerHandler\('persona\.get'[\s\S]*?data:\s*\{([^}]+)\}/,
     )
     assert.ok(stub, 'playground persona.get stub is missing')
-    const keys = [...stub[1].matchAll(/^\s*([A-Z]+):/gim)].map(
-      match => match[1],
-    )
-    assert.deepEqual(keys.sort(), [...CARD_FIELDS])
+    const keys = Iterator.from(stub[1].matchAll(/^\s*([A-Z]+):/gim))
+      .map((match) => match[1])
+      .toArray()
+    assert.deepEqual(keys.toSorted(), Iterator.from(CARD_FIELDS).toArray())
   })
 })

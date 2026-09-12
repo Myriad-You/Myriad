@@ -16,7 +16,7 @@ pub const PLATFORM_CACHE_HOURS: i64 = 12; // 数据缓存12小时
 
 /// 从磁盘加载平台数据缓存
 pub fn load_platform_data_cache() -> Option<PlatformDataCache> {
-    // 优先从分平台数据目录加载
+    // 从分平台 raw 目录加载；缺失或过期返回 None（无第二缓存路径）
     let raw_dir = crate::services::data_paths::raw_cache_dir();
     if raw_dir.exists() {
         let mut all_data = serde_json::Map::new();
@@ -65,8 +65,6 @@ pub fn load_platform_data_cache() -> Option<PlatformDataCache> {
                     "⏰ Split platform data cache expired (age: {}h)",
                     age.num_hours()
                 );
-                // 虽然过期，但如果没有其他数据源，也许可以考虑返回？
-                // 目前逻辑是过期就返回 None，触发重新获取
                 return None;
             }
         }

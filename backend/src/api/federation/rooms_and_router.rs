@@ -16,7 +16,7 @@ use crate::middleware;
 
 use super::social::*;
 
-/// 路由已声明该路径参数；不再手工解析 URI。
+/// Path 参数由 Axum 抽取。
 async fn federation_list_transfers(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -39,7 +39,7 @@ async fn federation_list_transfers(
 }
 
 /// 路由已声明该路径参数并挂了 auth_middleware；
-/// body 上限由路由的 `FEDERATION_SMALL_BODY_LIMIT` 层提供（原为内联 64 KiB）。
+/// body 上限由路由的 `live_small_control_body_limit`（`SMALL_CONTROL_BODY_LIMIT` 256 KiB）。
 async fn federation_initiate_room_transfer(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -61,7 +61,7 @@ async fn federation_initiate_room_transfer(
     }
 }
 
-/// 路由已声明该路径参数；不再手工解析 URI。
+/// Path 参数由 Axum 抽取。
 async fn federation_list_room_transfers(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -109,7 +109,7 @@ async fn federation_list_room_files(
     }
 }
 
-/// 路由已声明该路径参数；不再手工解析 URI。
+/// Path 参数由 Axum 抽取。
 async fn federation_get_transfer(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -128,10 +128,7 @@ async fn federation_get_transfer(
     }
 }
 
-/// 路由已声明 `{transfer_id}`。
-///
-/// 只把 claims/path/db 的样板换成提取器；下面的流式响应与 RFC 5987 文件名
-/// 处理原样保留 —— 这条路径返回的是文件流而不是 JSON。
+/// Path `{transfer_id}`；返回文件流（RFC 5987 文件名），不是 JSON。
 async fn federation_download_transfer(
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
@@ -275,7 +272,6 @@ async fn federation_cancel_transfer(
     }
 }
 
-/// Start unified server with all routes (middleware controls access based on mode)
 /// Authenticated `/api/federation/*` API surface.
 ///
 /// Tapp host attribution and authentication are applied once at router level
@@ -586,8 +582,7 @@ pub fn router(app_state: crate::state::AppState) -> axum::Router<crate::state::A
             post(federation_cancel_transfer),
         )
         // 已认证本地用户提交的联邦写操作（follow/channel/room/message、
-        // base64 文件分块、Tapp 包快照）。上限见 federation::limits —— 那里
-        // 同时约束「本端发得出的东西本端必须收得进」。
+        // base64 文件分块）。上限见 federation::limits::live_authenticated_body_limit。
         .layer(axum::middleware::from_fn(
             crate::federation::limits::live_authenticated_body_limit,
         ))
@@ -600,8 +595,7 @@ pub fn router(app_state: crate::state::AppState) -> axum::Router<crate::state::A
             middleware::auth::auth_middleware,
         ));
 
-    // Freeform Note 媒体：图片/视频上限见 federation::limits::{note_image_limit,
-    // note_video_limit}；路由层取二者中较大者再留信封余量。
+    // Freeform Note 媒体：路由层 live_note_media_body_limit = note_video_limit() + 16 MiB。
     let media_router = Router::<crate::state::AppState>::new()
         .route("/api/federation/media", post(federation_media_upload))
         .layer(axum::middleware::from_fn(

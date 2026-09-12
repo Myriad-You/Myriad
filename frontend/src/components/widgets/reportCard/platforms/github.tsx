@@ -12,15 +12,13 @@ import {
 } from '../animations'
 import { useLibraryItemRotation } from '../hooks'
 
-// GitHub组件（完整版）
 export const GithubStatsWidget = memo(({ data }: any) => {
   const { t } = useI18n()
   const langs = useMemo(() => data?.languages || [], [data?.languages])
-  // 语言构成条：模仿 Bangumi 类型占比设计，各色段首尾相接连续填充
   const langSegments = useMemo<LangSegment[]>(() => {
     const items = langs
       .filter((l: any) => l.percentage > 0)
-      .sort((a: any, b: any) => b.percentage - a.percentage)
+      .toSorted((a: any, b: any) => b.percentage - a.percentage)
       .slice(0, 4)
     const total = items.reduce((sum: number, l: any) => sum + l.percentage, 0)
     if (total === 0) return []
@@ -38,7 +36,6 @@ export const GithubStatsWidget = memo(({ data }: any) => {
       return segment
     })
   }, [langs])
-  /** BE enum: legendary|veteran|active|emerging (+ legacy Chinese normalized on read). */
   const levelKey = useMemo((): 'legendary' | 'veteran' | 'active' | 'emerging' => {
     const raw = String(data?.contribution_level || '')
       .trim()
@@ -116,10 +113,6 @@ export const GithubStatsWidget = memo(({ data }: any) => {
     return colorMap[levelKey] || '#6b7280'
   }, [levelKey])
 
-  /**
-   * GitHub-style week columns (Sun–Sat rows) for the last N complete weeks.
-   * When calendar data is missing, show empty cells (no random fake counts).
-   */
   const generateHeatmapGrid = () => {
     const WEEKS = 12
     const DAYS = 7
@@ -144,15 +137,12 @@ export const GithubStatsWidget = memo(({ data }: any) => {
       }
     }
 
-    const maxCount = Math.max(1, ...Array.from(byDate.values()), 1)
-    // End on most recent Sunday-aligned week ending today (UTC date string)
+    const maxCount = Math.max(1, ...Iterator.from(byDate.values()), 1)
     const today = new Date()
     const end = new Date(
       Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()),
     )
-    // Align end to end of current week (Saturday = 6 in UTC getUTCDay)
-    const endDow = end.getUTCDay() // 0 Sun … 6 Sat
-    // Grid: columns = weeks, rows = Sun(0)…Sat(6)
+    const endDow = end.getUTCDay()
     const totalCells = WEEKS * DAYS
     const start = new Date(end)
     start.setUTCDate(start.getUTCDate() - (totalCells - 1) + (6 - endDow))
@@ -250,7 +240,6 @@ export const GithubStatsWidget = memo(({ data }: any) => {
                 {HEATMAP_WEEKS.map((week) => (
                   <div key={week} className="flex flex-col gap-[2.5px]">
                     {HEATMAP_DAYS.map((day) => {
-                      // heatmapData: week*7+day (Sun–Sat), real calendar not random
                       const cell = heatmapData[week * 7 + day]
                       return (
                         <motion.div
@@ -296,7 +285,6 @@ export const GithubStatsWidget = memo(({ data }: any) => {
         </div>
         {langSegments.length > 0 && (
           <div className="absolute bottom-3 right-3 w-[45%] flex flex-col items-end gap-1">
-            {/* 首页 4x2 更窄时 flex-wrap 易折到 3 行；硬限制最多两行，多余裁切 */}
             <div
               className="flex max-h-[1.375rem] flex-wrap content-start justify-end gap-x-2.5 gap-y-0.5 overflow-hidden"
               title={langSegments

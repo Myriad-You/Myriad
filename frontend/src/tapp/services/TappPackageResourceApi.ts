@@ -1,18 +1,14 @@
-/** Installed Tapp package resources, assets and export operations. */
-
 import { API_URL } from '../../config'
+import { hostLocaleHeaders } from '../../i18n/hostLocaleHeaders'
 import { currentCopy } from '../../i18n/localeCopy'
 import { apiRequest } from './TappHttpClient'
 
 export interface TappResources {
-  /** 包内 `.js` 文件：相对路径 → 源码，只含该 mode 相关层。 */
   modules: Record<string, string>
-  /** 宿主解析的 require 图；缺失表示旧后端，由前端兼容扫描。 */
   moduleResolutions?: Record<string, Record<string, string>>
   coreEntry?: string
   pageEntry?: string
   widgetEntries?: Record<string, string>
-  /** 作者样式（层声明）。 */
   coreStyles?: string
   pageStyles?: string
   widgetStyles?: Record<string, string>
@@ -40,7 +36,6 @@ interface TappResourcesRaw {
   i18n?: Record<string, unknown>
 }
 
-/** Projection of installed package resources. Matches backend `mode` query. */
 export type TappResourceMode = 'full' | 'core' | 'widget' | 'page'
 
 export async function getTappResources(
@@ -55,11 +50,14 @@ export async function getTappResources(
   const params = query.size > 0 ? `?${query.toString()}` : ''
   const response = await fetch(
     `${API_URL}/api/tapps/${encodeURIComponent(tappId)}/resources${params}`,
-    { method: 'GET', credentials: 'include' },
+    {
+      method: 'GET',
+      credentials: 'include',
+      headers: hostLocaleHeaders(),
+    },
   )
   if (!response.ok) {
-    // 没有旧端点回退：包结构不符合当前契约时后端返回 409，让它照常抛出，
-    // 不要再换一条路把不受支持的包送进沙箱。
+    // 契约不符时 409 照抛，不换路送进沙箱。
     throw new Error(
       `${currentCopy().tapp.loadAppFailed} (${response.status})`,
     )
@@ -102,7 +100,7 @@ export async function getTappAsset(
 export async function exportTapp(tappId: string): Promise<void> {
   const response = await fetch(
     `${API_URL}/api/tapps/${encodeURIComponent(tappId)}/export`,
-    { credentials: 'include' },
+    { credentials: 'include', headers: hostLocaleHeaders() },
   )
   if (!response.ok) {
     throw new Error(

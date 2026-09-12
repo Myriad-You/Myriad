@@ -1,6 +1,5 @@
 import { getPublicConfigDeduped } from '../../../utils/requestDedup'
 
-/** 各平台社交主页链接（长按设置里「打开社交主页」用） */
 export const PLATFORM_SOCIAL: Record<
   string,
   { publicName: string; fieldKey: string; getUserUrl: (id: string) => string }
@@ -28,7 +27,7 @@ export const PLATFORM_SOCIAL: Record<
       if (id.startsWith('UC') && id.length >= 20) {
         return `https://www.youtube.com/channel/${id}`
       }
-      const handle = id.replace(/^@/, '')
+      const handle = id.replaceAll(/^@/g, '')
       return `https://www.youtube.com/@${handle}`
     },
   },
@@ -50,7 +49,7 @@ export const PLATFORM_SOCIAL: Record<
   x: {
     publicName: 'X',
     fieldKey: 'username',
-    getUserUrl: (u) => `https://x.com/${String(u).replace(/^@/, '')}`,
+    getUserUrl: (u) => `https://x.com/${String(u).replaceAll(/^@/g, '')}`,
   },
   xbox: {
     publicName: 'Xbox',
@@ -71,7 +70,6 @@ export const PLATFORM_SOCIAL: Record<
   },
 }
 
-// 从公开配置取各平台用户ID（模块级缓存，避免重复请求）
 let cachedUserIds: Record<string, string> | null = null
 let userIdsPromise: Promise<Record<string, string>> | null = null
 export async function fetchPlatformUserIds(): Promise<Record<string, string>> {
@@ -80,11 +78,9 @@ export async function fetchPlatformUserIds(): Promise<Record<string, string>> {
   userIdsPromise = (async () => {
     const map: Record<string, string> = {}
     try {
-      // 去重缓存：与社交网络小组件共享同一次 /api/config/public 请求
       const data = await getPublicConfigDeduped()
       if (Array.isArray(data.platforms)) {
         for (const p of data.platforms) {
-          // 只要字段有值即可；enabled 只控制报告页卡片是否展示，不挡读配置
           const entry = Object.entries(PLATFORM_SOCIAL).find(
             ([, s]) => s.publicName === p.name,
           )
@@ -98,7 +94,6 @@ export async function fetchPlatformUserIds(): Promise<Record<string, string>> {
         }
       }
     } catch {
-      // 静默：拿不到就走报告页兜底
     }
     cachedUserIds = map
     return map

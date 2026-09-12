@@ -1,23 +1,4 @@
-/**
- * 沙箱 CSS 样式
- *
- * 提供基础 CSS、Tailwind 子集和主题变量
- *
- * 🎯 性能优化：
- * - 静态 CSS 使用模块级常量（避免重复计算）
- * - 主题 CSS 使用缓存（相同参数返回缓存结果）
- * - 组合 CSS 预计算
- * - Tailwind 类智能内联（按需提取）
- */
-
-// Tailwind 类映射表
-
-/**
- * Tailwind 类到 CSS 的映射表
- * 包含常用的 Tailwind 工具类
- */
 const TAILWIND_MAP: Record<string, string> = {
-  // Display
   hidden: 'display:none',
   block: 'display:block',
   'inline-block': 'display:inline-block',
@@ -26,18 +7,15 @@ const TAILWIND_MAP: Record<string, string> = {
   'inline-flex': 'display:inline-flex',
   grid: 'display:grid',
 
-  // Flex Direction
   'flex-row': 'flex-direction:row',
   'flex-row-reverse': 'flex-direction:row-reverse',
   'flex-col': 'flex-direction:column',
   'flex-col-reverse': 'flex-direction:column-reverse',
 
-  // Flex Wrap
   'flex-wrap': 'flex-wrap:wrap',
   'flex-nowrap': 'flex-wrap:nowrap',
   'flex-wrap-reverse': 'flex-wrap:wrap-reverse',
 
-  // Flex
   'flex-1': 'flex:1 1 0%',
   'flex-auto': 'flex:1 1 auto',
   'flex-initial': 'flex:0 1 auto',
@@ -51,7 +29,6 @@ const TAILWIND_MAP: Record<string, string> = {
   'flex-grow': 'flex-grow:1',
   grow: 'flex-grow:1',
 
-  // Justify Content
   'justify-start': 'justify-content:flex-start',
   'justify-end': 'justify-content:flex-end',
   'justify-center': 'justify-content:center',
@@ -59,28 +36,24 @@ const TAILWIND_MAP: Record<string, string> = {
   'justify-around': 'justify-content:space-around',
   'justify-evenly': 'justify-content:space-evenly',
 
-  // Align Items
   'items-start': 'align-items:flex-start',
   'items-end': 'align-items:flex-end',
   'items-center': 'align-items:center',
   'items-baseline': 'align-items:baseline',
   'items-stretch': 'align-items:stretch',
 
-  // Align Self
   'self-auto': 'align-self:auto',
   'self-start': 'align-self:flex-start',
   'self-end': 'align-self:flex-end',
   'self-center': 'align-self:center',
   'self-stretch': 'align-self:stretch',
 
-  // Position
   static: 'position:static',
   fixed: 'position:fixed',
   absolute: 'position:absolute',
   relative: 'position:relative',
   sticky: 'position:sticky',
 
-  // Inset
   'inset-0': 'top:0;right:0;bottom:0;left:0',
   'inset-x-0': 'left:0;right:0',
   'inset-y-0': 'top:0;bottom:0',
@@ -123,7 +96,6 @@ const TAILWIND_MAP: Record<string, string> = {
   '-bottom-2': 'bottom:-0.5rem',
   '-left-2': 'left:-0.5rem',
 
-  // Z-Index
   'z-0': 'z-index:0',
   'z-10': 'z-index:10',
   'z-20': 'z-index:20',
@@ -131,7 +103,6 @@ const TAILWIND_MAP: Record<string, string> = {
   'z-40': 'z-index:40',
   'z-50': 'z-index:50',
 
-  // Width
   'w-0': 'width:0',
   'w-px': 'width:1px',
   'w-0.5': 'width:0.125rem',
@@ -189,7 +160,6 @@ const TAILWIND_MAP: Record<string, string> = {
   'max-w-7xl': 'max-width:80rem',
   'max-w-full': 'max-width:100%',
 
-  // Height
   'h-0': 'height:0',
   'h-px': 'height:1px',
   'h-0.5': 'height:0.125rem',
@@ -258,7 +228,6 @@ const TAILWIND_MAP: Record<string, string> = {
   'max-h-full': 'max-height:100%',
   'max-h-screen': 'max-height:100vh',
 
-  // Padding
   'p-0': 'padding:0',
   'p-0.5': 'padding:0.125rem',
   'p-1': 'padding:0.25rem',
@@ -336,7 +305,6 @@ const TAILWIND_MAP: Record<string, string> = {
   'pl-3': 'padding-left:0.75rem',
   'pl-4': 'padding-left:1rem',
 
-  // Margin
   'm-0': 'margin:0',
   'm-0.5': 'margin:0.125rem',
   'm-1': 'margin:0.25rem',
@@ -400,7 +368,6 @@ const TAILWIND_MAP: Record<string, string> = {
   '-ml-1': 'margin-left:-0.25rem',
   '-mr-1': 'margin-right:-0.25rem',
 
-  // Gap
   'gap-0': 'gap:0',
   'gap-0.5': 'gap:0.125rem',
   'gap-1': 'gap:0.25rem',
@@ -416,7 +383,6 @@ const TAILWIND_MAP: Record<string, string> = {
   'gap-10': 'gap:2.5rem',
   'gap-12': 'gap:3rem',
 
-  // Border Radius
   'rounded-none': 'border-radius:0',
   'rounded-sm': 'border-radius:0.125rem',
   rounded: 'border-radius:0.25rem',
@@ -427,7 +393,6 @@ const TAILWIND_MAP: Record<string, string> = {
   'rounded-3xl': 'border-radius:1.5rem',
   'rounded-full': 'border-radius:9999px',
 
-  // Border Width
   border: 'border-width:1px',
   'border-0': 'border-width:0',
   'border-2': 'border-width:2px',
@@ -438,13 +403,11 @@ const TAILWIND_MAP: Record<string, string> = {
   'border-b': 'border-bottom-width:1px',
   'border-l': 'border-left-width:1px',
 
-  // Border Style
   'border-solid': 'border-style:solid',
   'border-dashed': 'border-style:dashed',
   'border-dotted': 'border-style:dotted',
   'border-none': 'border-style:none',
 
-  // Border Color
   'border-transparent': 'border-color:transparent',
   'border-white': 'border-color:#fff',
   'border-black': 'border-color:#000',
@@ -457,18 +420,15 @@ const TAILWIND_MAP: Record<string, string> = {
   'border-neutral-700': 'border-color:rgb(64 64 64)',
   'border-neutral-800': 'border-color:rgb(38 38 38)',
 
-  // Background Color
   'bg-transparent': 'background-color:transparent',
   'bg-current': 'background-color:currentColor',
   'bg-white': 'background-color:#fff',
   'bg-black': 'background-color:#000',
 
-  // Text Color
   'text-transparent': 'color:transparent',
   'text-white': 'color:#fff',
   'text-black': 'color:#000',
 
-  // Typography
   'text-xs': 'font-size:0.75rem;line-height:1rem',
   'text-sm': 'font-size:0.875rem;line-height:1.25rem',
   'text-base': 'font-size:1rem;line-height:1.5rem',
@@ -479,7 +439,6 @@ const TAILWIND_MAP: Record<string, string> = {
   'text-4xl': 'font-size:2.25rem;line-height:2.5rem',
   'text-5xl': 'font-size:3rem;line-height:1',
 
-  // Font Weight
   'font-thin': 'font-weight:100',
   'font-extralight': 'font-weight:200',
   'font-light': 'font-weight:300',
@@ -490,7 +449,6 @@ const TAILWIND_MAP: Record<string, string> = {
   'font-extrabold': 'font-weight:800',
   'font-black': 'font-weight:900',
 
-  // Font Family
   'font-sans':
     'font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif',
   'font-serif':
@@ -498,31 +456,26 @@ const TAILWIND_MAP: Record<string, string> = {
   'font-mono':
     'font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace',
 
-  // Text Align
   'text-left': 'text-align:left',
   'text-center': 'text-align:center',
   'text-right': 'text-align:right',
   'text-justify': 'text-align:justify',
 
-  // Text Overflow
   truncate: 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap',
   'overflow-ellipsis': 'text-overflow:ellipsis',
   'overflow-clip': 'text-overflow:clip',
 
-  // Whitespace
   'whitespace-normal': 'white-space:normal',
   'whitespace-nowrap': 'white-space:nowrap',
   'whitespace-pre': 'white-space:pre',
   'whitespace-pre-line': 'white-space:pre-line',
   'whitespace-pre-wrap': 'white-space:pre-wrap',
 
-  // Word Break
   'break-normal': 'overflow-wrap:normal;word-break:normal',
   'break-words': 'overflow-wrap:break-word',
   'wrap-break-word': 'overflow-wrap:break-word',
   'break-all': 'word-break:break-all',
 
-  // Line Clamp
   'line-clamp-1':
     'overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1',
   'line-clamp-2':
@@ -530,7 +483,6 @@ const TAILWIND_MAP: Record<string, string> = {
   'line-clamp-3':
     'overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3',
 
-  // Opacity
   'opacity-0': 'opacity:0',
   'opacity-5': 'opacity:0.05',
   'opacity-10': 'opacity:0.1',
@@ -547,7 +499,6 @@ const TAILWIND_MAP: Record<string, string> = {
   'opacity-95': 'opacity:0.95',
   'opacity-100': 'opacity:1',
 
-  // Overflow
   'overflow-auto': 'overflow:auto',
   'overflow-hidden': 'overflow:hidden',
   'overflow-visible': 'overflow:visible',
@@ -557,11 +508,9 @@ const TAILWIND_MAP: Record<string, string> = {
   'overflow-x-hidden': 'overflow-x:hidden',
   'overflow-y-hidden': 'overflow-y:hidden',
 
-  // Visibility
   visible: 'visibility:visible',
   invisible: 'visibility:hidden',
 
-  // Cursor
   'cursor-auto': 'cursor:auto',
   'cursor-default': 'cursor:default',
   'cursor-pointer': 'cursor:pointer',
@@ -570,27 +519,22 @@ const TAILWIND_MAP: Record<string, string> = {
   'cursor-move': 'cursor:move',
   'cursor-not-allowed': 'cursor:not-allowed',
 
-  // Pointer Events
   'pointer-events-none': 'pointer-events:none',
   'pointer-events-auto': 'pointer-events:auto',
 
-  // User Select
   'select-none': 'user-select:none',
   'select-text': 'user-select:text',
   'select-all': 'user-select:all',
   'select-auto': 'user-select:auto',
 
-  // Outline
   'outline-none': 'outline:2px solid transparent;outline-offset:2px',
   outline: 'outline-style:solid',
 
-  // Resize
   'resize-none': 'resize:none',
   'resize-y': 'resize:vertical',
   'resize-x': 'resize:horizontal',
   resize: 'resize:both',
 
-  // Shadow
   'shadow-sm': 'box-shadow:0 1px 2px 0 rgb(0 0 0/0.05)',
   shadow: 'box-shadow:0 1px 3px 0 rgb(0 0 0/0.1),0 1px 2px -1px rgb(0 0 0/0.1)',
   'shadow-md':
@@ -602,7 +546,6 @@ const TAILWIND_MAP: Record<string, string> = {
   'shadow-2xl': 'box-shadow:0 25px 50px -12px rgb(0 0 0/0.25)',
   'shadow-none': 'box-shadow:none',
 
-  // Transition
   'transition-none': 'transition-property:none',
   'transition-all':
     'transition-property:all;transition-timing-function:cubic-bezier(0.4,0,0.2,1);transition-duration:150ms',
@@ -615,7 +558,6 @@ const TAILWIND_MAP: Record<string, string> = {
   'transition-transform':
     'transition-property:transform;transition-timing-function:cubic-bezier(0.4,0,0.2,1);transition-duration:150ms',
 
-  // Duration
   'duration-75': 'transition-duration:75ms',
   'duration-100': 'transition-duration:100ms',
   'duration-150': 'transition-duration:150ms',
@@ -626,7 +568,6 @@ const TAILWIND_MAP: Record<string, string> = {
   'duration-700': 'transition-duration:700ms',
   'duration-1000': 'transition-duration:1000ms',
 
-  // Transform
   transform:
     'transform:translate(var(--tw-translate-x,0),var(--tw-translate-y,0)) rotate(var(--tw-rotate,0)) skewX(var(--tw-skew-x,0)) skewY(var(--tw-skew-y,0)) scaleX(var(--tw-scale-x,1)) scaleY(var(--tw-scale-y,1))',
   'transform-gpu':
@@ -657,7 +598,6 @@ const TAILWIND_MAP: Record<string, string> = {
   'scale-125': 'transform:scale(1.25)',
   'scale-150': 'transform:scale(1.5)',
 
-  // Backdrop Filter
   'backdrop-blur-none': 'backdrop-filter:blur(0)',
   'backdrop-blur-sm': 'backdrop-filter:blur(4px)',
   'backdrop-blur': 'backdrop-filter:blur(8px)',
@@ -667,19 +607,16 @@ const TAILWIND_MAP: Record<string, string> = {
   'backdrop-blur-2xl': 'backdrop-filter:blur(40px)',
   'backdrop-blur-3xl': 'backdrop-filter:blur(64px)',
 
-  // Object Fit
   'object-contain': 'object-fit:contain',
   'object-cover': 'object-fit:cover',
   'object-fill': 'object-fit:fill',
   'object-none': 'object-fit:none',
   'object-scale-down': 'object-fit:scale-down',
 
-  // Aspect Ratio
   'aspect-auto': 'aspect-ratio:auto',
   'aspect-square': 'aspect-ratio:1/1',
   'aspect-video': 'aspect-ratio:16/9',
 
-  // Space Between (using > :not([hidden]) ~ :not([hidden]) selector in generateOnDemandTailwindCSS)
   'space-x-0': '--tw-space-x-reverse:0',
   'space-x-1': '--tw-space-x-reverse:0',
   'space-x-2': '--tw-space-x-reverse:0',
@@ -691,7 +628,6 @@ const TAILWIND_MAP: Record<string, string> = {
   'space-y-3': '--tw-space-y-reverse:0',
   'space-y-4': '--tw-space-y-reverse:0',
 
-  // Grid (grid-cols, grid-rows, col-span, row-span)
   'grid-cols-1': 'grid-template-columns:repeat(1,minmax(0,1fr))',
   'grid-cols-2': 'grid-template-columns:repeat(2,minmax(0,1fr))',
   'grid-cols-3': 'grid-template-columns:repeat(3,minmax(0,1fr))',
@@ -712,12 +648,10 @@ const TAILWIND_MAP: Record<string, string> = {
   'row-span-3': 'grid-row:span 3/span 3',
   'row-span-full': 'grid-row:1/-1',
 
-  // Min/Max Content
   'min-h-min': 'min-height:min-content',
   'min-h-max': 'min-height:max-content',
   'min-h-fit': 'min-height:fit-content',
 
-  // Leading (Line Height)
   'leading-none': 'line-height:1',
   'leading-tight': 'line-height:1.25',
   'leading-snug': 'line-height:1.375',
@@ -725,7 +659,6 @@ const TAILWIND_MAP: Record<string, string> = {
   'leading-relaxed': 'line-height:1.625',
   'leading-loose': 'line-height:2',
 
-  // Animation
   'animate-none': 'animation:none',
   'animate-spin': 'animation:spin 1s linear infinite',
   'animate-ping': 'animation:ping 1s cubic-bezier(0,0,0.2,1) infinite',
@@ -733,23 +666,12 @@ const TAILWIND_MAP: Record<string, string> = {
   'animate-bounce': 'animation:bounce 1s infinite',
 }
 
-/**
- * 从 HTML/CSS/JS 字符串中提取所有可能的 Tailwind 类名
- *
- * 支持多种提取模式：
- * 1. HTML class 属性: class="..."
- * 2. JS className 设置: .className = '...' 或 className += '...'
- * 3. JS classList 操作: classList.add('...'), classList.toggle('...')
- * 4. 三元表达式和字符串中的类名
- */
 function extractClassNames(source: string): Set<string> {
   const classes = new Set<string>()
 
-  // 辅助函数：添加从字符串中分割出的类名
   const addClasses = (classString: string) => {
     classString.split(/\s+/).forEach((cls) => {
       const trimmed = cls.trim()
-      // 过滤掉明显不是 Tailwind 类的内容
       if (
         trimmed &&
         !trimmed.includes('(') &&
@@ -766,7 +688,6 @@ function extractClassNames(source: string): Set<string> {
     })
   }
 
-  // 1. 匹配 HTML class="..." 或 class='...'
   const htmlClassRegex = /class=["']([^"']+)["']/g
   let match = htmlClassRegex.exec(source)
   while (match !== null) {
@@ -774,7 +695,6 @@ function extractClassNames(source: string): Set<string> {
     match = htmlClassRegex.exec(source)
   }
 
-  // 2. 匹配 JS .className = '...' 或 .className = "..."（赋值或拼接）
   const classNameAssignRegex = /\.className\s*\+?=\s*["'`]([^"'`]+)["'`]/g
   match = classNameAssignRegex.exec(source)
   while (match !== null) {
@@ -802,8 +722,6 @@ function extractClassNames(source: string): Set<string> {
     match = ternaryClassRegex.exec(source)
   }
 
-  // 5. 匹配所有看起来像 Tailwind 类的字符串
-  // 这是一个宽松的匹配，用于捕获各种场景下的类名
   const looseClassRegex = /["'`]([-\w:/[\].!]+(?:\s+[-\w:/[\].!]+)*)["'`]/g
   match = looseClassRegex.exec(source)
   while (match !== null) {
@@ -823,9 +741,6 @@ function extractClassNames(source: string): Set<string> {
   return classes
 }
 
-// 动态 Tailwind 类解析
-
-/** 颜色映射 */
 const COLORS: Record<string, string> = {
   transparent: 'transparent',
   current: 'currentColor',
@@ -1075,12 +990,10 @@ const COLORS: Record<string, string> = {
   'rose-950': '#4c0519',
 }
 
-/** 将颜色+透明度转换为 rgba */
 function colorWithOpacity(colorValue: string, opacity: number): string {
   if (colorValue === 'transparent') return 'transparent'
   if (colorValue === 'currentColor') return 'currentColor'
 
-  // 处理 hex 颜色
   if (colorValue.startsWith('#')) {
     const hex = colorValue.slice(1)
     if (hex.length === 3) {
@@ -1099,12 +1012,9 @@ function colorWithOpacity(colorValue: string, opacity: number): string {
   return colorValue
 }
 
-/** 解析带透明度的颜色 (如 white/90, neutral-200/50) */
 function parseColorWithOpacity(value: string): string | null {
-  // 匹配 color/opacity 格式，包括 [0.03] 这种格式
   const match = value.match(/^(.+?)\/(\d+|\[[\d.]+\])$/)
   if (!match) {
-    // 没有透明度，直接返回颜色
     const color = COLORS[value]
     return color || null
   }
@@ -1113,7 +1023,6 @@ function parseColorWithOpacity(value: string): string | null {
   const color = COLORS[colorName]
   if (!color) return null
 
-  // 解析透明度
   let opacity: number
   if (opacityStr.startsWith('[') && opacityStr.endsWith(']')) {
     opacity = Number.parseFloat(opacityStr.slice(1, -1))
@@ -1124,13 +1033,11 @@ function parseColorWithOpacity(value: string): string | null {
   return colorWithOpacity(color, opacity)
 }
 
-/** 解析任意值 (如 [10px], [90%], [var(--ai-success)]) */
 function parseArbitraryValue(value: string): string | null {
   const match = value.match(/^\[(.+)\]$/)
   return match ? match[1] : null
 }
 
-/** 空间间距映射 */
 const SPACING: Record<string, string> = {
   0: '0',
   0.5: '0.125rem',
@@ -1151,14 +1058,11 @@ const SPACING: Record<string, string> = {
   24: '6rem',
 }
 
-/** 动态解析单个类名 */
 function parseDynamicClass(className: string): string | null {
-  // 首先检查静态映射
   if (TAILWIND_MAP[className]) {
     return TAILWIND_MAP[className]
   }
 
-  // 渐变方向 (支持 v3 bg-gradient-to-* 和 v4 bg-linear-to-* 两种写法)
   const gradientDirs: Record<string, string> = {
     'bg-gradient-to-t':
       'background-image:linear-gradient(to top,var(--tw-gradient-stops))',
@@ -1197,7 +1101,6 @@ function parseDynamicClass(className: string): string | null {
     return gradientDirs[className]
   }
 
-  // 渐变起点 from-*
   if (className.startsWith('from-')) {
     const value = className.slice(5)
     const color = parseColorWithOpacity(value)
@@ -1206,7 +1109,6 @@ function parseDynamicClass(className: string): string | null {
     }
   }
 
-  // 渐变中点 via-*
   if (className.startsWith('via-')) {
     const value = className.slice(4)
     const color = parseColorWithOpacity(value)
@@ -1215,7 +1117,6 @@ function parseDynamicClass(className: string): string | null {
     }
   }
 
-  // 渐变终点 to-*
   if (className.startsWith('to-')) {
     const value = className.slice(3)
     const color = parseColorWithOpacity(value)
@@ -1224,28 +1125,22 @@ function parseDynamicClass(className: string): string | null {
     }
   }
 
-  // 背景色 bg-*
   if (className.startsWith('bg-') && !className.startsWith('bg-gradient')) {
     const value = className.slice(3)
-    // 先检查任意值（如 bg-[var(--ai-success)]）
     const arbitrary = parseArbitraryValue(value)
     if (arbitrary) {
       return `background-color:${arbitrary}`
     }
-    // 否则尝试解析为颜色
     const color = parseColorWithOpacity(value)
     if (color) {
       return `background-color:${color}`
     }
   }
 
-  // 文字颜色 text-*
   if (className.startsWith('text-')) {
     const value = className.slice(5)
-    // 先检查是否是任意值（如 text-[10px] 或 text-[var(--ai-primary)]）
     const arbitrary = parseArbitraryValue(value)
     if (arbitrary) {
-      // 检测是否是颜色（包含 var、# 或 rgb 等）
       if (
         arbitrary.includes('var(') ||
         arbitrary.startsWith('#') ||
@@ -1255,42 +1150,35 @@ function parseDynamicClass(className: string): string | null {
       }
       return `font-size:${arbitrary}`
     }
-    // 否则尝试解析为颜色
     const color = parseColorWithOpacity(value)
     if (color) {
       return `color:${color}`
     }
   }
 
-  // 边框颜色 border-*
   if (
     className.startsWith('border-') &&
     !/^border-([trblxy])?-?\d/.test(className)
   ) {
     const value = className.slice(7)
-    // 先检查任意值
     const arbitrary = parseArbitraryValue(value)
     if (arbitrary) {
       return `border-color:${arbitrary}`
     }
-    // 否则尝试解析为颜色
     const color = parseColorWithOpacity(value)
     if (color) {
       return `border-color:${color}`
     }
   }
 
-  // placeholder 颜色
   if (className.startsWith('placeholder-')) {
     const value = className.slice(12)
     const color = parseColorWithOpacity(value)
     if (color) {
-      // placeholder 需要特殊选择器处理，这里返回 CSS 变量形式
       return `--tw-placeholder-color:${color}`
     }
   }
 
-  // max-w-[*] 任意值
   if (className.startsWith('max-w-')) {
     const value = className.slice(6)
     const arbitrary = parseArbitraryValue(value)
@@ -1299,7 +1187,6 @@ function parseDynamicClass(className: string): string | null {
     }
   }
 
-  // min-h-[*] 任意值
   if (className.startsWith('min-h-')) {
     const value = className.slice(6)
     const arbitrary = parseArbitraryValue(value)
@@ -1308,7 +1195,6 @@ function parseDynamicClass(className: string): string | null {
     }
   }
 
-  // w-[*] 任意值
   if (className.startsWith('w-')) {
     const value = className.slice(2)
     const arbitrary = parseArbitraryValue(value)
@@ -1317,7 +1203,6 @@ function parseDynamicClass(className: string): string | null {
     }
   }
 
-  // h-[*] 任意值
   if (className.startsWith('h-')) {
     const value = className.slice(2)
     const arbitrary = parseArbitraryValue(value)
@@ -1326,7 +1211,6 @@ function parseDynamicClass(className: string): string | null {
     }
   }
 
-  // gap-[*] 任意值
   if (className.startsWith('gap-')) {
     const value = className.slice(4)
     const arbitrary = parseArbitraryValue(value)
@@ -1335,7 +1219,6 @@ function parseDynamicClass(className: string): string | null {
     }
   }
 
-  // p-[*], px-[*], py-[*], pt-[*], pr-[*], pb-[*], pl-[*] 任意值
   const paddingMatch = className.match(/^p([xytrbl])?-\[(.+)\]$/)
   if (paddingMatch) {
     const [, side, val] = paddingMatch
@@ -1357,7 +1240,6 @@ function parseDynamicClass(className: string): string | null {
     }
   }
 
-  // m-[*], mx-[*], my-[*], mt-[*], mr-[*], mb-[*], ml-[*] 任意值
   const marginMatch = className.match(/^m([xytrbl])?-\[(.+)\]$/)
   if (marginMatch) {
     const [, side, val] = marginMatch
@@ -1379,7 +1261,6 @@ function parseDynamicClass(className: string): string | null {
     }
   }
 
-  // rounded-[*] 任意值
   if (className.startsWith('rounded-')) {
     const value = className.slice(8)
     const arbitrary = parseArbitraryValue(value)
@@ -1388,7 +1269,6 @@ function parseDynamicClass(className: string): string | null {
     }
   }
 
-  // max-h-[*] 任意值
   if (className.startsWith('max-h-')) {
     const value = className.slice(6)
     const arbitrary = parseArbitraryValue(value)
@@ -1400,26 +1280,17 @@ function parseDynamicClass(className: string): string | null {
   return null
 }
 
-/**
- * 生成按需 Tailwind CSS
- * 根据 HTML 中使用的类名生成对应的 CSS
- *
- * @param html - HTML 字符串
- * @returns 仅包含使用到的类的 CSS
- */
 export function generateOnDemandTailwindCSS(html: string): string {
   const usedClasses = extractClassNames(html)
   const cssRules: string[] = []
   const placeholderRules: string[] = []
   const spaceRules: string[] = []
 
-  // 添加渐变 CSS 变量基础
   cssRules.push(
     '*,::before,::after{--tw-gradient-from:#fff;--tw-gradient-to:transparent;--tw-gradient-stops:var(--tw-gradient-from),var(--tw-gradient-to)}',
   )
 
-  // 添加动画 keyframes（如果使用了动画类）
-  const needsAnimations = Array.from(usedClasses).some((c) =>
+  const needsAnimations = Iterator.from(usedClasses).some((c) =>
     c.includes('animate-'),
   )
   if (needsAnimations) {
@@ -1437,54 +1308,46 @@ export function generateOnDemandTailwindCSS(html: string): string {
     let selector = ''
     let isGroupHover = false
 
-    // 检测 dark: 前缀
     if (baseClass.startsWith('dark:')) {
       baseClass = baseClass.slice(5)
       prefix = '.dark '
     }
 
-    // 检测 group-hover: 前缀
     if (baseClass.startsWith('group-hover:')) {
       baseClass = baseClass.slice(12)
       isGroupHover = true
     }
 
-    // 检测 hover: 前缀
     if (baseClass.startsWith('hover:')) {
       baseClass = baseClass.slice(6)
       selector = ':hover'
     }
 
-    // 检测 focus: 前缀
     if (baseClass.startsWith('focus:')) {
       baseClass = baseClass.slice(6)
       selector = ':focus'
     }
 
-    // 检测 active: 前缀
     if (baseClass.startsWith('active:')) {
       baseClass = baseClass.slice(7)
       selector = ':active'
     }
 
-    // 检测 disabled: 前缀
     if (baseClass.startsWith('disabled:')) {
       baseClass = baseClass.slice(9)
       selector = ':disabled'
     }
 
-    // 检测 focus-within: 前缀
     if (baseClass.startsWith('focus-within:')) {
       baseClass = baseClass.slice(13)
       selector = ':focus-within'
     }
 
-    // 处理 space-y-* 特殊情况
     const spaceYMatch = baseClass.match(/^space-y-(\d+(?:\.\d+)?)$/)
     if (spaceYMatch) {
       const spacingValue = SPACING[spaceYMatch[1]]
       if (spacingValue) {
-        const escapedClass = className.replace(/[:.[\]/%]/g, '\\$&')
+        const escapedClass = className.replaceAll(/[:.[\]/%]/g, '\\$&')
         spaceRules.push(
           `${prefix}.${escapedClass}>:not([hidden])~:not([hidden]){margin-top:${spacingValue}}`,
         )
@@ -1492,12 +1355,11 @@ export function generateOnDemandTailwindCSS(html: string): string {
       return
     }
 
-    // 处理 space-x-* 特殊情况
     const spaceXMatch = baseClass.match(/^space-x-(\d+(?:\.\d+)?)$/)
     if (spaceXMatch) {
       const spacingValue = SPACING[spaceXMatch[1]]
       if (spacingValue) {
-        const escapedClass = className.replace(/[:.[\]/%]/g, '\\$&')
+        const escapedClass = className.replaceAll(/[:.[\]/%]/g, '\\$&')
         spaceRules.push(
           `${prefix}.${escapedClass}>:not([hidden])~:not([hidden]){margin-left:${spacingValue}}`,
         )
@@ -1505,17 +1367,13 @@ export function generateOnDemandTailwindCSS(html: string): string {
       return
     }
 
-    // 解析 CSS（静态映射或动态解析）
     const css = parseDynamicClass(baseClass)
     if (css) {
-      // 转义类名中的特殊字符
-      const escapedClass = className.replace(/[:.[\]/%]/g, '\\$&')
+      const escapedClass = className.replaceAll(/[:.[\]/%]/g, '\\$&')
 
-      // group-hover 需要特殊选择器
       if (isGroupHover) {
         cssRules.push(`${prefix}.group:hover .${escapedClass}{${css}}`)
       }
-      // placeholder 需要特殊处理
       else if (baseClass.startsWith('placeholder-')) {
         placeholderRules.push(
           `${prefix}.${escapedClass}::placeholder{color:var(--tw-placeholder-color)}`,
@@ -1530,18 +1388,8 @@ export function generateOnDemandTailwindCSS(html: string): string {
   return cssRules.concat(spaceRules).concat(placeholderRules).join('\n')
 }
 
-// 主题 CSS 缓存
-
-/** 主题 CSS 缓存 */
 const themeCSSCache = new Map<string, string>()
 
-/**
- * 生成主题 CSS 变量（带缓存）
- *
- * @param isDark - 是否暗色主题
- * @param primaryColor - 主色调
- * @returns 主题 CSS 字符串
- */
 export function generateThemeCSS(
   isDark: boolean,
   primaryColor: string,
@@ -1551,13 +1399,11 @@ export function generateThemeCSS(
   const cached = themeCSSCache.get(cacheKey)
   if (cached) return cached
 
-  // 限制缓存大小（最多保留 20 个主题组合）
   if (themeCSSCache.size >= 20) {
     const firstKey = themeCSSCache.keys().next().value
     if (firstKey) themeCSSCache.delete(firstKey)
   }
 
-  // 将 hex 转换为 RGB 分量（用于 rgba 透明度计算）
   const hexToRgb = (hex: string): string => {
     const h = hex.replace('#', '')
     const r = Number.parseInt(h.length === 3 ? h[0] + h[0] : h.slice(0, 2), 16)
@@ -1568,8 +1414,6 @@ export function generateThemeCSS(
 
   const primaryRgb = hexToRgb(primaryColor)
 
-  // 只提供壁纸色变量，不定义具体的文字/背景色
-  // Tapp 的 CSS 应该使用 fallback 链条：var(--tapp-primary, var(--wallpaper-primary, #默认色))
   const css = `
 :root {
   /* 壁纸主色（从系统传入） */
@@ -1601,9 +1445,6 @@ body.light { background: var(--bg-primary); color: var(--text-primary); }
   return css
 }
 
-/**
- * 基础 CSS 重置
- */
 export const BASE_CSS = `
 *, *::before, *::after {
   box-sizing: border-box;
@@ -1625,9 +1466,6 @@ html, body {
 }
 `
 
-/**
- * Widget 专用 CSS
- */
 export const WIDGET_CSS = `
 body {
   background: transparent;
@@ -1643,9 +1481,6 @@ body {
 }
 `
 
-/**
- * Page 专用 CSS
- */
 export const PAGE_CSS = `
 #tapp-root {
   position: absolute;
@@ -1671,14 +1506,7 @@ export const PAGE_CSS = `
   overflow: auto;
 }
 `
-// 预计算的组合 CSS（避免运行时拼接）
 
-/**
- * Widget 模式的完整静态 CSS（不含主题变量）
- */
 export const WIDGET_STATIC_CSS = `${BASE_CSS}${WIDGET_CSS}` as const
 
-/**
- * Page 模式的完整静态 CSS（不含主题变量）
- */
 export const PAGE_STATIC_CSS = `${BASE_CSS}${PAGE_CSS}` as const

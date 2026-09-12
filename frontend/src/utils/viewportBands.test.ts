@@ -35,7 +35,7 @@ describe('resolveHomeGridColumns', () => {
   })
 
   it('ignores previous at the desktop edge (no ±16 hysteresis)', () => {
-    // Was tablet: 1077 stays 8, 1078 becomes 16 immediately
+    // Hard cut at 1078.
     assert.equal(
       resolveHomeGridColumns(1077, HOME_GRID_COLS_TABLET),
       HOME_GRID_COLS_TABLET,
@@ -44,7 +44,7 @@ describe('resolveHomeGridColumns', () => {
       resolveHomeGridColumns(1078, HOME_GRID_COLS_TABLET),
       HOME_GRID_COLS_DESKTOP,
     )
-    // Was desktop: 1078 stays 16, 1077 becomes 8 immediately
+    // Hard cut at 1078.
     assert.equal(
       resolveHomeGridColumns(1078, HOME_GRID_COLS_DESKTOP),
       HOME_GRID_COLS_DESKTOP,

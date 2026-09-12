@@ -1,8 +1,4 @@
-/**
- * Close fixed shell pages: exit fullscreen first (so presence can animate),
- * then requestClose → navigate. Avoids instant jump when presence is disabled
- * in fullscreen.
- */
+/** 先退出全屏再关，以免 fullscreen 关掉 presence 后瞬间跳走。 */
 
 import { useCallback, useEffect, useRef } from 'react'
 

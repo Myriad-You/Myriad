@@ -3,9 +3,7 @@ import type { PerformanceDirective } from '../../../services/agent/types'
 import type { PerceptionSnapshot } from '../perception/registry'
 import type { MeropePerformanceEventDetail } from '../performanceEvents'
 
-/**
- * Body is the live face the site actually has. Semantic only — no drivers.
- */
+/** Semantic only — no drivers. */
 
 export interface BodyCapabilities {
   semantic: readonly string[]
@@ -17,6 +15,9 @@ export interface BodyIntent {
   speechText?: string
   messageId?: string
   performance?: PerformanceDirective
+  /** Update only a currently playing matching line */
+  speechRefinement?: boolean
+  touchContinuation?: boolean
 }
 
 export interface BodyState {

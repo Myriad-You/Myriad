@@ -205,7 +205,7 @@ function syncStageCurtainTheme(isDark: boolean, active: boolean) {
   if (!el) return
   rememberCurtainBase(el)
   if (!active) {
-    // 光幕还在或退出扫描未开始时不要还原 class，否则会把扫描层闪掉
+    // 光幕还在或退出扫描未开始时不要还原 class，否则扫描层会闪掉。
     if (
       !isCurtainBusy() &&
       !el.style.backgroundImage &&
@@ -219,13 +219,11 @@ function syncStageCurtainTheme(isDark: boolean, active: boolean) {
   paintCurtain(el, curtain.progress, curtain.phase === 'enter')
 }
 
-// 预编译正则表达式（避免每次调用时重新创建）
 const CONTROL_CHARS_REGEX = /[\u0000-\u001F\u007F-\u009F]/g
 const MARKDOWN_SYMBOLS_REGEX = /[*_~`]/g
 const WHITESPACE_REGEX = /\s+/g
 const PUNCTUATION_SPLIT_REGEX = /([。！？.!?，,])/g
 
-// 共享文本处理工具函数
 function cleanText(text: string): string {
   return text
     .replace(CONTROL_CHARS_REGEX, '')
@@ -242,19 +240,16 @@ function splitByPunctuation(text: string) {
     .filter((s) => s.length > 0)
 }
 
-// 字幕行接口
 interface SubtitleLine {
   text: string
-  delay: number // 距离上一行的延迟（毫秒）
+  delay: number
 }
 
-// 篇章接口
 interface StageChapter {
   title: string
   lines: SubtitleLine[]
 }
 
-// 组件Props
 interface StageModeProps {
   isOpen: boolean
   onClose: () => void
@@ -265,19 +260,13 @@ interface StageModeProps {
     card_visuals?: any
     type?: 'platform'
   } | null
-  onRefresh?: () => void // 刷新当前报告的回调
-  playAllMode?: boolean // 是否在播放全部模式下
+  onRefresh?: () => void
+  playAllMode?: boolean
 }
 
-/**
- * 报告页 4 列卡片基准宽度（max-w-7xl=80rem，3 个 1rem 间距）：
- * (1280 - 48) / 4 = 308px，宽高比 2:1。
- * 舞台模式卡片更大时，内部内容按此基准等比 scale，避免字号/间距相对偏小。
- */
 const REPORT_CARD_BASE_WIDTH = 308
 const REPORT_CARD_BASE_HEIGHT = REPORT_CARD_BASE_WIDTH / 2
 
-/** 舞台模式专用：外层放大，内层按报告页卡片尺寸绘制后等比缩放 */
 const StageScaledReportCard = memo(({
   config,
   data,
@@ -332,7 +321,6 @@ const StageScaledReportCard = memo(({
   )
 })
 
-// 字幕显示组件
 function SubtitleDisplay({
   lines,
   isActive,
@@ -351,13 +339,12 @@ function SubtitleDisplay({
 
   useEffect(() => {
     if (!isActive || lines.length === 0 || isPaused) {
-      if (isPaused) return // 暂停时保持当前状态
+      if (isPaused) return
       setVisibleLines([])
       setCurrentIndex(0)
       return
     }
 
-    // 重置状态
     setVisibleLines([])
     setCurrentIndex(0)
 
@@ -375,7 +362,6 @@ function SubtitleDisplay({
 
         setVisibleLines((prev) => {
           const next = [...prev, { id: index, text: line.text }]
-          // 只保留最后5条，控制同屏行数
           return next.slice(-5)
         })
         setCurrentIndex(index + 1)
@@ -421,7 +407,6 @@ function SubtitleDisplay({
           ))}
         </AnimatePresence>
       </div>
-      {/* 右侧卡片区：与报告页卡片同款比例，移动端留足宽度避免裁切 */}
       <div className="w-[38%] md:w-[40%] h-full flex items-center justify-center p-2 md:p-6 pointer-events-auto">
         {rightContent}
       </div>
@@ -429,7 +414,6 @@ function SubtitleDisplay({
   )
 }
 
-// 内容解析：将报告转换为篇章
 function parseReportToChapters(
   reportData: {
     summary: string
@@ -439,7 +423,6 @@ function parseReportToChapters(
 ): StageChapter[] {
   const chapters: StageChapter[] = []
 
-  // 第一篇章：总结
   if (reportData.summary) {
     const summaryText = cleanText(reportData.summary)
     const sentences = splitByPunctuation(summaryText)
@@ -448,18 +431,16 @@ function parseReportToChapters(
       title: chapterTitles.dataEcho,
       lines: sentences.map((sentence, i) => ({
         text: sentence,
-        delay: i === 0 ? 800 : 1500, // 缩短间隔以适应更短的句子
+        delay: i === 0 ? 800 : 1500,
       })),
     })
   }
 
-  // 第二篇章：深度洞察
   if (reportData.insights && reportData.insights.length > 0) {
     const insights = reportData.insights
       .map(cleanText)
       .filter((s) => s.length > 0)
 
-    // 洞察可能也需要分句，如果太长的话
     const allInsightLines: SubtitleLine[] = []
     insights.forEach((insight, i) => {
       const parts = splitByPunctuation(insight)
@@ -480,7 +461,6 @@ function parseReportToChapters(
   return chapters
 }
 
-// 舞台模式主组件
 export default function StageMode({
   isOpen,
   onClose,
@@ -491,22 +471,19 @@ export default function StageMode({
   const { t } = useI18n()
   const [currentChapter, setCurrentChapter] = useState(0)
   const [chapters, setChapters] = useState<StageChapter[]>([])
-  const [isPaused, setIsPaused] = useState(false) // 播放/暂停状态
+  const [isPaused, setIsPaused] = useState(false)
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof document === 'undefined') return false
     return document.documentElement.classList.contains('dark')
   })
   const isDarkModeRef = useRef(isDarkMode)
 
-  // 自动切换概览/详情 - 基于篇章 (使用 useMemo 替代 useEffect 避免状态同步延迟)
   const showOverview = useMemo(() => {
     if (!chapters[currentChapter]) return true
     const title = chapters[currentChapter].title
-    // 只有在明确是"深度洞察"时才显示内容，其他情况（包括"数据回想"或未知）都显示概览
     return title !== t.reportsPage.deepInsight
   }, [currentChapter, chapters, t.reportsPage.deepInsight])
 
-  // 与报告页卡片共用同一 config 形状，避免 memo 无意义失效
   const stageWidgetConfig = useMemo((): WidgetConfig | null => {
     if (!reportData?.platform) return null
     return {
@@ -517,7 +494,6 @@ export default function StageMode({
   const renderWidget = () => {
     if (!reportData || !stageWidgetConfig) return null
 
-    // 平台报告：复用 ReportCardWidget，舞台放大时内部内容等比缩放
     return (
       <StageScaledReportCard
         config={stageWidgetConfig}
@@ -527,7 +503,6 @@ export default function StageMode({
     )
   }
 
-  // 监听外部播放/暂停事件
   useEffect(() => {
     const handleTogglePause = () => {
       setIsPaused((prev) => !prev)
@@ -539,7 +514,6 @@ export default function StageMode({
     }
   }, [])
 
-  // 同步isPaused状态到外部
   useEffect(() => {
     window.dispatchEvent(
       new CustomEvent('stage-pause-state-change', {
@@ -548,7 +522,6 @@ export default function StageMode({
     )
   }, [isPaused])
 
-  // 解析报告数据
   useEffect(() => {
     if (reportData) {
       let parsedChapters: StageChapter[] = []
@@ -572,7 +545,6 @@ export default function StageMode({
     }
   }, [reportData, t.reportsPage.dataEcho, t.reportsPage.deepInsight])
 
-  // 监听系统 / 应用主题切换，保持舞台模式背景同步
   useEffect(() => {
     if (typeof document === 'undefined') return
     const root = document.documentElement
@@ -607,7 +579,6 @@ export default function StageMode({
       mediaQuery.addEventListener('change', handleMediaChange)
     }
 
-    // 初始化同步
     syncMode()
 
     return () => {
@@ -626,40 +597,30 @@ export default function StageMode({
     syncStageCurtainTheme(isDarkMode, isOpen)
   }, [isDarkMode, isOpen])
 
-  // 使用 ref 存储 onClose，避免因父组件重渲染导致 timer 被重置
   const onCloseRef = useRef(onClose)
   useEffect(() => {
     onCloseRef.current = onClose
   }, [onClose])
 
-  // 自动切换篇章
   useEffect(() => {
-    if (!isOpen || chapters.length === 0 || isPaused) return // 暂停时不切换
+    if (!isOpen || chapters.length === 0 || isPaused) return
 
     const currentChapterData = chapters[currentChapter]
     if (!currentChapterData) return
 
-    // 1. 计算字幕播放完成所需的总时间
     const subtitleDuration = currentChapterData.lines.reduce(
       (sum, line, i) => sum + (i === 0 ? 500 : line.delay),
       0,
     )
 
-    // 2. 计算阅读缓冲时间
-    // 之前是每行+1000ms，导致多行文本等待时间过长
-    // 现在改为：基础缓冲 2.5秒 + 每行 200ms 的动态阅读时间
     let bufferTime = 2500 + currentChapterData.lines.length * 200
 
-    // 3. 特殊场景调整
     if (currentChapterData.title === t.reportsPage.deepInsight) {
-      // 深度洞察：为了配合右侧卡片轮播（5s一次），确保至少能展示 2-3 轮
-      // 如果字幕很短，强制延长；如果字幕很长，就按字幕时间来
-      const minDuration = 12000 // 至少12秒
+      const minDuration = 12000
       if (subtitleDuration + bufferTime < minDuration) {
         bufferTime = minDuration - subtitleDuration
       }
     } else if (currentChapter === chapters.length - 1) {
-      // 最后一章：额外增加 3秒 结束感
       bufferTime += 3000
     }
 
@@ -669,9 +630,7 @@ export default function StageMode({
       if (currentChapter < chapters.length - 1) {
         setCurrentChapter((prev) => prev + 1)
       } else {
-        // 所有篇章播放完毕，触发完成事件
         window.dispatchEvent(new CustomEvent('stage-playback-complete'))
-        // 如果不是播放全部模式，才自动关闭
         if (!playAllMode) {
           onCloseRef.current()
         }
@@ -688,8 +647,7 @@ export default function StageMode({
     t.reportsPage.deepInsight,
   ])
 
-  // 光幕进出扫描挂在 #bg-gradient 上，不跟 React 树走。
-  // 切页在内容退完之后才发生，卸载时不能取消还在播的退出扫描。
+  // 卸载时不能取消还在播的退出扫描。
   useLayoutEffect(() => {
     if (isOpen) {
       playStageCurtainEnter(() => isDarkModeRef.current)
@@ -720,12 +678,9 @@ export default function StageMode({
           exit={{ opacity: 0 }}
           transition={{ duration: 0.5 }}
         >
-            {/* 内容容器 - 与页面布局对齐 */}
             <div className="h-full flex flex-col pt-20 pb-6 px-3 xs:px-4 sm:px-6">
               <div className="flex-1 max-w-7xl mx-auto w-full">
-                {/* 上半部分区域 - 移动端65%，桌面端45% */}
                 <div className="h-[65%] md:h-[45%] relative">
-                  {/* 篇章指示器 - 右上角 */}
                   <div className="absolute top-0 right-0 z-50">
                     <div className="glass-surface glass-80 rounded-xl px-4 py-2 shadow-lg border border-gray-100 dark:border-neutral-700">
                       <div className="flex items-center gap-3">
@@ -753,7 +708,6 @@ export default function StageMode({
                     </div>
                   </div>
 
-                  {/* 字幕显示区域 */}
                   <div className="absolute inset-0 pt-0 flex items-center">
                     <AnimatePresence mode="wait">
                       {chapters[currentChapter] && (

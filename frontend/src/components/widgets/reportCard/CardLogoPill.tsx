@@ -1,6 +1,3 @@
-/**
- * Bottom-left platform logo pill; expands with detail-face titles from the face.
- */
 import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,

@@ -63,7 +63,7 @@ mod tests {
 
     #[test]
     fn archive_payload_shares_bytes_via_arc_without_full_clone() {
-        // MYR-025: package clone / extract should share one zip buffer.
+        // package clone / extract should share one zip buffer.
         let bytes = vec![1u8, 2, 3, 4, 5];
         let package = PreparedTappPackage::from_archive_parts(
             base_manifest(),
@@ -103,7 +103,7 @@ mod tests {
         );
     }
 
-    /// 旧格式包不再能安装。对外只说是格式问题，字段名和文档路径留在日志里。
+    /// 旧格式包不再能安装。对外只说是格式问题；匹配到的预层字段名写进日志。
     #[test]
     fn legacy_manifest_error_points_at_the_layer_contract() {
         let error = parse_manifest_json(

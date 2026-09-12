@@ -72,13 +72,8 @@ interface RuntimeDiagnosticsResponse {
     commit_sha: string | null
     uptime_seconds: number
     config_mode: boolean
-    /**
-     * First schema apply / DB catalog stamp (RFC3339) — proxy for deploy time.
-     */
     database_established_at?: string | null
-    /** Process target OS (`linux` / `macos` / `windows`) */
     os?: string
-    /** Process CPU architecture (`x86_64` / `aarch64` / …) */
     arch?: string
     family?: string
     pointer_width?: string
@@ -184,10 +179,6 @@ export default function RuntimeDiagnostics({
       data.runtime.version &&
       buildInfo.version !== data.runtime.version,
   )
-  /**
-   * 总览「需要关注」不含服务器出口位置：该检查可保留卡片强调色，
-   * 但不抬升 overall（兼容旧后端仍把 location warning 写进 overall_status）。
-   */
   const overallStatus: OverallStatus = (() => {
     if (!data) return 'healthy'
 
@@ -310,7 +301,6 @@ export default function RuntimeDiagnostics({
       minute: '2-digit',
     }).format(new Date(value))
 
-  /** 说明文案（显示说明 / tooltip），可稍长 */
   const checkDetail = (check: DiagnosticCheck) => {
     if (check.detail) return check.detail
     if (check.id === 'database') {
@@ -375,7 +365,7 @@ export default function RuntimeDiagnostics({
     return ''
   }
 
-  /** 角标：短词，不要长句；位置/开发模式即使非 ok 也优先写具体信息 */
+  /** short; location/dev prefer the specific fact even when not ok */
   const checkBadge = (
     id: DiagnosticCheck['id'] | 'backend' | 'version' | 'system',
     status: DiagnosticStatus,
@@ -389,7 +379,6 @@ export default function RuntimeDiagnostics({
       if (!location || location.reason === 'unavailable') {
         return checkStatusLabel(status === 'ok' ? 'error' : status)
       }
-      // 警告（单源 / 冲突等）仍展示具体地点，不写「关注」
       return (
         location.city ||
         location.region ||
@@ -476,7 +465,7 @@ export default function RuntimeDiagnostics({
     anchor.href = url
     anchor.download = `myriad-diagnostics-${new Date()
       .toISOString()
-      .replace(/[:.]/g, '-')}.json`
+      .replaceAll(/[:.]/g, '-')}.json`
     document.body.appendChild(anchor)
     anchor.click()
     anchor.remove()
@@ -519,7 +508,6 @@ export default function RuntimeDiagnostics({
     status: DiagnosticStatus
     badge: string
     detail: string
-    /** Optional full tooltip when `detail` is truncated for display. */
     title?: string
     icon: ReactNode
   }> = data
@@ -542,7 +530,6 @@ export default function RuntimeDiagnostics({
         },
         ...data.checks.map((check) => ({
           id: check.id,
-          // 位置卡片保留 warning/error 强调色；总览 overall 已排除 location
           status: check.status,
           badge: checkBadge(check.id, check.status, check.latency_ms),
           detail: checkDetail(check),
@@ -586,7 +573,6 @@ export default function RuntimeDiagnostics({
         g.advanced.runtimeDiagnostics,
       )}
     >
-      {/* 总览 + 操作：独立卡片 */}
       <div
         className={`runtime-diagnostics-overview is-${error ? 'critical' : overallStatus}`}
       >

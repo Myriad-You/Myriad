@@ -10,7 +10,7 @@ export type SpeechGesture = (typeof SPEECH_GESTURES)[number]
 
 /** Mask quoted/code content without moving the speech plan's UTF-16 anchors. */
 export function unquotedSpeechText(text: string): string {
-  return text.replace(
+  return text.replaceAll(
     /```[\s\S]*?(?:```|$)|`[^`]*(?:`|$)|“[^”]*(?:”|$)|‘[^’]*(?:’|$)|「[^」]*(?:」|$)|『[^』]*(?:』|$)|"[^"]*(?:"|$)|https?:\/\/\S+/gu,
     (match) => ' '.repeat(match.length),
   )
@@ -45,5 +45,5 @@ export function speechPhraseGestures(
       gesture: 'laugh',
     })
   }
-  return cues.sort((a, b) => a.textOffset - b.textOffset)
+  return cues.toSorted((a, b) => a.textOffset - b.textOffset)
 }

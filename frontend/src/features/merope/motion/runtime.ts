@@ -12,6 +12,7 @@ import { HumanPerformanceRuntime } from './humanPerformanceRuntime'
 import { MoodMotionSource } from './moodSource'
 import { PerformanceMotionSource } from './performanceSource'
 import { SpeechMotionSource } from './speechSource'
+import { TouchMotionSource } from './touchSource'
 
 export type MotionFrameListener = (frame: MotionFrame) => void
 
@@ -38,16 +39,13 @@ export interface LiveFaceConsumer {
 
 const MAX_RECENT = 6
 
-/**
- * Single motion outlet for one coordinator. Sources publish intents here;
- * mounted rigs only subscribe.
- */
 export class MotionRuntime {
   readonly coordinator: RigMotionCoordinator
   readonly speech: SpeechMotionSource
   readonly performance: PerformanceMotionSource
   readonly mood: MoodMotionSource
   readonly ambient: AmbientMotionSource
+  readonly touch: TouchMotionSource
   private readonly humanPerformance = new HumanPerformanceRuntime()
   private readonly musicSource: MusicMotionSource | null
   private readonly listeners = new Set<MotionFrameListener>()
@@ -69,6 +67,7 @@ export class MotionRuntime {
     musicSource: MusicMotionSource | null = null,
   ) {
     this.coordinator = coordinator
+    this.touch = new TouchMotionSource(coordinator, () => this.emit())
     this.musicSource = musicSource
     this.speech = new SpeechMotionSource(
       coordinator,
@@ -94,6 +93,7 @@ export class MotionRuntime {
     )
     this.mood = new MoodMotionSource(coordinator, (intent, bandChanged) => {
       this.moodIntent = intent
+      this.touch.setAffect(intent.mood, intent.arousal, currentNow())
       if (bandChanged) this.performance.clearBearing()
       this.emit()
     })
@@ -115,13 +115,17 @@ export class MotionRuntime {
         this.startPreviewClock()
       }
     }
+    let retained = true
     return () => {
+      if (!retained) return
+      retained = false
       this.retains -= 1
       if (this.retains > 0) return
       this.retains = 0
       this.stopPreviewClock()
       this.speech.stop()
       this.performance.stop()
+      this.touch.release()
       this.mood.release()
       this.ambient.release()
       this.unsubMusic?.()
@@ -166,7 +170,9 @@ export class MotionRuntime {
       motionStyle: this.motionStyle,
       faceVisible:
         this.faceConsumers.size > 0
-          ? [...this.faceConsumers.values()].some((consumer) => consumer.ready)
+          ? Iterator.from(this.faceConsumers.values()).some(
+              (consumer) => consumer.ready,
+            )
           : this.retains > 0,
     }
   }
@@ -180,6 +186,8 @@ export class MotionRuntime {
         speech.behaviorPlan,
         performance.behaviorPlan,
         this.musicFrame?.behaviorPlan,
+        this.touch.current(),
+        this.touch.speechContinuation(now, messageId => this.speech.hasPlayback({ messageId, source: 'proactive' })),
       ],
       now,
     )
@@ -242,13 +250,13 @@ export class MotionRuntime {
   }
 
   private reconcileLiveFaces(): void {
-    const ready = [...this.faceConsumers.entries()].filter(
-      ([, consumer]) => consumer.ready,
-    )
+    const ready = Iterator.from(this.faceConsumers.entries())
+      .filter(([, consumer]) => consumer.ready)
+      .toArray()
     this.capabilities = uniqueCapabilities(
       ready.flatMap(([, consumer]) => consumer.capabilities),
     )
-    const authority = ready.sort(
+    const authority = ready.toSorted(
       ([leftId, left], [rightId, right]) =>
         (right.priority ?? 0) - (left.priority ?? 0) || leftId - rightId,
     )[0]?.[1]
@@ -299,7 +307,6 @@ function hasSpeechIntent(
   )
 }
 
-/** Production faces: music may occupy the body; semantic reactions stay explicit. */
 export function createLiveMotionRuntime(
   coordinator: RigMotionCoordinator,
   musicSource: MusicMotionSource | null,
@@ -316,7 +323,7 @@ function currentNow(): number {
 }
 
 function uniqueCapabilities(capabilities: readonly string[]): string[] {
-  return [...new Set(capabilities)].slice(0, 12)
+  return Iterator.from(new Set(capabilities)).take(12).toArray()
 }
 
 function normalizeFaceConsumer(

@@ -1,7 +1,3 @@
-/**
- * 登录视图组件
- */
-
 import { useMemo } from 'react'
 import AnimatedView from '../components/AnimatedView'
 import LoginForm from '../components/LoginForm'
@@ -11,7 +7,6 @@ import { usePageSeo } from '../hooks/usePageSeo'
 import { buildPrivatePageSeo } from '../utils/modulePageSeo'
 
 export default function Login() {
-  // 🆕 初始化页面级调度器
   useLoginScheduler()
   const { t } = useI18n()
 

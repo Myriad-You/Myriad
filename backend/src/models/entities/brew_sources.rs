@@ -126,8 +126,7 @@ impl SourceType {
 
     /// 对外的字符串形态（API 载荷、Agent 工具返回）。
     ///
-    /// 取值必须与 `#[sea_orm(string_value)]` 和前端 `SourceType` 一致。
-    /// 加变体时只需要动这里一处 —— 之前这份映射在四个地方各抄了一遍。
+    /// 取值必须与 `#[sea_orm(string_value)]` 和前端 `SourceType` 一致。加变体只改这里。
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Link => "link",

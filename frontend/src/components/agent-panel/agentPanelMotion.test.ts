@@ -1,13 +1,4 @@
-/**
- * 面板进出场的联调契约。
- *
- * 动效回归几乎都是「CSS 选择器还在写已经不存在的 DOM」。肉眼对一次不够，
- * 把层次写进测试：开合只动锚点、对话区不能再单独位移、
- * 时长和 CSS 令牌对齐。改结构时这组断言会红。
- *
- * Run from frontend/:
- *   pnpm test:unit -- src/components/agent-panel/agentPanelMotion.test.ts
- */
+/** 开合只动锚点；对话区不得单独位移；时长对齐 CSS 令牌。 */
 
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -44,7 +35,7 @@ const pan = readFileSync(
 )
 
 function stripComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, '')
+  return source.replaceAll(/\/\*[\s\S]*?\*\//g, '')
 }
 
 function block(source: string, start: string, end: string): string {

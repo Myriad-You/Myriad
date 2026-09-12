@@ -5,7 +5,7 @@ import type {
 } from 'react'
 
 export function charCount(value: string): number {
-  return [...value].length
+  return Iterator.from(value).reduce((n: number) => n + 1, 0)
 }
 
 export function CharMeter({

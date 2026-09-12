@@ -15,26 +15,22 @@ use std::time::{Duration, Instant};
 /// Per-IP aggregate hard ceiling across **all** endpoints (path buckets still apply separately).
 /// Prevents a single IP from exhausting capacity by spreading traffic over many distinct paths.
 ///
-/// Sized for SPA + media grids: a single feed/profile paint can fire hundreds of
-/// `/api/proxy/image` loads on top of normal API traffic. Keep headroom above
-/// `IMAGE_PROXY_MAX` so image traffic alone does not trip the aggregate cap.
+/// Keep headroom above `IMAGE_PROXY_MAX` so image traffic alone does not trip
+/// the aggregate cap.
 const IP_HARD_CAP_MAX: usize = 1200;
 const IP_HARD_CAP_WINDOW: Duration = Duration::from_secs(60);
 
-/// Image proxy is allowlisted egress + streaming, not AI compute. Galleries,
-/// RSS cards, and social report grids legitimately request many images per
-/// minute — dedicated high bucket (not compute class). 240/min still 429'd
-/// heavy boards; raise so more images load in one browsing session.
+/// Image proxy is allowlisted egress + streaming, not AI compute.
+/// Dedicated high bucket (not compute class): `IMAGE_PROXY_MAX` / 60s.
 const IMAGE_PROXY_MAX: usize = 400;
 const IMAGE_PROXY_WINDOW: Duration = Duration::from_secs(60);
 const IMAGE_PROXY_BUCKET: &str = "proxy_image";
 
 /// Default per-path budget for ordinary API traffic (polls, list/read, music meta).
-/// 100 was tight when a widget board revalidates the same endpoint under load.
 const DEFAULT_PATH_MAX: usize = 200;
 
 /// Expensive / abuse-prone paths (AI, bulk external fetch, open egress helpers).
-/// Shared key per path; 10 was far too low for multi-platform refresh UIs.
+/// Shared key per path: `COMPUTE_MAX` / 60s.
 const COMPUTE_MAX: usize = 45;
 
 /// First-party analytics collect+pageview shared bucket.
@@ -43,17 +39,13 @@ const ANALYTICS_WRITE_MAX: usize = 90;
 /// Reserved path-bucket key for the per-IP aggregate counter (not a real endpoint).
 const IP_TOTAL_KEY: &str = "__ip_total__";
 
-/// Shard count for the in-process rate-limit map (MYR-017).
-///
-/// Every request used to take a **global exclusive write lock** on a single
-/// `HashMap`. Under concurrent SPA traffic that serializes the whole process
-/// on a hot path even when IPs are independent. Sharding by IP keeps window
-/// counts the same while allowing different clients to update in parallel.
-/// Power of two so index is a cheap mask.
+/// Shard count for the in-process rate-limit map.
+/// Sharding by IP keeps window counts the same while allowing different clients
+/// to update in parallel. Power of two so index is a cheap mask.
 const SHARD_COUNT: usize = 64;
 const SHARD_MASK: usize = SHARD_COUNT - 1;
 
-/// Rate limit configuration for different endpoint types
+/// Default path-bucket config (`max_requests` + `window`).
 #[derive(Debug, Clone)]
 pub struct RateLimitConfig {
     pub max_requests: usize,
@@ -153,7 +145,7 @@ impl RateLimiter {
         self.check_bucket(ip, IP_TOTAL_KEY, IP_HARD_CAP_MAX, IP_HARD_CAP_WINDOW)
     }
 
-    /// Check if request should be rate limited (default path budget).
+    /// Default path budget; `true` = allowed and counted.
     fn check_limit(&self, ip: IpAddr, endpoint: &str) -> bool {
         self.check_bucket(ip, endpoint, self.config.max_requests, self.config.window)
     }
@@ -161,8 +153,8 @@ impl RateLimiter {
     /// Clean up old records (call periodically). Walks each shard independently.
     pub fn cleanup(&self) {
         let now = Instant::now();
-        // Keep at least 2× the longest window we track so hard-cap + default buckets
-        // are not pruned mid-window.
+        // Retain 2× max(default window, IP hard-cap window) = 120s.
+        // Does not cover 300s sensitive/admin windows.
         let retain_for = self.config.window.max(IP_HARD_CAP_WINDOW) * 2;
 
         for shard_mtx in self.shards.iter() {
@@ -251,16 +243,15 @@ pub async fn rate_limit_middleware(req: Request, next: Next) -> Response {
             .into_response();
     }
 
-    // 2) Path-specific buckets (sensitive / admin / image / compute / analytics / default)
-    // Same window counts as before — only the lock granularity changed (MYR-017).
+    // 2) Path-specific buckets (sensitive / admin / image / compute / analytics / default).
     let (allowed, retry_after) = if is_sensitive_endpoint(&path) {
-        // 敏感端点：5次请求/5分钟（unchanged; modest Argon2 path bucket only）
+        // Sensitive: 5 / 300s per IP per path.
         (
             RATE_LIMITER.check_bucket(ip, &path, 5, Duration::from_secs(300)),
             300,
         )
     } else if is_admin_updater_mutate(&path) {
-        // Mutating updater admin routes: 10 / 5 min per IP (GET status/jobs stay default).
+        // Shared key `admin_updater_mutate`: 10 / 300s per IP.
         (
             RATE_LIMITER.check_bucket(ip, "admin_updater_mutate", 10, Duration::from_secs(300)),
             300,
@@ -314,9 +305,8 @@ pub async fn rate_limit_middleware(req: Request, next: Next) -> Response {
 
 /// Check if endpoint is sensitive (login, password change, registration, etc.)
 ///
-/// Uses the **existing** sensitive budget (5 req / 5 min per IP per path).
-/// Register and set-password are included so Argon2-heavy account creation is
-/// not on the default high path bucket (MYR-006 — modest only, no extra quotas).
+/// Sensitive budget: 5 req / 5 min per IP per path.
+/// Register and set-password are on this bucket, not the default path budget.
 fn is_sensitive_endpoint(path: &str) -> bool {
     path.contains("/auth/login")
         || path.contains("/auth/register")
@@ -327,7 +317,7 @@ fn is_sensitive_endpoint(path: &str) -> bool {
         || path.contains("/setup/init-database")
 }
 
-/// Mutating `/api/admin/updater/*` paths only (not status/jobs polling).
+/// Listed updater mutate paths (not `proxy-update`; not status/jobs/available/snapshots list).
 fn is_admin_updater_mutate(path: &str) -> bool {
     let p = path.trim_end_matches('/');
     p.ends_with("/api/admin/updater/update")
@@ -388,7 +378,7 @@ mod tests {
         assert!(is_admin_updater_mutate(
             "/api/admin/updater/rescue/continue"
         ));
-        // Must match the registered public path (not the old /defaults typo).
+        // Path is `/api/admin/updater/prefs`; `/defaults` is not a mutate path.
         assert!(is_admin_updater_mutate("/api/admin/updater/prefs"));
         assert!(is_admin_updater_mutate("/api/admin/updater/prefs/"));
         assert!(is_admin_updater_mutate(
@@ -617,7 +607,7 @@ mod tests {
 
     #[test]
     fn concurrent_multi_ip_updates_do_not_lose_counts() {
-        // MYR-017: sharded locks must remain correct under concurrent writers.
+        // sharded locks must remain correct under concurrent writers.
         let limiter = Arc::new(RateLimiter::new(RateLimitConfig {
             max_requests: 10_000,
             window: Duration::from_secs(60),
@@ -664,7 +654,7 @@ mod tests {
         }
         assert!(!limiter.check_bucket(ip, "/api/auth/login", 5, Duration::from_secs(300)));
 
-        // Image proxy still uses its dedicated high bucket (unchanged numbers).
+        // Image proxy dedicated bucket (`IMAGE_PROXY_MAX` / 60s).
         for _ in 0..IMAGE_PROXY_MAX {
             assert!(limiter.check_bucket(
                 ip,

@@ -1,5 +1,3 @@
-/* 开发态性能监控 — 右侧竖条，chrome 与页脚 / 教程提示同一套 */
-
 [data-perf-monitor].pm-root {
   position: fixed;
   top: 50%;

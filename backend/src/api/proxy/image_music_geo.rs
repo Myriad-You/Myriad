@@ -1,3 +1,4 @@
+use myriad_error::AppError;
 // 图片代理服务 - 用于处理Bilibili等平台的防盗链图片
 use axum::{
     extract::{Path, Query},
@@ -15,7 +16,7 @@ use tokio::sync::Mutex;
 
 use crate::services::http_client::MEDIA_FETCH_CLIENT;
 
-// 导入网易云音乐统一服务
+// 网易云 / 酷狗服务与共享缓存、限流
 use crate::services::kugou_service::KugouService;
 use crate::services::netease_service::{CacheEntry, NeteaseService, MUSIC_CACHE, RATE_LIMITER};
 
@@ -79,7 +80,6 @@ impl TokenBucket {
     }
 }
 
-// 全局代理限流器映射 (域名 -> 令牌桶)
 /// 上游 JSON 元数据的响应体上限。
 ///
 /// 这些都是歌单/歌词/地理位置之类的小 JSON。`resp.json()` 会无界缓冲，
@@ -100,6 +100,7 @@ async fn read_limited_json(resp: reqwest::Response) -> Result<Value, String> {
     })
 }
 
+// 全局代理限流器映射（域名 → 令牌桶）
 static PROXY_LIMITERS: Lazy<Arc<Mutex<HashMap<String, TokenBucket>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
@@ -153,11 +154,9 @@ async fn wait_for_proxy_permit(url: &str) -> Result<(), ()> {
                     "bangumi" => TokenBucket::new(12.0, 60.0),
                     // 网易云
                     "netease" => TokenBucket::new(12.0, 60.0),
-                    // Discord CDN
-                    "discord" => TokenBucket::new(15.0, 60.0),
                     // MyAnimeList CDN
                     "mal" => TokenBucket::new(12.0, 60.0),
-                    // 其它 allowlist 图床 / 博客图（RSS 等）
+                    // twimg（domain key "x"）等未单列的 allowlist 域名
                     _ => TokenBucket::new(12.0, 48.0),
                 }
             });
@@ -221,19 +220,17 @@ fn soft_fail_placeholder(reason: &str, url: &str) -> Response {
 /// 代理图片请求，添加必要的Referer头
 ///
 /// # Auth policy (product decision)
-/// Guest-facing avatars/covers must stay **unauthenticated**: require JWT would break
-/// public profile cards. Mitigation = narrow hotlink allowlist (same as
-/// `needs_image_proxy` / `shared/image_proxy_hosts.json`) + per-IP rolling quota
-/// (`PUBLIC_IMAGE_IP_HITS`) + SSRF guards. Non-hotlink images use original URLs
-/// in the browser (dual-path) and never hit this endpoint.
+/// Guest-facing avatars/covers stay **unauthenticated**. Mitigation = hotlink allowlist
+/// (`needs_image_proxy` / `shared/image_proxy_hosts.json`) + per-IP
+/// `IMAGE_PROXY_MAX` (400/min) + `IP_HARD_CAP_MAX` + SSRF guards。非 allowlist 域名硬 403。
 ///
 /// Security rejections (SSRF / domain / unsafe target / rate limit / oversize URL / SVG)
-/// still return hard 4xx. Upstream fetch/content failures soft-fail with a
-/// transparent 1×1 PNG (HTTP 200) so ordinary `<img>` usage stays quiet.
+/// still return hard 4xx. Body oversize or unreadable is 413. Send/status/non-image
+/// failures soft-fail with a transparent 1×1 PNG (HTTP 200).
 pub async fn proxy_image(Query(params): Query<ImageProxyQuery>) -> Response {
     let url = params.url;
 
-    // P2 安全增强：检查 URL 长度，防止恶意超长 URL
+    // URL 长度上限 2048。
     if url.len() > 2048 {
         tracing::warn!("🚨 Rejected proxy request: URL too long ({})", url.len());
         return (StatusCode::BAD_REQUEST, "URL too long").into_response();
@@ -337,20 +334,13 @@ pub async fn proxy_image(Query(params): Query<ImageProxyQuery>) -> Response {
             .into_response();
     }
 
-    // P2 安全增强：验证是否为图片类型（非图片 → soft-fail, not 400 red console）
+    // 非 `image/*` → soft-fail 占位图，不是 400。
     if !content_type.starts_with("image/") {
         tracing::debug!(%url, %content_type, "Image proxy rejected non-image content");
         return soft_fail_placeholder("non-image content-type", &url);
     }
 
-    // 获取图片数据，限制大小为 10MB
-    // 流式读取并封顶。
-    //
-    // 原实现是 `response.bytes()` 先把整个响应缓冲进内存、再判断是否超过
-    // 10 MiB —— 上限拦不住内存消耗，只是在事后拒绝。白名单域名被攻陷或
-    // 单纯故障时，一个 500 MB 的响应会先被完整读进来。
-    //
-    // `read_limited_body` 逐块累加、一超限就中断，内存占用真正有界。
+    // `read_limited_body` 逐块累加、一超限就中断（MAX_IMAGE_BYTES = 10 MiB）。
     const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
     let image_data = match crate::services::outbound_security::read_limited_body(
         response,
@@ -374,7 +364,7 @@ pub async fn proxy_image(Query(params): Query<ImageProxyQuery>) -> Response {
         StatusCode::OK,
         [
             (header::CONTENT_TYPE, content_type),
-            // 延长缓存至 7 天，减少重复请求 (Lighthouse 建议高效的缓存生命周期)
+            // Cache-Control max-age=604800
             (
                 header::CACHE_CONTROL,
                 "public, max-age=604800, immutable".to_string(),
@@ -399,9 +389,8 @@ fn is_disallowed_image_content_type(content_type: &str) -> bool {
     base == "image/svg+xml" || base == "image/svg" || base.starts_with("image/svg+")
 }
 
-/// Dual-path egress allowlist: same narrow host list as `needs_image_proxy`
-/// (`shared/image_proxy_hosts.json`). Parsed host exact/suffix only — no open
-/// extension/path fallback (RSS / personal blogs display via original URL).
+/// Dual-path egress allowlist: same `needs_image_proxy` host list
+/// (`shared/image_proxy_hosts.json`)。host 精确/后缀；akamaihd.net 另可用 path 含 steam。
 fn is_allowed_domain(url: &str) -> bool {
     myriad_image_proxy::is_allowed_proxy_url(url)
 }
@@ -563,7 +552,7 @@ mod image_proxy_tests {
         // here via is_allowed_domain / length checks that proxy_image uses first.
         assert!(!is_allowed_domain("not-a-url"));
         assert!(!is_allowed_domain("https://example.com/api/data"));
-        // Arbitrary .jpg is no longer allowed (open-proxy regression guard)
+        // 非 allowlist 的 .jpg 也不放行
         assert!(!is_allowed_domain("https://example.com/photo.jpg"));
         let long = format!("https://i0.hdslb.com/{}.png", "a".repeat(3000));
         assert!(long.len() > 2048);
@@ -599,14 +588,14 @@ mod image_proxy_tests {
     }
 }
 
-/// 代理网易云音乐歌单请求 - 使用统一服务层
+/// 代理网易云歌单。`NeteaseService::fetch_playlist`。
 pub async fn proxy_netease_playlist(Path(playlist_id): Path<String>) -> Response {
     let playlist_id_i64 = match playlist_id.parse::<i64>() {
         Ok(id) => id,
         Err(_) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error": "Invalid playlist ID"})),
+                Json(AppError::public_json("Invalid playlist ID")),
             )
                 .into_response();
         }
@@ -643,19 +632,16 @@ pub async fn proxy_netease_playlist(Path(playlist_id): Path<String>) -> Response
     }
 }
 
-// 网易云音乐相关函数
-// proxy_netease_playlist 已简化，使用统一服务层
-// generate_device_id, get_random_china_ip, get_random_user_agent 已移至 netease_utils.rs
-// proxy_netease_lyrics 和 proxy_netease_audio 仍需简化（见下方）
+// 网易云：playlist / lyrics / song / audio 走 NeteaseService。
 
-/// 代理网易云音乐歌词请求 - 使用统一服务层
+/// 代理网易云歌词。`NeteaseService::fetch_lyrics`。
 pub async fn proxy_netease_lyrics(Path(song_id): Path<String>) -> Response {
     let song_id_i64 = match song_id.parse::<i64>() {
         Ok(id) => id,
         Err(_) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error": "Invalid song ID"})),
+                Json(AppError::public_json("Invalid song ID")),
             )
                 .into_response();
         }
@@ -683,14 +669,14 @@ pub async fn proxy_netease_lyrics(Path(song_id): Path<String>) -> Response {
     }
 }
 
-/// 代理网易云音乐逐字歌词请求（yrc）- 使用统一服务层
+/// 代理网易云逐字歌词。`NeteaseService::fetch_lyrics_verbatim`。
 pub async fn proxy_netease_lyrics_verbatim(Path(song_id): Path<String>) -> Response {
     let song_id_i64 = match song_id.parse::<i64>() {
         Ok(id) => id,
         Err(_) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error": "Invalid song ID"})),
+                Json(AppError::public_json("Invalid song ID")),
             )
                 .into_response();
         }
@@ -728,13 +714,13 @@ pub struct KugouLyricsQuery {
     pub duration: i64,
 }
 
-/// 代理酷狗逐字歌词（KRC）- 网易云 yrc 缺失时的补充源
+/// 代理酷狗逐字歌词（KRC）
 /// 返回 { krc: "<解码后的 KRC 文本>" }，由前端 parseKrc 解析
 pub async fn proxy_kugou_lyrics_verbatim(Query(q): Query<KugouLyricsQuery>) -> Response {
     if q.keyword.trim().is_empty() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "keyword required"})),
+            Json(AppError::public_json("keyword required")),
         )
             .into_response();
     }
@@ -760,14 +746,14 @@ pub async fn proxy_kugou_lyrics_verbatim(Query(q): Query<KugouLyricsQuery>) -> R
     }
 }
 
-/// 代理网易云音乐单曲详情请求 - 使用统一服务层
+/// 代理网易云单曲详情。`NeteaseService::fetch_song_detail`。
 pub async fn proxy_netease_song(Path(song_id): Path<String>) -> Response {
     let song_id_i64 = match song_id.parse::<i64>() {
         Ok(id) => id,
         Err(_) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(json!({"error": "Invalid song ID"})),
+                Json(AppError::public_json("Invalid song ID")),
             )
                 .into_response();
         }
@@ -892,7 +878,7 @@ pub(crate) fn respond_netease_play_url(audio_url: &str, format: Option<&str>) ->
         .into_response()
 }
 
-/// 代理网易云音乐音频流 - 使用统一服务层
+/// 代理网易云音频流。`NeteaseService::fetch_audio_url`。
 ///
 /// 海外或需绕过 CORS/防盗链时使用：本机拉取 CDN 再回传（流量经服务器）。
 /// 国内 HTTPS 站点优先用 [`proxy_netease_play_url`] 直连 CDN。
@@ -944,7 +930,7 @@ pub async fn proxy_netease_audio(Path(song_id): Path<String>) -> Response {
                             StatusCode::OK,
                             [
                                 (header::CONTENT_TYPE, content_type),
-                                // 延长音频缓存至 24 小时 (Lighthouse 建议高效的缓存生命周期)
+                                // Cache-Control max-age=86400
                                 (header::CACHE_CONTROL, "public, max-age=86400".to_string()),
                                 (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*".to_string()),
                                 (header::ACCEPT_RANGES, "bytes".to_string()),
@@ -981,7 +967,7 @@ pub async fn proxy_netease_audio(Path(song_id): Path<String>) -> Response {
 
 // QQ音乐相关函数
 
-/// 校验 QQ 音乐 songmid（字母数字，长度通常 14）
+/// 校验 QQ 音乐 songmid（字母数字，长度 8..=32）。
 fn is_valid_qq_songmid(song_mid: &str) -> bool {
     let len = song_mid.len();
     (8..=32).contains(&len) && song_mid.chars().all(|c| c.is_ascii_alphanumeric())
@@ -989,8 +975,7 @@ fn is_valid_qq_songmid(song_mid: &str) -> bool {
 
 /// 通过 QQ 音乐 GetEVkey 接口解析可播放音频 URL
 ///
-/// 旧前端硬编码的 `ws.stream.qqmusic.qq.com/{songmid}.m4a?fromtag=46` 已全面 403。
-/// 当前可用路径：`music.vkey.GetEVkey` + `RS02{songmid}.mp3`（部分曲目需回退其它封装）。
+/// `music.vkey.GetEVkey` + `RS02{songmid}.mp3`（部分曲目需回退其它封装）。
 async fn resolve_qq_audio_url(song_mid: &str) -> Result<String, String> {
     let client = MEDIA_FETCH_CLIENT.clone();
 
@@ -1299,7 +1284,7 @@ pub async fn proxy_qq_audio(Path(song_mid): Path<String>) -> Response {
     }
 }
 
-/// 代理QQ音乐歌单请求（带缓存）
+/// 代理 QQ 歌单。读缓存关闭（`use_cache = false`）；写入 TTL 604800s。
 pub async fn proxy_qq_playlist(Path(playlist_id): Path<String>) -> Response {
     let cache_key = format!("qq_playlist:{}", playlist_id);
 
@@ -1311,8 +1296,7 @@ pub async fn proxy_qq_playlist(Path(playlist_id): Path<String>) -> Response {
         }
     }
 
-    // 检查缓存（歌单缓存1小时）
-    // 临时禁用缓存以确保包含新的isVip字段
+    // 读路径关闭：`use_cache = false`。写入仍 604800s。
     let use_cache = false;
     if use_cache {
         let cache = MUSIC_CACHE.read().await;
@@ -1481,7 +1465,7 @@ pub async fn get_client_geo(
     // 尝试多个地理位置服务，提高成功率
 
     // 方案1: ip-api.com (免费，稳定，无需key)
-    // countryCode is required by FE `isUserInChinaMainland` (CN vs name-only).
+    // ip-api `fields` 含 countryCode；后续备用源不一定带这个键。
     let url1 = format!(
         "http://ip-api.com/json/{}?fields=status,lat,lon,city,country,countryCode,regionName",
         target_ip
@@ -1643,7 +1627,7 @@ pub async fn get_client_geo(
         }
     }
 
-    // 如果是本地开发，返回默认位置（仍标记 server-egress，FE 可改走浏览器侧 IP）
+    // 私网/回环/无法解析：各 geo 源都失败后回 lat/lon 0，source=server-egress
     if is_local_ip {
         tracing::warn!("All geolocation services failed for local IP, using default fallback");
         let fallback_data = json!({
@@ -1729,7 +1713,6 @@ fn normalize_qq_lyrics_payload(raw: &Value) -> Result<Value, String> {
         "retcode": 0,
         "lyric": lyric,
         "trans": trans,
-        // Keep raw keys for any legacy consumers
         "code": 0,
     }))
 }
@@ -1825,5 +1808,3 @@ pub async fn proxy_qq_lyrics(Path(song_mid): Path<String>) -> Response {
         }
     }
 }
-
-// 所有旧的网易云音乐函数已删除，使用统一服务层

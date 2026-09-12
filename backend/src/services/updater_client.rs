@@ -1,13 +1,8 @@
 //! Server-side HTTP client for talking to the Myriad updater.
 //!
-//! Why it exists: the frontend used to call `/_updater/*` through the proxy with the user
-//! pasting `UPDATE_TOKEN` into a form field. That works but leaks the token to the browser
-//! and to anyone who can MITM the proxy.
-//!
-//! With this client (recommended production path):
 //! - Backend talks to `updater-gateway` via `MYRIAD_UPDATER_URL` only.
 //! - Backend holds `UPDATER_GATEWAY_SECRET` (not `UPDATE_TOKEN`) and sends
-//! `X-Updater-Gateway-Secret` on every hop.
+//!   `X-Updater-Gateway-Secret` on authenticated hops (`ping` /healthz has none).
 //! - Gateway injects `X-Update-Token` server-side toward updater.
 //! - Admin-gated `/api/admin/updater/*` routes proxy requests through here.
 //! - `UPDATE_TOKEN` never crosses the user→backend boundary and is not in the fat process.
@@ -25,7 +20,7 @@ use reqwest::header::{HeaderMap, HeaderValue};
 use reqwest::{Client, Method, StatusCode};
 use serde::Serialize;
 
-/// Cheap-to-clone handle. Wrap in `Arc` once at startup and pass to routes via `axum::extract::State`.
+/// Cheap-to-clone handle. Held in `updater_admin::init` OnceLock, not axum `State`.
 #[derive(Debug, Clone)]
 pub struct UpdaterClient {
     inner: Arc<Inner>,
@@ -44,8 +39,7 @@ struct Inner {
 #[derive(Debug)]
 pub enum UpdaterClientError {
     NotConfigured,
-    /// Upstream returned a non-2xx response. Body preserved verbatim so we can forward it to
-    /// the admin UI for diagnostics.
+    /// Upstream non-2xx. Stored body is redacted; HTTP adapter forwards status, not the body.
     Upstream(StatusCode, String),
     Transport(String),
 }
@@ -153,10 +147,7 @@ impl UpdaterClient {
     /// Forward a POST request with a JSON body. `idempotency_key` becomes the
     /// `Idempotency-Key` header when supplied.
     ///
-    /// `actor` (e.g. `admin:1:alice`) is sent as `X-Update-Actor` for updater
-    /// audit lines. Only set on the server-side hop after admin JWT auth;
-    /// browsers never hold `UPDATE_TOKEN` so they cannot forge this via the
-    /// normal backend path.
+    /// `idempotency_key` becomes `Idempotency-Key`. Actor is not set here (`post_json_with_actor` / `delete_json`).
     pub async fn post_json<B: Serialize + ?Sized>(
         &self,
         path: &str,

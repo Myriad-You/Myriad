@@ -1,9 +1,8 @@
 use sea_orm::{ConnectionTrait, DatabaseBackend, DbErr, Statement};
 
-/// Folded migration names. Structure lives in 001–006; 016–017 are the
-/// remaining post-006 permission data migrations. These rows are deleted from
-/// `seaql_migrations` before `MigratorTrait::up` so SeaORM does not require
-/// a no-op file for each name.
+/// Folded migration names. Structure lives in 001–006. These rows are deleted
+/// from `seaql_migrations` before `MigratorTrait::up` so SeaORM does not
+/// require a no-op file for each name.
 pub const RETIRED_MIGRATION_NAMES: &[&str] = &[
     "007_notification_preferences",
     "007_digital_life",
@@ -21,6 +20,10 @@ pub const RETIRED_MIGRATION_NAMES: &[&str] = &[
     "013_federation_inbox_receipts_v2",
     "014_federation_delivery_leases",
     "015_federation_delivery_health",
+    "016_tapp_legacy_grant_clear",
+    "017_agent_tapp_approved_permissions",
+    "018_brew_state_revision",
+    "019_brew_content_revision",
 ];
 
 /// Temporary digital_life experiment tables from retired `007_digital_life`
@@ -135,7 +138,7 @@ END $$;
     )
 }
 
-/// Remove folded 007–015 names from `seaql_migrations` and drop leftover
+/// Remove folded 007–019 names from `seaql_migrations` and drop leftover
 /// `digital_life_*` experiment tables.
 ///
 /// History DELETE no-ops when the tracking table does not exist yet
@@ -191,7 +194,7 @@ mod tests {
     }
 
     #[test]
-    fn retired_names_do_not_include_greenfield_or_grant_clear() {
+    fn retired_names_do_not_include_greenfield() {
         for kept in [
             "001_initial_schema",
             "002_tapp_system",
@@ -199,7 +202,6 @@ mod tests {
             "004_agent_system",
             "005_federation",
             "006_oauth_identities",
-            "016_tapp_legacy_grant_clear",
         ] {
             assert!(
                 !RETIRED_MIGRATION_NAMES.contains(&kept),

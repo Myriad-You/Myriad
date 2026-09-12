@@ -1,24 +1,12 @@
-/**
- * Tapp Widget 沙箱组件
- *
- * 用于渲染 Tapp 的小组件模式（Dashboard 中的 Widget）
- *
- * 🎯 设计目标：
- * - 专为 Widget 渲染优化，结构简单
- * - 开发者友好：容器有正确尺寸，直接渲染即可
- * - 高性能：最小化 API，减少不必要的开销
- * - 编辑模式支持：正确处理拖拽交互
- * - 响应式主题：实时响应主题和主色调变化
- */
-
 import type { TappCodeStructure, TappInstance } from '../types'
-import type { WidgetRenderProps } from './sandbox'
+import type { AnimationConfigRef, WidgetRenderProps } from './sandbox'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   TAPP_WIDGET_SKELETON,
   WidgetSkeletonCover,
 } from '../../components/widgets/shared/WidgetSkeleton'
 import { useI18n } from '../../contexts/I18nContext'
+import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import {
   buildTappMediaState,
   mergeMusicPlayerEventDetail,
@@ -34,7 +22,6 @@ import {
   getCodeStructureFingerprint,
   getTappRuntimeFingerprint,
 } from './codeStructure'
-// 核心模块
 import {
   cspOptionsFromPermissions,
   escapeSandboxHtmlText,
@@ -49,7 +36,6 @@ import {
   serializeSandboxScriptValue,
   WIDGET_STATIC_CSS,
 } from './sandbox'
-// 处理器
 import {
   registerAgentInteractionHandlers,
   registerAIHandlers,
@@ -78,69 +64,29 @@ import { TappBridge } from './TappBridge'
 import { TappRuntimeGrant } from './TappRuntimeGrant'
 import { useSandboxSubscriptions } from './useSandboxSubscriptions'
 import { widgetPerfMark } from './WidgetLoadPerf'
-import {
-  isForeignTappKvChange,
-  onTappSettingsChange,
-  onTappSharedChange,
-  onTappStorageChange,
-} from './WidgetRuntimeSignals'
+import { bindAllTappKvChanges } from './WidgetRuntimeSignals'
 
 export interface TappWidgetSandboxProps {
-  /** Tapp 实例 */
   tappInstance: TappInstance
-  /** Tapp 代码 */
   code: TappCodeStructure
   widgetId: string
-  /** Widget 渲染属性 */
   widgetProps: WidgetRenderProps
-  /**
-   * Playground temporary preview (MYR-024).
-   * No Runtime Grant; only in-memory preview handlers — never treat manifest
-   * declarations as real installed host grants.
-   */
+  /** Playground 预览。无 Runtime Grant；不得把声明权限当作已安装授予。 */
   previewMode?: boolean
-  /** Shared Playground tab stores so Page and Widget preview see the same KV. */
   previewStores?: {
     storage: Map<string, unknown>
     settings: Map<string, unknown>
     shared: Map<string, unknown>
+    private: Map<string, unknown>
   }
-  /** 错误回调 */
   onError?: (error: Error) => void
-  /** 就绪回调 */
   onReady?: () => void
-  /** 当前 Dashboard 实例设置变更回调 */
   onInstanceSettingsChange?: (patch: Record<string, unknown>) => boolean
-  /** 请求刷新当前 Widget 实例 */
   onInvalidate?: (reason: string) => void
-  /** 额外的 className */
   className?: string
-  /** 额外的 style */
   style?: React.CSSProperties
 }
 
-/**
- * 生成 Widget 沙箱 HTML
- *
- * 支持三种渲染方式：
- * 1. 纯 JS 模式：Tapp.widgets[id].render(container, props) 填满容器
- * 2. 纯 HTML 模式：widgetHtml 直接渲染（无 render 时保持静态）
- * 3. 混合模式：widgetHtml 定义结构，宿主仍调用 render(container) 绑定数据
- *    （旧逻辑在有 HTML 时跳过 render，导致 storage 有数但 UI 永远是 "--"）
- *
- * 🔒 安全特性：
- * - 使用 CSP nonce 替代 unsafe-inline，只有带正确 nonce 的脚本才能执行
- *
- * 🎯 CSS 策略：
- * - 优先使用安装时预编译的 CSS（零运行时开销）
- * - 如果预编译 CSS 不可用，降级到动态生成
- *
- * @param tappInstance - Tapp 实例
- * @param code - Tapp 代码结构
- * @param widgetId - Widget ID
- * @param widgetProps - Widget 渲染属性
- * @param sessionToken - 会话 token（用于消息验证）
- */
 function generateWidgetHTML(
   tappInstance: TappInstance,
   code: TappCodeStructure,
@@ -153,11 +99,9 @@ function generateWidgetHTML(
   const isDark = widgetProps.theme === 'dark'
   const primaryColor = widgetProps.primaryColor || '#8b5cf6'
 
-  // 生成唯一 nonce（每个沙箱实例独立）
   const nonce = generateNonce()
   const cspOptions = cspOptionsFromPermissions(tappInstance.grantedPermissions)
   const csp = generateCSP(nonce, cspOptions)
-  // 与 Page 对齐的深度防御包装（真正边界仍是 sandbox + CSP + Bridge）
   const securityWrapper = escapeSandboxScriptSource(
     generateSecurityWrapper(sessionToken, cspOptions.allowRemoteMedia),
   )
@@ -166,24 +110,15 @@ function generateWidgetHTML(
   )
   const themeCSS = generateThemeCSS(isDark, primaryColor)
 
-  // 自定义 CSS
   const customCSS = code.styles || ''
 
-  // HTML 模板（如果有）
   const hasHtmlTemplate = !!code.widgetHtml
   const widgetHtmlContent = code.widgetHtml || ''
 
-  // JS 代码 - 混合模式下也会加载。只装这一个 widget 的入口。
   const widgetCode = buildLayerScript(code, 'widget', widgetId).source
 
-  // 使用安装时预编译的 CSS
   const tailwindCSS = code.widgetCSS || ''
 
-  // Always invoke Tapp.widgets[id].render when registered.
-  // Hybrid mode (HTML template + JS) used to skip render entirely — templates
-  // only showed static placeholders ("--") while data was written to storage
-  // and never painted (see cn.xciy.xingji.dashboard). HTML seeds structure;
-  // render() binds data/events. Pure-HTML widgets without a render() still work.
   const hasHtmlTemplateLiteral = hasHtmlTemplate ? 'true' : 'false'
 
   return `<!DOCTYPE html>
@@ -214,10 +149,10 @@ function generateWidgetHTML(
     window._TAPP_HAS_HTML = ${hasHtmlTemplateLiteral};
 
     window.addEventListener('message', function(e) {
-      var msg = e.data;
+      const msg = e.data;
       if (msg?.type === 'event' && msg.action === 'container:resize') {
         window._TAPP_DIMENSIONS = msg.payload;
-        var root = document.documentElement;
+        const root = document.documentElement;
         root.style.setProperty('--tapp-scale', msg.payload.scale || 1);
         root.style.setProperty('--tapp-font-scale', msg.payload.fontScale || 1);
         window.dispatchEvent(new CustomEvent('tapp:resize', { detail: msg.payload }));
@@ -238,10 +173,8 @@ function generateWidgetHTML(
   <!-- 安全包装（冻结危险 API；边界仍以 CSP/sandbox 为准） -->
   <script nonce="${nonce}">${securityWrapper}</script>
 
-  <!-- SDK 始终加载 -->
   <script nonce="${nonce}">${sdkCode}</script>
 
-  <!-- JS 代码始终加载（用于事件绑定等） -->
   <script nonce="${nonce}">
     (function() {
       'use strict';
@@ -254,16 +187,15 @@ function generateWidgetHTML(
   </script>
 
   <!-- Always try render(): pure-JS fills container; hybrid paints data into template.
-       Microtask (not setTimeout 16ms) so first paint is not artificially delayed after
-       widget code registration; prior scripts already defined Tapp.widgets. -->
+       Microtask so first paint is not delayed after widget registration. -->
   <script nonce="${nonce}">
     (function() {
       'use strict';
-      var runRender = function() {
+      const runRender = function() {
         try {
-          var widgetId = ${serializeSandboxScriptValue(widgetId)};
-          var widgetDef = Tapp.widgets && Tapp.widgets[widgetId];
-          var container = document.getElementById('widget-root');
+          const widgetId = ${serializeSandboxScriptValue(widgetId)};
+          const widgetDef = Tapp.widgets && Tapp.widgets[widgetId];
+          const container = document.getElementById('widget-root');
           if (!container) return;
 
           if (!widgetDef || typeof widgetDef.render !== 'function') {
@@ -275,7 +207,7 @@ function generateWidgetHTML(
             return;
           }
 
-          var props = window._TAPP_WIDGET_PROPS || {};
+          const props = window._TAPP_WIDGET_PROPS || {};
           props.scale = window._TAPP_DIMENSIONS.scale;
           props.fontScale = window._TAPP_DIMENSIONS.fontScale;
 
@@ -283,7 +215,7 @@ function generateWidgetHTML(
 
         } catch (error) {
           console.error('[Widget] Render error:', error);
-          var root = document.getElementById('widget-root');
+          const root = document.getElementById('widget-root');
           if (root) {
             root.innerHTML =
               '<div class="tapp-empty tapp-text-error">' + ${serializeSandboxScriptValue(labels.renderFailed)} + '</div>';
@@ -301,9 +233,6 @@ function generateWidgetHTML(
 </html>`
 }
 
-/**
- * Tapp Widget 沙箱组件
- */
 export const TappWidgetSandbox = memo(
   ({
     tappInstance,
@@ -325,10 +254,10 @@ export const TappWidgetSandbox = memo(
     const previewStorageRef = useRef(new Map<string, unknown>())
     const previewSettingsRef = useRef(new Map<string, unknown>())
     const [isReady, setIsReady] = useState(false)
-    /** iframe 长时间不 ready 时展示 stall 文案（优于无限骨架） */
     const [readyStalled, setReadyStalled] = useState(false)
-    /** Bumps when host identity settles after login/logout so iframe remounts. */
     const [subjectEpoch, setSubjectEpoch] = useState(0)
+    const animationConfig = useAnimationLevel()
+    const animationConfigRef = useRef<AnimationConfigRef>(animationConfig)
 
     useEffect(() => {
       const onSubjectReady = () => setSubjectEpoch((n) => n + 1)
@@ -349,8 +278,6 @@ export const TappWidgetSandbox = memo(
       return () => window.clearTimeout(id)
     }, [isReady, tappInstance.id, widgetId, subjectEpoch])
 
-    // 使用 ref 存储对象引用，避免依赖变化触发 iframe 重建
-    // 这些对象的内容变化通过 ID 来追踪，而不是对象引用
     const tappInstanceRef = useRef(tappInstance)
     const codeRef = useRef(code)
     const instanceSettingsChangeRef = useRef(onInstanceSettingsChange)
@@ -359,9 +286,9 @@ export const TappWidgetSandbox = memo(
     codeRef.current = code
     instanceSettingsChangeRef.current = onInstanceSettingsChange
     invalidateRef.current = onInvalidate
+    animationConfigRef.current = animationConfig
 
-    // 稳定化核心 widgetProps；theme/primaryColor/locale 通过事件更新，
-    // 不应仅因宿主外观或语言变化重建整个 iframe。
+    // 宿主外观/语言变化不重建 iframe。
     const configString = JSON.stringify(widgetProps.config || {})
     const latestThemeRef = useRef(widgetProps.theme)
     const latestColorRef = useRef(widgetProps.primaryColor)
@@ -376,7 +303,6 @@ export const TappWidgetSandbox = memo(
         isEditMode: widgetProps.isEditMode,
         isPreview: widgetProps.isPreview,
         locale: latestLocaleRef.current,
-        // 初始主题和颜色仅用于首次渲染
         theme: latestThemeRef.current,
         primaryColor: latestColorRef.current,
       }),
@@ -384,7 +310,6 @@ export const TappWidgetSandbox = memo(
         widgetProps.size,
         widgetProps.isEditMode,
         widgetProps.isPreview,
-        // 使用字符串比较稳定 config 依赖
         configString,
       ],
     )
@@ -400,58 +325,22 @@ export const TappWidgetSandbox = memo(
       onReady?.()
     }, [onReady, tappInstance.id, widgetId, widgetProps.size])
 
-    // 共享订阅 hook：主题/主色调/页面可见性联动
     useSandboxSubscriptions(bridgeRef, isReady)
 
-    // 同一个 Tapp 的 Page/其他 Widget 改写共享 storage 后，通知当前沙箱并刷新视图。
     useEffect(
       () =>
-        onTappStorageChange((change) => {
-          const bridge = bridgeRef.current
-          if (!isForeignTappKvChange(change, tappInstance.id, bridge)) return
-          bridge.emit('storageChanged', {
-            key: change.key,
-            operation: change.operation,
-          })
-          invalidateRef.current?.('storage-changed')
-        }),
+        bindAllTappKvChanges(
+          () => bridgeRef.current,
+          tappInstance.id,
+          (reason) => invalidateRef.current?.(reason),
+        ),
       [tappInstance.id],
     )
 
-    useEffect(
-      () =>
-        onTappSharedChange((change) => {
-          const bridge = bridgeRef.current
-          if (!isForeignTappKvChange(change, tappInstance.id, bridge)) return
-          bridge.emit('sharedChanged', {
-            key: change.key,
-            operation: change.operation,
-          })
-          invalidateRef.current?.('shared-changed')
-        }),
-      [tappInstance.id],
-    )
-
-    // settings 落盘只通知活着的沙箱，不拆 iframe。
-    useEffect(
-      () =>
-        onTappSettingsChange((change) => {
-          const bridge = bridgeRef.current
-          if (!isForeignTappKvChange(change, tappInstance.id, bridge)) return
-          bridge.emit('settingsChanged', {
-            key: change.key,
-            operation: change.operation,
-          })
-        }),
-      [tappInstance.id],
-    )
-
-    // 构建媒体状态对象（供 mediaStateChange 事件使用）— 与 Page 共用纯函数
     const buildMediaState = useCallback((detail: Record<string, unknown>) => {
       return buildTappMediaState(detail)
     }, [])
 
-    // 媒体状态变化 — 转发给 Widget 沙箱
     useEffect(() => {
       if (!isReady) return
 
@@ -472,13 +361,11 @@ export const TappWidgetSandbox = memo(
         bridgeRef.current.emit('mediaStateChange', buildMediaState(merged))
       }
 
-      // 先注册监听，再触发同步（确保不会错过同步事件）
       window.addEventListener(
         'music-player-state-change',
         handleMusicStateChange,
       )
 
-      // Widget 就绪时立即推送当前音乐状态（解决初始化竞态）
       const pushCurrentState = () => {
         const state = (window as any).__musicPlayerState
         if (state && bridgeRef.current) {
@@ -493,7 +380,6 @@ export const TappWidgetSandbox = memo(
         window.dispatchEvent(new CustomEvent('request-music-state-sync'))
       }
 
-      // 延迟重推：确保 iframe SDK 消息监听器就绪后再推一次
       const retryTimer = setTimeout(pushCurrentState, 150)
 
       return () => {
@@ -505,7 +391,6 @@ export const TappWidgetSandbox = memo(
       }
     }, [isReady])
 
-    // 媒体进度使用轻量事件单独推送，避免每个 tick 重发完整状态。
     useEffect(() => {
       if (!isReady) return
 
@@ -518,7 +403,6 @@ export const TappWidgetSandbox = memo(
 
         const { currentTime, audioDuration, songId } = (e as CustomEvent)
           .detail
-        // 丢弃与当前曲目不一致的进度（快速切歌时旧 timeupdate 可能晚到）
         if (songId != null) {
           const globalState =
             (window as { __musicPlayerState?: Record<string, unknown> })
@@ -549,35 +433,27 @@ export const TappWidgetSandbox = memo(
       }
     }, [isReady])
 
-    // 内容哈希避免等长代码/CSS 更新继续复用旧 iframe。
     const codeFingerprint = useMemo(
       () => getCodeStructureFingerprint(code, 'widget', widgetId),
       [code, widgetId],
     )
     const runtimeFingerprint = getTappRuntimeFingerprint(tappInstance)
 
-    // 初始化（不依赖 theme/primaryColor 变化）
-    // 依赖优化：只使用稳定的 ID 和指纹，不使用对象引用
-    // Safari 兼容：使用 imperative iframe 创建，确保 srcdoc 在 DOM 插入前设置
     useEffect(() => {
       const container = containerRef.current
       if (!container) return
 
-      // 从 ref 获取当前对象，避免闭包陈旧问题
       const currentTappInstance = tappInstanceRef.current
       const currentCode = codeRef.current
 
-      // 使用 ref 中的初始值，避免闪烁
       const propsForHtml = {
         ...stableWidgetProps,
         theme: latestThemeRef.current,
         primaryColor: latestColorRef.current,
       }
 
-      // 生成 session token（独立于 Bridge）
       const sessionToken = generateSessionToken()
 
-      // 创建 iframe 元素（尚未插入 DOM）
       const iframe = document.createElement('iframe')
       iframe.className = 'tapp-widget-iframe'
       const pointerEvents =
@@ -591,10 +467,8 @@ export const TappWidgetSandbox = memo(
       iframe.allowFullscreen = true
       iframeRef.current = iframe
 
-      // 创建 Bridge（在 DOM 插入前设置消息监听）
       const bridge = new TappBridge()
-      // Playground preview: no Runtime Grant (uninstalled id + no real host grants).
-      // Installed widgets: share host Runtime Grant (refcount) across same-Tapp iframes.
+      // 预览无 Runtime Grant。已安装 widget 按 tappId 共享宿主 grant。
       if (previewMode) {
         bridge.initialize(
           iframe,
@@ -618,9 +492,8 @@ export const TappWidgetSandbox = memo(
               TappRuntimeGrant.acquireSharedWidget(currentTappInstance.id),
           },
         )
-        // 与 iframe 解析并行预热 Runtime Grant（仍 host-only，不进 srcdoc）
+        // 与 iframe 解析并行预热 Runtime Grant；仍仅宿主持有，不进 srcdoc。
         void runtimeGrant.getToken().catch(() => {
-          /* 首次 API 调用时会重试；此处失败不阻塞沙箱启动 */
         })
       }
       bridgeRef.current = bridge
@@ -684,7 +557,7 @@ export const TappWidgetSandbox = memo(
       registerWidgetInvalidateTargetHandler(bridge, currentTappInstance, {
         preview: previewMode,
       })
-      registerAnimationHandlers(bridge)
+      registerAnimationHandlers(bridge, animationConfigRef)
 
       let closeAITaskStreams: () => void = () => {}
       let closeDataExchange: () => void = () => {}
@@ -694,9 +567,6 @@ export const TappWidgetSandbox = memo(
       let closeMedia: () => void = () => {}
 
       if (previewMode) {
-        // MYR-024: ephemeral handlers only — no real storage/API/host surfaces.
-        // user/file match Page preview: Widget SDK exposes them, and they do
-        // not need a Runtime Grant.
         registerUserHandlers(bridge, currentTappInstance)
         registerFileHandlers(bridge)
         const defaults = currentTappInstance.manifest.settings || []
@@ -715,10 +585,10 @@ export const TappWidgetSandbox = memo(
           previewStores?.settings ?? previewSettingsRef.current,
           currentCode.assets || {},
           previewStores?.shared,
+          previewStores?.private,
         )
       } else {
-        // 注册处理器：始终挂载 Widget 热路径；按 grantedPermissions 惰性挂载重型能力。
-        // Bridge 仍会做权限校验；这里少注册可降低每个 iframe 的启动成本，并缩小攻击面。
+        // 始终挂 Widget 热路径；按授予权限惰性挂重型能力。
         const granted = new Set(
           (currentTappInstance.grantedPermissions || []) as string[],
         )
@@ -746,13 +616,12 @@ export const TappWidgetSandbox = memo(
         registerUserHandlers(bridge, currentTappInstance)
         registerFileHandlers(bridge)
         registerAssetHandlers(bridge, currentTappInstance)
-        // Context（含 api.execute）始终需要：声明式 HTTP/API 与公开上下文查询。
         registerContextHandlers(bridge, currentTappInstance)
         registerPersonaHandlers(bridge)
-        // 共享 core 在 Widget 模式同样会执行，必须能声明后台保活需求。
+        // 共享 core 在 Widget 模式同样执行，必须能声明常驻需求。
         registerBackgroundHandlers(bridge, currentTappInstance)
 
-        // 可选能力 — 仅在已授权时挂载（后端仍强制 Runtime Grant + 权限）
+        // 仅已授予时挂载；后端仍强制 Runtime Grant + 权限。
         closeAITaskStreams = hasAi ? registerAIHandlers(bridge) : () => {}
         if (hasPlatform) {
           registerPlatformHandlers(bridge, currentTappInstance, {
@@ -788,13 +657,12 @@ export const TappWidgetSandbox = memo(
           : () => {}
       }
 
-      // 监听 tapp.ready：必须先 allowSandboxEvent（显式 inbound 白名单）
+      // tapp.ready 须先 allowSandboxEvent。
       bridge.allowSandboxEvent('tapp.ready')
       const unsubscribeReady = bridge.on('tapp.ready', () => {
         handleReady()
       })
 
-      // 生成 HTML（使用预生成的 session token）
       const html = generateWidgetHTML(
         currentTappInstance,
         currentCode,
@@ -807,13 +675,10 @@ export const TappWidgetSandbox = memo(
         },
       )
 
-      // 关键：先设置 srcdoc，再插入 DOM
-      // Safari 要求 srcdoc 在 iframe 插入 DOM 之前就设置好
+      // srcdoc 先赋值，再 appendChild。
       iframe.srcdoc = html
       container.appendChild(iframe)
-      // srcdoc 解析后 contentWindow 稳定，注册到集中式 message 路由
       bridge.attachSource()
-      // 部分引擎在 load 后替换 browsing context — 再挂一次
       const onIframeLoad = () => bridge.attachSource()
       iframe.addEventListener('load', onIframeLoad)
 
@@ -834,11 +699,6 @@ export const TappWidgetSandbox = memo(
         bridgeRef.current = null
         setIsReady(false)
       }
-      // 稳定依赖：只有这些真正改变时才重建 iframe
-      // - tappInstance.id: Tapp 实例 ID
-      // - widgetId: Widget ID
-      // - codeFingerprint: 代码指纹（内容变化才会变）
-      // - stableWidgetProps: 已稳定化的 props
     }, [
       tappInstance.id,
       runtimeFingerprint,
@@ -853,13 +713,16 @@ export const TappWidgetSandbox = memo(
       t.tapp.appCodeLoadFailed,
     ])
 
-    // 语言变化监听
     useEffect(() => {
       if (!isReady || !bridgeRef.current) return
       bridgeRef.current.emit('locale:change', widgetProps.locale)
     }, [widgetProps.locale, isReady])
 
-    // 尺寸更新
+    useEffect(() => {
+      if (!isReady || !bridgeRef.current) return
+      bridgeRef.current.emit('animationLevel:change', animationConfig.level)
+    }, [isReady, animationConfig.level])
+
     useEffect(() => {
       if (!isReady || !iframeRef.current) return
 
@@ -888,7 +751,6 @@ export const TappWidgetSandbox = memo(
           ...style,
         }}
       >
-        {/* iframe 由 effect 创建；ready 前骨架盖住，ready 后淡出（内容在下） */}
         <WidgetSkeletonCover
           active={!isReady}
           preset={TAPP_WIDGET_SKELETON.preset}

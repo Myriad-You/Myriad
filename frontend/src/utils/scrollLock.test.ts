@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
 
-/** 最小 DOM 替身：只需要 style 容器 + 尺寸，够 scrollLock 用 */
 function installDom({ scrollbar = 0 } = {}) {
   const html = { style: { overflow: '' }, clientWidth: 1000 - scrollbar }
   const body = { style: { overflow: '', paddingRight: '' } }
@@ -19,7 +18,6 @@ afterEach(() => {
 })
 
 async function freshLockScroll() {
-  // 模块持有锁计数，每个用例都要一份干净的
   const mod = await import(`./scrollLock?t=${Math.random()}`)
   return mod.lockScroll as () => () => void
 }

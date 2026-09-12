@@ -5,16 +5,11 @@ import {
   widgetSizeSpan,
 } from './widgetSizeScale'
 
-/**
- * Named sticker tiles plus extras. Generation maps to 1:1 / 3:2 / 2:3 pixels;
- * the placed tile is the cells the user drew.
- */
 export const HOME_STICKER_SIZES: readonly WidgetSize[] = [
   ...WIDGET_SIZE_KEYS,
   ...STICKER_EXTRA_SIZE_KEYS,
 ]
 
-/** Free canvas bounds (same as HOME_STANDARD_COLS × HOME_FREE_ROWS). */
 const STICKER_MAX_COLS = 16
 const STICKER_MAX_ROWS = 8
 
@@ -78,7 +73,6 @@ export function stickerAspectKey(size: string): string {
   return closestFamily(span.w / Math.max(1, span.h)).key
 }
 
-/** Exact same ratio only: integer scales of the reduced cell pair that fit 16×8. */
 export function stickerSizesSharingAspect(size: string): WidgetSize[] {
   const span = widgetSizeSpan(size)
   const d = gcd(span.w, span.h)
@@ -91,7 +85,6 @@ export function stickerSizesSharingAspect(size: string): WidgetSize[] {
   return out.length > 0 ? out : [size as WidgetSize]
 }
 
-/** Closest named tile that fits; used only as a generate-ratio hint, not placement. */
 export function snapHomeStickerSize(cols: number, rows: number): WidgetSize {
   const w = Math.max(1, cols)
   const h = Math.max(1, rows)
@@ -114,7 +107,6 @@ export function snapHomeStickerSize(cols: number, rows: number): WidgetSize {
   return closestFamily(boxAspect).sizes[0] ?? '1x1'
 }
 
-/** The drawn cells are the sticker. No shrinking to a preset. */
 export function placeHomeStickerSelection(
   x: number,
   y: number,
@@ -130,7 +122,6 @@ export function placeHomeStickerSelection(
   }
 }
 
-/** Model pixels: nearest 1:1 / 3:2 / 2:3. Display crop covers the real slot. */
 export function stickerPixelSize(size: string): {
   width: number
   height: number

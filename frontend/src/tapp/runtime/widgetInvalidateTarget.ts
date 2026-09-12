@@ -1,12 +1,4 @@
-/**
- * Cross-sandbox Widget invalidate (Page / headless / Widget-with-options).
- *
- * Widget self-invalidate stays on `widget.invalidate` (public). This module is
- * the targeted path: one local widgetId, storage:write, and a tight host budget
- * so it cannot undercut storage.set as a remount cannon.
- *
- * Cooldown matches crates/tapp-contract MIN_WIDGET_REFRESH_INTERVAL_SECONDS.
- */
+/** 定向失效：local widgetId + storage:write + 宿主预算，避免当成重挂炮。 */
 
 export const WIDGET_INVALIDATE_TARGET_COOLDOWN_MS = 15_000
 export const WIDGET_INVALIDATE_TARGET_TAPP_MAX_PER_MINUTE = 2

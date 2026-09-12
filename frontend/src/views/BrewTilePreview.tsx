@@ -1,12 +1,4 @@
-/**
- * 磁贴 DEV 预览：6 构图 × 3 尺寸 × 空数据。
- *
- * 仓库没有 Testing Library、没有视觉回归 —— 磁贴靠这一页人工扫。
- * 只在 `import.meta.env.DEV` 下挂路由，生产构建不含此页。
- *
- * fixture 覆盖：有图 / 无图 / 有条目 / 无条目 / 抓取失败 / link / 未读 47 /
- * 沉寂 210 天。全部相对固定的 `NOW`，同一次打开永远是同一张图。
- */
+/** DEV-only tile sweep; no visual-regression tests. Fixtures pin to NOW. */
 
 import type { BrewTileLayout, BrewTileSize } from '../components/brew/logic/layout'
 import type { BrewViewerRole } from '../components/brew/logic/score'
@@ -22,11 +14,10 @@ import { BrewSourceTile } from '../components/brew/tiles/BrewSourceTile'
 import { BrewTopicTile } from '../components/brew/tiles/BrewTopicTile'
 
 const MS_PER_DAY = 86_400_000
-/** 固定参照时刻，与 logic/fixtures 的 NOW 同一个。 */
+/** Same NOW as logic/fixtures. */
 const NOW = Date.UTC(2025, 5, 15)
 const daysAgo = (d: number) => NOW - d * MS_PER_DAY
 
-/** 磁贴在 16×4 网格里的物理尺寸（桌面 cell ≈ 80px）。 */
 const CELL = 82
 const SIZE_PX: Record<BrewTileSize, { width: number; height: number }> = {
   '2x1': { width: CELL * 2, height: CELL },
@@ -82,7 +73,7 @@ function source(over: Partial<BrewSource> = {}): BrewSource {
   }
 }
 
-/** 一张 1×1 的内联 PNG 会被当成软失败；这里用 SVG data URI 当真封面。 */
+/** 1×1 PNG is a soft-fail; SVG data URI counts as a real cover. */
 const COVER = `data:image/svg+xml;utf8,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180">' +
     '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">' +
@@ -242,8 +233,7 @@ export default function BrewTilePreview() {
         <section key={`${c.label}-${c.src.id}`} className="mb-8">
           <h2 className="mb-2 text-xs text-gray-500">{c.label}</h2>
           <div className="flex flex-wrap items-start gap-4">
-            {/* 只铺这个源真会被派到的档位 —— 竖条 / 横条是入口型来源专属，
-                内容源永远拿不到，摆出来只是噪音 */}
+            {/* Only sizes this source can be assigned; bar/strip are entry-source only. */}
             {allowedTileSizes(c.src).map((size) => (
               <div key={size} className="flex flex-col gap-1">
                 <span className="text-[10px] text-gray-400">{size}</span>
@@ -323,7 +313,7 @@ export default function BrewTilePreview() {
                     ...c.src,
                     recent_items: c.items ?? [],
                   }))}
-                  emptyHint="没有可展示的内容"
+                  emptyHint="Nothing to show"
                 />
               </div>
             </div>
@@ -342,7 +332,7 @@ export default function BrewTilePreview() {
             fontScale={1}
             now={NOW}
             sources={[]}
-            emptyHint="没有可展示的内容"
+            emptyHint="Nothing to show"
           />
         </div>
       </section>

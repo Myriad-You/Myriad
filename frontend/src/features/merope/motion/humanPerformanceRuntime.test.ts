@@ -63,7 +63,7 @@ test('merges speech, performance and music into one scheduler plan', () => {
   })
   const first = runtime.frame([speech, music], 120)
   assert.equal(first.plan?.id, 'human-performance')
-  assert.deepEqual(first.behaviors.map((behavior) => behavior.source).sort(), [
+  assert.deepEqual(first.behaviors.map((behavior) => behavior.source).toSorted(), [
     'coSpeech',
     'music',
   ])
@@ -157,19 +157,18 @@ test('a refinement restating a live beat retimes it instead of restarting it', (
     'performance',
   )
   runtime.frame([floor], 1_000)
-  const live = runtime.frame([floor], 1_400).behaviors[0]
+  // Sample after the authored stroke, independently of body travel duration.
+  const holdingAt = floor.pegs.find((peg) => peg.id.endsWith(':stroke-end'))!.atMs + 20
+  const live = runtime.frame([floor], holdingAt).behaviors[0]
   assert.ok(live)
   assert.equal(live.phase, 'holding')
 
-  // Lite lands late and picks the same beat. The floor is mid-hold, so its
-  // committed pegs are locked and the behavior must carry on under the new
-  // spec rather than recover and replay.
   const refinement = compilePerformanceBehaviorPlan(
     directive(0, 1.3),
-    1_400,
+    holdingAt,
     'performance',
   )
-  const after = runtime.frame([refinement], 1_400).behaviors
+  const after = runtime.frame([refinement], holdingAt).behaviors
   assert.equal(after.length, 1)
   assert.equal(after[0]?.id, live.id)
   assert.equal(after[0]?.phase, 'holding')
@@ -220,18 +219,12 @@ test('an unchanged plan costs nothing to restate', () => {
   const first = runtime.frame([speech, null, undefined], 120)
   const revision = first.revision
 
-  // Producers rebuild a plan object only when its content changes, so the same
-  // references are the same plan. Serializing every peg and behavior to prove
-  // that — twice, on a 16ms clock — cost more than the work it was avoiding.
   for (let at = 130; at <= 400; at += 10) {
     const repeat = runtime.frame([speech, null, undefined], at)
     assert.equal(repeat.plan, first.plan, `re-merged at ${at}`)
     assert.equal(repeat.revision, revision)
   }
 
-  // The two layers guard different things and both still earn their place: a
-  // rebuilt-but-identical plan gets past the reference memo and is stopped by
-  // the fingerprint, so the body is never asked to realize the same beat twice.
   const restated = runtime.frame([plan('speech'), null, undefined], 410)
   assert.equal(restated.plan, first.plan)
   assert.equal(restated.revision, revision)
@@ -249,9 +242,6 @@ test('the memoized frame matches one that never reused anything', () => {
   const music = plan('music')
   const memoized = new HumanPerformanceRuntime()
   memoized.frame([speech, null, music], 120)
-  // A fresh runtime per tick can never take the memo branch, so any field the
-  // shortcut forgets to keep current shows up as a divergence here. `originMs`
-  // is the one part of a merge that moves while the inputs stand still.
   for (const at of [50, 90, 100, 101, 240, 900]) {
     const fresh = new HumanPerformanceRuntime()
     assert.deepEqual(

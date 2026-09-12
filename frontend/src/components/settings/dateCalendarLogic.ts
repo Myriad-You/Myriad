@@ -1,7 +1,3 @@
-/**
- * Pure calendar / date-range helpers (no React).
- */
-
 export type IsoDate = string // YYYY-MM-DD
 
 export function parseIso(iso: string): { y: number; m: number; d: number } | null {
@@ -22,7 +18,6 @@ export function daysInMonth(y: number, m: number): number {
   return new Date(y, m, 0).getDate()
 }
 
-/** 0 = Monday … 6 = Sunday (ISO week) */
 export function weekdayMon0(y: number, m: number, d: number): number {
   const js = new Date(y, m - 1, d).getDay() // 0 Sun
   return (js + 6) % 7
@@ -52,7 +47,6 @@ export type CalendarCell =
       disabled: boolean
     }
 
-/** 6×7 grid for one month; leading/trailing empties for Mon-start weeks. */
 export function buildMonthGrid(
   y: number,
   m: number,
@@ -83,7 +77,6 @@ export type RangeDayState =
   | 'in-range'
   | 'hover-in'
 
-/** Visual state for a day cell in range selection (with optional hover preview). */
 export function rangeDayState(
   iso: string,
   opts: {
@@ -98,7 +91,6 @@ export function rangeDayState(
   const to = opts.to
   const hover = opts.hover
 
-  // Committed range
   if (from && to) {
     if (from === to && iso === from) return 'single'
     if (iso === from) return 'start'
@@ -107,7 +99,6 @@ export function rangeDayState(
     return 'plain'
   }
 
-  // Picking end: preview between from and hover
   if (from && !to && hover) {
     const a = from <= hover ? from : hover
     const b = from <= hover ? hover : from
@@ -122,7 +113,6 @@ export function rangeDayState(
   return 'plain'
 }
 
-/** Apply a day click in range-selection state machine. */
 export function applyRangeClick(
   iso: string,
   current: { from: string; to: string; picking: 'from' | 'to' },
@@ -130,7 +120,6 @@ export function applyRangeClick(
   if (current.picking === 'from' || !current.from) {
     return { from: iso, to: '', picking: 'to', complete: false }
   }
-  // Second click
   if (iso < current.from) {
     return { from: iso, to: current.from, picking: 'from', complete: true }
   }

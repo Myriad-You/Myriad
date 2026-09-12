@@ -1,18 +1,9 @@
-/**
- * 思考/在做时给流光两层现场上色。
- *
- * 换谱按车道交接：同一位置旧团先收、新团再进，不会左右对撞。
- * 思考切到在做不算换状态，谱继续走。
- */
-
 import type { RefObject } from 'react'
 import { useLayoutEffect } from 'react'
 import { applyAuroraPrism, paintAuroraPrism } from './agentAuroraRandom'
 
-/** 同一车道里，旧团开始收之后隔这么久新团再进。 */
 export const PRISM_HANDOFF_MS = 340
 
-/** 色团淡出后再卸 DOM，避免思考结束时还占着合成层。 */
 export const PRISM_CLEAR_MS = 720
 
 function isPrismStatus(status: string): boolean {

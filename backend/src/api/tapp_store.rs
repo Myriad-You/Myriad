@@ -2,13 +2,13 @@
 //!
 //! 提供 Tapp 应用的安装、卸载、启动、停止等功能
 //!
-//! ## 权限模型
+//! ## 谁能干什么
 //!
-//! - **管理员**: 完全控制自己的 Tapp，内容对所有用户可见
-//! - **普通用户**: 查看并运行管理员的 Tapp，可临时安装自己的 Tapp（退出登录后移除）
-//! - **游客**: 只读访问管理员的 Tapp 内容
+//! - **管理员**: 完全控制自己的 Tapp；公开安装默认 `visibility=all`，可收成 `admin`
+//! - **普通用户**: 查看并运行管理员的 Tapp；也可装自己的 Tapp。私有安装按 `tapp_private_install_cleanup` 淘汰（默认 inactivity 14 天，不是退出即删）
+//! - **游客**: 可打开公开安装，拿授予权限与主体私有存储；不能装/启停/写安装设置
 //!
-//! 普通用户临时安装的 Tapp 权限限制为 basic 级别
+//! 授予权限是安装批准集再按角色过滤；elevated 走平台下放，不是 basic-only。
 
 mod access;
 mod catalog;
@@ -54,10 +54,11 @@ pub use myriad_tapp_contract::manifest::*;
 use package_api::{export_tapp, get_tapp_asset, get_tapp_resources};
 pub(crate) use package_files::*;
 use storage::{
-    clear_shared, clear_storage, delete_shared, delete_storage, get_shared, get_shared_usage,
-    get_storage, get_storage_usage, get_tapp_setting, get_tapp_settings, list_shared_entries,
-    list_shared_keys, list_storage_entries, list_storage_keys, set_shared, set_storage,
-    set_tapp_setting,
+    clear_private, clear_shared, clear_storage, delete_private, delete_shared, delete_storage,
+    get_private, get_private_usage, get_shared, get_shared_usage, get_storage, get_storage_usage,
+    get_tapp_setting, get_tapp_settings, list_private_entries, list_private_keys,
+    list_shared_entries, list_shared_keys, list_storage_entries, list_storage_keys, set_private,
+    set_shared, set_storage, set_tapp_setting,
 };
 use store_stats::report_store_stats;
 // Path-stable for manifest_tests / handlers that import via `super::`.
@@ -91,10 +92,7 @@ use crate::middleware::auth::{
 
 /// 创建 Tapp 路由
 ///
-/// 路由分为三类：
-/// - 公开路由（游客可访问）：list_tapps, get_tapp, get_tapp_code, list_all_widgets, list_store_sources
-/// - 可选主体（JWT 或游客 cookie + Runtime Grant）：runtime-grants, storage/*
-/// - 认证路由（需要登录）：install, uninstall, start, stop, register_widget, settings 等
+/// 路由分三类：公开（list/get/resources/export）、可选主体（runtime-grants / storage）、认证（install/启停/settings POST）。
 pub fn create_tapp_routes(app_state: crate::state::AppState) -> Router<crate::state::AppState> {
     use axum::middleware::from_fn_with_state;
     // 需要登录的路由（安装/启停/设置/商店源；不含 storage）
@@ -127,10 +125,18 @@ pub fn create_tapp_routes(app_state: crate::state::AppState) -> Router<crate::st
         .route("/{tapp_id}/widgets/{widget_id}", delete(unregister_widget))
         // Settings write stays authenticated; GET is optional-auth (public install read).
         .route("/{tapp_id}/settings/{key}", post(set_tapp_setting))
-        // Shared install-level data: owner/admin write, public-install visitors read.
+        // Shared install-level data: owner/admin write.
         .route("/{tapp_id}/shared", delete(clear_shared))
         .route("/{tapp_id}/shared/{key}", post(set_shared))
         .route("/{tapp_id}/shared/{key}", delete(delete_shared))
+        // Installation-private KV: owner/admin session only; no Runtime Grant.
+        .route("/{tapp_id}/private", get(list_private_keys))
+        .route("/{tapp_id}/private", delete(clear_private))
+        .route("/{tapp_id}/private/entries", get(list_private_entries))
+        .route("/{tapp_id}/private/usage", get(get_private_usage))
+        .route("/{tapp_id}/private/{key}", get(get_private))
+        .route("/{tapp_id}/private/{key}", post(set_private))
+        .route("/{tapp_id}/private/{key}", delete(delete_private))
         // Credential values are write-only and installation-manager scoped.
         .route("/{tapp_id}/credentials", get(list_tapp_credential_statuses))
         .route("/{tapp_id}/credentials/{key}", post(put_tapp_credential))
@@ -157,7 +163,7 @@ pub fn create_tapp_routes(app_state: crate::state::AppState) -> Router<crate::st
         .route("/store/sources", post(add_store_source))
         .route("/store/sources/{source_id}", post(update_store_source))
         .route("/store/sources/{source_id}", delete(delete_store_source))
-        // Browser store-install fallback reports here; backend signs edge HMAC.
+        // Browser store-install fallback reports here; backend posts unsigned JSON with instance_hash.
         .route("/store/stats-report", post(report_store_stats))
         .route_layer(from_fn_with_state(app_state.clone(), auth_middleware));
 

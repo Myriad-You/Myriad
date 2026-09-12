@@ -34,7 +34,7 @@ class MemoryStorage implements Storage {
   }
 
   key(index: number): string | null {
-    return Array.from(this.values.keys())[index] ?? null
+    return Iterator.from(this.values.keys()).toArray()[index] ?? null
   }
 
   removeItem(key: string): void {
@@ -218,15 +218,14 @@ describe('Tapp store transport strategy', () => {
 
     assert.deepEqual(sources, ['store', 'direct'])
 
-    // 回退路径必须按层入口交付模块，并把作者 CSS 送进 widgetStyles；
-    // 送进 widgetCss（宿主预编译通道）会让声明的 widget.css 落不了盘。
+    // 回退路径必须按层入口交付模块，作者 CSS 走 widgetStyles。
     const direct = directBodies[0]!
     assert.deepEqual(direct.modules, {
       'core.js': 'module.exports = {};',
       'widget/index.js': 'require("../core.js");',
     })
     assert.deepEqual(direct.widgetStyles, { card: '.card{}' })
-    assert.equal('widgetCss' in direct, false)
+    assert.equal(Object.hasOwn(direct, 'widgetCss'), false)
   })
 })
 
@@ -264,7 +263,6 @@ describe('store package payload shaping', () => {
     })
   })
 
-  /// 索引描述不全时立刻失败，别让用户等完整个下载再看后端拒绝。
   it('refuses a store index that omits a declared layer entry', () => {
     assert.throws(
       () => storeInstallModules(layered, 'CORE', { 'page/index.js': 'PAGE' }),
@@ -272,7 +270,7 @@ describe('store package payload shaping', () => {
     )
   })
 
-  /// 作者样式必须按 widget id 走 widgetStyles，不能混进宿主预编译的 widgetCss。
+  // 作者样式必须按 widget id 走 widgetStyles，不能混进宿主预编译的 widgetCss。
   it('spreads the single store widget CSS across widgets declaring styles', () => {
     assert.deepEqual(storeWidgetStyles(layered, '.card{}'), {
       card: '.card{}',

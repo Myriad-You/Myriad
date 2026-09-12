@@ -34,7 +34,7 @@ use crate::models::entities::{brew_items, brew_sources};
 /// `source_type` 找，不按名字找）。
 const NOTE_SOURCE_NAME: &str = "手记";
 
-/// 手记源的 URL。非 http 协议，任何抓取路径看到它都会绕开。
+/// 手记源的 URL。调度器按 `source_type` 跳过抓取。
 const NOTE_SOURCE_URL: &str = "myriad:notes";
 
 /// 手记落在「我」分类下 —— 这是站内唯一可做文章级 SEO 的分类。
@@ -47,7 +47,7 @@ pub(crate) struct NoteWriteRequest {
     /// Markdown 原文。字段名与 `brew_items.content_md` 同名。
     #[serde(default)]
     pub content_md: String,
-    /// 预定义主题 key。留空表示不参与主题聚类。
+    /// 主题字符串。留空则存 NULL。
     #[serde(default)]
     pub topic: Option<String>,
     /// 封面。不给就用正文里第一张图。
@@ -83,8 +83,7 @@ fn validation_err(err: myriad_brew_notes::NoteError) -> HttpError {
 /// 找到（必要时创建）该站长的手记源。
 ///
 /// 按 `source_type` 查，不按名字或 URL 查 —— 站长改了名字之后仍要找得到同一个源。
-/// 一个用户只有一个手记源；真出现多个（手工改库）时取 id 最小的那个，
-/// 不去合并，也不报错。
+/// 一个用户通常一个手记源；多个时 `.one()` 取第一行，不合并、不报错。
 async fn ensure_note_source(
     db: &DatabaseConnection,
     user_id: i32,
@@ -108,8 +107,7 @@ async fn ensure_note_source(
         feed_type: Set(brew_sources::FeedType::Rss),
         source_type: Set(brew_sources::SourceType::Note),
         category: Set(Some(NOTE_SOURCE_CATEGORY.to_string())),
-        // 不抓取：调度器按 source_type 就会绕开，间隔置 0 只是让它在界面上
-        // 也读得出「这个源不更新」
+        // 不抓取：调度器按 source_type 绕开；间隔置 0
         update_interval: Set(0),
         enabled: Set(true),
         error_count: Set(0),
@@ -174,15 +172,14 @@ async fn sync_item_count(db: &DatabaseConnection, source: &brew_sources::Model) 
 
 /// `POST /api/brew/notes/preview` — 编辑器预览。
 ///
-/// 预览走的是和发布**同一个**渲染函数。前端不自己渲染 Markdown，就不存在
-/// 「预览好看、发出去变形」这种问题。
+/// 预览调 `render_markdown`；发布调 `render_note`（内部仍用 `render_markdown`）。前端不自己渲染。
 pub(crate) async fn preview_note(
     State(db): State<DatabaseConnection>,
     headers: axum::http::HeaderMap,
     Json(req): Json<NotePreviewRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     get_admin_user_id_from_headers(&headers, &db).await?;
-    validate_note("预览", &req.content_md).map_err(validation_err)?;
+    validate_note("Preview", &req.content_md).map_err(validation_err)?;
     Ok(Json(json!({
         "success": true,
         "html": render_markdown(&req.content_md),
@@ -332,8 +329,8 @@ mod tests {
 
     #[test]
     fn note_source_lands_in_the_own_content_category() {
-        // 手记必须落在「我」分类下，否则 api::seo 不会把它当自有内容收录，
-        // 手记板块也读不到它（板块按这个分类取合并文章流）
+        // 手记必须落在「我」分类下，否则 api::seo 不会把它当自有内容收录。
+        // 手记板块按 `source_type = note` 取。
         assert_eq!(NOTE_SOURCE_CATEGORY, "我");
     }
 

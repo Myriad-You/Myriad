@@ -56,17 +56,13 @@ export const DEFAULT_AUTO_FETCH_CONFIG: PlatformAutoFetchConfig = {
   interval_hours: 24,
 }
 
-/** Retired config nav ids remapped when restoring favorites / deep links / search. */
+/** 收藏/深链/搜索里的旧导航 id → 现行 section。 */
 export const LEGACY_CONFIG_SECTION_MAP: Record<string, string> = {
   music: 'modules',
-  /** Standalone data-management page removed; alias lands on platforms list. */
   data: 'platforms',
   network: 'advanced',
-  /** Updater panel lives under About (no standalone nav section). */
   updater: 'about',
-  /** MCP ops panel lives under Advanced (was briefly under About). */
   mcp: 'advanced',
-  /** Basic settings nav id used to be `ui` (display copy was already “basic”). */
   ui: 'basic',
 }
 
@@ -82,11 +78,11 @@ export function loadConfigFavorites(): string[] {
     ) {
       return DEFAULT_CONFIG_FAVORITES
     }
-    return [
-      ...new Set(
+    return Iterator.from(
+      new Set(
         (parsed as string[]).map((id) => LEGACY_CONFIG_SECTION_MAP[id] ?? id),
       ),
-    ]
+    ).toArray()
   } catch {
     return DEFAULT_CONFIG_FAVORITES
   }

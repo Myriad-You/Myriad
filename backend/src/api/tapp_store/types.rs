@@ -38,7 +38,7 @@ pub(super) fn api_error(message: impl Into<String>) -> Json<ApiResponse<()>> {
 
 /// Map store envelope errors onto [`HttpError`] (same status + `error` string).
 pub(super) fn api_http_error(status: StatusCode, message: impl Into<String>) -> HttpError {
-    HttpError::from((status, Json(serde_json::json!({ "error": message.into() }))))
+    HttpError::from((status, Json(myriad_error::AppError::public_json(message))))
 }
 
 /// Convert legacy `(StatusCode, Json<ApiResponse<()>>)` to [`HttpError`].

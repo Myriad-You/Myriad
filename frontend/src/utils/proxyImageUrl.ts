@@ -1,26 +1,14 @@
-/**
- * 站内图片代理（前端防御层）— dual-path。
- *
- * 热链域名名单唯一来源：仓库根 `shared/image_proxy_hosts.json`
- * （后端 `needs_image_proxy` + `/api/proxy/image` allowlist 同文件）。
- *
- * - 名单内 host → `/api/proxy/image?url=…`
- * - 其它 https → 原 URL 直链（RSS / 个人博客 / 健康 CDN 不经代理）
- *
- * Host 匹配：parsed host 精确或 DNS suffix（禁止 url.includes 子串）。
- */
-
-import hosts from '../../../shared/image_proxy_hosts.json'
+import hosts from '../../../shared/image_proxy_hosts.json' with { type: 'json' }
 import { API_URL } from '../config'
 
 const HOTLINK_MARKERS: readonly string[] = hosts.markers
 const AKAMAI_AND = (hosts.akamai_and_contains || 'steam').toLowerCase()
 
 function normalizeHost(host: string): string {
-  return host.replace(/\.$/, '').toLowerCase()
+  return host.replaceAll(/\.$/g, '').toLowerCase()
 }
 
-/** Exact host or proper DNS suffix (i0.hdslb.com ↔ hdslb.com). */
+/** Exact host or DNS suffix; not substring. */
 export function hostMatchesDomain(host: string, domain: string): boolean {
   const h = normalizeHost(host)
   const d = normalizeHost(domain)
@@ -68,9 +56,6 @@ function isAlreadyProxied(url: string): boolean {
   }
 }
 
-/**
- * 规范为浏览器可显示地址；不需要代理时返回 https 规范化后的原 URL。
- */
 export function proxyImageUrl(
   url: string | null | undefined,
 ): string | undefined {
@@ -102,10 +87,6 @@ export function proxyImageUrlOr(
   return proxyImageUrl(url) ?? fallback
 }
 
-/**
- * 递归规范化对象树中的字符串 URL（与后端 normalize_json_media_urls 对称）。
- * 用于报告 card_visuals / library 入口，组件内不必再散点 resolveMediaUrl。
- */
 export function normalizeJsonMediaUrls<T>(value: T): T {
   if (value == null) return value
   if (typeof value === 'string') {

@@ -1,9 +1,3 @@
-/**
- * Agent SSE 订阅传输层。
- *
- * 只负责读取/重连后端 run 事件；它不会创建、取消或拥有任务生命周期。
- * 用户主动中断与网络断线分开处理：前者不自动 re-subscribe，后者会。
- */
 import type {
   AgentResponse,
   ErrorEvent,
@@ -14,7 +8,9 @@ import type {
   TaskInfo,
 } from './types'
 
+import { hostLocaleHeaders } from '../../i18n/hostLocaleHeaders'
 import { currentCopy } from '../../i18n/localeCopy'
+import { authSubject } from '../../utils/authSubject'
 import { clearCSRFToken, getCSRFToken } from '../../utils/csrf'
 import { isUselessErrorText } from '../../utils/userFacingError'
 import { ApiError, parseApiErrorBody } from '../api'
@@ -51,14 +47,7 @@ export function agentHttpFailure(status: number, text: string): ApiError {
   return new ApiError(message, status, body.code, body.details, body.hint)
 }
 
-/**
- * A backend `error` event, keeping its `code`.
- *
- * The stream is already HTTP 200 by the time anything can fail, so the code is
- * the only way a caller can tell an AI budget rejection (cooldown, daily call
- * or token limit) from a processing failure. Rejecting with a bare `Error`
- * dropped it and left the UI string-matching the message.
- */
+/** HTTP 200 already; distinguish quota via error.code. */
 export class AgentStreamError extends Error {
   readonly code: string
 
@@ -68,7 +57,6 @@ export class AgentStreamError extends Error {
     this.code = code
   }
 
-  /** Whether this is an AI quota/cooldown rejection rather than a fault. */
   get isQuotaRejection(): boolean {
     return QUOTA_CODES.has(this.code)
   }
@@ -83,12 +71,11 @@ const QUOTA_CODES = new Set([
   'AI_QUOTA_EXCEEDED',
 ])
 
-/** Why a stream AbortController was aborted. */
 export type StreamAbortIntent = 'user' | 'replace' | 'timeout'
 
 const controllerIntents = new WeakMap<AbortController, StreamAbortIntent>()
 
-/** Token events must paint between reads; React 18 batches a sync for-loop. */
+/** Yield between token reads; React 18 batches a sync for-loop. */
 export function shouldYieldSsePaint(type: string): boolean {
   return type === 'thinking_token' || type === 'summary_token'
 }
@@ -102,10 +89,6 @@ export type StreamDropAction =
   | 'reject_error'
   | 'reject_empty'
 
-/**
- * Pure decision for what to do when an SSE body ends without a final response.
- * Unit-tested; called by the real `executeSSERequest` path.
- */
 export function decideStreamDropAction(input: {
   hasFinalResponse: boolean
   capturedRunId: string | null
@@ -114,10 +97,10 @@ export function decideStreamDropAction(input: {
   hasStreamError: boolean
 }): StreamDropAction {
   if (input.hasFinalResponse) return 'use_final'
-  // Intentional client stop must never re-subscribe the same run.
+  // User abort must not re-subscribe the same run.
   if (input.abortIntent === 'user') return 'reject_user_abort'
   if (input.abortIntent === 'replace') return 'reject_replace'
-  // Transport drop / idle timeout / server close → recover without re-POSTing.
+  // Transport drop: resume without re-POST.
   if (input.capturedRunId) return 'resume_run'
   if (input.capturedTaskId) return 'poll_task'
   if (input.hasStreamError) return 'reject_error'
@@ -125,28 +108,27 @@ export function decideStreamDropAction(input: {
 }
 
 interface ExecuteSseOptions {
+  signal?: AbortSignal
   url: string
   method: 'GET' | 'POST'
   body?: unknown
   onProgress?: ProgressCallback
   abortPrevious: boolean
   activeControllers: Set<AbortController>
-  /** Survives transport resume so replayed sequences are not applied twice. */
+  /** Dedupe replayed sequences across resume. */
   seenSequences?: Map<string, number>
   pollTaskUntilComplete: (
     taskId: string,
     options: {
       intervalMs: number
       timeoutMs: number
+      signal?: AbortSignal
       onProgress?: (task: TaskDetail) => void
     },
   ) => Promise<TaskDetail>
 }
 
-/**
- * Abort all active SSE subscriptions.
- * @param intent - `user` = intentional interrupt (no resume); `replace` = new request supersedes.
- */
+/** user: no resume. replace: new request supersedes. */
 export function abortSseSubscriptions(
   activeControllers: Set<AbortController>,
   intent: StreamAbortIntent = 'user',
@@ -167,56 +149,81 @@ export async function executeSSERequest({
   activeControllers,
   seenSequences,
   pollTaskUntilComplete,
+  signal = authSubject.signal,
 }: ExecuteSseOptions): Promise<AgentResponse> {
+  signal.throwIfAborted()
   if (abortPrevious) abortSseSubscriptions(activeControllers, 'replace')
   const seen = seenSequences ?? new Map<string, number>()
 
-  // Cookie sessions need CSRF on POST; match lib/api — refresh once on 403 CSRF.
-  let csrfToken = method === 'POST' ? await getCSRFToken() : null
+  // Cookie POST: CSRF; refresh once on 403.
+  let csrfToken: string | null = null
   let csrfRetried = false
+  let cleanup = () => {}
 
-  return new Promise((resolve, reject) => {
+  return new Promise<AgentResponse>((resolve, reject) => {
+    // Own preparation, transport and recovery, not just the fetch lifetime.
     const controller = new AbortController()
+    const transport = new AbortController()
+    const requestSignal = AbortSignal.any([controller.signal, transport.signal])
     activeControllers.add(controller)
     const timeoutId = setTimeout(() => {
-      controllerIntents.set(controller, 'timeout')
-      controller.abort()
+      controllerIntents.set(transport, 'timeout')
+      transport.abort()
     }, 600000)
-    const cleanup = () => {
+    const abort = () => {
+      reject(new Error(controllerIntents.get(controller) === 'replace'
+        ? STREAM_SUPERSEDED_MESSAGE : 'Request interrupted by user'))
+    }
+    const invalidate = () => {
+      controllerIntents.set(controller, 'user')
+      controller.abort()
+    }
+    controller.signal.addEventListener('abort', abort, { once: true })
+    signal.addEventListener('abort', invalidate, { once: true })
+    cleanup = () => {
       clearTimeout(timeoutId)
       activeControllers.delete(controller)
+      signal.removeEventListener('abort', invalidate)
+      controller.signal.removeEventListener('abort', abort)
     }
     const readAbortIntent = (): StreamAbortIntent | null =>
-      controllerIntents.get(controller) ?? null
+      controllerIntents.get(controller) ?? controllerIntents.get(transport) ?? null
 
     const buildHeaders = (): Record<string, string> => {
       const headers: Record<string, string> = {
         Accept: 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Content-Type': 'application/json',
+        ...hostLocaleHeaders(),
       }
       if (csrfToken) headers['X-CSRF-Token'] = csrfToken
       return headers
     }
 
-    const startFetch = (): Promise<Response> =>
-      fetch(url, {
+    const startFetch = (): Promise<Response> => {
+      requestSignal.throwIfAborted()
+      return fetch(url, {
         method,
         headers: buildHeaders(),
         body: body ? JSON.stringify(body) : undefined,
-        signal: controller.signal,
+        signal: requestSignal,
         credentials: 'include',
       })
+    }
 
     const isCsrfBody = (status: number, text: string): boolean => {
       if (status !== 403) return false
       return text.toLowerCase().includes('csrf')
     }
 
-    startFetch()
+    Promise.resolve().then(async () => {
+      controller.signal.throwIfAborted()
+      csrfToken = method === 'POST' ? await getCSRFToken() : null
+      return startFetch()
+    })
       .then(async (response) => {
-        // 必须先看 status。`clone().text()` 会把 SSE 整条流读完，
-        // 200 的进度事件就永远攒到结束才进 getReader。
+        controller.signal.throwIfAborted()
+        // Do not clone().text(); it drains SSE.
         if (method === 'POST' && !csrfRetried && response.status === 403) {
           const text = await response.text()
           if (isCsrfBody(response.status, text)) {
@@ -235,6 +242,7 @@ export async function executeSSERequest({
         return response
       })
       .then(async (response) => {
+        controller.signal.throwIfAborted()
         if (!response.ok) {
           throw agentHttpFailure(response.status, await response.text())
         }
@@ -253,11 +261,13 @@ export async function executeSSERequest({
         try {
           while (true) {
             const { done, value } = await reader.read()
+            requestSignal.throwIfAborted()
             if (value) buffer += decoder.decode(value, { stream: !done })
 
             const lines = buffer.split('\n')
             buffer = done ? '' : lines.pop() || ''
             for (const line of lines) {
+              requestSignal.throwIfAborted()
               if (line.startsWith('id:')) {
                 const parsed = Number.parseInt(line.slice(3).trim(), 10)
                 currentSequence = Number.isFinite(parsed) ? parsed : currentSequence
@@ -318,9 +328,10 @@ export async function executeSSERequest({
           streamError = error
         } finally {
           reader.releaseLock()
-          cleanup()
+          clearTimeout(timeoutId)
         }
 
+        controller.signal.throwIfAborted()
         const action = decideStreamDropAction({
           hasFinalResponse: !!finalResponse,
           capturedRunId,
@@ -350,6 +361,7 @@ export async function executeSSERequest({
                   activeControllers,
                   seenSequences: seen,
                   pollTaskUntilComplete,
+                  signal: controller.signal,
                 }),
               )
             } catch (resumeError) {
@@ -361,8 +373,10 @@ export async function executeSSERequest({
               const task = await pollTaskUntilComplete(capturedTaskId!, {
                 intervalMs: 2000,
                 timeoutMs: 300000,
+                signal: controller.signal,
                 onProgress: onProgress
                   ? (current) => {
+                      if (controller.signal.aborted) return
                       onProgress({
                         type: 'progress',
                         progress: current.progress,
@@ -373,6 +387,7 @@ export async function executeSSERequest({
                     }
                   : undefined,
               })
+              controller.signal.throwIfAborted()
               if (
                 task.status === 'completed' ||
                 task.status === 'waiting_for_input'
@@ -412,7 +427,7 @@ export async function executeSSERequest({
           reject(error)
         }
       })
-  })
+  }).finally(() => cleanup())
 }
 
 function buildPolledResponse(task: TaskDetail): AgentResponse {
@@ -422,7 +437,7 @@ function buildPolledResponse(task: TaskDetail): AgentResponse {
     error?: string
   }>
   const data =
-    stepResults.filter((result) => result.success).at(-1)?.output ??
+    stepResults.findLast((result) => result.success)?.output ??
     task.results
   const message =
     messageFromStepOutput(data) ??

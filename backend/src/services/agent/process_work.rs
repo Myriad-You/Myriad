@@ -152,7 +152,7 @@ impl Agent {
                     )
                     .await;
                 }
-                // 低置信度时在 process() 中也记录警告
+                // 低置信度：本路径只打 warn；带进度路径会降级为澄清。
                 if planner_output.confidence < 0.3 && planner_output.confidence > 0.0 {
                     tracing::warn!(
                         confidence = planner_output.confidence,
@@ -190,7 +190,7 @@ impl Agent {
             &request,
         );
 
-        // 4. 检查敏感操作（系统任务自动确认，Critical 除外）
+        // 4. 检查敏感操作（系统任务：Low/Medium 自动确认；High/Critical 拒绝）
         let sensitive_steps = self.check_sensitive_steps(&recipe).await;
         if !sensitive_steps.is_empty() {
             match Self::system_sensitive_gate(user_id, &sensitive_steps) {
@@ -264,7 +264,7 @@ impl Agent {
         let task_state = task_result?;
         let result = self.extract_final_result(&task_state);
 
-        // 6. v3 记忆提取 + 日志
+        // 记忆提取 + 日志；history ≥ 4 时会话摘要归档。
         let ok = task_state.status == TaskStatus::Completed;
         record_execution_memory(MemoryRecordParams {
             user_id,
@@ -623,12 +623,12 @@ impl Agent {
                         "[Agent] Very low planner confidence, requesting clarification"
                     );
                     let msg = format!(
-                        "我对这个请求的理解置信度较低（{:.0}%），可能会误解你的意图。{}能再详细描述一下你想要做什么吗？",
+                        "I'm not very confident I understood that ({:.0}%). {}Could you describe what you want in more detail?",
                         planner_output.confidence * 100.0,
                         planner_output
                             .reasoning
                             .as_deref()
-                            .map(|r| format!("我的理解是：{}。", r))
+                            .map(|r| format!("My reading is: {r}. "))
                             .unwrap_or_default()
                     );
                     Self::stream_text_as_tokens(&progress_tx, &msg).await;
@@ -848,7 +848,7 @@ impl Agent {
             })
             .await;
 
-        // 副 Agent 生成计划说明（AI 流式推送，告诉用户即将做什么）
+        // announce_plan：流式计划说明（说话模型，失败则模板）。
         let _plan_msg =
             response_agent::announce_plan(&request.raw_input, &step_descs, user_id, &progress_tx)
                 .await;
@@ -1177,10 +1177,10 @@ impl Agent {
                 }
             }
         }
-        // 已包含 webSearch 的计划不算「从本地升级到 web」；本地域默认禁止
+        // 本地域（brew / platform / search.fuzzy / config.get / library）默认禁止 web 升级。
         let has_local = capability_ids
             .iter()
-            .any(|id| escalation::ResultEvaluator::is_local_data_capability(id));
+            .any(|id| escalation::is_local_data_capability(id));
         if has_local {
             return false;
         }
@@ -1220,10 +1220,9 @@ impl Agent {
             }
             return true;
         }
-        // 使用 ResultEvaluator 进行深度评估（携带能力上下文以门控 webSearch）
-        let evaluator = escalation::ResultEvaluator::new();
+        // Evaluate structured results with the task capability policy.
         let ctx = Self::evaluation_context_for_task(task_state);
-        let eval = evaluator.evaluate_with_context(result, &ctx);
+        let eval = escalation::evaluate_with_context(result, &ctx);
         if !eval.is_satisfied {
             tracing::info!(
                 score = eval.satisfaction_score,
@@ -1248,22 +1247,21 @@ impl Agent {
                 || err_lower.contains("not configured")
             {
                 return format!(
-                    "前次执行因配置缺失失败：{}。请勿重试同一能力或改用 ai.webSearch；改为本地能力或提示用户配置密钥。",
+                    "Previous run failed because configuration is missing: {}. Do not retry the same capability or switch to ai.webSearch; use a local capability or ask the user to configure a key.",
                     err
                 );
             }
-            return format!("前次执行失败：{}。请尝试替代方案。", err);
+            return format!("Previous run failed: {}. Try an alternative.", err);
         }
 
-        let evaluator = escalation::ResultEvaluator::new();
         let ctx = Self::evaluation_context_for_task(task_state);
-        let eval = evaluator.evaluate_with_context(result, &ctx);
+        let eval = escalation::evaluate_with_context(result, &ctx);
 
         let mut hints = Vec::new();
         if let Some(reason) = &eval.reason {
-            hints.push(format!("失败原因：{}", reason));
+            hints.push(format!("Failure reason: {reason}"));
         }
-        // notFound 建议值：replan 最高优先 — 用建议值重试 brew，禁止 webSearch
+        // notFound suggestions: replan first — retry brew with a suggested value, never webSearch
         if !eval.suggested_retry_values.is_empty() {
             let joined = eval.suggested_retry_values.join(" / ");
             let brew_cap = ctx
@@ -1273,36 +1271,39 @@ impl Agent {
                 .map(|s| s.as_str())
                 .unwrap_or("brew.items");
             hints.push(format!(
-                "【最高优先】用 {} 重试，将 sourceName/name/query/author 设为建议值之一：{}。不要使用 ai.webSearch",
-                brew_cap, joined
+                "[Highest priority] Retry with {brew_cap}, setting sourceName/name/query/author to one of: {joined}. Do not use ai.webSearch"
             ));
         }
         for hint in &eval.improvement_hints {
             hints.push(hint.clone());
         }
         if eval.suggests_web_search {
-            hints.push("请尝试联网搜索能力（ai.webSearch 或 ai.groundingSearch）".to_string());
+            hints.push(
+                "Try a web search capability (ai.webSearch or ai.groundingSearch)".to_string(),
+            );
         } else if eval.suggests_local_alternatives {
-            // 本地 brew miss：强制 replan 走 brew.page / search.fuzzy / brew.items
+            // Local brew miss: force replan onto brew.page / search.fuzzy / brew.items
             let already_forbids = eval.improvement_hints.iter().any(|h| {
-                h.contains("禁止使用 ai.webSearch") || h.contains("禁止改用 ai.webSearch")
+                h.contains("禁止使用 ai.webSearch")
+                    || h.contains("禁止改用 ai.webSearch")
+                    || h.contains("Do not use ai.webSearch")
             });
             if !already_forbids {
                 hints.push(
-                    "禁止使用 ai.webSearch / ai.groundingSearch；优先 brew.page、search.fuzzy 或 brew.items（放宽参数）"
+                    "Do not use ai.webSearch / ai.groundingSearch; prefer brew.page, search.fuzzy, or brew.items (relax parameters)"
                         .to_string(),
                 );
             }
         }
         if hints.is_empty() {
             if eval.suggests_local_alternatives {
-                "前次本地数据结果为空，请用 brew.page / search.fuzzy / brew.items 放宽查询或向用户澄清，不要联网搜索。"
+                "Previous local data result was empty. Use brew.page / search.fuzzy / brew.items with a broader query, or ask the user. Do not search the web."
                     .to_string()
             } else {
-                "前次执行结果为空或不满足目标，请尝试其他能力或联网搜索。".to_string()
+                "Previous result was empty or did not meet the goal. Try another capability or a web search.".to_string()
             }
         } else {
-            hints.join("。")
+            hints.join(". ")
         }
     }
 
@@ -1398,7 +1399,7 @@ impl Agent {
             );
         }
 
-        // v3 记忆记录（单步查询也需要记录）
+        // 单步查询同样走 record_execution_memory。
         {
             record_execution_memory(MemoryRecordParams {
                 user_id,

@@ -18,13 +18,11 @@ export interface TtsPlayHooks {
     timeline: SpeechProsodyTimeline,
     timing: TtsProsodyTiming,
   ) => void
-  /** AudioBufferSourceNode has entered the WebAudio render timeline. */
   onStarted?: () => void
   onEnded: () => void
 }
 
 export interface TtsProsodyTiming {
-  /** Actual playback origin on the same monotonic wall clock as the rig. */
   startedAtMs: number
 }
 
@@ -42,16 +40,6 @@ const FFT = 256
 export const SPEECH_MOUTH_PREDICTION_SECONDS = 0.045
 const ENERGY_WINDOW_SECONDS = 0.018
 
-/**
- * Plays a TTS buffer through WebAudio.
- *
- * The segment's own text decides the mouth shape and the audio decides how far
- * it opens. The caller must still not run its own text-viseme fallback beside
- * this: the timeline here is stretched onto the decoded buffer, so it is the
- * only one aligned with what is actually being said.
- *
- * `context` exists so the lifecycle can be tested without a real audio device.
- */
 export function playTtsBuffer(
   audio: ArrayBuffer,
   segment: SpeechSegment,
@@ -84,7 +72,6 @@ export function playTtsBuffer(
     try {
       source?.stop()
     } catch {
-      // already stopped
     }
     source?.disconnect()
     analyser?.disconnect()
@@ -92,9 +79,6 @@ export function playTtsBuffer(
     analyser = null
   }
 
-  // Started before the decode, not inside it. Compiling Han text may load
-  // `pinyin-pro` on first use, but it is no longer on the audible critical
-  // path: playback waits for decode only and uses energy until shapes arrive.
   const compileVisemes = dependencies.compileVisemes ?? compileTextVisemes
   const wallNow = dependencies.now ?? monotonicNow
   const compiled = compileVisemes(segment.text, segment.locale).catch(() => [])
@@ -103,9 +87,7 @@ export function playTtsBuffer(
     .decodeAudioData(audio.slice(0))
     .then(async (decoded) => {
       if (stopped) return
-      // A suspended context has not entered the audible timeline. Do not
-      // spend its phrase preparation or hold a predicted mouth pose while
-      // resume is pending; running contexts keep the immediate path.
+      // Do not spend its phrase preparation or hold a predicted mouth pose while resume is pending
       if (ctx.state === 'suspended') await ctx.resume()
       if (stopped) return
       analyser = ctx.createAnalyser()
@@ -125,7 +107,6 @@ export function playTtsBuffer(
         locale: segment.locale,
         startedAtMs,
       }
-      // Phrase preparation does not wait for a cold phoneme module either.
       hooks.onProsody?.(
         alignTextProsody(prosodyInput, {
           durationMs: Math.round(decoded.duration * 1_000),
@@ -133,9 +114,6 @@ export function playTtsBuffer(
         }),
         { startedAtMs },
       )
-      // Viseme compilation is useful but not on the audible critical path.
-      // If a language module is cold, energy-only articulation starts now and
-      // the aligned shapes/prosody join as soon as compilation finishes.
       void compiled.then((cues) => {
         if (stopped) return
         spans = alignVisemeTimeline(cues, decoded.duration)
@@ -143,8 +121,6 @@ export function playTtsBuffer(
         const elapsedMs = Math.max(0, wallNow() - startedAtMs)
         const timeline = alignTextProsody(prosodyInput, {
           ...audioProsody,
-          // Late evidence can add future preparation, not insert a stroke
-          // at full strength after its preparation has already passed.
           accents: audioProsody.accents.filter(
             (accent) => accent.offsetMs >= elapsedMs + 140,
           ),
@@ -171,8 +147,6 @@ export function playTtsBuffer(
         stop()
         hooks.onEnded()
       }
-      // Publish the first predicted mouth target in this task, before either
-      // audio output or the next character render frame has to wait for RAF.
       tick()
       source.start()
       hooks.onStarted?.()
@@ -186,7 +160,6 @@ export function playTtsBuffer(
   return { stop }
 }
 
-/** Predicts near-future articulation from an already decoded audio buffer. */
 export function sampleDecodedMouth(
   buffer: Pick<
     AudioBuffer,
@@ -242,13 +215,6 @@ export function speechAudioContextOpen(): boolean {
   return Boolean(sharedContext && sharedContext.state !== 'closed')
 }
 
-/**
- * Shape from the phoneme timeline, magnitude from the waveform.
- *
- * Without a timeline this still falls back to the loudness shape, which is
- * wrong but moving — better than a mouth that does not open at all for a
- * script `compileTextVisemes` cannot read.
- */
 export function sampleMouth(
   bins: Uint8Array,
   spans: readonly VisemeSpan[] = [],
@@ -282,7 +248,6 @@ function articulationFromEnergy(
   if (!span) {
     return { energy, viseme: visemeFromEnergy(energy), amount: energy }
   }
-  // A pause inside the segment closes the mouth whatever the text says next.
   if (energy < VISEME_SILENCE_ENERGY) {
     return { energy, viseme: 'rest', amount: 0 }
   }

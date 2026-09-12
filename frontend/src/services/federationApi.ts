@@ -1,10 +1,4 @@
-/**
- * 联邦 API 服务
- *
- * 所有 REST 方法接受可选的 runtimeGrant（Tapp 宿主代理归因）：
- * 传入时请求携带 X-Tapp-Runtime-Grant 头，服务端归因中间件据此校验
- * Runtime Grant 的 federation.* 权限。宿主自身 UI 调用不传该参数。
- */
+/** runtimeGrant → X-Tapp-Runtime-Grant. */
 
 import type {
   AddPeerRequest,
@@ -64,7 +58,6 @@ import { apiService } from './api'
 
 const PREFIX = '/federation'
 
-/** Tapp 宿主代理调用的归因请求选项 */
 function attributionOptions(
   runtimeGrant?: string,
 ): ApiRequestOptions | undefined {
@@ -74,7 +67,6 @@ function attributionOptions(
 }
 
 export const federationApi = {
-  /** Live message/media caps (public; follows memory profile). */
   getPublicLimits(): Promise<{
     profile: string
     message_payload_bytes: number
@@ -84,7 +76,6 @@ export const federationApi = {
     return apiService.get(`${PREFIX}/public/limits`)
   },
 
-  /** 获取当前用户联邦身份 */
   getIdentity(runtimeGrant?: string): Promise<FederationIdentity> {
     return apiService.get<FederationIdentity>(
       `${PREFIX}/identity`,
@@ -92,11 +83,7 @@ export const federationApi = {
     )
   },
 
-  /**
-   * Explicit federation signing-key rotation.
-   * Body must include `confirm: true` (server rejects otherwise).
-   * Replaces RSA keypair + best-effort Update(Person) fan-out.
-   */
+  /** Body must include confirm: true. */
   rotateKeys(
     body: { confirm: true },
     runtimeGrant?: string,
@@ -108,9 +95,6 @@ export const federationApi = {
     )
   },
 
-  // 关注管理
-
-  /** 关注远程用户 */
   follow(target: string, runtimeGrant?: string): Promise<FollowResponse> {
     return apiService.post<FollowResponse>(
       `${PREFIX}/follow`,
@@ -119,7 +103,6 @@ export const federationApi = {
     )
   },
 
-  /** 取消关注 */
   unfollow(
     target: string,
     runtimeGrant?: string,
@@ -131,7 +114,6 @@ export const federationApi = {
     )
   },
 
-  /** 获取我关注的远程用户 */
   getFollowing(runtimeGrant?: string): Promise<FollowListResponse> {
     return apiService.get<FollowListResponse>(
       `${PREFIX}/following`,
@@ -139,7 +121,6 @@ export const federationApi = {
     )
   },
 
-  /** 获取关注我的远程用户 */
   getFollowers(runtimeGrant?: string): Promise<FollowListResponse> {
     return apiService.get<FollowListResponse>(
       `${PREFIX}/followers`,
@@ -147,9 +128,6 @@ export const federationApi = {
     )
   },
 
-  // 时间线
-
-  /** 获取联邦时间线 */
   getTimeline(runtimeGrant?: string): Promise<TimelineResponse> {
     return apiService.get<TimelineResponse>(
       `${PREFIX}/timeline`,
@@ -157,9 +135,6 @@ export const federationApi = {
     )
   },
 
-  // 内容发布
-
-  /** 发布内容到联邦网络 */
   publish(
     req: PublishRequest,
     runtimeGrant?: string,
@@ -171,7 +146,6 @@ export const federationApi = {
     )
   },
 
-  /** 创建 freeform Note（文本 + 图片/视频附件） */
   createNote(
     req: CreateNoteRequest,
     runtimeGrant?: string,
@@ -183,7 +157,6 @@ export const federationApi = {
     )
   },
 
-  /** Like an AP object (Note id / URL) */
   like(objectId: string, runtimeGrant?: string): Promise<InteractionResponse> {
     return apiService.post<InteractionResponse>(
       `${PREFIX}/like`,
@@ -192,7 +165,6 @@ export const federationApi = {
     )
   },
 
-  /** Unlike an AP object */
   unlike(
     objectId: string,
     runtimeGrant?: string,
@@ -204,7 +176,6 @@ export const federationApi = {
     )
   },
 
-  /** Bookmark (local-first) */
   bookmark(
     objectId: string,
     runtimeGrant?: string,
@@ -216,7 +187,6 @@ export const federationApi = {
     )
   },
 
-  /** Remove bookmark */
   unbookmark(
     objectId: string,
     runtimeGrant?: string,
@@ -228,7 +198,6 @@ export const federationApi = {
     )
   },
 
-  /** List bookmarked posts for current user */
   getBookmarks(runtimeGrant?: string): Promise<BookmarkListResponse> {
     return apiService.get<BookmarkListResponse>(
       `${PREFIX}/bookmarks`,
@@ -236,10 +205,6 @@ export const federationApi = {
     )
   },
 
-  /**
-   * Resolve a public federated object by id (quote click-through).
-   * Does not require following the author.
-   */
   getObject(
     objectId: string,
     runtimeGrant?: string,
@@ -250,14 +215,14 @@ export const federationApi = {
     source: string
     actor?: Record<string, unknown> | null
   }> {
-    const base = attributionOptions(runtimeGrant) || {}
+    const base = attributionOptions(runtimeGrant) ?? {}
     return apiService.get(`${PREFIX}/objects`, {
       ...base,
       params: { id: objectId },
     })
   },
 
-  /** Quote-repost an object (requires non-empty commentary). */
+  /** Commentary must be non-empty. */
   announce(
     objectId: string,
     content?: string,
@@ -273,7 +238,6 @@ export const federationApi = {
     )
   },
 
-  /** Undo announce / unrepost */
   unannounce(
     objectId: string,
     runtimeGrant?: string,
@@ -285,10 +249,6 @@ export const federationApi = {
     )
   },
 
-  /**
-   * 上传联邦媒体（multipart）。返回可嵌入 AP attachment 的公开 URL。
-   * 不经过 apiService JSON Content-Type，以便浏览器设置 multipart boundary。
-   */
   async uploadMedia(
     file: Blob,
     options?: { filename?: string; runtimeGrant?: string },
@@ -328,7 +288,6 @@ export const federationApi = {
     return (await response.json()) as MediaUploadResponse
   },
 
-  /** 取消发布 */
   unpublish(
     req: UnpublishRequest,
     runtimeGrant?: string,
@@ -340,7 +299,6 @@ export const federationApi = {
     )
   },
 
-  /** 获取已发布内容列表 */
   getPublished(runtimeGrant?: string): Promise<PublishedListResponse> {
     return apiService.get<PublishedListResponse>(
       `${PREFIX}/published`,
@@ -348,9 +306,6 @@ export const federationApi = {
     )
   },
 
-  // Channel 通信
-
-  /** 获取 Channel 列表 */
   getChannels(runtimeGrant?: string): Promise<ChannelListResponse> {
     return apiService.get<ChannelListResponse>(
       `${PREFIX}/channels`,
@@ -358,7 +313,6 @@ export const federationApi = {
     )
   },
 
-  /** 创建 Channel */
   createChannel(
     req: CreateChannelRequest,
     runtimeGrant?: string,
@@ -370,7 +324,6 @@ export const federationApi = {
     )
   },
 
-  /** 获取 Channel 详情 */
   getChannel(channelId: string, runtimeGrant?: string): Promise<ChannelDetail> {
     return apiService.get<ChannelDetail>(
       `${PREFIX}/channels/${channelId}`,
@@ -378,7 +331,6 @@ export const federationApi = {
     )
   },
 
-  /** 关闭 Channel */
   closeChannel(
     channelId: string,
     runtimeGrant?: string,
@@ -390,7 +342,6 @@ export const federationApi = {
     )
   },
 
-  /** 删除已关闭的 Channel（本地硬删除） */
   deleteChannel(
     channelId: string,
     runtimeGrant?: string,
@@ -401,7 +352,6 @@ export const federationApi = {
     )
   },
 
-  /** 接受 Channel */
   acceptChannel(
     channelId: string,
     runtimeGrant?: string,
@@ -413,7 +363,6 @@ export const federationApi = {
     )
   },
 
-  /** 获取消息历史 */
   getMessages(
     channelId: string,
     before?: string,
@@ -430,7 +379,6 @@ export const federationApi = {
     )
   },
 
-  /** 发送消息 */
   sendMessage(
     channelId: string,
     req: SendMessageRequest,
@@ -443,13 +391,7 @@ export const federationApi = {
     )
   },
 
-  /**
-   * Mint a one-time federation channel WebSocket ticket.
-   *
-   * Requires a runtime grant with `federation:message`. Present the returned
-   * ticket as `tapp_ws_ticket` on {@link connectChannelWs}. Host UI does not
-   * call this — it connects without a ticket.
-   */
+  /** Requires federation:message; pass tapp_ws_ticket. */
   mintChannelWsTicket(
     channelId: string,
     runtimeGrant: string,
@@ -461,14 +403,6 @@ export const federationApi = {
     )
   },
 
-  /**
-   * Create a Channel WebSocket connection.
-   *
-   * Browsers cannot send custom headers on WebSocket. Tapp traffic mints a
-   * short-lived ticket via {@link mintChannelWsTicket} (REST + grant header)
-   * and passes it here; the server consumes it at upgrade and attributes the
-   * connection. Host UI callers omit `ticket` and authenticate with cookie/JWT only.
-   */
   connectChannelWs(channelId: string, ticket?: string): WebSocket {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const base = location.host
@@ -481,9 +415,6 @@ export const federationApi = {
     )
   },
 
-  // Room 多方通信
-
-  /** 获取 Room 列表 */
   getRooms(runtimeGrant?: string): Promise<RoomListResponse> {
     return apiService.get<RoomListResponse>(
       `${PREFIX}/rooms`,
@@ -491,7 +422,6 @@ export const federationApi = {
     )
   },
 
-  /** 创建 Room */
   createRoom(
     req: CreateRoomRequest,
     runtimeGrant?: string,
@@ -503,7 +433,6 @@ export const federationApi = {
     )
   },
 
-  /** 更新 Room */
   updateRoom(
     roomId: string,
     req: UpdateRoomRequest,
@@ -516,7 +445,6 @@ export const federationApi = {
     )
   },
 
-  /** 获取 Room 详情 */
   getRoom(roomId: string, runtimeGrant?: string): Promise<RoomDetail> {
     return apiService.get<RoomDetail>(
       `${PREFIX}/rooms/${roomId}`,
@@ -524,7 +452,6 @@ export const federationApi = {
     )
   },
 
-  /** 获取 Room 成员 */
   getRoomMembers(
     roomId: string,
     runtimeGrant?: string,
@@ -535,7 +462,6 @@ export const federationApi = {
     )
   },
 
-  /** 邀请成员 */
   inviteMember(
     roomId: string,
     req: InviteMemberRequest,
@@ -548,7 +474,6 @@ export const federationApi = {
     )
   },
 
-  /** 接受群组邀请（pending → active） */
   acceptRoomInvite(
     roomId: string,
     runtimeGrant?: string,
@@ -560,7 +485,6 @@ export const federationApi = {
     )
   },
 
-  /** 拒绝群组邀请 */
   rejectRoomInvite(
     roomId: string,
     runtimeGrant?: string,
@@ -572,7 +496,6 @@ export const federationApi = {
     )
   },
 
-  /** 移除成员 */
   removeMember(
     roomId: string,
     actorUrl: string,
@@ -584,7 +507,6 @@ export const federationApi = {
     )
   },
 
-  /** Owner-only: set member role to `admin` or `member`. */
   setMemberRole(
     roomId: string,
     actorUrl: string,
@@ -603,7 +525,6 @@ export const federationApi = {
     )
   },
 
-  /** 离开 Room */
   leaveRoom(
     roomId: string,
     runtimeGrant?: string,
@@ -615,7 +536,6 @@ export const federationApi = {
     )
   },
 
-  /** 解散 Room（仅 owner） */
   deleteRoom(
     roomId: string,
     runtimeGrant?: string,
@@ -626,7 +546,6 @@ export const federationApi = {
     )
   },
 
-  /** 获取 Room 消息 */
   getRoomMessages(
     roomId: string,
     before?: string,
@@ -643,7 +562,6 @@ export const federationApi = {
     )
   },
 
-  /** 发送 Room 消息 */
   sendRoomMessage(
     roomId: string,
     req: SendRoomMessageRequest,
@@ -656,7 +574,6 @@ export const federationApi = {
     )
   },
 
-  /** Pin/Unpin Room 消息 */
   pinRoomMessage(
     roomId: string,
     messageId: string,
@@ -672,12 +589,7 @@ export const federationApi = {
     )
   },
 
-  /**
-   * Mint a one-time federation room WebSocket ticket.
-   *
-   * Requires a runtime grant with `federation:message`. Present the returned
-   * ticket as `tapp_ws_ticket` on {@link connectRoomWs}.
-   */
+  /** Requires federation:message; pass tapp_ws_ticket. */
   mintRoomWsTicket(
     roomId: string,
     runtimeGrant: string,
@@ -689,12 +601,6 @@ export const federationApi = {
     )
   },
 
-  /**
-   * Create a Room WebSocket connection.
-   *
-   * Same ticket handshake as {@link connectChannelWs}: Tapp passes a ticket;
-   * host UI connects ticket-less.
-   */
   connectRoomWs(roomId: string, ticket?: string): WebSocket {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const base = location.host
@@ -707,9 +613,6 @@ export const federationApi = {
     )
   },
 
-  // Ring
-
-  /** 获取 Ring 列表 */
   getRings(runtimeGrant?: string): Promise<RingListResponse> {
     return apiService.get<RingListResponse>(
       `${PREFIX}/rings`,
@@ -717,7 +620,6 @@ export const federationApi = {
     )
   },
 
-  /** 创建 Ring */
   createRing(
     req: CreateRingRequest,
     runtimeGrant?: string,
@@ -729,7 +631,6 @@ export const federationApi = {
     )
   },
 
-  /** 获取 Ring 详情 */
   getRing(ringId: string, runtimeGrant?: string): Promise<RingDetail> {
     return apiService.get<RingDetail>(
       `${PREFIX}/rings/${ringId}`,
@@ -737,7 +638,6 @@ export const federationApi = {
     )
   },
 
-  /** 离开 Ring */
   leaveRing(
     ringId: string,
     runtimeGrant?: string,
@@ -749,7 +649,6 @@ export const federationApi = {
     )
   },
 
-  /** 获取 Ring Peer 列表 */
   getRingPeers(
     ringId: string,
     runtimeGrant?: string,
@@ -760,7 +659,6 @@ export const federationApi = {
     )
   },
 
-  /** 添加 Peer */
   addPeer(
     ringId: string,
     req: AddPeerRequest,
@@ -773,7 +671,6 @@ export const federationApi = {
     )
   },
 
-  /** 移除 Peer */
   removePeer(
     ringId: string,
     peerUrl: string,
@@ -785,7 +682,6 @@ export const federationApi = {
     )
   },
 
-  /** 触发 Gossip 同步 */
   triggerSync(
     ringId: string,
     runtimeGrant?: string,
@@ -801,9 +697,6 @@ export const federationApi = {
     }>(`${PREFIX}/rings/${ringId}/sync`, {}, attributionOptions(runtimeGrant))
   },
 
-  // Trust 策略管理
-
-  /** 获取信任策略 */
   getTrustPolicy(runtimeGrant?: string): Promise<TrustPolicyResponse> {
     return apiService.get<TrustPolicyResponse>(
       `${PREFIX}/trust/policy`,
@@ -811,7 +704,6 @@ export const federationApi = {
     )
   },
 
-  /** 更新实例级策略（allowlist / min_trust / auto_discover / rate limit）— admin */
   updateTrustPolicy(
     req: UpdateTrustPolicyRequest,
     runtimeGrant?: string,
@@ -833,7 +725,6 @@ export const federationApi = {
     )
   },
 
-  /** 列出所有已知实例 */
   getInstances(runtimeGrant?: string): Promise<InstanceListResponse> {
     return apiService.get<InstanceListResponse>(
       `${PREFIX}/trust/instances`,
@@ -841,7 +732,6 @@ export const federationApi = {
     )
   },
 
-  /** 更新实例信任层级 */
   updateInstanceTrust(
     req: UpdateTrustRequest,
     runtimeGrant?: string,
@@ -853,7 +743,6 @@ export const federationApi = {
     )
   },
 
-  /** 封禁/解封实例 */
   toggleInstanceBlock(
     req: ToggleBlockRequest,
     runtimeGrant?: string,
@@ -865,7 +754,6 @@ export const federationApi = {
     )
   },
 
-  /** 内容过滤规则列表（admin） */
   listContentFilters(
     runtimeGrant?: string,
   ): Promise<ContentFilterListResponse> {
@@ -908,9 +796,6 @@ export const federationApi = {
     )
   },
 
-  // 文件传输
-
-  /** 发起文件传输（私信 Channel） */
   initiateTransfer(
     channelId: string,
     req: InitTransferRequest,
@@ -923,7 +808,6 @@ export const federationApi = {
     )
   },
 
-  /** 列出 Channel 的文件传输 */
   listTransfers(
     channelId: string,
     runtimeGrant?: string,
@@ -934,7 +818,6 @@ export const federationApi = {
     )
   },
 
-  /** 发起文件传输（群聊 Room） */
   initiateRoomTransfer(
     roomId: string,
     req: InitTransferRequest,
@@ -947,7 +830,6 @@ export const federationApi = {
     )
   },
 
-  /** 列出 Room 的文件传输 */
   listRoomTransfers(
     roomId: string,
     runtimeGrant?: string,
@@ -958,10 +840,6 @@ export const federationApi = {
     )
   },
 
-  /**
-   * Group attachment library index (messages + local transfers).
-   * Does not return payload.data; download via transfer_id or live chat payload.
-   */
   listRoomFiles(
     roomId: string,
     params?: ListRoomFilesParams,
@@ -979,7 +857,6 @@ export const federationApi = {
     )
   },
 
-  /** 获取传输详情 */
   getTransfer(
     transferId: string,
     runtimeGrant?: string,
@@ -990,7 +867,6 @@ export const federationApi = {
     )
   },
 
-  /** 上传文件分块 */
   uploadChunk(
     transferId: string,
     req: UploadChunkRequest,
@@ -1003,7 +879,6 @@ export const federationApi = {
     )
   },
 
-  /** 取消传输 */
   cancelTransfer(
     transferId: string,
     runtimeGrant?: string,
@@ -1015,7 +890,6 @@ export const federationApi = {
     )
   },
 
-  /** Transfer room ownership to another member (actor URL or local username) */
   transferRoomOwnership(
     roomId: string,
     newOwner: string,
@@ -1033,14 +907,13 @@ export const federationApi = {
     )
   },
 
-  /** Start channel E2E key exchange (publishes local pubkey to peer) */
   initiateChannelE2e(
     channelId: string,
     runtimeGrant?: string,
   ): Promise<{
     success: boolean
     channel_id: string
-    /** Wire: HTTP snake_case; WS/bridge also expose publicKey */
+    /** HTTP snake_case; WS/bridge also expose publicKey. */
     public_key: string
     publicKey?: string
     algorithm: string
@@ -1053,14 +926,13 @@ export const federationApi = {
     )
   },
 
-  /** Publish room E2E public key to other members */
   initiateRoomE2e(
     roomId: string,
     runtimeGrant?: string,
   ): Promise<{
     success: boolean
     room_id: string
-    /** Wire: HTTP snake_case; WS/bridge also expose publicKey */
+    /** HTTP snake_case; WS/bridge also expose publicKey. */
     public_key: string
     publicKey?: string
     algorithm: string
@@ -1073,7 +945,6 @@ export const federationApi = {
     )
   },
 
-  /** Add a sticker to the room pack (owner/admin only; host enforces). */
   addRoomSticker(
     roomId: string,
     req: { data: string; name?: string },
@@ -1096,7 +967,6 @@ export const federationApi = {
     )
   },
 
-  /** Remove a sticker from the room pack (owner/admin only; host enforces). */
   removeRoomSticker(
     roomId: string,
     stickerId: string,
@@ -1118,26 +988,17 @@ export const federationApi = {
     )
   },
 
-  /**
-   * Download completed transfer bytes.
-   * - Channel (DM): channel owner
-   * - Room (group): any room member on this instance
-   * Used for file-meta messages that only store transfer_id in payload.
-   * Routed via /api/* so production Myriad proxy already forwards to backend;
-   * response is streamed (do not buffer in outer proxies).
-   */
   downloadTransfer(
     transferId: string,
     runtimeGrant?: string,
   ): Promise<{ blob: Blob; filename?: string; contentType?: string }> {
     return apiService.getBlob(`${PREFIX}/transfers/${transferId}/content`, {
       ...attributionOptions(runtimeGrant),
-      // Large files: 10 min
+      // 10 min
       timeout: 600_000,
     })
   },
 
-  /** Outbound delivery queue stats for the current user */
   getDeliveryStats(
     runtimeGrant?: string,
   ): Promise<import('../types/federation').DeliveryStats> {
@@ -1147,7 +1008,6 @@ export const federationApi = {
     )
   },
 
-  /** Recent delivery queue rows (dead first). Optional status scopes the page. */
   listDelivery(
     limit?: number,
     runtimeGrant?: string,
@@ -1163,10 +1023,6 @@ export const federationApi = {
     )
   },
 
-  /**
-   * Re-queue a single dead/stuck delivery item.
-   * When the prior error was user cancel, server sets `revived_cancelled: true`.
-   */
   retryDelivery(
     queueId: number,
     runtimeGrant?: string,
@@ -1184,7 +1040,6 @@ export const federationApi = {
     )
   },
 
-  /** Cancel a pending/delivering delivery item (marks dead) */
   cancelDelivery(
     queueId: number,
     runtimeGrant?: string,
@@ -1202,10 +1057,7 @@ export const federationApi = {
     )
   },
 
-  /**
-   * Re-queue all dead delivery items (capped).
-   * Server skips `cancelled:*` rows and reports `skipped_cancelled`.
-   */
+  /** Capped; skips cancelled:*. */
   retryAllDeadDelivery(
     limit?: number,
     runtimeGrant?: string,
@@ -1224,7 +1076,6 @@ export const federationApi = {
     )
   },
 
-  /** Cancel all pending/delivering delivery items (capped) */
   cancelAllPendingDelivery(
     limit?: number,
     runtimeGrant?: string,
@@ -1238,10 +1089,6 @@ export const federationApi = {
     )
   },
 
-  /**
-   * Dismiss (hard-delete) a single dead delivery queue row.
-   * Pending/delivering/delivered are rejected by the server.
-   */
   dismissDelivery(
     queueId: number,
     runtimeGrant?: string,
@@ -1258,10 +1105,6 @@ export const federationApi = {
     )
   },
 
-  /**
-   * Bulk-delete dead delivery rows (capped).
-   * When `cancelledOnly`, only `cancelled:%` error rows are removed.
-   */
   purgeDeadDelivery(
     opts?: { limit?: number; cancelledOnly?: boolean },
     runtimeGrant?: string,
@@ -1282,7 +1125,6 @@ export const federationApi = {
     )
   },
 
-  /** Self-join an open/public room. `roomId` may be bare or `rm_…@home[:port]`. */
   joinRoom(
     roomId: string,
     runtimeGrant?: string,

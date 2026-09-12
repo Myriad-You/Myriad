@@ -1,9 +1,3 @@
-/**
- * 高级功能处理器
- *
- * Media, Component, Shortcut, Event, Background, Animation, DynamicContent
- */
-
 import type { DynamicContentItem } from '../../../../services/DynamicContentProvider'
 import type { BackgroundRequirement, TappInstance } from '../../../types'
 import type { TappBridge } from '../../TappBridge'
@@ -26,14 +20,10 @@ import {
 } from '../../HostShortcutManager'
 import { getTappRuntime } from '../../TappRuntime'
 
-/**
- * 注册 Media 处理器
- */
 export function registerMediaHandlers(
   bridge: TappBridge,
   tappInstance: TappInstance,
 ): () => void {
-  // 高频操作（seek、volume）不需要后端日志记录，直接本地处理
   const HIGH_FREQUENCY_ACTIONS = new Set(['seek', 'volume', 'mute', 'unmute'])
 
   bridge.registerHandler('media.control', async (message) => {
@@ -43,10 +33,8 @@ export function registerMediaHandlers(
       value?: unknown
     }
     try {
-      // 先触发播放器控制事件（即时响应，避免后端 API 延迟阻塞 UI）
       switch (action) {
         case 'play':
-          // 只有在不是播放状态时才触发播放
           {
             const globalState = (
               window as { __musicPlayerState?: Record<string, unknown> }
@@ -57,7 +45,6 @@ export function registerMediaHandlers(
           }
           break
         case 'pause':
-          // 只有在播放状态时才触发暂停
           {
             const globalState = (
               window as { __musicPlayerState?: Record<string, unknown> }
@@ -104,7 +91,6 @@ export function registerMediaHandlers(
           break
       }
 
-      // 非高频操作异步记录日志（不阻塞 UI 响应）
       if (!HIGH_FREQUENCY_ACTIONS.has(action || '')) {
         const runtimeGrant = await bridge.getRuntimeGrant()
         TappApiService.mediaControl(
@@ -163,7 +149,6 @@ export function registerMediaHandlers(
         dark: string
       } | null
 
-      // 将内部 playMode 映射为 API 模式
       const modeMap: Record<string, string> = {
         loop: 'loop',
         single: 'single',
@@ -214,12 +199,10 @@ export function registerMediaHandlers(
               }
             : null,
           mode: apiMode,
-          volume: Math.round(volume * 100), // 转换为 0-100
+          volume: Math.round(volume * 100),
           muted: volume === 0,
-          // 歌词信息
           lyrics,
           currentLyricIndex,
-          // 动态主题色 - 完整颜色
           primaryColor: musicColor,
           secondaryColor: musicColors?.secondary || musicColor,
           accentColor: musicColors?.accent || musicColor,
@@ -281,17 +264,14 @@ export function registerMediaHandlers(
     return { success: true, data: { tracks: [], currentIndex: 0, total: 0 } }
   })
 
-  // 读取「跳过/禁止播放 VIP 歌曲」开关（默认开启）
   bridge.registerHandler('media.getSkipVip', async () => {
     const globalState = (
       window as { __musicPlayerState?: Record<string, unknown> }
     ).__musicPlayerState
-    // excludeVipSongs 未定义时默认为 true（与系统播放器默认一致）
     const skipVip = globalState ? globalState.excludeVipSongs !== false : true
     return { success: true, data: { skipVip } }
   })
 
-  // 设置「跳过/禁止播放 VIP 歌曲」开关
   bridge.registerHandler('media.setSkipVip', async (message) => {
     const [params] = (message.payload as { args: unknown[] }).args || []
     const { value } = (params || {}) as { value?: boolean }
@@ -304,9 +284,8 @@ export function registerMediaHandlers(
     return { success: true, data: { skipVip } }
   })
 
-  // 频谱数据缓存 - 避免高频调用时重复计算
   let spectrumCache: { data: unknown; timestamp: number } | null = null
-  const SPECTRUM_CACHE_TTL = 16 // ~60fps, 缓存16ms
+  const SPECTRUM_CACHE_TTL = 16
 
   const EMPTY_SPECTRUM = {
     spectrum: [] as number[],
@@ -317,14 +296,12 @@ export function registerMediaHandlers(
     high: 0,
   }
 
-  /** 读一帧频谱。getSpectrum 与推流共用，16ms 缓存挡住同一帧的重复采样。 */
   const readSpectrum = (): unknown => {
     const now = Date.now()
     if (spectrumCache && now - spectrumCache.timestamp < SPECTRUM_CACHE_TTL) {
       return spectrumCache.data
     }
 
-    // 从Myriad的audioManager获取频谱数据
     const audioManager = (
       window as {
         audioManager?: {
@@ -338,21 +315,18 @@ export function registerMediaHandlers(
     }
 
     const spectrum = audioManager.getSpectrumData()
-    // 原始 8 频段（bass→high 自然顺序）——供可视化使用；
-    // spectrum 是为 4 根柱重排过的（低-高-高-低），不适合按频率取值
     const bands =
       typeof audioManager.getSpectrumBands === 'function'
         ? audioManager.getSpectrumBands()
         : []
-    // 计算能量值（低频平均）
     const energy =
       spectrum.length >= 4
-        ? (spectrum[0] + spectrum[1] + spectrum[2] + spectrum[3]) * 0.25 // 乘法比除法快
+        ? (spectrum[0] + spectrum[1] + spectrum[2] + spectrum[3]) * 0.25
         : 0
     const result = {
-      spectrum, // 4 柱视觉重排数据 (0-1 范围，兼容旧消费方)
-      bands, // 原始 8 频段 (0-1 范围，bass→high)
-      energy, // 能量值 (0-1 范围)
+      spectrum,
+      bands,
+      energy,
       bass: bands.length >= 8 ? (bands[0] + bands[1]) * 0.5 : spectrum[0] || 0,
       mid: bands.length >= 8 ? (bands[3] + bands[4]) * 0.5 : spectrum[2] || 0,
       high: bands.length >= 8 ? (bands[6] + bands[7]) * 0.5 : 0,
@@ -365,16 +339,7 @@ export function registerMediaHandlers(
     return { success: true, data: readSpectrum() }
   })
 
-  /**
-   * 频谱推流：宿主每帧主动 emit，替代 tapp 每帧 request 一次 getSpectrum。
-   *
-   * 逐帧 request 会瞬间打满 TappBridge 的入站限速（240 条/分钟 ≈ 4 条/秒，见
-   * BRIDGE_LIMITS）——可视化 tapp 播放几秒就把配额烧光，之后连 media.control
-   * 都被静默丢弃，表现为「点下一首没反应」。host→tapp 的 emit 不计入入站配额，
-   * 顺带省掉每帧一次 postMessage 往返。
-   *
-   * 只在 tapp 显式订阅（onSpectrum）后才开；页面隐藏时 rAF 自然停摆。
-   */
+  /** 频谱改宿主按帧 emit；逐帧 request 会打满入站限速。emit 不计入入站配额。 */
   let spectrumRaf: number | null = null
   let spectrumStreaming = false
 
@@ -389,7 +354,7 @@ export function registerMediaHandlers(
   const spectrumTick = () => {
     spectrumRaf = null
     if (!spectrumStreaming) return
-    // 桥已销毁（tapp 卸载/换页）：循环必须自己收尾，否则泄漏到下一个实例
+    // 桥已销毁则循环必须收尾，否则泄漏到下一实例。
     if (bridge.isDestroyed()) {
       stopSpectrumStream()
       return
@@ -415,10 +380,6 @@ export function registerMediaHandlers(
     return { success: true, data: { streaming: true } }
   })
 
-  // 获取歌词（逐字 + 逐行兜底）通用能力
-  // 多源逐字：网易云 yrc（按 id）→ 酷狗 KRC（按 歌名+歌手+时长）→ 逐行
-  // 默认取当前播放歌曲，也可通过 { songId, source } 指定
-  // 宿主已加载本曲歌词时直接返回全局态，避免 Tapp 恢复/重开时再等网络
   bridge.registerHandler('media.getLyrics', async (message) => {
     const [params] = (message.payload as { args: unknown[] }).args || []
     const { songId, source } = (params || {}) as {
@@ -449,7 +410,6 @@ export function registerMediaHandlers(
       const lyricSource = src === 'qq' ? 'qq' : 'netease'
       const isCurrent = !songId || String(songId) === String(currentSong?.id)
 
-      // 快路径：宿主已为本曲拉过词（含逐字），直接回包，避免酷狗兜底二次等待
       if (isCurrent && globalState) {
         const gLines =
           (globalState.lyrics as Array<{
@@ -505,10 +465,9 @@ export function registerMediaHandlers(
           verbatim: result.verbatim,
           hasVerbatim: result.hasVerbatim,
           source: src,
-          verbatimSource: result.verbatimSource, // 'netease' | 'kugou' | ''
-          // 逐行翻译已嵌入 lines/verbatim 各行的 translation 字段
+          verbatimSource: result.verbatimSource,
           hasTranslation: result.hasTranslation,
-          translationLang: result.translationLang, // 'zh' | ''
+          translationLang: result.translationLang,
         },
       }
     } catch (error) {
@@ -520,8 +479,6 @@ export function registerMediaHandlers(
     }
   })
 
-  // 节拍网格：预载全曲离线分析（BPM + 每拍时间戳），供可视化精确跟拍
-  // 分析在主应用做（每首歌一次，带缓存），tapp 只拿结果
   bridge.registerHandler('media.getBeatGrid', async () => {
     const globalState = (
       window as { __musicPlayerState?: Record<string, unknown> }
@@ -570,7 +527,6 @@ export function registerMediaHandlers(
       song?: Record<string, unknown>
     }
 
-    // Full song object (Aro library share / embed play) — not limited to current playlist.
     const songIn =
       raw.song && typeof raw.song === 'object'
         ? (raw.song as Record<string, unknown>)
@@ -582,7 +538,6 @@ export function registerMediaHandlers(
       const source = String(songIn.source || 'netease')
       let url = String(songIn.url || '')
       if (!url) {
-        // 同步 URL：临时播放热路径禁止 await geo / 动态 import
         if (source === 'netease') {
           url = getNeteaseAudioUrlImmediate(id)
         } else if (source === 'qq') {
@@ -595,7 +550,6 @@ export function registerMediaHandlers(
         name: String(songIn.name || songIn.title || `Track #${id}`),
         artist: String(songIn.artist || ''),
         album: String(songIn.album || ''),
-        // 临时播放：统一代理封面，保证取色同源可读
         cover: proxyImageUrlOr(rawCover, rawCover),
         url,
         duration:
@@ -665,7 +619,6 @@ export function registerMediaHandlers(
     return { success: false, error: 'Track not found' }
   })
 
-  // 在当前播放列表中跳转到指定索引（不触发临时播放）
   bridge.registerHandler('media.jumpToIndex', async (message) => {
     const [params] = (message.payload as { args: unknown[] }).args || []
     const { index } = (params || {}) as { index?: number }
@@ -676,7 +629,6 @@ export function registerMediaHandlers(
       const playlist = globalState.playlist as Array<Record<string, unknown>>
       if (index >= 0 && index < playlist.length) {
         const targetSong = playlist[index]
-        // 使用新事件 jump-to-index，不触发临时播放
         window.dispatchEvent(
           new CustomEvent('jump-to-index', {
             detail: { index, song: targetSong },
@@ -700,7 +652,6 @@ export function registerMediaHandlers(
     return { success: false, error: 'Invalid index or playlist not available' }
   })
 
-  // 加载网易云歌单
   bridge.registerHandler('media.loadNeteasePlaylist', async (message) => {
     const [params] = (message.payload as { args: unknown[] }).args || []
     const { playlistId } = (params || {}) as { playlistId?: string }
@@ -709,7 +660,6 @@ export function registerMediaHandlers(
       return { success: false, error: 'Playlist ID required' }
     }
 
-    // 检查权限
     if (!tappInstance.grantedPermissions?.includes('media:control')) {
       return {
         success: false,
@@ -718,7 +668,6 @@ export function registerMediaHandlers(
     }
 
     try {
-      // 触发加载歌单事件
       window.dispatchEvent(
         new CustomEvent('music-player-load-playlist', {
           detail: {
@@ -744,9 +693,6 @@ export function registerMediaHandlers(
   return stopSpectrumStream
 }
 
-/**
- * 注册 Speech 处理器（TTS/ASR）
- */
 export function registerSpeechHandlers(
   bridge: TappBridge,
   _tappInstance: TappInstance,
@@ -873,9 +819,6 @@ export function registerSpeechHandlers(
   })
 }
 
-/**
- * 注册 Background 处理器
- */
 export function registerBackgroundHandlers(
   bridge: TappBridge,
   tappInstance: TappInstance,
@@ -973,9 +916,6 @@ export function registerBackgroundHandlers(
   })
 }
 
-/**
- * 注册 Animation 处理器
- */
 export function registerAnimationHandlers(
   bridge: TappBridge,
   animationConfigRef?: React.RefObject<AnimationConfigRef>,
@@ -1022,9 +962,6 @@ export function registerAnimationHandlers(
   })
 }
 
-/**
- * 注册 DynamicContent 处理器
- */
 export function registerDynamicContentHandlers(
   bridge: TappBridge,
   tappInstance: TappInstance,
@@ -1123,14 +1060,10 @@ export function registerDynamicContentHandlers(
   })
 }
 
-/**
- * 注册 Component/Shortcut/Event 处理器
- */
 export function registerAdvancedHandlers(
   bridge: TappBridge,
   tappInstance: TappInstance,
 ): () => void {
-  // Component handlers
   bridge.registerHandler('component.registerTheme', async (message) => {
     const [config] = (message.payload as { args: unknown[] }).args || []
     try {
@@ -1202,12 +1135,6 @@ export function registerAdvancedHandlers(
     }
   })
 
-  // Shortcut handlers — persist via API then bind host keydown so chords fire.
-  // Only rehydrate when the tapp has shortcut:register; otherwise list always
-  // 403s (grant lacks the permission) and clutters the Network panel.
-  //
-  // Multi-window: BE shortcuts are tapp-wide; peers keep stale host chords unless
-  // we broadcast register/unregister on a window CustomEvent.
   const HOST_SHORTCUTS_CHANGED = 'tapp:host-shortcuts-changed'
 
   interface HostShortcutsChangedDetail {
@@ -1220,7 +1147,6 @@ export function registerAdvancedHandlers(
       scope?: string
     }
     shortcutId?: string
-    /** Origin bridge session — peers ignore self to avoid double-bind. */
     originSessionToken?: string
   }
 
@@ -1251,14 +1177,12 @@ export function registerAdvancedHandlers(
         }
       }
     } catch {
-      /* list may fail if grant expired/revoked — ignore */
     }
   })()
 
   const onHostShortcutsChanged = (ev: Event) => {
     const detail = (ev as CustomEvent<HostShortcutsChangedDetail>).detail
     if (!detail || detail.tappId !== tappInstance.id) return
-    // Ignore self-originated events (we already bound/unbound locally).
     const selfToken = bridge.getSessionToken()
     if (
       detail.originSessionToken &&
@@ -1379,14 +1303,10 @@ export function registerAdvancedHandlers(
     if (typeof window !== 'undefined') {
       window.removeEventListener(HOST_SHORTCUTS_CHANGED, onHostShortcutsChanged)
     }
-    // Per-bridge unbind so multi-window peers keep their host shortcuts.
     hostUnbindAllForBridge(bridge)
   }
 }
 
-/**
- * 注册 Context/Fetch/Data 处理器
- */
 export function registerContextHandlers(
   bridge: TappBridge,
   tappInstance: TappInstance,
@@ -1408,9 +1328,6 @@ export function registerContextHandlers(
   })
 
   bridge.registerHandler('context.getUser', async () => {
-    // Prefer grant-scoped context (includes connectedPlatforms, etc.).
-    // If grant is dead/unissuable after auth reset, fall back to session cookie
-    // so Aro can still resolve identity and unlock messenger.
     try {
       return {
         success: true,
@@ -1425,15 +1342,12 @@ export function registerContextHandlers(
         )
         const snap = await fetchSessionUserSnapshot()
         if (snap) {
-          // Match host UI locale/TZ (same as TappHttpClient headers) —
-          // never hard-code zh-CN / Asia/Shanghai after the user switches language.
           const { getDefaultLocale } = await import('../../../../i18n')
           let timezone = 'UTC'
           try {
             timezone =
               new Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
           } catch {
-            /* ignore */
           }
           return {
             success: true,
@@ -1455,7 +1369,6 @@ export function registerContextHandlers(
           }
         }
       } catch {
-        // fall through to grant error
       }
       return {
         success: false,
@@ -1465,7 +1378,6 @@ export function registerContextHandlers(
   })
 
   bridge.registerHandler('context.getPlayer', async () => {
-    // 直接从前端全局状态读取播放器信息（后端无法获取实时播放状态）
     const globalState = (
       window as { __musicPlayerState?: Record<string, unknown> }
     ).__musicPlayerState
@@ -1601,9 +1513,6 @@ export function registerContextHandlers(
     }
   })
 
-  // Tapp API 声明系统
-
-  // 执行 Tapp manifest 中声明的 API
   bridge.registerHandler('api.execute', async (message) => {
     const [apiName, params] =
       (message.payload as { args: unknown[] }).args || []
@@ -1631,7 +1540,6 @@ export function registerContextHandlers(
     }
   })
 
-  // 列出 Tapp 可用的 API
   bridge.registerHandler('api.list', async () => {
     try {
       const apis = await TappApiService.listTappApis(
@@ -1647,7 +1555,6 @@ export function registerContextHandlers(
     }
   })
 
-  // 获取客户端地理位置
   bridge.registerHandler('context.getGeo', async () => {
     try {
       const geo = await TappApiService.getContextGeo(

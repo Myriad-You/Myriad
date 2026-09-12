@@ -1,12 +1,3 @@
-/**
- * Auto-navigate admin SPA → proxy maintenance page once an update job
- * enters maintenance.
- *
- * Why full navigation: when maintenance.json active=true, the proxy serves
- * maintenance.html for `/` and (once active) `/api/*`. SPA polling breaks;
- * only location.assign/reload reaches the maintenance page.
- */
-
 export const PROXY_STATUS_POLL_MS = 1_500
 export const MAINT_NAV_STORAGE_KEY = 'myriad-updater-maint-nav'
 
@@ -15,7 +6,6 @@ export interface ProxyMaintenanceStatus {
   phase?: string
 }
 
-/** Parse `GET /_proxy/status` JSON body. Returns null if shape is unexpected. */
 export function parseProxyStatus(body: unknown): ProxyMaintenanceStatus | null {
   if (!body || typeof body !== 'object') return null
   const maintenance = (body as { maintenance?: unknown }).maintenance
@@ -29,7 +19,6 @@ export function parseProxyStatus(body: unknown): ProxyMaintenanceStatus | null {
   }
 }
 
-/** True when a 503 body looks like the proxy maintenance HTML (not JSON). */
 export function isLikelyMaintenanceHtml(detail: string): boolean {
   const s = detail.trimStart().toLowerCase()
   return (
@@ -57,11 +46,6 @@ export function markNavigatedForJob(jobId: string): void {
   }
 }
 
-/**
- * Whether we should leave the SPA for the maintenance page.
- * Once per job; primary signal is proxy status, with status.maintenance_active
- * and non-JSON 503 during job_in_flight as fallbacks.
- */
 export function shouldNavigateToMaintenance(opts: {
   jobId: string
   proxyActive?: boolean | null
@@ -77,7 +61,6 @@ export function shouldNavigateToMaintenance(opts: {
   return false
 }
 
-/** Full navigation so the proxy can serve maintenance.html. */
 export function navigateToMaintenancePage(jobId: string): void {
   markNavigatedForJob(jobId)
   window.location.assign('/')
@@ -85,19 +68,12 @@ export function navigateToMaintenancePage(jobId: string): void {
 
 export type MaintenancePollStop = () => void
 
-/**
- * Poll `/_proxy/status` until maintenance is active (or stop is called).
- * Falls back to status.maintenance_active and non-JSON 503 when the
- * proxy status endpoint is missing or returns unexpected payloads.
- */
 export function startMaintenancePoll(opts: {
   jobId: string
   intervalMs?: number
-  /** Latest updater status.maintenance_active (ref-backed in the panel). */
   getStatusMaintenanceActive?: () => boolean
   onNavigate: () => void
   signal?: AbortSignal
-  /** Injectable fetch for tests. */
   fetchImpl?: typeof fetch
 }): MaintenancePollStop {
   const intervalMs = opts.intervalMs ?? PROXY_STATUS_POLL_MS
@@ -161,9 +137,8 @@ export function startMaintenancePoll(opts: {
           }
         }
       }
-      // 404 / other: treat as missing endpoint; fall through to status fallback
     } catch {
-      // Network blip — keep polling; status fallback may still fire
+      // network blip — keep polling
     }
 
     const statusActive = opts.getStatusMaintenanceActive?.() ?? false

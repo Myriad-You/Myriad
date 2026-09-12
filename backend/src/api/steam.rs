@@ -121,8 +121,7 @@ fn store_recent_playtime(steam_id: &str, minutes: i32) {
 
 /// 在线状态的服务端缓存：多访客共享同一份，避免每个访客每次轮询都打一遍
 /// GetPlayerSummaries。120s TTL 兼顾在线状态时效性与配额，头像/用户名随之一起缓存。
-/// 采用 stale-while-revalidate：命中即立刻返回，过期则返回旧值并后台刷新，
-/// 任何访客都不会阻塞在一次实时 Steam 调用上。
+/// 采用 stale-while-revalidate：Fresh/Stale 命中立刻返回；冷缓存同步拉一次。
 /// `std::sync::Mutex`: short critical section only; never hold across `.await`.
 static PRESENCE_CACHE: std::sync::Mutex<Option<PresenceCache>> = std::sync::Mutex::new(None);
 const PRESENCE_TTL: std::time::Duration = std::time::Duration::from_secs(120);
@@ -326,14 +325,14 @@ pub async fn get_steam_presence(
         }));
     }
 
-    // stale-while-revalidate：任何访客都不阻塞在实时 Steam 调用上
+    // stale-while-revalidate：Fresh/Stale 立刻返回；冷缓存同步拉一次
     match read_presence(&steam_id) {
         // 新鲜：直接返回
         Some(PresenceHit::Fresh(presence)) => {
             return Ok(Json(ApiResponse {
                 success: true,
                 data: Some(presence),
-                message: "获取成功".to_string(),
+                message: "ok".to_string(),
             }));
         }
         // 陈旧：先返回旧值，后台异步刷新
@@ -342,7 +341,7 @@ pub async fn get_steam_presence(
             return Ok(Json(ApiResponse {
                 success: true,
                 data: Some(presence),
-                message: "获取成功".to_string(),
+                message: "ok".to_string(),
             }));
         }
         // 冷缓存：只能同步拉一次
@@ -353,7 +352,7 @@ pub async fn get_steam_presence(
         Ok(presence) => Ok(Json(ApiResponse {
             success: true,
             data: Some(presence),
-            message: "获取成功".to_string(),
+            message: "ok".to_string(),
         })),
         Err(e) => {
             tracing::warn!("Failed to fetch Steam presence for {}: {}", steam_id, e);
@@ -426,7 +425,7 @@ pub async fn get_steam_user(
             total_games,
             total_playtime,
         }),
-        message: "获取成功".to_string(),
+        message: "ok".to_string(),
     }))
 }
 
@@ -444,7 +443,7 @@ pub async fn get_steam_user_info(
             Ok(Json(ApiResponse {
                 success: true,
                 data: Some(data),
-                message: "获取成功".to_string(),
+                message: "ok".to_string(),
             }))
         }
         Err(e) => {
@@ -482,7 +481,7 @@ pub async fn get_steam_games(
                     total_games,
                     total_playtime,
                 }),
-                message: format!("获取成功，共 {} 个游戏", total_games),
+                message: "ok".to_string(),
             }))
         }
         Err(e) => {
@@ -516,11 +515,10 @@ pub async fn get_steam_wishlist(
                 .filter_map(|w| serde_json::to_value(w).ok())
                 .collect();
 
-            let count = data.len();
             Ok(Json(ApiResponse {
                 success: true,
                 data: Some(data),
-                message: format!("获取成功，共 {} 个游戏", count),
+                message: "ok".to_string(),
             }))
         }
         Err(e) => {
@@ -583,7 +581,7 @@ pub async fn get_steam_stats(
                     recently_played,
                     total_hours,
                 }),
-                message: "获取成功".to_string(),
+                message: "ok".to_string(),
             }))
         }
         Err(e) => {
@@ -772,7 +770,7 @@ pub async fn get_steam_game_details(
                                     return Ok(Json(ApiResponse {
                                         success: true,
                                         data: Some(game_data.clone()),
-                                        message: "获取成功".to_string(),
+                                        message: "ok".to_string(),
                                     }));
                                 }
                             }

@@ -1,9 +1,3 @@
-/**
- * Shared widget Runtime Grant refcounting.
- *
- *   pnpm exec tsx --test src/tapp/runtime/SharedWidgetGrant.test.ts
- */
-
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
@@ -21,7 +15,6 @@ describe('sharedWidgetInstanceId', () => {
 
   it('is longer than a short 8-hex hash while remaining BE-safe', () => {
     const id = sharedWidgetInstanceId('com.example.app')
-    // ws.<slug>.<16 hex> — more entropy than the previous ws.<8 hex>
     assert.ok(id.length > 12, `expected longer id, got ${id}`)
     assert.match(id, /^ws\./)
     assert.match(id, /^[\w.-]+$/)

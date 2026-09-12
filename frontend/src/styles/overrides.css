@@ -1,9 +1,3 @@
-/* ============================================
-   Tailwind颜色覆盖和表单样式
-   从 index.astro 提取
-   ============================================ */
-
-/* Tailwind颜色类全局覆盖 */
 .text-gray-700 {
   color: var(--text-primary) !important;
 }
@@ -44,7 +38,6 @@ html.dark .dark\:text-gray-500 {
   color: var(--text-muted) !important;
 }
 
-/* 背景颜色覆盖 */
 html.dark .dark\:bg-gray-700 {
   background-color: var(--bg-tertiary) !important;
 }
@@ -62,7 +55,6 @@ html.dark .dark\:hover\:bg-gray-700:hover {
   background-color: var(--bg-hover) !important;
 }
 
-/* 边框颜色覆盖 */
 .border-gray-200\/50 {
   border-color: rgb(229 231 235 / 50%) !important;
   border-color: color-mix(
@@ -89,7 +81,6 @@ html.dark .dark\:border-gray-700\/50 {
   ) !important;
 }
 
-/* 主题色覆盖 */
 .bg-indigo-500,
 .bg-indigo-600 {
   background-color: var(--color-primary) !important;
@@ -135,7 +126,6 @@ html.dark .dark\:hover\:bg-indigo-700:hover {
   ) !important;
 }
 
-/* 表单和输入框样式 */
 input[type='text'],
 input[type='email'],
 input[type='password'],
@@ -164,7 +154,6 @@ select:focus {
     color-mix(in srgb, var(--color-primary) 15%, transparent);
 }
 
-/* 按钮样式 */
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -178,13 +167,12 @@ button:disabled {
   background-color: var(--color-secondary);
 }
 
-/* 移动端文字优化 */
 @media (width <= 640px) {
   body {
     font-size: 15px;
   }
 
-  /* 仅限 prose 内容区域的标题缩放，避免覆盖卡片组件中的 Tailwind 字体类 */
+  /* Scale headings only inside .prose so card Tailwind type classes stay intact. */
   .prose h1 {
     font-size: 1.75rem;
   }
@@ -219,7 +207,6 @@ button:disabled {
   }
 }
 
-/* 横屏模式 */
 @media (height <= 500px) and (orientation: landscape) {
   .min-h-screen {
     min-height: 0;
@@ -230,7 +217,6 @@ button:disabled {
   }
 }
 
-/* 高对比度模式 */
 @media (prefers-contrast: more) {
   :root {
     --border-color: rgb(0 0 0 / 30%);

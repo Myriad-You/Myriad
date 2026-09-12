@@ -1,27 +1,19 @@
-/**
- * Map backend auth / OAuth / admin error tokens to localized user-facing copy.
- */
-
 import type { useI18n } from '../contexts/I18nContext'
 import { userFacingError } from './userFacingError'
 
 type T = ReturnType<typeof useI18n>['t']
 type Format = ReturnType<typeof useI18n>['format']
 
-/** Safe provider `desc` for display: strip controls, truncate, reject junk. */
 export function sanitizeOAuthDesc(raw: string | null | undefined): string | null {
   if (!raw) return null
   let s = raw.trim()
-  // URLSearchParams already decodes; still normalize whitespace / controls
-  s = s.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim()
-  s = s.replace(/[<>`]/g, '')
+  s = s.replaceAll(/[\u0000-\u001F\u007F]/g, ' ').replaceAll(/\s+/g, ' ').trim()
+  s = s.replaceAll(/[<>`]/g, '')
   if (!s) return null
-  // Avoid echoing long opaque blobs or pure URLs as the primary message
   if (s.length > 180) s = `${s.slice(0, 180)}…`
   return s
 }
 
-/** Known OAuth callback `oauth_error` codes from backend + common IdP errors. */
 export function messageForOAuthError(
   code: string,
   desc: string | null | undefined,
@@ -96,11 +88,9 @@ export function messageForOAuthError(
       base = format(t.auth.oauthError, { code: code || 'unknown' })
   }
 
-  // Append sanitized provider description when it adds actionable detail
   if (
     safeDesc &&
     !base.toLowerCase().includes(safeDesc.toLowerCase()) &&
-    // Prefer our guidance for session/state errors; desc is usually empty anyway
     !code.startsWith('state_') &&
     code !== 'missing_code' &&
     code !== 'missing_state'
@@ -111,7 +101,6 @@ export function messageForOAuthError(
   return base
 }
 
-/** Local username/password login failures from auth_local + rate limit middleware. */
 export function messageForLocalLoginError(
   err: unknown,
   t: T,
@@ -126,7 +115,6 @@ export function messageForLocalLoginError(
   if (/local login disabled/i.test(msg)) {
     return t.auth.localLoginDisabled
   }
-  // Backend: "Rate limit exceeded. Please try again in N seconds."
   const retryMatch = msg.match(/try again in (\d+)\s*seconds?/i)
   if (retryMatch || /too many requests|rate limit exceeded/i.test(msg)) {
     const seconds = retryMatch ? Number.parseInt(retryMatch[1], 10) : 60
@@ -138,7 +126,6 @@ export function messageForLocalLoginError(
   return userFacingError(err, t.auth.loginFailed)
 }
 
-/** Admin user-management API English error bodies → i18n. */
 export function messageForAdminUserError(
   err: unknown,
   t: T,

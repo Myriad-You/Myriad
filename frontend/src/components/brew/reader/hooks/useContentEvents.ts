@@ -1,13 +1,11 @@
-/**
- * 正文交互：评论高亮、注释悬停、划词评论
- */
-
 import type { CommentItem } from '../../../../services/brewApi'
 import type { AnnotationItem, AnnotationType } from '../../../../services/brewliaApi'
+import type { ReaderCopy } from '../types'
 import { useCallback, useEffect, useRef } from 'react'
 import { playNeteaseSong } from '../../../../utils/embedProcessor'
 
 export interface UseContentEventsOptions {
+  setFocusedCommentIds: (ids: number[]) => void
   contentRef: React.RefObject<HTMLDivElement | null>
   comments: CommentItem[]
   isAuthenticated: boolean
@@ -34,7 +32,7 @@ export interface UseContentEventsOptions {
   setShowCommentPopup: (show: boolean) => void
   setCommentInput: (input: string) => void
   showToastMessage: (message: string, duration?: number) => void
-  t: Record<string, any>
+  t: ReaderCopy
 }
 
 export interface UseContentEventsReturn {
@@ -43,6 +41,7 @@ export interface UseContentEventsReturn {
 }
 
 export function useContentEvents({
+  setFocusedCommentIds,
   contentRef,
   comments,
   isAuthenticated,
@@ -77,7 +76,7 @@ export function useContentEvents({
 
   const startTooltipHideTimer = useCallback(
     (delay = 200) => {
-      if (tooltipHideTimerRef.current) return // 已有定时器运行中
+      if (tooltipHideTimerRef.current) return
       tooltipHideTimerRef.current = setTimeout(() => {
         tooltipHideTimerRef.current = null
         setCommentTooltip(null)
@@ -100,17 +99,17 @@ export function useContentEvents({
     return () => clearTooltipHideTimer()
   }, [clearTooltipHideTimer])
 
-  // 处理评论高亮和嵌入卡片的点击和悬停事件
   useEffect(() => {
     if (!contentRef.current) return
 
+    const container = contentRef.current
+    let focusTimer: ReturnType<typeof setTimeout> | null = null
     const handleContentClick = async (e: Event) => {
       const target = e.target as HTMLElement
 
-      // 检查是否点击了图片（需要排除嵌入卡片内的图片）
       if (target.tagName === 'IMG') {
         const img = target as HTMLImageElement
-        // 检查图片是否在嵌入卡片内（brew-embed-card, brew-embed-exempt, brew-bilibili-embed 等）
+        // 嵌入卡片内的图片不拦。
         const isInEmbedCard = img.closest(
           '.brew-embed-card, .brew-embed-exempt, .brew-bilibili-embed, .brew-netease-music, .brew-steam-game, .brew-bilibili-video',
         )
@@ -121,10 +120,8 @@ export function useContentEvents({
           setLightboxImage(img.src)
           return
         }
-        // 如果是嵌入卡片内的图片，不阻止事件，让它继续冒泡到卡片处理
       }
 
-      // 检查是否点击了网易云音乐嵌入卡片
       const neteaseCard = target.closest('.brew-netease-music')
       if (neteaseCard) {
         e.preventDefault()
@@ -133,7 +130,6 @@ export function useContentEvents({
         const songId = neteaseCard.getAttribute('data-song-id')
         if (songId) {
           try {
-            // 显示加载状态
             neteaseCard.classList.add('opacity-50', 'pointer-events-none')
             await playNeteaseSong(songId)
             showToastMessage(t.brew.startPlaying)
@@ -147,7 +143,6 @@ export function useContentEvents({
         return
       }
 
-      // 检查是否点击了高亮文本
       const highlight = target.closest('.user-comment-highlight')
 
       if (highlight) {
@@ -156,16 +151,24 @@ export function useContentEvents({
 
         const commentId = highlight.getAttribute('data-comment-id')
         if (commentId) {
-          // 隐藏 tooltip
+          const ids = new Set<number>()
+          let node: Element | null = highlight
+          while (node && node !== container) {
+            if (node.matches('.user-comment-highlight')) ids.add(Number(node.getAttribute('data-comment-id')))
+            node = node.parentElement
+          }
+          setFocusedCommentIds(
+            Iterator.from(ids).filter(Number.isFinite).toArray(),
+          )
           setCommentTooltip(null)
-          // 打开评论面板
           setShowCommentsPanel(true)
-          // 可选：滚动到对应评论
-          setTimeout(() => {
+          if (focusTimer) clearTimeout(focusTimer)
+          focusTimer = setTimeout(() => {
             const commentEl = document.querySelector(
               `[data-panel-comment-id="${commentId}"]`,
             )
             if (commentEl) {
+              ;(commentEl as HTMLElement).focus({ preventScroll: true })
               commentEl.scrollIntoView({ behavior: 'smooth', block: 'center' })
             }
           }, 100)
@@ -173,17 +176,15 @@ export function useContentEvents({
       }
     }
 
-    // 处理悬停显示 tooltip + 离开高亮区域时启动延迟关闭
     let lastHoveredCommentId: string | null = null
     const handleMouseOver = (e: Event) => {
       const target = e.target as HTMLElement
       const highlight = target.closest('.user-comment-highlight') as HTMLElement
 
       if (highlight) {
-        // 鼠标在高亮区域，取消任何待关闭的定时器
         clearTooltipHideTimer()
         const commentId = highlight.getAttribute('data-comment-id')
-        // 同一个评论不重复设置，避免创建新对象引用触发重渲染
+        // 同一评论不重复 setState。
         if (commentId && commentId !== lastHoveredCommentId) {
           lastHoveredCommentId = commentId
           const comment = commentsRef.current.find(
@@ -200,35 +201,42 @@ export function useContentEvents({
         }
       } else {
         lastHoveredCommentId = null
-        // 鼠标离开高亮区域到文章其他内容，启动延迟关闭（如果不在 tooltip 上）
         if (!isHoveringTooltipRef.current) {
           startTooltipHideTimer()
         }
       }
     }
 
-    // 鼠标离开内容区域（可能是移向 tooltip 或其他区域）
     const handleContentMouseLeave = () => {
       if (!isHoveringTooltipRef.current) {
         startTooltipHideTimer()
       }
     }
 
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement
+      if ((event.key === 'Enter' || event.key === ' ') && target.matches('.user-comment-highlight')) {
+        event.preventDefault()
+        target.click()
+      }
+    }
+    container.addEventListener('keydown', handleKeyDown)
     contentRef.current.addEventListener('click', handleContentClick)
     contentRef.current.addEventListener('mouseover', handleMouseOver)
     contentRef.current.addEventListener('mouseleave', handleContentMouseLeave)
 
     return () => {
-      contentRef.current?.removeEventListener('click', handleContentClick)
+      if (focusTimer) clearTimeout(focusTimer)
+      container.removeEventListener('keydown', handleKeyDown)
+      container.removeEventListener('click', handleContentClick)
       contentRef.current?.removeEventListener('mouseover', handleMouseOver)
       contentRef.current?.removeEventListener(
         'mouseleave',
         handleContentMouseLeave,
       )
     }
-  }, []) // 挂载一次，通过 commentsRef 读取最新评论
+  }, [])
 
-  // 处理文本选择
   const handleTextSelection = useCallback(() => {
     if (!isAuthenticated) return
 
@@ -242,25 +250,25 @@ export function useContentEvents({
       return
     }
 
-    // 确保选择在文章内容区域内
     const range = selection.getRangeAt(0)
     if (!contentRef.current?.contains(range.commonAncestorContainer)) {
       return
     }
 
-    // 获取选中文本的位置信息
     const rect = range.getBoundingClientRect()
 
-    // 使用视口坐标（因为弹窗是 fixed 定位）
     const x = rect.left + rect.width / 2
     const y = rect.top
 
     setSelectedText(text)
-    setCommentPopupPosition({ x, y }) // 视口坐标
+    setCommentPopupPosition({ x, y })
 
-    // 获取上下文
     const fullText = contentRef.current?.textContent || ''
-    const textIndex = fullText.indexOf(text)
+    const prefix = range.cloneRange()
+    prefix.selectNodeContents(contentRef.current!)
+    prefix.setEnd(range.startContainer, range.startOffset)
+    const leadingWhitespace = range.toString().length - range.toString().trimStart().length
+    const textIndex = prefix.toString().length + leadingWhitespace
     if (textIndex !== -1) {
       setSelectionRange({
         start: textIndex,
@@ -276,14 +284,12 @@ export function useContentEvents({
     setShowCommentPopup(true)
   }, [isAuthenticated])
 
-  // 监听选择事件
   useEffect(() => {
     if (!isAuthenticated) return
 
     let selectionTimer: ReturnType<typeof setTimeout> | null = null
 
     const handleMouseUp = () => {
-      // 延迟执行，等待选择完成
       selectionTimer = setTimeout(handleTextSelection, 10)
     }
 
@@ -294,19 +300,17 @@ export function useContentEvents({
     }
   }, [isAuthenticated, handleTextSelection])
 
-  // 监听选中状态变化，当选中被移除时关闭弹窗
   useEffect(() => {
     if (!showCommentPopup) return
 
     const handleSelectionChange = () => {
-      // 如果焦点在评论弹窗内部（比如 textarea），不要关闭弹窗
+      // 焦点在评论弹窗内时不关弹窗。
       const activeElement = document.activeElement
       if (activeElement?.closest('.comment-popup')) {
         return
       }
 
       const selection = window.getSelection()
-      // 如果选中被清除（没有选中或选中为空），关闭弹窗
       if (!selection || selection.isCollapsed || !selection.toString().trim()) {
         setShowCommentPopup(false)
         setSelectedText('')
@@ -320,11 +324,10 @@ export function useContentEvents({
       document.removeEventListener('selectionchange', handleSelectionChange)
   }, [showCommentPopup])
 
-  // 点击其他地方关闭评论弹窗
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as HTMLElement
-      // 如果点击的是评论弹窗内部或评论高亮，不关闭
+      // 点评论弹窗或高亮时不关弹窗。
       if (
         target.closest('.comment-popup') ||
         target.closest('.user-comment-highlight')
@@ -336,17 +339,15 @@ export function useContentEvents({
         setSelectedText('')
         setSelectionRange(null)
         setCommentInput('')
-        // 关闭弹窗时清除浏览器选中状态
         window.getSelection()?.removeAllRanges()
       }
     }
 
-    // 使用 click 而不是 mousedown，避免在文本选择时触发
+    // 用 click 不用 mousedown，避免划词时触发。
     document.addEventListener('click', handleClickOutside)
     return () => document.removeEventListener('click', handleClickOutside)
   }, [showCommentPopup])
 
-  // 监听注释 hover 事件（优化稳定性）
   useEffect(() => {
     if (!contentRef.current || !showAnnotations) return
 
@@ -356,7 +357,6 @@ export function useContentEvents({
       ) as HTMLElement
 
       if (target) {
-        // 鼠标在注释上：清除隐藏定时器，显示 tooltip
         if (hoverTimeoutRef.current) {
           clearTimeout(hoverTimeoutRef.current)
           hoverTimeoutRef.current = null
@@ -373,7 +373,6 @@ export function useContentEvents({
         })
         setHoveredAnnotation({ term, explanation, type })
       } else {
-        // 鼠标移到非注释元素：启动延迟隐藏
         if (!hoverTimeoutRef.current) {
           hoverTimeoutRef.current = setTimeout(() => {
             hoverTimeoutRef.current = null
@@ -383,7 +382,6 @@ export function useContentEvents({
       }
     }
 
-    // 鼠标离开内容区域：兜底隐藏
     const handleMouseLeave = () => {
       if (!hoverTimeoutRef.current) {
         hoverTimeoutRef.current = setTimeout(() => {

@@ -1,5 +1,5 @@
-//! Manifest-declared host settings, install-level shared data, and
-//! subject-private Tapp storage.
+//! Manifest-declared host settings, install-level shared data,
+//! installation-private owner/admin KV, and subject-private Tapp storage.
 //!
 //! Domain validators/IO live in `services::tapp_storage`; this module adapts
 //! them to Axum status codes and owns HTTP handlers.
@@ -240,6 +240,92 @@ pub(super) async fn set_tapp_setting(
 }
 
 const SHARED_KEY_PREFIX: &str = "_shared.";
+const PRIVATE_KEY_PREFIX: &str = "_private.";
+
+fn prefixed_storage_key(prefix: &str, key: &str) -> Result<String, HttpError> {
+    validate_sandbox_storage_key(key)
+        .map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
+    Ok(format!("{prefix}{key}"))
+}
+
+async fn list_prefixed_keys(
+    db: &DatabaseConnection,
+    user_id: i32,
+    tapp_id: &str,
+    prefix: &str,
+) -> Result<Vec<String>, HttpError> {
+    Ok(tapp_storage_entity::Entity::find()
+        .select_only()
+        .column(tapp_storage_entity::Column::Key)
+        .filter(tapp_storage_entity::Column::UserId.eq(user_id))
+        .filter(tapp_storage_entity::Column::TappId.eq(tapp_id))
+        .filter(tapp_storage_entity::Column::Key.starts_with(prefix))
+        .into_tuple::<String>()
+        .all(db)
+        .await
+        .map_err(|_| HttpError(AppError::internal("Database error")))?
+        .into_iter()
+        .filter_map(|key| key.strip_prefix(prefix).map(str::to_string))
+        .collect())
+}
+
+async fn list_prefixed_entries(
+    db: &DatabaseConnection,
+    user_id: i32,
+    tapp_id: &str,
+    prefix: &str,
+) -> Result<BTreeMap<String, serde_json::Value>, HttpError> {
+    Ok(tapp_storage_entity::Entity::find()
+        .select_only()
+        .column(tapp_storage_entity::Column::Key)
+        .column(tapp_storage_entity::Column::Value)
+        .filter(tapp_storage_entity::Column::UserId.eq(user_id))
+        .filter(tapp_storage_entity::Column::TappId.eq(tapp_id))
+        .filter(tapp_storage_entity::Column::Key.starts_with(prefix))
+        .into_model::<StorageKeyValueRow>()
+        .all(db)
+        .await
+        .map_err(|_| HttpError(AppError::internal("Database error")))?
+        .into_iter()
+        .filter_map(|item| {
+            item.key
+                .strip_prefix(prefix)
+                .map(|key| (key.to_string(), item.value))
+        })
+        .collect())
+}
+
+async fn delete_prefixed_key(
+    db: &DatabaseConnection,
+    user_id: i32,
+    tapp_id: &str,
+    storage_key: &str,
+) -> Result<(), HttpError> {
+    tapp_storage_entity::Entity::delete_many()
+        .filter(tapp_storage_entity::Column::UserId.eq(user_id))
+        .filter(tapp_storage_entity::Column::TappId.eq(tapp_id))
+        .filter(tapp_storage_entity::Column::Key.eq(storage_key))
+        .exec(db)
+        .await
+        .map_err(|_| HttpError(AppError::internal("Database error")))?;
+    Ok(())
+}
+
+async fn clear_prefixed_keys(
+    db: &DatabaseConnection,
+    user_id: i32,
+    tapp_id: &str,
+    prefix: &str,
+) -> Result<(), HttpError> {
+    tapp_storage_entity::Entity::delete_many()
+        .filter(tapp_storage_entity::Column::UserId.eq(user_id))
+        .filter(tapp_storage_entity::Column::TappId.eq(tapp_id))
+        .filter(tapp_storage_entity::Column::Key.starts_with(prefix))
+        .exec(db)
+        .await
+        .map_err(|_| HttpError(AppError::internal("Database error")))?;
+    Ok(())
+}
 
 /// Read path: real users and signed guests. Public installs resolve to the
 /// site-owner namespace so visitors can read the owner's shared repository.
@@ -274,9 +360,7 @@ async fn authorize_tapp_shared_write(
 }
 
 fn shared_storage_key(key: &str) -> Result<String, HttpError> {
-    validate_sandbox_storage_key(key)
-        .map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
-    Ok(format!("{SHARED_KEY_PREFIX}{key}"))
+    prefixed_storage_key(SHARED_KEY_PREFIX, key)
 }
 
 async fn require_shared_write(
@@ -297,19 +381,13 @@ pub(super) async fn list_shared_keys(
     Path(tapp_id): Path<String>,
 ) -> Result<Json<ApiResponse<Vec<String>>>, HttpError> {
     let access = authorize_tapp_shared(&db, &claims, &tapp_id).await?;
-    let keys = tapp_storage_entity::Entity::find()
-        .select_only()
-        .column(tapp_storage_entity::Column::Key)
-        .filter(tapp_storage_entity::Column::UserId.eq(access.installation_namespace()))
-        .filter(tapp_storage_entity::Column::TappId.eq(&tapp_id))
-        .filter(tapp_storage_entity::Column::Key.starts_with(SHARED_KEY_PREFIX))
-        .into_tuple::<String>()
-        .all(&db)
-        .await
-        .map_err(|_| HttpError(AppError::internal("Database error")))?
-        .into_iter()
-        .filter_map(|key| key.strip_prefix(SHARED_KEY_PREFIX).map(str::to_string))
-        .collect();
+    let keys = list_prefixed_keys(
+        &db,
+        access.installation_namespace(),
+        &tapp_id,
+        SHARED_KEY_PREFIX,
+    )
+    .await?;
     Ok(Json(ApiResponse::success(keys)))
 }
 
@@ -319,24 +397,13 @@ pub(super) async fn list_shared_entries(
     Path(tapp_id): Path<String>,
 ) -> Result<Json<ApiResponse<BTreeMap<String, serde_json::Value>>>, HttpError> {
     let access = authorize_tapp_shared(&db, &claims, &tapp_id).await?;
-    let values = tapp_storage_entity::Entity::find()
-        .select_only()
-        .column(tapp_storage_entity::Column::Key)
-        .column(tapp_storage_entity::Column::Value)
-        .filter(tapp_storage_entity::Column::UserId.eq(access.installation_namespace()))
-        .filter(tapp_storage_entity::Column::TappId.eq(&tapp_id))
-        .filter(tapp_storage_entity::Column::Key.starts_with(SHARED_KEY_PREFIX))
-        .into_model::<StorageKeyValueRow>()
-        .all(&db)
-        .await
-        .map_err(|_| HttpError(AppError::internal("Database error")))?
-        .into_iter()
-        .filter_map(|item| {
-            item.key
-                .strip_prefix(SHARED_KEY_PREFIX)
-                .map(|key| (key.to_string(), item.value))
-        })
-        .collect();
+    let values = list_prefixed_entries(
+        &db,
+        access.installation_namespace(),
+        &tapp_id,
+        SHARED_KEY_PREFIX,
+    )
+    .await?;
     Ok(Json(ApiResponse::success(values)))
 }
 
@@ -394,13 +461,7 @@ pub(super) async fn delete_shared(
     let storage_key = shared_storage_key(&key)?;
     let access = authorize_tapp_shared_write(&db, &claims, &tapp_id).await?;
     require_shared_write(&db, &claims, access).await?;
-    tapp_storage_entity::Entity::delete_many()
-        .filter(tapp_storage_entity::Column::UserId.eq(access.installation_namespace()))
-        .filter(tapp_storage_entity::Column::TappId.eq(&tapp_id))
-        .filter(tapp_storage_entity::Column::Key.eq(&storage_key))
-        .exec(&db)
-        .await
-        .map_err(|_| HttpError(AppError::internal("Database error")))?;
+    delete_prefixed_key(&db, access.installation_namespace(), &tapp_id, &storage_key).await?;
     Ok(Json(ApiResponse::success(())))
 }
 
@@ -411,13 +472,154 @@ pub(super) async fn clear_shared(
 ) -> Result<Json<ApiResponse<()>>, HttpError> {
     let access = authorize_tapp_shared_write(&db, &claims, &tapp_id).await?;
     require_shared_write(&db, &claims, access).await?;
-    tapp_storage_entity::Entity::delete_many()
-        .filter(tapp_storage_entity::Column::UserId.eq(access.installation_namespace()))
-        .filter(tapp_storage_entity::Column::TappId.eq(&tapp_id))
-        .filter(tapp_storage_entity::Column::Key.starts_with(SHARED_KEY_PREFIX))
-        .exec(&db)
-        .await
-        .map_err(|_| HttpError(AppError::internal("Database error")))?;
+    clear_prefixed_keys(
+        &db,
+        access.installation_namespace(),
+        &tapp_id,
+        SHARED_KEY_PREFIX,
+    )
+    .await?;
+    Ok(Json(ApiResponse::success(())))
+}
+
+/// Guest `sub` (negative / missing) never becomes a private-KV subject.
+fn require_private_kv_subject(claims: &Claims) -> Result<i32, HttpError> {
+    optional_authenticated_user_id(Some(claims))
+        .ok_or_else(|| HttpError(AppError::unauthorized("Unauthorized")))
+}
+
+/// Owner or current admin only. Callers must already have an authenticated subject.
+fn decide_private_kv_access(
+    subject_id: i32,
+    owner_id: i32,
+    is_admin: bool,
+) -> Result<TappStorageAccess, HttpError> {
+    let access = TappStorageAccess::from_owner_and_subject(owner_id, subject_id);
+    if can_write_installation_settings(access, is_admin) {
+        Ok(access)
+    } else {
+        Err(HttpError(AppError::forbidden("Forbidden")))
+    }
+}
+
+/// Read and write: durable authenticated owner or current admin only.
+/// Guests and ordinary viewers never reach the storage lookup.
+async fn authorize_tapp_private(
+    db: &DatabaseConnection,
+    claims: &Claims,
+    tapp_id: &str,
+) -> Result<TappStorageAccess, HttpError> {
+    validate_tapp_id(tapp_id).map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
+    let subject_id = require_private_kv_subject(claims)?;
+    let tapp = tapp_common::resolve_accessible_tapp(db, subject_id, tapp_id).await?;
+    decide_private_kv_access(subject_id, tapp.user_id, current_is_admin(claims, db).await)
+}
+
+fn private_storage_key(key: &str) -> Result<String, HttpError> {
+    prefixed_storage_key(PRIVATE_KEY_PREFIX, key)
+}
+
+pub(super) async fn list_private_keys(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(tapp_id): Path<String>,
+) -> Result<Json<ApiResponse<Vec<String>>>, HttpError> {
+    let access = authorize_tapp_private(&db, &claims, &tapp_id).await?;
+    let keys = list_prefixed_keys(
+        &db,
+        access.installation_namespace(),
+        &tapp_id,
+        PRIVATE_KEY_PREFIX,
+    )
+    .await?;
+    Ok(Json(ApiResponse::success(keys)))
+}
+
+pub(super) async fn list_private_entries(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(tapp_id): Path<String>,
+) -> Result<Json<ApiResponse<BTreeMap<String, serde_json::Value>>>, HttpError> {
+    let access = authorize_tapp_private(&db, &claims, &tapp_id).await?;
+    let values = list_prefixed_entries(
+        &db,
+        access.installation_namespace(),
+        &tapp_id,
+        PRIVATE_KEY_PREFIX,
+    )
+    .await?;
+    Ok(Json(ApiResponse::success(values)))
+}
+
+pub(super) async fn get_private_usage(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(tapp_id): Path<String>,
+) -> Result<Json<ApiResponse<TappStorageUsage>>, HttpError> {
+    let access = authorize_tapp_private(&db, &claims, &tapp_id).await?;
+    let used = storage_bytes(&db, access.installation_namespace(), &tapp_id).await? as usize;
+    Ok(Json(ApiResponse::success(TappStorageUsage {
+        used,
+        quota: TAPP_STORAGE_QUOTA_BYTES as usize,
+    })))
+}
+
+pub(super) async fn get_private(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path((tapp_id, key)): Path<(String, String)>,
+) -> Result<Json<ApiResponse<serde_json::Value>>, HttpError> {
+    let access = authorize_tapp_private(&db, &claims, &tapp_id).await?;
+    let storage_key = private_storage_key(&key)?;
+    let value =
+        read_storage_value(&db, access.installation_namespace(), &tapp_id, &storage_key).await?;
+    Ok(Json(ApiResponse::success(value)))
+}
+
+pub(super) async fn set_private(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path((tapp_id, key)): Path<(String, String)>,
+    Json(value): Json<serde_json::Value>,
+) -> Result<Json<ApiResponse<()>>, HttpError> {
+    let access = authorize_tapp_private(&db, &claims, &tapp_id).await?;
+    let storage_key = private_storage_key(&key)?;
+    validate_storage_value_size(&value)?;
+    write_storage_value(
+        &db,
+        access.installation_namespace(),
+        &tapp_id,
+        &storage_key,
+        value,
+    )
+    .await?;
+    Ok(Json(ApiResponse::success(())))
+}
+
+pub(super) async fn delete_private(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path((tapp_id, key)): Path<(String, String)>,
+) -> Result<Json<ApiResponse<()>>, HttpError> {
+    let access = authorize_tapp_private(&db, &claims, &tapp_id).await?;
+    let storage_key = private_storage_key(&key)?;
+    delete_prefixed_key(&db, access.installation_namespace(), &tapp_id, &storage_key).await?;
+    Ok(Json(ApiResponse::success(())))
+}
+
+pub(super) async fn clear_private(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(tapp_id): Path<String>,
+) -> Result<Json<ApiResponse<()>>, HttpError> {
+    let access = authorize_tapp_private(&db, &claims, &tapp_id).await?;
+    clear_prefixed_keys(
+        &db,
+        access.installation_namespace(),
+        &tapp_id,
+        PRIVATE_KEY_PREFIX,
+    )
+    .await?;
     Ok(Json(ApiResponse::success(())))
 }
 
@@ -557,4 +759,73 @@ pub(super) async fn clear_storage(
         .await
         .map_err(|error| HttpError::from(storage_status(error)))?;
     Ok(Json(ApiResponse::success(())))
+}
+
+#[cfg(test)]
+mod private_kv_gate_tests {
+    use super::{
+        decide_private_kv_access, prefixed_storage_key, require_private_kv_subject,
+        PRIVATE_KEY_PREFIX,
+    };
+    use crate::middleware::auth::Claims;
+
+    fn claims(sub: &str) -> Claims {
+        Claims {
+            sub: sub.to_string(),
+            username: "tester".to_string(),
+            is_admin: false,
+            is_owner: false,
+            exp: 0,
+            iat: 0,
+            tv: 0,
+        }
+    }
+
+    #[test]
+    fn guests_and_missing_subjects_are_unauthorized_before_lookup() {
+        assert_eq!(
+            require_private_kv_subject(&claims("-12"))
+                .unwrap_err()
+                .0
+                .status_u16(),
+            401
+        );
+        assert_eq!(
+            require_private_kv_subject(&claims("not-a-number"))
+                .unwrap_err()
+                .0
+                .status_u16(),
+            401
+        );
+        assert_eq!(require_private_kv_subject(&claims("7")).unwrap(), 7);
+    }
+
+    #[test]
+    fn viewers_are_forbidden_owner_and_admin_are_allowed() {
+        let viewer = decide_private_kv_access(42, 1, false).unwrap_err();
+        assert_eq!(viewer.0.status_u16(), 403);
+
+        let owner = decide_private_kv_access(1, 1, false).unwrap();
+        assert_eq!(owner.installation_namespace(), 1);
+        assert_eq!(owner.private_storage_namespace(), 1);
+
+        let admin = decide_private_kv_access(42, 1, true).unwrap();
+        assert_eq!(
+            admin.installation_namespace(),
+            1,
+            "admin writes the install owner namespace, not their own subject id"
+        );
+        assert_eq!(admin.private_storage_namespace(), 42);
+    }
+
+    #[test]
+    fn private_user_keys_cannot_reuse_host_prefixes_or_route_names() {
+        assert_eq!(
+            prefixed_storage_key(PRIVATE_KEY_PREFIX, "token").unwrap(),
+            "_private.token"
+        );
+        assert!(prefixed_storage_key(PRIVATE_KEY_PREFIX, "_private.token").is_err());
+        assert!(prefixed_storage_key(PRIVATE_KEY_PREFIX, "entries").is_err());
+        assert!(prefixed_storage_key(PRIVATE_KEY_PREFIX, "usage").is_err());
+    }
 }

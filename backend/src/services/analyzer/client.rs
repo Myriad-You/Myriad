@@ -28,7 +28,7 @@ pub struct AiAnalyzer {
     pub(super) base_url: Option<String>, // For OpenAI-compatible APIs
 }
 
-/// 记住某个 (端点, 模型) 拒过结构化输出。
+/// 进程内记下 (base_url, model, structured|extras) 曾被 `rejected_request`；重启清空。
 ///
 /// 阶梯本身没错，错在它没有记忆：不支持 `json_schema` 的网关上，每一次调用都
 /// 要先被拒一次再降级——等于给最弱的那批网关加了一笔常驻的往返税。记下来之后
@@ -91,10 +91,7 @@ impl ProviderCallFailure {
         }
     }
 
-    /// Whether the endpoint refused the request as written. Structured-output
-    /// parameters are the only thing that path adds, so a retry without them is
-    /// worth one round trip. Auth and rate-limit failures are excluded — they
-    /// would fail identically the second time.
+    /// 4xx except 401/403/429. No status (transport) is not a shape refusal.
     fn rejected_request(&self) -> bool {
         self.status.is_some_and(|status| {
             status.is_client_error()
@@ -138,7 +135,7 @@ impl AiAnalyzer {
         }
     }
 
-    /// Cap Gemini response bodies (success + error) to avoid unbounded buffers.
+    /// Cap success JSON to `max_bytes`, then deserialize.
     async fn read_limited_json<T: serde::de::DeserializeOwned>(
         response: reqwest::Response,
         max_bytes: usize,
@@ -183,7 +180,7 @@ impl AiAnalyzer {
     ) -> Self {
         let proxy_config = ProxyConfig::from_dynamic_config().await;
 
-        // MYR-019: if proxy is required and build fails, do not silently direct-connect.
+        // if proxy is required and build fails, do not silently direct-connect.
         let client = match transport::pooled_client(&proxy_config, request_timeout) {
             Ok(client) => client,
             Err(e) if crate::services::http_client::proxy_is_required(&proxy_config) => {
@@ -387,13 +384,13 @@ impl AiAnalyzer {
         extract_openai_completion_text(&openai_response)
     }
 
-    /// 简单的分析方法（用于 Tapp API）
+    /// prompt-only wrapper around `analyze_profile`.
     pub async fn analyze(&self, prompt: &str) -> Result<String> {
         let data = serde_json::json!({ "prompt": prompt });
         self.analyze_profile(&data).await
     }
 
-    /// 带系统提示的分析方法（用于 Tapp API）
+    /// system + one user message.
     pub async fn analyze_with_system(&self, system: &str, prompt: &str) -> Result<String> {
         self.analyze_with_messages(system, vec![ChatMessage::user(prompt.to_string())])
             .await
@@ -502,12 +499,11 @@ impl AiAnalyzer {
     ///
     /// `schema` is advisory: a schema that cannot be translated (Gemini) is
     /// dropped while JSON enforcement is kept. Gateways that reject the
-    /// parameters outright fall back to a plain prompt-only call, so an older or
-    /// non-conforming OpenAI-compatible endpoint degrades to previous behaviour
-    /// rather than failing the request.
+    /// parameters outright fall back to a plain prompt-only call, so a
+    /// non-conforming OpenAI-compatible endpoint does not fail the request.
     ///
-    /// The returned string is still parsed by the caller — JSON validity is
-    /// enforced, matching the caller's own type is not.
+    /// Returns model text. This fn does not parse. Structured asks the provider
+    /// for JSON; PromptOnly does not.
     pub async fn analyze_json(
         &self,
         system: &str,
@@ -623,9 +619,6 @@ impl AiAnalyzer {
     }
 
     /// Structured JSON, but reasoning deltas are pushed live.
-    ///
-    /// Planner used to wait for the whole `analyze_json` body, then dump one
-    /// `reasoning` field — that is why the bubble saw a single package.
     /// OpenAI-compatible providers that reject `stream` + `response_format`
     /// fall back to the blocking call.
     pub async fn analyze_json_streaming<F, Fut>(
@@ -876,10 +869,6 @@ impl AiAnalyzer {
         }
     }
 
-    // TODO: Add more analysis methods
-    // pub async fn generate_summary(&self, profiles: Vec<serde_json::Value>) -> Result<String>
-    // pub async fn extract_skills(&self, profile_data: &serde_json::Value) -> Result<Vec<String>>
-
     /// 流式分析（逐 token 返回可见回复）
     ///
     /// 只把 `content` 交给回调。思考链走 [`Self::analyze_stream_parts`]。
@@ -899,9 +888,6 @@ impl AiAnalyzer {
     }
 
     /// 流式分析，思考链和正文分开回调。返回值仍只是可见回复。
-    ///
-    /// 回调是 async：调用方必须 `send().await` 把这一截交给 SSE，
-    /// 不能 `try_send` 塞进有界队列再一次性倒出去。
     pub async fn analyze_stream_parts<F, Fut>(&self, prompt: &str, on_delta: F) -> Result<String>
     where
         F: FnMut(StreamDelta) -> Fut + Send,
@@ -1080,7 +1066,7 @@ mod tests {
         let inner = source
             .split("async fn analyze_json_inner(")
             .nth(1)
-            .and_then(|rest| rest.split("\n    // TODO").next())
+            .and_then(|rest| rest.split("\n    pub async fn analyze_stream").next())
             .expect("analyze_json_inner body");
         // 只在带预算的那一档附上，跟着一起丢。
         assert!(inner.contains("if budget.is_some()"));

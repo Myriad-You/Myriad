@@ -20,7 +20,7 @@ const JSON_CHUNK_TYPE: u32 = 0x4e4f_534a;
 
 #[derive(Debug, Clone)]
 pub struct TripoRuntimeConfig {
-    #[allow(dead_code)] // 仅经 {:?} 可见：public_label() 刻意不把上游细节回给调用方。
+    #[allow(dead_code)] // resolve 成功后恒为 true，之后不再读取。
     pub enabled: bool,
     pub api_key: String,
     pub base_url: String,
@@ -354,8 +354,8 @@ impl TripoOperation {
                 ));
             }
         }
-        // Defaults are injected by the API adapter; this check keeps callers
-        // from accidentally using a high-poly model with the Web character path.
+        // Dead after `TripoRuntimeConfig::resolve` clamps `face_limit` to 50..=20_000.
+        // Web defaults are `apply_web_defaults`, not an API adapter.
         if matches!(self, Self::ImageToModel | Self::MultiviewToModel) && config.face_limit > 20_000
         {
             return Err(TripoError::InvalidConfig(

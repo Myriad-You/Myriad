@@ -1,10 +1,3 @@
-/**
- * 说给它听。
- *
- * 轻点是按住说话：整段录完再识别。
- * 长按进入连续对话：声网开着就走 RTC；否则本地 VAD 开口就停 TTS，说完一句才提交。麦克风一直开着。
- */
-
 import type { VoiceInputTiming } from '../../features/merope/turnTrace'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
@@ -28,6 +21,7 @@ import {
   dropPendingTurnTrace,
   stageVoiceInputTrace,
 } from '../../features/merope/turnTrace'
+import { getDefaultLocale } from '../../i18n/locales'
 import {
   audioToBase64,
   getSpeechStatus,
@@ -51,8 +45,12 @@ interface RecorderState {
 
 const LOCALE_ENGINE_MAP: Record<string, string> = {
   'zh-CN': '16k_zh',
+  'zh-TW': '16k_zh',
   'en-US': '16k_en',
   'ja-JP': '16k_ja',
+  'ko-KR': '16k_ko',
+  'fr-FR': '16k_en',
+  'de-DE': '16k_en',
 }
 
 const WORKLET_PROCESSOR_NAME = 'pcm-capture-processor'
@@ -93,12 +91,12 @@ function cleanupRecorder(recorder: RecorderState) {
     recorder.workletNode.port.onmessage = null
     recorder.workletNode.disconnect()
   } catch {
-    // already disconnected
+    /* already disconnected */
   }
   try {
     recorder.muteNode.disconnect()
   } catch {
-    // already disconnected
+    /* already disconnected */
   }
   recorder.stream.getTracks().forEach((track) => track.stop())
   void recorder.audioContext.close()
@@ -106,7 +104,7 @@ function cleanupRecorder(recorder: RecorderState) {
 
 export function useVoiceRecording(
   onResult: (text: string) => void,
-  locale: string = 'zh-CN',
+  locale: string = getDefaultLocale(),
 ) {
   const [speechAvailable, setSpeechAvailable] = useState(false)
   const convoRtcRef = useRef(false)
@@ -330,8 +328,7 @@ export function useVoiceRecording(
     recorder.capture.reset()
     cleanupRecorder(recorder)
     recorderRef.current = null
-    // Exiting continuous listening discards unfinished speech and late ASR.
-    // Releasing push-to-talk explicitly submits the clip just recorded.
+    // conversation exit drops unfinished speech; PTT submits the clip
     if (!fromConversation) transcribe(pcmData, sampleRate, recorder.startedAt)
   }, [transcribe])
 

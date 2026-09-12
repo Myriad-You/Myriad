@@ -1,14 +1,3 @@
-/**
- * Unified action button for settings / config surfaces.
- *
- * Uses the shared `btn-base` + variant classes (ConfigForm.css) so every
- * primary / secondary / danger control looks the same — floating save,
- * modal footers, list toolbars, row actions, ButtonItem, etc.
- *
- * Selection chips / segmented radios / row expanders stay domain-specific;
- * only action buttons go through this component.
- */
-
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 import React, { useCallback } from 'react'
 import { ButtonSpinner } from '../../Spinner'
@@ -21,11 +10,6 @@ export type SettingsButtonVariant =
   | 'ghost'
   | 'icon'
 
-/**
- * - `sm` — dense (list rows, card headers, compact toolbars)
- * - `md` — default settings / modal actions
- * - `lg` — hero / floating primary
- */
 export type SettingsButtonSize = 'sm' | 'md' | 'lg'
 
 export interface SettingsButtonProps
@@ -33,12 +17,9 @@ export interface SettingsButtonProps
   variant?: SettingsButtonVariant
   size?: SettingsButtonSize
   loading?: boolean
-  /** Leading icon; hidden while loading. */
   icon?: ReactNode
   children?: ReactNode
-  /** Optional window.confirm before invoking onClick. */
   confirm?: string
-  /** Stretch to container width. */
   block?: boolean
 }
 
@@ -58,7 +39,7 @@ function variantClass(variant: SettingsButtonVariant): string {
   }
 }
 
-/** Size tokens live on `.settings-btn--*`; keep global btn-sm/lg for legacy CSS hooks. */
+/** size on `.settings-btn--*`; keep btn-sm/lg CSS hooks */
 function sizeClass(size: SettingsButtonSize): string {
   switch (size) {
     case 'sm':

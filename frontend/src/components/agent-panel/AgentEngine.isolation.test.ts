@@ -28,7 +28,6 @@ test('Work interrupt cannot abort Chat SSE, and session ids stay per mode', () =
   assert.match(engine, /isStreamSupersededError/)
   assert.match(engine, /isUserInterruptError/)
   assert.match(engine, /isCurrentChatGeneration/)
-  // Both generations now advance in one facade call; assert it there.
   assert.match(engine, /setTurnGeneration\(/)
   assert.match(engine, /openTurnSpeech\(/)
   assert.doesNotMatch(engine, /SpeechSegmenter/)

@@ -1,12 +1,8 @@
-/**
- * 访客统计 / AI 用量共用时间范围：7 · 14 · 30 · 自定义
- * 自定义：Portal 弹出双月历范围选择（DateRangePopover）
- */
-
 import type { DateRangePopoverLabels } from '../../settings/DateRangePopover'
 import type { AnalyticsRangePreset, AnalyticsRangeState } from './analyticsRangeLogic'
 import { LuCalendar, LuChevronDown } from '@lib/icons'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useI18n } from '../../../contexts/I18nContext'
 import { DateRangePopover, SegmentedControl } from '../../settings'
 import {
   ANALYTICS_RANGE_PRESETS,
@@ -67,6 +63,7 @@ export const AnalyticsRangePicker: React.FC<AnalyticsRangePickerProps> = ({
   disabled = false,
   maxDate,
 }) => {
+  const { format, locale } = useI18n()
   const max = maxDate ?? localIsoToday()
   const anchorRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
@@ -76,11 +73,11 @@ export const AnalyticsRangePicker: React.FC<AnalyticsRangePickerProps> = ({
     () => [
       ...ANALYTICS_RANGE_PRESETS.map((d) => ({
         value: d as AnalyticsRangePreset,
-        label: labels.daysN.replace('{n}', d),
+        label: format(labels.daysN, { n: Number(d) }),
       })),
       { value: 'custom' as const, label: labels.custom },
     ],
-    [labels.daysN, labels.custom],
+    [format, labels.daysN, labels.custom],
   )
 
   const onPreset = useCallback(
@@ -111,10 +108,10 @@ export const AnalyticsRangePicker: React.FC<AnalyticsRangePickerProps> = ({
 
   const popoverLabels: DateRangePopoverLabels = useMemo(() => {
     const weekdays =
-      labels.weekdays && labels.weekdays.length === 7
+      labels.weekdays?.length === 7
         ? labels.weekdays
         : Array.from({ length: 7 }, (_, i) =>
-            new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(
+            new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(
               new Date(Date.UTC(2021, 0, 4 + i)),
             ),
           )
@@ -128,16 +125,14 @@ export const AnalyticsRangePicker: React.FC<AnalyticsRangePickerProps> = ({
       hint: labels.customHint || '',
       weekdays,
       monthTitle: (y, m) =>
-        monthTpl
-          .replace('{y}', String(y))
-          .replace('{m}', String(m).padStart(2, '0')),
+        format(monthTpl, { y, m: String(m).padStart(2, '0') }),
       daysSelected: (n) =>
-        (labels.daysSelected || '{n}d').replace('{n}', String(n)),
+        format(labels.daysSelected || '{n}d', { n }),
       prevMonth: labels.prevMonth || 'Previous month',
       nextMonth: labels.nextMonth || 'Next month',
       today: labels.today,
     }
-  }, [labels])
+  }, [format, labels, locale])
 
   const onRangeCommit = useCallback(
     (next: { from: string; to: string }) => {
@@ -152,12 +147,11 @@ export const AnalyticsRangePicker: React.FC<AnalyticsRangePickerProps> = ({
 
   const chipLabel = useMemo(() => {
     if (!value.from) return labels.custom
-    const days = labels.daysN.replace(
-      '{n}',
-      String(analyticsRangeDayCount(value)),
-    )
+    const days = format(labels.daysN, {
+      n: analyticsRangeDayCount(value),
+    })
     return `${shortRangeLabel(value.from, value.to)} · ${days}`
-  }, [value, labels.custom, labels.daysN])
+  }, [format, value, labels.custom, labels.daysN])
 
   return (
     <div

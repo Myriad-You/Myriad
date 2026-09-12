@@ -1,16 +1,9 @@
-/**
- * AI 与报告处理器
- */
-
 import type { AITaskRequest, TappInstance } from '../../../types'
 import type { TappBridge } from '../../TappBridge'
 import { userFacingError } from '../../../../utils/userFacingError'
 import * as TappApiService from '../../../services/TappApiService'
 import { TappHttpError } from '../../../services/TappHttpClient'
 
-/**
- * 注册 AI 处理器
- */
 export function registerAIHandlers(bridge: TappBridge): () => void {
   const taskStreams = new Map<string, AbortController>()
 
@@ -113,7 +106,7 @@ export function registerAIHandlers(bridge: TappBridge): () => void {
         }
       })
       .finally(() => {
-        // 取消后可能已为同 taskId 建立新 stream；旧请求不能删除新 controller。
+        // 取消后可能已为同 taskId 建新 stream；旧请求不能删新 controller。
         if (taskStreams.get(taskId) === controller) {
           taskStreams.delete(taskId)
         }
@@ -137,17 +130,14 @@ export function registerAIHandlers(bridge: TappBridge): () => void {
   }
 }
 
-/**
- * 注册报告处理器
- */
 export function registerReportHandlers(
   bridge: TappBridge,
   tappInstance: TappInstance,
   options: { readOnly?: boolean } = {},
 ): void {
-  bridge.registerHandler('report.listReports', async () => {
+  bridge.registerHandler('report.platform.list', async () => {
     try {
-      const reports = await TappApiService.listReports(
+      const reports = await TappApiService.listPlatform(
         await bridge.getRuntimeGrant(),
       )
       return { success: true, data: reports }
@@ -159,11 +149,11 @@ export function registerReportHandlers(
     }
   })
 
-  bridge.registerHandler('report.getReport', async (message) => {
+  bridge.registerHandler('report.platform.get', async (message) => {
     const [reportId] = (message.payload as { args: unknown[] }).args || []
     if (!reportId) return { success: false, error: 'Report ID required' }
     try {
-      const report = await TappApiService.getReport(
+      const report = await TappApiService.getPlatform(
         reportId as string,
         await bridge.getRuntimeGrant(),
       )
@@ -176,11 +166,11 @@ export function registerReportHandlers(
     }
   })
 
-  bridge.registerHandler('report.getPlatformReport', async (message) => {
+  bridge.registerHandler('report.platform.byPlatform', async (message) => {
     const [platform] = (message.payload as { args: unknown[] }).args || []
     if (!platform) return { success: false, error: 'Platform required' }
     try {
-      const report = await TappApiService.getPlatformReport(
+      const report = await TappApiService.byPlatform(
         platform as string,
         await bridge.getRuntimeGrant(),
       )
@@ -229,7 +219,6 @@ export function registerReportHandlers(
         tappInstance.id,
         await bridge.getRuntimeGrant(),
       )
-      // SDK / docs treat data as the reports array (not { success, reports })
       const reports = Array.isArray(result)
         ? result
         : Array.isArray(result?.reports)

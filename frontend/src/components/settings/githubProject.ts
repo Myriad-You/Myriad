@@ -1,15 +1,6 @@
-/**
- * 设置里第三方 GitHub 仓库：识别 URL、star 缓存、数字缩写。
- *
- * GitHub 产品页（settings / login / 光组织页）不是仓库。
- * 仓库摘要走站点数据平台同一条出站链（GitHubApiUrl / 代理 / token），
- * 浏览器只打 `/api/github/repo`；star 数字在本机再缓存 7 天。
- */
-
 export const GITHUB_STAR_TTL_MS = 7 * 24 * 60 * 60 * 1000
 export const GITHUB_STAR_CACHE_PREFIX = 'myriad:github-stars:v1:'
 
-/** GitHub.com 上不是「用户/仓库」的第一段。 */
 const GITHUB_SYSTEM_ROOTS = new Set([
   'about',
   'account',
@@ -72,12 +63,12 @@ export function parseGithubRepoUrl(url: string): GithubRepoRef | null {
   } catch {
     return null
   }
-  const host = parsed.hostname.replace(/^www\./i, '').toLowerCase()
+  const host = parsed.hostname.replaceAll(/^www\./ig, '').toLowerCase()
   if (host !== 'github.com') return null
   const parts = parsed.pathname.split('/').filter(Boolean)
   if (parts.length < 2) return null
   const owner = parts[0]
-  const repo = parts[1].replace(/\.git$/i, '')
+  const repo = parts[1].replaceAll(/\.git$/ig, '')
   if (GITHUB_SYSTEM_ROOTS.has(owner.toLowerCase())) return null
   if (!OWNER_REPO_RE.test(owner) || !OWNER_REPO_RE.test(repo)) return null
   return { owner, repo }
@@ -91,7 +82,6 @@ export function githubRepoUrl(ref: GithubRepoRef): string {
   return `https://github.com/${ref.owner}/${ref.repo}`
 }
 
-/** GitHub 主站同款缩写：1.2k / 10.5k / 1.2m。 */
 export function formatStarCount(count: number): string {
   if (!Number.isFinite(count) || count < 0) return '0'
   const n = Math.round(count)
@@ -103,7 +93,7 @@ export function formatStarCount(count: number): string {
 }
 
 function trimDecimal(value: number): string {
-  return value.toFixed(1).replace(/\.0$/, '')
+  return value.toFixed(1).replaceAll(/\.0$/g, '')
 }
 
 function storageOf(storage?: Storage | null): Storage | null {
@@ -167,7 +157,6 @@ export function writeStarCache(
   try {
     store.setItem(key, JSON.stringify(entry))
   } catch {
-    // quota / private mode
   }
 }
 

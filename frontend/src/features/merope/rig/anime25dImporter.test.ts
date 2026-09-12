@@ -15,7 +15,6 @@ import { CHARACTER_ASSET_CONTRACT_VERSION } from './contract'
 test('matches Anime2.5DRig normalization without merging numbered hair groups', () => {
   assert.equal(normalizeAnime25DLayerName('eyeclose2_L'), 'eye-close2-l')
   assert.equal(anime25DBaseRole('eye-close2-l'), 'eye-close2')
-  // PSD 图层名常带首尾空白和「のコピー N」后缀
   assert.equal(
     normalizeAnime25DLayerName(' Front Hair_1 のコピー 2 '),
     'front-hair-1',
@@ -86,7 +85,6 @@ test('imports regional accessories and preserves independent depth/side fragment
   psd.children?.push(
     unknownBlob('neckwear_1_L', 106, 154, 120, 188),
     unknownBlob('neckwear_2_L', 124, 154, 138, 188),
-    // Deliberately below the face: semantics must beat the upstream centroid.
     unknownBlob('eyewear', 70, 160, 178, 179),
     unknownBlob('legwear_1_L', 80, 210, 100, 230),
     unknownBlob('objects_1', 180, 140, 200, 160),
@@ -180,8 +178,6 @@ test('see-through PSD builds blink, mouth, strand, chest, and rigid side-arm fra
       prepared.source.bones.find((candidate) => candidate.id === id)
     assert.equal(prepared.partCount >= 15, true)
     assert.equal(prepared.analysisReference.type, 'image/png')
-    // Manga accents and the wandering silly irides never enter the neutral
-    // reference the design model reads back, even though they ship in the atlas.
     const accentIds = [
       'a25d-maniac-eye-shadow-left',
       'a25d-maniac-eye-shadow-right',
@@ -648,7 +644,7 @@ test('production import keeps numbered eye anchors and repairs a single missing 
   const closed = repaired.source.anime25dPlayback!.layers.filter(
     (layer) => layer.role === 'eye-close',
   )
-  assert.deepEqual(closed.map((layer) => layer.side).sort(), ['L', 'R'])
+  assert.deepEqual(closed.map((layer) => layer.side).toSorted(), ['L', 'R'])
 })
 
 test('production rejects empty face pixels instead of adopting reference fallback anchors', async () => {

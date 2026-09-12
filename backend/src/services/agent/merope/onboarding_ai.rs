@@ -27,7 +27,7 @@ const ONBOARDING_AI_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// 起名不是长任务：答案是一个两字段的小对象。用长任务的 15 分钟，网关卡住时
 /// 「换一个」的转圈会转一刻钟。
 ///
-/// 两分钟而不是更短：这条路径要容忍冷启动的模型、排队中的共享网关，以及
+/// 五分钟而不是更短：这条路径要容忍冷启动的模型、排队中的共享网关，以及
 /// 被拒一次后重试的那一跳。宁可偶尔等久一点，也不要把一次本来会成功的
 /// 生成判成超时——那对用户来说和「坏了」没区别。
 ///
@@ -38,11 +38,9 @@ const ONBOARDING_AI_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const NAME_CALL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 /// 失控保险，不是调优旋钮。
 ///
-/// 名字加含义大概四十个 token。这里给到四千，是因为多数网关把思考 token 也
-/// 算进这个额度，而额度卡在答案前面的后果是静默的：JSON 没吐完，
-/// `extract_openai_completion_text` 在 content 为空时又会回落去读
-/// `reasoning_content`，解析拿到的是一段思考文本——曾经设成 512，每次都判成
-/// 「字形不对」，实际是被截断。
+/// 名字加含义约四十 token。额度 4096：网关把思考 token 也算进这个额度；
+/// 额度卡在答案前会静默截断，`extract_openai_completion_text` 在 content 为空时
+/// 回落 `reasoning_content`。
 ///
 /// 所以这个数字的职责只有一个：挡住无上限地写下去。**不要**拿它去省 token
 /// 或者压思考，压思考是各家自己的参数，`OutputBudget` 的文档里写了为什么这
@@ -51,7 +49,7 @@ const NAME_OUTPUT_BUDGET: OutputBudget = OutputBudget { max_tokens: 4096 };
 /// 带严格校验闸的生成都该自己重试；次数按这一条有多贵来定。
 ///
 /// 起草人设有五道闸（不是 JSON / 丰满度 / 语言 / 文艺腔 / 清洗完整性），导入
-/// 同样五道，视觉设定六道——模型在一次正常生成里踩中一道是常态。不重试就等于
+/// 同样五道；视觉设定常开五道质量闸，新脸再加两道。模型在一次正常生成里踩中一道是常态。不重试就等于
 /// 把重试写成给人看的提示，用户看到的是「不可用，请再试一次」。
 ///
 /// 名字走严格 Lite、几十个 token，抽三次也很快；这三条是 Pro 的长文生成，一次
@@ -830,7 +828,7 @@ fn normalize_name_style(value: &str, language: &str) -> &'static str {
         "european" | "en" | "western" => "european",
         "mythic" | "mythology" | "classical" | "myth" => "mythic",
         _ => match language {
-            "zh-CN" => "chinese",
+            "zh-CN" | "zh-TW" => "chinese",
             "ja-JP" => "japanese",
             _ => "european",
         },
@@ -843,11 +841,7 @@ fn parse_json_object(raw: &str) -> Option<Value> {
     serde_json::from_str(&raw[start..=end]).ok()
 }
 
-/// 四种失败各自有名字。
-///
-/// 它们原本共用一句「name had no usable meaning or script」，而这句话会经
-/// `public_detail` 直接给到站长——于是「模型被截断了」和「模型给了个拉丁名
-/// 但要求是中文名」在界面上长得一模一样，谁也没法判断该重试还是该改配置。
+/// 四种失败各自有名字，经 `public_detail` 给到站长。
 fn parse_display_name_suggestion(
     raw: &str,
     avoid: Option<&str>,
@@ -1315,6 +1309,7 @@ mod tests {
     #[test]
     fn sanitize_display_name_follows_name_style() {
         assert_eq!(normalize_name_style("", "zh-CN"), "chinese");
+        assert_eq!(normalize_name_style("", "zh-TW"), "chinese");
         assert_eq!(normalize_name_style("european", "zh-CN"), "european");
         assert_eq!(normalize_name_style("inazuma", "en-US"), "japanese");
         assert_eq!(normalize_name_style("wafuu", "zh-CN"), "japanese");
@@ -1478,9 +1473,7 @@ mod tests {
 
     /// 起名必须是严格 Lite，不能借 Standard 的模型或思考延迟。
     ///
-    /// `create_ai_analyzer_for_tier(Lite)` 在 Lite 模型留空时会静默落到
-    /// Standard 的模型——账单和转圈都按 Standard 走，日志却写 Lite。
-    /// 开关关着再回落到 Standard 调用，是同一件事的第二条路。
+    /// 走 `create_strict_lite_ai_analyzer_with_timeout`。Lite 开关关着工厂返回 `None`，不回落到 Standard。
     #[test]
     fn name_roll_is_strict_lite_with_a_small_payload() {
         let source = include_str!("onboarding_ai.rs");
@@ -1500,7 +1493,7 @@ mod tests {
 
     /// 每一条带校验闸的生成都得自己重试，不能只有名字和视觉设定有。
     ///
-    /// 起草人设五道闸、导入五道、视觉设定六道。少了重试，模型踩中任何一道
+    /// 起草人设五道闸、导入五道；视觉设定常开五道，新脸再加两道。少了重试，模型踩中任何一道
     /// 都会变成界面上的一句「不可用」——那是把系统该做的事写给人看。
     #[test]
     fn every_gated_draft_retries_itself() {
@@ -1526,7 +1519,7 @@ mod tests {
         }
 
         // 重试壳只吃「这一把没写好」。供应商不可用 / 调用失败要立刻上抛，
-        // 否则一个没配好的模型会被重试拖成三倍等待。
+        // 否则一个没配好的模型会被重试拖成两倍等待。
         let shell = source
             .split("async fn retry_unusable")
             .nth(1)
@@ -1552,17 +1545,11 @@ mod tests {
                 .unwrap_or_else(|| panic!("{entry} body"));
             assert!(body.contains("\"rollId\""), "{entry} 重试时不会变");
         }
-        // 视觉设定用 regenerate 而不是 rollId，提示词里两者都认。
+        // 视觉设定每次也换 `rollId`；提示词里 rollId 与 regenerate 都认。
         assert!(visual_design_system_prompt().contains("rollId"));
     }
 
-    /// 四种失败必须各自可辨。
-    ///
-    /// 它们原本共用一句「name had no usable meaning or script」，而这句会经
-    /// `public_detail` 直接给到站长——「模型被 max_tokens 截断了」和「模型给
-    /// 了个拉丁名但要的是中文名」在界面上长得一模一样，谁也判断不了该重试
-    /// 还是该改配置。这条真实发生过：把上限设成 512，推理模型把额度花在思考
-    /// 上，回来的是一段思考文本，报的却是「script」不对。
+    /// 四种失败必须各自可辨（JSON / meaning / name / script）。
     #[test]
     fn each_name_failure_says_which_stage_failed() {
         let reasons = [

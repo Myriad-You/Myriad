@@ -83,7 +83,7 @@ export default function MasterPortraitStep({
             return true
           }
         } catch {
-          /* keep polling the public face */
+          /* keep polling */
         }
       }
       return false

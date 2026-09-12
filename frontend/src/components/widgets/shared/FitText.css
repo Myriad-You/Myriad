@@ -1,9 +1,3 @@
-/**
- * FitText 滚动轨道 —— pause–scroll–pause 往返
- * （Apple HIG 自动滚动标签惯例：先停顿供阅读，再匀速滚到末尾，停顿，返回）
- * 位移距离与周期由引擎按文本实测宽度写入 CSS 变量。
- */
-
 [data-fittext-track] {
   display: inline-block;
   animation: fittext-shuttle var(--ft-duration, 12s) ease-in-out infinite;

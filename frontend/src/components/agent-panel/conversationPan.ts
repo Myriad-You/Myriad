@@ -1,19 +1,10 @@
-/**
- * 对话区滚动：位移跟手，卡片整张进整张出，不设 overflow、不裁容器、也不切遮罩。
- *
- * 轨道只做 transform。短卡片一越边就整颗一起淡；长卡片还在读的时候保持实心
- * 胶囊（顶上那截完整画出去），只剩最后一截才整张化开。
- */
-
 export const CONVERSATION_NEAR_BOTTOM_PX = 8
 export const CONVERSATION_LOAD_MORE_PX = 72
 export const CONVERSATION_FADE_PX = 96
 export const CONVERSATION_SHIFT_PX = 16
 
-/** 惯性跟手时间常数（秒）。滚轮/拖拽直接贴目标，这条只给甩出去之后。 */
 export const CONVERSATION_FOLLOW_TAU = 0.028
 
-/** 甩出去之后的衰减时间常数（秒） */
 export const CONVERSATION_FLING_TAU = 0.22
 
 const SETTLE_PX = 0.35
@@ -26,11 +17,7 @@ export function conversationMaxScroll(
   return Math.max(0, Math.ceil(trackHeight - viewportHeight))
 }
 
-/**
- * 看得见的窗口高度：外壳上限扣掉输入行之后剩下的那截。
- * 不能用量轨道自己的高度 —— 那永远等于内容，滚动算成 0，卡片会当成全在视口里，铺到页面上。
- * 外壳还没量到时返回 0，宁可先不画退场，也不能把整列当成窗口。
- */
+/** Never use track height as the viewport — it equals content, so scroll becomes 0. */
 export function conversationViewHeight(
   trackHeight: number,
   availableHeight: number,
@@ -40,7 +27,6 @@ export function conversationViewHeight(
   return Math.min(trackHeight, availableHeight)
 }
 
-/** 锚点 max-height 解析成像素。getComputedStyle 会把 dvh 算成 px。 */
 export function conversationShellLimit(
   maxHeightPx: number,
   viewportPx: number,
@@ -93,7 +79,7 @@ export function sampleVelocity(
   while (start < samples.length && samples[start].t < from) start += 1
   if (samples.length - start < 2) return 0
   const a = samples[start]
-  const b = samples[samples.length - 1]
+  const b = samples.at(-1)!
   const dt = (b.t - a.t) / 1000
   if (dt <= 0) return 0
   return (b.x - a.x) / dt
@@ -123,7 +109,6 @@ export function stillCoasting(
 
 export interface ConversationExitStyle {
   exit: number
-  /** 整卡平移，负值往上离开顶边，正值往下离开底边 */
   shift: number
   hidden: boolean
 }
@@ -140,12 +125,6 @@ function leavingTop(
   return (messageTop + messageBottom) / 2 <= mid
 }
 
-/**
- * 轨道坐标里一张气泡怎么退场。viewportTop 一般为 0。
- *
- * 不切遮罩：卡片始终是完整胶囊。看得见的高度还够，就整张实心留着
- * （越出视口的那截照样画）；只剩 `fade` 那么一截，才整张一起淡、移。
- */
 export function conversationExitStyle(
   messageTop: number,
   messageBottom: number,
@@ -186,17 +165,12 @@ export function conversationExitStyle(
 
 export function conversationExitKey(style: ConversationExitStyle): string {
   if (style.hidden) return 'h'
-  // 不能用空串：重测时 key 会清成 ''，再写成 rest 会被当成没变，
-  // visibility:hidden 就再也清不掉，历史首次加载会丢卡片。
+  // empty string never clears visibility:hidden on remount
   if (style.exit <= 0.01) return 'r'
   return `${style.exit.toFixed(2)}:${style.shift}`
 }
 
-/**
- * 关面板时：已经越出 2/3 窗口的淡出要冻住。
- * 若先拉回实心胶囊再交给 CSS 一张张收，顶上那张半截卡会闪一整张。
- * 它仍参与错开，而且在最上面，所以是最后一张。
- */
+/** Freeze an already-fading card; restoring it would flash a full capsule. */
 export function conversationHoldExitOnClose(
   style: ConversationExitStyle,
 ): boolean {

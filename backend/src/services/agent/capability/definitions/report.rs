@@ -1,4 +1,4 @@
-//! 报告系统能力定义
+//! Agent 报告与相关资源 capability 注册
 
 use crate::services::agent::types::*;
 use serde_json::json;
@@ -9,8 +9,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 报告生成
     registry.register(Capability {
         id: "report.create".to_string(),
-        name: "报告生成".to_string(),
-        description: "生成数据分析报告".to_string(),
+        name: "Create report".to_string(),
+        description: "Generate an analysis report.".to_string(),
         category: CapabilityCategory::ResourceCreate,
         supported_actions: vec![IntentAction::Create],
         input_schema: json!({
@@ -39,8 +39,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 创建提醒
     registry.register(Capability {
         id: "reminder.create".to_string(),
-        name: "创建提醒".to_string(),
-        description: "创建定时提醒".to_string(),
+        name: "Create reminder".to_string(),
+        description: "Create a reminder.".to_string(),
         category: CapabilityCategory::ResourceCreate,
         supported_actions: vec![IntentAction::Create],
         input_schema: json!({
@@ -68,8 +68,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 创建笔记
     registry.register(Capability {
         id: "note.create".to_string(),
-        name: "创建笔记".to_string(),
-        description: "保存文本内容为笔记，支持上游步骤输出作为内容".to_string(),
+        name: "Create note".to_string(),
+        description: "Save text as a note.".to_string(),
         category: CapabilityCategory::ResourceCreate,
         supported_actions: vec![IntentAction::Create],
         input_schema: json!({
@@ -96,8 +96,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 保存书签
     registry.register(Capability {
         id: "bookmark.save".to_string(),
-        name: "保存书签".to_string(),
-        description: "保存 URL 书签，自动获取网页标题".to_string(),
+        name: "Save bookmark".to_string(),
+        description: "Save a URL bookmark and fetch its title.".to_string(),
         category: CapabilityCategory::ResourceCreate,
         supported_actions: vec![IntentAction::Create],
         input_schema: json!({
@@ -126,9 +126,8 @@ pub fn register(registry: &mut CapabilityRegistry) {
     // 报告列表
     registry.register(Capability {
         id: "report.list".to_string(),
-        name: "报告列表".to_string(),
-        description: "列出站点主人的平台报告；无 platform 时附带当前用户 Agent 创建的报告"
-            .to_string(),
+        name: "Report list".to_string(),
+        description: "List platform reports.".to_string(),
         category: CapabilityCategory::DataRead,
         supported_actions: vec![IntentAction::Query],
         input_schema: json!({

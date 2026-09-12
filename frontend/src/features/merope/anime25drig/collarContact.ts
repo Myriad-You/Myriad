@@ -24,11 +24,6 @@ export interface FrontCollarContactModel {
 const ALPHA_THRESHOLD = 18
 const MAX_CONTACT_SAMPLES = 6
 
-/**
- * Extracts the open neck/collar seam from the front-collar alpha contour.
- * A usable high collar has two opaque panels separated by a transparent gap
- * around the horizontal centre. Once the panels meet, the contact seam ends.
- */
 export function buildFrontCollarContactModel(
   rgba: Uint8ClampedArray,
   pixelWidth: number,
@@ -220,7 +215,7 @@ function sampleContactRows(
   const samples: ContactRow[] = []
   for (let sample = 0; sample < count; sample += 1) {
     const target =
-      rows[0].y + ((rows[rows.length - 1].y - rows[0].y) * sample) / (count - 1)
+      rows[0].y + ((rows.at(-1)!.y - rows[0].y) * sample) / (count - 1)
     let best = rows[0]
     for (const row of rows) {
       if (Math.abs(row.y - target) < Math.abs(best.y - target)) best = row
@@ -245,6 +240,6 @@ function smoothContactRow(
 }
 
 function median(values: number[]): number {
-  values.sort((left, right) => left - right)
-  return values[Math.floor(values.length / 2)]
+  const sorted = values.toSorted((left, right) => left - right)
+  return sorted[Math.floor(sorted.length / 2)]
 }

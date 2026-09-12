@@ -10,11 +10,8 @@ export function useSystemSetupCheck() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    // The backend serves the SPA via tower-http ServeDir, which 307-redirects
-    // /setup -> /setup/. React Router's location.pathname can therefore be either
-    // form, so normalise the trailing slash before comparing — otherwise the guard
-    // never matches on /setup/ and we redirect in an infinite reload loop.
-    if (location.pathname.replace(/\/+$/, '') === '/setup') return
+    // ServeDir 会把 /setup 307 到 /setup/；先归一尾斜线再比较，否则会无限重载。
+    if (location.pathname.replaceAll(/\/+$/g, '') === '/setup') return
 
     async function checkSetup() {
       try {
@@ -24,10 +21,8 @@ export function useSystemSetupCheck() {
         const data = await response.json()
         if (data.is_setup_required) {
           console.warn('System not setup, redirecting to setup wizard...')
-          // Use hard redirect to avoid conflicts with router/animations during init.
-          // Target the canonical '/setup' (Astro trailingSlash: 'never' 404s on
-          // '/setup/' in dev). The guard above tolerates the '/setup/' that ServeDir
-          // resolves to on the native backend.
+
+          // 硬跳转避开初始化期路由/动画抢跑。目标用规范 '/setup'（dev 下 '/setup/' 会 404）。
           window.location.replace('/setup')
         }
       } catch (error) {

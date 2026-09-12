@@ -5,13 +5,6 @@ import type {
 } from '../../../services/agent/types'
 import { moodBand } from '../../../components/agent/meropeVitals'
 
-/**
- * Persistent social bearing underneath transient behaviors.
- *
- * This is the character's current way of carrying herself, not an animation
- * clip and not a channel lease. A new turn may revise it; stopping a gesture
- * must not erase it.
- */
 export interface RigBearing extends PerformanceBaseline {
   revision: number
 }
@@ -50,7 +43,6 @@ const STANDING_FROM_BAND: Record<MoodBand, Omit<RigBearing, 'revision'>> = {
   },
 }
 
-/** Idle face for this circumplex band. A performance round may revise it. */
 export function standingBearingFromAffect(
   mood: number,
   arousal: number,

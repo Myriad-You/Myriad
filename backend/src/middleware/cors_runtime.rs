@@ -60,7 +60,7 @@ pub fn origin_is_allowed(origin: &HeaderValue) -> bool {
     guard.iter().any(|allowed| allowed == origin)
 }
 
-/// Snapshot for tests / diagnostics.
+/// Snapshot for tests.
 #[cfg(test)]
 pub fn cors_origin_count() -> usize {
     CORS_ORIGINS.read().map(|g| g.len()).unwrap_or(0)
@@ -70,7 +70,6 @@ pub fn cors_origin_count() -> usize {
 mod tests {
     use super::*;
 
-    /// Single test: shared process-global allowlist must not race under --test-threads.
     #[test]
     fn set_match_and_reject_wildcard() {
         set_cors_origins(vec![

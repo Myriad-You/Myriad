@@ -1,8 +1,3 @@
-/**
- * Tripo 3D handlers. Generation is grant-gated; getUrl/getMetadata read
- * already-public persisted assets through the host (sandbox CSP blocks fetch).
- */
-
 import type { TappBridge } from '../../TappBridge'
 import { userFacingError } from '../../../../utils/userFacingError'
 import * as TappApiService from '../../../services/TappApiService'

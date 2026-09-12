@@ -1,13 +1,3 @@
-/**
- * 设置区块组件
- * 带标题、图标；详细说明默认 ⓘ tooltip；
- * 右上角：本页子分类快速跳转 + 页级特殊操作 + 重置本页 + 显示说明。
- *
- * 帮助三层（勿混用）：
- * - description / detail：短说明。默认 ⓘ tooltip；「显示说明」开启后标题下常显。
- * - guide：长指南。「显示说明」开启后标题旁出现入口，点击以浮窗展示（优先上方，不够则左侧）。
- */
-
 import type { ReactNode } from 'react'
 import type { SettingSectionConfig } from './types'
 
@@ -31,25 +21,14 @@ import './settings-motion.css'
 import './SettingSection.css'
 
 export interface SettingSectionProps extends SettingSectionConfig {
-  /** 是否显示右上角「显示说明」开关，默认 true */
   helpToggle?: boolean
-  /** 是否显示「重置本页」；默认跟随页面 actions context */
   showResetPage?: boolean
-  /** 本页特殊右上角操作，渲染在重置 / 显示说明之前（分隔线左侧）。 */
   headerActions?: ReactNode
-  /**
-   * 常驻区插槽：夹在「重置本页」与「显示说明」之间。
-   * 仅个别页需要（如 AI 添加服务商、第三方登录添加方式）；其它页勿传。
-   */
+  /** between reset and help; omit on other pages */
   headerBetweenPinned?: ReactNode
-  /**
-   * 标题栏左侧前缀（如二级页返回），在区块图标之前。
-   * 传入节点时覆盖移动端默认「回菜单」返回；传 false 可强制隐藏。
-   */
   headerLeading?: ReactNode
 }
 
-/** 标题栏右侧：本页顶层 SettingGroup 快速跳转（≥2 才显示） */
 function SectionTocNav() {
   const { t } = useI18n()
   const toc = useSettingsToc()
@@ -101,7 +80,7 @@ export const SettingSection: React.FC<SettingSectionProps> = ({
   headerBetweenPinned,
   headerLeading,
 }) => {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const pageActions = useSettingsPageActions()
   const [showDetails, setShowDetails] = useState(false)
 
@@ -134,7 +113,6 @@ export const SettingSection: React.FC<SettingSectionProps> = ({
     helpContent != null &&
     helpContent !== ''
 
-  // 显式 headerLeading 优先（平台二级页 → 列表）；否则移动端回菜单
   const resolvedHeaderLeading: ReactNode =
     headerLeading !== undefined && headerLeading !== null
       ? headerLeading === false
@@ -164,7 +142,6 @@ export const SettingSection: React.FC<SettingSectionProps> = ({
 
   const sectionAnchorProps = guideDomProps(guidePath)
 
-  /* 区块进入交给动效系统的 .sm-enter（与其它设置页动效同一套令牌） */
   const content = (
     <SettingsHelpProvider value={helpCtx}>
       <SettingsTocProvider>
@@ -187,16 +164,14 @@ export const SettingSection: React.FC<SettingSectionProps> = ({
                   {title}
                   {showHelp && !showDetails && (
                     <SettingTitleHelp
-                      ariaLabel={t.config.detailHelpAriaNamed.replace(
-                        '{title}',
-                        String(title),
-                      )}
+                      ariaLabel={format(t.config.detailHelpAriaNamed, {
+                        title: String(title),
+                      })}
                       tone={detailTone}
                     >
                       {helpContent}
                     </SettingTitleHelp>
                   )}
-                  {/* 点入口展开；面板经 contents 顶到标题上方左侧 */}
                   <SettingTitleGuideEntry
                     title={typeof title === 'string' ? title : ''}
                     guide={guide}
@@ -218,7 +193,6 @@ export const SettingSection: React.FC<SettingSectionProps> = ({
             </div>
 
             <div className="section-header-right">
-              {/* 快速跳转：标题栏右侧、操作按钮之前（≥2 子分类才渲染） */}
               <SectionTocNav />
               {hasExtraActions && (
                 <div className="section-header-actions-extra">

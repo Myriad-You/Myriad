@@ -69,7 +69,6 @@ export interface Anime25DMutableExpressionPoint {
   y: number
 }
 
-/** Resolve once per layer; a missing eye anchor excludes eye-bound artwork. */
 export function resolveAnime25DExpressionDeformation(
   source: Pick<Anime25DPlaybackLayer, 'fade' | 'role'>,
   hasEyeAnchor: boolean,
@@ -110,7 +109,6 @@ export function resolveAnime25DExpressionDeformation(
   return null
 }
 
-/** Applies the existing Myriad expression-art geometry in player order. */
 export function deformAnime25DExpressionPoint(
   point: Anime25DMutableExpressionPoint,
   restY: number,

@@ -1,13 +1,3 @@
-/**
- * 开发态性能监控采样
- *
- * 原则：
- * - 只读浏览器 API / AnimationCoordinator / resourceLoader，不 monkey-patch
- * - 收缩：2s 轻量轮询，值不变不 setState
- * - 展开：1s 批量读 + PerformanceObserver（仅 expanded 时挂载）
- * - 动画列表：展开时低频 getAnimations()，禁止全页 querySelectorAll
- */
-
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { globalResourceLoader } from '../utils/resourceLoader'
@@ -18,19 +8,13 @@ import {
   getFrameStats,
 } from './animation'
 
-// ── Types ──────────────────────────────────────────────────────────
-
 export interface FrameMetrics {
   fps: number
   avgFrameTime: number
   isLowFps: boolean
-  /** 近窗最差帧 (ms) */
   maxFrameMs: number
-  /** 近窗 P95 帧时 (ms) */
   p95FrameMs: number
-  /** 近窗卡顿占比 0–1 */
   jankRatio: number
-  /** 卡顿阈值 (ms) = 2× 帧预算 */
   jankThresholdMs: number
   detectedRefreshRate: number
   lowFpsThreshold: number
@@ -45,18 +29,16 @@ export interface MemoryMetrics {
 }
 
 export interface StabilityMetrics {
-  /** 累计 CLS（忽略 hadRecentInput） */
+  /** 累计 CLS（忽略 hadRecentInput）。 */
   cls: number
   fcpMs: number | null
   longTaskCount: number
-  /** 最近一次 long task 时长 ms */
   lastLongTaskMs: number
 }
 
 export interface AnimationSnapshot {
   total: number
   running: number
-  /** 最多保留若干条，避免渲染开销 */
   items: Array<{
     name: string
     target: string
@@ -67,7 +49,7 @@ export interface AnimationSnapshot {
 }
 
 export interface CoordinatorSnapshot {
-  /** 瞬时占槽 — 空闲时几乎总是 0 */
+  /** 瞬时占槽 — 空闲时几乎总是 0。 */
   activeSlots: number
   maxConcurrent: number
   baseConcurrent: number
@@ -75,7 +57,6 @@ export interface CoordinatorSnapshot {
   delayedQueue: number
   totalQueued: number
   inBurstMode: boolean
-  /** 会话峰值并发 */
   peakActiveSlots: number
   totalScheduled: number
   totalAcquired: number
@@ -99,8 +80,6 @@ export interface PerfSnapshot {
   coordinator: CoordinatorSnapshot
   resource: ResourceSnapshot
 }
-
-// ── Helpers ────────────────────────────────────────────────────────
 
 function shortSelector(el: Element | null): string {
   if (!el) return '—'
@@ -213,7 +192,7 @@ function scanAnimations(limit = 12): AnimationSnapshot {
       }
     }
   } catch {
-    // getAnimations unsupported
+
   }
 
   return { total, running, items }
@@ -263,7 +242,6 @@ function shallowEqualSnapshot(
   if (includeAnimations) {
     if (a.animations.total !== b.animations.total) return false
     if (a.animations.running !== b.animations.running) return false
-    // items 内容变化时用 running/total 近似；列表手动刷新
   }
 
   return true
@@ -291,8 +269,6 @@ function initialSnapshot(): PerfSnapshot {
   }
 }
 
-// ── Hook ───────────────────────────────────────────────────────────
-
 export function usePerfMetrics(isExpanded: boolean) {
   const [snapshot, setSnapshot] = useState<PerfSnapshot>(initialSnapshot)
   const stabilityRef = useRef(snapshot.stability)
@@ -311,12 +287,11 @@ export function usePerfMetrics(isExpanded: boolean) {
     [],
   )
 
-  // 收缩 / 展开轮询：只读已有状态，禁止 DOM 重扫以外的额外开销
   useEffect(() => {
     const tick = () => {
       const prev = snapshotRef.current
+      // 收缩：只更新顶栏需要的 fps / memory。
       if (!isExpanded) {
-        // 收缩：只更新顶栏需要的 fps / memory
         const next: PerfSnapshot = {
           ...prev,
           frame: readFrame(),
@@ -344,13 +319,12 @@ export function usePerfMetrics(isExpanded: boolean) {
     return () => window.clearInterval(id)
   }, [isExpanded, commit])
 
-  // PerformanceObserver：仅展开时挂载
   useEffect(() => {
+    // PerformanceObserver 仅展开时挂载。
     if (!isExpanded || !('PerformanceObserver' in window)) return
 
     const observers: PerformanceObserver[] = []
 
-    // Long tasks
     try {
       const lt = new PerformanceObserver((list) => {
         let added = 0
@@ -374,10 +348,9 @@ export function usePerfMetrics(isExpanded: boolean) {
       lt.observe({ entryTypes: ['longtask'] })
       observers.push(lt)
     } catch {
-      // unsupported
+
     }
 
-    // Cumulative CLS
     try {
       const clsObs = new PerformanceObserver((list) => {
         let delta = 0
@@ -401,10 +374,9 @@ export function usePerfMetrics(isExpanded: boolean) {
       clsObs.observe({ type: 'layout-shift', buffered: true })
       observers.push(clsObs)
     } catch {
-      // unsupported
+
     }
 
-    // FCP once
     try {
       const paint = new PerformanceObserver((list) => {
         for (const entry of list.getEntries()) {
@@ -421,10 +393,9 @@ export function usePerfMetrics(isExpanded: boolean) {
       paint.observe({ type: 'paint', buffered: true })
       observers.push(paint)
     } catch {
-      // unsupported
+
     }
 
-    // 已有 paint 条目的同步回填
     try {
       const paints = performance.getEntriesByType('paint')
       for (const entry of paints) {
@@ -438,7 +409,7 @@ export function usePerfMetrics(isExpanded: boolean) {
         }
       }
     } catch {
-      // ignore
+
     }
 
     return () => {

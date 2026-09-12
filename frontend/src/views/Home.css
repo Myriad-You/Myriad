@@ -1,22 +1,12 @@
+@import '../styles/page-frame.css';
+
 .home-shell {
-  --home-page-pad-x: 0.75rem;
-  --home-stage-pad: 0.5rem;
+  --home-page-pad-x: var(--page-pad-x);
+  --home-stage-pad: var(--page-stage-pad);
   --home-free-pad-y: 1.5rem;
-  --home-standard-max-width: 80rem;
-  --home-standard-pad-top: 5rem;
-  --home-standard-pad-bottom: 1.5rem;
-}
-
-@media (width >= 375px) {
-  .home-shell {
-    --home-page-pad-x: 1rem;
-  }
-}
-
-@media (width >= 640px) {
-  .home-shell {
-    --home-page-pad-x: 1.5rem;
-  }
+  --home-standard-max-width: var(--page-max-width);
+  --home-standard-pad-top: var(--page-pad-top);
+  --home-standard-pad-bottom: var(--page-pad-bottom);
 }
 
 .home-shell__inner {
@@ -29,9 +19,7 @@
   padding-bottom: var(--home-standard-pad-bottom);
 }
 
-/* 标准布局状态条：编辑槽位 0fr↔1fr，条子 fit-content 跟着变长。
-   进入：先拉宽度，字晚 70ms 淡入；退出：字先隐，宽度再收。
-   右侧槽晚 40ms，从「编辑」往两边打开。 */
+/* Edit slot 0fr↔1fr; bar width is fit-content. Width first on enter; text first on exit. */
 .home-status-bar {
   --home-status-bar-ease: cubic-bezier(0.32, 0.72, 0, 1);
   --home-status-bar-ease-exit: cubic-bezier(0.4, 0, 1, 1);
@@ -58,7 +46,7 @@
   white-space: nowrap;
 }
 
-/* 动作区不用 gap：收起的 0fr 槽仍是 flex 子项，gap 会在「编辑」两侧多出空档。 */
+/* No gap: a collapsed 0fr slot is still a flex item and would pad both sides of Edit. */
 .home-status-bar__actions {
   display: flex;
   align-items: center;

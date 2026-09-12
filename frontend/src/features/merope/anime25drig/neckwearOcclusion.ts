@@ -3,11 +3,7 @@ import type { CroppedLayerPixels } from './webglRuntime'
 
 type ReadPixels = (source: Anime25DPlaybackLayer) => CroppedLayerPixels | null
 
-/**
- * Only lift visible art actually buried by the recovered skin. A bounding box
- * or transparent padding is not contact. Do not cross another opaque drawing:
- * one rigid layer cannot express an ambiguous front/back interleaving.
- */
+/** Only lift visible art actually buried by the recovered skin. */
 export function canLiftNeckwearOverSkin(
   accessory: Anime25DPlaybackLayer,
   neck: Anime25DPlaybackLayer,
@@ -26,11 +22,9 @@ export function canLiftNeckwearOverSkin(
         layer !== accessory &&
         layer !== neck &&
         layer !== body &&
-        layer.role !== 'neckwear' &&
         overlaps(accessory, layer),
     )
     .map((layer) => ({ layer, image: readPixels(layer) }))
-  // Missing obstacle pixels are uncertainty, not evidence of transparency.
   if (obstacles.some(({ image }) => !image)) return false
   let contact = 0
   for (let y = 0; y < art.height; y++) {

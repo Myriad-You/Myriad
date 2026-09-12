@@ -1,10 +1,3 @@
-/**
- * 名称与简介来源选择器 —— 与 AvatarSourcePicker 分开，互不改对方存储。
- *
- * 同站合并（GitHub OAuth + 抓取）由后端 list 完成；本组件只消费列表。
- * 切换后广播 `notifyProfileDisplayChanged()`，首页 name/bio 立即跟上。
- */
-
 import type {
   ProfileTextSourceItem,
   ProfileTextSourceKind,
@@ -19,12 +12,7 @@ import { Spinner } from './Spinner'
 import './AvatarSourcePicker.css'
 
 interface ProfileTextSourcePickerProps {
-  /** 省略 = 改自己；传 id = 管理员改他人 */
   userId?: number
-  /**
-   * 管理员改他人时：目标是否为站长。
-   * 仅 viewer / 站长切换才广播全局 profile-display-changed（首页信息条）。
-   */
   targetIsSiteOwner?: boolean
   onApplied?: () => void
 }
@@ -114,8 +102,6 @@ export function ProfileTextSourcePicker({
       sublabel: t.userModal.profileTextSourceAutoDesc,
     },
     ...sources.map((source) => {
-      // identity：sublabel 是 provider 用户名（handle），与 AvatarSourcePicker 一致；
-      // 勿用 preview_name（显示名）再强行加 @，会得到 `@Alice Smith`。
       let sublabel: string | null
       if (source.kind === 'identity') {
         sublabel = source.sublabel

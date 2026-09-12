@@ -1,8 +1,3 @@
-/**
- * 各数据平台品牌色（图标 / 点缀用）
- * light / dark 各一套，深色主题下黑/深色品牌用浅色变体保证可见
- */
-
 export interface PlatformBrandTheme {
   color: string
   darkColor: string
@@ -34,19 +29,17 @@ const FALLBACK: PlatformBrandTheme = {
 }
 
 function normalizePlatformKey(platform: string): string {
-  return platform.trim().toLowerCase().replace(/\s+/g, ' ')
+  return platform.trim().toLowerCase().replaceAll(/\s+/g, ' ')
 }
 
 export function getPlatformBrandTheme(platform: string): PlatformBrandTheme {
   const key = normalizePlatformKey(platform)
   if (PLATFORM_BRANDS[key]) return PLATFORM_BRANDS[key]
-  // 无空格形式再试一次
-  const compact = key.replace(/\s+/g, '_')
+  const compact = key.replaceAll(/\s+/g, '_')
   if (PLATFORM_BRANDS[compact]) return PLATFORM_BRANDS[compact]
   return FALLBACK
 }
 
-/** 按当前主题取品牌色（图标 currentColor） */
 export function getPlatformBrandColor(
   platform: string,
   isDark = false,

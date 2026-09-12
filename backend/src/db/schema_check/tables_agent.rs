@@ -1,4 +1,4 @@
-//! Expected table definitions for Agent (tasks, memory, notifications, Merope persona).
+//! Expected Agent-related DB table definitions (tasks, sessions, messages, notifications, persona).
 use super::types::{ColumnDef, TableDef};
 
 pub(crate) fn tables() -> Vec<TableDef> {
@@ -355,7 +355,7 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     is_nullable: true,
                     default_value: None,
                 },
-                // 对话标题（用于继续对话时显示）
+                // 对话标题
                 ColumnDef {
                     name: "title".into(),
                     data_type: "character varying".into(),

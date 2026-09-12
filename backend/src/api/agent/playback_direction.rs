@@ -1,6 +1,7 @@
 use super::*;
 use crate::error::HttpError;
 use crate::services::agent::run_hub::get_live_run_for_user;
+use myriad_error::AppError;
 
 #[derive(Default, Deserialize)]
 pub(super) struct Cursor {
@@ -17,7 +18,7 @@ async fn owned_run(
     get_live_run_for_user(run_id, user_id).await.ok_or_else(|| {
         HttpError::from((
             StatusCode::NOT_FOUND,
-            Json(json!({"error":"Live run unavailable"})),
+            Json(AppError::public_json("Live run unavailable")),
         ))
     })
 }

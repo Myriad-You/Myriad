@@ -176,8 +176,12 @@ pub async fn status_for_user(
         if let Some(row) = rows.into_iter().next() {
             if let Ok(stored) = serde_json::from_value::<StoredPairingCode>(row.payload) {
                 pending_expires_at = live_code_expiry(db, channel, user_id).await?;
-                if pending_expires_at.is_some() {
+                if stored.scope == credential_scope(channel.provider).await
+                    && pending_expires_at.is_some()
+                {
                     pending_code = Some(format_pairing_code(&stored.code));
+                } else {
+                    pending_expires_at = None;
                 }
             }
         }
@@ -243,7 +247,14 @@ pub async fn mint_code(
     channel: PairingChannel,
     user_id: i32,
 ) -> Result<IssuedPairingCode, DbErr> {
-    db.execute_raw(Statement::from_sql_and_values(
+    let txn = db.begin().await?;
+    txn.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [format!("channel-pairing:{}:{user_id}", channel.provider).into()],
+    ))
+    .await?;
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "DELETE FROM tapp_runtime_registry WHERE namespace = $1 AND subject_id = $2",
         vec![
@@ -263,7 +274,7 @@ pub async fn mint_code(
         scope: credential_scope(channel.provider).await,
     };
     shared_registry::put(
-        db,
+        &txn,
         channel.code_namespace,
         &token_hash(&code),
         RegistryIdentity {
@@ -277,6 +288,7 @@ pub async fn mint_code(
     )
     .await?;
 
+    txn.commit().await?;
     Ok(IssuedPairingCode {
         display: format_pairing_code(&code),
         code,
@@ -304,14 +316,14 @@ pub async fn unpair(
         ))
         .await?;
     // Revoke first; running observers must fail their binding check even if cleanup fails.
-    txn.commit().await?;
-    crate::services::channel_work::revoke_pairing(db, channel.provider, user_id).await;
-    db.execute_raw(Statement::from_sql_and_values(
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "DELETE FROM tapp_runtime_registry WHERE subject_id = $1 AND namespace = $2",
         [user_id.into(), channel.code_namespace.into()],
     ))
     .await?;
+    txn.commit().await?;
+    crate::services::channel_work::revoke_pairing(db, channel.provider, user_id).await;
     Ok(result.rows_affected() > 0)
 }
 
@@ -330,7 +342,7 @@ pub async fn consume_code(
     }
 
     let Some(stored) =
-        shared_registry::take::<StoredPairingCode>(db, channel.code_namespace, &token_hash(&code))
+        shared_registry::get::<StoredPairingCode>(db, channel.code_namespace, &token_hash(&code))
             .await?
     else {
         return Ok(PairingBindResult::InvalidOrExpired);
@@ -345,6 +357,7 @@ pub async fn consume_code(
         stored.user_id,
         &[openid.to_string()],
         &stored.scope,
+        &code,
     )
     .await
 }
@@ -371,7 +384,7 @@ pub async fn consume_code_keys(
     }
 
     let Some(stored) =
-        shared_registry::take::<StoredPairingCode>(db, channel.code_namespace, &token_hash(&code))
+        shared_registry::get::<StoredPairingCode>(db, channel.code_namespace, &token_hash(&code))
             .await?
     else {
         return Ok(PairingBindResult::InvalidOrExpired);
@@ -380,7 +393,7 @@ pub async fn consume_code_keys(
         return Ok(PairingBindResult::InvalidOrExpired);
     }
 
-    bind_openids(db, channel, stored.user_id, &keys, &stored.scope).await
+    bind_openids(db, channel, stored.user_id, &keys, &stored.scope, &code).await
 }
 
 /// If this user is already paired via one key, write the remaining keys so a
@@ -434,6 +447,7 @@ async fn bind_openids(
     user_id: i32,
     keys: &[String],
     scope: &str,
+    code: &str,
 ) -> Result<PairingBindResult, DbErr> {
     let keys: Vec<String> = keys
         .iter()
@@ -451,6 +465,16 @@ async fn bind_openids(
         [format!("channel-pairing:{}:{user_id}", channel.provider).into()],
     ))
     .await?;
+    // Consume under the same per-user lock as mint/unpair. A code looked up before
+    // revocation must not bind after that revocation has committed.
+    let stored =
+        shared_registry::take::<StoredPairingCode>(&txn, channel.code_namespace, &token_hash(code))
+            .await?;
+    if !stored.is_some_and(|stored| {
+        stored.user_id == user_id && stored.code == code && stored.scope == scope
+    }) {
+        return Ok(PairingBindResult::InvalidOrExpired);
+    }
     for key in &keys {
         let existing = txn
             .query_one_raw(Statement::from_sql_and_values(

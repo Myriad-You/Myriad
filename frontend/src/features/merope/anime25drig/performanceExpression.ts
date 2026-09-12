@@ -1,8 +1,10 @@
 import type { PerformanceBaseline } from '../../../services/agent/types'
+import type { TouchReaction } from '../interaction/touchReaction'
 import type { BehaviorQuality } from '../motion/behavior'
 import type { Anime25DMotionUnit } from './behaviorMotion'
 import type { Anime25DDriver } from './driver'
 import type { CueIntent } from './performanceCueDefinitions'
+import { TOUCH_REACTIONS } from '../interaction/touchReaction'
 import { PERFORMANCE_CUE_INTENTS } from '../performanceContract'
 import { IDENTITY_DRIVER } from './driver'
 import {
@@ -10,6 +12,7 @@ import {
   intentExpressionPatch,
 } from './performanceCueDefinitions'
 import { MIN_STICKER_FADE_OUT } from './performanceMotion'
+import { touchExpressionPatch } from './touchExpression'
 
 export interface PerformanceExpressionOffset {
   brow: number
@@ -27,7 +30,6 @@ export interface PerformanceExpressionOffset {
   body: number
   armY: number
   armPos: number
-  /** Additive secondary-motion strength around the driver's 2.5 rest value. */
   bust?: number
   anger?: number
   speechless?: number
@@ -61,12 +63,8 @@ export interface PerformanceExpressionTarget {
 }
 
 interface ScheduledExpressionCue {
+  thinking?: boolean
   behaviorId: string
-  /**
-   * Signature of the motion unit this was built from, so a restatement that
-   * changed nothing is free and one that moved the beat is picked up. Cleared
-   * on release, so a behavior that leaves the plan and returns is rebuilt.
-   */
   unitKey: string | null
   start: number
   fadeIn: number
@@ -74,9 +72,11 @@ interface ScheduledExpressionCue {
   fadeOut: number
   end: number
   sticker: boolean
-  /** Manner this beat was authored with, read by the pose response filter. */
   quality: BehaviorQuality
   offset: PerformanceExpressionOffset
+  touch?: { form: TouchReaction; amount: number; contact: Anime25DMotionUnit['touch'] } | null
+  touchResponseStart?: number
+  isTouch?: boolean
 }
 
 const OFFSET_KEYS = [
@@ -128,60 +128,38 @@ const ZERO_OFFSET: PerformanceExpressionOffset = {
 }
 
 const AMBIENT_SCALE_RATE = 5.2
-/**
- * Matches what a focused bearing and a large random action each take out of
- * the idle layer, so no source is quietly privileged over the others. The cue
- * envelope is already smootherstep-shaped and continuous, so this needs no
- * easing of its own.
- */
 const LIVE_CUE_AMBIENT_DAMP = 0.3
+const EMOTIONAL_EYE_KEYS = ['anger', 'speechless', 'maniac', 'silly', 'lovestruck', 'eyeCry', 'eyeDizzy', 'eyeSqueeze'] as const
 const EYE_CLOSED_GUARD = 0.12
 const EXTREME_SOFT_LIMIT_START = 0.8
-/**
- * Owns only additive facial/head expression offsets selected by Lite.
- * Base poses, workbench controls, lip sync, gaze, blinking, and body motion
- * remain separate owners and are never written back by this controller.
- */
+/** Owns only additive facial/head expression offsets selected by Lite. */
 export class PerformanceExpressionController {
+  private thinkingLevel = 0
+  getThinkingLevel(): number { return this.thinkingLevel }
   private readonly output: PerformanceExpressionOffset = { ...ZERO_OFFSET }
-  private readonly cues: ScheduledExpressionCue[] = []
+  private cues: ScheduledExpressionCue[] = []
   private lastTime = Number.NaN
   private ambientScale = 1
   private ambientScaleTarget = 1
   private activeLevel = 0
   private activeQuality: BehaviorQuality | null = null
+  private touchLevel = 0
+  private sampledTouch: { behaviorId: string; reaction: TouchReaction } | null = null
+  private directedLevel = 0
+  private readonly touchOffset: PerformanceExpressionOffset = { ...ZERO_OFFSET }
 
-  /**
-   * Restates the live performance units on the player clock.
-   *
-   * Nothing is re-derived here. The plan already resolved when each behavior
-   * starts, peaks, releases and ends, so its pegs map straight onto the
-   * envelope — the previous path packed those points back into a cue's three
-   * durations and rebuilt them, which quietly dropped the stroke plateau.
-   *
-   * Taking the whole live set makes this idempotent: a restated plan keeps the
-   * poses it already scheduled, and a behavior that dropped out of the plan
-   * releases instead of playing on to its authored end. That is why the caller
-   * needs no record of what it has already played.
-   */
   playBehaviorUnits(
     units: readonly Anime25DMotionUnit[],
     timeSeconds: number,
     nowMs: number,
   ): boolean {
     const now = finiteTime(timeSeconds)
-    // Scheduling maps wall time onto the write clock, which is correct: the
-    // read clock's lead is what makes a cue land on time. A release is the
-    // other direction — it continues from the value already on screen, which
-    // belongs to the read clock. Starting it on the write clock put a whole
-    // lead into the fade before its first frame, and a short `fadeOut` lost
-    // most of itself there: 79% in one frame, which reads as snapping to rest.
     const releaseAt = this.releaseClock(now)
     this.pruneExpiredCues(now)
     if (!Number.isFinite(this.lastTime)) this.lastTime = now
     const live = new Map<string, Anime25DMotionUnit>()
     for (const unit of units) {
-      if (unit.family === 'performance') live.set(unit.behaviorId, unit)
+      if (unit.family === 'performance' || unit.family === 'touch') live.set(unit.behaviorId, unit)
     }
     let changed = false
     const scheduled = new Set<string>()
@@ -193,19 +171,22 @@ export class PerformanceExpressionController {
         continue
       }
       scheduled.add(cue.behaviorId)
-      // The scheduler keeps a beat's identity across plan revisions, so the
-      // same id can come back retimed or stronger. Restating it must reach the
-      // pose too, or the body would follow the refinement while the face went
-      // on playing the beat the floor authored.
       const key = motionUnitKey(unit)
       if (key === cue.unitKey) continue
       const next = scheduledCueFromUnit(unit, now, nowMs)
       if (!next) continue
+      const currentOffset = cue.offset
+      const responseStart = cue.touch?.form === next.touch?.form
+        ? cue.touchResponseStart : releaseAt
       Object.assign(cue, next)
+      if (unit.family === 'touch') {
+        cue.offset = currentOffset
+        cue.touchResponseStart = responseStart
+      }
       changed = true
     }
     for (const unit of units) {
-      if (unit.family !== 'performance') continue
+      if (unit.family !== 'performance' && unit.family !== 'touch') continue
       if (scheduled.has(unit.behaviorId)) continue
       const cue = scheduledCueFromUnit(unit, now, nowMs)
       if (!cue) continue
@@ -213,7 +194,7 @@ export class PerformanceExpressionController {
       scheduled.add(unit.behaviorId)
       changed = true
     }
-    this.cues.sort((left, right) => left.start - right.start)
+    this.cues = this.cues.toSorted((left, right) => left.start - right.start)
     this.pruneExpiredCues(now)
     return changed
   }
@@ -233,71 +214,105 @@ export class PerformanceExpressionController {
     this.ambientScaleTarget = 1
   }
 
-  /**
-   * The moment the pose currently on screen belongs to.
-   *
-   * Never behind the last sample: rewinding it would also hand the next frame
-   * a second copy of the lead as elapsed time.
-   */
+  /** Never behind the last sample */
   private releaseClock(candidate: number): number {
     return Number.isFinite(this.lastTime)
       ? Math.max(this.lastTime, candidate)
       : candidate
   }
 
-  sample(timeSeconds: number): Readonly<PerformanceExpressionOffset> {
+  sample(timeSeconds: number, base: Partial<Anime25DDriver> = {}, speaking = false): Readonly<PerformanceExpressionOffset> {
     const now = finiteTime(timeSeconds)
+    if (speaking) {
+      const releaseAt = this.releaseClock(now)
+      for (const cue of this.cues) {
+        if (cue.thinking) {
+          releaseScheduledCue(cue, releaseAt)
+        }
+      }
+    }
     const dt = Number.isFinite(this.lastTime)
       ? clamp(now - this.lastTime, 0, 0.05)
       : 0
     this.lastTime = now
-    // Only attention is eased here. The persistent bearing is a base pose the
-    // player installs through `bearingDriverPatch`; this controller owns the
-    // transient behaviors that ride on top of it, so it starts every frame at
-    // rest rather than holding a second copy of the baseline.
+    // Only attention is eased here.
     this.ambientScale +=
       (this.ambientScaleTarget - this.ambientScale) *
       (1 - Math.exp(-AMBIENT_SCALE_RATE * dt))
-    for (const key of OFFSET_KEYS) this.output[key] = 0
+    for (const key of OFFSET_KEYS) { this.output[key] = 0; this.touchOffset[key] = 0 }
 
     this.pruneExpiredCues(now)
     this.activeLevel = 0
+    this.thinkingLevel = 0
+    this.touchLevel = 0
+    this.sampledTouch = null
+    this.directedLevel = 0
     this.activeQuality = null
     for (const cue of this.cues) {
       if (now < cue.start || now >= cue.end) continue
+      if (cue.touch) {
+        const target = touchExpressionPatch(cue.touch.form, cue.touch.amount, cue.touch.contact, now - (cue.touchResponseStart ?? cue.start))
+        for (const key of OFFSET_KEYS) {
+          const blend = -Math.expm1(-(key === 'eyeX' || key === 'eyeY' ? 18 : 9) * dt)
+          cue.offset[key] = (cue.offset[key] ?? 0)
+            + ((target[key] ?? 0) - (cue.offset[key] ?? 0)) * blend
+        }
+      }
       const envelope = cueEnvelope(cue, now)
+      if (cue.thinking) this.thinkingLevel = Math.max(this.thinkingLevel, envelope)
+      if (cue.touch && cue.behaviorId && envelope >= 0.5
+        && now - (cue.touchResponseStart ?? cue.start) >= 0.12) {
+        this.sampledTouch = { behaviorId: cue.behaviorId, reaction: cue.touch.form }
+      }
+      if (cue.isTouch) this.touchLevel = Math.max(this.touchLevel, cue.unitKey !== null ? 1 : envelope)
       if (envelope <= 0) continue
+      if (!cue.isTouch) this.directedLevel = Math.max(this.directedLevel, envelope)
       if (envelope > this.activeLevel) {
         this.activeLevel = envelope
         this.activeQuality = cue.quality
       }
+      const output = cue.isTouch ? this.touchOffset : this.output
       for (const key of OFFSET_KEYS) {
-        this.output[key] =
-          (this.output[key] ?? 0) + (cue.offset[key] ?? 0) * envelope
+        output[key] = (output[key] ?? 0) + (cue.offset[key] ?? 0) * envelope
       }
+    }
+    // Preserve authored brows and eye artwork
+    if (this.touchLevel <= 0) return this.output
+    let special = 0
+    for (const key of EMOTIONAL_EYE_KEYS) special = Math.max(special, Math.abs((base[key] ?? 0) + (this.output[key] ?? 0)))
+    const protection = clamp(Math.max(special,
+      Math.abs((base.browAngSym ?? 0) + this.output.browAngSym) / 0.6), 0, 1)
+    for (const key of OFFSET_KEYS) {
+      let addition = this.touchOffset[key] ?? 0
+      if (key === 'brow' || key === 'browAngSym' || key === 'eyeOpen') {
+        addition *= 1 - 0.75 * protection
+        if (key !== 'eyeOpen') {
+          const underlying = (base[key] ?? 0) + (this.output[key] ?? 0)
+          if (addition * underlying < 0) {
+            addition = Math.sign(addition) * Math.min(Math.abs(addition),
+              Math.abs(underlying) * 0.25 + Math.abs(addition) * (1 - protection))
+          }
+        }
+      }
+      this.output[key] = (this.output[key] ?? 0) + addition
     }
     return this.output
   }
 
-  /**
-   * How much of the idle layer survives underneath the director.
-   *
-   * Three sources can cover the rig's own drift, and the pose gate multiplies
-   * all three: a sticker holds the face, a large random action damps the drift
-   * beneath it, and this. Until the live term was added this one answered only
-   * to the persistent bearing, so the director's own beats were the single
-   * covering motion that left the idle layer running at full amplitude.
-   */
+  getTouchShare(): number { return this.touchLevel * (1 - this.directedLevel) }
+
+  getSampledTouch(): { behaviorId: string; reaction: TouchReaction } | null {
+    return this.directedLevel < 0.5 ? this.sampledTouch : null
+  }
+
   getAmbientMotionScale(): number {
     return this.ambientScale * (1 - LIVE_CUE_AMBIENT_DAMP * this.activeLevel)
   }
 
-  /** Envelope of the loudest live beat, as its share of the composed pose. */
   getActiveLevel(): number {
     return this.activeLevel
   }
 
-  /** Manner of that beat, so the response filter can move at its speed. */
   getActiveQuality(): Readonly<BehaviorQuality> | null {
     return this.activeQuality
   }
@@ -338,14 +353,10 @@ export function baselineExpressionOffset(
   return output
 }
 
-/** Installs persistent bearing onto the authored base pose. */
 export function bearingDriverPatch(
   baseline: PerformanceBaseline | null,
 ): Partial<Anime25DDriver> {
   const offset = baseline ? baselineExpressionOffset(baseline) : ZERO_OFFSET
-  // PerformanceExpressionOffset is an additive space. Spell out the bearing's
-  // actual base-pose ownership here so non-zero-neutral driver fields are not
-  // mistaken for absolutes, and transient cue-only fields never leak into it.
   return {
     brow: offset.brow,
     browAngSym: offset.browAngSym,
@@ -359,18 +370,6 @@ export function bearingDriverPatch(
   }
 }
 
-/**
- * Amplitudes are calibrated against screen pixels, not driver decimals.
- *
- * `layerDeformation` moves a brow point by `brow * 9 * faceScale`, and the
- * homepage rig renders about 300px wide — roughly a third of the source atlas.
- * The old 0.02 `greet` brow was therefore ~0.06 displayed pixels: correct in
- * the driver and invisible on screen, while `randomAction` was ambling around
- * in the 0.12–0.36 band the whole time. The character's own idle fidgeting
- * read louder than anything the director said. These land the ordinary beats
- * in that same band so a semantic cue is at least as legible as a fidget;
- * stickers still carry the strong, rare reads.
- */
 export function intentExpressionOffset(
   intent: CueIntent,
   intensity: number,
@@ -380,13 +379,6 @@ export function intentExpressionOffset(
   return output
 }
 
-/**
- * How large a performance unit reads.
- *
- * Amplitude is the behavior's own intensity shaped by the quality the planner
- * resolved. It belongs here rather than in the realizer: it is a question
- * about the pose, and only the thing that draws the pose should answer it.
- */
 export function performanceUnitAmount(
   intensity: number,
   quality: Readonly<BehaviorQuality>,
@@ -398,7 +390,6 @@ export function performanceUnitAmount(
   )
 }
 
-/** Everything `scheduledCueFromUnit` reads, and nothing else. */
 function motionUnitKey(unit: Anime25DMotionUnit): string {
   return [
     unit.form,
@@ -409,6 +400,8 @@ function motionUnitKey(unit: Anime25DMotionUnit): string {
     unit.intensity,
     unit.quality.extent,
     unit.quality.power,
+    unit.touch?.x, unit.touch?.y, unit.touch?.strokeX, unit.touch?.strokeY,
+    unit.touch?.caress,
   ].join('|')
 }
 
@@ -418,35 +411,39 @@ function scheduledCueFromUnit(
   wallNowMs: number,
 ): ScheduledExpressionCue | null {
   const intent = unit.form as CueIntent
-  if (!PERFORMANCE_CUE_INTENTS.includes(intent)) return null
+  const touch = unit.family === 'touch'
+  if (touch ? !TOUCH_REACTIONS.includes(unit.form as TouchReaction) : !PERFORMANCE_CUE_INTENTS.includes(intent)) return null
   const local = (atMs: number): number =>
     playerNow + (finiteOrZero(atMs) - wallNowMs) / 1_000
   const start = local(unit.timing.startMs)
   const peak = local(unit.timing.strokePeakMs)
   const relax = unit.timing.relaxMs === null ? null : local(unit.timing.relaxMs)
   const end = unit.timing.endMs === null ? null : local(unit.timing.endMs)
-  // The stroke plateau is part of the hold. Measuring the hold from strokeEnd
-  // instead of strokePeak is what cut every performance behavior short.
   const tail = relax ?? end
   return {
     behaviorId: unit.behaviorId,
+    thinking: !touch && intent === 'think',
     unitKey: motionUnitKey(unit),
+    touchResponseStart: touch ? start : undefined,
+    isTouch: touch,
     start,
     fadeIn: Math.max(0, peak - start),
     hold: tail === null ? Number.POSITIVE_INFINITY : Math.max(0, tail - peak),
     fadeOut: tail === null || end === null ? 0 : Math.max(0, end - tail),
-    // An absent end means the behavior holds until something replaces it.
     end: end ?? Number.POSITIVE_INFINITY,
-    sticker: cueIsSticker(intent),
+    sticker: !touch && cueIsSticker(intent),
     quality: unit.quality,
-    offset: intentExpressionOffset(
+    touch: touch ? { form: unit.form as TouchReaction, amount: performanceUnitAmount(unit.intensity, unit.quality), contact: unit.touch } : null,
+    offset: touch ? {
+      ...intentExpressionOffset('listen', 0),
+      ...touchExpressionPatch(unit.form as TouchReaction, performanceUnitAmount(unit.intensity, unit.quality), unit.touch, Math.max(0, playerNow - start)),
+    } : intentExpressionOffset(
       intent,
       performanceUnitAmount(unit.intensity, unit.quality),
     ),
   }
 }
 
-/** Adds expression-owned channels while preserving manual left/right asymmetry. */
 export function applyPerformanceExpressionOffset(
   target: PerformanceExpressionTarget,
   offset: Readonly<PerformanceExpressionOffset>,
@@ -511,7 +508,6 @@ export function applyPerformanceExpressionOffset(
   applyPerformanceExpressionExtras(target, offset)
 }
 
-/** Applies semantic expression fields that are not pose-compositor channels. */
 export function applyPerformanceExpressionExtras(
   target: PerformanceExpressionTarget,
   offset: Readonly<PerformanceExpressionOffset>,
@@ -599,7 +595,6 @@ export function applyPerformanceExpressionExtras(
   )
 }
 
-/** Keeps authored closed eyes closed while allowing partially open eyes to act. */
 export function mixEyeOpen(base: number, offset: number): number {
   const boundedBase = clamp(base, 0, 1)
   const boundedOffset = finiteOrZero(offset)
@@ -658,9 +653,6 @@ function writeBaselineOffset(
     PerformanceBaseline['expression'],
     Partial<PerformanceExpressionOffset>
   > = {
-    // At widget scale, bangs can hide most of the brow. Carry low valence in
-    // both the eyelids and mouth corners as well; brow rotation distinguishes
-    // sadness from tiredness. No replacement eyes, tears or sobbing are held.
     withdrawn: {
       brow: 0.18,
       browAngSym: -0.92,
@@ -675,9 +667,7 @@ function writeBaselineOffset(
       mouthForm: -0.55,
       irisScale: -0.04,
     },
-    // Irritation stays more alert than sadness: knitted, lowered brows, focused
-    // eyes and a firmer mouth. Eye openness cannot exceed the driver's 1.0;
-    // a positive offset above neutral was clamped away before rendering.
+    // Eye openness cannot exceed the driver's 1.0
     tense: {
       brow: -0.56,
       browAngSym: 0.82,
@@ -711,17 +701,17 @@ function ambientScaleForAttention(attention: number): number {
 const MIN_CUE_RELEASE = 0.06
 
 function releaseScheduledCue(cue: ScheduledExpressionCue, at: number): void {
-  // A missing unit is restated on every plan update; it is one release, not
-  // permission to restart the tail (or revive a half-faded cue at full power).
   if (cue.unitKey === null) return
   cue.unitKey = null
+  const touch = cue.touch !== null && cue.touch !== undefined
+  cue.touch = null
   if (at <= cue.start || at >= cue.end) {
     cue.end = Math.min(cue.end, at)
     return
   }
   const fadeOut = Math.min(
     cue.end - at,
-    Math.max(cue.fadeOut, cue.sticker ? MIN_STICKER_FADE_OUT : MIN_CUE_RELEASE),
+    Math.max(cue.fadeOut, touch ? 0.42 : cue.sticker ? MIN_STICKER_FADE_OUT : MIN_CUE_RELEASE),
   )
   scaleOffset(cue.offset, cueEnvelope(cue, at))
   cue.start = at

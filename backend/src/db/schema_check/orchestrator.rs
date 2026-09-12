@@ -15,42 +15,12 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// 修改此版本号用于记录新的结构基线；schema 安全比对本身会在每次启动执行。
 /// 格式建议：YYYY.MM.DD 或语义版本 X.Y.Z
 ///
-/// 变更日志：
-///
-/// **分工**：数字系列 `migrations/001`–`006` 是新库权威建表，必须完整。
-/// `016` 是既有安装上的数据清理（#336），不是建表。
-/// 007–015 的 `seaql_migrations` 行在 `Migrator::up` 之前删掉，不进 Migrator。
-/// 同一步 `DROP` 残留的 `digital_life_*` 实验表。
-/// 本文件 `ensure_*` 只覆盖**近月新功能**（CREATE 兜底、唯一索引、PK 扩维等）；
-/// **普通缺列**一律走 `get_expected_schema` 通用 ADD。
-///
-/// **Support floor: product ≥ 0.3.10.** 不再为更旧版本维护逐列「字段对齐」
-/// heal（approved_permissions / engagement 过渡形态 / rate_* 专用 ALTER 等）。
-///
-/// - 2026.09.02.1: agent_addressee_state.music_mood_credited_at（听歌心情收益跨进程冷却）
-/// - 2026.09.01.3: agent_addressee_state.activity_updated_at（活动过期不再受心情写入续期）
-/// - 2026.09.01.2: 去掉 agent_addressee_state.last_departure_at（离开衰减已删，沉默回归读时 overlay）
-/// - 2026.09.01.1: agent_addressee_state 效价×唤醒 + 短期情绪层（arousal/emotion/settled_at）
-/// - 2026.08.29.3: agent_intentions.accept_source + (user_id, source_event_id) 唯一
-/// - 2026.08.29.2: Agent 个人自主授权账本（004 + runtime CREATE 补齐）
-/// - 2026.08.29.1: Agent 自主意图账本（004 + runtime CREATE 补齐）
-/// - 2026.08.24.1: Merope 四表并入 tables_agent；004 补齐勿扰时间窗列
-/// - 2026.08.19.2: tapps.needs_reauthorization（旧权限清理后的重新授权标记）
-/// - 2026.08.19.1: Merope 四表折入 004 + ensure_agent_merope_tables
-/// - 2026.08.15.1: federation_inbox_receipts 折入 005；旧无 inbox_scope 表形自愈
-/// - 2026.08.03.2: users 名称/简介文案来源（profile_text_source_kind / profile_text_source_ref）
-/// - 2026.08.03.1: users 画像源选择（avatar_source_kind / avatar_source_ref / avatar_resolved_url / avatar_updated_at）
-/// - 2026.08.02.2: tapp_storage 凭据字段数据库约束与序列化/查询边界加固
-/// - 2026.08.02.1: tapp_storage 加密凭据字段（encrypted_value / binding_fingerprint）
-/// - 2026.08.01.1: tapps.visibility（公开安装可见性 all|admin）
-/// - 2026.07.31.1: 删除 <0.3.10 字段级对齐；缺列通用 ADD；analytics target 仅保留 PK heal
-/// - 2026.07.30.5: analytics_visitor_seen.ordinal（访客到达序号）
-/// - 2026.07.30.4: 近月新表——001 analytics / 004 heartbeat / 005 federation 扩展
-/// - 2026.07.30.3 … 2026.07.30.1: analytics 基线
-/// - 2026.07.27.x: federation FK / last_read_at / comprehensive 清理
-/// - 2026.07.21–20: domain_aliases / interactions / heartbeat / policy / filters
-/// - ≤0.3.9 字段对齐（已删，见 git）：approved_permissions 专用 ADD、整表 create 兜底等
 /// Marker for ops/logs + `_schema_versions`. Bump only with real schema/heal work.
+///
+/// 数字系列 `migrations/001`–`006` 是新库权威建表。Folded 007–019 names
+/// 在 `Migrator::up` 之前从 `seaql_migrations` 删掉。普通缺列走
+/// `get_expected_schema` 通用 ADD。Support floor: product ≥ 0.3.10。
+/// Current: `agent_addressee_state.music_mood_credited_at`。
 pub const SCHEMA_VERSION: &str = "2026.09.02.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
@@ -59,8 +29,6 @@ const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);
 pub async fn ensure_schema(db: &DatabaseConnection) -> Result<(), DbErr> {
     // 1. 获取 Advisory Lock。其他实例正在检查时等待，绝不能跳过检查后继续提供流量。
     // Advisory lock 是会话级的，必须在同一条连接上加锁和解锁。
-    // 之前直接在连接池上执行，加锁和解锁常常落在不同连接：解锁永远失败，
-    // 锁被池中连接持有直到进程退出——其他实例从此永久跳过 schema 自愈。
     let guard = AdvisoryLockGuard::acquire(db).await?;
 
     let result = do_schema_check(db).await;
@@ -129,13 +97,12 @@ pub struct DriftItem {
     pub ddl: String,
 }
 
-/// 期望结构（本文件里的权威列表）与数据库实际结构的差异。
+/// 期望结构（`expected_schema::get_expected_schema()`）与数据库实际结构的差异。
 ///
 /// # 为什么需要它
 ///
-/// 期望结构在两个地方各写了一遍：`migrations/` 里的 `Table::create`，以及本文件
-/// 里 49 个 `TableDef` / 554 个 `ColumnDef`。两份定义没有任何机制保证一致，
-/// 审计已经观察到索引语义漂移。
+/// 期望结构在两个地方各写了一遍：`migrations/` 里的 `Table::create`，以及 `schema_check` 的 `TableDef` 列表。
+/// 两份定义没有任何机制保证一致。
 ///
 /// 有了这个只读报告，就能在 CI 里断言一件很强的事：
 /// **在一个刚跑完 migration 的全新数据库上，drift 必须为空。**
@@ -158,7 +125,7 @@ impl SchemaDrift {
         self.missing_tables.len() + self.missing_columns.len() + self.missing_indexes.len()
     }
 
-    /// 补齐全部差异所需的 DDL，顺序为先列后索引（索引可能依赖新列）。
+    /// 缺列/缺索引的 DDL（先列后索引）。缺表不在这里，见 `missing_tables`。
     pub fn ddl_statements(&self) -> Vec<String> {
         self.missing_columns
             .iter()
@@ -185,8 +152,8 @@ impl SchemaDrift {
 
 /// 只读比对期望结构与实际结构；不执行任何 DDL。
 ///
-/// 表本身不存在时记录为不可自动修复的漂移 —— 建表是 Migrator 的职责，
-/// schema_check 不兜底整表创建，也不会把缺表实例标记为 ready。
+/// 缺表记入 `missing_tables`。通用 `ddl_statements` 不建表；部分近期表由后面的
+/// `ensure_*` 做 `CREATE TABLE IF NOT EXISTS`。剩余漂移非空则不写 version / 不 ready。
 pub async fn report_schema_drift(db: &DatabaseConnection) -> Result<SchemaDrift, DbErr> {
     let mut drift = SchemaDrift::default();
 
@@ -255,7 +222,7 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
         changes_made += seeded_config;
     }
 
-    // Rebuild the scope-less 012 receipt shape before generic ADD COLUMN:
+    // Rebuild `federation_inbox_receipts` before generic ADD COLUMN:
     // `inbox_scope` is NOT NULL without a default and belongs in the PK.
     ensure_federation_inbox_receipts_table(db).await?;
 
@@ -263,8 +230,7 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     let drift = report_schema_drift(db).await?;
     if !drift.is_empty() {
         // 正常情况下这里应该是空的 —— migration 就该产出完整结构。
-        // 有内容说明要么是从旧版本升级上来的库，要么 migration 与本文件的
-        // 权威结构列表又漂移了（CI 的 migrations_leave_no_schema_drift 守这条）。
+        // 有内容说明要么是从旧版本升级上来的库，要么 migration 与 `get_expected_schema()` 又漂移了。
         tracing::info!(
             "📝 Schema healer will patch {} item(s):\n{}",
             drift.len(),
@@ -278,11 +244,16 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     if !ddl_statements.is_empty() {
         tracing::info!("🔧 Applying {} schema changes...", ddl_statements.len());
 
-        for ddl in &ddl_statements {
+        for item in drift.missing_columns.iter().chain(&drift.missing_indexes) {
+            let ddl = &item.ddl;
             tracing::debug!("Executing: {}", ddl);
-            db.execute_unprepared(ddl)
-                .await
-                .map_err(|e| DbErr::Custom(format!("schema repair DDL failed: {ddl}: {e}")))?;
+            // These unique indexes must clean historical duplicates before creation.
+            let result = match item.label.as_str() {
+                "idx_timeline_user_activity" => ensure_timeline_unique(db).await,
+                "idx_delivery_queue_activity_target" => ensure_delivery_queue_unique(db).await,
+                _ => db.execute_unprepared(ddl).await.map(|_| ()),
+            };
+            result.map_err(|e| DbErr::Custom(format!("schema repair DDL failed: {ddl}: {e}")))?;
         }
 
         tracing::info!("✅ Applied {} schema changes", changes_made);
@@ -290,7 +261,7 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
         tracing::info!("✅ Database schema is up to date (no changes needed)");
     }
 
-    // Ongoing object/data heals (not historical one-shot upgrade paths).
+    // Ongoing object/data heals (not one-shot upgrade paths).
     ensure_tapp_storage_credential_constraint(db).await?;
     ensure_tapp_storage_quota(db).await?;
     ensure_federation_content_filters_table(db).await?;
@@ -303,6 +274,8 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     ensure_agent_merope_tables(db).await?;
     ensure_analytics_tables(db).await?;
     ensure_brew_item_topic_index(db).await?;
+    ensure_brew_state_revision(db).await?;
+    ensure_brew_content_revision(db).await?;
     ensure_federation_domain_aliases_table(db).await?;
     ensure_federation_object_interactions_table(db).await?;
     // last_read_at / rate_* / engagement 等字段：TableDef + 通用 drift ADD（无专用 heal）

@@ -1,7 +1,3 @@
-/**
- * Tapp 权限配置：elevated 下放开关 + Agent 预设模板 + AI 配额
- */
-
 import type { PermissionItem, QuotaItem } from '../settings'
 import { FaSlidersH, LuSparkles } from '@lib/icons'
 import React, { useCallback, useMemo } from 'react'
@@ -18,7 +14,7 @@ import {
 } from '../settings'
 import { MyriadConfigIcon } from './MyriadConfigIcon'
 
-/** Agent 相关 elevated 键（预设只改这些，不碰媒体/主题等） */
+/** Agent elevated keys only; media/theme unchanged */
 const AGENT_PRESET_PERM_KEYS = [
   'ai_chat',
   'ai_analyze',
@@ -39,7 +35,7 @@ const GUEST_AUTHENTICATED_PERMISSION_KEYS = new Set([
   'scheduler_register',
   'speech_tts',
   'speech_asr',
-  // federation 写域全部要求持久登录主体（AuthedClaims），游客下放无意义
+  // write-federation needs AuthedClaims; guest delegation is a no-op
   'federation_post',
   'federation_channel',
   'federation_room',
@@ -132,7 +128,6 @@ export interface PermissionConfigValues extends Record<
   user_perm_federation_channel: boolean
   user_perm_federation_room: boolean
   user_perm_brew_comment_write: boolean
-  // 游客权限
   guest_perm_ai_generate: boolean
   guest_perm_ai_analyze: boolean
   guest_perm_ai_chat: boolean
@@ -152,7 +147,6 @@ export interface PermissionConfigValues extends Record<
   guest_perm_federation_channel: boolean
   guest_perm_federation_room: boolean
   guest_perm_brew_comment_write: boolean
-  // AI 配额
   user_ai_daily_calls: number
   user_ai_daily_tokens: number
   user_ai_cooldown_seconds: number
@@ -188,9 +182,8 @@ export const PermissionsConfigSection: React.FC<
   const { t } = useI18n()
   const { catalog: g, bindGuide } = useSettingGuide()
 
-  // 定义权限项列表。要求持久登录主体的注册类能力不向游客展示。
+  // capabilities that need a persistent login are hidden from guests
   const permissionItems: PermissionItem[] = [
-    // AI 相关
     {
       key: 'ai_generate',
       code: 'ai:generate',
@@ -227,7 +220,6 @@ export const PermissionsConfigSection: React.FC<
       label: t.config.perm3dGenerate,
       hint: t.config.perm3dGenerateHint,
     },
-    // 语音相关
     {
       key: 'speech_tts',
       code: 'speech:tts',
@@ -246,7 +238,6 @@ export const PermissionsConfigSection: React.FC<
       label: t.config.permStorageWrite,
       hint: t.config.permStorageWriteHint,
     },
-    // 联邦（拆分自 federation:write；游客不展示，见 GUEST_AUTHENTICATED_PERMISSION_KEYS）
     {
       key: 'federation_post',
       code: 'federation:post',
@@ -271,21 +262,18 @@ export const PermissionsConfigSection: React.FC<
       label: t.tapp.permCommentWriteBrew,
       hint: t.tapp.permCommentWriteBrewDesc,
     },
-    // 网络（report:write 已仅管理员，不再展示下放开关）
     {
       key: 'network_fetch',
       code: 'network:fetch',
       label: t.config.permNetworkFetch,
       hint: t.config.permNetworkFetchHint,
     },
-    // 界面与交互（media:control 已降 basic，始终开放，不再展示下放开关）
     {
       key: 'event_publish',
       code: 'event:publish',
       label: t.config.permEventPublish,
       hint: t.config.permEventPublishHint,
     },
-    // 注册类
     {
       key: 'component_theme',
       code: 'component:theme',
@@ -309,7 +297,6 @@ export const PermissionsConfigSection: React.FC<
     (item) => !GUEST_AUTHENTICATED_PERMISSION_KEYS.has(item.key),
   )
 
-  // 定义配额项列表
   const quotaItems: QuotaItem[] = [
     {
       key: 'daily_calls',
@@ -335,7 +322,6 @@ export const PermissionsConfigSection: React.FC<
     },
   ]
 
-  // 转换权限值（添加前缀）
   const getUserPermValues = () => {
     const values: Record<string, boolean> = {}
     permissionItems.forEach((item) => {
@@ -445,7 +431,6 @@ export const PermissionsConfigSection: React.FC<
       description={description}
       sectionId={sectionId}
     >
-      {/* 1. Agent 预设 — 与模块可见性同构：外层 Group + 内层 Grid 卡 */}
       <SettingGroup
         title={t.config.agentPresetTitle}
         description={t.config.agentPresetDesc}
@@ -483,7 +468,6 @@ export const PermissionsConfigSection: React.FC<
         </SettingGroupGrid>
       </SettingGroup>
 
-      {/* 2. 权限细调（预设后的逐项 elevated）— 线框图标，非彩绘 */}
       <SettingGroup
         title={t.config.agentFineTuneTitle}
         description={t.config.agentFineTuneDesc}
@@ -514,7 +498,6 @@ export const PermissionsConfigSection: React.FC<
         />
       </SettingGroup>
 
-      {/* 3. AI 使用限额 — 线框图标，非彩绘 */}
       <SettingGroup
         title={t.config.aiQuotaTitle}
         description={t.config.aiQuotaDesc}

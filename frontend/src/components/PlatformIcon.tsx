@@ -20,14 +20,9 @@ interface PlatformIconProps {
   platform: string
   className?: string
   style?: React.CSSProperties
-  /** 为 false 时不套品牌色（由外层完全控制 color） */
   brandColor?: boolean
 }
 
-/**
- * 平台图标；默认使用对应品牌色（深色主题自动换浅色变体）。
- * 传入 style.color 或 brandColor={false} 可覆盖。
- */
 const PlatformIcon: React.FC<PlatformIconProps> = React.memo(
   ({ platform, className = 'w-6 h-6', style, brandColor = true }) => {
     const isDark = useThemeMode()

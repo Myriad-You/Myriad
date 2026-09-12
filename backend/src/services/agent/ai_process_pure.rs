@@ -168,7 +168,7 @@ mod tests {
         assert!(!capability_needs_conversation_context("speech.tts"));
 
         assert_eq!(merge_system_prompt("", "role"), "role");
-        assert!(append_memory_to_system_prompt("base", "mem").contains("参考记忆"));
+        assert!(append_memory_to_system_prompt("base", "mem").contains("Reference memory"));
 
         let msgs = vec![1, 2, 3, 4, 5];
         assert_eq!(take_recent_conversation_messages(&msgs, 3), vec![3, 4, 5]);

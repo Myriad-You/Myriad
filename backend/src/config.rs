@@ -35,7 +35,7 @@ pub struct OAuthProviderEntry {
     /// OIDC discovery URL: `.../.well-known/openid-configuration`
     #[serde(default)]
     pub discovery_url: Option<String>,
-    /// UI 图标 URL（可选；缺省时前端用默认 OIDC logo）
+    /// UI 图标 URL（可选）
     #[serde(default)]
     pub icon_url: Option<String>,
 }
@@ -44,7 +44,7 @@ pub struct OAuthProviderEntry {
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct AiVendorSource {
     pub slug: String,
-    /// openrouter | openai | openai_compatible | gemini | volcengine | tencent
+    /// openrouter | openai | openai_compatible | gemini | volcengine | tencent | agora | minimax
     pub kind: String,
     pub display_name: String,
     pub enabled: bool,
@@ -100,17 +100,16 @@ pub struct AppConfig {
     pub jwt_secret: String,
     /// CORS允许的源
     pub cors_origins: Vec<String>,
-    /// 基础URL（用于自动生成OAuth回调等URL）
+    /// 环境变量 `BASE_URL`（`from_env`）
     pub base_url: Option<String>,
-    /// 前端URL（用于OAuth成功后重定向）
+    /// 环境变量 `FRONTEND_URL`（`from_env`）
     pub frontend_url: Option<String>,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
         // Development-oriented scaffolding defaults (tests / first boot).
-        // Production loads via `from_env`, which keeps CORS empty when unset so
-        // the router panic path fires — never silently inject localhost there.
+        // Production loads via `from_env` (no localhost injection).
         Self {
             database_url: String::new(),
             server_host: "127.0.0.1".to_string(),
@@ -134,8 +133,8 @@ impl AppConfig {
 
     /// Default CORS origins when `CORS_ORIGINS` is unset.
     ///
-    /// - **Production**: empty (router panics if still empty — fail closed).
-    /// - **Development**: localhost SPA/API ports only.
+    /// - **Production**: empty.
+    /// - **Development**: `http://localhost:1102` and `http://localhost:1103`.
     pub fn default_cors_origins_for_env(is_production: bool) -> Vec<String> {
         if is_production {
             Vec::new()
@@ -151,7 +150,7 @@ impl AppConfig {
     pub fn from_env() -> anyhow::Result<Self> {
         let jwt_secret = env::var("JWT_SECRET").unwrap_or_else(|_| String::new());
 
-        // Validate JWT secret strength in production
+        // Non-empty JWT_SECRET is strength-checked in every environment.
         if !jwt_secret.is_empty() {
             Self::validate_jwt_secret(&jwt_secret)?;
         }
@@ -201,7 +200,7 @@ impl AppConfig {
 
     /// 验证 JWT Secret 强度
     fn validate_jwt_secret(secret: &str) -> anyhow::Result<()> {
-        // Minimum length check (32 characters recommended)
+        // Must be at least 32 bytes (`.len()`).
         if secret.len() < 32 {
             anyhow::bail!(
                 "JWT_SECRET is too weak. Must be at least 32 characters. \
@@ -209,7 +208,7 @@ impl AppConfig {
             );
         }
 
-        // Warn if using obvious weak values
+        // Reject obvious weak/default values.
         let weak_secrets = [
             "secret",
             "your-secret-key-here",
@@ -333,16 +332,16 @@ pub struct DynamicConfig {
     /// PSN NPSSO cookie（ca.account.sony.com 获取，服务端凭据）
     pub psn_npsso: Option<String>,
 
-    // Tapp 外部 API 密钥（用于 Tapp API 声明系统）
+    /// OpenWeather API key（落库字段）
     pub openweather_api_key: Option<String>,
 
-    // 腾讯云语音服务配置（TTS 文本转语音 / ASR 语音转文本）
+    // 语音：tencent_* 为 tencent 分支凭据；speech_provider 决定出站。
     pub tencent_secret_id: Option<String>,
     pub tencent_secret_key: Option<String>,
     pub tencent_region: Option<String>, // 默认 ap-guangzhou
-    /// 语音服务商：tencent | openai | openrouter | gemini | minimax
+    /// 语音服务商字符串。出站 parse：openai/openai_compatible、openrouter、gemini、minimax；其余 tencent。
     pub speech_provider: String,
-    /// 为 true 且专用密钥为空时，沿用 Standard 档文字模型的 OpenAI/OpenRouter 密钥
+    /// 落库字段；语音出站不读此开关
     pub speech_reuse_text_credentials: bool,
     pub speech_openai_api_key: Option<String>,
     pub speech_openai_base_url: String,
@@ -375,7 +374,7 @@ pub struct DynamicConfig {
     pub agora_app_certificate: String,
     pub agora_customer_id: String,
     pub agora_customer_secret: Option<String>,
-    /// 默认中国区 `https://api.agora.io/cn`
+    /// 空则运行时回落到 `https://api.agora.io/cn`
     pub agora_api_base: String,
 
     /// QQ 机器人办事通道。默认关；凭证只写，不复用 Discord OAuth。
@@ -403,9 +402,9 @@ pub struct DynamicConfig {
     pub ui_evocative_parallax: bool,
     pub ui_evocative_dynamic_blur: bool,
     pub ui_evocative_ripple: bool,
-    /// Evocative 动效帧率 (30 或 60)
+    /// Evocative 动效帧率（默认 30；后端按 i32 存储）
     pub ui_evocative_fps: i32,
-    /// 涟漪效果 Canvas 质量 (0.5-1.0, 默认 0.85)
+    /// 涟漪效果 Canvas 质量（默认 0.85；后端按 f64 存储）
     pub ui_evocative_ripple_quality: f64,
     pub ui_theme: Option<String>,
     pub ui_primary_color: Option<String>,
@@ -414,7 +413,7 @@ pub struct DynamicConfig {
     /// 第一方访客统计（pageview / engagement / event）是否开启；关闭后服务端拒绝采集
     pub analytics_enabled: bool,
 
-    /// PWA：是否启用 Service Worker 注册与可安装清单（默认开启，与历史行为一致）
+    /// PWA：是否启用 Service Worker 注册与可安装清单（默认 true）。
     pub pwa_enabled: bool,
 
     // 站点元数据
@@ -444,7 +443,7 @@ pub struct DynamicConfig {
     pub site_icp: Option<String>,       // ICP 备案号
     pub site_gongan: Option<String>,    // 公安备案号
     pub cloud_sponsors: Option<String>, // 云赞助商（cloudflare,edgeone,upyun 逗号分隔）
-    /// 页脚自定义项 JSON 数组，最多 2 条：[{text, icon?, url?}]
+    /// 页脚自定义项 JSON 字符串（`[{text, icon?, url?}]`；条数上限在 UI `FOOTER_CUSTOM_MAX`）
     pub site_footer_custom: Option<String>,
 
     // 音乐配置
@@ -503,7 +502,7 @@ pub struct DynamicConfig {
     /// 详见 docs/development/OAUTH.md
     pub oauth_providers: Vec<OAuthProviderEntry>,
 
-    /// 是否允许公开本地账号注册（PR #4）
+    /// 是否允许公开本地账号注册
     pub allow_local_registration: bool,
 
     /// Private (non-admin) Tapp install cleanup:
@@ -536,13 +535,11 @@ pub struct DynamicConfig {
     // Tapp 多窗口方案配置
     pub tapp_window_schemes: Option<String>, // 窗口方案数据 (JSON)
 
-    // Tapp 权限下放配置
-    // 基于 Tapp 系统的 elevated 级别权限（可配置下放）
-    // 这些权限默认只有管理员可用，可以配置下放给普通用户或游客
-    // 注意：basic 级别权限默认可授予所有用户
-    // 注意：privileged 级别权限始终只限管理员
+    // 下放字段：改授予权限。elevated 可配；privileged 只限管理员；
+    // media:control 为 basic，授予始终允许。basic 对 User 默认开放；
+    // 需持久登录主体的 basic 不向 Guest 授予。
 
-    // 普通用户可使用的 elevated 权限
+    // 普通用户授予路径读取的配置字段（report:write / media:control 不读）
     /// ai:generate - AI 生成内容
     pub user_perm_ai_generate: bool,
     /// ai:analyze - AI 分析数据
@@ -555,11 +552,11 @@ pub struct DynamicConfig {
     pub user_perm_ai_search: bool,
     /// 3d:generate - Tripo 3D 模型生成
     pub user_perm_3d_generate: bool,
-    /// report:write - 写入/生成报告
+    /// report:write - privileged，始终只限管理员；字段保留供 DB/API 兼容
     pub user_perm_report_write: bool,
     /// network:fetch - 发起网络请求
     pub user_perm_network_fetch: bool,
-    /// media:control - 已降为 basic，始终允许；字段保留供 DB/API 兼容
+    /// media:control - basic，始终允许；字段保留供 DB/API 兼容
     pub user_perm_media_control: bool,
     /// component:theme - 注册主题组件
     pub user_perm_component_theme: bool,
@@ -584,7 +581,7 @@ pub struct DynamicConfig {
     /// brew:commentWrite - 写 Brew 评论（需登录主体）
     pub user_perm_brew_comment_write: bool,
 
-    // 游客可使用的 elevated 权限
+    // 游客授予路径读取的配置字段（若干恒 false，见各字段）
     /// ai:generate - AI 生成内容（游客）
     pub guest_perm_ai_generate: bool,
     /// ai:analyze - AI 分析数据（游客）
@@ -597,23 +594,23 @@ pub struct DynamicConfig {
     pub guest_perm_ai_search: bool,
     /// 3d:generate - Tripo 3D 模型生成（游客）
     pub guest_perm_3d_generate: bool,
-    /// report:write - 写入/生成报告（游客）
+    /// report:write - privileged，始终只限管理员；字段保留供 DB/API 兼容（游客）
     pub guest_perm_report_write: bool,
     /// network:fetch - 发起网络请求（游客）
     pub guest_perm_network_fetch: bool,
-    /// media:control - 已降为 basic，始终允许；字段保留供 DB/API 兼容（游客）
+    /// media:control - basic，始终允许；字段保留供 DB/API 兼容（游客）
     pub guest_perm_media_control: bool,
-    /// component:theme - 注册主题组件（游客）
+    /// component:theme - 游客授予路径恒 false
     pub guest_perm_component_theme: bool,
-    /// shortcut:register - 注册快捷键（游客）
+    /// shortcut:register - 游客授予路径恒 false
     pub guest_perm_shortcut_register: bool,
     /// event:publish - 发布事件（游客）
     pub guest_perm_event_publish: bool,
-    /// scheduler:register - 注册定时任务（游客）
+    /// scheduler:register - 游客授予路径恒 false
     pub guest_perm_scheduler_register: bool,
-    /// speech:tts - 文本转语音（游客）
+    /// speech:tts - 游客授予路径恒 false
     pub guest_perm_speech_tts: bool,
-    /// speech:asr - 语音转文本（游客）
+    /// speech:asr - 游客授予路径恒 false
     pub guest_perm_speech_asr: bool,
     /// storage:write - 写入 Tapp 存储（游客）
     pub guest_perm_storage_write: bool,
@@ -626,8 +623,7 @@ pub struct DynamicConfig {
     /// brew:commentWrite - 写 Brew 评论（游客；路由要求登录主体，实际恒为关闭）
     pub guest_perm_brew_comment_write: bool,
 
-    // AI 使用限额配置（当权限已下放时生效）
-    // 这些限额只对非管理员用户生效，管理员无限制
+    // AI 使用限额配置（非管理员生效；管理员无限制）
     /// 普通用户每日 AI 调用次数限制（所有 AI 权限共享）
     pub user_ai_daily_calls: i32,
     /// 普通用户每日 AI Token 限制
@@ -653,7 +649,7 @@ pub struct DynamicConfig {
     pub resident_quota_site_total: i32,
 
     /// 内存节约模式（高级设置）：在当前有界均衡档上再收一档，适合 ~1 GiB 主机。
-    /// 默认 false = 均衡档，不是旧版无界高水位。`MYRIAD_MEMORY_PROFILE` env 可覆盖。
+    /// 默认 false = 均衡档。`MYRIAD_MEMORY_PROFILE` env 可覆盖。
     pub memory_saver_enabled: bool,
 
     // 网络代理配置（用于中国大陆服务器访问外部API）
@@ -680,7 +676,7 @@ impl Default for DynamicConfig {
             openai_model: "minimax/minimax-m3".to_string(),
             openai_base_url: "https://openrouter.ai/api/v1".to_string(),
             openai_max_tokens: 2000,
-            // Lite 模型默认配置（关闭时 Lite 任务回退 Standard，与 Pro 同协议）
+            // Lite 默认关。
             lite_enabled: false,
             lite_ai_provider: "openai".to_string(),
             lite_gemini_api_key: None,
@@ -734,10 +730,9 @@ impl Default for DynamicConfig {
             psn_online_id: None,
             psn_npsso: None,
 
-            // Tapp 外部 API 密钥
             openweather_api_key: None,
 
-            // 腾讯云语音服务配置
+            // 语音默认：tencent 凭据 + speech_provider=tencent
             tencent_secret_id: None,
             tencent_secret_key: None,
             tencent_region: Some("ap-guangzhou".to_string()),
@@ -869,8 +864,7 @@ impl Default for DynamicConfig {
 
             tapp_window_schemes: None,
 
-            // 普通用户 elevated 权限默认值
-            // 默认全部关闭，管理员可选择性开放
+            // 普通用户下放字段默认 false（media:control 授予仍始终允许）
             user_perm_ai_generate: false,
             user_perm_ai_analyze: false,
             user_perm_ai_chat: false,
@@ -892,8 +886,7 @@ impl Default for DynamicConfig {
             user_perm_federation_room: false,
             user_perm_brew_comment_write: false,
 
-            // 游客 elevated 权限默认值
-            // 默认全部关闭
+            // 游客下放字段默认 false（若干授予路径恒 false，见字段注释）
             guest_perm_ai_generate: false,
             guest_perm_ai_analyze: false,
             guest_perm_ai_chat: false,
@@ -932,8 +925,8 @@ impl Default for DynamicConfig {
             resident_quota_per_app: 1,
             resident_quota_site_total: 3,
 
-            // 网络代理配置默认值
             memory_saver_enabled: false,
+            // 网络代理配置默认值
             proxy_enabled: false, // 默认关闭代理
             proxy_url: None,
             proxy_bypass: None,
@@ -957,8 +950,7 @@ impl DynamicConfig {
 
     /// Merope 是否真的生效。
     ///
-    /// 设定引导走 Pro；聊天里的人设只是系统词，跟 Lite 无关。
-    /// Lite 只写主动开口和心情微调——档关着时这两处直接停，不回落到标准模型。
+    /// 开关开着且 Pro 开着。设定引导走 Pro；聊天人设是系统词，跟 Lite 无关。
     pub fn merope_enabled_resolved(&self) -> bool {
         self.merope_switch_on() && self.pro_enabled
     }
@@ -1370,11 +1362,10 @@ impl DynamicConfig {
         configured.is_empty()
     }
 
-    /// 根据模型层级解析 AI 配置。与严格 Lite 解析不同，这里保留平台级的
-    /// 兼容行为：Lite / Pro 关闭或对应模型留空时可回退到 Standard。
+    /// 按档解析 AI 配置。档关闭时走 Standard；档开着但模型留空时
+    /// `resolve_tier` 用 Standard 的模型。与 `resolve_strict_lite_ai_config` 不同。
     ///
-    /// 回退是静默的，所以调用方应当先问一次 [`Self::tier_falls_back_to_standard`]
-    /// 并把它记下来——否则「我明明开了 Lite」会变成一个查不出来的问题。
+    /// [`Self::tier_falls_back_to_standard`] 只认出「开着但模型留空」。关掉的档它返回 false。
     pub fn resolve_ai_config(&self, tier: ModelTier) -> ResolvedAiConfig {
         if tier == ModelTier::Lite && self.lite_enabled {
             return self.resolve_tier(

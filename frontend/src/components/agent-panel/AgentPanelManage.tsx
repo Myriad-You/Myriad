@@ -1,7 +1,3 @@
-/**
- * 面板里只剩「跟当前这个人相处」的开关。定时、技能、记忆已经迁到「设置 · AI」。
- */
-
 import React, { useEffect, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
@@ -26,10 +22,6 @@ export const AgentPanelManage: React.FC = () => {
   const { isAuthenticated } = useAuth()
   const [note, setNote] = useState<string | null>(null)
   const [autonomy, setAutonomy] = useState<boolean | null>(null)
-  /**
-   * 勿扰是「跟当前这个人相处」的状态，不是站长的全站设置 —— 所以它在这里，
-   * 而不是跟名字性格一起去 /config。
-   */
   const [doNotDisturb, setDoNotDisturb] = useState<boolean | null>(null)
 
   useEffect(() => {
@@ -46,7 +38,7 @@ export const AgentPanelManage: React.FC = () => {
           setAutonomy(grant.grant != null && grant.grant.revoked !== true)
         }
       } catch {
-        // 读不到就不摆这个开关，别给一个点了没反应的东西
+        /* leave the toggle unmounted */
       }
     })()
     return () => {

@@ -164,7 +164,7 @@ class DataExchangeBroker {
     bridge: TappBridge,
     request: DataExchangeRequest,
   ): Promise<unknown> {
-    const requester = [...this.runtimes].find(
+    const requester = Iterator.from(this.runtimes).find(
       (runtime) => runtime.bridge === bridge,
     )
     if (!requester) {
@@ -178,18 +178,15 @@ class DataExchangeBroker {
     exportId: string,
     providerOwnerId: number,
   ): Promise<RuntimeRegistration | undefined> {
-    const candidates = [...this.runtimes].filter(
+    for (const candidate of Iterator.from(this.runtimes).filter(
       (runtime) =>
         runtime.instance.id === targetTappId && runtime.exports.has(exportId),
-    )
-    for (const candidate of candidates) {
+    )) {
       try {
         if ((await candidate.bridge.getRuntimeOwnerId()) === providerOwnerId) {
           return candidate
         }
       } catch {
-        // A runtime may disappear while a prepared request is being matched.
-        // Continue to any other online instance of the same installation.
       }
     }
     return undefined
@@ -287,31 +284,30 @@ class DataExchangeBroker {
         runtimeGrant,
       )
 
-      const result = await new Promise<unknown>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          this.pending.delete(prepared.requestId)
-          void cancelDataExchange(prepared.requestId, runtimeGrant).catch(
-            () => {},
-          )
-          reject(new Error('Data provider response timed out'))
-        }, PROVIDER_TIMEOUT_MS)
-        this.pending.set(prepared.requestId, {
-          requester,
-          provider,
-          requesterRuntimeGrant: runtimeGrant,
-          access,
-          resolve,
-          reject,
-          timeout,
-        })
-        provider.bridge.emit('dataExchange:invoke', {
-          requestId: prepared.requestId,
-          exportId: prepared.exportId,
-          params: access.params,
-          purpose: access.purpose,
-        })
+      const { promise, resolve, reject } = Promise.withResolvers<unknown>()
+      const timeout = setTimeout(() => {
+        this.pending.delete(prepared.requestId)
+        void cancelDataExchange(prepared.requestId, runtimeGrant).catch(
+          () => {},
+        )
+        reject(new Error('Data provider response timed out'))
+      }, PROVIDER_TIMEOUT_MS)
+      this.pending.set(prepared.requestId, {
+        requester,
+        provider,
+        requesterRuntimeGrant: runtimeGrant,
+        access,
+        resolve,
+        reject,
+        timeout,
       })
-      return result
+      provider.bridge.emit('dataExchange:invoke', {
+        requestId: prepared.requestId,
+        exportId: prepared.exportId,
+        params: access.params,
+        purpose: access.purpose,
+      })
+      return await promise
     } finally {
       requester.activeRequests = Math.max(0, requester.activeRequests - 1)
     }
@@ -335,8 +331,6 @@ class DataExchangeBroker {
 
     const providerRuntimeGrant = await provider.bridge.getRuntimeGrant()
     if (!response.ok) {
-      // Consume with a deliberately invalid response so provider failures also
-      // exhaust the one-shot token. The original provider error is preserved.
       await consumeDataExchange(
         invocation.access.token,
         null,
@@ -373,7 +367,6 @@ export function registerDataExchangeHandlers(
   return broker.register(bridge, instance)
 }
 
-/** Trusted host adapter used by an authorized Agent Interaction intent. */
 export function requestDataExchangeFromHost(
   bridge: TappBridge,
   request: DataExchangeRequest,

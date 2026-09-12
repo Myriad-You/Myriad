@@ -34,11 +34,11 @@ export function resolveWindowTarget(
     case 'active':
       return activeWindowId
     case 'left':
-      return [...list].sort(
+      return list.toSorted(
         (a, b) => (a.position?.x ?? 0) - (b.position?.x ?? 0),
       )[0]?.windowId ?? null
     case 'right':
-      return [...list].sort(
+      return list.toSorted(
         (a, b) => (b.position?.x ?? 0) - (a.position?.x ?? 0),
       )[0]?.windowId ?? null
     case 'next': {

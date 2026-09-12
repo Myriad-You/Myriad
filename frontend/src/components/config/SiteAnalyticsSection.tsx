@@ -1,10 +1,3 @@
-/**
- * 数据及统计 · 访客统计子分类
- *
- * 页内 TOC 只登记一个「访客统计」锚点；页面分析 / 事件 / 来源为组内分区（toc=false）。
- * 范围条（scope）统管本子分类内同一份时间切片。
- */
-
 import type { ReactNode } from 'react'
 import type { SettingOption } from '../settings/types'
 import type { ToastType } from '../Toast'
@@ -72,7 +65,6 @@ import { RankList } from './analytics/RankList'
 import { TrendChart } from './analytics/TrendChart'
 import './SiteAnalyticsSection.css'
 
-/** 子分类内的次级分区：纯文本标题（对齐「带图标 SettingGroup」时的视觉降级） */
 function AnalyticsTextBlock({
   id,
   title,
@@ -87,11 +79,10 @@ function AnalyticsTextBlock({
   description?: string
   guidePath?: string
   guide?: ReactNode
-  /** 标题旁附加控件（如事件筛选） */
   titleExtra?: ReactNode
   children: ReactNode
 }) {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const helpCtx = useSettingsHelp()
   const expandHelp = Boolean(helpCtx?.showDetails)
   const showHelp = Boolean(description)
@@ -107,10 +98,7 @@ function AnalyticsTextBlock({
           {title}
           {showHelp && !expandHelp ? (
             <SettingTitleHelp
-              ariaLabel={t.config.detailHelpAriaNamed.replace(
-                '{title}',
-                title,
-              )}
+              ariaLabel={format(t.config.detailHelpAriaNamed, { title })}
             >
               {description}
             </SettingTitleHelp>
@@ -153,7 +141,6 @@ interface EventRow {
   name: string
   count: number
   unique_visitors: number
-  /** Per-entity breakdown (tapp id, platform, source, …) */
   targets?: EventTargetRow[]
 }
 
@@ -174,7 +161,6 @@ interface AnalyticsSummary {
   days: number
   from: string
   to: string
-  /** Server calendar TZ label (e.g. Asia/Shanghai) */
   timezone?: string
   today: { views: number; unique_visitors: number }
   range: {
@@ -184,7 +170,6 @@ interface AnalyticsSummary {
     avg_engagement_ms?: number
     approx_bounce_permille?: number
   }
-  /** 日环比 + 区间环比（7→周 / 30→月 / 其它→较上期） */
   compare?: {
     day?: {
       kind?: string
@@ -205,12 +190,12 @@ interface AnalyticsSummary {
   countries?: CountryRow[]
 }
 
-/** ISO 3166-1 alpha-2 → regional-indicator flag emoji */
 function flagEmoji(code: string): string {
   const cc = code.trim().toUpperCase()
   if (!/^[A-Z]{2}$/.test(cc)) return '🏳️'
-  const cps = [...cc].map((c) => 0x1F1E6 - 65 + c.charCodeAt(0))
-  return String.fromCodePoint(...cps)
+  return String.fromCodePoint(
+    ...Iterator.from(cc).map((c) => 0x1F1E6 - 65 + c.charCodeAt(0)),
+  )
 }
 
 function pageLabel(
@@ -227,7 +212,6 @@ const ANALYTICS_BACKUP_FORMAT = 'myriad-analytics-backup'
 
 interface SiteAnalyticsSectionProps {
   showMessage?: (message: string, type?: ToastType) => void
-  /** 访客统计总开关；缺省视为开启（与后端默认一致） */
   enabled?: boolean
   onEnabledChange?: (enabled: boolean) => void
 }
@@ -242,7 +226,6 @@ function isAnalyticsBackup(data: unknown): data is Record<string, unknown> {
   ) {
     return false
   }
-  // Integrity block is always required (instance-bound anti-tamper seal).
   const integrity = o.integrity
   if (!integrity || typeof integrity !== 'object') return false
   const i = integrity as Record<string, unknown>
@@ -253,7 +236,6 @@ function isAnalyticsBackup(data: unknown): data is Record<string, unknown> {
   return true
 }
 
-/** Map backend import error codes to user-facing copy. */
 function analyticsImportErrorMessage(
   code: string | undefined,
   a: {
@@ -290,11 +272,10 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
   enabled = true,
   onEnabledChange,
 }) => {
-  const { t, locale } = useI18n()
+  const { t, locale, format } = useI18n()
   const { catalog: g, bindGuide, renderGuide } = useSettingGuide()
   const a = t.config.analytics
-  const numberLocale =
-    locale === 'zh-CN' ? 'zh-CN' : locale === 'ja-JP' ? 'ja-JP' : 'en-US'
+  const numberLocale = locale
 
   const [range, setRange] = useState<AnalyticsRangeState>(() =>
     defaultAnalyticsRange(),
@@ -303,7 +284,6 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [ioBusy, setIoBusy] = useState(false)
-  /** 事件埋点列表筛选（空 = 全部） */
   const [eventFilter, setEventFilter] = useState('')
   const [optedOut, setOptedOut] = useState(() => isAnalyticsOptedOut())
   const importInputRef = useRef<HTMLInputElement>(null)
@@ -328,7 +308,6 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
         }
       } catch (e) {
         if (signal?.aborted) return
-        // AbortError is expected when switching range quickly
         if (e instanceof DOMException && e.name === 'AbortError') return
         console.error('analytics summary failed', e)
         setError(userFacingError(e, a.loadFailed))
@@ -373,7 +352,6 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
     ],
   )
 
-  /** 首帧无数据时占位；之后刷新保留上一帧，不闪骨架屏 */
   const firstLoad = loading && !data
   const refreshing = loading && !!data
   const tile = (value: string) => (firstLoad ? '…' : value)
@@ -422,7 +400,6 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
         label: eventLabels[ev.name] || ev.name,
       })
     }
-    // 区间切换后若当前选中不在列表里，仍保留可见
     if (eventFilter && !opts.some((o) => o.value === eventFilter)) {
       opts.push({
         value: eventFilter,
@@ -469,9 +446,10 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
 
   const countryRows = useMemo(
     () =>
-      [...(data?.countries ?? [])]
+      Iterator.from(data?.countries ?? [])
         .filter((c) => c.code && (c.unique_visitors > 0 || c.views > 0))
-        .sort(
+        .toArray()
+        .toSorted(
           (a, b) =>
             b.unique_visitors - a.unique_visitors ||
             b.views - a.views ||
@@ -482,7 +460,6 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
   const topCountries = countryRows.slice(0, 3)
 
   const avgEng = data?.range?.avg_engagement_ms ?? 0
-  /** 区间内没有浏览时，占比无从谈起，显示破折号而不是 0% */
   const bouncePct =
     data?.range?.approx_bounce_permille != null && (data?.range?.views ?? 0) > 0
       ? Math.round((data.range.approx_bounce_permille / 1000) * 100)
@@ -521,7 +498,6 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
       const url = URL.createObjectURL(blob)
       const el = document.createElement('a')
       el.href = url
-      // Day label from BE timezone / exported_at (matches analytics day buckets)
       const day = analyticsBackupFilenameDay(backup)
       el.download = `myriad-analytics-backup-${day}.json`
       document.body.appendChild(el)
@@ -600,11 +576,6 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
     [a, ioBusy, load, showMessage],
   )
 
-  /*
-   * 标题行魔改：titleExtra 用 Fragment 拍平进 SettingGroup 的 h4 flex。
-   * 失败提示 + 刷新 / 导出 / 导入（标签样式）紧贴标题；
-   * 范围切换 margin-left:auto 靠右。
-   */
   const titleExtra = (
     <>
       {error ? (
@@ -688,7 +659,6 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
 
   return (
     <div className={`site-analytics${collectionEnabled ? '' : ' is-disabled'}`}>
-      {/* 页内 TOC 子分类：带图标，与其它设置页 SettingGroup 对齐 */}
       <SettingGroup
         id="visitor-stats"
         title={a.visitorTitle}
@@ -758,7 +728,7 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
             <div className="site-analytics-tile">
               <span className="site-analytics-tile-label">
                 <LuEye size={13} aria-hidden />
-                {a.rangeViews.replace('{n}', String(dayCount))}
+                {format(a.rangeViews, { n: dayCount })}
               </span>
               <div className="site-analytics-tile-metric">
                 <span className="site-analytics-tile-value">
@@ -777,7 +747,7 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
             <div className="site-analytics-tile">
               <span className="site-analytics-tile-label">
                 <LuUsers size={13} aria-hidden />
-                {a.rangeVisitors.replace('{n}', String(dayCount))}
+                {format(a.rangeVisitors, { n: dayCount })}
               </span>
               <div className="site-analytics-tile-metric">
                 <span className="site-analytics-tile-value">
@@ -861,7 +831,7 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
                 <div className="site-analytics-country-tip" role="tooltip">
                   <div className="site-analytics-country-tip-head">
                     {a.topCountries}
-                    <small>{a.daysN.replace('{n}', String(dayCount))}</small>
+                    <small>{format(a.daysN, { n: dayCount })}</small>
                   </div>
                   <ul className="site-analytics-country-tip-list">
                     {countryRows.map((c, i) => (
@@ -980,7 +950,6 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
           />
         </AnalyticsTextBlock>
 
-        {/* 事件埋点 + 来源站点：原文本分区样式，魔改两列自适应 */}
         <div
           className="site-analytics-side-grid"
           role="group"

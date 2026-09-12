@@ -1,10 +1,6 @@
-/**
- * 阅读器左侧控制栏组件
- * 包含: 返回、来源、进度、目录、收藏、AI注释、AI播客、外部链接
- */
-
 import type { MouseEvent } from 'react'
 
+import type { ReaderToolPanel } from './readerPanels'
 import type { ReaderLeftPanelProps } from './types'
 import {
   LuArrowRight as ArrowRight,
@@ -37,9 +33,28 @@ import {
 } from '@lib/motionShim'
 import { memo, useMemo, useRef } from 'react'
 
-import * as brewliaApi from '../../../services/brewliaApi'
+import {
+  isFemaleVoice,
+  isMaleVoice,
+  localizedVoiceDescription,
+} from '../../../services/speechApi'
 import { Spinner } from '../../Spinner'
-import { STYLE_MAX_HEIGHT_320 } from './constants'
+import { annotationChrome } from './annotationChrome'
+import {
+  READER_ANNOTATIONS_PANEL_ID,
+  READER_ANNOTATIONS_TITLE_ID,
+  READER_PODCAST_PANEL_ID,
+  READER_PODCAST_TITLE_ID,
+  READER_TOC_PANEL_ID,
+  READER_TOC_TITLE_ID,
+  STYLE_MAX_HEIGHT_320,
+} from './constants'
+import {
+  nextExclusivePanel,
+  readerPanelFlags,
+  readerPopupTrigger,
+} from './readerPanels'
+import { ReaderProgressRing } from './ReaderProgress'
 
 export default memo(
   ({
@@ -112,52 +127,56 @@ export default memo(
     t,
   }: ReaderLeftPanelProps) => {
     const podcastListRef = useRef<HTMLDivElement>(null)
+    const openToolPanel = (panel: ReaderToolPanel) => {
+      const current = showToc
+        ? 'toc'
+        : showBrewliaPanel
+          ? 'annotations'
+          : showPodcastPlayer
+            ? 'podcast'
+            : null
+      const next = readerPanelFlags(nextExclusivePanel(current, panel))
+      setShowToc(next.toc)
+      setShowBrewliaPanel(next.brewlia)
+      setShowPodcastPlayer(next.podcast)
+    }
 
-    // 音色ID到名称的映射
     const voiceNameById = useMemo(() => {
       const map = new Map<number, string>()
       voiceList.forEach((v) => map.set(v.id, v.name))
       return map
     }, [voiceList])
 
-    // 分组音色列表
     const groupedVoices = useMemo(() => {
-      const ultra: typeof voiceList = []
-      const llm: typeof voiceList = []
-      const premium: typeof voiceList = []
-
-      voiceList.forEach((voice) => {
-        if (voice.voice_type === 'ultra_natural') {
-          ultra.push(voice)
-        } else if (voice.voice_type === 'llm') {
-          llm.push(voice)
-        } else {
-          premium.push(voice)
-        }
-      })
-
-      // 预分组男女音色
-      const isMale = (v: (typeof voiceList)[0]) =>
-        v.gender === '男' || v.gender === '男童'
-      const isFemale = (v: (typeof voiceList)[0]) =>
-        v.gender === '女' || v.gender === '女童'
+      const byBucket = Object.groupBy(voiceList, (voice) =>
+        voice.voice_type === 'ultra_natural'
+          ? 'ultra'
+          : voice.voice_type === 'llm'
+            ? 'llm'
+            : 'premium',
+      )
+      const ultra = byBucket.ultra ?? []
+      const llm = byBucket.llm ?? []
+      const premium = byBucket.premium ?? []
 
       return {
         ultra,
         llm,
         premium,
-        ultraMale: ultra.filter(isMale),
-        ultraFemale: ultra.filter(isFemale),
-        llmMale: llm.filter(isMale),
-        llmFemale: llm.filter(isFemale),
-        premiumMale: premium.filter((v) => v.gender === '男'),
-        premiumFemale: premium.filter((v) => v.gender === '女'),
+        ultraMale: ultra.filter((v) => isMaleVoice(v.gender)),
+        ultraFemale: ultra.filter((v) => isFemaleVoice(v.gender)),
+        llmMale: llm.filter((v) => isMaleVoice(v.gender)),
+        llmFemale: llm.filter((v) => isFemaleVoice(v.gender)),
+        premiumMale: premium.filter((v) => isMaleVoice(v.gender)),
+        premiumFemale: premium.filter((v) => isFemaleVoice(v.gender)),
       }
     }, [voiceList])
 
+    const voiceTip = (voice: { id: number; description: string }) =>
+      localizedVoiceDescription(t.brew, voice)
+
     return (
-      // 常驻 DOM 避免每次 showPanels 切换时 unmount/remount backdrop-blur 层（代价极高）
-      // 改用 animate 控制 opacity/transform，pointerEvents 控制交互
+      // 常驻 DOM，避免切换时重挂 backdrop-blur。用 animate + pointerEvents，不卸载。
       <>
         <motion.aside
           initial={{ opacity: 0, x: -24, scale: 0.92 }}
@@ -176,12 +195,7 @@ export default memo(
           className="hidden sm:flex sticky top-0 h-dvh items-center mr-4 z-20 pointer-events-none"
           style={{ willChange: 'transform, opacity' }}
         >
-          {/*
-            外层撑满视口高度、内容垂直居中：胶囊的位置只跟视口有关，跟文章长短、滚到哪都无关。
-            以前是 sticky top-1/3 再按自身高度 -1/3 位移 —— 文章短到不用滚时 sticky 根本不生效，
-            胶囊被短行夹住、再按各自高度偏移，左右两条高度不同就对不齐，换篇文章还会跳。
-            弹层（目录 / 批注 / 评论）用 absolute 挂在这一层上，所以它得是 relative 的 h-fit。
-          */}
+          {/* 胶囊相对视口垂直居中，不用 sticky。弹层 absolute 挂在 relative h-fit 上。 */}
           <div
             className="relative h-fit"
             style={{ pointerEvents: showPanels ? 'auto' : 'none' }}
@@ -192,7 +206,6 @@ export default memo(
             <div
               className={`flex flex-col items-center gap-2 p-2 rounded-2xl border ${currentTheme.border} ${currentTheme.surface}`}
             >
-              {/* 返回按钮 */}
               <button
                 onClick={onClose}
                 className={sideButtonClass}
@@ -201,12 +214,10 @@ export default memo(
                 <ChevronLeft className="w-5 h-5" />
               </button>
 
-              {/* 分隔线 */}
               <div
                 className={`w-6 h-px ${isDark ? 'bg-white/10' : 'bg-black/10'}`}
               />
 
-              {/* 来源图标 */}
               {item.source_icon && (
                 <div className="p-1">
                   <img
@@ -218,7 +229,6 @@ export default memo(
                 </div>
               )}
 
-              {/* 阅读进度 - 圆形进度（点击返回上一段落，长按返回顶部） */}
               <button
                 className="relative w-10 h-10 flex items-center justify-center cursor-pointer select-none"
                 title={t.brew.clickBackLongTop}
@@ -226,67 +236,33 @@ export default memo(
                 onPointerUp={handleProgressPointerUp}
                 onPointerLeave={handleProgressPointerLeave}
               >
-                <svg className="w-10 h-10 -rotate-90">
-                  <circle
-                    cx="20"
-                    cy="20"
-                    r="16"
-                    fill="none"
-                    stroke={
-                      isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'
-                    }
-                    strokeWidth="3"
-                  />
-                  <circle
-                    cx="20"
-                    cy="20"
-                    r="16"
-                    fill="none"
-                    stroke={currentTheme.accent}
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                    strokeDasharray={`${readingProgress} 100`}
-                    className="transition-all duration-300"
-                  />
-                </svg>
-                <span
-                  className={`absolute text-[10px] font-medium ${currentTheme.text} tabular-nums`}
-                >
-                  {readingProgress}
-                </span>
+                <ReaderProgressRing
+                  progress={readingProgress}
+                  accent={currentTheme.accent}
+                  track={isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}
+                  labelClass={currentTheme.text}
+                />
               </button>
 
-              {/* 分隔线 */}
               <div
                 className={`w-6 h-px ${isDark ? 'bg-white/10' : 'bg-black/10'}`}
               />
 
-              {/* 目录按钮 */}
               {toc.length > 0 && (
                 <button
-                  onClick={() => {
-                    if (!showToc) {
-                      setShowBrewliaPanel(false)
-                      setShowPodcastPlayer(false)
-                    }
-                    setShowToc(!showToc)
-                  }}
+                  onClick={() => openToolPanel('toc')}
                   className={`${sideButtonClass} ${showToc ? (isDark ? 'bg-white/10' : 'bg-black/5') : ''}`}
                   title={t.brew.tableOfContents}
+                  {...readerPopupTrigger(showToc, READER_TOC_PANEL_ID)}
                 >
                   <List className="w-5 h-5" />
                 </button>
               )}
 
-              {/* 收藏 - 仅登录用户可见 */}
               {isAuthenticated && (
                 <button
                   onClick={onToggleStar}
-                  className={`p-2.5 rounded-xl transition-all duration-200 ${
-                    item.is_starred
-                      ? 'text-amber-500 bg-amber-500/10'
-                      : `${currentTheme.secondary} hover:text-amber-500 ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`
-                  }`}
+                  className={`${sideButtonClass}${item.is_starred ? ' is-star' : ''}`}
                   title={item.is_starred ? t.brew.unstar : t.brew.starred}
                 >
                   <Star
@@ -295,16 +271,13 @@ export default memo(
                 </button>
               )}
 
-              {/* Brewlia AI 词汇注释 - 仅 Brewlia 订阅可用，非管理员需要有缓存才显示 */}
               {isBrewlia && (isAdmin || item.has_ai_annotations) && (
                 <button
-                  onClick={() => {
-                    if (!showBrewliaPanel) {
-                      setShowToc(false)
-                      setShowPodcastPlayer(false)
-                    }
-                    setShowBrewliaPanel(!showBrewliaPanel)
-                  }}
+                  onClick={() => openToolPanel('annotations')}
+                  {...readerPopupTrigger(
+                    showBrewliaPanel,
+                    READER_ANNOTATIONS_PANEL_ID,
+                  )}
                   disabled={annotationsLoading}
                   className={`p-2.5 rounded-xl transition-all duration-200 ${
                     showBrewliaPanel ||
@@ -326,22 +299,16 @@ export default memo(
                 </button>
               )}
 
-              {/* Brewlia AI 播客 - 仅 Brewlia 订阅可用，非管理员需要有缓存才显示 */}
               {isBrewlia && (isAdmin || item.has_ai_podcast) && (
                 <button
                   onClick={() => {
-                    if (podcastDialogues.length === 0) {
-                      setShowToc(false)
-                      setShowBrewliaPanel(false)
-                      loadPodcast()
-                    } else {
-                      if (!showPodcastPlayer) {
-                        setShowToc(false)
-                        setShowBrewliaPanel(false)
-                      }
-                      setShowPodcastPlayer(!showPodcastPlayer)
-                    }
+                    if (podcastDialogues.length === 0) loadPodcast()
+                    openToolPanel('podcast')
                   }}
+                  {...readerPopupTrigger(
+                    showPodcastPlayer,
+                    READER_PODCAST_PANEL_ID,
+                  )}
                   disabled={podcastLoading || cloudTtsLoading}
                   className={`p-2.5 rounded-xl transition-all duration-200 ${
                     podcastState === 'playing'
@@ -374,7 +341,6 @@ export default memo(
                 </button>
               )}
 
-              {/* 编辑手记。只有站长打开自己写的那篇时才有 */}
               {onEditNote && (
                 <button
                   onClick={onEditNote}
@@ -386,7 +352,6 @@ export default memo(
                 </button>
               )}
 
-              {/* 外部链接 */}
               <a
                 href={item.link}
                 target="_blank"
@@ -398,7 +363,6 @@ export default memo(
               </a>
             </div>
 
-            {/* 目录面板 */}
             <AnimatePresence>
               {showToc && toc.length > 0 && (
                 <motion.div
@@ -422,23 +386,25 @@ export default memo(
                       ? { duration: 0.25, ease: [0.16, 1, 0.3, 1] }
                       : undefined
                   }
+                  id={READER_TOC_PANEL_ID}
+                  role="region"
+                  aria-labelledby={READER_TOC_TITLE_ID}
                   className={`absolute left-full top-0 ml-2 w-64 max-h-[50vh] overflow-y-auto rounded-2xl border ${currentTheme.border} ${currentTheme.surface} p-3`}
                 >
                   <div
+                    id={READER_TOC_TITLE_ID}
                     className={`text-xs font-medium ${currentTheme.secondary} mb-2 px-2`}
                   >
                     {t.brew.tocTitle} ({toc.length})
                   </div>
                   <nav className="space-y-0.5">
                     {(() => {
-                      // 预计算最小层级，避免在 map 内部重复计算 O(n²) -> O(n)
                       const minLevel =
                         toc.length > 0
                           ? Math.min(...toc.map((t) => t.level))
                           : 1
                       return toc.map((item) => {
                         const isActive = item.id === activeHeadingId
-                        // 计算缩进，h1 不缩进，h2 缩进一级，以此类推
                         const indent = (item.level - minLevel) * 12
 
                         return (
@@ -466,7 +432,6 @@ export default memo(
               )}
             </AnimatePresence>
 
-            {/* Brewlia 阅读注释面板 */}
             <AnimatePresence>
               {showBrewliaPanel && (
                 <motion.div
@@ -490,16 +455,19 @@ export default memo(
                       ? { duration: 0.25, ease: [0.16, 1, 0.3, 1] }
                       : undefined
                   }
+                  id={READER_ANNOTATIONS_PANEL_ID}
+                  role="region"
+                  aria-labelledby={READER_ANNOTATIONS_TITLE_ID}
                   className={`absolute left-full ${showToc && toc.length > 0 ? 'top-[calc(100%+0.5rem)]' : 'top-0'} ml-2 w-72 overflow-hidden rounded-2xl border ${currentTheme.border} ${currentTheme.surface} flex flex-col`}
-                  style={STYLE_MAX_HEIGHT_320} /* 约4个注释的高度 */
+                  style={STYLE_MAX_HEIGHT_320} /* ~4 条注释高 */
                 >
-                  {/* 头部 */}
                   <div
                     className={`flex items-center justify-between px-3 py-2.5 border-b ${currentTheme.border} shrink-0`}
                   >
                     <div className="flex items-center gap-2">
                       <Sparkles className="w-4 h-4 text-purple-500" />
                       <span
+                        id={READER_ANNOTATIONS_TITLE_ID}
                         className={`text-sm font-medium ${currentTheme.text}`}
                       >
                         {t.brew.aiAnnotations}{' '}
@@ -507,7 +475,6 @@ export default memo(
                       </span>
                     </div>
                     <div className="flex items-center gap-1">
-                      {/* 显示/隐藏切换 */}
                       <button
                         onClick={toggleAnnotations}
                         className={`p-1.5 rounded-lg transition-colors ${
@@ -527,7 +494,6 @@ export default memo(
                           <EyeOff className="w-3.5 h-3.5" />
                         )}
                       </button>
-                      {/* 刷新按钮 - 仅管理员可见 */}
                       {isAdmin && (
                         <button
                           onClick={regenerateAnnotations}
@@ -545,7 +511,6 @@ export default memo(
                     </div>
                   </div>
 
-                  {/* 注释列表 */}
                   <div className="overflow-y-auto flex-1 p-2">
                     {annotations.length === 0 ? (
                       <div
@@ -574,10 +539,7 @@ export default memo(
                     ) : (
                       <div className="space-y-1.5">
                         {annotations.map((annotation, index) => {
-                          const typeConfig =
-                            brewliaApi.ANNOTATION_TYPE_CONFIG[
-                              annotation.type
-                            ] || brewliaApi.ANNOTATION_TYPE_CONFIG.term
+                          const typeConfig = annotationChrome(annotation.type)
                           const isSelected =
                             selectedAnnotation?.term === annotation.term
 
@@ -600,9 +562,7 @@ export default memo(
                                 <span
                                   className={`text-xs px-1 py-0.5 rounded ${typeConfig.bgColor} ${typeConfig.color} shrink-0 whitespace-nowrap`}
                                 >
-                                  {brewliaApi.annotationTypeLabel(
-                                    annotation.type,
-                                  )}
+                                  {typeConfig.label}
                                 </span>
                                 <span
                                   className={`text-sm font-medium ${currentTheme.text} min-w-0 flex-1 truncate`}
@@ -625,7 +585,6 @@ export default memo(
                     )}
                   </div>
 
-                  {/* 错误提示 */}
                   {annotationsError && (
                     <div
                       className={`px-3 py-2 text-xs text-red-500 bg-red-500/10 border-t ${currentTheme.border}`}
@@ -637,7 +596,6 @@ export default memo(
               )}
             </AnimatePresence>
 
-            {/* Brewlia AI 播客播放器面板 */}
             <AnimatePresence>
               {showPodcastPlayer && podcastDialogues.length > 0 && (
                 <motion.div
@@ -661,16 +619,19 @@ export default memo(
                       ? { duration: 0.25, ease: [0.16, 1, 0.3, 1] }
                       : undefined
                   }
+                  id={READER_PODCAST_PANEL_ID}
+                  role="region"
+                  aria-labelledby={READER_PODCAST_TITLE_ID}
                   className={`absolute left-full ${showBrewliaPanel || (showToc && toc.length > 0) ? 'top-[calc(100%+0.5rem)]' : 'top-0'} ml-2 w-80 overflow-hidden rounded-2xl border ${currentTheme.border} ${currentTheme.surface} flex flex-col`}
                   style={STYLE_MAX_HEIGHT_320}
                 >
-                  {/* 头部 */}
                   <div
                     className={`flex items-center justify-between px-3 py-2.5 border-b ${currentTheme.border} shrink-0`}
                   >
                     <div className="flex items-center gap-2">
                       <Mic className="w-4 h-4 text-emerald-500" />
                       <span
+                        id={READER_PODCAST_TITLE_ID}
                         className={`text-sm font-medium ${currentTheme.text}`}
                       >
                         {t.brew.aiPodcast}
@@ -680,7 +641,6 @@ export default memo(
                       </span>
                     </div>
                     <div className="flex items-center gap-1">
-                      {/* TTS 引擎切换 */}
                       <div className="flex items-center gap-0.5 mr-1">
                         <button
                           onClick={() => handleTtsEngineChange('system')}
@@ -716,11 +676,10 @@ export default memo(
                                 : cloudTtsError || t.brew.cloudTtsUnavailable
                           }
                         >
-                          {/* 加载环由下方带进度的状态行独担，按钮不再重复转圈 */}
+                          {/* 加载环由下方状态行独担，按钮不再转圈。 */}
                           <Cloud className="w-3.5 h-3.5" />
                         </button>
                       </div>
-                      {/* 设置按钮 - 仅管理员可见 */}
                       {isAdmin && (
                         <button
                           onClick={handleOpenSettings}
@@ -744,7 +703,6 @@ export default memo(
                     </div>
                   </div>
 
-                  {/* 云端 TTS 加载状态 */}
                   {cloudTtsLoading && (
                     <div
                       className={`px-3 py-2 text-xs ${currentTheme.secondary} bg-emerald-500/5 flex items-center gap-2 shrink-0`}
@@ -757,12 +715,9 @@ export default memo(
                     </div>
                   )}
 
-                  {/* 内容区域 - 设置 或 对话列表 切换显示 */}
                   {showVoiceSettings ? (
-                    /* 设置页面 */
                     <div className="px-3 py-2 flex-1 overflow-y-auto">
                       <div className="space-y-2">
-                        {/* 返回按钮 */}
                         <div className="flex items-center justify-between">
                           <button
                             onClick={() => setShowVoiceSettings(false)}
@@ -776,7 +731,6 @@ export default memo(
                           </span>
                         </div>
 
-                        {/* 重新生成操作 - 仅管理员可见 */}
                         {isAdmin && (
                           <div
                             className={`p-2 rounded-lg ${isDark ? 'bg-white/5' : 'bg-black/2'}`}
@@ -789,7 +743,6 @@ export default memo(
                             <div className="flex gap-1.5">
                               <button
                                 onClick={() => {
-                                  // regeneratePodcast needs to be passed
                                   setShowVoiceSettings(false)
                                 }}
                                 disabled={podcastLoading}
@@ -815,12 +768,10 @@ export default memo(
                           </div>
                         )}
 
-                        {/* 云端音色设置 - 仅云端TTS显示 */}
                         {ttsEngine === 'cloud' &&
                           cloudTtsAvailable &&
                           voiceList.length > 0 && (
                             <>
-                              {/* 主播音色 */}
                               <div
                                 className={`p-2 rounded-lg ${isDark ? 'bg-white/5' : 'bg-black/2'}`}
                               >
@@ -858,7 +809,7 @@ export default memo(
                                           ? 'bg-emerald-500/20 text-emerald-500'
                                           : `${currentTheme.secondary} ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`
                                       }`}
-                                      title={`${voice.description}${t.brew.voiceSuperNaturalSuffix}`}
+                                      title={`${voiceTip(voice)}${t.brew.voiceSuperNaturalSuffix}`}
                                     >
                                       {voice.name}
                                       <span className="ml-1 opacity-70">
@@ -877,7 +828,7 @@ export default memo(
                                           ? 'bg-emerald-500/20 text-emerald-500'
                                           : `${currentTheme.secondary} ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`
                                       }`}
-                                      title={`${voice.description}${voice.emotion_support ? t.brew.voiceEmotionalSuffix : ''}`}
+                                      title={`${voiceTip(voice)}${voice.emotion_support ? t.brew.voiceEmotionalSuffix : ''}`}
                                     >
                                       {voice.name}
                                       {voice.emotion_support && (
@@ -898,7 +849,7 @@ export default memo(
                                           ? 'bg-emerald-500/20 text-emerald-500'
                                           : `${currentTheme.secondary} ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`
                                       }`}
-                                      title={voice.description}
+                                      title={voiceTip(voice)}
                                     >
                                       {voice.name}
                                     </button>
@@ -906,7 +857,6 @@ export default memo(
                                 </div>
                               </div>
 
-                              {/* 嘉宾音色 */}
                               <div
                                 className={`p-2 rounded-lg ${isDark ? 'bg-white/5' : 'bg-black/2'}`}
                               >
@@ -946,7 +896,7 @@ export default memo(
                                           ? 'bg-emerald-500/20 text-emerald-500'
                                           : `${currentTheme.secondary} ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`
                                       }`}
-                                      title={`${voice.description}${t.brew.voiceSuperNaturalSuffix}`}
+                                      title={`${voiceTip(voice)}${t.brew.voiceSuperNaturalSuffix}`}
                                     >
                                       {voice.name}
                                       <span className="ml-1 opacity-70">
@@ -965,7 +915,7 @@ export default memo(
                                           ? 'bg-emerald-500/20 text-emerald-500'
                                           : `${currentTheme.secondary} ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`
                                       }`}
-                                      title={`${voice.description}${voice.emotion_support ? t.brew.voiceEmotionalSuffix : ''}`}
+                                      title={`${voiceTip(voice)}${voice.emotion_support ? t.brew.voiceEmotionalSuffix : ''}`}
                                     >
                                       {voice.name}
                                       {voice.emotion_support && (
@@ -986,7 +936,7 @@ export default memo(
                                           ? 'bg-emerald-500/20 text-emerald-500'
                                           : `${currentTheme.secondary} ${isDark ? 'hover:bg-white/10' : 'hover:bg-black/5'}`
                                       }`}
-                                      title={voice.description}
+                                      title={voiceTip(voice)}
                                     >
                                       {voice.name}
                                     </button>
@@ -996,7 +946,6 @@ export default memo(
                             </>
                           )}
 
-                        {/* 已缓存的音色 - 仅管理员可见 */}
                         {isAdmin &&
                           articleCache &&
                           articleCache.voices.length > 0 && (
@@ -1040,7 +989,7 @@ export default memo(
                                         clearingVoiceId === voice.voice_id
                                       }
                                       className="p-1 rounded text-red-500/70 hover:text-red-500 hover:bg-red-500/10 transition-all disabled:opacity-50"
-                                      title={t.brew.clearCache}
+                                      title={t.brew.clearVoiceCache}
                                     >
                                       {clearingVoiceId === voice.voice_id ? (
                                         <Spinner size="xs" color="current" />
@@ -1056,7 +1005,7 @@ export default memo(
                                   className={`flex items-center gap-1 mt-1.5 text-xs ${currentTheme.secondary}`}
                                 >
                                   <Spinner size="xs" color="current" />
-                                  {t.brew.loadingCache}
+                                  {t.brew.loadingCloudCache}
                                 </div>
                               )}
                             </div>
@@ -1064,9 +1013,7 @@ export default memo(
                       </div>
                     </div>
                   ) : (
-                    /* 对话列表 */
                     <>
-                      {/* 对话列表 */}
                       <div
                         ref={podcastListRef}
                         className="overflow-y-auto flex-1 p-2 space-y-1.5"
@@ -1110,7 +1057,6 @@ export default memo(
                         })}
                       </div>
 
-                      {/* 播放控制栏 */}
                       <div
                         className={`flex items-center justify-center gap-3 px-3 py-2.5 border-t ${currentTheme.border} shrink-0`}
                       >
@@ -1118,7 +1064,7 @@ export default memo(
                           onClick={handlePrevious}
                           disabled={podcastCurrentIndex <= 0}
                           className={`p-1.5 rounded-lg transition-colors ${currentTheme.secondary} hover:${currentTheme.text} disabled:opacity-30`}
-                          title={t.brew.previousSegment}
+                          title={t.brew.prevSegment}
                         >
                           <SkipBack className="w-4 h-4" />
                         </button>

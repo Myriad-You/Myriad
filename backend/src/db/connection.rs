@@ -8,7 +8,7 @@ const DEFAULT_MAX_ATTEMPTS: u32 = 8;
 const DEFAULT_BASE_DELAY_MS: u64 = 2_000;
 const DEFAULT_MAX_DELAY_MS: u64 = 8_000;
 
-/// Tunable retry policy for startup (and optional hot-reload) DB connects.
+/// Tunable retry policy for startup DB connects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConnectRetryConfig {
     pub max_attempts: u32,
@@ -103,7 +103,7 @@ pub fn classify_connect_error(err: &DbErr) -> DbConnectErrorKind {
 pub fn classify_connect_error_message(message: &str) -> DbConnectErrorKind {
     let s = message.to_ascii_lowercase();
 
-    // Auth first: some auth failures mention "timeout" in unrelated wording.
+    // Auth first, then timeout (separate classifiers).
     if s.contains("password authentication")
         || s.contains("authentication failed")
         || s.contains("auth failed")
@@ -141,7 +141,7 @@ pub fn classify_connect_error_message(message: &str) -> DbConnectErrorKind {
 /// Examples:
 /// - `postgres://user:secret@db:5432/myriad` → `postgres://user:***@db:5432/myriad`
 /// - `postgres://user@db:5432/myriad` → unchanged (no password)
-/// - unparseable input → best-effort `user:pass@` scrub without echoing the secret
+/// - unparseable with `@` → fallback scrub; no-`@` returns the raw input
 pub fn redact_database_url(database_url: &str) -> String {
     let trimmed = database_url.trim();
     if trimmed.is_empty() {
@@ -174,7 +174,7 @@ fn redact_database_url_fallback(input: &str) -> String {
     };
     let after_scheme = &input[scheme_end + 3..];
     let Some(at) = after_scheme.find('@') else {
-        // No credentials segment; still avoid dumping raw if it looks secret-ish
+        // No credentials segment; return the raw input
         return input.to_string();
     };
     let userinfo = &after_scheme[..at];
@@ -202,7 +202,7 @@ pub async fn establish_connection(database_url: &str) -> Result<DatabaseConnecti
         .acquire_timeout(Duration::from_secs(10)) // 获取连接超时
         .idle_timeout(Duration::from_secs(300)) // 空闲连接超时（5分钟）
         .max_lifetime(Duration::from_secs(3600)) // 连接最大存活时间（1小时）
-        .sqlx_logging(false); // 关闭SQL日志以提升性能（开发时可设为true）
+        .sqlx_logging(false); // 关闭 SQL 日志
 
     let db = Database::connect(opt).await?;
     Ok(db)

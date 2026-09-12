@@ -1,11 +1,11 @@
-//! In-place 5W1H cleanup of fetched platform payloads.
+//! In-place allowlist/truncate for GitHub/Steam/Bilibili/Netease/Bangumi/X.
+//! Discord/MAL/Xbox/PSN/YouTube pass through.
 
 use serde_json::{json, Value};
 
-/// 清洗平台数据，只保留核心信息（符合5W1H原则）
-/// 优化：原地修改减少内存峰值，添加数据量限制
+/// In-place allowlist/truncate for some platform trees (not 5W1H).
 pub(super) fn clean_platform_data(data: &mut Value) {
-    // 内存保护：各平台最大数据量限制
+    // Caps for GitHub repos / Steam games / Bilibili videos+bangumi / Netease songs / Bangumi collections / X tweets.
     const MAX_GITHUB_REPOS: usize = 200;
     const MAX_STEAM_GAMES: usize = 500;
     const MAX_BILIBILI_VIDEOS: usize = 100;
@@ -216,9 +216,9 @@ pub(super) fn clean_platform_data(data: &mut Value) {
         }
     }
 
-    // 清洗 Bilibili 数据 - 原地修改，添加数量限制
+    // Bilibili: truncate favorites videos / bangumi (no field allowlist).
     if let Some(bilibili) = data.get_mut("bilibili") {
-        // 清洗收藏夹视频
+        // Truncate `favorites[].videos`.
         if let Some(favorites) = bilibili.get_mut("favorites") {
             if let Some(fav_array) = favorites.as_array_mut() {
                 for fav in fav_array.iter_mut() {
@@ -238,7 +238,7 @@ pub(super) fn clean_platform_data(data: &mut Value) {
             }
         }
 
-        // 清洗追番数据
+        // Truncate `bilibili.bangumi`.
         if let Some(bangumi) = bilibili.get_mut("bangumi") {
             if let Some(bangumi_array) = bangumi.as_array_mut() {
                 if bangumi_array.len() > MAX_BILIBILI_BANGUMI {
@@ -253,9 +253,8 @@ pub(super) fn clean_platform_data(data: &mut Value) {
         }
     }
 
-    // 清洗网易云音乐数据 - 保留核心字段（优化内存使用）
+    // 清洗网易云 liked_songs / profile
     if let Some(netease) = data.get_mut("netease") {
-        // 优化：原地修改而不是创建新数组，减少内存峰值
         if let Some(songs_value) = netease.get_mut("liked_songs") {
             if let Some(songs_array) = songs_value.as_array_mut() {
                 let total_songs = songs_array.len();
@@ -304,7 +303,7 @@ pub(super) fn clean_platform_data(data: &mut Value) {
                             obj.insert("artists".to_string(), v);
                         }
                         if let Some(mut al_val) = al {
-                            // 清洗专辑信息 - 原地修改避免额外分配
+                            // Album was already cloned; keep id/name/picUrl.
                             if let Some(al_obj) = al_val.as_object_mut() {
                                 let id = al_obj.get("id").cloned();
                                 let name = al_obj.get("name").cloned();
@@ -588,7 +587,7 @@ pub(super) fn clean_platform_data(data: &mut Value) {
             }
         }
 
-        // 关注列表字段精简：只保留 SmartFilter 消费的字段（entities 等全量字段体积很大）
+        // following 字段 allowlist（与 fetch user.fields 对齐）
         if let Some(following) = x_data.get_mut("following").and_then(|v| v.as_array_mut()) {
             for account in following.iter_mut() {
                 if let Some(obj) = account.as_object_mut() {
@@ -607,7 +606,7 @@ pub(super) fn clean_platform_data(data: &mut Value) {
             }
         }
 
-        // 不再同步 likes；清理历史字段
+        // Drop leftover cached `liked_tweets`.
         if let Some(obj) = x_data.as_object_mut() {
             obj.remove("liked_tweets");
         }

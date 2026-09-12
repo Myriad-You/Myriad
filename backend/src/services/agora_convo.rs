@@ -85,16 +85,19 @@ async fn owned_session(user_id: i32, agent_id: &str) -> Result<OwnedSession, Ago
 }
 
 pub fn conversation_language(language: &str) -> &'static str {
-    match language
-        .split(['-', '_'])
-        .next()
-        .unwrap_or("")
-        .to_ascii_lowercase()
-        .as_str()
+    let lower = language.trim().to_ascii_lowercase().replace('_', "-");
+    if lower.starts_with("zh-tw")
+        || lower.starts_with("zh-hk")
+        || lower.starts_with("zh-mo")
+        || lower.contains("hant")
     {
-        "ja" => "ja-JP",
-        "en" => "en-US",
-        _ => "zh-CN",
+        "zh-TW"
+    } else if lower.starts_with("zh") {
+        "zh-CN"
+    } else if lower.starts_with("ja") {
+        "ja-JP"
+    } else {
+        "en-US"
     }
 }
 
@@ -587,6 +590,9 @@ mod tests {
         assert_eq!(conversation_language("JA_jp"), "ja-JP");
         assert_eq!(conversation_language("en-GB"), "en-US");
         assert_eq!(conversation_language("zh-CN"), "zh-CN");
+        assert_eq!(conversation_language("zh-TW"), "zh-TW");
+        assert_eq!(conversation_language("zh-HK"), "zh-TW");
+        assert_eq!(conversation_language("fr-FR"), "en-US");
     }
 
     #[test]

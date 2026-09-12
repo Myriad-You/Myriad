@@ -1,13 +1,12 @@
-//! 动态 Skill 系统（语义匹配 + 参数化模板）
+//! 动态 Skill 系统（关键词重叠匹配 + `${param}` 槽位）
 //!
 //! Skills 是 Markdown 文件定义的能力编排模板。
-//! 支持热加载、语义匹配、参数化执行、以及 Agent 自动创建。
+//! 支持显式 `reload`、关键词重叠匹配、`${param}` 提取。自动创建见 skill_evolution。
 //!
 //! 当前实现：
-//! - **语义模糊匹配**：trigger 不再要求精确子串，支持 TF-IDF 关键词重叠
-//! - **参数化模板**：instructions 支持 ${param} 槽位，AI 从用户输入填充
-//! - **质量评分**：Skill 索引带执行统计，AI 优先选高质量 Skill
-//! - **紧凑索引优化**：仅注入 top-K 相关 Skill，减少 token 浪费
+//! - **模糊匹配**：trigger 子串命中 + 分词重叠（非 TF-IDF）
+//! - **参数槽位**：`${param}` 在 frontmatter 为空时从正文提取；替换在 executor 用 `step.params`
+//! - **质量加权**：仅 `get_relevant_skills` 在样本≥3 时用 Wilson 下界乘相关性；compact index 不含统计
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -32,10 +31,10 @@ pub struct Skill {
     /// 一句话描述（用于 compact index）
     #[serde(default)]
     pub description: String,
-    /// 完整 Markdown 指令内容（按需加载）
+    /// 完整 Markdown 指令（解析时读入内存；serde skip 不序列化）
     #[serde(skip)]
     pub full_instructions: String,
-    /// 触发关键词（支持语义模糊匹配）
+    /// 触发关键词（子串命中或分词重叠）
     #[serde(default)]
     pub triggers: Vec<String>,
     /// 分类
@@ -64,7 +63,7 @@ pub struct Skill {
 /// Skill 前置条件
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SkillGating {
-    /// 需要用户已绑定的平台
+    /// 绑定平台列表（未参与 gating）
     #[serde(default)]
     pub platforms: Vec<String>,
     /// 依赖的能力 ID
@@ -72,7 +71,7 @@ pub struct SkillGating {
     pub capabilities: Vec<String>,
 }
 
-/// Whether this skill's gating capabilities are all in the grant set.
+/// Each gating capability must be grant-covered: `required_permissions ⊆ granted`.
 ///
 /// Empty gating stays visible (expansion is still grant-filtered at execute).
 /// Unknown gating ids fail closed. `granted = None` is unfiltered.
@@ -308,10 +307,9 @@ impl SkillRegistry {
             .collect()
     }
 
-    /// 获取与用户输入最相关的 Skill（语义模糊匹配）
+    /// 获取与用户输入最相关的 Skill（子串 + 分词重叠）。
     ///
-    /// 相比 get_compact_index() 的全量返回，这个方法用 TF-IDF 关键词重叠
-    /// 预过滤出 top-K 最相关的 Skill，减少 Planner 的 token 消耗。
+    /// 相比 `get_compact_index()` 的全量返回，按 trigger/描述/分类分词重叠打分后截断。
     pub async fn get_relevant_skills(&self, user_input: &str, limit: usize) -> Vec<SkillMatch> {
         let input_lower = user_input.to_lowercase();
         let input_tokens = Self::simple_tokenize(&input_lower);
@@ -346,7 +344,7 @@ impl SkillRegistry {
                                 / (1.0 + z2 / n);
                             // 映射到 [0.6, 1.0] 范围，避免惩罚过重
                             // wilson_lower(z=1.0): n=3,s=2 → ≈0.38 → ×0.75
-                            // n=5,s=4 → ≈0.57 → ×0.83, n=10,s=9 → ≈0.74 → ×0.90
+                            // n=5,s=4 → ≈0.58 → ×0.83, n=10,s=9 → ≈0.77 → ×0.91
                             relevance *= 0.6 + 0.4 * wilson_lower.max(0.0);
                         }
                     }

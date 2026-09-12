@@ -21,7 +21,6 @@ export function expressionSymbolGeneratedSizes(
   }
 }
 
-/** Four inward-facing manga anger arcs with a sticker separation rail. */
 export function createAngerMarkBitmap(
   requestedSize: { width: number; height: number },
   sourceTint: Readonly<RgbColor>,
@@ -132,7 +131,6 @@ export function createAngerMarkBitmap(
   return { width, height, data }
 }
 
-/** Large, asymmetric manga sweat drop; deliberately distinct from eye tears. */
 export function createSpeechlessSweatBitmap(requestedSize: {
   width: number
   height: number

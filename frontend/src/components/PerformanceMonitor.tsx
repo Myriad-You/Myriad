@@ -1,12 +1,3 @@
-/**
- * 开发环境性能监控（右侧竖条）
- *
- * - 收缩：FPS / 内存 / Long Tasks 竖排
- * - 展开：帧 / 运行时 / 稳定 / 动画 / 协调器 / 资源
- * - 展开：帧 / 运行时 / 稳定 / 动画 / 协调器 / 资源 单页分区
- * - 数据只来自浏览器 API 与项目内权威状态源，不 monkey-patch
- */
-
 import type { CSSProperties } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 
@@ -55,7 +46,6 @@ export default function PerformanceMonitor() {
   const { frame, memory, stability, animations, coordinator, resource } =
     snapshot
 
-  // 快捷键 Ctrl/Cmd+Shift+M
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'm') {
@@ -67,7 +57,6 @@ export default function PerformanceMonitor() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // 暂停页面动画（调试用，手动开关）
   useEffect(() => {
     const id = 'perf-pause-animations'
     if (!pauseAll) {
@@ -95,7 +84,6 @@ export default function PerformanceMonitor() {
       data-perf-monitor
       className={`pm-root ${isExpanded ? 'pm-expanded' : ''}`}
     >
-      {/* ── 标题栏 / 收缩摘要 ── */}
       <div
         className="pm-bar"
         role="button"
@@ -137,10 +125,8 @@ export default function PerformanceMonitor() {
         )}
       </div>
 
-      {/* ── 展开详情 ── */}
       {isExpanded && (
         <div className="pm-body">
-          {/* 帧 */}
           <section className="pm-section">
             <div className="pm-section-title">{pm.sectionFrame}</div>
             <div className="pm-grid">
@@ -207,7 +193,6 @@ export default function PerformanceMonitor() {
             </div>
           </section>
 
-          {/* 运行时 */}
           <section className="pm-section">
             <div className="pm-section-title">
               {pm.sectionRuntime}
@@ -281,7 +266,6 @@ export default function PerformanceMonitor() {
             )}
           </section>
 
-          {/* 稳定 */}
           <section className="pm-section">
             <div className="pm-section-title">{pm.sectionStability}</div>
             <div className="pm-grid">
@@ -308,7 +292,6 @@ export default function PerformanceMonitor() {
             )}
           </section>
 
-          {/* 动画（WAAPI） */}
           <section className="pm-section">
             <div className="pm-section-title">
               {pm.sectionAnimation}
@@ -360,7 +343,6 @@ export default function PerformanceMonitor() {
             </div>
           </section>
 
-          {/* 协调器：瞬时槽位常为 0 是正常的，看峰值/累计 */}
           <section className="pm-section">
             <div className="pm-section-title">
               {pm.sectionCoordinator}
@@ -484,7 +466,6 @@ export default function PerformanceMonitor() {
             </div>
           </section>
 
-          {/* 资源队列 */}
           <section className="pm-section">
             <div className="pm-section-title">{pm.sectionResource}</div>
             <div className="pm-grid">

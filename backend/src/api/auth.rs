@@ -8,11 +8,12 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use myriad_error::AppError;
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::{json, Value};
 use std::env;
 
-// Re-export Claims so existing imports `super::auth::Claims` keep working
+// Re-export `Claims`.
 use crate::middleware::auth::clear_auth_cookie_value;
 pub use crate::middleware::auth::Claims;
 
@@ -128,7 +129,8 @@ pub async fn get_current_user(
                   {avatar} AS avatar_url,
                   u.github_id, u.linked_github_id, u.bio, u.display_name,
                   u.password_hash IS NOT NULL AS has_password,
-                  u.last_login_at
+                  u.last_login_at,
+                  u.locale
            FROM users u
            WHERE u.id = $1"#,
         avatar = crate::services::avatar::avatar_snapshot_expr("u"),
@@ -147,7 +149,7 @@ pub async fn get_current_user(
             tracing::error!(%error, "failed to load current user");
             return Err(HttpError::from((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Failed to load current user" })),
+                Json(AppError::public_json("Failed to load current user")),
             )));
         }
     };
@@ -222,6 +224,12 @@ pub async fn get_current_user(
         .ok()
         .flatten()
         .map(|t| t.to_rfc3339());
+    let locale = user_row
+        .try_get::<Option<String>>("", "locale")
+        .ok()
+        .flatten()
+        .as_deref()
+        .and_then(crate::api::reports::locale::parse_stored_ui_locale);
 
     Ok(Json(json!({
         "authenticated": true,
@@ -237,27 +245,94 @@ pub async fn get_current_user(
         "bio": bio,
         "has_password": has_password,
         "last_login_at": last_login_at,
+        "locale": locale,
         "identities": identities,
     }))
     .into_response())
 }
 
+/// `PUT /api/auth/me/locale` — durable users only; guests stay on localStorage.
+pub async fn set_current_user_locale(
+    crate::extract::Db(db): crate::extract::Db,
+    headers: HeaderMap,
+    Json(payload): Json<Value>,
+) -> Result<impl IntoResponse, HttpError> {
+    let claims = crate::middleware::auth::authenticate_request(&headers, &db)
+        .await
+        .map_err(|_| {
+            HttpError::from((
+                StatusCode::UNAUTHORIZED,
+                Json(AppError::public_json("Unauthorized")),
+            ))
+        })?;
+
+    let Some(user_id) =
+        crate::services::tapp_ownership::parse_authenticated_subject_id(&claims.sub)
+    else {
+        return Err(HttpError::from((
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "error": "Forbidden",
+                "code": "GUEST_LOCALE_READONLY",
+            })),
+        )));
+    };
+
+    let raw = payload
+        .get("locale")
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    let Some(locale) = crate::api::reports::locale::parse_stored_ui_locale(raw) else {
+        return Err(HttpError::from((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Bad request",
+                "code": "locale_invalid",
+                "message": "locale must be a host UI tag",
+            })),
+        )));
+    };
+
+    let updated = db
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE users SET locale = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+            vec![locale.to_string().into(), user_id.into()],
+        ))
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "failed to save user locale");
+            HttpError::from((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(AppError::public_json("Failed to update user")),
+            ))
+        })?;
+
+    if updated.rows_affected() == 0 {
+        return Err(HttpError::from((
+            StatusCode::NOT_FOUND,
+            Json(AppError::public_json("Not found")),
+        )));
+    }
+
+    Ok(Json(json!({ "ok": true, "locale": locale })))
+}
+
 /// `POST /api/auth/logout`
 ///
-/// Clears the browser cookie and, when a still-valid (signature) token is
-/// present, bumps `users.token_version` so stolen copies of the same JWT fail
+/// Clears the browser cookie and, when a valid token matches the current
+/// session epoch, bumps `users.token_version` so copies of the same JWT fail
 /// closed on protected routes until the next login.
 pub async fn logout(
     crate::extract::Db(db): crate::extract::Db,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    // Crypto-only decode: even a soon-to-expire token should revoke the epoch.
-    // Do **not** require session epoch match here — logout must succeed after
-    // a prior password change already bumped tv.
+    // Always clear the cookie; only the matching epoch may revoke sessions.
+    // The UPDATE checks tv atomically so a stale logout cannot kill a new login.
     if let Ok(claims) = crate::middleware::auth::verify_jwt_token(&headers) {
         if let Ok(user_id) = claims.sub.parse::<i32>() {
             if user_id > 0 {
-                match crate::middleware::auth::bump_token_version(&db, user_id).await {
+                match crate::middleware::auth::bump_token_version(&db, user_id, claims.tv).await {
                     Ok(Some(new_tv)) => {
                         tracing::info!(
                             user_id,
@@ -266,7 +341,7 @@ pub async fn logout(
                         );
                     }
                     Ok(None) => {
-                        tracing::debug!(user_id, "🚪 Logout for missing user — cookie clear only");
+                        tracing::debug!(user_id, "🚪 Stale or missing session — cookie clear only");
                     }
                     Err(e) => {
                         // Cookie still cleared; epoch bump is best-effort so

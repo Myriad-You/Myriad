@@ -1,18 +1,4 @@
-/**
- * highlightText XSS 回归测试。
- *
- * 曲名/艺人名来自远端音乐 API（网易云 / QQ），是不可信数据，而播放列表用
- * dangerouslySetInnerHTML 渲染它们。曾经的写法是：
- *
- *     __html: searchQuery ? highlightText(song.name, searchQuery) : song.name
- *
- * highlightText 本身转义得没问题，但三元的 else 分支把原值直接塞进了
- * innerHTML —— 只要没有搜索词（也就是打开播放列表的默认状态），一个
- * `<img src=x onerror=…>` 的曲名就会执行。
- *
- * Run from frontend/:
- *   pnpm test:unit -- src/utils/musicPlayerHighlight.test.ts
- */
+/** 远端曲名进 innerHTML：无搜索词也必须转义。 */
 
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -25,7 +11,7 @@ const PAYLOAD = '<img src=x onerror=alert(1)>'
 
 describe('highlightText', () => {
   it('escapes HTML when there is no search query', () => {
-    // 这是回归点：空 query 曾经完全绕过转义
+    // 空 query 也必须转义
     for (const query of ['', '   ']) {
       const out = highlightText(PAYLOAD, query)
       assert.ok(
@@ -61,6 +47,15 @@ describe('highlightText', () => {
 
   it('leaves ordinary titles intact', () => {
     assert.equal(highlightText('Bohemian Rhapsody', ''), 'Bohemian Rhapsody')
+  })
+
+  it('matches punctuation, escapes and Unicode literally in every occurrence', () => {
+    for (const query of ['[x]', '(a)+', 'a-b', 'a/b', '\\d', '音楽', '\uD800']) {
+      assert.equal(
+        highlightText(`${query} ... ${query}`, query),
+        `<mark>${query}</mark> ... <mark>${query}</mark>`,
+      )
+    }
   })
 })
 

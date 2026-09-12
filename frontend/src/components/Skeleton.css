@@ -1,9 +1,3 @@
-/**
- * 快速过渡样式（QuickTransition 专用）
- * 历史上的分相骨架屏/液态玻璃骨架/粒子系统样式已随组件一并撤废，
- * 见 SkeletonTransition.tsx 文件头说明。
- */
-
 .quick-transition {
   transition: opacity 0.2s ease-in-out;
 }

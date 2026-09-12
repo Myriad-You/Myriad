@@ -148,6 +148,11 @@ export interface CroppedLayerPixels {
   height: number
 }
 
+export interface AtlasPixelPatch extends CroppedLayerPixels {
+  x: number
+  y: number
+}
+
 export interface IndexedDeformableMesh {
   vao: WebGLVertexArrayObject
   positionBuffer: WebGLBuffer
@@ -246,6 +251,7 @@ export function readLayerPixels(
 export function createAtlasTexture(
   gl: WebGL2RenderingContext,
   atlas: HTMLImageElement,
+  patches: readonly AtlasPixelPatch[] = [],
 ): WebGLTexture {
   const texture = gl.createTexture()
   if (!texture) throw new Error(currentCopy().merope.anime25dPlaybackFailed)
@@ -257,6 +263,29 @@ export function createAtlasTexture(
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, atlas)
+    // Typed-array uploads are premultiplied explicitly, unlike DOM sources.
+    if (patches.length) gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
+    for (const patch of patches) {
+      const pixels = new Uint8Array(patch.pixels.length)
+      for (let i = 0; i < pixels.length; i += 4) {
+        const alpha = patch.pixels[i + 3]
+        for (let c = 0; c < 3; c++)
+          pixels[i + c] = Math.round((patch.pixels[i + c] * alpha) / 255)
+        pixels[i + 3] = alpha
+      }
+      gl.texSubImage2D(
+        gl.TEXTURE_2D,
+        0,
+        patch.x,
+        patch.y,
+        patch.width,
+        patch.height,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        pixels,
+      )
+    }
+    if (patches.length) gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 1)
     return texture
   } catch (error) {
     gl.deleteTexture(texture)
@@ -322,13 +351,6 @@ export function requiredUniform(
   return location
 }
 
-/**
- * `crossOrigin=anonymous` turns the fetch into a CORS request. Same-origin
- * atlas URLs (`/api/merope/rig/assets/…`) must not use it: if the visitor's
- * Origin is missing from CORS_ORIGINS the image errors and the live face
- * falls back to the master portrait. Display `<img>` tags do not set this,
- * which is why guests still saw the portrait.
- */
 export function atlasUrlNeedsCors(
   url: string,
   pageHref = typeof window !== 'undefined' && window.location?.href

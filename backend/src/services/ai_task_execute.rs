@@ -40,7 +40,7 @@ use crate::services::permission_service::UserRole;
 use crate::services::tapp_registry as shared_registry;
 use myriad_tapp_contract::manifest::{TappAiManifest, TappAiOperation, TappAiOutputFormat};
 
-/// Must cover image generation (`get_long_running_client` is 15 min). Floor 5 min.
+/// Must cover image generation (`get_long_running_client` is 15 min).
 pub const TASK_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
 /// A provider can produce many deltas before the database-backed mailbox is
@@ -287,7 +287,7 @@ impl CoalescingBuffer {
     }
 }
 
-/// Merge only events that are adjacent in the event stream. Text deltas are
+/// Merge same-kind events when the previous slot matches. Text deltas are
 /// appended up to the bounded coalescing size; progress retains its latest
 /// payload. Terminal events deliberately never merge with or replace data.
 /// `Some(true)` means a merge happened and text had to be truncated.
@@ -482,9 +482,7 @@ impl TaskEventMailbox {
     }
 
     async fn shutdown(mut self) {
-        // Dropping every callback sender before issuing Shutdown makes the
-        // drain deterministic: no producer can add data after the control
-        // acknowledgement.
+        // Drop this mailbox's sink before Shutdown. Other clones may still hold a sender.
         self.sink.take();
         let Some(dispatcher) = self.dispatcher.take() else {
             return;
@@ -918,8 +916,7 @@ pub async fn execute_task(execution: AiTaskExecution) {
 
     match outcome {
         Ok((result, input_tokens, output_tokens)) => {
-            // Image tasks previously settled 0 tokens. Keep that quota contract;
-            // the ledger row below still carries the size-based estimate.
+            // Image / Search 配额结算记 0 token；ledger 仍写 input/output_tokens。
             let settle_tokens = if matches!(
                 request.operation,
                 TappAiOperation::Image | TappAiOperation::Search
@@ -1118,7 +1115,7 @@ mod tests {
                 "outputFormats": ["text"]
             }
         });
-        // May fail if field names differ; at least exercises path.
+        // Exercises `parse_ai_manifest` on a camelCase fixture.
         let _ = parse_ai_manifest(&manifest);
     }
 
@@ -1214,8 +1211,7 @@ mod tests {
         let _ = sink.publish(delta("a"));
         let _ = sink.publish(delta("b"));
         assert_eq!(budget.available_permits(), 2);
-        // A cancelled task drops its callback and receiver; no permit leaks
-        // into the process-wide budget after that task is gone.
+        // Dropping receiver + sink releases buffer permits.
         drop(receiver);
         drop(sink);
         assert_eq!(budget.available_permits(), 4);
@@ -1232,8 +1228,7 @@ mod tests {
         assert_eq!(pending.kind, "delta");
         assert_eq!(queued.payload, json!({ "text": "before" }));
         assert_eq!(pending.payload, json!({ "text": "coalesced" }));
-        // `finish_task` writes the terminal result after this bounded drain;
-        // terminal events are never passed through the lossy data queue.
+        // Drain order: channel event then pending coalesced delta.
     }
 
     #[test]

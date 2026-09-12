@@ -58,7 +58,7 @@ pub(crate) async fn handle_mfp_activity(
                 .map_err(|e| inbox_err("ChannelClose handling failed", e))?;
             Ok(StatusCode::ACCEPTED)
         }
-        // Phase 4: Room
+        // Room
         "myriad:RoomInvite" => {
             crate::federation::room::handle_room_invite(db, actor_url_str, activity)
                 .await
@@ -83,7 +83,7 @@ pub(crate) async fn handle_mfp_activity(
                 .map_err(|e| inbox_err("RoomDissolve handling failed", e))?;
             Ok(StatusCode::ACCEPTED)
         }
-        // Phase 5: Ring
+        // Ring
         "myriad:RingJoin" => {
             crate::federation::ring::handle_ring_join(db, actor_url_str, activity)
                 .await
@@ -111,9 +111,9 @@ pub(crate) async fn handle_mfp_activity(
             {
                 return Err((
                     StatusCode::SERVICE_UNAVAILABLE,
-                    Json(json!({
-                        "error": "FileChunk requires a transactional filesystem outbox"
-                    })),
+                    Json(AppError::public_json(
+                        "FileChunk requires a transactional filesystem outbox",
+                    )),
                 ));
             }
             crate::federation::file_transfer::handle_file_transfer(db, actor_url_str, activity)
@@ -172,13 +172,8 @@ pub(crate) async fn handle_mfp_activity(
 
 #[cfg(test)]
 mod tests {
-    /// 白名单与分派必须一一对应。
-    ///
-    /// 这个不变量已经出过两次问题：`myriad:CharacterVisit*` 先是只进了白名单、
-    /// 没有分派分支（活动验签通过、返 202、然后被静默丢弃 —— 对远端撒谎，
-    /// 它以为投递成功不会重试）；随后功能被移除时白名单又没跟着摘。
-    ///
-    /// 跨两个 match 的约束类型系统表达不了，所以对源码断言。
+    /// `ALLOWED_MFP_TYPES` 与 `match activity_type` 必须一一对应。
+    /// 缺臂会落到 `_` → 202 然后丢弃。对源码断言，因为类型系统表达不了。
     #[test]
     fn every_allowed_mfp_type_has_a_dispatch_arm() {
         let src = include_str!("mfp.rs");
@@ -219,3 +214,4 @@ mod tests {
         );
     }
 }
+use myriad_error::AppError;

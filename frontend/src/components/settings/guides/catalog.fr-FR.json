@@ -1,0 +1,1170 @@
+{
+  "ui": {
+    "siteUrl": {
+      "what": "L’adresse publique pour ouvrir votre site, par exemple https://votre-domaine.",
+      "chain": "1) Modifiez-la ici et enregistrez — effet immédiat (le bouton « Enregistrer la configuration » en bas n’est pas nécessaire).\n2) Ensuite, chaque adresse complète que le site communique à l’extérieur utilise la nouvelle : retour de connexion GitHub/Google, reconnaissance par d’autres sites, liens de partage, etc.\n3) Le système liste aussi « ce qu’il faut revérifier après un changement de domaine » — parcourez cette liste.",
+      "frontend": "Après le changement, essayez ceci : déconnectez-vous, utilisez une connexion tierce, et vérifiez que vous revenez bien sur ce site.\nLes liens de partage et les connexions avec d’autres sites suivent aussi la nouvelle adresse. Couleurs et thèmes ne changent pas tout seuls.",
+      "notes": "Quand le domaine change, l’« adresse de retour » enregistrée chez les services de connexion (GitHub, etc.) doit en général être mise à jour, sinon la connexion échoue.\nCertificats et DNS doivent correspondre à ce que vous saisissez ici. En cas de doute, suivez la liste du système."
+    },
+    "siteIdentity": {
+      "what": "Carte publique du site (nom, texte, icône) et possibilité d’installer le site en PWA.",
+      "chain": "1) Modifiez titre / description / icône ou l’interrupteur PWA → enregistrez la configuration en bas.\n2) La carte met à jour l’onglet du navigateur, le nom sur la page de connexion et les aperçus de partage ; PWA activé, le nom d’installation suit le titre si possible.\n3) Distinct de « Adresse du site » : cela ne change pas comment on vous rejoint.",
+      "frontend": "Nom et icône de l’onglet, nom du site à la connexion, texte de partage ; « Installer l’application » mobile/bureau si PWA est activé.\nLe mode développement n’enregistre pas de service worker.",
+      "notes": "L’icône peut être une URL ou un petit fichier local. La PWA nécessite HTTPS (ou localhost)."
+    },
+    "siteTitle": {
+      "what": "Le nom affiché du site (le nom court que les gens voient).",
+      "chain": "1) Changez le nom → enregistrez en bas.\n2) Tout ce qui affiche « comment s’appelle ce site » se met à jour, par exemple le titre de l’onglet.\n3) Ne change ni le domaine ni les adresses de retour de connexion.",
+      "frontend": "Titre de l’onglet, nom du site sur la page de connexion, et libellés similaires. Visible juste après enregistrement et actualisation.",
+      "notes": "Gardez-le court et reconnaissable ; pas une longue phrase."
+    },
+    "siteDescription": {
+      "what": "Une ou deux phrases expliquant à quoi sert ce site.",
+      "chain": "1) Remplissez → enregistrez en bas.\n2) Les liens de partage et certains aperçus portent ce texte.\n3) Ne change ni la navigation ni les autorisations.",
+      "frontend": "Le court texte qui apparaît parfois quand vous collez l’URL dans un chat ou un réseau social.",
+      "notes": "Si vous écrivez trop, les applications externes n’affichent que les premières lignes — une ou deux phrases suffisent."
+    },
+    "siteFavicon": {
+      "what": "La petite icône de l’onglet du navigateur.",
+      "chain": "1) Collez un lien ou envoyez un fichier → enregistrez en bas.\n2) Le navigateur affiche la nouvelle icône à la prochaine fois (l’ancienne peut encore apparaître un moment).\n3) Sans lien avec le fond d’écran ou les couleurs du thème.",
+      "frontend": "La petite image dans le coin de l’onglet et dans les favoris. Après changement, actualisez fort ou ouvrez une fenêtre privée.",
+      "notes": "Pour un envoi local, choisissez une petite image ; les fichiers trop lourds peuvent échouer."
+    },
+    "siteSeo": {
+      "what": "Aider les moteurs et les aperçus sociaux à comprendre le site : mots-clés, image de partage, et indexation.",
+      "chain": "1) Modifiez les champs SEO ici → enregistrez la config en bas.\n2) Après enregistrement, cette page met à jour les meta (mots-clés / robots / Open Graph) tout de suite.\n3) Fonctionne avec Identité du site ci-dessus : titre et description alimentent aussi les cartes de partage.",
+      "frontend": "meta keywords, robots, og:* et twitter:* dans le source de la page.\nImage et texte d’aperçu dans les applications de chat.",
+      "notes": "Les mots-clés pèsent peu sur le classement Google — n’en abusez pas. Préférez une URL d’image publique pour les partages ; les images data: sont invisibles pour la plupart des robots."
+    },
+    "siteKeywords": {
+      "what": "Mots-clés écrits dans la balise meta keywords de la page.",
+      "chain": "1) Saisissez (séparés par des virgules) → enregistrez en bas.\n2) Écrit <meta name=\"keywords\">.\n3) Ne change ni la navigation ni les autorisations.",
+      "frontend": "La balise meta keywords dans l’en-tête de la page.",
+      "notes": "Les moteurs modernes ignorent presque les mots-clés ; facultatif. Vide est correct."
+    },
+    "siteOgImage": {
+      "what": "La grande image d’aperçu des cartes de lien (Open Graph / Twitter).",
+      "chain": "1) URL ou envoi → enregistrez en bas.\n2) Écrit og:image et twitter:image.\n3) Si vide, repli vers le favicon du site si possible.",
+      "frontend": "Aperçus de lien dans les applications sociales ; des validateurs comme Facebook Sharing Debugger peuvent confirmer.",
+      "notes": "Un format paysage ≥1200×630 convient le mieux. Les data URL envoyées marchent rarement pour les robots — utilisez une URL d’image publique en production."
+    },
+    "googleSiteVerification": {
+      "what": "Vérification de propriété par balise HTML pour Google Search Console.",
+      "chain": "1) Ajoutez la propriété dans Search Console → choisissez la balise HTML.\n2) Collez la valeur content ou toute la balise meta ici → enregistrez en bas.\n3) Google récupère l’accueil, vérifie la meta, puis vous pouvez soumettre /sitemap.xml.",
+      "frontend": "<meta name=\"google-site-verification\"> sur les coques HTML des robots et dans l’en-tête SPA. La vérification Google utilise la coque robot.",
+      "notes": "N’utilisez pas la vérification par fichier HTML (cette application est une SPA et ne servira pas google*.html à la racine). La vérification DNS TXT n’utilise pas ce champ."
+    },
+    "siteVisibilityPolicy": {
+      "what": "Politique à quatre niveaux pour les moteurs et la découverte/citation par l’IA.",
+      "chain": "1) Choisissez un niveau → enregistrez la config.\n2) Le serveur met à jour robots.txt / sitemap / llms.txt et synchronise noindex.\n3) Sites publics : préférez Autoriser les citations IA.",
+      "frontend": "Différences sur GET /robots.txt, /sitemap.xml, /llms.txt ; meta robots de page.",
+      "notes": "Tous les robots IA ne respectent pas robots ; vérifiez aussi les réglages CDN (p. ex. Cloudflare)."
+    },
+    "siteAiIntro": {
+      "what": "Présentation du site destinée à l’IA, écrite dans /llms.txt.",
+      "chain": "1) Rédigez ou générez par IA → enregistrez.\n2) Servi lorsque la politique est Autoriser les citations IA ou Entièrement ouvert.",
+      "frontend": "Bloc de résumé dans /llms.txt public.",
+      "notes": "Préférez les faits et le périmètre au marketing."
+    },
+    "siteAiGenerate": {
+      "what": "Tags « Générer par IA » par champ pour description / mots-clés / intro IA.",
+      "chain": "1) Définissez le titre du site → cliquez le tag à côté d’un champ → relisez → enregistrez la config.",
+      "frontend": "SettingTitleTag à côté du titre ; POST /api/seo/generate-copy avec un seul champ.",
+      "notes": "Générer par IA ouvre une boîte d’indice facultative, puis envoie un seul champ."
+    },
+    "pwaEnabled": {
+      "what": "Activer la PWA (service worker + manifeste installable), sous « Identité du site et application » avec le titre et l’icône.",
+      "chain": "1) Activé : en production, enregistre /sw.js et conserve le manifeste d’application web.\n2) Prend effet juste après l’enregistrement — pas besoin de rechargement forcé.",
+      "frontend": "Invites « Applications » / installer du navigateur ; DevTools → Application → Service Workers.",
+      "notes": "Activé par défaut. Les invites d’installation nécessitent HTTPS (ou localhost)."
+    },
+    "siteFooter": {
+      "what": "La barre tout en bas de page : numéros de dépôt, badges d’hébergeurs, et similaires.",
+      "chain": "1) Placez ici les numéros de dépôt et badges sponsors → enregistrez en bas.\n2) Le bas de chaque page du site se met à jour ensemble.\n3) Affichage seulement pour les visiteurs — cela ne change pas vraiment vos routes d’accélération ni le réseau du serveur.",
+      "frontend": "Faites défiler n’importe quelle page jusqu’en bas. Si tout est vide, ce bloc peut ne pas s’afficher.",
+      "notes": "Sans numéro de dépôt, laissez vide — n’inventez pas celui d’un autre."
+    },
+    "siteIcp": {
+      "what": "Numéro de dépôt ICP du régulateur (remplir seulement si vous en avez un).",
+      "chain": "1) Saisissez le numéro → enregistrez en bas.\n2) Le pied de page gagne une ligne de dépôt ; vide = masqué.\n3) Sans lien avec l’accessibilité du site — affichage de conformité seulement.",
+      "frontend": "Texte de dépôt dans le pied de page. Visible après enregistrement et actualisation.",
+      "notes": "Laissez vide si vous n’en avez pas."
+    },
+    "siteGongan": {
+      "what": "Numéro de dépôt de sécurité publique (remplir seulement si vous en avez un).",
+      "chain": "1) Saisissez le numéro → enregistrez → il s’affiche dans le pied de page.\n2) Vide = masqué.\n3) Peut apparaître avec l’ICP, ou un seul des deux.",
+      "frontend": "La ligne de dépôt de sécurité publique dans le pied de page.",
+      "notes": "Laissez vide si vous n’en avez pas."
+    },
+    "cloudSponsors": {
+      "what": "Afficher dans le pied de page de petits logos de certains hébergeurs.",
+      "chain": "1) Cochez ceux que vous voulez → enregistrez en bas.\n2) Le pied de page gagne une rangée de petites icônes.\n3) Sans lien avec l’usage réel de ces services — affichage pur.",
+      "frontend": "Badges sponsors / cloud dans le pied de page. Décoché = pas de rangée.",
+      "notes": "Vous pouvez n’en sélectionner aucun ; ce n’est pas « ce cloud est déjà configuré »."
+    },
+    "siteFooterCustom": {
+      "what": "Blocs de pied de page entièrement personnalisés icône+texte — 2 au plus.",
+      "chain": "1) Ajoutez un élément → texte obligatoire, icône/url facultatifs → enregistrez en bas.\n2) L’accueil affiche icône+texte ; les autres pages et le mobile n’affichent que l’icône (texte en infobulle), même repli que dépôt/badges cloud.\n3) Seuls les éléments avec un texte non vide apparaissent.",
+      "frontend": "Pied de page en bas à droite ; actualisation douce après enregistrement.",
+      "notes": "Les éléments sans texte sont masqués. Les liens acceptent http(s), chemins relatifs, mailto — pas javascript:."
+    },
+    "backgroundAndTheme": {
+      "what": "Fond de site, flou d’arrière-plan, et réglages d’ambiance similaires.",
+      "chain": "1) Changez fond / flou → enregistrez en bas.\n2) L’image d’ambiance derrière tout le site se met à jour ensemble.\n3) Va avec « Effets immersifs » ci-dessous : l’image se règle ici ; le mouvement on/off est dans ce groupe.",
+      "frontend": "Fond derrière n’importe quelle page ; entrées liées au fond dans le panneau de contrôle.\nAprès enregistrement, passez à l’accueil — le plus simple pour voir le changement.",
+      "notes": "Une image trop chargée ou trop floue rend le texte difficile à lire. Si le site saccade, désactivez d’abord quelques éléments du groupe d’effets."
+    },
+    "wallpaper": {
+      "what": "Image de fond (URL directe, redirection 302, ou API JSON d’image avec url/image).",
+      "chain": "1) Collez une URL d’image directe ou un hébergeur JSON courant → enregistrez.\n2) Utilisée comme fond sur tout le site.\n3) Parallaxe et ondulations au clic agissent aussi sur cette image — sans image, le mouvement n’a rien à animer.",
+      "frontend": "Image d’ambiance derrière presque chaque page. Ouvrez un accueil neuf à côté pour comparer.",
+      "notes": "Des images plus légères sont plus fluides ; un lien cassé affiche un vide ou une image brisée. Le JSON a besoin de champs comme url/image/img."
+    },
+    "wallpaperBlur": {
+      "what": "À quel point le fond est doux ou net.",
+      "chain": "1) Réglez la valeur → enregistrez.\n2) Un fond plus doux rend souvent les cartes devant plus lisibles.\n3) Peut se cumuler avec le flou dynamique — ne poussez pas les deux au maximum.",
+      "frontend": "Douceur globale du fond. Après changement, vérifiez à l’accueil si le texte des cartes est lisible.",
+      "notes": "Des valeurs très hautes fatiguent l’ordinateur ; si le texte paraît flou, baissez le nombre."
+    },
+    "evocative": {
+      "what": "Donner vie à un fond fixe : suivre le pointeur, ondulations au clic, etc.",
+      "chain": "1) Activez des éléments ici et réglez cadence / qualité → enregistrez.\n2) Ne change que le mouvement des pages avec fond — pas le contenu de la bibliothèque ou des rapports.\n3) Le fond lui-même se règle sous « Arrière-plan » ci-dessus ; sur une machine plus faible, le système peut réduire un peu les effets.",
+      "frontend": "Accueil et autres pages avec fond. Bougez la souris ou cliquez le fond pour le sentir.",
+      "notes": "Si ça saccade : coupez d’abord les ondulations, ou mettez la cadence à 30. Tout couper ne casse pas l’usage normal."
+    },
+    "evocativeEffects": {
+      "what": "Marche/arrêt séparés pour parallaxe, flou dynamique et ondulations au clic.",
+      "chain": "1) Seuls les éléments activés s’exécutent vraiment.\n2) Avec le fond, la cadence et la qualité des ondulations, ils forment l’expérience de mouvement.\n3) Pour chasser un ralentissement, coupez-les un par un.",
+      "frontend": "Si le fond suit la souris, et si un clic fait une ondulation.",
+      "notes": "Les trois coupés = fond fixe (le flou statique peut rester)."
+    },
+    "evocativeFps": {
+      "what": "Fluidité du mouvement : 30 économise un peu, 60 est plus fluide.",
+      "chain": "1) Choisissez 30 ou 60 → enregistrez.\n2) N’affecte que la cadence de rafraîchissement des animations.\n3) Ne change pas les données métier ; fond et interrupteurs d’effets restent ailleurs.",
+      "frontend": "Fluidité ressentie de l’animation du fond. Sur un portable, essayez les deux.",
+      "notes": "Préférez 30 sur batterie ou depuis un téléphone."
+    },
+    "evocativeRippleQuality": {
+      "what": "Finesse du dessin des ondulations au clic.",
+      "chain": "1) Réglez le pourcentage → enregistrez.\n2) Ne compte que si les « ondulations » sont activées.\n3) Plus haut = plus beau et un peu plus coûteux.",
+      "frontend": "Bords de l’ondulation quand vous cliquez le fond. Ondulations coupées : changer ceci ne montre rien.",
+      "notes": "Environ 85 % suffit en général ; baissez sur un appareil plus faible."
+    }
+  },
+  "modules": {
+    "visibility": {
+      "what": "Quelles portes de fonctions chaque public peut voir : tout le monde, connectés, ou administrateurs seulement.",
+      "chain": "1) Changez la visibilité d’un module → enregistrez les réglages liés sur cette page.\n2) La barre de navigation masque ou montre les entrées selon le rôle ; sans accès, l’URL ne suffit pas.\n3) Ce n’est pas « Autorisations » : ici = « voyez-vous la porte » ; Autorisations = « que pouvez-vous faire une fois à l’intérieur ».\n4) L’entrée assistant a encore besoin des autorisations et du quota ensemble pour vraiment servir.",
+      "frontend": "Bibliothèque, lecture, rapports, applications, assistant, et entrées similaires en bas ou sur le côté.\nUtilisez une fenêtre privée ou un autre compte pour confirmer ce que voient encore les gens ordinaires.",
+      "notes": "Les administrateurs peuvent en général encore ouvrir la configuration système. Pensez à enregistrer, et vérifiez avec un compte non administrateur."
+    },
+    "visibilityItem": {
+      "what": "Plage de visibilité pour une seule fonction.",
+      "chain": "1) Seul cet élément change ; les autres modules restent tels quels.\n2) Le bouton de navigation correspondant et l’accès ouvert changent ensemble.\n3) Réglé sur « administrateurs seulement », même les utilisateurs connectés normaux n’entrent pas.",
+      "frontend": "Ce bouton de navigation et cette page. Un clic avec un compte normal est le contrôle le plus clair.",
+      "notes": "Pour masquer aux invités mais ouvrir aux connectés, choisissez « utilisateurs connectés »."
+    },
+    "library": {
+      "what": "Disposition des cartes de bibliothèque, et quels éléments de quelles plateformes s’affichent dans chaque catégorie.",
+      "chain": "1) « Disposition des cartes » ci-dessus choisit liste ou toile infinie ; les appareils modestes repassent automatiquement en liste.\n2) Connectez d’abord les comptes sous « Plateformes de données » et synchronisez — alors seulement sources et comptes apparaissent ici.\n3) Les cases de source ne font que filtrer l’affichage : une plateforme décochée n’apparaît pas dans la bibliothèque, mais les données synchronisées restent en général sur le serveur.\n4) Les pages de rapports utilisent aussi les données de plateforme, mais expiration/régénération des rapports se règlent dans le groupe « Rapport » ci-dessous.\n5) Distinct de « la bibliothèque est-elle visible » dans la navigation : la visibilité permet d’entrer ; ici, disposition et sources.\n6) Disposition et sources s’enregistrent avec cette page dans les préférences de bibliothèque.",
+      "frontend": "Mode liste/toile de la bibliothèque, cartes sous chaque catégorie, et comptes affichés / avant filtre.\nAprès changement, ouvrez la bibliothèque et comparez.",
+      "notes": "S’il n’y a pas de données, synchronisez d’abord les plateformes. Ne rien cocher pour une catégorie peut vider la liste. La toile est plus lourde — repassez en liste si ça ralenti."
+    },
+    "libraryLayout": {
+      "what": "Les cartes de bibliothèque en liste classique ou en toile infinie depuis le centre de la page.",
+      "chain": "1) Liste = cartes défilantes classiques ; toile = glisser/zoomer libre depuis le centre.\n2) Les appareils modestes repassent automatiquement en liste même si la toile est enregistrée.\n3) Indépendant des sources cochées sous chaque catégorie ci-dessous.\n4) S’enregistre avec les préférences de bibliothèque ; ouvrez la bibliothèque pour comparer.",
+      "frontend": "Disposition d’ensemble de la page bibliothèque. Un appareil plus faible peut encore afficher la liste.",
+      "notes": "La toile coûte plus de GPU/CPU ; si l’interaction colle, repassez en liste."
+    },
+    "libraryType": {
+      "what": "Quelles sources sont cochées pour une catégorie (par exemple jeux ou anime).",
+      "chain": "1) Ne filtre que cette catégorie.\n2) L’amont reste le résultat de synchronisation de chaque plateforme.\n3) Les autres catégories sont indépendantes.",
+      "frontend": "Entrées sous cet onglet de catégorie. Après changement des cases, actualisez la catégorie.",
+      "notes": "Ne rien cocher peut vider cette catégorie."
+    },
+    "report": {
+      "what": "Combien de temps un rapport reste valable, et s’il faut en refaire un automatiquement après expiration.",
+      "chain": "1) Le contenu du rapport dépend de : données de plateforme déjà synchronisées + « Configuration IA » fonctionnelle + autorisations/quota qui le permettent.\n2) « Expiration » activée : les rapports trop vieux sont marqués expirés ; « régénération auto » aussi activée : reconstruction en arrière-plan à l’échéance (consomme du quota IA).\n3) Masquer l’entrée « Rapports » dans la navigation ne fait que rendre le clic plus difficile — les anciens rapports restent en général.\n4) En cas d’échec, tâches ou notifications peuvent afficher un indice.",
+      "frontend": "Indices d’expiration sur la page de rapports, et si le contenu paraît à jour.\nOuvrez la page de rapports pour l’état, ou actualisez après le travail automatique.",
+      "notes": "La régénération auto coûte du quota ; activez d’abord l’expiration, puis la régénération auto. Sans IA configurée, ça échoue en boucle."
+    },
+    "reportExpiry": {
+      "what": "Autoriser les rapports à « expirer ».",
+      "chain": "1) Coupé = le nombre de jours et la régénération auto ci-dessous ne font pratiquement rien.\n2) Activé = l’expiration se juge selon le nombre de jours.\n3) Ne réécrit ni l’IA ni les réglages de plateforme — seulement « ce rapport est-il considéré comme vieux ».",
+      "frontend": "Si les rapports affichent un état expiré. Après le bascule, ouvrez la page de rapports pour confirmer.",
+      "notes": "Expiration coupée : la régénération auto est en général aussi indisponible."
+    },
+    "reportAutoRegen": {
+      "what": "Générer automatiquement un nouveau rapport après expiration.",
+      "chain": "1) « Expiration » doit d’abord être activée.\n2) À l’échéance → file d’arrière-plan reconstruit → IA et données de plateforme doivent être saines.\n3) En succès, la page de rapports montre le nouveau contenu ; en échec, l’ancien rapport peut rester avec un indice d’erreur.",
+      "frontend": "Le contenu du rapport devient nouveau une fois le travail terminé. Surveillez les notifications pour les messages de tâche liés.",
+      "notes": "Échoue si l’IA n’est pas configurée ou si le quota est épuisé ; n’attendez pas « un clic et c’est instantané »."
+    },
+    "reportExpiryDays": {
+      "what": "Nombre de jours pendant lesquels un rapport reste valable.",
+      "chain": "1) Compté depuis le jour de génération.\n2) Jours dépassés avec expiration activée → marqué expiré ; régénération auto activée → peut déclencher une reconstruction.\n3) Changer le nombre ne reconstruit pas tout de suite — cela n’affecte que les contrôles futurs.",
+      "frontend": "Indices et timing liés à l’expiration. Après changement, comparez avec l’heure de génération du rapport.",
+      "notes": "En général 1–365 jours ; en quittant le champ, la valeur est ramenée dans une plage valide."
+    },
+    "music": {
+      "what": "Le lecteur de musique intégré du site : marche/arrêt, et source de playlist.",
+      "chain": "1) Activez l’interrupteur, choisissez une plateforme, saisissez le numéro de playlist → enregistrez en bas.\n2) Le lecteur récupère la liste depuis ce service ; le lecteur du panneau de contrôle et les widgets musique partagent le même réglage.\n3) Couper l’interrupteur ne fait que masquer le lecteur — les réglages de playlist restent.\n4) « Vider le cache » n’oublie que la liste mémorisée sur cet appareil, pas le numéro saisi.\n5) Si le serveur a besoin d’un proxy pour Internet (Paramètres avancés), cela peut empêcher le chargement des titres.",
+      "frontend": "Lecteur dans le panneau de contrôle, et widgets liés à la musique.\nUne fois activé, vous devriez voir une liste ou un message d’erreur.",
+      "notes": "Le numéro de playlist doit correspondre à la plateforme choisie ; les playlists privées ne se chargent souvent pas. Changez le numéro en changeant de plateforme."
+    },
+    "musicPlatform": {
+      "what": "Si la playlist vient de Netease Cloud Music ou de QQ Music.",
+      "chain": "1) Changez de plateforme → enregistrez.\n2) Utilisez le numéro de playlist de ce service ; l’ancien cache peut ne plus correspondre.\n3) Ne fonctionne qu’avec l’interrupteur maître du lecteur et le numéro de playlist.",
+      "frontend": "De quel service viennent titres et pochettes. Après changement, videz le cache une fois, puis réécoutez.",
+      "notes": "En changeant de plateforme, mettez toujours à jour le numéro de playlist ci-dessous."
+    },
+    "musicPlaylist": {
+      "what": "Numéro de playlist (en général les chiffres du lien de partage).",
+      "chain": "1) Remplissez le numéro + lecteur activé + enregistrez.\n2) Récupère la liste depuis la plateforme correspondante.\n3) Seulement en succès vous obtenez des titres cliquables ; un échec indique que la liste n’a pas pu se charger.",
+      "frontend": "Playlist et titre actuel. Ouvrez le lecteur depuis le panneau de contrôle pour vérifier.",
+      "notes": "Playlists privées et identifiants faux échouent tous les deux ; ouvrez d’abord la playlist dans un navigateur pour confirmer l’accès."
+    },
+    "musicCache": {
+      "what": "Oublier la playlist mémorisée sur cet appareil, et retélécharger la liste la prochaine fois.",
+      "chain": "1) Cliquez sur vider.\n2) Ne change ni interrupteurs ni identifiants.\n3) La prochaine ouverture du lecteur redemande la liste (un peu plus lent, mais peut-être plus frais).",
+      "frontend": "Le contenu de la liste peut se rafraîchir. Videz, puis ouvrez le lecteur tout de suite.",
+      "notes": "Très utile quand vous avez changé le numéro mais entendez encore l’ancienne liste."
+    },
+    "hitokoto": {
+      "what": "D’où vient la « phrase du jour » sur l’accueil / les widgets.",
+      "chain": "1) Choisissez une source (ou personnalisée) → enregistrez.\n2) Le widget de citation récupère une phrase tout seul — pas l’IA, pas les plateformes de données.\n3) En personnalisé, l’autre site doit autoriser votre site à le lire, sinon le navigateur bloque la requête.",
+      "frontend": "Widgets de citation / courte phrase et affichages d’accueil similaires. Après changement, actualisez l’accueil.",
+      "notes": "Le personnalisé exige la bonne adresse et les bons noms de champs ; sans lien avec le chat de l’assistant."
+    },
+    "hitokotoSource": {
+      "what": "Sources intégrées chinois / anglais / japonais, ou votre propre point d’accès.",
+      "chain": "1) Intégré → utilise directement ce service public.\n2) Personnalisé → l’adresse et les options de champs ci-dessous apparaissent.\n3) Après enregistrement, le widget récupère depuis la nouvelle source.",
+      "frontend": "Langue et style de la phrase changent. Actualisez une page qui affiche des citations pour confirmer.",
+      "notes": "Le personnalisé doit aussi avoir une adresse remplie, sinon rien ne se charge."
+    },
+    "hitokotoCustomUrl": {
+      "what": "Adresse web complète de votre source de citations personnalisée.",
+      "chain": "1) Utilisée seulement si la source est « personnalisée ».\n2) À l’ouverture de la page, le contenu est récupéré à cette adresse.\n3) Puis les noms de champs ci-dessous extraient le texte et l’auteur.",
+      "frontend": "Quelle phrase s’affiche. Ouvrez l’adresse dans un navigateur pour voir s’il y a des données.",
+      "notes": "Préférez les adresses commençant par https ; une adresse seulement sur votre ordinateur est injoignable pour les visiteurs extérieurs."
+    },
+    "hitokotoTextField": {
+      "what": "Dans les données renvoyées, quel champ est le corps de la citation.",
+      "chain": "1) Après le retour d’une source personnalisée, le texte est pris sous ce nom.\n2) Mauvais nom → affichage vide ou étrange.\n3) Indépendant du champ auteur.",
+      "frontend": "Contenu principal de la citation. Si vide, alignez les noms de champs des données renvoyées.",
+      "notes": "Des noms courants incluent hitokoto ; suivez la documentation de l’autre côté."
+    },
+    "hitokotoAuthorField": {
+      "what": "Quel champ est l’auteur ou la source.",
+      "chain": "1) S’il est présent, affiché sous la citation.\n2) Peut rester vide pour n’afficher que le corps.\n3) N’a de sens que pour les sources personnalisées.",
+      "frontend": "La ligne d’attribution.",
+      "notes": "Si l’autre côté n’a pas de champ auteur, laissez vide."
+    },
+    "island": {
+      "what": "Ce que l’îlot de contrôle replié en haut à droite fait défiler.",
+      "chain": "1) Cochez salut, météo, citation, musique, Tapp → enregistrez en bas.\n2) Après enregistrement, l’îlot se met à jour sans rechargement complet.\n3) Les notifications de l’îlot restent sous Paramètres de notifications, pas ce groupe.\n4) Si le lecteur de musique est coupé, cocher musique ici n’a toujours rien à montrer.",
+      "frontend": "L’îlot capsule en haut à droite de chaque page.",
+      "notes": "Si rien n’est coché, l’îlot reste, vide, et ouvre encore le panneau de contrôle."
+    },
+    "islandContent": {
+      "what": "Chaque élément de ce groupe : l’afficher ou non dans le carrousel de l’îlot.",
+      "chain": "1) Salut, météo, citation, musique et Tapp sont indépendants.\n2) La météo a encore besoin d’un lieu ; la citation d’une source qui marche ; la musique du lecteur activé avec un titre.\n3) Tapp doit encore écrire lui-même le contenu dynamique.\n4) Les notifications ne sont pas dans ce groupe.",
+      "frontend": "Les lignes actuellement en défilement sur l’îlot de contrôle.",
+      "notes": "C’est un réglage propriétaire pour tout le site ; les visiteurs voient le même îlot."
+    }
+  },
+  "platforms": {
+    "list": {
+      "what": "Aperçu données et statistiques : plateformes connectées, statistiques de visite (pages / événements / référents), et usage IA.",
+      "chain": "1) Sous Plateformes connectées, liez GitHub, Steam, Bilibili, etc. et réglez l’actualisation auto.\n2) Sous Statistiques de visite, relisez les KPI, tendances, et sections pages/événements/référents.\n3) Sous Statistiques d’usage IA, relisez l’usage texte, image et parole de tout le site.\n4) Les interrupteurs de cartes ne contrôlent que la visibilité sur la page de rapports ; l’actualisation auto synchronise les plateformes configurées.",
+      "frontend": "Paramètres → Données et statistiques. Les données de plateforme alimentent bibliothèque et rapports ; agrégats visiteurs et registre IA sont réservés aux administrateurs.",
+      "notes": "Les statistiques de visite ne stockent pas d’IP brutes ; gardez les secrets de plateforme privés. L’usage IA est réservé aux administrateurs."
+    },
+    "visitorStats": {
+      "what": "Vues du site, visiteurs uniques, pays principaux, plus sections pages / événements / référents dans la même sous-catégorie.",
+      "chain": "1) L’interrupteur de la ligne de titre contrôle la collecte (activé par défaut ; coupé, le serveur refuse les nouvelles balises).\n2) Le client envoie une balise à l’ouverture de page (par lots / au repos).\n3) Le serveur agrège PV/UV par jour calendaire local du serveur ; l’IP de sortie peut résoudre les pays principaux.\n4) Basculez 7/14/30 jours pour les tendances partagées par toutes les sections ci-dessous.\n5) Les sections imbriquées ont chacune leur guide : pages, événements, référents.",
+      "frontend": "Données et statistiques → sous-catégorie Statistiques de visite (KPI y compris pays, graphique, listes imbriquées).",
+      "notes": "L’historique reste lisible si la collecte est coupée. Les sessions administrateur et propriétaire sont exclues. Utilisez « Se retirer sur cet appareil » dans ce groupe pour arrêter les balises de ce navigateur seulement. Un même visiteur compte une fois par jour pour l’UV (haché ; pas d’IP brute). Les tuiles pays peuvent être vides si la géolocalisation échoue."
+    },
+    "analyticsOptOut": {
+      "what": "Empêcher ce navigateur d’envoyer des balises de visite. Ne coupe pas la collecte du site ni n’affecte les autres.",
+      "chain": "1) Activé : cet appareil arrête d’envoyer des balises de visite.\n2) Si l’interrupteur de collecte du site reste activé, les autres visiteurs sont encore comptés.\n3) L’interrupteur du groupe bloque toutes les nouvelles balises ; celui-ci ne bloque que le navigateur actuel.\n4) Stocké localement — vider les données du site ou changer de navigateur reprend le signalement.",
+      "frontend": "Données et statistiques → Statistiques de visite → « Se retirer sur cet appareil ». Comparez avec une fenêtre privée : le privé compte encore, ce navigateur non.",
+      "notes": "Ne supprime pas l’historique. Les sessions administrateur sont déjà exclues."
+    },
+    "pageAnalytics": {
+      "what": "Trafic par route dans la plage choisie.",
+      "chain": "1) Même source et plage que les statistiques de visite.\n2) Agrégé par chemin.\n3) Les routes dynamiques se replient en modèles (p. ex. /tapp/:id).",
+      "frontend": "Données et statistiques → Statistiques de visite → section Analyse des pages.",
+      "notes": "Les chemins inconnus vont dans Autre pour limiter la cardinalité."
+    },
+    "eventAnalytics": {
+      "what": "Fréquence des événements produit dans la plage choisie, et combien de visiteurs les ont déclenchés.",
+      "chain": "1) Partage l’interrupteur de collecte, la plage de dates et les exclusions des statistiques de visite (administrateur/propriétaire non comptés).\n2) Compte = somme dans la plage ; visiteurs = personnes distinctes qui ont déclenché l’événement.\n3) Les intégrés couvrent connexion/OAuth, musique, bibliothèque, Brew, étape de rapport, Agent, Tapp, liens d’amis, thème/langue/panneau de contrôle ; passez une cible pour découper par entité (id Tapp, slug de plateforme, …).\n4) Ligne principale = total de l’événement ; sous-lignes = détail par cible (jusqu’à ~20).\n5) Couper la collecte arrête les nouvelles écritures ; l’historique reste lisible.",
+      "frontend": "Données et statistiques → Statistiques de visite → section Événements (à côté des Référents).",
+      "notes": "Gardez des noms d’événements personnalisés stables et courts ; trop d’événements fréquents encombrent le classement. Les sauvegardes export/import incluent les agrégats d’événements et sont scellées par un jeton d’intégrité d’instance : les métriques éditées à la main sont refusées."
+    },
+    "referrerAnalytics": {
+      "what": "Quels sites externes ont envoyé du trafic ici (vues par nom d’hôte référent).",
+      "chain": "1) Même plage que les statistiques de visite.\n2) Seulement les noms d’hôte Referer externes ; la navigation interne est ignorée.\n3) Un Referer manquant ou illisible n’apparaît pas dans cette liste.\n4) Couper la collecte n’affecte que les nouvelles visites.",
+      "frontend": "Données et statistiques → Statistiques de visite → section Référents.",
+      "notes": "Le mode privé, le HTTPS inter-sites et les navigateurs intégrés retirent souvent le référent. Le classement est par vues, pas par visiteurs uniques."
+    },
+    "aiUsage": {
+      "what": "Usage IA de tout le site (y compris administrateurs/propriétaire) : tendance quotidienne, classements par utilisateur/modèle/source, avec filtres.",
+      "chain": "1) Chaque appel fournisseur (texte, image, parole) écrit tapp_ai_cost_ledger. Tapp / tâches planifiées règlent encore le quota sur le chemin gouverné ; Agent, rapports, persona Agent, atelier et parole sont étiquetés ; les appels sans étiquette tombent en interne.\n2) GET /api/analytics/ai-usage administrateur agrège par jour calendaire local du serveur et n’exclut pas le personnel.\n3) Barres = appels (axe gauche), ligne = jetons (axe droit, échelle indépendante) ; listes par utilisateur, modèle et source.\n4) Indépendant de l’interrupteur de collecte des statistiques de visite.",
+      "frontend": "Paramètres → Données et statistiques → « Statistiques d’usage IA » (KPI, graphique, par utilisateur / modèle / source).",
+      "notes": "Les jetons sont souvent des estimations (images par résolution, parole par longueur texte/audio). Panneau réservé aux administrateurs."
+    },
+    "thirdPartyAnalytics": {
+      "what": "Envoyer les visites vers une analyse externe (Google Analytics, Umami, …), distincte des graphiques de visite internes de cette page.",
+      "chain": "1) En bas de Données et analyses, remplissez GA et/ou Umami → enregistrez.\n2) Les navigateurs des visiteurs chargent les scripts correspondants et envoient page_view.\n3) Les graphiques Statistiques de visite ci-dessus restent internes et ne sont pas envoyés à GA/Umami.",
+      "frontend": "Paramètres → Données et analyses → dernier groupe « Analyses tierces ».",
+      "notes": "Les deux peuvent être vides (aucun script tiers). Activez l’un, l’autre, ou les deux."
+    },
+    "gaMeasurementId": {
+      "what": "Votre identifiant de mesure Google Analytics 4 — envoie les visites vers votre propriété GA.",
+      "chain": "1) Copiez l’ID G-… depuis GA Admin → Flux de données.\n2) Collez sous Analyses tierces → enregistrez la config.\n3) La page charge gtag.js ; les changements de route SPA envoient page_view.",
+      "frontend": "L’onglet Réseau devrait montrer googletagmanager.com/gtag/js.\nGA Temps réel devrait lister les page_path correspondants.",
+      "notes": "GA4 seulement (G-…). La navigation administrateur/propriétaire n’est pas signalée. Le retrait interne saute aussi les tiers. Laissez vide pour désactiver GA."
+    },
+    "umamiWebsiteId": {
+      "what": "Identifiant de site pour ce site dans Umami (en général un UUID).",
+      "chain": "1) Copiez l’identifiant de site depuis les paramètres Umami.\n2) Enregistrez avec l’URL du script ci-dessous.\n3) Le tracker est injecté ; les routes SPA appellent umami.track.",
+      "frontend": "L’onglet Réseau montre l’URL de votre script ; le temps réel Umami devrait lister les chemins.",
+      "notes": "L’ID seul sans URL de script ne fait rien. Même champ pour Cloud et auto-hébergé."
+    },
+    "umamiScriptUrl": {
+      "what": "URL complète du script de suivi Umami.",
+      "chain": "1) Cloud : https://cloud.umami.is/script.js ; auto-hébergé : https://votre-umami/script.js.\n2) Se charge après enregistrement avec l’identifiant de site.\n3) data-auto-track est coupé ; le routeur SPA possède les vues de page.",
+      "frontend": "Une balise script avec data-website-id dans l’en-tête de la page.",
+      "notes": "Les valeurs hôte seulement (p. ex. https://stats.example.com) reçoivent /script.js en suffixe. Préférez https."
+    },
+    "connected": {
+      "what": "Connecter des comptes externes et configurer l’actualisation auto des plateformes configurées.",
+      "chain": "1) Ouvrez une carte de plateforme → remplissez compte/clés et enregistrez (configuré suffit pour synchroniser).\n2) L’interrupteur de la carte ne contrôle que l’apparition de cette plateforme sur la page de rapports — pas l’actualisation ni la lecture.\n3) L’actualisation auto ci-dessous planifie la synchronisation de toutes les plateformes configurées.\n4) Glissez les cartes pour l’ordre des cartes de la page de rapports.",
+      "frontend": "Entrées de bibliothèque, matière de rapports (si activée), widgets dépendant de la plateforme, et zone de gestion des données de chaque plateforme.",
+      "notes": "Remplissez les champs obligatoires avant de synchroniser ; l’interrupteur ne fait que basculer la visibilité de la page de rapports."
+    },
+    "autoRefresh": {
+      "what": "À quelle fréquence tirer automatiquement les données des plateformes déjà configurées.",
+      "chain": "1) Activez et choisissez un intervalle.\n2) La synchronisation en arrière-plan couvre toutes les plateformes configurées selon le planning (indépendant de l’interrupteur de la page de rapports ; décalé pour éviter de saturer les API).\n3) Bibliothèque et rapports paraissent plus frais à la prochaine ouverture.\n4) Sans plateforme configurée, l’actualisation auto n’a rien d’utile à faire.\n5) Un intervalle trop court peut vous faire limiter temporairement par l’autre plateforme.",
+      "frontend": "Données et statistiques → Plateformes connectées → « Fréquence d’actualisation ». Vérifiez les heures de mise à jour sur la page de détail de la plateforme ou dans la bibliothèque.",
+      "notes": "La synchronisation manuelle sur la page de détail fonctionne encore à côté. Ne mettez pas des intervalles trop courts en production."
+    },
+    "platformCard": {
+      "what": "Champs de connexion plus l’interrupteur de visibilité de la page de rapports ; ouvrir pour config et opérations de données.",
+      "chain": "1) Les champs obligatoires doivent être remplis avant que l’interrupteur puisse s’activer.\n2) Une fois configuré, vous pouvez actualiser/traiter sur la page de détail et rejoindre l’actualisation auto.\n3) L’interrupteur ne montre/masque que la carte de la page de rapports ; le couper n’arrête pas la synchronisation des données.\n4) L’ordre de glisser affecte l’ordre des cartes de la page de rapports.",
+      "frontend": "Données et statistiques → cartes de la liste Plateformes connectées ; interrupteur sur la carte, clic pour ouvrir le détail et la gestion des données.",
+      "notes": "Un interrupteur grisé signifie en général des champs obligatoires incomplets."
+    },
+    "platformFields": {
+      "what": "Nom d’utilisateur, clés secrètes, et autres détails de connexion.",
+      "chain": "1) Suivez les étapes à l’écran pour copier les clés depuis le site officiel → collez ici → enregistrez.\n2) Une fois configuré, vous pouvez synchroniser sans activer l’interrupteur de la page de rapports.\n3) Synchronisation réussie → les modules en aval ont des données ; fausse ou expirée → échec, bibliothèque/rapports peuvent rester vieux ou vides.\n4) Certaines plateformes se lient aussi à la connexion tierce — les étapes le diront.",
+      "frontend": "Indirect : si des données apparaissent et si des erreurs s’affichent. Après synchronisation, vérifiez la bibliothèque ou la zone de gestion des données de cette plateforme.",
+      "notes": "Ne partagez pas les clés secrètes ; après rotation d’une clé, revenez la mettre à jour ici."
+    },
+    "dataPreview": {
+      "what": "Instantané de ce que cette plateforme a déjà dans le cache de filtre intelligent : compte, chiffres clés, quelques exemples.",
+      "chain": "1) Chargé une fois à l’ouverture de la page de détail — pas d’interrogation en arrière-plan.\n2) Vient de la sortie du filtre intelligent, pas d’un appel en direct à la plateforme distante.\n3) Après actualisation brute ou retraitement, l’instantané se recharge une fois.\n4) Vide jusqu’à synchronisation et traitement.",
+      "frontend": "Groupe « Données actuelles » du détail de plateforme.",
+      "notes": "Aperçu seulement — les listes complètes sont dans la bibliothèque."
+    },
+    "dataManagement": {
+      "what": "Données déjà synchronisées pour cette plateforme : retirer, retraiter, ou vider le cache local.",
+      "chain": "1) Les champs de connexion ci-dessus doivent fonctionner.\n2) Actualiser : récupérer à nouveau les données brutes depuis la plateforme distante.\n3) Retraiter : relancer l’analyse locale sur les données brutes existantes sans retirer.\n4) Vider le cache : jeter la copie en cache de ce site pour l’affichage/la vitesse — pas le compte distant.\n5) Bibliothèque et rapports reprennent les résultats à leur prochain chargement.",
+      "frontend": "Lignes d’état et boutons sous « Gestion des données » sur la page de détail de la plateforme.",
+      "notes": "Vider le cache ne peut pas annuler la copie locale ; confirmez que la synchronisation marche avant les opérations destructives."
+    },
+    "dataRefresh": {
+      "what": "Récupérer à nouveau les données brutes depuis la plateforme externe.",
+      "chain": "1) Cliquez sur actualiser → une tâche d’arrière-plan se met en file.\n2) En succès, ce site a un nouvel instantané brut ; en échec, vérifiez l’erreur de la tâche.\n3) Bibliothèque/rapports ne peuvent se mettre à jour qu’après.\n4) Des retraits trop fréquents peuvent vous limiter.",
+      "frontend": "Ligne « Données brutes » et bouton d’actualisation dans la gestion des données ; l’avancement de la tâche peut s’afficher.",
+      "notes": "Mauvais secrets ou problèmes réseau/proxy provoquent l’échec."
+    },
+    "dataReprocess": {
+      "what": "Réanalyser les données brutes existantes sur ce site sans redemander au distant.",
+      "chain": "1) Utile quand l’analyse/le mappage a changé mais pas les données distantes.\n2) Échoue en général ou est désactivé s’il n’y a pas de données brutes.\n3) Plus rapide et sollicite moins le distant qu’une actualisation complète.",
+      "frontend": "Bouton de type retraiter dans la gestion des données.",
+      "notes": "Si les données brutes elles-mêmes sont périmées, actualisez d’abord au lieu de seulement retraiter."
+    },
+    "dataClearCache": {
+      "what": "Vider la copie en cache de ce site pour la plateforme.",
+      "chain": "1) Cache local seulement — pas le compte distant.\n2) Le prochain affichage ou synchronisation peut reconstruire le cache.\n3) À utiliser quand la config a changé mais d’anciennes listes/cartes s’affichent encore.",
+      "frontend": "Bouton vider le cache ; la ligne d’état indique si un cache existe.",
+      "notes": "Demande confirmation ; le chargement peut être un peu plus lent juste après."
+    }
+  },
+  "notifications": {
+    "master": {
+      "what": "Recevoir ou non les diverses alertes que ce site est configuré à envoyer.",
+      "chain": "1) Interrupteur maître coupé : styles d’affichage et sources individuelles ci-dessous ne vous poussent plus.\n2) L’historique reste en général — seules les nouvelles poussées s’arrêtent.\n3) Le travail d’arrière-plan peut encore avoir lieu ; vous n’avez juste plus de pop-up ni de badge rouge.\n4) Pour recevoir à nouveau : activez le maître, puis ouvrez les sources et emplacements correspondants.",
+      "frontend": "Liste de notifications, petit badge rouge sur la navigation, conseils de coin, notifications système. Maître coupé, tout cela devrait se taire.",
+      "notes": "Les options ci-dessous se grisent quand c’est coupé — c’est normal."
+    },
+    "island": {
+      "what": "Afficher ou non des indices liés aux notifications dans la zone de contrôle de la navigation.",
+      "chain": "1) L’interrupteur maître doit être activé.\n2) La « source » correspondante doit aussi être autorisée, et la zone de navigation cochée sous les emplacements.\n3) N’affecte que la zone de navigation — pas les conseils de coin ni les notifications système (elles ont leurs propres interrupteurs).",
+      "frontend": "Entrée ou badge de notification sur la zone de contrôle de la navigation. Essayez une notification de test pour observer.",
+      "notes": "Ne fait rien tant que l’interrupteur maître est coupé."
+    },
+    "toast": {
+      "what": "Afficher ou non de courts conseils dans un coin de la page.",
+      "chain": "1) Interrupteur maître + ce canal activés.\n2) Encore filtré par « sources » et « événements » — tout ne pop pas.\n3) Peut tourner avec la zone de navigation et les notifications système, ou un seul d’entre eux.",
+      "frontend": "Barres de conseil brèves qui clignotent dans un coin. Si c’est trop bruyant, coupez ceci ou cochez moins d’événements.",
+      "notes": "Pour des sources à fort volume, couplez avec les filtres d’événements sinon vous serez inondé."
+    },
+    "browser": {
+      "what": "Utiliser ou non les notifications système intégrées du téléphone/ordinateur.",
+      "chain": "1) L’activation fait demander au navigateur « Autoriser les notifications ? »\n2) Une fois autorisé, elles peuvent encore apparaître quand la page est en arrière-plan.\n3) Toujours soumis à l’interrupteur maître, aux sources et aux filtres d’événements.\n4) Si vous avez cliqué Refuser, changez l’autorisation dans les paramètres du navigateur — le site ne peut pas le faire seul.",
+      "frontend": "Centre de notifications système. Passez à un autre onglet et voyez si elles apparaissent encore.",
+      "notes": "Prudence sur un ordinateur partagé/public."
+    },
+    "source": {
+      "what": "Si toute une catégorie de sources (assistant, système, fédération, etc.) vous notifie.",
+      "chain": "1) Couper une source fait cesser de s’appliquer ses emplacements et événements.\n2) N’affecte que « alerter ou non » — pas la fonction elle-même (l’assistant tourne encore).\n3) Pour recevoir : maître activé → source activée → cochez emplacements et événements.",
+      "frontend": "Si cette catégorie apparaît encore dans la liste de notifications. Basculez une source et comparez.",
+      "notes": "Pour couper une catégorie, désactiver la source est plus précis que l’interrupteur maître."
+    },
+    "locations": {
+      "what": "Où ce type de notification apparaît : liste, conseils de coin, zone de navigation, notifications système, etc.",
+      "chain": "1) L’interrupteur maître et cette source doivent d’abord être activés.\n2) Cocher les emplacements ne compte qu’alors.\n3) Ne rien cocher = cette source est de fait coupée.",
+      "frontend": "Les emplacements d’affichage que vous avez cochés. Cochez seulement la liste si vous voulez moins d’interruptions.",
+      "notes": "Les notifications système ont aussi besoin de l’autorisation du navigateur."
+    },
+    "events": {
+      "what": "Dans cette catégorie, quels événements concrets doivent vous notifier.",
+      "chain": "1) Les événements décochés n’entrent jamais dans les notifications même s’ils se produisent.\n2) Si la source est coupée, tout ici est inactif.\n3) Utile pour un contrôle fin quand vous ne voulez que certains succès/échecs.",
+      "frontend": "Types de contenu dans la liste de notifications. Décocher quelques-uns retire tout de suite une classe de messages.",
+      "notes": "En cas de doute, commencez avec tout activé, puis coupez ce qui devient bruyant."
+    }
+  },
+  "ai": {
+    "llm": {
+      "what": "Les trois paliers de modèles texte : Standard pour le quotidien, Lite pour économiser, Pro pour les tâches difficiles.",
+      "chain": "1) Les clés vivent dans Fournisseurs ci-dessus ; ici vous ne choisissez qu’une source et un nom de modèle.\n2) Standard est le défaut. Pro se rabat sur Standard s’il est coupé. Les tâches Lite s’arrêtent si Lite est coupé — elles ne se rabattent pas.\n3) La persona Agent a besoin de Pro. Lite choisit le mouvement et écrit les phrases proactives et indices d’humeur.\n4) Autorisations et quota s’appliquent encore.",
+      "frontend": "Chat de l’assistant, rapports et tâches texte d’arrière-plan utilisent ces paliers. Envoyez une ligne dans l’assistant pour tester d’abord Standard.",
+      "notes": "Faites d’abord marcher Standard avant d’activer les deux autres."
+    },
+    "standard": {
+      "what": "Le réglage intelligent par défaut pour le chat quotidien, l’analyse et la génération de rapports.",
+      "chain": "1) Choisissez un fournisseur, remplissez la clé secrète (et adresse/modèle si besoin) → enregistrez en bas.\n2) Chat de l’assistant, génération de rapports et fonctions intelligentes de certaines petites applications utilisent cet ensemble par défaut.\n3) Si « Lite / Haute qualité » est coupé ou inutilisable, le travail se rabat aussi sur cet ensemble.\n4) Dépend aussi de « Autorisations » qui autorisent l’IA et du quota restant.\n5) Si le serveur a besoin d’un proxy pour Internet, réglez-le sous « Avancé », sinon les services intelligents peuvent ne pas se connecter.",
+      "frontend": "Si le panneau assistant peut répondre normalement, et si les rapports peuvent se générer.\nEnvoyez d’abord un message simple dans l’assistant comme test de connectivité.",
+      "notes": "Faites d’abord marcher Standard, puis activez les autres paliers. Ne divulguez pas les clés secrètes."
+    },
+    "lite": {
+      "what": "Un réglage moins cher pour des tâches simples et répétitives (facultatif).",
+      "chain": "1) Activez Lite et configurez-le (si la clé secrète est vide, il emprunte celle de Standard).\n2) Les tâches marquées « lite » préfèrent ce réglage.\n3) Coupé → utilise encore Standard.\n4) Les mêmes limites d’autorisation et de quota s’appliquent.",
+      "frontend": "Les utilisateurs ne voient en général pas de page séparée — surtout quel réglage utilisent les tâches d’arrière-plan simples.",
+      "notes": "Peut utiliser un autre fournisseur que Standard ; plus sûr de s’assurer d’abord que Standard marche."
+    },
+    "agentPersona": {
+      "what": "Laisser l’Agent parler avec la persona du site, garder humeur et journal par personne, et parler après des événements nommés.",
+      "chain": "1) Coupé par défaut. Coupé = chat et tâches seulement — pas d’écoute d’événements, pas de parole cachée, persona inutilisée.\n2) L’interrupteur a besoin de Pro. Le chat n’injecte la persona que comme texte système ; il utilise les paliers planificateur/réponse.\n3) Lite choisit le mouvement sémantique et écrit phrases proactives et indices d’humeur. Sans Lite, le mouvement sémantique s’arrête et seuls clignement, respiration, cheveux et autres physiques ambiants locaux restent ; pas de repli Standard.\n4) Activé : rédigez la persona sur la page secondaire de cet élément. Tags, nom et persona passent par Pro.\n5) MEROPE_ENABLED peut forcer l’interrupteur enregistré, mais Pro reste nécessaire.\n6) La parole autonome reste cachée ; les événements de valeur notifient aussi si la personne ne discute pas.",
+      "frontend": "Le chat utilise cette persona. Rédigez-la sur la page de paramètres secondaire de cet élément. La ligne de premier niveau montre votre bande d’humeur et l’activité actuelle. Les invités ne voient pas l’humeur.",
+      "notes": "Seul le propriétaire du site peut rédiger la persona. Supprimer la persona efface aussi humeur et journal. Heartbeat n’est jamais bloqué par l’humeur. Parler à voix haute est un interrupteur séparé sur cette carte, coupé par défaut."
+    },
+    "agentPersonaSpeech": {
+      "what": "Si le visage de la persona lit à voix haute les réponses du chat.",
+      "chain": "1) Coupé par défaut. Coupé : les réponses restent du texte ; le visage articule encore la ligne, sans voix.\n2) Activé, avec la parole configurée : les réponses passent par le pipeline vocal ; l’audio réel anime la bouche ; visèmes texte seulement si le TTS échoue.\n3) Nécessite la persona Agent activée, et un fournisseur de parole sur la page IA. L’interrupteur ne compte pas si la persona est coupée.\n4) L’écoute au maintien reste manuelle et séparée.\n5) Le TTS lecteur/podcast utilise le fournisseur de parole, pas cet interrupteur.",
+      "frontend": "Paramètres → IA → Agent → Parler. Prend effet au prochain tour de chat après enregistrement.",
+      "notes": "La voix utilise du quota. Couper ceci ne coupe pas la persona."
+    },
+    "liteEnable": {
+      "what": "Activer ou non le palier Lite.",
+      "chain": "1) Coupé = les tâches Lite s’arrêtent. Elles ne se rabattent pas sur Standard.\n2) Activé = le choix de mouvement et d’autres tâches lite utilisent le réglage Lite.\n3) Couper ne supprime pas ce que vous avez déjà rempli.\n4) La persona Agent peut s’activer sans Lite ; seuls les physiques ambiants locaux restent, les phrases proactives restent courtes, et les indices d’humeur restent coupés.",
+      "frontend": "Affecte indirectement quel modèle est utilisé ; les tâches simples peuvent montrer des différences de coût/vitesse.",
+      "notes": "Si Standard ne marche toujours pas, ne vous précipitez pas à activer Lite."
+    },
+    "pro": {
+      "what": "Un palier plus fort, en général plus coûteux, pour les tâches plus difficiles.",
+      "chain": "1) Activé et configuré, les tâches qui ont besoin de haute qualité y vont.\n2) Coupé → repli sur Standard.\n3) En général plus cher ; mêmes limites d’autorisation et de quota.",
+      "frontend": "La qualité de génération peut être meilleure. Comparez des questions difficiles dans l’assistant.",
+      "notes": "N’activez que si besoin ; toutes les tâches n’ont pas besoin de ce palier."
+    },
+    "proEnable": {
+      "what": "Activer ou non le palier de modèle haute qualité.",
+      "chain": "1) Coupé → les tâches difficiles se rabattent aussi sur Standard.\n2) Activé → les tâches difficiles peuvent utiliser le fournisseur/modèle haute qualité. La configuration de persona (tags, nom, persona) utilise aussi ce palier.\n3) Encore limité par autorisations et quota ; couper ne supprime pas les clés.",
+      "frontend": "Qualité sur les tâches difficiles d’assistant/rapport. Posez la même question difficile avant/après.",
+      "notes": "Laissez coupé si le coût compte ou si Standard suffit."
+    },
+    "image": {
+      "what": "Quel service sert à générer des images.",
+      "chain": "1) Choisissez un fournisseur, remplissez clé secrète et modèle → enregistrez.\n2) Les fonctions qui prennent en charge la sortie image peuvent alors marcher.\n3) Les autorisations doivent aussi permettre « Images IA », et il doit rester du quota.\n4) Peut être un autre fournisseur que le chat texte.",
+      "frontend": "Boutons liés aux images et images de résultat. En échec, voyez si l’indice est clé, autorisation ou quota.",
+      "notes": "Chaque fournisseur écrit les noms de modèles différemment — suivez les indices à l’écran."
+    },
+    "speech": {
+      "what": "Quel fournisseur gère lecture à voix haute et reconnaissance : Tencent Cloud, OpenAI ou OpenRouter.",
+      "chain": "1) Choisissez un fournisseur et enregistrez. Les clés vivent dans Fournisseurs ci-dessus.\n2) Le test à l’écran dit une courte phrase et la retranscrit.\n3) TTS/ASR de l’assistant utilise cette section.\n4) OpenRouter n’a pas de liste TTS OpenAI officielle ; la transcription marche encore.",
+      "frontend": "Paramètres → IA → Parole. Utilisez d’abord le test à l’écran.",
+      "notes": "Parole officielle : choisissez OpenAI. Les secrets Tencent sont sous Fournisseurs."
+    },
+    "vendors": {
+      "what": "Un jeu d’identifiants par fournisseur, partagé par tout le site.",
+      "chain": "1) Utilisez « Ajouter un fournisseur » dans l’en-tête de page pour choisir un préréglage. Vous pouvez en ajouter plusieurs du même type.\n2) Chaque source a son propre nom, ID et clé.\n3) Texte, image et parole choisissent parmi ces sources.",
+      "frontend": "Paramètres → IA → « Ajouter un fournisseur » dans l’en-tête de section.",
+      "notes": "Vous ne ressaisissez pas une clé en changeant de modèle. Les nouvelles clés ici l’emportent sur d’anciens champs par fonction."
+    },
+    "webSearch": {
+      "what": "Clé TinyFish pour la recherche web en mode Travail. La recherche est gratuite ; une clé reste requise.",
+      "chain": "1) Inscrivez-vous sur agent.tinyfish.ai, collez la clé ici, et enregistrez.\n2) ai.webSearch en mode Travail et le repli web des listes de lecture utilisent d’abord TinyFish Search (les listes de lecture récupèrent aussi le texte de page).\n3) Si cette clé est vide, la recherche se rabat sur Gemini Google Search configuré.\n4) La clé est un secret hôte : sortante seulement, jamais renvoyée aux applications.",
+      "frontend": "Paramètres → IA → Recherche web. Après enregistrement, posez une question en mode Travail qui a besoin du web en direct.",
+      "notes": "Les visiteurs ne remplissent pas ceci. Le mode Chat n’utilise pas la recherche web. Videz le champ et enregistrez pour supprimer la clé stockée ; enregistrer le masque la laisse inchangée."
+    },
+    "provider": {
+      "what": "Quelle entreprise de service intelligent utiliser.",
+      "chain": "1) Changer de fournisseur change les champs ci-dessous.\n2) Les requêtes vont vers ce fournisseur.\n3) Après changement, revérifiez que clé secrète et nom de modèle correspondent encore.",
+      "frontend": "Les champs du formulaire de la page de paramètres changent ; un mauvais réglage affiche des erreurs à l’usage.",
+      "notes": "Ne changez pas de fournisseur en gardant le nom de modèle d’un autre."
+    },
+    "apiKey": {
+      "what": "Le mot de passe secret pour se connecter au service intelligent.",
+      "chain": "1) Après remplissage et enregistrement, seul le serveur l’utilise.\n2) Les visiteurs ne voient jamais le secret complet sur la page.\n3) Manquant ou faux → chat et génération échouent tous les deux.\n4) Après rotation, l’ancien cesse de marcher tout de suite.",
+      "frontend": "Messages d’erreur en cas d’échec. Envoyez une ligne de test dans l’assistant.",
+      "notes": "Ne le publiez pas dans des groupes publics ni dans des dépôts de code publics."
+    },
+    "baseUrl": {
+      "what": "Adresse d’accès du service intelligent (officielle, ou un relais que vous faites tourner).",
+      "chain": "1) La plupart des gens laissent vide = adresse officielle.\n2) Si vous remplissez un relais, le trafic passe par le relais.\n3) Mauvaise valeur → tous les modèles échouent à se connecter ; l’apparence de la page est correcte.",
+      "frontend": "Apparence de page inchangée ; l’échec se voit comme IA indisponible.",
+      "notes": "Si vous ne comprenez pas les relais, laissez vide ; un mauvais remplissage est pire que vide."
+    },
+    "model": {
+      "what": "Le nom exact du modèle à utiliser.",
+      "chain": "1) Décide le style de réponse, la force et le coût.\n2) Doit être un nom déjà activé sur votre compte.\n3) Ne fonctionne qu’avec fournisseur et clé secrète.",
+      "frontend": "Différences de qualité et de vitesse des réponses de l’assistant.",
+      "notes": "Un mauvais nom fait échouer l’appel ; utilisez le nom de la console du fournisseur."
+    },
+    "heartbeat": {
+      "what": "Laisser l’Agent exécuter une tâche selon un planning sans que vous regardiez.",
+      "chain": "1) Ajoutez une tâche ici : nom, planning (préréglage ou cron), et quoi faire.\n2) À l’échéance, l’Agent exécute cette consigne en mode Travail.\n3) La liste peut activer, modifier ou supprimer ; le dernier résultat s’affiche sur la ligne.\n4) Indépendant de l’humeur de la persona — Heartbeat n’est jamais bloqué par l’humeur.\n5) Vous devez être connecté pour lire ou écrire ces tâches.",
+      "frontend": "Paramètres → IA → Agent → Planning. Les exécutions s’affichent aussi sur la chronologie de l’assistant.",
+      "notes": "Rédigez une action claire. Un cron invalide ne se déclenche jamais. Les tâches utilisent le quota IA."
+    },
+    "skills": {
+      "what": "Façons de travailler dont l’Agent se souvient : celles que vous avez écrites, ou celles qu’il a apprises ou révisées en faisant des tâches.",
+      "chain": "1) Après une tâche réussie, il peut stocker une compétence et la réutiliser la prochaine fois.\n2) Vous pouvez aussi demander à l’assistant d’en apprendre ou d’en modifier une.\n3) Cette page liste, cherche et supprime seulement — elle ne crée pas le texte de compétence.\n4) Après suppression, cette compétence n’est plus utilisée.",
+      "frontend": "Paramètres → IA → Agent → Compétences. Des badges marquent manuel / appris / révisé.",
+      "notes": "Supprimer, c’est réapprendre. Les compétences ne sont pas des autorisations et ne peuvent pas contourner les autorisations ou le quota du site."
+    },
+    "memory": {
+      "what": "Faits courts que l’Agent a choisi de garder, injectés dans le chat ultérieur.",
+      "chain": "1) Il écrit une ligne quand il pense qu’un fait vaut d’être gardé.\n2) Cherchez, modifiez ou supprimez ici.\n3) Les modifications s’appliquent au prochain tour de chat.\n4) Pas le même que le journal de persona : le journal est par personne ; la mémoire est des lignes de faits.",
+      "frontend": "Paramètres → IA → Agent → Mémoire. Dépliez une ligne pour modifier le texte.",
+      "notes": "N’y mettez pas de secrets. Les lignes supprimées ne sont plus injectées."
+    },
+    "imageModel": {
+      "what": "Le nom exact du modèle utilisé pour la génération d’images.",
+      "chain": "1) Enregistré avec le fournisseur d’images.\n2) Doit être un nom déjà activé chez ce fournisseur.\n3) A encore besoin de l’autorisation image et du quota restant.\n4) Peut différer du modèle texte.",
+      "frontend": "Paramètres → IA → Image → Modèle. En échec, vérifiez d’abord le nom.",
+      "notes": "Chaque fournisseur écrit les noms différemment — suivez l’espace réservé à l’écran."
+    },
+    "speechStt": {
+      "what": "Le modèle de reconnaissance qui transforme la parole en texte.",
+      "chain": "1) Remplissez après avoir choisi un fournisseur de parole.\n2) La dictée de l’assistant et le test vocal à l’écran l’utilisent.\n3) Le nom doit être activé chez ce fournisseur.\n4) Certains fournisseurs (p. ex. MiniMax) n’affichent pas ce champ.",
+      "frontend": "Paramètres → IA → Parole → modèle de reconnaissance. Utilisez le test à l’écran.",
+      "notes": "Pas le même nom que le modèle de lecture à voix haute. Un mauvais nom fait échouer la transcription."
+    },
+    "speechTts": {
+      "what": "Le modèle de synthèse qui lit le texte à voix haute.",
+      "chain": "1) Remplissez après avoir choisi un fournisseur de parole.\n2) Le TTS de l’assistant, la parole de la persona et le test à l’écran l’utilisent.\n3) « Parler » de la persona est un interrupteur séparé et a besoin de la persona activée.\n4) OpenRouter n’a souvent pas de liste TTS officielle.",
+      "frontend": "Paramètres → IA → Parole → modèle TTS. Utilisez d’abord le test à l’écran.",
+      "notes": "Le TTS podcast/lecteur utilise le fournisseur de parole lui-même, pas l’interrupteur Parler de la persona."
+    },
+    "speechVoice": {
+      "what": "Quel identifiant de voix utiliser pour la lecture à voix haute.",
+      "chain": "1) Enregistré avec le modèle TTS.\n2) Doit être une voix que le fournisseur actuel prend en charge.\n3) La parole de la persona utilise aussi cette voix.\n4) Vide se rabat sur le défaut de l’espace réservé à l’écran.",
+      "frontend": "Paramètres → IA → Parole → Voix. Une ligne de test suffit pour entendre la différence.",
+      "notes": "Les noms de voix sont propres au fournisseur — ne collez pas une voix OpenAI dans Gemini."
+    },
+    "qqBot": {
+      "what": "Send a QQ private message into site Work and get the result back in the same chat.",
+      "chain": "1) Turn on, fill AppID / AppSecret, then save. The title tag is messaging: offline / connecting / online / rejected / reconnecting.\n2) Test saved credentials hits the stored values, not unsaved form fields. Treat that separately from messaging being online.\n3) The secret is write-only: reads come back masked, empty clears it, a mask resubmit keeps the stored value.\n4) Off, incomplete credentials, or 401/403 stop the worker. Network jitter reconnects.\n5) After connect succeeds, bind your QQ here: copy the pairing code and send it in a private chat. Codes expire; regenerate after expiry.\n6) After pairing, send a request. Reply yes/no or an option number. You can send 停止 / 新对话 / 当前任务.",
+      "frontend": "Settings → AI → Agent → QQ bot.",
+      "notes": "Do not paste Discord data-platform OAuth here. AppSecret never appears in page plaintext or error text."
+    },
+    "telegramBot": {
+      "what": "Send a Telegram DM into site Work and get the result back in the same chat.",
+      "chain": "1) Turn on, paste the BotFather token, then save. The title tag is messaging: offline / connecting / online / rejected / reconnecting.\n2) Test saved credentials hits the stored values, not unsaved form fields. Treat that separately from messaging being online.\n3) The token is write-only: reads come back masked, empty clears it, a mask resubmit keeps the stored value.\n4) Off, missing token, or 401/403 stop the worker. 429 waits retry_after. 409 (webhook / another getUpdates client) backs off; it is not a bad token.\n5) After connect succeeds, bind your Telegram here: copy the pairing code and open the bot. Codes expire; regenerate after expiry.\n6) After pairing, send a request. Buttons belong to that step only. You can send 停止 / 新对话 / 当前任务.",
+      "frontend": "Settings → AI → Agent → Telegram bot.",
+      "notes": "Do not paste MTProto api_id / api_hash. The token never appears in page plaintext or error text. Reachability of api.telegram.org is outside the platform."
+    },
+    "discordBot": {
+      "what": "Send a Discord DM into site Work and get the result back in the same chat.",
+      "chain": "1) Turn on, paste the Developer Portal bot token, then save. The title tag is messaging: offline / connecting / online / rejected / reconnecting.\n2) Test saved credentials hits the stored values, not unsaved form fields. Treat that separately from messaging being online.\n3) The token is write-only: reads come back masked, empty clears it, a mask resubmit keeps the stored value.\n4) Off, missing token, or 401/403 stop the worker. Network jitter resumes the Gateway session; do not Identify on every disconnect.\n5) After connect succeeds, bind your Discord here: copy the pairing code and send it in a DM. Codes expire; regenerate after expiry.\n6) After pairing, send a request. Buttons belong to that step only. You can send 停止 / 新对话 / 当前任务.",
+      "frontend": "Settings → AI → Agent → Discord bot.",
+      "notes": "Do not paste the data-platform OAuth access token. Pairing identity is discord_dm, not Discord login. The token never appears in page plaintext or error text."
+    },
+    "feishuBot": {
+      "what": "Send a Feishu private message into site Work and get the result back in the same chat.",
+      "chain": "1) Turn on, fill the internal-app AppID / AppSecret, then save. The title tag is messaging: offline / connecting / online / rejected / reconnecting.\n2) Test saved credentials hits the stored values, not unsaved form fields. Treat that separately from messaging being online.\n3) The secret is write-only: reads come back masked, empty clears it, a mask resubmit keeps the stored value.\n4) Off, incomplete credentials, or auth rejects stop the worker. Network jitter reconnects.\n5) After connect succeeds, bind your Feishu here: copy the pairing code and send it in a private chat. Codes expire; regenerate after expiry.\n6) After pairing, send a request. Buttons belong to that step only. You can send 停止 / 新对话 / 当前任务.",
+      "frontend": "Settings → AI → Agent → Feishu bot.",
+      "notes": "Use an internal company app, not a group custom-bot webhook. AppSecret never appears in page plaintext or error text."
+    }
+  },
+  "tripo": {
+    "connection": {
+      "what": "Si Tripo 3D est activé, et quel point d’accès API et quelle clé utiliser.",
+      "chain": "1) Activez, remplissez la clé API (et l’URL de base facultative) → enregistrez la config en bas.\n2) Entièrement indépendant de la génération d’images de « Configuration IA » : les images de référence ne sont que des entrées du pipeline 3D, pas les mêmes clés.\n3) Seulement activé et clé valide, des tâches qui consomment des crédits Tripo peuvent être créées.\n4) La clé n’est stockée que sur le serveur — jamais envoyée aux navigateurs ni embarquée dans les fichiers de modèle.\n5) Le trafic sortant utilise le proxy global sous Paramètres avancés ; Tripo n’ouvre pas un chemin réseau séparé.",
+      "frontend": "Paramètres → 3D et Tripo → groupe « Connexion Tripo ».\nPoints d’entrée de création de tâches 3D (administrateur).",
+      "notes": "Obtenez la clé sur platform.tripo3d.ai. Couper l’activation grise les champs ci-dessous mais garde ce que vous avez déjà rempli."
+    },
+    "enabled": {
+      "what": "Interrupteur maître : autoriser ce site à lancer des tâches 3D qui dépensent des crédits Tripo.",
+      "chain": "1) Coupé = impossible de créer des tâches consommatrices de crédits ; activé = création possible une fois clé et budget prêts.\n2) Ne supprime ni la clé ni les valeurs de budget — bloque seulement l’entrée des tâches.\n3) Sans lien avec l’interrupteur d’images IA.",
+      "frontend": "Interrupteur « Activer Tripo 3D » ; les autres saisies du groupe deviennent en lecture seule si coupé.",
+      "notes": "Sur un site public, assurez-vous que seuls les administrateurs peuvent changer ceci."
+    },
+    "apiKey": {
+      "what": "Clé secrète de la plateforme ouverte Tripo.",
+      "chain": "1) Remplissez → enregistrez en bas → stockée seulement sur le serveur.\n2) Visiteurs et interface ne voient jamais la clé complète.\n3) Clé manquante ou fausse → création/interrogation de tâche échoue.",
+      "frontend": "Champ mot de passe « Clé API Tripo ». En échec, vérifiez le message d’erreur de la tâche.",
+      "notes": "Ne la collez pas dans des chats ni des dépôts publics ; une rotation invalide tout de suite l’ancienne clé."
+    },
+    "baseUrl": {
+      "what": "URL racine de l’API Tripo (le défaut officiel convient à la plupart des gens).",
+      "chain": "1) Le défaut est https://openapi.tripo3d.ai/v3.\n2) Ne changez que pour un relais auto-hébergé ou si l’hôte officiel déménage.\n3) Mauvaise valeur → chaque tâche 3D échoue à se connecter.",
+      "frontend": "Champ « URL de base API ». L’apparence de la page est inchangée ; l’échec se voit comme des tâches échouées.",
+      "notes": "Si vous n’avez pas besoin d’un relais, gardez le défaut ; un mauvais remplissage est pire que le défaut."
+    },
+    "webBudget": {
+      "what": "Budget de génération par défaut pour les scènes Web/WebGL : quel modèle low-poly, plafond de faces, et taille max à persister.",
+      "chain": "1) Ce sont des paramètres de requête par défaut ; un appel unique peut les remplacer, et les résultats sont inspectés à nouveau après génération.\n2) Destiné aux scènes Web à un personnage : un équilibre entre rendu et performance mobile.\n3) Trop de faces ou un téléchargement trop lourd ralentissent téléchargements et cadence ; trop bas brouille le détail.\n4) Sans lien avec la résolution/les modèles texte-vers-image de l’IA.",
+      "frontend": "Groupe « Budget de modèle Web » ; les résultats deviennent des assets locaux durables, pas des liens externes temporaires.",
+      "notes": "Plafond de faces ~4 000–8 000 recommandé (défaut 5 000). Changer le budget ne reconstruit pas les anciens modèles."
+    },
+    "model": {
+      "what": "Identifiant de modèle low-poly Tripo par défaut (par exemple la série P1).",
+      "chain": "1) Définit l’orientation topologie/détail par défaut ; les tâches sans modèle explicite l’utilisent.\n2) Le nom doit correspondre à un identifiant de modèle officiel actuellement disponible.\n3) Fonctionne avec le plafond de faces et le téléchargement max comme budget par défaut.",
+      "frontend": "Champ texte « Modèle low-poly par défaut ».",
+      "notes": "Le défaut P1-20260311 vise le low-poly et une topologie plus propre ; un mauvais nom fait échouer l’appel."
+    },
+    "faceLimit": {
+      "what": "Plafond de faces par défaut : à quel point le maillage peut être dense.",
+      "chain": "1) Envoyé par défaut à la demande de génération (les appelants peuvent remplacer).\n2) Plus haut = plus de détail, plus de VRAM/bande passante ; plus bas = mieux pour WebGL mobile.\n3) Environ 4 000–8 000 recommandé ; défaut 5 000 équilibre rendu et performance.\n4) Plage autorisée environ 50–20 000.",
+      "frontend": "Champ nombre « Plafond de faces par défaut ».",
+      "notes": "Les scènes Web à un personnage ont rarement besoin du maximum absolu ; des plafonds hauts ralentissent les téléphones."
+    },
+    "maxDownload": {
+      "what": "Taille maximale (Mo) autorisée à la persistance d’un modèle généré.",
+      "chain": "1) Après succès, le serveur télécharge le modèle depuis une URL temporaire vers le stockage local ; au-delà de ce plafond, l’enregistrement est refusé ou échoue.\n2) Protège le disque des fichiers étonnamment énormes.\n3) Défaut environ 64 Mo ; ajustez selon le disque et les besoins de scène.",
+      "frontend": "Champ nombre « Taille maximale du modèle ».",
+      "notes": "Les URL de résultat temporaires expirent — couplez ceci au délai de tâche pour que le téléchargement finisse à temps."
+    },
+    "taskControl": {
+      "what": "Comment le serveur attend les tâches Tripo : à quelle fréquence interroger et combien de temps attendre.",
+      "chain": "1) Après création, interroger l’état à l’intervalle jusqu’à succès, échec ou délai dépassé.\n2) En succès, télécharger et persister vite avant que les URL temporaires n’expirent.\n3) Un intervalle trop court peut heurter les limites du fournisseur ; trop long, l’avancement paraît bloqué.\n4) Indépendant de la connexion : activation/clé coupées, ceux-ci n’ont pas d’effet non plus.",
+      "frontend": "Groupe « Contrôle des tâches ». Les utilisateurs sentent surtout « combien de temps jusqu’à ce qu’un modèle apparaisse ».",
+      "notes": "Défauts ~2 s d’interrogation et ~15 minutes de délai correspondent aux conseils courants des fournisseurs."
+    },
+    "pollInterval": {
+      "what": "Secondes entre les requêtes d’état à Tripo pendant qu’une tâche tourne.",
+      "chain": "1) Ne s’applique que pendant qu’une tâche est en cours.\n2) En général pas plus vite que 2 secondes, pour éviter les limites de débit.\n3) Intervalle plus grand = moins de requêtes, mises à jour d’avancement plus lentes.",
+      "frontend": "Champ nombre « Intervalle d’interrogation ».",
+      "notes": "N’allez pas trop agressif sans raison claire."
+    },
+    "taskTimeout": {
+      "what": "Attente maximale pour une tâche (secondes) ; au-delà, elle est traitée comme échouée.",
+      "chain": "1) Compte depuis le début jusqu’à succès/échec ; arrête d’attendre passé ce nombre de secondes.\n2) Les tâches complexes peuvent avoir besoin de plus long ; trop court tue un travail valide, trop long retient la file.\n3) Défaut environ 900 secondes (15 minutes).",
+      "frontend": "Champ nombre « Délai de tâche ».",
+      "notes": "Au délai dépassé, vérifiez l’état amont et les journaux avant de relancer."
+    }
+  },
+  "oauth": {
+    "section": {
+      "what": "Laisser les visiteurs se connecter à ce site en un clic avec des comptes GitHub, Google et similaires.",
+      "chain": "1) Remplissez d’abord une adresse de site correcte sous « Configuration de base » pour que les adresses de retour soient justes.\n2) Ajoutez ici une méthode de connexion et suivez les étapes pour remplir ID et secret depuis les tableaux de bord des deux côtés.\n3) La page de connexion affiche un bouton → l’utilisateur se connecte chez l’autre site → puis revient ici.\n4) L’inscription locale ouverte par mot de passe se contrôle sous « Utilisateurs », pas cette section.\n5) Après un changement de domaine, mettez aussi à jour l’adresse de retour enregistrée chez l’autre tableau de bord.",
+      "frontend": "Boutons tiers sur la page de connexion / inscription.\nUne tentative de connexion complète dans une fenêtre privée est la meilleure vérification.",
+      "notes": "Si l’adresse du site n’est pas configurée, vous verrez un avertissement fort — corrigez d’abord la configuration de base. Ne divulguez pas les secrets."
+    },
+    "provider": {
+      "what": "Les champs concrets à remplir pour une méthode de connexion tierce.",
+      "chain": "1) Entièrement rempli et activé → la page de connexion affiche le bouton de cette marque.\n2) Des champs manquants signifient souvent que vous ne pouvez pas revenir après le clic.\n3) L’adresse de retour dépend de la configuration de l’adresse du site.",
+      "frontend": "Le bouton de connexion de cette marque. Vous pouvez tester un fournisseur seul.",
+      "notes": "Suivez les étapes à l’écran ; évitez les espaces en trop en collant."
+    },
+    "callback": {
+      "what": "L’adresse que ce site doit recevoir après une connexion réussie — enregistrez-la exactement chez le service de connexion.",
+      "chain": "1) Construite à partir de Adresse du site + le slug de ce fournisseur ; vous ne l’éditez en général pas.\n2) L’URI de redirection dans la console du fournisseur doit correspondre caractère pour caractère.\n3) Après un changement de domaine, mettez aussi à jour la console du fournisseur.\n4) La synchronisation de données Discord peut afficher un second callback, distinct de la connexion.",
+      "frontend": "La ligne de callback dans une carte de connexion dépliée ; copiable. Une connexion complète en fenêtre privée est le contrôle.",
+      "notes": "Une barre oblique en trop ou http vs https fera échouer le retour."
+    },
+    "clientId": {
+      "what": "L’identifiant d’application émis par le service de connexion (Client ID).",
+      "chain": "1) Copiez-le ici après avoir créé l’application dans leur console.\n2) Ne fonctionne qu’avec le secret et le callback.\n3) Un ID faux échoue sur leur page d’autorisation.",
+      "frontend": "Client ID sur la carte de méthode de connexion.",
+      "notes": "Il peut apparaître dans le navigateur ; ne réutilisez tout de même pas celui d’un autre."
+    },
+    "clientSecret": {
+      "what": "Le secret d’application émis par le service de connexion (Client Secret).",
+      "chain": "1) Seul le serveur l’utilise pour échanger des jetons ; la page ne montre jamais la valeur complète.\n2) Nécessaire avec l’ID et le callback pour terminer la connexion.\n3) Après rotation, l’ancien secret meurt tout de suite — mettez à jour ce champ.",
+      "frontend": "Champ secret sur la carte de méthode de connexion (masqué).",
+      "notes": "Ne le collez pas dans un chat ni un dépôt public. Enregistrer le masque conserve la valeur stockée."
+    },
+    "discovery": {
+      "what": "URL de découverte OpenID pour trouver automatiquement les points d’autorisation et de jeton.",
+      "chain": "1) Seulement pour les fournisseurs OIDC (Google et similaires). Le type dédié GitHub n’a pas ce champ.\n2) Utilisez le .well-known/openid-configuration officiel.\n3) Une URL fausse bloque la page d’autorisation ou l’échange de jetons.",
+      "frontend": "URL de découverte sur une carte OIDC.",
+      "notes": "Copiez depuis les étapes à l’écran ; ne pointez pas vers un miroir sans savoir pourquoi."
+    },
+    "advanced": {
+      "what": "Slug, nom affiché, portées et icône de cette méthode.",
+      "chain": "1) Le slug apparaît dans le chemin de callback — le changer implique aussi de mettre à jour la console du fournisseur.\n2) Le nom affiché est le libellé du bouton de connexion.\n3) Les portées décident quels champs de profil vous obtenez ; les extras peuvent être refusés.\n4) L’icône ne change que l’apparence du bouton.",
+      "frontend": "Carte de méthode de connexion → déplier → Avancé.",
+      "notes": "Si la connexion marche déjà, ne changez pas le slug à la légère."
+    }
+  },
+  "permissions": {
+    "agentPreset": {
+      "what": "Combinaisons courantes en un clic de « ce que l’assistant / les petites applications peuvent faire ».",
+      "chain": "1) Cliquer un préréglage change en masse beaucoup de capacités ci-dessous (chat, analyse, réseau sortant, planifications, etc.).\n2) Après enregistrement, petites applications et assistant autorisent ou refusent ces capacités à l’exécution.\n3) « Voir l’assistant » dans la navigation se règle sous les modules ; ici c’est « une fois vu, pouvez-vous vraiment l’utiliser ».\n4) Combien de fois vous pouvez l’utiliser reste limité par le « quota » ci-dessous.\n5) Après un changement manuel d’éléments isolés, cela peut s’afficher comme « Personnalisé ».",
+      "frontend": "Si les fonctions de l’assistant marchent, et si les actions intelligentes/réseau des petites applications sont refusées.\nConnectez-vous comme utilisateur normal et essayez un message d’autorisation refusée.",
+      "notes": "Soyez particulièrement prudent avec les capacités invité. Les préréglages ne changent pas au hasard les pouvoirs média/thème sans lien avec l’assistant."
+    },
+    "agentPresetUser": {
+      "what": "Quel préréglage de capacités d’assistant reçoivent les utilisateurs connectés.",
+      "chain": "1) Choisir un palier change en masse les capacités élevées utilisateur.\n2) Modifier Affiner ci-dessous le passe en Personnalisé.\n3) Les administrateurs ne sont en général pas limités par ceci.\n4) Le quota se règle à part en dessous.",
+      "frontend": "Autorisations → Préréglages Agent → Utilisateurs. Vérifiez en étant connecté avec un compte normal.",
+      "notes": "Pesez l’abus avant d’ouvrir réseau ou planificateur aux utilisateurs."
+    },
+    "agentPresetGuest": {
+      "what": "Quel préréglage de capacités d’assistant reçoivent les visiteurs non connectés.",
+      "chain": "1) Les visites non connectées sont autorisées ou refusées depuis ce palier.\n2) Les invités n’ont pas de session assistant côté serveur complète — trop ouvrir invite le déluge.\n3) Certaines capacités (planificateur, écritures de fédération) n’apparaissent jamais dans le préréglage invité.\n4) Gardez le quota clairement sous celui des utilisateurs connectés.",
+      "frontend": "Autorisations → Préréglages Agent → Invités. Vérifiez dans une fenêtre privée déconnectée.",
+      "notes": "Gardez ceci serré en production."
+    },
+    "fineTune": {
+      "what": "Par-dessus un préréglage, activer ou couper des capacités une par une.",
+      "chain": "1) Changez un seul élément → enregistrez.\n2) Les capacités correspondantes sont vérifiées tout de suite sous les nouvelles règles.\n3) Cas courant : le bouton s’affiche encore, mais un clic dit pas d’autorisation.\n4) Les pouvoirs administrateur les plus hauts ne peuvent pas se transmettre ici.",
+      "frontend": "Si chaque capacité marche vraiment. Utilisez « cliqué et pas d’autorisation » comme liste de contrôle.",
+      "notes": "S’il ressemble encore à un préréglage après des changements, vérifiez s’il est déjà devenu un mélange personnalisé."
+    },
+    "userElevated": {
+      "what": "Choses supplémentaires que les utilisateurs connectés ordinaires peuvent faire.",
+      "chain": "1) Après connexion d’un utilisateur, les contrôles ici s’appliquent.\n2) Fait partie du même ensemble que les préréglages ci-dessus.\n3) Les administrateurs ne sont en général pas limités par ceci.",
+      "frontend": "Frontières des capacités assistant / petites applications des utilisateurs connectés.",
+      "notes": "Pesez le risque d’abus avant de donner aux utilisateurs « réseau sortant » et pouvoirs similaires."
+    },
+    "guestElevated": {
+      "what": "Choses supplémentaires que les personnes non connectées peuvent faire (risque plus élevé).",
+      "chain": "1) Les visites non authentifiées sont jugées par ceci.\n2) Trop ouvert invite le déluge des interfaces et de l’IA.\n3) Les invités n’ont en général pas de session assistant côté serveur complète.",
+      "frontend": "Fonctions que les invités voient ou cliquent encore. Vérifiez déconnecté dans une fenêtre privée.",
+      "notes": "En production, ouvrez le moins possible ; gardez aussi le quota invité bas."
+    },
+    "aiQuota": {
+      "what": "Combien de fois utilisateurs et invités peuvent chacun utiliser les fonctions intelligentes.",
+      "chain": "1) Au-delà de la limite → bloqué même si les modèles sont entièrement configurés.\n2) Avec autorisations et réglage de modèle, trois portes : toutes doivent passer pour réussir.\n3) Dépasser ne bascule pas automatiquement vers un modèle plus cher.",
+      "frontend": "Messages d’erreur de quota dépassé. Utilisez un compte normal près de la limite pour observer.",
+      "notes": "Le quota invité doit être clairement plus bas que celui des utilisateurs connectés."
+    },
+    "userQuota": {
+      "what": "Plafond d’usage pour les utilisateurs connectés.",
+      "chain": "1) Ne contraint que les utilisateurs connectés.\n2) Une fois plein, les fonctions intelligentes liées affichent des messages d’échec.\n3) Quand le compteur se réinitialise est décidé par la politique du serveur.",
+      "frontend": "Messages quand ce rôle a épuisé son quota.",
+      "notes": "0 ou extrêmement bas revient presque à désactiver (selon l’implémentation)."
+    },
+    "guestQuota": {
+      "what": "Plafond d’usage IA pour les invités (déconnectés).",
+      "chain": "1) Première porte contre les visiteurs non connectés qui inondent le site.\n2) Fonctionne avec les autorisations invité.\n3) Une fois plein, les fonctions intelligentes invité sont indisponibles.\n4) 0 signifie en général que les invités ne peuvent pas utiliser les fonctions intelligentes (voir les erreurs réelles).",
+      "frontend": "Messages de budget d’essai invité ; essayez une fenêtre privée jusqu’au dépassement de quota.",
+      "notes": "Gardez clairement plus bas que les utilisateurs connectés ; préférez bas en production."
+    }
+  },
+  "users": {
+    "section": {
+      "what": "Gérer qui peut se connecter, qui est administrateur, et si les visiteurs peuvent s’inscrire eux-mêmes avec un nom/mot de passe local.",
+      "chain": "1) Créez ou ajustez des comptes ici ; l’interrupteur du haut contrôle l’inscription locale publique.\n2) Les gens se connectent avec nom/mot de passe (ou les méthodes tierces de « Méthodes de connexion »).\n3) Les administrateurs ouvrent la configuration système ; les utilisateurs ordinaires suivent encore visibilité des modules, autorisations et quotas.\n4) Supprimer un compte affecte surtout la connexion — les données d’affichage de plateforme synchronisées restent en général.\n5) Quand l’inscription publique est activée, les invités peuvent ouvrir /register pour créer leur propre compte.",
+      "frontend": "Qui peut se connecter, menus administrateur, et si la page de connexion affiche « S’inscrire ». Vérifiez avec un nouveau compte ou une fenêtre privée.",
+      "notes": "Seuls les administrateurs ouvrent cette page ; créez peu d’administrateurs. Soyez prudent à activer l’inscription publique sur un site public."
+    },
+    "create": {
+      "what": "Créer un nouveau compte local ; éventuellement le marquer administrateur.",
+      "chain": "1) Ouvrez « Ajouter un utilisateur », remplissez nom et mot de passe → créez.\n2) Peut en général se connecter tout de suite.\n3) Administrateur accorde des pouvoirs de configuration — à utiliser avec prudence.\n4) Chemin distinct de l’auto-inscription publique : ici un administrateur crée le compte.",
+      "frontend": "Nouvelle ligne dans la liste ; le nouveau compte voit des entrées différentes après connexion.",
+      "notes": "Utilisez un mot de passe robuste ; revérifiez avant de cocher administrateur."
+    },
+    "list": {
+      "what": "Voir, chercher et filtrer les utilisateurs ; déplier une ligne pour ajuster rôles ou méthodes de connexion.",
+      "chain": "1) Cherchez ou filtrez par rôle / état en ligne.\n2) Dépliez pour les liaisons, la désactivation du mot de passe local, etc.\n3) Les changements de rôle s’appliquent à la prochaine connexion.\n4) Supprimer et actions similaires sont difficiles à annuler.",
+      "frontend": "Liste et filtres d’utilisateurs ; après changements, faites-les se reconnecter.",
+      "notes": "Ne supprimez pas le seul compte administrateur."
+    },
+    "allowLocalRegister": {
+      "what": "Si les visiteurs peuvent créer un compte local nom/mot de passe sur la page S’inscrire.",
+      "chain": "1) Activé : les visiteurs non connectés peuvent ouvrir /register et s’inscrire.\n2) Coupé : comptes locaux seulement via création administrateur sur cette page.\n3) Pas la même chose que la connexion tierce (GitHub/Google) — cela est sous Méthodes de connexion.\n4) Prend en général effet pour les visiteurs après enregistrement de la config.",
+      "frontend": "Interrupteur « Autoriser l’inscription locale publique » en haut d’Utilisateurs ; si la connexion affiche « S’inscrire ». Essayez /register dans une fenêtre privée.",
+      "notes": "Prudence sur un site public (inscriptions en masse). Plus sûr : laisser coupé + comptes créés par l’administrateur, ou seulement une connexion tierce de confiance."
+    },
+    "privateTappInstall": {
+      "what": "Quand désinstaller automatiquement les installations Tapp personnelles (privées) d’un utilisateur normal.",
+      "chain": "1) Défaut 14 jours d’inactivité : un travail quotidien élague selon la dernière connexion/vue ; la déconnexion elle-même ne supprime pas.\n2) 7 jours est plus court ; une valeur personnalisée 1–365 jours apparaît aussi dans le menu.\n3) « Déconnexion » : effacer les installations privées de cet utilisateur dès qu’il se déconnecte.\n4) Ne touche pas les installations publiques du site, ni les applications administrateur dans l’espace public.\n5) Le nettoyage retire la relation d’installation ; le paquet reste dans la boutique.",
+      "frontend": "Haut de la liste Utilisateurs, à côté de l’inscription publique.",
+      "notes": "Sur un site public, ne gardez pas les installations personnelles pour toujours. Les comptes administrateur sautent le nettoyage à la déconnexion."
+    }
+  },
+  "advanced": {
+    "memorySaver": {
+      "what": "Échanger de la capacité concurrente contre moins de mémoire sur un petit hôte (~1 Gio).",
+      "chain": "1) Coupé (défaut) = budgets équilibrés et plafonnés actuels : charge utile de message 4 Mio, corps de boîte fédérée 8 Mio, corps authentifié 24 Mio, et tampon brut concurrent de boîte 32 Mio. Une mise à niveau depuis d’anciennes versions peut donc changer les limites.\n2) Activé = un cran de plus : 4 Mio en vol de boîte, 16 Mio en vol de morceau, cache API 8 Mio, pool DB 1–4, 1 emplacement Argon2, vidéo de note 32 Mio, proxy audio 16 Mio.\n3) Les messages du quotidien tiennent encore ; grande vidéo ou audio sans perte devrait utiliser le transfert par morceaux ou couper l’économiseur.\n4) La plupart des boutons s’appliquent après Enregistrer ; la taille du pool DB s’applique pleinement après reconnexion/redémarrage du serveur.",
+      "frontend": "Pas de changement de thème de page. Un média très lourd ou des pics multi-chemins peuvent être refusés plus tôt ou afficher « réessayez plus tard ».",
+      "notes": "Les opérateurs peuvent forcer un profil avec MYRIAD_MEMORY_PROFILE=default|saver (l’environnement remplace cet interrupteur)."
+    },
+    "memorySaverEnable": {
+      "what": "Activer les budgets de ressources d’économiseur de mémoire.",
+      "chain": "1) Enregistre dans la config serveur, puis recharge les plafonds de concurrence/fédération/cache d’exécution.\n2) La fédération reste activée ; les budgets sont juste plus serrés.\n3) Idéal pour des VM 1 Gio ; laissez coupé sur des hôtes plus grands.",
+      "frontend": "Indirect sous forte charge. La navigation quotidienne devrait sembler la même.",
+      "notes": "Coupez à tout moment et Enregistrez pour restaurer les budgets équilibrés (redémarrez si la taille du pool DB vous importe)."
+    },
+    "network": {
+      "what": "Si le serveur utilise un proxy pour aller sur Internet, et les adresses d’accès de quelques services.",
+      "chain": "1) Surtout pour « le serveur lui-même qui sort » : synchroniser des plateformes étrangères, appeler des services intelligents, etc.\n2) Votre navigateur qui ouvre ce site, ou un saut vers une connexion tierce, n’utilise en général pas ce proxy.\n3) Les plateformes nationales peuvent ralentir si elles sont forcées à travers un proxy — remplissez une liste « ne pas utiliser le proxy pour ceux-ci ».\n4) Les problèmes ressemblent souvent à : synchronisation échoue, IA indisponible — pas un thème de page cassé.",
+      "frontend": "L’apparence de page est en général inchangée. Quand quelque chose cloche, vérifiez la synchronisation des données et si l’assistant affiche des erreurs.",
+      "notes": "Ne changez pas les adresses de saut de connexion vers des miroirs ; ce n’est pas la même chose que « adresse de synchronisation de données GitHub »."
+    },
+    "proxyEnable": {
+      "what": "Si le serveur utilise un proxy pour sortir sur Internet.",
+      "chain": "1) Activé → utilise l’adresse de proxy ci-dessous pour le trafic sortant.\n2) Coupé → connexion directe (l’adresse peut rester enregistrée inutilisée).\n3) Affecte si l’actualisation auto des plateformes, les appels IA sortants, et similaires réussissent.",
+      "frontend": "Indirect : taux de succès synchronisation/IA. Après activation du proxy, essayez une fois de synchroniser une plateforme étrangère.",
+      "notes": "Le proxy lui-même doit déjà marcher dans votre environnement réseau."
+    },
+    "proxyUrl": {
+      "what": "Adresse du serveur proxy.",
+      "chain": "1) Utilisée seulement si l’interrupteur ci-dessus est activé.\n2) Mauvais remplissage = le serveur ne peut pas joindre Internet.\n3) Souvent fournie par une application de proxy locale ou d’entreprise.",
+      "frontend": "Aucun changement d’interface direct. Quand ça échoue, synchronisation/IA échouent.",
+      "notes": "Remplissez comme l’indique l’application de proxy ; surveillez le numéro de port."
+    },
+    "proxyBypass": {
+      "what": "Quelles adresses ne doivent pas utiliser le proxy.",
+      "chain": "1) Les hôtes de la liste sont joints par le serveur directement.\n2) Souvent utilisé pour des services nationaux afin d’éviter un long détour.\n3) Fonctionne avec l’interrupteur maître du proxy : interrupteur coupé, la liste compte à peine.",
+      "frontend": "Aucun. Une synchronisation de plateforme nationale plus fluide peut venir de ceci.",
+      "notes": "Séparez plusieurs entrées par des virgules ; peut inclure des adresses locales."
+    },
+    "geminiBaseUrl": {
+      "what": "URL racine des appels API Google Gemini (la plupart des gens laissent vide).",
+      "chain": "1) Utilisée quand la config IA choisit des modèles liés à Gemini.\n2) Vide = URL officielle.\n3) Ne remplissez que pour votre propre proxy/miroir ; de mauvaises valeurs cassent les appels Gemini.\n4) Distinct des champs URL de base par fournisseur sur la page IA — c’est le défaut global avancé.",
+      "frontend": "Si le chat/génération Gemini échoue à se connecter. Thème inchangé.",
+      "notes": "Laissez vide si vous n’utilisez pas Gemini. Ne confondez pas avec l’API GitHub ou l’URL du site."
+    },
+    "githubApiBaseUrl": {
+      "what": "Adresse utilisée pour tirer les données GitHub (un miroir est autorisé).",
+      "chain": "1) Affecte si la synchronisation de la plateforme GitHub se passe bien.\n2) En vous connectant avec un compte GitHub, la page d’autorisation reste officielle — ce champ ne peut pas changer cela.\n3) Distinct de « adresse du site » et des adresses de retour de connexion — trois lignes différentes.",
+      "frontend": "Si le matériel lié à GitHub se synchronise avec succès.",
+      "notes": "Ne confondez pas ceci avec les adresses de retour de connexion."
+    },
+    "backup": {
+      "what": "Sauvegarder les paramètres actuels dans un fichier, restaurer depuis un fichier, ou remettre aux valeurs d’usine.",
+      "chain": "1) Exporter : produit un fichier de paramètres à télécharger.\n2) Importer : après relecture, réécrit — beaucoup de paramètres du site changent ensemble.\n3) Réinitialiser : tout revient aux défauts, difficile à annuler.\n4) Fortement recommandé : exportez d’abord une copie, puis importez ou réinitialisez.",
+      "frontend": "Après import/réinitialisation, thème, modules, plateformes et plus peuvent beaucoup changer. Contrôlez tout le site ensuite.",
+      "notes": "Les fichiers de sauvegarde peuvent contenir des clés secrètes — ne les transmettez pas librement."
+    },
+    "exportConfig": {
+      "what": "Télécharger une sauvegarde des paramètres actuels.",
+      "chain": "1) Cliquez sur exporter → obtenez un fichier.\n2) Ne change pas le site en cours.\n3) Pour déménager, sauvegarder, ou une copie de sécurité avant un problème.",
+      "frontend": "Aucun changement immédiat — seulement un fichier en plus.",
+      "notes": "Rangez-le avec soin ; il contient des informations sensibles."
+    },
+    "importConfig": {
+      "what": "Restaurer les paramètres depuis un fichier de sauvegarde.",
+      "chain": "1) Choisissez un fichier → confirmez l’aperçu → réécrire.\n2) Après succès, rechargement complet de la page (~2 s) charge l’état complet.\n3) Peut écraser votre thème, plateformes, IA, et plus actuels.",
+      "frontend": "Beaucoup d’options peuvent changer ensemble. L’import déclenche un rechargement complet ; contrôlez connexion, bibliothèque et assistant.",
+      "notes": "Les mauvais fichiers échouent ; exportez d’abord l’état actuel si vous pouvez. La confirmation note le rechargement complet à venir."
+    },
+    "resetConfig": {
+      "what": "Tout remettre aux valeurs par défaut.",
+      "chain": "1) S’exécute après une seconde confirmation.\n2) La configuration personnalisée est effacée vers l’état initial.\n3) Presque impossible à annuler à la légère — sauvegardez toujours d’abord.",
+      "frontend": "Apparence et fonctions comme une installation neuve.",
+      "notes": "Extrêmement prudent en production ; exportez d’abord."
+    },
+    "runtimeDiagnostics": {
+      "what": "Lancer un contrôle de santé en lecture seule de ce serveur et produire un rapport de diagnostic sans identifiants.",
+      "chain": "1) Se charge une fois à l’ouverture des Paramètres avancés ; actualiser relance la suite.\n2) Vérifie connectivité DB, écriture du stockage, migrations/schéma, mémoire du processus, lieu de sortie, et correspondance de version interface/serveur.\n3) L’état est sain / attention / critique ; copiez ou téléchargez le JSON pour les mainteneurs.\n4) Ne change pas la config, ne redémarre pas les services, n’écrit pas de données métier.",
+      "frontend": "Paramètres → Avancé → carte du haut « Diagnostics d’exécution » et grille de contrôles.",
+      "notes": "Le lieu de sortie est informatif seulement (source unique/conflit ne lève pas l’attention globale). Proxy/pare-feu peuvent afficher indisponible sans que le site soit cassé. Les rapports omettent mots de passe et clés API — évitez tout de même de coller des IP internes en public."
+    },
+    "frontendCache": {
+      "what": "Outils avancés locaux pour le dépannage (pas la config serveur).",
+      "chain": "1) Situé au-dessus de Sauvegarde et restauration pour que vous puissiez vider les caches avant import/réinitialisation.\n2) Offre actuellement un forçage d’actualisation des caches de l’interface et une maintenance similaire.\n3) Ne vous déconnecte pas et ne change pas thème/langue.",
+      "frontend": "Le groupe « Outils avancés » sous Paramètres avancés.",
+      "notes": "Les actions n’affectent que ce navigateur."
+    },
+    "forceRefreshCache": {
+      "what": "Vider d’un clic les caches de l’interface et recharger.",
+      "chain": "1) Double confirmation sur place : premier clic arme le bouton, second clic exécute.\n2) Efface chaque couche de cache, puis rechargement complet.\n3) Utile quand « j’ai changé la config / mis à jour, mais le navigateur utilise encore l’ancien ».",
+      "frontend": "Le libellé du bouton passe en état de confirmation ; revient s’il n’est pas recliqué dans ~4 s.",
+      "notes": "Seulement ce navigateur ; les autres appareils ne sont pas affectés."
+    },
+    "mcp": {
+      "what": "Gérer dans l’interface les serveurs d’outils MCP (stdio) pour l’Agent : ajouter/modifier/retirer, activer/désactiver, et inspecter la santé en direct.",
+      "chain": "1) Enregistrer écrit data/agent/mcp_servers.json d’exécution (souvent /data/agent/mcp_servers.json dans le conteneur) et recharge à chaud les enfants (pas de redémarrage complet du site).\n2) Les serveurs activés démarrent command/args ; les outils apparaissent comme mcp.{id}.{tool} pour l’agent.\n3) La liste montre santé et nombre d’outils ; les entrées désactivées restent sur disque mais ne démarrent pas.\n4) Les champs d’environnement peuvent contenir des secrets qui ne vivent que sur le serveur.",
+      "frontend": "Paramètres → Avancé → « Serveurs d’outils MCP » (administrateurs seulement). Lien profond /config?section=mcp.",
+      "notes": "Le chemin de config suit le dossier de données du déploiement. Les commandes doivent être dans PATH. Ne commitez pas de secrets. Un enregistrement échoué laisse les processus en cours jusqu’à un enregistrement réussi."
+    },
+    "mcpId": {
+      "what": "Court identifiant de ce serveur MCP ; il apparaît dans les noms d’outils.",
+      "chain": "1) Lettres, chiffres, et . _ - seulement.\n2) Après enregistrement, les outils sont mcp.{id}.{tool}.\n3) Doit être unique dans cette config.\n4) Changer l’id est comme un nouveau serveur — les anciens noms d’outils cessent de marcher.",
+      "frontend": "Formulaire d’ajout/modification MCP → ID serveur.",
+      "notes": "Gardez-le court en anglais, p. ex. github."
+    },
+    "mcpCommand": {
+      "what": "Exécutable utilisé pour démarrer ce serveur.",
+      "chain": "1) Quelque chose dans PATH comme npx, node ou python.\n2) Combiné aux args dans la ligne de démarrage.\n3) Si la commande manque, le serveur ne deviendra pas sain.",
+      "frontend": "Formulaire MCP → Commande.",
+      "notes": "Dans un conteneur, confirmez que l’image a vraiment ce binaire."
+    },
+    "mcpArgs": {
+      "what": "Arguments après la commande de démarrage.",
+      "chain": "1) Séparés par des espaces ; mettez entre guillemets les segments qui en contiennent.\n2) Typique : -y @modelcontextprotocol/server-github.\n3) Rechargé à chaud avec la commande après enregistrement.",
+      "frontend": "Formulaire MCP → Args.",
+      "notes": "Mauvais paquet ou chemin fait échouer le démarrage — vérifiez santé et journaux."
+    },
+    "mcpEnv": {
+      "what": "Variables d’environnement de ce processus, souvent des secrets.",
+      "chain": "1) Une KEY=value par ligne.\n2) Stockées seulement dans la config serveur — pas git, pas renvoyées aux applications.\n3) Après enregistrement, l’enfant démarre avec le nouvel environnement.",
+      "frontend": "Formulaire MCP → Environnement.",
+      "notes": "Ne collez pas de secrets dans un chat. Vide est correct si le serveur n’en a pas besoin."
+    },
+    "mcpMaxRestart": {
+      "what": "Combien de fois redémarrer automatiquement après un plantage.",
+      "chain": "1) 0–50. Après le plafond, plus de redémarrages automatiques.\n2) Ne compte que si le redémarrage auto au plantage est activé.\n3) 0 signifie jamais de démarrage auto.",
+      "frontend": "Formulaire MCP → Tentatives de redémarrage max.",
+      "notes": "Des plantages répétés signifient une mauvaise commande ou un mauvais secret — lever le plafond n’est pas une correction."
+    },
+    "mcpEnabled": {
+      "what": "Démarrer ou non ce serveur maintenant.",
+      "chain": "1) Activé : enregistrer démarre l’enfant et indexe les outils.\n2) Coupé : ne démarre pas ; la config reste pour plus tard.\n3) La ligne de liste peut basculer ceci sur place.",
+      "frontend": "Formulaire MCP → Activé, et l’interrupteur sur la ligne de liste.",
+      "notes": "Coupé n’est pas supprimer."
+    },
+    "mcpAutoRestart": {
+      "what": "Redémarrer ou non si l’enfant se termine de façon inattendue.",
+      "chain": "1) Activé : relance jusqu’au maximum de tentatives.\n2) Coupé : reste arrêté jusqu’à ce que vous activiez ou enregistriez à nouveau.\n3) Distinct de Activé — rien ne tourne s’il est coupé.",
+      "frontend": "Formulaire MCP → Redémarrer au plantage.",
+      "notes": "Plus sûr de n’activer que pour des commandes que vous contrôlez."
+    },
+    "mcpTrustAnnotations": {
+      "what": "Faire confiance ou non aux marques « lecture seule » de ce serveur et sauter certaines confirmations.",
+      "chain": "1) Activé : les outils qu’il étiquette lecture seule peuvent sauter la boîte de confirmation.\n2) Les outils destructeurs confirment toujours, quel que soit cet interrupteur.\n3) Les annotations sont la déclaration du serveur, pas un audit de l’hôte.",
+      "frontend": "Formulaire MCP → Faire confiance aux annotations d’outils de ce serveur.",
+      "notes": "N’activez que pour des serveurs que vous déployez et auxquels vous faites confiance."
+    }
+  },
+  "federation": {
+    "keys": {
+      "what": "Identité et clés de ce site pour se connecter avec d’autres sites.",
+      "chain": "1) Sert à prouver « ce message vient vraiment de ce site », et à reconnaître les autres.\n2) L’adresse d’identité est liée au domaine du site — un domaine instable pose problème.\n3) Après rotation des clés, les autres peuvent échouer à vérifier un moment.",
+      "frontend": "Si suivre d’autres sites et envoyer/recevoir des messages se passe bien.",
+      "notes": "Réfléchissez bien avant de renouveler les clés ; ne cliquez pas rotation au quotidien."
+    },
+    "rotateKeys": {
+      "what": "Remplacer la paire de clés de signature de ce site utilisée pour la fédération.",
+      "chain": "1) Génère de nouvelles clés et essaie de prévenir les sites liés.\n2) Les pairs peuvent échouer à vérifier un moment jusqu’à ce qu’ils actualisent votre clé publique.\n3) L’ensure-keys quotidien ne renouvelle jamais en silence — seulement après votre confirmation.\n4) Ne renouvelez pas si le domaine est instable.",
+      "frontend": "Bouton Renouveler sur la carte identité et clés de fédération.",
+      "notes": "Rarement nécessaire en production ; un mauvais clic peut casser brièvement la fédération."
+    },
+    "policy": {
+      "what": "Quel type de contenu des sites extérieurs vous acceptez de recevoir.",
+      "chain": "1) Après enregistrement des règles, le contenu entrant est d’abord filtré par confiance et listes.\n2) Seul ce qui passe peut apparaître dans le fil.\n3) Pour être alerté, vous avez aussi besoin de la source correspondante ouverte sous « Notifications ».\n4) Trop strict → vous manquez les sites d’amis ; trop lâche → le spam arrive facilement.",
+      "frontend": "Si vous voyez les messages d’autres sites. Un suivi mutuel avec un site ami est un bon test.",
+      "notes": "Montez d’abord la confiance des sites familiers, puis resserrez lentement la politique d’ensemble."
+    },
+    "minTrust": {
+      "what": "À quel point le contenu entrant doit être de confiance avant que vous l’acceptiez.",
+      "chain": "1) Le contenu des sites sous ce niveau est rejeté.\n2) Montez la confiance des amis sous « Instances connues ».\n3) Avec liste autorisée et filtres de contenu, c’est le seuil entrant.",
+      "frontend": "Le contenu des sites peu fiables n’apparaît pas.",
+      "notes": "Ajoutez d’abord les amis, puis levez la barre."
+    },
+    "allowlist": {
+      "what": "N’autoriser que les sites de la liste à s’interconnecter (si vous activez cette politique).",
+      "chain": "1) Les sites hors liste n’interagissent pratiquement pas.\n2) Peut fonctionner avec la découverte auto : découvrir d’abord, puis décider d’ajouter à la liste.\n3) Le comportement si la liste est vide suit la description à l’écran.",
+      "frontend": "Aucune interaction avec les sites hors liste.",
+      "notes": "En saisissant des domaines, évitez espaces en trop et fautes de frappe."
+    },
+    "autoDiscover": {
+      "what": "Se souvenir automatiquement ou non des nouveaux sites rencontrés.",
+      "chain": "1) Une fois mémorisés, ils apparaissent dans la liste « Instances connues ».\n2) Plus facile ensuite d’ajuster la confiance ou de bloquer.\n3) Toujours soumis à la liste autorisée et à la confiance minimale — pas ouvert à tout le monde.",
+      "frontend": "La liste des instances connues s’allonge.",
+      "notes": "Correct de laisser activé pour un site public ; coupez pour un déploiement très privé."
+    },
+    "knownInstances": {
+      "what": "Sites déjà vus : ajuster la confiance, bloquer, chercher.",
+      "chain": "1) Bloquer ici refuse ce site tout de suite.\n2) Changer la confiance affecte si vous acceptez son contenu plus tard.\n3) Lié à la confiance minimale de la politique.",
+      "frontend": "Si le contenu / les notifications liées de ce site apparaissent. Après blocage, vous devriez cesser de les recevoir tout de suite.",
+      "notes": "Le blocage va dans les deux sens — confirmez le nom du site avant d’agir."
+    },
+    "contentFilters": {
+      "what": "Un autre passage de filtres sur le contenu entrant par type, mots-clés, etc.",
+      "chain": "1) Les règles prennent effet tout de suite.\n2) Le contenu qui correspond aux règles n’entre jamais dans le fil ni les notifications.\n3) Un autre tamis après confiance/listes.\n4) Des règles trop larges bloquent aussi le contenu normal.",
+      "frontend": "Vous ne voyez pas le contenu filtré. Ajoutez d’abord une règle de test, puis retirez-la.",
+      "notes": "Essayez d’abord une petite plage ; observez quelques jours avant de resserrer."
+    },
+    "deliveryQueue": {
+      "what": "Santé de la file d’envoi des messages que ce site livre aux autres.",
+      "chain": "1) Le contenu que vous envoyez est mis en file pour livraison à l’autre côté.\n2) Les échecs relancent ou entrent dans une liste « n’a pas pu livrer ».\n3) Si l’autre côté ne vous reçoit jamais : vérifiez la file + réseau/proxy + s’ils vous ont bloqué.\n4) Vider la file jette ce qui n’est pas encore envoyé.",
+      "frontend": "État de la file ; si l’autre site voit vos messages à temps.",
+      "notes": "Direction différente de « limiter ce que les autres envoient » — ne réglez pas qu’un seul côté."
+    },
+    "advanced": {
+      "what": "Limites qui empêchent trop de requêtes en peu de temps.",
+      "chain": "1) Au-delà de la limite, refuse temporairement l’autre côté.\n2) Les sites plus fiables peuvent obtenir un multiplicateur plus haut.\n3) Les défauts suffisent en général ; n’ajustez que si vous êtes inondé.",
+      "frontend": "L’autre côté peut échouer à synchroniser ; vous pouvez le voir dans les informations d’exploitation.",
+      "notes": "Ne mettez pas des valeurs extrêmement petites « par sécurité » sans raison — vous blesserez les sites amis."
+    },
+    "rateMax": {
+      "what": "Nombre maximal de requêtes acceptées sur une période.",
+      "chain": "1) Avec la « fenêtre de temps » ci-dessous, décide à quel point la limite est serrée.\n2) Au-delà → refuser l’autre côté un moment.\n3) Les sites de confiance peuvent aussi être multipliés plus haut.",
+      "frontend": "Au-delà de la limite, l’autre côté ne peut pas se connecter.",
+      "notes": "Trop petit blesse le trafic normal."
+    },
+    "rateWindow": {
+      "what": "Sur quelle durée le compteur ci-dessus est mesuré.",
+      "chain": "1) Quand la fenêtre se termine, le compteur redémarre.\n2) Fenêtre courte + max petit = plus facile d’atteindre la limite.",
+      "frontend": "Fonctionne avec le max de requêtes.",
+      "notes": "Remplissez dans la plage affichée par la page."
+    },
+    "rateTrusted": {
+      "what": "Combien de fois plus haute est la limite pour les sites plus fiables.",
+      "chain": "1) Les sites amis ont moins de chances d’être bloqués.\n2) Un multiplicateur très grand est presque illimité.\n3) Dépend des niveaux de confiance que vous réglez sous instances connues.",
+      "frontend": "Les sites plus amicaux paraissent plus fluides.",
+      "notes": "Ne donnez des multiplicateurs hauts qu’aux sites auxquels vous faites vraiment confiance."
+    }
+  },
+  "updater": {
+    "channel": {
+      "what": "Quelle ligne de versions suivent les mises à niveau : stable, aperçu, ou développement.",
+      "chain": "1) Après votre choix, le canal est mémorisé.\n2) « Vérifier les mises à jour » cherche de nouvelles versions sur cette ligne.\n3) Vous confirmez la mise à niveau → peut entrer en maintenance → sauvegarde → changer de version → rouvrir.\n4) L’accueil visiteur ne change pas juste parce que vous « avez choisi un canal » — seulement après la fin de la mise à niveau.",
+      "frontend": "Version et notes affichées dans les zones À propos / mise à jour des paramètres.",
+      "notes": "Pour un usage réel, préférez le canal stable (officiel) ; aperçu/dev peut être instable."
+    },
+    "maintenance": {
+      "what": "Comment récupérer quand un problème de mise à niveau laisse le site en maintenance.",
+      "chain": "1) Une mise à niveau échouée s’arrête sur la page de maintenance.\n2) Préférez « restaurer depuis la sauvegarde d’avant mise à niveau ».\n3) « Forcer la sortie de maintenance » ne ferme que la page de maintenance — les données peuvent encore être à moitié mises à jour.\n4) Après sauvetage, vérifiez si le site est à nouveau sain.",
+      "frontend": "Page d’avis de maintenance versus le site normal.",
+      "notes": "Si un sauvetage est disponible, sauvez d’abord — ne forcez pas la sortie en premier."
+    },
+    "rescue": {
+      "what": "Utiliser la sauvegarde d’avant mise à niveau pour restaurer données et état.",
+      "chain": "1) Choisissez sauvetage → restaurer la sauvegarde → les services démarrent → quitter la maintenance.\n2) Le site revient au moment de cette sauvegarde.\n3) Relativement le chemin le plus sûr.",
+      "frontend": "Après la fin de la maintenance, contenu/paramètres du site correspondent au point de sauvegarde.",
+      "notes": "Avant de sauver, confirmez que c’est le moment auquel vous voulez revenir."
+    },
+    "forceExit": {
+      "what": "Quitter la maintenance sans restaurer une sauvegarde.",
+      "chain": "1) La page de maintenance se ferme.\n2) Les données à moitié mises à jour ne sont pas corrigées automatiquement.\n3) Vous pouvez ouvrir le site mais avec des fonctions cassées.",
+      "frontend": "Le site s’ouvre, mais le contenu peut sembler faux.",
+      "notes": "Seulement si vous acceptez l’état actuel ; sinon sauvez d’abord."
+    },
+    "infra": {
+      "what": "Versions des composants d’aide qui exécutent les mises à niveau.",
+      "chain": "1) Ligne distincte de « mise à niveau du programme principal du site ».\n2) Les mettre à niveau peut aussi entrer brièvement en maintenance.\n3) Quand une nouvelle version est disponible, cette zone vous le signale.",
+      "frontend": "Indices d’exploitation ; les visiteurs ordinaires ne le remarquent en général pas.",
+      "notes": "Parfois ces composants doivent être mis à jour avant la mise à jour du site principal."
+    },
+    "target": {
+      "what": "Installer une version ancienne ou précisée.",
+      "chain": "1) Semblable à une mise à niveau normale, mais vous choisissez la version.\n2) Les fonctions peuvent rétrécir ou se comporter autrement.\n3) Un mauvais choix peut laisser le site incapable de démarrer.",
+      "frontend": "Les fonctions de tout le site peuvent reculer.",
+      "notes": "Pas pour un usage quotidien ; si quelque chose casse, utilisez le sauvetage plutôt que de choisir des versions au hasard."
+    },
+    "snapshot": {
+      "what": "Liste des sauvegardes automatiques prises avant les mises à niveau.",
+      "chain": "1) Sauvegarde auto avant mise à niveau.\n2) En cas de problème, vous pouvez reculer ou sauver depuis ici.\n3) Combien vous pouvez en garder dépend de l’espace disque ; activez Limite de sauvegarde pour ne garder que les plus récentes.",
+      "frontend": "Après recul, contenu et paramètres reviennent au point de sauvegarde.",
+      "notes": "Avant une mise à niveau importante, confirmez qu’un instantané frais existe."
+    },
+    "snapshotLimit": {
+      "what": "Élaguer automatiquement les anciennes sauvegardes pour ne garder que les plus récentes.",
+      "chain": "1) Activé, choisissez « Les N plus récentes » à droite ; les extras au-delà sont retirés après une mise à jour réussie, après une mise à jour échouée qui a déjà créé une sauvegarde, ou quand vous changez ce réglage.\n2) Les épingles gardées et les sauvegardes utilisées par la récupération ne sont jamais auto-supprimées ; l’âge n’exempte pas une sauvegarde de la limite.\n3) Coupé = pas d’élagage auto par nombre (la suppression manuelle marche encore).",
+      "frontend": "Haut de Sauvegardes et recul : libellé à gauche, nombre à garder + interrupteur à droite.",
+      "notes": "Activé par défaut, garder 3. Utilisez 1–2 si le disque est serré ; montez pour une fenêtre de recul plus longue."
+    },
+    "checkInterval": {
+      "what": "À quelle fréquence l’arrière-plan cherche une nouvelle version.",
+      "chain": "1) Changer l’intervalle dans la carte d’état est mémorisé tout de suite.\n2) Selon le planning, il vérifie le canal de mise à jour actuel.\n3) Les mises à jour trouvées sont annoncées ; l’installation auto décide si elles s’installent seules.\n4) Intervalle coupé = pas de vérifications automatiques ; la vérification manuelle marche encore.",
+      "frontend": "Liste « Fréquence de vérification » sur la carte d’état À propos/Mise à jour. Pas besoin d’enregistrer toute la page.",
+      "notes": "12 h ou 24 h convient en production ; des intervalles très courts n’ajoutent que du bruit."
+    },
+    "autoInstall": {
+      "what": "Quand une nouvelle version adaptée apparaît, mettre à niveau sans que quelqu’un regarde.",
+      "chain": "1) Activé : une version adaptée peut démarrer toute seule la mise à niveau → maintenance → changement de version.\n2) Des instantanés sont en général pris d’abord ; les échecs peuvent utiliser le sauvetage de maintenance.\n3) Coupé : seulement notifier ; vous cliquez installer.",
+      "frontend": "Interrupteur « Installation auto » sur la carte d’état. Activé, la page de maintenance peut apparaître soudainement.",
+      "notes": "Fortement recommandé coupé pour une production publique ; aperçu/réseaux privés seulement si vous acceptez le risque."
+    },
+    "transport": {
+      "what": "Si les vérifications/téléchargements de mise à jour passent par le proxy serveur de ce site ou directement depuis le navigateur.",
+      "chain": "1) Défaut « backend » : le serveur parle aux sources de mise à jour ; les navigateurs visiteurs non.\n2) « Direct » : le navigateur utilise un jeton d’exploitation pour appeler les API de mise à jour — déploiements spéciaux seulement.\n3) Sans lien avec la fréquence de vérification / l’installation auto — seulement comment vous vous connectez.",
+      "frontend": "Contrôle segmenté de transport sous Avancé et diagnostics.",
+      "notes": "En cas de doute, gardez backend ; direct exige une connaissance du déploiement et un jeton."
+    },
+    "token": {
+      "what": "Phrase secrète d’exploitation (UPDATE_TOKEN) pour les API de mise à jour en mode direct.",
+      "chain": "1) Seulement requise en mode direct.\n2) Des valeurs fausses ou vides font échouer vérification/mise à niveau.\n3) Saisie de session/locale seulement — ne jamais publier.",
+      "frontend": "Champ mot de passe UPDATE_TOKEN sous le transport direct.",
+      "notes": "Pas votre mot de passe de connexion ; remplissez depuis la documentation de déploiement."
+    },
+    "advanced": {
+      "what": "Comment le programme de mise à jour se connecte, plus diagnostics d’exploitation.",
+      "chain": "1) Le chemin par défaut utilise le serveur de ce site pour proxifier les API de mise à jour.\n2) Le mode « Direct » peut avoir besoin de UPDATE_TOKEN — seulement si vous comprenez le déploiement.\n3) Affiche version du programme de mise à jour, canal, tâches en cours, et empreintes d’images.\n4) Fréquence de vérification / installation auto vivent dans la carte d’état ci-dessus, pas ce panneau.",
+      "frontend": "Panneau repliable « Avancé et diagnostics ».",
+      "notes": "Ne partagez pas le jeton ; si la connexion échoue, confirmez si le mode direct est autorisé."
+    }
+  },
+  "about": {
+    "section": {
+      "what": "Voir la version actuelle et les infos du projet ; cette page embarque en général aussi le programme de mise à jour système.",
+      "chain": "1) La zone haute est version et infos projet en lecture seule.\n2) Mise à jour en bas : canal, fréquence de vérification, installation auto, sauvetage de maintenance, instantanés, et diagnostics avancés.\n3) En signalant des erreurs, envoyez le numéro de version aux mainteneurs.",
+      "frontend": "Texte À propos, numéro de version, et la carte d’état et groupes du programme de mise à jour sur la même page.",
+      "notes": "Lire la version ne change pas les paramètres métier ; démarrer une mise à niveau entre en maintenance."
+    }
+  },
+  "tapp": {
+    "detail": {
+      "what": "Page de détail d’un Tapp : identité, paramètres, démarrer/arrêter, et désinstaller.",
+      "chain": "1) La carte du haut est identité plus actions (démarrer/arrêter, exporter, désinstaller).\n2) Les paramètres d’application s’enregistrent dans la config par utilisateur de cette application (immédiat ou à la perte de focus).\n3) Les autorisations sont une liste en lecture seule des capacités accordées à l’installation.",
+      "frontend": "Ouvrez une application depuis la liste Tapp, ou allez à /tapp/detail/:id.",
+      "notes": "Les invités ne peuvent en général que consulter. Changer les paramètres / démarrer-arrêter / désinstaller exige le bon rôle (administrateur, ou votre propre installation temporaire).\nLa désinstallation demande s’il faut garder les données locales."
+    },
+    "overview": {
+      "what": "Profil de l’application et actions courantes : id, version, auteur, date d’installation, plus démarrer, exporter, désinstaller.",
+      "chain": "1) Démarrer ouvre la page d’exécution ; arrêter s’il tourne déjà.\n2) Exporter télécharge un paquet sur votre machine.\n3) Désinstaller retire l’installation (en gardant éventuellement les données).",
+      "frontend": "Carte d’infos du haut et rangée d’actions sur la page de détail.",
+      "notes": "L’id d’application est stable ; renommer le nom affiché ne le change pas.\nL’export sert à la sauvegarde/migration ; vous devez réinstaller après désinstallation."
+    },
+    "appSettings": {
+      "what": "Options de comportement déclarées par le manifeste de l’application, plus visibilité d’installation pour les administrateurs le cas échéant.",
+      "chain": "1) Les interrupteurs s’enregistrent tout de suite ; les champs texte/nombre s’enregistrent après inactivité ou perte de focus.\n2) Les valeurs sont stockées par id d’application et n’affectent que cette application.\n3) Les paramètres globaux d’une installation publique peuvent être en lecture seule sauf si vous êtes l’installateur/administrateur.",
+      "frontend": "Groupe « Paramètres de l’application » sur la page de détail.",
+      "notes": "Si le manifeste n’a pas de paramètres, vous ne verrez peut-être que la visibilité ou un état vide.\nLes changements s’appliquent en général à la prochaine exécution sans « Enregistrer la config » pour tout le site."
+    },
+    "appVisibility": {
+      "what": "Qui peut voir cette installation publique de niveau site dans la liste : tout le monde, ou administrateurs seulement.",
+      "chain": "1) Seulement les administrateurs, et seulement pour les installations publiques (pas les installations temporaires personnelles pures).\n2) « Administrateurs seulement » la masque des listes des utilisateurs ordinaires.\n3) Enregistre tout de suite et actualise les caches de liste.",
+      "frontend": "Contrôle segmenté « Visibilité de l’application » sous Paramètres de l’application.",
+      "notes": "Ne retire pas l’installation temporaire propre d’un utilisateur ; seulement la visibilité de liste de niveau site."
+    },
+    "permissions": {
+      "what": "Capacités déclarées et accordées à l’installation, groupées par niveau de risque.",
+      "chain": "1) Lecture seule ici — vous ne pouvez pas ajouter/retirer des octrois sur cette page.\n2) Les API d’exécution appliquent ces autorisations.\n3) Les groupes à plus haut risque apparaissent d’abord (privilégiée → élevée → de base).",
+      "frontend": "Groupe « Autorisations » et sous-groupes de niveau.",
+      "notes": "Changer les octrois signifie en général réinstaller avec un nouveau manifeste, ou un flux de mise à jour d’application.\nAucune autorisation signifie que l’application n’a besoin d’aucune capacité supplémentaire."
+    },
+    "permPrivileged": {
+      "what": "Autorisations privilégiées : capacités d’écriture de niveau site ou sensibles ; risque le plus haut.",
+      "chain": "1) Exemples : widgets d’accueil, écriture de données de plateforme, gestion de la liste Tapp, confiance de fédération.\n2) Seulement pour des applications de confiance.\n3) Les appels non autorisés sont refusés à l’exécution.",
+      "frontend": "Sous-groupe « Privilégiée » sous Autorisations.",
+      "notes": "Si vous ne reconnaissez pas un octroi privilégié, vérifiez la source de l’application avant usage."
+    },
+    "permElevated": {
+      "what": "Autorisations élevées : IA, réseau, planificateurs, et autres capacités de coût ou sortantes.",
+      "chain": "1) Exemples : génération/chat IA, requête réseau, parole, raccourcis, publication d’événements.\n2) Peut consommer des quotas ou appeler des services externes.\n3) Encore borné par la configuration IA/réseau de tout le site.",
+      "frontend": "Sous-groupe « Élevée » sous Autorisations.",
+      "notes": "Un quota épuisé ou des échecs de proxy peuvent casser ces fonctions sans que l’application elle-même soit cassée."
+    },
+    "permBasic": {
+      "what": "Autorisations de base : lecture/écriture courante, notifications, thème, et capacités à plus faible risque similaires.",
+      "chain": "1) Exemples : lire les données de plateforme, lire les rapports, stockage, notifications, contrôle média.\n2) Ne change en général pas la configuration centrale du site.\n3) Exige encore un octroi explicite pour appeler.",
+      "frontend": "Sous-groupe « De base » sous Autorisations.",
+      "notes": "De base n’est pas illimité — les capacités non déclarées restent bloquées."
+    }
+  }
+}

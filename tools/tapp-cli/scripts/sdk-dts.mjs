@@ -46,6 +46,19 @@ function renderNamespace(name, node, level = 1) {
   return lines
 }
 
+function kvMembers() {
+  return `{
+    get(key: string): Promise<unknown>
+    set(key: string, value: unknown): Promise<unknown>
+    remove(key: string): Promise<unknown>
+    keys(): Promise<string[]>
+    getAll(): Promise<Record<string, unknown>>
+    clear(): Promise<unknown>
+    usage(): Promise<unknown>
+    onChanged(callback: (event: { key?: string; operation?: string }) => void): () => void
+  }`
+}
+
 function localMembers() {
   return `  lifecycle: {
     onReady(callback: () => void | Promise<void>): void
@@ -61,16 +74,11 @@ function localMembers() {
     getAll(): Record<string, unknown>
   }
 
-  storage: {
-    get(key: string): Promise<unknown>
-    set(key: string, value: unknown): Promise<unknown>
-    remove(key: string): Promise<unknown>
-    keys(): Promise<string[]>
-    getAll(): Promise<Record<string, unknown>>
-    clear(): Promise<unknown>
-    usage(): Promise<unknown>
-    onChanged(callback: (event: { key?: string; operation?: string }) => void): () => void
-  }
+  storage: ${kvMembers()}
+
+  shared: ${kvMembers()}
+
+  private: ${kvMembers()}
 
   settings: {
     get(key: string): Promise<unknown>
@@ -245,6 +253,8 @@ export function generateTappSdkDts(catalog) {
   const curated = new Set([
     'lifecycle',
     'storage',
+    'shared',
+    'private',
     'settings',
     'ui',
     'api',
@@ -392,10 +402,11 @@ ${localMembers()}
 ${genericLines.join('\n')}
 }
 
-declare const Tapp: TappSdk
-
-interface Window {
-  Tapp: TappSdk
+declare global {
+  const Tapp: TappSdk
+  interface Window {
+    Tapp: TappSdk
+  }
 }
 
 export {}

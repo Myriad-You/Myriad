@@ -1,36 +1,13 @@
-/**
- * Evocative 壁纸动效 Hook
- *
- * 统一管理三大壁纸特效：
- * 1. 微动 (Parallax) - 壁纸根据鼠标/陀螺仪产生轻微位移，创造立体空间感
- * 2. 动态模糊 (Dynamic Blur) - 鼠标在上方40%区域时解除模糊，下方60%恢复模糊
- * 3. 涟漪 (Ripple) - 在上方40%区域点击产生水波纹扩散效果
- *
- * 性能优化：
- * - 共享鼠标事件处理，减少事件监听器
- * - 统一动画循环，减少 RAF 调用
- * - 共享页面可见性检测
- * - 合并状态管理，减少内存占用
- * - 预计算查找表（正弦/指数）
- * - Canvas 降采样（85%）减少像素计算
- * - 只处理涟漪影响范围内的像素
- * - 使用 Uint32Array 批量读写像素
- *
- * @module useEvocativeWallpaper
- */
-
 import { useEffect, useRef } from 'react'
 import { effectiveWallpaperBlur } from '../utils/wallpaperState'
 import { batchWrite, isPageVisible, onVisibility } from './animation/core'
 
-// 共享配置常量
-const SMOOTH = 0.08 // 基础平滑因子
-const SMOOTH_RETURN = 0.04 // 归正时使用更慢的速度
-const MAX_DELTA = 100 // 最大时间间隔
-const THROTTLE_MS = 50 // 鼠标事件节流
-const THRESHOLD = 0.05 // 静止检测阈值
+const SMOOTH = 0.08
+const SMOOTH_RETURN = 0.04
+const MAX_DELTA = 100
+const THROTTLE_MS = 50
+const THRESHOLD = 0.05
 
-// 微动配置
 const PARALLAX_SCALE = 1.02
 const PARALLAX_MAX_OFFSET = 8
 const GYRO_SENS = 0.5
@@ -108,17 +85,14 @@ function clearWallpaperTransformStyles(el: HTMLElement): void {
   el.style.transformOrigin = ''
 }
 
-// 预计算的静态 transform 字符串
 const STATIC_TF_PREFIX = `scale(${PARALLAX_SCALE}) translate3d(`
 const STATIC_TF_SUFFIX = ',0)'
 const IDLE_TF = `scale(${PARALLAX_SCALE}) translate3d(0,0,0)`
 
-// 动态模糊配置
-const UNBLUR_ZONE = 0.4 // 上方 40% 为解除模糊区域
+const UNBLUR_ZONE = 0.4
 const BLUR_PREFIX = 'blur('
 const BLUR_SUFFIX = 'px)'
 
-// 涟漪配置
 const MAX_RIPPLES = 3
 const RIPPLE_DURATION = 2000
 const RIPPLE_SPEED = 400
@@ -126,14 +100,12 @@ const RIPPLE_WAVELENGTH = 80
 const RIPPLE_AMPLITUDE = 15
 const RIPPLE_FRAME_MS = 17
 
-// 预计算正弦查找表
 const SIN_TABLE_SIZE = 1024
 const SIN_TABLE = new Float32Array(SIN_TABLE_SIZE)
 for (let i = 0; i < SIN_TABLE_SIZE; i++) {
   SIN_TABLE[i] = Math.sin((i / SIN_TABLE_SIZE) * Math.PI * 2)
 }
 
-// 预计算指数衰减查找表
 const EXP_TABLE_SIZE = 256
 const EXP_TABLE_MAX = 8
 const EXP_TABLE = new Float32Array(EXP_TABLE_SIZE)
@@ -155,7 +127,6 @@ function fastExp(x: number): number {
   return EXP_TABLE[((absX / EXP_TABLE_MAX) * EXP_TABLE_SIZE) | 0]
 }
 
-// 类型定义
 export interface ParallaxOptions {
   enabled?: boolean
   enableGyroscope?: boolean
@@ -176,20 +147,14 @@ export interface RippleOptions {
 }
 
 export interface EvocativeOptions {
-  /** 微动效果配置 */
   parallax?: ParallaxOptions
-  /** 动态模糊配置 */
   dynamicBlur?: DynamicBlurOptions
-  /** 涟漪效果配置 */
   ripple?: RippleOptions
-  /** 动效帧率 (30 或 60) */
   fps?: number
-  /** 涟漪画质 (0.5-1.0) */
   rippleQuality?: number
 }
 
 interface EvocativeState {
-  // 共享状态
   active: boolean
   pageVisible: boolean
   el: HTMLElement | null
@@ -197,7 +162,6 @@ interface EvocativeState {
   lastTime: number
   returning: boolean
 
-  // 微动状态
   parallaxTx: number
   parallaxTy: number
   parallaxCx: number
@@ -211,14 +175,12 @@ interface EvocativeState {
   permissionRequested: boolean
   reqHandler: (() => void) | null
 
-  // 动态模糊状态
   blurTargetBlur: number
   blurCurrentBlur: number
   blurBaseBlur: number
   blurLastRendered: number
   blurIdle: boolean
 
-  // 涟漪状态
   rippleCanvas: HTMLCanvasElement | null
   rippleCtx: CanvasRenderingContext2D | null
   sourceImageData: ImageData | null
@@ -229,8 +191,6 @@ interface EvocativeState {
   rippleFadeoutTimer: ReturnType<typeof setTimeout> | null
   rippleIsFadingOut: boolean
 }
-
-// 工具函数
 
 function buildTransform(cx: number, cy: number): string {
   const rx = ((cx * 10 + 0.5) | 0) / 10
@@ -243,7 +203,6 @@ function buildCanvasTransform(
   parallaxEnabled: boolean,
 ): string {
   if (!parallaxEnabled) {
-    // 微动关闭时不需要任何 transform 补偿
     return 'none'
   }
   const transform = wallpaperEl.style.transform
@@ -400,11 +359,9 @@ async function captureWallpaperToCanvas(
         drawH = drawW / imgRatio
       }
 
-      // Center image on the wallpaper box (matches background-position: center)
       const imgOnWpX = (wpW - drawW) / 2
       const imgOnWpY = (wpH - drawH) / 2
 
-      // Wallpaper top-left relative to container, in bitmap space
       const offsetX = offsetCssX * rippleScale
       const offsetY = offsetCssY * rippleScale
 
@@ -442,7 +399,7 @@ function applyRippleDistortion(
   const src32 = new Uint32Array(sourceData.data.buffer)
 
   const destImageData =
-    destData && destData.width === width && destData.height === height
+    destData?.width === width && destData.height === height
       ? destData
       : ctx.createImageData(width, height)
   const dest32 = new Uint32Array(destImageData.data.buffer)
@@ -563,17 +520,10 @@ function applyRippleDistortion(
   return { hasActive: hasActiveRipple, destData: destImageData }
 }
 
-// 主 Hook
-
-/**
- * Evocative 壁纸动效 Hook
- * 统一管理微动、动态模糊、涟漪三大特效
- */
 export function useEvocativeWallpaper(
   elementId = 'wallpaper',
   options: EvocativeOptions = {},
 ) {
-  // 解构嵌套配置
   const {
     parallax = {},
     dynamicBlur = {},
@@ -592,9 +542,7 @@ export function useEvocativeWallpaper(
 
   const enableRipple = ripple.enabled ?? false
 
-  // 根据 fps 配置计算帧间隔
-  const frameMs = fps >= 60 ? 17 : 33 // 60fps = 17ms, 30fps = 33ms
-  // 根据 rippleQuality 配置计算 Canvas 缩放（限制在 0.5-1.0 范围）
+  const frameMs = fps >= 60 ? 17 : 33
   const rippleScale = Math.max(0.5, Math.min(1.0, rippleQuality))
 
   const stateRef = useRef<EvocativeState>({
@@ -635,11 +583,10 @@ export function useEvocativeWallpaper(
     rippleIsFadingOut: false,
   })
 
-  // 是否正处于开启态；是否曾经开启过（仅「曾开启 → 全关 → 再开」才 soft-restore，避免首屏缩放）
+  // 仅「曾开启 → 全关 → 再开」才 soft-restore，避免首屏缩放
   const wasAnyEnabledRef = useRef(false)
   const everEnabledRef = useRef(false)
 
-  // 当 baseBlur 变化时更新状态
   useEffect(() => {
     const s = stateRef.current
     s.blurBaseBlur = baseBlur
@@ -681,7 +628,6 @@ export function useEvocativeWallpaper(
     wasAnyEnabledRef.current = true
     everEnabledRef.current = true
 
-    // 初始化共享状态
     s.active = true
     s.pageVisible = isPageVisible()
     s.el = el
@@ -689,7 +635,6 @@ export function useEvocativeWallpaper(
     s.lastTime = 0
     s.returning = false
 
-    // 初始化微动状态
     s.parallaxTx = 0
     s.parallaxTy = 0
     s.parallaxCx = 0
@@ -702,19 +647,16 @@ export function useEvocativeWallpaper(
     s.gyroEnabled = false
     s.permissionRequested = false
 
-    // 初始化模糊状态
     s.blurTargetBlur = baseBlur
     s.blurCurrentBlur = baseBlur
     s.blurBaseBlur = baseBlur
     s.blurLastRendered = baseBlur
     s.blurIdle = true
 
-    // 初始化涟漪状态
     s.activeRipples = []
     s.rippleRaf = null
     s.lastRippleFrameTime = 0
 
-    // 设置元素样式
     el.style.transformOrigin = 'center'
     const willChangeProps: string[] = []
     if (enableParallax) willChangeProps.push('transform')
@@ -755,7 +697,6 @@ export function useEvocativeWallpaper(
       el.style.filter = `${BLUR_PREFIX}${effectiveWallpaperBlur(baseBlur)}${BLUR_SUFFIX}`
     }
 
-    // 创建涟漪 Canvas
     if (enableRipple) {
       s.rippleCanvas = createRippleCanvas(el, enableParallax, rippleScale)
       s.rippleCtx = s.rippleCanvas.getContext('2d', {
@@ -763,7 +704,6 @@ export function useEvocativeWallpaper(
       })
     }
 
-    // 涟漪动画循环
     const rippleAnimationLoop = (now: number) => {
       if (!s.active || !s.rippleCanvas || !s.rippleCtx || !s.sourceImageData)
         return
@@ -782,7 +722,6 @@ export function useEvocativeWallpaper(
         )
       }
 
-      // 清理已过期的涟漪（超过 RIPPLE_DURATION）
       const durationSec = RIPPLE_DURATION / 1000
       s.activeRipples = s.activeRipples.filter(
         (r) => (now - r.startTime) / 1000 <= durationSec,
@@ -804,18 +743,15 @@ export function useEvocativeWallpaper(
       if (result.hasActive) {
         s.rippleRaf = requestAnimationFrame(rippleAnimationLoop)
       } else {
-        // 涟漪结束，开始淡出
         s.rippleRaf = null
         s.rippleIsFadingOut = true
         s.rippleCanvas.style.transition = 'opacity 0.75s ease-out'
         s.rippleCanvas.style.opacity = '0'
 
-        // 清除之前的淡出计时器（如果有）
         if (s.rippleFadeoutTimer) {
           clearTimeout(s.rippleFadeoutTimer)
         }
 
-        // 等待淡出动画完成后再清理状态
         s.rippleFadeoutTimer = setTimeout(() => {
           // 只有在仍处于淡出状态时才清理（避免新涟漪被意外清理）
           if (s.rippleIsFadingOut) {
@@ -824,7 +760,6 @@ export function useEvocativeWallpaper(
             // 释放输出暂存 buffer（~6MB）；下次涟漪 applyRippleDistortion 会按需 createImageData 重建
             s.destImageData = null
             s.rippleIsFadingOut = false
-            // 恢复快速淡入的 transition
             if (s.rippleCanvas) {
               s.rippleCanvas.style.transition = 'opacity 0.15s ease-out'
             }
@@ -852,14 +787,12 @@ export function useEvocativeWallpaper(
         s.destImageData = null
       }
 
-      // 如果正在淡出，取消淡出并重新激活
       if (s.rippleIsFadingOut) {
         s.rippleIsFadingOut = false
         if (s.rippleFadeoutTimer) {
           clearTimeout(s.rippleFadeoutTimer)
           s.rippleFadeoutTimer = null
         }
-        // 立即显示 Canvas（取消淡出动画）
         s.rippleCanvas.style.transition = 'opacity 0.15s ease-out'
         s.rippleCanvas.style.opacity = '1'
       }
@@ -877,7 +810,6 @@ export function useEvocativeWallpaper(
         s.rippleCanvas.style.opacity = '1'
       }
 
-      // 检查涟漪数量限制（移除最早的涟漪以腾出空间）
       if (s.activeRipples.length >= MAX_RIPPLES) {
         s.activeRipples.shift()
       }
@@ -894,7 +826,6 @@ export function useEvocativeWallpaper(
       }
     }
 
-    // 统一动画循环
     const tick = (t: number) => {
       if (!s.active) return
       if (!s.pageVisible) {
@@ -920,7 +851,6 @@ export function useEvocativeWallpaper(
 
         let needsContinue = false
 
-        // 微动更新
         if (enableParallax && !s.parallaxIdle) {
           const dx = (s.parallaxTx - s.parallaxCx) * factor
           const dy = (s.parallaxTy - s.parallaxCy) * factor
@@ -953,7 +883,6 @@ export function useEvocativeWallpaper(
           }
         }
 
-        // 模糊更新
         if (enableDynamicBlur && !s.blurIdle) {
           const diff = s.blurTargetBlur - s.blurCurrentBlur
           const diffAbs = diff < 0 ? -diff : diff
@@ -1016,7 +945,6 @@ export function useEvocativeWallpaper(
       }
     }
 
-    // 页面可见性
     const unsubscribeVisibility = onVisibility((visible) => {
       s.pageVisible = visible
       if (visible && s.active) {
@@ -1030,7 +958,6 @@ export function useEvocativeWallpaper(
       }
     })
 
-    // 鼠标事件
     let lastMouseTime = 0
     const onMouseMove = (e: MouseEvent) => {
       if (!s.pageVisible || !interactionReady) return
@@ -1042,13 +969,11 @@ export function useEvocativeWallpaper(
 
       s.returning = false
 
-      // 微动计算
       if (enableParallax) {
         s.parallaxTx = -(e.clientX / innerWidth - 0.5) * s.parallaxOffsetMult
         s.parallaxTy = -(e.clientY / innerHeight - 0.5) * s.parallaxOffsetMult
       }
 
-      // 模糊计算
       if (enableDynamicBlur) {
         const normalizedY = e.clientY / window.innerHeight
         if (normalizedY <= unblurZone) {
@@ -1079,7 +1004,6 @@ export function useEvocativeWallpaper(
       wake()
     }
 
-    // 点击涟漪
     const onClick = (e: MouseEvent) => {
       if (
         !enableRipple ||
@@ -1101,24 +1025,15 @@ export function useEvocativeWallpaper(
       const target = e.target as HTMLElement | null
       if (!target) return
 
-      // 排除交互元素
       if (
         target.closest(
-          // 基础交互元素
           'button, a, input, select, textarea, label, ' +
-            // ARIA 交互角色
             '[role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="switch"], [role="tab"], [role="menuitem"], [role="option"], [role="slider"], ' +
-            // 弹出层
             '[role="dialog"], [role="menu"], [role="listbox"], [role="tooltip"], ' +
-            // 可聚焦元素
             '[tabindex]:not([tabindex="-1"]), ' +
-            // 导航相关
             'nav, .nav-item, .nav-container, .dynamic-island, ' +
-            // 常见UI组件
             '.card, .modal, .dialog, .dropdown, .menu, .popup, .tooltip, .toast, .panel, ' +
-            // 媒体和嵌入
             'video, audio, iframe, ' +
-            // 自定义排除
             '[data-no-ripple]',
         )
       ) {
@@ -1128,7 +1043,6 @@ export function useEvocativeWallpaper(
       startRipple(localX, localY)
     }
 
-    // 陀螺仪
     let lastGyroTime = 0
     const onGyro = (e: DeviceOrientationEvent) => {
       if (!interactionReady) return
@@ -1148,7 +1062,6 @@ export function useEvocativeWallpaper(
       wake()
     }
 
-    // 事件绑定
     const isMobileOnly = window.matchMedia(
       '(hover: none) and (pointer: coarse)',
     ).matches
@@ -1162,7 +1075,6 @@ export function useEvocativeWallpaper(
       }
     }
 
-    // 陀螺仪设置
     let gyroProbeCancelled = false
     let gyroProbeTimer: number | null = null
     let testGyro: ((e: DeviceOrientationEvent) => void) | null = null
@@ -1231,7 +1143,6 @@ export function useEvocativeWallpaper(
       }
     }
 
-    // 清理
     return () => {
       s.active = false
       gyroProbeCancelled = true

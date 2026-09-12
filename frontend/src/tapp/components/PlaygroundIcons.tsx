@@ -1,7 +1,3 @@
-/**
- * Tapp Playground 专用图标（stroke = currentColor）
- * 主图标使用 lucide 的锥形烧瓶：Playground = 实验场
- */
 import { FlaskConical } from 'lucide-react'
 
 interface IconProps {
@@ -9,12 +5,10 @@ interface IconProps {
   style?: React.CSSProperties
 }
 
-/** 锥形烧瓶：「Tapp 实验场」 */
 export function TappPlaygroundIcon({ className, style }: IconProps) {
   return <FlaskConical className={className} style={style} aria-hidden="true" />
 }
 
-/** 时间线列表：「生成过程 / Agent 工作轨迹」 */
 export function PlaygroundTraceIcon({ className, style }: IconProps) {
   return (
     <svg

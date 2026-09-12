@@ -91,7 +91,7 @@ impl AgentRun {
                 task_id: None,
                 status: "running".to_string(),
                 progress: 0,
-                message: "任务已提交，等待执行".to_string(),
+                message: "Task submitted, waiting to run".to_string(),
                 completed: false,
                 updated_at: Utc::now(),
             }),
@@ -422,7 +422,7 @@ WHERE namespace = $1 AND runtime_id = $2
                 AgentProgressEvent::RunStarted { .. } => {
                     notify = true;
                     state.status = "running".to_string();
-                    state.message = "任务已提交，等待执行".to_string();
+                    state.message = "Task submitted, waiting to run".to_string();
                     None
                 }
                 AgentProgressEvent::TaskCreated {

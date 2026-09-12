@@ -1,10 +1,3 @@
-/**
- * 数据及统计 · AI 使用统计
- *
- * 复用访客统计的 TrendChart / RankList / EmptyCard / site-analytics CSS。
- * 数据源：GET /api/analytics/ai-usage（tapp_ai_cost_ledger 按日/用户/模型/来源聚合；含文字、图像、语音）。
- */
-
 import type { SettingOption } from '../settings/types'
 import type { ToastType } from '../Toast'
 import type { AnalyticsRangeState } from './analytics/AnalyticsRangePicker'
@@ -131,11 +124,10 @@ interface AiUsageSectionProps {
 }
 
 const AiUsageSection: React.FC<AiUsageSectionProps> = () => {
-  const { t, locale } = useI18n()
+  const { t, locale, format } = useI18n()
   const { catalog: g, bindGuide } = useSettingGuide()
   const a = t.config.analytics
-  const numberLocale =
-    locale === 'zh-CN' ? 'zh-CN' : locale === 'ja-JP' ? 'ja-JP' : 'en-US'
+  const numberLocale = locale
 
   const [range, setRange] = useState<AnalyticsRangeState>(() =>
     defaultAnalyticsRange(),
@@ -222,8 +214,8 @@ const AiUsageSection: React.FC<AiUsageSectionProps> = () => {
   const hasTrend = trendPoints.some((p) => p.views > 0 || p.visitors > 0)
 
   const callsLabel = useCallback(
-    (n: number) => a.aiUsageCallsN.replace('{n}', count(n)),
-    [a.aiUsageCallsN, count],
+    (n: number) => format(a.aiUsageCallsN, { n: count(n) }),
+    [a.aiUsageCallsN, count, format],
   )
 
   const userRows = useMemo(() => {
@@ -232,7 +224,6 @@ const AiUsageSection: React.FC<AiUsageSectionProps> = () => {
       anonymousLabel: a.aiUsageAnonymous,
       callsLabel,
     })
-    // Annotate admin/owner in meta (staff are included in site-wide stats).
     const byKey = new Map(users.map((u) => [String(u.subject_id), u]))
     return base.map((row) => {
       const raw = byKey.get(row.key)
@@ -318,7 +309,6 @@ const AiUsageSection: React.FC<AiUsageSectionProps> = () => {
         label: aiUserDisplayName(u, a.aiUsageAnonymous),
       })),
     ]
-    // Keep current selection visible if filter list shrank after reload
     if (subjectId && !opts.some((o) => o.value === subjectId)) {
       opts.push({ value: subjectId, label: `#${subjectId}` })
     }
@@ -487,7 +477,7 @@ const AiUsageSection: React.FC<AiUsageSectionProps> = () => {
             <div className="site-analytics-tile">
               <span className="site-analytics-tile-label">
                 <LuActivity size={13} aria-hidden />
-                {a.aiUsageRangeCalls.replace('{n}', String(dayCount))}
+                {format(a.aiUsageRangeCalls, { n: dayCount })}
               </span>
               <div className="site-analytics-tile-metric">
                 <span className="site-analytics-tile-value">
@@ -506,7 +496,7 @@ const AiUsageSection: React.FC<AiUsageSectionProps> = () => {
             <div className="site-analytics-tile">
               <span className="site-analytics-tile-label">
                 <LuCpu size={13} aria-hidden />
-                {a.aiUsageRangeTokens.replace('{n}', String(dayCount))}
+                {format(a.aiUsageRangeTokens, { n: dayCount })}
               </span>
               <div className="site-analytics-tile-metric">
                 <span className="site-analytics-tile-value">

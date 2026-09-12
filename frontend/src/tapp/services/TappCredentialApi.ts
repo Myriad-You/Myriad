@@ -1,4 +1,4 @@
-/** Installation-manager API for write-only Tapp credentials. */
+/** 安装管理员 API；凭据只写。 */
 
 import { apiRequest } from './TappHttpClient'
 

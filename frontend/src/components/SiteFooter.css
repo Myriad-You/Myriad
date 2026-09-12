@@ -1,7 +1,3 @@
-/**
- * 站点底部信息组件样式
- */
-
 .site-footer {
   position: fixed;
   bottom: 0;
@@ -42,7 +38,6 @@ html.dark .site-footer-content:hover {
   color: rgb(156 163 175 / 90%);
 }
 
-/* 版本号 */
 .footer-version {
   display: flex;
   align-items: center;
@@ -69,13 +64,11 @@ html.dark .site-footer-content:hover {
   text-decoration: underline;
 }
 
-/* 分隔符 */
 .footer-divider {
   opacity: 0.3;
   font-size: 0.5rem;
 }
 
-/* 备案链接 */
 .footer-icp,
 .footer-gongan {
   display: flex;
@@ -92,7 +85,6 @@ html.dark .site-footer-content:hover {
   text-decoration: underline;
 }
 
-/* 云基础设施（class 避免 sponsor/ad 等广告拦截敏感词） */
 .footer-infra {
   display: flex;
   align-items: center;
@@ -119,7 +111,6 @@ html.dark .site-footer-content:hover {
   opacity: 1;
 }
 
-/* 自定义页脚项 */
 .footer-custom {
   display: flex;
   align-items: center;
@@ -177,26 +168,23 @@ html.dark .site-footer-content:hover {
   height: 0.875rem;
 }
 
-/* 云服务商颜色 */
 .cdn-cloudflare {
   color: #f6821f;
 }
 
 .cdn-edgeone {
-  /* EdgeOne 使用 SVG 内置渐变 */
+  /* SVG 内置渐变 */
 }
 
 .cdn-upyun {
   color: #00a0ff;
 }
 
-/* 又拍云 logo 稍小 */
 .cdn-upyun svg {
   width: 0.7rem;
   height: 0.7rem;
 }
 
-/* Tooltip 样式 */
 .tooltip-wrapper {
   position: relative;
   display: inline-flex;
@@ -240,7 +228,6 @@ html.dark .tooltip-content {
   box-shadow: 0 4px 16px rgb(0 0 0 / 40%);
 }
 
-/* 文字图标 */
 .text-icon {
   display: inline-flex;
   align-items: center;
@@ -263,7 +250,6 @@ html.dark .tooltip-content {
   background: linear-gradient(135deg, #ef4444, #f97316);
 }
 
-/* 首页模式下的公安备案文字图标 */
 .gongan-text-icon {
   display: inline-flex;
   align-items: center;
@@ -279,37 +265,23 @@ html.dark .tooltip-content {
   margin-right: 0.125rem;
 }
 
-/* 简化模式（非首页） */
 .site-footer-compact .site-footer-content {
   padding: 0.2rem 0.4rem;
   gap: 0.3rem;
 }
 
-/*
- * Compact footer is fixed bottom-right. Tooltips must NOT:
- *  1) center on the icon (overflows right), or
- *  2) size against the icon with overflow-wrap:anywhere (collapses to a
- *     1-glyph vertical strip), or
- *  3) use max-width:100vw while right-aligned to a mid-cluster icon
- *     (overflows left on narrow viewports).
- *
- * Anchor the bubble to the footer (viewport right), not the individual
- * icon: wrapper is static so absolute tooltip positions against .site-footer.
- */
+/* 底栏在右下：tooltip 不要居中图标，也不要对着图标 overflow-wrap。 */
 .site-footer-compact .tooltip-wrapper {
   position: static;
 }
 
 .site-footer-compact .tooltip-content {
-  /* Position against .site-footer (position:fixed; right:0; bottom:0) */
   left: auto;
   right: 0.5rem;
   bottom: calc(100% + 4px);
   transform: translateY(4px);
   white-space: normal;
   width: max-content;
-
-  /* Stay fully inside the viewport: right inset 0.5rem + left margin 0.5rem */
   max-width: min(16rem, calc(100vw - 1rem - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
   overflow-wrap: break-word;
   word-break: normal;
@@ -322,7 +294,6 @@ html.dark .tooltip-content {
   transform: translateY(0);
 }
 
-/* Mobile footer padding is tighter; keep the same inset math */
 @media (width <= 768px) {
   .site-footer-compact .tooltip-content {
     right: 0.5rem;
@@ -345,7 +316,6 @@ html.dark .tooltip-content {
   transform: scale(1.1);
 }
 
-/* 响应式：小屏幕时隐藏部分内容 */
 @media (width <= 640px) {
   .site-footer-content {
     font-size: 0.625rem;
@@ -365,7 +335,6 @@ html.dark .tooltip-content {
   }
 }
 
-/* 移动端：页尾定位到最底部 */
 @media (width <= 768px) {
   .site-footer {
     bottom: 0.5rem;
@@ -374,7 +343,6 @@ html.dark .tooltip-content {
   }
 }
 
-/* Brew 阅读器模式时隐藏页尾 */
 body:has([data-brew-reader='true']) .site-footer {
   display: none;
 }

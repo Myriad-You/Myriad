@@ -1,7 +1,4 @@
-/**
- * 标题旁详细说明 tooltip
- * 触发器内联；内容 Portal + fixed，避免 overflow 裁切
- */
+/* Portal + fixed: escape overflow */
 
 .setting-title-help {
   position: relative;
@@ -69,7 +66,6 @@ html.dark .setting-title-help--warning .setting-title-help-trigger {
   height: 0.8125rem;
 }
 
-/* —— Portal tooltip（body 上 fixed） —— */
 
 .setting-title-help-tooltip.is-portal {
   position: fixed;
@@ -129,7 +125,6 @@ html.dark .setting-title-help-tooltip--warning.is-portal {
   background: color-mix(in srgb, #78350f 55%, rgb(20 20 20));
 }
 
-/* 富文本 */
 .setting-title-help-tooltip a {
   color: var(--cfg-accent);
   text-decoration: underline;
@@ -164,7 +159,6 @@ html.dark .setting-title-help-tooltip strong {
   color: var(--cfg-text-1);
 }
 
-/* 标题行内间距 */
 .setting-group-title-text .setting-title-help,
 .section-title .setting-title-help,
 .setting-label-text .setting-title-help,

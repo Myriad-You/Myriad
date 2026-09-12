@@ -1,7 +1,4 @@
-/**
- * Soft-reload contract for config save classifiers.
- * @vitest-environment node
- */
+/** @vitest-environment node */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
@@ -45,7 +42,7 @@ describe('uiBagOwnership', () => {
     assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('island_show_tapp'))
     assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('merope_enabled'))
     assert.ok(ALL_OWNED_UI_BAG_KEYS.includes('merope_speech_enabled'))
-    // The switch lives on the AI page now, so resetting Advanced must leave it alone.
+    // switch lives on AI; Advanced reset must leave it
     assert.ok(!ADVANCED_RESET_KEYS.includes('merope_enabled'))
     assert.ok(!ADVANCED_RESET_KEYS.includes('merope_speech_enabled'))
     assert.ok(AI_UI_RESET_KEYS.includes('merope_enabled'))
@@ -218,7 +215,7 @@ describe('uiBagOwnership', () => {
   })
 
   it('refreshes the public persona name only when merope_enabled changes', () => {
-    assert.deepEqual([...PERSONA_PUBLIC_NAME_UI_BAG_KEYS], ['merope_enabled'])
+    assert.deepEqual(Iterator.from(PERSONA_PUBLIC_NAME_UI_BAG_KEYS).toArray(), ['merope_enabled'])
     assert.equal(
       configChangesNeedPersonaPublicNameRefresh(
         cfg([{ key: 'merope_enabled', value: 'false' }]),

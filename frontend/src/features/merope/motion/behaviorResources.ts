@@ -1,12 +1,5 @@
 import type { MotionChannel } from './channels'
 
-/**
- * Body-semantic resources used by behavior planning and realization.
- *
- * The dotted names form a hierarchy: a future `body.arm` claim conflicts with
- * either arm, while `body.arm.left` and `body.arm.right` may run together.
- * MotionChannel remains the coarse production ownership compatibility layer.
- */
 export type BehaviorResource =
   | 'face.mouth'
   | 'face.expression'
@@ -58,19 +51,7 @@ export function resourcesConflict(
   )
 }
 
-/**
- * Projects a behavior's resources onto what this rig can actually drive.
- *
- * The dotted vocabulary anticipates a richer body; `rig/README.md` is the
- * boundary, and it lists no shoulder, elbow, wrist, leg or foot. Of the body
- * resources only head and torso reach a real transform, and this rig composes
- * them through one shared upper-body pose — so `headBody` is not a leftover
- * coarse channel, it is the granularity the artwork has.
- *
- * Splitting head from torso is the one refinement the rig could support (a nod
- * could then survive a groove). That changes arbitration outcomes per cue, so
- * it belongs in its own change with a running face to look at — not here.
- */
+/** Channel inventory is this rig; `rig/README.md` is the boundary. */
 export function rigChannelsForResources(
   resources: readonly BehaviorResource[],
 ): MotionChannel[] {
@@ -81,10 +62,9 @@ export function rigChannelsForResources(
     else if (resource === 'face.gaze') channels.add('gaze')
     else channels.add('headBody')
   }
-  return [...channels]
+  return Iterator.from(channels).toArray()
 }
 
-/** The inverse: the resources a rig channel stands for. */
 export function resourcesForRigChannels(
   channels: readonly MotionChannel[],
 ): BehaviorResource[] {
@@ -100,5 +80,5 @@ export function resourcesForRigChannels(
       resources.add('body.arm.right')
     }
   }
-  return [...resources]
+  return Iterator.from(resources).toArray()
 }

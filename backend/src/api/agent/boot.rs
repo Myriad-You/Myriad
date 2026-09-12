@@ -48,7 +48,7 @@ pub async fn restore_waiting_runs_after_boot() {
                 "[Agent API] Boot restore: expiring abandoned waiting question"
             );
             task.status = crate::services::agent::types::TaskStatus::Failed;
-            task.error = Some("等待用户输入已超时（服务重启后发现已过期）".into());
+            task.error = Some("Waiting for input timed out after restart".into());
             task.completed_at = Some(chrono::Utc::now());
             task.pending_question = None;
             {
@@ -62,7 +62,7 @@ pub async fn restore_waiting_runs_after_boot() {
                     source_intent.as_ref().map(|intent| intent.id.as_str()),
                     user_id,
                     crate::services::agent::consciousness::IntentStatus::Failed,
-                    Some("等待用户输入已超时（服务重启后发现已过期）".into()),
+                    Some("Waiting for input timed out after restart".into()),
                 )
                 .await;
             }
@@ -192,8 +192,8 @@ pub fn classify_stranded_running(
     }
 }
 
-/// Running intentions with no restored wait-loop never finish. Put them back
-/// to Accepted so the autonomy tick (or the proposal card) can claim again.
+/// Running intentions with no restored wait-loop never finish. No executor
+/// task → Accepted (tick/card can claim). Other persisted statuses → Failed.
 pub async fn reclaim_stranded_running_intentions(db: &DatabaseConnection) {
     let store = crate::services::agent::consciousness::IntentStore::new(db.clone());
     let running = match store.list_running(32).await {
@@ -336,7 +336,7 @@ pub(crate) async fn spawn_restored_wait_loop(
                             let msg = response_value
                                 .get("message")
                                 .and_then(Value::as_str)
-                                .unwrap_or("需要更多信息");
+                                .unwrap_or("More information is needed");
                             let metadata = session_metadata_with_run_identity(
                                 Some(response_value.clone()),
                                 &run_id,
@@ -413,7 +413,7 @@ pub(crate) async fn spawn_restored_wait_loop(
                         source_intent_id.as_deref(),
                         user_id,
                         crate::services::agent::consciousness::IntentStatus::Failed,
-                        Some("等待通道已关闭".into()),
+                        Some("The wait channel closed".into()),
                     )
                     .await;
                 }
@@ -439,13 +439,14 @@ pub(crate) async fn spawn_restored_wait_loop(
                                 source_intent_id.as_deref(),
                                 user_id,
                                 crate::services::agent::consciousness::IntentStatus::Failed,
-                                Some("等待用户输入已超时".into()),
+                                Some("Waiting for input timed out".into()),
                             )
                             .await;
                         }
                         let response_value = json!({
                             "success": false,
-                            "message": "等待用户输入已超时",
+                            "message": "Waiting for input timed out",
+                            "code": "wait_input_timeout",
                             "streamTerminal": true,
                             "task": { "taskId": task_id, "status": "failed" }
                         });
@@ -461,7 +462,7 @@ pub(crate) async fn spawn_restored_wait_loop(
                                 .await
                         {
                             t.status = crate::services::agent::types::TaskStatus::Failed;
-                            t.error = Some("等待用户输入已超时".into());
+                            t.error = Some("Waiting for input timed out".into());
                             t.completed_at = Some(chrono::Utc::now());
                             t.pending_question = None;
                             {
@@ -505,7 +506,8 @@ pub(crate) async fn spawn_restored_wait_loop(
                     (
                         json!({
                             "success": false,
-                            "message": "任务状态已不可用",
+                            "message": "The task is no longer available",
+                            "code": "task_unavailable",
                             "task": { "taskId": task_id, "status": "failed" }
                         }),
                         false,

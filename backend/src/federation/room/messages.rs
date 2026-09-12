@@ -1,5 +1,6 @@
 //! Room messages, files, and pin.
 use axum::{http::StatusCode, Json};
+use myriad_error::AppError;
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde_json::json;
 
@@ -26,7 +27,15 @@ pub async fn send_room_message(
         return Err((
             StatusCode::PAYLOAD_TOO_LARGE,
             Json(
-                json!({"error": format!("Message payload too large: {} bytes (max {})", payload_size, max_payload)}),
+                AppError::from_status_u16(
+                    413,
+                    format!(
+                        "Message payload too large: {} bytes (max {})",
+                        payload_size, max_payload
+                    ),
+                )
+                .with_code("payload_too_large")
+                .to_json(),
             ),
         ));
     }
@@ -43,7 +52,7 @@ pub async fn send_room_message(
     if my_role == "observer" {
         return Err((
             StatusCode::FORBIDDEN,
-            Json(json!({"error": "Observers cannot send messages"})),
+            Json(AppError::public_json("Observers cannot send messages")),
         ));
     }
 
@@ -285,7 +294,7 @@ pub async fn get_room_messages(
         let is_encrypted: bool = r.try_get("", "is_encrypted").unwrap_or(false);
         let mut payload: serde_json::Value = r.try_get("", "payload").unwrap_or(json!(null));
         // After successful decrypt, mark is_encrypted=false so clients treat the
-        // payload as display plaintext (WS/GET race used to re-flash ciphertext).
+        // payload as display plaintext.
         let mut display_encrypted = is_encrypted;
         if is_encrypted {
             if let Some((pk, sk)) = my_keys.as_ref() {
@@ -439,7 +448,7 @@ pub async fn list_room_files(
         );
     }
 
-    // Fetch a bit more than limit so client-side filter still fills a page when possible
+    // Over-fetch when this handler will drop rows (`q` / non-all filter); then truncate to `limit`.
     let fetch_limit = if q_norm.is_some() || (filter != "all") {
         (limit * 3).min(200)
     } else {
@@ -660,7 +669,7 @@ pub async fn list_room_files(
             });
         }
         orphans.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-        // Prepend orphans (newest first merge)
+        // Append orphans, then sort newest-first
         if !orphans.is_empty() {
             files.extend(orphans);
             files.sort_by(|a, b| b.created_at.cmp(&a.created_at));
@@ -696,7 +705,9 @@ pub async fn pin_room_message(
     if !is_admin_role(&my_role) {
         return Err((
             StatusCode::FORBIDDEN,
-            Json(json!({"error": "Only owner or admin can pin messages"})),
+            Json(AppError::public_json(
+                "Only owner or admin can pin messages",
+            )),
         ));
     }
 
@@ -714,7 +725,7 @@ pub async fn pin_room_message(
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                Json(json!({"error": "Message not found"})),
+                Json(AppError::public_json("Message not found")),
             )
         })?;
 
@@ -727,7 +738,7 @@ pub async fn pin_room_message(
     });
     crate::federation::ws_gateway::broadcast_to_room(room_id, &ws_msg).await;
 
-    // Fan-out pin state to remote members (was local-only)
+    // 向远程成员投递 RoomPin
     let activity_id = generate_activity_id(&base_url);
     let pin_activity = json!({
         "@context": build_context(),
@@ -792,9 +803,7 @@ pub async fn handle_room_pin(
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
 
-    // Pin/unpin is owner/admin only. This used to warn and apply anyway, so any
-    // signed actor that knew a room_id could pin or unpin messages it had no
-    // rights to — including unpinning an admin's pinned message.
+    // Pin/unpin is owner/admin only.
     let role = get_member_role(db, room_id, actor_url_str)
         .await
         .map_err(|e| e.to_string())?;

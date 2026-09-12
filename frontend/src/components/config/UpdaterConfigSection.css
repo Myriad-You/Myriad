@@ -1,16 +1,6 @@
-/**
- * Updater 内联面板 — 重设计版。
- *
- * 层次：状态卡（hero）→ 通道单选卡片 → 折叠的高级区。
- * 表面：对齐设置页玻璃 token —— 白 / 微白半透明 + blur。
- */
 
 .updater-panel {
-  /*
-   * 嵌在 config-section（已有 frost 白+blur）内：
-   * 再叠白半透明 + blur 会发乳白，无论把 alpha 压多低。
-   * 内层只做微透白底、无二次 blur，对齐 about-card / setting-item。
-   */
+  /* nested in frost: tint only, no second blur */
   --updater-frost-bg: var(--cfg-subtle-bg);
   --updater-frost-border: var(--cfg-subtle-border);
   --updater-frost-filter: none;
@@ -23,15 +13,13 @@
   flex-direction: column;
   gap: 0.75rem;
   margin-top: 1.25rem;
-
-  /* 让本面板内原生控件（select 下拉、radio、滚动条）跟随主题 */
   color-scheme: light;
 }
 
 html.dark .updater-panel {
   color-scheme: dark;
 
-  /* token 已在 html.dark 下切换，无需再覆写 */
+  /* dark via html.dark tokens */
 }
 
 .updater-panel-heading {
@@ -46,7 +34,6 @@ html.dark .updater-panel-heading {
   color: var(--cfg-text-1);
 }
 
-/* 状态卡（hero）— 半透明玻璃 */
 .updater-hero {
   --updater-accent: 59 130 246;
   --updater-accent-strong: 37 99 235;
@@ -54,7 +41,7 @@ html.dark .updater-panel-heading {
   position: relative;
   isolation: isolate;
 
-  /* 默认裁切装饰光斑；打开频率下拉时放开，避免 option 列表被裁 */
+  /* overflow visible while interval select is open */
   overflow: hidden;
   padding: 1.25rem;
   border: 1px solid var(--updater-frost-border);
@@ -216,7 +203,6 @@ html.dark .updater-hero-context code {
   color: var(--cfg-text-3);
 }
 
-/* Stale last-check affordance (age vs check_interval / 1h when off) */
 .updater-hero-subtitle.stale .updater-hero-hint {
   color: #b45309;
 }
@@ -415,7 +401,6 @@ html.dark .updater-hero-feedback.error {
   color: #fda4af;
 }
 
-/* 通道单选卡片 */
 .updater-channels {
   display: flex;
   flex-direction: column;
@@ -591,7 +576,6 @@ html.dark .updater-channel-desc {
   color: var(--cfg-text-3);
 }
 
-/* 安装指定版本 */
 .updater-target {
   display: flex;
   flex-direction: column;
@@ -612,7 +596,6 @@ html.dark .updater-channel-desc {
   gap: 0.5rem;
 }
 
-/* 版本 / commit 列表 */
 .updater-commit-list {
   border: 1px solid var(--updater-subtle-border);
   border-radius: 0.6rem;
@@ -701,7 +684,6 @@ html.dark .updater-commit-msg {
   white-space: nowrap;
 }
 
-/* 新旧关系提示 */
 .updater-compare-preview {
   padding: 0.55rem 0.85rem;
   border-radius: 0.6rem;
@@ -739,7 +721,6 @@ html.dark .updater-compare-preview.neutral {
   color: var(--cfg-text-2);
 }
 
-/* 进度卡 */
 .updater-progress {
   padding: 1rem 1.1rem;
   border-radius: 0.75rem;
@@ -897,7 +878,6 @@ html.dark .updater-step-err-msg {
   color: #fca5a5;
 }
 
-/* Drift（小提示条） */
 .updater-drift {
   padding: 0.5rem 0.85rem;
   border-radius: 0.5rem;
@@ -930,8 +910,6 @@ html.dark .updater-drift {
   color: #991b1b;
   font-size: 0.78rem;
   border: 1px solid rgb(252 165 165 / 45%);
-
-  /* Preflight reasons can be long technical messages. */
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -983,7 +961,6 @@ html.dark .updater-empty {
   color: var(--cfg-text-3);
 }
 
-/* 高级与诊断 */
 .updater-detail-grid {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
@@ -1083,7 +1060,6 @@ html.dark .updater-transport-hint {
   opacity: 1;
 }
 
-/* 自动检查 / 自动安装 */
 .updater-hero-auto {
   position: relative;
   z-index: 1;
@@ -1112,7 +1088,6 @@ html.dark .updater-hero-auto {
   gap: 0.6rem;
 }
 
-/* 备份区：上限 prefs + 列表 */
 .updater-snapshot-section {
   display: flex;
   flex-direction: column;
@@ -1120,7 +1095,6 @@ html.dark .updater-hero-auto {
   min-width: 0;
 }
 
-/* Plain row: label left, select + switch right. No card / hover. */
 .updater-snapshot-limit {
   position: relative;
   z-index: 1;
@@ -1238,7 +1212,6 @@ html.dark .updater-auto-desc {
   color: var(--cfg-text-2);
 }
 
-/* 复用 animations.css 的全局 spin 关键帧（App.tsx 全局导入） */
 .is-spinning {
   animation: spin 0.85s linear infinite;
 }
@@ -1336,12 +1309,11 @@ html.dark .updater-progress-hint.muted {
   color: var(--cfg-text-3);
 }
 
-/* 更新器 / 边缘：两列半透明卡 */
 .updater-infra-grid {
   margin-top: 0;
 }
 
-/* 覆盖 SettingGroupGrid 默认卡底，统一走 updater 半透明 token */
+/* override grid card fill; updater tokens */
 .updater-panel .updater-infra-grid.is-card .setting-group,
 .updater-panel .setting-group.updater-infra-card {
   border-color: var(--updater-subtle-border);
@@ -1421,7 +1393,6 @@ html.dark .updater-infra-success {
   color: #a7f3d0;
 }
 
-/* In-progress self-update / proxy recreate (incl. brief reconnect blip). */
 .updater-infra-progress {
   margin: 0;
   padding: 0.45rem 0.55rem;
@@ -1466,7 +1437,6 @@ html.dark .updater-infra-progress {
   white-space: nowrap;
 }
 
-/* 需先升级时轻提示边框（保留半透明底） */
 .updater-infra-card.is-attention.setting-group--in-grid {
   border-color: color-mix(
     in srgb,
@@ -1495,7 +1465,6 @@ html.dark .updater-infra-card.is-attention.setting-group--in-grid {
   );
 }
 
-/* 有业务/组件可升级时的轻提示 */
 .updater-infra-card.is-update-cue.setting-group--in-grid {
   border-color: color-mix(
     in srgb,

@@ -91,7 +91,8 @@ describe('Tapp project core', () => {
       'utf8',
     )
     assert.match(sdkDts, /export interface TappSdk/)
-    assert.match(sdkDts, /declare const Tapp: TappSdk/)
+    assert.match(sdkDts, /declare global \{/)
+    assert.match(sdkDts, /const Tapp: TappSdk/)
     assert.match(sdkDts, /showNotification/)
     assert.match(sdkDts, /federation/)
   })
@@ -177,7 +178,9 @@ describe('Tapp project core', () => {
         [],
       )
       await access(join(root, 'types/tapp-sdk.d.ts'))
-      await access(join(root, 'jsconfig.json'))
+      const config = JSON.parse(await readFile(join(root, 'jsconfig.json'), 'utf8'))
+      assert.equal(config.compilerOptions.target, 'ES2025')
+      assert.deepEqual(config.compilerOptions.lib, ['ES2025', 'DOM'])
       const core = await readFile(join(root, 'core.js'), 'utf8')
       assert.match(core, /reference path="\.\/types\/tapp-sdk\.d\.ts"/)
     })

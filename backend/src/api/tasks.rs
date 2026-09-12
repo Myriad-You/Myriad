@@ -8,11 +8,12 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use myriad_error::AppError;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-/// Platforms accepted by POST /api/tasks reprocess (must match smart_filter / seeds).
+/// Platforms accepted by POST /api/tasks reprocess (smart_filter ids; seeds use `netease_music`).
 const TASK_SUPPORTED_PLATFORMS: &[&str] = &[
     "netease", "bilibili", "github", "steam", "youtube", "bangumi", "x", "discord", "mal", "xbox",
     "psn",
@@ -58,7 +59,8 @@ pub async fn submit_task(
                 "error": format!(
                     "Invalid platform. Supported: {}",
                     TASK_SUPPORTED_PLATFORMS.join(", ")
-                )
+                ),
+                "code": "invalid_platform",
             })),
         );
     }
@@ -89,7 +91,8 @@ pub async fn submit_task(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({
                 "success": false,
-                "error": err
+                "error": err,
+                "code": "task_submit_failed",
             })),
         ),
     }
@@ -125,10 +128,7 @@ pub async fn get_task_status(
         }
         None => (
             StatusCode::NOT_FOUND,
-            Json(json!({
-                "success": false,
-                "error": "Task not found"
-            })),
+            Json(AppError::fail_json("Task not found")),
         ),
     }
 }
@@ -172,11 +172,11 @@ pub async fn get_platform_task(
     }
 }
 
-/// 列出所有任务
+/// 平台列表提示（不是任务列表）
 ///
 /// GET /api/tasks
 pub async fn list_tasks(State(_db): State<DatabaseConnection>) -> (StatusCode, Json<Value>) {
-    // 由于 BackgroundProcessor 没有提供 list_all 方法，我们暂时返回提示
+    // 本路由返回平台列表提示；按平台查 GET /api/tasks/platform/{platform}。
     (
         StatusCode::OK,
         Json(json!({
@@ -201,7 +201,7 @@ async fn process_platform_task(task_id: String, platform: String) {
         .update_task(task_id, TaskStatus::Processing, 0.0, None)
         .await;
 
-    // 尝试读取分平台的原始数据文件（优先）
+    // 读取分平台原始数据；缺失则失败（无回退源）
     let split_raw_path = crate::services::data_paths::platform_raw_file(platform);
     let mut platform_data_value: Option<Value> = None;
 
@@ -237,7 +237,7 @@ async fn process_platform_task(task_id: String, platform: String) {
 
     let platform_data = platform_data_value.unwrap();
 
-    // 5. 处理并保存
+    // Process and save via SmartFilter.
     BACKGROUND_PROCESSOR
         .update_task(task_id, TaskStatus::Processing, 60.0, None)
         .await;

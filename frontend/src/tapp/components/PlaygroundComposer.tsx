@@ -1,14 +1,3 @@
-/**
- * Tapp Playground 底部控制岛（Composer）
- *
- * 重构后的信息架构，自上而下：
- * - 通知层：错误/警告/成功卡片浮在岛上方，独立卡片、可关闭
- * - 状态带：生成中为紧凑两行（标题+计时 / 阶段字幕），标题带流光扫字；
- *   失败时同构两行 + Retry；完成后显示验证徽标与可展开的 Agent 轨迹
- * - 输入区：多行输入独占一行（composer 范式）
- * - 工具栏：左侧版本导航、历史/会话面板与清空，右侧安装与生成主操作
- */
-
 import type {
   PlaygroundAgentStep,
   PlaygroundKnowledgeSource,
@@ -36,19 +25,13 @@ import { useI18n } from '../../contexts/I18nContext'
 import { isExlight, useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { PlaygroundTraceIcon } from './PlaygroundIcons'
 
-/** Persisted generate failure for status-band + Retry (localStorage via parent) */
 export interface PlaygroundLastFailedAttempt {
   instruction: string
   error: string
   elapsedMs: number
   finishedAt: number
   origin: 'user' | 'runtime-repair'
-  /**
-   * Frozen busy-phase index (plan/retrieve/code/validate) from elapsed time.
-   * Kept for older sessions; prefer `lastStepSummary` when present.
-   */
   phaseIndex?: number
-  /** Latest real agent step summary observed before failure (stream path). */
   lastStepSummary?: string
 }
 
@@ -75,14 +58,9 @@ export interface PlaygroundExamplePrompt {
 }
 
 export interface PlaygroundComposerProps {
-  /** 桌面浮动布局（absolute）或移动端固定布局（fixed） */
   interactive: boolean
   busy: boolean
   busyMode: 'user' | 'runtime-repair'
-  /**
-   * Latest real agent step summary from the generate stream.
-   * When null/empty while busy, a short starting fallback is shown.
-   */
   busyStepSummary?: string | null
   installing: boolean
   exporting?: boolean
@@ -90,9 +68,7 @@ export interface PlaygroundComposerProps {
   instruction: string
   revisionIndex: number
   revisionCount: number
-  /** Current session revision timeline (for history panel) */
   historyRevisions?: PlaygroundHistoryRevisionItem[]
-  /** Multi-session list (newest first) */
   sessions?: PlaygroundSessionSummary[]
   activeSessionId?: string
   error: string
@@ -102,19 +78,13 @@ export interface PlaygroundComposerProps {
   agentTrace?: PlaygroundAgentStep[]
   knowledgeSources?: PlaygroundKnowledgeSource[]
   validation?: PlaygroundValidationReport
-  /** Persisted last failed generate attempt (localStorage via parent) */
   lastFailedAttempt?: PlaygroundLastFailedAttempt | null
-  /** Last successful generation elapsed ms (for status band). */
   lastSuccessElapsedMs?: number | null
-  /** One-click example prompts (empty create state). */
   examplePrompts?: PlaygroundExamplePrompt[]
-  /** Dismissible preview capability note (null/empty = hidden). */
   capabilityNote?: string
-  /** One-shot localStorage prune notice. */
   storageNotice?: string
   onInstructionChange: (value: string) => void
   onSubmit: () => void
-  /** Cancel in-flight generation (shown while busy). */
   onCancel?: () => void
   onInstall: () => void
   onExport?: () => void
@@ -156,6 +126,7 @@ function formatRelativeTime(
     daysAgo: string
   },
   fmt: (template: string, params: Record<string, string | number>) => string,
+  locale: string,
 ): string {
   const diffMs = Date.now() - timestamp
   const diffMin = Math.floor(diffMs / 60000)
@@ -165,20 +136,18 @@ function formatRelativeTime(
   if (diffHour < 24) return fmt(labels.hoursAgo, { n: diffHour })
   const diffDay = Math.floor(diffHour / 24)
   if (diffDay < 7) return fmt(labels.daysAgo, { n: diffDay })
-  return new Date(timestamp).toLocaleDateString(undefined, {
+  return new Date(timestamp).toLocaleDateString(locale, {
     month: 'short',
     day: 'numeric',
   })
 }
 
 function summarizeInstruction(text: string, max = 48): string {
-  const cleaned = text.replace(/\s+/g, ' ').trim()
+  const cleaned = text.replaceAll(/\s+/g, ' ').trim()
   if (!cleaned) return ''
   if (cleaned.length <= max) return cleaned
   return `${cleaned.slice(0, max - 1)}…`
 }
-
-/* 通知卡片 */
 
 function NotificationCard({
   tone,
@@ -236,15 +205,12 @@ function NotificationCard({
   )
 }
 
-/* 控制岛 */
-
 function formatElapsedClock(totalSeconds: number): string {
   return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`
 }
 
-/** Short chip label from a full example prompt (first ~22 chars). */
 function exampleChipLabel(text: string, max = 22): string {
-  const cleaned = text.replace(/\s+/g, ' ').trim()
+  const cleaned = text.replaceAll(/\s+/g, ' ').trim()
   if (cleaned.length <= max) return cleaned
   return `${cleaned.slice(0, max - 1)}…`
 }
@@ -295,7 +261,7 @@ export function PlaygroundComposer({
   onDismissCapabilityNote,
   onDismissStorageNotice,
 }: PlaygroundComposerProps) {
-  const { t, format } = useI18n()
+  const { t, format, locale } = useI18n()
   const animConfig = useAnimationLevel()
   const animationsEnabled = !isExlight(animConfig)
   const springTransition = animConfig.spring
@@ -318,7 +284,6 @@ export function PlaygroundComposer({
     daysAgo: t.tapp.playgroundTimeDaysAgo,
   }
 
-  // 输入框自适应高度
   useEffect(() => {
     const el = textareaRef.current
     if (!el) return
@@ -326,7 +291,6 @@ export function PlaygroundComposer({
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`
   }, [instruction])
 
-  // 生成计时：驱动阶段推进与耗时显示
   const [busyElapsed, setBusyElapsed] = useState(0)
   useEffect(() => {
     if (!busy) {
@@ -340,8 +304,6 @@ export function PlaygroundComposer({
     return () => window.clearInterval(timer)
   }, [busy])
 
-  // Fallback labels for failed runs that only stored a time-based phaseIndex
-  // (or no stream step). Busy UI uses real stream summaries, not these.
   const phases = [
     { label: t.tapp.playgroundPhasePlan, desc: t.tapp.playgroundPhasePlanDesc },
     {
@@ -391,12 +353,10 @@ export function PlaygroundComposer({
     phases[failedPhaseIndex]?.label ||
     ''
 
-  // Collapse open detail when a new failure arrives so users see the error
   useEffect(() => {
     if (lastFailedAttempt) setFailedDetailOpen(true)
   }, [lastFailedAttempt?.finishedAt])
 
-  // Close history panel on outside click / Escape
   useEffect(() => {
     if (!historyOpen) return
     const onPointerDown = (event: MouseEvent) => {
@@ -448,8 +408,7 @@ export function PlaygroundComposer({
     onDeleteSession(sessionId)
   }
 
-  const orderedRevisions = [...historyRevisions].reverse()
-  // Modification chain: chronological user→agent turns (oldest first) + failed tail
+  const orderedRevisions = historyRevisions.toReversed()
   const memoryChain = historyRevisions
 
   return (
@@ -463,7 +422,6 @@ export function PlaygroundComposer({
           : 'fixed bottom-3 inset-x-3'
       }`}
     >
-      {/* ---------- 通知层：浮在岛上方的独立卡片 ---------- */}
       <div className="mb-2 space-y-1.5 max-h-48 overflow-y-auto">
         <AnimatePresence initial={false}>
           {error && (
@@ -530,9 +488,7 @@ export function PlaygroundComposer({
         </AnimatePresence>
       </div>
 
-      {/* ---------- 岛本体 ---------- */}
       <div className="relative">
-        {/* 生成中环绕岛的旋转光晕 */}
         <AnimatePresence>
           {busy && animationsEnabled && (
             <motion.div
@@ -550,7 +506,6 @@ export function PlaygroundComposer({
           ref={historyPanelRef}
           className="relative rounded-[1.6rem] glass-surface glass-90 shadow-2xl ring-1 ring-black/5 dark:ring-white/10 overflow-hidden"
         >
-          {/* ---------- 历史 / 会话面板 ---------- */}
           <AnimatePresence initial={false}>
             {historyOpen && (
               <motion.div
@@ -664,10 +619,10 @@ export function PlaygroundComposer({
                                       rev.createdAt,
                                       relativeLabels,
                                       format,
+                                      locale,
                                     )}
                                   </span>
                                 </div>
-                                {/* User / manual turn */}
                                 <button
                                   type="button"
                                   disabled={busy}
@@ -689,7 +644,6 @@ export function PlaygroundComposer({
                                     {rev.instruction.trim() || '—'}
                                   </p>
                                 </button>
-                                {/* Agent turn (skip for pure manual edits — explanation is the edit note) */}
                                 {rev.origin === 'manual' ? (
                                   <div className="rounded-xl px-2.5 py-2 bg-black/[0.02] dark:bg-white/[0.03]">
                                     <p
@@ -735,6 +689,7 @@ export function PlaygroundComposer({
                                     lastFailedAttempt.finishedAt,
                                     relativeLabels,
                                     format,
+                                    locale,
                                   )}
                                 </span>
                               </div>
@@ -849,6 +804,7 @@ export function PlaygroundComposer({
                                         rev.createdAt,
                                         relativeLabels,
                                         format,
+                                        locale,
                                       )}
                                     </span>
                                   </div>
@@ -890,6 +846,7 @@ export function PlaygroundComposer({
                                 lastFailedAttempt.finishedAt,
                                 relativeLabels,
                                 format,
+                                locale,
                               )}
                             </span>
                           </div>
@@ -991,6 +948,7 @@ export function PlaygroundComposer({
                                         sess.updatedAt,
                                         relativeLabels,
                                         format,
+                                        locale,
                                       )}
                                     </span>
                                     <span>·</span>
@@ -1036,7 +994,6 @@ export function PlaygroundComposer({
             )}
           </AnimatePresence>
 
-          {/* ---------- 状态带 ---------- */}
           <AnimatePresence initial={false}>
             {busy ? (
               <motion.div
@@ -1048,7 +1005,6 @@ export function PlaygroundComposer({
                 className="overflow-hidden"
               >
                 <div className="px-4 pt-3 pb-2.5 border-b border-black/5 dark:border-white/5">
-                  {/* Line 1: shimmer title · elapsed */}
                   <div className="flex items-center gap-2">
                     <span
                       className={`text-xs font-semibold truncate playground-text-shimmer${
@@ -1067,7 +1023,6 @@ export function PlaygroundComposer({
                     </span>
                   </div>
 
-                  {/* Line 2: latest real agent step (stream), still 2-line UI */}
                   <div className="mt-1.5 relative min-h-[1.25rem] overflow-hidden">
                     <AnimatePresence mode="wait" initial={false}>
                       <motion.p
@@ -1102,7 +1057,6 @@ export function PlaygroundComposer({
                 className="overflow-hidden"
               >
                 <div className="border-b border-black/5 dark:border-white/5 px-4 pt-3 pb-2.5">
-                  {/* Line 1: failed title + elapsed · Retry */}
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
@@ -1158,7 +1112,6 @@ export function PlaygroundComposer({
                     )}
                   </div>
 
-                  {/* Line 2: failed phase / one-line error summary (expand for full multi-line detail) */}
                   <button
                     type="button"
                     onClick={() => setFailedDetailOpen((open) => !open)}
@@ -1296,7 +1249,6 @@ export function PlaygroundComposer({
                         className="overflow-hidden"
                       >
                         <div className="px-4 pb-3 max-h-44 overflow-y-auto">
-                          {/* 垂直时间线 */}
                           <div className="relative pl-3.5">
                             <span
                               className="absolute left-[3px] top-1.5 bottom-1.5 w-px"
@@ -1376,7 +1328,6 @@ export function PlaygroundComposer({
             ) : null}
           </AnimatePresence>
 
-          {/* ---------- 输入区 ---------- */}
           <div className="px-4 pt-3" data-tour="tapp-playground-prompt">
             <textarea
               ref={textareaRef}
@@ -1400,7 +1351,6 @@ export function PlaygroundComposer({
               maxLength={32680}
             />
 
-            {/* Example prompt chips — create / empty instruction only */}
             {!hasProject &&
               !busy &&
               !instruction.trim() &&
@@ -1437,7 +1387,6 @@ export function PlaygroundComposer({
               )}
           </div>
 
-          {/* ---------- 工具栏 ---------- */}
           <div className="flex items-center gap-1.5 px-2.5 pb-2.5 pt-1">
             {revisionCount > 0 && (
               <div
@@ -1503,7 +1452,6 @@ export function PlaygroundComposer({
               </button>
             )}
 
-            {/* 提示语：空闲时成本/耗时 + 快捷键；生成时耐心提示 */}
             <span
               className="hidden md:block flex-1 min-w-0 truncate text-right pr-1 text-[10px] text-gray-400 dark:text-gray-500"
               title={

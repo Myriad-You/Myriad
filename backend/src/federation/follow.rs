@@ -1,4 +1,4 @@
-//! 联邦关注管理（Layer 2）
+//! 联邦关注管理
 //!
 //! 本地用户发起关注远程 Actor、取消关注等操作
 
@@ -42,7 +42,9 @@ pub async fn follow_remote(
     if same_actor_url(&target_url, &local_actor) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Cannot follow your own federation actor"})),
+            Json(AppError::public_json(
+                "Cannot follow your own federation actor",
+            )),
         ));
     }
 
@@ -72,10 +74,9 @@ pub async fn follow_remote(
     if let Some(row) = existing {
         let status: String = row.try_get("", "status").unwrap_or_default();
         if status == "accepted" || status == "pending" {
-            return Err((
-                StatusCode::CONFLICT,
-                Json(json!({"error": "Already following or pending", "status": status})),
-            ));
+            let mut body = AppError::conflict("Already following or pending").to_json();
+            body["status"] = json!(status);
+            return Err((StatusCode::CONFLICT, Json(body)));
         }
     }
 
@@ -280,7 +281,7 @@ pub async fn unfollow_remote(
             .ok_or_else(|| {
                 (
                     StatusCode::NOT_FOUND,
-                    Json(json!({"error": "Follow relationship not found"})),
+                    Json(AppError::public_json("Follow relationship not found")),
                 )
             })?,
     };
@@ -391,7 +392,7 @@ pub async fn resolve_actor_reference(
     if trimmed.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Actor reference is required"})),
+            Json(AppError::public_json("Actor reference is required")),
         ));
     }
 
@@ -411,7 +412,6 @@ pub async fn resolve_actor_reference(
 /// HTTPS 优先。本地联邦 lab（`MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND=1`）下实例
 /// 通常只监听明文 HTTP，因此再回退一次 `http://`——否则 handle 输入会在 TLS
 /// 握手阶段失败并被映射成 502，而同一 Actor 的 profile URL（自带 scheme）却能用。
-/// 与 [`room::members::fetch_remote_public_room`] 的 scheme 回退保持一致。
 async fn resolve_acct_to_url(acct: &str) -> Result<String, (StatusCode, Json<serde_json::Value>)> {
     let candidates = build_webfinger_url_candidates(acct)?;
     let mut last_err: Option<(StatusCode, Json<serde_json::Value>)> = None;
@@ -435,7 +435,7 @@ async fn resolve_acct_to_url(acct: &str) -> Result<String, (StatusCode, Json<ser
     Err(last_err.unwrap_or_else(|| {
         (
             StatusCode::BAD_GATEWAY,
-            Json(json!({"error": "WebFinger lookup failed"})),
+            Json(AppError::public_json("WebFinger lookup failed")),
         )
     }))
 }
@@ -464,7 +464,7 @@ async fn webfinger_lookup_once(
     if is_internal_url(webfinger_url) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Cannot resolve internal domains"})),
+            Json(AppError::public_json("Cannot resolve internal domains")),
         ));
     }
 
@@ -477,7 +477,7 @@ async fn webfinger_lookup_once(
     .map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Cannot resolve unsafe domains"})),
+            Json(AppError::public_json("Cannot resolve unsafe domains")),
         )
     })?;
 
@@ -505,9 +505,7 @@ async fn webfinger_lookup_once(
 
     let status = resp.status();
     if !status.is_success() {
-        // 404/410 是「那个实例上没有这个账号」，不是网关故障。以前一律 502，
-        // 用户看到的是含糊的 Bad Gateway，而真正该说的是「handle 拼错了 / 对方
-        // 实例不认这个账号」。其余非 2xx 仍然算上游异常。
+        // 404/410：对端没有这个账号 → 本端 404。其余非 2xx 仍是上游异常 → 502。
         let mapped = if matches!(status, StatusCode::NOT_FOUND | StatusCode::GONE) {
             StatusCode::NOT_FOUND
         } else {
@@ -541,7 +539,9 @@ async fn webfinger_lookup_once(
         .map_err(|_| {
             (
                 StatusCode::BAD_GATEWAY,
-                Json(json!({"error": "WebFinger response too large or unreadable"})),
+                Json(AppError::public_json(
+                    "WebFinger response too large or unreadable",
+                )),
             )
         })?;
     let wf: serde_json::Value = serde_json::from_slice(&body).map_err(|_| {
@@ -598,7 +598,7 @@ fn build_webfinger_url(acct: &str) -> Result<String, (StatusCode, Json<serde_jso
     if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Invalid acct format"})),
+            Json(AppError::public_json("Invalid acct format")),
         ));
     }
 
@@ -612,7 +612,7 @@ fn build_webfinger_url(acct: &str) -> Result<String, (StatusCode, Json<serde_jso
     {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Invalid acct domain"})),
+            Json(AppError::public_json("Invalid acct domain")),
         ));
     }
 
@@ -625,7 +625,7 @@ fn build_webfinger_url(acct: &str) -> Result<String, (StatusCode, Json<serde_jso
     .map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
-            Json(json!({"error": "Invalid acct domain"})),
+            Json(AppError::public_json("Invalid acct domain")),
         )
     })
 }
@@ -766,3 +766,4 @@ mod tests {
         assert!(url.contains("acct%3Abob%40remote.example"));
     }
 }
+use myriad_error::AppError;

@@ -12,7 +12,6 @@ const DEFAULT_DIZZY_TINT: Readonly<RgbColor> = {
   blue: 72,
 }
 
-/** Fit generated / undersized spirals to the longer eyewhite span. */
 export const DIZZY_EYE_FIT = 0.92
 export const DIZZY_EYE_MIN_SIZE = 18
 export const DIZZY_EYE_MAX_SIZE = 192
@@ -48,7 +47,6 @@ export function dizzyEyeDisplayScale(
   )
 }
 
-/** Matches Anime2.5DRig's dark-weighted tint sampling for generated diffs. */
 export function sampleDizzyEyeTint(
   rgba: Uint8ClampedArray | undefined,
 ): RgbColor {

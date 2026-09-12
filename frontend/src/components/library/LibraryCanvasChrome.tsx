@@ -109,7 +109,6 @@ interface LibraryCanvasChromeProps {
   atMinZoom: boolean
   dismissHintLabel: string
   hint: string
-  /** Shorter touch-first copy; falls back to `hint` when omitted. */
   mobileHint?: string
   isDefault: boolean
   onReset: () => void
@@ -135,8 +134,6 @@ export function LibraryCanvasChrome({
   zoomOutLabel,
   zoomPercent,
 }: LibraryCanvasChromeProps) {
-  // null until we read sessionStorage — avoids a false flash of dismissed state
-  // and ensures the first paint can still show the tip on fresh sessions.
   const [showHint, setShowHint] = useState<boolean | null>(null)
   const navLayout = useSyncExternalStore(
     subscribeNavLayout,
@@ -146,7 +143,7 @@ export function LibraryCanvasChrome({
   const isMobile = navLayout === 'mobile'
 
   useEffect(() => {
-    // Mobile: never show the top pan/zoom tip (chrome is self-explanatory).
+    // 移动端不要显示顶部平移/缩放提示。
     if (isMobile) {
       setShowHint(false)
       return
@@ -165,7 +162,6 @@ export function LibraryCanvasChrome({
     try {
       window.sessionStorage.setItem(CANVAS_HINT_SESSION_KEY, '1')
     } catch {
-      // Dismiss locally even when session storage is unavailable.
     }
   }, [])
 
@@ -174,8 +170,6 @@ export function LibraryCanvasChrome({
   const hintText =
     isMobile && mobileHint && mobileHint.trim().length > 0 ? mobileHint : hint
 
-  // Portal out of the z-0 canvas surface so chrome isn't trapped under host
-  // nav (z-50) / GCP stacking, and isn't covered by the transformed card world.
   return createPortal(
     <>
       {showHint === true && !isMobile && (
@@ -221,8 +215,6 @@ export function LibraryCanvasChrome({
         style={
           isMobile
             ? {
-                // Right rail: optical middle of the usable canvas, not the full
-                // viewport. Bottom nav (~5.75rem) + safe-area pull visual center up.
                 top: 'calc((100dvh - env(safe-area-inset-bottom, 0px) - 5.75rem + env(safe-area-inset-top, 0px)) / 2)',
                 right: 'max(0.75rem, env(safe-area-inset-right, 0px))',
                 transform: 'translateY(-50%)',
@@ -318,7 +310,6 @@ export function LibraryCanvasChrome({
               strokeLinejoin="round"
             />
           </svg>
-          {/* Mobile: icon-only reset; desktop keeps the label. */}
           {!isMobile && <span>{resetLabel}</span>}
         </button>
       </div>
@@ -337,7 +328,7 @@ interface LibraryCanvasChromePaint {
 let chromePaint: LibraryCanvasChromePaint | null = null
 
 function readLibraryCanvasChromePaint(): LibraryCanvasChromePaint | null {
-  if (chromePaint && chromePaint.zoomLabel.isConnected) return chromePaint
+  if (chromePaint?.zoomLabel.isConnected) return chromePaint
   const zoomLabel = document.querySelector<HTMLElement>(
     '[data-library-canvas-zoom-percent]',
   )

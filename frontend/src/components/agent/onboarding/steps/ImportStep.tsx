@@ -29,10 +29,8 @@ interface Props {
 }
 
 /**
- * 现成的人设 + 现成的主立绘，一次落地。
- *
- * 上传主图走 `upload_portrait`。收尾时按这张图读出视觉特征写进
- * `visualIdentity`，不沿用生成链的旧视觉设定。后面去动作工作台分层。
+ * 现成人设 + 主立绘一次落地。
+ * 主图走 upload_portrait；收尾按这张图写 visualIdentity，不沿用生成链视觉设定。
  */
 export default function ImportStep({
   displayName,
@@ -51,9 +49,7 @@ export default function ImportStep({
   const o = t.agentPersona.onboarding
   const [error, setError] = useState('')
 
-  // 不报 onBack：页面壳会问 previousOnboardingStep，导入的上一页就是分岔口。
-  // 自己接这一手会盖掉那个判定——它曾经指向生成链第一页（分岔口还不存在时
-  // 导入确实是从那儿岔出去的），加了分岔口之后就成了「返回跑去词条页」。
+  // 不报 onBack：壳走 previousOnboardingStep，上一页是分岔口。自己接会盖掉。
   useLayoutEffect(() => {
     onHeaderChange({ description: o.importLead })
   }, [o.importLead, onHeaderChange])

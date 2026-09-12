@@ -1,5 +1,3 @@
-/** Small presentational controls used across the store surface. */
-
 import type { MouseEvent, ReactNode } from 'react'
 import {
   AnimatePresenceShim as AnimatePresence,
@@ -8,7 +6,6 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { isExlight, useAnimationLevel } from '../../../hooks/useAnimationLevel'
 
-/** App Store 风格分类芯片 */
 export function CategoryPill({
   active,
   label,
@@ -31,7 +28,6 @@ export function CategoryPill({
   )
 }
 
-/** Stable key for label swap animation (string | number | fallback). */
 function labelKey(label: ReactNode, kind: string): string {
   if (typeof label === 'string' || typeof label === 'number') {
     return `${kind}:${label}`
@@ -39,7 +35,6 @@ function labelKey(label: ReactNode, kind: string): string {
   return kind
 }
 
-/** 获取 / 打开 / 更新 胶囊按钮 — kind / 文案切换带轻量 swap */
 export function StoreGetButton({
   kind,
   label,
@@ -70,7 +65,6 @@ export function StoreGetButton({
   )
 }
 
-/** Progress percent with a smaller `%` so the digits stay readable. */
 export function ProgressPercent({
   value,
   className = '',
@@ -86,13 +80,8 @@ export function ProgressPercent({
   )
 }
 
-/** Match detail hero + list rows (ms). */
 const SUBTITLE_ROTATE_MS = 3200
 
-/**
- * Shared tick for list rows so N cards don't each open an interval.
- * Detail page keeps a local timer (single instance).
- */
 let sharedSubtitleTick = 0
 const sharedSubtitleListeners = new Set<() => void>()
 let sharedSubtitleIntervalId: ReturnType<typeof setInterval> | null = null
@@ -126,12 +115,7 @@ function uniqueSubtitleLines(lines: string[]): string[] {
 
 export interface RotatingSubtitleProps {
   lines: string[]
-  /** Stagger phase when using sharedClock (list rows). */
   phaseOffset?: number
-  /**
-   * One module-level interval for many instances (store list).
-   * Default false = own interval (detail hero).
-   */
   sharedClock?: boolean
   className?: string
   viewportClassName?: string
@@ -139,10 +123,6 @@ export interface RotatingSubtitleProps {
   as?: 'p' | 'div'
 }
 
-/**
- * Cross-fade rotating subtitle (motion AnimatePresence).
- * Used by detail hero and store list rows.
- */
 export function RotatingSubtitle({
   lines,
   phaseOffset = 0,
@@ -212,7 +192,6 @@ export function RotatingSubtitle({
   )
 }
 
-/** Detail hero: category ↔ author. */
 export function RotatingDetailSubtitle({ lines }: { lines: string[] }) {
   return <RotatingSubtitle lines={lines} />
 }

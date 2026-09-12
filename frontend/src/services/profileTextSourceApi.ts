@@ -1,15 +1,3 @@
-/**
- * 名称/简介文案来源 API 客户端（与画像源独立）。
- *
- * - GET /api/users/me/profile-text-sources
- * - PUT /api/users/me/profile-text-source
- * - GET /api/admin/users/{id}/profile-text-sources
- * - PUT /api/admin/users/{id}/profile-text-source
- *
- * 切换成功后广播 `notifyProfileDisplayChanged()`，首页信息条 / 控制面板
- * 站长条会强制刷新 name/bio（不改 avatar 来源）。
- */
-
 import apiService from './api'
 import { notifyProfileDisplayChanged } from './profileDisplayEvents'
 
@@ -63,11 +51,7 @@ export const profileTextSourceApi = {
     )
   },
 
-  /**
-   * Admin: set name/bio source for another user.
-   * Only broadcast global refresh when the target is the viewer or site owner —
-   * editing a random user must not flash the homepage owner card.
-   */
+  /** Broadcast only for viewer or site owner. */
   async setForUser(
     userId: number,
     kind: ProfileTextSourceKind,

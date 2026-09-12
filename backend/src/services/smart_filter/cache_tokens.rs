@@ -1,4 +1,4 @@
-// SmartFilter cache load/save and token estimation.
+// SmartFilter cache load/save, Bangumi/MAL labels, preprocess, Xbox/PSN URL rewrite, token estimate.
 
 use crate::services::data_paths::platform_filtered_file;
 use serde_json::Value;
@@ -31,7 +31,7 @@ impl SmartFilter {
         }
     }
 
-    /// 将 MAL list_status 映射为与 Bangumi 一致的 done/doing/wish 标签
+    /// MAL list_status → done/doing/wish/on_hold/dropped/unknown (Bangumi-aligned).
     pub(crate) fn mal_status_label(status: &str) -> &'static str {
         match status {
             "completed" => "done",
@@ -50,11 +50,7 @@ impl SmartFilter {
         json_str.len() / 4
     }
 
-    /// 处理单个平台数据并保存到独立缓存文件
-    /// 优势：
-    /// - 只处理需要的平台
-    /// - 独立文件缓存，避免大文件读写
-    /// - 支持并发处理不同平台
+    /// Filter one platform and write `{platform}_filtered.json` (sync, one platform).
     pub fn process_and_save_single(
         platform: &str,
         platform_data: &Value,
@@ -111,7 +107,7 @@ impl SmartFilter {
                     }
                 }
 
-                // 适配: games -> owned_games.games
+                // games → owned_games.games and recently_played.games
                 if let Some(games) = data.get("games") {
                     if let Some(obj) = processed.as_object_mut() {
                         obj.insert(
@@ -141,13 +137,13 @@ impl SmartFilter {
                 // GitHub 数据通常不需要特殊预处理
             }
             "youtube" => {
-                // YouTube 数据已按 { channel, videos, playlist_items } 保存
+                // YouTube: { channel, uploads_playlist_id, playlist_items, videos }
             }
             "bangumi" => {
                 // Bangumi 数据已按 { user, collections } 保存，不需要特殊预处理
             }
             "x" => {
-                // X 数据已按 { user, tweets } 保存（Intent 分享，不拉 likes）
+                // X: { user, tweets, following }
             }
             "discord" => {
                 // Discord 数据已按 { user, guilds, connections, myriad_cross_refs? } 保存

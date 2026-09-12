@@ -133,8 +133,7 @@ pub fn backend_action_permissions(
 }
 
 /// Validate delayed backend actions against the installed Manifest contract.
-/// Permissions alone are insufficient: AI execution must also be declared in
-/// manifest.ai so every entry path uses the same declared operation/model boundary.
+/// Only `AiGenerate` also requires `manifest.ai` (generate + text, protocolVersion 2).
 pub fn validate_backend_action_declarations(
     manifest: &serde_json::Value,
     actions: &Option<serde_json::Value>,
@@ -198,7 +197,7 @@ pub struct TaskExecutionContext {
     pub tapp_id: String,
     /// 注册任务的用户 ID
     pub user_id: i32,
-    /// 任务作用域: user, tapp, global
+    /// 任务作用域: user, tapp, tapp-per-user, global
     pub scope: String,
     pub scheduled_at: String,
     pub executed_at: String,
@@ -216,7 +215,7 @@ pub struct FrontendTaskMessage {
     pub payload: Option<serde_json::Value>,
     pub scheduled_at: String,
     pub execution_id: i32,
-    /// 目标用户列表（空表示广播给所有该 Tapp 的用户）
+    /// `None` = 广播（入队时再过滤）；`Some(vec![])` 不投递给任何人
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target_users: Option<Vec<i32>>,
 }

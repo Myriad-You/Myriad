@@ -1,9 +1,3 @@
-/**
- * 把执行引擎那份重消息收成界面要的形状。
- *
- * 流式时通常只有最后一条在变：前面的行沿用 store 里的对象，少一次整列投影。
- */
-
 import type { AgentMessage } from './agentMessages'
 import type { ChatMessage } from './engineTypes'
 import { getAgentMessagesSnapshot, setAgentMessages } from './agentMessages'
@@ -15,7 +9,7 @@ import {
 
 function projectState(message: ChatMessage): AgentMessage['state'] {
   if (message.taskExecution?.status === 'error') return 'error'
-  // waiting 是在等你答，不是还在说 —— 跟 streaming 会在问句后面拖一条光标。
+  // waiting is not streaming — that would draw a cursor after the question
   if (
     message.taskExecution?.status === 'processing' ||
     message.taskExecution?.status === 'cancelling'
@@ -56,16 +50,8 @@ function projectSteps(message: ChatMessage): AgentMessage['steps'] {
   return undefined
 }
 
-/** 终态进度句，不是思考过程。 */
 const TERMINAL_STATUS = /^(完成|The task finished|Processing failed)$/i
 
-/**
- * 气泡里那一段「它怎么想到的」。
- *
- * 正文是答。思考过程优先用 Planner 的 reasoning；还没到决策时，退到进度句
- * （「正在理解你的请求...」）。跟正文重复的快照丢掉 —— announce_plan 流进
- * 正文时 statusMessage 会跟 content 撞车，那不是过程。
- */
 export function workOfferFromData(
   data: unknown,
 ): { input: string } | undefined {
@@ -155,9 +141,8 @@ function prefixIdsMatch(
   chats: readonly ChatMessage[],
 ): boolean {
   if (prev.length !== chats.length || prev.length === 0) return false
-  const last = chats.length - 1
-  if (prev[last]?.id !== chats[last]?.id) return false
-  for (let i = 0; i < last; i += 1) {
+  if (prev.at(-1)?.id !== chats.at(-1)?.id) return false
+  for (let i = 0; i < chats.length - 1; i += 1) {
     if (prev[i]?.id !== chats[i]?.id) return false
   }
   return true
@@ -166,7 +151,7 @@ function prefixIdsMatch(
 export function syncProjectedMessages(chats: readonly ChatMessage[]): void {
   const prev = getAgentMessagesSnapshot()
   if (prefixIdsMatch(prev, chats)) {
-    const last = chats[chats.length - 1]
+    const last = chats.at(-1)
     if (!last) {
       setAgentMessages([])
       return

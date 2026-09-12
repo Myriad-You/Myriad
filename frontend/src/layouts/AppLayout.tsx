@@ -1,8 +1,3 @@
-/**
- * React 版主布局组件
- * 包含导航栏、背景、全局控制面板
- */
-
 import {
   lazy,
   Suspense,
@@ -58,7 +53,6 @@ import {
 import { wallpaperState } from '../utils/wallpaperState'
 import './AppLayout.css'
 
-// 懒加载设置弹窗 — 1769 行的 SocialNetworkWidget 延迟到需要时才加载
 const SocialNetworkSettingsModal = lazy(() =>
   import('../components/widgets/SocialNetworkWidget').then((m) => ({
     default: m.SocialNetworkSettingsModal,
@@ -84,12 +78,17 @@ interface AppLayoutProps {
   children: React.ReactNode
 }
 
+/** Scroll start/stop state belongs here; the layout only needs its DOM effects. */
+function PageScrollEffects() {
+  useScrollOptimization({ enabled: true })
+  return null
+}
+
 export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation()
   const { t } = useI18n()
   const [backendConnected, setBackendConnected] = useState<boolean | null>(null)
   const [hasEverConnected, setHasEverConnected] = useState(false)
-  // ℹ 性能优化: 移动端/低端设备禁用背景动画
   const anim = useAnimationLevel()
   const [libraryCanvasActive, setLibraryCanvasActive] = useState(false)
 
@@ -127,14 +126,10 @@ export function AppLayout({ children }: AppLayoutProps) {
   // OAuth account-link success/error query → toast + clean URL
   useAuthUrlFeedback()
 
-  // 站点访客埋点（pathname 变化时上报）
   usePageViewTracker()
 
-  // 帧率优化：启用滚动优化和 FPS 监控
-  useScrollOptimization({ enabled: true })
   useSystemSetupCheck()
 
-  // 启动/停止 FPS 监控
   useEffect(() => {
     startFpsMonitor()
     return () => stopFpsMonitor()
@@ -145,10 +140,8 @@ export function AppLayout({ children }: AppLayoutProps) {
     ensureCfgAccentSync()
   }, [])
 
-  // 壁纸管理 Hook
   const { loadWallpaper: loadWallpaperFromHook } = useWallpaper()
 
-  // Evocative 壁纸动效配置状态（合并为单一对象，减少 hook 开销）
   const [evocativeConfig, setEvocativeConfig] = useState({
     parallax: true,
     dynamicBlur: false,
@@ -158,8 +151,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     blur: 3,
   })
 
-  // Evocative 壁纸动效统一 Hook
-  // 仅 exlight / prefers-reduced-motion 强制关；light 档仍尊重用户开关
+  // 仅 exlight 或资料库 canvas 强制关；light 档仍尊重用户开关。
   const evocativeForceOff = isExlight(anim) || libraryCanvasActive
   useEvocativeWallpaper('wallpaper', {
     parallax: {
@@ -191,18 +183,15 @@ export function AppLayout({ children }: AppLayoutProps) {
         : evocativeConfig.rippleQuality,
   })
 
-  // 壁纸颜色提取 —— 缓存 → 验证 → 提取 → 应用
   const extractAndApplyColors = useCallback(async (url: string) => {
     if (!wallpaperState.isUrlActive(url)) return
 
-    // 先检查缓存
     const cachedColors = getColorFromCache(url)
     if (cachedColors) {
       if (wallpaperState.isUrlActive(url)) applyColorPalette(cachedColors)
       return
     }
 
-    // 检查是否为有效壁纸（包含一致性验证）
     const checkResult = await shouldApplyColorExtraction(url)
     if (!checkResult.shouldApply) return
 
@@ -219,12 +208,11 @@ export function AppLayout({ children }: AppLayoutProps) {
     }
   }, [])
 
-  // 加载壁纸和颜色（使用 Hook）
   const loadWallpaper = useCallback(async () => {
     const wallpaperResult = await loadWallpaperFromHook()
     if (!wallpaperResult) return
 
-    // 更新 Evocative 动效配置（与壁纸图是否加载成功解耦）
+    // Evocative 配置与壁纸图是否加载成功解耦
     const ev = wallpaperResult.evocative
     setEvocativeConfig({
       parallax: ev?.parallax ?? true,
@@ -240,13 +228,12 @@ export function AppLayout({ children }: AppLayoutProps) {
     }
   }, [loadWallpaperFromHook, extractAndApplyColors])
 
-  // 检查后端连接状态 - 使用 useIdleInterval 降低主线程占用
   const checkBackendRef = useRef<() => Promise<void>>(undefined)
   checkBackendRef.current = async () => {
     try {
       const response = await fetch(`${API_URL}/health`, {
         method: 'GET',
-        signal: AbortSignal.timeout(5000), // 5秒超时
+        signal: AbortSignal.timeout(5000),
       })
       setBackendConnected(response.ok)
       if (response.ok) {
@@ -257,7 +244,6 @@ export function AppLayout({ children }: AppLayoutProps) {
     }
   }
 
-  // 首次检查延迟到主线程空闲时执行
   useIdleEffect(
     () => {
       checkBackendRef.current?.()
@@ -266,7 +252,6 @@ export function AppLayout({ children }: AppLayoutProps) {
     { priority: 'high' },
   )
 
-  // 每30秒检查一次，页面隐藏时自动暂停
   useVisibilityInterval(
     () => {
       checkBackendRef.current?.()
@@ -274,11 +259,9 @@ export function AppLayout({ children }: AppLayoutProps) {
     { delay: 30000, enabled: true },
   )
 
-  // 初始化：加载壁纸（仅首次挂载执行）
   // 先挂上呼吸占位，等图片预加载完成后再渐显壁纸（见 useWallpaper.applyWallpaperToDOM）
   const hasInitializedRef = useRef(false)
   useEffect(() => {
-    // 防止重复初始化
     if (hasInitializedRef.current) return
     hasInitializedRef.current = true
 
@@ -302,10 +285,8 @@ export function AppLayout({ children }: AppLayoutProps) {
         console.error('[AppLayout] Wallpaper load failed:', error)
       }
     })()
-    // 认证检查现在由 AuthContext 管理，按需触发
   }, [])
 
-  // 监听壁纸变化事件（由 GlobalControlPanel 触发）
   useEffect(() => {
     const handleWallpaperChanged = async (e: Event) => {
       const newUrl = (e as CustomEvent).detail?.url
@@ -338,16 +319,14 @@ export function AppLayout({ children }: AppLayoutProps) {
     }
   }, [loadWallpaper])
 
-  // 导航岛自动隐藏
   useNavAutoHide()
 
   return (
     <>
-      {/* 表面主题应用器：全站写入 html[data-surface]，渲染 null */}
+      <PageScrollEffects />
       <SurfaceThemeApplier />
 
-      {/* 全局控制面板
-          relative z-9999：把 GCP 整棵子树抬到 host chrome 顶层 stacking context，
+      {/* relative z-9999：GCP 整棵子树抬到 host chrome 顶层 stacking context，
           避免 main(z-10) 内全屏 TApp / fixed iframe 在移动端合成层上盖住面板 */}
       <div id="global-control-panel-root" className="relative z-9999">
         <GlobalControlPanel />
@@ -355,7 +334,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
       {/* 背景层叠（勿给 #wallpaper 设 z-index，否则会盖住涟漪 canvas 与 #bg-gradient 底部遮罩）：
           呼吸占位 → 壁纸 → 涟漪(JS insert) → 底部渐变遮罩 → 网格
-          wallpaper-awaiting 仅由 useWallpaper JS 切换，不要写死在 className（避免 re-render 盖掉） */}
+          wallpaper-awaiting 只走 JS classList（此处首挂 + useWallpaper.apply），不要写死在 React className。 */}
       <div
         id="bg-container"
         className="fixed inset-0 -z-10 h-lvh min-h-lvh w-full min-w-full overflow-hidden"
@@ -379,25 +358,15 @@ export function AppLayout({ children }: AppLayoutProps) {
         )}
       </div>
 
-      {/* 导航栏 - 使用新的 NavigationIsland 组件 */}
       <NavigationIsland />
 
-      {/*
-        屏幕角落提示容器 - 统一管理所有固定提示，确保不重叠
-
-        使用说明：
-        1. 所有需要显示在屏幕角落的提示都应该添加到这个容器内
-        2. 容器使用 flex-col gap-3 自动堆叠提示
-        3. 父容器 pointer-events-none，子元素需要 pointer-events-auto
-        4. 响应式定位已配置好，自动避开导航岛
-      */}
+      {/* 父容器 pointer-events-none，子元素需要 pointer-events-auto */}
       <div
         className="fixed z-100 pointer-events-none
         bottom-6 left-6
         md:bottom-6 md:left-30
         flex flex-col gap-3 max-w-xs"
       >
-        {/* 后端未连接提示 - 只在曾经连接过但现在断开时显示 */}
         {backendConnected === false && hasEverConnected && (
           <div className="pointer-events-auto animate-fade-in">
             <div className="glass rounded-xl px-4 py-3 border border-red-200/50 dark:border-red-800/50">
@@ -419,14 +388,11 @@ export function AppLayout({ children }: AppLayoutProps) {
         )}
       </div>
 
-      {/* 全局 Toast 通知 */}
       <ToastContainer />
       <TourOverlay />
 
-      {/* 主内容区域 */}
       <main className="relative z-10">{children}</main>
 
-      {/* 全局设置弹窗 - 懒加载，整个应用只渲染一次 */}
       <Suspense fallback={null}>
         <SocialNetworkSettingsModal />
         <ReportCardSettingsModal />
@@ -435,7 +401,6 @@ export function AppLayout({ children }: AppLayoutProps) {
       </Suspense>
 
       <TourHint />
-      {/* 站点底部信息 */}
       <SiteFooter isHomePage={location.pathname === '/'} />
     </>
   )

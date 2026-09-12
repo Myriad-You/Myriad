@@ -11,11 +11,79 @@ use sha2::{Digest, Sha256};
 
 use super::{chat_prompt, consciousness as event, merope::chat_remember as memory};
 
-const SOUL: &str = "你的名字是小灯，性格好奇、直率，和用户自然地聊天。";
+const SOUL: &str =
+    "Your name is 小灯. You are curious and direct, and you chat naturally with the user.";
+
+/// Shared acceptance loader. Credentials stay in the host; every connection is read-only.
+pub(super) async fn load_configured_lite() -> sea_orm::DatabaseConnection {
+    use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseBackend, Statement};
+    dotenvy::dotenv().ok();
+    // Do not let the key loader create a new key while doing read-only acceptance.
+    let data_root = std::env::var("DATA_DIR").unwrap_or_else(|_| "data".into());
+    assert!(
+        std::env::var("MYRIAD_DATA_KEY").is_ok()
+            || std::path::Path::new(&data_root)
+                .join(".secret-key")
+                .is_file(),
+        "an existing host data key is required"
+    );
+    let url = std::env::var("DATABASE_URL").expect("host DATABASE_URL required");
+    let mut url = url::Url::parse(&url).unwrap_or_else(|_| panic!("invalid host database URL"));
+    // Every connection is read-only, including reconnects. No startup/migrations,
+    // memory recall, user records, notifications or ledger writes are involved.
+    let pairs: Vec<_> = url
+        .query_pairs()
+        .filter(|(key, _)| key != "options")
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect();
+    url.query_pairs_mut()
+        .clear()
+        .extend_pairs(pairs)
+        .append_pair("options", "-c default_transaction_read_only=on");
+    let mut options = ConnectOptions::new(url.to_string());
+    options.max_connections(1).sqlx_logging(false);
+    let db = Database::connect(options)
+        .await
+        .unwrap_or_else(|_| panic!("read-only database unavailable"));
+    let readonly = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SHOW default_transaction_read_only",
+        ))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        readonly
+            .try_get::<String>("", "default_transaction_read_only")
+            .unwrap(),
+        "on"
+    );
+    let config = crate::services::config_service::ConfigService::new(db.clone())
+        .load_config()
+        .await
+        .unwrap_or_else(|_| panic!("cannot load host model configuration"));
+    *crate::GLOBAL_DYNAMIC_CONFIG.write().await = config;
+    db
+}
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Case {
+    #[serde(default)]
+    touch: Option<Value>,
+    #[serde(default)]
+    soul: Option<String>,
+    #[serde(default)]
+    arousal: Option<f64>,
+    #[serde(default)]
+    activity: String,
+    #[serde(default)]
+    remaining_ms: Option<u64>,
+    #[serde(default)]
+    local_reaction: Option<String>,
+    #[serde(default)]
+    consistency_group: Option<String>,
     id: String,
     kind: String,
     input: String,
@@ -53,13 +121,26 @@ struct Case {
 fn cases() -> Vec<Case> {
     let cases: Vec<Case> =
         serde_json::from_str(include_str!("../../../../tests/merope/semantic-cases.json")).unwrap();
+    let mut cases = cases;
+    cases.extend(
+        serde_json::from_str::<Vec<Case>>(include_str!(
+            "../../../../tests/merope/touch-semantic-cases.json"
+        ))
+        .unwrap(),
+    );
+    cases.extend(
+        serde_json::from_str::<Vec<Case>>(include_str!(
+            "../../../../tests/merope/touch-response-cases.json"
+        ))
+        .unwrap(),
+    );
     let mut ids = HashSet::new();
     for case in &cases {
         assert!(ids.insert(&case.id) && !case.id.is_empty());
         assert!(!case.rubric.trim().is_empty());
         assert!(matches!(
             case.kind.as_str(),
-            "chat" | "memory" | "event" | "motion"
+            "chat" | "memory" | "event" | "motion" | "touch"
         ));
     }
     cases
@@ -73,7 +154,13 @@ fn event_context(case: &Case) -> (event::ConsciousnessEvent, event::SelfSnapshot
         source: "semantic_fixture".into(),
         kind: case.event_kind.clone(),
         headline: "合成测试事件".into(),
-        summary: case.input.clone(),
+        summary: if case.event_kind == "agent.merope.touch" {
+            crate::api::agent::touch::completion_summary(
+                &serde_json::from_value(case.touch.clone().unwrap()).unwrap(),
+            )
+        } else {
+            case.input.clone()
+        },
         addressee_user_id: 701,
         urgency: event::EventUrgency::Normal,
         occurred_at: now,
@@ -84,8 +171,12 @@ fn event_context(case: &Case) -> (event::ConsciousnessEvent, event::SelfSnapshot
         persona_name: "小灯".into(),
         addressee_user_id: 701,
         interaction_mode: super::AgentInteractionMode::Chat,
-        mood: 65.0,
-        activity: "idle".into(),
+        mood: case.mood.unwrap_or(65.0),
+        activity: if case.activity.is_empty() {
+            "idle".into()
+        } else {
+            case.activity.clone()
+        },
         do_not_disturb: case.do_not_disturb,
         has_active_work: false,
         granted_permissions: vec![],
@@ -111,6 +202,13 @@ fn event_context(case: &Case) -> (event::ConsciousnessEvent, event::SelfSnapshot
 
 fn request(case: &Case) -> Value {
     match case.kind.as_str() {
+        "touch" => crate::api::agent::touch::appraisal_contract(
+            case.soul.as_deref().unwrap_or(SOUL),
+            &serde_json::from_value(case.touch.clone().expect("touch summary required")).unwrap(),
+            case.mood.unwrap_or(70.0),
+            case.arousal.unwrap_or(48.0),
+            &case.activity,
+        ),
         "motion" => {
             let mut context = super::motion_overlay::motion_refinement_tests::context();
             context.phase = super::merope::MotionPhase::Delivery;
@@ -130,7 +228,15 @@ fn request(case: &Case) -> Value {
                 context.mood.band_after =
                     super::merope::state::mood_band(mood, context.mood.arousal_after).into();
             }
-            super::merope::motion::semantic_contract(&context)
+            let mut contract = super::merope::motion::semantic_contract(&context);
+            if let Some(soul) = &case.soul {
+                let mut input: Value =
+                    serde_json::from_str(contract["input"].as_str().unwrap()).unwrap();
+                input["persona"]["name"] = json!("小灯");
+                input["persona"]["personality"] = json!(soul);
+                contract["input"] = json!(input.to_string());
+            }
+            contract
         }
         "chat" => {
             let mut items = vec![];
@@ -167,7 +273,10 @@ fn request(case: &Case) -> Value {
         }
         "event" => {
             let (event, snapshot) = event_context(case);
-            let (system, schema) = event::semantic_probe_contract(SOUL);
+            let (system, schema) = event::semantic_probe_contract(
+                case.soul.as_deref().unwrap_or(SOUL),
+                &case.event_kind,
+            );
             json!({"system":system,"schema":schema,"schemaName":"agent_consciousness_decision","input":json!({"event":event,"self":snapshot}).to_string()})
         }
         _ => unreachable!(),
@@ -179,6 +288,21 @@ fn gated(case: &Case) -> bool {
         return false;
     }
     let (event, snapshot) = event_context(case);
+    if event.kind == "agent.merope.touch"
+        && (case.remaining_ms == Some(0)
+            || !super::merope::decide_ingest(
+                &event.kind,
+                &super::merope::IngestSight {
+                    on_page: true,
+                    working: super::merope::activity_is_busy(&snapshot.activity),
+                    do_not_disturb: snapshot.do_not_disturb,
+                    ..Default::default()
+                },
+            )
+            .allow_model)
+    {
+        return true;
+    }
     !matches!(
         event::pre_gate(&event, &snapshot),
         event::ConsciousnessGate::Decide
@@ -211,6 +335,20 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
         return "output_invalid";
     }
     match case.kind.as_str() {
+        "touch" => {
+            let Some(value) = crate::api::agent::touch::parse_appraisal(output) else {
+                return "contract_failure";
+            };
+            if case
+                .actions
+                .iter()
+                .any(|action| value["reaction"] == *action)
+            {
+                "needs_review"
+            } else {
+                "behavior_failure"
+            }
+        }
         "memory" => {
             let Some(update) =
                 memory::parse_chat_memory_update(output, &case.input, &case.remembered)
@@ -248,7 +386,9 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
             {
                 return "behavior_failure";
             }
-            if decision.action == event::ConsciousnessAction::Ignore {
+            if decision.action == event::ConsciousnessAction::Ignore
+                && event.kind != "agent.merope.touch"
+            {
                 "pass"
             } else {
                 "needs_review"
@@ -292,7 +432,49 @@ fn summary(rows: &[Value]) -> Value {
             .entry(row["grade"].as_str().unwrap().into())
             .or_default() += 1;
     }
-    json!({"total":rows.len(),"grades":counts,"completePass":rows.iter().all(|row|matches!(row["grade"].as_str(),Some("pass"|"reviewed_pass"|"gate_pass")))})
+    let touch: Vec<_> = rows.iter().filter(|r| r["kind"] == "touch").collect();
+    let attempted = touch
+        .iter()
+        .filter(|r| {
+            matches!(
+                r["outcome"].as_str(),
+                Some("returned" | "deadline" | "request_error")
+            )
+        })
+        .count();
+    let valid = touch
+        .iter()
+        .filter(|r| r["touchMetrics"]["valid"] == true)
+        .count();
+    let timed = touch
+        .iter()
+        .filter(|r| r["touchMetrics"]["timely"].is_boolean())
+        .count();
+    let timely = touch
+        .iter()
+        .filter(|r| r["touchMetrics"]["timely"] == true)
+        .count();
+    let mut latencies: Vec<_> = touch
+        .iter()
+        .filter_map(|r| r["latencyMs"].as_u64())
+        .collect();
+    latencies.sort_unstable();
+    let mut repeated = std::collections::BTreeMap::<String, Vec<Value>>::new();
+    for row in &touch {
+        if let Some(group) = row["touchMetrics"]["consistencyGroup"].as_str() {
+            repeated
+                .entry(group.into())
+                .or_default()
+                .push(json!({"id":row["id"],"output":row["output"],"grade":row["grade"]}));
+        }
+    }
+    json!({"total":rows.len(),"grades":counts,"completePass":rows.iter().all(|row| row["withinRequestBudget"] != false && matches!(row["grade"].as_str(),Some("pass"|"reviewed_pass"|"gate_pass"))),
+        "touch":{"attempted":attempted,"valid":valid,"timed":timed,"timely":timely,
+            "validRate":(attempted>0).then(|| valid as f64 / attempted as f64),
+            "timelyRate":(timed>0).then(|| timely as f64 / timed as f64),
+            "p50Ms":latencies.get(latencies.len().saturating_sub(1)/2),
+            "p95Ms":latencies.get((latencies.len()*95).div_ceil(100).saturating_sub(1)),
+            "independentRepeatSamples":repeated,"visibleImprovement":null}})
 }
 
 #[tokio::test]
@@ -306,7 +488,34 @@ async fn run_semantic_suite() {
         .create_new(true)
         .open(path)
         .expect("report must not exist");
-    let cases = cases();
+    let filter = std::env::var("MEROPE_SEMANTIC_KIND").ok();
+    let repeats = std::env::var("MEROPE_SEMANTIC_REPEAT")
+        .unwrap_or_else(|_| "1".into())
+        .parse::<usize>()
+        .unwrap();
+    assert!((1..=3).contains(&repeats));
+    let cases: Vec<_> = cases()
+        .into_iter()
+        .filter(|c| {
+            filter.as_ref().is_none_or(|kind| {
+                if kind == "touch-response" {
+                    c.event_kind == "agent.merope.touch"
+                } else {
+                    &c.kind == kind
+                }
+            })
+        })
+        .flat_map(|c| {
+            (0..repeats).map(move |i| {
+                let mut c = c.clone();
+                if repeats > 1 {
+                    c.id = format!("{}-sample-{}", c.id, i + 1);
+                }
+                c
+            })
+        })
+        .collect();
+    assert!(!cases.is_empty(), "unknown or empty case kind");
     let replay: Vec<Value> = if mode == "replay" {
         let source = std::env::var("MEROPE_SEMANTIC_REPLAY").expect("replay path required");
         let value: Value = serde_json::from_str(&std::fs::read_to_string(source).unwrap()).unwrap();
@@ -315,43 +524,69 @@ async fn run_semantic_suite() {
         vec![]
     };
     if mode == "replay" {
-        assert_eq!(replay.len(), cases.len(), "missing/extra replay cases");
+        assert!(replay.len() >= cases.len(), "missing replay cases");
         let ids: HashSet<_> = replay.iter().map(|r| r["id"].as_str().unwrap()).collect();
-        assert_eq!(ids.len(), cases.len(), "duplicate replay ids");
+        assert_eq!(ids.len(), replay.len(), "duplicate replay ids");
     }
     let mut api_key = String::new();
+    let diagnostic = std::env::var("MEROPE_SEMANTIC_DIAGNOSTIC_SECONDS")
+        .ok()
+        .map(|v| v.parse::<u64>().unwrap());
+    assert!(
+        diagnostic.is_none_or(|seconds| seconds == 15),
+        "diagnostic deadline must be 15 seconds"
+    );
+    let mut model_info = Value::Null;
     let analyzer = if mode == "live" {
-        use crate::services::analyzer::{AiAnalyzer, AiProvider};
-        api_key = std::env::var("MEROPE_SEMANTIC_API_KEY").expect("explicit API key required");
-        assert!(!api_key.trim().is_empty());
-        let provider =
-            std::env::var("MEROPE_SEMANTIC_PROVIDER").expect("explicit provider required");
-        assert!(
-            matches!(provider.as_str(), "openai" | "gemini"),
-            "use an existing supported provider"
-        );
-        let model = std::env::var("MEROPE_SEMANTIC_MODEL").expect("explicit model required");
-        assert!(!model.trim().is_empty());
+        let db = load_configured_lite().await;
+        db.close().await.unwrap();
+        let configured = crate::GLOBAL_DYNAMIC_CONFIG
+            .read()
+            .await
+            .resolve_strict_lite_ai_config()
+            .expect("configured Lite required");
+        api_key = configured
+            .api_key
+            .filter(|key| !key.is_empty())
+            .expect("configured Lite credentials required");
+        model_info = json!({"model":configured.model,"provider":configured.provider});
         Some(
-            AiAnalyzer::new_with_timeout(
-                AiProvider::from_str(&provider),
-                api_key.clone(),
-                model,
-                std::env::var("MEROPE_SEMANTIC_BASE_URL").ok(),
-                Duration::from_secs(4),
-            )
-            .await,
+            crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(
+                Duration::from_secs(diagnostic.unwrap_or(4)),
+            ))
+            .await
+            .expect("configured Lite unavailable"),
         )
     } else {
         None
     };
+    let director = if mode == "live" {
+        crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(Duration::from_secs(
+            diagnostic.unwrap_or(9),
+        )))
+        .await
+    } else {
+        None
+    };
     let mut rows = vec![];
-    for case in cases {
-        let request = request(&case);
+    let probe = std::env::var("MEROPE_SEMANTIC_PROBE").ok();
+    assert!(
+        probe
+            .as_deref()
+            .is_none_or(|p| matches!(p, "default" | "disabled")),
+        "probe must be default or disabled"
+    );
+    let mut pending: std::collections::VecDeque<_> = cases.into();
+    while let Some(case) = pending.pop_front() {
+        let mut request = request(&case);
+        if let Some(probe) = &probe {
+            request["diagnosticProbe"] = json!({"reasoning":probe,"maxTokens":2048});
+        }
         let hash = request_hash(&case, &request);
         let start = Instant::now();
         let mut review = None;
         let mut first_text_ms = None;
+        let mut observation = crate::services::analyzer::probe::Observation::default();
         let (outcome, output) = if mode == "replay" {
             let row = replay
                 .iter()
@@ -373,50 +608,139 @@ async fn run_semantic_suite() {
             )
         } else if gated(&case) {
             ("gated".into(), String::new())
-        } else if let Some(analyzer) = &analyzer {
-            let result = tokio::time::timeout(Duration::from_secs(5), async {
-                if case.kind == "chat" {
-                    analyzer
-                        .analyze_stream(request["input"].as_str().unwrap(), |text| {
-                            if !text.trim().is_empty() {
-                                first_text_ms.get_or_insert(start.elapsed().as_millis());
-                            }
-                            true
-                        })
-                        .await
-                } else {
-                    analyzer
-                        .analyze_json(
-                            request["system"].as_str().unwrap(),
-                            request["input"].as_str().unwrap(),
-                            request["schemaName"].as_str().unwrap(),
-                            Some(&request["schema"]),
-                        )
-                        .await
-                }
-            })
+        } else if let Some(analyzer) = if case.kind == "motion" {
+            &director
+        } else {
+            &analyzer
+        } {
+            let result = tokio::time::timeout(
+                Duration::from_secs(diagnostic.map(|seconds| seconds + 1).unwrap_or(
+                    if case.kind == "touch" {
+                        2
+                    } else if case.kind == "motion" {
+                        10
+                    } else {
+                        5
+                    },
+                )),
+                async {
+                    if case.kind == "chat" {
+                        analyzer
+                            .analyze_stream(request["input"].as_str().unwrap(), |text| {
+                                if !text.trim().is_empty() {
+                                    first_text_ms.get_or_insert(start.elapsed().as_millis());
+                                }
+                                true
+                            })
+                            .await
+                    } else if let Some(probe) = &probe {
+                        use crate::services::analyzer::probe::{Policy, Reasoning};
+                        analyzer
+                            .probe_json(
+                                request["system"].as_str().unwrap(),
+                                request["input"].as_str().unwrap(),
+                                request["schemaName"].as_str().unwrap(),
+                                &request["schema"],
+                                Policy {
+                                    reasoning: if probe == "disabled" {
+                                        Reasoning::Disabled
+                                    } else {
+                                        Reasoning::Default
+                                    },
+                                    temperature: None,
+                                    max_tokens: 2048,
+                                },
+                                &mut observation,
+                            )
+                            .await
+                    } else {
+                        analyzer
+                            .analyze_json(
+                                request["system"].as_str().unwrap(),
+                                request["input"].as_str().unwrap(),
+                                request["schemaName"].as_str().unwrap(),
+                                Some(&request["schema"]),
+                            )
+                            .await
+                    }
+                },
+            )
             .await;
             match result {
                 Ok(Ok(output)) => ("returned".into(), output.replace(&api_key, "[REDACTED]")),
-                Ok(Err(_)) => ("request_error".into(), String::new()),
+                Ok(Err(error)) => (
+                    if error.chain().any(|e| {
+                        e.downcast_ref::<reqwest::Error>()
+                            .is_some_and(|e| e.is_timeout())
+                    }) {
+                        "deadline"
+                    } else {
+                        "request_error"
+                    }
+                    .into(),
+                    String::new(),
+                ),
                 Err(_) => ("deadline".into(), String::new()),
             }
         } else {
             ("not_run".into(), String::new())
         };
         let base = grade(&case, &outcome, &output);
+        // Follow the generated sentence, not an independently authored fixture.
+        if case.kind == "event" && case.event_kind == "agent.merope.touch" && base == "needs_review"
+        {
+            let decision: event::ConsciousnessDecision = serde_json::from_str(&output).unwrap();
+            if let Some(line) = decision.speech.or(decision.question) {
+                let mut motion = case.clone();
+                motion.id = format!("{}-director", case.id);
+                motion.kind = "motion".into();
+                motion.input = event_context(&case).0.summary;
+                motion.reply = line;
+                motion.rubric = format!(
+                    "Check that motion, expression, this generated reply, and the already-shown touch reaction are consistent. {}",
+                    case.rubric
+                );
+                pending.push_back(motion);
+            }
+        }
         let grade = reviewed_grade(base, &output, review.as_ref());
-        rows.push(json!({"id":case.id,"kind":case.kind,"requestHash":hash,"request":request,
+        let latency = if mode == "live" {
+            Some(start.elapsed().as_millis() as u64)
+        } else if mode == "replay" {
+            replay
+                .iter()
+                .find(|r| r["id"] == case.id)
+                .and_then(|r| r["latencyMs"].as_u64())
+        } else {
+            None
+        };
+        let reaction = (outcome == "returned")
+            .then(|| crate::api::agent::touch::parse_appraisal(&output))
+            .flatten();
+        let touch_metrics = (case.kind == "touch").then(|| json!({
+            "valid":reaction.is_some(),
+            "timely":latency.zip(case.remaining_ms).map(|(ms, remaining)| reaction.is_some() && ms < remaining && ms <= 2000),
+            "differsFromLocal":reaction.as_ref().map(|r| Some(r["reaction"].as_str().unwrap()) != case.local_reaction.as_deref()),
+            "consistencyGroup":case.consistency_group,
+            "scope":"synthetic remaining-contact window; excludes transport/state lookup/render latency; disagreement is not proof of visual improvement"
+        }));
+        rows.push(
+            json!({"id":case.id,"kind":case.kind,"requestHash":hash,"request":request,
             "rubric":case.rubric,"outcome":outcome,"output":output,"grade":grade,"review":review,
-            "latencyMs":if mode=="live" {Some(start.elapsed().as_millis())}else{None},"firstTextMs":first_text_ms}));
+            "latencyMs":latency,"firstTextMs":first_text_ms,"touchMetrics":touch_metrics,
+            "probeObservation": if mode == "replay" { replay.iter().find(|r| r["id"] == case.id).and_then(|r| r.get("probeObservation")).cloned().unwrap_or(Value::Null) } else if probe.is_some() { json!(observation) } else { Value::Null },
+            "withinRequestBudget":latency.map(|ms| ms <= if case.kind == "motion" {9000} else if case.kind == "touch" {2000} else {4000})}),
+        );
     }
     let summary = summary(&rows);
+    if mode == "replay" {
+        assert_eq!(replay.len(), rows.len(), "extra/missing dependent stages");
+    }
     serde_json::to_writer_pretty(
         &mut report,
         &json!({"version":1,"mode":mode,"syntheticOnly":true,
-            "model": if mode == "live" {std::env::var("MEROPE_SEMANTIC_MODEL").ok()}else{None},
-            "provider": if mode == "live" {std::env::var("MEROPE_SEMANTIC_PROVIDER").ok()}else{None},
-            "latencyScope":"live: diagnostic 4s request / 5s total; not production Chat latency",
+            "configuredLite":model_info,"diagnosticDeadlineSeconds":diagnostic,
+            "latencyScope":"model calls only: touch budget 2s, event 4s, director 9s; diagnostic deadline never changes production budgets; excludes transport-to-app, state lookup and rendering",
         "summary":summary,"rows":rows}),
     )
     .unwrap();
@@ -428,6 +752,97 @@ async fn run_semantic_suite() {
             "incomplete/failed evaluation; see report (pending review is not pass)"
         );
     }
+}
+
+#[test]
+fn touch_semantics_reject_blanket_acceptance_and_do_not_claim_unrun_success() {
+    let cases = cases();
+    let touch: Vec<_> = cases.iter().filter(|c| c.kind == "touch").collect();
+    assert_eq!(touch.len(), 12);
+    let continued = touch
+        .iter()
+        .find(|c| c.id == "touch-rendered-withdraw-repeat")
+        .unwrap();
+    assert_eq!(
+        grade(continued, "returned", r#"{"reaction":"accept"}"#),
+        "behavior_failure"
+    );
+    let input: Value = serde_json::from_str(request(continued)["input"].as_str().unwrap()).unwrap();
+    assert_eq!(input["touch"]["displayedReaction"], "withdraw");
+    let boundary = touch.iter().find(|c| c.id == "touch-boundary").unwrap();
+    assert_eq!(
+        grade(boundary, "returned", r#"{"reaction":"accept"}"#),
+        "behavior_failure"
+    );
+    assert_eq!(
+        grade(boundary, "returned", r#"{"reaction":"withdraw"}"#),
+        "needs_review"
+    );
+    assert_eq!(
+        grade(
+            boundary,
+            "returned",
+            r#"{"reaction":"withdraw","speech":"stop"}"#
+        ),
+        "contract_failure"
+    );
+    assert_eq!(grade(boundary, "deadline", ""), "request_failure");
+    assert_eq!(grade(boundary, "not_run", ""), "not_run");
+    let exported = request(boundary);
+    assert_eq!(exported["schemaName"], "touch_appraisal");
+    assert!(!exported["input"].as_str().unwrap().contains("remainingMs"));
+    assert!(!exported["input"]
+        .as_str()
+        .unwrap()
+        .contains("localReaction"));
+    let empty = summary(&[json!({"kind":"touch","outcome":"not_run","grade":"not_run"})]);
+    assert!(empty["touch"]["validRate"].is_null());
+    assert!(empty["touch"]["timelyRate"].is_null());
+    assert!(empty["touch"]["visibleImprovement"].is_null());
+    assert_eq!(empty["completePass"], false);
+}
+
+#[test]
+fn touch_response_cases_use_production_summary_and_suppress_busy_expired_and_dnd() {
+    let scenarios: Vec<_> = cases()
+        .into_iter()
+        .filter(|c| c.event_kind == "agent.merope.touch")
+        .collect();
+    assert_eq!(scenarios.len(), 6);
+    for case in &scenarios {
+        let suppressed = [
+            "touch-response-talking",
+            "touch-response-expired",
+            "touch-response-dnd",
+        ]
+        .contains(&case.id.as_str());
+        assert_eq!(gated(case), suppressed, "{}", case.id);
+        assert_eq!(
+            grade(case, if suppressed { "gated" } else { "not_run" }, ""),
+            if suppressed { "gate_pass" } else { "not_run" }
+        );
+    }
+    let withdrawal = scenarios
+        .iter()
+        .find(|c| c.id == "touch-response-withdraw")
+        .unwrap();
+    let request = request(withdrawal);
+    let input: Value = serde_json::from_str(request["input"].as_str().unwrap()).unwrap();
+    assert!(input["event"]["summary"]
+        .as_str()
+        .unwrap()
+        .contains("Last reaction: withdrew"));
+    assert!(request["system"]
+        .as_str()
+        .unwrap()
+        .contains(withdrawal.soul.as_deref().unwrap()));
+    assert_eq!(
+        request["schema"]["properties"]["action"]["enum"],
+        json!(["ignore", "speak", "ask"])
+    );
+    assert_eq!(request["schema"]["properties"]["memory"]["type"], "null");
+    let silence = r#"{"action":"ignore","reason_code":"no_response","confidence":0.9,"memory":null,"speech":null,"question":null,"work_proposal":null}"#;
+    assert_eq!(grade(withdrawal, "returned", silence), "needs_review");
 }
 
 #[test]
@@ -496,14 +911,14 @@ fn motion_semantics_require_grounded_output_and_real_review() {
     assert!(exported["system"]
         .as_str()
         .unwrap()
-        .contains("省略 baseline"));
+        .contains("omit baseline"));
     assert_eq!(input["rig"]["activeBehaviors"][0]["function"], "uncertain");
 }
 
 #[test]
 fn cases_use_production_contracts_and_replay_hashes_include_rubrics() {
     let cases = cases();
-    assert_eq!(cases.len(), 21);
+    assert_eq!(cases.iter().filter(|c| c.kind != "touch").count(), 27);
     for mut case in cases {
         let request = request(&case);
         if case.kind == "motion" {

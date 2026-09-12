@@ -87,6 +87,26 @@ function fixture() {
   }
 }
 
+test('a short exact overlap seeds a wider shadow gradient without disabling the neck repair', () => {
+  const f = fixture()
+  for (let y = 70; y < 92; y++) {
+    for (let x = 0; x < 40; x++) {
+      f.neckPixels.pixels.set([227, 192, 182, 255], (y * 40 + x) * 4)
+    }
+}
+  const plan = resolveAnime25DNeckSurface(f.layers, anchors, f.read)
+  assert.ok(plan)
+  assert.equal(plan.fadeStart, 0.705)
+  assert.equal(plan.fadeEnd, 0.965)
+  // Similar shading without the strongly matching seed is still insufficient.
+  for (let y = 92; y <= 96; y++) {
+    for (let x = 0; x < 40; x++) {
+      f.neckPixels.pixels.set([227, 192, 182, 255], (y * 40 + x) * 4)
+    }
+}
+  assert.equal(resolveAnime25DNeckSurface(f.layers, anchors, f.read), null)
+})
+
 test('open-neck overlap restores the shadow and fades before the dark cut matte', () => {
   const f = fixture()
   const before = f.neckPixels.pixels.slice()
@@ -136,8 +156,6 @@ test('an unsplit pale high collar cannot qualify merely by resembling skin', () 
 
 test('an open collar with a local pendant shadow uses a strongly seeded blend band', () => {
   const f = fixture()
-  // The garment covers just over half the upper corridor, but begins below
-  // twelve fully exposed neck rows. Its lower join has a small local shadow.
   f.body.y = 532
   f.images.set(
     f.neck,
@@ -241,21 +259,34 @@ test('transparent padding preserves the world-space join and contour', () => {
   const padded = { ...f.neck, x: 390, y: 480, w: 60, h: 140 }
   const image = pixels(60, 140, (x, y) => {
     if (x < 10 || x >= 50 || y < 20 || y >= 120) return [0, 0, 0, 0]
-    return [...f.neckPixels.pixels.subarray(((y - 20) * 40 + x - 10) * 4,
-      ((y - 20) * 40 + x - 10) * 4 + 4)]
+    return [
+      ...f.neckPixels.pixels.subarray(
+        ((y - 20) * 40 + x - 10) * 4,
+        ((y - 20) * 40 + x - 10) * 4 + 4,
+      ),
+    ]
   })
   f.images.set(padded, image)
   const actual = resolveAnime25DNeckSurface([padded, f.body], anchors, f.read)!
   assert.ok(actual)
-  assert.equal(padded.y + actual.fadeStart * padded.h,
-    f.neck.y + expected.fadeStart * f.neck.h)
-  assert.equal(padded.y + actual.fadeEnd * padded.h,
-    f.neck.y + expected.fadeEnd * f.neck.h)
-  for (let i = 0; i < 32; i++) { assert.ok(Math.abs(
-    padded.y + actual.contour.bands[i] * padded.h -
-    f.neck.y - expected.contour.bands[i] * f.neck.h,
-  ) < 0.00002)
-}
+  assert.equal(
+    padded.y + actual.fadeStart * padded.h,
+    f.neck.y + expected.fadeStart * f.neck.h,
+  )
+  assert.equal(
+    padded.y + actual.fadeEnd * padded.h,
+    f.neck.y + expected.fadeEnd * f.neck.h,
+  )
+  for (let i = 0; i < 32; i++) {
+    assert.ok(
+      Math.abs(
+        padded.y +
+          actual.contour.bands[i] * padded.h -
+          f.neck.y -
+          expected.contour.bands[i] * f.neck.h,
+      ) < 0.00002,
+    )
+  }
 })
 
 test('resampling and mild colour noise do not switch open skin into garment topology', () => {
@@ -265,9 +296,11 @@ test('resampling and mild colour noise do not switch open skin into garment topo
     const read = (source: Anime25DPlaybackLayer) => {
       const image = f.read(source)!
       return pixels(image.width * scale, image.height * scale, (x, y) => {
-        const offset = (Math.floor(y / scale) * image.width + Math.floor(x / scale)) * 4
-        return [...image.pixels.subarray(offset, offset + 4)].map((v, i) =>
-          i < 3 ? v + ((x + y) % 3 - 1) : v)
+        const offset =
+          (Math.floor(y / scale) * image.width + Math.floor(x / scale)) * 4
+        return Iterator.from(image.pixels.subarray(offset, offset + 4))
+          .map((v, i) => (i < 3 ? v + (((x + y) % 3) - 1) : v))
+          .toArray()
       })
     }
     const actual = resolveAnime25DNeckSurface(f.layers, anchors, read)!
@@ -291,7 +324,7 @@ for (const jewelryOrder of ['before-neck', 'before-body', 'after-body']) {
           ? [f.neck, jewelry, f.body]
           : [f.neck, f.body, jewelry]
     const playback = {
-      layers: [...importedLayers],
+      layers: Iterator.from(importedLayers).toArray(),
       anchors,
       pixelCanvas: { width: 1024, height: 1365 },
     } as Anime25DPlayback

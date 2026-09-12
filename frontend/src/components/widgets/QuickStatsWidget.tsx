@@ -1,8 +1,3 @@
-/**
- * 内容数据概览卡片 - 4x2
- * 显示资料库统计数据
- */
-
 import type { WidgetComponentProps } from '../widgetGridTypes'
 import { motionShim as motion } from '@lib/motionShim'
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
@@ -14,9 +9,8 @@ import { GlowBackground } from './shared/GlowBackground'
 import { WidgetShell } from './shared/WidgetShell'
 import { WidgetSkeletonCover } from './shared/WidgetSkeleton'
 
-// 缓存配置
 const CACHE_KEY = 'library_stats_cache'
-const CACHE_DURATION = 5 * 60 * 1000 // 5分钟
+const CACHE_DURATION = 5 * 60 * 1000
 
 interface LibraryStats {
   total: number
@@ -28,7 +22,6 @@ interface LibraryStats {
   book: number
 }
 
-// 统计卡片组件 - 避免重复渲染
 const StatCard = memo(
   ({
     cat,
@@ -214,7 +207,6 @@ export const QuickStatsWidget = memo(
     const [loading, setLoading] = useState(true)
     const [failed, setFailed] = useState(false)
 
-    // 从缓存加载
     const loadFromCache = useCallback(() => {
       try {
         const cached = localStorage.getItem(CACHE_KEY)
@@ -231,7 +223,6 @@ export const QuickStatsWidget = memo(
       return false
     }, [t])
 
-    // 保存到缓存
     const saveToCache = useCallback(
       (data: LibraryStats) => {
         try {
@@ -251,16 +242,14 @@ export const QuickStatsWidget = memo(
 
     const fetchLibraryStats = useCallback(async () => {
       try {
-        // 使用去重版本，避免多组件同时请求
         const data = await getLibraryDataDeduped()
 
         if (data.success && Array.isArray(data.items)) {
-          // 使用 reduce 一次性统计，性能更好
           const counts = data.items.reduce(
             (acc: LibraryStats, item: any) => {
               acc.total++
               const type = item.item_type
-              if (type in acc) {
+              if (Object.hasOwn(acc, type)) {
                 ;(acc as any)[type]++
               }
               return acc
@@ -305,13 +294,11 @@ export const QuickStatsWidget = memo(
         return
       }
 
-      // 先从缓存加载
       const hasCache = loadFromCache()
       if (hasCache) {
         setLoading(false)
       }
 
-      // 然后获取最新数据
       fetchLibraryStats()
     }, [loadFromCache, fetchLibraryStats, isPreview])
 
@@ -327,7 +314,6 @@ export const QuickStatsWidget = memo(
       [t],
     )
 
-    // 有数据的分类才显示；加载中或资料库为空时显示全部，避免空白
     const visibleCategories = useMemo(() => {
       const withData = categories.filter(
         (cat) => ((stats as any)[cat.key] ?? 0) > 0,
@@ -358,7 +344,6 @@ export const QuickStatsWidget = memo(
             </div>
           ) : (
           <>
-          {/* 顶部：标题 + 总数 */}
           <div
             className="flex items-start justify-between mb-2 ml-1.5"
             style={{
@@ -402,7 +387,6 @@ export const QuickStatsWidget = memo(
             </div>
           </div>
 
-          {/* 分类统计 */}
           <div
             className="flex-1 grid gap-1.5"
             style={{

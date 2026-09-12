@@ -1,9 +1,9 @@
 import type { Locale } from '../../../i18n'
+import type { LocaleConfig } from '../../../i18n/assembleLocale'
 import type { ConfigSearchableItem } from '../../settings/guides/configSearch'
 import type { Config } from './types'
 import { buildGuideSearchIndex } from '../../settings/guides/guideSearchIndex'
 
-/** i18n 切片：只取 build 搜索索引需要的文案字段 */
 export interface ConfigSearchI18n {
   config: {
     platforms: string
@@ -49,6 +49,7 @@ export interface ConfigSearchI18n {
     }
     thirdPartyAnalytics: string
     thirdPartyAnalyticsDesc: string
+    searchKeywords: LocaleConfig['searchKeywords']
   }
   notificationCenter: {
     title: string
@@ -56,10 +57,7 @@ export interface ConfigSearchI18n {
   }
 }
 
-/**
- * 构建设置页搜索索引（section / platform / alias / guide）。
- * 平台名从 config.platforms 动态并入，避免手工列表漂移。
- */
+/** search index; platforms come from config, not a hand list */
 export function buildSearchableContent(
   config: Config | null,
   t: ConfigSearchI18n,
@@ -77,21 +75,7 @@ export function buildSearchableContent(
     title: t.config.platforms,
     description: t.config.platformsDesc,
     keywords: [
-      '数据及统计',
-      '数据页',
-      '平台',
-      '接入平台',
-      '数据源',
-      'token',
-      'api',
-      '访客',
-      '访问',
-      '统计',
-      'analytics',
-      'visitor',
-      '数据管理',
-      '缓存',
-      '刷新',
+      ...t.config.searchKeywords.platforms,
       ...config.platforms.flatMap((p) => {
         const n = p.name.trim()
         return n ? [n, n.toLowerCase()] : []
@@ -104,16 +88,7 @@ export function buildSearchableContent(
     section: 'platforms',
     title: t.config.connectedPlatforms,
     description: t.config.connectedPlatformsDesc,
-    keywords: [
-      '接入平台',
-      '数据平台',
-      '自动刷新',
-      '刷新频率',
-      '平台',
-      '数据源',
-      'connected',
-      'platforms',
-    ],
+    keywords: Iterator.from(t.config.searchKeywords.connectedPlatforms).toArray(),
   })
 
   items.push({
@@ -121,27 +96,7 @@ export function buildSearchableContent(
     section: 'platforms',
     title: t.config.analytics.visitorTitle,
     description: t.config.analytics.visitorDesc,
-    keywords: [
-      '访客',
-      '统计',
-      'PV',
-      'UV',
-      'visitor',
-      'analytics',
-      '页面',
-      '访问分析',
-      'pageview',
-      '事件',
-      '来源',
-      'referrer',
-      '开关',
-      '启用',
-      'analytics_enabled',
-      'opt-out',
-      'optout',
-      '退出',
-      '隐私',
-    ],
+    keywords: Iterator.from(t.config.searchKeywords.visitor).toArray(),
   })
 
   items.push({
@@ -149,19 +104,7 @@ export function buildSearchableContent(
     section: 'platforms',
     title: t.config.analytics.aiUsageTitle,
     description: t.config.analytics.aiUsageDesc,
-    keywords: [
-      'ai',
-      'usage',
-      'token',
-      '用量',
-      '使用量',
-      '模型',
-      'model',
-      '调用',
-      'ledger',
-      'ai-usage',
-      'ai_usage',
-    ],
+    keywords: Iterator.from(t.config.searchKeywords.aiUsage).toArray(),
   })
 
   items.push({
@@ -169,21 +112,7 @@ export function buildSearchableContent(
     section: 'platforms',
     title: t.config.thirdPartyAnalytics,
     description: t.config.thirdPartyAnalyticsDesc,
-    keywords: [
-      '第三方',
-      'third-party',
-      '第三方统计',
-      'ga',
-      'ga4',
-      'google analytics',
-      'gtag',
-      'umami',
-      'ga_measurement_id',
-      'umami_website_id',
-      'umami_script_url',
-      '外部统计',
-      'analytics script',
-    ],
+    keywords: Iterator.from(t.config.searchKeywords.thirdParty).toArray(),
   })
 
   items.push({
@@ -191,7 +120,7 @@ export function buildSearchableContent(
     section: 'platforms',
     title: t.config.data,
     description: t.config.dataDesc,
-    keywords: ['数据管理', 'data', '缓存', 'cache', '过滤', '智能过滤', '刷新'],
+    keywords: Iterator.from(t.config.searchKeywords.data).toArray(),
   })
 
   config.platforms.forEach((platform) => {
@@ -200,7 +129,10 @@ export function buildSearchableContent(
       section: 'platforms',
       title: platform.name,
       description: platform.description,
-      keywords: [platform.name.toLowerCase(), '平台', '数据源', 'token', 'api'],
+      keywords: [
+        platform.name.toLowerCase(),
+        ...t.config.searchKeywords.platformItem,
+      ],
     })
   })
 
@@ -210,23 +142,7 @@ export function buildSearchableContent(
     title: t.config.ai,
     description: t.config.aiDesc,
     keywords: [
-      'ai',
-      'gemini',
-      'openai',
-      'api',
-      '模型',
-      '智能',
-      '图片',
-      '生成',
-      'image',
-      'agent',
-      '定时',
-      '定时任务',
-      '技能',
-      '记忆',
-      'heartbeat',
-      'skills',
-      'memory',
+      ...t.config.searchKeywords.ai,
       t.config.agentHeartbeatTitle,
       t.config.agentSkillsTitle,
       t.config.agentMemoryTitle,
@@ -238,19 +154,7 @@ export function buildSearchableContent(
     section: 'tripo',
     title: t.config.tripo,
     description: t.config.tripoDesc,
-    keywords: [
-      'tripo',
-      '3d',
-      'glb',
-      'gltf',
-      'low poly',
-      'rig',
-      'animation',
-      '低模',
-      '骨骼',
-      '动作',
-      '模型',
-    ],
+    keywords: Iterator.from(t.config.searchKeywords.tripo).toArray(),
   })
 
   items.push({
@@ -258,30 +162,7 @@ export function buildSearchableContent(
     section: 'basic',
     title: t.config.basic,
     description: t.config.basicDesc,
-    keywords: [
-      'basic',
-      '基础',
-      'ui',
-      '站点',
-      '主题',
-      '背景',
-      '样式',
-      'theme',
-      'url',
-      'domain',
-      '域名',
-      '更换域名',
-      'base_url',
-      'cors',
-      'origin',
-      'pwa',
-      'service worker',
-      '安装',
-      'install',
-      '离线',
-      'offline',
-      'pwa_enabled',
-    ],
+    keywords: Iterator.from(t.config.searchKeywords.basic).toArray(),
   })
 
   items.push({
@@ -289,7 +170,7 @@ export function buildSearchableContent(
     section: 'oauth',
     title: t.config.oauth,
     description: t.config.oauthDesc,
-    keywords: ['oauth', 'github', '登录', 'auth', '认证'],
+    keywords: Iterator.from(t.config.searchKeywords.oauth).toArray(),
   })
 
   items.push({
@@ -297,7 +178,7 @@ export function buildSearchableContent(
     section: 'modules',
     title: t.config.music,
     description: t.config.musicDesc,
-    keywords: ['音乐', 'music', '歌单', '播放器', '网易云', 'qq音乐'],
+    keywords: Iterator.from(t.config.searchKeywords.music).toArray(),
   })
 
   items.push({
@@ -305,18 +186,7 @@ export function buildSearchableContent(
     section: 'advanced',
     title: t.config.network,
     description: t.config.networkDesc,
-    keywords: [
-      'proxy',
-      '代理',
-      '网络',
-      'gemini',
-      'github',
-      'api',
-      '镜像',
-      'mirror',
-      'socks',
-      'network',
-    ],
+    keywords: Iterator.from(t.config.searchKeywords.network).toArray(),
   })
 
   items.push({
@@ -324,18 +194,7 @@ export function buildSearchableContent(
     section: 'notifications',
     title: t.notificationCenter.title,
     description: t.notificationCenter.settingsDesc,
-    keywords: [
-      'notification',
-      '通知',
-      '提醒',
-      'toast',
-      'browser',
-      'arael',
-      'brew',
-      'tapp',
-      'mcp',
-      'aro',
-    ],
+    keywords: Iterator.from(t.config.searchKeywords.notifications).toArray(),
   })
 
   items.push({
@@ -343,28 +202,7 @@ export function buildSearchableContent(
     section: 'advanced',
     title: t.config.advanced,
     description: t.config.advancedDesc,
-    keywords: [
-      'advanced',
-      '高级',
-      'danger',
-      'reset',
-      '重置',
-      '危险',
-      'proxy',
-      '代理',
-      '导入',
-      '导出',
-      '运行',
-      '诊断',
-      'health',
-      'database',
-      'storage',
-      'task',
-      'mcp',
-      'model context protocol',
-      '工具服务器',
-      'tool server',
-    ],
+    keywords: Iterator.from(t.config.searchKeywords.advanced).toArray(),
   })
 
   items.push({
@@ -372,18 +210,7 @@ export function buildSearchableContent(
     section: 'advanced',
     title: t.config.mcpTitle,
     description: t.config.mcpDesc,
-    keywords: [
-      'mcp',
-      'MCP',
-      'model context protocol',
-      '工具服务器',
-      'tool server',
-      'stdio',
-      'reload',
-      '热重载',
-      'arael',
-      'agent',
-    ],
+    keywords: Iterator.from(t.config.searchKeywords.mcp).toArray(),
   })
 
   items.push({
@@ -391,23 +218,7 @@ export function buildSearchableContent(
     section: 'about',
     title: t.config.about,
     description: t.config.aboutDesc,
-    keywords: [
-      'about',
-      '关于',
-      '版本',
-      'version',
-      'logo',
-      'myriad',
-      'updater',
-      '更新',
-      'update',
-      'upgrade',
-      '升级',
-      '回滚',
-      'rollback',
-      'snapshot',
-      '快照',
-    ],
+    keywords: Iterator.from(t.config.searchKeywords.about).toArray(),
   })
 
   items.push({
@@ -415,17 +226,7 @@ export function buildSearchableContent(
     section: 'permissions',
     title: t.config.permissions,
     description: t.config.permissionsDesc,
-    keywords: [
-      '权限',
-      'permission',
-      'elevated',
-      '下放',
-      '配额',
-      'quota',
-      'ai',
-      '游客',
-      'guest',
-    ],
+    keywords: Iterator.from(t.config.searchKeywords.permissions).toArray(),
   })
 
   items.push({
@@ -433,46 +234,16 @@ export function buildSearchableContent(
     section: 'users',
     title: t.config.users,
     description: t.config.usersDesc,
-    keywords: [
-      '用户',
-      'user',
-      'users',
-      '管理员',
-      'admin',
-      'oauth',
-      '账户',
-      'account',
-      '在线',
-      'online',
-      '注册',
-      'register',
-      'identity',
-      '绑定',
-    ],
+    keywords: Iterator.from(t.config.searchKeywords.users).toArray(),
   })
 
-  // Federation settings are admin-only in the nav; hide from search for non-admin
-  // so users are not dropped into an empty section.
   if (isAdmin) {
     items.push({
       type: 'section',
       section: 'federation',
       title: t.config.federation,
       description: t.config.federationDesc,
-      keywords: [
-        'federation',
-        '联邦',
-        'trust',
-        '信任',
-        'allowlist',
-        '白名单',
-        'block',
-        '封禁',
-        'filter',
-        '过滤',
-        'mfp',
-        'aro',
-      ],
+      keywords: Iterator.from(t.config.searchKeywords.federation).toArray(),
     })
   }
 
@@ -481,23 +252,7 @@ export function buildSearchableContent(
     section: 'modules',
     title: t.config.moduleSettings,
     description: t.config.moduleSettingsDesc,
-    keywords: [
-      '模块',
-      'module',
-      '资料库',
-      'library',
-      '来源',
-      'source',
-      '平台',
-      '分类',
-      '可见性',
-      'visibility',
-      '登录用户',
-      '管理员',
-      '一言',
-      'hitokoto',
-      'quote',
-    ],
+    keywords: Iterator.from(t.config.searchKeywords.modules).toArray(),
   })
 
   const guideEntries = buildGuideSearchIndex(locale)
@@ -525,11 +280,10 @@ export function buildSearchableContent(
     if (item.type !== 'section' && item.type !== 'alias') continue
     const extra = bySection.get(item.section)
     if (!extra?.length) continue
-    const merged = new Set([
-      ...item.keywords.map((k) => k.toLowerCase()),
-      ...extra,
-    ])
-    item.keywords = Array.from(merged)
+    const merged = new Set(item.keywords.map((k) => k.toLowerCase())).union(
+      new Set(extra),
+    )
+    item.keywords = Iterator.from(merged).toArray()
     item.haystack = [item.title, item.description, ...item.keywords]
       .join('\n')
       .toLowerCase()

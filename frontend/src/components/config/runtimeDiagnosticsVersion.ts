@@ -1,10 +1,5 @@
-/**
- * Soft cap for version/tag strings in diagnostics badges & detail copy.
- * Full values stay in tooltips and the JSON report.
- */
 export const VERSION_TAG_DISPLAY_MAX = 12
 
-/** Truncate a version/tag for UI display; keeps short release tags intact. */
 export function truncateVersionTag(
   tag: string,
   maxLen: number = VERSION_TAG_DISPLAY_MAX,

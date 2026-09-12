@@ -10,7 +10,7 @@ pub fn append_instruction(params: &mut HashMap<String, Value>, key: &str, instru
         instruction.to_string()
     } else {
         format!(
-            "{}\n\n用户最新转向指令（优先遵循）：{}",
+            "{}\n\nLatest user steering (follow this first): {}",
             existing, instruction
         )
     };
@@ -28,7 +28,10 @@ pub fn with_system_guidance(params: &HashMap<String, Value>, prompt: String) -> 
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
-        Some(sys) => format!("【补充指令 / 上下文（优先遵循）】\n{}\n\n{}", sys, prompt),
+        Some(sys) => format!(
+            "Additional instructions / context (follow this first):\n{}\n\n{}",
+            sys, prompt
+        ),
         None => prompt,
     }
 }
@@ -77,7 +80,7 @@ pub fn inject_directive_to_params(
         "ai.analyze" | "compare.content" => {
             if !params.contains_key("instruction") {
                 let full_instruction = if let Some(req) = user_request {
-                    format!("用户请求：{}\n具体任务：{}", req, directive)
+                    format!("User request: {}\nTask: {}", req, directive)
                 } else {
                     directive.to_string()
                 };
@@ -87,7 +90,7 @@ pub fn inject_directive_to_params(
         "ai.chat" => {
             if !params.contains_key("message") {
                 let msg = if let Some(req) = user_request {
-                    format!("{}（用户原始请求：{}）", directive, req)
+                    format!("{} (original user request: {})", directive, req)
                 } else {
                     directive.to_string()
                 };

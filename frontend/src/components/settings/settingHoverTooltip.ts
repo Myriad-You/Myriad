@@ -1,10 +1,4 @@
-/**
- * 设置页 hover tooltip 定位（SettingTitleHelp / ToggleSwitch 共用）。
- * 无 React / DOM 写入，可单测。
- */
-
 export const HOVER_TOOLTIP_VIEWPORT_PAD = 8
-/** 触发器与浮层的间距；与 ⓘ 说明一致 */
 export const HOVER_TOOLTIP_GAP = 6
 
 export type HoverTooltipPlacement = 'top' | 'bottom'
@@ -22,9 +16,6 @@ export interface HoverTooltipTriggerBox {
   width: number
 }
 
-/**
- * 相对触发器水平居中，空间不足时翻转上下，并夹在视口内。
- */
 export function computeHoverTooltipPosition(
   trigger: HoverTooltipTriggerBox,
   tipW: number,

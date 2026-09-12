@@ -65,7 +65,7 @@ pub(super) async fn execute_brew_generate_reading_list(
         .or_else(|| params.get("keyword").and_then(|v| v.as_str()))
         .or_else(|| params.get("topic").and_then(|v| v.as_str()))
         .or_else(|| params.get("query").and_then(|v| v.as_str()))
-        .unwrap_or("最新文章");
+        .unwrap_or("latest articles");
     let max_items = params
         .get("maxItems")
         .and_then(|v| v.as_u64())
@@ -73,7 +73,6 @@ pub(super) async fn execute_brew_generate_reading_list(
     let source_name_filter = params.get("sourceName").and_then(|v| v.as_str());
     let days_back = params.get("daysBack").and_then(|v| v.as_i64()).unwrap_or(7);
     // Opt-in only: do not force ai.webSearch when local keyword miss.
-    // Cascade escalation for other capabilities is owned by myriad-149.
     // Outbound still needs granted `ai:search` (same layer as `ai.webSearch`).
     let web_search_opt_in = parse_allow_web_search(params);
     let granted = crate::services::agent::get_user_permissions(ctx.db, ctx.user_id).await;
@@ -114,7 +113,7 @@ pub(super) async fn execute_brew_generate_reading_list(
     // 计算时间范围
     let cutoff_time = chrono::Utc::now() - chrono::Duration::days(days_back);
 
-    // 从数据库获取文章
+    // 加载 brew_sources
     let sources = brew_sources::Entity::find()
         .all(ctx.db)
         .await
@@ -237,9 +236,9 @@ pub(super) async fn execute_brew_generate_reading_list(
             );
 
             let search_query = if !keyword.is_empty() {
-                format!("{} 相关文章 新闻 资讯", keyword)
+                format!("{keyword} related articles and news")
             } else {
-                format!("{} 相关文章", criteria)
+                format!("{criteria} related articles")
             };
 
             let recency_minutes = u32::try_from(days_back.saturating_mul(24 * 60)).ok();
@@ -258,7 +257,7 @@ pub(super) async fn execute_brew_generate_reading_list(
                     return Ok(json!({
                         "readingList": web_results,
                         "totalMatched": web_results.len(),
-                        "listName": format!("网络搜索 - {}", list_name),
+                        "listName": format!("Web search — {list_name}"),
                         "criteria": criteria,
                         "fromWebSearch": true,
                         "allowWebSearch": true,
@@ -267,7 +266,7 @@ pub(super) async fn execute_brew_generate_reading_list(
                             "type": "reading_list",
                             "payload": {
                                 "items": web_results,
-                                "name": format!("网络搜索 - {}", list_name),
+                                "name": format!("Web search — {list_name}"),
                                 "fromWebSearch": true
                             }
                         }
@@ -283,13 +282,19 @@ pub(super) async fn execute_brew_generate_reading_list(
 
             // Opt-in web search attempted but empty/failed
             let mut suggestions = vec![
-                "尝试更换关键词".to_string(),
-                "放宽 daysBack 或去掉 sourceName 限制".to_string(),
-                "订阅更多相关的 RSS 源".to_string(),
-                "检查是否已配置 TinyFish 或 Gemini API Key".to_string(),
+                "Try a different keyword".to_string(),
+                "Widen daysBack or drop the sourceName filter".to_string(),
+                "Subscribe to more related RSS feeds".to_string(),
+                "Check that TinyFish or a Gemini API key is configured".to_string(),
             ];
             if !available_sources.is_empty() {
-                suggestions.insert(0, format!("本地已有订阅：{}", available_sources.join("、")));
+                suggestions.insert(
+                    0,
+                    format!(
+                        "Local feeds already available: {}",
+                        available_sources.join(", ")
+                    ),
+                );
             }
 
             return Ok(json!({
@@ -303,9 +308,9 @@ pub(super) async fn execute_brew_generate_reading_list(
                 "allowWebSearch": true,
                 "message": crate::services::agent::response_agent::no_articles_found(
                     if keyword.is_empty() && criteria.is_empty() {
-                        "请提供搜索关键词"
+                        "keyword"
                     } else {
-                        "本地与联网搜索均未返回结果"
+                        criteria
                     }
                 ),
                 "suggestions": suggestions,
@@ -320,8 +325,7 @@ pub(super) async fn execute_brew_generate_reading_list(
             }));
         }
 
-        // No explicit web/external request — if we still have a few local hits,
-        // continue to AI local ranking; otherwise honest empty.
+        // 未走 web search：本地还有命中则继续本地排序，否则诚实空列表。
         if !items.is_empty() {
             tracing::info!(
                 keyword = %keyword,
@@ -341,21 +345,24 @@ pub(super) async fn execute_brew_generate_reading_list(
                 criteria
             };
             let mut suggestions = vec![
-                "尝试更换或放宽关键词".to_string(),
-                "增大 daysBack 查看更早文章".to_string(),
-                "用 brew.items / brew.read 浏览本地订阅".to_string(),
-                "订阅更多相关 RSS 源后再生成列表".to_string(),
+                "Try a broader keyword".to_string(),
+                "Increase daysBack to include older articles".to_string(),
+                "Browse local feeds with brew.items / brew.read".to_string(),
+                "Subscribe to more related RSS feeds, then generate the list again".to_string(),
             ];
             if !available_sources.is_empty() {
                 suggestions.insert(
                     0,
-                    format!("可浏览的本地订阅：{}", available_sources.join("、")),
+                    format!(
+                        "Local feeds you can browse: {}",
+                        available_sources.join(", ")
+                    ),
                 );
             }
             if !web_search_opt_in {
-                suggestions.push("如需联网补充，请显式传 allowWebSearch=true".to_string());
+                suggestions.push("Pass allowWebSearch=true to also search the web".to_string());
             } else if !allow_web_search {
-                suggestions.push("联网补充需要授予权限 ai:search".to_string());
+                suggestions.push("Web search needs the granted permission ai:search".to_string());
             }
 
             return Ok(json!({
@@ -369,7 +376,7 @@ pub(super) async fn execute_brew_generate_reading_list(
                 "allowWebSearch": false,
                 "searchedFor": searched,
                 "message": crate::services::agent::response_agent::no_articles_found(
-                    &format!("本地订阅中无「{}」相关文章", searched)
+                    searched
                 ),
                 "suggestions": suggestions,
                 "availableSources": available_sources,
@@ -445,35 +452,37 @@ pub(super) async fn execute_brew_generate_reading_list(
 
     // 构建关键词提示（如果有）
     let keyword_hint = if !keyword.is_empty() {
-        format!("\n关键词筛选条件：{}\n注意：候选文章已按关键词预筛选，请进一步判断与主题的真正相关性，排除标题党或仅表面相关的文章。", keyword)
+        format!("\nKeyword filter: {}\nCandidates are prefiltered by keyword. Judge real topical fit; drop clickbait or only surface matches.", keyword)
     } else {
         String::new()
     };
 
     let prompt = format!(
-        r#"你是一个智能阅读助手。请根据用户的需求从以下文章中筛选最符合条件的文章。
+        r#"You are a reading assistant. Pick the articles that best match the request.
 
-用户需求：{}{}
+Request: {}{}
 
-可选文章（JSON数组）：
+Candidate articles (JSON array):
 {}
 
-请返回一个JSON对象，格式如下：
+Return a JSON object:
 {{
-  "selectedIds": [文章ID数组，按推荐度排序，最多{}篇],
-  "listName": "为这个阅读列表起一个简短的名字（与用户需求相关）",
+  "selectedIds": [article ids, best first, at most {}],
+  "listName": "a short name for this list (tied to the request)",
   "reasons": {{
-    "文章ID": "为什么推荐这篇文章（一句话）"
+    "articleId": "one sentence on why"
   }}
 }}
 
-筛选标准：
-1. 与用户需求的相关性（最重要）
-2. 内容质量和价值
-3. 时效性
-4. 如果没有真正符合条件的文章，selectedIds 可以为空数组
+Write listName and reasons in the same language as the request.
 
-只返回JSON，不要其他内容。"#,
+Criteria:
+1. Relevance to the request (most important)
+2. Quality and value
+3. Recency
+4. selectedIds may be empty if nothing truly fits
+
+JSON only."#,
         criteria,
         keyword_hint,
         serde_json::to_string_pretty(&articles_for_ai).unwrap_or_default(),
@@ -491,7 +500,7 @@ pub(super) async fn execute_brew_generate_reading_list(
         .unwrap_or_else(|| {
             json!({
                 "selectedIds": items.iter().take(max_items).map(|i| i.id).collect::<Vec<_>>(),
-                "listName": format!("阅读列表 - {}", criteria),
+                "listName": format!("Reading list — {criteria}"),
                 "reasons": {}
             })
         });
@@ -505,7 +514,7 @@ pub(super) async fn execute_brew_generate_reading_list(
     let list_name = ai_result
         .get("listName")
         .and_then(|v| v.as_str())
-        .unwrap_or("智能阅读列表")
+        .unwrap_or("Smart reading list")
         .to_string();
 
     let reasons = ai_result.get("reasons").cloned().unwrap_or(json!({}));
@@ -529,7 +538,7 @@ pub(super) async fn execute_brew_generate_reading_list(
                     "publishedAt": item.published_at.to_rfc3339(),
                     "summary": item.content.as_ref()
                         .map(|c| {
-                            // 简单提取摘要：去除HTML标签，取前200字符
+                            // 摘要：丢掉 `<`/`>`，取前 200 字符（不是完整去标签）
                             let text: String = c.chars()
                                 .filter(|&ch| ch != '<' && ch != '>')
                                 .take(200)

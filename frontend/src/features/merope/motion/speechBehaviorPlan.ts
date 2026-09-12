@@ -1,7 +1,6 @@
 import type { SpeechProsodyPlan } from '../speech/prosody'
 import type { BehaviorPlan, ScheduledBehavior, TimePeg } from './behavior'
 
-/** Future co-speech accents share the same lifecycle as other behaviors. */
 export function compileSpeechBehaviorPlan(
   plan: SpeechProsodyPlan,
   window: { start: number; end: number } = {
@@ -14,8 +13,6 @@ export function compileSpeechBehaviorPlan(
   const behaviors: ScheduledBehavior[] = []
   const presence = `${planId}:presence`
   // Presence belongs to the speech lifecycle, not a provisional duration.
-  // Otherwise an initial empty stream completes this state after 650ms and
-  // later clauses cannot extend its already committed end peg.
   pegs.push(
     peg(`${presence}:start`, plan.startedAtMs),
     peg(`${presence}:ready`, plan.startedAtMs + 35),

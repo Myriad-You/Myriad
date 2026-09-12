@@ -1,8 +1,3 @@
-/**
- * 路由加载指示器 - 左上角光效
- * 与导航岛对齐
- */
-
 .route-loader-indicator {
   position: fixed;
   top: 1.5rem;
@@ -11,7 +6,6 @@
   pointer-events: none;
 }
 
-/* 桌面端：垂直导航岛，指示器在上方 */
 @media (width >= 768px) {
   .route-loader-indicator {
     top: 1.5rem;
@@ -19,7 +13,6 @@
   }
 }
 
-/* 移动端：水平导航岛，指示器在左上角 */
 @media (width <= 767px) {
   .route-loader-indicator {
     top: 1rem;
@@ -27,7 +20,6 @@
   }
 }
 
-/* 简约圆圈加载环 */
 .route-loader-light {
   position: relative;
   width: 8px;
@@ -37,19 +29,16 @@
   border-top-color: var(--color-primary, #6366f1);
 }
 
-/* 进入状态 - 淡入 + 旋转 */
 .route-loader-light.entering {
   animation:
     route-enter 0.3s ease-out forwards,
     spin 0.8s linear 0.3s infinite;
 }
 
-/* 退出状态 - 淡出 */
 .route-loader-light.exiting {
   animation: route-exit 0.4s ease-in forwards;
 }
 
-/* 进入动画 */
 @keyframes route-enter {
   0% {
     opacity: 0;
@@ -62,7 +51,6 @@
   }
 }
 
-/* 退出动画 */
 @keyframes route-exit {
   0% {
     opacity: 1;
@@ -75,7 +63,6 @@
   }
 }
 
-/* 暗黑模式 */
 @media (prefers-color-scheme: dark) {
   .route-loader-light {
     border-color: rgb(255 255 255 / 10%);
@@ -83,7 +70,6 @@
   }
 }
 
-/* 尊重用户动画偏好 */
 @media (prefers-reduced-motion: reduce) {
   .route-loader-light {
     animation: none;

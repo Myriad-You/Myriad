@@ -1,4 +1,5 @@
 import type { PerformanceBaseline } from '../../../services/agent/types'
+import type { PresentedTouchReaction } from '../interaction/touchReaction'
 import type { MotionChannelPolicy } from '../motion/policy'
 import type { MeropeRigManifest } from '../rig/types'
 import type { MusicMotionSignal } from '../singing/musicSignal'
@@ -41,6 +42,11 @@ import type {
   Anime25DTorsoShellRotation,
   Anime25DTorsoYawState,
 } from './torsoDeformation'
+import type {
+  TouchAtlas,
+  TouchPaintLayer,
+  VisibleTouchHit,
+} from './touchVisibility'
 import type { Anime25DPlayback, Anime25DShellProfile } from './types'
 import { currentCopy } from '../../../i18n/localeCopy'
 import { allowsPointerGaze, IDLE_MOTION_POLICY } from '../motion/policy'
@@ -95,6 +101,7 @@ import {
   stepAnime25DDriverResponse,
 } from './driverComposition'
 import { deformAnime25DExpressionPoint } from './expressionDeformation'
+import { releaseThinkingExpression } from './expressionPresets'
 import { expressiveEyeOpenOffset } from './expressiveMotionEnvelope'
 import {
   animationCatchupSeconds,
@@ -102,6 +109,7 @@ import {
   animationSubstepCount,
 } from './frameClock'
 import { stepAnime25DHairLayerSprings } from './hairPhysics'
+import { constrainHairSurface } from './hairSurface'
 import { idleBreathOffset } from './idleBreath'
 import { Anime25DIrisRebound } from './irisRebound'
 import {
@@ -110,7 +118,7 @@ import {
   jawTravelPixels,
   stepJawMotion,
 } from './jawMotion'
-import { writeAnime25DAttachmentTransform } from './layerAttachment'
+import { deformNeckwearBridge, writeAnime25DAttachmentTransform } from './layerAttachment'
 import { deformAnime25DUpstreamFeaturePoint } from './layerDeformation'
 import { compileAnime25DGpuLayers } from './layerGpuBinding'
 import { writeAnime25DLayerGlobalTransform } from './layerTransform'
@@ -170,21 +178,18 @@ import { writeAnime25DShellRotation } from './shellDeformation'
 import { CoSpeechExpressionController } from './speechExpression'
 import { AutoSpeechController } from './speechMotion'
 import { StylizedExpressionMotionController } from './stylizedExpressionMotion'
+import { applySurfaceContact } from './surfaceContact'
 import { ThinkingMotionController } from './thinkingMotion'
+import { ThinkingSticker } from './thinkingSticker'
 import {
   anime25DTorsoYawFollow,
   resolveAnime25DTorsoChestShape,
   stepAnime25DTorsoShellRotation,
 } from './torsoDeformation'
-import { compileProgram, createAtlasTexture, loadImage } from './webglRuntime'
+import { touchPointInView } from './touchHitTest'
+import { hitTestVisibleTouch, readTouchAtlas } from './touchVisibility'
+import { compileProgram, createAtlasTexture, loadImage, readLayerPixels } from './webglRuntime'
 
-/**
- * How fast the pointer gains and gives up the head.
- *
- * Asymmetric on purpose, and in the same direction as every other handoff in
- * this rig: the character should look over promptly, and should not drop your
- * gaze the instant the cursor clips the edge of its bounding box.
- */
 const POINTER_ATTACK_RATE = 16
 const POINTER_RELEASE_RATE = 5.5
 
@@ -249,6 +254,8 @@ function releaseCompiledGpu(
 }
 
 export class Anime25DPlayer {
+  private readonly thinkingSticker = new ThinkingSticker()
+  private readonly thinkingStickerTransform = new Float32Array(9)
   private readonly gl: WebGL2RenderingContext
   private playback!: Anime25DPlayback
   private rigManifest: MeropeRigManifest | undefined
@@ -268,6 +275,8 @@ export class Anime25DPlayer {
 
   private layers: Anime25DGpuLayer[] = []
   private atlasTexture: WebGLTexture | null = null
+  private touchAtlas: TouchAtlas | null = null
+  private touchLayers: TouchPaintLayer[] = []
   private readonly performanceTelemetry = new Anime25DPerformanceTelemetry()
   private readonly current: Anime25DDriver = { ...IDENTITY_DRIVER }
   private readonly target: Anime25DDriver = { ...IDENTITY_DRIVER }
@@ -344,9 +353,7 @@ export class Anime25DPlayer {
 
   private readonly ambientMotion = new AmbientMotionController()
   private readonly behaviorMotion = new Anime25DBehaviorMotionController()
-  /** Manner of the last composed frame; feeds both the lead and the filter. */
   private responseScale = 1
-  /** Monotonic read clock for scheduled controllers. */
   private controlTime = 0
   private readonly occupancy = new PoseOccupancyController()
   private readonly poseGate = new PoseGateController()
@@ -366,6 +373,12 @@ export class Anime25DPlayer {
   private stylizedMotion: Readonly<StylizedExpressionMotion> | null = null
   private stylizedHeadShare = 1
   private readonly performanceExpression = new PerformanceExpressionController()
+  private presentedTouch: PresentedTouchReaction | null = null
+
+  getPresentedTouch(): PresentedTouchReaction | null {
+    return this.presentedTouch
+  }
+
   /** Reused so the per-frame pose composition never allocates. */
   private readonly composedPose = zeroOccupancyOffset()
   private readonly breathPose = { angleX: 0, angleY: 0, angleZ: 0, body: 0 }
@@ -400,7 +413,6 @@ export class Anime25DPlayer {
   private collarClip: CollarClipMesh | null = null
   private jawEmphasis = 0
   private readonly mouse = { x: 0, y: 0, inside: false }
-  /** How much of the head the pointer currently owns, 0-1. */
   private pointerAuthority = 0
   private policy: MotionChannelPolicy = { ...IDLE_MOTION_POLICY }
   private disposed = false
@@ -416,23 +428,23 @@ export class Anime25DPlayer {
       premultipliedAlpha: true,
       stencil: true,
       antialias: true,
-      // Default false: the browser may discard the back buffer as soon as
-      // requestAnimationFrame stops (tab hidden, IO says off-screen). The
-      // canvas then goes transparent — the live face "vanishes after a while".
       preserveDrawingBuffer: true,
       powerPreference: 'low-power',
     })
     if (!gl) throw new Error(currentCopy().merope.anime25dWebglFailed)
     this.gl = gl
     this.program = compileProgram(gl)
-    this.rendererBindings = createAnime25DRendererBindings(gl, this.program)
-    this.applyPackage(playback, rigManifest)
+    try {
+      this.rendererBindings = createAnime25DRendererBindings(gl, this.program)
+      this.applyPackage(playback, rigManifest)
+    } catch (error) {
+      // A failed constructor has no owner that can call dispose().
+      gl.deleteProgram(this.program)
+      throw error
+    }
   }
 
-  /**
-   * Swap the authored package on the live WebGL context.
-   * The last outfit keeps drawing until the next atlas is bound.
-   */
+  /** The last outfit keeps drawing until the next atlas is bound. */
   async replaceLivePackage(
     playback: Anime25DPlayback,
     rigManifest: MeropeRigManifest | undefined,
@@ -461,25 +473,81 @@ export class Anime25DPlayer {
       chestWeightField,
       image,
     )
-    const nextTexture = createAtlasTexture(this.gl, image)
-    if (this.disposed || atlasAbort.signal.aborted) {
+    let nextTexture: WebGLTexture | null = null
+    let touchAtlas: ReturnType<typeof readTouchAtlas>
+    let linePixels: Uint8ClampedArray | undefined
+    try {
+      nextTexture = createAtlasTexture(this.gl, image, compiled.atlasPatches)
+      touchAtlas = readTouchAtlas(image)
+      const eyelash = resolved.layers.find((layer) => layer.role === 'eyelash')
+      linePixels = eyelash ? readLayerPixels(image, eyelash)?.pixels : undefined
+      if (this.disposed || atlasAbort.signal.aborted) {
+        releaseCompiledGpu(this.gl, compiled.layers, compiled.collarClip, nextTexture)
+        return
+      }
+      this.applyPackage(playback, rigManifest)
+    } catch (error) {
+      // Keep the live outfit; the not-yet-owned replacement must be released.
       releaseCompiledGpu(
         this.gl,
         compiled.layers,
         compiled.collarClip,
         nextTexture,
       )
-      return
+      throw error
     }
-    this.applyPackage(playback, rigManifest)
     releaseCompiledGpu(this.gl, this.layers, this.collarClip, this.atlasTexture)
     this.atlasTexture = nextTexture
     this.layers = compiled.layers
     this.collarClip = compiled.collarClip
+    this.touchAtlas = touchAtlas
+    this.thinkingSticker.setLinePixels(linePixels)
+    this.touchLayers = this.layers.map((layer) => {
+      const mesh =
+        layer.renderKind === 'neck' && this.collarClip ? this.collarClip : layer
+      return {
+        paint: layer,
+        mesh: {
+          positions: mesh.deformed,
+          atlasUvs: mesh.atlasUvs,
+          indices: mesh.indices,
+          layerTransform: layer.layerTransform,
+        },
+      }
+    })
   }
 
   async loadAtlas(url: string): Promise<void> {
     await this.replaceLivePackage(this.playback, this.rigManifest, url)
+  }
+
+  hitTestTouch(clientX: number, clientY: number): VisibleTouchHit | null {
+    const canvas = this.gl.canvas
+    if (
+      this.disposed ||
+      !this.touchAtlas ||
+      !(canvas instanceof HTMLCanvasElement)
+    ) {
+      return null
+}
+    const point = touchPointInView(
+      clientX,
+      clientY,
+      canvas.getBoundingClientRect(),
+      {
+        width: this.renderFrame.viewWidth,
+        height: this.renderFrame.viewHeight,
+      },
+    )
+    return point
+      ? hitTestVisibleTouch(
+          point.x,
+          point.y,
+          this.touchLayers,
+          this.touchAtlas,
+          this.renderFrame,
+        )
+      : null
   }
 
   private applyPackage(
@@ -613,6 +681,7 @@ export class Anime25DPlayer {
 
   setTarget(partial: Partial<Anime25DDriver>): void {
     Object.assign(this.target, sanitizeDriverPatch(partial))
+    if (this.speechActive || this.target.talk) releaseThinkingExpression(this.target)
   }
 
   replaceTarget(driver: Anime25DDriver): void {
@@ -634,9 +703,6 @@ export class Anime25DPlayer {
 
   setMouse(x: number, y: number, inside: boolean): void {
     this.mouse.inside = inside
-    // A pointer that has left has no position. Keeping the last one lets the
-    // head ease away from where the cursor actually was; taking the zero the
-    // leave handler sends would make the release a move to centre instead.
     if (!inside) return
     this.mouse.x = x
     this.mouse.y = y
@@ -652,6 +718,7 @@ export class Anime25DPlayer {
 
   setSpeechActive(active: boolean): void {
     this.speechActive = active
+    if (active) releaseThinkingExpression(this.target)
   }
 
   setSinging(active: boolean): void {
@@ -678,14 +745,6 @@ export class Anime25DPlayer {
     this.speechMotion.clear(this.time)
   }
 
-  /**
-   * The one body entry point for a realized plan.
-   *
-   * Units are routed by family, not by output shape: modulating families reach
-   * the pose generators they scale, and performance units carry their own pose
-   * to the expression controller. Restating the whole live set is what makes
-   * this safe to call on every plan revision.
-   */
   setBehaviorMotionUnits(
     units: readonly Anime25DMotionUnit[],
     nowMs: number,
@@ -803,8 +862,6 @@ export class Anime25DPlayer {
     const substeps = animationSubstepCount(catchup)
     const dt = catchup / substeps
     const dropped = elapsed > 0.05
-    // Skip the stale part of a long stall so expired cues are not replayed,
-    // then integrate the most recent bounded tail in stable substeps.
     this.time += elapsed - catchup
     if (!this.performanceTelemetry.shouldSample()) {
       for (let step = 0; step < substeps; step += 1) {
@@ -861,10 +918,11 @@ export class Anime25DPlayer {
     this.layers = []
     this.collarClip = null
     this.atlasTexture = null
+    this.touchAtlas = null
+    this.touchLayers = []
     this.gl.deleteProgram(this.program)
-    // Chrome keeps a detached canvas's drawing buffer until loseContext.
-    // A canvas still in the document must keep the context: getContext('webgl2')
-    // returns the lost one, so Strict Mode's effect replay would then fail.
+    this.thinkingSticker.dispose(this.gl)
+    // A canvas still in the document must keep the context
     try {
       const surface = this.gl.canvas
       if (surface instanceof HTMLCanvasElement && surface.isConnected) return
@@ -875,14 +933,14 @@ export class Anime25DPlayer {
   }
 
   private smoothDriver(dt: number): void {
+    this.thinkingSticker.update(this.time,
+      this.speechActive || this.target.talk ? 0 : this.target.thinking ? 1 : this.performanceExpression.getThinkingLevel())
     this.shellActivation = Math.min(1, this.shellActivation + dt * 8)
     const t = this.time
     const pointer =
       this.target.mouse && allowsPointerGaze(this.policy.gaze)
         ? this.mouse
         : { x: 0, y: 0, inside: false }
-    // Look over promptly, let go unhurriedly — the same asymmetry the pose
-    // gate and occupancy already use when a source gains or loses a channel.
     const pointerWanted = pointer.inside ? 1 : 0
     this.pointerAuthority +=
       (pointerWanted - this.pointerAuthority) *
@@ -898,17 +956,6 @@ export class Anime25DPlayer {
       pointer,
       this.pointerAuthority,
     )
-    // Known cues and prosody are sampled slightly ahead to compensate the
-    // display plus driver response. Observed input and physics remain at `t`.
-    // The lead uses the previous frame's manner: the scale is derived from
-    // controllers that are themselves sampled at `controlTime`, so reading it
-    // here would be circular. It varies slowly, and one frame of lag on a
-    // compensation term is far cheaper than sampling everything twice.
-    //
-    // Clamped forward because the lead is no longer constant. A shrinking lead
-    // subtracts from the clock every scheduled controller reads on, and a frame
-    // shorter than the shrink would hand them a time earlier than the last one
-    // — every envelope would step backwards at once.
     const controlTime = monotonicControlTime(
       this.controlTime,
       t,
@@ -916,7 +963,11 @@ export class Anime25DPlayer {
     )
     this.controlTime = controlTime
     const behaviorMotion = this.behaviorMotion.sample(controlTime)
-    const semanticExpression = this.performanceExpression.sample(controlTime)
+    const semanticExpression = this.performanceExpression.sample(
+      controlTime,
+      tgt,
+      this.speechActive || this.target.talk,
+    )
     const stylizedTargets = resolveAnime25DStylizedTargets(
       this.stylizedTargets,
       tgt,
@@ -930,9 +981,6 @@ export class Anime25DPlayer {
       stylizedTargets.silly,
       stylizedTargets.lovestruck,
     )
-    // Sticker-local geometry is authored inside the expression envelope. Pose
-    // ownership controls its visibility and shared face/body contribution, but
-    // must not shrink or otherwise attenuate the artwork a second time.
     this.stylizedMotion = stylized
     const performanceMotionScale =
       this.performanceExpression.getAmbientMotionScale()
@@ -963,9 +1011,7 @@ export class Anime25DPlayer {
       behaviorMotion.musicQuality,
       behaviorMotion.musicMode,
     )
-    // How much of the mouth is not currently carrying a voice. A sticker face
-    // only takes the mouth once the character has stopped talking; a cue
-    // landing mid-delivery would otherwise freeze the lip sync.
+    // A sticker face only takes the mouth once the character has stopped talking
     this.sillyMouthShare +=
       ((vocalizing ? 0 : 1) - this.sillyMouthShare) * (1 - Math.exp(-7 * dt))
     const sticker = Math.max(
@@ -983,18 +1029,14 @@ export class Anime25DPlayer {
       automation: this.target.rand,
       sticker,
     })
-    // A live directed beat owns the body; the idle layer steps aside instead
-    // of writing the same channels underneath it.
     const randomAction = this.randomAction.sample(
       t,
       this.target.rand,
       this.performanceExpression.getActiveLevel() >= DIRECTED_BODY_BLOCK_LEVEL,
     )
     const ambient = this.ambientMotion.sample(t, this.target.rand)
-    const thinking = this.thinkingMotion.sample(t, this.target.thinking)
+    const thinking = this.thinkingMotion.sample(t, this.target.thinking && !speaking, tgt)
     const breath = idleBreathOffset(t, this.breathPose)
-    // Ownership and situation resolve to one weight per source per channel;
-    // nothing below this line invents a scale of its own.
     const gate = this.poseGate.sample(
       dt,
       applyBehaviorMotionGate(
@@ -1002,12 +1044,11 @@ export class Anime25DPlayer {
           performance: performanceMotionScale,
           stylized: stylized.ambientScale,
           randomAmbient: randomAction.ambientScale,
+          touch: this.performanceExpression.getTouchShare(),
         }),
         behaviorMotion,
       ),
     )
-    // The renderer-local pulse shares the source's continuous weight. Actual
-    // head/body kinematics are carried once by the final pose response below.
     this.stylizedHeadShare = gate.stylized.headBody
     applyAnime25DComposedPose(
       tgt,
@@ -1046,8 +1087,6 @@ export class Anime25DPlayer {
       tgt,
       smoothAnime25DUnit(stylizedTargets.silly) * this.sillyMouthShare,
     )
-    // The sleeves answer the torso the frame after it actually moved, then
-    // spend the same rigid-arm allowance every authored gesture spends.
     const armFollow = this.armFollow.step(
       this.torsoYaw.value,
       dt,
@@ -1069,10 +1108,6 @@ export class Anime25DPlayer {
       this.target.blink,
       stylizedTargets.maniac > 0.03 || stylizedTargets.silly > 0.03,
     )
-    // The director's manner reaches the one filter that decides how a pose
-    // becomes the next one. Everything above this line spends quality on how
-    // big and how paced a motion is; without this the delivery's speed was
-    // the rig's constant, whatever the plan asked for.
     this.responseScale = resolvePoseResponseScale([
       {
         weight:
@@ -1117,8 +1152,6 @@ export class Anime25DPlayer {
         ) > 0.03,
       Math.max(this.current.eyeOpenL, this.current.eyeOpenR),
     )
-    // Physics follows the actual continuous pose, not a separately filtered
-    // copy of the desired pose that can disagree during a handoff.
     captureAnime25DSecondaryMotion(this.secondaryCurrent, this.current)
     stepAnime25DTorsoShellRotation(
       this.torsoYaw,
@@ -1183,8 +1216,7 @@ export class Anime25DPlayer {
     const npy = A.neckPivot.y
     const bpx = A.bodyPivot.x
     const bpy = A.bodyPivot.y
-    // One coordinate system for all sources and physics. Music extent is
-    // authored before composition/envelope/response, never after them.
+    // Music extent is authored before composition/envelope/response, never after them.
     const az = e.angleZ * 0.07
     const ay = e.angleY
     const cz = Math.cos(az)
@@ -1304,7 +1336,13 @@ export class Anime25DPlayer {
       }
     }
     for (const layer of this.layers) {
-      const visible = shouldDeformLayer(layer.source, layer.frameOpacity)
+      const visible =
+        shouldDeformLayer(layer.source, layer.frameOpacity) ||
+        Boolean(
+          layer.attachmentDependents?.some((child) =>
+            shouldDeformLayer(child.source, child.frameOpacity),
+          ),
+        )
       const updateLocalGeometry = layer.deformationPlan.cacheable
         ? shouldUpdateAnime25DLayerGeometry(
             layer.deformationPlan,
@@ -1314,18 +1352,12 @@ export class Anime25DPlayer {
         : true
       if (!visible) continue
       const rest = layer.rest
-      const deformed = layer.deformed
+      const deformed = layer.surfaceContact?.unconstrained ?? layer.hairSurface?.candidate ?? layer.deformed
       const vertexCount = rest.length / 2
       const source = layer.source
       const bn = layer.baseRole
       const isHead = source.group === 'head'
-      if (layer.attachment) {
-        writeAnime25DAttachmentTransform(
-          layer.attachment,
-          secondaryDeformationFrame,
-          layer.layerTransform,
-        )
-      } else if (layer.shaderGlobalTransform) {
+      if (!layer.attachment && layer.shaderGlobalTransform) {
         writeAnime25DLayerGlobalTransform(
           {
             headFollow: isHead
@@ -1349,6 +1381,11 @@ export class Anime25DPlayer {
           },
           layer.layerTransform,
         )
+      }
+      // Do not deform/mark it dirty and later upload into a null binding.
+      if (!layer.vertexBuffer) {
+        layer.geometryDirty = false
+        continue
       }
       if (!layer.localDynamic) {
         if (work) {
@@ -1445,6 +1482,10 @@ export class Anime25DPlayer {
           layer.secondaryDeformation,
           secondaryDeformationFrame,
         )
+        if (layer.hairSurface) {
+          layer.hairSurface.base[index] = deformationPoint.x
+          layer.hairSurface.base[index + 1] = deformationPoint.y
+        }
         deformAnime25DHairPoint(
           deformationPoint,
           vertex,
@@ -1459,15 +1500,70 @@ export class Anime25DPlayer {
           deformed[index + 1] = y
         }
       }
+      if (layer.hairSurface) {
+        constrainHairSurface(layer.hairSurface)
+        geometryChanged = false
+        for (let i = 0; i < deformed.length; i++) {
+          if (layer.deformed[i] !== deformed[i]) {
+            layer.deformed[i] = deformed[i]
+            geometryChanged = true
+          }
+        }
+      }
       if (layer.deformationPlan.cacheable) {
         markAnime25DLayerGeometryUpdated(layer.deformationPlan)
       }
+      // Contact layers compare only their final output, never the intermediate
+      // free arm, against the surface retained by attachments and the GPU.
+      if (layer.surfaceContact) continue
       if (!geometryChanged) {
         layer.geometryDirty = false
         if (work) work.savedUploadBytes += deformed.byteLength
         continue
       }
       layer.geometryDirty = true
+    }
+    for (const layer of this.layers) {
+      if (
+        !layer.surfaceContact ||
+        !shouldDeformLayer(layer.source, layer.frameOpacity)
+      ) {
+        continue
+      }
+      layer.geometryDirty = applySurfaceContact(
+        layer.surfaceContact,
+        layer.surfaceContact.unconstrained,
+        layer.deformed,
+      )
+      if (work && !layer.geometryDirty)
+        work.savedUploadBytes += layer.deformed.byteLength
+    }
+    // Hosts may be later in draw order. Resolve attachments only after all host
+    // vertices include this frame's shell, breathing and hair physics.
+    for (const layer of this.layers) {
+      if (
+        layer.neckwearBridge &&
+        shouldDeformLayer(layer.source, layer.frameOpacity)
+      ) {
+        deformNeckwearBridge(
+          layer.neckwearBridge,
+          secondaryDeformationFrame,
+          layer.rest,
+          layer.deformed,
+        )
+        layer.layerTransform.fill(0)
+        layer.layerTransform[0] =
+          layer.layerTransform[4] =
+          layer.layerTransform[8] =
+            1
+        layer.geometryDirty = true
+      } else if (layer.attachment) {
+        writeAnime25DAttachmentTransform(
+          layer.attachment,
+          secondaryDeformationFrame,
+          layer.layerTransform,
+        )
+}
     }
   }
 
@@ -1507,5 +1603,33 @@ export class Anime25DPlayer {
       this.renderFrame,
       work,
     )
+    const sampled = this.performanceExpression.getSampledTouch()
+    if (this.atlasTexture) {
+      const a = this.playback.anchors
+      const f = this.secondaryDeformationFrame
+      const m = this.thinkingStickerTransform
+      writeAnime25DLayerGlobalTransform({
+        headFollow: 1, headRotationCosine: f.headRotationCosine,
+        headRotationSine: f.headRotationSine, neckPivotX: f.neckPivotX,
+        neckPivotY: f.neckPivotY, faceScale: f.faceScale,
+        angleX: this.current.angleX, angleY: f.headAngleY, depthOffset: 0.3,
+        faceCenterY: f.faceCenterY, specialOffsetY: f.specialHeadOffset,
+        breathOffset: f.headBreathOffset,
+      }, m)
+      const faceWidth = a.face.x1 - a.face.x0
+      const x = a.face.x1 - faceWidth * 0.04
+      const y = a.face.y0 + (a.face.y1 - a.face.y0) * 0.08
+      const frame = this.renderFrame
+      const px = m[0] * x + m[3] * y + m[6] - frame.bodyPivotX
+      const py = m[1] * x + m[4] * y + m[7] - frame.bodyPivotY
+      this.thinkingSticker.draw(this.gl, this.time,
+        this.speechActive || this.target.talk ? 0 : this.target.thinking ? 1 : this.performanceExpression.getThinkingLevel(),
+        frame.bodyPivotX + px * frame.bodyRotationCosine - py * frame.bodyRotationSine,
+        frame.bodyPivotY + px * frame.bodyRotationSine + py * frame.bodyRotationCosine,
+        faceWidth * 0.155, frame.viewWidth, frame.viewHeight)
+    }
+    this.presentedTouch = sampled
+      ? { ...sampled, atMs: performance.now() }
+      : null
   }
 }

@@ -1,11 +1,6 @@
 import type { Anime25DLayerRole } from './anime25d'
 import { ANIME25D_LAYER_DEPTH } from './anime25d'
 
-/**
- * See-through bodytags_v3 categories plus the established native PSD aliases.
- * https://huggingface.co/spaces/24yearsold/see-through-demo/blob/main/common/assets/bodytags_v3.json
- * Only exact tokens are aliases: a "necklace-shadow" is not a necklace.
- */
 const ALIASES: Readonly<Record<string, string>> = {
   hair: 'front-hair',
   hairf: 'front-hair',
@@ -52,8 +47,6 @@ const RIGID_ROLES = new Set([
   'tail',
   'objects',
 ])
-// Recognizing an extra drawing must not promote a canvas-sized prop into the
-// portrait's framing authority. Small accessories still retain their margins.
 const EXTRA_FRAMING_ROLES = new Set(['unknown', 'objects', 'wings', 'tail'])
 
 export function anime25DLayerAffectsFraming(
@@ -72,12 +65,12 @@ export function canonicalAnime25DLayerName(value: string | undefined): string {
     .normalize('NFKC')
     .trim()
     .toLowerCase()
-    .replace(/\s*(?:のコピー|copy)(?:\s*\d+)?$/u, '')
-    .replace(/[\s_]+/g, '-')
-    .replace(/-+/g, '-')
+    .replaceAll(/\s*(?:のコピー|copy)(?:\s*\d+)?$/ug, '')
+    .replaceAll(/[\s_]+/g, '-')
+    .replaceAll(/-+/g, '-')
 }
 
-/** Preserve every numbered/depth/side fragment; strip suffixes only for lookup. */
+/** Preserve every numbered/depth/side fragment */
 export function anime25DLayerNameParts(value: string): {
   base: string
   suffix: string
@@ -116,10 +109,6 @@ export function anime25DLayerGroup(
   return 'head'
 }
 
-/**
- * Used at import and binding, including named drawings stored as "unknown".
- * Does not change the immutable asset, its draw order, UVs, or layer identity.
- */
 export function resolveAnime25DLayerSemantics<
   T extends { name: string; role: string; group: 'head' | 'body' },
 >(source: T): T {
@@ -139,8 +128,6 @@ export function isAnime25DRigidAttachment(source: {
   fade?: string | null
   phys?: string | null
 }): boolean {
-  // Unknown art stays drawable, but does not gain cloth/chest deformation or
-  // turn into an articulated limb. Its existing head/body group owns the mount.
   return (
     !source.fade &&
     !source.phys &&
