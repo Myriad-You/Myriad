@@ -140,6 +140,7 @@ mod postgres_tests {
         db.execute_unprepared("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT, is_admin BOOLEAN, is_owner BOOLEAN DEFAULT false); \
             CREATE TABLE IF NOT EXISTS user_identities (id SERIAL PRIMARY KEY, user_id INTEGER REFERENCES users(id), provider TEXT, provider_user_id TEXT, is_primary BOOLEAN DEFAULT false, linked_at TIMESTAMPTZ DEFAULT NOW(), raw_profile JSONB, UNIQUE(provider, provider_user_id)); \
             CREATE TABLE IF NOT EXISTS tapp_runtime_registry (namespace TEXT, record_id TEXT, subject_id INTEGER, owner_id INTEGER, tapp_id TEXT, runtime_id TEXT, payload JSONB NOT NULL, expires_at BIGINT, updated_at TIMESTAMPTZ DEFAULT NOW(), PRIMARY KEY(namespace, record_id)); \
+            CREATE TABLE IF NOT EXISTS tapp_runtime_mailbox (expires_at BIGINT); \
             TRUNCATE user_identities, tapp_runtime_registry, users RESTART IDENTITY; \
             INSERT INTO users VALUES (101, 'first', true, false), (102, 'second', true, false);").await.unwrap();
         {

@@ -10,19 +10,27 @@ enum DeliveryItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredOutbound {
+    run_id: String,
     items: Vec<DeliveryItem>,
     next_index: usize,
     prompt: Option<PendingPrompt>,
 }
 
 impl StoredOutbound {
-    fn prepare(text: &str, images: &[String], limit: usize, prompt: Option<PendingPrompt>) -> Self {
+    fn prepare(
+        text: &str,
+        images: &[String],
+        limit: usize,
+        prompt: Option<PendingPrompt>,
+        run_id: &str,
+    ) -> Self {
         let items = split_channel_text(text, limit)
             .into_iter()
             .map(DeliveryItem::Text)
             .chain(images.iter().cloned().map(DeliveryItem::Image))
             .collect();
         Self {
+            run_id: run_id.to_string(),
             items,
             next_index: 0,
             prompt,
@@ -47,7 +55,7 @@ pub(super) async fn clear_outbound(db: &DatabaseConnection, platform: &str, key:
 
 pub(super) async fn flush_outbound(
     db: &DatabaseConnection,
-    user_id: i32,
+    _user_id: i32,
     key: &str,
     sink: &ChannelSink,
 ) {
@@ -56,7 +64,7 @@ pub(super) async fn flush_outbound(
         if !sink.authorized().await {
             return;
         }
-        let mut stored =
+        let stored =
             match shared_registry::get::<StoredOutbound>(db, outbound_ns(sink.platform()), key)
                 .await
             {
@@ -67,6 +75,14 @@ pub(super) async fn flush_outbound(
                     return;
                 }
             };
+        if load_session(db, sink.platform(), key)
+            .await
+            .and_then(|session| session.last_run_id)
+            .as_deref()
+            != Some(&stored.run_id)
+        {
+            return;
+        }
         let Some(item) = stored.items.get(stored.next_index) else {
             clear_outbound(db, sink.platform(), key).await;
             return;
@@ -79,20 +95,13 @@ pub(super) async fn flush_outbound(
         };
         match result {
             Ok(()) => {
-                stored.next_index += 1;
-                if let Err(error) = shared_registry::put(
-                    db,
-                    outbound_ns(sink.platform()),
-                    key,
-                    identity(user_id),
-                    &stored,
-                    (Utc::now() + ChronoDuration::days(2)).timestamp(),
-                )
-                .await
-                {
-                    // Unknown commit after an acknowledged send can duplicate this item; never replay Work.
-                    warn!(%error, "channel outbox progress write failed");
-                    return;
+                match acknowledge_item(db, sink.platform(), key, &stored).await {
+                    Ok(true) => {}
+                    Ok(false) => return, // stopped or superseded while the network request was in flight
+                    Err(error) => {
+                        warn!(%error, "channel outbox progress write failed");
+                        return;
+                    }
                 }
                 delay = 1;
             }
@@ -103,6 +112,21 @@ pub(super) async fn flush_outbound(
             }
         }
     }
+}
+
+// An ACK is a conditional update, never an upsert: a delayed response must not
+// recreate a stopped outbox or overwrite the next run's delivery record.
+async fn acknowledge_item(
+    db: &DatabaseConnection,
+    platform: &str,
+    key: &str,
+    sent: &StoredOutbound,
+) -> Result<bool, DbErr> {
+    let result = db.execute_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres,
+        "UPDATE tapp_runtime_registry SET payload = jsonb_set(payload, '{next_index}', to_jsonb($4::bigint)), updated_at = NOW() \
+         WHERE namespace = $1 AND record_id = $2 AND payload->>'run_id' = $3 AND (payload->>'next_index')::bigint = $5",
+        [outbound_ns(platform).into(), key.into(), sent.run_id.as_str().into(), ((sent.next_index + 1) as i64).into(), (sent.next_index as i64).into()])).await?;
+    Ok(result.rows_affected() == 1)
 }
 
 async fn project_delivery(
@@ -125,7 +149,8 @@ async fn project_delivery(
         };
         session.last_run_id = Some(run_id.to_string());
         session.last_event_seq = sequence;
-        let outbox = StoredOutbound::prepare(content, images, sink.text_limit(), prompt.clone());
+        let outbox =
+            StoredOutbound::prepare(content, images, sink.text_limit(), prompt.clone(), run_id);
         let txn = db.begin().await?;
         let expiry = (Utc::now() + ChronoDuration::days(2)).timestamp();
         shared_registry::put(
@@ -225,12 +250,12 @@ mod tests {
     use super::*;
     #[test]
     fn image_only_and_partial_delivery_survive_serialization() {
-        let image_only = StoredOutbound::prepare("", &["/image.png".into()], 10, None);
+        let image_only = StoredOutbound::prepare("", &["/image.png".into()], 10, None, "run");
         assert_eq!(
             image_only.items,
             vec![DeliveryItem::Image("/image.png".into())]
         );
-        let mut outbox = StoredOutbound::prepare("hello", &["/image.png".into()], 10, None);
+        let mut outbox = StoredOutbound::prepare("hello", &["/image.png".into()], 10, None, "run");
         outbox.next_index = 1;
         let restored: StoredOutbound =
             serde_json::from_value(serde_json::to_value(&outbox).unwrap()).unwrap();
@@ -238,5 +263,77 @@ mod tests {
             restored.items.get(restored.next_index),
             Some(&DeliveryItem::Image("/image.png".into()))
         );
+    }
+}
+
+#[cfg(test)]
+mod postgres_tests {
+    use super::*;
+    #[tokio::test]
+    #[ignore = "requires a disposable MYRIAD_CHANNEL_TEST_DATABASE_URL ending in _channel_test"]
+    async fn channel_outbox_ack_cannot_resurrect_or_overwrite() {
+        let url = std::env::var("MYRIAD_CHANNEL_TEST_DATABASE_URL").expect("test database URL");
+        assert!(url::Url::parse(&url)
+            .unwrap()
+            .path()
+            .ends_with("_channel_test"));
+        let db = sea_orm::Database::connect(&url).await.unwrap();
+        db.execute_unprepared("CREATE TABLE IF NOT EXISTS tapp_runtime_registry (namespace TEXT, record_id TEXT, subject_id INTEGER, owner_id INTEGER, tapp_id TEXT, runtime_id TEXT, payload JSONB NOT NULL, expires_at BIGINT, updated_at TIMESTAMPTZ DEFAULT NOW(), PRIMARY KEY(namespace, record_id)); CREATE TABLE IF NOT EXISTS tapp_runtime_mailbox (expires_at BIGINT);").await.unwrap();
+        let key = format!("ack-test-{}", uuid::Uuid::new_v4());
+        let sent = StoredOutbound::prepare("first", &["/image.png".into()], 100, None, "first-run");
+        let expiry = Utc::now().timestamp() + 600;
+        shared_registry::put(
+            &db,
+            outbound_ns("telegram"),
+            &key,
+            identity(101),
+            &sent,
+            expiry,
+        )
+        .await
+        .unwrap();
+        assert!(acknowledge_item(&db, "telegram", &key, &sent)
+            .await
+            .unwrap());
+        let saved: StoredOutbound = shared_registry::get(&db, outbound_ns("telegram"), &key)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved.next_index, 1);
+        assert_eq!(
+            saved.items.get(1),
+            Some(&DeliveryItem::Image("/image.png".into()))
+        );
+        clear_outbound(&db, "telegram", &key).await;
+        assert!(!acknowledge_item(&db, "telegram", &key, &sent)
+            .await
+            .unwrap());
+        assert!(
+            shared_registry::get::<StoredOutbound>(&db, outbound_ns("telegram"), &key)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let next = StoredOutbound::prepare("next", &[], 100, None, "next-run");
+        shared_registry::put(
+            &db,
+            outbound_ns("telegram"),
+            &key,
+            identity(101),
+            &next,
+            expiry,
+        )
+        .await
+        .unwrap();
+        assert!(!acknowledge_item(&db, "telegram", &key, &sent)
+            .await
+            .unwrap());
+        let saved: StoredOutbound = shared_registry::get(&db, outbound_ns("telegram"), &key)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved.run_id, "next-run");
+        assert_eq!(saved.next_index, 0);
+        clear_outbound(&db, "telegram", &key).await;
     }
 }
