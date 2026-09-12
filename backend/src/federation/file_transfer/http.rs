@@ -11,10 +11,10 @@ use crate::federation::types::*;
 
 use super::storage::{
     admit_chunk_bytes, admit_new_transfer, bad_request, final_file_path,
-    finalize_uploaded_transfer, is_strictly_under, is_valid_transfer_id, lock_transfer_session,
-    part_file_path, path_to_db, prepare_chunk_file, resolve_transfer_path, safe_filename,
-    storage_err, storage_root, stored_bytes, upload_session_action, verify_chunk_bytes,
-    ChunkFileState, UploadSessionAction, DEFAULT_CHUNK_SIZE, MAX_FILE_SIZE,
+    finalize_uploaded_transfer, is_strictly_under, is_valid_transfer_id, lock_transfer_admission,
+    lock_transfer_session, part_file_path, path_to_db, prepare_chunk_file, resolve_transfer_path,
+    safe_filename, storage_err, storage_root, stored_bytes, upload_session_action,
+    verify_chunk_bytes, ChunkFileState, UploadSessionAction, DEFAULT_CHUNK_SIZE, MAX_FILE_SIZE,
 };
 use super::types::{
     InitTransferRequest, TransferDetail, TransferFileContent, TransferSummary, UploadChunkRequest,
@@ -77,9 +77,6 @@ pub async fn initiate_transfer(
         ));
     }
 
-    // concurrent transfer admission (count + reserved bytes)
-    admit_new_transfer(db, req.file_size, Some(user_id)).await?;
-
     let remote_actor_url: String = ch_row.try_get("", "actor_url").unwrap_or_default();
     let remote_inbox: Option<String> = ch_row
         .try_get::<Option<String>>("", "inbox_url")
@@ -94,7 +91,10 @@ pub async fn initiate_transfer(
     let final_path = final_file_path(&transfer_id, &req.filename).map_err(bad_request)?;
     let local_path = path_to_db(&final_path);
 
-    db.execute_raw(Statement::from_sql_and_values(
+    let txn = db.begin().await.map_err(db_err)?;
+    lock_transfer_admission(&txn).await.map_err(db_err)?;
+    admit_new_transfer(&txn, req.file_size, Some(user_id)).await?;
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_file_transfers
            (transfer_id, channel_id, filename, file_size, mime_type,
@@ -113,6 +113,7 @@ pub async fn initiate_transfer(
     ))
     .await
     .map_err(db_err)?;
+    txn.commit().await.map_err(db_err)?;
 
     // 发送 FileTransfer Activity 通知远程方
     let local_actor = actor_url(&base_url, username);
@@ -231,16 +232,16 @@ pub async fn initiate_room_transfer(
         ));
     }
 
-    // concurrent transfer admission (count + reserved bytes)
-    admit_new_transfer(db, req.file_size, Some(user_id)).await?;
-
     let chunks_total =
         ((req.file_size + DEFAULT_CHUNK_SIZE - 1) / DEFAULT_CHUNK_SIZE).max(1) as i32;
     let transfer_id = generate_transfer_id();
     let final_path = final_file_path(&transfer_id, &req.filename).map_err(bad_request)?;
     let local_path = path_to_db(&final_path);
 
-    db.execute_raw(Statement::from_sql_and_values(
+    let txn = db.begin().await.map_err(db_err)?;
+    lock_transfer_admission(&txn).await.map_err(db_err)?;
+    admit_new_transfer(&txn, req.file_size, Some(user_id)).await?;
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_file_transfers
            (transfer_id, channel_id, room_id, owner_user_id, filename, file_size, mime_type,
@@ -260,6 +261,7 @@ pub async fn initiate_room_transfer(
     ))
     .await
     .map_err(db_err)?;
+    txn.commit().await.map_err(db_err)?;
 
     let activity_id = generate_activity_id(&base_url);
     let file_activity = json!({

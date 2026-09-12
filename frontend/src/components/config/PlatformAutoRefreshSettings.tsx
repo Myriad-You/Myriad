@@ -37,7 +37,7 @@ const PlatformAutoRefreshSettings: React.FC<
   toc = true,
   children,
 }) => {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const { catalog: g, bindGuide, renderGuide } = useSettingGuide()
   const helpCtx = useSettingsHelp()
   const expandHelp = Boolean(helpCtx?.showDetails)
@@ -48,9 +48,10 @@ const PlatformAutoRefreshSettings: React.FC<
 
   const status = value.enabled
     ? configuredPlatformCount > 0
-      ? t.config.autoRefreshSummary
-          .replace('{count}', String(configuredPlatformCount))
-          .replace('{hours}', String(interval))
+      ? format(t.config.autoRefreshSummary, {
+          count: configuredPlatformCount,
+          hours: interval,
+        })
       : t.config.autoRefreshNoPlatforms
     : t.config.autoRefreshDisabledHint
 
@@ -59,13 +60,10 @@ const PlatformAutoRefreshSettings: React.FC<
       { value: 'off', label: t.config.autoRefreshOff },
       ...INTERVAL_OPTIONS.map((hours) => ({
         value: String(hours),
-        label: t.config.autoRefreshEveryHours.replace(
-          '{hours}',
-          String(hours),
-        ),
+        label: format(t.config.autoRefreshEveryHours, { hours }),
       })),
     ]
-  }, [t.config.autoRefreshOff, t.config.autoRefreshEveryHours])
+  }, [format, t.config.autoRefreshOff, t.config.autoRefreshEveryHours])
 
   const controls = (
     <div className="settings-stack">
@@ -109,10 +107,7 @@ const PlatformAutoRefreshSettings: React.FC<
             {title}
             {!expandHelp ? (
               <SettingTitleHelp
-                ariaLabel={t.config.detailHelpAriaNamed.replace(
-                  '{title}',
-                  title,
-                )}
+                ariaLabel={format(t.config.detailHelpAriaNamed, { title })}
               >
                 {description}
               </SettingTitleHelp>

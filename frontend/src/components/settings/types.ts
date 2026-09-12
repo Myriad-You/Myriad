@@ -1,7 +1,5 @@
-
 import type { CSSProperties, ReactNode } from 'react'
 import type { ToggleSwitchPreview } from './items/toggleSwitchPreview'
-
 
 export type SettingType =
   | 'switch'
@@ -271,7 +269,6 @@ export interface QuotaGroupConfig {
   disabled?: boolean
   loading?: boolean
 }
-
 
 export interface InfoCardConfig {
   title?: string

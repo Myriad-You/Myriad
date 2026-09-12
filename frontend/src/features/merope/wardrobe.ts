@@ -84,15 +84,22 @@ export function parseWardrobeItem(value: unknown): WardrobeItem | null {
 
 export function parseWardrobeName(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
-  const cleaned = [...value]
+  const cleaned = Iterator.from(value)
     .filter((char) => {
       const code = char.charCodeAt(0)
       return code >= 32 && code !== 127
     })
+    .toArray()
     .join('')
     .trim()
   if (!cleaned) return undefined
-  return [...cleaned].slice(0, MAX_WARDROBE_NAME_CHARS).join('').trim() || undefined
+  return (
+    Iterator.from(cleaned)
+      .take(MAX_WARDROBE_NAME_CHARS)
+      .toArray()
+      .join('')
+      .trim() || undefined
+  )
 }
 
 export function wardrobeItemLabel(
@@ -175,7 +182,7 @@ export function stampPortrait(
 }
 
 export function sortWardrobe(items: WardrobeItem[]): WardrobeItem[] {
-  return [...items].sort((left, right) => {
+  return items.toSorted((left, right) => {
     if (left.id === DEFAULT_WARDROBE_ID) return -1
     if (right.id === DEFAULT_WARDROBE_ID) return 1
     const byStyle =
@@ -284,7 +291,7 @@ export function ensureDefaultWardrobe(
   }
   const portrait = parsePortraitAssetId(portraitAssetId)
   const bindPortraitOnDefault = items.length <= 1
-  const locked = items.find((item) => item.id === DEFAULT_WARDROBE_ID)
+  const locked = items.some((item) => item.id === DEFAULT_WARDROBE_ID)
   if (locked) {
     return {
       items: items.map((item) => {

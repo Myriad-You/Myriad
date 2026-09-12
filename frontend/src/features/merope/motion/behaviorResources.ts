@@ -62,7 +62,7 @@ export function rigChannelsForResources(
     else if (resource === 'face.gaze') channels.add('gaze')
     else channels.add('headBody')
   }
-  return [...channels]
+  return Iterator.from(channels).toArray()
 }
 
 export function resourcesForRigChannels(
@@ -80,5 +80,5 @@ export function resourcesForRigChannels(
       resources.add('body.arm.right')
     }
   }
-  return [...resources]
+  return Iterator.from(resources).toArray()
 }

@@ -1,9 +1,9 @@
 /** hard vs hot reload copy must stay distinct */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import enUS from '../../i18n/config.en-US.json'
-import jaJP from '../../i18n/config.ja-JP.json'
-import zhCN from '../../i18n/config.zh-CN.json'
+import enUS from '../../i18n/config.en-US.json' with { type: 'json' }
+import jaJP from '../../i18n/config.ja-JP.json' with { type: 'json' }
+import zhCN from '../../i18n/config.zh-CN.json' with { type: 'json' }
 
 const locales = [
   { name: 'zh-CN', c: zhCN },

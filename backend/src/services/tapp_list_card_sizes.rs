@@ -71,7 +71,7 @@ pub async fn load(db: &DatabaseConnection, user_id: i32) -> TappListCardSizes {
             .try_get::<Value>("", "tapp_list_card_sizes")
             .ok()
             .and_then(|value| {
-                // Accept either `{ "sizes": {...} }` or a bare map `{ "id": "2x1" }`
+                // Wrapped `TappListCardSizes` first (`sizes`/`order` default empty; extra keys ignored).
                 if let Ok(wrapped) = serde_json::from_value::<TappListCardSizes>(value.clone()) {
                     return Some(wrapped.normalized());
                 }

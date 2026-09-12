@@ -111,11 +111,10 @@ export function useWidgetSize(
   useEffect(() => {
     if (
       reduceResizeWorkRef.current &&
-      elementRef.current &&
-      elementRef.current.isConnected
+      elementRef.current?.isConnected
     ) {
       requestAnimationFrame(() => {
-        if (elementRef.current && elementRef.current.isConnected) {
+        if (elementRef.current?.isConnected) {
           const rect = elementRef.current.getBoundingClientRect()
           if (rect.width > 0) {
             setSize({ width: rect.width, height: rect.height })

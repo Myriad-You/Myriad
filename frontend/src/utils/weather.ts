@@ -1,4 +1,4 @@
-import { currentCopy } from '../i18n/localeCopy'
+import { currentCopy, formatCurrent } from '../i18n/localeCopy'
 import { resolvePreciseLocation } from './geoLocation'
 import { dedupedFetch } from './requestDedup'
 
@@ -101,10 +101,9 @@ async function getWeatherDataWithCache(location: {
           })
           if (!response.ok) {
             throw new Error(
-              currentCopy().errors.weatherFailed.replace(
-                '{status}',
-                String(response.status),
-              ),
+              formatCurrent(currentCopy().errors.weatherFailed, {
+                status: response.status,
+              }),
             )
           }
           return response.json()

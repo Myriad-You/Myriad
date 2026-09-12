@@ -342,8 +342,9 @@ function paletteFromColorMap(
 ): ColorPalette | null {
   if (colorMap.size === 0 || totalSamples <= 0) return null
 
-  const sortedColors: ColorInfo[] = Array.from(colorMap.entries())
-    .sort((a, b) => b[1] - a[1])
+  const sortedColors: ColorInfo[] = Iterator.from(colorMap.entries())
+    .toArray()
+    .toSorted((a, b) => b[1] - a[1])
     .map(([color, count]) => {
       const [r, g, b] = color.split(',').map(Number)
       return {
@@ -724,7 +725,7 @@ export async function extractColorsFromImage(
     }
 
     if (!options.forceRefresh) {
-      const cached = memoryCache.get(imageUrl) || getLocalStorageCache(imageUrl)
+      const cached = memoryCache.get(imageUrl) ?? getLocalStorageCache(imageUrl)
       // Persisted placeholder grey is a miss.
       if (cached && !isDefaultPalette(cached)) {
         setMemoryCache(imageUrl, cached)

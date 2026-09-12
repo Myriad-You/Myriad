@@ -648,7 +648,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
   initialTappId,
   onBack,
 }) => {
-  const { t, locale } = useI18n()
+  const { t, locale, format } = useI18n()
   const { isAuthenticated } = useAuth()
   const animConfig = useAnimationLevel()
   const noAnimation = isExlight(animConfig)
@@ -1247,7 +1247,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
 
       if (newWindows.length > 0) {
         setWindows(newWindows)
-        setActiveWindowId(newWindows[newWindows.length - 1].windowId)
+        setActiveWindowId(newWindows.at(-1)!.windowId)
         setNextZIndex(baseZIndex + newWindows.length)
       }
 
@@ -1368,7 +1368,9 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
     for (const app of dockPanelApps) {
       present.add(resolveTappCategory(app.manifest))
     }
-    return TAPP_CATEGORIES.filter((c) => present.has(c))
+    return Iterator.from(TAPP_CATEGORIES)
+      .filter((c) => present.has(c))
+      .toArray()
   }, [dockPanelApps])
 
   const launchpadCategoryLabel = useCallback(
@@ -1479,7 +1481,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
       if (!forceNew) {
         const same = windows.filter((w) => w.tappId === tappId)
         if (same.length > 0) {
-          const byZ = [...same].sort((a, b) => b.zIndex - a.zIndex)
+          const byZ = same.toSorted((a, b) => b.zIndex - a.zIndex)
           const top = byZ[0]
           const minimizedTop = byZ.find((w) => w.isMinimized)
           const target =
@@ -1700,10 +1702,9 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
                                   className="text-xs"
                                   style={{ color: 'var(--text-muted)' }}
                                 >
-                                  {t.tapp.windowCount.replace(
-                                    '{count}',
-                                    String(scheme.windows.length),
-                                  )}
+                                  {format(t.tapp.windowCount, {
+                                    count: scheme.windows.length,
+                                  })}
                                 </span>
                               </motion.button>
                               <motion.button
@@ -1746,10 +1747,7 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
           <span
             className="px-2 py-1 text-sm font-medium"
             style={{ color: 'var(--text-muted)' }}
-            title={t.tapp.windowCount.replace(
-              '{count}',
-              String(windows.length),
-            )}
+            title={format(t.tapp.windowCount, { count: windows.length })}
           >
             {windows.length}/{MAX_WINDOWS}
           </span>

@@ -1180,7 +1180,7 @@ impl Agent {
         // 本地域（brew / platform / search.fuzzy / config.get / library）默认禁止 web 升级。
         let has_local = capability_ids
             .iter()
-            .any(|id| escalation::ResultEvaluator::is_local_data_capability(id));
+            .any(|id| escalation::is_local_data_capability(id));
         if has_local {
             return false;
         }
@@ -1220,10 +1220,9 @@ impl Agent {
             }
             return true;
         }
-        // 使用 ResultEvaluator 进行深度评估（携带能力上下文以门控 webSearch）
-        let evaluator = escalation::ResultEvaluator::new();
+        // Evaluate structured results with the task capability policy.
         let ctx = Self::evaluation_context_for_task(task_state);
-        let eval = evaluator.evaluate_with_context(result, &ctx);
+        let eval = escalation::evaluate_with_context(result, &ctx);
         if !eval.is_satisfied {
             tracing::info!(
                 score = eval.satisfaction_score,
@@ -1255,9 +1254,8 @@ impl Agent {
             return format!("Previous run failed: {}. Try an alternative.", err);
         }
 
-        let evaluator = escalation::ResultEvaluator::new();
         let ctx = Self::evaluation_context_for_task(task_state);
-        let eval = evaluator.evaluate_with_context(result, &ctx);
+        let eval = escalation::evaluate_with_context(result, &ctx);
 
         let mut hints = Vec::new();
         if let Some(reason) = &eval.reason {

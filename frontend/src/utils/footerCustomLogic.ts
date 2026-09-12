@@ -24,11 +24,11 @@ const ENTITY_MAP: Record<string, string> = {
 export function stripHtmlTags(input: string): string {
   if (!input) return ''
   let s = input
-  s = s.replace(/<\s*(script|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
-  s = s.replace(/<[^>]*>/g, '')
-  s = s.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (full, body: string) => {
+  s = s.replaceAll(/<\s*(script|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+  s = s.replaceAll(/<[^>]*>/g, '')
+  s = s.replaceAll(/&(#x?[0-9a-f]+|[a-z]+);/gi, (full, body: string) => {
     const key = body.toLowerCase()
-    if (key in ENTITY_MAP) return ENTITY_MAP[key]!
+    if (Object.hasOwn(ENTITY_MAP, key)) return ENTITY_MAP[key]!
     if (key.startsWith('#x')) {
       const code = Number.parseInt(key.slice(2), 16)
       return Number.isFinite(code) ? String.fromCodePoint(code) : ''
@@ -39,8 +39,8 @@ export function stripHtmlTags(input: string): string {
     }
     return full
   })
-  s = s.replace(/[\u0000-\u0008\v\f\u000E-\u001F\u007F]/g, '')
-  s = s.replace(/\s+/g, ' ').trim()
+  s = s.replaceAll(/[\u0000-\u0008\v\f\u000E-\u001F\u007F]/g, '')
+  s = s.replaceAll(/\s+/g, ' ').trim()
   return s
 }
 

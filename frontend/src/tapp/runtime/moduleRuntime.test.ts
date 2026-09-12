@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { runInNewContext } from 'node:vm'
 import {
   buildLayerRuntime,
   collectLayerModules,
@@ -55,7 +56,7 @@ describe('collectRequires', () => {
         'b.js': '',
       },
     )
-    assert.deepEqual([...resolved.keys()], ['./a.js', '../b.js'])
+    assert.deepEqual(Iterator.from(resolved.keys()).toArray(), ['./a.js', '../b.js'])
     assert.deepEqual(missing, [])
   })
 })
@@ -148,6 +149,19 @@ describe('buildLayerRuntime', () => {
     // eslint-disable-next-line no-new-func -- host-side test only
     new Function(plan.source)()
     assert.equal((globalThis as { __count?: number }).__count, 1)
+  })
+
+  it('keeps module ownership checks intact when app code replaces Object.hasOwn', () => {
+    const plan = buildLayerRuntime({
+      'core.js': 'module.exports = { value: 7 };',
+      'page/index.js': `
+        const core = require('../core.js');
+        Object.hasOwn = () => true;
+        if (require('../core.js') !== core) throw new Error('Lost module cache');
+        require('toString');
+      `,
+    }, ['core.js', 'page/index.js'])
+    assert.throws(() => runInNewContext(plan.source), /Cannot find module "toString"/)
   })
 
   it('breaks require cycles with partial exports', () => {

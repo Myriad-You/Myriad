@@ -85,7 +85,7 @@ export interface UpdaterInlinePanelProps {
 export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
   heading,
 }) => {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const u = t.config
   const { catalog: g, bindGuide } = useSettingGuide()
 
@@ -372,7 +372,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     if (!fromServer?.length) return CHANNEL_OPTIONS
     return CHANNEL_OPTIONS.filter((o) => fromServer.includes(o.channel))
   }, [status?.available_channels])
-
 
   const checkAvailable = useCallback(
     async (opts?: { silent?: boolean }) => {
@@ -992,7 +991,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     }
   }, [api, refresh, status?.proxy_update_last?.at])
 
-
   const mood = useMemo<Mood>(() => deriveMood(status), [status])
 
   const stale = useMemo(() => {
@@ -1461,7 +1459,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
                       tone: 'warn',
                     }
                   : undefined,
-                subtitle: `${new Date(s.created_at).toLocaleString()} · ${formatBytes(s.size_bytes)}`,
+                subtitle: `${new Date(s.created_at).toLocaleString(locale)} · ${formatBytes(s.size_bytes)}`,
                 meta: deleteReason || undefined,
                 busy: rowBusy,
                 actions: [

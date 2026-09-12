@@ -61,7 +61,7 @@ export class TokenManager {
       if (parts.length !== 3) return null
 
       const payload = parts[1]
-      const decoded = atob(payload.replace(/-/g, '+').replace(/_/g, '/'))
+      const decoded = atob(payload.replaceAll('-', '+').replaceAll('_', '/'))
       return JSON.parse(decoded)
     } catch {
       return null

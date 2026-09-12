@@ -117,7 +117,7 @@ export default function Home() {
   useHomeScheduler()
 
   const { isAuthenticated, hasChecked, checkAuth, isAdmin } = useAuth()
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const navigate = useNavigate()
   const isPageReady = usePageReady()
   // Same viewportBands as WidgetGrid (phone≤767 / desktop≥1078).
@@ -513,10 +513,9 @@ export default function Home() {
         clearDedupCache(`${API_URL}/api/config/ui`)
         if (restored.failed.length > 0) {
           showWarning(
-            t.home.importLayoutPartial.replace(
-              '{count}',
-              String(restored.failed.length),
-            ),
+            format(t.home.importLayoutPartial, {
+              count: restored.failed.length,
+            }),
           )
         } else {
           showSuccess(t.home.importLayoutSuccess)
@@ -528,7 +527,7 @@ export default function Home() {
         layoutImportInFlightRef.current = false
       }
     },
-    [csrfToken, isAdmin, t],
+    [csrfToken, isAdmin, t, format],
   )
 
   const handleLayoutModeToggle = () => {

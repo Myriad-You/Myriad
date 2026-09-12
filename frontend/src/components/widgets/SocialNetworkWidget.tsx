@@ -176,7 +176,7 @@ const PLATFORMS: readonly PlatformInfo[] = Object.freeze([
       if (id.startsWith('UC') && id.length >= 20) {
         return `https://www.youtube.com/channel/${id}`
       }
-      return `https://www.youtube.com/@${id.replace(/^@/, '')}`
+      return `https://www.youtube.com/@${id.replaceAll(/^@/g, '')}`
     },
     configKey: 'youtube_channel_id',
   },
@@ -216,7 +216,7 @@ const PLATFORMS: readonly PlatformInfo[] = Object.freeze([
     color: '#000000',
     darkColor: '#e7e9ea',
     getUserUrl: (username: string) =>
-      `https://x.com/${username.replace(/^@/, '')}`,
+      `https://x.com/${username.replaceAll(/^@/g, '')}`,
     configKey: 'x_username',
   },
 ])
@@ -998,7 +998,7 @@ const GlobalSettingsModal = memo(() => {
     setIsGeneratingIcon(true)
 
     try {
-      const customId = `custom_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`
+      const customId = `custom_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
 
       let iconData: {
         iconType?: 'react-icons' | 'url'

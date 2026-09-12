@@ -113,6 +113,8 @@ struct EncodedHttpBody {
 
 struct PreparedHttpRequest {
     url: String,
+    /// Scheme+host+path captured before credential injection. Never log `url`.
+    endpoint_id: String,
     body: Option<EncodedHttpBody>,
     secret_header: Option<(HeaderName, HeaderValue)>,
     redaction_needles: Vec<String>,
@@ -644,9 +646,15 @@ impl TappApiService {
             request = request.body(encoded.bytes);
         }
 
-        // 发送请求
+        // 发送请求。禁止记录 reqwest Display：其中含完整 URL，query 凭据会进日志。
         let response = request.send().await.map_err(|error| {
-            tracing::error!(%error, "declared API HTTP request failed");
+            let error_kind = myriad_tapp_rules::classify_outbound_http_error(&error.to_string());
+            tracing::error!(
+                endpoint = %prepared.endpoint_id,
+                error_kind = error_kind.as_str(),
+                credential_safe = true,
+                "declared API HTTP request failed"
+            );
             Self::redact_needles("HTTP request failed", &prepared.redaction_needles)
         })?;
 
@@ -969,6 +977,7 @@ impl TappApiService {
             .as_ref()
             .ok_or("HTTP API requires endpoint")?;
         let mut url = Self::resolve_template(base_url, context);
+        let endpoint_id = myriad_tapp_rules::outbound_endpoint_identity(&url);
         let mut object_body = Self::resolved_object_body(api_def, context)?;
         let mut secret_header = None;
         let mut redaction_needles = Vec::new();
@@ -1031,6 +1040,7 @@ impl TappApiService {
 
         Ok(PreparedHttpRequest {
             url,
+            endpoint_id,
             body: encoded_body,
             secret_header,
             redaction_needles,
@@ -1925,6 +1935,179 @@ mod tests {
             Some(value) => std::env::set_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND", value),
             None => std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND"),
         }
+    }
+
+    const LEAKY_CREDENTIAL: &str = "top-secret/value+plus";
+
+    struct BufferWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl std::io::Write for BufferWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for BufferWriter {
+        type Writer = BufferWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            BufferWriter(self.0.clone())
+        }
+    }
+
+    fn install_error_log_capture() -> (
+        tracing::subscriber::DefaultGuard,
+        std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+    ) {
+        let buf = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(BufferWriter(buf.clone()))
+            .with_max_level(tracing::Level::ERROR)
+            .with_ansi(false)
+            .finish();
+        (tracing::subscriber::set_default(subscriber), buf)
+    }
+
+    fn captured_logs(buf: &std::sync::Arc<std::sync::Mutex<Vec<u8>>>) -> String {
+        String::from_utf8_lossy(&buf.lock().unwrap()).into_owned()
+    }
+
+    fn assert_no_credential_leak(haystack: &str) {
+        assert!(
+            !haystack.contains(LEAKY_CREDENTIAL),
+            "plain secret leaked: {haystack}"
+        );
+        assert!(
+            !haystack.contains("top-secret"),
+            "secret prefix leaked: {haystack}"
+        );
+        let encoded = LEAKY_CREDENTIAL.replace('/', "%2F").replace('+', "%2B");
+        assert!(
+            !haystack.contains(&encoded),
+            "percent-encoded secret leaked: {haystack}"
+        );
+        assert!(
+            !haystack.to_ascii_lowercase().contains("%2fvalue"),
+            "encoded path fragment leaked: {haystack}"
+        );
+    }
+
+    async fn connect_failure_with_credential(
+        mut api: TappApiDef,
+        credential: crate::services::tapp_credentials::ResolvedApiCredential,
+    ) -> (String, String) {
+        let _lab = crate::services::outbound_security::tests_lab_env_lock().await;
+        let previous_environment = std::env::var("ENVIRONMENT").ok();
+        let previous_lab_flag = std::env::var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND").ok();
+        std::env::remove_var("ENVIRONMENT");
+        std::env::set_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND", "1");
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        api.endpoint = Some(format!("http://{address}/weather?q=tokyo"));
+
+        let (_guard, buf) = install_error_log_capture();
+        let error = TappApiService::execute_http_api_with_credential(
+            &api,
+            &HashMap::new(),
+            Some(&credential),
+        )
+        .await
+        .unwrap_err();
+        let logs = captured_logs(&buf);
+
+        match previous_environment {
+            Some(value) => std::env::set_var("ENVIRONMENT", value),
+            None => std::env::remove_var("ENVIRONMENT"),
+        }
+        match previous_lab_flag {
+            Some(value) => std::env::set_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND", value),
+            None => std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND"),
+        }
+        (error, logs)
+    }
+
+    fn assert_connect_failure_logs_are_safe(error: &str, logs: &str, endpoint_suffix: &str) {
+        assert!(error.contains("HTTP request failed"), "{error}");
+        assert_no_credential_leak(error);
+        assert_no_credential_leak(logs);
+        assert!(
+            logs.contains("credential_safe=true"),
+            "expected credential_safe in logs: {logs}"
+        );
+        assert!(
+            logs.contains("error_kind="),
+            "expected error_kind in logs: {logs}"
+        );
+        assert!(
+            logs.contains(endpoint_suffix),
+            "expected endpoint identity {endpoint_suffix} in logs: {logs}"
+        );
+        assert!(
+            !logs.contains("q=tokyo"),
+            "query must not appear in logs: {logs}"
+        );
+    }
+
+    #[tokio::test]
+    async fn query_credential_connect_failure_does_not_log_secret() {
+        let mut api = api_def();
+        api.credential = Some(myriad_tapp_contract::manifest::TappApiCredentialBinding {
+            key: "owm".into(),
+            in_placement: Some(TappCredentialIn::Query),
+            field: Some("appid".into()),
+            header: None,
+            prefix: None,
+            encoding: None,
+            sign: None,
+        });
+        let credential =
+            crate::services::tapp_credentials::ResolvedApiCredential::for_test(LEAKY_CREDENTIAL);
+        let (error, logs) = connect_failure_with_credential(api, credential).await;
+        assert_connect_failure_logs_are_safe(&error, &logs, "/weather");
+    }
+
+    #[tokio::test]
+    async fn header_credential_connect_failure_does_not_log_secret() {
+        let mut api = api_def();
+        api.credential = Some(myriad_tapp_contract::manifest::TappApiCredentialBinding {
+            key: "wegame".into(),
+            in_placement: None,
+            field: None,
+            header: Some("Authorization".into()),
+            prefix: Some("Bearer ".into()),
+            encoding: None,
+            sign: None,
+        });
+        let credential =
+            crate::services::tapp_credentials::ResolvedApiCredential::for_test(LEAKY_CREDENTIAL);
+        let (error, logs) = connect_failure_with_credential(api, credential).await;
+        assert_connect_failure_logs_are_safe(&error, &logs, "/weather");
+    }
+
+    #[tokio::test]
+    async fn form_credential_connect_failure_does_not_log_secret() {
+        let mut api = api_def();
+        api.method = "POST".to_string();
+        api.body_mode = TappHttpBodyMode::Form;
+        api.body = Some(json!({}));
+        api.credential = Some(myriad_tapp_contract::manifest::TappApiCredentialBinding {
+            key: "owm".into(),
+            in_placement: Some(TappCredentialIn::Form),
+            field: Some("appid".into()),
+            header: None,
+            prefix: None,
+            encoding: None,
+            sign: None,
+        });
+        let credential =
+            crate::services::tapp_credentials::ResolvedApiCredential::for_test(LEAKY_CREDENTIAL);
+        let (error, logs) = connect_failure_with_credential(api, credential).await;
+        assert_connect_failure_logs_are_safe(&error, &logs, "/weather");
     }
 
     #[tokio::test]

@@ -6,10 +6,10 @@ it('orders same-article intents while allowing other articles to proceed', async
   const writes = new KeyedWrites()
   const signal = new AbortController().signal
   const events: string[] = []
-  let release!: () => void
+  const { promise: held, resolve: release } = Promise.withResolvers<void>()
   const first = writes.run('A', signal, async () => {
     events.push('A star')
-    await new Promise<void>(resolve => { release = resolve })
+    await held
     events.push('A confirmed')
   })
   const second = writes.run('A', signal, async () => { events.push('A unstar') })
@@ -36,10 +36,10 @@ it('bulk writes wait for earlier articles and later article intents wait for the
   const writes = new KeyedWrites()
   const signal = new AbortController().signal
   const events: string[] = []
-  let release!: () => void
+  const { promise: held, resolve: release } = Promise.withResolvers<void>()
   const first = writes.run('A', signal, async () => {
     events.push('A before')
-    await new Promise<void>(resolve => { release = resolve })
+    await held
   })
   const bulk = writes.barrier(signal, async () => { events.push('all read') })
   const last = writes.run('B', signal, async () => { events.push('B unread') })

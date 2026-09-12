@@ -19,7 +19,7 @@ export function parseDoneIds(raw: string | null): string[] {
 }
 
 export function addDoneId(ids: readonly string[], id: string): string[] {
-  if (ids.includes(id)) return [...ids]
+  if (ids.includes(id)) return Iterator.from(ids).toArray()
   return [...ids, id]
 }
 

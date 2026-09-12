@@ -83,7 +83,7 @@ export async function collectAttachments(
   files: Iterable<File>,
   current: readonly AgentAttachment[],
 ): Promise<{ attachments: AgentAttachment[]; error: AttachError | null }> {
-  const next = [...current]
+  const next = Iterator.from(current).toArray()
   let error: AttachError | null = null
   for (const file of files) {
     const err = attachErrorFor(file, next.length)

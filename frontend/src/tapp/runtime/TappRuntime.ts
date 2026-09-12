@@ -33,9 +33,10 @@ function samePermissions(
   left: TappPermission[],
   right: TappPermission[],
 ): boolean {
-  if (left.length !== right.length) return false
-  const expected = new Set(left)
-  return right.every((permission) => expected.has(permission))
+  return (
+    left.length === right.length &&
+    new Set(right).isSubsetOf(new Set(left))
+  )
 }
 
 class RequestDeduplicator {
@@ -243,10 +244,9 @@ export class TappRuntime {
           this.registeredWidgets.set(widget.id, widget)
         }
 
-        const backgroundTappIds = new Set([
-          ...this.backgroundRequirements.keys(),
-          ...this.manifestBackgroundRequirements.keys(),
-        ])
+        const backgroundTappIds = new Set(
+          this.backgroundRequirements.keys(),
+        ).union(new Set(this.manifestBackgroundRequirements.keys()))
         for (const tappId of backgroundTappIds) {
           if (!this.runningTapps.has(tappId)) {
             this.dropStoppedTappHostState(tappId)
@@ -339,7 +339,7 @@ export class TappRuntime {
     getResourceLoader().clearCache(manifest.id)
 
     await this.syncFromBackend(true)
-    const synchronized = this.installedTapps.get(manifest.id) || instance
+    const synchronized = this.installedTapps.get(manifest.id) ?? instance
     this.emit('tapp:installed', { id: manifest.id, instance: synchronized })
 
     return synchronized
@@ -433,7 +433,7 @@ export class TappRuntime {
     tappId: string,
     operation: () => Promise<void>,
   ): Promise<void> {
-    const previous = this.lifecycleTransitions.get(tappId) || Promise.resolve()
+    const previous = this.lifecycleTransitions.get(tappId) ?? Promise.resolve()
     const transition: Promise<void> = previous
       .catch(() => undefined)
       .then(operation)
@@ -457,7 +457,7 @@ export class TappRuntime {
   private registerManifestBackgroundRequirements(instance: TappInstance): void {
     this.setManifestBackgroundRequirements(
       instance.id,
-      instance.manifest.backgroundRequirements || [],
+      instance.manifest.backgroundRequirements ?? [],
     )
   }
 
@@ -485,10 +485,9 @@ export class TappRuntime {
   private getEffectiveBackgroundRequirements(
     tappId: string,
   ): Set<BackgroundRequirement> {
-    return new Set([
-      ...(this.manifestBackgroundRequirements.get(tappId) || []),
-      ...(this.backgroundRequirements.get(tappId) || []),
-    ])
+    return new Set(
+      this.manifestBackgroundRequirements.get(tappId) ?? [],
+    ).union(new Set(this.backgroundRequirements.get(tappId) ?? []))
   }
 
   async stopTapp(tappId: string): Promise<void> {
@@ -524,7 +523,7 @@ export class TappRuntime {
   }
 
   getAllTapps(): TappInstance[] {
-    return Array.from(this.installedTapps.values())
+    return Iterator.from(this.installedTapps.values()).toArray()
   }
 
   clearCodeCache(tappId?: string): void {
@@ -618,13 +617,13 @@ export class TappRuntime {
   }
 
   getRegisteredWidgets(): RegisteredWidget[] {
-    return Array.from(this.registeredWidgets.values())
+    return Iterator.from(this.registeredWidgets.values()).toArray()
   }
 
   getWidgetsByTapp(tappId: string): RegisteredWidget[] {
-    return Array.from(this.registeredWidgets.values()).filter(
-      (w) => w.tappId === tappId,
-    )
+    return Iterator.from(this.registeredWidgets.values())
+      .filter((w) => w.tappId === tappId)
+      .toArray()
   }
 
   registerPlatform(tappId: string, config: CustomPlatformConfig): void {
@@ -649,7 +648,7 @@ export class TappRuntime {
   }
 
   getRegisteredPlatforms(): Array<CustomPlatformConfig & { tappId: string }> {
-    return Array.from(this.registeredPlatforms.values())
+    return Iterator.from(this.registeredPlatforms.values()).toArray()
   }
 
   on(event: RuntimeEvent, callback: RuntimeEventCallback): () => void {
@@ -757,7 +756,7 @@ export class TappRuntime {
   }
 
   getBackgroundRequirements(tappId: string): BackgroundRequirement[] {
-    return Array.from(this.getEffectiveBackgroundRequirements(tappId))
+    return Iterator.from(this.getEffectiveBackgroundRequirements(tappId)).toArray()
   }
 
   hasBackgroundRequirements(tappId: string): boolean {
@@ -779,14 +778,13 @@ export class TappRuntime {
       tappId: string
       requirements: BackgroundRequirement[]
     }> = []
-    const tappIds = new Set([
-      ...this.backgroundRequirements.keys(),
-      ...this.manifestBackgroundRequirements.keys(),
-    ])
+    const tappIds = new Set(this.backgroundRequirements.keys()).union(
+      new Set(this.manifestBackgroundRequirements.keys()),
+    )
     for (const tappId of tappIds) {
       const requirements = this.getEffectiveBackgroundRequirements(tappId)
       if (requirements.size > 0) {
-        result.push({ tappId, requirements: Array.from(requirements) })
+        result.push({ tappId, requirements: Iterator.from(requirements).toArray() })
       }
     }
     return result

@@ -87,7 +87,10 @@ export function mountSurfaceLenses(engine: HyaliteAPI = createHyalite()): () => 
     schedule()
   })
   const discover = (node: Element) => {
-    const elements = [node, ...node.querySelectorAll(SURFACES)]
+    const elements = [
+      node,
+      ...Iterator.from(node.querySelectorAll(SURFACES)).toArray(),
+    ]
     for (const el of elements) {
       if (!(el instanceof HTMLElement) || !el.matches(SURFACES)) continue
       if (!candidates.has(el)) {
@@ -98,17 +101,28 @@ export function mountSurfaceLenses(engine: HyaliteAPI = createHyalite()): () => 
     }
   }
   const bodyObserver = new MutationObserver((mutations) => {
+    // Records in one delivery all see the same final DOM. Repeated class
+    // changes on a surface need only one subtree discovery/invalidation.
+    const attributeTargets = new Set<HTMLElement>()
+    const discoveryRoots = new Set<Element>()
+    const discoverOnce = (node: Element) => {
+      if (discoveryRoots.has(node)) return
+      discoveryRoots.add(node)
+      discover(node)
+    }
     for (const mutation of mutations) {
       if (mutation.type === 'attributes') {
         const target = mutation.target as HTMLElement
+        if (attributeTargets.has(target)) continue
+        attributeTargets.add(target)
         if (candidates.has(target)) dirty.add(target)
-        discover(target)
+        discoverOnce(target)
         candidates.forEach((el) => {
           if (target.contains(el)) dirty.add(el)
         })
       } else {
         mutation.addedNodes.forEach((node) => {
-          if (node instanceof Element) discover(node)
+          if (node instanceof Element) discoverOnce(node)
         })
       }
     }

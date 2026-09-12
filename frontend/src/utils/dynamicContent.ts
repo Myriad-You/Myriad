@@ -1,3 +1,4 @@
+import { getDefaultLocale } from '../i18n'
 import { currentCopy } from '../i18n/localeCopy'
 
 export * from './quote'
@@ -28,7 +29,7 @@ export function getGreeting(
   locale?: string,
 ): GreetingData {
   const hour = new Date().getHours()
-  const time = new Date().toLocaleTimeString(locale || 'zh-CN', {
+  const time = new Date().toLocaleTimeString(locale || getDefaultLocale(), {
     hour: '2-digit',
     minute: '2-digit',
   })
@@ -37,7 +38,7 @@ export function getGreeting(
   let icon: GreetingIconName = 'sun'
 
   const g = currentCopy().greeting
-  const t = translations || {
+  const t = translations ?? {
     morning: g.morning,
     forenoon: g.forenoon,
     noon: g.noon,

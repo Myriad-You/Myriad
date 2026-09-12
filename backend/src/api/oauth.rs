@@ -19,13 +19,17 @@ use axum::{
     Json,
 };
 use myriad_error::AppError;
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, Value as SeaValue};
+use sea_orm::{
+    ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait,
+    Value as SeaValue,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::env;
 
 use crate::middleware::auth::{auth_cookie_value, encode_session_token, mint_session_claims};
 use crate::oauth_url_builder::SiteConfig;
+use crate::services::channel_pairing::{is_pairing_provider, SQL_NOT_PAIRING_PROVIDER};
 use crate::services::oauth::{
     registry::REGISTRY,
     state::{
@@ -209,13 +213,21 @@ async fn sync_user_oauth_columns(
 // GET /api/auth/oauth/providers
 
 pub async fn list_providers() -> Json<Value> {
-    let providers = REGISTRY.list().await;
+    let providers: Vec<_> = REGISTRY
+        .list()
+        .await
+        .into_iter()
+        .filter(|provider| !is_pairing_provider(&provider.slug))
+        .collect();
     Json(json!({ "providers": providers }))
 }
 
 // GET /api/auth/oauth/:slug/login
 
 pub async fn provider_login(Path(slug): Path<String>) -> Result<Response, HttpError> {
+    if is_pairing_provider(&slug) {
+        return Err(err_400("Channel pairing is not an OAuth provider"));
+    }
     let provider = REGISTRY
         .get(&slug)
         .await
@@ -261,6 +273,9 @@ pub async fn provider_link(
     let user_id: i32 = claims.sub.parse().map_err(|_| err_400("Invalid user id"))?;
     if user_id <= 0 {
         return Err(err_400("Guest sessions cannot link OAuth providers"));
+    }
+    if is_pairing_provider(&slug) {
+        return Err(err_400("Channel pairing is not an OAuth provider"));
     }
 
     let provider = REGISTRY
@@ -951,7 +966,8 @@ async fn upsert_identity(
             avatar_url, profile_url, raw_profile, is_primary, linked_at, last_login_at \
          ) VALUES ( \
             $1, $2, $3, $4, $5, $6, $7, $8, $9, \
-            (NOT EXISTS (SELECT 1 FROM user_identities WHERE user_id = $1)), \
+            (NOT EXISTS (SELECT 1 FROM user_identities WHERE user_id = $1 \
+                AND LOWER(provider) NOT IN ('qq', 'telegram', 'discord_dm', 'feishu'))), \
             NOW(), NOW() \
          ) \
          ON CONFLICT (provider, provider_user_id) DO UPDATE SET \
@@ -1038,6 +1054,43 @@ async fn ensure_unique_username(db: &DatabaseConnection, base: &str) -> Result<S
 
 // DELETE /api/auth/oauth/:slug/unlink/:identity_id
 
+/// Local login is a remaining sign-in method only when a password exists and
+/// the user has not disabled it.
+pub(crate) fn local_login_usable(has_password: bool, local_login_disabled: bool) -> bool {
+    has_password && !local_login_disabled
+}
+
+pub(crate) fn unlink_blocks_last_signin(
+    has_password: bool,
+    local_login_disabled: bool,
+    identity_count: i64,
+) -> bool {
+    identity_count <= 1 && !local_login_usable(has_password, local_login_disabled)
+}
+
+pub(crate) fn disable_local_login_blocks(identity_count: i64) -> bool {
+    identity_count < 1
+}
+
+pub(crate) fn login_methods_lock_key(user_id: i32) -> String {
+    format!("myriad:auth:login_methods:{user_id}")
+}
+
+/// Serialize login-method mutations (unlink / disable local login) per user.
+/// Caller must hold an explicit transaction for the check + write.
+pub(crate) async fn lock_login_methods(
+    db: &impl ConnectionTrait,
+    user_id: i32,
+) -> Result<(), sea_orm::DbErr> {
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [login_methods_lock_key(user_id).into()],
+    ))
+    .await?;
+    Ok(())
+}
+
 pub async fn provider_unlink(
     Path((slug, identity_id)): Path<(String, i32)>,
     crate::extract::Db(db): crate::extract::Db,
@@ -1053,8 +1106,26 @@ pub async fn provider_unlink(
         })?;
     let user_id: i32 = claims.sub.parse().map_err(|_| err_400("Invalid user id"))?;
 
-    // 确认 identity 属于当前用户
-    let row = db
+    if is_pairing_provider(&slug) {
+        return Err(HttpError::from((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Unlink channel pairing from the pairing page",
+                "code": "channel_pairing_identity"
+            })),
+        )));
+    }
+
+    let txn = db.begin().await.map_err(|e| {
+        tracing::error!("OAuth DB error: {e}");
+        err_500("Database error")
+    })?;
+    lock_login_methods(&txn, user_id).await.map_err(|e| {
+        tracing::error!("OAuth DB error: {e}");
+        err_500("Database error")
+    })?;
+
+    let row = txn
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id FROM user_identities WHERE id = $1 AND user_id = $2 AND provider = $3",
@@ -1074,13 +1145,16 @@ pub async fn provider_unlink(
         return Err(err_404("identity not found or not yours"));
     }
 
-    // 防失联：若此 identity 是唯一登录方式（没密码 + 只有这一条 identity），拒绝
-    let summary = db
+    // 防失联：最后一个 OAuth 身份，且本地登录不可用（无密码或已禁用）时拒绝。
+    // Count + delete stay under the same xact lock so two unlinks cannot both
+    // read "still two" and wipe the last sign-in method.
+    let summary = txn
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT \
+            format!("SELECT \
                 (SELECT password_hash IS NOT NULL FROM users WHERE id = $1) AS has_password, \
-                (SELECT COUNT(*) FROM user_identities WHERE user_id = $1) AS identity_count",
+                (SELECT local_login_disabled FROM users WHERE id = $1) AS local_login_disabled, \
+                (SELECT COUNT(*) FROM user_identities WHERE user_id = $1 AND {SQL_NOT_PAIRING_PROVIDER}) AS identity_count"),
             vec![SeaValue::Int(Some(user_id))],
         ))
         .await
@@ -1091,22 +1165,27 @@ pub async fn provider_unlink(
         .ok_or_else(|| err_500("user not found"))?;
 
     let has_password: bool = summary.try_get("", "has_password").unwrap_or(false);
+    let local_login_disabled: bool = summary.try_get("", "local_login_disabled").unwrap_or(false);
     let identity_count: i64 = summary.try_get("", "identity_count").unwrap_or(0);
 
-    if !has_password && identity_count <= 1 {
+    if unlink_blocks_last_signin(has_password, local_login_disabled, identity_count) {
         return Err(HttpError::from((
             StatusCode::CONFLICT,
             Json(json!({
                 "error": "Cannot unlink last identity",
-                "message": "Please set a local password first, or link another provider."
+                "message": "Keep a usable local login (password set and not disabled), or link another provider."
             })),
         )));
     }
 
-    db.execute_raw(Statement::from_sql_and_values(
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "DELETE FROM user_identities WHERE id = $1",
-        vec![SeaValue::Int(Some(identity_id))],
+        "DELETE FROM user_identities WHERE id = $1 AND user_id = $2 AND provider = $3",
+        vec![
+            SeaValue::Int(Some(identity_id)),
+            SeaValue::Int(Some(user_id)),
+            SeaValue::String(Some(slug.clone())),
+        ],
     ))
     .await
     .map_err(|e| {
@@ -1116,7 +1195,7 @@ pub async fn provider_unlink(
 
     // 解绑 GitHub 时清空 users.linked_github_id。
     if slug == "github" {
-        let _ = db
+        let _ = txn
             .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "UPDATE users SET linked_github_id = NULL WHERE id = $1",
@@ -1124,6 +1203,11 @@ pub async fn provider_unlink(
             ))
             .await;
     }
+
+    txn.commit().await.map_err(|e| {
+        tracing::error!("OAuth DB error: {e}");
+        err_500("Database error")
+    })?;
 
     Ok(Json(json!({"success": true})))
 }
@@ -1147,9 +1231,13 @@ pub async fn list_my_identities(
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT id, provider, provider_username, email, avatar_url, profile_url, \
-                    is_primary, linked_at, last_login_at \
-             FROM user_identities WHERE user_id = $1 ORDER BY linked_at ASC",
+            format!(
+                "SELECT id, provider, provider_username, email, avatar_url, profile_url, \
+                        is_primary, linked_at, last_login_at \
+                 FROM user_identities WHERE user_id = $1 \
+                    AND {SQL_NOT_PAIRING_PROVIDER} \
+                 ORDER BY linked_at ASC"
+            ),
             vec![SeaValue::Int(Some(user_id))],
         ))
         .await
@@ -1228,6 +1316,15 @@ pub async fn set_primary_identity(
         })?;
 
     let provider: String = row.try_get("", "provider").unwrap_or_default();
+    if is_pairing_provider(&provider) {
+        return Err(HttpError::from((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Channel pairing is not an avatar source",
+                "code": "channel_pairing_identity"
+            })),
+        )));
+    }
     let provider_username: Option<String> = row.try_get("", "provider_username").unwrap_or(None);
     let provider_user_id: String = row.try_get("", "provider_user_id").unwrap_or_default();
 
@@ -1258,4 +1355,101 @@ pub async fn set_primary_identity(
         "provider_username": provider_username,
         "avatar_url": avatar_url,
     })))
+}
+
+#[cfg(test)]
+mod unlink_lockout_tests {
+    use super::{
+        disable_local_login_blocks, local_login_usable, login_methods_lock_key,
+        unlink_blocks_last_signin,
+    };
+
+    #[test]
+    fn login_methods_lock_key_is_per_user() {
+        assert_eq!(login_methods_lock_key(7), "myriad:auth:login_methods:7");
+        assert_ne!(login_methods_lock_key(7), login_methods_lock_key(8));
+    }
+
+    #[test]
+    fn disable_local_login_then_unlink_last_oauth_is_blocked() {
+        let has_password = true;
+        let identity_count = 1;
+
+        assert!(local_login_usable(has_password, false));
+        assert!(!unlink_blocks_last_signin(
+            has_password,
+            false,
+            identity_count
+        ));
+
+        let local_login_disabled = true;
+        assert!(!local_login_usable(has_password, local_login_disabled));
+        assert!(unlink_blocks_last_signin(
+            has_password,
+            local_login_disabled,
+            identity_count
+        ));
+    }
+
+    #[test]
+    fn last_oauth_without_password_stays_blocked() {
+        assert!(unlink_blocks_last_signin(false, false, 1));
+        assert!(!unlink_blocks_last_signin(true, true, 2));
+    }
+
+    #[test]
+    fn serialized_dual_unlink_keeps_one_identity() {
+        // Isolated PG: two unlinks both read count=2 without a lock.
+        // Under the xact lock the second check sees count=1.
+        assert!(!unlink_blocks_last_signin(false, false, 2));
+        assert!(unlink_blocks_last_signin(false, false, 1));
+    }
+
+    #[test]
+    fn serialized_disable_and_unlink_keep_a_signin() {
+        // Isolated PG: disable + unlink last OAuth both pass their stale reads.
+        // Order A: disable first — unlink must then refuse.
+        assert!(!disable_local_login_blocks(1));
+        assert!(unlink_blocks_last_signin(true, true, 1));
+        // Order B: unlink first (password still usable) — disable must then refuse.
+        assert!(!unlink_blocks_last_signin(true, false, 1));
+        assert!(disable_local_login_blocks(0));
+    }
+
+    #[test]
+    fn unlink_and_toggle_share_the_login_methods_lock() {
+        let unlink = include_str!("oauth.rs");
+        let unlink_fn = unlink
+            .split("pub async fn provider_unlink")
+            .nth(1)
+            .and_then(|rest| rest.split("pub async fn list_my_identities").next())
+            .expect("provider_unlink body");
+        assert!(unlink_fn.contains(".begin()"));
+        assert!(unlink_fn.contains("lock_login_methods"));
+
+        let toggle = include_str!("auth_local.rs");
+        let toggle_fn = toggle
+            .split("pub async fn toggle_local_login")
+            .nth(1)
+            .and_then(|rest| rest.split("async fn issue_session_cookie").next())
+            .expect("toggle_local_login body");
+        assert!(toggle_fn.contains(".begin()"));
+        assert!(toggle_fn.contains("lock_login_methods"));
+        assert!(toggle_fn.contains("disable_local_login_blocks"));
+    }
+}
+
+#[cfg(test)]
+mod channel_identity_tests {
+    #[test]
+    fn channel_pairing_is_not_a_login() {
+        for provider in ["qq", "Telegram", "discord_dm", "feishu"] {
+            assert!(crate::services::channel_pairing::is_pairing_provider(
+                provider
+            ));
+        }
+        assert!(!crate::services::channel_pairing::is_pairing_provider(
+            "discord"
+        ));
+    }
 }

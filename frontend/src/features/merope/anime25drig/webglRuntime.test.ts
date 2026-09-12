@@ -91,10 +91,10 @@ test('accessory alpha patch reaches the same GPU atlas with premultiplied pixels
   assert.equal(calls.length, 1)
   assert.deepEqual(calls[0].slice(2, 6), [12, 24, 2, 1])
   assert.deepEqual(
-    Array.from(calls[0][8] as Uint8Array),
+    Iterator.from(calls[0][8] as Uint8Array).toArray(),
     [100, 50, 25, 128, 0, 0, 0, 0],
   )
-  assert.deepEqual(Array.from(pixels), [200, 100, 50, 128, 90, 80, 70, 0])
+  assert.deepEqual(Iterator.from(pixels).toArray(), [200, 100, 50, 128, 90, 80, 70, 0])
   const player = readFileSync(new URL('./player.ts', import.meta.url), 'utf8')
   assert.match(
     player,

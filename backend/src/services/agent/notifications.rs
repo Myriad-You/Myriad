@@ -6,6 +6,8 @@
 //! 持久化：通知写入 `agent_notifications` 表，启动时恢复最近历史，
 //! 已读状态落库，保留 30 天自动清理。内存中的环形缓冲作为热缓存。
 
+mod bridge;
+
 use std::collections::VecDeque;
 use std::sync::{Arc, OnceLock};
 
@@ -407,21 +409,9 @@ impl NotificationManager {
             history.push_back(notification.clone());
         }
 
-        // 落库（best-effort，失败不影响实时推送）
         if let Some(db) = &self.db {
-            let record = notif_entity::ActiveModel {
-                id: Set(notification.id.clone()),
-                notification_type: Set(notification.notification_type.as_str().to_string()),
-                priority: Set(notification.priority.as_str().to_string()),
-                title: Set(notification.title.clone()),
-                body: Set(notification.body.clone()),
-                user_id: Set(notification.user_id),
-                metadata: Set(notification.metadata.clone()),
-                read: Set(notification.read),
-                created_at: Set(notification.created_at.into()),
-            };
-            if let Err(e) = record.insert(db).await {
-                tracing::warn!(id = %notification.id, "[Notifications] Persist failed: {}", e);
+            if let Err(error) = bridge::persist(db, &notification, false).await {
+                tracing::warn!(id = %notification.id, %error, "notification persistence failed");
             }
         }
 
@@ -512,44 +502,8 @@ impl NotificationManager {
         }
 
         if let Some(db) = &self.db {
-            match notif_entity::Entity::find_by_id(&notification.id)
-                .one(db)
-                .await
-            {
-                Ok(Some(model)) => {
-                    let mut record = model.into_active_model();
-                    record.notification_type =
-                        Set(notification.notification_type.as_str().to_string());
-                    record.priority = Set(notification.priority.as_str().to_string());
-                    record.title = Set(notification.title.clone());
-                    record.body = Set(notification.body.clone());
-                    record.user_id = Set(notification.user_id);
-                    record.metadata = Set(notification.metadata.clone());
-                    record.read = Set(notification.read);
-                    record.created_at = Set(notification.created_at.into());
-                    if let Err(e) = record.update(db).await {
-                        tracing::warn!(id = %notification.id, "[Notifications] Update failed: {}", e);
-                    }
-                }
-                Ok(None) => {
-                    let record = notif_entity::ActiveModel {
-                        id: Set(notification.id.clone()),
-                        notification_type: Set(notification.notification_type.as_str().to_string()),
-                        priority: Set(notification.priority.as_str().to_string()),
-                        title: Set(notification.title.clone()),
-                        body: Set(notification.body.clone()),
-                        user_id: Set(notification.user_id),
-                        metadata: Set(notification.metadata.clone()),
-                        read: Set(notification.read),
-                        created_at: Set(notification.created_at.into()),
-                    };
-                    if let Err(e) = record.insert(db).await {
-                        tracing::warn!(id = %notification.id, "[Notifications] Insert failed: {}", e);
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(id = %notification.id, "[Notifications] Lookup failed: {}", e);
-                }
+            if let Err(error) = bridge::persist(db, &notification, true).await {
+                tracing::warn!(id = %notification.id, %error, "notification upsert failed");
             }
         }
 
@@ -933,10 +887,23 @@ impl NotificationManager {
     }
 }
 
+/// Trusted background producers persist events without an SSE listener or cleanup jobs.
+pub async fn init_notification_publisher(db: DatabaseConnection) {
+    let (tx, _) = broadcast::channel(32);
+    let manager = NotificationManager {
+        tx,
+        history: RwLock::new(VecDeque::new()),
+        max_history: 200,
+        db: Some(db),
+    };
+    let _ = NOTIFICATION_MANAGER.set(Arc::new(manager));
+}
+
 /// 初始化全局通知管理器（带持久化 + 每日过期清理）
 pub async fn init_notifications(db: DatabaseConnection) {
     let manager = Arc::new(NotificationManager::new_with_db(200, db).await);
     let _ = NOTIFICATION_MANAGER.set(manager.clone());
+    bridge::spawn(manager.clone());
 
     // 每日清理 30 天前的通知
     tokio::spawn(async move {
@@ -1425,4 +1392,14 @@ mod tests {
             assert_eq!(NotificationType::from_str(stored).as_str(), stored);
         }
     }
+}
+
+/// First-party, ephemeral cross-process observation; never returned to a TAPP.
+pub async fn publish_persona_observation(
+    db: &DatabaseConnection,
+    user_id: i32,
+    event_key: &str,
+    summary: &str,
+) {
+    bridge::publish_persona_observation(db, user_id, event_key, summary).await;
 }

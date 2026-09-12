@@ -2,11 +2,11 @@ let navigationStack: string[] = ['/']
 
 /** Stack for transition direction. Back = path equals stack[-2]. Cap 10. */
 export function recordNavigation(path: string) {
-  const lastPath = navigationStack[navigationStack.length - 1]
+  const lastPath = navigationStack.at(-1)
 
   if (
     navigationStack.length > 1 &&
-    navigationStack[navigationStack.length - 2] === path
+    navigationStack.at(-2) === path
   ) {
     navigationStack.pop()
     return

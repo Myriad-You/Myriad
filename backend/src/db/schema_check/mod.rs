@@ -28,7 +28,7 @@ mod tables_federation;
 mod tables_tapp;
 mod types;
 
-pub use orchestrator::ensure_schema;
+pub use orchestrator::{ensure_schema, report_schema_drift};
 pub use seeds::{
     default_config_seeds, default_platform_seeds, ensure_default_config, DefaultPlatformSeed,
 };

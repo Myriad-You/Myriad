@@ -40,8 +40,8 @@ export const PERFORMANCE_CUE_DEFINITIONS = {
   greet: {
     resources: FACE_TORSO_ARMS,
     driver: (poseAmount) => ({
-      body: 0.22 * poseAmount,
-      armY: 0.3 * poseAmount,
+      body: 0.22 * poseAmount * bodyParticipation(poseAmount),
+      armY: 0.3 * poseAmount * bodyParticipation(poseAmount),
     }),
     expression: (amount, poseAmount) => ({
       angleZ: -0.11 * poseAmount,
@@ -69,9 +69,9 @@ export const PERFORMANCE_CUE_DEFINITIONS = {
   delight: {
     resources: FACE_TORSO_ARMS_BUST,
     driver: (poseAmount) => ({
-      body: 0.16 * poseAmount,
-      armY: 0.22 * poseAmount,
-      armPos: 0.34 * poseAmount,
+      body: 0.16 * poseAmount * bodyParticipation(poseAmount),
+      armY: 0.22 * poseAmount * bodyParticipation(poseAmount),
+      armPos: 0.34 * poseAmount * bodyParticipation(poseAmount),
       bust: IDENTITY_DRIVER.bust + 0.26 * poseAmount,
     }),
     expression: (amount, poseAmount) => ({
@@ -84,7 +84,9 @@ export const PERFORMANCE_CUE_DEFINITIONS = {
   },
   emphasize: {
     resources: FACE_TORSO,
-    driver: (poseAmount) => ({ body: 0.4 * poseAmount }),
+    driver: (poseAmount) => ({
+      body: 0.4 * poseAmount * bodyParticipation(poseAmount),
+    }),
     expression: (amount, poseAmount) => ({
       angleY: 0.12 * poseAmount,
       brow: 0.2 * amount,
@@ -112,7 +114,11 @@ export const PERFORMANCE_CUE_DEFINITIONS = {
     driver: () => ({}),
     expression: (amount, poseAmount) => ({
       angleZ: -0.2 * poseAmount,
-      brow: 0.14 * amount,
+      brow: 0.24 * amount,
+      browAngSym: -0.18 * amount,
+      eyeOpen: -0.16 * amount,
+      irisScale: -0.06 * amount,
+      mouthForm: -0.16 * amount,
       eyeX: 0.5 * amount,
       eyeY: -0.36 * amount,
     }),
@@ -216,4 +222,10 @@ function intentAmount(intensity: number): number {
 export function intentPoseAmount(intensity: number): number {
   const normalized = (intentAmount(intensity) - 0.2) / 1.2
   return 0.72 + normalized * 0.68
+}
+
+/** Strong greetings/joy/emphasis recruit the body, not extra head pitch or face. */
+function bodyParticipation(poseAmount: number): number {
+  const t = Math.max(0, Math.min(1, (poseAmount - 0.9) / 0.5))
+  return 1 + 0.5 * t * t * (3 - 2 * t)
 }

@@ -1,4 +1,3 @@
-
 import type { SetupFlowStep } from '../settings/SetupFlow'
 
 /** i18n slice; don't import full I18n */

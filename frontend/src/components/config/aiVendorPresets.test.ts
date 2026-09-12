@@ -101,7 +101,7 @@ describe('AI vendor presets', () => {
 
   it('declares text, image, and speech from endpoints this stack can call', () => {
     const caps = Object.fromEntries(
-      AI_VENDOR_PRESETS.map((item) => [item.id, [...item.capabilities].sort()]),
+      AI_VENDOR_PRESETS.map((item) => [item.id, item.capabilities.toSorted()]),
     )
     assert.deepEqual(caps, {
       openrouter: ['image', 'speech', 'text'],

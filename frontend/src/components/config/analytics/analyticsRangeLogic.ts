@@ -1,4 +1,3 @@
-
 export const ANALYTICS_RANGE_PRESETS = ['7', '14', '30'] as const
 export type AnalyticsRangePreset =
   | (typeof ANALYTICS_RANGE_PRESETS)[number]

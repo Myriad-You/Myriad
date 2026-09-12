@@ -25,6 +25,7 @@ import {
   deformAnime25DSecondaryPoint,
 } from './secondaryDeformation'
 import { writeAnime25DShellRotation } from './shellDeformation'
+import { applySurfaceContact, bindSurfaceContact } from './surfaceContact'
 import {
   anime25DTorsoShellModeForLayer,
   deformAnime25DTorsoShellPoint,
@@ -144,6 +145,69 @@ test('ramps the shell into the secondary deformation path from exact legacy outp
   assert.equal(Number.isFinite(active.y), true)
   assert.notDeepEqual(active, legacy)
   assert.ok(Math.hypot(active.x - legacy.x, active.y - legacy.y) < 80)
+})
+
+test('combined yaw and pitch retain their local head shape when the head rolls', () => {
+  for (const mode of ['head', 'front-hair', 'back-hair'] as const) {
+    const binding = secondaryBinding(mode === 'head' ? 'face' : mode, 'head', false)
+    binding.shellMode = mode
+    const base = secondaryFrame(0.63, 21)
+    base.shellProfile = shellProfile()
+    base.shellBlend = 1
+    base.shellActivation = 1
+    base.headRotationCosine = 1
+    base.headRotationSine = 0
+    base.bodyBreathOffset = base.headBreathOffset = base.specialHeadOffset = 0
+    const shellRotation = { active: false, yawCosine: 1, yawSine: 0, pitchCosine: 1, pitchSine: 0 }
+    base.shellRotation = shellRotation
+    for (const yaw of [-1, -0.4, 0.4, 1]) {
+      for (const pitch of [-1, -0.5, 0.5, 1]) {
+        base.expression.angleX = yaw
+        base.headAngleY = pitch
+        writeAnime25DShellRotation(yaw, pitch, shellRotation)
+        for (const roll of [-0.3, -0.15, 0.15, 0.3]) {
+          const c = Math.cos(roll)
+          const s = Math.sin(roll)
+          const rolled = { ...base, headRotationCosine: c, headRotationSine: s }
+          for (const rest of [{ x: 80, y: 100 }, { x: 150, y: 100 }, { x: 117, y: 190 }]) {
+            const local = deformSecondary(rest, binding, base)
+            const actual = deformSecondary(rest, binding, rolled)
+            const dx = local.x - base.neckPivotX
+            const dy = local.y - base.neckPivotY
+            const error = Math.hypot(actual.x - (base.neckPivotX + c * dx - s * dy), actual.y - (base.neckPivotY + s * dx + c * dy))
+            assert.ok(error < 1e-8, `${mode} yaw=${yaw} pitch=${pitch} roll=${roll}: shape drift ${error}`)
+          }
+        }
+      }
+    }
+  }
+})
+
+test('root pinning cannot change the projected volume of the same coiffure', () => {
+  const frame = secondaryFrame(0.63, 21)
+  frame.shellProfile = shellProfile()
+  frame.shellProfile.hair.crownRound = 0.2
+  frame.shellBlend = 1
+  frame.shellActivation = 1
+  const binding = secondaryBinding('front-hair', 'head', false)
+  binding.shellMode = 'front-hair'
+  for (const yaw of [-1, 1]) {
+    for (const pitch of [-1, 1]) {
+      frame.expression.angleX = yaw
+      frame.headAngleY = pitch
+      writeAnime25DShellRotation(yaw, pitch, frame.shellRotation)
+      for (const rest of [{ x: 80, y: 70 }, { x: 105, y: 80 }, { x: 150, y: 120 }]) {
+        for (const blend of [0, 0.5, 1]) {
+          frame.shellBlend = blend
+          const free = deformSecondary(rest, binding, frame)
+          for (const pin of [0.1, 0.5, 1]) {
+            const pinned = deformSecondary(rest, { ...binding, hairlinePinWeights: new Float32Array(VERTEX_COUNT).fill(pin) }, frame)
+            assert.ok(Math.hypot(free.x - pinned.x, free.y - pinned.y) < 1e-8, 'pin suppresses relative motion, not the rest surface depth')
+          }
+        }
+      }
+    }
+  }
 })
 
 test('fully pinned hairline vertices reject bang and spring displacement', () => {
@@ -943,17 +1007,34 @@ test('a turning garment carries the sleeve instead of sliding out from under it'
 test('exposed shoulder seam shares body motion while the distal arm stays free', () => {
   const torso = bodyBinding('topwear', null)
   const arm = bodyBinding('handwear', 'L')
-  arm.shoulderContact = { weights: new Float32Array([1]), torso }
+  const host = {
+    rest: new Float32Array([90, 100, 110, 100, 90, 120]),
+    deformed: new Float32Array(6),
+    indices: new Uint16Array([0, 1, 2]),
+  }
+  const rest = new Float32Array([90, 100, 90, 180])
+  const contact = bindSurfaceContact(host, rest, new Float32Array([1, 0]))
   for (const yaw of [-0.6, 0, 0.6]) {
     for (const lift of [-1, 0, 1]) {
       const frame = torsoTurnFrame(yaw, 0.8, lift)
       frame.expression.armPos = lift
       frame.breath = 0.8
-      const rest = {x: 90, y: 100}
-      assert.deepEqual(deformSecondary(rest, arm, frame), deformSecondary(rest, torso, frame))
-      arm.shoulderContact.weights[0] = 0
-      assert.deepEqual(deformSecondary(rest, arm, frame), deformSecondary(rest, bodyBinding('handwear', 'L'), frame))
-      arm.shoulderContact.weights[0] = 1
+      for (let i = 0; i < host.rest.length; i += 2) {
+        const p = deformSecondary({ x: host.rest[i], y: host.rest[i + 1] }, torso, frame)
+        // A later host correction must reach the seam too, without replaying the torso formula.
+        host.deformed[i] = p.x + 0.75
+        host.deformed[i + 1] = p.y - 0.25
+      }
+      const free = new Float32Array(rest.length)
+      for (let i = 0; i < rest.length; i += 2) {
+        const p = deformSecondary({ x: rest[i], y: rest[i + 1] }, arm, frame)
+        free[i] = p.x
+        free[i + 1] = p.y
+      }
+      const actual = free.slice()
+      applySurfaceContact(contact, actual)
+      assert.deepEqual(actual.slice(0, 2), host.deformed.slice(0, 2))
+      assert.deepEqual(actual.slice(2), free.slice(2))
     }
   }
 })

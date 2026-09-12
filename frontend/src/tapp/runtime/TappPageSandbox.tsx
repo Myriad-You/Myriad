@@ -256,13 +256,13 @@ function generatePageHTML(
     };
     window._TAPP_DIMENSIONS = { width: 0, height: 0, scale: 1, fontScale: 1 };
     window.addEventListener('message', function(e) {
-      var msg = e.data;
+      const msg = e.data;
       if (msg?.type === 'event' && msg.action === 'container:resize') {
         window._TAPP_DIMENSIONS = msg.payload;
-        var root = document.documentElement;
+        const root = document.documentElement;
         root.style.setProperty('--tapp-scale', msg.payload.scale || 1);
         root.style.setProperty('--tapp-font-scale', msg.payload.fontScale || 1);
-        var content = document.getElementById('tapp-content');
+        const content = document.getElementById('tapp-content');
         if (content) {
           content.style.padding =
             (msg.payload.safeInsetTop || 0) + 'px ' +
@@ -300,12 +300,12 @@ function generatePageHTML(
       'use strict';
       setTimeout(function() {
         try {
-          var pageKeys = Object.keys(Tapp.pages || {});
+          const pageKeys = Object.keys(Tapp.pages || {});
           if (pageKeys.length > 0) {
-            var pageId = pageKeys[0];
-            var pageDef = Tapp.pages[pageId];
+            const pageId = pageKeys[0];
+            const pageDef = Tapp.pages[pageId];
             if (pageDef && typeof pageDef.render === 'function') {
-              var container = document.getElementById('tapp-content');
+              const container = document.getElementById('tapp-content');
               container.innerHTML = '';
               pageDef.render(container, {});
             }
@@ -422,7 +422,6 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
   const buildMediaState = useCallback((detail: Record<string, unknown>) => {
     return buildTappMediaState(detail)
   }, [])
-
 
   useEffect(() => {
     if (!isReady) return
@@ -737,7 +736,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
       sp.forEach((v, k) => {
         launchParams[k] = v
       })
-    } catch (_) {
+    } catch {
       /* ignore */
     }
 

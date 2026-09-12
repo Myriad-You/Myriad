@@ -60,7 +60,7 @@ function libraryFilterLabel(
   if (id === 'all') return t.widgetGrid.filterAll
   if (id === 'report') return t.widgetGrid.filterReports
   const tappCategory = tappCategoryFromKindFilter(id)
-  if (tappCategory && tappCategory in TAPP_CATEGORY_I18N_KEYS) {
+  if (tappCategory && Object.hasOwn(TAPP_CATEGORY_I18N_KEYS, tappCategory)) {
     return t.tapp[TAPP_CATEGORY_I18N_KEYS[tappCategory as TappCategory]]
   }
   return tappCategory || id

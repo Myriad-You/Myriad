@@ -67,8 +67,9 @@ it('highlights a cross-tag quote once, preserves markup and excludes media text'
     )
     assert.equal(result.body.textContent, 'one two then one twomedia text')
     assert.equal(
-      [...result.querySelectorAll('[data-comment-id="1"]')]
+      Iterator.from(result.querySelectorAll('[data-comment-id="1"]'))
         .map((mark: Element) => mark.textContent)
+        .toArray()
         .join(''),
       'one two',
     )

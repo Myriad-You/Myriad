@@ -5,7 +5,6 @@
   --uninstall-tip-exit-ease: cubic-bezier(0.4, 0, 0.2, 1);
 
   position: fixed;
-
   top: 0;
   left: 0;
   z-index: 10050;
@@ -135,7 +134,6 @@ html.dark .uninstall-tip.is-ready {
   font-weight: 700;
   line-height: 1.35;
   color: #dc2626;
-
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;

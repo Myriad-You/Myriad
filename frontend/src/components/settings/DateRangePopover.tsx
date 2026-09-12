@@ -1,4 +1,3 @@
-
 import type { IsoDate } from './dateCalendarLogic'
 import { LuChevronLeft, LuChevronRight } from '@lib/icons'
 import React, {
@@ -241,11 +240,11 @@ export const DateRangePopover: React.FC<DateRangePopoverProps> = ({
   const [picking, setPicking] = useState<'from' | 'to' | 'done'>('from')
   const [hover, setHover] = useState('')
   const [viewY, setViewY] = useState(() => {
-    const p = parseIso(fromProp) || parseIso(maxDate || '')
+    const p = parseIso(fromProp) ?? parseIso(maxDate || '')
     return p?.y ?? new Date().getFullYear()
   })
   const [viewM, setViewM] = useState(() => {
-    const p = parseIso(fromProp) || parseIso(maxDate || '')
+    const p = parseIso(fromProp) ?? parseIso(maxDate || '')
     return p?.m ?? new Date().getMonth() + 1
   })
 
@@ -351,7 +350,7 @@ export const DateRangePopover: React.FC<DateRangePopoverProps> = ({
       fromProp && toProp ? 'done' : fromProp && !toProp ? 'to' : 'from',
     )
     setHover('')
-    const p = parseIso(fromProp) || parseIso(toProp) || parseIso(todayIso)
+    const p = parseIso(fromProp) ?? parseIso(toProp) ?? parseIso(todayIso)
     if (p) {
       setViewY(p.y)
       setViewM(p.m)

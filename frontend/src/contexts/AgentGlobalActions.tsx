@@ -71,10 +71,12 @@ function findElement(target: PageElementTarget): HTMLElement | null {
 async function waitForElement(
   target: PageElementTarget,
   timeout = 5000,
+  signal?: AbortSignal,
 ): Promise<HTMLElement | null> {
   const startTime = Date.now()
 
   while (Date.now() - startTime < timeout) {
+    if (signal?.aborted) return null
     const el = findElement(target)
     if (el) return el
 
@@ -218,7 +220,7 @@ export function AgentGlobalActions() {
   const location = useLocation()
   const musicPlayer = useMusicPlayerControl()
   const isNavigatingRef = useRef(false)
-  const playAudioRef = useRef<{ audio: HTMLAudioElement; url: string } | null>(
+  const playAudioRef = useRef<{ audio: HTMLAudioElement; url: string; unbindAbort?: () => void } | null>(
     null,
   )
 
@@ -226,6 +228,7 @@ export function AgentGlobalActions() {
     const current = playAudioRef.current
     if (!current) return
     playAudioRef.current = null
+    current.unbindAbort?.()
     current.audio.pause()
     current.audio.removeAttribute('src')
     current.audio.load()
@@ -303,7 +306,7 @@ export function AgentGlobalActions() {
   )
 
   const handlePageInteract = useCallback(
-    async (action: FrontendAction): Promise<boolean> => {
+    async (action: FrontendAction, signal?: AbortSignal): Promise<boolean> => {
       if (action.type !== 'page_interact') return false
 
       const target = action.target as PageElementTarget | undefined
@@ -313,7 +316,8 @@ export function AgentGlobalActions() {
       }
 
       const waitTimeout = action.waitFor?.timeout || 5000
-      const element = await waitForElement(target, waitTimeout)
+      const element = await waitForElement(target, waitTimeout, signal)
+      if (signal?.aborted) return false
 
       if (!element) {
         console.warn('[AgentGlobalActions] Element not found:', target)
@@ -644,7 +648,7 @@ export function AgentGlobalActions() {
   )
 
   const handleShowNotification = useCallback(
-    async (action: FrontendAction): Promise<boolean> => {
+    async (action: FrontendAction, signal?: AbortSignal): Promise<boolean> => {
       if (action.type !== 'show_notification') return false
       const params = action.params as
         | { title?: string; message?: string; content?: string }
@@ -657,6 +661,7 @@ export function AgentGlobalActions() {
         title
       if (!message) return false
       const { showToast } = await import('../utils/toastManager')
+      if (signal?.aborted) return false
       showToast({
         title: title && title !== message ? title : undefined,
         message,
@@ -688,7 +693,7 @@ export function AgentGlobalActions() {
   )
 
   const handlePlayAudio = useCallback(
-    async (action: FrontendAction): Promise<boolean> => {
+    async (action: FrontendAction, signal?: AbortSignal): Promise<boolean> => {
       if (action.type !== 'play_audio') return false
       const params = action.params as
         | { audioBase64?: string; codec?: string }
@@ -702,16 +707,20 @@ export function AgentGlobalActions() {
       const mime =
         codec === 'wav' || codec === 'pcm' ? 'audio/wav' : 'audio/mpeg'
       const { base64ToAudioUrl } = await import('../services/speechApi')
+      if (signal?.aborted) return false
       releasePlayAudio()
       const url = base64ToAudioUrl(audioBase64, mime)
       const audio = new Audio(url)
       playAudioRef.current = { audio, url }
       const release = () => {
+        signal?.removeEventListener('abort', release)
         if (playAudioRef.current?.url !== url) return
         releasePlayAudio()
       }
       audio.addEventListener('ended', release, { once: true })
       audio.addEventListener('error', release, { once: true })
+      signal?.addEventListener('abort', release, { once: true })
+      playAudioRef.current.unbindAbort = () => signal?.removeEventListener('abort', release)
       try {
         await audio.play()
       } catch (error) {

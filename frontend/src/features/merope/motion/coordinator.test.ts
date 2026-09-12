@@ -133,7 +133,7 @@ test('snapshots never expose owner tokens', () => {
   assert.ok(handle.ownerToken)
   const [lease] = coordinator.snapshot(0).leases
   assert.ok(lease)
-  assert.equal('ownerToken' in lease, false)
+  assert.equal(Object.hasOwn(lease, 'ownerToken'), false)
 })
 
 test('renew refreshes TTL on the same lease id', () => {

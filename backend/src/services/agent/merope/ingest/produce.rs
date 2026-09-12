@@ -163,12 +163,10 @@ pub async fn ingest(
             return Ok(());
         }
     }
-    // Whether this is a Chat completion is a property of the event, and it is
-    // already filtered twice: `run_hub` stops publishing one, and the match in
-    // `apply_task_mood` ignores every key but the three task outcomes. Whether
-    // the addressee happens to be chatting right now is a different question,
-    // and gating on it meant a real Work task that finished inside the chat
-    // window never counted — success or failure — for good.
+    // Chat vs Work is the completion payload (`is_chat_turn_completion`).
+    // `run_hub` still publishes TaskCompleted; it only skips task-status notify
+    // for Chat. `apply_task_mood` only matches the three task outcome keys.
+    // Do not gate on whether the addressee is currently chatting.
     apply_task_mood(db, user_id, event_key).await;
 
     if !decision.allow_model {
@@ -376,9 +374,9 @@ mod tests {
     }
 
     /// Mood follows what happened, not what the addressee was doing when it
-    /// happened. Chat completions are filtered by event kind — in `run_hub`,
-    /// and again by the match in `apply_task_mood` — so a Work outcome must
-    /// still count while the addressee is mid-conversation.
+    /// happened. Chat completions skip task-status notify in `run_hub` via
+    /// `is_chat_turn_completion` (payload mode/type); `apply_task_mood` only
+    /// matches the three task keys — so a Work outcome still counts mid-chat.
     #[test]
     fn task_mood_follows_the_event_kind_not_the_addressees_activity() {
         let src = include_str!("produce.rs")

@@ -70,11 +70,11 @@ function normalizeMetadata(raw: Partial<SiteMetadata> | null | undefined): SiteM
 
   const ogRaw = raw?.site_og_image ?? DEFAULT_METADATA.site_og_image
   const ogSanitized = sanitizeSiteOgImageUrl(ogRaw)
-  const site_og_image = ogSanitized === null ? '' : ogSanitized
+  const site_og_image = ogSanitized ?? ''
 
   const umamiRaw = raw?.umami_script_url ?? DEFAULT_METADATA.umami_script_url
   const umamiSanitized = sanitizeUmamiScriptUrl(umamiRaw)
-  const umami_script_url = umamiSanitized === null ? '' : umamiSanitized
+  const umami_script_url = umamiSanitized ?? ''
 
   return {
     site_title: raw?.site_title || DEFAULT_METADATA.site_title,
@@ -438,7 +438,7 @@ export async function refreshSiteMetadata(): Promise<void> {
 }
 
 export function getCurrentMetadata(): SiteMetadata {
-  return getCachedMetadata() || baseMetadata || DEFAULT_METADATA
+  return getCachedMetadata() ?? baseMetadata ?? DEFAULT_METADATA
 }
 
 export function formatPageTitle(pageTitle: string): string {

@@ -448,7 +448,7 @@ pub async fn list_room_files(
         );
     }
 
-    // Fetch a bit more than limit so client-side filter still fills a page when possible
+    // Over-fetch when this handler will drop rows (`q` / non-all filter); then truncate to `limit`.
     let fetch_limit = if q_norm.is_some() || (filter != "all") {
         (limit * 3).min(200)
     } else {

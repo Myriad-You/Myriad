@@ -6,6 +6,8 @@ import type { HomeBoardNote } from './logic/homeBoard'
 import type { BrewViewerRole } from './logic/score'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { useI18n } from '../../contexts/I18nContext'
+
 import {
   collectSourceCategories,
   filterSourcesByQuery,
@@ -30,14 +32,15 @@ export function useBoardCatalog(
   role: BrewViewerRole,
   now: number,
 ) {
+  const { locale } = useI18n()
   const categories = useMemo(() => collectSourceCategories(sources), [sources])
   const filtered = useMemo(
     () => filterSourcesByQuery(sourcesForBoard(sources, board), searchQuery),
     [sources, board, searchQuery],
   )
   const sorted = useMemo(
-    () => sortSourcesForBoard(filtered, sortMode, role, now),
-    [filtered, sortMode, role, now],
+    () => sortSourcesForBoard(filtered, sortMode, role, now, locale),
+    [filtered, sortMode, role, now, locale],
   )
   return { categories, filtered, sorted }
 }

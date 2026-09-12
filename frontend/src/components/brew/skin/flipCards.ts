@@ -62,7 +62,7 @@ export function siteRestOpacity(open: boolean, on: boolean): number {
   return open ? SITE_GRID_OP : SITE_RAIL_OP
 }
 
-export type FeedsChrome = {
+export interface FeedsChrome {
   airHeight: number
   itemsHeight: number
   sitesHeight: number
@@ -158,7 +158,7 @@ export function flipWaitMs(): number {
   return Math.max(openEnd, foldEnd) + FLIP_WAIT_PAD_MS
 }
 
-export type FlipBox = {
+export interface FlipBox {
   left: number
   top: number
   width: number
@@ -167,9 +167,9 @@ export type FlipBox = {
 }
 
 function liveCards(root: ParentNode, selector: string): HTMLElement[] {
-  return [...root.querySelectorAll<HTMLElement>(selector)].filter(
-    (el) => !el.dataset.brewGhost,
-  )
+  return Iterator.from(root.querySelectorAll<HTMLElement>(selector))
+    .filter((el) => !el.dataset.brewGhost)
+    .toArray()
 }
 
 export function readOpacity(el: Element): number {
@@ -212,9 +212,11 @@ export function clearRailExits(root: ParentNode, selector: string): void {
 }
 
 export function seatSiteTrack(track: HTMLElement, id: number): void {
-  const cards = [...track.querySelectorAll<HTMLElement>('.brew-site')].map(
-    (el) => ({ el, left: el.offsetLeft }),
+  const cards = Iterator.from(
+    track.querySelectorAll<HTMLElement>('.brew-site'),
   )
+    .map((el) => ({ el, left: el.offsetLeft }))
+    .toArray()
   const index = cards.findIndex((card) => Number(card.el.dataset.railId) === id)
   const x = railSeatScroll(cards, index, RAIL_OVERFLOW_LEFT_PX)
   track.style.transform = x > 0.5 ? `translate3d(${-x}px, 0, 0)` : ''

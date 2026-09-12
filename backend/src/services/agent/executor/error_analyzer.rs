@@ -1,8 +1,8 @@
 //! Thin adapter: error classification / param fixes live in
 //! [`crate::services::agent::error_analyzer_pure`].
 //!
-//! Executor retry uses `ErrorAnalyzer::analyze` plus `apply_param_fixes`
-//! so call sites stay stable while pure rules remain I/O-free and unit-tested.
+//! Serial retry calls `analyze_error` plus `apply_param_fixes`. This adapter
+//! is `ErrorAnalyzer::analyze`; param fixes stay in `error_analyzer_pure`.
 
 pub use crate::services::agent::error_analyzer_pure::{ErrorAnalysis, ErrorCategory, ParamFix};
 

@@ -92,7 +92,7 @@ function seedInitialState(): StoredState {
   const known: Record<string, string> = { ...LEGACY_SEED_DEFAULTS }
   // new product keys: record current default, no notice
   for (const [key, value] of Object.entries(SETTING_PRODUCT_DEFAULTS)) {
-    if (!(key in known)) known[key] = value
+    if (!Object.hasOwn(known, key)) known[key] = value
   }
   const state: StoredState = { known, dismissed: [] }
   // write without notifying; first-paint storage read must not rerender

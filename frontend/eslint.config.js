@@ -57,4 +57,11 @@ export default antfu(
       'style/member-delimiter-style': 'off',
     },
   },
+  {
+    files: ['**/*.{js,mjs,cjs,ts,tsx}'],
+    rules: {
+      // Lock ES2024+ clone; JSON.parse(JSON.stringify) drops undefined and dates.
+      'unicorn/prefer-structured-clone': 'error',
+    },
+  },
 )

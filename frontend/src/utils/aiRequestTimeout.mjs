@@ -31,9 +31,9 @@ export function requestPathname(urlPath) {
       raw.startsWith('http://') || raw.startsWith('https://')
         ? new URL(raw)
         : new URL(raw, 'http://dev.invalid')
-    return url.pathname.replace(/\/+$/, '') || '/'
+    return url.pathname.replaceAll(/\/+$/g, '') || '/'
   } catch {
-    const path = (raw.split('?')[0] || '').split('#')[0].replace(/\/+$/, '')
+    const path = (raw.split('?')[0] || '').split('#')[0].replaceAll(/\/+$/g, '')
     return path || '/'
   }
 }

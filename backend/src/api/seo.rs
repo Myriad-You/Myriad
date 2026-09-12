@@ -270,34 +270,57 @@ fn render_seo_html(doc: SeoDocument<'_>) -> String {
     )
 }
 
+const TRADITIONAL_MARKERS: &str = "說這個為與萬億軟體檔訊預設網連線憶臺裡麼迴";
+
+fn host_site_locale(tag: &str) -> SiteLocale {
+    match tag {
+        "zh-TW" => SiteLocale {
+            html_lang: "zh-TW",
+            og_locale: "zh_TW",
+        },
+        "zh-CN" => SiteLocale {
+            html_lang: "zh-CN",
+            og_locale: "zh_CN",
+        },
+        "ja-JP" => SiteLocale {
+            html_lang: "ja",
+            og_locale: "ja_JP",
+        },
+        _ => SiteLocale {
+            html_lang: "en",
+            og_locale: "en_US",
+        },
+    }
+}
+
 fn infer_site_locale(texts: &[&str]) -> SiteLocale {
     let mut cjk = 0usize;
     let mut kana = 0usize;
+    let mut traditional = 0usize;
     for text in texts {
         for ch in text.chars() {
             match ch {
                 '\u{3040}'..='\u{30FF}' | '\u{FF66}'..='\u{FF9D}' => kana += 1,
-                '\u{4E00}'..='\u{9FFF}' => cjk += 1,
+                '\u{4E00}'..='\u{9FFF}' => {
+                    cjk += 1;
+                    if TRADITIONAL_MARKERS.contains(ch) {
+                        traditional += 1;
+                    }
+                }
                 _ => {}
             }
         }
     }
     if kana >= 4 || (kana > 0 && kana * 3 >= cjk.max(1)) {
-        return SiteLocale {
-            html_lang: "ja",
-            og_locale: "ja_JP",
-        };
+        return host_site_locale("ja-JP");
     }
     if cjk >= 4 {
-        return SiteLocale {
-            html_lang: "zh-CN",
-            og_locale: "zh_CN",
-        };
+        if traditional * 2 >= cjk.max(1) || traditional >= 2 {
+            return host_site_locale("zh-TW");
+        }
+        return host_site_locale("zh-CN");
     }
-    SiteLocale {
-        html_lang: "en",
-        og_locale: "en_US",
-    }
+    host_site_locale("en-US")
 }
 
 fn is_inapp_share_ua(ua: &str) -> bool {
@@ -309,12 +332,19 @@ fn is_inapp_share_ua(ua: &str) -> bool {
 }
 
 fn seo_chrome(branding: &SiteBranding, headers: &HeaderMap) -> SeoChrome {
-    let loc = infer_site_locale(&[
+    let inferred = infer_site_locale(&[
         branding.title.as_str(),
         branding.description.as_str(),
         branding.ai_intro.as_str(),
         branding.keywords.as_str(),
     ]);
+    let loc = if inferred.html_lang == "en" {
+        crate::api::reports::locale::locale_from_headers(headers)
+            .map(host_site_locale)
+            .unwrap_or(inferred)
+    } else {
+        inferred
+    };
     let ua = headers
         .get(header::USER_AGENT)
         .and_then(|v| v.to_str().ok())
@@ -1827,6 +1857,40 @@ mod tests {
     fn locale_from_latin_is_english() {
         let loc = infer_site_locale(&["A myriad of lights, in one place."]);
         assert_eq!(loc.html_lang, "en");
+    }
+
+    #[test]
+    fn locale_from_traditional_is_taiwan() {
+        let loc = infer_site_locale(&["這個網站提供軟體與網路服務"]);
+        assert_eq!(loc.html_lang, "zh-TW");
+        assert_eq!(loc.og_locale, "zh_TW");
+    }
+
+    #[test]
+    fn locale_from_simplified_is_china() {
+        let loc = infer_site_locale(&["这个网站提供软件与网络服务"]);
+        assert_eq!(loc.html_lang, "zh-CN");
+        assert_eq!(loc.og_locale, "zh_CN");
+    }
+
+    #[test]
+    fn english_branding_follows_accept_language() {
+        let branding = SiteBranding {
+            title: "Myriad - A myriad of lights, in one place.".into(),
+            description: "A myriad of lights, in one place.".into(),
+            favicon: String::new(),
+            og_image: String::new(),
+            noindex: false,
+            policy: String::new(),
+            ai_intro: String::new(),
+            keywords: String::new(),
+            google_site_verification: String::new(),
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ACCEPT_LANGUAGE, "zh-TW,zh;q=0.8".parse().unwrap());
+        let chrome = seo_chrome(&branding, &headers);
+        assert_eq!(chrome.html_lang, "zh-TW");
+        assert_eq!(chrome.og_locale, "zh_TW");
     }
 
     #[test]

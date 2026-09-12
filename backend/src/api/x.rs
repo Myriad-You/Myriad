@@ -97,7 +97,7 @@ async fn server_x_credentials(
     Ok((username, bearer))
 }
 
-/// 获取 X 用户完整信息（资料 + 时间线）
+/// Fetch X profile bundle: user + tweets + following.
 ///
 /// Bearer 仅来自服务端配置；query `bearer_token` 一律 400。
 pub async fn get_x_user(
@@ -153,7 +153,7 @@ pub async fn get_x_user(
     }
 }
 
-/// 仅验证服务端配置的用户名 + Bearer 是否有效
+/// Validate username (query override, else `x_username`) + server Bearer. Does not fetch timeline.
 pub async fn get_x_user_info(
     Query(params): Query<XQuery>,
 ) -> Result<Json<ApiResponse<serde_json::Value>>, HttpError> {

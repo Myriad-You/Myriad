@@ -51,7 +51,6 @@ export function computeAgo(
   return { unit: 'day', n: d }
 }
 
-
 export type LatestUpdateAbortReason =
   | 'no_target'
   | 'identical'

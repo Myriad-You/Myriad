@@ -95,7 +95,7 @@ test('cycles through the complete action catalog without immediate repeats', () 
     }
     activeBefore = active
   }
-  assert.deepEqual([...seen].sort(), [
+  assert.deepEqual(Iterator.from(seen).toArray().toSorted(), [
     'headDrift',
     'postureShift',
     'shoulderEase',

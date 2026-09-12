@@ -15,7 +15,7 @@ function notifySubscribers() {
   if (newIsDark !== isDarkMode) {
     isDarkMode = newIsDark
     // Snapshot listeners before notify.
-    const subscriberArray = Array.from(subscribers)
+    const subscriberArray = Iterator.from(subscribers).toArray()
     subscriberArray.forEach((callback) => {
       try {
         callback(isDarkMode)

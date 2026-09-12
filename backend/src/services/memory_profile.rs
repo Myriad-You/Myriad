@@ -17,8 +17,7 @@ use tokio::sync::Semaphore;
 
 /// Current bounded product defaults.
 ///
-/// Pool min is the idle floor (not request concurrency). Keep it small so a
-/// quiet host does not park five Postgres backends; max is the concurrent
+/// Pool min is the idle floor (not request concurrency); max is the concurrent
 /// query ceiling.
 pub const DEFAULT_DB_MIN_CONNECTIONS: u32 = 2;
 pub const DEFAULT_DB_MAX_CONNECTIONS: u32 = 24;
@@ -43,7 +42,7 @@ pub const SAVER_MAX_API_CACHE_BYTES: usize = 8 * 1024 * 1024;
 pub const SAVER_MAX_GEO_CACHE_BYTES: usize = 256 * 1024;
 pub const SAVER_ARGON2_PERMITS: usize = 1;
 pub const SAVER_MAX_AUDIO_BYTES: usize = 16 * 1024 * 1024;
-/// Federation JSON caps. Larger media uses the chunked transfer surface.
+/// Inbox/message JSON + authenticated HTTP body + Note file caps (chunked transfer is a separate surface).
 pub const DEFAULT_MESSAGE_PAYLOAD_LIMIT: usize = 4 * 1024 * 1024;
 pub const DEFAULT_INBOX_BODY_LIMIT: usize = 8 * 1024 * 1024;
 pub const DEFAULT_AUTHENTICATED_BODY_LIMIT: usize = 24 * 1024 * 1024;
@@ -402,7 +401,7 @@ mod tests {
         // Envelope headroom: inbox must still exceed message payload by ≥25%.
         assert!(s.inbox_body_limit > s.message_payload_limit);
         assert!(s.inbox_body_limit - s.message_payload_limit >= s.message_payload_limit / 4);
-        // Larger media is intentionally handled by chunked transfer, not inbox JSON.
+        // Note video is the Note media cap; chunk inflight is the transfer surface.
         assert!(s.message_payload_limit >= 2 * 1024 * 1024);
         assert_eq!(s.note_video_limit, 32 * 1024 * 1024);
         assert_eq!(s.max_in_flight_chunk_bytes, 16 * 1024 * 1024);

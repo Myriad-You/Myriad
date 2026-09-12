@@ -47,7 +47,7 @@ let engageTickTimer: ReturnType<typeof setInterval> | null = null
 let listenersBound = false
 
 function collectUrl(): string {
-  const base = (API_URL || '').replace(/\/$/, '')
+  const base = (API_URL || '').replaceAll(/\/$/g, '')
   return `${base}/api/analytics/collect`
 }
 
@@ -211,7 +211,7 @@ export function getOrCreateVisitorId(): string {
     } else {
       for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256)
     }
-    id = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+    id = Iterator.from(bytes).map((b) => b.toString(16).padStart(2, '0')).toArray().join('')
   }
   try {
     localStorage.setItem(VID_KEY, id)
@@ -260,7 +260,7 @@ function markSessionPath(path: string) {
 function enqueue(item: CollectItem) {
   if (queue.length >= MAX_QUEUE) {
     const dropIdx = queue.findIndex((q) => q.type !== 'pageview')
-    queue.splice(dropIdx >= 0 ? dropIdx : 0, 1)
+    queue = queue.toSpliced(dropIdx >= 0 ? dropIdx : 0, 1)
   }
   queue.push(item)
   scheduleFlush()
@@ -296,7 +296,8 @@ async function flushQueue() {
 
   flushInFlight = true
   flushAgainAfter = false
-  const items = queue.splice(0, MAX_QUEUE)
+  const items = queue.slice(0, MAX_QUEUE)
+  queue = queue.toSpliced(0, MAX_QUEUE)
   const body = JSON.stringify({
     vid: getOrCreateVisitorId(),
     items,
@@ -484,7 +485,7 @@ export function sanitizeAnalyticsTarget(raw?: string | null): string | undefined
   const s = String(raw)
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9._:@+-]/g, '')
+    .replaceAll(/[^a-z0-9._:@+-]/g, '')
     .slice(0, 64)
   return s.length >= 1 ? s : undefined
 }

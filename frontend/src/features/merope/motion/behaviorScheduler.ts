@@ -183,7 +183,7 @@ export class BehaviorScheduler {
     for (const runtime of this.behaviors.values()) {
       snapshots.push(this.snapshot(runtime, now))
     }
-    return snapshots.sort((left, right) => left.startedAtMs - right.startedAtMs)
+    return snapshots.toSorted((left, right) => left.startedAtMs - right.startedAtMs)
   }
 
   resolvePlan(plan: BehaviorPlan): BehaviorPlan {
@@ -207,9 +207,9 @@ export class BehaviorScheduler {
     if (!Number.isFinite(requestedAtMs)) return 'invalid'
     const now = finiteTime(nowMs)
     let nextAt = Math.max(0, requestedAtMs)
-    const affected = [...this.behaviors.values()].filter((runtime) =>
-      timingPegIds(runtime.spec).includes(pegId),
-    )
+    const affected = Iterator.from(this.behaviors.values())
+      .filter((runtime) => timingPegIds(runtime.spec).includes(pegId))
+      .toArray()
     for (const runtime of affected) {
       const anticipation = runtime.spec.anticipation === pegId
       const role = timingPegRole(runtime.spec, pegId)
@@ -321,7 +321,7 @@ export class BehaviorScheduler {
   }
 
   private interruptAll(nowMs: number, recoveryMs: number | undefined): void {
-    for (const behaviorId of [...this.behaviors.keys()]) {
+    for (const behaviorId of Iterator.from(this.behaviors.keys()).toArray()) {
       this.interrupt(behaviorId, nowMs, recoveryMs)
     }
   }

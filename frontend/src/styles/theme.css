@@ -50,7 +50,6 @@
   --music-accent: #4b5563;
   --music-light: #d1d5db;
   --music-dark: #374151;
-
   --bg-primary: #f5f5f5;
   --bg-secondary: #fff;
   --bg-tertiary: #fafafa;
@@ -234,7 +233,6 @@ body {
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
-
   transform-origin: center center;
 
   /* transform for parallax; opacity for first/switch fade. Do not CSS-transition
@@ -345,7 +343,6 @@ html.dark #bg-container.wallpaper-awaiting #wallpaper-awaiting-fx::after {
 
   /* Default fill is slightly more open; glass-60/70/90/95 still override. */
   --surface-alpha: 74%;
-
   --surface-border: rgb(255 255 255 / 10%);
   --surface-filter: blur(16px) saturate(180%);
 

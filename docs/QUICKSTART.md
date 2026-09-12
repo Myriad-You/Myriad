@@ -101,7 +101,7 @@ Windows:
 .\scripts\dev.ps1 db-setup
 ```
 
-前端 dev server 会把 `/api/*`、`/health` 以及联邦公开路径（webfinger、nodeinfo、`/inbox`、`/users/*`、`/media/federation/*`）代理到 `:1103`。
+前端 dev server 会把 `/api/*`、`/health`、`/ready` 以及联邦公开路径（webfinger、nodeinfo、`/inbox`、`/users/*`、`/media/federation/*`）代理到 `:1103`。`/health` 只表示进程存活；业务就绪看 `/ready` 或直连 backend，不能用前端 HTML 的 200 代替。
 
 需要在开发 UI 里测试“更新管理”时：`./scripts/dev.sh start all-updater`。
 
@@ -110,15 +110,12 @@ Windows:
 
 ## 数据备份
 
-```bash
-mkdir -p backups
-docker compose exec -T postgres pg_dump -U myriad -d myriad > "backups/backup_$(date +%Y%m%d_%H%M%S).sql"
-```
-
-恢复：
+只 dump 数据库不够：Tapp 安装、形象 atlas 和密钥在 `backend_data` 与 `.env`。
+完整步骤见 [BACKUP.md](deployment/BACKUP.md)。
 
 ```bash
-docker compose exec -T postgres psql -U myriad -d myriad < backups/backup_20240101_120000.sql
+bash scripts/extra/backup.sh backup
+bash scripts/extra/backup.sh restore --from backups/myriad-YYYYMMDD_HHMMSS
 ```
 
 ## 清理数据

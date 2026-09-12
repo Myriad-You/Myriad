@@ -80,7 +80,7 @@ export function cloneOAuthSettings(settings: OAuthSettings): OAuthSettings {
     ...settings,
     providers: settings.providers.map((provider) => ({
       ...provider,
-      scopes: [...provider.scopes],
+      scopes: Iterator.from(provider.scopes).toArray(),
     })),
   }
 }

@@ -48,6 +48,15 @@ describe('highlightText', () => {
   it('leaves ordinary titles intact', () => {
     assert.equal(highlightText('Bohemian Rhapsody', ''), 'Bohemian Rhapsody')
   })
+
+  it('matches punctuation, escapes and Unicode literally in every occurrence', () => {
+    for (const query of ['[x]', '(a)+', 'a-b', 'a/b', '\\d', '音楽', '\uD800']) {
+      assert.equal(
+        highlightText(`${query} ... ${query}`, query),
+        `<mark>${query}</mark> ... <mark>${query}</mark>`,
+      )
+    }
+  })
 })
 
 /**

@@ -49,9 +49,8 @@ impl DagScheduler {
 
     /// 是否使用并行模式
     ///
-    /// 当有 2 个以上步骤时启用并行模式：
-    /// - 有显式 `depends_on` 时：按 DAG 拓扑排序，依赖满足的步骤并行执行
-    /// - 全部 `depends_on` 为空时：所有步骤视为独立，整波并行执行
+    /// 当有 2 个以上步骤时启用并行模式（`steps.len() > 1`）：
+    /// 依赖满足的步骤进入同一 ready-wave（HashMap 迭代，不按拓扑排序）。
     ///
     /// 仅当唯一 1 个步骤时退化为顺序执行。
     pub fn is_parallel_mode(&self) -> bool {

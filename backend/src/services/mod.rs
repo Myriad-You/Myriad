@@ -104,8 +104,24 @@ pub mod updater_client;
 pub mod brew_parser;
 pub mod brew_scheduler;
 pub mod brew_topics;
+pub mod channel_pairing; // Shared pairing mint/consume/unbind
+pub mod channel_work; // Shared private-chat Work: session, pending, delivery
+pub mod discord_bot; // Discord DM Gateway worker
+pub mod discord_pairing; // Discord DM pairing codes + user_identities
+pub mod discord_work; // Discord DM send adapter + Work entry
+pub mod feishu_bot; // Feishu p2p long-connection worker
+pub mod feishu_bot_api; // Feishu OpenAPI send / upload / download
+pub mod feishu_pairing; // Feishu p2p pairing codes + user_identities
+pub mod feishu_work; // Feishu p2p send adapter + Work entry
+pub mod feishu_ws; // Feishu pbbp2 Frame + WSS session
 pub mod icon_service;
 pub mod image_cache; // e.g. Notion temporary URLs
 pub mod notion_service;
+pub mod qq_bot; // QQ C2C Gateway worker
+pub mod qq_pairing; // QQ C2C pairing codes + user_identities
+pub mod qq_work; // QQ C2C send adapter + Work entry
 pub mod rig_chest_analysis; // One-shot vision profile for Anime2.5D chest motion
 pub mod rsshub_service;
+pub mod telegram_bot; // Telegram DM getUpdates worker
+pub mod telegram_pairing; // Telegram DM pairing codes + user_identities
+pub mod telegram_work; // Telegram DM send adapter + Work entry

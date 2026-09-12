@@ -215,7 +215,7 @@ describe('uiBagOwnership', () => {
   })
 
   it('refreshes the public persona name only when merope_enabled changes', () => {
-    assert.deepEqual([...PERSONA_PUBLIC_NAME_UI_BAG_KEYS], ['merope_enabled'])
+    assert.deepEqual(Iterator.from(PERSONA_PUBLIC_NAME_UI_BAG_KEYS).toArray(), ['merope_enabled'])
     assert.equal(
       configChangesNeedPersonaPublicNameRefresh(
         cfg([{ key: 'merope_enabled', value: 'false' }]),

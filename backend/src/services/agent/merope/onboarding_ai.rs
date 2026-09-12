@@ -828,7 +828,7 @@ fn normalize_name_style(value: &str, language: &str) -> &'static str {
         "european" | "en" | "western" => "european",
         "mythic" | "mythology" | "classical" | "myth" => "mythic",
         _ => match language {
-            "zh-CN" => "chinese",
+            "zh-CN" | "zh-TW" => "chinese",
             "ja-JP" => "japanese",
             _ => "european",
         },
@@ -1309,6 +1309,7 @@ mod tests {
     #[test]
     fn sanitize_display_name_follows_name_style() {
         assert_eq!(normalize_name_style("", "zh-CN"), "chinese");
+        assert_eq!(normalize_name_style("", "zh-TW"), "chinese");
         assert_eq!(normalize_name_style("european", "zh-CN"), "european");
         assert_eq!(normalize_name_style("inazuma", "en-US"), "japanese");
         assert_eq!(normalize_name_style("wafuu", "zh-CN"), "japanese");

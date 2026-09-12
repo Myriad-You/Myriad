@@ -38,8 +38,7 @@ pub async fn system_status() -> Json<Value> {
         .unwrap()
         .as_secs();
 
-    // 返回基本状态信息，适用于健康检查和监控
-    // 注意：config_mode 信息保留用于前端判断系统状态
+    // 公开探活字段；管理员面板走 /api/admin/diagnostics
     Json(json!({
         "status": "running",
         "uptime_seconds": uptime,

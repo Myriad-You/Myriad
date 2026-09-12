@@ -249,7 +249,7 @@ export const QuickStatsWidget = memo(
             (acc: LibraryStats, item: any) => {
               acc.total++
               const type = item.item_type
-              if (type in acc) {
+              if (Object.hasOwn(acc, type)) {
                 ;(acc as any)[type]++
               }
               return acc

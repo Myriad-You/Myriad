@@ -90,7 +90,7 @@ export function queryCanvasVisibleItems(
     }
   }
 
-  return candidates.sort(
+  return candidates.toSorted(
     (a, b) =>
       (spatialIndex.order.get(a.id) ?? 0) - (spatialIndex.order.get(b.id) ?? 0),
   )
@@ -147,18 +147,18 @@ export function readCanvasDefaultScale(): number {
 export function balancedShuffleLibraryItems(
   items: LibraryItem[],
 ): LibraryItem[] {
+  const grouped = Object.groupBy(items, (item) => item.item_type)
   const groups: Record<string, LibraryItem[]> = {
-    game: [],
-    video: [],
-    music: [],
-    anime: [],
-    tv_series: [],
-    book: [],
+    game: grouped.game ?? [],
+    video: grouped.video ?? [],
+    music: grouped.music ?? [],
+    anime: grouped.anime ?? [],
+    tv_series: grouped.tv_series ?? [],
+    book: grouped.book ?? [],
   }
-  items.forEach((item) => groups[item.item_type]?.push(item))
-  Object.values(groups).forEach((group) =>
-    group.sort(() => Math.random() - 0.5),
-  )
+  for (const type of Object.keys(groups)) {
+    groups[type] = groups[type].toSorted(() => Math.random() - 0.5)
+  }
 
   const result: LibraryItem[] = []
   const maxLength = Math.max(
@@ -167,7 +167,7 @@ export function balancedShuffleLibraryItems(
   )
   for (let index = 0; index < maxLength; index++) {
     Object.keys(groups)
-      .sort(() => Math.random() - 0.5)
+      .toSorted(() => Math.random() - 0.5)
       .forEach((type) => {
         const item = groups[type][index]
         if (item) result.push(item)
@@ -288,8 +288,7 @@ export function computeLibraryListLayout(
         continue
       }
 
-      candidates.sort((a, b) => a.index - b.index)
-      const best = candidates[0]
+      const best = candidates.toSorted((a, b) => a.index - b.index)[0]
 
       const queue = queues[best.type as keyof typeof queues]
       queue.shift()

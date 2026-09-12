@@ -119,16 +119,83 @@ test('shell projection is an exact neutral identity and finite at bounded turns'
     profile,
     rotation,
     1.08,
-    0,
   )
   assert.deepEqual(neutral, { x: 417.25, y: 246.5 })
 
   const turned = { ...neutral }
   writeAnime25DShellRotation(1, -0.8, rotation)
-  deformAnime25DShellPoint(turned, turned.y, 'head', profile, rotation, 1.08, 0)
+  deformAnime25DShellPoint(turned, turned.y, 'head', profile, rotation, 1.08)
   assert.equal(Number.isFinite(turned.x), true)
   assert.equal(Number.isFinite(turned.y), true)
   assert.notDeepEqual(turned, neutral)
+})
+
+test('a locally deformed eyelid samples depth at its current face position, not its original row', () => {
+  const profile = deriveAnime25DShellProfile(playbackSource)
+  const rotation = { active: false, yawCosine: 1, yawSine: 0, pitchCosine: 1, pitchSine: 0 }
+  for (const yaw of [-1, -0.5, 0.5, 1]) {
+    for (const pitch of [-1, -0.5, 0.5, 1]) {
+      writeAnime25DShellRotation(yaw, pitch, rotation)
+      const target = { x: 325, y: playbackSource.anchors.eyeL.closeY }
+      const reference = { ...target }
+      deformAnime25DShellPoint(reference, target.y, 'head', profile, rotation, 1.1)
+      for (const originalY of [170, 194, 215]) {
+        const moved = { ...target }
+        deformAnime25DShellPoint(moved, originalY, 'head', profile, rotation, 1.1)
+        assert.deepEqual(moved, reference, 'a shared eyelid location must not inherit a different surface because it came from another row')
+      }
+    }
+  }
+})
+
+test('face depth stays slope-continuous across irregular landmark intervals and constant ends', () => {
+  const profile = deriveAnime25DShellProfile(playbackSource)
+  const rotation = { active: false, yawCosine: 1, yawSine: 0, pitchCosine: 1, pitchSine: 0 }
+  const { startY, endY, points } = profile.faceProfile
+  const epsilon = 0.0001
+  for (const depths of [points.map(p => p.z), [0.02, 0.1, 0.24, 0.28, 0.4], [0.4, 0.28, 0.24, 0.1, 0.02]]) {
+    points.forEach((p, i) => { p.z = depths[i] })
+    for (const yaw of [-1, 1]) {
+      for (const pitch of [-1, 1]) {
+        writeAnime25DShellRotation(yaw, pitch, rotation)
+        for (const landmark of points) {
+          const y = startY + landmark.v * (endY - startY)
+          const sample = (at: number) => {
+            const point = { x: profile.head.centerX, y: at }
+            deformAnime25DShellPoint(point, at, 'head', profile, rotation, 1)
+            return point
+          }
+          const before = sample(y - epsilon)
+          const at = sample(y)
+          const after = sample(y + epsilon)
+          const slopeJump = Math.hypot(after.x - 2 * at.x + before.x, after.y - 2 * at.y + before.y) / epsilon
+          assert.ok(slopeJump < 0.0001, `${yaw}/${pitch} landmark ${landmark.v}: slope jump ${slopeJump}`)
+        }
+      }
+    }
+  }
+})
+
+test('face interpolation cannot invent a depth bulge beyond adjacent authored landmarks', () => {
+  const profile = deriveAnime25DShellProfile(playbackSource)
+  const rotation = { active: false, yawCosine: 1, yawSine: 0, pitchCosine: 1, pitchSine: 0 }
+  writeAnime25DShellRotation(1, 0, rotation)
+  const { startY, endY, points } = profile.faceProfile
+  const sample = (v: number, depth?: number) => {
+    const point = { x: profile.head.centerX, y: startY + v * (endY - startY) }
+    const selected = depth === undefined ? profile : { ...profile, faceProfile: { ...profile.faceProfile, points: points.map(p => ({ ...p, z: depth })) } }
+    deformAnime25DShellPoint(point, point.y, 'head', selected, rotation, 1)
+    return point.x
+  }
+  for (let i = 0; i < points.length - 1; i++) {
+    for (let n = 0; n <= 40; n++) {
+      const v = points[i].v + (points[i + 1].v - points[i].v) * n / 40
+      const a = sample(v, points[i].z)
+      const b = sample(v, points[i + 1].z)
+      const actual = sample(v)
+      assert.ok(actual >= Math.min(a, b) - 1e-8 && actual <= Math.max(a, b) + 1e-8, `interval ${i} at ${v}`)
+    }
+  }
 })
 
 test('hairline pin stays full inside its scalp rectangle and fades outside', () => {
@@ -147,6 +214,29 @@ test('hairline pin stays full inside its scalp rectangle and fades outside', () 
   )
 })
 
+test('crown correction is continuous through neutral instead of switching on at the first nonzero turn', () => {
+  const profile = deriveAnime25DShellProfile(playbackSource)
+  profile.hair.crownRound = 1
+  const rest = {
+    x: profile.head.centerX + profile.head.radiusX * 0.5,
+    y: profile.head.centerY - profile.head.radiusY * 0.7,
+  }
+  const rotation = { active: false, yawCosine: 1, yawSine: 0, pitchCosine: 1, pitchSine: 0 }
+  for (const sign of [-1, 1]) {
+    const tiny = { ...rest }
+    writeAnime25DShellRotation(sign * 1e-7, sign * 1e-7, rotation)
+    deformAnime25DShellPoint(tiny, rest.y, 'front-hair', profile, rotation, 1.28)
+    assert.ok(Math.hypot(tiny.x - rest.x, tiny.y - rest.y) < 0.0001, 'a tiny head input cannot inject a static crown reshape')
+  }
+  writeAnime25DShellRotation(1, 1, rotation)
+  const corrected = { ...rest }
+  deformAnime25DShellPoint(corrected, rest.y, 'front-hair', profile, rotation, 1.28)
+  profile.hair.crownRound = 0
+  const uncorrected = { ...rest }
+  deformAnime25DShellPoint(uncorrected, rest.y, 'front-hair', profile, rotation, 1.28)
+  assert.ok(Math.hypot(corrected.x - uncorrected.x, corrected.y - uncorrected.y) > 1, 'the correction remains active at a full turn')
+})
+
 test('automatic hairline attachment releases monotonically across two mesh rows', () => {
   const profile = deriveAnime25DShellProfile(playbackSource)
   const source: Anime25DPlaybackLayer = {
@@ -162,7 +252,7 @@ test('automatic hairline attachment releases monotonically across two mesh rows'
   const weights = sampleAnime25DHairlinePinWeights(rest, source, 2, profile)
 
   assert.ok(weights)
-  assert.deepEqual(Array.from(weights), [1, 1, 0.5, 0])
+  assert.deepEqual(Iterator.from(weights).toArray(), [1, 1, 0.5, 0])
 })
 
 test('enables only a restrained crown fit when distributed roots confirm scalp hair', () => {

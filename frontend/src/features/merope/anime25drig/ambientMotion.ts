@@ -122,6 +122,7 @@ export class AmbientMotionController {
     this.gazeY.retarget(now, this.targetY, eyeDuration)
     this.headX.retarget(now, x, headDuration, latency)
     this.headY.retarget(now, y, headDuration, latency)
+    let bodyDuration = 0
     if (!inspect) {
       this.headZ.retarget(
         now,
@@ -129,12 +130,16 @@ export class AmbientMotionController {
         headDuration * 1.1,
         latency,
       )
-      this.body.retarget(
-        now,
-        x * this.range(0.3, 0.5) + this.range(-0.07, 0.07),
+      // Small inspections stay eye/head-led; a broad look recruits the torso.
+      // Give its larger travel time instead of accelerating it to catch up.
+      const bodyTarget =
+        x * this.range(0.3 + recruitment * 0.3, 0.5 + recruitment * 0.22) +
+        this.range(-0.07, 0.07)
+      bodyDuration = Math.max(
         headDuration * 1.3,
-        latency + 0.12,
+        0.5 + Math.sqrt(Math.abs(bodyTarget - this.body.value)) * 0.8,
       )
+      this.body.retarget(now, bodyTarget, bodyDuration, latency + 0.12)
     }
     const dwell = clamp(
       Math.exp(this.range(-0.8, 0.9) + this.range(-0.65, 0.65)),
@@ -143,7 +148,11 @@ export class AmbientMotionController {
     )
     this.nextPoseAt =
       now +
-      Math.max(headDuration + latency, eyeDuration) +
+      Math.max(
+        headDuration + latency,
+        bodyDuration + latency + 0.12,
+        eyeDuration,
+      ) +
       dwell * (inspect ? 0.75 : 1.2)
   }
 

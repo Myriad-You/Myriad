@@ -79,7 +79,7 @@ export function sampleVelocity(
   while (start < samples.length && samples[start].t < from) start += 1
   if (samples.length - start < 2) return 0
   const a = samples[start]
-  const b = samples[samples.length - 1]
+  const b = samples.at(-1)!
   const dt = (b.t - a.t) / 1000
   if (dt <= 0) return 0
   return (b.x - a.x) / dt

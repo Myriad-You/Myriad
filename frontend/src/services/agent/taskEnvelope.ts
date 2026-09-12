@@ -1,7 +1,7 @@
 export function taskInnerValue(data: unknown): unknown {
   if (data && typeof data === 'object' && !Array.isArray(data)) {
     const obj = data as Record<string, unknown>
-    if (typeof obj.format === 'string' && 'value' in obj) {
+    if (typeof obj.format === 'string' && Object.hasOwn(obj, 'value')) {
       return obj.value
     }
   }

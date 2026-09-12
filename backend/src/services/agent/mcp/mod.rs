@@ -5,16 +5,12 @@
 //!
 //! # Security
 //!
-//! - Env inheritance allowlist (no host secrets in children)
+//! - Env inheritance allowlist (excludes host secret variables)
 //! - Config validation (id charset, arg/env caps, max 32 servers)
 //! - Stdio line / JSON-RPC message cap ([`transport::MAX_MCP_LINE_BYTES`])
 //! - Concurrent live child process cap ([`transport::MAX_MCP_CHILDREN`])
 
-pub mod config;
-pub mod manager;
-pub mod protocol;
-pub mod server;
-pub mod transport;
+pub use myriad_mcp::{config, manager, protocol, server, transport};
 
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
@@ -25,7 +21,26 @@ static MCP_MANAGER: OnceLock<Arc<McpManager>> = OnceLock::new();
 
 /// 初始化 MCP 管理器（在 main.rs 启动时调用）
 pub async fn init_mcp(config_path: &Path) {
-    let manager = McpManager::init(config_path).await;
+    let reporter: myriad_mcp::StatusReporter = Arc::new(|id, healthy| {
+        let Some(notifications) =
+            crate::services::agent::notifications::get_notification_manager().cloned()
+        else {
+            return;
+        };
+        tokio::spawn(async move {
+            let detail = if healthy {
+                "MCP server ready"
+            } else {
+                "MCP server unavailable"
+            };
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                notifications.notify_mcp_server_status(&id, healthy, detail),
+            )
+            .await;
+        });
+    });
+    let manager = McpManager::init_with_reporter(config_path, reporter).await;
     let _ = MCP_MANAGER.set(manager);
     tracing::info!("[MCP] Manager initialized");
 }

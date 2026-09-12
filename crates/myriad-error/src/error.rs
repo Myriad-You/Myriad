@@ -8,6 +8,8 @@ use crate::redact::redact_secrets;
 use http::StatusCode;
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::collections::HashMap;
+use std::sync::OnceLock;
 
 /// Stable JSON body shape returned to clients.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -38,83 +40,48 @@ fn is_resource_not_found(label: &str) -> bool {
     lower.ends_with(" not found") && lower != "method not found"
 }
 
-impl AppError {
-    /// Stable machine code for well-known public labels.
-    pub fn inferred_code(label: &str) -> Option<&'static str> {
-        match label.trim() {
-            "Database error" | "Database query failed" | "Database not connected" => {
-                Some("database_error")
+fn shared_label_codes() -> &'static HashMap<String, String> {
+    static MAP: OnceLock<HashMap<String, String>> = OnceLock::new();
+    MAP.get_or_init(|| {
+        let spec: Value = serde_json::from_str(include_str!("../../../shared/error_codes.json"))
+            .expect("shared/error_codes.json");
+        let mut map = HashMap::new();
+        if let Some(labels) = spec.get("labels").and_then(Value::as_object) {
+            for (label, code) in labels {
+                let Some(code) = code.as_str() else { continue };
+                map.insert(label.clone(), code.to_string());
+                map.insert(label.to_ascii_lowercase(), code.to_string());
             }
-            "Failed to fetch data" | "Failed to fetch report" => Some("fetch_failed"),
-            "Invalid user" => Some("unauthorized"),
-            "Failed to process password" | "Failed to verify password" => Some("password_failed"),
-            "Failed to create account" => Some("account_create_failed"),
-            "Failed to create session token" | "Failed to refresh session token" => {
-                Some("session_failed")
-            }
-            "Unauthorized" | "Not authenticated" => Some("unauthorized"),
-            "Forbidden" => Some("forbidden"),
-            "Not found" | "Not Found" => Some("not_found"),
-            "Bad request" | "Bad Request" => Some("bad_request"),
-            "Conflict" => Some("conflict"),
-            "Internal server error" | "Internal error" => Some("internal_error"),
-            "Service unavailable" | "Server busy" => Some("service_unavailable"),
-            "Service in configuration mode" => Some("configuration_mode"),
-            "Setup already completed" => Some("setup_completed"),
-            "Setup window closed" => Some("setup_window_closed"),
-            "Setup secret required" => Some("setup_secret_mismatch"),
-            "Activity not ready" => Some("activity_not_ready"),
-            "Access denied" => Some("forbidden"),
-            "Target is closed" => Some("gone"),
-            "Inbox processing failed" => Some("inbox_failed"),
-            "Failed to find Tapp" | "Tapp install not found" => Some("tapp_not_found"),
-            "Failed to read user data" | "Failed to load current user" => {
-                Some("account_load_failed")
-            }
-            "Notification system not initialized" => Some("notification_unavailable"),
-            "No admin user found" => Some("no_admin"),
-            "Not a room member" | "Not your transfer" => Some("forbidden"),
-            "Invalid user id"
-            | "Invalid user ID"
-            | "Invalid song ID"
-            | "Invalid delivery id"
-            | "Invalid origin"
-            | "Invalid JSON body"
-            | "Invalid room id"
-            | "Invalid authenticated user"
-            | "Invalid acct domain"
-            | "Invalid invite_policy"
-            | "Invalid touch summary"
-            | "Invalid authentication state"
-            | "domain required"
-            | "content_id required"
-            | "URL is required"
-            | "Actor reference is required"
-            | "Input is empty"
-            | "Input is too long" => Some("bad_request"),
-            "serialization failed" => Some("internal_error"),
-            "Already delivered"
-            | "Room is full"
-            | "Already subscribed to this feed"
-            | "Already following or pending"
-            | "Could not cancel delivery (status changed)"
-            | "Could not retry delivery (status changed)" => Some("conflict"),
-            "Permission denied" => Some("forbidden"),
-            "Scheduler not available"
-            | "Intention service is temporarily unavailable"
-            | "Agent is unavailable" => Some("service_unavailable"),
-            "Intention state changed; refresh and try again" => Some("conflict"),
-            "Cannot resolve remote actor" => Some("not_found"),
-            "Inbox delivery budget exhausted; retry later" => Some("service_unavailable"),
-            other if is_resource_not_found(other) => Some("not_found"),
-            _ => None,
         }
+        map
+    })
+}
+
+impl AppError {
+    /// Stable machine code for well-known public labels (`shared/error_codes.json`).
+    pub fn inferred_code(label: &str) -> Option<&'static str> {
+        let trimmed = label.trim();
+        let map = shared_label_codes();
+        if let Some(code) = map
+            .get(trimmed)
+            .or_else(|| map.get(&trimmed.to_ascii_lowercase()))
+        {
+            return Some(code.as_str());
+        }
+        if is_resource_not_found(trimmed) {
+            return Some("not_found");
+        }
+        None
     }
 
     /// Build with an explicit status. `error` is the short public label.
     pub fn new(status: StatusCode, error: impl Into<String>) -> Self {
         let error = redact_secrets(&error.into());
-        let code = Self::inferred_code(&error).map(str::to_string);
+        let code = Some(
+            Self::inferred_code(&error)
+                .unwrap_or("unmapped")
+                .to_string(),
+        );
         Self {
             status,
             error,
@@ -220,20 +187,17 @@ impl AppError {
         if let Some(ref h) = self.hint {
             v["hint"] = json!(h);
         }
-        if let Some(ref c) = self.code {
-            v["code"] = json!(c);
-        }
+        v["code"] = json!(self.code.clone().unwrap_or_else(|| "unmapped".into()));
         v
     }
 
-    /// `{error, code?}` for handlers that still return raw JSON instead of [`AppError`].
+    /// `{error, code}` for handlers that still return raw JSON instead of [`AppError`].
     pub fn public_json(label: impl Into<String>) -> Value {
         let error = redact_secrets(&label.into());
-        let mut v = json!({ "error": error });
-        if let Some(code) = Self::inferred_code(&error) {
-            v["code"] = json!(code);
-        }
-        v
+        json!({
+            "error": error,
+            "code": Self::inferred_code(&error).unwrap_or("unmapped"),
+        })
     }
 
     /// Brew-style `{success: false, error, code?}`.
@@ -301,7 +265,20 @@ mod tests {
         assert_eq!(v["error"], "missing");
         assert!(v.get("message").is_none());
         assert!(v.get("hint").is_none());
-        assert!(v.get("code").is_none());
+        assert_eq!(v["code"], "unmapped");
+    }
+
+    #[test]
+    fn shared_label_codes_cover_inferred_public_labels() {
+        let spec: Value =
+            serde_json::from_str(include_str!("../../../shared/error_codes.json")).unwrap();
+        for (label, code) in spec["labels"].as_object().unwrap() {
+            assert_eq!(
+                AppError::inferred_code(label.as_str()),
+                Some(code.as_str().unwrap()),
+                "{label}"
+            );
+        }
     }
 
     #[test]
@@ -370,14 +347,30 @@ mod tests {
             AppError::internal("Failed to find Tapp").to_json()["code"],
             "tapp_not_found"
         );
-        assert!(AppError::not_found("missing")
-            .to_json()
-            .get("code")
-            .is_none());
-        assert!(AppError::internal("Method not found")
-            .to_json()
-            .get("code")
-            .is_none());
+        assert_eq!(
+            AppError::not_found("missing").to_json()["code"],
+            "unmapped"
+        );
+        assert_eq!(
+            AppError::internal("Method not found").to_json()["code"],
+            "unmapped"
+        );
+        assert_eq!(
+            AppError::internal("Failed to update user").to_json()["code"],
+            "account_update_failed"
+        );
+        assert_eq!(
+            AppError::internal("Failed to load config").to_json()["code"],
+            "config_load_failed"
+        );
+        assert_eq!(
+            AppError::internal("Failed to persist Tapp").to_json()["code"],
+            "tapp_save_failed"
+        );
+        assert_eq!(
+            AppError::internal("Failed to save MCP config").to_json()["code"],
+            "mcp_config_save_failed"
+        );
         let unauthorized = AppError::public_json("Unauthorized");
         assert_eq!(unauthorized["error"], "Unauthorized");
         assert_eq!(unauthorized["code"], "unauthorized");
@@ -411,5 +404,6 @@ mod tests {
         let (st, v): (StatusCode, Value) = AppError::conflict("exists").into();
         assert_eq!(st, StatusCode::CONFLICT);
         assert_eq!(v["error"], "exists");
+        assert_eq!(v["code"], "unmapped");
     }
 }

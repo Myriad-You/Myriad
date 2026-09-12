@@ -49,8 +49,9 @@ export class Anime25DBodyAdapter implements BodyAdapter {
           source,
           generation,
         }))
-    )
+    ) {
       return
+}
     if (!intent.speechRefinement && intent.speechText && intent.messageId) {
       getSpeechPipeline().speakLine({
         messageId: intent.messageId,
@@ -62,7 +63,8 @@ export class Anime25DBodyAdapter implements BodyAdapter {
     }
     if (intent.performance?.plan) {
       if (intent.speechRefinement && source === 'proactive' && intent.messageId
-        && !this.runtime.touch.acceptsSpeechRefinement(intent.messageId, intent.performance, performance.now())) return
+        && !this.runtime.touch.acceptsSpeechRefinement(intent.messageId, intent.performance, performance.now())) { return
+}
       this.runtime.performance.handle({
         text: intent.speechRefinement
           ? this.runtime.speech.upcomingText({

@@ -6,7 +6,7 @@ export interface MusicErrorFlash {
 }
 
 function usefulMusicDetail(message: string): string {
-  const detail = message.replace(/\s+/g, ' ').trim()
+  const detail = message.replaceAll(/\s+/g, ' ').trim()
   if (!detail || isUselessErrorText(detail)) return ''
   if (/网易云API|QQ音乐|copyright|地理位置/.test(detail)) return ''
   if (/^\{[\s\S]*\}$/.test(detail)) return ''

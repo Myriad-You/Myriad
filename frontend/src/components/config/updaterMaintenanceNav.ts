@@ -1,4 +1,3 @@
-
 export const PROXY_STATUS_POLL_MS = 1_500
 export const MAINT_NAV_STORAGE_KEY = 'myriad-updater-maint-nav'
 

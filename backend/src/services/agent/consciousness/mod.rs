@@ -43,7 +43,7 @@ pub use grant_store::AutonomyGrantStore;
 pub use policy::{validate_decision, DecisionPolicyError};
 pub use presence::{
     last_live_presence, live_presence_from_custom_data, live_presence_from_request,
-    live_presence_is_on_page, live_presence_panel_open, remember_live_presence,
+    live_presence_panel_open, remember_live_presence,
 };
 pub use snapshot::capture_self_snapshot;
 pub use speak_intent::{

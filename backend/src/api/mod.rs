@@ -62,51 +62,77 @@ pub fn init_process_identity() {
     myriad_process_info::mark_startup();
 }
 
-/// `/health` for the updater probe.
-///
-/// Spec §11.1 fields plus `commit_sha`, `routes_full`, `storage_writable`,
-/// and older `service` / `mode` / `database_connected`.
-pub async fn health() -> (StatusCode, Json<Value>) {
+fn health_json_from_snapshot() -> Value {
     use std::sync::atomic::Ordering;
 
     let config_mode = crate::CONFIG_MODE.load(Ordering::Relaxed);
     let schema_ready = crate::SCHEMA_READY.load(Ordering::Acquire);
-    // Process DB handle (may exist while still on setup-only route table until restart).
-    let db_connected = crate::services::tapp_registry::database().await.is_ok();
-    // Route table is fixed at process start: config-mode router vs full router.
-    // Do not equate CONFIG_MODE=false with "full APIs" without a cold start.
-    let routes_full = !config_mode && db_connected && schema_ready;
-    let migrations_applied = schema_ready;
-
-    // Build-time version injected via `MYRIAD_VERSION` env var (set by Dockerfile build-arg).
-    // Falls back to crate version so local `cargo run` still works.
-    let version = build_version();
-    let commit_sha = build_commit_sha();
-
-    let uptime = process_uptime_seconds();
-
-    (
-        StatusCode::OK,
-        Json(json!({
-            "status": "ok",
-            "schema_version": 1,
-            "version": version,
-            "commit_sha": commit_sha,
-            "db_connected": db_connected,
-            "migrations_applied": migrations_applied,
-            "routes_full": routes_full,
-            // Reaching the server implies the startup storage write preflight passed.
-            "storage_writable": true,
-            "uptime_seconds": uptime,
-
-            // backwards-compatible fields
-            "service": "myriad-backend",
-            "mode": if config_mode || !routes_full {
-                "configuration"
-            } else {
-                "full"
-            },
-            "database_connected": db_connected,
-        })),
+    crate::db::health::health_payload(
+        &crate::db::health::snapshot(),
+        config_mode,
+        schema_ready,
+        &build_version(),
+        build_commit_sha(),
+        process_uptime_seconds(),
     )
+}
+
+/// `/health` is liveness: the process is up. Always HTTP 200.
+///
+/// `db_connected` is the last successful `SELECT 1`, not “a handle exists”.
+/// Spec §11.1 fields plus `commit_sha`, `routes_full`, `storage_preflight`,
+/// `db_handle_present`, `db_probed_at`, and older `service` / `mode` /
+/// `database_connected`.
+pub async fn health() -> (StatusCode, Json<Value>) {
+    let mut payload = health_json_from_snapshot();
+    payload["federation_http_isolated"] = Value::Bool(
+        crate::runtime_role::FEDERATION_HTTP_ISOLATED.load(std::sync::atomic::Ordering::Acquire),
+    );
+    (StatusCode::OK, Json(payload))
+}
+
+/// `/ready` is business readiness: live DB probe (2s), schema, full routes, storage.
+/// Returns 503 when the process should not take traffic.
+pub async fn ready() -> (StatusCode, Json<Value>) {
+    use std::sync::atomic::Ordering;
+
+    match crate::services::tapp_registry::database().await {
+        Ok(db) => {
+            let _ = crate::db::health::probe_database(&db).await;
+        }
+        Err(_) => {
+            crate::db::health::record_db_probe(false, false);
+        }
+    }
+    match tokio::task::spawn_blocking(crate::services::data_paths::verify_runtime_storage_writable)
+        .await
+    {
+        Ok(Ok(())) => crate::db::health::record_storage_writable(true),
+        _ => crate::db::health::record_storage_writable(false),
+    }
+
+    let config_mode = crate::CONFIG_MODE.load(Ordering::Relaxed);
+    let schema_ready = crate::SCHEMA_READY.load(Ordering::Acquire);
+    let snap = crate::db::health::snapshot();
+    let mut payload = crate::db::health::health_payload(
+        &snap,
+        config_mode,
+        schema_ready,
+        &build_version(),
+        build_commit_sha(),
+        process_uptime_seconds(),
+    );
+    let ready = crate::db::health::is_business_ready(
+        config_mode,
+        schema_ready,
+        snap.db_probe_ok,
+        snap.storage_writable,
+    );
+    payload["ready"] = json!(ready);
+    let status = if ready {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    (status, Json(payload))
 }

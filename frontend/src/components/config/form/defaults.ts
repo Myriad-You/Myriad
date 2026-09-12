@@ -78,11 +78,11 @@ export function loadConfigFavorites(): string[] {
     ) {
       return DEFAULT_CONFIG_FAVORITES
     }
-    return [
-      ...new Set(
+    return Iterator.from(
+      new Set(
         (parsed as string[]).map((id) => LEGACY_CONFIG_SECTION_MAP[id] ?? id),
       ),
-    ]
+    ).toArray()
   } catch {
     return DEFAULT_CONFIG_FAVORITES
   }

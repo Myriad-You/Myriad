@@ -39,6 +39,12 @@ function requireKey(raw: unknown): { key: string } | KvResult {
   return { key: raw as string }
 }
 
+function isKeyed(
+  parsed: { key: string } | KvResult,
+): parsed is { key: string } {
+  return Object.hasOwn(parsed, 'key')
+}
+
 export interface FullKvOps {
   get: (tappId: string, key: string, grant?: string) => Promise<unknown>
   set: (
@@ -73,14 +79,14 @@ export function registerFullKvHandlers(
 
   bridge.registerHandler(`${api}.get`, async (message) => {
     const parsed = requireKey(argsOf(message)[0])
-    if (!('key' in parsed)) return parsed
+    if (!isKeyed(parsed)) return parsed
     return wrap(async () => ops.get(tappId, parsed.key, await grant()))
   })
 
   bridge.registerHandler(`${api}.set`, async (message) => {
     const [rawKey, rawValue] = argsOf(message)
     const parsed = requireKey(rawKey)
-    if (!('key' in parsed)) return parsed
+    if (!isKeyed(parsed)) return parsed
     const sanitizedValue = sanitizeStorageValue(rawValue)
     let valueSize: number
     try {
@@ -111,7 +117,7 @@ export function registerFullKvHandlers(
 
   bridge.registerHandler(`${api}.remove`, async (message) => {
     const parsed = requireKey(argsOf(message)[0])
-    if (!('key' in parsed)) return parsed
+    if (!isKeyed(parsed)) return parsed
     return wrap(async () => {
       await ops.remove(tappId, parsed.key, await grant())
       emit({

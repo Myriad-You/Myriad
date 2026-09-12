@@ -60,7 +60,7 @@ fn parses_vid_from_query() {
     assert_eq!(vid_from_query(&uri("/x?myvid=nope")), None);
     assert_eq!(vid_from_query(&uri("/x")), None);
     assert_eq!(vid_from_query(&uri("/x?vid")), None);
-    // 取到的值仍要过 is_valid_vid，垃圾输入会退回 ip+ua 指纹
+    // 取到的值仍要过 is_valid_vid（过短不通过；指纹回退不在本函数）
     assert!(
         !is_valid_vid(&vid_from_query(&uri("/x?vid=short")).unwrap()),
         "too-short vid must not pass validation"

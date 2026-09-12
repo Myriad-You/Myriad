@@ -166,7 +166,7 @@ pub(super) async fn execute_profile_summary(
                     "itemCount": items.len()
                 });
 
-                // 收集兴趣
+                // 按平台 slug 推固定 activity 文案
                 match *platform {
                     "steam" => activities.push("Gaming".to_string()),
                     "bilibili" => activities.push("Watching anime".to_string()),
@@ -201,7 +201,7 @@ pub(super) async fn execute_search_global(
         .unwrap_or_else(|| VALID_PLATFORMS.to_vec());
     let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(20) as usize;
 
-    // 检查是否有有效的搜索关键词
+    // query.is_empty() 则空结果
     if query.is_empty() {
         return Ok(json!({
             "query": query,
@@ -250,7 +250,6 @@ pub(super) async fn execute_search_global(
         }
     }
 
-    // 提供更好的无结果提示
     let message = if results.is_empty() {
         crate::services::agent::response_agent::search_no_results(query)
     } else {

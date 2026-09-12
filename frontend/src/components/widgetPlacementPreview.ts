@@ -12,6 +12,14 @@ export interface WidgetDragSession {
   pendingCell?: { x: number; y: number }
 }
 
+export interface WidgetDragUi {
+  dragged: WidgetDragSession | null
+  settling: boolean
+  previewUncovered: boolean
+  previewExiting: boolean
+  hoveredCell: { x: number; y: number } | null
+}
+
 export function shouldSkipWidgetEntrance(isEditMode: boolean): boolean {
   return isEditMode
 }
@@ -192,6 +200,39 @@ export function placementHasCommitted(
   if (!id || !cell) return false
   const found = widgets.find((widget) => widget.id === id)
   return Boolean(
-    found && found.position.x === cell.x && found.position.y === cell.y,
+    found?.position.x === cell.x && found.position.y === cell.y,
   )
+}
+
+export function widgetPlacementCollides(
+  widget: WidgetConfig,
+  allWidgets: WidgetConfig[],
+  gridWidth: number,
+  gridHeight: number,
+  excludeId?: string,
+): boolean {
+  const dim = widgetSizeSpan(widget.size)
+  const { x, y } = widget.position
+
+  if (x < 0 || y < 0 || x + dim.w > gridWidth || y + dim.h > gridHeight) {
+    return true
+  }
+
+  for (const other of allWidgets) {
+    if (other.id === excludeId || other.id === widget.id) continue
+
+    const otherDim = widgetSizeSpan(other.size)
+    const { x: ox, y: oy } = other.position
+
+    if (
+      x < ox + otherDim.w &&
+      x + dim.w > ox &&
+      y < oy + otherDim.h &&
+      y + dim.h > oy
+    ) {
+      return true
+    }
+  }
+
+  return false
 }

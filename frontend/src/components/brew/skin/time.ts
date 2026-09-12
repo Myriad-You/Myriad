@@ -2,6 +2,7 @@ import type { TimeTranslations } from '../types'
 
 import { useMemo } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
+import { formatMessage, localeOrFallback } from '../../../i18n'
 
 export function useBrewTimes(): TimeTranslations {
   const { t } = useI18n()
@@ -26,27 +27,24 @@ export function brewRelativeTime(
   const diff = Date.now() - date.getTime()
 
   if (diff < 60_000) return translations.justNow
+  const loc = localeOrFallback(locale)
   if (diff < 3_600_000) {
-    return translations.minutesAgo.replace(
-      '{minutes}',
-      String(Math.floor(diff / 60_000)),
-    )
+    return formatMessage(loc, translations.minutesAgo, {
+      minutes: Math.floor(diff / 60_000),
+    })
   }
   if (diff < 86_400_000) {
-    return translations.hoursAgo.replace(
-      '{hours}',
-      String(Math.floor(diff / 3_600_000)),
-    )
+    return formatMessage(loc, translations.hoursAgo, {
+      hours: Math.floor(diff / 3_600_000),
+    })
   }
   if (diff < 604_800_000) {
-    return translations.daysAgo.replace(
-      '{days}',
-      String(Math.floor(diff / 86_400_000)),
-    )
+    return formatMessage(loc, translations.daysAgo, {
+      days: Math.floor(diff / 86_400_000),
+    })
   }
 
-  const dateLocale =
-    locale === 'zh-CN' ? 'zh-CN' : locale === 'ja-JP' ? 'ja-JP' : 'en-US'
+  const dateLocale = locale
   return date.toLocaleDateString(dateLocale, {
     month: 'short',
     day: 'numeric',

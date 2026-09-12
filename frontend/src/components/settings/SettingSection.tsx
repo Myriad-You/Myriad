@@ -80,7 +80,7 @@ export const SettingSection: React.FC<SettingSectionProps> = ({
   headerBetweenPinned,
   headerLeading,
 }) => {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const pageActions = useSettingsPageActions()
   const [showDetails, setShowDetails] = useState(false)
 
@@ -164,10 +164,9 @@ export const SettingSection: React.FC<SettingSectionProps> = ({
                   {title}
                   {showHelp && !showDetails && (
                     <SettingTitleHelp
-                      ariaLabel={t.config.detailHelpAriaNamed.replace(
-                        '{title}',
-                        String(title),
-                      )}
+                      ariaLabel={format(t.config.detailHelpAriaNamed, {
+                        title: String(title),
+                      })}
                       tone={detailTone}
                     >
                       {helpContent}

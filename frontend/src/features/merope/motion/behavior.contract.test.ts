@@ -262,26 +262,36 @@ test('the behavior vocabulary is exactly what a producer can emit', () => {
     sources.add(name!)
   }
 
-  assert.deepEqual([...functions].sort(), [...BEHAVIOR_FUNCTIONS].sort())
-  assert.deepEqual([...sources].sort(), [...BEHAVIOR_SOURCES].sort())
+  assert.deepEqual(
+    Iterator.from(functions).toArray().toSorted(),
+    BEHAVIOR_FUNCTIONS.toSorted(),
+  )
+  assert.deepEqual(
+    Iterator.from(sources).toArray().toSorted(),
+    BEHAVIOR_SOURCES.toSorted(),
+  )
 
   const contract = source(
     '../../../../../crates/myriad-merope/src/rig_state.rs',
   )
   assert.deepEqual(
-    rustList(contract, 'RIG_STATE_BEHAVIOR_FUNCTIONS').sort(),
-    [...functions].sort(),
+    rustList(contract, 'RIG_STATE_BEHAVIOR_FUNCTIONS').toSorted(),
+    Iterator.from(functions).toArray().toSorted(),
   )
   assert.deepEqual(
-    rustList(contract, 'RIG_STATE_BEHAVIOR_SOURCES').sort(),
-    [...sources].sort(),
+    rustList(contract, 'RIG_STATE_BEHAVIOR_SOURCES').toSorted(),
+    Iterator.from(sources).toArray().toSorted(),
   )
 })
 
 function rustList(contract: string, name: string): string[] {
-  const block = new RegExp(`${name}: &\\[&str\\] = &\\[([^\\]]*)\\]`).exec(
+  const block = new RegExp(
+    `${RegExp.escape(name)}: &\\[&str\\] = &\\[([^\\]]*)\\]`,
+  ).exec(
     contract,
   )?.[1]
   assert.ok(block, `${name} missing from the director contract`)
-  return [...block.matchAll(/"([a-z.]+)"/gi)].map((match) => match[1]!)
+  return Iterator.from(block.matchAll(/"([a-z.]+)"/gi))
+    .map((match) => match[1]!)
+    .toArray()
 }

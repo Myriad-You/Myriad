@@ -1,4 +1,3 @@
-
 import type { ReactNode } from 'react'
 import type { GuidePlacement } from './settingTitleGuideLogic'
 import { FaTimes, LuGripVertical, LuPin } from '@lib/icons'
@@ -94,7 +93,7 @@ export const SettingTitleGuideEntry: React.FC<SettingTitleGuideEntryProps> = ({
   panelClassName = '',
   renderTrigger,
 }) => {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const help = useSettingsHelp()
   const panelId = useId()
   const triggerRef = useRef<HTMLElement>(null)
@@ -516,19 +515,19 @@ export const SettingTitleGuideEntry: React.FC<SettingTitleGuideEntryProps> = ({
   if (requireShowDetails && !help?.showDetails && !pinned) return null
   if (guide == null || guide === false || guide === '') return null
 
-  const heading = t.config.optionGuideHeading.replace('{title}', title)
-  const openAria = t.config.openOptionGuide.replace('{title}', title)
+  const heading = format(t.config.optionGuideHeading, { title })
+  const openAria = format(t.config.openOptionGuide, { title })
   const closeAria = t.common.close
   const pinAria = pinned
-    ? t.config.unpinOptionGuideAria.replace('{title}', title)
-    : t.config.pinOptionGuideAria.replace('{title}', title)
+    ? format(t.config.unpinOptionGuideAria, { title })
+    : format(t.config.pinOptionGuideAria, { title })
   const triggerLabel = isActive
     ? (closeLabel ?? t.config.hideOptionGuide)
     : (openLabel ?? t.config.optionGuide)
   const triggerAria = isActive
     ? pinned
       ? pinAria // pinned: don't imply "click to close"
-      : t.config.hideOptionGuideAria.replace('{title}', title)
+      : format(t.config.hideOptionGuideAria, { title })
     : openAria
 
   const canPortal = typeof document !== 'undefined'

@@ -256,6 +256,22 @@ _Avoid_: 当成自治接受
 说话对象事先给过自治授权，提案可以跳过提案卡进入办事。办事时仍要按自治授权与当前授予权限的交集执行；撤销后不能再走这条路。
 _Avoid_: 第三个面板模式、Heartbeat、SYSTEM_USER_ID
 
+**配对（pairing）**：
+外部聊天账号（如 QQ openid、Telegram `from.id`、Discord 用户 snowflake、飞书 `open_id`）绑到已登录的站点用户。一次性配对码证明「这个号是我」，不是该平台的登录 OAuth，也不新开登录方式。Discord 登录身份已经占用 `discord` 这条身份名，通道配对用 `discord_dm`；飞书通道配对用 `feishu`。飞书移动端可能缺 `open_id`、只给 `user_id`，两种 id 都是同一人的配对键，绑定时写成别名，查找时任一命中即可。
+_Avoid_: QQ 登录、Telegram 登录、Discord 登录、飞书登录、把配对当会话、把 openid 漏进计划器
+
+**通道（channel）**：
+外部聊天软件走进站点已经存在的办事流水线。只负责进出，不另造一个 bot 大脑。第一版只做私聊。
+_Avoid_: 外部会话、IM 网关（那是实现）、把通道当第二种 Agent
+
+**待答（pending prompt）**：
+办事停在澄清、确认或执行中提问时，通道上挂起的那一个问题。下一条回复或按钮只消费这一问。
+_Avoid_: 把按钮当全局是/否、把旧问题的回答套到新任务上
+
+**投递（delivery）**：
+把终态或待答送回原来那条私聊。失败只补发这一份，不重新执行。
+_Avoid_: 发送失败就重跑任务、截断后丢掉后半段
+
 ### Merope
 
 内部项目名是 Merope。用户界面叫 **Agent 人设**（en: Agent persona，ja: Agent ペルソナ）。站点一份的说话人格与上半身形象。这和 Myriad 作为「个人主页与创作工坊」的定位不是一回事。

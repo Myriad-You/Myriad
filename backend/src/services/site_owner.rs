@@ -1,7 +1,7 @@
 //! Site owner resolution for public/dashboard surfaces.
 //!
 //! Prefer durable `users.is_owner`; fall back to lowest admin id.
-//! Lives in services so reports/config/scheduler do not reach through HTTP profile handlers.
+//! Lives in services; profile re-exports it for reports/config.
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 

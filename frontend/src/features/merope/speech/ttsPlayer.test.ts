@@ -209,10 +209,7 @@ test('cancelling without an audio device suppresses the deferred completion', as
 })
 
 test('suspended audio waits for resume before publishing mouth or phrase timing', async () => {
-  let resume!: () => void
-  const resumed = new Promise<void>((resolve) => {
-    resume = resolve
-  })
+  const { promise: resumed, resolve: resume } = Promise.withResolvers<void>()
   const { context, sources } = fakeContext(Promise.resolve({ duration: 1 }), {
     state: 'suspended',
     resume: () => resumed,
@@ -255,10 +252,7 @@ test('suspended audio waits for resume before publishing mouth or phrase timing'
 })
 
 test('cancelling during resume prevents late playback and completion', async () => {
-  let resume!: () => void
-  const resumed = new Promise<void>((resolve) => {
-    resume = resolve
-  })
+  const { promise: resumed, resolve: resume } = Promise.withResolvers<void>()
   const state = hooks()
   const { context, sources } = fakeContext(Promise.resolve({ duration: 1 }), {
     state: 'suspended',
@@ -338,10 +332,9 @@ test('a resume failure releases the real queue so the next segment can play', as
 })
 
 test('cold viseme compilation never delays decoded audio playback', async () => {
-  let finishCompilation: (cues: TextVisemeCue[]) => void = () => {}
-  const compilation = new Promise<TextVisemeCue[]>((resolve) => {
-    finishCompilation = resolve
-  })
+  const { promise: compilation, resolve: finishCompilation } = Promise.withResolvers<
+    TextVisemeCue[]
+  >()
   const { context, sources } = fakeContext(Promise.resolve({}))
   playTtsBuffer(new ArrayBuffer(8), segment, hooks(), context, {
     compileVisemes: () => compilation,
@@ -377,10 +370,9 @@ test('predictive mouth target is published before audio enters the render timeli
 })
 
 test('late prosody retains the actual audio origin for predictive scheduling', async () => {
-  let finishCompilation: (cues: TextVisemeCue[]) => void = () => {}
-  const compilation = new Promise<TextVisemeCue[]>((resolve) => {
-    finishCompilation = resolve
-  })
+  const { promise: compilation, resolve: finishCompilation } = Promise.withResolvers<
+    TextVisemeCue[]
+  >()
   const timings: number[] = []
   const { context } = fakeContext(
     Promise.resolve({
@@ -408,10 +400,9 @@ test('late prosody retains the actual audio origin for predictive scheduling', a
 })
 
 test('text beats reach playback before cold visemes and survive their later refinement', async () => {
-  let resolve: (cues: TextVisemeCue[]) => void = () => {}
-  const compilation = new Promise<TextVisemeCue[]>((done) => {
-    resolve = done
-  })
+  const { promise: compilation, resolve } = Promise.withResolvers<
+    TextVisemeCue[]
+  >()
   const timelines: SpeechProsodyTimeline[] = []
   const { context, sources } = fakeContext(Promise.resolve({ duration: 4 }))
   const handle = playTtsBuffer(

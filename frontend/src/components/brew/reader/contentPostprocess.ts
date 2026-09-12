@@ -135,7 +135,7 @@ export function useContentPostprocess({
       headings.forEach((heading, index) => {
         const level = Number.parseInt(heading.tagName[1])
         const text = heading.textContent?.trim() || ''
-        const id = `heading-${index}-${text.slice(0, 20).replace(/\s+/g, '-').toLowerCase()}`
+        const id = `heading-${index}-${text.slice(0, 20).replaceAll(/\s+/g, '-').toLowerCase()}`
 
         heading.id = id
 

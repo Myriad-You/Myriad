@@ -1,4 +1,3 @@
-
 import type { ReactNode } from 'react'
 import { FaExternalLinkAlt } from '@lib/icons'
 import React from 'react'

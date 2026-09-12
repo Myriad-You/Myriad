@@ -46,7 +46,7 @@ export default function TagBubblesStep({
   onNext,
   onHeaderChange,
 }: Props) {
-  const { t, locale } = useI18n()
+  const { t, locale, format } = useI18n()
   const o = t.agentPersona.onboarding
   const cacheKey = signalsCacheKey(locale)
   const cached = getGenerationCache<SignalsCache>(cacheKey)
@@ -233,7 +233,7 @@ export default function TagBubblesStep({
         <p className="merope-ob-tags__status" aria-live="polite">
           <span>
             {selectedCount > 0
-              ? o.selectedCount.replace('{count}', String(selectedCount))
+              ? format(o.selectedCount, { count: selectedCount })
               : o.selectNothingYet}
           </span>
           {canPan && (

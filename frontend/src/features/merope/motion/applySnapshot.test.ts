@@ -74,7 +74,7 @@ test('music-owned mouth writes visemes without starting co-speech motion', () =>
   assert.deepEqual(host.speechActive, [false])
 })
 
-test('yielding the body clears singing without waiting for a full release', () => {
+test('yielding the body preserves singing evidence for weighted composition', () => {
   const host = recordingRig()
   applySingingWrite(
     host.rig,
@@ -87,8 +87,8 @@ test('yielding the body clears singing without waiting for a full release', () =
     }),
     drive,
   )
-  assert.deepEqual(host.singing, [false])
-  assert.deepEqual(host.signal, [null])
+  assert.deepEqual(host.singing, [true])
+  assert.deepEqual(host.signal, [drive.signal])
 })
 
 test('stop releases groove and rests a music mouth', () => {

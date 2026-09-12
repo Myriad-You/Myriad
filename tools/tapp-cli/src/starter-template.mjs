@@ -46,16 +46,16 @@ export function createStarterTemplate(directory, options = {}) {
   appName: 'My Tapp',
 };
 `
-  const page = `var core = require('../core.js');
+  const page = `const core = require('../core.js');
 
 Tapp.lifecycle.onReady(async function () {
-  var root = document.getElementById('tapp-root');
+  const root = document.getElementById('tapp-root');
   root.querySelector('[data-action="notify"]').addEventListener('click', function () {
     Tapp.ui.showNotification({ title: core.appName, message: 'The Page is running.', type: 'success' });
   });
 });
 `
-  const widget = `var core = require('../core.js');
+  const widget = `const core = require('../core.js');
 
 Tapp.widgets['starter'] = { render: function (container, props) { container.innerHTML = '<section class="widget"><strong>' + core.appName + '</strong><span>' + props.size + '</span></section>'; } };
 `

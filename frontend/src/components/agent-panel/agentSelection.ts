@@ -1,3 +1,5 @@
+import { authSubject } from '../../utils/authSubject'
+
 /** Click/accidental highlight. */
 export const MIN_SELECTION_LENGTH = 2
 
@@ -16,7 +18,7 @@ export interface AgentSelectionSnapshot {
 const EMPTY: AgentSelectionSnapshot = { text: '', capturedAtMs: 0 }
 
 export function normalizeSelection(raw: string): string {
-  const collapsed = raw.replace(/\s+/gu, ' ').trim()
+  const collapsed = raw.replaceAll(/\s+/gu, ' ').trim()
   return collapsed.length > MAX_SELECTION_LENGTH
     ? collapsed.slice(0, MAX_SELECTION_LENGTH)
     : collapsed
@@ -51,6 +53,8 @@ let current: AgentSelectionSnapshot = EMPTY
 const listeners = new Set<() => void>()
 let watchers = 0
 let detach: (() => void) | null = null
+
+authSubject.subscribe(clearAgentSelection)
 
 function notify(): void {
   for (const listener of listeners) listener()

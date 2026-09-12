@@ -34,7 +34,7 @@ export function playgroundCodeToRuntime(
 ): TappCodeStructure {
   const modules = buildPlaygroundModules(code)
   const widgetEntries =
-    PLAYGROUND_WIDGET_ENTRY in modules
+    Object.hasOwn(modules, PLAYGROUND_WIDGET_ENTRY)
       ? Object.fromEntries(
           (manifest.widgets || []).map((widget) => [
             widget.id,
@@ -45,8 +45,9 @@ export function playgroundCodeToRuntime(
   return {
     modules,
     coreEntry: PLAYGROUND_CORE_ENTRY,
-    pageEntry:
-      PLAYGROUND_PAGE_ENTRY in modules ? PLAYGROUND_PAGE_ENTRY : undefined,
+    pageEntry: Object.hasOwn(modules, PLAYGROUND_PAGE_ENTRY)
+      ? PLAYGROUND_PAGE_ENTRY
+      : undefined,
     widgetEntries:
       Object.keys(widgetEntries).length > 0 ? widgetEntries : undefined,
     styles: code.styles,
@@ -132,7 +133,7 @@ export function normalizeManifestForPackage(
 function assetPackagePath(path: string): string {
   return path.startsWith('assets/')
     ? path
-    : `assets/${path.replace(/^\/+/, '')}`
+    : `assets/${path.replaceAll(/^\/+/g, '')}`
 }
 
 export function decodeAssetPayload(value: string): PackageFileContent {
@@ -142,10 +143,10 @@ export function decodeAssetPayload(value: string): PackageFileContent {
   }
   if (
     /^[A-Z0-9+/=\s]+$/i.test(value) &&
-    value.replace(/\s/g, '').length % 4 === 0
+    value.replaceAll(/\s/g, '').length % 4 === 0
   ) {
     try {
-      return base64ToBytes(value.replace(/\s/g, ''))
+      return base64ToBytes(value.replaceAll(/\s/g, ''))
     } catch {
       return value
     }

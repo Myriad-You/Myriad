@@ -460,7 +460,7 @@ function model3dLive(): string {
       getMetadata: (assetId) => sendRequest('model3d', 'getMetadata', [assetId]),
       revoke: (url) => {
         if (typeof url !== 'string') return;
-        try { URL.revokeObjectURL(url); } catch (e) {}
+        try { URL.revokeObjectURL(url); } catch {}
         _model3dUrls.delete(url);
         _model3dUrlById.forEach((value, key) => {
           if (value && value.url === url) _model3dUrlById.delete(key);
@@ -514,7 +514,7 @@ function widgetNamespace(surface: SdkSurface): string {
   if (surface === 'widget') {
     return `
     widget: {
-      getInstanceSettings: () => Object.assign({}, (window._TAPP_WIDGET_PROPS && window._TAPP_WIDGET_PROPS.config) || {}),
+      getInstanceSettings: () => ({ ...((window._TAPP_WIDGET_PROPS && window._TAPP_WIDGET_PROPS.config) || {}) }),
       updateInstanceSettings: (patch) => sendRequest('widget', 'instanceSettings.update', [patch]),
       invalidate: (reason, options) => {
         if (options == null) return sendRequest('widget', 'invalidate', [reason]);
@@ -817,7 +817,7 @@ function assetsNamespace(): string {
       rewriteUrl: (url) => rewriteAssetUrl(url, snapshotAssetUrls()) || url,
       revoke: (url) => {
         if (typeof url !== 'string') return;
-        try { URL.revokeObjectURL(url); } catch (e) {}
+        try { URL.revokeObjectURL(url); } catch {}
         _assetUrls.delete(url);
         _assetUrlByPath.forEach((value, key) => {
           if (value && value.url === url) _assetUrlByPath.delete(key);
@@ -879,12 +879,12 @@ export function generateSdkBody(input: GenerateSdkBodyInput): string {
   };
   const revokeAllAssetUrls = () => {
     _assetUrls.forEach((url) => {
-      try { URL.revokeObjectURL(url); } catch (e) {}
+      try { URL.revokeObjectURL(url); } catch {}
     });
     _assetUrls.clear();
     _assetUrlByPath.clear();
     _model3dUrls.forEach((url) => {
-      try { URL.revokeObjectURL(url); } catch (e) {}
+      try { URL.revokeObjectURL(url); } catch {}
     });
     _model3dUrls.clear();
     _model3dUrlById.clear();
@@ -919,7 +919,7 @@ export function generateSdkBody(input: GenerateSdkBodyInput): string {
     const hostWindow = typeof takeNativeParent === 'function'
       ? takeNativeParent()
       : window.parent;
-    try { delete window.__TAPP_TAKE_NATIVE_PARENT__; } catch (e) {}
+    try { delete window.__TAPP_TAKE_NATIVE_PARENT__; } catch {}
     return hostWindow;
   })();
 
@@ -972,7 +972,7 @@ export function generateSdkBody(input: GenerateSdkBodyInput): string {
     listeners.add(callback);
     const buffered = _eventBuffer.get(event);
     if (buffered !== undefined) {
-      try { callback(buffered); } catch (e) {}
+      try { callback(buffered); } catch {}
     }
     return () => listeners.delete(callback);
   };
@@ -1027,31 +1027,31 @@ export function generateSdkBody(input: GenerateSdkBodyInput): string {
       if (_BUFFERED_EVENTS.has(_bufKey)) {
         _eventBuffer.set(_bufKey, message.payload);
       }
-      eventListeners.get(message.action)?.forEach((cb) => { try { cb(message.payload); } catch (e) {} });
+      eventListeners.get(message.action)?.forEach((cb) => { try { cb(message.payload); } catch {} });
 
       if (message.action === 'lifecycle:destroy') notifyLifecycleDestroy();
       else if (message.action === 'lifecycle:pause') {
         runLifecycleCallbacks('pause');
-        eventListeners.get('pause')?.forEach((cb) => { try { cb(); } catch (e) {} });
+        eventListeners.get('pause')?.forEach((cb) => { try { cb(); } catch {} });
       }
       else if (message.action === 'lifecycle:resume') {
         runLifecycleCallbacks('resume');
-        eventListeners.get('resume')?.forEach((cb) => { try { cb(); } catch (e) {} });
+        eventListeners.get('resume')?.forEach((cb) => { try { cb(); } catch {} });
       }
       else if (message.action === 'theme:change') {
-        eventListeners.get('themeChange')?.forEach((cb) => { try { cb(message.payload); } catch (e) {} });
+        eventListeners.get('themeChange')?.forEach((cb) => { try { cb(message.payload); } catch {} });
         applyTappTheme(message.payload);
       }
       else if (message.action === 'locale:change') {
         currentLocale = typeof message.payload === 'string' ? message.payload : currentLocale;
-        eventListeners.get('localeChange')?.forEach((cb) => { try { cb(message.payload); } catch (e) {} });
+        eventListeners.get('localeChange')?.forEach((cb) => { try { cb(message.payload); } catch {} });
       }
       else if (message.action === 'primaryColor:change') {
-        eventListeners.get('primaryColorChange')?.forEach((cb) => { try { cb(message.payload); } catch (e) {} });
+        eventListeners.get('primaryColorChange')?.forEach((cb) => { try { cb(message.payload); } catch {} });
         applyTappPrimaryColor(message.payload);
       }
       else if (message.action === 'animationLevel:change') {
-        eventListeners.get('animationLevelChange')?.forEach((cb) => { try { cb(message.payload); } catch (e) {} });
+        eventListeners.get('animationLevelChange')?.forEach((cb) => { try { cb(message.payload); } catch {} });
       }
       else if (message.action === 'container:resize') {
         window._TAPP_DIMENSIONS = message.payload;
@@ -1067,13 +1067,13 @@ export function generateSdkBody(input: GenerateSdkBodyInput): string {
     ? window._TAPP_LOCALE
     : (typeof document !== 'undefined' && document.documentElement && document.documentElement.lang)
       || (typeof navigator !== 'undefined' && navigator.language)
-      || 'zh-CN';
+      || 'en-US';
   const translate = (key, variables = {}) => {
     const all = window._TAPP_I18N && typeof window._TAPP_I18N === 'object'
       ? window._TAPP_I18N
       : {};
     const language = currentLocale.split('-')[0];
-    const table = all[currentLocale] || all[language] || all['en-US'] || all['zh-CN'] || {};
+    const table = all[currentLocale] || all[language] || all['en-US'] || {};
     const directValue = table && typeof table === 'object' ? table[String(key)] : undefined;
     const value = typeof directValue === 'string'
       ? directValue
@@ -1082,8 +1082,8 @@ export function generateSdkBody(input: GenerateSdkBodyInput): string {
           table,
         );
     const text = typeof value === 'string' ? value : String(key);
-    return text.replace(/\\{([a-zA-Z0-9_]+)\\}/g, (match, name) =>
-      Object.prototype.hasOwnProperty.call(variables, name) ? String(variables[name]) : match
+    return text.replaceAll(/\\{([a-zA-Z0-9_]+)\\}/g, (match, name) =>
+      Object.hasOwn(variables, name) ? String(variables[name]) : match
     );
   };
 
@@ -1098,7 +1098,7 @@ ${lifecycleNamespace(surface, idLiteral, nameLiteral, versionLiteral, permission
       getLocale: () => currentLocale,
       getAll: () => {
         const all = window._TAPP_I18N;
-        return all && typeof all === 'object' ? JSON.parse(JSON.stringify(all)) : {};
+        return all && typeof all === 'object' ? structuredClone(all) : {};
       },
     },
 ${widgetNamespace(surface)}

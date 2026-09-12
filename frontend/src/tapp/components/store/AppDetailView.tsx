@@ -246,7 +246,7 @@ export function AppDetailView({
       ? [
           {
             label: t.tapp.updatedAtLabel,
-            value: new Date(app.updatedAt).toLocaleDateString(),
+            value: new Date(app.updatedAt).toLocaleDateString(locale),
           },
         ]
       : []),
@@ -280,7 +280,7 @@ export function AppDetailView({
       ? [
           {
             label: t.tapp.updatedAtLabel,
-            value: new Date(app.updatedAt).toLocaleDateString(),
+            value: new Date(app.updatedAt).toLocaleDateString(locale),
           },
         ]
       : []),

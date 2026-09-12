@@ -15,7 +15,7 @@ export interface SideBySideRow {
 function splitLines(text: string): string[] {
   if (!text) return []
   const lines = text.split('\n')
-  if (lines.length > 0 && lines[lines.length - 1] === '' && text.endsWith('\n')) {
+  if (lines.length > 0 && lines.at(-1) === '' && text.endsWith('\n')) {
     lines.pop()
   }
   return lines
@@ -108,11 +108,9 @@ function backtrack(
     }
   }
 
-  ops.reverse()
-
   let oldLine = 0
   let newLine = 0
-  return ops.map((row) => {
+  return ops.toReversed().map((row) => {
     if (row.op === 'equal') {
       oldLine++
       newLine++

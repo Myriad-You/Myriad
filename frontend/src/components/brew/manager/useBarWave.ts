@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
 import type { ControlMode } from './modes'
+import { useCallback, useEffect, useState } from 'react'
 import {
   waveAfterBoardEdit,
   waveFromLane,

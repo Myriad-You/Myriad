@@ -146,7 +146,7 @@ function fileContents(project: TappPlaygroundProject, file: FileId): string {
     case 'styles':
       return project.code.styles || ''
     case 'i18n':
-      return JSON.stringify(project.code.i18n || {}, null, 2)
+      return JSON.stringify(project.code.i18n ?? {}, null, 2)
     case 'widget':
       return project.code.widget || ''
     case 'widgetHtml':
@@ -154,7 +154,7 @@ function fileContents(project: TappPlaygroundProject, file: FileId): string {
     case 'assets':
       return JSON.stringify(
         Object.fromEntries(
-          Object.entries(project.code.assets || {}).map(([path, value]) => [
+          Object.entries(project.code.assets ?? {}).map(([path, value]) => [
             path,
             `[encoded asset: ${value.length} bytes]`,
           ]),
@@ -423,9 +423,9 @@ const FILE_LANGUAGE: Record<FileId, string> = {
 
 function escapeHtml(text: string): string {
   return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
 }
 
 function CodeEditor({
@@ -566,8 +566,8 @@ export function TappPlaygroundPage() {
   const project = revision?.project
   const sessionSummaries = useMemo(
     () =>
-      [...store.sessions]
-        .sort((a, b) => b.updatedAt - a.updatedAt)
+      store.sessions
+        .toSorted((a, b) => b.updatedAt - a.updatedAt)
         .map((s) => ({
           id: s.id,
           title: s.title,
@@ -589,7 +589,7 @@ export function TappPlaygroundPage() {
     [session.revisions],
   )
 
-  const manifestWidgets = project?.manifest.widgets || []
+  const manifestWidgets = project?.manifest.widgets ?? []
   const hasWidgetPreview =
     manifestWidgets.length > 0 &&
     !!(project?.code.widget || project?.code.widgetHtml)
@@ -599,7 +599,7 @@ export function TappPlaygroundPage() {
     !!(project.code.pageHtml && project.code.pageHtml.trim())
   const isWidgetOnly = hasWidgetPreview && !hasUsablePage
   const activeWidget =
-    manifestWidgets.find((widget) => widget.id === widgetId) ||
+    manifestWidgets.find((widget) => widget.id === widgetId) ??
     manifestWidgets[0]
   const activeWidgetSize: WidgetSize =
     (widgetSize && activeWidget?.sizes?.includes(widgetSize)
@@ -974,9 +974,9 @@ export function TappPlaygroundPage() {
         code:
           requestError &&
           typeof requestError === 'object' &&
-          'code' in requestError &&
-          typeof requestError.code === 'string'
-            ? requestError.code
+          Object.hasOwn(requestError, 'code') &&
+          typeof (requestError as { code: unknown }).code === 'string'
+            ? (requestError as { code: string }).code
             : undefined,
       })
 
@@ -992,7 +992,7 @@ export function TappPlaygroundPage() {
         finishedAt: Date.now(),
         origin,
         phaseIndex: phaseIndexFromElapsedMs(elapsedMs),
-        lastStepSummary: lastStreamStepRef.current || undefined,
+        lastStepSummary: lastStreamStepRef.current ?? undefined,
       }
       commitStore((current) =>
         updateActiveSessionWithMeta(current, (active) => ({
@@ -1169,7 +1169,7 @@ export function TappPlaygroundPage() {
     const detail = formatPlaygroundPackageErrors(errors)
     const template = t.tapp.playgroundPackageInvalid
     return template.includes('{errors}')
-      ? template.replace('{errors}', detail)
+      ? format(template, { errors: detail })
       : `${template}\n${detail}`
   }
 
@@ -1207,7 +1207,7 @@ export function TappPlaygroundPage() {
             : ''
         setNotice(
           detail
-            ? t.tapp.playgroundInstallStartFailed.replace('{error}', detail)
+            ? format(t.tapp.playgroundInstallStartFailed, { error: detail })
             : t.tapp.playgroundInstallSuccess,
         )
       }
@@ -1228,7 +1228,7 @@ export function TappPlaygroundPage() {
     try {
       const filename = await exportPlaygroundProjectAsTapp(project)
       setNotice(
-        t.tapp.playgroundExportSuccess.replace('{filename}', filename),
+        format(t.tapp.playgroundExportSuccess, { filename }),
       )
     } catch (exportError) {
       if (exportError instanceof PlaygroundPackageValidationError) {
@@ -1286,7 +1286,7 @@ export function TappPlaygroundPage() {
         setDraftInvalid(true)
         return
       }
-    } else if (!(file in textKeys)) {
+    } else if (!Object.hasOwn(textKeys, file)) {
       return
     }
     setDraftInvalid(false)
@@ -1356,7 +1356,7 @@ export function TappPlaygroundPage() {
     ...(project?.code.widgetHtml
       ? ([{ id: 'widgetHtml', label: FILE_LABELS.widgetHtml }] as const)
       : []),
-    ...(Object.keys(project?.code.assets || {}).length
+    ...(Object.keys(project?.code.assets ?? {}).length
       ? ([{ id: 'assets', label: FILE_LABELS.assets }] as const)
       : []),
   ]
@@ -1500,7 +1500,7 @@ export function TappPlaygroundPage() {
         .getPropertyValue('--color-primary')
         .trim() || '#8b5cf6'
     const defaults: Record<string, unknown> = {}
-    for (const setting of activeWidget?.settings || []) {
+    for (const setting of activeWidget?.settings ?? []) {
       if (setting.defaultValue !== undefined) {
         defaults[setting.key] = setting.defaultValue
       }
@@ -2102,7 +2102,7 @@ export function TappPlaygroundPage() {
         agentTrace={revision?.agentTrace}
         knowledgeSources={revision?.knowledgeSources}
         validation={revision?.validation}
-        lastFailedAttempt={session.lastFailedAttempt || null}
+        lastFailedAttempt={session.lastFailedAttempt ?? null}
         lastSuccessElapsedMs={lastSuccessElapsedMs}
         examplePrompts={examplePrompts}
         capabilityNote={

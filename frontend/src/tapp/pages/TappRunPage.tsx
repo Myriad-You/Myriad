@@ -207,7 +207,7 @@ function TappRunPageStandard({
         if (cancelled) return
 
         // start/sync 后再读；沙箱不得保留启动前的 guest 实例。
-        instance = runtime.getTapp(tappId) || instance
+        instance = runtime.getTapp(tappId) ?? instance
 
         setTapp(instance)
         setCode(tappCode)

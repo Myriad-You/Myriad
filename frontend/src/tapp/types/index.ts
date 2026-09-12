@@ -384,8 +384,8 @@ export type UserRole = 'guest' | 'user' | 'admin'
 export type BackgroundRequirement =
   | 'media'
   | 'sync'
-  | 'notification' 
-  | 'scheduler' 
+  | 'notification'
+  | 'scheduler'
   | 'event-listener'
   | 'realtime'
 

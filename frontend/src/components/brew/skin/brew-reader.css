@@ -2,7 +2,7 @@
 
 [data-brew-reader] {
   --reader-fg: #2c2c2c;
-  --reader-fg-soft: #666666;
+  --reader-fg-soft: #666;
   --reader-line: #e8e2d4;
   --reader-accent: #b8860b;
   --reader-chip: rgb(255 252 245 / 86%);
@@ -22,8 +22,8 @@
 
 [data-brew-reader][data-brew-theme='dark'] {
   --reader-fg: #c9c9c9;
-  --reader-fg-soft: #888888;
-  --reader-line: #333333;
+  --reader-fg-soft: #888;
+  --reader-line: #333;
   --reader-accent: #fbbf24;
   --reader-chip: rgb(28 28 28 / 82%);
   --reader-chip-solid: #1a1a1a;

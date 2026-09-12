@@ -137,9 +137,8 @@ impl OAuthProvider for GithubProvider {
             crate::services::http_client::GitHubApiUrl::get_api_base().await
         );
 
-        // API base 可由管理员配置（GitHub Enterprise），所以这条出站也走
-        // SSRF 策略：解析后校验公网可路由、pin 住 DNS、禁用重定向。
-        // 风险低于 OIDC（那里下一跳由远端 provider 决定），但成本同样低。
+        // API base 可由管理员配成镜像（`github_api_base_url`）；OAuth 仍走官方
+        // `GITHUB_AUTH_URL` / `GITHUB_TOKEN_URL`。出站走 SSRF：公网可路由、pin DNS、禁重定向。
         let (endpoint, http) = crate::services::outbound_security::build_public_http_client(
             &user_url,
             std::time::Duration::from_secs(15),

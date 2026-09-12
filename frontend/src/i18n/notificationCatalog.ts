@@ -6,7 +6,7 @@ import type {
 } from '../services/notificationPreferencesApi'
 import type { Locale } from './index'
 import { createLocaleLoader } from './createLocaleLoader'
-import en from './notifications.en-US.json'
+import en from './notifications.en-US.json' with { type: 'json' }
 
 export interface NotificationSourceCopy {
   title: string
@@ -41,9 +41,13 @@ export interface NotificationCopy {
 }
 
 const loader = createLocaleLoader<NotificationCopy>({
-  'zh-CN': () => import('./notifications.zh-CN.json').then((m) => m.default),
+  'zh-CN': async () => (await import('./notifications.zh-CN.json')).default,
+  'zh-TW': async () => (await import('./notifications.zh-TW.json')).default,
   'en-US': async () => en,
-  'ja-JP': () => import('./notifications.ja-JP.json').then((m) => m.default),
+  'ja-JP': async () => (await import('./notifications.ja-JP.json')).default,
+  'ko-KR': async () => (await import('./notifications.ko-KR.json')).default,
+  'fr-FR': async () => (await import('./notifications.fr-FR.json')).default,
+  'de-DE': async () => (await import('./notifications.de-DE.json')).default,
 })
 loader.seed('en-US', en)
 

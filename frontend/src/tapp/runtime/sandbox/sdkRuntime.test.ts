@@ -151,6 +151,26 @@ async function roundTrip(
 }
 
 describe('generated SDK runtime', () => {
+  it('does not fall back to zh-CN when the current locale is missing', () => {
+    const sandbox = evalSdk(generateFullSDK(makeInstance(), 'tok', 'page'))
+    sandbox.window._TAPP_I18N = {
+      'zh-CN': { hello: '你好' },
+    }
+    const i18n = sandbox.tapp.i18n as { t: (key: string) => string }
+    assert.equal(i18n.t('hello'), 'hello')
+    sandbox.deliver({
+      type: 'event',
+      action: 'locale:change',
+      payload: 'zh-TW',
+    })
+    assert.equal(i18n.t('hello'), 'hello')
+    sandbox.window._TAPP_I18N = {
+      'zh-CN': { hello: '你好' },
+      'en-US': { hello: 'Hello' },
+    }
+    assert.equal(i18n.t('hello'), 'Hello')
+  })
+
   it('does not expose a readable credentials namespace', () => {
     const instance = makeInstance()
     const page = generateFullSDK(instance, 'tok', 'page')
@@ -445,9 +465,9 @@ describe('generated SDK runtime', () => {
     const widget = generateWidgetSDK(instance, 'tok')
     for (const source of [page, widget]) {
       const actions = new Set(
-        [...source.matchAll(/sendRequest\(\s*'([^']+)',\s*'([^']+)'/g)].map(
-          ([, namespace, operation]) => `${namespace}.${operation}`,
-        ),
+        Iterator.from(
+          source.matchAll(/sendRequest\(\s*'([^']+)',\s*'([^']+)'/g),
+        ).map(([, namespace, operation]) => `${namespace}.${operation}`),
       )
       for (const api of KV_APIS) {
         for (const method of KV_METHODS) {
@@ -693,8 +713,8 @@ describe('generated SDK runtime', () => {
     const pageSource = generateFullSDK(makeInstance(), 'tok', 'page')
     const widgetSource = generateWidgetSDK(makeInstance(), 'tok')
     assert.match(pageSource, /document\.documentElement\.lang/)
-    assert.match(widgetSource, /\|\|\s*'zh-CN'/)
-    assert.match(pageSource, /\|\|\s*'zh-CN'/)
+    assert.match(widgetSource, /\|\|\s*'en-US'/)
+    assert.match(pageSource, /\|\|\s*'en-US'/)
     assert.doesNotMatch(widgetSource, /TappWidgetSDK/)
     assert.match(widgetSource, /lifecycle:destroy/)
 

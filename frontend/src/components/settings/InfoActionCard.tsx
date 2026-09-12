@@ -1,4 +1,3 @@
-
 import type { ReactNode } from 'react'
 import type { SettingsButtonVariant } from './items/SettingsButton'
 import { FaCheck, FaCopy } from '@lib/icons'

@@ -166,7 +166,6 @@ html[data-nav-layout='desktop'] .nav-island-content {
   flex-direction: column;
   align-items: center;
   gap: 0.25rem;
-
   min-height: 36px;
 }
 

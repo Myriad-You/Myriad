@@ -13,6 +13,7 @@ use sea_orm::{DatabaseConnection, EntityTrait};
 use std::collections::HashMap;
 
 use crate::models::entities::tapp_store_sources;
+use crate::services::tapp_install_resources::{ArchiveBudget, AssetBudget};
 use crate::services::tapp_store_package::{
     append_store_cache_bust, find_store_app_entry, i18n_downloads, is_invalid_store_source_ref,
     join_store_file_url, module_downloads, nonempty_map_opt, optional_store_text_downloads,
@@ -22,6 +23,55 @@ use crate::services::tapp_store_package::{
     store_download_core_paths, store_index_url, widget_template_downloads, OptionalStoreTextKind,
     StoreSourceRowRef,
 };
+use crate::services::tapp_validation::{MAX_TAPP_I18N_RESOURCE_BYTES, MAX_TAPP_MANIFEST_BYTES};
+
+// Catalog metadata has its own bound, independent of any package it advertises.
+const MAX_STORE_INDEX_BYTES: u64 = 8 * 1024 * 1024;
+
+async fn read_store_body(
+    response: reqwest::Response,
+    max_bytes: u64,
+) -> Result<Vec<u8>, HttpError> {
+    myriad_outbound::read_limited_body(response, max_bytes as usize)
+        .await
+        .map_err(|error| api_http_error(StatusCode::BAD_GATEWAY, error))
+}
+
+/// Apply the existing unpacked archive budget to remote package downloads too.
+struct StoreDownloadBudget {
+    remaining_bytes: u64,
+    remaining_files: usize,
+}
+
+impl StoreDownloadBudget {
+    async fn read(
+        &mut self,
+        response: reqwest::Response,
+        max_bytes: u64,
+    ) -> Result<Vec<u8>, HttpError> {
+        if self.remaining_files == 0 {
+            return Err(api_http_error(
+                StatusCode::BAD_GATEWAY,
+                "Too many store package files",
+            ));
+        }
+        self.remaining_files -= 1;
+        let bytes = read_store_body(response, max_bytes.min(self.remaining_bytes)).await?;
+        self.remaining_bytes -= bytes.len() as u64;
+        Ok(bytes)
+    }
+
+    async fn text(
+        &mut self,
+        response: reqwest::Response,
+        max_bytes: u64,
+    ) -> Result<String, HttpError> {
+        let bytes = self.read(response, max_bytes).await?;
+        String::from_utf8(bytes).map_err(|_| {
+            api_http_error(StatusCode::BAD_GATEWAY, "Store resource is not valid UTF-8")
+        })
+    }
+}
 
 // Path-stable re-exports for sibling modules / tests.
 pub(crate) use crate::services::tapp_store_package::{
@@ -118,7 +168,8 @@ pub(super) async fn fetch_from_store(
         ));
     }
 
-    let index: serde_json::Value = index_resp.json().await.map_err(|e| {
+    let index_bytes = read_store_body(index_resp, MAX_STORE_INDEX_BYTES).await?;
+    let index: serde_json::Value = serde_json::from_slice(&index_bytes).map_err(|e| {
         tracing::error!(error = %e, "upstream fetch failed");
         api_http_error(StatusCode::BAD_GATEWAY, "Upstream fetch failed")
     })?;
@@ -151,30 +202,33 @@ pub(super) async fn fetch_from_store(
         api_http_error(StatusCode::BAD_GATEWAY, "Upstream fetch failed")
     })?;
 
-    let manifest: TappManifest = manifest_resp.json().await.map_err(|e| {
+    let manifest_bytes = read_store_body(manifest_resp, MAX_TAPP_MANIFEST_BYTES).await?;
+    let manifest: TappManifest = serde_json::from_slice(&manifest_bytes).map_err(|e| {
         tracing::error!(error = %e, "upstream fetch failed");
         api_http_error(StatusCode::BAD_GATEWAY, "Upstream fetch failed")
     })?;
     validate_store_manifest_category(app_info, &manifest)
         .map_err(|error| api_http_error(StatusCode::BAD_GATEWAY, error))?;
 
+    let limits = ArchiveBudget::for_manifest(&manifest);
+    let mut budget = StoreDownloadBudget {
+        remaining_bytes: limits
+            .max_uncompressed_bytes
+            .saturating_sub(manifest_bytes.len() as u64),
+        remaining_files: limits.max_files.saturating_sub(1),
+    };
+    let text_limit = limits.max_entry_bytes;
+
     // 下载主代码
     let code_url = join_store_file_url(&base_url, code_path);
 
-    let code = fetch_public_store_url(&code_url)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "upstream fetch failed");
-            api_http_error(StatusCode::BAD_GATEWAY, "Upstream fetch failed")
-        })?
-        .text()
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "upstream fetch failed");
-            api_http_error(StatusCode::BAD_GATEWAY, "Upstream fetch failed")
-        })?;
+    let code_response = fetch_public_store_url(&code_url).await.map_err(|e| {
+        tracing::error!(error = %e, "upstream fetch failed");
+        api_http_error(StatusCode::BAD_GATEWAY, "Upstream fetch failed")
+    })?;
+    let code = budget.text(code_response, text_limit).await?;
 
-    // Optional styles/widget_styles (fail-open); page styles/template if declared (fail-closed).
+    // Optional missing files are tolerated; resource budget failures always abort.
     let mut styles_content: Option<String> = None;
     let mut widget_styles_content: Option<String> = None;
     let mut page_styles_content: Option<String> = None;
@@ -186,13 +240,10 @@ pub(super) async fn fetch_from_store(
         let url = join_store_file_url(&base_url, &item.path);
         if let Ok(resp) = fetch_public_store_url(&url).await {
             if resp.status().is_success() {
-                if let Ok(content) = resp.text().await {
-                    match item.kind {
-                        OptionalStoreTextKind::Styles => styles_content = Some(content),
-                        OptionalStoreTextKind::WidgetStyles => {
-                            widget_styles_content = Some(content)
-                        }
-                    }
+                let content = budget.text(resp, text_limit).await?;
+                match item.kind {
+                    OptionalStoreTextKind::Styles => styles_content = Some(content),
+                    OptionalStoreTextKind::WidgetStyles => widget_styles_content = Some(content),
                 }
             }
         }
@@ -218,10 +269,7 @@ pub(super) async fn fetch_from_store(
                 ),
             ));
         }
-        page_styles_content = Some(resp.text().await.map_err(|e| {
-            tracing::error!(error = %e, "upstream fetch failed");
-            api_http_error(StatusCode::BAD_GATEWAY, "Upstream fetch failed")
-        })?);
+        page_styles_content = Some(budget.text(resp, text_limit).await?);
     }
 
     // 下载 Page 模板
@@ -242,10 +290,7 @@ pub(super) async fn fetch_from_store(
                 ),
             ));
         }
-        page_template_content = Some(resp.text().await.map_err(|e| {
-            tracing::error!(error = %e, "upstream fetch failed");
-            api_http_error(StatusCode::BAD_GATEWAY, "Upstream fetch failed")
-        })?);
+        page_template_content = Some(budget.text(resp, text_limit).await?);
     }
 
     // Widget templates then i18n (flat key→path maps).
@@ -253,12 +298,11 @@ pub(super) async fn fetch_from_store(
         let template_url = join_store_file_url(&base_url, &entry.path);
         if let Ok(resp) = fetch_public_store_url(&template_url).await {
             if resp.status().is_success() {
-                if let Ok(content) = resp.text().await {
-                    widget_templates
-                        .entry(entry.widget_id)
-                        .or_default()
-                        .insert(entry.size, content);
-                }
+                let content = budget.text(resp, text_limit).await?;
+                widget_templates
+                    .entry(entry.widget_id)
+                    .or_default()
+                    .insert(entry.size, content);
             }
         }
     }
@@ -270,7 +314,8 @@ pub(super) async fn fetch_from_store(
         let i18n_url = join_store_file_url(&base_url, &entry.path);
         if let Ok(resp) = fetch_public_store_url(&i18n_url).await {
             if resp.status().is_success() {
-                if let Ok(json) = resp.json::<serde_json::Value>().await {
+                let bytes = budget.read(resp, MAX_TAPP_I18N_RESOURCE_BYTES as u64).await?;
+                if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
                     i18n_data.insert(entry.key, json);
                 }
             }
@@ -280,7 +325,8 @@ pub(super) async fn fetch_from_store(
 
     // Package-static binary assets (manifest.assets → base64 map)
     let package_root = store_package_root(code_path);
-    let assets_opt = download_store_package_assets(&base_url, &package_root, &manifest).await?;
+    let assets_opt =
+        download_store_package_assets(&base_url, &package_root, &manifest, &mut budget).await?;
 
     // `download.code` 是 core 入口；`download.modules` 覆盖其余层入口与层内文件，
     // key 就是包内相对路径。声明的层入口必须齐全，缺了要立刻失败而不是装个半成品。
@@ -304,10 +350,7 @@ pub(super) async fn fetch_from_store(
                 ),
             ));
         }
-        let content = resp.text().await.map_err(|e| {
-            tracing::error!(error = %e, "upstream fetch failed");
-            api_http_error(StatusCode::BAD_GATEWAY, "Upstream fetch failed")
-        })?;
+        let content = budget.text(resp, text_limit).await?;
         modules.insert(entry.key, content);
     }
     for entry in manifest.layer_entries() {
@@ -358,6 +401,7 @@ async fn download_store_package_assets(
     base_url: &str,
     package_root: &str,
     manifest: &TappManifest,
+    download_budget: &mut StoreDownloadBudget,
 ) -> Result<Option<HashMap<String, String>>, HttpError> {
     let max_assets = if manifest.uses_game_asset_limits() {
         crate::services::tapp_validation::MAX_TAPP_GAME_ASSETS
@@ -377,6 +421,7 @@ async fn download_store_package_assets(
 
     let mut assets: HashMap<String, String> = HashMap::new();
     let mut total: u64 = 0;
+    let asset_budget = AssetBudget::for_manifest(manifest);
 
     for entry in plan {
         let relative = &entry.relative;
@@ -397,16 +442,20 @@ async fn download_store_package_assets(
             ));
         }
 
-        let bytes = resp.bytes().await.map_err(|e| {
-            tracing::error!(error = %e, "upstream fetch failed");
-            api_http_error(StatusCode::BAD_GATEWAY, "Upstream fetch failed")
-        })?;
+        let bytes = download_budget
+            .read(
+                resp,
+                asset_budget
+                    .max_each
+                    .min(asset_budget.max_total.saturating_sub(total)),
+            )
+            .await?;
 
         total = crate::services::tapp_install_resources::validate_asset_resource_bytes_with(
             relative,
             bytes.len() as u64,
             total,
-            crate::services::tapp_install_resources::AssetBudget::for_manifest(manifest),
+            asset_budget,
         )
         .map_err(|e| api_http_error(StatusCode::BAD_GATEWAY, e))?;
 
@@ -418,8 +467,48 @@ async fn download_store_package_assets(
 
 #[cfg(test)]
 mod tests {
-    use super::with_store_cache_bust;
+    use super::{with_store_cache_bust, StoreDownloadBudget};
     use crate::services::tapp_store_package::{store_asset_store_path, store_package_root};
+
+    fn response(bytes: usize) -> reqwest::Response {
+        axum::http::Response::builder()
+            .body(reqwest::Body::from(vec![b'x'; bytes]))
+            .unwrap()
+            .into()
+    }
+
+    #[tokio::test]
+    async fn store_download_rejects_a_file_over_its_limit() {
+        let mut budget = StoreDownloadBudget {
+            remaining_bytes: 20,
+            remaining_files: 3,
+        };
+        assert_eq!(budget.text(response(8), 8).await.unwrap(), "xxxxxxxx");
+        assert!(budget.read(response(9), 8).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn store_download_enforces_cumulative_bytes_and_file_count() {
+        let mut budget = StoreDownloadBudget {
+            remaining_bytes: 10,
+            remaining_files: 3,
+        };
+        budget.read(response(8), 8).await.unwrap();
+        assert!(
+            budget.read(response(3), 8).await.is_err(),
+            "only two bytes remain"
+        );
+
+        let mut budget = StoreDownloadBudget {
+            remaining_bytes: 10,
+            remaining_files: 1,
+        };
+        budget.read(response(1), 8).await.unwrap();
+        assert!(
+            budget.read(response(0), 8).await.is_err(),
+            "empty files count too"
+        );
+    }
 
     #[test]
     fn package_root_from_code_path() {

@@ -179,7 +179,7 @@ export function consumeSseDataEvents(buffer: string): {
 } {
   const events: unknown[] = []
   let rest = buffer
-  rest = rest.replace(/\r\n/g, '\n')
+  rest = rest.replaceAll('\r\n', '\n')
   while (true) {
     const sep = rest.indexOf('\n\n')
     if (sep < 0) break
@@ -341,7 +341,7 @@ export async function generatePlaygroundProject(
         if (
           error &&
           typeof error === 'object' &&
-          '__csrfRetry' in error &&
+          Object.hasOwn(error, '__csrfRetry') &&
           retryOnCsrf
         ) {
           return generatePlaygroundProject(request, {
@@ -352,8 +352,9 @@ export async function generatePlaygroundProject(
         if (
           error &&
           typeof error === 'object' &&
-          '__streamUnavailable' in error
+          Object.hasOwn(error, '__streamUnavailable')
         ) {
+          // fall through to the one-shot generator
         } else if (
           error instanceof DOMException &&
           (error.name === 'AbortError' || error.name === 'TimeoutError')
@@ -367,6 +368,7 @@ export async function generatePlaygroundProject(
               error.message,
             ))
         ) {
+          // fall through to the one-shot generator
         } else {
           throw error
         }
@@ -383,7 +385,7 @@ export async function generatePlaygroundProject(
       if (
         error &&
         typeof error === 'object' &&
-        '__csrfRetry' in error &&
+        Object.hasOwn(error, '__csrfRetry') &&
         retryOnCsrf
       ) {
         return generatePlaygroundProject(request, {

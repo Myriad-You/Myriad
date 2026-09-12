@@ -164,18 +164,20 @@ export function sampleMouthExpressionPalette(
       fill: FALLBACK_FILL,
     }
   }
-  visible.sort((left, right) => left.luminance - right.luminance)
-  const darkCount = Math.max(1, Math.ceil(visible.length * 0.08))
-  const sampledLine = average(visible.slice(0, darkCount))
+  const ranked = visible.toSorted(
+    (left, right) => left.luminance - right.luminance,
+  )
+  const darkCount = Math.max(1, Math.ceil(ranked.length * 0.08))
+  const sampledLine = average(ranked.slice(0, darkCount))
   const lineLuminance = luminance(sampledLine)
   const line =
     lineLuminance <= 145
       ? mixColor(sampledLine, FALLBACK_LINE, 0.18)
       : FALLBACK_LINE
-  const warmPixels = visible.filter(
+  const warmPixels = ranked.filter(
     (color) => color.red > color.green * 1.04 && color.red > color.blue * 0.96,
   )
-  const sampledFill = average(warmPixels.length > 0 ? warmPixels : visible)
+  const sampledFill = average(warmPixels.length > 0 ? warmPixels : ranked)
   const fill = mixColor(sampledFill, FALLBACK_FILL, 0.72)
   return {
     line,

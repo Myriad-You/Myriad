@@ -171,7 +171,7 @@ export class TappScheduler {
   }
 
   initialize(apiBaseUrl: string, authToken: string): void {
-    this.apiBaseUrl = apiBaseUrl.replace(/\/$/, '')
+    this.apiBaseUrl = apiBaseUrl.replaceAll(/\/$/g, '')
     this.authToken = authToken
 
     this.connect()
@@ -196,8 +196,8 @@ export class TappScheduler {
       base = origin + (base.startsWith('/') ? base : `/${base}`)
     }
     const wsUrl = base
-      .replace(/^http/i, 'ws')
-      .replace(/\/api$/, '/api/tapp/scheduler/ws')
+      .replaceAll(/^http/gi, 'ws')
+      .replaceAll(/\/api$/g, '/api/tapp/scheduler/ws')
 
     try {
       this.ws = new WebSocket(wsUrl)
@@ -335,7 +335,7 @@ export class TappScheduler {
 
     const callbackKey = `${message.task.tappId}:${message.task.taskId}`
     const registrations = this.taskCallbacks.get(callbackKey)
-    const callback = registrations?.[registrations.length - 1]?.callback
+    const callback = registrations?.at(-1)?.callback
 
     if (callback) {
       try {
@@ -523,17 +523,17 @@ export class TappScheduler {
   onTask(tappId: string, taskId: string, callback: TaskCallback): () => void {
     const key = `${tappId}:${taskId}`
     const registration = { callback }
-    const registrations = this.taskCallbacks.get(key) || []
+    const registrations = this.taskCallbacks.get(key) ?? []
     registrations.push(registration)
     this.taskCallbacks.set(key, registrations)
     return () => {
       const current = this.taskCallbacks.get(key)
       if (!current) return
       const index = current.indexOf(registration)
-      if (index >= 0) current.splice(index, 1)
-      if (current.length === 0) {
-        this.taskCallbacks.delete(key)
-      }
+      if (index < 0) return
+      const next = current.toSpliced(index, 1)
+      if (next.length === 0) this.taskCallbacks.delete(key)
+      else this.taskCallbacks.set(key, next)
     }
   }
 

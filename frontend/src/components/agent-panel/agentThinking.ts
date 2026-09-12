@@ -147,6 +147,6 @@ export function peelThoughtFromContent(
   if (c.trim() === t) return ''
   if (!c.startsWith(t)) return c
   const rest = c.slice(t.length)
-  if (rest.length === 0 || /^\s/.test(rest)) return rest.replace(/^\s+/, '')
+  if (rest.length === 0 || /^\s/.test(rest)) return rest.replaceAll(/^\s+/g, '')
   return c
 }

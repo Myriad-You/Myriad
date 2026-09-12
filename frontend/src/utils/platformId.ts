@@ -41,7 +41,7 @@ export const CANONICAL_PLATFORM_IDS = [
 ] as const
 
 export function resolvePlatformId(platformName: string): string | null {
-  const key = platformName.trim().toLowerCase().replace(/\s+/g, ' ')
+  const key = platformName.trim().toLowerCase().replaceAll(/\s+/g, ' ')
   if (!key) return null
   if (PLATFORM_NAME_TO_ID[key]) return PLATFORM_NAME_TO_ID[key]
   if ((CANONICAL_PLATFORM_IDS as readonly string[]).includes(key)) return key

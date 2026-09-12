@@ -712,4 +712,3 @@ export interface SkillInfo {
   failureCount?: number
   tierHint?: 'pro' | 'standard'
 }
-

@@ -9,13 +9,15 @@ describe('registerStorageHandlers grant wiring', () => {
       fileURLToPath(new URL('./baseHandlers.ts', import.meta.url)),
       'utf8',
     )
-    const blocks = [
-      ...source.matchAll(
+    const blocks = Iterator.from(
+      source.matchAll(
         /registerFullKvHandlers\(\s*bridge,\s*tappId,\s*'(storage|shared|private)',[\s\S]*?withGrant:\s*(true|false)/g,
       ),
-    ]
+    )
+      .map((match) => [match[1], match[2]])
+      .toArray()
     assert.deepEqual(
-      blocks.map((match) => [match[1], match[2]]),
+      blocks,
       [
         ['storage', 'true'],
         ['shared', 'false'],

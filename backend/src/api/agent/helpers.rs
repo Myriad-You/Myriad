@@ -31,7 +31,7 @@ pub(crate) fn build_request_context(ctx: ProcessContext) -> RequestContext {
         conversation_history,
         custom_data: ctx.custom_data,
         lane_key: None, // 由 API 层在调用处注入
-        run_id: None,   // 由 process_stream 在 create_run 后注入
+        run_id: None,   // 由 `start_process_run`（及 Chat 同等路径）在 `create_run` 后注入
         source_intent_id: ctx.intention_id,
         autonomy_permission_cap: ctx.autonomy_permission_cap,
         rig_state: ctx
@@ -99,6 +99,18 @@ pub(crate) fn parse_user_id(claims: &Claims) -> Result<i32, HttpError> {
             Json(AppError::public_json("Invalid user")),
         ))
     })
+}
+
+/// Existing pairings must remain revocable after Agent access is withdrawn.
+pub(crate) fn parse_pairing_user_id(claims: &Claims) -> Result<i32, HttpError> {
+    let id = parse_user_id(claims)?;
+    if id <= 0 {
+        return Err(HttpError::from((
+            StatusCode::UNAUTHORIZED,
+            Json(AppError::public_json("Login required")),
+        )));
+    }
+    Ok(id)
 }
 
 /// 解析 user_id 并校验 Agent 可见性/使用权限

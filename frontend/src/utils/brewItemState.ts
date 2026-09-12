@@ -126,11 +126,13 @@ export class BrewItemState {
   }
 
   markAllRead() {
-    for (const id of [...this.pending.keys()]) {
+    for (const id of Iterator.from(this.pending.keys()).toArray()) {
       this.dropPreview(id, { is_read: true }, false)
     }
     this.observeMany(
-      [...this.entries.keys()].map((id) => ({ id, is_read: true })),
+      Iterator.from(this.entries.keys())
+        .map((id) => ({ id, is_read: true }))
+        .toArray(),
       this.revision,
     )
     this.notifyMutation({ is_read: true })

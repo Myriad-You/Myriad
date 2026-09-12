@@ -11,7 +11,7 @@ use super::PlatformReport;
 
 /// Max concurrent platform/AI report tasks.
 /// Generous enough for multi-platform generate-all (~11 platforms) while
-/// preventing unbounded cost amplification from `join_all` fan-out.
+/// preventing unbounded cost amplification from `buffer_unordered` fan-out.
 pub(crate) const MAX_CONCURRENT_PLATFORM_REPORTS: usize = 6;
 
 /// Atomically replace the stored report for `(user_id, platform)`.
@@ -107,7 +107,6 @@ mod report_persist_concurrency_tests {
     }
 
     /// Mirrors bounded fan-out: many platform tasks, at most N in flight.
-    /// Also models partial cancel — dropping the stream keeps completed work.
     #[tokio::test]
     async fn platform_report_fanout_respects_concurrency_bound() {
         let current = Arc::new(AtomicUsize::new(0));

@@ -1,15 +1,11 @@
 import { useEffect, useRef } from 'react'
-import type { Locale } from '../i18n'
+import { isLocale } from '../i18n'
 import {
   putAccountLocale,
   setLocalePersistHandler,
 } from '../i18n/localeAccount'
 import { useAuth } from './AuthContext'
 import { useI18n } from './I18nContext'
-
-function isLocale(value: unknown): value is Locale {
-  return value === 'zh-CN' || value === 'en-US' || value === 'ja-JP'
-}
 
 /** Apply account language after login; persist control-panel switches. */
 export function LocaleAccountSync() {

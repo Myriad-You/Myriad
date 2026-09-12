@@ -26,9 +26,9 @@ export interface ReadingListItem {
 }
 
 export interface ReadingList {
-  id: string 
-  name: string 
-  criteria: string 
+  id: string
+  name: string
+  criteria: string
   items: ReadingListItem[]
   createdAt: Date
 }

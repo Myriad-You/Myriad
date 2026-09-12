@@ -1,6 +1,6 @@
 //! 番剧/电视剧/电影数据库
 //!
-//! 预置常见高评分内容，用于快速分类用户观看内容
+//! JSON loader (`anime_database.json`; bootstraps `entries: []` if missing) plus category analysis.
 
 #![allow(dead_code)]
 
@@ -61,7 +61,7 @@ pub struct CategoryAnalysis {
     pub count: usize,
     pub percentage: f32,
     pub genres: HashMap<String, usize>,
-    pub examples: Vec<String>, // 代表性例子（3-5个）
+    pub examples: Vec<String>, // up to 5 (`take(5)`); may be empty
     pub summary: String,       // 判断摘要
 }
 
@@ -220,7 +220,7 @@ impl AnimeDatabase {
                     *genre_map.entry(genre.clone()).or_insert(0) += 1;
                 }
             } else {
-                // 未知内容 - 保留原样（不进入外部自学习链路）
+                // Unknown titles are pushed then discarded (`analyze` returns known categories only).
                 unknown_items.push(title.clone());
             }
         }

@@ -91,7 +91,7 @@ fn value_username(value: &serde_json::Value) -> Option<String> {
 
 /// 获取 Bangumi 用户完整信息。
 ///
-/// `username` 可选；缺省时需要 `access_token`，并通过 `/v0/me` 解析用户名。
+/// `username` 可选；缺省时用服务端 `bangumi_access_token` 调 `/v0/me`。查询串 token 会被拒绝。
 pub async fn get_bangumi_user(
     Query(params): Query<BangumiQuery>,
 ) -> Result<Json<ApiResponse<BangumiUserResponse>>, HttpError> {

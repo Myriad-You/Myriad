@@ -3,6 +3,7 @@ import type {
   MeropeSpeechSource,
   SpeechUtteranceInput,
 } from './speechEvents'
+import { authSubject } from '../../utils/authSubject'
 import { newMotionIntentId } from './motion/liveGeneration'
 import {
   dispatchMeropePerformance,
@@ -32,7 +33,7 @@ const windowSink: AgentFaceSink = {
 
 /** 比对前规范化空白。 */
 function normalizeSpokenText(text: string): string {
-  return text.trim().replace(/\s+/gu, ' ').slice(0, 2_000)
+  return text.trim().replaceAll(/\s+/gu, ' ').slice(0, 2_000)
 }
 
 interface ReplyUtteranceContext {
@@ -111,6 +112,8 @@ export class ReplyUtterance {
 
 /** 全站唯一形象事件出口；改载荷即改契约。 */
 export class AgentFaceChannel {
+  private subjectEpoch = 0
+  private readonly openMessages = new Set<string>()
   private sequence = 0
   private generation = 0
   private readonly spoken = new Map<string, string>()
@@ -122,13 +125,29 @@ export class AgentFaceChannel {
   }
 
   openReply(messageId: string, locale?: string): ReplyUtterance {
+    const epoch = this.subjectEpoch
     return new ReplyUtterance({
       messageId,
       locale,
       nextUtteranceId: () => this.nextUtteranceId('stream', messageId),
-      emit: (detail) => this.sink.speech(this.withGeneration(detail, 'reply')),
-      remember: (text) => this.remember(messageId, text),
+      emit: (detail) => {
+        if (epoch !== this.subjectEpoch) return
+        if (detail.phase === 'start') this.openMessages.add(messageId)
+        if (detail.phase === 'end' || detail.phase === 'cancel') this.openMessages.delete(messageId)
+        this.sink.speech(this.withGeneration(detail, 'reply'))
+      },
+      remember: (text) => {
+        if (epoch === this.subjectEpoch) this.remember(messageId, text)
+      },
     })
+  }
+
+  resetSubject(): void {
+    this.subjectEpoch += 1
+    for (const id of this.openMessages.union(new Set(this.spoken.keys())))
+      this.cancel(id)
+    this.openMessages.clear()
+    this.spoken.clear()
   }
 
   /** 先表演后整句；都缺才跳过。按 messageId 去重；回复与通知 id 空间分开。 */
@@ -185,6 +204,7 @@ export class AgentFaceChannel {
   }
 
   cancel(messageId: string): void {
+    this.openMessages.delete(messageId)
     this.sink.speech({ phase: 'cancel', messageId, source: 'reply' })
   }
 
@@ -215,3 +235,4 @@ export class AgentFaceChannel {
 
 /** 回复与通知共用序号和去重账本。 */
 export const agentFace = new AgentFaceChannel()
+authSubject.subscribe(() => agentFace.resetSubject())

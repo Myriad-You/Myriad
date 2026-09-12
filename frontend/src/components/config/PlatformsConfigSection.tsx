@@ -1,4 +1,3 @@
-
 import type { ReactNode } from 'react'
 import type { ToastType } from '../Toast'
 
@@ -153,7 +152,7 @@ export function sanitizeMaskedFieldValue(value: string): string {
     value !== '••••••••' &&
     value !== '********'
   ) {
-    return value.replace(/[•*]+/g, '')
+    return value.replaceAll(/[•*]+/g, '')
   }
   return value
 }
@@ -216,13 +215,18 @@ function formatCardNumber(n: number, locale: string): string {
   }
 }
 
-function formatCardPlaytime(minutes: number, hoursTpl: string, minsTpl: string): string {
+function formatCardPlaytime(
+  minutes: number,
+  hoursTpl: string,
+  minsTpl: string,
+  format: (template: string, params: Record<string, string | number>) => string,
+): string {
   if (minutes < 60) {
-    return minsTpl.replace('{n}', String(Math.round(minutes)))
+    return format(minsTpl, { n: Math.round(minutes) })
   }
   const hours = minutes / 60
   const rounded = hours >= 100 ? Math.round(hours) : Math.round(hours * 10) / 10
-  return hoursTpl.replace('{n}', String(rounded))
+  return format(hoursTpl, { n: rounded })
 }
 
 function PlatformCardMetricsMarquee({
@@ -313,12 +317,11 @@ const PlatformsConfigSection: React.FC<PlatformsConfigSectionProps> = ({
   getUiFieldValue,
   onUiFieldChange,
 }) => {
-  const { t, locale } = useI18n()
+  const { t, locale, format } = useI18n()
   const { catalog: settingGuides, bindGuide } = useSettingGuide()
   const g = settingGuides
   const dm = t.dataManagement
-  const numberLocale =
-    locale === 'zh-CN' ? 'zh-CN' : locale === 'ja-JP' ? 'ja-JP' : 'en-US'
+  const numberLocale = locale
 
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null)
   const [platformNavDir, setPlatformNavDir] = useState<
@@ -379,7 +382,7 @@ const PlatformsConfigSection: React.FC<PlatformsConfigSectionProps> = ({
   const formatMetricValue = useCallback(
     (key: string, value: number): string => {
       if (key === 'total_playtime_minutes') {
-        return formatCardPlaytime(value, dm.playtimeHours, dm.playtimeMinutes)
+        return formatCardPlaytime(value, dm.playtimeHours, dm.playtimeMinutes, format)
       }
       if (key === 'average_completion') {
         return `${formatCardNumber(value, numberLocale)}%`
@@ -609,10 +612,9 @@ const PlatformsConfigSection: React.FC<PlatformsConfigSectionProps> = ({
                   style={{ cursor: 'pointer' }}
                   role="button"
                   tabIndex={0}
-                  aria-label={t.config.platformOpenDetailAria.replace(
-                    '{name}',
-                    platform.name,
-                  )}
+                  aria-label={format(t.config.platformOpenDetailAria, {
+                    name: platform.name,
+                  })}
                   onClick={openDetail}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
@@ -718,10 +720,9 @@ const PlatformsConfigSection: React.FC<PlatformsConfigSectionProps> = ({
                             />
                             {platformDesc ? (
                               <SettingTitleHelp
-                                ariaLabel={t.config.platformHelpAria.replace(
-                                  '{name}',
-                                  platform.name,
-                                )}
+                                ariaLabel={format(t.config.platformHelpAria, {
+                                  name: platform.name,
+                                })}
                               >
                                 {platformDesc}
                               </SettingTitleHelp>
@@ -813,19 +814,16 @@ const PlatformsConfigSection: React.FC<PlatformsConfigSectionProps> = ({
                         checked={platform.enabled}
                         onChange={() => onToggle(index)}
                         disabled={!platformConfigured}
-                        aria-label={t.config.platformEnableAria.replace(
-                          '{name}',
-                          platform.name,
-                        )}
+                        aria-label={format(t.config.platformEnableAria, {
+                          name: platform.name,
+                        })}
                         preview={{
-                          on: t.config.platformEnablePreviewOn.replace(
-                            '{name}',
-                            platform.name,
-                          ),
-                          off: t.config.platformEnablePreviewOff.replace(
-                            '{name}',
-                            platform.name,
-                          ),
+                          on: format(t.config.platformEnablePreviewOn, {
+                            name: platform.name,
+                          }),
+                          off: format(t.config.platformEnablePreviewOff, {
+                            name: platform.name,
+                          }),
                           disabled: t.config.platformEnablePreviewNeedConfig,
                         }}
                       />

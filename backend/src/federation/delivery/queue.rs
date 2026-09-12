@@ -1044,47 +1044,49 @@ async fn mark_delivery_dead(user_id: i32, activity_type: &str, target_domain: &s
 
 /// 启动投递队列后台循环
 pub fn spawn_delivery_worker(db: DatabaseConnection) {
-    tokio::spawn(async move {
-        // 先 `wait_until_resolved(30s)`；超时 fail-open。关闸则停，队列行不动。
-        if !crate::services::federation_gate::wait_until_resolved(Duration::from_secs(30)).await {
+    tokio::spawn(run_delivery_worker(db));
+}
+
+pub async fn run_delivery_worker(db: DatabaseConnection) {
+    // 先 `wait_until_resolved(30s)`；超时 fail-open。关闸则停，队列行不动。
+    if !crate::services::federation_gate::wait_until_resolved(Duration::from_secs(30)).await {
+        tracing::warn!("📪 Federation delivery worker not started: egress-location gate is closed");
+        return;
+    }
+
+    // Lab dual-instance: `MYRIAD_FEDERATION_DELIVERY_INTERVAL_SECS` (e.g. 2)
+    // speeds full-chain harness without changing production default (15s).
+    let secs = std::env::var("MYRIAD_FEDERATION_DELIVERY_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|n| *n >= 1 && *n <= 3600)
+        .unwrap_or(15);
+    let mut interval = tokio::time::interval(Duration::from_secs(secs));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        interval.tick().await;
+
+        // The wait above returns the pending value on timeout, so a probe
+        // that lands late — and closes the gate — would otherwise find the
+        // worker already running and never be consulted again. Re-read it
+        // every tick. The gate only ever settles once, so a closed reading
+        // is final and the worker can stop for good.
+        if !crate::services::federation_gate::federation_enabled() {
             tracing::warn!(
-                "📪 Federation delivery worker not started: egress-location gate is closed"
+                "📪 Federation delivery worker stopping: egress-location gate is closed"
             );
             return;
         }
-
-        // Lab dual-instance: `MYRIAD_FEDERATION_DELIVERY_INTERVAL_SECS` (e.g. 2)
-        // speeds full-chain harness without changing production default (15s).
-        let secs = std::env::var("MYRIAD_FEDERATION_DELIVERY_INTERVAL_SECS")
-            .ok()
-            .and_then(|v| v.parse::<u64>().ok())
-            .filter(|n| *n >= 1 && *n <= 3600)
-            .unwrap_or(15);
-        let mut interval = tokio::time::interval(Duration::from_secs(secs));
-        loop {
-            interval.tick().await;
-
-            // The wait above returns the pending value on timeout, so a probe
-            // that lands late — and closes the gate — would otherwise find the
-            // worker already running and never be consulted again. Re-read it
-            // every tick. The gate only ever settles once, so a closed reading
-            // is final and the worker can stop for good.
-            if !crate::services::federation_gate::federation_enabled() {
-                tracing::warn!(
-                    "📪 Federation delivery worker stopping: egress-location gate is closed"
-                );
-                return;
-            }
-            match process_delivery_queue_detailed(&db, 20).await {
-                Ok(s)
-                    if s.delivered > 0
-                        || s.dead > 0
-                        || s.retried > 0
-                        || s.reclaimed > 0
-                        || s.lease_lost > 0
-                        || s.relationships_revoked > 0 =>
-                {
-                    tracing::info!(
+        match process_delivery_queue_detailed(&db, 20).await {
+            Ok(s)
+                if s.delivered > 0
+                    || s.dead > 0
+                    || s.retried > 0
+                    || s.reclaimed > 0
+                    || s.lease_lost > 0
+                    || s.relationships_revoked > 0 =>
+            {
+                tracing::info!(
                         "📤 Delivery worker: claimed={} reclaimed={} delivered={} dead={} retried={} lease_lost={} relationships_revoked={} deliveries_cancelled={}",
                         s.claimed,
                         s.reclaimed,
@@ -1095,14 +1097,13 @@ pub fn spawn_delivery_worker(db: DatabaseConnection) {
                         s.relationships_revoked,
                         s.deliveries_cancelled
                     );
-                }
-                Err(e) => {
-                    tracing::error!("Delivery worker error: {}", e);
-                }
-                _ => {} // 无待投递项，静默
             }
+            Err(e) => {
+                tracing::error!("Delivery worker error: {}", e);
+            }
+            _ => {} // 无待投递项，静默
         }
-    });
+    }
 }
 
 /// 重试退避：指数增长 + 抖动，上限 24 小时。

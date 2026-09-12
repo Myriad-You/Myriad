@@ -50,16 +50,21 @@ export function importRigPsdInWorker(
       if (settled) return
       if (signal?.aborted) {
         abort()
-      } else if ('stage' in event.data) {
+      } else if (Object.hasOwn(event.data, 'stage')) {
         try {
-          onStage?.(event.data.stage)
+          onStage?.(
+            (event.data as { stage: RigPsdImportStage }).stage,
+          )
         } catch (error) {
           finish(error)
         }
-      } else if ('prepared' in event.data) {
-        finish(undefined, event.data.prepared)
+      } else if (Object.hasOwn(event.data, 'prepared')) {
+        finish(
+          undefined,
+          (event.data as { prepared: PreparedAnime25DRigImport }).prepared,
+        )
       } else {
-        finish(new Error(event.data.error))
+        finish(new Error((event.data as { error: string }).error))
       }
     }
     worker.onerror = () => finish(new Error(request.copy.psdSpecInvalid))

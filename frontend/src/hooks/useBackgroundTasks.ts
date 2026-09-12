@@ -1,6 +1,6 @@
 import type { Task } from '../components/TaskStatus'
 import { useCallback, useState } from 'react'
-import { currentCopy } from '../i18n/localeCopy'
+import { currentCopy, formatCurrent } from '../i18n/localeCopy'
 import { fetchJson } from '../utils/apiHelper'
 import { getCSRFToken } from '../utils/csrf'
 import {
@@ -78,10 +78,9 @@ export function useBackgroundTasks() {
         if (!response.ok || !data.success) {
           throw new Error(
             data.error ||
-              currentCopy().errors.httpStatus.replace(
-                '{status}',
-                String(response.status),
-              ),
+              formatCurrent(currentCopy().errors.httpStatus, {
+                status: response.status,
+              }),
           )
         }
 

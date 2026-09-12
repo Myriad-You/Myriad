@@ -1290,7 +1290,7 @@ export function generateOnDemandTailwindCSS(html: string): string {
     '*,::before,::after{--tw-gradient-from:#fff;--tw-gradient-to:transparent;--tw-gradient-stops:var(--tw-gradient-from),var(--tw-gradient-to)}',
   )
 
-  const needsAnimations = Array.from(usedClasses).some((c) =>
+  const needsAnimations = Iterator.from(usedClasses).some((c) =>
     c.includes('animate-'),
   )
   if (needsAnimations) {
@@ -1347,7 +1347,7 @@ export function generateOnDemandTailwindCSS(html: string): string {
     if (spaceYMatch) {
       const spacingValue = SPACING[spaceYMatch[1]]
       if (spacingValue) {
-        const escapedClass = className.replace(/[:.[\]/%]/g, '\\$&')
+        const escapedClass = className.replaceAll(/[:.[\]/%]/g, '\\$&')
         spaceRules.push(
           `${prefix}.${escapedClass}>:not([hidden])~:not([hidden]){margin-top:${spacingValue}}`,
         )
@@ -1359,7 +1359,7 @@ export function generateOnDemandTailwindCSS(html: string): string {
     if (spaceXMatch) {
       const spacingValue = SPACING[spaceXMatch[1]]
       if (spacingValue) {
-        const escapedClass = className.replace(/[:.[\]/%]/g, '\\$&')
+        const escapedClass = className.replaceAll(/[:.[\]/%]/g, '\\$&')
         spaceRules.push(
           `${prefix}.${escapedClass}>:not([hidden])~:not([hidden]){margin-left:${spacingValue}}`,
         )
@@ -1369,7 +1369,7 @@ export function generateOnDemandTailwindCSS(html: string): string {
 
     const css = parseDynamicClass(baseClass)
     if (css) {
-      const escapedClass = className.replace(/[:.[\]/%]/g, '\\$&')
+      const escapedClass = className.replaceAll(/[:.[\]/%]/g, '\\$&')
 
       if (isGroupHover) {
         cssRules.push(`${prefix}.group:hover .${escapedClass}{${css}}`)

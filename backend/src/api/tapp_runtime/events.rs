@@ -1,4 +1,4 @@
-//! Manifest-scoped, online at-most-once event broker.
+//! HTTP shell for the manifest-scoped, online at-most-once event broker (domain in tapp_events).
 //!
 //! Domain publish / presence / mailbox live in [`crate::services::tapp_events`].
 //! This module owns permission checks, rate limits, ownership resolution, and

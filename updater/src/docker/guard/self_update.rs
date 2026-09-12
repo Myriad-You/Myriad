@@ -54,7 +54,8 @@ pub(crate) struct HandoffAttempt {
 pub(crate) fn fail_exhausted_pending_handoff(state: &GuardState) {
     let path = state.config.state_dir.join("self-update-last.json");
     let Some(pending) = std::fs::read(&path).ok().and_then(|bytes| {
-        serde_json::from_slice::<crate::docker::self_update_helper::SelfUpdateLastStatus>(&bytes).ok()
+        serde_json::from_slice::<crate::docker::self_update_helper::SelfUpdateLastStatus>(&bytes)
+            .ok()
     }) else {
         return;
     };
@@ -77,7 +78,8 @@ pub(crate) fn fail_exhausted_pending_handoff(state: &GuardState) {
 pub(crate) async fn finalize_or_fail_orphaned_pending_handoff(state: &GuardState) -> bool {
     let path = state.config.state_dir.join("self-update-last.json");
     let Some(pending) = std::fs::read(&path).ok().and_then(|bytes| {
-        serde_json::from_slice::<crate::docker::self_update_helper::SelfUpdateLastStatus>(&bytes).ok()
+        serde_json::from_slice::<crate::docker::self_update_helper::SelfUpdateLastStatus>(&bytes)
+            .ok()
     }) else {
         return false;
     };
@@ -578,7 +580,11 @@ fn resume_unidentified_handoff(state: GuardState, helper_id: String) {
     });
 }
 
-pub(crate) fn resume_staged_recovery(state: GuardState, attempt: HandoffAttempt, recovery_retries: u8) {
+pub(crate) fn resume_staged_recovery(
+    state: GuardState,
+    attempt: HandoffAttempt,
+    recovery_retries: u8,
+) {
     tokio::spawn(async move {
         let docker_host = format!("unix://{}", state.config.socket_path.display());
         loop {
@@ -663,7 +669,10 @@ fn record_helper_failure_if_missing(
     let already_recorded = std::fs::read(&path)
         .ok()
         .and_then(|bytes| {
-            serde_json::from_slice::<crate::docker::self_update_helper::SelfUpdateLastStatus>(&bytes).ok()
+            serde_json::from_slice::<crate::docker::self_update_helper::SelfUpdateLastStatus>(
+                &bytes,
+            )
+            .ok()
         })
         .is_some_and(|status| {
             status.target_tag == target_tag
@@ -692,7 +701,10 @@ pub(crate) fn failed_status_matches_attempt(state: &GuardState, attempt: &Handof
     std::fs::read(state.config.state_dir.join("self-update-last.json"))
         .ok()
         .and_then(|bytes| {
-            serde_json::from_slice::<crate::docker::self_update_helper::SelfUpdateLastStatus>(&bytes).ok()
+            serde_json::from_slice::<crate::docker::self_update_helper::SelfUpdateLastStatus>(
+                &bytes,
+            )
+            .ok()
         })
         .is_some_and(|status| {
             matches!(
@@ -707,7 +719,10 @@ pub(crate) fn recovery_attempt_from_status(state: &GuardState, attempt: &Handoff
     std::fs::read(state.config.state_dir.join("self-update-last.json"))
         .ok()
         .and_then(|bytes| {
-            serde_json::from_slice::<crate::docker::self_update_helper::SelfUpdateLastStatus>(&bytes).ok()
+            serde_json::from_slice::<crate::docker::self_update_helper::SelfUpdateLastStatus>(
+                &bytes,
+            )
+            .ok()
         })
         .filter(|status| {
             status.target_tag == attempt.target_tag && status.previous_tag == attempt.previous_tag
@@ -734,7 +749,10 @@ pub(crate) fn persist_recovery_attempt(
     let mut status = std::fs::read(&path)
         .ok()
         .and_then(|bytes| {
-            serde_json::from_slice::<crate::docker::self_update_helper::SelfUpdateLastStatus>(&bytes).ok()
+            serde_json::from_slice::<crate::docker::self_update_helper::SelfUpdateLastStatus>(
+                &bytes,
+            )
+            .ok()
         })
         .filter(|status| {
             status.target_tag == attempt.target_tag && status.previous_tag == attempt.previous_tag
@@ -870,7 +888,10 @@ pub(crate) async fn helper_container_running(socket: &Path, helper_id: &str) -> 
         .ok_or_else(|| anyhow!("trusted helper has no running state"))
 }
 
-pub(crate) async fn helper_container_exit_code(socket: &Path, helper_id: &str) -> Result<Option<i64>> {
+pub(crate) async fn helper_container_exit_code(
+    socket: &Path,
+    helper_id: &str,
+) -> Result<Option<i64>> {
     validate_identifier(helper_id).map_err(anyhow::Error::msg)?;
     let inspect = daemon_json(socket, &format!("/containers/{helper_id}/json")).await?;
     helper_exit_code_from_inspect(&inspect)
@@ -890,7 +911,11 @@ pub(crate) fn helper_exit_code_from_inspect(inspect: &Value) -> Result<Option<i6
         .ok_or_else(|| anyhow!("trusted helper has no exit code"))
 }
 
-pub(crate) async fn wait_for_helper_absence(socket: &Path, helper_id: &str, timeout: Duration) -> bool {
+pub(crate) async fn wait_for_helper_absence(
+    socket: &Path,
+    helper_id: &str,
+    timeout: Duration,
+) -> bool {
     let deadline = tokio::time::Instant::now() + timeout;
     let mut consecutive_absent = 0u8;
     loop {
@@ -910,7 +935,10 @@ pub(crate) async fn wait_for_helper_absence(socket: &Path, helper_id: &str, time
     }
 }
 
-pub(crate) async fn inspect_handoff_attempt(socket: &Path, helper_id: &str) -> Result<HandoffAttempt> {
+pub(crate) async fn inspect_handoff_attempt(
+    socket: &Path,
+    helper_id: &str,
+) -> Result<HandoffAttempt> {
     validate_identifier(helper_id).map_err(anyhow::Error::msg)?;
     let inspect = daemon_json(socket, &format!("/containers/{helper_id}/json")).await?;
     handoff_attempt_from_inspect(&inspect)
@@ -1270,9 +1298,18 @@ async fn launch_trusted_handoff(
             crate::docker::self_update_helper::ENV_PREVIOUS_IMAGE,
             previous_image,
         ),
-        (crate::docker::self_update_helper::ENV_TARGET_IMAGE, target_image),
-        (crate::docker::self_update_helper::ENV_PREVIOUS_TAG, previous_tag),
-        (crate::docker::self_update_helper::ENV_TARGET_TAG, target_tag),
+        (
+            crate::docker::self_update_helper::ENV_TARGET_IMAGE,
+            target_image,
+        ),
+        (
+            crate::docker::self_update_helper::ENV_PREVIOUS_TAG,
+            previous_tag,
+        ),
+        (
+            crate::docker::self_update_helper::ENV_TARGET_TAG,
+            target_tag,
+        ),
         (
             crate::docker::self_update_helper::ENV_PROJECT,
             &state.config.project,
@@ -1281,8 +1318,14 @@ async fn launch_trusted_handoff(
             crate::docker::self_update_helper::ENV_PROJECT_DIRECTORY,
             "/host/compose",
         ),
-        (crate::docker::self_update_helper::ENV_HOST_COMPOSE_ROOT, &host_root),
-        (crate::docker::self_update_helper::ENV_COMPOSE_DIR, "/host/compose"),
+        (
+            crate::docker::self_update_helper::ENV_HOST_COMPOSE_ROOT,
+            &host_root,
+        ),
+        (
+            crate::docker::self_update_helper::ENV_COMPOSE_DIR,
+            "/host/compose",
+        ),
         (
             crate::docker::self_update_helper::ENV_APP_ENV_FILE,
             "/host/write/.env",

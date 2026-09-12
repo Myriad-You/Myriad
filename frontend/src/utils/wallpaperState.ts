@@ -196,4 +196,3 @@ export function resyncWallpaperBlur(): void {
   const blur = effectiveWallpaperBlur(wallpaperState.getSnapshot().blur)
   el.style.filter = `blur(${blur}px)`
 }
-

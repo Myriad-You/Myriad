@@ -1,4 +1,6 @@
 ---
+import en from '../i18n/en-US.json' with { type: 'json' }
+
 interface Props {
   description: string
 }
@@ -20,6 +22,6 @@ const { description } = Astro.props
   >
     <h1>Myriad</h1>
     <p>{description}</p>
-    <p>请启用 JavaScript 以加载完整的交互式个人主页。</p>
+    <p id="noscript-enable-js">{en.chrome.noscript}</p>
   </main>
 </noscript>

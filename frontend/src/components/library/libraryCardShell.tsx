@@ -703,7 +703,7 @@ function resolveLibraryItemUrl(item: {
   const id = item.id || ''
 
   if (platform.includes('steam') || id.startsWith('steam_')) {
-    const appid = m.appid ?? id.replace(/^steam_game_/, '')
+    const appid = m.appid ?? id.replaceAll(/^steam_game_/g, '')
     if (appid !== '' && appid != null) {
       return `https://store.steampowered.com/app/${appid}`
     }
@@ -790,7 +790,7 @@ export function isBangumiPlatform(platform: string) {
 }
 
 export function isMalPlatform(platform: string) {
-  const key = platform.toLowerCase().replace(/[\s_-]/g, '')
+  const key = platform.toLowerCase().replaceAll(/[\s_-]/g, '')
   return key === 'myanimelist' || key === 'mal'
 }
 
@@ -1125,7 +1125,7 @@ export function getTypeIcon(type: string) {
 }
 
 export function useLibraryCardActions() {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
 
   const watchProgressLabels = useMemo<WatchProgressLabels>(
     () => ({
@@ -1165,7 +1165,7 @@ export function useLibraryCardActions() {
     (item: LibraryItem) => {
       if (item.item_type === 'game' && item.metadata.playtime_forever) {
         const hours = Math.round(item.metadata.playtime_forever / 60)
-        return t.library.playedHours.replace('{hours}', hours.toString())
+        return format(t.library.playedHours, { hours })
       }
       if (item.item_type === 'music') {
         if (
@@ -1277,7 +1277,7 @@ export function useLibraryCardActions() {
           (subjectId ? `https://bgm.tv/subject/${subjectId}` : '')
         if (url) {
           window.open(url, '_blank', 'noopener,noreferrer')
-          showInfo(t.library.openExternal.replace('{name}', item.title || ''))
+          showInfo(format(t.library.openExternal, { name: item.title || '' }))
         } else {
           showInfo(t.library.playbackNotSupported)
         }
@@ -1296,7 +1296,7 @@ export function useLibraryCardActions() {
           typeof item.metadata?.url === 'string' ? item.metadata.url : ''
         if (ext) {
           window.open(ext, '_blank', 'noopener,noreferrer')
-          showInfo(t.library.openExternal.replace('{name}', item.title || ''))
+          showInfo(format(t.library.openExternal, { name: item.title || '' }))
         } else {
           showInfo(t.library.playbackNotSupported)
         }
@@ -1315,7 +1315,7 @@ export function useLibraryCardActions() {
         // 暂停中再点同一首应恢复，不要当成已在播放。
         if (!musicState.isPlaying) {
           window.dispatchEvent(new CustomEvent('toggle-play-pause'))
-          showInfo(t.library.nowPlaying.replace('{name}', item.title || ''))
+          showInfo(format(t.library.nowPlaying, { name: item.title || '' }))
         } else {
           showInfo(t.library.alreadyPlaying)
         }
@@ -1371,7 +1371,7 @@ export function useLibraryCardActions() {
       }
 
       window.dispatchEvent(new CustomEvent('open-control-panel'))
-      showInfo(t.library.nowPlaying.replace('{name}', name))
+      showInfo(format(t.library.nowPlaying, { name }))
       window.dispatchEvent(new CustomEvent('play-song', { detail: { song } }))
       void import('../../utils/analyticsEvents').then(
         ({ trackProductEvent, AnalyticsEvents }) => {

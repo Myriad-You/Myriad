@@ -31,7 +31,7 @@ export function useConfigBagState(
         auto_fetch: data.auto_fetch || DEFAULT_AUTO_FETCH_CONFIG,
       }
       setConfig(normalizedData)
-      setInitialConfig(JSON.parse(JSON.stringify(normalizedData)))
+      setInitialConfig(structuredClone(normalizedData))
       notifyDirtyState(false)
       window.dispatchEvent(new CustomEvent('config-loaded', { detail: data }))
     } catch {
@@ -109,7 +109,7 @@ export function useConfigBagState(
   const updateFieldValue = useCallback(
     (platformIndex: number, fieldKey: string, value: string) => {
       if (!config) return
-      const newPlatforms = [...config.platforms]
+      const newPlatforms = Iterator.from(config.platforms).toArray()
       const field = newPlatforms[platformIndex].config_fields.find(
         (f) => f.key === fieldKey,
       )
@@ -146,7 +146,7 @@ export function useConfigBagState(
   const togglePlatform = useCallback(
     (platformIndex: number) => {
       if (!config) return
-      const newPlatforms = [...config.platforms]
+      const newPlatforms = Iterator.from(config.platforms).toArray()
       newPlatforms[platformIndex].enabled = !newPlatforms[platformIndex].enabled
       setConfig({ ...config, platforms: newPlatforms })
       notifyDirtyState(true)
@@ -175,9 +175,11 @@ export function useConfigBagState(
       ) {
         return
       }
-      const newPlatforms = [...config.platforms]
-      const [moved] = newPlatforms.splice(fromIndex, 1)
-      newPlatforms.splice(toIndex, 0, moved)
+      const moved = config.platforms[fromIndex]
+      if (moved === undefined) return
+      const newPlatforms = config.platforms
+        .toSpliced(fromIndex, 1)
+        .toSpliced(toIndex, 0, moved)
       setConfig({ ...config, platforms: newPlatforms })
       notifyDirtyState(true)
     },

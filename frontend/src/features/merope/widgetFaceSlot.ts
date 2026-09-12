@@ -1,10 +1,9 @@
-
 import { useLayoutEffect, useSyncExternalStore } from 'react'
 
 type Listener = () => void
 
 const listeners = new Set<Listener>()
-const queue: string[] = []
+let queue: string[] = []
 let holder: string | null = null
 
 function emit(): void {
@@ -39,7 +38,7 @@ export function claimMeropeWidgetFaceSlot(id: string): () => void {
     released = true
     const index = queue.indexOf(id)
     if (index < 0) return
-    queue.splice(index, 1)
+    queue = queue.toSpliced(index, 1)
     if (holder === id) holder = queue[0] ?? null
     emit()
   }

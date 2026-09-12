@@ -17,7 +17,7 @@ export function registerEventHandlers(
   let streamController: AbortController | null = null
   const cleanupSystemProducers: Array<() => void> = []
   const subscriptions = new Set(tappInstance.manifest.events?.subscribe ?? [])
-  const hasServerSubscriptions = [...subscriptions].some(
+  const hasServerSubscriptions = Iterator.from(subscriptions).some(
     (topic) => !topic.startsWith('system.'),
   )
 

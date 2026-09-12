@@ -178,19 +178,19 @@ export class RtcSpeechAlignment {
     turn.locale = frame.locale || turn.locale
     for (const word of frame.words) turn.words.set(word.start_ms, word)
     const oldestPts = this.ptsMs === null ? 0 : this.ptsMs - 1_000
-    const retained = [...turn.words.values()]
+    const retained = Iterator.from(turn.words.values()).toArray()
       .filter(
         (word) =>
           word.start_ms +
             Math.max(word.duration_ms, DEFAULT_WORD_DURATION_MS) >=
           oldestPts,
       )
-      .sort((a, b) => a.start_ms - b.start_ms)
+      .toSorted((a, b) => a.start_ms - b.start_ms)
       .slice(-MAX_WORDS)
     turn.words = new Map(retained.map((word) => [word.start_ms, word]))
     this.turns.set(frame.turnId, turn)
     // Only a few in-flight turns can overtake their server notices.
-    const ids = [...this.turns.keys()].sort((a, b) => a - b)
+    const ids = Iterator.from(this.turns.keys()).toArray().toSorted((a, b) => a - b)
     while (ids.length > 3) this.turns.delete(ids.shift()!)
     return frame.turnId === this.providerTurnId ? this.rebuild() : false
   }
@@ -200,7 +200,7 @@ export class RtcSpeechAlignment {
     if (turnId === null || turnId <= this.cancelledThrough) return false
     const turn = this.turns.get(turnId)
     if (!turn || !turn.words.size) return false
-    const words = [...turn.words.values()]
+    const words = Iterator.from(turn.words.values()).toArray()
     const locale = turn.locale || this.locale
     const signature = JSON.stringify([locale, words])
     if (signature === this.requestedSignature) return false

@@ -1,4 +1,3 @@
-
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { SettingOption } from '../types'
 import {
@@ -65,8 +64,8 @@ export function FieldSelect<T extends string = string>({
     typeof setTimeout
   > | 0 })
   const autoId = useId()
-  const listboxId = `${(id || autoId).replace(/:/g, '')}-listbox`
-  const searchId = `${(id || autoId).replace(/:/g, '')}-search`
+  const listboxId = `${(id || autoId).replaceAll(':', '')}-listbox`
+  const searchId = `${(id || autoId).replaceAll(':', '')}-search`
   const options = optionsProp ?? []
 
   const selected =

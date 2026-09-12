@@ -30,6 +30,8 @@ import { showError } from '../../utils/toastManager'
 import { userFacingError } from '../../utils/userFacingError'
 import { Avatar } from '../Avatar'
 import { AvatarSourcePicker } from '../AvatarSourcePicker'
+import { isChannelPairingProvider } from '../channel/channelPairing'
+import { ChannelPairingPanel } from '../channel/ChannelPairingPanel'
 import OAuthIconImage from '../OAuthIconImage'
 import { ProfileTextSourcePicker } from '../ProfileTextSourcePicker'
 import { Spinner } from '../Spinner'
@@ -261,28 +263,40 @@ export const UserModal: FC<UserModalProps> = ({
       ])
       if (providersRes.ok) {
         const data = await providersRes.json()
-        setOAuthProviders(Array.isArray(data?.providers) ? data.providers : [])
+        setOAuthProviders(
+          (Array.isArray(data?.providers) ? data.providers : []).filter(
+            (provider: { slug?: string }) =>
+              !isChannelPairingProvider(provider.slug),
+          ),
+        )
       }
       if (identitiesRes.ok) {
         const data = await identitiesRes.json()
         const list = Array.isArray(data?.identities) ? data.identities : []
         setIdentities(
-          list.map(
-            (row: Record<string, unknown>): OAuthIdentity => ({
-              id: Number(row.id) || 0,
-              provider: String(row.provider ?? ''),
-              provider_username:
-                typeof row.provider_username === 'string'
-                  ? row.provider_username
-                  : null,
-              is_primary: row.is_primary === true,
-              linked_at:
-                typeof row.linked_at === 'string' ? row.linked_at : null,
-              avatar_url:
-                typeof row.avatar_url === 'string' ? row.avatar_url : null,
-              email: typeof row.email === 'string' ? row.email : null,
-            }),
-          ),
+          list
+            .filter(
+              (row: Record<string, unknown>) =>
+                !isChannelPairingProvider(
+                  typeof row.provider === 'string' ? row.provider : '',
+                ),
+            )
+            .map(
+              (row: Record<string, unknown>): OAuthIdentity => ({
+                id: Number(row.id) || 0,
+                provider: String(row.provider ?? ''),
+                provider_username:
+                  typeof row.provider_username === 'string'
+                    ? row.provider_username
+                    : null,
+                is_primary: row.is_primary === true,
+                linked_at:
+                  typeof row.linked_at === 'string' ? row.linked_at : null,
+                avatar_url:
+                  typeof row.avatar_url === 'string' ? row.avatar_url : null,
+                email: typeof row.email === 'string' ? row.email : null,
+              }),
+            ),
         )
       }
     } catch (error) {
@@ -306,16 +320,24 @@ export const UserModal: FC<UserModalProps> = ({
   const linkedProviders = useMemo(() => {
     const fromLive = identities
       .map((i) => i.provider)
-      .filter((p): p is string => !!p && p.trim().length > 0)
+      .filter(
+        (p): p is string =>
+          !!p && p.trim().length > 0 && !isChannelPairingProvider(p),
+      )
     if (fromLive.length > 0) {
-      return [...new Set(fromLive.map((p) => p.trim().toLowerCase()))]
+      return Iterator.from(
+        new Set(fromLive.map((p) => p.trim().toLowerCase())),
+      ).toArray()
     }
     const fromUser = (user.identities ?? [])
       .map((i) => i.provider)
-      .filter((p): p is string => !!p && p.trim().length > 0)
+      .filter(
+        (p): p is string =>
+          !!p && p.trim().length > 0 && !isChannelPairingProvider(p),
+      )
       .map((p) => p.trim().toLowerCase())
     if (fromUser.length > 0) {
-      return [...new Set(fromUser)]
+      return Iterator.from(new Set(fromUser)).toArray()
     }
     if (user.linked_github_id || user.github_id) {
       return ['github']
@@ -331,7 +353,7 @@ export const UserModal: FC<UserModalProps> = ({
         (p) => p.slug.toLowerCase() === key,
       )
       if (match?.display_name?.trim()) return match.display_name.trim()
-      const bare = key.replace(/^oidc[-_]?/, '')
+      const bare = key.replaceAll(/^oidc[-_]?/g, '')
       if (bare.length === 0) return slug
       return bare.charAt(0).toUpperCase() + bare.slice(1)
     },
@@ -732,8 +754,11 @@ export const UserModal: FC<UserModalProps> = ({
                     {identities
                       .filter(
                         (identity) =>
+                          !isChannelPairingProvider(identity.provider) &&
                           !oauthProviders.some(
-                            (p) => p.slug === identity.provider,
+                            (p) =>
+                              p.slug.trim().toLowerCase() ===
+                              identity.provider.trim().toLowerCase(),
                           ),
                       )
                       .map((identity) => (
@@ -774,6 +799,18 @@ export const UserModal: FC<UserModalProps> = ({
                       ))}
                   </ul>
                 )}
+                <div className="user-modal-qq-pairing">
+                  <ChannelPairingPanel channel="qq" />
+                </div>
+                <div className="user-modal-qq-pairing">
+                  <ChannelPairingPanel channel="telegram" />
+                </div>
+                <div className="user-modal-qq-pairing">
+                  <ChannelPairingPanel channel="discord_dm" />
+                </div>
+                <div className="user-modal-qq-pairing">
+                  <ChannelPairingPanel channel="feishu" />
+                </div>
                 {oauthError && (
                   <p className="user-modal-oauth-error">{oauthError}</p>
                 )}

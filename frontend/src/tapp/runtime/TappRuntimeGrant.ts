@@ -30,8 +30,8 @@ export function sharedWidgetInstanceId(tappId: string): string {
     (h1 >>> 0).toString(16).padStart(8, '0') +
     (h2 >>> 0).toString(16).padStart(8, '0')
   const slug = tappId
-    .replace(/[^\w.-]/g, '_')
-    .replace(/_+/g, '_')
+    .replaceAll(/[^\w.-]/g, '_')
+    .replaceAll(/_+/g, '_')
     .slice(0, 48)
   const id = `ws.${slug}.${hex}`
   return id.length <= 100 ? id : id.slice(0, 100)
@@ -196,7 +196,8 @@ export class TappRuntimeGrant {
   }
 
   static destroyAll(): void {
-    for (const grant of [...TappRuntimeGrant.instances]) grant.destroy()
+    for (const grant of Iterator.from(TappRuntimeGrant.instances).toArray())
+      grant.destroy()
     TappRuntimeGrant.tokenOwners.clear()
     TappRuntimeGrant.sharedWidgetEntries.clear()
   }

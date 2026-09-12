@@ -23,7 +23,7 @@ fn limited_detail(detail: impl AsRef<str>) -> String {
 /// 1. Earliest `seaql_migrations.applied_at` (first schema apply ≈ first deploy)
 /// 2. Postgres data-dir `PG_VERSION` mtime for the current database
 ///
-/// Returns RFC3339 UTC when known.
+/// Returns `DateTime<Utc>` when known; JSON later emits RFC3339.
 async fn probe_database_established_at(db: &impl ConnectionTrait) -> Option<DateTime<Utc>> {
     // sea-orm: applied_at is typically a Unix epoch (bigint); some setups use timestamptz.
     if let Ok(Some(row)) = db
@@ -46,7 +46,7 @@ async fn probe_database_established_at(db: &impl ConnectionTrait) -> Option<Date
         if let Ok(ts) = row.try_get::<chrono::NaiveDateTime>("", "applied_at") {
             return Some(DateTime::<Utc>::from_naive_utc_and_offset(ts, Utc));
         }
-        // bigint / i64 / f64 epoch seconds (or ms)
+        // i64 epoch seconds (ms if >1e12); f64 epoch seconds only
         if let Ok(secs) = row.try_get::<i64>("", "applied_at") {
             if secs > 1_000_000_000_000 {
                 return Utc.timestamp_millis_opt(secs).single();
@@ -94,9 +94,9 @@ async fn probe_database_established_at(db: &impl ConnectionTrait) -> Option<Date
 
 /// GET /api/admin/diagnostics
 ///
-/// Runs bounded, side-effect-free or self-cleaning checks used by the Advanced
-/// Settings diagnostics panel. The storage probe creates a unique file and
-/// removes it immediately, matching the startup storage preflight.
+/// Runs bounded diagnostics checks for the Advanced Settings panel.
+/// The storage probe creates a unique file and removes it immediately,
+/// matching the startup storage preflight.
 pub async fn runtime_diagnostics(
     crate::extract::Db(db): crate::extract::Db,
 ) -> (StatusCode, Json<Value>) {

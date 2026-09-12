@@ -430,7 +430,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
             "properties": {
                 "keyword": {
                     "type": "string",
-                    "description": "Search keyword, e.g. 轻音乐, 放松, 工作, 睡眠, 纯音乐"
+                    "description": "Search keyword, e.g. relax, work, sleep, light music. Leftover Chinese tags such as 轻音乐 still work."
                 },
                 "limit": {
                     "type": "integer",

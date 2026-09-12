@@ -435,11 +435,13 @@ test('the frame writer keeps exactly one behavior path', () => {
     new URL('./applyFrame.ts', import.meta.url),
     'utf8',
   )
-  const behaviorWrites = [...source.matchAll(/rig\.playBehaviorPlan\(/g)]
+  const behaviorWrites = Iterator.from(
+    source.matchAll(/rig\.playBehaviorPlan\(/g),
+  ).reduce((count) => count + 1, 0)
   assert.equal(
-    behaviorWrites.length,
+    behaviorWrites,
     1,
-    `applyFrame plays ${behaviorWrites.length} behavior paths, expected 1`,
+    `applyFrame plays ${behaviorWrites} behavior paths, expected 1`,
   )
   assert.match(source, /applyStanding\(rig, frame, state\)/)
   assert.match(source, /applySignals\(rig, frame, state\)/)

@@ -192,8 +192,8 @@ pub fn classify_stranded_running(
     }
 }
 
-/// Running intentions with no restored wait-loop never finish. Put them back
-/// to Accepted so the autonomy tick (or the proposal card) can claim again.
+/// Running intentions with no restored wait-loop never finish. No executor
+/// task → Accepted (tick/card can claim). Other persisted statuses → Failed.
 pub async fn reclaim_stranded_running_intentions(db: &DatabaseConnection) {
     let store = crate::services::agent::consciousness::IntentStore::new(db.clone());
     let running = match store.list_running(32).await {

@@ -1,8 +1,8 @@
-
 import type { Job, ReleaseManifest, UpdaterStatus } from '../../../services/updaterApi'
 import type { ChannelKey, Mood, Toast, Tone, U } from './helpers'
 import { LuRefreshCw } from '@lib/icons'
 import React from 'react'
+import { useI18n } from '../../../contexts/I18nContext'
 import {
   FieldSelect,
   SettingsButton,
@@ -65,6 +65,7 @@ export function StatusHero({
     auto_install?: boolean
   }) => Promise<void>
 }) {
+  const { locale } = useI18n()
   const { title: moodTitle, hint, tone: moodTone } = moodText(mood, u)
   const latest = status?.latest_available
   const targetVersion = available?.version ?? latest?.version
@@ -169,7 +170,7 @@ export function StatusHero({
   }
 
   const lastCheckedAbs = status?.last_checked_at
-    ? new Date(status.last_checked_at).toLocaleString()
+    ? new Date(status.last_checked_at).toLocaleString(locale)
     : null
   const checking = busy === 'check' || autoRechecking
 
@@ -299,7 +300,6 @@ export function StatusHero({
   )
 }
 
-
 export function ProgressCard({ job, u }: { job: Job; u: U }) {
   const done = job.steps.filter((s) => s.ok === true).length
   const total = Math.max(job.steps.length, done + 1)
@@ -364,7 +364,6 @@ export function ProgressCard({ job, u }: { job: Job; u: U }) {
     </div>
   )
 }
-
 
 const INTERVAL_OPTIONS: Array<{
   value: number

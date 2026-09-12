@@ -1333,7 +1333,8 @@ export async function createProject(directory, options = {}) {
         compilerOptions: {
           checkJs: true,
           noEmit: true,
-          lib: ['ES2022', 'DOM'],
+          target: 'ES2025',
+          lib: ['ES2025', 'DOM'],
           maxNodeModuleJsDepth: 0,
         },
         include: ['*.js', '**/*.js', 'types/**/*.d.ts'],

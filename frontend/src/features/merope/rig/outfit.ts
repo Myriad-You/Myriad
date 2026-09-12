@@ -20,7 +20,7 @@ export function createOutfitProfile(
   const rules = topologies.map((topology) => OUTFIT_SAFETY_RULES[topology])
   return {
     topologies,
-    secondaryPartIds: [...new Set(secondaryPartIds)],
+    secondaryPartIds: Iterator.from(new Set(secondaryPartIds)).toArray(),
     torsoTwistScale: Math.min(...rules.map((rule) => rule.torsoTwistScale)),
     secondaryMotionScale: Math.min(
       ...rules.map((rule) => rule.secondaryMotionScale),
@@ -63,5 +63,7 @@ function uniqueInCanonicalOrder(
   requested: readonly RigOutfitTopology[],
 ): RigOutfitTopology[] {
   const unique = new Set(requested)
-  return RIG_OUTFIT_TOPOLOGIES.filter((topology) => unique.has(topology))
+  return Iterator.from(RIG_OUTFIT_TOPOLOGIES)
+    .filter((topology) => unique.has(topology))
+    .toArray()
 }

@@ -1,4 +1,5 @@
-/// 站点配置 - 统一管理 base_url 相关功能
+/// Public site URL for OAuth callback / Cookie Secure / frontend redirect.
+/// Federation Actor URLs use a separate `GLOBAL_CONFIG` fallback chain.
 ///
 /// 设计原则：
 /// 1. 数据库优先，配置为空时回退到环境变量
@@ -56,8 +57,8 @@ impl SiteConfig {
     /// `http://host:port` during bring-up; marking cookies Secure there makes
     /// the browser drop login/guest cookies and drifts Tapp grant subjects.
     ///
-    /// Other production gates (CORS, analytics salt) still use
-    /// [`AppConfig::is_production_environment`].
+    /// CORS uses [`AppConfig::is_production_environment`]. Analytics salt has
+    /// its own `is_production_environment()` in `intake_helpers`.
     pub async fn is_production() -> bool {
         let base_url = Self::get_base_url().await;
         base_url.starts_with("https://")

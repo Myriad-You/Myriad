@@ -33,7 +33,7 @@ export const BrewStory = forwardRef<
     picking?: boolean
     arrive?: number
   }
->(function BrewStory(
+>((
   {
     item,
     times,
@@ -49,7 +49,7 @@ export const BrewStory = forwardRef<
     arrive,
   },
   ref,
-) {
+) => {
   const topicKey = item.topic ? topicNameKey(item.topic) : null
   return (
     <StoryCard

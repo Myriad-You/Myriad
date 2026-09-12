@@ -81,7 +81,7 @@ export function TappStore({
   compact = false,
   fullscreen = false,
 }: TappStoreProps) {
-  const { t, locale } = useI18n()
+  const { t, locale, format } = useI18n()
   const navigate = useNavigate()
   const { isAuthenticated, isAdmin, hasChecked, checkAuth } = useAuth()
   const [searchQuery, setSearchQuery] = useState('')
@@ -299,7 +299,7 @@ export function TappStore({
   const catalogSettled = !loading || remoteApps.length > 0 || error != null
 
   const allApps: UnifiedAppItem[] = useMemo(() => {
-    const merged: UnifiedAppItem[] = [...remoteAppsUnified]
+    const merged: UnifiedAppItem[] = Iterator.from(remoteAppsUnified).toArray()
     if (catalogSettled) {
       for (const localApp of localApps) {
         if (!merged.some((r) => r.id === localApp.id)) {
@@ -379,7 +379,7 @@ export function TappStore({
     return Number.isFinite(timestamp) ? timestamp : 0
   }
 
-  const filteredApps = allApps.filter((app) => {
+  const filteredAppsUnsorted = allApps.filter((app) => {
     if (searchQuery) {
       const query = searchQuery.toLowerCase()
       const matchName = app.name.toLowerCase().includes(query)
@@ -419,31 +419,31 @@ export function TappStore({
     return a.name.localeCompare(b.name, locale)
   }
 
-  if (selectedCategory === '__installed__') {
-    filteredApps.sort((a, b) => {
-      const categoryOrder =
-        TAPP_CATEGORIES.indexOf(a.category) -
-        TAPP_CATEGORIES.indexOf(b.category)
-      const dateOrder =
-        parseDate(installedTapps.get(b.id)?.installedAt) -
-        parseDate(installedTapps.get(a.id)?.installedAt)
+  const filteredApps =
+    selectedCategory === '__installed__'
+      ? filteredAppsUnsorted.toSorted((a, b) => {
+          const categoryOrder =
+            TAPP_CATEGORIES.indexOf(a.category) -
+            TAPP_CATEGORIES.indexOf(b.category)
+          const dateOrder =
+            parseDate(installedTapps.get(b.id)?.installedAt) -
+            parseDate(installedTapps.get(a.id)?.installedAt)
 
-      if (installedSortOrder === 'category') {
-        if (categoryOrder !== 0) return categoryOrder
-        if (dateOrder !== 0) return dateOrder
-      } else {
-        if (dateOrder !== 0) return dateOrder
-        if (categoryOrder !== 0) return categoryOrder
-      }
-      return a.name.localeCompare(b.name, locale)
-    })
-  } else if (selectedCategory) {
-    filteredApps.sort(compareCatalogSort)
-  }
+          if (installedSortOrder === 'category') {
+            if (categoryOrder !== 0) return categoryOrder
+            if (dateOrder !== 0) return dateOrder
+          } else {
+            if (dateOrder !== 0) return dateOrder
+            if (categoryOrder !== 0) return categoryOrder
+          }
+          return a.name.localeCompare(b.name, locale)
+        })
+      : selectedCategory
+        ? filteredAppsUnsorted.toSorted(compareCatalogSort)
+        : filteredAppsUnsorted
 
   const allAppsCatalogSorted = useMemo(() => {
-    const list = [...allApps]
-    list.sort((a, b) => {
+    return allApps.toSorted((a, b) => {
       if (categorySortOrder === 'date') {
         const dateOrder = parseDate(b.updatedAt) - parseDate(a.updatedAt)
         if (dateOrder !== 0) return dateOrder
@@ -453,18 +453,20 @@ export function TappStore({
       }
       return a.name.localeCompare(b.name, locale)
     })
-    return list
   }, [allApps, categorySortOrder, locale])
 
   const installedCurrentApps =
     selectedCategory === '__installed__'
-      ? filteredApps.filter((app) => !availableUpdateIds.has(app.id))
+      ? Iterator.from(filteredApps)
+          .filter((app) => !availableUpdateIds.has(app.id))
+          .toArray()
       : []
   const sortedAvailableUpdates =
     selectedCategory === '__installed__'
-      ? filteredApps
+      ? Iterator.from(filteredApps)
           .filter((app) => availableUpdateIds.has(app.id))
-          .sort((a, b) => {
+          .toArray()
+          .toSorted((a, b) => {
             const dateOrder =
               parseDate(b.updatedAt ?? installedTapps.get(b.id)?.installedAt) -
               parseDate(a.updatedAt ?? installedTapps.get(a.id)?.installedAt)
@@ -633,7 +635,7 @@ export function TappStore({
             ]),
         )
         notifyInstalled()
-        showSuccess(t.tapp.installSuccess.replace('{name}', app.name))
+        showSuccess(format(t.tapp.installSuccess, { name: app.name }))
       } catch (error) {
         console.error('Failed to install Tapp:', error)
         showError(
@@ -990,8 +992,8 @@ export function TappStore({
       const timestamp = Date.parse(value)
       return Number.isFinite(timestamp) ? timestamp : 0
     }
-    return [...allApps]
-      .sort((a, b) => {
+    return allApps
+      .toSorted((a, b) => {
         const dateOrder = parseDate(b.updatedAt) - parseDate(a.updatedAt)
         if (dateOrder !== 0) return dateOrder
         return a.name.localeCompare(b.name, locale)

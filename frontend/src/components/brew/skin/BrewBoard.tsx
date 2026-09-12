@@ -2,12 +2,12 @@ import type { ReactNode } from 'react'
 import type { BrewItemPreview, BrewSource } from '../../../types/brew'
 import type { BrewBoard } from '../logic/board'
 
-import { useNavigate } from 'react-router-dom'
+import type { FeedStory } from '../logic/feedStories'
 
+import type { HomeBoardNote } from '../logic/homeBoard'
+import { useNavigate } from 'react-router-dom'
 import { useI18n } from '../../../contexts/I18nContext'
 import { brewOwnItemPath, getIconUrl, getImageUrl } from '../constants'
-import { type FeedStory } from '../logic/feedStories'
-import { type HomeBoardNote } from '../logic/homeBoard'
 import { isSiteSource } from '../logic/board'
 import {
   BrewEmpty,

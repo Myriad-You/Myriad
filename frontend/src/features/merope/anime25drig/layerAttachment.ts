@@ -1,3 +1,4 @@
+import type { AttachmentMeshSample } from './attachmentMesh'
 import type { ChestWeightField } from './chestPhysics'
 import type {
   Anime25DSecondaryDeformationBinding,
@@ -5,10 +6,9 @@ import type {
 } from './secondaryDeformation'
 import type { Anime25DPlaybackAnchors, Anime25DPlaybackLayer } from './types'
 import { isAnime25DRigidAttachment } from '../rig/anime25dLayerSemantics'
+import { bindAttachmentMesh, offsetAttachmentMeshSample, sampleAttachmentMesh } from './attachmentMesh'
 import { sampleChestWeight } from './chestPhysics'
 import { deformAnime25DSecondaryPoint } from './secondaryDeformation'
-import { bindAttachmentMesh, sampleAttachmentMesh } from './attachmentMesh'
-import type { AttachmentMeshSample } from './attachmentMesh'
 
 interface AttachmentHost {
   source: Anime25DPlaybackLayer
@@ -16,6 +16,7 @@ interface AttachmentHost {
   rest?: Float32Array
   deformed?: Float32Array
   indices?: Uint16Array
+  layerTransform?: Float32Array
 }
 
 export interface Anime25DAttachmentPixels {
@@ -128,8 +129,9 @@ export function bindNeckwearBridge(
     source.role !== 'neckwear' ||
     source.y >= anchors.neckBottom ||
     source.y + source.h <= anchors.neckBottom
-  )
+  ) {
     return null
+}
   const samples = attachmentFootprint(source, readPixels(source))
   const upperPoints = samples.filter((p) => p.y < anchors.neckBottom)
   const lowerPoints = samples.filter((p) => p.y >= anchors.neckBottom)
@@ -156,8 +158,8 @@ export function bindNeckwearBridge(
       canvasWidth,
     )
   }
-  const upper = bind(upperPoints, 'neck'),
-    lower = bind(lowerPoints, 'topwear')
+  const upper = bind(upperPoints, 'neck')
+    const lower = bind(lowerPoints, 'topwear')
   if (!upper || !lower) return null
   const span = Math.max(
     1,
@@ -187,12 +189,12 @@ export function deformNeckwearBridge(
 ): void {
   writeAnime25DAttachmentTransform(bridge.upper, frame, bridge.upperMatrix)
   writeAnime25DAttachmentTransform(bridge.lower, frame, bridge.lowerMatrix)
-  const a = bridge.upperMatrix,
-    b = bridge.lowerMatrix
+  const a = bridge.upperMatrix
+    const b = bridge.lowerMatrix
   for (let i = 0; i < bridge.weights.length; i++) {
-    const x = rest[i * 2],
-      y = rest[i * 2 + 1],
-      w = bridge.weights[i]
+    const x = rest[i * 2]
+      const y = rest[i * 2 + 1]
+      const w = bridge.weights[i]
     output[i * 2] =
       (a[0] * x + a[3] * y + a[6]) * (1 - w) + (b[0] * x + b[3] * y + b[6]) * w
     output[i * 2 + 1] =
@@ -315,11 +317,16 @@ export function bindAnime25DLayerAttachment(
     host.rest &&
     host.deformed &&
     host.indices &&
-    !host.secondaryDeformation.shaderGlobalTransform
-      ? { rest: host.rest, deformed: host.deformed, indices: host.indices }
+    (!host.secondaryDeformation.shaderGlobalTransform || host.layerTransform)
+      ? {
+          rest: host.rest,
+          deformed: host.deformed,
+          indices: host.indices,
+          transform: host.layerTransform,
+        }
       : null
   const originSample = mesh ? bindAttachmentMesh(mesh, x, y) : null
-  const tangentSample = mesh ? bindAttachmentMesh(mesh, x + 1, y) : null
+  const tangentSample = originSample ? offsetAttachmentMeshSample(originSample, 1, 0) : null
   return {
     hostName: host.source.name,
     hostSource: host.source,

@@ -315,7 +315,6 @@ html[data-perf-mode='exlight']:not([data-surface]) .glass-solid {
 
 .animating {
   will-change: transform, opacity;
-
   text-rendering: optimizespeed;
   image-rendering: auto;
 }

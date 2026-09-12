@@ -27,7 +27,7 @@ export const PLATFORM_SOCIAL: Record<
       if (id.startsWith('UC') && id.length >= 20) {
         return `https://www.youtube.com/channel/${id}`
       }
-      const handle = id.replace(/^@/, '')
+      const handle = id.replaceAll(/^@/g, '')
       return `https://www.youtube.com/@${handle}`
     },
   },
@@ -49,7 +49,7 @@ export const PLATFORM_SOCIAL: Record<
   x: {
     publicName: 'X',
     fieldKey: 'username',
-    getUserUrl: (u) => `https://x.com/${String(u).replace(/^@/, '')}`,
+    getUserUrl: (u) => `https://x.com/${String(u).replaceAll(/^@/g, '')}`,
   },
   xbox: {
     publicName: 'Xbox',

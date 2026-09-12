@@ -15,11 +15,15 @@ function parseRouterPrefixes(rust: string): string[] {
     /pub const VALID_ROUTER_PREFIXES: &\[&str\] = &\[([\s\S]*?)\];/,
   )
   assert.ok(block, 'VALID_ROUTER_PREFIXES must exist')
-  return [...block[1].matchAll(/"([^"]+)"/g)].map((match) => match[1])
+  return Iterator.from(block[1].matchAll(/"([^"]+)"/g))
+    .map((match) => match[1])
+    .toArray()
 }
 
 function parseAppRoutes(tsx: string): string[] {
-  return [...tsx.matchAll(/path=["']([^"']+)["']/g)].map((match) => match[1])
+  return Iterator.from(tsx.matchAll(/path=["']([^"']+)["']/g))
+    .map((match) => match[1])
+    .toArray()
 }
 
 describe('router.navigate allow-list', () => {

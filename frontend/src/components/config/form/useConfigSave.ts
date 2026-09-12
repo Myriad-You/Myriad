@@ -312,7 +312,7 @@ export function useConfigSave(args: {
         if (result?.success === false) {
           throw new Error(result.message || t.config.configSaveFailed)
         }
-        const snapshot = JSON.parse(JSON.stringify(config)) as Config
+        const snapshot = structuredClone(config)
         pendingClean.push(() => setInitialConfig(snapshot))
       }
 
@@ -424,7 +424,7 @@ export function useConfigSave(args: {
       }
 
       if (hasFavoriteChanges) {
-        const nextFav = [...favorites]
+        const nextFav = Iterator.from(favorites).toArray()
         pendingClean.push(() => {
           localStorage.setItem('config_favorites', JSON.stringify(nextFav))
           setSavedFavorites(nextFav)

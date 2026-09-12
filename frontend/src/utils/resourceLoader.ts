@@ -102,7 +102,7 @@ class ResourceLoader {
   cancelTask(id: string): void {
     const index = this.queue.findIndex((t) => t.id === id)
     if (index !== -1) {
-      this.queue.splice(index, 1)
+      this.queue = this.queue.toSpliced(index, 1)
     }
     this.cancelScheduledIdleTask(id)
   }
@@ -112,7 +112,7 @@ class ResourceLoader {
   }
 
   private sortQueue(): void {
-    this.queue.sort((a, b) => a.priority - b.priority)
+    this.queue = this.queue.toSorted((a, b) => a.priority - b.priority)
   }
 
   private async processQueue(): Promise<void> {
@@ -267,7 +267,7 @@ class ResourceLoader {
   async waitForCritical(): Promise<void> {
     while (
       this.queue.some((t) => t.priority <= LoadPriority.HIGH) ||
-      Array.from(this.activeLoads).some((id) => {
+      Iterator.from(this.activeLoads).some((id) => {
         const task = this.queue.find((t) => t.id === id)
         return task && task.priority <= LoadPriority.HIGH
       })
@@ -317,7 +317,7 @@ class ResourceLoader {
   clear(): void {
     this.queue = []
     this.activeLoads.clear()
-    for (const id of [...this.scheduledIdleTasks.keys()]) {
+    for (const id of Iterator.from(this.scheduledIdleTasks.keys()).toArray()) {
       this.cancelScheduledIdleTask(id)
     }
   }

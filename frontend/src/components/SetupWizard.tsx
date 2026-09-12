@@ -18,10 +18,9 @@ import React, {
 } from 'react'
 import { API_URL } from '../config'
 import { useI18n } from '../contexts/I18nContext'
-import { assertConfigWriteSuccess } from '../lib/api'
+import { updateConfig } from '../lib/api'
 import { ApiError } from '../services/api'
 import { parseAuthMeResponse } from '../utils/authMe'
-import { getCSRFHeaderName, getCSRFToken } from '../utils/csrf'
 import { consumeSetupSecretFromLocation } from '../utils/setupSecretFromUrl'
 import { userFacingError } from '../utils/userFacingError'
 import { InputItem, SegmentedControl, SwitchItem } from './settings'
@@ -121,7 +120,7 @@ async function getResponseError(response: Response, fallback: string) {
 }
 
 const SetupWizard: React.FC = () => {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const [status, setStatus] = useState<SetupStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -190,10 +189,9 @@ const SetupWizard: React.FC = () => {
       const healthResponse = await fetch(`${API_URL}/health`)
       if (!healthResponse.ok) {
         throw new Error(
-          t.errors.backendUnreachable.replace(
-            '{status}',
-            String(healthResponse.status),
-          ),
+          format(t.errors.backendUnreachable, {
+            status: healthResponse.status,
+          }),
         )
       }
       const healthData = await healthResponse.json()
@@ -201,10 +199,9 @@ const SetupWizard: React.FC = () => {
       const configResponse = await fetch(`${API_URL}/api/setup/config`)
       if (!configResponse.ok) {
         throw new Error(
-          t.errors.setupConfigFailed.replace(
-            '{status}',
-            String(configResponse.status),
-          ),
+          format(t.errors.setupConfigFailed, {
+            status: configResponse.status,
+          }),
         )
       }
       const setupConfig = await configResponse.json()
@@ -258,10 +255,7 @@ const SetupWizard: React.FC = () => {
           return
         }
         throw new Error(
-          t.errors.setupCheckFailed.replace(
-            '{status}',
-            String(response.status),
-          ),
+          format(t.errors.setupCheckFailed, { status: response.status }),
         )
       }
       const data = await response.json()
@@ -281,7 +275,7 @@ const SetupWizard: React.FC = () => {
     } finally {
       setLoading(false)
     }
-  }, [t])
+  }, [t, format])
 
   useEffect(() => {
     void checkSetupStatus()
@@ -430,7 +424,7 @@ const SetupWizard: React.FC = () => {
             return
           }
         }
-      } catch (_err) {
+      } catch {
       }
 
       if (attempts < maxAttempts) {
@@ -576,31 +570,12 @@ const SetupWizard: React.FC = () => {
         memory_saver_enabled: siteForm.memorySaver ? 'true' : 'false',
       }
       config.ui_config.config_fields = fields.map((field: any) =>
-        field && typeof field.key === 'string' && field.key in patch
+        field && typeof field.key === 'string' && Object.hasOwn(patch, field.key)
           ? { ...field, value: patch[field.key] }
           : field,
       )
 
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      }
-      const csrfToken = await getCSRFToken()
-      if (csrfToken) {
-        headers[getCSRFHeaderName()] = csrfToken
-      }
-
-      const saved = await fetch(`${API_URL}/api/config`, {
-        method: 'POST',
-        headers,
-        credentials: 'include',
-        body: JSON.stringify(config),
-      })
-      // 写入可能 200 + success:false，不能只看状态码。
-      assertConfigWriteSuccess(
-        saved.status,
-        await saved.json().catch(() => null),
-        t.setup.siteInfoFailed,
-      )
+      await updateConfig(config)
 
       await finishSetup()
     } catch (err: unknown) {
@@ -793,19 +768,19 @@ const SetupWizard: React.FC = () => {
           stepName={stepName || undefined}
           current={stepIndex || undefined}
           total={stepIndex ? TOTAL_STEPS : undefined}
-          progressText={t.setup.stepOf
-            .replace('{current}', String(stepIndex))
-            .replace('{total}', String(TOTAL_STEPS))}
+          progressText={format(t.setup.stepOf, {
+            current: stepIndex,
+            total: TOTAL_STEPS,
+          })}
           back={
             stage === 'database' ||
             stage === 'migrate' ||
             stage === 'admin' ||
             stage === 'site' ? (
               <BackButton
-                label={t.setup.backTo.replace(
-                  '{step}',
-                  t.setup.welcomeStepShort,
-                )}
+                label={format(t.setup.backTo, {
+                  step: t.setup.welcomeStepShort,
+                })}
                 destination={t.setup.welcomeStepShort}
                 disabled={
                   savingDb || migratingDb || creatingAdmin || savingSite
@@ -905,7 +880,7 @@ const SetupWizard: React.FC = () => {
                   title={
                     greetingName ? (
                       <>
-                        {t.setup.doneGreeting.replace('{name}', greetingName)}
+                        {format(t.setup.doneGreeting, { name: greetingName })}
                         <br />
                         {t.setup.doneReadyTitle}
                       </>

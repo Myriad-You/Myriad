@@ -158,7 +158,7 @@ test('stencil execution isolates both eyes and collars across paint orders and f
         if (color && opacity > 0) painted.set(bound, visible)
       },
     })
-    const layers = [
+    let layers = [
       renderLayer('irides_L', 'iris', 1, 6),
       renderLayer('eyewhite_R', 'eyewhite', 0, 6),
       renderLayer('irides_R', 'iris', 1, 6),
@@ -169,7 +169,7 @@ test('stencil execution isolates both eyes and collars across paint orders and f
     const hiddenVariant = renderLayer('hidden_white_L', 'ordinary', 0, 6)
     hiddenVariant.renderKind = 'eyewhite'
     layers.push(hiddenVariant)
-    layers.splice(collarIndex, 0, renderLayer('neck', 'neck', 1, 6))
+    layers = layers.toSpliced(collarIndex, 0, renderLayer('neck', 'neck', 1, 6))
     const frame = {
       viewWidth: 5,
       viewHeight: 1,

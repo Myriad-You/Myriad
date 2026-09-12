@@ -101,7 +101,7 @@ test('speech, singing and musical rest preserve the current negative bearing', (
         viseme,
         amount: 0.8,
       })
-      assert.equal('mouthForm' in articulation, false)
+      assert.equal(Object.hasOwn(articulation, 'mouthForm'), false)
       Object.assign(driver, articulation)
       assert.equal(driver.mouthForm, bearing.mouthForm)
       assert.equal(driver.browAngSym, bearing.browAngSym)

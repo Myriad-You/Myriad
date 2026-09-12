@@ -23,7 +23,7 @@ pub struct AiUsageSummaryQuery {
     pub from: Option<String>,
     /// Inclusive end day `YYYY-MM-DD`.
     pub to: Option<String>,
-    /// Optional filter: ledger subject (user id). `0` = anonymous / guest ledger rows.
+    /// Optional filter: ledger subject (user id). `0` is unattributed `internal` fallback; guests are negative ids.
     pub subject_id: Option<i32>,
     /// Optional exact model id filter.
     pub model: Option<String>,

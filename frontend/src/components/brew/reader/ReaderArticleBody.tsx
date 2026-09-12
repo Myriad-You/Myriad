@@ -7,6 +7,7 @@ import {
   LuUser as User,
 } from '@lib/icons'
 import { useMemo } from 'react'
+import { useI18n } from '../../../contexts/I18nContext'
 import { neighborsInQueue } from '../logic/readingQueue'
 import { getArticleProseClass } from './articleProseClass'
 import { getImageUrl } from './contentRender'
@@ -45,16 +46,17 @@ export function ReaderArticleBody({
   onNavigateToArticle,
   readingQueue,
 }: ReaderArticleBodyProps) {
+  const { locale, format } = useI18n()
   const queueNav = neighborsInQueue(readingQueue, item.id)
 
   const formattedDate = useMemo(() => {
     if (!item.published_at) return ''
-    return new Date(item.published_at).toLocaleDateString('zh-CN', {
+    return new Date(item.published_at).toLocaleDateString(locale, {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
     })
-  }, [item.published_at])
+  }, [item.published_at, locale])
 
   return (
           <div
@@ -96,15 +98,12 @@ export function ReaderArticleBody({
               {item.reading_time && (
                 <span className="flex items-center gap-1.5">
                   <Clock className="w-4 h-4" />
-                  {t.brew.readingTime.replace(
-                    '{time}',
-                    String(item.reading_time),
-                  )}
+                  {format(t.brew.readingTime, { time: item.reading_time })}
                 </span>
               )}
               {item.word_count && (
                 <span>
-                  {item.word_count.toLocaleString()} {t.brew.wordCount}
+                  {item.word_count.toLocaleString(locale)} {t.brew.wordCount}
                 </span>
               )}
             </div>

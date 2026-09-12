@@ -48,7 +48,11 @@ export interface MusicMotionClock {
 }
 
 export interface MusicMotionAudio {
-  getCurrentAudio: () => { paused: boolean; currentTime: number } | null
+  getCurrentAudio: () => {
+    paused: boolean
+    currentTime: number
+    ended?: boolean
+  } | null
   getMotionAudioFeatures: (audio: {
     paused: boolean
     currentTime: number
@@ -213,7 +217,13 @@ export class MusicMotionSource {
 
   sampleNow(timestamp: number = this.clock.now()): SingingFrame {
     const nowMs = timestamp
-    const gap = singingPlaybackGap(this.playing, this.switching)
+    const audio = this.audio.getCurrentAudio()
+    // The media element can finish before the React playback snapshot catches
+    // up. A finished song is not an indefinitely quiet/settling music lease.
+    const gap = singingPlaybackGap(
+      this.playing && !audio?.ended,
+      this.switching,
+    )
     let holdExpired = false
     if (gap === 'hold') {
       if (!this.holdUntil) this.holdUntil = timestamp + TRACK_SWITCH_HOLD_MS
@@ -222,7 +232,6 @@ export class MusicMotionSource {
       this.holdUntil = 0
     }
 
-    const audio = this.audio.getCurrentAudio()
     const audioPaused = !audio || audio.paused
     if (audio && this.connectedAudio !== audio) {
       this.connectedAudio = this.audio.connectAudioToAnalyser(audio)

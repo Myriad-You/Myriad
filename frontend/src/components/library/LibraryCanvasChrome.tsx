@@ -328,7 +328,7 @@ interface LibraryCanvasChromePaint {
 let chromePaint: LibraryCanvasChromePaint | null = null
 
 function readLibraryCanvasChromePaint(): LibraryCanvasChromePaint | null {
-  if (chromePaint && chromePaint.zoomLabel.isConnected) return chromePaint
+  if (chromePaint?.zoomLabel.isConnected) return chromePaint
   const zoomLabel = document.querySelector<HTMLElement>(
     '[data-library-canvas-zoom-percent]',
   )

@@ -1,7 +1,6 @@
-//! 图标下载并写入 `{DATA_DIR}/brew/icons`（每次 GET，无读取缓存）。
+//! 写入 `{DATA_DIR}/brew/icons`（`paths().brew_icons`）。HTTP 分支每次拉取并覆盖，不读已有文件。
 //!
 //! 负责下载网站图标并存储到本地，避免直接引用外链。
-//! 图标存储在 data/brew/icons/ 目录下（可通过 DATA_DIR 环境变量配置）。
 
 use super::data_paths::paths;
 use base64::Engine;
@@ -12,7 +11,7 @@ use tokio::fs;
 use tracing::{debug, error, info, warn};
 
 const MIN_ICON_BYTES: usize = 10;
-const MAX_ICON_DATA_URI_BYTES: usize = 512 * 1024;
+const MAX_ICON_BYTES: usize = 512 * 1024;
 
 fn icon_io_failed(action: &'static str, error: std::io::Error) -> String {
     tracing::error!(%error, action, "icon io failed");
@@ -41,13 +40,13 @@ pub(crate) fn parse_icon_data_uri(icon: &str) -> Option<(Vec<u8>, &'static str)>
         return None;
     }
     let mime = metadata.split(';').next()?.trim();
-    if encoded.len() > MAX_ICON_DATA_URI_BYTES.div_ceil(3) * 4 {
+    if encoded.len() > MAX_ICON_BYTES.div_ceil(3) * 4 {
         return None;
     }
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(encoded.trim())
         .ok()?;
-    if bytes.len() < MIN_ICON_BYTES || bytes.len() > MAX_ICON_DATA_URI_BYTES {
+    if bytes.len() < MIN_ICON_BYTES || bytes.len() > MAX_ICON_BYTES {
         return None;
     }
     Some((bytes, IconService::get_extension(Some(mime), "")))
@@ -111,7 +110,7 @@ impl IconService {
         } else if url_lower.ends_with(".ico") {
             "ico"
         } else {
-            // 默认使用 ico（大多数 favicon 是这种格式）
+            // 默认 ico
             "ico"
         }
     }
@@ -123,7 +122,7 @@ impl IconService {
     /// * `icon_url` - http(s) URL or `data:image/*;base64,...`
     ///
     /// # Returns
-    /// * `Ok(Some(IconInfo))` - 下载成功，返回本地路径信息
+    /// * `Ok(Some(IconInfo))` — 写入成功；`local_path` 为 `/api/brew/icons/{filename}`
     /// * `Ok(None)` - 下载失败但不是错误（如 404）
     /// * `Err` - 发生错误
     pub async fn download_icon(
@@ -197,16 +196,10 @@ impl IconService {
         // 获取扩展名
         let extension = Self::get_extension(content_type, icon_url);
 
-        // 读取内容
-        let bytes = response.bytes().await.map_err(|error| {
-            tracing::warn!(%error, "failed to read icon bytes");
-            crate::services::agent::external_pure::classify_outbound_fetch(
-                "Failed to read icon bytes",
-                &error.to_string(),
-            )
-        })?;
+        // Bound the body while reading, including responses without Content-Length.
+        let bytes = myriad_outbound::read_limited_body(response, MAX_ICON_BYTES).await?;
 
-        // HTTP path: reject `len < MIN_ICON_BYTES` (10). No magic-byte check; no max.
+        // Ignore empty / tiny responses before persisting.
         if bytes.len() < MIN_ICON_BYTES {
             warn!(
                 "Downloaded icon for source {} is too small ({} bytes), skipping",

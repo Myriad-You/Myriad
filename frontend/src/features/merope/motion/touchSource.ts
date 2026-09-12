@@ -1,5 +1,5 @@
-import type { TouchObservation } from '../interaction/touchGesture'
 import type { PerformanceDirective } from '../../../services/agent/types'
+import type { TouchObservation } from '../interaction/touchGesture'
 import type { PresentedTouchReaction, TouchReaction } from '../interaction/touchReaction'
 import type { BehaviorPlan } from './behavior'
 import type { MotionLeaseHandle, RigMotionCoordinator } from './coordinator'
@@ -29,6 +29,7 @@ export class TouchMotionSource {
   private presented: { owner: string; contactId: number; reaction: TouchReaction } | null = null
   private remembered: { owner: string; region: TouchObservation['region']; reaction: TouchReaction;
     band: ReturnType<typeof moodBand>; expiresAt: number; plan: BehaviorPlan } | null = null
+
   private speech: { messageId: string; plan: BehaviorPlan; expiresAt: number; started: boolean } | null = null
   private speechLease: MotionLeaseHandle | null = null
   private completedSpeech: { owner: string; reaction: TouchReaction; plan: BehaviorPlan; expiresAt: number } | null = null
@@ -38,7 +39,8 @@ export class TouchMotionSource {
     this.completedSpeech = null
     const remembered = this.remembered
     if (this.lastTouch || !remembered || remembered.owner !== owner
-      || remembered.reaction !== reaction || nowMs >= remembered.expiresAt || reaction === 'notice') return
+      || remembered.reaction !== reaction || nowMs >= remembered.expiresAt || reaction === 'notice') { return
+}
     this.completedSpeech = { owner, reaction: remembered.reaction, plan: remembered.plan, expiresAt: nowMs + 20_000 }
   }
 
@@ -99,8 +101,9 @@ export class TouchMotionSource {
     }
     if (!active) return null
     speech.started = true
-    if (!this.plan) this.speechLease = this.coordinator.renew(this.speechLease, ['expression', 'gaze', 'headBody'], { nowMs })
+    if (!this.plan) { this.speechLease = this.coordinator.renew(this.speechLease, ['expression', 'gaze', 'headBody'], { nowMs })
       ?? this.coordinator.claim('performance', ['expression', 'gaze', 'headBody'], { nowMs })
+}
     return this.plan ? null : speech.plan
   }
 
@@ -260,7 +263,8 @@ export class TouchMotionSource {
   release(owner?: string, preserveEncounter = false): void {
     if (owner !== undefined && this.owner !== null && owner !== this.owner) return
     if (owner !== undefined && owner !== this.owner
-      && owner !== this.presented?.owner && owner !== this.remembered?.owner) return
+      && owner !== this.presented?.owner && owner !== this.remembered?.owner) { return
+}
     const changed = this.plan !== null || (!preserveEncounter && this.speech !== null)
     if (!preserveEncounter) { this.presented = null; this.remembered = null; this.completedSpeech = null; this.clearSpeech() }
     this.continuedReaction = null

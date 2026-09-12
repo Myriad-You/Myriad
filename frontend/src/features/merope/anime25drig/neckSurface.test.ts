@@ -89,19 +89,21 @@ function fixture() {
 
 test('a short exact overlap seeds a wider shadow gradient without disabling the neck repair', () => {
   const f = fixture()
-  for (let y = 70; y < 92; y++)
+  for (let y = 70; y < 92; y++) {
     for (let x = 0; x < 40; x++) {
       f.neckPixels.pixels.set([227, 192, 182, 255], (y * 40 + x) * 4)
     }
+}
   const plan = resolveAnime25DNeckSurface(f.layers, anchors, f.read)
   assert.ok(plan)
   assert.equal(plan.fadeStart, 0.705)
   assert.equal(plan.fadeEnd, 0.965)
   // Similar shading without the strongly matching seed is still insufficient.
-  for (let y = 92; y <= 96; y++)
+  for (let y = 92; y <= 96; y++) {
     for (let x = 0; x < 40; x++) {
       f.neckPixels.pixels.set([227, 192, 182, 255], (y * 40 + x) * 4)
     }
+}
   assert.equal(resolveAnime25DNeckSurface(f.layers, anchors, f.read), null)
 })
 
@@ -296,9 +298,9 @@ test('resampling and mild colour noise do not switch open skin into garment topo
       return pixels(image.width * scale, image.height * scale, (x, y) => {
         const offset =
           (Math.floor(y / scale) * image.width + Math.floor(x / scale)) * 4
-        return [...image.pixels.subarray(offset, offset + 4)].map((v, i) =>
-          i < 3 ? v + (((x + y) % 3) - 1) : v,
-        )
+        return Iterator.from(image.pixels.subarray(offset, offset + 4))
+          .map((v, i) => (i < 3 ? v + (((x + y) % 3) - 1) : v))
+          .toArray()
       })
     }
     const actual = resolveAnime25DNeckSurface(f.layers, anchors, read)!
@@ -322,7 +324,7 @@ for (const jewelryOrder of ['before-neck', 'before-body', 'after-body']) {
           ? [f.neck, jewelry, f.body]
           : [f.neck, f.body, jewelry]
     const playback = {
-      layers: [...importedLayers],
+      layers: Iterator.from(importedLayers).toArray(),
       anchors,
       pixelCanvas: { width: 1024, height: 1365 },
     } as Anime25DPlayback

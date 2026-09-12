@@ -1,4 +1,3 @@
-
 import type {
   ContentFilterItem,
   DeliveryQueueItem,
@@ -191,7 +190,7 @@ export const FederationConfigSection: React.FC<
   onPolicyChange,
   onMessage,
 }) => {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const c = t.config
   const { catalog: g, bindGuide } = useSettingGuide()
   const [instances, setInstances] = useState<FederationInstance[]>([])
@@ -660,9 +659,10 @@ export const FederationConfigSection: React.FC<
 
   const instanceFooter =
     instanceQueryActive && instances.length > 0 && !instanceListTruncated
-      ? c.federationInstanceShowing
-          .replace('{shown}', String(filteredInstances.length))
-          .replace('{total}', String(instances.length))
+      ? format(c.federationInstanceShowing, {
+          shown: filteredInstances.length,
+          total: instances.length,
+        })
       : undefined
 
   const filterStats = useMemo((): ManagedListStat[] => {
@@ -705,7 +705,7 @@ export const FederationConfigSection: React.FC<
     for (const f of filters) {
       if (f.enabled) enabled++
       else disabled++
-      if (f.filter_type in typeCounts) {
+      if (Object.hasOwn(typeCounts, f.filter_type)) {
         typeCounts[f.filter_type]++
       }
     }
@@ -774,9 +774,10 @@ export const FederationConfigSection: React.FC<
 
   const contentFilterFooter =
     contentFilterQueryActive && filters.length > 0
-      ? c.federationFilterShowing
-          .replace('{shown}', String(filteredContentFilters.length))
-          .replace('{total}', String(filters.length))
+      ? format(c.federationFilterShowing, {
+          shown: filteredContentFilters.length,
+          total: filters.length,
+        })
       : undefined
 
   const filterListItems: ManagedListItem[] = useMemo(
@@ -988,9 +989,7 @@ export const FederationConfigSection: React.FC<
               instances.length > 8 ? INSTANCE_LIST_CAP : null
             }
             truncateFooter={(shown, total) =>
-              c.federationInstanceShowing
-                .replace('{shown}', String(shown))
-                .replace('{total}', String(total))
+              format(c.federationInstanceShowing, { shown, total })
             }
           />
         </SettingGroup>

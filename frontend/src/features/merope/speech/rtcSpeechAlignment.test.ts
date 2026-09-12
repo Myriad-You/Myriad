@@ -88,10 +88,11 @@ test('only the selected AgentRun and agent publisher can drive the mouth', async
 
 test('a late compilation cannot overwrite the next turn', async () => {
   let finish: ((value: TextVisemeCue[]) => void) | undefined
-  const slowCompiler = () =>
-    new Promise<TextVisemeCue[]>((resolve) => {
-      finish = resolve
-    })
+  const slowCompiler = () => {
+    const deferred = Promise.withResolvers<TextVisemeCue[]>()
+    finish = deferred.resolve
+    return deferred.promise
+  }
   const alignment = new RtcSpeechAlignment('8888', 'room', slowCompiler)
   alignment.select(7)
   const update = alignment.update(

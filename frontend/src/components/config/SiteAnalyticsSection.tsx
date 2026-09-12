@@ -1,4 +1,3 @@
-
 import type { ReactNode } from 'react'
 import type { SettingOption } from '../settings/types'
 import type { ToastType } from '../Toast'
@@ -83,7 +82,7 @@ function AnalyticsTextBlock({
   titleExtra?: ReactNode
   children: ReactNode
 }) {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const helpCtx = useSettingsHelp()
   const expandHelp = Boolean(helpCtx?.showDetails)
   const showHelp = Boolean(description)
@@ -99,10 +98,7 @@ function AnalyticsTextBlock({
           {title}
           {showHelp && !expandHelp ? (
             <SettingTitleHelp
-              ariaLabel={t.config.detailHelpAriaNamed.replace(
-                '{title}',
-                title,
-              )}
+              ariaLabel={format(t.config.detailHelpAriaNamed, { title })}
             >
               {description}
             </SettingTitleHelp>
@@ -197,8 +193,9 @@ interface AnalyticsSummary {
 function flagEmoji(code: string): string {
   const cc = code.trim().toUpperCase()
   if (!/^[A-Z]{2}$/.test(cc)) return '🏳️'
-  const cps = [...cc].map((c) => 0x1F1E6 - 65 + c.charCodeAt(0))
-  return String.fromCodePoint(...cps)
+  return String.fromCodePoint(
+    ...Iterator.from(cc).map((c) => 0x1F1E6 - 65 + c.charCodeAt(0)),
+  )
 }
 
 function pageLabel(
@@ -275,11 +272,10 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
   enabled = true,
   onEnabledChange,
 }) => {
-  const { t, locale } = useI18n()
+  const { t, locale, format } = useI18n()
   const { catalog: g, bindGuide, renderGuide } = useSettingGuide()
   const a = t.config.analytics
-  const numberLocale =
-    locale === 'zh-CN' ? 'zh-CN' : locale === 'ja-JP' ? 'ja-JP' : 'en-US'
+  const numberLocale = locale
 
   const [range, setRange] = useState<AnalyticsRangeState>(() =>
     defaultAnalyticsRange(),
@@ -450,9 +446,10 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
 
   const countryRows = useMemo(
     () =>
-      [...(data?.countries ?? [])]
+      Iterator.from(data?.countries ?? [])
         .filter((c) => c.code && (c.unique_visitors > 0 || c.views > 0))
-        .sort(
+        .toArray()
+        .toSorted(
           (a, b) =>
             b.unique_visitors - a.unique_visitors ||
             b.views - a.views ||
@@ -731,7 +728,7 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
             <div className="site-analytics-tile">
               <span className="site-analytics-tile-label">
                 <LuEye size={13} aria-hidden />
-                {a.rangeViews.replace('{n}', String(dayCount))}
+                {format(a.rangeViews, { n: dayCount })}
               </span>
               <div className="site-analytics-tile-metric">
                 <span className="site-analytics-tile-value">
@@ -750,7 +747,7 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
             <div className="site-analytics-tile">
               <span className="site-analytics-tile-label">
                 <LuUsers size={13} aria-hidden />
-                {a.rangeVisitors.replace('{n}', String(dayCount))}
+                {format(a.rangeVisitors, { n: dayCount })}
               </span>
               <div className="site-analytics-tile-metric">
                 <span className="site-analytics-tile-value">
@@ -834,7 +831,7 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
                 <div className="site-analytics-country-tip" role="tooltip">
                   <div className="site-analytics-country-tip-head">
                     {a.topCountries}
-                    <small>{a.daysN.replace('{n}', String(dayCount))}</small>
+                    <small>{format(a.daysN, { n: dayCount })}</small>
                   </div>
                   <ul className="site-analytics-country-tip-list">
                     {countryRows.map((c, i) => (

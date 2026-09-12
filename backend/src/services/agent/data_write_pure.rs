@@ -1,4 +1,4 @@
-//! Pure validation and projection for agent data_write handlers.
+//! Pure validation and prioritization for agent data_write handlers.
 //!
 //! Handlers keep DB/FS/HTTP. Domain owns:
 //! - feed name sanitization

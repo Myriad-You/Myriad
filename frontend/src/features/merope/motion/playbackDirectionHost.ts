@@ -50,7 +50,7 @@ export const playbackDirection = new PlaybackDirectionClient({
             .filter(Boolean)
             .join('\n')
           return {
-            upcomingText: [...upcoming].slice(0, 900).join(''),
+            upcomingText: Iterator.from(upcoming).take(900).toArray().join(''),
             rig: captureProductionRigStateSummary(),
           }
         },

@@ -4,11 +4,11 @@ export function cssUrl(url: string | null | undefined): string {
   if (!s) return 'none'
 
   const escaped = s
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, '\\A ')
-    .replace(/\r/g, '')
-    .replace(/\f/g, '')
+    .replaceAll('\\', '\\\\')
+    .replaceAll('"', '\\"')
+    .replaceAll('\n', '\\A ')
+    .replaceAll('\r', '')
+    .replaceAll('\f', '')
 
   return `url("${escaped}")`
 }

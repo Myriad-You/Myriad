@@ -325,7 +325,7 @@ export const AI_VENDOR_PRESETS: AiVendorPreset[] = [
 ]
 
 function slugBase(slug: string): string {
-  return slug.trim().replace(/-\d+$/, '')
+  return slug.trim().replaceAll(/-\d+$/g, '')
 }
 
 export function findVendorPreset(source: {
@@ -475,7 +475,7 @@ export function sourceFromPreset(
   const copy =
     slug === preset.defaultSlug
       ? ''
-      : slug.slice(preset.defaultSlug.length).replace(/^-+/, '')
+      : slug.slice(preset.defaultSlug.length).replaceAll(/^-+/g, '')
   return {
     slug,
     kind: preset.kind,

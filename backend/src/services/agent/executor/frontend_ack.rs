@@ -126,7 +126,7 @@ fn merge_ack(capability_id: &str, output: &mut Value, ack: &Value, context: &mut
     }
 }
 
-/// Register → emit step_completed → wait for the browser snapshot → merge.
+/// Register → optionally emit StepCompleted → wait → merge.
 pub async fn publish_and_await_snapshots(
     emitter: &StepEventEmitter,
     task_id: &str,

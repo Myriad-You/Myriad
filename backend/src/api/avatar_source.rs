@@ -29,7 +29,7 @@ type ApiError = (StatusCode, Json<Value>);
 pub struct SetAvatarSourceRequest {
     /// auto | account | identity | platform | persona
     pub kind: String,
-    /// identity id 或平台名；auto/account 可省略
+    /// identity id 或平台名；auto/account/persona 可省略
     #[serde(default, rename = "ref")]
     pub source_ref: Option<String>,
 }
@@ -167,7 +167,7 @@ pub async fn list_user_avatar_sources(
 
 /// PUT /api/admin/users/{id}/avatar-source
 ///
-/// 管理员改的是别人的脸，留一条审计日志；`set_avatar_source` 保证只能落在对方
+/// 管理员改的是别人的脸，打一条 `tracing::info!`；`set_avatar_source` 保证只能落在对方
 /// **已有**的来源上，管理员无法塞任意 URL。
 pub async fn set_user_avatar_source(
     crate::extract::Db(db): crate::extract::Db,

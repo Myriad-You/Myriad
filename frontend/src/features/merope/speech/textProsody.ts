@@ -24,7 +24,7 @@ export function predictTextProsody(input: TextProsodyInput): SpeechProsodyPlan {
   const text = input.text
     .normalize('NFKC')
     .slice(0, MAX_VISUAL_SPEECH_TEXT_UNITS)
-  const symbols = [...text]
+  const symbols = Iterator.from(text).toArray()
   const clock = visualSpeechPrefixMs(text, input.locale)
   const durationMs = clock.at(-1)!
   const candidates: Array<{
@@ -82,7 +82,7 @@ export function predictTextProsody(input: TextProsodyInput): SpeechProsodyPlan {
   }
 
   const accents: SpeechProsodyPlan['accents'][number][] = []
-  for (const candidate of candidates.sort(
+  for (const candidate of candidates.toSorted(
     (left, right) =>
       left.textOffset - right.textOffset ||
       Number(Boolean(right.semantic)) - Number(Boolean(left.semantic)),
@@ -153,7 +153,7 @@ export function alignTextProsody(
   return {
     durationMs: audio.durationMs,
     accents: accents
-      .sort((a, b) => a.offsetMs - b.offsetMs)
+      .toSorted((a, b) => a.offsetMs - b.offsetMs)
       .slice(0, MAX_AUDIO_PROSODY_ACCENTS),
   }
 }

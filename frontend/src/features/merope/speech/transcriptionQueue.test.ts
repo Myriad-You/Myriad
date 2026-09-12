@@ -3,13 +3,7 @@ import test from 'node:test'
 import { TranscriptionQueue } from './transcriptionQueue'
 
 function deferred<T>() {
-  let resolve!: (value: T) => void
-  let reject!: (error: unknown) => void
-  const promise = new Promise<T>((yes, no) => {
-    resolve = yes
-    reject = no
-  })
-  return { promise, resolve, reject }
+  return Promise.withResolvers<T>()
 }
 
 const tick = () => new Promise((resolve) => setImmediate(resolve))

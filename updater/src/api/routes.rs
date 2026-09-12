@@ -38,7 +38,10 @@ pub fn build(state: ApiState) -> Router {
         .route("/prefs", post(set_prefs))
         .route("/last-failed/dismiss", post(dismiss_last_failed))
         .route("/self-update/last/dismiss", post(dismiss_self_update_last))
-        .route("/proxy-update/last/dismiss", post(dismiss_proxy_update_last))
+        .route(
+            "/proxy-update/last/dismiss",
+            post(dismiss_proxy_update_last),
+        )
         .route("/rollback", post(rollback))
         // One-click recovery for needs_manual / stuck post-swap jobs: same privilege as
         // `/rollback` (admin + token via backend). Does not require host manual-override

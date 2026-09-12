@@ -16,6 +16,8 @@ import {
 import { useI18n } from '../../../contexts/I18nContext'
 import { userFacingError } from '../../../utils/userFacingError'
 import { BrewBar } from '../ui/Bar'
+import { BrewManagement } from '../ui/BrewManagement'
+import { BrewSearch } from '../ui/BrewSearch'
 import { BrewBarTags } from './bar'
 import { FormTurn } from './formTurn'
 import { AddMode, EditSourceMode, KeyboardMode } from './modes'
@@ -152,7 +154,6 @@ const BrewControls = forwardRef<BrewControlsHandle, BrewControlsProps>(
 
     const handleWaveDisplayed = useCallback(
       (next: string) => {
-        if (next !== 'search' && searchQuery) setSearchQuery?.('')
         onWaveDisplayed?.(next)
       },
       [onWaveDisplayed, searchQuery, setSearchQuery],
@@ -186,9 +187,9 @@ const BrewControls = forwardRef<BrewControlsHandle, BrewControlsProps>(
     )
 
     const pack = useBrewpack(sources, onSourcesChange)
-    const allAddCategories = [
-      ...new Set([t.brew.friendLinks, t.brew.me, ...categories]),
-    ]
+    const allAddCategories = Iterator.from(
+      new Set([t.brew.friendLinks, t.brew.me]).union(new Set(categories)),
+    ).toArray()
 
     const panel =
       mode === 'add' ? (
@@ -213,7 +214,9 @@ const BrewControls = forwardRef<BrewControlsHandle, BrewControlsProps>(
         <KeyboardMode />
       ) : null
 
-    return (
+    const content = (
+      <>
+      <BrewSearch value={searchQuery} onChange={setSearchQuery} />
       <BrewBar
         page={!embedded}
         panel={panel}
@@ -250,6 +253,10 @@ const BrewControls = forwardRef<BrewControlsHandle, BrewControlsProps>(
           sourcesCount={sources.length}
         />
       </BrewBar>
+      </>
+    )
+    return embedded ? content : (
+      <BrewManagement embedded={false} active={mode !== 'default'}>{content}</BrewManagement>
     )
   },
 )

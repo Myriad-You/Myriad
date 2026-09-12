@@ -11,7 +11,7 @@ export function useSystemSetupCheck() {
 
   useEffect(() => {
     // ServeDir 会把 /setup 307 到 /setup/；先归一尾斜线再比较，否则会无限重载。
-    if (location.pathname.replace(/\/+$/, '') === '/setup') return
+    if (location.pathname.replaceAll(/\/+$/g, '') === '/setup') return
 
     async function checkSetup() {
       try {

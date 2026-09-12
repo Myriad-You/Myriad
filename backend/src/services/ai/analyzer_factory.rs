@@ -9,8 +9,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 /// 每档只喊一次。这条在每次 AI 调用上都会命中，喊满日志反而没人看。
 ///
-/// 站长改完配置不会立刻再看到它——但这条要提醒的是「你以为开了、其实没开」，
-/// 那是个长期状态，进程起来时说一次就够。
+/// 站长改完配置不会立刻再看到它。这条提醒的是：档已开但没配该档模型，
+/// 实际会跑 Standard。进程寿命内只说一次。
 fn warn_tier_fallback(tier: ModelTier, standard_model: &str) {
     static WARNED_LITE: AtomicBool = AtomicBool::new(false);
     static WARNED_PRO: AtomicBool = AtomicBool::new(false);

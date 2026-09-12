@@ -9,7 +9,9 @@ function source(relative: string): string {
 /** from_secs(2 * 60) → 120 */
 function rustSeconds(rust: string, name: string): number {
   const match = rust.match(
-    new RegExp(`${name}: Duration = Duration::from_secs\\(([^)]+)\\)`),
+    new RegExp(
+      `${RegExp.escape(name)}: Duration = Duration::from_secs\\(([^)]+)\\)`,
+    ),
   )
   assert.ok(match, `${name} not found`)
   const expression = match[1].trim()
@@ -22,7 +24,7 @@ function rustSeconds(rust: string, name: string): number {
 
 /** 6 * 60 * 1000 → 360000 */
 function tsMs(ts: string, name: string): number {
-  const match = ts.match(new RegExp(`const ${name} = ([\\d\\s*]+)`))
+  const match = ts.match(new RegExp(`const ${RegExp.escape(name)} = ([\\d\\s*]+)`))
   assert.ok(match, `${name} not found`)
   return match[1]
     .split('*')

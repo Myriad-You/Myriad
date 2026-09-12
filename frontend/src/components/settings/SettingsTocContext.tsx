@@ -1,4 +1,3 @@
-
 import type { ReactNode } from 'react'
 import React, {
   createContext,
@@ -41,7 +40,7 @@ export const SettingsTocProvider: React.FC<{ children: ReactNode }> = ({
         return prev.map((x) => (x.id === id ? { ...x, label } : x))
       }
       const order = orderRef.current++
-      return [...prev, { id, label, order }].sort((a, b) => a.order - b.order)
+      return [...prev, { id, label, order }].toSorted((a, b) => a.order - b.order)
     })
   }, [])
 
@@ -65,8 +64,8 @@ export function slugifySettingGroupId(title: string): string {
   const s = title
     .trim()
     .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, '-')
-    .replace(/^-+|-+$/g, '')
+    .replaceAll(/[^\p{L}\p{N}]+/gu, '-')
+    .replaceAll(/^-+|-+$/g, '')
     .slice(0, 48)
   return s ? `sg-${s}` : ''
 }

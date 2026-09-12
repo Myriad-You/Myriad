@@ -112,7 +112,9 @@ export function preloadPlatformFaces(
     if (mod && !registry.has(id)) modules.add(mod)
   }
   if (modules.size === 0) return Promise.resolve()
-  return Promise.all([...modules].map((k) => loadFaceModule(k))).then(
+  return Promise.all(
+    Iterator.from(modules).map((k) => loadFaceModule(k)),
+  ).then(
     () => undefined,
   )
 }

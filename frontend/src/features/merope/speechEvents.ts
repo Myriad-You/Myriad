@@ -196,7 +196,7 @@ function sanitizeProsody(
       ]
     })
     .slice(0, MAX_AUDIO_PROSODY_ACCENTS)
-    .sort((left, right) => left.offsetMs - right.offsetMs)
+    .toSorted((left, right) => left.offsetMs - right.offsetMs)
   return {
     utteranceId,
     startedAtMs: Math.max(0, value.startedAtMs),

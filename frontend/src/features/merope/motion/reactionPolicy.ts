@@ -129,12 +129,10 @@ export class HumanReactionPolicy {
     nowMs: number,
     scope?: string,
   ): boolean {
-    const recent = [...this.memory]
-      .reverse()
-      .find(
-        (entry) =>
-          entry.intent === cue.intent && (!scope || entry.scope === scope),
-      )
+    const recent = this.memory.findLast(
+      (entry) =>
+        entry.intent === cue.intent && (!scope || entry.scope === scope),
+    )
     if (!recent) return false
     const elapsed = nowMs + cue.atMs - recent.selectedAtMs
     return (

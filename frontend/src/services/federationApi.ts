@@ -215,7 +215,7 @@ export const federationApi = {
     source: string
     actor?: Record<string, unknown> | null
   }> {
-    const base = attributionOptions(runtimeGrant) || {}
+    const base = attributionOptions(runtimeGrant) ?? {}
     return apiService.get(`${PREFIX}/objects`, {
       ...base,
       params: { id: objectId },

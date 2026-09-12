@@ -163,11 +163,9 @@ function delayBetween(from: string, to: string): number | null {
 }
 
 function lastMark(span: string): TurnTraceMark | undefined {
-  for (let i = marks.length - 1; i >= 0; i--) {
-    const mark = marks[i]
-    if (mark && mark.span === span && mark.turnId === turnId) return mark
-  }
-  return undefined
+  return marks.findLast(
+    (mark) => mark && mark.span === span && mark.turnId === turnId,
+  )
 }
 
 function notify(): void {

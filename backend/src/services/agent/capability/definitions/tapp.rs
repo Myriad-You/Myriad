@@ -348,7 +348,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
                 "userId": { "type": "integer", "description": "User id" },
                 "userIntent": {
                     "type": "string",
-                    "description": "What the user wants, e.g. 添加一条新任务 / 搜索天气 (query also accepted)"
+                    "description": "What the user wants, e.g. add a new task / search the weather (query also accepted)"
                 },
                 "query": {
                     "type": "string",

@@ -46,7 +46,7 @@ pub(crate) async fn list_comments(
     Path(item_id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     // 获取可选用户 ID（游客为 None）
-    let user_id = get_optional_user_id_from_headers(&headers);
+    let user_id = get_optional_user_id_from_headers(&headers, &db).await?;
 
     // 游客无法查看评论
     let uid = match user_id {
@@ -434,7 +434,7 @@ pub(crate) async fn list_comment_replies(
     Path(comment_id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     // 验证用户身份（可选，用于获取用户 ID）
-    let uid = get_optional_user_id_from_headers(&headers);
+    let uid = get_optional_user_id_from_headers(&headers, &db).await?;
 
     // 如果未登录，返回空列表
     let uid = match uid {

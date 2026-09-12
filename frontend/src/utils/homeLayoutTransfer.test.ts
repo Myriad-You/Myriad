@@ -60,7 +60,7 @@ describe('home layout export envelope', () => {
       doc.layouts.standard.map((tile) => tile.type),
       ['welcome'],
     )
-    assert.equal('extra' in doc.layouts.standard[0]!, false)
+    assert.equal(Object.hasOwn(doc.layouts.standard[0]!, 'extra'), false)
     assert.equal(doc.layouts.free.length, 2)
     assert.equal(doc.layouts.free[1]?.kind, 'sticker')
     assert.equal(doc.layouts.free[1]?.config?.imageUrl, '/media/sticker.png')

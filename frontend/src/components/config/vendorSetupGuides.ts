@@ -1,4 +1,3 @@
-
 import type { SetupFlowStep } from '../settings/SetupFlow'
 import { findVendorPreset } from './aiVendorPresets'
 

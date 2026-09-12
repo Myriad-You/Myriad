@@ -56,7 +56,7 @@ test('queued speech keeps its original source and generation through playback an
         source,
       ).push('你真的这么想吗？')[0]!
       // Test the real outlet without widening its production visibility.
-      const handle = host['play'](new ArrayBuffer(0), segment, () => {})
+      const handle = host.play(new ArrayBuffer(0), segment, () => {})
       handle.stop()
       const scoped = events.filter(
         (event) => event.messageId === segment.messageId,
@@ -176,4 +176,18 @@ test('targeted cancel does not overwrite a successor started synchronously by th
   } finally {
     patchVoicePresence({ ttsPlaying: false })
   }
+})
+
+test('old status response cannot enable speech after subject reset', async (t) => {
+  const result = Promise.withResolvers<Response>()
+  t.mock.method(globalThis, 'fetch', () => result.promise)
+  const host = new SpeechPipelineHost()
+  const pending = host.probe()
+  host.resetSubject()
+  result.resolve(Response.json({
+    available: true, tts_enabled: true, persona_speech_enabled: true,
+  }))
+  await pending
+  assert.equal(host.available, false)
+  assert.equal(host.speechEnabled, false)
 })

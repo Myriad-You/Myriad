@@ -480,7 +480,7 @@ export const LibraryPlayingWaveBorder = memo(
 
       const wrap = wrapRef.current
       const shell =
-        (wrap?.closest('.library-card-shell') as HTMLElement | null) ||
+        (wrap?.closest('.library-card-shell') as HTMLElement | null) ??
         (wrap?.parentElement as HTMLElement | null)
       const PAD = 28
 

@@ -189,20 +189,22 @@ function createShim(tag: SupportedTag) {
       props?.exit
     const { motion } = useLazyMotion(Boolean(hasAnimation))
 
+    const { key, ...rest } = props ?? {}
+
     if (motion) {
       const Comp: any = motion[tag]
-      return <Comp ref={ref} {...props} />
+      return <Comp key={key} ref={ref} {...rest} />
     } else {
       // Apply initial CSS so content does not flash.
       const Tag = tag as any
-      const filteredProps = filterMotionProps(props)
+      const filteredProps = filterMotionProps(rest)
       const initialStyle = getInitialStyle(props)
 
       if (initialStyle) {
         filteredProps.style = { ...filteredProps.style, ...initialStyle }
       }
 
-      return <Tag ref={ref} {...filteredProps} />
+      return <Tag key={key} ref={ref} {...filteredProps} />
     }
   })
   MotionShim.displayName = `MotionShim(${tag})`

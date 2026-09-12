@@ -241,7 +241,7 @@ pub async fn list_users(
             DatabaseBackend::Postgres,
             "SELECT id, user_id, provider, provider_username, email, avatar_url, \
                     is_primary, linked_at, last_login_at \
-             FROM user_identities ORDER BY is_primary DESC, linked_at ASC",
+             FROM user_identities WHERE LOWER(provider) NOT IN ('qq', 'telegram', 'discord_dm', 'feishu') ORDER BY is_primary DESC, linked_at ASC",
             vec![],
         ))
         .await
@@ -291,7 +291,7 @@ pub async fn get_user(
             DatabaseBackend::Postgres,
             "SELECT id, user_id, provider, provider_username, email, avatar_url, \
                     is_primary, linked_at, last_login_at \
-             FROM user_identities WHERE user_id = $1 \
+             FROM user_identities WHERE user_id = $1 AND LOWER(provider) NOT IN ('qq', 'telegram', 'discord_dm', 'feishu') \
              ORDER BY is_primary DESC, linked_at ASC",
             [user_id.into()],
         ))
@@ -404,27 +404,41 @@ pub async fn update_user(
         }
     }
 
-    // 防锁死：没有任何 OAuth 绑定时，本地登录是唯一登录方式，不允许禁用
-    if req.local_login_disabled == Some(true) {
-        let identity_count = db
-            .query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT COUNT(*) AS n FROM user_identities WHERE user_id = $1",
-                [user_id.into()],
-            ))
+    let login_methods_txn = if req.local_login_disabled.is_some() {
+        let txn = db
+            .begin()
             .await
-            .map_err(db_error("count identities"))?
-            .and_then(|r| r.try_get::<i64>("", "n").ok())
-            .unwrap_or(0);
-        if identity_count == 0 {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(AppError::public_json(
-                    "Cannot disable local login: user has no linked OAuth identity",
-                )),
-            ));
+            .map_err(db_error("begin login-method update"))?;
+        crate::api::oauth::lock_login_methods(&txn, user_id)
+            .await
+            .map_err(db_error("lock login methods"))?;
+        if req.local_login_disabled == Some(true) {
+            let identity_count = txn
+                .query_one_raw(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    format!(
+                        "SELECT COUNT(*) AS n FROM user_identities WHERE user_id = $1 AND {}",
+                        crate::services::channel_pairing::SQL_NOT_PAIRING_PROVIDER
+                    ),
+                    [user_id.into()],
+                ))
+                .await
+                .map_err(db_error("count identities"))?
+                .and_then(|r| r.try_get::<i64>("", "n").ok())
+                .unwrap_or(0);
+            if crate::api::oauth::disable_local_login_blocks(identity_count) {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(AppError::public_json(
+                        "Cannot disable local login: user has no linked OAuth identity",
+                    )),
+                ));
+            }
         }
-    }
+        Some(txn)
+    } else {
+        None
+    };
 
     if let Some(msg) = cannot_restrict_owner_install(target_is_owner, req.tapp_install_disabled) {
         return Err((StatusCode::BAD_REQUEST, Json(AppError::public_json(msg))));
@@ -474,13 +488,19 @@ pub async fn update_user(
         sets.join(", "),
         params.len()
     );
-    db.execute_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        &sql,
-        params,
-    ))
-    .await
-    .map_err(db_error("update user"))?;
+    let update = Statement::from_sql_and_values(DatabaseBackend::Postgres, &sql, params);
+    if let Some(txn) = login_methods_txn {
+        txn.execute_raw(update)
+            .await
+            .map_err(db_error("update user"))?;
+        txn.commit()
+            .await
+            .map_err(db_error("commit login-method update"))?;
+    } else {
+        db.execute_raw(update)
+            .await
+            .map_err(db_error("update user"))?;
+    }
 
     // Role changes are authorization facts, not merely profile fields.  Drop
     // this process's snapshot and fan out a PostgreSQL invalidation so a
@@ -536,12 +556,20 @@ pub async fn unlink_identity(
 ) -> Result<Json<Value>, ApiError> {
     let claims = require_admin(&headers, &db).await?;
 
-    let info = db
+    let txn = db
+        .begin()
+        .await
+        .map_err(db_error("begin identity unlink"))?;
+    crate::api::oauth::lock_login_methods(&txn, user_id)
+        .await
+        .map_err(db_error("lock login methods"))?;
+
+    let info = txn
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT u.password_hash IS NOT NULL AS has_password, u.local_login_disabled, \
-                    (SELECT COUNT(*) FROM user_identities i WHERE i.user_id = u.id) AS identity_count, \
-                    EXISTS(SELECT 1 FROM user_identities i WHERE i.id = $2 AND i.user_id = u.id) AS identity_belongs \
+                    (SELECT COUNT(*) FROM user_identities i WHERE i.user_id = u.id AND LOWER(i.provider) NOT IN ('qq', 'telegram', 'discord_dm', 'feishu')) AS identity_count, \
+                    EXISTS(SELECT 1 FROM user_identities i WHERE i.id = $2 AND i.user_id = u.id AND LOWER(i.provider) NOT IN ('qq', 'telegram', 'discord_dm', 'feishu')) AS identity_belongs \
              FROM users u WHERE u.id = $1",
             [user_id.into(), identity_id.into()],
         ))
@@ -564,7 +592,11 @@ pub async fn unlink_identity(
         .unwrap_or(false);
     let identity_count = info.try_get::<i64>("", "identity_count").unwrap_or(0);
     // 防锁死：这是最后一个 OAuth 绑定，且本地登录不可用（无密码或已禁用）时禁止解绑
-    if identity_count <= 1 && (!has_password || local_login_disabled) {
+    if crate::api::oauth::unlink_blocks_last_signin(
+        has_password,
+        local_login_disabled,
+        identity_count,
+    ) {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(AppError::public_json(
@@ -573,13 +605,16 @@ pub async fn unlink_identity(
         ));
     }
 
-    db.execute_raw(Statement::from_sql_and_values(
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "DELETE FROM user_identities WHERE id = $1 AND user_id = $2",
         [identity_id.into(), user_id.into()],
     ))
     .await
     .map_err(db_error("unlink identity"))?;
+    txn.commit()
+        .await
+        .map_err(db_error("commit identity unlink"))?;
 
     tracing::info!(
         "✅ Admin {} unlinked identity {} from user {}",

@@ -263,7 +263,7 @@ export function resolvePwaIconSourceUrl(
     const proxied = proxyImageUrl(abs.href)
     if (!proxied) return abs.href
     if (apiBase && proxied.includes('/api/proxy/image')) {
-      const base = apiBase.replace(/\/$/, '')
+      const base = apiBase.replaceAll(/\/$/g, '')
       const q = proxied.indexOf('/api/proxy/image')
       if (q >= 0) return `${base}${proxied.slice(q)}`
     }

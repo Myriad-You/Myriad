@@ -57,21 +57,25 @@ export function registerSchedulerHandlers(
       tappInstance.id,
       taskId,
       (payload, event) => {
-        return new Promise<void>((resolve, reject) => {
-          if (!event.executionId) {
-            reject(new Error('Scheduler execution ID missing'))
-            return
-          }
-          const timeout = setTimeout(
-            () => {
-              pendingExecutions.delete(event.executionId)
-              reject(new Error('Sandbox scheduler callback timed out'))
-            },
-            5 * 60 * 1000,
-          )
-          pendingExecutions.set(event.executionId, { resolve, reject, timeout })
-          bridge.emit('schedulerTask', { taskId, payload, event })
+        const deferred = Promise.withResolvers<void>()
+        if (!event.executionId) {
+          deferred.reject(new Error('Scheduler execution ID missing'))
+          return deferred.promise
+        }
+        const timeout = setTimeout(
+          () => {
+            pendingExecutions.delete(event.executionId)
+            deferred.reject(new Error('Sandbox scheduler callback timed out'))
+          },
+          5 * 60 * 1000,
+        )
+        pendingExecutions.set(event.executionId, {
+          resolve: deferred.resolve,
+          reject: deferred.reject,
+          timeout,
         })
+        bridge.emit('schedulerTask', { taskId, payload, event })
+        return deferred.promise
       },
     )
     taskSubscriptions.set(taskId, unsubscribe)

@@ -1,4 +1,3 @@
-
 import { FaGithub, FaStar } from '@lib/icons'
 import React, { useEffect, useState } from 'react'
 import {

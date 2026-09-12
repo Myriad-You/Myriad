@@ -54,7 +54,7 @@ function memoryOps(calls: unknown[][]): FullKvOps {
     },
     async keys(_tappId, grant) {
       calls.push(['keys', grant])
-      return [...store.keys()]
+      return Iterator.from(store.keys()).toArray()
     },
     async getAll(_tappId, grant) {
       calls.push(['getAll', grant])

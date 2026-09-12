@@ -1,4 +1,3 @@
-
 export const HOVER_TOOLTIP_VIEWPORT_PAD = 8
 export const HOVER_TOOLTIP_GAP = 6
 

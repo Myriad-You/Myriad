@@ -13,7 +13,7 @@ Base URL:
 
 | 能力 | 路径前缀 / 说明 |
 | --- | --- |
-| 健康检查 | `GET /health`（公开） |
+| 健康检查 | `GET /health`（公开，存活）；`GET /ready`（公开，业务就绪，未就绪 503）。经 proxy / 开发代理转发，也可直连 backend。 |
 | 本地登录 / 注册 / 改密 | `/api/auth/…`（见 `auth_local`） |
 | OAuth / OIDC | `/api/auth/oauth/:slug/*`；provider 列表 `GET /api/auth/oauth/providers` |
 | 当前用户 | `GET /api/auth/me` 等 |
@@ -44,6 +44,7 @@ Base URL:
 | Tapp REST（含宿主 AI/Agent 路由） | [tapp/REST_API.md](development/tapp/REST_API.md) |
 | Tapp 总体 | [TAPP_DEVELOPMENT.md](development/TAPP_DEVELOPMENT.md) |
 | Brew / Agent | 前端服务与 `backend/src/api/brew`、`backend/src/api/agent` |
+| Agent Channel | [办事运输适配与 QQ 单聊](design/agent-channel.md) |
 
 ## 约定
 

@@ -157,7 +157,9 @@ export function useContentEvents({
             if (node.matches('.user-comment-highlight')) ids.add(Number(node.getAttribute('data-comment-id')))
             node = node.parentElement
           }
-          setFocusedCommentIds([...ids].filter(Number.isFinite))
+          setFocusedCommentIds(
+            Iterator.from(ids).filter(Number.isFinite).toArray(),
+          )
           setCommentTooltip(null)
           setShowCommentsPanel(true)
           if (focusTimer) clearTimeout(focusTimer)

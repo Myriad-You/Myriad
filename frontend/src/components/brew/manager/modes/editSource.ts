@@ -25,7 +25,7 @@ export function joinCategories(
   selected: readonly string[],
   draft = '',
 ): string | undefined {
-  const next = [...selected]
+  const next = Iterator.from(selected).toArray()
   const extra = draft.trim()
   if (extra && !next.includes(extra) && next.length < 2) next.push(extra)
   return next.length > 0 ? next.join(', ') : undefined
@@ -56,7 +56,8 @@ export function resolveEditSourcePayload(input: {
 
   if (!isLink && !isNote) {
     enabled = input.subscriptionMode !== 'disabled'
-    if (input.subscriptionMode === 'brewlia') sourceType = 'brewlia'
+    if (input.subscriptionMode === 'brewlia') { sourceType = 'brewlia'
+}
     else if (input.subscriptionMode === 'normal') {
       sourceType = isRssHub ? 'rsshub' : 'rss'
     }
@@ -66,7 +67,7 @@ export function resolveEditSourcePayload(input: {
     name: input.name.trim() || undefined,
     category: joinCategories(input.selectedCategories, input.newCategory),
     theme_color: input.themeColor,
-    ai_style_tags: [...input.styleTags],
+    ai_style_tags: Iterator.from(input.styleTags).toArray(),
     admin_only: input.adminOnly,
   }
   if (!isLink && !isNote) {

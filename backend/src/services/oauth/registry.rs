@@ -34,7 +34,7 @@ impl ProviderRegistry {
         self.inner.read().await.get(slug).cloned()
     }
 
-    /// 列出当前已启用的 provider（用于前端 `/providers` 端点）
+    /// 列出当前已启用的 provider（用于前端 /api/auth/oauth/providers）
     pub async fn list(&self) -> Vec<ProviderDescriptor> {
         self.inner
             .read()

@@ -14,6 +14,7 @@ import {
   motionShim as motion,
 } from '@lib/motionShim'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useI18n } from '../../../contexts/I18nContext'
 import { Spinner } from '../../Spinner'
 import { annotationChrome } from './annotationChrome'
 import { DATE_FORMAT_SHORT } from './constants'
@@ -129,6 +130,7 @@ export function CommentTooltip({
   onMouseEnter,
   onMouseLeave,
 }: CommentTooltipProps) {
+  const { locale } = useI18n()
   return (
     <AnimatePresence>
       {commentTooltip && (
@@ -185,7 +187,7 @@ export function CommentTooltip({
             <span className="text-xs opacity-60">·</span>
             <span className="text-xs opacity-60">
               {new Date(commentTooltip.comment.created_at).toLocaleDateString(
-                'zh-CN',
+                locale,
                 DATE_FORMAT_SHORT,
               )}
             </span>

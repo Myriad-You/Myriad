@@ -2,6 +2,7 @@ import type { SpeechStatus } from '../../../services/speechApi'
 import type { MeropeSpeechSource } from '../speechEvents'
 import type { SpeechInterruptMode, SpeechSegment } from './speechSegmenter'
 import { getSpeechStatus, textToSpeech } from '../../../services/speechApi'
+import { authSubject } from '../../../utils/authSubject'
 import { dispatchMeropeSpeech } from '../speechEvents'
 import { estimateAutoSpeechDurationMs } from '../speechLifecycle'
 import { markTurnTraceOnce, noteTurnTraceCancelToSilence } from '../turnTrace'
@@ -54,6 +55,12 @@ export class SpeechPipelineHost {
 
   get speechEnabled(): boolean {
     return this.wantsSpeech
+  }
+
+  /** Invalidate status probes too: a late old-account response cannot re-enable TTS. */
+  resetSubject(): void {
+    this.cancel()
+    this.applyStatus({ available: false, tts_enabled: false, persona_speech_enabled: false })
   }
 
   applyStatus(
@@ -292,6 +299,7 @@ export class SpeechPipelineHost {
 }
 
 let host: SpeechPipelineHost | null = null
+authSubject.subscribe(() => host?.resetSubject())
 
 export function getSpeechPipeline(): SpeechPipelineHost {
   if (!host) host = new SpeechPipelineHost()

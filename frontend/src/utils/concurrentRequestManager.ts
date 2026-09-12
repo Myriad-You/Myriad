@@ -39,26 +39,28 @@ class ConcurrentRequestManager {
 
     const controller = new AbortController()
 
-    return new Promise<T>((resolve, reject) => {
-      const request: QueuedRequest = {
-        key,
-        fetcher: () => fetcher(controller.signal),
-        controller,
-        priority,
-        resolve,
-        reject,
-        timeout,
-        timeoutId: null,
-        timedOut: false,
-      }
+    const { promise, resolve, reject } = Promise.withResolvers<T>()
+    const request: QueuedRequest = {
+      key,
+      fetcher: () => fetcher(controller.signal),
+      controller,
+      priority,
+      resolve,
+      reject,
+      timeout,
+      timeoutId: null,
+      timedOut: false,
+    }
 
-      if (this.currentCount >= this.maxConcurrent) {
-        this.requestQueue.push(request)
-        this.requestQueue.sort((a, b) => b.priority - a.priority)
-      } else {
-        this.executeRequest(request)
-      }
-    })
+    if (this.currentCount >= this.maxConcurrent) {
+      this.requestQueue.push(request)
+      this.requestQueue = this.requestQueue.toSorted(
+        (a, b) => b.priority - a.priority,
+      )
+    } else {
+      this.executeRequest(request)
+    }
+    return promise
   }
 
   private async executeRequest(request: QueuedRequest) {

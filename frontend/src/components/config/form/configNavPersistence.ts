@@ -76,13 +76,12 @@ export function saveConfigNavPersisted(
     const prev = loadConfigNavPersisted() ?? { section: 'platforms' }
     const next: ConfigNavPersisted = {
       section: patch.section ?? prev.section,
-      mobilePane:
-        patch.mobilePane !== undefined ? patch.mobilePane : prev.mobilePane,
+      mobilePane: patch.mobilePane ?? prev.mobilePane,
       platformFocus:
         patch.platformFocus !== undefined
           ? patch.platformFocus
           : prev.platformFocus,
-      scrollY: patch.scrollY !== undefined ? patch.scrollY : prev.scrollY,
+      scrollY: patch.scrollY ?? prev.scrollY,
     }
     sessionStorage.setItem(CONFIG_NAV_STORAGE_KEY, JSON.stringify(next))
   } catch {

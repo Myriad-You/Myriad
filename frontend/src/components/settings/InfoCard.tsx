@@ -1,4 +1,3 @@
-
 import type { InfoCardConfig } from './types'
 import React from 'react'
 import './InfoCard.css'

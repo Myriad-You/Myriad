@@ -1,6 +1,7 @@
 import type { FrontendAction, FrontendActionType } from './types'
+import { authSubject } from '../../utils/authSubject'
 
-export type FrontendActionHandler = (action: FrontendAction) => Promise<unknown>
+export type FrontendActionHandler = (action: FrontendAction, signal?: AbortSignal) => Promise<unknown>
 
 const typedActionHandlers = new Map<
   FrontendActionType | string,
@@ -32,19 +33,25 @@ export function unregisterActionHandler(
 
 export async function executeFrontendAction(
   action: FrontendAction,
+  signal = authSubject.signal,
 ): Promise<unknown> {
+  if (signal.aborted) return
   const typedHandler = typedActionHandlers.get(action.type)
   if (typedHandler) {
-    return typedHandler(action)
+    const result = await typedHandler(action, signal)
+    return signal.aborted ? undefined : result
   }
 
   for (const handler of globalActionHandlers) {
+    if (signal.aborted) return
     try {
-      const result = await handler(action)
+      const result = await handler(action, signal)
+      if (signal.aborted) return
       if (result !== false && result !== undefined) {
         return result
       }
     } catch (e) {
+      if (signal.aborted) return
       console.warn('[FrontendActions] Global handler error:', e)
     }
   }
@@ -70,7 +77,7 @@ export function frontendActionDedupeKey(
 }
 
 export function getRegisteredActionTypes(): string[] {
-  return [...typedActionHandlers.keys()]
+  return Iterator.from(typedActionHandlers.keys()).toArray()
 }
 
 export function clearAllHandlers(): void {

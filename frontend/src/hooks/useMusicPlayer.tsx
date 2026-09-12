@@ -252,7 +252,7 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
     const prevG = getGlobalState()
     const resolvedPalette = resolveMusicPalette(
       musicColors,
-      (prevG?.musicColors as MusicColors | null | undefined) ||
+      (prevG?.musicColors as MusicColors | null | undefined) ??
         musicColorsRef.current,
     )
 
@@ -443,7 +443,7 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
       if (!tempPlayModeRef.current.enabled) {
         tempPlayModeRef.current = {
           enabled: true,
-          originalPlaylist: [...playlistRef.current],
+          originalPlaylist: Iterator.from(playlistRef.current).toArray(),
           originalIndex: currentSongIndexRef.current,
           originalSource: musicSource,
           originalPlaylistId: playlistId,

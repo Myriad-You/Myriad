@@ -39,11 +39,9 @@ describe('request dedup prefix invalidation', () => {
   })
 
   it('prevents an in-flight stale response from repopulating a cleared key', async () => {
-    let resolveFirst!: (value: string) => void
-    const first = dedupedFetch(
-      '/api/library?offset=0',
-      () => new Promise<string>((resolve) => (resolveFirst = resolve)),
-    )
+    const { promise: firstPending, resolve: resolveFirst } =
+      Promise.withResolvers<string>()
+    const first = dedupedFetch('/api/library?offset=0', () => firstPending)
     clearDedupCacheByPrefix('/api/library')
     resolveFirst('stale')
     await first

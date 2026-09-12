@@ -6,20 +6,18 @@ import type {
   WordLyricLine,
 } from '../utils/musicPlayer'
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
-  useState,
   useSyncExternalStore,
 } from 'react'
 import { bindMusicMoodListening } from '../features/merope/musicMood'
-import { pickMusicContextState } from '../utils/musicPlayerState'
 import {
-  applyPublishedMusicState,
+  mergeMusicContextState,
+  pickMusicContextState,
+} from '../utils/musicPlayerState'
+import {
   bindPublishedMusicState,
-  setCurrentSongSnapshot,
 } from './currentSong'
 
 export {
@@ -44,126 +42,9 @@ interface MusicPlayerState {
   currentLyricIndex: number
 }
 
-interface MusicPlayerContextType extends MusicPlayerState {
-  playSong: (song: Song) => void
-  togglePlayPause: () => void
-  stopTempPlay: () => void
-  updateState: (state: Partial<MusicPlayerState>) => void
-}
-
-const MusicPlayerContext = createContext<MusicPlayerContextType | null>(null)
-
 export function MusicPlayerProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<MusicPlayerState>({
-    currentSong: null,
-    isEnabled: false,
-    isPlaying: false,
-    musicColor: '#ef4444',
-    isTempPlay: false,
-    currentSongIndex: 0,
-    playlistLength: 0,
-    playlist: [],
-    lyrics: [],
-    verbatimLyrics: [],
-    hasVerbatimLyrics: false,
-    verbatimLyricsSource: '',
-    currentLyricIndex: -1,
-  })
-
   useEffect(() => bindMusicMoodListening(), [])
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const globalState = (window as any).__musicPlayerState
-      if (globalState) {
-        applyPublishedMusicState(globalState)
-        setState({
-          currentSong: globalState.currentSong || null,
-          isEnabled: globalState.isEnabled || false,
-          isPlaying: globalState.isPlaying || false,
-          musicColor: globalState.musicColor || '#ef4444',
-          isTempPlay: globalState.isTempPlay || false,
-          currentSongIndex: globalState.currentSongIndex || 0,
-          playlistLength: globalState.playlistLength || 0,
-          playlist: globalState.playlist || [],
-          lyrics: globalState.lyrics || [],
-          verbatimLyrics: globalState.verbatimLyrics || [],
-          hasVerbatimLyrics: globalState.hasVerbatimLyrics || false,
-          verbatimLyricsSource: globalState.verbatimLyricsSource || '',
-          currentLyricIndex: globalState.currentLyricIndex ?? -1,
-        })
-      }
-    }
-  }, [])
-
-  // Merge by field: detail may be partial; a full setState would wipe lyrics/isPlaying.
-  useEffect(() => {
-    const handleMusicStateChange = (e: Event) => {
-      const detail = (e as CustomEvent).detail as
-        Record<string, unknown> | undefined
-      if (!detail) return
-
-      applyPublishedMusicState(detail)
-      setState((prev) => ({
-        ...prev,
-        ...(pickMusicContextState(detail) as Partial<MusicPlayerState>),
-      }))
-    }
-
-    window.addEventListener('music-player-state-change', handleMusicStateChange)
-    return () => {
-      window.removeEventListener(
-        'music-player-state-change',
-        handleMusicStateChange,
-      )
-    }
-  }, [])
-
-  const updateState = useCallback((newState: Partial<MusicPlayerState>) => {
-    setState((prev) => ({ ...prev, ...newState }))
-  }, [])
-
-  const playSong = useCallback((song: Song) => {
-    window.dispatchEvent(new CustomEvent('play-song', { detail: { song } }))
-  }, [])
-
-  const togglePlayPause = useCallback(() => {
-    window.dispatchEvent(new CustomEvent('toggle-play-pause'))
-  }, [])
-
-  const stopTempPlay = useCallback(() => {
-    window.dispatchEvent(new CustomEvent('stop-temp-play'))
-  }, [])
-
-  const value = useMemo(
-    () => ({
-      ...state,
-      playSong,
-      togglePlayPause,
-      stopTempPlay,
-      updateState,
-    }),
-    [state, playSong, togglePlayPause, stopTempPlay, updateState],
-  )
-
-  return (
-    <MusicPlayerContext.Provider value={value}>
-      {children}
-    </MusicPlayerContext.Provider>
-  )
-}
-
-export function useMusicPlayerControl() {
-  const context = useContext(MusicPlayerContext)
-
-  if (!context) {
-    console.warn(
-      'MusicPlayerProvider not found, using fallback event-based approach',
-    )
-    return useFallbackMusicPlayerControl()
-  }
-
-  return context
+  return children
 }
 
 let globalMusicState: MusicPlayerState = {
@@ -194,8 +75,7 @@ function subscribeMusicState(listener: () => void) {
   if (typeof window !== 'undefined') {
     const currentState = (window as any).__musicPlayerState
     if (currentState) {
-      globalMusicState = { ...globalMusicState, ...currentState }
-      setCurrentSongSnapshot(globalMusicState.currentSong)
+      updateGlobalMusicState(pickMusicContextState(currentState) as Partial<MusicPlayerState>)
     }
   }
   attachMusicEventListener()
@@ -213,25 +93,9 @@ function getMusicStateSnapshot() {
 
 /** useMusicPlayer owns __musicPlayerState; do not write currentTime:0 / sparse patches back. */
 function updateGlobalMusicState(newState: Partial<MusicPlayerState>) {
-  const next = { ...globalMusicState, ...newState }
-  const changed =
-    next.currentSong !== globalMusicState.currentSong ||
-    next.isEnabled !== globalMusicState.isEnabled ||
-    next.isPlaying !== globalMusicState.isPlaying ||
-    next.musicColor !== globalMusicState.musicColor ||
-    next.isTempPlay !== globalMusicState.isTempPlay ||
-    next.currentSongIndex !== globalMusicState.currentSongIndex ||
-    next.playlistLength !== globalMusicState.playlistLength ||
-    next.playlist !== globalMusicState.playlist ||
-    next.lyrics !== globalMusicState.lyrics ||
-    next.verbatimLyrics !== globalMusicState.verbatimLyrics ||
-    next.hasVerbatimLyrics !== globalMusicState.hasVerbatimLyrics ||
-    next.verbatimLyricsSource !== globalMusicState.verbatimLyricsSource ||
-    next.currentLyricIndex !== globalMusicState.currentLyricIndex
-
-  if (!changed) return
+  const next = mergeMusicContextState(globalMusicState, newState)
+  if (next === globalMusicState) return
   globalMusicState = next
-  setCurrentSongSnapshot(next.currentSong)
   emitMusicStateChange()
 }
 
@@ -270,14 +134,13 @@ if (typeof window !== 'undefined') {
 
   const initialState = (window as any).__musicPlayerState
   if (initialState) {
-    globalMusicState = { ...globalMusicState, ...initialState }
-    applyPublishedMusicState(initialState)
+    updateGlobalMusicState(pickMusicContextState(initialState) as Partial<MusicPlayerState>)
   }
   bindPublishedMusicState()
   attachMusicEventListener()
 }
 
-function useFallbackMusicPlayerControl() {
+export function useMusicPlayerControl() {
   const state = useSyncExternalStore(
     subscribeMusicState,
     getMusicStateSnapshot,
@@ -296,19 +159,14 @@ function useFallbackMusicPlayerControl() {
     window.dispatchEvent(new CustomEvent('stop-temp-play'))
   }, [])
 
-  const updateState = useCallback((newState: Partial<MusicPlayerState>) => {
-    updateGlobalMusicState(newState)
-  }, [])
-
   return useMemo(
     () => ({
       ...state,
       playSong,
       togglePlayPause,
       stopTempPlay,
-      updateState,
     }),
-    [state, playSong, togglePlayPause, stopTempPlay, updateState],
+    [state, playSong, togglePlayPause, stopTempPlay],
   )
 }
 

@@ -139,7 +139,7 @@ test('empty speakable leftovers do not emit a segment', () => {
 })
 
 function dense(text: string): string {
-  return text.replace(/\s+/g, '')
+  return text.replaceAll(/\s+/g, '')
 }
 
 function stream(tokens: readonly string[]): string[] {

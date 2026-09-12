@@ -1,4 +1,3 @@
-
 import type { ReactNode } from 'react'
 import React, { useCallback } from 'react'
 import './ChoiceControls.css'
@@ -68,7 +67,7 @@ export function SegmentedControl<T extends string = string>(
         const set = new Set(current)
         if (set.has(next)) set.delete(next)
         else set.add(next)
-        multiOnChange(Array.from(set))
+        multiOnChange(Iterator.from(set).toArray())
         return
       }
       const singleOnChange = onChange as (value: T) => void

@@ -1,17 +1,29 @@
-//! Synchronous host-governed AI text for scheduler and declared-API builtins.
-//!
-//! Public surface lives in services so `tapp_api_service` / `tapp_scheduler` do not
-//! import `crate::api::tapp_runtime`. The concrete executor is installed by the
-//! AI Task module (same registry, rate-limit, and quota ledger as the public API).
+//! Host-governed text generation for scheduler and declared-API builtins.
+//! Shares AI Task registration, execution, rate limits and the quota ledger.
 
-use futures::future::BoxFuture;
-use once_cell::sync::OnceCell;
+use chrono::Utc;
+use myriad_prompt_security::validate_prompt_security;
+use myriad_tapp_contract::manifest::{TappAiOperation, TappAiOutputFormat};
 use sea_orm::DatabaseConnection;
-use std::sync::Arc;
+use serde_json::Value;
 
 use crate::config::ModelTier;
-use crate::services::permission_service::UserRole;
-use myriad_tapp_contract::manifest::TappAiOperation;
+use crate::services::{
+    ai_config::get_ai_config_for_tier,
+    ai_quota::{get_ai_usage, reserve_ai_quota, rollback_ai_quota_reservation},
+    ai_task_execute::{
+        execute_task, hash_request, AiTaskExecution, AiTaskOutputRequest, CreateAiTaskRequest,
+        PreparedModel, PreparedTask,
+    },
+    ai_task_prepare::MAX_INPUT_BYTES,
+    ai_task_registry::{
+        register_ai_task_atomically, task_id_for_request, AiTaskDelivery, AiTaskRegistration,
+        AiTaskSnapshot, AiTaskStatus,
+    },
+    ai_task_runtime::{insert_local, local_snapshot, LocalAiTask},
+    permission_service::UserRole,
+    tapp_rate_limit::{check_anonymous_rate_limit, check_rate_limit},
+};
 
 /// Owned request for a synchronous governed text generation.
 #[derive(Debug, Clone)]
@@ -28,44 +40,194 @@ pub struct GovernedTextRequest {
     pub client_ip: Option<String>,
 }
 
-type Executor = Arc<
-    dyn Fn(DatabaseConnection, GovernedTextRequest) -> BoxFuture<'static, Result<String, String>>
-        + Send
-        + Sync,
->;
-
-static EXECUTOR: OnceCell<Executor> = OnceCell::new();
-
-/// Install the process-wide governed-text executor (idempotent: first wins).
-pub fn install_executor<F, Fut>(handler: F)
-where
-    F: Fn(DatabaseConnection, GovernedTextRequest) -> Fut + Send + Sync + 'static,
-    Fut: std::future::Future<Output = Result<String, String>> + Send + 'static,
-{
-    let executor: Executor = Arc::new(move |db, request| Box::pin(handler(db, request)));
-    let _ = EXECUTOR.set(executor);
-}
-
-/// Run a synchronous governed text task through the installed AI Task path.
+/// Execute a synchronous host action through the same registry, concurrency,
+/// rate-limit and quota ledger used by the public AI Task API. Scheduler and
+/// declared builtin adapters wait for the task result, but do not get a second
+/// provider path that can bypass governance.
 pub async fn execute_governed_text(
     db: &DatabaseConnection,
     request: GovernedTextRequest,
 ) -> Result<String, String> {
-    let executor = EXECUTOR.get().ok_or_else(|| {
-        "AI_TASK_EXECUTOR_UNAVAILABLE: governed text executor is not installed".to_string()
-    })?;
-    executor(db.clone(), request).await
+    let GovernedTextRequest {
+        role,
+        subject_id,
+        owner_id,
+        tapp_id,
+        source,
+        operation,
+        tier,
+        system_prompt,
+        prompt,
+        client_ip,
+    } = request;
+    if !matches!(
+        operation,
+        TappAiOperation::Generate | TappAiOperation::Analyze | TappAiOperation::Chat
+    ) {
+        return Err(
+            "AI_TASK_UNSUPPORTED_OPERATION: synchronous image tasks are unsupported".to_string(),
+        );
+    }
+    if prompt.trim().is_empty()
+        || prompt.len() > MAX_INPUT_BYTES
+        || validate_prompt_security(&prompt).is_some()
+    {
+        return Err("UNSAFE_AI_TASK_INPUT: prompt is empty, too large, or unsafe".to_string());
+    }
+
+    check_rate_limit(db, subject_id, &tapp_id, "ai.task")
+        .await
+        .map_err(|error| format!("{}: {}", error.code(), error.message()))?;
+    if role == UserRole::Guest {
+        check_anonymous_rate_limit(db, client_ip.as_deref(), &tapp_id)
+            .await
+            .map_err(|error| format!("{}: {}", error.code(), error.message()))?;
+    }
+    let model = PreparedModel::Text(
+        get_ai_config_for_tier(tier)
+            .await
+            .map_err(|error| format!("AI_NOT_CONFIGURED: {}", error.message()))?,
+    );
+    let estimated_tokens = (system_prompt.len() + prompt.len()) / 4 + 1_000;
+    let reservation = reserve_ai_quota(
+        db,
+        role,
+        subject_id,
+        owner_id,
+        &tapp_id,
+        estimated_tokens,
+        client_ip.as_deref(),
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    let usage = match get_ai_usage(db, role, subject_id, owner_id, &tapp_id).await {
+        Ok(usage) => usage,
+        Err(error) => {
+            if let Err(rollback_error) = rollback_ai_quota_reservation(db, &reservation).await {
+                tracing::error!(
+                    ?rollback_error,
+                    %tapp_id,
+                    "[TAPP] Failed to roll back internal AI quota after usage read failure"
+                );
+            }
+            return Err(error.to_string());
+        }
+    };
+
+    let request = CreateAiTaskRequest {
+        version: 2,
+        operation,
+        input: Value::String(prompt.clone()),
+        context: Vec::new(),
+        output: Some(AiTaskOutputRequest {
+            format: TappAiOutputFormat::Text,
+            schema: None,
+        }),
+        delivery: AiTaskDelivery::Result,
+        idempotency_key: None,
+    };
+    let request_hash = match hash_request(&request) {
+        Ok(hash) => hash,
+        Err(error) => {
+            let _ = rollback_ai_quota_reservation(db, &reservation).await;
+            return Err(error.to_string());
+        }
+    };
+    let task_id = task_id_for_request(subject_id, owner_id, &tapp_id, None);
+    let now = Utc::now().to_rfc3339();
+    let snapshot = AiTaskSnapshot {
+        task_id: task_id.clone(),
+        status: AiTaskStatus::Queued,
+        operation,
+        delivery: AiTaskDelivery::Result,
+        created_at: now.clone(),
+        updated_at: now,
+        result: None,
+        error: None,
+        usage,
+    };
+    let (stored, cancel_receiver) = LocalAiTask::new(
+        format!("internal:{source}:{task_id}"),
+        subject_id,
+        owner_id,
+        tapp_id.clone(),
+        None,
+        request_hash,
+        snapshot,
+    );
+    let persisted = stored.to_persisted();
+    match register_ai_task_atomically(db, &persisted).await {
+        Ok(AiTaskRegistration::Inserted) => {}
+        Ok(AiTaskRegistration::LimitReached) => {
+            let _ = rollback_ai_quota_reservation(db, &reservation).await;
+            return Err(
+                "AI_TASK_CONCURRENCY_LIMIT: too many active or retained AI tasks".to_string(),
+            );
+        }
+        Ok(AiTaskRegistration::Existing(_) | AiTaskRegistration::IdempotencyConflict) => {
+            let _ = rollback_ai_quota_reservation(db, &reservation).await;
+            return Err("AI_TASK_REGISTRATION_CONFLICT: internal task ID conflict".to_string());
+        }
+        Err(error) => {
+            let _ = rollback_ai_quota_reservation(db, &reservation).await;
+            tracing::error!(%error, %task_id, "[TAPP] Failed to register internal AI task");
+            return Err("AI_TASK_REGISTRY_UNAVAILABLE: task registry is unavailable".to_string());
+        }
+    }
+    insert_local(stored).await;
+
+    execute_task(AiTaskExecution {
+        task_id: task_id.clone(),
+        db: db.clone(),
+        role,
+        subject_id,
+        owner_id,
+        tapp_id: tapp_id.clone(),
+        request,
+        prepared: PreparedTask {
+            prompt,
+            output: AiTaskOutputRequest {
+                format: TappAiOutputFormat::Text,
+                schema: None,
+            },
+            provenance: Vec::new(),
+            image_references: Vec::new(),
+        },
+        model,
+        system_prompt: Some(system_prompt),
+        reservation,
+        cancel: cancel_receiver,
+        ledger_source: format!("internal:{source}"),
+    })
+    .await;
+
+    let snapshot = local_snapshot(&task_id)
+        .await
+        .ok_or_else(|| "AI_TASK_RESULT_MISSING: internal task disappeared".to_string())?;
+    if snapshot.status == AiTaskStatus::Completed {
+        return snapshot
+            .result
+            .as_ref()
+            .and_then(|result| result.get("value"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| "AI_TASK_INVALID_RESULT: text result is missing".to_string());
+    }
+    let error = snapshot
+        .error
+        .as_ref()
+        .and_then(|error| error.get("message"))
+        .and_then(Value::as_str)
+        .unwrap_or("AI task failed");
+    Err(error.to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use myriad_tapp_contract::manifest::TappAiOperation;
-    use sea_orm::DatabaseConnection;
 
-    #[test]
-    fn request_is_owned_and_cloneable() {
-        let req = GovernedTextRequest {
+    fn request() -> GovernedTextRequest {
+        GovernedTextRequest {
             role: UserRole::User,
             subject_id: 1,
             owner_id: 1,
@@ -73,71 +235,35 @@ mod tests {
             source: "test".into(),
             operation: TappAiOperation::Generate,
             tier: ModelTier::default(),
-            system_prompt: "sys".into(),
+            system_prompt: "system".into(),
             prompt: "hello".into(),
             client_ip: None,
-        };
-        let cloned = req.clone();
-        assert_eq!(cloned.tapp_id, "com.example.app");
-        assert_eq!(cloned.prompt, "hello");
-        assert_eq!(cloned.operation, TappAiOperation::Generate);
-    }
-
-    #[tokio::test]
-    async fn missing_executor_returns_stable_error_code() {
-        // Fresh process may or may not have an executor from other tests; if
-        // installed, skip the negative check. Install a throwaway handler only
-        // when empty so we can still assert the public error shape after a
-        // deliberate double-install attempt is a no-op for first-wins.
-        if EXECUTOR.get().is_some() {
-            return;
         }
-        let db = DatabaseConnection::default();
-        let err = execute_governed_text(
-            &db,
-            GovernedTextRequest {
-                role: UserRole::User,
-                subject_id: 1,
-                owner_id: 1,
-                tapp_id: "com.example.app".into(),
-                source: "test".into(),
-                operation: TappAiOperation::Generate,
-                tier: ModelTier::default(),
-                system_prompt: "sys".into(),
-                prompt: "hello".into(),
-                client_ip: None,
-            },
-        )
-        .await
-        .expect_err("executor must be missing in isolated unit test");
-        assert!(
-            err.starts_with("AI_TASK_EXECUTOR_UNAVAILABLE"),
-            "unexpected error: {err}"
-        );
     }
 
     #[tokio::test]
-    async fn installed_executor_is_invoked() {
-        install_executor(|_db, request| async move { Ok(format!("echo:{}", request.prompt)) });
+    async fn validates_requests_without_installing_an_executor() {
         let db = DatabaseConnection::default();
-        let text = execute_governed_text(
-            &db,
-            GovernedTextRequest {
-                role: UserRole::User,
-                subject_id: 1,
-                owner_id: 1,
-                tapp_id: "com.example.app".into(),
-                source: "test".into(),
-                operation: TappAiOperation::Generate,
-                tier: ModelTier::default(),
-                system_prompt: "sys".into(),
-                prompt: "ping".into(),
-                client_ip: None,
-            },
-        )
-        .await
-        .expect("installed executor should run");
-        // First-wins: if another test installed first, we only require some Ok.
-        assert!(!text.is_empty());
+        let mut empty = request();
+        empty.prompt.clear();
+        assert!(execute_governed_text(&db, empty)
+            .await
+            .unwrap_err()
+            .starts_with("UNSAFE_AI_TASK_INPUT:"));
+        let mut image = request();
+        image.operation = TappAiOperation::Image;
+        assert!(execute_governed_text(&db, image)
+            .await
+            .unwrap_err()
+            .starts_with("AI_TASK_UNSUPPORTED_OPERATION:"));
+    }
+
+    #[tokio::test]
+    async fn enforces_shared_rate_limit_before_provider_execution() {
+        let db = DatabaseConnection::default();
+        assert_eq!(
+            execute_governed_text(&db, request()).await.unwrap_err(),
+            "RATE_LIMITER_UNAVAILABLE: Rate limiter unavailable"
+        );
     }
 }

@@ -110,7 +110,7 @@ function resolveShellStops(source: TappIconStyleSource): {
 
   const id = source.id || ''
   const idParts = id.split('.')
-  const lastPart = idParts[idParts.length - 1]?.toLowerCase() || ''
+  const lastPart = idParts.at(-1)?.toLowerCase() || ''
   const idLower = id.toLowerCase()
   for (const [category, colors] of Object.entries(CATEGORY_COLORS)) {
     if (lastPart.includes(category) || idLower.includes(category)) {

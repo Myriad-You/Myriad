@@ -368,7 +368,7 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
   updateUiFieldValue,
   onMessage,
 }) => {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const { catalog: g, renderGuide, bindGuide } = useSettingGuide()
   const hitokotoSourceGuide = renderGuide(g.modules.hitokotoSource)
   const islandContentGuide = renderGuide(g.modules.islandContent)
@@ -597,7 +597,7 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
           bySource.set(source, { source, count: 0 })
         }
       })
-      return Array.from(bySource.values())
+      return Iterator.from(bySource.values()).toArray()
     },
     [sourceDraft.categories, sourceOptions],
   )
@@ -703,9 +703,10 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
 
         <div className="settings-text-3 text-xs">
           {rawTotal > 0 ? (
-            t.config.librarySourceVisibleCount
-              .replace('{shown}', String(shownTotal))
-              .replace('{total}', String(rawTotal))
+            format(t.config.librarySourceVisibleCount, {
+              shown: shownTotal,
+              total: rawTotal,
+            })
           ) : loading ? (
             <span className="inline-flex items-center" role="status">
               <Spinner size="xs" color="primary" />

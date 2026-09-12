@@ -1,7 +1,7 @@
 //! Enka.Network 角色元数据（名字 / 图标 / 稀有度）
 //!
 //! Enka 的 UID 接口只返回 avatarId，展柜要显示角色名和头像必须查映射表。
-//! 数据源（GitHub raw，磁盘缓存 + 内存缓存，7 天过期）：
+//! 数据源（GitHub raw；磁盘 `DISK_TTL` 7 天，内存 `OnceLock` 不过期）：
 //! - 原神：EnkaNetwork/API-docs `store/characters.json` + `store/loc.json`
 //! - 星铁：Enka `store/hsr/honker_characters.json` + Mar-7th/StarRailRes `index_min/{lang}/characters.json`（名字）
 //! - 绝区零：EnkaNetwork/API-docs `store/zzz/avatars.json` + `store/zzz/locs.json`

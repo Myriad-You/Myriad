@@ -194,7 +194,6 @@
   z-index: 1000;
   transform: translateX(-50%);
   pointer-events: none;
-
   max-width: min(98vw, 72rem);
 }
 
@@ -342,7 +341,6 @@
   width: 100%;
   height: 100%;
   border-radius: var(--tapp-dock-icon-radius);
-
   background: linear-gradient(
     160deg,
     #fff 0%,
@@ -373,7 +371,6 @@ html.dark .tapp-multi-dock-apps-shell {
 .tapp-multi-dock-apps-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-
   grid-template-rows: 1fr 1fr 1fr;
   gap: 12%;
   width: 60%;
@@ -464,7 +461,6 @@ html.dark .tapp-multi-dock-apps-search-dot {
   display: flex;
   align-items: center;
   justify-content: center;
-
   padding: max(3.5rem, env(safe-area-inset-top, 0px) + 2.5rem) 1rem
     max(5.5rem, calc(env(safe-area-inset-bottom, 0px) + 4.75rem));
   overflow: visible;
@@ -782,7 +778,6 @@ html.dark .tapp-launchpad-cat.is-active {
 
   width: 100%;
   flex: 0 0 auto;
-
   display: grid;
   grid-template-columns: repeat(var(--tapp-lp-cols), minmax(0, 1fr));
   grid-template-rows: repeat(var(--tapp-lp-rows), auto);

@@ -8,6 +8,7 @@ import type {
   Anime25DPlaybackLayer,
 } from './types'
 import { ANIME25D_LAYER_DEPTH, anime25DLayerFade } from '../rig/anime25d'
+import { formatTemplate } from '../rig/formatTemplate'
 import { deriveGeometryChestProfile } from './chestPhysics'
 import { deriveAnime25DShellProfile } from './shellProfile'
 import { anime25DPlaybackSource } from './types'
@@ -191,7 +192,7 @@ function requiredLayer(
 ): Anime25DPlaybackLayer {
   const layer = layers.find((candidate) => candidate.role === role)
   if (!layer) {
-    throw new Error(copy.anime25dMissingLayer.replace('{role}', role))
+    throw new Error(formatTemplate(copy.anime25dMissingLayer, { role }))
   }
   return layer
 }

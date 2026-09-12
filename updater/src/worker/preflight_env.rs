@@ -19,6 +19,7 @@ use crate::worker::Worker;
 /// health probes. Panels that rewrite these names will break stop/up/rollback.
 pub const EXPECTED_CONTAINER_NAMES: &[(&str, &str)] = &[
     ("backend", "myriad-backend"),
+    ("federation-worker", "myriad-federation-worker"),
     ("frontend", "myriad-frontend"),
     ("postgres", "myriad-postgres"),
 ];
@@ -50,12 +51,112 @@ pub async fn check_compose_contract(
 ) -> Result<()> {
     let db_mode = worker.cli().db_mode;
     check_compose_topology(compose_config, db_mode)?;
+    check_federation_http_storage(compose_config)?;
+    check_federation_edge(worker.as_ref()).await?;
     check_postgres_pgdata_volume(compose_config, db_mode)?;
     check_running_compose_project(worker.as_ref(), project).await?;
     info!(
         project = %project,
         "preflight: compose contract (services, container_name, pgdata volume, project labels) ok"
     );
+    Ok(())
+}
+
+/// The edge is TCB and must already understand split routing before a business
+/// image removes these endpoints from web. Inspect the running image and env,
+/// not merely the host file an operator may not have applied yet.
+async fn check_federation_edge(worker: &Worker) -> Result<()> {
+    let proxy = worker
+        .docker()
+        .raw()
+        .inspect_container("myriad-proxy", None)
+        .await
+        .map_err(|error| UpdaterError::Precondition(format!("inspect federation edge: {error}")))?;
+    let running = proxy.state.as_ref().and_then(|state| state.running) == Some(true);
+    let routing_env = proxy
+        .config
+        .as_ref()
+        .and_then(|config| config.env.as_ref())
+        .is_some_and(|env| {
+            env.iter()
+                .any(|value| value == "PROXY_FEDERATION_UPSTREAM=http://federation-worker:1103")
+        });
+    let image = proxy
+        .image
+        .as_deref()
+        .ok_or_else(|| UpdaterError::Precondition("proxy image identity missing".into()))?;
+    let image = worker
+        .docker()
+        .raw()
+        .inspect_image(image)
+        .await
+        .map_err(|error| {
+            UpdaterError::Precondition(format!("inspect federation edge capability: {error}"))
+        })?;
+    let capable = image
+        .config
+        .and_then(|config| config.labels)
+        .is_some_and(|labels| {
+            labels
+                .get("io.myriad.proxy.federation-routing")
+                .is_some_and(|value| value == "1")
+        });
+    if !running || !routing_env || !capable {
+        return Err(UpdaterError::Precondition(
+            "upgrade/recreate the proxy TCB with federation-routing support and PROXY_FEDERATION_UPSTREAM=http://federation-worker:1103 before upgrading the backend".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn check_federation_http_storage(config: &serde_json::Value) -> Result<()> {
+    let mounts = config
+        .pointer("/services/federation-worker/volumes")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| {
+            UpdaterError::Precondition("federation worker volume mounts missing".into())
+        })?;
+    let data_root = mounts.iter().any(|mount| {
+        mount["type"] == "volume"
+            && mount["source"] == "backend_data"
+            && mount["target"] == "/app/data"
+            && mount.get("read_only").and_then(serde_json::Value::as_bool) == Some(true)
+            && mount
+                .pointer("/volume/subpath")
+                .and_then(serde_json::Value::as_str)
+                .is_none_or(str::is_empty)
+    });
+    if mounts.len() != 4 || !data_root {
+        return Err(UpdaterError::Precondition(
+            "federation HTTP requires the read-only backend_data root and exactly three fixed writable subpaths".into(),
+        ));
+    }
+    for (source, target, subpath) in [
+        ("backend_data", "/app/data/federation", "federation"),
+        (
+            "backend_data",
+            "/app/data/federation_media",
+            "federation_media",
+        ),
+        ("backend_cache", "/tmp/cache/images", "images"),
+    ] {
+        if !mounts.iter().any(|mount| {
+            mount["type"] == "volume"
+                && mount["source"] == source
+                && mount["target"] == target
+                && mount
+                    .pointer("/volume/subpath")
+                    .and_then(serde_json::Value::as_str)
+                    == Some(subpath)
+                && mount
+                    .pointer("/volume/nocopy")
+                    .and_then(serde_json::Value::as_bool)
+                    == Some(true)
+                && mount.get("read_only").and_then(serde_json::Value::as_bool) != Some(true)
+        }) {
+            return Err(UpdaterError::Precondition(format!("federation HTTP requires the fixed writable {source}/{subpath} subpath at {target}; migrate Compose before upgrading")));
+        }
+    }
     Ok(())
 }
 
@@ -236,7 +337,19 @@ pub fn check_compose_topology(config: &serde_json::Value, db_mode: DbMode) -> Re
         ));
     };
 
-    let required = required_services(db_mode);
+    // Reject before maintenance/stop: a new image must never discover the
+    // missing role only after the running installation has been taken offline.
+    if config
+        .pointer("/services/backend/environment/MYRIAD_PROCESS_ROLE")
+        .and_then(serde_json::Value::as_str)
+        != Some("web")
+    {
+        return Err(UpdaterError::Precondition(
+            "migrate Compose and updater/Guard before upgrading: backend requires explicit MYRIAD_PROCESS_ROLE=web and federation-worker; implicit combined execution is no longer supported".into(),
+        ));
+    }
+    let mut required = required_services(db_mode);
+    required.push("federation-worker");
     let mut missing_svc = Vec::new();
     let mut name_issues = Vec::new();
 
@@ -425,10 +538,57 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn federation_http_storage_requires_exact_existing_volume_subpaths() {
+        let mut mounts = vec![
+            json!({"type":"volume", "source":"backend_data", "target":"/app/data", "read_only":true}),
+        ];
+        for (source, subpath, target) in [
+            ("backend_data", "federation", "/app/data/federation"),
+            (
+                "backend_data",
+                "federation_media",
+                "/app/data/federation_media",
+            ),
+            ("backend_cache", "images", "/tmp/cache/images"),
+        ] {
+            mounts.push(json!({"type":"volume", "source":source, "target":target,
+                "volume":{"subpath":subpath,"nocopy":true}}));
+        }
+        let config = json!({"services":{"federation-worker":{"volumes":mounts}}});
+        assert!(check_federation_http_storage(&config).is_ok());
+        for (path, value) in [
+            (
+                "/services/federation-worker/volumes/0/read_only",
+                json!(false),
+            ),
+            (
+                "/services/federation-worker/volumes/1/volume/subpath",
+                json!("agent"),
+            ),
+            (
+                "/services/federation-worker/volumes/2/source",
+                json!("other_data"),
+            ),
+            (
+                "/services/federation-worker/volumes/3/volume/nocopy",
+                json!(false),
+            ),
+        ] {
+            let mut altered = config.clone();
+            *altered.pointer_mut(path).unwrap() = value;
+            assert!(
+                check_federation_http_storage(&altered).is_err(),
+                "accepted {path}"
+            );
+        }
+    }
+
+    #[test]
     fn topology_ok_for_official_names() {
         let cfg = json!({
             "services": {
-                "backend": { "container_name": "myriad-backend" },
+                "backend": { "container_name": "myriad-backend", "environment": {"MYRIAD_PROCESS_ROLE": "web"} },
+                "federation-worker": {"container_name": "myriad-federation-worker"},
                 "frontend": { "container_name": "myriad-frontend" },
                 "postgres": { "container_name": "myriad-postgres" }
             }
@@ -437,10 +597,40 @@ mod tests {
     }
 
     #[test]
+    fn legacy_topology_is_rejected_before_maintenance() {
+        let config = json!({"services": {
+            "backend": {"container_name": "myriad-backend"},
+            "frontend": {"container_name": "myriad-frontend"},
+            "postgres": {"container_name": "myriad-postgres"}
+        }});
+        let error = check_compose_topology(&config, DbMode::Bundled).unwrap_err();
+        assert!(error.to_string().contains("migrate Compose"), "{error}");
+    }
+
+    #[test]
+    fn split_topology_requires_both_roles_and_exact_worker_name() {
+        let mut config = json!({"services": {
+            "backend": {"container_name": "myriad-backend", "environment": {"MYRIAD_PROCESS_ROLE": "web"}},
+            "frontend": {"container_name": "myriad-frontend"}
+        }});
+        assert!(check_compose_topology(&config, DbMode::External).is_err());
+        config["services"]["federation-worker"] =
+            json!({"container_name": "myriad-federation-worker"});
+        assert!(check_compose_topology(&config, DbMode::External).is_ok());
+        config["services"]["federation-worker"]["container_name"] = json!("other-worker");
+        assert!(check_compose_topology(&config, DbMode::External).is_err());
+        config["services"]["federation-worker"]["container_name"] =
+            json!("myriad-federation-worker");
+        config["services"]["backend"]["environment"]["MYRIAD_PROCESS_ROLE"] = json!("all");
+        assert!(check_compose_topology(&config, DbMode::External).is_err());
+    }
+
+    #[test]
     fn topology_rejects_renamed_container() {
         let cfg = json!({
             "services": {
-                "backend": { "container_name": "bt-backend" },
+                "backend": { "container_name": "bt-backend", "environment": {"MYRIAD_PROCESS_ROLE": "web"} },
+                "federation-worker": {"container_name": "myriad-federation-worker"},
                 "frontend": { "container_name": "myriad-frontend" },
                 "postgres": { "container_name": "myriad-postgres" }
             }
@@ -453,7 +643,8 @@ mod tests {
     fn topology_external_skips_postgres_service() {
         let cfg = json!({
             "services": {
-                "backend": { "container_name": "myriad-backend" },
+                "backend": { "container_name": "myriad-backend", "environment": {"MYRIAD_PROCESS_ROLE": "web"} },
+                "federation-worker": {"container_name": "myriad-federation-worker"},
                 "frontend": { "container_name": "myriad-frontend" }
             }
         });

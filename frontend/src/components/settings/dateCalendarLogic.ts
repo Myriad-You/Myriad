@@ -1,4 +1,3 @@
-
 export type IsoDate = string // YYYY-MM-DD
 
 export function parseIso(iso: string): { y: number; m: number; d: number } | null {

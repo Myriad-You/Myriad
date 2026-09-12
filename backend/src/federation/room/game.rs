@@ -2,7 +2,7 @@
 //!
 //! Game traffic reuses Room fan-out and membership. The type prefix
 //! `game:<tappId>:<protocol>` and a small intent/state envelope keep
-//! chat keyword filters from treating chess notation as post text.
+//! federation keyword filters from scanning validated structured game payloads.
 
 use serde_json::Value;
 

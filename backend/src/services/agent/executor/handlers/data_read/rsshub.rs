@@ -123,7 +123,6 @@ pub(super) async fn execute_brew_discover(
 async fn ai_search_rss_feeds(query: &str, ctx: &HandlerContext<'_>) -> Result<Vec<Value>, String> {
     let analyzer = ctx.ai_analyzer.ok_or("AI analyzer not available")?;
 
-    // 构建搜索查询
     let search_query = format!("{} RSS feed URL", query);
 
     // 使用 AI 推断常见 RSS 地址（注意：AI 没有实时联网能力，依赖已有知识）

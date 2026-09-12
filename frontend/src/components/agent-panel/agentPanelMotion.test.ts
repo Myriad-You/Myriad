@@ -35,7 +35,7 @@ const pan = readFileSync(
 )
 
 function stripComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, '')
+  return source.replaceAll(/\/\*[\s\S]*?\*\//g, '')
 }
 
 function block(source: string, start: string, end: string): string {

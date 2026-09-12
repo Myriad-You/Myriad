@@ -13,7 +13,7 @@ export function formatShareRoomId(
   homeServer?: string | null,
 ): string {
   const id = roomId.trim()
-  const home = (homeServer || '').trim().replace(/\/+$/, '')
+  const home = (homeServer || '').trim().replaceAll(/\/+$/g, '')
   if (!home || id.includes('@')) return id
   return `${id}@${home}`
 }

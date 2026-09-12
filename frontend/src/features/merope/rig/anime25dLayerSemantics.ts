@@ -65,9 +65,9 @@ export function canonicalAnime25DLayerName(value: string | undefined): string {
     .normalize('NFKC')
     .trim()
     .toLowerCase()
-    .replace(/\s*(?:のコピー|copy)(?:\s*\d+)?$/u, '')
-    .replace(/[\s_]+/g, '-')
-    .replace(/-+/g, '-')
+    .replaceAll(/\s*(?:のコピー|copy)(?:\s*\d+)?$/ug, '')
+    .replaceAll(/[\s_]+/g, '-')
+    .replaceAll(/-+/g, '-')
 }
 
 /** Preserve every numbered/depth/side fragment */

@@ -204,7 +204,7 @@ const YoutubeStatsWidget = memo(({ data }: { data: any }) => {
     [subscribers],
   )
   const award = AWARD_STYLES[awardTier]
-  const gradId = useId().replace(/:/g, '')
+  const gradId = useId().replaceAll(':', '')
 
   const subsDisplay = useCountUp(subscribers, 700, 80)
   const viewsDisplay = useCountUp(views, 700, 160)

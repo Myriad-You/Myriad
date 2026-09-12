@@ -37,7 +37,7 @@ export function selectPrefetchIds(
 export function prefetchArticleDetails(ids: Iterable<number>): number {
   const signal = bumpPrefetch()
   for (const id of selectPrefetchIds(ids)) {
-    void Promise.resolve(loadDetail(id, signal)).catch(() => undefined)
+    void Promise.try(() => loadDetail(id, signal)).catch(() => undefined)
   }
   return generation
 }

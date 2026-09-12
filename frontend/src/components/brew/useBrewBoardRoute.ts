@@ -1,9 +1,10 @@
 import type { BrewSource } from '../../types/brew'
-import type { BrewBoard, BrewViewMode } from './logic/board'
+import type { boardEntry, BrewBoard,
+  BrewViewMode } from './logic/board'
 
+import type { TopicNameKey } from './logic/topics'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  boardEntry,
   eatSearchKeys,
   resolveBoardParam,
   viewForBoardEntry,
@@ -25,7 +26,7 @@ export function useBrewBoardRoute(
   const [board, setBoard] = useState<BrewBoard>('feeds')
   const [selectedTopic, setSelectedTopic] = useState<{
     key: string
-    nameKey: string
+    nameKey: TopicNameKey
   } | null>(null)
   const [railFocusId, setRailFocusId] = useState<number | null>(null)
 
@@ -59,7 +60,7 @@ export function useBrewBoardRoute(
     })
   }, [searchParams, applyBoardEntry, setActiveId, setSearchParams])
 
-  const openTopic = useCallback((topicKey: string, nameKey: string) => {
+  const openTopic = useCallback((topicKey: string, nameKey: TopicNameKey) => {
     setSelectedTopic({ key: topicKey, nameKey })
     setViewMode('topic-feed')
   }, [])

@@ -9,7 +9,7 @@ export function pagePerceptionCopy(
   const authored = page.summary?.trim().slice(0, 400) ?? ''
   const body = page.plainText?.trim() ?? ''
   const author = page.author?.trim() ?? ''
-  const autoPrefix = authored.replace(/\.\.\.$/, '').trimEnd()
+  const autoPrefix = authored.replaceAll(/\.\.\.$/g, '').trimEnd()
   const summaryIsBodyPrefix = Boolean(autoPrefix && body.startsWith(autoPrefix))
   return {
     title,

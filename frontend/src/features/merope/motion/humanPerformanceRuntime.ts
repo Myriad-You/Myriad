@@ -37,7 +37,7 @@ export class HumanPerformanceRuntime {
     nowMs: number,
   ): HumanPerformanceFrame {
     if (!this.mergedFrom || !sameBehaviorPlans(plans, this.mergedFrom)) {
-      this.mergedFrom = [...plans]
+      this.mergedFrom = Iterator.from(plans).toArray()
       this.mergedOriginFloor = originFloor(plans)
       const next = mergeBehaviorPlans(plans, nowMs, this.motionStyle)
       const schedulerFingerprint = planFingerprint(next, true)
@@ -138,11 +138,11 @@ export function mergeBehaviorPlans(
     metadata: {
       sources: active
         .map((plan) => plan.id)
-        .sort()
+        .toSorted()
         .join(','),
     },
-    pegs: [...pegById.values()],
-    behaviors: [...behaviorById.values()],
+    pegs: Iterator.from(pegById.values()).toArray(),
+    behaviors: Iterator.from(behaviorById.values()).toArray(),
   }
 }
 
@@ -233,9 +233,10 @@ function planFingerprint(
       .map((behavior) => behavior.anticipation)
       .filter((id): id is string => typeof id === 'string'),
   )
-  const pegs = plan.pegs
+  const pegs = Iterator.from(plan.pegs)
     .filter((peg) => includeAnticipation || !anticipation.has(peg.id))
     .map((peg) => [peg.id, peg.atMs, peg.revision, peg.confidence ?? null])
+    .toArray()
   const behaviors = plan.behaviors.map((behavior) => ({
     id: behavior.id,
     function: behavior.function,

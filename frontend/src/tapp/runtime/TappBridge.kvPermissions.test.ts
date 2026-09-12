@@ -97,7 +97,7 @@ describe('TappBridge KV permission gates', () => {
 
   async function lastPayload(responses: Array<Record<string, unknown>>) {
     await new Promise((resolve) => setTimeout(resolve, 0))
-    const last = responses[responses.length - 1]
+    const last = responses.at(-1)
     assert.ok(last, 'expected a bridge response')
     return last.payload as {
       success?: boolean
@@ -134,7 +134,7 @@ describe('TappBridge KV permission gates', () => {
       assert.equal(payload.success, false, action)
       assert.equal(payload.code, 'PERMISSION_DENIED', action)
     }
-    assert.deepEqual(reached, [...READS])
+    assert.deepEqual(reached, Iterator.from(READS).toArray())
   })
 
   it('allows KV writes only after storage:write is granted', async () => {
@@ -145,6 +145,6 @@ describe('TappBridge KV permission gates', () => {
       const payload = await lastPayload(responses)
       assert.equal(payload.success, true, action)
     }
-    assert.deepEqual(reached, [...WRITES])
+    assert.deepEqual(reached, Iterator.from(WRITES).toArray())
   })
 })

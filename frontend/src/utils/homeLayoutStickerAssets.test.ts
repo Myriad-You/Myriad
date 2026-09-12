@@ -6,10 +6,7 @@ import {
   fetchStickerAssets,
   restoreStickerAssets,
 } from './homeLayoutStickerAssets'
-import {
-  encodeBase64,
-
-} from './homeLayoutTransfer'
+import { encodeBase64 } from './homeLayoutTransfer'
 
 const PNG_1X1 = Uint8Array.from([
   0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,

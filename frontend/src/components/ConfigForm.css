@@ -2074,6 +2074,20 @@ html.dark .platform-status-dot.is-unconfigured {
   color: var(--cfg-text-3);
 }
 
+.channel-connect-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0.5rem 0 0;
+}
+
+.channel-connect-fact {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--cfg-text-2);
+}
+
 .platform-auto-refresh--plain {
   display: flex;
   flex-direction: column;

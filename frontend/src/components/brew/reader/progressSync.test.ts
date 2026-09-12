@@ -24,14 +24,10 @@ it('flushes the final unsent position and confirms only successful writes', asyn
 it('retains progress recorded during an in-flight write', async () => {
   const owner = new AbortController()
   const sent: number[] = []
-  let release!: () => void
+  const { promise: held, resolve: release } = Promise.withResolvers<void>()
   const sync = new ProgressSync(async (value) => {
     sent.push(value)
-    if (value === 10) {
-      await new Promise<void>((resolve) => {
-        release = resolve
-      })
-}
+    if (value === 10) await held
   }, owner.signal)
   sync.record(10)
   const first = sync.flush()

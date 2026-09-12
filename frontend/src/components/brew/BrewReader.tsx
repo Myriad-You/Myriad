@@ -22,6 +22,7 @@ import {
   useBrewAnimationConfig,
 } from '../../hooks/animation'
 import { isExlight } from '../../hooks/useAnimationLevel'
+import { authSubject } from '../../utils/authSubject'
 import { userFacingError } from '../../utils/userFacingError'
 import {
   AnnotationTooltip,
@@ -154,9 +155,12 @@ function ReaderArticleSession({
 
   useImmersiveChrome('brew-reader', true)
 
-  const { setPageContent, clearPageContent } = usePageContentOptional() || {}
+  const { setPageContent, clearPageContent } = usePageContentOptional() ?? {}
+  // This article session is keyed by item id; retained old content is not a new observation.
+  const [contentSubject] = useState(() => authSubject.signal)
 
   useEffect(() => {
+    if (contentSubject.aborted) return
     if (setPageContent && item) {
       const articleContent = item.content || item.summary || ''
 
@@ -189,7 +193,7 @@ function ReaderArticleSession({
         clearPageContent()
       }
     }
-  }, [item, sourceType, setPageContent, clearPageContent])
+  }, [item, sourceType, setPageContent, clearPageContent, contentSubject])
 
   const animConfig = useBrewAnimationConfig()
   const readerTransition = useMemo(
@@ -395,7 +399,10 @@ function ReaderArticleSession({
 
   useEffect(() => {
     if (!baseContent || !contentInnerRef.current) return
-    const marked = new Set(Array.from(contentInnerRef.current.querySelectorAll('[data-comment-id]'), node => Number(node.getAttribute('data-comment-id'))))
+    const marked = new Set(
+      Iterator.from(contentInnerRef.current.querySelectorAll('[data-comment-id]'))
+        .map((node) => Number(node.getAttribute('data-comment-id'))),
+    )
     setUnresolvedCommentIds(new Set(comments.filter(comment => comment.selected_text && !comment.parent_id && !marked.has(comment.id)).map(comment => comment.id)))
   }, [baseContent, comments, annotations, showAnnotations, theme, item.content_revision])
 

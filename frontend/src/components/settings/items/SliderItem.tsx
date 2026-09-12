@@ -25,7 +25,7 @@ function defaultFormat(value: number, step: number): string {
     4,
     (String(step).split('.')[1] || '').length || 1,
   )
-  return value.toFixed(decimals).replace(/\.?0+$/, '')
+  return value.toFixed(decimals).replaceAll(/\.?0+$/g, '')
 }
 
 function trackWidthRem(stepIntervals: number): number {
@@ -173,8 +173,8 @@ export const SliderItem = React.memo<SliderItemProps>(
 
     const endActive = useCallback(() => setActive(false), [])
 
-    const id = `setting-slider-${itemKey || label.replace(/\s+/g, '-').toLowerCase()}`
-    const inputName = `myriad-slider-${itemKey || label.replace(/\s+/g, '-').toLowerCase()}`
+    const id = `setting-slider-${itemKey || label.replaceAll(/\s+/g, '-').toLowerCase()}`
+    const inputName = `myriad-slider-${itemKey || label.replaceAll(/\s+/g, '-').toLowerCase()}`
     const anchorProps = guideDomProps(guidePath)
 
     return (

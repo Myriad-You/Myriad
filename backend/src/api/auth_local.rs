@@ -1063,12 +1063,20 @@ pub async fn toggle_local_login(
         ))
     })?;
 
-    // 取当前状态
-    let row = db
+    let txn = db
+        .begin()
+        .await
+        .map_err(|error| auth_store_http("begin local login toggle", error))?;
+    crate::api::oauth::lock_login_methods(&txn, user_id)
+        .await
+        .map_err(|error| auth_store_http("lock login methods", error))?;
+
+    let row = txn
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT password_hash IS NOT NULL AS has_password, \
-                    (SELECT COUNT(*) FROM user_identities WHERE user_id = users.id) AS identity_count \
+                    (SELECT COUNT(*) FROM user_identities WHERE user_id = users.id \
+                        AND LOWER(provider) NOT IN ('qq', 'telegram', 'discord_dm', 'feishu')) AS identity_count \
              FROM users WHERE id = $1",
             vec![SeaValue::Int(Some(user_id))],
         ))
@@ -1095,7 +1103,7 @@ pub async fn toggle_local_login(
                 })),
             )));
         }
-    } else if identity_count == 0 {
+    } else if crate::api::oauth::disable_local_login_blocks(identity_count) {
         return Err(HttpError::from((
             StatusCode::CONFLICT,
             Json(json!({
@@ -1106,13 +1114,16 @@ pub async fn toggle_local_login(
     }
 
     let disabled = !req.enabled;
-    db.execute_raw(Statement::from_sql_and_values(
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "UPDATE users SET local_login_disabled = $1, updated_at = NOW() WHERE id = $2",
         vec![SeaValue::Bool(Some(disabled)), SeaValue::Int(Some(user_id))],
     ))
     .await
     .map_err(|error| auth_store_http("update local login", error))?;
+    txn.commit()
+        .await
+        .map_err(|error| auth_store_http("commit local login toggle", error))?;
 
     Ok(Json(json!({"success": true, "enabled": req.enabled})))
 }

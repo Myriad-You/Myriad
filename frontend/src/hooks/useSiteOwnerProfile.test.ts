@@ -113,10 +113,8 @@ describe('fetchSiteOwnerProfile', () => {
   })
 
   it('non-force concurrent callers share one in-flight request', async () => {
-    let resolveFetch!: (value: Response) => void
-    const pending = new Promise<Response>((resolve) => {
-      resolveFetch = resolve
-    })
+    const { promise: pending, resolve: resolveFetch } =
+      Promise.withResolvers<Response>()
     const { calls } = mockFetch(() => pending)
 
     const a = fetchSiteOwnerProfile()
@@ -137,10 +135,8 @@ describe('fetchSiteOwnerProfile', () => {
   })
 
   it('force does not reuse a stale non-force in-flight response', async () => {
-    let resolveCold!: (value: Response) => void
-    const coldPending = new Promise<Response>((resolve) => {
-      resolveCold = resolve
-    })
+    const { promise: coldPending, resolve: resolveCold } =
+      Promise.withResolvers<Response>()
     let call = 0
     const { calls } = mockFetch((_url, init) => {
       call += 1
@@ -182,10 +178,8 @@ describe('fetchSiteOwnerProfile', () => {
   })
 
   it('concurrent force callers share one in-flight request', async () => {
-    let resolveFetch!: (value: Response) => void
-    const pending = new Promise<Response>((resolve) => {
-      resolveFetch = resolve
-    })
+    const { promise: pending, resolve: resolveFetch } =
+      Promise.withResolvers<Response>()
     const { calls } = mockFetch(() => pending)
 
     // Simulates notifyAvatarChanged dual-firing avatar + profile-display

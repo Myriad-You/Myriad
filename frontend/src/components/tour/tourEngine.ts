@@ -80,7 +80,7 @@ export function startTour(def: TourDefinition): boolean {
   if (first < 0) return false
   const step = def.steps[first]!
   revealTourAnchor(step.anchor, step.id)
-  visible = [...def.steps]
+  visible = Iterator.from(def.steps).toArray()
   setTourDomActive(true)
   emit({
     active: true,

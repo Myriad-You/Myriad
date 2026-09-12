@@ -1,4 +1,3 @@
-
 import type { SnapshotsResponse, UpdaterStatus } from '../../../services/updaterApi'
 import type { U } from './helpers'
 import React, { useMemo } from 'react'
@@ -75,7 +74,7 @@ export const SnapshotLimitPrefs: React.FC<SnapshotLimitPrefsProps> = ({
           n: String(limitValue),
         }),
       })
-      base.sort((a, b) => Number(a.value) - Number(b.value))
+      return base.toSorted((a, b) => Number(a.value) - Number(b.value))
     }
     return base
   }, [knownLimit, limitValue, u.updaterSnapshotLimitOption])

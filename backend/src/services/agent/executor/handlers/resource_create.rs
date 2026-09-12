@@ -1,6 +1,6 @@
 //! 资源创建能力处理器
 //!
-//! 处理 tapp.generate, report.create, reminder.create 等资源创建类能力。
+//! 处理 tapp.generate、tapp.install、report.create、reminder.create、note.create、bookmark.save。
 //! 纯投影见 [`crate::services::agent::resource_create_pure`]。
 
 use super::HandlerContext;
@@ -323,7 +323,7 @@ async fn execute_report_create(
         .and_then(|v| v.as_str())
         .unwrap_or("Untitled report");
 
-    // 读取上游步骤通过 inputFrom/analysisFrom 解析后注入的数据
+    // 读取 resolve 后的 analysis / input / data
     let analysis = params
         .get("analysis")
         .or_else(|| params.get("input"))

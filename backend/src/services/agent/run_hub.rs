@@ -62,6 +62,7 @@ struct PersistedAgentRunEventRow {
 }
 
 pub struct AgentRun {
+    execution: std::sync::Mutex<Option<tokio::task::AbortHandle>>,
     pub(crate) playback_direction: super::playback_direction::PlaybackDirection,
     run_id: String,
     user_id: i32,
@@ -78,6 +79,7 @@ impl AgentRun {
     fn new(run_id: String, user_id: i32, session_id: Option<String>) -> Arc<Self> {
         let (events_tx, _) = broadcast::channel(EVENT_HISTORY_LIMIT);
         Arc::new(Self {
+            execution: std::sync::Mutex::new(None),
             playback_direction: Default::default(),
             run_id,
             user_id,
@@ -105,6 +107,7 @@ impl AgentRun {
         let playback_direction = super::playback_direction::PlaybackDirection::default();
         playback_direction.close(); // Restored history must never revive a live director.
         Arc::new(Self {
+            execution: std::sync::Mutex::new(None),
             playback_direction,
             run_id: persisted.run_id,
             user_id: persisted.user_id,
@@ -122,6 +125,24 @@ impl AgentRun {
             }),
             events_tx,
         })
+    }
+
+    /// Explicit user cancellation also covers queueing and planning before a task exists.
+    /// Subscribers disconnecting must never call this.
+    pub(crate) fn register_execution(&self, handle: tokio::task::AbortHandle) {
+        *self.execution.lock().unwrap() = Some(handle);
+    }
+
+    pub(crate) async fn abort_execution(self: &Arc<Self>) {
+        if let Some(handle) = self.execution.lock().unwrap().take() {
+            handle.abort();
+        }
+        self.publish(AgentProgressEvent::Error {
+            task_id: None,
+            message: "任务已取消".into(),
+            code: "CANCELLED".into(),
+        })
+        .await;
     }
 
     pub fn run_id(&self) -> &str {
@@ -145,7 +166,7 @@ impl AgentRun {
         )
     }
 
-    async fn is_executing(&self) -> bool {
+    pub(crate) async fn is_executing(&self) -> bool {
         let state = self.state.lock().await;
         !state.completed && state.status != "waiting_for_input"
     }
@@ -784,5 +805,26 @@ mod tests {
             .performance
             .is_none());
         AGENT_RUNS.write().await.remove(run_id);
+    }
+}
+
+#[cfg(test)]
+mod execution_cancellation_tests {
+    use super::*;
+    #[tokio::test]
+    async fn explicit_cancel_drops_planning_before_task_creation() {
+        let run = AgentRun::new("channel-cancel-test".into(), 777, Some("session".into()));
+        let (committed, result) = tokio::sync::oneshot::channel::<()>();
+        let execution = tokio::spawn(async move {
+            std::future::pending::<()>().await;
+            let _ = committed.send(());
+        });
+        run.register_execution(execution.abort_handle());
+        run.abort_execution().await;
+        assert!(execution.await.unwrap_err().is_cancelled());
+        assert!(result.await.is_err());
+        let (events, _, completed) = run.snapshot().await;
+        assert!(completed);
+        assert!(events.iter().any(|event| matches!(&event.event, AgentProgressEvent::Error { code, .. } if code == "CANCELLED")));
     }
 }

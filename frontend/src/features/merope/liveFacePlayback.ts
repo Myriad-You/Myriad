@@ -1,4 +1,3 @@
-
 import { useLayoutEffect, useSyncExternalStore } from 'react'
 
 type Listener = () => void

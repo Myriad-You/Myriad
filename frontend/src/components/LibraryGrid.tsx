@@ -502,7 +502,10 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
   ])
 
   const laidOutItems = useMemo(
-    () => filteredAllItems.filter((item) => layouts.has(item.id)),
+    () =>
+      Iterator.from(filteredAllItems)
+        .filter((item) => layouts.has(item.id))
+        .toArray(),
     [filteredAllItems, layouts],
   )
 
@@ -541,6 +544,18 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
   laidOutItemsRef.current = laidOutItems
   canvasSpatialIndexRef.current = canvasSpatialIndex
 
+  // Pagination changes the slice, not the layout order.
+  const listOrderedItems = useMemo(() => {
+    if (layoutMode === 'canvas') return []
+    return laidOutItems.toSorted((a, b) => {
+      const layoutA = layouts.get(a.id)!
+      const layoutB = layouts.get(b.id)!
+      if (Math.abs(layoutA.top - layoutB.top) > 10)
+        return layoutA.top - layoutB.top
+      return layoutA.left - layoutB.left
+    })
+  }, [laidOutItems, layoutMode, layouts])
+
   const visibleItems = useMemo(() => {
     if (layouts.size === 0) return []
 
@@ -555,15 +570,7 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
       )
     }
 
-    const sortedItems = [...laidOutItems].sort((a, b) => {
-      const layoutA = layouts.get(a.id)!
-      const layoutB = layouts.get(b.id)!
-      if (Math.abs(layoutA.top - layoutB.top) > 10)
-        return layoutA.top - layoutB.top
-      return layoutA.left - layoutB.left
-    })
-
-    return sortedItems.slice(0, visibleCount)
+    return listOrderedItems.slice(0, visibleCount)
   }, [
     canvasLiveVisibleItems,
     canvasSpatialIndex,
@@ -572,6 +579,7 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
     laidOutItems,
     layoutMode,
     layouts,
+    listOrderedItems,
     visibleCount,
   ])
 
@@ -687,7 +695,9 @@ export default function LibraryGrid({ filter }: LibraryGridProps) {
       setAllItems((current) => {
         if (incoming.length === 0) return current
         const known = new Set(current.map((item) => item.id))
-        const unique = incoming.filter((item) => !known.has(item.id))
+        const unique = Iterator.from(incoming)
+          .filter((item) => !known.has(item.id))
+          .toArray()
         return unique.length > 0 ? [...current, ...unique] : current
       })
       nextLibraryOffsetRef.current = data.next_offset ?? null

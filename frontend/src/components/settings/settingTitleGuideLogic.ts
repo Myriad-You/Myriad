@@ -1,4 +1,3 @@
-
 export const GUIDE_VIEWPORT_PAD = 10
 export const GUIDE_GAP = 8
 /** min visible edge (px); below = hidden */
@@ -120,8 +119,7 @@ export function computeGuidePosition(
       { p: 'right', s: spaceRight },
       { p: 'bottom', s: spaceBelow },
     ]
-    scores.sort((a, b) => b.s - a.s)
-    placement = scores[0]!.p
+    placement = scores.toSorted((a, b) => b.s - a.s)[0]!.p
   }
 
   let top = 0

@@ -1,4 +1,3 @@
-
 import type { RankRow } from './RankList'
 import type { TrendPoint } from './TrendChart'
 

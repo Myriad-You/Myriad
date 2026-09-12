@@ -1,8 +1,10 @@
 import type { Anime25DPlaybackLayer } from './types'
 import type { CroppedLayerPixels } from './webglRuntime'
 
-/** Fuse the two painted skin surfaces in rest space. Unlike an alpha cut,
- * the transition remains fully backed by skin when its torso mesh moves. */
+/**
+ * Fuse the two painted skin surfaces in rest space. Unlike an alpha cut,
+ * the transition remains fully backed by skin when its torso mesh moves.
+ */
 export function fuseShoulderSurface(
   torso: Anime25DPlaybackLayer,
   body: CroppedLayerPixels,
@@ -80,8 +82,9 @@ export function fuseShoulderSurface(
             Math.max(
               ...[0, 1, 2].map((c) => Math.abs(donor![c] - inside![c])),
             ) > 35
-          )
+          ) {
             break
+}
           donors.push(donor!)
           if (!ordinarySkin) strong = false
         }
@@ -96,27 +99,31 @@ export function fuseShoulderSurface(
     // seed may be filled; a disconnected pale sleeve remains untouched.
     const accepted = new Set(seeds.map((row) => row.y))
     for (const directionY of [1, -1]) {
-      let distance = Infinity,
-        previous = -Infinity
-      for (const row of directionY === 1 ? rows : [...rows].reverse()) {
+      let distance = Infinity
+        let previous = -Infinity
+      for (const row of directionY === 1 ? rows : rows.toReversed()) {
         if (Math.abs(row.y - previous) !== 1) distance = Infinity
         distance = row.strong ? 0 : distance + 1
         if (distance <= band * 3) accepted.add(row.y)
         previous = row.y
       }
     }
-    for (const { x, y, donors } of rows.filter((row) => accepted.has(row.y)))
+    for (const { x, y, donors } of Iterator.from(rows).filter((row) =>
+      accepted.has(row.y),
+    )) {
       for (let d = 0; d < band; d++) {
         const i = (y * body.width + x + direction * d) * 4
         const t = Math.max(0, (d - 2) / (band - 2))
         const mix = t * t * (3 - 2 * t)
         output ??= body.pixels.slice()
-        for (let c = 0; c < 3; c++)
+        for (let c = 0; c < 3; c++) {
           output[i + c] = Math.round(
             donors[d][c] * (1 - mix) + body.pixels[i + c] * mix,
           )
+}
         // Keep silhouette and coverage byte-identical, including antialiasing.
       }
+}
   }
   return output ? { ...body, pixels: output } : null
 }

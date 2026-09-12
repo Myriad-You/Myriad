@@ -1,4 +1,4 @@
-//! 报告系统能力定义
+//! Agent 报告与相关资源 capability 注册
 
 use crate::services::agent::types::*;
 use serde_json::json;

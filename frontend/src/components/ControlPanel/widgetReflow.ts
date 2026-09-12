@@ -32,7 +32,7 @@ export function packControlPanelWidgets<T extends Placeable>(
   widgets: readonly T[],
   rows: number,
 ): PackResult<T> {
-  if (rows <= 0) return { placed: [], overflow: [...widgets] }
+  if (rows <= 0) return { placed: [], overflow: Iterator.from(widgets).toArray() }
 
   const occupied: boolean[][][] = Array.from({ length: PAGE_COUNT }, () =>
     Array.from({ length: rows }, () =>
@@ -87,10 +87,12 @@ export function mergeVisibleWithHidden<T extends { id: string }>(
   visible: readonly T[],
   hidden: readonly T[],
 ): T[] {
-  if (hidden.length === 0) return [...visible]
+  if (hidden.length === 0) return Iterator.from(visible).toArray()
   const visibleIds = new Set(visible.map((w) => w.id))
-  const stillHidden = hidden.filter((w) => !visibleIds.has(w.id))
-  return stillHidden.length > 0 ? [...visible, ...stillHidden] : [...visible]
+  const stillHidden = Iterator.from(hidden)
+    .filter((w) => !visibleIds.has(w.id))
+    .toArray()
+  return stillHidden.length > 0 ? [...visible, ...stillHidden] : Iterator.from(visible).toArray()
 }
 
 export function widgetsOverlap(a: Placeable, b: Placeable): boolean {

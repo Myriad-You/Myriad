@@ -5,6 +5,7 @@
 
 pub mod feed;
 pub mod hmac;
+pub mod outbound;
 pub mod package;
 pub mod package_fs;
 pub mod prepared;
@@ -16,6 +17,10 @@ pub use feed::{
     FEDERATION_FEED_LIMIT,
 };
 pub use hmac::{encode_hmac, hmac_matches, hmac_sha256};
+pub use outbound::{
+    classify_outbound_http_error, outbound_endpoint_identity, strip_urls_from_error,
+    OutboundHttpErrorKind,
+};
 pub use package::{
     asset_bytes_within_limit, filter_widget_paths, installed_core_entry, installed_layer_entries,
     installed_manifest_declares_asset, installed_page_entry, installed_text_resource_plan,

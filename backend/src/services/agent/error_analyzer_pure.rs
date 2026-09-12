@@ -198,7 +198,7 @@ mod tests {
     #[test]
     fn test_gemini_api_key_not_configured_non_retryable() {
         let params = HashMap::new();
-        // 与 response_agent::api_key_not_configured("Gemini") 一致
+        // leftover Chinese copy; classifier still matches `contains("API Key 未配置")`
         let analysis = analyze_error("Gemini API Key 未配置", "ai.webSearch", &params);
         assert_eq!(analysis.category, ErrorCategory::Configuration);
         assert!(

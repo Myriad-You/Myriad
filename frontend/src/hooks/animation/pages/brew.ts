@@ -114,7 +114,7 @@ export function useBrewAnimationConfig(): AnimationConfig {
   return useMemo(() => {
     const cacheKey = baseConfig.level
     const cached = ANIM_CONFIG_CACHE.get(cacheKey)
-    if (cached && cached.level === baseConfig.level) {
+    if (cached?.level === baseConfig.level) {
       return cached
     }
 

@@ -396,10 +396,7 @@ describe('DataExchangeBroker', { concurrency: false }, () => {
   })
 
   it('caps concurrent requests per requester runtime', async () => {
-    let release!: () => void
-    const gate = new Promise<void>((resolve) => {
-      release = resolve
-    })
+    const { promise: gate, resolve: release } = Promise.withResolvers<void>()
     let prepares = 0
     mockExchange({
       hangPrepare: gate,

@@ -130,8 +130,7 @@ pub async fn handle_channel_open(
     }
 
     let Some(target_user_id) = target_user_id else {
-        // Unroutable: log and Ok(()) → 202. Err here is not uniformly 5xx
-        // (`map_inbox_handler_error`: 4xx except ChannelOpen race 503).
+        // Unroutable: log and Ok(()) → 202 so the peer does not retry.
         tracing::warn!(
             "[Channel] Dropping unroutable ChannelOpen from {} (to={:?})",
             actor_url_str,
@@ -177,7 +176,7 @@ pub async fn handle_channel_open(
         actor_url_str
     );
 
-    // ChannelMessage may have raced ahead of ChannelOpen — apply buffered ones now.
+    // ChannelMessage / KeyExchange may have raced ahead of ChannelOpen — flush buffer now.
     flush_early_channel_messages(db, channel_id).await?;
 
     Ok(())

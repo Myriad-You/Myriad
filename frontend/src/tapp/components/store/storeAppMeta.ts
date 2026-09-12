@@ -65,11 +65,16 @@ export function OfficialVerifiedDot({
   )
 }
 
+const TRADITIONAL_MARKERS =
+  /[說這個為與萬億軟體檔訊預設網連線憶臺裡麼迴]/
+
 export function inferPrimaryCatalogLocale(text: string): string | null {
   const sample = text.trim()
   if (!sample) return null
   if (/[\u3040-\u30FF]/.test(sample)) return 'ja-JP'
-  if (/[\u3400-\u9FFF\uF900-\uFAFF]/.test(sample)) return 'zh-CN'
+  if (/[\u3400-\u9FFF\uF900-\uFAFF]/.test(sample)) {
+    return TRADITIONAL_MARKERS.test(sample) ? 'zh-TW' : 'zh-CN'
+  }
   return null
 }
 
@@ -98,15 +103,17 @@ export function collectAppLanguageTags(app: UnifiedAppItem): string[] {
   const inferred = inferPrimaryCatalogLocale(primaryText)
   if (inferred) {
     const primary = inferred.split(/[-_]/)[0]!.toLowerCase()
-    const already = Array.from(tags).some(
+    const already = Iterator.from(tags).some(
       (tag) => tag.split(/[-_]/)[0]!.toLowerCase() === primary,
     )
     if (!already) tags.add(inferred)
   }
 
-  return Array.from(tags).sort((a, b) =>
-    a.localeCompare(b, undefined, { sensitivity: 'base' }),
-  )
+  return Iterator.from(tags)
+    .toArray()
+    .toSorted((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: 'base' }),
+    )
 }
 
 export function formatAppLanguages(tags: string[], uiLocale: string): string {

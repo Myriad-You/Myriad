@@ -71,13 +71,14 @@ function cleanupCacheStore(store: WallpaperColorCacheStore): void {
   )
 
   if (store.items.length > MAX_CACHE_ITEMS) {
-    store.items.sort((a, b) => {
-      if (b.accessCount !== a.accessCount) {
-        return b.accessCount - a.accessCount
-      }
-      return b.timestamp - a.timestamp
-    })
-    store.items = store.items.slice(0, MAX_CACHE_ITEMS)
+    store.items = store.items
+      .toSorted((a, b) => {
+        if (b.accessCount !== a.accessCount) {
+          return b.accessCount - a.accessCount
+        }
+        return b.timestamp - a.timestamp
+      })
+      .slice(0, MAX_CACHE_ITEMS)
   }
 }
 
@@ -98,8 +99,8 @@ export async function shouldApplyColorExtraction(
   if (!wallpaperState.isUrlActive(url)) {
     const activeUrl = wallpaperState.getActiveUrl()
     console.debug('[ColorCache] URL mismatch:', {
-      provided: url.substring(0, 60),
-      active: activeUrl?.substring(0, 60),
+      provided: url.slice(0, 60),
+      active: activeUrl?.slice(0, 60),
     })
     return {
       shouldApply: false,
@@ -110,8 +111,8 @@ export async function shouldApplyColorExtraction(
   const domUrl = extractBackgroundUrl()
   if (domUrl && !areUrlsEquivalent(domUrl, url)) {
     console.debug('[ColorCache] DOM URL mismatch (may be timing issue):', {
-      provided: url.substring(0, 60),
-      dom: domUrl.substring(0, 60),
+      provided: url.slice(0, 60),
+      dom: domUrl.slice(0, 60),
     })
   }
 
@@ -207,7 +208,7 @@ export function getCacheInfo(): {
       totalSize: cached.length,
       items: store.items.map((item) => ({
         url:
-          item.url.length > 60 ? `${item.url.substring(0, 60)}...` : item.url,
+          item.url.length > 60 ? `${item.url.slice(0, 60)}...` : item.url,
         age: Math.round((now - item.timestamp) / 1000),
         accessCount: item.accessCount,
       })),

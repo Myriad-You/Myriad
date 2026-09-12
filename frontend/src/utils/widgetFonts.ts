@@ -65,7 +65,7 @@ export async function uploadWidgetFont(file: File): Promise<string> {
     failed,
   )
   const url = sanitizeWidgetFontUrl(
-    data && typeof data === 'object' && 'url' in data
+    data && typeof data === 'object' && Object.hasOwn(data, 'url')
       ? (data as { url: unknown }).url
       : '',
   )

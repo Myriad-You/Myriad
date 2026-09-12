@@ -1,4 +1,3 @@
-
 import { getPublicConfigDeduped } from '../../utils/requestDedup'
 
 type Listener = (url: string | null) => void

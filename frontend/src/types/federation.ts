@@ -1,5 +1,3 @@
-
-
 export interface FollowRequest {
   target: string
 }

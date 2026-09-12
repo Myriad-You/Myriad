@@ -58,13 +58,11 @@ export function buildRigSemantics(
   return {
     bones: semanticBones,
     chains,
-    secondaryBoneIds: [
-      ...new Set(
-        [...explicitSecondaryBoneIds, ...inferredSecondary].filter((id) =>
-          ids.has(id),
-        ),
-      ),
-    ],
+    secondaryBoneIds: Iterator.from(
+      new Set(explicitSecondaryBoneIds).union(new Set(inferredSecondary)),
+    )
+      .filter((id) => ids.has(id))
+      .toArray(),
   }
 }
 
@@ -86,12 +84,11 @@ export function resolveRigSemantics(manifest: MeropeRigManifest): RigSemantics {
           ...inferred.chains,
           ...supportedChainMappings(manifest.semantics.chains),
         },
-        secondaryBoneIds: [
-          ...new Set([
-            ...inferred.secondaryBoneIds,
-            ...manifest.semantics.secondaryBoneIds,
-          ]),
-        ],
+        secondaryBoneIds: Iterator.from(
+          new Set(inferred.secondaryBoneIds).union(
+            new Set(manifest.semantics.secondaryBoneIds),
+          ),
+        ).toArray(),
       }
     : inferred
   resolvedCache.set(manifest, semantics)

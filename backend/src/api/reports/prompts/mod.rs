@@ -26,7 +26,7 @@ pub(crate) fn build_report_prompt(platform: &str, data: &str, locale: &str) -> S
     ));
     if !voice.look.is_empty() {
         blocks.push(format!(
-            "# Look\n除特别标明外，路径均在 Data.content_analysis 下：\n{}",
+            "# Look\nUnless noted, paths are under Data.content_analysis:\n{}",
             voice.look
         ));
     }
@@ -44,8 +44,8 @@ pub(crate) fn build_report_prompt(platform: &str, data: &str, locale: &str) -> S
     }
     if !voice.omit.is_empty() {
         blocks.push(format!(
-            "# Omit\n系统会写入 card_visuals，不要写这些键（Data 里同名仍可阅读）：{}。",
-            voice.omit.join("、")
+            "# Omit\nThe system writes these card_visuals keys; do not write them (same names in Data are still readable): {}.",
+            voice.omit.join(", ")
         ));
     }
     blocks.push(format!("# Rules\n{EVIDENCE}\n{PROSE}\n{AVOID}"));
@@ -112,9 +112,9 @@ mod tests {
     #[test]
     fn prompt_output_language_follows_request_locale() {
         let en = build_report_prompt("steam", "", "en-US");
-        assert!(en.contains("必须用 en-US 写完"));
+        assert!(en.contains("Write every user-visible string in en-US"));
         let ja = build_report_prompt("steam", "", "ja-JP");
-        assert!(ja.contains("必须用 ja-JP 写完"));
+        assert!(ja.contains("Write every user-visible string in ja-JP"));
     }
 
     #[test]
@@ -133,7 +133,7 @@ mod tests {
         for platform in KNOWN_PLATFORMS {
             let body = instructions(platform);
             assert!(
-                body.len() < 4200,
+                body.len() < 4600,
                 "{platform} instruction body bloated: {} chars",
                 body.len()
             );
@@ -142,7 +142,8 @@ mod tests {
 
     #[test]
     fn catalog_taste_profile_is_a_short_hook() {
-        assert!(CATALOG_VISUALS.contains("≤20 字") || CATALOG_VISUALS.contains("不超过 20 字"));
+        assert!(CATALOG_VISUALS.contains("≤20"));
+        assert!(CATALOG_VISUALS.contains("delicate ACG collector"));
         assert!(CATALOG_VISUALS.contains("细腻的 ACG 收藏家"));
         assert!(!CATALOG_VISUALS.replace("偏好：", "").contains("好："));
         assert!(!AVOID.replace("偏好：", "").contains("好："));
@@ -159,7 +160,7 @@ mod tests {
         assert_ne!(bangumi.task, mal.task);
         assert_ne!(bangumi.cover, mal.cover);
         assert!(mal.cover.contains("mean_score"));
-        assert!(mal.cover.contains("英文标题"));
+        assert!(mal.cover.contains("English-title"));
         assert!(mal.look.contains("mean_score"));
         assert!(mal.look.contains("days_watched"));
         assert!(bangumi.look.contains("subject_type_distribution"));
@@ -204,18 +205,18 @@ mod tests {
         assert!(!steam.visuals.contains("total_playtime"));
         let p = prompt("steam");
         assert!(p.contains("games_count"));
-        assert!(p.contains("不要写这些键"));
+        assert!(p.contains("do not write them"));
     }
 
     #[test]
     fn github_does_not_ask_model_to_compute_overwritten_tier() {
         let github = voice_for("github");
-        assert!(github.visuals.contains("空对象"));
+        assert!(github.visuals.contains("empty object"));
         assert!(github.omit.contains(&"contribution_level"));
         assert!(github.omit.contains(&"languages"));
         assert!(github.look.contains("stars"));
-        assert!(github.look.contains("被 fork"));
-        assert!(github.task.contains("稀少"));
+        assert!(github.look.contains("forked by others"));
+        assert!(github.task.contains("sparse"));
         assert!(!github.task.contains("fork仓"));
     }
 
@@ -228,35 +229,35 @@ mod tests {
                 "{platform} cover must number three axes"
             );
         }
-        assert!(voice_for("bilibili").cover.contains("番剧"));
-        assert!(voice_for("steam").cover.contains("集中"));
+        assert!(voice_for("bilibili").cover.contains("bangumi"));
+        assert!(voice_for("steam").cover.contains("concentrated"));
         assert!(voice_for("github").cover.contains("star"));
-        assert!(voice_for("youtube").cover.contains("订阅"));
-        assert!(voice_for("netease").cover.contains("歌手"));
+        assert!(voice_for("youtube").cover.contains("subscriber"));
+        assert!(voice_for("netease").cover.contains("artist"));
         assert!(voice_for("bangumi").cover.contains("wish"));
-        assert!(voice_for("x").cover.contains("圈层"));
-        assert!(voice_for("xbox").cover.contains("完成"));
-        assert!(voice_for("psn").cover.contains("白金"));
-        assert!(voice_for("discord").cover.contains("主理人"));
-        assert!(voice_for("steam").task.contains("集中"));
-        assert!(voice_for("netease").task.contains("禁近义"));
-        assert!(voice_for("netease").task.contains("至少 4"));
+        assert!(voice_for("x").cover.contains("circle"));
+        assert!(voice_for("xbox").cover.contains("completion"));
+        assert!(voice_for("psn").cover.contains("platinum"));
+        assert!(voice_for("discord").cover.contains("host"));
+        assert!(voice_for("steam").task.contains("concentration"));
+        assert!(voice_for("netease").task.contains("near-synonyms"));
+        assert!(voice_for("netease").task.contains("at least 4"));
         assert!(voice_for("netease").visuals.contains("4-6"));
-        assert!(voice_for("xbox").task.contains("完成度"));
+        assert!(voice_for("xbox").task.contains("completion"));
     }
 
     #[test]
     fn look_maps_use_real_content_analysis_fields() {
         assert!(voice_for("steam").look.contains("total_playtime_minutes"));
-        assert!(voice_for("steam").look.contains("分钟"));
-        assert!(voice_for("steam").look.contains("终身"));
+        assert!(voice_for("steam").look.contains("minutes"));
+        assert!(voice_for("steam").look.contains("lifetime"));
         assert!(voice_for("steam").look.contains("genre_analysis"));
         assert!(voice_for("github").look.contains("recent_repos"));
         assert!(voice_for("github").look.contains("public_repos"));
         assert!(voice_for("github").look.contains("forks"));
         assert!(voice_for("github").look.contains("calendar_span_days"));
         assert!(voice_for("github").look.contains("calendar_active_days"));
-        assert!(voice_for("netease").look.contains("没有时段"));
+        assert!(voice_for("netease").look.contains("no time-of-day"));
         assert!(voice_for("netease").look.contains("artist_count"));
         assert!(voice_for("netease")
             .look
@@ -264,14 +265,14 @@ mod tests {
         assert!(!voice_for("netease").look.contains("is_vip"));
         assert!(!voice_for("netease").look.contains("fee"));
         assert!(voice_for("x").look.contains("following_sample"));
-        assert!(voice_for("x").look.contains("没有 liked_posts"));
-        assert!(voice_for("x").look.contains("零曝光"));
+        assert!(voice_for("x").look.contains("No liked_posts"));
+        assert!(voice_for("x").look.contains("zero reach"));
         assert!(voice_for("x").look.contains("recent_posts"));
         assert!(voice_for("x").look.contains("language_distribution"));
-        assert!(voice_for("x").visuals.contains("否则 []"));
-        assert!(voice_for("discord").look.contains("公开连接"));
+        assert!(voice_for("x").visuals.contains("else []"));
+        assert!(voice_for("discord").look.contains("public connections"));
         assert!(voice_for("discord").omit.contains(&"linked_platforms"));
-        assert!(voice_for("discord").visuals.contains("有几个写几个"));
+        assert!(voice_for("discord").visuals.contains("one take per"));
         assert!(voice_for("discord").look.contains("owned_guild_count"));
         assert!(voice_for("discord").look.contains("guild_count"));
         assert!(voice_for("discord").look.contains("badges"));
@@ -290,8 +291,8 @@ mod tests {
         assert!(voice_for("bilibili").look.contains("percentage"));
         assert!(voice_for("youtube").look.contains("like_count"));
         assert!(voice_for("youtube").look.contains("ISO 8601"));
-        assert!(voice_for("youtube").visuals.contains("有片"));
-        assert!(voice_for("youtube").visuals.contains("禁稳定更新"));
+        assert!(voice_for("youtube").visuals.contains("has videos"));
+        assert!(voice_for("youtube").visuals.contains("stable updates"));
         assert!(!voice_for("youtube").visuals.contains("高播放低订阅"));
         assert!(voice_for("psn").look.contains("completed_games"));
         assert!(voice_for("psn").look.contains("gold_count"));
@@ -309,12 +310,12 @@ mod tests {
         assert!(x.uses_mass_accounts);
         assert!(x.visuals.contains("interest_circles"));
         assert!(x.visuals.contains("following_highlights"));
-        assert!(x.visuals.contains("不同切面"));
+        assert!(x.visuals.contains("facets"));
         assert!(!x.visuals.contains("'stats'"));
         assert!(x.omit.contains(&"stats"));
         assert!(prompt("x").contains(MASS_ACCOUNTS));
-        assert!(MASS_ACCOUNTS.contains("丢弃"));
-        assert!(MASS_ACCOUNTS.contains("禁止收容圈层"));
+        assert!(MASS_ACCOUNTS.contains("drop"));
+        assert!(MASS_ACCOUNTS.contains("catch-all"));
         assert!(
             !MASS_ACCOUNTS.contains("便利店"),
             "do not paper over unreadable follows by banning 便利店"
@@ -326,7 +327,7 @@ mod tests {
         let unknown = voice_for("unknown-platform");
         let generic = voice_for("");
         assert_eq!(unknown.role, generic.role);
-        assert!(prompt("unknown-platform").contains("数据分析师"));
+        assert!(prompt("unknown-platform").contains("data analyst"));
     }
 
     #[test]

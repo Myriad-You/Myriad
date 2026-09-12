@@ -38,10 +38,9 @@ pub struct ActivityPayload {
 
 /// Convert a platform snapshot transition into one compact, semantic event.
 ///
-/// The raw JSON-path diff remains in `metadata_history`; this payload contains
-/// only stable, user-facing concepts. A `suppressed` row deliberately marks a
-/// sync whose only changes were volatile provider metadata, preventing the API
-/// from mistaking it for an unprocessed legacy record.
+/// Raw JSON-path diff stays in `metadata_history`. Stored events also keep
+/// subject_type/id/importance; the public projector strips those. `suppressed`
+/// marks volatile-only syncs so the API does not treat them as legacy.
 pub fn build_activity_payload(
     platform: &str,
     old_data: Option<&Value>,

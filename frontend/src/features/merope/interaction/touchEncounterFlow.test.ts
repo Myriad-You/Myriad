@@ -1,6 +1,6 @@
+import type { PerformanceDirective } from '../../../services/agent/types'
 import type { TouchCompletion } from './touchEncounter'
 import type { TouchObservation } from './touchGesture'
-import type { PerformanceDirective } from '../../../services/agent/types'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { realizeAnime25DBehaviorPlan } from '../anime25drig/behaviorRealizer'
@@ -14,7 +14,7 @@ const touch: TouchObservation = { id: 1, phase: 'start', region: 'hair', gesture
   durationMs: 0, repeatCount: 0, speed: 0, distance: 0, x: 0, y: 0 }
 
 for (const reaction of ['accept', 'hesitate', 'withdraw'] as const) {
-  for (const fps of [30, 60, 120]) test(`released ${reaction} accompanies only its spoken line at ${fps} fps`, t => {
+  for (const fps of [30, 60, 120]) { test(`released ${reaction} accompanies only its spoken line at ${fps} fps`, t => {
     t.mock.timers.enable({ apis: ['setTimeout'] })
     const coordinator = new RigMotionCoordinator()
     const source = new TouchMotionSource(coordinator, () => {})
@@ -72,6 +72,7 @@ for (const reaction of ['accept', 'hesitate', 'withdraw'] as const) {
     assert.equal(expression.getSampledTouch(), null, 'finished speech fades back instead of latching')
     source.release()
   })
+}
 }
 
 test('speech cannot inherit unrendered, expired or previous-owner touch', t => {

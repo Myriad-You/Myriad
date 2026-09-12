@@ -52,10 +52,12 @@ export function useArticleOpen(
         if (signal.aborted) return
         brewSubject.assert(subject)
         if (!item) throw new Error(loadFailed)
-        if (options && 'queue' in options) setQueue(options.queue ?? null)
+        if (options && Object.hasOwn(options, 'queue')) setQueue(options.queue ?? null)
         setSelectedItem(item)
         const activeQueue =
-          options && 'queue' in options ? options.queue ?? null : queue
+          options && Object.hasOwn(options, 'queue')
+            ? options.queue ?? null
+            : queue
         const next = neighborsInQueue(activeQueue, item.id)?.next
         if (next && !item.fromWebSearch) prefetchArticleDetails([next.id])
         options?.onOpened?.(item)

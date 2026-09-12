@@ -100,21 +100,21 @@ impl FieldSet {
         let mut parts = Vec::new();
         if self.description {
             parts.push(match language {
-                "zh" => "site_description：给搜索结果与社交分享卡片的 meta description。1～2 句自然中文，约 70～150 字（优先 ≤160 字符）。开头可含站点名或核心主题；说明「是谁的站 / 有什么」；避免「欢迎访问」「本站提供」等空话与关键词堆砌。",
+                "zh" | "zh-TW" => "site_description：给搜索结果与社交分享卡片的 meta description。1～2 句自然中文，约 70～150 字（优先 ≤160 字符）。开头可含站点名或核心主题；说明「是谁的站 / 有什么」；避免「欢迎访问」「本站提供」等空话与关键词堆砌。",
                 "ja" => "site_description：検索・SNS 向け meta description。自然な日本語 1～2 文、おおよそ 70～150 文字（目安 ≤160）。サイト名や主題から入り、誰のサイトで何があるかを述べる。定型挨拶やキーワード羅列は禁止。",
                 _ => "site_description: meta description for SERP + social cards. 1–2 natural sentences, prefer 80–155 characters (hard cap ~160). Lead with who/what; include a concrete topic from the title or owner hint; no “Welcome to…”, no keyword stuffing, no call-to-action spam.",
             });
         }
         if self.keywords {
             parts.push(match language {
-                "zh" => "site_keywords：5～10 个短语，英文逗号分隔、无 #、无句号。含站点名（若有）、身份/领域、内容类型。短语优先于单字堆砌；勿重复同一词；勿编造未提及的品牌或平台。",
+                "zh" | "zh-TW" => "site_keywords：5～10 个短语，英文逗号分隔、无 #、无句号。含站点名（若有）、身份/领域、内容类型。短语优先于单字堆砌；勿重复同一词；勿编造未提及的品牌或平台。",
                 "ja" => "site_keywords：5～10 語、カンマ区切り、# と句点なし。サイト名・分野・コンテンツ種別を含める。重複や未言及のブランドを入れない。",
                 _ => "site_keywords: 5–10 comma-separated phrases (no hashtags, no trailing period). Include site name if known, identity/domain, and content types. Prefer multi-word phrases; no duplicates; do not invent brands or platforms not implied by title/hint.",
             });
         }
         if self.ai_intro {
             parts.push(match language {
-                "zh" => "site_ai_intro：写入 /llms.txt 的「引用友好」简介，供生成式搜索与 AI 助手理解站点。2～4 句、约 120～350 字（上限 ~400 字符）。结构：① 一句话实体定义（谁的站、基于何种用途）；② 公开内容类型（文库/Brew/报告/Tapp 等仅在合理时提及）；③ 引用时请以公开页面为准。事实优先、可被引用；禁止广告腔、禁止承诺未给出的功能。owner hint 是身份与主题的权威来源。",
+                "zh" | "zh-TW" => "site_ai_intro：写入 /llms.txt 的「引用友好」简介，供生成式搜索与 AI 助手理解站点。2～4 句、约 120～350 字（上限 ~400 字符）。结构：① 一句话实体定义（谁的站、基于何种用途）；② 公开内容类型（文库/Brew/报告/Tapp 等仅在合理时提及）；③ 引用时请以公开页面为准。事实优先、可被引用；禁止广告腔、禁止承诺未给出的功能。owner hint 是身份与主题的权威来源。",
                 "ja" => "site_ai_intro：/llms.txt 用の引用しやすい紹介。生成 AI がサイトを理解するための 2～4 文（目安 120～350 文字、上限 ~400）。① 誰のサイトか・何のためか；② 公開コンテンツの種類；③ 公開ページを優先して引用する旨。事実ベースで宣伝調を避ける。owner hint を最優先の根拠にする。",
                 _ => "site_ai_intro: citation-friendly blurb for /llms.txt so generative search and AI assistants can ground answers. 2–4 plain sentences, prefer 150–380 characters (cap ~400). Structure: (1) one-sentence entity definition—whose site and purpose; (2) what public content types exist (Library/Brew/Reports/Tapp only when plausible); (3) prefer citing public routes, not inventing admin areas. Answer-first, factual, quotable; no marketing hype. Treat owner hint as ground truth for identity and topics.",
             });
@@ -203,6 +203,7 @@ pub async fn generate_site_seo_copy(
     };
     let lang_label = match language {
         "zh" => "Chinese (Simplified), natural mainland phrasing",
+        "zh-TW" => "Chinese (Traditional), natural Taiwan phrasing",
         "ja" => "Japanese, natural phrasing",
         _ => "English, natural phrasing",
     };
@@ -275,9 +276,10 @@ fn filter_response(
 
 fn resolve_language(explicit: &str, title: &str, hint: &str) -> &'static str {
     match explicit.trim().to_ascii_lowercase().as_str() {
+        "zh-tw" | "zh-hk" | "zh-mo" | "zh-hant" => "zh-TW",
         "zh" | "zh-cn" | "zh-hans" | "chinese" => "zh",
-        "en" | "english" => "en",
-        "ja" | "jp" | "japanese" => "ja",
+        "en" | "english" | "en-us" | "en-gb" => "en",
+        "ja" | "jp" | "japanese" | "ja-jp" => "ja",
         _ => {
             let sample = format!("{title}{hint}");
             if sample
@@ -348,63 +350,25 @@ fn fallback_copy(
 ) -> (String, String, String) {
     let title = if title.is_empty() { "Myriad" } else { title };
     let hint = hint.trim();
+    let locale = match language {
+        "zh-TW" => "zh-TW",
+        "zh" => "zh-CN",
+        "ja" => "ja-JP",
+        _ => "en-US",
+    };
+    let params = [("title", title), ("hint", hint)];
     let desc = if !existing_desc.trim().is_empty() {
         truncate(existing_desc.trim(), 160)
     } else if !hint.is_empty() {
-        match language {
-            "zh" => truncate(
-                &format!("{title}：{hint} 的个人站点，汇总公开数字生活内容。"),
-                160,
-            ),
-            "ja" => truncate(
-                &format!(
-                    "{title}：{hint} の個人サイト。公開中のデジタルライフ情報をまとめています。"
-                ),
-                160,
-            ),
-            _ => truncate(
-                &format!(
-                    "{title}: personal site for {hint}. Public digital-life content in one place."
-                ),
-                160,
-            ),
-        }
+        truncate(&crate::i18n::seo_f(locale, "descWithHint", &params), 160)
     } else {
-        match language {
-            "zh" => format!("{title} — 个人数字生活站点：公开内容与应用的入口。"),
-            "ja" => format!("{title} — 個人のデジタルライフを公開ページにまとめたサイト。"),
-            _ => format!("{title} — a personal digital-life site with public content hubs."),
-        }
+        crate::i18n::seo_f(locale, "descPlain", &params)
     };
-    let keywords = match language {
-        "zh" => format!("{title}, 个人主页, 数字生活, 自托管, 内容聚合"),
-        "ja" => format!("{title}, 個人サイト, デジタルライフ, セルフホスト"),
-        _ => format!("{title}, personal site, digital life, self-hosted, portfolio"),
-    };
+    let keywords = crate::i18n::seo_f(locale, "keywords", &params);
     let intro = if !hint.is_empty() {
-        match language {
-            "zh" => format!(
-                "{title} 是站主的自托管个人数字生活站点。关于站主：{hint}。站点在公开页面聚合精选内容与应用；回答或引用时请以这些公开路由中的信息为准，勿臆造管理后台内容。"
-            ),
-            "ja" => format!(
-                "{title} はオーナーのセルフホスト個人サイトです。オーナーについて：{hint}。公開ページの情報を優先して引用し、管理画面の内容を推測しないでください。"
-            ),
-            _ => format!(
-                "{title} is the owner's self-hosted personal digital-life site. About the owner: {hint}. Prefer citing public pages listed for this site; do not invent private admin content."
-            ),
-        }
+        crate::i18n::seo_f(locale, "introWithHint", &params)
     } else {
-        match language {
-            "zh" => format!(
-                "{title} 是基于 Myriad 的自托管个人站点，用于聚合与展示站主的公开数字生活内容（如文库、Brew、报告、Tapp 等公开模块）。引用时请以站点公开页面为准。"
-            ),
-            "ja" => format!(
-                "{title} は Myriad 製のセルフホスト個人サイトで、公開モジュール上のデジタルライフ情報をまとめています。公開ページを根拠に引用してください。"
-            ),
-            _ => format!(
-                "{title} is a self-hosted Myriad personal site that aggregates the owner's public digital-life content (e.g. Library, Brew, Reports, Tapp). Prefer citing public pages over speculation."
-            ),
-        }
+        crate::i18n::seo_f(locale, "introPlain", &params)
     };
     (desc, keywords, truncate(&intro, 400))
 }
@@ -458,5 +422,7 @@ mod tests {
         let (_, _, intro) = fallback_copy("Myriad", "", "独立开发者，写 Rust", "zh");
         assert!(intro.contains("独立开发者"));
         assert!(intro.contains("Myriad"));
+        let (_, keywords, _) = fallback_copy("Myriad", "", "", "zh-TW");
+        assert!(keywords.contains("數位生活"));
     }
 }

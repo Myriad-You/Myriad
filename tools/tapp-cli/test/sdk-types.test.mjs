@@ -58,7 +58,7 @@ it('types AI task inputs and snapshots and rejects malformed inputs', async () =
       sdk.ai.tasks.create({ version: 2, operation: 'image', input: { referenceImages: [] } });
     `)
     const program = ts.createProgram([join(directory, 'example.ts')], {
-      strict: true, noEmit: true, target: ts.ScriptTarget.ES2022,
+      strict: true, noEmit: true, target: ts.ScriptTarget.ES2025,
       module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext,
       types: [],
     })
@@ -113,8 +113,8 @@ Tapp.lifecycle.onReady(async () => {
       allowJs: true,
       checkJs: true,
       noEmit: true,
-      target: ts.ScriptTarget.ES2022,
-      lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'],
+      target: ts.ScriptTarget.ES2025,
+      lib: ['lib.es2025.d.ts', 'lib.dom.d.ts'],
       types: [],
     })
     assert.deepEqual(

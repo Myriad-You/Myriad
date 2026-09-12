@@ -32,10 +32,11 @@ test('production feedback sends CSRF, captures fresh evidence and never sends af
     let refreshed = 0
     const controller = new AbortController()
     const task = sendPlaybackObservation('/performance', controller.signal, {
-      token: () =>
-        new Promise((resolve) => {
-          token = resolve
-        }),
+      token: () => {
+        const deferred = Promise.withResolvers<string>()
+        token = deferred.resolve
+        return deferred.promise
+      },
       clearToken: () => {
         refreshed++
       },
@@ -74,9 +75,9 @@ test('feedback is single-flight, bounded, nonblocking and cancelled with its rou
     observe: (_scope, next) => {
       count++
       signal = next
-      return new Promise((done) => {
-        finish = done
-      })
+      const deferred = Promise.withResolvers<void>()
+      finish = deferred.resolve
+      return deferred.promise
     },
     read: () => new Promise(() => {}),
     close: () => {},
@@ -113,9 +114,9 @@ function fixture(isPlaying?: () => boolean) {
     observe: async () => {},
     read: (_runId, _after, signal) => {
       signals.push(signal)
-      return new Promise((done) => {
-        resolve = done
-      })
+      const deferred = Promise.withResolvers<PlaybackDirectionSnapshot>()
+      resolve = deferred.resolve
+      return deferred.promise
     },
     close: (id) => closed.push(id),
     current: () => current,
@@ -171,7 +172,11 @@ test('real TTS synthesis and queue keep the window open until the last segment f
   const synth: Array<(audio: ArrayBuffer) => void> = []
   const ends: Array<() => void> = []
   const pipeline = new TtsPipeline({
-    synthesize: () => new Promise((resolve) => synth.push(resolve)),
+    synthesize: () => {
+      const deferred = Promise.withResolvers<ArrayBuffer>()
+      synth.push(deferred.resolve)
+      return deferred.promise
+    },
     play: (_audio, _segment, onEnded) => {
       ends.push(onEnded)
       return { stop: () => {} }
@@ -250,10 +255,11 @@ test('timeline: model result after text completion revises an upcoming real spee
     let received = 0
     const client = new PlaybackDirectionClient({
       observe: async () => {},
-      read: () =>
-        new Promise((done) => {
-          resolve = done
-        }),
+      read: () => {
+        const deferred = Promise.withResolvers<PlaybackDirectionSnapshot>()
+        resolve = deferred.resolve
+        return deferred.promise
+      },
       close: () => {},
       current: () => true,
       playing: () => runtime.speech.hasPlayback(local),

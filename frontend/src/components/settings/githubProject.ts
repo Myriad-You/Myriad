@@ -63,12 +63,12 @@ export function parseGithubRepoUrl(url: string): GithubRepoRef | null {
   } catch {
     return null
   }
-  const host = parsed.hostname.replace(/^www\./i, '').toLowerCase()
+  const host = parsed.hostname.replaceAll(/^www\./ig, '').toLowerCase()
   if (host !== 'github.com') return null
   const parts = parsed.pathname.split('/').filter(Boolean)
   if (parts.length < 2) return null
   const owner = parts[0]
-  const repo = parts[1].replace(/\.git$/i, '')
+  const repo = parts[1].replaceAll(/\.git$/ig, '')
   if (GITHUB_SYSTEM_ROOTS.has(owner.toLowerCase())) return null
   if (!OWNER_REPO_RE.test(owner) || !OWNER_REPO_RE.test(repo)) return null
   return { owner, repo }
@@ -93,7 +93,7 @@ export function formatStarCount(count: number): string {
 }
 
 function trimDecimal(value: number): string {
-  return value.toFixed(1).replace(/\.0$/, '')
+  return value.toFixed(1).replaceAll(/\.0$/g, '')
 }
 
 function storageOf(storage?: Storage | null): Storage | null {

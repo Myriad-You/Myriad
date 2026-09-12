@@ -5,6 +5,7 @@
   --brew-story-w: 16.5rem;
   --brew-rail-pad-x: 0rem;
   --brew-open-ms: 560ms;
+
   display: flex;
   position: relative;
   flex: 1 1 auto;
@@ -56,8 +57,7 @@
 .brew-feeds.is-sites-open .brew-feeds__sites {
   flex: 1 1 auto;
   min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden auto;
   overscroll-behavior: contain;
   touch-action: pan-y;
 }

@@ -9,6 +9,7 @@ members = [
     "backend",
     "backend/migrations",
     "crates/myriad-data-key",
+    "crates/myriad-mcp",
     "crates/myriad-merope",
     "crates/myriad-error",
     "crates/myriad-image-proxy",

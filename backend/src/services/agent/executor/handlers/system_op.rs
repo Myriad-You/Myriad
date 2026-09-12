@@ -501,7 +501,7 @@ async fn execute_system_metrics() -> Result<Value, String> {
     }))
 }
 
-/// 验证平台名称白名单，防止路径穿越
+/// 平台过滤缓存状态；可选 `platform` 须在 `VALID_PLATFORMS`。
 async fn execute_cache_status(params: &HashMap<String, Value>) -> Result<Value, String> {
     let platform = params.get("platform").and_then(|v| v.as_str());
     let platforms = if let Some(p) = platform {
@@ -560,7 +560,7 @@ async fn execute_cache_clear(params: &HashMap<String, Value>) -> Result<Value, S
         .and_then(|v| v.as_str())
         .ok_or("Missing platform parameter")?;
 
-    // 白名单校验，防止路径穿越和任意文件删除
+    // `VALID_PLATFORMS` 成员校验（不是路径穿越检查）
     if !validate_platform_name(platform) {
         return Err(crate::services::agent::response_agent::unsupported_platform(platform));
     }
@@ -802,7 +802,7 @@ async fn execute_export_data(params: &HashMap<String, Value>) -> Result<Value, S
     }
 
     let now = chrono::Utc::now();
-    // Write export to a temp file for download
+    // Write `cache/exports/{id}.{format}`; download uses Blob `params.content`
     let export_id = format!("export_{}", now.timestamp_millis());
     let export_path = format!("cache/exports/{}.{}", export_id, format);
     let export_content = match format {

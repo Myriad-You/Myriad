@@ -7,12 +7,12 @@ import React, {
   useMemo,
   useState,
 } from 'react'
-import { getDefaultLocale, saveLocale } from '../i18n'
-import { persistLocaleToAccount } from '../i18n/localeAccount'
+import { formatMessage, getDefaultLocale, htmlLang, saveLocale } from '../i18n'
 import {
   getCachedLocale,
   loadLocale,
 } from '../i18n/loadLocale'
+import { persistLocaleToAccount } from '../i18n/localeAccount'
 import { currentCopy } from '../i18n/localeCopy'
 
 interface I18nContextType {
@@ -22,7 +22,20 @@ interface I18nContextType {
   format: (template: string, params: Record<string, string | number>) => string
 }
 
-const I18nContext = createContext<I18nContextType | null>(null)
+function createI18nContext() {
+  return createContext<I18nContextType | null>(null)
+}
+
+// Survive Vite HMR: a new createContext() makes useI18n read a different object
+// than the still-mounted Provider (HomeStickerCropTip then throws).
+const I18nContext: React.Context<I18nContextType | null> = import.meta.hot
+  ? ((import.meta.hot.data.i18nContext ??=
+      createI18nContext()) as React.Context<I18nContextType | null>)
+  : createI18nContext()
+
+if (import.meta.hot) {
+  import.meta.hot.data.i18nContext = I18nContext
+}
 
 interface LocaleBundle {
   locale: Locale
@@ -92,17 +105,15 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({
   // html lang tracks the loaded bundle, not the target locale.
   useEffect(() => {
     if (bundle) {
-      document.documentElement.lang = bundle.locale
+      document.documentElement.lang = htmlLang(bundle.locale)
     }
   }, [bundle])
 
   const format = useCallback(
     (template: string, params: Record<string, string | number>) => {
-      return template.replace(/\{(\w+)\}/g, (_, key) => {
-        return String(params[key] ?? `{${key}}`)
-      })
+      return formatMessage(bundle?.locale ?? locale, template, params)
     },
-    [],
+    [bundle?.locale, locale],
   )
 
   const value = useMemo(() => {
@@ -123,12 +134,24 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
 }
 
-export function useI18n(): I18nContextType {
-  const context = useContext(I18nContext)
-  if (!context) {
-    throw new Error('useI18n must be used within an I18nProvider')
+function fallbackI18n(): I18nContextType {
+  const locale = getDefaultLocale()
+  const t = currentCopy()
+  return {
+    locale,
+    setLocale: (newLocale, options) => {
+      saveLocale(newLocale)
+      if (options?.persist !== false) {
+        persistLocaleToAccount(newLocale)
+      }
+    },
+    t,
+    format: (template, params) => formatMessage(locale, template, params),
   }
-  return context
+}
+
+export function useI18n(): I18nContextType {
+  return useContext(I18nContext) ?? fallbackI18n()
 }
 
 export type { Locale, TranslationKeys }

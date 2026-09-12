@@ -36,20 +36,26 @@ test('moodBand thresholds stay aligned with backend mood_band source', () => {
   assert.ok(frontendBody, 'frontend moodBand must be found')
   assert.ok(floor, 'backend MOOD_FLOOR must be found')
 
-  const backendThresholds = [...backendBody.matchAll(
-    /\b(mood|arousal)\s*(<=|<)\s*(MOOD_FLOOR|\d+(?:\.\d+)?)/g,
-  )].map(([, axis, operator, value]) => ({
-    axis,
-    operator,
-    value: Number(value === 'MOOD_FLOOR' ? floor[1] : value),
-  }))
-  const frontendThresholds = [...frontendBody.matchAll(
-    /\b(v|a)\s*(<=|<)\s*(\d+(?:\.\d+)?)/g,
-  )].map(([, axis, operator, value]) => ({
-    axis: axis === 'v' ? 'mood' : 'arousal',
-    operator,
-    value: Number(value),
-  }))
+  const backendThresholds = Iterator.from(
+    backendBody.matchAll(
+      /\b(mood|arousal)\s*(<=|<)\s*(MOOD_FLOOR|\d+(?:\.\d+)?)/g,
+    ),
+  )
+    .map(([, axis, operator, value]) => ({
+      axis,
+      operator,
+      value: Number(value === 'MOOD_FLOOR' ? floor[1] : value),
+    }))
+    .toArray()
+  const frontendThresholds = Iterator.from(
+    frontendBody.matchAll(/\b(v|a)\s*(<=|<)\s*(\d+(?:\.\d+)?)/g),
+  )
+    .map(([, axis, operator, value]) => ({
+      axis: axis === 'v' ? 'mood' : 'arousal',
+      operator,
+      value: Number(value),
+    }))
+    .toArray()
 
   assert.equal(backendThresholds.length, 5, 'expected all backend band comparisons')
   assert.equal(frontendThresholds.length, 5, 'expected all frontend band comparisons')

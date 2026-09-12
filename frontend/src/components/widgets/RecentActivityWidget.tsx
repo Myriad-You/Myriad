@@ -82,34 +82,41 @@ function metricLabel(metric: string | undefined, t: TranslationKeys): string {
   return labels[metric || ''] || t.recentActivity.dataChanges
 }
 
-function formatDuration(minutes: number, t: TranslationKeys): string {
+function formatDuration(
+  minutes: number,
+  t: TranslationKeys,
+  format: (template: string, params: Record<string, string | number>) => string,
+): string {
   const rounded = Math.round(Math.abs(minutes))
   if (rounded < 60) {
-    return t.recentActivity.minutes.replace('{minutes}', String(rounded))
+    return format(t.recentActivity.minutes, { minutes: rounded })
   }
   const hours = Math.floor(rounded / 60)
   const remainder = rounded % 60
-  return t.recentActivity.hoursMinutes
-    .replace('{hours}', String(hours))
-    .replace('{minutes}', String(remainder))
+  return format(t.recentActivity.hoursMinutes, {
+    hours,
+    minutes: remainder,
+  })
 }
 
 function formatValue(
   value: unknown,
   metric: string | undefined,
   t: TranslationKeys,
+  locale: string,
+  format: (template: string, params: Record<string, string | number>) => string,
 ): string {
   if (value === null || value === undefined) return ''
   if (metric === 'playtime_minutes' && typeof value === 'number') {
-    return formatDuration(value, t)
+    return formatDuration(value, t, format)
   }
   if (metric === 'progress_percent' && typeof value === 'number') {
     return `${Math.round(value)}%`
   }
   if (typeof value === 'number') {
     return Number.isInteger(value)
-      ? value.toLocaleString()
-      : value.toLocaleString(undefined, { maximumFractionDigits: 1 })
+      ? value.toLocaleString(locale)
+      : value.toLocaleString(locale, { maximumFractionDigits: 1 })
   }
   if (typeof value === 'boolean') {
     return value ? t.recentActivity.yes : t.recentActivity.no
@@ -118,27 +125,30 @@ function formatValue(
   return ''
 }
 
-function formatChangeCore(change: ActivityChange, t: TranslationKeys): string {
+function formatChangeCore(
+  change: ActivityChange,
+  t: TranslationKeys,
+  locale: string,
+  format: (template: string, params: Record<string, string | number>) => string,
+): string {
   const subject = change.subject_title?.trim()
   if (change.kind === 'item_added') {
-    return t.recentActivity.itemAdded.replace(
-      '{subject}',
-      subject || t.recentActivity.unknownProject,
-    )
+    return format(t.recentActivity.itemAdded, {
+      subject: subject || t.recentActivity.unknownProject,
+    })
   }
   if (change.kind === 'item_removed') {
-    return t.recentActivity.itemRemoved.replace(
-      '{subject}',
-      subject || t.recentActivity.unknownProject,
-    )
+    return format(t.recentActivity.itemRemoved, {
+      subject: subject || t.recentActivity.unknownProject,
+    })
   }
 
   const metric = metricLabel(change.metric, t)
-  const oldValue = formatValue(change.old, change.metric, t)
-  const newValue = formatValue(change.new, change.metric, t)
+  const oldValue = formatValue(change.old, change.metric, t, locale, format)
+  const newValue = formatValue(change.new, change.metric, t, locale, format)
   const deltaValue =
     typeof change.delta === 'number'
-      ? formatValue(Math.abs(change.delta), change.metric, t)
+      ? formatValue(Math.abs(change.delta), change.metric, t, locale, format)
       : ''
 
   if (change.kind === 'baseline') {
@@ -575,15 +585,16 @@ const ActivityItem = memo(
     compact: boolean
     t: TranslationKeys
   }) => {
+    const { locale, format } = useI18n()
     // 两列视口只展示首条变化，避免副行挤爆。
     const detailLimit = 1
     const changeLines = useMemo(
       () =>
         activity.changes
           .slice(0, detailLimit)
-          .map((change) => formatChangeCore(change, t))
+          .map((change) => formatChangeCore(change, t, locale, format))
           .filter(Boolean),
-      [activity.changes, detailLimit, t],
+      [activity.changes, detailLimit, format, locale, t],
     )
     const remaining = Math.max(0, activity.change_count - detailLimit)
     const isImported = activity.event_type === 'imported'
@@ -755,7 +766,7 @@ async function requestActivities(force = false): Promise<Activity[]> {
 
 export const RecentActivityWidget = memo(
   ({ config, isPreview }: WidgetComponentProps) => {
-    const { t } = useI18n()
+    const { t, format } = useI18n()
     const anim = useAnimationLevel()
     const compact = config.size === '2x2'
     const [activities, setActivities] = useState<Activity[]>([])
@@ -940,10 +951,9 @@ export const RecentActivityWidget = memo(
                     compact ? 'py-0.5 text-[7px]' : 'py-1 text-[8px]'
                   }`}
                 >
-                  {t.recentActivity.loadedLimitHint.replace(
-                    '{count}',
-                    String(ACTIVITY_LOAD_LIMIT),
-                  )}
+                  {format(t.recentActivity.loadedLimitHint, {
+                    count: ACTIVITY_LOAD_LIMIT,
+                  })}
                 </p>
               ) : null}
             </div>

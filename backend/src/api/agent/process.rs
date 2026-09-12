@@ -529,7 +529,7 @@ pub(crate) async fn start_process_run(
         None => (None, None),
     };
     // tx 会被移动到 spawn 中，确保 channel 在任务完成前不会关闭
-    tokio::spawn(async move {
+    let execution = tokio::spawn(async move {
         // 同一 lane 串行；全局许可 4；`acquire_timeout` 默认 60s
         // 注意：进入 wait-for-input 后必须释放，否则最多 4 个等待任务会堵死全局槽位
         {
@@ -849,6 +849,8 @@ pub(crate) async fn start_process_run(
         }
         // spawn 结束；HTTP SSE 随 hub 终端事件结束，不是这里 drop mpsc。
     });
+
+    run.register_execution(execution.abort_handle());
 
     Ok(run)
 }
@@ -1195,20 +1197,57 @@ pub async fn answer_task_question_stream(
     Path(task_id): Path<String>,
     Json(req): Json<AnswerQuestionRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, HttpError> {
+    let run = start_answer_run(db, claims, task_id, req.question_id, req.answer, None).await?;
+    Ok(Sse::new(agent_run_event_stream(run))
+        .keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
+}
+
+pub(crate) async fn start_answer_run(
+    db: DatabaseConnection,
+    claims: Claims,
+    task_id: String,
+    question_id: String,
+    answer: String,
+    session_id: Option<String>,
+) -> Result<Arc<AgentRun>, HttpError> {
     let user_id = parse_user_id_with_agent_access(&claims, &db).await?;
-
-    tracing::info!(
-        user_id = user_id,
-        task_id = %task_id,
-        question_id = %req.question_id,
-        "[Agent API] Answering task question (SSE stream mode)"
-    );
-
-    let (tx, rx) = tokio::sync::mpsc::channel::<ProgressEvent>(256);
-
-    let db_clone = db.clone();
+    validate_input(&answer)?;
+    let task = crate::services::agent::executor::get_task_for_user(&task_id, user_id)
+        .await
+        .ok_or_else(|| {
+            HttpError::from((
+                StatusCode::NOT_FOUND,
+                Json(json!({"error": "Task not found"})),
+            ))
+        })?;
+    let session_id =
+        myriad_agent_rules::session_id_from_lane_id(task.lane_id.as_deref()).or(session_id);
+    let run = create_run(user_id, session_id).await;
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<ProgressEvent>(256);
+    let run_for_forwarder = run.clone();
     tokio::spawn(async move {
-        // Resolve session/lane BEFORE take so we match process_stream's session lane.
+        while let Some(event) = rx.recv().await {
+            run_for_forwarder.publish(event).await;
+        }
+    });
+
+    let req = AnswerQuestionRequest {
+        question_id,
+        answer,
+    };
+    let execution = spawn_answer_resume(db, user_id, task_id, req, tx);
+    run.register_execution(execution.abort_handle());
+    Ok(run)
+}
+
+fn spawn_answer_resume(
+    db: DatabaseConnection,
+    user_id: i32,
+    task_id: String,
+    req: AnswerQuestionRequest,
+    tx: tokio::sync::mpsc::Sender<ProgressEvent>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
         let session_from_waiting = {
             let map = WAITING_TASKS.read().await;
             map.get(&task_id)
@@ -1224,7 +1263,6 @@ pub async fn answer_task_question_stream(
             session_from_waiting.as_deref(),
         );
 
-        // resume 执行前重新获取 lane 许可（process_stream 在 wait-for-input 时已释放）
         let queue = LANE_QUEUE.clone();
         let _lane_guard = match queue
             .acquire_timeout(
@@ -1246,19 +1284,15 @@ pub async fn answer_task_question_stream(
             }
         };
 
-        let agent = Agent::new(db_clone.clone()).await;
-
-        // 从 WAITING_TASKS 获取后端 run 上下文（仅所有者可取，防跨用户抢 oneshot）
+        let agent = Agent::new(db.clone()).await;
         let waiting_ctx = take_waiting_task(&task_id, user_id).await;
-
-        // 持久化用户的回答到会话消息历史（确保后续 Planner 能看到完整对话）
         let ctx_session_id = waiting_ctx
             .as_ref()
             .map(|ctx| ctx.session_id.clone())
             .or(session_from_waiting)
             .unwrap_or_default();
         if !ctx_session_id.is_empty() {
-            let _ = persist_user_message(&db_clone, &ctx_session_id, &req.answer).await;
+            let _ = persist_user_message(&db, &ctx_session_id, &req.answer).await;
         }
 
         let answer = UserAnswer {
@@ -1268,10 +1302,21 @@ pub async fn answer_task_question_stream(
             skipped: false,
         };
 
-        let resume_tx = waiting_ctx
-            .as_ref()
-            .map(|ctx| ctx.progress_tx.clone())
-            .unwrap_or_else(|| tx.clone());
+        // Existing run subscribers and this continuation observe the same progress.
+        let resume_tx = if let Some(ctx) = waiting_ctx.as_ref() {
+            let original = ctx.progress_tx.clone();
+            let current = tx.clone();
+            let (progress, mut events) = tokio::sync::mpsc::channel::<ProgressEvent>(256);
+            tokio::spawn(async move {
+                while let Some(event) = events.recv().await {
+                    let _ = current.send(event.clone()).await;
+                    let _ = original.send(event).await;
+                }
+            });
+            progress
+        } else {
+            tx.clone()
+        };
 
         match agent
             .resume_task_with_progress(&task_id, answer, user_id, resume_tx)
@@ -1317,7 +1362,6 @@ pub async fn answer_task_question_stream(
                         "responseType": "error",
                     }));
                 }
-
                 let _ = tx
                     .send(AgentProgressEvent::Error {
                         task_id: Some(task_id),
@@ -1327,14 +1371,7 @@ pub async fn answer_task_question_stream(
                     .await;
             }
         }
-    });
-
-    let stream = tokio_stream::wrappers::ReceiverStream::new(rx).map(|event| {
-        let data = serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string());
-        Ok(Event::default().data(data))
-    });
-
-    Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
+    })
 }
 
 /// 提供澄清回答
@@ -1393,11 +1430,23 @@ pub async fn confirm_operation_stream(
     Extension(claims): Extension<Claims>,
     Json(req): Json<ConfirmRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, HttpError> {
+    let run = start_confirm_run(db, claims, req.confirmation_id, req.confirmed, req.note).await?;
+    Ok(Sse::new(agent_run_event_stream(run))
+        .keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
+}
+
+pub(crate) async fn start_confirm_run(
+    db: DatabaseConnection,
+    claims: Claims,
+    confirmation_id: String,
+    confirmed: bool,
+    note: Option<String>,
+) -> Result<Arc<AgentRun>, HttpError> {
     let user_id = parse_user_id_with_agent_access(&claims, &db).await?;
     let confirmation = crate::services::agent::types::UserConfirmation {
-        confirmation_id: req.confirmation_id.clone(),
-        confirmed: req.confirmed,
-        user_note: req.note,
+        confirmation_id: confirmation_id.clone(),
+        confirmed,
+        user_note: note,
         user_id,
     };
 
@@ -1405,7 +1454,7 @@ pub async fn confirm_operation_stream(
     // original conversation (history persistence + WAITING_TASKS answers).
     let agent_for_lookup = Agent::new(db.clone()).await;
     let resume_ctx = agent_for_lookup
-        .confirmation_resume_context(&req.confirmation_id, user_id)
+        .confirmation_resume_context(&confirmation_id, user_id)
         .await
         .map_err(|error| {
             HttpError::from((
@@ -1441,9 +1490,8 @@ pub async fn confirm_operation_stream(
     };
     let run_for_task = run.clone();
     let db_clone = db.clone();
-    let confirmed = req.confirmed;
-    tokio::spawn(async move {
-        // Session/completed/error events on this channel publish into the same run hub the SSE subscriber reads. process_confirmation is not given the sender.
+    let execution = tokio::spawn(async move {
+        // Session and result events publish into the original run hub.
         let (tx, mut rx) = tokio::sync::mpsc::channel::<AgentProgressEvent>(256);
         let run_for_forwarder = run_for_task.clone();
         tokio::spawn(async move {
@@ -1628,8 +1676,9 @@ pub async fn confirm_operation_stream(
         }
     });
 
-    Ok(Sse::new(agent_run_event_stream(run))
-        .keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
+    run.register_execution(execution.abort_handle());
+
+    Ok(run)
 }
 
 #[derive(Debug, Deserialize)]

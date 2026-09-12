@@ -54,7 +54,7 @@ export async function fetchTappListCardSizes(): Promise<TappListCardLayoutRespon
   const hasSitePayload =
     data != null &&
     typeof data === 'object' &&
-    ('site_sizes' in data || 'site_order' in data)
+    (Object.hasOwn(data, 'site_sizes') || Object.hasOwn(data, 'site_order'))
   return {
     sizes,
     order,
@@ -72,7 +72,7 @@ export async function saveTappListCardSizes(
   layout: TappListCardLayout | TappListCardSizesMap,
 ): Promise<TappListCardLayout> {
   const body: TappListCardLayout =
-    layout && typeof layout === 'object' && 'sizes' in layout
+    layout && typeof layout === 'object' && Object.hasOwn(layout, 'sizes')
       ? {
           sizes: normalizeSizes((layout as TappListCardLayout).sizes),
           order: normalizeOrder((layout as TappListCardLayout).order),

@@ -191,7 +191,9 @@ test('outfit changes stay on the live player instead of exiting the stage', () =
   assert.doesNotMatch(panel, /\? atlasUrl/)
   assert.doesNotMatch(widget, /\? atlasUrl/)
   assert.match(character, /replaceLivePackage/)
-  assert.match(character, /\[gpuEpoch, onPlaybackError\]/)
+  // Instance lifetime is exercised by Anime25DCharacter.test.ts. Callback
+  // identity must not be a player-recreation dependency.
+  assert.doesNotMatch(character, /\[gpuEpoch, onPlaybackError\]/)
   assert.match(player, /async replaceLivePackage/)
   assert.match(player, /await loadImage\(atlasUrl/)
   assert.match(player, /this\.atlasTexture = nextTexture/)

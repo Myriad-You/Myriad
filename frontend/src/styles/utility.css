@@ -55,6 +55,7 @@
 .anim-waiting {
   opacity: 0;
   visibility: hidden;
+
   /* no will-change */
 }
 
@@ -119,11 +120,14 @@
 .tapp-icon-badge__glyph {
   display: block;
   object-fit: contain;
+
   /* ~+12% visual weight without growing the outer shell */
   transform: scale(1.12);
   transform-origin: center center;
+
   /* Soften pure white glyph */
   opacity: 0.86;
+
   /* Depth over a bright rim so large-page icons do not wash out */
   filter: drop-shadow(0 1px 1.5px rgb(0 0 0 / 28%));
 }

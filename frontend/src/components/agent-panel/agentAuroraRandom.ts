@@ -65,7 +65,7 @@ function mixColor(hue: number, rand: AuroraRand, dark: boolean): string {
 }
 
 function shuffle<T>(items: readonly T[], rand: AuroraRand): T[] {
-  const next = [...items]
+  const next = Iterator.from(items).toArray()
   for (let i = next.length - 1; i > 0; i -= 1) {
     const j = Math.floor(rand() * (i + 1))
     const left = next[i]

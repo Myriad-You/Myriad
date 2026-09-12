@@ -64,7 +64,7 @@ export class ObjectPool<T> {
       const item = this.pool[i]
       if (now - item.lastUsed > timeout) {
         this.config.destroy(item.obj)
-        this.pool.splice(i, 1)
+        this.pool = this.pool.toSpliced(i, 1)
       }
     }
   }

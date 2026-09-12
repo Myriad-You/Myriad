@@ -23,6 +23,10 @@ const SECRET_ENV_KEYS: &[&str] = &[
     "GEMINI_API_KEY",
     "GOOGLE_API_KEY",
     "AI_API_KEY",
+    "QQ_BOT_APP_SECRET",
+    "TELEGRAM_BOT_TOKEN",
+    "DISCORD_BOT_TOKEN",
+    "FEISHU_BOT_APP_SECRET",
 ];
 
 /// `key=value` / JSON-ish keys to blank after the separator (case-insensitive match on key).
@@ -40,6 +44,12 @@ const SECRET_ASSIGNMENT_KEYS: &[&str] = &[
     "openai_api_key",
     "anthropic_api_key",
     "gemini_api_key",
+    "app_secret",
+    "qq_bot_app_secret",
+    "telegram_bot_token",
+    "discord_bot_token",
+    "feishu_bot_app_secret",
+    "clientSecret",
 ];
 
 /// Redact known secrets from `input`. Safe on every error / log path.
@@ -98,7 +108,7 @@ fn redact_pattern(input: &str, prefix: &str) -> String {
 fn redact_kv_assignment(input: &str, key: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let lower = input.to_ascii_lowercase();
-    let needle = format!("{key}=");
+    let needle = format!("{}=", key.to_ascii_lowercase());
     let mut rest = input;
     let mut rest_lower = lower.as_str();
     while let Some(idx) = rest_lower.find(&needle) {
@@ -148,6 +158,17 @@ mod tests {
         assert!(r.contains("client_secret=[REDACTED]"));
         assert!(r.contains("api_key=[REDACTED]"));
         assert!(r.contains("refresh_token=[REDACTED]"));
+        let qq = redact_secrets(
+            "qq_bot_app_secret=super-secret-qq-value clientSecret=also-secret-value",
+        );
+        assert!(!qq.contains("super-secret-qq-value"));
+        assert!(!qq.contains("also-secret-value"));
+        let telegram = redact_secrets("telegram_bot_token=123456:super-secret-telegram-token");
+        assert!(!telegram.contains("super-secret-telegram-token"));
+        let discord = redact_secrets("discord_bot_token=MTk4.super-secret-discord-token");
+        assert!(!discord.contains("super-secret-discord-token"));
+        let feishu = redact_secrets("feishu_bot_app_secret=super-secret-feishu-value");
+        assert!(!feishu.contains("super-secret-feishu-value"));
     }
 
     #[test]

@@ -58,7 +58,7 @@ function guessPreviewAssetMime(path: string): string {
 }
 
 function byteLengthFromBase64(base64: string): number {
-  const clean = base64.replace(/\s/g, '')
+  const clean = base64.replaceAll(/\s/g, '')
   if (!clean) return 0
   const padding = clean.endsWith('==') ? 2 : clean.endsWith('=') ? 1 : 0
   return Math.max(0, Math.floor((clean.length * 3) / 4) - padding)
@@ -76,14 +76,19 @@ export function previewAssetFromPackage(
   let base64: string
   if (dataUrl) {
     mimeType = dataUrl[1]
-    base64 = dataUrl[2].replace(/\s/g, '')
-  } else if (/^[A-Z0-9+/=\s]+$/i.test(raw) && raw.replace(/\s/g, '').length % 4 === 0) {
+    base64 = dataUrl[2].replaceAll(/\s/g, '')
+  } else if (/^[A-Z0-9+/=\s]+$/i.test(raw) && raw.replaceAll(/\s/g, '').length % 4 === 0) {
     mimeType = guessPreviewAssetMime(path)
-    base64 = raw.replace(/\s/g, '')
+    base64 = raw.replaceAll(/\s/g, '')
   } else {
     mimeType = guessPreviewAssetMime(path)
     try {
-      base64 = btoa(unescape(encodeURIComponent(raw)))
+      base64 = btoa(
+        Iterator.from(new TextEncoder().encode(raw))
+          .map((b) => String.fromCharCode(b))
+          .toArray()
+          .join(''),
+      )
     } catch {
       return null
     }
@@ -155,7 +160,7 @@ function registerPreviewFullKv(
   })
   bridge.registerHandler(`${api}.keys`, async () => ({
     success: true,
-    data: Array.from(store.keys()),
+    data: Iterator.from(store.keys()).toArray(),
   }))
   bridge.registerHandler(`${api}.getAll`, async () => ({
     success: true,

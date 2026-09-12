@@ -65,7 +65,7 @@ pub(super) async fn execute_brew_generate_reading_list(
         .or_else(|| params.get("keyword").and_then(|v| v.as_str()))
         .or_else(|| params.get("topic").and_then(|v| v.as_str()))
         .or_else(|| params.get("query").and_then(|v| v.as_str()))
-        .unwrap_or("最新文章");
+        .unwrap_or("latest articles");
     let max_items = params
         .get("maxItems")
         .and_then(|v| v.as_u64())
@@ -236,9 +236,9 @@ pub(super) async fn execute_brew_generate_reading_list(
             );
 
             let search_query = if !keyword.is_empty() {
-                format!("{} 相关文章 新闻 资讯", keyword)
+                format!("{keyword} related articles and news")
             } else {
-                format!("{} 相关文章", criteria)
+                format!("{criteria} related articles")
             };
 
             let recency_minutes = u32::try_from(days_back.saturating_mul(24 * 60)).ok();

@@ -920,7 +920,7 @@ async fn execute_translate_text(
     let target_lang = params
         .get("targetLang")
         .and_then(|v| v.as_str())
-        .unwrap_or("zh-CN");
+        .unwrap_or("en-US");
     let source_lang = params.get("sourceLang").and_then(|v| v.as_str());
 
     let prompt = with_system_guidance(

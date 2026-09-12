@@ -1,4 +1,3 @@
-
 import type { ModuleVisibilityKey } from './utils/moduleVisibility'
 import {
   AnimatePresenceShim as AnimatePresence,
@@ -18,9 +17,9 @@ import RouteLoader from './components/RouteLoader'
 import { AgentGlobalActions } from './contexts/AgentGlobalActions'
 import { AnimationPreferenceProvider } from './contexts/AnimationPreferenceContext'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
-import { LocaleAccountSync } from './contexts/LocaleAccountSync'
-
 import { I18nProvider } from './contexts/I18nContext'
+
+import { LocaleAccountSync } from './contexts/LocaleAccountSync'
 import { MusicPlayerProvider } from './contexts/MusicPlayerContext'
 import { NavigationProvider } from './contexts/NavigationContext'
 import { PageContentProvider } from './contexts/PageContentContext'

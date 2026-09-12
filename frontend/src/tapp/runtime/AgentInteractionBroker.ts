@@ -1,6 +1,6 @@
 import type { AgentInteractionV2, TappInstance } from '../types'
 import type { TappBridge } from './TappBridge'
-import { currentCopy } from '../../i18n/localeCopy'
+import { currentCopy, formatCurrent } from '../../i18n/localeCopy'
 import { executeFrontendAction } from '../../services/agent'
 import { userFacingError } from '../../utils/userFacingError'
 import * as TappApiService from '../services/TappApiService'
@@ -156,13 +156,11 @@ export function registerAgentInteractionHandlers(
       intent.type === 'dataExchange.request' ||
       Boolean(
         globalThis.window?.confirm?.(
-          currentCopy()
-            .tapp.agentIntentConfirm.replace(
-              '{name}',
-              tappInstance.manifest.name,
-            )
-            .replace('{type}', intent.type || 'unknown')
-            .replace('{reason}', intent.reason || ''),
+          formatCurrent(currentCopy().tapp.agentIntentConfirm, {
+            name: tappInstance.manifest.name,
+            type: intent.type || 'unknown',
+            reason: intent.reason || '',
+          }),
         ),
       )
     if (!confirmed) return { success: false, error: 'User denied Agent intent' }

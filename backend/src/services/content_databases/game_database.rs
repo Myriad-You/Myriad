@@ -1,6 +1,6 @@
 //! Steam 游戏数据库
 //!
-//! 预置常见游戏信息，用于快速分类用户游戏库
+//! 从 `game_database.json` 加载（缺失则写空数组）；用于分类用户游戏库
 
 #![allow(dead_code)]
 
@@ -151,7 +151,7 @@ impl GameDatabase {
             }
         }
 
-        // 按游玩时间排序类型
+        // 按类型聚合
         let mut genre_analysis: Vec<GameGenreAnalysis> = genre_map
             .into_iter()
             .map(|(genre, games)| {

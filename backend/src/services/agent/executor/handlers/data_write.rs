@@ -154,7 +154,7 @@ async fn execute_platform_refresh(params: &HashMap<String, Value>) -> Result<Val
                 }));
             }
             Err(e) => {
-                tracing::warn!(platform = %p, error = %e, "[platform.refresh] 提交失败");
+                tracing::warn!(platform = %p, error = %e, "[platform.refresh] submit failed");
                 results.push(json!({
                     "platform": p,
                     "status": "failed",
@@ -299,7 +299,7 @@ async fn execute_brew_subscribe(
 
     tracing::debug!(
         params_keys = ?params.keys().collect::<Vec<_>>(),
-        "[Brew Subscribe] 收到的参数"
+        "[Brew Subscribe] received params"
     );
 
     // 校验并清洗用户提供的名称，防止过长或空白字符串入库
@@ -319,11 +319,11 @@ async fn execute_brew_subscribe(
 
     // 收集要尝试的 URL 列表
     if params.get("feeds").is_some() {
-        tracing::debug!(feeds = ?params.get("feeds"), "[Brew Subscribe] 从 feeds 参数提取 URL");
+        tracing::debug!(feeds = ?params.get("feeds"), "[Brew Subscribe] extracting URLs from feeds");
     } else if let Some(url) = params.get("url").and_then(|v| v.as_str()) {
-        tracing::debug!(url = %url, "[Brew Subscribe] 使用单个 URL");
+        tracing::debug!(url = %url, "[Brew Subscribe] using a single URL");
     } else {
-        tracing::warn!("[Brew Subscribe] 缺少 url 和 feeds 参数");
+        tracing::warn!("[Brew Subscribe] missing url and feeds");
     }
     let urls_to_try = collect_subscribe_url_candidates(
         params.get("feeds"),
@@ -332,7 +332,7 @@ async fn execute_brew_subscribe(
 
     tracing::info!(
         count = urls_to_try.len(),
-        "[Brew] 开始尝试订阅，共 {} 个候选源",
+        "[Brew] trying {} candidate feeds",
         urls_to_try.len()
     );
 
@@ -344,7 +344,7 @@ async fn execute_brew_subscribe(
     for (url, feed_name) in take_feed_urls_to_try(urls_to_try) {
         // SSRF 防护：校验 URL 安全性
         if let Err(e) = validate_subscribe_url(&url) {
-            tracing::warn!(url = %url, error = %e, "[Brew] URL 安全校验失败，跳过");
+            tracing::warn!(url = %url, error = %e, "[Brew] URL failed security check, skip");
             last_error = format!("{}: {}", url, e);
             continue;
         }
@@ -360,12 +360,12 @@ async fn execute_brew_subscribe(
             .map_err(|error| write_store_failed("check existing brew source", error))?;
 
         if existing.is_some() {
-            tracing::debug!(url = %url, "[Brew] 跳过已订阅的源");
+            tracing::debug!(url = %url, "[Brew] skip already subscribed feed");
             continue;
         }
 
         // 尝试解析这个 URL
-        tracing::debug!(url = %url, "[Brew] 尝试解析订阅源");
+        tracing::debug!(url = %url, "[Brew] trying to parse feed");
 
         match tokio::time::timeout(
             std::time::Duration::from_secs(10),
@@ -489,7 +489,7 @@ async fn execute_brew_subscribe(
                     {
                         Ok(rows) => rows as usize,
                         Err(e) => {
-                            tracing::warn!("[Brew] 批量插入文章失败: {}", e);
+                            tracing::warn!("[Brew] bulk insert items failed: {}", e);
                             0
                         }
                     }
@@ -500,7 +500,7 @@ async fn execute_brew_subscribe(
                     source_active.item_count = Set(inserted_count as i32);
                     source_active.unread_count = Set(inserted_count as i32);
                     if let Err(e) = source_active.update(ctx.db).await {
-                        tracing::warn!("[Brew] 更新订阅源计数失败: {}", e);
+                        tracing::warn!("[Brew] failed to update source counts: {}", e);
                     }
                 }
 
@@ -508,7 +508,7 @@ async fn execute_brew_subscribe(
                     url = %url,
                     name = %name,
                     items = inserted_count,
-                    "[Brew] 订阅成功"
+                    "[Brew] subscribed"
                 );
 
                 return Ok(json!({
@@ -529,11 +529,11 @@ async fn execute_brew_subscribe(
                 }));
             }
             Ok(Err(e)) => {
-                tracing::debug!(url = %url, error = %e, "[Brew] 解析失败，尝试下一个");
+                tracing::debug!(url = %url, error = %e, "[Brew] parse failed, try next");
                 last_error = format!("{}: {}", url, e);
             }
             Err(_) => {
-                tracing::debug!(url = %url, "[Brew] 请求超时，尝试下一个");
+                tracing::debug!(url = %url, "[Brew] request timed out, try next");
                 last_error = format!("{url}: timed out");
             }
         }

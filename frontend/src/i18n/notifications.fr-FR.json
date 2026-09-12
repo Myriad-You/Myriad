@@ -1,0 +1,92 @@
+{
+  "sources": {
+    "agent": {
+      "title": "Tâches Agent",
+      "description": "Avancement, résultats, annulation, précisions et activité notable des plateformes"
+    },
+    "heartbeat": {
+      "title": "Heartbeat",
+      "description": "Résultats des planifications en arrière-plan de l’Agent"
+    },
+    "mcp": {
+      "title": "Services MCP",
+      "description": "État de connexion des serveurs d’outils"
+    },
+    "brew": {
+      "title": "Brew",
+      "description": "Nouveaux articles et erreurs de récupération répétées"
+    },
+    "tapp": {
+      "title": "Tapp",
+      "description": "Messages, avertissements et erreurs de tâches des applications"
+    },
+    "updater": {
+      "title": "Mise à jour système",
+      "description": "État des mises à jour, restaurations et récupérations"
+    },
+    "federation": {
+      "title": "Fédération",
+      "description": "Messages fédérés, abonnements et invitations"
+    },
+    "system": {
+      "title": "Système",
+      "description": "Informations importantes de Myriad"
+    }
+  },
+  "events": {
+    "agent.task_progress": "Avancement de la tâche",
+    "agent.task_completed": "Tâche terminée",
+    "agent.task_failed": "Tâche échouée",
+    "agent.task_cancelled": "Tâche annulée",
+    "agent.clarification": "En attente d’une réponse",
+    "agent.merope.platform_activity": "Activité de plateforme",
+    "heartbeat.succeeded": "Tâche planifiée réussie",
+    "heartbeat.failed": "Tâche planifiée échouée",
+    "mcp.connected": "MCP connecté",
+    "mcp.disconnected": "MCP déconnecté ou en échec",
+    "brew.new_items": "Nouveau contenu trouvé",
+    "brew.source_error": "Source en échec répété",
+    "platform.sync.failed": "Synchronisation de plateforme échouée",
+    "tapp.message": "Message",
+    "tapp.warning": "Avertissement",
+    "tapp.error": "Erreur ou échec de tâche",
+    "updater.submitted": "Tâche soumise",
+    "updater.running": "Tâche en cours",
+    "updater.succeeded": "Mise à jour réussie",
+    "updater.failed": "Mise à jour échouée",
+    "updater.needs_manual": "Intervention manuelle requise",
+    "updater.unknown": "État impossible à confirmer",
+    "federation.channel_message": "Message privé",
+    "federation.room_message": "Message de salon",
+    "federation.new_follower": "Nouvel abonné",
+    "federation.follow_accepted": "Abonnement accepté",
+    "federation.channel_invite": "Invitation de message privé",
+    "federation.room_invite": "Invitation de salon",
+    "federation.channel_accepted": "Canal privé établi",
+    "federation.room_invite_accepted": "Invitation de salon acceptée",
+    "system.info": "Information système",
+    "skill.pruned": "Compétence retirée automatiquement",
+    "skill.improved": "Compétence améliorée automatiquement",
+    "skill.changed": "Compétence modifiée"
+  },
+  "ui": {
+    "master": "Activer le centre de notifications",
+    "masterDesc": "Désactivé : aucune nouvelle notification n’est créée ; l’historique est conservé",
+    "delivery": "Présentation",
+    "island": "Carrousel de l’îlot de contrôle",
+    "islandDesc": "Afficher les nouvelles notifications dans l’îlot de contrôle en haut",
+    "toast": "Notifications toast",
+    "toastDesc": "Utiliser les alertes globales à l’arrivée d’une notification",
+    "browser": "Notifications système du navigateur",
+    "browserDesc": "Afficher lorsque la page est en arrière-plan, si autorisé",
+    "sourceEnabled": "Autoriser cette source",
+    "sources": "Sources de notifications",
+    "locations": "Emplacements d’affichage",
+    "locationsDesc": "Combiné aux interrupteurs de présentation ci-dessus",
+    "events": "Événements de notification",
+    "panelLocation": "Panneau de notifications",
+    "toastLocation": "Toast",
+    "islandLocation": "Îlot de contrôle",
+    "browserLocation": "Notification système"
+  }
+}

@@ -316,7 +316,7 @@ describe('TappBridge session token + inbound event allowlist', () => {
     await new Promise((r) => setTimeout(r, 0))
 
     assert.ok(responses.length >= 1, 'expected a response while muted')
-    const last = responses[responses.length - 1]!
+    const last = responses.at(-1)!
     assert.equal(last.type, 'response')
     assert.equal(last.id, 'req-muted-1')
     const payload = last.payload as {
@@ -350,7 +350,7 @@ describe('TappBridge session token + inbound event allowlist', () => {
     await new Promise((r) => setTimeout(r, 0))
 
     assert.ok(responses.length >= 1)
-    const last = responses[responses.length - 1]!
+    const last = responses.at(-1)!
     assert.equal(last.id, 'req-muted-huge')
     assert.equal((last.payload as { code?: string }).code, 'BRIDGE_MUTED')
   })
@@ -423,7 +423,7 @@ describe('TappBridge session token + inbound event allowlist', () => {
 
     inboundRate.tryTake = original
 
-    const last = responses[responses.length - 1]!
+    const last = responses.at(-1)!
     assert.equal(last.id, 'req-rate-1')
     const payload = last.payload as {
       code?: string
@@ -454,7 +454,7 @@ describe('TappBridge session token + inbound event allowlist', () => {
       _sessionToken: SESSION,
     })
     await new Promise((r) => setTimeout(r, 0))
-    const last = responses[responses.length - 1]!
+    const last = responses.at(-1)!
     assert.equal(last.id, 'req-ai-preview')
     const payload = last.payload as {
       success?: boolean

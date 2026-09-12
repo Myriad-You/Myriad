@@ -14,6 +14,7 @@ import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,
 } from '@lib/motionShim'
+import { useI18n } from '../../../contexts/I18nContext'
 import { Spinner } from '../../Spinner'
 import {
   DATE_FORMAT_FULL,
@@ -77,6 +78,7 @@ export default function CommentsListPanel({
   enableAnimations,
   t,
 }: CommentsListPanelProps) {
+  const { locale } = useI18n()
   const closeRef = useReaderDialogFocus(
     showCommentsPanel,
     READER_COMMENTS_PANEL_ID,
@@ -219,7 +221,7 @@ export default function CommentsListPanel({
                           <span className="text-xs opacity-50">·</span>
                           <span className="text-xs opacity-70">
                             {new Date(comment.created_at).toLocaleDateString(
-                              'zh-CN',
+                              locale,
                               DATE_FORMAT_FULL,
                             )}
                           </span>
@@ -357,7 +359,7 @@ export default function CommentsListPanel({
                                   <span className="text-xs opacity-60">
                                     {new Date(
                                       reply.created_at,
-                                    ).toLocaleDateString('zh-CN', {
+                                    ).toLocaleDateString(locale, {
                                       month: 'short',
                                       day: 'numeric',
                                       hour: '2-digit',

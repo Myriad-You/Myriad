@@ -652,12 +652,12 @@ export function stepChestSpring(
 function uniqueCoordinates(values: number[]): number[] {
   const sorted = values
     .filter(Number.isFinite)
-    .sort((left, right) => left - right)
+    .toSorted((left, right) => left - right)
   const unique: number[] = []
   for (const value of sorted) {
     if (
       unique.length === 0 ||
-      Math.abs(value - unique[unique.length - 1]) > COORDINATE_EPSILON
+      Math.abs(value - unique.at(-1)!) > COORDINATE_EPSILON
     ) {
       unique.push(value)
     }

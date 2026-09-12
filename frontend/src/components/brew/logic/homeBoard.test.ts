@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { makeItem } from './fixtures.ts'
 import {
   NOTES_FEATURED_MAX,
   noteSourceKey,
   pickHomeBoardNotes,
   toHomeBoardNote,
 } from './homeBoard.ts'
-import { makeItem } from './fixtures.ts'
 
 describe('toHomeBoardNote', () => {
   it('只收精选要的字段', () => {

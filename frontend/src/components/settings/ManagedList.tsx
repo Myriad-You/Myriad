@@ -306,7 +306,7 @@ export const ManagedList = React.memo(({
   className = '',
   footer,
 }: ManagedListProps) => {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const queryToggleLabel =
     queryToggleLabelProp ?? t.config.managedListSearchFilter
   const queryCollapseLabel =
@@ -348,9 +348,10 @@ export const ManagedList = React.memo(({
     pageSize != null && totalCount > pageSize
       ? truncateFooter
         ? truncateFooter(visibleItems.length, totalCount)
-        : t.config.managedListShowing
-            .replace('{shown}', String(visibleItems.length))
-            .replace('{total}', String(totalCount))
+        : format(t.config.managedListShowing, {
+            shown: visibleItems.length,
+            total: totalCount,
+          })
       : null
 
   const handleShowMore = useCallback(() => {
@@ -695,8 +696,7 @@ export const ManagedList = React.memo(({
                 </div>
               ))}
 
-            {((stats &&
-              stats.some((s) => s.kind === 'switch' || s.kind === 'choice')) ||
+            {(stats?.some((s) => s.kind === 'switch' || s.kind === 'choice') ||
               hasChromeBar) && (
               <div
                 className="managed-list-chip-actions"
@@ -806,7 +806,7 @@ export const ManagedList = React.memo(({
                     return (
                       <span
                         key={s.key}
-                        id={`cfg-g-${s.guidePath.replace(/\./g, '-')}`}
+                        id={`cfg-g-${s.guidePath.replaceAll('.', '-')}`}
                         data-guide-path={s.guidePath}
                         className="has-guide-anchor managed-list-guide-anchor"
                       >

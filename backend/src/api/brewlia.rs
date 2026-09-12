@@ -482,7 +482,7 @@ Analyze the content and identify items that need annotation:
 Output in JSON format:
 ```json
 {{
-  "language": "detected language code (e.g., zh-CN, en-US, ja-JP)",
+  "language": "detected language code (e.g., zh-CN, zh-TW, en-US, ja-JP, ko-KR, fr-FR, de-DE)",
   "annotations": [
     {{
       "type": "reference",
@@ -1096,7 +1096,7 @@ fn build_podcast_prompt(title: &str, content: &str) -> String {
 Output in JSON format:
 ```json
 {{
-  "language": "detected language code (zh-CN, en-US, ja-JP, etc.)",
+  "language": "detected language code (zh-CN, zh-TW, en-US, ja-JP, ko-KR, fr-FR, de-DE)",
   "dialogues": [
     {{ "speaker": "host_a", "text": "Welcome to the show. Today we have a really interesting topic." }},
     {{ "speaker": "host_b", "text": "Yes, this one has been getting a lot of attention lately." }},

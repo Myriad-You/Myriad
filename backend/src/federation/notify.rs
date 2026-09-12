@@ -43,7 +43,7 @@ pub async fn actor_label(db: &impl ConnectionTrait, actor_url: &str) -> String {
         .to_string()
 }
 
-/// True when payload is an E2E ciphertext envelope (not yet decrypted).
+/// True when payload has ciphertext + algorithm (object fields, or a JSON-looking string).
 fn is_e2e_ciphertext_envelope(payload: &Value) -> bool {
     if !payload.is_object() {
         if let Some(s) = payload.as_str() {
@@ -132,7 +132,7 @@ fn aro_route(kind: &str, id: &str) -> String {
     )
 }
 
-/// 轻量 URL 编码（id 多为安全字符；对保留字做 escape）
+/// 轻量 URL 编码：unreserved 原样，其余 %XX
 fn urlencoding_lite(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
@@ -182,11 +182,12 @@ pub async fn notify_channel_message(
     notification.id = format!("fed_ch_{}_u{}", stable_hash(channel_id), user_id);
     notification.read = false;
     manager.upsert(notification).await;
-    crate::services::agent::merope::spawn_ingest(
+    dispatch_persona_observation(
         user_id,
         "federation.channel_message",
         format!("{sender_label} sent a DM: {preview}"),
-    );
+    )
+    .await;
 }
 
 /// 群聊 / Room 新消息（按会话 + 用户 upsert）
@@ -227,11 +228,12 @@ pub async fn notify_room_message(
     notification.id = format!("fed_rm_{}_u{}", stable_hash(room_id), user_id);
     notification.read = false;
     manager.upsert(notification).await;
-    crate::services::agent::merope::spawn_ingest(
+    dispatch_persona_observation(
         user_id,
         "federation.room_message",
         format!("{sender_label} spoke in a room: {preview}"),
-    );
+    )
+    .await;
 }
 
 /// 新粉丝（自动 Accept 后的关注事件）
@@ -257,11 +259,12 @@ pub async fn notify_new_follower(user_id: i32, actor_url: &str, actor_label: &st
     notification.id = format!("fed_follower_{}_u{}", stable_hash(actor_url), user_id);
     notification.read = false;
     manager.upsert(notification).await;
-    crate::services::agent::merope::spawn_ingest(
+    dispatch_persona_observation(
         user_id,
         "federation.new_follower",
         format!("{actor_label} followed this person"),
-    );
+    )
+    .await;
 }
 
 /// 我们发出的关注被接受
@@ -629,5 +632,18 @@ mod tests {
         assert!(route.starts_with("/tapp/run/com.myriad.aro?channel="));
         assert!(route.contains("view=messages"));
         assert!(route.contains("%2F") || route.contains("ch"));
+    }
+}
+
+/// Persona observations have independent policy from notification opt-in.
+/// Do not run their model/state work inside the federation process.
+async fn dispatch_persona_observation(user_id: i32, event_key: &str, summary: String) {
+    if crate::runtime_role::PERSONA_RUNTIME_LOCAL.load(std::sync::atomic::Ordering::Acquire) {
+        crate::services::agent::merope::spawn_ingest(user_id, event_key, summary);
+    } else if let Ok(db) = crate::services::tapp_registry::database().await {
+        crate::services::agent::notifications::publish_persona_observation(
+            &db, user_id, event_key, &summary,
+        )
+        .await;
     }
 }

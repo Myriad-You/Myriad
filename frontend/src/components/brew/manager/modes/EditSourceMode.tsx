@@ -1,4 +1,5 @@
 import type { BrewSource } from '../../../../types/brew'
+import type { SubscriptionMode } from './editSource'
 import {
   LuAlertCircle as AlertCircle,
   LuCheck as Check,
@@ -11,11 +12,17 @@ import {
   LuUpload as Upload,
   LuX as X,
 } from '@lib/icons'
-import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../../../contexts/I18nContext'
 import { userFacingError } from '../../../../utils/userFacingError'
 import { Spinner } from '../../../Spinner'
+import {
+  getIconUrl,
+  isFriendLinkCategory,
+  isMineCategory,
+  PRESET_CATEGORY_DB_VALUES,
+} from '../../constants'
 import { RequestTurn, unlessAborted } from '../../logic/requestTurn'
 import { BrewBarWrap } from '../../ui/Bar'
 import {
@@ -44,18 +51,12 @@ import {
   SheetTrigger,
 } from '../../ui/Sheet'
 import {
-  BREW_FRIEND_LINK_CATEGORY,
-  BREW_MINE_CATEGORY,
-  PRESET_CATEGORY_DB_VALUES,
-  getIconUrl,
-} from '../../constants'
-import {
   canAddCategory,
   categoriesOf,
   EDIT_INTERVALS,
   resolveEditSourcePayload,
+
   subscriptionModeOf,
-  type SubscriptionMode,
 } from './editSource'
 
 export interface EditSourceModeProps {
@@ -75,8 +76,8 @@ function categoryLabel(
   cat: string,
   labels: { friendLinks: string; me: string },
 ): string {
-  if (cat === BREW_FRIEND_LINK_CATEGORY) return labels.friendLinks
-  if (cat === BREW_MINE_CATEGORY) return labels.me
+  if (isFriendLinkCategory(cat)) return labels.friendLinks
+  if (isMineCategory(cat)) return labels.me
   return cat
 }
 
@@ -121,7 +122,10 @@ export function EditSourceMode({
   const showAiTags = subscriptionMode === 'brewlia'
   const showCustomTags = isLink
   const allCategories = useMemo(
-    () => [...new Set([...PRESET_CATEGORY_DB_VALUES, ...categories])],
+    () =>
+      Iterator.from(
+        new Set(PRESET_CATEGORY_DB_VALUES).union(new Set(categories)),
+      ).toArray(),
     [categories],
   )
   const intervalLabels: Record<number, string> = {

@@ -43,7 +43,7 @@ function formatLimit(maxBytes: number, maxRecords?: number): string {
 }
 
 export function TappDataExchangeConsentHost() {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const { current } = useSyncExternalStore(
     subscribeDataExchangeConsent,
     getDataExchangeConsentSnapshot,
@@ -84,17 +84,15 @@ export function TappDataExchangeConsentHost() {
         return
       }
       if (event.key !== 'Tab' || !dialogRef.current) return
-      const focusable = Array.from(
-        dialogRef.current.querySelectorAll<HTMLElement>(
+      const focusable = Iterator.from(dialogRef.current.querySelectorAll<HTMLElement>(
           'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        ),
-      )
+        )).toArray()
       if (focusable.length === 0) {
         event.preventDefault()
         return
       }
       const first = focusable[0]
-      const last = focusable[focusable.length - 1]
+      const last = focusable.at(-1)!
       if (event.shiftKey && document.activeElement === first) {
         event.preventDefault()
         last.focus()
@@ -197,10 +195,9 @@ export function TappDataExchangeConsentHost() {
 
         {current.queuedCount > 0 && (
           <p className="tapp-data-consent-queued">
-            {t.tapp.dataExchangeQueued.replace(
-              '{count}',
-              String(current.queuedCount),
-            )}
+            {format(t.tapp.dataExchangeQueued, {
+              count: current.queuedCount,
+            })}
           </p>
         )}
 

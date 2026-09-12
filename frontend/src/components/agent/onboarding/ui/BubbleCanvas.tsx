@@ -113,7 +113,7 @@ function pack(items: BubbleItem[], viewW: number, viewH: number): Layout {
   const random = mulberry32(hashOf(items.map((item) => item.id).join('|')))
   const order = items
     .map((item) => ({ item, size: baseSize(item) }))
-    .sort((a, b) => b.size - a.size)
+    .toSorted((a, b) => b.size - a.size)
 
   const needed = order.reduce((sum, entry) => sum + (entry.size + GAP) ** 2, 0)
   const startScale = Math.max(SLACK, Math.sqrt(needed / (viewW * viewH * 0.55)))

@@ -1,4 +1,3 @@
-
 import type { SettingGroupConfig } from './types'
 import React, { useEffect, useMemo } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
@@ -37,14 +36,14 @@ export const SettingGroup: React.FC<SettingGroupProps> = ({
   defaultExpanded = true,
   className = '',
 }) => {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const gridCtx = useSettingGroupGrid()
   const helpCtx = useSettingsHelp()
   const tocCtx = useSettingsToc()
   const inGrid = Boolean(gridCtx?.inGrid)
   const detailAria =
     typeof title === 'string' && title
-      ? t.config.detailHelpAriaNamed.replace('{title}', title)
+      ? format(t.config.detailHelpAriaNamed, { title })
       : t.config.detailHelpAria
   const useSubgrid = Boolean(gridCtx?.alignRows) && !collapsible
   const expandHelp = Boolean(helpCtx?.showDetails)
@@ -204,10 +203,12 @@ export const SettingGroup: React.FC<SettingGroupProps> = ({
             aria-expanded={isExpanded}
             aria-label={
               title
-                ? (isExpanded
-                    ? t.config.collapseGroupAria
-                    : t.config.expandGroupAria
-                  ).replace('{title}', String(title))
+                ? format(
+                    isExpanded
+                      ? t.config.collapseGroupAria
+                      : t.config.expandGroupAria,
+                    { title: String(title) },
+                  )
                 : undefined
             }
           >

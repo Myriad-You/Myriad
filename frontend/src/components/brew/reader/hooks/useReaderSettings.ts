@@ -93,11 +93,11 @@ export function useReaderSettings(): UseReaderSettingsReturn {
     return base
   }, [theme, anim])
   const currentFont = useMemo(
-    () => FONT_OPTIONS.find((f) => f.id === fontFamily) || FONT_OPTIONS[0],
+    () => FONT_OPTIONS.find((f) => f.id === fontFamily) ?? FONT_OPTIONS[0],
     [fontFamily],
   )
   const currentLayout = useMemo(
-    () => LAYOUT_OPTIONS.find((l) => l.id === layout) || LAYOUT_OPTIONS[0],
+    () => LAYOUT_OPTIONS.find((l) => l.id === layout) ?? LAYOUT_OPTIONS[0],
     [layout],
   )
   const isDark = useMemo(() => theme === 'dark' || theme === 'night', [theme])

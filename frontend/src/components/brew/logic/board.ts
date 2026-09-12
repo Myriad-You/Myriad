@@ -1,13 +1,14 @@
 /** `sites` 深链 id 不能改。「友情链接」是分类名；朋友源从订阅 inbox 拿走。手记源仍可出现在订阅墙。 */
 
 import type { BrewSource } from '../../../types/brew'
+import type { BrewViewerRole } from './score'
 import {
-  BREW_FRIEND_LINK_CATEGORY,
   brewCategoryParts,
   brewMainCategory,
+  isFriendLinkCategory,
   isOwnBrewSource,
 } from '../constants'
-import { compareByScore, type BrewViewerRole } from './score'
+import { compareByScore } from './score'
 
 export type BrewBoard = 'feeds' | 'notes' | 'sites'
 
@@ -44,7 +45,7 @@ export function isFriendSource(
 ): boolean {
   if (isNotesSource(s)) return false
   if (isSiteSource(s)) return true
-  return brewCategoryParts(s.category).includes(BREW_FRIEND_LINK_CATEGORY)
+  return brewCategoryParts(s.category).some(isFriendLinkCategory)
 }
 
 export function sourcesForBoard(
@@ -63,7 +64,7 @@ export function collectSourceCategories(
   for (const source of sources) {
     for (const part of brewCategoryParts(source.category)) cats.add(part)
   }
-  return Array.from(cats)
+  return Iterator.from(cats).toArray()
 }
 
 export function filterSourcesByQuery(
@@ -71,7 +72,7 @@ export function filterSourcesByQuery(
   query: string,
 ): BrewSource[] {
   const needle = query.trim().toLowerCase()
-  if (!needle) return [...sources]
+  if (!needle) return Iterator.from(sources).toArray()
   return sources.filter(
     (source) =>
       source.name.toLowerCase().includes(needle) ||
@@ -87,13 +88,13 @@ export function sortSourcesForBoard(
   mode: SourceSortMode,
   role: BrewViewerRole,
   now: number,
+  locale = 'en-US',
 ): BrewSource[] {
-  const result = [...sources]
   switch (mode) {
     case 'smart':
-      return result.sort((a, b) => compareByScore(a, b, role, now))
+      return sources.toSorted((a, b) => compareByScore(a, b, role, now))
     case 'update':
-      return result.sort((a, b) => {
+      return sources.toSorted((a, b) => {
         const latestA =
           a.recent_items?.[0]?.published_at || a.last_success_at || 0
         const latestB =
@@ -101,16 +102,16 @@ export function sortSourcesForBoard(
         return latestB - latestA
       })
     case 'category':
-      return result.sort((a, b) => {
+      return sources.toSorted((a, b) => {
         const catA = brewMainCategory(a.category, '')
         const catB = brewMainCategory(b.category, '')
-        if (catA !== catB) return catA.localeCompare(catB, 'zh-CN')
-        return a.name.localeCompare(b.name, 'zh-CN')
+        if (catA !== catB) return catA.localeCompare(catB, locale)
+        return a.name.localeCompare(b.name, locale)
       })
     case 'pinyin':
-      return result.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+      return sources.toSorted((a, b) => a.name.localeCompare(b.name, locale))
     default:
-      return result
+      return Iterator.from(sources).toArray()
   }
 }
 

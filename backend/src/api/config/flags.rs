@@ -30,7 +30,7 @@ pub(crate) fn sort_platforms_by_order(
     platforms.sort_by_key(|p| rank(&p.name));
 }
 
-/// DB Option 或 env 是否有非空字符串（空串 / 纯空白不算已配置）
+/// DB Option 是否有非空字符串（空串 / 纯空白不算已配置）。env 见 `nonempty_env`。
 pub(crate) fn nonempty_db(opt: Option<&String>) -> bool {
     opt.is_some_and(|s| !s.trim().is_empty())
 }

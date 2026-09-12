@@ -58,7 +58,7 @@ export const DanmakuWidget = memo(
     )
 
     const animations = useMemo(() => {
-      const availableLanes = [...LANES_ARRAY]
+      const availableLanes = Iterator.from(LANES_ARRAY).toArray()
       for (let i = availableLanes.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1))
         ;[availableLanes[i], availableLanes[j]] = [

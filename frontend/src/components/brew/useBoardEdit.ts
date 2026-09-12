@@ -63,7 +63,7 @@ export function useBoardEdit(
 
   const handleBatchDelete = useCallback(async () => {
     if (selectedIds.size === 0 || !onRemoveSources) return
-    const ids = Array.from(selectedIds)
+    const ids = Iterator.from(selectedIds).toArray()
     setIsDeleting(true)
     try {
       await onRemoveSources?.(ids)

@@ -1,4 +1,5 @@
 import type { RemoteStoreSource } from '../services/RemoteStoreService'
+import { formatCurrent } from '../../i18n/localeCopy'
 
 export function compareVersions(left: string, right: string): number {
   const parts1 = left.split('.').map((n) => Number.parseInt(n, 10) || 0)
@@ -21,11 +22,11 @@ export function normalizeStoreSourceUrl(url: string): string {
     const u = new URL(raw)
     u.hash = ''
     if (u.pathname.length > 1 && u.pathname.endsWith('/')) {
-      u.pathname = u.pathname.replace(/\/+$/, '')
+      u.pathname = u.pathname.replaceAll(/\/+$/g, '')
     }
     return u.href
   } catch {
-    return raw.replace(/\/+$/, '')
+    return raw.replaceAll(/\/+$/g, '')
   }
 }
 
@@ -35,7 +36,7 @@ export function findStoreSource(
 ): RemoteStoreSource | undefined {
   const target = normalizeStoreSourceUrl(sourceUrl)
   return (
-    sources.find((s) => s.url === sourceUrl) ||
+    sources.find((s) => s.url === sourceUrl) ??
     sources.find((s) => normalizeStoreSourceUrl(s.url) === target)
   )
 }
@@ -84,7 +85,7 @@ export function packageProgressLabel(
   } else {
     template = isUpdate ? tapp.updateDownloading : tapp.installDownloading
   }
-  let label = template.replace('{percent}', String(percent))
+  let label = formatCurrent(template, { percent })
   if (detail && (p === 'download' || p === 'fetch' || p === 'client')) {
     const short =
       detail.length > 28

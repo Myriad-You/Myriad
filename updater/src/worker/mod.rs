@@ -5,6 +5,7 @@
 //! - It enqueues commands into a bounded MPSC channel consumed by a single worker task.
 //! - The state machine ensures at most one job is in flight; further `update` requests get 409.
 
+pub mod backend_health;
 pub mod machine;
 pub mod preflight;
 pub mod preflight_env;

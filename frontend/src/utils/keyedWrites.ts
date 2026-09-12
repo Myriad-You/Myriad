@@ -19,7 +19,10 @@ export class KeyedWrites {
   }
 
   barrier<T>(signal: AbortSignal, task: () => Promise<T>): Promise<T> {
-    const pending = Promise.allSettled([...this.tails.values(), this.barrierTail]).then(() => {
+    const pending = Promise.allSettled([
+      ...Iterator.from(this.tails.values()).toArray(),
+      this.barrierTail,
+    ]).then(() => {
       signal.throwIfAborted()
       return task()
     })

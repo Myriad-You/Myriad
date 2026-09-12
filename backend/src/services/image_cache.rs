@@ -156,7 +156,7 @@ impl ImageCacheService {
     pub async fn cache_image(&self, url: &str) -> Result<String, String> {
         // 先检查是否已缓存
         if let Some(cached_url) = self.get_cached_url(url).await {
-            tracing::debug!("Image already cached: {} -> {}", url, cached_url);
+            tracing::debug!(cached = %cached_url, "Image already cached");
             return Ok(cached_url);
         }
 
@@ -176,7 +176,7 @@ impl ImageCacheService {
         .await?;
 
         // 下载图片
-        tracing::info!("Caching image from: {}", url);
+        tracing::info!(host = %url.split('/').nth(2).unwrap_or("-"), "Caching image");
         let response = client.get(target_url).send().await.map_err(|e| {
             tracing::warn!(error = %e, "Failed to download image");
             "Failed to download image".to_string()
@@ -200,16 +200,8 @@ impl ImageCacheService {
             }
         }
 
-        // 下载数据
-        let data = response.bytes().await.map_err(|e| {
-            tracing::warn!(error = %e, "Failed to read image data");
-            "Failed to read image data".to_string()
-        })?;
-
-        // 检查大小
-        if data.len() > MAX_IMAGE_SIZE {
-            return Err(format!("Image too large: {} bytes", data.len()));
-        }
+        // Enforce the existing image limit before buffering the entire response.
+        let data = myriad_outbound::read_limited_body(response, MAX_IMAGE_SIZE).await?;
 
         // 生成文件名
         let filename = Self::generate_cache_filename(url);
@@ -235,7 +227,7 @@ impl ImageCacheService {
         let subdir = &filename[..2.min(filename.len())];
         let cached_url = format!("/api/brew/image-cache/{}/{}.{}", subdir, filename, ext);
 
-        tracing::info!("Image cached: {} -> {}", url, cached_url);
+        tracing::info!(cached = %cached_url, "Image cached");
         Ok(cached_url)
     }
 

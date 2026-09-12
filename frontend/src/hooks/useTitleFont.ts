@@ -197,7 +197,7 @@ function loadFont(font: FontOption): Promise<void> {
     ? computedValue
         .split(',')[0]
         .trim()
-        .replace(/^["']|["']$/g, '')
+        .replaceAll(/^["']|["']$/g, '')
     : font.name
 
   // 带字重加载，确保拉取与 @font-face / hero 使用一致的 face。
@@ -342,15 +342,15 @@ export function useTitleFont() {
   const mountedRef = useRef(true)
 
   const currentFont = useMemo(
-    () => fontMap.get(state.font) || AVAILABLE_FONTS[0],
+    () => fontMap.get(state.font) ?? AVAILABLE_FONTS[0],
     [state.font],
   )
   const currentColor = useMemo(
-    () => colorMap.get(state.color) || AVAILABLE_COLORS[0],
+    () => colorMap.get(state.color) ?? AVAILABLE_COLORS[0],
     [state.color],
   )
   const currentFontSizeOption = useMemo(
-    () => sizeMap.get(state.fontSize) || FONT_SIZE_OPTIONS[1],
+    () => sizeMap.get(state.fontSize) ?? FONT_SIZE_OPTIONS[1],
     [state.fontSize],
   )
 

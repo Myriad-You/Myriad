@@ -3,7 +3,7 @@ import type { TappListItem } from './TappLifecycleApi'
 import type { TappPlaygroundCode } from './TappPlaygroundService'
 import { API_URL } from '../../config'
 import { hostLocaleHeaders } from '../../i18n/hostLocaleHeaders'
-import { currentCopy } from '../../i18n/localeCopy'
+import { currentCopy, formatCurrent } from '../../i18n/localeCopy'
 import { parseApiErrorBody } from '../../services/api'
 import { getCSRFToken } from '../../utils/csrf'
 import { generateOnDemandTailwindCSS } from '../runtime/sandbox/styles'
@@ -24,7 +24,7 @@ export function storeInstallModules(
   const modules: Record<string, string> = { ...(downloaded || {}) }
   if (manifest.core?.entry) modules[manifest.core.entry] = code
   for (const entry of tappLayerEntries(manifest)) {
-    if (!(entry in modules)) {
+    if (!Object.hasOwn(modules, entry)) {
       throw new Error(
         `Store index is missing download.modules entry for declared layer entry ${entry}`,
       )
@@ -268,8 +268,8 @@ function isInstallModePlaceholder(value: string | undefined | null): boolean {
 export function normalizeStoreCatalogUrl(url: string): string {
   return url
     .trim()
-    .replace(/\/+$/, '')
-    .replace(/\/index\.json$/i, '')
+    .replaceAll(/\/+$/g, '')
+    .replaceAll(/\/index\.json$/ig, '')
 }
 
 /** 解析 tappId 所在目录，返回 URL，不是本地 DB id。 */
@@ -282,7 +282,7 @@ export async function resolveStoreSourceForTapp(tappId: string): Promise<{
     './RemoteStoreService',
   )
   const sources = await RemoteStoreService.getEnabledSources()
-  const ordered = [...sources].sort((a, b) => {
+  const ordered = sources.toSorted((a, b) => {
     if (a.official && !b.official) return -1
     if (!a.official && b.official) return 1
     return 0
@@ -550,13 +550,13 @@ async function installFromStoreViaClient(
   const index = await RemoteStoreService.fetchStoreIndex(source, true)
   const baseUrl =
     index.base_url ||
-    source.url.replace(/\/index\.json$/, '').replace(/\/$/, '')
+    source.url.replaceAll(/\/index\.json$/g, '').replaceAll(/\/$/g, '')
   const storeIndex = { ...index, base_url: baseUrl }
 
   const app = storeIndex.apps.find((a) => a.id === request.tappId)
   if (!app) {
     throw new Error(
-      currentCopy().tapp.storeAppNotFound.replace('{id}', request.tappId),
+      formatCurrent(currentCopy().tapp.storeAppNotFound, { id: request.tappId }),
     )
   }
 
@@ -732,11 +732,13 @@ async function updateFromStoreViaClient(
   const index = await RemoteStoreService.fetchStoreIndex(source, true)
   const baseUrl =
     index.base_url ||
-    source.url.replace(/\/index\.json$/, '').replace(/\/$/, '')
+    source.url.replaceAll(/\/index\.json$/g, '').replaceAll(/\/$/g, '')
   const storeIndex = { ...index, base_url: baseUrl }
   const app = storeIndex.apps.find((a) => a.id === tappId)
   if (!app) {
-    throw new Error(currentCopy().tapp.storeAppNotFound.replace('{id}', tappId))
+    throw new Error(
+      formatCurrent(currentCopy().tapp.storeAppNotFound, { id: tappId }),
+    )
   }
 
   report?.({ phase: 'download', message: 'download', percent: 5 })

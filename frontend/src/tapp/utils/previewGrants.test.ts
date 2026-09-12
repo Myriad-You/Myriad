@@ -49,7 +49,7 @@ describe('previewGrants (MYR-024)', () => {
   })
 
   it('keeps allowlist stable for host docs and backend parity', () => {
-    assert.deepEqual([...PREVIEW_PERMISSIONS], [
+    assert.deepEqual(Iterator.from(PREVIEW_PERMISSIONS).toArray(), [
       'storage:read',
       'storage:write',
       'ui:theme',

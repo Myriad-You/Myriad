@@ -65,7 +65,7 @@ export function titleFromInstruction(
   instruction: string,
   maxChars = TITLE_MAX_CHARS,
 ): string {
-  const text = instruction.replace(/\s+/g, ' ').trim()
+  const text = instruction.replaceAll(/\s+/g, ' ').trim()
   if (!text) return ''
   if (text.length <= maxChars) return text
   return `${text.slice(0, Math.max(1, maxChars - 1))}…`
@@ -164,7 +164,7 @@ function normalizeSession(raw: unknown): PlaygroundSession | null {
   const updatedAt =
     typeof s.updatedAt === 'number' && Number.isFinite(s.updatedAt)
       ? s.updatedAt
-      : revisions[revisions.length - 1]?.createdAt || createdAt
+      : revisions.at(-1)?.createdAt || createdAt
   const title =
     typeof s.title === 'string'
       ? s.title
@@ -194,7 +194,7 @@ function loadV1Session(): PlaygroundSession | null {
       title: titleFromInstruction(value.revisions[0]?.instruction || ''),
       createdAt: value.revisions[0]?.createdAt || Date.now(),
       updatedAt:
-        value.revisions[value.revisions.length - 1]?.createdAt || Date.now(),
+        value.revisions.at(-1)?.createdAt || Date.now(),
       revisions: value.revisions,
       revisionIndex: value.revisionIndex,
       lastFailedAttempt: value.lastFailedAttempt,
@@ -254,7 +254,7 @@ export function pruneStoreWithMeta(
     const active = sessions.find((s) => s.id === store.activeSessionId)
     const others = sessions
       .filter((s) => s.id !== store.activeSessionId)
-      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .toSorted((a, b) => b.updatedAt - a.updatedAt)
     const keep = others.slice(0, MAX_SESSIONS - (active ? 1 : 0))
     const next = active ? [active, ...keep] : keep
     sessionsDropped += sessions.length - next.length
@@ -268,9 +268,9 @@ export function pruneStoreWithMeta(
     }).length
 
   while (sessions.length > 1 && measure(sessions) > MAX_STORE_BYTES) {
-    const sorted = [...sessions].sort((a, b) => a.updatedAt - b.updatedAt)
+    const sorted = sessions.toSorted((a, b) => a.updatedAt - b.updatedAt)
     const victim =
-      sorted.find((s) => s.id !== store.activeSessionId) || sorted[0]
+      sorted.find((s) => s.id !== store.activeSessionId) ?? sorted[0]
     if (!victim) break
     sessions = sessions.filter((s) => s.id !== victim.id)
     sessionsDropped += 1
@@ -315,7 +315,8 @@ export function pruneStoreWithMeta(
 
   let activeSessionId = store.activeSessionId
   if (!sessions.some((s) => s.id === activeSessionId)) {
-    activeSessionId = sessions.sort((a, b) => b.updatedAt - a.updatedAt)[0].id
+    sessions = sessions.toSorted((a, b) => b.updatedAt - a.updatedAt)
+    activeSessionId = sessions[0].id
   }
 
   const nextStore = { activeSessionId, sessions }
@@ -335,8 +336,8 @@ export function getActiveSession(
   store: PlaygroundSessionsStore,
 ): PlaygroundSession {
   return (
-    store.sessions.find((s) => s.id === store.activeSessionId) ||
-    store.sessions[0] ||
+    store.sessions.find((s) => s.id === store.activeSessionId) ??
+    store.sessions[0] ??
     createEmptySession()
   )
 }
@@ -391,14 +392,15 @@ export function deleteSessionWithMeta(
   store: PlaygroundSessionsStore,
   sessionId: string,
 ): PruneStoreResult {
-  const remaining = store.sessions.filter((s) => s.id !== sessionId)
+  let remaining = store.sessions.filter((s) => s.id !== sessionId)
   if (!remaining.length) {
     return { store: createEmptyStore(), meta: EMPTY_PRUNE_META }
   }
-  const activeSessionId =
-    store.activeSessionId === sessionId
-      ? remaining.sort((a, b) => b.updatedAt - a.updatedAt)[0].id
-      : store.activeSessionId
+  let activeSessionId = store.activeSessionId
+  if (activeSessionId === sessionId) {
+    remaining = remaining.toSorted((a, b) => b.updatedAt - a.updatedAt)
+    activeSessionId = remaining[0].id
+  }
   return pruneStoreWithMeta({ activeSessionId, sessions: remaining })
 }
 
@@ -435,10 +437,7 @@ export function buildPlaygroundMemoryHistory(
 
   const failed = session.lastFailedAttempt
   if (failed?.instruction?.trim()) {
-    const baseProject =
-      upToCurrent.length > 0
-        ? upToCurrent[upToCurrent.length - 1].project
-        : undefined
+    const baseProject = upToCurrent.at(-1)?.project
     turns.push({
       instruction: failed.instruction,
       explanation: '',
@@ -620,9 +619,9 @@ export function saveSessionsStore(
         (n, s) => n + s.revisions.length,
         0,
       )
-      const dropped = [...beforeIds].filter(
-        (id) => !emergency.sessions.some((s) => s.id === id),
-      ).length
+      const dropped = Iterator.from(beforeIds)
+        .filter((id) => !emergency.sessions.some((s) => s.id === id))
+        .toArray().length
       const trimmed = Math.max(0, beforeRevCount - afterRevCount)
       return {
         sessionsDropped: meta.sessionsDropped + dropped,

@@ -465,7 +465,7 @@ export default function RuntimeDiagnostics({
     anchor.href = url
     anchor.download = `myriad-diagnostics-${new Date()
       .toISOString()
-      .replace(/[:.]/g, '-')}.json`
+      .replaceAll(/[:.]/g, '-')}.json`
     document.body.appendChild(anchor)
     anchor.click()
     anchor.remove()

@@ -107,6 +107,8 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
     const behaviorPlanRef = useRef<BehaviorPlan | null>(null)
     const onPlaybackReadyRef = useRef(onPlaybackReady)
     onPlaybackReadyRef.current = onPlaybackReady
+    const onPlaybackErrorRef = useRef(onPlaybackError)
+    onPlaybackErrorRef.current = onPlaybackError
     manualRef.current = manualControl || manualRef.current
     const playbackRef = useRef(playback)
     const manifestRef = useRef(manifest)
@@ -251,7 +253,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
       } catch (error) {
         readyRef.current = false
         setReady(false)
-        if (!recoverGpu()) onPlaybackError?.(error)
+        if (!recoverGpu()) onPlaybackErrorRef.current?.(error)
         return undefined
       }
       playerRef.current = player
@@ -354,7 +356,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
       const onContextLost = (event: Event) => {
         event.preventDefault()
         if (cancelled) return
-        if (!recoverGpu()) onPlaybackError?.(event)
+        if (!recoverGpu()) onPlaybackErrorRef.current?.(event)
       }
       canvas.addEventListener('webglcontextlost', onContextLost)
       document.addEventListener('visibilitychange', onVisibilityChange)
@@ -373,7 +375,7 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
         readyRef.current = false
         setReady(false)
       }
-    }, [gpuEpoch, onPlaybackError])
+    }, [gpuEpoch])
 
     useEffect(() => {
       const player = playerRef.current
@@ -401,12 +403,12 @@ const Anime25DCharacter = forwardRef<Anime25DCharacterHandle, Props>(
           if (error instanceof Error && error.name === 'AbortError') return
           if (atlasReadyRef.current) return
           presentLiveRef.current(false)
-          if (!recoverGpuRef.current()) onPlaybackError?.(error)
+          if (!recoverGpuRef.current()) onPlaybackErrorRef.current?.(error)
         })
       return () => {
         cancelled = true
       }
-    }, [atlasUrl, gpuEpoch, manifest, onPlaybackError, playback])
+    }, [atlasUrl, gpuEpoch, manifest, playback])
 
     return (
       <span

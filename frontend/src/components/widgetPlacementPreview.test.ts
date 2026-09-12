@@ -15,6 +15,7 @@ import {
   shouldSkipWidgetEntrance,
   widgetDragGhostAnchor,
   widgetDragGhostBox,
+  widgetPlacementCollides,
 } from './widgetPlacementPreview'
 
 describe('library placement flags', () => {
@@ -218,5 +219,41 @@ describe('resolveDragGhostWidget', () => {
     assert.equal(ghost?.widgetConfig, widget)
     assert.deepEqual(ghost?.size, { w: 4, h: 2 })
     assert.equal(ghost?.fromLibrary, false)
+  })
+})
+
+describe('widgetPlacementCollides', () => {
+  const left = {
+    id: 'a',
+    type: 'weather',
+    size: '2x2' as const,
+    position: { x: 0, y: 0 },
+  }
+
+  it('treats overflow and overlap as a collision, and ignores the moving id', () => {
+    assert.equal(widgetPlacementCollides(left, [], 16, 4), false)
+    assert.equal(
+      widgetPlacementCollides({ ...left, position: { x: 15, y: 0 } }, [], 16, 4),
+      true,
+    )
+    assert.equal(
+      widgetPlacementCollides(
+        { ...left, id: 'b', position: { x: 1, y: 0 } },
+        [left],
+        16,
+        4,
+      ),
+      true,
+    )
+    assert.equal(
+      widgetPlacementCollides(
+        { ...left, position: { x: 2, y: 0 } },
+        [left],
+        16,
+        4,
+        'a',
+      ),
+      false,
+    )
   })
 })

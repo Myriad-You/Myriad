@@ -399,7 +399,7 @@ function applyRippleDistortion(
   const src32 = new Uint32Array(sourceData.data.buffer)
 
   const destImageData =
-    destData && destData.width === width && destData.height === height
+    destData?.width === width && destData.height === height
       ? destData
       : ctx.createImageData(width, height)
   const dest32 = new Uint32Array(destImageData.data.buffer)

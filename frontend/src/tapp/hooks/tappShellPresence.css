@@ -3,7 +3,6 @@
 .tapp-shell-presence {
   --tapp-shell-enter-duration: 0.48s;
   --tapp-shell-exit-duration: 0.32s;
-
   --tapp-shell-enter-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --tapp-shell-exit-ease: cubic-bezier(0.4, 0, 0.2, 1);
 

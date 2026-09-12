@@ -1,4 +1,3 @@
-
 export { default as AboutConfigSection } from './AboutConfigSection'
 export { AdvancedConfigSection } from './AdvancedConfigSection'
 export { default as AiConfigSection } from './AiConfigSection'

@@ -81,7 +81,7 @@ pub async fn refresh_platform_for_scheduler(
     if let Some(msg) =
         resolve_platform_fetch_message(platform, outcome.data.get(platform), remote_err)
     {
-        // 无可用数据时调度器记失败；已有缓存则仅告警并继续返回
+        // 无可用数据（platform_data_warning Some）时返回 Err；有可用数据则 warn 并 Ok
         if platform_data_warning(platform, outcome.data.get(platform)).is_some() {
             return Err(msg);
         }
@@ -112,7 +112,7 @@ pub async fn fetch_fresh_platform_data(
     // 获取动态配置
     let config = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
 
-    // 1. 如果是增量更新，先加载现有数据
+    // target_platform Some：磁盘缓存作合并底，不全量清空
     let mut all_data = if target_platform.is_some() {
         load_platform_data_cache()
             .map(|c| c.data)
@@ -185,7 +185,7 @@ pub async fn fetch_fresh_platform_data(
         }
     }
 
-    // 数据清洗：移除无用信息，保留核心5W1H信息
+    // 部分平台树 allowlist/truncate（非 5W1H）
     clean_platform_data(&mut all_data);
 
     // 更新智能过滤缓存：单平台刷新只处理该平台，避免重写全部平台缓存

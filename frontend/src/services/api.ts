@@ -29,7 +29,7 @@ export class ApiError extends Error {
 }
 
 /** Machine codes: snake_case, SCREAMING_SNAKE, or short ALLCAPS. Not English labels. */
-const STABLE_ERROR_CODE = /^(?:[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+|[A-Z][A-Z0-9]{2,64})$/
+const STABLE_ERROR_CODE = /^(?:[A-Za-z][A-Za-z0-9]*_\w+|[A-Z][A-Z0-9]{2,64})$/
 
 function readErrorString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
@@ -96,6 +96,7 @@ async function request<T>(
   options: ApiRequestOptions = {},
   retryOnCSRFError: boolean = true,
 ): Promise<T> {
+  options.signal?.throwIfAborted()
   const {
     requireAuth: _requireAuth = false,
     timeout: timeoutOpt = 30000,
@@ -114,6 +115,7 @@ async function request<T>(
 
   if (needsCSRF) {
     const csrfToken = await getCSRFToken()
+    options.signal?.throwIfAborted()
     if (csrfToken) {
       headers['X-CSRF-Token'] = csrfToken
     }
@@ -130,10 +132,13 @@ async function request<T>(
       ...fetchOptions,
       headers,
       credentials: 'include',
-      signal: controller.signal,
+      signal: options.signal
+        ? AbortSignal.any([options.signal, controller.signal])
+        : controller.signal,
     })
 
     clearTimeout(timeoutId)
+    options.signal?.throwIfAborted()
 
     if (!response.ok) {
       notifyHttpRateLimit(response)
@@ -192,6 +197,7 @@ async function request<T>(
     return {} as T
   } catch (error) {
     clearTimeout(timeoutId)
+    options.signal?.throwIfAborted()
 
     if (error instanceof ApiError) {
       throw error

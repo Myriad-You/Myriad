@@ -153,7 +153,7 @@ export function decodeDownloadBase64(
     mimeType = dataUrl[1]
     payload = dataUrl[2]
   }
-  const compact = payload.replace(/\s/g, '')
+  const compact = payload.replaceAll(/\s/g, '')
   if (!compact) return null
   try {
     const binary = atob(compact)

@@ -633,7 +633,7 @@ const AlbumCover = memo(
     return (
       <motion.div
         className={className || 'absolute z-10'}
-        style={style || { top: `${8 * scale}px`, right: `${8 * scale}px` }}
+        style={style ?? { top: `${8 * scale}px`, right: `${8 * scale}px` }}
         initial={ALBUM_COVER_INITIAL}
         animate={ALBUM_COVER_ANIMATE}
         transition={ALBUM_COVER_TRANSITION}

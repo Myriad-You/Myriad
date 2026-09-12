@@ -61,7 +61,7 @@ test('pause and track-switch hold rest the mouth but keep the body pose', () => 
   assert.equal(expired.release, true)
 })
 
-test('performance that claimed head/body suppresses groove, not the mouth', () => {
+test('performance ownership leaves groove evidence alive for the final pose gate', () => {
   const apply = resolveSingingApply({
     gap: 'active',
     holdExpired: false,
@@ -69,7 +69,7 @@ test('performance that claimed head/body suppresses groove, not the mouth', () =
     mouthOwner: 'music',
     headBodyOwner: 'performance',
   })
-  assert.equal(apply.writeGroove, false)
+  assert.equal(apply.writeGroove, true)
   assert.equal(apply.writeMouth, true)
 })
 

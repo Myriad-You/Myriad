@@ -361,6 +361,22 @@ fn transfer_lock_key(transfer_id: &str) -> String {
     format!("federation-file-transfer:{transfer_id}")
 }
 
+const TRANSFER_ADMISSION_LOCK_KEY: &str = "myriad:federation:transfer_admission";
+
+/// Serialize concurrent transfer admission (count + insert) across connections.
+/// The caller must hold an explicit transaction for the duration of check+insert.
+pub(super) async fn lock_transfer_admission(
+    db: &impl ConnectionTrait,
+) -> Result<(), sea_orm::DbErr> {
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [TRANSFER_ADMISSION_LOCK_KEY.into()],
+    ))
+    .await?;
+    Ok(())
+}
+
 /// Serialize one transfer's database and filesystem state across backend replicas.
 /// The caller must hold an explicit transaction for the duration of the mutation.
 pub(super) async fn lock_transfer_session(
@@ -797,6 +813,14 @@ mod tests {
     fn admit_chunk_bytes_rejects_non_positive() {
         assert!(admit_chunk_bytes(0).is_err());
         assert!(admit_chunk_bytes(-1).is_err());
+    }
+
+    #[test]
+    fn transfer_admission_lock_key_is_stable() {
+        assert_eq!(
+            TRANSFER_ADMISSION_LOCK_KEY,
+            "myriad:federation:transfer_admission"
+        );
     }
 
     #[test]

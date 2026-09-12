@@ -64,19 +64,15 @@ function extractApiErrorMessage(
   return userFacingError(raw, fallback)
 }
 
-/** 4xx is fulfilled; writers must fail closed. */
-export function assertConfigWriteSuccess(
-  status: number,
+/** A successful HTTP response can still reject a configuration write. */
+function assertConfigWriteSuccess(
   data: unknown,
   fallbackMessage: string,
 ): void {
-  if (status >= 400) {
-    throw new Error(extractApiErrorMessage(data, fallbackMessage))
-  }
   if (
     data &&
     typeof data === 'object' &&
-    'success' in data &&
+    Object.hasOwn(data, 'success') &&
     (data as { success: unknown }).success !== true
   ) {
     throw new Error(extractApiErrorMessage(data, fallbackMessage))
@@ -89,8 +85,6 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
   timeout: 30000,
-  // 4xx stays fulfilled so CSRF retry can inspect body; writers use assertConfigWriteSuccess.
-  validateStatus: (status) => status < 500,
   withCredentials: true,
 })
 
@@ -197,18 +191,16 @@ function rateLimitErrorFromAxios(headers: unknown, data: unknown): RateLimitErro
 }
 
 api.interceptors.response.use(
-  async (response) => {
-    const config = response.config as CsrfRetryableConfig
-    const method = config.method?.toLowerCase() ?? 'get'
+  (response) => response,
+  async (error: AxiosError | RateLimitError) => {
+    if (error instanceof RateLimitError) throw error
 
-    // 429 is fulfilled under validateStatus — handle here.
-    if (response.status === 429) {
-      return Promise.reject(
-        rateLimitErrorFromAxios(response.headers as Record<string, unknown>, response.data),
-      )
-    }
-
+    const response = error.response
+    const config = error.config as CsrfRetryableConfig | undefined
+    const method = config?.method?.toLowerCase() ?? 'get'
     if (
+      response &&
+      config &&
       MUTATING_METHODS.has(method) &&
       isCsrfFailure(response.status, response.data) &&
       !config.__csrfRetried
@@ -232,13 +224,6 @@ api.interceptors.response.use(
       }
     }
 
-    return response
-  },
-  (error: AxiosError | RateLimitError) => {
-    if (error instanceof RateLimitError) {
-      return Promise.reject(error)
-    }
-
     if (error.response?.status === 401) {
       TokenManager.removeToken()
       clearCSRFToken()
@@ -249,7 +234,6 @@ api.interceptors.response.use(
       )
     }
 
-    // 429 can still land here if a call overrides validateStatus.
     if (error.response?.status === 429) {
       return Promise.reject(
         rateLimitErrorFromAxios(
@@ -259,7 +243,10 @@ api.interceptors.response.use(
       )
     }
 
-    return Promise.reject(error)
+    if (response) {
+      error.message = parseApiErrorBody(response.data, response.status).message
+    }
+    throw error
   },
 )
 
@@ -272,7 +259,6 @@ export async function fetchConfig() {
 export async function updateConfig(config: any) {
   const response = await api.post('/api/config', config)
   assertConfigWriteSuccess(
-    response.status,
     response.data,
     currentCopy().errors.configSaveFailed,
   )
@@ -298,7 +284,7 @@ export interface SettingsRestorePreview {
 
 export async function previewSettingsBackup(backup: unknown) {
   const response = await api.post('/api/config/settings-backup/preview', backup)
-  if (response.status >= 400 || !response.data?.preview) {
+  if (!response.data?.preview) {
     const previewError =
       typeof response.data?.error === 'string' ? response.data.error : ''
     throw new Error(
@@ -312,7 +298,7 @@ export async function previewSettingsBackup(backup: unknown) {
 
 export async function restoreSettingsBackup(backup: unknown) {
   const response = await api.post('/api/config/settings-backup', backup)
-  if (response.status >= 400 || response.data?.success !== true) {
+  if (response.data?.success !== true) {
     const restoreError =
       typeof response.data?.error === 'string' ? response.data.error : ''
     throw new Error(
@@ -334,7 +320,6 @@ export async function updatePermissionsConfig(
 ) {
   const response = await api.post('/api/config/permissions', permissions)
   assertConfigWriteSuccess(
-    response.status,
     response.data,
     currentCopy().errors.configSaveFailed,
   )
@@ -344,7 +329,6 @@ export async function updatePermissionsConfig(
 export async function reloadSystemConfig() {
   const response = await api.post('/api/system/reload-config')
   assertConfigWriteSuccess(
-    response.status,
     response.data,
     currentCopy().errors.configReloadFailed,
   )

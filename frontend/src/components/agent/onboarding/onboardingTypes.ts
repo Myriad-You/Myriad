@@ -229,7 +229,7 @@ export function visualField(
   identity: UpperBodyVisualIdentity,
   key: UpperBodyVisualIdentityKey,
 ): string {
-  return key in identity.character
+  return Object.hasOwn(identity.character, key)
     ? identity.character[key as CharacterVisualKey]
     : identity.outfit[key as OutfitVisualKey]
 }
@@ -239,7 +239,7 @@ export function withVisualField(
   key: UpperBodyVisualIdentityKey,
   value: string,
 ): UpperBodyVisualIdentity {
-  if (key in identity.character) {
+  if (Object.hasOwn(identity.character, key)) {
     return {
       ...identity,
       character: { ...identity.character, [key]: value },

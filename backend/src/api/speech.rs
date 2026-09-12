@@ -959,7 +959,7 @@ pub async fn start_convo_session(
     Extension(claims): Extension<Claims>,
     Json(request): Json<ConvoStartRequest>,
 ) -> impl IntoResponse {
-    let language = request.language.unwrap_or_else(|| "zh-CN".to_string());
+    let language = request.language.unwrap_or_else(|| "en-US".to_string());
     let language = crate::services::agora_convo::conversation_language(&language);
     let user_id = claims.sub.parse().unwrap_or(0);
     if user_id <= 0

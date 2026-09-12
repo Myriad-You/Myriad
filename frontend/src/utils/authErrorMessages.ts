@@ -7,8 +7,8 @@ type Format = ReturnType<typeof useI18n>['format']
 export function sanitizeOAuthDesc(raw: string | null | undefined): string | null {
   if (!raw) return null
   let s = raw.trim()
-  s = s.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim()
-  s = s.replace(/[<>`]/g, '')
+  s = s.replaceAll(/[\u0000-\u001F\u007F]/g, ' ').replaceAll(/\s+/g, ' ').trim()
+  s = s.replaceAll(/[<>`]/g, '')
   if (!s) return null
   if (s.length > 180) s = `${s.slice(0, 180)}…`
   return s

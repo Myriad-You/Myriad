@@ -834,7 +834,7 @@ mod tests {
                 "page": "Tapp.lifecycle.onReady(function () {});",
                 "styles": ".app { color: var(--tapp-primary); }",
                 "pageHtml": format!("<main class=\"app\">{name}</main>"),
-                "i18n": { "zh-CN": {}, "en-US": {}, "ja-JP": {} }
+                "i18n": { "zh-CN": {}, "zh-TW": {}, "en-US": {}, "ja-JP": {}, "ko-KR": {}, "fr-FR": {}, "de-DE": {} }
             }
         });
         serde_json::from_value(raw).expect("sample project")
@@ -861,7 +861,7 @@ mod tests {
                     "page": "Tapp.lifecycle.onReady(function () {});",
                     "styles": ".app { color: var(--tapp-primary); }",
                     "pageHtml": "<main class=\"app\">Counter</main>",
-                    "i18n": { "zh-CN": {}, "en-US": {}, "ja-JP": {} }
+                    "i18n": { "zh-CN": {}, "zh-TW": {}, "en-US": {}, "ja-JP": {}, "ko-KR": {}, "fr-FR": {}, "de-DE": {} }
                 }
             },
             "explanation": "Created a counter."
@@ -1627,7 +1627,7 @@ Tapp.lifecycle.onReady(function () {
                 "pageHtml": "",
                 "widget": "Tapp.widgets['card'] = { render: function (container) { container.textContent = 'Hi'; } };",
                 "widgetHtml": "<div class=\"widget\">Hi</div>",
-                "i18n": { "zh-CN": {}, "en-US": {}, "ja-JP": {} }
+                "i18n": { "zh-CN": {}, "zh-TW": {}, "en-US": {}, "ja-JP": {}, "ko-KR": {}, "fr-FR": {}, "de-DE": {} }
             }
         });
         serde_json::from_value(raw).expect("widget-only sample project")

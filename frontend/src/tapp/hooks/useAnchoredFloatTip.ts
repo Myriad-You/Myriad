@@ -58,8 +58,7 @@ function computePosition(
       { p: 'right', s: spaceRight },
       { p: 'bottom', s: spaceBelow },
     ]
-    scores.sort((a, b) => b.s - a.s)
-    placement = scores[0]!.p
+    placement = scores.toSorted((a, b) => b.s - a.s)[0]!.p
   }
 
   let top = 0

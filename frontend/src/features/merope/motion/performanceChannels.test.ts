@@ -74,7 +74,7 @@ test('a thinking head tilt temporarily owns the coarse head/body channel', () =>
       ],
     }),
   )
-  assert.deepEqual(channels.sort(), ['expression', 'gaze', 'headBody'])
+  assert.deepEqual(channels.toSorted(), ['expression', 'gaze', 'headBody'])
 })
 
 test('every stylized cue that moves the eye axes claims gaze', () => {

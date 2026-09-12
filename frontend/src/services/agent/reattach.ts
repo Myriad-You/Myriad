@@ -77,7 +77,7 @@ export function collectReattachCandidates(
   }
 
   const lastAssistant =
-    [...messages].reverse().find((m) => m.role === 'assistant')?.id ?? ''
+    messages.findLast((m) => m.role === 'assistant')?.id ?? ''
 
   if (hints?.taskId) {
     const fromTask = byTask.get(hints.taskId)

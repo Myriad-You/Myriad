@@ -53,7 +53,8 @@ const ZERO: SingingGroovePose = {
   eyeX: 0,
   brow: 0,
 }
-const FIRST: Motif = { roll: 0.8, yaw: 0.3, torso: 0.58, offset: 0, nods: 0.7 }
+const FIRST: Motif = { roll: 0.8, yaw: 0.3, torso: 0.76, offset: 0, nods: 0.7 }
+const MOTIF_KEYS = Object.keys(FIRST) as (keyof Motif)[]
 const TAU = Math.PI * 2
 
 const MANNER_REST = {
@@ -99,12 +100,20 @@ export class SingingGrooveController {
   private lastOnsetAt = Number.NEGATIVE_INFINITY
   private stride: 1 | 2 | 4 = 2
   private swayBeats: 4 | 8 = 4
-  private previous: Motif = { ...FIRST }
+  private readonly motifMotion = Object.fromEntries(
+    MOTIF_KEYS.map((key) => {
+      const motion = new MinimumJerkMotion()
+      motion.retarget(-2, FIRST[key], 1)
+      motion.sample(0)
+      return [key, motion]
+    }),
+  ) as Record<keyof Motif, MinimumJerkMotion>
+
   private motif: Motif = { ...FIRST }
   private motifAt = 0
   private nextMotifAt = 0
   private lastPhraseStart = Number.NaN
-  private seed = 0x5e71c3
+  private seed = 0x5E71C3
   private trackId: string | null = null
   private armMotion = false
   private lockedFrequency = 0
@@ -205,15 +214,17 @@ export class SingingGrooveController {
     const phraseStart = signal?.phrase?.start
     const phraseChanged =
       phraseStart !== undefined && phraseStart !== this.lastPhraseStart
-    if (active && (now >= this.nextMotifAt || phraseChanged)) {
+    if (
+      active &&
+      (now >= this.nextMotifAt || (phraseChanged && now - this.motifAt >= 0.8))
+    ) {
       this.chooseMotif(now, bpm)
       if (phraseStart !== undefined) this.lastPhraseStart = phraseStart
     }
-    const blend = smooth((now - this.motifAt) / 0.65)
-    const roll = mix(this.previous.roll, this.motif.roll, blend)
-    const yaw = mix(this.previous.yaw, this.motif.yaw, blend)
-    const torso = mix(this.previous.torso, this.motif.torso, blend)
-    const offset = mix(this.previous.offset, this.motif.offset, blend)
+    const roll = this.motifMotion.roll.sample(now)
+    const yaw = this.motifMotion.yaw.sample(now)
+    const torso = this.motifMotion.torso.sample(now)
+    const offset = this.motifMotion.offset.sample(now)
 
     // Soft coupling permits a stable phase preference instead of snapping on each onset.
     if (bpm > 118) this.swayBeats = 8
@@ -307,11 +318,15 @@ export class SingingGrooveController {
         this.phraseAmount * 0.13 +
         this.modeAmount * 0.025 +
         arc * 0.025 * density)
+    // Arms follow the torso with a small lag. A squared wave has no cusp at
+    // the centre crossing, unlike abs(sin), even with a larger excursion.
+    const armWave = Math.sin(TAU * (this.phase - this.frequency * 0.18))
+    const armExtent = extent * clamp(torso / 0.8, 0.2, 1.15)
     this.output.armY = this.armMotion
-      ? extent * (Math.abs(torsoWave) * 0.18 + this.phraseAmount * 0.2)
+      ? armExtent * (armWave * armWave * 0.3 + this.phraseAmount * 0.2)
       : 0
     this.output.armPos = this.armMotion
-      ? extent * (-torsoWave * 0.25 + offset * 0.1)
+      ? armExtent * (-armWave * 0.42 + offset * 0.1)
       : 0
     this.output.eyeX = 0
     this.output.brow = 0
@@ -387,19 +402,16 @@ export class SingingGrooveController {
   }
 
   private chooseMotif(now: number, bpm: number): void {
-    const blend = smooth((now - this.motifAt) / 0.65)
-    for (const key of Object.keys(this.previous) as (keyof Motif)[])
-      this.previous[key] = mix(this.previous[key], this.motif[key], blend)
     const choice = this.random()
     const side = this.random() * 2 - 1
     this.motif =
       choice < 0.38
-        ? { roll: 0.82, yaw: 0.24, torso: 0.62, offset: side * 0.15, nods: 0.8 }
+        ? { roll: 0.82, yaw: 0.24, torso: 0.8, offset: side * 0.15, nods: 0.8 }
         : choice < 0.65
           ? {
               roll: 0.52,
               yaw: 0.45,
-              torso: 0.4,
+              torso: 0.65,
               offset: side * 0.4,
               nods: 0.55,
             }
@@ -407,7 +419,7 @@ export class SingingGrooveController {
             ? {
                 roll: 0.36,
                 yaw: 0.24,
-                torso: 0.76,
+                torso: 0.9,
                 offset: side * 0.2,
                 nods: 1,
               }
@@ -418,6 +430,12 @@ export class SingingGrooveController {
                 offset: side * 0.85,
                 nods: 0.25,
               }
+    // Carry value, velocity and acceleration through phrase revisions and
+    // track changes. Two beats (bounded in wall time) let the body finish
+    // a gesture rather than restarting its transition at every lyric line.
+    const travel = bpm > 0 ? clamp(120 / bpm, 1, 1.6) : 1.3
+    for (const key of MOTIF_KEYS)
+      this.motifMotion[key].retarget(now, this.motif[key], travel)
     this.motifAt = now
     this.nextMotifAt =
       now +

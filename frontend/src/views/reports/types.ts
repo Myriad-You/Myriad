@@ -1,4 +1,3 @@
-
 export interface PlatformReport {
   platform: string
   metadata: any

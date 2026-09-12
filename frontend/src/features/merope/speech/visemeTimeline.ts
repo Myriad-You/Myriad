@@ -41,7 +41,7 @@ export function visemeAt(
   for (const span of spans) {
     if (seconds < span.endsAt) return span
   }
-  return spans[spans.length - 1] ?? null
+  return spans.at(-1) ?? null
 }
 
 export function visemeAmount(energy: number, emphasis: boolean): number {

@@ -24,8 +24,9 @@ export function duplicateAccessoryLayers(
               l.y < a.y + a.h &&
               l.y + l.h > a.y,
           )
-      )
+      ) {
         continue
+}
       if (
         !a.fade &&
         !a.phys &&
@@ -47,18 +48,20 @@ export function duplicateAccessoryLayers(
         a.y !== b.y ||
         a.w !== b.w ||
         a.h !== b.h
-      )
+      ) {
         continue
-      const pa = read(a),
-        pb = read(b)
+}
+      const pa = read(a)
+        const pb = read(b)
       if (
         !pa ||
         !pb ||
         pa.width !== pb.width ||
         pa.height !== pb.height ||
         pa.pixels.length !== pb.pixels.length
-      )
+      ) {
         continue
+}
       if (pa.pixels.every((v, k) => v === pb.pixels[k])) {
         duplicates.add(a)
         break
@@ -75,30 +78,32 @@ function embeddedCopy(
 ): boolean {
   if (a.x < b.x || a.y < b.y || a.x + a.w > b.x + b.w || a.y + a.h > b.y + b.h)
     return false
-  const art = read(a),
-    base = read(b)
+  const art = read(a)
+    const base = read(b)
   if (!art || !base) return false
-  let count = 0,
-    low = 255,
-    high = 0
-  for (let y = 0; y < art.height; y++)
+  let count = 0
+    let low = 255
+    let high = 0
+  for (let y = 0; y < art.height; y++) {
     for (let x = 0; x < art.width; x++) {
       const p = (y * art.width + x) * 4
       if (art.pixels[p + 3] < 16) continue
-      const wx = a.x + ((x + 0.5) / art.width) * a.w,
-        wy = a.y + ((y + 0.5) / art.height) * a.h
-      const bx = Math.floor(((wx - b.x) / b.w) * base.width),
-        by = Math.floor(((wy - b.y) / b.h) * base.height)
+      const wx = a.x + ((x + 0.5) / art.width) * a.w
+        const wy = a.y + ((y + 0.5) / art.height) * a.h
+      const bx = Math.floor(((wx - b.x) / b.w) * base.width)
+        const by = Math.floor(((wy - b.y) / b.h) * base.height)
       if (bx < 0 || by < 0 || bx >= base.width || by >= base.height)
         return false
       const q = (by * base.width + bx) * 4
       if (base.pixels[q + 3] !== 255) return false
-      for (let c = 0; c < 3; c++)
+      for (let c = 0; c < 3; c++) {
         if (art.pixels[p + c] !== base.pixels[q + c]) return false
+}
       low = Math.min(low, art.pixels[p])
       high = Math.max(high, art.pixels[p])
       count++
     }
+}
   // Uniform colour coincidence (skin, cloth, shadow) is never enough evidence.
   return count >= 16 && high - low >= 30
 }

@@ -113,6 +113,7 @@ docker/volumes/
 /.dev-updater/
 
 # --- Misc local data trees ---
+.tmp/
 /data
 /.pnpm-store
 /Upload/
@@ -125,6 +126,7 @@ backend/data/.bootstrap-claimed
 !/frontend/tests/browser/
 /frontend/tests/browser/*
 !/frontend/tests/browser/rigImport.spec.ts
+!/frontend/tests/browser/shoulderFusion.spec.ts
 !/frontend/tests/browser/fixture/
 /frontend/tests/browser/fixture/*
 !/frontend/tests/browser/fixture/rigImport.html
@@ -134,6 +136,18 @@ backend/data/.bootstrap-claimed
 !/frontend/tests/browser/liquidGlass.spec.ts
 !/frontend/tests/browser/fixture/liquidGlass.html
 !/frontend/tests/browser/fixture/liquidGlass.ts
+
+# Frontend render and event performance regressions
+!/frontend/tests/browser/performance.spec.ts
+!/frontend/tests/browser/fixture/performance.html
+!/frontend/tests/browser/fixture/performance.tsx
+!/frontend/tests/browser/memoryGpu.spec.ts
+!/frontend/tests/browser/fixture/memoryGpu.html
+!/frontend/tests/browser/fixture/memoryGpu.ts
+
+# Real backend + disposable Postgres business smokes
+!/frontend/tests/smoke/
+!/frontend/tests/smoke/**
 
 # 本地截图（不提交）
 .local-shots/

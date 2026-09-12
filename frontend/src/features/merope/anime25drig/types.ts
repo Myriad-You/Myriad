@@ -398,7 +398,7 @@ function isAnime25DMouthProfile(
     ) {
       return false
     }
-    const pair = [first, second].sort().join(':')
+    const pair = [first, second].toSorted().join(':')
     if (
       pairs.has(pair) ||
       !numberInRange(bridge.widthScale, 0.75, 1) ||

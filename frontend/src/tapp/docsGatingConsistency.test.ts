@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path'
 import { describe, it } from 'node:test'
 
 import { fileURLToPath } from 'node:url'
+import { compileFunction } from 'node:vm'
 import { classifyWidgetLibraryKind } from '../components/widgetLibrarySearch.ts'
 import { PERMISSION_LEVELS } from './runtime/permissionConfig.ts'
 import {
@@ -49,7 +50,7 @@ function collectRustRoutePathLiterals(dir: string): Set<string> {
       const text = read(p)
       for (const m of text.matchAll(/"(\/api\/tapp(?:\/[^"]*)?)"/g)) {
         if (!m[1].startsWith('/api/tapps')) {
-          paths.add(m[1].replace(/\{[^}]+\}/g, '{}'))
+          paths.add(m[1].replaceAll(/\{[^}]+\}/g, '{}'))
         }
       }
     }
@@ -109,12 +110,14 @@ describe('tapp docs gating consistency', () => {
     const manifest = read(join(DOCS_TAPP, 'MANIFEST.md'))
     const section = manifest.split('### 应用分类')[1] ?? ''
     const tableChunk = section.split('###')[0] ?? ''
-    const ids = [...tableChunk.matchAll(/^\|\s*`([a-z-]+)`\s*\|/gm)].map(
-      (m) => m[1],
+    const ids = Iterator.from(
+      tableChunk.matchAll(/^\|\s*`([a-z-]+)`\s*\|/gm),
     )
+      .map((m) => m[1])
+      .toArray()
     assert.deepEqual(
-      [...ids].sort(),
-      [...TAPP_CATEGORIES].sort(),
+      ids.toSorted(),
+      TAPP_CATEGORIES.toSorted(),
       'MANIFEST category table must match TAPP_CATEGORIES',
     )
     assert.equal(normalizeTappCategory('games'), 'game')
@@ -125,26 +128,26 @@ describe('tapp docs gating consistency', () => {
 
   it('widget categories match system Tapp IDs one-to-one', () => {
     assert.deepEqual(
-      [...TAPP_WIDGET_CATEGORIES],
-      [...TAPP_CATEGORIES],
+      Iterator.from(TAPP_WIDGET_CATEGORIES).toArray(),
+      Iterator.from(TAPP_CATEGORIES).toArray(),
       'Widget categories must be the same stable IDs as app categories',
     )
     const manifest = read(join(DOCS_TAPP, 'MANIFEST.md'))
     const section =
       manifest.split('### Widget 分类')[1]?.split('### templates')[0] ?? ''
-    const ids = [...section.matchAll(/^\|\s*`([a-z-]+)`\s*\|/gm)].map(
-      (m) => m[1],
-    )
+    const ids = Iterator.from(section.matchAll(/^\|\s*`([a-z-]+)`\s*\|/gm))
+      .map((m) => m[1])
+      .toArray()
     assert.deepEqual(
-      [...ids].sort(),
-      [...TAPP_CATEGORIES].sort(),
+      ids.toSorted(),
+      TAPP_CATEGORIES.toSorted(),
       'MANIFEST Widget 分类 table must match TAPP_CATEGORIES',
     )
     assert.match(section, /同一套/)
     assert.match(section, /\*\*限制\*\*/)
     assert.match(section, /只能写上表八个/)
     for (const category of TAPP_CATEGORIES) {
-      assert.match(section, new RegExp(`\`tapp:${category}\``))
+      assert.match(section, new RegExp(`\`tapp:${RegExp.escape(category)}\``))
       assert.equal(
         classifyWidgetLibraryKind({
           id: `com.example.${category}`,
@@ -234,7 +237,7 @@ describe('tapp docs gating consistency', () => {
       const path = m[1]
       const method = m[2].toUpperCase()
       const full =
-        path === '/' ? '/api/tapps' : `/api/tapps${path}`.replace(/\{[^}]+\}/g, '{}')
+        path === '/' ? '/api/tapps' : `/api/tapps${path}`.replaceAll(/\{[^}]+\}/g, '{}')
       codePaths.add(`${method} ${full}`)
     }
 
@@ -243,11 +246,13 @@ describe('tapp docs gating consistency', () => {
       /^\|\s*(GET|POST|DELETE|PUT|PATCH)\s*\|\s*`(\/api\/tapps[^`]*)`/gm,
     )) {
       const method = m[1]
-      const path = m[2].split('?')[0].replace(/\{[^}]+\}/g, '{}')
+      const path = m[2].split('?')[0].replaceAll(/\{[^}]+\}/g, '{}')
       docPairs.push(`${method} ${path}`)
     }
     assert.ok(docPairs.length >= 20, 'expected substantial /api/tapps table')
-    const missing = docPairs.filter((p) => !codePaths.has(p))
+    const missing = Iterator.from(
+      new Set(docPairs).difference(codePaths),
+    ).toArray()
     assert.deepEqual(
       missing,
       [],
@@ -272,8 +277,8 @@ describe('tapp docs gating consistency', () => {
       'set_private',
       'delete_private',
     ]) {
-      assert.match(auth, new RegExp(`\\b${handler}\\b`))
-      assert.doesNotMatch(optional, new RegExp(`\\b${handler}\\b`))
+      assert.match(auth, new RegExp(`\\b${RegExp.escape(handler)}\\b`))
+      assert.doesNotMatch(optional, new RegExp(`\\b${RegExp.escape(handler)}\\b`))
     }
     assert.doesNotMatch(optional, /\/private/)
   })
@@ -287,7 +292,7 @@ describe('tapp docs gating consistency', () => {
     for (const m of rest.matchAll(
       /^\|\s*(GET|POST|DELETE|PUT|PATCH|GET \(WS\))\s*\|\s*`(\/api\/tapp[^`]*)`/gm,
     )) {
-      const path = m[2].split('?')[0].replace(/\{[^}]+\}/g, '{}')
+      const path = m[2].split('?')[0].replaceAll(/\{[^}]+\}/g, '{}')
       if (path.startsWith('/api/tapps')) continue
       if (!registeredPaths.has(path)) {
         missing.push(path)
@@ -382,13 +387,15 @@ describe('tapp docs gating consistency', () => {
     for (const name of names) {
       const text = read(join(DOCS_TAPP, name))
       // Allowed only as explicit negation
-      const positives = [
-        ...text.matchAll(/\/api\/tapp-store[^\s`]*/g),
-      ].filter((m) => {
-        const start = Math.max(0, m.index! - 40)
-        const ctx = text.slice(start, m.index! + m[0].length + 10)
-        return !/不存在|没有|不是|obsolete|removed/i.test(ctx)
-      })
+      const positives = Iterator.from(
+        text.matchAll(/\/api\/tapp-store[^\s`]*/g),
+      )
+        .filter((m) => {
+          const start = Math.max(0, m.index! - 40)
+          const ctx = text.slice(start, m.index! + m[0].length + 10)
+          return !/不存在|没有|不是|obsolete|removed/i.test(ctx)
+        })
+        .toArray()
       assert.deepEqual(
         positives.map((m) => m[0]),
         [],
@@ -483,11 +490,11 @@ describe('tapp docs gating consistency', () => {
   })
 
   it('MANIFEST permission-table tokens equal the shipped catalog', () => {
-    const catalog = Object.keys(PERMISSION_LEVELS).sort()
+    const catalog = Object.keys(PERMISSION_LEVELS).toSorted()
     const contract = JSON.parse(
       read(join(REPO, 'tools/tapp-cli/src/generated/contract.json')),
     ) as { permissionLevels: Record<string, string> }
-    const contractTokens = Object.keys(contract.permissionLevels).sort()
+    const contractTokens = Object.keys(contract.permissionLevels).toSorted()
     assert.deepEqual(
       contractTokens,
       catalog,
@@ -496,11 +503,13 @@ describe('tapp docs gating consistency', () => {
 
     const manifest = read(join(DOCS_TAPP, 'MANIFEST.md'))
     const section = manifest.split('## 权限列表')[1] ?? ''
-    const tokens = [
-      ...section.matchAll(/^\|\s*`([a-z0-9:]+)`\s*\|/gim),
-    ].map((m) => m[1])
+    const tokens = Iterator.from(
+      section.matchAll(/^\|\s*`([a-z0-9:]+)`\s*\|/gim),
+    )
+      .map((m) => m[1])
+      .toArray()
     assert.deepEqual(
-      [...tokens].sort(),
+      tokens.toSorted(),
       catalog,
       `MANIFEST 权限列表 must list every TappPermission catalog token (missing ${catalog
         .filter((t) => !tokens.includes(t))
@@ -559,7 +568,7 @@ describe('tapp docs gating consistency', () => {
       },
       documentElement: { style: { setProperty: () => undefined } },
     }
-    const run = new Function(
+    const run = compileFunction(pageSdk, [
       'window',
       'document',
       'crypto',
@@ -567,8 +576,7 @@ describe('tapp docs gating consistency', () => {
       'URL',
       'Blob',
       'atob',
-      pageSdk,
-    )
+    ])
     run(
       sandboxWindow,
       sandboxDocument,
@@ -598,7 +606,7 @@ describe('tapp docs gating consistency', () => {
     const cap = apiRef.split('## 能力边界与完整命名空间')[1] ?? ''
     const capUntilNext = cap.split(/^## /m)[0] ?? cap
     const missing = frozenNs.filter(
-      (ns) => !new RegExp(`\`${ns}\``).test(capUntilNext),
+      (ns) => !new RegExp(`\`${RegExp.escape(ns)}\``).test(capUntilNext),
     )
     assert.deepEqual(
       missing,
@@ -628,7 +636,7 @@ describe('tapp docs gating consistency', () => {
     for (const file of files) {
       const text = read(file)
       for (const token of retired) {
-        const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const escaped = RegExp.escape(token)
         // 只对权限数组 / 权限表单元格，不是命名空间名。
         const re = new RegExp(
           `permissions[\\s\\S]{0,200}[\`'"]${escaped}[\`'"]`,
@@ -646,7 +654,7 @@ describe('tapp docs gating consistency', () => {
             continue
           }
           live.push(
-            `${file.replace(`${REPO}/`, '')}:${token} :: ${ctx.replace(/\s+/g, ' ').slice(0, 140)}`,
+            `${file.replace(`${REPO}/`, '')}:${token} :: ${ctx.replaceAll(/\s+/g, ' ').slice(0, 140)}`,
           )
         }
       }

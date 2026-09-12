@@ -1,6 +1,7 @@
 /** 内置 greeting/weather/quote/theme/music/notification；Tapp 为 `tapp-{id}`。 */
 
 import type { TappInstance } from '../tapp/types'
+import { getDefaultLocale } from '../i18n/locales'
 
 export type BuiltinContentType =
   'greeting' | 'weather' | 'quote' | 'theme' | 'music' | 'notification'
@@ -50,7 +51,7 @@ class DynamicContentProviderService {
   private providers: Map<string, ContentProviderConfig> = new Map()
   private contents: Map<string, DynamicContentItem[]> = new Map()
   private listeners: Set<ContentUpdateListener> = new Set()
-  private currentLocale: string = 'zh-CN'
+  private currentLocale: string = getDefaultLocale()
 
   constructor() {
     this.registerProvider({
@@ -66,7 +67,7 @@ class DynamicContentProviderService {
   }
 
   unregisterProvider(providerId: string): void {
-    const contents = this.contents.get(providerId) || []
+    const contents = this.contents.get(providerId) ?? []
     for (const content of contents) {
       this.notifyListeners({
         type: 'remove',
@@ -84,7 +85,7 @@ class DynamicContentProviderService {
   }
 
   getAllProviders(): ContentProviderConfig[] {
-    return Array.from(this.providers.values())
+    return Iterator.from(this.providers.values()).toArray()
   }
 
   setLocale(locale: string): void {
@@ -104,7 +105,7 @@ class DynamicContentProviderService {
       return
     }
 
-    const contents = this.contents.get(providerId) || []
+    const contents = this.contents.get(providerId) ?? []
     const existingIndex = contents.findIndex((c) => c.type === content.type)
 
     if (existingIndex >= 0) {
@@ -134,7 +135,7 @@ class DynamicContentProviderService {
 
     const index = contents.findIndex((c) => c.type === contentType)
     if (index >= 0) {
-      contents.splice(index, 1)
+      this.contents.set(providerId, contents.toSpliced(index, 1))
       this.notifyListeners({
         type: 'remove',
         providerId,
@@ -152,7 +153,7 @@ class DynamicContentProviderService {
   }
 
   getProviderContents(providerId: string): DynamicContentItem[] {
-    return this.contents.get(providerId) || []
+    return this.contents.get(providerId) ?? []
   }
 
   getAllContents(): DynamicContentItem[] {
@@ -169,7 +170,7 @@ class DynamicContentProviderService {
       }
     }
 
-    return allContents.sort((a, b) => (b.priority || 0) - (a.priority || 0))
+    return allContents.toSorted((a, b) => (b.priority || 0) - (a.priority || 0))
   }
 
   /** 未命中当前语言则 en-US，再原文。 */
@@ -194,7 +195,6 @@ class DynamicContentProviderService {
     return localized
   }
 
-
   addListener(listener: ContentUpdateListener): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
@@ -213,7 +213,6 @@ class DynamicContentProviderService {
       }
     }
   }
-
 
   registerTappProvider(tappInstance: TappInstance): string {
     const providerId = `tapp-${tappInstance.id}`
@@ -268,10 +267,9 @@ class DynamicContentProviderService {
 
   getTappContent(tappId: string): DynamicContentItem | undefined {
     const providerId = `tapp-${tappId}`
-    const contents = this.contents.get(providerId) || []
+    const contents = this.contents.get(providerId) ?? []
     return contents.find((c) => c.sourceTappId === tappId)
   }
-
 
   /** 默认仅 weather/theme；tapp 有 subtext 才显示。 */
   shouldShowSubtext(content: DynamicContentItem): boolean {
@@ -305,7 +303,6 @@ class DynamicContentProviderService {
     return content.subtext || fallback
   }
 }
-
 
 export const dynamicContentProvider = new DynamicContentProviderService()
 

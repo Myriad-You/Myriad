@@ -246,7 +246,7 @@ interface IdleTask {
   priority: number
 }
 
-const _idleTasks: IdleTask[] = []
+let _idleTasks: IdleTask[] = []
 let _idleCallbackId: number | null = null
 const _registeredTasks = new Set<string>()
 
@@ -314,7 +314,7 @@ export function scheduleIdle(
 export function cancelIdle(id: string): boolean {
   const idx = _idleTasks.findIndex((t) => t.id === id)
   if (idx !== -1) {
-    _idleTasks.splice(idx, 1)
+    _idleTasks = _idleTasks.toSpliced(idx, 1)
     _registeredTasks.delete(id)
     return true
   }

@@ -29,13 +29,13 @@ const FALLBACK: PlatformBrandTheme = {
 }
 
 function normalizePlatformKey(platform: string): string {
-  return platform.trim().toLowerCase().replace(/\s+/g, ' ')
+  return platform.trim().toLowerCase().replaceAll(/\s+/g, ' ')
 }
 
 export function getPlatformBrandTheme(platform: string): PlatformBrandTheme {
   const key = normalizePlatformKey(platform)
   if (PLATFORM_BRANDS[key]) return PLATFORM_BRANDS[key]
-  const compact = key.replace(/\s+/g, '_')
+  const compact = key.replaceAll(/\s+/g, '_')
   if (PLATFORM_BRANDS[compact]) return PLATFORM_BRANDS[compact]
   return FALLBACK
 }

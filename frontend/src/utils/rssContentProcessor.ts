@@ -213,7 +213,7 @@ export const TRUSTED_IFRAME_HOSTS: readonly string[] = [
 ]
 
 export function isTrustedIframeHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/\.$/, '')
+  const host = hostname.toLowerCase().replaceAll(/\.$/g, '')
   if (TRUSTED_IFRAME_HOSTS.includes(host)) return true
   if (host.endsWith('.music.163.com')) return true
   if (host.endsWith('.youtube.com') && host.includes('nocookie')) return true
@@ -278,8 +278,8 @@ export function sanitizeRssHtml(html: string): string {
   if (!html) return ''
   ensurePurifyHooks()
   return DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: [...RSS_ALLOWED_TAGS],
-    ALLOWED_ATTR: [...RSS_ALLOWED_ATTR],
+    ALLOWED_TAGS: Iterator.from(RSS_ALLOWED_TAGS).toArray(),
+    ALLOWED_ATTR: Iterator.from(RSS_ALLOWED_ATTR).toArray(),
     ALLOW_DATA_ATTR: true,
     ALLOW_UNKNOWN_PROTOCOLS: false,
   })
@@ -291,7 +291,7 @@ export function stripUntrustedIframes(html: string): string {
 
   const keepIfTrusted = (tag: string): string => {
     const srcMatch =
-      tag.match(/\bsrc\s*=\s*(["'])([^"']*)\1/i) ||
+      tag.match(/\bsrc\s*=\s*(["'])([^"']*)\1/i) ??
       tag.match(/\bsrc\s*=\s*([^\s>]+)/i)
     if (!srcMatch) return ''
     const rawSrc = (srcMatch[2] || srcMatch[1] || '').trim()
@@ -312,8 +312,8 @@ export function stripUntrustedIframes(html: string): string {
   }
 
   return html
-    .replace(/<iframe\b[\s\S]*?<\/iframe>/gi, (m) => keepIfTrusted(m))
-    .replace(/<iframe\b[^>]*>/gi, (m) => keepIfTrusted(m))
+    .replaceAll(/<iframe\b[\s\S]*?<\/iframe>/gi, (m) => keepIfTrusted(m))
+    .replaceAll(/<iframe\b[^>]*>/gi, (m) => keepIfTrusted(m))
 }
 
 function removeEmptyTags(html: string): string {
@@ -337,7 +337,7 @@ function removeEmptyTags(html: string): string {
 }
 
 function processImages(html: string, options: ProcessOptions): string {
-  const result = html.replace(/<img([^>]*)>/gi, (match, attrs) => {
+  const result = html.replaceAll(/<img([^>]*)>/gi, (match, attrs) => {
     const srcMatch = attrs.match(/src\s*=\s*["']([^"']+)["']/i)
     if (!srcMatch) return match
 
@@ -384,20 +384,20 @@ function processImages(html: string, options: ProcessOptions): string {
 }
 
 function processFigures(html: string): string {
-  let result = html.replace(/<figure([^>]*)>/gi, (match, attrs) => {
+  let result = html.replaceAll(/<figure([^>]*)>/gi, (match, attrs) => {
     if (attrs.includes('class=')) {
-      return match.replace(
-        /class\s*=\s*["']([^"']*)["']/i,
+      return match.replaceAll(
+        /class\s*=\s*["']([^"']*)["']/ig,
         'class="$1 rss-content-figure my-6"',
       )
     }
     return `<figure${attrs} class="rss-content-figure my-6">`
   })
 
-  result = result.replace(/<figcaption([^>]*)>/gi, (match, attrs) => {
+  result = result.replaceAll(/<figcaption([^>]*)>/gi, (match, attrs) => {
     if (attrs.includes('class=')) {
-      return match.replace(
-        /class\s*=\s*["']([^"']*)["']/i,
+      return match.replaceAll(
+        /class\s*=\s*["']([^"']*)["']/ig,
         'class="$1 rss-content-figcaption text-center text-sm mt-2 opacity-60"',
       )
     }
@@ -408,10 +408,10 @@ function processFigures(html: string): string {
 }
 
 function processVideos(html: string): string {
-  const result = html.replace(/<video([^>]*)>/gi, (match, attrs) => {
+  const result = html.replaceAll(/<video([^>]*)>/gi, (match, attrs) => {
     if (attrs.includes('class=')) {
-      return match.replace(
-        /class\s*=\s*["']([^"']*)["']/i,
+      return match.replaceAll(
+        /class\s*=\s*["']([^"']*)["']/ig,
         'class="$1 rss-content-video w-full rounded-xl my-4"',
       )
     }
@@ -422,10 +422,10 @@ function processVideos(html: string): string {
 }
 
 function processAudio(html: string): string {
-  return html.replace(/<audio([^>]*)>/gi, (match, attrs) => {
+  return html.replaceAll(/<audio([^>]*)>/gi, (match, attrs) => {
     if (attrs.includes('class=')) {
-      return match.replace(
-        /class\s*=\s*["']([^"']*)["']/i,
+      return match.replaceAll(
+        /class\s*=\s*["']([^"']*)["']/ig,
         'class="$1 rss-content-audio w-full my-4"',
       )
     }
@@ -434,10 +434,10 @@ function processAudio(html: string): string {
 }
 
 function processBlockquotes(html: string): string {
-  return html.replace(/<blockquote([^>]*)>/gi, (match, attrs) => {
+  return html.replaceAll(/<blockquote([^>]*)>/gi, (match, attrs) => {
     if (attrs.includes('class=')) {
-      return match.replace(
-        /class\s*=\s*["']([^"']*)["']/i,
+      return match.replaceAll(
+        /class\s*=\s*["']([^"']*)["']/ig,
         'class="$1 rss-content-blockquote rounded-xl px-4 py-3 my-4 italic"',
       )
     }
@@ -446,17 +446,17 @@ function processBlockquotes(html: string): string {
 }
 
 function processCodeBlocks(html: string): string {
-  let result = html.replace(/<pre([^>]*)>/gi, (match, attrs) => {
+  let result = html.replaceAll(/<pre([^>]*)>/gi, (match, attrs) => {
     if (attrs.includes('class=')) {
-      return match.replace(
-        /class\s*=\s*["']([^"']*)["']/i,
+      return match.replaceAll(
+        /class\s*=\s*["']([^"']*)["']/ig,
         'class="$1 rss-content-pre rounded-xl p-4 my-4 overflow-x-auto text-sm"',
       )
     }
     return `<pre${attrs} class="rss-content-pre rounded-xl p-4 my-4 overflow-x-auto text-sm">`
   })
 
-  result = result.replace(
+  result = result.replaceAll(
     /(?<!<pre[^>]*>[\s\S]*?)<code(?![^>]*class=)([^>]*)>/gi,
     '<code$1 class="rss-content-inline-code px-1.5 py-0.5 rounded text-[0.9em]">',
   )
@@ -467,12 +467,12 @@ function processCodeBlocks(html: string): string {
 function processTables(html: string): string {
   let result = html
 
-  result = result.replace(/<table([^>]*)>/gi, (match, attrs) => {
+  result = result.replaceAll(/<table([^>]*)>/gi, (match, attrs) => {
     const tableClass =
       'rss-content-table w-full text-sm border-collapse rounded-xl overflow-hidden border'
     if (attrs.includes('class=')) {
-      const newTag = match.replace(
-        /class\s*=\s*["']([^"']*)["']/i,
+      const newTag = match.replaceAll(
+        /class\s*=\s*["']([^"']*)["']/ig,
         `class="$1 ${tableClass}"`,
       )
       return `<div class="rss-content-table-wrapper overflow-x-auto my-4 rounded-xl">${newTag}`
@@ -480,16 +480,16 @@ function processTables(html: string): string {
     return `<div class="rss-content-table-wrapper overflow-x-auto my-4 rounded-xl"><table${attrs} class="${tableClass}">`
   })
 
-  result = result.replace(/<\/table>/gi, '</table></div>')
+  result = result.replaceAll(/<\/table>/gi, '</table></div>')
 
-  result = result.replace(/<thead([^>]*)>/gi, '<thead$1 class="rss-content-thead">')
-  result = result.replace(
+  result = result.replaceAll(/<thead([^>]*)>/gi, '<thead$1 class="rss-content-thead">')
+  result = result.replaceAll(
     /<th([^>]*)>/gi,
     '<th$1 class="rss-content-th py-2 px-3 text-left font-medium border-b">',
   )
 
-  result = result.replace(/<tr([^>]*)>/gi, '<tr$1 class="rss-content-tr">')
-  result = result.replace(
+  result = result.replaceAll(/<tr([^>]*)>/gi, '<tr$1 class="rss-content-tr">')
+  result = result.replaceAll(
     /<td([^>]*)>/gi,
     '<td$1 class="rss-content-td py-2 px-3 border-b">',
   )
@@ -500,30 +500,30 @@ function processTables(html: string): string {
 function processDescriptionLists(html: string): string {
   let result = html
 
-  result = result.replace(/<dl([^>]*)>/gi, (match, attrs) => {
+  result = result.replaceAll(/<dl([^>]*)>/gi, (match, attrs) => {
     if (attrs.includes('class=')) {
-      return match.replace(
-        /class\s*=\s*["']([^"']*)["']/i,
+      return match.replaceAll(
+        /class\s*=\s*["']([^"']*)["']/ig,
         'class="$1 rss-content-dl my-4"',
       )
     }
     return `<dl${attrs} class="rss-content-dl my-4">`
   })
 
-  result = result.replace(/<dt([^>]*)>/gi, (match, attrs) => {
+  result = result.replaceAll(/<dt([^>]*)>/gi, (match, attrs) => {
     if (attrs.includes('class=')) {
-      return match.replace(
-        /class\s*=\s*["']([^"']*)["']/i,
+      return match.replaceAll(
+        /class\s*=\s*["']([^"']*)["']/ig,
         'class="$1 rss-content-dt font-semibold mt-2"',
       )
     }
     return `<dt${attrs} class="rss-content-dt font-semibold mt-2">`
   })
 
-  result = result.replace(/<dd([^>]*)>/gi, (match, attrs) => {
+  result = result.replaceAll(/<dd([^>]*)>/gi, (match, attrs) => {
     if (attrs.includes('class=')) {
-      return match.replace(
-        /class\s*=\s*["']([^"']*)["']/i,
+      return match.replaceAll(
+        /class\s*=\s*["']([^"']*)["']/ig,
         'class="$1 rss-content-dd ml-4 pl-4 mt-1"',
       )
     }
@@ -536,20 +536,20 @@ function processDescriptionLists(html: string): string {
 function processDetails(html: string): string {
   let result = html
 
-  result = result.replace(/<details([^>]*)>/gi, (match, attrs) => {
+  result = result.replaceAll(/<details([^>]*)>/gi, (match, attrs) => {
     if (attrs.includes('class=')) {
-      return match.replace(
-        /class\s*=\s*["']([^"']*)["']/i,
+      return match.replaceAll(
+        /class\s*=\s*["']([^"']*)["']/ig,
         'class="$1 rss-content-details rounded-xl my-4 overflow-hidden"',
       )
     }
     return `<details${attrs} class="rss-content-details rounded-xl my-4 overflow-hidden">`
   })
 
-  result = result.replace(/<summary([^>]*)>/gi, (match, attrs) => {
+  result = result.replaceAll(/<summary([^>]*)>/gi, (match, attrs) => {
     if (attrs.includes('class=')) {
-      return match.replace(
-        /class\s*=\s*["']([^"']*)["']/i,
+      return match.replaceAll(
+        /class\s*=\s*["']([^"']*)["']/ig,
         'class="$1 rss-content-summary cursor-pointer py-3 px-4 font-medium select-none transition-colors"',
       )
     }
@@ -560,7 +560,7 @@ function processDetails(html: string): string {
 }
 
 function processLinks(html: string, options: ProcessOptions): string {
-  return html.replace(/<a([^>]*)>/gi, (match, attrs) => {
+  return html.replaceAll(/<a([^>]*)>/gi, (match, attrs) => {
     const hrefMatch = attrs.match(/href\s*=\s*["']([^"']+)["']/i)
     if (!hrefMatch) return match
 
@@ -583,7 +583,7 @@ function processLinks(html: string, options: ProcessOptions): string {
       }
     }
 
-    let newAttrs = attrs.replace(/href\s*=\s*["'][^"']+["']/i, `href="${href}"`)
+    let newAttrs = attrs.replaceAll(/href\s*=\s*["'][^"']+["']/ig, `href="${href}"`)
 
     if (href.startsWith('http')) {
       if (!newAttrs.includes('target=')) {
@@ -604,10 +604,10 @@ function processLinks(html: string, options: ProcessOptions): string {
 }
 
 function processKbd(html: string): string {
-  return html.replace(/<kbd([^>]*)>/gi, (match, attrs) => {
+  return html.replaceAll(/<kbd([^>]*)>/gi, (match, attrs) => {
     if (attrs.includes('class=')) {
-      return match.replace(
-        /class\s*=\s*["']([^"']*)["']/i,
+      return match.replaceAll(
+        /class\s*=\s*["']([^"']*)["']/ig,
         'class="$1 rss-content-kbd border px-1.5 py-0.5 rounded text-[0.85em] font-mono"',
       )
     }
@@ -616,10 +616,10 @@ function processKbd(html: string): string {
 }
 
 function processMark(html: string): string {
-  return html.replace(/<mark([^>]*)>/gi, (match, attrs) => {
+  return html.replaceAll(/<mark([^>]*)>/gi, (match, attrs) => {
     if (attrs.includes('class=')) {
-      return match.replace(
-        /class\s*=\s*["']([^"']*)["']/i,
+      return match.replaceAll(
+        /class\s*=\s*["']([^"']*)["']/ig,
         'class="$1 rss-content-mark px-0.5 rounded"',
       )
     }
@@ -628,10 +628,10 @@ function processMark(html: string): string {
 }
 
 function processAbbr(html: string): string {
-  return html.replace(/<abbr([^>]*)>/gi, (match, attrs) => {
+  return html.replaceAll(/<abbr([^>]*)>/gi, (match, attrs) => {
     if (attrs.includes('class=')) {
-      return match.replace(
-        /class\s*=\s*["']([^"']*)["']/i,
+      return match.replaceAll(
+        /class\s*=\s*["']([^"']*)["']/ig,
         'class="$1 rss-content-abbr border-b border-dashed cursor-help"',
       )
     }
@@ -640,7 +640,7 @@ function processAbbr(html: string): string {
 }
 
 function processHr(html: string): string {
-  return html.replace(/<hr([^>]*)>/gi, (_match, attrs) => {
+  return html.replaceAll(/<hr([^>]*)>/gi, (_match, attrs) => {
     return `<hr${attrs} class="rss-content-hr border-0 h-px my-8">`
   })
 }
@@ -648,32 +648,32 @@ function processHr(html: string): string {
 function processSemanticTags(html: string): string {
   let result = html
 
-  result = result.replace(
+  result = result.replaceAll(
     /<article([^>]*)>/gi,
     '<article$1 class="rss-content-article">',
   )
 
-  result = result.replace(
+  result = result.replaceAll(
     /<section([^>]*)>/gi,
     '<section$1 class="rss-content-section">',
   )
 
   const asideClass = 'rss-content-aside my-4 p-4 rounded-xl opacity-80'
-  result = result.replace(/<aside([^>]*)>/gi, (match, attrs) => {
+  result = result.replaceAll(/<aside([^>]*)>/gi, (match, attrs) => {
     if (attrs.includes('class=')) {
-      return match.replace(
-        /class\s*=\s*["']([^"']*)["']/i,
+      return match.replaceAll(
+        /class\s*=\s*["']([^"']*)["']/ig,
         `class="$1 ${asideClass}"`,
       )
     }
     return `<aside${attrs} class="${asideClass}">`
   })
 
-  result = result.replace(
+  result = result.replaceAll(
     /<header([^>]*)>/gi,
     '<header$1 class="rss-content-header mb-4">',
   )
-  result = result.replace(
+  result = result.replaceAll(
     /<footer([^>]*)>/gi,
     '<footer$1 class="rss-content-footer mt-4 text-sm opacity-70">',
   )
@@ -685,38 +685,38 @@ function processSemanticTags(html: string): string {
 function processInlineFormatting(html: string): string {
   let result = html
 
-  result = result.replace(
+  result = result.replaceAll(
     /<del(\s[^>]*)?>/gi,
     '<del$1 class="rss-content-del line-through opacity-60">',
   )
-  result = result.replace(
+  result = result.replaceAll(
     /<strike(\s[^>]*)?>/gi,
     '<strike$1 class="rss-content-del line-through opacity-60">',
   )
-  result = result.replace(
+  result = result.replaceAll(
     /<s(\s[^>]*)?>(?![a-z])/gi,
     '<s$1 class="rss-content-del line-through opacity-60">',
   )
 
-  result = result.replace(
+  result = result.replaceAll(
     /<ins(\s[^>]*)?>/gi,
     '<ins$1 class="rss-content-ins underline">',
   )
-  result = result.replace(
+  result = result.replaceAll(
     /<u(\s[^>]*)?>(?![a-z])/gi,
     '<u$1 class="rss-content-ins underline">',
   )
 
-  result = result.replace(
+  result = result.replaceAll(
     /<small(\s[^>]*)?>/gi,
     '<small$1 class="rss-content-small text-[0.85em] opacity-80">',
   )
 
-  result = result.replace(
+  result = result.replaceAll(
     /<sup(\s[^>]*)?>/gi,
     '<sup$1 class="rss-content-sup text-[0.75em]">',
   )
-  result = result.replace(
+  result = result.replaceAll(
     /<sub(\s[^>]*)?>/gi,
     '<sub$1 class="rss-content-sub text-[0.75em]">',
   )
@@ -732,29 +732,29 @@ function fixMalformedHtml(html: string): string {
     /(?:^|[^<])(img\s+src=)/i.test(result)
 
   if (hasMalformedTags) {
-    result = result.replace(/\/iframe(?![a-z])/gi, '~CLOSE_IFRAME~')
+    result = result.replaceAll(/\/iframe(?![a-z])/gi, '~CLOSE_IFRAME~')
 
-    result = result.replace(
+    result = result.replaceAll(
       /~CLOSE_IFRAME~br(?![a-z])/gi,
       '~CLOSE_IFRAME~<br/>',
     )
-    result = result.replace(/([a-z0-9"'])br(?=img|iframe|p|div|$)/gi, '$1<br/>')
+    result = result.replaceAll(/([a-z0-9"'])br(?=img|iframe|p|div|$)/gi, '$1<br/>')
 
-    result = result.replace(
+    result = result.replaceAll(
       /(?:^|(?<=[>\s]))iframe(\s[^~]*)~CLOSE_IFRAME~/gi,
       '<iframe$1></iframe>',
     )
-    result = result.replace(/(?<![</a-z])iframe\s/gi, '<iframe ')
+    result = result.replaceAll(/(?<![</a-z])iframe\s/gi, '<iframe ')
 
     result = result.replace(
       /(?<![</a-z])img\s+(src=[^\s<>]*(?:\s+[a-z]+=(?:"[^"]*"|[^\s<>"]*))*)/gi,
       '<img $1/>',
     )
 
-    result = result.replace(/~CLOSE_IFRAME~/g, '</iframe>')
+    result = result.replaceAll('~CLOSE_IFRAME~', '</iframe>')
   }
 
-  result = result.replace(/amp;/g, '&')
+  result = result.replaceAll('amp;', '&')
 
   const attrNames =
     'width|height|src|href|class|id|style|alt|title|frameborder|allowfullscreen|loading|referrerpolicy|data-[a-z-]+'
@@ -768,13 +768,13 @@ function fixMalformedHtml(html: string): string {
     '$1 $2=',
   )
 
-  result = result.replace(/\s(src|href)=([^"'\s>][^\s>]*)/gi, ' $1="$2"')
+  result = result.replaceAll(/\s(src|href)=([^"'\s>][^\s>]*)/gi, ' $1="$2"')
 
-  result = result.replace(/<br\s*>/gi, '<br/>')
-  result = result.replace(/<hr\s*>/gi, '<hr/>')
-  result = result.replace(/<img([^>]*)(?<!\/)>/gi, '<img$1/>')
+  result = result.replaceAll(/<br\s*>/gi, '<br/>')
+  result = result.replaceAll(/<hr\s*>/gi, '<hr/>')
+  result = result.replaceAll(/<img([^>]*)(?<!\/)>/gi, '<img$1/>')
 
-  result = result.replace(
+  result = result.replaceAll(
     /<iframe([^>]*)>(?![\s\S]*?<\/iframe>)/gi,
     '<iframe$1></iframe>',
   )
@@ -789,19 +789,19 @@ function fixMalformedHtml(html: string): string {
 function processRssHubSpecific(html: string): string {
   let result = html
 
-  result = result.replace(
+  result = result.replaceAll(
     /<time([^>]*)>([^<]*)<\/time>/gi,
     (_match, attrs, content) => {
       return `<time${attrs} class="rss-content-time tabular-nums">${content}</time>`
     },
   )
 
-  result = result.replace(
+  result = result.replaceAll(
     /<author>([^<]*)<\/author>/gi,
     '<span class="rss-content-author font-medium">$1</span>',
   )
 
-  result = result.replace(
+  result = result.replaceAll(
     /<category>([^<]*)<\/category>/gi,
     '<span class="rss-content-category inline-block px-2 py-0.5 text-xs rounded-full bg-black/5 dark:bg-white/10 mr-1">$1</span>',
   )
@@ -812,24 +812,24 @@ function processRssHubSpecific(html: string): string {
 function processSourceSpecific(html: string, _options: ProcessOptions): string {
   let result = html
 
-  result = result.replace(/<img[^>]*class="[^"]*rich_pages[^"]*"[^>]*>/gi, '')
-  result = result.replace(/<img[^>]*class="[^"]*wx_profile[^"]*"[^>]*>/gi, '')
+  result = result.replaceAll(/<img[^>]*class="[^"]*rich_pages[^"]*"[^>]*>/gi, '')
+  result = result.replaceAll(/<img[^>]*class="[^"]*wx_profile[^"]*"[^>]*>/gi, '')
 
-  result = result.replace(
+  result = result.replaceAll(
     /<div[^>]*class="[^"]*ad[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
     '',
   )
-  result = result.replace(
+  result = result.replaceAll(
     /<aside[^>]*class="[^"]*ad[^"]*"[^>]*>[\s\S]*?<\/aside>/gi,
     '',
   )
 
-  result = result.replace(
+  result = result.replaceAll(
     /<a[^>]*>[\s\S]*?(阅读原文|点击阅读|查看原文|Read more|Continue reading)[\s\S]*?<\/a>/gi,
     '',
   )
 
-  result = result.replace(
+  result = result.replaceAll(
     /<p[^>]*>[\s\S]*?(订阅|RSS|Feed|Subscribe)[\s\S]*?<\/p>$/gi,
     '',
   )

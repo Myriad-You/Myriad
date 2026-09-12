@@ -20,6 +20,25 @@ enum ConfirmationOutcome {
 }
 
 impl Agent {
+    /// Explicit session cancellation invalidates sensitive-operation approvals as well as tasks.
+    pub(crate) async fn revoke_session_confirmations(
+        &self,
+        user_id: i32,
+        session_id: &str,
+    ) -> Result<(), String> {
+        use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+        self.db.execute_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres,
+            "DELETE FROM tapp_runtime_registry WHERE namespace = $1 AND subject_id = $2 AND payload->>'session_id' = $3",
+            [CONFIRMATION_REGISTRY_NAMESPACE.into(), user_id.into(), session_id.into()])).await.map_err(|error| {
+                tracing::error!(%error, "Failed to revoke session confirmations");
+                "Failed to revoke session confirmations".to_string()
+            })?;
+        PENDING_CONFIRMATIONS.write().await.retain(|_, pending| {
+            pending.user_id != user_id || pending.session_id.as_deref() != Some(session_id)
+        });
+        Ok(())
+    }
+
     /// 处理用户确认
     ///
     /// 只有「真的要跑 recipe」这一段进预算作用域。取消、越权、找不到、已过期、

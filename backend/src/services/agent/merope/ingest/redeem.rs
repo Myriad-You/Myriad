@@ -1,8 +1,12 @@
 //! Speak intent in → sentence out. Rechecks sight here. Live and notify are
 //! independent channels.
 
+use super::delivery_claim::DeliveryCoordinator;
 use chrono::{DateTime, FixedOffset, Utc};
+use futures::{stream, StreamExt};
+use once_cell::sync::Lazy;
 use sea_orm::DatabaseConnection;
+use std::collections::HashMap;
 
 use super::super::gates::{decide_ingest, is_valuable_event, IngestDecision};
 use super::super::store::{
@@ -17,13 +21,14 @@ use super::super::{
 use super::{
     compact_summary, current_sight, is_enabled, is_trivial_line, log_skip, SAME_EVENT_MINUTES,
 };
-use crate::config::ModelTier;
 use crate::services::agent::consciousness::{drain_speak_intents, last_live_presence, SpeakIntent};
 use crate::services::agent::merope::gates::IngestSight;
 use crate::services::agent::notifications::{
     get_notification_manager, LiveSpeech, Notification, NotificationPriority, NotificationType,
 };
-use crate::services::ai::create_ai_analyzer_for_tier;
+use crate::services::ai::create_strict_lite_ai_analyzer_with_timeout;
+
+static DELIVERY: Lazy<DeliveryCoordinator> = Lazy::new(DeliveryCoordinator::default);
 
 fn merope_owns_notify(event_key: &str) -> bool {
     event_key.starts_with("agent.merope.")
@@ -34,11 +39,24 @@ pub async fn tick_speak_intents(db: DatabaseConnection) {
         return;
     }
     let now = Utc::now();
+    let mut users: HashMap<i32, Vec<SpeakIntent>> = HashMap::new();
     for intent in drain_speak_intents(now) {
-        if let Err(error) = redeem_speak_intent(&db, intent).await {
-            tracing::warn!(%error, "[Merope] redeem speak intent failed");
-        }
+        users.entry(intent.user_id).or_default().push(intent);
     }
+    // Preserve each addressee's queue order without making one slow model
+    // stall every other addressee taken by this drain.
+    stream::iter(users.into_values())
+        .for_each_concurrent(8, |intents| {
+            let db = &db;
+            async move {
+                for intent in intents {
+                    if let Err(error) = redeem_speak_intent(db, intent).await {
+                        tracing::warn!(%error, "[Merope] redeem speak intent failed");
+                    }
+                }
+            }
+        })
+        .await;
 }
 
 async fn redeem_speak_intent(
@@ -48,6 +66,14 @@ async fn redeem_speak_intent(
     if intent.expires_at <= Utc::now() {
         return Ok(());
     }
+    let Some(mut claim) = DELIVERY.claim(&intent).await else {
+        log_skip(
+            intent.user_id,
+            &intent.topic,
+            "delivery_already_claimed_or_expired",
+        );
+        return Ok(());
+    };
     let touch = intent.topic == "agent.merope.touch";
     let state = get_or_create_state(db, intent.user_id).await?;
     let input_at = state.last_user_message_at;
@@ -93,8 +119,8 @@ async fn redeem_speak_intent(
     let Some(decision) = current_delivery(db, &intent, input_at, false).await else {
         return Ok(());
     };
-    // Direct motion only after the line has passed every suppression check. This
-    // keeps the Lite budget tied to speech the addressee will actually receive.
+    // `direct_motion` is the non-live `shown` branch. Compose may already spend
+    // Lite; a later `current_delivery` re-read can still drop the line.
     let mut pending_motion = None;
     let (performance, motion_mood) = if shown {
         match get_or_create_state(db, intent.user_id).await {
@@ -167,6 +193,9 @@ async fn redeem_speak_intent(
             motion_mood.as_ref(),
             source_intent_id,
         );
+        if delivered {
+            claim.delivered(&intent, repeat_minutes);
+        }
         if let Some(context) = pending_motion.take().filter(|_| delivered) {
             let user_id = intent.user_id;
             let id = intent.id.clone();
@@ -209,6 +238,7 @@ async fn redeem_speak_intent(
     // The transcript and cooldown describe accepted delivery, not composition.
     // Suppression or an unavailable transport must not consume either.
     if delivered || notified {
+        claim.delivered(&intent, repeat_minutes);
         insert_proactive(db, intent.user_id, &spoken, Some(&intent.topic), notified).await?;
         let _ = touch_proactive(db, intent.user_id).await;
     }
@@ -256,9 +286,8 @@ fn delivery_decision(
     decision.allow_model.then_some(decision)
 }
 
-/// Whether the composed line reaches the addressee at all. Valuable events whose
-/// notification an existing producer already owns are excluded: sending our own
-/// would mean two notifications for one thing.
+/// Merope toast gate: `notify && merope_owns_notify`. Live speech can still
+/// reach the face when this is false.
 fn speech_is_shown(event_key: &str, notify: bool) -> bool {
     notify && merope_owns_notify(event_key)
 }
@@ -274,7 +303,9 @@ pub fn fallback_line(summary: &str) -> String {
 
 async fn compose_line(db: &DatabaseConnection, user_id: i32, summary: &str) -> String {
     let fallback = fallback_line(summary);
-    let Some(analyzer) = create_ai_analyzer_for_tier(ModelTier::Lite).await else {
+    let Some(analyzer) =
+        create_strict_lite_ai_analyzer_with_timeout(Some(std::time::Duration::from_secs(12))).await
+    else {
         return fallback;
     };
     let soul = crate::services::agent::identity::get_speaking_soul()
@@ -690,9 +721,10 @@ mod tests {
         assert!(speech_is_shown("agent.merope.platform_activity", true));
         assert!(speech_is_shown("agent.merope.report_ready", true));
         assert!(speech_is_shown("agent.merope.greeting", true));
-        // These already have a producer sending the notification.
+        // Other producers own these toasts.
         assert!(!speech_is_shown("agent.task_failed", true));
         assert!(!speech_is_shown("brew.source_error", true));
+        // Merope-owned but `notify` is false.
         assert!(!speech_is_shown("agent.merope.greeting", false));
     }
 }

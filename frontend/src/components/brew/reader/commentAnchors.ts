@@ -151,7 +151,7 @@ export function highlightAnchoredAnnotations(
   const root = new DOMParser().parseFromString(html, 'text/html').body
   const text = root.textContent ?? ''
   const seen = new Set<string>()
-  const ordered = [...annotations].sort((a, b) => b.term.length - a.term.length)
+  const ordered = annotations.toSorted((a, b) => b.term.length - a.term.length)
   for (const [index, annotation] of ordered.entries()) {
     const quote = annotation.term
     if (!quote || seen.has(`${annotation.type}:${quote}`)) continue
@@ -167,7 +167,7 @@ export function highlightAnchoredAnnotations(
       const rawId = annotation.id || `${annotation.type}-${index}`
       mark.setAttribute(
         'data-annotation-id',
-        String(rawId).replace(/[^\w-]/g, ''),
+        String(rawId).replaceAll(/[^\w-]/g, ''),
       )
       mark.setAttribute('data-type', annotation.type)
       mark.setAttribute('data-term', encodeURIComponent(annotation.term))

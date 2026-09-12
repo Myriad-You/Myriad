@@ -124,5 +124,5 @@ export function sortByScore(
   role: BrewViewerRole,
   now: number,
 ): BrewSource[] {
-  return [...sources].sort((a, b) => compareByScore(a, b, role, now))
+  return sources.toSorted((a, b) => compareByScore(a, b, role, now))
 }

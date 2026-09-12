@@ -20,7 +20,7 @@ it('requests explicit previews while preserving full list and detail contracts',
     assert.equal(urls[0].searchParams.get('projection'), 'preview')
     assert.equal(urls[0].searchParams.get('source_id'), '8')
     assert.equal(urls[0].searchParams.get('page'), '2')
-    assert.equal('content' in previews.items[0], false)
+    assert.equal(Object.hasOwn(previews.items[0], 'content'), false)
     const full = await getItems()
     assert.equal(urls[1].searchParams.has('projection'), false)
     assert.equal(full.items[0].content, '<p>list body</p>')

@@ -595,7 +595,7 @@ pub(crate) async fn generate_platform_reports_internal(
                         }
 
                         // 归一化 / 兜底 guild_takes（详情面服务器锐评）
-                        normalize_discord_guild_takes(obj, &analysis.guilds_preview);
+                        normalize_discord_guild_takes(obj, &analysis.guilds_preview, &locale);
 
                         // 账号画像（概览卡 header）—— 全部实测，覆盖 AI 幻觉
                         obj.insert("profile".to_string(), json!(analysis.profile));
@@ -1229,29 +1229,27 @@ pub(crate) fn normalize_steam_player_type(raw: &str) -> &'static str {
     }
 }
 
-fn xbox_gamer_type_fallback(locale: &str, completed: usize, avg: f64, gs: i64) -> &'static str {
-    use crate::api::reports::locale::pick;
+fn xbox_gamer_type_fallback(locale: &str, completed: usize, avg: f64, gs: i64) -> String {
     if completed >= 5 {
-        pick(locale, "全成就猎人", "実績コンプ勢", "Completion hunter")
+        crate::i18n::reports(locale, "xbox.hunter")
     } else if avg >= 50.0 {
-        pick(locale, "深度攻略型", "攻略勢", "Deep completer")
+        crate::i18n::reports(locale, "xbox.deepCompleter")
     } else if gs >= 10_000 {
-        pick(locale, "GS收藏家", "GSコレクター", "GS collector")
+        crate::i18n::reports(locale, "xbox.gsCollector")
     } else {
-        pick(locale, "广撒网玩家", "広く浅く", "Wide net")
+        crate::i18n::reports(locale, "xbox.wideNet")
     }
 }
 
-fn psn_hunter_type_fallback(locale: &str, platinum: i64, avg: f64) -> &'static str {
-    use crate::api::reports::locale::pick;
+fn psn_hunter_type_fallback(locale: &str, platinum: i64, avg: f64) -> String {
     if platinum >= 10 {
-        pick(locale, "白金收藏家", "プラチナ収集家", "Platinum collector")
+        crate::i18n::reports(locale, "psn.collector")
     } else if platinum > 0 {
-        pick(locale, "单机通关派", "単機クリア派", "Story completer")
+        crate::i18n::reports(locale, "psn.storyCompleter")
     } else if avg >= 50.0 {
-        pick(locale, "深度奖杯党", "トロフィー勢", "Trophy hunter")
+        crate::i18n::reports(locale, "psn.trophyHunter")
     } else {
-        pick(locale, "随缘奖杯党", "気まま勢", "Casual trophies")
+        crate::i18n::reports(locale, "psn.casual")
     }
 }
 

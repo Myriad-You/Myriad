@@ -30,7 +30,9 @@ function tappPermissionUnionMembers(source: string): string[] {
   const endMatch = rest.match(/\nexport type /)
   assert.ok(endMatch?.index, 'TappPermission union has no following export type')
   const block = rest.slice(0, endMatch.index)
-  const members = [...block.matchAll(/^\s*\|\s*'([^']+)'/gm)].map(match => match[1])
+  const members = Iterator.from(block.matchAll(/^\s*\|\s*'([^']+)'/gm))
+    .map((match) => match[1])
+    .toArray()
   assert.ok(members.length > 30, `TappPermission union too small: ${members.length}`)
   return members
 }
@@ -46,8 +48,8 @@ describe('permission catalog lock to tapp-contract export', () => {
 
   it('PERMISSION_COPY covers the export catalog', () => {
     assert.deepEqual(
-      Object.keys(PERMISSION_COPY).sort(),
-      Object.keys(exportedLevels).sort(),
+      Object.keys(PERMISSION_COPY).toSorted(),
+      Object.keys(exportedLevels).toSorted(),
     )
   })
 
@@ -57,7 +59,7 @@ describe('permission catalog lock to tapp-contract export', () => {
       'utf8',
     )
     const unionMembers = tappPermissionUnionMembers(source)
-    const catalogNames = Object.keys(exportedLevels).sort()
-    assert.deepEqual([...unionMembers].sort(), catalogNames)
+    const catalogNames = Object.keys(exportedLevels).toSorted()
+    assert.deepEqual(unionMembers.toSorted(), catalogNames)
   })
 })

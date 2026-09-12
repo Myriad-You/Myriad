@@ -80,6 +80,10 @@ impl GuardConfig {
         let service_images = [
             ("backend", "docker.io/somekawahitomi/myriad-backend"),
             (
+                "federation-worker",
+                "docker.io/somekawahitomi/myriad-backend",
+            ),
+            (
                 "backend-volume-init",
                 "docker.io/somekawahitomi/myriad-backend",
             ),
@@ -212,8 +216,8 @@ fn host_policy_file_is_pinned(path: &Path) -> bool {
 /// older deploys wrote `/etc/myriad/docker-guard.env` and that value now
 /// fails updater preflight. Heal only that key.
 fn heal_host_policy_compose_path(path: &Path) -> Result<()> {
-    let text = fs::read_to_string(path)
-        .with_context(|| format!("cannot read {}", path.display()))?;
+    let text =
+        fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))?;
     let mut seen = false;
     let mut changed = false;
     let mut body = String::with_capacity(text.len().saturating_add(64));

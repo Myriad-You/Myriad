@@ -1,4 +1,3 @@
-
 import type { Locale } from '../../../i18n'
 import type { SettingGuideEntry, SettingGuidesCatalog } from './types'
 import { getSettingGuidesCatalog } from './catalog'
@@ -41,7 +40,7 @@ function entryFields(entry: SettingGuideEntry): string[] {
 
 export function guideEntryTitle(what: string, max = 42): string {
   const cleaned = what
-    .replace(/^[①②③④⑤⑥⑦⑧⑨⑩\d]+[).、\s]*/u, '')
+    .replaceAll(/^[①②③④⑤⑥⑦⑧⑨⑩\d]+[).、\s]*/ug, '')
     .trim()
   const first = cleaned.split(/[。！？\n]/u)[0]?.trim() || cleaned
   if (first.length <= max) return first
@@ -61,7 +60,7 @@ export function tokenizeForSearch(text: string): string[] {
     extra.push(p.slice(0, 2), p.slice(0, 3))
     if (p.length >= 4) extra.push(p.slice(0, 4))
   }
-  return [...new Set([...parts, ...extra])]
+  return Iterator.from(new Set(parts).union(new Set(extra))).toArray()
 }
 
 export function buildGuideSearchIndex(locale: Locale): GuideSearchEntry[] {
@@ -78,11 +77,16 @@ export function buildGuideSearchIndex(locale: Locale): GuideSearchEntry[] {
     if (!section || !group || typeof group !== 'object') continue
 
     for (const [key, value] of Object.entries(group)) {
-      if (value && typeof value === 'object' && 'what' in value && (value as SettingGuideEntry).what) {
+      if (
+        value &&
+        typeof value === 'object' &&
+        Object.hasOwn(value, 'what') &&
+        (value as SettingGuideEntry).what
+      ) {
         const entry = value as SettingGuideEntry
         const fields = entryFields(entry)
         const blob = fields.join('\n')
-        const haystack = blob.toLowerCase().replace(/\s+/g, ' ').trim()
+        const haystack = blob.toLowerCase().replaceAll(/\s+/g, ' ').trim()
         const tokens = tokenizeForSearch(blob)
         tokens.push(key.toLowerCase(), area.toLowerCase())
 
@@ -94,7 +98,7 @@ export function buildGuideSearchIndex(locale: Locale): GuideSearchEntry[] {
             entry.frontend?.split('\n')[0]?.trim() ||
             entry.notes?.split('\n')[0]?.trim() ||
             entry.what,
-          keywords: [...new Set(tokens)],
+          keywords: Iterator.from(new Set(tokens)).toArray(),
           haystack,
           guidePath: `${area}.${key}`,
         })
@@ -108,7 +112,7 @@ export function buildGuideSearchIndex(locale: Locale): GuideSearchEntry[] {
           if (!subVal?.what) continue
           const fields = entryFields(subVal)
           const blob = fields.join('\n')
-          const haystack = blob.toLowerCase().replace(/\s+/g, ' ').trim()
+          const haystack = blob.toLowerCase().replaceAll(/\s+/g, ' ').trim()
           const tokens = tokenizeForSearch(blob)
           tokens.push(
             key.toLowerCase(),
@@ -124,7 +128,7 @@ export function buildGuideSearchIndex(locale: Locale): GuideSearchEntry[] {
               subVal.frontend?.split('\n')[0]?.trim() ||
               subVal.notes?.split('\n')[0]?.trim() ||
               subVal.what,
-            keywords: [...new Set(tokens)],
+            keywords: Iterator.from(new Set(tokens)).toArray(),
             haystack,
             guidePath: `${area}.${key}.${subKey}`,
           })
@@ -150,5 +154,5 @@ export function guideKeywordsForSection(
       if (k.length >= 2 && k.length <= 16) set.add(k)
     }
   }
-  return Array.from(set)
+  return Iterator.from(set).toArray()
 }

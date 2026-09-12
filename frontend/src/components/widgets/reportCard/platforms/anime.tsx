@@ -121,7 +121,7 @@ const AnimeListFace = memo(
       () =>
         Object.entries(data?.subject_type_distribution || {})
           .filter(([, n]) => (n as number) > 0)
-          .sort((a, b) => (b[1] as number) - (a[1] as number)),
+          .toSorted((a, b) => (b[1] as number) - (a[1] as number)),
       [data?.subject_type_distribution],
     )
     const totalSubjects = useMemo(

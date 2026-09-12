@@ -3,8 +3,8 @@
 import type { CSSProperties, ReactNode } from 'react'
 
 import { LuEdit3 as Edit3 } from '@lib/icons'
-import { BrewPick } from './Pick'
 import { cx } from './cx'
+import { BrewPick } from './Pick'
 
 export function SiteCard({
   id,

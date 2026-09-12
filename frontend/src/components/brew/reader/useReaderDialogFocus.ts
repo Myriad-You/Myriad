@@ -5,7 +5,7 @@ const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 export function readerDialogFocusables(root: ParentNode): HTMLElement[] {
-  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE))
+  return Iterator.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).toArray()
 }
 
 /** Move focus to close on open, wrap Tab, restore the opener on close. */

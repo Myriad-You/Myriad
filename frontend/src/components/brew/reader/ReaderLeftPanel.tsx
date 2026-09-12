@@ -148,19 +148,16 @@ export default memo(
     }, [voiceList])
 
     const groupedVoices = useMemo(() => {
-      const ultra: typeof voiceList = []
-      const llm: typeof voiceList = []
-      const premium: typeof voiceList = []
-
-      voiceList.forEach((voice) => {
-        if (voice.voice_type === 'ultra_natural') {
-          ultra.push(voice)
-        } else if (voice.voice_type === 'llm') {
-          llm.push(voice)
-        } else {
-          premium.push(voice)
-        }
-      })
+      const byBucket = Object.groupBy(voiceList, (voice) =>
+        voice.voice_type === 'ultra_natural'
+          ? 'ultra'
+          : voice.voice_type === 'llm'
+            ? 'llm'
+            : 'premium',
+      )
+      const ultra = byBucket.ultra ?? []
+      const llm = byBucket.llm ?? []
+      const premium = byBucket.premium ?? []
 
       return {
         ultra,
@@ -175,9 +172,8 @@ export default memo(
       }
     }, [voiceList])
 
-    const brewCopy = t.brew as unknown as Record<string, string>
     const voiceTip = (voice: { id: number; description: string }) =>
-      localizedVoiceDescription(brewCopy, voice)
+      localizedVoiceDescription(t.brew, voice)
 
     return (
       // 常驻 DOM，避免切换时重挂 backdrop-blur。用 animate + pointerEvents，不卸载。

@@ -30,7 +30,7 @@ export function parseGithubRepoInput(raw: string): GithubRepoRef | null {
   const candidate =
     /github\.com/i.test(trimmed) || trimmed.includes('://')
       ? trimmed
-      : `https://github.com/${trimmed.replace(/^\/+/, '')}`
+      : `https://github.com/${trimmed.replaceAll(/^\/+/g, '')}`
   return parseGithubRepoUrl(candidate)
 }
 
@@ -78,10 +78,10 @@ export function readGithubRepoCard(body: {
 
 export function formatGithubCount(count: number): string {
   if (count >= 1_000_000) {
-    return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
+    return `${(count / 1_000_000).toFixed(1).replaceAll(/\.0$/g, '')}M`
   }
   if (count >= 1000) {
-    return `${(count / 1000).toFixed(1).replace(/\.0$/, '')}k`
+    return `${(count / 1000).toFixed(1).replaceAll(/\.0$/g, '')}k`
   }
   return String(count)
 }

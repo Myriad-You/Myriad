@@ -122,7 +122,11 @@ test('every locale carries the import copy', () => {
   for (const file of files) {
     const source = read(file)
     for (const key of keys) {
-      assert.match(source, new RegExp(`\\b${key}\\b`), `${file} 缺 ${key}`)
+      assert.match(
+        source,
+        new RegExp(`\\b${RegExp.escape(key)}\\b`),
+        `${file} 缺 ${key}`,
+      )
     }
   }
 })
@@ -181,7 +185,15 @@ test('finishing either lane hands off to the motion workbench', () => {
   assert.match(shell, /onFinished=\{\(\) => openAiSubpage\('merope'\)\}/)
 
   // 两条路的收尾按钮都得说清楚送去哪。
-  for (const locale of ['zh-CN', 'en-US', 'ja-JP']) {
+  for (const locale of [
+    'zh-CN',
+    'zh-TW',
+    'en-US',
+    'ja-JP',
+    'ko-KR',
+    'fr-FR',
+    'de-DE',
+  ]) {
     const copy = read(`../../../i18n/${locale}.json`)
     const finishes =
       copy.match(/"(portraitFinish|importFinish)": "([^"]+)"/g) ?? []
@@ -204,9 +216,17 @@ test('the fork shows what each lane actually produces', () => {
 
   // 两张卡都要有各自的规模提示。
   for (const key of ['choiceGuidedMeta', 'choiceImportMeta']) {
-    assert.match(choice, new RegExp(`o\\.${key}`))
-    for (const locale of ['zh-CN', 'en-US', 'ja-JP']) {
-      assert.match(read(`../../../i18n/${locale}.json`), new RegExp(`\\b${key}\\b`))
+    assert.match(choice, new RegExp(`o\\.${RegExp.escape(key)}`))
+    for (const locale of [
+      'zh-CN',
+      'zh-TW',
+      'en-US',
+      'ja-JP',
+      'ko-KR',
+      'fr-FR',
+      'de-DE',
+    ]) {
+      assert.match(read(`../../../i18n/${locale}.json`), new RegExp(`\\b${RegExp.escape(key)}\\b`))
     }
   }
 })

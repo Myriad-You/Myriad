@@ -26,11 +26,7 @@ function deferred<T>(): {
   promise: Promise<T>
   resolve: (value: T) => void
 } {
-  let resolve!: (value: T) => void
-  const promise = new Promise<T>((next) => {
-    resolve = next
-  })
-  return { promise, resolve }
+  return Promise.withResolvers<T>()
 }
 
 test('failed synthesis falls back in order and cancellation releases the successor', async () => {

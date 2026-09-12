@@ -644,7 +644,7 @@ test('production import keeps numbered eye anchors and repairs a single missing 
   const closed = repaired.source.anime25dPlayback!.layers.filter(
     (layer) => layer.role === 'eye-close',
   )
-  assert.deepEqual(closed.map((layer) => layer.side).sort(), ['L', 'R'])
+  assert.deepEqual(closed.map((layer) => layer.side).toSorted(), ['L', 'R'])
 })
 
 test('production rejects empty face pixels instead of adopting reference fallback anchors', async () => {

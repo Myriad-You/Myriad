@@ -124,18 +124,11 @@ pub struct ReportSignalsRequest {
 }
 
 fn default_signals_language() -> String {
-    "zh-CN".to_string()
+    "en-US".to_string()
 }
 
 fn normalize_signals_language(raw: &str) -> &'static str {
-    let value = raw.trim();
-    if value.starts_with("zh") {
-        "zh-CN"
-    } else if value.starts_with("ja") {
-        "ja-JP"
-    } else {
-        "en-US"
-    }
+    crate::api::reports::locale::normalize_report_locale(raw)
 }
 
 fn merope_disabled() -> HttpError {
@@ -1086,7 +1079,7 @@ fn sanitize_structured_persona(
     let language = visual_profile
         .and_then(|profile| profile.get("language"))
         .and_then(Value::as_str)
-        .unwrap_or("zh-CN");
+        .unwrap_or("en-US");
     let fallback = myriad_merope::fallback_persona_draft(name, language, &[]);
     let persona = myriad_merope::sanitize_persona_draft(value, &fallback)
         .filter(myriad_merope::persona_draft_is_complete)
@@ -1111,11 +1104,21 @@ fn required_visual_gender(value: &str) -> Option<&str> {
 
 fn required_visual_language(value: &str) -> Option<&'static str> {
     let language = value.trim();
-    if language.starts_with("zh") {
+    if language.is_empty() {
+        return None;
+    }
+    let lower = language.to_ascii_lowercase().replace('_', "-");
+    if lower.starts_with("zh-tw")
+        || lower.starts_with("zh-hk")
+        || lower.starts_with("zh-mo")
+        || lower.contains("hant")
+    {
+        Some("zh-TW")
+    } else if lower.starts_with("zh") {
         Some("zh-CN")
-    } else if language.starts_with("ja") {
+    } else if lower.starts_with("ja") {
         Some("ja-JP")
-    } else if language.starts_with("en") {
+    } else if lower.starts_with("en") {
         Some("en-US")
     } else {
         None
@@ -1263,7 +1266,7 @@ fn sanitize_visual_profile(value: &Value) -> Result<Value, HttpError> {
             let language = profile
                 .get("language")
                 .and_then(Value::as_str)
-                .unwrap_or("zh-CN");
+                .unwrap_or("en-US");
             if let Some(fixed) =
                 myriad_merope::ensure_visual_identity_states_gender(&sanitized, gender, language)
             {
@@ -1680,6 +1683,8 @@ mod tests {
     #[test]
     fn visual_design_requires_an_explicit_supported_language() {
         assert_eq!(required_visual_language("zh-CN"), Some("zh-CN"));
+        assert_eq!(required_visual_language("zh-TW"), Some("zh-TW"));
+        assert_eq!(required_visual_language("zh-HK"), Some("zh-TW"));
         assert_eq!(required_visual_language(" ja-JP "), Some("ja-JP"));
         assert_eq!(required_visual_language("en-US"), Some("en-US"));
         assert_eq!(required_visual_language(""), None);

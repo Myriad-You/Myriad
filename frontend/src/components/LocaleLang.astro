@@ -1,18 +1,6 @@
 ---
+import sharedSource from '../i18n/parseLocale.shared.js?raw'
+import { localeLangInlineScript } from '../i18n/localeLangScript'
 ---
-<script is:inline>
-  ;(function () {
-    try {
-      var saved = localStorage.getItem('locale')
-      var lang = 'en-US'
-      if (saved === 'zh-CN' || saved === 'en-US' || saved === 'ja-JP') {
-        lang = saved
-      } else {
-        var nav = navigator.language || navigator.userLanguage || ''
-        if (nav.indexOf('zh') === 0) lang = 'zh-CN'
-        else if (nav.indexOf('ja') === 0) lang = 'ja-JP'
-      }
-      document.documentElement.lang = lang
-    } catch (e) {}
-  })()
-</script>
+
+<script is:inline set:html={localeLangInlineScript(sharedSource)}></script>

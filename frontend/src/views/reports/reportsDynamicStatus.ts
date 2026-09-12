@@ -45,7 +45,7 @@ export interface BuildReportsTipsInput {
 
 function oneLine(value: unknown): string {
   if (typeof value !== 'string') return ''
-  return value.replace(/\s+/g, ' ').trim()
+  return value.replaceAll(/\s+/g, ' ').trim()
 }
 
 function moodLine(value: unknown): string {

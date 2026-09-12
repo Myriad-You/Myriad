@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 //
 // ChannelOpen can race with ChannelMessage / KeyExchange: the latter may arrive
 // before the channel row exists. Buffer briefly; on ChannelOpen flush in order.
-// If the buffer is full or the entry expires, return an error so the peer retries.
+// Full buffer: inbox still errors so the peer retries. Expired entries are purged silently.
 
 pub(super) struct BufferedChannelActivity {
     pub(super) actor_url: String,
@@ -107,7 +107,7 @@ mod channel_early_buffer_tests {
     #[test]
     fn early_buffer_accepts_and_dedupes_by_activity_id() {
         let id = "ch_test_buffer_unit";
-        // clear any prior via purge by using unique id
+        // Isolate test state with a unique channel id.
         let act = json!({"id": "https://example.com/act/1", "type": "Create"});
         assert!(buffer_early_channel_activity(
             id,

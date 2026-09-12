@@ -17,7 +17,7 @@ export function normalizeWidgetLibraryQuery(query: string): string {
 function idSearchVariants(id: string): string[] {
   const trimmed = id.trim()
   if (!trimmed) return []
-  const spaced = trimmed.replace(/[-_./]+/g, ' ').replace(/\s+/g, ' ').trim()
+  const spaced = trimmed.replaceAll(/[-_./]+/g, ' ').replaceAll(/\s+/g, ' ').trim()
   return spaced && spaced !== trimmed ? [trimmed, spaced] : [trimmed]
 }
 
@@ -109,7 +109,7 @@ export function presentWidgetLibraryKindFilters(
     const kind = `tapp:${category}` as const
     if (seen.has(kind)) chips.push(kind)
   }
-  for (const kind of [...seen].sort()) {
+  for (const kind of Iterator.from(seen).toArray().toSorted()) {
     if (kind.startsWith('tapp:') && !chips.includes(kind)) chips.push(kind)
   }
   return chips

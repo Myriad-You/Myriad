@@ -1,4 +1,3 @@
-
 import type { OAuthProviderEntry } from '../../utils/oauthSettings'
 import type { SetupFlowStep } from '../settings/SetupFlow'
 import { findPreset, OAUTH_PRESETS } from './oauthPresets'

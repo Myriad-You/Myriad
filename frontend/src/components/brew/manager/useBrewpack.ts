@@ -1,7 +1,7 @@
 import type { ChangeEvent } from 'react'
 import type { BrewSource } from '../../../types/brew'
-import type { ImportProgress } from './modes'
 import type { BrewpackCopy } from './brewpackIo'
+import type { ImportProgress } from './modes'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
@@ -63,7 +63,7 @@ export function useBrewpack(
   const flash = useCallback((message: string) => {
     setSuccess(message)
     if (flashRef.current) clearTimeout(flashRef.current)
-    flashRef.current = setTimeout(() => setSuccess(null), 3000)
+    flashRef.current = setTimeout(setSuccess, 3000, null)
   }, [])
 
   const exportPack = useCallback(async () => {

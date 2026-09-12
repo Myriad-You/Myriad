@@ -183,8 +183,8 @@ pub async fn get_task(
 ) -> ApiResult<Json<TaskResponse>> {
     let client = client_from_state(&state).await?;
     let task = client.query_task(&task_id).await.map_err(map_tripo_error)?;
-    // Tripo result URLs expire after about five minutes. Persist immediately
-    // on the first successful status read; content addressing makes retries safe.
+    // Tripo result URLs are short-lived. Persist on first successful status read;
+    // content addressing makes retries safe.
     let assets = persist_task_models(&task, client.config().max_download_bytes)
         .await
         .map_err(map_tripo_error)?;

@@ -78,6 +78,12 @@ interface AppLayoutProps {
   children: React.ReactNode
 }
 
+/** Scroll start/stop state belongs here; the layout only needs its DOM effects. */
+function PageScrollEffects() {
+  useScrollOptimization({ enabled: true })
+  return null
+}
+
 export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation()
   const { t } = useI18n()
@@ -122,7 +128,6 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   usePageViewTracker()
 
-  useScrollOptimization({ enabled: true })
   useSystemSetupCheck()
 
   useEffect(() => {
@@ -318,6 +323,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <>
+      <PageScrollEffects />
       <SurfaceThemeApplier />
 
       {/* relative z-9999：GCP 整棵子树抬到 host chrome 顶层 stacking context，

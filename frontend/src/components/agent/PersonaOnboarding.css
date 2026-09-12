@@ -818,7 +818,6 @@ html.dark .merope-ob-bar .merope-ob-cta {
     var(--color-primary, #7c6ee6) calc(var(--bubble-mix) * 1%),
     var(--color-accent, #6ee7f0)
   );
-
   --bubble-tint: color-mix(
     in oklab,
     var(--bubble-wallpaper) calc(var(--bubble-kin) * 1%),
@@ -832,9 +831,7 @@ html.dark .merope-ob-bar .merope-ob-cta {
     color-mix(in oklab, var(--bubble-tint) 44%, white) 58%,
     color-mix(in oklab, var(--bubble-tint) 68%, white)
   );
-
   --bubble-ink: color-mix(in oklab, var(--bubble-tint) 72%, black);
-
   --bubble-veil: color-mix(
     in oklab,
     color-mix(in oklab, var(--bubble-tint) 55%, black) 58%,

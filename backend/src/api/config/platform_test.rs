@@ -6,7 +6,7 @@ use axum::{
 use serde_json::{json, Value};
 
 use super::{form_secret_if_plaintext, is_masked_secret_value};
-use crate::api::reports::locale::locale_from_headers;
+use crate::api::reports::locale::host_locale_from_headers;
 use crate::services::platform_refresh::humanize_platform_fetch_error_for;
 
 /// Map UI platform label → internal platform id for error humanization.
@@ -61,7 +61,7 @@ pub async fn test_platform(
     headers: HeaderMap,
     Json(payload): Json<Value>,
 ) -> (StatusCode, Json<Value>) {
-    let locale = locale_from_headers(&headers).unwrap_or("en-US");
+    let locale = host_locale_from_headers(&headers);
     let platform = payload["platform"].as_str().unwrap_or("");
     let config = &payload["config"];
 

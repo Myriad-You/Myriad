@@ -183,7 +183,7 @@ export function pageNameForPath(
   editMode: string,
   editingHome: boolean,
 ): string {
-  const path = pathname.replace(/\/+$/, '') || '/'
+  const path = pathname.replaceAll(/\/+$/g, '') || '/'
   if ((path === '/' || path === '') && editingHome) return editMode
   if (path === '/library' || path.startsWith('/library')) return nav.library
   if (path === '/brew' || path.startsWith('/brew')) return nav.brew
@@ -453,15 +453,17 @@ export function readTourBox(node: HTMLElement): Box {
   const fit = node.getAttribute('data-tour-fit')
   if (fit) {
     const fitted = fitTourUnion(
-      Array.from(node.querySelectorAll(fit), (el) => {
-        const box = el.getBoundingClientRect()
-        return {
-          top: box.top,
-          left: box.left,
-          width: box.width,
-          height: box.height,
-        }
-      }),
+      Iterator.from(node.querySelectorAll(fit))
+        .map((el) => {
+          const box = el.getBoundingClientRect()
+          return {
+            top: box.top,
+            left: box.left,
+            width: box.width,
+            height: box.height,
+          }
+        })
+        .toArray(),
       host,
     )
     if (fitted) return fitted
@@ -479,7 +481,7 @@ export function filterVisibleSteps<T extends { anchor: string }>(
 export function normalizeTourPath(pathname: string): string {
   if (!pathname) return '/'
   if (pathname.length > 1 && pathname.endsWith('/')) {
-    const trimmed = pathname.replace(/\/+$/, '')
+    const trimmed = pathname.replaceAll(/\/+$/g, '')
     return trimmed.length > 0 ? trimmed : '/'
   }
   return pathname
@@ -718,9 +720,11 @@ export function queryTourAnchor(anchor: string): HTMLElement | null {
     typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
       ? CSS.escape(anchor)
       : anchor
-  const nodes = [
-    ...document.querySelectorAll<HTMLElement>(`[data-tour="${escaped}"]`),
-  ].filter(isTourAnchorEligible)
+  const nodes = Iterator.from(
+    document.querySelectorAll<HTMLElement>(`[data-tour="${escaped}"]`),
+  )
+    .filter(isTourAnchorEligible)
+    .toArray()
   if (nodes.length <= 1) return nodes[0] ?? null
   return (
     pickLargestVisible(

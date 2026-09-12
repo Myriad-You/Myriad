@@ -18,8 +18,6 @@ export const CSRF_BE_TTL_SECS = 3600
 
 /** Coalesce concurrent CSRF fetches. */
 let inflight: Promise<string | null> | null = null
-/** Only the latest fetch may persist (generation). */
-let writeGeneration = 0
 
 export function isCsrfCacheFresh(
   storedAtMs: number | null,
@@ -66,11 +64,7 @@ export function parseCsrfTokenResponse(data: unknown): {
 function persistCsrfToken(
   token: string | null,
   expiresInSec: number | null,
-  generation: number,
 ): void {
-  // Superseded inflight must not persist.
-  if (generation !== writeGeneration) return
-
   if (token) {
     const now = Date.now()
     sessionStorage.setItem(CSRF_TOKEN_KEY, token)
@@ -144,37 +138,21 @@ export async function getCSRFToken(
     }
   }
 
-  // forceRefresh: drop inflight so a non-force cannot overwrite.
-  if (forceRefresh) {
-    inflight = null
-  }
-
-  const myGen = ++writeGeneration
-
-  if (forceRefresh) {
-    const result = await fetchCSRFTokenFromServer()
-    persistCsrfToken(result.token, result.expiresInSec, myGen)
-    return result.token
-  }
-
-  if (!inflight) {
-    const genAtStart = myGen
-    inflight = fetchCSRFTokenFromServer()
+  if (forceRefresh || !inflight) {
+    const request = fetchCSRFTokenFromServer()
       .then((result) => {
-        persistCsrfToken(result.token, result.expiresInSec, genAtStart)
+        // Clearing or replacing the request revokes its right to persist.
+        if (inflight !== request) return sessionStorage.getItem(CSRF_TOKEN_KEY)
+        persistCsrfToken(result.token, result.expiresInSec)
         return result.token
       })
       .finally(() => {
-        inflight = null
+        if (inflight === request) inflight = null
       })
+    inflight = request
   }
 
-  const token = await inflight
-  // Prefer forceRefresh result if it finished while we waited.
-  if (myGen !== writeGeneration) {
-    return sessionStorage.getItem(CSRF_TOKEN_KEY)
-  }
-  return token
+  return inflight
 }
 
 export function isValidCSRFToken(token: string): boolean {
@@ -205,7 +183,6 @@ export function clearCSRFToken(): void {
   sessionStorage.removeItem(CSRF_TOKEN_STORED_AT_KEY)
   sessionStorage.removeItem(CSRF_TOKEN_EXPIRES_AT_KEY)
   inflight = null
-  writeGeneration += 1
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('csrf-token-cleared'))
   }

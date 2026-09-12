@@ -56,14 +56,14 @@ export function useBrewStarred(
     processingRef.current = true
     setProcessing(true)
     try {
-      const ids = Array.from(selectedIds)
+      const ids = Iterator.from(selectedIds).toArray()
       const results = await Promise.allSettled(
         ids.map((id) => brewApi.unstarItem(id)),
       )
       const succeeded = new Set(ids.filter((_, index) => results[index].status === 'fulfilled'))
       setItems((prev) => dropItems(prev, succeeded))
       setTotal((prev) => Math.max(0, prev - succeeded.size))
-      setSelectedIds((prev) => new Set([...prev].filter((id) => !succeeded.has(id))))
+      setSelectedIds((prev) => prev.difference(succeeded))
       const failure = results.find((result) => result.status === 'rejected')
       if (failure?.status === 'rejected') {
         reportBrewError(failure.reason, starFailed, setError)

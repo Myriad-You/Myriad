@@ -554,6 +554,7 @@ pub(super) async fn execute_brew_items(
                     || t_lower == "最新"
                     || t_lower == "最新文章"
                     || t_lower == "最新的文章"
+                    || t_lower == "latest articles"
                     || t_lower == "最近"
                     || t_lower == "最近文章"
                     || t_lower.contains("latest_article")

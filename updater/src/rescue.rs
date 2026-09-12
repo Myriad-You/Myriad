@@ -8,7 +8,7 @@ use anyhow::{Context as _, Result};
 use tracing::info;
 
 use crate::docker::{
-    compose::{harden_docker_command, GUARD_ENV_KEYS},
+    compose::harden_docker_command,
     ROLLBACK_IMAGE_TAG,
 };
 use crate::snapshot::SnapshotManager;
@@ -294,49 +294,37 @@ async fn compose_v2_or_v1(ctx: &Context, args: &[&str]) -> Result<()> {
     let project = std::env::var("COMPOSE_PROJECT_NAME").unwrap_or_else(|_| "myriad".into());
     let guard_env_file = crate::docker::compose::guard_env_file_path();
     crate::docker::compose::validate_guard_policy_file(&guard_env_file)?;
-
-    let mut v2_command = tokio::process::Command::new("docker");
-    for key in GUARD_ENV_KEYS {
-        v2_command.env_remove(key);
-    }
-    harden_docker_command(&mut v2_command);
-    let v2 = v2_command
-        .arg("compose")
-        .arg("--env-file")
-        .arg(&ctx.env_file)
-        .arg("--env-file")
-        .arg(&guard_env_file)
-        .arg("-p")
-        .arg(&project)
-        .args(args)
-        .current_dir(&ctx.compose_dir)
-        .status()
-        .await;
-    if let Ok(s) = v2 {
-        if s.success() {
-            return Ok(());
-        }
-    }
-    let mut v1_command = tokio::process::Command::new("docker-compose");
-    for key in GUARD_ENV_KEYS {
-        v1_command.env_remove(key);
-    }
-    harden_docker_command(&mut v1_command);
-    let v1 = v1_command
-        .arg("--env-file")
-        .arg(&ctx.env_file)
-        .arg("--env-file")
-        .arg(&guard_env_file)
-        .arg("-p")
-        .arg(&project)
-        .args(args)
-        .current_dir(&ctx.compose_dir)
-        .status()
-        .await
-        .context("spawn docker-compose")?;
-    if !v1.success() {
-        anyhow::bail!("compose {args:?} failed (status {v1:?})");
-    }
+    let probe = crate::probe::compose::probe(&ctx.compose_dir).await;
+    let binary = probe.binary.context("compose binary unavailable")?;
+    let docker = crate::docker::DockerClient::connect().await?;
+    let base = probe
+        .compose_files
+        .first()
+        .and_then(|path| path.parent())
+        .unwrap_or(&ctx.compose_dir);
+    let host_root = docker.resolve_host_bind_source(base).await?;
+    let compose = crate::docker::ComposeRunner::new(
+        binary,
+        project,
+        probe.compose_files,
+        ctx.env_file.clone(),
+        guard_env_file,
+        ctx.compose_dir.clone(),
+        host_root,
+    );
+    // Share service expansion and old-image capability checks with ordinary
+    // update/rollback. A database restore must stop the worker as well as web.
+    let output = match args {
+        ["stop", "-t", seconds, services @ ..] => compose.stop(services, seconds.parse()?).await?,
+        ["start", services @ ..] => compose.start(services).await?,
+        ["up", "-d", "--no-deps", services @ ..] => compose.up_detached(services).await?,
+        _ => anyhow::bail!("unsupported rescue compose operation"),
+    };
+    anyhow::ensure!(
+        output.ok(),
+        "compose operation failed: {}",
+        output.error_summary()
+    );
     Ok(())
 }
 

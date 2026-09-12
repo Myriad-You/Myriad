@@ -179,7 +179,7 @@ pub async fn note_user_turn(
     Some((transition, saved.last_user_message_at?))
 }
 
-/// After planning, so this turn is not already sitting in the diary the model just read.
+/// Chat writes this before the model; Work writes after `plan_for`.
 pub async fn note_chat_diary(db: &sea_orm::DatabaseConnection, user_id: i32, text: &str) {
     if !is_logged_in_addressee(user_id) {
         return;

@@ -68,7 +68,7 @@ impl From<(StatusCode, axum::Json<serde_json::Value>)> for HttpError {
     }
 }
 
-/// Bridge bare `StatusCode` handler errors (common on platform-proxy routes).
+/// Bridge bare `StatusCode` handler errors (SEO helpers; not platform-proxy).
 impl From<StatusCode> for HttpError {
     fn from(status: StatusCode) -> Self {
         let label = status.canonical_reason().unwrap_or("error").to_string();
@@ -154,8 +154,8 @@ mod tests {
 
     #[tokio::test]
     async fn status_json_to_http_preserves_error_field_for_write_paths() {
-        // Write-path bridge used by setup/config/proxy migrations: legacy
-        // (StatusCode, Json) errors must become HttpError with the same public `error`.
+        // Write-path bridge used by setup/config: legacy (StatusCode, Json)
+        // errors become HttpError with the same public `error`.
         let legacy = (
             StatusCode::FORBIDDEN,
             axum::Json(serde_json::json!({

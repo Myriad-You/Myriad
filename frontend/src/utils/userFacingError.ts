@@ -1,5 +1,13 @@
-import { currentCopy } from '../i18n/localeCopy'
+import { currentCopy, formatCurrent } from '../i18n/localeCopy'
 import { ApiError } from '../services/api'
+import { resolveErrorCode } from './errorCodes'
+
+function fill(
+  template: string,
+  params: Record<string, string | number> = {},
+): string {
+  return formatCurrent(template, params)
+}
 
 export function httpStatusMessage(status: number): string {
   const t = currentCopy().errors
@@ -9,25 +17,25 @@ export function httpStatusMessage(status: number): string {
   if (status === 408) return t.timeout
   if (status === 429) return t.rateLimited
   if (status >= 500) {
-    return t.serverError.replace('{status}', String(status))
+    return fill(t.serverError, { status })
   }
   if (status > 0) {
-    return t.httpStatus.replace('{status}', String(status))
+    return fill(t.httpStatus, { status })
   }
   return t.networkError
 }
 
 export function statusFromErrorText(text: string): number {
   const m =
-    text.match(/\bHTTP\s+(\d{3})\b/i) ||
-    text.match(/^API Error:\s*(\d{3})$/i) ||
+    text.match(/\bHTTP\s+(\d{3})\b/i) ??
+    text.match(/^API Error:\s*(\d{3})$/i) ??
     text.match(/\((?:HTTP\s*)?(\d{3})\)$/)
   const status = m ? Number(m[1]) : 0
   return status >= 400 && status <= 599 ? status : 0
 }
 
 export function isUselessErrorText(text: string): boolean {
-  const detail = text.replace(/\s+/g, ' ').trim()
+  const detail = text.replaceAll(/\s+/g, ' ').trim()
   if (!detail) return true
   if (/^API Error:\s*\d+$/i.test(detail)) return true
   if (/^HTTP(\s+error!)?(\s*status:?)?\s*\d+(\s*:.*)?$/i.test(detail)) {
@@ -70,7 +78,7 @@ export function isUselessErrorText(text: string): boolean {
   }
   if (/^database error$/i.test(detail)) return true
   if (/\((?:HTTP\s*)?\d{3}\)$/i.test(detail)) {
-    const inner = detail.replace(/\s*\((?:HTTP\s*)?\d{3}\)\s*$/i, '').trim()
+    const inner = detail.replaceAll(/\s*\((?:HTTP\s*)?\d{3}\)\s*$/ig, '').trim()
     if (
       !inner ||
       /^could not [a-z ]+$/i.test(inner) ||
@@ -86,7 +94,7 @@ function readHint(reason: unknown): string {
   if (
     reason &&
     typeof reason === 'object' &&
-    'hint' in reason &&
+    Object.hasOwn(reason, 'hint') &&
     typeof (reason as { hint: unknown }).hint === 'string'
   ) {
     return (reason as { hint: string }).hint.trim()
@@ -98,7 +106,7 @@ function readStatus(reason: unknown): number {
   if (
     reason &&
     typeof reason === 'object' &&
-    'status' in reason &&
+    Object.hasOwn(reason, 'status') &&
     typeof (reason as { status: unknown }).status === 'number'
   ) {
     return (reason as { status: number }).status
@@ -110,7 +118,7 @@ function readCode(reason: unknown): string {
   if (
     reason &&
     typeof reason === 'object' &&
-    'code' in reason &&
+    Object.hasOwn(reason, 'code') &&
     typeof (reason as { code: unknown }).code === 'string'
   ) {
     return (reason as { code: string }).code.trim()
@@ -127,7 +135,7 @@ function clip(text: string): string {
 }
 
 function isInternalDump(text: string): boolean {
-  const detail = text.replace(/\s+/g, ' ').trim()
+  const detail = text.replaceAll(/\s+/g, ' ').trim()
   if (!detail) return true
   if (
     /relation "|does not exist|duplicate key value|violates (unique|not-null|foreign)/i.test(
@@ -175,7 +183,7 @@ function classified(label: string, raw: string, hint = ''): string {
   )
 }
 
-/** Localized, diagnosable copy for anything that can land in the UI. */
+/** Localized, diagnosable copy. New faults need a machine `code`; leftover regex is last-resort. */
 export function userFacingError(reason: unknown, fallback?: string): string {
   const t = currentCopy().errors
   const fallbackText = fallback?.trim() || t.unknown
@@ -186,7 +194,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
         ? reason.trim()
         : ''
   const status = readStatus(reason) || statusFromErrorText(raw)
-  const code = readCode(reason)
+  const code = resolveErrorCode(readCode(reason), raw)
   const hint = readHint(reason)
 
   if (code === 'unauthorized' || code === 'UNAUTHORIZED') {
@@ -198,6 +206,43 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (code === 'not_found' || code === 'NOT_FOUND') {
     return joinParts(t.notFound, usefulExtra(hint, t.notFound))
   }
+  if (code === 'locale_invalid') {
+    return joinParts(t.localeInvalid, usefulExtra(hint, t.localeInvalid))
+  }
+  if (code === 'locale_save_failed') {
+    return classified(t.operationFailed, raw, hint)
+  }
+  if (code === 'config_load_failed') {
+    return classified(currentCopy().config.loadConfigFailed, raw, hint)
+  }
+  if (code === 'permissions_save_failed') {
+    return classified(currentCopy().config.permissionsSaveFailed, raw, hint)
+  }
+  if (code === 'tapp_save_failed') {
+    return classified(t.tappSaveFailed, raw, hint)
+  }
+  if (code === 'account_update_failed') {
+    return classified(currentCopy().config.usersUpdateFailed, raw, hint)
+  }
+  if (code === 'users_load_failed') {
+    const action = raw.match(/^failed to ([^:]+)/i)?.[1]?.trim() || ''
+    return classified(
+      joinParts(currentCopy().config.usersLoadError, action),
+      raw,
+      hint,
+    )
+  }
+  if (code === 'account_delete_failed') {
+    const action = raw.match(/^failed to ([^:]+)/i)?.[1]?.trim() || ''
+    return classified(
+      joinParts(currentCopy().config.usersDeleteFailed, action),
+      raw,
+      hint,
+    )
+  }
+  if (code === 'identity_unlink_failed') {
+    return classified(currentCopy().config.usersUnlinkFailed, raw, hint)
+  }
   if (code === 'bad_request' || code === 'BAD_REQUEST') {
     const label = httpStatusMessage(400)
     return joinParts(label, usefulExtra(hint, label))
@@ -207,7 +252,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     return joinParts(label, usefulExtra(hint, label))
   }
   if (code === 'internal_error' || code === 'INTERNAL_ERROR') {
-    const label = t.serverError.replace('{status}', '500')
+    const label = fill(t.serverError, { status: 500 })
     return joinParts(label, usefulExtra(hint, label))
   }
   if (code === 'service_unavailable' || code === 'SERVICE_UNAVAILABLE') {
@@ -216,26 +261,22 @@ export function userFacingError(reason: unknown, fallback?: string): string {
       usefulExtra(hint, t.serviceUnavailable),
     )
   }
-  if (
-    code === 'configuration_mode' ||
-    /service in configuration mode/i.test(raw) ||
-    /服务器正在配置模式|服务器仍在配置模式/.test(raw)
-  ) {
+  if (code === 'configuration_mode') {
     return joinParts(
       t.configurationMode,
       usefulExtra(hint, t.configurationMode),
     )
   }
-  if (code === 'setup_completed' || /setup already completed/i.test(raw)) {
+  if (code === 'setup_completed') {
     return joinParts(t.setupCompleted, usefulExtra(hint, t.setupCompleted))
   }
-  if (code === 'username_required' || /^username is required$/i.test(raw)) {
+  if (code === 'username_required') {
     return joinParts(t.usernameRequired, usefulExtra(hint, t.usernameRequired))
   }
-  if (code === 'uid_required' || /^uid is required$/i.test(raw)) {
+  if (code === 'uid_required') {
     return joinParts(t.uidRequired, usefulExtra(hint, t.uidRequired))
   }
-  if (code === 'invalid_uid' || /^invalid uid format$/i.test(raw)) {
+  if (code === 'invalid_uid') {
     return joinParts(t.invalidUid, usefulExtra(hint, t.invalidUid))
   }
   if (code === 'steam_credentials_required') {
@@ -253,15 +294,14 @@ export function userFacingError(reason: unknown, fallback?: string): string {
       usefulExtra(hint, t.youtubeApiKeyRequired),
     )
   }
-  if (code === 'user_id_required' || /^user id is required$/i.test(raw)) {
+  if (code === 'user_id_required') {
     return joinParts(t.userIdRequired, usefulExtra(hint, t.userIdRequired))
   }
-  if (code === 'invalid_user_id' || /^invalid user id format$/i.test(raw)) {
+  if (code === 'invalid_user_id') {
     return joinParts(t.invalidUserId, usefulExtra(hint, t.invalidUserId))
   }
   if (
-    code === 'bangumi_credentials_required' ||
-    /username 或 access_token 至少需要提供一个/.test(raw)
+    code === 'bangumi_credentials_required'
   ) {
     return joinParts(
       t.bangumiCredentialsRequired,
@@ -280,13 +320,13 @@ export function userFacingError(reason: unknown, fallback?: string): string {
       usefulExtra(hint, t.bearerTokenRequired),
     )
   }
-  if (code === 'gamertag_required' || /^gamertag is required$/i.test(raw)) {
+  if (code === 'gamertag_required') {
     return joinParts(t.gamertagRequired, usefulExtra(hint, t.gamertagRequired))
   }
   if (code === 'xbox_api_key_required') {
     return joinParts(t.xboxApiKeyRequired, usefulExtra(hint, t.xboxApiKeyRequired))
   }
-  if (code === 'online_id_required' || /^online id is required$/i.test(raw)) {
+  if (code === 'online_id_required') {
     return joinParts(t.onlineIdRequired, usefulExtra(hint, t.onlineIdRequired))
   }
   if (code === 'npsso_required') {
@@ -299,8 +339,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     )
   }
   if (
-    code === 'site_owner_missing' ||
-    /^site owner is not configured$/i.test(raw)
+    code === 'site_owner_missing'
   ) {
     return joinParts(t.siteOwnerMissing, usefulExtra(hint, t.siteOwnerMissing))
   }
@@ -322,10 +361,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
       usefulExtra(hint, t.discordTokenRequired),
     )
   }
-  if (
-    code === 'discord_app_not_configured' ||
-    /请先在「OAuth 登录」中添加并启用 Discord/.test(raw)
-  ) {
+  if (code === 'discord_app_not_configured') {
     return joinParts(
       currentCopy().config.discordOAuthAppMissing,
       usefulExtra(hint, currentCopy().config.discordOAuthAppMissing),
@@ -340,12 +376,11 @@ export function userFacingError(reason: unknown, fallback?: string): string {
       usefulExtra(hint, t.queryTokenNotAllowed),
     )
   }
-  if (code === 'share_text_empty' || /分享内容为空/.test(raw)) {
+  if (code === 'share_text_empty') {
     return joinParts(t.shareTextEmpty, usefulExtra(hint, t.shareTextEmpty))
   }
   if (
-    code === 'module_visibility_save_failed' ||
-    /^failed to save module visibility/i.test(raw)
+    code === 'module_visibility_save_failed'
   ) {
     return joinParts(
       t.moduleVisibilitySaveFailed,
@@ -355,15 +390,14 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (code === 'invalid_platform') {
     return classified(t.invalidPlatform, raw, hint)
   }
-  if (code === 'hitokoto_save_failed' || /^failed to save hitokoto config$/i.test(raw)) {
+  if (code === 'hitokoto_save_failed') {
     return joinParts(
       currentCopy().config.hitokotoSaveFailed,
       usefulExtra(hint, currentCopy().config.hitokotoSaveFailed),
     )
   }
   if (
-    code === 'report_settings_save_failed' ||
-    /^failed to save report settings$/i.test(raw)
+    code === 'report_settings_save_failed'
   ) {
     return joinParts(
       currentCopy().config.reportSettingsSaveFailed,
@@ -371,15 +405,14 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     )
   }
   if (
-    code === 'no_permission_settings' ||
-    /^no permission settings provided$/i.test(raw)
+    code === 'no_permission_settings'
   ) {
     return joinParts(
       t.noPermissionSettings,
       usefulExtra(hint, t.noPermissionSettings),
     )
   }
-  if (code === 'no_valid_report' || /^no valid report found$/i.test(raw)) {
+  if (code === 'no_valid_report') {
     return joinParts(t.noValidReport, usefulExtra(hint, t.noValidReport))
   }
   if (code === 'file_too_large' || /^file size must be between/i.test(raw)) {
@@ -542,16 +575,12 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     )
   }
   if (
-    code === 'config_file_read_failed' ||
-    /^failed to read configuration/i.test(raw) ||
-    /无法读取配置文件/.test(raw)
+    code === 'config_file_read_failed'
   ) {
     return classified(t.configFileReadFailed, raw, hint)
   }
   if (
-    code === 'config_file_permission' ||
-    /^failed to (write|create) configuration/i.test(raw) ||
-    /无法创建配置文件|无法保存配置文件/.test(raw)
+    code === 'config_file_permission'
   ) {
     return classified(t.configFilePermission, raw, hint)
   }
@@ -638,7 +667,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     return currentCopy().tapp.installFailed
   }
-  if (code === 'steering_unavailable' || /^failed to persist steering/i.test(raw)) {
+  if (code === 'steering_unavailable') {
     return classified(t.agentSteeringFailed, raw, hint)
   }
   if (code === 'dnd_schedule_invalid' || /invalid do-not-disturb/i.test(raw)) {
@@ -650,12 +679,11 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     return t.dndScheduleIncomplete
   }
-  if (code === 'merope_disabled' || /^agent persona is disabled$/i.test(raw)) {
+  if (code === 'merope_disabled') {
     return currentCopy().agentPanel.agentPersonaOff
   }
   if (
-    code === 'consent_required' ||
-    /^explicit consent is required$/i.test(raw)
+    code === 'consent_required'
   ) {
     return t.stepNeedsConfirm
   }
@@ -671,16 +699,13 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (code === 'login_required') {
     return t.unauthorized
   }
-  if (code === 'lyrics_fetch_failed' || /^failed to fetch (verbatim )?lyrics/i.test(raw)) {
-    return t.lyricsFailed.replace('{status}', String(status || 502))
+  if (code === 'lyrics_fetch_failed') {
+    return fill(t.lyricsFailed, { status: status || 502 })
   }
-  if (
-    code === 'playlist_fetch_failed' ||
-    /^failed to fetch (verbatim )?playlist/i.test(raw)
-  ) {
+  if (code === 'playlist_fetch_failed') {
     return classified(currentCopy().music.loadPlaylistFailed, raw, hint)
   }
-  if (code === 'song_fetch_failed' || /^failed to fetch song detail/i.test(raw)) {
+  if (code === 'song_fetch_failed') {
     return classified(currentCopy().music.loadSongFailed, raw, hint)
   }
   if (code === 'hitokoto_fetch_failed' || /^hitokoto api failed$/i.test(raw)) {
@@ -706,7 +731,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
               : /netease|网易/i.test(raw)
                 ? 'Netease'
                 : 'Platform'
-    const label = t.platformNamedFetchFailed.replace('{name}', name)
+    const label = fill(t.platformNamedFetchFailed, { name })
     const status = raw.match(/\bHTTP\s+(\d{3})\b/i)
     const colon = raw.indexOf(':')
     const rest = colon >= 0 ? raw.slice(colon + 1).trim() : ''
@@ -731,7 +756,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
       'platform'
     const name = `${found.charAt(0).toUpperCase()}${found.slice(1)}`
     return joinParts(
-      t.platformCacheMissing.replace('{name}', name),
+      fill(t.platformCacheMissing, { name }),
       usefulExtra(hint, t.platformCacheMissing),
     )
   }
@@ -742,7 +767,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     const found = raw.match(/^failed to (?:read|parse) (\w+) data/i)?.[1] || 'platform'
     const name = `${found.charAt(0).toUpperCase()}${found.slice(1)}`
     return classified(
-      t.platformNamedFetchFailed.replace('{name}', name),
+      fill(t.platformNamedFetchFailed, { name }),
       raw,
       hint,
     )
@@ -883,7 +908,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     return classified(t.tappAccessCheckFailed, raw, hint)
   }
-  if (code === 'tapp_not_found' || /^failed to find tapp$/i.test(raw)) {
+  if (code === 'tapp_not_found') {
     return classified(t.tappFindFailed, raw, hint)
   }
   if (/^failed to check tapp install permission/i.test(raw)) {
@@ -947,7 +972,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   }
   if (/^upstream (request failed|http)/i.test(raw)) {
     return classified(
-      t.serverError.replace('{status}', String(status || 502)),
+      fill(t.serverError, { status: status || 502 }),
       raw,
       hint,
     )
@@ -1048,7 +1073,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (/^rate limited by upstream/i.test(raw)) {
     return t.rateLimited
   }
-  if (code === 'youtube_upstream_failed' || /^youtube upstream failed$/i.test(raw)) {
+  if (code === 'youtube_upstream_failed') {
     return joinParts(
       t.youtubeUpstreamFailed,
       status ? `HTTP ${status}` : '',
@@ -1064,14 +1089,8 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     return classified(t.e2eKeyFailed, raw, hint)
   }
-  if (
-    code === 'config_save_failed' ||
-    /^failed to (load|save) config$/i.test(raw) ||
-    /^failed to save (configuration|permissions)/i.test(raw) ||
-    /^failed to serialize providers$/i.test(raw)
-  ) {
-    const label = /load config/i.test(raw) ? t.configFileReadFailed : t.configSaveFailed
-    return classified(label, raw, hint)
+  if (code === 'config_save_failed') {
+    return classified(t.configSaveFailed, raw, hint)
   }
   if (/^failed to reload configuration/i.test(raw)) {
     return classified(t.configReloadFailed, raw, hint)
@@ -1097,10 +1116,9 @@ export function userFacingError(reason: unknown, fallback?: string): string {
       raw.match(/required (\S+)/i)?.[1] ||
       ''
     const http = raw.match(/HTTP\s+(\d{3})/i)
-    const label = currentCopy().tapp.storeDownloadFailed.replace(
-      '{name}',
-      name || 'asset',
-    )
+    const label = fill(currentCopy().tapp.storeDownloadFailed, {
+      name: name || 'asset',
+    })
     return joinParts(
       label,
       http ? `HTTP ${http[1]}` : '',
@@ -1110,9 +1128,10 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (/store package version mismatch/i.test(raw)) {
     const catalog = raw.match(/catalog lists (\S+)/i)?.[1] || '?'
     const packed = raw.match(/manifest\.json is (\S+)/i)?.[1] || '?'
-    return currentCopy().tapp.storeVersionMismatch
-      .replace('{catalog}', catalog)
-      .replace('{manifest}', packed)
+    return fill(currentCopy().tapp.storeVersionMismatch, {
+      catalog,
+      manifest: packed,
+    })
   }
   const brew = currentCopy().brew
   if (
@@ -1125,7 +1144,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     const status = raw.match(/\bHTTP\s+(\d{3})\b/i)
     const colon = raw.indexOf(':')
     const rest = colon >= 0 ? raw.slice(colon + 1).trim() : ''
-    const phrase = rest.replace(/^HTTP\s+\d{3}\s*:?\s*/i, '').trim()
+    const phrase = rest.replaceAll(/^HTTP\s+\d{3}\s*:?\s*/ig, '').trim()
     const keep =
       phrase && !isInternalDump(phrase) && !isUselessErrorText(phrase)
         ? clip(phrase)
@@ -1157,6 +1176,17 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     return classified(t.brewInvalidUrl, raw, hint)
   }
   if (
+    /^failed to load config(uration)?$/i.test(raw)
+  ) {
+    return classified(currentCopy().config.loadConfigFailed, raw, hint)
+  }
+  if (/^failed to (update|save) permissions/i.test(raw)) {
+    return classified(currentCopy().config.permissionsSaveFailed, raw, hint)
+  }
+  if (/^failed to persist tapp/i.test(raw)) {
+    return classified(t.tappSaveFailed, raw, hint)
+  }
+  if (
     code === 'mcp_config_save_failed' ||
     /^failed to save mcp config/i.test(raw) ||
     /serialize mcp config|create mcp config|write mcp config|replace mcp config/i.test(
@@ -1165,7 +1195,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     return classified(currentCopy().config.mcpSaveFailed, raw, hint)
   }
-  if (code === 'mcp_config_invalid' || /^invalid mcp config/i.test(raw)) {
+  if (code === 'mcp_config_invalid') {
     return classified(currentCopy().config.mcpInvalidConfig, raw, hint)
   }
   if (
@@ -1182,8 +1212,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     return t.speechNotConfigured
   }
   if (
-    code === 'realtime_session_unavailable' ||
-    /^realtime session is unavailable$/i.test(raw)
+    code === 'realtime_session_unavailable'
   ) {
     return t.realtimeSessionUnavailable
   }
@@ -1207,7 +1236,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
       raw,
     )
   ) {
-    return raw.toLowerCase().includes('list') || /对话列表/.test(raw)
+    return raw.toLowerCase().includes('list') || raw.includes('对话列表')
       ? t.speechBatchEmpty
       : t.emptyDialogueText
   }
@@ -1252,7 +1281,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     return t.roomJoinFailed
   }
-  if (code === 'oauth_slug_required' || /^provider slug is required$/i.test(raw)) {
+  if (code === 'oauth_slug_required') {
     return t.oauthSlugRequired
   }
   if (code === 'oauth_slug_invalid' || /invalid slug /i.test(raw)) {
@@ -1358,7 +1387,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
       ? `${plat[1].charAt(0).toUpperCase()}${plat[1].slice(1)}`
       : 'Platform'
     return classified(
-      t.noticePlatformSyncFailed.replace('{name}', name),
+      fill(t.noticePlatformSyncFailed, { name }),
       raw,
       hint,
     )
@@ -1445,10 +1474,9 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     const hours = raw.match(/（(\d+)小时）|\((\d+) hours\)/)
     if (hours) {
-      return t.waitInputTimeoutHours.replace(
-        '{hours}',
-        hours[1] || hours[2] || '',
-      )
+      return fill(t.waitInputTimeoutHours, {
+        hours: Number(hours[1] || hours[2] || '0'),
+      })
     }
     return t.waitInputTimeout
   }
@@ -1517,16 +1545,17 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     /排队中（前方约\s*(\d+)\s*个任务）|Queued \(about (\d+) ahead\)/i,
   )
   if (queued) {
-    return t.agentQueued.replace('{n}', queued[1] || queued[2] || '0')
+    return fill(t.agentQueued, {
+      n: Number(queued[1] || queued[2] || '0'),
+    })
   }
   const queueWait = raw.match(
     /系统繁忙，排队超过\s*(\d+)\s*秒|Waited more than (\d+) seconds/i,
   )
   if (queueWait) {
-    return t.agentQueueTimeout.replace(
-      '{sec}',
-      queueWait[1] || queueWait[2] || '0',
-    )
+    return fill(t.agentQueueTimeout, {
+      sec: Number(queueWait[1] || queueWait[2] || '0'),
+    })
   }
   if (/^现在没在放歌|^Nothing is playing/i.test(raw)) {
     return currentCopy().music.noPlaying
@@ -1537,22 +1566,22 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     return t.agentSubmitted
   }
   const planFailed = raw.match(
-    /^I understood the request, but planning failed:\s*(.+?)\.\s*Please describe what you want more specifically\.?$/i,
+    /^I understood the request, but planning failed:\s*(\S.*?)\.\s*Please describe what you want more specifically\.?$/i,
   )
   if (planFailed) {
     const detail = (planFailed[1] || '').trim()
     return detail
-      ? t.agentPlanningFailed.replace('{detail}', detail)
+      ? fill(t.agentPlanningFailed, { detail })
       : t.agentPlanningFailedBare
   }
-  if (/^我理解了你的请求，但生成执行计划时出现问题/.test(raw)) {
+  if (raw.startsWith('我理解了你的请求，但生成执行计划时出现问题')) {
     const detail = raw
-      .replace(/^我理解了你的请求，但生成执行计划时出现问题[：:.\s]*/, '')
-      .replace(/请更具体地描述你想要什么。?$/, '')
-      .replace(/[。．.]+$/, '')
+      .replaceAll(/^我理解了你的请求，但生成执行计划时出现问题[：:.\s]*/g, '')
+      .replaceAll(/请更具体地描述你想要什么。?$/g, '')
+      .replaceAll(/[。．.]+$/g, '')
       .trim()
     return detail
-      ? t.agentPlanningFailed.replace('{detail}', detail)
+      ? fill(t.agentPlanningFailed, { detail })
       : t.agentPlanningFailedBare
   }
   const music = currentCopy().music
@@ -1568,28 +1597,28 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (/^已取消静音$|^Unmuted$/i.test(raw)) return music.unmuted
   if (/^已跳转播放位置$|^Seeked$/i.test(raw)) return music.seeked
   if (/^获取 B 站数据$|^Loading Bilibili data$/i.test(raw)) {
-    return t.loadingNamedData.replace('{name}', 'Bilibili')
+    return fill(t.loadingNamedData, { name: 'Bilibili' })
   }
   if (/^获取 Steam 数据$|^Loading Steam data$/i.test(raw)) {
-    return t.loadingNamedData.replace('{name}', 'Steam')
+    return fill(t.loadingNamedData, { name: 'Steam' })
   }
   if (/^获取 GitHub 数据$|^Loading GitHub data$/i.test(raw)) {
-    return t.loadingNamedData.replace('{name}', 'GitHub')
+    return fill(t.loadingNamedData, { name: 'GitHub' })
   }
   if (/^获取网易云数据$|^Loading NetEase data$/i.test(raw)) {
-    return t.loadingNamedData.replace('{name}', 'NetEase')
+    return fill(t.loadingNamedData, { name: 'NetEase' })
   }
   if (/^获取 Bangumi 数据$|^Loading Bangumi data$/i.test(raw)) {
-    return t.loadingNamedData.replace('{name}', 'Bangumi')
+    return fill(t.loadingNamedData, { name: 'Bangumi' })
   }
   if (/^获取 X 数据$|^Loading X data$/i.test(raw)) {
-    return t.loadingNamedData.replace('{name}', 'X')
+    return fill(t.loadingNamedData, { name: 'X' })
   }
   if (/^获取 Discord 数据$|^Loading Discord data$/i.test(raw)) {
-    return t.loadingNamedData.replace('{name}', 'Discord')
+    return fill(t.loadingNamedData, { name: 'Discord' })
   }
   if (/^获取 MyAnimeList 数据$|^Loading MyAnimeList data$/i.test(raw)) {
-    return t.loadingNamedData.replace('{name}', 'MyAnimeList')
+    return fill(t.loadingNamedData, { name: 'MyAnimeList' })
   }
   if (/^AI 总结$|^Summarizing$/i.test(raw)) return t.agentSummarizing
   if (/^AI 分析$|^Analyzing$/i.test(raw)) return t.agentAnalyzing
@@ -1599,7 +1628,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     return t.agentSubscribeFeed
   }
   if (/^获取平台数据$|^Loading platform data$/i.test(raw)) {
-    return t.loadingNamedData.replace('{name}', 'platform')
+    return fill(t.loadingNamedData, { name: 'platform' })
   }
   if (/^AI 对话$|^Chatting$/i.test(raw)) return t.agentChat
   if (/^生成图片$|^Generating an image$/i.test(raw)) return t.agentGenerateImage
@@ -1631,6 +1660,9 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (/^未命名内容$/.test(raw)) return t.untitledContent
   if (/^未知用户$/.test(raw)) return currentCopy().userModal.unknownUser
   if (/^未分类$/.test(raw)) return currentCopy().brew.uncategorized
+  if (/^最新文章$|^Latest articles$/i.test(raw)) {
+    return currentCopy().brew.latestArticles
+  }
   if (/^标题不能为空$|^A title is required$/i.test(raw)) {
     return currentCopy().brew.noteTitleRequired
   }
@@ -1638,27 +1670,23 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     /^标题最多 (\d+) 字，现在有 (\d+) 字$|^Titles can be at most (\d+) characters \(this one is (\d+)\)$/i,
   )
   if (titleTooLong) {
-    return currentCopy()
-      .brew.noteTitleTooLong.replace(
-        '{max}',
-        titleTooLong[1] || titleTooLong[3] || '',
-      )
-      .replace('{chars}', titleTooLong[2] || titleTooLong[4] || '')
+    return fill(currentCopy().brew.noteTitleTooLong, {
+      max: titleTooLong[1] || titleTooLong[3] || '',
+      chars: titleTooLong[2] || titleTooLong[4] || '',
+    })
   }
   const bodyTooLong = raw.match(
     /^正文最多 (\d+) 字，现在有 (\d+) 字$|^Notes can be at most (\d+) characters \(this one is (\d+)\)$/i,
   )
   if (bodyTooLong) {
-    return currentCopy()
-      .brew.noteBodyTooLong.replace(
-        '{max}',
-        bodyTooLong[1] || bodyTooLong[3] || '',
-      )
-      .replace('{chars}', bodyTooLong[2] || bodyTooLong[4] || '')
+    return fill(currentCopy().brew.noteBodyTooLong, {
+      max: bodyTooLong[1] || bodyTooLong[3] || '',
+      chars: bodyTooLong[2] || bodyTooLong[4] || '',
+    })
   }
   if (/^游客$/.test(raw)) return t.guestLabel
   const userNumber = raw.match(/^用户#(\d+)$/)
-  if (userNumber) return t.userNumber.replace('{id}', userNumber[1])
+  if (userNumber) return fill(t.userNumber, { id: userNumber[1] })
   if (/^Xbox 玩家$/.test(raw)) return currentCopy().reportCardWidget.xboxGamerDefault
   if (/^PSN 玩家$/.test(raw)) return t.psnPlayer
   if (/^Steam 玩家$/.test(raw)) return t.steamPlayer
@@ -1666,36 +1694,37 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (/^动态技能$/.test(raw)) return t.capDynamicSkills
   if (/^MCP 工具$/.test(raw)) return t.capMcpTools
   if (
-    /^我现在心情很低，不想接新的事情/.test(raw) ||
-    /^I'm in a very low mood and don't want to take on anything new/.test(raw)
+    raw.startsWith('我现在心情很低，不想接新的事情') ||
+    raw.startsWith('I\'m in a very low mood and don\'t want to take on anything new')
   ) {
     return t.agentRefuseLowMood
   }
-  if (/^我对这个请求的理解置信度较低/.test(raw)) return t.agentNeedClarification
+  if (raw.startsWith('我对这个请求的理解置信度较低')) return t.agentNeedClarification
   if (/^重新执行这个步骤$/.test(raw)) return t.retryStepDesc
   if (/^跳过这个步骤继续执行$/.test(raw)) return t.skipStepDesc
   if (/^取消整个任务$/.test(raw)) return t.cancelTaskDesc
   if (/^重试$/.test(raw)) return t.retryStep
   if (/^跳过$/.test(raw)) return t.skipStep
   if (/^联网搜索结果$/.test(raw)) return t.webSearchResult
-  if (/试试搜索你已有数据/.test(raw)) return t.searchLocalHint
+  if (raw.includes('试试搜索你已有数据')) return t.searchLocalHint
   const dbMissing = raw.match(/^(\S+) 数据库文件不存在（(.+)）/)
   if (dbMissing) {
-    return t.databaseFileMissing
-      .replace('{name}', dbMissing[1])
-      .replace('{path}', dbMissing[2])
+    return fill(t.databaseFileMissing, {
+      name: dbMissing[1],
+      path: dbMissing[2],
+    })
   }
   if (/^请尝试其他关键词$/.test(raw)) return t.tryOtherKeyword
   if (/^检查拼写是否正确$/.test(raw)) return t.checkSpelling
-  if (/page\.content 读取 Tapp/.test(raw)) return t.pageContentNeedsTapp
-  if (/page\.content 读取平台/.test(raw)) return t.pageContentNeedsPlatform
+  if (raw.includes('page.content 读取 Tapp')) return t.pageContentNeedsTapp
+  if (raw.includes('page.content 读取平台')) return t.pageContentNeedsPlatform
   if (/^AI 联网搜索发现$/.test(raw)) return t.webSearchResult
-  if (/AI 已根据近期失败原因改写/.test(raw)) return t.noticeSkillImprovedBody
+  if (raw.includes('AI 已根据近期失败原因改写')) return t.noticeSkillImprovedBody
   const prunedSkill = raw.match(/^自动技能「(.+)」因失败率过高被淘汰/)
   if (prunedSkill) {
-    return t.noticeSkillPrunedBody.replace('{name}', prunedSkill[1])
+    return fill(t.noticeSkillPrunedBody, { name: prunedSkill[1] })
   }
-  if (/^我的理解是：/.test(raw)) return t.agentNeedClarification
+  if (raw.startsWith('我的理解是：')) return t.agentNeedClarification
   if (/^网易云音乐用户$/.test(raw)) return t.neteaseMusicUser
   if (/^Bangumi 用户$/.test(raw)) return t.bangumiUser
   if (/^MyAnimeList 用户$/.test(raw)) return t.malUser
@@ -1709,13 +1738,13 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (/^请提供更多信息$|^Please provide more information\.?$/i.test(raw)) {
     return t.agentNeedMoreInfo
   }
-  const webSearchNamed = raw.match(/^网络搜索\s*[—\-]\s*(.+)$/)
+  const webSearchNamed = raw.match(/^网络搜索\s*[—\-]\s*(\S.*)$/)
   if (webSearchNamed) {
-    return t.webSearchNamed.replace('{name}', webSearchNamed[1])
+    return fill(t.webSearchNamed, { name: webSearchNamed[1] })
   }
-  const readingListNamed = raw.match(/^阅读列表\s*[—\-]\s*(.+)$/)
+  const readingListNamed = raw.match(/^阅读列表\s*[—\-]\s*(\S.*)$/)
   if (readingListNamed) {
-    return t.readingListNamed.replace('{name}', readingListNamed[1])
+    return fill(t.readingListNamed, { name: readingListNamed[1] })
   }
   const mcpTool = raw.match(
     /^将调用外部 MCP 服务 '(.+)' 的工具 '(.+)'$|^This will call tool '(.+)' on MCP server '(.+)'$/i,
@@ -1723,17 +1752,24 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (mcpTool) {
     const server = mcpTool[1] || mcpTool[4] || ''
     const tool = mcpTool[2] || mcpTool[3] || ''
-    return t.confirmMcpTool.replace('{server}', server).replace('{tool}', tool)
+    return fill(t.confirmMcpTool, { server, tool })
   }
   const mcpToolsLoaded = raw.match(/^已加载 (\d+) 个工具$|^Loaded (\d+) tools$/i)
   if (mcpToolsLoaded) {
-    return t.noticeMcpToolsLoaded.replace(
-      '{n}',
-      mcpToolsLoaded[1] || mcpToolsLoaded[2] || '',
-    )
+    return fill(t.noticeMcpToolsLoaded, {
+      n: Number(mcpToolsLoaded[1] || mcpToolsLoaded[2] || '0'),
+    })
   }
   if (
-    /状态监控超时/.test(raw) ||
+    /^维护重试成功$|^Maintenance retry succeeded$/i.test(raw)
+  ) {
+    return t.noticeMcpMaintenanceRetry
+  }
+  if (/^自动重启成功$|^Auto-restart succeeded$/i.test(raw)) {
+    return t.noticeMcpAutoRestart
+  }
+  if (
+    raw.includes('状态监控超时') ||
     /Status watch timed out/i.test(raw)
   ) {
     return t.noticeUpdaterWatchTimeout
@@ -1743,19 +1779,17 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     /^自动刷新 (.+) 数据$|^Auto-refresh (.+) data$/i,
   )
   if (autoRefreshNamed) {
-    return t.autoRefreshNamed.replace(
-      '{name}',
-      autoRefreshNamed[1] || autoRefreshNamed[2] || '',
-    )
+    return fill(t.autoRefreshNamed, {
+      name: autoRefreshNamed[1] || autoRefreshNamed[2] || '',
+    })
   }
   const leftoverHeartbeatTask = raw.match(
-    /^定时任务:\s*(.+)$|^Scheduled task:\s*(.+)$/i,
+    /^定时任务:\s*(\S.*)$|^Scheduled task:\s*(\S.*)$/i,
   )
   if (leftoverHeartbeatTask) {
-    return t.noticeHeartbeatTask.replace(
-      '{name}',
-      leftoverHeartbeatTask[1] || leftoverHeartbeatTask[2] || '',
-    )
+    return fill(t.noticeHeartbeatTask, {
+      name: leftoverHeartbeatTask[1] || leftoverHeartbeatTask[2] || '',
+    })
   }
   if (
     /^即将添加新的 RSS|^This will add a new RSS/i.test(raw)
@@ -1832,7 +1866,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
       playlistLoad[1] === '网易云' || playlistLoad[2] === 'NetEase'
         ? 'NetEase'
         : 'QQ Music'
-    return t.loadingNamedPlaylist.replace('{name}', name)
+    return fill(t.loadingNamedPlaylist, { name })
   }
   if (/^好了，都处理完|^All done\.?$/i.test(raw)) return t.agentAllDone
   if (/^你好！有什么我可以帮你的吗？$|^Hi! How can I help\?$/i.test(raw)) {
@@ -1849,11 +1883,11 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     return t.agentNeedClarification
   }
-  const willRun = raw.match(/^This will run (.+)$|^此操作将执行\s*(.+)$/)
+  const willRun = raw.match(/^This will run (.+)$|^此操作将执行\s*(\S.*)$/)
   if (willRun) {
-    return t.willExecute.replace('{name}', willRun[1] || willRun[2] || '')
+    return fill(t.willExecute, { name: willRun[1] || willRun[2] || '' })
   }
-  if (/^此操作将/.test(raw)) return t.stepNeedsConfirm
+  if (raw.startsWith('此操作将')) return t.stepNeedsConfirm
   if (/^数据读取$|^Data$/.test(raw)) return t.capCategoryData
   if (/^数据写入$|^Write$/.test(raw)) return t.capCategoryWrite
   if (/^AI处理$|^AI$/.test(raw)) return t.capCategoryAi
@@ -2080,19 +2114,19 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     return /TTS|语音|Speech/.test(raw) ? t.speechNotConfigured : t.serviceNotConfigured
   }
-  if (/图片生成完成，但无法提取/.test(raw)) {
+  if (raw.includes('图片生成完成，但无法提取')) {
     return currentCopy().agentPersona.onboarding.imageProviderInvalidResponse
   }
   if (
     /^invalid tappid$/i.test(raw) ||
-    /无效的 tappId/.test(raw)
+    raw.includes('无效的 tappId')
   ) {
     return currentCopy().tapp.invalidId
   }
-  if (code === 'media_action_invalid' || /^invalid action$/i.test(raw)) {
+  if (code === 'media_action_invalid') {
     return classified(t.mediaActionInvalid, raw, hint)
   }
-  if (code === 'media_mode_invalid' || /^invalid mode$/i.test(raw)) {
+  if (code === 'media_mode_invalid') {
     return classified(t.mediaModeInvalid, raw, hint)
   }
   if (
@@ -2243,51 +2277,39 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     return agentPanel.presetHistoryTooLong
   }
   if (
-    code === 'notification_unavailable' ||
-    /^notification system not initialized$/i.test(raw)
+    code === 'notification_unavailable'
   ) {
     return t.notificationUnavailable
   }
   const setup = currentCopy().setup
   if (
-    code === 'db_migration_failed' ||
-    /^database migration failed$/i.test(raw) ||
-    /数据库迁移失败/.test(raw)
+    code === 'db_migration_failed'
   ) {
     return setup.dbMigrationFailed
   }
-  if (code === 'schema_ensure_failed' || /^schema ensure failed$/i.test(raw)) {
+  if (code === 'schema_ensure_failed') {
     return setup.schemaEnsureFailed
   }
   if (
-    code === 'setup_cleanup_failed' ||
-    /^setup window cleanup failed$/i.test(raw) ||
-    /无法持久化安装关闭/.test(raw)
+    code === 'setup_cleanup_failed'
   ) {
     return setup.cleanupFailed
   }
   if (
-    code === 'setup_claim_failed' ||
-    /failed to write setup claim marker/i.test(raw) ||
-    /无法写入安装认领标记/.test(raw)
+    code === 'setup_claim_failed'
   ) {
     return setup.claimFailed
   }
-  if (code === 'config_mode_required' || /只能在配置模式下修改/.test(raw)) {
+  if (code === 'config_mode_required') {
     return setup.configModeRequired
   }
   if (
-    code === 'setup_window_closed' ||
-    /^setup window closed$/i.test(raw) ||
-    /安装向导已关闭/.test(raw)
+    code === 'setup_window_closed'
   ) {
     return setup.claimedRepairDesc
   }
   if (
-    code === 'setup_secret_mismatch' ||
-    /^setup secret required$/i.test(raw) ||
-    /setup passphrase does not match/i.test(raw) ||
-    /安装暗号不对/.test(raw)
+    code === 'setup_secret_mismatch'
   ) {
     return setup.secretMismatch
   }
@@ -2491,7 +2513,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   }
   if (/anime2\.5drig playback missing/i.test(raw)) {
     const role = raw.match(/missing (\S+)/i)?.[1] || ''
-    return merope.anime25dMissingLayer.replace('{role}', role || '?')
+    return fill(merope.anime25dMissingLayer, { role: role || '?' })
   }
   if (
     /anime2\.5drig (mesh buffers|layer crop|layer texture|program|shader|link)/i.test(
@@ -2559,6 +2581,14 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   const useful = isUselessErrorText(raw) ? '' : clip(raw)
   const extraHint = usefulExtra(hint, byStatus, useful, fallbackText)
 
+  if (code === 'unmapped') {
+    if (status >= 400) return joinParts(byStatus, extraHint)
+    return joinParts(t.operationFailed, extraHint)
+  }
+  if (useful && /^failed to\b/i.test(useful)) {
+    if (status >= 400) return joinParts(byStatus, extraHint)
+    return joinParts(t.operationFailed, extraHint)
+  }
   if (byStatus && useful && useful !== byStatus) {
     return joinParts(byStatus, useful, extraHint)
   }

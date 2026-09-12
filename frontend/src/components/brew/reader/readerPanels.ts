@@ -123,7 +123,7 @@ export function nextReaderDialogTab(
 ): HTMLElement | null {
   if (nodes.length === 0) return null
   const first = nodes[0]
-  const last = nodes[nodes.length - 1]
+  const last = nodes.at(-1)!
   if (shift) {
     if (active === first || !nodes.includes(active as HTMLElement)) return last
     return null

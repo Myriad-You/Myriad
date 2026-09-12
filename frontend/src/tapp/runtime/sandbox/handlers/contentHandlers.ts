@@ -202,7 +202,6 @@ export function registerBrewListHandlers(
   bridge: TappBridge,
   _tappInstance: TappInstance,
 ): void {
-
   bridge.registerHandler('brewList.list', async (message) => {
     const [options = {}] = getArgs(message) as [Record<string, unknown>?]
     try {

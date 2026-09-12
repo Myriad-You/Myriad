@@ -38,7 +38,7 @@ function defaultFormat(
 }
 
 function truncateDetail(text: string, max = DETAIL_MAX): string {
-  const t = text.replace(/\s+/g, ' ').trim()
+  const t = text.replaceAll(/\s+/g, ' ').trim()
   if (t.length <= max) return t
   return `${t.slice(0, max - 1)}…`
 }
@@ -114,7 +114,7 @@ export function mapPlaygroundGenerateError(
       return copy.playgroundRateLimitHint
     case 'playground_bad_request':
       return format(copy.playgroundBadRequestHint, {
-        detail: truncateDetail(raw.replace(/^HTTP\s*400\s*:?\s*/i, '').trim() || raw),
+        detail: truncateDetail(raw.replaceAll(/^HTTP\s*400\s*:?\s*/ig, '').trim() || raw),
       })
     default:
       break
@@ -257,7 +257,7 @@ export function mapPlaygroundGenerateError(
     /history turn/i.test(raw) ||
     /failed history entries/i.test(raw)
   ) {
-    const detail = raw.replace(/^HTTP\s*400\s*:?\s*/i, '').trim()
+    const detail = raw.replaceAll(/^HTTP\s*400\s*:?\s*/ig, '').trim()
     return format(copy.playgroundBadRequestHint, {
       detail: truncateDetail(detail || raw),
     })
@@ -280,7 +280,7 @@ export function mapPlaygroundGenerateError(
   }
 
   const looksLocalized =
-    /[\u3040-\u30FF\u3400-\u9FFF]/.test(raw) || 
+    /[\u3040-\u30FF\u3400-\u9FFF]/.test(raw) ||
     raw.length > 40
 
   if (looksLocalized && !/^HTTP\s*\d+/i.test(raw) && !/^[a-z]{2,}Error$/i.test(raw)) {

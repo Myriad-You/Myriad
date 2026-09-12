@@ -3,6 +3,7 @@
 //! No I/O. Backend services re-export moved symbols so existing imports compile.
 
 pub mod brew;
+pub mod channel;
 pub mod data_read;
 pub mod error;
 pub mod external;

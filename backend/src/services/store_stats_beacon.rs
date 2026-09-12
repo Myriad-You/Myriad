@@ -4,7 +4,7 @@
 //! Cap on edge: 1 / instance / app / event / UTC day.
 //!
 //! Local/dev: OFF unless TAPP_STORE_STATS_ENABLED=true.
-//! Production: auto-on when ENVIRONMENT=production and non-localhost BASE_URL.
+//! Production: auto-on when ENVIRONMENT=production and instance_material() does not look local.
 
 use crate::services::http_client::TAPP_HTTP_CLIENT;
 use sha2::{Digest, Sha256};
@@ -40,7 +40,7 @@ pub fn spawn_store_stats_hit_with_key(
     });
 }
 
-/// 8–64 hex instance fingerprint for edge.
+/// 32 lowercase hex chars (16-byte SHA-256 prefix of instance material).
 pub fn instance_hash() -> String {
     stable_key(&instance_material())
 }

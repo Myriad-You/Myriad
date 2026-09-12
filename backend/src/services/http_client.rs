@@ -5,6 +5,19 @@ use once_cell::sync::Lazy;
 use reqwest::{Client, Proxy};
 use std::sync::RwLock;
 use std::time::Duration;
+use url::Url;
+
+/// Scheme + host + port only. Userinfo (proxy password) never belongs in logs.
+fn proxy_log_target(raw: &str) -> String {
+    match Url::parse(raw) {
+        Ok(url) => match (url.host_str(), url.port()) {
+            (Some(host), Some(port)) => format!("{}://{host}:{port}", url.scheme()),
+            (Some(host), None) => format!("{}://{host}", url.scheme()),
+            _ => "invalid-proxy-url".to_string(),
+        },
+        Err(_) => "invalid-proxy-url".to_string(),
+    }
+}
 
 /// Shared Tapp outbound HTTP client (pooled, fixed timeouts, no dynamic proxy).
 ///
@@ -123,12 +136,18 @@ pub fn apply_proxy(
 ) -> Result<reqwest::ClientBuilder, reqwest::Error> {
     if proxy_config.should_use_proxy() {
         if let Some(proxy_url) = &proxy_config.proxy_url {
-            tracing::info!("🌐 Configuring HTTP proxy: {}", proxy_url);
+            let proxy_target = proxy_log_target(proxy_url);
+            tracing::info!(
+                proxy_enabled = true,
+                proxy = %proxy_target,
+                "Configuring HTTP proxy"
+            );
 
             let mut proxy = Proxy::all(proxy_url).map_err(|error| {
                 tracing::error!(
                     %error,
-                    proxy_url = %proxy_url,
+                    proxy_enabled = true,
+                    proxy = %proxy_target,
                     "Configured outbound proxy URL is invalid (PROXY_URL / proxy_url); \
                      refusing silent direct-connect (MYR-019 fail-closed)"
                 );
@@ -201,7 +220,12 @@ pub fn resolve_client_or_fail_closed(
             tracing::error!(
                 %error,
                 context,
-                proxy_url = ?proxy_config.proxy_url.as_deref(),
+                proxy_enabled = true,
+                proxy = %proxy_config
+                    .proxy_url
+                    .as_deref()
+                    .map(proxy_log_target)
+                    .unwrap_or_else(|| "none".to_string()),
                 "Configured outbound proxy failed to build; refusing silent \
                  direct-connect (MYR-019 fail-closed). Fix PROXY_URL / admin \
                  proxy settings (or disable proxy)."
@@ -277,7 +301,12 @@ pub async fn get_long_running_client() -> Client {
         Err(error) if proxy_is_required(&proxy_config) => {
             tracing::error!(
                 %error,
-                proxy_url = ?proxy_config.proxy_url.as_deref(),
+                proxy_enabled = true,
+                proxy = %proxy_config
+                    .proxy_url
+                    .as_deref()
+                    .map(proxy_log_target)
+                    .unwrap_or_else(|| "none".to_string()),
                 "Long-running client: configured outbound proxy failed to build; \
                  refusing silent direct-connect (MYR-019 fail-closed)"
             );
@@ -319,7 +348,12 @@ fn build_pooled_egress_client(
             tracing::error!(
                 %error,
                 context,
-                proxy_url = ?proxy_config.proxy_url.as_deref(),
+                proxy_enabled = true,
+                proxy = %proxy_config
+                    .proxy_url
+                    .as_deref()
+                    .map(proxy_log_target)
+                    .unwrap_or_else(|| "none".to_string()),
                 "Configured outbound proxy failed to build; \
                  refusing silent direct-connect (MYR-019 fail-closed)"
             );
@@ -410,7 +444,12 @@ pub async fn reload_global_client() {
         Err(e) if proxy_is_required(&proxy_config) => {
             tracing::error!(
                 %e,
-                proxy_url = ?proxy_config.proxy_url.as_deref(),
+                proxy_enabled = true,
+                proxy = %proxy_config
+                    .proxy_url
+                    .as_deref()
+                    .map(proxy_log_target)
+                    .unwrap_or_else(|| "none".to_string()),
                 "❌ Failed to reload HTTP client with required proxy; keeping previous \
                  client (fail-closed, no silent direct bypass)"
             );
@@ -679,5 +718,73 @@ mod tests {
             let mut config = GLOBAL_DYNAMIC_CONFIG.write().await;
             *config = original;
         }
+    }
+
+    struct BufferWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl std::io::Write for BufferWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for BufferWriter {
+        type Writer = BufferWriter;
+        fn make_writer(&'a self) -> Self::Writer {
+            BufferWriter(self.0.clone())
+        }
+    }
+
+    fn captured_logs(buf: &std::sync::Arc<std::sync::Mutex<Vec<u8>>>) -> String {
+        String::from_utf8_lossy(&buf.lock().unwrap()).into_owned()
+    }
+
+    #[test]
+    fn proxy_log_target_strips_userinfo() {
+        assert_eq!(
+            proxy_log_target("http://user:super-secret-proxy-pass@127.0.0.1:8080"),
+            "http://127.0.0.1:8080"
+        );
+        assert_eq!(proxy_log_target("not a valid proxy url"), "invalid-proxy-url");
+    }
+
+    #[test]
+    fn apply_proxy_logs_never_include_proxy_password() {
+        const SECRET: &str = "super-secret-proxy-pass";
+        let buf = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(BufferWriter(buf.clone()))
+            .with_max_level(tracing::Level::INFO)
+            .with_ansi(false)
+            .finish();
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        let ok = ProxyConfig {
+            enabled: true,
+            proxy_url: Some(format!("http://user:{SECRET}@127.0.0.1:8080")),
+            bypass_list: vec![],
+        };
+        let _ok_builder = apply_proxy(reqwest::Client::builder(), &ok).expect("valid proxy");
+
+        let bad = ProxyConfig {
+            enabled: true,
+            proxy_url: Some(format!("http://user:{SECRET}@%")),
+            bypass_list: vec![],
+        };
+        assert!(apply_proxy(reqwest::Client::builder(), &bad).is_err());
+
+        let logs = captured_logs(&buf);
+        assert!(
+            !logs.contains(SECRET),
+            "proxy password leaked into logs: {logs}"
+        );
+        assert!(
+            logs.contains("proxy_enabled") || logs.contains("127.0.0.1"),
+            "expected enabled/redacted proxy log, got: {logs}"
+        );
     }
 }

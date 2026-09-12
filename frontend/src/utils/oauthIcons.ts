@@ -23,7 +23,7 @@ const OAUTH_ICON_DOMAINS: Record<string, keyof typeof OAUTH_ICON_PATHS> = {
 }
 
 function findKnownIconByDomain(value: string): keyof typeof OAUTH_ICON_PATHS | null {
-  const normalized = value.trim().toLowerCase().replace(/^www\./, '')
+  const normalized = value.trim().toLowerCase().replaceAll(/^www\./g, '')
   if (!normalized) return null
 
   for (const [domain, iconId] of Object.entries(OAUTH_ICON_DOMAINS)) {

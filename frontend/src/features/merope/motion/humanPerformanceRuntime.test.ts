@@ -63,7 +63,7 @@ test('merges speech, performance and music into one scheduler plan', () => {
   })
   const first = runtime.frame([speech, music], 120)
   assert.equal(first.plan?.id, 'human-performance')
-  assert.deepEqual(first.behaviors.map((behavior) => behavior.source).sort(), [
+  assert.deepEqual(first.behaviors.map((behavior) => behavior.source).toSorted(), [
     'coSpeech',
     'music',
   ])
@@ -157,16 +157,18 @@ test('a refinement restating a live beat retimes it instead of restarting it', (
     'performance',
   )
   runtime.frame([floor], 1_000)
-  const live = runtime.frame([floor], 1_400).behaviors[0]
+  // Sample after the authored stroke, independently of body travel duration.
+  const holdingAt = floor.pegs.find((peg) => peg.id.endsWith(':stroke-end'))!.atMs + 20
+  const live = runtime.frame([floor], holdingAt).behaviors[0]
   assert.ok(live)
   assert.equal(live.phase, 'holding')
 
   const refinement = compilePerformanceBehaviorPlan(
     directive(0, 1.3),
-    1_400,
+    holdingAt,
     'performance',
   )
-  const after = runtime.frame([refinement], 1_400).behaviors
+  const after = runtime.frame([refinement], holdingAt).behaviors
   assert.equal(after.length, 1)
   assert.equal(after[0]?.id, live.id)
   assert.equal(after[0]?.phase, 'holding')

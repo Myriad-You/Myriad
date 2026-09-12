@@ -59,7 +59,7 @@
   border-color: var(--brew-accent-line);
 }
 
-.brew-rsshub input:not([type='checkbox']):not([type='radio']),
+.brew-rsshub input:not([type='checkbox'], [type='radio']),
 .brew-rsshub select,
 .brew-rsshub textarea {
   border: 1px solid var(--brew-frost-line, var(--brew-line));

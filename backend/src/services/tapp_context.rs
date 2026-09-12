@@ -1,7 +1,6 @@
 //! Tapp runtime context payloads and subject role projection.
 //!
-//! Pure builders for `/api/tapp/context/*` so HTTP handlers only resolve Claims,
-//! DB rows, filesystem timestamps, and wire JSON. Keeps response shape and
+//! Pure builders for `/api/tapp/context/*` payloads. Keeps response shape and
 //! role rules testable without Axum.
 
 use std::collections::HashMap;
@@ -25,10 +24,10 @@ pub fn role_for_subject(user_id: i32, is_current_admin: bool) -> UserRole {
     }
 }
 
-/// Same rules as [`role_for_subject`] for optional JWT subjects (catalog paths).
+/// Catalog-path role for optional JWT subjects.
 ///
-/// Missing or negative ids are guests; non-negative authenticated ids are users
-/// unless elevated to admin.
+/// Missing or negative ids are guests; `Some(id)` with `id >= 0` is User
+/// (including `Some(0)`). [`role_for_subject`] treats `0` as Guest.
 pub fn role_for_optional_subject(user_id: Option<i32>, is_current_admin: bool) -> UserRole {
     if is_current_admin {
         UserRole::Admin
@@ -93,7 +92,7 @@ pub fn context_user_payload(
     })
 }
 
-/// Idle player stub — real-time state is delivered via TappBridge events.
+/// Idle player stub — live state is TappBridge RPC `context.getPlayer`.
 pub fn idle_player_context() -> Value {
     json!({
         "isPlaying": false,
@@ -108,7 +107,7 @@ pub fn idle_player_context() -> Value {
     })
 }
 
-/// Idle navigation stub — real-time path is delivered via TappBridge events.
+/// Idle navigation stub — live path is TappBridge RPC `context.getNavigation`.
 pub fn idle_navigation_context() -> Value {
     json!({
         "currentPath": "/",

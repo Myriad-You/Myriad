@@ -1,4 +1,3 @@
-
 import type { ToggleSwitchPreview } from './toggleSwitchPreview'
 import React, { useMemo } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'

@@ -7,7 +7,6 @@ import {
   allowsCoSpeechHead,
 } from '../motion/policy'
 
-
 export const POSE_CHANNEL_OF_KEY = {
   angleX: 'headBody',
   angleY: 'headBody',

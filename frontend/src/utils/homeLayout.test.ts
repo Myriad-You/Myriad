@@ -393,31 +393,42 @@ describe('home dashboard first-paint vs registry', () => {
 describe('home shell CSS contract', () => {
   it('keeps Home.css --home-* in lockstep with the rem steps', () => {
     const css = readFileSync(new URL('../views/Home.css', import.meta.url), 'utf8')
+    const frame = readFileSync(
+      new URL('../styles/page-frame.css', import.meta.url),
+      'utf8',
+    )
     const home = readFileSync(new URL('../views/Home.tsx', import.meta.url), 'utf8')
     assert.equal(HOME_PAGE_PAD_X_STEPS[0]?.rem, 0.75)
     assert.equal(HOME_PAGE_PAD_X_STEPS[1]?.minWidth, 375)
     assert.equal(HOME_PAGE_PAD_X_STEPS[1]?.rem, 1)
     assert.equal(HOME_PAGE_PAD_X_STEPS[2]?.minWidth, 640)
     assert.equal(HOME_PAGE_PAD_X_STEPS[2]?.rem, 1.5)
-    assert.match(css, /--home-page-pad-x:\s*0\.75rem/)
-    assert.match(css, /width\s*>=\s*375px/)
-    assert.match(css, /--home-page-pad-x:\s*1rem/)
-    assert.match(css, /width\s*>=\s*640px/)
-    assert.match(css, /--home-page-pad-x:\s*1\.5rem/)
+    assert.match(frame, /--page-pad-x:\s*0\.75rem/)
+    assert.match(frame, /width\s*>=\s*375px/)
+    assert.match(frame, /--page-pad-x:\s*1rem/)
+    assert.match(frame, /width\s*>=\s*640px/)
+    assert.match(frame, /--page-pad-x:\s*1\.5rem/)
+    assert.match(css, /--home-page-pad-x:\s*var\(--page-pad-x\)/)
     assert.match(
-      css,
-      new RegExp(`--home-stage-pad:\\s*${HOME_STANDARD_STAGE_PAD_REM}rem`),
+      frame,
+      new RegExp(
+        `--page-stage-pad:\\s*${RegExp.escape(String(HOME_STANDARD_STAGE_PAD_REM))}rem`,
+      ),
     )
-    assert.match(
-      css,
-      new RegExp(`--home-free-pad-y:\\s*${HOME_FREE_PAGE_PAD_Y_REM}rem`),
-    )
+    assert.match(css, /--home-stage-pad:\s*var\(--page-stage-pad\)/)
     assert.match(
       css,
       new RegExp(
-        `--home-standard-max-width:\\s*${HOME_STANDARD_MAX_WIDTH_REM}rem`,
+        `--home-free-pad-y:\\s*${RegExp.escape(String(HOME_FREE_PAGE_PAD_Y_REM))}rem`,
       ),
     )
+    assert.match(
+      frame,
+      new RegExp(
+        `--page-max-width:\\s*${RegExp.escape(String(HOME_STANDARD_MAX_WIDTH_REM))}rem`,
+      ),
+    )
+    assert.match(css, /--home-standard-max-width:\s*var\(--page-max-width\)/)
     assert.equal(home.includes('px-3 xs:px-4 sm:px-6'), false)
     assert.equal(home.includes('max-w-7xl'), false)
     assert.equal(/py-6/.test(home), false)

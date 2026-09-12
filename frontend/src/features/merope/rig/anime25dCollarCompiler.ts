@@ -283,9 +283,16 @@ export function splitHighCollarOcclusion(
   const insertionIndex = Math.min(neckIndex, topwearIndex)
   const output = layers.filter((layer) => layer !== neck && layer !== topwear)
   // Playback paints in array order rather than consulting semantic depth.
-  output.splice(insertionIndex, 0, remainingTopwear, rearCollar, neck)
-  if (frontCollar) output.splice(insertionIndex + 3, 0, frontCollar)
-  return output
+  const withCore = output.toSpliced(
+    insertionIndex,
+    0,
+    remainingTopwear,
+    rearCollar,
+    neck,
+  )
+  return frontCollar
+    ? withCore.toSpliced(insertionIndex + 3, 0, frontCollar)
+    : withCore
 }
 
 function hasHighCollarEvidence(
@@ -446,12 +453,12 @@ function sourceReferenceAgreesWithLayers(
     }
   }
   if (agreements.length < 2) return false
-  agreements.sort((left, right) => left - right)
-  const middle = Math.floor(agreements.length / 2)
+  const ranked = agreements.toSorted((left, right) => left - right)
+  const middle = Math.floor(ranked.length / 2)
   const median =
-    agreements.length % 2 === 0
-      ? (agreements[middle - 1] + agreements[middle]) / 2
-      : agreements[middle]
+    ranked.length % 2 === 0
+      ? (ranked[middle - 1] + ranked[middle]) / 2
+      : ranked[middle]
   return median >= COLLAR_REFERENCE_MIN_AGREEMENT
 }
 
@@ -736,7 +743,7 @@ function collarColorComponents(
       components.push({ pixels, span, score: pixels.length * span })
     }
   }
-  return components.sort((left, right) => right.score - left.score)
+  return components.toSorted((left, right) => right.score - left.score)
 }
 
 function collarColorMaskAt(

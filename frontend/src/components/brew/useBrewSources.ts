@@ -173,7 +173,11 @@ export function useBrewSources(
       if (ids.length === 0) return
       await Promise.all(ids.map((id) => brewApi.deleteSource(id)))
       const dropped = new Set(ids)
-      setSources((prev) => prev.filter((source) => !dropped.has(source.id)))
+      setSources((prev) =>
+        Iterator.from(prev)
+          .filter((source) => !dropped.has(source.id))
+          .toArray(),
+      )
       void loadStats()
     },
     [loadStats],

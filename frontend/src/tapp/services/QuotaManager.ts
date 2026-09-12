@@ -1,6 +1,6 @@
 /** 前端软限制；安全限制必须由后端实现。 */
 
-import { currentCopy } from '../../i18n/localeCopy'
+import { currentCopy, formatCurrent } from '../../i18n/localeCopy'
 
 const DEFAULT_QUOTA = {
   platform: {
@@ -213,10 +213,9 @@ class TappQuotaManager {
       return {
         allowed: false,
         remaining: 0,
-        reason: currentCopy().errors.rateLimitedRetry.replace(
-          '{sec}',
-          String(Math.ceil((rateCheck.retryAfter || 0) / 1000)),
-        ),
+        reason: formatCurrent(currentCopy().errors.rateLimitedRetry, {
+          sec: Math.ceil((rateCheck.retryAfter || 0) / 1000),
+        }),
         retryAfter: rateCheck.retryAfter,
       }
     }

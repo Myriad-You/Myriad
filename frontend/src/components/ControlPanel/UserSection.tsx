@@ -187,7 +187,7 @@ export const UserSection: React.FC<UserSectionProps> = memo(
           method: 'POST',
           credentials: 'include',
         })
-      } catch (_error) {
+      } catch {
       }
 
       clearAllUserCache()
@@ -225,7 +225,7 @@ export const UserSection: React.FC<UserSectionProps> = memo(
                 </h3>
                 <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
                   {userInfo.bio.length > 30
-                    ? `${userInfo.bio.substring(0, 30)}...`
+                    ? `${userInfo.bio.slice(0, 30)}...`
                     : userInfo.bio}
                 </p>
               </div>

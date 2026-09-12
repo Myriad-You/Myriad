@@ -174,8 +174,13 @@ pub async fn get_current_user(
     let identity_rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT id, provider, provider_username, is_primary, linked_at \
-             FROM user_identities WHERE user_id = $1 ORDER BY linked_at ASC",
+            format!(
+                "SELECT id, provider, provider_username, is_primary, linked_at \
+                 FROM user_identities WHERE user_id = $1 \
+                    AND {} \
+                 ORDER BY linked_at ASC",
+                crate::services::channel_pairing::SQL_NOT_PAIRING_PROVIDER
+            ),
             vec![SeaValue::Int(Some(user_id))],
         ))
         .await
@@ -282,8 +287,8 @@ pub async fn set_current_user_locale(
             StatusCode::BAD_REQUEST,
             Json(json!({
                 "error": "Bad request",
-                "code": "bad_request",
-                "message": "locale must be zh-CN, en-US, or ja-JP",
+                "code": "locale_invalid",
+                "message": "locale must be a host UI tag",
             })),
         )));
     };
@@ -315,20 +320,19 @@ pub async fn set_current_user_locale(
 
 /// `POST /api/auth/logout`
 ///
-/// Clears the browser cookie and, when a still-valid (signature) token is
-/// present, bumps `users.token_version` so stolen copies of the same JWT fail
+/// Clears the browser cookie and, when a valid token matches the current
+/// session epoch, bumps `users.token_version` so copies of the same JWT fail
 /// closed on protected routes until the next login.
 pub async fn logout(
     crate::extract::Db(db): crate::extract::Db,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    // Crypto-only decode: even a soon-to-expire token should revoke the epoch.
-    // Do **not** require session epoch match here — logout must succeed after
-    // a prior password change already bumped tv.
+    // Always clear the cookie; only the matching epoch may revoke sessions.
+    // The UPDATE checks tv atomically so a stale logout cannot kill a new login.
     if let Ok(claims) = crate::middleware::auth::verify_jwt_token(&headers) {
         if let Ok(user_id) = claims.sub.parse::<i32>() {
             if user_id > 0 {
-                match crate::middleware::auth::bump_token_version(&db, user_id).await {
+                match crate::middleware::auth::bump_token_version(&db, user_id, claims.tv).await {
                     Ok(Some(new_tv)) => {
                         tracing::info!(
                             user_id,
@@ -337,7 +341,7 @@ pub async fn logout(
                         );
                     }
                     Ok(None) => {
-                        tracing::debug!(user_id, "🚪 Logout for missing user — cookie clear only");
+                        tracing::debug!(user_id, "🚪 Stale or missing session — cookie clear only");
                     }
                     Err(e) => {
                         // Cookie still cleared; epoch bump is best-effort so

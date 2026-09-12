@@ -34,14 +34,15 @@ export default function ChoiceStep({
   onImport,
   onHeaderChange,
 }: Props) {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const o = t.agentPersona.onboarding
   const canGuide = reportCount >= GUIDED_MIN_REPORTS
   const guidedLock = canGuide
     ? undefined
-    : t.config.agentPersonaNeedsReports
-        .replace('{count}', String(reportCount))
-        .replace('{need}', String(GUIDED_MIN_REPORTS))
+    : format(t.config.agentPersonaNeedsReports, {
+        count: reportCount,
+        need: GUIDED_MIN_REPORTS,
+      })
 
   useLayoutEffect(() => {
     onHeaderChange({ description: o.choiceLead })

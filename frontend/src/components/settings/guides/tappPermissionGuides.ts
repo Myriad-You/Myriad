@@ -1,8 +1,8 @@
 import type { Locale } from '../../../i18n'
-import { createLocaleLoader } from '../../../i18n/createLocaleLoader'
 import type { TappPermission } from '../../../tapp/types'
 import type { SettingGuideEntry } from './types'
-import en from './tappPermissionGuides.en.json'
+import { createLocaleLoader } from '../../../i18n/createLocaleLoader'
+import en from './tappPermissionGuides.en-US.json' with { type: 'json' }
 
 export type TappPermissionGuides = Record<TappPermission, SettingGuideEntry>
 
@@ -11,9 +11,19 @@ export function tappPermissionGuidePath(permission: TappPermission): string {
 }
 
 const loader = createLocaleLoader<TappPermissionGuides>({
-  'zh-CN': () => import('./tappPermissionGuides.zh.json').then((m) => m.default),
+  'zh-CN': async () =>
+    (await import('./tappPermissionGuides.zh-CN.json')).default,
+  'zh-TW': async () =>
+    (await import('./tappPermissionGuides.zh-TW.json')).default,
   'en-US': async () => en,
-  'ja-JP': () => import('./tappPermissionGuides.ja.json').then((m) => m.default),
+  'ja-JP': async () =>
+    (await import('./tappPermissionGuides.ja-JP.json')).default,
+  'ko-KR': async () =>
+    (await import('./tappPermissionGuides.ko-KR.json')).default,
+  'fr-FR': async () =>
+    (await import('./tappPermissionGuides.fr-FR.json')).default,
+  'de-DE': async () =>
+    (await import('./tappPermissionGuides.de-DE.json')).default,
 })
 loader.seed('en-US', en)
 

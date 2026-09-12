@@ -6,11 +6,11 @@ import LocaleLang from '@components/LocaleLang.astro'
 import PageLoader from '@components/PageLoader.astro'
 import StripSpaQuery from '@components/StripSpaQuery.astro'
 import App from '../App'
+import en from '../i18n/en-US.json' with { type: 'json' }
 import '../styles/tailwind.css'
 
-const title = 'Myriad - A myriad of lights, in one place.'
-const description =
-  'Myriad is a self-hosted personal digital-life homepage for aggregating, organizing, and presenting data from multiple platforms.'
+const title = en.chrome.title
+const description = en.chrome.description
 // Build-time version stamp for the updater health probe; `dev` outside release builds.
 const myriadVersion = import.meta.env.PUBLIC_MYRIAD_VERSION || 'dev'
 const myriadCommit = import.meta.env.PUBLIC_MYRIAD_COMMIT_SHA || ''

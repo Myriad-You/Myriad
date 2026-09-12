@@ -12,9 +12,7 @@
 //!
 //! - `services/analyzer` - AI 分析服务
 //! - `api/reports` - 报告生成系统
-//! - `api/tapp` - 平台数据 API
 //! - `services/brew_parser` - RSS/Atom 解析
-//! - `services/tapp_api_service` - Tapp API 执行
 
 pub mod dag;
 pub mod error_analyzer;

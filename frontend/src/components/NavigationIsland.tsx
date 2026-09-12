@@ -553,7 +553,7 @@ export function NavigationIsland() {
       renderModeRef.current =
         targetMode === 'secondary' ? 'normal' : 'secondary'
 
-      const groups = Array.from(content.querySelectorAll('.nav-group'))
+      const groups = Iterator.from(content.querySelectorAll('.nav-group')).toArray()
       const island = content.closest('.dynamic-island') as HTMLElement
 
       if (island) {

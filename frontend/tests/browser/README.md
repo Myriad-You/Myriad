@@ -1,5 +1,10 @@
 # Isolated browser regressions
 
+Real backend + Postgres smokes live in `tests/smoke` and are started with
+`bash scripts/extra/smoke.sh` from the repo root (`pnpm test:smoke` needs
+`MYRIAD_SMOKE_BASE_URL`). They are not this mock-provider Vite fixture.
+
+
 Run from `frontend`:
 
 ```sh

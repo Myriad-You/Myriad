@@ -70,7 +70,6 @@ import { sampleTurnTraceLeaks } from '../../features/merope/turnTraceSample'
 import {
   agentService,
   executeFrontendAction,
-  frontendActionDedupeKey,
   hasActionHandler,
 } from '../../services/agent'
 import {
@@ -88,6 +87,7 @@ import {
   isUserInterruptError,
   nextAgentMessageId,
 } from '../../services/agent/turnIdentity'
+import { authSubject } from '../../utils/authSubject'
 import { userFacingError } from '../../utils/userFacingError'
 import {
   errorCode,
@@ -129,8 +129,10 @@ import {
 } from './agentThinking'
 import { planAgentUndo } from './agentUndo'
 import { executionStepsFromHistory } from './engineTypes'
-
+import { FrontendActionQueue } from './frontendActionQueue'
 import { syncProjectedMessages } from './projectAgentMessage'
+
+import { SessionLoadScope } from './sessionLoadScope'
 import {
   pendingQuestionFromMetadata,
   restoreFollowUpQuestion,
@@ -148,9 +150,11 @@ function finishTurnTrace(): void {
 }
 
 /** Inverse from the actual path change, not the declared target. */
-async function runFrontendAction(action: FrontendAction): Promise<unknown> {
+async function runFrontendAction(action: FrontendAction, signal: AbortSignal): Promise<unknown> {
+  if (signal.aborted) return
   const beforePath = currentPath()
-  const result = await executeFrontendAction(action)
+  const result = await executeFrontendAction(action, signal)
+  if (signal.aborted) return
   const offer = planAgentUndo({
     action,
     beforePath,
@@ -225,6 +229,8 @@ export const AgentEngine: React.FC = () => {
     work: null,
     chat: null,
   })
+  const [sessionLoads] = useState(() => new SessionLoadScope())
+  useEffect(() => () => sessionLoads.reset(), [sessionLoads])
   const loadingByModeRef = useRef<Record<AgentPanelMode, boolean>>({
     work: false,
     chat: false,
@@ -262,11 +268,12 @@ export const AgentEngine: React.FC = () => {
     >(null)
   const createProgressHandlerRef = useRef<
     ((assistantMessageId: string, mode?: AgentPanelMode, generation?: number,
-      speechOutput?: 'local' | 'external', runId?: string) => (event: ProgressEvent) => void) | null
+      speechOutput?: 'local' | 'external', runId?: string, subject?: AbortSignal) => (event: ProgressEvent) => void) | null
   >(null)
-  const dispatchedFrontendKeysRef = useRef(new Map<string, Set<string>>())
-  const frontendActionChainRef = useRef(new Map<string, Promise<void>>())
   const MAX_RESPONSE_GUARD_KEYS = 200
+  const [frontendActionQueue] = useState(() =>
+    new FrontendActionQueue(runFrontendAction, MAX_RESPONSE_GUARD_KEYS))
+  useEffect(() => () => frontendActionQueue.reset(), [frontendActionQueue])
 
   const capSet = (set: Set<string>) => {
     while (set.size > MAX_RESPONSE_GUARD_KEYS) {
@@ -277,61 +284,12 @@ export const AgentEngine: React.FC = () => {
   }
 
   const enqueueFrontendActions = useCallback(
-    async (
+    (
       messageId: string,
       actions: Array<FrontendAction | null | undefined>,
-    ): Promise<unknown[]> => {
-      const visible: unknown[] = []
-      const keys =
-        dispatchedFrontendKeysRef.current.get(messageId) ?? new Set<string>()
-      dispatchedFrontendKeysRef.current.set(messageId, keys)
-      while (dispatchedFrontendKeysRef.current.size > MAX_RESPONSE_GUARD_KEYS) {
-        const oldest = dispatchedFrontendKeysRef.current.keys().next().value
-        if (oldest === undefined || oldest === messageId) break
-        dispatchedFrontendKeysRef.current.delete(oldest)
-        frontendActionChainRef.current.delete(oldest)
-      }
-      const run = async () => {
-        for (const action of actions) {
-          if (!action || typeof action !== 'object' || !('type' in action)) {
-            continue
-          }
-          const key = frontendActionDedupeKey(action)
-          if (keys.has(key)) continue
-          keys.add(key)
-          try {
-            const result = await runFrontendAction(action)
-            if (
-              result &&
-              typeof result === 'object' &&
-              [
-                'query_windows',
-                'music_get_status',
-                'show_data',
-                'show_report',
-              ].includes(action.type)
-            ) {
-              visible.push(result)
-            }
-          } catch (error) {
-            console.error('[AgentEngine] Frontend action failed:', error)
-          }
-        }
-      }
-      const prev =
-        frontendActionChainRef.current.get(messageId) ?? Promise.resolve()
-      const next = prev.then(run, run)
-      frontendActionChainRef.current.set(
-        messageId,
-        next.then(
-          () => undefined,
-          () => undefined,
-        ),
-      )
-      await next
-      return visible
-    },
-    [],
+      subject = authSubject.signal,
+    ) => frontendActionQueue.enqueue(messageId, actions, subject),
+    [frontendActionQueue],
   )
   const answerQuestionRef =
     useRef<(messageId: string, answer: string) => void>(null)
@@ -343,22 +301,19 @@ export const AgentEngine: React.FC = () => {
   const chatTurnClockRef = useRef(new ChatTurnClock())
 
   const pendingAnswerMsg = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i]
-      if (
-        m.pendingQuestion &&
-        !m.selectedAnswer &&
-        m.taskExecution?.status === 'waiting'
-      ) {
-        return m
-      }
-    }
-    return null
+    return (
+      messages.findLast(
+        (m) =>
+          Boolean(m.pendingQuestion) &&
+          !m.selectedAnswer &&
+          m.taskExecution?.status === 'waiting',
+      ) ?? null
+    )
   }, [messages])
-
 
   const startNewSession = useCallback(async () => {
     const current = getAgentPanelMode()
+    sessionLoads.reset(current)
     if (current === 'chat') void stopAgoraConversation()
     const loadingId = loadingMessageIdByModeRef.current[current]
     if (loadingId) {
@@ -381,14 +336,16 @@ export const AgentEngine: React.FC = () => {
     setMessages([], current)
     sessionTitleSetByModeRef.current[current] = false
     if (current === 'chat') clearChatOutfitOverlay()
-  }, [setSessionId, setMessages])
+  }, [setSessionId, setMessages, sessionLoads])
 
   /** GET run stream / task; do not POST process. */
   const reattachLiveWork = useCallback(
     async (
       messagesToScan: ChatMessage[],
       hints?: { runId?: string; taskId?: string },
+      subject = authSubject.signal,
     ) => {
+      if (subject.aborted) return
       const candidates = collectReattachCandidates(
         messagesToScan.map((m) => ({
           id: m.id,
@@ -400,6 +357,7 @@ export const AgentEngine: React.FC = () => {
       )
 
       for (const candidate of candidates) {
+        if (subject.aborted) return
         try {
           const taskId = candidate.taskId
           const runId = candidate.runId
@@ -408,7 +366,8 @@ export const AgentEngine: React.FC = () => {
           let pendingQ: PendingQuestion | undefined
 
           if (taskId) {
-            const task = await agentService.getTask(taskId)
+            const task = await agentService.getTask(taskId, subject)
+            if (subject.aborted) return
             if (!isNonTerminalTaskStatus(task.status)) continue
             isWaiting = task.status === 'waiting_for_input'
             progress = task.progress ?? 0
@@ -457,19 +416,22 @@ export const AgentEngine: React.FC = () => {
           setAgentStatusThinking()
           const onProgress = createProgressHandlerRef.current?.(
             candidate.messageId,
-            'work', 0, 'local', runId,
+            'work', 0, 'local', runId, subject,
           )
           if (!onProgress) continue
           void agentService
-            .subscribeRun(runId, onProgress)
-            .then((response) =>
-              handleAgentResponseRef.current?.(candidate.messageId, response),
-            )
+            .subscribeRun(runId, onProgress, 'work', subject)
+            .then((response) => {
+              if (subject.aborted) return
+              return handleAgentResponseRef.current?.(candidate.messageId, response)
+            })
             .catch((error) => {
+              if (subject.aborted) return
               stopTurnSpeech(candidate.messageId)
               console.warn('[AgentEngine] reattach stream ended:', error)
             })
             .finally(() => {
+              if (subject.aborted) return
               if (
                 loadingMessageIdByModeRef.current.work === candidate.messageId
               ) {
@@ -483,6 +445,7 @@ export const AgentEngine: React.FC = () => {
             })
           break
         } catch (error) {
+          if (subject.aborted) return
           console.warn('[AgentEngine] reattach task probe failed:', error)
         }
       }
@@ -496,6 +459,7 @@ export const AgentEngine: React.FC = () => {
       reattachHints?: { runId?: string; taskId?: string },
       requestedMode: AgentPanelMode = session.mode ?? getAgentPanelMode(),
     ) => {
+      const subject = sessionLoads.begin(requestedMode)
       if (requestedMode === 'chat' && sessionIdsByModeRef.current.chat !== session.id) {
         void stopAgoraConversation()
       }
@@ -508,7 +472,9 @@ export const AgentEngine: React.FC = () => {
           session.id,
           1,
           50,
+          subject,
         )
+        if (subject.aborted) return
         const loaded: ChatMessage[] = sessionMessages.map((m, idx) => {
           const meta = m.metadata as Record<string, unknown> | undefined
           const data = meta?.data
@@ -580,12 +546,13 @@ export const AgentEngine: React.FC = () => {
             if (followUp) setAgentStatusAwaitingConfirmation(followUp)
           }
         }
-        void reattachLiveWork(loaded, reattachHints)
+        if (requestedMode === 'work') void reattachLiveWork(loaded, reattachHints, subject)
       } catch (error) {
+        if (subject.aborted) return
         console.error('[AgentEngine] 加载会话消息失败:', error)
       }
     },
-    [reattachLiveWork],
+    [reattachLiveWork, sessionLoads],
   )
 
   useEffect(() => {
@@ -695,6 +662,30 @@ export const AgentEngine: React.FC = () => {
     return attachLiveBody()
   }, [])
 
+  useEffect(() => authSubject.subscribe(() => {
+    sessionLoads.reset()
+    frontendActionQueue.reset()
+    // Identity loss, not attention transfer: detach both old transport lanes.
+    // This does not cancel the previous user's server-side Work task.
+    for (const lane of ['work', 'chat'] as const) {
+      agentService.abortCurrentRequest(lane)
+      const id = loadingMessageIdByModeRef.current[lane]
+      if (id) discardedResponseIdsRef.current.add(id)
+      loadingMessageIdByModeRef.current[lane] = null
+      loadingByModeRef.current[lane] = false
+      setAgentLaneLoading(lane, false)
+      setSessionId(null, lane)
+      setMessages([], lane)
+      sessionTitleSetByModeRef.current[lane] = false
+    }
+    capSet(discardedResponseIdsRef.current)
+    setTurnGeneration(chatTurnClockRef.current.next())
+    setIsLoading(false)
+    resetAgentStatus()
+    clearChatOutfitOverlay()
+    void stopAgoraConversation()
+  }), [setMessages, setSessionId, frontendActionQueue, sessionLoads])
+
   useEffect(() => {
     const handleOpenSession = (event: Event) => {
       const id = agentPanelOpenSessionId(event)
@@ -719,7 +710,6 @@ export const AgentEngine: React.FC = () => {
   useEffect(() => {
     setAgentSessionId(sessionId)
   }, [sessionId])
-
 
   const interruptCurrentTask = useCallback(async () => {
     const current = getAgentPanelMode()
@@ -799,14 +789,16 @@ export const AgentEngine: React.FC = () => {
       generation = 0,
       speechOutput: 'local' | 'external' = 'local',
       initialRunId?: string,
+      subject = authSubject.signal,
     ) => {
+      if (subject.aborted) return () => {}
       let streamedSummary = ''
       let streamedThinking = ''
       let performancePlanCount = 0
       let performanceRunId = initialRunId
       let notedStaleGeneration = false
       let liveTaskId = ''
-      const speech = openTurnSpeech(assistantMessageId, generation, locale, speechOutput)
+      const speech = openTurnSpeech(mode, assistantMessageId, generation, locale, speechOutput)
       const utterance = openTurnReply(
         mode,
         assistantMessageId,
@@ -820,6 +812,7 @@ export const AgentEngine: React.FC = () => {
       }
 
       return (event: ProgressEvent) => {
+        if (subject.aborted) return
         if (
           mode === 'chat' &&
           !isCurrentChatGeneration(generation, chatTurnClockRef.current.current())
@@ -952,7 +945,9 @@ export const AgentEngine: React.FC = () => {
                 const results = await enqueueFrontendActions(
                   assistantMessageId,
                   frontendActions,
+                  subject,
                 )
+                if (subject.aborted) return
                 const needsAck = frontendActions.some(
                   (action) =>
                     action &&
@@ -964,10 +959,10 @@ export const AgentEngine: React.FC = () => {
                 for (const result of results) {
                   if (!result || typeof result !== 'object') continue
                   const row = result as Record<string, unknown>
-                  if ('isPlaying' in row || 'isEnabled' in row) {
+                  if (Object.hasOwn(row, 'isPlaying') || Object.hasOwn(row, 'isEnabled')) {
                     musicStatus = result
                   }
-                  if ('windows' in row || 'available' in row) {
+                  if (Object.hasOwn(row, 'windows') || Object.hasOwn(row, 'available')) {
                     windowState = result
                   }
                 }
@@ -991,6 +986,7 @@ export const AgentEngine: React.FC = () => {
                   liveTaskId,
                   stepEvent.stepId,
                   { musicStatus, windowState },
+                  subject,
                 )
               })()
             }
@@ -1241,7 +1237,7 @@ export const AgentEngine: React.FC = () => {
                   const existing = m.taskExecution.debugTrace ?? {
                     stepDebugEntries: [],
                   }
-                  const entries = [...existing.stepDebugEntries]
+                  const entries = Iterator.from(existing.stepDebugEntries).toArray()
 
                   if (sdEvent.phase === 'start') {
                     entries.push({
@@ -1306,7 +1302,6 @@ export const AgentEngine: React.FC = () => {
 
   createProgressHandlerRef.current = createProgressHandler
 
-
   const handleSend = useCallback(
     async (
       text: string,
@@ -1314,6 +1309,7 @@ export const AgentEngine: React.FC = () => {
       mode: AgentPanelMode = getAgentPanelMode(),
       intentionId?: string,
     ) => {
+      const subject = authSubject.signal
       const messageText = text.trim()
       if (!messageText && attachments.length === 0) return
       const requestText =
@@ -1326,7 +1322,7 @@ export const AgentEngine: React.FC = () => {
       void import('../../utils/analyticsEvents').then(
         ({ trackProductEvent, AnalyticsEvents }) => {
           trackProductEvent(AnalyticsEvents.AGENT_SEND, {
-            target: location.pathname.split('/').filter(Boolean)[0] || 'home',
+            target: location.pathname.split('/').find(Boolean) || 'home',
             throttleMs: 2000,
           })
         },
@@ -1360,14 +1356,12 @@ export const AgentEngine: React.FC = () => {
       }
 
       if (loadingByModeRef.current[mode] && mode !== 'chat') {
-        const activeTaskMessage = [...messages]
-          .reverse()
-          .find(
-            (message) =>
-              message.taskExecution?.status === 'processing' &&
-              !!message.taskExecution.taskId &&
-              !message.taskExecution.taskId.startsWith('confirmation:'),
-          )
+        const activeTaskMessage = messages.findLast(
+          (message) =>
+            message.taskExecution?.status === 'processing' &&
+            !!message.taskExecution.taskId &&
+            !message.taskExecution.taskId.startsWith('confirmation:'),
+        )
         if (!activeTaskMessage?.taskExecution?.taskId) return
 
         const userMessage: ChatMessage = {
@@ -1376,18 +1370,21 @@ export const AgentEngine: React.FC = () => {
           role: 'user',
           content: messageText,
           createdAt: new Date(),
-          ...(attachments.length ? { attachments: [...attachments] } : {}),
+          ...(attachments.length ? { attachments: Iterator.from(attachments).toArray() } : {}),
         }
         setMessages((prev) => [...prev, userMessage], mode)
         try {
           const result = await agentService.steerSession(
             requestText,
             activeTaskMessage.taskExecution.taskId,
+            subject,
           )
+          if (subject.aborted) return
           updateMessageExecution(activeTaskMessage.id, {
             statusMessage: result.message,
           })
         } catch (error) {
+          if (subject.aborted) return
           const errorMessage = userFacingError(
             error,
             t.errors.agentSteeringFailed,
@@ -1418,7 +1415,7 @@ export const AgentEngine: React.FC = () => {
         role: 'user',
         content: messageText,
         createdAt: new Date(),
-        ...(attachments.length ? { attachments: [...attachments] } : {}),
+        ...(attachments.length ? { attachments: Iterator.from(attachments).toArray() } : {}),
       }
 
       const assistantMsgId = nextAgentMessageId('assistant')
@@ -1488,7 +1485,7 @@ export const AgentEngine: React.FC = () => {
               document.querySelector('main') ?? document.body
             // Hidden controls are not what the user is reading.
             // eslint-disable-next-line unicorn/prefer-dom-node-text-content
-            const text = (main?.innerText ?? '').replace(/\s+/g, ' ').trim()
+            const text = (main?.innerText ?? '').replaceAll(/\s+/g, ' ').trim()
             if (text) {
               customData.pageContent = {
                 type: 'custom',
@@ -1521,7 +1518,7 @@ export const AgentEngine: React.FC = () => {
             const windowState = await executeFrontendAction({
               type: 'query_windows',
               timestamp: Date.now(),
-            })
+            }, subject)
             if (windowState && typeof windowState === 'object') {
               customData.windowState = windowState
             }
@@ -1529,6 +1526,7 @@ export const AgentEngine: React.FC = () => {
             /* typed handler missing mid-unmount */
           }
         }
+        if (subject.aborted) return
         const body = captureTurnBody({
           route: location.pathname,
           page: pageConsent ? (pageContentContext?.pageContent ?? null) : null,
@@ -1548,10 +1546,12 @@ export const AgentEngine: React.FC = () => {
         markTurnTraceOnce('request_sent')
         const response = await agentService.processWithProgress(
           requestText,
-          createProgressHandler(assistantMsgId, mode, chatGeneration),
+          createProgressHandler(assistantMsgId, mode, chatGeneration, 'local', undefined, subject),
           context,
+          subject,
         )
 
+        if (subject.aborted) return
         if (handleAgentResponseRef.current) {
           await handleAgentResponseRef.current(
             assistantMsgId,
@@ -1561,6 +1561,7 @@ export const AgentEngine: React.FC = () => {
           )
         }
       } catch (error) {
+        if (subject.aborted) return
         stopTurnSpeech(assistantMsgId)
         finishTurnTrace()
         if (isStreamSupersededError(error)) {
@@ -1607,7 +1608,7 @@ export const AgentEngine: React.FC = () => {
                 ...m,
                 content:
                   m.content ||
-                  t.agentPanel.errorWithDetail.replace('{error}', errorMsg),
+                  format(t.agentPanel.errorWithDetail, { error: errorMsg }),
                 taskExecution: {
                   taskId: existing?.taskId ?? '',
                   status: 'error' as const,
@@ -1621,14 +1622,14 @@ export const AgentEngine: React.FC = () => {
           mode,
         )
       } finally {
-        if (loadingMessageIdByModeRef.current[mode] === assistantMsgId) {
+        if (!subject.aborted && loadingMessageIdByModeRef.current[mode] === assistantMsgId) {
           loadingByModeRef.current[mode] = false
           loadingMessageIdByModeRef.current[mode] = null
           setAgentLaneLoading(mode, false)
         }
-        setIsLoading(
-          loadingByModeRef.current.work || loadingByModeRef.current.chat,
-        )
+        if (!subject.aborted) {
+          setIsLoading(loadingByModeRef.current.work || loadingByModeRef.current.chat)
+        }
       }
     },
     [
@@ -1657,7 +1658,8 @@ export const AgentEngine: React.FC = () => {
       generation = 0,
       speechOutput: 'local' | 'external' = 'local',
     ) => {
-      if (discardedResponseIdsRef.current.delete(messageId)) return
+      if (discardedResponseIdsRef.current.has(messageId)) return
+      const subject = authSubject.signal
       const taskData = response.task as Record<string, unknown> | undefined
       let pendingQuestion = taskData?.pendingQuestion as
         PendingQuestion | undefined
@@ -1709,7 +1711,7 @@ export const AgentEngine: React.FC = () => {
         capSet(handledResponseKeysRef.current)
       }
 
-      if (pendingQuestion && pendingQuestion.question) {
+      if (pendingQuestion?.question) {
         if (!pendingQuestion.confirmationId) {
           setAgentStatusAwaitingConfirmation(pendingQuestion.question)
         }
@@ -1742,7 +1744,7 @@ export const AgentEngine: React.FC = () => {
           response.responseType === 'task_completed')
 
       const responseData = response.data as Record<string, unknown> | undefined
-      if (mode === 'chat' && responseData && 'outfitId' in responseData) {
+      if (mode === 'chat' && responseData && Object.hasOwn(responseData, 'outfitId')) {
         const overlayId = responseData.outfitId
         setChatOutfitOverlay(
           typeof overlayId === 'string' ? overlayId : null,
@@ -1816,7 +1818,7 @@ export const AgentEngine: React.FC = () => {
         const msg = findMessage(messageId)
         return msg?.imageUrls ?? []
       })()
-      const mergedImageUrls = [...existingImageUrls]
+      const mergedImageUrls = Iterator.from(existingImageUrls).toArray()
       for (const url of fallbackImageUrls) {
         if (!mergedImageUrls.includes(url)) {
           mergedImageUrls.push(url)
@@ -1927,16 +1929,16 @@ export const AgentEngine: React.FC = () => {
       if (
         frontendAction &&
         typeof frontendAction === 'object' &&
-        'type' in frontendAction
+        Object.hasOwn(frontendAction, 'type')
       ) {
         const actionObj = frontendAction as unknown as Record<string, unknown>
-        if (!('timestamp' in actionObj)) {
+        if (!Object.hasOwn(actionObj, 'timestamp')) {
           frontendAction = {
             ...actionObj,
             timestamp: Date.now(),
           } as typeof response.frontendAction
         }
-        if (responseData?.criteria && !('criteria' in actionObj)) {
+        if (responseData?.criteria && !Object.hasOwn(actionObj, 'criteria')) {
           frontendAction = {
             ...(frontendAction as unknown as Record<string, unknown>),
             criteria: responseData.criteria as string,
@@ -1955,7 +1957,9 @@ export const AgentEngine: React.FC = () => {
       const visibleResults = await enqueueFrontendActions(
         messageId,
         pendingActions,
+        subject,
       )
+      if (subject.aborted) return
       if (visibleResults.length > 0) {
         const serialized = JSON.stringify(visibleResults, null, 2).slice(
           0,
@@ -1969,11 +1973,10 @@ export const AgentEngine: React.FC = () => {
           },
         })
       }
-      dispatchedFrontendKeysRef.current.delete(messageId)
-      frontendActionChainRef.current.delete(messageId)
+      frontendActionQueue.forget(messageId)
       finishTurnTrace()
     },
-    [locale, updateMessage, updateMessageExecution, enqueueFrontendActions],
+    [locale, updateMessage, updateMessageExecution, enqueueFrontendActions, frontendActionQueue],
   )
 
   useEffect(() => {

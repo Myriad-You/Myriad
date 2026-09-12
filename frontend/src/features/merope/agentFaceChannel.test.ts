@@ -189,7 +189,6 @@ test('proactive lines share the ledger without colliding with replies', () => {
     ],
   )
 
-
   channel.deliver({
     messageId: 'notif-1',
     text: '报告生成好了',

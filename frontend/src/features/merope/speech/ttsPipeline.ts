@@ -46,7 +46,7 @@ export class TtsPipeline {
   private nextPlayId = 0
   private nextPlay = 1
   private readonly synthesis = new Map<number, Synthesis>()
-  private readonly pending: QueuedSegment[] = []
+  private pending: QueuedSegment[] = []
   private readonly ready = new Map<number, ReadySlot>()
   private handle: TtsAudioHandle | null = null
   private playingMessageId: string | null = null
@@ -85,11 +85,11 @@ export class TtsPipeline {
   upcomingText(messageId: string, generation: number): string {
     return [
       ...this.pending,
-      ...[...this.ready].map(([playId, slot]) => ({
+      ...Iterator.from(this.ready).map(([playId, slot]) => ({
         playId,
         segment: slot.segment,
       })),
-      ...[...this.synthesis].map(([playId, task]) => ({
+      ...Iterator.from(this.synthesis).map(([playId, task]) => ({
         playId,
         segment: task.segment,
       })),
@@ -98,7 +98,7 @@ export class TtsPipeline {
         ({ segment }) =>
           segment.messageId === messageId && segment.generation === generation,
       )
-      .sort((a, b) => a.playId - b.playId)
+      .toSorted((a, b) => a.playId - b.playId)
       .slice(0, 6)
       .map(({ segment }) => segment.text)
       .join('\n')
@@ -151,7 +151,7 @@ export class TtsPipeline {
     this.stopPlayback()
     this.pending.length = 0
     this.ready.clear()
-    const abandoned = [...this.synthesis.values()]
+    const abandoned = Iterator.from(this.synthesis.values()).toArray()
     this.synthesis.clear()
     this.nextPlayId = 0
     this.nextPlay = 1
@@ -180,11 +180,11 @@ export class TtsPipeline {
     let dropped = false
     for (let i = this.pending.length - 1; i >= 0; i--) {
       if (this.pending[i]?.segment.messageId === messageId) {
-        this.pending.splice(i, 1)
+        this.pending = this.pending.toSpliced(i, 1)
         dropped = true
       }
     }
-    for (const [playId, slot] of [...this.ready]) {
+    for (const [playId, slot] of Iterator.from(this.ready).toArray()) {
       if (slot.segment.messageId === messageId) {
         this.ready.delete(playId)
         dropped = true

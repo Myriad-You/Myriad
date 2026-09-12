@@ -1,4 +1,3 @@
-
 import type { OAuthProviderEntry } from '../../utils/oauthSettings'
 import { getOAuthIconAsset } from '../../utils/oauthIcons'
 
@@ -139,7 +138,7 @@ export function entryFromPreset(
   const seed = preset.defaultSlug || preset.id
   const slug = uniqueOAuthSlug(seed, existing)
   const copy =
-    slug === seed ? '' : slug.slice(seed.length).replace(/^-+/, '')
+    slug === seed ? '' : slug.slice(seed.length).replaceAll(/^-+/g, '')
   return {
     slug,
     kind: preset.kind,
@@ -149,7 +148,7 @@ export function entryFromPreset(
     enabled: true,
     client_id: '',
     client_secret: '',
-    scopes: [...preset.scopes],
+    scopes: Iterator.from(preset.scopes).toArray(),
     discovery_url: preset.discovery_url || '',
     icon_url: preset.icon_url || null,
   }

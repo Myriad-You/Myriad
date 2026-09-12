@@ -11,7 +11,7 @@ export interface AuthMeUser {
   bio?: string
   has_password?: boolean
   last_login_at?: string | null
-  locale?: 'zh-CN' | 'en-US' | 'ja-JP' | null
+  locale?: import('../i18n').Locale | null
   identities?: Array<{
     id?: number
     provider?: string

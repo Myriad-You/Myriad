@@ -24,7 +24,7 @@ function hashSeed(seed: string): number {
 function initial(seed: string): string {
   const trimmed = seed.trim()
   if (!trimmed) return '?'
-  const first = Array.from(trimmed)[0]
+  const first = Iterator.from(trimmed).toArray()[0]
   return first.toUpperCase()
 }
 
@@ -34,9 +34,9 @@ export function localFallbackAvatar(seed: string | null | undefined): string {
   const letter = initial(name)
   // Escape & and < in SVG.
   const safeLetter = letter
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="${color}"/><text x="50%" y="50%" dy=".35em" text-anchor="middle" font-family="system-ui,-apple-system,'PingFang SC','Microsoft YaHei',sans-serif" font-size="30" fill="#fff">${safeLetter}</text></svg>`
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
 }

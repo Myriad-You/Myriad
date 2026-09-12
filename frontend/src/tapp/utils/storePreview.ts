@@ -83,7 +83,7 @@ export function parseStorePreview(
     version: 1,
     type: 'snapshot',
     html,
-    styles: [...new Set(styles)],
+    styles: Iterator.from(new Set(styles)).toArray(),
     viewport: {
       width: boundedInteger(
         viewport.width,

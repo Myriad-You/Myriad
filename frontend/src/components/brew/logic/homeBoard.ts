@@ -44,10 +44,11 @@ export function pickHomeBoardNotes(
       .map((source) => source.id),
   )
   if (noteSourceIds.size === 0) return []
-  return items
+  return Iterator.from(items)
     .filter((item) => noteSourceIds.has(item.source_id))
-    .slice(0, NOTES_FEATURED_MAX)
+    .take(NOTES_FEATURED_MAX)
     .map(toHomeBoardNote)
+    .toArray()
 }
 
 export function noteSourceKey(

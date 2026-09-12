@@ -6,14 +6,16 @@ export function keepSelectedPersonaTags(
   deckLabels: readonly string[],
 ): string[] {
   const labels = new Set(deckLabels)
-  return selected.filter((label) => labels.has(label))
+  return Iterator.from(selected)
+    .filter((label) => labels.has(label))
+    .toArray()
 }
 
 export function uniqPersonaTags(values: string[]): string[] {
   const seen = new Set<string>()
   const out: string[] = []
   for (const raw of values) {
-    const tag = raw.replace(/\s+/g, ' ').trim()
+    const tag = raw.replaceAll(/\s+/g, ' ').trim()
     if (tag.length < 2 || tag.length > MAX_ONBOARDING_TAG_CHARS) continue
     const key = tag.toLowerCase()
     if (seen.has(key)) continue

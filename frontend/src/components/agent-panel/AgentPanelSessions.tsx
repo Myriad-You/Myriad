@@ -157,7 +157,7 @@ export const AgentPanelSessions: React.FC<AgentPanelSessionsProps> = ({
   }
 
   const visible = useMemo(
-    () => (sessions ? [...sessions].reverse() : []),
+    () => (sessions ? sessions.toReversed() : []),
     [sessions],
   )
 

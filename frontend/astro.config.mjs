@@ -165,10 +165,9 @@ function isFederationTransferApiPath(urlPath) {
 }
 
 async function readRequestBody(req) {
-  const chunks = []
-  for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
-  }
+  const chunks = await Array.fromAsync(req, (chunk) =>
+    Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk),
+  )
   return Buffer.concat(chunks)
 }
 
@@ -195,19 +194,18 @@ function proxyBackendRequest(targetUrl, method, headers, body, timeoutMs) {
       (backendRes) => {
         // Headers arrived: drop the idle timer for a small JSON body.
         backendReq.setTimeout(0)
-        const chunks = []
-        backendRes.on('data', (chunk) =>
-          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)),
+        void Array.fromAsync(backendRes, (chunk) =>
+          Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk),
         )
-        backendRes.on('end', () => {
-          resolve({
-            statusCode: backendRes.statusCode || 502,
-            statusMessage: backendRes.statusMessage || 'Bad Gateway',
-            headers: backendRes.headers,
-            body: Buffer.concat(chunks),
+          .then((chunks) => {
+            resolve({
+              statusCode: backendRes.statusCode || 502,
+              statusMessage: backendRes.statusMessage || 'Bad Gateway',
+              headers: backendRes.headers,
+              body: Buffer.concat(chunks),
+            })
           })
-        })
-        backendRes.on('error', reject)
+          .catch(reject)
       },
     )
 
@@ -408,6 +406,7 @@ function isBackendDevProxyPath(urlPath, userAgent) {
   if (
     path.startsWith('/api/') ||
     path === '/health' ||
+    path === '/ready' ||
     path === '/sitemap.xml' ||
     path === '/robots.txt' ||
     path === '/llms.txt'
@@ -675,7 +674,7 @@ function deferNonCriticalCssIntegration() {
 
         const stripRe = new RegExp(
           `<link[^>]+href="/assets/(${[...stripCss]
-            .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+            .map((s) => RegExp.escape(s))
             .join('|')})"[^>]*>`,
           'g',
         )
@@ -918,58 +917,63 @@ export default defineConfig({
     environments: {
       client: {
         build: {
+          target: 'es2025',
           rollupOptions: {
             output: {
-              manualChunks: (id) => {
-                // Keep React + React Router in one chunk so Router v7 cannot
-                // load before React Context and break hydration.
-                if (
-                  id.includes('node_modules/react/') ||
-                  id.includes('node_modules/react-dom/') ||
-                  id.includes('node_modules/react-router') ||
-                  id.includes('node_modules/@remix-run') ||
-                  // jsx-runtime ids may omit node_modules/react/ (pnpm / virtual).
-                  // Unclassified, Rolldown parks it in an arbitrary chunk
-                  // (observed: motion), so every JSX chunk statically depends
-                  // on the 124K motion chunk for 1KB of jsx-runtime.
-                  id.includes('jsx-runtime')
-                ) {
-                  return 'react-vendor'
-                }
-                if (
-                  id.includes('node_modules/chart.js') ||
-                  id.includes('node_modules/react-chartjs-2')
-                ) {
-                  return 'chart-vendor'
-                }
-                // motion-dom / motion-utils are separate packages whose paths
-                // also contain node_modules/motion. Merging them into `motion`
-                // would make shared helpers a static dep of the 124K chunk and
-                // break lazyMotion's dynamic load.
-                if (id.includes('node_modules/motion-utils')) {
-                  return 'motion-utils'
-                }
-                if (id.includes('node_modules/motion-dom')) {
-                  return 'motion-dom'
-                }
-                if (id.includes('node_modules/motion')) {
-                  return 'motion'
-                }
-                if (id.includes('node_modules/react-icons/fa6/')) {
-                  return 'icons-fa6'
-                }
-                if (id.includes('node_modules/react-icons/fa/')) {
-                  return 'icons-fa'
-                }
-                if (id.includes('node_modules/react-icons/si/')) {
-                  return 'icons-si'
-                }
-                if (id.includes('node_modules/react-icons')) {
-                  return 'icons-base'
-                }
-                if (id.includes('node_modules/axios')) {
-                  return 'axios'
-                }
+              codeSplitting: {
+                groups: [
+                  {
+                    // Claim React before other groups recursively capture their
+                    // dependencies. A manualChunks name alone lets Motion take
+                    // jsx-runtime and forces every JSX entry to load Motion.
+                    name: 'react-vendor',
+                    priority: 100,
+                    test: (id) =>
+                      id.includes('node_modules/react/') ||
+                      id.includes('node_modules/react-dom/') ||
+                      id.includes('node_modules/react-router') ||
+                      id.includes('node_modules/@remix-run') ||
+                      id.includes('jsx-runtime'),
+                  },
+                  {
+                    name: (id) => {
+                      if (
+                        id.includes('node_modules/chart.js') ||
+                        id.includes('node_modules/react-chartjs-2')
+                      ) {
+                        return 'chart-vendor'
+                      }
+                      // motion-dom / motion-utils are separate packages whose paths
+                      // also contain node_modules/motion. Merging them into `motion`
+                      // would make shared helpers a static dep of the 124K chunk and
+                      // break lazyMotion's dynamic load.
+                      if (id.includes('node_modules/motion-utils')) {
+                        return 'motion-utils'
+                      }
+                      if (id.includes('node_modules/motion-dom')) {
+                        return 'motion-dom'
+                      }
+                      if (id.includes('node_modules/motion')) {
+                        return 'motion-vendor'
+                      }
+                      if (id.includes('node_modules/react-icons/fa6/')) {
+                        return 'icons-fa6'
+                      }
+                      if (id.includes('node_modules/react-icons/fa/')) {
+                        return 'icons-fa'
+                      }
+                      if (id.includes('node_modules/react-icons/si/')) {
+                        return 'icons-si'
+                      }
+                      if (id.includes('node_modules/react-icons')) {
+                        return 'icons-base'
+                      }
+                      if (id.includes('node_modules/axios')) {
+                        return 'axios'
+                      }
+                    },
+                  },
+                ],
               },
               chunkFileNames: 'assets/[name]-[hash].js',
               entryFileNames: 'assets/[name]-[hash].js',
@@ -980,6 +984,7 @@ export default defineConfig({
       },
     },
     build: {
+      target: 'es2025',
       cssCodeSplit: true,
       minify: 'terser',
       terserOptions: {
@@ -988,9 +993,6 @@ export default defineConfig({
           drop_console: process.env.NODE_ENV === 'production',
           drop_debugger: true,
           passes: 2,
-        },
-        mangle: {
-          safari10: true,
         },
       },
       assetsInlineLimit: 4096,

@@ -24,7 +24,7 @@ import {
   idleSitesIntent,
   requestSiteView,
 } from '../logic/feedsMotion'
-import { BrewChip } from '../ui/Chip'
+import { BrewManagement } from '../ui/BrewManagement'
 import { SiteCard } from '../ui/SiteCard'
 import { BrewStory } from './BrewStory'
 import {
@@ -509,28 +509,33 @@ export default function BrewFeeds({
       <div className="brew-feeds__air" aria-hidden />
       <div className="brew-feeds__stage">
         <div className="brew-feeds__bar">
-          <BrewChip key="feeds:spread" id="feeds:spread" index={0}>
-            <button
-              type="button"
-              className="brew-feeds__spread"
-              aria-pressed={sitesOpen}
-              aria-busy={flipping}
-              onClick={() => {
-                if (sitesOpen) foldSites(focusId)
-                else setSitesMode(true)
-              }}
-            >
-              <span className="brew-feeds__mark" aria-hidden>
-                <Expand />
-                <Compress />
-              </span>
-              <span className="brew-feeds__spread-label">
-                <span>{t.brew.spreadSites}</span>
-                <span>{t.brew.foldSites}</span>
-              </span>
-            </button>
-          </BrewChip>
+          <BrewManagement
+            embedded
+            active={isEditMode}
+            displayControl={
+              <button
+                type="button"
+                className="brew-feeds__spread"
+                aria-pressed={sitesOpen}
+                aria-busy={flipping}
+                onClick={() => {
+                  if (sitesOpen) foldSites(focusId)
+                  else setSitesMode(true)
+                }}
+              >
+                <span className="brew-feeds__mark" aria-hidden>
+                  <Expand />
+                  <Compress />
+                </span>
+                <span className="brew-feeds__spread-label">
+                  <span>{t.brew.spreadSites}</span>
+                  <span>{t.brew.foldSites}</span>
+                </span>
+              </button>
+            }
+          >
           {toolbar}
+          </BrewManagement>
         </div>
         {vacant || null}
         <div

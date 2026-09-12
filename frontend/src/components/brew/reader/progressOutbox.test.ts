@@ -16,7 +16,7 @@ function memoryStorage(): Storage {
       return map.has(key) ? map.get(key)! : null
     },
     key(index) {
-      return [...map.keys()][index] ?? null
+      return Iterator.from(map.keys()).toArray()[index] ?? null
     },
     removeItem(key) {
       map.delete(key)

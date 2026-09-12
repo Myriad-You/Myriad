@@ -38,7 +38,7 @@ export function HomeLayoutTransferButtons({
   disabled,
   onImport,
 }: HomeLayoutTransferButtonsProps) {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const locked = disabled || busy
@@ -54,7 +54,7 @@ export function HomeLayoutTransferButtons({
       )
       if (missing.length > 0) {
         showWarning(
-          t.home.exportLayoutPartial.replace('{count}', String(missing.length)),
+          format(t.home.exportLayoutPartial, { count: missing.length }),
         )
       } else {
         showSuccess(t.home.exportLayoutSuccess)
@@ -65,7 +65,7 @@ export function HomeLayoutTransferButtons({
     } finally {
       setBusy(false)
     }
-  }, [layouts, locked, mode, t])
+  }, [format, layouts, locked, mode, t])
 
   const handleImportClick = useCallback(() => {
     if (locked) return

@@ -669,7 +669,7 @@ pub fn register(registry: &mut CapabilityRegistry) {
         ..Default::default()
     });
 
-    // 语音服务（与 /api/speech/tts 同一实现：缓存 + 腾讯云合成）
+    // Same synthesize_standalone_tts as POST /api/speech/tts (configured provider; else Tencent).
     registry.register(Capability {
         id: "speech.tts".to_string(),
         name: "Text to speech".to_string(),

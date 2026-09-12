@@ -518,9 +518,67 @@ CREATE TABLE federation_inbox_receipts (
     .await
     .expect("create the legacy receipt shape");
 
+    db.execute_unprepared(
+        r#"
+DROP INDEX idx_delivery_queue_activity_target;
+DROP INDEX idx_timeline_user_activity;
+INSERT INTO federation_delivery_queue (id, activity_id, target_inbox, target_domain, attempts)
+VALUES (-2, 2147483647, 'https://schema.test/inbox', 'schema.test', 3),
+       (-1, 2147483647, 'https://schema.test/inbox', 'schema.test', 0);
+INSERT INTO federation_timeline (id, user_id, activity_id, is_read)
+VALUES (-2, 2147483647, 'https://schema.test/activity', TRUE),
+       (-1, 2147483647, 'https://schema.test/activity', FALSE);
+"#,
+    )
+    .await
+    .expect("seed duplicate rows in the legacy schema without unique indexes");
+
     ensure_schema(&db)
         .await
-        .expect("schema heal must upgrade a database that recorded old 012");
+        .expect("schema heal must upgrade legacy receipts and deduplicate before creating indexes");
+
+    for table in ["federation_delivery_queue", "federation_timeline"] {
+        let rows = db
+            .query_all_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                format!("SELECT id FROM {table} WHERE id IN (-2, -1)"),
+            ))
+            .await
+            .expect("read deduplicated rows");
+        assert_eq!(rows.len(), 1, "{table} must retain one row");
+        assert_eq!(rows[0].try_get::<i32>("", "id").unwrap(), -2);
+    }
+
+    // Statement triggers also reject DELETEs that would affect zero rows.
+    db.execute_unprepared(
+        r#"
+CREATE FUNCTION reject_schema_dedup_delete() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'valid unique indexes must skip dedup DELETE';
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER reject_schema_dedup_delete BEFORE DELETE ON federation_delivery_queue
+    FOR EACH STATEMENT EXECUTE FUNCTION reject_schema_dedup_delete();
+CREATE TRIGGER reject_schema_dedup_delete BEFORE DELETE ON federation_timeline
+    FOR EACH STATEMENT EXECUTE FUNCTION reject_schema_dedup_delete();
+"#,
+    )
+    .await
+    .expect("guard normal startup against unconditional deduplication");
+    ensure_schema(&db)
+        .await
+        .expect("repeated startup must not issue dedup DELETE when unique indexes exist");
+    db.execute_unprepared(
+        r#"
+DROP TRIGGER reject_schema_dedup_delete ON federation_delivery_queue;
+DROP TRIGGER reject_schema_dedup_delete ON federation_timeline;
+DROP FUNCTION reject_schema_dedup_delete();
+DELETE FROM federation_delivery_queue WHERE id = -2;
+DELETE FROM federation_timeline WHERE id = -2;
+"#,
+    )
+    .await
+    .expect("remove deduplication test fixtures");
     let upgraded_drift = report_schema_drift(&db)
         .await
         .expect("upgraded receipt schema drift report must succeed");

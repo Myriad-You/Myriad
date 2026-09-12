@@ -25,7 +25,9 @@ export function startAttachOrbDrift(
   el: HTMLElement,
   speed: () => number,
 ): () => void {
-  const blobs = [...el.querySelectorAll<HTMLElement>('[data-orb-blob]')]
+  const blobs = Iterator.from(
+    el.querySelectorAll<HTMLElement>('[data-orb-blob]'),
+  ).toArray()
   if (blobs.length === 0) return () => {}
 
   const seed = Math.random() * Math.PI * 2

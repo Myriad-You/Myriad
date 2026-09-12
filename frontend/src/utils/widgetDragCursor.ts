@@ -27,7 +27,7 @@ export function getWidgetDragActive(): boolean {
 export function setWidgetDragCursor(next: WidgetDragCursor | null): void {
   if (
     cursor === next ||
-    (cursor && next && cursor.x === next.x && cursor.y === next.y)
+    (next && cursor?.x === next.x && cursor.y === next.y)
   ) {
     return
   }

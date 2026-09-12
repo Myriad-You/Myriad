@@ -1,4 +1,5 @@
-//! Chat Lite prompt reconstruction. Work artifacts never belong here.
+//! Chat Lite prompt reconstruction. Chat (`for_chat`) drops Work artifacts;
+//! Work (`!for_chat`) still appends planner extras from metadata.
 
 use serde_json::Value;
 
@@ -302,7 +303,7 @@ pub fn chat_reply_data(reply: &str, input: &str) -> Value {
     Value::Object(data)
 }
 
-/// Bounded page excerpt for Chat Lite. Full body stays on `__page_context__`.
+/// Bounded page excerpt for Chat Lite (`title` / `author` / `content` / `summary`).
 pub fn format_page_excerpt(value: Option<&Value>) -> String {
     let Some(Value::Object(page)) = value else {
         return String::new();

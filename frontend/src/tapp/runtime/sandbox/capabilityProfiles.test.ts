@@ -63,18 +63,18 @@ describe('sandbox capability profiles', () => {
   it('keeps every generated SDK action governed by PERMISSION_MAP', () => {
     const sdk = generateFullSDK(instance, 'session-token', 'page')
     const sdkActions = new Set(
-      [...sdk.matchAll(/sendRequest\(\s*'([^']+)',\s*'([^']+)'/g)].map(
+      Iterator.from(sdk.matchAll(/sendRequest\(\s*'([^']+)',\s*'([^']+)'/g)).map(
         ([, namespace, operation]) => `${namespace}.${operation}`,
       ),
     )
 
     const permissionActions = new Set(PERMISSION_MAP.keys())
     assert.deepEqual(
-      [...sdkActions].filter(action => !permissionActions.has(action)),
+      Iterator.from(sdkActions.difference(permissionActions)).toArray(),
       [],
     )
     assert.deepEqual(
-      [...permissionActions].filter(action => !sdkActions.has(action)).sort(),
+      Iterator.from(permissionActions.difference(sdkActions)).toArray().toSorted(),
       ['widget.instanceSettings.update', 'widget.invalidate'],
       'only Widget-SDK-specific actions may be absent from the Page SDK',
     )

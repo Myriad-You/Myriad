@@ -1,4 +1,3 @@
-
 import type { OAuthProviderEntry } from '../../utils/oauthSettings'
 
 import {
@@ -139,7 +138,7 @@ export const OAuthConfigSection: React.FC<OAuthConfigSectionProps> = ({
 
   const baseUrl = (
     configFields.find((field) => field.key === 'base_url')?.value || ''
-  ).replace(/\/$/, '')
+  ).replaceAll(/\/$/g, '')
 
   const updateProvider = (idx: number, patch: Partial<OAuthProviderEntry>) => {
     onProvidersChange(
@@ -292,7 +291,7 @@ function ProviderCard({
   onChange: (patch: Partial<OAuthProviderEntry>) => void
   onRemove: () => void
 }) {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const { catalog: g, bindGuide } = useSettingGuide()
   const providerGuide = bindGuide('oauth.provider', g.oauth.provider).guide
   const configured = hasOAuthCredential(entry)
@@ -359,10 +358,10 @@ function ProviderCard({
           className="ai-vendor-card-hit"
           onClick={() => setOpen((value) => !value)}
           aria-expanded={open}
-          aria-label={(open
-            ? t.config.collapseGroupAria
-            : t.config.expandGroupAria
-          ).replace('{title}', title)}
+          aria-label={format(
+            open ? t.config.collapseGroupAria : t.config.expandGroupAria,
+            { title },
+          )}
         />
         <div className="oidc-provider-title">
           <ProviderIcon entry={entry} />

@@ -2,7 +2,7 @@
 //!
 //! Owns the durable gate used by both the public AI Task API and governed
 //! host adapters. Process-local execution state (`AI_TASKS`, provider calls)
-//! stays in the API module; this module only talks to the shared registry DB.
+//! stays in sibling service modules; this module only talks to the shared registry DB.
 
 use sea_orm::{
     ConnectionTrait, DatabaseConnection, DbBackend, DbErr, FromQueryResult, Statement,

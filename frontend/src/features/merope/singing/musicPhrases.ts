@@ -16,7 +16,7 @@ export function compileMusicPhrases(
         )
         if (!words.length) return []
         const first = words[0]
-        const last = words[words.length - 1]
+        const last = words.at(-1)!
         const next = input.verbatim?.[index + 1]?.words?.[0]?.time
         const end =
           last.time +
@@ -34,7 +34,7 @@ export function compileMusicPhrases(
           },
         ]
       })
-      .sort((a, b) => a.start - b.start)
+      .toSorted((a, b) => a.start - b.start)
   }
   return (input.lines ?? [])
     .flatMap((line, index, lines) => {
@@ -47,7 +47,7 @@ export function compileMusicPhrases(
         ? [{ start: line.time, end, confidence: 0.55 }]
         : []
     })
-    .sort((a, b) => a.start - b.start)
+    .toSorted((a, b) => a.start - b.start)
 }
 
 export function sampleMusicPhrase(

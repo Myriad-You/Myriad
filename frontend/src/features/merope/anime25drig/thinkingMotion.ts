@@ -37,16 +37,23 @@ export class ThinkingMotionController {
   private faceDelay = 0.18
   private faceDuration = 0.62
   private nextShiftAt = Number.POSITIVE_INFINITY
-  private direction = 1
+  private nextCheckAt = Number.POSITIVE_INFINITY
+  private checking = false
+  private hasThought = false
 
   constructor(private readonly random: RandomSource = Math.random) {}
 
-  sample(timeSeconds: number, enabled: boolean): Readonly<ThinkingMotionPose> {
+  sample(
+    timeSeconds: number,
+    enabled: boolean,
+    baseGaze = { eyeX: 0, eyeY: 0 },
+  ): Readonly<ThinkingMotionPose> {
     const now = finiteTime(timeSeconds)
     if (!this.initialized) {
       this.initialized = true
       this.enabled = enabled
       if (enabled) this.nextShiftAt = now + this.randomRange(0.18, 0.32)
+      if (enabled) this.nextCheckAt = now + this.randomRange(6, 10)
     }
 
     this.resolve(now)
@@ -54,6 +61,9 @@ export class ThinkingMotionController {
       this.enabled = enabled
       if (enabled) {
         this.nextShiftAt = now + this.randomRange(0.18, 0.32)
+        this.nextCheckAt = now + this.randomRange(6, 10)
+        this.checking = false
+        this.hasThought = false
       } else {
         this.beginTransition(now, ZERO_POSE, {
           eyeDuration: 0.24,
@@ -67,33 +77,52 @@ export class ThinkingMotionController {
     }
 
     if (this.enabled && now >= this.nextShiftAt) {
-      const scheduledAt = this.nextShiftAt
-      this.beginThoughtShift(scheduledAt)
+      // A delayed frame starts from the displayed pose, not an already elapsed transition.
+      this.beginThoughtShift(
+        now - this.nextShiftAt > 0.1 ? now : this.nextShiftAt,
+        baseGaze,
+      )
       return this.resolve(now)
     }
     return this.output
   }
 
-  private beginThoughtShift(now: number): void {
-    this.direction *= -1
-    const direction = this.direction
-    const pursing = direction < 0
+  private beginThoughtShift(
+    now: number,
+    baseGaze: { eyeX: number; eyeY: number },
+  ): void {
+    const returning = this.checking
+    this.checking = !returning && now >= this.nextCheckAt
+    if (returning) this.nextCheckAt = now + this.randomRange(6, 12)
+    const moveHead =
+      !this.hasThought || (!this.checking && this.randomUnit() < 0.25)
+    const moveFace =
+      !this.hasThought || (!this.checking && this.randomUnit() < 0.35)
+    const pursing = this.randomUnit() < 0.4
     const target: ThinkingMotionPose = {
-      angleX: direction * this.randomRange(0.08, 0.14),
-      angleY: this.randomRange(-0.09, 0.14),
-      angleZ: direction * this.randomRange(0.07, 0.13),
-      eyeX: direction * this.randomRange(0.16, 0.27),
-      eyeY: this.randomRange(-0.13, 0.11),
-      brow: this.randomRange(-0.025, 0.055),
-      mouthCY: this.randomRange(-0.025, 0.035),
-      mouthCAng: direction * this.randomRange(pursing ? 0.035 : 0.015, 0.06),
-      mouthScale: pursing
-        ? -this.randomRange(0.045, 0.075)
-        : this.randomRange(-0.01, 0.02),
+      // Eyes may inspect another point; the head keeps its thoughtful lean.
+      // Do not mirror the head every time the gaze changes sides.
+      angleX: moveHead ? -this.randomRange(0.035, 0.065) : this.output.angleX,
+      angleY: moveHead ? this.randomRange(0.015, 0.05) : this.output.angleY,
+      angleZ: moveHead ? -this.randomRange(0.035, 0.065) : this.output.angleZ,
+      // A check-in cancels the authored gaze bias rather than merely zeroing
+      // this overlay (which would leave the character looking off-screen).
+      eyeX: this.checking ? -baseGaze.eyeX : -this.randomRange(0.16, 0.24),
+      eyeY: this.checking ? -baseGaze.eyeY : this.randomRange(-0.06, 0.04),
+      brow: moveFace ? this.randomRange(-0.025, 0.055) : this.output.brow,
+      mouthCY: moveFace ? this.randomRange(-0.025, 0.035) : this.output.mouthCY,
+      mouthCAng: moveFace
+        ? this.randomRange(-0.035, 0.035)
+        : this.output.mouthCAng,
+      mouthScale: !moveFace
+        ? this.output.mouthScale
+        : pursing
+          ? -this.randomRange(0.045, 0.075)
+          : this.randomRange(-0.01, 0.02),
     }
     const eyeDuration = this.randomRange(0.28, 0.38)
     const headDelay = this.randomRange(0.09, 0.15)
-    const headDuration = this.randomRange(0.5, 0.72)
+    const headDuration = this.randomRange(0.95, 1.25)
     const faceDelay = headDelay + this.randomRange(0.04, 0.1)
     const faceDuration = this.randomRange(0.48, 0.7)
     this.beginTransition(now, target, {
@@ -103,12 +132,17 @@ export class ThinkingMotionController {
       faceDelay,
       faceDuration,
     })
+    this.hasThought = true
     const settleEnd = Math.max(
       eyeDuration,
       headDelay + headDuration,
       faceDelay + faceDuration,
     )
-    this.nextShiftAt = now + settleEnd + this.randomRange(1.6, 2.6)
+    this.nextShiftAt =
+      now +
+      (this.checking
+        ? eyeDuration + this.randomRange(0.6, 1.1)
+        : settleEnd + this.randomRange(1.8, 3.8))
   }
 
   private beginTransition(

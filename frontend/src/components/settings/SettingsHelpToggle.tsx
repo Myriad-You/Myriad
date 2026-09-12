@@ -1,4 +1,3 @@
-
 import { LuInfo } from '@lib/icons'
 import React from 'react'
 import { useI18n } from '../../contexts/I18nContext'

@@ -152,7 +152,7 @@ export function validatePlaygroundPackage(
     for (const [tag, entry] of entries) {
       if (!LOCALE_TAG_RE.test(tag)) {
         push(
-          `Tapp locales key '${tag}' must be a BCP-47 language tag (e.g. zh-CN)`,
+          `Tapp locales key '${tag}' must be a BCP-47 language tag (e.g. zh-CN, zh-TW)`,
         )
       }
       if (

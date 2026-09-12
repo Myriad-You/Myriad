@@ -23,6 +23,27 @@ impl ConfigService {
         Self { db }
     }
 
+    /// Fresh permission policy for grant revalidation across processes. This is
+    /// a permission-only snapshot, never a replacement for the full config cache.
+    /// Reuse the authoritative parser/defaults without reading/decrypting secrets.
+    pub async fn load_permission_config_on(db: &impl ConnectionTrait) -> Result<DynamicConfig> {
+        let rows = db.query_all_raw(Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT key, value FROM configurations WHERE LEFT(key, 10) = 'user_perm_' OR LEFT(key, 11) = 'guest_perm_'".to_string(),
+        )).await.context("Failed to load current permission policy")?;
+        let mut map = HashMap::new();
+        for row in rows {
+            let key: String = row.try_get("", "key")?;
+            let value: JsonValue = row.try_get("", "value")?;
+            anyhow::ensure!(
+                value.is_boolean(),
+                "permission policy contains a non-boolean value"
+            );
+            map.insert(key, value);
+        }
+        Ok(Self::parse_config(map))
+    }
+
     /// 从数据库加载所有配置
     pub async fn load_config(&self) -> Result<DynamicConfig> {
         // 使用 ConnectionTrait 的方法进行查询
@@ -680,6 +701,48 @@ impl ConfigService {
                 config.agora_api_base = s.to_string();
             }
         }
+        if let Some(v) = map.get("qq_bot_enabled") {
+            config.qq_bot_enabled = v
+                .as_bool()
+                .or_else(|| v.as_str().map(|s| s == "true" || s == "1"))
+                .unwrap_or(config.qq_bot_enabled);
+        }
+        if let Some(v) = map.get("qq_bot_app_id") {
+            config.qq_bot_app_id = v.as_str().map(str::trim).unwrap_or("").to_string();
+        }
+        if let Some(v) = map.get("qq_bot_app_secret") {
+            config.qq_bot_app_secret = opt_nonempty_string(v);
+        }
+        if let Some(v) = map.get("telegram_bot_enabled") {
+            config.telegram_bot_enabled = v
+                .as_bool()
+                .or_else(|| v.as_str().map(|s| s == "true" || s == "1"))
+                .unwrap_or(config.telegram_bot_enabled);
+        }
+        if let Some(v) = map.get("telegram_bot_token") {
+            config.telegram_bot_token = opt_nonempty_string(v);
+        }
+        if let Some(v) = map.get("discord_bot_enabled") {
+            config.discord_bot_enabled = v
+                .as_bool()
+                .or_else(|| v.as_str().map(|s| s == "true" || s == "1"))
+                .unwrap_or(config.discord_bot_enabled);
+        }
+        if let Some(v) = map.get("discord_bot_token") {
+            config.discord_bot_token = opt_nonempty_string(v);
+        }
+        if let Some(v) = map.get("feishu_bot_enabled") {
+            config.feishu_bot_enabled = v
+                .as_bool()
+                .or_else(|| v.as_str().map(|s| s == "true" || s == "1"))
+                .unwrap_or(config.feishu_bot_enabled);
+        }
+        if let Some(v) = map.get("feishu_bot_app_id") {
+            config.feishu_bot_app_id = v.as_str().map(str::trim).unwrap_or("").to_string();
+        }
+        if let Some(v) = map.get("feishu_bot_app_secret") {
+            config.feishu_bot_app_secret = opt_nonempty_string(v);
+        }
 
         if let Some(v) = map.get("enable_auto_fetch") {
             if let Some(b) = v.as_bool() {
@@ -1264,6 +1327,81 @@ impl ConfigService {
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    #[ignore = "requires a disposable MYRIAD_RUNTIME_ISOLATION_TEST_DB"]
+    async fn permission_policy_observes_commits_without_worker_cache_refresh() {
+        use crate::services::permission_service::{TappPermissionService, UserRole};
+        use sea_orm::{ConnectOptions, ConnectionTrait, Database, TransactionTrait};
+        let url = std::env::var("MYRIAD_RUNTIME_ISOLATION_TEST_DB").unwrap();
+        let admin = Database::connect(&url).await.unwrap();
+        let schema = format!("permission_policy_{}", uuid::Uuid::new_v4().simple());
+        admin
+            .execute_unprepared(&format!("CREATE SCHEMA {schema}"))
+            .await
+            .unwrap();
+        let mut options = ConnectOptions::new(url);
+        options.max_connections(2).map_sqlx_postgres_opts({
+            let schema = schema.clone();
+            move |options| options.options([("search_path", schema.as_str())])
+        });
+        let writer = Database::connect(options.clone()).await.unwrap();
+        let observer = Database::connect(options).await.unwrap();
+        writer
+            .execute_unprepared(
+                "CREATE TABLE configurations (key TEXT PRIMARY KEY, value JSONB NOT NULL)",
+            )
+            .await
+            .unwrap();
+        writer.execute_unprepared("INSERT INTO configurations VALUES ('user_perm_network_fetch', 'true'), ('openai_api_key', '\"irrelevant-test-secret\"')").await.unwrap();
+        let permissions = vec!["network:fetch".to_string()];
+        let stale = super::ConfigService::load_permission_config_on(&observer)
+            .await
+            .unwrap();
+        assert_eq!(
+            TappPermissionService::filter_permissions_for_role(
+                &stale,
+                UserRole::User,
+                &permissions
+            )
+            .unwrap(),
+            permissions
+        );
+        assert!(stale.openai_api_key.is_none());
+        let change = writer.begin().await.unwrap();
+        change
+            .execute_unprepared(
+                "UPDATE configurations SET value = 'false' WHERE key = 'user_perm_network_fetch'",
+            )
+            .await
+            .unwrap();
+        assert!(
+            super::ConfigService::load_permission_config_on(&observer)
+                .await
+                .unwrap()
+                .user_perm_network_fetch
+        );
+        change.commit().await.unwrap();
+        let fresh = super::ConfigService::load_permission_config_on(&observer)
+            .await
+            .unwrap();
+        assert!(!fresh.user_perm_network_fetch);
+        assert!(stale.user_perm_network_fetch);
+        assert!(TappPermissionService::filter_permissions_for_role(
+            &fresh,
+            UserRole::User,
+            &permissions
+        )
+        .unwrap()
+        .is_empty());
+        writer.execute_unprepared("UPDATE configurations SET value = '\"false\"' WHERE key = 'user_perm_network_fetch'").await.unwrap();
+        assert!(super::ConfigService::load_permission_config_on(&observer)
+            .await
+            .is_err());
+        admin
+            .execute_unprepared(&format!("DROP SCHEMA {schema} CASCADE"))
+            .await
+            .unwrap();
+    }
     use super::ConfigService;
     use crate::config::DynamicConfig;
     use serde_json::json;
@@ -1456,6 +1594,122 @@ mod tests {
         assert_eq!(config.speech_stt_model, "gpt-transcribe");
         assert_eq!(config.speech_tts_model, "gpt-4o-mini-tts");
         assert_eq!(config.speech_tts_voice, "marin");
+    }
+
+    #[test]
+    fn parses_qq_bot_fields_from_database_config() {
+        let configured = ConfigService::parse_config(HashMap::from([
+            ("qq_bot_enabled".into(), json!(true)),
+            ("qq_bot_app_id".into(), json!("102123456")),
+            ("qq_bot_app_secret".into(), json!("qq-secret-value")),
+        ]));
+        assert!(configured.qq_bot_enabled);
+        assert_eq!(configured.qq_bot_app_id, "102123456");
+        assert_eq!(
+            configured.qq_bot_app_secret.as_deref(),
+            Some("qq-secret-value")
+        );
+
+        let from_str = ConfigService::parse_config(HashMap::from([
+            ("qq_bot_enabled".into(), json!("true")),
+            ("qq_bot_app_id".into(), json!("  ")),
+            ("qq_bot_app_secret".into(), json!("  ")),
+        ]));
+        assert!(from_str.qq_bot_enabled);
+        assert_eq!(from_str.qq_bot_app_id, "");
+        assert_eq!(from_str.qq_bot_app_secret, None);
+
+        let off =
+            ConfigService::parse_config(HashMap::from([("qq_bot_enabled".into(), json!(false))]));
+        assert!(!off.qq_bot_enabled);
+        assert!(off.qq_bot_app_id.is_empty());
+        assert_eq!(off.qq_bot_app_secret, None);
+    }
+
+    #[test]
+    fn parses_telegram_bot_fields_from_database_config() {
+        let configured = ConfigService::parse_config(HashMap::from([
+            ("telegram_bot_enabled".into(), json!(true)),
+            ("telegram_bot_token".into(), json!("123456:ABC-DEF")),
+        ]));
+        assert!(configured.telegram_bot_enabled);
+        assert_eq!(
+            configured.telegram_bot_token.as_deref(),
+            Some("123456:ABC-DEF")
+        );
+
+        let from_str = ConfigService::parse_config(HashMap::from([
+            ("telegram_bot_enabled".into(), json!("true")),
+            ("telegram_bot_token".into(), json!("  ")),
+        ]));
+        assert!(from_str.telegram_bot_enabled);
+        assert_eq!(from_str.telegram_bot_token, None);
+
+        let off = ConfigService::parse_config(HashMap::from([(
+            "telegram_bot_enabled".into(),
+            json!(false),
+        )]));
+        assert!(!off.telegram_bot_enabled);
+        assert_eq!(off.telegram_bot_token, None);
+    }
+
+    #[test]
+    fn parses_discord_bot_fields_from_database_config() {
+        let configured = ConfigService::parse_config(HashMap::from([
+            ("discord_bot_enabled".into(), json!(true)),
+            ("discord_bot_token".into(), json!("MTk4.Cl2FMQ.test")),
+        ]));
+        assert!(configured.discord_bot_enabled);
+        assert_eq!(
+            configured.discord_bot_token.as_deref(),
+            Some("MTk4.Cl2FMQ.test")
+        );
+
+        let from_str = ConfigService::parse_config(HashMap::from([
+            ("discord_bot_enabled".into(), json!("true")),
+            ("discord_bot_token".into(), json!("  ")),
+        ]));
+        assert!(from_str.discord_bot_enabled);
+        assert_eq!(from_str.discord_bot_token, None);
+
+        let off = ConfigService::parse_config(HashMap::from([(
+            "discord_bot_enabled".into(),
+            json!(false),
+        )]));
+        assert!(!off.discord_bot_enabled);
+        assert_eq!(off.discord_bot_token, None);
+    }
+
+    #[test]
+    fn parses_feishu_bot_fields_from_database_config() {
+        let configured = ConfigService::parse_config(HashMap::from([
+            ("feishu_bot_enabled".into(), json!(true)),
+            ("feishu_bot_app_id".into(), json!("cli_a")),
+            ("feishu_bot_app_secret".into(), json!("fs-secret-value")),
+        ]));
+        assert!(configured.feishu_bot_enabled);
+        assert_eq!(configured.feishu_bot_app_id, "cli_a");
+        assert_eq!(
+            configured.feishu_bot_app_secret.as_deref(),
+            Some("fs-secret-value")
+        );
+
+        let from_str = ConfigService::parse_config(HashMap::from([
+            ("feishu_bot_enabled".into(), json!("true")),
+            ("feishu_bot_app_id".into(), json!("  ")),
+            ("feishu_bot_app_secret".into(), json!("  ")),
+        ]));
+        assert!(from_str.feishu_bot_enabled);
+        assert_eq!(from_str.feishu_bot_app_id, "");
+        assert_eq!(from_str.feishu_bot_app_secret, None);
+
+        let off = ConfigService::parse_config(HashMap::from([(
+            "feishu_bot_enabled".into(),
+            json!(false),
+        )]));
+        assert!(!off.feishu_bot_enabled);
+        assert!(off.feishu_bot_app_id.is_empty());
+        assert_eq!(off.feishu_bot_app_secret, None);
     }
 
     #[test]

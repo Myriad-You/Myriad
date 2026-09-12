@@ -63,11 +63,13 @@ mod db;
 mod error;
 mod extract;
 mod federation;
+mod i18n;
 mod memory_audit_invariants;
 mod middleware;
 mod models;
 mod oauth_url_builder;
 mod router;
+mod runtime_role;
 mod services;
 mod state;
 
@@ -128,6 +130,11 @@ async fn main() -> anyhow::Result<()> {
     // Docker: durable site origin (DATA_DIR/site_public.env) outlives compose-injected CORS.
     api::site_domain::load_durable_site_public_env();
 
+    // sqlx enables rustls `ring`; reqwest enables `aws-lc-rs`. Both land in one
+    // binary, so rustls will not auto-pick a CryptoProvider — WSS connect via
+    // tokio-tungstenite panics unless we install one before any TLS client.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     // Initialize tracing
     tracing_subscriber::registry()
         .with(
@@ -159,6 +166,19 @@ async fn main() -> anyhow::Result<()> {
     // is a property of this host, not of the installation.
     services::federation_gate::spawn_startup_probe();
 
+    let role = runtime_role::RuntimeRole::from_env()?;
+    runtime_role::FEDERATION_HTTP_ISOLATED.store(
+        role == runtime_role::RuntimeRole::Web,
+        std::sync::atomic::Ordering::Release,
+    );
+    runtime_role::PERSONA_RUNTIME_LOCAL.store(
+        role != runtime_role::RuntimeRole::FederationWorker,
+        std::sync::atomic::Ordering::Release,
+    );
+    if role == runtime_role::RuntimeRole::FederationWorker {
+        return federation::worker::run().await;
+    }
+
     // Initialise the updater proxy client. Unset env 在 production/容器内仍默认
     // `http://updater-gateway:1104`；`None` 时路由仍注册、调用返回 503。
     let updater_client = services::updater_client::UpdaterClient::from_env();
@@ -186,7 +206,7 @@ async fn main() -> anyhow::Result<()> {
     }
     api::updater_admin::init(updater_client);
 
-    run_server().await?;
+    run_server(role).await?;
 
     tracing::info!("👋 Backend shutdown complete");
     Ok(())
@@ -237,7 +257,7 @@ fn static_asset_cache_control(path: &str) -> &'static str {
     "no-cache"
 }
 
-async fn run_server() -> anyhow::Result<()> {
+async fn run_server(role: runtime_role::RuntimeRole) -> anyhow::Result<()> {
     SCHEMA_READY.store(false, Ordering::Release);
     // Load configuration
     let config = AppConfig::from_env()?;
@@ -247,6 +267,8 @@ async fn run_server() -> anyhow::Result<()> {
             "backend storage preflight failed; repair /app/data and /app/cache ownership/permissions for uid 1000: {error}"
         )
     })?;
+    crate::db::health::mark_storage_preflight_ok();
+    crate::db::health::record_storage_writable(true);
     tracing::info!(
         data_dir = %services::data_paths::paths().root.display(),
         cache_dir = %services::data_paths::paths().cache.display(),
@@ -385,14 +407,6 @@ async fn run_server() -> anyhow::Result<()> {
                 services::agent::notifications::init_notifications(db.clone()).await;
                 api::updater_admin::resume_pending_job_notifications().await;
                 tracing::info!("✅ Agent notification system initialized");
-
-                // Install governed-text sink before scheduler / declared-API AI builtins run.
-                api::tapp_runtime::install_governed_text_executor();
-                tracing::info!("✅ Governed text AI executor installed");
-
-                // Install Agent Interaction create sink before Executor handlers run.
-                api::tapp_runtime::install_agent_interaction_executor();
-                tracing::info!("✅ Agent interaction create executor installed");
 
                 // Initialize Tapp scheduler engine
                 api::tapp_scheduler::init_scheduler(db.clone()).await;
@@ -779,8 +793,20 @@ async fn run_server() -> anyhow::Result<()> {
                 // fan_out_to_followers are drained here every ~15s.
                 // The worker itself waits for the egress-location gate and logs
                 // its own outcome, so this only reports that it was scheduled.
-                federation::delivery::spawn_delivery_worker(db.clone());
-                tracing::info!("✅ Federation delivery worker scheduled");
+                if role == runtime_role::RuntimeRole::All {
+                    federation::delivery::spawn_delivery_worker(db.clone());
+                    tracing::info!("Federation delivery enabled in combined runtime");
+                }
+
+                services::channel_work::spawn_recovery_worker();
+                services::qq_bot::spawn_worker();
+                tracing::info!("✅ QQ bot Gateway worker started");
+                services::telegram_bot::spawn_worker();
+                tracing::info!("✅ Telegram bot worker started");
+                services::discord_bot::spawn_worker();
+                tracing::info!("✅ Discord bot worker started");
+                services::feishu_bot::spawn_worker();
+                tracing::info!("✅ Feishu bot worker started");
 
                 // 密钥迁移：把存量明文配置与 v0 联邦私钥升级到数据密钥信封。
                 //
@@ -838,7 +864,7 @@ async fn run_server() -> anyhow::Result<()> {
 
     // Start the unified server. If this process booted without a DB, setup writes
     // DATABASE_URL and exits so the supervisor can restart with the full route table.
-    start_unified_server(config).await
+    start_unified_server(config, role).await
 }
 
 /// Middleware to check if route is allowed in configuration mode
@@ -987,8 +1013,11 @@ async fn restore_settings(
     (status, json).into_response()
 }
 
-async fn start_unified_server(config: AppConfig) -> anyhow::Result<()> {
-    router::start_unified_server(config).await
+async fn start_unified_server(
+    config: AppConfig,
+    role: runtime_role::RuntimeRole,
+) -> anyhow::Result<()> {
+    router::start_unified_server(config, role).await
 }
 
 /// Common server startup logic

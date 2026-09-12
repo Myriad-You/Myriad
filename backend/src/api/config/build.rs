@@ -771,7 +771,7 @@ pub(crate) async fn build_config(
                     placeholder: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
                     required: false,
                 },
-                // Lite 独立 lite_* 字段。档关或模型空 → None，不回退 Standard。
+                // Lite 独立 lite_* 字段。resolve_ai_config(Lite) 模型空时回退 Standard；resolve_strict_lite 才是 None。
                 ConfigField {
                     key: "lite_enabled".to_string(),
                     label: "Enable Lite Model".to_string(),
@@ -866,7 +866,7 @@ pub(crate) async fn build_config(
                     placeholder: "https://openrouter.ai/api/v1".to_string(),
                     required: false,
                 },
-                // 腾讯云语音服务配置 (TTS/ASR)
+                // tencent_* 凭据；其后 speech_* 为多供应商 TTS/ASR
                 ConfigField {
                     key: "tencent_secret_id".to_string(),
                     label: "Tencent Cloud Secret ID".to_string(),
@@ -1166,6 +1166,124 @@ pub(crate) async fn build_config(
                     placeholder: "".to_string(),
                     required: false,
                 },
+                ConfigField {
+                    key: "qq_bot_enabled".to_string(),
+                    label: "QQ bot".to_string(),
+                    field_type: "boolean".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.qq_bot_enabled.to_string())
+                        .unwrap_or_else(|| "false".to_string()),
+                    placeholder: "false".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "qq_bot_app_id".to_string(),
+                    label: "QQ bot AppID".to_string(),
+                    field_type: "text".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.qq_bot_app_id.clone())
+                        .unwrap_or_default(),
+                    placeholder: "102...".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "qq_bot_app_secret".to_string(),
+                    label: "QQ bot AppSecret".to_string(),
+                    field_type: "password".to_string(),
+                    value: mask_sensitive(
+                        db_config
+                            .as_ref()
+                            .and_then(|c| c.qq_bot_app_secret.clone())
+                            .unwrap_or_default(),
+                    ),
+                    placeholder: "".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "telegram_bot_enabled".to_string(),
+                    label: "Telegram bot".to_string(),
+                    field_type: "boolean".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.telegram_bot_enabled.to_string())
+                        .unwrap_or_else(|| "false".to_string()),
+                    placeholder: "false".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "telegram_bot_token".to_string(),
+                    label: "Telegram bot token".to_string(),
+                    field_type: "password".to_string(),
+                    value: mask_sensitive(
+                        db_config
+                            .as_ref()
+                            .and_then(|c| c.telegram_bot_token.clone())
+                            .unwrap_or_default(),
+                    ),
+                    placeholder: "".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "discord_bot_enabled".to_string(),
+                    label: "Discord bot".to_string(),
+                    field_type: "boolean".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.discord_bot_enabled.to_string())
+                        .unwrap_or_else(|| "false".to_string()),
+                    placeholder: "false".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "discord_bot_token".to_string(),
+                    label: "Discord bot token".to_string(),
+                    field_type: "password".to_string(),
+                    value: mask_sensitive(
+                        db_config
+                            .as_ref()
+                            .and_then(|c| c.discord_bot_token.clone())
+                            .unwrap_or_default(),
+                    ),
+                    placeholder: "".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "feishu_bot_enabled".to_string(),
+                    label: "Feishu bot".to_string(),
+                    field_type: "boolean".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.feishu_bot_enabled.to_string())
+                        .unwrap_or_else(|| "false".to_string()),
+                    placeholder: "false".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "feishu_bot_app_id".to_string(),
+                    label: "Feishu bot AppID".to_string(),
+                    field_type: "text".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.feishu_bot_app_id.clone())
+                        .unwrap_or_default(),
+                    placeholder: "cli_...".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "feishu_bot_app_secret".to_string(),
+                    label: "Feishu bot AppSecret".to_string(),
+                    field_type: "password".to_string(),
+                    value: mask_sensitive(
+                        db_config
+                            .as_ref()
+                            .and_then(|c| c.feishu_bot_app_secret.clone())
+                            .unwrap_or_default(),
+                    ),
+                    placeholder: "".to_string(),
+                    required: false,
+                },
             ],
         },
         tripo_config: TripoConfig {
@@ -1309,7 +1427,7 @@ pub(crate) async fn build_config(
             // Modules   → music_*, island_show_*
             // Advanced  → memory_saver_enabled, proxy_*, gemini_base_url, github_api_base_url
             // AI        → merope_*
-            // OAuth     → 只读 base_url（SiteUrlField）
+            // base_url 不进 RESET；OAuth 只读拼回调，编辑走 SiteUrlField
             config_fields: vec![
                 ConfigField {
                     key: "wallpaper_url".to_string(),

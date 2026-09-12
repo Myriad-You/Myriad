@@ -14,7 +14,7 @@ export type ControlMode =
   | 'starred'
   | 'starred-edit'
 
-export type BrewControlsHandle = {
+export interface BrewControlsHandle {
   changeMode: (mode: ControlMode) => void
 }
 

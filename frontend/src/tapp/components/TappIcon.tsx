@@ -78,12 +78,12 @@ function svgToDataUri(svg: string, color?: string | null): string {
   }
 
   if (color) {
-    normalized = normalized.replace(/currentColor/g, color)
+    normalized = normalized.replaceAll('currentColor', color)
   }
 
   const encoded = encodeURIComponent(normalized)
-    .replace(/'/g, '%27')
-    .replace(/"/g, '%22')
+    .replaceAll("'", '%27')
+    .replaceAll('"', '%22')
 
   return `data:image/svg+xml,${encoded}`
 }

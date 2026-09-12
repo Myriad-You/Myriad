@@ -11,7 +11,9 @@ export function dropItems<T extends { id: number }>(
   items: readonly T[],
   ids: ReadonlySet<number>,
 ): T[] {
-  return items.filter((item) => !ids.has(item.id))
+  return Iterator.from(items)
+    .filter((item) => !ids.has(item.id))
+    .toArray()
 }
 
 export function appendUniqueById<T extends { id: number }>(
@@ -19,7 +21,12 @@ export function appendUniqueById<T extends { id: number }>(
   incoming: readonly T[],
 ): T[] {
   const seen = new Set(current.map((item) => item.id))
-  return [...current, ...incoming.filter((item) => !seen.has(item.id))]
+  return [
+    ...current,
+    ...Iterator.from(incoming)
+      .filter((item) => !seen.has(item.id))
+      .toArray(),
+  ]
 }
 
 export function dropStarredId(

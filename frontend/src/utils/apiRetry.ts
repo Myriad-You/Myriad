@@ -189,7 +189,7 @@ export async function fetchWithRetry(
     }
   }
 
-  throw lastError || new Error('Request failed after all retries')
+  throw lastError ?? new Error('Request failed after all retries')
 }
 
 export async function fetchJsonWithRetry<T = any>(

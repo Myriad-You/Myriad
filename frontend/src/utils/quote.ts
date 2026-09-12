@@ -311,6 +311,9 @@ function getLocalQuote(locale?: string): QuoteData {
   let quotes: QuoteData[]
   switch (locale) {
     case 'en-US':
+    case 'ko-KR':
+    case 'fr-FR':
+    case 'de-DE':
       quotes = quotesEnUS
       break
     case 'ja-JP':

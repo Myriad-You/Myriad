@@ -952,6 +952,154 @@ mod settings_backup_tests {
     }
 
     #[test]
+    fn saves_qq_bot_write_only_credentials() {
+        let mut config = empty_config();
+        config.ai_config.config_fields = vec![
+            ui_field("qq_bot_enabled", "true"),
+            ui_field("qq_bot_app_id", "102123456"),
+            ui_field("qq_bot_app_secret", "qq-secret-value"),
+        ];
+        let set = collect_database_updates(&config);
+        assert_eq!(set.get("qq_bot_enabled"), Some(&json!(true)));
+        assert_eq!(set.get("qq_bot_app_id"), Some(&json!("102123456")));
+        assert_eq!(
+            set.get("qq_bot_app_secret"),
+            Some(&json!("qq-secret-value"))
+        );
+
+        config.ai_config.config_fields = vec![
+            ui_field("qq_bot_enabled", "true"),
+            ui_field("qq_bot_app_id", "102123456"),
+            ui_field("qq_bot_app_secret", "••••••••"),
+        ];
+        let masked = collect_database_updates(&config);
+        assert_eq!(masked.get("qq_bot_enabled"), Some(&json!(true)));
+        assert_eq!(masked.get("qq_bot_app_id"), Some(&json!("102123456")));
+        assert!(
+            !masked.contains_key("qq_bot_app_secret"),
+            "mask must keep the stored secret"
+        );
+
+        config.ai_config.config_fields = vec![
+            ui_field("qq_bot_enabled", "false"),
+            ui_field("qq_bot_app_id", ""),
+            ui_field("qq_bot_app_secret", ""),
+        ];
+        let cleared = collect_database_updates(&config);
+        assert_eq!(cleared.get("qq_bot_enabled"), Some(&json!(false)));
+        assert_eq!(cleared.get("qq_bot_app_id"), Some(&json!("")));
+        assert_eq!(cleared.get("qq_bot_app_secret"), Some(&Value::Null));
+    }
+
+    #[test]
+    fn saves_feishu_bot_write_only_credentials() {
+        let mut config = empty_config();
+        config.ai_config.config_fields = vec![
+            ui_field("feishu_bot_enabled", "true"),
+            ui_field("feishu_bot_app_id", "cli_a"),
+            ui_field("feishu_bot_app_secret", "fs-secret-value"),
+        ];
+        let set = collect_database_updates(&config);
+        assert_eq!(set.get("feishu_bot_enabled"), Some(&json!(true)));
+        assert_eq!(set.get("feishu_bot_app_id"), Some(&json!("cli_a")));
+        assert_eq!(
+            set.get("feishu_bot_app_secret"),
+            Some(&json!("fs-secret-value"))
+        );
+
+        config.ai_config.config_fields = vec![
+            ui_field("feishu_bot_enabled", "true"),
+            ui_field("feishu_bot_app_id", "cli_a"),
+            ui_field("feishu_bot_app_secret", "••••••••"),
+        ];
+        let masked = collect_database_updates(&config);
+        assert_eq!(masked.get("feishu_bot_enabled"), Some(&json!(true)));
+        assert_eq!(masked.get("feishu_bot_app_id"), Some(&json!("cli_a")));
+        assert!(
+            !masked.contains_key("feishu_bot_app_secret"),
+            "mask must keep the stored secret"
+        );
+
+        config.ai_config.config_fields = vec![
+            ui_field("feishu_bot_enabled", "false"),
+            ui_field("feishu_bot_app_id", ""),
+            ui_field("feishu_bot_app_secret", ""),
+        ];
+        let cleared = collect_database_updates(&config);
+        assert_eq!(cleared.get("feishu_bot_enabled"), Some(&json!(false)));
+        assert_eq!(cleared.get("feishu_bot_app_id"), Some(&json!("")));
+        assert_eq!(cleared.get("feishu_bot_app_secret"), Some(&Value::Null));
+    }
+
+    #[test]
+    fn saves_telegram_bot_write_only_token() {
+        let mut config = empty_config();
+        config.ai_config.config_fields = vec![
+            ui_field("telegram_bot_enabled", "true"),
+            ui_field("telegram_bot_token", "123456:ABC-DEF-token"),
+        ];
+        let set = collect_database_updates(&config);
+        assert_eq!(set.get("telegram_bot_enabled"), Some(&json!(true)));
+        assert_eq!(
+            set.get("telegram_bot_token"),
+            Some(&json!("123456:ABC-DEF-token"))
+        );
+
+        config.ai_config.config_fields = vec![
+            ui_field("telegram_bot_enabled", "true"),
+            ui_field("telegram_bot_token", "••••••••"),
+        ];
+        let masked = collect_database_updates(&config);
+        assert_eq!(masked.get("telegram_bot_enabled"), Some(&json!(true)));
+        assert!(
+            !masked.contains_key("telegram_bot_token"),
+            "mask must keep the stored token"
+        );
+
+        config.ai_config.config_fields = vec![
+            ui_field("telegram_bot_enabled", "false"),
+            ui_field("telegram_bot_token", ""),
+        ];
+        let cleared = collect_database_updates(&config);
+        assert_eq!(cleared.get("telegram_bot_enabled"), Some(&json!(false)));
+        assert_eq!(cleared.get("telegram_bot_token"), Some(&Value::Null));
+    }
+
+    #[test]
+    fn saves_discord_bot_write_only_token() {
+        let mut config = empty_config();
+        config.ai_config.config_fields = vec![
+            ui_field("discord_bot_enabled", "true"),
+            ui_field("discord_bot_token", "MTk4.Cl2FMQ.test-token"),
+        ];
+        let set = collect_database_updates(&config);
+        assert_eq!(set.get("discord_bot_enabled"), Some(&json!(true)));
+        assert_eq!(
+            set.get("discord_bot_token"),
+            Some(&json!("MTk4.Cl2FMQ.test-token"))
+        );
+
+        config.ai_config.config_fields = vec![
+            ui_field("discord_bot_enabled", "true"),
+            ui_field("discord_bot_token", "••••••••"),
+        ];
+        let masked = collect_database_updates(&config);
+        assert_eq!(masked.get("discord_bot_enabled"), Some(&json!(true)));
+        assert!(
+            !masked.contains_key("discord_bot_token"),
+            "mask must keep the stored token"
+        );
+
+        config.ai_config.config_fields = vec![
+            ui_field("discord_bot_enabled", "false"),
+            ui_field("discord_bot_token", ""),
+        ];
+        let cleared = collect_database_updates(&config);
+        assert_eq!(cleared.get("discord_bot_enabled"), Some(&json!(false)));
+        assert_eq!(cleared.get("discord_bot_token"), Some(&Value::Null));
+    }
+
+    #[test]
     fn saves_agora_realtime_talk_fields() {
         let mut config = empty_config();
         config.ai_config.config_fields = vec![

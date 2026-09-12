@@ -289,7 +289,7 @@ function fill(
   vars: Record<string, string | number>,
 ): string {
   return Object.entries(vars).reduce(
-    (acc, [k, v]) => acc.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v)),
+    (acc, [k, v]) => acc.replaceAll(`{${k}}`, String(v)),
     template,
   )
 }

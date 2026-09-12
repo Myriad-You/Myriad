@@ -478,7 +478,7 @@ function loopedKeyframe(
       (bounded - previous[0]) / Math.max(0.0001, next[0] - previous[0]),
     )
   }
-  return keyframes[keyframes.length - 1]?.[1] ?? 0
+  return keyframes.at(-1)?.[1] ?? 0
 }
 
 function staged(

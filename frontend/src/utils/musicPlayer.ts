@@ -1,6 +1,6 @@
 import type { MotionAudioFeatures } from './audioMotionAnalysis'
 import { API_URL } from '../config'
-import { currentCopy } from '../i18n/localeCopy'
+import { currentCopy, formatCurrent } from '../i18n/localeCopy'
 import { analyzeMotionAudio } from './audioMotionAnalysis'
 import { getCachedIsChinaMainland, isUserInChinaMainland } from './geoLocation'
 import { shouldPreserveNativeAudioOutput } from './platformDetect'
@@ -172,12 +172,12 @@ export function throttle<T extends (...args: any[]) => any>(
         timeout = null
       }
       previous = now
-      func.apply(this, args)
+      func.call(this, ...args)
     } else if (!timeout) {
       timeout = setTimeout(() => {
         previous = Date.now()
         timeout = null
-        func.apply(this, args)
+        func.call(this, ...args)
       }, remaining)
     }
   } as ((...args: Parameters<T>) => void) & { cancel: () => void }
@@ -312,7 +312,7 @@ export function parseLyrics(lrcText: string): LyricLine[] {
     }
   }
 
-  return lyrics.sort((a, b) => a.time - b.time)
+  return lyrics.toSorted((a, b) => a.time - b.time)
 }
 
 export function parseYrc(yrcText: string): WordLyricLine[] {
@@ -325,7 +325,7 @@ export function parseYrc(yrcText: string): WordLyricLine[] {
 
   for (const raw of rawLines) {
     const line = raw.trim()
-    if (!line || line.charAt(0) === '{') continue
+    if (!line || line.startsWith('{')) continue
 
     const header = headerRe.exec(line)
     if (!header) continue
@@ -357,7 +357,7 @@ export function parseYrc(yrcText: string): WordLyricLine[] {
     })
   }
 
-  return result.sort((a, b) => a.time - b.time)
+  return result.toSorted((a, b) => a.time - b.time)
 }
 
 export function parseKrc(krcText: string): WordLyricLine[] {
@@ -369,7 +369,7 @@ export function parseKrc(krcText: string): WordLyricLine[] {
 
   for (const raw of krcText.split('\n')) {
     const line = raw.trim()
-    if (!line || line.charAt(0) !== '[') continue
+    if (!line || !line.startsWith('[')) continue
 
     const header = headerRe.exec(line)
     if (!header) continue
@@ -401,7 +401,7 @@ export function parseKrc(krcText: string): WordLyricLine[] {
     })
   }
 
-  return result.sort((a, b) => a.time - b.time)
+  return result.toSorted((a, b) => a.time - b.time)
 }
 
 /** Normalize cached 126.net covers. */
@@ -437,7 +437,7 @@ function getPlaylistFromCache(cacheKey: string): Song[] | null {
         return normalizeSongCovers(cached.data)
       }
     }
-  } catch (_error) {
+  } catch {
   }
 
   return null
@@ -485,7 +485,7 @@ export function clearPlaylistCache(): void {
   playlistMemoryCache.clear()
   try {
     sessionStorage.removeItem(PLAYLIST_STORAGE_KEY)
-  } catch (_error) {
+  } catch {
   }
 }
 
@@ -693,10 +693,9 @@ export async function getNeteaseVerbatimLyrics(
 
     if (!response.ok) {
       throw new Error(
-        currentCopy().errors.lyricsFailed.replace(
-          '{status}',
-          String(response.status),
-        ),
+        formatCurrent(currentCopy().errors.lyricsFailed, {
+          status: response.status,
+        }),
       )
     }
 
@@ -776,9 +775,11 @@ export function alignVerbatimToLines(
   }
   if (diffs.length < 4) return verbatim
 
-  diffs.sort((a, b) => a - b)
-  const median = diffs[Math.floor(diffs.length / 2)]
-  const residuals = diffs.map((d) => Math.abs(d - median)).sort((a, b) => a - b)
+  const sortedDiffs = diffs.toSorted((a, b) => a - b)
+  const median = sortedDiffs[Math.floor(sortedDiffs.length / 2)]
+  const residuals = sortedDiffs
+    .map((d) => Math.abs(d - median))
+    .toSorted((a, b) => a - b)
   const medResidual = residuals[Math.floor(residuals.length / 2)]
 
   if (medResidual > 1.2) return null
@@ -820,10 +821,9 @@ export async function getKugouVerbatimLyrics(
     }
     if (!response.ok) {
       throw new Error(
-        currentCopy().errors.lyricsFailed.replace(
-          '{status}',
-          String(response.status),
-        ),
+        formatCurrent(currentCopy().errors.lyricsFailed, {
+          status: response.status,
+        }),
       )
     }
 
@@ -877,10 +877,9 @@ export async function getQQLyricsWithTranslation(
         /* ignore body parse */
       }
       throw new Error(
-        currentCopy().errors.lyricsFailed.replace(
-          '{status}',
-          String(response.status),
-        ),
+        formatCurrent(currentCopy().errors.lyricsFailed, {
+          status: response.status,
+        }),
       )
     }
 
@@ -916,15 +915,15 @@ export async function getQQLyricsWithTranslation(
 
 export function unescapeQQLyricText(s: string): string {
   return s
-    .replace(/&apos;/g, "'")
-    .replace(/&#39;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/&#34;/g, '"')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&#10;/g, '\n')
-    .replace(/&#13;/g, '\r')
+    .replaceAll('&apos;', "'")
+    .replaceAll('&#39;', "'")
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#34;', '"')
+    .replaceAll('&amp;', '&')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&#10;', '\n')
+    .replaceAll('&#13;', '\r')
 }
 
 export async function getLyricsWithVerbatim(
@@ -1150,11 +1149,11 @@ export function clampSeekTime(time: number, duration: number): number {
 
 export function escapeHtmlText(text: string): string {
   return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
 }
 
 export function highlightText(text: string, query: string): string {
@@ -1165,10 +1164,7 @@ export function highlightText(text: string, query: string): string {
     return escaped
   }
 
-  const regex = new RegExp(
-    `(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`,
-    'gi',
-  )
+  const regex = new RegExp(`(${RegExp.escape(query)})`, 'gi')
   return escaped.replace(regex, '<mark>$1</mark>')
 }
 
@@ -1418,7 +1414,7 @@ class GlobalAudioManager {
   }
 
   async resumeAudioContext(): Promise<void> {
-    if (this.audioContext && this.audioContext.state === 'suspended') {
+    if (this.audioContext?.state === 'suspended') {
       try {
         await this.audioContext.resume()
       } catch {
@@ -1508,7 +1504,7 @@ class GlobalAudioManager {
     this.lastSpectrumTime = now
 
     // Resume AudioContext if Chromium suspends it.
-    if (this.audioContext && this.audioContext.state === 'suspended') {
+    if (this.audioContext?.state === 'suspended') {
       void this.audioContext.resume().catch(() => {})
     }
 

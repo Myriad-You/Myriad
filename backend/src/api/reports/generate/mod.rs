@@ -41,7 +41,7 @@ pub struct PlatformReport {
     #[serde(default)]
     pub card_visuals: Value,
     pub created_at: String,
-    /// Host UI locale at generation time (`zh-CN` / `ja-JP` / `en-US`).
+    /// Host UI locale at generation time (`zh-CN` / `zh-TW` / `en-US` / `ja-JP` / `ko-KR` / `fr-FR` / `de-DE`).
     #[serde(default)]
     pub locale: String,
 }

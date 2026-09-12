@@ -100,8 +100,9 @@ class BridgeWindowCounter {
 function generateMessageId(): string {
   const array = new Uint8Array(16)
   crypto.getRandomValues(array)
-  return `${Date.now()}-${Array.from(array)
+  return `${Date.now()}-${Iterator.from(array)
     .map((b) => b.toString(16).padStart(2, '0'))
+    .toArray()
     .join('')}`
 }
 
@@ -263,9 +264,10 @@ export class TappBridge {
     } else {
       const array = new Uint8Array(32)
       crypto.getRandomValues(array)
-      this.sessionToken = Array.from(array, (b) =>
-        b.toString(16).padStart(2, '0'),
-      ).join('')
+      this.sessionToken = Iterator.from(array)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .toArray()
+        .join('')
     }
 
     TappBridge.ensureSharedListener()

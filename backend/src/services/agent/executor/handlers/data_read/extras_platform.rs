@@ -275,12 +275,54 @@ fn map_keyword_to_netease_category(keyword: &str) -> String {
     // 关键词到网易云分类的映射
     let mappings: Vec<(&[&str], &str)> = vec![
         (
-            &["工作", "办公", "专注", "学习", "编程", "coding"],
+            &[
+                "工作",
+                "办公",
+                "专注",
+                "学习",
+                "编程",
+                "coding",
+                "office",
+                "focus",
+                "study",
+                "programming",
+            ],
             "轻音乐",
         ),
-        (&["睡眠", "睡前", "入睡", "助眠", "安静"], "轻音乐"),
-        (&["放松", "舒缓", "休闲", "轻松"], "轻音乐"),
-        (&["运动", "健身", "跑步", "动感", "激情"], "电子"),
+        (
+            &[
+                "睡眠", "睡前", "入睡", "助眠", "安静", "sleep", "sleepy", "quiet",
+            ],
+            "轻音乐",
+        ),
+        (
+            &[
+                "放松",
+                "舒缓",
+                "休闲",
+                "轻松",
+                "relax",
+                "chill",
+                "calm",
+                "light music",
+                "instrumental",
+            ],
+            "轻音乐",
+        ),
+        (
+            &[
+                "运动",
+                "健身",
+                "跑步",
+                "动感",
+                "激情",
+                "workout",
+                "running",
+                "gym",
+                "energetic",
+            ],
+            "电子",
+        ),
         (&["古风", "中国风", "国风"], "古风"),
         (&["摇滚", "rock"], "摇滚"),
         (&["民谣", "folk"], "民谣"),
@@ -292,11 +334,15 @@ fn map_keyword_to_netease_category(keyword: &str) -> String {
         (&["蓝调", "blues"], "蓝调"),
         (&["乡村", "country"], "乡村"),
         (&["acg", "动漫", "二次元", "日语"], "ACG"),
-        (&["华语", "中文", "国语"], "华语"),
-        (&["英文", "欧美", "英语"], "欧美"),
-        (&["日语", "日本", "日系"], "日语"),
-        (&["韩语", "韩国", "韩流", "kpop"], "韩语"),
+        (&["华语", "中文", "国语", "mandarin", "chinese"], "华语"),
+        (&["英文", "欧美", "英语", "english", "western"], "欧美"),
+        (&["日语", "日本", "日系", "japanese", "jpop"], "日语"),
+        (&["韩语", "韩国", "韩流", "kpop", "korean"], "韩语"),
     ];
+
+    if keyword_lower == "work" {
+        return "轻音乐".to_string();
+    }
 
     for (keywords, category) in mappings {
         for k in keywords {
@@ -372,18 +418,25 @@ fn get_related_terms(keyword: &str) -> Vec<&'static str> {
     let term_groups: &[&[&str]] = &[
         // 放松相关
         &[
-            "放松", "轻松", "舒缓", "休息", "休闲", "慵懒", "惬意", "chill",
+            "放松", "轻松", "舒缓", "休息", "休闲", "慵懒", "惬意", "chill", "relax", "calm",
         ],
         // 安静相关
-        &["安静", "静心", "静谧", "宁静", "平静", "冥想", "禅"],
+        &[
+            "安静", "静心", "静谧", "宁静", "平静", "冥想", "禅", "quiet",
+        ],
         // 学习/工作相关
         &[
             "学习", "阅读", "读书", "看书", "工作", "专注", "集中", "效率", "coding", "编程",
+            "office", "focus", "study",
         ],
         // 睡眠相关
-        &["睡眠", "助眠", "入睡", "晚安", "深夜", "夜晚", "催眠"],
+        &[
+            "睡眠", "助眠", "入睡", "晚安", "深夜", "夜晚", "催眠", "sleep",
+        ],
         // 运动相关
-        &["运动", "健身", "跑步", "锻炼", "燃脂", "有氧", "gym"],
+        &[
+            "运动", "健身", "跑步", "锻炼", "燃脂", "有氧", "gym", "workout", "running",
+        ],
         // 轻音乐相关
         &[
             "轻音乐",
@@ -393,6 +446,8 @@ fn get_related_terms(keyword: &str) -> Vec<&'static str> {
             "吉他",
             "小提琴",
             "无人声",
+            "light music",
+            "instrumental",
         ],
         // 治愈相关
         &["治愈", "温暖", "温馨", "舒适", "暖心", "感动"],
@@ -515,4 +570,20 @@ pub(super) async fn execute_steam_wishlist(
         }
     }
     Err("Failed to read Steam wishlist data".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_english_playlist_keywords_to_netease_tags() {
+        assert_eq!(map_keyword_to_netease_category("relax"), "轻音乐");
+        assert_eq!(map_keyword_to_netease_category("work"), "轻音乐");
+        assert_eq!(map_keyword_to_netease_category("sleep"), "轻音乐");
+        assert_eq!(map_keyword_to_netease_category("light music"), "轻音乐");
+        assert_eq!(map_keyword_to_netease_category("workout"), "电子");
+        assert_eq!(map_keyword_to_netease_category("jazz"), "爵士");
+        assert_eq!(map_keyword_to_netease_category("轻音乐"), "轻音乐");
+    }
 }

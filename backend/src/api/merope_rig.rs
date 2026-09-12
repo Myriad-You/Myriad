@@ -687,8 +687,9 @@ async fn parse_rig_import(mut multipart: Multipart) -> ApiResult<ParsedRigImport
         fingerprint.make_ascii_lowercase();
     }
     let atlas_bytes = atlas_bytes.ok_or_else(|| bad_request("Rig import is missing atlas PNG"))?;
-    let dimensions =
-        merope_rig::png_dimensions(&atlas_bytes).map_err(|error| bad_request(&error))?;
+    let (atlas_bytes, dimensions) = merope_rig::validate_png_dimensions(atlas_bytes)
+        .await
+        .map_err(png_validation_error)?;
     if dimensions != (source.atlas.width, source.atlas.height) {
         return Err(bad_request(
             "Rig atlas dimensions do not match source metadata",
@@ -702,17 +703,37 @@ async fn parse_rig_import(mut multipart: Multipart) -> ApiResult<ParsedRigImport
     {
         return Err(bad_request("Rig atlas contract is invalid"));
     }
-    if let Some(reference) = analysis_reference_bytes.as_deref() {
-        merope_rig::png_dimensions(reference).map_err(|error| {
-            tracing::error!(%error, "Invalid rig analysis reference");
-            bad_request("Invalid rig import")
-        })?;
-    }
+    let analysis_reference_bytes = if let Some(reference) = analysis_reference_bytes {
+        Some(
+            merope_rig::validate_png_dimensions(reference)
+                .await
+                .map_err(png_validation_error)?
+                .0,
+        )
+    } else {
+        None
+    };
     Ok(ParsedRigImport {
         source,
         atlas_bytes,
         analysis_reference_bytes,
     })
+}
+
+fn png_validation_error(error: merope_rig::PngValidationError) -> ApiError {
+    match error {
+        merope_rig::PngValidationError::Invalid(message) => bad_request(&message),
+        merope_rig::PngValidationError::Busy => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(AppError::public_json(
+                "Rig image validation is busy; retry shortly",
+            )),
+        ),
+        merope_rig::PngValidationError::WorkerFailed => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(AppError::public_json("Rig image validation failed")),
+        ),
+    }
 }
 
 pub async fn get_active_rig(crate::extract::Db(db): crate::extract::Db) -> ApiResult<Json<Value>> {
@@ -1256,7 +1277,7 @@ pub async fn generate_portrait(
             .unwrap_or_else(|| {
                 json!({
                     "gender": "unspecified",
-                    "language": "zh-CN"
+                    "language": "en-US"
                 })
             });
         let gender = profile
@@ -1267,7 +1288,7 @@ pub async fn generate_portrait(
         let language = profile
             .get("language")
             .and_then(Value::as_str)
-            .unwrap_or("zh-CN")
+            .unwrap_or("en-US")
             .to_string();
         if let Some(identity) = profile.get("visualIdentity").cloned() {
             if !identity.is_null() {
@@ -1741,10 +1762,9 @@ mod rig_invalidation_tests {
         &rest[..end]
     }
 
-    /// 写 `portrait_asset_id` 的入口，必须在同一次写入里作废旧 Rig。
+    /// 写 `portrait_asset_id` 的入口必须在同一次事务里 persist_active_asset；PUT 同步穿着套的 live pointer，不是一律作废。
     ///
-    /// Rig provenance is the master. All four portrait writers must
-    /// `persist_active_asset` in the same write (`/active` is public).
+    /// 四个 portrait writer 必须在人设同一次事务里 persist_active_asset；`/active` 仍从该 persona 快照取穿着套，不读 configuration mirror。
     #[test]
     fn every_portrait_writer_clears_the_active_rig() {
         let rig = include_str!("merope_rig.rs");

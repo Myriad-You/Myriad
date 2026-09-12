@@ -1,7 +1,7 @@
 //! 组件注册 API
 //!
 //! Domain registry: [`crate::services::tapp_components`]. This module owns
-//! grant/permission checks, installation-write gating, and Axum DTOs.
+//! runtime grant checks, approved-permission checks, installation-write gating, and Axum DTOs.
 
 use axum::{
     extract::{Path, Query, State},

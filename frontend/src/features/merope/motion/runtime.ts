@@ -170,7 +170,9 @@ export class MotionRuntime {
       motionStyle: this.motionStyle,
       faceVisible:
         this.faceConsumers.size > 0
-          ? [...this.faceConsumers.values()].some((consumer) => consumer.ready)
+          ? Iterator.from(this.faceConsumers.values()).some(
+              (consumer) => consumer.ready,
+            )
           : this.retains > 0,
     }
   }
@@ -248,13 +250,13 @@ export class MotionRuntime {
   }
 
   private reconcileLiveFaces(): void {
-    const ready = [...this.faceConsumers.entries()].filter(
-      ([, consumer]) => consumer.ready,
-    )
+    const ready = Iterator.from(this.faceConsumers.entries())
+      .filter(([, consumer]) => consumer.ready)
+      .toArray()
     this.capabilities = uniqueCapabilities(
       ready.flatMap(([, consumer]) => consumer.capabilities),
     )
-    const authority = ready.sort(
+    const authority = ready.toSorted(
       ([leftId, left], [rightId, right]) =>
         (right.priority ?? 0) - (left.priority ?? 0) || leftId - rightId,
     )[0]?.[1]
@@ -321,7 +323,7 @@ function currentNow(): number {
 }
 
 function uniqueCapabilities(capabilities: readonly string[]): string[] {
-  return [...new Set(capabilities)].slice(0, 12)
+  return Iterator.from(new Set(capabilities)).take(12).toArray()
 }
 
 function normalizeFaceConsumer(

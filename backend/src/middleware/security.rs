@@ -18,7 +18,7 @@ pub async fn security_headers_middleware(req: Request, next: Next) -> Response {
     const IMG_SRC: &str = "img-src 'self' data: blob: https: http:";
 
     let csp = if is_production {
-        // PRODUCTION: Get allowed API origins from env (fallback to default)
+        // PRODUCTION: connect-src list from CSP_CONNECT_SRC (fallback to default)
         // wss/stun/turn: Shengwang realtime talk (Agora RTC) plus any other WebRTC.
         let allowed_api_origins = env::var("CSP_CONNECT_SRC")
             .unwrap_or_else(|_| "'self' https: wss: stun: turn:".to_string());

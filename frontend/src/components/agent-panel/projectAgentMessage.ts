@@ -141,9 +141,8 @@ function prefixIdsMatch(
   chats: readonly ChatMessage[],
 ): boolean {
   if (prev.length !== chats.length || prev.length === 0) return false
-  const last = chats.length - 1
-  if (prev[last]?.id !== chats[last]?.id) return false
-  for (let i = 0; i < last; i += 1) {
+  if (prev.at(-1)?.id !== chats.at(-1)?.id) return false
+  for (let i = 0; i < chats.length - 1; i += 1) {
     if (prev[i]?.id !== chats[i]?.id) return false
   }
   return true
@@ -152,7 +151,7 @@ function prefixIdsMatch(
 export function syncProjectedMessages(chats: readonly ChatMessage[]): void {
   const prev = getAgentMessagesSnapshot()
   if (prefixIdsMatch(prev, chats)) {
-    const last = chats[chats.length - 1]
+    const last = chats.at(-1)
     if (!last) {
       setAgentMessages([])
       return

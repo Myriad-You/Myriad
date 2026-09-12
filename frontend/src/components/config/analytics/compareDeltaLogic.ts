@@ -1,4 +1,3 @@
-
 export type CompareKind = 'day' | 'week' | 'month' | 'period'
 
 export interface MetricDelta {

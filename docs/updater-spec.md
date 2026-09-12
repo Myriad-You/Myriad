@@ -552,6 +552,10 @@ M1 显式拒绝，启动时探测 `docker info` 中 `rootless: true` 或 podman 
 
 ### 11.1 backend /health 响应 schema
 
+`/health` 是存活探针：进程在就返回 HTTP 200。`db_connected` 表示**最近一次**
+`SELECT 1` 成功，不是「进程里还有数据库句柄」。启动写入预检与当前可写是两
+个字段。业务就绪看 `/ready`（未就绪 503）。
+
 ```json
 {
   "status": "ok",
@@ -559,14 +563,27 @@ M1 显式拒绝，启动时探测 `docker info` 中 `rootless: true` 或 podman 
   "commit_sha": "0123456789abcdef0123456789abcdef01234567",
   "schema_version": 1,
   "db_connected": true,
+  "db_handle_present": true,
+  "db_probed_at": 1710000000,
   "migrations_applied": true,
+  "routes_full": true,
+  "storage_preflight": true,
   "storage_writable": true,
   "uptime_seconds": 123
 }
 ```
 
-backend 必须实现此 schema，updater 严格校验。新版 backend 在启动时以实际运行
-UID 对 data/cache 及现有 Tapp owner 目录执行写入探针；探针失败时不得进入健康状态。
+backend 必须实现此 schema，updater 严格校验：升级与回滚都要求数据库探测、
+迁移、完整路由就绪，以及 `storage_writable`（缺字段时兼容为 true）。软通过
+（仅 HTTP 200 / 镜像标签吻合）只记为降级，不得当作业务恢复成功。旧镜像没有
+`routes_full` 时，updater 回退到 `mode == "full"`。
+
+`/ready` 与 `/health` 一样由 backend 提供。生产入口经 proxy 转发，开发入口经
+Astro dev proxy 转发；updater 仍直连 `http://backend:1103/health` 读 JSON。
+不要用前端 HTML 的 HTTP 200 认定业务就绪。
+新版 backend 在启动时以实际运行 UID 对 data/cache 及现有 Tapp owner 目录
+执行写入探针；探针失败时不得进入健康状态。`storage_writable` 是最近一次
+写入探测，不是启动预检本身。
 
 ### 11.2 frontend 健康
 

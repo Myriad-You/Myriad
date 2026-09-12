@@ -1,6 +1,7 @@
 import type { AppNotification } from '../services/notificationApi'
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { currentCopy } from '../i18n/localeCopy.ts'
 import {
   notificationFacingBody,
   notificationFacingTitle,
@@ -41,6 +42,23 @@ describe('notificationFacing', () => {
       notice('Steam auto-refresh failed', '获取失败: error sending request'),
     )
     assert.equal(/error sending request/i.test(text), false)
+  })
+
+  it('pluralizes federation revoked queued items in English', () => {
+    const one = notificationFacingBody(
+      notice('Unlinked', 'x', 'federation.domain_revoked', {
+        target_domain: 'peer.example',
+        cancelled_deliveries: 1,
+      }),
+    )
+    assert.match(one, /1 queued item was cancelled/)
+    const many = notificationFacingBody(
+      notice('Unlinked', 'x', 'federation.domain_revoked', {
+        target_domain: 'peer.example',
+        cancelled_deliveries: 4,
+      }),
+    )
+    assert.match(many, /4 queued items were cancelled/)
   })
 
   it('maps leftover federation unlink Chinese', () => {
@@ -120,6 +138,21 @@ describe('notificationFacing', () => {
       notice('Scheduled task failed', 'All 3 retries failed'),
     )
     assert.equal(/All 3 retries/.test(schedule), false)
+  })
+
+  it('maps leftover MCP retry bodies', () => {
+    const retry = notificationFacingBody(
+      notice('MCP files is connected', '维护重试成功', 'mcp.connected', {
+        server_id: 'files',
+      }),
+    )
+    assert.equal(retry, currentCopy().errors.noticeMcpMaintenanceRetry)
+    const restart = notificationFacingBody(
+      notice('MCP files is connected', 'Auto-restart succeeded', 'mcp.connected', {
+        server_id: 'files',
+      }),
+    )
+    assert.equal(restart, currentCopy().errors.noticeMcpAutoRestart)
   })
 
   it('maps leftover agent task failure titles', () => {

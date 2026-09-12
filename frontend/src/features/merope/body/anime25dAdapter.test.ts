@@ -156,7 +156,7 @@ test('Anime2.5D adapter exposes semantic capabilities and state, not drivers', (
   const state = body.state()
   assert.equal(state.expression, 'steady')
   assert.equal(typeof state.speaking, 'boolean')
-  assert.equal('mouthOpen' in state, false)
+  assert.equal(Object.hasOwn(state, 'mouthOpen'), false)
   release()
 })
 

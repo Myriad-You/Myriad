@@ -175,7 +175,7 @@ pub struct BanguminQuery {
     pub bangumi_type: Option<i32>, // 1: 动画, 2: 电影, 3: 纪录片, 4: 国创, 5: 电视剧
 }
 
-/// 获取所有 Bilibili 追番/追剧
+/// 获取所有 Bilibili 番剧+电影（fetcher type=1 和 type=2）
 pub async fn get_all_bilibili_bangumi(
     Path(uid): Path<i64>,
 ) -> Result<Json<ApiResponse<Vec<serde_json::Value>>>, HttpError> {

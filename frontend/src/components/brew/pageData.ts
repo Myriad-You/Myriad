@@ -120,7 +120,7 @@ export async function loadFeedStories(
   const latest = requestCache.get<CachedFeedStories>(
     feedStoriesCacheKey(sourceId),
   )
-  if (latest && latest.stamp === normalized) return latest.items
+  if (latest?.stamp === normalized) return latest.items
 
   const load = async () => {
     const res = await brewApi.getItemPreviews(

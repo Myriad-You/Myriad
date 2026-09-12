@@ -149,10 +149,10 @@ function generateWidgetHTML(
     window._TAPP_HAS_HTML = ${hasHtmlTemplateLiteral};
 
     window.addEventListener('message', function(e) {
-      var msg = e.data;
+      const msg = e.data;
       if (msg?.type === 'event' && msg.action === 'container:resize') {
         window._TAPP_DIMENSIONS = msg.payload;
-        var root = document.documentElement;
+        const root = document.documentElement;
         root.style.setProperty('--tapp-scale', msg.payload.scale || 1);
         root.style.setProperty('--tapp-font-scale', msg.payload.fontScale || 1);
         window.dispatchEvent(new CustomEvent('tapp:resize', { detail: msg.payload }));
@@ -191,11 +191,11 @@ function generateWidgetHTML(
   <script nonce="${nonce}">
     (function() {
       'use strict';
-      var runRender = function() {
+      const runRender = function() {
         try {
-          var widgetId = ${serializeSandboxScriptValue(widgetId)};
-          var widgetDef = Tapp.widgets && Tapp.widgets[widgetId];
-          var container = document.getElementById('widget-root');
+          const widgetId = ${serializeSandboxScriptValue(widgetId)};
+          const widgetDef = Tapp.widgets && Tapp.widgets[widgetId];
+          const container = document.getElementById('widget-root');
           if (!container) return;
 
           if (!widgetDef || typeof widgetDef.render !== 'function') {
@@ -207,7 +207,7 @@ function generateWidgetHTML(
             return;
           }
 
-          var props = window._TAPP_WIDGET_PROPS || {};
+          const props = window._TAPP_WIDGET_PROPS || {};
           props.scale = window._TAPP_DIMENSIONS.scale;
           props.fontScale = window._TAPP_DIMENSIONS.fontScale;
 
@@ -215,7 +215,7 @@ function generateWidgetHTML(
 
         } catch (error) {
           console.error('[Widget] Render error:', error);
-          var root = document.getElementById('widget-root');
+          const root = document.getElementById('widget-root');
           if (root) {
             root.innerHTML =
               '<div class="tapp-empty tapp-text-error">' + ${serializeSandboxScriptValue(labels.renderFailed)} + '</div>';

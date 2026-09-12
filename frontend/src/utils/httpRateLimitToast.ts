@@ -1,4 +1,4 @@
-import { currentCopy } from '../i18n/localeCopy'
+import { currentCopy, formatCurrent } from '../i18n/localeCopy'
 import { showToast } from './toastManager'
 
 const recentToastAt = { t: 0 }
@@ -47,7 +47,7 @@ export function formatRateLimitMessage(
   ) {
     return msg
   }
-  return currentCopy().errors.rateLimitedRetry.replace('{sec}', String(sec))
+  return formatCurrent(currentCopy().errors.rateLimitedRetry, { sec })
 }
 
 export function notifyHttpRateLimit(

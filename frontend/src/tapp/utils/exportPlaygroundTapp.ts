@@ -9,9 +9,9 @@ import {
 function sanitizeFilename(id: string): string {
   const cleaned = id
     .trim()
-    .replace(/[^\w.-]+/g, '_')
-    .replace(/_+/g, '_')
-    .replace(/^[_.]+|[_.]+$/g, '')
+    .replaceAll(/[^\w.-]+/g, '_')
+    .replaceAll(/_+/g, '_')
+    .replaceAll(/^[_.]+|[_.]+$/g, '')
   return cleaned || 'tapp'
 }
 

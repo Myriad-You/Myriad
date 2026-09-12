@@ -1,7 +1,7 @@
 import type { TappManifest } from '../types'
 import type { RemoteStoreLocales } from '../utils/storeLocale'
 import type { StorePreviewDescriptor } from '../utils/storePreview'
-import { currentCopy } from '../../i18n/localeCopy'
+import { currentCopy, formatCurrent } from '../../i18n/localeCopy'
 import api from '../../lib/api'
 import {
   httpStatusMessage,
@@ -183,7 +183,7 @@ class RemoteStoreServiceImpl {
 
   async getSources(): Promise<RemoteStoreSource[]> {
     await this.ensureSourcesLoaded()
-    return [...this.sources]
+    return Iterator.from(this.sources).toArray()
   }
 
   async getEnabledSources(): Promise<RemoteStoreSource[]> {
@@ -425,10 +425,9 @@ class RemoteStoreServiceImpl {
 
   private pruneCacheToSources(): void {
     const activeUrls = new Set(this.sources.map((source) => source.url))
-    const knownUrls = new Set([
-      ...this.cache.keys(),
-      ...this.pendingIndexRequests.keys(),
-    ])
+    const knownUrls = new Set(this.cache.keys()).union(
+      new Set(this.pendingIndexRequests.keys()),
+    )
     for (const url of knownUrls) {
       if (!activeUrls.has(url)) this.clearCachedSource(url)
     }
@@ -507,7 +506,7 @@ class RemoteStoreServiceImpl {
     const enabledSources = await this.getEnabledSources()
     const prioritizedSources = enabledSources
       .map((source, configuredIndex) => ({ source, configuredIndex }))
-      .sort((a, b) => {
+      .toSorted((a, b) => {
         const officialRank =
           Number(Boolean(b.source.official)) -
           Number(Boolean(a.source.official))
@@ -608,7 +607,7 @@ class RemoteStoreServiceImpl {
       typeof crypto !== 'undefined' &&
       typeof crypto.randomUUID === 'function'
     ) {
-      return crypto.randomUUID().replace(/-/g, '')
+      return crypto.randomUUID().replaceAll('-', '')
     }
     return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
   }
@@ -767,10 +766,9 @@ class RemoteStoreServiceImpl {
       if (!relativePath) {
         if (requiredLabel) {
           throw new Error(
-            currentCopy().tapp.storeDownloadFailed.replace(
-              '{name}',
-              requiredLabel,
-            ),
+            formatCurrent(currentCopy().tapp.storeDownloadFailed, {
+              name: requiredLabel,
+            }),
           )
         }
         return undefined
@@ -783,10 +781,9 @@ class RemoteStoreServiceImpl {
             throw new Error(
               userFacingError(
                 `HTTP ${response.status}`,
-                currentCopy().tapp.storeDownloadFailed.replace(
-                  '{name}',
-                  requiredLabel,
-                ),
+                formatCurrent(currentCopy().tapp.storeDownloadFailed, {
+                  name: requiredLabel,
+                }),
               ),
             )
           }
@@ -800,10 +797,9 @@ class RemoteStoreServiceImpl {
             : new Error(
                 userFacingError(
                   e,
-                  currentCopy().tapp.storeDownloadFailed.replace(
-                    '{name}',
-                    requiredLabel,
-                  ),
+                  formatCurrent(currentCopy().tapp.storeDownloadFailed, {
+                    name: requiredLabel,
+                  }),
                 ),
               )
         }
@@ -851,9 +847,10 @@ class RemoteStoreServiceImpl {
       app.version.trim() !== manifest.version.trim()
     ) {
       throw new Error(
-        currentCopy().tapp.storeVersionMismatch
-          .replace('{catalog}', app.version.trim())
-          .replace('{manifest}', manifest.version.trim()),
+        formatCurrent(currentCopy().tapp.storeVersionMismatch, {
+          catalog: app.version.trim(),
+          manifest: manifest.version.trim(),
+        }),
       )
     }
 
@@ -950,10 +947,9 @@ class RemoteStoreServiceImpl {
           const content = await downloadText(path, `module ${relative}`)
           if (!content) {
             throw new Error(
-              currentCopy().tapp.storeDownloadFailed.replace(
-                '{name}',
-                `${relative}`,
-              ),
+              formatCurrent(currentCopy().tapp.storeDownloadFailed, {
+                name: `${relative}`,
+              }),
             )
           }
           downloaded[relative] = content
@@ -1060,10 +1056,9 @@ class RemoteStoreServiceImpl {
           throw new Error(
             userFacingError(
               `HTTP ${response.status}`,
-              currentCopy().tapp.storeDownloadFailed.replace(
-                '{name}',
-                assetPath,
-              ),
+              formatCurrent(currentCopy().tapp.storeDownloadFailed, {
+                name: assetPath,
+              }),
             ),
           )
         }
@@ -1128,7 +1123,7 @@ class RemoteStoreServiceImpl {
   }
 
   getCacheStatus(): { count: number; oldestEntry: number | null } {
-    const entries = Array.from(this.cache.values())
+    const entries = Iterator.from(this.cache.values()).toArray()
     const oldestEntry =
       entries.length > 0 ? Math.min(...entries.map((e) => e.timestamp)) : null
 

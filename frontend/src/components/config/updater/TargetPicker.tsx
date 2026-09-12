@@ -1,10 +1,10 @@
-
 import type {
   CompareResult,
   makeUpdaterApi, ReleaseListItem,
 } from '../../../services/updaterApi'
 import type { ChannelOption, U } from './helpers'
 import React, { useEffect, useRef, useState } from 'react'
+import { useI18n } from '../../../contexts/I18nContext'
 import { InputItem, SettingsButton, SettingTitleTag } from '../../settings'
 import { Spinner } from '../../Spinner'
 import {
@@ -42,6 +42,7 @@ export function TargetPicker({
     opts: { isDowngrade: boolean; needsRisk: boolean },
   ) => void
 }) {
+  const { locale } = useI18n()
   const [items, setItems] = useState<PickerItem[]>([])
   const [selected, setSelected] = useState('')
   const [input, setInput] = useState('')
@@ -145,21 +146,22 @@ export function TargetPicker({
         }
       } catch {
       }
-      next.sort((a, b) => {
-        const da = a.date ? Date.parse(a.date) : Number.NaN
-        const db = b.date ? Date.parse(b.date) : Number.NaN
-        const aOk = !Number.isNaN(da)
-        const bOk = !Number.isNaN(db)
-        if (aOk && bOk) return db - da
-        if (a.kind === 'release' && b.kind !== 'release') return -1
-        if (b.kind === 'release' && a.kind !== 'release') return 1
-        if (aOk && !bOk) return -1
-        if (!aOk && bOk) return 1
-        return 0
-      })
       if (!cancelled) {
         setTargetSource('github')
-        setItems(next)
+        setItems(
+          next.toSorted((a, b) => {
+            const da = a.date ? Date.parse(a.date) : Number.NaN
+            const db = b.date ? Date.parse(b.date) : Number.NaN
+            const aOk = !Number.isNaN(da)
+            const bOk = !Number.isNaN(db)
+            if (aOk && bOk) return db - da
+            if (a.kind === 'release' && b.kind !== 'release') return -1
+            if (b.kind === 'release' && a.kind !== 'release') return 1
+            if (aOk && !bOk) return -1
+            if (!aOk && bOk) return 1
+            return 0
+          }),
+        )
       }
     }
 
@@ -273,7 +275,7 @@ export function TargetPicker({
                   </span>
                   {item.date && (
                     <span className="updater-commit-date">
-                      {new Date(item.date).toLocaleString()}
+                      {new Date(item.date).toLocaleString(locale)}
                     </span>
                   )}
                 </button>

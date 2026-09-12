@@ -97,9 +97,11 @@ function isRuntimeDependentShell(
     ? DANGEROUS_SELECTOR
     : `${DANGEROUS_SELECTOR},${INTERACTIVE_SELECTOR}`
   const blockedNodeCount = parsed.querySelectorAll(blockedSelector).length
-  const emptyMounts = Array.from(
+  const emptyMounts = Iterator.from(
     parsed.body.querySelectorAll('div,span,main,section,aside'),
-  ).filter(isEmptyMount)
+  )
+    .filter(isEmptyMount)
+    .toArray()
 
   return (
     computeShellScore({
@@ -114,16 +116,16 @@ function isRuntimeDependentShell(
 function sanitizePreviewCss(css: string): string {
   return css
     .slice(0, 512 * 1024)
-    .replace(/@import\s[^;]+;?/gi, '')
-    .replace(/(?:expression|behavior|-moz-binding)\s*:[^;}]*/gi, '')
-    .replace(/url\(([^)]*)\)/gi, (match, raw: string) => {
-      const value = raw.trim().replace(/^(['"])(.*)\1$/, '$2')
+    .replaceAll(/@import\s[^;]+;?/gi, '')
+    .replaceAll(/(?:expression|behavior|-moz-binding)\s*:[^;}]*/gi, '')
+    .replaceAll(/url\(([^)]*)\)/gi, (match, raw: string) => {
+      const value = raw.trim().replaceAll(/^(['"])(.*)\1$/g, '$2')
       return /^(?:data:image\/|blob:)/i.test(value) ? match : 'none'
     })
 }
 
 function escapeStyleText(css: string): string {
-  return css.replace(/<\/style/gi, '<\\/style')
+  return css.replaceAll(/<\/style/gi, '<\\/style')
 }
 
 /**
@@ -150,8 +152,9 @@ export function buildSanitizedTappPreview(
   const preserveControls = options?.preserveControls === true
   if (isRuntimeDependentShell(parsed, preserveControls)) return null
 
-  const embeddedCss = Array.from(parsed.querySelectorAll('style'))
+  const embeddedCss = Iterator.from(parsed.querySelectorAll('style'))
     .map((style) => style.textContent || '')
+    .toArray()
     .join('\n')
 
   const blockedSelector = preserveControls
@@ -161,7 +164,7 @@ export function buildSanitizedTappPreview(
   parsed.querySelectorAll('style').forEach((node) => node.remove())
 
   parsed.querySelectorAll('*').forEach((element) => {
-    for (const attribute of Array.from(element.attributes)) {
+    for (const attribute of element.attributes) {
       const name = attribute.name.toLowerCase()
       if (
         name.startsWith('on') ||
@@ -202,12 +205,12 @@ export function buildSanitizedTappPreview(
   )
   const body = parsed.body.innerHTML.slice(0, 512 * 1024)
   const theme = options?.theme || 'auto'
-  const rootClasses = Array.from(parsed.documentElement.classList).filter(
-    (className) => /^[\w-]{1,64}$/.test(className),
-  )
+  const rootClasses = Iterator.from(parsed.documentElement.classList)
+    .filter((className) => /^[\w-]{1,64}$/.test(className))
+    .toArray()
   if (theme !== 'auto') rootClasses.push(theme)
   const rootClassAttribute = rootClasses.length
-    ? ` class="${[...new Set(rootClasses)].join(' ')}"`
+    ? ` class="${Iterator.from(new Set(rootClasses)).toArray().join(' ')}"`
     : ''
   const themeAttribute = theme === 'auto' ? '' : ` data-theme="${theme}"`
   const colorScheme = theme === 'auto' ? 'light dark' : theme

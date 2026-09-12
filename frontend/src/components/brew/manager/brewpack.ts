@@ -20,7 +20,7 @@ export function isSupportedBrewpackVersion(version: string): boolean {
 }
 
 export function normalizeBrewpackUrl(url: string): string {
-  return url.trim().replace(/\/+$/, '')
+  return url.trim().replaceAll(/\/+$/g, '')
 }
 
 const DATA_IMAGE_RE =

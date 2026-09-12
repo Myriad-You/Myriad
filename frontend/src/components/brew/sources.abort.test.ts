@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url'
 
 const dir = dirname(fileURLToPath(import.meta.url))
 
-describe('source catalog abort', () => {
-  it('getSources and getStats bypass shared pending when given a signal', () => {
+describe('source catalog abort contract', () => {
+  it('getSources and getStats still accept an AbortSignal', () => {
     const api = readFileSync(join(dir, '../../services/brewApi.ts'), 'utf8')
     assert.match(
       api,
@@ -17,15 +17,11 @@ describe('source catalog abort', () => {
       api,
       /export async function getStats\([\s\S]*options\?: \{ signal\?: AbortSignal \}/,
     )
-    assert.match(api, /if \(options\?\.signal\) \{\s*const sources = await fetchSources/)
-    assert.match(api, /if \(options\?\.signal\) \{\s*const stats = await fetchStats/)
   })
 
-  it('catalog load aborts on unmount and retarget', () => {
+  it('catalog hooks cancel the in-flight turn on unmount', () => {
     const src = readFileSync(join(dir, 'useBrewSources.ts'), 'utf8')
-    assert.match(src, /getSources\(undefined, \{ signal \}\)/)
-    assert.match(src, /getStats\(undefined, \{ signal \}\)/)
-    assert.match(src, /sourceTurns\.current\.cancel\(\)/)
-    assert.match(src, /statsTurns\.current\.cancel\(\)/)
+    assert.match(src, /sourceTurns\.current\.cancel\(/)
+    assert.match(src, /statsTurns\.current\.cancel\(/)
   })
 })

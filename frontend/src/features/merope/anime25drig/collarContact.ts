@@ -215,7 +215,7 @@ function sampleContactRows(
   const samples: ContactRow[] = []
   for (let sample = 0; sample < count; sample += 1) {
     const target =
-      rows[0].y + ((rows[rows.length - 1].y - rows[0].y) * sample) / (count - 1)
+      rows[0].y + ((rows.at(-1)!.y - rows[0].y) * sample) / (count - 1)
     let best = rows[0]
     for (const row of rows) {
       if (Math.abs(row.y - target) < Math.abs(best.y - target)) best = row
@@ -240,6 +240,6 @@ function smoothContactRow(
 }
 
 function median(values: number[]): number {
-  values.sort((left, right) => left - right)
-  return values[Math.floor(values.length / 2)]
+  const sorted = values.toSorted((left, right) => left - right)
+  return sorted[Math.floor(sorted.length / 2)]
 }

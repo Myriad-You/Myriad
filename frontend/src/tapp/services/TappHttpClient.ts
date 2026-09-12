@@ -111,14 +111,19 @@ export async function apiRequest<T>(
   }
 
   const result = await response.json()
-  if (typeof result === 'object' && result !== null && 'success' in result) {
-    if (!result.success) {
+  if (
+    typeof result === 'object' &&
+    result !== null &&
+    Object.hasOwn(result, 'success')
+  ) {
+    const payload = result as { success: unknown; error?: unknown; data?: T }
+    if (!payload.success) {
       throw new Error(
-        (typeof result.error === 'string' && result.error.trim()) ||
+        (typeof payload.error === 'string' && payload.error.trim()) ||
           currentCopy().errors.requestFailed,
       )
     }
-    if ('data' in result) return result.data as T
+    if (Object.hasOwn(payload, 'data')) return payload.data as T
     return result as T
   }
   return result as T
@@ -181,7 +186,7 @@ export async function streamRuntimeEvents(
   let buffer = ''
   while (true) {
     const { done, value } = await reader.read()
-    buffer += decoder.decode(value, { stream: !done }).replace(/\r\n/g, '\n')
+    buffer += decoder.decode(value, { stream: !done }).replaceAll('\r\n', '\n')
     let boundary = buffer.indexOf('\n\n')
     while (boundary >= 0) {
       const block = buffer.slice(0, boundary)

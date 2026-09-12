@@ -41,3 +41,5 @@ pub mod ring;
 pub mod e2e;
 pub mod file_transfer;
 pub mod trust;
+
+pub mod worker;

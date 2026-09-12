@@ -730,16 +730,17 @@ pub(crate) fn netease_song_fee_flags(song: &Value) -> (Option<i64>, bool) {
 
 pub(crate) fn discord_fallback_guild_take(
     g: &crate::services::smart_filter::DiscordGuildItem,
+    locale: &str,
 ) -> String {
     let members = g.member_count.unwrap_or(0);
     let size = if members >= 100_000 {
-        Some("万人广场")
+        Some(crate::i18n::reports(locale, "discord.sizeHuge"))
     } else if members >= 10_000 {
-        Some("万人级")
+        Some(crate::i18n::reports(locale, "discord.sizeLarge"))
     } else if members >= 1_000 {
-        Some("千人圈")
+        Some(crate::i18n::reports(locale, "discord.sizeMid"))
     } else if members > 0 {
-        Some("小圈子")
+        Some(crate::i18n::reports(locale, "discord.sizeSmall"))
     } else {
         None
     };
@@ -752,41 +753,50 @@ pub(crate) fn discord_fallback_guild_take(
 
     let take = if g.owner {
         match size {
-            Some(s) => format!("自建·{}", s),
-            None => "自建领地".to_string(),
+            Some(s) => format!("{}{}", crate::i18n::reports(locale, "discord.takeOwner"), s),
+            None => crate::i18n::reports(locale, "discord.takeOwnServer"),
         }
     } else if is_admin {
         match size {
-            Some(s) => format!("掌舵·{}", s),
-            None => "管理席位".to_string(),
+            Some(s) => format!("{}{}", crate::i18n::reports(locale, "discord.takeAdmin"), s),
+            None => crate::i18n::reports(locale, "discord.takeAdminSeat"),
         }
     } else if is_mod {
         match size {
-            Some(s) => format!("协管·{}", s),
-            None => "协管席位".to_string(),
+            Some(s) => format!("{}{}", crate::i18n::reports(locale, "discord.takeMod"), s),
+            None => crate::i18n::reports(locale, "discord.takeModSeat"),
         }
     } else if is_partnered {
-        "官方合作服".to_string()
+        crate::i18n::reports(locale, "discord.takePartnered")
     } else if is_verified {
-        "认证大服".to_string()
+        crate::i18n::reports(locale, "discord.takeVerified")
     } else if is_community {
         match size {
-            Some(s) => format!("常驻·{}", s),
-            None => "社区服常驻".to_string(),
+            Some(s) => format!(
+                "{}{}",
+                crate::i18n::reports(locale, "discord.takeMember"),
+                s
+            ),
+            None => crate::i18n::reports(locale, "discord.takeCommunity"),
         }
     } else if let Some(s) = size {
-        format!("常驻·{}", s)
+        format!(
+            "{}{}",
+            crate::i18n::reports(locale, "discord.takeMember"),
+            s
+        )
     } else {
-        "社区成员".to_string()
+        crate::i18n::reports(locale, "discord.takeMemberPlain")
     };
 
-    take.chars().take(16).collect()
+    take.chars().take(20).collect()
 }
 
 /// 归一化 AI / 兜底的 guild_takes：只保留真实服务器、补 id、截断 take、最多 8 条
 pub(crate) fn normalize_discord_guild_takes(
     obj: &mut serde_json::Map<String, Value>,
     guilds: &[crate::services::smart_filter::DiscordGuildItem],
+    locale: &str,
 ) {
     let known_by_name: std::collections::HashMap<
         &str,
@@ -863,7 +873,7 @@ pub(crate) fn normalize_discord_guild_takes(
             normalized.push(json!({
                 "name": g.name,
                 "id": g.id,
-                "take": discord_fallback_guild_take(g),
+                "take": discord_fallback_guild_take(g, locale),
             }));
         }
     }
@@ -1205,8 +1215,14 @@ mod discord_guild_takes_tests {
     #[test]
     fn fallback_take_reflects_owner_and_size() {
         let g = sample_guild("1", "My Server", true, &[], Some(12_000), &[]);
-        let take = discord_fallback_guild_take(&g);
+        let take = discord_fallback_guild_take(&g, "zh-CN");
         assert!(take.contains("自建"), "got: {}", take);
+        let tw = discord_fallback_guild_take(&g, "zh-TW");
+        assert!(tw.contains("萬人") || tw.contains("自建"), "got: {}", tw);
+        let en = discord_fallback_guild_take(&g, "en-US");
+        assert!(en.contains("Owner"), "got: {}", en);
+        let ja = discord_fallback_guild_take(&g, "ja-JP");
+        assert!(ja.contains("自作"), "got: {}", ja);
         assert!(take.chars().count() <= 16, "too long: {}", take);
     }
 
@@ -1224,7 +1240,7 @@ mod discord_guild_takes_tests {
             ),
         ];
         let mut obj = serde_json::Map::new();
-        normalize_discord_guild_takes(&mut obj, &guilds);
+        normalize_discord_guild_takes(&mut obj, &guilds, "en-US");
         let takes = obj.get("guild_takes").and_then(|v| v.as_array()).unwrap();
         assert_eq!(takes.len(), 2);
         assert_eq!(takes[0]["name"], "Alpha");
@@ -1245,7 +1261,7 @@ mod discord_guild_takes_tests {
                 { "name": "Real Guild", "take": "重复应被去重" },
             ]),
         );
-        normalize_discord_guild_takes(&mut obj, &guilds);
+        normalize_discord_guild_takes(&mut obj, &guilds, "zh-CN");
         let takes = obj.get("guild_takes").and_then(|v| v.as_array()).unwrap();
         assert_eq!(takes.len(), 1);
         assert_eq!(takes[0]["name"], "Real Guild");

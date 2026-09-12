@@ -85,7 +85,7 @@ export function TourOverlay() {
     getTourSnapshot,
     getTourSnapshot,
   )
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const location = useLocation()
   const titleId = useId()
   const activeRef = useRef(false)
@@ -503,9 +503,10 @@ export function TourOverlay() {
             <div
               className="tour-card__progress"
               role="img"
-              aria-label={t.tour.stepOf
-                .replace('{current}', String(state.index + 1))
-                .replace('{total}', String(state.total))}
+              aria-label={format(t.tour.stepOf, {
+                current: state.index + 1,
+                total: state.total,
+              })}
             >
               {Array.from({ length: state.total }, (_, i) => (
                 <span

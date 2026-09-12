@@ -36,7 +36,7 @@ use crate::services::agent::{
 };
 
 /// 等待用户回答的任务上下文
-/// process_stream 注册后等待 oneshot 信号；answer_task_question_stream 完成后通过此信号回传结果
+/// `spawn_restored_wait_loop` 注册后等待 oneshot；answer / cancel / interrupt 都可 send `done_tx`
 struct WaitingTaskCtx {
     /// 任务所有者；take 时必须匹配，防止跨用户抢 oneshot
     user_id: i32,
@@ -51,6 +51,32 @@ struct WaitingTaskCtx {
 static WAITING_TASKS: once_cell::sync::Lazy<
     tokio::sync::RwLock<std::collections::HashMap<String, WaitingTaskCtx>>,
 > = once_cell::sync::Lazy::new(|| tokio::sync::RwLock::new(std::collections::HashMap::new()));
+
+/// Channel stop / HTTP cancel share this so a waiting run does not hang.
+pub(crate) async fn cancel_task_and_wake(
+    db: &DatabaseConnection,
+    user_id: i32,
+    task_id: &str,
+) -> bool {
+    let agent = Agent::new(db.clone()).await;
+    if !agent.cancel_task_for_user(task_id, user_id).await {
+        return false;
+    }
+    if let Some(waiting) = take_waiting_task(task_id, user_id).await {
+        let _ = waiting.done_tx.send(json!({
+            "success": false,
+            "responseType": "error",
+            "message": "任务已取消",
+            "streamTerminal": true,
+            "task": {
+                "taskId": task_id,
+                "status": "cancelled",
+                "progress": 0
+            }
+        }));
+    }
+    true
+}
 
 /// 仅任务所有者可取出 waiting 上下文；错误用户不 remove，避免抢 oneshot
 async fn take_waiting_task(task_id: &str, user_id: i32) -> Option<WaitingTaskCtx> {
@@ -228,6 +254,10 @@ pub(crate) fn agent_run_envelopes(
 
 mod autonomy_dispatch;
 mod boot;
+mod discord_pairing;
+mod discord_status;
+mod feishu_pairing;
+mod feishu_status;
 mod heartbeat_mcp;
 mod helpers;
 mod intentions;
@@ -237,12 +267,20 @@ mod playback_direction;
 mod presence;
 mod presets;
 mod process;
+mod qq_pairing;
+mod qq_status;
 mod routes;
 mod sessions;
+mod telegram_pairing;
+mod telegram_status;
 mod types;
 
 pub use autonomy_dispatch::*;
 pub use boot::*;
+pub use discord_pairing::*;
+pub use discord_status::*;
+pub use feishu_pairing::*;
+pub use feishu_status::*;
 pub use heartbeat_mcp::*;
 pub use helpers::*;
 pub use intentions::*;
@@ -250,6 +288,10 @@ pub use notifications::*;
 pub use presence::*;
 pub use presets::*;
 pub use process::*;
+pub use qq_pairing::*;
+pub use qq_status::*;
 pub use routes::*;
 pub use sessions::*;
+pub use telegram_pairing::*;
+pub use telegram_status::*;
 pub use types::*;

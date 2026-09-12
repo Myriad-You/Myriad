@@ -72,7 +72,7 @@ export function railSeatScroll(
 
 export function railMaxScroll(slots: readonly number[], overflowLeft = 0): number {
   if (slots.length <= 1) return 0
-  return Math.max(0, (slots[slots.length - 1] ?? 0) - Math.max(0, overflowLeft))
+  return Math.max(0, (slots.at(-1) ?? 0) - Math.max(0, overflowLeft))
 }
 
 /** 吸入槽位跟座定同一套：第一张贴左缘，其后每张让出溢出。 */
@@ -81,7 +81,7 @@ export function railSeatSlots(
   overflowLeft = 0,
 ): number[] {
   if (slots.length === 0) return [0]
-  if (overflowLeft <= 0) return [...slots]
+  if (overflowLeft <= 0) return Iterator.from(slots).toArray()
   return slots.map((slot, i) => (i === 0 ? slot : Math.max(0, slot - overflowLeft)))
 }
 
@@ -93,7 +93,7 @@ export function railSlotOffsets(
   const slots: number[] = []
   for (const card of cards) {
     const left = card.left - origin
-    if (!slots.length || Math.abs(slots[slots.length - 1]! - left) > 0.5) {
+    if (!slots.length || Math.abs(slots.at(-1)! - left) > 0.5) {
       slots.push(left)
     }
   }

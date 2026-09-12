@@ -127,10 +127,10 @@ const Block = React.memo(({
   }
 })
 
-export const AgentMarkdown: React.FC<{ text: string }> = ({ text }) => (
+export const AgentMarkdown = React.memo(({ text }: { text: string }) => (
   <>
     {parseMarkdownBlocks(text).map((block, index) => (
       <Block key={index} block={block} />
     ))}
   </>
-)
+))

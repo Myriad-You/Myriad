@@ -420,33 +420,26 @@ $heal$;
 }
 
 /// 投递队列去重：`(activity_id, target_inbox)` 唯一索引。
-/// 同一条活动向同一个 inbox 只留一行。已有部署可能已有重复行，先 DELETE 再建
-/// UNIQUE INDEX。幂等：没有重复行时 DELETE 影响 0 行，索引已存在时 IF NOT EXISTS 跳过。
+/// Only a missing unique index needs data cleanup. DELETE and CREATE are atomic;
+/// an existing valid unique index skips the table scan entirely.
 pub(crate) async fn ensure_delivery_queue_unique(db: &DatabaseConnection) -> Result<(), DbErr> {
-    // 1) 清理历史重复（保留最早入队的那条 —— 它的 attempts/status 最有参考价值）
-    let removed = db
-        .execute_unprepared(
-            r#"
-DELETE FROM federation_delivery_queue a
-USING federation_delivery_queue b
-WHERE a.activity_id = b.activity_id
-  AND a.target_inbox = b.target_inbox
-  AND a.id > b.id;
-"#,
-        )
-        .await?;
-    if removed.rows_affected() > 0 {
-        tracing::info!(
-            "🧹 Removed {} duplicate delivery-queue row(s) before adding the unique index",
-            removed.rows_affected()
-        );
-    }
-
-    // 2) 建唯一索引 —— 之后入队处的 ON CONFLICT (activity_id, target_inbox) DO NOTHING 才真正生效
     db.execute_unprepared(
         r#"
-CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_queue_activity_target
-    ON federation_delivery_queue (activity_id, target_inbox);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_index
+        WHERE indexrelid = to_regclass('idx_delivery_queue_activity_target')
+          AND indrelid = 'federation_delivery_queue'::regclass
+          AND indisunique AND indisvalid
+    ) THEN
+        DELETE FROM federation_delivery_queue a
+        USING federation_delivery_queue b
+        WHERE a.activity_id = b.activity_id AND a.target_inbox = b.target_inbox AND a.id > b.id;
+        CREATE UNIQUE INDEX idx_delivery_queue_activity_target
+            ON federation_delivery_queue (activity_id, target_inbox);
+    END IF;
+END $$;
 "#,
     )
     .await?;
@@ -781,30 +774,25 @@ LIMIT 1
 }
 
 /// 时间线去重：`(user_id, activity_id)` 唯一索引。同一用户同一 activity_id 只留一条。
-/// 先去重再建索引：已有部署可能已经积累了重复行。
+/// Skip cleanup when the valid unique index already enforces this invariant.
 pub(crate) async fn ensure_timeline_unique(db: &DatabaseConnection) -> Result<(), DbErr> {
-    let removed = db
-        .execute_unprepared(
-            r#"
-DELETE FROM federation_timeline a
-USING federation_timeline b
-WHERE a.user_id = b.user_id
-  AND a.activity_id = b.activity_id
-  AND a.id > b.id;
-"#,
-        )
-        .await?;
-    if removed.rows_affected() > 0 {
-        tracing::info!(
-            "🧹 Removed {} duplicate timeline row(s) before adding the unique index",
-            removed.rows_affected()
-        );
-    }
-
     db.execute_unprepared(
         r#"
-CREATE UNIQUE INDEX IF NOT EXISTS idx_timeline_user_activity
-    ON federation_timeline (user_id, activity_id);
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_index
+        WHERE indexrelid = to_regclass('idx_timeline_user_activity')
+          AND indrelid = 'federation_timeline'::regclass
+          AND indisunique AND indisvalid
+    ) THEN
+        DELETE FROM federation_timeline a
+        USING federation_timeline b
+        WHERE a.user_id = b.user_id AND a.activity_id = b.activity_id AND a.id > b.id;
+        CREATE UNIQUE INDEX idx_timeline_user_activity
+            ON federation_timeline (user_id, activity_id);
+    END IF;
+END $$;
 "#,
     )
     .await?;

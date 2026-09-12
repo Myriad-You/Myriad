@@ -1,14 +1,49 @@
 import { API_URL as CONFIG_API_URL } from '../../config'
 import { proxyImageUrl } from '../../utils/proxyImageUrl'
 
-/** 预置分类库值，勿改文案。 */
+/** Canonical stored values. Display copy lives in locale JSON. */
 export const BREW_FRIEND_LINK_CATEGORY = '友情链接'
 export const BREW_MINE_CATEGORY = '我'
 
-export const PRESET_CATEGORY_DB_VALUES: string[] = [
+const FRIEND_LINK_ALIASES = new Set([
   BREW_FRIEND_LINK_CATEGORY,
+  '友情連結',
+  'friend_links',
+  'friend-links',
+  'friend links',
+])
+
+const MINE_ALIASES = new Set([
   BREW_MINE_CATEGORY,
+  'mine',
+  'own',
+  'me',
+  'my',
+])
+
+export const PRESET_CATEGORY_DB_VALUES: string[] = [
+  ...FRIEND_LINK_ALIASES,
+  ...MINE_ALIASES,
 ]
+
+function normalizeCategoryToken(value: string): string {
+  return value.trim().toLowerCase()
+}
+
+export function isFriendLinkCategory(value: string | null | undefined): boolean {
+  const raw = value?.trim() ?? ''
+  if (!raw) return false
+  return (
+    FRIEND_LINK_ALIASES.has(raw) ||
+    FRIEND_LINK_ALIASES.has(normalizeCategoryToken(raw))
+  )
+}
+
+export function isMineCategory(value: string | null | undefined): boolean {
+  const raw = value?.trim() ?? ''
+  if (!raw) return false
+  return MINE_ALIASES.has(raw) || MINE_ALIASES.has(normalizeCategoryToken(raw))
+}
 
 export function brewCategoryParts(
   category: string | null | undefined,
@@ -28,7 +63,7 @@ export function isOwnBrewSource(source: {
   if (!source) return false
   // admin_only 源不公开收录
   if (source.admin_only) return false
-  return brewCategoryParts(source.category).includes(BREW_MINE_CATEGORY)
+  return brewCategoryParts(source.category).some(isMineCategory)
 }
 
 /** 忽略预置分类后的第一个真实分类；排序与分类页标题共用。 */
@@ -37,7 +72,9 @@ export function brewMainCategory(
   fallback: string,
 ): string {
   const parts = brewCategoryParts(category)
-  const main = parts.find((c) => !PRESET_CATEGORY_DB_VALUES.includes(c))
+  const main = parts.find(
+    (c) => !isFriendLinkCategory(c) && !isMineCategory(c),
+  )
   return main || fallback
 }
 
@@ -75,7 +112,7 @@ export function getImageUrl(imageUrl: string | null): string | null {
 
 export function getPlainText(html: string | null): string {
   if (!html) return ''
-  return html.replace(/<[^>]*>/g, '').slice(0, 200)
+  return html.replaceAll(/<[^>]*>/g, '').slice(0, 200)
 }
 
 /** 只产出 #rrggbb，`${color}30` 才是合法 CSS。 */
@@ -94,4 +131,3 @@ export function normalizeThemeColor(
   }
   return fallback
 }
-

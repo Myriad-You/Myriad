@@ -15,11 +15,12 @@ import {
 export function groupShortcuts<T extends { category: string }>(
   list: readonly T[],
 ) {
+  const grouped = Object.groupBy(list, (item) => item.category)
   return {
-    navigation: list.filter((item) => item.category === 'navigation'),
-    article: list.filter((item) => item.category === 'article'),
-    source: list.filter((item) => item.category === 'source'),
-    other: list.filter((item) => item.category === 'other'),
+    navigation: grouped.navigation ?? [],
+    article: grouped.article ?? [],
+    source: grouped.source ?? [],
+    other: grouped.other ?? [],
   }
 }
 

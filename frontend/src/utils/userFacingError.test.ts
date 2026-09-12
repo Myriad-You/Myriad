@@ -1,12 +1,19 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { currentCopy } from '../i18n/localeCopy.ts'
+import { currentCopy, formatCurrent } from '../i18n/localeCopy.ts'
 import { ApiError } from '../services/api.ts'
 import {
   httpStatusMessage,
   isUselessErrorText,
   userFacingError,
 } from './userFacingError.ts'
+
+function fill(
+  template: string,
+  params: Record<string, string | number> = {},
+): string {
+  return formatCurrent(template, params)
+}
 
 describe('userFacingError', () => {
   it('treats API Error: 500 and JSON dumps as useless', () => {
@@ -24,6 +31,51 @@ describe('userFacingError', () => {
     assert.equal(isUselessErrorText('Failed to parse AI response'), true)
     assert.equal(isUselessErrorText('AI error: model exploded'), true)
     assert.equal(isUselessErrorText('Steam 未返回游戏数据'), false)
+  })
+
+  it('maps unmapped codes without leaking leftover English', () => {
+    const withStatus = new ApiError(
+      'Failed to frobnicate the widget',
+      500,
+      'unmapped',
+    )
+    const statusText = userFacingError(withStatus)
+    assert.equal(/frobnicate/i.test(statusText), false)
+    assert.match(statusText, /500/)
+    assert.equal(
+      userFacingError({ code: 'unmapped' }),
+      currentCopy().errors.operationFailed,
+    )
+    assert.equal(
+      userFacingError('Failed to frobnicate the widget'),
+      currentCopy().errors.operationFailed,
+    )
+  })
+
+  it('maps locale_invalid from the catalog', () => {
+    const err = new ApiError('Bad request', 400, 'locale_invalid')
+    assert.equal(userFacingError(err), currentCopy().errors.localeInvalid)
+  })
+
+  it('maps new stable save/load codes from the catalog', () => {
+    assert.equal(
+      userFacingError(new ApiError('Failed to load config', 500, 'config_load_failed')),
+      currentCopy().config.loadConfigFailed,
+    )
+    assert.equal(
+      userFacingError(
+        new ApiError('Failed to update permissions', 500, 'permissions_save_failed'),
+      ),
+      currentCopy().config.permissionsSaveFailed,
+    )
+    assert.equal(
+      userFacingError(new ApiError('Failed to persist Tapp', 500, 'tapp_save_failed')),
+      currentCopy().errors.tappSaveFailed,
+    )
+    assert.equal(
+      userFacingError('Failed to load configuration'),
+      currentCopy().config.loadConfigFailed,
+    )
   })
 
   it('maps HTTP status to a localized reason', () => {
@@ -1326,7 +1378,7 @@ describe('userFacingError', () => {
     assert.match(youtube, /YouTube/)
     assert.match(youtube, /502/)
     assert.match(configSave, /配置|settings|設定/)
-    assert.match(configLoad, /读取|read|読み込/)
+    assert.match(configLoad, /配置|configuration|設定|load|加载|載入|読み込/)
     assert.notEqual(playlist, song)
     assert.notEqual(configSave, configLoad)
     assert.notEqual(media, mode)
@@ -1548,7 +1600,7 @@ describe('userFacingError', () => {
     )
     assert.equal(
       planFailed,
-      currentCopy().errors.agentPlanningFailed.replace('{detail}', 'timeout'),
+      fill(currentCopy().errors.agentPlanningFailed, { detail: 'timeout' }),
     )
     const leftoverPlan = userFacingError(
       '我理解了你的请求，但生成执行计划时出现问题：timeout。请更具体地描述你想要什么。',
@@ -1592,7 +1644,7 @@ describe('userFacingError', () => {
     assert.equal(userFacingError('好了，都处理完啦~'), currentCopy().errors.agentAllDone)
     assert.equal(
       userFacingError('此操作将执行 打开窗口'),
-      currentCopy().errors.willExecute.replace('{name}', '打开窗口'),
+      fill(currentCopy().errors.willExecute, { name: '打开窗口' }),
     )
     assert.equal(userFacingError('数据读取'), currentCopy().errors.capCategoryData)
     assert.equal(userFacingError('Discovering feeds'), currentCopy().errors.agentDiscoverFeeds)
@@ -1606,7 +1658,7 @@ describe('userFacingError', () => {
     )
     assert.equal(
       userFacingError('正在加载网易云歌单...'),
-      currentCopy().errors.loadingNamedPlaylist.replace('{name}', 'NetEase'),
+      fill(currentCopy().errors.loadingNamedPlaylist, { name: 'NetEase' }),
     )
     assert.equal(userFacingError('组件列表'), currentCopy().errors.tappWidgets)
     assert.equal(
@@ -1620,11 +1672,11 @@ describe('userFacingError', () => {
     )
     assert.equal(
       userFacingError('自动刷新 steam 数据'),
-      currentCopy().errors.autoRefreshNamed.replace('{name}', 'steam'),
+      fill(currentCopy().errors.autoRefreshNamed, { name: 'steam' }),
     )
     assert.equal(
       userFacingError('定时任务: 备份'),
-      currentCopy().errors.noticeHeartbeatTask.replace('{name}', '备份'),
+      fill(currentCopy().errors.noticeHeartbeatTask, { name: '备份' }),
     )
     assert.equal(
       userFacingError('未命名内容'),
@@ -1638,17 +1690,26 @@ describe('userFacingError', () => {
     assert.equal(userFacingError('已收藏'), currentCopy().errors.brewMarkStarred)
     assert.equal(
       userFacingError('网络搜索 - 科技'),
-      currentCopy().errors.webSearchNamed.replace('{name}', '科技'),
+      fill(currentCopy().errors.webSearchNamed, { name: '科技' }),
     )
     assert.equal(
       userFacingError("将调用外部 MCP 服务 'files' 的工具 'read'"),
-      currentCopy()
-        .errors.confirmMcpTool.replace('{server}', 'files')
-        .replace('{tool}', 'read'),
+      fill(currentCopy().errors.confirmMcpTool, {
+        server: 'files',
+        tool: 'read',
+      }),
     )
     assert.equal(
       userFacingError('已加载 3 个工具'),
-      currentCopy().errors.noticeMcpToolsLoaded.replace('{n}', '3'),
+      fill(currentCopy().errors.noticeMcpToolsLoaded, { n: 3 }),
+    )
+    assert.equal(
+      userFacingError('维护重试成功'),
+      currentCopy().errors.noticeMcpMaintenanceRetry,
+    )
+    assert.equal(
+      userFacingError('Auto-restart succeeded'),
+      currentCopy().errors.noticeMcpAutoRestart,
     )
     assert.equal(
       userFacingError('状态监控超时，请在系统更新面板确认任务结果'),
@@ -1661,7 +1722,7 @@ describe('userFacingError', () => {
     assert.equal(userFacingError('游客'), currentCopy().errors.guestLabel)
     assert.equal(
       userFacingError('用户#7'),
-      currentCopy().errors.userNumber.replace('{id}', '7'),
+      fill(currentCopy().errors.userNumber, { id: '7' }),
     )
     assert.equal(
       userFacingError('网易云音乐用户'),
@@ -1675,8 +1736,12 @@ describe('userFacingError', () => {
     assert.equal(userFacingError('动态技能'), currentCopy().errors.capDynamicSkills)
     assert.equal(userFacingError('未分类'), currentCopy().brew.uncategorized)
     assert.equal(
+      userFacingError('最新文章'),
+      currentCopy().brew.latestArticles,
+    )
+    assert.equal(
       userFacingError('任务等待用户输入超时（2小时），已自动取消'),
-      currentCopy().errors.waitInputTimeoutHours.replace('{hours}', '2'),
+      fill(currentCopy().errors.waitInputTimeoutHours, { hours: 2 }),
     )
     assert.equal(
       userFacingError('API 速率限制，等待后重试'),
@@ -1696,15 +1761,14 @@ describe('userFacingError', () => {
     )
     assert.equal(
       userFacingError('标题最多 200 字，现在有 201 字'),
-      currentCopy()
-        .brew.noteTitleTooLong.replace('{max}', '200')
-        .replace('{chars}', '201'),
+      fill(currentCopy().brew.noteTitleTooLong, { max: '200', chars: '201' }),
     )
     assert.equal(
       userFacingError('正文最多 200000 字，现在有 200001 字'),
-      currentCopy()
-        .brew.noteBodyTooLong.replace('{max}', '200000')
-        .replace('{chars}', '200001'),
+      fill(currentCopy().brew.noteBodyTooLong, {
+        max: '200000',
+        chars: '200001',
+      }),
     )
     assert.equal(
       userFacingError('我现在心情很低，不想接新的事情。我们先说说话吧。'),

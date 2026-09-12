@@ -49,6 +49,7 @@ import {
   useResolvedTitleColor,
   useTitleFont,
 } from '../hooks/useTitleFont'
+import { hostLocaleHeaders } from '../i18n/hostLocaleHeaders'
 import { getCSRFToken } from '../utils/csrf'
 import { notifyHttpRateLimit } from '../utils/httpRateLimitToast'
 import { buildModulePageSeo } from '../utils/modulePageSeo'
@@ -70,6 +71,14 @@ import {
   REPORT_CAROUSEL_CSS_VARS,
   REPORT_STRIP_ALIGN_PAD,
 } from './reports/types'
+
+function jsonLocaleHeaders(csrfToken: string): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    'X-CSRF-Token': csrfToken,
+    ...hostLocaleHeaders(),
+  }
+}
 
 interface PlatformReport {
   platform: string
@@ -290,7 +299,7 @@ export default function Reports() {
     void preloadPlatformFaces(REPORT_PLATFORM_IDS).catch(() => {})
   }, [])
 
-  const { t, locale } = useI18n()
+  const { t, format } = useI18n()
   const { preferences: moduleVisibility } = useModuleVisibilityPreferences()
   const moduleOpenToAll = canAccessModuleVisibility(
     moduleVisibility.modules.reports,
@@ -505,9 +514,10 @@ export default function Reports() {
   ])
 
   const startPlayAll = useCallback(() => {
-    const platformsWithReports = visiblePlatforms
+    const platformsWithReports = Iterator.from(visiblePlatforms)
       .filter((p) => platformReportsMap.has(p.id))
       .map((p) => p.id)
+      .toArray()
 
     if (platformsWithReports.length === 0) {
       showToastMessage(t.reportsPage.noPlatformReports, 'error')
@@ -620,7 +630,7 @@ export default function Reports() {
       }
 
       showToastMessage(
-        t.reportsPage.refreshingReport.replace('{platform}', platformName),
+        format(t.reportsPage.refreshingReport, { platform: platformName }),
         'success',
       )
 
@@ -629,12 +639,7 @@ export default function Reports() {
           `${API_URL}/api/profile/fetch-platform`,
           {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-CSRF-Token': csrfToken,
-              'X-Myriad-Locale': locale,
-              'Accept-Language': locale,
-            },
+            headers: jsonLocaleHeaders(csrfToken),
             credentials: 'include',
             body: JSON.stringify({ platform: platformId }),
           },
@@ -650,12 +655,7 @@ export default function Reports() {
 
       const response = await fetch(`${API_URL}/api/reports/platform`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken,
-          'X-Myriad-Locale': locale,
-          'Accept-Language': locale,
-        },
+        headers: jsonLocaleHeaders(csrfToken),
         credentials: 'include',
         body: JSON.stringify({ platforms: [platformId] }),
       })
@@ -711,10 +711,9 @@ export default function Reports() {
           card_visuals: updatedPlatformReport.card_visuals,
         })
         showToastMessage(
-          t.reportsPage.reportRefreshSuccess.replace(
-            '{platform}',
-            platformName,
-          ),
+          format(t.reportsPage.reportRefreshSuccess, {
+            platform: platformName,
+          }),
           'success',
         )
       } else {
@@ -723,13 +722,13 @@ export default function Reports() {
     } catch (err) {
       console.error('Refresh stage report failed:', err)
       showToastMessage(
-        t.reportsPage.refreshReportFailed.replace('{platform}', platformName),
+        format(t.reportsPage.refreshReportFailed, { platform: platformName }),
         'error',
       )
     } finally {
       setRefreshingStage(false)
     }
-  }, [stageReportData, mergePlatformReport, t.reportsPage, translatedPlatforms, showToastMessage, locale])
+  }, [stageReportData, mergePlatformReport, t.reportsPage, translatedPlatforms, showToastMessage, format])
 
   const {
     isAdmin: authIsAdmin,
@@ -852,12 +851,7 @@ export default function Reports() {
             `${API_URL}/api/profile/fetch-platform`,
             {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': csrfToken,
-                'X-Myriad-Locale': locale,
-                'Accept-Language': locale,
-              },
+              headers: jsonLocaleHeaders(csrfToken),
               credentials: 'include',
               body: JSON.stringify({ platform: platformId }),
             },
@@ -869,10 +863,9 @@ export default function Reports() {
           if (!fetchResponse.ok || fetchBody?.success === false) {
             fetchWarning = reportUserFacingError(
               typeof fetchBody?.message === 'string' ? fetchBody.message : null,
-              t.reportsPage.refreshReportFailed.replace(
-                '{platform}',
-                platformName,
-              ),
+              format(t.reportsPage.refreshReportFailed, {
+                platform: platformName,
+              }),
               t.reportsPage,
             )
             console.warn(fetchWarning)
@@ -880,21 +873,15 @@ export default function Reports() {
             notifyRecentActivityUpdated()
           }
         } catch (fetchErr) {
-          fetchWarning = t.reportsPage.refreshReportFailed.replace(
-            '{platform}',
-            platformName,
-          )
+          fetchWarning = format(t.reportsPage.refreshReportFailed, {
+            platform: platformName,
+          })
           console.warn(`刷新 ${platformId} 数据请求出错:`, fetchErr)
         }
 
         const response = await fetch(`${API_URL}/api/reports/platform`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': csrfToken,
-            'X-Myriad-Locale': locale,
-            'Accept-Language': locale,
-          },
+          headers: jsonLocaleHeaders(csrfToken),
           credentials: 'include',
           body: JSON.stringify({ platforms: [platformId] }),
         })
@@ -974,7 +961,7 @@ export default function Reports() {
         setLoadingPlatform(null)
       }
     },
-    [t.reportsPage, translatedPlatforms, mergePlatformReport, showToastMessage, locale],
+    [t.reportsPage, translatedPlatforms, mergePlatformReport, showToastMessage, format],
   )
 
   return (

@@ -1,12 +1,22 @@
 import type { Locale } from '../../../i18n'
-import { createLocaleLoader } from '../../../i18n/createLocaleLoader'
 import type { SettingGuidesCatalog } from './types'
-import en from './catalog.en.json'
+import { createLocaleLoader } from '../../../i18n/createLocaleLoader'
+import en from './catalog.en-US.json' with { type: 'json' }
 
 const loader = createLocaleLoader<SettingGuidesCatalog>({
-  'zh-CN': () => import('./catalog.zh.json').then((m) => m.default),
+  'zh-CN': async () =>
+    (await import('./catalog.zh-CN.json')).default,
+  'zh-TW': async () =>
+    (await import('./catalog.zh-TW.json')).default,
   'en-US': async () => en,
-  'ja-JP': () => import('./catalog.ja.json').then((m) => m.default),
+  'ja-JP': async () =>
+    (await import('./catalog.ja-JP.json')).default,
+  'ko-KR': async () =>
+    (await import('./catalog.ko-KR.json')).default,
+  'fr-FR': async () =>
+    (await import('./catalog.fr-FR.json')).default,
+  'de-DE': async () =>
+    (await import('./catalog.de-DE.json')).default,
 })
 loader.seed('en-US', en)
 

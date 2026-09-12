@@ -76,7 +76,10 @@ test('draws a filled round eye instead of a thin expression mark', () => {
   assert.equal(alphaAt(left, 0.02, 0.02), 0)
   assert.ok(colorAt(left, 0.5, 0.03) + 40 < colorAt(left, 0.5, 0.5))
   // Both eyes come from the same anchor, so only the tilt may differ.
-  assert.notDeepEqual([...left.data], [...right.data])
+  assert.notDeepEqual(
+    Iterator.from(left.data).toArray(),
+    Iterator.from(right.data).toArray(),
+  )
 })
 
 test('reuses the drawn iris rather than inventing a replacement', () => {
@@ -118,7 +121,10 @@ test('draws an oversized glossy iris with a dark pupil and highlights', () => {
     brightest = Math.max(brightest, left.data[index + 1])
   }
   assert.ok(brightest > 200, 'catchlight keeps the stare glossy, not dead')
-  assert.notDeepEqual([...left.data], [...right.data])
+  assert.notDeepEqual(
+    Iterator.from(left.data).toArray(),
+    Iterator.from(right.data).toArray(),
+  )
 })
 
 function irisArtwork() {

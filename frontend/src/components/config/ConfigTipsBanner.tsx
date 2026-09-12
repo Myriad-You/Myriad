@@ -1,4 +1,3 @@
-
 import type { GreetingIconName } from '../../utils/dynamicContent'
 import React, { useEffect, useId, useMemo, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
@@ -56,10 +55,10 @@ function periodFromHour(hour: number): GreetingPeriod {
 
 function escapeHtml(s: string): string {
   return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
 }
 
 function formatLastLogin(iso: string, locale: string): string | null {
@@ -98,7 +97,7 @@ function buildGreetingHtml(opts: {
 export const ConfigTipsBanner: React.FC<ConfigTipsBannerProps> = ({
   className = '',
 }) => {
-  const { t, locale } = useI18n()
+  const { t, locale, format } = useI18n()
   const { user } = useAuth()
   const labelId = useId()
   const [now, setNow] = useState(() => new Date())
@@ -134,7 +133,7 @@ export const ConfigTipsBanner: React.FC<ConfigTipsBannerProps> = ({
     if (user?.last_login_at) {
       const formatted = formatLastLogin(user.last_login_at, locale)
       if (formatted) {
-        lastLoginLine = tpl.replace('{time}', formatted)
+        lastLoginLine = format(tpl, { time: formatted })
       }
     } else if (user) {
       lastLoginLine = neverLabel

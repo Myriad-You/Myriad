@@ -1,4 +1,3 @@
-
 export interface VoicePresenceState {
   listening: boolean
   ttsPlaying: boolean

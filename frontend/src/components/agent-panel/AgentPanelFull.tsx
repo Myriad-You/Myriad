@@ -194,8 +194,7 @@ export const AgentPanelFull: React.FC<AgentPanelFullProps> = ({
                     )
                     const asked = messages
                       .slice(0, index)
-                      .reverse()
-                      .find((item) => item.role === 'user')
+                      .findLast((item) => item.role === 'user')
                     if (asked) onSubmit(asked.content)
                   }}
                 />

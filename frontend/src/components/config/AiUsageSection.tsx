@@ -1,4 +1,3 @@
-
 import type { SettingOption } from '../settings/types'
 import type { ToastType } from '../Toast'
 import type { AnalyticsRangeState } from './analytics/AnalyticsRangePicker'
@@ -125,11 +124,10 @@ interface AiUsageSectionProps {
 }
 
 const AiUsageSection: React.FC<AiUsageSectionProps> = () => {
-  const { t, locale } = useI18n()
+  const { t, locale, format } = useI18n()
   const { catalog: g, bindGuide } = useSettingGuide()
   const a = t.config.analytics
-  const numberLocale =
-    locale === 'zh-CN' ? 'zh-CN' : locale === 'ja-JP' ? 'ja-JP' : 'en-US'
+  const numberLocale = locale
 
   const [range, setRange] = useState<AnalyticsRangeState>(() =>
     defaultAnalyticsRange(),
@@ -216,8 +214,8 @@ const AiUsageSection: React.FC<AiUsageSectionProps> = () => {
   const hasTrend = trendPoints.some((p) => p.views > 0 || p.visitors > 0)
 
   const callsLabel = useCallback(
-    (n: number) => a.aiUsageCallsN.replace('{n}', count(n)),
-    [a.aiUsageCallsN, count],
+    (n: number) => format(a.aiUsageCallsN, { n: count(n) }),
+    [a.aiUsageCallsN, count, format],
   )
 
   const userRows = useMemo(() => {
@@ -479,7 +477,7 @@ const AiUsageSection: React.FC<AiUsageSectionProps> = () => {
             <div className="site-analytics-tile">
               <span className="site-analytics-tile-label">
                 <LuActivity size={13} aria-hidden />
-                {a.aiUsageRangeCalls.replace('{n}', String(dayCount))}
+                {format(a.aiUsageRangeCalls, { n: dayCount })}
               </span>
               <div className="site-analytics-tile-metric">
                 <span className="site-analytics-tile-value">
@@ -498,7 +496,7 @@ const AiUsageSection: React.FC<AiUsageSectionProps> = () => {
             <div className="site-analytics-tile">
               <span className="site-analytics-tile-label">
                 <LuCpu size={13} aria-hidden />
-                {a.aiUsageRangeTokens.replace('{n}', String(dayCount))}
+                {format(a.aiUsageRangeTokens, { n: dayCount })}
               </span>
               <div className="site-analytics-tile-metric">
                 <span className="site-analytics-tile-value">

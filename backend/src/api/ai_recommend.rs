@@ -11,18 +11,16 @@ pub struct IconRecommendRequest {
 
 #[derive(Debug, Serialize)]
 pub struct IconRecommendResponse {
-    pub icon_type: String,            // "react-icons" or "url"
-    pub icon_library: Option<String>, // 图标库名称，如 "fa", "si", "fa6"
-    pub icon_name: Option<String>,    // 图标名称，如 "FaWeibo"
-    pub icon_url: Option<String>,     // 如果图标库没有，返回外部URL
+    pub icon_type: String,            // always "react-icons"
+    pub icon_library: Option<String>, // "fa" / "si" / "fa6"
+    pub icon_name: Option<String>,    // e.g. SiSinaweibo (weibo is not FaWeibo)
+    pub icon_url: Option<String>,     // always None
     pub color_suggestion: String,     // 建议的主题色
     pub url_pattern: Option<String>,  // URL模式建议，如 "https://weibo.com/u/{username}"
 }
 
-/// AI推荐图标API
-///
-/// 根据平台名称推荐合适的图标和URL模式
-/// 优先级：react-icons/si (品牌图标) > react-icons/fa (Font Awesome) > 外部URL
+/// Rule-match a react-icon from the platform name (`contains`, first hit).
+/// No LLM. No URL fallback.
 pub async fn recommend_icon(
     Json(payload): Json<IconRecommendRequest>,
 ) -> Result<Json<IconRecommendResponse>, HttpError> {
@@ -36,7 +34,7 @@ pub async fn recommend_icon(
 
 /// 平台图标匹配规则
 fn match_platform_icon(platform: &str) -> IconRecommendResponse {
-    // 常见社交平台映射（Simple Icons - si）包含URL模式
+    // Mixed Si*/Fa* table (not si-only). Order is load-bearing (`contains`).
     // 注意：匹配顺序很重要！更具体的关键词（如 "xbox"）必须放在更通用的关键词（如 "x"）之前
     // 因为匹配使用的是 contains() 方法
     let social_platforms: Vec<(&str, &str, &str, &str)> = vec![
@@ -576,7 +574,7 @@ fn match_platform_icon(platform: &str) -> IconRecommendResponse {
         }
     }
 
-    // Font Awesome通用图标匹配
+    // Second table: mixed fa / si / fa6 (not Font Awesome only).
     // 元组格式: (关键词, 图标名, 颜色, URL模式, 图标库)
     let fa_keywords: Vec<(&str, &str, &str, &str, &str)> = vec![
         ("音乐", "FaMusic", "#FF6B6B", "", "fa"),

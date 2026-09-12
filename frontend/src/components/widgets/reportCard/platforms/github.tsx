@@ -18,7 +18,7 @@ export const GithubStatsWidget = memo(({ data }: any) => {
   const langSegments = useMemo<LangSegment[]>(() => {
     const items = langs
       .filter((l: any) => l.percentage > 0)
-      .sort((a: any, b: any) => b.percentage - a.percentage)
+      .toSorted((a: any, b: any) => b.percentage - a.percentage)
       .slice(0, 4)
     const total = items.reduce((sum: number, l: any) => sum + l.percentage, 0)
     if (total === 0) return []
@@ -137,7 +137,7 @@ export const GithubStatsWidget = memo(({ data }: any) => {
       }
     }
 
-    const maxCount = Math.max(1, ...Array.from(byDate.values()), 1)
+    const maxCount = Math.max(1, ...Iterator.from(byDate.values()), 1)
     const today = new Date()
     const end = new Date(
       Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()),

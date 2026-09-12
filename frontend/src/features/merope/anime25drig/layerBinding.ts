@@ -2,6 +2,7 @@ import type { HairSpringState } from './hairPhysics'
 import type {
   Anime25DPlaybackAnchors,
   Anime25DPlaybackLayer,
+  Anime25DShellProfile,
 } from './types'
 import { localToAtlasUv } from './atlasUv'
 import {
@@ -18,6 +19,8 @@ export type Anime25DLayerBindingExtension =
   | 'collar-contact-grid'
   | 'mouth-mesh-density'
   | 'cry-eye-mesh-density'
+  | 'eye-mesh-density'
+  | 'face-profile-grid'
   | 'hair-length-dynamics'
   | 'front-hair-upper-parallax'
 
@@ -51,6 +54,7 @@ export interface Anime25DLayerBindingInput {
   layerZ: number
   extraGridX?: readonly number[]
   extraGridY?: readonly number[]
+  faceShell?: Pick<Anime25DShellProfile, 'head' | 'faceProfile'>
 }
 
 export function buildAnime25DLayerBinding(
@@ -58,6 +62,27 @@ export function buildAnime25DLayerBinding(
 ): Anime25DLayerBinding {
   const { source } = input
   const extensions: Anime25DLayerBindingExtension[] = []
+  const faceShell = source.role === 'face' && input.faceShell?.faceProfile.enabled
+    ? input.faceShell
+    : undefined
+  let gridX = input.extraGridX
+  let gridY = input.extraGridY?.slice()
+  if (faceShell) {
+    extensions.push('face-profile-grid')
+    // Resolve the narrow nose/eye/mouth depth field at its own landmarks,
+    // rather than letting one canvas-sized triangle bridge several features.
+    const { head, faceProfile } = faceShell
+    const width = Math.max(1, head.radiusX * 0.34)
+    gridX = [...(gridX ?? []), ...Array.from({ length: 17 }, (_, i) => head.centerX + (i - 8) * width / 4)]
+    gridY = Iterator.from(gridY ?? []).toArray()
+    for (let i = 0; i < faceProfile.points.length; i++) {
+      const start = faceProfile.points[i].v
+      const end = faceProfile.points[i + 1]?.v ?? start
+      for (let n = 0; n < (end === start ? 1 : 8); n++) {
+        gridY.push(faceProfile.startY + (start + (end - start) * n / 8) * (faceProfile.endY - faceProfile.startY))
+      }
+    }
+  }
   const flexibleCell =
     source.role === 'neck'
       ? extension(extensions, 'neck-mesh-density', NECK_MESH_CELL)
@@ -67,9 +92,15 @@ export function buildAnime25DLayerBinding(
   if (input.extraGridX?.length || input.extraGridY?.length) {
     extensions.push('collar-contact-grid')
   }
-  const cell =
-    (flexibleCell ?? (source.phys ? 30 : 42)) *
-    Math.max(0.6, input.canvasWidth / 768)
+  const eyeFeature =
+    source.group === 'head' &&
+    ['eyewhite', 'eyelash', 'irides', 'eye-close', 'eye-close2', 'eyebrow'].includes(source.role)
+  // Thin eye art needs enough horizontal samples to retain its curve during
+  // yaw/pitch and closure. Canvas-sized cells can leave just two columns.
+  const cell = eyeFeature
+    ? extension(extensions, 'eye-mesh-density', 12 * Math.max(0.25, (input.face.x1 - input.face.x0) / 333))
+    : (flexibleCell ?? (source.phys ? 30 : 42)) *
+      Math.max(0.6, input.canvasWidth / 768)
   const morphingMouth =
     source.fade === 'mouthOpen' ||
     source.fade === 'mouthWide' ||
@@ -83,7 +114,7 @@ export function buildAnime25DLayerBinding(
   if (morphingMouth) extensions.push('mouth-mesh-density')
   if (source.role === 'eye-cry') extensions.push('cry-eye-mesh-density')
   const baseCols = Math.max(
-    maniacMouthMesh ? 14 : sillyMouthMesh ? 10 : morphingMouth ? 6 : 2,
+    maniacMouthMesh ? 14 : sillyMouthMesh ? 10 : eyeFeature ? 8 : morphingMouth ? 6 : 2,
     Math.round(source.w / cell),
   )
   const baseRows = Math.max(
@@ -91,7 +122,7 @@ export function buildAnime25DLayerBinding(
       ? 10
       : sillyMouthMesh
         ? 8
-        : morphingMouth
+        : morphingMouth || eyeFeature
           ? 4
           : source.role === 'eye-cry'
             ? 3
@@ -102,13 +133,13 @@ export function buildAnime25DLayerBinding(
     source.x,
     source.w,
     baseCols,
-    input.extraGridX,
+    gridX,
   )
   const yCoordinates = layerGridAxis(
     source.y,
     source.h,
     baseRows,
-    input.extraGridY,
+    gridY,
   )
   const cols = xCoordinates.length - 1
   const rows = yCoordinates.length - 1
@@ -117,12 +148,12 @@ export function buildAnime25DLayerBinding(
   let cursor = 0
   for (let row = 0; row <= rows; row += 1) {
     const y = yCoordinates[row]
-    const localV = input.extraGridY?.length
+    const localV = gridY?.length
       ? (y - source.y) / Math.max(1, source.h)
       : Math.fround(row / rows)
     for (let col = 0; col <= cols; col += 1) {
       const x = xCoordinates[col]
-      const localU = input.extraGridX?.length
+      const localU = gridX?.length
         ? (x - source.x) / Math.max(1, source.w)
         : Math.fround(col / cols)
       const [u, v] = localToAtlasUv(source.atlas, localU, localV)
@@ -183,12 +214,12 @@ function layerGridAxis(
       coordinates.push(coordinate)
     }
   }
-  coordinates.sort((left, right) => left - right)
+  const sorted = coordinates.toSorted((left, right) => left - right)
   const unique: number[] = []
-  for (const coordinate of coordinates) {
+  for (const coordinate of sorted) {
     if (
       unique.length === 0 ||
-      Math.abs(coordinate - unique[unique.length - 1]) > 0.05
+      Math.abs(coordinate - unique.at(-1)!) > 0.05
     ) {
       unique.push(coordinate)
     }
@@ -232,8 +263,8 @@ function bindHair(
     for (let index = 1; index < strandCount; index += 1) {
       gaps.push(strands[index].x - strands[index - 1].x)
     }
-    gaps.sort((left, right) => left - right)
-    spacing = gaps[gaps.length >> 1]
+    const sortedGaps = gaps.toSorted((left, right) => left - right)
+    spacing = sortedGaps[sortedGaps.length >> 1]
   }
   const sigma = spacing * 0.6
   const referenceHeight = Math.max(1, face.y1 - face.y0)

@@ -1,6 +1,8 @@
 /** 不碰订阅轨 flip，换树只改行属性。 */
 
 import type { CSSProperties, ReactNode } from 'react'
+import type { ChipPhase } from '../../../hooks/animation/pages/brewChipPresence'
+
 import {
   createContext,
   useCallback,
@@ -10,7 +12,6 @@ import {
   useRef,
   useState,
 } from 'react'
-
 import {
   BREW_TAG_ENTER_MS,
   BREW_TAG_EXIT_MS,
@@ -22,11 +23,11 @@ import {
 } from '../../../hooks/animation/pages/brew'
 import {
   awaitLaneSwap,
+
   planChipLaneSwap,
   playBrewChipEnter,
   playBrewChipExit,
   shouldPlayChipEnter,
-  type ChipPhase,
 } from '../../../hooks/animation/pages/brewChipPresence'
 import { cx } from './cx'
 
@@ -62,10 +63,7 @@ export function BrewChip({
 
   useEffect(() => {
     if (quiet || role !== 'enter' || settled) return
-    const timer = window.setTimeout(
-      () => setSettled(true),
-      brewTagDelay(index) + BREW_TAG_ENTER_MS + 80,
-    )
+    const timer = window.setTimeout(setSettled, brewTagDelay(index) + BREW_TAG_ENTER_MS + 80, true)
     return () => window.clearTimeout(timer)
   }, [quiet, role, settled, index])
 

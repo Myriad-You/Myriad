@@ -52,6 +52,6 @@ export function frameRms(frame: Float32Array): number {
 }
 
 export function isSubmittableTranscript(text: string): boolean {
-  const letters = text.trim().replace(/[\s\p{P}\p{S}]/gu, '')
+  const letters = text.trim().replaceAll(/[\s\p{P}\p{S}]/gu, '')
   return letters.length >= 2
 }

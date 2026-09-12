@@ -119,7 +119,7 @@ export const BrewFeaturedWidget = memo(
       isPreview ? 1 : undefined,
     )
     const sources = useWidgetSources(
-      isPreview,
+      isPreview ?? false,
       REFRESH_INTERVAL,
       '[BrewFeaturedWidget]',
     )

@@ -1,8 +1,8 @@
 //! Anime2.5D rig store.
 //!
 //! Packages live on disk by content id and can coexist. The live pointer is
-//! the worn outfit's package. Pixels are not decoded here — only the PNG
-//! header is read so a selfie or truncated upload cannot be adopted.
+//! the worn outfit's package. Atlas validation walks PNG chunks and inflates
+//! IDAT (no RGBA bitmap); truncated/invalid zlib fails before adopt.
 //! Compilation stays in `myriad-merope`.
 
 use std::{
@@ -12,9 +12,12 @@ use std::{
 
 use anyhow::{anyhow, Context};
 use myriad_merope::RigManifest;
+use once_cell::sync::Lazy;
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
+use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 use crate::services::data_paths;
@@ -170,22 +173,57 @@ pub fn png_dimensions(bytes: &[u8]) -> Result<(u32, u32), String> {
         .and_then(|width| width.checked_mul(4))
         .and_then(|width| width.checked_add(1))
         .ok_or_else(|| "Rig atlas PNG dimensions overflow".to_string())?;
-    let expected_bytes = row_bytes
-        .checked_mul(height as usize)
-        .ok_or_else(|| "Rig atlas PNG dimensions overflow".to_string())?;
-    let mut decoded = Vec::with_capacity(expected_bytes);
-    flate2::read::ZlibDecoder::new(compressed.as_slice())
-        .take((expected_bytes + 1) as u64)
-        .read_to_end(&mut decoded)
-        .map_err(|_| "Rig atlas PNG pixel stream is invalid".to_string())?;
-    if decoded.len() != expected_bytes
-        || decoded
-            .chunks_exact(row_bytes)
-            .any(|row| row.first().is_none_or(|filter| *filter > 4))
-    {
+    // Validate one scanline at a time: at 8192² the old full inflated buffer
+    // cost 256 MiB. This scratch buffer is at most 32 KiB + one filter byte.
+    let invalid = || "Rig atlas PNG pixel stream is invalid".to_string();
+    let mut decoded = flate2::read::ZlibDecoder::new(compressed.as_slice());
+    let mut row = vec![0; row_bytes];
+    for _ in 0..height {
+        decoded.read_exact(&mut row).map_err(|_| invalid())?;
+        if row[0] > 4 {
+            return Err(invalid());
+        }
+    }
+    // Read through the zlib trailer/checksum; surplus pixels are also invalid.
+    if decoded.read(&mut [0]).map_err(|_| invalid())? != 0 {
         return Err("Rig atlas PNG pixel stream is invalid".to_string());
     }
     Ok((width, height))
+}
+
+#[derive(Debug)]
+pub enum PngValidationError {
+    Busy,
+    Invalid(String),
+    WorkerFailed,
+}
+
+static PNG_VALIDATORS: Lazy<Arc<Semaphore>> = Lazy::new(|| Arc::new(Semaphore::new(2)));
+
+/// No bitmap, no CPU-heavy inflate on an async request worker, no unbounded
+/// queue of uploads waiting for a decoder. The task owns the permit even when
+/// its HTTP request disappears: spawn_blocking itself cannot be cancelled.
+pub async fn validate_png_dimensions(
+    bytes: Vec<u8>,
+) -> Result<(Vec<u8>, (u32, u32)), PngValidationError> {
+    validate_png_with_pool(bytes, PNG_VALIDATORS.clone(), png_dimensions).await
+}
+
+async fn validate_png_with_pool(
+    bytes: Vec<u8>,
+    pool: Arc<Semaphore>,
+    validate: impl FnOnce(&[u8]) -> Result<(u32, u32), String> + Send + 'static,
+) -> Result<(Vec<u8>, (u32, u32)), PngValidationError> {
+    let permit = pool
+        .try_acquire_owned()
+        .map_err(|_| PngValidationError::Busy)?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        let dimensions = validate(&bytes).map_err(PngValidationError::Invalid)?;
+        Ok((bytes, dimensions))
+    })
+    .await
+    .map_err(|_| PngValidationError::WorkerFailed)?
 }
 
 pub async fn persist_package(
@@ -315,6 +353,10 @@ mod tests {
     }
 
     fn rgba_png(width: u32, height: u32) -> Vec<u8> {
+        rgba_png_stream(width, height, 0, 0)
+    }
+
+    fn rgba_png_stream(width: u32, height: u32, filter: u8, extra: usize) -> Vec<u8> {
         let mut bytes = PNG_SIG.to_vec();
         let mut ihdr = Vec::with_capacity(13);
         ihdr.extend_from_slice(&width.to_be_bytes());
@@ -323,9 +365,13 @@ mod tests {
         push_png_chunk(&mut bytes, b"IHDR", &ihdr);
 
         let row_bytes = width as usize * 4 + 1;
-        let pixels = vec![0; row_bytes * height as usize];
+        let mut row = vec![0; row_bytes];
+        row[0] = filter;
         let mut encoder = ZlibEncoder::new(Vec::new(), Compression::fast());
-        encoder.write_all(&pixels).unwrap();
+        for _ in 0..height {
+            encoder.write_all(&row).unwrap();
+        }
+        encoder.write_all(&vec![0; extra]).unwrap();
         push_png_chunk(&mut bytes, b"IDAT", &encoder.finish().unwrap());
         push_png_chunk(&mut bytes, b"IEND", &[]);
         bytes
@@ -339,6 +385,59 @@ mod tests {
         let truncated = rgba_png(256, 256);
         assert!(png_dimensions(&truncated[..truncated.len() - 8]).is_err());
         assert!(png_dimensions(b"not-a-png").is_err());
+    }
+
+    #[test]
+    fn validates_maximum_atlas_without_a_full_bitmap_and_rejects_invalid_scanlines() {
+        assert_eq!(png_dimensions(&rgba_png(8192, 8192)).unwrap(), (8192, 8192));
+        for filter in 0..=4 {
+            assert!(png_dimensions(&rgba_png_stream(256, 256, filter, 0)).is_ok());
+        }
+        assert!(png_dimensions(&rgba_png_stream(256, 256, 5, 0)).is_err());
+        assert!(png_dimensions(&rgba_png_stream(256, 256, 0, 1)).is_err());
+        let mut checksum = rgba_png(256, 256);
+        // IDAT is followed by its CRC and the 12-byte IEND. Corrupt Adler32.
+        let last_zlib_byte = checksum.len() - 17;
+        checksum[last_zlib_byte] ^= 0xff;
+        assert!(png_dimensions(&checksum).is_err());
+    }
+
+    #[tokio::test]
+    async fn decoder_permit_survives_cancelled_http_waiter() {
+        let pool = Arc::new(Semaphore::new(1));
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let worker_pool = pool.clone();
+        let task = tokio::spawn(async move {
+            validate_png_with_pool(vec![], worker_pool, move |_| {
+                started_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                Ok((256, 256))
+            })
+            .await
+        });
+        started_rx.await.unwrap();
+        task.abort();
+        let _ = task.await;
+        assert!(matches!(
+            validate_png_with_pool(vec![], pool.clone(), png_dimensions).await,
+            Err(PngValidationError::Busy)
+        ));
+        release_tx.send(()).unwrap();
+        let permit = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            pool.clone().acquire_owned(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        drop(permit);
+        let bytes = rgba_png(256, 256);
+        let (returned, dimensions) = validate_png_with_pool(bytes.clone(), pool, png_dimensions)
+            .await
+            .unwrap();
+        assert_eq!(returned, bytes);
+        assert_eq!(dimensions, (256, 256));
     }
 
     fn sample_manifest(master: &str, fingerprint: Option<String>) -> RigManifest {

@@ -18,7 +18,7 @@ use myriad_tapp_contract::manifest::{TappAiContextSource, TappAiManifest};
 pub const MAX_CONTEXT_ITEM_BYTES: usize = 64 * 1024;
 pub const MAX_CONTEXT_REFS: usize = 16;
 
-/// Context reference declared by the AI Task request body.
+/// Context reference supplied in the AI Task request body.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum AiContextRef {

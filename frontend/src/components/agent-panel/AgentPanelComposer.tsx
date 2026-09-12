@@ -515,7 +515,7 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
 
   const handlePaste = useCallback(
     (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      const files = Array.from(event.clipboardData.files)
+      const files = Iterator.from(event.clipboardData.files).toArray()
       if (!files.length) return
       event.preventDefault()
       void addFiles(files)
@@ -527,7 +527,7 @@ export const AgentPanelComposer: React.FC<AgentPanelComposerProps> = ({
     (event: React.DragEvent<HTMLDivElement>) => {
       event.preventDefault()
       setDropping(false)
-      const files = Array.from(event.dataTransfer.files)
+      const files = Iterator.from(event.dataTransfer.files).toArray()
       if (files.length) void addFiles(files)
     },
     [addFiles],

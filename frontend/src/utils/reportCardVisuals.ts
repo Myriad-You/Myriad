@@ -50,7 +50,7 @@ const PLATFORM_ALIASES: Record<string, ReportPlatformId> = {
 
 export function normalizeReportPlatformId(raw: unknown): string {
   if (typeof raw !== 'string') return 'bilibili'
-  const key = raw.trim().toLowerCase().replace(/\s+/g, ' ')
+  const key = raw.trim().toLowerCase().replaceAll(/\s+/g, ' ')
   if (!key) return 'bilibili'
   return PLATFORM_ALIASES[key] ?? key
 }

@@ -194,7 +194,7 @@ impl MetadataService {
                     const MAX_ARRAY_COMPARE: usize = 50; // 数组最多比较前50个元素
 
                     // 大数组不展开字段路径，但内容变化仍必须触发语义事件。
-                    // 上层 Object 比较已经确认数组不同，这里只记一个轻量标记。
+                    // 超大数组不展开字段路径，只记长度/内容变化标记。
                     if old_arr.len() > 200 || new_arr.len() > 200 {
                         if old_arr.len() != new_arr.len() {
                             changed_fields.push(format!(
@@ -246,7 +246,7 @@ impl MetadataService {
                     }
                 }
                 _ => {
-                    // 基本类型变化
+                    // 其余形状（标量或混型）；根级空 prefix 不记。
                     if old != new && !prefix.is_empty() {
                         changed_fields.push(prefix);
                     }
@@ -289,7 +289,7 @@ impl MetadataService {
                 new_data_size
             );
 
-            // 创建轻量级摘要(只包含变化统计)
+            // 创建轻量摘要（changed_fields.len() + 当前快照计数，不是完整 raw）
             let new_summary =
                 Self::create_change_summary(&new_data, platform_name, &changed_fields);
             let old_summary = old_data
@@ -405,8 +405,7 @@ impl MetadataService {
         }
     }
 
-    /// 创建轻量级变化摘要（只包含统计信息，不包含完整数据）
-    /// 这是最彻底的方案：只记录"变化了什么"，而不是"数据是什么"
+    /// 轻量摘要：变化字段计数 + 当前快照里的计数/id，不含完整 raw。
     fn create_change_summary(
         data: &Value,
         platform_name: &str,

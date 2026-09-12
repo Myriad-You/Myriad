@@ -53,12 +53,12 @@ const LoginForm: FC = () => {
           preloadOAuthIcons(normalizedProviders.map((provider) => provider.icon))
           setProviders(normalizedProviders)
         }
-      } catch (_err) {
+      } catch {
       }
       try {
         const data = await fetchJson(`${API_URL}/api/setup/config`)
         setAllowRegister(Boolean(data?.allow_local_registration))
-      } catch (_err) {
+      } catch {
       }
     })()
   }, [])

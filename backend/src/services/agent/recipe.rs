@@ -52,7 +52,6 @@ pub fn validate_and_convert_steps(
                         "[validate_and_convert] Merging duplicate skill call into first occurrence"
                     );
                     let first = &mut deduped[first_idx];
-                    // 收集 variation 描述
                     let variation = serde_json::Value::String(step.action.clone());
                     match first.params.get_mut("variations") {
                         Some(v) if v.is_array() => {
@@ -121,7 +120,7 @@ pub fn validate_and_convert_steps(
             }
         }
 
-        // 参数验证（包括 required 字段检查）
+        // Schema param check: warn only; skipped when capability_id is not in cap_schemas.
         if let Some(cap) = cap_schemas.iter().find(|c| c.id == ai_step.capability_id) {
             // 检查 required params 是否存在
             if let Some(required) = cap.input_schema.get("required").and_then(|v| v.as_array()) {

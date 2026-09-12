@@ -12,7 +12,7 @@ export function setSessionHint(): void {
 export function hasSessionHint(): boolean {
   try {
     return localStorage.getItem(SESSION_HINT_KEY) === 'true'
-  } catch (_e) {
+  } catch {
     return false
   }
 }

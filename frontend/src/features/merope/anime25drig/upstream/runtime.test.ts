@@ -454,42 +454,40 @@ function bindingRig(canvasWidth: number): UpstreamRig {
 function plainBindingSnapshot(
   binding: ReturnType<typeof bindUpstreamRuntimeRig>,
 ): unknown {
-  return JSON.parse(
-    JSON.stringify({
-      canvas: binding.canvas,
-      anchors: binding.anchors,
-      faceScale: binding.faceScale,
-      neckPivot: binding.neckPivot,
-      bodyPivot: binding.bodyPivot,
-      faceCenter: binding.faceCenter,
-      chest: binding.chest,
-      layers: binding.layers.map((layer: UpstreamRuntimeBoundLayer) => ({
-        name: layer.name,
-        bn: layer.bn,
-        group: layer.group,
-        side: layer.side,
-        fade: layer.fade,
-        x: layer.x,
-        y: layer.y,
-        w: layer.w,
-        h: layer.h,
-        z: layer.z,
-        depth: layer.depth,
-        phys: layer.phys,
-        synthetic: layer.synthetic,
-        strands: layer.strands,
-        base: Array.from(layer.base),
-        cur: Array.from(layer.cur),
-        uv: Array.from(layer.uv),
-        indices: Array.from(layer.indices),
-        nIdx: layer.nIdx,
-        sw: layer.sw && Array.from(layer.sw),
-        su: layer.su && Array.from(layer.su),
-        spr: layer.spr,
-        bw: layer.bw && Array.from(layer.bw),
-      })),
-    }),
-  )
+  return structuredClone({
+    canvas: binding.canvas,
+    anchors: binding.anchors,
+    faceScale: binding.faceScale,
+    neckPivot: binding.neckPivot,
+    bodyPivot: binding.bodyPivot,
+    faceCenter: binding.faceCenter,
+    chest: binding.chest,
+    layers: binding.layers.map((layer: UpstreamRuntimeBoundLayer) => ({
+      name: layer.name,
+      bn: layer.bn,
+      group: layer.group,
+      side: layer.side,
+      fade: layer.fade,
+      x: layer.x,
+      y: layer.y,
+      w: layer.w,
+      h: layer.h,
+      z: layer.z,
+      depth: layer.depth,
+      phys: layer.phys,
+      synthetic: layer.synthetic,
+      strands: layer.strands,
+      base: Array.from(layer.base),
+      cur: Array.from(layer.cur),
+      uv: Array.from(layer.uv),
+      indices: Array.from(layer.indices),
+      nIdx: layer.nIdx,
+      sw: layer.sw && Array.from(layer.sw),
+      su: layer.su && Array.from(layer.su),
+      spr: layer.spr,
+      bw: layer.bw && Array.from(layer.bw),
+    })),
+  })
 }
 
 function drawLayers(): UpstreamRuntimeLayer[] {
@@ -762,16 +760,14 @@ function plainTickSnapshot(
   expression: UpstreamRuntimeExpression,
   layers: readonly UpstreamRuntimeLayer[],
 ): unknown {
-  return JSON.parse(
-    JSON.stringify({
-      lastTimeMs: state.lastTimeMs,
-      blinkElapsed: state.blinkElapsed,
-      nextBlinkAtMs: state.nextBlinkAtMs,
-      cameraPhysicsScale: state.cameraPhysicsScale,
-      current: state.current,
-      expression,
-      bounce: state.bounce,
-      springs: layers.map((layer) => layer.spr),
-    }),
-  )
+  return structuredClone({
+    lastTimeMs: state.lastTimeMs,
+    blinkElapsed: state.blinkElapsed,
+    nextBlinkAtMs: state.nextBlinkAtMs,
+    cameraPhysicsScale: state.cameraPhysicsScale,
+    current: state.current,
+    expression,
+    bounce: state.bounce,
+    springs: layers.map((layer) => layer.spr),
+  })
 }

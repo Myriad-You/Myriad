@@ -221,7 +221,7 @@ async fn load_identities(
     let mut out = Vec::new();
     for row in rows {
         let provider = row.try_get::<String>("", "provider").unwrap_or_default();
-        if provider.is_empty() {
+        if provider.is_empty() || crate::services::channel_pairing::is_pairing_provider(&provider) {
             continue;
         }
         out.push(IdentityText {
@@ -473,7 +473,7 @@ mod tests {
                     platform: "Bilibili",
                     name: Some("阿绫".into()),
                     avatar: None,
-                    bio: "B站签名".into(),
+                    bio: "Bilibili bio".into(),
                 },
             ),
             (
@@ -520,7 +520,7 @@ mod tests {
         };
         let resolved = auto_resolved(&row, &sample_profiles());
         assert_eq!(resolved.name.as_deref(), Some("阿绫"));
-        assert_eq!(resolved.bio, "B站签名");
+        assert_eq!(resolved.bio, "Bilibili bio");
         assert_eq!(resolved.platform.as_deref(), Some("Bilibili"));
         assert_eq!(resolved.source, "platform");
     }

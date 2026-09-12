@@ -20,7 +20,7 @@ export function coverUrlForColorExtract(url: string): string {
       /p\d+\.music\.126\.net/i.test(upstream)
     ) {
       if (/[?&]param=\d+y\d+/i.test(upstream)) {
-        resized = upstream.replace(/([?&]param=)\d+y\d+/i, '$1150y150')
+        resized = upstream.replaceAll(/([?&]param=)\d+y\d+/ig, '$1150y150')
       } else {
         resized = upstream.includes('?')
           ? `${upstream}&param=150y150`
@@ -29,7 +29,7 @@ export function coverUrlForColorExtract(url: string): string {
     } else if (
       /y\.gtimg\.cn\/music\/photo_new\/T002R\d+x\d+M000/i.test(upstream)
     ) {
-      resized = upstream.replace(/T002R\d+x\d+M000/i, 'T002R150x150M000')
+      resized = upstream.replaceAll(/T002R\d+x\d+M000/ig, 'T002R150x150M000')
     } else if (!proxied) {
       return url
     }

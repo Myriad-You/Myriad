@@ -69,7 +69,7 @@ test('uses broad head/body range without exceeding rig space or jumping frames',
   assert.ok(largestHeadStep < 0.06)
   assert.ok(yaw > 0.85, `yaw ${yaw}`)
   assert.ok(pitch > 0.5, `pitch ${pitch}`)
-  assert.ok(body > 0.4, `body ${body}`)
+  assert.ok(body > 0.6, `body ${body}`)
 })
 
 test('releases an active random pose smoothly when automation is disabled', () => {

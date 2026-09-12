@@ -12,7 +12,7 @@ import {
   CONTENT_FADE_INITIAL,
   CONTENT_FADE_TRANSITION,
 } from '../animations'
-import { formatCompactNumber } from '../format'
+import { formatCompactNumber, localizeDiscordGuildTake } from '../format'
 
 const X_CIRCLE_COLOR_CLASSES = [
   'bg-[#2563eb] dark:bg-[#3b82f6]',
@@ -54,7 +54,7 @@ export const XWidget = memo(({ data, showOverview, onContentChange }: any) => {
     if (enriched.length > 0) return enriched
     return followingSample
       .filter((f: any) => String(f.description || '').trim())
-      .sort(
+      .toSorted(
         (a: any, b: any) =>
           (Number(a.follower_count) || 0) - (Number(b.follower_count) || 0),
       )
@@ -107,10 +107,13 @@ export const XWidget = memo(({ data, showOverview, onContentChange }: any) => {
       }
     }
     const keyOf = (f: any) => String(f.username || '').toLowerCase()
-    const curated = withAvatar
+    const curated = Iterator.from(withAvatar)
       .filter((f: any) => rank.has(keyOf(f)))
-      .sort((a: any, b: any) => rank.get(keyOf(a))! - rank.get(keyOf(b))!)
-    const rest = withAvatar.filter((f: any) => !rank.has(keyOf(f)))
+      .toArray()
+      .toSorted((a: any, b: any) => rank.get(keyOf(a))! - rank.get(keyOf(b))!)
+    const rest = Iterator.from(withAvatar)
+      .filter((f: any) => !rank.has(keyOf(f)))
+      .toArray()
     return [...curated, ...rest].slice(0, 7)
   }, [followingSample, data?.following_highlights, data?.interest_circles])
 
@@ -422,8 +425,8 @@ export const XWidget = memo(({ data, showOverview, onContentChange }: any) => {
               src={
                 String((item as any).avatar).includes('/api/proxy/image')
                   ? (item as any).avatar
-                  : String((item as any).avatar).replace(
-                      /_(normal|bigger)\./,
+                  : String((item as any).avatar).replaceAll(
+                      /_(normal|bigger)\./g,
                       '_400x400.',
                     )
               }
@@ -558,7 +561,7 @@ function DiscordGuildIcon({
       />
     )
   }
-  const letter = Array.from(name.trim())[0] || '#'
+  const letter = Iterator.from(name.trim()).toArray()[0] || '#'
   return (
     <div
       className="w-full h-full flex items-center justify-center font-bold text-white"
@@ -611,9 +614,13 @@ export const DiscordWidget = memo(({ data, showOverview, onContentChange }: any)
   const guildTakeByKey = useMemo(() => {
     const map = new Map<string, string>()
     const raw = Array.isArray(data?.guild_takes) ? data.guild_takes : []
+    const labels = t.reportCardWidget
     for (const entry of raw) {
       if (!entry || typeof entry !== 'object') continue
-      const take = String((entry as any).take || '').trim()
+      const take = localizeDiscordGuildTake(
+        String((entry as any).take || '').trim(),
+        labels,
+      )
       if (!take) continue
       const id = (entry as any).id
       if (id != null && String(id)) map.set(`id:${String(id)}`, take)
@@ -623,7 +630,7 @@ export const DiscordWidget = memo(({ data, showOverview, onContentChange }: any)
       }
     }
     return map
-  }, [data?.guild_takes])
+  }, [data?.guild_takes, t.reportCardWidget])
 
   const [slideIndex, setSlideIndex] = useState(0)
   useEffect(() => {
@@ -729,7 +736,7 @@ export const DiscordWidget = memo(({ data, showOverview, onContentChange }: any)
                 className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0 ring-2 ring-white/80 dark:ring-black/50 self-center"
                 style={{ background: DISCORD_BLURPLE }}
               >
-                {Array.from(String(displayName).trim())[0] || '#'}
+                {Iterator.from(String(displayName).trim()).toArray()[0] || '#'}
               </div>
             )}
             <div

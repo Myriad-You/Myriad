@@ -31,9 +31,9 @@ import AnimatedView from '../../components/AnimatedView'
 import {
   getTappPermissionGuides,
   guideDomProps,
-  loadTappPermissionGuides,
   InfoActionCard,
   InputItem,
+  loadTappPermissionGuides,
   NumberItem,
   SegmentedControl,
   SelectItem,
@@ -914,14 +914,14 @@ export function TappDetailPage() {
     {
       key: 'installed',
       label: t.tapp.installedAt,
-      value: new Date(tapp.installedAt).toLocaleDateString(),
+      value: new Date(tapp.installedAt).toLocaleDateString(locale),
     },
     ...(tapp.lastRunAt
       ? [
           {
             key: 'lastRun',
             label: t.tapp.lastRunAt,
-            value: new Date(tapp.lastRunAt).toLocaleString(),
+            value: new Date(tapp.lastRunAt).toLocaleString(locale),
           },
         ]
       : []),

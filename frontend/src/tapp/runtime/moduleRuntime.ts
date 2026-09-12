@@ -103,9 +103,9 @@ function resolveAgainstModules(
 ): string | undefined {
   const resolved = resolveModulePath(fromModule, request)
   if (resolved === null) return undefined
-  if (resolved in modules) return resolved
+  if (Object.hasOwn(modules, resolved)) return resolved
   const withExtension = `${resolved}.js`
-  if (withExtension in modules) return withExtension
+  if (Object.hasOwn(modules, withExtension)) return withExtension
   return undefined
 }
 
@@ -140,10 +140,10 @@ export function collectLayerModules(
   const missing: string[] = []
   const resolution = new Map<string, RequireResolution>()
   const seen = new Set<string>()
-  const queue = entries.filter((entry) => entry in modules)
+  const queue = entries.filter((entry) => Object.hasOwn(modules, entry))
 
   for (const entry of entries) {
-    if (!(entry in modules)) missing.push(entry)
+    if (!Object.hasOwn(modules, entry)) missing.push(entry)
   }
 
   while (queue.length > 0) {
@@ -165,7 +165,7 @@ export function collectLayerModules(
     }
   }
 
-  return { included: included.sort(), missing, resolution }
+  return { included: included.toSorted(), missing, resolution }
 }
 
 function collectResolvedLayerModules(
@@ -176,10 +176,10 @@ function collectResolvedLayerModules(
   const included: string[] = []
   const missing: string[] = []
   const seen = new Set<string>()
-  const queue = entries.filter((entry) => entry in modules)
+  const queue = entries.filter((entry) => Object.hasOwn(modules, entry))
 
   for (const entry of entries) {
-    if (!(entry in modules)) missing.push(entry)
+    if (!Object.hasOwn(modules, entry)) missing.push(entry)
   }
 
   while (queue.length > 0) {
@@ -190,7 +190,7 @@ function collectResolvedLayerModules(
     for (const [request, target] of Object.entries(
       resolutions[current] || {},
     )) {
-      if (!(target in modules)) {
+      if (!Object.hasOwn(modules, target)) {
         missing.push(`${current} → ${request}`)
       } else if (!seen.has(target)) {
         queue.push(target)
@@ -198,12 +198,12 @@ function collectResolvedLayerModules(
     }
   }
 
-  return { included: included.sort(), missing }
+  return { included: included.toSorted(), missing }
 }
 
 function escapeModuleSource(source: string): string {
   // 模块体嵌进 script，须切断提前闭合 script。
-  return source.replace(/<\/script/gi, '<\\/script')
+  return source.replaceAll(/<\/script/gi, '<\\/script')
 }
 
 export function buildLayerRuntime(
@@ -211,7 +211,9 @@ export function buildLayerRuntime(
   entries: string[],
   moduleResolutions?: ModuleResolutionTable,
 ): LayerExecutionPlan {
-  const orderedEntries = entries.filter((entry) => entry in modules)
+  const orderedEntries = entries.filter((entry) =>
+    Object.hasOwn(modules, entry),
+  )
   const collected = moduleResolutions
     ? collectResolvedLayerModules(modules, entries, moduleResolutions)
     : collectLayerModules(modules, entries)
@@ -246,20 +248,21 @@ export function buildLayerRuntime(
   return {
     source: `(function () {
   'use strict';
-  var __factories = {
+  const __factories = {
 ${registry}
   };
-  var __resolve = ${JSON.stringify(resolutionTable)};
-  var __cache = {};
+  const __resolve = ${JSON.stringify(resolutionTable)};
+  const __cache = {};
+  const __hasOwn = Object.hasOwn;
   function __require(from, request) {
-    var target = (__resolve[from] && __resolve[from][request]) || request;
-    if (!Object.prototype.hasOwnProperty.call(__factories, target)) {
+    const target = (__resolve[from] && __resolve[from][request]) || request;
+    if (!__hasOwn(__factories, target)) {
       throw new Error('Cannot find module ' + JSON.stringify(request) + ' from ' + JSON.stringify(from));
     }
-    if (Object.prototype.hasOwnProperty.call(__cache, target)) {
+    if (__hasOwn(__cache, target)) {
       return __cache[target].exports;
     }
-    var module = { exports: {} };
+    const module = { exports: {} };
     // 先入缓存再执行：循环依赖拿到的是部分导出，而不是无限递归。
     __cache[target] = module;
     __factories[target](module, module.exports, function (request) {

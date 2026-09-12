@@ -157,7 +157,7 @@ fn generate_prompt_with_rules(title: &str, summary: &str) -> String {
         "gentle character with soft smile and sparkles"
     };
 
-    // 提取关键活动
+    // 活动 hint：中文固定英文 filler，否则截 title+summary
     let activity_hint = extract_activity_context(title, summary);
 
     format!(
@@ -169,10 +169,10 @@ fn generate_prompt_with_rules(title: &str, summary: &str) -> String {
 
 /// 提取活动上下文
 fn extract_activity_context(title: &str, summary: &str) -> String {
-    // 简化处理：只提取标题中的关键活动词
+    // title + summary；任一汉字则走固定 filler
     let content = format!("{} {}", title, summary);
 
-    // 如果内容主要是中文，使用简短描述
+    // 任一汉字即走中文分支（不是「主要是中文」）
     let has_chinese = content
         .chars()
         .any(|c| ('\u{4e00}'..='\u{9fa5}').contains(&c));

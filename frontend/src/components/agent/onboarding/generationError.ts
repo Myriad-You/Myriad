@@ -52,7 +52,7 @@ export function errorCode(reason: unknown): string | undefined {
   if (
     reason &&
     typeof reason === 'object' &&
-    'code' in reason &&
+    Object.hasOwn(reason, 'code') &&
     typeof (reason as { code: unknown }).code === 'string'
     && (reason as { code: string }).code.trim()
   ) {
@@ -81,7 +81,7 @@ function apiErrorHint(reason: unknown): string {
   if (
     reason &&
     typeof reason === 'object' &&
-    'hint' in reason &&
+    Object.hasOwn(reason, 'hint') &&
     typeof (reason as { hint: unknown }).hint === 'string'
   ) {
     return (reason as { hint: string }).hint.trim()

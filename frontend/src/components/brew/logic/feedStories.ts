@@ -59,7 +59,7 @@ export function storiesForSource(
 ): FeedStory[] {
   if (!source) return []
   const base =
-    fetched && fetched.id === source.id && fetched.items.length > 0
+    fetched?.id === source.id && fetched.items.length > 0
       ? fetched.items
       : (source.recent_items ?? [])
   return base.map((item) => ({

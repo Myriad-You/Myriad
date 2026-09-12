@@ -17,11 +17,11 @@ use crate::federation::types::*;
 /// 发布本地内容到联邦网络
 ///
 /// 1. 拉取本地内容详情（或构建 freeform Note）
-/// 2. 转换为 AP Note/Article 对象
+/// 2. 转换为 AP 对象（Note/Article/Application/Collection）
 /// 3. 创建 Create Activity
 /// 4. 存入 federation_published_content
-/// 5. 按 visibility fan-out（Direct/mentioned 不投 followers；Public 另投群邻）
-/// 6. Note：立即写入作者时间线
+/// 5. 写入作者时间线（不限 Note）
+/// 6. 按 visibility fan-out（Direct/mentioned 不投 followers；Public 另投群邻）
 pub async fn publish_content(
     user_id: i32,
     username: &str,
@@ -301,9 +301,8 @@ fn normalize_unpublish_target(
 
 /// 取消发布（Delete Activity）
 ///
-/// Accepts either:
-/// - `content_type` + `content_id` (content_id may be bare id, Note object URL, or path)
-/// - `activity_id` of the original Create (timeline convenience)
+/// Accepts `activity_id`, or `content_type`+`content_id`, or `content_id` alone
+/// (type inferred / looked up). `content_id` may be bare id, object URL, or path.
 pub async fn unpublish_content(
     user_id: i32,
     username: &str,

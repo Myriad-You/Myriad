@@ -60,7 +60,7 @@ function safeMeasure(
     }
     performance.measure(name, startMark, endMark)
     const entries = performance.getEntriesByName(name, 'measure')
-    const last = entries[entries.length - 1]
+    const last = entries.at(-1)
     return last?.duration
   } catch {
     return undefined
@@ -145,11 +145,13 @@ export function widgetPerfMark(
 }
 
 export function getWidgetPerfSnapshot(): WidgetPerfRecord[] {
-  return [...records.values()].map((r) => ({
-    ...r,
-    marks: { ...r.marks },
-    measures: { ...r.measures },
-  }))
+  return Iterator.from(records.values())
+    .map((r) => ({
+      ...r,
+      marks: { ...r.marks },
+      measures: { ...r.measures },
+    }))
+    .toArray()
 }
 
 export function getWidgetPerfSummary(): {
@@ -164,13 +166,13 @@ export function getWidgetPerfSummary(): {
   const totals = all
     .map((r) => r.measures.totalHostToReadyMs)
     .filter((n): n is number => typeof n === 'number' && Number.isFinite(n))
-    .sort((a, b) => a - b)
+    .toSorted((a, b) => a - b)
   const readyCount = totals.length
   const avg =
     readyCount > 0
       ? totals.reduce((s, n) => s + n, 0) / readyCount
       : null
-  const max = readyCount > 0 ? totals[totals.length - 1]! : null
+  const max = readyCount > 0 ? totals.at(-1)! : null
   const p95 =
     readyCount > 0
       ? totals[Math.min(readyCount - 1, Math.floor(readyCount * 0.95))]!
@@ -186,7 +188,7 @@ export function getWidgetPerfSummary(): {
 }
 
 export function clearWidgetPerf(): void {
-  const previous = [...records.values()]
+  const previous = Iterator.from(records.values()).toArray()
   records.clear()
   try {
     if (

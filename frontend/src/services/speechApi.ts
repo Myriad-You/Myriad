@@ -64,10 +64,15 @@ export function isFemaleVoice(gender: string): boolean {
 }
 
 export function localizedVoiceDescription(
-  catalog: Record<string, string>,
+  catalog: object,
   voice: Pick<VoiceInfo, 'id' | 'description'>,
 ): string {
-  return catalog[`voiceDesc.${voice.id}`] || voice.description
+  const key = `voiceDesc.${voice.id}`
+  if (!Object.hasOwn(catalog, key)) {
+    return voice.description
+  }
+  const value = Reflect.get(catalog, key)
+  return typeof value === 'string' && value.length > 0 ? value : voice.description
 }
 
 export interface TTSRequest {

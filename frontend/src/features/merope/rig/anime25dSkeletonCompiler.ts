@@ -11,6 +11,7 @@ import type {
 } from './types'
 import { ANIME25D_LAYER_DEPTH } from './anime25d'
 import { MAX_RIG_BONES } from './contract'
+import { formatTemplate } from './formatTemplate'
 
 export function buildAnime25DBonesAndHandles(
   layers: PreparedLayer[],
@@ -141,7 +142,7 @@ export function buildAnime25DBonesAndHandles(
   }
   if (bones.length > MAX_RIG_BONES) {
     throw new Error(
-      copy.anime25dBoneLimit.replace('{max}', String(MAX_RIG_BONES)),
+      formatTemplate(copy.anime25dBoneLimit, { max: MAX_RIG_BONES }),
     )
   }
 
@@ -306,7 +307,7 @@ export function buildAnime25DLayerSources(
       variant: layer.variant,
       contours: [],
       mesh,
-      boneHandles: handles.get(layer.id) || [fullLayerHandle(layer, 'body')],
+      boneHandles: handles.get(layer.id) ?? [fullLayerHandle(layer, 'body')],
     }
   })
 }

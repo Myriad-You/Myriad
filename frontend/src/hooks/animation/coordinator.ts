@@ -415,9 +415,9 @@ class AnimationCoordinator {
     // 页面切换爆发 10s。
     this.activateBurstMode(10000)
 
-    this.pageReadyPromise = new Promise((resolve) => {
-      this.pageReadyResolve = resolve
-    })
+    const { promise, resolve } = Promise.withResolvers<void>()
+    this.pageReadyPromise = promise
+    this.pageReadyResolve = resolve
   }
 
   completePageTransition(pageId?: string): boolean {
@@ -441,7 +441,7 @@ class AnimationCoordinator {
           }
         })
       } else {
-        const callbacks = Array.from(this.pageReadyCallbacks)
+        const callbacks = Iterator.from(this.pageReadyCallbacks).toArray()
         this.pageReadyCallbacks.clear()
 
         let index = 0
@@ -676,7 +676,7 @@ class AnimationCoordinator {
         right = mid
       }
     }
-    this.waitingQueue.splice(left, 0, item)
+    this.waitingQueue = this.waitingQueue.toSpliced(left, 0, item)
 
     this.rebuildWaitingQueueIndex(left)
   }
@@ -690,7 +690,7 @@ class AnimationCoordinator {
   private removeQueuedAnimation(id: string) {
     const waitIndex = this.waitingQueueIndex.get(id)
     if (waitIndex !== undefined) {
-      this.waitingQueue.splice(waitIndex, 1)
+      this.waitingQueue = this.waitingQueue.toSpliced(waitIndex, 1)
       this.waitingQueueIndex.delete(id)
       this.rebuildWaitingQueueIndex(waitIndex)
     }
@@ -769,7 +769,7 @@ class AnimationCoordinator {
         right = mid
       }
     }
-    this.delayedQueue.splice(left, 0, item)
+    this.delayedQueue = this.delayedQueue.toSpliced(left, 0, item)
 
     this.scheduleNextDelay()
   }
@@ -869,7 +869,7 @@ class AnimationCoordinator {
       return
     }
 
-    const ids = Array.from(this.pendingUpdates)
+    const ids = Iterator.from(this.pendingUpdates).toArray()
     this.pendingUpdates.clear()
 
     let index = 0
@@ -1224,14 +1224,14 @@ class AnimationCoordinator {
     const jankRatio = sampleN > 0 ? jankFrames / sampleN : 0
     let p95FrameMs = 0
     if (sampleN > 0) {
-      samples.sort((a, b) => a - b)
+      const ranked = samples.toSorted((a, b) => a - b)
 
       const idx = Math.min(
         sampleN - 1,
         // nearest-rank P95：ceil(0.95*n)-1。
         Math.max(0, Math.ceil(sampleN * 0.95) - 1),
       )
-      p95FrameMs = samples[idx]
+      p95FrameMs = ranked[idx]
     }
 
     return {
@@ -1418,7 +1418,7 @@ class AnimationCoordinator {
   }
 
   getCachedSize(element: Element): { width: number; height: number } | null {
-    return this.elementSizeCache.get(element) || null
+    return this.elementSizeCache.get(element) ?? null
   }
 
   private getIntersectionObserver(
@@ -1550,7 +1550,9 @@ class AnimationCoordinator {
     this.idleTaskQueue.push({ id, task, timeout, priority: priorityValue })
     this.registeredIdleTasks.add(id)
 
-    this.idleTaskQueue.sort((a, b) => b.priority - a.priority)
+    this.idleTaskQueue = this.idleTaskQueue.toSorted(
+      (a, b) => b.priority - a.priority,
+    )
 
     this.scheduleIdleCallback()
 
@@ -1560,7 +1562,7 @@ class AnimationCoordinator {
   cancelIdleTask(id: string): boolean {
     const index = this.idleTaskQueue.findIndex((t) => t.id === id)
     if (index !== -1) {
-      this.idleTaskQueue.splice(index, 1)
+      this.idleTaskQueue = this.idleTaskQueue.toSpliced(index, 1)
       this.registeredIdleTasks.delete(id)
       return true
     }

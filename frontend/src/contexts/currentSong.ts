@@ -47,11 +47,14 @@ export function applyPublishedMusicState(
   const patch = pickMusicContextState(detail)
   let changed = false
 
-  if ('currentSong' in patch) {
+  if (Object.hasOwn(patch, 'currentSong')) {
     const song = (patch.currentSong as Song | null) ?? null
     if (!sameTrack(current, song)) {
       current = song
-      if (!('lyrics' in patch) && !('currentLyricIndex' in patch)) {
+      if (
+        !Object.hasOwn(patch, 'lyrics') &&
+        !Object.hasOwn(patch, 'currentLyricIndex')
+      ) {
         lastLyrics = []
         lastLyricIndex = -1
         lyric = ''
@@ -60,7 +63,7 @@ export function applyPublishedMusicState(
     }
   }
 
-  if ('isPlaying' in patch) {
+  if (Object.hasOwn(patch, 'isPlaying')) {
     const next = Boolean(patch.isPlaying)
     if (playing !== next) {
       playing = next
@@ -68,14 +71,17 @@ export function applyPublishedMusicState(
     }
   }
 
-  if ('lyrics' in patch) {
+  if (Object.hasOwn(patch, 'lyrics')) {
     lastLyrics = Array.isArray(patch.lyrics) ? patch.lyrics : []
   }
-  if ('currentLyricIndex' in patch) {
+  if (Object.hasOwn(patch, 'currentLyricIndex')) {
     lastLyricIndex =
       typeof patch.currentLyricIndex === 'number' ? patch.currentLyricIndex : -1
   }
-  if ('lyrics' in patch || 'currentLyricIndex' in patch) {
+  if (
+    Object.hasOwn(patch, 'lyrics') ||
+    Object.hasOwn(patch, 'currentLyricIndex')
+  ) {
     const nextLyric = lyricLine(lastLyrics, lastLyricIndex)
     if (lyric !== nextLyric) {
       lyric = nextLyric

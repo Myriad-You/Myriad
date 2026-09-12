@@ -67,7 +67,7 @@ describe('netease play-url / proxy fallback (plan B+C)', () => {
     const url = getNeteaseAudioUrlImmediate(id)
     assert.equal(typeof url, 'string')
     assert.match(url, /netease/)
-    assert.match(url, new RegExp(id))
+    assert.match(url, new RegExp(RegExp.escape(id)))
   })
 })
 

@@ -224,7 +224,12 @@ pub(crate) async fn mcp_get_config(
             Json(AppError::public_json("MCP manager not initialized")),
         ))
     })?;
-    let config = manager.read_config().await;
+    let config = manager.read_config().await.map_err(|error| {
+        HttpError::from((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(AppError::public_json(error)),
+        ))
+    })?;
     let status = manager.list_server_status().await;
     let tools = manager.list_tools().await.len();
     Ok(Json(json!({

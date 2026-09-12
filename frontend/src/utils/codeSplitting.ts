@@ -63,7 +63,7 @@ export const routeComponents = {
 export const CRITICAL_PRELOAD_ROUTES = ['library', 'tapp', 'tappStore'] as const
 
 export function preloadCriticalRoutes(): void {
-  preloadRoutes([...CRITICAL_PRELOAD_ROUTES])
+  preloadRoutes(Iterator.from(CRITICAL_PRELOAD_ROUTES).toArray())
 }
 
 export function preloadTappRoutes(): void {

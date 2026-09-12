@@ -4,6 +4,7 @@ import type {
   RasterLayer,
   RigCanvasFrame,
 } from './anime25dImportTypes'
+import { formatTemplate } from './formatTemplate'
 
 const ATLAS_PADDING = 8
 const MAX_ATLAS_EDGE = 8192
@@ -31,9 +32,10 @@ export async function packAnime25DAtlas(
     const drawHeight = Math.max(1, layer.height)
     if (drawWidth + ATLAS_PADDING * 2 > MAX_ATLAS_EDGE) {
       throw new Error(
-        copy.anime25dLayerTooWide
-          .replace('{id}', layer.id)
-          .replace('{max}', String(MAX_ATLAS_EDGE)),
+        formatTemplate(copy.anime25dLayerTooWide, {
+          id: layer.id,
+          max: MAX_ATLAS_EDGE,
+        }),
       )
     }
     if (cursorX + drawWidth + ATLAS_PADDING > MAX_ATLAS_EDGE) {
@@ -43,7 +45,7 @@ export async function packAnime25DAtlas(
     }
     if (cursorY + drawHeight + ATLAS_PADDING > MAX_ATLAS_EDGE) {
       throw new Error(
-        copy.anime25dAtlasOverflow.replace('{max}', String(MAX_ATLAS_EDGE)),
+        formatTemplate(copy.anime25dAtlasOverflow, { max: MAX_ATLAS_EDGE }),
       )
     }
     places.push({ x: cursorX, y: cursorY })
@@ -115,7 +117,7 @@ export async function packAnime25DAtlas(
       },
       strands:
         layer.role === 'front-hair' || layer.role === 'back-hair'
-          ? (layer.documentStrands || []).map((strand) => ({
+          ? (layer.documentStrands ?? []).map((strand) => ({
               x: (strand.x - frame.x) / frame.width,
               rootY: (strand.rootY - frame.y) / frame.width,
               tipY: (strand.tipY - frame.y) / frame.width,

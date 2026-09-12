@@ -112,7 +112,9 @@ export class RigMotionCoordinator {
       return true
     }
     const drop = new Set(channels)
-    const next = current.channels.filter((channel) => !drop.has(channel))
+    const next = Iterator.from(
+      new Set(current.channels).difference(drop),
+    ).toArray()
     if (next.length === 0) this.leases.delete(handle.leaseId)
     else this.leases.set(handle.leaseId, { ...current, channels: next })
     this.generation += 1

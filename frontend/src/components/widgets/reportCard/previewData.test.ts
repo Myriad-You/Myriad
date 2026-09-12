@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import zhCN from '../../../i18n/zh-CN.json'
+import zhCN from '../../../i18n/zh-CN.json' with { type: 'json' }
 import { buildReportCardPreviewData } from './previewData'
 
 // 预览 fixture 不要把 Bangumi/MAL 条目类型并成一份，多余 key 会以未翻译原文画出。
@@ -10,7 +10,7 @@ function typeKeys(platformId: string): string[] {
   return Object.keys(
     (buildReportCardPreviewData(platformId, t)
       .subject_type_distribution as Record<string, number>) ?? {},
-  ).sort()
+  ).toSorted()
 }
 
 describe('buildReportCardPreviewData — anime subject types', () => {

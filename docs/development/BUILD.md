@@ -53,12 +53,12 @@ commands from the repo root:
 
 ```bash
 cargo build -p myriad-backend
-cargo run -p myriad-backend
+MYRIAD_PROCESS_ROLE=all cargo run -p myriad-backend
 cargo test -p myriad-backend
 cargo check -p myriad-backend --all-targets
 ```
 
-`cd backend && cargo run` continues to work (package in cwd is selected).
+`cd backend && MYRIAD_PROCESS_ROLE=all cargo run` continues to work (package in cwd is selected).
 
 ### Development Build
 
@@ -66,11 +66,11 @@ cargo check -p myriad-backend --all-targets
 # From repo root (preferred)
 cargo fetch
 cargo build -p myriad-backend
-cargo run -p myriad-backend
+MYRIAD_PROCESS_ROLE=all cargo run -p myriad-backend
 
 # Or from backend/ (same workspace)
 cd backend
-cargo run
+MYRIAD_PROCESS_ROLE=all cargo run
 
 # Binary path is always the workspace target/
 #   Unix:    ./target/debug/myriad-backend

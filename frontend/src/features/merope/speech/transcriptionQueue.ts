@@ -73,10 +73,11 @@ export class TranscriptionQueue<T> {
     this.running -= 1
     while (this.tasks[0]?.state === 'ready') {
       const next = this.tasks.shift()!
-      if (next.result && 'value' in next.result)
-        this.host.onResult(next.result.value)
-      else if (next.result && 'error' in next.result)
-        this.host.onError(next.result.error)
+      const result = next.result
+      if (result && Object.hasOwn(result, 'value'))
+        this.host.onResult((result as { value: T }).value)
+      else if (result && Object.hasOwn(result, 'error'))
+        this.host.onError((result as { error: unknown }).error)
     }
     this.host.onBusy(this.tasks.length > 0)
     this.pump()

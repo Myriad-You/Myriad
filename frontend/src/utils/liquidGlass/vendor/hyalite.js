@@ -243,10 +243,16 @@ export function createHyalite() {
         if (mx !== x && my !== y) put(mx, my, gx, gy, litOf(tilt, -gx, -gy));
       }
     }
-    ctx.putImageData(img, 0, 0);
-    const url = c.toDataURL('image/png');
-    ctx.putImageData(img1, 0, 0);
-    const url1 = c.toDataURL('image/png');
+    let url, url1;
+    try {
+      ctx.putImageData(img, 0, 0);
+      url = c.toDataURL('image/png');
+      ctx.putImageData(img1, 0, 0);
+      url1 = c.toDataURL('image/png');
+    } finally {
+      // The encoded maps own the result; the temporary backing store is no longer needed.
+      c.width = 0; c.height = 0;
+    }
     lastInfo = { maxDisplacement: MAXD, bevel: B, mapSize: [MW, MH], radii: radii.slice(), map: url, mapInner: url1, split };
     return { url, maxd: MAXD, inner: { url: url1, maxd: MAXD1 }, split };
   }

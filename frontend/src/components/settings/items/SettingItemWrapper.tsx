@@ -40,7 +40,7 @@ export const SettingItemWrapper: React.FC<SettingItemWrapperProps> = ({
   onApplyDefault,
 }) => {
   const anchorProps = guideDomProps(guidePath)
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const expandHelp = Boolean(useSettingsHelp()?.showDetails)
   const detailText = detail != null && detail !== '' ? detail : null
   const expandedExtra =
@@ -56,10 +56,9 @@ export const SettingItemWrapper: React.FC<SettingItemWrapperProps> = ({
       {required && <span className="required">*</span>}
       {detailText && !expandHelp && (
         <SettingTitleHelp
-          ariaLabel={t.config.detailHelpAriaNamed.replace(
-            '{title}',
-            String(label),
-          )}
+          ariaLabel={format(t.config.detailHelpAriaNamed, {
+            title: String(label),
+          })}
         >
           {detailText}
         </SettingTitleHelp>

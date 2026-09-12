@@ -60,10 +60,10 @@ impl std::fmt::Display for ReportCatalogError {
 
 impl std::error::Error for ReportCatalogError {}
 
-/// Project a platform_reports row for host + Tapp clients.
+/// Project a platform_reports row for Tapp catalog clients.
 ///
-/// Exposes nested `content` (legacy) and top-level `card_visuals` / `cardVisuals`
-/// so home/catalog cards render without field-mapping bugs.
+/// Exposes nested `content` (legacy) and top-level `card_visuals` / `cardVisuals`.
+/// Host home cards use `GET /api/reports/latest`, not this payload.
 pub fn platform_report_payload(report: &platform_reports::Model) -> Value {
     let card_visuals = report
         .report

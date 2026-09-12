@@ -133,16 +133,10 @@ test('clearing speech drops queued visemes but keeps the current mouth for a res
 })
 
 test('predicts a quiet mouth response while text visemes are still compiling', async () => {
-  let resolveCompilation:
-    | ((
-        cues: Array<{ viseme: 'round'; duration: number; emphasis: boolean }>,
-      ) => void)
-    | undefined
-  const compilation = new Promise<
-    Array<{ viseme: 'round'; duration: number; emphasis: boolean }>
-  >((resolve) => {
-    resolveCompilation = resolve
-  })
+  const { promise: compilation, resolve: resolveCompilation } =
+    Promise.withResolvers<
+      Array<{ viseme: 'round'; duration: number; emphasis: boolean }>
+    >()
   const speech = new AutoSpeechController(
     () => 0.5,
     () => compilation,
@@ -158,7 +152,7 @@ test('predicts a quiet mouth response while text visemes are still compiling', a
   assert.equal(predicted.browAccent, 0)
   assert.equal(predicted.headAccent, 0)
 
-  resolveCompilation?.([{ viseme: 'round', duration: 0.2, emphasis: false }])
+  resolveCompilation([{ viseme: 'round', duration: 0.2, emphasis: false }])
   await new Promise<void>((resolve) => setImmediate(resolve))
   const handoff = { ...speech.sample(0.08, true) }
   const authoritative = { ...speech.sample(0.13, true) }
@@ -254,16 +248,10 @@ test('keeps one rhythm across streaming chunks without inventing a phrase break'
 })
 
 test('does not revive a pending text prediction after speech is cleared', async () => {
-  let resolveCompilation:
-    | ((
-        cues: Array<{ viseme: 'open'; duration: number; emphasis: boolean }>,
-      ) => void)
-    | undefined
-  const compilation = new Promise<
-    Array<{ viseme: 'open'; duration: number; emphasis: boolean }>
-  >((resolve) => {
-    resolveCompilation = resolve
-  })
+  const { promise: compilation, resolve: resolveCompilation } =
+    Promise.withResolvers<
+      Array<{ viseme: 'open'; duration: number; emphasis: boolean }>
+    >()
   const speech = new AutoSpeechController(
     () => 0.5,
     () => compilation,
@@ -272,7 +260,7 @@ test('does not revive a pending text prediction after speech is cleared', async 
   speech.enqueueText('稍后到达', 'zh-CN')
   speech.sample(0.06, true)
   speech.clear(0.06)
-  resolveCompilation?.([{ viseme: 'open', duration: 0.2, emphasis: false }])
+  resolveCompilation([{ viseme: 'open', duration: 0.2, emphasis: false }])
   await new Promise<void>((resolve) => setImmediate(resolve))
 
   const rest = { ...speech.sample(0.3, false) }

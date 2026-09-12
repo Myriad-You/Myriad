@@ -1,4 +1,3 @@
-
 import type { ReactNode } from 'react'
 import type { ButtonSettingConfig } from '../types'
 import React, { useCallback, useState } from 'react'
@@ -49,7 +48,7 @@ export const ButtonItem = React.memo<ButtonItemProps>(
 
       setInternalLoading(true)
       try {
-        await Promise.resolve(onClick())
+        await Promise.try(onClick)
       } finally {
         setInternalLoading(false)
       }

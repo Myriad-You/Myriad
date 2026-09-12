@@ -32,7 +32,7 @@ function getPageIdFromPath(pathname: string): string {
     return pathToPageId[basePath]
   }
 
-  return pathname.replace(/^\//, '') || 'unknown'
+  return pathname.replaceAll(/^\//g, '') || 'unknown'
 }
 
 /** 路由顶层调用：切页时清旧页资源并 startPage。 */

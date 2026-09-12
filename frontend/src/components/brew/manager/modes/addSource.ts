@@ -57,7 +57,7 @@ export function faviconForUrl(url: string): string | null {
   }
 }
 
-export type DiscoveredFeed = {
+export interface DiscoveredFeed {
   url: string
   autocompleted: boolean
   title: string

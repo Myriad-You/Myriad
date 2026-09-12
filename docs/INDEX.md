@@ -20,7 +20,7 @@ docs/
   deployment/              # 生产编排、端口、更新、安全
   development/             # 架构、构建、联邦、OAuth、Tapp
   features/                # Library、.tapp 包格式
-  design/                  # 主题、图标、通知、3D 管线
+  design/                  # 主题、图标、通知、Agent Channel、3D 管线
 ```
 
 ## 部署
@@ -46,6 +46,7 @@ docs/
 | 文档 | 说明 |
 | --- | --- |
 | [ARCHITECTURE.md](development/ARCHITECTURE.md) | 组件与拓扑 |
+| [AGENT_CHANNELS.md](development/AGENT_CHANNELS.md) | 私聊通道授权、撤销、投递与恢复边界 |
 | [BUILD.md](development/BUILD.md) | 工具链与构建 |
 | [API.md](API.md) | HTTP API 入口 |
 | [OAUTH.md](development/OAUTH.md) | 本地登录与 OAuth/OIDC |
@@ -63,6 +64,7 @@ docs/
 | [theme-system.md](design/theme-system.md) | Surface / Glow |
 | [icon-inventory.md](design/icon-inventory.md) | 图标规范 |
 | [notification-catalog.md](design/notification-catalog.md) | 通知目录 |
+| [agent-channel.md](design/agent-channel.md) | Agent 运输适配：办事 Channel 与 QQ 单聊第一平台 |
 | [merope-25d-pipeline.md](design/merope-25d-pipeline.md) | Merope / See-through / Anime2.5D 形象管线 |
 | [merope-3d-pipeline.md](design/merope-3d-pipeline.md) | Merope / Tripo 3D 管线 |
 | [brew-tile-grid.md](design/brew-tile-grid.md) | Brew 磁贴网格改造实施手册 |

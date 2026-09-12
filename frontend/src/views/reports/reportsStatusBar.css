@@ -52,7 +52,6 @@ html.dark .rsb {
   max-width: min(100%, 34rem);
   height: var(--rsb-h);
   padding: 0 0.5rem 0 0.75rem;
-
   border-radius: 0.75rem;
 }
 

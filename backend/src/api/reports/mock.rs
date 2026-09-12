@@ -3,11 +3,10 @@
 
 use serde_json::{json, Value};
 
-use super::locale::pick;
 use crate::services::smart_filter::{ContentAnalysis, SmartFilteredData};
 
-fn t<'a>(locale: &str, zh: &'a str, ja: &'a str, en: &'a str) -> &'a str {
-    pick(locale, zh, ja, en)
+fn t(locale: &str, key: &str) -> String {
+    crate::i18n::reports(locale, key)
 }
 
 pub(crate) fn generate_mock_report(
@@ -31,7 +30,7 @@ pub(crate) fn generate_mock_report(
             let mix = analysis
                 .anime_analysis
                 .iter()
-                .map(|item| format!("{} {}", item.count, category_label(&item.category)))
+                .map(|item| format!("{} {}", item.count, category_label(locale, &item.category)))
                 .take(2)
                 .collect::<Vec<_>>()
                 .join(" / ");
@@ -45,46 +44,15 @@ pub(crate) fn generate_mock_report(
                 .collect::<Vec<_>>();
             (
                 match (anime, video) {
-                    (Some(_), Some(_)) => t(
-                        locale,
-                        "追番和投稿不在同一条线上",
-                        "追番と投稿は別線",
-                        "Watching and uploads diverge",
-                    ),
-                    (Some(_), None) => {
-                        t(locale, "名单偏追番", "リストは追番寄り", "List leans anime")
-                    }
-                    (None, Some(_)) => t(
-                        locale,
-                        "最近在看投稿",
-                        "最近は投稿を見ている",
-                        "Watching uploads lately",
-                    ),
-                    (None, None) => t(
-                        locale,
-                        "公开区几乎是空的",
-                        "公開区はほぼ空",
-                        "Public shelf is almost empty",
-                    ),
-                }
-                .into(),
+                    (Some(_), Some(_)) => t(locale, "bili.diverge"),
+                    (Some(_), None) => t(locale, "bili.leansAnime"),
+                    (None, Some(_)) => t(locale, "bili.watchingUploads"),
+                    (None, None) => t(locale, "bili.empty"),
+                },
                 take_insights([
-                    anime.map(|name| {
-                        format!(
-                            "{}《{}》",
-                            t(locale, "名单上还挂着", "リストに残る", "Still listed"),
-                            name
-                        )
-                    }),
-                    video.map(|title| {
-                        format!(
-                            "{}《{}》",
-                            t(locale, "最近在看", "最近見ている", "Watching"),
-                            title
-                        )
-                    }),
-                    (!mix.is_empty())
-                        .then(|| format!("{} {}", t(locale, "类型占比", "ジャンル比", "Mix"), mix)),
+                    anime.map(|name| format!("{}《{}》", t(locale, "bili.stillListed"), name)),
+                    video.map(|title| format!("{}《{}》", t(locale, "bili.watching"), title)),
+                    (!mix.is_empty()).then(|| format!("{} {}", t(locale, "bili.mix"), mix)),
                 ]),
                 json!({ "danmaku": danmaku }),
             )
@@ -107,46 +75,18 @@ pub(crate) fn generate_mock_report(
             };
             (
                 if concentrated {
-                    t(
-                        locale,
-                        "时长堆在少数作品上",
-                        "時間は少数作に偏る",
-                        "Hours pile on a few titles",
-                    )
+                    t(locale, "steam.hoursPile")
                 } else {
-                    t(
-                        locale,
-                        "库比最近在玩的名单大",
-                        "ライブラリは最近の名簿より大きい",
-                        "Library outgrows the recent list",
-                    )
-                }
-                .into(),
+                    t(locale, "steam.libraryOutgrows")
+                },
                 take_insights([
-                    top.map(|g| {
-                        format!(
-                            "《{}》{}",
-                            g.name,
-                            t(
-                                locale,
-                                "吃掉最多终身分钟",
-                                "が生涯分を最も食う",
-                                " takes the most lifetime minutes"
-                            )
-                        )
-                    }),
-                    genre.map(|g| {
-                        format!(
-                            "{}{}",
-                            t(locale, "类型气味偏", "ジャンルは", "Genre leans "),
-                            g
-                        )
-                    }),
+                    top.map(|g| format!("《{}》{}", g.name, t(locale, "steam.mostMinutes"))),
+                    genre.map(|g| format!("{}{}", t(locale, "steam.genreLeans"), g)),
                     Some(format!(
                         "{} {} · {} {}",
-                        t(locale, "库", "庫", "Library"),
+                        t(locale, "steam.library"),
                         analysis.games_count,
-                        t(locale, "最近名单", "最近の名簿", "recent"),
+                        t(locale, "steam.recent"),
                         analysis.recent_games.len()
                     )),
                 ]),
@@ -172,39 +112,22 @@ pub(crate) fn generate_mock_report(
                 .map(|cal| cal.iter().filter(|d| d.count > 0).count())
                 .unwrap_or(0);
             (
-                t(
-                    locale,
-                    "仓库影响力不等于日历密度",
-                    "星とカレンダー密度は別物",
-                    "Stars are not calendar density",
-                )
-                .into(),
+                t(locale, "github.starsNotCalendar"),
                 take_insights([
                     top.and_then(|repo| {
                         repo.stars.map(|n| {
-                            format!(
-                                "{} {} {} star",
-                                repo.name,
-                                t(locale, "最高", "最大", "top"),
-                                n
-                            )
+                            format!("{} {} {} star", repo.name, t(locale, "github.top"), n)
                         })
                     }),
                     (cal_days > 0).then(|| {
                         format!(
                             "{} {} {}",
-                            t(locale, "日历有", "カレンダー", "Calendar has"),
+                            t(locale, "github.calendarHas"),
                             cal_days,
-                            t(locale, "天有提交", "日コミットあり", "active days")
+                            t(locale, "github.activeDays")
                         )
                     }),
-                    lang.map(|name| {
-                        format!(
-                            "{} {}",
-                            t(locale, "语言栈头是", "言語の頭は", "Top language"),
-                            name
-                        )
-                    }),
+                    lang.map(|name| format!("{} {}", t(locale, "github.topLanguage"), name)),
                 ]),
                 json!({}),
             )
@@ -219,23 +142,11 @@ pub(crate) fn generate_mock_report(
             };
             if empty {
                 (
-                    t(
-                        locale,
-                        "公开区还没有能闻的片",
-                        "公開区に嗅げる動画がない",
-                        "No public videos to read",
-                    )
-                    .into(),
-                    vec![t(
-                        locale,
-                        "video_count 为 0，频道资料在、片子不在",
-                        "video_count は 0、資料だけある",
-                        "video_count is 0; channel exists, videos do not",
-                    )
-                    .into()],
+                    t(locale, "yt.noPublic"),
+                    vec![t(locale, "yt.videoCountZero")],
                     json!({
-                        "vibe": t(locale, "冷启动空壳", "コールドスタート", "Cold start shell"),
-                        "channel_type": t(locale, "冷启动号", "コールドスタート", "Cold start"),
+                        "vibe": t(locale, "yt.coldShell"),
+                        "channel_type": t(locale, "yt.coldStart"),
                     }),
                 )
             } else {
@@ -246,46 +157,28 @@ pub(crate) fn generate_mock_report(
                         .and_then(|v| v.published_at.as_deref()),
                 );
                 (
-                    t(
-                        locale,
-                        "订阅和均播要分开看",
-                        "登録と平均再生は別物",
-                        "Subs and average views split",
-                    )
-                    .into(),
+                    t(locale, "yt.subsSplit"),
                     take_insights([
                         Some(format!(
                             "{} {} · {} {}",
-                            t(locale, "均播约", "平均再生", "Avg views"),
+                            t(locale, "yt.avgViews"),
                             avg,
-                            t(locale, "订阅", "登録", "subs"),
+                            t(locale, "yt.subs"),
                             analysis.subscriber_count
                         )),
-                        latest.map(|title| {
-                            format!(
-                                "{}《{}》",
-                                t(locale, "最近标题", "最近のタイトル", "Latest"),
-                                title
-                            )
-                        }),
+                        latest.map(|title| format!("{}《{}》", t(locale, "yt.latest"), title)),
                         analysis
                             .recent_videos
                             .first()
                             .and_then(|v| v.published_at.as_deref())
-                            .map(|at| {
-                                format!(
-                                    "{} {}",
-                                    t(locale, "最近上传", "最近の投稿", "Uploaded"),
-                                    at
-                                )
-                            }),
+                            .map(|at| format!("{} {}", t(locale, "yt.uploaded"), at)),
                     ]),
                     json!({
-                        "vibe": t(locale, "有片可闻", "動画あり", "Has videos"),
+                        "vibe": t(locale, "yt.hasVideosVibe"),
                         "channel_type": if stale {
-                            t(locale, "停更沉寂", "更新停止", "Dormant")
+                            t(locale, "yt.dormant")
                         } else {
-                            t(locale, "有片", "動画あり", "Has videos")
+                            t(locale, "yt.hasVideos")
                         },
                     }),
                 )
@@ -346,31 +239,11 @@ pub(crate) fn generate_mock_report(
                 .map(|(i, tag)| json!({ "tag": tag, "color": MOOD_COLORS[i] }))
                 .collect();
             (
-                t(
-                    locale,
-                    "曲风比数量诚实",
-                    "曲調は本数より正直",
-                    "Genre is more honest than count",
-                )
-                .into(),
+                t(locale, "netease.genreHonest"),
                 take_insights([
-                    artist.map(|name| {
-                        format!(
-                            "{} {}",
-                            t(locale, "名单上反复出现", "名簿に繰り返す", "Keeps showing"),
-                            name
-                        )
-                    }),
-                    region.map(|name| {
-                        format!("{}{}", t(locale, "地域偏", "地域は", "Region leans "), name)
-                    }),
-                    genre.map(|name| {
-                        format!(
-                            "{}{}",
-                            t(locale, "曲风偏", "ジャンルは", "Genre leans "),
-                            name
-                        )
-                    }),
+                    artist.map(|name| format!("{} {}", t(locale, "netease.keepsShowing"), name)),
+                    region.map(|name| format!("{}{}", t(locale, "netease.regionLeans"), name)),
+                    genre.map(|name| format!("{}{}", t(locale, "netease.genreLeans"), name)),
                 ]),
                 json!({
                     "soul_color": "#5B6ABF",
@@ -407,45 +280,27 @@ pub(crate) fn generate_mock_report(
                 .or(analysis.recent_posts.first())
                 .map(|p| p.text.chars().take(24).collect::<String>());
             (
-                t(
-                    locale,
-                    "关注名单比发帖诚实",
-                    "フォローは投稿より正直",
-                    "Follows are more honest than posts",
-                )
-                .into(),
+                t(locale, "x.followsHonest"),
                 take_insights([
                     Some(format!(
                         "{} {} {}",
-                        t(locale, "账上", "投稿", "Posts"),
+                        t(locale, "x.posts"),
                         analysis.engagement_stats.total_posts,
-                        t(locale, "帖", "", "")
+                        t(locale, "x.postUnit")
                     )),
-                    follow.map(|item| {
-                        format!(
-                            "{} @{}",
-                            t(locale, "关注里有", "フォローに", "Follows"),
-                            item.username
-                        )
-                    }),
-                    post.map(|text| {
-                        format!(
-                            "{}「{}」",
-                            t(locale, "近帖写", "近投稿は", "Recent post"),
-                            text
-                        )
-                    }),
+                    follow.map(|item| format!("{} @{}", t(locale, "x.follows"), item.username)),
+                    post.map(|text| format!("{}「{}」", t(locale, "x.recentPost"), text)),
                 ]),
                 json!({
                     "vibe": if analysis.engagement_stats.total_posts == 0 {
-                        t(locale, "沉浸观察", "観察に没入", "Watching")
+                        t(locale, "x.watching")
                     } else {
-                        t(locale, "有帖可闻", "投稿あり", "Has posts")
+                        t(locale, "x.hasPosts")
                     },
                     "engagement_level": if analysis.engagement_stats.total_posts == 0 {
-                        t(locale, "沉浸观察者", "没入観察者", "Observer")
+                        t(locale, "x.observer")
                     } else {
-                        t(locale, "脉冲发帖", "パルス投稿", "Pulse poster")
+                        t(locale, "x.pulse")
                     },
                     "signature_topics": follow
                         .map(|item| vec![item.name.chars().take(6).collect::<String>()])
@@ -455,7 +310,7 @@ pub(crate) fn generate_mock_report(
                         .map(|item| vec![json!({
                             "username": item.username,
                             "name": item.name,
-                            "tag": t(locale, "关注样本", "フォロー標本", "Follow")
+                            "tag": t(locale, "x.followTag")
                         })])
                         .unwrap_or_default(),
                 }),
@@ -471,32 +326,24 @@ pub(crate) fn generate_mock_report(
                 .find(|c| c.visibility != 0)
                 .map(|c| c.name.as_str());
             let role = if owned + admin == 0 {
-                t(locale, "潜水观察者", "潜水観察者", "Lurker")
+                t(locale, "discord.lurker")
             } else if owned > 0 {
-                t(locale, "社群主理人", "コミュニティ主", "Community host")
+                t(locale, "discord.host")
             } else {
-                t(locale, "圈子老炮", "古参", "Circle regular")
+                t(locale, "discord.regular")
             };
             (
-                t(
-                    locale,
-                    "身份看自建数，不看服多",
-                    "身分は自作数で見る",
-                    "Identity is owned servers, not count",
-                )
-                .into(),
+                t(locale, "discord.identityOwned"),
                 take_insights([
                     Some(format!(
                         "{} {} · {} {}",
-                        t(locale, "自建", "自作", "Owned"),
+                        t(locale, "discord.owned"),
                         owned,
-                        t(locale, "管理", "管理", "admin"),
+                        t(locale, "discord.admin"),
                         admin
                     )),
-                    guild.map(|g| {
-                        format!("{} {}", t(locale, "名单上有", "名簿に", "Listed"), g.name)
-                    }),
-                    bind.map(|name| format!("{} {}", t(locale, "绑定", "連携", "Linked"), name)),
+                    guild.map(|g| format!("{} {}", t(locale, "discord.listed"), g.name)),
+                    bind.map(|name| format!("{} {}", t(locale, "discord.linked"), name)),
                 ]),
                 json!({
                     "vibe": role,
@@ -506,9 +353,9 @@ pub(crate) fn generate_mock_report(
                         "name": g.name,
                         "id": g.id,
                         "take": if g.owner {
-                            t(locale, "自己的服", "自分の鯖", "Own server")
+                            t(locale, "discord.ownServer")
                         } else {
-                            t(locale, "加入的服", "参加した鯖", "Joined")
+                            t(locale, "discord.joined")
                         },
                     })).collect::<Vec<_>>(),
                 }),
@@ -522,30 +369,23 @@ pub(crate) fn generate_mock_report(
                 .map(|t| t.name.as_str());
             let hunter = analysis.completed_games >= 5;
             (
-                t(
-                    locale,
-                    "认绿光不认时长",
-                    "緑は見る、時間は見ない",
-                    "Greens, not hours",
-                )
-                .into(),
+                t(locale, "xbox.greens"),
                 take_insights([
                     Some(format!(
                         "{} {} / {} {:.0}%",
-                        t(locale, "全成就", "コンプ", "Complete"),
+                        t(locale, "xbox.complete"),
                         analysis.completed_games,
-                        t(locale, "平均完成", "平均達成", "avg"),
+                        t(locale, "xbox.avg"),
                         analysis.average_completion
                     )),
                     Some(format!("GS {}", analysis.gamerscore)),
-                    title
-                        .map(|name| format!("{}《{}》", t(locale, "近作", "近作", "Recent"), name)),
+                    title.map(|name| format!("{}《{}》", t(locale, "xbox.recent"), name)),
                 ]),
                 json!({
                     "gamer_type": if hunter {
-                        t(locale, "全成就猎人", "実績コンプ勢", "Completion hunter")
+                        t(locale, "xbox.hunter")
                     } else {
-                        t(locale, "广撒网玩家", "広く浅く", "Wide net")
+                        t(locale, "xbox.wideNet")
                     },
                 }),
             )
@@ -557,32 +397,25 @@ pub(crate) fn generate_mock_report(
                 .or(analysis.top_completed_titles.first())
                 .map(|t| t.name.as_str());
             (
-                t(
-                    locale,
-                    "认奖杯柜不认时长",
-                    "トロフィー棚は見る、時間は見ない",
-                    "Cabinet, not hours",
-                )
-                .into(),
+                t(locale, "psn.cabinet"),
                 take_insights([
                     Some(format!(
                         "{} {}",
-                        t(locale, "白金", "プラチナ", "Platinum"),
+                        t(locale, "psn.platinum"),
                         analysis.platinum_count
                     )),
                     Some(format!(
                         "{} {}%",
-                        t(locale, "平均进度", "平均進捗", "Avg progress"),
+                        t(locale, "psn.avgProgress"),
                         analysis.average_progress.round()
                     )),
-                    title
-                        .map(|name| format!("{}《{}》", t(locale, "近作", "近作", "Recent"), name)),
+                    title.map(|name| format!("{}《{}》", t(locale, "xbox.recent"), name)),
                 ]),
                 json!({
                     "hunter_type": if analysis.platinum_count >= 10 {
-                        t(locale, "白金收藏家", "プラチナ収集家", "Platinum collector")
+                        t(locale, "psn.collector")
                     } else {
-                        t(locale, "随缘奖杯党", "気まま勢", "Casual trophies")
+                        t(locale, "psn.casual")
                     },
                 }),
             )
@@ -600,40 +433,18 @@ fn catalog_mock(
     let wish = dist.get("wish").copied().unwrap_or(0);
     let done = dist.get("done").copied().unwrap_or(0);
     let taste = if wish > done {
-        t(
-            locale,
-            "想看比进度诚实",
-            "見たいは進捗より正直",
-            "Wishlist outruns done",
-        )
+        t(locale, "catalog.wishlistOutruns")
     } else if mal {
-        t(
-            locale,
-            "列表偏做完",
-            "リストは完了寄り",
-            "List leans finished",
-        )
+        t(locale, "catalog.leansFinished")
     } else {
-        t(
-            locale,
-            "进度压过想看",
-            "進捗が見たいを上回る",
-            "Done outruns wishlist",
-        )
+        t(locale, "catalog.doneOutruns")
     };
     (
-        taste.into(),
+        taste.clone(),
         take_insights([
             Some(format!("wish {} · done {}", wish, done)),
-            top.map(|title| {
-                format!(
-                    "{}《{}》",
-                    t(locale, "高分有", "高得点に", "High score"),
-                    title
-                )
-            }),
-            watching
-                .map(|title| format!("{}《{}》", t(locale, "在追", "視聴中", "Watching"), title)),
+            top.map(|title| format!("{}《{}》", t(locale, "catalog.highScore"), title)),
+            watching.map(|title| format!("{}《{}》", t(locale, "catalog.watching"), title)),
         ]),
         json!({ "taste_profile": taste }),
     )
@@ -662,13 +473,14 @@ fn take_insights(items: [Option<String>; 3]) -> Vec<String> {
 }
 
 fn category_label(
+    locale: &str,
     category: &crate::services::content_databases::anime_database::ContentCategory,
-) -> &'static str {
+) -> String {
     use crate::services::content_databases::anime_database::ContentCategory;
     match category {
-        ContentCategory::Anime => "番",
-        ContentCategory::TvSeries => "剧",
-        ContentCategory::Movie => "电影",
+        ContentCategory::Anime => t(locale, "bili.catAnime"),
+        ContentCategory::TvSeries => t(locale, "bili.catTv"),
+        ContentCategory::Movie => t(locale, "bili.catMovie"),
     }
 }
 

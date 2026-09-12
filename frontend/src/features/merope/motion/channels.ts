@@ -1,4 +1,3 @@
-
 export const MOTION_CHANNELS = [
   'mouth',
   'expression',

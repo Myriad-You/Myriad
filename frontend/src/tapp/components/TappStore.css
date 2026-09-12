@@ -8,7 +8,6 @@
   --as-fill: color-mix(in srgb, var(--as-label) 6%, transparent);
   --as-fill-strong: color-mix(in srgb, var(--as-label) 10%, transparent);
   --as-sep: color-mix(in srgb, var(--as-label) 5%, transparent);
-
   --as-dur-scale: 1;
   --as-enter-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --as-enter-dur: calc(0.3s * var(--as-dur-scale));
@@ -1040,7 +1039,6 @@ html[data-perf-mode='exlight'] .as-store__chrome {
   background: transparent;
   border: 0;
   border-radius: inherit;
-
   touch-action: manipulation;
 }
 
@@ -2473,7 +2471,6 @@ html.dark .as-detail__perm-card--privileged.checkbox-group-card {
     padding: 1rem 1.05rem;
     scroll-snap-align: start;
     border-radius: 1rem;
-
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
   }
@@ -2673,9 +2670,6 @@ html.dark .as-detail__perm-card--privileged.checkbox-group-card {
   .as-detail__perm-cards.checkbox-group-options {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.55rem;
-  }
-
-  .as-detail__block--info .info-action-card {
   }
 
   .as-store-configuration {

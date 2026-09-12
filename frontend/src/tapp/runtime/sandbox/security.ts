@@ -3,17 +3,17 @@ import { SANDBOXED_FETCH_INSTALL_SOURCE } from './assetUrlRewriter'
 export function generateNonce(): string {
   const array = new Uint8Array(16)
   crypto.getRandomValues(array)
-  return Array.from(array, (b) => b.toString(16).padStart(2, '0')).join('')
+  return Iterator.from(array).map((b) => b.toString(16).padStart(2, '0')).toArray().join('')
 }
 
 export function generateSessionToken(): string {
   const array = new Uint8Array(32)
   crypto.getRandomValues(array)
-  return Array.from(array, (b) => b.toString(16).padStart(2, '0')).join('')
+  return Iterator.from(array).map((b) => b.toString(16).padStart(2, '0')).toArray().join('')
 }
 
 export function escapeSandboxHtmlText(value: string): string {
-  return value.replace(/[&<>]/g, (character) => {
+  return value.replaceAll(/[&<>]/g, (character) => {
     if (character === '&') return '&amp;'
     if (character === '<') return '&lt;'
     return '&gt;'
@@ -24,13 +24,13 @@ export function serializeSandboxScriptValue(value: unknown): string {
   const serialized = JSON.stringify(value)
   if (serialized === undefined) return 'undefined'
   return serialized
-    .replace(/</g, '\\u003c')
-    .replace(/\u2028/g, '\\u2028')
-    .replace(/\u2029/g, '\\u2029')
+    .replaceAll('<', '\\u003c')
+    .replaceAll('\u2028', '\\u2028')
+    .replaceAll('\u2029', '\\u2029')
 }
 
 export function escapeSandboxScriptSource(source: string): string {
-  return source.replace(/<\/script/gi, '<\\/script')
+  return source.replaceAll(/<\/script/gi, '<\\/script')
 }
 
 export interface GenerateCSPOptions {
@@ -143,7 +143,7 @@ export function generateSecurityWrapper(
     if (window.parent !== window) {
       _parentPostMessage = window.parent.postMessage.bind(window.parent);
     }
-  } catch (e) {
+  } catch {
     // 回退：使用 postMessage 的通用调用方式
     _parentPostMessage = (msg, origin) => window.parent.postMessage(msg, origin);
   }
@@ -159,7 +159,7 @@ export function generateSecurityWrapper(
       enumerable: false,
       configurable: true
     });
-  } catch (e) {
+  } catch {
     window.__TAPP_TAKE_NATIVE_PARENT__ = () => _nativeParentWindow;
   }
   
@@ -179,7 +179,7 @@ export function generateSecurityWrapper(
       }
       Object.defineProperty(obj, prop, { ...descriptor, configurable: false });
       return true;
-    } catch (e) {
+    } catch {
       // 静默失败，某些浏览器限制了对这些属性的修改
       return false;
     }
@@ -198,7 +198,7 @@ export function generateSecurityWrapper(
       return _Function.apply(this, args);
     };
     window.Function.prototype = _Function.prototype;
-  } catch (e) {}
+  } catch {}
   
   // 安全加强：拦截 setTimeout/setInterval 的字符串参数
   // 防止通过 setTimeout("malicious code", 0) 绕过 eval 禁用
@@ -223,15 +223,16 @@ export function generateSecurityWrapper(
   
   // 限制 parent 访问，只允许 postMessage；对象消息自动注入 session token
   // （Bridge 对 request/event 均校验 token；用户代码漏加也会被补上）
-  var _postMessageWithToken = function(message, origin) {
+  const _hasOwn = Object.hasOwn;
+  const _postMessageWithToken = function(message, origin) {
     if (!_parentPostMessage) return undefined;
     if (message && typeof message === 'object') {
       try {
-        if (!Object.prototype.hasOwnProperty.call(message, '_sessionToken') ||
+        if (!_hasOwn(message, '_sessionToken') ||
             message._sessionToken == null || message._sessionToken === '') {
           message._sessionToken = _SESSION_TOKEN;
         }
-      } catch (e) {
+      } catch {
         // frozen / non-extensible message: still attempt send; Bridge will reject if missing
       }
     }
@@ -331,7 +332,7 @@ export function generateSecurityWrapper(
       Object.defineProperty(this, 'src', {
         set(value) {
           if (!_isAllowedImageUrl(value)) {
-            console.warn('[Security] Image URL is blocked by the Tapp CSP:', String(value).substring(0, 50));
+            console.warn('[Security] Image URL is blocked by the Tapp CSP:', String(value).slice(0, 50));
             return;
           }
           if (originalSrcDescriptor && typeof originalSrcDescriptor.set === 'function') {
@@ -404,7 +405,7 @@ export function generateSecurityWrapper(
         if (typeof value === 'string' && /<script[^>]*>/i.test(value)) {
           console.warn('[Security] Script tag in innerHTML blocked');
           // 移除 script 标签
-          value = value.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, '<!-- script removed -->');
+          value = value.replaceAll(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, '<!-- script removed -->');
         }
         if (_originalInnerHTMLDescriptor && typeof _originalInnerHTMLDescriptor.set === 'function') {
           _originalInnerHTMLDescriptor.set.call(this, value);
@@ -427,7 +428,7 @@ export function generateSecurityWrapper(
       set(value) {
         if (typeof value === 'string' && /<script[^>]*>/i.test(value)) {
           console.warn('[Security] Script tag in outerHTML blocked');
-          value = value.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, '<!-- script removed -->');
+          value = value.replaceAll(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, '<!-- script removed -->');
         }
         if (_originalOuterHTMLDescriptor && typeof _originalOuterHTMLDescriptor.set === 'function') {
           _originalOuterHTMLDescriptor.set.call(this, value);
@@ -448,7 +449,7 @@ export function generateSecurityWrapper(
   Element.prototype.insertAdjacentHTML = function(position, text) {
     if (typeof text === 'string' && /<script[^>]*>/i.test(text)) {
       console.warn('[Security] Script tag in insertAdjacentHTML blocked');
-      text = text.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, '<!-- script removed -->');
+      text = text.replaceAll(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, '<!-- script removed -->');
     }
     return _originalInsertAdjacentHTML.call(this, position, text);
   };

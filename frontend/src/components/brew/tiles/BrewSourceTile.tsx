@@ -14,6 +14,7 @@ import { useAuth } from '../../../contexts/AuthContext'
 import { useI18n } from '../../../contexts/I18nContext'
 import { isExlight, useAnimationLevel } from '../../../hooks/useAnimationLevel'
 import { useWidgetSize } from '../../../hooks/useWidgetSize'
+import { formatMessage, localeOrFallback } from '../../../i18n'
 import { extractColorsFromLoadedImage } from '../../../utils/colorExtractor'
 import {
   DEFAULT_THEME_COLOR,
@@ -82,14 +83,21 @@ function relTime(
   if (!ts) return ''
   const diff = now - ts
   if (diff < 60_000) return t.justNow
+  const loc = localeOrFallback(locale)
   if (diff < 3_600_000) {
-    return t.minutesAgo.replace('{minutes}', String(Math.floor(diff / 60_000)))
+    return formatMessage(loc, t.minutesAgo, {
+      minutes: Math.floor(diff / 60_000),
+    })
   }
   if (diff < 86_400_000) {
-    return t.hoursAgo.replace('{hours}', String(Math.floor(diff / 3_600_000)))
+    return formatMessage(loc, t.hoursAgo, {
+      hours: Math.floor(diff / 3_600_000),
+    })
   }
   if (diff < 604_800_000) {
-    return t.daysAgo.replace('{days}', String(Math.floor(diff / 86_400_000)))
+    return formatMessage(loc, t.daysAgo, {
+      days: Math.floor(diff / 86_400_000),
+    })
   }
   // 相对时间跟界面语言，不跟浏览器。
   return new Date(ts).toLocaleDateString(locale, {
@@ -100,7 +108,7 @@ function relTime(
 
 function siteHost(source: BrewSource): string {
   try {
-    return new URL(source.site_url || source.url).hostname.replace(/^www\./, '')
+    return new URL(source.site_url || source.url).hostname.replaceAll(/^www\./g, '')
   } catch {
     return ''
   }
@@ -134,7 +142,7 @@ export const BrewSourceTile = memo(
     onThemeColorExtracted,
     surface,
   }: BrewSourceTileProps) => {
-    const { t, locale } = useI18n()
+    const { t, locale, format } = useI18n()
     const anim = useAnimationLevel()
     const color = normalizeThemeColor(source.theme_color)
     const icon = getIconUrl(source.icon)
@@ -474,14 +482,11 @@ export const BrewSourceTile = memo(
           className="justify-between"
         >
           <span>
-            {t.brew.tileQuietMonths.replace('{months}', String(months))}
+            {format(t.brew.tileQuietMonths, { months })}
           </span>
           <span className={alert ? 'text-red-500 dark:text-red-400' : ''}>
             {alert
-              ? t.brew.tileFailedTimes.replace(
-                  '{count}',
-                  String(source.error_count),
-                )
+              ? format(t.brew.tileFailedTimes, { count: source.error_count })
               : t.brew.tileToday}
           </span>
         </TileMeta>
@@ -928,7 +933,7 @@ export const BrewSourceWidget = memo(
       isPreview ? 1 : undefined,
     )
     const sources = useWidgetSources(
-      isPreview,
+      isPreview ?? false,
       WIDGET_REFRESH_INTERVAL,
       '[BrewSourceWidget]',
     )

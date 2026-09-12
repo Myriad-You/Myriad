@@ -101,6 +101,7 @@ import {
   stepAnime25DDriverResponse,
 } from './driverComposition'
 import { deformAnime25DExpressionPoint } from './expressionDeformation'
+import { releaseThinkingExpression } from './expressionPresets'
 import { expressiveEyeOpenOffset } from './expressiveMotionEnvelope'
 import {
   animationCatchupSeconds,
@@ -108,6 +109,7 @@ import {
   animationSubstepCount,
 } from './frameClock'
 import { stepAnime25DHairLayerSprings } from './hairPhysics'
+import { constrainHairSurface } from './hairSurface'
 import { idleBreathOffset } from './idleBreath'
 import { Anime25DIrisRebound } from './irisRebound'
 import {
@@ -116,8 +118,7 @@ import {
   jawTravelPixels,
   stepJawMotion,
 } from './jawMotion'
-import { writeAnime25DAttachmentTransform } from './layerAttachment'
-import { deformNeckwearBridge } from './layerAttachment'
+import { deformNeckwearBridge, writeAnime25DAttachmentTransform } from './layerAttachment'
 import { deformAnime25DUpstreamFeaturePoint } from './layerDeformation'
 import { compileAnime25DGpuLayers } from './layerGpuBinding'
 import { writeAnime25DLayerGlobalTransform } from './layerTransform'
@@ -177,7 +178,9 @@ import { writeAnime25DShellRotation } from './shellDeformation'
 import { CoSpeechExpressionController } from './speechExpression'
 import { AutoSpeechController } from './speechMotion'
 import { StylizedExpressionMotionController } from './stylizedExpressionMotion'
+import { applySurfaceContact } from './surfaceContact'
 import { ThinkingMotionController } from './thinkingMotion'
+import { ThinkingSticker } from './thinkingSticker'
 import {
   anime25DTorsoYawFollow,
   resolveAnime25DTorsoChestShape,
@@ -185,7 +188,7 @@ import {
 } from './torsoDeformation'
 import { touchPointInView } from './touchHitTest'
 import { hitTestVisibleTouch, readTouchAtlas } from './touchVisibility'
-import { compileProgram, createAtlasTexture, loadImage } from './webglRuntime'
+import { compileProgram, createAtlasTexture, loadImage, readLayerPixels } from './webglRuntime'
 
 const POINTER_ATTACK_RATE = 16
 const POINTER_RELEASE_RATE = 5.5
@@ -251,6 +254,8 @@ function releaseCompiledGpu(
 }
 
 export class Anime25DPlayer {
+  private readonly thinkingSticker = new ThinkingSticker()
+  private readonly thinkingStickerTransform = new Float32Array(9)
   private readonly gl: WebGL2RenderingContext
   private playback!: Anime25DPlayback
   private rigManifest: MeropeRigManifest | undefined
@@ -429,8 +434,14 @@ export class Anime25DPlayer {
     if (!gl) throw new Error(currentCopy().merope.anime25dWebglFailed)
     this.gl = gl
     this.program = compileProgram(gl)
-    this.rendererBindings = createAnime25DRendererBindings(gl, this.program)
-    this.applyPackage(playback, rigManifest)
+    try {
+      this.rendererBindings = createAnime25DRendererBindings(gl, this.program)
+      this.applyPackage(playback, rigManifest)
+    } catch (error) {
+      // A failed constructor has no owner that can call dispose().
+      gl.deleteProgram(this.program)
+      throw error
+    }
   }
 
   /** The last outfit keeps drawing until the next atlas is bound. */
@@ -462,23 +473,35 @@ export class Anime25DPlayer {
       chestWeightField,
       image,
     )
-    const nextTexture = createAtlasTexture(this.gl, image, compiled.atlasPatches)
-    const touchAtlas = readTouchAtlas(image)
-    if (this.disposed || atlasAbort.signal.aborted) {
+    let nextTexture: WebGLTexture | null = null
+    let touchAtlas: ReturnType<typeof readTouchAtlas>
+    let linePixels: Uint8ClampedArray | undefined
+    try {
+      nextTexture = createAtlasTexture(this.gl, image, compiled.atlasPatches)
+      touchAtlas = readTouchAtlas(image)
+      const eyelash = resolved.layers.find((layer) => layer.role === 'eyelash')
+      linePixels = eyelash ? readLayerPixels(image, eyelash)?.pixels : undefined
+      if (this.disposed || atlasAbort.signal.aborted) {
+        releaseCompiledGpu(this.gl, compiled.layers, compiled.collarClip, nextTexture)
+        return
+      }
+      this.applyPackage(playback, rigManifest)
+    } catch (error) {
+      // Keep the live outfit; the not-yet-owned replacement must be released.
       releaseCompiledGpu(
         this.gl,
         compiled.layers,
         compiled.collarClip,
         nextTexture,
       )
-      return
+      throw error
     }
-    this.applyPackage(playback, rigManifest)
     releaseCompiledGpu(this.gl, this.layers, this.collarClip, this.atlasTexture)
     this.atlasTexture = nextTexture
     this.layers = compiled.layers
     this.collarClip = compiled.collarClip
     this.touchAtlas = touchAtlas
+    this.thinkingSticker.setLinePixels(linePixels)
     this.touchLayers = this.layers.map((layer) => {
       const mesh =
         layer.renderKind === 'neck' && this.collarClip ? this.collarClip : layer
@@ -504,8 +527,9 @@ export class Anime25DPlayer {
       this.disposed ||
       !this.touchAtlas ||
       !(canvas instanceof HTMLCanvasElement)
-    )
+    ) {
       return null
+}
     const point = touchPointInView(
       clientX,
       clientY,
@@ -657,6 +681,7 @@ export class Anime25DPlayer {
 
   setTarget(partial: Partial<Anime25DDriver>): void {
     Object.assign(this.target, sanitizeDriverPatch(partial))
+    if (this.speechActive || this.target.talk) releaseThinkingExpression(this.target)
   }
 
   replaceTarget(driver: Anime25DDriver): void {
@@ -693,6 +718,7 @@ export class Anime25DPlayer {
 
   setSpeechActive(active: boolean): void {
     this.speechActive = active
+    if (active) releaseThinkingExpression(this.target)
   }
 
   setSinging(active: boolean): void {
@@ -895,6 +921,7 @@ export class Anime25DPlayer {
     this.touchAtlas = null
     this.touchLayers = []
     this.gl.deleteProgram(this.program)
+    this.thinkingSticker.dispose(this.gl)
     // A canvas still in the document must keep the context
     try {
       const surface = this.gl.canvas
@@ -906,6 +933,8 @@ export class Anime25DPlayer {
   }
 
   private smoothDriver(dt: number): void {
+    this.thinkingSticker.update(this.time,
+      this.speechActive || this.target.talk ? 0 : this.target.thinking ? 1 : this.performanceExpression.getThinkingLevel())
     this.shellActivation = Math.min(1, this.shellActivation + dt * 8)
     const t = this.time
     const pointer =
@@ -937,6 +966,7 @@ export class Anime25DPlayer {
     const semanticExpression = this.performanceExpression.sample(
       controlTime,
       tgt,
+      this.speechActive || this.target.talk,
     )
     const stylizedTargets = resolveAnime25DStylizedTargets(
       this.stylizedTargets,
@@ -1005,7 +1035,7 @@ export class Anime25DPlayer {
       this.performanceExpression.getActiveLevel() >= DIRECTED_BODY_BLOCK_LEVEL,
     )
     const ambient = this.ambientMotion.sample(t, this.target.rand)
-    const thinking = this.thinkingMotion.sample(t, this.target.thinking)
+    const thinking = this.thinkingMotion.sample(t, this.target.thinking && !speaking, tgt)
     const breath = idleBreathOffset(t, this.breathPose)
     const gate = this.poseGate.sample(
       dt,
@@ -1322,7 +1352,7 @@ export class Anime25DPlayer {
         : true
       if (!visible) continue
       const rest = layer.rest
-      const deformed = layer.deformed
+      const deformed = layer.surfaceContact?.unconstrained ?? layer.hairSurface?.candidate ?? layer.deformed
       const vertexCount = rest.length / 2
       const source = layer.source
       const bn = layer.baseRole
@@ -1452,6 +1482,10 @@ export class Anime25DPlayer {
           layer.secondaryDeformation,
           secondaryDeformationFrame,
         )
+        if (layer.hairSurface) {
+          layer.hairSurface.base[index] = deformationPoint.x
+          layer.hairSurface.base[index + 1] = deformationPoint.y
+        }
         deformAnime25DHairPoint(
           deformationPoint,
           vertex,
@@ -1466,15 +1500,43 @@ export class Anime25DPlayer {
           deformed[index + 1] = y
         }
       }
+      if (layer.hairSurface) {
+        constrainHairSurface(layer.hairSurface)
+        geometryChanged = false
+        for (let i = 0; i < deformed.length; i++) {
+          if (layer.deformed[i] !== deformed[i]) {
+            layer.deformed[i] = deformed[i]
+            geometryChanged = true
+          }
+        }
+      }
       if (layer.deformationPlan.cacheable) {
         markAnime25DLayerGeometryUpdated(layer.deformationPlan)
       }
+      // Contact layers compare only their final output, never the intermediate
+      // free arm, against the surface retained by attachments and the GPU.
+      if (layer.surfaceContact) continue
       if (!geometryChanged) {
         layer.geometryDirty = false
         if (work) work.savedUploadBytes += deformed.byteLength
         continue
       }
       layer.geometryDirty = true
+    }
+    for (const layer of this.layers) {
+      if (
+        !layer.surfaceContact ||
+        !shouldDeformLayer(layer.source, layer.frameOpacity)
+      ) {
+        continue
+      }
+      layer.geometryDirty = applySurfaceContact(
+        layer.surfaceContact,
+        layer.surfaceContact.unconstrained,
+        layer.deformed,
+      )
+      if (work && !layer.geometryDirty)
+        work.savedUploadBytes += layer.deformed.byteLength
     }
     // Hosts may be later in draw order. Resolve attachments only after all host
     // vertices include this frame's shell, breathing and hair physics.
@@ -1495,12 +1557,13 @@ export class Anime25DPlayer {
           layer.layerTransform[8] =
             1
         layer.geometryDirty = true
-      } else if (layer.attachment)
+      } else if (layer.attachment) {
         writeAnime25DAttachmentTransform(
           layer.attachment,
           secondaryDeformationFrame,
           layer.layerTransform,
         )
+}
     }
   }
 
@@ -1541,6 +1604,30 @@ export class Anime25DPlayer {
       work,
     )
     const sampled = this.performanceExpression.getSampledTouch()
+    if (this.atlasTexture) {
+      const a = this.playback.anchors
+      const f = this.secondaryDeformationFrame
+      const m = this.thinkingStickerTransform
+      writeAnime25DLayerGlobalTransform({
+        headFollow: 1, headRotationCosine: f.headRotationCosine,
+        headRotationSine: f.headRotationSine, neckPivotX: f.neckPivotX,
+        neckPivotY: f.neckPivotY, faceScale: f.faceScale,
+        angleX: this.current.angleX, angleY: f.headAngleY, depthOffset: 0.3,
+        faceCenterY: f.faceCenterY, specialOffsetY: f.specialHeadOffset,
+        breathOffset: f.headBreathOffset,
+      }, m)
+      const faceWidth = a.face.x1 - a.face.x0
+      const x = a.face.x1 - faceWidth * 0.04
+      const y = a.face.y0 + (a.face.y1 - a.face.y0) * 0.08
+      const frame = this.renderFrame
+      const px = m[0] * x + m[3] * y + m[6] - frame.bodyPivotX
+      const py = m[1] * x + m[4] * y + m[7] - frame.bodyPivotY
+      this.thinkingSticker.draw(this.gl, this.time,
+        this.speechActive || this.target.talk ? 0 : this.target.thinking ? 1 : this.performanceExpression.getThinkingLevel(),
+        frame.bodyPivotX + px * frame.bodyRotationCosine - py * frame.bodyRotationSine,
+        frame.bodyPivotY + px * frame.bodyRotationSine + py * frame.bodyRotationCosine,
+        faceWidth * 0.155, frame.viewWidth, frame.viewHeight)
+    }
     this.presentedTouch = sampled
       ? { ...sampled, atMs: performance.now() }
       : null

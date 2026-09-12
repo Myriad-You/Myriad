@@ -1,4 +1,3 @@
-
 export const AGENT_OPTIONS_LIST_SCROLL_AFTER = 8
 
 export const AGENT_OPTIONS_LIST_PAGE = 30

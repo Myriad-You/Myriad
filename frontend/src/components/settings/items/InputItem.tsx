@@ -1,4 +1,3 @@
-
 import type { ReactNode } from 'react'
 import type { InputSettingConfig } from '../types'
 import {
@@ -75,7 +74,7 @@ export const InputItem = React.memo<InputItemProps>(
     imageSizeError,
     imageReadError,
   }) => {
-    const { t } = useI18n()
+    const { t, format } = useI18n()
     const [isCopied, setIsCopied] = useState(false)
     const [editing, setEditing] = useState(false)
     const [draft, setDraft] = useState(value)
@@ -116,7 +115,7 @@ export const InputItem = React.memo<InputItemProps>(
         if (disabled || busy) return
         let newValue = e.target.value
         if (newValue.includes('••') || newValue.includes('**')) {
-          newValue = newValue.replace(/[•*]+/g, '')
+          newValue = newValue.replaceAll(/[•*]+/g, '')
         }
         if (isImageUpload) {
           setUploadError(undefined)
@@ -206,7 +205,7 @@ export const InputItem = React.memo<InputItemProps>(
           const kb = Math.round(maxImageBytes / 1024)
           setUploadError(
             imageSizeError ||
-              t.config.imageUploadSizeError.replace('{kb}', String(kb)),
+              format(t.config.imageUploadSizeError, { kb }),
           )
           return
         }
@@ -251,8 +250,8 @@ export const InputItem = React.memo<InputItemProps>(
       onChange('')
     }, [busy, disabled, onChange])
 
-    const id = `setting-input-${itemKey || label.replace(/\s+/g, '-').toLowerCase()}`
-    const inputName = `myriad-setting-${itemKey || label.replace(/\s+/g, '-').toLowerCase()}`
+    const id = `setting-input-${itemKey || label.replaceAll(/\s+/g, '-').toLowerCase()}`
+    const inputName = `myriad-setting-${itemKey || label.replaceAll(/\s+/g, '-').toLowerCase()}`
     const inputClassName = `field-input ${shownError ? 'has-error' : ''}`
 
     const renderDefaultControl = () => (

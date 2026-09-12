@@ -37,8 +37,7 @@ fn cache_slug_for_platform(name: &str) -> &str {
 }
 
 /// Platforms that currently have library data on disk (filtered cache present).
-/// This is the source of truth for Tapp `listEnabled` — the catalog `enabled`
-/// column is only a seed default and is not kept in sync with config toggles.
+/// Filtered-cache stems. Tapp `listEnabled` uses `catalog_enabled || has_library`.
 fn platforms_with_library_cache() -> HashSet<String> {
     let cache_dir = data_paths::platforms_cache_dir();
     let mut out = HashSet::new();

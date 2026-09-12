@@ -52,7 +52,7 @@ for (const dir of PAINTED_DIRS) {
   for (const f of readdirSync(rawDir).filter((x) => x.endsWith('.png'))) {
     await run(`icons/${dir}/${f}`,
       path.join(rawDir, f),
-      path.join(PUB, 'icons', dir, f.replace(/\.png$/, '.webp')),
+      path.join(PUB, 'icons', dir, f.replaceAll(/\.png$/g, '.webp')),
       { cap: 192, saturation: 1.05, quality: 90 })
   }
 }
@@ -64,7 +64,7 @@ if (existsSync(gameRaw)) {
     const isMask = f === 'starrail.png'
     await run(`game-logos/${f}${isMask ? ' [mask]' : ''}`,
       path.join(gameRaw, f),
-      path.join(PUB, 'game-logos', f.replace(/\.png$/, '.webp')),
+      path.join(PUB, 'game-logos', f.replaceAll(/\.png$/g, '.webp')),
       isMask ? { cap: 400, saturation: 1.0, lossless: true } : { cap: 192, saturation: 1.0, quality: 90 })
   }
 }

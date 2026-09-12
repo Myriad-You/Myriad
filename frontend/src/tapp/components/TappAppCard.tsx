@@ -73,7 +73,7 @@ function normalizeLocalLayout(parsed: unknown): TappAppCardLayoutLocal {
   const order: string[] = []
   const seen = new Set<string>()
 
-  if ('sizes' in obj && obj.sizes && typeof obj.sizes === 'object') {
+  if (Object.hasOwn(obj, 'sizes') && obj.sizes && typeof obj.sizes === 'object') {
     for (const [id, size] of Object.entries(
       obj.sizes as Record<string, unknown>,
     )) {
@@ -144,7 +144,7 @@ function resolveCardPermissions(
   granted: readonly TappPermission[] | undefined,
   manifestPerms: readonly string[] | undefined,
 ): TappPermission[] {
-  if (granted && granted.length > 0) return [...granted]
+  if (granted && granted.length > 0) return Iterator.from(granted).toArray()
   return (manifestPerms ?? []) as TappPermission[]
 }
 
@@ -178,8 +178,7 @@ function CardPermissionIndicators({
         : p
       out.push({ key: p, level, label })
     }
-    out.sort((a, b) => rank[a.level] - rank[b.level])
-    return out
+    return out.toSorted((a, b) => rank[a.level] - rank[b.level])
   }, [permissions, t.tapp])
 
   if (items.length === 0) {

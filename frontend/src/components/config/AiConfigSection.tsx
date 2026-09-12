@@ -1,7 +1,17 @@
-
+import type {
+  DiscordBotPhase,
+  DiscordBotStatus,
+  FeishuBotPhase,
+  FeishuBotStatus,
+  QqBotPhase,
+  QqBotStatus,
+  TelegramBotPhase,
+  TelegramBotStatus,
+} from '../../services/agent/agentApi'
 import type { OnboardingPageChrome } from '../agent/onboarding/onboardingTypes'
 import type { SettingOption } from '../settings/types'
 import type { VendorUsageId, VendorUsageMap } from './AiVendorSources'
+
 import {
   FaMicrophone,
   FaVolumeUp,
@@ -16,7 +26,6 @@ import {
   SiOpenai,
   SiOpenrouter,
 } from '@lib/icons'
-
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import {
@@ -33,6 +42,12 @@ import {
 } from '../agent/meropeVitals'
 import { parseFlattenedPersona } from '../agent/onboarding/onboardingTypes'
 import PersonaOnboardingPage from '../agent/onboarding/PersonaOnboardingPage'
+import {
+  discordOpenHref,
+  formatInboundTime,
+  telegramOpenHref,
+} from '../channel/channelPairing'
+import { ChannelPairingPanel } from '../channel/ChannelPairingPanel'
 import {
   AutoHeight,
   guideDomProps,
@@ -263,7 +278,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
   description,
   sectionId,
 }) => {
-  const { t } = useI18n()
+  const { t, locale, format } = useI18n()
   const { catalog: g, bindGuide } = useSettingGuide()
   const [speechTesting, setSpeechTesting] = useState(false)
   const [personaChrome, setPersonaChrome] = useState<OnboardingPageChrome | null>(
@@ -302,6 +317,27 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     success: boolean
     message: string
   } | null>(null)
+  const [qqBotStatus, setQqBotStatus] = useState<QqBotStatus | null>(null)
+  const [qqBotTesting, setQqBotTesting] = useState(false)
+  const [qqBotTestMessage, setQqBotTestMessage] = useState<string | null>(null)
+  const [telegramBotStatus, setTelegramBotStatus] =
+    useState<TelegramBotStatus | null>(null)
+  const [telegramBotTesting, setTelegramBotTesting] = useState(false)
+  const [telegramBotTestMessage, setTelegramBotTestMessage] = useState<
+    string | null
+  >(null)
+  const [discordBotStatus, setDiscordBotStatus] =
+    useState<DiscordBotStatus | null>(null)
+  const [discordBotTesting, setDiscordBotTesting] = useState(false)
+  const [discordBotTestMessage, setDiscordBotTestMessage] = useState<
+    string | null
+  >(null)
+  const [feishuBotStatus, setFeishuBotStatus] =
+    useState<FeishuBotStatus | null>(null)
+  const [feishuBotTesting, setFeishuBotTesting] = useState(false)
+  const [feishuBotTestMessage, setFeishuBotTestMessage] = useState<
+    string | null
+  >(null)
 
   const getFieldValue = useCallback(
     (key: string, defaultValue = '') => {
@@ -668,6 +704,225 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
     }
   }, [onSpeechTest, t.config.speechTestFailed])
 
+  const loadQqBotStatus = useCallback(async () => {
+    try {
+      setQqBotStatus(await agentService.getQqBotStatus())
+    } catch {
+      setQqBotStatus(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadQqBotStatus()
+    const timer = window.setInterval(() => {
+      void loadQqBotStatus()
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [loadQqBotStatus])
+
+  const handleQqBotTest = useCallback(async () => {
+    setQqBotTesting(true)
+    setQqBotTestMessage(null)
+    try {
+      await agentService.testQqBot()
+      setQqBotTestMessage(t.config.qqBotTestOk)
+      await loadQqBotStatus()
+    } catch (error) {
+      setQqBotTestMessage(
+        userFacingError(error, t.config.qqBotTestFailed),
+      )
+    } finally {
+      setQqBotTesting(false)
+    }
+  }, [loadQqBotStatus, t.config.qqBotTestFailed, t.config.qqBotTestOk])
+
+  const loadTelegramBotStatus = useCallback(async () => {
+    try {
+      setTelegramBotStatus(await agentService.getTelegramBotStatus())
+    } catch {
+      setTelegramBotStatus(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadTelegramBotStatus()
+    const timer = window.setInterval(() => {
+      void loadTelegramBotStatus()
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [loadTelegramBotStatus])
+
+  const handleTelegramBotTest = useCallback(async () => {
+    setTelegramBotTesting(true)
+    setTelegramBotTestMessage(null)
+    try {
+      const tested = await agentService.testTelegramBot()
+      setTelegramBotTestMessage(t.config.telegramBotTestOk)
+      if (tested.botUsername || tested.botName) {
+        setTelegramBotStatus((current) =>
+          current
+            ? {
+                ...current,
+                botUsername: tested.botUsername ?? current.botUsername,
+                botName: tested.botName ?? current.botName,
+              }
+            : current,
+        )
+      }
+      await loadTelegramBotStatus()
+    } catch (error) {
+      setTelegramBotTestMessage(
+        userFacingError(error, t.config.telegramBotTestFailed),
+      )
+    } finally {
+      setTelegramBotTesting(false)
+    }
+  }, [
+    loadTelegramBotStatus,
+    t.config.telegramBotTestFailed,
+    t.config.telegramBotTestOk,
+  ])
+
+  const loadDiscordBotStatus = useCallback(async () => {
+    try {
+      setDiscordBotStatus(await agentService.getDiscordBotStatus())
+    } catch {
+      setDiscordBotStatus(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadDiscordBotStatus()
+    const timer = window.setInterval(() => {
+      void loadDiscordBotStatus()
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [loadDiscordBotStatus])
+
+  const handleDiscordBotTest = useCallback(async () => {
+    setDiscordBotTesting(true)
+    setDiscordBotTestMessage(null)
+    try {
+      const tested = await agentService.testDiscordBot()
+      setDiscordBotTestMessage(t.config.discordBotTestOk)
+      if (tested.botUsername || tested.botName || tested.botUserId) {
+        setDiscordBotStatus((current) =>
+          current
+            ? {
+                ...current,
+                botUsername: tested.botUsername ?? current.botUsername,
+                botName: tested.botName ?? current.botName,
+                botUserId: tested.botUserId ?? current.botUserId,
+              }
+            : current,
+        )
+      }
+      await loadDiscordBotStatus()
+    } catch (error) {
+      setDiscordBotTestMessage(
+        userFacingError(error, t.config.discordBotTestFailed),
+      )
+    } finally {
+      setDiscordBotTesting(false)
+    }
+  }, [
+    loadDiscordBotStatus,
+    t.config.discordBotTestFailed,
+    t.config.discordBotTestOk,
+  ])
+
+  const loadFeishuBotStatus = useCallback(async () => {
+    try {
+      setFeishuBotStatus(await agentService.getFeishuBotStatus())
+    } catch {
+      setFeishuBotStatus(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadFeishuBotStatus()
+    const timer = window.setInterval(() => {
+      void loadFeishuBotStatus()
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [loadFeishuBotStatus])
+
+  const handleFeishuBotTest = useCallback(async () => {
+    setFeishuBotTesting(true)
+    setFeishuBotTestMessage(null)
+    try {
+      await agentService.testFeishuBot()
+      setFeishuBotTestMessage(t.config.feishuBotTestOk)
+      await loadFeishuBotStatus()
+    } catch (error) {
+      setFeishuBotTestMessage(
+        userFacingError(error, t.config.feishuBotTestFailed),
+      )
+    } finally {
+      setFeishuBotTesting(false)
+    }
+  }, [loadFeishuBotStatus, t.config.feishuBotTestFailed, t.config.feishuBotTestOk])
+
+  const discordPhaseLabel = (phase: DiscordBotPhase | undefined) => {
+    switch (phase) {
+      case 'online':
+        return t.config.discordBotPhaseOnline
+      case 'connecting':
+        return t.config.discordBotPhaseConnecting
+      case 'reconnecting':
+        return t.config.discordBotPhaseReconnecting
+      case 'rejected':
+        return t.config.discordBotPhaseRejected
+      default:
+        return t.config.discordBotPhaseOffline
+    }
+  }
+
+  const telegramPhaseLabel = (phase: TelegramBotPhase | undefined) => {
+    switch (phase) {
+      case 'online':
+        return t.config.telegramBotPhaseOnline
+      case 'connecting':
+        return t.config.telegramBotPhaseConnecting
+      case 'reconnecting':
+        return t.config.telegramBotPhaseReconnecting
+      case 'rejected':
+        return t.config.telegramBotPhaseRejected
+      default:
+        return t.config.telegramBotPhaseOffline
+    }
+  }
+
+  const feishuPhaseLabel = (phase: FeishuBotPhase | undefined) => {
+    switch (phase) {
+      case 'online':
+        return t.config.feishuBotPhaseOnline
+      case 'connecting':
+        return t.config.feishuBotPhaseConnecting
+      case 'reconnecting':
+        return t.config.feishuBotPhaseReconnecting
+      case 'rejected':
+        return t.config.feishuBotPhaseRejected
+      default:
+        return t.config.feishuBotPhaseOffline
+    }
+  }
+
+  const qqPhaseLabel = (phase: QqBotPhase | undefined) => {
+    switch (phase) {
+      case 'online':
+        return t.config.qqBotPhaseOnline
+      case 'connecting':
+        return t.config.qqBotPhaseConnecting
+      case 'reconnecting':
+        return t.config.qqBotPhaseReconnecting
+      case 'rejected':
+        return t.config.qqBotPhaseRejected
+      default:
+        return t.config.qqBotPhaseOffline
+    }
+  }
+
   const o = t.agentPersona.onboarding
   const paneKey = aiSubpage ?? 'ai'
   const personaGuide = bindGuide('ai.agentPersona', g.ai.agentPersona)
@@ -767,7 +1022,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
 
   const personaCardCopy = useMemo(() => {
     if (!meropeOn || !hasSavedPersona) return null
-    const summary = parseFlattenedPersona(personality).summary.replace(/\s+/g, ' ').trim()
+    const summary = parseFlattenedPersona(personality).summary.replaceAll(/\s+/g, ' ').trim()
     return {
       summary,
       mood: vitalsReady ? o.mood[moodBand(mood, arousal)] : '—',
@@ -1125,6 +1380,360 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
             title: t.config.agentPersonaSpeechHint,
           }}
         />
+        <AgentNestedSection
+          title={t.config.qqBotTitle}
+          description={t.config.qqBotDesc}
+          {...bindGuide('ai.qqBot', g.ai.qqBot)}
+          badge={
+            <SettingTitleTag
+              variant={
+                qqBotStatus?.phase === 'rejected' ? 'danger' : 'muted'
+              }
+              title={qqBotTestMessage || t.config.qqBotHint}
+            >
+              {qqPhaseLabel(qqBotStatus?.phase)}
+            </SettingTitleTag>
+          }
+          toggle={{
+            checked: getFieldValue('qq_bot_enabled') === 'true',
+            onChange: (value) =>
+              updateValue('qq_bot_enabled', value ? 'true' : 'false'),
+            ariaLabel: t.config.qqBotTitle,
+            title: t.config.qqBotHint,
+          }}
+        >
+          <InputItem
+            itemKey="qq_bot_app_id"
+            label={t.config.qqBotAppId}
+            value={getFieldValue('qq_bot_app_id')}
+            onChange={(value) => updateValue('qq_bot_app_id', value)}
+            placeholder="102..."
+            hint={t.config.qqBotHint}
+            layout="vertical"
+            {...bindGuide('ai.qqBot', g.ai.qqBot)}
+          />
+          <InputItem
+            itemKey="qq_bot_app_secret"
+            label={t.config.qqBotAppSecret}
+            value={getFieldValue('qq_bot_app_secret')}
+            onChange={(value) => updateValue('qq_bot_app_secret', value)}
+            inputType="password"
+            autoSelectOnMask
+            layout="vertical"
+            {...bindGuide('ai.qqBot', g.ai.qqBot)}
+          />
+          <SettingsButton
+            size="sm"
+            loading={qqBotTesting}
+            disabled={qqBotTesting}
+            onClick={() => void handleQqBotTest()}
+          >
+            {qqBotTesting
+              ? t.config.qqBotTesting
+              : t.config.qqBotTest}
+          </SettingsButton>
+          {qqBotTestMessage ? (
+            <p className="ai-llm-tier-desc">{qqBotTestMessage}</p>
+          ) : null}
+          <ChannelConnectFacts
+            credentialLabel={t.config.qqBotCredentialLabel}
+            credentialValue={
+              qqBotTestMessage || t.config.qqBotCredentialUntested
+            }
+            receiveLabel={t.config.qqBotReceiveLabel}
+            receiveValue={qqPhaseLabel(qqBotStatus?.phase)}
+            identityLabel={t.config.qqBotIdentityLabel}
+            identityValue={
+              qqBotStatus?.appId
+                ? `AppID ${qqBotStatus.appId}`
+                : null
+            }
+            inboundLabel={
+              formatInboundTime(qqBotStatus?.lastInboundAt, locale)
+                ? format(t.config.qqBotLastInbound, {
+                    time: formatInboundTime(
+                      qqBotStatus?.lastInboundAt,
+                      locale,
+                    ) as string,
+                  })
+                : t.config.qqBotLastInboundNone
+            }
+            openHint={t.config.qqBotOpenHint}
+          />
+          {getFieldValue('qq_bot_enabled') === 'true' &&
+          (qqBotStatus?.hasAppId || qqBotStatus?.hasSecret) ? (
+            <ChannelPairingPanel
+              channel="qq"
+              receiveReady={qqBotStatus?.phase === 'online'}
+            />
+          ) : null}
+        </AgentNestedSection>
+        <AgentNestedSection
+          title={t.config.telegramBotTitle}
+          description={t.config.telegramBotDesc}
+          {...bindGuide('ai.telegramBot', g.ai.telegramBot)}
+          badge={
+            <SettingTitleTag
+              variant={
+                telegramBotStatus?.phase === 'rejected' ? 'danger' : 'muted'
+              }
+              title={telegramBotTestMessage || t.config.telegramBotHint}
+            >
+              {telegramPhaseLabel(telegramBotStatus?.phase)}
+            </SettingTitleTag>
+          }
+          toggle={{
+            checked: getFieldValue('telegram_bot_enabled') === 'true',
+            onChange: (value) =>
+              updateValue('telegram_bot_enabled', value ? 'true' : 'false'),
+            ariaLabel: t.config.telegramBotTitle,
+            title: t.config.telegramBotHint,
+          }}
+        >
+          <InputItem
+            itemKey="telegram_bot_token"
+            label={t.config.telegramBotToken}
+            value={getFieldValue('telegram_bot_token')}
+            onChange={(value) => updateValue('telegram_bot_token', value)}
+            inputType="password"
+            autoSelectOnMask
+            hint={t.config.telegramBotHint}
+            layout="vertical"
+            {...bindGuide('ai.telegramBot', g.ai.telegramBot)}
+          />
+          <SettingsButton
+            size="sm"
+            loading={telegramBotTesting}
+            disabled={telegramBotTesting}
+            onClick={() => void handleTelegramBotTest()}
+          >
+            {telegramBotTesting
+              ? t.config.telegramBotTesting
+              : t.config.telegramBotTest}
+          </SettingsButton>
+          {telegramBotTestMessage ? (
+            <p className="ai-llm-tier-desc">{telegramBotTestMessage}</p>
+          ) : null}
+          <ChannelConnectFacts
+            credentialLabel={t.config.telegramBotCredentialLabel}
+            credentialValue={
+              telegramBotTestMessage ||
+              t.config.telegramBotCredentialUntested
+            }
+            receiveLabel={t.config.telegramBotReceiveLabel}
+            receiveValue={telegramPhaseLabel(telegramBotStatus?.phase)}
+            identityLabel={t.config.telegramBotIdentityLabel}
+            identityValue={
+              telegramBotStatus?.botUsername
+                ? format(t.config.telegramBotIdentityName, {
+                    name: telegramBotStatus.botName || telegramBotStatus.botUsername,
+                    username: telegramBotStatus.botUsername,
+                  })
+                : telegramBotStatus?.botName
+                  ? format(t.config.telegramBotIdentityNameOnly, {
+                      name: telegramBotStatus.botName,
+                    })
+                  : null
+            }
+            inboundLabel={
+              formatInboundTime(telegramBotStatus?.lastInboundAt, locale)
+                ? format(t.config.telegramBotLastInbound, {
+                    time: formatInboundTime(
+                      telegramBotStatus?.lastInboundAt,
+                      locale,
+                    ) as string,
+                  })
+                : t.config.telegramBotLastInboundNone
+            }
+            openHref={telegramOpenHref(telegramBotStatus?.botUsername)}
+            openLabel={t.config.telegramBotOpen}
+          />
+          {getFieldValue('telegram_bot_enabled') === 'true' &&
+          telegramBotStatus?.hasToken ? (
+            <ChannelPairingPanel
+              channel="telegram"
+              openHref={telegramOpenHref(telegramBotStatus?.botUsername)}
+              receiveReady={telegramBotStatus?.phase === 'online'}
+            />
+          ) : null}
+        </AgentNestedSection>
+        <AgentNestedSection
+          title={t.config.discordBotTitle}
+          description={t.config.discordBotDesc}
+          {...bindGuide('ai.discordBot', g.ai.discordBot)}
+          badge={
+            <SettingTitleTag
+              variant={
+                discordBotStatus?.phase === 'rejected' ? 'danger' : 'muted'
+              }
+              title={discordBotTestMessage || t.config.discordBotHint}
+            >
+              {discordPhaseLabel(discordBotStatus?.phase)}
+            </SettingTitleTag>
+          }
+          toggle={{
+            checked: getFieldValue('discord_bot_enabled') === 'true',
+            onChange: (value) =>
+              updateValue('discord_bot_enabled', value ? 'true' : 'false'),
+            ariaLabel: t.config.discordBotTitle,
+            title: t.config.discordBotHint,
+          }}
+        >
+          <InputItem
+            itemKey="discord_bot_token"
+            label={t.config.discordBotToken}
+            value={getFieldValue('discord_bot_token')}
+            onChange={(value) => updateValue('discord_bot_token', value)}
+            inputType="password"
+            autoSelectOnMask
+            hint={t.config.discordBotHint}
+            layout="vertical"
+            {...bindGuide('ai.discordBot', g.ai.discordBot)}
+          />
+          <SettingsButton
+            size="sm"
+            loading={discordBotTesting}
+            disabled={discordBotTesting}
+            onClick={() => void handleDiscordBotTest()}
+          >
+            {discordBotTesting
+              ? t.config.discordBotTesting
+              : t.config.discordBotTest}
+          </SettingsButton>
+          {discordBotTestMessage ? (
+            <p className="ai-llm-tier-desc">{discordBotTestMessage}</p>
+          ) : null}
+          <ChannelConnectFacts
+            credentialLabel={t.config.discordBotCredentialLabel}
+            credentialValue={
+              discordBotTestMessage ||
+              t.config.discordBotCredentialUntested
+            }
+            receiveLabel={t.config.discordBotReceiveLabel}
+            receiveValue={discordPhaseLabel(discordBotStatus?.phase)}
+            identityLabel={t.config.discordBotIdentityLabel}
+            identityValue={
+              discordBotStatus?.botUsername
+                ? format(t.config.discordBotIdentityName, {
+                    name: discordBotStatus.botName || discordBotStatus.botUsername,
+                    username: discordBotStatus.botUsername,
+                  })
+                : discordBotStatus?.botName
+                  ? format(t.config.discordBotIdentityNameOnly, {
+                      name: discordBotStatus.botName,
+                    })
+                  : null
+            }
+            inboundLabel={
+              formatInboundTime(discordBotStatus?.lastInboundAt, locale)
+                ? format(t.config.discordBotLastInbound, {
+                    time: formatInboundTime(
+                      discordBotStatus?.lastInboundAt,
+                      locale,
+                    ) as string,
+                  })
+                : t.config.discordBotLastInboundNone
+            }
+            openHref={discordOpenHref(discordBotStatus?.botUserId)}
+            openLabel={t.config.discordBotOpen}
+          />
+          {getFieldValue('discord_bot_enabled') === 'true' &&
+          discordBotStatus?.hasToken ? (
+            <ChannelPairingPanel
+              channel="discord_dm"
+              openHref={discordOpenHref(discordBotStatus?.botUserId)}
+              receiveReady={discordBotStatus?.phase === 'online'}
+            />
+          ) : null}
+        </AgentNestedSection>
+        <AgentNestedSection
+          title={t.config.feishuBotTitle}
+          description={t.config.feishuBotDesc}
+          {...bindGuide('ai.feishuBot', g.ai.feishuBot)}
+          badge={
+            <SettingTitleTag
+              variant={
+                feishuBotStatus?.phase === 'rejected' ? 'danger' : 'muted'
+              }
+              title={feishuBotTestMessage || t.config.feishuBotHint}
+            >
+              {feishuPhaseLabel(feishuBotStatus?.phase)}
+            </SettingTitleTag>
+          }
+          toggle={{
+            checked: getFieldValue('feishu_bot_enabled') === 'true',
+            onChange: (value) =>
+              updateValue('feishu_bot_enabled', value ? 'true' : 'false'),
+            ariaLabel: t.config.feishuBotTitle,
+            title: t.config.feishuBotHint,
+          }}
+        >
+          <InputItem
+            itemKey="feishu_bot_app_id"
+            label={t.config.feishuBotAppId}
+            value={getFieldValue('feishu_bot_app_id')}
+            onChange={(value) => updateValue('feishu_bot_app_id', value)}
+            placeholder="cli_..."
+            hint={t.config.feishuBotHint}
+            layout="vertical"
+            {...bindGuide('ai.feishuBot', g.ai.feishuBot)}
+          />
+          <InputItem
+            itemKey="feishu_bot_app_secret"
+            label={t.config.feishuBotAppSecret}
+            value={getFieldValue('feishu_bot_app_secret')}
+            onChange={(value) => updateValue('feishu_bot_app_secret', value)}
+            inputType="password"
+            autoSelectOnMask
+            layout="vertical"
+            {...bindGuide('ai.feishuBot', g.ai.feishuBot)}
+          />
+          <SettingsButton
+            size="sm"
+            loading={feishuBotTesting}
+            disabled={feishuBotTesting}
+            onClick={() => void handleFeishuBotTest()}
+          >
+            {feishuBotTesting
+              ? t.config.feishuBotTesting
+              : t.config.feishuBotTest}
+          </SettingsButton>
+          {feishuBotTestMessage ? (
+            <p className="ai-llm-tier-desc">{feishuBotTestMessage}</p>
+          ) : null}
+          <ChannelConnectFacts
+            credentialLabel={t.config.feishuBotCredentialLabel}
+            credentialValue={
+              feishuBotTestMessage || t.config.feishuBotCredentialUntested
+            }
+            receiveLabel={t.config.feishuBotReceiveLabel}
+            receiveValue={feishuPhaseLabel(feishuBotStatus?.phase)}
+            identityLabel={t.config.feishuBotIdentityLabel}
+            identityValue={
+              feishuBotStatus?.appId
+                ? `AppID ${feishuBotStatus.appId}`
+                : null
+            }
+            inboundLabel={
+              formatInboundTime(feishuBotStatus?.lastInboundAt, locale)
+                ? format(t.config.feishuBotLastInbound, {
+                    time: formatInboundTime(
+                      feishuBotStatus?.lastInboundAt,
+                      locale,
+                    ) as string,
+                  })
+                : t.config.feishuBotLastInboundNone
+            }
+            openHint={t.config.feishuBotOpenHint}
+          />
+          {getFieldValue('feishu_bot_enabled') === 'true' &&
+          (feishuBotStatus?.hasAppId || feishuBotStatus?.hasSecret) ? (
+            <ChannelPairingPanel
+              channel="feishu"
+              receiveReady={feishuBotStatus?.phase === 'online'}
+            />
+          ) : null}
+        </AgentNestedSection>
         <AgentOptionsPanel />
       </SettingGroup>
 
@@ -1312,6 +1921,55 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
         </div>
       </AutoHeight>
     </SettingSection>
+  )
+}
+
+function ChannelConnectFacts({
+  credentialLabel,
+  credentialValue,
+  receiveLabel,
+  receiveValue,
+  identityLabel,
+  identityValue,
+  inboundLabel,
+  openHref,
+  openLabel,
+  openHint,
+}: {
+  credentialLabel: string
+  credentialValue: string
+  receiveLabel: string
+  receiveValue: string
+  identityLabel: string
+  identityValue: string | null
+  inboundLabel: string
+  openHref?: string | null
+  openLabel?: string
+  openHint?: string
+}) {
+  return (
+    <div className="channel-connect-facts">
+      <p className="channel-connect-fact">
+        {credentialLabel}：{credentialValue}
+      </p>
+      <p className="channel-connect-fact">
+        {receiveLabel}：{receiveValue} · {inboundLabel}
+      </p>
+      {identityValue ? (
+        <p className="channel-connect-fact">
+          {identityLabel}：{identityValue}
+        </p>
+      ) : null}
+      {openHref && openLabel ? (
+        <p className="channel-connect-fact">
+          <a href={openHref} target="_blank" rel="noreferrer">
+            {openLabel}
+          </a>
+        </p>
+      ) : openHint ? (
+        <p className="channel-connect-fact">{openHint}</p>
+      ) : null}
+    </div>
   )
 }
 

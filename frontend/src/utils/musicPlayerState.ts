@@ -161,19 +161,19 @@ export function mergeMusicPlayerEventDetail(
     String(detailId) !== String(globalId)
 
   if (songChanged) {
-    if (!('lyrics' in detail)) {
+    if (!Object.hasOwn(detail, 'lyrics')) {
       merged.lyrics = []
       merged.currentLyricIndex = -1
     }
-    if (!('verbatimLyrics' in detail)) {
+    if (!Object.hasOwn(detail, 'verbatimLyrics')) {
       merged.verbatimLyrics = []
       merged.hasVerbatimLyrics = false
       merged.verbatimLyricsSource = ''
     }
-    if (!('currentTime' in detail)) {
+    if (!Object.hasOwn(detail, 'currentTime')) {
       merged.currentTime = 0
     }
-    if (!('audioDuration' in detail)) {
+    if (!Object.hasOwn(detail, 'audioDuration')) {
       merged.audioDuration = detailSong?.duration || 0
     }
   }
@@ -277,12 +277,25 @@ export const MUSIC_CONTEXT_OWNED_KEYS = Object.keys(
   MUSIC_CONTEXT_COERCERS,
 ) as MusicContextOwnedKey[]
 
+/** Preserve snapshot identity when an event changes only host-owned fields. */
+export function mergeMusicContextState<T extends object>(
+  previous: T,
+  patch: Partial<T>,
+): T {
+  for (const key of Object.keys(patch) as (keyof T)[]) {
+    if (!Object.is(previous[key], patch[key])) {
+      return { ...previous, ...patch }
+    }
+  }
+  return previous
+}
+
 export function pickMusicContextState(
   detail: Record<string, unknown>,
 ): Partial<Record<MusicContextOwnedKey, unknown>> {
   const out: Record<string, unknown> = {}
   for (const key of MUSIC_CONTEXT_OWNED_KEYS) {
-    if (key in detail) out[key] = MUSIC_CONTEXT_COERCERS[key](detail[key])
+    if (Object.hasOwn(detail, key)) out[key] = MUSIC_CONTEXT_COERCERS[key](detail[key])
   }
   return out
 }

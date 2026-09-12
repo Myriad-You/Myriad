@@ -3,6 +3,7 @@
 import type { BrewSource } from '../../../types/brew'
 import type { ImportProgress } from './modes/types'
 
+import { formatMessage, getDefaultLocale } from '../../../i18n'
 import * as brewApi from '../../../services/brewApi'
 import { userFacingError } from '../../../utils/userFacingError'
 import {
@@ -19,7 +20,14 @@ import {
   sourceUpdatePayload,
 } from './brewpack'
 
-export type BrewpackCopy = {
+function fill(
+  template: string,
+  params: Record<string, string | number>,
+): string {
+  return formatMessage(getDefaultLocale(), template, params)
+}
+
+export interface BrewpackCopy {
   exportSuccess: string
   errorExportFailed: string
   importStepReading: string
@@ -111,7 +119,7 @@ export async function exportBrewpackFile(
     )
     return {
       ok: true,
-      message: copy.exportSuccess.replace('{count}', String(sources.length)),
+      message: fill(copy.exportSuccess, { count: sources.length }),
     }
   } catch {
     return { ok: false, error: copy.errorExportFailed }
@@ -219,7 +227,7 @@ export async function importBrewpackFile(
       if (signal?.aborted) break
       const source = manifest.sources[i]
       onProgress({
-        step: copy.importStepImporting.replace('{name}', source.name),
+        step: fill(copy.importStepImporting, { name: source.name }),
         current: i + 1,
         total,
       })
@@ -258,9 +266,7 @@ export async function importBrewpackFile(
     onProgress(null)
     return {
       ok: true,
-      message: copy.importSuccess
-        .replace('{imported}', String(imported))
-        .replace('{skipped}', String(skipped)),
+      message: fill(copy.importSuccess, { imported, skipped }),
     }
   } catch (err) {
     onProgress(null)

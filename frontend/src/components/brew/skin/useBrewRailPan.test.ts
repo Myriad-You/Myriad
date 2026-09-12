@@ -3,8 +3,8 @@ import { describe, it } from 'node:test'
 
 import {
   isDiscreteWheel,
-  neighborRailSlot,
   nearestRailSlot,
+  neighborRailSlot,
   RAIL_COMMIT_RATIO,
   RAIL_FLING_SLOT_PX_S,
   railLeadIndex,

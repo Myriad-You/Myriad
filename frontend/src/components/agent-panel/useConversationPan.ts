@@ -87,8 +87,10 @@ export function useConversationPan(
         target += delta
       }
       trackH = nextH
-      cards = [...track.querySelectorAll<HTMLElement>(cardSelector)].map(
-        (el) => {
+      cards = Iterator.from(
+        track.querySelectorAll<HTMLElement>(cardSelector),
+      )
+        .map((el) => {
           const box =
             (el.closest('.agent-panel-presence') as HTMLElement | null) ?? el
           return {
@@ -98,8 +100,8 @@ export function useConversationPan(
             height: box.offsetHeight,
             key: '',
           }
-        },
-      )
+        })
+        .toArray()
     }
 
     const measure = () => {
@@ -137,7 +139,7 @@ export function useConversationPan(
     const writeExitStagger = () => {
       const ranked = cards
         .filter((card) => card.el.style.visibility !== 'hidden')
-        .sort((a, b) => b.top + b.height - (a.top + a.height))
+        .toSorted((a, b) => b.top + b.height - (a.top + a.height))
       ranked.forEach((card, index) => {
         card.box.style.setProperty(
           '--agent-exit-stagger',

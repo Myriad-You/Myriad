@@ -31,7 +31,7 @@ export function ensureReportCardShell(): Promise<void> {
 export function preloadReportCardsForTypes(
   types: Iterable<string>,
 ): Promise<void> {
-  const list = Array.from(types)
+  const list = Iterator.from(types).toArray()
   const hasReport = list.some((t) => t.startsWith('report-'))
   if (!hasReport) return Promise.resolve()
   return Promise.all([

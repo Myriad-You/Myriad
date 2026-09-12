@@ -72,7 +72,7 @@ import '../components/TappAppCard.css'
 
 export function TappListPage() {
   const navigate = useNavigate()
-  const { t, locale } = useI18n()
+  const { t, locale, format } = useI18n()
   const { isMobile } = useBreakpoints()
   const { isAdmin, isAuthenticated, hasChecked, checkAuth } = useAuth()
   const animConfig = useAnimationLevel()
@@ -446,7 +446,7 @@ export function TappListPage() {
           const local = loadTappAppCardLayout()
           const localPersonalOnly: Record<string, TappAppCardSize> = {}
           for (const [id, size] of Object.entries(local.sizes)) {
-            if (id in remote.sizes) continue
+            if (Object.hasOwn(remote.sizes, id)) continue
             if (remote.siteSizes[id] === size) continue
             localPersonalOnly[id] = size
           }
@@ -621,9 +621,9 @@ export function TappListPage() {
         const fromIndex = base.indexOf(fromId)
         const toIndex = base.indexOf(toId)
         if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return prev
-        const next = [...base]
-        next.splice(fromIndex, 1)
-        next.splice(toIndex, 0, fromId)
+        const next = base
+          .toSpliced(fromIndex, 1)
+          .toSpliced(toIndex, 0, fromId)
         persistLayout(cardSizes, next)
         return next
       })
@@ -944,7 +944,7 @@ export function TappListPage() {
         onInstall={() => loadTapps(true)}
         onSuccess={(name) =>
           showToastMessage(
-            t.tapp.installSuccess.replace('{name}', name),
+            format(t.tapp.installSuccess, { name }),
             'success',
           )
         }

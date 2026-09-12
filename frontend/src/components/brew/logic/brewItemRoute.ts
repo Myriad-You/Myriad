@@ -14,11 +14,13 @@ export function shouldPopOpenedItem(
     !itemId ||
     typeof locationState !== 'object' ||
     locationState === null ||
-    !('brewOpenedItem' in locationState)
+    !Object.hasOwn(locationState, 'brewOpenedItem')
   ) {
     return false
   }
-  return locationState.brewOpenedItem === itemId
+  return (
+    (locationState as { brewOpenedItem: unknown }).brewOpenedItem === itemId
+  )
 }
 
 /** Push when attaching a public item URL; replace only when stripping it. */

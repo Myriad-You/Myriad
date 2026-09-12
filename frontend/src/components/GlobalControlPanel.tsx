@@ -38,6 +38,7 @@ import { useNotificationCenter } from '../hooks/useNotificationCenter'
 import { useNotificationPreferences } from '../hooks/useNotificationPreferences'
 import { usePerformanceProfile } from '../hooks/usePerformanceProfile'
 import { useWallpaper } from '../hooks/useWallpaper'
+import { hostLanguageName, hostLanguageShort, LOCALES } from '../i18n'
 import { getDynamicContentProvider } from '../services/DynamicContentProvider'
 import {
   notificationSourceFor,
@@ -681,14 +682,13 @@ const GlobalControlPanel: React.FC = () => {
         const filtered = prev.filter((c) => c.type !== 'weather')
         const greetingIndex = filtered.findIndex((c) => c.type === 'greeting')
         const insertIndex = greetingIndex >= 0 ? greetingIndex + 1 : 0
-        filtered.splice(insertIndex, 0, {
+        return filtered.toSpliced(insertIndex, 0, {
           type: 'weather',
           icon: renderWeatherIcon(weatherData.icon),
           text: weatherText,
           subtext: weatherCity,
           showSubtext: true,
         })
-        return filtered
       })
 
       dynamicContentProvider.setContent('builtin', {
@@ -715,14 +715,13 @@ const GlobalControlPanel: React.FC = () => {
                 (c) => c.type === 'greeting',
               )
               const insertIndex = greetingIndex >= 0 ? greetingIndex + 1 : 0
-              filtered.splice(insertIndex, 0, {
+              return filtered.toSpliced(insertIndex, 0, {
                 type: 'weather',
                 icon: renderWeatherIcon(weather.icon),
                 text: weatherText,
                 subtext: weatherCity,
                 showSubtext: true,
               })
-              return filtered
             })
 
             dynamicContentProvider.setContent('builtin', {
@@ -767,7 +766,7 @@ const GlobalControlPanel: React.FC = () => {
       loadResource.high('quote-info', async () => {
         try {
           const quote = await getRandomQuote(locale)
-          if (quote && quote.text) {
+          if (quote?.text) {
             setQuoteData(quote)
             safeSetDynamicContents((prev) => {
               const filtered = prev.filter((c) => c.type !== 'quote')
@@ -1823,41 +1822,31 @@ const GlobalControlPanel: React.FC = () => {
                             {t.controlPanel.language}
                           </h4>
                           <p className="control-item-desc">
-                            {locale === 'zh-CN'
-                              ? t.controlPanel.languageZh
-                              : locale === 'ja-JP'
-                                ? t.controlPanel.languageJa
-                                : t.controlPanel.languageEn}
+                            {hostLanguageName(locale, t.controlPanel)}
                           </p>
                         </div>
                       </div>
                       <button
                         onClick={() => {
-                          const locales = ['zh-CN', 'en-US', 'ja-JP'] as const
-                          const currentIndex = locales.indexOf(locale)
-                          const nextIndex = (currentIndex + 1) % locales.length
-                          setLocale(locales[nextIndex])
+                          const currentIndex = LOCALES.indexOf(locale)
+                          const nextIndex = (currentIndex + 1) % LOCALES.length
+                          setLocale(LOCALES[nextIndex])
                         }}
                         onWheel={(e) => {
                           e.preventDefault()
-                          const locales = ['zh-CN', 'en-US', 'ja-JP'] as const
-                          const currentIndex = locales.indexOf(locale)
+                          const currentIndex = LOCALES.indexOf(locale)
                           const nextIndex =
                             e.deltaY > 0
-                              ? (currentIndex + 1) % locales.length
-                              : (currentIndex - 1 + locales.length) %
-                                locales.length
-                          setLocale(locales[nextIndex])
+                              ? (currentIndex + 1) % LOCALES.length
+                              : (currentIndex - 1 + LOCALES.length) %
+                                LOCALES.length
+                          setLocale(LOCALES[nextIndex])
                         }}
                         className="language-switch-btn"
                         aria-label={t.controlPanel.languageSwitch}
                       >
                         <span className="language-code">
-                          {locale === 'zh-CN'
-                            ? t.controlPanel.languageZhShort
-                            : locale === 'ja-JP'
-                              ? t.controlPanel.languageJaShort
-                              : t.controlPanel.languageEnShort}
+                          {hostLanguageShort(locale, t.controlPanel)}
                         </span>
                       </button>
                     </div>

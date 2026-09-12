@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import zhCN from '../../../../i18n/zh-CN.json'
+import zhCN from '../../../../i18n/zh-CN.json' with { type: 'json' }
 import { buildReportCardPreviewData } from '../previewData'
 import { ANIME_THEMES } from './anime'
 
@@ -14,8 +14,8 @@ const BACKEND_SUBJECT_TYPES = {
 
 describe('anime report cards — Bangumi / MAL parity', () => {
   it('both platforms declare every theme slot', () => {
-    const slots = Object.keys(ANIME_THEMES.bangumi).sort()
-    assert.deepEqual(Object.keys(ANIME_THEMES.mal).sort(), slots)
+    const slots = Object.keys(ANIME_THEMES.bangumi).toSorted()
+    assert.deepEqual(Object.keys(ANIME_THEMES.mal).toSorted(), slots)
     for (const [platform, theme] of Object.entries(ANIME_THEMES)) {
       for (const slot of slots) {
         assert.ok(

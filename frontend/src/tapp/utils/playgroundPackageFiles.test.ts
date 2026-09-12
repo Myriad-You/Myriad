@@ -55,7 +55,7 @@ describe('buildPlaygroundPackageFiles', () => {
       manifest,
       code,
     )
-    const paths = Object.keys(files).sort()
+    const paths = Object.keys(files).toSorted()
 
     assert.ok(paths.includes('manifest.json'))
     assert.ok(paths.includes('core.js'))
@@ -99,7 +99,7 @@ describe('buildPlaygroundPackageFiles', () => {
     const pkg = buildPlaygroundPackageFiles(manifest, code)
     const body = packageFilesToDirectInstallBody(pkg, code.assets)
 
-    assert.deepEqual(Object.keys(body.modules).sort(), [
+    assert.deepEqual(Object.keys(body.modules).toSorted(), [
       'core.js',
       'page/index.js',
       'widget/index.js',
@@ -166,7 +166,7 @@ describe('playgroundCodeToRuntime', () => {
     assert.equal(runtime.coreEntry, 'core.js')
     assert.equal(runtime.pageEntry, 'page/index.js')
     assert.deepEqual(runtime.widgetEntries, { card: 'widget/index.js' })
-    assert.deepEqual(Object.keys(runtime.modules).sort(), [
+    assert.deepEqual(Object.keys(runtime.modules).toSorted(), [
       'core.js',
       'page/index.js',
       'widget/index.js',

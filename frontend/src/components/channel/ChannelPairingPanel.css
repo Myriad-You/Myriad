@@ -1,0 +1,92 @@
+.channel-pairing {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.channel-pairing-title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--cfg-text-1, inherit);
+}
+
+.channel-pairing-hint,
+.channel-pairing-meta,
+.channel-pairing-error,
+.channel-pairing-work {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--cfg-text-3, #888);
+}
+
+.channel-pairing-error {
+  color: #e0443a;
+}
+
+.channel-pairing-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.channel-pairing-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  flex: 1 1 10rem;
+}
+
+.channel-pairing-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.channel-pairing-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.06em;
+}
+
+.channel-pairing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.channel-pairing-open {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.75rem;
+}
+
+.channel-pairing-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid rgb(0 0 0 / 10%);
+  background: rgb(255 255 255 / 70%);
+  color: inherit;
+  border-radius: 0.65rem;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.channel-pairing-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.channel-pairing-btn.danger {
+  color: #c23b32;
+}
+
+html.dark .channel-pairing-btn {
+  background: rgb(255 255 255 / 6%);
+  border-color: rgb(255 255 255 / 10%);
+}

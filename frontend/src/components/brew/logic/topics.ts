@@ -170,7 +170,7 @@ export function inferTopicByKeywords(
 ): string | null {
   const title = (item.title || '').toLowerCase()
   const summary = (item.summary || '')
-    .replace(/<[^>]*>/g, '')
+    .replaceAll(/<[^>]*>/g, '')
     .slice(0, SUMMARY_MATCH_CHARS)
     .toLowerCase()
   const haystack = `${title}\n${summary}`
@@ -190,23 +190,17 @@ export function clusterTopics(
   now: number,
 ): BrewTopic[] {
   const cutoff = now - TOPIC_WINDOW_DAYS * MS_PER_DAY
-  const buckets = new Map<string, TopicItem[]>()
-
-  for (const item of items) {
+  const eligible = items.filter((item) => {
     const key = item.topic
-    if (!key || !TOPIC_BY_KEY.has(key)) continue
+    if (!key || !TOPIC_BY_KEY.has(key)) return false
     const at = item.published_at
-    if (typeof at !== 'number' || at <= 0) continue
-    if (at < cutoff) continue
-
-    const bucket = buckets.get(key)
-    if (bucket) bucket.push(item)
-    else buckets.set(key, [item])
-  }
+    return typeof at === 'number' && at > 0 && at >= cutoff
+  })
+  const buckets = Map.groupBy(eligible, (item) => item.topic as string)
 
   const orderOf = new Map(TOPIC_DEFS.map((d, i) => [d.key, i]))
 
-  return [...buckets.entries()]
+  return Iterator.from(buckets.entries()).toArray()
     .filter(([, list]) => list.length >= TOPIC_MIN_ITEMS)
     .map(([key, list]) => {
       const def = TOPIC_BY_KEY.get(key)!
@@ -214,12 +208,12 @@ export function clusterTopics(
         key,
         nameKey: def.nameKey,
         hue: def.hue,
-        items: [...list].sort(
+        items: list.toSorted(
           (a, b) => (b.published_at ?? 0) - (a.published_at ?? 0),
         ),
       }
     })
-    .sort((a, b) => {
+    .toSorted((a, b) => {
       if (b.items.length !== a.items.length) return b.items.length - a.items.length
       return (orderOf.get(a.key) ?? 0) - (orderOf.get(b.key) ?? 0)
     })

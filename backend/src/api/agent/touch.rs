@@ -70,7 +70,7 @@ static SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
 static COMPLETED: once_cell::sync::Lazy<Mutex<HashMap<i32, Instant>>> =
     once_cell::sync::Lazy::new(|| Mutex::new(HashMap::new()));
 
-/// Completion is a named event, never an extension of the old visual decision.
+/// Completion is a separate ingest event (`agent.merope.touch`), not a continuation of appraise.
 pub async fn complete(
     State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,

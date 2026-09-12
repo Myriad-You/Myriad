@@ -1,14 +1,14 @@
-import assert from 'node:assert/strict'
-import test from 'node:test'
-import { readFile } from 'node:fs/promises'
-import { removeDuplicatedNeckComponents } from './accessoryComponents'
 import type { Anime25DPlaybackLayer } from './types'
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import test from 'node:test'
+import { removeDuplicatedNeckComponents } from './accessoryComponents'
+import { IDENTITY_DRIVER } from './driver'
 import {
   compileAnime25DGpuLayers,
   disposeAnime25DGpuLayers,
 } from './layerGpuBinding'
 import { deriveAnime25DShellProfile } from './shellProfile'
-import { IDENTITY_DRIVER } from './driver'
 
 function fixture() {
   const source = {
@@ -25,22 +25,24 @@ function fixture() {
     pixels: new Uint8ClampedArray(32 * 48 * 4),
   }
   const image = { ...art, pixels: art.pixels.slice() }
-  for (const top of [0, 32])
-    for (let y = top; y < top + 8; y++)
+  for (const top of [0, 32]) {
+    for (let y = top; y < top + 8; y++) {
       for (let x = 4; x < 12; x++) {
         const i = (y * 32 + x) * 4
         const v = 100 + ((x * 31 + y * 17) % 130)
         art.pixels.set([v, v - 10, v - 20, 255], i)
         if (top === 32) image.pixels.set(art.pixels.subarray(i, i + 4), i)
       }
+}
+}
   return { source, layer, art, image }
 }
 
 test('removes only a co-located disconnected neck duplicate including its alpha fringe', () => {
   const { source, layer, art, image } = fixture()
   art.pixels.set([120, 110, 100, 12], (32 * 32 + 3) * 4)
-  const original = art.pixels.slice(),
-    target = image.pixels.slice()
+  const original = art.pixels.slice()
+    const target = image.pixels.slice()
   const patch = removeDuplicatedNeckComponents(
     source,
     art,
@@ -69,18 +71,21 @@ test('retains different detail, flat colours, insufficient coverage and distant 
     'animated',
   ]) {
     const { source, layer, art, image } = fixture()
-    if (kind === 'detail')
-      for (let y = 32; y < 40; y++)
+    if (kind === 'detail') {
+      for (let y = 32; y < 40; y++) {
         for (let x = 4; x < 12; x++) {
           const i = (y * 32 + x) * 4
           for (let c = 0; c < 3; c++)
             image.pixels[i + c] = 330 - art.pixels[i + c]
         }
-    if (kind === 'flat')
+}
+}
+    if (kind === 'flat') {
       for (let i = 0; i < art.pixels.length; i += 4) {
         art.pixels.set([200, 200, 200], i)
         image.pixels.set([200, 200, 200], i)
       }
+}
     if (kind === 'coverage') image.pixels.fill(0, 36 * 32 * 4)
     if (kind === 'offset') layer.x += 8
     if (kind === 'single') art.pixels.fill(0, 0, 24 * 32 * 4)
@@ -104,10 +109,10 @@ test('one-texel segmentation displacement and small colour differences remain re
     ...image,
     pixels: new Uint8ClampedArray(image.pixels.length),
   }
-  for (let y = 32; y < 40; y++)
+  for (let y = 32; y < 40; y++) {
     for (let x = 4; x < 12; x++) {
-      const i = (y * 32 + x) * 4,
-        j = i + 32 * 4
+      const i = (y * 32 + x) * 4
+        const j = i + 32 * 4
       shifted.pixels.set(
         [
           image.pixels[i] + 5,
@@ -118,6 +123,7 @@ test('one-texel segmentation displacement and small colour differences remain re
         j,
       )
     }
+}
   assert.ok(
     removeDuplicatedNeckComponents(
       source,
@@ -160,10 +166,10 @@ test(
     const layer = playback.layers.find(
       (l: Anime25DPlaybackLayer) => l.role === 'neckwear',
     )
-    const art = await crop(source),
-      image = await crop(layer)
-    const original = art.pixels.slice(),
-      neck = image.pixels.slice()
+    const art = await crop(source)
+      const image = await crop(layer)
+    const original = art.pixels.slice()
+      const neck = image.pixels.slice()
     const patch = removeDuplicatedNeckComponents(
       source,
       art,
@@ -171,8 +177,8 @@ test(
       playback.anchors.neckTop,
     )
     assert.ok(patch)
-    let removed = 0,
-      retained = 0
+    let removed = 0
+      let retained = 0
     for (let i = 0; i < original.length; i++) {
       if (i % 4 !== 3) {
         assert.equal(patch.pixels[i], original[i])
@@ -185,7 +191,8 @@ test(
           source.y +
           ((Math.floor(i / 4 / art.width) + 0.5) / art.height) * source.h
         assert.ok(wy >= playback.anchors.neckTop)
-      } else if (original[i]) retained++
+      } else if (original[i]) { retained++
+}
     }
     assert.ok(
       removed > 1000 && retained > removed,
@@ -209,8 +216,8 @@ test(
     Object.assign(globalThis, {
       document: {
         createElement: () => {
-          let left = 0,
-            top = 0
+          let left = 0
+            let top = 0
           return {
             getContext: () => ({
               drawImage(_atlas: unknown, x: number, y: number) {
@@ -266,13 +273,15 @@ test(
       assert.deepEqual(upload?.pixels, patch.pixels)
       for (const p of compiled.atlasPatches ?? []) {
         if (p === upload) continue
-        for (let y = 0; y < p.height; y++)
-          for (let x = 0; x < p.width; x++)
+        for (let y = 0; y < p.height; y++) {
+          for (let x = 0; x < p.width; x++) {
             assert.equal(
               p.pixels[(y * p.width + x) * 4 + 3],
               raw[((p.y + y) * meta.width! + p.x + x) * 4 + 3],
               'body fusion must never cut alpha holes',
             )
+}
+}
       }
       const neckLayer = compiled.layers.find((l) => l.source.role === 'neck')!
       const bodyLayer = compiled.layers.find(

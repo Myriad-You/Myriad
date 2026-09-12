@@ -1,4 +1,3 @@
-
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
@@ -13,8 +12,8 @@ describe('tapp permission guides', () => {
       new URL('./tappPermissionGuides.ts', import.meta.url),
       'utf8',
     )
-    assert.equal(src.includes("from './tappPermissionGuides.ja.json'"), false)
-    assert.equal(src.includes("from './tappPermissionGuides.zh.json'"), false)
+    assert.equal(src.includes("from './tappPermissionGuides.ja-JP.json'"), false)
+    assert.equal(src.includes("from './tappPermissionGuides.zh-CN.json'"), false)
   })
 
   it('serves English synchronously', () => {

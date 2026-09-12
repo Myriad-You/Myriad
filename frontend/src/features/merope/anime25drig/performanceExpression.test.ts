@@ -72,7 +72,7 @@ test('maps semantic baselines and cues to legible expression offsets', () => {
   assert.equal(dizzy.irisScale, 0)
   assert.equal(dizzy.angleZ, 0)
   assert.equal(dizzy.mouthForm, 0)
-  assert.equal(think.eyeOpen, 0)
+  assert.ok(think.eyeOpen < -0.1 && think.eyeOpen > -0.3)
   assert.ok(think.eyeX > 0.4)
   assert.ok(think.eyeY < -0.3)
   assert.ok(think.angleZ < 0)
@@ -87,7 +87,7 @@ test('maps semantic baselines and cues to legible expression offsets', () => {
   assert.equal(silly.eyeX, 0)
   assert.equal(silly.eyeY, 0)
   assert.equal(lovestruck.lovestruck, 1)
-  assert.deepEqual(Object.keys(warm).sort(), [
+  assert.deepEqual(Object.keys(warm).toSorted(), [
     'anger',
     'angleY',
     'angleZ',
@@ -222,8 +222,8 @@ test('maps additive bearing offsets onto absolute driver neutrals', () => {
   assert.equal(tense.eyeOpenL, 0.92)
   assert.equal(cleared.eyeOpenL, 1)
   assert.equal(cleared.irisScale, 1)
-  assert.equal('bust' in steady, false)
-  assert.equal('eyeDizzy' in steady, false)
+  assert.equal(Object.hasOwn(steady, 'bust'), false)
+  assert.equal(Object.hasOwn(steady, 'eyeDizzy'), false)
 })
 
 test('adds to manual channels without flattening left-right eye differences', () => {

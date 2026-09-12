@@ -253,9 +253,8 @@ pub(super) fn clean_platform_data(data: &mut Value) {
         }
     }
 
-    // 清洗网易云音乐数据 - 保留核心字段（优化内存使用）
+    // 清洗网易云 liked_songs / profile
     if let Some(netease) = data.get_mut("netease") {
-        // 优化：原地修改而不是创建新数组，减少内存峰值
         if let Some(songs_value) = netease.get_mut("liked_songs") {
             if let Some(songs_array) = songs_value.as_array_mut() {
                 let total_songs = songs_array.len();
@@ -588,7 +587,7 @@ pub(super) fn clean_platform_data(data: &mut Value) {
             }
         }
 
-        // 关注列表字段精简：只保留 SmartFilter 消费的字段（entities 等全量字段体积很大）
+        // following 字段 allowlist（与 fetch user.fields 对齐）
         if let Some(following) = x_data.get_mut("following").and_then(|v| v.as_array_mut()) {
             for account in following.iter_mut() {
                 if let Some(obj) = account.as_object_mut() {
@@ -607,7 +606,7 @@ pub(super) fn clean_platform_data(data: &mut Value) {
             }
         }
 
-        // 不再同步 likes；清理历史字段
+        // Drop leftover cached `liked_tweets`.
         if let Some(obj) = x_data.as_object_mut() {
             obj.remove("liked_tweets");
         }

@@ -5,15 +5,23 @@ import { describe, it } from 'node:test'
 describe('widget library / grid boundary', () => {
   it('keeps the catalog island out of WidgetGrid', () => {
     const grid = readFileSync(new URL('./WidgetGrid.tsx', import.meta.url), 'utf8')
+    const item = readFileSync(
+      new URL('./WidgetGridItem.tsx', import.meta.url),
+      'utf8',
+    )
+    const drag = readFileSync(
+      new URL('./widgetGridDrag.ts', import.meta.url),
+      'utf8',
+    )
     assert.equal(grid.includes('WidgetLibraryIsland'), false)
     assert.equal(grid.includes('libraryVariant'), false)
     assert.equal(grid.includes('onToggleEditMode'), false)
     assert.equal(grid.includes("variant === 'default'"), false)
     assert.equal(grid.includes("variant === 'panel'"), false)
     assert.equal(grid.includes('shouldRenderLibraryPlacementPreview'), false)
-    assert.match(grid, /shouldSkipWidgetEntrance/)
-    assert.match(grid, /previewExiting/)
-    assert.match(grid, /previewUncovered/)
+    assert.match(item, /shouldSkipWidgetEntrance/)
+    assert.match(drag, /previewExiting/)
+    assert.match(drag, /previewUncovered/)
   })
 
   it('keeps library chrome CSS out of the grid stylesheet', () => {

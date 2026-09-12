@@ -75,7 +75,7 @@ function compileHan(
     type: 'array',
   }) as string[]
   for (const raw of syllables) {
-    const syllable = raw.toLowerCase().replace(/[^a-zü]/g, '')
+    const syllable = raw.toLowerCase().replaceAll(/[^a-zü]/g, '')
     if (!syllable) continue
     const initial = syllable.match(/^(?:[csz]h|[b-df-hj-np-tw-z])/)?.[0]
     if (initial && /^[bpm]$/.test(initial)) {
@@ -95,12 +95,12 @@ function compileHan(
 function chineseFinalViseme(final: string): SpeechViseme {
   if (/[ouüv]/.test(final)) return 'round'
   if (/[ei]/.test(final)) return 'wide'
-  if (/a/.test(final)) return 'open'
+  if (final.includes('a')) return 'open'
   return 'narrow'
 }
 
 function isOpenFinal(final: string): boolean {
-  return /a/.test(final)
+  return final.includes('a')
 }
 
 function compileNonHan(
@@ -123,7 +123,7 @@ function compileSymbols(
   language: string,
   output: TextVisemeCue[],
 ): void {
-  const symbols = Array.from(text)
+  const symbols = Iterator.from(text).toArray()
   for (let index = 0; index < symbols.length; index += 1) {
     const symbol = symbols[index]
     if (
@@ -256,7 +256,7 @@ function push(
 function coalesce(input: TextVisemeCue[]): TextVisemeCue[] {
   const output: TextVisemeCue[] = []
   for (const cue of input) {
-    const previous = output[output.length - 1]
+    const previous = output.at(-1)
     const limit = cue.viseme === 'rest' ? 0.64 : 0.28
     if (
       previous?.viseme === cue.viseme &&

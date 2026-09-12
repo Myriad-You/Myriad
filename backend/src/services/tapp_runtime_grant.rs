@@ -20,7 +20,6 @@ use crate::services::permission_service::{
 };
 use crate::services::tapp_ownership;
 use crate::services::tapp_registry as shared_registry;
-use crate::GLOBAL_DYNAMIC_CONFIG;
 
 pub const RUNTIME_GRANT_HEADER: &str = "x-tapp-runtime-grant";
 const RUNTIME_GRANT_TTL: Duration = Duration::from_secs(5 * 60);
@@ -320,7 +319,11 @@ pub async fn validate_runtime_grant(
     // Refuse the rebind while the install still needs re-authorization.
     refuse_if_needs_reauthorization(tapp.needs_reauthorization)?;
     let currently_allowed = {
-        let config = GLOBAL_DYNAMIC_CONFIG.read().await;
+        // Worker refresh intervals are not authorization grace periods. Every
+        // request observes committed delegation policy and fails closed on DB errors.
+        let config = crate::services::config_service::ConfigService::load_permission_config_on(db)
+            .await
+            .map_err(map_db_err)?;
         TappPermissionService::filter_permissions_for_role(&config, role, &installed_permissions)?
     };
     intersect_current_permissions(&mut grant.permissions, &currently_allowed);

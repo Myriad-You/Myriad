@@ -1,15 +1,81 @@
 import assert from 'node:assert/strict'
-import { describe, it } from 'node:test'
+import { afterEach, beforeEach, describe, it, mock } from 'node:test'
+import { ensureSessionStoragePolyfill } from '../test/sessionStoragePolyfill'
 import {
+  clearCSRFToken,
   CSRF_CLIENT_TTL_MS,
   CSRF_TOKEN_MAX_LENGTH,
   CSRF_TOKEN_VERSION,
+  getCSRFToken,
   isCsrfCacheFresh,
   isValidCSRFToken,
   parseCsrfTokenResponse,
 } from './csrf.ts'
 
 const validToken = `${CSRF_TOKEN_VERSION}.${'a'.repeat(100)}.${'b'.repeat(43)}`
+
+describe('CSRF request ownership', () => {
+  beforeEach(() => {
+    ensureSessionStoragePolyfill()
+    clearCSRFToken()
+  })
+
+  afterEach(() => {
+    mock.restoreAll()
+    clearCSRFToken()
+  })
+
+  function tokenResponse(token = validToken) {
+    return Response.json({ csrf_token: token, expires_in: 3600 })
+  }
+
+  it('shares a cold fetch and caches the token for every waiter', async () => {
+    const pending = Promise.withResolvers<Response>()
+    const fetch = mock.method(globalThis, 'fetch', () => pending.promise)
+    const first = getCSRFToken()
+    const second = getCSRFToken()
+    pending.resolve(tokenResponse())
+    assert.deepEqual(await Promise.all([first, second]), [validToken, validToken])
+    assert.equal(sessionStorage.getItem('csrf_token'), validToken)
+    assert.equal(await getCSRFToken(), validToken)
+    assert.equal(fetch.mock.callCount(), 1)
+  })
+
+  it('does not restore a session token after the session was cleared', async () => {
+    const pending = Promise.withResolvers<Response>()
+    mock.method(globalThis, 'fetch', () => pending.promise)
+    const first = getCSRFToken()
+    clearCSRFToken()
+    pending.resolve(tokenResponse())
+    assert.equal(await first, null)
+    assert.equal(sessionStorage.getItem('csrf_token'), null)
+  })
+
+  for (const oldFinishesFirst of [true, false]) {
+    it(`keeps a forced refresh authoritative when the old request finishes ${oldFinishesFirst ? 'first' : 'last'}`, async () => {
+      const old = Promise.withResolvers<Response>()
+      const fresh = Promise.withResolvers<Response>()
+      const nextToken = `${CSRF_TOKEN_VERSION}.${'c'.repeat(100)}.${'d'.repeat(43)}`
+      const fetch = mock.method(globalThis, 'fetch', () => old.promise)
+      const first = getCSRFToken()
+      fetch.mock.mockImplementation(() => fresh.promise)
+      const second = getCSRFToken(true)
+      if (oldFinishesFirst) {
+        old.resolve(tokenResponse())
+        assert.equal(await first, null)
+      }
+      const joined = getCSRFToken()
+      assert.equal(fetch.mock.callCount(), 2)
+      fresh.resolve(tokenResponse(nextToken))
+      assert.deepEqual(await Promise.all([second, joined]), [nextToken, nextToken])
+      if (!oldFinishesFirst) {
+        old.resolve(tokenResponse())
+        assert.equal(await first, nextToken)
+      }
+      assert.equal(sessionStorage.getItem('csrf_token'), nextToken)
+    })
+  }
+})
 
 describe('parseCsrfTokenResponse', () => {
   it('returns null for guest null token', () => {

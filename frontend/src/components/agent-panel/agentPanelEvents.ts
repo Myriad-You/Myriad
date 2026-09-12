@@ -18,7 +18,7 @@ export function dispatchAgentPanelSubmit(
   intentionId?: string,
 ): void {
   const trimmed = text.trim()
-  const files = attachments?.length ? [...attachments] : undefined
+  const files = attachments?.length ? Iterator.from(attachments).toArray() : undefined
   if (!trimmed && !files?.length) return
   window.dispatchEvent(
     new CustomEvent<AgentPanelSubmitDetail>(AGENT_PANEL_SUBMIT_EVENT, {

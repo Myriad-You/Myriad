@@ -2,6 +2,7 @@ import type { AgentPanelMode } from '../../components/agent-panel/agentPanelMode
 import type { AgentFaceChannel, ReplyUtterance } from './agentFaceChannel'
 import type { BodyAdapter } from './body/types'
 import { getAgentPanelMode } from '../../components/agent-panel/agentPanelMode'
+import { authSubject } from '../../utils/authSubject'
 import { liveFaceVisible } from './faceVisible'
 import { liveMotionGeneration } from './motion/liveGeneration'
 import { sanitizePerformanceDirective } from './performanceEvents'
@@ -92,6 +93,7 @@ export class FaceSpeechGate {
 
   endIncoming(incomingMode: AgentPanelMode, messageId?: string): void {
     if (incomingMode !== 'chat') return
+    if (messageId && this.chatMessageId && messageId !== this.chatMessageId) return
     this.chatUtteranceActive = false
     if (
       this.chatMessageId &&
@@ -117,6 +119,7 @@ export class FaceSpeechGate {
 }
 
 export const faceSpeechGate = new FaceSpeechGate()
+authSubject.subscribe(() => faceSpeechGate.releaseChat())
 
 let liveBody: BodyAdapter | null = null
 
@@ -132,18 +135,21 @@ export function openGatedReply(
   messageId: string,
   locale?: string,
 ): Pick<ReplyUtterance, 'chunk' | 'end' | 'cancel'> {
+  const subject = authSubject.signal
   const verdict = gate.beginIncoming(incomingMode, messageId)
   const inner =
     verdict === 'speak'
       ? channel.openReply(messageId, locale)
       : silentReplyUtterance()
   return {
-    chunk: (token: string) => inner.chunk(token),
+    chunk: (token: string) => { if (!subject.aborted) inner.chunk(token) },
     end: () => {
+      if (subject.aborted) return
       inner.end()
       gate.endIncoming(incomingMode, messageId)
     },
     cancel: () => {
+      if (subject.aborted) return
       inner.cancel()
       gate.endIncoming(incomingMode, messageId)
     },
@@ -241,8 +247,9 @@ export function refineProactiveFace(
     !liveBody ||
     !liveFaceVisible() ||
     (typeof document !== 'undefined' && document.hidden)
-  )
+  ) {
     return
+}
   const performance = sanitizePerformanceDirective(raw)
   if (!performance) return
   liveBody.intend({

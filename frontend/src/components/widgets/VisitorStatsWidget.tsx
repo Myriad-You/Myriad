@@ -303,7 +303,7 @@ export const VisitorStatsWidget = memo(
       isPreview ? 1 : undefined,
     )
     const anim = useAnimationLevel()
-    const { t, locale } = useI18n()
+    const { t, locale, format } = useI18n()
     const v = t.visitorStats
     const compact = config.size === '2x2'
 
@@ -312,8 +312,7 @@ export const VisitorStatsWidget = memo(
     const [failed, setFailed] = useState(false)
     const settleTimer = useRef<number | null>(null)
 
-    const numberLocale =
-      locale === 'zh-CN' ? 'zh-CN' : locale === 'ja-JP' ? 'ja-JP' : 'en-US'
+    const numberLocale = locale
     const count = useCallback(
       (n: number) => formatCount(n, numberLocale),
       [numberLocale],
@@ -525,7 +524,7 @@ export const VisitorStatsWidget = memo(
           <MiniTrend
             points={points}
             tight={compact}
-            ariaLabel={v.chartAria.replace('{n}', nDays)}
+            ariaLabel={format(v.chartAria, { n: Number(nDays) })}
           />
         </div>
       ) : !compact ? (

@@ -7,6 +7,7 @@ import type {
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { authSubject } from '../../utils/authSubject'
 import { AgentFaceChannel } from './agentFaceChannel'
 import {
   arbitrateFaceSpeech,
@@ -37,6 +38,37 @@ function disablePersonaSpeech(): void {
     persona_speech_enabled: false,
   })
 }
+
+test('an old reply end cannot release the new Chat occupancy', () => {
+  const gate = new FaceSpeechGate(() => 'chat')
+  gate.beginIncoming('chat', 'old')
+  gate.beginIncoming('chat', 'new')
+  gate.endIncoming('chat', 'old')
+  assert.equal(gate.chatBusy, true)
+  gate.endIncoming('chat', 'new')
+  assert.equal(gate.chatBusy, false)
+})
+
+test('old text mouth handles cannot emit or release a new subject utterance', () => {
+  const sink = new RecordingSink()
+  const channel = new AgentFaceChannel(sink)
+  const gate = new FaceSpeechGate(() => 'chat')
+  const old = openGatedReply(channel, gate, 'chat', 'old-subject')
+  old.chunk('Hello')
+  channel.resetSubject()
+  authSubject.change('another', true)
+  gate.releaseChat()
+  const fresh = openGatedReply(channel, gate, 'chat', 'new-subject')
+  const count = sink.speechEvents.length
+  old.chunk('Late old text')
+  old.end()
+  assert.equal(sink.speechEvents.length, count)
+  assert.equal(gate.chatBusy, true)
+  fresh.chunk('New text')
+  fresh.end()
+  assert.equal(gate.chatBusy, false)
+  authSubject.change('guest', true)
+})
 
 class RecordingSink implements AgentFaceSink {
   readonly speechEvents: MeropeSpeechEventDetail[] = []
@@ -135,7 +167,7 @@ test('Chat mid-utterance continues while a background Work completion is recorde
     sink.speechEvents.map((event) => [
       event.phase,
       event.messageId,
-      'text' in event ? event.text : '',
+      Object.hasOwn(event, 'text') ? (event as { text: string }).text : '',
     ]),
     [
       ['start', 'chat-msg', ''],

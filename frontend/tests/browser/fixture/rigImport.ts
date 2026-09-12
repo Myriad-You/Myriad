@@ -87,7 +87,7 @@ async function pngPixels(blob: Blob) {
     return {
       width: image.width,
       height: image.height,
-      hash: Array.from(new Uint8Array(hash)),
+      hash: Iterator.from(new Uint8Array(hash)).toArray(),
     }
   } finally {
     image.close()
@@ -291,7 +291,7 @@ async function touchPicking(kind: string) {
         }
       }
     }
-    return { hits, falseHits, misses, regions: [...regions], glError: gl.getError() }
+    return { hits, falseHits, misses, regions: Iterator.from(regions).toArray(), glError: gl.getError() }
   } finally {
     player.dispose()
     canvas.remove()
@@ -346,8 +346,7 @@ async function directorReplay(parallel = false, race = false, touchCase = '', fp
   )
   const runtime = new MotionRuntime(coordinator, music)
   const tracker = new TouchGestureTracker()
-  let resolveTouch: ((value: unknown) => void) | undefined
-  let rejectTouch: ((reason: unknown) => void) | undefined
+  let touchDeferred: PromiseWithResolvers<unknown> | undefined
   let touchRequests = 0
   let touchApplied = 0
   let touchWriteMutation = false
@@ -355,7 +354,8 @@ async function directorReplay(parallel = false, race = false, touchCase = '', fp
     now: () => now,
     request: () => {
       touchRequests++
-      return new Promise((resolve, reject) => { resolveTouch = resolve; rejectTouch = reject })
+      touchDeferred = Promise.withResolvers<unknown>()
+      return touchDeferred.promise
     },
     apply: (revision, reaction) => {
       const before = JSON.stringify(player.getCurrent())
@@ -557,8 +557,8 @@ async function directorReplay(parallel = false, race = false, touchCase = '', fp
           appraisal.observe(touch, runtime.touch.version())
         }
         if (i === (touchCase === 'late' ? 116 : touchCase === 'changed' ? 90 : 60)) {
-          if (touchCase === 'fail') rejectTouch?.(new Error('injected provider failure'))
-          else resolveTouch?.({ reaction: touchCase === 'accept' ? 'accept' : 'withdraw' })
+          if (touchCase === 'fail') touchDeferred?.reject(new Error('injected provider failure'))
+          else touchDeferred?.resolve({ reaction: touchCase === 'accept' ? 'accept' : 'withdraw' })
         }
         // Flush the actual request controller's promise chain without waiting
         // on real time or opening a provider connection.

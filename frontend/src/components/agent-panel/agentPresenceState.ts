@@ -77,7 +77,7 @@ export function reconcilePresence<T>(
     incomingKeys.push(key)
   }
 
-  const result: PresenceEntry<T>[] = []
+  let result: PresenceEntry<T>[] = []
   const placed = new Set<string>()
 
   const keep = (key: string) => {
@@ -123,7 +123,7 @@ export function reconcilePresence<T>(
     const item = incoming.get(key)
     if (!item) continue
     placed.add(key)
-    result.splice(at, 0, { key, item, phase: 'in', until: 0 })
+    result = result.toSpliced(at, 0, { key, item, phase: 'in', until: 0 })
   }
 
   return result

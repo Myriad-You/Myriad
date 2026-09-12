@@ -1,5 +1,6 @@
 import { API_URL } from '../config'
 import { currentCopy } from '../i18n/localeCopy'
+import { getDefaultLocale } from '../i18n/locales'
 import { withAiTimeoutSignal } from '../utils/aiRequestTimeout.mjs'
 import { brewSubject } from '../utils/brewSubject'
 import { clearCSRFToken, getCSRFToken } from '../utils/csrf'
@@ -223,14 +224,14 @@ export class PodcastPlayer {
   private onProgress?: (index: number, total: number) => void
   private onEnd?: () => void
   private onStateChange?: (state: 'playing' | 'paused' | 'stopped') => void
-  private language: string = 'zh-CN'
+  private language: string = getDefaultLocale()
   private utteranceId = 0
 
   constructor(config?: PodcastPlayerConfig) {
     this.synth = window.speechSynthesis
     this.config = {
-      voiceA: config?.voiceA || (null as unknown as SpeechSynthesisVoice),
-      voiceB: config?.voiceB || (null as unknown as SpeechSynthesisVoice),
+      voiceA: config?.voiceA ?? (null as unknown as SpeechSynthesisVoice),
+      voiceB: config?.voiceB ?? (null as unknown as SpeechSynthesisVoice),
       rate: config?.rate ?? 1.0,
       pitch: config?.pitch ?? 1.0,
       dialogueGap: config?.dialogueGap ?? 500,
@@ -254,8 +255,28 @@ export class PodcastPlayer {
     voices: SpeechSynthesisVoice[],
     lang: string,
   ): SpeechSynthesisVoice[] {
-    const langPrefix = lang.split('-')[0].toLowerCase()
-    return voices.filter((v) => v.lang.toLowerCase().startsWith(langPrefix))
+    const requested = lang.trim().toLowerCase()
+    const langPrefix = requested.split('-')[0] ?? ''
+    const wantsTraditional =
+      requested === 'zh-tw' ||
+      requested.startsWith('zh-hk') ||
+      requested.startsWith('zh-mo') ||
+      requested.includes('hant')
+    if (wantsTraditional) {
+      const traditional = voices.filter((voice) => {
+        const voiceLang = voice.lang.toLowerCase()
+        return (
+          voiceLang.startsWith('zh-tw') ||
+          voiceLang.startsWith('zh-hk') ||
+          voiceLang.startsWith('zh-mo') ||
+          voiceLang.includes('hant')
+        )
+      })
+      if (traditional.length > 0) return traditional
+    }
+    return voices.filter((voice) =>
+      voice.lang.toLowerCase().startsWith(langPrefix),
+    )
   }
 
   static selectVoicePair(
@@ -317,7 +338,7 @@ export class PodcastPlayer {
 
     if (!maleVoice) maleVoice = filtered[0]
     if (!femaleVoice)
-      femaleVoice = filtered.find((v) => v !== maleVoice) || filtered[0]
+      femaleVoice = filtered.find((v) => v !== maleVoice) ?? filtered[0]
 
     const voicesAreSame =
       maleVoice === femaleVoice || maleVoice?.name === femaleVoice?.name

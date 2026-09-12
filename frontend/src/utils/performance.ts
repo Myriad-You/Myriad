@@ -19,7 +19,7 @@ export function rafThrottle<T extends (...args: any[]) => any>(
   },
 ): ((...args: Parameters<T>) => void) & { cancel: () => void } {
   let rafId: number | null = null
-  const { skipOnLowFps = false } = options || {}
+  const { skipOnLowFps = false } = options ?? {}
 
   const throttled = function (this: any, ...args: Parameters<T>) {
     if (rafId !== null) {
@@ -31,7 +31,7 @@ export function rafThrottle<T extends (...args: any[]) => any>(
     }
 
     rafId = requestAnimationFrame(() => {
-      fn.apply(this, args)
+      fn.call(this, ...args)
       rafId = null
     })
   } as ((...args: Parameters<T>) => void) & { cancel: () => void }

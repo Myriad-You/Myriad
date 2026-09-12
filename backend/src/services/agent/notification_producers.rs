@@ -191,7 +191,7 @@ impl NotificationManager {
             )
             .with_metadata(serde_json::json!({
                 "event_key": if connected { "mcp.connected" } else { "mcp.disconnected" },
-                // About hosts Updater/MCP operator surface
+                // route: About section (Updater lives there; MCP panel is Advanced).
                 "route": "/config?section=about",
                 "server_id": server_id,
                 "status": if connected { "connected" } else { "failed" },

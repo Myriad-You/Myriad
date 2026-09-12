@@ -101,7 +101,6 @@
       var(--cfg-frost-border, rgb(255 255 255 / 45%))
     );
   border-radius: 0.875rem;
-
   background: color-mix(
     in srgb,
     var(--cfg-frost-bg, rgb(255 255 255 / 72%)) 88%,

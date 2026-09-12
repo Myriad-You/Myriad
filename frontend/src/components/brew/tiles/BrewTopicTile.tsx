@@ -63,7 +63,7 @@ export const BrewTopicTile = memo(
     onOpenItem,
     surface,
   }: BrewTopicTileProps) => {
-    const { t } = useI18n()
+    const { t, format } = useI18n()
     const name = useTopicName(topic)
     const color = topic.hue
     const sourceCount = topicSourceCount(topic)
@@ -73,9 +73,9 @@ export const BrewTopicTile = memo(
 
     const counts = (
       <TileMeta fontScale={fontScale} scale={scale}>
-        <span>{t.brew.articlesCount.replace('{count}', String(topic.items.length))}</span>
+        <span>{format(t.brew.articlesCount, { count: topic.items.length })}</span>
         <span aria-hidden>·</span>
-        <span>{t.brew.topicSourceCount.replace('{count}', String(sourceCount))}</span>
+        <span>{format(t.brew.topicSourceCount, { count: sourceCount })}</span>
       </TileMeta>
     )
 
@@ -191,7 +191,7 @@ export const BrewTopicTile = memo(
         <div style={{ marginTop: sp(6, scale) }}>
           <TileMeta fontScale={fontScale} scale={scale}>
             <span style={{ fontSize: fs(T_MINOR, fontScale) }}>
-              {t.brew.topicSourceCount.replace('{count}', String(sourceCount))}
+              {format(t.brew.topicSourceCount, { count: sourceCount })}
             </span>
           </TileMeta>
         </div>
@@ -212,7 +212,7 @@ export const BrewTopicWidget = memo(
       isPreview ? 1 : undefined,
     )
     const sources = useWidgetSources(
-      isPreview,
+      isPreview ?? false,
       TOPIC_WIDGET_REFRESH_INTERVAL,
       '[BrewTopicWidget]',
     )

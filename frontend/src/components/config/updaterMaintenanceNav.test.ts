@@ -1,4 +1,3 @@
-
 import assert from 'node:assert/strict'
 import { afterEach, before, describe, it } from 'node:test'
 import { ensureSessionStoragePolyfill } from '../../test/sessionStoragePolyfill'

@@ -66,8 +66,8 @@ export function applyTextDecorations(
   for (const { node, start, end } of nodes) {
     const hits = decorations.filter((d) => d.start < end && d.end > start)
     if (!hits.length) continue
-    const cuts = [
-      ...new Set([
+    const cuts = Iterator.from(
+      new Set([
         start,
         end,
         ...hits.flatMap((d) => [
@@ -75,7 +75,9 @@ export function applyTextDecorations(
           Math.min(end, d.end),
         ]),
       ]),
-    ].sort((a, b) => a - b)
+    )
+      .toArray()
+      .toSorted((a, b) => a - b)
     const fragment = doc.createDocumentFragment()
     for (let i = 0; i < cuts.length - 1; i++) {
       let part: Node = doc.createTextNode(
@@ -83,7 +85,7 @@ export function applyTextDecorations(
       )
       for (const hit of hits
         .filter((d) => d.start <= cuts[i] && d.end >= cuts[i + 1])
-        .reverse()) {
+        .toReversed()) {
         const mark = hit.mark.cloneNode(false) as HTMLElement
         mark.appendChild(part)
         part = mark

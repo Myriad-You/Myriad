@@ -1,4 +1,3 @@
-
 import type { SettingItemConfig } from './types'
 import React from 'react'
 import { ButtonItem } from './items/ButtonItem'

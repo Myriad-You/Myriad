@@ -1126,8 +1126,8 @@ async fn execute_page_understand(
     if let Some(analyzer) = ctx.ai_analyzer {
         let context_str = serde_json::to_string_pretty(&page_context).unwrap_or_default();
         let truncated_context: String = context_str.chars().take(USER_TEXT_MAX_CHARS).collect();
-        // 页面上下文含 DOM 与 TAPP 渲染的内容，同样是别人能写的；产物是
-        // 开了 `ui:interact` 就会真的执行的动作计划。
+        // 页面上下文含 DOM 与 TAPP 渲染的内容，同样是别人能写的。
+        // click/input 要 `autoExecute` 且 granted `ui:interact`；navigate 在 autoExecute 下仍会发出。
         let truncated_context = untrusted_block("page_context", &truncated_context);
 
         let prompt = format!(

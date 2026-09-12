@@ -1,6 +1,6 @@
 /** 不调 brewApi。 */
 
-export type AgentOpenHint = {
+export interface AgentOpenHint {
   articleId?: string
   articleLink?: string
   openLatest?: boolean
@@ -34,7 +34,7 @@ export function wantsLatestOnly(hint: AgentOpenHint): boolean {
 export const AGENT_SCAN_MAX_PAGES = 5
 export const AGENT_SCAN_PER_PAGE = 20
 
-export type AgentArticle = {
+export interface AgentArticle {
   id: number
   title?: string
   link?: string | null

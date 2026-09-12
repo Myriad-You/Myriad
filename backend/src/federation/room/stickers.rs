@@ -134,7 +134,7 @@ pub(crate) async fn broadcast_and_fanout_stickers(
     }
 }
 
-/// POST /rooms/{id}/stickers — room owner/admin only (edit shared pack).
+/// POST /api/federation/rooms/{room_id}/stickers — room owner/admin only (edit shared pack).
 pub async fn add_room_sticker(
     user_id: i32,
     username: &str,
@@ -253,7 +253,7 @@ pub async fn add_room_sticker(
     })
 }
 
-/// DELETE /rooms/{id}/stickers/{sticker_id} — room owner/admin only.
+/// DELETE /api/federation/rooms/{room_id}/stickers/{sticker_id} — room owner/admin only.
 pub async fn remove_room_sticker(
     user_id: i32,
     username: &str,

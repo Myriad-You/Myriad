@@ -222,20 +222,16 @@ export function useReaderControls({
     const content = contentRef.current
     if (!article || !content || toc.length === 0) return
 
-    const headings = Array.from(
-      content.querySelectorAll('h1, h2, h3, h4, h5, h6'),
-    ) as HTMLElement[]
+    const headings = Iterator.from(content.querySelectorAll('h1, h2, h3, h4, h5, h6')).toArray() as HTMLElement[]
     if (headings.length === 0) return
 
     const handleScrollForToc = () => {
-      let currentId = ''
-
-      for (const heading of headings) {
-        const rect = heading.getBoundingClientRect()
-        if (rect.top <= 150) {
-          currentId = heading.id
-        }
-      }
+      // The result is the last qualifying heading in DOM order. Search from
+      // that end and stop, without caching positions that images/fonts can move.
+      const heading = headings.findLast(
+        (item) => item.getBoundingClientRect().top <= 150,
+      )
+      const currentId = heading?.id ?? ''
 
       const prevId = activeHeadingIdRef.current
       if (currentId !== prevId) {
@@ -281,7 +277,7 @@ export function useReaderControls({
 
   const goToPreviousHeading = useCallback(() => {
     if (headingHistory.length > 0) {
-      const prevId = headingHistory[headingHistory.length - 1]
+      const prevId = headingHistory.at(-1)!
       setHeadingHistory((prev) => prev.slice(0, -1))
       scrollToHeading(prevId)
       showToastMessage(t.brew.backToPrevParagraph, 1500)

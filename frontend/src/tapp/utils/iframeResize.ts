@@ -224,10 +224,10 @@ export const IFRAME_RESIZE_SCRIPT = `
   'use strict';
 
   // 读取预设的安全区域值（由框架注入）
-  var initialInsets = window._TAPP_INITIAL_SAFE_INSETS || {};
+  const initialInsets = window._TAPP_INITIAL_SAFE_INSETS || {};
 
   // 使用 Object.create(null) 避免原型链查找
-  var dims = Object.create(null);
+  const dims = Object.create(null);
   dims.width = window.innerWidth;
   dims.height = window.innerHeight;
   dims.scale = 1;
@@ -244,24 +244,24 @@ export const IFRAME_RESIZE_SCRIPT = `
   window._TAPP_DIMENSIONS = dims;
 
   // CSS 变量缓存（避免重复设置）
-  var cssCache = Object.create(null);
-  var root = document.documentElement;
-  var rootStyle = root.style;
+  const cssCache = Object.create(null);
+  const root = document.documentElement;
+  const rootStyle = root.style;
 
   // 批量更新 CSS 变量（性能优化）
   function updateCSS(d) {
-    var w = d.width + 'px';
-    var h = d.height + 'px';
-    var s = String(d.scale);
-    var fs = String(d.fontScale);
-    var bf = Math.max(10, 14 * d.fontScale) + 'px';
-    var ic = d.isCompact ? '1' : '0';
-    var im = d.isMini ? '1' : '0';
+    const w = d.width + 'px';
+    const h = d.height + 'px';
+    const s = String(d.scale);
+    const fs = String(d.fontScale);
+    const bf = Math.max(10, 14 * d.fontScale) + 'px';
+    const ic = d.isCompact ? '1' : '0';
+    const im = d.isMini ? '1' : '0';
     // 安全区域内边距
-    var sit = (d.safeInsetTop || 0) + 'px';
-    var sir = (d.safeInsetRight || 0) + 'px';
-    var sib = (d.safeInsetBottom || 0) + 'px';
-    var sil = (d.safeInsetLeft || 0) + 'px';
+    const sit = (d.safeInsetTop || 0) + 'px';
+    const sir = (d.safeInsetRight || 0) + 'px';
+    const sib = (d.safeInsetBottom || 0) + 'px';
+    const sil = (d.safeInsetLeft || 0) + 'px';
 
     // 仅更新变化的变量
     if (cssCache.w !== w) { cssCache.w = w; rootStyle.setProperty('--tapp-container-width', w); }
@@ -278,7 +278,7 @@ export const IFRAME_RESIZE_SCRIPT = `
     if (cssCache.sil !== sil) { cssCache.sil = sil; rootStyle.setProperty('--tapp-safe-inset-left', sil); }
 
     // 使用 classList 批量操作（比 toggle 更快）
-    var cl = document.body.classList;
+    const cl = document.body.classList;
     if (d.isCompact && !cl.contains('tapp-compact')) cl.add('tapp-compact');
     else if (!d.isCompact && cl.contains('tapp-compact')) cl.remove('tapp-compact');
     if (d.isMini && !cl.contains('tapp-mini')) cl.add('tapp-mini');
@@ -286,7 +286,7 @@ export const IFRAME_RESIZE_SCRIPT = `
   }
 
   // RAF 节流的事件派发
-  var eventQueued = false;
+  let eventQueued = false;
   function queueResizeEvent() {
     if (eventQueued) return;
     eventQueued = true;
@@ -298,10 +298,10 @@ export const IFRAME_RESIZE_SCRIPT = `
 
   // 消息处理（优化分支）
   function onMessage(e) {
-    var msg = e.data;
+    const msg = e.data;
     if (!msg || msg.type !== 'event' || msg.action !== 'container:resize') return;
 
-    var p = msg.payload;
+    const p = msg.payload;
     dims.width = p.width;
     dims.height = p.height;
     dims.scale = p.scale;
@@ -321,7 +321,7 @@ export const IFRAME_RESIZE_SCRIPT = `
   window.addEventListener('message', onMessage, false);
 
   // 备用：监听 iframe resize（节流 100ms）
-  var resizeTimer;
+  let resizeTimer;
   window.addEventListener('resize', function() {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(function() {
@@ -349,7 +349,7 @@ export const IFRAME_RESIZE_SCRIPT = `
           ? window._TAPP_SESSION_TOKEN
           : undefined
       }, '*');
-    } catch(e) {}
+    } catch {}
   }
 })();
 `

@@ -20,7 +20,7 @@ function notifySubscribers() {
   if (newColor && newColor !== currentColor) {
     currentColor = newColor
     // Snapshot listeners before notify.
-    const subscriberArray = Array.from(subscribers)
+    const subscriberArray = Iterator.from(subscribers).toArray()
     subscriberArray.forEach((callback) => {
       try {
         callback(currentColor)

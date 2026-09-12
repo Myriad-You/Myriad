@@ -1,11 +1,11 @@
 /** 不认识 brew_items。 */
 
 import type { CSSProperties, ReactNode } from 'react'
-import { forwardRef } from 'react'
-
 import { LuStar as Star } from '@lib/icons'
-import { BrewPick } from './Pick'
+
+import { forwardRef } from 'react'
 import { cx } from './cx'
+import { BrewPick } from './Pick'
 
 export interface StoryCardFace {
   id: number | string
@@ -39,7 +39,7 @@ export const StoryCard = forwardRef<
     arrive?: number
     railId?: number | string
   }
->(function StoryCard(
+>((
   {
     face,
     unreadLabel,
@@ -56,7 +56,7 @@ export const StoryCard = forwardRef<
     railId,
   },
   ref,
-) {
+) => {
   const style = {
     ...(face.hue ? { '--story-topic': face.hue } : null),
     ...(arrive != null ? { '--brew-card-i': arrive } : null),

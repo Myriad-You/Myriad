@@ -1,8 +1,8 @@
 //! Strict-Lite semantic motion selection for Merope.
 //!
-//! The model selects only a bounded expression/posture baseline and semantic
-//! cues. Anime2.5DRig driver values, lip sync, blinking, breathing and secondary
-//! motion remain deterministic on the client.
+//! The model selects a bounded expression/posture baseline, semantic cues, and
+//! grounded `phrases`. Anime2.5DRig driver values, lip sync, blinking, breathing
+//! and secondary motion remain deterministic on the client.
 
 use std::time::{Duration, Instant};
 
@@ -23,7 +23,7 @@ use super::store::get_persona;
 use super::MoodTransition;
 
 /// MOTION_TIMEOUT 9s; MOTION_TOTAL_TIMEOUT 10s.
-/// Streaming publishes `local_performance_plan` first; Lite is a refinement.
+/// Streaming publishes `local_directive` first; Lite is a refinement.
 const MOTION_TIMEOUT: Duration = Duration::from_secs(9);
 const MOTION_TOTAL_TIMEOUT: Duration = Duration::from_secs(10);
 const MOTION_SCHEMA_NAME: &str = "merope_motion";
@@ -256,9 +256,8 @@ async fn direct_motion_inner(
 /// The deterministic floor as a directive, with no network call and no await.
 ///
 /// Chat plays this the moment the round starts so the character reacts before
-/// it speaks, and every response carries it so a non-streaming client still
-/// gets acting. The Lite refinement, when it lands, publishes over the run hub
-/// and replaces this.
+/// it speaks. Non-streaming attaches it on the body; streaming Chat leaves
+/// `performance: None` and Lite replaces via PlaybackDirection / `PerformancePlan`.
 pub fn local_directive(context: &MotionContext) -> Option<PerformanceDirective> {
     let rig_state = apply_round_motion_style(context.rig_state.clone(), &context.motion_style);
     if face_is_hidden(rig_state.as_ref()) {

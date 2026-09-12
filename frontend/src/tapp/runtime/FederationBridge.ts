@@ -428,7 +428,7 @@ export function registerFederationHandlers(
         const NOTE_TEXT_CHAR_LIMIT = 100_000
         const NOTE_ATTACHMENT_COUNT_LIMIT = 32
         const text = typeof noteReq.text === 'string' ? noteReq.text : ''
-        if ([...text].length > NOTE_TEXT_CHAR_LIMIT) {
+        if (Iterator.from(text).reduce((n: number) => n + 1, 0) > NOTE_TEXT_CHAR_LIMIT) {
           return {
             success: false,
             error: currentCopy().errors.agentInputTooLong,
@@ -706,7 +706,7 @@ export function registerFederationHandlers(
       const status =
         error &&
         typeof error === 'object' &&
-        'status' in error &&
+        Object.hasOwn(error, 'status') &&
         typeof (error as { status: unknown }).status === 'number'
           ? (error as { status: number }).status
           : undefined
@@ -913,7 +913,7 @@ export function registerFederationHandlers(
       const status =
         error &&
         typeof error === 'object' &&
-        'status' in error &&
+        Object.hasOwn(error, 'status') &&
         typeof (error as { status: unknown }).status === 'number'
           ? (error as { status: number }).status
           : undefined

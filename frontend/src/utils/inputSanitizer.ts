@@ -1,14 +1,14 @@
 export function escapeHtml(unsafe: string): string {
   return unsafe
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;')
 }
 
 export function sanitizeUsername(username: string): string {
-  return username.replace(/\W/g, '').slice(0, 50)
+  return username.replaceAll(/\W/g, '').slice(0, 50)
 }
 
 export function sanitizeUrl(url: string): string {
@@ -25,5 +25,5 @@ export function sanitizeUrl(url: string): string {
 }
 
 export function sanitizeFilename(filename: string): string {
-  return filename.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').slice(0, 255)
+  return filename.replaceAll(/[<>:"/\\|?*\x00-\x1F]/g, '_').slice(0, 255)
 }

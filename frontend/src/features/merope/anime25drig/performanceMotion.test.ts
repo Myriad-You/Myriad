@@ -2,8 +2,11 @@ import type { CueIntent } from './performanceCueDefinitions'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { completeBehaviorQuality } from './behaviorMotion'
 import { intentExpressionPatch } from './performanceCueDefinitions'
+import { PerformanceExpressionController } from './performanceExpression'
 import {
+  authoredCueEnvelope,
   baselineDriverPatch,
   cueDurationMs,
   idleSpeechDriverPatch,
@@ -26,6 +29,46 @@ test('keeps semantic face ownership out of the non-manual energy patch', () => {
   assert.equal(patch.eyeOpenL, undefined)
 })
 
+test('directed thinking has a readable face without borrowing angry or speechless artwork', () => {
+  const expression = new PerformanceExpressionController()
+  expression.playBehaviorUnits(
+    [
+      {
+        behaviorId: 'think-probe',
+        family: 'performance',
+        form: 'think',
+        kind: 'state',
+        intensity: 1,
+        quality: completeBehaviorQuality(undefined),
+        timing: {
+          startMs: 0,
+          readyMs: 100,
+          strokeStartMs: 200,
+          strokePeakMs: 400,
+          strokeEndMs: 500,
+          relaxMs: null,
+          endMs: null,
+        },
+      },
+    ],
+    0,
+    0,
+  )
+  const shown = expression.sample(1)
+  assert.ok(expression.getThinkingLevel() > 0.5)
+  assert.ok(shown.eyeOpen < -0.1)
+  assert.ok(shown.brow > 0.2)
+  assert.ok(shown.browAngSym < -0.1)
+  assert.equal(shown.anger ?? 0, 0)
+  assert.equal(shown.speechless ?? 0, 0)
+  const beforeSpeech = { ...shown }
+  assert.deepEqual(expression.sample(1, {}, true), beforeSpeech)
+  const released = expression.sample(3, {}, true)
+  assert.equal(expression.getThinkingLevel(), 0)
+  assert.ok(Math.abs(released.eyeOpen) < 1e-6)
+  assert.ok(Math.abs(released.browAngSym) < 1e-6)
+})
+
 test('leaves posture to the per-frame pose offset', () => {
   for (const posture of ['closed', 'neutral', 'open'] as const) {
     const patch = baselineDriverPatch({
@@ -34,9 +77,9 @@ test('leaves posture to the per-frame pose offset', () => {
       motionEnergy: 1,
       attention: 1,
     })
-    assert.equal('body' in patch, false)
-    assert.equal('armY' in patch, false)
-    assert.equal('armPos' in patch, false)
+    assert.equal(Object.hasOwn(patch, 'body'), false)
+    assert.equal(Object.hasOwn(patch, 'armY'), false)
+    assert.equal(Object.hasOwn(patch, 'armPos'), false)
   }
 })
 
@@ -128,7 +171,8 @@ test('maps cue forms to bounded deterministic poses and durations', () => {
   const patch = (intent: CueIntent, intensity = 1.4) =>
     intentExpressionPatch(intent, intensity)
   assert.ok((patch('emphasize').body || 0) > 0.5)
-  assert.ok((patch('emphasize').body || 0) < 0.6)
+  assert.ok((patch('emphasize').body || 0) > 0.8)
+  assert.ok((patch('emphasize').body || 0) < 1)
   assert.equal(
     cueDurationMs({
       intent: 'emphasize',
@@ -139,7 +183,7 @@ test('maps cue forms to bounded deterministic poses and durations', () => {
       fadeOutMs: 220,
       interrupt: 'replace',
     }),
-    1_090,
+    1_577,
   )
 
   // Face-only forms write no body channel at all.
@@ -149,6 +193,49 @@ test('maps cue forms to bounded deterministic poses and durations', () => {
     assert.equal(patch(intent).armPos, undefined, intent)
   }
   assert.ok((patch('angry').body || 0) > 0)
+})
+
+test('strong performances recruit body and arms without amplifying the head', () => {
+  for (const intent of ['greet', 'delight', 'emphasize'] as const) {
+    const gentle = intentExpressionPatch(intent, 0.5)
+    const strong = intentExpressionPatch(intent, 1.4)
+    const poseRatio = 1.4 / 0.89
+    assert.ok((strong.body ?? 0) / (gentle.body ?? 1) > poseRatio * 1.45)
+    for (const key of ['angleY', 'angleZ'] as const) {
+      if (gentle[key]) {
+        assert.ok(
+          Math.abs((strong[key] ?? 0) / gentle[key]! - poseRatio) < 1e-8,
+        )
+      }
+    }
+    for (const key of ['body', 'armY', 'armPos'] as const) {
+      assert.ok(Math.abs(strong[key] ?? 0) <= 1)
+    }
+  }
+})
+
+test('larger coordinated cues get travel time without delaying their scheduled start', () => {
+  const base = {
+    intent: 'greet' as const,
+    atMs: 0,
+    intensity: 0.5,
+    tempo: 1,
+    fadeInMs: 120,
+    fadeOutMs: 200,
+    interrupt: 'replace' as const,
+  }
+  const gentle = authoredCueEnvelope(base)
+  const strong = authoredCueEnvelope({ ...base, intensity: 1.4 })
+  assert.ok(strong.fadeIn > gentle.fadeIn)
+  assert.ok(strong.fadeOut > gentle.fadeOut)
+  assert.equal(strong.hold, gentle.hold)
+  assert.equal(
+    scheduleBodyCues([{ ...base, intensity: 1.4 }], 1000)[0].startMs,
+    1000,
+  )
+  const listen = authoredCueEnvelope({ ...base, intent: 'listen' })
+  assert.equal(listen.fadeIn, 0.12)
+  assert.equal(listen.fadeOut, 0.2)
 })
 
 test('a cue form never switches secondary physics off', () => {

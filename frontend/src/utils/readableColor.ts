@@ -31,7 +31,7 @@ export function clampNumber(value: number, min: number, max: number): number {
 export function normalizeHexColor(value: string | null | undefined): string | null {
   if (!value) return null
   let hex = String(value).trim()
-  if (hex.charAt(0) !== '#') return null
+  if (!hex.startsWith('#')) return null
   hex = hex.slice(1)
   if (hex.length === 3) {
     hex =
@@ -232,7 +232,7 @@ function firstUsableRgb(
     const rgb = hexToRgb(value)
     if (rgb) return rgb
   }
-  return hexToRgb(fallbackColor) || hexToRgb(DEFAULT_FALLBACK)!
+  return hexToRgb(fallbackColor) ?? hexToRgb(DEFAULT_FALLBACK)!
 }
 
 function softDarkenFromPrimary(
@@ -240,7 +240,7 @@ function softDarkenFromPrimary(
   backdrop: RgbColor,
   minContrast: number,
 ): string {
-  const rgb = hexToRgb(primaryHex) || hexToRgb(DEFAULT_FALLBACK)!
+  const rgb = hexToRgb(primaryHex) ?? hexToRgb(DEFAULT_FALLBACK)!
   const hsl = rgbToHsl(rgb)
   const s = clampNumber(hsl.s * 1.06, 0.3, 0.84)
   const floor = 0.36

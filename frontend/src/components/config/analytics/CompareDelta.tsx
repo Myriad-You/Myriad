@@ -1,6 +1,6 @@
-
 import type { CompareKind, CompareLabels, MetricDelta } from './compareDeltaLogic'
 import React from 'react'
+import { formatMessage, localeOrFallback } from '../../../i18n'
 import {
   compareColorPalette,
 
@@ -40,7 +40,9 @@ export function CompareDelta({
   const prevText = formatPrevious
     ? formatPrevious(prev)
     : String(prev)
-  const title = labels.vsPrevious.replace('{n}', prevText)
+  const title = formatMessage(localeOrFallback(locale), labels.vsPrevious, {
+    n: prevText,
+  })
 
   return (
     <span

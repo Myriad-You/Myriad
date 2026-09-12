@@ -1,6 +1,6 @@
+import type { Anime25DPlaybackLayer } from './types'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { Anime25DPlaybackLayer } from './types'
 import { duplicateAccessoryLayers } from './accessoryDuplicate'
 
 test('a fully baked copy keeps the surface and suppresses only the redundant overlay', () => {
@@ -26,7 +26,7 @@ test('a fully baked copy keeps the surface and suppresses only the redundant ove
     ),
   }
   assert.deepEqual(
-    [...duplicateAccessoryLayers([base, art], () => image)],
+    Iterator.from(duplicateAccessoryLayers([base, art], () => image)).toArray(),
     [art],
   )
   const changed = { ...image, pixels: image.pixels.slice() }
@@ -64,7 +64,7 @@ test('only exact repeated accessory art is removed; shadows, occluders and offse
     height: 1,
     pixels: new Uint8ClampedArray([200, 10, 20, 255, 20, 40, 60, 128]),
   }
-  assert.deepEqual([...duplicateAccessoryLayers([a, b], () => image)], [b])
+  assert.deepEqual(Iterator.from(duplicateAccessoryLayers([a, b], () => image)).toArray(), [b])
   assert.equal(
     duplicateAccessoryLayers([a, { ...b, x: 1 }], () => image).size,
     0,

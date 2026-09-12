@@ -37,7 +37,7 @@ test('counts pulses without claiming to know the meter or bar downbeat', () => {
   const clock = new BeatClock()
   const frame = play(clock, 120, 12)
   assert.ok(frame.beatCount >= 18, `counted ${frame.beatCount}`)
-  assert.equal('barPhase' in frame, false)
+  assert.equal(Object.hasOwn(frame, 'barPhase'), false)
   assert.ok(frame.beatPhase >= 0 && frame.beatPhase < 1)
 })
 

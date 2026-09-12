@@ -39,7 +39,7 @@ function normalizeKeys(keys: string): { parts: string[]; mainKey: string } | nul
     .map((p) => p.trim().toLowerCase())
     .filter(Boolean)
   if (parts.length === 0 || parts.length > 4) return null
-  const mainKey = parts[parts.length - 1]
+  const mainKey = parts.at(-1)!
   return { parts, mainKey }
 }
 
@@ -136,7 +136,7 @@ function onKeyDown(e: KeyboardEvent) {
 
   // 空 token / 已销毁 / 非活动表面跳过。孤儿匹配不 preventDefault。
   let matched = false
-  for (const [key, binding] of [...bindings.entries()]) {
+  for (const [key, binding] of Iterator.from(bindings.entries()).toArray()) {
     if (!matchesChord(e, binding)) continue
     if (!isLiveBridge(binding.bridge)) {
       if (
@@ -212,7 +212,7 @@ export function hostUnbindShortcut(
     const sessionToken = bridgeSessionToken(bridge)
     bindings.delete(bindingKey(tappId, shortcutId, sessionToken))
   } else {
-    for (const key of [...bindings.keys()]) {
+    for (const key of Iterator.from(bindings.keys()).toArray()) {
       if (key.startsWith(`${tappId}\0${shortcutId}\0`)) bindings.delete(key)
     }
   }
@@ -223,11 +223,11 @@ export function hostUnbindShortcut(
 export function hostUnbindAllForBridge(bridge: TappBridge): void {
   const sessionToken = bridgeSessionToken(bridge)
   if (!sessionToken) {
-    for (const [key, binding] of [...bindings.entries()]) {
+    for (const [key, binding] of Iterator.from(bindings.entries()).toArray()) {
       if (binding.bridge === bridge) bindings.delete(key)
     }
   } else {
-    for (const [key, binding] of [...bindings.entries()]) {
+    for (const [key, binding] of Iterator.from(bindings.entries()).toArray()) {
       if (binding.sessionToken === sessionToken || binding.bridge === bridge) {
         bindings.delete(key)
       }
@@ -238,7 +238,7 @@ export function hostUnbindAllForBridge(bridge: TappBridge): void {
 
 /** 按 Tapp 跨桥拆除。沙箱销毁应走 hostUnbindAllForBridge。 */
 export function hostUnbindAllForTapp(tappId: string): void {
-  for (const key of [...bindings.keys()]) {
+  for (const key of Iterator.from(bindings.keys()).toArray()) {
     if (key.startsWith(`${tappId}\0`)) bindings.delete(key)
   }
   maybeDetachListener()

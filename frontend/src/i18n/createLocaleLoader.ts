@@ -14,16 +14,15 @@ export function createLocaleLoader<T>(importers: LocaleImporters<T>) {
     const pending = inflight.get(locale)
     if (pending) return pending
 
-    const promise = importers[locale]()
-      .then((value) => {
+    const promise = Promise.try(async () => {
+      try {
+        const value = await importers[locale]()
         cache.set(locale, value)
-        inflight.delete(locale)
         return value
-      })
-      .catch((err) => {
+      } finally {
         inflight.delete(locale)
-        throw err
-      })
+      }
+    })
 
     inflight.set(locale, promise)
     return promise

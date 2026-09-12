@@ -7,6 +7,10 @@ import type {
 
 export type Anime25DShellMode = 'head' | 'front-hair' | 'back-hair'
 
+const SHELL_YAW_RADIANS = 0.45
+const SHELL_PITCH_RADIANS = 0.32
+const FULL_CROWN_TURN = 1 - Math.cos(SHELL_YAW_RADIANS) * Math.cos(SHELL_PITCH_RADIANS)
+
 export function anime25DShellModeForLayer(
   source: Pick<Anime25DPlaybackLayer, 'group' | 'role'>,
 ): Anime25DShellMode | null {
@@ -36,8 +40,8 @@ export function writeAnime25DShellRotation(
   angleY: number,
   target: Anime25DShellRotation,
 ): void {
-  const yaw = angleX * 0.45
-  const pitch = angleY * 0.32
+  const yaw = angleX * SHELL_YAW_RADIANS
+  const pitch = angleY * SHELL_PITCH_RADIANS
   target.active = angleX !== 0 || angleY !== 0
   target.yawCosine = Math.cos(yaw)
   target.yawSine = Math.sin(yaw)
@@ -93,11 +97,11 @@ export function sampleAnime25DHairlinePinWeights(
     return hasWeight ? weights : null
   }
 
-  const strands = Array.from(source.strands)
+  const strands = Iterator.from(source.strands).toArray()
     .filter(
       (strand) => Number.isFinite(strand.x) && Number.isFinite(strand.rootY),
     )
-    .sort((left, right) => left.x - right.x)
+    .toSorted((left, right) => left.x - right.x)
   const spacing = medianPositiveStrandGap(strands, source.w)
   const sigma = Math.max(1, spacing * 0.6)
   const releaseDistance = Math.max(1, (source.h / Math.max(1, rows)) * 2)
@@ -125,8 +129,8 @@ function medianPositiveStrandGap(
   if (gaps.length === 0) {
     return Math.max(1, layerWidth / Math.max(1, strands.length))
   }
-  gaps.sort((left, right) => left - right)
-  return gaps[gaps.length >> 1]
+  const sorted = gaps.toSorted((left, right) => left - right)
+  return sorted[sorted.length >> 1]
 }
 
 function interpolatedStrandRootY(
@@ -160,7 +164,6 @@ export function deformAnime25DShellPoint(
   profile: Readonly<Anime25DShellProfile>,
   rotation: Readonly<Anime25DShellRotation>,
   depth: number,
-  pinWeight: number,
 ): void {
   if (!profile.enabled || profile.blend <= 0 || !rotation.active) {
     return
@@ -179,8 +182,10 @@ export function deformAnime25DShellPoint(
   } else if (mode === 'back-hair') {
     normalizedDepth = -profile.hair.backDepth * radialDepth - 0.05
   } else if (profile.faceProfile.enabled) {
+    // Eye/jaw geometry has already moved locally. Depth is a field on that
+    // resulting face, not a different field for each vertex's original row.
     const vertical =
-      (restY - profile.faceProfile.startY) /
+      (point.y - profile.faceProfile.startY) /
       Math.max(1, profile.faceProfile.endY - profile.faceProfile.startY)
     const profileDepth = evaluateCurve(profile.faceProfile.points, vertical)
     const profileWidth = Math.max(1, profile.head.radiusX * 0.34)
@@ -194,43 +199,21 @@ export function deformAnime25DShellPoint(
   }
 
   const shellX = point.x
-  const shellY = point.y
   applyProjectionDelta(point, ellipsoid, normalizedDepth, rotation)
 
-  if (mode === 'front-hair' && pinWeight > 0) {
-    const hairX = point.x
-    const hairY = point.y
-    point.x = shellX
-    point.y = shellY
-    const headX = (point.x - profile.head.centerX) / profile.head.radiusX
-    const headY = (point.y - profile.head.centerY) / profile.head.radiusY
-    const headRadialDepth = Math.sqrt(
-      Math.max(0, 1 - Math.min(1, headX ** 2 + headY ** 2)),
-    )
-    let headDepth = headRadialDepth
-    if (profile.faceProfile.enabled) {
-      const vertical =
-        (restY - profile.faceProfile.startY) /
-        Math.max(1, profile.faceProfile.endY - profile.faceProfile.startY)
-      const profileWidth = Math.max(1, profile.head.radiusX * 0.34)
-      const profileX = (point.x - profile.head.centerX) / profileWidth
-      headDepth +=
-        evaluateCurve(profile.faceProfile.points, vertical) *
-        Math.exp(-(profileX * profileX))
-    }
-    applyProjectionDelta(point, profile.head, headDepth, rotation)
-    point.x = hairX + (point.x - hairX) * pinWeight
-    point.y = hairY + (point.y - hairY) * pinWeight
-  }
-
+  // A pinned root keeps the coiffure's depth and follows the same head rotation.
+  // Pin weights suppress relative bang/spring motion, not this rest surface.
   if (mode === 'front-hair' && profile.hair.crownRound > 0) {
     const crownStart = profile.head.centerY - profile.head.radiusY * 0.18
     const crownSpan = Math.max(1, profile.head.radiusY * 0.62)
     const crown =
       smoothstep((crownStart - restY) / crownSpan) *
       Math.sqrt(Math.max(0, 1 - normalizedX * normalizedX))
+    // A pose-space correction must vanish continuously at the reference pose.
+    // Use orientation departure, not time smoothing or a nonzero-angle switch.
     const crownMix = clamp(
-      profile.hair.crownRound * crown * 0.3 * (1 - pinWeight),
+      profile.hair.crownRound * crown * 0.3 *
+        smoothstep((1 - rotation.yawCosine * rotation.pitchCosine) / FULL_CROWN_TURN),
       0,
       0.6,
     )
@@ -267,35 +250,44 @@ function evaluateCurve(
 ): number {
   const progress = clamp(rawProgress, 0, 1)
   if (progress <= points[0].v) return points[0].z
-  if (progress >= points[points.length - 1].v) return points.at(-1)!.z
+  if (progress >= points.at(-1)!.v) return points.at(-1)!.z
   let index = 0
   while (index < points.length - 2 && progress > points[index + 1].v) {
     index += 1
   }
   const first = points[index]
   const second = points[index + 1]
-  const before = points[index - 1] ?? first
-  const after = points[index + 2] ?? second
-  const t = (progress - first.v) / Math.max(1e-6, second.v - first.v)
-  return catmullRom(before.z, first.z, second.z, after.z, t)
-}
-
-function catmullRom(
-  first: number,
-  second: number,
-  third: number,
-  fourth: number,
-  t: number,
-): number {
+  const span = Math.max(1e-6, second.v - first.v)
+  const t = (progress - first.v) / span
   const squared = t * t
   const cubed = squared * t
-  return (
-    0.5 *
-    (2 * second +
-      (-first + third) * t +
-      (2 * first - 5 * second + 4 * third - fourth) * squared +
-      (-first + 3 * second - 3 * third + fourth) * cubed)
-  )
+  const firstSlope = faceCurveSlope(points, index) * span
+  const secondSlope = faceCurveSlope(points, index + 1) * span
+  return (2 * cubed - 3 * squared + 1) * first.z +
+    (cubed - 2 * squared + t) * firstSlope +
+    (-2 * cubed + 3 * squared) * second.z +
+    (cubed - squared) * secondSlope
+}
+
+/** Shape-preserving nonuniform Hermite slopes (Fritsch–Butland, doi:10.1137/0905021). */
+function faceCurveSlope(
+  points: readonly Anime25DShellCurvePoint[],
+  index: number,
+): number {
+  // Unlike extrapolating PCHIP, this depth field is constant outside its
+  // landmarks. Zero end tangents make that extension slope-continuous too.
+  if (index === 0 || index === points.length - 1) return 0
+  const before = points[index - 1]
+  const point = points[index]
+  const after = points[index + 1]
+  const leftSpan = Math.max(1e-6, point.v - before.v)
+  const rightSpan = Math.max(1e-6, after.v - point.v)
+  const leftSlope = (point.z - before.z) / leftSpan
+  const rightSlope = (after.z - point.z) / rightSpan
+  if (leftSlope * rightSlope <= 0) return 0
+  const leftWeight = 2 * rightSpan + leftSpan
+  const rightWeight = rightSpan + 2 * leftSpan
+  return (leftWeight + rightWeight) / (leftWeight / leftSlope + rightWeight / rightSlope)
 }
 
 function smoothstep(value: number): number {

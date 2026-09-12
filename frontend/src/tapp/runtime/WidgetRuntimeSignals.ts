@@ -108,7 +108,7 @@ export function bindTappKvChange(
   })
 }
 
-type TappKvBridge = {
+interface TappKvBridge {
   subscribe: (listener: (change: TappStorageChange) => void) => () => void
   action: string
   remount?: string

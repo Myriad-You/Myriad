@@ -1,29 +1,30 @@
 /** 轨道只做 transform，不设 overflow、不切遮罩。前一张从左边溢出，不退场。 */
 
 import type { RefObject } from 'react'
-import { useLayoutEffect, useRef } from 'react'
+import type { ConversationExitStyle } from '../../agent-panel/conversationPan'
 
+import { useLayoutEffect, useRef } from 'react'
 import {
   applyConversationExit,
   clampConversationScroll,
   CONVERSATION_FADE_PX,
   conversationExitKey,
   conversationExitStyle,
+
   rubberband,
   sampleVelocity,
   smoothToward,
   wheelDeltaY,
-  type ConversationExitStyle,
 } from '../../agent-panel/conversationPan'
 import {
   isDiscreteWheel,
   nearestRailSlot,
   neighborRailSlot,
   RAIL_OVERFLOW_LEFT_PX,
-  railMaxScroll,
   RAIL_SEAT_PX,
   RAIL_WHEEL_SETTLE_MS,
   railLeadIndex,
+  railMaxScroll,
   railOverflowLeft,
   railSeatScroll,
   railSeatSlots,
@@ -45,7 +46,7 @@ function applyRailExit(el: HTMLElement, style: ConversationExitStyle): void {
   el.style.setProperty('--exit-x', `${style.shift}px`)
 }
 
-export type BrewRailApi = {
+export interface BrewRailApi {
   align: (id: number, immediate?: boolean) => void
 }
 
@@ -113,14 +114,16 @@ export function useBrewRailPan(
 
     const recache = () => {
       trackW = track.scrollWidth
-      cards = [...track.querySelectorAll<HTMLElement>(cardSelector)].map(
-        (el) => ({
+      cards = Iterator.from(
+        track.querySelectorAll<HTMLElement>(cardSelector),
+      )
+        .map((el) => ({
           el,
           left: el.offsetLeft,
           width: el.offsetWidth,
           key: '',
-        }),
-      )
+        }))
+        .toArray()
     }
 
     const measure = () => {
@@ -353,7 +356,6 @@ export function useBrewRailPan(
           wheelVel = 0
           if (Math.abs(end - current) > 0.6 || !restOnSlot(current)) {
             snapTo(end)
-            return
           }
         }, RAIL_WHEEL_SETTLE_MS)
       }

@@ -1,4 +1,3 @@
-
 import type { CheckboxGroupOption } from '../items/CheckboxGroupItem'
 import type { PermissionGroupConfig } from '../types'
 import React, { useCallback, useMemo } from 'react'

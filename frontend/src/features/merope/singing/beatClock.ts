@@ -1,4 +1,3 @@
-
 /** Outside this an "interval" is a fill or a dropout, not a tempo. */
 export const MIN_BEAT_PERIOD = 0.3
 export const MAX_BEAT_PERIOD = 1
@@ -188,7 +187,7 @@ export class BeatClock {
 
 function median(values: readonly number[]): number {
   if (!values.length) return 0
-  const sorted = [...values].sort((left, right) => left - right)
+  const sorted = values.toSorted((left, right) => left - right)
   const middle = sorted.length >> 1
   return sorted.length % 2
     ? sorted[middle]!

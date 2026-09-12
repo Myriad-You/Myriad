@@ -172,8 +172,12 @@ export function usePreload(options: {
             preloadCacheRef.current.set(nextIndex, true)
 
             if (preloadCacheRef.current.size > 1) {
-              const oldestKey = Array.from(preloadCacheRef.current.keys())[0]
-              preloadCacheRef.current.delete(oldestKey)
+              const oldestKey = Iterator.from(
+                preloadCacheRef.current.keys(),
+              ).find(() => true)
+              if (oldestKey !== undefined) {
+                preloadCacheRef.current.delete(oldestKey)
+              }
             }
 
             cleanup()

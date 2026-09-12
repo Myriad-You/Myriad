@@ -26,7 +26,7 @@ function statsBaseUrl(): string | null {
       ?.VITE_TAPP_STORE_STATS_URL
   const raw = (fromEnv || DEFAULT_STORE_STATS_URL).trim()
   if (!raw || raw === '0' || raw === 'false' || raw === 'off') return null
-  return raw.replace(/\/+$/, '')
+  return raw.replaceAll(/\/+$/g, '')
 }
 
 export async function fetchStoreDownloadCounts(
@@ -35,7 +35,7 @@ export async function fetchStoreDownloadCounts(
   const base = statsBaseUrl()
   if (!base || appIds.length === 0) return {}
 
-  const unique = [...new Set(appIds.filter(Boolean))]
+  const unique = Iterator.from(new Set(appIds.filter(Boolean))).toArray()
   const now = Date.now()
   const out: Record<string, number> = {}
   const missing: string[] = []

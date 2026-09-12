@@ -47,6 +47,7 @@ serde_json = "1.0"
 myriad-tapp-contract = { path = "../crates/tapp-contract" }
 myriad-error = { path = "../crates/myriad-error" }
 myriad-data-key = { path = "../crates/myriad-data-key" }
+myriad-mcp = { path = "../crates/myriad-mcp" }
 myriad-merope = { path = "../crates/myriad-merope" }
 myriad-image-proxy = { path = "../crates/myriad-image-proxy" }
 myriad-json-schema = { path = "../crates/myriad-json-schema" }
@@ -120,11 +121,17 @@ ipnet = "2"                                             # TRUST_PROXY_PEERS CIDR
 futures = "0.3"
 async-stream = "0.3"
 tokio-stream = "0.1"                                    # For SSE streaming
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+# Direct dep so we can install a process-level CryptoProvider. sqlx pulls
+# rustls `ring`, reqwest pulls `aws-lc-rs`; with both features present rustls
+# will not auto-pick, and tokio-tungstenite WSS panics on connect.
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "aws-lc-rs"] }
 zip = "8.6"                                             # For .tapp file handling
 md5 = "0.8"
 quick-xml = "0.41.0"
 serde_yaml = "0.9.34"
 scraper = "0.27"                                        # HTML parsing for web.scrape capability
+prost = "0.13"                                          # Feishu long-connection Frame (pbbp2)
 
 [dev-dependencies]
 syn = { version = "2", features = ["full", "visit"] }

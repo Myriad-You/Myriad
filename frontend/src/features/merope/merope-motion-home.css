@@ -964,7 +964,6 @@ html.dark .merope-wardrobe {
   height: 96px;
   overflow: hidden;
   border-radius: 16px;
-
   background: var(--color-surface-2, rgb(127 127 127 / 12%));
 }
 

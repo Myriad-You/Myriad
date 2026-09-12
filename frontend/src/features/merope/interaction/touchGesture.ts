@@ -138,8 +138,7 @@ export class TouchGestureTracker {
         atMs: sample.atMs,
         region: contact.region,
         count:
-          previous &&
-          previous.region === contact.region &&
+          previous?.region === contact.region &&
           sample.atMs - previous.atMs >= 0 &&
           sample.atMs - previous.atMs <= REPEAT_GAP_MS
             ? Math.min(8, previous.count + 1)

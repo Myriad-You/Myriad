@@ -2,6 +2,7 @@
 
 .brew-site {
   --brew-site-inset: 0.7rem;
+
   display: flex;
   position: relative;
   flex: 0 0 auto;
@@ -147,7 +148,7 @@
     rgb(0 0 0 / 100%) 42%,
     transparent 74%
   );
-  -webkit-mask-image: radial-gradient(
+  mask-image: radial-gradient(
     circle at 100% 50%,
     rgb(0 0 0 / 100%) 42%,
     transparent 74%
@@ -279,6 +280,7 @@ html.dark .brew-site__unread {
     var(--brew-story-h) * 2 + var(--brew-items-gap) +
       var(--brew-items-pad-bottom) + 0.35rem
   );
+
   box-sizing: border-box;
   flex: 0 0 var(--brew-items-span);
   height: var(--brew-items-span);
@@ -321,6 +323,7 @@ html.dark .brew-site__unread {
 .brew-story {
   --brew-story-inset: 0.7rem;
   --brew-story-title-size: 1.2rem;
+
   box-sizing: border-box;
   display: block;
   position: relative;
@@ -444,7 +447,7 @@ html[data-perf-mode='exlight'] .brew-story[data-leaving='true'] {
 }
 
 .brew-skin button.brew-story__star.is-on :is(svg) {
-  fill: currentColor;
+  fill: currentcolor;
 }
 
 .brew-pick {
@@ -826,6 +829,7 @@ html[data-perf-mode='exlight'] .brew-story[data-leaving='true'] {
 .brew-stories {
   --brew-story-h: 12rem;
   --brew-story-w: 16.5rem;
+
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--brew-story-w), 1fr));
   gap: 0.75rem 0.85rem;

@@ -11,7 +11,6 @@
   overflow: hidden;
   border-radius: 0.75rem;
   cursor: default;
-
   border: none !important;
   border-color: transparent !important;
   transition:
@@ -36,7 +35,6 @@
   aspect-ratio: auto;
   height: auto;
   min-height: 0;
-
   overflow: hidden;
 }
 
@@ -45,7 +43,6 @@
   display: block;
   width: calc((100% - var(--tapp-app-card-gap, 0.55rem)) / 2);
   max-width: 100%;
-
   aspect-ratio: 1 / var(--tapp-app-card-h-ratio);
   pointer-events: none;
   visibility: hidden;
@@ -99,7 +96,6 @@
   color: var(--text-muted, #6b7280);
   cursor: grab;
   touch-action: none;
-
   background: color-mix(in srgb, var(--text-primary, #111) 7%, #fff 72%);
   border: 0;
   border-radius: 0.45rem;
@@ -232,7 +228,6 @@ html.dark[data-perf-mode='exlight'] .tapp-app-card__drag-handle {
   position: relative;
   z-index: 1;
   display: grid;
-
   grid-template-rows: minmax(0, 1fr);
   grid-template-columns: minmax(0, 1fr);
   align-content: stretch;
@@ -397,7 +392,6 @@ html.dark[data-perf-mode='exlight'] .tapp-app-card__drag-handle {
   min-height: 0;
   padding: 0;
   text-align: left;
-
   overflow: hidden;
 }
 
@@ -620,7 +614,6 @@ html.dark .tapp-app-card__sub {
   justify-content: flex-start;
   gap: var(--tapp-app-card-detail-gap);
   padding: 0.05rem 0.05rem 0;
-
   padding-bottom: calc(
     var(--tapp-app-card-dock-h) + var(--tapp-app-card-detail-gap)
   );
@@ -741,7 +734,6 @@ html.dark .tapp-app-card__version {
 
 .tapp-app-card__detail-mid {
   display: flex;
-
   flex: 1 1 0;
   flex-direction: column;
   min-width: 0;
@@ -756,7 +748,6 @@ html.dark .tapp-app-card__version {
   color: var(--text-muted, #6b7280);
   font-size: 0.6875rem;
   line-height: 1.4;
-
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 5;
@@ -979,7 +970,6 @@ html.dark .tapp-app-card__open-hint {
   color: var(--text-muted, #6b7280);
   cursor: pointer;
   appearance: none;
-
   background: color-mix(in srgb, var(--text-primary, #111) 5.5%, transparent);
   border: 0;
   border-radius: 0.5rem;
@@ -1281,7 +1271,6 @@ html.dark .tapp-app-empty__btn--ghost {
   container-name: tapp-app-card-grid;
   display: grid;
   gap: var(--tapp-app-card-gap);
-
   place-items: start stretch;
   grid-template-columns: repeat(
     auto-fill,
@@ -1293,7 +1282,6 @@ html.dark .tapp-app-empty__btn--ghost {
       1fr
     )
   );
-
   grid-auto-flow: dense;
   grid-auto-rows: auto;
 }

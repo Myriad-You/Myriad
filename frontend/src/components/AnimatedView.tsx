@@ -14,7 +14,7 @@ export default function AnimatedView({
   ...rest
 }: AnimatedViewProps) {
   const location = useLocation()
-  const pageId = location.pathname.replace(/\//g, '-') || 'home'
+  const pageId = location.pathname.replaceAll('/', '-') || 'home'
 
   const { onEnterComplete } = usePageTransition({ pageId })
 

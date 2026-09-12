@@ -100,7 +100,6 @@ export interface Anime25DSecondaryDeformationBinding {
   handwear: boolean
   handwearSide: Anime25DPlaybackLayer['side']
   handwearAnchorX: number
-  shoulderContact?: { weights: Float32Array, torso: Anime25DSecondaryDeformationBinding } | null
   frontHair: boolean
   frontHairParallaxScale: Float32Array | null
   chestWeights: Float32Array | null
@@ -157,20 +156,7 @@ export function deformAnime25DSecondaryPoint(
   vertex: number,
   binding: Readonly<Anime25DSecondaryDeformationBinding>,
   frame: Readonly<Anime25DSecondaryDeformationFrame>,
-  applyShoulderContact = true,
 ): void {
-  const contact = applyShoulderContact ? binding.shoulderContact : null
-  const contactWeight = contact?.weights[vertex] ?? 0
-  if (contact && contactWeight > 0) {
-    const torsoPoint = { x: point.x, y: point.y }
-    deformAnime25DSecondaryPoint(torsoPoint, restX, restY, vertex, contact.torso, frame)
-    // Evaluate the unpinned arm once, then blend whole transforms. All body
-    // breathing, shell and chest terms match at the seam, not just yaw.
-    deformAnime25DSecondaryPoint(point, restX, restY, vertex, binding, frame, false)
-    point.x += (torsoPoint.x - point.x) * contactWeight
-    point.y += (torsoPoint.y - point.y) * contactWeight
-    return
-  }
   const { source } = binding
   let collarBodyWeight = 1
   if (!binding.shaderGlobalTransform) {
@@ -227,6 +213,8 @@ export function deformAnime25DSecondaryPoint(
         BODY_HEAD_FOLLOW + (1 - BODY_HEAD_FOLLOW) * frontCollarHeadBlend
     }
     if (headFollow > 0) {
+      const localX = point.x
+      const localY = point.y
       const rotationX = point.x - frame.neckPivotX
       const rotationY = point.y - frame.neckPivotY
       const rotatedX =
@@ -237,13 +225,9 @@ export function deformAnime25DSecondaryPoint(
         rotationY * frame.headRotationCosine
       point.x += (rotatedX - rotationX) * headFollow
       point.y += (rotatedY - rotationY) * headFollow
-      const authoredPinWeight = binding.hairlinePinWeights?.[vertex] ?? 0
-      const shellActivation = frame.shellActivation
-      const pinWeight = authoredPinWeight * shellActivation
       let depthOffset =
         (source.depth - 1) *
-        (binding.frontHairParallaxScale?.[vertex] ?? 1) *
-        (1 - pinWeight)
+        (binding.frontHairParallaxScale?.[vertex] ?? 1)
       if (verticalNeckFollow) depthOffset *= 1 - neckHeadBlend
       else if (binding.frontCollar) depthOffset *= 1 - frontCollarHeadBlend
       const legacyX =
@@ -262,6 +246,10 @@ export function deformAnime25DSecondaryPoint(
               (point.y - frame.faceCenterY) *
               0.05)
       if (binding.shellMode && frame.shellProfile.enabled) {
+        // Yaw/pitch deform the head in its own coordinates. Roll is its parent
+        // transform; sampling an unrotated shell with rolled points changes shape.
+        point.x = localX
+        point.y = localY
         deformAnime25DShellPoint(
           point,
           restY,
@@ -269,8 +257,11 @@ export function deformAnime25DSecondaryPoint(
           frame.shellProfile,
           frame.shellRotation,
           source.depth,
-          pinWeight,
         )
+        const shellX = point.x - frame.neckPivotX
+        const shellY = point.y - frame.neckPivotY
+        point.x += (shellX * frame.headRotationCosine - shellY * frame.headRotationSine - shellX) * headFollow
+        point.y += (shellX * frame.headRotationSine + shellY * frame.headRotationCosine - shellY) * headFollow
         point.x = legacyX + (point.x - legacyX) * frame.shellBlend
         point.y = legacyY + (point.y - legacyY) * frame.shellBlend
       } else {

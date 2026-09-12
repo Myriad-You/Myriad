@@ -31,7 +31,7 @@ export function normalizeUmamiWebsiteId(raw: string | null | undefined): string 
 }
 
 export function normalizeUmamiScriptUrl(raw: string | null | undefined): string {
-  return (raw || '').trim().replace(/\/+$/, '')
+  return (raw || '').trim().replaceAll(/\/+$/g, '')
 }
 
 export function isValidUmamiWebsiteId(id: string): boolean {
@@ -98,8 +98,7 @@ function injectScript(scriptUrl: string, websiteId: string): void {
     `script[${SCRIPT_ATTR}]`,
   )
   if (
-    existing &&
-    existing.getAttribute('src') === scriptUrl &&
+    existing?.getAttribute('src') === scriptUrl &&
     existing.getAttribute('data-website-id') === websiteId
   ) {
     return
@@ -144,7 +143,7 @@ export function configureUmami(
       const u = new URL(url)
       if (!u.pathname || u.pathname === '/') {
         u.pathname = '/script.js'
-        url = u.toString().replace(/\/$/, '')
+        url = u.toString().replaceAll(/\/$/g, '')
       }
     } catch {
     }

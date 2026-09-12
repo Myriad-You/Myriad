@@ -5,9 +5,14 @@ import {
   useCallback,
   useContext,
   useMemo,
-  useState,
+  useSyncExternalStore,
 } from 'react'
-import { setCurrentPageContent } from './currentPage'
+import { authSubject } from '../utils/authSubject'
+import { currentPagePublisher, getCurrentPageContent, subscribeCurrentPageContent } from './currentPage'
+
+const subscribeSubject = (listener: () => void) => authSubject.subscribe(listener)
+const subjectSnapshot = () => authSubject.signal
+const serverPageSnapshot = () => null
 
 export type PageContentType =
   'brew_article' | 'tapp_data' | 'platform_data' | 'custom'
@@ -43,7 +48,7 @@ function extractPlainText(html: string): string {
 
   const text = temp.textContent || ''
 
-  return text.replace(/\s+/g, ' ').trim()
+  return text.replaceAll(/\s+/g, ' ').trim()
 }
 
 function truncateText(text: string, maxLength: number): string {
@@ -52,9 +57,13 @@ function truncateText(text: string, maxLength: number): string {
 }
 
 export function PageContentProvider({ children }: { children: ReactNode }) {
-  const [pageContent, setPageContentState] = useState<PageContent | null>(null)
+  const subject = useSyncExternalStore(subscribeSubject, subjectSnapshot, subjectSnapshot)
+  const pageContent = useSyncExternalStore(subscribeCurrentPageContent, getCurrentPageContent, serverPageSnapshot)
+  const publish = useMemo(() => currentPagePublisher(subject), [subject])
 
   const setPageContent = useCallback((content: PageContent | null) => {
+    if (subject.aborted) return
+    content = content ? { ...content } : null
     if (content) {
       if (content.content && !content.plainText) {
         content.plainText = extractPlainText(content.content)
@@ -63,19 +72,17 @@ export function PageContentProvider({ children }: { children: ReactNode }) {
         content.summary = truncateText(content.plainText, 200)
       }
     }
-    setPageContentState(content)
-    setCurrentPageContent(content)
-  }, [])
+    publish(content)
+  }, [publish, subject])
 
   const clearPageContent = useCallback(() => {
-    setPageContentState(null)
-    setCurrentPageContent(null)
-  }, [])
+    publish(null)
+  }, [publish])
 
   const hasContent = pageContent !== null
 
   const getContentForAgent = useCallback((): Record<string, unknown> | null => {
-    if (!pageContent) return null
+    if (subject.aborted || !pageContent) return null
 
     return {
       type: pageContent.type,
@@ -92,7 +99,7 @@ export function PageContentProvider({ children }: { children: ReactNode }) {
       publishedAt: pageContent.publishedAt,
       metadata: pageContent.metadata,
     }
-  }, [pageContent])
+  }, [pageContent, subject])
 
   const value = useMemo(
     () => ({

@@ -55,3 +55,9 @@ describe('parseMcpServerConfig', () => {
     assert.equal(parseMcpServerConfig(null), null)
   })
 })
+
+it('requires explicit activation when parsing MCP configuration', () => {
+  for (const enabled of [undefined, null, false, 'true', 1]) {
+    assert.equal(parseMcpServerConfig({ ...base, enabled })?.enabled, false)
+  }
+})

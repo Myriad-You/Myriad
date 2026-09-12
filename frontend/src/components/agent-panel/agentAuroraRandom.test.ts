@@ -25,9 +25,9 @@ function pct(value: string): number {
 
 function huesOf(paint: ReturnType<typeof paintAuroraPrism>): number[] {
   return paint.blobs.flatMap((blob) =>
-    [...blob.color.matchAll(/(\d+(?:\.\d+)?)deg/g)].map((match) =>
-      Number(match[1]),
-    ),
+    Iterator.from(blob.color.matchAll(/(\d+(?:\.\d+)?)deg/g))
+      .map((match) => Number(match[1]))
+      .toArray(),
   )
 }
 
@@ -38,7 +38,7 @@ describe('aurora prism paint', () => {
       assert.equal(blobs.length, AURORA_BLOB_COUNT)
       const centers = blobs
         .map((blob) => pct(blob.x) + pct(blob.w) / 2)
-        .sort((a, b) => a - b)
+        .toSorted((a, b) => a - b)
       assert.ok(centers[0] >= 4 && centers[0] <= 22)
       assert.ok(centers[4] >= 78 && centers[4] <= 96)
       assert.ok(centers[4] - centers[0] >= 58)
@@ -71,7 +71,7 @@ describe('aurora prism paint', () => {
   it('draws more than three hues across recipes and does not reuse one', () => {
     const a = paintAuroraPrism(mulberry32(3))
     const b = paintAuroraPrism(mulberry32(11))
-    const unique = new Set([...huesOf(a), ...huesOf(b)])
+    const unique = new Set(huesOf(a)).union(new Set(huesOf(b)))
     assert.ok(unique.size > 3)
     assert.notEqual(JSON.stringify(a.blobs), JSON.stringify(b.blobs))
   })

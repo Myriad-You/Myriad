@@ -20,7 +20,7 @@ interface ConsentSnapshot {
   current: DataExchangeConsentRequest | null
 }
 
-const queue: PendingConsent[] = []
+let queue: PendingConsent[] = []
 const listeners = new Set<() => void>()
 let snapshot: ConsentSnapshot = { current: null }
 
@@ -43,7 +43,8 @@ function settle(
   )
   if (index < 0) return false
 
-  const [entry] = queue.splice(index, 1)
+  const entry = queue[index]!
+  queue = queue.toSpliced(index, 1)
   clearTimeout(entry.timeout)
   if (entry.signal && entry.abortListener) {
     entry.signal.removeEventListener('abort', entry.abortListener)
@@ -66,25 +67,25 @@ export function requestDataExchangeConsent(
   const remaining = Number.isFinite(deadline) ? deadline - Date.now() : 0
   if (remaining <= 0) return Promise.resolve('expired')
 
-  return new Promise((resolve) => {
-    const entry: PendingConsent = {
-      prepared,
-      resolve,
-      timeout: setTimeout(
-        settle,
-        Math.min(remaining, 2_147_483_647),
-        prepared.requestId,
-        'expired',
-      ),
-      signal,
-    }
-    if (signal) {
-      entry.abortListener = () => settle(prepared.requestId, 'cancelled')
-      signal.addEventListener('abort', entry.abortListener, { once: true })
-    }
-    queue.push(entry)
-    publish()
-  })
+  const { promise, resolve } = Promise.withResolvers<DataExchangeConsentDecision>()
+  const entry: PendingConsent = {
+    prepared,
+    resolve,
+    timeout: setTimeout(
+      settle,
+      Math.min(remaining, 2_147_483_647),
+      prepared.requestId,
+      'expired',
+    ),
+    signal,
+  }
+  if (signal) {
+    entry.abortListener = () => settle(prepared.requestId, 'cancelled')
+    signal.addEventListener('abort', entry.abortListener, { once: true })
+  }
+  queue.push(entry)
+  publish()
+  return promise
 }
 
 export function decideDataExchangeConsent(

@@ -58,7 +58,7 @@ test('compiles only transient functions and monotonic time pegs', () => {
     .map((peg) => peg.atMs)
   assert.deepEqual(
     times,
-    [...times].sort((left, right) => left - right),
+    times.toSorted((left, right) => left - right),
   )
 })
 

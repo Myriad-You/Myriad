@@ -48,6 +48,10 @@ const PERMISSIONS_POLICY: &str = "geolocation=(self), microphone=(self), camera=
 struct AppState {
     state_path: PathBuf,
     backend_upstream: String,
+    federation_upstream: Option<String>,
+    federation_isolated: Arc<std::sync::atomic::AtomicBool>,
+    federation_requests: Arc<tokio::sync::Semaphore>,
+    federation_websockets: Arc<tokio::sync::Semaphore>,
     frontend_upstream: String,
     updater_upstream: String,
     /// When false, `/_updater/*` returns 404. The intended path is through the backend
@@ -104,6 +108,9 @@ async fn main() -> anyhow::Result<()> {
         .into();
     let backend_upstream =
         std::env::var("PROXY_BACKEND_UPSTREAM").unwrap_or_else(|_| "http://backend:1103".into());
+    let federation_upstream = std::env::var("PROXY_FEDERATION_UPSTREAM")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
     let frontend_upstream =
         std::env::var("PROXY_FRONTEND_UPSTREAM").unwrap_or_else(|_| "http://frontend:1102".into());
     let updater_upstream =
@@ -142,6 +149,11 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState {
         state_path,
         backend_upstream,
+        federation_upstream,
+        // Unknown backend state must not send federation work into web.
+        federation_isolated: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+        federation_requests: Arc::new(tokio::sync::Semaphore::new(32)),
+        federation_websockets: Arc::new(tokio::sync::Semaphore::new(64)),
         frontend_upstream,
         updater_upstream,
         allow_direct_updater,
@@ -149,6 +161,10 @@ async fn main() -> anyhow::Result<()> {
         client,
         maint_cache: Arc::new(RwLock::new(MaintCache::default())),
     };
+
+    if state.federation_upstream.is_some() {
+        tokio::spawn(refresh_federation_routing(state.clone()));
+    }
 
     let app = Router::new()
         .route("/healthz", axum::routing::get(|| async { "ok" }))
@@ -246,21 +262,73 @@ async fn handle(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     let query = req.uri().query().unwrap_or("");
-    let upstream = if is_backend_path_for(&path, ua, query) {
+    let upstream = if is_federation_path(&path) {
+        if state
+            .federation_isolated
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            state
+                .federation_upstream
+                .as_ref()
+                .unwrap_or(&state.backend_upstream)
+        } else {
+            &state.backend_upstream
+        }
+    } else if is_backend_path_for(&path, ua, query) {
         &state.backend_upstream
     } else {
         &state.frontend_upstream
     };
     if is_websocket_upgrade(req.headers()) {
+        let permit = if is_federation_path(&path) {
+            match state.federation_websockets.clone().try_acquire_owned() {
+                Ok(permit) => Some(permit),
+                Err(_) => return Ok(StatusCode::SERVICE_UNAVAILABLE.into_response()),
+            }
+        } else {
+            None
+        };
         return Ok(forward_websocket(
             &state,
             upstream,
             &path_with_query(req.uri()),
             req,
             client_addr,
+            permit,
         )
         .await
         .unwrap_or_else(bad_gateway));
+    }
+    if is_federation_path(&path) {
+        let Ok(permit) = state.federation_requests.clone().try_acquire_owned() else {
+            return Ok(StatusCode::SERVICE_UNAVAILABLE.into_response());
+        };
+        let response = tokio::time::timeout(
+            Duration::from_secs(60),
+            forward(
+                &state,
+                upstream,
+                &path_with_query(req.uri()),
+                req,
+                client_addr,
+            ),
+        )
+        .await;
+        return Ok(match response {
+            Ok(Ok(response)) => {
+                let (parts, body) = response.into_parts();
+                Response::from_parts(
+                    parts,
+                    Body::new(FederationBody {
+                        body,
+                        _permit: permit,
+                        deadline: Box::pin(tokio::time::sleep(Duration::from_secs(180))),
+                    }),
+                )
+            }
+            Ok(Err(error)) => bad_gateway(error),
+            Err(_) => StatusCode::GATEWAY_TIMEOUT.into_response(),
+        });
     }
     Ok(forward(
         &state,
@@ -271,6 +339,111 @@ async fn handle(
     )
     .await
     .unwrap_or_else(bad_gateway))
+}
+
+/// Keep the domain budget through streaming, including a stalled upstream body.
+struct FederationBody {
+    body: Body,
+    _permit: tokio::sync::OwnedSemaphorePermit,
+    deadline: std::pin::Pin<Box<tokio::time::Sleep>>,
+}
+
+impl hyper::body::Body for FederationBody {
+    type Data = bytes::Bytes;
+    type Error = axum::Error;
+
+    fn poll_frame(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
+        use std::future::Future;
+        if self.deadline.as_mut().poll(cx).is_ready() {
+            return std::task::Poll::Ready(Some(Err(axum::Error::new(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "federation response deadline",
+            )))));
+        }
+        std::pin::Pin::new(&mut self.body).poll_frame(cx)
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.body.is_end_stream()
+    }
+    fn size_hint(&self) -> hyper::body::SizeHint {
+        self.body.size_hint()
+    }
+}
+
+/// Routing follows an explicit backend capability, never a failed worker probe.
+/// This preserves old-image rollback without silently moving failed worker work
+/// into a current web process. Failed/malformed probes retain the last policy.
+async fn refresh_federation_routing(state: AppState) {
+    use http_body_util::{BodyExt, Limited};
+    let mut interval = tokio::time::interval(Duration::from_secs(2));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        interval.tick().await;
+        let probe = async {
+            let request = hyper::Request::builder()
+                .uri(format!("{}/health", state.backend_upstream))
+                .body(Body::empty())
+                .ok()?;
+            let response = state.client.request(request).await.ok()?;
+            if response.status() != StatusCode::OK {
+                return None;
+            }
+            let bytes = Limited::new(response.into_body(), 64 * 1024)
+                .collect()
+                .await
+                .ok()?
+                .to_bytes();
+            let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+            backend_federation_isolated(&value)
+        };
+        if let Ok(Some(isolated)) = tokio::time::timeout(Duration::from_secs(2), probe).await {
+            state
+                .federation_isolated
+                .store(isolated, std::sync::atomic::Ordering::Release);
+        }
+    }
+}
+
+fn backend_federation_isolated(value: &serde_json::Value) -> Option<bool> {
+    if value.get("service")?.as_str()? != "myriad-backend" || value.get("mode")?.as_str()? != "full"
+    {
+        return None;
+    }
+    match value.get("federation_http_isolated") {
+        Some(value) => value.as_bool(),
+        None => Some(false), // Proven legacy backend, before domain extraction.
+    }
+}
+
+/// Includes AP object dereference paths as well as inbox and authenticated APIs.
+/// Index/SEO paths such as /reports and /library remain on their existing owners.
+fn is_federation_path(path: &str) -> bool {
+    matches!(
+        path,
+        "/.well-known/webfinger"
+            | "/.well-known/nodeinfo"
+            | "/nodeinfo/2.1"
+            | "/inbox"
+            | "/media/federation"
+    ) || path.starts_with("/media/federation/")
+        || [
+            "/api/federation/",
+            "/api/admin/federation/",
+            "/api/tapp/federation/",
+            "/users/",
+            "/activities/",
+            "/notes/",
+            "/reports/",
+            "/tapps/",
+            "/library/",
+            "/brew/articles/",
+        ]
+        .iter()
+        .any(|prefix| path.len() > prefix.len() && path.starts_with(prefix))
 }
 
 /// RFC 6455 handshake detection: `Connection: upgrade` + `Upgrade: websocket`.
@@ -293,6 +466,7 @@ async fn forward_websocket(
     path_q: &str,
     req: Request,
     client_addr: SocketAddr,
+    permit: Option<tokio::sync::OwnedSemaphorePermit>,
 ) -> anyhow::Result<Response> {
     let (mut parts, _body) = req.into_parts();
     let client_on_upgrade = parts
@@ -314,7 +488,8 @@ async fn forward_websocket(
         builder = builder.header(k, v);
     }
     let upstream_req = builder.body(Body::empty())?;
-    let upstream_resp = state.client.request(upstream_req).await?;
+    let upstream_resp =
+        tokio::time::timeout(Duration::from_secs(15), state.client.request(upstream_req)).await??;
 
     if upstream_resp.status() != StatusCode::SWITCHING_PROTOCOLS {
         // Upstream refused the upgrade (auth failure, bad ticket, …) — relay its answer.
@@ -340,6 +515,7 @@ async fn forward_websocket(
     let response = out.body(Body::empty())?;
 
     tokio::spawn(async move {
+        let _permit = permit;
         let upstream_io = match hyper::upgrade::on(upstream_resp).await {
             Ok(io) => io,
             Err(err) => {
@@ -463,6 +639,7 @@ fn is_backend_path(path: &str, user_agent: &str) -> bool {
 fn is_backend_path_for(path: &str, user_agent: &str, query: &str) -> bool {
     if path.starts_with("/api/")
         || path == "/health"
+        || path == "/ready"
         // Public SEO sitemap + robots (backend api::seo)
         || path == "/sitemap.xml"
         || path == "/robots.txt"
@@ -1031,6 +1208,199 @@ mod tests {
     use super::*;
 
     #[test]
+    fn federation_routing_covers_objects_without_stealing_spa_indexes() {
+        for path in [
+            "/.well-known/webfinger",
+            "/inbox",
+            "/users/alice/inbox",
+            "/api/federation/rooms",
+            "/api/admin/federation/domain-move",
+            "/api/tapp/federation/feed",
+            "/activities/id",
+            "/notes/id",
+            "/reports/id",
+            "/tapps/id",
+            "/library/id",
+            "/brew/articles/id",
+            "/media/federation/file",
+        ] {
+            assert!(is_federation_path(path), "missing {path}");
+        }
+        for path in [
+            "/",
+            "/reports",
+            "/reports/",
+            "/library",
+            "/library/",
+            "/brew",
+            "/brew/item/id",
+            "/api/tapps",
+            "/api/agent/process",
+            "/api/profile/user-info",
+        ] {
+            assert!(!is_federation_path(path), "stole {path}");
+        }
+    }
+
+    #[test]
+    fn legacy_routing_requires_a_recognized_full_backend() {
+        let mut value = json!({"service":"myriad-backend", "mode":"full"});
+        assert_eq!(backend_federation_isolated(&value), Some(false));
+        value["federation_http_isolated"] = json!(true);
+        assert_eq!(backend_federation_isolated(&value), Some(true));
+        value["federation_http_isolated"] = json!("false");
+        assert_eq!(backend_federation_isolated(&value), None);
+        value["mode"] = json!("configuration");
+        value["federation_http_isolated"] = json!(false);
+        assert_eq!(backend_federation_isolated(&value), None);
+        assert_eq!(backend_federation_isolated(&json!({"status":"ok"})), None);
+    }
+
+    #[tokio::test]
+    async fn saturated_federation_streams_do_not_block_homepage() {
+        let web_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let web_address = web_listener.local_addr().unwrap();
+        let web = tokio::spawn(async move {
+            axum::serve(
+                web_listener,
+                Router::new().fallback(|| async { "homepage" }),
+            )
+            .await
+            .unwrap();
+        });
+        // A stalled response with headers is enough to reproduce streams that
+        // outlive a header-only concurrency permit.
+        let fed_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let fed_address = fed_listener.local_addr().unwrap();
+        let federation = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let (mut stream, _) = fed_listener.accept().await.unwrap();
+            let mut buf = [0; 4096];
+            assert!(stream.read(&mut buf).await.unwrap() > 0);
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n")
+                .await
+                .unwrap();
+            std::future::pending::<()>().await;
+        });
+        let budget = Arc::new(tokio::sync::Semaphore::new(1));
+        let state = Arc::new(AppState {
+            state_path: PathBuf::from("/__myriad_proxy_test_no_maintenance"),
+            backend_upstream: format!("http://{web_address}"),
+            frontend_upstream: format!("http://{web_address}"),
+            updater_upstream: format!("http://{web_address}"),
+            federation_upstream: Some(format!("http://{fed_address}")),
+            federation_isolated: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            federation_requests: budget.clone(),
+            federation_websockets: Arc::new(tokio::sync::Semaphore::new(1)),
+            allow_direct_updater: false,
+            trusted_upstreams: vec![],
+            client: Client::builder(TokioExecutor::new()).build_http(),
+            maint_cache: Arc::new(RwLock::new(MaintCache::default())),
+        });
+        let request = |path| Request::builder().uri(path).body(Body::empty()).unwrap();
+        let peer = "127.0.0.1:4444".parse::<SocketAddr>().unwrap();
+        let response = handle(State(state.clone()), ConnectInfo(peer), request("/inbox"))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(budget.available_permits(), 0);
+        let rejected = handle(State(state.clone()), ConnectInfo(peer), request("/inbox"))
+            .await
+            .unwrap();
+        assert_eq!(rejected.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let home = tokio::time::timeout(
+            Duration::from_secs(2),
+            handle(State(state), ConnectInfo(peer), request("/")),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(home.status(), StatusCode::OK);
+        assert_eq!(
+            axum::body::to_bytes(home.into_body(), 1024).await.unwrap(),
+            "homepage"
+        );
+        drop(response);
+        assert_eq!(budget.available_permits(), 1);
+        web.abort();
+        federation.abort();
+    }
+
+    #[tokio::test]
+    async fn federation_websocket_upgrade_keeps_its_budget_until_disconnect() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let upstream = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = upstream.local_addr().unwrap();
+        let worker = tokio::spawn(async move {
+            let (mut socket, _) = upstream.accept().await.unwrap();
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                request.push(socket.read_u8().await.unwrap());
+            }
+            assert!(String::from_utf8_lossy(&request)
+                .to_ascii_lowercase()
+                .contains("upgrade: websocket"));
+            socket.write_all(b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n").await.unwrap();
+            let mut frame = [0; 8];
+            socket.read_exact(&mut frame).await.unwrap();
+            socket.write_all(&frame).await.unwrap();
+            let mut byte = [0];
+            assert_eq!(socket.read(&mut byte).await.unwrap(), 0);
+        });
+        let budget = Arc::new(tokio::sync::Semaphore::new(1));
+        let state = Arc::new(AppState {
+            state_path: PathBuf::from("/__myriad_proxy_test_no_maintenance"),
+            backend_upstream: "http://127.0.0.1:1".into(),
+            frontend_upstream: "http://127.0.0.1:1".into(),
+            updater_upstream: "http://127.0.0.1:1".into(),
+            federation_upstream: Some(format!("http://{address}")),
+            federation_isolated: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            federation_requests: Arc::new(tokio::sync::Semaphore::new(1)),
+            federation_websockets: budget.clone(),
+            allow_direct_updater: false,
+            trusted_upstreams: vec![],
+            client: Client::builder(TokioExecutor::new()).build_http(),
+            maint_cache: Arc::new(RwLock::new(MaintCache::default())),
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_address = listener.local_addr().unwrap();
+        let proxy = tokio::spawn(async move {
+            let app = Router::new().fallback(any(handle)).with_state(state);
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await
+            .unwrap();
+        });
+        let test = async {
+            let mut client = tokio::net::TcpStream::connect(proxy_address).await.unwrap();
+            client.write_all(b"GET /api/federation/channels/example/ws HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n").await.unwrap();
+            let mut headers = Vec::new();
+            while !headers.ends_with(b"\r\n\r\n") {
+                headers.push(client.read_u8().await.unwrap());
+            }
+            assert!(headers.starts_with(b"HTTP/1.1 101"));
+            assert_eq!(budget.available_permits(), 0);
+            let frame = [0x81, 0x82, 1, 2, 3, 4, b'h' ^ 1, b'i' ^ 2];
+            client.write_all(&frame).await.unwrap();
+            let mut echoed = [0; 8];
+            client.read_exact(&mut echoed).await.unwrap();
+            assert_eq!(echoed, frame);
+            drop(client);
+            worker.await.unwrap();
+            while budget.available_permits() == 0 {
+                tokio::task::yield_now().await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(5), test)
+            .await
+            .unwrap();
+        proxy.abort();
+    }
+
+    #[test]
     fn path_with_query_preserves_query() {
         let uri: Uri = "/api/setup/status?mode=config".parse().unwrap();
 
@@ -1066,6 +1436,7 @@ mod tests {
             browser
         ));
         assert!(is_backend_path("/health", browser));
+        assert!(is_backend_path("/ready", browser));
         // Public SEO sitemap + robots
         assert!(is_backend_path("/sitemap.xml", browser));
         assert!(is_backend_path("/robots.txt", browser));

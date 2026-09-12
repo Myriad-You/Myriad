@@ -110,7 +110,7 @@ export function semanticRigCapabilities(
   for (const [internal, semantic] of CAPABILITY_MAP) {
     if (hasAnime25DCapability(layers, internal)) capabilities.add(semantic)
   }
-  return [...capabilities]
+  return Iterator.from(capabilities).toArray()
 }
 
 export function captureRigStateSummary(
@@ -258,7 +258,7 @@ function activeBehaviorSummaries(
       (behavior) =>
         behavior.phase !== 'complete' && behavior.phase !== 'rejected',
     )
-    .sort(
+    .toSorted(
       (left, right) =>
         LIFECYCLE_RANK[left.phase] - LIFECYCLE_RANK[right.phase] ||
         left.startedAtMs - right.startedAtMs,
@@ -268,13 +268,16 @@ function activeBehaviorSummaries(
     const key = `${behavior.source}:${behavior.function}`
     if (!kept.has(key)) kept.set(key, behavior)
   }
-  return [...kept.values()].slice(0, MAX_ACTIVE_BEHAVIORS).map((behavior) => ({
-    function: behavior.function,
-    lifecycle: behavior.phase,
-    source: behavior.source,
-    resources: [...behavior.resources],
-    remainingMs: clampMs(behavior.remainingMs),
-  }))
+  return Iterator.from(kept.values())
+    .take(MAX_ACTIVE_BEHAVIORS)
+    .map((behavior) => ({
+      function: behavior.function,
+      lifecycle: behavior.phase,
+      source: behavior.source,
+      resources: Iterator.from(behavior.resources).toArray(),
+      remainingMs: clampMs(behavior.remainingMs),
+    }))
+    .toArray()
 }
 
 function sanitizeActiveBehavior(

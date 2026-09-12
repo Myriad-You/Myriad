@@ -50,7 +50,7 @@ describe('PWA assets', () => {
       const iconFile = resolve(
         here,
         '../../public',
-        icon!.src.replace(/^\//, ''),
+        icon!.src.replaceAll(/^\//g, ''),
       )
       assert.ok(
         readFileSync(iconFile).length > 100,

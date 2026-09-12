@@ -377,6 +377,24 @@ pub struct DynamicConfig {
     /// 空则运行时回落到 `https://api.agora.io/cn`
     pub agora_api_base: String,
 
+    /// QQ 机器人办事通道。默认关；凭证只写，不复用 Discord OAuth。
+    pub qq_bot_enabled: bool,
+    pub qq_bot_app_id: String,
+    pub qq_bot_app_secret: Option<String>,
+
+    /// Telegram 机器人办事通道。默认关；bot token 只写，不是 MTProto api_hash。
+    pub telegram_bot_enabled: bool,
+    pub telegram_bot_token: Option<String>,
+
+    /// Discord 机器人办事通道。默认关；bot token 只写，不复用数据平台 OAuth。
+    pub discord_bot_enabled: bool,
+    pub discord_bot_token: Option<String>,
+
+    /// 飞书机器人办事通道。默认关；app_secret 只写。企业自建应用 + 长连接。
+    pub feishu_bot_enabled: bool,
+    pub feishu_bot_app_id: String,
+    pub feishu_bot_app_secret: Option<String>,
+
     // UI 配置
     pub ui_wallpaper_url: Option<String>,
     pub ui_wallpaper_blur: i32,
@@ -745,6 +763,16 @@ impl Default for DynamicConfig {
             agora_customer_id: String::new(),
             agora_customer_secret: None,
             agora_api_base: String::new(),
+            qq_bot_enabled: false,
+            qq_bot_app_id: String::new(),
+            qq_bot_app_secret: None,
+            telegram_bot_enabled: false,
+            telegram_bot_token: None,
+            discord_bot_enabled: false,
+            discord_bot_token: None,
+            feishu_bot_enabled: false,
+            feishu_bot_app_id: String::new(),
+            feishu_bot_app_secret: None,
 
             ui_wallpaper_url: None,
             ui_wallpaper_blur: 3,

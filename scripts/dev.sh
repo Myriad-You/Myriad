@@ -1467,8 +1467,8 @@ start_backend() {
 
     ensure_backend_env || return 1
 
-    local -a run_cmd=(cargo run)
-    [[ "$CARGO_RELEASE" -eq 1 ]] && run_cmd=(cargo run --release)
+    local -a run_cmd=(env MYRIAD_PROCESS_ROLE=all cargo run)
+    [[ "$CARGO_RELEASE" -eq 1 ]] && run_cmd=(env MYRIAD_PROCESS_ROLE=all cargo run --release)
     local updater_url="http://127.0.0.1:1104"
     local gw_secret=""
     local inject_updater=0
@@ -1798,8 +1798,8 @@ start_foreground_stack() {
     trap fg_shutdown INT TERM
 
     if [[ "$RUN_BACKEND" -eq 1 ]]; then
-        local -a cargo_cmd=(cargo run)
-        [[ "$CARGO_RELEASE" -eq 1 ]] && cargo_cmd=(cargo run --release)
+        local -a cargo_cmd=(env MYRIAD_PROCESS_ROLE=all cargo run)
+        [[ "$CARGO_RELEASE" -eq 1 ]] && cargo_cmd=(env MYRIAD_PROCESS_ROLE=all cargo run --release)
         if dev_updater_enabled && [[ "$USE_NATIVE" -eq 0 ]]; then
             ensure_dev_updater_files
             export MYRIAD_UPDATER_URL="http://127.0.0.1:1104"

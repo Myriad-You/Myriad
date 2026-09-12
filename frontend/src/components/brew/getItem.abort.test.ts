@@ -26,12 +26,12 @@ describe('brew getItem abort', () => {
     for (const path of listTs(brewDir)) {
       const src = readFileSync(path, 'utf8')
       const stripped = src
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/\/\/.*$/gm, '')
-        .replace(/globalThis\.localStorage\?\.getItem\(/g, 'storageGet(')
-        .replace(/localStorage\.getItem\(/g, 'storageGet(')
-        .replace(/sessionStorage\.getItem\(/g, 'storageGet(')
-        .replace(/\bstorage\.getItem\(/g, 'storageGet(')
+        .replaceAll(/\/\*[\s\S]*?\*\//g, '')
+        .replaceAll(/\/\/.*$/gm, '')
+        .replaceAll(/globalThis\.localStorage\?\.getItem\(/g, 'storageGet(')
+        .replaceAll(/localStorage\.getItem\(/g, 'storageGet(')
+        .replaceAll(/sessionStorage\.getItem\(/g, 'storageGet(')
+        .replaceAll(/\bstorage\.getItem\(/g, 'storageGet(')
       for (const match of stripped.matchAll(/(?:brewApi\.)?getItem\([^,)\n]+\)/g)) {
         hits.push(`${path.slice(brewDir.length + 1)}: ${match[0]}`)
       }

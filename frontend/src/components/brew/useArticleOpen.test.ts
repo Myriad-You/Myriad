@@ -62,12 +62,11 @@ it('Brew hooks reject stale opens, retry failed pages, and settle partial unstar
     let finishOld!: (item: BrewItem) => void
     let old!: Promise<BrewItem | undefined>
     await act(async () => {
-      old = session.openArticle(
-        () =>
-          new Promise((resolve) => {
-            finishOld = resolve
-          }),
-      )
+      old = session.openArticle(() => {
+        const deferred = Promise.withResolvers<BrewItem>()
+        finishOld = deferred.resolve
+        return deferred.promise
+      })
       await session.openArticle({ id: 2, title: 'B' } as BrewItem)
     })
     await act(async () => {
@@ -76,12 +75,11 @@ it('Brew hooks reject stale opens, retry failed pages, and settle partial unstar
     })
     assert.equal(dom.window.document.querySelector('p').textContent, 'B')
     await act(async () => {
-      old = session.openArticle(
-        () =>
-          new Promise((resolve) => {
-            finishOld = resolve
-          }),
-      )
+      old = session.openArticle(() => {
+        const deferred = Promise.withResolvers<BrewItem>()
+        finishOld = deferred.resolve
+        return deferred.promise
+      })
       session.closeArticle()
     })
     await act(async () => {
@@ -154,7 +152,7 @@ it('Brew hooks reject stale opens, retry failed pages, and settle partial unstar
     await act(async () => { await Promise.all([starred.batchUnstar(), starred.batchUnstar()]) })
     assert.deepEqual(unstarred, [1, 2])
     assert.deepEqual(remaining.map(item => item.id), [2])
-    assert.deepEqual([...starred.selectedIds], [2])
+    assert.deepEqual(Iterator.from(starred.selectedIds).toArray(), [2])
     assert.equal(count, 1)
     assert.equal(starred.editMode, true)
     assert.equal(starred.processing, false)

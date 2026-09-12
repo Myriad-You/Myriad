@@ -1,4 +1,3 @@
-
 import type { ReactNode, UIEvent } from 'react'
 import React, {
   useCallback,
@@ -68,7 +67,7 @@ export function clampRankInitialLoad(
 
 function rowsWindowKey(rows: RankRow[]): string {
   if (rows.length === 0) return '0'
-  return `${rows.length}:${rows[0]?.key ?? ''}:${rows[rows.length - 1]?.key ?? ''}`
+  return `${rows.length}:${rows[0]?.key ?? ''}:${rows.at(-1)?.key ?? ''}`
 }
 
 export const RankList: React.FC<RankListProps> = ({

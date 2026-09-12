@@ -25,5 +25,5 @@ export function performanceOccupiedChannels(
       channels.add(channel)
     }
   }
-  return [...channels]
+  return Iterator.from(channels).toArray()
 }

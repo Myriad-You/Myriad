@@ -51,6 +51,81 @@ function play(
   return samples
 }
 
+test('full-body listening spans several beats with smooth shoulder and arm crossings', () => {
+  for (const bpm of [60, 100, 120, 180, 200]) {
+    const samples = play({
+      fps: 120,
+      duration: 40,
+      signal: (t) => musicSignalAt(t, { bpm }),
+    }).slice(600)
+    for (const [key, minimumRange] of [
+      ['body', 1],
+      ['armPos', 0.55],
+    ] as const) {
+      const values = samples.map((s) => s.raw[key])
+      assert.ok(
+        Math.max(...values) - Math.min(...values) > minimumRange,
+        `${bpm} ${key} excursion`,
+      )
+    }
+    for (const key of ['body', 'armY', 'armPos'] as const) {
+      let acceleration = 0
+      for (let i = 2; i < samples.length; i++) {
+        assert.ok(Math.abs(samples[i].raw[key]) < 1.2)
+        acceleration = Math.max(
+          acceleration,
+          Math.abs(
+            samples[i].raw[key] -
+              2 * samples[i - 1].raw[key] +
+              samples[i - 2].raw[key],
+          ) *
+            120 ** 2,
+        )
+      }
+      assert.ok(acceleration < 22, `${bpm} ${key} acceleration ${acceleration}`)
+    }
+  }
+})
+
+test('changing motif mid-transition carries its velocity and acceleration', () => {
+  const controller = new SingingGrooveController()
+  const state = controller as unknown as {
+    chooseMotif: (now: number, bpm: number) => void
+    motifMotion: Record<
+      string,
+      {
+        sample: (now: number) => number
+        value: number
+        velocity: number
+        acceleration: number
+      }
+    >
+  }
+  state.chooseMotif(0, 100)
+  for (const time of [0.3, 0.5, 0.8]) {
+    const before = Object.fromEntries(
+      Object.entries(state.motifMotion).map(([key, motion]) => {
+        motion.sample(time)
+        return [key, [motion.value, motion.velocity, motion.acceleration]]
+      }),
+    )
+    state.chooseMotif(time, 180)
+    for (const [key, motion] of Object.entries(state.motifMotion)) {
+      motion.sample(time)
+      for (const [i, value] of [
+        motion.value,
+        motion.velocity,
+        motion.acceleration,
+      ].entries()) {
+        assert.ok(
+          Math.abs(value - before[key][i]) < 1e-9,
+          `${key} derivative ${i}`,
+        )
+}
+    }
+  }
+})
+
 test('drum envelopes and repeated tempo corrections do not jerk the filtered head', () => {
   for (const scenario of ['pulses', 'tempo'] as const) {
     const samples = play({
@@ -101,8 +176,8 @@ test('fast music plans a full preparation ahead of the selected metrical beat', 
       nodReleaseAt: number
       amplitude: number
     }
-    let previous = -Infinity,
-      count = 0
+    let previous = -Infinity
+    let count = 0
     for (let f = 0; f < 30 * 60; f++) {
       const t = f / 60
       controller.sample(
