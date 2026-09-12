@@ -18,10 +18,9 @@ import React, {
 } from 'react'
 import { API_URL } from '../config'
 import { useI18n } from '../contexts/I18nContext'
-import { assertConfigWriteSuccess } from '../lib/api'
+import { updateConfig } from '../lib/api'
 import { ApiError } from '../services/api'
 import { parseAuthMeResponse } from '../utils/authMe'
-import { getCSRFHeaderName, getCSRFToken } from '../utils/csrf'
 import { consumeSetupSecretFromLocation } from '../utils/setupSecretFromUrl'
 import { userFacingError } from '../utils/userFacingError'
 import { InputItem, SegmentedControl, SwitchItem } from './settings'
@@ -576,26 +575,7 @@ const SetupWizard: React.FC = () => {
           : field,
       )
 
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      }
-      const csrfToken = await getCSRFToken()
-      if (csrfToken) {
-        headers[getCSRFHeaderName()] = csrfToken
-      }
-
-      const saved = await fetch(`${API_URL}/api/config`, {
-        method: 'POST',
-        headers,
-        credentials: 'include',
-        body: JSON.stringify(config),
-      })
-      // 写入可能 200 + success:false，不能只看状态码。
-      assertConfigWriteSuccess(
-        saved.status,
-        await saved.json().catch(() => null),
-        t.setup.siteInfoFailed,
-      )
+      await updateConfig(config)
 
       await finishSetup()
     } catch (err: unknown) {

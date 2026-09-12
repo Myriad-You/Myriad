@@ -74,32 +74,8 @@ export interface AwaitTripoTaskOptions {
   onProgress?: (task: TripoTask) => void
 }
 
-function assertTripoHttpSuccess(
-  status: number,
-  data: unknown,
-  fallback: string,
-): void {
-  if (status < 400) return
-  const body =
-    data && typeof data === 'object'
-      ? (data as { error?: unknown; message?: unknown })
-      : {}
-  const message =
-    typeof body.error === 'string'
-      ? body.error
-      : typeof body.message === 'string'
-        ? body.message
-        : fallback
-  throw new Error(userFacingError(message, currentCopy().errors.model3dFailed))
-}
-
 export async function getTripoStatus(): Promise<TripoStatus> {
   const response = await api.get<TripoStatus>('/api/model3d/status')
-  assertTripoHttpSuccess(
-    response.status,
-    response.data,
-    currentCopy().errors.model3dFailed,
-  )
   return response.data
 }
 
@@ -141,11 +117,6 @@ export async function createTripoTask(
     '/api/model3d/tasks',
     { operation, payload },
   )
-  assertTripoHttpSuccess(
-    response.status,
-    response.data,
-    currentCopy().errors.model3dFailed,
-  )
   if (!response.data.task_id)
     throw new Error(currentCopy().errors.model3dFailed)
   return response.data.task_id
@@ -158,11 +129,6 @@ export async function getTripoTask(
   const response = await api.get<TripoTask>(
     `/api/model3d/tasks/${encodeURIComponent(taskId)}`,
     { timeout: 15 * 60_000, signal },
-  )
-  assertTripoHttpSuccess(
-    response.status,
-    response.data,
-    currentCopy().errors.model3dFailed,
   )
   return response.data
 }
