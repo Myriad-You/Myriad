@@ -131,10 +131,11 @@ export class RequestCache {
     key: string,
     fetcher: () => Promise<T>,
     ttl?: number,
+    forceRefresh = false,
   ): Promise<T> {
-    const cached = this.get<T>(key)
-    if (cached !== null) {
-      return cached
+    const cached = forceRefresh ? null : this.get<T>(key)
+    if (!forceRefresh && this.cache.has(key)) {
+      return cached as T
     }
 
     const pending = this.pendingRequests.get(key)

@@ -1,68 +1,11 @@
 import { API_URL } from '../config'
 import { ApiError } from '../services/api'
 import { normalizeJsonMediaUrls } from './proxyImageUrl'
+import { RequestCache } from './requestCache'
 import { httpStatusMessage } from './userFacingError'
 
-const pendingRequests = new Map<string, Promise<any>>()
-
-const resultCache = new Map<string, { data: any; timestamp: number }>()
-
-/** Generation++ on clear; in-flight responses must not refill the cache. */
-const cacheGeneration = new Map<string, number>()
-
-const MAX_CACHE_SIZE = 50
-/** Generation table has its own cap (survives clear). */
-const MAX_GENERATION_KEYS = 200
-
+const requestCache = new RequestCache(50)
 const DEFAULT_CACHE_TTL = 30 * 1000
-
-function generationOf(key: string): number {
-  return cacheGeneration.get(key) ?? 0
-}
-
-function bumpGeneration(key: string): void {
-  const next = generationOf(key) + 1
-  cacheGeneration.delete(key)
-  cacheGeneration.set(key, next)
-  pruneGenerationStore()
-}
-
-function pruneGenerationStore(): void {
-  if (cacheGeneration.size <= MAX_GENERATION_KEYS) return
-  for (const key of cacheGeneration.keys()) {
-    if (cacheGeneration.size <= MAX_GENERATION_KEYS) break
-    if (pendingRequests.has(key)) continue
-    cacheGeneration.delete(key)
-  }
-}
-
-function ensureCacheSize() {
-  if (resultCache.size <= MAX_CACHE_SIZE) return
-
-  // Map insertion order = LRU.
-  const keysToDelete: string[] = []
-  const deleteCount = resultCache.size - MAX_CACHE_SIZE
-
-  let count = 0
-  for (const key of resultCache.keys()) {
-    if (count >= deleteCount) break
-    keysToDelete.push(key)
-    count++
-  }
-
-  keysToDelete.forEach((key) => resultCache.delete(key))
-}
-
-function getCacheWithLRU(
-  key: string,
-): { data: any; timestamp: number } | undefined {
-  const cached = resultCache.get(key)
-  if (cached) {
-    resultCache.delete(key)
-    resultCache.set(key, cached)
-  }
-  return cached
-}
 
 export interface DedupOptions {
   /** TTL ms; default 30s */
@@ -82,67 +25,16 @@ export async function dedupedFetch<T>(
     cacheKey = url,
   } = options
 
-  if (!forceRefresh) {
-    const cached = getCacheWithLRU(cacheKey)
-    if (cached && Date.now() - cached.timestamp < cacheTTL) {
-      return cached.data as T
-    }
-  }
-
-  const pending = pendingRequests.get(cacheKey)
-  if (pending) {
-    return pending as Promise<T>
-  }
-
-  // Stale responses after clear must not land.
-  const genAtStart = generationOf(cacheKey)
-  const requestPromise = fetchFn()
-    .then((data) => {
-      if (generationOf(cacheKey) === genAtStart) {
-        ensureCacheSize()
-        resultCache.set(cacheKey, { data, timestamp: Date.now() })
-      }
-      return data
-    })
-    .finally(() => {
-      // Drop only this request's pending slot.
-      if (pendingRequests.get(cacheKey) === requestPromise) {
-        pendingRequests.delete(cacheKey)
-      }
-    })
-
-  pendingRequests.set(cacheKey, requestPromise)
-
-  return requestPromise
+  return requestCache.fetch(cacheKey, fetchFn, cacheTTL, forceRefresh)
 }
 
 export function clearDedupCache(url?: string): void {
-  if (url) {
-    bumpGeneration(url)
-    resultCache.delete(url)
-    pendingRequests.delete(url)
-  } else {
-    for (const key of resultCache.keys()) bumpGeneration(key)
-    for (const key of pendingRequests.keys()) bumpGeneration(key)
-    resultCache.clear()
-    pendingRequests.clear()
-  }
+  if (url) requestCache.delete(url)
+  else requestCache.clear()
 }
 
-/** Invalidate variants and in-flight requests for this endpoint. */
 export function clearDedupCacheByPrefix(prefix: string): void {
-  const keys = new Set<string>()
-  for (const key of resultCache.keys()) {
-    if (key.startsWith(prefix)) keys.add(key)
-  }
-  for (const key of pendingRequests.keys()) {
-    if (key.startsWith(prefix)) keys.add(key)
-  }
-  for (const key of keys) {
-    bumpGeneration(key)
-    resultCache.delete(key)
-    pendingRequests.delete(key)
-  }
+  requestCache.deleteByPrefix(prefix)
 }
 
 export function clearLibraryDataCache(): void {
