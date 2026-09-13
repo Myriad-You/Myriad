@@ -2179,7 +2179,6 @@ button.field-input,
 button.field-select {
   appearance: none;
   appearance: none;
-  font: inherit;
   color: var(--cfg-text-1);
   background: var(--cfg-input-bg);
   text-align: left;
