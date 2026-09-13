@@ -487,8 +487,8 @@ async fn resolve_gemini_speech() -> Result<ResolvedGeminiSpeech, GeminiMediaErro
     };
     let api_key = source
         .as_ref()
-        .and_then(|item| crate::config::DynamicConfig::nonempty_opt(item.api_key.as_ref()))
-        .or_else(|| config.shared_gemini_api_key())
+        .map(|item| config.resolve_source_credential(item).api_key)
+        .unwrap_or_else(|| config.shared_gemini_api_key())
         .ok_or_else(|| {
             GeminiMediaError::NotConfigured("Gemini API key is not configured".to_string())
         })?;
@@ -657,12 +657,14 @@ async fn fallback_openai_stt() -> Result<FallbackOpenAiStt, OpenAiSpeechError> {
                 item.kind.trim().to_ascii_lowercase().as_str(),
                 "openai" | "openrouter" | "openai_compatible"
             )
-            && crate::config::DynamicConfig::nonempty_opt(item.api_key.as_ref()).is_some()
+            && config.resolve_source_credential(item).api_key.is_some()
     });
     let (api_key, base_url, stt_model, referer) = if let Some(source) = source {
         let kind = SpeechProviderKind::parse(&source.kind);
-        let key =
-            crate::config::DynamicConfig::nonempty_opt(source.api_key.as_ref()).unwrap_or_default();
+        let key = config
+            .resolve_source_credential(source)
+            .api_key
+            .unwrap_or_default();
         let base = source.base_url.trim().to_string();
         if kind == SpeechProviderKind::OpenRouter {
             (
@@ -712,12 +714,13 @@ async fn fallback_openai_stt() -> Result<FallbackOpenAiStt, OpenAiSpeechError> {
 
 async fn fallback_gemini_stt() -> Result<ResolvedGeminiSpeech, GeminiMediaError> {
     let config = GLOBAL_DYNAMIC_CONFIG.read().await;
-    let api_key = config
+    let source = config
         .ai_vendor_sources
         .iter()
-        .find(|item| item.enabled && item.kind.trim().eq_ignore_ascii_case("gemini"))
-        .and_then(|item| crate::config::DynamicConfig::nonempty_opt(item.api_key.as_ref()))
-        .or_else(|| config.shared_gemini_api_key())
+        .find(|item| item.enabled && item.kind.trim().eq_ignore_ascii_case("gemini"));
+    let api_key = source
+        .map(|item| config.resolve_source_credential(item).api_key)
+        .unwrap_or_else(|| config.shared_gemini_api_key())
         .ok_or_else(|| {
             GeminiMediaError::NotConfigured("Gemini API key is not configured".to_string())
         })?;
@@ -772,17 +775,17 @@ async fn resolve_openai_speech() -> Result<ResolvedOpenAiSpeech, OpenAiSpeechErr
     let site_url = config.base_url.clone();
     let source_key = source
         .as_ref()
-        .and_then(|item| crate::config::DynamicConfig::nonempty_opt(item.api_key.as_ref()));
+        .map(|item| config.resolve_source_credential(item).api_key);
     let source_base = source
         .as_ref()
         .map(|item| item.base_url.trim().to_string())
         .filter(|item| !item.is_empty());
     let openrouter_key = source_key
         .clone()
-        .or_else(|| config.shared_openrouter_api_key())
+        .unwrap_or_else(|| config.shared_openrouter_api_key())
         .unwrap_or_default();
     let openai_key = source_key
-        .or_else(|| config.shared_openai_api_key())
+        .unwrap_or_else(|| config.shared_openai_api_key())
         .unwrap_or_default();
     let openai_base = source_base.unwrap_or_else(|| config.shared_openai_base_url());
     drop(config);

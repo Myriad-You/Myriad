@@ -10,6 +10,8 @@ export type AiVendorKind =
   | 'custom'
 
 export type AiApiFormat = 'openai' | 'openai_responses' | 'anthropic' | 'gemini'
+export type AiCredentialMode = 'own' | 'shared' | 'none'
+export type SharedAiKeyRef = 'openai' | 'openrouter' | 'gemini' | 'volcengine'
 
 export const AI_API_FORMATS: readonly AiApiFormat[] = [
   'openai',
@@ -31,6 +33,8 @@ export interface AiVendorSource {
   enabled: boolean
   preset?: string
   api_format?: AiApiFormat | string
+  credential_mode?: AiCredentialMode | string
+  shared_key_ref?: SharedAiKeyRef | string | null
   api_key?: string | null
   base_url?: string
   secret_id?: string | null
@@ -512,6 +516,8 @@ export function sourceFromPreset(
     enabled: true,
     preset: preset.id,
     api_format: preset.api_format ?? defaultApiFormat(preset),
+    credential_mode: sharedKeyRefForPreset(preset) ? 'shared' : 'own',
+    shared_key_ref: sharedKeyRefForPreset(preset),
     api_key: '',
     base_url: preset.base_url,
     secret_id: '',
@@ -532,6 +538,8 @@ export function sourceFromCustom(
     enabled: true,
     preset: '',
     api_format: 'openai',
+    credential_mode: 'none',
+    shared_key_ref: null,
     api_key: '',
     base_url: '',
     secret_id: '',
@@ -539,6 +547,79 @@ export function sourceFromCustom(
     region: '',
     app_id: '',
   }
+}
+
+function sharedKeyRefForPreset(
+  preset: Pick<AiVendorPreset, 'id'>,
+): SharedAiKeyRef | null {
+  switch (preset.id) {
+    case 'openai':
+    case 'openrouter':
+    case 'gemini':
+    case 'volcengine':
+      return preset.id
+    default:
+      return null
+  }
+}
+
+function canonicalLegacySharedKeyRef(
+  source: Pick<AiVendorSource, 'kind' | 'base_url'>,
+): SharedAiKeyRef | null {
+  const baseUrl = (source.base_url || '').trim().replace(/\/+$/, '')
+  switch (source.kind.trim().toLowerCase()) {
+    case 'openai':
+      return !baseUrl || baseUrl === 'https://api.openai.com/v1'
+        ? 'openai'
+        : null
+    case 'openai_compatible':
+      return baseUrl === 'https://api.openai.com/v1' ? 'openai' : null
+    case 'openrouter':
+      return !baseUrl || baseUrl === 'https://openrouter.ai/api/v1'
+        ? 'openrouter'
+        : null
+    case 'gemini':
+      return !baseUrl || baseUrl === 'https://generativelanguage.googleapis.com'
+        ? 'gemini'
+        : null
+    case 'volcengine':
+      return !baseUrl || baseUrl === 'https://ark.cn-beijing.volces.com/api/v3'
+        ? 'volcengine'
+        : null
+    default:
+      return null
+  }
+}
+
+export function credentialModeForSource(
+  source: Pick<
+    AiVendorSource,
+    'kind' | 'base_url' | 'api_key' | 'credential_mode'
+  >,
+): string {
+  const explicit = source.credential_mode?.trim()
+  if (explicit) return explicit
+  if (source.api_key?.trim()) return 'own'
+  return canonicalLegacySharedKeyRef(source) ? 'shared' : 'none'
+}
+
+export function sharedKeyRefForSource(
+  source: Pick<
+    AiVendorSource,
+    'kind' | 'base_url' | 'shared_key_ref' | 'credential_mode'
+  >,
+): SharedAiKeyRef | null {
+  if (
+    source.credential_mode === 'shared' &&
+    (source.shared_key_ref === 'openai' ||
+      source.shared_key_ref === 'openrouter' ||
+      source.shared_key_ref === 'gemini' ||
+      source.shared_key_ref === 'volcengine')
+  ) {
+    return source.shared_key_ref
+  }
+  if (source.credential_mode) return null
+  return canonicalLegacySharedKeyRef(source)
 }
 
 export function apiFormatForSource(

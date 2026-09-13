@@ -68,7 +68,7 @@ Schema 权威在 `backend/migrations/`（SeaORM），不是独立 `database/` SQ
 ## Data & AI
 
 - **PostgreSQL**：Compose 默认 `postgres:18-alpine`；release 兼容地板见 `release.json` 的 `min_pg_version`
-- **AI**：可配置多 provider，用 `api_format` 将品牌预设与线上协议分开。文字调用支持 OpenAI Responses、OpenAI-compatible Chat Completions、Anthropic Messages、Gemini generateContent；Base URL 可编辑，API Key 可选且只在后端出站时使用。未列出的 provider 可作为自定义来源添加，用于报告、Playground、Agent —— 非单一厂商绑定
+- **AI**：可配置多 provider，用 `api_format` 将品牌预设与线上协议分开。每个 source 通过 `credential_mode` 使用自己的 key、显式引用 `shared_key_ref` 对应的共享 key，或声明免鉴权；密钥只在后端出站时解析。文字调用支持 OpenAI Responses、OpenAI-compatible Chat Completions、Anthropic Messages、Gemini generateContent；Base URL 可编辑。未列出的 provider 可作为自定义来源添加，用于报告、Playground、Agent —— 非单一厂商绑定
 
 ## Related docs
 

@@ -1,4 +1,8 @@
-import type { AiVendorCapability, AiVendorSource } from './aiVendorPresets'
+import type {
+  AiVendorCapability,
+  AiVendorSource,
+  SharedAiKeyRef,
+} from './aiVendorPresets'
 import {
   FaPlus,
   FaTrash,
@@ -28,11 +32,13 @@ import {
 import {
   AI_VENDOR_PRESETS,
   apiFormatForSource,
+  credentialModeForSource,
   findVendorPreset,
   isAgoraSource,
   isSupportedAiApiFormat,
   sourceFromCustom,
   sourceFromPreset,
+  sharedKeyRefForSource,
   vendorSupports,
 } from './aiVendorPresets'
 import { useAddedCardOpen, useAddedSlug } from './useAddedCard'
@@ -148,6 +154,8 @@ interface AiVendorSourcesProps {
   sources: AiVendorSource[]
   onChange: (sources: AiVendorSource[]) => void
   usages?: VendorUsageMap
+  sharedKeyValues?: Partial<Record<SharedAiKeyRef, string>>
+  onSharedKeyChange?: (keyRef: SharedAiKeyRef, value: string) => void
 }
 
 function usageLabel(
@@ -330,6 +338,8 @@ export const AiVendorSources: React.FC<AiVendorSourcesProps> = ({
   sources,
   onChange,
   usages = {},
+  sharedKeyValues = {},
+  onSharedKeyChange,
 }) => {
   const { t } = useI18n()
   const addedSlug = useAddedSlug(sources.map((source) => source.slug))
@@ -354,6 +364,8 @@ export const AiVendorSources: React.FC<AiVendorSourcesProps> = ({
           source={source}
           usedBy={usages[source.slug]}
           justAdded={source.slug === addedSlug}
+          sharedKeyValues={sharedKeyValues}
+          onSharedKeyChange={onSharedKeyChange}
           onChange={(patch) => updateSource(index, patch)}
           onRemove={() => onChange(sources.filter((_, i) => i !== index))}
         />
@@ -375,7 +387,10 @@ function VendorSetupSteps({ source }: { source: AiVendorSource }) {
   )
 }
 
-function hasVendorConfiguration(source: AiVendorSource): boolean {
+function hasVendorConfiguration(
+  source: AiVendorSource,
+  sharedKeyValues: Partial<Record<SharedAiKeyRef, string>>,
+): boolean {
   const apiFormat = apiFormatForSource(source)
   if (!isSupportedAiApiFormat(apiFormat)) return false
   if (isAgoraSource(source)) {
@@ -389,9 +404,16 @@ function hasVendorConfiguration(source: AiVendorSource): boolean {
   if (source.kind === 'tencent') {
     return Boolean(source.secret_id?.trim() || source.secret_key?.trim())
   }
+  const credentialMode = credentialModeForSource(source)
+  const sharedKeyRef = sharedKeyRefForSource(source)
+  const credentialReady =
+    credentialMode === 'none' ||
+    (credentialMode === 'own' && Boolean(source.api_key?.trim())) ||
+    (credentialMode === 'shared' &&
+      Boolean(sharedKeyRef && sharedKeyValues[sharedKeyRef]?.trim()))
   if (vendorSupports(source, 'text')) {
     const preset = findVendorPreset(source)
-    return Boolean(preset || source.base_url?.trim())
+    return credentialReady && Boolean(preset || source.base_url?.trim())
   }
   return Boolean(source.api_key?.trim())
 }
@@ -400,12 +422,16 @@ function VendorCard({
   source,
   usedBy,
   justAdded = false,
+  sharedKeyValues,
+  onSharedKeyChange,
   onChange,
   onRemove,
 }: {
   source: AiVendorSource
   usedBy?: VendorUsageId[]
   justAdded?: boolean
+  sharedKeyValues: Partial<Record<SharedAiKeyRef, string>>
+  onSharedKeyChange?: (keyRef: SharedAiKeyRef, value: string) => void
   onChange: (patch: Partial<AiVendorSource>) => void
   onRemove: () => void
 }) {
@@ -417,7 +443,24 @@ function VendorCard({
     ? undefined
     : format(t.config.aiVendorApiFormatInvalid, { value: apiFormat })
   const supportsText = vendorSupports(source, 'text')
-  const configured = hasVendorConfiguration(source)
+  const credentialMode = credentialModeForSource(source)
+  const sharedKeyRef = sharedKeyRefForSource(source)
+  const credentialError =
+    credentialMode === 'own' ||
+    credentialMode === 'none' ||
+    (credentialMode === 'shared' && sharedKeyRef)
+      ? undefined
+      : format(t.config.aiVendorCredentialInvalid, {
+          value:
+            credentialMode === 'shared'
+              ? source.shared_key_ref || 'missing'
+              : credentialMode,
+        })
+  const credentialValue =
+    credentialMode === 'shared' && sharedKeyRef
+      ? `shared:${sharedKeyRef}`
+      : credentialMode
+  const configured = hasVendorConfiguration(source, sharedKeyValues)
   const title = source.display_name || source.slug
   const usedHint = usedByText(usedBy, t, format)
   const [open, setOpen] = useAddedCardOpen(justAdded, !configured)
@@ -662,25 +705,99 @@ function VendorCard({
                   layout="vertical"
                 />
               ) : null}
-              <InputItem
-                itemKey={`${source.slug}-key`}
-                label={t.config.aiVendorApiKey}
-                {...bindGuide('ai.apiKey', g.ai.apiKey)}
-                value={source.api_key || ''}
-                onChange={(value) => onChange({ api_key: value })}
-                placeholder={
-                  preset?.keyPlaceholder ||
-                  (source.kind === 'openrouter'
-                    ? 'sk-or-v1-...'
-                    : source.kind === 'gemini'
-                      ? 'AIza...'
-                      : 'sk-...')
-                }
-                inputType="password"
-                hint={t.config.aiVendorApiKeyOptional}
-                autoSelectOnMask
+              <SelectItem
+                itemKey={`${source.slug}-credential`}
+                label={t.config.aiVendorCredentialMode}
+                value={credentialValue}
+                onChange={(value) => {
+                  if (value.startsWith('shared:')) {
+                    onChange({
+                      credential_mode: 'shared',
+                      shared_key_ref: value.slice('shared:'.length),
+                    })
+                  } else {
+                    onChange({
+                      credential_mode: value,
+                      shared_key_ref: null,
+                    })
+                  }
+                }}
+                options={[
+                  ...(credentialError
+                    ? [
+                        {
+                          value: credentialValue,
+                          label: credentialError,
+                          disabled: true,
+                        },
+                      ]
+                    : []),
+                  { value: 'own', label: t.config.aiVendorCredentialOwn },
+                  { value: 'none', label: t.config.aiVendorCredentialNone },
+                  {
+                    value: 'shared:openai',
+                    label: t.config.aiVendorCredentialSharedOpenAI,
+                  },
+                  {
+                    value: 'shared:openrouter',
+                    label: t.config.aiVendorCredentialSharedOpenRouter,
+                  },
+                  {
+                    value: 'shared:gemini',
+                    label: t.config.aiVendorCredentialSharedGemini,
+                  },
+                  {
+                    value: 'shared:volcengine',
+                    label: t.config.aiVendorCredentialSharedVolcengine,
+                  },
+                ]}
+                error={credentialError}
                 layout="vertical"
               />
+              {credentialMode === 'own' ? (
+                <InputItem
+                  itemKey={`${source.slug}-key`}
+                  label={t.config.aiVendorApiKey}
+                  {...bindGuide('ai.apiKey', g.ai.apiKey)}
+                  value={source.api_key || ''}
+                  onChange={(value) => onChange({ api_key: value })}
+                  placeholder={
+                    preset?.keyPlaceholder ||
+                    (source.kind === 'openrouter'
+                      ? 'sk-or-v1-...'
+                      : source.kind === 'gemini'
+                        ? 'AIza...'
+                        : 'sk-...')
+                  }
+                  inputType="password"
+                  hint={t.config.aiVendorApiKeyOptional}
+                  autoSelectOnMask
+                  layout="vertical"
+                />
+              ) : credentialMode === 'shared' && sharedKeyRef ? (
+                <InputItem
+                  itemKey={`${source.slug}-shared-key`}
+                  label={t.config.aiVendorApiKey}
+                  {...bindGuide('ai.apiKey', g.ai.apiKey)}
+                  value={sharedKeyValues[sharedKeyRef] || ''}
+                  onChange={(value) => onSharedKeyChange?.(sharedKeyRef, value)}
+                  placeholder={
+                    sharedKeyRef === 'openrouter'
+                      ? 'sk-or-v1-...'
+                      : sharedKeyRef === 'gemini'
+                        ? 'AIza...'
+                        : 'sk-...'
+                  }
+                  inputType="password"
+                  hint={
+                    sharedKeyValues[sharedKeyRef]?.trim()
+                      ? t.config.aiVendorSharedKeyConfigured
+                      : t.config.aiVendorSharedKeyMissing
+                  }
+                  autoSelectOnMask
+                  layout="vertical"
+                />
+              ) : null}
               {supportsText && (
                 <InputItem
                   itemKey={`${source.slug}-base`}

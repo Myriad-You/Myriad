@@ -136,79 +136,79 @@ const ModelTierGroup: React.FC<
 }) => {
   const { t } = useI18n()
   return (
-  <div
-    className={`ai-llm-tier${guidePath ? ' has-guide-anchor' : ''}`}
-    {...guideDomProps(guidePath)}
-  >
-    <div className="ai-llm-tier-head">
-      <div className="ai-llm-tier-copy">
-        <h3 className="ai-llm-tier-title">
-          {title}
-          <SettingTitleGuideEntry title={title} guide={guide} />
-        </h3>
-        {description ? (
-          <p className="ai-llm-tier-desc">{description}</p>
+    <div
+      className={`ai-llm-tier${guidePath ? ' has-guide-anchor' : ''}`}
+      {...guideDomProps(guidePath)}
+    >
+      <div className="ai-llm-tier-head">
+        <div className="ai-llm-tier-copy">
+          <h3 className="ai-llm-tier-title">
+            {title}
+            <SettingTitleGuideEntry title={title} guide={guide} />
+          </h3>
+          {description ? (
+            <p className="ai-llm-tier-desc">{description}</p>
+          ) : null}
+        </div>
+        {toggle ? (
+          <div
+            className={`ai-llm-tier-switch${enableGuidePath ? ' has-guide-anchor' : ''}`}
+            {...guideDomProps(enableGuidePath)}
+          >
+            {enableGuide ? (
+              <SettingTitleGuideEntry
+                title={toggle.ariaLabel}
+                guide={enableGuide}
+              />
+            ) : null}
+            <ToggleSwitch
+              checked={toggle.checked}
+              onChange={toggle.onChange}
+              aria-label={toggle.ariaLabel}
+              title={toggle.title}
+            />
+          </div>
         ) : null}
       </div>
-      {toggle ? (
-        <div
-          className={`ai-llm-tier-switch${enableGuidePath ? ' has-guide-anchor' : ''}`}
-          {...guideDomProps(enableGuidePath)}
-        >
-          {enableGuide ? (
-            <SettingTitleGuideEntry
-              title={toggle.ariaLabel}
-              guide={enableGuide}
-            />
-          ) : null}
-          <ToggleSwitch
-            checked={toggle.checked}
-            onChange={toggle.onChange}
-            aria-label={toggle.ariaLabel}
-            title={toggle.title}
+      {enabled && (
+        <>
+          <ProviderItem
+            itemKey={providerItemKey}
+            label={providerLabel}
+            value={provider}
+            onChange={onProviderChange}
+            options={providerOptions}
+            hint={providerHint}
+            guide={providerGuide}
+            guidePath={providerGuidePath}
+            layout="horizontal"
           />
-        </div>
-      ) : null}
+          {fields.map((field) => {
+            const fieldGuide = fieldGuideFor?.(field.key)
+            return (
+              <InputItem
+                key={field.key}
+                itemKey={field.key}
+                label={
+                  field.key.endsWith('model')
+                    ? t.config.openaiModelLabel
+                    : field.label
+                }
+                required={field.required}
+                value={field.value}
+                onChange={(value) => updateValue(field.key, value)}
+                guide={fieldGuide?.guide}
+                guidePath={fieldGuide?.guidePath}
+                placeholder={field.placeholder}
+                inputType={field.field_type as 'text' | 'password'}
+                autoSelectOnMask
+                layout="vertical"
+              />
+            )
+          })}
+        </>
+      )}
     </div>
-    {enabled && (
-      <>
-        <ProviderItem
-          itemKey={providerItemKey}
-          label={providerLabel}
-          value={provider}
-          onChange={onProviderChange}
-          options={providerOptions}
-          hint={providerHint}
-          guide={providerGuide}
-          guidePath={providerGuidePath}
-          layout="horizontal"
-        />
-        {fields.map((field) => {
-          const fieldGuide = fieldGuideFor?.(field.key)
-          return (
-            <InputItem
-              key={field.key}
-              itemKey={field.key}
-              label={
-                field.key.endsWith('model')
-                  ? t.config.openaiModelLabel
-                  : field.label
-              }
-              required={field.required}
-              value={field.value}
-              onChange={(value) => updateValue(field.key, value)}
-              guide={fieldGuide?.guide}
-              guidePath={fieldGuide?.guidePath}
-              placeholder={field.placeholder}
-              inputType={field.field_type as 'text' | 'password'}
-              autoSelectOnMask
-              layout="vertical"
-            />
-          )
-        })}
-      </>
-    )}
-  </div>
   )
 }
 
@@ -278,6 +278,15 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
 
   const vendorSources = useMemo(
     () => parseVendorSources(getFieldValue('ai_vendor_sources')),
+    [getFieldValue],
+  )
+  const sharedKeyValues = useMemo(
+    () => ({
+      openai: getFieldValue('provider_openai_api_key'),
+      openrouter: getFieldValue('provider_openrouter_api_key'),
+      gemini: getFieldValue('provider_gemini_api_key'),
+      volcengine: getFieldValue('provider_volcengine_api_key'),
+    }),
     [getFieldValue],
   )
 
@@ -504,10 +513,7 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       }
       updateValue('speech_source', slug)
       const source = vendorSources.find((item) => item.slug === slug)
-      updateValue(
-        'speech_provider',
-        speechProviderKindFromSource(source, slug),
-      )
+      updateValue('speech_provider', speechProviderKindFromSource(source, slug))
     },
     [updateValue, vendorSources],
   )
@@ -637,318 +643,328 @@ export const AiConfigSection: React.FC<AiConfigSectionProps> = ({
       }
     >
       <div className="ai-pane">
-      <SettingGroup
-        title={t.config.aiVendorsTitle}
-        icon={<LuStore />}
-        description={t.config.aiVendorsDesc}
-        {...bindGuide('ai.vendors', g.ai.vendors)}
-      >
-        <AiVendorSources
-          sources={vendorSources}
-          onChange={setVendorSources}
-          usages={vendorUsages}
-        />
-      </SettingGroup>
-
-      <SettingGroup
-        title={t.config.aiLlmTitle}
-        icon={<LuSparkles />}
-        description={t.config.aiLlmDesc}
-        {...bindGuide('ai.llm', g.ai.llm)}
-      >
-        <ModelTierGroup
-          title={t.config.aiStandardModelTitle}
-          description={t.config.aiStandardModelDesc}
-          {...bindGuide('ai.standard', g.ai.standard)}
-          providerGuide={providerGuideBinding.guide}
-          providerGuidePath={providerGuideBinding.guidePath}
-          fieldGuideFor={fieldGuideFor}
-          providerItemKey="ai_provider"
-          providerLabel={t.config.aiProvider}
-          provider={standardSourceValue}
-          providerOptions={textSourceOptions ?? aiProviderOptions}
-          providerHint={t.config.aiProviderHint}
-          fields={providerFields}
-          onProviderChange={(provider) =>
-            applyTextSource(
-              'ai_source',
-              'provider',
-              'openai_base_url',
-              provider,
-            )
-          }
-          updateValue={updateValue}
-        />
-
-        <ModelTierGroup
-          title={t.config.aiLiteModelTitle}
-          description={t.config.aiLiteModelDesc}
-          {...bindGuide('ai.lite', g.ai.lite)}
-          enableGuide={bindGuide('ai.liteEnable', g.ai.liteEnable).guide}
-          enableGuidePath="ai.liteEnable"
-          providerGuide={providerGuideBinding.guide}
-          providerGuidePath={providerGuideBinding.guidePath}
-          fieldGuideFor={fieldGuideFor}
-          providerItemKey="lite_ai_provider"
-          providerLabel={t.config.aiProvider}
-          provider={liteSourceValue}
-          providerOptions={textSourceOptions ?? aiProviderOptions}
-          providerHint={t.config.aiLiteProviderHint}
-          fields={liteProviderFields}
-          enabled={liteEnabled}
-          toggle={{
-            checked: liteEnabled,
-            onChange: (value) =>
-              updateValue('lite_enabled', value ? 'true' : 'false'),
-            ariaLabel: t.config.aiLiteEnable,
-            title: t.config.aiLiteEnableDesc,
-          }}
-          onProviderChange={(provider) =>
-            applyTextSource(
-              'lite_ai_source',
-              'lite_provider',
-              'lite_openai_base_url',
-              provider,
-            )
-          }
-          updateValue={updateValue}
-        />
-
-        <ModelTierGroup
-          title={t.config.aiProModelTitle}
-          description={t.config.aiProModelDesc}
-          {...bindGuide('ai.pro', g.ai.pro)}
-          enableGuide={bindGuide('ai.proEnable', g.ai.proEnable).guide}
-          enableGuidePath="ai.proEnable"
-          providerGuide={providerGuideBinding.guide}
-          providerGuidePath={providerGuideBinding.guidePath}
-          fieldGuideFor={fieldGuideFor}
-          providerItemKey="pro_ai_provider"
-          providerLabel={t.config.aiProvider}
-          provider={proSourceValue}
-          providerOptions={textSourceOptions ?? aiProviderOptions}
-          providerHint={t.config.aiProProviderHint}
-          fields={proProviderFields}
-          enabled={proEnabled}
-          toggle={{
-            checked: proEnabled,
-            onChange: (value) =>
-              updateValue('pro_enabled', value ? 'true' : 'false'),
-            ariaLabel: t.config.aiProEnable,
-            title: t.config.aiProEnableDesc,
-          }}
-          onProviderChange={(provider) =>
-            applyTextSource(
-              'pro_ai_source',
-              'pro_provider',
-              'pro_openai_base_url',
-              provider,
-            )
-          }
-          updateValue={updateValue}
-        />
-      </SettingGroup>
-
-      <SettingGroup
-        title={t.config.webSearchTitle}
-        icon={<LuSearch />}
-        description={t.config.webSearchDesc}
-        {...bindGuide('ai.webSearch', g.ai.webSearch)}
-      >
-        <InputItem
-          itemKey="provider_tinyfish_api_key"
-          label={t.config.tinyfishApiKey}
-          required={false}
-          value={getFieldValue('provider_tinyfish_api_key')}
-          onChange={(value) => updateValue('provider_tinyfish_api_key', value)}
-          placeholder={t.config.tinyfishApiKeyPlaceholder}
-          hint={t.config.tinyfishApiKeyHint}
-          inputType="password"
-          autoSelectOnMask
-          layout="vertical"
-          {...fieldGuideFor('provider_tinyfish_api_key')}
-        />
-      </SettingGroup>
-
-      <SettingGroup
-        title={t.config.aiImageTitle}
-        icon={<LuPalette />}
-        description={t.config.aiImageDesc}
-        {...bindGuide('ai.image', g.ai.image)}
-      >
-        <ProviderItem
-          itemKey="image_provider"
-          label={t.config.aiProvider}
-          {...bindGuide('ai.provider', g.ai.provider)}
-          value={
-            imageSourceOptions
-              ? getFieldValue('ai_image_source')
-              : getFieldValue('ai_image_provider')
-          }
-          onChange={handleImageProviderChange}
-          options={imageSourceOptions ?? imageProviderOptions}
-          layout="horizontal"
-        />
-
-        <InputItem
-          itemKey="ai_image_model"
-          label={t.config.openaiModelLabel}
-          {...bindGuide('ai.imageModel', g.ai.imageModel)}
-          value={getFieldValue('ai_image_model')}
-          onChange={(v) => updateValue('ai_image_model', v)}
-          placeholder={
-            currentImageProvider === 'openai'
-              ? 'gpt-image-2'
-              : currentImageProvider === 'volcengine'
-                ? 'doubao-seedream-5-0-260128'
-                : currentImageProvider === 'gemini'
-                  ? 'gemini-3.1-flash-image'
-                  : 'openai/gpt-image-2'
-          }
-          inputType="text"
-          layout="vertical"
-        />
-      </SettingGroup>
-
-      <SettingGroup
-        title={t.config.speechServiceTitle}
-        icon={<FaMicrophone />}
-        description={t.config.speechServiceDesc}
-        {...bindGuide('ai.speech', g.ai.speech)}
-        titleExtra={
-          <SettingTitleTag
-            variant={
-              speechTestResult && !speechTestResult.success ? 'danger' : 'muted'
+        <SettingGroup
+          title={t.config.aiVendorsTitle}
+          icon={<LuStore />}
+          description={t.config.aiVendorsDesc}
+          {...bindGuide('ai.vendors', g.ai.vendors)}
+        >
+          <AiVendorSources
+            sources={vendorSources}
+            onChange={setVendorSources}
+            usages={vendorUsages}
+            sharedKeyValues={sharedKeyValues}
+            onSharedKeyChange={(keyRef, value) =>
+              updateValue(`provider_${keyRef}_api_key`, value)
             }
-            icon={<FaVolumeUp />}
-            onClick={() => void handleSpeechTest()}
-            disabled={speechTesting}
-            title={
-              speechTestResult?.message || t.config.speechTestAvailability
+          />
+        </SettingGroup>
+
+        <SettingGroup
+          title={t.config.aiLlmTitle}
+          icon={<LuSparkles />}
+          description={t.config.aiLlmDesc}
+          {...bindGuide('ai.llm', g.ai.llm)}
+        >
+          <ModelTierGroup
+            title={t.config.aiStandardModelTitle}
+            description={t.config.aiStandardModelDesc}
+            {...bindGuide('ai.standard', g.ai.standard)}
+            providerGuide={providerGuideBinding.guide}
+            providerGuidePath={providerGuideBinding.guidePath}
+            fieldGuideFor={fieldGuideFor}
+            providerItemKey="ai_provider"
+            providerLabel={t.config.aiProvider}
+            provider={standardSourceValue}
+            providerOptions={textSourceOptions ?? aiProviderOptions}
+            providerHint={t.config.aiProviderHint}
+            fields={providerFields}
+            onProviderChange={(provider) =>
+              applyTextSource(
+                'ai_source',
+                'provider',
+                'openai_base_url',
+                provider,
+              )
             }
-          >
-            {speechTesting
-              ? t.config.speechTestAvailability
-              : t.config.speechTestTag}
-          </SettingTitleTag>
-        }
-      >
-        <ProviderItem
-          itemKey="speech_provider"
-          label={t.config.speechProvider}
-          {...bindGuide('ai.provider', g.ai.provider)}
-          value={
-            speechSourceOptions
+            updateValue={updateValue}
+          />
+
+          <ModelTierGroup
+            title={t.config.aiLiteModelTitle}
+            description={t.config.aiLiteModelDesc}
+            {...bindGuide('ai.lite', g.ai.lite)}
+            enableGuide={bindGuide('ai.liteEnable', g.ai.liteEnable).guide}
+            enableGuidePath="ai.liteEnable"
+            providerGuide={providerGuideBinding.guide}
+            providerGuidePath={providerGuideBinding.guidePath}
+            fieldGuideFor={fieldGuideFor}
+            providerItemKey="lite_ai_provider"
+            providerLabel={t.config.aiProvider}
+            provider={liteSourceValue}
+            providerOptions={textSourceOptions ?? aiProviderOptions}
+            providerHint={t.config.aiLiteProviderHint}
+            fields={liteProviderFields}
+            enabled={liteEnabled}
+            toggle={{
+              checked: liteEnabled,
+              onChange: (value) =>
+                updateValue('lite_enabled', value ? 'true' : 'false'),
+              ariaLabel: t.config.aiLiteEnable,
+              title: t.config.aiLiteEnableDesc,
+            }}
+            onProviderChange={(provider) =>
+              applyTextSource(
+                'lite_ai_source',
+                'lite_provider',
+                'lite_openai_base_url',
+                provider,
+              )
+            }
+            updateValue={updateValue}
+          />
+
+          <ModelTierGroup
+            title={t.config.aiProModelTitle}
+            description={t.config.aiProModelDesc}
+            {...bindGuide('ai.pro', g.ai.pro)}
+            enableGuide={bindGuide('ai.proEnable', g.ai.proEnable).guide}
+            enableGuidePath="ai.proEnable"
+            providerGuide={providerGuideBinding.guide}
+            providerGuidePath={providerGuideBinding.guidePath}
+            fieldGuideFor={fieldGuideFor}
+            providerItemKey="pro_ai_provider"
+            providerLabel={t.config.aiProvider}
+            provider={proSourceValue}
+            providerOptions={textSourceOptions ?? aiProviderOptions}
+            providerHint={t.config.aiProProviderHint}
+            fields={proProviderFields}
+            enabled={proEnabled}
+            toggle={{
+              checked: proEnabled,
+              onChange: (value) =>
+                updateValue('pro_enabled', value ? 'true' : 'false'),
+              ariaLabel: t.config.aiProEnable,
+              title: t.config.aiProEnableDesc,
+            }}
+            onProviderChange={(provider) =>
+              applyTextSource(
+                'pro_ai_source',
+                'pro_provider',
+                'pro_openai_base_url',
+                provider,
+              )
+            }
+            updateValue={updateValue}
+          />
+        </SettingGroup>
+
+        <SettingGroup
+          title={t.config.webSearchTitle}
+          icon={<LuSearch />}
+          description={t.config.webSearchDesc}
+          {...bindGuide('ai.webSearch', g.ai.webSearch)}
+        >
+          <InputItem
+            itemKey="provider_tinyfish_api_key"
+            label={t.config.tinyfishApiKey}
+            required={false}
+            value={getFieldValue('provider_tinyfish_api_key')}
+            onChange={(value) =>
+              updateValue('provider_tinyfish_api_key', value)
+            }
+            placeholder={t.config.tinyfishApiKeyPlaceholder}
+            hint={t.config.tinyfishApiKeyHint}
+            inputType="password"
+            autoSelectOnMask
+            layout="vertical"
+            {...fieldGuideFor('provider_tinyfish_api_key')}
+          />
+        </SettingGroup>
+
+        <SettingGroup
+          title={t.config.aiImageTitle}
+          icon={<LuPalette />}
+          description={t.config.aiImageDesc}
+          {...bindGuide('ai.image', g.ai.image)}
+        >
+          <ProviderItem
+            itemKey="image_provider"
+            label={t.config.aiProvider}
+            {...bindGuide('ai.provider', g.ai.provider)}
+            value={
+              imageSourceOptions
+                ? getFieldValue('ai_image_source')
+                : getFieldValue('ai_image_provider')
+            }
+            onChange={handleImageProviderChange}
+            options={imageSourceOptions ?? imageProviderOptions}
+            layout="horizontal"
+          />
+
+          <InputItem
+            itemKey="ai_image_model"
+            label={t.config.openaiModelLabel}
+            {...bindGuide('ai.imageModel', g.ai.imageModel)}
+            value={getFieldValue('ai_image_model')}
+            onChange={(v) => updateValue('ai_image_model', v)}
+            placeholder={
+              currentImageProvider === 'openai'
+                ? 'gpt-image-2'
+                : currentImageProvider === 'volcengine'
+                  ? 'doubao-seedream-5-0-260128'
+                  : currentImageProvider === 'gemini'
+                    ? 'gemini-3.1-flash-image'
+                    : 'openai/gpt-image-2'
+            }
+            inputType="text"
+            layout="vertical"
+          />
+        </SettingGroup>
+
+        <SettingGroup
+          title={t.config.speechServiceTitle}
+          icon={<FaMicrophone />}
+          description={t.config.speechServiceDesc}
+          {...bindGuide('ai.speech', g.ai.speech)}
+          titleExtra={
+            <SettingTitleTag
+              variant={
+                speechTestResult && !speechTestResult.success
+                  ? 'danger'
+                  : 'muted'
+              }
+              icon={<FaVolumeUp />}
+              onClick={() => void handleSpeechTest()}
+              disabled={speechTesting}
+              title={
+                speechTestResult?.message || t.config.speechTestAvailability
+              }
+            >
+              {speechTesting
+                ? t.config.speechTestAvailability
+                : t.config.speechTestTag}
+            </SettingTitleTag>
+          }
+        >
+          <ProviderItem
+            itemKey="speech_provider"
+            label={t.config.speechProvider}
+            {...bindGuide('ai.provider', g.ai.provider)}
+            value={
+              speechSourceOptions
+                ? getFieldValue('speech_source')
+                : getFieldValue('speech_provider')
+            }
+            onChange={handleSpeechProviderChange}
+            options={speechSourceOptions ?? speechProviderOptions}
+            layout="horizontal"
+          />
+
+          {(() => {
+            const speechSelectorValue = speechSourceOptions
               ? getFieldValue('speech_source')
               : getFieldValue('speech_provider')
-          }
-          onChange={handleSpeechProviderChange}
-          options={speechSourceOptions ?? speechProviderOptions}
-          layout="horizontal"
-        />
-
-        {(() => {
-          const speechSelectorValue = speechSourceOptions
-            ? getFieldValue('speech_source')
-            : getFieldValue('speech_provider')
-          if (!speechSelectorValue) return null
-          const selectedSource = vendorSources.find(
-            (item) => item.slug === speechSelectorValue,
-          )
-          const selected = speechProviderKindFromSource(
-            selectedSource,
-            selectedSource?.kind || speechSelectorValue,
-          )
-          if (selected === 'minimax') {
-            return (
-              <>
-                <InputItem
-                  itemKey="speech_tts_model"
-                  label={t.config.speechTtsModel}
-                  {...bindGuide('ai.speechTts', g.ai.speechTts)}
-                  value={getFieldValue('speech_tts_model')}
-                  onChange={(v) => updateValue('speech_tts_model', v)}
-                  placeholder="speech-2.8-turbo"
-                  inputType="text"
-                  layout="vertical"
-                />
-                <InputItem
-                  itemKey="speech_tts_voice"
-                  label={t.config.speechTtsVoice}
-                  {...bindGuide('ai.speechVoice', g.ai.speechVoice)}
-                  value={getFieldValue('speech_tts_voice')}
-                  onChange={(v) => updateValue('speech_tts_voice', v)}
-                  placeholder="female-shaonv"
-                  inputType="text"
-                  layout="vertical"
-                />
-                <p className="setting-hint">{t.config.speechMinimaxAsrHint}</p>
-              </>
+            if (!speechSelectorValue) return null
+            const selectedSource = vendorSources.find(
+              (item) => item.slug === speechSelectorValue,
             )
-          }
-          if (
-            selected === 'openai' ||
-            selected === 'openrouter' ||
-            selected === 'openai_compatible' ||
-            selected === 'gemini'
-          ) {
-            return (
-              <>
-                <InputItem
-                  itemKey="speech_stt_model"
-                  label={t.config.speechSttModel}
-                  {...bindGuide('ai.speechStt', g.ai.speechStt)}
-                  value={getFieldValue('speech_stt_model')}
-                  onChange={(v) => updateValue('speech_stt_model', v)}
-                  placeholder={
-                    currentSpeechProvider === 'openrouter'
-                      ? 'openai/gpt-transcribe'
-                      : currentSpeechProvider === 'gemini'
-                        ? 'gemini-3.6-flash'
-                        : 'gpt-transcribe'
-                  }
-                  inputType="text"
-                  layout="vertical"
-                />
-                <InputItem
-                  itemKey="speech_tts_model"
-                  label={t.config.speechTtsModel}
-                  {...bindGuide('ai.speechTts', g.ai.speechTts)}
-                  value={getFieldValue('speech_tts_model')}
-                  onChange={(v) => updateValue('speech_tts_model', v)}
-                  placeholder={
-                    currentSpeechProvider === 'openai'
-                      ? 'gpt-4o-mini-tts'
-                      : currentSpeechProvider === 'gemini'
-                        ? 'gemini-2.5-flash-preview-tts'
-                        : ''
-                  }
-                  inputType="text"
-                  layout="vertical"
-                />
-                <InputItem
-                  itemKey="speech_tts_voice"
-                  label={t.config.speechTtsVoice}
-                  {...bindGuide('ai.speechVoice', g.ai.speechVoice)}
-                  value={getFieldValue('speech_tts_voice')}
-                  onChange={(v) => updateValue('speech_tts_voice', v)}
-                  placeholder={
-                    currentSpeechProvider === 'gemini' ? 'Kore' : 'marin'
-                  }
-                  inputType="text"
-                  layout="vertical"
-                />
-                {currentSpeechProvider === 'openrouter' ? (
+            const selected = speechProviderKindFromSource(
+              selectedSource,
+              selectedSource?.kind || speechSelectorValue,
+            )
+            if (selected === 'minimax') {
+              return (
+                <>
+                  <InputItem
+                    itemKey="speech_tts_model"
+                    label={t.config.speechTtsModel}
+                    {...bindGuide('ai.speechTts', g.ai.speechTts)}
+                    value={getFieldValue('speech_tts_model')}
+                    onChange={(v) => updateValue('speech_tts_model', v)}
+                    placeholder="speech-2.8-turbo"
+                    inputType="text"
+                    layout="vertical"
+                  />
+                  <InputItem
+                    itemKey="speech_tts_voice"
+                    label={t.config.speechTtsVoice}
+                    {...bindGuide('ai.speechVoice', g.ai.speechVoice)}
+                    value={getFieldValue('speech_tts_voice')}
+                    onChange={(v) => updateValue('speech_tts_voice', v)}
+                    placeholder="female-shaonv"
+                    inputType="text"
+                    layout="vertical"
+                  />
                   <p className="setting-hint">
-                    {t.config.speechOpenRouterTtsHint}
+                    {t.config.speechMinimaxAsrHint}
                   </p>
-                ) : null}
-              </>
-            )
-          }
-          return null
-        })()}
-      </SettingGroup>
+                </>
+              )
+            }
+            if (
+              selected === 'openai' ||
+              selected === 'openrouter' ||
+              selected === 'openai_compatible' ||
+              selected === 'gemini'
+            ) {
+              return (
+                <>
+                  <InputItem
+                    itemKey="speech_stt_model"
+                    label={t.config.speechSttModel}
+                    {...bindGuide('ai.speechStt', g.ai.speechStt)}
+                    value={getFieldValue('speech_stt_model')}
+                    onChange={(v) => updateValue('speech_stt_model', v)}
+                    placeholder={
+                      currentSpeechProvider === 'openrouter'
+                        ? 'openai/gpt-transcribe'
+                        : currentSpeechProvider === 'gemini'
+                          ? 'gemini-3.6-flash'
+                          : 'gpt-transcribe'
+                    }
+                    inputType="text"
+                    layout="vertical"
+                  />
+                  <InputItem
+                    itemKey="speech_tts_model"
+                    label={t.config.speechTtsModel}
+                    {...bindGuide('ai.speechTts', g.ai.speechTts)}
+                    value={getFieldValue('speech_tts_model')}
+                    onChange={(v) => updateValue('speech_tts_model', v)}
+                    placeholder={
+                      currentSpeechProvider === 'openai'
+                        ? 'gpt-4o-mini-tts'
+                        : currentSpeechProvider === 'gemini'
+                          ? 'gemini-2.5-flash-preview-tts'
+                          : ''
+                    }
+                    inputType="text"
+                    layout="vertical"
+                  />
+                  <InputItem
+                    itemKey="speech_tts_voice"
+                    label={t.config.speechTtsVoice}
+                    {...bindGuide('ai.speechVoice', g.ai.speechVoice)}
+                    value={getFieldValue('speech_tts_voice')}
+                    onChange={(v) => updateValue('speech_tts_voice', v)}
+                    placeholder={
+                      currentSpeechProvider === 'gemini' ? 'Kore' : 'marin'
+                    }
+                    inputType="text"
+                    layout="vertical"
+                  />
+                  {currentSpeechProvider === 'openrouter' ? (
+                    <p className="setting-hint">
+                      {t.config.speechOpenRouterTtsHint}
+                    </p>
+                  ) : null}
+                </>
+              )
+            }
+            return null
+          })()}
+        </SettingGroup>
       </div>
     </SettingSection>
   )

@@ -100,6 +100,7 @@
 
 ### 保存语义（踩坑）
 
+- **AI source 凭据归属**：`credential_mode` 明确选择来源自己的 key、共享 key 或免鉴权；`shared_key_ref` 只引用同名共享库，不把密钥复制进 source。旧 source 缺少这两个字段时，仅官方 canonical endpoint 会安全推断对应共享 key；自定义来源、第三方兼容端点和自定义 Base URL 不继承。下一次保存会写回规范化后的归属。
 - **可清空非敏感串**必须在 `collect_database_updates` 里 early-insert（空串也写库）：`site_*` / `wallpaper_url` / `music_playlist_id` / `proxy_*` / `*_base_url` 镜像等。默认路径 `if !value.is_empty()` 会吞掉「重置本页」写的空串。
 - **`base_url` 空串不得覆盖**已生效域名（改域名走 `SiteUrlField` 独立 API）。
 - **`silent` 更新 bag**（旁路 API 已落库）必须通过 `acceptPatch` 同步更新草稿与已保存快照，否则仍会点亮浮动保存。

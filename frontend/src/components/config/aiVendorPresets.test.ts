@@ -3,6 +3,7 @@ import { describe, it } from 'node:test'
 import {
   AI_VENDOR_PRESETS,
   apiFormatForSource,
+  credentialModeForSource,
   findVendorPreset,
   isAgoraSource,
   isMiniMaxSpeechSource,
@@ -10,6 +11,7 @@ import {
   resolveUsedVendorSlug,
   sourceFromCustom,
   sourceFromPreset,
+  sharedKeyRefForSource,
   speechProviderKindFromSource,
   vendorSupports,
 } from './aiVendorPresets'
@@ -170,6 +172,8 @@ describe('AI vendor presets', () => {
     assert.equal(source.display_name, 'DeepSeek')
     assert.equal(source.base_url, 'https://api.deepseek.com/v1')
     assert.equal(source.api_format, 'openai')
+    assert.equal(source.credential_mode, 'own')
+    assert.equal(source.shared_key_ref, null)
     const second = sourceFromPreset(deepseek, [source])
     assert.equal(second.slug, 'deepseek-2')
     assert.equal(second.display_name, 'DeepSeek 2')
@@ -180,8 +184,55 @@ describe('AI vendor presets', () => {
     assert.equal(source.kind, 'custom')
     assert.equal(source.api_format, 'openai')
     assert.equal(source.api_key, '')
+    assert.equal(source.credential_mode, 'none')
     assert.equal(vendorSupports(source, 'text'), true)
     assert.equal(vendorSupports(source, 'image'), false)
+  })
+
+  it('reuses shared keys only for explicit or legacy canonical vendor sources', () => {
+    const openai = sourceFromPreset(
+      AI_VENDOR_PRESETS.find((item) => item.id === 'openai')!,
+      [],
+    )
+    assert.equal(credentialModeForSource(openai), 'shared')
+    assert.equal(sharedKeyRefForSource(openai), 'openai')
+
+    const legacyOpenRouter = {
+      kind: 'openrouter',
+      base_url: 'https://openrouter.ai/api/v1/',
+    }
+    assert.equal(credentialModeForSource(legacyOpenRouter), 'shared')
+    assert.equal(sharedKeyRefForSource(legacyOpenRouter), 'openrouter')
+    assert.equal(
+      sharedKeyRefForSource({
+        kind: 'openai_compatible',
+        base_url: 'https://api.openai.com/v1',
+      }),
+      'openai',
+    )
+
+    const customEndpoint = {
+      kind: 'openai',
+      base_url: 'https://gateway.example/v1',
+    }
+    assert.equal(credentialModeForSource(customEndpoint), 'none')
+    assert.equal(sharedKeyRefForSource(customEndpoint), null)
+
+    assert.equal(
+      credentialModeForSource({
+        kind: 'custom',
+        base_url: 'https://gateway.example/v1',
+        api_key: 'source-key',
+      }),
+      'own',
+    )
+    assert.equal(
+      credentialModeForSource({
+        kind: 'custom',
+        credential_mode: 'future_mode',
+      }),
+      'future_mode',
+    )
   })
 
   it('preserves an unsupported API format so the configuration stays visible', () => {

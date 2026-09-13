@@ -429,7 +429,9 @@ domain.
 3. After login, open **`/config`** to configure AI provider API formats and Base
    URLs (plus an API key only when that endpoint requires one), platform tokens,
    and OAuth apps as needed. These persist in PostgreSQL; provider keys remain
-   write-only in the UI.
+   write-only in the UI. Each AI source explicitly uses its own key, a selected
+   shared provider key, or no authentication. Shared keys are resolved by the
+   backend at request time and are never copied into the source payload.
 
 ---
 

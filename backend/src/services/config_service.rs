@@ -1564,6 +1564,8 @@ mod tests {
                 "display_name": "Work OpenAI",
                 "enabled": true,
                 "api_format": "openai_responses",
+                "credential_mode": "shared",
+                "shared_key_ref": "openai",
                 "api_key": "sk-work",
                 "base_url": "https://api.openai.com/v1"
             }, {
@@ -1583,6 +1585,11 @@ mod tests {
         assert_eq!(
             vendors.ai_vendor_sources[0].api_key.as_deref(),
             Some("sk-work")
+        );
+        assert_eq!(vendors.ai_vendor_sources[0].credential_mode, "shared");
+        assert_eq!(
+            vendors.ai_vendor_sources[0].shared_key_ref.as_deref(),
+            Some("openai")
         );
         assert_eq!(vendors.ai_vendor_sources[1].api_format, "openai");
 
