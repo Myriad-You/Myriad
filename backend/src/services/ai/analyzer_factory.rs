@@ -59,7 +59,13 @@ pub async fn create_ai_analyzer_for_tier_with_timeout(
         return None;
     }
     let api_key = resolved.api_key.filter(|key| !key.trim().is_empty());
-    let provider = AiProvider::from_str(&resolved.api_format);
+    let provider = match AiProvider::from_str(&resolved.api_format) {
+        Ok(provider) => provider,
+        Err(error) => {
+            tracing::error!(%error, "invalid AI provider configuration");
+            return None;
+        }
+    };
     let base_url = if resolved.base_url.is_empty() {
         None
     } else {
@@ -85,7 +91,13 @@ pub async fn create_strict_lite_ai_analyzer_with_timeout(
         .await
         .resolve_strict_lite_ai_config()?;
     let api_key = resolved.api_key.filter(|key| !key.trim().is_empty());
-    let provider = AiProvider::from_str(&resolved.api_format);
+    let provider = match AiProvider::from_str(&resolved.api_format) {
+        Ok(provider) => provider,
+        Err(error) => {
+            tracing::error!(%error, "invalid Lite AI provider configuration");
+            return None;
+        }
+    };
     let base_url = if resolved.base_url.is_empty() {
         None
     } else {

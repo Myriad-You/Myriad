@@ -30,6 +30,7 @@ import {
   apiFormatForSource,
   findVendorPreset,
   isAgoraSource,
+  isSupportedAiApiFormat,
   sourceFromCustom,
   sourceFromPreset,
   vendorSupports,
@@ -279,7 +280,10 @@ export function AiVendorAddTrigger({
           type="button"
           className="oidc-preset-card"
           onClick={() =>
-            onChange([...sources, sourceFromCustom(sources, t.config.aiVendorCustom)])
+            onChange([
+              ...sources,
+              sourceFromCustom(sources, t.config.aiVendorCustom),
+            ])
           }
           title={t.config.aiVendorCustomDesc}
         >
@@ -372,6 +376,8 @@ function VendorSetupSteps({ source }: { source: AiVendorSource }) {
 }
 
 function hasVendorConfiguration(source: AiVendorSource): boolean {
+  const apiFormat = apiFormatForSource(source)
+  if (!isSupportedAiApiFormat(apiFormat)) return false
   if (isAgoraSource(source)) {
     return Boolean(
       source.app_id?.trim() &&
@@ -385,9 +391,7 @@ function hasVendorConfiguration(source: AiVendorSource): boolean {
   }
   if (vendorSupports(source, 'text')) {
     const preset = findVendorPreset(source)
-    return Boolean(
-      apiFormatForSource(source) && (preset || source.base_url?.trim()),
-    )
+    return Boolean(preset || source.base_url?.trim())
   }
   return Boolean(source.api_key?.trim())
 }
@@ -408,6 +412,11 @@ function VendorCard({
   const { t, format } = useI18n()
   const { catalog: g, bindGuide } = useSettingGuide()
   const preset = findVendorPreset(source)
+  const apiFormat = apiFormatForSource(source)
+  const apiFormatError = isSupportedAiApiFormat(apiFormat)
+    ? undefined
+    : format(t.config.aiVendorApiFormatInvalid, { value: apiFormat })
+  const supportsText = vendorSupports(source, 'text')
   const configured = hasVendorConfiguration(source)
   const title = source.display_name || source.slug
   const usedHint = usedByText(usedBy, t, format)
@@ -616,13 +625,22 @@ function VendorCard({
             </>
           ) : (
             <>
-              {vendorSupports(source, 'text') ? (
+              {supportsText || apiFormatError ? (
                 <SelectItem
                   itemKey={`${source.slug}-api-format`}
                   label={t.config.aiVendorApiFormat}
-                  value={apiFormatForSource(source)}
+                  value={apiFormat}
                   onChange={(value) => onChange({ api_format: value })}
                   options={[
+                    ...(apiFormatError
+                      ? [
+                          {
+                            value: apiFormat,
+                            label: apiFormatError,
+                            disabled: true,
+                          },
+                        ]
+                      : []),
                     {
                       value: 'openai_responses',
                       label: t.config.aiApiFormatResponses,
@@ -640,6 +658,7 @@ function VendorCard({
                       label: t.config.aiApiFormatGemini,
                     },
                   ]}
+                  error={apiFormatError}
                   layout="vertical"
                 />
               ) : null}
@@ -662,7 +681,7 @@ function VendorCard({
                 autoSelectOnMask
                 layout="vertical"
               />
-              {vendorSupports(source, 'text') && (
+              {supportsText && (
                 <InputItem
                   itemKey={`${source.slug}-base`}
                   label={t.config.baseUrlLabel}
@@ -670,9 +689,9 @@ function VendorCard({
                   value={source.base_url || ''}
                   onChange={(value) => onChange({ base_url: value })}
                   placeholder={
-                    apiFormatForSource(source) === 'anthropic'
+                    apiFormat === 'anthropic'
                       ? 'https://api.anthropic.com/v1'
-                      : apiFormatForSource(source) === 'gemini'
+                      : apiFormat === 'gemini'
                         ? 'https://generativelanguage.googleapis.com'
                         : preset?.id === 'openaiCompatible'
                           ? 'https://api.example.com/v1'

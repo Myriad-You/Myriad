@@ -1602,6 +1602,7 @@ mod tests {
             display_name: "Gemini Work".to_string(),
             enabled: true,
             preset: "gemini".to_string(),
+            api_format: "gemini".to_string(),
             api_key: Some("AIza-source".to_string()),
             ..crate::config::AiVendorSource::default()
         }];

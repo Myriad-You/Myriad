@@ -1104,6 +1104,7 @@
   "aiVendorApiKey": "Clé API",
   "aiVendorApiKeyOptional": "Facultatif. Laissez vide si le fournisseur ne requiert pas d’authentification.",
   "aiVendorApiFormat": "Format d’API",
+  "aiVendorApiFormatInvalid": "Format d’API non pris en charge : {value}",
   "aiApiFormatResponses": "API OpenAI Responses",
   "aiApiFormatChatCompletions": "Chat Completions compatible OpenAI",
   "aiApiFormatAnthropic": "API Anthropic Messages",

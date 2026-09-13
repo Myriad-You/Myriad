@@ -2,9 +2,11 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   AI_VENDOR_PRESETS,
+  apiFormatForSource,
   findVendorPreset,
   isAgoraSource,
   isMiniMaxSpeechSource,
+  isSupportedAiApiFormat,
   resolveUsedVendorSlug,
   sourceFromCustom,
   sourceFromPreset,
@@ -180,6 +182,23 @@ describe('AI vendor presets', () => {
     assert.equal(source.api_key, '')
     assert.equal(vendorSupports(source, 'text'), true)
     assert.equal(vendorSupports(source, 'image'), false)
+  })
+
+  it('preserves an unsupported API format so the configuration stays visible', () => {
+    const source = {
+      kind: 'custom',
+      preset: '',
+      api_format: 'future_protocol',
+    }
+    assert.equal(apiFormatForSource(source), 'future_protocol')
+    assert.equal(isSupportedAiApiFormat(apiFormatForSource(source)), false)
+  })
+
+  it('defaults a missing API format to openai without inferring from vendor identity', () => {
+    assert.equal(
+      apiFormatForSource({ kind: 'gemini', preset: 'gemini' }),
+      'openai',
+    )
   })
 
   it('uses the native Anthropic Messages API preset', () => {

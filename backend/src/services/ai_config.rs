@@ -33,12 +33,14 @@ pub struct AiImageConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AiConfigError {
     NotConfigured,
+    InvalidProvider(String),
 }
 
 impl AiConfigError {
-    pub fn message(&self) -> &'static str {
+    pub fn message(&self) -> &str {
         match self {
             Self::NotConfigured => myriad_agent_rules::AI_PROVIDER_NOT_CONFIGURED,
+            Self::InvalidProvider(message) => message,
         }
     }
 }
@@ -123,23 +125,26 @@ pub async fn get_ai_config_for_tier(tier: ModelTier) -> Result<AiConfig, AiConfi
     let config = GLOBAL_DYNAMIC_CONFIG.read().await;
     let resolved = config.resolve_ai_config(tier);
     let model = resolved.model.trim();
-    let ai_config = (!model.is_empty()).then(|| {
-        let provider = AiProvider::from_str(&resolved.api_format);
-        let base_url = if resolved.base_url.is_empty() {
-            None
-        } else {
-            Some(resolved.base_url.clone())
-        };
-        AiConfig {
-            provider,
-            api_key: resolved
-                .api_key
-                .filter(|key| !key.trim().is_empty())
-                .unwrap_or_default(),
-            model: resolved.model.clone(),
-            base_url,
-        }
-    });
+    let ai_config = (!model.is_empty())
+        .then(|| {
+            let provider = AiProvider::from_str(&resolved.api_format)
+                .map_err(|error| AiConfigError::InvalidProvider(error.to_string()))?;
+            let base_url = if resolved.base_url.is_empty() {
+                None
+            } else {
+                Some(resolved.base_url.clone())
+            };
+            Ok(AiConfig {
+                provider,
+                api_key: resolved
+                    .api_key
+                    .filter(|key| !key.trim().is_empty())
+                    .unwrap_or_default(),
+                model: resolved.model.clone(),
+                base_url,
+            })
+        })
+        .transpose()?;
 
     match ai_config {
         Some(cfg) => {

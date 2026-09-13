@@ -1104,6 +1104,7 @@
   "aiVendorApiKey": "API Key",
   "aiVendorApiKeyOptional": "선택 사항입니다. 인증이 필요 없는 제공자는 비워 둘 수 있습니다.",
   "aiVendorApiFormat": "API 형식",
+  "aiVendorApiFormatInvalid": "지원되지 않는 API 형식: {value}",
   "aiApiFormatResponses": "OpenAI Responses API",
   "aiApiFormatChatCompletions": "OpenAI 호환 Chat Completions",
   "aiApiFormatAnthropic": "Anthropic Messages API",

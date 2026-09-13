@@ -41,7 +41,7 @@ pub struct OAuthProviderEntry {
 }
 
 /// 一个可复用的 AI 服务商源（同一 kind 可以有多条，用 slug 区分）。
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AiVendorSource {
     pub slug: String,
     /// openrouter | openai | openai_compatible | gemini | volcengine | tencent | agora | minimax
@@ -53,7 +53,7 @@ pub struct AiVendorSource {
     pub preset: String,
     /// Wire protocol for text generation. Kept separate from vendor branding.
     /// Values use the analyzer runtime ids (`openai`, `openai_responses`, `anthropic`, `gemini`).
-    #[serde(default)]
+    #[serde(default = "default_ai_api_format")]
     pub api_format: String,
     #[serde(default)]
     pub api_key: Option<String>,
@@ -70,25 +70,43 @@ pub struct AiVendorSource {
     pub app_id: Option<String>,
 }
 
+fn default_ai_api_format() -> String {
+    "openai".to_string()
+}
+
+impl Default for AiVendorSource {
+    fn default() -> Self {
+        Self {
+            slug: String::new(),
+            kind: String::new(),
+            display_name: String::new(),
+            enabled: false,
+            preset: String::new(),
+            api_format: default_ai_api_format(),
+            api_key: None,
+            base_url: String::new(),
+            secret_id: None,
+            secret_key: None,
+            region: None,
+            app_id: None,
+        }
+    }
+}
+
 impl AiVendorSource {
     pub fn effective_api_format(&self) -> &str {
         let explicit = self.api_format.trim();
-        match explicit {
-            "openai" => return "openai",
-            "openai_responses" => return "openai_responses",
-            "anthropic" => return "anthropic",
-            "gemini" => return "gemini",
-            _ => {}
+        if !explicit.is_empty() {
+            return explicit;
         }
-        if self.kind.eq_ignore_ascii_case("gemini") {
-            "gemini"
-        } else if self.kind.eq_ignore_ascii_case("anthropic")
-            || self.preset.eq_ignore_ascii_case("anthropic")
-        {
-            "anthropic"
-        } else {
-            "openai"
-        }
+        "openai"
+    }
+
+    pub fn has_supported_api_format(&self) -> bool {
+        matches!(
+            self.effective_api_format(),
+            "openai" | "openai_responses" | "anthropic" | "gemini"
+        )
     }
 
     pub fn is_agora(&self) -> bool {
@@ -1091,7 +1109,7 @@ impl DynamicConfig {
                 return false;
             };
             return source.enabled
-                && !source.api_format.trim().is_empty()
+                && source.has_supported_api_format()
                 && (source.effective_api_format() == "gemini"
                     || !source.base_url.trim().is_empty());
         }
@@ -1194,6 +1212,7 @@ impl DynamicConfig {
                 display_name: "Gemini".to_string(),
                 enabled: true,
                 preset: "gemini".to_string(),
+                api_format: "gemini".to_string(),
                 api_key: Some(api_key),
                 ..AiVendorSource::default()
             });
@@ -1505,6 +1524,25 @@ mod tests {
 
     #[test]
     fn vendor_source_api_format_uses_runtime_ids() {
+        let defaulted: AiVendorSource = serde_json::from_value(serde_json::json!({
+            "slug": "legacy",
+            "kind": "custom",
+            "display_name": "Legacy",
+            "enabled": true
+        }))
+        .expect("source without api_format");
+        assert_eq!(defaulted.api_format, "openai");
+        assert_eq!(AiVendorSource::default().api_format, "openai");
+        assert_eq!(
+            AiVendorSource {
+                kind: "gemini".to_string(),
+                api_format: String::new(),
+                ..AiVendorSource::default()
+            }
+            .effective_api_format(),
+            "openai"
+        );
+
         let explicit: AiVendorSource = serde_json::from_value(serde_json::json!({
             "slug": "custom-responses",
             "kind": "custom",
@@ -1534,9 +1572,17 @@ mod tests {
         .expect("chat-completions source");
         assert_eq!(chat.effective_api_format(), "openai");
         assert_eq!(
-            crate::services::analyzer::AiProvider::from_str(chat.effective_api_format()),
+            crate::services::analyzer::AiProvider::from_str(chat.effective_api_format())
+                .expect("valid provider"),
             crate::services::analyzer::AiProvider::OpenAI
         );
+
+        let invalid = AiVendorSource {
+            api_format: "future_protocol".to_string(),
+            ..AiVendorSource::default()
+        };
+        assert_eq!(invalid.effective_api_format(), "future_protocol");
+        assert!(!invalid.has_supported_api_format());
     }
 
     /// 「我明明开了 Lite」得能被认出来。
@@ -1732,13 +1778,29 @@ mod tests {
                 kind: "custom".to_string(),
                 display_name: "Local".to_string(),
                 enabled: true,
-                api_format: "openai".to_string(),
+                api_format: String::new(),
                 base_url: "http://127.0.0.1:11434/v1".to_string(),
                 ..AiVendorSource::default()
             }],
             ..DynamicConfig::default()
         };
         assert!(keyless_custom.text_ai_available());
+
+        let invalid_format = DynamicConfig {
+            ai_source: "invalid".to_string(),
+            openai_model: "model".to_string(),
+            ai_vendor_sources: vec![AiVendorSource {
+                slug: "invalid".to_string(),
+                kind: "custom".to_string(),
+                display_name: "Invalid".to_string(),
+                enabled: true,
+                api_format: "future_protocol".to_string(),
+                base_url: "https://llm.example/v1".to_string(),
+                ..AiVendorSource::default()
+            }],
+            ..DynamicConfig::default()
+        };
+        assert!(!invalid_format.text_ai_available());
     }
 
     #[test]

@@ -178,12 +178,13 @@ pub enum AiProvider {
 }
 
 impl AiProvider {
-    pub fn from_str(s: &str) -> Self {
+    pub fn from_str(s: &str) -> anyhow::Result<Self> {
         match s.to_lowercase().as_str() {
-            "openai" | "openrouter" => Self::OpenAI,
-            "openai_responses" => Self::OpenAIResponses,
-            "anthropic" | "anthropic_messages" => Self::Anthropic,
-            _ => Self::Gemini,
+            "gemini" => Ok(Self::Gemini),
+            "openai" | "openrouter" => Ok(Self::OpenAI),
+            "openai_responses" => Ok(Self::OpenAIResponses),
+            "anthropic" | "anthropic_messages" => Ok(Self::Anthropic),
+            _ => Err(anyhow::anyhow!("unsupported AI provider: {s}")),
         }
     }
 
@@ -265,6 +266,15 @@ mod tests {
         OpenAIRequest, gateway_of,
     };
     use serde_json::json;
+
+    #[test]
+    fn ai_provider_rejects_unknown_values() {
+        let error = AiProvider::from_str("unknown-provider").unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "unsupported AI provider: unknown-provider"
+        );
+    }
 
     #[test]
     fn the_gateway_is_recovered_from_the_base_url() {

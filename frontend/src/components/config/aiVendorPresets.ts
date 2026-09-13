@@ -9,11 +9,18 @@ export type AiVendorKind =
   | 'anthropic'
   | 'custom'
 
-export type AiApiFormat =
-  | 'openai'
-  | 'openai_responses'
-  | 'anthropic'
-  | 'gemini'
+export type AiApiFormat = 'openai' | 'openai_responses' | 'anthropic' | 'gemini'
+
+export const AI_API_FORMATS: readonly AiApiFormat[] = [
+  'openai',
+  'openai_responses',
+  'anthropic',
+  'gemini',
+]
+
+export function isSupportedAiApiFormat(value: string): value is AiApiFormat {
+  return AI_API_FORMATS.includes(value as AiApiFormat)
+}
 
 export type AiVendorCapability = 'text' | 'image' | 'speech' | 'realtime'
 
@@ -536,18 +543,9 @@ export function sourceFromCustom(
 
 export function apiFormatForSource(
   source: Pick<AiVendorSource, 'kind' | 'preset' | 'api_format'>,
-): AiApiFormat {
+): string {
   const explicit = source.api_format?.trim()
-  if (
-    explicit === 'openai' ||
-    explicit === 'openai_responses' ||
-    explicit === 'anthropic' ||
-    explicit === 'gemini'
-  ) {
-    return explicit
-  }
-  if (source.kind === 'gemini') return 'gemini'
-  if (source.kind === 'anthropic' || source.preset === 'anthropic') return 'anthropic'
+  if (explicit) return explicit
   return 'openai'
 }
 

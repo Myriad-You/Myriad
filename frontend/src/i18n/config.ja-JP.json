@@ -1104,6 +1104,7 @@
   "aiVendorApiKey": "API Key",
   "aiVendorApiKeyOptional": "任意。認証不要のプロバイダーでは空欄にできます。",
   "aiVendorApiFormat": "API形式",
+  "aiVendorApiFormatInvalid": "サポートされていない API 形式: {value}",
   "aiApiFormatResponses": "OpenAI Responses API",
   "aiApiFormatChatCompletions": "OpenAI互換 Chat Completions",
   "aiApiFormatAnthropic": "Anthropic Messages API",

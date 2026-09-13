@@ -1104,6 +1104,7 @@
   "aiVendorApiKey": "API Key",
   "aiVendorApiKeyOptional": "選填。不需要驗證的服務商可以留空。",
   "aiVendorApiFormat": "API 形態",
+  "aiVendorApiFormatInvalid": "不支援的 API 形態：{value}",
   "aiApiFormatResponses": "OpenAI Responses API",
   "aiApiFormatChatCompletions": "OpenAI 相容 Chat Completions",
   "aiApiFormatAnthropic": "Anthropic Messages API",

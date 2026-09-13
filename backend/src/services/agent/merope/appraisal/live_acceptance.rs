@@ -31,7 +31,7 @@ async fn trial_analyzer_with_timeout(
         .resolve_strict_lite_ai_config()
         .expect("explicit Lite required");
     AiAnalyzer::new_with_timeout(
-        AiProvider::from_str(&resolved.api_format),
+        AiProvider::from_str(&resolved.api_format).expect("valid Lite provider"),
         resolved.api_key.filter(|key| !key.trim().is_empty()),
         model.into(),
         (!resolved.base_url.is_empty()).then_some(resolved.base_url),
