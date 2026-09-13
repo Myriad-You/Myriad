@@ -27,9 +27,12 @@ import {
 } from '../settings'
 import {
   AI_VENDOR_PRESETS,
+  apiFormatForSource,
   findVendorPreset,
   isAgoraSource,
+  sourceFromCustom,
   sourceFromPreset,
+  vendorSupports,
 } from './aiVendorPresets'
 import { useAddedCardOpen, useAddedSlug } from './useAddedCard'
 import {
@@ -126,7 +129,8 @@ export function VendorKindIcon({
   if (kind === 'volcengine') return <VolcengineMark />
   if (kind === 'tencent') return <TencentCloudMark />
   if (kind === 'agora') return <ShengwangMark />
-  const letter = (resolved?.display_name || slug || kind).trim().charAt(0) || '?'
+  const letter =
+    (resolved?.display_name || slug || kind).trim().charAt(0) || '?'
   return (
     <span className="oidc-preset-icon-placeholder" aria-hidden>
       {letter.toUpperCase()}
@@ -134,7 +138,8 @@ export function VendorKindIcon({
   )
 }
 
-export type VendorUsageId = 'standard' | 'lite' | 'pro' | 'image' | 'speech' | 'realtime'
+export type VendorUsageId =
+  'standard' | 'lite' | 'pro' | 'image' | 'speech' | 'realtime'
 
 export type VendorUsageMap = Partial<Record<string, VendorUsageId[]>>
 
@@ -144,7 +149,10 @@ interface AiVendorSourcesProps {
   usages?: VendorUsageMap
 }
 
-function usageLabel(id: VendorUsageId, t: ReturnType<typeof useI18n>['t']): string {
+function usageLabel(
+  id: VendorUsageId,
+  t: ReturnType<typeof useI18n>['t'],
+): string {
   switch (id) {
     case 'lite':
       return t.config.aiVendorUsedLite
@@ -172,7 +180,12 @@ function usedByText(
   })
 }
 
-const CAPABILITY_ORDER: AiVendorCapability[] = ['text', 'image', 'speech', 'realtime']
+const CAPABILITY_ORDER: AiVendorCapability[] = [
+  'text',
+  'image',
+  'speech',
+  'realtime',
+]
 
 function capabilityLabel(
   id: AiVendorCapability,
@@ -262,6 +275,22 @@ export function AiVendorAddTrigger({
             </button>
           )
         })}
+        <button
+          type="button"
+          className="oidc-preset-card"
+          onClick={() =>
+            onChange([...sources, sourceFromCustom(sources, t.config.aiVendorCustom)])
+          }
+          title={t.config.aiVendorCustomDesc}
+        >
+          <span className="oidc-preset-icon">
+            <VendorKindIcon kind="custom" />
+          </span>
+          <span className="oidc-preset-name">{t.config.aiVendorCustom}</span>
+          <span className="ai-vendor-preset-caps">
+            {t.config.aiVendorCapText}
+          </span>
+        </button>
       </div>
     ),
     [addFromPreset, format, sources, t, usages],
@@ -302,7 +331,9 @@ export const AiVendorSources: React.FC<AiVendorSourcesProps> = ({
   const addedSlug = useAddedSlug(sources.map((source) => source.slug))
 
   const updateSource = (index: number, patch: Partial<AiVendorSource>) => {
-    onChange(sources.map((item, i) => (i === index ? { ...item, ...patch } : item)))
+    onChange(
+      sources.map((item, i) => (i === index ? { ...item, ...patch } : item)),
+    )
   }
 
   return (
@@ -340,17 +371,23 @@ function VendorSetupSteps({ source }: { source: AiVendorSource }) {
   )
 }
 
-function hasVendorCredential(source: AiVendorSource): boolean {
+function hasVendorConfiguration(source: AiVendorSource): boolean {
   if (isAgoraSource(source)) {
     return Boolean(
-      source.app_id?.trim()
-      && source.api_key?.trim()
-      && source.secret_id?.trim()
-      && source.secret_key?.trim(),
+      source.app_id?.trim() &&
+      source.api_key?.trim() &&
+      source.secret_id?.trim() &&
+      source.secret_key?.trim(),
     )
   }
   if (source.kind === 'tencent') {
     return Boolean(source.secret_id?.trim() || source.secret_key?.trim())
+  }
+  if (vendorSupports(source, 'text')) {
+    const preset = findVendorPreset(source)
+    return Boolean(
+      apiFormatForSource(source) && (preset || source.base_url?.trim()),
+    )
   }
   return Boolean(source.api_key?.trim())
 }
@@ -371,7 +408,7 @@ function VendorCard({
   const { t, format } = useI18n()
   const { catalog: g, bindGuide } = useSettingGuide()
   const preset = findVendorPreset(source)
-  const configured = hasVendorCredential(source)
+  const configured = hasVendorConfiguration(source)
   const title = source.display_name || source.slug
   const usedHint = usedByText(usedBy, t, format)
   const [open, setOpen] = useAddedCardOpen(justAdded, !configured)
@@ -418,11 +455,13 @@ function VendorCard({
           <span className="ai-vendor-card-tags">
             <SettingTitleTag
               variant="muted"
-              className={configured ? undefined : 'ai-vendor-card-status-missing'}
+              className={
+                configured ? undefined : 'ai-vendor-card-status-missing'
+              }
             >
               {configured
                 ? t.config.aiVendorConfigured
-                : t.config.aiVendorKeyMissing}
+                : t.config.aiVendorSetupMissing}
             </SettingTitleTag>
             {usedHint ? (
               <SettingTitleTag variant="muted">{usedHint}</SettingTitleTag>
@@ -477,9 +516,7 @@ function VendorCard({
 
       <CollapseRegion open={open}>
         <div className="ai-vendor-card-body">
-          {!configured ? (
-            <VendorSetupSteps source={source} />
-          ) : null}
+          {!configured ? <VendorSetupSteps source={source} /> : null}
           <InputItem
             itemKey={`${source.slug}-name`}
             label={t.config.aiVendorDisplayName}
@@ -579,6 +616,33 @@ function VendorCard({
             </>
           ) : (
             <>
+              {vendorSupports(source, 'text') ? (
+                <SelectItem
+                  itemKey={`${source.slug}-api-format`}
+                  label={t.config.aiVendorApiFormat}
+                  value={apiFormatForSource(source)}
+                  onChange={(value) => onChange({ api_format: value })}
+                  options={[
+                    {
+                      value: 'openai_responses',
+                      label: t.config.aiApiFormatResponses,
+                    },
+                    {
+                      value: 'openai',
+                      label: t.config.aiApiFormatChatCompletions,
+                    },
+                    {
+                      value: 'anthropic',
+                      label: t.config.aiApiFormatAnthropic,
+                    },
+                    {
+                      value: 'gemini',
+                      label: t.config.aiApiFormatGemini,
+                    },
+                  ]}
+                  layout="vertical"
+                />
+              ) : null}
               <InputItem
                 itemKey={`${source.slug}-key`}
                 label={t.config.aiVendorApiKey}
@@ -594,20 +658,25 @@ function VendorCard({
                       : 'sk-...')
                 }
                 inputType="password"
+                hint={t.config.aiVendorApiKeyOptional}
                 autoSelectOnMask
                 layout="vertical"
               />
-              {source.kind !== 'gemini' && !(preset?.base_url || '').trim() && (
+              {vendorSupports(source, 'text') && (
                 <InputItem
                   itemKey={`${source.slug}-base`}
-                  label={t.config.openaiBaseUrlLabel}
+                  label={t.config.baseUrlLabel}
                   {...bindGuide('ai.baseUrl', g.ai.baseUrl)}
                   value={source.base_url || ''}
                   onChange={(value) => onChange({ base_url: value })}
                   placeholder={
-                    preset?.id === 'openaiCompatible'
-                      ? 'https://api.example.com/v1'
-                      : t.config.openaiBaseUrlLabel
+                    apiFormatForSource(source) === 'anthropic'
+                      ? 'https://api.anthropic.com/v1'
+                      : apiFormatForSource(source) === 'gemini'
+                        ? 'https://generativelanguage.googleapis.com'
+                        : preset?.id === 'openaiCompatible'
+                          ? 'https://api.example.com/v1'
+                          : t.config.baseUrlLabel
                   }
                   layout="vertical"
                 />

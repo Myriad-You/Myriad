@@ -455,26 +455,33 @@ async fn request_estimate(
                 config.base_url.as_deref().unwrap_or_default(),
                 &config.model,
             ),
-            client
+            {
+                let request = client
                 .post(gemini_media::generate_content_url(
                     config.base_url.as_deref().unwrap_or_default(),
                     &config.model,
                 ))
-                .header("x-goog-api-key", &config.api_key)
                 .json(&json!({
                     "contents": [{ "parts": [
                         { "inlineData": { "mimeType": reference.media_type, "data": encoded } },
                         { "text": prompt }
                     ]}],
                     "generationConfig": { "responseMimeType": "application/json" }
-                })),
+                }));
+                if config.api_key.trim().is_empty() {
+                    request
+                } else {
+                    request.header("x-goog-api-key", &config.api_key)
+                }
+            },
         ),
         AiProvider::OpenAI => {
             let url = openai_chat_completions_url(config.base_url.as_deref());
             let data_url = format!("data:{};base64,{encoded}", reference.media_type);
             (
                 url.clone(),
-                client.post(url).bearer_auth(&config.api_key).json(&json!({
+                {
+                    let request = client.post(url).json(&json!({
                     "model": config.model,
                     "messages": [{
                         "role": "user",
@@ -484,8 +491,62 @@ async fn request_estimate(
                         ]
                     }],
                     "response_format": { "type": "json_object" }
-                })),
+                    }));
+                    if config.api_key.trim().is_empty() {
+                        request
+                    } else {
+                        request.bearer_auth(&config.api_key)
+                    }
+                },
             )
+        }
+        AiProvider::OpenAIResponses => {
+            let url = crate::services::analyzer::text_protocol::endpoint(
+                config.provider,
+                config.base_url.as_deref(),
+            );
+            let data_url = format!("data:{};base64,{encoded}", reference.media_type);
+            let request = client.post(&url).json(&json!({
+                "model": config.model,
+                "store": false,
+                "input": [{ "role": "user", "content": [
+                    { "type": "input_text", "text": prompt },
+                    { "type": "input_image", "image_url": data_url }
+                ]}],
+                "text": { "format": { "type": "json_object" } }
+            }));
+            let request = if config.api_key.trim().is_empty() {
+                request
+            } else {
+                request.bearer_auth(&config.api_key)
+            };
+            (url, request)
+        }
+        AiProvider::Anthropic => {
+            let url = crate::services::analyzer::text_protocol::endpoint(
+                config.provider,
+                config.base_url.as_deref(),
+            );
+            let request = client.post(&url).header("anthropic-version", "2023-06-01").json(&json!({
+                "model": config.model,
+                "max_tokens": 4096,
+                "messages": [{ "role": "user", "content": [
+                    { "type": "image", "source": {
+                        "type": "base64",
+                        "media_type": reference.media_type,
+                        "data": encoded
+                    } },
+                    { "type": "text", "text": format!(
+                        "{prompt}\n\nReturn one valid JSON object only, without Markdown fences."
+                    ) }
+                ]}]
+            }));
+            let request = if config.api_key.trim().is_empty() {
+                request
+            } else {
+                request.header("x-api-key", &config.api_key)
+            };
+            (url, request)
         }
     };
     let response = tokio::time::timeout(REQUEST_TIMEOUT, request.send())
@@ -521,6 +582,10 @@ async fn request_estimate(
         AiProvider::OpenAI => openai_text(&value)
             .map(str::to_string)
             .ok_or_else(|| "OpenAI-compatible vision response contained no text".to_string()),
+        AiProvider::OpenAIResponses | AiProvider::Anthropic => {
+            crate::services::analyzer::text_protocol::response_text(config.provider, &value)
+                .map_err(|error| error.to_string())
+        }
     }
 }
 

@@ -1563,12 +1563,17 @@ mod tests {
                 "kind": "openai",
                 "display_name": "Work OpenAI",
                 "enabled": true,
+                "api_format": "openai_responses",
                 "api_key": "sk-work",
                 "base_url": "https://api.openai.com/v1"
             }]),
         )]));
         assert_eq!(vendors.ai_vendor_sources.len(), 1);
         assert_eq!(vendors.ai_vendor_sources[0].slug, "openai-work");
+        assert_eq!(
+            vendors.ai_vendor_sources[0].effective_api_format(),
+            "openai_responses"
+        );
         assert_eq!(
             vendors.ai_vendor_sources[0].api_key.as_deref(),
             Some("sk-work")

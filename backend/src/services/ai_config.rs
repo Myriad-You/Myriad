@@ -38,7 +38,7 @@ pub enum AiConfigError {
 impl AiConfigError {
     pub fn message(&self) -> &'static str {
         match self {
-            Self::NotConfigured => "No AI provider configured",
+            Self::NotConfigured => myriad_agent_rules::AI_PROVIDER_NOT_CONFIGURED,
         }
     }
 }
@@ -79,6 +79,11 @@ impl<V: Clone> SingleCache<V> {
         self.value = Some(value);
         self.cached_at = Some(Instant::now());
     }
+
+    fn clear(&mut self) {
+        self.value = None;
+        self.cached_at = None;
+    }
 }
 
 static AI_CONFIG_CACHE: Lazy<RwLock<SingleCache<AiConfig>>> =
@@ -98,6 +103,13 @@ fn cache_for_tier(tier: ModelTier) -> &'static RwLock<SingleCache<AiConfig>> {
     }
 }
 
+pub async fn invalidate_ai_config_cache() {
+    AI_CONFIG_CACHE.write().await.clear();
+    AI_PRO_CONFIG_CACHE.write().await.clear();
+    AI_LITE_CONFIG_CACHE.write().await.clear();
+    AI_IMAGE_CONFIG_CACHE.write().await.clear();
+}
+
 /// Resolve text AI config for a model tier (5-minute process cache).
 pub async fn get_ai_config_for_tier(tier: ModelTier) -> Result<AiConfig, AiConfigError> {
     let cache_ref = cache_for_tier(tier);
@@ -110,9 +122,9 @@ pub async fn get_ai_config_for_tier(tier: ModelTier) -> Result<AiConfig, AiConfi
 
     let config = GLOBAL_DYNAMIC_CONFIG.read().await;
     let resolved = config.resolve_ai_config(tier);
-    let api_key = resolved.api_key.filter(|k| !k.is_empty());
-    let ai_config = api_key.map(|key| {
-        let provider = AiProvider::from_str(&resolved.provider);
+    let model = resolved.model.trim();
+    let ai_config = (!model.is_empty()).then(|| {
+        let provider = AiProvider::from_str(&resolved.api_format);
         let base_url = if resolved.base_url.is_empty() {
             None
         } else {
@@ -120,7 +132,10 @@ pub async fn get_ai_config_for_tier(tier: ModelTier) -> Result<AiConfig, AiConfi
         };
         AiConfig {
             provider,
-            api_key: key,
+            api_key: resolved
+                .api_key
+                .filter(|key| !key.trim().is_empty())
+                .unwrap_or_default(),
             model: resolved.model.clone(),
             base_url,
         }
@@ -168,11 +183,11 @@ mod tests {
     fn not_configured_message_is_stable() {
         assert_eq!(
             AiConfigError::NotConfigured.message(),
-            "No AI provider configured"
+            myriad_agent_rules::AI_PROVIDER_NOT_CONFIGURED
         );
         assert_eq!(
             AiConfigError::NotConfigured.to_string(),
-            "No AI provider configured"
+            myriad_agent_rules::AI_PROVIDER_NOT_CONFIGURED
         );
     }
 

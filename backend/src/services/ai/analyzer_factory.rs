@@ -55,8 +55,11 @@ pub async fn create_ai_analyzer_for_tier_with_timeout(
     }
     let resolved = config.resolve_ai_config(tier);
 
-    let api_key = resolved.api_key.filter(|k| !k.is_empty())?;
-    let provider = AiProvider::from_str(&resolved.provider);
+    if resolved.model.trim().is_empty() {
+        return None;
+    }
+    let api_key = resolved.api_key.filter(|key| !key.trim().is_empty());
+    let provider = AiProvider::from_str(&resolved.api_format);
     let base_url = if resolved.base_url.is_empty() {
         None
     } else {
@@ -81,8 +84,8 @@ pub async fn create_strict_lite_ai_analyzer_with_timeout(
         .read()
         .await
         .resolve_strict_lite_ai_config()?;
-    let api_key = resolved.api_key.filter(|key| !key.is_empty())?;
-    let provider = AiProvider::from_str(&resolved.provider);
+    let api_key = resolved.api_key.filter(|key| !key.trim().is_empty());
+    let provider = AiProvider::from_str(&resolved.api_format);
     let base_url = if resolved.base_url.is_empty() {
         None
     } else {

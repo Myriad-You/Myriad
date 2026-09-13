@@ -490,7 +490,7 @@
     },
     "vendors": {
       "what": "Un jeu d’identifiants par fournisseur, partagé par tout le site.",
-      "chain": "1) Utilisez « Ajouter un fournisseur » dans l’en-tête de page pour choisir un préréglage. Vous pouvez en ajouter plusieurs du même type.\n2) Chaque source a son propre nom, ID et clé.\n3) Texte, image et parole choisissent parmi ces sources.",
+      "chain": "1) Utilisez « Ajouter un fournisseur » pour choisir un préréglage ou créer un fournisseur personnalisé absent de la liste.\n2) Chaque source texte choisit un format d’API et une URL de base ; la clé API est facultative sans authentification.\n3) Texte, image et parole ne proposent que les sources activées compatibles.",
       "frontend": "Paramètres → IA → « Ajouter un fournisseur » dans l’en-tête de section.",
       "notes": "Vous ne ressaisissez pas une clé en changeant de modèle. Les nouvelles clés ici l’emportent sur d’anciens champs par fonction."
     },
@@ -502,19 +502,19 @@
     },
     "provider": {
       "what": "Quelle entreprise de service intelligent utiliser.",
-      "chain": "1) Changer de fournisseur change les champs ci-dessous.\n2) Les requêtes vont vers ce fournisseur.\n3) Après changement, revérifiez que clé secrète et nom de modèle correspondent encore.",
+      "chain": "1) Un fournisseur est un point de terminaison nommé ; le format d’API détermine la forme des requêtes et réponses.\n2) Les préréglages ne donnent que des valeurs initiales : format et URL de base restent modifiables.\n3) Après changement, revérifiez le modèle et la clé facultative.",
       "frontend": "Les champs du formulaire de la page de paramètres changent ; un mauvais réglage affiche des erreurs à l’usage.",
       "notes": "Ne changez pas de fournisseur en gardant le nom de modèle d’un autre."
     },
     "apiKey": {
       "what": "Le mot de passe secret pour se connecter au service intelligent.",
-      "chain": "1) Après remplissage et enregistrement, seul le serveur l’utilise.\n2) Les visiteurs ne voient jamais le secret complet sur la page.\n3) Manquant ou faux → chat et génération échouent tous les deux.\n4) Après rotation, l’ancien cesse de marcher tout de suite.",
+      "chain": "1) Si le point de terminaison exige une clé, seul le serveur l’utilise après enregistrement.\n2) Les visiteurs ne voient jamais le secret complet.\n3) Laissez vide pour un service local ou approuvé sans authentification.\n4) Après rotation d’une clé requise, l’ancienne cesse de fonctionner.",
       "frontend": "Messages d’erreur en cas d’échec. Envoyez une ligne de test dans l’assistant.",
       "notes": "Ne le publiez pas dans des groupes publics ni dans des dépôts de code publics."
     },
     "baseUrl": {
       "what": "Adresse d’accès du service intelligent (officielle, ou un relais que vous faites tourner).",
-      "chain": "1) La plupart des gens laissent vide = adresse officielle.\n2) Si vous remplissez un relais, le trafic passe par le relais.\n3) Mauvaise valeur → tous les modèles échouent à se connecter ; l’apparence de la page est correcte.",
+      "chain": "1) Le chemin du point de terminaison dépendant du format d’API est ajouté à cette adresse.\n2) Les préréglages ont une valeur officielle ou compatible ; un fournisseur personnalisé exige sa propre adresse.\n3) Une mauvaise adresse empêche les modèles de cette source de se connecter.",
       "frontend": "Apparence de page inchangée ; l’échec se voit comme IA indisponible.",
       "notes": "Si vous ne comprenez pas les relais, laissez vide ; un mauvais remplissage est pire que vide."
     },

@@ -101,6 +101,7 @@
   "iconSaveFailed": "這個訂閱源圖示沒能儲存。",
   "aiResponseInvalid": "AI 返回的內容無法解析，請重試。",
   "aiGenerationFailed": "AI 生成失敗，請稍後重試。",
+  "aiProviderNotConfigured": "AI 尚未設定，請先在 AI 設定中新增或選擇服務商。",
   "asrInvalidAudio": "音訊資料無效，請重新錄製或上傳。",
   "speechNotConfigured": "語音服務還沒配好，請先在 AI 設定裡填好金鑰。",
   "speechTtsNoAudio": "語音服務沒有返回音訊，請稍後重試。",

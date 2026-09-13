@@ -101,6 +101,7 @@
   "iconSaveFailed": "Could not save this feed icon.",
   "aiResponseInvalid": "The AI response could not be parsed. Please try again.",
   "aiGenerationFailed": "AI generation failed. Please try again.",
+  "aiProviderNotConfigured": "AI is not configured. Add or select a provider in AI settings.",
   "asrInvalidAudio": "The audio data is invalid. Record or upload it again.",
   "speechNotConfigured": "Speech is not configured. Add the provider key in AI settings first.",
   "speechTtsNoAudio": "The speech service returned no audio. Please try again.",

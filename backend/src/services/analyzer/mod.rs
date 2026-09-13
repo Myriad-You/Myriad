@@ -4,6 +4,7 @@ mod client;
 mod gemini;
 mod openai;
 mod schema;
+pub(crate) mod text_protocol;
 mod types;
 
 mod transport;

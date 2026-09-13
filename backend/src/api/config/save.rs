@@ -67,6 +67,7 @@ pub async fn update_config(
             // 内存节约档：立即收紧并发/缓存/Argon2；DB 池在下次建连/重启后生效
             crate::services::memory_profile::apply_from_saver_flag(new_config.memory_saver_enabled);
             *dynamic_config.write().await = new_config;
+            crate::services::ai_config::invalidate_ai_config_cache().await;
             tracing::info!("✅ Dynamic configuration cache updated");
 
             // 3.1 重载全局 HTTP 客户端（以应用新的代理配置）

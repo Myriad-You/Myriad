@@ -14,6 +14,7 @@ use super::openai::{
     openai_chat_completions_url,
 };
 use super::schema::JsonMode;
+use super::text_protocol;
 use super::transport;
 use super::types::{
     AiProvider, ChatMessage, Gateway, GeminiContent, GeminiPart, GeminiRequest, GeminiResponse,
@@ -23,7 +24,7 @@ use super::types::{
 pub struct AiAnalyzer {
     pub(super) client: Client,
     provider: AiProvider,
-    pub(super) api_key: String,
+    pub(super) api_key: Option<String>,
     pub(super) model: String,
     pub(super) base_url: Option<String>, // For OpenAI-compatible APIs
 }
@@ -106,6 +107,47 @@ impl ProviderCallFailure {
 }
 
 impl AiAnalyzer {
+    async fn gemini_url(&self, stream: bool) -> String {
+        if let Some(base) = self
+            .base_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|base| !base.is_empty())
+        {
+            let method = if stream {
+                "streamGenerateContent?alt=sse"
+            } else {
+                "generateContent"
+            };
+            return format!(
+                "{}/v1beta/models/{}:{}",
+                base.trim_end_matches('/'),
+                self.model,
+                method
+            );
+        }
+        if stream {
+            let base = GeminiApiUrl::get_base().await;
+            format!(
+                "{}/v1beta/models/{}:streamGenerateContent?alt=sse",
+                base, self.model
+            )
+        } else {
+            GeminiApiUrl::generate_content_url(&self.model).await
+        }
+    }
+
+    fn authenticate(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        match (self.provider, self.api_key.as_deref()) {
+            (AiProvider::Anthropic, Some(key)) => request.header("x-api-key", key),
+            (AiProvider::OpenAI | AiProvider::OpenAIResponses, Some(key)) => {
+                request.bearer_auth(key)
+            }
+            (AiProvider::Gemini, Some(key)) => request.header("x-goog-api-key", key),
+            _ => request,
+        }
+    }
+
     /// 对面是哪一家网关。
     pub fn gateway(&self) -> Gateway {
         gateway_of(self.provider, self.base_url.as_deref())
@@ -155,7 +197,7 @@ impl AiAnalyzer {
 
     pub async fn new(
         provider: AiProvider,
-        api_key: String,
+        api_key: Option<String>,
         model: String,
         base_url: Option<String>,
     ) -> Self {
@@ -173,7 +215,7 @@ impl AiAnalyzer {
     /// 指定更长的单次请求超时。
     pub async fn new_with_timeout(
         provider: AiProvider,
-        api_key: String,
+        api_key: Option<String>,
         model: String,
         base_url: Option<String>,
         request_timeout: Duration,
@@ -211,7 +253,7 @@ impl AiAnalyzer {
         Self {
             client,
             provider,
-            api_key,
+            api_key: api_key.filter(|key| !key.trim().is_empty()),
             model,
             base_url,
         }
@@ -225,6 +267,9 @@ impl AiAnalyzer {
         let result = match self.provider {
             AiProvider::Gemini => self.analyze_with_gemini(prompt).await,
             AiProvider::OpenAI => self.analyze_with_openai(prompt).await,
+            AiProvider::OpenAIResponses | AiProvider::Anthropic => {
+                self.analyze_with_text_protocol("", &[ChatMessage::user(prompt)]).await
+            }
         };
         self.note_ledger(input_chars, &result, "analyze").await;
         result
@@ -275,14 +320,12 @@ impl AiAnalyzer {
             generation_config: None,
         };
 
-        let url = GeminiApiUrl::generate_content_url(&self.model).await;
+        let url = self.gemini_url(false).await;
 
         tracing::info!("🔗 Calling Gemini API (model: {})", self.model);
 
         let response = self
-            .client
-            .post(&url)
-            .header("x-goog-api-key", &self.api_key)
+            .authenticate(self.client.post(&url))
             .json(&request_body)
             .send()
             .await
@@ -353,9 +396,7 @@ impl AiAnalyzer {
         );
 
         let response = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
+            .authenticate(self.client.post(&url))
             .header("Content-Type", "application/json")
             .json(&request_body)
             .send()
@@ -382,6 +423,61 @@ impl AiAnalyzer {
             Self::read_limited_json(response, 2 * 1024 * 1024).await?;
 
         extract_openai_completion_text(&openai_response)
+    }
+
+    async fn send_text_protocol(
+        &self,
+        system: &str,
+        messages: &[ChatMessage],
+        response_format: Option<serde_json::Value>,
+        max_tokens: Option<u32>,
+    ) -> std::result::Result<String, ProviderCallFailure> {
+        let url = text_protocol::endpoint(self.provider, self.base_url.as_deref());
+        let body = text_protocol::request_body(
+            self.provider,
+            &self.model,
+            system,
+            messages,
+            response_format,
+            max_tokens,
+            false,
+        );
+        let mut request = self.authenticate(self.client.post(&url));
+        if self.provider == AiProvider::Anthropic {
+            request = request.header("anthropic-version", "2023-06-01");
+        }
+        let response = request
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|error| ProviderCallFailure::transport(error.into()))?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let detail = Self::read_limited_error_text(response).await;
+            return Err(ProviderCallFailure::http(
+                status,
+                anyhow::anyhow!(
+                    "AI provider API error {status} (endpoint: {url}, model: {}): {detail}",
+                    self.model
+                ),
+            ));
+        }
+        let body: serde_json::Value = Self::read_limited_json(response, 2 * 1024 * 1024)
+            .await
+            .map_err(ProviderCallFailure::transport)?;
+        text_protocol::response_text(self.provider, &body)
+            .map_err(ProviderCallFailure::transport)
+    }
+
+    async fn analyze_with_text_protocol(
+        &self,
+        system: &str,
+        messages: &[ChatMessage],
+    ) -> Result<String> {
+        self.send_text_protocol(system, messages, None, None)
+            .await
+            .map_err(|failure| failure.error)
     }
 
     /// prompt-only wrapper around `analyze_profile`.
@@ -445,9 +541,7 @@ impl AiAnalyzer {
                 let url = openai_chat_completions_url(self.base_url.as_deref());
 
                 let response = self
-                    .client
-                    .post(&url)
-                    .header("Authorization", format!("Bearer {}", self.api_key))
+                    .authenticate(self.client.post(&url))
                     .header("Content-Type", "application/json")
                     .json(&request_body)
                     .send()
@@ -478,6 +572,13 @@ impl AiAnalyzer {
                     }
                     Err(e) => Err(e),
                 };
+                self.note_ledger(input_chars, &result, "chat").await;
+                result
+            }
+            AiProvider::OpenAIResponses | AiProvider::Anthropic => {
+                let input_chars =
+                    system.len() + messages.iter().map(|m| m.content.len()).sum::<usize>();
+                let result = self.analyze_with_text_protocol(system, &messages).await;
                 self.note_ledger(input_chars, &result, "chat").await;
                 result
             }
@@ -513,7 +614,9 @@ impl AiAnalyzer {
     ) -> Result<String> {
         let input_chars = system.len() + prompt.len();
 
-        let mode = if self.refused(RequestShape::StructuredOutput) {
+        let mode = if self.provider == AiProvider::Anthropic
+            || self.refused(RequestShape::StructuredOutput)
+        {
             JsonMode::PromptOnly(schema)
         } else {
             JsonMode::Structured(schema)
@@ -569,7 +672,9 @@ impl AiAnalyzer {
         let input_chars = system.len() + prompt.len();
 
         // 这个端点拒过什么，就别再每次去撞一遍。
-        let mode = if self.refused(RequestShape::StructuredOutput) {
+        let mode = if self.provider == AiProvider::Anthropic
+            || self.refused(RequestShape::StructuredOutput)
+        {
             JsonMode::PromptOnly(schema)
         } else {
             JsonMode::Structured(schema)
@@ -633,14 +738,18 @@ impl AiAnalyzer {
         F: FnMut(StreamDelta) -> Fut + Send,
         Fut: Future<Output = bool> + Send,
     {
-        if self.provider != AiProvider::OpenAI {
+        if self.provider == AiProvider::Gemini {
             return self.analyze_json(system, prompt, schema_name, schema).await;
         }
 
         let input_chars = system.len() + prompt.len();
-        let streamed = self
-            .analyze_json_streaming_openai(system, prompt, schema_name, schema, on_delta)
-            .await;
+        let streamed = if self.provider == AiProvider::OpenAI {
+            self.analyze_json_streaming_openai(system, prompt, schema_name, schema, on_delta)
+                .await
+        } else {
+            self.analyze_json_streaming_protocol(system, prompt, schema_name, schema, on_delta)
+                .await
+        };
         match streamed {
             Ok(text) => {
                 let result = Ok(text);
@@ -697,9 +806,7 @@ impl AiAnalyzer {
 
         let url = openai_chat_completions_url(self.base_url.as_deref());
         let response = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
+            .authenticate(self.client.post(&url))
             .header("Content-Type", "application/json")
             .json(&request_body)
             .send()
@@ -723,6 +830,98 @@ impl AiAnalyzer {
         consume_openai_sse(response, on_delta)
             .await
             .map_err(ProviderCallFailure::transport)
+    }
+
+    async fn analyze_json_streaming_protocol<F, Fut>(
+        &self,
+        system: &str,
+        prompt: &str,
+        schema_name: &str,
+        schema: Option<&serde_json::Value>,
+        mut on_delta: F,
+    ) -> std::result::Result<String, ProviderCallFailure>
+    where
+        F: FnMut(StreamDelta) -> Fut + Send,
+        Fut: Future<Output = bool> + Send,
+    {
+        let prompt = if self.provider == AiProvider::Anthropic {
+            JsonMode::PromptOnly(schema).decorate_prompt(prompt)
+        } else {
+            prompt.to_string()
+        };
+        let format = (self.provider == AiProvider::OpenAIResponses)
+            .then(|| JsonMode::Structured(schema).openai_response_format(schema_name))
+            .flatten();
+        let messages = vec![ChatMessage::user(prompt)];
+        let url = text_protocol::endpoint(self.provider, self.base_url.as_deref());
+        let body = text_protocol::request_body(
+            self.provider,
+            &self.model,
+            system,
+            &messages,
+            format,
+            None,
+            true,
+        );
+        let mut request = self.authenticate(self.client.post(&url));
+        if self.provider == AiProvider::Anthropic {
+            request = request.header("anthropic-version", "2023-06-01");
+        }
+        let mut response = request
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|error| ProviderCallFailure::transport(error.into()))?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let detail = Self::read_limited_error_text(response).await;
+            return Err(ProviderCallFailure::http(
+                status,
+                anyhow::anyhow!(
+                    "AI provider streaming API error {status} (endpoint: {url}, model: {}): {detail}",
+                    self.model
+                ),
+            ));
+        }
+
+        let mut full_text = String::new();
+        let mut buffer = String::new();
+        while let Some(bytes) = response
+            .chunk()
+            .await
+            .map_err(|error| ProviderCallFailure::transport(error.into()))?
+        {
+            buffer.push_str(&String::from_utf8_lossy(&bytes));
+            while let Some(pos) = buffer.find('\n') {
+                let line = buffer[..pos].trim().to_string();
+                buffer = buffer[pos + 1..].to_string();
+                let Some(data) = line.strip_prefix("data: ") else {
+                    continue;
+                };
+                if data == "[DONE]" {
+                    return Ok(full_text);
+                }
+                let Ok(value) = serde_json::from_str::<serde_json::Value>(data) else {
+                    continue;
+                };
+                for delta in text_protocol::stream_deltas(self.provider, &value) {
+                    if let StreamDelta::Text(ref text) = delta {
+                        full_text.push_str(text);
+                    }
+                    if !on_delta(delta).await {
+                        return Ok(full_text);
+                    }
+                }
+                if matches!(
+                    value.get("type").and_then(serde_json::Value::as_str),
+                    Some("message_stop" | "response.completed")
+                ) {
+                    return Ok(full_text);
+                }
+            }
+        }
+        Ok(full_text)
     }
 
     async fn analyze_json_inner(
@@ -750,11 +949,9 @@ impl AiAnalyzer {
                     generation_config: mode.gemini_generation_config(budget),
                 };
 
-                let url = GeminiApiUrl::generate_content_url(&self.model).await;
+                let url = self.gemini_url(false).await;
                 let response = self
-                    .client
-                    .post(&url)
-                    .header("x-goog-api-key", &self.api_key)
+                    .authenticate(self.client.post(&url))
                     .json(&request_body)
                     .send()
                     .await
@@ -836,9 +1033,7 @@ impl AiAnalyzer {
 
                 let url = openai_chat_completions_url(self.base_url.as_deref());
                 let response = self
-                    .client
-                    .post(&url)
-                    .header("Authorization", format!("Bearer {}", self.api_key))
+                    .authenticate(self.client.post(&url))
                     .header("Content-Type", "application/json")
                     .json(&request_body)
                     .send()
@@ -865,6 +1060,29 @@ impl AiAnalyzer {
                         .map_err(ProviderCallFailure::transport)?;
                 extract_openai_completion_text(&openai_response)
                     .map_err(ProviderCallFailure::transport)
+            }
+            AiProvider::OpenAIResponses | AiProvider::Anthropic => {
+                let (prompt, response_format) = match mode {
+                    JsonMode::Structured(schema) if self.provider == AiProvider::OpenAIResponses => (
+                        prompt.to_string(),
+                        JsonMode::Structured(schema).openai_response_format(schema_name),
+                    ),
+                    JsonMode::Structured(schema) => (
+                        JsonMode::PromptOnly(schema).decorate_prompt(prompt),
+                        None,
+                    ),
+                    JsonMode::PromptOnly(schema) => (
+                        JsonMode::PromptOnly(schema).decorate_prompt(prompt),
+                        None,
+                    ),
+                };
+                self.send_text_protocol(
+                    system,
+                    &[ChatMessage::user(prompt)],
+                    response_format,
+                    budget.map(|value| value.max_tokens),
+                )
+                .await
             }
         }
     }
@@ -916,16 +1134,10 @@ impl AiAnalyzer {
                     generation_config: None,
                 };
 
-                let base_url = crate::services::http_client::GeminiApiUrl::get_base().await;
-                let url = format!(
-                    "{}/v1beta/models/{}:streamGenerateContent?alt=sse",
-                    base_url, self.model
-                );
+                let url = self.gemini_url(true).await;
 
                 let mut response = self
-                    .client
-                    .post(&url)
-                    .header("x-goog-api-key", &self.api_key)
+                    .authenticate(self.client.post(&url))
                     .json(&request_body)
                     .send()
                     .await
@@ -994,9 +1206,7 @@ impl AiAnalyzer {
                 let url = openai_chat_completions_url(self.base_url.as_deref());
 
                 let response = self
-                    .client
-                    .post(&url)
-                    .header("Authorization", format!("Bearer {}", self.api_key))
+                    .authenticate(self.client.post(&url))
                     .header("Content-Type", "application/json")
                     .json(&request_body)
                     .send()
@@ -1020,6 +1230,55 @@ impl AiAnalyzer {
                 }
 
                 return consume_openai_sse(response, on_delta).await;
+            }
+            AiProvider::OpenAIResponses | AiProvider::Anthropic => {
+                let url = text_protocol::endpoint(self.provider, self.base_url.as_deref());
+                let messages = vec![ChatMessage::user(prompt)];
+                let body = text_protocol::request_body(
+                    self.provider,
+                    &self.model,
+                    "",
+                    &messages,
+                    None,
+                    None,
+                    true,
+                );
+                let mut request = self.authenticate(self.client.post(&url));
+                if self.provider == AiProvider::Anthropic {
+                    request = request.header("anthropic-version", "2023-06-01");
+                }
+                let mut response = request.json(&body).send().await.with_context(|| {
+                    format!("Failed to send streaming request (endpoint: {url}, model: {})", self.model)
+                })?;
+                if !response.status().is_success() {
+                    let status = response.status();
+                    let detail = Self::read_limited_error_text(response).await;
+                    return Err(anyhow::anyhow!(
+                        "AI provider streaming API error {status} (endpoint: {url}, model: {}): {detail}",
+                        self.model
+                    ));
+                }
+                let mut buffer = String::new();
+                while let Some(bytes) = response.chunk().await.context("Stream read error")? {
+                    buffer.push_str(&String::from_utf8_lossy(&bytes));
+                    while let Some(pos) = buffer.find('\n') {
+                        let line = buffer[..pos].trim().to_string();
+                        buffer = buffer[pos + 1..].to_string();
+                        let Some(data) = line.strip_prefix("data: ") else { continue };
+                        if data == "[DONE]" { return Ok(full_text) }
+                        let Ok(value) = serde_json::from_str::<serde_json::Value>(data) else { continue };
+                        for delta in text_protocol::stream_deltas(self.provider, &value) {
+                            if let StreamDelta::Text(ref text) = delta { full_text.push_str(text); }
+                            if !on_delta(delta).await { return Ok(full_text) }
+                        }
+                        if matches!(
+                            value.get("type").and_then(serde_json::Value::as_str),
+                            Some("message_stop" | "response.completed")
+                        ) {
+                            return Ok(full_text)
+                        }
+                    }
+                }
             }
         }
 

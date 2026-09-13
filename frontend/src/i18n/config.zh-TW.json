@@ -35,15 +35,7 @@
     "rangeDaysSelected": "{n} 天",
     "rangePrevMonth": "上個月",
     "rangeNextMonth": "下個月",
-    "rangeWeekdays": [
-      "一",
-      "二",
-      "三",
-      "四",
-      "五",
-      "六",
-      "日"
-    ],
+    "rangeWeekdays": ["一", "二", "三", "四", "五", "六", "日"],
     "rangeMonthTitle": "{y}年{m}月",
     "rangeToday": "今天",
     "refresh": "重新整理",
@@ -402,7 +394,7 @@
   "importPreviewIgnored": "忽略已廢棄項",
   "importPreviewMigrated": "自動遷移",
   "importPreviewInvalid": "無法恢復",
-  "openaiBaseUrlLabel": "OpenAI Base URL",
+  "baseUrlLabel": "Base URL",
   "openaiModelLabel": "模型名",
   "domainStatusAuto": "自動",
   "domainStatusManual": "手動",
@@ -756,6 +748,7 @@
   "configSaved": "配置已儲存！",
   "configSaveFailed": "儲存配置失敗",
   "partialSaveWarning": "部分設定已儲存，後續步驟失敗",
+  "unsavedChangesPrompt": "目前頁面有未儲存的變更，離開後這些內容會遺失。仍要離開嗎？",
   "configEmpty": "配置為空，無法儲存",
   "loadConfigFailed": "載入配置失敗",
   "loadConfigFailedDesc": "暫時無法取得設定，請檢查連線後重試。",
@@ -1109,6 +1102,15 @@
   "aiVendorEmpty": "還沒有服務商",
   "aiVendorDisplayName": "顯示名",
   "aiVendorApiKey": "API Key",
+  "aiVendorApiKeyOptional": "選填。不需要驗證的服務商可以留空。",
+  "aiVendorApiFormat": "API 形態",
+  "aiApiFormatResponses": "OpenAI Responses API",
+  "aiApiFormatChatCompletions": "OpenAI 相容 Chat Completions",
+  "aiApiFormatAnthropic": "Anthropic Messages API",
+  "aiApiFormatGemini": "Gemini generateContent API",
+  "aiVendorCustom": "自訂服務商",
+  "aiVendorCustomDesc": "新增預設清單中沒有的服務商",
+  "aiVendorSetupMissing": "需要設定",
   "aiVendorDocs": "文件",
   "aiVendorConfigured": "已配置",
   "aiVendorKeyMissing": "未填寫",
@@ -1635,12 +1637,7 @@
       "智慧過濾",
       "重新整理"
     ],
-    "platformItem": [
-      "平臺",
-      "資料來源",
-      "token",
-      "api"
-    ],
+    "platformItem": ["平臺", "資料來源", "token", "api"],
     "ai": [
       "ai",
       "gemini",
@@ -1710,21 +1707,8 @@
       "offline",
       "pwa_enabled"
     ],
-    "oauth": [
-      "oauth",
-      "github",
-      "登入",
-      "auth",
-      "認證"
-    ],
-    "music": [
-      "音樂",
-      "music",
-      "歌單",
-      "播放器",
-      "網易雲",
-      "qq音樂"
-    ],
+    "oauth": ["oauth", "github", "登入", "auth", "認證"],
+    "music": ["音樂", "music", "歌單", "播放器", "網易雲", "qq音樂"],
     "network": [
       "proxy",
       "代理",

@@ -177,7 +177,7 @@ async fn execute_tapp_understand(
 ) -> Result<Value, String> {
     let analyzer = ctx
         .ai_analyzer
-        .ok_or("AI analyzer not configured for UI understanding")?;
+        .ok_or(myriad_agent_rules::AI_PROVIDER_NOT_CONFIGURED)?;
 
     let tapp_id = params
         .get("tappId")
@@ -1183,7 +1183,7 @@ async fn execute_page_understand(
     Ok(json!({
         "query": query,
         "understood": false,
-        "message": "AI analyzer not available"
+        "message": myriad_agent_rules::AI_PROVIDER_NOT_CONFIGURED
     }))
 }
 

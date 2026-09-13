@@ -101,6 +101,7 @@
   "iconSaveFailed": "Impossible d’enregistrer cette icône de flux.",
   "aiResponseInvalid": "La réponse IA n’a pas pu être analysée. Réessayez.",
   "aiGenerationFailed": "La génération IA a échoué. Réessayez.",
+  "aiProviderNotConfigured": "L’IA n’est pas configurée. Ajoutez ou sélectionnez un fournisseur dans les réglages IA.",
   "asrInvalidAudio": "Les données audio sont invalides. Enregistrez ou envoyez-les à nouveau.",
   "speechNotConfigured": "La parole n’est pas configurée. Ajoutez d’abord la clé du fournisseur dans les paramètres IA.",
   "speechTtsNoAudio": "Le service vocal n’a renvoyé aucun audio. Réessayez.",

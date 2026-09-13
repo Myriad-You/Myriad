@@ -490,7 +490,7 @@
     },
     "vendors": {
       "what": "Ein Satz Zugangsdaten je Anbieter, von der ganzen Site geteilt.",
-      "chain": "1) „Anbieter hinzufügen“ in der Seitenkopfzeile nutzen, um eine Vorgabe zu wählen. Sie können mehr als einen derselben Art hinzufügen.\n2) Jede Quelle hat eigenen Namen, ID und Schlüssel.\n3) Text, Bild und Sprache wählen aus diesen Quellen.",
+      "chain": "1) Mit „Anbieter hinzufügen“ eine Vorlage wählen oder einen eigenen, nicht gelisteten Anbieter anlegen.\n2) Jede Textquelle legt API-Format und Basis-URL fest; ohne Authentifizierung ist der API-Schlüssel optional.\n3) Text, Bild und Sprache zeigen nur aktivierte, passende Quellen.",
       "frontend": "Einstellungen → KI → „Anbieter hinzufügen“ in der Abschnittskopfzeile.",
       "notes": "Beim Modellwechsel keinen Schlüssel neu eingeben. Neue Schlüssel hier gewinnen gegenüber älteren feldspezifischen Feldern."
     },
@@ -502,19 +502,19 @@
     },
     "provider": {
       "what": "Welches Intelligenz-Unternehmen genutzt wird.",
-      "chain": "1) Anbieterwechsel ändert die Felder darunter.\n2) Anfragen gehen an diesen Anbieter.\n3) Nach dem Wechsel erneut prüfen, ob Geheimschlüssel und Modellname noch passen.",
+      "chain": "1) Ein Anbieter ist ein benannter Endpunkt; das API-Format bestimmt Anfrage und Antwort.\n2) Vorlagen liefern nur Startwerte, API-Format und Basis-URL bleiben änderbar.\n3) Nach dem Wechsel Modellname und optionalen Schlüssel erneut prüfen.",
       "frontend": "Formularfelder auf der Einstellungsseite ändern sich; falsche Einrichtung zeigt Fehler bei der Nutzung.",
       "notes": "Nicht den Anbieter wechseln, aber den Modellnamen eines anderen Anbieters behalten."
     },
     "apiKey": {
       "what": "Das geheime Passwort zur Verbindung mit dem intelligenten Dienst.",
-      "chain": "1) Nach Ausfüllen und Speichern nutzt es nur das Server-Backend.\n2) Besucher sehen das volle Geheimnis nie auf der Seite.\n3) Fehlt oder falsch → Chat und Erzeugung scheitern beide.\n4) Nach dem Rotieren stoppt das alte sofort.",
+      "chain": "1) Falls der Endpunkt einen Schlüssel verlangt, nutzt ihn nach dem Speichern nur der Server.\n2) Besucher sehen das vollständige Geheimnis nie.\n3) Für lokale oder vertrauenswürdige Endpunkte ohne Anmeldung leer lassen.\n4) Nach dem Wechsel eines erforderlichen Schlüssels ist der alte sofort ungültig.",
       "frontend": "Fehlermeldungen bei Fehler. Eine Testzeile im Assistenten senden.",
       "notes": "Nicht in öffentlichen Gruppen posten oder in öffentliche Code-Repositories legen."
     },
     "baseUrl": {
       "what": "Zugangsadresse des intelligenten Dienstes (offiziell oder ein Relais, das Sie betreiben).",
-      "chain": "1) Die meisten lassen leer = offizielle Adresse nutzen.\n2) Füllen Sie ein Relais, läuft der Verkehr über das Relais.\n3) Falscher Wert → alle Modelle verbinden nicht; das Seitenbild ist in Ordnung.",
+      "chain": "1) Der zum API-Format gehörende Endpunktpfad wird an diese Adresse angehängt.\n2) Vorlagen starten mit einem offiziellen oder kompatiblen Wert; eigene Anbieter brauchen ihre Adresse.\n3) Eine falsche Adresse verhindert Verbindungen für Modelle dieser Quelle.",
       "frontend": "Seitenerscheinung unverändert; Fehler erscheint als KI nicht verfügbar.",
       "notes": "Wenn Sie Relais nicht verstehen, leer lassen; falsch ausfüllen ist schlechter als leer."
     },

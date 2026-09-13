@@ -1,6 +1,7 @@
 import type { ConfigDomainController, ConfigOperation } from './configDomain'
 import type { ShowMessage } from './types'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useUnsavedChangesGuard } from '../../../hooks/useUnsavedChangesGuard'
 import { userFacingError } from '../../../utils/userFacingError'
 import { executeConfigOperations } from './configDomain'
 
@@ -23,6 +24,7 @@ interface EditorMessages {
   configReset: string
   resetCurrentPageNone: string
   resetCurrentPageDone: string
+  unsavedChangesPrompt: string
 }
 
 export function useConfigEditor(
@@ -35,6 +37,7 @@ export function useConfigEditor(
   const busy = useRef(false)
   const [saving, setSaving] = useState(false)
   const isDirty = domains.some((domain) => domain.dirty || domain.pendingSync)
+  useUnsavedChangesGuard(isDirty, messages.unsavedChangesPrompt)
 
   const load = useCallback(async () => {
     const { domains, showMessage, messages } = latest.current
@@ -58,10 +61,6 @@ export function useConfigEditor(
     window.dispatchEvent(
       new CustomEvent('config-dirty-state', { detail: { dirty: isDirty } }),
     )
-    if (!isDirty) return
-    const beforeUnload = (event: BeforeUnloadEvent) => event.preventDefault()
-    window.addEventListener('beforeunload', beforeUnload)
-    return () => window.removeEventListener('beforeunload', beforeUnload)
   }, [isDirty])
   useEffect(
     () => () => {

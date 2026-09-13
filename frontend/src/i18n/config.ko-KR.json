@@ -35,15 +35,7 @@
     "rangeDaysSelected": "{n, plural, one {#일} other {#일}}",
     "rangePrevMonth": "이전 달",
     "rangeNextMonth": "다음 달",
-    "rangeWeekdays": [
-      "월",
-      "화",
-      "수",
-      "목",
-      "금",
-      "토",
-      "일"
-    ],
+    "rangeWeekdays": ["월", "화", "수", "목", "금", "토", "일"],
     "rangeMonthTitle": "{y}년 {m}월",
     "rangeToday": "오늘",
     "refresh": "새로고침",
@@ -402,7 +394,7 @@
   "importPreviewIgnored": "삭제된 항목 무시",
   "importPreviewMigrated": "자동 이전",
   "importPreviewInvalid": "복원 불가",
-  "openaiBaseUrlLabel": "OpenAI Base URL",
+  "baseUrlLabel": "Base URL",
   "openaiModelLabel": "모델 이름",
   "domainStatusAuto": "자동",
   "domainStatusManual": "수동",
@@ -756,6 +748,7 @@
   "configSaved": "설정을 저장했습니다!",
   "configSaveFailed": "설정 저장에 실패했습니다",
   "partialSaveWarning": "일부 설정은 저장됐지만 이후 단계가 실패했습니다",
+  "unsavedChangesPrompt": "저장하지 않은 변경 사항이 있습니다. 페이지를 나가고 변경 사항을 버릴까요?",
   "configEmpty": "설정이 비어 있어 저장할 수 없습니다",
   "loadConfigFailed": "설정을 불러오지 못했습니다",
   "loadConfigFailedDesc": "설정을 쓸 수 없습니다. 연결을 확인하고 다시 시도하세요.",
@@ -1109,6 +1102,15 @@
   "aiVendorEmpty": "아직 제공자가 없습니다",
   "aiVendorDisplayName": "표시 이름",
   "aiVendorApiKey": "API Key",
+  "aiVendorApiKeyOptional": "선택 사항입니다. 인증이 필요 없는 제공자는 비워 둘 수 있습니다.",
+  "aiVendorApiFormat": "API 형식",
+  "aiApiFormatResponses": "OpenAI Responses API",
+  "aiApiFormatChatCompletions": "OpenAI 호환 Chat Completions",
+  "aiApiFormatAnthropic": "Anthropic Messages API",
+  "aiApiFormatGemini": "Gemini generateContent API",
+  "aiVendorCustom": "사용자 지정 제공자",
+  "aiVendorCustomDesc": "프리셋 목록에 없는 제공자를 추가합니다",
+  "aiVendorSetupMissing": "설정 필요",
   "aiVendorDocs": "문서",
   "aiVendorConfigured": "설정됨",
   "aiVendorKeyMissing": "없음",
@@ -1562,13 +1564,7 @@
       "캐시",
       "새로고침"
     ],
-    "connectedPlatforms": [
-      "연결",
-      "플랫폼",
-      "자동 새로고침",
-      "간격",
-      "소스"
-    ],
+    "connectedPlatforms": ["연결", "플랫폼", "자동 새로고침", "간격", "소스"],
     "visitor": [
       "방문자",
       "통계",
@@ -1603,27 +1599,9 @@
       "umami_script_url",
       "분석 스크립트"
     ],
-    "data": [
-      "데이터",
-      "캐시",
-      "필터",
-      "스마트 필터",
-      "새로고침"
-    ],
-    "platformItem": [
-      "플랫폼",
-      "소스",
-      "token",
-      "api"
-    ],
-    "ai": [
-      "ai",
-      "gemini",
-      "openai",
-      "api",
-      "모델",
-      "이미지"
-    ],
+    "data": ["데이터", "캐시", "필터", "스마트 필터", "새로고침"],
+    "platformItem": ["플랫폼", "소스", "token", "api"],
+    "ai": ["ai", "gemini", "openai", "api", "모델", "이미지"],
     "agent": [
       "agent",
       "페르소나",
@@ -1668,19 +1646,8 @@
       "오프라인",
       "pwa_enabled"
     ],
-    "oauth": [
-      "oauth",
-      "github",
-      "로그인",
-      "auth"
-    ],
-    "music": [
-      "음악",
-      "플레이리스트",
-      "플레이어",
-      "netease",
-      "qq music"
-    ],
+    "oauth": ["oauth", "github", "로그인", "auth"],
+    "music": ["음악", "플레이리스트", "플레이어", "netease", "qq music"],
     "network": [
       "proxy",
       "네트워크",
@@ -1737,13 +1704,7 @@
       "롤백",
       "스냅샷"
     ],
-    "permissions": [
-      "권한",
-      "elevated",
-      "할당량",
-      "ai",
-      "게스트"
-    ],
+    "permissions": ["권한", "elevated", "할당량", "ai", "게스트"],
     "users": [
       "사용자",
       "users",
@@ -1754,15 +1715,7 @@
       "가입",
       "identity"
     ],
-    "federation": [
-      "연합",
-      "신뢰",
-      "허용 목록",
-      "차단",
-      "필터",
-      "mfp",
-      "aro"
-    ],
+    "federation": ["연합", "신뢰", "허용 목록", "차단", "필터", "mfp", "aro"],
     "modules": [
       "모듈",
       "라이브러리",

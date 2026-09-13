@@ -51,6 +51,10 @@ pub struct AiVendorSource {
     /// 前端预设 id（openrouter / deepseek / groq …），与 kind 独立。
     #[serde(default)]
     pub preset: String,
+    /// Wire protocol for text generation. Kept separate from vendor branding.
+    /// Values use the analyzer runtime ids (`openai`, `openai_responses`, `anthropic`, `gemini`).
+    #[serde(default)]
+    pub api_format: String,
     #[serde(default)]
     pub api_key: Option<String>,
     #[serde(default)]
@@ -67,6 +71,26 @@ pub struct AiVendorSource {
 }
 
 impl AiVendorSource {
+    pub fn effective_api_format(&self) -> &str {
+        let explicit = self.api_format.trim();
+        match explicit {
+            "openai" => return "openai",
+            "openai_responses" => return "openai_responses",
+            "anthropic" => return "anthropic",
+            "gemini" => return "gemini",
+            _ => {}
+        }
+        if self.kind.eq_ignore_ascii_case("gemini") {
+            "gemini"
+        } else if self.kind.eq_ignore_ascii_case("anthropic")
+            || self.preset.eq_ignore_ascii_case("anthropic")
+        {
+            "anthropic"
+        } else {
+            "openai"
+        }
+    }
+
     pub fn is_agora(&self) -> bool {
         let slug = self.slug.trim().to_ascii_lowercase();
         self.kind.trim().eq_ignore_ascii_case("agora")
@@ -79,6 +103,7 @@ impl AiVendorSource {
 /// 解析后的 AI 配置（已根据 tier 确定具体的 provider/key/model）
 pub struct ResolvedAiConfig {
     pub provider: String,
+    pub api_format: String,
     pub api_key: Option<String>,
     pub model: String,
     pub base_url: String,
@@ -1055,9 +1080,22 @@ impl DynamicConfig {
         Self::first_nonempty_key([self.provider_tinyfish_api_key.clone()])
     }
 
-    /// Standard 档解析后是否有可用文本 key（含 vendor / 共享库）。
+    /// Standard 档解析后是否有可用文本端点；新 source 可以明确选择免鉴权。
     pub fn text_ai_available(&self) -> bool {
-        self.resolve_ai_config(ModelTier::Standard)
+        let resolved = self.resolve_ai_config(ModelTier::Standard);
+        if resolved.model.trim().is_empty() {
+            return false;
+        }
+        if !self.ai_vendor_sources.is_empty() {
+            let Some(source) = self.find_vendor_source(&self.ai_source) else {
+                return false;
+            };
+            return source.enabled
+                && !source.api_format.trim().is_empty()
+                && (source.effective_api_format() == "gemini"
+                    || !source.base_url.trim().is_empty());
+        }
+        resolved
             .api_key
             .as_ref()
             .is_some_and(|key| !key.trim().is_empty())
@@ -1263,15 +1301,15 @@ impl DynamicConfig {
         match source.kind.as_str() {
             "gemini" => ResolvedAiConfig {
                 provider: "gemini".to_string(),
-                api_key: Self::nonempty_opt(source.api_key.as_ref())
-                    .or_else(|| self.shared_gemini_api_key()),
+                api_format: source.effective_api_format().to_string(),
+                api_key: Self::nonempty_opt(source.api_key.as_ref()),
                 model: model.to_string(),
-                base_url: String::new(),
+                base_url: source.base_url.trim().to_string(),
             },
             "openrouter" => ResolvedAiConfig {
                 provider: "openai".to_string(),
-                api_key: Self::nonempty_opt(source.api_key.as_ref())
-                    .or_else(|| self.shared_openrouter_api_key()),
+                api_format: source.effective_api_format().to_string(),
+                api_key: Self::nonempty_opt(source.api_key.as_ref()),
                 model: model.to_string(),
                 base_url: if source.base_url.trim().is_empty() {
                     "https://openrouter.ai/api/v1".to_string()
@@ -1280,9 +1318,13 @@ impl DynamicConfig {
                 },
             },
             _ => ResolvedAiConfig {
-                provider: "openai".to_string(),
-                api_key: Self::nonempty_opt(source.api_key.as_ref())
-                    .or_else(|| self.shared_openai_api_key()),
+                provider: if source.effective_api_format() == "anthropic" {
+                    "anthropic".to_string()
+                } else {
+                    "openai".to_string()
+                },
+                api_format: source.effective_api_format().to_string(),
+                api_key: Self::nonempty_opt(source.api_key.as_ref()),
                 model: model.to_string(),
                 base_url: if source.base_url.trim().is_empty() {
                     self.shared_openai_base_url()
@@ -1297,6 +1339,7 @@ impl DynamicConfig {
         if Self::is_openrouter_base(selected_base) {
             ResolvedAiConfig {
                 provider: "openai".to_string(),
+                api_format: "openai".to_string(),
                 api_key: self.shared_openrouter_api_key(),
                 model: model.to_string(),
                 base_url: "https://openrouter.ai/api/v1".to_string(),
@@ -1304,6 +1347,7 @@ impl DynamicConfig {
         } else {
             ResolvedAiConfig {
                 provider: "openai".to_string(),
+                api_format: "openai".to_string(),
                 api_key: self.shared_openai_api_key(),
                 model: model.to_string(),
                 base_url: self.shared_openai_base_url(),
@@ -1432,6 +1476,7 @@ impl DynamicConfig {
         } else {
             ResolvedAiConfig {
                 provider: "gemini".to_string(),
+                api_format: "gemini".to_string(),
                 api_key: self.shared_gemini_api_key(),
                 model,
                 base_url: String::new(),
@@ -1456,6 +1501,42 @@ mod tests {
             Some(v) => unsafe { std::env::set_var("DATABASE_URL", v) },
             None => unsafe { std::env::remove_var("DATABASE_URL") },
         }
+    }
+
+    #[test]
+    fn vendor_source_api_format_uses_runtime_ids() {
+        let explicit: AiVendorSource = serde_json::from_value(serde_json::json!({
+            "slug": "custom-responses",
+            "kind": "custom",
+            "display_name": "Custom Responses",
+            "enabled": true,
+            "api_format": "openai_responses",
+            "base_url": "https://llm.example/v1"
+        }))
+        .expect("explicit source");
+        assert_eq!(explicit.effective_api_format(), "openai_responses");
+        let config = DynamicConfig {
+            provider_openai_api_key: Some("must-not-leak".to_string()),
+            ai_vendor_sources: vec![explicit.clone()],
+            ..DynamicConfig::default()
+        };
+        let resolved = config.resolve_from_vendor_source(&explicit, "gpt-x");
+        assert_eq!(resolved.api_key, None, "custom source must not inherit another source's key");
+
+        let chat: AiVendorSource = serde_json::from_value(serde_json::json!({
+            "slug": "ollama",
+            "kind": "openai_compatible",
+            "display_name": "Ollama",
+            "enabled": true,
+            "api_format": "openai",
+            "base_url": "http://127.0.0.1:11434/v1"
+        }))
+        .expect("chat-completions source");
+        assert_eq!(chat.effective_api_format(), "openai");
+        assert_eq!(
+            crate::services::analyzer::AiProvider::from_str(chat.effective_api_format()),
+            crate::services::analyzer::AiProvider::OpenAI
+        );
     }
 
     /// 「我明明开了 Lite」得能被认出来。
@@ -1642,6 +1723,22 @@ mod tests {
             ..DynamicConfig::default()
         };
         assert!(vault_only.text_ai_available());
+
+        let keyless_custom = DynamicConfig {
+            ai_source: "local".to_string(),
+            openai_model: "local-model".to_string(),
+            ai_vendor_sources: vec![AiVendorSource {
+                slug: "local".to_string(),
+                kind: "custom".to_string(),
+                display_name: "Local".to_string(),
+                enabled: true,
+                api_format: "openai".to_string(),
+                base_url: "http://127.0.0.1:11434/v1".to_string(),
+                ..AiVendorSource::default()
+            }],
+            ..DynamicConfig::default()
+        };
+        assert!(keyless_custom.text_ai_available());
     }
 
     #[test]

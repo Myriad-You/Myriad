@@ -490,7 +490,7 @@
     },
     "vendors": {
       "what": "One set of credentials per vendor, shared by the whole site.",
-      "chain": "1) Use “Add provider” in the page header to pick a preset. You can add more than one of the same kind.\n2) Each source has its own name, ID, and key.\n3) Text, image, and speech pick from these sources.",
+      "chain": "1) Use “Add provider” to pick a preset or create a custom provider not in the list.\n2) Each text source selects an API format and Base URL; API Key is optional for endpoints that do not require authentication.\n3) Text, image, and speech pick from enabled sources that support them.",
       "frontend": "Settings → AI → “Add provider” in the section header.",
       "notes": "You do not re-enter a key when switching models. New keys here win over older per-feature fields."
     },
@@ -502,19 +502,19 @@
     },
     "provider": {
       "what": "Which smart-service company to use.",
-      "chain": "1) Switching providers changes the fields below.\n2) Requests go to that provider.\n3) After switching, re-check that secret key and model name still match.",
+      "chain": "1) A provider is a named endpoint; its API format determines the request and response shape.\n2) Presets only supply defaults—you may edit Base URL and API format.\n3) After switching, re-check the model name and optional key.",
       "frontend": "Form fields on the settings page change; wrong setup shows errors when used.",
       "notes": "Don’t switch provider but keep another provider’s model name."
     },
     "apiKey": {
       "what": "The secret password used to connect to the smart service.",
-      "chain": "1) After you fill and save it, only the server backend uses it.\n2) Visitors never see the full secret on the page.\n3) Missing or wrong → chat and generation both fail.\n4) After rotating, the old one stops working immediately.",
+      "chain": "1) If the endpoint requires a key, only the server backend uses it after saving.\n2) Visitors never see the full secret on the page.\n3) Leave it empty for local or trusted endpoints with no authentication.\n4) After rotating a required key, the old one stops working immediately.",
       "frontend": "Error messages on failure. Send one test line in the assistant.",
       "notes": "Don’t post it in public groups or put it in public code repositories."
     },
     "baseUrl": {
       "what": "Access address of the smart service (official, or a relay you run).",
-      "chain": "1) Most people leave empty = use the official address.\n2) If you fill a relay, traffic goes through the relay.\n3) Wrong value → all models fail to connect; page look is fine.",
+      "chain": "1) The selected API format appends its endpoint path to this address.\n2) Presets start with an official or compatible default; custom providers need their own address.\n3) A wrong address prevents models on this source from connecting.",
       "frontend": "Page appearance unchanged; failure shows up as AI unavailable.",
       "notes": "If you don’t understand relays, leave empty; a wrong fill is worse than empty."
     },

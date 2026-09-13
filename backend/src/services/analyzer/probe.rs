@@ -81,7 +81,7 @@ impl AiAnalyzer {
         let mut response = self
             .client
             .post(openai_chat_completions_url(self.base_url.as_deref()))
-            .bearer_auth(&self.api_key)
+            .bearer_auth(self.api_key.as_deref().unwrap_or(""))
             .json(&body(
                 &self.model,
                 system,

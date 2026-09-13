@@ -1210,6 +1210,7 @@ impl Agent {
                     || err.contains("未配置")
                     || err_lower.contains("not configured")
                     || err_lower.contains("api key")
+                    || err_lower.contains(myriad_agent_rules::AI_PROVIDER_NOT_CONFIGURED)
                 {
                     tracing::info!(
                         error = %err,
@@ -1245,6 +1246,7 @@ impl Agent {
             if err.contains("API Key 未配置")
                 || err.contains("未配置")
                 || err_lower.contains("not configured")
+                || err_lower.contains(myriad_agent_rules::AI_PROVIDER_NOT_CONFIGURED)
             {
                 return format!(
                     "Previous run failed because configuration is missing: {}. Do not retry the same capability or switch to ai.webSearch; use a local capability or ask the user to configure a key.",

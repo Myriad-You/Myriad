@@ -35,15 +35,7 @@
     "rangeDaysSelected": "{n} 日",
     "rangePrevMonth": "前の月",
     "rangeNextMonth": "次の月",
-    "rangeWeekdays": [
-      "月",
-      "火",
-      "水",
-      "木",
-      "金",
-      "土",
-      "日"
-    ],
+    "rangeWeekdays": ["月", "火", "水", "木", "金", "土", "日"],
     "rangeMonthTitle": "{y}年{m}月",
     "rangeToday": "今日",
     "refresh": "更新",
@@ -402,7 +394,7 @@
   "importPreviewIgnored": "廃止項目を無視",
   "importPreviewMigrated": "自動移行",
   "importPreviewInvalid": "復元不可",
-  "openaiBaseUrlLabel": "OpenAI Base URL",
+  "baseUrlLabel": "Base URL",
   "openaiModelLabel": "モデル名",
   "domainStatusAuto": "自動",
   "domainStatusManual": "手動",
@@ -756,6 +748,7 @@
   "configSaved": "設定を保存しました！",
   "configSaveFailed": "設定の保存に失敗しました",
   "partialSaveWarning": "一部の設定は保存されましたが、後続の手順が失敗しました",
+  "unsavedChangesPrompt": "未保存の変更があります。このページを離れて破棄しますか？",
   "configEmpty": "設定が空のため、保存できません",
   "loadConfigFailed": "設定の読み込みに失敗しました",
   "loadConfigFailedDesc": "設定を取得できません。接続を確認して再試行してください。",
@@ -1109,6 +1102,15 @@
   "aiVendorEmpty": "まだありません",
   "aiVendorDisplayName": "表示名",
   "aiVendorApiKey": "API Key",
+  "aiVendorApiKeyOptional": "任意。認証不要のプロバイダーでは空欄にできます。",
+  "aiVendorApiFormat": "API形式",
+  "aiApiFormatResponses": "OpenAI Responses API",
+  "aiApiFormatChatCompletions": "OpenAI互換 Chat Completions",
+  "aiApiFormatAnthropic": "Anthropic Messages API",
+  "aiApiFormatGemini": "Gemini generateContent API",
+  "aiVendorCustom": "カスタムプロバイダー",
+  "aiVendorCustomDesc": "プリセット一覧にないプロバイダーを追加します",
+  "aiVendorSetupMissing": "設定が必要",
   "aiVendorDocs": "ドキュメント",
   "aiVendorConfigured": "設定済み",
   "aiVendorKeyMissing": "未入力",
@@ -1605,28 +1607,9 @@
       "umami",
       "外部統計"
     ],
-    "data": [
-      "データ管理",
-      "data",
-      "キャッシュ",
-      "cache",
-      "フィルタ",
-      "更新"
-    ],
-    "platformItem": [
-      "プラットフォーム",
-      "ソース",
-      "token",
-      "api"
-    ],
-    "ai": [
-      "ai",
-      "gemini",
-      "openai",
-      "api",
-      "モデル",
-      "画像"
-    ],
+    "data": ["データ管理", "data", "キャッシュ", "cache", "フィルタ", "更新"],
+    "platformItem": ["プラットフォーム", "ソース", "token", "api"],
+    "ai": ["ai", "gemini", "openai", "api", "モデル", "画像"],
     "agent": [
       "agent",
       "ペルソナ",
@@ -1667,26 +1650,9 @@
       "install",
       "オフライン"
     ],
-    "oauth": [
-      "oauth",
-      "github",
-      "ログイン",
-      "auth"
-    ],
-    "music": [
-      "音楽",
-      "music",
-      "プレイリスト",
-      "プレーヤー",
-      "netease"
-    ],
-    "network": [
-      "proxy",
-      "プロキシ",
-      "ネットワーク",
-      "mirror",
-      "socks"
-    ],
+    "oauth": ["oauth", "github", "ログイン", "auth"],
+    "music": ["音楽", "music", "プレイリスト", "プレーヤー", "netease"],
+    "network": ["proxy", "プロキシ", "ネットワーク", "mirror", "socks"],
     "notifications": [
       "notification",
       "通知",
@@ -1727,13 +1693,7 @@
       "rollback",
       "snapshot"
     ],
-    "permissions": [
-      "権限",
-      "permission",
-      "quota",
-      "ai",
-      "ゲスト"
-    ],
+    "permissions": ["権限", "permission", "quota", "ai", "ゲスト"],
     "users": [
       "ユーザー",
       "user",

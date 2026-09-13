@@ -60,6 +60,54 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn configured_text_protocol_controls_shape_and_optional_auth() {
+        use axum::{http::HeaderMap, routing::post, Json, Router};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let router = Router::new()
+            .route(
+                "/v1/responses",
+                post(|headers: HeaderMap, Json(body): Json<serde_json::Value>| async move {
+                    assert!(headers.get("authorization").is_none());
+                    assert_eq!(body["store"], false);
+                    assert_eq!(body["input"][0]["content"], "hello");
+                    Json(serde_json::json!({"output_text":"responses-ok"}))
+                }),
+            )
+            .route(
+                "/v1/messages",
+                post(|headers: HeaderMap, Json(body): Json<serde_json::Value>| async move {
+                    assert_eq!(headers["x-api-key"], "anthropic-key");
+                    assert_eq!(headers["anthropic-version"], "2023-06-01");
+                    assert_eq!(body["messages"][0]["content"], "hello");
+                    Json(serde_json::json!({"content":[{"type":"text","text":"anthropic-ok"}]}))
+                }),
+            );
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+
+        let responses = super::super::AiAnalyzer::new_with_timeout(
+            super::super::AiProvider::OpenAIResponses,
+            None,
+            "gpt-x".into(),
+            Some(format!("http://{address}/v1")),
+            Duration::from_secs(2),
+        )
+        .await;
+        assert_eq!(responses.analyze("hello").await.unwrap(), "responses-ok");
+
+        let anthropic = super::super::AiAnalyzer::new_with_timeout(
+            super::super::AiProvider::Anthropic,
+            Some("anthropic-key".to_string()),
+            "claude-x".into(),
+            Some(format!("http://{address}/v1")),
+            Duration::from_secs(2),
+        )
+        .await;
+        assert_eq!(anthropic.analyze("hello").await.unwrap(), "anthropic-ok");
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn ordinary_json_reuses_known_format_support_without_retrying_auth_failures() {
         use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
         use std::sync::{
@@ -80,7 +128,7 @@ mod tests {
         let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         let analyzer = super::super::AiAnalyzer::new_with_timeout(
             super::super::AiProvider::OpenAI,
-            "test".into(),
+            Some("test".into()),
             "memo".into(),
             Some(format!("http://{address}/v1")),
             Duration::from_secs(2),
@@ -102,7 +150,7 @@ mod tests {
         );
         let denied = super::super::AiAnalyzer::new_with_timeout(
             super::super::AiProvider::OpenAI,
-            "test".into(),
+            Some("test".into()),
             "denied".into(),
             Some(format!("http://{address}/v1")),
             Duration::from_secs(2),

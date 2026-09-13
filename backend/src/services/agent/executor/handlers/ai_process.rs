@@ -108,7 +108,9 @@ pub async fn execute(
         return execute_speech_tts(params).await;
     }
 
-    let analyzer = ctx.ai_analyzer.ok_or("AI analyzer not configured")?;
+    let analyzer = ctx
+        .ai_analyzer
+        .ok_or(myriad_agent_rules::AI_PROVIDER_NOT_CONFIGURED)?;
 
     // 注入角色身份 / 记忆 / 对话到 params
     let mut params = inject_role_identity(capability_id, params, ctx);

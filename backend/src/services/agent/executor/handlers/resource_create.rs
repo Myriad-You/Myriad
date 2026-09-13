@@ -168,7 +168,7 @@ async fn execute_tapp_generate(
 ) -> Result<Value, String> {
     let analyzer = ctx
         .ai_analyzer
-        .ok_or("AI analyzer not configured for Tapp generation")?;
+        .ok_or(myriad_agent_rules::AI_PROVIDER_NOT_CONFIGURED)?;
 
     let description = params
         .get("description")

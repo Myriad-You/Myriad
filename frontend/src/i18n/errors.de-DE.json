@@ -101,6 +101,7 @@
   "iconSaveFailed": "Dieses Feed-Icon konnte nicht gespeichert werden.",
   "aiResponseInvalid": "Die KI-Antwort konnte nicht gelesen werden. Bitte erneut versuchen.",
   "aiGenerationFailed": "Die KI-Erzeugung ist fehlgeschlagen. Bitte erneut versuchen.",
+  "aiProviderNotConfigured": "KI ist nicht eingerichtet. Fügen Sie in den KI-Einstellungen einen Anbieter hinzu oder wählen Sie einen aus.",
   "asrInvalidAudio": "Die Audiodaten sind ungültig. Bitte erneut aufnehmen oder hochladen.",
   "speechNotConfigured": "Sprache ist nicht konfiguriert. Hinterlegen Sie zuerst den Anbieter-Schlüssel in den KI-Einstellungen.",
   "speechTtsNoAudio": "Der Sprachdienst hat kein Audio geliefert. Bitte erneut versuchen.",

@@ -601,24 +601,29 @@ async fn run_vision_call(
     let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &image.bytes);
     let client = get_long_running_client().await;
     let request = match config.provider {
-        AiProvider::Gemini => client
+        AiProvider::Gemini => {
+            let request = client
             .post(gemini_media::generate_content_url(
                 config.base_url.as_deref().unwrap_or_default(),
                 &config.model,
             ))
-            .header("x-goog-api-key", &config.api_key)
             .json(&json!({
                 "contents": [{ "parts": [
                     { "inlineData": { "mimeType": image.media_type, "data": encoded } },
                     { "text": prompt }
                 ]}],
                 "generationConfig": { "responseMimeType": "application/json" }
-            })),
+            }));
+            if config.api_key.trim().is_empty() {
+                request
+            } else {
+                request.header("x-goog-api-key", &config.api_key)
+            }
+        }
         AiProvider::OpenAI => {
             let data_url = format!("data:{};base64,{encoded}", image.media_type);
-            client
+            let request = client
                 .post(openai_chat_completions_url(config.base_url.as_deref()))
-                .bearer_auth(&config.api_key)
                 .json(&json!({
                     "model": config.model,
                     "messages": [{
@@ -629,7 +634,59 @@ async fn run_vision_call(
                         ]
                     }],
                     "response_format": { "type": "json_object" }
-                }))
+                }));
+            if config.api_key.trim().is_empty() { request } else { request.bearer_auth(&config.api_key) }
+        }
+        AiProvider::OpenAIResponses => {
+            let data_url = format!("data:{};base64,{encoded}", image.media_type);
+            let request = client
+                .post(crate::services::analyzer::text_protocol::endpoint(
+                    config.provider,
+                    config.base_url.as_deref(),
+                ))
+                .json(&json!({
+                    "model": config.model,
+                    "store": false,
+                    "input": [{
+                        "role": "user",
+                        "content": [
+                            { "type": "input_text", "text": prompt },
+                            { "type": "input_image", "image_url": data_url }
+                        ]
+                    }],
+                    "text": { "format": { "type": "json_object" } }
+                }));
+            if config.api_key.trim().is_empty() { request } else { request.bearer_auth(&config.api_key) }
+        }
+        AiProvider::Anthropic => {
+            let request = client
+                .post(crate::services::analyzer::text_protocol::endpoint(
+                    config.provider,
+                    config.base_url.as_deref(),
+                ))
+                .header("anthropic-version", "2023-06-01")
+                .json(&json!({
+                    "model": config.model,
+                    "max_tokens": 4096,
+                    "messages": [{
+                        "role": "user",
+                        "content": [
+                            { "type": "image", "source": {
+                                "type": "base64",
+                                "media_type": image.media_type,
+                                "data": encoded
+                            } },
+                            { "type": "text", "text": format!(
+                                "{prompt}\n\nReturn one valid JSON object only, without Markdown fences."
+                            ) }
+                        ]
+                    }]
+                }));
+            if config.api_key.trim().is_empty() {
+                request
+            } else {
+                request.header("x-api-key", &config.api_key)
+            }
         }
     };
     let response = match tokio::time::timeout(ONBOARDING_AI_TIMEOUT, request.send()).await {
@@ -697,6 +754,9 @@ async fn run_vision_call(
                         })
                     })
                 })
+        }
+        AiProvider::OpenAIResponses | AiProvider::Anthropic => {
+            crate::services::analyzer::text_protocol::response_text(config.provider, &value).ok()
         }
     };
     text.filter(|value| !value.trim().is_empty())

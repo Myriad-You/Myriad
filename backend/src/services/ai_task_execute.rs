@@ -788,6 +788,8 @@ pub async fn execute_task(execution: AiTaskExecution) {
             match config.provider {
                 AiProvider::Gemini => "gemini".to_string(),
                 AiProvider::OpenAI => "openai".to_string(),
+                AiProvider::OpenAIResponses => "openai_responses".to_string(),
+                AiProvider::Anthropic => "anthropic".to_string(),
             },
             config.model.clone(),
         ),

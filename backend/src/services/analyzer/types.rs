@@ -173,12 +173,16 @@ pub(super) fn json_token(value: &serde_json::Value) -> Option<&str> {
 pub enum AiProvider {
     Gemini,
     OpenAI,
+    OpenAIResponses,
+    Anthropic,
 }
 
 impl AiProvider {
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "openai" | "openrouter" => Self::OpenAI,
+            "openai_responses" => Self::OpenAIResponses,
+            "anthropic" | "anthropic_messages" => Self::Anthropic,
             _ => Self::Gemini,
         }
     }
@@ -186,6 +190,8 @@ impl AiProvider {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::OpenAI => "openai",
+            Self::OpenAIResponses => "openai_responses",
+            Self::Anthropic => "anthropic",
             Self::Gemini => "gemini",
         }
     }
@@ -232,6 +238,9 @@ impl Gateway {
 pub(super) fn gateway_of(provider: AiProvider, base_url: Option<&str>) -> Gateway {
     if provider == AiProvider::Gemini {
         return Gateway::Gemini;
+    }
+    if provider == AiProvider::Anthropic {
+        return Gateway::OpenAiCompatible;
     }
     let host = base_url
         .map(str::trim)

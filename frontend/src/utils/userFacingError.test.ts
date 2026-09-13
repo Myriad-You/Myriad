@@ -23,7 +23,10 @@ describe('userFacingError', () => {
     assert.equal(isUselessErrorText('HTTP 500: Internal Server Error'), true)
     assert.equal(isUselessErrorText('CSRF token unavailable'), true)
     assert.equal(isUselessErrorText('Database error'), true)
-    assert.equal(isUselessErrorText('Failed to save notification preferences'), true)
+    assert.equal(
+      isUselessErrorText('Failed to save notification preferences'),
+      true,
+    )
     assert.equal(isUselessErrorText('Failed to process password'), true)
     assert.equal(isUselessErrorText('Failed to create account'), true)
     assert.equal(isUselessErrorText('Failed to restore settings'), true)
@@ -59,22 +62,41 @@ describe('userFacingError', () => {
 
   it('maps new stable save/load codes from the catalog', () => {
     assert.equal(
-      userFacingError(new ApiError('Failed to load config', 500, 'config_load_failed')),
+      userFacingError(
+        new ApiError('Failed to load config', 500, 'config_load_failed'),
+      ),
       currentCopy().config.loadConfigFailed,
     )
     assert.equal(
       userFacingError(
-        new ApiError('Failed to update permissions', 500, 'permissions_save_failed'),
+        new ApiError(
+          'Failed to update permissions',
+          500,
+          'permissions_save_failed',
+        ),
       ),
       currentCopy().config.permissionsSaveFailed,
     )
     assert.equal(
-      userFacingError(new ApiError('Failed to persist Tapp', 500, 'tapp_save_failed')),
+      userFacingError(
+        new ApiError('Failed to persist Tapp', 500, 'tapp_save_failed'),
+      ),
       currentCopy().errors.tappSaveFailed,
     )
     assert.equal(
       userFacingError('Failed to load configuration'),
       currentCopy().config.loadConfigFailed,
+    )
+  })
+
+  it('maps AI configuration failures by stable code', () => {
+    assert.equal(
+      userFacingError({ code: 'ai_provider_not_configured' }),
+      currentCopy().errors.aiProviderNotConfigured,
+    )
+    assert.equal(
+      userFacingError('AI analyzer not configured for Tapp generation'),
+      currentCopy().errors.aiProviderNotConfigured,
     )
   })
 
@@ -85,7 +107,11 @@ describe('userFacingError', () => {
   })
 
   it('prefers status copy over boilerplate and keeps useful detail', () => {
-    const err = new ApiError('Steam 未返回游戏数据。请确认资料公开。', 502, 'platform_refresh_failed')
+    const err = new ApiError(
+      'Steam 未返回游戏数据。请确认资料公开。',
+      502,
+      'platform_refresh_failed',
+    )
     const text = userFacingError(err, '操作失败')
     assert.match(text, /502/)
     assert.match(text, /Steam/)
@@ -110,15 +136,14 @@ describe('userFacingError', () => {
       new ApiError('Username is required', 400, 'username_required'),
     )
     assert.equal(/Username is required/i.test(text), false)
-    const uid = userFacingError(new ApiError('UID is required', 400, 'uid_required'))
+    const uid = userFacingError(
+      new ApiError('UID is required', 400, 'uid_required'),
+    )
     assert.equal(/UID is required/i.test(uid), false)
   })
 
   it('maps leftover Chinese agent wait-loop messages', () => {
-    assert.equal(
-      /任务已取消/.test(userFacingError('任务已取消')),
-      false,
-    )
+    assert.equal(/任务已取消/.test(userFacingError('任务已取消')), false)
     assert.equal(
       /任务等待通道已断开/.test(userFacingError('任务等待通道已断开')),
       false,
@@ -154,7 +179,11 @@ describe('userFacingError', () => {
 
   it('maps realtime session and missing-report codes', () => {
     const voice = userFacingError(
-      new ApiError('Realtime session is unavailable', 404, 'realtime_session_unavailable'),
+      new ApiError(
+        'Realtime session is unavailable',
+        404,
+        'realtime_session_unavailable',
+      ),
     )
     assert.equal(/Realtime session is unavailable/i.test(voice), false)
     const report = userFacingError(
@@ -188,11 +217,7 @@ describe('userFacingError', () => {
   })
 
   it('maps setup_completed away from the English label', () => {
-    const err = new ApiError(
-      'Setup already completed',
-      403,
-      'setup_completed',
-    )
+    const err = new ApiError('Setup already completed', 403, 'setup_completed')
     const text = userFacingError(err)
     assert.match(text, /安装|complete|完了/i)
     assert.equal(/Setup already completed/i.test(text), false)
@@ -260,14 +285,22 @@ describe('userFacingError', () => {
   })
 
   it('maps brew AI parse failures', () => {
-    const err = new ApiError('Failed to parse AI response', 500, 'ai_response_invalid')
+    const err = new ApiError(
+      'Failed to parse AI response',
+      500,
+      'ai_response_invalid',
+    )
     const text = userFacingError(err)
     assert.equal(/Failed to parse/i.test(text), false)
     assert.match(text, /AI|解析/)
   })
 
   it('maps password_failed away from Failed to process password', () => {
-    const err = new ApiError('Failed to process password', 500, 'password_failed')
+    const err = new ApiError(
+      'Failed to process password',
+      500,
+      'password_failed',
+    )
     const text = userFacingError(err)
     assert.equal(/Failed to process/i.test(text), false)
   })
@@ -311,7 +344,11 @@ describe('userFacingError', () => {
 
   it('maps domain validation away from URL crate dumps', () => {
     const text = userFacingError(
-      new ApiError('Invalid URL: relative URL without a base', 400, 'domain_invalid'),
+      new ApiError(
+        'Invalid URL: relative URL without a base',
+        400,
+        'domain_invalid',
+      ),
     )
     assert.equal(/relative URL/i.test(text), false)
     assert.match(text, /https:\/\/example\.com|アドレス|地址/)
@@ -319,14 +356,22 @@ describe('userFacingError', () => {
 
   it('maps oauth start without state serialize dumps', () => {
     const text = userFacingError(
-      new ApiError('state serialize: trailing characters', 500, 'oauth_authorize_failed'),
+      new ApiError(
+        'state serialize: trailing characters',
+        500,
+        'oauth_authorize_failed',
+      ),
     )
     assert.equal(/state serialize/i.test(text), false)
   })
 
   it('maps leftover oauth slug dumps', () => {
     const text = userFacingError(
-      new ApiError("invalid slug '!!': only ASCII letters", 400, 'oauth_slug_invalid'),
+      new ApiError(
+        "invalid slug '!!': only ASCII letters",
+        400,
+        'oauth_slug_invalid',
+      ),
     )
     assert.equal(/ASCII/i.test(text), false)
   })
@@ -340,7 +385,9 @@ describe('userFacingError', () => {
   })
 
   it('maps leftover Steam Chinese without leaking internals', () => {
-    const text = userFacingError('获取 Steam 在线状态失败: error sending request for url (http://x)')
+    const text = userFacingError(
+      '获取 Steam 在线状态失败: error sending request for url (http://x)',
+    )
     assert.equal(/error sending request/i.test(text), false)
     assert.equal(/获取 Steam/.test(text), false)
   })
@@ -372,7 +419,11 @@ describe('userFacingError', () => {
 
   it('maps leftover Notion URL dumps', () => {
     const text = userFacingError(
-      new ApiError('Invalid Notion URL: Unknown resource type: workspace', 400, 'notion_url_invalid'),
+      new ApiError(
+        'Invalid Notion URL: Unknown resource type: workspace',
+        400,
+        'notion_url_invalid',
+      ),
     )
     assert.equal(/Unknown resource/i.test(text), false)
   })
@@ -407,7 +458,9 @@ describe('userFacingError', () => {
       'Failed to fetch RSSHub instances: relation "rsshub_instances" does not exist',
     )
     const save = userFacingError('Failed to create RSSHub instance')
-    const denied = userFacingError('Only admins can modify global RSSHub instances')
+    const denied = userFacingError(
+      'Only admins can modify global RSSHub instances',
+    )
     assert.equal(/rsshub_instances|does not exist/.test(load), false)
     assert.match(load, /加载|load|読み込/)
     assert.match(save, /保存|save/)
@@ -500,7 +553,9 @@ describe('userFacingError', () => {
   })
 
   it('maps leftover attachment MIME dumps', () => {
-    const text = userFacingError('Unsupported attachment MIME: application/x-dump')
+    const text = userFacingError(
+      'Unsupported attachment MIME: application/x-dump',
+    )
     assert.equal(/application\/x-dump/.test(text), false)
   })
 
@@ -528,11 +583,7 @@ describe('userFacingError', () => {
 
   it('maps game config dumps away from protocol internals', () => {
     const text = userFacingError(
-      new ApiError(
-        'game.max_players must be 2-16',
-        400,
-        'GAME_CONFIG_INVALID',
-      ),
+      new ApiError('game.max_players must be 2-16', 400, 'GAME_CONFIG_INVALID'),
     )
     assert.equal(/max_players/.test(text), false)
   })
@@ -561,7 +612,9 @@ describe('userFacingError', () => {
 
   it('maps leftover generic platform cache leftovers without os dumps', () => {
     const missing = userFacingError('Platform data not found')
-    const read = userFacingError('Failed to read cache: Permission denied (os error 13)')
+    const read = userFacingError(
+      'Failed to read cache: Permission denied (os error 13)',
+    )
     assert.match(missing, /缓存|cached|キャッシュ/)
     assert.equal(/os error 13|Permission denied \(os/.test(read), false)
     assert.notEqual(missing, currentCopy().errors.operationFailed)
@@ -638,12 +691,14 @@ describe('userFacingError', () => {
       ),
     )
     const discover = userFacingError(
-      new ApiError('Failed to fetch feed: timed out', 400, 'feed_discover_failed'),
+      new ApiError(
+        'Failed to fetch feed: timed out',
+        400,
+        'feed_discover_failed',
+      ),
     )
     const refresh = userFacingError('Failed to fetch feed: timed out')
-    const invalid = userFacingError(
-      'Invalid feed URL: Unsafe or invalid URL',
-    )
+    const invalid = userFacingError('Invalid feed URL: Unsafe or invalid URL')
     const dump = userFacingError(
       'Failed to parse feed: expected value at line 1 column 1',
     )
@@ -691,7 +746,11 @@ describe('userFacingError', () => {
 
   it('maps leftover DND schedule English', () => {
     const invalid = userFacingError(
-      new ApiError('Invalid do-not-disturb start time', 400, 'dnd_schedule_invalid'),
+      new ApiError(
+        'Invalid do-not-disturb start time',
+        400,
+        'dnd_schedule_invalid',
+      ),
     )
     assert.equal(/do-not-disturb start time/.test(invalid), false)
     const incomplete = userFacingError(
@@ -744,7 +803,11 @@ describe('userFacingError', () => {
 
   it('maps leftover game message code without leaking validator text', () => {
     const text = userFacingError(
-      new ApiError('game.payload too large for protocol', 400, 'GAME_MESSAGE_INVALID'),
+      new ApiError(
+        'game.payload too large for protocol',
+        400,
+        'GAME_MESSAGE_INVALID',
+      ),
     )
     assert.equal(/protocol/.test(text), false)
     const leftover = userFacingError('GAME_MESSAGE_INVALID')
@@ -752,18 +815,24 @@ describe('userFacingError', () => {
   })
 
   it('maps leftover e2e serialize dumps', () => {
-    const text = userFacingError('payload serialize: EOF while parsing a value at line 1')
+    const text = userFacingError(
+      'payload serialize: EOF while parsing a value at line 1',
+    )
     assert.equal(/EOF|line 1/.test(text), false)
     assert.notEqual(text, currentCopy().errors.operationFailed)
     assert.match(text, /端到端|end-to-end|エンドツーエンド/)
   })
 
   it('maps leftover Tapp declared-API dumps', () => {
-    const http = userFacingError('HTTP request failed: error sending request for url (https://x)')
+    const http = userFacingError(
+      'HTTP request failed: error sending request for url (https://x)',
+    )
     assert.equal(/error sending request|https:\/\/x/.test(http), false)
     const proxy = userFacingError('Invalid outbound proxy: builder error')
     assert.equal(/builder error/.test(proxy), false)
-    const chat = userFacingError('Invalid AI chat messages: key must be a string at line 1')
+    const chat = userFacingError(
+      'Invalid AI chat messages: key must be a string at line 1',
+    )
     assert.equal(/key must be a string/.test(chat), false)
     const registry = userFacingError(
       'AI_TASK_REGISTRY_UNAVAILABLE: database connection closed',
@@ -773,7 +842,9 @@ describe('userFacingError', () => {
   })
 
   it('maps leftover report persist dumps', () => {
-    const text = userFacingError('insert report for steam: relation "platform_reports" does not exist')
+    const text = userFacingError(
+      'insert report for steam: relation "platform_reports" does not exist',
+    )
     assert.equal(/platform_reports|does not exist/.test(text), false)
   })
 
@@ -813,11 +884,17 @@ describe('userFacingError', () => {
   })
 
   it('maps leftover OAuth and Discord token dumps', () => {
-    const github = userFacingError('GitHub token exchange failed: RequestTokenError { .. }')
+    const github = userFacingError(
+      'GitHub token exchange failed: RequestTokenError { .. }',
+    )
     assert.equal(/RequestTokenError/.test(github), false)
-    const oidc = userFacingError('OIDC token endpoint returned 400: {"error":"invalid_grant"}')
+    const oidc = userFacingError(
+      'OIDC token endpoint returned 400: {"error":"invalid_grant"}',
+    )
     assert.equal(/invalid_grant/.test(oidc), false)
-    const discord = userFacingError('token endpoint 401 — {"error":"invalid_client"}')
+    const discord = userFacingError(
+      'token endpoint 401 — {"error":"invalid_client"}',
+    )
     assert.equal(/invalid_client/.test(discord), false)
   })
 
@@ -828,8 +905,13 @@ describe('userFacingError', () => {
 
   it('maps leftover feed URL and Gemini JSON dumps', () => {
     const url = userFacingError('Unsafe or invalid URL: Invalid URL')
-    assert.equal(/Invalid URL/.test(url) && url === 'Unsafe or invalid URL: Invalid URL', false)
-    const gemini = userFacingError('invalid Gemini JSON: expected value at line 1')
+    assert.equal(
+      /Invalid URL/.test(url) && url === 'Unsafe or invalid URL: Invalid URL',
+      false,
+    )
+    const gemini = userFacingError(
+      'invalid Gemini JSON: expected value at line 1',
+    )
     assert.equal(/expected value|line 1/.test(gemini), false)
     const key = userFacingError('Invalid remote E2E public key: invalid length')
     assert.equal(/invalid length/.test(key), false)
@@ -870,7 +952,9 @@ describe('userFacingError', () => {
       'All 3 retries failed. Last error: relation "tapp_scheduled_tasks" does not exist',
     )
     assert.equal(/tapp_scheduled_tasks|does not exist/.test(retries), false)
-    const updater = userFacingError('decode json failed: expected value at line 1')
+    const updater = userFacingError(
+      'decode json failed: expected value at line 1',
+    )
     assert.equal(/expected value|line 1/.test(updater), false)
   })
 
@@ -884,7 +968,9 @@ describe('userFacingError', () => {
     const leftoverCode = userFacingError(
       new ApiError('Failed to update preset', 500, 'preset_update_failed'),
     )
-    const updater = userFacingError('decode json failed: expected value at line 1')
+    const updater = userFacingError(
+      'decode json failed: expected value at line 1',
+    )
     assert.equal(/agent_task_presets|does not exist/.test(favorites), false)
     assert.match(favorites, /预设|preset|プリセット/)
     assert.match(favorites, /fetch favorites/)
@@ -908,7 +994,9 @@ describe('userFacingError', () => {
     const change = userFacingError('Failed to change password')
     const set = userFacingError('Failed to set password')
     const local = userFacingError('Failed to update local login')
-    const updater = userFacingError('decode json failed: expected value at line 1')
+    const updater = userFacingError(
+      'decode json failed: expected value at line 1',
+    )
     const register = userFacingError(
       new ApiError('Failed to create account', 500, 'account_create_failed'),
     )
@@ -959,7 +1047,9 @@ describe('userFacingError', () => {
       'claim inbound receipt insert: relation "federation_inbox_receipts" does not exist',
     )
     assert.equal(/federation_inbox_receipts|does not exist/.test(sql), false)
-    const peer = userFacingError('HTTP 500: {"error":"Inbox processing failed"}')
+    const peer = userFacingError(
+      'HTTP 500: {"error":"Inbox processing failed"}',
+    )
     assert.equal(/Inbox processing failed|\{"error"/.test(peer), false)
     const ownership = userFacingError(
       'object attributedTo https://a.example/users/x does not match signing actor',
@@ -1020,7 +1110,9 @@ describe('userFacingError', () => {
     const archive = userFacingError('Failed to archive session')
     const userMsg = userFacingError('Failed to save user message')
     const assistantMsg = userFacingError('Failed to save assistant message')
-    const signIn = userFacingError(new ApiError('session failed', 500, 'session_failed'))
+    const signIn = userFacingError(
+      new ApiError('session failed', 500, 'session_failed'),
+    )
     assert.equal(/agent_sessions|does not exist/.test(list), false)
     assert.match(list, /对话|conversation|会話/)
     assert.match(list, /list sessions/)
@@ -1055,7 +1147,9 @@ describe('userFacingError', () => {
     const write = userFacingError(
       'Failed to write skill file: Permission denied (os error 13)',
     )
-    const missing = userFacingError('Skill file missing: /data/skills/_auto_demo.md')
+    const missing = userFacingError(
+      'Skill file missing: /data/skills/_auto_demo.md',
+    )
     const wait = userFacingError(
       'Skill improvement on cooldown (3600 seconds remaining)',
     )
@@ -1087,7 +1181,9 @@ describe('userFacingError', () => {
       'Translation failed: error sending request for url (https://generativelanguage.googleapis.com)',
     )
     const notes = userFacingError('Annotation generation failed (HTTP 400)')
-    const timeout = userFacingError('Podcast script generation failed: timed out')
+    const timeout = userFacingError(
+      'Podcast script generation failed: timed out',
+    )
     assert.equal(/error sending request|googleapis/.test(translate), false)
     assert.match(translate, /translation/i)
     assert.match(notes, /annotation/i)
@@ -1137,14 +1233,18 @@ describe('userFacingError', () => {
       'persist Tapp interaction wait state failed: relation "tapp_registry" does not exist',
     )
     assert.equal(/tapp_registry|does not exist/.test(wait), false)
-    const gen = userFacingError('Tapp generation failed: Gemini API error 400: boom')
+    const gen = userFacingError(
+      'Tapp generation failed: Gemini API error 400: boom',
+    )
     assert.equal(/Tapp generation failed/.test(gen), false)
     assert.match(gen, /Gemini API error 400/)
     const fetch = userFacingError(
       'Fetch failed: error sending request for url (https://x)',
     )
     assert.equal(/error sending request|https:\/\/x/.test(fetch), false)
-    const inbox = userFacingError('HTTP 500: {"error":"Inbox processing failed"}')
+    const inbox = userFacingError(
+      'HTTP 500: {"error":"Inbox processing failed"}',
+    )
     const ready = userFacingError('Activity not ready')
     const db = userFacingError(
       'claim inbound receipt insert: relation "federation_inbox_receipts" does not exist',
@@ -1341,7 +1441,11 @@ describe('userFacingError', () => {
 
   it('maps leftover playlist song youtube config media and schedule without unifying them', () => {
     const playlist = userFacingError(
-      new ApiError('Failed to fetch playlist: timed out', 502, 'playlist_fetch_failed'),
+      new ApiError(
+        'Failed to fetch playlist: timed out',
+        502,
+        'playlist_fetch_failed',
+      ),
     )
     const song = userFacingError(
       new ApiError('Failed to fetch song detail', 502, 'song_fetch_failed'),
@@ -1436,7 +1540,9 @@ describe('userFacingError', () => {
   })
 
   it('maps leftover merope load see-through tripo and playback without unifying them', () => {
-    const face = userFacingError(new Error('Could not load site face (HTTP 502)'))
+    const face = userFacingError(
+      new Error('Could not load site face (HTTP 502)'),
+    )
     const seeThrough = userFacingError('Could not load See-through status')
     const tokenSave = userFacingError('Could not save Hugging Face token')
     const decompose = userFacingError('See-through decomposition failed')
@@ -1445,7 +1551,9 @@ describe('userFacingError', () => {
     const preview = userFacingError('Could not preview persona rig')
     const commit = userFacingError('Could not commit persona rig')
     const tripo = userFacingError('Could not load Tripo status')
-    const webgl = userFacingError('WebGL2 is required for Anime2.5DRig playback')
+    const webgl = userFacingError(
+      'WebGL2 is required for Anime2.5DRig playback',
+    )
     const missing = userFacingError('Anime2.5DRig playback missing mouth-open')
     const shader = userFacingError('Anime2.5DRig shader compile failed')
     assert.match(face, /502/)
@@ -1468,7 +1576,9 @@ describe('userFacingError', () => {
     const download = userFacingError(
       'Failed to download manifest (apps/foo/manifest.json): HTTP 502',
     )
-    const asset = userFacingError('Failed to fetch asset assets/icon.png: HTTP 404')
+    const asset = userFacingError(
+      'Failed to fetch asset assets/icon.png: HTTP 404',
+    )
     const mismatch = userFacingError(
       'Store package version mismatch: catalog lists 1.0.0 but manifest.json is 1.0.1. Refresh the store and retry.',
     )
@@ -1525,7 +1635,10 @@ describe('userFacingError', () => {
     assert.match(scheme, /502/)
     assert.equal(/Failed to save window schemes/i.test(scheme), false)
     assert.equal(/is not installed/i.test(missing), false)
-    assert.equal(/Tapp weather-clock is already installed/i.test(already), false)
+    assert.equal(
+      /Tapp weather-clock is already installed/i.test(already),
+      false,
+    )
     assert.notEqual(already, missing)
     assert.notEqual(already, currentCopy().tapp.installFailed)
     assert.equal(/reauthorization/i.test(reauth), false)
@@ -1552,7 +1665,9 @@ describe('userFacingError', () => {
 
   it('maps leftover AI usage platform preview and password leftovers without unifying them', () => {
     const usage = userFacingError('Unable to load AI usage (502)')
-    const preview = userFacingError('Unable to load platform data preview (403)')
+    const preview = userFacingError(
+      'Unable to load platform data preview (403)',
+    )
     const status = userFacingError('Unable to load platform data status (500)')
     const cloud = userFacingError('Failed to save to cloud: HTTP 502')
     assert.match(usage, /AI|使用/i)
@@ -1624,7 +1739,10 @@ describe('userFacingError', () => {
     assert.equal(leftoverDiscord.includes('OAuth 登录'), false)
     const next = userFacingError('切换到下一首')
     assert.equal(next.includes('切换到下一首'), false)
-    assert.equal(userFacingError('Playing music'), currentCopy().music.playingNow)
+    assert.equal(
+      userFacingError('Playing music'),
+      currentCopy().music.playingNow,
+    )
     assert.equal(userFacingError('Muted'), currentCopy().music.muted)
     assert.equal(
       userFacingError('现在没在放歌。'),
@@ -1641,17 +1759,23 @@ describe('userFacingError', () => {
   it('maps leftover Chinese agent step chrome and English capability labels', () => {
     assert.equal(userFacingError('AI 对话'), currentCopy().errors.agentChat)
     assert.equal(userFacingError('Chatting'), currentCopy().errors.agentChat)
-    assert.equal(userFacingError('好了，都处理完啦~'), currentCopy().errors.agentAllDone)
+    assert.equal(
+      userFacingError('好了，都处理完啦~'),
+      currentCopy().errors.agentAllDone,
+    )
     assert.equal(
       userFacingError('此操作将执行 打开窗口'),
       fill(currentCopy().errors.willExecute, { name: '打开窗口' }),
     )
-    assert.equal(userFacingError('数据读取'), currentCopy().errors.capCategoryData)
-    assert.equal(userFacingError('Discovering feeds'), currentCopy().errors.agentDiscoverFeeds)
     assert.equal(
-      userFacingError('获取 B 站数据').includes('B 站'),
-      false,
+      userFacingError('数据读取'),
+      currentCopy().errors.capCategoryData,
     )
+    assert.equal(
+      userFacingError('Discovering feeds'),
+      currentCopy().errors.agentDiscoverFeeds,
+    )
+    assert.equal(userFacingError('获取 B 站数据').includes('B 站'), false)
     assert.equal(
       userFacingError('即将添加新的 RSS/Atom 订阅源'),
       currentCopy().errors.confirmAddFeed,
@@ -1687,7 +1811,10 @@ describe('userFacingError', () => {
       currentCopy().brew.smartReadingList,
     )
     assert.equal(userFacingError('订阅源'), currentCopy().brew.boardFeeds)
-    assert.equal(userFacingError('已收藏'), currentCopy().errors.brewMarkStarred)
+    assert.equal(
+      userFacingError('已收藏'),
+      currentCopy().errors.brewMarkStarred,
+    )
     assert.equal(
       userFacingError('网络搜索 - 科技'),
       fill(currentCopy().errors.webSearchNamed, { name: '科技' }),
@@ -1728,17 +1855,20 @@ describe('userFacingError', () => {
       userFacingError('网易云音乐用户'),
       currentCopy().errors.neteaseMusicUser,
     )
-    assert.equal(userFacingError('Steam 玩家'), currentCopy().errors.steamPlayer)
+    assert.equal(
+      userFacingError('Steam 玩家'),
+      currentCopy().errors.steamPlayer,
+    )
     assert.equal(
       userFacingError('等待 Tapp 完成交互'),
       currentCopy().errors.waitTappInteraction,
     )
-    assert.equal(userFacingError('动态技能'), currentCopy().errors.capDynamicSkills)
-    assert.equal(userFacingError('未分类'), currentCopy().brew.uncategorized)
     assert.equal(
-      userFacingError('最新文章'),
-      currentCopy().brew.latestArticles,
+      userFacingError('动态技能'),
+      currentCopy().errors.capDynamicSkills,
     )
+    assert.equal(userFacingError('未分类'), currentCopy().brew.uncategorized)
+    assert.equal(userFacingError('最新文章'), currentCopy().brew.latestArticles)
     assert.equal(
       userFacingError('任务等待用户输入超时（2小时），已自动取消'),
       fill(currentCopy().errors.waitInputTimeoutHours, { hours: 2 }),
@@ -1787,7 +1917,9 @@ describe('userFacingError', () => {
       currentCopy().errors.agentRefuseLowMood,
     )
     assert.equal(
-      userFacingError('我对这个请求的理解置信度较低（20%），可能会误解你的意图。能再详细描述一下你想要做什么吗？'),
+      userFacingError(
+        '我对这个请求的理解置信度较低（20%），可能会误解你的意图。能再详细描述一下你想要做什么吗？',
+      ),
       currentCopy().errors.agentNeedClarification,
     )
     assert.equal(userFacingError('重试'), currentCopy().errors.retryStep)

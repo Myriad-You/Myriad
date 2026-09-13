@@ -101,6 +101,7 @@
   "iconSaveFailed": "이 피드 아이콘을 저장하지 못했어요.",
   "aiResponseInvalid": "AI 응답을 해석하지 못했어요. 다시 시도하세요.",
   "aiGenerationFailed": "AI 생성에 실패했어요. 다시 시도하세요.",
+  "aiProviderNotConfigured": "AI가 설정되지 않았습니다. AI 설정에서 제공자를 추가하거나 선택하세요.",
   "asrInvalidAudio": "오디오가 올바르지 않아요. 다시 녹음하거나 올려 주세요.",
   "speechNotConfigured": "음성이 설정되지 않았어요. 먼저 AI 설정에서 제공자 키를 넣으세요.",
   "speechTtsNoAudio": "음성 서비스가 오디오를 돌려주지 않았어요. 다시 시도하세요.",

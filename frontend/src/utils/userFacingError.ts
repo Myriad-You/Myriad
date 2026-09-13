@@ -47,7 +47,9 @@ export function isUselessErrorText(text: string): boolean {
   if (/^\{[\s\S]*\}$/.test(detail)) return true
   if (/failed to fetch|networkerror|load failed/i.test(detail)) return true
   if (/^unknown error$/i.test(detail)) return true
-  if (/^(unauthorized|forbidden|not found|bad request|conflict)$/i.test(detail)) {
+  if (
+    /^(unauthorized|forbidden|not found|bad request|conflict)$/i.test(detail)
+  ) {
     return true
   }
   if (
@@ -162,7 +164,8 @@ function isInternalDump(text: string): boolean {
   if (/^\{[\s\S]*\}$/.test(detail) || /<html[\s>]|<\/html>/i.test(detail)) {
     return true
   }
-  if (/RequestTokenError|invalid_grant|invalid_client/i.test(detail)) return true
+  if (/RequestTokenError|invalid_grant|invalid_client/i.test(detail))
+    return true
   return false
 }
 
@@ -211,6 +214,12 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   }
   if (code === 'locale_save_failed') {
     return classified(t.operationFailed, raw, hint)
+  }
+  if (
+    code === 'ai_provider_not_configured' ||
+    /AI analyzer not (configured|available)/i.test(raw)
+  ) {
+    return t.aiProviderNotConfigured
   }
   if (code === 'config_load_failed') {
     return classified(currentCopy().config.loadConfigFailed, raw, hint)
@@ -280,7 +289,10 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     return joinParts(t.invalidUid, usefulExtra(hint, t.invalidUid))
   }
   if (code === 'steam_credentials_required') {
-    return joinParts(t.steamNotConfigured, usefulExtra(hint, t.steamNotConfigured))
+    return joinParts(
+      t.steamNotConfigured,
+      usefulExtra(hint, t.steamNotConfigured),
+    )
   }
   if (code === 'youtube_credentials_required') {
     return joinParts(
@@ -300,9 +312,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (code === 'invalid_user_id') {
     return joinParts(t.invalidUserId, usefulExtra(hint, t.invalidUserId))
   }
-  if (
-    code === 'bangumi_credentials_required'
-  ) {
+  if (code === 'bangumi_credentials_required') {
     return joinParts(
       t.bangumiCredentialsRequired,
       usefulExtra(hint, t.bangumiCredentialsRequired),
@@ -324,7 +334,10 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     return joinParts(t.gamertagRequired, usefulExtra(hint, t.gamertagRequired))
   }
   if (code === 'xbox_api_key_required') {
-    return joinParts(t.xboxApiKeyRequired, usefulExtra(hint, t.xboxApiKeyRequired))
+    return joinParts(
+      t.xboxApiKeyRequired,
+      usefulExtra(hint, t.xboxApiKeyRequired),
+    )
   }
   if (code === 'online_id_required') {
     return joinParts(t.onlineIdRequired, usefulExtra(hint, t.onlineIdRequired))
@@ -338,15 +351,10 @@ export function userFacingError(reason: unknown, fallback?: string): string {
       usefulExtra(hint, t.platformTestUnimplemented),
     )
   }
-  if (
-    code === 'site_owner_missing'
-  ) {
+  if (code === 'site_owner_missing') {
     return joinParts(t.siteOwnerMissing, usefulExtra(hint, t.siteOwnerMissing))
   }
-  if (
-    code === 'x_bearer_not_configured' ||
-    code === 'bearer_token_required'
-  ) {
+  if (code === 'x_bearer_not_configured' || code === 'bearer_token_required') {
     return joinParts(
       t.bearerTokenRequired,
       usefulExtra(hint, t.bearerTokenRequired),
@@ -379,9 +387,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (code === 'share_text_empty') {
     return joinParts(t.shareTextEmpty, usefulExtra(hint, t.shareTextEmpty))
   }
-  if (
-    code === 'module_visibility_save_failed'
-  ) {
+  if (code === 'module_visibility_save_failed') {
     return joinParts(
       t.moduleVisibilitySaveFailed,
       usefulExtra(hint, t.moduleVisibilitySaveFailed),
@@ -396,17 +402,13 @@ export function userFacingError(reason: unknown, fallback?: string): string {
       usefulExtra(hint, currentCopy().config.hitokotoSaveFailed),
     )
   }
-  if (
-    code === 'report_settings_save_failed'
-  ) {
+  if (code === 'report_settings_save_failed') {
     return joinParts(
       currentCopy().config.reportSettingsSaveFailed,
       usefulExtra(hint, currentCopy().config.reportSettingsSaveFailed),
     )
   }
-  if (
-    code === 'no_permission_settings'
-  ) {
+  if (code === 'no_permission_settings') {
     return joinParts(
       t.noPermissionSettings,
       usefulExtra(hint, t.noPermissionSettings),
@@ -418,16 +420,16 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (code === 'file_too_large' || /^file size must be between/i.test(raw)) {
     return classified(t.fileTooLarge, raw, hint)
   }
-  if (
-    code === 'payload_too_large' ||
-    /^message payload too large/i.test(raw)
-  ) {
+  if (code === 'payload_too_large' || /^message payload too large/i.test(raw)) {
     return classified(t.payloadTooLarge, raw, hint)
   }
   if (code === 'TIMEOUT' || status === 408) {
     return joinParts(t.timeout, usefulExtra(hint, t.timeout))
   }
-  if (code === 'NETWORK_ERROR' || (status === 0 && reason instanceof ApiError)) {
+  if (
+    code === 'NETWORK_ERROR' ||
+    (status === 0 && reason instanceof ApiError)
+  ) {
     return joinParts(t.networkError, usefulExtra(hint, t.networkError))
   }
   if (code === 'CSRF' || /csrf token/i.test(raw)) {
@@ -436,7 +438,9 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (
     code === 'database_error' ||
     code === 'DATABASE_ERROR' ||
-    /^database (error|query failed|not connected|is not connected)$/i.test(raw) ||
+    /^database (error|query failed|not connected|is not connected)$/i.test(
+      raw,
+    ) ||
     /数据库连接未初始化|数据库未连接/.test(raw)
   ) {
     return joinParts(t.database, usefulExtra(hint, t.database))
@@ -464,11 +468,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (/^failed to archive session/i.test(raw)) {
     return classified(t.agentSessionArchiveFailed, raw, hint)
   }
-  if (
-    /^failed to (count persona reports|load persona)/i.test(
-      raw,
-    )
-  ) {
+  if (/^failed to (count persona reports|load persona)/i.test(raw)) {
     const action = raw.match(/^failed to ([^:]+)/i)?.[1]?.trim() || ''
     return classified(joinParts(t.personaLoadFailed, action), raw, hint)
   }
@@ -574,21 +574,20 @@ export function userFacingError(reason: unknown, fallback?: string): string {
       usefulExtra(hint, currentCopy().auth.registerFailed),
     )
   }
-  if (
-    code === 'config_file_read_failed'
-  ) {
+  if (code === 'config_file_read_failed') {
     return classified(t.configFileReadFailed, raw, hint)
   }
-  if (
-    code === 'config_file_permission'
-  ) {
+  if (code === 'config_file_permission') {
     return classified(t.configFilePermission, raw, hint)
   }
   if (
     code === 'ai_response_invalid' ||
     /^failed to parse ai response$/i.test(raw)
   ) {
-    return joinParts(t.aiResponseInvalid, usefulExtra(hint, t.aiResponseInvalid))
+    return joinParts(
+      t.aiResponseInvalid,
+      usefulExtra(hint, t.aiResponseInvalid),
+    )
   }
   if (
     /^(annotation generation|podcast script generation|smart filter|content comparison|prompt generation|translation|code explanation|ai abstraction|skill ai generation|skill ai planning|ui analysis) failed/i.test(
@@ -599,13 +598,14 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     const action =
       raw.match(
         /^(annotation generation|podcast script generation|smart filter|content comparison|prompt generation|translation|code explanation|ai abstraction|skill ai generation|skill ai planning|ui analysis)/i,
-      )?.[1] ||
-      (/parse skill ai json/i.test(raw) ? 'skill AI JSON' : '')
+      )?.[1] || (/parse skill ai json/i.test(raw) ? 'skill AI JSON' : '')
     const status = raw.match(/\bHTTP\s+(\d{3})\b/i)
     const colon = raw.indexOf(':')
     const rest = colon >= 0 ? raw.slice(colon + 1).trim() : ''
     const keep =
-      rest && !isInternalDump(rest) && !isUselessErrorText(rest) ? clip(rest) : ''
+      rest && !isInternalDump(rest) && !isUselessErrorText(rest)
+        ? clip(rest)
+        : ''
     const http = status ? `HTTP ${status[1]}` : ''
     return joinParts(
       t.aiStepFailed,
@@ -623,7 +623,10 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     /^gemini api /i.test(raw) ||
     /invalid gemini json/i.test(raw)
   ) {
-    return joinParts(t.aiGenerationFailed, usefulExtra(hint, t.aiGenerationFailed))
+    return joinParts(
+      t.aiGenerationFailed,
+      usefulExtra(hint, t.aiGenerationFailed),
+    )
   }
   if (/skill improvement on cooldown/i.test(raw)) {
     const wait = raw.match(/(\d+) seconds remaining/i)?.[1]
@@ -638,7 +641,9 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   }
   if (
     /^failed to (backup|read|write|replace) skill/i.test(raw) ||
-    /^failed to (create skill trash directory|move skill to trash)/i.test(raw) ||
+    /^failed to (create skill trash directory|move skill to trash)/i.test(
+      raw,
+    ) ||
     /^skill file missing/i.test(raw)
   ) {
     return classified(t.skillFileFailed, raw, hint)
@@ -682,9 +687,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (code === 'merope_disabled') {
     return currentCopy().agentPanel.agentPersonaOff
   }
-  if (
-    code === 'consent_required'
-  ) {
+  if (code === 'consent_required') {
     return t.stepNeedsConfirm
   }
   if (
@@ -736,7 +739,9 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     const colon = raw.indexOf(':')
     const rest = colon >= 0 ? raw.slice(colon + 1).trim() : ''
     const keep =
-      rest && !isInternalDump(rest) && !isUselessErrorText(rest) ? clip(rest) : ''
+      rest && !isInternalDump(rest) && !isUselessErrorText(rest)
+        ? clip(rest)
+        : ''
     const http = status ? `HTTP ${status[1]}` : ''
     return joinParts(
       label,
@@ -764,13 +769,10 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     /^failed to (read|parse) \w+ data/i.test(raw) ||
     /^failed to (read|parse) cache/i.test(raw)
   ) {
-    const found = raw.match(/^failed to (?:read|parse) (\w+) data/i)?.[1] || 'platform'
+    const found =
+      raw.match(/^failed to (?:read|parse) (\w+) data/i)?.[1] || 'platform'
     const name = `${found.charAt(0).toUpperCase()}${found.slice(1)}`
-    return classified(
-      fill(t.platformNamedFetchFailed, { name }),
-      raw,
-      hint,
-    )
+    return classified(fill(t.platformNamedFetchFailed, { name }), raw, hint)
   }
   if (
     /^http request failed/i.test(raw) ||
@@ -835,9 +837,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (/tapp \S+ requires permission reauthorization/i.test(raw)) {
     return currentCopy().tapp.reauthorizationMessage
   }
-  if (
-    /^failed to save (to cloud|window schemes)/i.test(raw)
-  ) {
+  if (/^failed to save (to cloud|window schemes)/i.test(raw)) {
     return joinParts(
       currentCopy().tapp.schemeSaveFailed,
       status ? `HTTP ${status}` : '',
@@ -890,7 +890,11 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     const label = /load/i.test(raw)
       ? currentCopy().tapp.settingsLoadFailed
       : currentCopy().tapp.settingSaveFailed
-    return joinParts(label, status ? `HTTP ${status}` : '', usefulExtra(hint, label))
+    return joinParts(
+      label,
+      status ? `HTTP ${status}` : '',
+      usefulExtra(hint, label),
+    )
   }
   if (
     /^failed to list agent reports/i.test(raw) ||
@@ -940,7 +944,11 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   }
   if (/^mcp server timeout/i.test(raw)) {
     const method = raw.match(/method ['"]([^'"]+)['"]/i)?.[1] || ''
-    return joinParts(t.mcpTimeout, method, usefulExtra(hint, t.mcpTimeout, method))
+    return joinParts(
+      t.mcpTimeout,
+      method,
+      usefulExtra(hint, t.mcpTimeout, method),
+    )
   }
   if (
     /^invalid (json-rpc|mcp initialize|mcp tools\/list|mcp tools\/call) response/i.test(
@@ -956,7 +964,12 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (/^mcp server ['"][^'"]+['"] is not ready/i.test(raw)) {
     const id = raw.match(/mcp server ['"]([^'"]+)['"]/i)?.[1] || ''
     const state = raw.match(/not ready \(([^)]+)\)/i)?.[1] || ''
-    return joinParts(t.mcpTalkFailed, id, state, usefulExtra(hint, t.mcpTalkFailed, id, state))
+    return joinParts(
+      t.mcpTalkFailed,
+      id,
+      state,
+      usefulExtra(hint, t.mcpTalkFailed, id, state),
+    )
   }
   if (
     /^failed to (read from mcp|drain mcp|write to mcp|flush mcp|serialize mcp|write mcp)/i.test(
@@ -971,11 +984,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     return classified(t.mcpTalkFailed, raw, hint)
   }
   if (/^upstream (request failed|http)/i.test(raw)) {
-    return classified(
-      fill(t.serverError, { status: status || 502 }),
-      raw,
-      hint,
-    )
+    return classified(fill(t.serverError, { status: status || 502 }), raw, hint)
   }
   if (
     /^failed to save report/i.test(raw) ||
@@ -1061,11 +1070,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
       raw.match(/^failed to ([^:]+)/i)?.[1]?.trim() ||
       raw.match(/^(query|insert|delete|update) failed/i)?.[1]?.toLowerCase() ||
       ''
-    return classified(
-      joinParts(t.noticeScheduleFailed, action),
-      raw,
-      hint,
-    )
+    return classified(joinParts(t.noticeScheduleFailed, action), raw, hint)
   }
   if (/^player not found$/i.test(raw)) {
     return t.notFound
@@ -1166,18 +1171,13 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (/^failed to parse feed/i.test(raw)) {
     return classified(t.brewParseFailed, raw, hint)
   }
-  if (
-    code === 'feed_discover_failed' ||
-    /^unable to discover rss/i.test(raw)
-  ) {
+  if (code === 'feed_discover_failed' || /^unable to discover rss/i.test(raw)) {
     return classified(brew.errorDiscoverFailed, raw, hint)
   }
   if (/^invalid feed url/i.test(raw)) {
     return classified(t.brewInvalidUrl, raw, hint)
   }
-  if (
-    /^failed to load config(uration)?$/i.test(raw)
-  ) {
+  if (/^failed to load config(uration)?$/i.test(raw)) {
     return classified(currentCopy().config.loadConfigFailed, raw, hint)
   }
   if (/^failed to (update|save) permissions/i.test(raw)) {
@@ -1211,9 +1211,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     return t.speechNotConfigured
   }
-  if (
-    code === 'realtime_session_unavailable'
-  ) {
+  if (code === 'realtime_session_unavailable') {
     return t.realtimeSessionUnavailable
   }
   if (
@@ -1224,7 +1222,9 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     return t.speechTtsOpenAiRequired
   }
   if (
-    /speech service returned no audio|tts服务未返回音频|TTS 未返回音频/i.test(raw)
+    /speech service returned no audio|tts服务未返回音频|TTS 未返回音频/i.test(
+      raw,
+    )
   ) {
     return t.speechTtsNoAudio
   }
@@ -1290,10 +1290,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (code === 'oauth_slug_duplicate' || /duplicate provider slug/i.test(raw)) {
     return t.oauthSlugDuplicate
   }
-  if (
-    code === 'oauth_client_id_required' ||
-    /requires client_id/i.test(raw)
-  ) {
+  if (code === 'oauth_client_id_required' || /requires client_id/i.test(raw)) {
     return t.oauthClientIdRequired
   }
   if (
@@ -1340,7 +1337,10 @@ export function userFacingError(reason: unknown, fallback?: string): string {
       usefulExtra(hint, t.psnNpssoExpired),
     )
   }
-  if (/^psn (authorize|token)/i.test(raw) || /psn credential budget/i.test(raw)) {
+  if (
+    /^psn (authorize|token)/i.test(raw) ||
+    /psn credential budget/i.test(raw)
+  ) {
     return classified(t.psnRequestFailed, raw, hint)
   }
   if (
@@ -1349,10 +1349,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     return t.steamNotConfigured
   }
-  if (
-    code === 'platform_disabled' ||
-    /平台未启用|is not enabled/i.test(raw)
-  ) {
+  if (code === 'platform_disabled' || /平台未启用|is not enabled/i.test(raw)) {
     return t.platformDisabled
   }
   if (code === 'API_NOT_FOUND' || code === 'api_not_found') {
@@ -1361,10 +1358,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (code === 'INVALID_USER' || code === 'invalid_user') {
     return joinParts(t.unauthorized, usefulExtra(hint, t.unauthorized))
   }
-  if (
-    code === 'fetch_failed' &&
-    /failed to fetch report/i.test(raw)
-  ) {
+  if (code === 'fetch_failed' && /failed to fetch report/i.test(raw)) {
     return joinParts(t.reportLoadFailed, usefulExtra(hint, t.reportLoadFailed))
   }
   if (
@@ -1382,15 +1376,13 @@ export function userFacingError(reason: unknown, fallback?: string): string {
       raw,
     )
   ) {
-    const plat = raw.match(/failed to (?:update|create|disable) (\w+) core task/i)
+    const plat = raw.match(
+      /failed to (?:update|create|disable) (\w+) core task/i,
+    )
     const name = plat?.[1]
       ? `${plat[1].charAt(0).toUpperCase()}${plat[1].slice(1)}`
       : 'Platform'
-    return classified(
-      fill(t.noticePlatformSyncFailed, { name }),
-      raw,
-      hint,
-    )
+    return classified(fill(t.noticePlatformSyncFailed, { name }), raw, hint)
   }
   if (/^game not found$|未找到游戏信息/i.test(raw)) {
     return t.notFound
@@ -1422,14 +1414,10 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (/^the task failed$|^failed$|^未知错误$|^失败$/.test(raw)) {
     return t.agentProcessingFailed
   }
-  if (
-    /^the failed step was skipped$|用户选择跳过错误步骤/.test(raw)
-  ) {
+  if (/^the failed step was skipped$|用户选择跳过错误步骤/.test(raw)) {
     return t.agentStepSkipped
   }
-  if (
-    /^the failed step will be retried$|用户选择重试失败步骤/.test(raw)
-  ) {
+  if (/^the failed step will be retried$|用户选择重试失败步骤/.test(raw)) {
     return t.agentStepRetrying
   }
   if (/^confirmation failed$/i.test(raw) || raw.startsWith('确认执行失败')) {
@@ -1442,14 +1430,10 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     return t.agentUnsupported
   }
-  if (
-    /^this confirmation expired$|确认请求已过期/i.test(raw)
-  ) {
+  if (/^this confirmation expired$|确认请求已过期/i.test(raw)) {
     return t.agentConfirmExpired
   }
-  if (
-    /this confirmation is no longer available|确认请求不存在/i.test(raw)
-  ) {
+  if (/this confirmation is no longer available|确认请求不存在/i.test(raw)) {
     return t.agentConfirmMissing
   }
   if (
@@ -1480,9 +1464,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     }
     return t.waitInputTimeout
   }
-  if (
-    /^API 速率限制，等待后重试$|^Rate limited; wait and retry$/i.test(raw)
-  ) {
+  if (/^API 速率限制，等待后重试$|^Rate limited; wait and retry$/i.test(raw)) {
     return t.rateLimited
   }
   if (
@@ -1506,9 +1488,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     return t.forbidden
   }
-  if (
-    /^请求的资源不存在$|^The requested resource does not exist$/i.test(raw)
-  ) {
+  if (/^请求的资源不存在$|^The requested resource does not exist$/i.test(raw)) {
     return t.notFound
   }
   if (
@@ -1527,9 +1507,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (/^未知错误:|^Unknown error:/i.test(raw)) {
     return classified(t.unknown, raw, hint)
   }
-  if (
-    /^恢复执行超出步骤上限$|^Resume exceeded the step cap$/i.test(raw)
-  ) {
+  if (/^恢复执行超出步骤上限$|^Resume exceeded the step cap$/i.test(raw)) {
     return t.agentResumeOverCap
   }
   if (
@@ -1560,9 +1538,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (/^现在没在放歌|^Nothing is playing/i.test(raw)) {
     return currentCopy().music.noPlaying
   }
-  if (
-    /^任务已提交，等待执行$|^Task submitted, waiting to run$/i.test(raw)
-  ) {
+  if (/^任务已提交，等待执行$|^Task submitted, waiting to run$/i.test(raw)) {
     return t.agentSubmitted
   }
   const planFailed = raw.match(
@@ -1587,8 +1563,10 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   const music = currentCopy().music
   if (/^正在播放音乐$|^Playing music$/i.test(raw)) return music.playingNow
   if (/^已暂停播放$|^Paused$/i.test(raw)) return music.pausedPlayback
-  if (/^切换播放状态$|^Toggled playback$/i.test(raw)) return music.toggledPlayback
-  if (/^切换到下一首$|^Skipped to next track$/i.test(raw)) return music.skippedNext
+  if (/^切换播放状态$|^Toggled playback$/i.test(raw))
+    return music.toggledPlayback
+  if (/^切换到下一首$|^Skipped to next track$/i.test(raw))
+    return music.skippedNext
   if (/^切换到上一首$|^Skipped to previous track$/i.test(raw)) {
     return music.skippedPrevious
   }
@@ -1623,7 +1601,8 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (/^AI 总结$|^Summarizing$/i.test(raw)) return t.agentSummarizing
   if (/^AI 分析$|^Analyzing$/i.test(raw)) return t.agentAnalyzing
   if (/^网络搜索$|^Searching the web$/i.test(raw)) return t.agentWebSearch
-  if (/^发现 RSS 源$|^Discovering feeds$/i.test(raw)) return t.agentDiscoverFeeds
+  if (/^发现 RSS 源$|^Discovering feeds$/i.test(raw))
+    return t.agentDiscoverFeeds
   if (/^订阅 RSS 源$|^Subscribing to a feed$/i.test(raw)) {
     return t.agentSubscribeFeed
   }
@@ -1632,16 +1611,20 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   }
   if (/^AI 对话$|^Chatting$/i.test(raw)) return t.agentChat
   if (/^生成图片$|^Generating an image$/i.test(raw)) return t.agentGenerateImage
-  if (/^生成提示词$|^Generating a prompt$/i.test(raw)) return t.agentGeneratePrompt
+  if (/^生成提示词$|^Generating a prompt$/i.test(raw))
+    return t.agentGeneratePrompt
   if (/^内容对比$|^Comparing content$/i.test(raw)) return t.agentCompareContent
   if (/^文字转语音$|^Reading aloud$/i.test(raw)) return t.agentReadingAloud
   if (/^全局搜索$|^Searching$/i.test(raw)) return t.agentSearching
-  if (/^生成报告$|^Generating a report$/i.test(raw)) return t.agentGenerateReport
+  if (/^生成报告$|^Generating a report$/i.test(raw))
+    return t.agentGenerateReport
   if (/^清除缓存$|^Clearing cache$/i.test(raw)) return t.agentClearCache
   if (/^获取 Tapp 列表$|^Listing apps$/i.test(raw)) return t.agentListingApps
   if (/^打开 Tapp$|^Opening an app$/i.test(raw)) return t.agentOpeningApp
-  if (/^获取文章列表$|^Loading articles$/i.test(raw)) return t.agentLoadingArticles
-  if (/^获取文章内容$|^Loading article$/i.test(raw)) return t.agentLoadingArticle
+  if (/^获取文章列表$|^Loading articles$/i.test(raw))
+    return t.agentLoadingArticles
+  if (/^获取文章内容$|^Loading article$/i.test(raw))
+    return t.agentLoadingArticle
   if (/^获取订阅源$|^Loading feeds$/i.test(raw)) return t.agentLoadingFeeds
   if (/^获取订阅内容$|^Loading feed content$/i.test(raw)) {
     return t.agentLoadingFeedContent
@@ -1696,7 +1679,8 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (/^游客$/.test(raw)) return t.guestLabel
   const userNumber = raw.match(/^用户#(\d+)$/)
   if (userNumber) return fill(t.userNumber, { id: userNumber[1] })
-  if (/^Xbox 玩家$/.test(raw)) return currentCopy().reportCardWidget.xboxGamerDefault
+  if (/^Xbox 玩家$/.test(raw))
+    return currentCopy().reportCardWidget.xboxGamerDefault
   if (/^PSN 玩家$/.test(raw)) return t.psnPlayer
   if (/^Steam 玩家$/.test(raw)) return t.steamPlayer
   if (/^等待 Tapp 完成交互$/.test(raw)) return t.waitTappInteraction
@@ -1704,11 +1688,14 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (/^MCP 工具$/.test(raw)) return t.capMcpTools
   if (
     raw.startsWith('我现在心情很低，不想接新的事情') ||
-    raw.startsWith('I\'m in a very low mood and don\'t want to take on anything new')
+    raw.startsWith(
+      "I'm in a very low mood and don't want to take on anything new",
+    )
   ) {
     return t.agentRefuseLowMood
   }
-  if (raw.startsWith('我对这个请求的理解置信度较低')) return t.agentNeedClarification
+  if (raw.startsWith('我对这个请求的理解置信度较低'))
+    return t.agentNeedClarification
   if (/^重新执行这个步骤$/.test(raw)) return t.retryStepDesc
   if (/^跳过这个步骤继续执行$/.test(raw)) return t.skipStepDesc
   if (/^取消整个任务$/.test(raw)) return t.cancelTaskDesc
@@ -1728,7 +1715,8 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (raw.includes('page.content 读取 Tapp')) return t.pageContentNeedsTapp
   if (raw.includes('page.content 读取平台')) return t.pageContentNeedsPlatform
   if (/^AI 联网搜索发现$/.test(raw)) return t.webSearchResult
-  if (raw.includes('AI 已根据近期失败原因改写')) return t.noticeSkillImprovedBody
+  if (raw.includes('AI 已根据近期失败原因改写'))
+    return t.noticeSkillImprovedBody
   const prunedSkill = raw.match(/^自动技能「(.+)」因失败率过高被淘汰/)
   if (prunedSkill) {
     return fill(t.noticeSkillPrunedBody, { name: prunedSkill[1] })
@@ -1763,24 +1751,21 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     const tool = mcpTool[2] || mcpTool[3] || ''
     return fill(t.confirmMcpTool, { server, tool })
   }
-  const mcpToolsLoaded = raw.match(/^已加载 (\d+) 个工具$|^Loaded (\d+) tools$/i)
+  const mcpToolsLoaded = raw.match(
+    /^已加载 (\d+) 个工具$|^Loaded (\d+) tools$/i,
+  )
   if (mcpToolsLoaded) {
     return fill(t.noticeMcpToolsLoaded, {
       n: Number(mcpToolsLoaded[1] || mcpToolsLoaded[2] || '0'),
     })
   }
-  if (
-    /^维护重试成功$|^Maintenance retry succeeded$/i.test(raw)
-  ) {
+  if (/^维护重试成功$|^Maintenance retry succeeded$/i.test(raw)) {
     return t.noticeMcpMaintenanceRetry
   }
   if (/^自动重启成功$|^Auto-restart succeeded$/i.test(raw)) {
     return t.noticeMcpAutoRestart
   }
-  if (
-    raw.includes('状态监控超时') ||
-    /Status watch timed out/i.test(raw)
-  ) {
+  if (raw.includes('状态监控超时') || /Status watch timed out/i.test(raw)) {
     return t.noticeUpdaterWatchTimeout
   }
   if (/^未知艺术家$/.test(raw)) return currentCopy().library.unknownArtist
@@ -1800,9 +1785,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
       name: leftoverHeartbeatTask[1] || leftoverHeartbeatTask[2] || '',
     })
   }
-  if (
-    /^即将添加新的 RSS|^This will add a new RSS/i.test(raw)
-  ) {
+  if (/^即将添加新的 RSS|^This will add a new RSS/i.test(raw)) {
     return t.confirmAddFeed
   }
   if (
@@ -1820,9 +1803,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     return t.confirmHttpFetch
   }
   if (
-    /^即将创建 Tapp 定时任务|^This will create a scheduled Tapp task/i.test(
-      raw,
-    )
+    /^即将创建 Tapp 定时任务|^This will create a scheduled Tapp task/i.test(raw)
   ) {
     return t.confirmCreateTappTask
   }
@@ -1840,9 +1821,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     return t.confirmPlatformJob
   }
-  if (
-    /^AI 将分析 Tapp UI|^AI will analyze the Tapp UI/i.test(raw)
-  ) {
+  if (/^AI 将分析 Tapp UI|^AI will analyze the Tapp UI/i.test(raw)) {
     return t.confirmAnalyzeTappUi
   }
   if (
@@ -1862,9 +1841,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     return t.confirmAnalyzePage
   }
-  if (
-    /^即将写入内容到目标|^This will write content to the target/i.test(raw)
-  ) {
+  if (/^即将写入内容到目标|^This will write content to the target/i.test(raw)) {
     return t.confirmWriteTarget
   }
   const playlistLoad = raw.match(
@@ -1910,14 +1887,10 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (/^任务已进入更新队列$|^Update queued$/i.test(raw)) {
     return t.noticeUpdaterSubmitted
   }
-  if (
-    /^the task was interrupted$|任务因服务重启/i.test(raw)
-  ) {
+  if (/^the task was interrupted$|任务因服务重启/i.test(raw)) {
     return t.agentTaskInterrupted
   }
-  if (
-    /^the step timed out$|执行超时/i.test(raw)
-  ) {
+  if (/^the step timed out$|执行超时/i.test(raw)) {
     return t.agentStepTimeout
   }
   if (/^input is empty$|^输入不能为空$/.test(raw)) {
@@ -1926,21 +1899,15 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (/^input is too long$|输入过长/.test(raw)) {
     return t.agentInputTooLong
   }
-  if (
-    /could not subscribe to any|尝试了 .* 个源都无法订阅/i.test(raw)
-  ) {
+  if (/could not subscribe to any|尝试了 .* 个源都无法订阅/i.test(raw)) {
     return t.subscribeAllFailed
   }
   if (
-    /this address is not allowed|不允许访问内网|不允许的 url scheme/i.test(
-      raw,
-    )
+    /this address is not allowed|不允许访问内网|不允许的 url scheme/i.test(raw)
   ) {
     return t.privateNetworkBlocked
   }
-  if (
-    /this url is missing a host|url 缺少 host/i.test(raw)
-  ) {
+  if (/this url is missing a host|url 缺少 host/i.test(raw)) {
     return t.invalidUrl
   }
   if (
@@ -1950,24 +1917,18 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     return t.subscribeAllFailed
   }
-  if (
-    /^too many items to write at once$|单次最多写入/i.test(raw)
-  ) {
+  if (/^too many items to write at once$|单次最多写入/i.test(raw)) {
     return t.writeItemsOverCap
   }
   if (
-    /^missing text for speech$|缺少 text 参数，无法进行文字转语音/.test(
-      raw,
-    )
+    /^missing text for speech$|缺少 text 参数，无法进行文字转语音/.test(raw)
   ) {
     return t.emptyDialogueText
   }
   if (/^missing music action$|缺少 action 参数/.test(raw)) {
     return t.agentInputEmpty
   }
-  if (
-    /^this article cannot be changed$|无权操作该文章/.test(raw)
-  ) {
+  if (/^this article cannot be changed$|无权操作该文章/.test(raw)) {
     return t.forbidden
   }
   if (
@@ -1977,14 +1938,10 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     return t.feedNotFound
   }
-  if (
-    /^no matching articles were found$|未找到符合条件的文章/.test(raw)
-  ) {
+  if (/^no matching articles were found$|未找到符合条件的文章/.test(raw)) {
     return t.notFound
   }
-  if (
-    /^no matching playlist was found$|没有找到相关歌单/.test(raw)
-  ) {
+  if (/^no matching playlist was found$|没有找到相关歌单/.test(raw)) {
     return t.notFound
   }
   if (/^article not found$|未找到文章/.test(raw)) {
@@ -2019,9 +1976,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     return classified(t.iconSaveFailed, raw, hint)
   }
-  if (
-    /^failed to (check existing brew source|find brew source)/i.test(raw)
-  ) {
+  if (/^failed to (check existing brew source|find brew source)/i.test(raw)) {
     const action = raw.match(/^failed to ([^:]+)/i)?.[1]?.trim() || ''
     return classified(joinParts(t.brewLoadFailed, action), raw, hint)
   }
@@ -2069,14 +2024,10 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     return t.rsshubUnavailable
   }
-  if (
-    /^too many pipeline steps$|管道步骤数不能超过/.test(raw)
-  ) {
+  if (/^too many pipeline steps$|管道步骤数不能超过/.test(raw)) {
     return t.pipelineTooManySteps
   }
-  if (
-    /^heartbeat admin required$|Heartbeat 管理需要管理员/.test(raw)
-  ) {
+  if (/^heartbeat admin required$|Heartbeat 管理需要管理员/.test(raw)) {
     return t.heartbeatAdminRequired
   }
   if (
@@ -2087,25 +2038,17 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     return t.stepNeedsConfirm
   }
   if (
-    /^missing user intent$|Missing userIntent|请描述你想要执行的操作/.test(
-      raw,
-    )
+    /^missing user intent$|Missing userIntent|请描述你想要执行的操作/.test(raw)
   ) {
     return t.agentInputEmpty
   }
-  if (
-    /^missing url or query$|需要提供 url 或 query/.test(raw)
-  ) {
+  if (/^missing url or query$|需要提供 url 或 query/.test(raw)) {
     return t.agentInputEmpty
   }
-  if (
-    /^this url is invalid$|输入不是有效的 URL/.test(raw)
-  ) {
+  if (/^this url is invalid$|输入不是有效的 URL/.test(raw)) {
     return t.invalidUrl
   }
-  if (
-    /^this step cannot be called directly$|不应被直接调用/.test(raw)
-  ) {
+  if (/^this step cannot be called directly$|不应被直接调用/.test(raw)) {
     return t.agentUnsupported
   }
   if (/^the system is shutting down$|系统正在关闭/.test(raw)) {
@@ -2118,18 +2061,15 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     return t.forbidden
   }
-  if (
-    /^this service is not configured$|API Key 未配置/i.test(raw)
-  ) {
-    return /TTS|语音|Speech/.test(raw) ? t.speechNotConfigured : t.serviceNotConfigured
+  if (/^this service is not configured$|API Key 未配置/i.test(raw)) {
+    return /TTS|语音|Speech/.test(raw)
+      ? t.speechNotConfigured
+      : t.serviceNotConfigured
   }
   if (raw.includes('图片生成完成，但无法提取')) {
     return currentCopy().agentPersona.onboarding.imageProviderInvalidResponse
   }
-  if (
-    /^invalid tappid$/i.test(raw) ||
-    raw.includes('无效的 tappId')
-  ) {
+  if (/^invalid tappid$/i.test(raw) || raw.includes('无效的 tappId')) {
     return currentCopy().tapp.invalidId
   }
   if (code === 'media_action_invalid') {
@@ -2138,10 +2078,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (code === 'media_mode_invalid') {
     return classified(t.mediaModeInvalid, raw, hint)
   }
-  if (
-    /^invalid url$/i.test(raw) ||
-    raw.startsWith('无效的 URL')
-  ) {
+  if (/^invalid url$/i.test(raw) || raw.startsWith('无效的 URL')) {
     return t.invalidUrl
   }
   if (
@@ -2172,9 +2109,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   if (/activity not ready/i.test(raw)) {
     return classified(t.inboxNotReady, raw, hint)
   }
-  if (
-    /claim inbound receipt|finish inbound receipt/i.test(raw)
-  ) {
+  if (/claim inbound receipt|finish inbound receipt/i.test(raw)) {
     return classified(t.database, raw, hint)
   }
   if (
@@ -2206,9 +2141,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     return t.requestRejected
   }
   if (
-    /^(channel|room|ring|transfer|activity|object|user) not found$/i.test(
-      raw,
-    )
+    /^(channel|room|ring|transfer|activity|object|user) not found$/i.test(raw)
   ) {
     return t.notFound
   }
@@ -2226,9 +2159,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     return t.invalidUrl
   }
-  if (
-    / is required$| are required$|key rotation requires confirm/i.test(raw)
-  ) {
+  if (/ is required$| are required$|key rotation requires confirm/i.test(raw)) {
     return t.agentInputEmpty
   }
   if (
@@ -2249,9 +2180,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     return t.inviteInvalid
   }
-  if (
-    /^feed name is required$|订阅源名称不能为空/.test(raw)
-  ) {
+  if (/^feed name is required$|订阅源名称不能为空/.test(raw)) {
     return t.feedNameRequired
   }
   if (
@@ -2261,22 +2190,29 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     return currentCopy().brew.errorDiscoverFailed
   }
-  if (
-    /notion is not configured|notion api key 未配置/i.test(raw)
-  ) {
+  if (/notion is not configured|notion api key 未配置/i.test(raw)) {
     return currentCopy().brew.errorNotionFetch
   }
   if (/^failed to submit refresh$|^提交失败/.test(raw)) {
     return t.taskSubmitFailed
   }
   const agentPanel = currentCopy().agentPanel
-  if (code === 'preset_title_too_long' || /标题过长|title is too long/i.test(raw)) {
+  if (
+    code === 'preset_title_too_long' ||
+    /标题过长|title is too long/i.test(raw)
+  ) {
     return agentPanel.presetTitleTooLong
   }
-  if (code === 'preset_summary_too_long' || /摘要过长|summary is too long/i.test(raw)) {
+  if (
+    code === 'preset_summary_too_long' ||
+    /摘要过长|summary is too long/i.test(raw)
+  ) {
     return agentPanel.presetSummaryTooLong
   }
-  if (code === 'preset_steps_too_large' || /解析步骤数据过大|parsed steps are too large/i.test(raw)) {
+  if (
+    code === 'preset_steps_too_large' ||
+    /解析步骤数据过大|parsed steps are too large/i.test(raw)
+  ) {
     return agentPanel.presetStepsTooLarge
   }
   if (
@@ -2285,41 +2221,29 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   ) {
     return agentPanel.presetHistoryTooLong
   }
-  if (
-    code === 'notification_unavailable'
-  ) {
+  if (code === 'notification_unavailable') {
     return t.notificationUnavailable
   }
   const setup = currentCopy().setup
-  if (
-    code === 'db_migration_failed'
-  ) {
+  if (code === 'db_migration_failed') {
     return setup.dbMigrationFailed
   }
   if (code === 'schema_ensure_failed') {
     return setup.schemaEnsureFailed
   }
-  if (
-    code === 'setup_cleanup_failed'
-  ) {
+  if (code === 'setup_cleanup_failed') {
     return setup.cleanupFailed
   }
-  if (
-    code === 'setup_claim_failed'
-  ) {
+  if (code === 'setup_claim_failed') {
     return setup.claimFailed
   }
   if (code === 'config_mode_required') {
     return setup.configModeRequired
   }
-  if (
-    code === 'setup_window_closed'
-  ) {
+  if (code === 'setup_window_closed') {
     return setup.claimedRepairDesc
   }
-  if (
-    code === 'setup_secret_mismatch'
-  ) {
+  if (code === 'setup_secret_mismatch') {
     return setup.secretMismatch
   }
   if (
@@ -2569,11 +2493,7 @@ export function userFacingError(reason: unknown, fallback?: string): string {
     )
   ) {
     const action = raw.match(/^failed to ([^:]+)/i)?.[1]?.trim() || ''
-    return classified(
-      joinParts(t.brewSourceSaveFailed, action),
-      raw,
-      hint,
-    )
+    return classified(joinParts(t.brewSourceSaveFailed, action), raw, hint)
   }
   if (/^failed to delete source/i.test(raw)) {
     return classified(t.brewSourceDeleteFailed, raw, hint)

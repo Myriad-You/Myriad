@@ -448,7 +448,9 @@ pub(super) async fn execute_brew_generate_reading_list(
         .collect();
 
     // 调用 AI 进行筛选和排序
-    let ai_analyzer = ctx.ai_analyzer.ok_or("AI analyzer not configured")?;
+    let ai_analyzer = ctx
+        .ai_analyzer
+        .ok_or(myriad_agent_rules::AI_PROVIDER_NOT_CONFIGURED)?;
 
     // 构建关键词提示（如果有）
     let keyword_hint = if !keyword.is_empty() {

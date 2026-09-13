@@ -121,7 +121,9 @@ pub(super) async fn execute_brew_discover(
 
 /// 用 AI 已有知识推断 RSS 地址（无实时联网）
 async fn ai_search_rss_feeds(query: &str, ctx: &HandlerContext<'_>) -> Result<Vec<Value>, String> {
-    let analyzer = ctx.ai_analyzer.ok_or("AI analyzer not available")?;
+    let analyzer = ctx
+        .ai_analyzer
+        .ok_or(myriad_agent_rules::AI_PROVIDER_NOT_CONFIGURED)?;
 
     let search_query = format!("{} RSS feed URL", query);
 

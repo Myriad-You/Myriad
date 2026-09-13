@@ -101,6 +101,7 @@
   "iconSaveFailed": "このフィードのアイコンを保存できませんでした。",
   "aiResponseInvalid": "AI の応答を解析できませんでした。再試行してください。",
   "aiGenerationFailed": "AI 生成に失敗しました。しばらくしてから再試行してください。",
+  "aiProviderNotConfigured": "AIが未設定です。AI設定でプロバイダーを追加または選択してください。",
   "asrInvalidAudio": "音声データが無効です。もう一度録音またはアップロードしてください。",
   "speechNotConfigured": "音声サービスが未設定です。先に AI 設定でキーを入れてください。",
   "speechTtsNoAudio": "音声サービスから音声が返りませんでした。再試行してください。",

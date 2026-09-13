@@ -6,6 +6,7 @@ import {
   isAgoraSource,
   isMiniMaxSpeechSource,
   resolveUsedVendorSlug,
+  sourceFromCustom,
   sourceFromPreset,
   speechProviderKindFromSource,
   vendorSupports,
@@ -52,7 +53,10 @@ describe('AI vendor presets', () => {
       true,
     )
     assert.equal(
-      vendorSupports({ kind: 'openai_compatible', preset: 'deepseek' }, 'image'),
+      vendorSupports(
+        { kind: 'openai_compatible', preset: 'deepseek' },
+        'image',
+      ),
       false,
     )
     assert.equal(
@@ -63,7 +67,10 @@ describe('AI vendor presets', () => {
       true,
     )
     assert.equal(
-      vendorSupports({ kind: 'openai_compatible', preset: 'siliconflow' }, 'image'),
+      vendorSupports(
+        { kind: 'openai_compatible', preset: 'siliconflow' },
+        'image',
+      ),
       true,
     )
     assert.equal(
@@ -82,10 +89,19 @@ describe('AI vendor presets', () => {
       vendorSupports({ kind: 'volcengine', preset: 'volcengine' }, 'text'),
       true,
     )
-    assert.equal(vendorSupports({ kind: 'gemini', preset: 'gemini' }, 'image'), true)
-    assert.equal(vendorSupports({ kind: 'gemini', preset: 'gemini' }, 'speech'), true)
     assert.equal(
-      vendorSupports({ kind: 'openai_compatible', preset: 'minimax' }, 'speech'),
+      vendorSupports({ kind: 'gemini', preset: 'gemini' }, 'image'),
+      true,
+    )
+    assert.equal(
+      vendorSupports({ kind: 'gemini', preset: 'gemini' }, 'speech'),
+      true,
+    )
+    assert.equal(
+      vendorSupports(
+        { kind: 'openai_compatible', preset: 'minimax' },
+        'speech',
+      ),
       true,
     )
     assert.equal(
@@ -96,7 +112,10 @@ describe('AI vendor presets', () => {
       vendorSupports({ kind: 'agora', preset: 'agora' }, 'realtime'),
       true,
     )
-    assert.equal(vendorSupports({ kind: 'agora', preset: 'agora' }, 'speech'), false)
+    assert.equal(
+      vendorSupports({ kind: 'agora', preset: 'agora' }, 'speech'),
+      false,
+    )
   })
 
   it('declares text, image, and speech from endpoints this stack can call', () => {
@@ -148,9 +167,25 @@ describe('AI vendor presets', () => {
     assert.equal(source.kind, 'openai_compatible')
     assert.equal(source.display_name, 'DeepSeek')
     assert.equal(source.base_url, 'https://api.deepseek.com/v1')
+    assert.equal(source.api_format, 'openai')
     const second = sourceFromPreset(deepseek, [source])
     assert.equal(second.slug, 'deepseek-2')
     assert.equal(second.display_name, 'DeepSeek 2')
+  })
+
+  it('creates a custom text provider without requiring a credential', () => {
+    const source = sourceFromCustom([], 'Private gateway')
+    assert.equal(source.kind, 'custom')
+    assert.equal(source.api_format, 'openai')
+    assert.equal(source.api_key, '')
+    assert.equal(vendorSupports(source, 'text'), true)
+    assert.equal(vendorSupports(source, 'image'), false)
+  })
+
+  it('uses the native Anthropic Messages API preset', () => {
+    const anthropic = AI_VENDOR_PRESETS.find((item) => item.id === 'anthropic')!
+    assert.equal(anthropic.api_format, 'anthropic')
+    assert.equal(anthropic.base_url, 'https://api.anthropic.com/v1')
   })
 
   it('tags usage by slug when the same vendor has two sources', () => {
@@ -162,7 +197,10 @@ describe('AI vendor presets', () => {
       AI_VENDOR_PRESETS.find((item) => item.id === 'openai')!,
       [first],
     )
-    assert.equal(resolveUsedVendorSlug(second.slug, [first, second]), 'openai-2')
+    assert.equal(
+      resolveUsedVendorSlug(second.slug, [first, second]),
+      'openai-2',
+    )
     assert.equal(resolveUsedVendorSlug('openai', [first, second]), 'openai')
     assert.equal(resolveUsedVendorSlug('openai', [first]), 'openai')
     assert.equal(resolveUsedVendorSlug('openai', [second]), 'openai-2')
@@ -192,7 +230,10 @@ describe('AI vendor presets', () => {
       'minimax',
     )
     assert.equal(
-      speechProviderKindFromSource({ kind: 'tencent', slug: 'tencent' }, 'tencent'),
+      speechProviderKindFromSource(
+        { kind: 'tencent', slug: 'tencent' },
+        'tencent',
+      ),
       'tencent',
     )
     assert.equal(

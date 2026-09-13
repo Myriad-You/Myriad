@@ -6,6 +6,14 @@ export type AiVendorKind =
   | 'volcengine'
   | 'tencent'
   | 'agora'
+  | 'anthropic'
+  | 'custom'
+
+export type AiApiFormat =
+  | 'openai'
+  | 'openai_responses'
+  | 'anthropic'
+  | 'gemini'
 
 export type AiVendorCapability = 'text' | 'image' | 'speech' | 'realtime'
 
@@ -15,6 +23,7 @@ export interface AiVendorSource {
   display_name: string
   enabled: boolean
   preset?: string
+  api_format?: AiApiFormat | string
   api_key?: string | null
   base_url?: string
   secret_id?: string | null
@@ -27,6 +36,7 @@ export interface AiVendorPreset {
   id: string
   defaultSlug: string
   kind: AiVendorKind
+  api_format?: AiApiFormat
   display_name: string
   base_url: string
   docs_url?: string
@@ -44,6 +54,7 @@ export const AI_VENDOR_PRESETS: AiVendorPreset[] = [
     id: 'openrouter',
     defaultSlug: 'openrouter',
     kind: 'openrouter',
+    api_format: 'openai',
     display_name: 'OpenRouter',
     base_url: 'https://openrouter.ai/api/v1',
     docs_url: 'https://openrouter.ai/docs',
@@ -59,6 +70,7 @@ export const AI_VENDOR_PRESETS: AiVendorPreset[] = [
     id: 'openai',
     defaultSlug: 'openai',
     kind: 'openai',
+    api_format: 'openai_responses',
     display_name: 'OpenAI',
     base_url: 'https://api.openai.com/v1',
     docs_url: 'https://platform.openai.com/docs',
@@ -74,6 +86,7 @@ export const AI_VENDOR_PRESETS: AiVendorPreset[] = [
     id: 'azureOpenAI',
     defaultSlug: 'azure-openai',
     kind: 'openai_compatible',
+    api_format: 'openai',
     display_name: 'Azure OpenAI',
     base_url: '',
     docs_url: 'https://learn.microsoft.com/azure/ai-services/openai/',
@@ -88,6 +101,7 @@ export const AI_VENDOR_PRESETS: AiVendorPreset[] = [
     id: 'gemini',
     defaultSlug: 'gemini',
     kind: 'gemini',
+    api_format: 'gemini',
     display_name: 'Gemini',
     base_url: '',
     docs_url: 'https://ai.google.dev/gemini-api/docs',
@@ -102,9 +116,10 @@ export const AI_VENDOR_PRESETS: AiVendorPreset[] = [
   {
     id: 'anthropic',
     defaultSlug: 'anthropic',
-    kind: 'openai_compatible',
+    kind: 'anthropic',
+    api_format: 'anthropic',
     display_name: 'Anthropic',
-    base_url: '',
+    base_url: 'https://api.anthropic.com/v1',
     docs_url: 'https://docs.anthropic.com/',
     capabilities: ['text'],
     keyPlaceholder: 'sk-ant-...',
@@ -414,13 +429,19 @@ export function speechProviderKindFromSource(
 export function vendorSupports(
   kindOrSource:
     | string
-    | { kind: string; slug?: string; preset?: string | null },
+    | {
+        kind: string
+        slug?: string
+        preset?: string | null
+        api_format?: string
+      },
   capability: AiVendorCapability,
 ): boolean {
   const source =
     typeof kindOrSource === 'string' ? { kind: kindOrSource } : kindOrSource
   const preset = findVendorPreset(source)
   if (preset) return preset.capabilities.includes(capability)
+  if (source.api_format && capability === 'text') return true
   switch (source.kind) {
     case 'openrouter':
     case 'openai':
@@ -458,9 +479,10 @@ export function parseVendorSources(raw: string): AiVendorSource[] {
   try {
     const parsed = JSON.parse(raw) as unknown
     if (!Array.isArray(parsed)) return []
-    return parsed.filter(
-      (item): item is AiVendorSource =>
-        Boolean(item && typeof item === 'object' && typeof item.slug === 'string'),
+    return parsed.filter((item): item is AiVendorSource =>
+      Boolean(
+        item && typeof item === 'object' && typeof item.slug === 'string',
+      ),
     )
   } catch {
     return []
@@ -479,11 +501,10 @@ export function sourceFromPreset(
   return {
     slug,
     kind: preset.kind,
-    display_name: copy
-      ? `${preset.display_name} ${copy}`
-      : preset.display_name,
+    display_name: copy ? `${preset.display_name} ${copy}` : preset.display_name,
     enabled: true,
     preset: preset.id,
+    api_format: preset.api_format ?? defaultApiFormat(preset),
     api_key: '',
     base_url: preset.base_url,
     secret_id: '',
@@ -493,10 +514,50 @@ export function sourceFromPreset(
   }
 }
 
-function uniqueVendorSlug(
-  base: string,
+export function sourceFromCustom(
   existing: AiVendorSource[],
-): string {
+  displayName: string,
+): AiVendorSource {
+  return {
+    slug: uniqueVendorSlug('custom', existing),
+    kind: 'custom',
+    display_name: displayName,
+    enabled: true,
+    preset: '',
+    api_format: 'openai',
+    api_key: '',
+    base_url: '',
+    secret_id: '',
+    secret_key: '',
+    region: '',
+    app_id: '',
+  }
+}
+
+export function apiFormatForSource(
+  source: Pick<AiVendorSource, 'kind' | 'preset' | 'api_format'>,
+): AiApiFormat {
+  const explicit = source.api_format?.trim()
+  if (
+    explicit === 'openai' ||
+    explicit === 'openai_responses' ||
+    explicit === 'anthropic' ||
+    explicit === 'gemini'
+  ) {
+    return explicit
+  }
+  if (source.kind === 'gemini') return 'gemini'
+  if (source.kind === 'anthropic' || source.preset === 'anthropic') return 'anthropic'
+  return 'openai'
+}
+
+function defaultApiFormat(preset: AiVendorPreset): AiApiFormat {
+  if (preset.kind === 'gemini') return 'gemini'
+  if (preset.id === 'anthropic') return 'anthropic'
+  return 'openai'
+}
+
+function uniqueVendorSlug(base: string, existing: AiVendorSource[]): string {
   const seed = base.trim() || 'source'
   if (!existing.some((item) => item.slug === seed)) return seed
   let index = 2
@@ -509,7 +570,13 @@ function uniqueVendorSlug(
 export function defaultModelsForSource(
   source: { kind: string; slug?: string; preset?: string | null },
   capability: AiVendorCapability,
-): { stt?: string; tts?: string; voice?: string; text?: string; image?: string } {
+): {
+  stt?: string
+  tts?: string
+  voice?: string
+  text?: string
+  image?: string
+} {
   const preset = findVendorPreset(source)
   if (preset) {
     if (capability === 'image') return { image: preset.defaultImageModel }
@@ -524,7 +591,8 @@ export function defaultModelsForSource(
   }
   if (capability === 'image') {
     if (source.kind === 'openai') return { image: 'gpt-image-2' }
-    if (source.kind === 'volcengine') return { image: 'doubao-seedream-5-0-260128' }
+    if (source.kind === 'volcengine')
+      return { image: 'doubao-seedream-5-0-260128' }
     if (source.kind === 'gemini') return { image: 'gemini-3.1-flash-image' }
     return { image: 'openai/gpt-image-2' }
   }

@@ -426,8 +426,10 @@ domain.
 2. You are redirected to `/setup`. Follow the wizard to create the **admin
    account** and initial configuration. (Schema migrations already ran at
    startup.)
-3. After login, open **`/config`** to add AI provider keys, platform tokens, and
-   OAuth apps as needed. These persist in PostgreSQL.
+3. After login, open **`/config`** to configure AI provider API formats and Base
+   URLs (plus an API key only when that endpoint requires one), platform tokens,
+   and OAuth apps as needed. These persist in PostgreSQL; provider keys remain
+   write-only in the UI.
 
 ---
 

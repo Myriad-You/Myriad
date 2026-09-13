@@ -35,15 +35,7 @@
     "rangeDaysSelected": "{n, plural, one {# jour} other {# jours}}",
     "rangePrevMonth": "Mois précédent",
     "rangeNextMonth": "Mois suivant",
-    "rangeWeekdays": [
-      "Lu",
-      "Ma",
-      "Me",
-      "Je",
-      "Ve",
-      "Sa",
-      "Di"
-    ],
+    "rangeWeekdays": ["Lu", "Ma", "Me", "Je", "Ve", "Sa", "Di"],
     "rangeMonthTitle": "{m}/{y}",
     "rangeToday": "Aujourd'hui",
     "refresh": "Actualiser",
@@ -402,7 +394,7 @@
   "importPreviewIgnored": "Ignorer les supprimés",
   "importPreviewMigrated": "Migration auto",
   "importPreviewInvalid": "Impossible à restaurer",
-  "openaiBaseUrlLabel": "URL de base OpenAI",
+  "baseUrlLabel": "URL de base",
   "openaiModelLabel": "Nom du modèle",
   "domainStatusAuto": "Auto",
   "domainStatusManual": "Manuel",
@@ -756,6 +748,7 @@
   "configSaved": "Configuration enregistrée !",
   "configSaveFailed": "Échec de l'enregistrement",
   "partialSaveWarning": "Certains réglages sont enregistrés, mais des étapes suivantes ont échoué",
+  "unsavedChangesPrompt": "Des modifications ne sont pas enregistrées. Quitter cette page et les abandonner ?",
   "configEmpty": "Configuration vide, enregistrement impossible",
   "loadConfigFailed": "Impossible de charger la configuration",
   "loadConfigFailedDesc": "Les réglages sont indisponibles. Vérifiez la connexion et réessayez.",
@@ -1109,6 +1102,15 @@
   "aiVendorEmpty": "Aucun fournisseur",
   "aiVendorDisplayName": "Nom affiché",
   "aiVendorApiKey": "Clé API",
+  "aiVendorApiKeyOptional": "Facultatif. Laissez vide si le fournisseur ne requiert pas d’authentification.",
+  "aiVendorApiFormat": "Format d’API",
+  "aiApiFormatResponses": "API OpenAI Responses",
+  "aiApiFormatChatCompletions": "Chat Completions compatible OpenAI",
+  "aiApiFormatAnthropic": "API Anthropic Messages",
+  "aiApiFormatGemini": "API Gemini generateContent",
+  "aiVendorCustom": "Fournisseur personnalisé",
+  "aiVendorCustomDesc": "Ajouter un fournisseur absent des préréglages",
+  "aiVendorSetupMissing": "Configuration requise",
   "aiVendorDocs": "Docs",
   "aiVendorConfigured": "Configuré",
   "aiVendorKeyMissing": "Manquante",
@@ -1609,27 +1611,9 @@
       "umami_script_url",
       "script analytics"
     ],
-    "data": [
-      "données",
-      "cache",
-      "filtre",
-      "filtre intelligent",
-      "actualiser"
-    ],
-    "platformItem": [
-      "plateforme",
-      "source",
-      "token",
-      "api"
-    ],
-    "ai": [
-      "ia",
-      "gemini",
-      "openai",
-      "api",
-      "modèle",
-      "image"
-    ],
+    "data": ["données", "cache", "filtre", "filtre intelligent", "actualiser"],
+    "platformItem": ["plateforme", "source", "token", "api"],
+    "ai": ["ia", "gemini", "openai", "api", "modèle", "image"],
     "agent": [
       "agent",
       "persona",
@@ -1672,19 +1656,8 @@
       "hors ligne",
       "pwa_enabled"
     ],
-    "oauth": [
-      "oauth",
-      "github",
-      "connexion",
-      "auth"
-    ],
-    "music": [
-      "musique",
-      "playlist",
-      "lecteur",
-      "netease",
-      "qq music"
-    ],
+    "oauth": ["oauth", "github", "connexion", "auth"],
+    "music": ["musique", "playlist", "lecteur", "netease", "qq music"],
     "network": [
       "proxy",
       "réseau",
@@ -1741,13 +1714,7 @@
       "retour arrière",
       "instantané"
     ],
-    "permissions": [
-      "permission",
-      "élevé",
-      "quota",
-      "ia",
-      "invité"
-    ],
+    "permissions": ["permission", "élevé", "quota", "ia", "invité"],
     "users": [
       "utilisateur",
       "utilisateurs",

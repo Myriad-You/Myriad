@@ -59,7 +59,7 @@ where
 {
     let analyzer = AiAnalyzer::new(
         config.provider,
-        config.api_key,
+        (!config.api_key.trim().is_empty()).then_some(config.api_key),
         config.model,
         config.base_url,
     )

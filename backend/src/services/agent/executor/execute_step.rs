@@ -288,7 +288,7 @@ impl Executor {
         // 用 AI 将 Skill instructions 转化为执行计划
         let analyzer = handler_ctx
             .ai_analyzer
-            .ok_or("AI analyzer not available for skill execution")?;
+            .ok_or(myriad_agent_rules::AI_PROVIDER_NOT_CONFIGURED)?;
 
         // 构建可用能力列表（仅 Skill gating 中声明的 + 通用 AI 能力）
         let available_caps = {

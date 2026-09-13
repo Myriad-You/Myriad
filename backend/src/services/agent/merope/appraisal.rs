@@ -381,7 +381,7 @@ mod tests {
         let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         let analyzer = crate::services::analyzer::AiAnalyzer::new_with_timeout(
             crate::services::analyzer::AiProvider::OpenAI,
-            "test".into(),
+            Some("test".into()),
             "test".into(),
             Some(format!("http://{address}/v1")),
             Duration::from_secs(2),

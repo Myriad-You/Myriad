@@ -35,15 +35,7 @@
     "rangeDaysSelected": "{n, plural, one {# Tag} other {# Tage}}",
     "rangePrevMonth": "Vorheriger Monat",
     "rangeNextMonth": "Nächster Monat",
-    "rangeWeekdays": [
-      "Mo",
-      "Di",
-      "Mi",
-      "Do",
-      "Fr",
-      "Sa",
-      "So"
-    ],
+    "rangeWeekdays": ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"],
     "rangeMonthTitle": "{y}-{m}",
     "rangeToday": "Heute",
     "refresh": "Aktualisieren",
@@ -402,7 +394,7 @@
   "importPreviewIgnored": "Entfernte ignorieren",
   "importPreviewMigrated": "Auto-Migration",
   "importPreviewInvalid": "Nicht wiederherstellbar",
-  "openaiBaseUrlLabel": "OpenAI-Basis-URL",
+  "baseUrlLabel": "Basis-URL",
   "openaiModelLabel": "Modellname",
   "domainStatusAuto": "Auto",
   "domainStatusManual": "Manuell",
@@ -756,6 +748,7 @@
   "configSaved": "Konfiguration gespeichert!",
   "configSaveFailed": "Konfiguration konnte nicht gespeichert werden",
   "partialSaveWarning": "Einige Einstellungen wurden gespeichert, spätere Schritte sind fehlgeschlagen",
+  "unsavedChangesPrompt": "Es gibt ungespeicherte Änderungen. Seite verlassen und Änderungen verwerfen?",
   "configEmpty": "Konfiguration ist leer, Speichern nicht möglich",
   "loadConfigFailed": "Konfiguration konnte nicht geladen werden",
   "loadConfigFailedDesc": "Einstellungen sind nicht verfügbar. Verbindung prüfen und erneut versuchen.",
@@ -1109,6 +1102,15 @@
   "aiVendorEmpty": "Noch keine Anbieter",
   "aiVendorDisplayName": "Anzeigename",
   "aiVendorApiKey": "API Key",
+  "aiVendorApiKeyOptional": "Optional. Bei Anbietern ohne Authentifizierung leer lassen.",
+  "aiVendorApiFormat": "API-Format",
+  "aiApiFormatResponses": "OpenAI Responses API",
+  "aiApiFormatChatCompletions": "OpenAI-kompatible Chat Completions",
+  "aiApiFormatAnthropic": "Anthropic Messages API",
+  "aiApiFormatGemini": "Gemini generateContent API",
+  "aiVendorCustom": "Eigener Anbieter",
+  "aiVendorCustomDesc": "Einen Anbieter hinzufügen, der nicht in den Vorlagen steht",
+  "aiVendorSetupMissing": "Einrichtung erforderlich",
   "aiVendorDocs": "Doku",
   "aiVendorConfigured": "Konfiguriert",
   "aiVendorKeyMissing": "Fehlt",
@@ -1631,16 +1633,7 @@
       "platform",
       "source"
     ],
-    "ai": [
-      "ki",
-      "ai",
-      "gemini",
-      "openai",
-      "api",
-      "modell",
-      "bild",
-      "image"
-    ],
+    "ai": ["ki", "ai", "gemini", "openai", "api", "modell", "bild", "image"],
     "agent": [
       "agent",
       "persona",
@@ -1688,21 +1681,8 @@
       "theme",
       "install"
     ],
-    "oauth": [
-      "oauth",
-      "github",
-      "anmeldung",
-      "login",
-      "auth"
-    ],
-    "music": [
-      "musik",
-      "music",
-      "playlist",
-      "player",
-      "netease",
-      "qq music"
-    ],
+    "oauth": ["oauth", "github", "anmeldung", "login", "auth"],
+    "music": ["musik", "music", "playlist", "player", "netease", "qq music"],
     "network": [
       "proxy",
       "netzwerk",

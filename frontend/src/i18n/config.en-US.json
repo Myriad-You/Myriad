@@ -35,15 +35,7 @@
     "rangeDaysSelected": "{n, plural, one {# day} other {# days}}",
     "rangePrevMonth": "Previous month",
     "rangeNextMonth": "Next month",
-    "rangeWeekdays": [
-      "Mo",
-      "Tu",
-      "We",
-      "Th",
-      "Fr",
-      "Sa",
-      "Su"
-    ],
+    "rangeWeekdays": ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"],
     "rangeMonthTitle": "{y}-{m}",
     "rangeToday": "Today",
     "refresh": "Refresh",
@@ -402,7 +394,7 @@
   "importPreviewIgnored": "Ignore removed",
   "importPreviewMigrated": "Auto-migrate",
   "importPreviewInvalid": "Cannot restore",
-  "openaiBaseUrlLabel": "OpenAI Base URL",
+  "baseUrlLabel": "Base URL",
   "openaiModelLabel": "Model Name",
   "domainStatusAuto": "Auto",
   "domainStatusManual": "Manual",
@@ -756,6 +748,7 @@
   "configSaved": "Configuration saved!",
   "configSaveFailed": "Failed to save configuration",
   "partialSaveWarning": "Some settings were saved, but later steps failed",
+  "unsavedChangesPrompt": "You have unsaved changes. Leave this page and discard them?",
   "configEmpty": "Configuration is empty, cannot save",
   "loadConfigFailed": "Failed to load configuration",
   "loadConfigFailedDesc": "Settings are unavailable. Check the connection and retry.",
@@ -1109,6 +1102,15 @@
   "aiVendorEmpty": "No providers yet",
   "aiVendorDisplayName": "Display name",
   "aiVendorApiKey": "API Key",
+  "aiVendorApiKeyOptional": "Optional. Leave empty for providers that do not require authentication.",
+  "aiVendorApiFormat": "API format",
+  "aiApiFormatResponses": "OpenAI Responses API",
+  "aiApiFormatChatCompletions": "OpenAI-compatible Chat Completions",
+  "aiApiFormatAnthropic": "Anthropic Messages API",
+  "aiApiFormatGemini": "Gemini generateContent API",
+  "aiVendorCustom": "Custom provider",
+  "aiVendorCustomDesc": "Add a provider that is not in the preset list",
+  "aiVendorSetupMissing": "Needs setup",
   "aiVendorDocs": "Docs",
   "aiVendorConfigured": "Configured",
   "aiVendorKeyMissing": "Missing",
@@ -1603,27 +1605,9 @@
       "umami_script_url",
       "analytics script"
     ],
-    "data": [
-      "data",
-      "cache",
-      "filter",
-      "smart filter",
-      "refresh"
-    ],
-    "platformItem": [
-      "platform",
-      "source",
-      "token",
-      "api"
-    ],
-    "ai": [
-      "ai",
-      "gemini",
-      "openai",
-      "api",
-      "model",
-      "image"
-    ],
+    "data": ["data", "cache", "filter", "smart filter", "refresh"],
+    "platformItem": ["platform", "source", "token", "api"],
+    "ai": ["ai", "gemini", "openai", "api", "model", "image"],
     "agent": [
       "agent",
       "persona",
@@ -1667,19 +1651,8 @@
       "offline",
       "pwa_enabled"
     ],
-    "oauth": [
-      "oauth",
-      "github",
-      "login",
-      "auth"
-    ],
-    "music": [
-      "music",
-      "playlist",
-      "player",
-      "netease",
-      "qq music"
-    ],
+    "oauth": ["oauth", "github", "login", "auth"],
+    "music": ["music", "playlist", "player", "netease", "qq music"],
     "network": [
       "proxy",
       "network",
@@ -1736,13 +1709,7 @@
       "rollback",
       "snapshot"
     ],
-    "permissions": [
-      "permission",
-      "elevated",
-      "quota",
-      "ai",
-      "guest"
-    ],
+    "permissions": ["permission", "elevated", "quota", "ai", "guest"],
     "users": [
       "user",
       "users",

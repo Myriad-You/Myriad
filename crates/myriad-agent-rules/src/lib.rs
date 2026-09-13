@@ -27,7 +27,10 @@ pub use data_read::{
     extract_json_array_from_ai_response, extract_json_object_from_ai_response,
     parse_rsshub_radar_rules, project_time_info, weekday_zh,
 };
-pub use error::{ErrorAnalysis, ErrorCategory, ParamFix, analyze_error, apply_param_fixes};
+pub use error::{
+    AI_PROVIDER_NOT_CONFIGURED, ErrorAnalysis, ErrorCategory, ParamFix, analyze_error,
+    apply_param_fixes,
+};
 pub use external::{
     HTTP_FETCH_MAX_BODY_BYTES, SCRAPE_SKIP_TAGS, WEB_SCRAPE_DEFAULT_MAX_LENGTH,
     WEB_SCRAPE_MAX_HTML_BYTES, classify_outbound_fetch, compress_and_truncate_text,

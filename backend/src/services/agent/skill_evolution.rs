@@ -425,7 +425,7 @@ impl SkillEvolution {
 
         let analyzer = create_ai_analyzer_for_tier(ModelTier::Standard)
             .await
-            .ok_or("AI analyzer not available")?;
+            .ok_or(myriad_agent_rules::AI_PROVIDER_NOT_CONFIGURED)?;
 
         let prompt = format!(
             "You extract reusable Skill templates from a successful run.\n\n\
@@ -564,7 +564,7 @@ impl SkillEvolution {
 
         let analyzer = create_ai_analyzer_for_tier(ModelTier::Standard)
             .await
-            .ok_or("AI analyzer not available")?;
+            .ok_or(myriad_agent_rules::AI_PROVIDER_NOT_CONFIGURED)?;
 
         let reason_ctx = failure_reason
             .map(|r| format!("\nRecent failure reason: {}", r))

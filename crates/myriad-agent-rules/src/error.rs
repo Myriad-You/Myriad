@@ -3,6 +3,9 @@
 use serde_json::Value;
 use std::collections::HashMap;
 
+/// Stable transport code; user-visible wording lives in frontend i18n catalogs.
+pub const AI_PROVIDER_NOT_CONFIGURED: &str = "ai_provider_not_configured";
+
 /// 错误分类
 #[derive(Debug, Clone, PartialEq)]
 pub enum ErrorCategory {
@@ -198,6 +201,9 @@ pub fn analyze_error(
 
 /// API Key / 服务未配置 —— 重试无效，且不应被当成 Unknown 烧掉预算
 fn is_configuration_error(error: &str, error_lower: &str) -> bool {
+    if error_lower.contains("ai_provider_not_configured") {
+        return true;
+    }
     // response_agent::api_key_not_configured → "{service} API Key 未配置"
     if error.contains("API Key 未配置") || error_lower.contains("api key 未配置") {
         return true;
@@ -567,6 +573,9 @@ mod tests {
         let cfg = analyze_error("API key not configured", "ai.chat", &empty);
         assert_eq!(cfg.category, ErrorCategory::Configuration);
         assert!(!cfg.retryable);
+        let stable = analyze_error(AI_PROVIDER_NOT_CONFIGURED, "ai.chat", &empty);
+        assert_eq!(stable.category, ErrorCategory::Configuration);
+        assert!(!stable.retryable);
     }
 
     #[test]
