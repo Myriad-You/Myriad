@@ -124,8 +124,8 @@ pub async fn get_ai_config_for_tier(tier: ModelTier) -> Result<AiConfig, AiConfi
 
     let config = GLOBAL_DYNAMIC_CONFIG.read().await;
     let resolved = config.resolve_ai_config(tier);
-    let model = resolved.model.trim();
-    let ai_config = (!model.is_empty())
+    let ai_config = resolved
+        .text_ready()
         .then(|| {
             let provider = AiProvider::from_str(&resolved.api_format)
                 .map_err(|error| AiConfigError::InvalidProvider(error.to_string()))?;

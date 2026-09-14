@@ -55,7 +55,7 @@ pub async fn create_ai_analyzer_for_tier_with_timeout(
     }
     let resolved = config.resolve_ai_config(tier);
 
-    if resolved.model.trim().is_empty() {
+    if !resolved.text_ready() {
         return None;
     }
     let api_key = resolved.api_key.filter(|key| !key.trim().is_empty());
@@ -90,6 +90,9 @@ pub async fn create_strict_lite_ai_analyzer_with_timeout(
         .read()
         .await
         .resolve_strict_lite_ai_config()?;
+    if !resolved.text_ready() {
+        return None;
+    }
     let api_key = resolved.api_key.filter(|key| !key.trim().is_empty());
     let provider = match AiProvider::from_str(&resolved.api_format) {
         Ok(provider) => provider,
