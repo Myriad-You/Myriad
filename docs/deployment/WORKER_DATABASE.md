@@ -49,7 +49,8 @@ writer/failover endpoint; database read replicas cannot serve worker writes or
 arbitrary TAPP storage requests.
 
 For a separate DB container, backend and **both** workers must share
-`myriad-backend-ext` with it, while retaining `myriad-net`. The external example
+`MYRIAD_BACKEND_EXTRA_NETWORK` (default `myriad-backend-ext`) with it, while
+retaining `myriad-net`. The external example
 declares this as an existing external network. Workers do not inherit backend
 network attachments or host mappings. Apply any required `extra_hosts` to all
 three services for host PostgreSQL; ensure routed/cloud addresses are reachable

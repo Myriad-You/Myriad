@@ -80,7 +80,7 @@ updater ──► docker-guard ── sock
 # .env（外部 DB）
 MYRIAD_DB_MODE=external
 
-# db 是外部数据库在 myriad-backend-ext 上的容器名或网络别名
+# db 是外部数据库在 MYRIAD_BACKEND_EXTRA_NETWORK（默认 myriad-backend-ext）上的容器名或网络别名
 DATABASE_URL=postgres://myriad:WEB_PASSWORD@db:5432/myriad?sslmode=prefer
 PERSONA_DATABASE_URL=postgres://myriad_persona:PERSONA_PASSWORD@db:5432/myriad?sslmode=prefer
 FEDERATION_DATABASE_URL=postgres://myriad_federation:FEDERATION_PASSWORD@db:5432/myriad?sslmode=prefer
@@ -111,31 +111,32 @@ UPDATER_GATEWAY_SECRET=...
 | 服务 | 外部 DB 下的变化 |
 | --- | --- |
 | `postgres` | **删除** |
-| `backend` | `DATABASE_URL` 来自 env；**去掉** `depends_on: postgres`；仍依赖 `backend-volume-init`；加入 `myriad-backend-ext` |
-| `federation-worker` / `persona-worker` | 保留 `myriad-net` 并加入 `myriad-backend-ext`；分别用 `FEDERATION_DATABASE_URL` / `PERSONA_DATABASE_URL` |
+| `backend` | `DATABASE_URL` 来自 env；**去掉** `depends_on: postgres`；仍依赖 `backend-volume-init`；加入外部 DB 网络 |
+| `federation-worker` / `persona-worker` | 保留 `myriad-net` 并加入外部 DB 网络；分别用 `FEDERATION_DATABASE_URL` / `PERSONA_DATABASE_URL` |
 | `frontend` / `proxy` | 不变；proxy 仍指向两个 worker |
 | `docker-guard` / `updater` / `updater-gateway` | 拓扑不变；updater 设 `MYRIAD_DB_MODE=external` |
 | `./pgdata` | **不需要** bind；不要挂空目录装样子 |
 
-示例要求预先存在外部网络 `myriad-backend-ext`，且外部 PostgreSQL 容器也接入该网络。主 backend 和两个 worker 都直接连接数据库，因此三者必须同时接入，不能只给 backend 配置。数据库容器名或网络别名用作三个数据库 URL 的 host。
+外部 DB 网络名由 `MYRIAD_BACKEND_EXTRA_NETWORK` 指定，默认 `myriad-backend-ext`，可设为任意合法 Docker 网络名（不得与 `MYRIAD_DOCKER_NETWORK` / `MYRIAD_ADMIN_NETWORK` / `MYRIAD_DOCKER_GUARD_NETWORK` 同名）。示例要求该网络预先存在，且外部 PostgreSQL 容器也接入该网络。主 backend 和两个 worker 都直接连接数据库，因此三者必须同时接入，不能只给 backend 配置。数据库容器名或网络别名用作三个数据库 URL 的 host。
 
 在 Docker 宿主机准备网络：
 
 ```bash
-docker network inspect myriad-backend-ext >/dev/null 2>&1 || docker network create myriad-backend-ext
+EXT_NET="${MYRIAD_BACKEND_EXTRA_NETWORK:-myriad-backend-ext}"
+docker network inspect "$EXT_NET" >/dev/null 2>&1 || docker network create "$EXT_NET"
 # 替换为实际数据库容器名；已接入时跳过
-docker network connect --alias db myriad-backend-ext YOUR_POSTGRES_CONTAINER
+docker network connect --alias db "$EXT_NET" YOUR_POSTGRES_CONTAINER
 ```
 
 数据库所属的 Compose / 1Panel 编排也必须持久声明该外部网络，避免重建后丢失连接。`external: true` 表示 Myriad 不创建或删除它。
 
-宿主机或云 RDS 不属于 Docker 网络成员。使用这些地址时，可同时移除三个服务和顶层声明里的 `myriad-backend-ext`，保留原有网络，并确保三个进程均能访问数据库。
+宿主机或云 RDS 不属于 Docker 网络成员。使用这些地址时，可同时移除三个服务和顶层声明里的外部网络，保留原有网络，并确保三个进程均能访问数据库。
 
 ### 在线更新与旧版本升级
 
-updater 预检与 Guard 使用同一条规则：固定名称 `myriad-backend-ext` 只允许 backend、federation-worker、persona-worker 接入。前端、proxy、updater 等服务不能接入；worker 仍不能接入管理网或 Guard 网。网络必须由宿主机预先创建，其他任意网络名仍被拒绝。
+updater 预检与 Guard 使用同一条规则：`MYRIAD_BACKEND_EXTRA_NETWORK` 指定的网络（默认 `myriad-backend-ext`）只允许 backend、federation-worker、persona-worker 接入。前端、proxy、updater 等服务不能接入；worker 仍不能接入管理网或 Guard 网。网络必须由宿主机预先创建，未配置的网络名仍被拒绝。
 
-**旧版 updater 和 Guard 只支持原有三网，必须先一起升级到包含此修复的构建。** 若已因额外网络被拦截，从宿主机按 [TCB 升级说明](./UPDATER_SECURITY_BASELINE.md) 更新这组服务；只升级业务 backend 镜像不生效。升级后可保留外部数据库网络执行站内更新/回滚，不要移除 worker 的数据库网络来绕过旧检查。
+**旧版 updater 和 Guard 只支持固定名 `myriad-backend-ext`，必须先一起升级到包含此修复的构建。** 若已因额外网络被拦截，从宿主机按 [TCB 升级说明](./UPDATER_SECURITY_BASELINE.md) 更新这组服务；只升级业务 backend 镜像不生效。升级后可保留外部数据库网络执行站内更新/回滚，不要移除 worker 的数据库网络来绕过旧检查。
 
 实现依据：[updater 网络预检](../../updater/src/docker/network_allowlist.rs) 与 [Guard 网络校验](../../updater/src/docker/guard/validate.rs)。`MYRIAD_DB_MODE=external` 只改变数据库备份/恢复行为，不授予任意网络访问。
 
@@ -164,7 +165,7 @@ backend、federation-worker 和 persona-worker 容器访问外部库时，hostna
 
 | 外部库位置 | `DATABASE_URL` host 写法 | 备注 |
 | --- | --- | --- |
-| 同一 Docker 网络上的其它容器 | 容器名或服务名 | 数据库与 backend、两个 worker 一起接入 `myriad-backend-ext` |
+| 同一 Docker 网络上的其它容器 | 容器名或服务名 | 数据库与 backend、两个 worker 一起接入 `MYRIAD_BACKEND_EXTRA_NETWORK`（默认 `myriad-backend-ext`） |
 | 宿主机上的 Postgres（Linux） | 宿主机网桥网关，常见 `172.17.0.1` 或 compose 网络网关 | 也可用 `extra_hosts: ["host.docker.internal:host-gateway"]` 后写 `host.docker.internal` |
 | 宿主机（Docker Desktop / 新版 Engine） | `host.docker.internal` | 建议显式 `extra_hosts: ["host.docker.internal:host-gateway"]` |
 | 局域网 / 云 RDS | 内网 IP 或域名 | 安全组放行 **backend 和两个 worker 的出口** → DB 端口；优先私网 |
@@ -209,7 +210,7 @@ for service in backend federation-worker persona-worker; do
 done
 ```
 
-独立 DB 容器部署下，三个容器都应接入 `myriad-net` 和 `myriad-backend-ext`，数据库也应出现在 `docker network inspect myriad-backend-ext` 的成员中。backend 保留管理网，worker 不加入管理网。
+独立 DB 容器部署下，三个容器都应接入 `myriad-net` 和 `MYRIAD_BACKEND_EXTRA_NETWORK`（默认 `myriad-backend-ext`），数据库也应出现在 `docker network inspect` 的成员中。backend 保留管理网，worker 不加入管理网。
 
 backend 检查 `database_connected`；worker 检查 `database` 和 `ready`。联邦因地域策略被禁用时允许正常退出，不应误判为数据库故障。
 
@@ -250,7 +251,7 @@ pg_dump "$DATABASE_URL" -Fc -f "backups/myriad_$(date +%Y%m%d_%H%M%S).dump"
 
 1. 维护窗口：`docker compose stop frontend backend federation-worker persona-worker`（或整栈 stop，按你的流程）。  
 2. `pg_dump` 栈内库 → 导入外部 Postgres（建库/用户/权限先就绪）。  
-3. 换用外部 compose，设置 `MYRIAD_DB_MODE=external` 和三个数据库 URL，预置独立 worker 角色；独立 DB 容器与三个进程均接入 `myriad-backend-ext`。
+3. 换用外部 compose，设置 `MYRIAD_DB_MODE=external` 和三个数据库 URL，预置独立 worker 角色；独立 DB 容器与三个进程均接入外部 DB 网络。
 4. 使用 `docker compose --env-file .env up -d`（若 `./guard-policy/docker-guard.env` 已存在可再加 `--env-file ./guard-policy/docker-guard.env`），执行上一节容器内校验。
 5. 确认无误后处理旧 `./pgdata`（备份后删除或离线归档）。
 

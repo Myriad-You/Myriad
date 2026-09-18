@@ -405,7 +405,7 @@ docker named volume、rootless Docker、Podman 仍会启动时报错。
 
 ### 9.1.1 外部 Postgres（`MYRIAD_DB_MODE`）
 
-数据库模式与网络授权独立：预检和 Guard 额外允许 backend 与两个 worker 接入固定的 `myriad-backend-ext`；其他服务不能接入，worker 仍不能接入管理网或 Guard 网。旧版 updater/Guard 须一起升级到包含此支持的构建。三个进程分别配置连接同一库/schema 的 URL，详见[外部 PostgreSQL 部署](deployment/EXTERNAL_POSTGRES.md)。以下模式行为以通过网络预检为前提。
+数据库模式与网络授权独立：预检和 Guard 额外允许 backend 与两个 worker 接入 `MYRIAD_BACKEND_EXTRA_NETWORK` 指定的网络（默认 `myriad-backend-ext`）；其他服务不能接入，worker 仍不能接入管理网或 Guard 网。旧版 updater/Guard 须一起升级到包含此支持的构建。三个进程分别配置连接同一库/schema 的 URL，详见[外部 PostgreSQL 部署](deployment/EXTERNAL_POSTGRES.md)。以下模式行为以通过网络预检为前提。
 
 当数据库不在 compose 内、也没有宿主侧 `./pgdata` 可快照时，在 `.env`（或进程环境）设置：
 
@@ -764,7 +764,7 @@ docker compose --env-file .env --env-file ./guard-policy/docker-guard.env up -d 
   frontend / postgres / federation-worker / persona-worker 不得 dual-home 到 guard 网，避免在 updater 被攻破后把业务容器拉进
   未鉴权的 Docker API（`:2375`）。
 - **允许的网络名**（create/connect）：业务 `myriad-net`、管理平面 `myriad-admin-net`
-  （`MYRIAD_ADMIN_NETWORK`）、guard-net，以及固定 `myriad-backend-ext`（仅 backend / federation-worker / persona-worker）。其它网络名拒绝。
+  （`MYRIAD_ADMIN_NETWORK`）、guard-net，以及 `MYRIAD_BACKEND_EXTRA_NETWORK`（默认 `myriad-backend-ext`，仅 backend / federation-worker / persona-worker）。其它网络名拒绝。
 - **更新 preflight**（不改编排，仅只读探测，失败则**不停服**）：
   1. **本地环境**：`.env` 仍含 `MYRIAD_TAG` / `PROXY_TAG` / `UPDATER_TAG`；compose 仍引用
      `${MYRIAD_TAG}`；`state/`（及 bundled 下 `state/snapshots/`）与 `.env` 可写；经
@@ -777,7 +777,7 @@ docker compose --env-file .env --env-file ./guard-policy/docker-guard.env up -d 
      `PROXY_FEDERATION_UPSTREAM` / `PROXY_PERSONA_UPSTREAM` 与对应 capability label；
      bundled 下 postgres 的 pgdata 须为 **bind**；运行中容器 project 标签一致
      （external 不 inspect 残留 `myriad-postgres`）。
-  3. **网络 allowlist**：原有三网与限定服务的 `myriad-backend-ext` + 已存在；Compose 与运行中容器均按服务校验，禁止越权挂网。
+  3. **网络 allowlist**：原有三网与限定服务的 `MYRIAD_BACKEND_EXTRA_NETWORK`（默认 `myriad-backend-ext`）+ 已存在；Compose 与运行中容器均按服务校验，禁止越权挂网。
   4. **release 无 manifest**：GitHub `release.json` 不可用时 **允许** 回退 Docker Hub
      `vX.Y.Z` 镜像（开发频道 / 无私有 GitHub 常态）；该路径无 digest/cosign/min_from。
      cosign **硬失败** 仍不 fallback。
@@ -965,7 +965,7 @@ E2E 实际覆盖（11 项 / 全过，2026-07-17）：
 当前仓库只保留 proxy + updater 生产布局：
 
 1. `pgdata` 使用 `./pgdata` bind mount
-2. `.env` 包含 `MYRIAD_TAG`、`PROXY_TAG`、`UPDATER_TAG`、`COMPOSE_PROJECT_NAME`、`UPDATE_TOKEN`；生产另含 digest 钉死的 `UPDATER_IMAGE_REF` / `DOCKER_GUARD_IMAGE`。可选 `MYRIAD_DOCKER_NETWORK` / `MYRIAD_ADMIN_NETWORK` / `MYRIAD_DOCKER_GUARD_NETWORK`
+2. `.env` 包含 `MYRIAD_TAG`、`PROXY_TAG`、`UPDATER_TAG`、`COMPOSE_PROJECT_NAME`、`UPDATE_TOKEN`；生产另含 digest 钉死的 `UPDATER_IMAGE_REF` / `DOCKER_GUARD_IMAGE`。可选 `MYRIAD_DOCKER_NETWORK` / `MYRIAD_ADMIN_NETWORK` / `MYRIAD_DOCKER_GUARD_NETWORK` / `MYRIAD_BACKEND_EXTRA_NETWORK`
 3. 业务镜像用 `${MYRIAD_TAG}` / `${PROXY_TAG}`；TCB 用 `UPDATER_IMAGE_REF` digest pin；不使用 `:latest`
 4. 只有 `proxy` 暴露宿主端口
 5. 只有 `docker-guard` 挂载原始 docker.sock；updater 仅通过内部策略代理访问 Docker API

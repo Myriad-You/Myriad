@@ -6,7 +6,7 @@ use axum::http::Uri;
 use bytes::Bytes;
 use serde_json::{Value, json};
 
-use crate::docker::network_allowlist::{EXTERNAL_DATABASE_NETWORK, service_network_allowed};
+use crate::docker::network_allowlist::service_network_allowed;
 
 use super::{
     GuardConfig, GuardState, SELF_UPDATE_EXHAUSTED_NAME, SELF_UPDATE_HELPER_NAME,
@@ -373,13 +373,14 @@ fn is_narrow_backend_volume_init(value: &Value, host: &Value, service: &str) -> 
 
 fn is_allowlisted_network_name(name: &str, config: &GuardConfig) -> bool {
     // Keep in sync with `crate::docker::network_allowlist::NetworkAllowlist::contains`
-    // (three env-backed names plus the fixed external DB network). Preflight rejects updates before stop/snapshot when
-    // compose would attach managed services outside this set.
+    // (three env-backed names plus the configurable external DB network). Preflight
+    // rejects updates before stop/snapshot when compose would attach managed
+    // services outside this set.
     let name = name.trim_start_matches('/');
     name == config.compose_network
         || name == config.admin_network
         || name == config.guard_network
-        || name == EXTERNAL_DATABASE_NETWORK
+        || name == config.external_database_network
 }
 
 /// Exact service-to-network topology. In particular, a compromised updater may
@@ -395,6 +396,7 @@ pub(crate) fn authorize_guard_network_attachment(
         &config.compose_network,
         &config.admin_network,
         &config.guard_network,
+        &config.external_database_network,
     );
     if !allowed {
         if network_name == config.guard_network && service != "updater" {
