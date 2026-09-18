@@ -21,7 +21,7 @@ use super::{
 };
 use axum::{
     Extension, Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -46,7 +46,8 @@ use crate::services::tapp_install::{
     archive_upload_too_large_message, archive_upload_would_exceed, build_new_install_persist,
     build_update_install_persist, classify_install_multipart_field, install_overloaded_message,
     install_overloaded_status, is_public_installation_namespace, parse_install_source,
-    select_install_approved_permissions, select_update_approved_permissions,
+    select_install_approved_permissions, select_overwrite_approved_permissions,
+    select_update_approved_permissions,
 };
 
 /// Global install concurrency gate. Bounds simultaneous archive
@@ -235,7 +236,8 @@ pub(super) async fn install_tapp(
         role,
         is_current_admin,
         package,
-        permissions.unwrap_or_default(),
+        permissions,
+        false,
     )
     .await?;
     if from_store {
@@ -249,6 +251,28 @@ pub(super) async fn install_tapp(
     Ok(result)
 }
 
+/// 409 body for an existing install. Carries the metadata the overwrite prompt
+/// needs (both versions plus which declared permissions are new) — no secrets.
+fn install_conflict_error(manifest: &TappManifest, existing: &tapps::Model) -> HttpError {
+    let previous: Vec<String> =
+        serde_json::from_value(existing.approved_permissions.clone()).unwrap_or_default();
+    let new_permissions: Vec<String> = manifest
+        .permissions
+        .iter()
+        .filter(|permission| !previous.iter().any(|approved| approved == *permission))
+        .cloned()
+        .collect();
+    HttpError::from(
+        myriad_error::AppError::conflict("Tapp already installed").with_details(serde_json::json!({
+            "tappId": manifest.id.clone(),
+            "name": manifest.name.clone(),
+            "installedVersion": existing.version.clone(),
+            "incomingVersion": manifest.version.clone(),
+            "newPermissions": new_permissions,
+        })),
+    )
+}
+
 async fn install_prepared_package(
     db: &DatabaseConnection,
     dynamic_config: &RwLock<DynamicConfig>,
@@ -256,7 +280,8 @@ async fn install_prepared_package(
     role: UserRole,
     is_current_admin: bool,
     package: PreparedTappPackage,
-    permissions: Vec<String>,
+    permissions: Option<Vec<String>>,
+    overwrite: bool,
 ) -> Result<Json<ApiResponse<TappListItem>>, HttpError> {
     // Bound concurrent installs early so overload fails 503 without staging work.
     let _install_permit = acquire_install_permit().await?;
@@ -285,10 +310,10 @@ async fn install_prepared_package(
         api_http_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error")
     })?;
 
-    if existing.is_some() {
-        return Err(api_http_error(
-            StatusCode::CONFLICT,
-            "Tapp already installed",
+    if existing.is_some() && !overwrite {
+        return Err(install_conflict_error(
+            &manifest,
+            existing.as_ref().expect("checked above"),
         ));
     }
 
@@ -325,10 +350,6 @@ async fn install_prepared_package(
         )
         .await
         .map_err(api_response_err)?;
-    // Approved = pure domain selection; granted = role-config filter (async).
-    let approved = select_install_approved_permissions(&manifest.permissions, &permissions);
-    let granted = filter_install_permissions(dynamic_config, role, approved.clone()).await?;
-
     let txn = db.begin().await.map_err(|error| {
         log_install_failure(
             "txn.begin",
@@ -353,10 +374,9 @@ async fn install_prepared_package(
             );
             api_http_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error")
         })?;
-    let conflict_query = tapps::Entity::find()
+    let existing_tx = tapps::Entity::find()
         .filter(tapps::Column::TappId.eq(&manifest.id))
-        .filter(tapps::Column::UserId.is_in(conflict_owner_ids));
-    if conflict_query
+        .filter(tapps::Column::UserId.is_in(conflict_owner_ids))
         .one(&txn)
         .await
         .map_err(|error| {
@@ -369,25 +389,47 @@ async fn install_prepared_package(
                 &error,
             );
             api_http_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error")
-        })?
-        .is_some()
-    {
-        txn.rollback().await.ok();
-        return Err(api_http_error(
-            StatusCode::CONFLICT,
-            "Tapp already installed",
-        ));
+        })?;
+    if let Some(existing_tx) = &existing_tx {
+        if !overwrite {
+            txn.rollback().await.ok();
+            return Err(install_conflict_error(&manifest, existing_tx));
+        }
     }
+
+    // Approved = pure domain selection; granted = role-config filter (async).
+    // Overwrite keeps the previous approvals and only adds accepted new ones;
+    // a fresh install defaults to the full declared set when unspecified.
+    let requested = permissions.as_deref().unwrap_or(&[]);
+    let approved = match &existing_tx {
+        Some(existing_tx) => {
+            let previous: Vec<String> =
+                serde_json::from_value(existing_tx.approved_permissions.clone())
+                    .unwrap_or_default();
+            select_overwrite_approved_permissions(&manifest.permissions, requested, &previous)
+        }
+        None => select_install_approved_permissions(&manifest.permissions, requested),
+    };
+    let granted = match filter_install_permissions(dynamic_config, role, approved.clone()).await {
+        Ok(granted) => granted,
+        Err(error) => {
+            txn.rollback().await.ok();
+            return Err(error);
+        }
+    };
 
     // Clean leftover live/uninstall artifacts under the lifecycle lock.
     // Staging dirs are skipped: they may belong to a concurrent install.
-    cleanup_reinstall_orphans(
-        &final_tapp_dir,
-        &manifest.id,
-        installation_owner_id,
-        user_id,
-        Some(stage.path()),
-    );
+    // Overwrite keeps the live install; `stage.activate` quarantines it.
+    if existing_tx.is_none() {
+        cleanup_reinstall_orphans(
+            &final_tapp_dir,
+            &manifest.id,
+            installation_owner_id,
+            user_id,
+            Some(stage.path()),
+        );
+    }
 
     let activated = match stage.activate(&final_tapp_dir).await {
         Ok(activated) => activated,
@@ -408,6 +450,96 @@ async fn install_prepared_package(
             ));
         }
     };
+
+    // Overwrite of an existing install: update in place, preserving live status
+    // and user data (storage is keyed by user+tapp and is never touched here).
+    if let Some(existing_tx) = existing_tx {
+        let persist =
+            build_update_install_persist(&manifest, &granted, &approved, &final_tapp_dir, now)
+                .map_err(|error| api_http_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
+        let mut active: tapps::ActiveModel = existing_tx.clone().into();
+        active.name = Set(persist.name);
+        active.version = Set(persist.version);
+        active.description = Set(persist.description);
+        active.author = Set(persist.author);
+        active.icon = Set(persist.icon);
+        active.theme_color = Set(persist.theme_color);
+        active.manifest = Set(persist.manifest);
+        active.granted_permissions = Set(persist.granted_permissions);
+        active.approved_permissions = Set(persist.approved_permissions);
+        // A successful overwrite is explicit re-authorization.
+        active.needs_reauthorization = Set(persist.needs_reauthorization);
+        active.code_path = Set(persist.code_path);
+        active.updated_at = Set(persist.updated_at);
+        let result = match active.update(&txn).await {
+            Ok(result) => result,
+            Err(error) => {
+                txn.rollback().await.ok();
+                activated.rollback().await;
+                log_install_failure(
+                    "overwrite_update",
+                    &manifest.id,
+                    user_id,
+                    installation_owner_id,
+                    Some(&final_tapp_dir),
+                    &error,
+                );
+                return Err(api_http_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Database error",
+                ));
+            }
+        };
+        if let Err(err) = reconcile_manifest_widgets(
+            &txn,
+            installation_owner_id,
+            &manifest.id,
+            &manifest,
+            Some(&existing_tx.manifest),
+        )
+        .await
+        {
+            txn.rollback().await.ok();
+            activated.rollback().await;
+            log_install_failure(
+                "reconcile_manifest_widgets",
+                &manifest.id,
+                user_id,
+                installation_owner_id,
+                Some(&final_tapp_dir),
+                &format!("status={}", err.0.status_u16()),
+            );
+            return Err(err);
+        }
+        if let Err(error) = txn.commit().await {
+            activated.rollback_after_commit_error().await;
+            log_install_failure(
+                "txn.commit",
+                &manifest.id,
+                user_id,
+                installation_owner_id,
+                Some(&final_tapp_dir),
+                &error,
+            );
+            return Err(api_http_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Database error",
+            ));
+        }
+        activated.commit().await;
+        // Code or approved/granted columns changed; drop runtime grants.
+        crate::api::tapp_runtime::revoke_all_tapp_runtime_grants(
+            db,
+            installation_owner_id,
+            &manifest.id,
+        )
+        .await;
+        crate::api::tapp_runtime::invalidate_tapp_apis_cache(&manifest.id).await;
+        let is_site_owner = is_public_installation_namespace(installation_owner_id, admin_id);
+        return Ok(Json(ApiResponse::success(
+            crate::services::tapp_catalog::update_response_list_item(result, is_site_owner),
+        )));
+    }
 
     // Column projection (paths, Running default, permission JSON) is pure domain.
     let persist = build_new_install_persist(
@@ -512,6 +644,15 @@ async fn install_prepared_package(
     )))
 }
 
+/// Query options for `POST /api/tapps/install-file`.
+#[derive(Debug, Default, Deserialize)]
+pub(super) struct InstallOverwriteOptions {
+    /// When true, an existing install of the same id is updated in place
+    /// instead of rejected with 409. Defaults to false.
+    #[serde(default)]
+    overwrite: bool,
+}
+
 /// 安装 Tapp（上传 .tapp 文件）
 ///
 /// 接收 multipart 文件上传，解压 ZIP 文件后安装
@@ -519,6 +660,7 @@ pub(super) async fn install_tapp_file(
     State(db): State<DatabaseConnection>,
     State(dynamic_config): State<Arc<RwLock<DynamicConfig>>>,
     Extension(claims): Extension<Claims>,
+    Query(options): Query<InstallOverwriteOptions>,
     mut multipart: axum::extract::Multipart,
 ) -> Result<impl IntoResponse, HttpError> {
     let user_id: i32 = claims
@@ -530,7 +672,7 @@ pub(super) async fn install_tapp_file(
     let is_current_admin = role == UserRole::Admin;
     // 读取上传的文件
     let mut file_data: Option<Vec<u8>> = None;
-    let mut permissions: Vec<String> = Vec::new();
+    let mut permissions: Option<Vec<String>> = None;
 
     while let Some(mut field) = multipart
         .next_field()
@@ -565,7 +707,7 @@ pub(super) async fn install_tapp_file(
                     api_http_error(StatusCode::BAD_REQUEST, "Failed to read permissions")
                 })?;
                 if let Ok(parsed) = serde_json::from_str::<Vec<String>>(&text) {
-                    permissions = parsed;
+                    permissions = Some(parsed);
                 }
             }
             InstallMultipartField::Ignore => {}
@@ -584,6 +726,7 @@ pub(super) async fn install_tapp_file(
         is_current_admin,
         package,
         permissions,
+        options.overwrite,
     )
     .await
 }
@@ -894,4 +1037,62 @@ pub(super) async fn update_tapp(
     Ok(Json(ApiResponse::success(
         crate::services::tapp_catalog::update_response_list_item(result, is_site_owner),
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn manifest_with_permissions(permissions: &[&str]) -> TappManifest {
+        serde_json::from_value(json!({
+            "id": "com.example.overwrite",
+            "name": "Overwrite",
+            "version": "2.0.0",
+            "core": { "entry": "main.js" },
+            "category": "utility",
+            "permissions": permissions,
+        }))
+        .unwrap()
+    }
+
+    fn existing_model(version: &str, approved: serde_json::Value) -> tapps::Model {
+        let now = Utc::now().fixed_offset();
+        tapps::Model {
+            id: 1,
+            tapp_id: "com.example.overwrite".to_string(),
+            user_id: 7,
+            name: "Overwrite".to_string(),
+            version: version.to_string(),
+            description: None,
+            author: None,
+            icon: None,
+            theme_color: None,
+            manifest: json!({}),
+            status: tapps::TappStatus::Installed,
+            granted_permissions: json!([]),
+            approved_permissions: approved,
+            file_path: "manifest.json".to_string(),
+            code_path: "main.js".to_string(),
+            installed_at: now,
+            last_run_at: None,
+            updated_at: now,
+            error_message: None,
+            visibility: "all".to_string(),
+            needs_reauthorization: false,
+        }
+    }
+
+    #[test]
+    fn conflict_error_reports_versions_and_only_new_permissions() {
+        let manifest = manifest_with_permissions(&["storage:read", "ai:generate"]);
+        let existing = existing_model("1.0.0", json!(["storage:read", "legacy"]));
+        let body = install_conflict_error(&manifest, &existing).0.to_json();
+        assert_eq!(body["error"], "Tapp already installed");
+        assert_eq!(body["code"], "tapp_already_installed");
+        assert_eq!(body["details"]["tappId"], "com.example.overwrite");
+        assert_eq!(body["details"]["installedVersion"], "1.0.0");
+        assert_eq!(body["details"]["incomingVersion"], "2.0.0");
+        assert_eq!(body["details"]["newPermissions"], json!(["ai:generate"]));
+    }
 }

@@ -91,12 +91,30 @@ pub fn select_update_approved_permissions(
     }
 }
 
+/// Select approved permissions for an **overwrite** (re-install of an existing id).
+///
+/// Keeps every previously approved permission the new manifest still declares,
+/// and adds only the newly declared permissions the operator explicitly
+/// accepted. Removed declarations drop out; a fresh declaration is never
+/// silently approved.
+pub fn select_overwrite_approved_permissions(
+    manifest_permissions: &[String],
+    accepted_new: &[String],
+    previous_approved: &[String],
+) -> Vec<String> {
+    manifest_permissions
+        .iter()
+        .filter(|p| {
+            previous_approved.iter().any(|r| r == *p) || accepted_new.iter().any(|r| r == *p)
+        })
+        .cloned()
+        .collect()
+}
+
 /// Whether the installation owner namespace is the public site-owner row.
 pub fn is_public_installation_namespace(installation_owner_id: i32, site_owner_id: i32) -> bool {
     installation_owner_id == site_owner_id
-}
-
-// ── Persist path + column snapshots ─────────────────────────────────────────
+}// ── Persist path + column snapshots ─────────────────────────────────────────
 
 use std::path::Path;
 
@@ -379,6 +397,28 @@ mod tests {
                 &previous
             ),
             vec!["ai".to_string()]
+        );
+    }
+
+    #[test]
+    fn overwrite_approved_permissions_keep_old_and_add_accepted_new() {
+        let manifest = vec!["storage:read".into(), "network".into(), "ai".into()];
+        let previous = vec!["storage:read".into(), "legacy".into()];
+
+        // Only accepted new permissions are added on top of the kept old set.
+        assert_eq!(
+            select_overwrite_approved_permissions(&manifest, &["ai".into()], &previous),
+            vec!["storage:read".to_string(), "ai".to_string()]
+        );
+        // Accepting nothing keeps only the overlap with the previous approvals.
+        assert_eq!(
+            select_overwrite_approved_permissions(&manifest, &[], &previous),
+            vec!["storage:read".to_string()]
+        );
+        // Accepted names not declared by the new manifest never enter the set.
+        assert_eq!(
+            select_overwrite_approved_permissions(&manifest, &["gone".into()], &previous),
+            vec!["storage:read".to_string()]
         );
     }
 

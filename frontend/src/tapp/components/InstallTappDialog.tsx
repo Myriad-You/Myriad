@@ -15,8 +15,26 @@ import { showError, showStickyToast } from '../../utils/toastManager'
 import { userFacingError } from '../../utils/userFacingError'
 import { useAnchoredFloatTip } from '../hooks/useAnchoredFloatTip'
 import * as TappApiService from '../services/TappApiService'
+import { TappHttpError } from '../services/TappHttpClient'
+import { OverwriteInstallDialog } from './OverwriteInstallDialog'
 import '../../components/ConfigForm.css'
 import './InstallTappDialog.css'
+
+/** Structured 409 body from `POST /api/tapps/install-file` on an existing id. */
+interface OverwriteConflictDetails {
+  tappId?: string
+  name?: string
+  installedVersion?: string
+  incomingVersion?: string
+  newPermissions?: string[]
+}
+
+function overwriteConflictDetails(err: unknown): OverwriteConflictDetails | null {
+  if (!(err instanceof TappHttpError)) return null
+  if (err.status !== 409 || err.code !== 'tapp_already_installed') return null
+  const body = err.body as { details?: OverwriteConflictDetails } | undefined
+  return body?.details ?? {}
+}
 
 export interface InstallTappDialogProps {
   isOpen: boolean
@@ -39,6 +57,11 @@ export function InstallTappDialog({
 
   const [loading, setLoading] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  const [overwritePrompt, setOverwritePrompt] = useState<{
+    file: File
+    details: OverwriteConflictDetails
+  } | null>(null)
+  const [overwriting, setOverwriting] = useState(false)
 
   const onInstallRef = useRef(onInstall)
   const onSuccessRef = useRef(onSuccess)
@@ -50,6 +73,8 @@ export function InstallTappDialog({
   const resetForm = useCallback(() => {
     setLoading(false)
     setDragOver(false)
+    setOverwritePrompt(null)
+    setOverwriting(false)
   }, [])
 
   const {
@@ -66,7 +91,9 @@ export function InstallTappDialog({
     onRequestClose: onCancel,
     contentKey: `${loading ? 1 : 0}`,
     onEnter: resetForm,
-    canDismiss: !loading,
+    // The overwrite prompt is a second panel; keep this tip mounted while it
+    // is open so a press inside that panel does not dismiss both.
+    canDismiss: !loading && overwritePrompt === null,
   })
 
   const handleCancel = useCallback(() => {
@@ -74,19 +101,17 @@ export function InstallTappDialog({
     close({ notifyParent: true })
   }, [close, loading])
 
-  const handleFileUpload = useCallback(
-    async (file: File) => {
-      if (loading) return
-      if (!file.name.endsWith('.tapp')) {
-        showError(t.tapp.selectTappFile)
-        return
-      }
-
+  const runInstall = useCallback(
+    async (file: File, permissions?: string[], overwrite?: boolean) => {
       const startedSession = session
       setLoading(true)
 
       try {
-        const result = await TappApiService.installTappFile(file)
+        const result = await TappApiService.installTappFile(
+          file,
+          permissions,
+          overwrite,
+        )
         onInstallRef.current()
         onSuccessRef.current?.(
           result.name || file.name.replaceAll(/\.tapp$/gi, ''),
@@ -98,23 +123,52 @@ export function InstallTappDialog({
         close({ notifyParent: false })
       } catch (err) {
         if (!isCurrentSession(startedSession)) return
+        const details = overwriteConflictDetails(err)
+        if (details) {
+          // 已安装同 id：不报错，改为询问是否覆盖。
+          setLoading(false)
+          setOverwriting(false)
+          setOverwritePrompt({ file, details })
+          return
+        }
         showStickyToast({
           message: userFacingError(err, t.tapp.installFailed),
           type: 'error',
           replaceKey: 'tapp-install',
         })
         setLoading(false)
+        setOverwriting(false)
+        setOverwritePrompt(null)
       }
     },
-    [
-      loading,
-      session,
-      isCurrentSession,
-      t.tapp.selectTappFile,
-      t.tapp.installFailed,
-      close,
-    ],
+    [session, isCurrentSession, t.tapp.installFailed, close],
   )
+
+  const handleFileUpload = useCallback(
+    (file: File) => {
+      if (loading) return
+      if (!file.name.endsWith('.tapp')) {
+        showError(t.tapp.selectTappFile)
+        return
+      }
+      void runInstall(file)
+    },
+    [loading, runInstall, t.tapp.selectTappFile],
+  )
+
+  const handleConfirmOverwrite = useCallback(
+    (acceptedPermissions: string[]) => {
+      if (!overwritePrompt || overwriting) return
+      setOverwriting(true)
+      void runInstall(overwritePrompt.file, acceptedPermissions, true)
+    },
+    [overwritePrompt, overwriting, runInstall],
+  )
+
+  const handleCancelOverwrite = useCallback(() => {
+    if (overwriting) return
+    setOverwritePrompt(null)
+  }, [overwriting])
 
   const handleDrop = useCallback(
     (e: DragEvent) => {
@@ -122,7 +176,7 @@ export function InstallTappDialog({
       setDragOver(false)
       if (loading) return
       const file = e.dataTransfer.files[0]
-      if (file) void handleFileUpload(file)
+      if (file) handleFileUpload(file)
     },
     [loading, handleFileUpload],
   )
@@ -131,14 +185,14 @@ export function InstallTappDialog({
     (e: ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0]
       e.target.value = ''
-      if (file) void handleFileUpload(file)
+      if (file) handleFileUpload(file)
     },
     [handleFileUpload],
   )
 
   if (!isMounted || typeof document === 'undefined') return null
 
-  return createPortal(
+  const installTip = createPortal(
     <div
       ref={panelRef}
       className={className('install-tip')}
@@ -217,6 +271,23 @@ export function InstallTappDialog({
       </div>
     </div>,
     document.body,
+  )
+
+  return (
+    <>
+      {installTip}
+      <OverwriteInstallDialog
+        isOpen={overwritePrompt !== null}
+        anchorEl={anchorEl}
+        appName={overwritePrompt?.details.name || overwritePrompt?.file.name || ''}
+        installedVersion={overwritePrompt?.details.installedVersion ?? ''}
+        incomingVersion={overwritePrompt?.details.incomingVersion ?? ''}
+        newPermissions={overwritePrompt?.details.newPermissions ?? []}
+        busy={overwriting}
+        onCancel={handleCancelOverwrite}
+        onConfirm={handleConfirmOverwrite}
+      />
+    </>
   )
 }
 

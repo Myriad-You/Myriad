@@ -34,6 +34,7 @@
     "Failed to update permissions": "permissions_save_failed",
     "Failed to save permissions": "permissions_save_failed",
     "Failed to persist Tapp": "tapp_save_failed",
+    "Tapp already installed": "tapp_already_installed",
     "Failed to save MCP config": "mcp_config_save_failed",
     "Failed to create session token": "session_failed",
     "Failed to refresh session token": "session_failed",

@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::sync::OnceLock;
 
 /// Stable JSON body shape returned to clients.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct ErrorBody {
     pub error: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -21,6 +21,9 @@ pub struct ErrorBody {
     pub hint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
+    /// Structured, non-secret detail for clients (e.g. conflict metadata).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<Value>,
 }
 
 /// Unified application error: status + public `error` string + optional detail.
@@ -33,6 +36,7 @@ pub struct AppError {
     message: Option<String>,
     hint: Option<String>,
     code: Option<String>,
+    details: Option<Value>,
 }
 
 fn is_resource_not_found(label: &str) -> bool {
@@ -88,6 +92,7 @@ impl AppError {
             message: None,
             hint: None,
             code,
+            details: None,
         }
     }
 
@@ -153,6 +158,15 @@ impl AppError {
         self
     }
 
+    /// Attach a structured, non-secret detail payload for clients.
+    ///
+    /// Values here are **not** redacted, so callers must never place secrets in
+    /// them (same rule as any client-facing payload).
+    pub fn with_details(mut self, details: Value) -> Self {
+        self.details = Some(details);
+        self
+    }
+
     pub fn status(&self) -> StatusCode {
         self.status
     }
@@ -175,6 +189,7 @@ impl AppError {
             message: self.message.clone(),
             hint: self.hint.clone(),
             code: self.code.clone(),
+            details: self.details.clone(),
         }
     }
 
@@ -186,6 +201,9 @@ impl AppError {
         }
         if let Some(ref h) = self.hint {
             v["hint"] = json!(h);
+        }
+        if let Some(ref d) = self.details {
+            v["details"] = d.clone();
         }
         v["code"] = json!(self.code.clone().unwrap_or_else(|| "unmapped".into()));
         v

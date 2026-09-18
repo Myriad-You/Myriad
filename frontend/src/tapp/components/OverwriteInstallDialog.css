@@ -1,0 +1,234 @@
+.overwrite-install-tip {
+  --overwrite-install-tip-enter-ms: 280ms;
+  --overwrite-install-tip-exit-ms: 260ms;
+  --overwrite-install-tip-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --overwrite-install-tip-exit-ease: cubic-bezier(0.4, 0, 0.2, 1);
+
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 10055;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(22rem, calc(100vw - 1.25rem));
+  min-width: min(16rem, calc(100vw - 1.25rem));
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.85rem 0.9rem;
+  border-radius: 0.875rem;
+  border: 1px solid
+    color-mix(
+      in srgb,
+      #f59e0b 26%,
+      var(--cfg-frost-border, rgb(255 255 255 / 45%))
+    );
+  background: color-mix(
+    in srgb,
+    var(--cfg-frost-bg, rgb(255 255 255 / 72%)) 88%,
+    transparent
+  );
+  backdrop-filter: var(--cfg-frost-filter, blur(17px) saturate(180%));
+  box-shadow:
+    0 4px 6px -1px rgb(0 0 0 / 8%),
+    0 16px 36px -12px color-mix(in srgb, #f59e0b 20%, transparent);
+  color: var(--cfg-text-1, #1d1d1f);
+  overflow: hidden;
+  text-align: left;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(0, 8px, 0) scale(0.96);
+  transform-origin: center top;
+  will-change: top, left, opacity, transform;
+  transition:
+    opacity var(--overwrite-install-tip-enter-ms) var(--overwrite-install-tip-ease),
+    transform var(--overwrite-install-tip-enter-ms) var(--overwrite-install-tip-ease),
+    box-shadow var(--overwrite-install-tip-enter-ms) var(--overwrite-install-tip-ease);
+}
+
+.overwrite-install-tip--top {
+  transform-origin: center bottom;
+  transform: translate3d(0, 10px, 0) scale(0.96);
+}
+
+.overwrite-install-tip--bottom {
+  transform-origin: center top;
+  transform: translate3d(0, -10px, 0) scale(0.96);
+}
+
+.overwrite-install-tip--left {
+  transform-origin: right center;
+  transform: translate3d(12px, 0, 0) scale(0.96);
+}
+
+.overwrite-install-tip--right {
+  transform-origin: left center;
+  transform: translate3d(-12px, 0, 0) scale(0.96);
+}
+
+.overwrite-install-tip.is-ready {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate3d(0, 0, 0) scale(1);
+}
+
+.overwrite-install-tip.is-leaving {
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--overwrite-install-tip-exit-ms) var(--overwrite-install-tip-exit-ease),
+    transform var(--overwrite-install-tip-exit-ms) var(--overwrite-install-tip-exit-ease),
+    box-shadow var(--overwrite-install-tip-exit-ms) var(--overwrite-install-tip-exit-ease);
+}
+
+.overwrite-install-tip--top.is-leaving {
+  transform: translate3d(0, 8px, 0) scale(0.96);
+}
+
+.overwrite-install-tip--bottom.is-leaving {
+  transform: translate3d(0, -8px, 0) scale(0.96);
+}
+
+.overwrite-install-tip--left.is-leaving {
+  transform: translate3d(10px, 0, 0) scale(0.96);
+}
+
+.overwrite-install-tip--right.is-leaving {
+  transform: translate3d(-10px, 0, 0) scale(0.96);
+}
+
+html.dark .overwrite-install-tip {
+  border-color: color-mix(
+    in srgb,
+    #fbbf24 30%,
+    var(--cfg-frost-border, rgb(255 255 255 / 12%))
+  );
+  background: color-mix(
+    in srgb,
+    var(--cfg-frost-bg, rgb(28 28 30 / 72%)) 90%,
+    transparent
+  );
+  color: var(--cfg-text-1, #f5f5f7);
+}
+
+.overwrite-install-tip-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.overwrite-install-tip-icon {
+  flex: none;
+  color: #d97706;
+}
+
+html.dark .overwrite-install-tip-icon {
+  color: #fbbf24;
+}
+
+.overwrite-install-tip-title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #b45309;
+  word-break: break-word;
+}
+
+html.dark .overwrite-install-tip-title {
+  color: #fbbf24;
+}
+
+.overwrite-install-tip-desc {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--cfg-text-2, rgb(60 60 67 / 72%));
+}
+
+html.dark .overwrite-install-tip-desc {
+  color: var(--cfg-text-2, rgb(235 235 245 / 72%));
+}
+
+.overwrite-install-tip-versions {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--cfg-text-1, #1d1d1f);
+}
+
+html.dark .overwrite-install-tip-versions {
+  color: var(--cfg-text-1, #f5f5f7);
+}
+
+.overwrite-install-tip-perms {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.65rem;
+  border: 1px solid var(--cfg-subtle-border, rgb(229 231 235 / 55%));
+  background: var(--cfg-subtle-bg, rgb(255 255 255 / 42%));
+}
+
+html.dark .overwrite-install-tip-perms {
+  border-color: var(--cfg-subtle-border);
+  background: var(--cfg-subtle-bg);
+}
+
+.overwrite-install-tip-perms-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--cfg-text-3, rgb(60 60 67 / 48%));
+}
+
+html.dark .overwrite-install-tip-perms-label {
+  color: var(--cfg-text-3, rgb(235 235 245 / 52%));
+}
+
+.overwrite-install-tip-perms-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-height: 9rem;
+  overflow-y: auto;
+}
+
+.overwrite-install-tip-perm {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  line-height: 1.3;
+  color: var(--cfg-text-1, #1d1d1f);
+  cursor: pointer;
+}
+
+html.dark .overwrite-install-tip-perm {
+  color: var(--cfg-text-1, #f5f5f7);
+}
+
+.overwrite-install-tip-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overwrite-install-tip,
+  .overwrite-install-tip.is-leaving {
+    transition: none;
+    transform: none;
+  }
+
+  .overwrite-install-tip.is-ready {
+    transform: none;
+  }
+}

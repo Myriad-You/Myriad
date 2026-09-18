@@ -206,6 +206,7 @@ export async function updateTappFromCode(
 export async function installTappFile(
   file: File,
   permissions?: string[],
+  overwrite?: boolean,
 ): Promise<TappListItem> {
   const formData = new FormData()
   formData.append('file', file)
@@ -215,7 +216,8 @@ export async function installTappFile(
 
   const csrfToken = (await getCSRFToken()) || ''
 
-  const response = await fetch(`${API_URL}/api/tapps/install-file`, {
+  const query = overwrite ? '?overwrite=true' : ''
+  const response = await fetch(`${API_URL}/api/tapps/install-file${query}`, {
     method: 'POST',
     headers: {
       'X-CSRF-Token': csrfToken,
