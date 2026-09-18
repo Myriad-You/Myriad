@@ -48,6 +48,13 @@
       var(--sticker-sway-delay, 0s) ease-in-out infinite;
   }
 
+  html[data-page-hidden] .sticker-widget.is-float-loop:not(.is-edit) .sticker-widget__bob,
+  html[data-page-hidden] .sticker-widget.is-float-loop:not(.is-edit) .sticker-widget__sway,
+  .sticker-widget[data-offscreen].is-float-loop:not(.is-edit) .sticker-widget__bob,
+  .sticker-widget[data-offscreen].is-float-loop:not(.is-edit) .sticker-widget__sway {
+    animation-play-state: paused;
+  }
+
   .sticker-widget.is-float-hover:not(.is-float-loop, .is-edit)
     .sticker-widget__bob,
   .sticker-widget.is-float-hover:not(.is-float-loop, .is-edit)

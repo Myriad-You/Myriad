@@ -8,21 +8,21 @@ use chrono::Utc;
 use tracing::{info, warn};
 
 use crate::docker::DockerClient;
-use crate::error::Result;
+use crate::error::{Result, UpdaterError};
 use crate::state::{Job, JobStatus, MaintenanceFile, Phase, StateDir};
 use crate::worker::Worker;
 
 #[derive(Debug, Clone)]
 pub enum RecoveryReport {
     Idle,
-    ResumedRollback(String),
     NeedsManual {
         job_id: String,
         phase: Phase,
         reason: String,
     },
+    /// Pre-swap crash classified. Durable job.current / maintenance stay set
+    /// until [`commit_pre_swap_stack_restored`] after a successful stack restore.
     ClearedPreSwap,
-    NoChange,
 }
 
 /// Pure recovery decision (unit-tested). See [`Worker::recover_or_idle`].
@@ -228,7 +228,15 @@ impl Worker {
             .or_else(|| current_job_id.clone())
             .filter(|s| !s.is_empty());
         let job = match job_id.as_deref() {
-            Some(id) => state.read_job(id).ok(),
+            Some(id) => match state.read_job(id) {
+                Ok(job) => Some(job),
+                Err(UpdaterError::NotFound(_)) => {
+                    return Err(UpdaterError::State(format!(
+                        "recovery: job.current or maintenance points at missing job {id}"
+                    )));
+                }
+                Err(e) => return Err(e),
+            },
             None => None,
         };
 
@@ -245,17 +253,25 @@ impl Worker {
                 phase,
                 reason,
             } => {
-                if let Ok(mut job) = state.read_job(&job_id) {
-                    job.status = JobStatus::NeedsManual;
-                    job.steps
-                        .push(crate::state::JobStep::start(Phase::NeedsManual));
-                    if let Some(step) = job.steps.last_mut() {
-                        step.finish_err(reason.clone());
+                match state.read_job(&job_id) {
+                    Ok(mut job) => {
+                        job.status = JobStatus::NeedsManual;
+                        job.steps
+                            .push(crate::state::JobStep::start(Phase::NeedsManual));
+                        if let Some(step) = job.steps.last_mut() {
+                            step.finish_err(reason.clone());
+                        }
+                        if job.finished_at.is_none() {
+                            job.finished_at = Some(Utc::now());
+                        }
+                        state.write_job(&job)?;
                     }
-                    if job.finished_at.is_none() {
-                        job.finished_at = Some(Utc::now());
+                    Err(UpdaterError::NotFound(_)) => {
+                        return Err(UpdaterError::State(format!(
+                            "recovery: needs_manual job {job_id} is missing"
+                        )));
                     }
-                    let _ = state.write_job(&job);
+                    Err(e) => return Err(e),
                 }
                 let mut m = maint;
                 m.active = true;
@@ -279,27 +295,40 @@ impl Worker {
                 })
             }
             CrashRecoveryPlan::ClearPreSwap { job_id, phase } => {
-                info!(%job_id, ?phase, "recovery: clearing pre-swap maintenance state");
-                if let Ok(mut job) = state.read_job(&job_id) {
-                    if matches!(job.status, JobStatus::Running | JobStatus::Pending) {
-                        job.status = JobStatus::Failed;
-                        job.finished_at = Some(Utc::now());
-                        if let Some(step) = job.steps.last_mut()
-                            && step.finished_at.is_none() {
+                info!(
+                    %job_id,
+                    ?phase,
+                    "recovery: pre-swap crash; keeping job.current/maintenance until stack restore succeeds"
+                );
+                match state.read_job(&job_id) {
+                    Ok(mut job) => {
+                        if matches!(job.status, JobStatus::Running | JobStatus::Pending) {
+                            job.status = JobStatus::Failed;
+                            job.finished_at = Some(Utc::now());
+                            if let Some(step) = job.steps.last_mut()
+                                && step.finished_at.is_none()
+                            {
                                 step.finish_err(
-                                    "updater restarted during pre-swap; stack restore will be attempted",
-                                );
+                                        "updater restarted during pre-swap; stack restore will be attempted",
+                                    );
                             }
+                        }
+                        state.write_job(&job)?;
                     }
-                    let _ = state.write_job(&job);
+                    Err(UpdaterError::NotFound(_)) => {
+                        return Err(UpdaterError::State(format!(
+                            "recovery: pre-swap job {job_id} is missing"
+                        )));
+                    }
+                    Err(e) => return Err(e),
                 }
-                state.clear_maintenance()?;
-                state.set_current_job(None)?;
+                // Do not clear maintenance or job.current here. Restore happens
+                // next; a restore failure must remain a durable stuck state.
                 state.append_history(&format!(
-                    "recovery: pre-swap cleanup for job {job_id} phase={phase:?} (will restore app stack)"
+                    "recovery: pre-swap restore pending for job {job_id} phase={phase:?}"
                 ))?;
                 let _ = state.append_audit(&format!(
-                    "audit: recovery_pre_swap_clear job={job_id} phase={phase:?}"
+                    "audit: recovery_pre_swap_pending job={job_id} phase={phase:?}"
                 ));
                 Ok(RecoveryReport::ClearedPreSwap)
             }
@@ -312,6 +341,45 @@ impl Worker {
             }
         }
     }
+}
+
+/// After a successful pre-swap stack restore, drop the durable recovery markers.
+pub fn commit_pre_swap_stack_restored(state: &StateDir) -> Result<()> {
+    state.clear_maintenance()?;
+    state.set_current_job(None)?;
+    Ok(())
+}
+
+/// Restore failed: freeze so later mutations cannot proceed as if recovery finished.
+pub fn freeze_pre_swap_restore_failed(state: &StateDir, job_id: &str, err: &str) -> Result<()> {
+    match state.read_job(job_id) {
+        Ok(mut job) => {
+            job.status = JobStatus::NeedsManual;
+            job.steps
+                .push(crate::state::JobStep::start(Phase::NeedsManual));
+            if let Some(step) = job.steps.last_mut() {
+                step.finish_err(format!("pre-swap stack restore failed: {err}"));
+            }
+            if job.finished_at.is_none() {
+                job.finished_at = Some(Utc::now());
+            }
+            state.write_job(&job)?;
+        }
+        Err(UpdaterError::NotFound(_)) => {}
+        Err(e) => return Err(e),
+    }
+    let mut m = state.read_maintenance()?;
+    m.active = true;
+    m.phase = Phase::NeedsManual;
+    m.job_id = Some(job_id.to_string());
+    m.message_key = "updater.phase.needs_manual".into();
+    m.bump_heartbeat();
+    state.write_maintenance(&m)?;
+    state.set_current_job(Some(job_id))?;
+    state.append_history(&format!(
+        "recovery: pre-swap stack restore failed for job {job_id}: {err}"
+    ))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -332,6 +400,7 @@ mod recovery_plan_tests {
             status,
             steps: vec![JobStep::start(phase)],
             idempotency_key: None,
+            idempotency_fingerprint: None,
         }
     }
 
@@ -488,10 +557,74 @@ mod recovery_plan_tests {
             .expect("recover");
         assert!(matches!(report, RecoveryReport::ClearedPreSwap));
         let m = state.read_maintenance().unwrap();
-        assert!(!m.active);
+        assert!(
+            m.active,
+            "pre-swap recovery must keep maintenance until stack restore succeeds"
+        );
         let j = state.read_job("j1").unwrap();
         assert_eq!(j.status, JobStatus::Failed);
+        assert_eq!(state.read_current_job().unwrap().as_deref(), Some("j1"));
+
+        commit_pre_swap_stack_restored(&state).unwrap();
+        assert!(!state.read_maintenance().unwrap().active);
         assert!(state.read_current_job().unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn recover_or_idle_does_not_treat_unreadable_job_as_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = Arc::new(StateDir::open(dir.path()).unwrap());
+        std::fs::create_dir(dir.path().join("job.j1.json")).unwrap();
+        state.set_current_job(Some("j1")).unwrap();
+        state
+            .write_maintenance(&maint(true, Phase::Stopping, Some("j1")))
+            .unwrap();
+
+        let err = Worker::recover_or_idle_state(state, None)
+            .await
+            .expect_err("job I/O must fail closed");
+        assert!(
+            !matches!(err, UpdaterError::NotFound(_)),
+            "I/O must not look like a missing job, got {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn recover_or_idle_does_not_treat_corrupt_job_as_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = Arc::new(StateDir::open(dir.path()).unwrap());
+        std::fs::write(dir.path().join("job.j1.json"), b"{not-json").unwrap();
+        state.set_current_job(Some("j1")).unwrap();
+        state
+            .write_maintenance(&maint(true, Phase::Stopping, Some("j1")))
+            .unwrap();
+
+        let err = Worker::recover_or_idle_state(state, None)
+            .await
+            .expect_err("corrupt job must fail closed");
+        assert!(
+            matches!(err, UpdaterError::Json(_)),
+            "expected json error, got {err}"
+        );
+    }
+
+    #[test]
+    fn freeze_pre_swap_restore_keeps_job_current() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = StateDir::open(dir.path()).unwrap();
+        let job = job(JobStatus::Failed, Phase::Stopping);
+        state.write_job(&job).unwrap();
+        state.set_current_job(Some("j1")).unwrap();
+        state
+            .write_maintenance(&maint(true, Phase::Stopping, Some("j1")))
+            .unwrap();
+
+        freeze_pre_swap_restore_failed(&state, "j1", "compose up failed").unwrap();
+        assert_eq!(state.read_current_job().unwrap().as_deref(), Some("j1"));
+        let m = state.read_maintenance().unwrap();
+        assert!(m.active);
+        assert_eq!(m.phase, Phase::NeedsManual);
+        assert_eq!(state.read_job("j1").unwrap().status, JobStatus::NeedsManual);
     }
 
     #[tokio::test]

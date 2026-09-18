@@ -110,23 +110,19 @@ impl StateDir {
                 // Corrupt file: if a job is in flight, fail *closed* into needs_manual so
                 // crash recovery / UI do not silently treat a mid-update as idle.
                 tracing::warn!(error = %e, "maintenance.json corrupt");
-                if self
-                    .read_current_job()
-                    .ok()
-                    .flatten()
-                    .filter(|s| !s.is_empty())
-                    .is_some()
-                {
-                    let mut m = MaintenanceFile::inactive();
-                    m.active = true;
-                    m.phase = crate::state::Phase::NeedsManual;
-                    m.job_id = self.read_current_job().ok().flatten();
-                    m.message_key = "updater.phase.needs_manual".into();
-                    m.bump_heartbeat();
-                    return Ok(m);
+                match self.read_current_job() {
+                    Ok(Some(id)) if !id.is_empty() => {
+                        let mut m = MaintenanceFile::inactive();
+                        m.active = true;
+                        m.phase = crate::state::Phase::NeedsManual;
+                        m.job_id = Some(id);
+                        m.message_key = "updater.phase.needs_manual".into();
+                        m.bump_heartbeat();
+                        Ok(m)
+                    }
+                    Ok(_) => Err(e.into()),
+                    Err(job_err) => Err(job_err),
                 }
-                // No job pointer: fail-open so proxy can serve traffic.
-                Ok(MaintenanceFile::inactive())
             }
         }
     }
@@ -163,8 +159,13 @@ impl StateDir {
 
     pub fn read_job(&self, id: &str) -> Result<Job> {
         let path = self.job_path(id);
-        let bytes =
-            std::fs::read(&path).map_err(|_| UpdaterError::NotFound(format!("job {id}")))?;
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(UpdaterError::NotFound(format!("job {id}")));
+            }
+            Err(e) => return Err(e.into()),
+        };
         Ok(serde_json::from_slice(&bytes)?)
     }
 
@@ -181,9 +182,10 @@ impl StateDir {
             if let Some(id) = name
                 .strip_prefix("job.")
                 .and_then(|s| s.strip_suffix(".json"))
-                && id != "current" {
-                    out.push(id.to_string());
-                }
+                && id != "current"
+            {
+                out.push(id.to_string());
+            }
         }
         Ok(out)
     }
@@ -217,5 +219,58 @@ impl StateDir {
     /// Prefer the `audit: …` line style used in history for machine grepping.
     pub fn append_audit(&self, line: &str) -> Result<()> {
         audit::append(&self.root.join("audit.log"), line)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_job_missing_is_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = StateDir::open(dir.path()).unwrap();
+        let err = state.read_job("no-such").unwrap_err();
+        assert!(
+            matches!(err, UpdaterError::NotFound(_)),
+            "missing job must be NotFound, got {err}"
+        );
+    }
+
+    #[test]
+    fn read_job_io_error_is_not_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = StateDir::open(dir.path()).unwrap();
+        // A directory at the job path is readable-as-file failure, not NotFound.
+        std::fs::create_dir(dir.path().join("job.j1.json")).unwrap();
+        let err = state.read_job("j1").unwrap_err();
+        assert!(
+            !matches!(err, UpdaterError::NotFound(_)),
+            "I/O on job file must not look like a missing job, got {err}"
+        );
+    }
+
+    #[test]
+    fn read_job_parse_error_is_not_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = StateDir::open(dir.path()).unwrap();
+        std::fs::write(dir.path().join("job.j1.json"), b"{not-json").unwrap();
+        let err = state.read_job("j1").unwrap_err();
+        assert!(
+            matches!(err, UpdaterError::Json(_)),
+            "corrupt job must be Json, got {err}"
+        );
+    }
+
+    #[test]
+    fn corrupt_maintenance_without_job_is_error_not_inactive() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = StateDir::open(dir.path()).unwrap();
+        std::fs::write(dir.path().join("maintenance.json"), b"{not-json").unwrap();
+        let err = state.read_maintenance().unwrap_err();
+        assert!(
+            matches!(err, UpdaterError::Json(_)),
+            "corrupt maintenance with no job pointer must not become idle, got {err}"
+        );
     }
 }

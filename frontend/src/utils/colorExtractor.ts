@@ -1,21 +1,24 @@
-import { syncCfgAccentColor } from './cfgAccent'
 import {
   harmonizeGradientPalette,
   pickGradientCompanion,
 } from './colorHarmony'
+import {
+  DEFAULT_PALETTE,
+  isDefaultPalette,
+  type ColorPalette,
+} from './colorPalette'
 import { coverUrlForColorExtract } from './coverUrlForColorExtract'
 import { imagePool, withPooledCanvas } from './objectPool'
 import { wallpaperState } from './wallpaperState'
+import { yieldToMain } from './yieldToMain'
 
 export { coverUrlForColorExtract } from './coverUrlForColorExtract'
-
-export interface ColorPalette {
-  primary: string
-  secondary: string
-  accent: string
-  light: string
-  dark: string
-}
+export {
+  applyColorPalette,
+  DEFAULT_PALETTE,
+  isDefaultPalette,
+  type ColorPalette,
+} from './colorPalette'
 
 interface CachedColorData {
   url: string
@@ -56,33 +59,12 @@ const COLOR_THRESHOLDS = {
   fallbackMinPercentage: 1,
 } as const
 
-const DEFAULT_PALETTE: ColorPalette = Object.freeze({
-  primary: '#6b7280',
-  secondary: '#9ca3af',
-  accent: '#4b5563',
-  light: '#d1d5db',
-  dark: '#374151',
-})
-
 const MUSIC_HIGH_MAX_ATTEMPTS = 3
 
 const memoryCache = new Map<string, ColorPalette>()
 
 /** LRU cap. */
 const MAX_MEMORY_CACHE = 50
-
-export function isDefaultPalette(
-  palette: ColorPalette | null | undefined,
-): boolean {
-  if (!palette) return true
-  return (
-    palette.primary === DEFAULT_PALETTE.primary &&
-    palette.secondary === DEFAULT_PALETTE.secondary &&
-    palette.accent === DEFAULT_PALETTE.accent &&
-    palette.light === DEFAULT_PALETTE.light &&
-    palette.dark === DEFAULT_PALETTE.dark
-  )
-}
 
 /** Do not cache placeholder grey. */
 function setMemoryCache(url: string, palette: ColorPalette): void {
@@ -524,6 +506,12 @@ async function extractFromSingleUrl(
       throw new Error('Extraction cancelled after image load')
     }
 
+    // 离开 onload 任务再采样，避免和 decode 挤成一条 Long Task。
+    await yieldToMain()
+    if (signal.aborted) {
+      throw new Error('Extraction cancelled after image load')
+    }
+
     const naturalW = img.naturalWidth || img.width
     const naturalH = img.naturalHeight || img.height
 
@@ -767,16 +755,6 @@ export async function extractColorsFromImage(
       currentExtractionController = null
     }
   }
-}
-
-export function applyColorPalette(palette: ColorPalette): void {
-  const root = document.documentElement
-  root.style.setProperty('--color-primary', palette.primary)
-  root.style.setProperty('--color-secondary', palette.secondary)
-  root.style.setProperty('--color-accent', palette.accent)
-  root.style.setProperty('--color-light', palette.light)
-  root.style.setProperty('--color-dark', palette.dark)
-  syncCfgAccentColor()
 }
 
 export function clearColorCache(url?: string): void {

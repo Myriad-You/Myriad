@@ -1,93 +1,16 @@
 import { currentCopy, formatCurrent } from '../i18n/localeCopy'
 import { ApiError } from '../services/api'
 import { resolveErrorCode } from './errorCodes'
+import { httpStatusMessage, statusFromErrorText } from './httpStatus'
+import { isInternalDump, isUselessErrorText } from './uselessErrorText'
+
+export { httpStatusMessage, isUselessErrorText, statusFromErrorText }
 
 function fill(
   template: string,
   params: Record<string, string | number> = {},
 ): string {
   return formatCurrent(template, params)
-}
-
-export function httpStatusMessage(status: number): string {
-  const t = currentCopy().errors
-  if (status === 401) return t.unauthorized
-  if (status === 403) return t.forbidden
-  if (status === 404) return t.notFound
-  if (status === 408) return t.timeout
-  if (status === 429) return t.rateLimited
-  if (status >= 500) {
-    return fill(t.serverError, { status })
-  }
-  if (status > 0) {
-    return fill(t.httpStatus, { status })
-  }
-  return t.networkError
-}
-
-export function statusFromErrorText(text: string): number {
-  const m =
-    text.match(/\bHTTP\s+(\d{3})\b/i) ??
-    text.match(/^API Error:\s*(\d{3})$/i) ??
-    text.match(/\((?:HTTP\s*)?(\d{3})\)$/)
-  const status = m ? Number(m[1]) : 0
-  return status >= 400 && status <= 599 ? status : 0
-}
-
-export function isUselessErrorText(text: string): boolean {
-  const detail = text.replaceAll(/\s+/g, ' ').trim()
-  if (!detail) return true
-  if (/^API Error:\s*\d+$/i.test(detail)) return true
-  if (/^HTTP(\s+error!)?(\s*status:?)?\s*\d+(\s*:.*)?$/i.test(detail)) {
-    return true
-  }
-  if (/^failed to [a-z ]+:\s*\d+$/i.test(detail)) return true
-  if (/install failed(:\s*\d+)?$/i.test(detail)) return true
-  if (/csrf token (unavailable|refresh failed)/i.test(detail)) return true
-  if (/^\{[\s\S]*\}$/.test(detail)) return true
-  if (/failed to fetch|networkerror|load failed/i.test(detail)) return true
-  if (/^unknown error$/i.test(detail)) return true
-  if (/^(unauthorized|forbidden|not found|bad request|conflict)$/i.test(detail)) {
-    return true
-  }
-  if (
-    /^(user|channel|room|ring|session|transfer|filter|player) not found$/i.test(
-      detail,
-    )
-  ) {
-    return true
-  }
-  if (/^internal (server )?error$/i.test(detail)) return true
-  if (/^service unavailable$/i.test(detail)) return true
-  if (/^request timeout$/i.test(detail)) return true
-  if (/^operation failed$/i.test(detail)) return true
-  if (/^failed$/i.test(detail)) return true
-  if (/^ai generation failed$/i.test(detail)) return true
-  if (/^ai error:/i.test(detail)) return true
-  if (
-    /^failed to (save|load|get|publish|rotate|compose|process|verify|create|update|set|read|refresh|fetch|parse|start|decode|clear|collect|restore|seal|persist) /i.test(
-      detail,
-    )
-  ) {
-    return true
-  }
-  if (/^no library data available$/i.test(detail)) return true
-  if (/^action failed$/i.test(detail)) return true
-  if (/^discovery failed$|^import failed$|^failed to add$/i.test(detail)) {
-    return true
-  }
-  if (/^database error$/i.test(detail)) return true
-  if (/\((?:HTTP\s*)?\d{3}\)$/i.test(detail)) {
-    const inner = detail.replaceAll(/\s*\((?:HTTP\s*)?\d{3}\)\s*$/gi, '').trim()
-    if (
-      !inner ||
-      /^could not [a-z ]+$/i.test(inner) ||
-      /^failed to [a-z ]+$/i.test(inner)
-    ) {
-      return true
-    }
-  }
-  return false
 }
 
 function readHint(reason: unknown): string {
@@ -134,38 +57,6 @@ function clip(text: string): string {
   return text.length > 180 ? `${text.slice(0, 179)}…` : text
 }
 
-function isInternalDump(text: string): boolean {
-  const detail = text.replaceAll(/\s+/g, ' ').trim()
-  if (!detail) return true
-  if (
-    /relation "|does not exist|duplicate key value|violates (unique|not-null|foreign)/i.test(
-      detail,
-    )
-  ) {
-    return true
-  }
-  if (
-    /missing field|at line \d+|expected value|key must be a string|eof while parsing|trailing characters|invalid length/i.test(
-      detail,
-    )
-  ) {
-    return true
-  }
-  if (
-    /error sending request|os error \d+|builder error|error trying to connect/i.test(
-      detail,
-    )
-  ) {
-    return true
-  }
-  if (/zip (local )?header|invalid zip/i.test(detail)) return true
-  if (/^\{[\s\S]*\}$/.test(detail) || /<html[\s>]|<\/html>/i.test(detail)) {
-    return true
-  }
-  if (/RequestTokenError|invalid_grant|invalid_client/i.test(detail)) return true
-  return false
-}
-
 /** Category label plus any leftover that still helps the user locate the fault. */
 function classified(label: string, raw: string, hint = ''): string {
   const colon = raw.indexOf(':')
@@ -202,6 +93,18 @@ export function userFacingError(reason: unknown, fallback?: string): string {
   }
   if (code === 'forbidden' || code === 'FORBIDDEN' || code === 'no_admin') {
     return joinParts(t.forbidden, usefulExtra(hint, t.forbidden))
+  }
+  if (
+    code === 'federation_disabled_region' ||
+    /federation is not supported in this region/i.test(raw) ||
+    /federation is disabled because this server['’]s egress location is mainland china/i.test(
+      raw,
+    ) ||
+    /^federation disabled in this region$/i.test(raw) ||
+    /^federation is disabled on this instance$/i.test(raw) ||
+    /federation apps cannot be downloaded or installed/i.test(raw)
+  ) {
+    return t.federationDisabledRegion
   }
   if (code === 'not_found' || code === 'NOT_FOUND') {
     return joinParts(t.notFound, usefulExtra(hint, t.notFound))

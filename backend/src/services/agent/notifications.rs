@@ -280,7 +280,10 @@ pub struct NotificationManager {
 }
 
 impl NotificationManager {
-    pub async fn notification_preferences(&self, user_id: i32) -> NotificationPreferences {
+    pub async fn notification_preferences(
+        &self,
+        user_id: i32,
+    ) -> Result<NotificationPreferences, String> {
         notification_preferences::load(self.db.as_ref(), user_id).await
     }
 
@@ -296,7 +299,17 @@ impl NotificationManager {
         let Some(user_id) = notification.user_id else {
             return false;
         };
-        let preferences = self.notification_preferences(user_id).await;
+        let preferences = match self.notification_preferences(user_id).await {
+            Ok(preferences) => preferences,
+            Err(error) => {
+                tracing::error!(
+                    user_id,
+                    %error,
+                    "Failed to load notification preferences; suppressing notification"
+                );
+                return false;
+            }
+        };
         if let Some(event_key) = notification.event_key() {
             preferences.allows(event_key)
         } else {

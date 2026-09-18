@@ -146,7 +146,7 @@ pub async fn execute_inbound_route(
 
     let now = chrono::Utc::now().timestamp();
     let query = uri.query();
-    let (nonce, _timestamp, _unix) = match tapp_inbound_route::verify_signature(
+    let (nonce, _timestamp, unix) = match tapp_inbound_route::verify_signature(
         route,
         method_name,
         &tapp_id,
@@ -187,6 +187,7 @@ pub async fn execute_inbound_route(
         &route.verify.key,
         &nonce,
         now,
+        unix,
         route.verify.max_skew_secs,
     )
     .await

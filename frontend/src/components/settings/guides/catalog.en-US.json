@@ -830,6 +830,18 @@
       "frontend": "Indirect under heavy load. Daily browsing should feel the same.",
       "notes": "Turn off anytime and Save to restore balanced budgets (restart if you care about DB pool size)."
     },
+    "preciseLocation": {
+      "what": "Whether weather may ask the browser for a precise location. Off by default: IP only.",
+      "chain": "1) Off (default): weather and location use IP; the browser never shows a location prompt.\n2) After you turn it on and Save, the next weather fetch may call browser geolocation; the visitor can still deny it.\n3) Deny or failure falls back to IP, same as off.",
+      "frontend": "First visit after enabling may show the system location prompt. Turning it off stops asking.",
+      "notes": "This is a site-wide switch for every visitor. Precise coordinates are not given to TAPPs."
+    },
+    "preciseLocationEnable": {
+      "what": "Allow weather to use the browser’s precise location.",
+      "chain": "1) Writes server config; the public UI config includes this flag.\n2) The frontend reads it before weather; off means getCurrentPosition is never called.\n3) Saving reloads the page so the next weather request picks it up.",
+      "frontend": "Off: no location prompt. On: the browser decides whether to prompt.",
+      "notes": "If the browser already denied permission, the visitor must restore it in site settings."
+    },
     "network": {
       "what": "Whether the server uses a proxy when going to the open internet, and access addresses for a few services.",
       "chain": "1) These are mainly for “the server itself going online”: syncing foreign platforms, calling smart services, and so on.\n2) Your browser opening this site, or jumping to third-party login, usually does not use this proxy.\n3) Domestic platforms may get slower if forced through a proxy — fill a “don’t use proxy for these” list.\n4) Problems often look like: sync fails, AI unavailable — not a broken page theme.",

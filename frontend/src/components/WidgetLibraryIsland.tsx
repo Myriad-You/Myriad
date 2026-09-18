@@ -3,7 +3,7 @@ import type { HomeLayoutMode } from '../utils/homeLayout'
 import type { HomeEditTourDockPose } from './tour/tourLogic'
 import type { WidgetType } from './widgetGridTypes'
 import type { WidgetLibraryKindFilter } from './widgetLibrarySearch'
-import { FaSearch, FaTimes } from '@lib/icons'
+import { FaSearch, FaTimes } from '@lib/faChromeIcons'
 import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,

@@ -542,6 +542,7 @@ pub async fn disconnect_tapp_events(subject_id: i32, tapp_id: &str) -> usize {
             &db,
             EVENT_PRESENCE_NAMESPACE,
             Some(subject_id),
+            None,
             Some(tapp_id),
             None,
         )
@@ -551,12 +552,13 @@ pub async fn disconnect_tapp_events(subject_id: i32, tapp_id: &str) -> usize {
     }
 }
 
-pub async fn disconnect_all_tapp_events(tapp_id: &str) -> usize {
+pub async fn disconnect_all_tapp_events(owner_id: i32, tapp_id: &str) -> usize {
     match shared_registry::database() {
         Ok(db) => shared_registry::delete_matching(
             &db,
             EVENT_PRESENCE_NAMESPACE,
             None,
+            Some(owner_id),
             Some(tapp_id),
             None,
         )

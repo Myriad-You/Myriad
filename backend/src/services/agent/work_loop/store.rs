@@ -228,7 +228,7 @@ pub(crate) async fn recover(db: &sea_orm::DatabaseConnection) -> Result<(), Stri
                 .as_ref()
                 .and_then(|context| context.run_id.as_deref())
             {
-                if let Some(run) =
+                if let Ok(Some(run)) =
                     super::super::run_hub::get_run_for_user(run_id, state.user_id).await
                 {
                     let question = state.task.pending_question.as_ref().unwrap();

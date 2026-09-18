@@ -102,6 +102,14 @@ interface RuntimeDiagnosticsResponse {
     app_proxy_bypassed: boolean
     method: 'direct_https_consensus'
   }
+  federation_gate?: {
+    state: 'pending' | 'enabled' | 'disabled'
+    enabled: boolean
+    resolved: boolean
+    reason: string
+    country_codes: string[]
+    sources: string[]
+  }
   tasks: {
     counts: {
       total: number
@@ -231,7 +239,12 @@ export default function RuntimeDiagnostics({
   }
 
   const checkLabel = (
-    id: DiagnosticCheck['id'] | 'backend' | 'version' | 'system',
+    id:
+      | DiagnosticCheck['id']
+      | 'backend'
+      | 'version'
+      | 'system'
+      | 'federationGate',
   ) => {
     const labels = {
       backend: t.config.runtimeDiagnosticsBackend,
@@ -240,6 +253,7 @@ export default function RuntimeDiagnostics({
       migrations: t.config.runtimeDiagnosticsMigrations,
       memory: t.config.runtimeDiagnosticsMemory,
       location: t.config.runtimeDiagnosticsServerLocation,
+      federationGate: t.config.runtimeDiagnosticsFederationGate,
       version: t.config.runtimeDiagnosticsVersion,
       system: t.config.runtimeDiagnosticsSystem,
     }
@@ -564,8 +578,41 @@ export default function RuntimeDiagnostics({
             version: truncateVersionTag(backendVersion),
           })
 
+  const federationGateCheck = (() => {
+    const gate = data?.federation_gate
+    if (!gate) return null
+    const closed = gate.resolved && !gate.enabled
+    const pending = !gate.resolved
+    const status: DiagnosticStatus =
+      closed || pending ? 'warning' : 'ok'
+    const badge = closed
+      ? t.config.runtimeDiagnosticsFederationGateOff
+      : pending
+        ? t.config.runtimeDiagnosticsFederationGatePending
+        : t.config.runtimeDiagnosticsFederationGateOn
+    const detail = closed
+      ? t.errors.federationDisabledRegion
+      : pending
+        ? t.config.runtimeDiagnosticsFederationGatePending
+        : gate.reason === 'geolocation_unavailable'
+          ? t.config.runtimeDiagnosticsFederationGateFailOpen
+          : t.config.runtimeDiagnosticsFederationGateAllowed
+    return {
+      id: 'federationGate' as const,
+      status,
+      badge,
+      detail,
+      icon: closed ? <LuAlertTriangle /> : <LuGlobe />,
+    }
+  })()
+
   const checks: Array<{
-    id: DiagnosticCheck['id'] | 'backend' | 'version' | 'system'
+    id:
+      | DiagnosticCheck['id']
+      | 'backend'
+      | 'version'
+      | 'system'
+      | 'federationGate'
     status: DiagnosticStatus
     badge: string
     detail: string
@@ -607,6 +654,7 @@ export default function RuntimeDiagnostics({
               <LuCheckCircle />
             ),
         })),
+        ...(federationGateCheck ? [federationGateCheck] : []),
         {
           id: 'version' as const,
           status: versionMismatch

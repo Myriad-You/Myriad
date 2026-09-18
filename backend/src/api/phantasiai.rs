@@ -315,7 +315,19 @@ async fn generate_and_save_annotations(
 
     // `json_object` 而不是 schema：提示词里已经写清了形状，这里只要求「必须是
     // 合法 JSON」——把最常撞的那道闸从源头消掉，又不会和提示词的形状打架。
-    let owner = crate::services::ai_cost_ledger::resolve_site_owner_id().await;
+    let owner = match crate::services::ai_cost_ledger::resolve_site_owner_id().await {
+        Ok(owner) => owner,
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "code": "ai_billing_owner",
+                    "error": "Could not resolve the site owner for AI billing"
+                })),
+            )
+                .into_response();
+        }
+    };
     match ai_parse_with_retry(
         || {
             crate::services::ai_cost_ledger::with_site_ai_ledger(
@@ -936,7 +948,19 @@ async fn get_podcast_script(
     let prompt = build_podcast_prompt(&title, content);
 
     // 调用 AI 生成
-    let owner = crate::services::ai_cost_ledger::resolve_site_owner_id().await;
+    let owner = match crate::services::ai_cost_ledger::resolve_site_owner_id().await {
+        Ok(owner) => owner,
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "code": "ai_billing_owner",
+                    "error": "Could not resolve the site owner for AI billing"
+                })),
+            )
+                .into_response();
+        }
+    };
     match ai_parse_with_retry(
         || {
             crate::services::ai_cost_ledger::with_site_ai_ledger(
@@ -1412,7 +1436,19 @@ async fn generate_style_tags(
     // 调用 AI 生成
     // 这一处不换成 `json_object`：`parse_style_tags` 解析的是顶层数组，强制
     // 对象会直接砸掉它。改输出形状要连提示词和解析器一起动，那是另一件事。
-    let owner = crate::services::ai_cost_ledger::resolve_site_owner_id().await;
+    let owner = match crate::services::ai_cost_ledger::resolve_site_owner_id().await {
+        Ok(owner) => owner,
+        Err(_) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "code": "ai_billing_owner",
+                    "error": "Could not resolve the site owner for AI billing"
+                })),
+            )
+                .into_response();
+        }
+    };
     match ai_parse_with_retry(
         || {
             crate::services::ai_cost_ledger::with_site_ai_ledger(

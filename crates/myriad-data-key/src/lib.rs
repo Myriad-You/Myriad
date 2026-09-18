@@ -24,9 +24,10 @@
 //! 按顺序解析，先命中者生效：
 //!
 //! 1. `MYRIAD_DATA_KEY` 环境变量（base64 的 32 字节）—— 给希望用外部机制托管
-//!    密钥的部署。
+//!    密钥的部署。无效值是硬错误，不会悄悄忽略。
 //! 2. `{DATA_DIR}/.secret-key` 文件 —— **默认路径**。不存在时自动生成，权限 0600。
-//! 3. 兜底：从 `JWT_SECRET` 派生，并打 warn。
+//! 3. 显式迁移：`MYRIAD_MIGRATE_DATA_KEY_FROM_JWT=1` 时把历史上 JWT_SECRET
+//!    派生的 32 字节写入密钥文件。这不是运行时兜底。
 //!
 //! 选文件而不是环境变量，对已有部署有三个具体好处：
 //!
@@ -39,8 +40,8 @@
 //!   （见 `crates/myriad-mcp/src/transport.rs`）。文件存储本身不构成 MCP 隔离：
 //!   运行第三方代码的沙箱仍必须禁止访问后端数据卷。
 //!
-//! 兜底分支保证**已有部署升级后不会启动失败**：卷只读、权限异常等情况下退回到
-//! 旧行为并告警，而不是拒绝启动。
+//! 读/写密钥文件失败时拒绝启动。运行时从 JWT_SECRET 派生会让不同进程在
+//! 文件不可用时各自落下一把互不兼容的钥匙。
 //!
 //! # 密文格式
 //!
@@ -75,7 +76,8 @@ pub enum KeySource {
     File,
     /// `{DATA_DIR}/.secret-key`（本次启动新建）
     Generated,
-    /// 兜底：从 JWT_SECRET 派生
+    /// Historical JWT_SECRET derivation. Runtime load never selects this;
+    /// `MYRIAD_MIGRATE_DATA_KEY_FROM_JWT` writes the same bytes into the key file.
     LegacyJwtSecret,
 }
 
@@ -98,6 +100,15 @@ impl KeySource {
 pub struct DataKey {
     key: [u8; KEY_LEN],
     source: KeySource,
+}
+
+impl std::fmt::Debug for DataKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DataKey")
+            .field("source", &self.source)
+            .field("fingerprint", &self.fingerprint())
+            .finish()
+    }
 }
 
 static DATA_KEY: OnceLock<DataKey> = OnceLock::new();
@@ -208,82 +219,111 @@ fn write_key_file(path: &Path, encoded: &str) -> std::io::Result<()> {
     file.sync_all()
 }
 
-fn load_or_create() -> DataKey {
-    // 1) 环境变量覆盖
-    if let Ok(raw) = std::env::var("MYRIAD_DATA_KEY")
-        && !raw.trim().is_empty()
-    {
-        match parse_key_material(&raw) {
-            Some(key) => {
-                return DataKey {
+fn env_flag_enabled(name: &str) -> bool {
+    matches!(
+        std::env::var(name),
+        Ok(value) if value == "1" || value.eq_ignore_ascii_case("true")
+    )
+}
+
+fn load_or_create() -> Result<DataKey> {
+    load_or_create_from(
+        std::env::var("MYRIAD_DATA_KEY").ok().as_deref(),
+        &key_file_path(),
+        std::env::var("JWT_SECRET").ok().as_deref(),
+        env_flag_enabled("MYRIAD_MIGRATE_DATA_KEY_FROM_JWT"),
+    )
+}
+
+/// Resolve the process data key without a JWT runtime fallback.
+///
+/// `migrate_from_jwt` is the only path that materializes historically
+/// JWT-derived bytes, and it writes them to `path` before returning.
+fn load_or_create_from(
+    env: Option<&str>,
+    path: &Path,
+    jwt_secret: Option<&str>,
+    migrate_from_jwt: bool,
+) -> Result<DataKey> {
+    if let Some(raw) = env.filter(|value| !value.trim().is_empty()) {
+        let key = parse_key_material(raw)
+            .ok_or_else(|| anyhow!("MYRIAD_DATA_KEY is set but is not base64-encoded 32 bytes"))?;
+        return Ok(DataKey {
+            key,
+            source: KeySource::Env,
+        });
+    }
+
+    match std::fs::read_to_string(path) {
+        Ok(contents) => {
+            if let Some(key) = parse_key_material(&contents) {
+                return Ok(DataKey {
                     key,
-                    source: KeySource::Env,
-                };
+                    source: KeySource::File,
+                });
             }
-            None => tracing::error!(
-                "MYRIAD_DATA_KEY is set but is not base64-encoded 32 bytes; ignoring it"
-            ),
+            anyhow::bail!(
+                "data key file {} exists but is not base64-encoded 32 bytes; refusing to overwrite or fall back",
+                path.display()
+            );
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            anyhow::bail!("failed to read data key file {}: {error}", path.display());
         }
     }
 
-    // 2) 密钥文件
-    let path = key_file_path();
-    if let Ok(contents) = std::fs::read_to_string(&path) {
-        if let Some(key) = parse_key_material(&contents) {
-            return DataKey {
+    if migrate_from_jwt {
+        let secret = jwt_secret
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                anyhow!("MYRIAD_MIGRATE_DATA_KEY_FROM_JWT is set but JWT_SECRET is empty")
+            })?;
+        let key = derive_legacy_key(secret);
+        write_key_file(path, &BASE64.encode(key)).with_context(|| {
+            format!("failed to write migrated data key file {}", path.display())
+        })?;
+        tracing::warn!(
+            path = %path.display(),
+            "Wrote the historical JWT_SECRET-derived data key to the key file (explicit migration)"
+        );
+        return Ok(DataKey {
+            key,
+            source: KeySource::File,
+        });
+    }
+
+    let key = rand::random::<[u8; KEY_LEN]>();
+    match write_key_file(path, &BASE64.encode(key)) {
+        Ok(()) => {
+            tracing::info!(path = %path.display(), "🔑 Generated a new data encryption key");
+            Ok(DataKey {
+                key,
+                source: KeySource::Generated,
+            })
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            let contents = std::fs::read_to_string(path).with_context(|| {
+                format!(
+                    "failed to read data key file {} after create race",
+                    path.display()
+                )
+            })?;
+            let key = parse_key_material(&contents).ok_or_else(|| {
+                anyhow!(
+                    "data key file {} exists but is invalid after create race",
+                    path.display()
+                )
+            })?;
+            Ok(DataKey {
                 key,
                 source: KeySource::File,
-            };
+            })
         }
-        // 文件存在但内容不可用：绝不覆盖它 —— 覆盖等于把已有密文全部变成垃圾。
-        tracing::error!(
-            path = %path.display(),
-            "Data key file exists but is unreadable as base64 32 bytes; refusing to overwrite it"
-        );
-    } else {
-        // 3) 自动生成
-        let key = rand::random::<[u8; KEY_LEN]>();
-        let encoded = BASE64.encode(key);
-        match write_key_file(&path, &encoded) {
-            Ok(()) => {
-                tracing::info!(path = %path.display(), "🔑 Generated a new data encryption key");
-                return DataKey {
-                    key,
-                    source: KeySource::Generated,
-                };
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                // 与另一个启动中的进程赛跑输了 —— 读它写的那把。
-                if let Some(key) = std::fs::read_to_string(&path)
-                    .ok()
-                    .and_then(|c| parse_key_material(&c))
-                {
-                    return DataKey {
-                        key,
-                        source: KeySource::File,
-                    };
-                }
-            }
-            Err(e) => tracing::error!(
-                path = %path.display(),
-                "Failed to write data key file: {e}"
-            ),
-        }
-    }
-
-    // 4) 兜底：从 JWT_SECRET 派生。
-    //
-    // 保证已有部署在卷只读/权限异常时仍能启动，代价是这次启动没有真正解耦。
-    let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_default();
-    tracing::warn!(
-        path = %path.display(),
-        "⚠️  Falling back to a JWT_SECRET-derived data key. Secrets remain tied to \
-         JWT_SECRET, so rotating it will make stored federation keys undecryptable. \
-         Fix the data directory permissions, or set MYRIAD_DATA_KEY."
-    );
-    DataKey {
-        key: derive_legacy_key(&jwt_secret),
-        source: KeySource::LegacyJwtSecret,
+        Err(error) => Err(anyhow!(
+            "failed to write data key file {}: {error}",
+            path.display()
+        )),
     }
 }
 
@@ -332,7 +372,11 @@ fn load_existing(env: Option<&str>, path: &Path) -> Result<DataKey> {
 }
 
 pub fn data_key() -> &'static DataKey {
-    DATA_KEY.get_or_init(load_or_create)
+    DATA_KEY.get_or_init(|| {
+        load_or_create().unwrap_or_else(|error| {
+            panic!("data encryption key unavailable: {error:#}");
+        })
+    })
 }
 
 // ==================== configurations 表的封装 ====================
@@ -367,48 +411,113 @@ pub fn is_sensitive_config_key(key: &str) -> bool {
         || key.contains("certificate")
 }
 
-/// 写库前封装：敏感 key 的字符串值加密，其余原样返回。
-///
-/// 只处理 JSON 字符串。敏感配置都是字符串形态；对象/数组不做部分加密，
-/// 免得产生"一半密文一半明文"的半吊子状态。
-pub fn seal_config_value(key: &str, value: serde_json::Value) -> serde_json::Value {
-    if !is_sensitive_config_key(key) {
-        return value;
-    }
-    let serde_json::Value::String(ref plain) = value else {
-        return value;
-    };
-    // 空值不加密：空字符串是"未配置"的语义，加密它只会让 UI 误以为已设置。
+const NESTED_SECRET_CONFIG_KEYS: &[&str] = &["ai_vendor_sources"];
+const NESTED_SECRET_FIELDS: &[&str] = &["api_key", "secret_id", "secret_key"];
+
+/// True when the config value is a JSON array whose objects carry provider secrets.
+pub fn is_nested_secret_config_key(key: &str) -> bool {
+    NESTED_SECRET_CONFIG_KEYS.contains(&key)
+}
+
+fn seal_string_field(data_key: &DataKey, plain: &str) -> Result<String> {
     if plain.is_empty() || is_ciphertext(plain) {
-        return value;
+        return Ok(plain.to_string());
     }
-    match data_key().encrypt(plain) {
-        Ok(ct) => serde_json::Value::String(ct),
-        Err(e) => {
-            // 加密失败时宁可不写密文，也不能把值弄丢。
-            tracing::error!(key, "Failed to encrypt configuration value: {e}");
-            value
+    data_key
+        .encrypt(plain)
+        .context("Failed to encrypt configuration value")
+}
+
+fn open_string_field(data_key: &DataKey, stored: &str) -> Result<String> {
+    if !is_ciphertext(stored) {
+        return Ok(stored.to_string());
+    }
+    data_key
+        .decrypt(stored)
+        .context("Failed to decrypt configuration value")
+}
+
+fn map_nested_secret_fields(
+    mut value: serde_json::Value,
+    mut transform: impl FnMut(&str) -> Result<String>,
+) -> Result<serde_json::Value> {
+    let Some(items) = value.as_array_mut() else {
+        anyhow::bail!("nested secret configuration must be a JSON array");
+    };
+    for item in items {
+        let Some(object) = item.as_object_mut() else {
+            continue;
+        };
+        for field in NESTED_SECRET_FIELDS {
+            let Some(serde_json::Value::String(current)) = object.get(*field) else {
+                continue;
+            };
+            let next = transform(current)?;
+            object.insert((*field).to_string(), serde_json::Value::String(next));
         }
     }
+    Ok(value)
+}
+
+/// Seal with an explicit key. Tests use this so they never depend on process globals
+/// or hardcoded ciphertext.
+pub fn seal_config_value_with(
+    data_key: &DataKey,
+    key: &str,
+    value: serde_json::Value,
+) -> Result<serde_json::Value> {
+    if is_nested_secret_config_key(key) {
+        return map_nested_secret_fields(value, |plain| seal_string_field(data_key, plain));
+    }
+    if !is_sensitive_config_key(key) {
+        return Ok(value);
+    }
+    let serde_json::Value::String(plain) = value else {
+        return Ok(value);
+    };
+    seal_string_field(data_key, &plain).map(serde_json::Value::String)
+}
+
+/// Open with an explicit key. Ciphertext that cannot be decrypted is an error,
+/// never an empty string.
+pub fn open_config_value_with(
+    data_key: &DataKey,
+    key: &str,
+    value: serde_json::Value,
+) -> Result<serde_json::Value> {
+    if is_nested_secret_config_key(key) {
+        let Some(items) = value.as_array() else {
+            return Ok(value);
+        };
+        if items.is_empty() {
+            return Ok(value);
+        }
+        return map_nested_secret_fields(value, |stored| open_string_field(data_key, stored));
+    }
+    let serde_json::Value::String(stored) = value else {
+        return Ok(value);
+    };
+    open_string_field(data_key, &stored).map(serde_json::Value::String)
+}
+
+/// 写库前封装：敏感 key 的字符串值加密；`ai_vendor_sources` 加密嵌套凭据。
+///
+/// 加密失败返回 `Err`，调用方不得把明文落库。
+pub fn seal_config_value(key: &str, value: serde_json::Value) -> Result<serde_json::Value> {
+    if is_nested_secret_config_key(key) && !value.is_array() {
+        anyhow::bail!("nested secret configuration must be a JSON array");
+    }
+    if !is_sensitive_config_key(key) && !is_nested_secret_config_key(key) {
+        return Ok(value);
+    }
+    seal_config_value_with(data_key(), key, value)
 }
 
 /// 读库后解封：识别到密文就解密，否则原样返回（遗留明文）。
-pub fn open_config_value(key: &str, value: serde_json::Value) -> serde_json::Value {
-    let serde_json::Value::String(ref stored) = value else {
-        return value;
-    };
-    if !is_ciphertext(stored) {
-        return value; // 尚未迁移的遗留明文
-    }
-    match data_key().decrypt(stored) {
-        Ok(plain) => serde_json::Value::String(plain),
-        Err(e) => {
-            // 解不开通常意味着换了密钥。返回空串而不是密文本身 ——
-            // 否则密文会被当成 API key 发给上游，产生莫名其妙的报错。
-            tracing::error!(key, "Failed to decrypt configuration value: {e}");
-            serde_json::Value::String(String::new())
-        }
-    }
+///
+/// 解密失败返回 `Err`，不得把损坏密文伪装成未配置。
+pub fn open_config_value(key: &str, value: serde_json::Value) -> Result<serde_json::Value> {
+    open_config_value_with(data_key(), key, value)
 }
 
 /// 启动时调用一次，把密钥来源写进日志。
@@ -601,6 +710,151 @@ mod tests {
             assert_eq!(mode & 0o777, 0o600, "key file must be owner-only");
         }
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn seal_encrypts_sensitive_string_and_open_roundtrips() {
+        let key = test_key(11);
+        let sealed = seal_config_value_with(&key, "openai_api_key", serde_json::json!("sk-live"))
+            .expect("seal");
+        let stored = sealed.as_str().expect("sealed string");
+        assert!(is_ciphertext(stored));
+        assert!(!stored.contains("sk-live"));
+        let opened = open_config_value_with(&key, "openai_api_key", sealed).expect("open");
+        assert_eq!(opened, serde_json::json!("sk-live"));
+    }
+
+    #[test]
+    fn seal_does_not_write_plaintext_on_sensitive_keys() {
+        let key = test_key(12);
+        let sealed =
+            seal_config_value_with(&key, "github_token", serde_json::json!("ghs_secret")).unwrap();
+        assert_ne!(sealed, serde_json::json!("ghs_secret"));
+    }
+
+    #[test]
+    fn open_decrypt_failure_is_error_not_empty_string() {
+        let sealed =
+            seal_config_value_with(&test_key(1), "openai_api_key", serde_json::json!("sk"))
+                .unwrap();
+        let err = open_config_value_with(&test_key(2), "openai_api_key", sealed.clone())
+            .expect_err("wrong key must fail closed");
+        let _ = err;
+        // Tampered ciphertext is also an error, never "".
+        let stored = sealed.as_str().unwrap();
+        let mut bytes: Vec<char> = stored.chars().collect();
+        let last = bytes.len() - 1;
+        bytes[last] = if bytes[last] == 'A' { 'B' } else { 'A' };
+        let tampered = serde_json::Value::String(bytes.into_iter().collect());
+        assert!(open_config_value_with(&test_key(1), "openai_api_key", tampered).is_err());
+    }
+
+    #[test]
+    fn seal_and_open_nested_vendor_source_credentials() {
+        let key = test_key(13);
+        let incoming = serde_json::json!([{
+            "slug": "openai-work",
+            "kind": "openai",
+            "api_key": "sk-nested",
+            "secret_id": "sid",
+            "secret_key": "skey",
+            "base_url": "https://api.openai.com/v1"
+        }]);
+        let sealed =
+            seal_config_value_with(&key, "ai_vendor_sources", incoming.clone()).expect("seal");
+        let first = sealed.as_array().unwrap()[0].as_object().unwrap();
+        for field in ["api_key", "secret_id", "secret_key"] {
+            let stored = first.get(field).unwrap().as_str().unwrap();
+            assert!(is_ciphertext(stored), "{field}");
+            assert!(!stored.contains("sk-nested"));
+            assert!(!stored.contains("sid"));
+            assert!(!stored.contains("skey"));
+        }
+        assert_eq!(
+            first.get("base_url").and_then(|v| v.as_str()),
+            Some("https://api.openai.com/v1")
+        );
+        let opened = open_config_value_with(&key, "ai_vendor_sources", sealed).expect("open");
+        assert_eq!(opened, incoming);
+    }
+
+    #[test]
+    fn nested_vendor_decrypt_failure_is_error_not_empty_secret() {
+        let sealed = seal_config_value_with(
+            &test_key(1),
+            "ai_vendor_sources",
+            serde_json::json!([{"slug":"x","api_key":"sk-nested"}]),
+        )
+        .unwrap();
+        assert!(open_config_value_with(&test_key(2), "ai_vendor_sources", sealed).is_err());
+    }
+
+    #[test]
+    fn seal_rejects_non_array_vendor_sources() {
+        let err = seal_config_value_with(
+            &test_key(4),
+            "ai_vendor_sources",
+            serde_json::json!({"api_key": "sk"}),
+        )
+        .expect_err("object must not be sealed as if it were a vendor list");
+        let _ = err;
+    }
+
+    #[test]
+    fn load_or_create_never_falls_back_to_jwt_when_file_is_unreadable() {
+        let dir = std::env::temp_dir().join(format!("myriad-key-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(".secret-key");
+        std::fs::write(&path, "not-a-key").unwrap();
+        let err = match load_or_create_from(None, &path, Some("jwt-secret"), false) {
+            Ok(_) => panic!("invalid file must not mint a JWT-derived key"),
+            Err(error) => error,
+        };
+        assert!(!err.to_string().is_empty());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "not-a-key");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn load_or_create_never_falls_back_to_jwt_when_create_fails() {
+        let path = std::env::temp_dir().join(format!(
+            "myriad-key-missing-parent-{}/.secret-key",
+            uuid::Uuid::new_v4()
+        ));
+        // Parent is a file, so create_dir_all / create_new cannot succeed.
+        let parent = path.parent().unwrap();
+        std::fs::write(parent, "not-a-dir").unwrap();
+        assert!(
+            load_or_create_from(None, &path, Some("jwt-secret"), false).is_err(),
+            "create failure must not mint a JWT-derived key"
+        );
+        std::fs::remove_file(parent).ok();
+    }
+
+    #[test]
+    fn explicit_jwt_migration_writes_file_and_does_not_use_runtime_fallback_source() {
+        let dir = std::env::temp_dir().join(format!("myriad-key-{}", uuid::Uuid::new_v4()));
+        let path = dir.join(".secret-key");
+        let loaded = load_or_create_from(None, &path, Some("jwt-secret"), true).expect("migrate");
+        assert_eq!(loaded.source(), KeySource::File);
+        assert_eq!(loaded.fingerprint(), {
+            let expected = DataKey {
+                key: derive_legacy_key("jwt-secret"),
+                source: KeySource::LegacyJwtSecret,
+            };
+            expected.fingerprint()
+        });
+        let again = load_or_create_from(None, &path, Some("other"), false).expect("reload");
+        assert_eq!(again.fingerprint(), loaded.fingerprint());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn invalid_env_key_is_a_hard_error() {
+        let dir = std::env::temp_dir().join(format!("myriad-key-{}", uuid::Uuid::new_v4()));
+        let path = dir.join(".secret-key");
+        assert!(load_or_create_from(Some("not-base64"), &path, Some("jwt"), false).is_err());
+        assert!(!path.exists());
     }
 }
 

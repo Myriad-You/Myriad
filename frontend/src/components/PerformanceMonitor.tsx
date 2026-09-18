@@ -281,10 +281,13 @@ export default function PerformanceMonitor() {
                       : undefined
                 }
               />
-              {stability.lastLongTaskSource ? (
+              {stability.hotLongTaskSource || stability.lastLongTaskSource ? (
                 <Row
                   label={pm.longTaskSourceLabel}
-                  value={stability.lastLongTaskSource}
+                  value={
+                    stability.hotLongTaskSource ||
+                    stability.lastLongTaskSource
+                  }
                 />
               ) : null}
             </div>

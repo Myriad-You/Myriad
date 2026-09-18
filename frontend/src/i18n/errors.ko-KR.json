@@ -33,6 +33,7 @@
   "federationInitFailed": "이 사이트의 연합을 준비하지 못했어요. 다시 시도하세요.",
   "federationDataFailed": "연합 데이터를 불러오지 못했어요.",
   "federationKeyRotateFailed": "연합 키를 교체하지 못했어요.",
+  "federationDisabledRegion": "이 지역에서는 연합을 쓸 수 없어요.",
   "model3dFailed": "3D 모델을 만들지 못했어요. 다시 시도하세요.",
   "profileTextLoadFailed": "이름·소개 출처를 불러오지 못했어요.",
   "profileTextSaveFailed": "이름·소개 출처를 저장하지 못했어요.",

@@ -5,6 +5,7 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fs;
+use std::path::Path;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PlatformDataCache {
@@ -111,23 +112,14 @@ pub fn save_split_raw_data(all_data: &Value) -> Result<(), Box<dyn std::error::E
                                 continue;
                             }
 
-                            // 原子性重命名
-                            if let Err(e) = std::fs::rename(&temp_path, &file_path) {
-                                tracing::warn!(
-                                    "⚠️ Failed to rename temp file for {}: {}",
+                            commit_cache_temp_file(&temp_path, &file_path).map_err(|e| {
+                                tracing::error!(
+                                    "❌ Failed to atomically replace cache for {}: {}",
                                     platform,
                                     e
                                 );
-                                // 尝试直接复制
-                                if let Err(e2) = std::fs::copy(&temp_path, &file_path) {
-                                    tracing::error!(
-                                        "❌ Failed to copy temp file for {}: {}",
-                                        platform,
-                                        e2
-                                    );
-                                }
-                                let _ = std::fs::remove_file(&temp_path);
-                            }
+                                e
+                            })?;
 
                             tracing::info!("💾 Saved raw data for {} to {:?}", platform, file_path);
                         }
@@ -146,4 +138,76 @@ pub fn save_split_raw_data(all_data: &Value) -> Result<(), Box<dyn std::error::E
         }
     }
     Ok(())
+}
+
+/// Same-directory tmp + rename. Rename failure is an error, never a copy overlay.
+pub fn commit_cache_temp_file(temp_path: &Path, dest: &Path) -> Result<(), std::io::Error> {
+    commit_cache_temp_file_with(temp_path, dest, |from, to| fs::rename(from, to))
+}
+
+pub(crate) fn commit_cache_temp_file_with(
+    temp_path: &Path,
+    dest: &Path,
+    rename: impl FnOnce(&Path, &Path) -> std::io::Result<()>,
+) -> Result<(), std::io::Error> {
+    match rename(temp_path, dest) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            let _ = fs::remove_file(temp_path);
+            Err(error)
+        }
+    }
+}
+
+#[cfg(test)]
+mod atomic_replace_tests {
+    use super::{commit_cache_temp_file, commit_cache_temp_file_with};
+    use std::fs;
+    use std::io::{Error, ErrorKind};
+
+    #[test]
+    fn rename_failure_is_error_and_does_not_copy_over_destination() {
+        let root = std::env::temp_dir().join(format!(
+            "myriad-plat-cache-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let dest = root.join("dest.json");
+        fs::write(&dest, b"original").unwrap();
+        let temp = root.join("dest.json.tmp");
+        fs::write(&temp, b"partial-write").unwrap();
+
+        let err = commit_cache_temp_file_with(&temp, &dest, |_from, _to| {
+            Err(Error::from(ErrorKind::CrossesDevices))
+        })
+        .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::CrossesDevices);
+        assert_eq!(fs::read(&dest).unwrap(), b"original");
+        assert!(!temp.exists(), "failed temp file must be removed, not copied");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn successful_rename_replaces_destination() {
+        let root = std::env::temp_dir().join(format!(
+            "myriad-plat-cache-ok-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let dest = root.join("dest.json");
+        fs::write(&dest, b"old").unwrap();
+        let temp = root.join("dest.json.tmp");
+        fs::write(&temp, b"new").unwrap();
+        commit_cache_temp_file(&temp, &dest).unwrap();
+        assert_eq!(fs::read(&dest).unwrap(), b"new");
+        assert!(!temp.exists());
+        let _ = fs::remove_dir_all(&root);
+    }
 }

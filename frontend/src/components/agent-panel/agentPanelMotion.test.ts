@@ -314,6 +314,11 @@ describe('agent panel motion contract', () => {
       css,
       /\.agent-panel-composer-tags \{[\s\S]*?grid-template-columns:\s*auto minmax\(0, 1fr\) auto/,
     )
+    assert.doesNotMatch(css, /\.agent-panel-composer-tags::before/)
+    assert.match(
+      css,
+      /\.agent-panel-work-tags > \.agent-panel-swap \{[\s\S]*?overflow:\s*hidden/,
+    )
     assert.match(css, /\.agent-panel-tag-mid \{/)
     assert.match(
       css,

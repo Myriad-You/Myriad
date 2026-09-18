@@ -7,14 +7,15 @@
 //! - resolve + pin DNS to public (globally routable) addresses
 //! - mixed DNS: drop non-public records, fail only when none remain
 //! - optional trusted-proxy path skips local DNS pin
-//! - redirects disabled
+//! - client-level redirects disabled; callers that must follow 3xx use
+//!   [`get_public_following_redirects`] so every hop is re-validated
 //! - response bodies read with an explicit byte cap
 //!
 //! Lab-only: `MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND` may allow private/loopback.
 #![deny(tail_expr_drop_order)]
 
 use reqwest::{Client, ClientBuilder, redirect::Policy};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -328,6 +329,138 @@ pub async fn build_public_http_client_via_proxy(
     Ok((parsed, client))
 }
 
+/// Successful GET after optional hop-by-hop redirects.
+pub struct PublicGet {
+    pub url: Url,
+    pub response: reqwest::Response,
+    /// Set when at least one 301/308 was followed and the final URL differs.
+    pub permanent_url: Option<Url>,
+}
+
+/// Failure from [`get_public_following_redirects`].
+///
+/// Messages never include the URL, host, or credentials — they can reach
+/// sandboxed callers as payload.
+#[derive(Debug)]
+pub enum PublicGetError {
+    InvalidTarget(String),
+    Fetch(String),
+}
+
+impl std::fmt::Display for PublicGetError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidTarget(msg) | Self::Fetch(msg) => f.write_str(msg),
+        }
+    }
+}
+
+/// Max hops followed by [`get_public_following_redirects`] (not counting the final GET).
+pub const MAX_PUBLIC_REDIRECTS: usize = 5;
+
+/// `Some(true)` = 301/308, `Some(false)` = 302/303/307, `None` = not followed.
+fn redirect_kind(status: reqwest::StatusCode) -> Option<bool> {
+    match status {
+        reqwest::StatusCode::MOVED_PERMANENTLY | reqwest::StatusCode::PERMANENT_REDIRECT => {
+            Some(true)
+        }
+        reqwest::StatusCode::FOUND
+        | reqwest::StatusCode::SEE_OTHER
+        | reqwest::StatusCode::TEMPORARY_REDIRECT => Some(false),
+        _ => None,
+    }
+}
+
+fn map_request_error(error: reqwest::Error) -> PublicGetError {
+    if error.is_timeout() {
+        PublicGetError::Fetch("Request timed out".to_string())
+    } else if error.is_connect() {
+        PublicGetError::Fetch("Connection failed".to_string())
+    } else {
+        PublicGetError::Fetch("Request failed".to_string())
+    }
+}
+
+fn join_redirect(current: &Url, location: &str) -> Result<Url, PublicGetError> {
+    let location = location.trim();
+    if location.is_empty() {
+        return Err(PublicGetError::Fetch(
+            "Redirect missing Location".to_string(),
+        ));
+    }
+    current
+        .join(location)
+        .map_err(|_| PublicGetError::Fetch("Invalid redirect Location".to_string()))
+}
+
+fn redirect_location(current: &Url, response: &reqwest::Response) -> Result<Url, PublicGetError> {
+    let location = response
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .ok_or_else(|| PublicGetError::Fetch("Redirect missing Location".to_string()))?;
+    let location = location
+        .to_str()
+        .map_err(|_| PublicGetError::Fetch("Invalid redirect Location".to_string()))?;
+    join_redirect(current, location)
+}
+
+/// GET `url` with redirects followed hop-by-hop.
+///
+/// Each hop is a fresh [`build_public_http_client`] so a 3xx cannot smuggle a
+/// private/credentialed target. The shared client still has `Policy::none()`.
+pub async fn get_public_following_redirects(
+    url: &str,
+    timeout: Duration,
+    user_agent: Option<&str>,
+) -> Result<PublicGet, PublicGetError> {
+    let deadline = Instant::now() + timeout;
+    let original =
+        Url::parse(url).map_err(|_| PublicGetError::InvalidTarget("Invalid URL".to_string()))?;
+    let mut current = original.clone();
+    let mut visited = HashSet::new();
+    let mut had_permanent = false;
+
+    for _ in 0..=MAX_PUBLIC_REDIRECTS {
+        if !visited.insert(current.as_str().to_string()) {
+            return Err(PublicGetError::Fetch("Redirect loop".to_string()));
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(PublicGetError::Fetch("Request timed out".to_string()));
+        }
+        let (target_url, client) =
+            build_public_http_client(current.as_str(), remaining, user_agent)
+                .await
+                .map_err(PublicGetError::InvalidTarget)?;
+        let response = client
+            .get(target_url.clone())
+            .send()
+            .await
+            .map_err(map_request_error)?;
+        match redirect_kind(response.status()) {
+            Some(permanent) => {
+                if permanent {
+                    had_permanent = true;
+                }
+                current = redirect_location(&target_url, &response)?;
+            }
+            None => {
+                let permanent_url = if had_permanent && target_url != original {
+                    Some(target_url.clone())
+                } else {
+                    None
+                };
+                return Ok(PublicGet {
+                    url: target_url,
+                    response,
+                    permanent_url,
+                });
+            }
+        }
+    }
+    Err(PublicGetError::Fetch("Too many redirects".to_string()))
+}
+
 /// Names the failure mode without ever putting the URL, host or credential
 /// into the message — the string reaches sandboxed callers as payload.
 ///
@@ -593,5 +726,226 @@ mod tests {
         assert!(validate_outbound_header(&reqwest::header::HOST).is_err());
         assert!(validate_outbound_header(&reqwest::header::CONNECTION).is_err());
         assert!(validate_outbound_header(&reqwest::header::AUTHORIZATION).is_ok());
+    }
+
+    #[test]
+    fn relative_redirect_joins_current_url() {
+        let current = Url::parse("https://example.com/blog/feed").unwrap();
+        assert_eq!(
+            join_redirect(&current, "/rss.xml").unwrap().as_str(),
+            "https://example.com/rss.xml"
+        );
+        assert_eq!(
+            join_redirect(&current, "https://feeds.example.net/a.xml")
+                .unwrap()
+                .as_str(),
+            "https://feeds.example.net/a.xml"
+        );
+        assert!(join_redirect(&current, "  ").is_err());
+    }
+
+    #[tokio::test]
+    async fn joined_metadata_redirect_is_rejected() {
+        let _guard = tests_lab_env_lock().await;
+        unsafe { std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND") };
+        let current = Url::parse("https://example.com/feed").unwrap();
+        let next = join_redirect(&current, "http://169.254.169.254/latest/meta-data/").unwrap();
+        let error = build_public_http_client(next.as_str(), Duration::from_secs(1), None)
+            .await
+            .expect_err("metadata IP");
+        assert!(
+            error.contains("non-public") || error.contains("no public"),
+            "got {error}"
+        );
+    }
+
+    async fn spawn_path_server(
+        handler: fn(&str) -> (u16, &'static str, &'static [u8]),
+    ) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind fixture");
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                tokio::spawn(async move {
+                    let mut request = Vec::new();
+                    while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        let mut buf = [0u8; 512];
+                        let n = match socket.read(&mut buf).await {
+                            Ok(0) | Err(_) => return,
+                            Ok(n) => n,
+                        };
+                        request.extend_from_slice(&buf[..n]);
+                        if request.len() > 8192 {
+                            return;
+                        }
+                    }
+                    let text = String::from_utf8_lossy(&request);
+                    let path = text
+                        .lines()
+                        .next()
+                        .and_then(|line| line.split_whitespace().nth(1))
+                        .unwrap_or("/");
+                    let (status, location, body) = handler(path);
+                    let location_header = if location.is_empty() {
+                        String::new()
+                    } else {
+                        format!("Location: {location}\r\n")
+                    };
+                    let response = format!(
+                        "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n{location_header}\r\n",
+                        body.len()
+                    );
+                    let _ = socket.write_all(response.as_bytes()).await;
+                    let _ = socket.write_all(body).await;
+                });
+            }
+        });
+        (addr, server)
+    }
+
+    fn redirect_fixture(path: &str) -> (u16, &'static str, &'static [u8]) {
+        match path {
+            "/gone" => (301, "/here", b""),
+            "/rel" => (301, "/here", b""),
+            "/tmp" => (302, "/here", b""),
+            "/here" => (200, "", b"ok"),
+            "/loop" => (302, "/loop", b""),
+            "/c1" => (301, "/c2", b""),
+            "/c2" => (301, "/c3", b""),
+            "/c3" => (301, "/c4", b""),
+            "/c4" => (301, "/c5", b""),
+            "/c5" => (301, "/c6", b""),
+            "/c6" => (301, "/here", b""),
+            "/noloc" => (301, "", b""),
+            _ => (404, "", b"missing"),
+        }
+    }
+
+    async fn with_lab_redirects<T>(run: impl std::future::Future<Output = T>) -> T {
+        let _guard = tests_lab_env_lock().await;
+        let prev_env = std::env::var("ENVIRONMENT").ok();
+        unsafe { std::env::remove_var("ENVIRONMENT") };
+        unsafe { std::env::set_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND", "1") };
+        let result = run.await;
+        unsafe { std::env::remove_var("MYRIAD_FEDERATION_LAB_PRIVATE_OUTBOUND") };
+        if let Some(value) = prev_env {
+            unsafe { std::env::set_var("ENVIRONMENT", value) };
+        }
+        result
+    }
+
+    #[tokio::test]
+    async fn follows_permanent_redirect_and_reports_final_url() {
+        let (addr, server) = spawn_path_server(redirect_fixture).await;
+        let result = with_lab_redirects(async {
+            get_public_following_redirects(
+                &format!("http://{addr}/gone"),
+                Duration::from_secs(2),
+                None,
+            )
+            .await
+        })
+        .await;
+        server.abort();
+        let fetched = result.expect("follow 301");
+        assert_eq!(fetched.url.path(), "/here");
+        assert_eq!(
+            fetched.permanent_url.as_ref().map(|url| url.path()),
+            Some("/here")
+        );
+        let body = read_limited_body(fetched.response, 16).await.unwrap();
+        assert_eq!(body, b"ok");
+    }
+
+    #[tokio::test]
+    async fn temporary_redirect_does_not_report_permanent_url() {
+        let (addr, server) = spawn_path_server(redirect_fixture).await;
+        let result = with_lab_redirects(async {
+            get_public_following_redirects(
+                &format!("http://{addr}/tmp"),
+                Duration::from_secs(2),
+                None,
+            )
+            .await
+        })
+        .await;
+        server.abort();
+        let fetched = result.expect("follow 302");
+        assert_eq!(fetched.url.path(), "/here");
+        assert!(fetched.permanent_url.is_none());
+    }
+
+    #[tokio::test]
+    async fn redirect_loop_is_fetch_error() {
+        let (addr, server) = spawn_path_server(redirect_fixture).await;
+        let result = with_lab_redirects(async {
+            get_public_following_redirects(
+                &format!("http://{addr}/loop"),
+                Duration::from_secs(2),
+                None,
+            )
+            .await
+        })
+        .await;
+        server.abort();
+        match result {
+            Err(PublicGetError::Fetch(msg)) => assert!(msg.contains("loop"), "{msg}"),
+            Err(PublicGetError::InvalidTarget(msg)) => {
+                panic!("expected loop, got invalid target: {msg}")
+            }
+            Ok(_) => panic!("expected loop, got success"),
+        }
+    }
+
+    #[tokio::test]
+    async fn too_many_redirects_is_fetch_error() {
+        let (addr, server) = spawn_path_server(redirect_fixture).await;
+        let result = with_lab_redirects(async {
+            get_public_following_redirects(
+                &format!("http://{addr}/c1"),
+                Duration::from_secs(2),
+                None,
+            )
+            .await
+        })
+        .await;
+        server.abort();
+        match result {
+            Err(PublicGetError::Fetch(msg)) => {
+                assert!(msg.contains("Too many redirects"), "{msg}")
+            }
+            Err(PublicGetError::InvalidTarget(msg)) => {
+                panic!("expected hop cap, got invalid target: {msg}")
+            }
+            Ok(_) => panic!("expected hop cap, got success"),
+        }
+    }
+
+    #[tokio::test]
+    async fn missing_location_is_fetch_error() {
+        let (addr, server) = spawn_path_server(redirect_fixture).await;
+        let result = with_lab_redirects(async {
+            get_public_following_redirects(
+                &format!("http://{addr}/noloc"),
+                Duration::from_secs(2),
+                None,
+            )
+            .await
+        })
+        .await;
+        server.abort();
+        match result {
+            Err(PublicGetError::Fetch(msg)) => assert!(msg.contains("Location"), "{msg}"),
+            Err(PublicGetError::InvalidTarget(msg)) => {
+                panic!("expected missing Location, got invalid target: {msg}")
+            }
+            Ok(_) => panic!("expected missing Location, got success"),
+        }
     }
 }

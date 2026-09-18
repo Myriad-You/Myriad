@@ -6,6 +6,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react'
 import { useLocation } from 'react-router-dom'
 import GlobalControlPanel from '../components/GlobalControlPanel'
@@ -14,6 +15,7 @@ import { SiteFooter } from '../components/SiteFooter'
 import { SurfaceThemeApplier } from '../components/SurfaceThemeApplier'
 import { ToastContainer } from '../components/ToastContainer'
 import { TourHint, TourOverlay } from '../components/tour'
+
 
 import { API_URL } from '../config'
 import { useI18n } from '../contexts/I18nContext'
@@ -31,17 +33,20 @@ import { useNavAutoHide } from '../hooks/useNavAutoHide'
 import { usePageViewTracker } from '../hooks/usePageViewTracker'
 import { useScrollOptimization } from '../hooks/useScrollOptimization'
 import { useSystemSetupCheck } from '../hooks/useSystemSetupCheck'
-import { useWallpaper } from '../hooks/useWallpaper'
-import { ensureCfgAccentSync } from '../utils/cfgAccent'
 import {
-  applyColorPalette,
-  extractColorsFromImage,
-} from '../utils/colorExtractor'
+  invalidateWallpaperLoadCache,
+  useWallpaper,
+} from '../hooks/useWallpaper'
+import {
+  isWidgetSettingsHostArmed,
+  subscribeWidgetSettingsHost,
+} from '../lib/widgetSettingsHost'
+import { ensureCfgAccentSync } from '../utils/cfgAccent'
+import { applyColorPalette } from '../utils/colorPalette'
 import {
   applyNavLayoutToDocument,
   getNavLayoutSnapshot,
 } from '../utils/navLayout'
-import { startFpsMonitor, stopFpsMonitor } from '../utils/performance'
 import {
   getColorFromCache,
   saveColorToCache,
@@ -70,6 +75,23 @@ const TappShortcutSettingsModal = lazy(() =>
     default: m.TappShortcutSettingsModal,
   })),
 )
+
+function DeferredWidgetSettingsModals() {
+  const armed = useSyncExternalStore(
+    subscribeWidgetSettingsHost,
+    isWidgetSettingsHostArmed,
+    isWidgetSettingsHostArmed,
+  )
+  if (!armed) return null
+  return (
+    <Suspense fallback={null}>
+      <SocialNetworkSettingsModal />
+      <ReportCardSettingsModal />
+      <GamePresenceSettingsModal />
+      <TappShortcutSettingsModal />
+    </Suspense>
+  )
+}
 
 interface AppLayoutProps {
   children: React.ReactNode
@@ -126,11 +148,6 @@ export function AppLayout({ children }: AppLayoutProps) {
   usePageViewTracker()
 
   useSystemSetupCheck()
-
-  useEffect(() => {
-    startFpsMonitor()
-    return () => stopFpsMonitor()
-  }, [])
 
   // 设置强调色 --cfg-accent：与 Hero adaptive 同源，随主题/壁纸重算
   useEffect(() => {
@@ -193,6 +210,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     if (!checkResult.shouldApply) return
 
     try {
+      const { extractColorsFromImage } = await import('../utils/colorExtractor')
       const colors = await extractColorsFromImage(url, {
         context: 'wallpaper',
       })
@@ -299,10 +317,8 @@ export function AppLayout({ children }: AppLayoutProps) {
   // 配置页保存壁纸 / Evocative 后：清缓存并重新 loadWallpaper（非硬刷）
   useEffect(() => {
     const handleConfigWallpaperReload = () => {
-      void import('../hooks/useWallpaper').then((m) => {
-        m.invalidateWallpaperLoadCache()
-        void loadWallpaper()
-      })
+      invalidateWallpaperLoadCache()
+      void loadWallpaper()
     }
     window.addEventListener(
       'wallpaperConfigChanged',
@@ -390,12 +406,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
       <main className="relative z-10">{children}</main>
 
-      <Suspense fallback={null}>
-        <SocialNetworkSettingsModal />
-        <ReportCardSettingsModal />
-        <GamePresenceSettingsModal />
-        <TappShortcutSettingsModal />
-      </Suspense>
+      <DeferredWidgetSettingsModals />
 
       <TourHint />
       <SiteFooter isHomePage={location.pathname === '/'} />

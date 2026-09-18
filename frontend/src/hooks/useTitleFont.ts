@@ -4,11 +4,11 @@ import { API_URL } from '../config'
 import { currentCopy } from '../i18n/localeCopy'
 import { SITE_TITLE_FONTS } from '../siteFonts.mjs'
 import { usePrimaryColor } from '../utils/colorSubscriber'
+import { formatUserFacingError } from '../utils/formatUserFacingError'
 import { deriveAdaptiveTitleColor } from '../utils/readableColor'
 import { getUIConfigDeduped } from '../utils/requestDedup'
 import { useThemeMode } from '../utils/themeSubscriber'
 import { showError } from '../utils/toastManager'
-import { userFacingError } from '../utils/userFacingError'
 
 export interface FontOption {
   id: string
@@ -214,7 +214,10 @@ async function debouncedSave(
     } catch (err) {
       console.error('保存标题样式失败:', err)
       showError(
-        userFacingError(err, currentCopy().errors.titleStyleSaveFailed),
+        await formatUserFacingError(
+          err,
+          currentCopy().errors.titleStyleSaveFailed,
+        ),
       )
     }
   }, SAVE_DEBOUNCE_MS)

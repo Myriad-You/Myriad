@@ -76,22 +76,23 @@ pub async fn get_registry() -> tokio::sync::RwLockReadGuard<'static, CapabilityR
     CAPABILITY_REGISTRY.read().await
 }
 
-/// 检查能力是否需要确认（注册表 + get_sensitive_capabilities 兜底）
+/// Registry is the only confirmation authority. Unknown IDs do not confirm.
+pub fn capability_requires_confirmation(cap: &Capability) -> Option<(String, RiskLevel)> {
+    if cap.requires_confirmation || cap.risk_level != RiskLevel::None {
+        let message = cap
+            .confirmation_message
+            .clone()
+            .unwrap_or_else(|| crate::services::agent::response_agent::will_execute(&cap.name));
+        Some((message, cap.risk_level))
+    } else {
+        None
+    }
+}
+
 pub async fn capability_requires_confirmation_async(
     capability_id: &str,
 ) -> Option<(String, RiskLevel)> {
-    if let Some(cap) = get_capability_by_id(capability_id).await {
-        if cap.requires_confirmation || cap.risk_level != RiskLevel::None {
-            let message = cap
-                .confirmation_message
-                .clone()
-                .unwrap_or_else(|| crate::services::agent::response_agent::will_execute(&cap.name));
-            return Some((message, cap.risk_level));
-        }
-    }
-    get_sensitive_capabilities()
-        .get(capability_id)
-        .map(|(msg, risk)| (msg.to_string(), *risk))
+    capability_requires_confirmation(&get_capability_by_id(capability_id).await?)
 }
 
 pub async fn get_capability_summary_filtered(granted: Option<&HashSet<String>>) -> Value {

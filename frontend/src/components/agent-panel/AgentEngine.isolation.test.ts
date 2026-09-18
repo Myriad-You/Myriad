@@ -80,4 +80,7 @@ test('Work interrupt cannot abort Chat SSE, and session ids stay per mode', () =
   assert.match(engine, /case 'outfit_overlay'/)
   assert.match(engine, /setChatOutfitOverlay/)
   assert.match(engine, /clearChatOutfitOverlay/)
+  assert.doesNotMatch(engine, /startPresenceInbound/)
+  assert.doesNotMatch(engine, /retainPlaybackDirection/)
+  assert.doesNotMatch(engine, /notePresenceRoute/)
 })

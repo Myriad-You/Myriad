@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react'
 import type {
   WidgetConfig,
   WidgetGridHandle,
@@ -9,9 +8,10 @@ import type { HomeDashboardLayouts, HomeLayoutMode } from '../utils/homeLayout'
 import type { HomeLayoutAssetMap } from '../utils/homeLayoutTransfer'
 
 import type { StickerCrop } from '../utils/homeStickerCrop'
-import { FaCog, FaCompress, FaEdit, FaExpand, LuSparkles } from '@lib/icons'
 import { motionShim as motion } from '@lib/motionShim'
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -19,23 +19,22 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
-import { useNavigate } from 'react-router-dom'
 import AnimatedView from '../components/AnimatedView'
 import { Avatar } from '../components/Avatar'
-import { HomeLayoutTransferButtons } from '../components/home/HomeLayoutTransfer'
-import { HomeStickerDialog } from '../components/home/HomeStickerDialog'
-import { TitleFontSelector } from '../components/TitleFontSelector'
+import {
+  HomeLayoutRail,
+  HomeStatusBarActions,
+} from '../components/home/HomeAdminChrome'
+import {
+  homeEditTourDockPose,
+  setHomeEditSurface,
+} from '../components/tour/tourHomePose'
 import {
   getTourSnapshot,
   stopTour,
   subscribeTour,
-} from '../components/tour/tourEngine'
-import {
-  homeEditTourDockPose,
-  setHomeEditSurface,
-} from '../components/tour/tourLogic'
+} from '../components/tour/tourStore'
 import WidgetGrid, { startGridLibraryDrag } from '../components/WidgetGrid'
-import WidgetLibraryIsland from '../components/WidgetLibraryIsland'
 import {
   getBuiltinWidgets,
   preloadBuiltinWidgets,
@@ -44,7 +43,6 @@ import { API_URL } from '../config'
 import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
 import { useImmersiveChrome } from '../contexts/NavigationContext'
-import { currentCopy } from '../i18n/localeCopy'
 import { useHomeScheduler, usePageReady } from '../hooks/animation'
 import { useEditModeEscape } from '../hooks/useEditModeEscape'
 import { usePageSeo } from '../hooks/usePageSeo'
@@ -55,6 +53,7 @@ import {
 import { useSiteOwnerProfile } from '../hooks/useSiteOwnerProfile'
 import { useTappWidgets } from '../hooks/useTappWidgets'
 import { useResolvedTitleColor, useTitleFont } from '../hooks/useTitleFont'
+import { currentCopy } from '../i18n/localeCopy'
 import { ensureMotionReady } from '../lib/lazyMotion'
 import {
   cloneHomeWidgets,
@@ -79,6 +78,7 @@ import { generateHomeSticker, uploadHomeSticker } from '../utils/homeStickers'
 import { stickerAspectKey } from '../utils/homeStickerSize'
 import { buildHomePageSeo } from '../utils/modulePageSeo'
 import { getUIConfigDeduped } from '../utils/requestDedup'
+import { formatUserFacingError } from '../utils/formatUserFacingError'
 import { hasSessionHint } from '../utils/sessionDetection'
 import {
   showError,
@@ -86,37 +86,21 @@ import {
   showSuccess,
   showWarning,
 } from '../utils/toastManager'
-import { userFacingError } from '../utils/userFacingError'
 import { widgetSizeSpan } from '../utils/widgetSizeScale'
-import '../components/home/HomeStickerDialog.css'
 import './Home.css'
+
+const HomeStickerDialog = lazy(() =>
+  import('../components/home/HomeStickerDialog').then((m) => ({
+    default: m.HomeStickerDialog,
+  })),
+)
+const WidgetLibraryIsland = lazy(
+  () => import('../components/WidgetLibraryIsland'),
+)
 
 function readHomeEditTourDockPose() {
   const snapshot = getTourSnapshot()
   return homeEditTourDockPose(snapshot.tourId, snapshot.step?.id ?? null)
-}
-
-function HomeStatusBarSlot({
-  open,
-  side,
-  children,
-}: {
-  open: boolean
-  side: 'before' | 'after'
-  children: ReactNode
-}) {
-  return (
-    <div
-      className={`home-status-bar__slot${open ? ' is-open' : ''}`}
-      data-side={side}
-      inert={!open ? true : undefined}
-      aria-hidden={!open || undefined}
-    >
-      <div className="home-status-bar__slot-inner">
-        <div className="home-status-bar__tools">{children}</div>
-      </div>
-    </div>
-  )
 }
 
 export default function Home() {
@@ -124,7 +108,6 @@ export default function Home() {
 
   const { isAuthenticated, hasChecked, checkAuth, isAdmin } = useAuth()
   const { t, format } = useI18n()
-  const navigate = useNavigate()
   const isPageReady = usePageReady()
   // Same viewportBands as WidgetGrid (phone≤767 / desktop≥1078).
   const { isMobile: isPhoneBand } = useBreakpoints()
@@ -173,7 +156,12 @@ export default function Home() {
   }, [isEditMode])
   const toggleEditMode = useCallback(() => {
     if (getTourSnapshot().active) stopTour('abort')
-    setIsEditMode((current) => !current)
+    setIsEditMode((current) => {
+      if (!current) {
+        void import('../components/WidgetLibraryIsland')
+      }
+      return !current
+    })
   }, [])
   useEffect(() => {
     if (!stickerPicking) return
@@ -309,9 +297,25 @@ export default function Home() {
   // Invalidate a late first-paint setLayouts once the Tapp registry is ready.
   const layoutApplyGenerationRef = useRef(0)
 
-  // Motion loads with config; grid entry needs real motion, not shim frames.
+  // Start motion after first paint so parse does not contend with Home commit.
+  // applyLayouts still awaits ensureMotionReady (3s cap).
   useEffect(() => {
-    void ensureMotionReady()
+    let idle = 0
+    const start = () => {
+      void ensureMotionReady()
+    }
+    if ('requestIdleCallback' in window) {
+      idle = requestIdleCallback(start, { timeout: 1200 })
+    } else {
+      idle = window.setTimeout(start, 0)
+    }
+    return () => {
+      if ('requestIdleCallback' in window) {
+        cancelIdleCallback(idle)
+      } else {
+        window.clearTimeout(idle)
+      }
+    }
   }, [])
 
   useEffect(() => {
@@ -367,7 +371,7 @@ export default function Home() {
           } catch (e) {
             console.error('解析仪表盘布局失败:', e)
             showError(
-              userFacingError(e, currentCopy().config.loadConfigFailed),
+              await formatUserFacingError(e, currentCopy().config.loadConfigFailed),
             )
             await applyLayouts(fallbackLayouts())
           }
@@ -377,7 +381,7 @@ export default function Home() {
       } catch (err) {
         console.error('加载配置失败:', err)
         showError(
-          userFacingError(err, currentCopy().config.loadConfigFailed),
+          await formatUserFacingError(err, currentCopy().config.loadConfigFailed),
         )
         persistHomeLayoutMode(
           'standard',
@@ -451,7 +455,7 @@ export default function Home() {
         }
       } catch (err) {
         console.error('保存首页布局模式失败:', err)
-        showError(userFacingError(err, t.errors.dashboardLayoutSaveFailed))
+        showError(await formatUserFacingError(err, t.errors.dashboardLayoutSaveFailed))
       }
     })()
   }
@@ -535,7 +539,7 @@ export default function Home() {
         }
       } catch (err) {
         console.error('导入首页布局失败:', err)
-        showError(userFacingError(err, t.home.importLayoutFailed))
+        showError(await formatUserFacingError(err, t.home.importLayoutFailed))
       } finally {
         layoutImportInFlightRef.current = false
       }
@@ -626,7 +630,7 @@ export default function Home() {
           }
         } catch (err) {
           console.error('保存小组件配置失败:', err)
-          showError(userFacingError(err, t.errors.dashboardLayoutSaveFailed))
+          showError(await formatUserFacingError(err, t.errors.dashboardLayoutSaveFailed))
         }
       })()
     }, 500)
@@ -679,7 +683,7 @@ export default function Home() {
       setStickerDraft(null)
     } catch (err) {
       showStickyToast({
-        message: userFacingError(err, t.home.stickerFailed),
+        message: await formatUserFacingError(err, t.home.stickerFailed),
         type: 'error',
         replaceKey: 'home-sticker',
       })
@@ -715,7 +719,7 @@ export default function Home() {
       setStickerDraft(null)
     } catch (err) {
       showStickyToast({
-        message: userFacingError(err, t.home.stickerUploadFailed),
+        message: await formatUserFacingError(err, t.home.stickerUploadFailed),
         type: 'error',
         replaceKey: 'home-sticker',
       })
@@ -751,7 +755,7 @@ export default function Home() {
       }
     } catch (err) {
       console.error('保存标题失败:', err)
-      showError(userFacingError(err, t.errors.dashboardTitleSaveFailed))
+      showError(await formatUserFacingError(err, t.errors.dashboardTitleSaveFailed))
     }
   }
 
@@ -792,7 +796,7 @@ export default function Home() {
         clearDedupCache(`${API_URL}/api/config/ui`)
       } catch (err) {
         console.error('保存自定义平台失败:', err)
-        showError(userFacingError(err, t.errors.customPlatformsSaveFailed))
+        showError(await formatUserFacingError(err, t.errors.customPlatformsSaveFailed))
       }
     }
 
@@ -826,14 +830,18 @@ export default function Home() {
     >
       <div className="home-shell__inner h-full flex flex-col">
         <div className="home-shell__stage flex-1 mx-auto w-full flex flex-col gap-4 relative min-h-0">
-          <WidgetLibraryIsland
-            visible={isEditMode && isDesktopBand}
-            availableWidgets={ALL_AVAILABLE_WIDGETS}
-            layoutMode={effectiveMode}
-            onNewWidgetDragStart={onLibraryDragStart}
-            pausePointer={stickerPicking || Boolean(stickerDraft)}
-            tourDockPose={tourDockPose}
-          />
+          {isEditMode && isDesktopBand ? (
+            <Suspense fallback={null}>
+              <WidgetLibraryIsland
+                visible
+                availableWidgets={ALL_AVAILABLE_WIDGETS}
+                layoutMode={effectiveMode}
+                onNewWidgetDragStart={onLibraryDragStart}
+                pausePointer={stickerPicking || Boolean(stickerDraft)}
+                tourDockPose={tourDockPose}
+              />
+            </Suspense>
+          ) : null}
           <WidgetGrid
             ref={gridRef}
             widgets={widgets}
@@ -949,83 +957,18 @@ export default function Home() {
                       )}
 
                       {/* Admin + desktop band (≥1078, same threshold as 16-col grid). */}
-                      {showHomeAdminActions && (
-                        <div className="home-status-bar__actions">
-                          <div className="home-status-bar__sep" />
-
-                          <HomeStatusBarSlot open={isEditMode} side="before">
-                            <TitleFontSelector csrfToken={csrfToken} />
-                          </HomeStatusBarSlot>
-
-                          <button
-                            type="button"
-                            data-tour="home-edit"
-                            onClick={toggleEditMode}
-                            className={`flex px-4 py-1.5 rounded-lg text-xs font-bold items-center gap-2 transition-all ${
-                              isEditMode
-                                ? 'text-white shadow-md hover:opacity-90'
-                                : 'bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10'
-                            }`}
-                            style={{
-                              backgroundColor: isEditMode
-                                ? 'var(--color-primary)'
-                                : undefined,
-                              color: isEditMode
-                                ? '#fff'
-                                : 'var(--color-primary)',
-                            }}
-                            aria-label={
-                              isEditMode ? t.common.done : t.common.edit
-                            }
-                          >
-                            <FaEdit size={12} aria-hidden />
-                            <span className="home-status-bar__mode" aria-hidden>
-                              <span data-on={!isEditMode || undefined}>
-                                {t.common.edit}
-                              </span>
-                              <span data-on={isEditMode || undefined}>
-                                {t.common.done}
-                              </span>
-                            </span>
-                          </button>
-
-                          <HomeStatusBarSlot open={isEditMode} side="after">
-                            <button
-                              type="button"
-                              data-tour="home-free-layout"
-                              onClick={handleLayoutModeToggle}
-                              className="flex px-4 py-1.5 rounded-lg text-xs font-bold items-center gap-2 transition-all bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10"
-                              style={{ color: 'var(--color-primary)' }}
-                              aria-pressed={false}
-                              aria-label={t.home.switchToFreeLayout}
-                              title={t.home.switchToFreeLayout}
-                            >
-                              <FaExpand size={12} />
-                              {t.home.freeLayout}
-                            </button>
-                            <HomeLayoutTransferButtons
-                              buttonClassName="flex px-4 py-1.5 rounded-lg text-xs font-bold items-center gap-2 transition-all bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 disabled:opacity-50"
-                              buttonStyle={{ color: 'var(--color-primary)' }}
-                              layouts={layouts}
-                              mode={resolvedLayoutMode}
-                              disabled={layoutFade !== null}
-                              onImport={applyImportedHomeLayout}
-                            />
-                          </HomeStatusBarSlot>
-
-                          <button
-                            type="button"
-                            onClick={() => navigate('/config')}
-                            className="flex px-4 py-1.5 rounded-lg text-xs font-bold items-center gap-2 transition-all bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10"
-                            style={{ color: 'var(--color-primary)' }}
-                            title={t.nav.config}
-                            aria-label={t.nav.config}
-                          >
-                            <FaCog size={12} />
-                            {t.nav.config}
-                          </button>
-                        </div>
-                      )}
+                      {showHomeAdminActions ? (
+                        <HomeStatusBarActions
+                          isEditMode={isEditMode}
+                          toggleEditMode={toggleEditMode}
+                          csrfToken={csrfToken}
+                          handleLayoutModeToggle={handleLayoutModeToggle}
+                          layouts={layouts}
+                          resolvedLayoutMode={resolvedLayoutMode}
+                          layoutFade={layoutFade}
+                          applyImportedHomeLayout={applyImportedHomeLayout}
+                        />
+                      ) : null}
                     </div>
                   </div>
                 </motion.div>
@@ -1038,119 +981,35 @@ export default function Home() {
         <div className="home-sticker-pick-hint">{t.home.stickerPickHint}</div>
       ) : null}
       {isDesktopBand && isFreeLayout && showHomeAdminActions ? (
-        <div className="home-layout-rail" data-library-dock-chrome="">
-          <motion.div
-            className="home-layout-rail__island"
-            initial={{ opacity: 0, y: 12, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ type: 'spring', damping: 36, stiffness: 240 }}
-          >
-            {isEditMode ? (
-              <div className="home-layout-rail__cluster">
-                <button
-                  type="button"
-                  data-tour="home-free-layout"
-                  className={`home-layout-rail__btn ${
-                    isFreeLayout ? 'is-active' : ''
-                  }`}
-                  onClick={handleLayoutModeToggle}
-                  aria-pressed={isFreeLayout}
-                  aria-label={
-                    isFreeLayout
-                      ? t.home.switchToStandardLayout
-                      : t.home.switchToFreeLayout
-                  }
-                  title={
-                    isFreeLayout
-                      ? t.home.switchToStandardLayout
-                      : t.home.switchToFreeLayout
-                  }
-                >
-                  {isFreeLayout ? (
-                    <FaCompress size={13} />
-                  ) : (
-                    <FaExpand size={13} />
-                  )}
-                  {isFreeLayout ? t.home.standardLayout : t.home.freeLayout}
-                </button>
-                {isFreeLayout && showHomeAdminActions ? (
-                  <button
-                    type="button"
-                    data-tour="home-sticker"
-                    className={`home-layout-rail__btn ${
-                      stickerPicking ? 'is-active' : ''
-                    }`}
-                    onClick={startStickerPick}
-                    aria-label={t.home.createSticker}
-                    aria-pressed={stickerPicking}
-                  >
-                    <LuSparkles size={13} />
-                    {t.home.createSticker}
-                  </button>
-                ) : null}
-                <HomeLayoutTransferButtons
-                  buttonClassName="home-layout-rail__btn"
-                  layouts={layouts}
-                  mode={resolvedLayoutMode}
-                  disabled={layoutFade !== null}
-                  onImport={applyImportedHomeLayout}
-                />
-              </div>
-            ) : null}
-            {isEditMode && isFreeLayout && showHomeAdminActions ? (
-              <div className="home-layout-rail__rule" />
-            ) : null}
-            {isFreeLayout && showHomeAdminActions ? (
-              <div className="home-layout-rail__cluster">
-                {isEditMode ? (
-                  <TitleFontSelector
-                    csrfToken={csrfToken}
-                    buttonClassName="home-layout-rail__btn"
-                    showHeroOptions={false}
-                  />
-                ) : null}
-                <button
-                  type="button"
-                  data-tour="home-edit"
-                  className={`home-layout-rail__btn ${
-                    isEditMode ? 'is-active' : ''
-                  }`}
-                  onClick={toggleEditMode}
-                  aria-pressed={isEditMode}
-                  aria-label={isEditMode ? t.common.done : t.common.edit}
-                  title={isEditMode ? t.common.done : t.common.edit}
-                >
-                  <FaEdit size={13} />
-                  {isEditMode ? t.common.done : t.common.edit}
-                </button>
-                <button
-                  type="button"
-                  className="home-layout-rail__btn"
-                  onClick={() => navigate('/config')}
-                  aria-label={t.nav.config}
-                  title={t.nav.config}
-                >
-                  <FaCog size={13} />
-                  {t.nav.config}
-                </button>
-              </div>
-            ) : null}
-          </motion.div>
-        </div>
+        <HomeLayoutRail
+          isEditMode={isEditMode}
+          toggleEditMode={toggleEditMode}
+          csrfToken={csrfToken}
+          handleLayoutModeToggle={handleLayoutModeToggle}
+          layouts={layouts}
+          resolvedLayoutMode={resolvedLayoutMode}
+          layoutFade={layoutFade}
+          applyImportedHomeLayout={applyImportedHomeLayout}
+          isFreeLayout={isFreeLayout}
+          stickerPicking={stickerPicking}
+          startStickerPick={startStickerPick}
+        />
       ) : null}
       {stickerDraft ? (
-        <HomeStickerDialog
-          size={stickerDraft.size}
-          busy={stickerBusy}
-          anchor={stickerDraft.anchor}
-          onCancel={() => {
-            if (!stickerBusy) {
-              setStickerDraft(null)
-            }
-          }}
-          onGenerate={handleGenerateSticker}
-          onUpload={handleUploadSticker}
-        />
+        <Suspense fallback={null}>
+          <HomeStickerDialog
+            size={stickerDraft.size}
+            busy={stickerBusy}
+            anchor={stickerDraft.anchor}
+            onCancel={() => {
+              if (!stickerBusy) {
+                setStickerDraft(null)
+              }
+            }}
+            onGenerate={handleGenerateSticker}
+            onUpload={handleUploadSticker}
+          />
+        </Suspense>
       ) : null}
     </AnimatedView>
   )

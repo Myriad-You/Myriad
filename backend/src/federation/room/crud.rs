@@ -1,6 +1,6 @@
 //! Room CRUD and dissolve.
 use axum::{Json, http::StatusCode};
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde_json::json;
 
 use crate::federation::types::*;
@@ -88,8 +88,8 @@ pub async fn create_room(
         ));
     }
 
-    // 创建 Room
-    db.execute_raw(Statement::from_sql_and_values(
+    let txn = db.begin().await.map_err(db_err)?;
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_rooms
            (room_id, name, description, avatar_url, owner_actor, home_server, governance_type, invite_policy,
@@ -112,8 +112,7 @@ pub async fn create_room(
     .await
     .map_err(db_err)?;
 
-    // 将创建者添加为 owner 成员
-    db.execute_raw(Statement::from_sql_and_values(
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_room_members
            (room_id, actor_url, is_local, local_user_id, role, joined_at, membership_status)
@@ -126,6 +125,7 @@ pub async fn create_room(
     ))
     .await
     .map_err(db_err)?;
+    txn.commit().await.map_err(db_err)?;
 
     tracing::info!("[Room] Created room {} by {}", room_id, username);
 

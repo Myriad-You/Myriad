@@ -431,11 +431,12 @@ impl Worker {
         let source = "dockerhub";
         if self.github_commit_metadata_enabled()
             && let Ok(gh) = self.github_client()
-                && let Ok(info) = gh.resolve_commit(&tip_short_sha).await {
-                    full_sha = info.sha;
-                    message = info.message;
-                    notes_url = info.html_url;
-                }
+            && let Ok(info) = gh.resolve_commit(&tip_short_sha).await
+        {
+            full_sha = info.sha;
+            message = info.message;
+            notes_url = info.html_url;
+        }
 
         let cached = LatestAvailable {
             version: tag.clone(),

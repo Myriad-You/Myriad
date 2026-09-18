@@ -3,7 +3,8 @@ import { currentCopy, formatCurrent } from '../i18n/localeCopy'
 import { ApiError, parseApiErrorBody } from '../services/api'
 import { fetchWithAiConfiguration } from './aiConfiguration'
 import { withAiTimeoutSignal } from './aiRequestTimeout.mjs'
-import { httpStatusMessage, isUselessErrorText } from './userFacingError'
+import { httpStatusMessage } from './httpStatus'
+import { isUselessErrorText } from './uselessErrorText'
 
 export async function parseJsonResponse(response: Response): Promise<any> {
   const contentType = response.headers.get('content-type')

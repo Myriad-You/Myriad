@@ -111,6 +111,24 @@ export function agentPanelOpenView(event: Event): AgentPanelOpenView {
   return raw === 'manage' ? 'manage' : 'messages'
 }
 
+export interface QueuedAgentPanelOpen {
+  view: AgentPanelOpenView
+  stage: 'overlay' | 'full'
+}
+
+let queuedAgentPanelOpen: QueuedAgentPanelOpen | null = null
+
+/** 引擎尚未挂上时先记下打开请求，面板 mount 后再消费。 */
+export function queueAgentPanelOpen(next: QueuedAgentPanelOpen): void {
+  queuedAgentPanelOpen = next
+}
+
+export function takeQueuedAgentPanelOpen(): QueuedAgentPanelOpen | null {
+  const next = queuedAgentPanelOpen
+  queuedAgentPanelOpen = null
+  return next
+}
+
 export const AGENT_PANEL_CLOSE_EVENT = 'agent-panel-close'
 
 export function dispatchAgentPanelClose(): void {

@@ -22,28 +22,21 @@ import { clamp } from '../settings/settingTitleGuideLogic'
 export const TOUR_HOLE_PAD = 8
 export const TOUR_VIEWPORT_PAD = 16
 export const TOUR_CARD_GAP = 14
-export const TOUR_ACTIVE_EVENT = 'myriad-tour-active'
-export const TOUR_ACTIVE_ATTR = 'tourActive'
-
-let homeEditSurface = false
-const homeEditListeners = new Set<() => void>()
-
-export function setHomeEditSurface(active: boolean): void {
-  if (homeEditSurface === active) return
-  homeEditSurface = active
-  homeEditListeners.forEach((listener) => listener())
-}
-
-export function isHomeEditSurface(): boolean {
-  return homeEditSurface
-}
-
-export function subscribeHomeEditSurface(onStoreChange: () => void): () => void {
-  homeEditListeners.add(onStoreChange)
-  return () => {
-    homeEditListeners.delete(onStoreChange)
-  }
-}
+export {
+  TOUR_ACTIVE_ATTR,
+  TOUR_ACTIVE_EVENT,
+  isTourDomActive,
+  setTourDomActive,
+} from './tourDom'
+export {
+  homeBrowseTourPanelPose,
+  homeEditTourDockPose,
+  isHomeEditSurface,
+  setHomeEditSurface,
+  subscribeHomeEditSurface,
+  type HomeBrowseTourPanelPose,
+  type HomeEditTourDockPose,
+} from './tourHomePose'
 
 export type ConfigTourSurface = 'browse' | 'persona' | 'ai-persona' | 'none'
 
@@ -219,29 +212,6 @@ export function pageNameForPath(
   }
   if (path === '/config' || path.startsWith('/config')) return nav.config
   return nav.home
-}
-
-export type HomeEditTourDockPose = 'parked' | 'restored'
-export type HomeBrowseTourPanelPose = 'collapsed' | 'expanded'
-
-export function homeEditTourDockPose(
-  tourId: string | null,
-  stepId: string | null,
-): HomeEditTourDockPose | undefined {
-  if (tourId !== 'home-edit-owner') return undefined
-  if (stepId === 'home-widget-library') return 'restored'
-  return 'parked'
-}
-
-export function homeBrowseTourPanelPose(
-  tourId: string | null,
-  stepId: string | null,
-): HomeBrowseTourPanelPose | undefined {
-  if (tourId !== 'home-visitor' && tourId !== 'home-owner') return undefined
-  if (stepId === 'control-panel' || stepId === 'control-panel-owner') {
-    return 'expanded'
-  }
-  return stepId ? 'collapsed' : undefined
 }
 
 export type PersonaTourPanel = 'overview' | 'persona' | 'wardrobe' | 'motion'
@@ -864,19 +834,6 @@ export function revealTourAnchor(anchor: string, stepId?: string): boolean {
   }
   node.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' })
   return true
-}
-
-export function isTourDomActive(): boolean {
-  if (typeof document === 'undefined') return false
-  return document.documentElement.dataset[TOUR_ACTIVE_ATTR] === '1'
-}
-
-export function setTourDomActive(active: boolean): void {
-  if (typeof document === 'undefined') return
-  const root = document.documentElement
-  if (active) root.dataset[TOUR_ACTIVE_ATTR] = '1'
-  else delete root.dataset[TOUR_ACTIVE_ATTR]
-  window.dispatchEvent(new Event(TOUR_ACTIVE_EVENT))
 }
 
 export function holePadForBox(box: Box): number {

@@ -830,6 +830,18 @@
       "frontend": "Indirect sous forte charge. La navigation quotidienne devrait sembler la même.",
       "notes": "Coupez à tout moment et Enregistrez pour restaurer les budgets équilibrés (redémarrez si la taille du pool DB vous importe)."
     },
+    "preciseLocation": {
+      "what": "Si la météo peut demander une position précise au navigateur. Désactivé par défaut : IP seulement.",
+      "chain": "1) Désactivé (défaut) : météo et localisation via IP ; aucune invite de permission.\n2) Après activation et Enregistrer, le prochain appel météo peut utiliser la géolocalisation du navigateur ; le visiteur peut refuser.\n3) Refus ou échec : retour à l’IP, comme désactivé.",
+      "frontend": "La première visite après activation peut afficher l’invite système. Désactiver arrête les demandes.",
+      "notes": "Interrupteur à l’échelle du site. Les coordonnées précises ne sont pas données aux TAPP."
+    },
+    "preciseLocationEnable": {
+      "what": "Autoriser la météo à utiliser la position précise du navigateur.",
+      "chain": "1) Écrit la config serveur ; la config UI publique inclut ce drapeau.\n2) Le frontend le lit avant la météo ; désactivé = getCurrentPosition n’est jamais appelé.\n3) Enregistrer recharge la page pour la prochaine requête météo.",
+      "frontend": "Désactivé : pas d’invite. Activé : le navigateur décide.",
+      "notes": "Si le navigateur a déjà refusé, le visiteur doit rétablir la permission dans les réglages du site."
+    },
     "network": {
       "what": "Si le serveur utilise un proxy pour aller sur Internet, et les adresses d’accès de quelques services.",
       "chain": "1) Surtout pour « le serveur lui-même qui sort » : synchroniser des plateformes étrangères, appeler des services intelligents, etc.\n2) Votre navigateur qui ouvre ce site, ou un saut vers une connexion tierce, n’utilise en général pas ce proxy.\n3) Les plateformes nationales peuvent ralentir si elles sont forcées à travers un proxy — remplissez une liste « ne pas utiliser le proxy pour ceux-ci ».\n4) Les problèmes ressemblent souvent à : synchronisation échoue, IA indisponible — pas un thème de page cassé.",

@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { API_URL } from '../config'
 import { currentCopy } from '../i18n/localeCopy'
+import { formatUserFacingError } from '../utils/formatUserFacingError'
 import { getUIConfigDeduped } from '../utils/requestDedup'
 import { showError } from '../utils/toastManager'
-import { userFacingError } from '../utils/userFacingError'
 import { resyncWallpaperBlur } from '../utils/wallpaperState'
 
 export type WidgetSurface = 'glass' | 'solid' | 'flat' | 'outline' | 'liquid'
@@ -123,7 +123,10 @@ function debouncedSave(csrfToken: string) {
     } catch (err) {
       console.error('保存小组件主题失败:', err)
       showError(
-        userFacingError(err, currentCopy().errors.widgetThemeSaveFailed),
+        await formatUserFacingError(
+          err,
+          currentCopy().errors.widgetThemeSaveFailed,
+        ),
       )
     }
   }, SAVE_DEBOUNCE_MS)

@@ -1,4 +1,4 @@
-import { isUselessErrorText, userFacingError } from './userFacingError'
+import { isInternalDump, isUselessErrorText } from './uselessErrorText'
 
 export interface WallpaperErrorCopy {
   unsafeUrl: string
@@ -16,10 +16,9 @@ export function wallpaperUnknownMessage(
       : typeof reason === 'string'
         ? reason.trim()
         : ''
-  if (!raw || isUselessErrorText(raw)) return copy.unknown
+  if (!raw || isUselessErrorText(raw) || isInternalDump(raw)) return copy.unknown
   if (/timeout|decode|failed to (load|fetch)|http\s*\d|network/i.test(raw)) {
     return copy.imageLoadFailed
   }
-  const mapped = userFacingError(reason, copy.unknown)
-  return mapped === raw ? copy.unknown : mapped
+  return copy.unknown
 }

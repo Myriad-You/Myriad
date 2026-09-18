@@ -113,9 +113,7 @@ pub async fn initiate_transfer(
     ))
     .await
     .map_err(db_err)?;
-    txn.commit().await.map_err(db_err)?;
 
-    // 发送 FileTransfer Activity 通知远程方
     let local_actor = actor_url(&base_url, username);
     let activity_id = generate_activity_id(&base_url);
 
@@ -139,38 +137,29 @@ pub async fn initiate_transfer(
         }
     });
 
-    // 投递到远程
-    if let Some(inbox) = remote_inbox {
-        let domain = extract_domain(&inbox).unwrap_or_default();
-        let act_row = db
-            .query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                r#"INSERT INTO federation_activities
-                   (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
-                   VALUES ($1, $2, 'FileTransfer', 'FileMeta', $3, true, NOW())
-                   RETURNING id"#,
-                [
-                    activity_id.clone().into(),
-                    user_id.into(),
-                    file_activity.into(),
-                ],
-            ))
-            .await
-            .map_err(db_err)?;
-
-        if let Some(act_id) = act_row.and_then(|r| r.try_get::<i32>("", "id").ok()) {
-            let _ = db
-                .execute_raw(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    r#"INSERT INTO federation_delivery_queue
-                       (activity_id, target_inbox, target_domain, status, created_at)
-                       VALUES ($1, $2, $3, 'pending', NOW())
-                   ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
-                    [act_id.into(), inbox.into(), domain.into()],
-                ))
-                .await;
-        }
-    }
+    let inbox = remote_inbox.filter(|s| !s.is_empty()).ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "Remote inbox missing; cannot notify peer of transfer",
+                "code": "remote_inbox_missing",
+            })),
+        )
+    })?;
+    let act_id = insert_local_activity(
+        &txn,
+        user_id,
+        &activity_id,
+        "FileTransfer",
+        Some("FileMeta"),
+        file_activity,
+    )
+    .await
+    .map_err(db_err)?;
+    enqueue_delivery(&txn, act_id, &inbox, "pending")
+        .await
+        .map_err(db_err)?;
+    txn.commit().await.map_err(db_err)?;
 
     Ok(TransferDetail {
         transfer_id,
@@ -261,7 +250,6 @@ pub async fn initiate_room_transfer(
     ))
     .await
     .map_err(db_err)?;
-    txn.commit().await.map_err(db_err)?;
 
     let activity_id = generate_activity_id(&base_url);
     let file_activity = json!({
@@ -282,8 +270,8 @@ pub async fn initiate_room_transfer(
             "protocol": "mfp/1.0"
         }
     });
-    let _ = crate::federation::room::fanout_to_remote_members(
-        db,
+    crate::federation::room::fanout_to_remote_members(
+        &txn,
         user_id,
         room_id,
         &activity_id,
@@ -291,7 +279,9 @@ pub async fn initiate_room_transfer(
         "FileTransfer",
         "FileMeta",
     )
-    .await;
+    .await
+    .map_err(db_err)?;
+    txn.commit().await.map_err(db_err)?;
 
     Ok(TransferDetail {
         transfer_id: transfer_id.clone(),
@@ -1229,4 +1219,19 @@ pub async fn cancel_transfer(
         "transfer_id": transfer_id,
         "status": "cancelled"
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn initiate_persists_transfer_with_outbound_intent() {
+        let src = include_str!("http.rs");
+        assert!(src.contains("insert_local_activity"));
+        assert!(src.contains("enqueue_delivery"));
+        assert!(src.contains("fanout_to_remote_members"));
+        assert!(
+            !src.contains("let _ = crate::federation::room::fanout_to_remote_members"),
+            "room transfer fanout must not be ignored after pending insert"
+        );
+    }
 }

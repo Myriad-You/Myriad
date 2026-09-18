@@ -27,7 +27,7 @@
     "storeCannotEditOfficialUrl": "The official store URL cannot be changed.",
     "storeCannotRemoveOfficial": "The official store cannot be removed.",
     "storeDownloadFailed": "Could not download module: {name}",
-    "storeFederationUnavailable": "Federation apps cannot be downloaded or installed in this server’s region.",
+    "storeFederationUnavailable": "Federation is not supported in this region.",
     "storeInvalidIndex": "The store index format is invalid.",
     "storeInvalidSource": "Invalid store source.",
     "storeRemoveFailed": "Failed to remove the store source.",

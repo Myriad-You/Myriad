@@ -269,7 +269,11 @@ pub async fn generate_site_seo_copy_with_db(
 
     let analyzer = create_ai_analyzer_for_tier(ModelTier::Lite).await;
     if let Some(analyzer) = analyzer {
-        let owner = crate::services::ai_cost_ledger::resolve_site_owner_id().await;
+        let Ok(owner) = crate::services::ai_cost_ledger::resolve_site_owner_id().await else {
+            tracing::warn!("SEO AI generation skipped: billing owner is unavailable");
+            let fb = fallback_copy(title, desc, hint, language);
+            return Ok(filter_response(want, fb, "fallback"));
+        };
         match crate::services::ai_cost_ledger::with_site_ai_ledger(
             owner,
             "seo",

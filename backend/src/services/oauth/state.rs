@@ -15,8 +15,11 @@
 //!
 //! Payload fields:
 //! `v` (version), `n` (nonce hex / browser_tx / OIDC nonce), `s` (slug),
-//! `p` (login|link|platform), `uid?`, `plat?`, `exp` (unix seconds),
-//! `cv?` (PKCE code_verifier)
+//! `p` (login|link|platform), `uid?`, `plat?`, `exp` (unix seconds)
+//!
+//! PKCE `code_verifier` is **not** in this payload. It lives in process-local
+//! server storage keyed by `n`, plus the HttpOnly `oauth_pkce` cookie so another
+//! instance can finish the callback.
 //!
 //! Secret: `OAUTH_STATE_SECRET` if set, else `JWT_SECRET`.
 
@@ -68,7 +71,8 @@ pub struct IssuedState {
     /// High-entropy transaction id (payload `n`); mirror into `oauth_tx` cookie.
     /// Also the OIDC `nonce` value for id_token binding.
     pub browser_tx: String,
-    /// RFC 7636 PKCE code_verifier (payload `cv`)。
+    /// RFC 7636 PKCE code_verifier. Caller stores this in the `oauth_pkce` cookie;
+    /// it is not embedded in the signed state token.
     pub code_verifier: String,
 }
 
@@ -128,26 +132,52 @@ impl ConsumeOutcome {
 /// Not `__Host-` prefixed: issuance must work on local HTTP (dev) as well as
 /// production HTTPS; `__Host-` requires Secure always.
 pub const OAUTH_TX_COOKIE: &str = "oauth_tx";
+/// HttpOnly cookie carrying the PKCE verifier (not present in signed `state`).
+pub const OAUTH_PKCE_COOKIE: &str = "oauth_pkce";
+
+fn oauth_cookie_value(name: &str, value: &str, is_production: bool) -> String {
+    format!(
+        "{name}={value}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}{}",
+        STATE_TTL.as_secs(),
+        if is_production { "; Secure" } else { "" }
+    )
+}
+
+fn oauth_clear_cookie_value(name: &str, is_production: bool) -> String {
+    format!(
+        "{name}=deleted; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; \
+         Expires=Thu, 01 Jan 1970 00:00:00 GMT{}",
+        if is_production { "; Secure" } else { "" }
+    )
+}
 
 /// `Set-Cookie` value that stores the browser transaction id.
 ///
 /// HttpOnly + SameSite=Lax + Path=/; Secure when the public site URL is `https://`. Max-Age matches
 /// [`STATE_TTL`] so a stale cookie cannot outlive state acceptance.
 pub fn oauth_tx_set_cookie_value(browser_tx: &str, is_production: bool) -> String {
-    format!(
-        "{OAUTH_TX_COOKIE}={browser_tx}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}{}",
-        STATE_TTL.as_secs(),
-        if is_production { "; Secure" } else { "" }
-    )
+    oauth_cookie_value(OAUTH_TX_COOKIE, browser_tx, is_production)
 }
 
 /// `Set-Cookie` value that clears the OAuth transaction cookie.
 pub fn oauth_tx_clear_cookie_value(is_production: bool) -> String {
-    format!(
-        "{OAUTH_TX_COOKIE}=deleted; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; \
-         Expires=Thu, 01 Jan 1970 00:00:00 GMT{}",
-        if is_production { "; Secure" } else { "" }
-    )
+    oauth_clear_cookie_value(OAUTH_TX_COOKIE, is_production)
+}
+
+/// `Set-Cookie` value that stores the PKCE verifier in an HttpOnly session cookie.
+pub fn oauth_pkce_set_cookie_value(code_verifier: &str, is_production: bool) -> String {
+    oauth_cookie_value(OAUTH_PKCE_COOKIE, code_verifier, is_production)
+}
+
+/// `Set-Cookie` value that clears the PKCE verifier cookie.
+pub fn oauth_pkce_clear_cookie_value(is_production: bool) -> String {
+    oauth_clear_cookie_value(OAUTH_PKCE_COOKIE, is_production)
+}
+
+/// PKCE verifier from the request `Cookie` header, if present.
+pub fn oauth_pkce_from_cookie(cookie_header: Option<&str>) -> Option<String> {
+    let header = cookie_header?;
+    cookie_value_from_header(header, OAUTH_PKCE_COOKIE).map(str::to_string)
 }
 
 /// Read a single cookie value from a raw `Cookie` header string.
@@ -218,7 +248,7 @@ struct StatePayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     plat: Option<String>,
     exp: i64,
-    /// PKCE code_verifier. Optional; missing `cv` means no PKCE verifier.
+    /// Legacy PKCE field. New tokens omit it; ignored on verify.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     cv: Option<String>,
 }
@@ -296,6 +326,37 @@ static USED_NONCES: Lazy<Arc<RwLock<UsedNonceStore>>> = Lazy::new(|| {
 
     store
 });
+
+/// Process-local PKCE verifiers keyed by state nonce (`browser_tx`).
+///
+/// Not a substitute for the HttpOnly cookie: another process will not see this
+/// map. The cookie is the cross-instance session copy; this map is same-process.
+static PKCE_VERIFIERS: Lazy<Arc<RwLock<HashMap<String, (String, Instant)>>>> =
+    Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
+
+async fn store_pkce_verifier(nonce: &str, code_verifier: &str) {
+    let mut store = PKCE_VERIFIERS.write().await;
+    let now = Instant::now();
+    store.retain(|_, (_, until)| *until > now);
+    store.insert(
+        nonce.to_string(),
+        (
+            code_verifier.to_string(),
+            now + STATE_TTL + Duration::from_secs(60),
+        ),
+    );
+}
+
+async fn lookup_pkce_verifier(nonce: &str) -> Option<String> {
+    let store = PKCE_VERIFIERS.read().await;
+    store.get(nonce).and_then(|(verifier, until)| {
+        if *until > Instant::now() {
+            Some(verifier.clone())
+        } else {
+            None
+        }
+    })
+}
 
 fn unix_now() -> i64 {
     SystemTime::now()
@@ -390,12 +451,7 @@ fn verify_signature(payload_b64: &str, sig_b64: &str, secret: &[u8]) -> bool {
     }
 }
 
-fn stored_to_payload(
-    stored: &StoredState,
-    nonce: String,
-    code_verifier: String,
-    exp: i64,
-) -> StatePayload {
+fn stored_to_payload(stored: &StoredState, nonce: String, exp: i64) -> StatePayload {
     let (p, uid, plat) = purpose_to_payload_parts(&stored.purpose);
     StatePayload {
         v: 1,
@@ -405,7 +461,7 @@ fn stored_to_payload(
         uid,
         plat,
         exp,
-        cv: Some(code_verifier),
+        cv: None,
     }
 }
 
@@ -432,7 +488,8 @@ pub async fn issue_state(stored: StoredState) -> Result<IssuedState, String> {
     let nonce = random_nonce_hex();
     let code_verifier = random_code_verifier();
     let exp = unix_now() + STATE_TTL.as_secs() as i64;
-    let payload = stored_to_payload(&stored, nonce.clone(), code_verifier.clone(), exp);
+    let payload = stored_to_payload(&stored, nonce.clone(), exp);
+    store_pkce_verifier(&nonce, &code_verifier).await;
     let json = serde_json::to_vec(&payload).map_err(|error| {
         tracing::error!(%error, "oauth state serialize failed");
         "state serialize failed".to_string()
@@ -482,7 +539,7 @@ impl VerifiedState {
         &self.browser_tx
     }
 
-    /// PKCE code_verifier from signed state (empty when `cv` was omitted).
+    /// PKCE code_verifier from server-side storage (empty when missing).
     pub fn code_verifier(&self) -> &str {
         &self.code_verifier
     }
@@ -597,7 +654,7 @@ pub async fn verify_state(token: &str) -> Result<VerifiedState, ConsumeStateErro
     }
 
     let browser_tx = payload.n.clone();
-    let code_verifier = payload.cv.clone().unwrap_or_default();
+    let code_verifier = lookup_pkce_verifier(&browser_tx).await.unwrap_or_default();
     let remaining_ttl =
         Duration::from_secs((payload.exp - unix_now()).max(0) as u64) + Duration::from_secs(60); // grace so cleanup does not race TTL edge
 
@@ -695,13 +752,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn issue_embeds_pkce_verifier_roundtrip() {
+    async fn issue_keeps_pkce_verifier_out_of_client_visible_state() {
         ensure_test_secret();
         let issued = issue_state(sample_login()).await.expect("issue");
+        let (payload_b64, _) = issued.token.split_once('.').unwrap();
+        let json = URL_SAFE_NO_PAD.decode(payload_b64).unwrap();
+        let payload: StatePayload = serde_json::from_slice(&json).unwrap();
+        assert!(payload.cv.is_none(), "signed state must omit PKCE verifier");
+        let raw = String::from_utf8(json).unwrap();
+        assert!(
+            !raw.contains(&issued.code_verifier),
+            "client-visible state must not contain the verifier"
+        );
         let verified = verify_state(&issued.token).await.expect("verify");
         assert_eq!(verified.code_verifier(), issued.code_verifier);
         assert_eq!(verified.oidc_nonce(), issued.browser_tx);
         assert!(!verified.code_verifier().is_empty());
+        let from_cookie = oauth_pkce_from_cookie(Some(&format!(
+            "oauth_tx={}; oauth_pkce={}",
+            issued.browser_tx, issued.code_verifier
+        )));
+        assert_eq!(from_cookie.as_deref(), Some(issued.code_verifier.as_str()));
     }
 
     #[tokio::test]
@@ -952,5 +1023,13 @@ mod tests {
             "deadbeef"
         ));
         assert!(!oauth_tx_cookie_matches(Some(""), "deadbeef"));
+
+        let pkce = oauth_pkce_set_cookie_value("verifier", true);
+        assert!(pkce.contains("oauth_pkce=verifier"));
+        assert!(pkce.contains("HttpOnly"));
+        assert!(pkce.contains("Secure"));
+        let pkce_clear = oauth_pkce_clear_cookie_value(false);
+        assert!(pkce_clear.contains("Max-Age=0"));
+        assert!(!pkce_clear.contains("Secure"));
     }
 }

@@ -169,10 +169,11 @@ impl TaskStore {
 
     /// 存储任务（同时异步保存到数据库）
     pub fn store(&mut self, user_id: i32, task: TaskState) {
+        let persist_at = next_recipe_persist_at();
         let task_for_db = task.clone();
         self.cache_committed(user_id, task);
         tokio::spawn(async move {
-            if let Err(e) = save_task_to_db(user_id, &task_for_db).await {
+            if let Err(e) = save_task_to_db_at(user_id, &task_for_db, persist_at).await {
                 tracing::warn!("保存任务到数据库失败: {}", e);
             }
         });
@@ -389,7 +390,7 @@ pub async fn list_waiting_tasks_snapshot() -> Vec<(i32, TaskState)> {
 
 /// 将数据库模型转换为任务状态
 fn task_model_to_state(model: &agent_tasks::Model) -> Result<TaskState, String> {
-    let status = task_status_from_db_str(&model.status);
+    let status = task_status_from_db_str(&model.status)?;
 
     let step_results: HashMap<String, StepResult> =
         serde_json::from_value(model.step_results.clone()).unwrap_or_default();
@@ -443,6 +444,14 @@ pub use task_store_pure::session_id_from_lane_id;
 
 /// 保存任务到数据库
 pub async fn save_task_to_db(user_id: i32, task: &TaskState) -> Result<(), String> {
+    save_task_to_db_at(user_id, task, next_recipe_persist_at()).await
+}
+
+async fn save_task_to_db_at(
+    user_id: i32,
+    task: &TaskState,
+    persist_at: chrono::DateTime<Utc>,
+) -> Result<(), String> {
     if task
         .recipe
         .as_ref()
@@ -452,7 +461,7 @@ pub async fn save_task_to_db(user_id: i32, task: &TaskState) -> Result<(), Strin
     }
     let db_guard = DB_FOR_TASKS.read().await;
     let db = db_guard.as_ref().ok_or("Database is not connected")?;
-    save_task_on(db, user_id, task).await
+    save_task_on_at(db, user_id, task, persist_at).await
 }
 
 pub(crate) async fn save_task_on(
@@ -460,7 +469,37 @@ pub(crate) async fn save_task_on(
     user_id: i32,
     task: &TaskState,
 ) -> Result<(), String> {
+    save_task_on_at(db, user_id, task, next_recipe_persist_at()).await
+}
+
+fn next_recipe_persist_at() -> chrono::DateTime<Utc> {
+    static LAST: Mutex<Option<chrono::DateTime<Utc>>> = Mutex::new(None);
+    let mut last = LAST.lock().unwrap();
+    let now = Utc::now();
+    let next = match *last {
+        Some(prev) if prev >= now => prev + chrono::Duration::milliseconds(1),
+        _ => now,
+    };
+    *last = Some(next);
+    next
+}
+
+/// True when an older snapshot must not overwrite a newer durable row.
+pub(crate) fn recipe_persist_is_stale(
+    stored_updated_at: chrono::DateTime<Utc>,
+    snapshot_at: chrono::DateTime<Utc>,
+) -> bool {
+    stored_updated_at >= snapshot_at
+}
+
+pub(crate) async fn save_task_on_at(
+    db: &impl ConnectionTrait,
+    user_id: i32,
+    task: &TaskState,
+    persist_at: chrono::DateTime<Utc>,
+) -> Result<(), String> {
     let status_str = task_status_to_db_str(&task.status);
+    let persist_at: chrono::DateTime<chrono::FixedOffset> = persist_at.into();
 
     // 检查任务是否已存在（使用 id 字段，它存储的是 task_id）
     let existing = agent_tasks::Entity::find_by_id(&task.task_id)
@@ -472,10 +511,14 @@ pub(crate) async fn save_task_on(
         })?;
 
     if let Some(existing_task) = existing {
+        if recipe_persist_is_stale(existing_task.updated_at.with_timezone(&Utc), persist_at.with_timezone(&Utc))
+        {
+            return Ok(());
+        }
         // 更新现有任务
         let mut active_model: agent_tasks::ActiveModel = existing_task.into();
         active_model.status = Set(status_str.to_string());
-        active_model.updated_at = Set(chrono::Utc::now().into());
+        active_model.updated_at = Set(persist_at);
         active_model.current_step = Set(task.current_step as i32);
         active_model.total_steps = Set(Some(
             task.recipe
@@ -496,10 +539,19 @@ pub(crate) async fn save_task_on(
             active_model.session_id = Set(Some(sid));
         }
 
-        active_model.update(db).await.map_err(|e| {
-            tracing::error!("Failed to update task: {e}");
-            "Failed to update task".to_string()
-        })?;
+        let updated = agent_tasks::Entity::update_many()
+            .set(active_model)
+            .filter(agent_tasks::Column::Id.eq(&task.task_id))
+            .filter(agent_tasks::Column::UpdatedAt.lt(persist_at))
+            .exec(db)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to update task: {e}");
+                "Failed to update task".to_string()
+            })?;
+        if updated.rows_affected == 0 {
+            return Ok(());
+        }
     } else {
         // 创建新任务
         let session_id = session_id_from_lane_id(task.lane_id.as_deref());
@@ -518,7 +570,7 @@ pub(crate) async fn save_task_on(
             execution_context: Set(task.execution_context.as_ref().map(|c| json!(c))),
             recipe: Set(task.recipe.as_ref().map(|recipe| json!(recipe))),
             original_request: Set(None),
-            updated_at: Set(chrono::Utc::now().into()),
+            updated_at: Set(persist_at),
             session_id: Set(session_id),
             lane_id: Set(task.lane_id.clone()),
             name: Set(None),
@@ -531,10 +583,20 @@ pub(crate) async fn save_task_on(
             )),
         };
 
-        new_task.insert(db).await.map_err(|e| {
+        if let Err(e) = new_task.insert(db).await {
+            let lower = e.to_string().to_ascii_lowercase();
+            if lower.contains("23505") || lower.contains("duplicate key") {
+                return Box::pin(save_task_on_at(
+                    db,
+                    user_id,
+                    task,
+                    persist_at.with_timezone(&Utc),
+                ))
+                .await;
+            }
             tracing::error!("Failed to create task: {e}");
-            "Failed to create task".to_string()
-        })?;
+            return Err("Failed to create task".to_string());
+        }
     }
 
     Ok(())
@@ -542,8 +604,9 @@ pub(crate) async fn save_task_on(
 
 /// 异步持久化任务（fire-and-forget）
 pub fn persist_task_async(user_id: i32, task: TaskState) {
+    let persist_at = next_recipe_persist_at();
     tokio::spawn(async move {
-        if let Err(e) = save_task_to_db(user_id, &task).await {
+        if let Err(e) = save_task_to_db_at(user_id, &task, persist_at).await {
             tracing::warn!("异步保存任务失败: {}", e);
         }
     });
@@ -994,6 +1057,45 @@ mod tests {
         assert_eq!(restored.status, TaskStatus::WaitingForInput);
         assert_eq!(restored_recipe.id, model.recipe_id);
         assert_eq!(restored_recipe.execution_type, ExecutionType::Instant);
+    }
+
+    #[test]
+    fn unknown_task_status_is_not_pending() {
+        let now = Utc::now().fixed_offset();
+        let model = agent_tasks::Model {
+            id: "bad-status".to_string(),
+            user_id: 1,
+            recipe_id: "r".to_string(),
+            name: None,
+            status: "unknown_legacy".to_string(),
+            current_step: 0,
+            total_steps: Some(1),
+            step_results: json!({}),
+            execution_context: None,
+            recipe: None,
+            pending_question: None,
+            progress: 0,
+            error: None,
+            original_request: None,
+            session_id: None,
+            lane_id: None,
+            started_at: now,
+            completed_at: None,
+            updated_at: now,
+        };
+        let err = task_model_to_state(&model).expect_err("unknown status must fail closed");
+        assert!(err.contains("unknown agent task status"));
+    }
+
+    #[test]
+    fn older_recipe_snapshot_is_rejected() {
+        let older = Utc::now();
+        let newer = older + chrono::Duration::milliseconds(5);
+        assert!(recipe_persist_is_stale(newer, older));
+        assert!(!recipe_persist_is_stale(older, newer));
+        let first = next_recipe_persist_at();
+        let second = next_recipe_persist_at();
+        assert!(second > first);
     }
 
     #[tokio::test]

@@ -26,6 +26,7 @@
 //! [`wait_until_resolved`] before its first drain, so a blocked server never
 //! emits an Activity on a merely-unresolved gate.
 
+use myriad_error::AppError;
 use once_cell::sync::Lazy;
 use serde::Serialize;
 use std::sync::RwLock;
@@ -39,6 +40,21 @@ use crate::services::server_location::ServerLocationAssessment;
 /// Mainland China only. HK / MO / TW are distinct ISO codes and distinct
 /// jurisdictions — widening this list is a policy change, not a typo fix.
 const BLOCKED_COUNTRY_CODES: &[&str] = &["CN"];
+
+/// Stable client code for a closed gate. Mapped in `shared/error_codes.json`.
+pub const DISABLED_REGION_CODE: &str = "federation_disabled_region";
+/// Short public label. Not "Not Found" — clients must not classify this as a missing route.
+pub const DISABLED_REGION_LABEL: &str = "Federation is not supported in this region";
+/// Same sentence as the label so every surface shows one message.
+pub const DISABLED_REGION_MESSAGE: &str = DISABLED_REGION_LABEL;
+
+/// HTTP body for a closed gate. Status is 404 on the public federation surface
+/// (peers must not retry) and 403 on install eligibility.
+pub fn disabled_region_app_error(status: u16) -> AppError {
+    AppError::from_status_u16(status, DISABLED_REGION_LABEL)
+        .with_message(DISABLED_REGION_MESSAGE)
+        .with_code(DISABLED_REGION_CODE)
+}
 
 const PENDING: u8 = 0;
 const ENABLED: u8 = 1;
@@ -126,7 +142,7 @@ pub(crate) fn check_tapp_install_permissions(
     enabled: bool,
 ) -> Result<(), &'static str> {
     if !enabled && permissions.iter().any(|p| p.starts_with("federation:")) {
-        return Err("Federation apps cannot be downloaded or installed in this server's region");
+        return Err(DISABLED_REGION_MESSAGE);
     }
     Ok(())
 }
@@ -192,7 +208,7 @@ pub fn apply(assessment: &ServerLocationAssessment) {
             reason = next.reason,
             country_codes = ?next.country_codes,
             sources = ?next.sources,
-            "⛔ Federation disabled: this server's public IP geolocates to a blocked country"
+            "⛔ Federation disabled: this server's public IP geolocates to mainland China"
         );
     }
 }
@@ -275,6 +291,20 @@ mod tests {
         for code in ["HK", "MO", "TW"] {
             assert!(decide(&assessment_with(&[code])).0, "{code} must federate");
         }
+    }
+
+    #[test]
+    fn disabled_region_error_is_the_unified_region_copy() {
+        let err = disabled_region_app_error(404);
+        assert_eq!(err.status_u16(), 404);
+        assert_eq!(err.code(), Some(DISABLED_REGION_CODE));
+        let body = err.body();
+        assert_eq!(body.error, DISABLED_REGION_LABEL);
+        assert_eq!(body.message.as_deref(), Some(DISABLED_REGION_MESSAGE));
+        assert_eq!(
+            DISABLED_REGION_MESSAGE,
+            "Federation is not supported in this region"
+        );
     }
 
     /// Nothing may act as if the gate were closed before a reading exists.

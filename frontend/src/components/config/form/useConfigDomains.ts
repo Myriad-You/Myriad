@@ -12,6 +12,7 @@ export function useConfigDomains(
   isAdmin: boolean,
   messages: LocaleConfig,
   userId?: number,
+  federationEnabled = true,
 ) {
   const library = useLibraryDomain(messages)
   const visibility = useModuleVisibilityDomain()
@@ -20,7 +21,7 @@ export function useConfigDomains(
   const permissions = usePermissionDomain(messages)
   const notifications = useNotificationDomain(userId)
   const oauth = useOAuthDomain()
-  const federation = useFederationDomain(isAdmin)
+  const federation = useFederationDomain(isAdmin, federationEnabled)
   return {
     library,
     visibility,

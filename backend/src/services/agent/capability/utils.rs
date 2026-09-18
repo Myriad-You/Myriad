@@ -2,9 +2,8 @@
 //!
 //! 包含能力名称映射、步骤描述、风险评估等辅助函数
 
-use super::super::types::{Capability, RecipeStep, RiskLevel};
+use super::super::types::{Capability, RecipeStep};
 use serde_json::{Value, json};
-use std::collections::HashMap;
 
 /// 获取能力的友好名称
 pub fn get_capability_friendly_name(capability_id: &str) -> String {
@@ -285,150 +284,6 @@ pub fn truncate_str(s: &str, max_len: usize) -> String {
         let truncated: String = s.chars().take(max_len).collect();
         format!("{}...", truncated)
     }
-}
-
-/// 敏感能力配置
-/// 返回需要二次确认的能力及其配置
-pub fn get_sensitive_capabilities() -> HashMap<&'static str, (&'static str, RiskLevel)> {
-    let mut map = HashMap::new();
-
-    // 风险映射（High / Medium / Low 见各条）
-    map.insert(
-        "cache.clear",
-        (
-            "This will clear cached data for the selected platform. It will need to be fetched again.",
-            RiskLevel::High,
-        ),
-    );
-    map.insert(
-        "phantasi.unsubscribe",
-        (
-            "This will unsubscribe and delete related data.",
-            RiskLevel::High,
-        ),
-    );
-    map.insert(
-        "phantasi.subscribe",
-        ("This will add a new RSS/Atom feed.", RiskLevel::Medium),
-    );
-    map.insert(
-        "phantasi.schedule",
-        (
-            "This will control the Phantasi scheduler (start/stop/refresh).",
-            RiskLevel::Medium,
-        ),
-    );
-    map.insert(
-        "http.fetch",
-        (
-            "This will make an outbound HTTP request to an external URL.",
-            RiskLevel::Medium,
-        ),
-    );
-    map.insert(
-        "tapp.delete",
-        (
-            "This will delete the app and all of its data.",
-            RiskLevel::High,
-        ),
-    );
-    map.insert(
-        "storage.delete",
-        ("This will permanently delete stored data.", RiskLevel::High),
-    );
-
-    // 后续条目各自带 RiskLevel
-    map.insert(
-        "platform.write",
-        ("This will change platform data.", RiskLevel::Medium),
-    );
-    map.insert(
-        "tapp.install",
-        ("This will install a third-party app.", RiskLevel::Medium),
-    );
-    map.insert(
-        "scheduler.create",
-        (
-            "This will create a scheduled app task and may use system resources.",
-            RiskLevel::Medium,
-        ),
-    );
-    map.insert(
-        "scheduler.trigger",
-        (
-            "This will run the scheduled task immediately.",
-            RiskLevel::Medium,
-        ),
-    );
-    map.insert(
-        "heartbeat.create",
-        (
-            "This will create an agent heartbeat task (HEARTBEAT.md).",
-            RiskLevel::Medium,
-        ),
-    );
-    map.insert(
-        "heartbeat.update",
-        (
-            "This will change the agent heartbeat task.",
-            RiskLevel::Medium,
-        ),
-    );
-    map.insert(
-        "heartbeat.delete",
-        (
-            "This will delete the agent heartbeat task.",
-            RiskLevel::High,
-        ),
-    );
-    map.insert(
-        "heartbeat.toggle",
-        (
-            "This will enable or disable the heartbeat task.",
-            RiskLevel::Low,
-        ),
-    );
-    map.insert(
-        "config.set",
-        ("This will change site configuration.", RiskLevel::Medium),
-    );
-    map.insert(
-        "seo.apply",
-        (
-            "This will update the site's public SEO / GEO copy.",
-            RiskLevel::Medium,
-        ),
-    );
-    map.insert(
-        "platform.refresh",
-        (
-            "This will refresh platform data and may use API quota.",
-            RiskLevel::Medium,
-        ),
-    );
-    map.insert(
-        "task.submit",
-        (
-            "This will submit a background platform-data task.",
-            RiskLevel::Medium,
-        ),
-    );
-
-    // 低风险 - 可逆操作
-    map.insert(
-        "phantasi.mark",
-        ("This will batch-update article status.", RiskLevel::Low),
-    );
-    map.insert(
-        "storage.set",
-        ("This will store data locally.", RiskLevel::Low),
-    );
-    map.insert(
-        "export.data",
-        ("This will export your data.", RiskLevel::Low),
-    );
-
-    map
 }
 
 /// 能力在 Planner 索引中的说明文字。
@@ -762,33 +617,45 @@ pub fn get_quick_reference() -> Value {
 
 #[cfg(test)]
 mod sensitive_caps_tests {
-    use super::get_sensitive_capabilities;
+    use crate::services::agent::capability::{
+        CapabilityRegistry, capability_requires_confirmation,
+    };
     use crate::services::agent::types::RiskLevel;
 
     #[test]
-    fn network_and_phantasi_writes_require_confirmation() {
-        let map = get_sensitive_capabilities();
+    fn confirmation_authority_is_the_registry() {
+        let registry = CapabilityRegistry::new();
         for id in [
             "phantasi.subscribe",
             "phantasi.schedule",
             "http.fetch",
             "task.submit",
+            "scheduler.create",
+            "scheduler.trigger",
+            "cache.clear",
+            "platform.write",
+            "platform.refresh",
+            "heartbeat.delete",
         ] {
-            let (msg, risk) = map.get(id).unwrap_or_else(|| panic!("missing {id}"));
+            let cap = registry.get(id).unwrap_or_else(|| panic!("missing {id}"));
+            let (msg, risk) = capability_requires_confirmation(cap)
+                .unwrap_or_else(|| panic!("{id} must require confirmation"));
             assert!(!msg.is_empty(), "{id} message");
             assert!(
                 matches!(
                     risk,
-                    RiskLevel::Medium | RiskLevel::High | RiskLevel::Critical
+                    RiskLevel::Low | RiskLevel::Medium | RiskLevel::High | RiskLevel::Critical
                 ),
                 "{id} risk {risk:?}"
             );
         }
-        // Already-gated scheduler writes stay present
-        assert!(map.contains_key("scheduler.create"));
-        assert!(map.contains_key("scheduler.trigger"));
+        assert!(registry.get("phantasi.unsubscribe").is_none());
+        assert!(registry.get("config.set").is_none());
+        assert!(registry.get("storage.delete").is_none());
+        assert!(registry.get("tapp.delete").is_none());
+        let submit = registry.get("task.submit").unwrap();
         assert_eq!(
-            map.get("task.submit").map(|(_, r)| *r),
+            capability_requires_confirmation(submit).map(|(_, r)| r),
             Some(RiskLevel::Medium)
         );
     }

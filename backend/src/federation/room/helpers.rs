@@ -45,6 +45,53 @@ pub(crate) fn not_active_member_err(
     )
 }
 
+/// Active members at or above max_members cannot be admitted.
+pub(crate) fn room_is_full(active_count: i32, max_members: i32) -> bool {
+    active_count >= max_members
+}
+
+/// Lock the room row and return (max_members, active_count). Caller must be in a txn.
+pub(crate) async fn lock_room_capacity(
+    db: &impl ConnectionTrait,
+    room_id: &str,
+) -> Result<(i32, i32), sea_orm::DbErr> {
+    let room = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT max_members FROM federation_rooms WHERE room_id = $1 FOR UPDATE",
+            [room_id.into()],
+        ))
+        .await?
+        .ok_or_else(|| sea_orm::DbErr::Custom("Room not found".into()))?;
+    let max_members: i32 = room.try_get("", "max_members").unwrap_or(50);
+    let count_row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"SELECT COUNT(*)::int AS cnt FROM federation_room_members
+               WHERE room_id = $1 AND COALESCE(membership_status, 'active') = 'active'"#,
+            [room_id.into()],
+        ))
+        .await?;
+    let active: i32 = count_row
+        .and_then(|r| r.try_get::<i32>("", "cnt").ok())
+        .unwrap_or(0);
+    Ok((max_members, active))
+}
+
+pub(crate) async fn assert_room_has_capacity(
+    db: &impl ConnectionTrait,
+    room_id: &str,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    let (max_members, active) = lock_room_capacity(db, room_id).await.map_err(db_err)?;
+    if room_is_full(active, max_members) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "Room is full"})),
+        ));
+    }
+    Ok(())
+}
+
 /// Require *active* membership; returns role or a structured 403 for pending/absent.
 pub(crate) async fn require_active_member_role(
     db: &impl ConnectionTrait,

@@ -1,7 +1,10 @@
 import type { LocaleConfig } from '../../../i18n/assembleLocale'
 import type { ConfigNavSection } from './configNavPersistence'
 import { AGENT_SETTINGS_PATH } from '../../agent/settings/agentSettingsPath'
-import { CONFIG_NAV_SECTIONS } from './configNavPersistence'
+import {
+  CONFIG_NAV_SECTIONS,
+  federationSettingsVisible,
+} from './configNavPersistence'
 
 type SectionTextKey =
   | 'basic'
@@ -49,6 +52,7 @@ export function configSectionCatalog(
   t: ConfigSectionCopy,
   isAdmin: boolean,
   agentTitle = t.config.agent,
+  federationEnabled = true,
 ): ConfigCatalogItem[] {
   const titles: Record<ConfigNavSection, [string, string]> = {
     basic: [t.config.basic, t.config.basicDesc],
@@ -68,7 +72,9 @@ export function configSectionCatalog(
     about: [t.config.about, t.config.aboutDesc],
   }
   const sections = CONFIG_NAV_SECTIONS.filter(
-    (id) => id !== 'federation' || isAdmin,
+    (id) =>
+      id !== 'federation' ||
+      federationSettingsVisible(isAdmin, federationEnabled),
   ).map((id) => ({
     id,
     title: titles[id][0],

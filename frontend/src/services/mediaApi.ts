@@ -1,3 +1,4 @@
+import { resolveMediaPointer } from '../components/phantasi/logic/mediaPointer'
 import { API_URL } from '../config'
 import { currentCopy } from '../i18n/localeCopy'
 import { getCSRFToken } from '../utils/csrf'
@@ -22,7 +23,11 @@ export async function listMedia(signal?: AbortSignal): Promise<MediaAsset[]> {
     '/media',
     { signal },
   )
-  return data.items
+  return data.items.flatMap((item) => {
+    const pointer = resolveMediaPointer(item)
+    if (!pointer) return []
+    return [{ ...item, id: pointer.id, url: pointer.url }]
+  })
 }
 
 export async function deleteMedia(id: number): Promise<void> {
@@ -57,7 +62,16 @@ export async function uploadMedia(
     )
   }
   const data = (await response.json()) as { success: boolean; item: MediaAsset }
-  return data.item
+  const pointer = resolveMediaPointer(data.item)
+  if (!pointer) {
+    throw new Error(
+      userFacingError(
+        'Media upload returned no file pointer',
+        currentCopy().errors.mediaUploadFailed,
+      ),
+    )
+  }
+  return { ...data.item, id: pointer.id, url: pointer.url }
 }
 
 export async function previewMediaEdit(id: number, prompt: string, width: number, height: number, signal?: AbortSignal): Promise<string> {

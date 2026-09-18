@@ -74,19 +74,31 @@ pub fn is_cancellable_task_status(status: &TaskStatus) -> bool {
     )
 }
 
+/// Persisted `agent_tasks.status` values. Keep in sync with the DB CHECK.
+pub const TASK_STATUS_DB_VALUES: &[&str] = &[
+    "pending",
+    "running",
+    "waiting_for_input",
+    "paused",
+    "completed",
+    "failed",
+    "cancelled",
+];
+
 /// Map persisted status string → [`TaskStatus`].
 ///
-/// Unknown strings fall back to [`TaskStatus::Pending`] (legacy rows).
-pub fn task_status_from_db_str(status: &str) -> TaskStatus {
+/// Unknown strings are an error. Treating them as [`TaskStatus::Pending`]
+/// would re-queue a corrupted or future-version row for execution.
+pub fn task_status_from_db_str(status: &str) -> Result<TaskStatus, String> {
     match status {
-        "pending" => TaskStatus::Pending,
-        "running" => TaskStatus::Running,
-        "waiting_for_input" => TaskStatus::WaitingForInput,
-        "paused" => TaskStatus::Paused,
-        "completed" => TaskStatus::Completed,
-        "failed" => TaskStatus::Failed,
-        "cancelled" => TaskStatus::Cancelled,
-        _ => TaskStatus::Pending,
+        "pending" => Ok(TaskStatus::Pending),
+        "running" => Ok(TaskStatus::Running),
+        "waiting_for_input" => Ok(TaskStatus::WaitingForInput),
+        "paused" => Ok(TaskStatus::Paused),
+        "completed" => Ok(TaskStatus::Completed),
+        "failed" => Ok(TaskStatus::Failed),
+        "cancelled" => Ok(TaskStatus::Cancelled),
+        _ => Err(format!("unknown agent task status: {status}")),
     }
 }
 
@@ -205,11 +217,21 @@ mod tests {
             "failed",
             "cancelled",
         ] {
-            assert_eq!(task_status_to_db_str(&task_status_from_db_str(s)), s);
+            assert_eq!(
+                task_status_to_db_str(&task_status_from_db_str(s).expect(s)),
+                s
+            );
         }
         assert_eq!(
-            task_status_from_db_str("unknown_legacy"),
-            TaskStatus::Pending
+            TASK_STATUS_DB_VALUES.len(),
+            7,
+            "DB CHECK and parser must list the same statuses"
+        );
+        assert!(task_status_from_db_str("unknown_legacy").is_err());
+        assert!(task_status_from_db_str("").is_err());
+        assert_ne!(
+            task_status_from_db_str("unknown_legacy").ok(),
+            Some(TaskStatus::Pending)
         );
     }
 

@@ -2,9 +2,10 @@
 ---
 
 <script>
-  import { initPwaLifecycle } from '../utils/pwa'
   import { initSiteMetadata } from '../utils/siteMetadata'
 
-  initPwaLifecycle()
   initSiteMetadata()
+  void import('../utils/pwa').then((m) => {
+    m.initPwaLifecycle()
+  })
 </script>

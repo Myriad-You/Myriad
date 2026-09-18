@@ -12,7 +12,7 @@ use serde_json::json;
 use crate::error::HttpError;
 use crate::middleware::auth::{Claims, ensure_current_admin_on};
 use crate::models::entities::tapps;
-use crate::services::permission_service::{TappPermission, TappPermissionService, UserRole};
+use crate::services::permission_service::{TappPermission, UserRole};
 use crate::services::tapp_ownership::{self, TappAccessError};
 use crate::services::tapp_rate_limit::{self, RateLimitError};
 
@@ -178,22 +178,6 @@ pub async fn get_admin_user_id(db: &DatabaseConnection) -> Result<i32, HttpError
         .map_err(tapp_access_http_error)
 }
 
-/// 验证用户是否有权访问指定的 Tapp
-///
-/// 安全校验规则：站点所有者/管理员/普通用户只能跑自己的安装或站点所有者公开安装；
-/// 公开 `visibility=admin` 还要求观看者是管理员。游客只能跑站点所有者对游客可见的公开安装。
-///
-/// 管理员的控制面权限不能隐式变成其他用户 Tapp 的代码、授权或私有数据访问权。
-pub async fn verify_tapp_ownership(
-    db: &DatabaseConnection,
-    user_id: i32,
-    tapp_id: &str,
-) -> Result<(), HttpError> {
-    tapp_ownership::verify_tapp_ownership(db, user_id, tapp_id)
-        .await
-        .map_err(tapp_access_http_error)
-}
-
 /// Resolve the exact installation record used to execute a Tapp for this subject.
 ///
 /// When the subject has a private install of the same `tapp_id`, that record wins over the
@@ -227,33 +211,6 @@ pub async fn verify_tapp_approved_permissions(
 /// Used by `resolve_accessible_tapp` (and declared-API paths that call it).
 pub use tapp_ownership::tapp_owner_priority;
 
-/// 完整授权一个带 `tapp_id` 的运行时能力调用。
-///
-/// 同时验证角色级授予、当前用户可访问该 Tapp，以及安装的批准权限包含此项。
-/// 返回解析后的用户 ID，避免各端点重复且容易漏掉其中一层检查。
-pub async fn authorize_tapp_permission(
-    db: &DatabaseConnection,
-    claims: &Claims,
-    tapp_id: &str,
-    permission: TappPermission,
-    dynamic_config: &std::sync::Arc<tokio::sync::RwLock<crate::config::DynamicConfig>>,
-) -> Result<i32, HttpError> {
-    authorize_tapp_permissions(db, claims, tapp_id, &[permission], dynamic_config).await
-}
-
-pub async fn authorize_tapp_permissions(
-    db: &DatabaseConnection,
-    claims: &Claims,
-    tapp_id: &str,
-    permissions: &[TappPermission],
-    dynamic_config: &std::sync::Arc<tokio::sync::RwLock<crate::config::DynamicConfig>>,
-) -> Result<i32, HttpError> {
-    check_tapp_permissions(db, claims, permissions, dynamic_config).await?;
-    let user_id = parse_user_id(claims)?;
-    verify_tapp_approved_permissions(db, user_id, tapp_id, permissions).await?;
-    Ok(user_id)
-}
-
 /// 从 Claims 解析 user_id
 pub fn parse_user_id(claims: &Claims) -> Result<i32, HttpError> {
     claims.sub.parse().map_err(|_| {
@@ -262,45 +219,6 @@ pub fn parse_user_id(claims: &Claims) -> Result<i32, HttpError> {
             Json(AppError::public_json("Invalid user ID")),
         ))
     })
-}
-
-/// 检查用户是否拥有指定的 Tapp 权限。
-///
-/// Role tables live on `AppState.dynamic_config` (same Arc as process global
-/// after `from_shared`). Callers must pass the State-extracted Arc — do not
-/// re-read process globals on request paths.
-pub async fn check_tapp_permissions(
-    db: &DatabaseConnection,
-    claims: &Claims,
-    permissions: &[TappPermission],
-    dynamic_config: &std::sync::Arc<tokio::sync::RwLock<crate::config::DynamicConfig>>,
-) -> Result<(), HttpError> {
-    if permissions.is_empty() {
-        return Ok(());
-    }
-    let role = current_tapp_user_role(db, claims).await;
-    let config = dynamic_config.read().await;
-    for permission in permissions {
-        if TappPermissionService::check(&config, role, *permission) {
-            continue;
-        }
-        let perm_name = permission.as_str();
-        tracing::warn!(
-            user_id = %claims.sub,
-            permission = %perm_name,
-            role = ?role,
-            "[TAPP] Permission denied"
-        );
-        return Err(HttpError::from((
-            StatusCode::FORBIDDEN,
-            Json(json!({
-                "error": "Permission denied",
-                "message": format!("You do not have the '{}' permission", perm_name),
-                "code": "PERMISSION_DENIED"
-            })),
-        )));
-    }
-    Ok(())
 }
 
 /// Resolve the current role used by Tapp capability filtering.

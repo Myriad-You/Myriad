@@ -55,6 +55,19 @@ describe('settings page catalog', () => {
       ),
     )
   })
+  it('hides federation when the egress-location gate is closed', () => {
+    assert.ok(
+      configSectionCatalog(t, true, 'Persona', false).every(
+        (page) => page.id !== 'federation',
+      ),
+    )
+    assert.ok(
+      buildSearchableContent(config, t, 'en-US', {
+        isAdmin: true,
+        federationEnabled: false,
+      }).every((item) => item.section !== 'federation'),
+    )
+  })
   it('keeps lab as the UI section while Tripo remains the guide path namespace', () => {
     const results = buildSearchableContent(config, t, 'en-US')
     const guides = results.filter((item) =>

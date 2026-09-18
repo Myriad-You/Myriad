@@ -297,7 +297,7 @@ export default function PhantasiTilePreview() {
 
       <section className="mb-8">
         <h2 className="mb-2 text-xs text-gray-500">
-          featured · 首页综合卡（内部跑 smart）
+          featured · 首页精选（跨源文章）
         </h2>
         <div className="flex flex-wrap items-start gap-4">
           {(['4x2', '4x4'] as PhantasiTileSize[]).map((size) => (
@@ -309,6 +309,7 @@ export default function PhantasiTilePreview() {
                   scale={1}
                   fontScale={1}
                   now={NOW}
+                  kicker="手帐精选"
                   sources={CASES.map((c) => ({
                     ...c.src,
                     recent_items: c.items ?? [],

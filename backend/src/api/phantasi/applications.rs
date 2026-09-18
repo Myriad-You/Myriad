@@ -7,8 +7,9 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseConnection,
-    EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, TransactionTrait,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseBackend,
+    DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+    Statement, TransactionTrait,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -115,8 +116,33 @@ async fn find_existing_source<C: ConnectionTrait>(
         .find(|source| keys.iter().any(|key| source_matches_key(source, key))))
 }
 
-async fn find_pending_for_keys(
-    db: &DatabaseConnection,
+fn unique_violation(err: &impl std::fmt::Display) -> bool {
+    let lower = err.to_string().to_ascii_lowercase();
+    lower.contains("23505") || lower.contains("duplicate key") || lower.contains("unique")
+}
+
+pub(crate) fn application_url_lock_key(match_key: &str) -> String {
+    format!("myriad:phantasi:source_url:{match_key}")
+}
+
+async fn lock_url_match_keys<C: ConnectionTrait>(db: &C, keys: &[String]) -> Result<(), HttpError> {
+    let mut sorted = keys.to_vec();
+    sorted.sort();
+    sorted.dedup();
+    for key in sorted {
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+            [application_url_lock_key(&key).into()],
+        ))
+        .await
+        .map_err(|error| phantasi_store_http("lock application URL", error))?;
+    }
+    Ok(())
+}
+
+async fn find_pending_for_keys<C: ConnectionTrait>(
+    db: &C,
     keys: &[String],
 ) -> Result<Option<phantasi_source_applications::Model>, HttpError> {
     let rows = phantasi_source_applications::Entity::find()
@@ -174,11 +200,22 @@ async fn create_friend_source<C: ConnectionTrait>(
         updated_at: Set(now.into()),
         ..Default::default()
     };
-    let source = new_source
-        .insert(db)
-        .await
-        .map_err(|error| phantasi_store_http("save source", error))?;
-    Ok(source)
+    match new_source.insert(db).await {
+        Ok(source) => Ok(source),
+        Err(error) if unique_violation(&error) => {
+            let mut keys = vec![url_match_key(&app.site_url)];
+            if let Some(feed) = app.feed_url.as_deref() {
+                let key = url_match_key(feed);
+                if !keys.contains(&key) {
+                    keys.push(key);
+                }
+            }
+            find_existing_source(db, &keys)
+                .await?
+                .ok_or_else(|| phantasi_store_http("save source", error))
+        }
+        Err(error) => Err(phantasi_store_http("save source", error)),
+    }
 }
 
 /// 公开申请友联。可匿名；登录则记下申请人。
@@ -217,60 +254,89 @@ pub(crate) async fn create_application(
         }
     }
 
-    if find_existing_source(&db, &keys).await?.is_some() {
-        return Err(HttpError::from((
-            StatusCode::CONFLICT,
-            Json(AppError::fail_json("This site is already listed")),
-        )));
-    }
-    if find_pending_for_keys(&db, &keys).await?.is_some() {
-        return Err(HttpError::from((
-            StatusCode::CONFLICT,
-            Json(AppError::fail_json("An application is already pending")),
-        )));
-    }
-
     // 与 rate_limit 的 extract_client_ip 同一套：TCP peer + 可信代理头。
     // peer 不能是 None，否则 should_trust_proxy_headers 直接失败，限流和审计都空。
     let applicant_ip =
         client_ip_from_parts(&headers, Some(peer.ip()), trusted_proxy_headers_enabled())
             .map(|ip| ip.to_string());
-    if let Some(ip) = applicant_ip.as_deref() {
-        let since = Utc::now() - RATE_WINDOW;
-        let recent = phantasi_source_applications::Entity::find()
-            .filter(phantasi_source_applications::Column::ApplicantIp.eq(ip))
-            .filter(phantasi_source_applications::Column::CreatedAt.gt(since))
-            .count(&db)
-            .await
-            .map_err(|error| phantasi_store_http("count applications", error))?;
-        if recent >= RATE_MAX {
-            return Err(phantasi_http_err(
-                StatusCode::TOO_MANY_REQUESTS,
-                "Too many applications. Try again later.",
-            ));
+
+    let txn = db
+        .begin()
+        .await
+        .map_err(|error| phantasi_store_http("begin application create", error))?;
+    let row = async {
+        lock_url_match_keys(&txn, &keys).await?;
+        if find_existing_source(&txn, &keys).await?.is_some() {
+            return Err(HttpError::from((
+                StatusCode::CONFLICT,
+                Json(AppError::fail_json("This site is already listed")),
+            )));
+        }
+        if find_pending_for_keys(&txn, &keys).await?.is_some() {
+            return Err(HttpError::from((
+                StatusCode::CONFLICT,
+                Json(AppError::fail_json("An application is already pending")),
+            )));
+        }
+        if let Some(ip) = applicant_ip.as_deref() {
+            let since = Utc::now() - RATE_WINDOW;
+            let recent = phantasi_source_applications::Entity::find()
+                .filter(phantasi_source_applications::Column::ApplicantIp.eq(ip))
+                .filter(phantasi_source_applications::Column::CreatedAt.gt(since))
+                .count(&txn)
+                .await
+                .map_err(|error| phantasi_store_http("count applications", error))?;
+            if recent >= RATE_MAX {
+                return Err(phantasi_http_err(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "Too many applications. Try again later.",
+                ));
+            }
+        }
+
+        let now = Utc::now();
+        let row = phantasi_source_applications::ActiveModel {
+            kind: Set("friend".into()),
+            status: Set("pending".into()),
+            site_name: Set(site_name),
+            site_url: Set(site_url),
+            feed_url: Set(feed_url),
+            description: Set(description),
+            message: Set(message),
+            applicant_name: Set(applicant_name),
+            applicant_email: Set(applicant_email),
+            applicant_user_id: Set(user_id),
+            applicant_ip: Set(applicant_ip),
+            created_at: Set(now.into()),
+            updated_at: Set(now.into()),
+            ..Default::default()
+        }
+        .insert(&txn)
+        .await;
+        match row {
+            Ok(row) => Ok(row),
+            Err(error) if unique_violation(&error) => Err(HttpError::from((
+                StatusCode::CONFLICT,
+                Json(AppError::fail_json("An application is already pending")),
+            ))),
+            Err(error) => Err(phantasi_store_http("save application", error)),
         }
     }
-
-    let now = Utc::now();
-    let row = phantasi_source_applications::ActiveModel {
-        kind: Set("friend".into()),
-        status: Set("pending".into()),
-        site_name: Set(site_name),
-        site_url: Set(site_url),
-        feed_url: Set(feed_url),
-        description: Set(description),
-        message: Set(message),
-        applicant_name: Set(applicant_name),
-        applicant_email: Set(applicant_email),
-        applicant_user_id: Set(user_id),
-        applicant_ip: Set(applicant_ip),
-        created_at: Set(now.into()),
-        updated_at: Set(now.into()),
-        ..Default::default()
-    }
-    .insert(&db)
-    .await
-    .map_err(|error| phantasi_store_http("save application", error))?;
+    .await;
+    let row = match row {
+        Ok(row) => {
+            txn.commit()
+                .await
+                .map_err(|error| phantasi_store_http("commit application create", error))?;
+            row
+        }
+        Err(error) => {
+            if let Err(rollback) = txn.rollback().await {
+                tracing::warn!(error = %rollback, "application create rollback failed");
+            }
+            return Err(error);
+        }
+    };
 
     let public = ApplicationResponse::from_model(row, false);
     Ok(Json(json!({
@@ -433,6 +499,7 @@ async fn approve_pending_application(
                 keys.push(key);
             }
         }
+        lock_url_match_keys(&txn, &keys).await?;
         let (source, created) = match find_existing_source(&txn, &keys).await? {
             Some(existing) => (existing, false),
             None => (create_friend_source(&txn, admin_id, &app).await?, true),
@@ -555,6 +622,18 @@ mod tests {
                 .replacen("CREATE TABLE", "CREATE TEMP TABLE", 1);
             db.execute_unprepared(&sql).await.unwrap();
         }
+        db.execute_unprepared(
+            r#"
+CREATE UNIQUE INDEX IF NOT EXISTS idx_phantasi_source_applications_pending_site
+    ON phantasi_source_applications (regexp_replace(site_url, '/+$', ''))
+    WHERE status = 'pending';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_phantasi_source_applications_pending_feed
+    ON phantasi_source_applications (regexp_replace(feed_url, '/+$', ''))
+    WHERE status = 'pending' AND feed_url IS NOT NULL AND btrim(feed_url) <> '';
+"#,
+        )
+        .await
+        .unwrap();
         Some(db)
     }
 
@@ -709,6 +788,60 @@ mod tests {
         assert!(handler.contains("ConnectInfo(peer)"));
         assert!(handler.contains("Some(peer.ip())"));
         assert!(!handler.contains(", None, trusted_proxy_headers_enabled()"));
+    }
+
+    #[test]
+    fn create_and_approve_lock_normalized_url_in_the_write_transaction() {
+        let src = include_str!("applications.rs");
+        let create = src
+            .split("pub(crate) async fn create_application")
+            .nth(1)
+            .and_then(|rest| rest.split("pub(crate) async fn list_applications").next())
+            .expect("create_application");
+        assert!(create.contains("lock_url_match_keys"));
+        assert!(create.contains("begin application create"));
+        assert!(create.contains("unique_violation"));
+        let approve = src
+            .split("async fn approve_pending_application")
+            .nth(1)
+            .and_then(|rest| rest.split("pub(crate) async fn reject_application").next())
+            .expect("approve_pending_application");
+        assert!(approve.contains("lock_url_match_keys"));
+        let lock_at = approve.find("lock_url_match_keys").expect("lock");
+        let create_at = approve.find("create_friend_source").expect("create source");
+        assert!(lock_at < create_at);
+    }
+
+    #[test]
+    fn application_url_lock_key_is_stable() {
+        assert_eq!(
+            application_url_lock_key("https://example.com/blog"),
+            "myriad:phantasi:source_url:https://example.com/blog"
+        );
+    }
+
+    #[tokio::test]
+    async fn pending_application_url_is_unique() {
+        let Some(db) = isolated_application_db().await else {
+            return;
+        };
+        let _ = pending_application(&db).await;
+        let now = Utc::now();
+        let duplicate = phantasi_source_applications::ActiveModel {
+            kind: Set("friend".into()),
+            status: Set("pending".into()),
+            site_name: Set("Copy".into()),
+            site_url: Set("https://friend.example/".into()),
+            created_at: Set(now.into()),
+            updated_at: Set(now.into()),
+            ..Default::default()
+        }
+        .insert(&db)
+        .await;
+        assert!(
+            duplicate.is_err(),
+            "trailing-slash URL must collide with the pending unique index"
+        );
     }
 
     #[test]

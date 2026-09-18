@@ -1,8 +1,16 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
+import core from './en-US.json' with { type: 'json' }
 import { loadLocale } from './loadLocale.ts'
-import { copyForLocale, currentCopy, formatCurrent } from './localeCopy.ts'
+import {
+  copyForLocale,
+  currentCopy,
+  formatCurrent,
+  installEnglishCoreFallback,
+} from './localeCopy.ts'
+
+installEnglishCoreFallback(core)
 
 describe('currentCopy', () => {
   it('keeps the full English settings catalog out of the synchronous service fallback', () => {
@@ -27,6 +35,7 @@ describe('currentCopy', () => {
 
   it('does not statically import ja or zh locale modules', () => {
     const src = readFileSync(new URL('./localeCopy.ts', import.meta.url), 'utf8')
+    assert.equal(/import .* from ['"]\.\/en-US\.json['"]/.test(src), false)
     assert.equal(src.includes('ja-JP.json'), false)
     assert.equal(src.includes('zh-CN.json'), false)
     assert.equal(src.includes('tapp.en-US.json'), false)

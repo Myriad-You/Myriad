@@ -46,9 +46,11 @@ pub async fn start(db: DatabaseConnection) -> anyhow::Result<()> {
 
     // Re-create run hubs + wait-loops for waiting_for_input tasks so
     // answer/subscribe work after process restart.
-    api::agent::restore_waiting_runs_after_boot().await;
+    api::agent::restore_waiting_runs_after_boot(&db).await;
     api::agent::reclaim_stranded_running_intentions(&db).await;
-    agent::heartbeat::init_heartbeat(agent_data_dir.join("HEARTBEAT.md")).await;
+    agent::heartbeat::init_heartbeat(agent_data_dir.join("HEARTBEAT.md"))
+        .await
+        .map_err(anyhow::Error::msg)?;
     let mut drivers = drivers::Drivers::new();
     let stop = drivers.stopped();
     drivers.continuous(
@@ -79,7 +81,7 @@ pub async fn start(db: DatabaseConnection) -> anyhow::Result<()> {
                 if let Err(error) = agent::work_loop::recover(&db).await {
                     tracing::warn!(%error, "Work recovery scan failed");
                 }
-                api::agent::restore_waiting_runs_after_boot().await;
+                api::agent::restore_waiting_runs_after_boot(&db).await;
             }
         },
     );

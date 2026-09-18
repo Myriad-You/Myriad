@@ -1,4 +1,4 @@
-import { isUselessErrorText } from './userFacingError'
+import { isUselessErrorText } from './uselessErrorText'
 
 export interface MusicErrorFlash {
   key: string

@@ -41,19 +41,24 @@ pub async fn migrate_plaintext_config_values(
             continue;
         };
 
-        if !is_sensitive_config_key(&key) {
+        if !is_sensitive_config_key(&key) && !is_nested_secret_config_key(&key) {
             continue;
         }
-        let serde_json::Value::String(ref plain) = value else {
-            continue;
-        };
-        if plain.is_empty() || is_ciphertext(plain) {
+        if let serde_json::Value::String(ref plain) = value
+            && (plain.is_empty() || is_ciphertext(plain))
+        {
             continue; // 已迁移或无值
         }
 
-        let sealed = seal_config_value(&key, value.clone());
+        let sealed = match seal_config_value(&key, value.clone()) {
+            Ok(sealed) => sealed,
+            Err(error) => {
+                tracing::error!(key, "Failed to encrypt stored configuration: {error}");
+                continue;
+            }
+        };
         if sealed == value {
-            continue; // 加密失败，seal 已经记过日志
+            continue;
         }
 
         match db

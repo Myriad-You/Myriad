@@ -15,6 +15,7 @@ export function useConfigSearch(
   t: ConfigSearchI18n,
   locale: Locale,
   isAdmin = true,
+  federationEnabled = true,
 ) {
   const [searchQuery, setSearchQuery] = useState('')
   const [catalogEpoch, setCatalogEpoch] = useState(0)
@@ -34,8 +35,12 @@ export function useConfigSearch(
 
   const searchableContent = useMemo(
     (): ConfigSearchableItem[] =>
-      buildSearchableContent(config, t, locale, { isAdmin, agentTitle }),
-    [agentTitle, config, t, locale, isAdmin, catalogEpoch],
+      buildSearchableContent(config, t, locale, {
+        isAdmin,
+        agentTitle,
+        federationEnabled,
+      }),
+    [agentTitle, config, t, locale, federationEnabled, isAdmin, catalogEpoch],
   )
 
   const filteredContent = useMemo(() => {

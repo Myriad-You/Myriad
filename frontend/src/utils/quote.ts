@@ -1,7 +1,8 @@
 import { API_URL } from '../config'
 import { currentCopy } from '../i18n/localeCopy'
 import apiService from '../services/api'
-import { httpStatusMessage, userFacingError } from './userFacingError'
+import { formatUserFacingError } from './formatUserFacingError'
+import { httpStatusMessage } from './httpStatus'
 
 export interface QuoteData {
   text: string
@@ -141,7 +142,10 @@ export async function updateHitokotoConfig(
   )
   if (!response.success) {
     throw new Error(
-      userFacingError(response.message, currentCopy().config.hitokotoSaveFailed),
+      await formatUserFacingError(
+        response.message,
+        currentCopy().config.hitokotoSaveFailed,
+      ),
     )
   }
   const saved = normalizeHitokotoConfig(response.config)

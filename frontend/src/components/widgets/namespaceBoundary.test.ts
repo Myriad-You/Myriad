@@ -18,16 +18,6 @@ const NAMESPACED_WIDGETS: Array<{
     namespace: 'phantasi',
     exportName: 'PhantasiFeaturedWidget',
   },
-  {
-    file: '../phantasi/tiles/PhantasiSourceTile.tsx',
-    namespace: 'phantasi',
-    exportName: 'PhantasiSourceWidget',
-  },
-  {
-    file: '../phantasi/tiles/PhantasiTopicTile.tsx',
-    namespace: 'phantasi',
-    exportName: 'PhantasiTopicWidget',
-  },
 ]
 
 describe('widget i18n namespace boundaries', () => {

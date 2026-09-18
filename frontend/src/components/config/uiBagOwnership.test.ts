@@ -179,6 +179,7 @@ describe('uiBagOwnership', () => {
 
     for (const key of [
       'memory_saver_enabled',
+      'precise_location_enabled',
       'merope_enabled',
       'merope_speech_enabled',
       'proxy_enabled',

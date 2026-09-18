@@ -336,42 +336,46 @@ async fn clear_cached_for_test(user_id: i32) {
     PREFERENCES_CACHE.write().await.remove(&user_id);
 }
 
-pub async fn load(db: Option<&DatabaseConnection>, user_id: i32) -> NotificationPreferences {
+pub(crate) fn preferences_from_stored_value(
+    value: serde_json::Value,
+) -> Result<NotificationPreferences, String> {
+    serde_json::from_value(value)
+        .map(NotificationPreferences::normalized)
+        .map_err(|error| format!("invalid notification preferences: {error}"))
+}
+
+pub async fn load(
+    db: Option<&DatabaseConnection>,
+    user_id: i32,
+) -> Result<NotificationPreferences, String> {
     // Persistent producers can run in other processes. A process-local cache
     // must not retain an old opt-in forever after the user changes preferences.
     #[cfg(test)]
     if db.is_none() {
         if let Some(cached) = PREFERENCES_CACHE.read().await.get(&user_id).cloned() {
-            return cached;
+            return Ok(cached);
         }
+        return Ok(NotificationPreferences::default());
     }
-    if let Some(db) = db {
-        let result = db
-            .query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT notification_preferences FROM users WHERE id = $1",
-                [user_id.into()],
-            ))
-            .await;
-        match result {
-            Ok(Some(row)) => row
+    let Some(db) = db else {
+        return Err("Database is not connected".to_string());
+    };
+    let result = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT notification_preferences FROM users WHERE id = $1",
+            [user_id.into()],
+        ))
+        .await;
+    match result {
+        Ok(Some(row)) => {
+            let value = row
                 .try_get::<serde_json::Value>("", "notification_preferences")
-                .ok()
-                .and_then(|value| serde_json::from_value(value).ok())
-                .map(NotificationPreferences::normalized)
-                .unwrap_or_default(),
-            Ok(None) => NotificationPreferences::default(),
-            Err(error) => {
-                tracing::warn!(
-                    user_id,
-                    "Failed to load notification preferences: {}",
-                    error
-                );
-                NotificationPreferences::default()
-            }
+                .map_err(|error| error.to_string())?;
+            preferences_from_stored_value(value)
         }
-    } else {
-        NotificationPreferences::default()
+        Ok(None) => Ok(NotificationPreferences::default()),
+        Err(error) => Err(error.to_string()),
     }
 }
 
@@ -481,7 +485,7 @@ mod tests {
             .unwrap();
         let user_id = row.try_get::<i32>("", "id").unwrap();
 
-        let defaults = load(Some(&db), user_id).await;
+        let defaults = load(Some(&db), user_id).await.unwrap();
         assert!(defaults.enabled);
         assert!(defaults.allows("phantasi.source_error"));
 
@@ -492,7 +496,7 @@ mod tests {
         save(Some(&db), user_id, changed).await.unwrap();
         clear_cached_for_test(user_id).await;
 
-        let restored = load(Some(&db), user_id).await;
+        let restored = load(Some(&db), user_id).await.unwrap();
         assert!(!restored.sources["phantasi"]);
         assert!(!restored.delivery.browser);
         assert!(!restored.locations["phantasi"].panel);
@@ -506,5 +510,21 @@ mod tests {
         .await
         .unwrap();
         clear_cached_for_test(user_id).await;
+    }
+
+    #[test]
+    fn stored_json_parse_error_is_not_all_on_default() {
+        let error = preferences_from_stored_value(serde_json::json!([1, 2, 3])).unwrap_err();
+        assert!(
+            error.contains("invalid notification preferences"),
+            "{error}"
+        );
+        let off = preferences_from_stored_value(serde_json::json!({
+            "enabled": false,
+            "sources": { "agent": false }
+        }))
+        .unwrap();
+        assert!(!off.enabled);
+        assert!(!off.sources["agent"]);
     }
 }

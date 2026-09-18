@@ -15,16 +15,17 @@ describe('widget catalog load', () => {
     assert.doesNotMatch(hook, /useHomeVisibilityInterval/)
     assert.match(hook, /new RequestTurn\(\)/)
     assert.match(hook, /turns\.current\.cancel\(\)/)
+    assert.match(hook, /setLoading\(false\)/)
+    assert.match(hook, /setFailed\(true\)/)
   })
 
-  it('tiles use the shared loader instead of a private getSources loop', () => {
-    for (const name of [
-      'PhantasiTopicTile.tsx',
-      'PhantasiFeaturedTile.tsx',
-      'PhantasiSourceTile.tsx',
-    ]) {
+  it('featured widget uses the shared loader instead of a private getSources loop', () => {
+    const featured = readFileSync(join(dir, 'PhantasiFeaturedTile.tsx'), 'utf8')
+    assert.match(featured, /useWidgetSources\(/)
+    assert.doesNotMatch(featured, /from ['"][^'"]*phantasiApi['"]/)
+    for (const name of ['PhantasiTopicTile.tsx', 'PhantasiSourceTile.tsx']) {
       const src = readFileSync(join(dir, name), 'utf8')
-      assert.match(src, /useWidgetSources\(/)
+      assert.doesNotMatch(src, /useWidgetSources\(/)
       assert.doesNotMatch(src, /from ['"][^'"]*phantasiApi['"]/)
     }
   })

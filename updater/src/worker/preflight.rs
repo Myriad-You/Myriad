@@ -198,18 +198,11 @@ async fn run_release_with_manifest(
         )));
     }
 
-    // postgres.min_pg_version is advisory until we can probe a live major reliably
-    // without Docker exec. Surface it so operators see the requirement in logs.
-    if !manifest.postgres.min_pg_version.is_empty()
-        && manifest.postgres.min_pg_version != "unbounded"
-    {
-        warn!(
-            min_pg = %manifest.postgres.min_pg_version,
-            "preflight: release requires PostgreSQL >= {}; updater does not auto-probe PG major — \
-             ensure your DB meets this before applying migrations",
-            manifest.postgres.min_pg_version
-        );
-    }
+    enforce_min_pg_version(
+        worker.cli().db_mode,
+        &worker.cli().pgdata,
+        &manifest.postgres.min_pg_version,
+    )?;
 
     let st = worker.state().read_updater()?;
     let from_version = st.current_version.clone();
@@ -318,15 +311,16 @@ async fn run_release_with_manifest(
 
     // min_from only when upgrading between releases.
     if let (Some(curr), Some(min_from)) = (&from_version, &manifest.min_from_version)
-        && let (Some(curr_rel), Some(tgt_rel)) = (curr.as_release(), target.as_release()) {
-            let is_upgrade = curr_rel.older_than(&tgt_rel);
-            if is_upgrade && curr_rel.older_than(min_from) {
-                return Err(UpdaterError::Precondition(format!(
-                    "current version {curr} is older than min_from_version {min_from}; \
+        && let (Some(curr_rel), Some(tgt_rel)) = (curr.as_release(), target.as_release())
+    {
+        let is_upgrade = curr_rel.older_than(&tgt_rel);
+        if is_upgrade && curr_rel.older_than(min_from) {
+            return Err(UpdaterError::Precondition(format!(
+                "current version {curr} is older than min_from_version {min_from}; \
                      upgrade to an intermediate release first"
-                )));
-            }
+            )));
         }
+    }
 
     check_env_keys(worker.as_ref(), Some(&manifest))?;
     check_disk(worker.as_ref())?;
@@ -1020,6 +1014,58 @@ pub(crate) fn should_skip_pgdata_disk_check(db_mode: crate::config::DbMode) -> b
     db_mode.is_external()
 }
 
+/// Bundled PGDATA: read `PG_VERSION` and refuse updates below the release floor.
+/// External DB has no local PGDATA; the floor is logged, not probed via docker exec.
+pub(crate) fn enforce_min_pg_version(
+    db_mode: crate::config::DbMode,
+    pgdata: &std::path::Path,
+    min_pg_version: &str,
+) -> Result<()> {
+    let min = match parse_pg_major(min_pg_version) {
+        None => return Ok(()),
+        Some(m) => m,
+    };
+    if db_mode.is_external() {
+        warn!(
+            min_pg = min,
+            "preflight: release requires PostgreSQL >= {min}; db_mode=external has no PG_VERSION to probe"
+        );
+        return Ok(());
+    }
+    let running = read_pgdata_major(pgdata)?;
+    if running < min {
+        return Err(UpdaterError::Precondition(format!(
+            "PostgreSQL {running} is below release min_pg_version {min}; upgrade the bundled database first"
+        )));
+    }
+    Ok(())
+}
+
+fn parse_pg_major(raw: &str) -> Option<u32> {
+    let s = raw.trim();
+    if s.is_empty() || s == "unbounded" {
+        return None;
+    }
+    s.parse().ok()
+}
+
+fn read_pgdata_major(pgdata: &std::path::Path) -> Result<u32> {
+    let path = pgdata.join("PG_VERSION");
+    let raw = std::fs::read_to_string(&path).map_err(|e| {
+        UpdaterError::Precondition(format!(
+            "cannot read {}: {e}; refusing update without a PostgreSQL major",
+            path.display()
+        ))
+    })?;
+    parse_pg_major(&raw).ok_or_else(|| {
+        UpdaterError::Precondition(format!(
+            "{} is not a PostgreSQL major version: {:?}",
+            path.display(),
+            raw.trim()
+        ))
+    })
+}
+
 fn digest_matches(pulled: &str, expected: &str) -> bool {
     pulled == expected || pulled.ends_with(expected)
 }
@@ -1058,6 +1104,45 @@ mod risk_flag_tests {
         assert!(r.allow_diverged);
         assert!(!r.allow_unknown);
         assert!(!r.allow_irreversible);
+    }
+}
+
+#[cfg(test)]
+mod min_pg_version_tests {
+    use super::*;
+    use crate::config::DbMode;
+
+    #[test]
+    fn bundled_below_floor_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("PG_VERSION"), "15\n").unwrap();
+        let err = enforce_min_pg_version(DbMode::Bundled, dir.path(), "16").unwrap_err();
+        assert!(matches!(err, UpdaterError::Precondition(_)), "got {err}");
+        assert!(err.to_string().contains("min_pg_version"));
+    }
+
+    #[test]
+    fn bundled_at_floor_is_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("PG_VERSION"), "16\n").unwrap();
+        enforce_min_pg_version(DbMode::Bundled, dir.path(), "16").unwrap();
+    }
+
+    #[test]
+    fn bundled_unreadable_pg_version_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = enforce_min_pg_version(DbMode::Bundled, dir.path(), "16").unwrap_err();
+        assert!(
+            matches!(err, UpdaterError::Precondition(_)),
+            "missing PG_VERSION must not warn-and-continue, got {err}"
+        );
+    }
+
+    #[test]
+    fn empty_or_unbounded_min_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        enforce_min_pg_version(DbMode::Bundled, dir.path(), "").unwrap();
+        enforce_min_pg_version(DbMode::Bundled, dir.path(), "unbounded").unwrap();
     }
 }
 

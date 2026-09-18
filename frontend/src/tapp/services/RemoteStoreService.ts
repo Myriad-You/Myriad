@@ -769,7 +769,7 @@ class RemoteStoreServiceImpl {
   }> {
     const { federationEnabled } = await this.fetchPolicy()
     if (!isStoreAppAvailable(app, federationEnabled)) {
-      throw new Error(currentCopy().tapp.storeFederationUnavailable)
+      throw new Error(currentCopy().errors.federationDisabledRegion)
     }
     const baseUrl = storeIndex.base_url || this.deriveBaseUrl(storeIndex)
     const { clampInstallPercent } = await import('../utils/tappInstallProgress')
@@ -858,7 +858,7 @@ class RemoteStoreServiceImpl {
     )
     const manifest: TappManifest = downloadedManifest
     if (!isStoreAppAvailable(manifest, federationEnabled)) {
-      throw new Error(currentCopy().tapp.storeFederationUnavailable)
+      throw new Error(currentCopy().errors.federationDisabledRegion)
     }
 
     // catalog version 必须等于刚拉到的包。

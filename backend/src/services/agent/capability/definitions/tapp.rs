@@ -94,6 +94,9 @@ pub fn register(registry: &mut CapabilityRegistry) {
         required_permissions: vec!["tapp:write".to_string()],
         requires_ai: false,
         estimated_duration_ms: Some(2000),
+        requires_confirmation: true,
+        confirmation_message: Some("This will install a third-party app.".to_string()),
+        risk_level: RiskLevel::Medium,
         ..Default::default()
     });
 

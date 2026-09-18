@@ -9,6 +9,18 @@ use super::types::*;
 use super::*;
 
 #[test]
+fn agent_tasks_status_check_matches_parser() {
+    let sql = super::ensure_heals::agent_tasks_status_check_sql();
+    for status in myriad_agent_rules::TASK_STATUS_DB_VALUES {
+        assert!(
+            sql.contains(&format!("'{status}'")),
+            "CHECK must include {status}"
+        );
+    }
+    assert!(sql.contains("agent_tasks_status_check"));
+}
+
+#[test]
 fn test_expected_schema_tables() {
     let tables = get_expected_schema();
     assert!(!tables.is_empty());
@@ -133,10 +145,42 @@ fn test_folded_extension_tables_in_expected_schema() {
         "idx_user_identities_provider_uid",
         "idx_user_identities_user",
         "idx_user_identities_provider_email",
+        "idx_platform_metadata_user_platform",
     ] {
         assert!(
             idx_names.contains(&required),
             "missing index in get_expected_indexes: {required}"
+        );
+    }
+}
+
+#[test]
+fn uniqueness_heals_are_invoked_and_partial() {
+    let orchestrator = include_str!("orchestrator.rs");
+    for heal in [
+        "ensure_phantasi_note_source_unique",
+        "ensure_rsshub_global_url_unique",
+        "ensure_phantasi_application_pending_unique",
+        "ensure_tapp_shortcut_chord_unique",
+    ] {
+        assert!(orchestrator.contains(heal), "orchestrator must call {heal}");
+    }
+    let heals = include_str!("ensure_heals.rs");
+    assert!(heals.contains("idx_phantasi_sources_note_type"));
+    assert!(heals.contains("idx_rsshub_instances_global_url"));
+    assert!(heals.contains("idx_phantasi_source_applications_pending_site"));
+    assert!(heals.contains("idx_tapp_shortcuts_owner_chord"));
+    let indexes = get_expected_indexes();
+    let names: Vec<&str> = indexes.iter().map(|idx| idx.name.as_str()).collect();
+    for partial in [
+        "idx_phantasi_sources_note_type",
+        "idx_rsshub_instances_global_url",
+        "idx_phantasi_source_applications_pending_site",
+        "idx_tapp_shortcuts_owner_chord",
+    ] {
+        assert!(
+            !names.contains(&partial),
+            "{partial} is partial unique and must not go through generic index DDL"
         );
     }
 }
@@ -421,6 +465,7 @@ fn test_generate_add_column_ddl() {
         name: "test_col".into(),
         data_type: "VARCHAR(255)".into(),
         default_value: Some("'default'".into()),
+        not_null: false,
     };
 
     let ddl = generate_add_column_ddl("users", &col);
@@ -428,6 +473,36 @@ fn test_generate_add_column_ddl() {
     assert!(ddl.contains("ADD COLUMN IF NOT EXISTS"));
     assert!(ddl.contains("test_col"));
     assert!(ddl.contains("DEFAULT 'default'"));
+    assert!(!ddl.contains("NOT NULL"));
+}
+
+#[test]
+fn test_generate_add_column_ddl_preserves_not_null() {
+    let col = ColumnDef::new("username", "character varying").not_null();
+    let ddl = generate_add_column_ddl("users", &col);
+    assert!(
+        ddl.contains("username character varying NOT NULL"),
+        "repair ADD COLUMN must keep greenfield NOT NULL: {ddl}"
+    );
+    assert!(!ddl.contains("DEFAULT"));
+}
+
+#[test]
+fn test_users_username_is_not_null_in_expected_schema() {
+    let tables = get_expected_schema();
+    let users = tables
+        .iter()
+        .find(|t| t.name == "users")
+        .expect("users table");
+    let username = users
+        .columns
+        .iter()
+        .find(|c| c.name == "username")
+        .expect("users.username");
+    assert!(
+        username.not_null,
+        "greenfield users.username is NOT NULL; expected schema must record it"
+    );
 }
 
 #[test]
@@ -443,6 +518,17 @@ fn test_generate_create_index_ddl() {
     assert!(ddl.contains("CREATE UNIQUE INDEX IF NOT EXISTS"));
     assert!(ddl.contains("idx_test"));
     assert!(ddl.contains("col1, col2"));
+}
+
+#[test]
+fn platform_metadata_requires_user_platform_unique() {
+    let idx = get_expected_indexes()
+        .into_iter()
+        .find(|item| item.name == "idx_platform_metadata_user_platform")
+        .expect("idx_platform_metadata_user_platform");
+    assert!(idx.is_unique);
+    assert_eq!(idx.table, "platform_metadata");
+    assert_eq!(idx.columns, vec!["user_id", "platform_name"]);
 }
 
 /// **CI 漂移闸门。**

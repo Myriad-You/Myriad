@@ -16,6 +16,7 @@ import {
   computeGuidePosition,
 
 } from '../../settings/settingTitleGuideLogic'
+import '../../settings/settings-motion.css'
 import './WidgetSettingsTip.css'
 
 const DEFAULT_WIDTH = 300

@@ -288,6 +288,7 @@ pub async fn revoke_runtime_grant(
     let revoked = tapp_runtime_grant::delete_matching_grants(
         &db,
         Some(subject_id),
+        None,
         Some(&tapp_id),
         Some(&runtime_id),
     )
@@ -321,12 +322,16 @@ pub async fn revoke_tapp_runtime_grants(
     revoked
 }
 
-/// Revoke all subjects for an installation that is being removed or replaced.
-pub async fn revoke_all_tapp_runtime_grants(db: &DatabaseConnection, tapp_id: &str) -> usize {
-    let revoked = tapp_runtime_grant::revoke_all_tapp_runtime_grants(db, tapp_id).await;
-    super::ai_tasks::cancel_all_tapp_ai_tasks(tapp_id).await;
-    super::events::disconnect_all_tapp_events(tapp_id).await;
-    super::data_exchange::cancel_all_tapp_data_exchanges(tapp_id).await;
+/// Revoke all subjects for one install owner+tapp_id (removed or replaced).
+pub async fn revoke_all_tapp_runtime_grants(
+    db: &DatabaseConnection,
+    owner_id: i32,
+    tapp_id: &str,
+) -> usize {
+    let revoked = tapp_runtime_grant::revoke_all_tapp_runtime_grants(db, owner_id, tapp_id).await;
+    super::ai_tasks::cancel_all_tapp_ai_tasks(owner_id, tapp_id).await;
+    super::events::disconnect_all_tapp_events(owner_id, tapp_id).await;
+    super::data_exchange::cancel_all_tapp_data_exchanges(owner_id, tapp_id).await;
     revoked
 }
 

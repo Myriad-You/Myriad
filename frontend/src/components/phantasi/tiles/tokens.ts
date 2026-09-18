@@ -5,6 +5,9 @@ import type { PhantasiTileSize } from '../logic/layout'
 export const T_TITLE = 14.5
 export const T_MINOR = 11
 export const T_META = 8
+export const T_FEATURED_TITLE = 17
+export const T_FEATURED_BODY = 13.5
+export const T_FEATURED_META = 12
 export const T_NUM = 24
 const T_NUM_HERO_LARGE = 38
 const T_NUM_HERO_WIDE = 30
@@ -14,6 +17,7 @@ export const LEAD_THUMB_SIZE = 52
 export const ICON_MARK_SIZE = 50
 
 export const COVER_H_FEATURE = 96
+export const COVER_H_FEATURED = 112
 export const COVER_H_TOPIC = 84
 export const COVER_H_TOPIC_WIDE = 56
 

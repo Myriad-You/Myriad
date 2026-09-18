@@ -1,5 +1,5 @@
 //! Store availability follows the server's federation egress gate.
-use super::{ApiResponse, api_http_error};
+use super::ApiResponse;
 use crate::error::HttpError;
 use crate::services::federation_gate;
 use axum::Json;
@@ -7,8 +7,10 @@ use axum::http::StatusCode;
 use serde::Serialize;
 use std::time::Duration;
 
-fn policy_error(message: &str) -> HttpError {
-    api_http_error(StatusCode::FORBIDDEN, message)
+fn policy_error(_message: &str) -> HttpError {
+    HttpError(federation_gate::disabled_region_app_error(
+        StatusCode::FORBIDDEN.as_u16(),
+    ))
 }
 
 #[derive(Serialize)]
@@ -36,7 +38,6 @@ pub(super) async fn ensure_permissions_allowed(permissions: &[String]) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::response::IntoResponse;
 
     fn check_permissions(permissions: &[String], enabled: bool) -> Result<(), HttpError> {
         federation_gate::check_tapp_install_permissions(permissions, enabled).map_err(policy_error)
@@ -46,7 +47,13 @@ mod tests {
     fn closed_gate_rejects_declared_federation_even_without_approval() {
         for permission in ["federation:read", "federation:room", "federation:future"] {
             let error = check_permissions(&[permission.into()], false).unwrap_err();
-            assert_eq!(error.into_response().status(), StatusCode::FORBIDDEN);
+            let app = myriad_error::AppError::from(error);
+            assert_eq!(app.status(), StatusCode::FORBIDDEN);
+            assert_eq!(app.code(), Some("federation_disabled_region"));
+            assert_eq!(
+                app.body().message.as_deref(),
+                Some("Federation is not supported in this region")
+            );
         }
     }
 

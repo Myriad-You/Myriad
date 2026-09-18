@@ -68,6 +68,36 @@ describe('userFacingError', () => {
     )
   })
 
+  it('maps a closed federation gate to the unified region copy', () => {
+    const copy = currentCopy().errors.federationDisabledRegion
+    assert.match(copy, /not supported in this region/i)
+    assert.equal(
+      userFacingError(
+        new ApiError(
+          'Federation is not supported in this region',
+          404,
+          'federation_disabled_region',
+        ),
+      ),
+      copy,
+    )
+    assert.equal(
+      userFacingError('Federation disabled in this region'),
+      copy,
+    )
+    assert.equal(
+      userFacingError('Federation is disabled on this instance'),
+      copy,
+    )
+    assert.equal(
+      userFacingError(
+        "Federation apps cannot be downloaded or installed in this server's region",
+      ),
+      copy,
+    )
+    assert.equal(/Not Found|not found/i.test(copy), false)
+  })
+
   it('maps locale_invalid from the catalog', () => {
     const err = new ApiError('Bad request', 400, 'locale_invalid')
     assert.equal(userFacingError(err), currentCopy().errors.localeInvalid)

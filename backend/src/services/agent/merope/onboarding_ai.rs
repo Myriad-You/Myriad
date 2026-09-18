@@ -796,7 +796,9 @@ async fn run_name_call(system: &str, input: &str) -> Result<String, OnboardingAi
     else {
         return Err(OnboardingAiError::AnalyzerUnavailable);
     };
-    let owner = crate::services::ai_cost_ledger::resolve_site_owner_id().await;
+    let owner = crate::services::ai_cost_ledger::resolve_site_owner_id()
+        .await
+        .map_err(|_| OnboardingAiError::AnalyzerUnavailable)?;
     let schema = name_response_schema();
     match crate::services::ai_cost_ledger::with_site_ai_ledger(
         owner,
@@ -846,7 +848,9 @@ async fn run_onboarding_call_on_tier(
     else {
         return Err(OnboardingAiError::AnalyzerUnavailable);
     };
-    let owner = crate::services::ai_cost_ledger::resolve_site_owner_id().await;
+    let owner = crate::services::ai_cost_ledger::resolve_site_owner_id()
+        .await
+        .map_err(|_| OnboardingAiError::AnalyzerUnavailable)?;
     match crate::services::ai_cost_ledger::with_site_ai_ledger(
         owner,
         "merope",

@@ -1,5 +1,5 @@
-import type { ColorPalette } from './colorExtractor'
-import { isDefaultPalette } from './colorExtractor'
+import type { ColorPalette } from './colorPalette'
+import { isDefaultPalette } from './colorPalette'
 import {
   areUrlsEquivalent,
   extractBackgroundUrl,

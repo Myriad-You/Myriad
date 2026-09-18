@@ -1,7 +1,7 @@
 //! Local Channel CRUD and message send/get.
 use axum::{Json, http::StatusCode};
 use myriad_error::AppError;
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde_json::json;
 
 use crate::federation::types::*;
@@ -11,6 +11,13 @@ use super::types::{
     ChannelDetail, ChannelSummary, CreateChannelRequest, MessageItem, SendMessageRequest,
     SendMessageResponse,
 };
+
+/// One active relationship per (user, remote actor, channel type).
+pub const ACTIVE_CHANNEL_RELATIONSHIP_UNIQUE_SQL: &str = r#"
+CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_active_relationship
+    ON federation_channels (user_id, remote_actor_id, channel_type)
+    WHERE status IN ('pending', 'accepted', 'active')
+"#;
 
 // Channel CRUD 功能
 
@@ -127,27 +134,7 @@ pub async fn create_channel(
         "supportedFormats": ["text/plain", "text/markdown", "application/json"]
     });
 
-    db.execute_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        r#"INSERT INTO federation_channels
-           (channel_id, user_id, remote_actor_id, channel_type, tapp_id, status, transport, properties, initiated_by, created_at)
-           VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, 'local', NOW())"#,
-        [
-            channel_id.clone().into(),
-            user_id.into(),
-            remote_actor_id.into(),
-            channel_type.into(),
-            req.tapp_id.clone().into(),
-            transport.into(),
-            properties.clone().into(),
-        ],
-    ))
-    .await
-    .map_err(db_err)?;
-
-    // 向远程 Actor 发送 ChannelOpen Activity
     let activity_id = generate_activity_id(&base_url);
-
     let channel_open = json!({
         "@context": build_context(),
         "type": "myriad:ChannelOpen",
@@ -164,39 +151,98 @@ pub async fn create_channel(
         }
     });
 
-    // 记录 Activity 并投递
-    let inbox = &remote.inbox_url;
-    if !inbox.is_empty() {
-        let domain = extract_domain(inbox).unwrap_or_default();
-        let act_row = db
-            .query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                r#"INSERT INTO federation_activities
-                   (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
-                   VALUES ($1, $2, 'ChannelOpen', 'Channel', $3, true, NOW())
-                   RETURNING id"#,
-                [
-                    activity_id.clone().into(),
-                    user_id.into(),
-                    channel_open.clone().into(),
-                ],
-            ))
-            .await
-            .map_err(db_err)?;
-
-        if let Some(act_id) = act_row.and_then(|r| r.try_get::<i32>("", "id").ok()) {
-            let _ = db
-                .execute_raw(Statement::from_sql_and_values(
+    let txn = db.begin().await.map_err(db_err)?;
+    match txn
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"INSERT INTO federation_channels
+           (channel_id, user_id, remote_actor_id, channel_type, tapp_id, status, transport, properties, initiated_by, created_at)
+           VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, 'local', NOW())"#,
+            [
+                channel_id.clone().into(),
+                user_id.into(),
+                remote_actor_id.into(),
+                channel_type.into(),
+                req.tapp_id.clone().into(),
+                transport.into(),
+                properties.clone().into(),
+            ],
+        ))
+        .await
+    {
+        Ok(_) => {}
+        Err(e) if is_unique_violation(&e) => {
+            txn.rollback().await.map_err(db_err)?;
+            let existing = db
+                .query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
-                    r#"INSERT INTO federation_delivery_queue
-                       (activity_id, target_inbox, target_domain, status, created_at)
-                       VALUES ($1, $2, $3, 'pending', NOW())
-                   ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
-                    [act_id.into(), inbox.into(), domain.into()],
+                    r#"SELECT channel_id, status, transport, tapp_id, properties, initiated_by,
+                              last_activity_at, created_at
+                       FROM federation_channels
+                       WHERE user_id = $1 AND remote_actor_id = $2 AND channel_type = $3
+                             AND status IN ('pending', 'accepted', 'active')
+                       LIMIT 1"#,
+                    [user_id.into(), remote_actor_id.into(), channel_type.into()],
                 ))
-                .await;
+                .await
+                .map_err(db_err)?
+                .ok_or_else(|| db_err(e))?;
+            return Ok(ChannelDetail {
+                channel_id: existing.try_get("", "channel_id").unwrap_or_default(),
+                remote_actor_url: remote_actor_url.clone(),
+                remote_actor_name: remote
+                    .display_name
+                    .clone()
+                    .or_else(|| remote.username.clone()),
+                remote_actor_avatar: remote.avatar_url.clone(),
+                channel_type: channel_type.to_string(),
+                status: existing.try_get::<String>("", "status").unwrap_or_default(),
+                transport: existing
+                    .try_get::<String>("", "transport")
+                    .unwrap_or_default(),
+                tapp_id: existing
+                    .try_get::<Option<String>>("", "tapp_id")
+                    .unwrap_or(None),
+                properties: existing
+                    .try_get::<Option<serde_json::Value>>("", "properties")
+                    .unwrap_or(None),
+                initiated_by: existing
+                    .try_get::<String>("", "initiated_by")
+                    .unwrap_or_default(),
+                last_activity_at: existing
+                    .try_get::<Option<chrono::DateTime<chrono::FixedOffset>>>("", "last_activity_at")
+                    .ok()
+                    .flatten()
+                    .map(|t| t.to_rfc3339()),
+                created_at: existing
+                    .try_get::<chrono::DateTime<chrono::FixedOffset>>("", "created_at")
+                    .map(|t| t.to_rfc3339())
+                    .unwrap_or_default(),
+            });
+        }
+        Err(e) => {
+            let _ = txn.rollback().await;
+            return Err(db_err(e));
         }
     }
+
+    let inbox = &remote.inbox_url;
+    if !inbox.is_empty() {
+        let act_id = insert_local_activity(
+            &txn,
+            user_id,
+            &activity_id,
+            "ChannelOpen",
+            Some("Channel"),
+            channel_open.clone(),
+        )
+        .await
+        .map_err(db_err)?;
+        enqueue_delivery(&txn, act_id, inbox, "pending")
+            .await
+            .map_err(db_err)?;
+    }
+    txn.commit().await.map_err(db_err)?;
 
     tracing::info!(
         "[Channel] Created channel {} with remote {}",
@@ -626,42 +672,31 @@ pub async fn send_message(
         .try_get::<Option<serde_json::Value>>("", "properties")
         .unwrap_or(None);
 
-    // 可选：E2E 加密载荷。
-    // 会话未就绪时降级明文（Aro 默认 encrypt=true，硬失败会导致「发消息失败」）。
-    let (stored_payload, is_encrypted) = if want_encrypt {
+    let encrypted = if want_encrypt {
         match load_e2e_session(channel_id, properties.as_ref()).await {
             Ok(session) if session.established => {
-                match crate::federation::e2e::encrypt_json_payload(&session, &req.payload) {
-                    Ok(encrypted) => (encrypted, true),
-                    Err(e) => {
-                        tracing::warn!(
-                            channel_id = %channel_id,
-                            error = %e,
-                            "E2E encrypt failed; falling back to plaintext"
-                        );
-                        (req.payload.clone(), false)
-                    }
-                }
+                crate::federation::e2e::encrypt_json_payload(&session, &req.payload)
             }
-            Ok(_) => {
-                tracing::debug!(
-                    channel_id = %channel_id,
-                    "E2E not established yet; sending plaintext"
-                );
-                (req.payload.clone(), false)
-            }
-            Err(e) => {
-                tracing::debug!(
-                    channel_id = %channel_id,
-                    error = %e,
-                    "E2E session unavailable; sending plaintext"
-                );
-                (req.payload.clone(), false)
-            }
+            Ok(_) => Err("E2E session not established".into()),
+            Err(e) => Err(e),
         }
     } else {
-        (req.payload.clone(), false)
+        Ok(req.payload.clone())
     };
+    let (stored_payload, is_encrypted) = crate::federation::e2e::require_encrypted_if_requested(
+        want_encrypt,
+        req.payload.clone(),
+        encrypted,
+    )
+    .map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": e,
+                "code": "e2e_required",
+            })),
+        )
+    })?;
 
     // 存入消息
     let message_id = generate_message_id();
@@ -725,48 +760,20 @@ pub async fn send_message(
         ..Default::default()
     };
     if let Some(inbox) = remote_inbox.filter(|s| !s.is_empty()) {
-        let domain = extract_domain(&inbox).unwrap_or_default();
-        let act_row = db
-            .query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                r#"INSERT INTO federation_activities
-                   (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
-                   VALUES ($1, $2, 'ChannelMessage', 'ChannelMessage', $3, true, NOW())
-                   RETURNING id"#,
-                [
-                    activity_id.clone().into(),
-                    user_id.into(),
-                    msg_activity.clone().into(),
-                ],
-            ))
+        let act_id = insert_local_activity(
+            db,
+            user_id,
+            &activity_id,
+            "ChannelMessage",
+            Some("ChannelMessage"),
+            msg_activity.clone(),
+        )
+        .await
+        .map_err(db_err)?;
+        enqueue_delivery(db, act_id, &inbox, "pending")
             .await
             .map_err(db_err)?;
-
-        if let Some(act_id) = act_row.and_then(|r| r.try_get::<i32>("", "id").ok()) {
-            match db
-                .execute_raw(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    r#"INSERT INTO federation_delivery_queue
-                       (activity_id, target_inbox, target_domain, status, created_at)
-                       VALUES ($1, $2, $3, 'pending', NOW())
-                   ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
-                    [act_id.into(), inbox.into(), domain.into()],
-                ))
-                .await
-            {
-                Ok(_) => delivery.queued = 1,
-                Err(e) => {
-                    tracing::error!(
-                        "[Channel] enqueue delivery failed channel={}: {}",
-                        channel_id,
-                        e
-                    );
-                    delivery.warning = Some(format!("enqueue_failed: {}", e));
-                }
-            }
-        } else {
-            delivery.warning = Some("activity_insert_failed".into());
-        }
+        delivery.queued = 1;
     } else {
         delivery.warning = Some("remote_inbox_missing".into());
         tracing::warn!(

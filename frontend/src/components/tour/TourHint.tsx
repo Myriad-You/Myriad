@@ -1,5 +1,5 @@
 import type { AnimationEvent } from 'react'
-import { LuArrowRight, LuX } from '@lib/icons'
+import { LuArrowRight, LuX } from '@lib/chromeStrokeIcons'
 import {
 
   useEffect,
@@ -10,6 +10,7 @@ import {
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
+import { useBreakpoints } from '../../hooks/useSharedEventListener'
 import { getCurrentMetadata } from '../../utils/siteMetadata'
 import {
   prefersReducedMotion,
@@ -29,6 +30,7 @@ import {
 } from './tourEngine'
 import {
   shouldAutoHideTourHint,
+  shouldShowTourHint,
   TOUR_HINT_AUTO_HIDE_MS,
 } from './tourHintLogic'
 import {
@@ -49,6 +51,7 @@ import {
   waitForTourAnchor,
 } from './tourLogic'
 import { pickRegisteredTour } from './tourRegistry'
+import '../settings/settings-motion.css'
 import './TourHint.css'
 
 function skipTourHintMotion(): boolean {
@@ -64,6 +67,7 @@ function getTourActive(): boolean {
 export function TourHint() {
   const { t } = useI18n()
   const location = useLocation()
+  const { isMobile } = useBreakpoints()
   const { isAdmin, hasChecked } = useAuth()
   const meta = getCurrentMetadata()
   const siteName = meta.site_title.trim() || 'Myriad'
@@ -148,6 +152,7 @@ export function TourHint() {
 
   useEffect(() => {
     window.clearTimeout(autoHideTimer.current)
+    if (!shouldShowTourHint(isMobile)) return
     if (!shouldAutoHideTourHint()) return
     if (!def?.id || !hasChecked || tourActive || leaving) return
     if (isTourDone(def.id) || snoozedId === def.id) return
@@ -155,7 +160,7 @@ export function TourHint() {
       finishLeave('dismiss', () => setSnoozedId(def.id))
     }, TOUR_HINT_AUTO_HIDE_MS)
     return () => window.clearTimeout(autoHideTimer.current)
-  }, [def?.id, hasChecked, tourActive, snoozedId, leaving])
+  }, [def?.id, hasChecked, isMobile, tourActive, snoozedId, leaving])
 
   useEffect(() => {
     const snapshot = getTourSnapshot()
@@ -181,6 +186,7 @@ export function TourHint() {
     }
   }, [librarySurface, surface])
 
+  if (!shouldShowTourHint(isMobile)) return null
   if (!hasChecked || tourActive) return null
   if (def?.route === '/library' && (librarySurface === 'pending' || librarySurface === 'empty')) return null
   if (!def) return null

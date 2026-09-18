@@ -93,6 +93,10 @@ pub(crate) fn generate_add_column_ddl(table: &str, col: &ColumnDef) -> String {
         table, col.name, col.data_type
     );
 
+    if col.not_null {
+        ddl.push_str(" NOT NULL");
+    }
+
     if let Some(ref default) = col.default_value {
         ddl.push_str(&format!(" DEFAULT {}", default));
     }

@@ -1,5 +1,6 @@
 import type { DependencyList, RefCallback } from 'react'
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { scheduleFitText } from './fitTextScheduler'
 import { isReducedAnimation, useAnimationLevel } from './useAnimationLevel'
 
 /** FitText：single / wrap / marquee 取最小 badness；wrap 须有干净断点。 */
@@ -143,11 +144,15 @@ export function useFitText(options: FitTextOptions): FitTextResult {
 
   // RO 过滤非宽度变化，避免字号改高度回环。
   const widthsRef = useRef({ el: -1, parent: -1 })
+  const fittingRef = useRef(false)
 
   const paramsRef = useRef({ max, min, maxLines, boxHeight, marqueeAllowed })
   paramsRef.current = { max, min, maxLines, boxHeight, marqueeAllowed }
 
   const runFit = useCallback((el: HTMLElement) => {
+    if (fittingRef.current) return
+    fittingRef.current = true
+    try {
     const { max, min, maxLines, boxHeight, marqueeAllowed } = paramsRef.current
 
     // 宽度为 0 时不测，等观察器拿到真实宽度。
@@ -282,27 +287,30 @@ export function useFitText(options: FitTextOptions): FitTextResult {
       el: el.clientWidth,
       parent: el.parentElement?.clientWidth ?? -1,
     }
+    } finally {
+      fittingRef.current = false
+    }
   }, [])
 
   useLayoutEffect(() => {
     if (!node) return
 
-    // 低端不挂观察器，仅下一帧补测一次。
-    if (!active) {
-      const id = requestAnimationFrame(() => runFit(node))
-      return () => cancelAnimationFrame(id)
+    const fit = () => {
+      if (node.isConnected) runFit(node)
+    }
+    let cancel = scheduleFitText(node, fit)
+    const schedule = () => {
+      cancel()
+      cancel = scheduleFitText(node, fit)
     }
 
-    runFit(node)
-
-    let raf = 0
-    const schedule = () => {
-      cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(() => runFit(node))
+    if (!active) {
+      return () => cancel()
     }
 
     // 阈值用 REFIT_MIN_DELTA 而非 1px，否则过渡亚像素抖动会连串强制重排。
     const ro = new ResizeObserver(() => {
+      if (fittingRef.current) return
       const prev = widthsRef.current
       const elW = node.clientWidth
       const parentW = node.parentElement?.clientWidth ?? -1
@@ -317,7 +325,10 @@ export function useFitText(options: FitTextOptions): FitTextResult {
     ro.observe(node)
     if (node.parentElement) ro.observe(node.parentElement)
 
-    const mo = new MutationObserver(schedule)
+    const mo = new MutationObserver(() => {
+      if (fittingRef.current) return
+      schedule()
+    })
     mo.observe(node, { childList: true, characterData: true, subtree: true })
 
     let cancelled = false
@@ -326,11 +337,23 @@ export function useFitText(options: FitTextOptions): FitTextResult {
       if (!cancelled) schedule()
     })
 
+    const io =
+      typeof IntersectionObserver === 'undefined'
+        ? null
+        : new IntersectionObserver((entries) => {
+            node.toggleAttribute(
+              'data-offscreen',
+              !entries.some((entry) => entry.isIntersecting),
+            )
+          })
+    io?.observe(node)
+
     return () => {
       cancelled = true
       ro.disconnect()
       mo.disconnect()
-      cancelAnimationFrame(raf)
+      io?.disconnect()
+      cancel()
     }
   }, [node, active, max, min, maxLines, boxHeight, marqueeAllowed, runFit, ...deps])
 

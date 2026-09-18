@@ -1,55 +1,43 @@
 import type { TourDefinition, TourStepDef, TourSurfacePick } from './tourTypes'
-import { markTourDone } from './tourDone'
 import {
   firstVisibleIndex,
   isTourStepAvailable,
   nextIndexAfterTourAction,
   previousVisibleIndex,
   revealTourAnchor,
-  setTourDomActive,
   tourStepBlocksAdvance,
 } from './tourLogic'
 import { pickRegisteredTour } from './tourRegistry'
+import { setTourDomActive } from './tourDom'
+import {
+  emitTourSnapshot,
+  getTourSnapshot,
+  getTourVisibleSteps,
+  setTourVisibleSteps,
+  stopTour,
+  stopTourInternal,
+  subscribeTour,
+} from './tourStore'
 
-export interface TourSnapshot {
-  active: boolean
-  tourId: string | null
-  index: number
-  total: number
-  step: TourStepDef | null
-}
+export type { StopTourReason, TourSnapshot } from './tourStore'
+export { getTourSnapshot, stopTour, subscribeTour } from './tourStore'
 
-const EMPTY: TourSnapshot = {
-  active: false,
-  tourId: null,
-  index: 0,
-  total: 0,
-  step: null,
-}
+export type StartTourResult = 'started' | 'no-tour' | 'no-targets'
 
-let visible: TourStepDef[] = []
-let snapshot: TourSnapshot = EMPTY
-const listeners = new Set<() => void>()
-
-function emit(next: TourSnapshot): void {
-  snapshot = next
-  listeners.forEach((listener) => listener())
-}
-
-function stopInternal(): void {
-  visible = []
-  setTourDomActive(false)
-  emit(EMPTY)
+function stepAvailable(_anchor: string, step: TourStepDef): boolean {
+  return isTourStepAvailable(step)
 }
 
 function showIndex(index: number): void {
+  const visible = getTourVisibleSteps()
   const step = visible[index]
   if (!step) {
-    stopInternal()
+    stopTourInternal()
     return
   }
   revealTourAnchor(step.anchor, step.id)
-  emit({
+  const snapshot = getTourSnapshot()
+  emitTourSnapshot({
     active: true,
     tourId: snapshot.tourId,
     index,
@@ -58,31 +46,14 @@ function showIndex(index: number): void {
   })
 }
 
-export function subscribeTour(onStoreChange: () => void): () => void {
-  listeners.add(onStoreChange)
-  return () => {
-    listeners.delete(onStoreChange)
-  }
-}
-
-export function getTourSnapshot(): TourSnapshot {
-  return snapshot
-}
-
-export type StartTourResult = 'started' | 'no-tour' | 'no-targets'
-
-function stepAvailable(_anchor: string, step: TourStepDef): boolean {
-  return isTourStepAvailable(step)
-}
-
 export function startTour(def: TourDefinition): boolean {
   const first = firstVisibleIndex(def.steps, stepAvailable, 0)
   if (first < 0) return false
   const step = def.steps[first]!
   revealTourAnchor(step.anchor, step.id)
-  visible = Iterator.from(def.steps).toArray()
+  setTourVisibleSteps(Iterator.from(def.steps).toArray())
   setTourDomActive(true)
-  emit({
+  emitTourSnapshot({
     active: true,
     tourId: def.id,
     index: first,
@@ -102,23 +73,18 @@ export function startTourForRoute(
   return startTour(def) ? 'started' : 'no-targets'
 }
 
-export type StopTourReason = 'done' | 'skip' | 'abort'
-
-export function stopTour(reason: StopTourReason = 'abort'): void {
-  if (!snapshot.active) return
-  if ((reason === 'done' || reason === 'skip') && snapshot.tourId) {
-    markTourDone(snapshot.tourId)
-  }
-  stopInternal()
-}
-
 export function nextTourStep(): void {
+  const snapshot = getTourSnapshot()
   if (!snapshot.active) return
   if (snapshot.step?.action) {
     completeTourAction()
     return
   }
-  const next = firstVisibleIndex(visible, stepAvailable, snapshot.index + 1)
+  const next = firstVisibleIndex(
+    getTourVisibleSteps(),
+    stepAvailable,
+    snapshot.index + 1,
+  )
   if (next < 0) {
     stopTour('done')
     return
@@ -128,10 +94,11 @@ export function nextTourStep(): void {
 
 // 紧后介绍步还没挂上就等，不要跨过去。
 export function completeTourAction(): void {
+  const snapshot = getTourSnapshot()
   if (!snapshot.active || !snapshot.step?.action) return
   if (tourStepBlocksAdvance(snapshot.step)) return
   const next = nextIndexAfterTourAction(
-    visible,
+    getTourVisibleSteps(),
     snapshot.index,
     isTourStepAvailable,
   )
@@ -144,20 +111,30 @@ export function completeTourAction(): void {
 }
 
 export function previousTourStep(): void {
+  const snapshot = getTourSnapshot()
   if (!snapshot.active) return
-  const prev = previousVisibleIndex(visible, stepAvailable, snapshot.index)
+  const prev = previousVisibleIndex(
+    getTourVisibleSteps(),
+    stepAvailable,
+    snapshot.index,
+  )
   if (prev < 0) return
   showIndex(prev)
 }
 
 // 当前锚消失或量不到就前跳或停。
 export function recoverTourStep(): void {
+  const snapshot = getTourSnapshot()
   if (!snapshot.active || !snapshot.step) return
   if (isTourStepAvailable(snapshot.step)) return
   if (snapshot.step.after) return
-  const next = firstVisibleIndex(visible, stepAvailable, snapshot.index + 1)
+  const next = firstVisibleIndex(
+    getTourVisibleSteps(),
+    stepAvailable,
+    snapshot.index + 1,
+  )
   if (next < 0) {
-    stopInternal()
+    stopTourInternal()
     return
   }
   showIndex(next)

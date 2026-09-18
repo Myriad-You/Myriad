@@ -286,7 +286,9 @@ async fn suggest_topic_name(
         .ok_or(TopicSuggestError::Unavailable)?;
     let prompt = build_topic_suggest_prompt(title, excerpt, existing);
     let schema = topic_response_schema();
-    let owner = crate::services::ai_cost_ledger::resolve_site_owner_id().await;
+    let owner = crate::services::ai_cost_ledger::resolve_site_owner_id()
+        .await
+        .map_err(|_| TopicSuggestError::Unavailable)?;
     let raw = crate::services::ai_cost_ledger::with_site_ai_ledger(
         owner,
         "phantasi",

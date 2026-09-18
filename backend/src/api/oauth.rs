@@ -35,6 +35,7 @@ use crate::services::oauth::{
     registry::REGISTRY,
     state::{
         ConsumeOutcome, ConsumeStateError, OAUTH_TX_COOKIE, OAuthPurpose, StoredState, issue_state,
+        oauth_pkce_clear_cookie_value, oauth_pkce_from_cookie, oauth_pkce_set_cookie_value,
         oauth_tx_clear_cookie_value, oauth_tx_cookie_matches, oauth_tx_set_cookie_value,
         verify_state,
     },
@@ -109,21 +110,26 @@ fn append_set_cookie(response: &mut Response, cookie: &str) {
     }
 }
 
-/// Login/link redirect with `oauth_tx` browser-binding cookie.
-async fn redirect_with_oauth_tx(auth_url: &str, browser_tx: &str) -> Response {
+/// Login/link redirect with `oauth_tx` browser-binding cookie and PKCE cookie.
+async fn redirect_with_oauth_tx(auth_url: &str, browser_tx: &str, code_verifier: &str) -> Response {
     let is_production = SiteConfig::is_production().await;
     let mut response = no_store_redirect(auth_url);
     append_set_cookie(
         &mut response,
         &oauth_tx_set_cookie_value(browser_tx, is_production),
     );
+    append_set_cookie(
+        &mut response,
+        &oauth_pkce_set_cookie_value(code_verifier, is_production),
+    );
     response
 }
 
-/// Clear `oauth_tx` on a response (success and fail-closed paths).
+/// Clear `oauth_tx` and `oauth_pkce` on a response (success and fail-closed paths).
 async fn with_oauth_tx_cleared(mut response: Response) -> Response {
     let is_production = SiteConfig::is_production().await;
     append_set_cookie(&mut response, &oauth_tx_clear_cookie_value(is_production));
+    append_set_cookie(&mut response, &oauth_pkce_clear_cookie_value(is_production));
     response
 }
 
@@ -253,8 +259,8 @@ pub async fn provider_login(Path(slug): Path<String>) -> Result<Response, HttpEr
         .await
         .map_err(oauth_start_failed)?;
 
-    // Bind signed state to this browser via oauth_tx.
-    Ok(redirect_with_oauth_tx(&auth_url, &issued.browser_tx).await)
+    // Bind signed state to this browser via oauth_tx + PKCE cookie.
+    Ok(redirect_with_oauth_tx(&auth_url, &issued.browser_tx, &issued.code_verifier).await)
 }
 
 // GET /api/auth/oauth/:slug/link  (任何已登录用户)
@@ -303,7 +309,7 @@ pub async fn provider_link(
         .await
         .map_err(oauth_start_failed)?;
 
-    Ok(redirect_with_oauth_tx(&auth_url, &issued.browser_tx).await)
+    Ok(redirect_with_oauth_tx(&auth_url, &issued.browser_tx, &issued.code_verifier).await)
 }
 
 // GET /api/auth/oauth/:slug/callback
@@ -395,8 +401,15 @@ pub async fn provider_callback(
     }
 
     // Capture PKCE / OIDC secrets before mark_used consumes VerifiedState.
+    // Same-process map first; HttpOnly cookie covers another instance.
+    let mut code_verifier = verified.code_verifier().to_string();
+    if code_verifier.is_empty() {
+        if let Some(from_cookie) = oauth_pkce_from_cookie(cookie_header) {
+            code_verifier = from_cookie;
+        }
+    }
     let secrets = AuthFlowSecrets {
-        code_verifier: verified.code_verifier().to_string(),
+        code_verifier,
         oidc_nonce: verified.oidc_nonce().to_string(),
     };
 
@@ -880,79 +893,139 @@ async fn find_or_create_user(
     }
 
     // 3. Create new user + identity (email free, or provider sent none).
-    let unique_username = ensure_unique_username(db, &profile.username).await?;
+    // Username uniqueness is the LOWER(username) index; a pre-scan can still
+    // collide, so INSERT retries on that constraint instead of lying about email.
     let provider_label = if slug == "github" { "github" } else { "oidc" };
+    let mut new_id = None;
+    for attempt in 0..=100u32 {
+        let unique_username = if attempt == 0 {
+            ensure_unique_username(db, &profile.username).await?
+        } else {
+            ensure_unique_username(db, &format!("{}_{}", profile.username, attempt + 1)).await?
+        };
 
-    let insert = db
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "INSERT INTO users (username, display_name, email, avatar_url, \
-                                 is_admin, auth_provider, github_id, github_profile_url, \
-                                 last_login_at, created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, false, $5, $6, $7, NOW(), NOW(), NOW()) \
-             RETURNING id",
-            vec![
-                SeaValue::String(Some(unique_username.clone())),
-                SeaValue::String(Some(profile.username.clone())),
-                profile
-                    .email
-                    .clone()
-                    .map(|s| SeaValue::String(Some(s)))
-                    .unwrap_or(SeaValue::String(None)),
-                profile
-                    .avatar_url
-                    .clone()
-                    .map(|s| SeaValue::String(Some(s)))
-                    .unwrap_or(SeaValue::String(None)),
-                SeaValue::String(Some(provider_label.to_string())),
-                // GitHub 时同时写 users.github_id
-                if slug == "github" {
+        match db
+            .query_one_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "INSERT INTO users (username, display_name, email, avatar_url, \
+                                     is_admin, auth_provider, github_id, github_profile_url, \
+                                     last_login_at, created_at, updated_at) \
+                 VALUES ($1, $2, $3, $4, false, $5, $6, $7, NOW(), NOW(), NOW()) \
+                 RETURNING id",
+                vec![
+                    SeaValue::String(Some(unique_username.clone())),
+                    SeaValue::String(Some(profile.username.clone())),
                     profile
-                        .provider_user_id
-                        .parse::<i64>()
-                        .ok()
-                        .map(|n| SeaValue::BigInt(Some(n)))
-                        .unwrap_or(SeaValue::BigInt(None))
-                } else {
-                    SeaValue::BigInt(None)
-                },
-                if slug == "github" {
-                    profile
-                        .profile_url
+                        .email
                         .clone()
                         .map(|s| SeaValue::String(Some(s)))
-                        .unwrap_or(SeaValue::String(None))
-                } else {
-                    SeaValue::String(None)
-                },
-            ],
-        ))
-        .await
-        .map_err(|e| {
-            // Unique / constraint races on email or username → clear conflict, not 500.
-            let msg = e.to_string();
-            if msg.contains("unique") || msg.contains("duplicate") || msg.contains("Unique") {
-                tracing::warn!(error = %e, "OAuth: INSERT user conflict");
-                return HttpError::from((
-                    StatusCode::CONFLICT,
-                    Json(json!({
-                        "error": "email_already_registered",
-                        "message": "An account with this email already exists. \
-Sign in with your original method, then link this provider from account settings."
-                    })),
-                ));
+                        .unwrap_or(SeaValue::String(None)),
+                    profile
+                        .avatar_url
+                        .clone()
+                        .map(|s| SeaValue::String(Some(s)))
+                        .unwrap_or(SeaValue::String(None)),
+                    SeaValue::String(Some(provider_label.to_string())),
+                    // GitHub 时同时写 users.github_id
+                    if slug == "github" {
+                        profile
+                            .provider_user_id
+                            .parse::<i64>()
+                            .ok()
+                            .map(|n| SeaValue::BigInt(Some(n)))
+                            .unwrap_or(SeaValue::BigInt(None))
+                    } else {
+                        SeaValue::BigInt(None)
+                    },
+                    if slug == "github" {
+                        profile
+                            .profile_url
+                            .clone()
+                            .map(|s| SeaValue::String(Some(s)))
+                            .unwrap_or(SeaValue::String(None))
+                    } else {
+                        SeaValue::String(None)
+                    },
+                ],
+            ))
+            .await
+        {
+            Ok(Some(insert)) => {
+                let id: i32 = insert
+                    .try_get("", "id")
+                    .map_err(|_| err_500("Failed to read new user id"))?;
+                new_id = Some(id);
+                break;
             }
-            tracing::error!(error = %e, "OAuth: INSERT user failed");
-            err_500("Database error")
-        })?
-        .ok_or_else(|| err_500("INSERT user returned no row"))?;
-
-    let new_id: i32 = insert
-        .try_get("", "id")
-        .map_err(|_| err_500("Failed to read new user id"))?;
+            Ok(None) => return Err(err_500("INSERT user returned no row")),
+            Err(e) => match oauth_user_insert_conflict_kind(&e.to_string()) {
+                Some(OAuthUserInsertConflict::Username) => {
+                    tracing::warn!(error = %e, attempt, "OAuth: username unique conflict, retrying");
+                    continue;
+                }
+                Some(kind) => {
+                    tracing::warn!(error = %e, "OAuth: INSERT user conflict");
+                    return Err(oauth_user_insert_conflict_http(kind));
+                }
+                None => {
+                    tracing::error!(error = %e, "OAuth: INSERT user failed");
+                    return Err(err_500("Database error"));
+                }
+            },
+        }
+    }
+    let new_id =
+        new_id.ok_or_else(|| err_500("Failed to generate unique username after 100 tries"))?;
 
     upsert_identity(db, slug, new_id, profile).await?;
     Ok(new_id)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OAuthUserInsertConflict {
+    Username,
+    Email,
+    Other,
+}
+
+pub(crate) fn oauth_user_insert_conflict_kind(err: &str) -> Option<OAuthUserInsertConflict> {
+    let lower = err.to_ascii_lowercase();
+    if !(lower.contains("23505") || lower.contains("unique") || lower.contains("duplicate")) {
+        return None;
+    }
+    if lower.contains("idx_users_username") {
+        Some(OAuthUserInsertConflict::Username)
+    } else if lower.contains("email") {
+        Some(OAuthUserInsertConflict::Email)
+    } else {
+        Some(OAuthUserInsertConflict::Other)
+    }
+}
+
+fn oauth_user_insert_conflict_http(kind: OAuthUserInsertConflict) -> HttpError {
+    match kind {
+        OAuthUserInsertConflict::Email => HttpError::from((
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": "email_already_registered",
+                "message": "An account with this email already exists. Sign in with your original method, then link this provider from account settings."
+            })),
+        )),
+        OAuthUserInsertConflict::Username => HttpError::from((
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": "username_already_registered",
+                "message": "This username is already taken. Try signing in, or pick another name."
+            })),
+        )),
+        OAuthUserInsertConflict::Other => HttpError::from((
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": "account_already_registered",
+                "message": "An account with these details already exists. Sign in with your original method, then link this provider from account settings."
+            })),
+        )),
+    }
 }
 
 /// 写 / 更新一条 identity（idempotent），并把它标 primary（首条）
@@ -1358,6 +1431,53 @@ pub async fn set_primary_identity(
         "provider_username": provider_username,
         "avatar_url": avatar_url,
     })))
+}
+
+#[cfg(test)]
+mod oauth_user_insert_conflict_tests {
+    use super::{OAuthUserInsertConflict, oauth_user_insert_conflict_kind};
+
+    #[test]
+    fn username_unique_is_not_reported_as_email() {
+        let err = "error returned from database: 23505 duplicate key value violates unique constraint \"idx_users_username_unique\"";
+        assert_eq!(
+            oauth_user_insert_conflict_kind(err),
+            Some(OAuthUserInsertConflict::Username)
+        );
+        let src = include_str!("oauth.rs");
+        let insert = src
+            .split("let mut new_id = None;")
+            .nth(1)
+            .and_then(|rest| rest.split("Failed to generate unique username after 100 tries").next())
+            .expect("oauth insert retry loop");
+        assert!(insert.contains("oauth_user_insert_conflict_kind"));
+        assert!(insert.contains("OAuthUserInsertConflict::Username"));
+        assert!(insert.contains("continue;"));
+        assert!(
+            !insert.contains("email_already_registered"),
+            "username unique races must retry, not report email_already_registered"
+        );
+    }
+
+    #[test]
+    fn email_unique_stays_email_and_other_unique_is_generic() {
+        assert_eq!(
+            oauth_user_insert_conflict_kind(
+                "23505 duplicate key value violates unique constraint \"idx_users_email_unique\""
+            ),
+            Some(OAuthUserInsertConflict::Email)
+        );
+        assert_eq!(
+            oauth_user_insert_conflict_kind(
+                "23505 duplicate key value violates unique constraint \"idx_linked_github_id\""
+            ),
+            Some(OAuthUserInsertConflict::Other)
+        );
+        assert_eq!(
+            oauth_user_insert_conflict_kind("connection reset by peer"),
+            None
+        );
+    }
 }
 
 #[cfg(test)]

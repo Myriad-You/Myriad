@@ -43,6 +43,30 @@ mod split_contract_tests {
     fn e2e_owns_key_exchange() {
         assert!(include_str!("e2e.rs").contains("fn handle_key_exchange"));
     }
+
+    #[test]
+    fn active_relationship_unique_is_partial() {
+        let sql = super::ACTIVE_CHANNEL_RELATIONSHIP_UNIQUE_SQL;
+        assert!(sql.contains("UNIQUE INDEX"));
+        assert!(sql.contains("idx_channels_active_relationship"));
+        assert!(sql.contains("user_id"));
+        assert!(sql.contains("remote_actor_id"));
+        assert!(sql.contains("channel_type"));
+        assert!(sql.contains("pending"));
+        assert!(sql.contains("accepted"));
+        assert!(sql.contains("active"));
+        assert!(sql.contains("WHERE status IN"));
+    }
+
+    #[test]
+    fn create_channel_commits_with_outbound_intent() {
+        let src = include_str!("crud.rs");
+        assert!(src.contains("db.begin()"));
+        assert!(src.contains("insert_local_activity"));
+        assert!(src.contains("enqueue_delivery"));
+        assert!(src.contains("is_unique_violation"));
+        assert!(src.contains("require_encrypted_if_requested"));
+    }
 }
 
 #[cfg(test)]

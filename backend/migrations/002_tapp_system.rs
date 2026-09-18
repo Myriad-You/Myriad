@@ -292,6 +292,16 @@ ALTER TABLE tapp_storage
             )
             .await?;
 
+        // Owner-wide shortcut chord uniqueness. JSON keys are not in (user,tapp,key).
+        manager
+            .get_connection()
+            .execute_unprepared(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_tapp_shortcuts_owner_chord \
+                 ON tapp_storage (user_id, (value->>'keys')) \
+                 WHERE starts_with(key, '_shortcut:')",
+            )
+            .await?;
+
         manager
             .create_index(
                 Index::create()

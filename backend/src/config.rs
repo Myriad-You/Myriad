@@ -726,6 +726,9 @@ pub struct DynamicConfig {
     /// 默认 false = 均衡档。`MYRIAD_MEMORY_PROFILE` env 可覆盖。
     pub memory_saver_enabled: bool,
 
+    /// 天气是否向浏览器申请精确位置（高级设置）。默认 false：只走 IP，不弹定位许可。
+    pub precise_location_enabled: bool,
+
     // 网络代理配置（用于中国大陆服务器访问外部API）
     /// 是否启用网络代理
     pub proxy_enabled: bool,
@@ -1001,6 +1004,7 @@ impl Default for DynamicConfig {
             resident_quota_site_total: 3,
 
             memory_saver_enabled: false,
+            precise_location_enabled: false,
             // 网络代理配置默认值
             proxy_enabled: false, // 默认关闭代理
             proxy_url: None,

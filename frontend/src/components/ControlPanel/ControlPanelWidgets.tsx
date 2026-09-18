@@ -3,9 +3,11 @@ import type {
   WidgetGridHandle,
   WidgetType,
 } from '../widgetGridTypes'
-import { FaChevronLeft, FaChevronRight } from '@lib/icons'
+import { FaChevronLeft, FaChevronRight } from '@lib/faChromeIcons'
 import React, {
+  lazy,
   memo,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -23,10 +25,9 @@ import { useEditModeEscape } from '../../hooks/useEditModeEscape'
 import { useTappWidgets } from '../../hooks/useTappWidgets'
 import { getCSRFToken } from '../../utils/csrf'
 import { getUIConfigDeduped } from '../../utils/requestDedup'
+import { formatUserFacingError } from '../../utils/formatUserFacingError'
 import { showError } from '../../utils/toastManager'
-import { userFacingError } from '../../utils/userFacingError'
 import WidgetGrid, { startGridLibraryDrag } from '../WidgetGrid'
-import WidgetLibraryIsland from '../WidgetLibraryIsland'
 import { getBuiltinWidgets } from '../widgets/builtinWidgets'
 import {
   PANEL_MORPH_BASE_MS,
@@ -41,6 +42,8 @@ import {
   packControlPanelWidgets,
 } from './widgetReflow'
 import './ControlPanelWidgets.css'
+
+const WidgetLibraryIsland = lazy(() => import('../WidgetLibraryIsland'))
 
 const API_URL = CONFIG_API_URL
 
@@ -130,7 +133,12 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
               }
             } catch (e) {
               console.error('Failed to parse control panel layout', e)
-              showError(userFacingError(e, t.errors.controlPanelLoadFailed))
+              showError(
+                await formatUserFacingError(
+                  e,
+                  t.errors.controlPanelLoadFailed,
+                ),
+              )
             }
           }
           if (data.control_panel_rows) {
@@ -138,7 +146,9 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
           }
         } catch (e) {
           console.error('Failed to load control panel config', e)
-          showError(userFacingError(e, t.errors.controlPanelLoadFailed))
+          showError(
+            await formatUserFacingError(e, t.errors.controlPanelLoadFailed),
+          )
         } finally {
           setIsLoading(false)
         }
@@ -187,7 +197,12 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
             }
           } catch (err) {
             console.error('Failed to save control panel config:', err)
-            showError(userFacingError(err, t.errors.controlPanelSaveFailed))
+            showError(
+              await formatUserFacingError(
+                err,
+                t.errors.controlPanelSaveFailed,
+              ),
+            )
           }
         }, 500)
       },
@@ -383,6 +398,7 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
 
     const handleMouseDown = useCallback(() => {
       if (!isAdmin || isEditMode) return
+      void import('../WidgetLibraryIsland')
       longPressTimer.current = setTimeout(() => {
         setIsEditMode(true)
       }, 800)
@@ -491,12 +507,16 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
 
     return (
       <>
-        <WidgetLibraryIsland
-          visible={isEditMode}
-          parkable={false}
-          availableWidgets={filteredWidgets}
-          onNewWidgetDragStart={onLibraryDragStart}
-        />
+        {isEditMode ? (
+          <Suspense fallback={null}>
+            <WidgetLibraryIsland
+              visible
+              parkable={false}
+              availableWidgets={filteredWidgets}
+              onNewWidgetDragStart={onLibraryDragStart}
+            />
+          </Suspense>
+        ) : null}
 
         <div
           ref={containerRef}

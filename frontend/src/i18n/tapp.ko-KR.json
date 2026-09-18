@@ -465,7 +465,7 @@
   "storeCannotEditOfficialUrl": "공식 스토어 URL은 바꿀 수 없어요.",
   "storeUrlExists": "그 스토어 출처 URL은 이미 있어요.",
   "storeInvalidIndex": "스토어 인덱스 형식이 올바르지 않아요.",
-  "storeFederationUnavailable": "이 서버 지역에서는 연합 앱을 다운로드하거나 설치할 수 없습니다.",
+  "storeFederationUnavailable": "이 지역에서는 연합을 쓸 수 없어요.",
   "storeDownloadFailed": "모듈을 받지 못했어요: {name}",
   "storeVersionMismatch": "스토어는 {catalog}인데 패키지는 {manifest}예요. 스토어를 새로고침한 뒤 다시 시도하세요.",
   "storeAddFailed": "스토어 출처를 추가하지 못했어요.",

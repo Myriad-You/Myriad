@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useI18n } from '../contexts/I18nContext'
-import { messageForOAuthError } from '../utils/authErrorMessages'
+import { messageForOAuthError } from '../utils/oauthErrorMessages'
 import { showError, showSuccess } from '../utils/toastManager'
 
 function messageForLinkReason(

@@ -24,7 +24,10 @@ pub use prefs::{
     CHECK_INTERVAL_PRESETS, Prefs, SnapshotListDiagnostics, validate_check_interval_secs,
     validate_snapshot_limit,
 };
-pub use recovery::{CrashRecoveryPlan, RecoveryReport, plan_crash_recovery};
+pub use recovery::{
+    CrashRecoveryPlan, RecoveryReport, commit_pre_swap_stack_restored,
+    freeze_pre_swap_restore_failed, plan_crash_recovery,
+};
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -167,8 +170,6 @@ pub struct Worker {
     cli: WorkerCli,
     tx: mpsc::Sender<Command>,
     rx: Mutex<Option<mpsc::Receiver<Command>>>,
-    /// Recent idempotency keys → job id.
-    idempotency: Mutex<std::collections::VecDeque<(String, String)>>,
 }
 
 impl Worker {
@@ -186,7 +187,6 @@ impl Worker {
             cli,
             tx,
             rx: Mutex::new(Some(rx)),
-            idempotency: Mutex::new(std::collections::VecDeque::with_capacity(100)),
         }
     }
 
@@ -196,25 +196,7 @@ impl Worker {
     /// is not enough — operators (or auto_install) could start another update
     /// and overwrite maintenance while services are still half-down.
     pub(crate) fn refuse_update_if_stuck(&self) -> Result<()> {
-        let maint = self
-            .state
-            .read_maintenance()
-            .unwrap_or_else(|_| crate::state::MaintenanceFile::inactive());
-        if matches!(maint.phase, Phase::NeedsManual)
-            || (maint.active
-                && (maint.phase.is_post_swap()
-                    || maint.phase.is_rollback()
-                    || matches!(maint.phase, Phase::NeedsManual)))
-        {
-            return Err(UpdaterError::Conflict);
-        }
-        // Job file left in NeedsManual even if maintenance was partially cleared.
-        if let Ok(Some(id)) = self.state.read_current_job()
-            && let Ok(job) = self.state.read_job(&id)
-                && matches!(job.status, JobStatus::NeedsManual) {
-                    return Err(UpdaterError::Conflict);
-                }
-        Ok(())
+        refuse_update_if_stuck_in(&self.state)
     }
 
     pub fn cli(&self) -> &WorkerCli {
@@ -320,15 +302,38 @@ impl Worker {
         &self.docker
     }
 
-    /// After crash recovery clears a pre-swap job, restart app services that may
+    /// After crash recovery classifies a pre-swap job, restart app services that may
     /// still be stopped (frontend/backend, and postgres if bundled). Does not
-    /// rewrite `MYRIAD_TAG` or restore snapshots.
+    /// rewrite `MYRIAD_TAG` or restore snapshots. Clears job.current / maintenance
+    /// only after restore succeeds.
     pub async fn restore_stack_after_pre_swap(self: &Arc<Self>) -> Result<()> {
-        let compose = update::build_compose_runner_pub(self).await?;
+        let job_id = self.state.read_current_job()?;
+        let compose = match update::build_compose_runner_pub(self).await {
+            Ok(c) => c,
+            Err(e) => {
+                if let Some(id) = job_id.as_deref() {
+                    freeze_pre_swap_restore_failed(&self.state, id, &e.to_string())?;
+                }
+                return Err(e);
+            }
+        };
         // Conservative: always try postgres (no-op-ish if already up / external skip via scope)
         // AppAndPostgres is safe for external mode — restore_previous_stack skips pg.
-        update::restore_previous_stack(self, &compose, update::PreSwapRestoreScope::AppAndPostgres)
-            .await
+        match update::restore_previous_stack(
+            self,
+            &compose,
+            update::PreSwapRestoreScope::AppAndPostgres,
+        )
+        .await
+        {
+            Ok(()) => commit_pre_swap_stack_restored(&self.state),
+            Err(e) => {
+                if let Some(id) = job_id.as_deref() {
+                    freeze_pre_swap_restore_failed(&self.state, id, &e.to_string())?;
+                }
+                Err(e)
+            }
+        }
     }
 
     /// Pull an image, applying REGISTRY_MIRROR rewriting if configured. Returns the digest
@@ -713,11 +718,19 @@ impl Worker {
         idempotency_key: Option<String>,
         actor: Option<String>,
     ) -> Result<String> {
-        if let Some(k) = &idempotency_key {
-            let cache = self.idempotency.lock().await;
-            if let Some((_, jid)) = cache.iter().find(|(kk, _)| kk == k) {
-                return Ok(jid.clone());
-            }
+        let fingerprint = update_request_fingerprint(
+            &target,
+            mode,
+            allow_downgrade,
+            allow_risk,
+            allow_diverged,
+            allow_unknown,
+            allow_irreversible,
+        );
+        if let Some(k) = &idempotency_key
+            && let Some(jid) = replay_idempotent_update(&self.state, k, &fingerprint)?
+        {
+            return Ok(jid);
         }
 
         if let Some(_existing) = self.state.read_current_job()? {
@@ -740,17 +753,10 @@ impl Worker {
             status: JobStatus::Pending,
             steps: Vec::new(),
             idempotency_key: idempotency_key.clone(),
+            idempotency_fingerprint: idempotency_key.as_ref().map(|_| fingerprint),
         };
         self.state.write_job(&job)?;
         self.state.set_current_job(Some(&job_id))?;
-
-        if let Some(k) = idempotency_key {
-            let mut cache = self.idempotency.lock().await;
-            cache.push_back((k, job_id.clone()));
-            if cache.len() > 100 {
-                cache.pop_front();
-            }
-        }
 
         let job_id_clone = job_id.clone();
         let me = self.clone();
@@ -793,6 +799,7 @@ impl Worker {
             status: JobStatus::Pending,
             steps: Vec::new(),
             idempotency_key: None,
+            idempotency_fingerprint: None,
         };
         self.state.write_job(&job)?;
         self.state.set_current_job(Some(&job_id))?;
@@ -806,6 +813,84 @@ impl Worker {
             let _ = me.state.set_current_job(None);
         });
         Ok(job_id)
+    }
+}
+
+/// I/O and parse errors are errors. Missing files are already `Ok(inactive)` / `Ok(None)`.
+pub(crate) fn refuse_update_if_stuck_in(state: &StateDir) -> Result<()> {
+    let maint = state.read_maintenance()?;
+    if maint.active || matches!(maint.phase, Phase::NeedsManual) {
+        return Err(UpdaterError::Conflict);
+    }
+    match state.read_current_job()? {
+        None => Ok(()),
+        Some(id) => match state.read_job(&id) {
+            Ok(job) if matches!(job.status, JobStatus::NeedsManual) => Err(UpdaterError::Conflict),
+            Ok(_) => Ok(()),
+            Err(UpdaterError::NotFound(_)) => Err(UpdaterError::Conflict),
+            Err(e) => Err(e),
+        },
+    }
+}
+
+pub(crate) fn update_request_fingerprint(
+    target: &DeployTag,
+    mode: UpdateMode,
+    allow_downgrade: bool,
+    allow_risk: bool,
+    allow_diverged: Option<bool>,
+    allow_unknown: Option<bool>,
+    allow_irreversible: Option<bool>,
+) -> String {
+    fn flag(v: Option<bool>) -> &'static str {
+        match v {
+            Some(true) => "true",
+            Some(false) => "false",
+            None => "unset",
+        }
+    }
+    format!(
+        "update|{}|{}|downgrade={}|risk={}|diverged={}|unknown={}|irreversible={}",
+        target.as_str(),
+        mode.as_str(),
+        allow_downgrade,
+        allow_risk,
+        flag(allow_diverged),
+        flag(allow_unknown),
+        flag(allow_irreversible),
+    )
+}
+
+pub(crate) fn replay_idempotent_update(
+    state: &StateDir,
+    key: &str,
+    fingerprint: &str,
+) -> Result<Option<String>> {
+    let mut found: Option<Job> = None;
+    for id in state.list_jobs()? {
+        let job = match state.read_job(&id) {
+            Ok(job) => job,
+            Err(UpdaterError::NotFound(_)) => continue,
+            Err(e) => return Err(e),
+        };
+        if job.idempotency_key.as_deref() != Some(key) {
+            continue;
+        }
+        if let Some(prev) = found.replace(job) {
+            return Err(UpdaterError::State(format!(
+                "duplicate Idempotency-Key on jobs {} and {id}",
+                prev.id
+            )));
+        }
+    }
+    match found {
+        None => Ok(None),
+        Some(job) => match job.idempotency_fingerprint.as_deref() {
+            Some(fp) if fp == fingerprint => Ok(Some(job.id)),
+            Some(_) | None => Err(UpdaterError::InvalidInput(
+                "Idempotency-Key was already used for a different update request".into(),
+            )),
+        },
     }
 }
 
@@ -916,5 +1001,181 @@ mod runtime_identity_tests {
         });
         let (_, sha) = runtime_identity_from_json(&body).expect("runtime identity");
         assert_eq!(sha, None);
+    }
+}
+
+#[cfg(test)]
+mod stuck_and_idempotency_tests {
+    use super::*;
+    use crate::state::{Job, JobKind, JobStatus, MaintenanceFile, Phase};
+    use chrono::Utc;
+
+    fn sample_job(id: &str, key: Option<&str>, fingerprint: Option<&str>) -> Job {
+        Job {
+            id: id.into(),
+            kind: JobKind::Update,
+            created_at: Utc::now(),
+            finished_at: None,
+            from_version: None,
+            to_version: Some(DeployTag::parse("v1.2.3").unwrap()),
+            snapshot_id: None,
+            status: JobStatus::Succeeded,
+            steps: Vec::new(),
+            idempotency_key: key.map(str::to_string),
+            idempotency_fingerprint: fingerprint.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn refuse_update_propagates_maintenance_io() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = StateDir::open(dir.path()).unwrap();
+        std::fs::create_dir(dir.path().join("maintenance.json")).unwrap();
+        let err = refuse_update_if_stuck_in(&state).unwrap_err();
+        assert!(
+            !matches!(err, UpdaterError::Conflict),
+            "I/O must not look like 'not stuck', got {err}"
+        );
+    }
+
+    #[test]
+    fn refuse_update_propagates_job_parse_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = StateDir::open(dir.path()).unwrap();
+        state.set_current_job(Some("j1")).unwrap();
+        std::fs::write(dir.path().join("job.j1.json"), b"{not-json").unwrap();
+        let err = refuse_update_if_stuck_in(&state).unwrap_err();
+        assert!(
+            matches!(err, UpdaterError::Json(_)),
+            "corrupt current job must fail closed, got {err}"
+        );
+    }
+
+    #[test]
+    fn refuse_update_blocks_active_maintenance() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = StateDir::open(dir.path()).unwrap();
+        let mut m = MaintenanceFile::inactive();
+        m.active = true;
+        m.phase = Phase::Stopping;
+        state.write_maintenance(&m).unwrap();
+        assert!(matches!(
+            refuse_update_if_stuck_in(&state),
+            Err(UpdaterError::Conflict)
+        ));
+    }
+
+    #[test]
+    fn fingerprint_changes_with_target_and_flags() {
+        let a = update_request_fingerprint(
+            &DeployTag::parse("v1.0.0").unwrap(),
+            UpdateMode::Release,
+            false,
+            false,
+            None,
+            None,
+            None,
+        );
+        let b = update_request_fingerprint(
+            &DeployTag::parse("v1.0.1").unwrap(),
+            UpdateMode::Release,
+            false,
+            false,
+            None,
+            None,
+            None,
+        );
+        let c = update_request_fingerprint(
+            &DeployTag::parse("v1.0.0").unwrap(),
+            UpdateMode::Release,
+            true,
+            false,
+            None,
+            None,
+            None,
+        );
+        assert_ne!(a, b);
+        assert_ne!(a, c);
+        assert_eq!(
+            a,
+            update_request_fingerprint(
+                &DeployTag::parse("v1.0.0").unwrap(),
+                UpdateMode::Release,
+                false,
+                false,
+                None,
+                None,
+                None,
+            )
+        );
+    }
+
+    #[test]
+    fn idempotent_replay_requires_matching_fingerprint() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = StateDir::open(dir.path()).unwrap();
+        let fp = update_request_fingerprint(
+            &DeployTag::parse("v1.2.3").unwrap(),
+            UpdateMode::Release,
+            false,
+            false,
+            None,
+            None,
+            None,
+        );
+        state
+            .write_job(&sample_job("job-a", Some("k1"), Some(&fp)))
+            .unwrap();
+
+        assert_eq!(
+            replay_idempotent_update(&state, "k1", &fp)
+                .unwrap()
+                .as_deref(),
+            Some("job-a")
+        );
+        let other = update_request_fingerprint(
+            &DeployTag::parse("v9.9.9").unwrap(),
+            UpdateMode::Release,
+            false,
+            false,
+            None,
+            None,
+            None,
+        );
+        let err = replay_idempotent_update(&state, "k1", &other).unwrap_err();
+        assert!(
+            matches!(err, UpdaterError::InvalidInput(_)),
+            "different fingerprint must not replay, got {err}"
+        );
+    }
+
+    #[test]
+    fn idempotent_lookup_survives_process_restart_via_job_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = StateDir::open(dir.path()).unwrap();
+        let fp = "update|v1.2.3|release|downgrade=false|risk=false|diverged=unset|unknown=unset|irreversible=unset";
+        state
+            .write_job(&sample_job("durable", Some("restart-key"), Some(fp)))
+            .unwrap();
+        // New StateDir handle = new process with no in-memory queue.
+        let state2 = StateDir::open_readonly(dir.path()).unwrap();
+        assert_eq!(
+            replay_idempotent_update(&state2, "restart-key", fp)
+                .unwrap()
+                .as_deref(),
+            Some("durable")
+        );
+    }
+
+    #[test]
+    fn idempotent_lookup_fails_closed_on_corrupt_job() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = StateDir::open(dir.path()).unwrap();
+        std::fs::write(dir.path().join("job.bad.json"), b"{not-json").unwrap();
+        let err = replay_idempotent_update(&state, "k", "fp").unwrap_err();
+        assert!(
+            matches!(err, UpdaterError::Json(_)),
+            "corrupt job during idempotency scan must fail closed, got {err}"
+        );
     }
 }

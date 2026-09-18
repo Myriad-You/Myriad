@@ -1,5 +1,5 @@
 import type { MutableRefObject, RefObject } from 'react'
-import type { ColorPalette } from '../../utils/colorExtractor'
+import type { ColorPalette } from '../../utils/colorPalette'
 import type { LyricLine, Song, WordLyricLine } from '../../utils/musicPlayer'
 import type { MusicColors, PlayMode, TempPlayMode } from './types'
 
@@ -8,9 +8,9 @@ import {
   extractColorsFromImage,
   extractColorsFromLoadedImage,
   getCachedPalette,
-  isDefaultPalette,
   setCachedPalette,
 } from '../../utils/colorExtractor'
+import { isDefaultPalette } from '../../utils/colorPalette'
 import {
   readLiveAudioProgress,
   resolveMusicPalette,
@@ -295,8 +295,7 @@ export function useCoverColors(options: {
         context: 'music',
         priority: 'high',
         forceRefresh: settleAttempt > 0,
-      })
-        .then((palette: ColorPalette) => {
+      }).then((palette: ColorPalette) => {
           if (!isCurrent()) return
           let colors = palette as MusicColors
           if (isDefaultPalette(colors)) {

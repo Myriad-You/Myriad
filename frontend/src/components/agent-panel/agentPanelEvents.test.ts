@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { agentPanelOpenSessionCount, agentPanelSubmitDetail } from './agentPanelEvents'
+import {
+  agentPanelOpenSessionCount,
+  agentPanelSubmitDetail,
+  queueAgentPanelOpen,
+  takeQueuedAgentPanelOpen,
+} from './agentPanelEvents'
 
 test('accepted intention stays attached to an explicit Work submit', () => {
   const event = {
@@ -32,4 +37,11 @@ test('missing mode remains backwards-compatible with Work', () => {
 test('session selection carries its persisted count for the latest page', () => {
   assert.equal(agentPanelOpenSessionCount({ detail: { sessionId: 's', messageCount: 123 } } as unknown as Event), 123)
   assert.equal(agentPanelOpenSessionCount({ detail: { sessionId: 's' } } as unknown as Event), 0)
+})
+
+test('queued panel open is consumed once', () => {
+  assert.equal(takeQueuedAgentPanelOpen(), null)
+  queueAgentPanelOpen({ view: 'manage', stage: 'full' })
+  assert.deepEqual(takeQueuedAgentPanelOpen(), { view: 'manage', stage: 'full' })
+  assert.equal(takeQueuedAgentPanelOpen(), null)
 })

@@ -465,7 +465,7 @@
   "storeCannotEditOfficialUrl": "L’URL de la boutique officielle ne peut pas être changée.",
   "storeUrlExists": "Cette URL de source de boutique existe déjà.",
   "storeInvalidIndex": "Le format de l’index de boutique est invalide.",
-  "storeFederationUnavailable": "Les applications fédérées ne peuvent pas être téléchargées ni installées dans la région de ce serveur.",
+  "storeFederationUnavailable": "La fédération n’est pas prise en charge dans cette région.",
   "storeDownloadFailed": "Impossible de télécharger le module : {name}",
   "storeVersionMismatch": "La boutique indique {catalog}, mais le paquet est {manifest}. Actualisez la boutique et réessayez.",
   "storeAddFailed": "Impossible d’ajouter la source de boutique.",

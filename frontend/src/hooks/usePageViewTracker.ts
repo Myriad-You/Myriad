@@ -1,33 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import {
-  AnalyticsEvents,
-  trackProductEvent,
-} from '../utils/analyticsEvents'
-import {
-  setGoogleAnalyticsStaffExcluded,
-  trackGooglePageview,
-} from '../utils/googleAnalytics'
-import {
-  getOrCreateVisitorId,
-  setAnalyticsStaffSession,
-  trackEvent,
-  trackPageview,
-} from '../utils/siteAnalytics'
-import {
-  setUmamiStaffExcluded,
-  trackUmamiPageview,
-} from '../utils/umamiAnalytics'
-
-export {
-  AnalyticsEvents,
-  getOrCreateVisitorId,
-  setAnalyticsStaffSession,
-  trackEvent,
-  trackPageview,
-  trackProductEvent,
-}
 
 /** SPA route → pageview + engagement。等 auth；排除管理员/站长自己。 */
 export function usePageViewTracker() {
@@ -38,9 +11,15 @@ export function usePageViewTracker() {
   const lastPathRef = useRef<string | null>(null)
 
   useEffect(() => {
-    setAnalyticsStaffSession({ isAdmin, isOwner })
-    setGoogleAnalyticsStaffExcluded(isStaff)
-    setUmamiStaffExcluded(isStaff)
+    void import('../utils/siteAnalytics').then((m) => {
+      m.setAnalyticsStaffSession({ isAdmin, isOwner })
+    })
+    void import('../utils/googleAnalytics').then((m) => {
+      m.setGoogleAnalyticsStaffExcluded(isStaff)
+    })
+    void import('../utils/umamiAnalytics').then((m) => {
+      m.setUmamiStaffExcluded(isStaff)
+    })
   }, [isAdmin, isOwner, isStaff])
 
   useEffect(() => {
@@ -53,10 +32,14 @@ export function usePageViewTracker() {
     const path = location.pathname || '/'
     if (lastPathRef.current === path) return
     lastPathRef.current = path
-    trackPageview(path)
-
-    // 第三方统计 SPA page_view（未配置时排队，配置后补发）。
-    trackGooglePageview(path)
-    trackUmamiPageview(path)
+    void import('../utils/siteAnalytics').then((m) => {
+      m.trackPageview(path)
+    })
+    void import('../utils/googleAnalytics').then((m) => {
+      m.trackGooglePageview(path)
+    })
+    void import('../utils/umamiAnalytics').then((m) => {
+      m.trackUmamiPageview(path)
+    })
   }, [location.pathname, hasChecked, isStaff])
 }

@@ -144,9 +144,7 @@ async fn execute_platform_refresh(params: &HashMap<String, Value>) -> Result<Val
     // 尝试通过后台处理器提交刷新任务
     let mut results = Vec::new();
     for p in &platforms_to_refresh {
-        match crate::services::background_processor::BACKGROUND_PROCESSOR
-            .submit_task(p.to_string())
-            .await
+        match crate::api::tasks::submit_and_start_platform_task(p.to_string()).await
         {
             Ok(task_id) => {
                 results.push(json!({

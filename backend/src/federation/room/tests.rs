@@ -453,6 +453,36 @@ fn room_join_never_mints_privileged_roles() {
 }
 
 #[test]
+fn room_is_full_at_capacity() {
+    assert!(room_is_full(50, 50));
+    assert!(room_is_full(51, 50));
+    assert!(!room_is_full(49, 50));
+    assert!(!room_is_full(0, 2));
+}
+
+#[test]
+fn create_and_admit_use_same_transaction_lock() {
+    let crud = include_str!("crud.rs");
+    assert!(crud.contains("db.begin()"));
+    assert!(crud.contains("INSERT INTO federation_room_members"));
+    let members = include_str!("members.rs");
+    assert!(members.contains("assert_room_has_capacity"));
+    assert!(members.contains("FOR UPDATE") || include_str!("helpers.rs").contains("FOR UPDATE"));
+    let e2e = include_str!("e2e.rs");
+    assert!(e2e.contains("fanout_to_remote_members"));
+    assert!(
+        !e2e.contains("let _ = fanout_to_remote_members"),
+        "KeyExchange fanout must not be ignored after publishing the marker"
+    );
+}
+
+#[test]
+fn encrypt_true_room_path_uses_require_encrypted() {
+    let src = include_str!("messages.rs");
+    assert!(src.contains("require_encrypted_if_requested"));
+}
+
+#[test]
 fn room_join_never_overwrites_an_existing_role() {
     // A pending invite carrying role=admin must survive the invitee's accept,
     // and a member must not be able to re-announce itself upward.

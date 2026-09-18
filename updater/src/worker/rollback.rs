@@ -79,10 +79,11 @@ pub async fn run(
     match execute_inline(worker.clone(), &rec, &compose, &snap, &snapshot_id, None).await {
         Ok(restored) => {
             if let Some(v) = restored
-                && let Ok(mut job) = worker.state().read_job(&job_id) {
-                    job.to_version = Some(v);
-                    let _ = worker.state().write_job(&job);
-                }
+                && let Ok(mut job) = worker.state().read_job(&job_id)
+            {
+                job.to_version = Some(v);
+                let _ = worker.state().write_job(&job);
+            }
             let _ = rec.finalize(JobStatus::Succeeded);
             let _ = crate::worker::machine::clear_maintenance(worker.state());
             Ok(())
@@ -169,13 +170,14 @@ pub async fn execute_inline(
             let _ = rec.enter(Phase::SwapTagBack, "updater.phase.swap_tag_back");
             let parsed = DeployTag::parse(tag).ok();
             if let Some(ref version) = parsed
-                && let Err(e) = materialize_pinned_rollback_images(worker.as_ref(), version).await {
-                    warn!(
-                        err = %e,
-                        version = %version,
-                        "failed to restore version refs from the local rollback slot"
-                    );
-                }
+                && let Err(e) = materialize_pinned_rollback_images(worker.as_ref(), version).await
+            {
+                warn!(
+                    err = %e,
+                    version = %version,
+                    "failed to restore version refs from the local rollback slot"
+                );
+            }
             let mut env = EnvFile::load(&worker.cli().env_file)?;
             let before = env.get("MYRIAD_TAG").unwrap_or("").to_string();
             env.set("MYRIAD_TAG", tag)?;
@@ -225,10 +227,15 @@ pub async fn execute_inline(
             }
             _ => {}
         }
-        for name in ["myriad-postgres", "postgres"] {
-            if let Err(e) = worker.docker().force_stop_container(name).await {
-                warn!(%name, err = %e, "force_stop postgres attempt");
-            }
+        // Inspect/stop errors are not "already stopped". Restore while postgres
+        // still holds PGDATA is forbidden.
+        if let Err(e) = worker.docker().stop_postgres_for_restore().await {
+            let msg = format!(
+                "rollback: cannot prove postgres is stopped ({e}); refusing PGDATA restore"
+            );
+            error!(err = %e, %msg, "rollback postgres stop failed");
+            let _ = rec.finish_step_err(&msg);
+            return Err(UpdaterError::Precondition(msg));
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
 
@@ -494,9 +501,10 @@ pub(crate) fn resolve_previous_tag(
 
     let snaps = state.read_snapshots()?;
     if let Some(meta) = snaps.items.iter().find(|m| m.id == snapshot_id)
-        && let Some(v) = &meta.source_version {
-            return Ok(Some(v.to_string()));
-        }
+        && let Some(v) = &meta.source_version
+    {
+        return Ok(Some(v.to_string()));
+    }
 
     if let Some(v) = state.read_updater()?.current_version {
         return Ok(Some(v.to_string()));

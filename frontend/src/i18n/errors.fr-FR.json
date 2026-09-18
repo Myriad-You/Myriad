@@ -33,6 +33,7 @@
   "federationInitFailed": "Impossible de configurer la fédération pour ce site. Réessayez.",
   "federationDataFailed": "Impossible de charger les données de fédération.",
   "federationKeyRotateFailed": "Impossible de renouveler les clés de fédération.",
+  "federationDisabledRegion": "La fédération n’est pas prise en charge dans cette région.",
   "model3dFailed": "Impossible de générer le modèle 3D. Réessayez.",
   "profileTextLoadFailed": "Impossible de charger les sources de nom et bio.",
   "profileTextSaveFailed": "Impossible d’enregistrer la source de nom et bio.",

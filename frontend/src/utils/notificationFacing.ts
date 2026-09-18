@@ -1,6 +1,9 @@
 import type { AppNotification } from '../services/notificationApi'
 import { currentCopy, formatCurrent } from '../i18n/localeCopy'
-import { isUselessErrorText, userFacingError } from './userFacingError'
+import {
+  isInternalDump,
+  isUselessErrorText,
+} from './uselessErrorText'
 
 const DEFAULT_TAPP_TITLES = new Set([
   'App notification',
@@ -18,6 +21,32 @@ function fill(
   params: Record<string, string | number>,
 ): string {
   return formatCurrent(template, params)
+}
+
+function noticeLeftover(raw: string, fallback: string): string {
+  const t = currentCopy().errors
+  const text = raw.replaceAll(/\s+/g, ' ').trim()
+  if (!text) return fallback
+  const lower = text.toLowerCase()
+  if (lower === 'unauthorized') return t.unauthorized
+  if (lower === 'forbidden') return t.forbidden
+  if (lower === 'not found') return t.notFound
+  if (/^维护重试成功$|^Maintenance retry succeeded$/i.test(text)) {
+    return t.noticeMcpMaintenanceRetry
+  }
+  if (/^自动重启成功$|^Auto-restart succeeded$/i.test(text)) {
+    return t.noticeMcpAutoRestart
+  }
+  const colon = text.indexOf(':')
+  if (colon >= 0) {
+    const rest = text.slice(colon + 1).trim()
+    if (isInternalDump(rest) || isUselessErrorText(rest)) {
+      const head = text.slice(0, colon).trim()
+      return head || fallback
+    }
+  }
+  if (isInternalDump(text) || isUselessErrorText(text)) return fallback
+  return text
 }
 
 function metaString(
@@ -218,7 +247,7 @@ export function notificationFacingTitle(notification: AppNotification): string {
   if (/system update failed/i.test(raw)) return t.noticeUpdaterFailed
   if (/system update needs/i.test(raw)) return t.noticeUpdaterNeedsManual
   if (!raw || isUselessErrorText(raw)) return t.noticeTapp
-  const mapped = userFacingError(raw, t.noticeTapp)
+  const mapped = noticeLeftover(raw, t.noticeTapp)
   return mapped === raw ? raw : mapped
 }
 
@@ -316,7 +345,7 @@ export function notificationFacingBody(notification: AppNotification): string {
   }
   if (notification.notification_type === 'tapp_notification') {
     return SCHEDULED_TAPP_TITLE.test(notification.title)
-      ? userFacingError(notification.body, notification.body)
+      ? noticeLeftover(notification.body, notification.body)
       : notification.body
   }
   const leftoverPhantasiBody = notification.body.match(/^发现 (\d+) 篇新内容$/)
@@ -324,5 +353,5 @@ export function notificationFacingBody(notification: AppNotification): string {
     return fill(t.noticePhantasiNewItemsBody, { n: Number(leftoverPhantasiBody[1]) })
   }
   if (!notification.body.trim()) return ''
-  return userFacingError(notification.body, notification.body)
+  return noticeLeftover(notification.body, notification.body)
 }

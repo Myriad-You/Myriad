@@ -315,8 +315,18 @@ pub async fn transcribe_bytes(
             (model, result)
         }
         SpeechProviderKind::MiniMax => {
-            let (model, result) = fallback_transcribe_bytes(audio, format, language).await;
-            (model, result)
+            let (executed, model, result) =
+                fallback_transcribe_bytes(audio, format, language).await;
+            let ledger_provider = stt_ledger_provider(provider, executed);
+            note_stt(
+                ledger_provider,
+                &model,
+                audio_len,
+                result.as_deref().unwrap_or(""),
+                result.is_ok(),
+            )
+            .await;
+            return result;
         }
     };
     note_stt(
@@ -328,6 +338,19 @@ pub async fn transcribe_bytes(
     )
     .await;
     result
+}
+
+/// MiniMax ASR is TTS-only; cost must follow the provider that actually ran.
+pub(crate) fn stt_ledger_provider(
+    configured: SpeechProviderKind,
+    executed: Option<SpeechProviderKind>,
+) -> &'static str {
+    match configured {
+        SpeechProviderKind::MiniMax => executed
+            .map(SpeechProviderKind::as_str)
+            .unwrap_or("none"),
+        other => other.as_str(),
+    }
 }
 
 pub(crate) async fn note_tts(provider: &str, model: &str, text: &str, ok: bool) {
@@ -588,7 +611,7 @@ async fn fallback_transcribe_bytes(
     audio: Vec<u8>,
     format: &str,
     language: Option<&str>,
-) -> (String, Result<String, String>) {
+) -> (Option<SpeechProviderKind>, String, Result<String, String>) {
     if let Ok(service) = TencentSpeechService::from_any_configured().await {
         let engine = match language.unwrap_or("zh") {
             code if code.starts_with("en") => "16k_en",
@@ -610,7 +633,7 @@ async fn fallback_transcribe_bytes(
             .await
             .map(|response| response.result.unwrap_or_default())
             .map_err(|e| tencent_message(&e));
-        return (engine.to_string(), result);
+        return (Some(SpeechProviderKind::Tencent), engine.to_string(), result);
     }
     if let Ok(resolved) = fallback_openai_stt().await {
         let filename = format!("speech.{format}");
@@ -621,7 +644,7 @@ async fn fallback_transcribe_bytes(
             .speech_to_text(audio, &filename, mime, &resolved.stt_model, language)
             .await
             .map_err(|e| openai_message(&e));
-        return (model, result);
+        return (Some(SpeechProviderKind::OpenAi), model, result);
     }
     if let Ok(resolved) = fallback_gemini_stt().await {
         let model = resolved.stt_model.clone();
@@ -635,9 +658,10 @@ async fn fallback_transcribe_bytes(
         )
         .await
         .map_err(|e| gemini_message(&e));
-        return (model, result);
+        return (Some(SpeechProviderKind::Gemini), model, result);
     }
     (
+        None,
         "none".to_string(),
         Err("Listening needs Tencent Cloud, OpenAI, or Gemini".to_string()),
     )
@@ -941,6 +965,46 @@ mod tests {
         assert_eq!(
             SpeechProviderKind::parse("minimax"),
             SpeechProviderKind::MiniMax
+        );
+    }
+
+    #[test]
+    fn minimax_asr_ledger_follows_the_executed_provider() {
+        assert_eq!(
+            stt_ledger_provider(
+                SpeechProviderKind::MiniMax,
+                Some(SpeechProviderKind::Tencent)
+            ),
+            "tencent"
+        );
+        assert_eq!(
+            stt_ledger_provider(
+                SpeechProviderKind::MiniMax,
+                Some(SpeechProviderKind::OpenAi)
+            ),
+            "openai"
+        );
+        assert_eq!(
+            stt_ledger_provider(
+                SpeechProviderKind::MiniMax,
+                Some(SpeechProviderKind::Gemini)
+            ),
+            "gemini"
+        );
+        assert_eq!(
+            stt_ledger_provider(SpeechProviderKind::MiniMax, None),
+            "none"
+        );
+        assert_ne!(
+            stt_ledger_provider(
+                SpeechProviderKind::MiniMax,
+                Some(SpeechProviderKind::Tencent)
+            ),
+            "minimax"
+        );
+        assert_eq!(
+            stt_ledger_provider(SpeechProviderKind::Tencent, None),
+            "tencent"
         );
     }
 

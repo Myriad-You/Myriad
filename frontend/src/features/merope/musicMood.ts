@@ -1,7 +1,4 @@
-import { agentService } from '../../services/agent/agentApi'
-import { ApiError } from '../../services/api'
 import { isKnownGuest } from '../../utils/authState'
-import { dispatchMeropeState } from './performanceEvents'
 
 export const MUSIC_MOOD_REPORT_SECONDS = 10 * 60
 const MUSIC_MOOD_MAX_REPORT_SECONDS = 30 * 60
@@ -131,30 +128,39 @@ export function bindMusicMoodListening(): () => void {
       return
     }
     requestInFlight = true
-    void agentService
-      .creditMusicListening(listenedSeconds)
-      .then((result) => {
-        serverQuietUntilMs =
-          Date.now() + Math.max(0, result.nextCreditInSeconds) * 1000
-        if (active && result.credited) {
-          dispatchMeropeState({
-            mood: result.mood,
-            activity: result.activity,
-          })
-        }
-      })
-      .catch((error: unknown) => {
-        if (
-          error instanceof ApiError &&
-          (error.code === 'merope_disabled' || error.code === 'login_required')
-        ) {
-          accumulator.reset()
-          serverQuietUntilMs = Date.now() + DISABLED_RECHECK_MS
-        } else {
-          accumulator.restore(listenedSeconds)
-          serverQuietUntilMs = Date.now() + RETRY_AFTER_FAILURE_MS
-        }
-      })
+    void Promise.all([
+      import('../../services/agent/agentApi'),
+      import('../../services/api'),
+    ])
+      .then(([{ agentService }, { ApiError }]) =>
+        agentService.creditMusicListening(listenedSeconds).then(
+          (result) => {
+            serverQuietUntilMs =
+              Date.now() + Math.max(0, result.nextCreditInSeconds) * 1000
+            if (active && result.credited) {
+              void import('./performanceEvents').then(({ dispatchMeropeState }) => {
+                dispatchMeropeState({
+                  mood: result.mood,
+                  activity: result.activity,
+                })
+              })
+            }
+          },
+          (error: unknown) => {
+            if (
+              error instanceof ApiError &&
+              (error.code === 'merope_disabled' ||
+                error.code === 'login_required')
+            ) {
+              accumulator.reset()
+              serverQuietUntilMs = Date.now() + DISABLED_RECHECK_MS
+            } else {
+              accumulator.restore(listenedSeconds)
+              serverQuietUntilMs = Date.now() + RETRY_AFTER_FAILURE_MS
+            }
+          },
+        ),
+      )
       .finally(() => {
         requestInFlight = false
       })

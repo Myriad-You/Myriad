@@ -244,10 +244,11 @@ pub async fn cancel_tapp_ai_tasks(subject_id: i32, tapp_id: &str) -> usize {
     local.max(shared)
 }
 
-/// Cancel all tasks for a tapp_id (any subject).
-pub async fn cancel_all_tapp_ai_tasks(tapp_id: &str) -> usize {
-    let local = cancel_matching_local(|task| task.tapp_id == tapp_id).await;
-    let shared = cancel_shared(None, Some(tapp_id), |_| true).await;
+/// Cancel all tasks for one install owner+tapp_id (any subject).
+pub async fn cancel_all_tapp_ai_tasks(owner_id: i32, tapp_id: &str) -> usize {
+    let local =
+        cancel_matching_local(|task| task.owner_id == owner_id && task.tapp_id == tapp_id).await;
+    let shared = cancel_shared(None, Some(tapp_id), |task| task.owner_id == owner_id).await;
     local.max(shared)
 }
 

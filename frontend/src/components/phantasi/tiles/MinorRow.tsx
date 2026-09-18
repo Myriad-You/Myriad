@@ -19,6 +19,8 @@ interface MinorRowProps {
   scale: number
   fontScale: number
   dim?: MinorDim
+  titleSize?: number
+  metaSize?: number
   /** 必须 stopPropagation，否则会点开整卡。 */
   onClick?: () => void
 }
@@ -30,6 +32,8 @@ export const MinorRow = memo(
     scale,
     fontScale,
     dim = 0,
+    titleSize = T_MINOR,
+    metaSize = T_META,
     onClick,
   }: MinorRowProps) => {
     const handleClick = onClick
@@ -59,14 +63,14 @@ export const MinorRow = memo(
       >
         <span
           className={`min-w-0 flex-1 truncate ${DIM_CLASS[dim]}`}
-          style={{ fontSize: fs(T_MINOR, fontScale), lineHeight: 1.35 }}
+          style={{ fontSize: fs(titleSize, fontScale), lineHeight: 1.35 }}
         >
           {title}
         </span>
         {time ? (
           <span
             className="shrink-0 text-gray-400 dark:text-gray-500"
-            style={{ fontSize: fs(T_META, fontScale), lineHeight: 1 }}
+            style={{ fontSize: fs(metaSize, fontScale), lineHeight: 1 }}
           >
             {time}
           </span>

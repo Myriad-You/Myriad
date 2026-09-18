@@ -174,13 +174,7 @@ pub(crate) async fn enqueue_delivery_queue(
 }
 
 fn validate_delivery_activity_id(activity_id: i32) -> Result<i32, String> {
-    if activity_id > 0 {
-        Ok(activity_id)
-    } else {
-        Err(format!(
-            "federation activity INSERT returned non-positive id {activity_id}"
-        ))
-    }
+    crate::federation::types::require_positive_id(Some(activity_id))
 }
 
 /// If inbox is `{base}/users/{username}/inbox`, return username.

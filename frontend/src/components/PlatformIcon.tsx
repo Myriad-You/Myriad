@@ -10,7 +10,7 @@ import {
   SiNeteasecloudmusic,
   SiPlaystation,
   SiYoutube,
-} from '@lib/icons'
+} from '@lib/platformBrandIcons'
 
 import React, { useMemo } from 'react'
 import { getPlatformBrandColor } from '../utils/platformBrand'

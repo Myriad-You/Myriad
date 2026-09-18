@@ -8,7 +8,7 @@ import { currentCopy } from '../i18n/localeCopy'
 import {
   registerActionHandler,
   unregisterActionHandler,
-} from '../services/agent'
+} from '../services/agent/frontendActions'
 import { phantasiSubject } from '../utils/phantasiSubject'
 import { useMusicPlayerControl } from './MusicPlayerContext'
 

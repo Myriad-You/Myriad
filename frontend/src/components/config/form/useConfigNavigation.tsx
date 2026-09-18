@@ -15,6 +15,7 @@ import MyriadConfigIcon from '../MyriadConfigIcon'
 import {
   CONFIG_NAV_DEFAULT_SECTION,
   loadConfigNavPersisted,
+  federationSettingsVisible,
   resolveConfigSectionFromSearch,
   resolveInitialConfigSection,
   saveConfigNavPersisted,
@@ -25,17 +26,21 @@ import { configSectionCatalog } from './configSections'
 import { LEGACY_CONFIG_SECTION_MAP, loadConfigFavorites } from './defaults'
 import { useConfigDomain } from './useConfigDomain'
 
-export function useConfigNavigation(isAdmin: boolean, t: ConfigSectionCopy) {
+export function useConfigNavigation(
+  isAdmin: boolean,
+  t: ConfigSectionCopy,
+  federationEnabled = true,
+) {
   const navigate = useNavigate()
   const [activeSection, setActiveSection] = useState(() =>
-    resolveInitialConfigSection(isAdmin),
+    resolveInitialConfigSection(isAdmin, federationEnabled),
   )
   const [sectionDir, setSectionDir] =
     useState<SectionSwitchDirection>('forward')
   const [mobilePane, setMobilePane] = useState<'nav' | 'section'>(() => {
     if (typeof window === 'undefined') return 'nav'
     const stored = loadConfigNavPersisted()
-    const initial = resolveInitialConfigSection(isAdmin)
+    const initial = resolveInitialConfigSection(isAdmin, federationEnabled)
     if (stored?.mobilePane) return stored.mobilePane
     if (initial !== CONFIG_NAV_DEFAULT_SECTION || stored?.section) {
       return 'section'
@@ -73,9 +78,18 @@ export function useConfigNavigation(isAdmin: boolean, t: ConfigSectionCopy) {
   const agentLabel = settingsAgentLabel(t.config.agent, personaName)
 
   const sections = useMemo(
-    () => configSectionCatalog(t, isAdmin, agentLabel),
-    [t, isAdmin, agentLabel],
+    () => configSectionCatalog(t, isAdmin, agentLabel, federationEnabled),
+    [t, isAdmin, agentLabel, federationEnabled],
   )
+
+  useEffect(() => {
+    if (
+      activeSection === 'federation' &&
+      !federationSettingsVisible(isAdmin, federationEnabled)
+    ) {
+      setActiveSection(CONFIG_NAV_DEFAULT_SECTION)
+    }
+  }, [activeSection, federationEnabled, isAdmin])
   const quickAccessItems: QuickAccessItem[] = useMemo(
     () =>
       sections.map((section) => ({
@@ -178,8 +192,10 @@ export function useConfigNavigation(isAdmin: boolean, t: ConfigSectionCopy) {
         )
         return
       }
-      // non-admin must not land on federation
-      if (next === 'federation' && !isAdmin) {
+      if (
+        next === 'federation' &&
+        !federationSettingsVisible(isAdmin, federationEnabled)
+      ) {
         return
       }
       const guidePath = options?.guidePath?.trim() || null
@@ -213,14 +229,18 @@ export function useConfigNavigation(isAdmin: boolean, t: ConfigSectionCopy) {
         })
       }
     },
-    [quickAccessItems, activeSection, isAdmin, navigate],
+    [quickAccessItems, activeSection, federationEnabled, isAdmin, navigate],
   )
 
   useEffect(() => {
     if (typeof window === 'undefined') return
     const applySectionFromUrl = () => {
       const params = new URLSearchParams(window.location.search)
-      const next = resolveConfigSectionFromSearch(params, isAdmin)
+      const next = resolveConfigSectionFromSearch(
+        params,
+        isAdmin,
+        federationEnabled,
+      )
       if (!next) return
       const known = quickAccessItems.some((item) => item.section === next)
       if (!known) return
@@ -244,7 +264,7 @@ export function useConfigNavigation(isAdmin: boolean, t: ConfigSectionCopy) {
     applySectionFromUrl()
     window.addEventListener('popstate', applySectionFromUrl)
     return () => window.removeEventListener('popstate', applySectionFromUrl)
-  }, [isAdmin, quickAccessItems])
+  }, [federationEnabled, isAdmin, quickAccessItems])
 
   const scrollSettingsToTop = useCallback(() => {
     if (typeof window === 'undefined') return

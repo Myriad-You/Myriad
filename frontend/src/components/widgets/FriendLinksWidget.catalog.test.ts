@@ -9,8 +9,7 @@ const dir = dirname(fileURLToPath(import.meta.url))
 describe('FriendLinksWidget source load', () => {
   it('asks for catalog friend-link sources instead of the full overlay', () => {
     const src = readFileSync(join(dir, 'FriendLinksWidget.tsx'), 'utf8')
-    assert.match(src, /view: 'catalog'/)
-    assert.match(src, /category: 'friends'/)
+    assert.match(src, /fetchFriendLinkSources\(\s*'widget'/)
     assert.doesNotMatch(src, /recent_items|pulses/)
   })
 

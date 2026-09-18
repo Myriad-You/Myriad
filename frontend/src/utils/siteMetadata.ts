@@ -4,13 +4,11 @@ import {
   sanitizeSiteOgImageUrl,
   sanitizeUmamiScriptUrl,
 } from './configUrlPolicy'
-import { configureGoogleAnalytics } from './googleAnalytics'
 import {
   SITE_BRAND_ELEMENT_ID,
   SITE_METADATA_CACHE_KEY,
   SITE_METADATA_CACHE_TIME_KEY,
 } from './siteMetadataKeys'
-import { configureUmami } from './umamiAnalytics'
 
 export interface SiteMetadata {
   site_title: string
@@ -405,8 +403,15 @@ function applyMetadata(metadata: SiteMetadata): void {
   baseMetadata = normalizeMetadata(metadata)
   updateFavicon(baseMetadata.site_favicon)
   applyEffectiveSeo()
-  configureGoogleAnalytics(baseMetadata.ga_measurement_id)
-  configureUmami(baseMetadata.umami_website_id, baseMetadata.umami_script_url)
+  void import('./googleAnalytics').then((m) => {
+    m.configureGoogleAnalytics(baseMetadata.ga_measurement_id)
+  })
+  void import('./umamiAnalytics').then((m) => {
+    m.configureUmami(
+      baseMetadata.umami_website_id,
+      baseMetadata.umami_script_url,
+    )
+  })
   void import('./pwa')
     .then((m) => {
       m.updateManifestBranding({

@@ -23,9 +23,10 @@ pub enum ProviderKind {
 
 /// Per-login secrets for OIDC PKCE + `nonce`.
 ///
-/// Generated at state issuance and embedded in the signed OAuth `state` so any
-/// instance can complete the callback. GitHub and other non-OIDC providers
-/// ignore these fields; Discord platform OAuth keeps its own flow + `oauth_tx`.
+/// Generated at state issuance. The verifier is kept in server-side storage and
+/// the HttpOnly `oauth_pkce` cookie — never in the signed OAuth `state` payload.
+/// GitHub and other non-OIDC providers ignore these fields; Discord platform
+/// OAuth keeps its own flow + `oauth_tx`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthFlowSecrets {
     /// RFC 7636 code_verifier (high entropy). Used for S256 `code_challenge`.

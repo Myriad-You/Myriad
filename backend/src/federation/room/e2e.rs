@@ -296,52 +296,37 @@ pub async fn initiate_e2e_key_exchange(
     ))
     .await
     .map_err(db_err)?;
-    // Commit before fan-out so a peer answering instantly does not block on our lock.
-    txn.commit().await.map_err(db_err)?;
 
     // Skip KeyExchange fan-out when this actor already published the same key
-    // (re-initiate must not double-send to remotes / WS).
-    if already_published {
-        tracing::debug!(
-            "[Room] E2E key already published for {} in room {} — skip fan-out",
-            username,
-            room_id
-        );
-        return Ok(RoomE2eKeyExchangeResponse {
-            success: true,
-            room_id: room_id.to_string(),
-            public_key,
-            algorithm: crate::federation::e2e::E2E_ALGORITHM.to_string(),
-            published_key_count,
+    // (previous successful commit already queued delivery).
+    if !already_published {
+        let activity_id = generate_activity_id(&base_url);
+        let kx_object = crate::federation::e2e::KeyExchangePayload::for_room(
+            room_id,
+            &public_key,
+            Some(now_iso8601()),
+        )
+        .to_json();
+        let kx_activity = json!({
+            "@context": build_context(),
+            "type": "myriad:KeyExchange",
+            "id": &activity_id,
+            "actor": &local_actor,
+            "object": kx_object
         });
+        fanout_to_remote_members(
+            &txn,
+            user_id,
+            room_id,
+            &activity_id,
+            &kx_activity,
+            "KeyExchange",
+            "KeyExchange",
+        )
+        .await
+        .map_err(db_err)?;
     }
-
-    // 3) Fan-out KeyExchange activity
-    let activity_id = generate_activity_id(&base_url);
-    let kx_object = crate::federation::e2e::KeyExchangePayload::for_room(
-        room_id,
-        &public_key,
-        Some(now_iso8601()),
-    )
-    .to_json();
-    let kx_activity = json!({
-        "@context": build_context(),
-        "type": "myriad:KeyExchange",
-        "id": &activity_id,
-        "actor": &local_actor,
-        "object": kx_object
-    });
-
-    let _ = fanout_to_remote_members(
-        db,
-        user_id,
-        room_id,
-        &activity_id,
-        &kx_activity,
-        "KeyExchange",
-        "KeyExchange",
-    )
-    .await;
+    txn.commit().await.map_err(db_err)?;
 
     crate::federation::ws_gateway::broadcast_to_room(
         room_id,

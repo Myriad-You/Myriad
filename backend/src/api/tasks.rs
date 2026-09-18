@@ -66,16 +66,8 @@ pub async fn submit_task(
     }
 
     // 提交任务到后台处理器
-    match BACKGROUND_PROCESSOR.submit_task(platform.clone()).await {
+    match submit_and_start_platform_task(platform.clone()).await {
         Ok(task_id) => {
-            // 在后台异步执行处理
-            let task_id_clone = task_id.clone();
-            let platform_clone = platform.clone();
-
-            tokio::spawn(async move {
-                process_platform_task(task_id_clone, platform_clone).await;
-            });
-
             (
                 StatusCode::ACCEPTED,
                 Json(json!({
@@ -187,6 +179,19 @@ pub async fn list_tasks(State(_db): State<DatabaseConnection>) -> (StatusCode, J
     )
 }
 
+/// Submit a platform task and start the unique executor.
+///
+/// HTTP and Agent share this so a new Pending record always has one worker.
+/// `process_platform_task` claims via `try_start_task`, so extra spawns are no-ops.
+pub(crate) async fn submit_and_start_platform_task(platform: String) -> Result<String, String> {
+    let task_id = BACKGROUND_PROCESSOR.submit_task(platform.clone()).await?;
+    let task_id_clone = task_id.clone();
+    tokio::spawn(async move {
+        process_platform_task(task_id_clone, platform).await;
+    });
+    Ok(task_id)
+}
+
 /// 后台处理函数
 async fn process_platform_task(task_id: String, platform: String) {
     if !BACKGROUND_PROCESSOR.try_start_task(&task_id).await {
@@ -278,5 +283,30 @@ mod tests {
         assert!(is_task_supported_platform("github"));
         assert!(!is_task_supported_platform("not-a-platform"));
         assert!(TASK_SUPPORTED_PLATFORMS.contains(&"youtube"));
+    }
+
+    #[tokio::test]
+    async fn submit_and_start_claims_pending_instead_of_leaving_it() {
+        let platform = format!("tapp-cluster-{}", uuid::Uuid::new_v4().simple());
+        let task_id = submit_and_start_platform_task(platform)
+            .await
+            .expect("submit");
+        let mut task = None;
+        for _ in 0..50 {
+            task = BACKGROUND_PROCESSOR.get_task_status(&task_id).await;
+            if task
+                .as_ref()
+                .is_some_and(|t| t.status != crate::services::background_processor::TaskStatus::Pending)
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        let task = task.expect("task record");
+        assert_ne!(
+            task.status,
+            crate::services::background_processor::TaskStatus::Pending,
+            "unique executor must leave Pending"
+        );
     }
 }

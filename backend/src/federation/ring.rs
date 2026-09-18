@@ -50,33 +50,26 @@ async fn resolve_user_id(
         .await
         .map_err(db_err)?;
 
-    match row.and_then(|r| r.try_get::<i32>("", "id").ok()) {
-        Some(uid) => Ok(uid),
-        None => {
-            // 回退：单用户实例可能用户名不匹配，取第一个用户
-            let fallback = db
-                .query_one_raw(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    "SELECT id FROM users ORDER BY id LIMIT 1",
-                    [],
-                ))
-                .await
-                .map_err(db_err)?
-                .ok_or_else(|| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(AppError::public_json("No local users found")),
-                    )
-                })?;
-            fallback.try_get("", "id").map_err(|e| {
-                tracing::error!("Failed to read local user id: {e}");
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": "Database error", "code": "database_error"})),
-                )
-            })
-        }
+    match user_id_from_username_row(row.and_then(|r| r.try_get::<i32>("", "id").ok())) {
+        Ok(uid) => Ok(uid),
+        Err(_) => Err((
+            StatusCode::NOT_FOUND,
+            Json(AppError::public_json("Local user not found")),
+        )),
     }
+}
+
+/// Username lookup miss is not another subject's id.
+pub fn user_id_from_username_row(id: Option<i32>) -> Result<i32, ()> {
+    match id {
+        Some(uid) if uid > 0 => Ok(uid),
+        _ => Err(()),
+    }
+}
+
+/// INSERT ON CONFLICT DO NOTHING: only newly written rows count as imported.
+pub fn timeline_import_delta(rows_affected: u64) -> u32 {
+    u32::from(rows_affected > 0)
 }
 
 // 请求/响应类型
@@ -1494,10 +1487,13 @@ pub async fn handle_ring_sync(
         .await
         .map_err(|e| e.to_string())?
         .and_then(|r| r.try_get("", "id").ok())
-        .unwrap_or(1);
+        .ok_or_else(|| "No local users found".to_string())?;
+    let first_user = user_id_from_username_row(Some(first_user))
+        .map_err(|_| "No local users found".to_string())?;
 
     // 处理收到的条目 — 存入 Timeline
     let mut imported = 0;
+    let mut newly_imported: Vec<&serde_json::Value> = Vec::new();
     for entry in &entries {
         let entry_type = entry
             .get("type")
@@ -1513,40 +1509,30 @@ pub async fn handle_ring_sync(
             continue;
         }
 
-        // 去重：检查是否已有此 activity
-        let exists = db
-            .query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT 1 FROM federation_timeline WHERE activity_id = $1",
-                [activity_id_val.into()],
-            ))
-            .await
-            .map_err(|e| e.to_string())?;
-
-        if exists.is_some() {
-            continue;
-        }
-
-        // Prefer human-readable title/name for phantasi (and similar) entries
         let preview = ring_entry_content_preview(entry_type, &data, actor_url_str);
 
-        db.execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"INSERT INTO federation_timeline
+        let inserted = db
+            .execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                r#"INSERT INTO federation_timeline
                (user_id, activity_id, activity_type, object_type, content_preview, content_json, received_at)
                VALUES ($1, $2, 'Create', $3, $4, $5, NOW())
                ON CONFLICT (user_id, activity_id) DO NOTHING"#,
-            [
-                first_user.into(),
-                activity_id_val.into(),
-                entry_type.into(),
-                preview.into(),
-                data.into(),
-            ],
-        ))
-        .await
-        .map_err(|e| e.to_string())?;
-        imported += 1;
+                [
+                    first_user.into(),
+                    activity_id_val.into(),
+                    entry_type.into(),
+                    preview.into(),
+                    data.into(),
+                ],
+            ))
+            .await
+            .map_err(|e| e.to_string())?;
+        let delta = timeline_import_delta(inserted.rows_affected());
+        if delta > 0 {
+            imported += delta;
+            newly_imported.push(entry);
+        }
     }
 
     // 更新 last_sync_at 和确保 peer 在列表中
@@ -1604,8 +1590,7 @@ pub async fn handle_ring_sync(
                 .unwrap_or_default();
 
             if !forward_peers.is_empty() {
-                // 转发入站 entries 的前 imported 条（原数组前缀，不是已导入集合）
-                let new_entries: Vec<&serde_json::Value> = entries.iter().take(imported).collect();
+                let new_entries: Vec<&serde_json::Value> = newly_imported.clone();
                 let base_url = get_base_url().await;
 
                 // 选取最多 fanout 个 peer
@@ -1766,6 +1751,36 @@ mod tests {
         assert_eq!(s3, "from content");
         let s4 = phantasi_ring_summary(None, None);
         assert_eq!(s4, "");
+    }
+
+    #[test]
+    fn username_miss_is_not_lowest_user_id() {
+        assert!(user_id_from_username_row(None).is_err());
+        assert!(user_id_from_username_row(Some(0)).is_err());
+        assert_eq!(user_id_from_username_row(Some(7)).unwrap(), 7);
+    }
+
+    #[test]
+    fn timeline_import_counts_only_written_rows() {
+        assert_eq!(timeline_import_delta(0), 0);
+        assert_eq!(timeline_import_delta(1), 1);
+        assert_eq!(timeline_import_delta(2), 1);
+    }
+
+    #[test]
+    fn resolve_user_id_has_no_lowest_id_fallback() {
+        let src = include_str!("ring.rs");
+        let resolve = src
+            .split("async fn resolve_user_id(")
+            .nth(1)
+            .expect("resolve_user_id")
+            .split("pub struct CreateRingRequest")
+            .next()
+            .unwrap();
+        assert!(
+            !resolve.contains("ORDER BY id LIMIT 1"),
+            "admin username miss must not bind the lowest user id"
+        );
     }
 
     #[test]

@@ -1,21 +1,28 @@
 import type { WidgetComponentProps } from '../widgetGridTypes'
 import {
+  AnimatePresenceShim as AnimatePresence,
+  motionShim as motion,
+} from '@lib/motionShim'
+import {
   FaGithub,
   FaSteam,
   FaXTwitter,
-  getIconByName,
   SiBangumi,
   SiBilibili,
   SiMyanimelist,
   SiNeteasecloudmusic,
   SiYoutube,
-} from '@lib/icons'
-import {
-  AnimatePresenceShim as AnimatePresence,
-  motionShim as motion,
-} from '@lib/motionShim'
+} from '@lib/platformBrandIcons'
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import { createPortal } from 'react-dom'
 import { API_URL } from '../../config'
 import { useI18n } from '../../contexts/I18nContext'
@@ -23,6 +30,13 @@ import { useLoopAnimation } from '../../hooks/animation'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { useWidgetSize } from '../../hooks/useWidgetSize'
 import { currentCopy } from '../../i18n/localeCopy'
+import {
+  namedIconVersion,
+  peekNamedIcon,
+  requestNamedIcon,
+  subscribeNamedIcons,
+} from '../../lib/namedIconCatalog'
+import { armWidgetSettingsHost } from '../../lib/widgetSettingsHost'
 import { getCSRFToken } from '../../utils/csrf'
 import {
   clearDedupCache,
@@ -402,11 +416,15 @@ function customPlatformToPlatformInfo(
   if (cached) platformInfoCache.delete(custom.id)
 
   let icon: React.ReactNode
+  let iconPending = false
 
   if (custom.iconName) {
-    const IconComponent = getIconByName(custom.iconName)
+    requestNamedIcon(custom.iconName)
+    const IconComponent = peekNamedIcon(custom.iconName)
     if (IconComponent) {
       icon = <IconComponent className="w-full h-full" aria-hidden="true" />
+    } else if (IconComponent === undefined) {
+      iconPending = true
     }
   }
 
@@ -446,12 +464,14 @@ function customPlatformToPlatformInfo(
     isCustom: true,
   }
 
-  platformInfoCache.delete(custom.id)
-  platformInfoCache.set(custom.id, { info, timestamp: now })
-  while (platformInfoCache.size > MAX_PLATFORM_INFO_CACHE) {
-    const oldest = platformInfoCache.keys().next().value
-    if (oldest === undefined) break
-    platformInfoCache.delete(oldest)
+  if (!iconPending) {
+    platformInfoCache.delete(custom.id)
+    platformInfoCache.set(custom.id, { info, timestamp: now })
+    while (platformInfoCache.size > MAX_PLATFORM_INFO_CACHE) {
+      const oldest = platformInfoCache.keys().next().value
+      if (oldest === undefined) break
+      platformInfoCache.delete(oldest)
+    }
   }
 
   return info
@@ -484,6 +504,7 @@ function openSettingsModal(
   anchorRect: DOMRect,
   onSelect: (platformId: string) => void,
 ) {
+  armWidgetSettingsHost()
   globalModalState = {
     isOpen: true,
     selectedPlatformId,
@@ -1296,6 +1317,11 @@ export const SocialNetworkWidget = memo(
     )
     const anim = useAnimationLevel()
     const { t } = useI18n()
+    useSyncExternalStore(
+      subscribeNamedIcons,
+      namedIconVersion,
+      namedIconVersion,
+    )
 
     const { isAnimating } = useLoopAnimation({
       duration: 600,

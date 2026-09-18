@@ -1,5 +1,5 @@
 import { currentCopy } from '../i18n/localeCopy'
-import { userFacingError } from '../utils/userFacingError'
+import { formatUserFacingError } from '../utils/formatUserFacingError'
 import apiService from './api'
 
 export const NOTIFICATION_SOURCE_KEYS = [
@@ -164,7 +164,7 @@ export const notificationPreferencesApi = {
     }>(BASE, preferences)
     if (!response.success || !response.preferences) {
       throw new Error(
-        userFacingError(
+        await formatUserFacingError(
           response.message,
           currentCopy().errors.notificationPrefsSaveFailed,
         ),

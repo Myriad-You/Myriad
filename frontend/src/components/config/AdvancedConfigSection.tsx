@@ -6,6 +6,7 @@ import {
   FaTimes,
   LuDownload,
   LuMemoryStick,
+  LuPin,
   LuRefreshCw,
   LuUpload,
 } from '@lib/icons'
@@ -246,6 +247,8 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
   const isProxyEnabled = getUiFieldValue('proxy_enabled') === 'true'
   const isMemorySaverEnabled =
     getUiFieldValue('memory_saver_enabled') === 'true'
+  const isPreciseLocationEnabled =
+    getUiFieldValue('precise_location_enabled') === 'true'
   const closeImportConfirm = useCallback(() => {
     setImportConfirmOpen(false)
     setPendingImportData(null)
@@ -423,6 +426,28 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
           value={isMemorySaverEnabled}
           onChange={(v) =>
             updateUiFieldValue('memory_saver_enabled', v.toString())
+          }
+          layout="horizontal"
+        />
+      </SettingGroup>
+
+      <SettingGroup
+        title={t.config.preciseLocationGroup}
+        description={t.config.preciseLocationGroupDesc}
+        {...bindGuide('advanced.preciseLocation', g.advanced.preciseLocation)}
+        icon={<LuPin />}
+      >
+        <SwitchItem
+          itemKey="precise_location_enabled"
+          label={t.config.preciseLocation}
+          description={t.config.preciseLocationHint}
+          {...bindGuide(
+            'advanced.preciseLocationEnable',
+            g.advanced.preciseLocationEnable,
+          )}
+          value={isPreciseLocationEnabled}
+          onChange={(v) =>
+            updateUiFieldValue('precise_location_enabled', v.toString())
           }
           layout="horizontal"
         />

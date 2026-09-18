@@ -235,7 +235,7 @@ fn exit_for_closed_gate() -> anyhow::Result<()> {
     tracing::warn!(
         reason = status.reason,
         country_codes = ?status.country_codes,
-        "Federation worker exiting: egress-location gate closed"
+        "Federation worker exiting: egress-location gate closed (mainland China)"
     );
     Ok(())
 }

@@ -2,18 +2,14 @@
 
 import type { KeyboardEvent, MouseEvent } from 'react'
 import type { PhantasiItemPreview, PhantasiSource } from '../../../types/phantasi'
-import type { WidgetComponentProps } from '../../widgetGridTypes'
 import type { PhantasiTileLayout, PhantasiTileSize } from '../logic/layout'
 
 import type { PhantasiViewerRole } from '../logic/score'
 import { LuExternalLink as ExternalLink } from '@lib/icons'
-import { memo, useCallback, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { memo, useCallback, useMemo } from 'react'
 
-import { useAuth } from '../../../contexts/AuthContext'
-import { useI18n, withI18nNamespace } from '../../../contexts/I18nContext'
+import { useI18n } from '../../../contexts/I18nContext'
 import { isExlight, useAnimationLevel } from '../../../hooks/useAnimationLevel'
-import { useWidgetSize } from '../../../hooks/useWidgetSize'
 import { formatMessage, localeOrFallback } from '../../../i18n'
 import { extractColorsFromLoadedImage } from '../../../utils/colorExtractor'
 import { runWhenIdle } from '../../../utils/yieldToMain'
@@ -23,9 +19,8 @@ import {
   getPlainText,
   normalizeThemeColor,
 } from '../constants'
-import { downgradeForBand, tileLayout } from '../logic/layout'
-import { roleFromAuth, sortByScore } from '../logic/score'
-import { Cadence, CADENCE_WINDOW_DAYS, pulsesFromTimestamps } from './Cadence'
+import { tileLayout } from '../logic/layout'
+import { Cadence, pulsesFromTimestamps } from './Cadence'
 import { MinorRow } from './MinorRow'
 import { TileCover } from './TileCover'
 import { TileHeader, TileMark, TileMeta, TileShell } from './TileShell'
@@ -41,7 +36,6 @@ import {
   T_MINOR,
   T_TITLE,
 } from './tokens'
-import { useWidgetSources } from './useWidgetSources'
 import './rotation.css'
 
 const LIST_PAGE_4X4 = 5
@@ -924,124 +918,3 @@ export const PhantasiSourceTile = memo(
 )
 
 PhantasiSourceTile.displayName = 'PhantasiSourceTile'
-
-export { CADENCE_WINDOW_DAYS }
-
-/** 不新开 GET /source/:id，走 getSources() + find。 */
-const PhantasiSourceWidgetBody = memo(
-  ({ config, isEditMode, isPreview, onConfigChange }: WidgetComponentProps) => {
-    const { t } = useI18n()
-    const navigate = useNavigate()
-    const { isAuthenticated, isAdmin } = useAuth()
-    const role = roleFromAuth(isAuthenticated, isAdmin)
-    const { containerRef, scale, fontScale, viewportBand } = useWidgetSize(
-      config.size,
-      isPreview ? 1 : undefined,
-    )
-    const sources = useWidgetSources(
-      isPreview ?? false,
-      '[PhantasiSourceWidget]',
-    )
-    // 会话内冻结时钟。
-    const [now] = useState(() => Date.now())
-
-    const sourceId = config.config?.sourceId as number | undefined
-
-    const persist = useCallback(
-      (nextId: number) => {
-        const payload = { ...config.config, sourceId: nextId }
-        if (typeof onConfigChange === 'function') {
-          onConfigChange(payload)
-        } else {
-          window.dispatchEvent(
-            new CustomEvent('widget-config-update', {
-              detail: { widgetId: config.id, config: payload },
-            }),
-          )
-        }
-      },
-      [config.config, config.id, onConfigChange],
-    )
-
-    const size = downgradeForBand(config.size as PhantasiTileSize, viewportBand)
-    const source = sourceId
-      ? sources.find((s) => s.id === sourceId)
-      : isPreview
-        ? sortByScore(sources, role, now)[0]
-        : undefined
-    const locked = isEditMode || isPreview
-
-    if (!source) {
-      const pickable = isEditMode && !isPreview && sources.length > 0
-      return (
-        <TileShell
-          color={DEFAULT_THEME_COLOR}
-          scale={scale}
-          containerRef={containerRef}
-          glow="none"
-          contentClassName={
-            pickable
-              ? 'flex min-h-0 flex-col overflow-y-auto'
-              : 'flex min-h-0 items-center justify-center'
-          }
-        >
-          {pickable ? (
-            sources.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-left hover:bg-black/4 dark:hover:bg-white/6"
-                style={{ fontSize: fs(T_MINOR, fontScale) }}
-                onClick={() => persist(s.id)}
-              >
-                <TileMark
-                  name={s.name}
-                  color={normalizeThemeColor(s.theme_color)}
-                  scale={scale}
-                  icon={getIconUrl(s.icon)}
-                />
-                <span className="min-w-0 flex-1 truncate text-gray-700 dark:text-gray-200">
-                  {s.name}
-                </span>
-              </button>
-            ))
-          ) : (
-            <span
-              className="text-center text-gray-400 dark:text-gray-500"
-              style={{ fontSize: fs(T_MINOR, fontScale), lineHeight: 1.5 }}
-            >
-              {t.phantasi.emptyNoSources}
-            </span>
-          )}
-        </TileShell>
-      )
-    }
-
-    return (
-      <div
-        className="h-full w-full"
-        style={locked ? { pointerEvents: 'none' } : undefined}
-      >
-        <PhantasiSourceTile
-          source={source}
-          size={size}
-          role={role}
-          now={now}
-          scale={scale}
-          fontScale={fontScale}
-          containerRef={containerRef}
-          onOpenSource={
-            locked ? undefined : (s) => navigate('/journal', { state: { journalSourceId: s.id } })
-          }
-        />
-      </div>
-    )
-  },
-)
-
-PhantasiSourceWidgetBody.displayName = 'PhantasiSourceWidgetBody'
-
-export const PhantasiSourceWidget = withI18nNamespace(
-  ['phantasi'],
-  PhantasiSourceWidgetBody,
-)

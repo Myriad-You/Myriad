@@ -5,20 +5,20 @@ import type {
   RecentTappItem,
   TappListItem,
 } from '../../tapp/services/TappLifecycleApi'
+import { MyriadStoreIcon } from '@lib/brandIcons'
 import {
-  FaGithub,
   LuChevronLeft,
   LuCrown,
   LuLink,
   LuUser,
   LuX,
-  MyriadStoreIcon,
-} from '@lib/icons'
+} from '@lib/chromeStrokeIcons'
+import { FaGithub } from '@lib/platformBrandIcons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useNavigate } from 'react-router-dom'
 import { API_URL } from '../../config'
-import { useI18n } from '../../contexts/I18nContext'
+import { useI18n, withI18nNamespace } from '../../contexts/I18nContext'
 import { TappIconBadge } from '../../tapp/components/TappIconBadge'
 import { getRecentTapps, listTapps } from '../../tapp/services/TappLifecycleApi'
 import { resolveManifestText } from '../../tapp/utils/manifestLocale'
@@ -114,7 +114,7 @@ function UserModalPageHead({
   )
 }
 
-export const UserModal: FC<UserModalProps> = ({
+const UserModalBody: FC<UserModalProps> = ({
   user,
   userInfo,
   isClosing,
@@ -1108,5 +1108,7 @@ export const UserModal: FC<UserModalProps> = ({
     </div>
   )
 }
+
+export const UserModal = withI18nNamespace(['tapp'], UserModalBody)
 
 export default UserModal

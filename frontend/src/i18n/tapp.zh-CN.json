@@ -465,7 +465,7 @@
   "storeCannotEditOfficialUrl": "无法修改官方商店的地址",
   "storeUrlExists": "该商店源地址已存在",
   "storeInvalidIndex": "商店索引格式无效",
-  "storeFederationUnavailable": "此服务器所在地区不支持下载或安装联邦应用。",
+  "storeFederationUnavailable": "该地区不支持联邦。",
   "storeDownloadFailed": "下载模块失败：{name}",
   "storeVersionMismatch": "商店目录版本是 {catalog}，安装包是 {manifest}。请刷新商店后再试。",
   "storeAddFailed": "添加商店源失败",

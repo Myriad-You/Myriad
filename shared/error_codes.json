@@ -111,6 +111,7 @@
     "No valid report found": "no_valid_report",
     "Failed to persist steering": "steering_unavailable",
     "Agent persona is disabled": "merope_disabled",
+    "Federation is not supported in this region": "federation_disabled_region",
     "Explicit consent is required": "consent_required",
     "YouTube upstream failed": "youtube_upstream_failed",
     "Invalid MCP config": "mcp_config_invalid",
@@ -121,6 +122,8 @@
     "Schema ensure failed": "schema_ensure_failed"
   },
   "leftovers": {
+    "Federation is disabled on this instance": "federation_disabled_region",
+    "Federation apps cannot be downloaded or installed in this server's region": "federation_disabled_region",
     "服务器正在配置模式": "configuration_mode",
     "服务器仍在配置模式": "configuration_mode",
     "分享内容为空": "share_text_empty",
@@ -154,6 +157,10 @@
     "Service in configuration mode": "configuration_mode",
     "Setup already completed": "setup_completed",
     "Failed to persist steering": "steering_unavailable",
+    "Federation is not supported in this region": "federation_disabled_region",
+    "Federation disabled in this region": "federation_disabled_region",
+    "Federation is disabled": "federation_disabled_region",
+    "Federation apps cannot be downloaded": "federation_disabled_region",
     "Failed to fetch playlist": "playlist_fetch_failed",
     "Failed to fetch verbatim playlist": "playlist_fetch_failed",
     "Failed to fetch song detail": "song_fetch_failed",

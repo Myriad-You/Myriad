@@ -295,15 +295,6 @@ async fn install_prepared_package(
     // 所有资源先写入同文件系统的 staging 目录；校验通过后再原子切换。
     let final_tapp_dir = tapp_dir_for(installation_owner_id, &manifest.id)
         .map_err(|error| api_http_error(StatusCode::BAD_REQUEST, error))?;
-    // DB has no conflict row, but uninstall can leave a live dir or lifecycle
-    // artifacts that make activate rename fail with a bare 500.
-    cleanup_reinstall_orphans(
-        &final_tapp_dir,
-        &manifest.id,
-        installation_owner_id,
-        user_id,
-        None,
-    );
     let stage = TappDirStage::create(&final_tapp_dir)
         .await
         .map_err(|error| {
@@ -388,8 +379,8 @@ async fn install_prepared_package(
         ));
     }
 
-    // Re-clean under the lifecycle lock so a leftover live path cannot race
-    // activate after the unlocked pre-stage cleanup.
+    // Clean leftover live/uninstall artifacts under the lifecycle lock.
+    // Staging dirs are skipped: they may belong to a concurrent install.
     cleanup_reinstall_orphans(
         &final_tapp_dir,
         &manifest.id,
@@ -511,7 +502,8 @@ async fn install_prepared_package(
     }
     activated.commit().await;
     // Runtime grants and declared-API cache are keyed by tapp_id, not owner.
-    crate::api::tapp_runtime::revoke_all_tapp_runtime_grants(db, &manifest.id).await;
+    crate::api::tapp_runtime::revoke_all_tapp_runtime_grants(db, installation_owner_id, &manifest.id)
+        .await;
     crate::api::tapp_runtime::invalidate_tapp_apis_cache(&manifest.id).await;
 
     // List projection: services::tapp_catalog (install contract forces status=installed).
@@ -878,7 +870,7 @@ pub(super) async fn update_tapp(
     activated.commit().await;
 
     // Code or approved/granted columns may have changed; drop runtime grants.
-    crate::api::tapp_runtime::revoke_all_tapp_runtime_grants(&db, &tapp_id).await;
+    crate::api::tapp_runtime::revoke_all_tapp_runtime_grants(&db, target_owner_id, &tapp_id).await;
 
     // manifest 已更新，清除 API 解析缓存
     crate::api::tapp_runtime::invalidate_tapp_apis_cache(&tapp_id).await;

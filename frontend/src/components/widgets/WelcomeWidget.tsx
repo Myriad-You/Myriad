@@ -1,5 +1,5 @@
 import type { WidgetComponentProps } from '../widgetGridTypes'
-import { MyriadStoreIcon } from '@lib/icons'
+import { MyriadStoreIcon } from '@lib/brandIcons'
 import {
   AnimatePresenceShim as AnimatePresence,
   motionShim as motion,

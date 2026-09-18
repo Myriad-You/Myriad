@@ -164,6 +164,8 @@ export interface SettingGuidesCatalog {
   advanced: {
     memorySaver: SettingGuideEntry
     memorySaverEnable: SettingGuideEntry
+    preciseLocation: SettingGuideEntry
+    preciseLocationEnable: SettingGuideEntry
     network: SettingGuideEntry
     proxyEnable: SettingGuideEntry
     proxyUrl: SettingGuideEntry

@@ -4,6 +4,7 @@ import { describe, it } from 'node:test'
 import {
   isTrustedIframeHost,
   processRssContent,
+  processRssContentAsync,
   sanitizeRssHtml,
   selfCheckSanitize,
   stripUntrustedIframes,
@@ -134,6 +135,13 @@ describe('processRssContent', () => {
   it('selfCheckSanitize passes', () => {
     const failures = selfCheckSanitize()
     assert.deepEqual(failures, [])
+  })
+
+  it('async pipeline matches the sync result', async () => {
+    const html =
+      '<blockquote>q</blockquote><script>x</script><p onclick="e">hi</p>'
+      + '<a href="https://example.com">good</a>'
+    assert.equal(await processRssContentAsync(html), processRssContent(html))
   })
 })
 

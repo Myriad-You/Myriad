@@ -3,12 +3,19 @@
 //! `NeteaseService::fetch_playlist` stays fat — platform liked-songs still needs
 //! full tracks. This module is the player-proxy boundary only.
 
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
+use tokio::sync::{Mutex, OwnedMutexGuard, RwLock};
 
 use super::netease_service::{CacheEntry, MUSIC_CACHE};
 use super::netease_utils::ensure_https_url;
+
+static PLAYER_PLAYLIST_LOADS: Lazy<RwLock<HashMap<String, Weak<Mutex<()>>>>> =
+    Lazy::new(|| RwLock::new(HashMap::new()));
 
 pub const PLAYER_PLAYLIST_CACHE_TTL: Duration = Duration::from_secs(604_800);
 pub const PLAYER_PLAYLIST_CACHE_VERSION: &str = "v1";
@@ -87,6 +94,27 @@ pub async fn set_cached_player_playlist(playlist: &PlayerPlaylist) {
             expires_at: Instant::now() + PLAYER_PLAYLIST_CACHE_TTL,
         },
     );
+}
+
+/// Serialize upstream fetches for one player playlist. Callers must re-check
+/// the cache after acquiring this lock so a stampede shares one fat parse.
+pub async fn lock_player_playlist_load(
+    source: PlayerMusicSource,
+    playlist_id: &str,
+) -> OwnedMutexGuard<()> {
+    let key = player_playlist_cache_key(source, playlist_id);
+    let lock = {
+        let mut locks = PLAYER_PLAYLIST_LOADS.write().await;
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        if let Some(lock) = locks.get(&key).and_then(Weak::upgrade) {
+            lock
+        } else {
+            let lock = Arc::new(Mutex::new(()));
+            locks.insert(key, Arc::downgrade(&lock));
+            lock
+        }
+    };
+    lock.lock_owned().await
 }
 
 pub fn project_netease_player_playlist(playlist_id: &str, upstream: &Value) -> PlayerPlaylist {
@@ -426,5 +454,29 @@ mod tests {
         assert_eq!(value["playlistId"], "1");
         assert_eq!(value["source"], "netease");
         assert_eq!(value["songs"][0]["isVip"], true);
+    }
+
+    #[tokio::test]
+    async fn player_playlist_load_lock_serializes_the_same_key() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let inside = Arc::new(AtomicUsize::new(0));
+        let max_inside = Arc::new(AtomicUsize::new(0));
+        let mut tasks = Vec::new();
+        for _ in 0..8 {
+            let inside = inside.clone();
+            let max_inside = max_inside.clone();
+            tasks.push(tokio::spawn(async move {
+                let _guard =
+                    lock_player_playlist_load(PlayerMusicSource::Netease, "25247131").await;
+                let now = inside.fetch_add(1, Ordering::SeqCst) + 1;
+                max_inside.fetch_max(now, Ordering::SeqCst);
+                tokio::time::sleep(Duration::from_millis(15)).await;
+                inside.fetch_sub(1, Ordering::SeqCst);
+            }));
+        }
+        for task in tasks {
+            task.await.unwrap();
+        }
+        assert_eq!(max_inside.load(Ordering::SeqCst), 1);
     }
 }

@@ -14,8 +14,20 @@ import {
 } from './performanceContract'
 import { sanitizeSpeechPhrases } from './speech/phrasePlan'
 
+import {
+  currentMeropeState,
+  writeMeropeState,
+  type MeropeStateEventDetail,
+} from './meropeAffectState'
+
 export const MEROPE_PERFORMANCE_EVENT = 'merope-performance'
 export const MEROPE_STATE_EVENT = 'merope-state'
+
+export {
+  currentMeropeState,
+  resetMeropeState,
+  type MeropeStateEventDetail,
+} from './meropeAffectState'
 
 export interface MeropePerformanceEventDetail {
   text: string
@@ -25,21 +37,6 @@ export interface MeropePerformanceEventDetail {
   generation?: number
   motionIntentId?: string
   performance?: PerformanceDirective
-}
-
-export interface MeropeStateEventDetail {
-  mood: MoodTransition
-  activity: string
-}
-
-let currentState: MeropeStateEventDetail | null = null
-
-export function currentMeropeState(): MeropeStateEventDetail | null {
-  return currentState
-}
-
-export function resetMeropeState(): void {
-  currentState = null
 }
 
 /** A slow GET must not undo a newer live event */
@@ -66,10 +63,11 @@ export function resolveLoadedMeropeAffect(snapshot: {
     },
     activity: snapshot.activity ?? 'idle',
   })
-  if (currentState && currentState.mood.revision > revision) {
+  const live = currentMeropeState()
+  if (live && live.mood.revision > revision) {
     return {
-      mood: currentState.mood.after,
-      arousal: currentState.mood.arousalAfter ?? arousal,
+      mood: live.mood.after,
+      arousal: live.mood.arousalAfter ?? arousal,
     }
   }
   return { mood, arousal }
@@ -127,13 +125,11 @@ export function meropePerformanceEventDetail(
 
 export function dispatchMeropeState(value: unknown): void {
   const detail = meropeStateEventDetail(value)
-  if (
-    !detail ||
-    (currentState && detail.mood.revision <= currentState.mood.revision)
-  ) {
+  const live = currentMeropeState()
+  if (!detail || (live && detail.mood.revision <= live.mood.revision)) {
     return
   }
-  currentState = detail
+  writeMeropeState(detail)
   if (typeof window === 'undefined') return
   window.dispatchEvent(
     new CustomEvent<MeropeStateEventDetail>(MEROPE_STATE_EVENT, {

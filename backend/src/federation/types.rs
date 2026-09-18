@@ -621,6 +621,81 @@ pub fn db_err(e: sea_orm::DbErr) -> (axum::http::StatusCode, axum::Json<serde_js
     )
 }
 
+/// INSERT ... RETURNING id must yield a positive primary key. Missing/0 is not a sentinel.
+pub fn require_positive_id(id: Option<i32>) -> Result<i32, String> {
+    match id {
+        Some(n) if n > 0 => Ok(n),
+        Some(n) => Err(format!("INSERT RETURNING produced non-positive id {n}")),
+        None => Err("INSERT RETURNING id produced no row".into()),
+    }
+}
+
+/// Decode `RETURNING id` from an INSERT row. Missing row or non-positive id is an error.
+pub fn returning_id(row: Option<sea_orm::QueryResult>) -> Result<i32, String> {
+    let id = row.and_then(|r| r.try_get::<i32>("", "id").ok());
+    require_positive_id(id)
+}
+
+pub fn is_unique_violation(err: &sea_orm::DbErr) -> bool {
+    let s = err.to_string().to_lowercase();
+    s.contains("duplicate key") || s.contains("unique constraint") || s.contains("23505")
+}
+
+/// Persist a local ActivityPub/MFP activity and return its database id.
+pub async fn insert_local_activity(
+    db: &impl sea_orm::ConnectionTrait,
+    user_id: i32,
+    activity_id: &str,
+    activity_type: &str,
+    object_type: Option<&str>,
+    object_json: serde_json::Value,
+) -> Result<i32, sea_orm::DbErr> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"INSERT INTO federation_activities
+                   (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
+               VALUES ($1, $2, $3, $4, $5, true, NOW())
+               RETURNING id"#,
+            [
+                activity_id.into(),
+                user_id.into(),
+                activity_type.into(),
+                object_type.into(),
+                object_json.into(),
+            ],
+        ))
+        .await?;
+    returning_id(row).map_err(sea_orm::DbErr::Custom)
+}
+
+/// Enqueue durable outbound delivery for an activity already inserted in the same connection/txn.
+pub async fn enqueue_delivery(
+    db: &impl sea_orm::ConnectionTrait,
+    activity_db_id: i32,
+    target_inbox: &str,
+    status: &str,
+) -> Result<(), sea_orm::DbErr> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let domain = extract_domain(target_inbox).unwrap_or_default();
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        r#"INSERT INTO federation_delivery_queue
+               (activity_id, target_inbox, target_domain, status, created_at)
+           VALUES ($1, $2, $3, $4, NOW())
+           ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
+        [
+            activity_db_id.into(),
+            target_inbox.into(),
+            domain.into(),
+            status.into(),
+        ],
+    ))
+    .await?;
+    Ok(())
+}
+
 /// SSRF 防护：检查 URL 是否指向内网/保留地址
 ///
 /// 阻止联邦模块请求 127.x / 10.x / 172.16-31.x / 192.168.x / [::1] / 169.254.x 等
@@ -1346,5 +1421,24 @@ mod tests {
                 "transport {value}"
             );
         }
+    }
+
+    #[test]
+    fn require_positive_id_rejects_missing_and_non_positive() {
+        assert!(require_positive_id(None).is_err());
+        assert!(require_positive_id(Some(0)).is_err());
+        assert!(require_positive_id(Some(-1)).is_err());
+        assert_eq!(require_positive_id(Some(1)).unwrap(), 1);
+    }
+
+    #[test]
+    fn unique_violation_detects_postgres_duplicate_key() {
+        let dup = sea_orm::DbErr::Custom(
+            "duplicate key value violates unique constraint \"idx_channels_active_relationship\""
+                .into(),
+        );
+        assert!(is_unique_violation(&dup));
+        let other = sea_orm::DbErr::Custom("connection reset".into());
+        assert!(!is_unique_violation(&other));
     }
 }

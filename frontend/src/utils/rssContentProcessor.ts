@@ -2,6 +2,7 @@ import DOMPurify from 'isomorphic-dompurify'
 import { API_URL } from '../config'
 import { currentCopy } from '../i18n/localeCopy'
 import { proxyImageUrl } from './proxyImageUrl'
+import { yieldIfSliceExceeded } from './yieldToMain'
 
 export interface ProcessOptions {
   maxImageWidth?: number
@@ -855,55 +856,66 @@ function processSourceSpecific(html: string, _options: ProcessOptions): string {
   return result
 }
 
+function emptyRssContent(): string {
+  return `<p class="opacity-50">${currentCopy().common.noContent}</p>`
+}
+
+function rssPipeline(
+  opts: ProcessOptions,
+): Array<(html: string) => string> {
+  return [
+    fixMalformedHtml,
+    sanitizeRssHtml,
+    (html) => processSourceSpecific(html, opts),
+    processRssHubSpecific,
+    processSemanticTags,
+    processFigures,
+    processDetails,
+    processDescriptionLists,
+    processTables,
+    (html) => processImages(html, opts),
+    processVideos,
+    processAudio,
+    stripUntrustedIframes,
+    processBlockquotes,
+    processCodeBlocks,
+    processKbd,
+    processMark,
+    processAbbr,
+    processHr,
+    processInlineFormatting,
+    (html) => processLinks(html, opts),
+    (html) => (opts.removeEmptyTags ? removeEmptyTags(html) : html),
+    (html) => html.trim(),
+    sanitizeRssHtml,
+  ]
+}
+
 export function processRssContent(
   html: string,
   options: Partial<ProcessOptions> = {},
 ): string {
+  if (!html || typeof html !== 'string') return emptyRssContent()
   const opts: ProcessOptions = { ...DEFAULT_OPTIONS, ...options }
-
-  if (!html || typeof html !== 'string') {
-    return `<p class="opacity-50">${currentCopy().common.noContent}</p>`
-  }
-
   let result = html
+  for (const step of rssPipeline(opts)) result = step(result)
+  return result
+}
 
-  result = fixMalformedHtml(result)
-
-  result = sanitizeRssHtml(result)
-
-  result = processSourceSpecific(result, opts)
-  result = processRssHubSpecific(result)
-
-  result = processSemanticTags(result)
-  result = processFigures(result)
-  result = processDetails(result)
-  result = processDescriptionLists(result)
-  result = processTables(result)
-
-  result = processImages(result, opts)
-  result = processVideos(result)
-  result = processAudio(result)
-  result = stripUntrustedIframes(result)
-
-  result = processBlockquotes(result)
-  result = processCodeBlocks(result)
-  result = processKbd(result)
-  result = processMark(result)
-  result = processAbbr(result)
-  result = processHr(result)
-  result = processInlineFormatting(result)
-
-  result = processLinks(result, opts)
-
-  if (opts.removeEmptyTags) {
-    result = removeEmptyTags(result)
+export async function processRssContentAsync(
+  html: string,
+  options: Partial<ProcessOptions> = {},
+  signal?: AbortSignal,
+): Promise<string> {
+  if (!html || typeof html !== 'string') return emptyRssContent()
+  const opts: ProcessOptions = { ...DEFAULT_OPTIONS, ...options }
+  const slice = { ms: performance.now() }
+  let result = html
+  for (const step of rssPipeline(opts)) {
+    signal?.throwIfAborted()
+    result = step(result)
+    await yieldIfSliceExceeded(slice)
   }
-  // Do not normalizeWhitespace (breaks HTML).
-  result = result.trim()
-
-  // Presentation rewrites must not reintroduce XSS.
-  result = sanitizeRssHtml(result)
-
   return result
 }
 

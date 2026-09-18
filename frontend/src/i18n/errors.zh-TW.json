@@ -33,6 +33,7 @@
   "federationInitFailed": "這個站點的聯邦身份沒能建立。請再試一次。",
   "federationDataFailed": "聯邦資料沒能載入。",
   "federationKeyRotateFailed": "聯邦金鑰沒能輪換。",
+  "federationDisabledRegion": "該地區不支援聯邦。",
   "model3dFailed": "三維模型沒能生成。請再試一次。",
   "profileTextLoadFailed": "名稱與簡介來源沒能載入。",
   "profileTextSaveFailed": "名稱與簡介來源沒能儲存。",

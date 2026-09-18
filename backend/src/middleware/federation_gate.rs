@@ -11,13 +11,11 @@
 //! invite the retry-with-backoff that 503 does.
 
 use axum::{
-    Json,
     extract::Request,
     http::StatusCode,
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use serde_json::json;
 
 /// Path prefixes owned entirely by federation. A match requires at least one
 /// character after the prefix, so SEO `/library` and `/reports` (and trailing
@@ -83,14 +81,10 @@ pub async fn federation_gate_middleware(req: Request, next: Next) -> Response {
         path,
         "federation request refused: egress-location gate is closed"
     );
-    (
-        StatusCode::NOT_FOUND,
-        Json(json!({
-            "error": "Not Found",
-            "message": "Federation is disabled on this instance",
-        })),
-    )
-        .into_response()
+    crate::error::HttpError(crate::services::federation_gate::disabled_region_app_error(
+        StatusCode::NOT_FOUND.as_u16(),
+    ))
+    .into_response()
 }
 
 #[cfg(test)]

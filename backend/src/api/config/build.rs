@@ -1425,7 +1425,7 @@ pub(crate) async fn build_config(
             // UI        → wallpaper_*, evocative_*, site_*, google_site_verification, cloud_sponsors, pwa_enabled（不含 base_url）
             // Platforms → analytics_enabled, ga_*, umami_*
             // Modules   → music_*, island_show_*
-            // Advanced  → memory_saver_enabled, proxy_*, gemini_base_url, github_api_base_url
+            // Advanced  → memory_saver_enabled, precise_location_enabled, proxy_*, gemini_base_url, github_api_base_url
             // AI        → merope_*
             // base_url 不进 RESET；OAuth 只读拼回调，编辑走 SiteUrlField
             config_fields: vec![
@@ -1878,7 +1878,7 @@ pub(crate) async fn build_config(
                     placeholder: "true".to_string(),
                     required: false,
                 },
-                // 内存节约（高级设置）
+                // 内存节约 / 精确位置（高级设置）
                 ConfigField {
                     key: "memory_saver_enabled".to_string(),
                     label: "Memory saver".to_string(),
@@ -1886,6 +1886,17 @@ pub(crate) async fn build_config(
                     value: db_config
                         .as_ref()
                         .map(|c| c.memory_saver_enabled.to_string())
+                        .unwrap_or_else(|| "false".to_string()),
+                    placeholder: "false".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "precise_location_enabled".to_string(),
+                    label: "Precise location".to_string(),
+                    field_type: "checkbox".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.precise_location_enabled.to_string())
                         .unwrap_or_else(|| "false".to_string()),
                     placeholder: "false".to_string(),
                     required: false,

@@ -1,8 +1,15 @@
 import { currentCopy, formatCurrent } from '../i18n/localeCopy'
-import { resolvePreciseLocation } from './geoLocation'
+import {
+  hasBrowserGeoFix,
+  isPreciseLocationEnabled,
+  resolvePreciseLocation,
+} from './geoLocation'
 import { dedupedFetch } from './requestDedup'
 
 const WEATHER_ICON_BASE = '/icons/weather'
+const WEATHER_CACHE_TTL = 30 * 60 * 1000
+const LAST_WEATHER_KEY = 'weather_data_last'
+const LAST_WEATHER_TIME_KEY = 'weather_time_last'
 
 export const WEATHER_ICON_ASSETS = {
   sunny: `${WEATHER_ICON_BASE}/sunny.webp`,
@@ -45,27 +52,66 @@ export interface WeatherData {
   forecast?: ForecastDay[]
 }
 
-export async function getWeatherInfo(): Promise<WeatherData | null> {
+let weatherInflight: Promise<WeatherData | null> | null = null
+
+function readLastWeather(): WeatherData | null {
   try {
-    const location = await resolvePreciseLocation()
-    if (!location) {
+    const cached = localStorage.getItem(LAST_WEATHER_KEY)
+    const cacheTime = localStorage.getItem(LAST_WEATHER_TIME_KEY)
+    if (!cached || !cacheTime) return null
+    const timestamp = Number.parseInt(cacheTime)
+    if (!Number.isFinite(timestamp) || Date.now() - timestamp >= WEATHER_CACHE_TTL) {
       return null
     }
-
-    const weatherData = await getWeatherDataWithCache({
-      latitude: location.latitude,
-      longitude: location.longitude,
-      city: location.city,
-    })
-    if (!weatherData) {
-      return null
-    }
-
-    return weatherData
-  } catch (error) {
-    console.warn('[天气] 获取失败:', error)
+    return normalizeWeatherIconAssets(JSON.parse(cached))
+  } catch {
     return null
   }
+}
+
+function writeLastWeather(data: WeatherData, timestamp: number): void {
+  try {
+    localStorage.setItem(LAST_WEATHER_KEY, JSON.stringify(data))
+    localStorage.setItem(LAST_WEATHER_TIME_KEY, String(timestamp))
+  } catch {
+  }
+}
+
+export async function getWeatherInfo(): Promise<WeatherData | null> {
+  const cached = readLastWeather()
+  if (cached) {
+    if (!(await isPreciseLocationEnabled()) || hasBrowserGeoFix()) {
+      return cached
+    }
+  }
+  if (weatherInflight) return weatherInflight
+
+  weatherInflight = (async () => {
+    try {
+      const location = await resolvePreciseLocation()
+      if (!location) {
+        return null
+      }
+
+      const weatherData = await getWeatherDataWithCache({
+        latitude: location.latitude,
+        longitude: location.longitude,
+        city: location.city,
+      })
+      if (!weatherData) {
+        return null
+      }
+
+      return weatherData
+    } catch (error) {
+      console.warn('[天气] 获取失败:', error)
+      return null
+    } finally {
+      weatherInflight = null
+    }
+  })()
+
+  return weatherInflight
 }
 
 async function getWeatherDataWithCache(location: {
@@ -82,9 +128,11 @@ async function getWeatherDataWithCache(location: {
   const cacheTime = localStorage.getItem(cacheTimeKey)
 
   if (cached && cacheTime) {
-    const cacheAge = Date.now() - Number.parseInt(cacheTime)
-    if (cacheAge < 30 * 60 * 1000) {
-      return normalizeWeatherIconAssets(JSON.parse(cached))
+    const timestamp = Number.parseInt(cacheTime)
+    if (Number.isFinite(timestamp) && Date.now() - timestamp < WEATHER_CACHE_TTL) {
+      const data = normalizeWeatherIconAssets(JSON.parse(cached))
+      writeLastWeather(data, timestamp)
+      return data
     }
   }
 
@@ -108,8 +156,8 @@ async function getWeatherDataWithCache(location: {
           }
           return response.json()
         },
-        { cacheTTL: 30 * 60 * 1000 },
-      ), // 30 min
+        { cacheTTL: WEATHER_CACHE_TTL },
+      ),
 
       dedupedFetch(
         aqiUrl,
@@ -120,8 +168,8 @@ async function getWeatherDataWithCache(location: {
           if (!response.ok) return null
           return response.json()
         },
-        { cacheTTL: 30 * 60 * 1000 },
-      ).catch(() => null), // AQI failure must not fail weather.
+        { cacheTTL: WEATHER_CACHE_TTL },
+      ).catch(() => null),
     ])
 
     const current = weatherData.current
@@ -163,8 +211,10 @@ async function getWeatherDataWithCache(location: {
       forecast,
     }
 
+    const timestamp = Date.now()
     localStorage.setItem(cacheKey, JSON.stringify(result))
-    localStorage.setItem(cacheTimeKey, Date.now().toString())
+    localStorage.setItem(cacheTimeKey, timestamp.toString())
+    writeLastWeather(result, timestamp)
 
     return result
   } catch (error) {

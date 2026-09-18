@@ -487,7 +487,7 @@ pub async fn ensure_agent_usage_allowed(
         return Ok(true);
     }
 
-    let visibility = crate::services::module_visibility::agent_module_visibility(db).await;
+    let visibility = crate::services::module_visibility::agent_module_visibility(db).await?;
     if visibility == "admin" {
         return Err("Agent is admin only".to_string());
     }
@@ -641,7 +641,13 @@ pub async fn get_user_permissions(
         return permissions;
     }
 
-    let visibility = crate::services::module_visibility::agent_module_visibility(db).await;
+    let visibility = match crate::services::module_visibility::agent_module_visibility(db).await {
+        Ok(visibility) => visibility,
+        Err(error) => {
+            tracing::warn!(%error, "Could not verify Agent module visibility");
+            return HashSet::new();
+        }
+    };
     // 可见性 admin-only 时，非管理员无任何 agent 能力
     if visibility == "admin" {
         return HashSet::new();

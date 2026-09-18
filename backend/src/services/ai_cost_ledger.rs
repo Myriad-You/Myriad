@@ -143,14 +143,25 @@ where
     .await
 }
 
-/// Durable site owner, or `1` when the database is unreachable or `get_admin_user_id` fails.
-pub async fn resolve_site_owner_id() -> i32 {
-    match crate::services::tapp_registry::database() {
-        Ok(db) => crate::services::tapp_ownership::get_admin_user_id(&db)
-            .await
-            .unwrap_or(1),
-        Err(_) => 1,
+/// Map a site-owner lookup onto a billing subject. Errors stay errors and
+/// must not become another real user id.
+pub fn site_owner_id_from_lookup(lookup: Result<Option<i32>, String>) -> Result<i32, String> {
+    match lookup {
+        Ok(Some(id)) => Ok(id),
+        Ok(None) => Err("AI billing owner is not configured".to_string()),
+        Err(error) => Err(error),
     }
+}
+
+/// Durable site owner. Lookup/decode failure is not user `1`.
+pub async fn resolve_site_owner_id() -> Result<i32, String> {
+    let lookup = match crate::services::tapp_registry::database() {
+        Ok(db) => crate::services::tapp_ownership::find_admin_user_id(&db)
+            .await
+            .map_err(|_| "AI billing owner is unavailable".to_string()),
+        Err(_) => Err("AI billing owner is unavailable".to_string()),
+    };
+    site_owner_id_from_lookup(lookup)
 }
 
 fn ledger_write_enabled() -> bool {
@@ -516,5 +527,21 @@ mod tests {
             seen,
             Some((3, "playground".into(), "__playground__".into()))
         );
+    }
+
+    #[test]
+    fn owner_lookup_failure_is_not_user_one() {
+        assert_eq!(
+            super::site_owner_id_from_lookup(Err("db down".into())).unwrap_err(),
+            "db down"
+        );
+        assert!(
+            super::site_owner_id_from_lookup(Ok(None))
+                .unwrap_err()
+                .contains("not configured")
+        );
+        assert_ne!(super::site_owner_id_from_lookup(Err("db down".into())).ok(), Some(1));
+        assert_ne!(super::site_owner_id_from_lookup(Ok(None)).ok(), Some(1));
+        assert_eq!(super::site_owner_id_from_lookup(Ok(Some(42))).unwrap(), 42);
     }
 }

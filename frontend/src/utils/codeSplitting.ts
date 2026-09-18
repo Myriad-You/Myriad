@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react'
 import { lazy } from 'react'
+import { yieldToMain } from './yieldToMain'
 
 export function lazyWithPreload<T extends ComponentType<any>>(
   factory: () => Promise<{ default: T }>,
@@ -26,20 +27,25 @@ export function preloadRoutes(routes: string[]): void {
     return
   }
 
-  const run = () => {
-    routes.forEach((route) => {
+  const run = async () => {
+    for (const route of routes) {
       const component = routeComponents[route as keyof typeof routeComponents]
       if (component && (component as any).preload) {
-        ;(component as any).preload()
+        await (component as any).preload()
+        await yieldToMain()
       }
-    })
+    }
   }
 
   // No requestIdleCallback: fall back to macrotask or hover prefetch never runs.
   if ('requestIdleCallback' in window) {
-    requestIdleCallback(run)
+    requestIdleCallback(() => {
+      void run()
+    })
   } else {
-    setTimeout(run, 0)
+    setTimeout(() => {
+      void run()
+    }, 0)
   }
 }
 

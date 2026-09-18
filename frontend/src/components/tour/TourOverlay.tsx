@@ -1,5 +1,9 @@
 import type { TourPlacement } from './tourLogic'
-import { LuArrowRight, LuCheck, LuChevronLeft } from '@lib/icons'
+import {
+  LuArrowRight,
+  LuCheck,
+  LuChevronLeft,
+} from '@lib/chromeStrokeIcons'
 import {
   useCallback,
   useEffect,

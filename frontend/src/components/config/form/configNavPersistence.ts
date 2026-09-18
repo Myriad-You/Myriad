@@ -30,25 +30,48 @@ export interface ConfigNavPersisted {
   scrollY?: number
 }
 
-function isKnownSection(section: string, isAdmin: boolean): boolean {
-  if (section === 'federation' && !isAdmin) return false
+/** Admin-only, and only while the egress-location gate allows federation. */
+export function federationSettingsVisible(
+  isAdmin: boolean,
+  federationEnabled = true,
+): boolean {
+  return isAdmin && federationEnabled
+}
+
+function isKnownSection(
+  section: string,
+  isAdmin: boolean,
+  federationEnabled = true,
+): boolean {
+  if (
+    section === 'federation' &&
+    !federationSettingsVisible(isAdmin, federationEnabled)
+  ) {
+    return false
+  }
   return (CONFIG_NAV_SECTIONS as readonly string[]).includes(section)
 }
 
 export function normalizeConfigSection(
   raw: string | null | undefined,
   isAdmin: boolean,
+  federationEnabled = true,
 ): string | null {
   if (!raw) return null
   const next = LEGACY_CONFIG_SECTION_MAP[raw] ?? raw
-  return isKnownSection(next, isAdmin) ? next : null
+  return isKnownSection(next, isAdmin, federationEnabled) ? next : null
 }
 
 export function resolveConfigSectionFromSearch(
   params: URLSearchParams,
   isAdmin: boolean,
+  federationEnabled = true,
 ): string | null {
-  return normalizeConfigSection(params.get('section'), isAdmin)
+  return normalizeConfigSection(
+    params.get('section'),
+    isAdmin,
+    federationEnabled,
+  )
 }
 
 export function loadConfigNavPersisted(): ConfigNavPersisted | null {
@@ -110,14 +133,25 @@ export function snapshotConfigNavScroll(): void {
 }
 
 /** URL ?section=, else sessionStorage, else 侧栏第一项 */
-export function resolveInitialConfigSection(isAdmin: boolean): string {
+export function resolveInitialConfigSection(
+  isAdmin: boolean,
+  federationEnabled = true,
+): string {
   if (typeof window === 'undefined') return CONFIG_NAV_DEFAULT_SECTION
   try {
     const params = new URLSearchParams(window.location.search)
-    const fromUrl = resolveConfigSectionFromSearch(params, isAdmin)
+    const fromUrl = resolveConfigSectionFromSearch(
+      params,
+      isAdmin,
+      federationEnabled,
+    )
     if (fromUrl) return fromUrl
     const stored = loadConfigNavPersisted()
-    const fromStore = normalizeConfigSection(stored?.section, isAdmin)
+    const fromStore = normalizeConfigSection(
+      stored?.section,
+      isAdmin,
+      federationEnabled,
+    )
     if (fromStore) return fromStore
   } catch {
     /* ignore */

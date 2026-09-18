@@ -38,6 +38,8 @@ describe('home first-paint budget', () => {
     assert.equal(/import\('\.\/phantasi\./.test(shellFn), false)
     assert.equal(/import\('\.\/merope\./.test(shellFn), false)
     assert.equal(/import\('\.\/config\./.test(shellFn), false)
+    assert.match(app, /AgentPresenceHost/)
+    assert.match(app, /AgentSessionHost/)
   })
 
   it('keeps widget settings and custom fonts off the first paint path', () => {

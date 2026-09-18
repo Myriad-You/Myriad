@@ -54,6 +54,7 @@
 # MYRIAD_DOCKER_NETWORK  可选：业务 Docker 网络名，默认 myriad-net
 # MYRIAD_ADMIN_NETWORK   可选：管理平面网络名，默认 myriad-admin-net
 # MYRIAD_DOCKER_GUARD_NETWORK 可选：updater/guard 专用内部网络名
+# MALLOC_ARENA_MAX       可选：glibc arena 上限，默认 4（避免 8*nCPU x 64MiB 钉死 RSS）
 # ============================================================================
 
 services:
@@ -186,6 +187,8 @@ services:
       BASE_URL: ${BASE_URL:-}
       RUST_LOG: ${RUST_LOG:-info}
       TZ: Asia/Shanghai
+      # glibc arena cap; image default is also 4. Raise only if malloc contention shows up.
+      MALLOC_ARENA_MAX: ${MALLOC_ARENA_MAX:-4}
       # Server-side updater proxy: backend forwards admin-authenticated UI requests
       # to updater-gateway with X-Updater-Gateway-Secret. Gateway injects X-Update-Token;
       # backend does NOT hold UPDATE_TOKEN.

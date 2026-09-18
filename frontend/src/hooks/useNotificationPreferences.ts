@@ -10,8 +10,8 @@ import notificationPreferencesApi, {
   DEFAULT_NOTIFICATION_PREFERENCES,
   NOTIFICATION_PREFERENCES_UPDATED_EVENT,
 } from '../services/notificationPreferencesApi'
+import { formatUserFacingError } from '../utils/formatUserFacingError'
 import { showError } from '../utils/toastManager'
-import { userFacingError } from '../utils/userFacingError'
 
 export function useNotificationPreferences(userId?: number) {
   const [preferences, setPreferences] = useState<NotificationPreferences>(
@@ -45,7 +45,7 @@ export function useNotificationPreferences(userId?: number) {
       console.warn('[Notifications] Failed to load preferences:', error)
       if (userIdRef.current !== requestedUserId) return
       showError(
-        userFacingError(
+        await formatUserFacingError(
           error,
           currentCopy().errors.notificationPrefsLoadFailed,
         ),

@@ -12,6 +12,7 @@ pub const MAX_MAP_OPERATIONS: usize = 50;
 pub enum DataTransformError {
     TooManySteps,
     TooManyMapOps,
+    InvalidStep,
 }
 
 impl DataTransformError {
@@ -19,6 +20,7 @@ impl DataTransformError {
         match self {
             Self::TooManySteps => "TRANSFORM_TOO_MANY_STEPS",
             Self::TooManyMapOps => "TRANSFORM_TOO_MANY_MAP_OPS",
+            Self::InvalidStep => "TRANSFORM_INVALID_STEP",
         }
     }
 
@@ -26,6 +28,7 @@ impl DataTransformError {
         match self {
             Self::TooManySteps => "Too many pipeline steps (max 20)",
             Self::TooManyMapOps => "Too many map operations (max 50)",
+            Self::InvalidStep => "Invalid pipeline step",
         }
     }
 
@@ -437,21 +440,30 @@ pub fn items_from_agent_input(input: Value) -> Vec<Value> {
     }
 }
 
-/// Deserialize free-form pipeline JSON steps.
+/// Deserialize pipeline JSON steps.
 ///
-/// Unknown step shapes are skipped (historical agent `data.transform` behavior
-/// for unrecognized `type` values). Length is still capped at
-/// [`MAX_PIPELINE_STEPS`].
-pub fn parse_pipeline_steps_lenient(
+/// Unknown or malformed steps are rejected. Silently dropping them would
+/// execute a shorter pipeline than the caller submitted.
+pub fn parse_pipeline_steps(
     pipeline: &[Value],
 ) -> Result<Vec<ProcessStep>, DataTransformError> {
     if pipeline.len() > MAX_PIPELINE_STEPS {
         return Err(DataTransformError::TooManySteps);
     }
-    Ok(pipeline
-        .iter()
-        .filter_map(|step| serde_json::from_value(step.clone()).ok())
-        .collect())
+    let mut steps = Vec::with_capacity(pipeline.len());
+    for step in pipeline {
+        let parsed = serde_json::from_value(step.clone())
+            .map_err(|_| DataTransformError::InvalidStep)?;
+        steps.push(parsed);
+    }
+    Ok(steps)
+}
+
+/// Historical name for [`parse_pipeline_steps`]. The boundary is strict.
+pub fn parse_pipeline_steps_lenient(
+    pipeline: &[Value],
+) -> Result<Vec<ProcessStep>, DataTransformError> {
+    parse_pipeline_steps(pipeline)
 }
 
 #[cfg(test)]
@@ -472,6 +484,10 @@ mod tests {
         assert_eq!(maps.code(), "TRANSFORM_TOO_MANY_MAP_OPS");
         assert_eq!(maps.message(), "Too many map operations (max 50)");
         assert_eq!(maps.status_hint(), 400);
+        let invalid = DataTransformError::InvalidStep;
+        assert_eq!(invalid.code(), "TRANSFORM_INVALID_STEP");
+        assert_eq!(invalid.message(), "Invalid pipeline step");
+        assert_eq!(invalid.status_hint(), 400);
     }
 
     #[test]
@@ -613,19 +629,31 @@ mod tests {
         assert!(items_from_agent_input(json!({ "not": "items" })).is_empty());
         assert!(items_from_agent_input(json!("scalar")).is_empty());
 
-        let steps = parse_pipeline_steps_lenient(&[
+        let steps = parse_pipeline_steps(&[
             json!({ "type": "filter", "field": "a", "operator": "eq", "value": 1 }),
-            json!({ "type": "unknown_noop" }),
             json!({ "type": "limit", "count": 5 }),
         ])
         .unwrap();
         assert_eq!(steps.len(), 2);
+        assert_eq!(
+            parse_pipeline_steps(&[
+                json!({ "type": "filter", "field": "a", "operator": "eq", "value": 1 }),
+                json!({ "type": "unknown_noop" }),
+                json!({ "type": "limit", "count": 5 }),
+            ])
+            .unwrap_err(),
+            DataTransformError::InvalidStep
+        );
+        assert_eq!(
+            parse_pipeline_steps_lenient(&[json!({ "type": "unknown_noop" })]).unwrap_err(),
+            DataTransformError::InvalidStep
+        );
 
         let too_many = (0..=MAX_PIPELINE_STEPS)
             .map(|_| json!({ "type": "limit", "count": 1 }))
             .collect::<Vec<_>>();
         assert_eq!(
-            parse_pipeline_steps_lenient(&too_many).unwrap_err(),
+            parse_pipeline_steps(&too_many).unwrap_err(),
             DataTransformError::TooManySteps
         );
     }

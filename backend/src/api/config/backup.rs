@@ -155,7 +155,7 @@ fn merge_settings_backup_entries(
 
     // v1 部署可能从环境变量取值。快照里有、备份行里没有的键在这里补上；
     // 下线键不补。`collect_database_updates` 只发出快照 bag 里实际存在的字段。
-    for (key, value) in collect_database_updates(&backup.effective_config) {
+    for (key, value) in collect_database_updates(&backup.effective_config).unwrap_or_default() {
         let Some(descriptor) = live_setting_descriptor(&key) else {
             continue;
         };
@@ -349,7 +349,18 @@ pub async fn export_settings(
             value: match row.try_get("", "value") {
                 // Plaintext export (admin, dual `ensure_current_admin_on`).
                 // Settings GET stays masked (`build_config(..., false)`). At rest still ciphertext.
-                Ok(value) => crate::services::data_key::open_config_value(&key, value),
+                Ok(value) => match crate::services::data_key::open_config_value(&key, value) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        tracing::error!("Failed to decrypt configuration {key}: {error}");
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(
+                                json!({"error": "Failed to decode settings", "code": "settings_backup_failed"}),
+                            ),
+                        );
+                    }
+                },
                 Err(error) => {
                     tracing::error!("Failed to decode configuration value: {}", error);
                     return (
@@ -374,7 +385,7 @@ pub async fn export_settings(
         .iter()
         .map(|entry| entry.key.clone())
         .collect();
-    for (key, value) in collect_database_updates(&effective_config) {
+    for (key, value) in collect_database_updates(&effective_config).unwrap_or_default() {
         let Some(descriptor) = live_setting_descriptor(&key) else {
             continue;
         };
@@ -394,7 +405,19 @@ pub async fn export_settings(
     configurations.sort_by(|left, right| left.key.cmp(&right.key));
 
     let notification_preferences =
-        crate::services::agent::notification_preferences::load(Some(&db), user_id).await;
+        match crate::services::agent::notification_preferences::load(Some(&db), user_id).await {
+            Ok(preferences) => preferences,
+            Err(error) => {
+                tracing::error!("Failed to export notification preferences: {}", error);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({
+                        "error": "Failed to read notification preferences",
+                        "code": "settings_backup_failed"
+                    })),
+                );
+            }
+        };
     let locale = load_user_locale(&db, user_id).await;
     let backup = SettingsBackup {
         format: SETTINGS_BACKUP_FORMAT.to_string(),
@@ -515,6 +538,7 @@ pub async fn restore_settings(
                         entry.key.clone().into(),
                         // 备份里是明文（见 export_settings），落库前重新加密。
                         crate::services::data_key::seal_config_value(&entry.key, entry.value)
+                            .map_err(|error| sea_orm::DbErr::Custom(error.to_string()))?
                             .into(),
                         entry.description.into(),
                         entry.category.into(),
@@ -744,7 +768,7 @@ mod settings_backup_tests {
             icon: String::new(),
         });
 
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert_eq!(updates.get("github_token"), Some(&json!("secret-token")));
         assert_eq!(updates.get("github_enabled"), Some(&json!(true)));
 
@@ -930,7 +954,7 @@ mod settings_backup_tests {
             interval_hours: 0,
         });
 
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert_eq!(updates.get("enable_auto_fetch"), Some(&json!(true)));
         assert_eq!(updates.get("fetch_interval_hours"), Some(&json!(1)));
     }
@@ -938,7 +962,7 @@ mod settings_backup_tests {
     #[test]
     fn missing_auto_fetch_settings_preserve_existing_values() {
         let config = empty_config();
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
 
         assert!(!updates.contains_key("enable_auto_fetch"));
         assert!(!updates.contains_key("fetch_interval_hours"));
@@ -963,7 +987,7 @@ mod settings_backup_tests {
             ui_field("qq_bot_app_id", "102123456"),
             ui_field("qq_bot_app_secret", "qq-secret-value"),
         ];
-        let set = collect_database_updates(&config);
+        let set = collect_database_updates(&config).expect("valid config");
         assert_eq!(set.get("qq_bot_enabled"), Some(&json!(true)));
         assert_eq!(set.get("qq_bot_app_id"), Some(&json!("102123456")));
         assert_eq!(
@@ -976,7 +1000,7 @@ mod settings_backup_tests {
             ui_field("qq_bot_app_id", "102123456"),
             ui_field("qq_bot_app_secret", "••••••••"),
         ];
-        let masked = collect_database_updates(&config);
+        let masked = collect_database_updates(&config).expect("valid config");
         assert_eq!(masked.get("qq_bot_enabled"), Some(&json!(true)));
         assert_eq!(masked.get("qq_bot_app_id"), Some(&json!("102123456")));
         assert!(
@@ -989,7 +1013,7 @@ mod settings_backup_tests {
             ui_field("qq_bot_app_id", ""),
             ui_field("qq_bot_app_secret", ""),
         ];
-        let cleared = collect_database_updates(&config);
+        let cleared = collect_database_updates(&config).expect("valid config");
         assert_eq!(cleared.get("qq_bot_enabled"), Some(&json!(false)));
         assert_eq!(cleared.get("qq_bot_app_id"), Some(&json!("")));
         assert_eq!(cleared.get("qq_bot_app_secret"), Some(&Value::Null));
@@ -1003,7 +1027,7 @@ mod settings_backup_tests {
             ui_field("feishu_bot_app_id", "cli_a"),
             ui_field("feishu_bot_app_secret", "fs-secret-value"),
         ];
-        let set = collect_database_updates(&config);
+        let set = collect_database_updates(&config).expect("valid config");
         assert_eq!(set.get("feishu_bot_enabled"), Some(&json!(true)));
         assert_eq!(set.get("feishu_bot_app_id"), Some(&json!("cli_a")));
         assert_eq!(
@@ -1016,7 +1040,7 @@ mod settings_backup_tests {
             ui_field("feishu_bot_app_id", "cli_a"),
             ui_field("feishu_bot_app_secret", "••••••••"),
         ];
-        let masked = collect_database_updates(&config);
+        let masked = collect_database_updates(&config).expect("valid config");
         assert_eq!(masked.get("feishu_bot_enabled"), Some(&json!(true)));
         assert_eq!(masked.get("feishu_bot_app_id"), Some(&json!("cli_a")));
         assert!(
@@ -1029,7 +1053,7 @@ mod settings_backup_tests {
             ui_field("feishu_bot_app_id", ""),
             ui_field("feishu_bot_app_secret", ""),
         ];
-        let cleared = collect_database_updates(&config);
+        let cleared = collect_database_updates(&config).expect("valid config");
         assert_eq!(cleared.get("feishu_bot_enabled"), Some(&json!(false)));
         assert_eq!(cleared.get("feishu_bot_app_id"), Some(&json!("")));
         assert_eq!(cleared.get("feishu_bot_app_secret"), Some(&Value::Null));
@@ -1042,7 +1066,7 @@ mod settings_backup_tests {
             ui_field("telegram_bot_enabled", "true"),
             ui_field("telegram_bot_token", "123456:ABC-DEF-token"),
         ];
-        let set = collect_database_updates(&config);
+        let set = collect_database_updates(&config).expect("valid config");
         assert_eq!(set.get("telegram_bot_enabled"), Some(&json!(true)));
         assert_eq!(
             set.get("telegram_bot_token"),
@@ -1053,7 +1077,7 @@ mod settings_backup_tests {
             ui_field("telegram_bot_enabled", "true"),
             ui_field("telegram_bot_token", "••••••••"),
         ];
-        let masked = collect_database_updates(&config);
+        let masked = collect_database_updates(&config).expect("valid config");
         assert_eq!(masked.get("telegram_bot_enabled"), Some(&json!(true)));
         assert!(
             !masked.contains_key("telegram_bot_token"),
@@ -1064,7 +1088,7 @@ mod settings_backup_tests {
             ui_field("telegram_bot_enabled", "false"),
             ui_field("telegram_bot_token", ""),
         ];
-        let cleared = collect_database_updates(&config);
+        let cleared = collect_database_updates(&config).expect("valid config");
         assert_eq!(cleared.get("telegram_bot_enabled"), Some(&json!(false)));
         assert_eq!(cleared.get("telegram_bot_token"), Some(&Value::Null));
     }
@@ -1076,7 +1100,7 @@ mod settings_backup_tests {
             ui_field("discord_bot_enabled", "true"),
             ui_field("discord_bot_token", "MTk4.Cl2FMQ.test-token"),
         ];
-        let set = collect_database_updates(&config);
+        let set = collect_database_updates(&config).expect("valid config");
         assert_eq!(set.get("discord_bot_enabled"), Some(&json!(true)));
         assert_eq!(
             set.get("discord_bot_token"),
@@ -1087,7 +1111,7 @@ mod settings_backup_tests {
             ui_field("discord_bot_enabled", "true"),
             ui_field("discord_bot_token", "••••••••"),
         ];
-        let masked = collect_database_updates(&config);
+        let masked = collect_database_updates(&config).expect("valid config");
         assert_eq!(masked.get("discord_bot_enabled"), Some(&json!(true)));
         assert!(
             !masked.contains_key("discord_bot_token"),
@@ -1098,7 +1122,7 @@ mod settings_backup_tests {
             ui_field("discord_bot_enabled", "false"),
             ui_field("discord_bot_token", ""),
         ];
-        let cleared = collect_database_updates(&config);
+        let cleared = collect_database_updates(&config).expect("valid config");
         assert_eq!(cleared.get("discord_bot_enabled"), Some(&json!(false)));
         assert_eq!(cleared.get("discord_bot_token"), Some(&Value::Null));
     }
@@ -1111,7 +1135,7 @@ mod settings_backup_tests {
             ui_field("agora_app_id", "970ca35de60c44645bbae8a215061b33"),
             ui_field("agora_api_base", "https://api.agora.io/cn"),
         ];
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert_eq!(updates.get("agora_convo_enabled"), Some(&json!(true)));
         assert_eq!(
             updates.get("agora_app_id"),
@@ -1130,7 +1154,7 @@ mod settings_backup_tests {
             "ai_vendor_sources",
             r#"[{"slug":"openai","kind":"openai","display_name":"OpenAI","enabled":true}]"#,
         )];
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert_eq!(updates.get("agora_convo_enabled"), Some(&json!(false)));
         assert_eq!(updates.get("agora_app_id"), Some(&json!("")));
         assert_eq!(updates.get("agora_app_certificate"), Some(&json!("")));
@@ -1151,7 +1175,7 @@ mod settings_backup_tests {
             ui_field("tripo_max_download_mb", "999"),
         ];
 
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert_eq!(updates.get("tripo_enabled"), Some(&json!(true)));
         assert!(!updates.contains_key("tripo_api_key"));
         assert_eq!(updates.get("tripo_model"), Some(&json!("P1-20260311")));
@@ -1175,7 +1199,7 @@ mod settings_backup_tests {
             ui_field("proxy_enabled", "false"),
         ];
 
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert_eq!(updates.get("proxy_url"), Some(&json!("")));
         assert_eq!(updates.get("proxy_bypass"), Some(&json!("")));
         assert_eq!(updates.get("gemini_base_url"), Some(&json!("")));
@@ -1187,23 +1211,35 @@ mod settings_backup_tests {
     fn ui_memory_saver_flag_persists_bool() {
         let mut config = empty_config();
         config.ui_config.config_fields = vec![ui_field("memory_saver_enabled", "true")];
-        let on = collect_database_updates(&config);
+        let on = collect_database_updates(&config).expect("valid config");
         assert_eq!(on.get("memory_saver_enabled"), Some(&json!(true)));
 
         config.ui_config.config_fields = vec![ui_field("memory_saver_enabled", "false")];
-        let off = collect_database_updates(&config);
+        let off = collect_database_updates(&config).expect("valid config");
         assert_eq!(off.get("memory_saver_enabled"), Some(&json!(false)));
+    }
+
+    #[test]
+    fn ui_precise_location_flag_persists_bool() {
+        let mut config = empty_config();
+        config.ui_config.config_fields = vec![ui_field("precise_location_enabled", "true")];
+        let on = collect_database_updates(&config).expect("valid config");
+        assert_eq!(on.get("precise_location_enabled"), Some(&json!(true)));
+
+        config.ui_config.config_fields = vec![ui_field("precise_location_enabled", "false")];
+        let off = collect_database_updates(&config).expect("valid config");
+        assert_eq!(off.get("precise_location_enabled"), Some(&json!(false)));
     }
 
     #[test]
     fn ui_merope_flag_persists_bool() {
         let mut config = empty_config();
         config.ui_config.config_fields = vec![ui_field("merope_enabled", "true")];
-        let on = collect_database_updates(&config);
+        let on = collect_database_updates(&config).expect("valid config");
         assert_eq!(on.get("merope_enabled"), Some(&json!(true)));
 
         config.ui_config.config_fields = vec![ui_field("merope_enabled", "false")];
-        let off = collect_database_updates(&config);
+        let off = collect_database_updates(&config).expect("valid config");
         assert_eq!(off.get("merope_enabled"), Some(&json!(false)));
     }
 
@@ -1211,11 +1247,11 @@ mod settings_backup_tests {
     fn ui_merope_speech_flag_persists_bool() {
         let mut config = empty_config();
         config.ui_config.config_fields = vec![ui_field("merope_speech_enabled", "true")];
-        let on = collect_database_updates(&config);
+        let on = collect_database_updates(&config).expect("valid config");
         assert_eq!(on.get("merope_speech_enabled"), Some(&json!(true)));
 
         config.ui_config.config_fields = vec![ui_field("merope_speech_enabled", "false")];
-        let off = collect_database_updates(&config);
+        let off = collect_database_updates(&config).expect("valid config");
         assert_eq!(off.get("merope_speech_enabled"), Some(&json!(false)));
     }
 
@@ -1229,7 +1265,7 @@ mod settings_backup_tests {
             ui_field("github_api_base_url", "https://gh.example.com"),
         ];
 
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert_eq!(
             updates.get("proxy_url"),
             Some(&json!("http://127.0.0.1:7890"))
@@ -1259,7 +1295,7 @@ mod settings_backup_tests {
             ui_field("pet_image_url", "https://example.com/pet.png"),
             ui_field("wallpaper_parallax", "true"),
         ];
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert!(!updates.contains_key("github_client_secret"));
         assert!(!updates.contains_key("github_client_id"));
         assert!(!updates.contains_key("pet_enabled"));
@@ -1289,7 +1325,7 @@ mod settings_backup_tests {
             ui_field("site_icp", ""),
             ui_field("site_footer_custom", ""),
         ];
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert_eq!(updates.get("site_title"), Some(&json!("")));
         assert_eq!(updates.get("site_description"), Some(&json!("")));
         assert_eq!(updates.get("site_favicon"), Some(&json!("")));
@@ -1317,7 +1353,7 @@ mod settings_backup_tests {
     fn site_seo_review_cadence_normalizes() {
         let mut config = empty_config();
         config.ui_config.config_fields = vec![ui_field("site_seo_review_cadence", "WEEKLY")];
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert_eq!(
             updates.get("site_seo_review_cadence"),
             Some(&json!("weekly"))
@@ -1328,7 +1364,7 @@ mod settings_backup_tests {
     fn site_noindex_alone_syncs_visibility_policy() {
         let mut config = empty_config();
         config.ui_config.config_fields = vec![ui_field("site_noindex", "true")];
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert_eq!(updates.get("site_noindex"), Some(&json!(true)));
         assert_eq!(
             updates.get("site_visibility_policy"),
@@ -1336,7 +1372,7 @@ mod settings_backup_tests {
         );
 
         config.ui_config.config_fields = vec![ui_field("site_noindex", "false")];
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert_eq!(updates.get("site_noindex"), Some(&json!(false)));
         assert_eq!(
             updates.get("site_visibility_policy"),
@@ -1352,7 +1388,7 @@ mod settings_backup_tests {
             ui_field("site_noindex", "true"),
             ui_field("site_visibility_policy", "ai_full"),
         ];
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert_eq!(updates.get("site_noindex"), Some(&json!(false)));
         assert_eq!(
             updates.get("site_visibility_policy"),
@@ -1367,7 +1403,7 @@ mod settings_backup_tests {
             ui_field("site_description", &"a".repeat(250)),
             ui_field("site_keywords", &"b".repeat(400)),
         ];
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert_eq!(
             updates
                 .get("site_description")
@@ -1418,12 +1454,12 @@ mod settings_backup_tests {
     fn collect_rejects_unsafe_wallpaper_url() {
         let mut config = empty_config();
         config.ui_config.config_fields = vec![ui_field("wallpaper_url", "javascript:alert(1)")];
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert!(!updates.contains_key("ui_wallpaper_url"));
 
         config.ui_config.config_fields =
             vec![ui_field("wallpaper_url", "https://cdn.example.com/w.jpg")];
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert_eq!(
             updates.get("ui_wallpaper_url"),
             Some(&json!("https://cdn.example.com/w.jpg"))
@@ -1513,7 +1549,7 @@ mod settings_backup_tests {
             ui_field("proxy_url", "http://127.0.0.1:7890"),
             ui_field("umami_script_url", "https://cloud.umami.is/script.js"),
         ];
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert!(!updates.contains_key("site_favicon"));
         assert_eq!(
             updates.get("proxy_url"),
@@ -1532,7 +1568,7 @@ mod settings_backup_tests {
             "google_site_verification",
             r#"<meta name="google-site-verification" content="Tok_en-1" />"#,
         )];
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert_eq!(
             updates.get("google_site_verification"),
             Some(&json!("Tok_en-1"))
@@ -1542,7 +1578,7 @@ mod settings_backup_tests {
             "google_site_verification",
             "<script>alert(1)</script>",
         )];
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert!(!updates.contains_key("google_site_verification"));
     }
 
@@ -1568,11 +1604,11 @@ mod settings_backup_tests {
     fn ui_empty_base_url_does_not_overwrite() {
         let mut config = empty_config();
         config.ui_config.config_fields = vec![ui_field("base_url", "")];
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert!(!updates.contains_key("base_url"));
 
         config.ui_config.config_fields = vec![ui_field("base_url", "https://example.com")];
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert_eq!(updates.get("base_url"), Some(&json!("https://example.com")));
     }
 
@@ -1643,7 +1679,7 @@ mod settings_backup_tests {
             description: String::new(),
             icon: String::new(),
         });
-        let set = collect_database_updates(&config);
+        let set = collect_database_updates(&config).expect("valid config");
         assert_eq!(set.get("github_username"), Some(&json!("octocat")));
         assert_eq!(set.get("github_token"), Some(&json!("ghp_set")));
 
@@ -1659,7 +1695,7 @@ mod settings_backup_tests {
                 required: false,
             },
         ];
-        let cleared = collect_database_updates(&config);
+        let cleared = collect_database_updates(&config).expect("valid config");
         assert_eq!(cleared.get("github_username"), Some(&json!(null)));
         assert_eq!(cleared.get("github_token"), Some(&json!(null)));
     }
@@ -1671,12 +1707,12 @@ mod settings_backup_tests {
             ui_field("provider_tinyfish_api_key", "tf-new"),
             ui_field("provider_gemini_api_key", "••••••••"),
         ];
-        let set = collect_database_updates(&config);
+        let set = collect_database_updates(&config).expect("valid config");
         assert_eq!(set.get("provider_tinyfish_api_key"), Some(&json!("tf-new")));
         assert!(!set.contains_key("provider_gemini_api_key"));
 
         config.ai_config.config_fields = vec![ui_field("provider_tinyfish_api_key", "")];
-        let cleared = collect_database_updates(&config);
+        let cleared = collect_database_updates(&config).expect("valid config");
         assert_eq!(cleared.get("provider_tinyfish_api_key"), Some(&json!(null)));
     }
 
@@ -1701,7 +1737,7 @@ mod settings_backup_tests {
             description: String::new(),
             icon: String::new(),
         });
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert_eq!(updates.get("github_username"), Some(&json!("octocat")));
         assert!(!updates.contains_key("github_token"));
     }
@@ -1727,7 +1763,7 @@ mod settings_backup_tests {
                 icon: String::new(),
             });
         }
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert_eq!(updates.get("bangumi_username"), Some(&json!(null)));
         assert_eq!(updates.get("bangumi_access_token"), Some(&json!(null)));
         assert_eq!(updates.get("x_username"), Some(&json!(null)));
@@ -1776,7 +1812,7 @@ mod settings_backup_tests {
             "music_playlist_id",
             "https://music.163.com/#/playlist?id=2884035",
         )];
-        let updates = collect_database_updates(&config);
+        let updates = collect_database_updates(&config).expect("valid config");
         assert_eq!(updates.get("music_playlist_id"), Some(&json!("2884035")));
     }
 }

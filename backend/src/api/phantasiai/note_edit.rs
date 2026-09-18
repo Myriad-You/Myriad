@@ -38,7 +38,10 @@ pub(super) async fn edit_note(
         return failure(StatusCode::CONFLICT, "ai_not_configured");
     };
     let schema = json!({"type":"object","properties":{"replacement":{"type":"string"},"complete":{"type":"boolean"}},"required":["replacement","complete"],"additionalProperties":false});
-    let owner = crate::services::ai_cost_ledger::resolve_site_owner_id().await;
+    let owner = match crate::services::ai_cost_ledger::resolve_site_owner_id().await {
+        Ok(owner) => owner,
+        Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "ai_billing_owner"),
+    };
     let call = crate::services::ai_cost_ledger::with_site_ai_ledger(
         owner,
         "phantasiai",

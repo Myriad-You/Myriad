@@ -3,7 +3,7 @@
 //! 本地用户发起关注远程 Actor、取消关注等操作
 
 use axum::{Json, http::StatusCode};
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -93,8 +93,9 @@ pub async fn follow_remote(
         "object": &target_url
     });
 
-    // 记录 outgoing follow
-    db.execute_raw(Statement::from_sql_and_values(
+    // Local follow row, Activity, and delivery intent are one commit.
+    let txn = db.begin().await.map_err(db_err)?;
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"INSERT INTO federation_follows (user_id, remote_actor_id, direction, status, activity_id, created_at)
            VALUES ($1, $2, 'outgoing', 'pending', $3, NOW())
@@ -112,7 +113,7 @@ pub async fn follow_remote(
     // Defense-in-depth: ensure keys before enqueue. Delivery worker is the
     // universal choke point and will also ensure-once if keys are still missing.
     if let Err(e) =
-        crate::federation::actor::ensure_user_federation_keys(db, user_id, username).await
+        crate::federation::actor::ensure_user_federation_keys(&txn, user_id, username).await
     {
         tracing::warn!(
             user_id = user_id,
@@ -122,33 +123,24 @@ pub async fn follow_remote(
         );
     }
 
-    // 存 Activity 记录（完整 Activity JSON，供 delivery 直接发送）
-    let act_row = db
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"INSERT INTO federation_activities
-                   (activity_id, user_id, activity_type, object_json, is_local, published_at)
-               VALUES ($1, $2, 'Follow', $3, true, NOW())
-               RETURNING id"#,
-            [
-                activity_id.clone().into(),
-                user_id.into(),
-                follow_activity.clone().into(),
-            ],
-        ))
+    let act_db_id = insert_local_activity(
+        &txn,
+        user_id,
+        &activity_id,
+        "Follow",
+        None,
+        follow_activity.clone(),
+    )
+    .await
+    .map_err(db_err)?;
+    enqueue_delivery(&txn, act_db_id, &remote.inbox_url, "pending")
         .await
         .map_err(db_err)?;
+    txn.commit().await.map_err(db_err)?;
 
-    let act_db_id: i32 = act_row
-        .map(|r| r.try_get("", "id").unwrap_or(0))
-        .unwrap_or(0);
-
-    let domain = extract_domain(&remote.inbox_url).unwrap_or_default();
-
-    // Same-instance Follow: deliver in-process. HTTP delivery refuses
-    // localhost/private inboxes, so without this the followee never records
-    // the follower and never emits Accept — initiator stays pending forever
-    // while (if HTTP somehow worked one-way) the remote side looks accepted.
+    // Same-instance Follow: deliver in-process after durable intent exists.
+    // HTTP delivery refuses localhost/private inboxes, so without this the
+    // followee never records the follower and never emits Accept.
     let mut final_status = "pending".to_string();
     if let Some(target_username) = local_username_from_actor_url(&base_url, &target_url) {
         match crate::federation::inbox::deliver_activity_locally(
@@ -167,18 +159,12 @@ pub async fn follow_remote(
                 let _ = db
                     .execute_raw(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
-                        r#"INSERT INTO federation_delivery_queue
-                               (activity_id, target_inbox, target_domain, status, created_at, last_attempt_at)
-                           VALUES ($1, $2, $3, 'delivered', NOW(), NOW())
-                   ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
-                        [
-                            act_db_id.into(),
-                            remote.inbox_url.clone().into(),
-                            domain.clone().into(),
-                        ],
+                        r#"UPDATE federation_delivery_queue
+                           SET status = 'delivered', last_attempt_at = NOW()
+                           WHERE activity_id = $1 AND target_inbox = $2"#,
+                        [act_db_id.into(), remote.inbox_url.clone().into()],
                     ))
                     .await;
-                // Local auto-Accept flips our outgoing row to accepted immediately.
                 if let Ok(Some(row)) = db
                     .query_one_raw(Statement::from_sql_and_values(
                         DatabaseBackend::Postgres,
@@ -196,43 +182,14 @@ pub async fn follow_remote(
             }
             Err(e) => {
                 tracing::warn!(
-                    "Local Follow delivery failed ({} → {}): {}; queueing HTTP",
+                    "Local Follow delivery failed ({} → {}): {}; HTTP queue remains",
                     username,
                     target_username,
                     e
                 );
-                db.execute_raw(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    r#"INSERT INTO federation_delivery_queue
-                           (activity_id, target_inbox, target_domain, status, created_at)
-                       VALUES ($1, $2, $3, 'pending', NOW())
-                   ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
-                    [
-                        act_db_id.into(),
-                        remote.inbox_url.clone().into(),
-                        domain.into(),
-                    ],
-                ))
-                .await
-                .map_err(db_err)?;
             }
         }
     } else {
-        // 远程：入队投递
-        db.execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"INSERT INTO federation_delivery_queue
-                   (activity_id, target_inbox, target_domain, status, created_at)
-               VALUES ($1, $2, $3, 'pending', NOW())
-                   ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
-            [
-                act_db_id.into(),
-                remote.inbox_url.clone().into(),
-                domain.into(),
-            ],
-        ))
-        .await
-        .map_err(db_err)?;
         tracing::info!("📤 Follow queued: {} → {}", username, target_url);
     }
 
@@ -310,8 +267,8 @@ pub async fn unfollow_remote(
         }
     });
 
-    // 删除本地关注记录
-    db.execute_raw(Statement::from_sql_and_values(
+    let txn = db.begin().await.map_err(db_err)?;
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"DELETE FROM federation_follows
            WHERE user_id = $1 AND direction = 'outgoing'
@@ -321,38 +278,20 @@ pub async fn unfollow_remote(
     .await
     .map_err(db_err)?;
 
-    // 存 Undo Activity 并入队投递（完整 Activity JSON，供 delivery 直接发送）
-    let act_row = db
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"INSERT INTO federation_activities
-                   (activity_id, user_id, activity_type, object_json, is_local, published_at)
-               VALUES ($1, $2, 'Undo', $3, true, NOW())
-               RETURNING id"#,
-            [
-                undo_id.clone().into(),
-                user_id.into(),
-                undo_activity.clone().into(),
-            ],
-        ))
+    let act_db_id = insert_local_activity(
+        &txn,
+        user_id,
+        &undo_id,
+        "Undo",
+        None,
+        undo_activity.clone(),
+    )
+    .await
+    .map_err(db_err)?;
+    enqueue_delivery(&txn, act_db_id, &inbox, "pending")
         .await
         .map_err(db_err)?;
-
-    let act_db_id: i32 = act_row
-        .map(|r| r.try_get("", "id").unwrap_or(0))
-        .unwrap_or(0);
-
-    let domain = extract_domain(&inbox).unwrap_or_default();
-    let _ = db
-        .execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"INSERT INTO federation_delivery_queue
-                   (activity_id, target_inbox, target_domain, status, created_at)
-               VALUES ($1, $2, $3, 'pending', NOW())
-                   ON CONFLICT (activity_id, target_inbox) DO NOTHING"#,
-            [act_db_id.into(), inbox.into(), domain.into()],
-        ))
-        .await;
+    txn.commit().await.map_err(db_err)?;
 
     Ok(json!({"status": "unfollowed", "target": target_url}))
 }
@@ -695,6 +634,18 @@ mod tests {
         assert!(build_webfinger_url("acct:alice@example.com/path").is_err());
         assert!(build_webfinger_url("acct:alice@example.com?x=1").is_err());
         assert!(build_webfinger_url("acct:alice@").is_err());
+    }
+
+    #[test]
+    fn follow_unfollow_commit_local_state_with_outbound_intent() {
+        let src = include_str!("follow.rs");
+        assert!(src.contains("db.begin()"));
+        assert!(src.contains("insert_local_activity"));
+        assert!(src.contains("enqueue_delivery"));
+        assert!(
+            !src.contains("let _ = db\n        .execute_raw(Statement::from_sql_and_values(\n            DatabaseBackend::Postgres,\n            r#\"INSERT INTO federation_delivery_queue"),
+            "unfollow must not ignore delivery insert errors"
+        );
     }
 
     #[test]

@@ -10,6 +10,7 @@
 //! 多副本：通过 `heartbeat_claims` 表按 (task_id, minute_bucket) CAS 认领，
 //! 避免同一分钟被多个 backend 重复执行。崩溃后超过 STALE 窗口可重认领。
 
+use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -17,6 +18,22 @@ use chrono::{DateTime, Datelike, Local, Timelike, Utc};
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
+
+/// Distinguishes a missing HEARTBEAT.md (empty task set) from I/O or parse faults.
+#[derive(Debug)]
+enum HeartbeatFileError {
+    Io(std::io::Error),
+    Parse(String),
+}
+
+impl std::fmt::Display for HeartbeatFileError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Io(error) => write!(f, "Failed to read HEARTBEAT.md: {error}"),
+            Self::Parse(error) => write!(f, "Failed to parse HEARTBEAT.md: {error}"),
+        }
+    }
+}
 
 /// 单次 heartbeat 任务墙钟超时（秒）
 pub const HEARTBEAT_TASK_TIMEOUT_SECS: u64 = 600;
@@ -117,9 +134,11 @@ pub struct HeartbeatManager {
 }
 
 impl HeartbeatManager {
-    /// 从 HEARTBEAT.md 加载
-    pub async fn new(config_path: PathBuf) -> Self {
-        let (tasks, body) = Self::load_file(&config_path).await.unwrap_or_default();
+    /// 从 HEARTBEAT.md 加载。文件不存在视为空任务集；I/O 或格式错误失败。
+    pub async fn new(config_path: PathBuf) -> Result<Self, String> {
+        let (tasks, body) = Self::load_file(&config_path)
+            .await
+            .map_err(|error| error.to_string())?;
         let count = tasks.len();
         let mtime = Self::file_mtime(&config_path).await;
 
@@ -131,7 +150,7 @@ impl HeartbeatManager {
         };
 
         tracing::info!("[Heartbeat] Loaded {} tasks", count);
-        manager
+        Ok(manager)
     }
 
     /// 读取文件 mtime
@@ -151,44 +170,50 @@ impl HeartbeatManager {
         };
         if stale {
             tracing::info!("[Heartbeat] HEARTBEAT.md changed on disk, hot-reloading");
-            self.reload().await;
+            if let Err(error) = self.reload().await {
+                tracing::warn!(
+                    %error,
+                    "[Heartbeat] hot-reload failed; keeping in-memory tasks"
+                );
+            }
         }
     }
 
-    /// 从 YAML frontmatter 加载任务，返回 (tasks, markdown 正文)
-    async fn load_file(path: &std::path::Path) -> Option<(Vec<HeartbeatTask>, String)> {
-        let content = tokio::fs::read_to_string(path).await.ok()?;
+    /// 从 YAML frontmatter 加载任务，返回 (tasks, markdown 正文)。
+    /// 文件不存在 → 空任务集；其它 I/O / 缺 frontmatter / YAML 错误 → Err。
+    async fn load_file(
+        path: &std::path::Path,
+    ) -> Result<(Vec<HeartbeatTask>, String), HeartbeatFileError> {
+        let content = match tokio::fs::read_to_string(path).await {
+            Ok(content) => content,
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                return Ok((Vec::new(), String::new()));
+            }
+            Err(error) => return Err(HeartbeatFileError::Io(error)),
+        };
 
-        // 解析 YAML frontmatter
         let trimmed = content.trim_start();
         if !trimmed.starts_with("---") {
-            return None;
+            return Err(HeartbeatFileError::Parse("missing YAML frontmatter".into()));
         }
 
         let after_first = &trimmed[3..];
-        let end_idx = after_first.find("\n---")?;
+        let end_idx = after_first
+            .find("\n---")
+            .ok_or_else(|| HeartbeatFileError::Parse("unclosed YAML frontmatter".into()))?;
         let frontmatter = &after_first[..end_idx];
-        // 正文：跳过闭合分隔符 "\n---" 及其后的换行
         let body = after_first[end_idx + 4..]
             .trim_start_matches('\r')
             .trim_start_matches('\n')
             .to_string();
 
-        let config: HeartbeatConfig = match serde_yaml::from_str(frontmatter) {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::warn!(
-                    "[Heartbeat] Failed to parse HEARTBEAT.md frontmatter: {}",
-                    e
-                );
-                return None;
-            }
-        };
-        Some((config.tasks, body))
+        let config: HeartbeatConfig = serde_yaml::from_str(frontmatter)
+            .map_err(|error| HeartbeatFileError::Parse(error.to_string()))?;
+        Ok((config.tasks, body))
     }
 
     /// 将当前任务配置写回 HEARTBEAT.md（原子写入，保留正文）
-    async fn persist(&self) {
+    async fn persist(&self) -> Result<(), String> {
         let yaml = {
             let tasks = self.tasks.read().await;
             let view = PersistConfig {
@@ -203,29 +228,35 @@ impl HeartbeatManager {
                     })
                     .collect(),
             };
-            match serde_yaml::to_string(&view) {
-                Ok(y) => y,
-                Err(e) => {
-                    tracing::warn!("[Heartbeat] Failed to serialize tasks: {}", e);
-                    return;
-                }
-            }
+            serde_yaml::to_string(&view)
+                .map_err(|error| format!("Failed to persist HEARTBEAT.md: {error}"))?
         };
         let body = self.body.read().await.clone();
         let content = format!("---\n{}---\n\n{}", yaml, body);
 
         let tmp_path = self.config_path.with_extension("md.tmp");
-        if let Err(e) = tokio::fs::write(&tmp_path, &content).await {
-            tracing::warn!("[Heartbeat] Failed to write config: {}", e);
-            return;
-        }
-        if let Err(e) = tokio::fs::rename(&tmp_path, &self.config_path).await {
+        tokio::fs::write(&tmp_path, &content)
+            .await
+            .map_err(|error| format!("Failed to persist HEARTBEAT.md: {error}"))?;
+        if let Err(error) = tokio::fs::rename(&tmp_path, &self.config_path).await {
             let _ = tokio::fs::remove_file(&tmp_path).await;
-            tracing::warn!("[Heartbeat] Failed to persist config: {}", e);
-            return;
+            return Err(format!("Failed to persist HEARTBEAT.md: {error}"));
         }
-        // 记录自己写入后的 mtime，避免下次误判为外部修改
         *self.loaded_mtime.write().await = Self::file_mtime(&self.config_path).await;
+        Ok(())
+    }
+
+    async fn persist_or_restore(&self) -> Result<(), String> {
+        if let Err(error) = self.persist().await {
+            if let Err(reload_error) = self.reload().await {
+                tracing::error!(
+                    %reload_error,
+                    "[Heartbeat] persist failed and reload failed; in-memory tasks may be dirty"
+                );
+            }
+            return Err(error);
+        }
+        Ok(())
     }
 
     /// 获取所有任务状态
@@ -235,15 +266,18 @@ impl HeartbeatManager {
     }
 
     /// 切换任务启用状态（持久化到 HEARTBEAT.md，重启后保留）
-    pub async fn toggle_task(&self, task_id: &str) -> Option<bool> {
+    pub async fn toggle_task(&self, task_id: &str) -> Result<bool, String> {
         if is_reserved_heartbeat_task(task_id) {
-            return None;
+            return Err(reserved_heartbeat_error().to_string());
         }
         // 先同步磁盘上的最新配置，再在其上应用 toggle，防止覆盖外部修改
         self.maybe_reload_if_changed().await;
         let new_state = {
             let mut tasks = self.tasks.write().await;
-            let task = tasks.iter_mut().find(|t| t.id == task_id)?;
+            let task = tasks
+                .iter_mut()
+                .find(|t| t.id == task_id)
+                .ok_or_else(|| format!("Task '{task_id}' not found"))?;
             task.enabled = !task.enabled;
             task.enabled
         };
@@ -252,8 +286,8 @@ impl HeartbeatManager {
             task_id,
             if new_state { "enabled" } else { "disabled" }
         );
-        self.persist().await;
-        Some(new_state)
+        self.persist_or_restore().await?;
+        Ok(new_state)
     }
 
     /// 更新任务字段（name / schedule / action / enabled），校验 cron 后持久化
@@ -306,7 +340,7 @@ impl HeartbeatManager {
             }
             task.clone()
         };
-        self.persist().await;
+        self.persist_or_restore().await?;
         tracing::info!(task_id = %task_id, "[Heartbeat] Task updated");
         Ok(updated)
     }
@@ -378,7 +412,7 @@ impl HeartbeatManager {
             task
         };
 
-        self.persist().await;
+        self.persist_or_restore().await?;
         tracing::info!(task_id = %task.id, "[Heartbeat] Task created");
         Ok(task)
     }
@@ -429,7 +463,7 @@ impl HeartbeatManager {
                 });
             }
         }
-        self.persist().await;
+        self.persist_or_restore().await?;
         Ok(())
     }
 
@@ -448,7 +482,7 @@ impl HeartbeatManager {
         if !removed {
             return Err(format!("Task '{}' not found", task_id));
         }
-        self.persist().await;
+        self.persist_or_restore().await?;
         tracing::info!(task_id = %task_id, "[Heartbeat] Task deleted");
         Ok(())
     }
@@ -624,23 +658,26 @@ impl HeartbeatManager {
         Utc::now().timestamp() / 60
     }
 
-    /// 重新加载配置（保留运行时状态：last_run / last_result / last_reserved）
-    pub async fn reload(&self) {
-        if let Some((mut new_tasks, new_body)) = Self::load_file(&self.config_path).await {
-            let mut current = self.tasks.write().await;
-            for task in new_tasks.iter_mut() {
-                if let Some(old) = current.iter().find(|t| t.id == task.id) {
-                    task.last_run = old.last_run;
-                    task.last_result = old.last_result.clone();
-                    task.last_reserved = old.last_reserved;
-                }
+    /// 重新加载配置（保留运行时状态：last_run / last_result / last_reserved）。
+    /// I/O / 解析错误不把内存改成空任务集。
+    pub async fn reload(&self) -> Result<(), String> {
+        let (mut new_tasks, new_body) = Self::load_file(&self.config_path)
+            .await
+            .map_err(|error| error.to_string())?;
+        let mut current = self.tasks.write().await;
+        for task in new_tasks.iter_mut() {
+            if let Some(old) = current.iter().find(|t| t.id == task.id) {
+                task.last_run = old.last_run;
+                task.last_result = old.last_result.clone();
+                task.last_reserved = old.last_reserved;
             }
-            *current = new_tasks;
-            drop(current);
-            *self.body.write().await = new_body;
-            *self.loaded_mtime.write().await = Self::file_mtime(&self.config_path).await;
-            tracing::info!("[Heartbeat] Reloaded configuration");
         }
+        *current = new_tasks;
+        drop(current);
+        *self.body.write().await = new_body;
+        *self.loaded_mtime.write().await = Self::file_mtime(&self.config_path).await;
+        tracing::info!("[Heartbeat] Reloaded configuration");
+        Ok(())
     }
 }
 
@@ -803,9 +840,10 @@ static HEARTBEAT_MANAGER: once_cell::sync::OnceCell<Arc<HeartbeatManager>> =
     once_cell::sync::OnceCell::new();
 
 /// 初始化全局 Heartbeat 管理器
-pub async fn init_heartbeat(config_path: PathBuf) {
-    let manager = Arc::new(HeartbeatManager::new(config_path).await);
+pub async fn init_heartbeat(config_path: PathBuf) -> Result<(), String> {
+    let manager = Arc::new(HeartbeatManager::new(config_path).await?);
     let _ = HEARTBEAT_MANAGER.set(manager);
+    Ok(())
 }
 
 /// 获取全局 Heartbeat 管理器
@@ -947,10 +985,10 @@ mod tests {
         .await
         .unwrap();
 
-        let mgr = HeartbeatManager::new(path.clone()).await;
+        let mgr = HeartbeatManager::new(path.clone()).await.unwrap();
 
         // toggle 写回文件
-        assert_eq!(mgr.toggle_task("t1").await, Some(true));
+        assert!(mgr.toggle_task("t1").await.unwrap());
         let content = tokio::fs::read_to_string(&path).await.unwrap();
         assert!(
             content.contains("enabled: true"),
@@ -965,7 +1003,7 @@ mod tests {
 
         // reload 保留运行时状态
         mgr.record_result("t1", "ok").await;
-        mgr.reload().await;
+        mgr.reload().await.unwrap();
         let tasks = mgr.get_tasks().await;
         assert!(tasks[0].enabled, "reload 后 toggle 状态应保留");
         assert_eq!(tasks[0].last_result.as_deref(), Some("ok"));
@@ -1000,7 +1038,7 @@ mod tests {
         .await
         .unwrap();
 
-        let mgr = HeartbeatManager::new(path.clone()).await;
+        let mgr = HeartbeatManager::new(path.clone()).await.unwrap();
         assert_eq!(mgr.get_tasks().await.len(), 1);
 
         // 模拟用户手动编辑文件（确保 mtime 变化）
@@ -1030,7 +1068,7 @@ mod tests {
         .await
         .unwrap();
 
-        let mgr = HeartbeatManager::new(path).await;
+        let mgr = HeartbeatManager::new(path).await.unwrap();
         let first = mgr.check_due_tasks().await;
         assert_eq!(first.len(), 1, "首次检查应返回到期任务");
         // 调度只写 last_reserved，不写 last_run
@@ -1062,7 +1100,7 @@ mod tests {
         .await
         .unwrap();
 
-        let mgr = HeartbeatManager::new(path.clone()).await;
+        let mgr = HeartbeatManager::new(path.clone()).await.unwrap();
 
         // 无效 cron 拒绝
         let err = mgr
@@ -1160,5 +1198,79 @@ mod tests {
         assert_eq!(slugify_id("  Hello__World!! "), "hello-world");
         assert_eq!(slugify_id("每天检查"), "");
         assert_eq!(slugify_id("a--b"), "a-b");
+    }
+
+    async fn heartbeat_test_dir(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "hb_{label}_{}_{}",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        ));
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        dir
+    }
+
+    #[tokio::test]
+    async fn missing_heartbeat_file_loads_empty_tasks() {
+        let dir = heartbeat_test_dir("missing").await;
+        let path = dir.join("HEARTBEAT.md");
+        let mgr = HeartbeatManager::new(path).await.unwrap();
+        assert!(mgr.get_tasks().await.is_empty());
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+
+    #[tokio::test]
+    async fn heartbeat_io_error_is_not_empty_task_set() {
+        let dir = heartbeat_test_dir("io").await;
+        let path = dir.join("HEARTBEAT.md");
+        tokio::fs::create_dir(&path).await.unwrap();
+        let error = match HeartbeatManager::new(path).await {
+            Ok(_) => panic!("directory path must not load as an empty task set"),
+            Err(error) => error,
+        };
+        assert!(
+            error.contains("Failed to read HEARTBEAT.md"),
+            "I/O fault must not become an empty config: {error}"
+        );
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+
+    #[tokio::test]
+    async fn heartbeat_parse_error_is_not_empty_task_set() {
+        let dir = heartbeat_test_dir("parse").await;
+        let path = dir.join("HEARTBEAT.md");
+        tokio::fs::write(&path, "---\ntasks: [\n---\n")
+            .await
+            .unwrap();
+        let error = match HeartbeatManager::new(path).await {
+            Ok(_) => panic!("malformed HEARTBEAT.md must not load as an empty task set"),
+            Err(error) => error,
+        };
+        assert!(
+            error.contains("Failed to parse HEARTBEAT.md"),
+            "parse fault must not become an empty config: {error}"
+        );
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+
+    #[tokio::test]
+    async fn toggle_fails_when_persist_fails() {
+        let dir = heartbeat_test_dir("persist").await;
+        let path = dir.join("HEARTBEAT.md");
+        tokio::fs::write(
+            &path,
+            "---\ntasks:\n  - id: t1\n    name: \"One\"\n    schedule: \"0 9 * * *\"\n    action: \"a\"\n    enabled: false\n---\n",
+        )
+        .await
+        .unwrap();
+        let mgr = HeartbeatManager::new(path.clone()).await.unwrap();
+        tokio::fs::remove_file(&path).await.unwrap();
+        tokio::fs::create_dir(&path).await.unwrap();
+        let error = mgr.toggle_task("t1").await.unwrap_err();
+        assert!(
+            error.contains("Failed to persist HEARTBEAT.md"),
+            "persist failure must not return success: {error}"
+        );
+        let _ = tokio::fs::remove_dir_all(&dir).await;
     }
 }

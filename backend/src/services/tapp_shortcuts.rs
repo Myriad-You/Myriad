@@ -189,10 +189,9 @@ pub async fn register_shortcut(
         let mut active: tapp_storage::ActiveModel = existing_item.into();
         active.value = Set(shortcut_data.clone());
         active.updated_at = Set(now);
-        active
-            .update(db)
-            .await
-            .map_err(|_| ShortcutRegistryError::UpdateFailed)?;
+        active.update(db).await.map_err(|error| {
+            map_shortcut_write_error(error, ShortcutRegistryError::UpdateFailed)
+        })?;
     } else {
         let storage = tapp_storage::ActiveModel {
             id: NotSet,
@@ -205,13 +204,34 @@ pub async fn register_shortcut(
             created_at: Set(now),
             updated_at: Set(now),
         };
-        storage
-            .insert(db)
-            .await
-            .map_err(|_| ShortcutRegistryError::RegisterFailed)?;
+        storage.insert(db).await.map_err(|error| {
+            map_shortcut_write_error(error, ShortcutRegistryError::RegisterFailed)
+        })?;
     }
 
     Ok(shortcut_data)
+}
+
+fn unique_violation(err: &impl std::fmt::Display) -> bool {
+    let lower = err.to_string().to_ascii_lowercase();
+    lower.contains("23505")
+        || lower.contains("duplicate key")
+        || lower.contains("unique")
+        || lower.contains("idx_tapp_shortcuts_owner_chord")
+}
+
+fn map_shortcut_write_error(
+    error: sea_orm::DbErr,
+    fallback: ShortcutRegistryError,
+) -> ShortcutRegistryError {
+    if unique_violation(&error) {
+        ShortcutRegistryError::Conflict {
+            conflicting_shortcut: "existing".to_string(),
+        }
+    } else {
+        tracing::error!(%error, "shortcut write failed");
+        fallback
+    }
 }
 
 /// Unregister a shortcut by id under the installation owner namespace.
@@ -305,5 +325,71 @@ mod tests {
             "Shortcut not found"
         );
         assert_eq!(ShortcutRegistryError::NotFound.status_hint(), 404);
+    }
+
+    #[test]
+    fn register_maps_chord_unique_to_conflict() {
+        let src = include_str!("tapp_shortcuts.rs");
+        let register = src
+            .split("pub async fn register_shortcut")
+            .nth(1)
+            .and_then(|rest| rest.split("pub async fn unregister_shortcut").next())
+            .expect("register_shortcut");
+        assert!(register.contains("map_shortcut_write_error"));
+        assert_eq!(
+            super::map_shortcut_write_error(
+                sea_orm::DbErr::Custom(
+                    "23505 duplicate key value violates unique constraint \"idx_tapp_shortcuts_owner_chord\""
+                        .into()
+                ),
+                ShortcutRegistryError::RegisterFailed
+            ),
+            ShortcutRegistryError::Conflict {
+                conflicting_shortcut: "existing".into()
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn concurrent_chords_are_rejected_by_unique_index() {
+        use crate::models::entities::tapp_storage;
+        use sea_orm::{
+            ConnectOptions, ConnectionTrait, Database, DatabaseBackend, EntityTrait, Schema,
+        };
+
+        let Ok(url) = std::env::var("PHANTASI_TEST_DATABASE_URL") else {
+            return;
+        };
+        let mut options = ConnectOptions::new(url);
+        options
+            .max_connections(1)
+            .min_connections(1)
+            .sqlx_logging(false);
+        let db = Database::connect(options).await.unwrap();
+        let schema = Schema::new(DatabaseBackend::Postgres);
+        let sql = schema
+            .create_table_from_entity(tapp_storage::Entity)
+            .to_string(sea_orm::sea_query::PostgresQueryBuilder)
+            .replacen("CREATE TABLE", "CREATE TEMP TABLE", 1);
+        db.execute_unprepared(&sql).await.unwrap();
+        db.execute_unprepared(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_tapp_shortcuts_owner_chord \
+             ON tapp_storage (user_id, (value->>'keys')) \
+             WHERE starts_with(key, '_shortcut:')",
+        )
+        .await
+        .unwrap();
+        super::register_shortcut(&db, 1, "tapp.a", "open", "ctrl+k", "Open", "open", None)
+            .await
+            .unwrap();
+        let conflict =
+            super::register_shortcut(&db, 1, "tapp.b", "other", "ctrl+k", "Other", "other", None)
+                .await;
+        assert!(matches!(
+            conflict,
+            Err(ShortcutRegistryError::Conflict { .. })
+        ));
+        let rows = tapp_storage::Entity::find().all(&db).await.unwrap();
+        assert_eq!(rows.len(), 1);
     }
 }

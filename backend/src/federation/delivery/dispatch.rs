@@ -59,21 +59,10 @@ pub(crate) async fn deliver_activity(
     }
 
     let kid = resolve_signing_key_id(activity_type, base_url, username, stored_key_id);
+    let _ = target_domain;
 
-    // Signed Host matches the URL (including non-default port). Parse-fail Host
-    // falls back to `target_domain` (port-less queued field; also trust/stats).
-    let (path, host_header) = match url::Url::parse(target_inbox) {
-        Ok(u) => {
-            let path = u.path().to_string();
-            let host = match (u.host_str(), u.port()) {
-                (Some(h), Some(p)) => format!("{}:{}", h, p),
-                (Some(h), None) => h.to_string(),
-                _ => target_domain.to_string(),
-            };
-            (path, host)
-        }
-        Err(_) => ("/inbox".to_string(), target_domain.to_string()),
-    };
+    let (path, host_header) = parse_delivery_inbox(target_inbox)
+        .map_err(DeliveryAttemptError::local)?;
 
     let params = SignatureParams {
         key_id: &kid,
@@ -141,6 +130,23 @@ pub(crate) async fn deliver_activity(
             )))
         }
     }
+}
+
+/// Parse the queued inbox URL for signing Host/path. Invalid URLs error
+/// immediately — forging `/inbox` cannot complete delivery.
+pub(crate) fn parse_delivery_inbox(target_inbox: &str) -> Result<(String, String), String> {
+    let parsed = url::Url::parse(target_inbox)
+        .map_err(|_| format!("Invalid inbox URL: {target_inbox}"))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(format!("Invalid inbox URL: {target_inbox}"));
+    }
+    let path = parsed.path().to_string();
+    let host = match (parsed.host_str(), parsed.port()) {
+        (Some(host), Some(port)) => format!("{host}:{port}"),
+        (Some(host), None) => host.to_string(),
+        _ => return Err(format!("Invalid inbox URL: {target_inbox}")),
+    };
+    Ok((path, host))
 }
 
 /// Choose base URL + username for HTTP Signature keyId.

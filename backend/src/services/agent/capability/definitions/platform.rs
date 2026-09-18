@@ -88,6 +88,9 @@ pub fn register(registry: &mut CapabilityRegistry) {
         required_permissions: vec!["platform:write".to_string()],
         requires_ai: false,
         estimated_duration_ms: Some(500),
+        requires_confirmation: true,
+        confirmation_message: Some("This will change platform data.".to_string()),
+        risk_level: RiskLevel::Medium,
         ..Default::default()
     });
 
@@ -115,6 +118,11 @@ pub fn register(registry: &mut CapabilityRegistry) {
         required_permissions: vec!["platform:write".to_string()],
         requires_ai: false,
         estimated_duration_ms: Some(10000),
+        requires_confirmation: true,
+        confirmation_message: Some(
+            "This will refresh platform data and may use API quota.".to_string(),
+        ),
+        risk_level: RiskLevel::Medium,
         ..Default::default()
     });
 

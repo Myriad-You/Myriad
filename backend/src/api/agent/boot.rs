@@ -23,8 +23,9 @@ impl Drop for WaitLoopRegistration {
 
 /// After process restart, re-create run hubs and wait-loops for
 /// `waiting_for_input` tasks so answer/subscribe keep working and notifications
-/// stay consistent. Called once from `main` after `init_task_store`.
-pub async fn restore_waiting_runs_after_boot() {
+/// stay consistent. Called once from `persona::start` after `init_task_store`.
+/// Uses the caller-held DB; does not consult the process-global slot.
+pub async fn restore_waiting_runs_after_boot(db: &DatabaseConnection) {
     let waiting = crate::services::agent::executor::task_store::list_waiting_tasks_snapshot().await;
     let waiting: Vec<_> = waiting
         .into_iter()
@@ -39,7 +40,7 @@ pub async fn restore_waiting_runs_after_boot() {
         count = waiting.len(),
         "[Agent API] Boot restore: re-creating run hubs for waiting tasks"
     );
-    let ledger_db = crate::services::tapp_registry::database().ok();
+    let ledger_db = Some(db.clone());
 
     for (user_id, mut task) in waiting {
         let is_work = task

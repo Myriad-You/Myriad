@@ -80,6 +80,7 @@ test('auth probes preserve confirmed identity, retry finitely, and stop on unmou
       assert.equal(auth.isAdmin, false, `${status} must revoke the confirmed identity`)
       assert.equal(localStorage.getItem('myriad_session_hint'), null)
       assert.equal(timers.size, 0)
+      localStorage.setItem('myriad_session_hint', 'true')
       response = new Response(JSON.stringify({ authenticated: true, id: 1, username: 'owner', is_admin: true }))
       await act(async () => { await auth.checkAuth() })
       assert.equal(auth.isAdmin, true, 'a later successful login restores administrator controls')

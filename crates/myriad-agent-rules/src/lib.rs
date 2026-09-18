@@ -67,10 +67,11 @@ pub use steering::{
     append_instruction, inject_directive_to_params, inject_steering_to_params, with_system_guidance,
 };
 pub use task::{
-    TERMINAL_RETENTION_HOURS, TaskStatus, WAITING_INPUT_TIMEOUT_HOURS, is_cancellable_task_status,
-    is_terminal_past_retention, is_waiting_input_timed_out, lane_id_from_user_session,
-    session_id_from_lane_id, session_id_from_lane_key, status_counts_from_iter,
-    task_status_from_db_str, task_status_to_db_str, waiting_input_timeout_error,
+    TASK_STATUS_DB_VALUES, TERMINAL_RETENTION_HOURS, TaskStatus, WAITING_INPUT_TIMEOUT_HOURS,
+    is_cancellable_task_status, is_terminal_past_retention, is_waiting_input_timed_out,
+    lane_id_from_user_session, session_id_from_lane_id, session_id_from_lane_key,
+    status_counts_from_iter, task_status_from_db_str, task_status_to_db_str,
+    waiting_input_timeout_error,
 };
 
 /// Shared Unicode-scalar cap for user-authored model text (chat, generate, analyze).

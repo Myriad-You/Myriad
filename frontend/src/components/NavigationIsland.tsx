@@ -1,6 +1,6 @@
 import type { ModuleVisibilityKey } from '../utils/moduleVisibility'
 import type { NavLayout } from '../utils/navLayout'
-import { MyriadStoreIcon } from '@lib/icons'
+import { MyriadStoreIcon } from '@lib/brandIcons'
 
 import {
   memo,
@@ -822,7 +822,6 @@ export function NavigationIsland() {
       island.removeAttribute('data-entering')
       resetIslandChromeForLayout(island, target)
       if (target === 'desktop' && content) {
-        void island.offsetWidth
         const padding = pad(island)
         const height = content.scrollHeight + padding
         if (safeSetHeight(island, height)) {
@@ -888,7 +887,6 @@ export function NavigationIsland() {
     if (!island || !content) return
     if (chromeLayout === 'desktop') {
       resetIslandChromeForLayout(island, 'desktop')
-      void island.offsetWidth
       const padding = getCachedPadding(island)
       const height = content.scrollHeight + padding
       if (safeSetHeight(island, height)) {

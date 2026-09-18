@@ -226,16 +226,18 @@ export function TileMeta({
   fontScale,
   scale,
   className,
+  size = T_META,
 }: {
   children: ReactNode
   fontScale: number
   scale: number
   className?: string
+  size?: number
 }) {
   return (
     <div
       className={`flex min-w-0 items-center text-gray-400 dark:text-gray-500 ${className ?? ''}`}
-      style={{ fontSize: fs(T_META, fontScale), gap: sp(5, scale), lineHeight: 1.4 }}
+      style={{ fontSize: fs(size, fontScale), gap: sp(5, scale), lineHeight: 1.4 }}
     >
       {children}
     </div>

@@ -1,7 +1,13 @@
 import type { User } from '../../contexts/AuthContext'
-import { LuX } from '@lib/icons'
-
-import React, { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { LuX } from '@lib/chromeStrokeIcons'
+import React, {
+  memo,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
@@ -14,6 +20,7 @@ import { clearPlaylistCache } from '../../utils/musicPlayer'
 import { lockScroll } from '../../utils/scrollLock'
 import { Avatar } from '../Avatar'
 import LoginForm from '../LoginForm'
+import '../UserModal.css'
 import { UserModal } from './UserModal'
 
 interface UserInfo {
@@ -206,6 +213,7 @@ export const UserSection: React.FC<UserSectionProps> = memo(
     return (
       <>
         <button
+          type="button"
           onClick={handleUserInfoClick}
           className="user-info-button flex items-center gap-3"
         >
@@ -251,7 +259,7 @@ export const UserSection: React.FC<UserSectionProps> = memo(
 
         {modalState !== 'closed' &&
           createPortal(
-            <>
+            <Suspense fallback={null}>
               <div
                 className={`user-modal-overlay surface-dialog-backdrop ${isAuthenticated ? '' : 'user-modal-overlay--plain'} ${modalState === 'visible' ? 'animate-in' : ''} ${modalState === 'closing' ? 'closing' : ''}`}
                 onClick={closeModal}
@@ -286,7 +294,7 @@ export const UserSection: React.FC<UserSectionProps> = memo(
                   <LoginForm />
                 </div>
               )}
-            </>,
+            </Suspense>,
             document.body,
           )}
       </>

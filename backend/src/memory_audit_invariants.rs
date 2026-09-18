@@ -80,6 +80,10 @@ mod tests {
         );
         assert!(!src.contains("const MAX_AUDIO_BYTES"));
         assert!(src.contains("MEDIA_FETCH_CLIENT"));
+        assert!(
+            src.contains("lock_player_playlist_load"),
+            "playlist proxy must coalesce concurrent fat fetches"
+        );
     }
 
     #[test]

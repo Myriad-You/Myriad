@@ -114,6 +114,28 @@ pub(crate) fn cannot_demote_owner_error(
     None
 }
 
+/// Last-admin COUNT is only authoritative after this lock, in the same
+/// transaction as the demote/delete. `ORDER BY id` keeps concurrent guards
+/// from deadlocking on the admin row set.
+pub(crate) const LOCK_ADMINS_SQL: &str =
+    "SELECT id FROM users WHERE is_admin = true ORDER BY id FOR UPDATE";
+
+pub(crate) fn last_admin_mutation_blocked(target_is_admin: bool, admin_count: i64) -> bool {
+    target_is_admin && admin_count <= 1
+}
+
+pub(crate) async fn lock_and_count_admins<C: ConnectionTrait>(db: &C) -> Result<i64, ApiError> {
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            LOCK_ADMINS_SQL,
+            vec![],
+        ))
+        .await
+        .map_err(db_error("lock admins"))?;
+    i64::try_from(rows.len()).map_err(db_error("count admins"))
+}
+
 /// Load `is_owner` for a user id (defaults false if missing).
 async fn load_is_owner(db: &DatabaseConnection, user_id: i32) -> Result<bool, ApiError> {
     let row = db
@@ -381,19 +403,14 @@ pub async fn update_user(
                 Json(AppError::public_json("Cannot revoke your own admin role")),
             ));
         }
-        // 不能降级最后一位管理员
-        if req.is_admin == Some(false) && target_is_admin {
-            let admin_count = db
-                .query_one_raw(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    "SELECT COUNT(*) AS n FROM users WHERE is_admin = true",
-                    vec![],
-                ))
-                .await
-                .map_err(db_error("count admins"))?
-                .and_then(|r| r.try_get::<i64>("", "n").ok())
-                .unwrap_or(0);
-            if admin_count <= 1 {
+    }
+
+    let demoting_admin = req.is_admin == Some(false) && target_is_admin;
+    let login_methods_txn = if req.local_login_disabled.is_some() || demoting_admin {
+        let txn = db.begin().await.map_err(db_error("begin user update"))?;
+        if demoting_admin {
+            let admin_count = lock_and_count_admins(&txn).await?;
+            if last_admin_mutation_blocked(true, admin_count) {
                 return Err((
                     StatusCode::BAD_REQUEST,
                     Json(AppError::public_json(
@@ -402,16 +419,11 @@ pub async fn update_user(
                 ));
             }
         }
-    }
-
-    let login_methods_txn = if req.local_login_disabled.is_some() {
-        let txn = db
-            .begin()
-            .await
-            .map_err(db_error("begin login-method update"))?;
-        crate::api::oauth::lock_login_methods(&txn, user_id)
-            .await
-            .map_err(db_error("lock login methods"))?;
+        if req.local_login_disabled.is_some() {
+            crate::api::oauth::lock_login_methods(&txn, user_id)
+                .await
+                .map_err(db_error("lock login methods"))?;
+        }
         if req.local_login_disabled == Some(true) {
             let identity_count = txn
                 .query_one_raw(Statement::from_sql_and_values(
@@ -740,18 +752,10 @@ pub async fn delete_user(
         return Err((status, Json(AppError::public_json(msg))));
     }
 
+    let txn = db.begin().await.map_err(db_error("begin user delete"))?;
     if target_is_admin {
-        let admin_count = db
-            .query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT COUNT(*) AS n FROM users WHERE is_admin = true",
-                vec![],
-            ))
-            .await
-            .map_err(db_error("count admins"))?
-            .and_then(|r| r.try_get::<i64>("", "n").ok())
-            .unwrap_or(0);
-        if admin_count <= 1 {
+        let admin_count = lock_and_count_admins(&txn).await?;
+        if last_admin_mutation_blocked(true, admin_count) {
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(AppError::public_json(
@@ -760,8 +764,6 @@ pub async fn delete_user(
             ));
         }
     }
-
-    let txn = db.begin().await.map_err(db_error("begin user delete"))?;
     cleanup_user_related_data(&txn, user_id).await?;
     // user_identities CASCADE；其余已在 cleanup 中处理
     let result = txn
@@ -810,8 +812,9 @@ pub async fn delete_user(
 #[cfg(test)]
 mod tests {
     use super::{
-        cannot_demote_owner_error, cannot_restrict_owner_install, non_owner_delete_error,
-        non_owner_grant_admin_on_create_error, non_owner_is_admin_change_error,
+        LOCK_ADMINS_SQL, cannot_demote_owner_error, cannot_restrict_owner_install,
+        last_admin_mutation_blocked, non_owner_delete_error, non_owner_grant_admin_on_create_error,
+        non_owner_is_admin_change_error,
     };
 
     /// 与 handler 中安全规则保持一致的纯函数，便于无 DB 单测。
@@ -820,7 +823,7 @@ mod tests {
     }
 
     fn reject_last_admin_delete(target_is_admin: bool, admin_count: i64) -> bool {
-        target_is_admin && admin_count <= 1
+        last_admin_mutation_blocked(target_is_admin, admin_count)
     }
 
     fn reject_last_admin_demote(
@@ -828,7 +831,7 @@ mod tests {
         new_is_admin: bool,
         admin_count: i64,
     ) -> bool {
-        target_is_admin && !new_is_admin && admin_count <= 1
+        !new_is_admin && last_admin_mutation_blocked(target_is_admin, admin_count)
     }
 
     #[test]
@@ -906,5 +909,111 @@ mod tests {
     fn is_owner_gates_are_boolean_not_id() {
         assert!(non_owner_is_admin_change_error(false).is_some());
         assert!(non_owner_is_admin_change_error(true).is_none());
+    }
+
+    #[test]
+    fn last_admin_guard_locks_admins_in_id_order() {
+        assert!(LOCK_ADMINS_SQL.contains("ORDER BY id FOR UPDATE"));
+        let src = include_str!("admin_users.rs");
+        let update = src
+            .split("pub async fn update_user")
+            .nth(1)
+            .and_then(|rest| rest.split("pub async fn uninstall_user_tapp").next())
+            .expect("update_user");
+        assert!(update.contains("lock_and_count_admins"));
+        assert!(update.contains("begin user update"));
+        assert!(
+            !update.contains("SELECT COUNT(*) AS n FROM users WHERE is_admin = true"),
+            "demote must not COUNT admins outside the write transaction"
+        );
+        let delete = src
+            .split("pub async fn delete_user")
+            .nth(1)
+            .and_then(|rest| rest.split("#[cfg(test)]").next())
+            .expect("delete_user");
+        assert!(delete.contains("lock_and_count_admins"));
+        let lock_at = delete.find("lock_and_count_admins").expect("lock");
+        let delete_sql_at = delete.find("DELETE FROM users WHERE id").expect("delete");
+        assert!(
+            lock_at < delete_sql_at,
+            "last-admin lock must precede DELETE in the same transaction"
+        );
+    }
+
+    #[tokio::test]
+    async fn concurrent_last_admin_demotes_leave_one_admin() {
+        use sea_orm::{
+            ConnectOptions, ConnectionTrait, Database, DatabaseBackend, DatabaseConnection,
+            Statement, TransactionTrait,
+        };
+        let Ok(url) = std::env::var("AUTH_TEST_DATABASE_URL")
+            .or_else(|_| std::env::var("PHANTASI_TEST_DATABASE_URL"))
+        else {
+            return;
+        };
+        let admin = Database::connect(&url).await.unwrap();
+        let scope = format!("last_admin_{}", uuid::Uuid::new_v4().simple());
+        admin
+            .execute_unprepared(&format!("CREATE SCHEMA {scope}"))
+            .await
+            .unwrap();
+        let connect = || {
+            let mut options = ConnectOptions::new(url.clone());
+            options
+                .max_connections(1)
+                .min_connections(1)
+                .sqlx_logging(false)
+                .set_schema_search_path(scope.clone());
+            Database::connect(options)
+        };
+        let setup = connect().await.unwrap();
+        setup
+            .execute_unprepared(
+                "CREATE TABLE users (id INTEGER PRIMARY KEY, is_admin BOOLEAN NOT NULL)",
+            )
+            .await
+            .unwrap();
+        setup
+            .execute_unprepared("INSERT INTO users (id, is_admin) VALUES (1, true), (2, true)")
+            .await
+            .unwrap();
+        let a = connect().await.unwrap();
+        let b = connect().await.unwrap();
+        let demote = |db: DatabaseConnection, target: i32| async move {
+            let txn = db.begin().await.unwrap();
+            let count = super::lock_and_count_admins(&txn).await.unwrap();
+            if super::last_admin_mutation_blocked(true, count) {
+                txn.rollback().await.ok();
+                return false;
+            }
+            txn.execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "UPDATE users SET is_admin = false WHERE id = $1",
+                [target.into()],
+            ))
+            .await
+            .unwrap();
+            txn.commit().await.unwrap();
+            true
+        };
+        let (left, right) = tokio::join!(demote(a, 1), demote(b, 2));
+        let remaining = setup
+            .query_one_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT COUNT(*) FILTER (WHERE is_admin) AS n FROM users".to_string(),
+            ))
+            .await
+            .unwrap()
+            .and_then(|row| row.try_get::<i64>("", "n").ok())
+            .unwrap_or(0);
+        admin
+            .execute_unprepared(&format!("DROP SCHEMA {scope} CASCADE"))
+            .await
+            .ok();
+        assert!(
+            left ^ right,
+            "exactly one concurrent last-admin demote may commit"
+        );
+        assert_eq!(remaining, 1, "the last administrator must remain");
     }
 }

@@ -389,16 +389,17 @@ impl<'a> SnapshotManager<'a> {
         for id in drop_ids {
             let p = self.state.snapshots_dir().join(&id);
             if p.exists()
-                && let Err(e) = std::fs::remove_dir_all(&p) {
-                    warn!(
-                        snapshot = %id,
-                        path = %p.display(),
-                        err = %e,
-                        "snapshot prune: disk delete failed; keeping id in snapshots.json"
-                    );
-                    disk_failures.push(id);
-                    continue;
-                }
+                && let Err(e) = std::fs::remove_dir_all(&p)
+            {
+                warn!(
+                    snapshot = %id,
+                    path = %p.display(),
+                    err = %e,
+                    "snapshot prune: disk delete failed; keeping id in snapshots.json"
+                );
+                disk_failures.push(id);
+                continue;
+            }
             removed.push(id);
         }
 
@@ -559,11 +560,12 @@ impl<'a> SnapshotManager<'a> {
         // Current in-flight job (job.current).
         if let Some(job_id) = self.state.read_current_job()?
             && let Ok(job) = self.state.read_job(&job_id)
-                && job.snapshot_id.as_deref() == Some(id) {
-                    return Ok(Some(format!(
-                        "snapshot {id} is in use by current job {job_id}"
-                    )));
-                }
+            && job.snapshot_id.as_deref() == Some(id)
+        {
+            return Ok(Some(format!(
+                "snapshot {id} is in use by current job {job_id}"
+            )));
+        }
 
         // Rescue / needs_manual: protect the snapshot the operator would roll back to.
         let maint = self.state.read_maintenance()?;
@@ -577,12 +579,13 @@ impl<'a> SnapshotManager<'a> {
                 .or_else(|| self.state.read_current_job().ok().flatten());
             if let Some(job_id) = job_id
                 && let Ok(job) = self.state.read_job(&job_id)
-                    && job.snapshot_id.as_deref() == Some(id) {
-                        return Ok(Some(format!(
-                            "snapshot {id} is required for rescue (job {job_id}, phase {:?})",
-                            maint.phase
-                        )));
-                    }
+                && job.snapshot_id.as_deref() == Some(id)
+            {
+                return Ok(Some(format!(
+                    "snapshot {id} is required for rescue (job {job_id}, phase {:?})",
+                    maint.phase
+                )));
+            }
         }
 
         Ok(None)
@@ -940,6 +943,7 @@ mod tests {
             status: JobStatus::Running,
             steps: vec![],
             idempotency_key: None,
+            idempotency_fingerprint: None,
         };
         state.write_job(&job).unwrap();
         state.set_current_job(Some("job-1")).unwrap();
@@ -1149,6 +1153,7 @@ mod tests {
             status: JobStatus::Running,
             steps: vec![],
             idempotency_key: None,
+            idempotency_fingerprint: None,
         };
         state.write_job(&job).unwrap();
         state.set_current_job(Some("job-prune")).unwrap();
@@ -1312,6 +1317,7 @@ mod tests {
             status: JobStatus::Running,
             steps: vec![],
             idempotency_key: None,
+            idempotency_fingerprint: None,
         };
         state.write_job(&job).unwrap();
         state.set_current_job(Some("job-rc")).unwrap();

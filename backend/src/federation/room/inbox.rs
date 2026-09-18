@@ -750,6 +750,19 @@ pub async fn handle_room_join(
 
     let effective_role = room_join_effective_role(prior.as_ref().map(|(r, _)| r.as_str()), role);
 
+    let already_active = prior
+        .as_ref()
+        .map(|(_, st)| st == "active")
+        .unwrap_or(false);
+    if !already_active {
+        let (max_members, active) = lock_room_capacity(db, room_id)
+            .await
+            .map_err(|e| e.to_string())?;
+        if room_is_full(active, max_members) {
+            return Err("Room is full".into());
+        }
+    }
+
     // 加入/激活成员（pending → active on accept-side RoomJoin)
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,

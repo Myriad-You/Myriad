@@ -208,6 +208,39 @@ CREATE TABLE IF NOT EXISTS agent_autonomy_grants (
     Ok(())
 }
 
+/// One active channel relationship per (user, remote actor, type).
+pub(crate) async fn ensure_channels_active_relationship_unique(
+    db: &DatabaseConnection,
+) -> Result<(), DbErr> {
+    db.execute_unprepared(
+        r#"
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_index
+        WHERE indexrelid = to_regclass('idx_channels_active_relationship')
+          AND indrelid = 'federation_channels'::regclass
+          AND indisunique AND indisvalid
+    ) THEN
+        DELETE FROM federation_channels a
+        USING federation_channels b
+        WHERE a.user_id = b.user_id
+          AND a.remote_actor_id = b.remote_actor_id
+          AND a.channel_type = b.channel_type
+          AND a.status IN ('pending', 'accepted', 'active')
+          AND b.status IN ('pending', 'accepted', 'active')
+          AND a.id > b.id;
+        CREATE UNIQUE INDEX idx_channels_active_relationship
+            ON federation_channels (user_id, remote_actor_id, channel_type)
+            WHERE status IN ('pending', 'accepted', 'active');
+    END IF;
+END $$;
+"#,
+    )
+    .await?;
+    Ok(())
+}
+
 /// 投递队列去重：`(activity_id, target_inbox)` 唯一索引。
 /// Only a missing unique index needs data cleanup. DELETE and CREATE are atomic;
 /// an existing valid unique index skips the table scan entirely.
@@ -227,6 +260,36 @@ BEGIN
         WHERE a.activity_id = b.activity_id AND a.target_inbox = b.target_inbox AND a.id > b.id;
         CREATE UNIQUE INDEX idx_delivery_queue_activity_target
             ON federation_delivery_queue (activity_id, target_inbox);
+    END IF;
+END $$;
+"#,
+    )
+    .await?;
+    Ok(())
+}
+
+/// One current snapshot per `(user_id, platform_name)`. Collapse duplicates
+/// before CREATE UNIQUE so existing rows cannot fail the index.
+pub(crate) async fn ensure_platform_metadata_unique(
+    db: &DatabaseConnection,
+) -> Result<(), DbErr> {
+    db.execute_unprepared(
+        r#"
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_index
+        WHERE indexrelid = to_regclass('idx_platform_metadata_user_platform')
+          AND indrelid = 'platform_metadata'::regclass
+          AND indisunique AND indisvalid
+    ) THEN
+        DELETE FROM platform_metadata a
+        USING platform_metadata b
+        WHERE a.user_id = b.user_id
+          AND a.platform_name = b.platform_name
+          AND a.id > b.id;
+        CREATE UNIQUE INDEX idx_platform_metadata_user_platform
+            ON platform_metadata (user_id, platform_name);
     END IF;
 END $$;
 "#,
@@ -740,6 +803,40 @@ ALTER TABLE tapp_storage
     Ok(())
 }
 
+pub(crate) fn agent_tasks_status_check_sql() -> String {
+    let values = myriad_agent_rules::TASK_STATUS_DB_VALUES
+        .iter()
+        .map(|status| format!("'{status}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        r#"
+DO $$
+BEGIN
+    IF to_regclass('agent_tasks') IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+             FROM pg_constraint
+            WHERE conname = 'agent_tasks_status_check'
+              AND conrelid = 'agent_tasks'::regclass
+       )
+    THEN
+        ALTER TABLE agent_tasks
+            ADD CONSTRAINT agent_tasks_status_check
+            CHECK (status IN ({values})) NOT VALID;
+    END IF;
+END $$;
+"#
+    )
+}
+
+/// Unknown `agent_tasks.status` values must not become executable Pending.
+pub(crate) async fn ensure_agent_tasks_status_check(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(&agent_tasks_status_check_sql())
+        .await?;
+    Ok(())
+}
+
 /// 云端笔记文档。草稿 / 定时不进 `phantasi_items`，发布时才落文章。
 pub(crate) async fn ensure_phantasi_note_docs_table(db: &DatabaseConnection) -> Result<(), DbErr> {
     db.execute_unprepared(
@@ -871,5 +968,148 @@ CREATE INDEX IF NOT EXISTS idx_media_assets_kind
 pub(crate) async fn ensure_note_editor_history(db: &DatabaseConnection) -> Result<(), DbErr> {
     db.execute_unprepared(include_str!("../../../migrations/note_editor.sql"))
         .await?;
+    Ok(())
+}
+
+/// One shared Note catalog. Partial unique is not expressible in `get_expected_indexes`.
+pub(crate) async fn ensure_phantasi_note_source_unique(
+    db: &DatabaseConnection,
+) -> Result<(), DbErr> {
+    db.execute_unprepared(
+        r#"
+DO $$
+DECLARE
+    kept_id integer;
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_index
+        WHERE indexrelid = to_regclass('idx_phantasi_sources_note_type')
+          AND indisunique AND indisvalid
+    ) THEN
+        SELECT MIN(id) INTO kept_id FROM phantasi_sources WHERE source_type = 'note';
+        IF kept_id IS NOT NULL THEN
+            UPDATE phantasi_items
+            SET source_id = kept_id
+            WHERE source_id IN (
+                SELECT id FROM phantasi_sources WHERE source_type = 'note' AND id <> kept_id
+            );
+            IF to_regclass('phantasi_source_applications') IS NOT NULL THEN
+                UPDATE phantasi_source_applications
+                SET result_source_id = kept_id
+                WHERE result_source_id IN (
+                    SELECT id FROM phantasi_sources WHERE source_type = 'note' AND id <> kept_id
+                );
+            END IF;
+            DELETE FROM phantasi_sources WHERE source_type = 'note' AND id <> kept_id;
+        END IF;
+        CREATE UNIQUE INDEX idx_phantasi_sources_note_type
+            ON phantasi_sources ((true)) WHERE source_type = 'note';
+    END IF;
+END $$;
+"#,
+    )
+    .await?;
+    Ok(())
+}
+
+/// Global RSSHub instances use NULL user_id; a plain UNIQUE allows duplicate NULLs.
+pub(crate) async fn ensure_rsshub_global_url_unique(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(
+        r#"
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_index
+        WHERE indexrelid = to_regclass('idx_rsshub_instances_global_url')
+          AND indisunique AND indisvalid
+    ) THEN
+        DELETE FROM rsshub_instances a
+        USING rsshub_instances b
+        WHERE a.user_id IS NULL AND b.user_id IS NULL
+          AND a.url = b.url AND a.id > b.id;
+        CREATE UNIQUE INDEX idx_rsshub_instances_global_url
+            ON rsshub_instances (url) WHERE user_id IS NULL;
+    END IF;
+END $$;
+"#,
+    )
+    .await?;
+    Ok(())
+}
+
+/// Pending friend-link applications: one canonical site/feed URL at a time.
+pub(crate) async fn ensure_phantasi_application_pending_unique(
+    db: &DatabaseConnection,
+) -> Result<(), DbErr> {
+    db.execute_unprepared(
+        r#"
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_index
+        WHERE indexrelid = to_regclass('idx_phantasi_source_applications_pending_site')
+          AND indisunique AND indisvalid
+    ) THEN
+        DELETE FROM phantasi_source_applications a
+        USING phantasi_source_applications b
+        WHERE a.status = 'pending' AND b.status = 'pending'
+          AND regexp_replace(a.site_url, '/+$', '') = regexp_replace(b.site_url, '/+$', '')
+          AND a.id > b.id;
+        CREATE UNIQUE INDEX idx_phantasi_source_applications_pending_site
+            ON phantasi_source_applications (regexp_replace(site_url, '/+$', ''))
+            WHERE status = 'pending';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_index
+        WHERE indexrelid = to_regclass('idx_phantasi_source_applications_pending_feed')
+          AND indisunique AND indisvalid
+    ) THEN
+        DELETE FROM phantasi_source_applications a
+        USING phantasi_source_applications b
+        WHERE a.status = 'pending' AND b.status = 'pending'
+          AND a.feed_url IS NOT NULL AND btrim(a.feed_url) <> ''
+          AND b.feed_url IS NOT NULL AND btrim(b.feed_url) <> ''
+          AND regexp_replace(a.feed_url, '/+$', '') = regexp_replace(b.feed_url, '/+$', '')
+          AND a.id > b.id;
+        CREATE UNIQUE INDEX idx_phantasi_source_applications_pending_feed
+            ON phantasi_source_applications (regexp_replace(feed_url, '/+$', ''))
+            WHERE status = 'pending' AND feed_url IS NOT NULL AND btrim(feed_url) <> '';
+    END IF;
+END $$;
+"#,
+    )
+    .await?;
+    Ok(())
+}
+
+/// Owner-wide shortcut chord uniqueness. JSON keys are not in (user,tapp,key).
+pub(crate) async fn ensure_tapp_shortcut_chord_unique(
+    db: &DatabaseConnection,
+) -> Result<(), DbErr> {
+    db.execute_unprepared(
+        r#"
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_index
+        WHERE indexrelid = to_regclass('idx_tapp_shortcuts_owner_chord')
+          AND indisunique AND indisvalid
+    ) THEN
+        DELETE FROM tapp_storage a
+        USING tapp_storage b
+        WHERE a.user_id = b.user_id
+          AND starts_with(a.key, '_shortcut:')
+          AND starts_with(b.key, '_shortcut:')
+          AND a.value->>'keys' IS NOT NULL
+          AND a.value->>'keys' = b.value->>'keys'
+          AND a.id > b.id;
+        CREATE UNIQUE INDEX idx_tapp_shortcuts_owner_chord
+            ON tapp_storage (user_id, (value->>'keys'))
+            WHERE starts_with(key, '_shortcut:');
+    END IF;
+END $$;
+"#,
+    )
+    .await?;
     Ok(())
 }

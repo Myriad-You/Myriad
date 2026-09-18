@@ -150,7 +150,9 @@ pub async fn process(
             Json(AppError::public_json("Could not load Agent session")),
         ))
     })?;
-    if let Err(error) = persist_user_message(&db, &session_id, &req.input).await {
+    if let Err(error) =
+        require_user_message_persisted(persist_user_message(&db, &session_id, &req.input).await)
+    {
         tracing::error!(%error, "[Agent API] Failed to persist user message");
         return Err(HttpError::from((
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -385,18 +387,16 @@ pub(crate) async fn start_process_run(
     };
 
     if has_session {
-        if let Err(e) = persist_user_message(&db, &session_id, &req.input).await {
+        if let Err(e) =
+            require_user_message_persisted(persist_user_message(&db, &session_id, &req.input).await)
+        {
             tracing::error!("[Agent API] Failed to persist user message: {}", e);
-            if interaction_mode == crate::services::agent::AgentInteractionMode::Chat
-                || source_intent_id.is_some()
-            {
-                return Err(HttpError::from((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(AppError::public_json(
-                        "Could not save durable Agent message",
-                    )),
-                )));
-            }
+            return Err(HttpError::from((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(AppError::public_json(
+                    "Could not save durable Agent message",
+                )),
+            )));
         }
     }
 
@@ -870,14 +870,24 @@ pub async fn subscribe_run_stream(
     Path(run_id): Path<String>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, HttpError> {
     let user_id = parse_user_id(&claims)?;
-    let run = get_run_for_user(&run_id, user_id).await.ok_or_else(|| {
-        HttpError::from((
-            StatusCode::NOT_FOUND,
-            Json(AppError::public_json(
-                "Run not found, expired, or access denied",
-            )),
-        ))
-    })?;
+    let run = match get_run_for_user(&run_id, user_id).await {
+        Ok(Some(run)) => run,
+        Ok(None) => {
+            return Err(HttpError::from((
+                StatusCode::NOT_FOUND,
+                Json(AppError::public_json(
+                    "Run not found, expired, or access denied",
+                )),
+            )));
+        }
+        Err(error) => {
+            tracing::error!(%error, "[Agent API] Failed to rehydrate Agent run");
+            return Err(HttpError::from((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(AppError::public_json("Could not load Agent run")),
+            )));
+        }
+    };
 
     Ok(Sse::new(agent_run_event_stream(run))
         .keep_alive(KeepAlive::new().interval(Duration::from_secs(15))))
@@ -1362,7 +1372,19 @@ fn spawn_answer_resume(
             .or(session_from_waiting)
             .unwrap_or_default();
         if !ctx_session_id.is_empty() {
-            let _ = persist_user_message(&db, &ctx_session_id, &answer.answer).await;
+            if let Err(error) = require_user_message_persisted(
+                persist_user_message(&db, &ctx_session_id, &answer.answer).await,
+            ) {
+                tracing::error!(%error, "[Agent API] Failed to persist user message");
+                let _ = tx
+                    .send(AgentProgressEvent::Error {
+                        task_id: Some(task_id),
+                        message: "Could not save durable Agent message".into(),
+                        code: "SESSION_STORE_FAILED".into(),
+                    })
+                    .await;
+                return;
+            }
         }
 
         // Existing run subscribers and this continuation observe the same progress.
@@ -1547,10 +1569,18 @@ pub(crate) async fn start_confirm_run(
         .unwrap_or_else(|| LaneQueue::make_lane_key(user_id, session_id.as_deref()));
 
     // Prefer the original process run so notifications/UI stay on one identity.
+    // Rehydrate errors must not look like a missing run (that would mint a second identity).
     let run = if let Some(ref rid) = original_run_id {
         match get_run_for_user(rid, user_id).await {
-            Some(existing) => existing,
-            None => create_run(user_id, session_id.clone()).await,
+            Ok(Some(existing)) => existing,
+            Ok(None) => create_run(user_id, session_id.clone()).await,
+            Err(error) => {
+                tracing::error!(%error, "[Agent API] Failed to rehydrate Agent run");
+                return Err(HttpError::from((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(AppError::public_json("Could not load Agent run")),
+                )));
+            }
         }
     } else {
         create_run(user_id, session_id.clone()).await

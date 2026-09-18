@@ -140,7 +140,7 @@ pub async fn handle_channel_open(
     };
 
     // 创建本地 Channel 记录
-    let inserted = db
+    let inserted = match db
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_channels
@@ -157,7 +157,18 @@ pub async fn handle_channel_open(
             ],
         ))
         .await
-        .map_err(|e| e.to_string())?;
+    {
+        Ok(result) => result,
+        Err(e) if crate::federation::types::is_unique_violation(&e) => {
+            tracing::info!(
+                "[Channel] ChannelOpen relationship already active for user {} type {}",
+                target_user_id,
+                channel_type
+            );
+            return Ok(());
+        }
+        Err(e) => return Err(e.to_string()),
+    };
 
     if inserted.rows_affected() > 0 {
         let label = crate::federation::notify::actor_label(db, actor_url_str).await;

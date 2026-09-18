@@ -134,6 +134,11 @@ pub fn canonical_query(raw_query: Option<&str>) -> Result<String, InboundRouteEr
     };
     let mut pairs = BTreeMap::new();
     for (key, value) in url::form_urlencoded::parse(raw.as_bytes()) {
+        // Decode-then-join is the documented HMAC payload. Reject decoded
+        // separators so `a=1%26b%3D2` cannot collide with `a=1&b=2`.
+        if key.contains('&') || key.contains('=') || value.contains('&') {
+            return Err(InboundRouteError::InvalidParams);
+        }
         if pairs.insert(key.into_owned(), value.into_owned()).is_some() {
             return Err(InboundRouteError::InvalidParams);
         }
@@ -191,10 +196,16 @@ pub fn timestamp_in_window(timestamp: i64, now: i64, max_skew_secs: u32) -> bool
     now.abs_diff(timestamp) <= u64::from(max_skew_secs)
 }
 
-/// Reserve the nonce for a full server-side window. Using the client timestamp
-/// would let a request at `now - maxSkew` expire immediately and be replayed.
-pub fn nonce_expires_at(now: i64, max_skew_secs: u32) -> i64 {
-    now.saturating_add(i64::from(max_skew_secs))
+/// Keep the nonce until the signed timestamp can no longer pass the skew window.
+///
+/// A request dated `now + maxSkew` is still accepted until `now + 2*maxSkew`.
+/// TTL of only `now + maxSkew` would drop the nonce while that timestamp is
+/// valid, opening a replay window. Past timestamps still expire at `now + maxSkew`
+/// so a request at `now - maxSkew` is not immediately reusable.
+pub fn nonce_expires_at(now: i64, timestamp: i64, max_skew_secs: u32) -> i64 {
+    timestamp
+        .max(now)
+        .saturating_add(i64::from(max_skew_secs))
 }
 
 pub fn over_matches_method(over: TappRouteVerifyOver, method: &str) -> bool {
@@ -277,10 +288,11 @@ pub async fn consume_nonce(
     credential_key: &str,
     nonce: &str,
     now: i64,
+    timestamp: i64,
     max_skew_secs: u32,
 ) -> Result<(), InboundRouteError> {
     let record_id = nonce_record_id(owner_id, tapp_id, credential_key, nonce);
-    let expires_at = nonce_expires_at(now, max_skew_secs);
+    let expires_at = nonce_expires_at(now, timestamp, max_skew_secs);
     let inserted = tapp_registry::put_if_absent(
         db,
         ROUTE_NONCE_NAMESPACE,
@@ -410,6 +422,20 @@ mod tests {
         assert_eq!(canonical_query(Some("b=2&a=1")).unwrap(), "a=1&b=2");
         assert!(canonical_query(Some("a=1&a=2")).is_err());
         assert_eq!(canonical_query(None).unwrap(), "");
+    }
+
+    #[test]
+    fn canonical_query_rejects_encoded_separator_collision() {
+        assert_eq!(canonical_query(Some("a=1&b=2")).unwrap(), "a=1&b=2");
+        assert_eq!(
+            canonical_query(Some("a=1%26b%3D2")).unwrap_err(),
+            InboundRouteError::InvalidParams
+        );
+        assert_eq!(
+            canonical_query(Some("a%3Db=c")).unwrap_err(),
+            InboundRouteError::InvalidParams
+        );
+        assert_eq!(canonical_query(Some("a=b%3Dc")).unwrap(), "a=b=c");
     }
 
     #[test]
@@ -589,8 +615,11 @@ mod tests {
     }
 
     #[test]
-    fn nonce_ttl_uses_server_now_not_client_timestamp() {
-        assert_eq!(nonce_expires_at(1_770_000_000, 300), 1_770_000_300);
+    fn nonce_ttl_covers_future_timestamp_window() {
+        let now = 1_770_000_000_i64;
+        let skew = 300_u32;
+        assert_eq!(nonce_expires_at(now, now - i64::from(skew), skew), now + 300);
+        assert_eq!(nonce_expires_at(now, now + i64::from(skew), skew), now + 600);
         assert!(over_matches_method(
             TappRouteVerifyOver::CanonicalQuery,
             "GET"

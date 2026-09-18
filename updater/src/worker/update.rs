@@ -386,10 +386,11 @@ async fn run_update_body(
     match pin_rollback_images(&worker, &from_tag_backup).await {
         Ok(true) => {
             if let Ok(v) = DeployTag::parse(&from_tag_backup)
-                && let Ok(mut st) = worker.state().read_updater() {
-                    st.rollback_version = Some(v);
-                    let _ = worker.state().write_updater(&st);
-                }
+                && let Ok(mut st) = worker.state().read_updater()
+            {
+                st.rollback_version = Some(v);
+                let _ = worker.state().write_updater(&st);
+            }
         }
         Ok(false) => {
             tracing::warn!(
@@ -795,85 +796,87 @@ async fn finish_with_rollback(
     // Before any destructive step, re-check with the hardened multi-path probe under
     // soft-pass timing (treat elapsed as already past soft threshold).
     if is_health_probe_failure(&original_err)
-        && let Some(target) = rec.to_version.clone() {
-            info!(
-                err = %original_err,
-                target = %target,
-                "health failure: re-checking before destructive rollback"
-            );
-            // Force soft-pass window open (90s+) for this recheck; prefer live frontend via proxy.
-            // Recheck must be *stricter* than the main loop: only HardOk skips rollback.
-            // SoftOk (proxy-down, maintenance HTML, dual-image warm) used to mark SUCCESS
-            // after a real probe timeout and leave a broken site without rollback.
-            let recheck = probe_one_tick(
-                worker,
-                &target,
-                Duration::from_secs(120),
-                FrontendProbe::LiveViaProxy,
-            )
-            .await;
-            match recheck {
-                ProbeTick::HardOk { detail, pass_kind } => {
-                    warn!(
-                        %detail,
-                        %pass_kind,
-                        target = %target,
-                        "health re-check HardOk after timeout — treating update as SUCCESS \
-                         (skipping rollback). Original probe was a false negative."
-                    );
-                    // Best-effort bookkeeping only — stack is already live.
-                    let _ = rec.enter(Phase::SwappingProxy, "updater.phase.swapping_proxy");
-                    if let Ok(mut st) = worker.state().read_updater() {
-                        // Recheck path has no PreflightReport; preserve commit only when
-                        // we already recorded this exact target (false-negative after success bookkeeping).
-                        let commit = if st.current_version.as_ref() == Some(&target) {
-                            st.current_commit_sha.clone()
-                        } else {
-                            None
-                        };
-                        record_successful_deploy(&mut st, target.clone(), commit);
-                        let _ = worker.state().write_updater(&st);
-                    }
-                    let _ = rec.finish_step_ok();
-                    let _ = rec.enter(Phase::Finalize, "updater.phase.finalize");
-                    let _ = rec.finish_step_ok();
-                    let _ = rec.finalize(JobStatus::Succeeded);
-                    let _ = crate::worker::machine::clear_maintenance(worker.state());
-                    worker.best_effort_prune_snapshots("update_success_health_recheck");
-                    let _ = worker.state().append_history(&format!(
-                        "job {}: SUCCESS after health false-negative recheck ({target}); \
+        && let Some(target) = rec.to_version.clone()
+    {
+        info!(
+            err = %original_err,
+            target = %target,
+            "health failure: re-checking before destructive rollback"
+        );
+        // Force soft-pass window open (90s+) for this recheck; prefer live frontend via proxy.
+        // Recheck must be *stricter* than the main loop: only HardOk skips rollback.
+        // SoftOk (proxy-down, maintenance HTML, dual-image warm) used to mark SUCCESS
+        // after a real probe timeout and leave a broken site without rollback.
+        let recheck = probe_one_tick(
+            worker,
+            &target,
+            Duration::from_secs(120),
+            FrontendProbe::LiveViaProxy,
+        )
+        .await;
+        match recheck {
+            ProbeTick::HardOk { detail, pass_kind } => {
+                warn!(
+                    %detail,
+                    %pass_kind,
+                    target = %target,
+                    "health re-check HardOk after timeout — treating update as SUCCESS \
+                     (skipping rollback). Original probe was a false negative."
+                );
+                // Best-effort bookkeeping only — stack is already live.
+                let _ = rec.enter(Phase::SwappingProxy, "updater.phase.swapping_proxy");
+                if let Ok(mut st) = worker.state().read_updater() {
+                    // Recheck path has no PreflightReport; preserve commit only when
+                    // we already recorded this exact target (false-negative after success bookkeeping).
+                    let commit = if st.current_version.as_ref() == Some(&target) {
+                        st.current_commit_sha.clone()
+                    } else {
+                        None
+                    };
+                    record_successful_deploy(&mut st, target.clone(), commit);
+                    let _ = worker.state().write_updater(&st);
+                }
+                let _ = rec.finish_step_ok();
+                let _ = rec.enter(Phase::Finalize, "updater.phase.finalize");
+                let _ = rec.finish_step_ok();
+                let _ = rec.finalize(JobStatus::Succeeded);
+                let _ = crate::worker::machine::clear_maintenance(worker.state());
+                worker.best_effort_prune_snapshots("update_success_health_recheck");
+                let _ = worker.state().append_history(&format!(
+                    "job {}: SUCCESS after health false-negative recheck ({target}); \
                          original_probe_err={original_err}",
-                        rec.job_id
-                    ));
-                    return Ok(());
-                }
-                ProbeTick::SoftOk { detail, pass_kind } => {
-                    warn!(
-                        %detail,
-                        %pass_kind,
-                        "health re-check only SoftOk after timeout; refusing false success — rolling back"
-                    );
-                }
-                ProbeTick::NotReady { detail } => {
-                    warn!(
-                        %detail,
-                        "health re-check still not ready; proceeding with rollback"
-                    );
-                }
+                    rec.job_id
+                ));
+                return Ok(());
+            }
+            ProbeTick::SoftOk { detail, pass_kind } => {
+                warn!(
+                    %detail,
+                    %pass_kind,
+                    "health re-check only SoftOk after timeout; refusing false success — rolling back"
+                );
+            }
+            ProbeTick::NotReady { detail } => {
+                warn!(
+                    %detail,
+                    "health re-check still not ready; proceeding with rollback"
+                );
             }
         }
+    }
 
     // Health probe may have set maintenance.active=false; re-enter so proxy shows
     // maintenance during destructive rollback and crash recovery can see us.
     if let Ok(mut m) = worker.state().read_maintenance()
-        && !m.active {
-            m.active = true;
-            m.phase = Phase::RollbackInProgress;
-            m.message_key = "updater.phase.rollback".into();
-            m.job_id = Some(rec.job_id.clone());
-            m.bump_heartbeat();
-            let _ = worker.state().write_maintenance(&m);
-        }
+        && !m.active
+    {
+        m.active = true;
+        m.phase = Phase::RollbackInProgress;
+        m.message_key = "updater.phase.rollback".into();
+        m.job_id = Some(rec.job_id.clone());
+        m.bump_heartbeat();
+        let _ = worker.state().write_maintenance(&m);
+    }
 
     error!(err = %original_err, "rollback triggered");
     let rb_result =
@@ -1509,9 +1512,10 @@ fn image_ref_matches_target(image_ref: &str, target: &DeployTag) -> bool {
     }
     // Digest-only refs cannot prove tag; still allow short sha substring for commit tags.
     if let Some(sha) = target.commit_sha()
-        && image_ref.contains(sha) {
-            return true;
-        }
+        && image_ref.contains(sha)
+    {
+        return true;
+    }
     image_ref.contains(tag)
 }
 

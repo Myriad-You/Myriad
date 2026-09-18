@@ -18,6 +18,14 @@ use crate::models::entities::phantasi_sources::FeedType;
 /// Fail cleanly via [`ParseError::FetchError`] — never buffer past this limit.
 const MAX_FEED_BODY_BYTES: usize = 16 * 1024 * 1024; // 16 MiB
 
+/// Fetch result including a 301/308 URL the scheduler should persist.
+#[derive(Clone, Debug)]
+pub struct FetchedFeed {
+    pub feed: ParsedFeed,
+    /// New feed URL after a permanent redirect; `None` if the stored URL is still valid.
+    pub permanent_url: Option<String>,
+}
+
 /// 解析后的订阅源信息
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ParsedFeed {
@@ -116,7 +124,8 @@ impl ParseError {
 
 /// Feed 解析器
 ///
-/// 出站请求经 `outbound_security` 做公网 DNS 钉扎与禁用重定向，防止 SSRF。
+/// 出站请求经 `outbound_security` 做公网 DNS 钉扎。客户端禁用自动重定向；
+/// 抓取时逐跳校验后再跟随，避免 3xx 把请求带到内网。
 pub struct FeedParser;
 
 impl Default for FeedParser {
@@ -149,23 +158,29 @@ impl FeedParser {
 
     /// 抓取并解析订阅源（SSRF 安全）
     pub async fn fetch_and_parse(&self, url: &str) -> Result<ParsedFeed, ParseError> {
-        let (target_url, client) = crate::services::outbound_security::build_public_http_client(
+        Ok(self.fetch_feed(url).await?.feed)
+    }
+
+    /// 抓取并解析订阅源，附带 301/308 后应落库的 URL。
+    pub async fn fetch_feed(&self, url: &str) -> Result<FetchedFeed, ParseError> {
+        let fetched = crate::services::outbound_security::get_public_following_redirects(
             url,
             Duration::from_secs(30),
             Some(Self::USER_AGENT),
         )
         .await
-        .map_err(|error| {
-            tracing::warn!(%error, "unsafe or invalid feed URL");
-            ParseError::InvalidUrl("Unsafe or invalid URL".to_string())
+        .map_err(|error| match error {
+            crate::services::outbound_security::PublicGetError::InvalidTarget(error) => {
+                tracing::warn!(%error, "unsafe or invalid feed URL");
+                ParseError::InvalidUrl("Unsafe or invalid URL".to_string())
+            }
+            crate::services::outbound_security::PublicGetError::Fetch(error) => {
+                tracing::warn!(%error, "failed to fetch feed");
+                ParseError::FetchError(error)
+            }
         })?;
 
-        // 抓取内容（客户端已禁用重定向并钉扎公网解析结果）
-        let response = client.get(target_url).send().await.map_err(|error| {
-            tracing::warn!(%error, "failed to fetch feed");
-            ParseError::FetchError(error.to_string())
-        })?;
-
+        let response = fetched.response;
         if !response.status().is_success() {
             return Err(ParseError::FetchError(format!(
                 "HTTP error: {}",
@@ -205,8 +220,12 @@ impl FeedParser {
             preview
         );
 
-        // 根据 Content-Type 或内容检测格式
-        self.parse_content(&body, &content_type, url)
+        let fetched_url = fetched.url.as_str();
+        let feed = self.parse_content(&body, &content_type, fetched_url)?;
+        Ok(FetchedFeed {
+            feed,
+            permanent_url: fetched.permanent_url.map(|u| u.to_string()),
+        })
     }
 
     /// 解析内容

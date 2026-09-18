@@ -87,26 +87,28 @@ service_is_running() {
 }
 
 # Stop running writers. Detection failure or stop failure aborts.
-# Sets WRITERS_STOPPED_BY_US=1 only after a successful stop of at least one unit.
+# Sets WRITERS_STOPPED_BY_US=1 as soon as any unit is actually stopped so a
+# later quiesce failure still restarts writers already down.
 quiesce_writers() {
     local svc state
     STOPPED_WRITERS=""
     for svc in $WRITER_STOP_ORDER; do
         if service_is_running "$svc"; then
             info "==> stopping $svc to quiesce writes"
-            compose stop "$svc"
+            if ! compose stop "$svc"; then
+                err "failed to stop $svc after writers already quiesced: $STOPPED_WRITERS"
+                return 1
+            fi
             STOPPED_WRITERS="${STOPPED_WRITERS:+$STOPPED_WRITERS }$svc"
+            WRITERS_STOPPED_BY_US=1
         else
             state=$?
             if [ "$state" -eq 2 ]; then
-                exit 1
+                return 1
             fi
             info "$svc is not running"
         fi
     done
-    if [ -n "$STOPPED_WRITERS" ]; then
-        WRITERS_STOPPED_BY_US=1
-    fi
 }
 
 ensure_data_volume() {
@@ -115,6 +117,42 @@ ensure_data_volume() {
         info "==> creating empty volume $volume"
         $DOCKER volume create "$volume" >/dev/null
     fi
+}
+
+# POSIX payload used by the alpine restore container and by host tests.
+# DEST and ARCHIVE are paths inside the shell that runs this text.
+volume_restore_posix() {
+    cat <<'EOF'
+set -eu
+dest="${DEST:?}"
+archive="${ARCHIVE:?}"
+if [ ! -d "$dest" ]; then
+    echo "restore dest is not a directory" >&2
+    exit 1
+fi
+if [ ! -f "$archive" ]; then
+    echo "restore archive missing" >&2
+    exit 1
+fi
+find "$dest" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+leftover=""
+for p in "$dest"/* "$dest"/.[!.]* "$dest"/..?*; do
+    if [ -e "$p" ] || [ -L "$p" ]; then
+        leftover="$p"
+        break
+    fi
+done
+if [ -n "$leftover" ]; then
+    echo "volume cleanup incomplete; refuse unpack ($leftover)" >&2
+    exit 1
+fi
+tar xzf "$archive" -C "$dest"
+EOF
+}
+
+restore_data_tree() {
+    local dest="$1" archive="$2"
+    DEST="$dest" ARCHIVE="$archive" sh -c "$(volume_restore_posix)"
 }
 
 # Official compose inits Postgres with POSTGRES_PASSWORD from the host .env.
@@ -331,10 +369,12 @@ do_restore() {
     ensure_data_volume "$volume"
     info "==> restoring backend_data ($volume)"
     $DOCKER run --rm \
+        -e DEST=/data \
+        -e ARCHIVE=/in/backend_data.tar.gz \
         -v "${volume}:/data" \
         -v "$from:/in:ro" \
         alpine:3.20 \
-        sh -c 'rm -rf /data/* /data/.[!.]* /data/..?* 2>/dev/null; tar xzf /in/backend_data.tar.gz -C /data'
+        sh -c "$(volume_restore_posix)"
 
     # Recreate writers after .env is in place so JWT / DATABASE_URL match the files.
     # Postgres stays up: the dump was applied to the running cluster.
@@ -348,6 +388,10 @@ do_restore() {
     fi
     ok "restore complete from $from"
 }
+
+if [ "${BASH_SOURCE[0]}" != "$0" ]; then
+    return 0
+fi
 
 case "$COMMAND" in
     backup) do_backup "$@" ;;

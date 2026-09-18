@@ -998,8 +998,14 @@ pub(crate) async fn discover_source(
     let parser = FeedParser::new();
 
     // 用户输入本身已经是 Feed 时立即返回，不额外请求候选地址。
-    let direct_error = match parser.fetch_and_parse(&requested_url).await {
-        Ok(feed) => return discover_success_response(&requested_url, requested_url.clone(), feed),
+    // 301/308 落在 `permanent_url`，前端按 autocompleted 写入新地址。
+    let direct_error = match parser.fetch_feed(&requested_url).await {
+        Ok(fetched) => {
+            let discovered = fetched
+                .permanent_url
+                .unwrap_or_else(|| requested_url.clone());
+            return discover_success_response(&requested_url, discovered, fetched.feed);
+        }
         Err(error) => error.user_message(),
     };
 
@@ -1007,15 +1013,16 @@ pub(crate) async fn discover_source(
     let mut attempts = futures::stream::iter(candidates.into_iter().map(|candidate| {
         let parser = &parser;
         async move {
-            let result = parser.fetch_and_parse(&candidate).await;
+            let result = parser.fetch_feed(&candidate).await;
             (candidate, result)
         }
     }))
     .buffer_unordered(4);
 
     while let Some((candidate, result)) = attempts.next().await {
-        if let Ok(feed) = result {
-            return discover_success_response(&requested_url, candidate, feed);
+        if let Ok(fetched) = result {
+            let discovered = fetched.permanent_url.unwrap_or(candidate);
+            return discover_success_response(&requested_url, discovered, fetched.feed);
         }
     }
 

@@ -76,7 +76,8 @@ async fn committed_scope(db: &DatabaseConnection, provider: &str) -> Result<Opti
     for row in rows {
         let key: String = row.try_get("", "key")?;
         let value: serde_json::Value = row.try_get("", "value")?;
-        let value = crate::services::data_key::open_config_value(&key, value);
+        let value = crate::services::data_key::open_config_value(&key, value)
+            .map_err(|error| DbErr::Custom(error.to_string()))?;
         if key == enabled_key {
             enabled = value.as_bool().unwrap_or(false);
         } else if key == app_key {

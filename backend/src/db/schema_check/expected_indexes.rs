@@ -64,6 +64,12 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             is_unique: false,
         },
         IndexDef {
+            name: "idx_platform_metadata_user_platform".into(),
+            table: "platform_metadata".into(),
+            columns: vec!["user_id".into(), "platform_name".into()],
+            is_unique: true,
+        },
+        IndexDef {
             name: "idx_metadata_history_user".into(),
             table: "metadata_history".into(),
             columns: vec!["user_id".into()],

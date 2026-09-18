@@ -435,10 +435,11 @@ pub async fn issue_runtime_grant(
     })
 }
 
-/// Delete grants matching subject/tapp/runtime filters. Returns deleted count.
+/// Delete grants matching subject/owner/tapp/runtime filters. Returns deleted count.
 pub async fn delete_matching_grants(
     db: &DatabaseConnection,
     subject_id: Option<i32>,
+    owner_id: Option<i32>,
     tapp_id: Option<&str>,
     runtime_id: Option<&str>,
 ) -> Result<usize, RuntimeGrantError> {
@@ -446,6 +447,7 @@ pub async fn delete_matching_grants(
         db,
         RUNTIME_GRANT_NAMESPACE,
         subject_id,
+        owner_id,
         tapp_id,
         runtime_id,
     )
@@ -460,7 +462,7 @@ pub async fn revoke_tapp_runtime_grants(
     subject_id: i32,
     tapp_id: &str,
 ) -> usize {
-    delete_matching_grants(db, Some(subject_id), Some(tapp_id), None)
+    delete_matching_grants(db, Some(subject_id), None, Some(tapp_id), None)
         .await
         .unwrap_or_else(|error| {
             tracing::error!(%error, "[TAPP] Failed to revoke shared runtime grants");
@@ -468,9 +470,16 @@ pub async fn revoke_tapp_runtime_grants(
         })
 }
 
-/// Revoke all subjects for an installation that is being removed or replaced (registry only).
-pub async fn revoke_all_tapp_runtime_grants(db: &DatabaseConnection, tapp_id: &str) -> usize {
-    delete_matching_grants(db, None, Some(tapp_id), None)
+/// Revoke all subjects for one install owner+tapp_id (registry only).
+///
+/// Public and private installs may share `tapp_id`; uninstall/replace must
+/// pass the install owner so the sibling install is not revoked.
+pub async fn revoke_all_tapp_runtime_grants(
+    db: &DatabaseConnection,
+    owner_id: i32,
+    tapp_id: &str,
+) -> usize {
+    delete_matching_grants(db, None, Some(owner_id), Some(tapp_id), None)
         .await
         .unwrap_or_else(|error| {
             tracing::error!(%error, "[TAPP] Failed to revoke shared runtime grants");
@@ -607,6 +616,12 @@ mod tests {
             .status_hint(),
             403
         );
+    }
+
+    #[test]
+    fn revoke_all_requires_install_owner_not_tapp_id_alone() {
+        // Signature is (db, owner_id, tapp_id). A tapp_id-only revoke cannot compile.
+        let _ = super::revoke_all_tapp_runtime_grants;
     }
 
     #[test]

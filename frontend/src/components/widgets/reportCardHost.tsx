@@ -9,7 +9,6 @@ import {
   useReducer,
 } from 'react'
 import { Spinner } from '../Spinner'
-import { preloadPlatformFacesForWidgetTypes } from './reportCard/platformFaceLoaders'
 
 type ReportCardModule = typeof import('./ReportCardWidget')
 
@@ -36,7 +35,9 @@ export function preloadReportCardsForTypes(
   if (!hasReport) return Promise.resolve()
   return Promise.all([
     ensureReportCardShell(),
-    preloadPlatformFacesForWidgetTypes(list),
+    import('./reportCard/platformFaceLoaders').then((m) =>
+      m.preloadPlatformFacesForWidgetTypes(list),
+    ),
   ]).then(() => undefined)
 }
 

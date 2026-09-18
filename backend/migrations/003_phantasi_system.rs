@@ -162,6 +162,15 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
+        // 共享笔记目录全局只有一个。部分唯一索引不进 get_expected_indexes。
+        manager
+            .get_connection()
+            .execute_unprepared(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_phantasi_sources_note_type \
+                 ON phantasi_sources ((true)) WHERE source_type = 'note'",
+            )
+            .await?;
+
         // 索引：按分类查询
         manager
             .create_index(
@@ -881,6 +890,15 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
+        // NULL user_id 在普通 UNIQUE 里不互斥；全局实例按 URL 单独约束。
+        manager
+            .get_connection()
+            .execute_unprepared(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_rsshub_instances_global_url \
+                 ON rsshub_instances (url) WHERE user_id IS NULL",
+            )
+            .await?;
+
         // 索引：`(user_id, enabled, priority)`
         manager
             .create_index(
@@ -981,6 +999,20 @@ CREATE INDEX IF NOT EXISTS idx_phantasi_source_applications_site_url
 
         manager
             .get_connection()
+            .execute_unprepared(
+                r#"
+CREATE UNIQUE INDEX IF NOT EXISTS idx_phantasi_source_applications_pending_site
+    ON phantasi_source_applications (regexp_replace(site_url, '/+$', ''))
+    WHERE status = 'pending';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_phantasi_source_applications_pending_feed
+    ON phantasi_source_applications (regexp_replace(feed_url, '/+$', ''))
+    WHERE status = 'pending' AND feed_url IS NOT NULL AND btrim(feed_url) <> '';
+"#,
+            )
+            .await?;
+
+        manager
+            .get_connection()
             .execute_unprepared(include_str!("note_editor.sql"))
             .await?;
 
@@ -1020,12 +1052,15 @@ CREATE TRIGGER phantasi_content_revision BEFORE UPDATE ON phantasi_items FOR EAC
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        manager.get_connection().execute_unprepared(
-            "DROP TRIGGER IF EXISTS phantasi_content_revision ON phantasi_items; \
+        manager
+            .get_connection()
+            .execute_unprepared(
+                "DROP TRIGGER IF EXISTS phantasi_content_revision ON phantasi_items; \
              DROP TRIGGER IF EXISTS phantasi_state_revision ON phantasi_user_states; \
              DROP FUNCTION IF EXISTS phantasi_advance_content_revision(); \
              DROP FUNCTION IF EXISTS phantasi_advance_state_revision();",
-        ).await?;
+            )
+            .await?;
         manager.get_connection().execute_unprepared("DROP TABLE IF EXISTS phantasi_note_history; DROP FUNCTION IF EXISTS phantasi_capture_note_history() CASCADE;").await?;
         manager
             .get_connection()

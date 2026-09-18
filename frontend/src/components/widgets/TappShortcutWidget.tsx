@@ -19,6 +19,7 @@ import { useNavigate } from 'react-router-dom'
 import { useI18n } from '../../contexts/I18nContext'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { useWidgetSize } from '../../hooks/useWidgetSize'
+import { armWidgetSettingsHost } from '../../lib/widgetSettingsHost'
 import { hasStandaloneTappIcon, TappIcon } from '../../tapp/components/TappIcon'
 import { TappIconBadge } from '../../tapp/components/TappIconBadge'
 import {
@@ -137,6 +138,7 @@ function openSettingsModal(
   anchorRect: DOMRect,
   onSelect: (tappId: string) => void,
 ) {
+  armWidgetSettingsHost()
   globalModalState = {
     isOpen: true,
     selectedTappId,

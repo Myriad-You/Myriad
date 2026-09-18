@@ -32,7 +32,19 @@ pub async fn get_notification_preferences(
             })),
         ))
     })?;
-    let preferences = manager.notification_preferences(user_id).await;
+    let preferences = manager
+        .notification_preferences(user_id)
+        .await
+        .map_err(|error| {
+            tracing::error!("Failed to load notification preferences: {error}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "error": "Notification action failed",
+                    "code": "notification_failed",
+                })),
+            )
+        })?;
     Ok(Json(json!({
         "success": true,
         "preferences": preferences,

@@ -1,5 +1,5 @@
-pub use sea_orm_migration::prelude::*;
 use sea_orm::{DatabaseBackend, Statement};
+pub use sea_orm_migration::prelude::*;
 
 // 数据库结构定义
 #[path = "001_initial_schema.rs"]
@@ -168,9 +168,9 @@ mod tests {
             ]
         );
         assert!(
-            names.iter().all(|name| {
-                name.starts_with("00") && name.as_bytes()[2].is_ascii_digit()
-            }),
+            names
+                .iter()
+                .all(|name| { name.starts_with("00") && name.as_bytes()[2].is_ascii_digit() }),
             "greenfield versions stay in 001–006"
         );
     }
@@ -185,7 +185,11 @@ mod tests {
             assert!(sql.contains(&format!("${index}")));
         }
         assert!(!sql.contains(&format!("${}", keep.len() + 1)));
-        assert!(!keep.iter().any(|name| name.starts_with("007") || name.contains("digital_life")));
+        assert!(
+            !keep
+                .iter()
+                .any(|name| name.starts_with("007") || name.contains("digital_life"))
+        );
     }
 
     #[test]

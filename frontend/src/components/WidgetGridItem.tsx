@@ -4,7 +4,7 @@ import type {
   WidgetDragStart,
   WidgetType,
 } from './widgetGridTypes'
-import { LuSparkles, LuX } from '@lib/icons'
+import { LuSparkles, LuX } from '@lib/chromeStrokeIcons'
 import { motionShim as motion } from '@lib/motionShim'
 import React, {
   lazy,
@@ -35,8 +35,6 @@ import {
 } from '../utils/homeStickerCrop'
 import { stickerSizesSharingAspect } from '../utils/homeStickerSize'
 import { widgetSizeSpan } from '../utils/widgetSizeScale'
-import { HomeStickerCrop } from './home/HomeStickerCrop'
-import { HomeStickerCropTip } from './home/HomeStickerCropTip'
 import { RenderErrorBoundary } from './RenderErrorBoundary'
 import { widgetDisplayLabel } from './widgetLibraryModel'
 import { shouldSkipWidgetEntrance } from './widgetPlacementPreview'
@@ -44,7 +42,6 @@ import {
   widgetCrashDetail,
   WidgetCrashFallback,
 } from './widgets/shared/WidgetCrashFallback'
-import { WidgetLongPressHint } from './widgets/shared/WidgetLongPressHint'
 import StickerWidget, {
   stickerFloatMode,
   stickerFloatPatch,
@@ -53,6 +50,21 @@ import StickerWidget, {
 const WidgetInstanceSettings = lazy(() =>
   import('./widgets/shared/WidgetInstanceSettings').then((module) => ({
     default: module.WidgetInstanceSettings,
+  })),
+)
+const HomeStickerCrop = lazy(() =>
+  import('./home/HomeStickerCrop').then((module) => ({
+    default: module.HomeStickerCrop,
+  })),
+)
+const HomeStickerCropTip = lazy(() =>
+  import('./home/HomeStickerCropTip').then((module) => ({
+    default: module.HomeStickerCropTip,
+  })),
+)
+const WidgetLongPressHint = lazy(() =>
+  import('./widgets/shared/WidgetLongPressHint').then((module) => ({
+    default: module.WidgetLongPressHint,
   })),
 )
 
@@ -478,28 +490,32 @@ export const WidgetGridItem = React.memo(
               />
             </RenderErrorBoundary>
             {isEditMode && isHomeStickerItem(widget) && stickerSrc ? (
-              <WidgetLongPressHint
-                title={t.home.stickerLongPressEdit}
-                visible={!stickerCropOpen}
-                onClick={() => {
-                  setStickerCropDraft(
-                    parseStickerCrop(widget.config?.crop) ??
-                      defaultStickerCrop(),
-                  )
-                  setStickerCropOpen(true)
-                }}
-              />
+              <Suspense fallback={null}>
+                <WidgetLongPressHint
+                  title={t.home.stickerLongPressEdit}
+                  visible={!stickerCropOpen}
+                  onClick={() => {
+                    setStickerCropDraft(
+                      parseStickerCrop(widget.config?.crop) ??
+                        defaultStickerCrop(),
+                    )
+                    setStickerCropOpen(true)
+                  }}
+                />
+              </Suspense>
             ) : isEditMode && instanceSettings.length > 0 ? (
-              <WidgetLongPressHint
-                title={t.widgetGrid.longPressToEdit}
-                visible={!showSettings}
-                onClick={() => {
-                  setSettingsAnchor(
-                    stickerItemRef.current?.getBoundingClientRect() ?? null,
-                  )
-                  setShowSettings(true)
-                }}
-              />
+              <Suspense fallback={null}>
+                <WidgetLongPressHint
+                  title={t.widgetGrid.longPressToEdit}
+                  visible={!showSettings}
+                  onClick={() => {
+                    setSettingsAnchor(
+                      stickerItemRef.current?.getBoundingClientRect() ?? null,
+                    )
+                    setShowSettings(true)
+                  }}
+                />
+              </Suspense>
             ) : null}
             {isEditMode && !stickerCropOpen ? (
               <>
@@ -539,37 +555,39 @@ export const WidgetGridItem = React.memo(
               </>
             ) : null}
             {stickerCropOpen && stickerSrc ? (
-              <div
-                className="home-sticker-crop-overlay"
-                onMouseDown={(event) => event.stopPropagation()}
-              >
-                <HomeStickerCrop
+              <Suspense fallback={null}>
+                <div
+                  className="home-sticker-crop-overlay"
+                  onMouseDown={(event) => event.stopPropagation()}
+                >
+                  <HomeStickerCrop
+                    src={stickerSrc}
+                    aspect={stickerSlotAspect(widget.size)}
+                    crop={stickerCropDraft}
+                    fill
+                    onChange={setStickerCropDraft}
+                  />
+                </div>
+                <HomeStickerCropTip
+                  open
+                  anchor={stickerTipAnchor}
                   src={stickerSrc}
-                  aspect={stickerSlotAspect(widget.size)}
-                  crop={stickerCropDraft}
-                  fill
-                  onChange={setStickerCropDraft}
+                  mode={stickerFloatMode(widget.config)}
+                  ignoreRef={stickerItemRef}
+                  onMode={(mode) => {
+                    const current =
+                      widget.config && typeof widget.config === 'object'
+                        ? widget.config
+                        : {}
+                    onConfigChange?.({
+                      ...current,
+                      ...stickerFloatPatch(mode),
+                    })
+                  }}
+                  onClose={() => closeStickerCrop(true)}
                 />
-              </div>
+              </Suspense>
             ) : null}
-            <HomeStickerCropTip
-              open={stickerCropOpen && Boolean(stickerSrc)}
-              anchor={stickerTipAnchor}
-              src={stickerSrc}
-              mode={stickerFloatMode(widget.config)}
-              ignoreRef={stickerItemRef}
-              onMode={(mode) => {
-                const current =
-                  widget.config && typeof widget.config === 'object'
-                    ? widget.config
-                    : {}
-                onConfigChange?.({
-                  ...current,
-                  ...stickerFloatPatch(mode),
-                })
-              }}
-              onClose={() => closeStickerCrop(true)}
-            />
           </div>
 
           {isEditMode && !stickerCropOpen && canResize ? (

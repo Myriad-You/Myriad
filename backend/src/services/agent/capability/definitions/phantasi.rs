@@ -278,6 +278,9 @@ pub fn register(registry: &mut CapabilityRegistry) {
         required_permissions: vec!["phantasi:write".to_string()],
         requires_ai: false,
         estimated_duration_ms: Some(200),
+        requires_confirmation: true,
+        confirmation_message: Some("This will batch-update article status.".to_string()),
+        risk_level: RiskLevel::Low,
         ..Default::default()
     });
 

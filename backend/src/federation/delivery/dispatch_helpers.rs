@@ -43,6 +43,23 @@ fn revocation_reason_tracks_the_thresholds_it_describes() {
 }
 
 #[test]
+fn illegal_inbox_url_errors_immediately_instead_of_forging_inbox() {
+    for bad in ["", "not a url", "://missing-scheme", "/inbox"] {
+        let err = parse_delivery_inbox(bad).unwrap_err();
+        assert!(
+            err.contains("Invalid inbox URL"),
+            "bad={bad} err={err}"
+        );
+        let forged = parse_delivery_inbox(bad).map(|(path, _)| path);
+        assert_ne!(forged.as_deref(), Ok("/inbox"), "bad={bad}");
+    }
+    let (path, host) =
+        parse_delivery_inbox("https://peer.example:8443/users/bob/inbox").unwrap();
+    assert_eq!(path, "/users/bob/inbox");
+    assert_eq!(host, "peer.example:8443");
+}
+
+#[test]
 fn only_dns_failures_from_client_preparation_count_as_remote_failures() {
     assert!(outbound_client_error_counts_as_remote_failure(
         "DNS resolution failed"

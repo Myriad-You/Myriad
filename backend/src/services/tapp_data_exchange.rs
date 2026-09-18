@@ -10,7 +10,9 @@
 
 use chrono::Utc;
 use myriad_tapp_contract::manifest::{TappDataExchangeManifest, TappDataExport};
-use sea_orm::DatabaseConnection;
+use sea_orm::{
+    ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -406,31 +408,46 @@ pub async fn prepare_exchange(
 }
 
 /// Host authorizes a prepared request → one-shot Data Access Grant.
+///
+/// Consuming the prepared request and inserting the grant share one
+/// transaction so a failed grant insert restores the request for retry.
 pub async fn authorize_exchange(
     db: &DatabaseConnection,
     runtime: &DataExchangeRuntime,
     request_id: &str,
 ) -> Result<AuthorizedAccessGrant, DataExchangeError> {
     let now = Utc::now().timestamp();
-    let prepared = {
-        let prepared = shared_registry::get::<PreparedRequest>(db, PREPARED_NAMESPACE, request_id)
-            .await
-            .map_err(|_| DataExchangeError::Unavailable)?
-            .ok_or(DataExchangeError::RequestExpired)?;
-        if prepared.subject_id != runtime.subject_id
-            || prepared.requester_runtime_id != runtime.runtime_id
-            || prepared.requester_tapp_id != runtime.tapp_id
-        {
-            return Err(DataExchangeError::RequestMismatch);
+    let txn = db
+        .begin()
+        .await
+        .map_err(|_| DataExchangeError::Unavailable)?;
+    match authorize_exchange_on(&txn, runtime, request_id, now).await {
+        Ok(authorized) => {
+            txn.commit()
+                .await
+                .map_err(|_| DataExchangeError::Unavailable)?;
+            Ok(authorized)
         }
-        if !shared_registry::delete(db, PREPARED_NAMESPACE, request_id)
-            .await
-            .map_err(|_| DataExchangeError::Unavailable)?
-        {
-            return Err(DataExchangeError::RequestAlreadyUsed);
+        Err(error) => {
+            txn.rollback().await.ok();
+            Err(error)
         }
-        prepared
-    };
+    }
+}
+
+async fn authorize_exchange_on(
+    db: &impl ConnectionTrait,
+    runtime: &DataExchangeRuntime,
+    request_id: &str,
+    now: i64,
+) -> Result<AuthorizedAccessGrant, DataExchangeError> {
+    let prepared = shared_registry::take::<PreparedRequest>(db, PREPARED_NAMESPACE, request_id)
+        .await
+        .map_err(|_| DataExchangeError::Unavailable)?
+        .ok_or(DataExchangeError::RequestExpired)?;
+    if !prepared_matches_runtime(&prepared, runtime) {
+        return Err(DataExchangeError::RequestMismatch);
+    }
 
     let token = new_token();
     let grant_id = format!("dxg_{}", Uuid::new_v4().simple());
@@ -450,7 +467,7 @@ pub async fn authorize_exchange(
         expires_at,
     };
 
-    let inserted = shared_registry::put_with_subject_limit(
+    let inserted = shared_registry::put_with_subject_limit_on(
         db,
         DATA_GRANT_NAMESPACE,
         &token_hash(&token),
@@ -497,6 +514,12 @@ pub async fn authorize_exchange(
     })
 }
 
+fn prepared_matches_runtime(prepared: &PreparedRequest, runtime: &DataExchangeRuntime) -> bool {
+    prepared.subject_id == runtime.subject_id
+        && prepared.requester_runtime_id == runtime.runtime_id
+        && prepared.requester_tapp_id == runtime.tapp_id
+}
+
 /// Cancel a prepared request and/or its authorized grant for this runtime.
 pub async fn cancel_exchange(
     db: &DatabaseConnection,
@@ -525,6 +548,7 @@ pub async fn cancel_exchange(
         db,
         DATA_GRANT_NAMESPACE,
         Some(runtime.subject_id),
+        None,
         Some(runtime.tapp_id.as_str()),
         Some(runtime.runtime_id.as_str()),
         "request_id",
@@ -607,14 +631,21 @@ pub async fn consume_exchange(
 async fn delete_exchange_scope(
     namespace: &str,
     subject_id: Option<i32>,
+    owner_id: Option<i32>,
     tapp_id: Option<&str>,
     runtime_id: Option<&str>,
 ) {
     match shared_registry::database() {
         Ok(db) => {
-            if let Err(error) =
-                shared_registry::delete_matching(&db, namespace, subject_id, tapp_id, runtime_id)
-                    .await
+            if let Err(error) = shared_registry::delete_matching(
+                &db,
+                namespace,
+                subject_id,
+                owner_id,
+                tapp_id,
+                runtime_id,
+            )
+            .await
             {
                 tracing::error!(%error, namespace, "[TAPP] Failed to revoke Data Exchange state");
             }
@@ -625,7 +656,11 @@ async fn delete_exchange_scope(
     }
 }
 
-async fn delete_provider_exchange_scope(subject_id: Option<i32>, provider_tapp_id: &str) {
+async fn delete_provider_exchange_scope(
+    subject_id: Option<i32>,
+    owner_id: Option<i32>,
+    provider_tapp_id: &str,
+) {
     let db = match shared_registry::database() {
         Ok(db) => db,
         Err(error) => {
@@ -635,17 +670,40 @@ async fn delete_provider_exchange_scope(subject_id: Option<i32>, provider_tapp_i
     };
 
     for namespace in [PREPARED_NAMESPACE, DATA_GRANT_NAMESPACE] {
-        if let Err(error) = shared_registry::delete_matching_payload_text(
-            &db,
-            namespace,
-            subject_id,
-            None,
-            None,
-            "provider_tapp_id",
-            provider_tapp_id,
-        )
-        .await
-        {
+        let result = if let Some(owner_id) = owner_id {
+            db.execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                r#"
+DELETE FROM tapp_runtime_registry
+WHERE namespace = $1
+  AND ($2::INTEGER IS NULL OR subject_id = $2)
+  AND payload ->> 'provider_tapp_id' = $3
+  AND payload ->> 'provider_owner_id' = $4
+"#,
+                vec![
+                    namespace.into(),
+                    subject_id.into(),
+                    provider_tapp_id.into(),
+                    owner_id.to_string().into(),
+                ],
+            ))
+            .await
+            .map(|_| ())
+        } else {
+            shared_registry::delete_matching_payload_text(
+                &db,
+                namespace,
+                subject_id,
+                None,
+                None,
+                None,
+                "provider_tapp_id",
+                provider_tapp_id,
+            )
+            .await
+            .map(|_| ())
+        };
+        if let Err(error) = result {
             tracing::error!(%error, namespace, "[TAPP] Failed to revoke provider Data Exchange state");
         }
     }
@@ -656,6 +714,7 @@ pub async fn cancel_runtime_data_exchanges(subject_id: i32, tapp_id: &str, runti
     delete_exchange_scope(
         PREPARED_NAMESPACE,
         Some(subject_id),
+        None,
         Some(tapp_id),
         Some(runtime_id),
     )
@@ -663,6 +722,7 @@ pub async fn cancel_runtime_data_exchanges(subject_id: i32, tapp_id: &str, runti
     delete_exchange_scope(
         DATA_GRANT_NAMESPACE,
         Some(subject_id),
+        None,
         Some(tapp_id),
         Some(runtime_id),
     )
@@ -671,22 +731,54 @@ pub async fn cancel_runtime_data_exchanges(subject_id: i32, tapp_id: &str, runti
 
 /// Revoke for a subject+tapp pair (stop). Uninstall uses `cancel_all_tapp_data_exchanges`.
 pub async fn cancel_tapp_data_exchanges(subject_id: i32, tapp_id: &str) {
-    delete_exchange_scope(PREPARED_NAMESPACE, Some(subject_id), Some(tapp_id), None).await;
-    delete_exchange_scope(DATA_GRANT_NAMESPACE, Some(subject_id), Some(tapp_id), None).await;
-    delete_provider_exchange_scope(Some(subject_id), tapp_id).await;
+    delete_exchange_scope(
+        PREPARED_NAMESPACE,
+        Some(subject_id),
+        None,
+        Some(tapp_id),
+        None,
+    )
+    .await;
+    delete_exchange_scope(
+        DATA_GRANT_NAMESPACE,
+        Some(subject_id),
+        None,
+        Some(tapp_id),
+        None,
+    )
+    .await;
+    delete_provider_exchange_scope(Some(subject_id), None, tapp_id).await;
 }
 
-/// Revoke all subjects for an installation removal.
-pub async fn cancel_all_tapp_data_exchanges(tapp_id: &str) {
-    delete_exchange_scope(PREPARED_NAMESPACE, None, Some(tapp_id), None).await;
-    delete_exchange_scope(DATA_GRANT_NAMESPACE, None, Some(tapp_id), None).await;
-    delete_provider_exchange_scope(None, tapp_id).await;
+/// Revoke all subjects for one install owner+tapp_id.
+pub async fn cancel_all_tapp_data_exchanges(owner_id: i32, tapp_id: &str) {
+    delete_exchange_scope(
+        PREPARED_NAMESPACE,
+        None,
+        Some(owner_id),
+        Some(tapp_id),
+        None,
+    )
+    .await;
+    delete_exchange_scope(
+        DATA_GRANT_NAMESPACE,
+        None,
+        Some(owner_id),
+        Some(tapp_id),
+        None,
+    )
+    .await;
+    delete_provider_exchange_scope(None, Some(owner_id), tapp_id).await;
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{DataExchangeError, same_provider_scope, token_hash};
+    use super::{
+        DataExchangeError, DataExchangeRuntime, PreparedRequest, prepared_matches_runtime,
+        same_provider_scope, token_hash,
+    };
     use crate::services::json_schema_subset::validate_inline_json_value;
+    use myriad_tapp_contract::manifest::TappDataExport;
     use serde_json::json;
 
     #[test]
@@ -800,6 +892,45 @@ mod tests {
             }
             .status_hint(),
             422
+        );
+    }
+
+    #[test]
+    fn authorize_rejects_mismatched_runtime_before_grant() {
+        let runtime = DataExchangeRuntime {
+            runtime_id: "rt_1".into(),
+            tapp_id: "com.requester".into(),
+            owner_id: 1,
+            subject_id: 7,
+        };
+        let prepared = PreparedRequest {
+            request_id: "dxr_1".into(),
+            requester_runtime_id: "rt_1".into(),
+            requester_tapp_id: "com.requester".into(),
+            provider_tapp_id: "com.provider".into(),
+            provider_owner_id: 1,
+            subject_id: 7,
+            export: TappDataExport {
+                id: "playlist".into(),
+                schema: json!({"type": "object"}),
+                max_bytes: 64,
+                max_records: None,
+                description: None,
+            },
+            params: json!({}),
+            purpose: "now playing".into(),
+            request_hash: "abc".into(),
+            expires_at: 1,
+        };
+        assert!(prepared_matches_runtime(&prepared, &runtime));
+        let other = DataExchangeRuntime {
+            runtime_id: "rt_other".into(),
+            ..runtime.clone()
+        };
+        assert!(!prepared_matches_runtime(&prepared, &other));
+        assert_ne!(
+            DataExchangeError::GrantLimit.code(),
+            DataExchangeError::RequestAlreadyUsed.code()
         );
     }
 }

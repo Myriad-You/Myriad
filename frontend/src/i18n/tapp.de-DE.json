@@ -465,7 +465,7 @@
   "storeCannotEditOfficialUrl": "Die URL des Offiziellstores kann nicht geändert werden.",
   "storeUrlExists": "Diese Store-Quellen-URL existiert bereits.",
   "storeInvalidIndex": "Das Store-Indexformat ist ungültig.",
-  "storeFederationUnavailable": "Föderations-Apps können in der Region dieses Servers nicht heruntergeladen oder installiert werden.",
+  "storeFederationUnavailable": "Föderation wird in dieser Region nicht unterstützt.",
   "storeDownloadFailed": "Modul konnte nicht heruntergeladen werden: {name}",
   "storeVersionMismatch": "Der Store listet {catalog}, das Paket ist {manifest}. Aktualisieren Sie den Store und versuchen Sie es erneut.",
   "storeAddFailed": "Die Store-Quelle konnte nicht hinzugefügt werden.",

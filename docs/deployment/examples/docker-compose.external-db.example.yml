@@ -90,6 +90,7 @@ services:
       BASE_URL: ${BASE_URL:-}
       RUST_LOG: ${RUST_LOG:-info}
       TZ: Asia/Shanghai
+      MALLOC_ARENA_MAX: ${MALLOC_ARENA_MAX:-4}
       MYRIAD_UPDATER_URL: http://updater-gateway:1104
       UPDATER_GATEWAY_SECRET: ${UPDATER_GATEWAY_SECRET}
     # No depends_on postgres — external DB is outside this compose project.

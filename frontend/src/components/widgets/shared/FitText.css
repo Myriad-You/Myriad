@@ -21,6 +21,11 @@
   }
 }
 
+html[data-page-hidden] [data-fittext-track],
+[data-offscreen] [data-fittext-track] {
+  animation-play-state: paused;
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-fittext-track] {
     animation: none;

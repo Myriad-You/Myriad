@@ -299,7 +299,7 @@ describe('library dock chrome contract', () => {
 
   it('marks home rail and style panel as dock chrome', () => {
     const home = readFileSync(
-      new URL('../views/Home.tsx', import.meta.url),
+      new URL('../components/home/HomeAdminChrome.tsx', import.meta.url),
       'utf8',
     )
     const style = readFileSync(

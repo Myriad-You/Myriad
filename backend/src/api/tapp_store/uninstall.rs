@@ -157,7 +157,7 @@ async fn do_uninstall_tapp(
         return Err(HttpError(AppError::not_found("Not found")));
     }
 
-    crate::api::tapp_runtime::revoke_all_tapp_runtime_grants(db, tapp_id).await;
+    crate::api::tapp_runtime::revoke_all_tapp_runtime_grants(db, user_id, tapp_id).await;
 
     // Prefer moving files out of the live path so a failed DB cleanup can restore
     // them. Rename failures (permissions, busy mount, EXDEV) must not abort
@@ -408,6 +408,11 @@ async fn do_uninstall_tapp(
     Ok(Json(ApiResponse::success(())))
 }
 
+/// Owner lookup errors must fail closed; absence (`Ok(None)`) is not an error.
+pub(crate) fn site_owner_id_for_prune<E>(lookup: Result<Option<i32>, E>) -> Result<Option<i32>, E> {
+    lookup
+}
+
 /// Delete private Tapp installs owned by non-admin users who have been inactive
 /// for `inactivity_days` (based on `COALESCE(last_login_at, last_seen_at, created_at)`).
 ///
@@ -418,8 +423,12 @@ pub async fn prune_stale_private_tapps(
     inactivity_days: i64,
 ) -> Result<i32, String> {
     let days = inactivity_days.max(1);
-    // Site owner id — double-guard even if is_admin/is_owner flags are wrong.
-    let site_owner_id = find_admin_user_id(db).await.ok().flatten();
+    // Site owner id — same authority as SQL `$2`; lookup errors must fail closed.
+    let site_owner_id = site_owner_id_for_prune(
+        find_admin_user_id(db)
+            .await
+            .map_err(|error| error.0.to_string()),
+    )?;
 
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
@@ -526,4 +535,21 @@ pub(super) async fn cleanup_temporary_tapps(
     // inactivity (default): rely on the daily worker; do not prune globally
     // from a user-facing logout call.
     Ok(Json(ApiResponse::success(0)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::site_owner_id_for_prune;
+
+    #[test]
+    fn prune_fails_closed_when_owner_lookup_errors() {
+        let error: Result<Option<i32>, &str> = Err("database");
+        assert!(site_owner_id_for_prune(error).is_err());
+    }
+
+    #[test]
+    fn prune_allows_missing_owner_before_setup() {
+        assert_eq!(site_owner_id_for_prune::<&str>(Ok(None)).unwrap(), None);
+        assert_eq!(site_owner_id_for_prune::<&str>(Ok(Some(1))).unwrap(), Some(1));
+    }
 }

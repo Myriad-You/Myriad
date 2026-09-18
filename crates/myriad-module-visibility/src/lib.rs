@@ -238,6 +238,14 @@ pub async fn load_module_visibility_preferences_for_agent(
     load_module_visibility_preferences(db).await
 }
 
+/// Authorization-boundary Agent visibility. Load errors stay errors and must
+/// not become the default `all`.
+pub fn agent_visibility_for_authorization(
+    loaded: Result<ModuleVisibilityPreferences, String>,
+) -> Result<String, String> {
+    loaded.map(|prefs| prefs.agent_visibility().to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -381,6 +389,26 @@ mod tests {
         assert_eq!(
             MODULE_VISIBILITY_PREFERENCES_KEY,
             "module_visibility_preferences"
+        );
+    }
+
+    #[test]
+    fn authorization_visibility_does_not_become_all_on_error() {
+        let err: Result<ModuleVisibilityPreferences, String> = Err("db down".into());
+        assert!(agent_visibility_for_authorization(err.clone()).is_err());
+        assert_ne!(
+            agent_visibility_for_authorization(err).unwrap_or_else(|_| "denied".into()),
+            "all"
+        );
+        let lenient = ModuleVisibilityPreferences::default();
+        assert_eq!(lenient.agent_visibility(), "all");
+        assert_eq!(
+            agent_visibility_for_authorization(Ok(ModuleVisibilityPreferences {
+                modules: HashMap::from([("agent".into(), "admin".into())]),
+                ..Default::default()
+            }))
+            .unwrap(),
+            "admin"
         );
     }
 }

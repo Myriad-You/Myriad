@@ -527,16 +527,26 @@ fn is_unique_conflict(err: &impl std::fmt::Display) -> bool {
     lower.contains("23505") || lower.contains("duplicate key")
 }
 
-pub async fn load_affect_baseline<C>(db: &C) -> AffectBaseline
+pub fn affect_baseline_from_persona_lookup(
+    lookup: Result<Option<(Option<serde_json::Value>, String)>, anyhow::Error>,
+) -> Result<AffectBaseline, anyhow::Error> {
+    match lookup {
+        Ok(Some((persona_json, personality))) => {
+            Ok(persona_affect_baseline(persona_json.as_ref(), &personality))
+        }
+        Ok(None) => Ok(AffectBaseline::default()),
+        Err(error) => Err(error),
+    }
+}
+
+pub async fn load_affect_baseline<C>(db: &C) -> Result<AffectBaseline, anyhow::Error>
 where
     C: ConnectionTrait,
 {
-    match get_persona_on(db).await {
-        Ok(Some(persona)) => {
-            persona_affect_baseline(persona.persona_json.as_ref(), &persona.personality)
-        }
-        _ => AffectBaseline::default(),
-    }
+    let lookup = get_persona_on(db).await.map(|persona| {
+        persona.map(|row| (row.persona_json, row.personality))
+    });
+    affect_baseline_from_persona_lookup(lookup)
 }
 
 pub fn affect_from_state(state: &agent_addressee_state::Model) -> Affect {
@@ -578,7 +588,7 @@ pub async fn get_or_create_state<C>(
 where
     C: ConnectionTrait,
 {
-    let base = load_affect_baseline(db).await;
+    let base = load_affect_baseline(db).await?;
     if let Some(existing) = agent_addressee_state::Entity::find_by_id(user_id)
         .one(db)
         .await?
@@ -704,7 +714,7 @@ where
     if !appraisal_is_current(state.last_user_message_at, input_at, Utc::now()) {
         return Ok(None);
     }
-    let base = load_affect_baseline(&transaction).await;
+    let base = load_affect_baseline(&transaction).await?;
     let before = affect_from_state(&overlay_settled(state, base));
     let mut after = before;
     update(&mut after);
@@ -1225,6 +1235,14 @@ mod tests {
             input.into(),
             input + chrono::Duration::seconds(13)
         ));
+    }
+
+    #[test]
+    fn persona_lookup_error_is_not_default_baseline() {
+        let err = super::affect_baseline_from_persona_lookup(Err(anyhow::anyhow!("db down")));
+        assert!(err.is_err(), "DB failure must not become the default personality");
+        let missing = super::affect_baseline_from_persona_lookup(Ok(None)).unwrap();
+        assert_eq!(missing, super::AffectBaseline::default());
     }
 
     #[tokio::test]

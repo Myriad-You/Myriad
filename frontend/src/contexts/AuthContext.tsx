@@ -11,8 +11,9 @@ import {
 } from 'react'
 import { API_URL } from '../config'
 import { isLocale } from '../i18n'
+import { shouldFetchLoginOnly } from '../utils/authGate'
 import { isAuthMeHttpOk, parseAuthMeResponse } from '../utils/authMe'
-import { setKnownAuthState } from '../utils/authState'
+import { isKnownGuest, setKnownAuthState } from '../utils/authState'
 import { authSubject, authSubjectKey } from '../utils/authSubject'
 import { phantasiSubject, phantasiSubjectKey } from '../utils/phantasiSubject'
 import {
@@ -128,6 +129,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Failed probe; still run a fresh one.
       }
       if (!mounted.current) return false
+    }
+
+    if (
+      !shouldFetchLoginOnly({
+        isKnownGuest: isKnownGuest(),
+        hasSessionHint: hasSessionHint(),
+      })
+    ) {
+      setIsLoading(false)
+      setHasChecked(true)
+      return false
     }
 
     const generation = ++checkAuthGeneration.current

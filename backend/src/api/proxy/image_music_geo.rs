@@ -12,9 +12,10 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::services::http_client::MEDIA_FETCH_CLIENT;
+use crate::services::keyed_lock::KeyedLocks;
 
 // 网易云 / 酷狗服务与共享缓存、限流
 use crate::services::kugou_service::KugouService;
@@ -113,6 +114,61 @@ async fn read_limited_json(resp: reqwest::Response) -> Result<Value, String> {
 // 全局代理限流器映射（域名 → 令牌桶）
 static PROXY_LIMITERS: Lazy<Arc<Mutex<HashMap<String, TokenBucket>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+
+struct ClientGeoCacheEntry {
+    data: Value,
+    cached_at: Instant,
+}
+
+static CLIENT_GEO_CACHE: Lazy<RwLock<HashMap<String, ClientGeoCacheEntry>>> =
+    Lazy::new(|| RwLock::new(HashMap::new()));
+static CLIENT_GEO_LOCKS: Lazy<KeyedLocks> = Lazy::new(KeyedLocks::default);
+const CLIENT_GEO_CACHE_TTL: Duration = Duration::from_secs(600);
+
+fn client_geo_ok(data: Value) -> Response {
+    (
+        StatusCode::OK,
+        [(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")],
+        Json(data),
+    )
+        .into_response()
+}
+
+async fn client_geo_cache_get(ip: &str) -> Option<Value> {
+    let cache = CLIENT_GEO_CACHE.read().await;
+    let entry = cache.get(ip)?;
+    (entry.cached_at.elapsed() < CLIENT_GEO_CACHE_TTL).then(|| entry.data.clone())
+}
+
+async fn client_geo_cache_set(ip: &str, data: Value) {
+    let mut cache = CLIENT_GEO_CACHE.write().await;
+    cache.retain(|_, entry| entry.cached_at.elapsed() < CLIENT_GEO_CACHE_TTL);
+    let geo_cap = crate::services::memory_profile::max_geo_cache_entries();
+    let geo_bytes_cap = crate::services::memory_profile::max_geo_cache_bytes();
+    let entry_bytes = 512usize;
+    while cache.len() >= geo_cap || cache.len().saturating_mul(entry_bytes) >= geo_bytes_cap {
+        let Some(oldest) = cache
+            .iter()
+            .min_by_key(|(_, entry)| entry.cached_at)
+            .map(|(key, _)| key.clone())
+        else {
+            break;
+        };
+        cache.remove(&oldest);
+    }
+    cache.insert(
+        ip.to_string(),
+        ClientGeoCacheEntry {
+            data,
+            cached_at: Instant::now(),
+        },
+    );
+}
+
+async fn cache_and_ok(ip: &str, data: Value) -> Response {
+    client_geo_cache_set(ip, data.clone()).await;
+    client_geo_ok(data)
+}
 
 /// Host-based rate-limit key (parsed host exact/suffix; no full-URL substring).
 fn get_domain_key(url: &str) -> String {
@@ -612,6 +668,16 @@ pub async fn proxy_netease_playlist(Path(playlist_id): Path<String>) -> Response
         }
     };
 
+    if let Some(view) =
+        music_player_view::get_cached_player_playlist(PlayerMusicSource::Netease, &playlist_id)
+            .await
+    {
+        return player_playlist_response(view);
+    }
+
+    let _load =
+        music_player_view::lock_player_playlist_load(PlayerMusicSource::Netease, &playlist_id)
+            .await;
     if let Some(view) =
         music_player_view::get_cached_player_playlist(PlayerMusicSource::Netease, &playlist_id)
             .await
@@ -1309,6 +1375,14 @@ pub async fn proxy_qq_playlist(Path(playlist_id): Path<String>) -> Response {
         return player_playlist_response(view);
     }
 
+    let _load =
+        music_player_view::lock_player_playlist_load(PlayerMusicSource::Qq, &playlist_id).await;
+    if let Some(view) =
+        music_player_view::get_cached_player_playlist(PlayerMusicSource::Qq, &playlist_id).await
+    {
+        return player_playlist_response(view);
+    }
+
     let cache_key = format!("qq_playlist:{}", playlist_id);
     {
         let mut limiter = RATE_LIMITER.write().await;
@@ -1387,6 +1461,13 @@ pub async fn get_client_geo(
         headers.get("x-real-ip").and_then(|v| v.to_str().ok()),
         headers.get("x-forwarded-for").and_then(|v| v.to_str().ok())
     );
+
+    let lock = CLIENT_GEO_LOCKS.get(&client_ip);
+    let _guard = lock.lock().await;
+    if let Some(cached) = client_geo_cache_get(&client_ip).await {
+        tracing::debug!(ip = %client_ip, "client-geo cache hit");
+        return client_geo_ok(cached);
+    }
 
     // Private / loopback / unparseable → cannot geo-locate the visitor; fall
     // back to server egress only as a last resort (local dev / misconfigured
@@ -1492,12 +1573,7 @@ pub async fn get_client_geo(
                         obj.insert("source".to_string(), json!("client-ip"));
                     }
                 }
-                return (
-                    StatusCode::OK,
-                    [(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")],
-                    Json(data),
-                )
-                    .into_response();
+                return cache_and_ok(&client_ip, data).await;
             }
         }
     }
@@ -1549,12 +1625,7 @@ pub async fn get_client_geo(
                         .unwrap_or("unknown")
                 );
 
-                return (
-                    StatusCode::OK,
-                    [(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")],
-                    Json(unified_data),
-                )
-                    .into_response();
+                return cache_and_ok(&client_ip, unified_data).await;
             }
         }
     }
@@ -1600,12 +1671,7 @@ pub async fn get_client_geo(
                             .unwrap_or("unknown")
                     );
 
-                    return (
-                        StatusCode::OK,
-                        [(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")],
-                        Json(unified_data),
-                    )
-                        .into_response();
+                    return cache_and_ok(&client_ip, unified_data).await;
                 }
             }
         }
@@ -1626,12 +1692,7 @@ pub async fn get_client_geo(
             "source": "server-egress",
             "fallback": "server-public-ip",
         });
-        return (
-            StatusCode::OK,
-            [(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")],
-            Json(fallback_data),
-        )
-            .into_response();
+        return cache_and_ok(&client_ip, fallback_data).await;
     }
 
     // 所有方案都失败，返回错误

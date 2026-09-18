@@ -451,3 +451,10 @@ html[data-perf-mode='exlight'] .tour-hint__copy,
 html[data-perf-mode='exlight'] .tour-hint__go {
   animation: none;
 }
+
+/* Phone band; keep in sync with VIEWPORT_PHONE_MAX. */
+@media (max-width: 767px) {
+  .tour-hint {
+    display: none;
+  }
+}

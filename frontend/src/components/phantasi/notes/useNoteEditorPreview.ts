@@ -22,8 +22,10 @@ import {
   blockIndexAt,
   expandJammedDefinitions,
   markdownToVisualHtml,
+  markdownToVisualHtmlAsync,
   placeCaretAtTextOffset,
   setNoteWidgetConfig,
+  VISUAL_HTML_SYNC_CHARS,
   visualMarkdownStamp,
 } from './noteVisual'
 import { preloadNoteWidgets } from './noteWidgetCatalog'
@@ -144,16 +146,35 @@ export function useNoteEditorPreview(host: {
       return
     }
     if (visualMarkdownStamp.get(el) === contentMd) return
-    const selection = captureNoteSelection(el)
-    replaceNoteHtml(el, markdownToVisualHtml(contentMd))
-    el.querySelectorAll<HTMLElement>('pre[data-raw-markdown]').forEach((block) => {
-      block.title = t.phantasi.noteEditInMarkdown
-      block.setAttribute('aria-label', t.phantasi.noteEditInMarkdown)
-    })
-    restoreNoteSelection(el, selection)
-    visualMarkdownStamp.set(el, contentMd)
-    void hydrateVisualMath(el)
-  }, [contentMd, pane, visualEditing, visualRef, t.phantasi.noteEditInMarkdown])
+    const paint = (html: string) => {
+      if (visualRef.current !== el || visualEditing.current) return
+      if (contentMdRef.current !== contentMd) return
+      const selection = captureNoteSelection(el)
+      replaceNoteHtml(el, html)
+      el.querySelectorAll<HTMLElement>('pre[data-raw-markdown]').forEach((block) => {
+        block.title = t.phantasi.noteEditInMarkdown
+        block.setAttribute('aria-label', t.phantasi.noteEditInMarkdown)
+      })
+      restoreNoteSelection(el, selection)
+      visualMarkdownStamp.set(el, contentMd)
+      void hydrateVisualMath(el)
+    }
+    if (contentMd.length <= VISUAL_HTML_SYNC_CHARS) {
+      paint(markdownToVisualHtml(contentMd))
+      return
+    }
+    const controller = new AbortController()
+    void (async () => {
+      try {
+        const html = await markdownToVisualHtmlAsync(contentMd, controller.signal)
+        if (controller.signal.aborted) return
+        paint(html)
+      } catch {
+        if (!controller.signal.aborted) paint(markdownToVisualHtml(contentMd))
+      }
+    })()
+    return () => controller.abort()
+  }, [contentMd, contentMdRef, pane, visualEditing, visualRef, t.phantasi.noteEditInMarkdown])
 
   useLayoutEffect(() => {
     if (pane !== 'preview') return

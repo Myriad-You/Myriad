@@ -134,7 +134,7 @@ pub fn proxy_image_url(url: &str) -> String {
     if needs_image_proxy(&absolute) {
         format!("/api/proxy/image?url={}", urlencoding::encode(&absolute))
     } else {
-        absolute
+        url.to_string()
     }
 }
 
@@ -261,6 +261,22 @@ mod proxy_image_url_tests {
         assert!(out.contains("url=https%3A%2F%2Fi0.hdslb.com"));
         let out2 = proxy_image_url("http://i0.hdslb.com/bfs/face/x.jpg");
         assert!(out2.contains("url=https%3A%2F%2Fi0.hdslb.com"));
+    }
+
+    #[test]
+    fn does_not_rewrite_non_media_http_strings_to_https() {
+        assert_eq!(
+            proxy_image_url("http://example.com/not-media"),
+            "http://example.com/not-media"
+        );
+        assert_eq!(proxy_image_url("//example.com/page"), "//example.com/page");
+        let mut v = json!({
+            "note": "http://example.com/x",
+            "count": 1
+        });
+        normalize_json_media_urls(&mut v);
+        assert_eq!(v["note"], "http://example.com/x");
+        assert_eq!(v["count"], 1);
     }
 
     #[test]

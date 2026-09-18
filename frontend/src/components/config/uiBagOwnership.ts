@@ -70,6 +70,7 @@ export const MODULE_UI_RESET_KEYS: readonly string[] = Object.freeze([
 
 export const ADVANCED_RESET_KEYS: readonly string[] = Object.freeze([
   'memory_saver_enabled',
+  'precise_location_enabled',
   'proxy_enabled',
   'proxy_url',
   'proxy_bypass',

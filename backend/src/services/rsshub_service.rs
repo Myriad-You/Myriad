@@ -5,8 +5,8 @@
 use chrono::Utc;
 use reqwest::Url;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
-    QueryOrder,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseBackend,
+    DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Statement, Value as SeaValue,
 };
 use std::time::{Duration, Instant};
 
@@ -15,6 +15,11 @@ use crate::models::entities::rsshub_instances::{self, HealthStatus, Model as Ins
 fn rsshub_store_failed(context: &'static str, error: impl std::fmt::Display) -> String {
     tracing::error!(%error, context, "rsshub store failed");
     format!("Failed to {context}")
+}
+
+fn unique_violation(err: &impl std::fmt::Display) -> bool {
+    let lower = err.to_string().to_ascii_lowercase();
+    lower.contains("23505") || lower.contains("duplicate key") || lower.contains("unique")
 }
 
 /// Pure: path + query from an RSSHub-style URL (no host/fragment).
@@ -175,6 +180,9 @@ impl RsshubService {
 
             match new_instance.insert(&self.db).await {
                 Ok(_) => tracing::info!("[RSSHub] Created default instance: {}", name),
+                Err(e) if unique_violation(&e) => {
+                    tracing::debug!("[RSSHub] Default instance already present: {}", name);
+                }
                 Err(e) => tracing::warn!("[RSSHub] Failed to create instance {}: {}", name, e),
             }
         }
@@ -280,47 +288,59 @@ impl RsshubService {
 
     /// 记录成功请求
     async fn record_success(&self, instance: &InstanceModel, response_time_ms: i32) {
-        let now = Utc::now();
-        let mut active: rsshub_instances::ActiveModel = instance.clone().into();
-
-        active.last_health_check = Set(Some(now.into()));
-        active.last_response_time_ms = Set(Some(response_time_ms));
-        active.consecutive_failures = Set(0);
-        active.total_requests = Set(instance.total_requests + 1);
-        active.success_requests = Set(instance.success_requests + 1);
-        active.updated_at = Set(now.into());
-
-        // 更新健康状态
-        if response_time_ms > self.config.degraded_threshold_ms {
-            active.health_status = Set(HealthStatus::Degraded);
+        let health = if response_time_ms > self.config.degraded_threshold_ms {
+            "degraded"
         } else {
-            active.health_status = Set(HealthStatus::Healthy);
-        }
-
-        if let Err(e) = active.update(&self.db).await {
+            "healthy"
+        };
+        if let Err(e) = self
+            .db
+            .execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "UPDATE rsshub_instances SET \
+                    last_health_check = NOW(), \
+                    last_response_time_ms = $1, \
+                    consecutive_failures = 0, \
+                    total_requests = total_requests + 1, \
+                    success_requests = success_requests + 1, \
+                    health_status = $2, \
+                    updated_at = NOW() \
+                 WHERE id = $3",
+                [
+                    SeaValue::Int(Some(response_time_ms)),
+                    SeaValue::String(Some(health.to_string())),
+                    SeaValue::Int(Some(instance.id)),
+                ],
+            ))
+            .await
+        {
             tracing::error!("[RSSHub] Failed to update instance stats: {}", e);
         }
     }
 
     /// 记录失败请求
     async fn record_failure(&self, instance: &InstanceModel) {
-        let now = Utc::now();
-        let new_failures = instance.consecutive_failures + 1;
-        let mut active: rsshub_instances::ActiveModel = instance.clone().into();
-
-        active.last_health_check = Set(Some(now.into()));
-        active.consecutive_failures = Set(new_failures);
-        active.total_requests = Set(instance.total_requests + 1);
-        active.updated_at = Set(now.into());
-
-        // 更新健康状态
-        if new_failures >= self.config.unhealthy_threshold {
-            active.health_status = Set(HealthStatus::Unhealthy);
-        } else {
-            active.health_status = Set(HealthStatus::Degraded);
-        }
-
-        if let Err(e) = active.update(&self.db).await {
+        if let Err(e) = self
+            .db
+            .execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "UPDATE rsshub_instances SET \
+                    last_health_check = NOW(), \
+                    consecutive_failures = consecutive_failures + 1, \
+                    total_requests = total_requests + 1, \
+                    health_status = CASE \
+                        WHEN consecutive_failures + 1 >= $1 THEN 'unhealthy' \
+                        ELSE 'degraded' \
+                    END, \
+                    updated_at = NOW() \
+                 WHERE id = $2",
+                [
+                    SeaValue::Int(Some(self.config.unhealthy_threshold)),
+                    SeaValue::Int(Some(instance.id)),
+                ],
+            ))
+            .await
+        {
             tracing::error!("[RSSHub] Failed to update instance stats: {}", e);
         }
     }
@@ -608,5 +628,131 @@ mod extract_route_tests {
         )
         .expect("route");
         assert_eq!(route, "/twitter/user/a?limit=5");
+    }
+}
+
+#[cfg(test)]
+mod stats_and_unique_tests {
+    #[test]
+    fn counters_increment_in_place() {
+        let src = include_str!("rsshub_service.rs");
+        let success = src
+            .split("async fn record_success")
+            .nth(1)
+            .and_then(|rest| rest.split("async fn record_failure").next())
+            .expect("record_success");
+        assert!(success.contains("total_requests = total_requests + 1"));
+        assert!(success.contains("success_requests = success_requests + 1"));
+        assert!(!success.contains("instance.total_requests + 1"));
+        let failure = src
+            .split("async fn record_failure")
+            .nth(1)
+            .and_then(|rest| rest.split("pub async fn health_check_and_record").next())
+            .expect("record_failure");
+        assert!(failure.contains("total_requests = total_requests + 1"));
+        assert!(failure.contains("consecutive_failures = consecutive_failures + 1"));
+        assert!(!failure.contains("instance.total_requests + 1"));
+    }
+
+    #[test]
+    fn default_instance_insert_treats_unique_as_already_present() {
+        let src = include_str!("rsshub_service.rs");
+        let ensure = src
+            .split("pub async fn ensure_default_instances")
+            .nth(1)
+            .and_then(|rest| rest.split("pub async fn get_healthy_instances").next())
+            .expect("ensure_default_instances");
+        assert!(ensure.contains("unique_violation"));
+    }
+
+    #[tokio::test]
+    async fn concurrent_success_records_do_not_drop_counts() {
+        use super::RsshubService;
+        use crate::models::entities::rsshub_instances::{self, HealthStatus};
+        use chrono::Utc;
+        use sea_orm::{
+            ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectOptions, ConnectionTrait,
+            Database, DatabaseBackend, EntityTrait, QueryFilter, Schema,
+        };
+
+        let Ok(url) = std::env::var("PHANTASI_TEST_DATABASE_URL") else {
+            return;
+        };
+        let admin = Database::connect(&url).await.unwrap();
+        let scope = format!("rsshub_stats_{}", uuid::Uuid::new_v4().simple());
+        admin
+            .execute_unprepared(&format!("CREATE SCHEMA {scope}"))
+            .await
+            .unwrap();
+        let connect = || {
+            let mut options = ConnectOptions::new(url.clone());
+            options
+                .max_connections(1)
+                .min_connections(1)
+                .sqlx_logging(false)
+                .set_schema_search_path(scope.clone());
+            Database::connect(options)
+        };
+        let db = connect().await.unwrap();
+        let schema = Schema::new(DatabaseBackend::Postgres);
+        let sql = schema
+            .create_table_from_entity(rsshub_instances::Entity)
+            .to_string(sea_orm::sea_query::PostgresQueryBuilder);
+        db.execute_unprepared(&sql).await.unwrap();
+        db.execute_unprepared(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_rsshub_instances_global_url \
+             ON rsshub_instances (url) WHERE user_id IS NULL",
+        )
+        .await
+        .unwrap();
+        let now = Utc::now();
+        let instance = rsshub_instances::ActiveModel {
+            user_id: Set(Some(1)),
+            name: Set("test".into()),
+            url: Set("https://rsshub.example".into()),
+            priority: Set(0),
+            enabled: Set(true),
+            health_status: Set(HealthStatus::Unknown),
+            consecutive_failures: Set(0),
+            total_requests: Set(0),
+            success_requests: Set(0),
+            created_at: Set(now.into()),
+            updated_at: Set(now.into()),
+            ..Default::default()
+        }
+        .insert(&db)
+        .await
+        .unwrap();
+        let a = RsshubService::new(connect().await.unwrap());
+        let b = RsshubService::new(connect().await.unwrap());
+        tokio::join!(
+            a.record_success(&instance, 10),
+            b.record_success(&instance, 20)
+        );
+        let saved = rsshub_instances::Entity::find_by_id(instance.id)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved.total_requests, 2);
+        assert_eq!(saved.success_requests, 2);
+
+        let seed_a = RsshubService::new(connect().await.unwrap());
+        let seed_b = RsshubService::new(connect().await.unwrap());
+        let _ = tokio::join!(
+            seed_a.ensure_default_instances(),
+            seed_b.ensure_default_instances()
+        );
+        let globals = rsshub_instances::Entity::find()
+            .filter(rsshub_instances::Column::UserId.is_null())
+            .filter(rsshub_instances::Column::Url.eq("https://rsshub.app"))
+            .all(&db)
+            .await
+            .unwrap();
+        admin
+            .execute_unprepared(&format!("DROP SCHEMA {scope} CASCADE"))
+            .await
+            .ok();
+        assert_eq!(globals.len(), 1);
     }
 }

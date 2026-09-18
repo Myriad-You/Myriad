@@ -12,8 +12,8 @@ import {
   notificationFacingBody,
   notificationFacingTitle,
 } from '../utils/notificationFacing'
+import { formatUserFacingError } from '../utils/formatUserFacingError'
 import { showToast } from '../utils/toastManager'
-import { userFacingError } from '../utils/userFacingError'
 import { NotificationSourceIcon } from './notifications/NotificationIcons'
 import { TappResidentNotice } from './TappResidentNotice'
 
@@ -294,7 +294,7 @@ function NotificationPanelList({
           n.metadata?.event_key === 'heartbeat.seo_review'
             ? t.errors.seoApplyFailed
             : t.errors.inviteInvalid
-        setActionError(userFacingError(err, fallback))
+        setActionError(await formatUserFacingError(err, fallback))
       } finally {
         setActionBusyId(null)
       }

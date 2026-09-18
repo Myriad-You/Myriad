@@ -315,10 +315,11 @@ fn check_manageable_tag_vars(worker: &Worker) -> Result<()> {
     let mut refs_tag = false;
     for f in &files {
         if let Ok(s) = std::fs::read_to_string(f)
-            && (s.contains("${MYRIAD_TAG}") || s.contains("$MYRIAD_TAG")) {
-                refs_tag = true;
-                break;
-            }
+            && (s.contains("${MYRIAD_TAG}") || s.contains("$MYRIAD_TAG"))
+        {
+            refs_tag = true;
+            break;
+        }
     }
     if !refs_tag {
         return Err(UpdaterError::Precondition(
@@ -345,19 +346,20 @@ fn discover_compose_files(compose_dir: &Path) -> Vec<PathBuf> {
         }
     }
     if files.is_empty()
-        && let Ok(rd) = std::fs::read_dir(compose_dir) {
-            for entry in rd.flatten() {
-                if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                    continue;
-                }
-                for name in names {
-                    let p = entry.path().join(name);
-                    if p.exists() {
-                        files.push(p);
-                    }
+        && let Ok(rd) = std::fs::read_dir(compose_dir)
+    {
+        for entry in rd.flatten() {
+            if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            for name in names {
+                let p = entry.path().join(name);
+                if p.exists() {
+                    files.push(p);
                 }
             }
         }
+    }
     files
 }
 

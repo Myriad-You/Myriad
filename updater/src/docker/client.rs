@@ -16,6 +16,13 @@ pub struct DockerClient {
     inner: Docker,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InspectRunState {
+    Absent,
+    Stopped,
+    Running,
+}
+
 impl DockerClient {
     pub async fn connect() -> Result<Self> {
         // Honor DOCKER_HOST so production can use the guarded TCP endpoint. The local-only
@@ -96,21 +103,42 @@ impl DockerClient {
     }
 
     /// Inspect a container by name and return whether it is running.
+    ///
+    /// A 404 is "not running". Any other inspect error is an error — it is not
+    /// evidence that the container has stopped.
     pub async fn is_running(&self, name: &str) -> Result<bool> {
-        let info = self
-            .inner
-            .inspect_container(name, None)
-            .await
-            .map_err(|e| UpdaterError::Docker(format!("inspect {name}: {e}")))?;
-        Ok(info.state.as_ref().and_then(|s| s.running).unwrap_or(false))
+        match self.inspect_run_state(name).await? {
+            InspectRunState::Running => Ok(true),
+            InspectRunState::Absent | InspectRunState::Stopped => Ok(false),
+        }
+    }
+
+    async fn inspect_run_state(&self, name: &str) -> Result<InspectRunState> {
+        match self.inner.inspect_container(name, None).await {
+            Err(bollard::errors::Error::DockerResponseServerError {
+                status_code: 404, ..
+            }) => Ok(InspectRunState::Absent),
+            Err(e) => Err(UpdaterError::Docker(format!("inspect {name}: {e}"))),
+            Ok(info) => match info.state.as_ref().and_then(|s| s.running) {
+                Some(true) => Ok(InspectRunState::Running),
+                Some(false) => Ok(InspectRunState::Stopped),
+                None => Err(UpdaterError::Docker(format!(
+                    "inspect {name}: running state unavailable"
+                ))),
+            },
+        }
     }
 
     /// Stop a container by name; escalate to kill if still running.
     /// Used before pgdata restore so bind mounts are fully released.
+    ///
+    /// Missing containers (inspect 404) are already stopped. Inspect, stop, or
+    /// kill failures are errors — never treated as "already stopped".
     pub async fn force_stop_container(&self, name: &str) -> Result<()> {
         use bollard::query_parameters::{KillContainerOptionsBuilder, StopContainerOptionsBuilder};
-        if !self.is_running(name).await.unwrap_or(false) {
-            return Ok(());
+        match self.inspect_run_state(name).await? {
+            InspectRunState::Absent | InspectRunState::Stopped => return Ok(()),
+            InspectRunState::Running => {}
         }
         let stop_opts = StopContainerOptionsBuilder::default()
             .t(if name == "myriad-persona-worker" {
@@ -122,12 +150,13 @@ impl DockerClient {
         if let Err(e) = self.inner.stop_container(name, Some(stop_opts)).await {
             warn!(%name, err = %e, "docker stop failed; trying kill");
         }
-        // Brief wait for graceful stop.
         for _ in 0..10 {
-            if !self.is_running(name).await.unwrap_or(false) {
-                return Ok(());
+            match self.inspect_run_state(name).await? {
+                InspectRunState::Absent | InspectRunState::Stopped => return Ok(()),
+                InspectRunState::Running => {
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                }
             }
-            tokio::time::sleep(Duration::from_millis(200)).await;
         }
         let kill_opts = KillContainerOptionsBuilder::default()
             .signal("SIGKILL")
@@ -136,6 +165,20 @@ impl DockerClient {
             .kill_container(name, Some(kill_opts))
             .await
             .map_err(|e| UpdaterError::Docker(format!("kill {name}: {e}")))?;
+        match self.inspect_run_state(name).await? {
+            InspectRunState::Absent | InspectRunState::Stopped => Ok(()),
+            InspectRunState::Running => Err(UpdaterError::Precondition(format!(
+                "{name} is still running after kill; database restore forbidden"
+            ))),
+        }
+    }
+
+    /// Prove every known postgres container name is stopped before PGDATA restore.
+    /// A failure to inspect or stop any name aborts restore — 404 on a name is OK.
+    pub async fn stop_postgres_for_restore(&self) -> Result<()> {
+        for name in ["myriad-postgres", "postgres"] {
+            self.force_stop_container(name).await?;
+        }
         Ok(())
     }
 
@@ -799,6 +842,105 @@ mod worker_presence_tests {
         state.lock().unwrap().capable = true;
         state.lock().unwrap().present = false;
         assert!(client.persona_worker_healthy().await.unwrap());
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn force_stop_treats_inspect_404_as_already_stopped() {
+        async fn fake_guard(uri: Uri) -> impl IntoResponse {
+            if uri.path().ends_with("/containers/missing/json") {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({"message": "no such container"})),
+                )
+            } else {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({"message": "no such container"})),
+                )
+            }
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        let server =
+            tokio::spawn(axum::serve(listener, Router::new().fallback(fake_guard)).into_future());
+        let client = DockerClient {
+            inner: Docker::connect_with_http(&address, 2, bollard::API_DEFAULT_VERSION).unwrap(),
+        };
+        client
+            .force_stop_container("missing")
+            .await
+            .expect("404 is already stopped");
+        client
+            .stop_postgres_for_restore()
+            .await
+            .expect("both postgres names 404 is stopped");
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn force_stop_does_not_treat_inspect_failure_as_stopped() {
+        async fn fake_guard(uri: Uri) -> impl IntoResponse {
+            if uri.path().contains("/containers/") && uri.path().ends_with("/json") {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"message": "daemon unavailable"})),
+                )
+            } else {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"message": "daemon unavailable"})),
+                )
+            }
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        let server =
+            tokio::spawn(axum::serve(listener, Router::new().fallback(fake_guard)).into_future());
+        let client = DockerClient {
+            inner: Docker::connect_with_http(&address, 2, bollard::API_DEFAULT_VERSION).unwrap(),
+        };
+        let err = client
+            .force_stop_container("myriad-postgres")
+            .await
+            .expect_err("inspect 500 is not already-stopped");
+        assert!(
+            err.to_string().contains("inspect"),
+            "expected inspect error, got {err}"
+        );
+        let err = client
+            .stop_postgres_for_restore()
+            .await
+            .expect_err("postgres restore stop must fail closed");
+        assert!(
+            err.to_string().contains("inspect"),
+            "expected inspect error, got {err}"
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn force_stop_does_not_treat_forbidden_inspect_as_stopped() {
+        async fn fake_guard() -> impl IntoResponse {
+            (
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({"message": "container authorization failed"})),
+            )
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        let server =
+            tokio::spawn(axum::serve(listener, Router::new().fallback(fake_guard)).into_future());
+        let client = DockerClient {
+            inner: Docker::connect_with_http(&address, 2, bollard::API_DEFAULT_VERSION).unwrap(),
+        };
+        assert!(
+            client
+                .force_stop_container("myriad-postgres")
+                .await
+                .is_err(),
+            "403 inspect must not continue as already-stopped"
+        );
         server.abort();
     }
 }

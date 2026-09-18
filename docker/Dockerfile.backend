@@ -69,6 +69,8 @@ ARG MYRIAD_VERSION=v0.0.0-dev
 ENV MYRIAD_VERSION=${MYRIAD_VERSION}
 ARG MYRIAD_COMMIT_SHA=unknown
 ENV MYRIAD_COMMIT_SHA=${MYRIAD_COMMIT_SHA}
+# Cap glibc thread arenas (default 8*nCPU x 64MiB). Compose may override.
+ENV MALLOC_ARENA_MAX=4
 LABEL org.opencontainers.image.revision=${MYRIAD_COMMIT_SHA}
 LABEL io.myriad.runtime.federation-worker="1"
 LABEL io.myriad.runtime.persona-worker="1"

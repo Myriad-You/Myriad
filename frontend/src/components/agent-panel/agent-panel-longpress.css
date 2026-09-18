@@ -1,0 +1,168 @@
+/* 跟着指针走，pointer-events: none。 */
+
+.agent-panel-longpress {
+  position: fixed;
+  width: 40px;
+  height: 40px;
+  pointer-events: none;
+  z-index: 999999;
+  transform: translate(-50%, -50%);
+  visibility: hidden;
+  opacity: 0;
+  transition:
+    opacity 0.1s ease-out,
+    visibility 0s linear 0.1s;
+}
+
+.agent-panel-longpress.active {
+  visibility: visible;
+  opacity: 1;
+  transition:
+    opacity 0.1s ease-out,
+    visibility 0s linear 0s;
+}
+
+.agent-panel-lp-dot {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  border-radius: 50%;
+  background: var(--color-primary, #10b981);
+  box-shadow: 0 0 6px
+    color-mix(in srgb, var(--color-primary, #10b981) 40%, transparent);
+}
+
+.agent-panel-longpress.active .agent-panel-lp-dot {
+  animation: agent-panel-lp-dot-morph 220ms cubic-bezier(0.22, 0.61, 0.36, 1)
+    forwards;
+}
+
+@keyframes agent-panel-lp-dot-morph {
+  0% {
+    transform: translate(-50%, -50%) scale(0);
+    background: var(--color-primary, #10b981);
+    opacity: 1;
+  }
+
+  35% {
+    transform: translate(-50%, -50%) scale(0.25);
+    background: var(--color-primary, #10b981);
+    opacity: 1;
+  }
+
+  70% {
+    transform: translate(-50%, -50%) scale(0.88);
+    background: transparent;
+    box-shadow: inset 0 0 0 2.5px var(--color-primary, #10b981);
+    opacity: 1;
+  }
+
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    background: transparent;
+    box-shadow: inset 0 0 0 2.5px var(--color-primary, #10b981);
+    opacity: 0;
+  }
+}
+
+.agent-panel-lp-pulse {
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--color-primary, #10b981) 20%, transparent) 0%,
+    transparent 70%
+  );
+  opacity: 0;
+  transform: scale(0.3);
+}
+
+.agent-panel-longpress.active .agent-panel-lp-pulse {
+  animation: agent-panel-lp-pulse 350ms ease-out 120ms forwards;
+}
+
+@keyframes agent-panel-lp-pulse {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+
+  30% {
+    opacity: 0.9;
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(2.2);
+  }
+}
+
+.agent-panel-lp-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: scale(0);
+  opacity: 0;
+}
+
+.agent-panel-longpress.active .agent-panel-lp-svg {
+  animation:
+    agent-panel-lp-svg-expand 160ms cubic-bezier(0.22, 0.61, 0.36, 1) 140ms
+      forwards,
+    agent-panel-lp-breathe 400ms ease-in-out 300ms infinite alternate;
+}
+
+@keyframes agent-panel-lp-svg-expand {
+  0% {
+    transform: scale(0.85);
+    opacity: 0;
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes agent-panel-lp-breathe {
+  from {
+    transform: scale(0.92);
+    opacity: 0.7;
+  }
+
+  to {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+}
+
+.agent-panel-lp-track {
+  fill: none;
+  stroke: color-mix(in srgb, var(--color-primary, #10b981) 10%, transparent);
+  stroke-width: 2.5;
+}
+
+.agent-panel-lp-ring {
+  fill: none;
+  stroke: var(--color-primary, #10b981);
+  stroke-width: 2.5;
+  filter: drop-shadow(
+    0 0 4px color-mix(in srgb, var(--color-primary, #10b981) 45%, transparent)
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-panel-longpress,
+  .agent-panel-lp-dot,
+  .agent-panel-lp-pulse,
+  .agent-panel-lp-svg {
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    animation: none !important;
+  }
+}

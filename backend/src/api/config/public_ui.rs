@@ -504,6 +504,7 @@ pub async fn get_public_ui_config(
         "island_show_quote": db_config.as_ref().map(|c| c.island_show_quote).unwrap_or(true),
         "island_show_music": db_config.as_ref().map(|c| c.island_show_music).unwrap_or(true),
         "island_show_tapp": db_config.as_ref().map(|c| c.island_show_tapp).unwrap_or(true),
+        "precise_location_enabled": db_config.as_ref().map(|c| c.precise_location_enabled).unwrap_or(false),
         "dashboard_layout": db_config.as_ref().and_then(|c| c.dashboard_layout.clone()),
         "dashboard_layout_mode": db_config.as_ref().and_then(|c| c.dashboard_layout_mode.clone()),
         "dashboard_title": db_config.as_ref().and_then(|c| c.dashboard_title.clone()),

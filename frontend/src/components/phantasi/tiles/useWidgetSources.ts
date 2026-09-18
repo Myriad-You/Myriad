@@ -5,11 +5,19 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { getSources } from '../../../services/phantasiApi'
 import { RequestTurn } from '../logic/requestTurn'
 
+export interface WidgetSourcesState {
+  sources: PhantasiSource[]
+  loading: boolean
+  failed: boolean
+}
+
 export function useWidgetSources(
   isPreview: boolean,
   failLabel: string,
-): PhantasiSource[] {
+): WidgetSourcesState {
   const [sources, setSources] = useState<PhantasiSource[]>([])
+  const [loading, setLoading] = useState(!isPreview)
+  const [failed, setFailed] = useState(false)
   const turns = useRef(new RequestTurn())
 
   const load = useCallback(async () => {
@@ -17,11 +25,15 @@ export function useWidgetSources(
     const signal = turns.current.begin()
     try {
       const next = await getSources()
-      if (!signal.aborted) setSources(next)
+      if (signal.aborted) return
+      setSources(next)
+      setFailed(false)
+      setLoading(false)
     } catch (error) {
-      if (!signal.aborted) {
-        console.error(`${failLabel} failed to load sources:`, error)
-      }
+      if (signal.aborted) return
+      console.error(`${failLabel} failed to load sources:`, error)
+      setFailed(true)
+      setLoading(false)
     }
   }, [failLabel, isPreview])
 
@@ -30,5 +42,5 @@ export function useWidgetSources(
     return () => turns.current.cancel()
   }, [load])
 
-  return sources
+  return { sources, loading, failed }
 }

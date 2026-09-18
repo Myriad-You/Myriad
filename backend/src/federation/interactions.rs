@@ -385,12 +385,15 @@ pub struct InteractionStats {
     pub reply_count: i64,
 }
 
-async fn stats_for_one(db: &DatabaseConnection, user_id: i32, object_id: &str) -> InteractionStats {
-    interaction_stats_for_objects(db, user_id, &[object_id.to_string()])
+async fn stats_for_one(
+    db: &DatabaseConnection,
+    user_id: i32,
+    object_id: &str,
+) -> Result<InteractionStats, (StatusCode, Json<serde_json::Value>)> {
+    let map = interaction_stats_for_objects(db, user_id, &[object_id.to_string()])
         .await
-        .ok()
-        .and_then(|m| m.get(object_id).cloned())
-        .unwrap_or_default()
+        .map_err(|_| db_err("Database error"))?;
+    Ok(map.get(object_id).cloned().unwrap_or_default())
 }
 
 // Like
@@ -426,7 +429,7 @@ pub async fn like_object(
 
     if inserted.rows_affected() == 0 {
         // Already liked — return current state without new activity
-        let st = stats_for_one(db, user_id, &object_id).await;
+        let st = stats_for_one(db, user_id, &object_id).await?;
         return Ok(InteractionResponse {
             success: true,
             object_id,
@@ -452,32 +455,19 @@ pub async fn like_object(
         "to": [AP_PUBLIC],
     });
 
-    let act_row = db
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"INSERT INTO federation_activities
-                   (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
-               VALUES ($1, $2, 'Like', 'Note', $3, true, NOW())
-               RETURNING id"#,
-            [
-                activity_id.clone().into(),
-                user_id.into(),
-                like_json.clone().into(),
-            ],
-        ))
-        .await
-        .map_err(db_err)?;
+    let act_db_id = crate::federation::types::insert_local_activity(
+        db,
+        user_id,
+        &activity_id,
+        "Like",
+        Some("Note"),
+        like_json.clone(),
+    )
+    .await
+    .map_err(db_err)?;
+    deliver_like_or_announce(db, user_id, act_db_id, &like_json, &object_id).await;
 
-    let act_db_id: i32 = act_row
-        .map(|r| r.try_get("", "id").unwrap_or(0))
-        .unwrap_or(0);
-
-    // Deliver Like to object author only (best-effort; no follower fan-out).
-    if act_db_id > 0 {
-        deliver_like_or_announce(db, user_id, act_db_id, &like_json, &object_id).await;
-    }
-
-    let st = stats_for_one(db, user_id, &object_id).await;
+    let st = stats_for_one(db, user_id, &object_id).await?;
     Ok(InteractionResponse {
         success: true,
         object_id,
@@ -545,30 +535,21 @@ pub async fn unlike_object(
             "published": now_iso8601(),
         });
 
-        if let Ok(Some(act_row)) = db
-            .query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                r#"INSERT INTO federation_activities
-                       (activity_id, user_id, activity_type, object_json, is_local, published_at)
-                   VALUES ($1, $2, 'Undo', $3, true, NOW())
-                   RETURNING id"#,
-                [
-                    undo_id.clone().into(),
-                    user_id.into(),
-                    undo_json.clone().into(),
-                ],
-            ))
-            .await
-        {
-            let act_db_id: i32 = act_row.try_get("", "id").unwrap_or(0);
-            if act_db_id > 0 {
-                let _ = content::fan_out_to_followers(db, user_id, act_db_id, &undo_json).await;
-                deliver_to_object_author(db, act_db_id, &undo_json, &object_id).await;
-            }
-        }
+        let act_db_id = crate::federation::types::insert_local_activity(
+            db,
+            user_id,
+            &undo_id,
+            "Undo",
+            None,
+            undo_json.clone(),
+        )
+        .await
+        .map_err(db_err)?;
+        let _ = content::fan_out_to_followers(db, user_id, act_db_id, &undo_json).await;
+        deliver_to_object_author(db, act_db_id, &undo_json, &object_id).await;
     }
 
-    let st = stats_for_one(db, user_id, &object_id).await;
+    let st = stats_for_one(db, user_id, &object_id).await?;
     Ok(InteractionResponse {
         success: true,
         object_id,
@@ -620,7 +601,7 @@ pub async fn bookmark_object(
         ))
         .await;
 
-    let st = stats_for_one(db, user_id, &object_id).await;
+    let st = stats_for_one(db, user_id, &object_id).await?;
     Ok(InteractionResponse {
         success: true,
         object_id,
@@ -667,7 +648,7 @@ pub async fn unbookmark_object(
         ))
         .await;
 
-    let st = stats_for_one(db, user_id, &object_id).await;
+    let st = stats_for_one(db, user_id, &object_id).await?;
     Ok(InteractionResponse {
         success: true,
         object_id,
@@ -1116,7 +1097,7 @@ pub async fn announce_object(
         .map_err(db_err)?;
 
     if inserted.rows_affected() == 0 {
-        let st = stats_for_one(db, user_id, &object_id).await;
+        let st = stats_for_one(db, user_id, &object_id).await?;
         return Ok(InteractionResponse {
             success: true,
             object_id,
@@ -1193,26 +1174,16 @@ pub async fn announce_object(
         "object": note,
     });
 
-    // Persist as Create / repost activity + published_content (for 已发布 list).
-    let act_row = db
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"INSERT INTO federation_activities
-                   (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
-               VALUES ($1, $2, 'Create', 'repost', $3, true, NOW())
-               RETURNING id"#,
-            [
-                activity_id.clone().into(),
-                user_id.into(),
-                create_json.clone().into(),
-            ],
-        ))
-        .await
-        .map_err(db_err)?;
-
-    let act_db_id: i32 = act_row
-        .map(|r| r.try_get("", "id").unwrap_or(0))
-        .unwrap_or(0);
+    let act_db_id = crate::federation::types::insert_local_activity(
+        db,
+        user_id,
+        &activity_id,
+        "Create",
+        Some("repost"),
+        create_json.clone(),
+    )
+    .await
+    .map_err(db_err)?;
 
     // Surface under 已发布 (content_type=repost; list_published includes it).
     let _ = db
@@ -1256,7 +1227,7 @@ pub async fn announce_object(
         deliver_to_object_author(db, act_db_id, &create_json, &object_id).await;
     }
 
-    let st = stats_for_one(db, user_id, &object_id).await;
+    let st = stats_for_one(db, user_id, &object_id).await?;
     Ok(InteractionResponse {
         success: true,
         object_id,
@@ -1378,36 +1349,25 @@ pub async fn unannounce_object(
             })
         };
 
-        if let Ok(Some(act_row)) = db
-            .query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                r#"INSERT INTO federation_activities
-                       (activity_id, user_id, activity_type, object_json, is_local, published_at)
-                   VALUES ($1, $2, $3, $4, true, NOW())
-                   RETURNING id"#,
-                [
-                    undo_id.clone().into(),
-                    user_id.into(),
-                    undo_json
-                        .get("type")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("Undo")
-                        .to_string()
-                        .into(),
-                    undo_json.clone().into(),
-                ],
-            ))
-            .await
-        {
-            let act_db_id: i32 = act_row.try_get("", "id").unwrap_or(0);
-            if act_db_id > 0 {
-                let _ = content::fan_out_to_followers(db, user_id, act_db_id, &undo_json).await;
-                deliver_to_object_author(db, act_db_id, &undo_json, &object_id).await;
-            }
-        }
+        let undo_type = undo_json
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Undo");
+        let act_db_id = crate::federation::types::insert_local_activity(
+            db,
+            user_id,
+            &undo_id,
+            undo_type,
+            None,
+            undo_json.clone(),
+        )
+        .await
+        .map_err(db_err)?;
+        let _ = content::fan_out_to_followers(db, user_id, act_db_id, &undo_json).await;
+        deliver_to_object_author(db, act_db_id, &undo_json, &object_id).await;
     }
 
-    let st = stats_for_one(db, user_id, &object_id).await;
+    let st = stats_for_one(db, user_id, &object_id).await?;
     Ok(InteractionResponse {
         success: true,
         object_id,
@@ -1765,6 +1725,17 @@ pub async fn get_object(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn stats_for_one_no_longer_swallows_db_errors() {
+        let src = include_str!("interactions.rs");
+        let fn_src = src
+            .split("async fn stats_for_one(")
+            .nth(1)
+            .expect("stats_for_one");
+        assert!(fn_src.contains("map_err"));
+        assert!(!fn_src.split("fn like_object").next().unwrap().contains(".ok()"));
+    }
 
     #[test]
     fn extract_object_id_from_string() {

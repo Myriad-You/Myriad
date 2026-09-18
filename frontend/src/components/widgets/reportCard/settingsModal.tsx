@@ -1,6 +1,7 @@
 import type { ReportCardClickAction } from './types'
 import { memo, useCallback, useEffect, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
+import { armWidgetSettingsHost } from '../../../lib/widgetSettingsHost'
 import {
   WidgetSettingsChoice,
   WidgetSettingsChoices,
@@ -32,6 +33,7 @@ export function openReportCardSettingsModal(
   onClose?: () => void,
   title = '',
 ) {
+  armWidgetSettingsHost()
   reportCardSettingsModalState = {
     isOpen: true,
     selectedAction,

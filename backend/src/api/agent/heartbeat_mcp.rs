@@ -61,10 +61,20 @@ pub(crate) async fn toggle_heartbeat(
     })?;
 
     match manager.toggle_task(&task_id).await {
-        Some(enabled) => Ok(Json(json!({ "task_id": task_id, "enabled": enabled }))),
-        None => Err(HttpError::from((
+        Ok(enabled) => Ok(Json(json!({ "task_id": task_id, "enabled": enabled }))),
+        Err(e) if e.contains("not found") => Err(HttpError::from((
             StatusCode::NOT_FOUND,
-            Json(AppError::public_json("Task not found")),
+            Json(AppError::public_json(e)),
+        ))),
+        Err(e) if e.contains("Failed to persist") || e.contains("Failed to read HEARTBEAT.md") => {
+            Err(HttpError::from((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(AppError::public_json(e)),
+            )))
+        }
+        Err(e) => Err(HttpError::from((
+            StatusCode::BAD_REQUEST,
+            Json(AppError::public_json(e)),
         ))),
     }
 }
@@ -108,6 +118,12 @@ pub(crate) async fn update_heartbeat(
             StatusCode::NOT_FOUND,
             Json(AppError::public_json(e)),
         ))),
+        Err(e) if e.contains("Failed to persist") || e.contains("Failed to read HEARTBEAT.md") => {
+            Err(HttpError::from((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(AppError::public_json(e)),
+            )))
+        }
         Err(e) => Err(HttpError::from((
             StatusCode::BAD_REQUEST,
             Json(AppError::public_json(e)),
@@ -152,6 +168,12 @@ pub(crate) async fn create_heartbeat(
             StatusCode::CONFLICT,
             Json(AppError::public_json(e)),
         ))),
+        Err(e) if e.contains("Failed to persist") || e.contains("Failed to read HEARTBEAT.md") => {
+            Err(HttpError::from((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(AppError::public_json(e)),
+            )))
+        }
         Err(e) => Err(HttpError::from((
             StatusCode::BAD_REQUEST,
             Json(AppError::public_json(e)),
@@ -180,6 +202,12 @@ pub(crate) async fn delete_heartbeat(
             StatusCode::NOT_FOUND,
             Json(AppError::public_json(e)),
         ))),
+        Err(e) if e.contains("Failed to persist") || e.contains("Failed to read HEARTBEAT.md") => {
+            Err(HttpError::from((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(AppError::public_json(e)),
+            )))
+        }
         Err(e) => Err(HttpError::from((
             StatusCode::BAD_REQUEST,
             Json(AppError::public_json(e)),

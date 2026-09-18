@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react'
 import type { WidgetComponentProps } from '../widgetGridTypes'
-import { memo } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import {
   parseStickerCrop,
   stickerCropObjectPosition,
@@ -94,6 +94,19 @@ const StickerWidget = memo(({
   const crop = parseStickerCrop(config.config?.crop)
   const loopOn = stickerFloatLoop(config.config)
   const hoverOn = stickerFloatHover(config.config)
+  const rootRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const node = rootRef.current
+    if (!node || typeof IntersectionObserver === 'undefined') return
+    const io = new IntersectionObserver((entries) => {
+      node.toggleAttribute(
+        'data-offscreen',
+        !entries.some((entry) => entry.isIntersecting),
+      )
+    })
+    io.observe(node)
+    return () => io.disconnect()
+  }, [src])
   if (!src) {
     return <div className="sticker-widget" aria-hidden />
   }
@@ -107,6 +120,7 @@ const StickerWidget = memo(({
     : undefined
   return (
     <div
+      ref={rootRef}
       className={[
         'sticker-widget',
         loopOn ? 'is-float-loop' : '',

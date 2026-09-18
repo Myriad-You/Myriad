@@ -116,9 +116,9 @@ async fn save_to_database(
     config_service: &crate::services::config_service::ConfigService,
     config: &ConfigResponse,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    config_service
-        .update_configs(collect_database_updates(config))
-        .await?;
+    let updates = collect_database_updates(config)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
+    config_service.update_configs(updates).await?;
     Ok(())
 }
 
@@ -142,16 +142,44 @@ fn vendor_json_is_agora(value: &serde_json::Value) -> bool {
         || slug.starts_with("agora-")
 }
 
-fn merge_vendor_source_secrets(incoming: serde_json::Value) -> serde_json::Value {
-    let Ok(mut sources) =
-        serde_json::from_value::<Vec<crate::config::AiVendorSource>>(incoming.clone())
-    else {
-        return incoming;
-    };
-    let existing = crate::GLOBAL_DYNAMIC_CONFIG
+fn existing_vendor_sources() -> Result<Vec<crate::config::AiVendorSource>, String> {
+    crate::GLOBAL_DYNAMIC_CONFIG
         .try_read()
         .map(|guard| guard.effective_vendor_sources())
-        .unwrap_or_default();
+        .map_err(|_| {
+            "vendor secrets are locked; refusing to save masked credentials as empty".to_string()
+        })
+}
+
+fn merge_vendor_source_secrets(incoming: serde_json::Value) -> Result<serde_json::Value, String> {
+    merge_vendor_source_secrets_with(incoming, existing_vendor_sources())
+}
+
+fn merge_vendor_source_secrets_with(
+    incoming: serde_json::Value,
+    existing: Result<Vec<crate::config::AiVendorSource>, String>,
+) -> Result<serde_json::Value, String> {
+    let mut sources = serde_json::from_value::<Vec<crate::config::AiVendorSource>>(incoming)
+        .map_err(|error| format!("invalid ai_vendor_sources: {error}"))?;
+    let needs_existing = sources.iter().any(|source| {
+        source
+            .api_key
+            .as_deref()
+            .is_some_and(is_masked_secret_value)
+            || source
+                .secret_id
+                .as_deref()
+                .is_some_and(is_masked_secret_value)
+            || source
+                .secret_key
+                .as_deref()
+                .is_some_and(is_masked_secret_value)
+    });
+    let existing = if needs_existing {
+        existing?
+    } else {
+        Vec::new()
+    };
     for source in &mut sources {
         let previous = existing.iter().find(|item| item.slug == source.slug);
         if source
@@ -176,12 +204,12 @@ fn merge_vendor_source_secrets(incoming: serde_json::Value) -> serde_json::Value
             source.secret_key = previous.and_then(|item| item.secret_key.clone());
         }
     }
-    serde_json::to_value(sources).unwrap_or(incoming)
+    serde_json::to_value(sources).map_err(|error| error.to_string())
 }
 
 pub(crate) fn collect_database_updates(
     config: &ConfigResponse,
-) -> std::collections::HashMap<String, Value> {
+) -> Result<std::collections::HashMap<String, Value>, String> {
     use serde_json::Value as JsonValue;
     use std::collections::HashMap;
 
@@ -517,8 +545,11 @@ pub(crate) fn collect_database_updates(
             ),
             "ai_vendor_sources" => {
                 let parsed = serde_json::from_str::<JsonValue>(&field.value)
-                    .unwrap_or_else(|_| JsonValue::Array(Vec::new()));
-                let parsed = merge_vendor_source_secrets(parsed);
+                    .map_err(|error| format!("invalid ai_vendor_sources JSON: {error}"))?;
+                if !parsed.is_array() {
+                    return Err("ai_vendor_sources must be a JSON array".to_string());
+                }
+                let parsed = merge_vendor_source_secrets(parsed)?;
                 ("ai_vendor_sources", parsed)
             }
             _ => continue,
@@ -890,6 +921,10 @@ pub(crate) fn collect_database_updates(
                 let enabled = field.value == "true";
                 ("memory_saver_enabled", JsonValue::Bool(enabled))
             }
+            "precise_location_enabled" => {
+                let enabled = field.value == "true";
+                ("precise_location_enabled", JsonValue::Bool(enabled))
+            }
             "merope_enabled" => {
                 let enabled = field.value == "true";
                 ("merope_enabled", JsonValue::Bool(enabled))
@@ -907,7 +942,7 @@ pub(crate) fn collect_database_updates(
         }
     }
 
-    updates
+    Ok(updates)
 }
 
 /// Whether a config form field key holds a secret (must not write mask/empty to .env).
@@ -1103,4 +1138,91 @@ pub fn update_env_var(content: &str, key: &str, value: &str) -> Result<String, S
     }
 
     Ok(lines.join("\n") + "\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::config::types::{AiConfig, ConfigField, ConfigResponse};
+    use serde_json::json;
+
+    fn vendor_field(value: &str) -> ConfigResponse {
+        ConfigResponse {
+            ai_config: AiConfig {
+                config_fields: vec![ConfigField {
+                    key: "ai_vendor_sources".to_string(),
+                    value: value.to_string(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn invalid_vendor_source_json_is_rejected_not_saved_as_empty_array() {
+        let err =
+            collect_database_updates(&vendor_field("not-json")).expect_err("must fail closed");
+        assert!(err.to_string().contains("ai_vendor_sources"));
+        let err = collect_database_updates(&vendor_field(r#"{"api_key":"sk"}"#))
+            .expect_err("object must not become []");
+        assert!(err.to_string().contains("array"));
+    }
+
+    #[test]
+    fn valid_vendor_source_array_is_collected() {
+        let updates = collect_database_updates(&vendor_field(
+            r#"[{"slug":"openai","kind":"openai","display_name":"OpenAI","enabled":true,"api_key":"sk-live"}]"#,
+        ))
+        .expect("valid array");
+        let sources = updates
+            .get("ai_vendor_sources")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0]["api_key"], json!("sk-live"));
+    }
+
+    #[test]
+    fn masked_vendor_secrets_are_not_cleared_when_existing_lookup_fails() {
+        let incoming = json!([{
+            "slug": "openai",
+            "kind": "openai",
+            "display_name": "OpenAI",
+            "enabled": true,
+            "api_key": "••••••••"
+        }]);
+        let err = merge_vendor_source_secrets_with(incoming, Err("locked".to_string()))
+            .expect_err("lock failure must not mean no secrets");
+        assert!(err.to_string().contains("locked"));
+    }
+
+    #[test]
+    fn masked_vendor_secrets_keep_existing_values_when_lookup_succeeds() {
+        let incoming = json!([{
+            "slug": "openai",
+            "kind": "openai",
+            "display_name": "OpenAI",
+            "enabled": true,
+            "api_key": "••••••••",
+            "secret_id": "••••••••",
+            "secret_key": "••••••••"
+        }]);
+        let existing = vec![crate::config::AiVendorSource {
+            slug: "openai".to_string(),
+            kind: "openai".to_string(),
+            display_name: "OpenAI".to_string(),
+            enabled: true,
+            api_key: Some("sk-keep".to_string()),
+            secret_id: Some("sid-keep".to_string()),
+            secret_key: Some("skey-keep".to_string()),
+            ..Default::default()
+        }];
+        let merged = merge_vendor_source_secrets_with(incoming, Ok(existing)).unwrap();
+        assert_eq!(merged[0]["api_key"], json!("sk-keep"));
+        assert_eq!(merged[0]["secret_id"], json!("sid-keep"));
+        assert_eq!(merged[0]["secret_key"], json!("skey-keep"));
+    }
 }

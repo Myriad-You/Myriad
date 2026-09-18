@@ -172,9 +172,12 @@ class AnimationCoordinator {
         if (this.fpsMonitorRunning) {
           this.lastFrameTimestamp = performance.now()
           this.lastFpsUpdateTime = this.lastFrameTimestamp
+          this.pumpFpsMonitor()
         }
         this.processWaitQueue()
         this.scheduleIdleCallback()
+      } else {
+        this.pauseFpsMonitorLoop()
       }
     })
 
@@ -855,90 +858,103 @@ class AnimationCoordinator {
   }
 
   startFpsMonitor(): void {
-    if (this.fpsMonitorRunning) return
-    this.fpsMonitorRunning = true
+    if (!this.fpsMonitorRunning) {
+      this.fpsMonitorRunning = true
+      this.lastFrameTimestamp = performance.now()
+      this.lastFpsUpdateTime = this.lastFrameTimestamp
+      this.frameTimeIndex = 0
+      this.frameTimeCount = 0
+      this.frameTimeSum = 0
+      this.frameTimes.fill(0)
+      this.totalFrames = 0
+      this.minFrameTime = Infinity
+      this.refreshRateDetected = false
+    }
+    this.pumpFpsMonitor()
+  }
+
+  private pauseFpsMonitorLoop(): void {
+    if (this.fpsMonitorRafId !== null) {
+      cancelAnimationFrame(this.fpsMonitorRafId)
+      this.fpsMonitorRafId = null
+    }
+  }
+
+  private pumpFpsMonitor(): void {
+    if (!this.fpsMonitorRunning || this.fpsMonitorRafId !== null) return
+    if (!coreIsPageVisible()) return
     this.lastFrameTimestamp = performance.now()
-    this.lastFpsUpdateTime = this.lastFrameTimestamp
+    this.fpsMonitorRafId = requestAnimationFrame((timestamp) => {
+      this.measureFps(timestamp)
+    })
+  }
 
-    this.frameTimeIndex = 0
-    this.frameTimeCount = 0
-    this.frameTimeSum = 0
-    this.frameTimes.fill(0)
-    this.totalFrames = 0
-
-    this.minFrameTime = Infinity
-    this.refreshRateDetected = false
-
-    const measureFps = (timestamp: number) => {
-      if (!this.fpsMonitorRunning) return
-
-      // 后台 RAF 会被大幅节流；恢复时丢掉这段时间差。
-      if (!coreIsPageVisible()) {
-        this.lastFrameTimestamp = timestamp
-        this.fpsMonitorRafId = requestAnimationFrame(measureFps)
-        return
-      }
-
-      const frameTime = timestamp - this.lastFrameTimestamp
-      this.lastFrameTimestamp = timestamp
-      this.totalFrames++
-
-      if (!this.refreshRateDetected && this.totalFrames <= 30) {
-        // 前 30 帧忽略 <4ms 的测量噪声。
-        if (frameTime > 4 && frameTime < this.minFrameTime) {
-          this.minFrameTime = frameTime
-        }
-
-        if (this.totalFrames === 30 && this.minFrameTime < Infinity) {
-          this.refreshRateDetected = true
-
-          const inferredRate = Math.round(1000 / this.minFrameTime)
-
-          this.detectedRefreshRate = this.snapToCommonRefreshRate(inferredRate)
-
-          this.frameBudget = 1000 / this.detectedRefreshRate
-          this.lowFpsThreshold = Math.round(
-            this.detectedRefreshRate * this.LOW_FPS_RATIO,
-          )
-
-          this.currentFps = this.detectedRefreshRate
-        }
-      }
-
-      const idx = this.frameTimeIndex
-      const oldValue = this.frameTimes[idx]
-      this.frameTimes[idx] = frameTime
-
-      this.frameTimeIndex = (idx + 1) & 63
-
-      if (this.frameTimeCount < this.FPS_SAMPLE_SIZE) {
-        this.frameTimeCount++
-        this.frameTimeSum += frameTime
-      } else {
-        this.frameTimeSum = this.frameTimeSum - oldValue + frameTime
-      }
-
-      const timeSinceUpdate = timestamp - this.lastFpsUpdateTime
-      if (
-        timeSinceUpdate >= this.FPS_UPDATE_INTERVAL &&
-        this.frameTimeCount >= 10
-      ) {
-        this.lastFpsUpdateTime = timestamp
-
-        const avgFrameTime = this.frameTimeSum / this.frameTimeCount
-
-        const rawFps = 1000 / avgFrameTime
-
-        // FPS：80% 新值 + 20% 旧值。
-        this.currentFps = Math.round(rawFps * 0.8 + this.currentFps * 0.2)
-
-        this.isLowFpsMode = this.currentFps < this.lowFpsThreshold
-      }
-
-      this.fpsMonitorRafId = requestAnimationFrame(measureFps)
+  private measureFps(timestamp: number): void {
+    if (!this.fpsMonitorRunning) return
+    if (!coreIsPageVisible()) {
+      this.fpsMonitorRafId = null
+      return
     }
 
-    this.fpsMonitorRafId = requestAnimationFrame(measureFps)
+    const frameTime = timestamp - this.lastFrameTimestamp
+    this.lastFrameTimestamp = timestamp
+    this.totalFrames++
+
+    if (!this.refreshRateDetected && this.totalFrames <= 30) {
+      // 前 30 帧忽略 <4ms 的测量噪声。
+      if (frameTime > 4 && frameTime < this.minFrameTime) {
+        this.minFrameTime = frameTime
+      }
+
+      if (this.totalFrames === 30 && this.minFrameTime < Infinity) {
+        this.refreshRateDetected = true
+
+        const inferredRate = Math.round(1000 / this.minFrameTime)
+
+        this.detectedRefreshRate = this.snapToCommonRefreshRate(inferredRate)
+
+        this.frameBudget = 1000 / this.detectedRefreshRate
+        this.lowFpsThreshold = Math.round(
+          this.detectedRefreshRate * this.LOW_FPS_RATIO,
+        )
+
+        this.currentFps = this.detectedRefreshRate
+      }
+    }
+
+    const idx = this.frameTimeIndex
+    const oldValue = this.frameTimes[idx]
+    this.frameTimes[idx] = frameTime
+
+    this.frameTimeIndex = (idx + 1) & 63
+
+    if (this.frameTimeCount < this.FPS_SAMPLE_SIZE) {
+      this.frameTimeCount++
+      this.frameTimeSum += frameTime
+    } else {
+      this.frameTimeSum = this.frameTimeSum - oldValue + frameTime
+    }
+
+    const timeSinceUpdate = timestamp - this.lastFpsUpdateTime
+    if (
+      timeSinceUpdate >= this.FPS_UPDATE_INTERVAL &&
+      this.frameTimeCount >= 10
+    ) {
+      this.lastFpsUpdateTime = timestamp
+
+      const avgFrameTime = this.frameTimeSum / this.frameTimeCount
+
+      const rawFps = 1000 / avgFrameTime
+
+      // FPS：80% 新值 + 20% 旧值。
+      this.currentFps = Math.round(rawFps * 0.8 + this.currentFps * 0.2)
+
+      this.isLowFpsMode = this.currentFps < this.lowFpsThreshold
+    }
+
+    this.fpsMonitorRafId = requestAnimationFrame((next) => {
+      this.measureFps(next)
+    })
   }
 
   private snapToCommonRefreshRate(inferredRate: number): number {
@@ -1132,7 +1148,7 @@ class AnimationCoordinator {
   observeResize(
     element: Element,
     callback: (entry: ResizeObserverEntry) => void,
-    options?: { immediate?: boolean },
+    _options?: { immediate?: boolean },
   ): () => void {
     if (!element) {
       return () => {}
@@ -1144,28 +1160,9 @@ class AnimationCoordinator {
     this.observedElements.add(element)
 
     this.sharedResizeObserver.observe(element, { box: 'border-box' })
-
-    if (options?.immediate) {
-      requestAnimationFrame(() => {
-        if (!element.isConnected) return
-        const rect = element.getBoundingClientRect()
-        this.elementSizeCache.set(element, {
-          width: rect.width,
-          height: rect.height,
-        })
-
-        const fakeEntry = {
-          target: element,
-          contentRect: rect,
-          borderBoxSize: [{ inlineSize: rect.width, blockSize: rect.height }],
-          contentBoxSize: [{ inlineSize: rect.width, blockSize: rect.height }],
-          devicePixelContentBoxSize: [
-            { inlineSize: rect.width, blockSize: rect.height },
-          ],
-        } as ResizeObserverEntry
-        callback(fakeEntry)
-      })
-    }
+    // `immediate` used to synthesize a ResizeObserverEntry via
+    // getBoundingClientRect (forced reflow). Callers that need a first size
+    // already measure themselves; the observer still delivers the next frame.
 
     return () => {
       this.unobserveResize(element)

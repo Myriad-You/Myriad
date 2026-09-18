@@ -245,6 +245,10 @@ pub struct Job {
     pub status: JobStatus,
     pub steps: Vec<JobStep>,
     pub idempotency_key: Option<String>,
+    /// Canonical request fingerprint bound to [`Self::idempotency_key`].
+    /// Same key + different fingerprint is a conflict, not a replay.
+    #[serde(default)]
+    pub idempotency_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]

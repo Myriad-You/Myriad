@@ -17,7 +17,7 @@ import {
   useAnimationLevel,
 } from '../../hooks/useAnimationLevel'
 import { useWidgetSize } from '../../hooks/useWidgetSize'
-import { getSources } from '../../services/phantasiApi'
+import { fetchFriendLinkSources } from '../../services/friendLinkSources'
 import { getIconUrl, isFriendLinkCategory } from '../phantasi/constants'
 import { WidgetShell } from './shared/WidgetShell'
 import { WidgetSkeletonCover } from './shared/WidgetSkeleton'
@@ -208,10 +208,7 @@ export const FriendLinksWidget = memo(
     const loadFriendLinks = useCallback(async () => {
       if (isPreview) return
       try {
-        const nextSources = await getSources(undefined, {
-          view: 'catalog',
-          category: 'friends',
-        })
+        const nextSources = await fetchFriendLinkSources('widget')
         if (!mountedRef.current) return
         setSources(nextSources)
         setFailed(false)

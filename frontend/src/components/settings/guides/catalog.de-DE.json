@@ -830,6 +830,18 @@
       "frontend": "Indirekt unter Last. Alltagliches Surfen sollte sich gleich anfühlen.",
       "notes": "Jederzeit aus und Speichern, um ausgewogene Budgets wiederherzustellen (Neustart, wenn Ihnen die DB-Poolgröße wichtig ist)."
     },
+    "preciseLocation": {
+      "what": "Ob Wetter den Browser nach einem präzisen Standort fragen darf. Standard aus: nur IP.",
+      "chain": "1) Aus (Standard): Wetter und Standort per IP; kein Berechtigungsdialog.\n2) Nach An und Speichern kann der nächste Wetterabruf Browser-Geolocation nutzen; Besuchende können ablehnen.\n3) Ablehnung oder Fehler fällt auf IP zurück, wie aus.",
+      "frontend": "Beim ersten Besuch nach dem Einschalten kann die Systemabfrage erscheinen. Aus schaltet Nachfragen ab.",
+      "notes": "Site-weiter Schalter. Präzise Koordinaten gehen nicht an TAPPs."
+    },
+    "preciseLocationEnable": {
+      "what": "Wetter darf den präzisen Browser-Standort nutzen.",
+      "chain": "1) Schreibt Serverkonfiguration; die öffentliche UI-Config enthält dieses Flag.\n2) Das Frontend liest es vor Wetter; aus bedeutet, getCurrentPosition wird nie aufgerufen.\n3) Speichern lädt die Seite neu, damit die nächste Wetteranfrage es übernimmt.",
+      "frontend": "Aus: kein Dialog. An: der Browser entscheidet.",
+      "notes": "Hat der Browser schon abgelehnt, müssen Besuchende die Erlaubnis in den Site-Einstellungen wiederherstellen."
+    },
     "network": {
       "what": "Ob der Server einen Proxy nutzt, wenn er ins offene Internet geht, und Zugangsadressen für einige Dienste.",
       "chain": "1) Das gilt vor allem für „der Server selbst geht online“: fremde Plattformen synchronisieren, intelligente Dienste aufrufen usw.\n2) Ihr Browser, der diese Site öffnet, oder der Sprung zur Drittanbieter-Anmeldung nutzt diesen Proxy meist nicht.\n3) Inländische Plattformen können langsamer werden, wenn sie durch einen Proxy gezwungen werden — eine Liste „für diese keinen Proxy“ ausfüllen.\n4) Probleme wirken oft so: Sync scheitert, KI nicht verfügbar — nicht ein kaputtes Seitendesign.",

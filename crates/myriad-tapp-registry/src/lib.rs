@@ -135,11 +135,12 @@ RETURNING record_id
     Ok(inserted.is_some())
 }
 
-/// Atomically enforce a per-subject live-record limit and insert a registry
-/// entry. The advisory lock is shared by every backend replica, so concurrent
-/// requests cannot all pass a stale count.
-pub async fn put_with_subject_limit<T: Serialize>(
-    db: &DatabaseConnection,
+/// Insert with a per-subject live-record limit on an already-open transaction.
+///
+/// The caller must hold the transaction that should commit or roll back with
+/// any other durable mutation (for example consuming a prepared request).
+pub async fn put_with_subject_limit_on<T: Serialize>(
+    db: &impl ConnectionTrait,
     namespace: &str,
     record_id: &str,
     identity: RegistryIdentity<'_>,
@@ -151,22 +152,19 @@ pub async fn put_with_subject_limit<T: Serialize>(
         .subject_id
         .ok_or_else(|| DbErr::Custom("subject_id is required for a registry limit".to_string()))?;
     let payload = serde_json::to_value(payload).map_err(|error| DbErr::Json(error.to_string()))?;
-    let transaction = db.begin().await?;
     let lock_key = format!("tapp_registry:{namespace}:{subject_id}");
-    transaction
-        .execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
-            vec![lock_key.into()],
-        ))
-        .await?;
-    transaction
-        .execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "DELETE FROM tapp_runtime_registry WHERE namespace = $1 AND subject_id = $2 AND expires_at <= EXTRACT(EPOCH FROM NOW())::BIGINT",
-            vec![namespace.into(), subject_id.into()],
-        ))
-        .await?;
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        vec![lock_key.into()],
+    ))
+    .await?;
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "DELETE FROM tapp_runtime_registry WHERE namespace = $1 AND subject_id = $2 AND expires_at <= EXTRACT(EPOCH FROM NOW())::BIGINT",
+        vec![namespace.into(), subject_id.into()],
+    ))
+    .await?;
 
     #[derive(FromQueryResult)]
     struct CountRow {
@@ -177,18 +175,16 @@ pub async fn put_with_subject_limit<T: Serialize>(
         "SELECT COUNT(*)::BIGINT AS count FROM tapp_runtime_registry WHERE namespace = $1 AND subject_id = $2 AND record_id <> $3 AND expires_at > EXTRACT(EPOCH FROM NOW())::BIGINT",
         vec![namespace.into(), subject_id.into(), record_id.into()],
     ))
-    .one(&transaction)
+    .one(db)
     .await?
     .map_or(0, |row| row.count);
     if count >= max_records as i64 {
-        transaction.rollback().await?;
         return Ok(false);
     }
 
-    transaction
-        .execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        r#"
 INSERT INTO tapp_runtime_registry
     (namespace, record_id, subject_id, owner_id, tapp_id, runtime_id, payload, expires_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
@@ -201,21 +197,49 @@ ON CONFLICT (namespace, record_id) DO UPDATE SET
     expires_at = EXCLUDED.expires_at,
     updated_at = NOW()
 "#,
-            vec![
-                namespace.into(),
-                record_id.into(),
-                identity.subject_id.into(),
-                identity.owner_id.into(),
-                identity.tapp_id.map(str::to_string).into(),
-                identity.runtime_id.map(str::to_string).into(),
-                payload.into(),
-                expires_at.into(),
-            ],
-        ))
-        .await?;
-    transaction.commit().await?;
-    maybe_cleanup(db).await;
+        vec![
+            namespace.into(),
+            record_id.into(),
+            identity.subject_id.into(),
+            identity.owner_id.into(),
+            identity.tapp_id.map(str::to_string).into(),
+            identity.runtime_id.map(str::to_string).into(),
+            payload.into(),
+            expires_at.into(),
+        ],
+    ))
+    .await?;
     Ok(true)
+}
+
+pub async fn put_with_subject_limit<T: Serialize>(
+    db: &DatabaseConnection,
+    namespace: &str,
+    record_id: &str,
+    identity: RegistryIdentity<'_>,
+    payload: &T,
+    expires_at: i64,
+    max_records: usize,
+) -> Result<bool, DbErr> {
+    let transaction = db.begin().await?;
+    let inserted = put_with_subject_limit_on(
+        &transaction,
+        namespace,
+        record_id,
+        identity,
+        payload,
+        expires_at,
+        max_records,
+    )
+    .await?;
+    if inserted {
+        transaction.commit().await?;
+        maybe_cleanup(db).await;
+        Ok(true)
+    } else {
+        transaction.rollback().await?;
+        Ok(false)
+    }
 }
 
 /// Extend TTL for a still-live record of this subject. Missing/expired rows
@@ -501,6 +525,7 @@ pub async fn delete_matching(
     db: &impl ConnectionTrait,
     namespace: &str,
     subject_id: Option<i32>,
+    owner_id: Option<i32>,
     tapp_id: Option<&str>,
     runtime_id: Option<&str>,
 ) -> Result<u64, DbErr> {
@@ -511,12 +536,14 @@ pub async fn delete_matching(
 DELETE FROM tapp_runtime_registry
 WHERE namespace = $1
   AND ($2::INTEGER IS NULL OR subject_id = $2)
-  AND ($3::TEXT IS NULL OR tapp_id = $3)
-  AND ($4::TEXT IS NULL OR runtime_id = $4)
+  AND ($3::INTEGER IS NULL OR owner_id = $3)
+  AND ($4::TEXT IS NULL OR tapp_id = $4)
+  AND ($5::TEXT IS NULL OR runtime_id = $5)
 "#,
             vec![
                 namespace.into(),
                 subject_id.into(),
+                owner_id.into(),
                 tapp_id.map(str::to_string).into(),
                 runtime_id.map(str::to_string).into(),
             ],
@@ -529,6 +556,7 @@ pub async fn delete_matching_payload_text(
     db: &impl ConnectionTrait,
     namespace: &str,
     subject_id: Option<i32>,
+    owner_id: Option<i32>,
     tapp_id: Option<&str>,
     runtime_id: Option<&str>,
     payload_field: &str,
@@ -541,13 +569,15 @@ pub async fn delete_matching_payload_text(
 DELETE FROM tapp_runtime_registry
 WHERE namespace = $1
   AND ($2::INTEGER IS NULL OR subject_id = $2)
-  AND ($3::TEXT IS NULL OR tapp_id = $3)
-  AND ($4::TEXT IS NULL OR runtime_id = $4)
-  AND payload ->> ($5::TEXT) = $6
+  AND ($3::INTEGER IS NULL OR owner_id = $3)
+  AND ($4::TEXT IS NULL OR tapp_id = $4)
+  AND ($5::TEXT IS NULL OR runtime_id = $5)
+  AND payload ->> ($6::TEXT) = $7
 "#,
             vec![
                 namespace.into(),
                 subject_id.into(),
+                owner_id.into(),
                 tapp_id.map(str::to_string).into(),
                 runtime_id.map(str::to_string).into(),
                 payload_field.into(),

@@ -9,6 +9,10 @@ describe('fetchSessionUserSnapshot guest contract', () => {
   afterEach(() => {
     globalThis.fetch = originalFetch
     setKnownAuthState(true)
+    try {
+      localStorage.removeItem('myriad_session_hint')
+    } catch {
+    }
   })
 
   it('returns null for HTTP 200 + authenticated:false (not 401)', async () => {

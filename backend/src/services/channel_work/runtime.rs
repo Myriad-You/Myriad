@@ -174,8 +174,10 @@ async fn destroy_session(
     with_chat_lock(key, async {
         stop_delivery(key).await;
         if let Some(run_id) = &session.last_run_id {
-            if let Some(run) = crate::services::agent::run_hub::get_run_for_user(run_id, user_id).await {
-                run.abort_execution().await;
+            match crate::services::agent::run_hub::get_run_for_user(run_id, user_id).await {
+                Ok(Some(run)) => run.abort_execution().await,
+                Ok(None) => {}
+                Err(error) => warn!(%error, "failed to load run for channel destroy"),
             }
         }
         cancel_session_tasks(db, user_id, &session.session_id).await;
@@ -242,14 +244,20 @@ pub(super) async fn recover_session(
     let outbox = shared_registry::list(db, outbound_ns(platform), Some(binding.user_id), None)
         .await
         .is_ok_and(|rows| rows.iter().any(|row| row.record_id == key));
-    let Some(run) =
-        crate::services::agent::run_hub::get_run_for_user(&run_id, binding.user_id).await
-    else {
-        if outbox {
-            start_outbox_delivery(db.clone(), key.to_string(), sink).await;
-        }
-        return outbox;
-    };
+    let run =
+        match crate::services::agent::run_hub::get_run_for_user(&run_id, binding.user_id).await {
+            Ok(Some(run)) => run,
+            Ok(None) => {
+                if outbox {
+                    start_outbox_delivery(db.clone(), key.to_string(), sink).await;
+                }
+                return outbox;
+            }
+            Err(error) => {
+                warn!(%error, "failed to rehydrate run for channel recovery");
+                return false;
+            }
+        };
     let (events, _, _) = run.snapshot().await;
     let unseen = events.iter().any(|event| {
         event.sequence > session.last_event_seq

@@ -2,11 +2,12 @@ import type { AnnotationItem } from '../../../services/phantasiaiApi'
 import type { CommentItem } from '../../../services/phantasiApi'
 import type { PhantasiItem } from '../../../types/phantasi'
 import type { ReaderCopy, ThemeKey } from './types'
-import { useLayoutEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { API_URL as CONFIG_API_URL } from '../../../config'
 import { processEmbeds } from '../../../utils/embedProcessor'
 import { escapeHtml } from '../../../utils/inputSanitizer'
-import { processRssContent } from '../../../utils/rssContentProcessor'
+import { processRssContentAsync } from '../../../utils/rssContentProcessor'
+import { yieldIfSliceExceeded } from '../../../utils/yieldToMain'
 import { displayImageUrl, prepareNoteReaderHtml } from '../notes/noteImageUrl'
 import { decorateNoteReadSurface } from '../notes/noteReadSurface'
 import { replaceNoteHtml } from '../notes/noteWidgetMount'
@@ -40,7 +41,7 @@ function buildBaseContent({
   contentReady,
   item,
   t,
-}: BuildBaseContentOptions): string {
+}: BuildBaseContentOptions): string | null {
   if (!contentReady) return ''
 
   // 搜索摘要必须 HTML 转义，禁止当 HTML 注入。
@@ -68,17 +69,30 @@ function buildBaseContent({
     return prepareNoteReaderHtml(item.content, empty)
   }
 
-  let content = item.content || item.summary || empty
+  return null
+}
 
-  content = processRssContent(content, {
-    lazyLoadImages: true,
-    removeTrackingParams: true,
-    removeEmptyTags: true,
-    baseUrl: item.link || undefined,
-  })
-
-  content = processEmbeds(content)
-  return content
+async function buildRssContent(
+  item: BuildBaseContentOptions['item'],
+  empty: string,
+  signal: AbortSignal,
+): Promise<string> {
+  const source = item.content || item.summary || empty
+  const cleaned = await processRssContentAsync(
+    source,
+    {
+      lazyLoadImages: true,
+      removeTrackingParams: true,
+      removeEmptyTags: true,
+      baseUrl: item.link || undefined,
+    },
+    signal,
+  )
+  signal.throwIfAborted()
+  const slice = { ms: performance.now() }
+  const withEmbeds = processEmbeds(cleaned)
+  await yieldIfSliceExceeded(slice)
+  return withEmbeds
 }
 
 interface UseContentRenderOptions {
@@ -114,8 +128,8 @@ export function useContentRender({
   copyCodeLabel,
   copyTexLabel,
 }: UseContentRenderOptions): string {
-  // 正文版本变化才重建 base HTML；主题由 CSS 变量驱动，避免 iframe 被摘下。
-  const baseContent = useMemo(
+  // 笔记和搜索摘要仍同步；RSS 清洗按步让出主线程。
+  const cheapContent = useMemo(
     () =>
       buildBaseContent({
         contentReady,
@@ -134,6 +148,39 @@ export function useContentRender({
       t.phantasi.noSummary,
     ],
   )
+  const rssGeneration = `${item.guid}\0${item.content_revision ?? ''}\0${item.content ?? ''}\0${item.summary ?? ''}\0${item.link ?? ''}`
+  const [rss, setRss] = useState({ generation: '', html: '' })
+
+  useEffect(() => {
+    if (cheapContent !== null) return
+    const empty = `<p class="opacity-50">${t.phantasi.noContent}</p>`
+    const generation = rssGeneration
+    const controller = new AbortController()
+    void (async () => {
+      try {
+        const html = await buildRssContent(item, empty, controller.signal)
+        if (controller.signal.aborted) return
+        setRss({ generation, html })
+      } catch {
+        if (!controller.signal.aborted) setRss({ generation, html: empty })
+      }
+    })()
+    return () => controller.abort()
+  }, [
+    cheapContent,
+    rssGeneration,
+    item.content,
+    item.summary,
+    item.link,
+    t.phantasi.noContent,
+  ])
+
+  const baseContent =
+    cheapContent !== null
+      ? cheapContent
+      : rss.generation === rssGeneration
+        ? rss.html
+        : ''
 
   const prevBaseContentRef = useRef('')
 
@@ -141,7 +188,14 @@ export function useContentRender({
   // replaceNoteHtml 写完会通知已登记的水合补挂。放进 useEffect 会晚一帧。
   useLayoutEffect(() => {
     const container = contentInnerRef.current
-    if (!container || !baseContent) return
+    if (!container) return
+    if (!baseContent) {
+      if (prevBaseContentRef.current) {
+        replaceNoteHtml(container, '')
+        prevBaseContentRef.current = ''
+      }
+      return
+    }
 
     const isBaseChanged = prevBaseContentRef.current !== baseContent
     prevBaseContentRef.current = baseContent

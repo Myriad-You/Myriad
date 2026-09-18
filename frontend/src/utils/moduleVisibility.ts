@@ -3,8 +3,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { normalizeSourceSortMode } from '../components/phantasi/logic/sourceSort'
 import { currentCopy } from '../i18n/localeCopy'
 import apiService from '../services/api'
+import { formatUserFacingError } from './formatUserFacingError'
 import { dedupedFetch } from './requestDedup'
-import { userFacingError } from './userFacingError'
 
 export type ModuleVisibilityLevel = 'all' | 'authenticated' | 'admin'
 export type ModuleVisibilityKey =
@@ -266,7 +266,7 @@ export async function updateModuleVisibilityPreferences(
   )
   if (!response.success) {
     throw new Error(
-      userFacingError(
+      await formatUserFacingError(
         response.message,
         currentCopy().config.moduleVisibilitySaveFailed,
       ),

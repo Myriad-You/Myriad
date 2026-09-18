@@ -24,7 +24,7 @@ use crate::services::image_cache::ImageCacheService;
 use crate::services::permission_service::{TappPermission, TappPermissionService, UserRole};
 use crate::services::phantasi_scheduler::get_phantasi_scheduler;
 use crate::services::tapp_data_transform::{
-    DataTransformError, apply_pipeline, items_from_agent_input, parse_pipeline_steps_lenient,
+    DataTransformError, apply_pipeline, items_from_agent_input, parse_pipeline_steps,
 };
 use crate::services::tapp_ownership::verify_tapp_ownership;
 use crate::services::tapp_scheduler::{
@@ -70,8 +70,9 @@ async fn execute_data_transform(params: &HashMap<String, Value>) -> Result<Value
         .cloned()
         .unwrap_or_default();
 
-    let steps = parse_pipeline_steps_lenient(&pipeline_json).map_err(|err| match err {
+    let steps = parse_pipeline_steps(&pipeline_json).map_err(|err| match err {
         DataTransformError::TooManySteps => "Too many pipeline steps".to_string(),
+        DataTransformError::InvalidStep => "Invalid pipeline step".to_string(),
         other => other.message().to_string(),
     })?;
     let items = apply_pipeline(items_from_agent_input(input), steps).map_err(|err| match err {
@@ -434,14 +435,12 @@ async fn execute_heartbeat_toggle(
     let task_id = heartbeat_task_id(params).ok_or("Missing id parameter")?;
 
     let manager = heartbeat_manager()?;
-    match manager.toggle_task(task_id).await {
-        Some(enabled) => Ok(json!({
-            "success": true,
-            "taskId": task_id,
-            "enabled": enabled
-        })),
-        None => Err(format!("Task '{}' not found", task_id)),
-    }
+    let enabled = manager.toggle_task(task_id).await?;
+    Ok(json!({
+        "success": true,
+        "taskId": task_id,
+        "enabled": enabled
+    }))
 }
 
 // 系统状态
@@ -863,7 +862,7 @@ async fn execute_task_submit(params: &HashMap<String, Value>) -> Result<Value, S
         .unwrap_or("unknown")
         .to_string();
 
-    match BACKGROUND_PROCESSOR.submit_task(platform.clone()).await {
+    match crate::api::tasks::submit_and_start_platform_task(platform.clone()).await {
         Ok(task_id) => Ok(json!({
             "success": true,
             "taskId": task_id,

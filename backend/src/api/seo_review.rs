@@ -356,7 +356,9 @@ Current fields:\n\
 Public surface:\n{surface}\n\n\
 Return JSON with site_description, site_keywords, site_ai_intro as ok or bad, and why."
     );
-    let owner = crate::services::ai_cost_ledger::resolve_site_owner_id().await;
+    let owner = crate::services::ai_cost_ledger::resolve_site_owner_id()
+        .await
+        .ok()?;
     match crate::services::ai_cost_ledger::with_site_ai_ledger(
         owner,
         "seo",

@@ -5,7 +5,7 @@ import {
   LuMusic,
   LuSearchX,
   LuVolume2,
-} from '@lib/icons'
+} from '@lib/chromeStrokeIcons'
 import React, {
   memo,
   useCallback,

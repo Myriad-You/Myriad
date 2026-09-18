@@ -1,6 +1,6 @@
 use crate::config::DynamicConfig;
 use anyhow::{Context, Result};
-use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
+use sea_orm::{ConnectionTrait, DatabaseConnection, Statement, TransactionTrait};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 
@@ -64,8 +64,9 @@ impl ConfigService {
                 row.try_get::<JsonValue>("", "value"),
             ) {
                 // 敏感值在库里是密文；这里解封成明文供运行时使用。
-                // 未迁移的遗留明文原样通过。
-                let value = crate::services::data_key::open_config_value(&key, value);
+                // 未迁移的遗留明文原样通过。解密失败不得当成未配置。
+                let value = crate::services::data_key::open_config_value(&key, value)
+                    .with_context(|| format!("Failed to decrypt configuration {key}"))?;
                 config_map.insert(key, value);
             }
         }
@@ -1271,6 +1272,15 @@ impl ConfigService {
             }
         }
 
+        // 精确位置（高级设置）：缺省 false，不向浏览器申请定位许可。
+        if let Some(v) = map.get("precise_location_enabled") {
+            if let Some(b) = v.as_bool() {
+                config.precise_location_enabled = b;
+            } else if let Some(s) = v.as_str() {
+                config.precise_location_enabled = s == "true" || s == "1";
+            }
+        }
+
         // 网络代理配置
         if let Some(v) = map.get("proxy_enabled") {
             if let Some(b) = v.as_bool() {
@@ -1299,36 +1309,64 @@ impl ConfigService {
     /// （密钥类 token/secret/api_key/password/npsso；排除 `*_tokens` 配额与
     /// `*_expires_at` 元数据）。本路径 `seal_config_value` 后 UPSERT；调用方传明文。
     pub async fn update_config(&self, key: &str, value: JsonValue) -> Result<()> {
-        let value = crate::services::data_key::seal_config_value(key, value);
+        let value = crate::services::data_key::seal_config_value(key, value)?;
+        upsert_configuration(&self.db, key, value).await
+    }
 
-        let sql = r#"
+    /// 批量更新配置。先全部封存，再在同一事务里 UPSERT；中途失败整批回滚。
+    pub async fn update_configs(&self, updates: HashMap<String, JsonValue>) -> Result<()> {
+        let count = updates.len();
+        if count == 0 {
+            return Ok(());
+        }
+        let sealed = seal_config_updates(updates)?;
+        let txn = self
+            .db
+            .begin()
+            .await
+            .context("Failed to start configuration update transaction")?;
+        for (key, value) in sealed {
+            upsert_configuration(&txn, &key, value).await?;
+        }
+        txn.commit()
+            .await
+            .context("Failed to commit configuration update transaction")?;
+        tracing::info!("✅ Updated {count} configurations");
+        Ok(())
+    }
+}
+
+fn seal_config_updates(updates: HashMap<String, JsonValue>) -> Result<Vec<(String, JsonValue)>> {
+    let mut sealed = Vec::with_capacity(updates.len());
+    for (key, value) in updates {
+        let value = crate::services::data_key::seal_config_value(&key, value)
+            .with_context(|| format!("Failed to encrypt configuration {key}"))?;
+        sealed.push((key, value));
+    }
+    Ok(sealed)
+}
+
+async fn upsert_configuration(
+    db: &impl ConnectionTrait,
+    key: &str,
+    value: JsonValue,
+) -> Result<()> {
+    let sql = r#"
             INSERT INTO configurations (key, value, updated_at)
             VALUES ($1, $2, CURRENT_TIMESTAMP)
             ON CONFLICT (key) DO UPDATE
             SET value = $2, updated_at = CURRENT_TIMESTAMP
         "#;
 
-        self.db
-            .execute_raw(Statement::from_sql_and_values(
-                sea_orm::DatabaseBackend::Postgres,
-                sql,
-                vec![key.into(), value.into()],
-            ))
-            .await
-            .context("Failed to update configuration")?;
+    db.execute_raw(Statement::from_sql_and_values(
+        sea_orm::DatabaseBackend::Postgres,
+        sql,
+        vec![key.into(), value.into()],
+    ))
+    .await
+    .context("Failed to update configuration")?;
 
-        Ok(())
-    }
-
-    /// 批量更新配置
-    pub async fn update_configs(&self, updates: HashMap<String, JsonValue>) -> Result<()> {
-        let count = updates.len();
-        for (key, value) in updates {
-            self.update_config(&key, value).await?;
-        }
-        tracing::info!("✅ Updated {} configurations", count);
-        Ok(())
-    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1412,11 +1450,116 @@ mod tests {
             .await
             .unwrap();
     }
+
+    #[tokio::test]
+    #[ignore = "requires a disposable MYRIAD_RUNTIME_ISOLATION_TEST_DB"]
+    async fn update_configs_is_transactional_and_rejects_unsealed_vendor_objects() {
+        use sea_orm::{ConnectOptions, ConnectionTrait, Database};
+        use serde_json::json;
+        use std::collections::HashMap;
+        let url = std::env::var("MYRIAD_RUNTIME_ISOLATION_TEST_DB").unwrap();
+        let admin = Database::connect(&url).await.unwrap();
+        let schema = format!("config_txn_{}", uuid::Uuid::new_v4().simple());
+        admin
+            .execute_unprepared(&format!("CREATE SCHEMA {schema}"))
+            .await
+            .unwrap();
+        let mut options = ConnectOptions::new(url);
+        options.max_connections(2).map_sqlx_postgres_opts({
+            let schema = schema.clone();
+            move |options| options.options([("search_path", schema.as_str())])
+        });
+        let db = Database::connect(options).await.unwrap();
+        db.execute_unprepared(
+            "CREATE TABLE configurations (
+                key TEXT PRIMARY KEY,
+                value JSONB NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )",
+        )
+        .await
+        .unwrap();
+        db.execute_unprepared(
+            "INSERT INTO configurations (key, value) VALUES ('site_title', '\"old\"')",
+        )
+        .await
+        .unwrap();
+        let service = super::ConfigService::new(db.clone());
+        let mut bad = HashMap::new();
+        bad.insert("site_title".into(), json!("new"));
+        bad.insert("ai_vendor_sources".into(), json!({"api_key": "sk-plain"}));
+        assert!(
+            service.update_configs(bad).await.is_err(),
+            "invalid vendor object must not persist any key in the batch"
+        );
+        let row = db
+            .query_one_raw(sea_orm::Statement::from_string(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT value FROM configurations WHERE key = 'site_title'".to_string(),
+            ))
+            .await
+            .unwrap()
+            .unwrap();
+        let stored: serde_json::Value = row.try_get("", "value").unwrap();
+        assert_eq!(stored, json!("old"));
+        let missing = db
+            .query_one_raw(sea_orm::Statement::from_string(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT 1 FROM configurations WHERE key = 'ai_vendor_sources'".to_string(),
+            ))
+            .await
+            .unwrap();
+        assert!(missing.is_none());
+
+        let mut ok = HashMap::new();
+        ok.insert("site_title".into(), json!("saved"));
+        ok.insert(
+            "ai_vendor_sources".into(),
+            json!([{"slug":"openai","kind":"openai","api_key":"sk-nested"}]),
+        );
+        service.update_configs(ok).await.unwrap();
+        let loaded = service.load_config().await.unwrap();
+        assert_eq!(loaded.site_title.as_deref(), Some("saved"));
+        assert_eq!(
+            loaded.ai_vendor_sources[0].api_key.as_deref(),
+            Some("sk-nested")
+        );
+        let sealed_row = db
+            .query_one_raw(sea_orm::Statement::from_string(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT value FROM configurations WHERE key = 'ai_vendor_sources'".to_string(),
+            ))
+            .await
+            .unwrap()
+            .unwrap();
+        let sealed: serde_json::Value = sealed_row.try_get("", "value").unwrap();
+        let api_key = sealed.as_array().unwrap()[0]["api_key"].as_str().unwrap();
+        assert!(
+            crate::services::data_key::is_ciphertext(api_key),
+            "nested api_key must be sealed at rest"
+        );
+        assert!(!api_key.contains("sk-nested"));
+        admin
+            .execute_unprepared(&format!("DROP SCHEMA {schema} CASCADE"))
+            .await
+            .unwrap();
+    }
     use super::ConfigService;
     use crate::config::DynamicConfig;
     use serde_json::json;
     use std::collections::{HashMap, HashSet};
     use syn::visit::Visit;
+
+    #[test]
+    fn seal_config_updates_rejects_invalid_vendor_sources_before_any_upsert() {
+        let mut updates = HashMap::new();
+        updates.insert("site_title".into(), json!("ok"));
+        updates.insert("ai_vendor_sources".into(), json!({"api_key": "sk-plain"}));
+        assert!(
+            super::seal_config_updates(updates).is_err(),
+            "parse/shape errors must not produce a partial sealed batch"
+        );
+    }
 
     #[test]
     fn parses_ai_quota_values_from_database_config() {
@@ -1493,6 +1636,30 @@ mod tests {
 
         let missing = ConfigService::parse_config(HashMap::new());
         assert!(!missing.merope_speech_enabled);
+    }
+
+    #[test]
+    fn parses_precise_location_flag_from_database_config() {
+        let on = ConfigService::parse_config(HashMap::from([(
+            "precise_location_enabled".into(),
+            json!(true),
+        )]));
+        assert!(on.precise_location_enabled);
+
+        let from_str = ConfigService::parse_config(HashMap::from([(
+            "precise_location_enabled".into(),
+            json!("true"),
+        )]));
+        assert!(from_str.precise_location_enabled);
+
+        let off = ConfigService::parse_config(HashMap::from([(
+            "precise_location_enabled".into(),
+            json!(false),
+        )]));
+        assert!(!off.precise_location_enabled);
+
+        let missing = ConfigService::parse_config(HashMap::new());
+        assert!(!missing.precise_location_enabled);
     }
 
     #[test]

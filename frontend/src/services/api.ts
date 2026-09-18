@@ -5,7 +5,7 @@ import { fetchWithAiConfiguration } from '../utils/aiConfiguration'
 import { aiRequestTimeoutMs } from '../utils/aiRequestTimeout.mjs'
 import { clearCSRFToken, getCSRFToken } from '../utils/csrf'
 import { notifyHttpRateLimit } from '../utils/httpRateLimitToast'
-import { httpStatusMessage } from '../utils/userFacingError'
+import { httpStatusMessage } from '../utils/httpStatus'
 
 const API_BASE = `${API_URL}/api`
 

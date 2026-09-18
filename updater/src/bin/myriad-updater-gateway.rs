@@ -36,7 +36,7 @@ const FAILURE_WINDOW: Duration = Duration::from_secs(60);
 
 /// Per-source failed secret attempts: timestamps in the window + optional block-until.
 type GatewayLimiterEntry = (Vec<Instant>, Option<Instant>);
-/// Failed gateway-secret attempts by source (XFF or "unknown"). Correct secrets never blocked.
+/// Failed gateway-secret attempts by socket peer. Correct secrets never blocked.
 static GATEWAY_LIMITER: Lazy<Mutex<HashMap<String, GatewayLimiterEntry>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
@@ -101,9 +101,12 @@ async fn main() -> Result<()> {
     let app = build_router(Arc::new(state));
 
     let listener = tokio::net::TcpListener::bind(listen).await?;
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
     Ok(())
 }
 
@@ -189,12 +192,17 @@ async fn proxy(State(state): State<Arc<GatewayState>>, req: Request<Body>) -> Re
     let method = req.method().clone();
     let uri = req.uri().clone();
     let headers = req.headers().clone();
+    let peer = req
+        .extensions()
+        .get::<axum::extract::ConnectInfo<SocketAddr>>()
+        .map(|axum::extract::ConnectInfo(addr)| *addr);
     let (parts, body) = req.into_parts();
     let _ = parts; // method/uri/headers already cloned
 
     // Caller auth: shared secret between backend and gateway (admin-net peers).
-    // Wrong secrets are rate-limited per source; correct secrets always pass.
-    if let Err(resp) = authorize_gateway_caller(&headers, &state.gateway_secret) {
+    // Wrong secrets are rate-limited per socket peer; correct secrets always pass.
+    // X-Forwarded-For is not a source key — this hop has no trusted proxy boundary.
+    if let Err(resp) = authorize_gateway_caller(&headers, &state.gateway_secret, peer) {
         return resp;
     }
 
@@ -615,12 +623,13 @@ fn validate_update_body(
         }
     }
     if let Some(mode) = object.get("mode").and_then(|value| value.as_str())
-        && !matches!(mode, "release" | "commit") {
-            return Err(validation_error(
-                StatusCode::BAD_REQUEST,
-                "mode must be release or commit",
-            ));
-        }
+        && !matches!(mode, "release" | "commit")
+    {
+        return Err(validation_error(
+            StatusCode::BAD_REQUEST,
+            "mode must be release or commit",
+        ));
+    }
     for key in BOOLEANS {
         if object.get(*key).is_some_and(|value| !value.is_boolean()) {
             return Err(validation_error(
@@ -763,8 +772,12 @@ fn rejection(status: StatusCode, message: &str) -> Response {
 /// `Err` 携带的是一个完整的 `Response`（较大）。这条路径每个请求最多走一次、
 /// 且失败即返回，装箱换来的间接寻址不值得。
 #[allow(clippy::result_large_err)]
-fn authorize_gateway_caller(headers: &HeaderMap, expected: &str) -> Result<(), Response> {
-    let source = gateway_source_key(headers);
+fn authorize_gateway_caller(
+    headers: &HeaderMap,
+    expected: &str,
+    peer: Option<SocketAddr>,
+) -> Result<(), Response> {
+    let source = gateway_source_key(peer);
     if gateway_is_blocked(&source) {
         return Err((
             StatusCode::TOO_MANY_REQUESTS,
@@ -824,15 +837,11 @@ fn authorize_gateway_caller(headers: &HeaderMap, expected: &str) -> Result<(), R
     }
 }
 
-fn gateway_source_key(headers: &HeaderMap) -> String {
-    headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.split(',').next())
-        .map(|v| v.trim())
-        .filter(|v| !v.is_empty())
-        .unwrap_or("unknown")
-        .to_string()
+fn gateway_source_key(peer: Option<SocketAddr>) -> String {
+    match peer {
+        Some(addr) => format!("ip:{}", addr.ip()),
+        None => "ip:unknown".into(),
+    }
 }
 
 fn gateway_record_failure(key: &str) -> bool {
@@ -853,13 +862,14 @@ fn gateway_is_blocked(key: &str) -> bool {
     let mut map = GATEWAY_LIMITER.lock().unwrap();
     let now = Instant::now();
     if let Some(entry) = map.get_mut(key)
-        && let Some(until) = entry.1 {
-            if now < until {
-                return true;
-            }
-            entry.1 = None;
-            entry.0.clear();
+        && let Some(until) = entry.1
+    {
+        if now < until {
+            return true;
         }
+        entry.1 = None;
+        entry.0.clear();
+    }
     false
 }
 
@@ -1008,14 +1018,16 @@ mod tests {
             HEADER_GATEWAY_SECRET,
             HeaderValue::from_static("abcdefghijklmnopqrstuvwxyz012345"),
         );
-        assert!(authorize_gateway_caller(&headers, secret).is_ok());
+        let peer = "203.0.113.10:1".parse().ok();
+        assert!(authorize_gateway_caller(&headers, secret, peer).is_ok());
     }
 
     #[test]
     fn authorize_rejects_missing_secret() {
         let headers = HeaderMap::new();
-        let err =
-            authorize_gateway_caller(&headers, "abcdefghijklmnopqrstuvwxyz012345").unwrap_err();
+        let peer = "203.0.113.11:1".parse().ok();
+        let err = authorize_gateway_caller(&headers, "abcdefghijklmnopqrstuvwxyz012345", peer)
+            .unwrap_err();
         assert_eq!(err.status(), StatusCode::UNAUTHORIZED);
     }
 
@@ -1026,9 +1038,51 @@ mod tests {
             HEADER_GATEWAY_SECRET,
             HeaderValue::from_static("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
         );
-        let err =
-            authorize_gateway_caller(&headers, "abcdefghijklmnopqrstuvwxyz012345").unwrap_err();
+        let peer = "203.0.113.12:1".parse().ok();
+        let err = authorize_gateway_caller(&headers, "abcdefghijklmnopqrstuvwxyz012345", peer)
+            .unwrap_err();
         assert_eq!(err.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn gateway_source_key_is_socket_peer_not_xff() {
+        let peer: SocketAddr = "10.0.0.8:5555".parse().unwrap();
+        assert_eq!(gateway_source_key(Some(peer)), "ip:10.0.0.8");
+        assert_eq!(gateway_source_key(None), "ip:unknown");
+        assert_ne!(
+            gateway_source_key(Some("10.0.0.8:1".parse().unwrap())),
+            gateway_source_key(Some("10.0.0.9:1".parse().unwrap()))
+        );
+    }
+
+    #[test]
+    fn forged_xff_cannot_split_or_share_limiter_buckets() {
+        let secret = "abcdefghijklmnopqrstuvwxyz012345";
+        let peer_a: SocketAddr = "198.51.100.1:1".parse().unwrap();
+        let peer_b: SocketAddr = "198.51.100.2:1".parse().unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HEADER_GATEWAY_SECRET,
+            HeaderValue::from_static("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+        );
+        headers.insert("x-forwarded-for", HeaderValue::from_static("203.0.113.9"));
+
+        let mut blocked = false;
+        for _ in 0..=MAX_FAILED_PER_MIN {
+            let err = authorize_gateway_caller(&headers, secret, Some(peer_a)).unwrap_err();
+            if err.status() == StatusCode::TOO_MANY_REQUESTS {
+                blocked = true;
+            }
+        }
+        assert!(blocked, "peer A must be throttled after repeated failures");
+
+        // Same forged XFF, different socket peer — must not inherit the block.
+        let err = authorize_gateway_caller(&headers, secret, Some(peer_b)).unwrap_err();
+        assert_eq!(
+            err.status(),
+            StatusCode::UNAUTHORIZED,
+            "XFF must not be the limiter key"
+        );
     }
 
     #[tokio::test]

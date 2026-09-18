@@ -27,6 +27,7 @@ import {
   agentPanelOpenView,
   dispatchAgentPanelAction,
   dispatchAgentPanelSubmit,
+  takeQueuedAgentPanelOpen,
 } from './agentPanelEvents'
 import { AgentPanelFull, AgentPanelSessionChrome } from './AgentPanelFull'
 import { AgentPanelIntention } from './AgentPanelIntention'
@@ -137,6 +138,11 @@ export const AgentPanel: React.FC = () => {
   const showsComposer = !pendingAction && !(showsFull && fullView === 'manage')
 
   useEffect(() => {
+    const queued = takeQueuedAgentPanelOpen()
+    if (queued) {
+      setFullView(queued.view)
+      dispatch({ type: 'open', stage: queued.stage })
+    }
     const onOpen = (event: Event) => {
       setFullView(agentPanelOpenView(event))
       dispatch({ type: 'open', stage: 'full' })

@@ -138,26 +138,16 @@ pub async fn publish_content(
     let object_type = content_type.to_string();
 
     // 存入 federation_activities
-    let act_row = db
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"INSERT INTO federation_activities
-                   (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
-               VALUES ($1, $2, 'Create', $3, $4, true, NOW())
-               RETURNING id"#,
-            [
-                activity_id.clone().into(),
-                user_id.into(),
-                object_type.clone().into(),
-                activity_json.clone().into(),
-            ],
-        ))
-        .await
-        .map_err(db_err)?;
-
-    let act_db_id: i32 = act_row
-        .map(|r| r.try_get("", "id").unwrap_or(0))
-        .unwrap_or(0);
+    let act_db_id = insert_local_activity(
+        db,
+        user_id,
+        &activity_id,
+        "Create",
+        Some(&object_type),
+        activity_json.clone(),
+    )
+    .await
+    .map_err(db_err)?;
 
     // 存入 federation_published_content
     db.execute_raw(Statement::from_sql_and_values(
@@ -299,6 +289,20 @@ fn normalize_unpublish_target(
     (ct, trailing)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum UnpublishLookupError {
+    None,
+    Ambiguous,
+}
+
+pub(crate) fn unique_unpublish_row<T>(mut rows: Vec<T>) -> Result<T, UnpublishLookupError> {
+    match rows.len() {
+        0 => Err(UnpublishLookupError::None),
+        1 => Ok(rows.remove(0)),
+        _ => Err(UnpublishLookupError::Ambiguous),
+    }
+}
+
 /// 取消发布（Delete Activity）
 ///
 /// Accepts `activity_id`, or `content_type`+`content_id`, or `content_id` alone
@@ -361,14 +365,26 @@ pub async fn unpublish_content(
                 .map_err(db_err)?
             }
         } else {
-            // content_id only — `LIMIT 2` then `query_one_raw`（多行仍取一行，不拒绝）
-            db.query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT id, activity_id, content_type, content_id FROM federation_published_content WHERE user_id = $1 AND (content_id = $2 OR content_id = $3) LIMIT 2",
-                [user_id.into(), bare_id.into(), cid_raw.into()],
-            ))
-            .await
-            .map_err(db_err)?
+            let rows = db
+                .query_all_raw(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "SELECT id, activity_id, content_type, content_id FROM federation_published_content WHERE user_id = $1 AND (content_id = $2 OR content_id = $3) LIMIT 2",
+                    [user_id.into(), bare_id.into(), cid_raw.into()],
+                ))
+                .await
+                .map_err(db_err)?;
+            match unique_unpublish_row(rows) {
+                Ok(row) => Some(row),
+                Err(UnpublishLookupError::None) => None,
+                Err(UnpublishLookupError::Ambiguous) => {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        Json(AppError::public_json(
+                            "content_id is ambiguous; provide content_type",
+                        )),
+                    ));
+                }
+            }
         }
     } else {
         return Err((
@@ -410,26 +426,16 @@ pub async fn unpublish_content(
     });
 
     // 存 Delete Activity
-    let del_row = db
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"INSERT INTO federation_activities
-                   (activity_id, user_id, activity_type, object_type, object_json, is_local, published_at)
-               VALUES ($1, $2, 'Delete', $3, $4, true, NOW())
-               RETURNING id"#,
-            [
-                delete_activity_id.clone().into(),
-                user_id.into(),
-                content_type.clone().into(),
-                delete_json.clone().into(),
-            ],
-        ))
-        .await
-        .map_err(db_err)?;
-
-    let del_db_id: i32 = del_row
-        .map(|r| r.try_get("", "id").unwrap_or(0))
-        .unwrap_or(0);
+    let del_db_id = insert_local_activity(
+        db,
+        user_id,
+        &delete_activity_id,
+        "Delete",
+        Some(&content_type),
+        delete_json.clone(),
+    )
+    .await
+    .map_err(db_err)?;
 
     // 删除 published_content 记录
     db.execute_raw(Statement::from_sql_and_values(
@@ -558,6 +564,27 @@ mod tests {
         }
         // 拼错的 visibility 在 publish_content 入口就会 400，而不是退化成广播
         assert!(parse_visibility("publik").is_err());
+    }
+
+    #[test]
+    fn unpublish_content_id_only_rejects_ambiguous_matches() {
+        assert_eq!(
+            unique_unpublish_row::<i32>(vec![]).unwrap_err(),
+            UnpublishLookupError::None
+        );
+        assert_eq!(unique_unpublish_row(vec![7]).unwrap(), 7);
+        assert_eq!(
+            unique_unpublish_row(vec![1, 2]).unwrap_err(),
+            UnpublishLookupError::Ambiguous
+        );
+    }
+
+    #[test]
+    fn unpublish_content_id_lookup_uses_all_rows() {
+        let src = include_str!("publish.rs");
+        assert!(src.contains("query_all_raw"));
+        assert!(src.contains("unique_unpublish_row"));
+        assert!(!src.contains("`LIMIT 2` then `query_one_raw`"));
     }
 }
 use myriad_error::AppError;

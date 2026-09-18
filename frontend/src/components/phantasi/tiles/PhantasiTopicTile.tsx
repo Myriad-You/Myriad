@@ -1,22 +1,12 @@
 /** 主题名：旧 key 走 i18n，自建名原样显示。主题卡永不进 2×2。 */
 
-import type { WidgetComponentProps } from '../../widgetGridTypes'
 import type { PhantasiTileSize } from '../logic/layout'
 import type { PhantasiTopic, TopicItem } from '../logic/topics'
 
-import { memo, useCallback, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { memo } from 'react'
 
-import { useI18n, withI18nNamespace } from '../../../contexts/I18nContext'
-import { useWidgetSize } from '../../../hooks/useWidgetSize'
-import { DEFAULT_THEME_COLOR } from '../constants'
-import { downgradeForBand } from '../logic/layout'
-import {
-  clusterTopics,
-  previewsToTopicItems,
-  topicDisplayName,
-  topicSourceCount,
-} from '../logic/topics'
+import { useI18n } from '../../../contexts/I18nContext'
+import { topicDisplayName, topicSourceCount } from '../logic/topics'
 import { MinorRow } from './MinorRow'
 import { TileCoverMosaic } from './TileCover'
 import { TileMark, TileMeta, TileShell } from './TileShell'
@@ -31,7 +21,6 @@ import {
   T_NUM,
   T_TITLE,
 } from './tokens'
-import { useWidgetSources } from './useWidgetSources'
 
 interface PhantasiTopicTileProps {
   topic: PhantasiTopic
@@ -199,121 +188,3 @@ export const PhantasiTopicTile = memo(
 )
 
 PhantasiTopicTile.displayName = 'PhantasiTopicTile'
-
-/** 不为主题卡新开接口。 */
-const PhantasiTopicWidgetBody = memo(
-  ({ config, isEditMode, isPreview, onConfigChange }: WidgetComponentProps) => {
-    const { t } = useI18n()
-    const navigate = useNavigate()
-    const { containerRef, scale, fontScale, viewportBand } = useWidgetSize(
-      config.size,
-      isPreview ? 1 : undefined,
-    )
-    const sources = useWidgetSources(
-      isPreview ?? false,
-      '[PhantasiTopicWidget]',
-    )
-    const [now] = useState(() => Date.now())
-
-    const topicKey = config.config?.topicKey as string | undefined
-
-    const topics = useMemo(
-      () => clusterTopics(previewsToTopicItems(sources), now),
-      [sources, now],
-    )
-    const topic = topicKey
-      ? topics.find((x) => x.key === topicKey)
-      : topics[0]
-
-    const persist = useCallback(
-      (nextKey: string) => {
-        const payload = { ...config.config, topicKey: nextKey }
-        if (typeof onConfigChange === 'function') {
-          onConfigChange(payload)
-        } else {
-          window.dispatchEvent(
-            new CustomEvent('widget-config-update', {
-              detail: { widgetId: config.id, config: payload },
-            }),
-          )
-        }
-      },
-      [config.config, config.id, onConfigChange],
-    )
-
-    const size = downgradeForBand(config.size as PhantasiTileSize, viewportBand)
-    const locked = isEditMode || isPreview
-
-    if (!topic) {
-      const pickable = isEditMode && !isPreview && topics.length > 0
-      return (
-        <TileShell
-          color={DEFAULT_THEME_COLOR}
-          scale={scale}
-          containerRef={containerRef}
-          glow="none"
-          contentClassName={
-            pickable
-              ? 'flex min-h-0 flex-col overflow-y-auto'
-              : 'flex min-h-0 items-center justify-center'
-          }
-        >
-          {pickable ? (
-            topics.map((x) => (
-              <button
-                key={x.key}
-                type="button"
-                className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-left hover:bg-black/4 dark:hover:bg-white/6"
-                style={{ fontSize: fs(T_MINOR, fontScale) }}
-                onClick={() => persist(x.key)}
-              >
-                <span
-                  className="h-2 w-2 shrink-0 rounded-full"
-                  style={{ background: x.hue }}
-                  aria-hidden
-                />
-                <span className="min-w-0 flex-1 truncate text-gray-700 dark:text-gray-200">
-                  {topicDisplayName(x, t.phantasi)}
-                </span>
-              </button>
-            ))
-          ) : (
-            <span
-              className="text-center text-gray-400 dark:text-gray-500"
-              style={{ fontSize: fs(T_MINOR, fontScale), lineHeight: 1.5 }}
-            >
-              {t.phantasi.emptyNoSources}
-            </span>
-          )}
-        </TileShell>
-      )
-    }
-
-    return (
-      <div
-        className="h-full w-full"
-        style={locked ? { pointerEvents: 'none' } : undefined}
-      >
-        <PhantasiTopicTile
-          topic={topic}
-          size={size}
-          scale={scale}
-          fontScale={fontScale}
-          containerRef={containerRef}
-          onOpenTopic={
-            locked
-              ? undefined
-              : (x) => navigate(`/journal/topics/${encodeURIComponent(x.key)}`)
-          }
-        />
-      </div>
-    )
-  },
-)
-
-PhantasiTopicWidgetBody.displayName = 'PhantasiTopicWidgetBody'
-
-export const PhantasiTopicWidget = withI18nNamespace(
-  ['phantasi'],
-  PhantasiTopicWidgetBody,
-)

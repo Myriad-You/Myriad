@@ -222,6 +222,11 @@ pub fn register(registry: &mut CapabilityRegistry) {
         required_permissions: vec!["system:admin".to_string()],
         requires_ai: false,
         estimated_duration_ms: Some(200),
+        requires_confirmation: true,
+        confirmation_message: Some(
+            "This will create an agent heartbeat task (HEARTBEAT.md).".to_string(),
+        ),
+        risk_level: RiskLevel::Medium,
         ..Default::default()
     });
 
@@ -252,6 +257,9 @@ pub fn register(registry: &mut CapabilityRegistry) {
         required_permissions: vec!["system:admin".to_string()],
         requires_ai: false,
         estimated_duration_ms: Some(200),
+        requires_confirmation: true,
+        confirmation_message: Some("This will change the agent heartbeat task.".to_string()),
+        risk_level: RiskLevel::Medium,
         ..Default::default()
     });
 
@@ -278,6 +286,9 @@ pub fn register(registry: &mut CapabilityRegistry) {
         required_permissions: vec!["system:admin".to_string()],
         requires_ai: false,
         estimated_duration_ms: Some(150),
+        requires_confirmation: true,
+        confirmation_message: Some("This will delete the agent heartbeat task.".to_string()),
+        risk_level: RiskLevel::High,
         ..Default::default()
     });
 
@@ -304,6 +315,9 @@ pub fn register(registry: &mut CapabilityRegistry) {
         required_permissions: vec!["system:admin".to_string()],
         requires_ai: false,
         estimated_duration_ms: Some(100),
+        requires_confirmation: true,
+        confirmation_message: Some("This will enable or disable the heartbeat task.".to_string()),
+        risk_level: RiskLevel::Low,
         ..Default::default()
     });
 
@@ -384,6 +398,12 @@ pub fn register(registry: &mut CapabilityRegistry) {
         required_permissions: vec!["cache:write".to_string()],
         requires_ai: false,
         estimated_duration_ms: Some(500),
+        requires_confirmation: true,
+        confirmation_message: Some(
+            "This will clear cached data for the selected platform. It will need to be fetched again."
+                .to_string(),
+        ),
+        risk_level: RiskLevel::High,
         ..Default::default()
     });
 
@@ -576,6 +596,9 @@ pub fn register(registry: &mut CapabilityRegistry) {
         required_permissions: vec!["storage:write".to_string()],
         requires_ai: false,
         estimated_duration_ms: Some(100),
+        requires_confirmation: true,
+        confirmation_message: Some("This will store data locally.".to_string()),
+        risk_level: RiskLevel::Low,
         ..Default::default()
     });
 
@@ -605,6 +628,9 @@ pub fn register(registry: &mut CapabilityRegistry) {
         required_permissions: vec!["export:write".to_string()],
         requires_ai: false,
         estimated_duration_ms: Some(2000),
+        requires_confirmation: true,
+        confirmation_message: Some("This will export your data.".to_string()),
+        risk_level: RiskLevel::Low,
         ..Default::default()
     });
 

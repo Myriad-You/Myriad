@@ -24,8 +24,13 @@ function initVisibility() {
   visibilityInitialized = true
 
   _isPageVisible = !document.hidden
+  document.documentElement.toggleAttribute('data-page-hidden', document.hidden)
   _visibilityHandler = () => {
     _isPageVisible = !document.hidden
+    document.documentElement.toggleAttribute(
+      'data-page-hidden',
+      document.hidden,
+    )
 
     for (const sub of _visibilitySubscribers) {
       try {

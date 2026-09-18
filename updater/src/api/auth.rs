@@ -47,20 +47,15 @@ struct Limiter {
 
 static LIMITER: Lazy<Mutex<Limiter>> = Lazy::new(|| Mutex::new(Limiter::default()));
 
-/// 限流分桶的来源标识。
+/// 限流分桶的来源标识：TCP 对端 IP，不是 `X-Forwarded-For`。
 ///
-/// updater 位于 `myriad-admin-net` 内，请求经 gateway 转发，因此对端地址对所有
-/// 调用方都相同 —— 用 `X-Forwarded-For` 的首段才能区分真实来源。取不到时退回
-/// 单一桶：此时限流退化成全局，但**不会**再连坐正确凭据（见模块文档）。
-fn source_key(headers: &HeaderMap) -> String {
-    headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.split(',').next())
-        .map(|v| v.trim())
-        .filter(|v| !v.is_empty())
-        .unwrap_or("unknown")
-        .to_string()
+/// updater 没有可信代理边界。XFF 可被伪造来轮换桶，缺失时的 `unknown` 又会
+/// 让合法调用方被攻击流量连坐。取不到 ConnectInfo 时退回单一 `ip:unknown` 桶。
+fn source_key(peer: Option<&str>) -> String {
+    match peer.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(ip) => format!("ip:{ip}"),
+        None => "ip:unknown".into(),
+    }
 }
 
 /// 记录一次失败；返回该来源是否已进入封锁。
@@ -84,13 +79,14 @@ pub fn is_blocked(key: &str) -> bool {
     let mut l = LIMITER.lock().unwrap();
     let now = Instant::now();
     if let Some(entry) = l.counters.get_mut(key)
-        && let Some(until) = entry.1 {
-            if now < until {
-                return true;
-            }
-            entry.1 = None;
-            entry.0.clear();
+        && let Some(until) = entry.1
+    {
+        if now < until {
+            return true;
         }
+        entry.1 = None;
+        entry.0.clear();
+    }
     false
 }
 
@@ -144,8 +140,8 @@ pub enum AuthDecision {
 ///
 /// 抽成独立函数是为了能不构造 `ApiState` 就穷举测试 —— 这里的顺序
 /// （校验在前、限流在后）正是本次修复的核心，必须可测。
-pub fn decide(headers: &HeaderMap, expected: &str) -> AuthDecision {
-    let key = source_key(headers);
+pub fn decide(headers: &HeaderMap, expected: &str, peer: Option<&str>) -> AuthDecision {
+    let key = source_key(peer);
 
     // 正确的 token 永远放行：不查封锁状态，也就不会被别人（或自己早先的
     // 重试）制造的失败计数连坐。
@@ -168,7 +164,15 @@ pub async fn token_required(
     req: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    match decide(req.headers(), state.config.update_token.expose()) {
+    let peer = req
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|axum::extract::ConnectInfo(addr)| addr.ip().to_string());
+    match decide(
+        req.headers(),
+        state.config.update_token.expose(),
+        peer.as_deref(),
+    ) {
         AuthDecision::Allow => Ok(next.run(req).await),
         AuthDecision::Throttled => Err(StatusCode::TOO_MANY_REQUESTS),
         AuthDecision::Unauthorized => Err(StatusCode::UNAUTHORIZED),
@@ -226,18 +230,11 @@ mod tests {
     }
 
     #[test]
-    fn source_key_uses_first_forwarded_hop() {
-        let h = headers_with("x-forwarded-for", "203.0.113.7, 10.0.0.1");
-        assert_eq!(source_key(&h), "203.0.113.7");
-    }
-
-    #[test]
-    fn source_key_falls_back_when_header_absent_or_empty() {
-        assert_eq!(source_key(&HeaderMap::new()), "unknown");
-        assert_eq!(
-            source_key(&headers_with("x-forwarded-for", "  ")),
-            "unknown"
-        );
+    fn source_key_uses_socket_peer_not_xff() {
+        assert_eq!(source_key(Some("203.0.113.7")), "ip:203.0.113.7");
+        assert_eq!(source_key(None), "ip:unknown");
+        assert_eq!(source_key(Some("  ")), "ip:unknown");
+        assert_ne!(source_key(Some("10.0.0.8")), source_key(Some("10.0.0.9")));
     }
 
     #[test]
@@ -320,44 +317,60 @@ mod tests {
     fn correct_token_is_never_blocked_by_prior_failures() {
         const TOKEN: &str = "the-real-token";
         let src = fresh_key("lockout");
-        let mut bad = headers_with("x-forwarded-for", &src);
+        let mut bad = HeaderMap::new();
         bad.insert("x-update-token", "wrong".parse().unwrap());
 
         // 打到封锁
         let mut throttled = false;
         for _ in 0..=MAX_FAILED_PER_MIN {
-            if decide(&bad, TOKEN) == AuthDecision::Throttled {
+            if decide(&bad, TOKEN, Some(&src)) == AuthDecision::Throttled {
                 throttled = true;
             }
         }
         assert!(throttled, "repeated bad tokens must eventually throttle");
-        assert!(is_blocked(&src));
+        assert!(is_blocked(&source_key(Some(&src))));
 
         // 同一来源、正确 token —— 必须放行
-        let mut good = headers_with("x-forwarded-for", &src);
+        let mut good = HeaderMap::new();
         good.insert("x-update-token", TOKEN.parse().unwrap());
         assert_eq!(
-            decide(&good, TOKEN),
+            decide(&good, TOKEN, Some(&src)),
             AuthDecision::Allow,
             "a valid token must never be rejected because of earlier failed attempts"
         );
 
         // 且成功已清空计数，后续正常请求不会被残留计数推过阈值
-        assert!(!is_blocked(&src));
+        assert!(!is_blocked(&source_key(Some(&src))));
     }
 
     #[test]
     fn wrong_token_is_unauthorized_before_the_threshold() {
         let src = fresh_key("unauth");
-        let mut bad = headers_with("x-forwarded-for", &src);
+        let mut bad = HeaderMap::new();
         bad.insert("x-update-token", "nope".parse().unwrap());
-        assert_eq!(decide(&bad, "real"), AuthDecision::Unauthorized);
+        assert_eq!(decide(&bad, "real", Some(&src)), AuthDecision::Unauthorized);
     }
 
     #[test]
     fn missing_token_counts_as_a_failure() {
         let src = fresh_key("missing");
-        let h = headers_with("x-forwarded-for", &src);
-        assert_eq!(decide(&h, "real"), AuthDecision::Unauthorized);
+        assert_eq!(
+            decide(&HeaderMap::new(), "real", Some(&src)),
+            AuthDecision::Unauthorized
+        );
+    }
+
+    #[test]
+    fn forged_xff_does_not_select_limiter_bucket() {
+        const TOKEN: &str = "peer-token";
+        let peer = fresh_key("peer");
+        let mut bad = headers_with("x-forwarded-for", "203.0.113.1");
+        bad.insert("x-update-token", "wrong".parse().unwrap());
+        for _ in 0..=MAX_FAILED_PER_MIN {
+            let _ = decide(&bad, TOKEN, Some(&peer));
+        }
+        assert!(is_blocked(&source_key(Some(&peer))));
+        assert!(!is_blocked("203.0.113.1"));
+        assert!(!is_blocked(&source_key(Some("203.0.113.1"))));
     }
 }

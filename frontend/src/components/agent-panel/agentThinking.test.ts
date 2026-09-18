@@ -282,6 +282,10 @@ test('说明性的短句都是贴：操作、附件、收藏、脚注不再另�
   assert.match(css, /--agent-face-width:\s*calc\(128px \* 2\.5\)/)
   assert.match(css, /\* 4 \/ 5\)/)
   assert.match(css, /--agent-face-fade/)
+  assert.match(
+    css,
+    /mask-image:\s*linear-gradient\(\s*to bottom,\s*transparent 0,\s*#000 var\(--agent-face-fade\)/,
+  )
   assert.match(css, /\.agent-panel-face-slot \{[\s\S]*?position:\s*absolute/)
   assert.match(css, /backdrop-filter:\s*blur/)
   assert.match(

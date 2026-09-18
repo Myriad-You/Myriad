@@ -35,6 +35,7 @@ import {
   useConfigNavigation,
   useConfigSearch,
   useConfigSessionKey,
+  useFederationEnabled,
 } from './config/form'
 import MyriadConfigIcon from './config/MyriadConfigIcon'
 import { useSpeechTest } from './config/useSpeechTest'
@@ -67,8 +68,14 @@ const ModernConfigForm: React.FC = () => {
     reorderPlatform,
   } = bag
 
-  const drafts = useConfigDomains(isAdmin, t.config, user?.id)
-  const nav = useConfigNavigation(isAdmin, t)
+  const federationEnabled = useFederationEnabled()
+  const drafts = useConfigDomains(
+    isAdmin,
+    t.config,
+    user?.id,
+    federationEnabled,
+  )
+  const nav = useConfigNavigation(isAdmin, t, federationEnabled)
   const {
     activeSection,
     setActiveSection,
@@ -93,6 +100,7 @@ const ModernConfigForm: React.FC = () => {
     t,
     locale,
     isAdmin,
+    federationEnabled,
   )
 
   const handleSectionChange = useCallback(
@@ -301,7 +309,7 @@ const ModernConfigForm: React.FC = () => {
           />
         )
       case 'federation':
-        if (!isAdmin) return null
+        if (!isAdmin || !federationEnabled) return null
         return (
           <FederationConfigSection
             policyDraft={drafts.federation.draft}

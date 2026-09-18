@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import {
   isTourDomActive,
   TOUR_ACTIVE_EVENT,
-} from '../components/tour/tourLogic'
+} from '../components/tour/tourDom'
 import {
   edgeRevealShouldShow,
   isNearNavEdge,

@@ -1,6 +1,6 @@
 //! Room membership (invite, join, roles, leave).
 use axum::{Json, http::StatusCode};
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde_json::json;
 
 use crate::federation::types::*;
@@ -43,7 +43,6 @@ pub async fn invite_member(
         })?;
 
     let policy: String = room_row.try_get("", "invite_policy").unwrap_or_default();
-    let max_members: i32 = room_row.try_get("", "max_members").unwrap_or(50);
     let room_name: String = room_row.try_get("", "name").unwrap_or_default();
     let owner_actor: String = room_row.try_get("", "owner_actor").unwrap_or_default();
     let room_is_public: bool = room_row.try_get("", "is_public").unwrap_or(false);
@@ -75,28 +74,6 @@ pub async fn invite_member(
             ));
         }
         _ => {}
-    }
-
-    // 检查成员上限（仅 active 占用名额；pending 邀请不计入）
-    let count_row = db
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"SELECT COUNT(*)::int AS cnt FROM federation_room_members
-               WHERE room_id = $1 AND COALESCE(membership_status, 'active') = 'active'"#,
-            [room_id.into()],
-        ))
-        .await
-        .map_err(db_err)?;
-
-    let current_count: i32 = count_row
-        .and_then(|r| r.try_get::<i32>("", "cnt").ok())
-        .unwrap_or(0);
-
-    if current_count >= max_members {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(AppError::public_json("Room is full")),
-        ));
     }
 
     let role = req.role.as_deref().unwrap_or("member");
@@ -152,7 +129,9 @@ pub async fn invite_member(
             })?;
 
         // Remote invitee stays *pending* until they accept (no RoomJoin fan-out yet).
-        let insert_result = db
+        let txn = db.begin().await.map_err(db_err)?;
+        assert_room_has_capacity(&txn, room_id).await?;
+        let insert_result = txn
             .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_room_members
@@ -168,6 +147,7 @@ pub async fn invite_member(
             ))
             .await
             .map_err(db_err)?;
+        txn.commit().await.map_err(db_err)?;
 
         if insert_result.rows_affected() == 0 {
             return Err((
@@ -328,7 +308,9 @@ pub async fn invite_member(
         })?;
 
         // Same-instance invite: auto-join as *active* (no accept hop).
-        let insert_result = db
+        let txn = db.begin().await.map_err(db_err)?;
+        assert_room_has_capacity(&txn, room_id).await?;
+        let insert_result = txn
             .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_room_members
@@ -345,6 +327,7 @@ pub async fn invite_member(
             ))
             .await
             .map_err(db_err)?;
+        txn.commit().await.map_err(db_err)?;
 
         if insert_result.rows_affected() == 0 {
             return Err((
@@ -962,7 +945,6 @@ pub async fn join_room(
 
     let invite_policy: String = room_row.try_get("", "invite_policy").unwrap_or_default();
     let is_public: bool = room_row.try_get("", "is_public").unwrap_or(false);
-    let max_members: i32 = room_row.try_get("", "max_members").unwrap_or(50);
 
     // Self-join without invite: open policy OR public rooms (join by room id).
     if invite_policy != "open" && !is_public {
@@ -976,26 +958,17 @@ pub async fn join_room(
         ));
     }
 
-    let count_row = db
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"SELECT COUNT(*)::int AS cnt FROM federation_room_members
-               WHERE room_id = $1 AND COALESCE(membership_status, 'active') = 'active'"#,
-            [room_id.clone().into()],
-        ))
-        .await
-        .map_err(db_err)?;
-    let current: i32 = count_row
-        .and_then(|r| r.try_get::<i32>("", "cnt").ok())
-        .unwrap_or(0);
-    if current >= max_members {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(AppError::public_json("Room is full")),
-        ));
+    let txn = db.begin().await.map_err(db_err)?;
+    let already_active = matches!(
+        get_membership(&txn, &room_id, &local_actor)
+            .await
+            .map_err(db_err)?,
+        Some((_, ref status)) if status == "active"
+    );
+    if !already_active {
+        assert_room_has_capacity(&txn, &room_id).await?;
     }
-
-    let insert_result = db
+    let insert_result = txn
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"INSERT INTO federation_room_members
@@ -1014,6 +987,7 @@ pub async fn join_room(
         ))
         .await
         .map_err(db_err)?;
+    txn.commit().await.map_err(db_err)?;
 
     if insert_result.rows_affected() == 0 {
         return Err((
@@ -1117,8 +1091,9 @@ pub async fn accept_room_invite(
         ));
     }
 
-    // Activate local membership
-    db.execute_raw(Statement::from_sql_and_values(
+    let txn = db.begin().await.map_err(db_err)?;
+    assert_room_has_capacity(&txn, room_id).await?;
+    txn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         r#"UPDATE federation_room_members
            SET membership_status = 'active', joined_at = NOW()
@@ -1127,6 +1102,7 @@ pub async fn accept_room_invite(
     ))
     .await
     .map_err(db_err)?;
+    txn.commit().await.map_err(db_err)?;
 
     // Announce join to all *active* remote peers (inviter + others)
     let join_game = load_room_game_config(db, room_id).await.ok().flatten();

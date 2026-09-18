@@ -67,13 +67,23 @@ export function buildSearchableContent(
   config: Config | null,
   t: ConfigSearchI18n,
   locale: Locale,
-  options?: { isAdmin?: boolean; agentTitle?: string },
+  options?: {
+    isAdmin?: boolean
+    agentTitle?: string
+    federationEnabled?: boolean
+  },
 ): ConfigSearchableItem[] {
   if (!config) return []
   const isAdmin = options?.isAdmin !== false // default include; pass false to filter
+  const federationEnabled = options?.federationEnabled !== false
   const agentTitle = options?.agentTitle?.trim() || t.config.agent
 
-  const sections = configSectionCatalog(t, isAdmin, agentTitle)
+  const sections = configSectionCatalog(
+    t,
+    isAdmin,
+    agentTitle,
+    federationEnabled,
+  )
   const visibleSections = new Set<string>(sections.map((section) => section.id))
   const items: ConfigSearchableItem[] = sections.map((section) => ({
     type: 'section',

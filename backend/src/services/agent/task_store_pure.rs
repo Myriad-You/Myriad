@@ -42,11 +42,15 @@ mod tests {
             "failed",
             "cancelled",
         ] {
-            assert_eq!(task_status_to_db_str(&task_status_from_db_str(s)), s);
+            assert_eq!(
+                task_status_to_db_str(&task_status_from_db_str(s).expect(s)),
+                s
+            );
         }
-        assert_eq!(
-            task_status_from_db_str("unknown_legacy"),
-            TaskStatus::Pending
+        assert!(task_status_from_db_str("unknown_legacy").is_err());
+        assert_ne!(
+            task_status_from_db_str("unknown_legacy").ok(),
+            Some(TaskStatus::Pending)
         );
     }
 

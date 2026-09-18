@@ -29,6 +29,13 @@ describe('resolveConfigSectionFromSearch', () => {
     assert.equal(resolveConfigSectionFromSearch(legacy, true), 'lab')
     assert.equal(resolveConfigSectionFromSearch(current, false), 'lab')
   })
+
+  it('rejects federation deep links when the gate is closed', () => {
+    const params = new URLSearchParams('section=federation')
+    assert.equal(resolveConfigSectionFromSearch(params, true), 'federation')
+    assert.equal(resolveConfigSectionFromSearch(params, true, false), null)
+    assert.equal(resolveConfigSectionFromSearch(params, false), null)
+  })
 })
 
 describe('CONFIG_NAV_SECTIONS', () => {

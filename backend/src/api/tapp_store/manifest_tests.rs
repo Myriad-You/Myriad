@@ -200,20 +200,90 @@ fn cleanup_reinstall_orphans_removes_live_and_artifacts_preserving_staging() {
     }
 
     let removed = cleanup_reinstall_orphans(&live, "com.example.app", 1, 1, Some(&preserve));
-    assert!(removed >= 3);
+    assert!(removed >= 2);
     assert!(!live.exists());
-    assert!(!leftover_staging.exists());
+    assert!(leftover_staging.exists());
     assert!(!uninstall.exists());
     assert!(preserve.exists());
-    assert!(!has_reinstall_orphan_state(
-        &reinstall_orphan_paths(&live)
-            .unwrap()
-            .into_iter()
-            .filter(|path| path != &preserve)
-            .collect::<Vec<_>>()
-    ));
+    let remaining = reinstall_orphan_paths(&live)
+        .unwrap()
+        .into_iter()
+        .filter(|path| path != &preserve && path != &leftover_staging)
+        .collect::<Vec<_>>();
+    assert!(!has_reinstall_orphan_state(&remaining));
 
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn cleanup_reinstall_orphans_does_not_delete_foreign_staging() {
+    let root = std::env::temp_dir().join(format!(
+        "myriad-tapp-reinstall-orphan-staging-race-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let live = root.join("com.example.app");
+    let foreign_staging = root.join(format!(
+        ".com.example.app.staging-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    std::fs::create_dir_all(&foreign_staging).unwrap();
+    std::fs::write(foreign_staging.join("marker"), "in-flight").unwrap();
+
+    let removed = cleanup_reinstall_orphans(&live, "com.example.app", 1, 1, None);
+    assert_eq!(removed, 0);
+    assert!(foreign_staging.exists());
+
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn first_install_commit_error_preserves_live_candidate() {
+    let root = std::env::temp_dir().join(format!(
+        "myriad-tapp-first-install-commit-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let live = root.join("com.example.app");
+    tokio::fs::create_dir_all(root.join("_parent")).await.unwrap();
+    let stage = TappDirStage::create(&live).await.unwrap();
+    tokio::fs::write(stage.path().join("main.js"), "candidate")
+        .await
+        .unwrap();
+    let activated = stage.activate(&live).await.unwrap();
+    assert!(activated.backup_path.is_none());
+    assert_eq!(
+        tokio::fs::read_to_string(live.join("main.js"))
+            .await
+            .unwrap(),
+        "candidate"
+    );
+
+    activated.rollback_after_commit_error().await;
+    assert_eq!(
+        tokio::fs::read_to_string(live.join("main.js"))
+            .await
+            .unwrap(),
+        "candidate"
+    );
+
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn first_install_definite_rollback_removes_live_candidate() {
+    let root = std::env::temp_dir().join(format!(
+        "myriad-tapp-first-install-rollback-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let live = root.join("com.example.app");
+    let stage = TappDirStage::create(&live).await.unwrap();
+    tokio::fs::write(stage.path().join("main.js"), "candidate")
+        .await
+        .unwrap();
+    let activated = stage.activate(&live).await.unwrap();
+    activated.rollback().await;
+    assert!(!live.exists());
+
+    tokio::fs::remove_dir_all(root).await.unwrap();
 }
 
 #[tokio::test]

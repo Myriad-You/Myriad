@@ -54,17 +54,26 @@ fn validation_err(err: myriad_phantasi_notes::NoteError) -> HttpError {
     phantasi_http_err(StatusCode::BAD_REQUEST, err.message())
 }
 
+fn unique_violation(err: &impl std::fmt::Display) -> bool {
+    let lower = err.to_string().to_ascii_lowercase();
+    lower.contains("23505") || lower.contains("duplicate key") || lower.contains("unique")
+}
+
+async fn find_note_source<C: ConnectionTrait>(
+    db: &C,
+) -> Result<Option<phantasi_sources::Model>, HttpError> {
+    phantasi_sources::Entity::find()
+        .filter(phantasi_sources::Column::SourceType.eq(phantasi_sources::SourceType::Note))
+        .one(db)
+        .await
+        .map_err(|e| phantasi_store_http("find note source", e))
+}
+
 async fn ensure_note_source<C: ConnectionTrait>(
     db: &C,
     user_id: i32,
 ) -> Result<phantasi_sources::Model, HttpError> {
-    let existing = phantasi_sources::Entity::find()
-        .filter(phantasi_sources::Column::SourceType.eq(phantasi_sources::SourceType::Note))
-        .one(db)
-        .await
-        .map_err(|e| phantasi_store_http("find note source", e))?;
-
-    if let Some(source) = existing {
+    if let Some(source) = find_note_source(db).await? {
         return Ok(source);
     }
 
@@ -87,10 +96,13 @@ async fn ensure_note_source<C: ConnectionTrait>(
         ..Default::default()
     };
 
-    source
-        .insert(db)
-        .await
-        .map_err(|e| phantasi_store_http("create note source", e))
+    match source.insert(db).await {
+        Ok(created) => Ok(created),
+        Err(error) if unique_violation(&error) => find_note_source(db)
+            .await?
+            .ok_or_else(|| phantasi_store_http("create note source", error)),
+        Err(error) => Err(phantasi_store_http("create note source", error)),
+    }
 }
 
 async fn sync_item_count<C: ConnectionTrait>(
@@ -685,6 +697,12 @@ mod tests {
                 .await
                 .expect("create isolated temporary table");
         }
+        db.execute_unprepared(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_phantasi_sources_note_type \
+             ON phantasi_sources ((true)) WHERE source_type = 'note'",
+        )
+        .await
+        .expect("note source unique");
         insert_test_source(&db).await;
         Some(db)
     }
@@ -1187,9 +1205,54 @@ mod tests {
             .unwrap_or(body.len());
         let finder = &body[..end];
         assert!(finder.contains("SourceType::Note"));
+        assert!(finder.contains("unique_violation"));
         assert!(
             !finder.contains("UserId.eq"),
             "shared note source must not be keyed by the creating admin"
+        );
+    }
+
+    #[tokio::test]
+    async fn ensure_note_source_collapses_concurrent_first_publish() {
+        let Some(db) = isolated_note_db().await else {
+            return;
+        };
+        phantasi_sources::Entity::delete_many()
+            .exec(&db)
+            .await
+            .unwrap();
+        let first = super::ensure_note_source(&db, 11).await.unwrap();
+        let second = super::ensure_note_source(&db, 22).await.unwrap();
+        assert_eq!(first.id, second.id);
+        assert_eq!(
+            phantasi_sources::Entity::find()
+                .filter(phantasi_sources::Column::SourceType.eq(phantasi_sources::SourceType::Note))
+                .count(&db)
+                .await
+                .unwrap(),
+            1
+        );
+        let duplicate = phantasi_sources::ActiveModel {
+            user_id: Set(33),
+            name: Set("Notes".into()),
+            url: Set("myriad:notes-other".into()),
+            feed_type: Set(phantasi_sources::FeedType::Rss),
+            source_type: Set(phantasi_sources::SourceType::Note),
+            update_interval: Set(0),
+            enabled: Set(true),
+            error_count: Set(0),
+            item_count: Set(0),
+            unread_count: Set(0),
+            admin_only: Set(false),
+            created_at: Set(Utc::now().into()),
+            updated_at: Set(Utc::now().into()),
+            ..Default::default()
+        }
+        .insert(&db)
+        .await;
+        assert!(
+            duplicate.is_err(),
+            "the note catalog unique index must reject a second Note source"
         );
     }
 

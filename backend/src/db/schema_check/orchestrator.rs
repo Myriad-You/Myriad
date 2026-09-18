@@ -21,7 +21,7 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// `seaql_migrations` 行在 `Migrator::up` 之前删掉。普通缺列走
 /// `get_expected_schema` 通用 ADD。Support floor: product ≥ 0.3.10。
 /// Current: drop July CREATE heals; 003 source applications; 006 identities in TableDef。
-pub const SCHEMA_VERSION: &str = "2026.09.17.1";
+pub const SCHEMA_VERSION: &str = "2026.09.18.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);
@@ -253,6 +253,12 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
             let result = match item.label.as_str() {
                 "idx_timeline_user_activity" => ensure_timeline_unique(db).await,
                 "idx_delivery_queue_activity_target" => ensure_delivery_queue_unique(db).await,
+                "idx_channels_active_relationship" => {
+                    ensure_channels_active_relationship_unique(db).await
+                }
+                "idx_platform_metadata_user_platform" => {
+                    ensure_platform_metadata_unique(db).await
+                }
                 _ => db.execute_unprepared(ddl).await.map(|_| ()),
             };
             result.map_err(|e| DbErr::Custom(format!("schema repair DDL failed: {ddl}: {e}")))?;
@@ -265,9 +271,12 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
 
     // Ongoing object/data heals, plus recent (~1 month) CREATE IF NOT EXISTS.
     ensure_tapp_storage_credential_constraint(db).await?;
+    ensure_agent_tasks_status_check(db).await?;
     ensure_tapp_storage_quota(db).await?;
     ensure_timeline_unique(db).await?;
     ensure_delivery_queue_unique(db).await?;
+    ensure_channels_active_relationship_unique(db).await?;
+    ensure_platform_metadata_unique(db).await?;
     ensure_agent_intentions_table(db).await?;
     ensure_agent_autonomy_grants_table(db).await?;
     ensure_agent_merope_tables(db).await?;
@@ -279,6 +288,10 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     ensure_phantasi_note_authors_table(db).await?;
     ensure_phantasi_source_applications_table(db).await?;
     ensure_media_assets_table(db).await?;
+    ensure_phantasi_note_source_unique(db).await?;
+    ensure_rsshub_global_url_unique(db).await?;
+    ensure_phantasi_application_pending_unique(db).await?;
+    ensure_tapp_shortcut_chord_unique(db).await?;
     // last_read_at / rate_* / engagement 等字段：TableDef + 通用 drift ADD（无专用 heal）
     ensure_federation_foreign_keys(db).await?;
     ensure_single_owner(db).await?;

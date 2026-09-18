@@ -48,16 +48,14 @@ import {
   attachLiveBody,
   captureTurnBody,
   deliverTurnLine,
-  notePresenceRoute,
   openTurnReply,
   openTurnSpeech,
   setFaceMood,
   setTurnGeneration,
-  startPresenceInbound,
   stopTurnSpeech,
   turnSpeechAlreadyFed,
 } from '../../features/merope/engineFace'
-import { playbackDirection, retainPlaybackDirection, startPlaybackDirection } from '../../features/merope/motion/playbackDirectionHost'
+import { playbackDirection, startPlaybackDirection } from '../../features/merope/motion/playbackDirectionHost'
 import { interruptAgoraConversation, stopAgoraConversation } from '../../features/merope/speech/agoraConversation'
 import { bindRealtimeChat } from '../../features/merope/speech/realtimeChat'
 import {
@@ -186,18 +184,6 @@ export const AgentEngine: React.FC = () => {
   const navigate = useNavigate()
 
   const pageContentContext = usePageContentOptional()
-
-  useEffect(() => {
-    if (!isAuthenticated) return
-    return startPresenceInbound()
-  }, [isAuthenticated])
-  useEffect(() => {
-    if (isAuthenticated) return retainPlaybackDirection()
-    playbackDirection.stop()
-  }, [isAuthenticated])
-  useEffect(() => {
-    notePresenceRoute(location.pathname)
-  }, [location.pathname])
 
   const [_isLoading, setIsLoading] = useState(false)
   const mode = useAgentPanelMode()

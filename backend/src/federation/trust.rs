@@ -104,7 +104,7 @@ pub async fn check_instance_policy(
     db: &DatabaseConnection,
     domain: &str,
     policy: &InstancePolicy,
-) -> PolicyCheckResult {
+) -> Result<PolicyCheckResult, sea_orm::DbErr> {
     let domain_lc = domain.to_lowercase();
     // 1. 黑名单检查（最高优先级）
     if policy
@@ -112,11 +112,11 @@ pub async fn check_instance_policy(
         .iter()
         .any(|d| d.eq_ignore_ascii_case(&domain_lc))
     {
-        return PolicyCheckResult {
+        return Ok(PolicyCheckResult {
             allowed: false,
             reason: Some(format!("Domain {} is blocked", domain)),
             trust_level: None,
-        };
+        });
     }
 
     // 2. 白名单检查（如果白名单非空，则只允许白名单中的域名）
@@ -126,19 +126,19 @@ pub async fn check_instance_policy(
             .iter()
             .any(|d| d.eq_ignore_ascii_case(&domain_lc))
     {
-        return PolicyCheckResult {
+        return Ok(PolicyCheckResult {
             allowed: false,
             reason: Some(format!("Domain {} is not in allowed list", domain)),
             trust_level: None,
-        };
+        });
     }
 
     // 3. 查询实例信任层级
-    let trust = get_instance_trust_level(db, domain).await;
+    let trust = get_instance_trust_level(db, domain).await?;
 
     // 如果实例未知且开启自动发现，自动设为 Discovered
     let effective_trust = if trust == TrustLevel::Unknown && policy.auto_discover {
-        let _ = ensure_instance_discovered(db, domain).await;
+        ensure_instance_discovered(db, domain).await?;
         TrustLevel::Discovered
     } else {
         trust
@@ -146,42 +146,92 @@ pub async fn check_instance_policy(
 
     // 4. 信任层级门槛检查
     if effective_trust < policy.min_trust_level {
-        return PolicyCheckResult {
+        return Ok(PolicyCheckResult {
             allowed: false,
             reason: Some(format!(
                 "Domain {} trust level {:?} below minimum {:?}",
                 domain, effective_trust, policy.min_trust_level
             )),
             trust_level: Some(effective_trust as i16),
-        };
+        });
     }
 
-    PolicyCheckResult {
+    Ok(PolicyCheckResult {
         allowed: true,
         reason: None,
         trust_level: Some(effective_trust as i16),
+    })
+}
+
+/// Missing instance → Unknown. A query error is not Unknown.
+pub fn trust_level_from_query(
+    result: Result<Option<i16>, sea_orm::DbErr>,
+) -> Result<TrustLevel, sea_orm::DbErr> {
+    match result {
+        Ok(Some(level)) => Ok(TrustLevel::from_i16(level)),
+        Ok(None) => Ok(TrustLevel::Unknown),
+        Err(error) => Err(error),
+    }
+}
+
+/// Missing instance → not blocked. A query error is not unblocked.
+pub fn blocked_from_query(
+    result: Result<Option<bool>, sea_orm::DbErr>,
+) -> Result<bool, sea_orm::DbErr> {
+    match result {
+        Ok(Some(blocked)) => Ok(blocked),
+        Ok(None) => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+/// Missing policy row → defaults. A query error is not an unconfigured policy.
+pub fn policy_from_query(
+    result: Result<Option<InstancePolicy>, sea_orm::DbErr>,
+) -> Result<InstancePolicy, sea_orm::DbErr> {
+    match result {
+        Ok(Some(policy)) => Ok(policy),
+        Ok(None) => Ok(InstancePolicy::default()),
+        Err(error) => Err(error),
+    }
+}
+
+/// Filter-table errors must not become "no filters".
+pub fn filters_from_query<T>(
+    result: Result<Vec<T>, sea_orm::DbErr>,
+) -> Result<Vec<T>, sea_orm::DbErr> {
+    result
+}
+
+/// Durable rate-count errors must not become "0 requests this window".
+pub fn rate_count_from_query(
+    result: Result<Option<i64>, sea_orm::DbErr>,
+) -> Result<i64, sea_orm::DbErr> {
+    match result {
+        Ok(Some(count)) => Ok(count),
+        Ok(None) => Ok(0),
+        Err(error) => Err(error),
     }
 }
 
 /// 获取实例的信任层级
-pub async fn get_instance_trust_level(db: &DatabaseConnection, domain: &str) -> TrustLevel {
+pub async fn get_instance_trust_level(
+    db: &DatabaseConnection,
+    domain: &str,
+) -> Result<TrustLevel, sea_orm::DbErr> {
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT trust_level FROM federation_instances WHERE domain = $1",
             [domain.into()],
         ))
-        .await
-        .ok()
-        .flatten();
+        .await?;
 
-    match row {
-        Some(r) => {
-            let level: i16 = r.try_get("", "trust_level").unwrap_or(0);
-            TrustLevel::from_i16(level)
-        }
-        None => TrustLevel::Unknown,
-    }
+    let level = match row {
+        Some(r) => Some(r.try_get::<i16>("", "trust_level").unwrap_or(0)),
+        None => None,
+    };
+    trust_level_from_query(Ok(level))
 }
 
 /// 设置实例信任层级
@@ -297,20 +347,20 @@ pub async fn check_rate_limit(
     db: &DatabaseConnection,
     domain: &str,
     policy: &RateLimitPolicy,
-) -> PolicyCheckResult {
-    let trust = get_instance_trust_level(db, domain).await;
+) -> Result<PolicyCheckResult, sea_orm::DbErr> {
+    let trust = get_instance_trust_level(db, domain).await?;
     let max_requests = effective_max_requests(policy, trust);
 
     // Fast path: process-local counter (no Redis)
     if !check_and_record_memory_rate(domain, max_requests, policy.window_seconds) {
-        return PolicyCheckResult {
+        return Ok(PolicyCheckResult {
             allowed: false,
             reason: Some(format!(
                 "Rate limit exceeded for domain {}: >{} requests in {}s in-memory window",
                 domain, max_requests, policy.window_seconds
             )),
             trust_level: Some(trust as i16),
-        };
+        });
     }
 
     // Durable path: count inbound activities by received_at (set server-side on accept).
@@ -328,27 +378,25 @@ pub async fn check_rate_limit(
                      > NOW() - make_interval(secs => $2::double precision)"#,
             [domain.into(), policy.window_seconds.into()],
         ))
-        .await
-        .ok()
-        .flatten();
+        .await;
 
-    let count: i64 = row.and_then(|r| r.try_get("", "cnt").ok()).unwrap_or(0);
+    let count = rate_count_from_query(row.map(|r| r.and_then(|r| r.try_get("", "cnt").ok())))?;
 
     if count >= max_requests {
-        PolicyCheckResult {
+        Ok(PolicyCheckResult {
             allowed: false,
             reason: Some(format!(
                 "Rate limit exceeded for domain {}: {}/{} requests in {}s window",
                 domain, count, max_requests, policy.window_seconds
             )),
             trust_level: Some(trust as i16),
-        }
+        })
     } else {
-        PolicyCheckResult {
+        Ok(PolicyCheckResult {
             allowed: true,
             reason: None,
             trust_level: Some(trust as i16),
-        }
+        })
     }
 }
 
@@ -459,10 +507,20 @@ pub async fn get_policy(
         None => (0, 0, 0, json!([])),
     };
 
-    let policy = load_instance_policy(db).await;
+    let policy = load_instance_policy(db).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, {
+            tracing::error!("DB error: {}", e);
+            json!({"error": "Database error", "code": "database_error"})
+        })
+    })?;
     let allowlist_active = !policy.allowed_domains.is_empty();
     let min_trust_active = (policy.min_trust_level as i16) > 0;
-    let filter_rules = load_content_filter_rules(db).await;
+    let filter_rules = load_content_filter_rules(db).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, {
+            tracing::error!("DB error: {}", e);
+            json!({"error": "Database error", "code": "database_error"})
+        })
+    })?;
     let filters_enabled = filter_rules.iter().any(|r| r.enabled);
     let filters_json: Vec<serde_json::Value> = filter_rules
         .iter()
@@ -519,7 +577,12 @@ pub async fn update_policy(
     rate_window_seconds: Option<i64>,
     rate_trusted_multiplier: Option<i64>,
 ) -> Result<serde_json::Value, (StatusCode, serde_json::Value)> {
-    let mut current = load_instance_policy(db).await;
+    let mut current = load_instance_policy(db).await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, {
+            tracing::error!("DB error: {}", e);
+            json!({"error": "Database error", "code": "database_error"})
+        })
+    })?;
     if let Some(level) = min_trust_level {
         if !(0..=4).contains(&level) {
             return Err((
@@ -615,7 +678,9 @@ pub async fn update_policy(
 }
 
 /// Load persisted InstancePolicy (defaults if row missing).
-async fn load_instance_policy(db: &DatabaseConnection) -> InstancePolicy {
+async fn load_instance_policy(
+    db: &DatabaseConnection,
+) -> Result<InstancePolicy, sea_orm::DbErr> {
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -624,12 +689,15 @@ async fn load_instance_policy(db: &DatabaseConnection) -> InstancePolicy {
                FROM federation_policy_settings WHERE id = 1"#,
             [],
         ))
-        .await
-        .ok()
-        .flatten();
+        .await;
+
+    let row = match row {
+        Ok(row) => row,
+        Err(error) => return policy_from_query(Err(error)),
+    };
 
     let Some(r) = row else {
-        return InstancePolicy::default();
+        return policy_from_query(Ok(None));
     };
 
     let min_level: i16 = r.try_get("", "min_trust_level").unwrap_or(0);
@@ -661,13 +729,13 @@ async fn load_instance_policy(db: &DatabaseConnection) -> InstancePolicy {
             .max(1),
     };
 
-    InstancePolicy {
+    policy_from_query(Ok(Some(InstancePolicy {
         min_trust_level: TrustLevel::from_i16(min_level),
         allowed_domains,
         blocked_domains: Vec::new(), // DB is_blocked is authoritative
         auto_discover,
         rate_limit,
-    }
+    })))
 }
 
 /// 更新实例信任层级（管理员）
@@ -797,18 +865,19 @@ pub async fn list_instances(
 // Enforcement (inbox / delivery 调用入口)
 
 /// 检查域名是否被封禁
-async fn is_domain_blocked(db: &DatabaseConnection, domain: &str) -> bool {
+async fn is_domain_blocked(
+    db: &DatabaseConnection,
+    domain: &str,
+) -> Result<bool, sea_orm::DbErr> {
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT is_blocked FROM federation_instances WHERE domain = $1",
             [domain.into()],
         ))
-        .await
-        .ok()
-        .flatten();
-    row.map(|r| r.try_get::<bool>("", "is_blocked").unwrap_or(false))
-        .unwrap_or(false)
+        .await?;
+    let blocked = row.and_then(|r| r.try_get::<bool>("", "is_blocked").ok());
+    blocked_from_query(Ok(blocked))
 }
 
 /// 入站请求策略检查（inbox 调用）
@@ -824,29 +893,41 @@ pub async fn enforce_inbound(
         return Err("Empty domain".to_string());
     }
 
-    if is_domain_blocked(db, domain).await {
+    if is_domain_blocked(db, domain)
+        .await
+        .map_err(|e| format!("Trust policy unavailable: {e}"))?
+    {
         return Err(format!("Instance {} is blocked", domain));
     }
 
     // allowlist + min_trust from federation_policy_settings
-    let policy = load_instance_policy(db).await;
-    let verdict = check_instance_policy(db, domain, &policy).await;
+    let policy = load_instance_policy(db)
+        .await
+        .map_err(|e| format!("Trust policy unavailable: {e}"))?;
+    let verdict = check_instance_policy(db, domain, &policy)
+        .await
+        .map_err(|e| format!("Trust policy unavailable: {e}"))?;
     if !verdict.allowed {
         return Err(verdict
             .reason
             .unwrap_or_else(|| format!("Domain {} rejected by instance policy", domain)));
     }
 
-    let rate = check_rate_limit(db, domain, &policy.rate_limit).await;
+    let rate = check_rate_limit(db, domain, &policy.rate_limit)
+        .await
+        .map_err(|e| format!("Trust policy unavailable: {e}"))?;
     if !rate.allowed {
         return Err(rate.reason.unwrap_or_else(|| "Rate limited".to_string()));
     }
 
     // Content filters from federation_content_filters (enabled rows only applied inside).
-    let trust = get_instance_trust_level(db, domain).await;
-    if let FilterVerdict::Reject(reason) =
-        apply_content_filters(activity, trust, &load_content_filter_rules(db).await)
-    {
+    let trust = get_instance_trust_level(db, domain)
+        .await
+        .map_err(|e| format!("Trust policy unavailable: {e}"))?;
+    let rules = load_content_filter_rules(db)
+        .await
+        .map_err(|e| format!("Trust policy unavailable: {e}"))?;
+    if let FilterVerdict::Reject(reason) = apply_content_filters(activity, trust, &rules) {
         return Err(reason);
     }
 
@@ -860,15 +941,20 @@ pub async fn enforce_outbound(db: &DatabaseConnection, target_domain: &str) -> R
     if target_domain.is_empty() {
         return Err("Empty target domain".to_string());
     }
-    if is_domain_blocked(db, target_domain).await {
+    if is_domain_blocked(db, target_domain)
+        .await
+        .map_err(|e| format!("Trust policy unavailable: {e}"))?
+    {
         return Err(format!("Target {} is blocked", target_domain));
     }
     Ok(())
 }
 
 /// 加载当前生效的内容过滤规则（`federation_content_filters`）
-async fn load_content_filter_rules(db: &DatabaseConnection) -> Vec<ContentFilterRule> {
-    let rows = match db
+async fn load_content_filter_rules(
+    db: &DatabaseConnection,
+) -> Result<Vec<ContentFilterRule>, sea_orm::DbErr> {
+    let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"SELECT name, filter_type, value, enabled
@@ -876,23 +962,17 @@ async fn load_content_filter_rules(db: &DatabaseConnection) -> Vec<ContentFilter
                ORDER BY id ASC"#,
             [],
         ))
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            // 查询失败（旧库未 heal 缺表等）则返回空规则。
-            tracing::debug!("load_content_filter_rules: {}", e);
-            return Vec::new();
-        }
-    };
-    rows.iter()
+        .await;
+    let rows = filters_from_query(rows)?;
+    Ok(rows
+        .iter()
         .map(|r| ContentFilterRule {
             name: r.try_get("", "name").unwrap_or_default(),
             filter_type: r.try_get("", "filter_type").unwrap_or_default(),
             value: r.try_get("", "value").unwrap_or_default(),
             enabled: r.try_get::<bool>("", "enabled").unwrap_or(true),
         })
-        .collect()
+        .collect())
 }
 
 /// List content filter rules (admin API)
@@ -985,9 +1065,15 @@ pub async fn create_content_filter(
                 { tracing::error!("DB error: {}", e); json!({"error": "Database error", "code": "database_error"}) },
             )
         })?;
-    let id = row
-        .and_then(|r| r.try_get::<i32>("", "id").ok())
-        .unwrap_or(0);
+    let id = crate::federation::types::returning_id(row).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            {
+                tracing::error!("DB error: {}", e);
+                json!({"error": "Database error", "code": "database_error"})
+            },
+        )
+    })?;
     Ok(json!({
         "success": true,
         "id": id,
@@ -1324,5 +1410,49 @@ mod tests {
             apply_content_filters(&act, TrustLevel::Unknown, &rules),
             FilterVerdict::Allow
         ));
+    }
+
+    #[test]
+    fn trust_query_error_is_not_unknown() {
+        let err = sea_orm::DbErr::Custom("db down".into());
+        assert!(trust_level_from_query(Err(err)).is_err());
+        assert_eq!(
+            trust_level_from_query(Ok(None)).unwrap(),
+            TrustLevel::Unknown
+        );
+        assert_eq!(
+            trust_level_from_query(Ok(Some(3))).unwrap(),
+            TrustLevel::Trusted
+        );
+    }
+
+    #[test]
+    fn blocked_query_error_is_not_unblocked() {
+        let err = sea_orm::DbErr::Custom("db down".into());
+        assert!(blocked_from_query(Err(err)).is_err());
+        assert!(!blocked_from_query(Ok(None)).unwrap());
+        assert!(blocked_from_query(Ok(Some(true))).unwrap());
+    }
+
+    #[test]
+    fn policy_query_error_is_not_default() {
+        let err = sea_orm::DbErr::Custom("db down".into());
+        assert!(policy_from_query(Err(err)).is_err());
+        let default = policy_from_query(Ok(None)).unwrap();
+        assert_eq!(default.min_trust_level, TrustLevel::Unknown);
+        assert!(default.allowed_domains.is_empty());
+    }
+
+    #[test]
+    fn filter_and_rate_query_errors_are_not_empty() {
+        let err = sea_orm::DbErr::Custom("db down".into());
+        assert!(filters_from_query::<ContentFilterRule>(Err(err)).is_err());
+        assert!(filters_from_query::<ContentFilterRule>(Ok(Vec::new()))
+            .unwrap()
+            .is_empty());
+        let err = sea_orm::DbErr::Custom("db down".into());
+        assert!(rate_count_from_query(Err(err)).is_err());
+        assert_eq!(rate_count_from_query(Ok(None)).unwrap(), 0);
+        assert_eq!(rate_count_from_query(Ok(Some(9))).unwrap(), 9);
     }
 }

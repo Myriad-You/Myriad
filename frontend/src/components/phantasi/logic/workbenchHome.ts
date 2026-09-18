@@ -1,6 +1,7 @@
 /** 工作台概览：接着写、即将发布、桌上各一件。坏了的只收成一行。 */
 
 import { isSiteSource } from './board'
+import { mediaPointerUrl } from './mediaPointer'
 
 export const WORKBENCH_HOME_DRAFTS = 3
 export const WORKBENCH_HOME_UPCOMING = 2
@@ -11,8 +12,10 @@ export function workbenchHomeMediaFace(item: {
   url: string
   mime: string
 }): { src: string; video: boolean } | null {
-  if (item.mime.startsWith('video/')) return { src: item.url, video: true }
-  if (item.mime.startsWith('image/')) return { src: item.url, video: false }
+  const src = mediaPointerUrl(item.url)
+  if (!src) return null
+  if (item.mime.startsWith('video/')) return { src, video: true }
+  if (item.mime.startsWith('image/')) return { src, video: false }
   return null
 }
 

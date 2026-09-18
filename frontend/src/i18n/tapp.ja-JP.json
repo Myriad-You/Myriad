@@ -465,7 +465,7 @@
   "storeCannotEditOfficialUrl": "公式ストアの URL は変更できません。",
   "storeUrlExists": "このストアソース URL は既に存在します。",
   "storeInvalidIndex": "ストア索引の形式が無効です。",
-  "storeFederationUnavailable": "このサーバーの地域では連合アプリをダウンロード・インストールできません。",
+  "storeFederationUnavailable": "この地域では連合を利用できません。",
   "storeDownloadFailed": "モジュールをダウンロードできませんでした: {name}",
   "storeVersionMismatch": "ストアのバージョンは {catalog}、パッケージは {manifest} です。ストアを更新してから再試行してください。",
   "storeAddFailed": "ストアソースの追加に失敗しました。",

@@ -606,6 +606,17 @@ CREATE INDEX IF NOT EXISTS idx_delivery_queue_target_domain
             )
             .await?;
 
+        manager
+            .get_connection()
+            .execute_unprepared(
+                r#"
+CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_active_relationship
+    ON federation_channels (user_id, remote_actor_id, channel_type)
+    WHERE status IN ('pending', 'accepted', 'active');
+"#,
+            )
+            .await?;
+
         // ==================== 8. FEDERATION_CHANNEL_MESSAGES 表 ====================
         manager
             .create_table(

@@ -33,6 +33,7 @@
   "federationInitFailed": "このサイトの連合アイデンティティを用意できませんでした。もう一度お試しください。",
   "federationDataFailed": "連合データを読み込めませんでした。",
   "federationKeyRotateFailed": "連合キーをローテーションできませんでした。",
+  "federationDisabledRegion": "この地域では連合を利用できません。",
   "model3dFailed": "3D モデルを生成できませんでした。もう一度お試しください。",
   "profileTextLoadFailed": "表示名と自己紹介の取得元を読み込めませんでした。",
   "profileTextSaveFailed": "表示名と自己紹介の取得元を保存できませんでした。",

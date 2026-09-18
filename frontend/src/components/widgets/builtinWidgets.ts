@@ -27,14 +27,6 @@ const PhantasiFeaturedWidget = lazyWidget(
   () => import('../phantasi/tiles/PhantasiFeaturedTile'),
   'PhantasiFeaturedWidget',
 )
-const PhantasiSourceWidget = lazyWidget(
-  () => import('../phantasi/tiles/PhantasiSourceTile'),
-  'PhantasiSourceWidget',
-)
-const PhantasiTopicWidget = lazyWidget(
-  () => import('../phantasi/tiles/PhantasiTopicTile'),
-  'PhantasiTopicWidget',
-)
 const FriendLinksWidget = lazyWidget(
   () => import('./FriendLinksWidget'),
   'FriendLinksWidget',
@@ -210,18 +202,6 @@ export const BUILTIN_WIDGET_BASE_CONFIG = {
     component: VisitorStatsWidget,
     supportedSizes: ['2x2', '4x2'] as WidgetSize[],
   },
-  'phantasi-source': {
-    defaultSize: '4x2' as WidgetSize,
-    component: PhantasiSourceWidget,
-    supportedSizes: ['2x2', '4x2', '4x4'] as WidgetSize[],
-    hosts: ['home'] as const,
-  },
-  'phantasi-topic': {
-    defaultSize: '4x2' as WidgetSize,
-    component: PhantasiTopicWidget,
-    supportedSizes: ['2x2', '4x2', '4x4'] as WidgetSize[],
-    hosts: ['home'] as const,
-  },
   'phantasi-featured': {
     defaultSize: '4x4' as WidgetSize,
     component: PhantasiFeaturedWidget,
@@ -262,8 +242,6 @@ const BUILTIN_WIDGET_ORDER: BuiltinWidgetId[] = [
   'game-presence',
   'visitor-stats',
   'phantasi-featured',
-  'phantasi-topic',
-  'phantasi-source',
   'github-repos',
 ]
 
@@ -291,8 +269,6 @@ const WIDGET_NAME_KEY: Record<BuiltinWidgetId, keyof WidgetsI18n> = {
   'tapp-shortcut': 'tappShortcut',
   'game-presence': 'gamePresence',
   'visitor-stats': 'visitorStats',
-  'phantasi-source': 'phantasiSource',
-  'phantasi-topic': 'phantasiTopic',
   'phantasi-featured': 'phantasiFeatured',
   'github-repos': 'githubRepos',
 }

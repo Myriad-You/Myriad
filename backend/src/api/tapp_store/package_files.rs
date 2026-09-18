@@ -52,7 +52,7 @@ use crate::services::data_paths::paths;
 use crate::services::tapp_package_fs::{
     RecoveryPlan, archive_entry_relative_path, filesystem_error_message,
     filesystem_error_status_hint, install_generation_matches_micros, install_generation_payload,
-    is_lifecycle_artifact_filename, lifecycle_artifact_dir_name,
+    is_lifecycle_artifact_filename, is_staging_artifact_filename, lifecycle_artifact_dir_name,
     looks_like_tapp_installation_from_markers, orphan_tapp_key_if_unowned,
     parse_tapp_owner_dir_name, plan_tapp_directory_recovery,
     recovery_artifacts_to_remove_after_promote, recovery_discard_artifact_name,
@@ -284,8 +284,10 @@ impl ActivatedTappDir {
             if candidate_exists && !preserve_candidate {
                 let _ = remove_path_best_effort(&discard).await;
             }
-        } else {
-            // A failed first install has no prior live generation to preserve.
+        } else if !preserve_candidate {
+            // Definite first-install failure: drop the candidate. Ambiguous
+            // COMMIT errors must keep the files so a committed row cannot be
+            // left without a live directory.
             let _ = remove_path_best_effort(&self.final_path).await;
         }
     }
@@ -415,6 +417,15 @@ pub(crate) fn cleanup_reinstall_orphans(
     let mut removed = 0;
     for path in candidates {
         if should_preserve_orphan_path(&path, preserve) {
+            continue;
+        }
+        // Staging dirs are created before the lifecycle lock. Deleting them
+        // here can wipe another concurrent install of the same tapp_id.
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(is_staging_artifact_filename)
+        {
             continue;
         }
         match std::fs::remove_dir_all(&path) {

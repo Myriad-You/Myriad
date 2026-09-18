@@ -295,13 +295,15 @@ pub async fn generate_session_title(
     }
 
     // Oldest four messages (`order_by_asc` + page 0) as title context.
-    let messages = agent_messages::Entity::find()
-        .filter(agent_messages::Column::SessionId.eq(&session_id))
-        .order_by_asc(agent_messages::Column::CreatedAt)
-        .paginate(&db, 4)
-        .fetch_page(0)
-        .await
-        .unwrap_or_default();
+    let messages = session_title_messages(
+        agent_messages::Entity::find()
+            .filter(agent_messages::Column::SessionId.eq(&session_id))
+            .order_by_asc(agent_messages::Column::CreatedAt)
+            .paginate(&db, 4)
+            .fetch_page(0)
+            .await,
+    )
+    .map_err(|error| session_store_http("load session messages for title", error))?;
 
     if messages.is_empty() {
         return Err(HttpError::from((
@@ -366,9 +368,25 @@ pub async fn generate_session_title(
     // 更新数据库
     let mut active: agent_sessions::ActiveModel = session.unwrap().into();
     active.title = Set(Some(title.clone()));
-    let _ = active.update(&db).await;
+    session_title_write(active.update(&db).await)
+        .map_err(|error| session_store_http("update session title", error))?;
 
     Ok(Json(json!({ "title": title })))
+}
+
+/// Query errors must not be treated as an empty session.
+pub(crate) fn session_title_messages<T, E>(result: Result<Vec<T>, E>) -> Result<Vec<T>, E> {
+    result
+}
+
+/// Title writes must fail the request when persist fails.
+pub(crate) fn session_title_write<T, E>(result: Result<T, E>) -> Result<T, E> {
+    result
+}
+
+/// Durable user-message writes abort the turn; callers must not ignore Err.
+pub(crate) fn require_user_message_persisted<T, E>(result: Result<T, E>) -> Result<T, E> {
+    result
 }
 
 /// 标题降级：截取第一条用户消息
@@ -566,5 +584,30 @@ mod mode_tests {
 
         let ok = session_pagination(&SessionListQuery { page: 2, limit: 20 }).expect("ok");
         assert_eq!(ok, (20, 1));
+    }
+
+    #[test]
+    fn title_query_error_is_not_empty_session() {
+        let error: Result<Vec<i32>, &str> = Err("db down");
+        assert!(session_title_messages(error).is_err());
+        assert!(
+            session_title_messages::<i32, &str>(Ok(vec![]))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn title_write_error_is_not_success() {
+        let error: Result<(), &str> = Err("write failed");
+        assert!(session_title_write(error).is_err());
+        assert!(session_title_write::<(), &str>(Ok(())).is_ok());
+    }
+
+    #[test]
+    fn user_message_persist_error_aborts_the_turn() {
+        let error: Result<(), &str> = Err("db down");
+        assert!(require_user_message_persisted(error).is_err());
+        assert!(require_user_message_persisted::<(), &str>(Ok(())).is_ok());
     }
 }

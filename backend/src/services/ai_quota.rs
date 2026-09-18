@@ -35,6 +35,7 @@ struct AiQuotaBucket {
     ledger_tapp_id: String,
     calls_type: String,
     tokens_type: String,
+    period_start: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone)]
@@ -232,6 +233,7 @@ fn guest_quota_buckets(
             ledger_tapp_id: tapp_id.to_string(),
             calls_type: quota_type("calls", owner_id),
             tokens_type: quota_type("tokens", owner_id),
+            period_start: DateTime::<Utc>::UNIX_EPOCH,
         },
         calls: limits.calls,
         tokens: limits.tokens,
@@ -247,6 +249,7 @@ fn guest_quota_buckets(
             ledger_tapp_id: tapp_id.to_string(),
             calls_type: anonymous_quota_type("calls", owner_id, &ip_scope),
             tokens_type: anonymous_quota_type("tokens", owner_id, &ip_scope),
+            period_start: DateTime::<Utc>::UNIX_EPOCH,
         },
         calls: limits.calls.saturating_mul(GUEST_IP_BUDGET_MULTIPLIER),
         tokens: limits.tokens.saturating_mul(GUEST_IP_BUDGET_MULTIPLIER),
@@ -259,6 +262,7 @@ fn guest_quota_buckets(
             ledger_tapp_id: "__anonymous_ai_site__".to_string(),
             calls_type: anonymous_quota_type("calls", owner_id, "guest-site"),
             tokens_type: anonymous_quota_type("tokens", owner_id, "guest-site"),
+            period_start: DateTime::<Utc>::UNIX_EPOCH,
         },
         calls: limits.calls.saturating_mul(GUEST_SITE_BUDGET_MULTIPLIER),
         tokens: limits.tokens.saturating_mul(GUEST_SITE_BUDGET_MULTIPLIER),
@@ -318,12 +322,12 @@ async fn read_row_for_update<C: ConnectionTrait>(
     subject_id: i32,
     tapp_id: &str,
     quota_type: &str,
-) -> Result<(i32, DateTime<Utc>), AiQuotaError> {
+) -> Result<(i32, DateTime<Utc>, DateTime<Utc>), AiQuotaError> {
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DbBackend::Postgres,
             r#"
-                SELECT used, updated_at
+                SELECT used, updated_at, period_start
                 FROM tapp_quota_usage
                 WHERE user_id = $1 AND tapp_id = $2 AND quota_type = $3
                   AND period_start = date_trunc('day', NOW())
@@ -349,7 +353,29 @@ async fn read_row_for_update<C: ConnectionTrait>(
         .try_get::<chrono::DateTime<chrono::FixedOffset>>("", "updated_at")
         .map(|value| value.with_timezone(&Utc))
         .map_err(|_| ledger_error("AI quota timestamp is invalid"))?;
-    Ok((used, updated_at))
+    let period_start = row
+        .try_get::<chrono::DateTime<chrono::FixedOffset>>("", "period_start")
+        .map(|value| value.with_timezone(&Utc))
+        .map_err(|_| ledger_error("AI quota period is invalid"))?;
+    Ok((used, updated_at, period_start))
+}
+
+fn increment_quota_sql(touch: bool) -> &'static str {
+    if touch {
+        r#"
+                UPDATE tapp_quota_usage
+                SET used = GREATEST(0, used + $4), updated_at = NOW()
+                WHERE user_id = $1 AND tapp_id = $2 AND quota_type = $3
+                  AND period_start = $5::timestamptz
+            "#
+    } else {
+        r#"
+                UPDATE tapp_quota_usage
+                SET used = GREATEST(0, used + $4)
+                WHERE user_id = $1 AND tapp_id = $2 AND quota_type = $3
+                  AND period_start = $5::timestamptz
+            "#
+    }
 }
 
 async fn increment_row<C: ConnectionTrait>(
@@ -359,29 +385,17 @@ async fn increment_row<C: ConnectionTrait>(
     quota_type: &str,
     amount: i32,
     touch: bool,
+    period_start: DateTime<Utc>,
 ) -> Result<(), AiQuotaError> {
     db.execute_raw(Statement::from_sql_and_values(
         DbBackend::Postgres,
-        if touch {
-            r#"
-                UPDATE tapp_quota_usage
-                SET used = GREATEST(0, used + $4), updated_at = NOW()
-                WHERE user_id = $1 AND tapp_id = $2 AND quota_type = $3
-                  AND period_start = date_trunc('day', NOW())
-            "#
-        } else {
-            r#"
-                UPDATE tapp_quota_usage
-                SET used = GREATEST(0, used + $4)
-                WHERE user_id = $1 AND tapp_id = $2 AND quota_type = $3
-                  AND period_start = date_trunc('day', NOW())
-            "#
-        },
+        increment_quota_sql(touch),
         vec![
             SeaValue::Int(Some(subject_id)),
             SeaValue::String(Some(tapp_id.to_string())),
             SeaValue::String(Some(quota_type.to_string())),
             SeaValue::Int(Some(amount)),
+            SeaValue::String(Some(period_start.to_rfc3339())),
         ],
     ))
     .await
@@ -466,6 +480,7 @@ pub async fn reserve_ai_quota_with_options(
                 ledger_tapp_id: tapp_id.to_string(),
                 calls_type: quota_type("calls", owner_id),
                 tokens_type: quota_type("tokens", owner_id),
+                period_start: DateTime::<Utc>::UNIX_EPOCH,
             },
             calls: limits.calls,
             tokens: limits.tokens,
@@ -478,7 +493,8 @@ pub async fn reserve_ai_quota_with_options(
         .await
         .map_err(|_| ledger_error("Failed to start AI quota transaction"))?;
 
-    for limits in &bucket_limits {
+    let mut reserved_buckets = Vec::with_capacity(bucket_limits.len());
+    for limits in bucket_limits {
         ensure_quota_row(
             &txn,
             limits.bucket.subject_id,
@@ -495,14 +511,14 @@ pub async fn reserve_ai_quota_with_options(
             limits.tokens,
         )
         .await?;
-        let (calls_used, last_call_at) = read_row_for_update(
+        let (calls_used, last_call_at, period_start) = read_row_for_update(
             &txn,
             limits.bucket.subject_id,
             &limits.bucket.ledger_tapp_id,
             &limits.bucket.calls_type,
         )
         .await?;
-        let (tokens_used, _) = read_row_for_update(
+        let (tokens_used, _, _) = read_row_for_update(
             &txn,
             limits.bucket.subject_id,
             &limits.bucket.ledger_tapp_id,
@@ -532,9 +548,10 @@ pub async fn reserve_ai_quota_with_options(
                 anonymous: limits.anonymous,
             });
         }
+        reserved_buckets.push((limits, period_start));
     }
 
-    for limits in &bucket_limits {
+    for (limits, period_start) in &reserved_buckets {
         increment_row(
             &txn,
             limits.bucket.subject_id,
@@ -542,6 +559,7 @@ pub async fn reserve_ai_quota_with_options(
             &limits.bucket.calls_type,
             1,
             limits.enforce_cooldown,
+            *period_start,
         )
         .await?;
         increment_row(
@@ -551,6 +569,7 @@ pub async fn reserve_ai_quota_with_options(
             &limits.bucket.tokens_type,
             estimated_tokens,
             false,
+            *period_start,
         )
         .await?;
     }
@@ -559,9 +578,12 @@ pub async fn reserve_ai_quota_with_options(
         .map_err(|_| ledger_error("Failed to commit AI quota reservation"))?;
 
     Ok(AiQuotaReservation {
-        buckets: bucket_limits
+        buckets: reserved_buckets
             .into_iter()
-            .map(|limits| limits.bucket)
+            .map(|(limits, period_start)| AiQuotaBucket {
+                period_start,
+                ..limits.bucket
+            })
             .collect(),
         reserved_tokens: estimated_tokens,
         unlimited: false,
@@ -587,6 +609,7 @@ pub async fn settle_ai_quota(
             &bucket.tokens_type,
             delta,
             false,
+            bucket.period_start,
         )
         .await?;
     }
@@ -608,6 +631,7 @@ pub async fn release_ai_token_reservation(
             &bucket.tokens_type,
             -reservation.reserved_tokens,
             false,
+            bucket.period_start,
         )
         .await?;
     }
@@ -636,6 +660,7 @@ pub async fn rollback_ai_quota_reservation(
             &bucket.calls_type,
             -1,
             false,
+            bucket.period_start,
         )
         .await?;
         if reservation.reserved_tokens > 0 {
@@ -646,6 +671,7 @@ pub async fn rollback_ai_quota_reservation(
                 &bucket.tokens_type,
                 -reservation.reserved_tokens,
                 false,
+                bucket.period_start,
             )
             .await?;
         }
@@ -780,6 +806,7 @@ mod tests {
         AiQuotaError, AiQuotaLimits, AiQuotaReserveOptions, cooldown_remaining,
         guest_quota_buckets, is_client_limit_message, quota_type,
     };
+    use chrono::TimeZone;
 
     #[test]
     fn cooldown_gates_a_fresh_call_but_not_the_first_of_the_day() {
@@ -932,5 +959,31 @@ mod tests {
         assert!(!is_client_limit_message(&ledger.to_string()));
         assert!(!is_client_limit_message("Unknown capability_id: foo"));
         assert!(!is_client_limit_message(""));
+    }
+
+    #[test]
+    fn settle_binds_the_reserved_period_not_today() {
+        let sql = super::increment_quota_sql(false);
+        assert!(
+            sql.contains("period_start = $5"),
+            "settle/release must use the reserved period bind"
+        );
+        assert!(
+            !sql.contains("date_trunc('day', NOW())"),
+            "recomputing today would lose a reservation that crossed midnight"
+        );
+        let yesterday = chrono::Utc
+            .with_ymd_and_hms(2026, 1, 1, 0, 0, 0)
+            .single()
+            .expect("valid midnight");
+        let bucket = super::AiQuotaBucket {
+            subject_id: 7,
+            ledger_tapp_id: "app".into(),
+            calls_type: "ai_calls:owner:1".into(),
+            tokens_type: "ai_tokens:owner:1".into(),
+            period_start: yesterday,
+        };
+        assert_eq!(bucket.period_start, yesterday);
+        assert_ne!(bucket.period_start.date_naive(), chrono::Utc::now().date_naive());
     }
 }

@@ -181,19 +181,27 @@ pub async fn delete_asset(
     if !refs.is_empty() {
         return Ok(Err(refs));
     }
-    remove_file(&row.url).await;
+    remove_file(&row.url).await.map_err(DbErr::Custom)?;
     media_assets::Entity::delete_by_id(id).exec(db).await?;
     Ok(Ok(()))
 }
 
-async fn remove_file(url: &str) {
+pub(crate) fn fs_remove_result(result: std::io::Result<()>) -> Result<(), String> {
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+async fn remove_file(url: &str) -> Result<(), String> {
     if url.starts_with("/api/phantasi/image-cache/") {
-        let _ = ImageCacheService::new().remove_stored_url(url).await;
-        return;
+        return ImageCacheService::new().remove_stored_url(url).await;
     }
     if let Some(path) = federation_disk_path(url) {
-        let _ = tokio::fs::remove_file(path).await;
+        return fs_remove_result(tokio::fs::remove_file(path).await);
     }
+    Ok(())
 }
 
 fn federation_disk_path(url: &str) -> Option<std::path::PathBuf> {
@@ -379,5 +387,23 @@ mod tests {
     fn store_bytes_only_registers_new_writes() {
         assert!(super::should_register_store_bytes(true));
         assert!(!super::should_register_store_bytes(false));
+    }
+
+    #[test]
+    fn file_delete_error_blocks_catalog_row_delete() {
+        assert!(super::fs_remove_result(Ok(())).is_ok());
+        assert!(
+            super::fs_remove_result(Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "gone"
+            )))
+            .is_ok()
+        );
+        let error = super::fs_remove_result(Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "locked",
+        )))
+        .unwrap_err();
+        assert!(error.contains("locked"), "{error}");
     }
 }

@@ -33,6 +33,7 @@
   "federationInitFailed": "这个站点的联邦身份没能建立。请再试一次。",
   "federationDataFailed": "联邦数据没能加载。",
   "federationKeyRotateFailed": "联邦密钥没能轮换。",
+  "federationDisabledRegion": "该地区不支持联邦。",
   "model3dFailed": "三维模型没能生成。请再试一次。",
   "profileTextLoadFailed": "名称与简介来源没能加载。",
   "profileTextSaveFailed": "名称与简介来源没能保存。",

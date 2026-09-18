@@ -9,10 +9,34 @@ import {
   insertTableMarkdown,
   looksLikeMarkdown,
   markdownToVisualHtml,
+  markdownToVisualHtmlAsync,
   setVisualImageResolver,
   visualHtmlToMarkdown,
   withLinkDefinitions,
 } from './noteVisual.ts'
+
+describe('markdownToVisualHtmlAsync', () => {
+  it('matches the sync converter, including widgets and columns', async () => {
+    const md = [
+      '# 题',
+      '',
+      '见 $E=mc^2$ 和 **粗**',
+      '',
+      '- 甲',
+      '- 乙',
+      '',
+      ':::columns',
+      '左',
+      ':::',
+      '右',
+      ':::',
+      '',
+      ':::widget meropé 2x2',
+      ':::',
+    ].join('\n')
+    assert.equal(await markdownToVisualHtmlAsync(md), markdownToVisualHtml(md))
+  })
+})
 
 describe('markdownToVisualHtml math', () => {
   it('行内公式变成岛，转一圈还在', () => {

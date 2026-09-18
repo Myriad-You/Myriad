@@ -10,6 +10,7 @@ import { useI18n } from '../../contexts/I18nContext'
 import { useVisibilityInterval } from '../../hooks/animation'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { useWidgetSize } from '../../hooks/useWidgetSize'
+import { armWidgetSettingsHost } from '../../lib/widgetSettingsHost'
 import { useThemeMode } from '../../utils/themeSubscriber'
 import { userFacingError } from '../../utils/userFacingError'
 import {
@@ -194,6 +195,7 @@ function openGamePresenceSettings(
   anchorRect: DOMRect,
   onSave: SettingsState['onSave'],
 ) {
+  armWidgetSettingsHost()
   globalSettings = {
     isOpen: true,
     accountId,

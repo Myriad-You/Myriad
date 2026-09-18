@@ -2,8 +2,8 @@
 
 import { API_URL } from '../config'
 import { currentCopy } from '../i18n/localeCopy'
-import { dedupedFetch } from './requestDedup'
-import { httpStatusMessage } from './userFacingError'
+import { httpStatusMessage } from './httpStatus'
+import { dedupedFetch, getUIConfigDeduped } from './requestDedup'
 
 export interface GeoLocationData {
   latitude: number
@@ -43,6 +43,7 @@ let geoLocationCache: GeoLocationData | null = null
 let geoLocationCacheTime: number = 0
 
 const GEO_CACHE_TTL = 5 * 60 * 1000
+const GEO_NEGATIVE_TTL = 60 * 1000
 
 const BROWSER_GEO_CACHE_KEY = 'browser_geo_location_v1'
 /** Persist denial so the prompt is not repeated. */
@@ -51,37 +52,74 @@ const BROWSER_GEO_CACHE_TTL = 6 * 60 * 60 * 1000
 
 let browserGeoSessionAttempted = false
 let browserGeoInflight: Promise<GeoLocationData | null> | null = null
+let ipGeoInflight: Promise<GeoLocationData | null> | null = null
+let preciseInflight: Promise<GeoLocationData | null> | null = null
+let ipGeoNegativeUntil = 0
+
+function rememberIpGeo(data: GeoLocationData): GeoLocationData {
+  geoLocationCache = data
+  geoLocationCacheTime = Date.now()
+  ipGeoNegativeUntil = 0
+  return data
+}
+
+function parsePreciseLocationFlag(value: unknown): boolean {
+  return value === true || value === 'true'
+}
+
+export async function isPreciseLocationEnabled(): Promise<boolean> {
+  try {
+    const cfg = await getUIConfigDeduped()
+    return parsePreciseLocationFlag(cfg?.precise_location_enabled)
+  } catch {
+    return false
+  }
+}
+
+export function hasBrowserGeoFix(): boolean {
+  const cached = readBrowserGeoCache(BROWSER_GEO_CACHE_TTL)
+  return Boolean(
+    cached &&
+      Number.isFinite(cached.latitude) &&
+      Number.isFinite(cached.longitude),
+  )
+}
 
 export async function getClientGeoLocation(): Promise<GeoLocationData | null> {
   if (geoLocationCache && Date.now() - geoLocationCacheTime < GEO_CACHE_TTL) {
     return geoLocationCache
   }
-
-  try {
-    const data = await getClientGeoFromBackend()
-
-    if (data) {
-      geoLocationCache = data
-      geoLocationCacheTime = Date.now()
-      return data
-    }
-  } catch (error) {
-    console.warn('[GeoLocation] 后端代理获取失败，尝试备用服务:', error)
+  if (Date.now() < ipGeoNegativeUntil) {
+    return null
+  }
+  if (ipGeoInflight) {
+    return ipGeoInflight
   }
 
-  try {
-    const data = await getGeoFromFallbackServices()
+  ipGeoInflight = (async () => {
+    try {
+      try {
+        const data = await getClientGeoFromBackend()
+        if (data) return rememberIpGeo(data)
+      } catch (error) {
+        console.warn('[GeoLocation] 后端代理获取失败，尝试备用服务:', error)
+      }
 
-    if (data) {
-      geoLocationCache = data
-      geoLocationCacheTime = Date.now()
-      return data
+      try {
+        const data = await getGeoFromFallbackServices()
+        if (data) return rememberIpGeo(data)
+      } catch (error) {
+        console.warn('[GeoLocation] 所有服务获取失败:', error)
+      }
+
+      ipGeoNegativeUntil = Date.now() + GEO_NEGATIVE_TTL
+      return null
+    } finally {
+      ipGeoInflight = null
     }
-  } catch (error) {
-    console.warn('[GeoLocation] 所有服务获取失败:', error)
-  }
+  })()
 
-  return null
+  return ipGeoInflight
 }
 
 /** null = not probed; do not await on click. */
@@ -139,6 +177,9 @@ export function resetGeoCache(): void {
   geoLocationCache = null
   geoLocationCacheTime = 0
   browserGeoInflight = null
+  ipGeoInflight = null
+  preciseInflight = null
+  ipGeoNegativeUntil = 0
   browserGeoSessionAttempted = false
 
   try {
@@ -357,6 +398,9 @@ export async function getBrowserGeolocation(options?: {
   /** 6h */
   cacheTTL?: number
 }): Promise<GeoLocationData | null> {
+  if (!(await isPreciseLocationEnabled())) {
+    return null
+  }
   if (!('geolocation' in navigator) || !navigator.geolocation) {
     return null
   }
@@ -442,23 +486,46 @@ export async function getBrowserGeolocation(options?: {
 }
 
 export async function resolvePreciseLocation(): Promise<GeoLocationData | null> {
-  try {
-    const browser = await getBrowserGeolocation()
-    if (
-      browser &&
-      Number.isFinite(browser.latitude) &&
-      Number.isFinite(browser.longitude)
-    ) {
-      return browser
-    }
-  } catch (error) {
-    console.warn('[GeoLocation] 浏览器定位异常:', error)
+  if (!(await isPreciseLocationEnabled())) {
+    return getClientGeoLocation()
+  }
+  const cachedBrowser = readBrowserGeoCache(BROWSER_GEO_CACHE_TTL)
+  if (
+    cachedBrowser &&
+    Number.isFinite(cachedBrowser.latitude) &&
+    Number.isFinite(cachedBrowser.longitude)
+  ) {
+    return cachedBrowser
+  }
+  if (preciseInflight) {
+    return preciseInflight
   }
 
-  try {
-    return await getClientGeoLocation()
-  } catch (error) {
-    console.warn('[GeoLocation] IP 定位失败:', error)
-    return null
-  }
+  preciseInflight = (async () => {
+    try {
+      try {
+        const browser = await getBrowserGeolocation()
+        if (
+          browser &&
+          Number.isFinite(browser.latitude) &&
+          Number.isFinite(browser.longitude)
+        ) {
+          return browser
+        }
+      } catch (error) {
+        console.warn('[GeoLocation] 浏览器定位异常:', error)
+      }
+
+      try {
+        return await getClientGeoLocation()
+      } catch (error) {
+        console.warn('[GeoLocation] IP 定位失败:', error)
+        return null
+      }
+    } finally {
+      preciseInflight = null
+    }
+  })()
+
+  return preciseInflight
 }

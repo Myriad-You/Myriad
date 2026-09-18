@@ -33,6 +33,7 @@
   "federationInitFailed": "Die Föderation für diese Site konnte nicht eingerichtet werden. Bitte erneut versuchen.",
   "federationDataFailed": "Föderationsdaten konnten nicht geladen werden.",
   "federationKeyRotateFailed": "Föderationsschlüssel konnten nicht rotiert werden.",
+  "federationDisabledRegion": "Föderation wird in dieser Region nicht unterstützt.",
   "model3dFailed": "Das 3D-Modell konnte nicht erzeugt werden. Bitte erneut versuchen.",
   "profileTextLoadFailed": "Quellen für Name und Bio konnten nicht geladen werden.",
   "profileTextSaveFailed": "Die Quelle für Name und Bio konnte nicht gespeichert werden.",

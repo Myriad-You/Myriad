@@ -7,6 +7,7 @@
 
 import type { InputRule } from './noteInputRules'
 import type { MdFence, NoteWidgetConfig } from './noteLayout'
+import { yieldIfSliceExceeded } from '../../../utils/yieldToMain'
 import {
   decodeWidgetConfigAttr,
   eatMdFence,
@@ -595,55 +596,71 @@ function renderTable(block: string, defs: ReadonlyMap<string, LinkDef> = EMPTY_D
   return `<table>${html}</table>`
 }
 
+function renderPlainBlock(text: string, defs: ReadonlyMap<string, LinkDef>): string {
+  // Unsupported block syntax stays visible as source and cannot be silently rewritten.
+  if (/^(?: {4}|\t| {0,3}<[/!a-z])/i.test(text)) {
+    return `<pre data-raw-markdown="${encodeURIComponent(text)}" contenteditable="false">${escapeHtml(text)}</pre>`
+  }
+  const displayMath = asDisplayMathBlock(text)
+  if (displayMath) return displayMath
+  if (mdFenceOpen(text.split('\n')[0] ?? '')) {
+    const lines = text.split('\n')
+    const open = lines[0] ?? ''
+    const lang = open.replace(/^ {0,3}(?:`{3,}|~{3,})/, '').trim()
+    const closed =
+      lines.length > 1 && mdFenceClose(lines[lines.length - 1]!, mdFenceOpen(open)!)
+    const body = lines.slice(1, closed ? -1 : undefined).join('\n')
+    const attr = lang ? ` data-lang="${escapeHtml(lang)}"` : ''
+    return `<pre${attr}><code>${escapeHtml(body)}</code></pre>`
+  }
+  const setext = text.split('\n')
+  if (setext.length === 2 && isSetextUnderline(setext[1]!)) {
+    const level = setext[1]!.trim().startsWith('=') ? 1 : 2
+    return `<h${level}>${inlineMarkdown(setext[0]!, defs)}</h${level}>`
+  }
+  if (/^#{1,6} /.test(text)) {
+    const level = text.match(/^#{1,6}/)?.[0].length ?? 2
+    return `<h${level}>${inlineMarkdown(text.replace(/^#{1,6} /, ''), defs)}</h${level}>`
+  }
+  if (/^(-{3,}|\*{3,}|_{3,})$/.test(text.trim())) return '<hr>'
+  const linkDef = parseLinkDef(text)
+  if (linkDef) {
+    const title = linkDef.title ? ` data-title="${escapeHtml(linkDef.title)}"` : ''
+    const shown = escapeHtml(linkDef.title || linkDef.href)
+    return `<p data-linkdef="${escapeHtml(linkDef.label)}" data-href="${escapeHtml(linkDef.href)}"${title}>${shown}</p>`
+  }
+  const footnote = /^\[\^([^\]\s]+)\]:/.exec(text)
+  if (footnote) {
+    const body = text.slice(footnote[0].length).trimStart()
+    return `<p data-fn="${footnote[1]}">${inlineMarkdown(body, defs)}</p>`
+  }
+  if (text.startsWith('>')) {
+    return `<blockquote>${renderPlainVisual(text.replace(/^(> ?)/gm, ''), defs)}</blockquote>`
+  }
+  if (/^([-*] |\d+\. )/.test(text)) return renderListTree(parseListTree(text, defs))
+  if (isTableBlock(text)) return renderTable(text, defs)
+  return `<p>${inlineMarkdown(text, defs)}</p>`
+}
+
 function renderPlainVisual(markdown: string, defs: ReadonlyMap<string, LinkDef>): string {
   return splitPlainBlocks(markdown)
-    .map((block) => {
-      const text = block.text
-      // Unsupported block syntax stays visible as source and cannot be silently rewritten.
-      if (/^(?: {4}|\t| {0,3}<[/!a-z])/i.test(text)) {
-        return `<pre data-raw-markdown="${encodeURIComponent(text)}" contenteditable="false">${escapeHtml(text)}</pre>`
-      }
-      const displayMath = asDisplayMathBlock(text)
-      if (displayMath) return displayMath
-      if (mdFenceOpen(text.split('\n')[0] ?? '')) {
-        const lines = text.split('\n')
-        const open = lines[0] ?? ''
-        const lang = open.replace(/^ {0,3}(?:`{3,}|~{3,})/, '').trim()
-        const closed =
-          lines.length > 1 && mdFenceClose(lines[lines.length - 1]!, mdFenceOpen(open)!)
-        const body = lines.slice(1, closed ? -1 : undefined).join('\n')
-        const attr = lang ? ` data-lang="${escapeHtml(lang)}"` : ''
-        return `<pre${attr}><code>${escapeHtml(body)}</code></pre>`
-      }
-      const setext = text.split('\n')
-      if (setext.length === 2 && isSetextUnderline(setext[1]!)) {
-        const level = setext[1]!.trim().startsWith('=') ? 1 : 2
-        return `<h${level}>${inlineMarkdown(setext[0]!, defs)}</h${level}>`
-      }
-      if (/^#{1,6} /.test(text)) {
-        const level = text.match(/^#{1,6}/)?.[0].length ?? 2
-        return `<h${level}>${inlineMarkdown(text.replace(/^#{1,6} /, ''), defs)}</h${level}>`
-      }
-      if (/^(-{3,}|\*{3,}|_{3,})$/.test(text.trim())) return '<hr>'
-      const linkDef = parseLinkDef(text)
-      if (linkDef) {
-        const title = linkDef.title ? ` data-title="${escapeHtml(linkDef.title)}"` : ''
-        const shown = escapeHtml(linkDef.title || linkDef.href)
-        return `<p data-linkdef="${escapeHtml(linkDef.label)}" data-href="${escapeHtml(linkDef.href)}"${title}>${shown}</p>`
-      }
-      const footnote = /^\[\^([^\]\s]+)\]:/.exec(text)
-      if (footnote) {
-        const body = text.slice(footnote[0].length).trimStart()
-        return `<p data-fn="${footnote[1]}">${inlineMarkdown(body, defs)}</p>`
-      }
-      if (text.startsWith('>')) {
-        return `<blockquote>${renderPlainVisual(text.replace(/^(> ?)/gm, ''), defs)}</blockquote>`
-      }
-      if (/^([-*] |\d+\. )/.test(text)) return renderListTree(parseListTree(text, defs))
-      if (isTableBlock(text)) return renderTable(text, defs)
-      return `<p>${inlineMarkdown(text, defs)}</p>`
-    })
+    .map((block) => renderPlainBlock(block.text, defs))
     .join('')
+}
+
+async function renderPlainVisualAsync(
+  markdown: string,
+  defs: ReadonlyMap<string, LinkDef>,
+  signal: AbortSignal | undefined,
+  slice: { ms: number },
+): Promise<string> {
+  const parts: string[] = []
+  for (const block of splitPlainBlocks(markdown)) {
+    signal?.throwIfAborted()
+    parts.push(renderPlainBlock(block.text, defs))
+    await yieldIfSliceExceeded(slice)
+  }
+  return parts.join('')
 }
 
 function renderVisualLayout(markdown: string, defs: ReadonlyMap<string, LinkDef>): string {
@@ -672,6 +689,50 @@ function renderVisualLayout(markdown: string, defs: ReadonlyMap<string, LinkDef>
 export function markdownToVisualHtml(markdown: string): string {
   const defs = collectLinkDefs(markdown)
   return renderVisualLayout(markdown, defs)
+}
+
+/** 超过这个长度的整篇转换走切片，短文仍同步以免切栏闪一帧。 */
+export const VISUAL_HTML_SYNC_CHARS = 12_000
+
+async function renderVisualLayoutAsync(
+  markdown: string,
+  defs: ReadonlyMap<string, LinkDef>,
+  signal: AbortSignal | undefined,
+  slice: { ms: number },
+): Promise<string> {
+  const parts: string[] = []
+  for (const seg of parseNoteLayout(markdown)) {
+    signal?.throwIfAborted()
+    if (seg.kind === 'columns') {
+      const cols: string[] = []
+      for (const col of seg.columns) {
+        const inner = await renderVisualLayoutAsync(col, defs, signal, slice)
+        cols.push(`<div class="note-column">${inner || '<p><br></p>'}</div>`)
+      }
+      parts.push(`<div class="note-columns">${cols.join('')}</div>`)
+    } else if (seg.kind === 'widget') {
+      const encoded = encodeWidgetConfigAttr(seg.config)
+      const configAttr = encoded ? ` data-config="${escapeHtml(encoded)}"` : ''
+      parts.push(
+        `<div class="note-widget not-prose" data-widget="${escapeHtml(seg.type)}" data-size="${escapeHtml(seg.size)}"${configAttr} contenteditable="false"></div>`,
+      )
+    } else {
+      parts.push(await renderPlainVisualAsync(seg.text, defs, signal, slice))
+    }
+    await yieldIfSliceExceeded(slice)
+  }
+  return parts.join('')
+}
+
+export async function markdownToVisualHtmlAsync(
+  markdown: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const slice = { ms: performance.now() }
+  signal?.throwIfAborted()
+  const defs = collectLinkDefs(markdown)
+  await yieldIfSliceExceeded(slice)
+  return renderVisualLayoutAsync(markdown, defs, signal, slice)
 }
 
 function decode(value: string): string {

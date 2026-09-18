@@ -6,11 +6,12 @@
 //! 3. 存储新文章到数据库
 //! 4. 推送更新通知到前端
 
-use chrono::{Duration, Utc};
+use chrono::Utc;
 use futures::stream::{self, StreamExt};
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, Condition, DatabaseConnection, EntityTrait,
-    QueryFilter, QueryOrder, QuerySelect, sea_query::OnConflict,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseBackend, DatabaseConnection,
+    EntityTrait, FromQueryResult, QueryFilter, QueryOrder, QuerySelect, Statement, Value as SeaValue,
+    sea_query::OnConflict,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -53,6 +54,71 @@ pub(crate) fn retry_interval_minutes(update_interval: i32, error_count: i32) -> 
     let doublings = u32::try_from(error_count - BACKOFF_START_ERRORS + 1).unwrap_or(u32::MAX);
     base.saturating_mul(2_i64.saturating_pow(doublings.min(20)))
         .min(BACKOFF_MAX_MINUTES)
+}
+
+/// SQL twin of [`retry_interval_minutes`]. Must stay in the due WHERE, before LIMIT.
+pub(crate) fn retry_interval_sql() -> String {
+    format!(
+        "CASE \
+            WHEN error_count < {BACKOFF_START_ERRORS} THEN GREATEST(update_interval, 1)::bigint \
+            ELSE LEAST( \
+                {BACKOFF_MAX_MINUTES}::numeric, \
+                GREATEST(update_interval, 1)::numeric \
+                    * (2::numeric ^ LEAST(GREATEST(error_count - {BACKOFF_START_ERRORS} + 1, 0), 20)) \
+            )::bigint \
+         END"
+    )
+}
+
+pub(crate) fn due_sources_select_sql() -> String {
+    format!(
+        "SELECT * FROM phantasi_sources \
+         WHERE enabled = TRUE \
+           AND source_type NOT IN ('link', 'note') \
+           AND ( \
+             last_fetched_at IS NULL \
+             OR last_fetched_at <= $1::timestamptz - make_interval(mins => ({interval})) \
+           ) \
+         ORDER BY last_fetched_at ASC NULLS FIRST \
+         LIMIT $2",
+        interval = retry_interval_sql()
+    )
+}
+
+pub(crate) fn source_is_due(
+    now: chrono::DateTime<Utc>,
+    last_fetched_at: Option<chrono::DateTime<Utc>>,
+    update_interval: i32,
+    error_count: i32,
+) -> bool {
+    match last_fetched_at {
+        None => true,
+        Some(last) => {
+            (now - last).num_minutes() >= retry_interval_minutes(update_interval, error_count)
+        }
+    }
+}
+
+pub(crate) async fn load_due_sources(
+    db: &DatabaseConnection,
+    now: chrono::DateTime<Utc>,
+) -> Result<Vec<phantasi_sources::Model>, String> {
+    phantasi_sources::Model::find_by_statement(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        due_sources_select_sql(),
+        [
+            SeaValue::String(Some(now.to_rfc3339())),
+            SeaValue::Int(Some(
+                i32::try_from(MAX_SOURCES_PER_TICK).unwrap_or(i32::MAX),
+            )),
+        ],
+    ))
+    .all(db)
+    .await
+    .map_err(|error| {
+        tracing::error!(%error, "failed to query phantasi sources");
+        "Failed to query sources".to_string()
+    })
 }
 
 /// 调度器检查间隔（秒）
@@ -176,39 +242,8 @@ impl PhantasiSchedulerEngine {
         let now = Utc::now();
         tracing::debug!("[PhantasiScheduler] Tick at {}", now);
 
-        // 查找需要更新的订阅源，限制本轮最大数量防止堆积
-        let all_due = phantasi_sources::Entity::find()
-            .filter(phantasi_sources::Column::Enabled.eq(true))
-            .filter(
-                phantasi_sources::Column::SourceType
-                    .is_not_in(phantasi_sources::NON_FETCHABLE_SOURCE_TYPES),
-            )
-            .filter(
-                Condition::any()
-                    .add(phantasi_sources::Column::LastFetchedAt.is_null())
-                    .add(phantasi_sources::Column::LastFetchedAt.lt(now - Duration::minutes(1))),
-            )
-            .order_by_asc(phantasi_sources::Column::LastFetchedAt)
-            .limit(MAX_SOURCES_PER_TICK)
-            .all(db)
-            .await
-            .map_err(|error| {
-                tracing::error!(%error, "failed to query phantasi sources");
-                "Failed to query sources".to_string()
-            })?;
-
-        // 过滤出真正到了更新间隔的订阅源；连续失败的源按退避后的间隔算
-        let due_sources: Vec<_> = all_due
-            .into_iter()
-            .filter(|source| match source.last_fetched_at {
-                None => true,
-                Some(last) => {
-                    let elapsed = now - last.with_timezone(&Utc);
-                    elapsed.num_minutes()
-                        >= retry_interval_minutes(source.update_interval, source.error_count)
-                }
-            })
-            .collect();
+        // Due predicate is in SQL so LIMIT cannot starve later-due sources.
+        let due_sources = load_due_sources(db, now).await?;
 
         if due_sources.is_empty() {
             tracing::debug!("[PhantasiScheduler] No sources due for update");
@@ -302,24 +337,44 @@ impl PhantasiSchedulerEngine {
         let notion_service = NotionService::new();
         let rsshub_service = RsshubService::new(db.clone());
 
-        let fetch_result: Result<ParsedFeed, String> = match source.feed_type {
+        let fetch_result: Result<(ParsedFeed, Option<String>), String> = match source.feed_type {
             phantasi_sources::FeedType::Notion => {
-                Self::fetch_notion_source(&notion_service, &source).await
+                Self::fetch_notion_source(&notion_service, &source)
+                    .await
+                    .map(|feed| (feed, None))
             }
             phantasi_sources::FeedType::RssHub => {
-                Self::fetch_rsshub_source(&rsshub_service, &source).await
+                Self::fetch_rsshub_source(&rsshub_service, &source)
+                    .await
+                    .map(|feed| (feed, None))
             }
-            _ => parser.fetch_and_parse(&source.url).await.map_err(|error| {
-                tracing::warn!(%error, "phantasi fetch failed");
-                error.user_message()
-            }),
+            _ => parser
+                .fetch_feed(&source.url)
+                .await
+                .map(|fetched| (fetched.feed, fetched.permanent_url))
+                .map_err(|error| {
+                    tracing::warn!(%error, "phantasi fetch failed");
+                    error.user_message()
+                }),
         };
 
         match fetch_result {
-            Ok(feed) => {
+            Ok((feed, permanent_url)) => {
                 active.last_success_at = Set(Some(now.into()));
                 active.last_error = Set(None);
                 active.error_count = Set(0);
+
+                if let Some(new_url) = permanent_url {
+                    if new_url != source.url {
+                        tracing::info!(
+                            old = %source.url,
+                            new = %new_url,
+                            source = %source.name,
+                            "[PhantasiScheduler] Feed permanently moved; updating URL"
+                        );
+                        active.url = Set(new_url);
+                    }
+                }
 
                 if source.name.is_empty() || source.name == source.url {
                     active.name = Set(feed.title.clone());
@@ -686,17 +741,22 @@ impl PhantasiSchedulerEngine {
         let mut active: phantasi_sources::ActiveModel = source.clone().into();
         active.last_fetched_at = Set(Some(now.into()));
 
-        let fetch_result: Result<ParsedFeed, String> = match source.feed_type {
+        let fetch_result: Result<(ParsedFeed, Option<String>), String> = match source.feed_type {
             phantasi_sources::FeedType::Notion => {
-                Self::fetch_notion_source(&self.notion_service, &source).await
+                Self::fetch_notion_source(&self.notion_service, &source)
+                    .await
+                    .map(|feed| (feed, None))
             }
             phantasi_sources::FeedType::RssHub => {
-                Self::fetch_rsshub_source(&self.rsshub_service, &source).await
+                Self::fetch_rsshub_source(&self.rsshub_service, &source)
+                    .await
+                    .map(|feed| (feed, None))
             }
             _ => self
                 .parser
-                .fetch_and_parse(&source.url)
+                .fetch_feed(&source.url)
                 .await
+                .map(|fetched| (fetched.feed, fetched.permanent_url))
                 .map_err(|error| {
                     tracing::warn!(%error, "phantasi fetch failed");
                     error.user_message()
@@ -704,10 +764,22 @@ impl PhantasiSchedulerEngine {
         };
 
         match fetch_result {
-            Ok(feed) => {
+            Ok((feed, permanent_url)) => {
                 active.last_success_at = Set(Some(now.into()));
                 active.last_error = Set(None);
                 active.error_count = Set(0);
+
+                if let Some(new_url) = permanent_url {
+                    if new_url != source.url {
+                        tracing::info!(
+                            old = %source.url,
+                            new = %new_url,
+                            source = %source.name,
+                            "[PhantasiScheduler] Feed permanently moved; updating URL"
+                        );
+                        active.url = Set(new_url);
+                    }
+                }
 
                 if source.description.is_none() {
                     active.description = Set(feed.description.clone());
@@ -871,6 +943,143 @@ mod tests {
         assert!(
             !impl_src.contains("unread_count"),
             "scheduler must not write site-wide source unread_count"
+        );
+    }
+
+    #[test]
+    fn due_predicate_is_applied_before_limit() {
+        let sql = due_sources_select_sql();
+        let interval_at = sql.find("error_count").expect("due interval");
+        let limit_at = sql.find("LIMIT").expect("limit");
+        assert!(
+            interval_at < limit_at,
+            "due predicate must be in WHERE, not after LIMIT"
+        );
+        assert!(sql.contains(&BACKOFF_START_ERRORS.to_string()));
+        assert!(sql.contains(&BACKOFF_MAX_MINUTES.to_string()));
+        let tick = include_str!("phantasi_scheduler.rs")
+            .split("async fn tick(")
+            .nth(1)
+            .and_then(|rest| rest.split("async fn process_source").next())
+            .expect("tick");
+        assert!(tick.contains("load_due_sources"));
+        assert!(
+            !tick.contains("into_iter()"),
+            "tick must not filter due sources in memory after LIMIT"
+        );
+    }
+
+    #[test]
+    fn source_is_due_matches_retry_interval() {
+        let now = Utc::now();
+        assert!(source_is_due(now, None, 60, 0));
+        assert!(!source_is_due(
+            now,
+            Some(now - chrono::Duration::minutes(29)),
+            30,
+            0
+        ));
+        assert!(source_is_due(
+            now,
+            Some(now - chrono::Duration::minutes(30)),
+            30,
+            0
+        ));
+        assert!(!source_is_due(
+            now,
+            Some(now - chrono::Duration::minutes(59)),
+            30,
+            3
+        ));
+        assert!(source_is_due(
+            now,
+            Some(now - chrono::Duration::minutes(60)),
+            30,
+            3
+        ));
+    }
+
+    #[tokio::test]
+    async fn limit_does_not_starve_later_due_sources() {
+        use crate::models::entities::phantasi_sources::{self, FeedType, SourceType};
+        use sea_orm::{
+            ActiveModelTrait, ActiveValue::Set, ConnectOptions, ConnectionTrait, Database,
+            DatabaseBackend, Schema,
+        };
+
+        let Ok(url) = std::env::var("PHANTASI_TEST_DATABASE_URL") else {
+            return;
+        };
+        let mut options = ConnectOptions::new(url);
+        options
+            .max_connections(1)
+            .min_connections(1)
+            .sqlx_logging(false);
+        let db = Database::connect(options).await.unwrap();
+        let schema = Schema::new(DatabaseBackend::Postgres);
+        let sql = schema
+            .create_table_from_entity(phantasi_sources::Entity)
+            .to_string(sea_orm::sea_query::PostgresQueryBuilder)
+            .replacen("CREATE TABLE", "CREATE TEMP TABLE", 1);
+        db.execute_unprepared(&sql).await.unwrap();
+        let now = Utc::now();
+        let fresh = now - chrono::Duration::minutes(2);
+        let stale = now - chrono::Duration::minutes(120);
+        for i in 0..50 {
+            phantasi_sources::ActiveModel {
+                user_id: Set(1),
+                name: Set(format!("fresh-{i}")),
+                url: Set(format!("https://fresh.example/{i}")),
+                feed_type: Set(FeedType::Rss),
+                source_type: Set(SourceType::Rss),
+                update_interval: Set(60),
+                enabled: Set(true),
+                error_count: Set(0),
+                item_count: Set(0),
+                unread_count: Set(0),
+                admin_only: Set(false),
+                last_fetched_at: Set(Some(fresh.into())),
+                created_at: Set(now.into()),
+                updated_at: Set(now.into()),
+                ..Default::default()
+            }
+            .insert(&db)
+            .await
+            .unwrap();
+        }
+        let due = phantasi_sources::ActiveModel {
+            user_id: Set(1),
+            name: Set("due".into()),
+            url: Set("https://due.example/feed".into()),
+            feed_type: Set(FeedType::Rss),
+            source_type: Set(SourceType::Rss),
+            update_interval: Set(30),
+            enabled: Set(true),
+            error_count: Set(0),
+            item_count: Set(0),
+            unread_count: Set(0),
+            admin_only: Set(false),
+            last_fetched_at: Set(Some(stale.into())),
+            created_at: Set(now.into()),
+            updated_at: Set(now.into()),
+            ..Default::default()
+        }
+        .insert(&db)
+        .await
+        .unwrap();
+        let loaded = load_due_sources(&db, now).await.unwrap();
+        assert!(
+            loaded.iter().any(|source| source.id == due.id),
+            "a due source after 50 not-due rows must still be selected"
+        );
+        assert!(
+            loaded.iter().all(|source| source_is_due(
+                now,
+                source.last_fetched_at.map(|ts| ts.with_timezone(&Utc)),
+                source.update_interval,
+                source.error_count
+            )),
+            "SQL due rows must match the rust due predicate"
         );
     }
 }

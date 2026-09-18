@@ -51,5 +51,5 @@ pub use prepared::{
 pub use transform::{
     DataTransformError, MAX_MAP_OPERATIONS, MAX_PIPELINE_STEPS, MapOp, ProcessStep, apply_map_op,
     apply_pipeline, apply_process_step, items_from_agent_input, items_from_value,
-    parse_pipeline_steps_lenient,
+    parse_pipeline_steps, parse_pipeline_steps_lenient,
 };

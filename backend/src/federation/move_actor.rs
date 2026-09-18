@@ -652,6 +652,23 @@ pub enum FollowRepointAction {
 }
 
 /// Decide how to migrate one follow edge when a remote actor Moves.
+#[derive(Debug, PartialEq, Eq)]
+pub enum FollowUpdateOutcome {
+    Applied,
+    UniqueConflict,
+    Other(String),
+}
+
+pub fn classify_follow_update(res: Result<sea_orm::ExecResult, sea_orm::DbErr>) -> FollowUpdateOutcome {
+    match res {
+        Ok(_) => FollowUpdateOutcome::Applied,
+        Err(e) if crate::federation::types::is_unique_violation(&e) => {
+            FollowUpdateOutcome::UniqueConflict
+        }
+        Err(e) => FollowUpdateOutcome::Other(e.to_string()),
+    }
+}
+
 pub fn plan_follow_repoint(
     old_status: &str,
     existing_new_status: Option<&str>,
@@ -762,25 +779,31 @@ pub async fn migrate_follows_old_to_new(
                     .and_then(|ex| ex.try_get("", "id").ok())
                     .unwrap_or(0);
                 if promote_new_to_accepted && ex_id != 0 {
-                    let _ = db
-                        .execute_raw(Statement::from_sql_and_values(
-                            DatabaseBackend::Postgres,
-                            r#"UPDATE federation_follows
+                    db.execute_raw(Statement::from_sql_and_values(
+                        DatabaseBackend::Postgres,
+                        r#"UPDATE federation_follows
                                SET status = 'accepted',
                                    activity_id = COALESCE($1, activity_id),
                                    accepted_at = COALESCE(accepted_at, NOW())
                                WHERE id = $2"#,
-                            [activity_id.clone().into(), ex_id.into()],
-                        ))
-                        .await;
-                }
-                let _ = db
-                    .execute_raw(Statement::from_sql_and_values(
-                        DatabaseBackend::Postgres,
-                        "DELETE FROM federation_follows WHERE id = $1",
-                        [follow_id.into()],
+                        [activity_id.clone().into(), ex_id.into()],
                     ))
-                    .await;
+                    .await
+                    .map_err(|e| {
+                        tracing::error!("DB error promoting follow: {}", e);
+                        "Database error".to_string()
+                    })?;
+                }
+                db.execute_raw(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "DELETE FROM federation_follows WHERE id = $1",
+                    [follow_id.into()],
+                ))
+                .await
+                .map_err(|e| {
+                    tracing::error!("DB error deleting old follow: {}", e);
+                    "Database error".to_string()
+                })?;
                 migrated += 1;
             }
             FollowRepointAction::UpdateRemoteId => {
@@ -793,22 +816,24 @@ pub async fn migrate_follows_old_to_new(
                         [new_remote.id.into(), follow_id.into()],
                     ))
                     .await;
-                match res {
-                    Ok(_) => migrated += 1,
-                    Err(e) => {
-                        tracing::warn!(
-                            "migrate follow {} → new actor conflict, deleting old: {}",
-                            follow_id,
-                            e
-                        );
-                        let _ = db
-                            .execute_raw(Statement::from_sql_and_values(
-                                DatabaseBackend::Postgres,
-                                "DELETE FROM federation_follows WHERE id = $1",
-                                [follow_id.into()],
-                            ))
-                            .await;
+                match classify_follow_update(res) {
+                    FollowUpdateOutcome::Applied => migrated += 1,
+                    FollowUpdateOutcome::UniqueConflict => {
+                        db.execute_raw(Statement::from_sql_and_values(
+                            DatabaseBackend::Postgres,
+                            "DELETE FROM federation_follows WHERE id = $1",
+                            [follow_id.into()],
+                        ))
+                        .await
+                        .map_err(|e| {
+                            tracing::error!("DB error deleting conflicting follow: {}", e);
+                            "Database error".to_string()
+                        })?;
                         migrated += 1;
+                    }
+                    FollowUpdateOutcome::Other(e) => {
+                        tracing::error!("migrate follow {} failed: {}", follow_id, e);
+                        return Err("Database error".to_string());
                     }
                 }
             }
@@ -1387,6 +1412,23 @@ pub async fn domain_move_all_users(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn follow_update_non_unique_error_is_not_conflict() {
+        let other = sea_orm::DbErr::Custom("connection reset".into());
+        match classify_follow_update(Err(other)) {
+            FollowUpdateOutcome::Other(msg) => assert!(msg.contains("connection reset")),
+            other => panic!("expected Other, got {other:?}"),
+        }
+        let dup = sea_orm::DbErr::Custom(
+            "duplicate key value violates unique constraint \"federation_follows_user_id_remote_actor_id_direction_key\""
+                .into(),
+        );
+        assert_eq!(
+            classify_follow_update(Err(dup)),
+            FollowUpdateOutcome::UniqueConflict
+        );
+    }
 
     #[test]
     fn move_json_shape() {

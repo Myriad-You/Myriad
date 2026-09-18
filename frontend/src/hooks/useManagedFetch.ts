@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { ApiError } from '../services/api'
 import { requestManager } from '../utils/concurrentRequestManager'
-import { httpStatusMessage } from '../utils/userFacingError'
+import { httpStatusMessage } from '../utils/httpStatus'
 
 interface UseManagedFetchOptions {
   priority?: number

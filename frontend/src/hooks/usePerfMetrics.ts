@@ -10,6 +10,8 @@ import {
   configureAnimationCoordinator,
   coordinator,
   getFrameStats,
+  startFpsMonitor,
+  stopFpsMonitor,
 } from './animation'
 
 export interface FrameMetrics {
@@ -40,6 +42,7 @@ export interface StabilityMetrics {
   lastLongTaskMs: number
   maxLongTaskMs: number
   lastLongTaskSource: string
+  hotLongTaskSource: string
 }
 
 export interface AnimationSnapshot {
@@ -229,6 +232,8 @@ function shallowEqualSnapshot(
   if (a.stability.maxLongTaskMs !== b.stability.maxLongTaskMs) return false
   if (a.stability.lastLongTaskSource !== b.stability.lastLongTaskSource)
     return false
+  if (a.stability.hotLongTaskSource !== b.stability.hotLongTaskSource)
+    return false
 
   if (a.coordinator.activeSlots !== b.coordinator.activeSlots) return false
   if (a.coordinator.maxConcurrent !== b.coordinator.maxConcurrent) return false
@@ -273,6 +278,7 @@ function initialSnapshot(): PerfSnapshot {
       lastLongTaskMs: 0,
       maxLongTaskMs: 0,
       lastLongTaskSource: '',
+      hotLongTaskSource: '',
     },
     animations: EMPTY_ANIMATIONS,
     coordinator: readCoordinator(),
@@ -284,10 +290,9 @@ export function usePerfMetrics(isExpanded: boolean) {
   const [snapshot, setSnapshot] = useState<PerfSnapshot>(initialSnapshot)
   const stabilityRef = useRef(snapshot.stability)
   const snapshotRef = useRef(snapshot)
-  const expandedRef = useRef(isExpanded)
+  const sourceCountsRef = useRef(new Map<string, number>())
   snapshotRef.current = snapshot
   stabilityRef.current = snapshot.stability
-  expandedRef.current = isExpanded
 
   const commit = useCallback(
     (next: PerfSnapshot, includeAnimations: boolean) => {
@@ -299,6 +304,11 @@ export function usePerfMetrics(isExpanded: boolean) {
     },
     [],
   )
+
+  useEffect(() => {
+    startFpsMonitor()
+    return () => stopFpsMonitor()
+  }, [])
 
   useEffect(() => {
     const tick = () => {
@@ -319,13 +329,19 @@ export function usePerfMetrics(isExpanded: boolean) {
         frame: readFrame(),
         memory: readMemory(),
         stability: stabilityRef.current,
-        animations: scanAnimations(),
+        animations: prev.animations,
         coordinator: readCoordinator(),
         resource: readResource(),
       }
       commit(next, true)
     }
 
+    if (isExpanded) {
+      commit(
+        { ...snapshotRef.current, animations: scanAnimations() },
+        true,
+      )
+    }
     tick()
     const ms = isExpanded ? 1000 : 2000
     const id = window.setInterval(tick, ms)
@@ -337,37 +353,43 @@ export function usePerfMetrics(isExpanded: boolean) {
 
     const observers: PerformanceObserver[] = []
     const supported = PerformanceObserver.supportedEntryTypes ?? []
-    const commitStability = () => {
-      commit(
-        { ...snapshotRef.current, stability: stabilityRef.current },
-        expandedRef.current,
-      )
+    // 只写 ref。观察回调里 setState 会再造 Long Task，计数自己喂自己。
+    const bumpHot = (source: string) => {
+      if (!source) return
+      const counts = sourceCountsRef.current
+      counts.set(source, (counts.get(source) ?? 0) + 1)
+      let hot = source
+      let hotN = 0
+      for (const [name, n] of counts) {
+        if (n > hotN) {
+          hot = name
+          hotN = n
+        }
+      }
+      return hot
     }
-
     const recordTask = (entry: PerformanceEntry, source: string) => {
       const ms = Math.round(entry.duration)
       if (ms <= 0) return
       const prev = stabilityRef.current
       const nextSource = source || prev.lastLongTaskSource
+      const hot = bumpHot(nextSource) || prev.hotLongTaskSource
       stabilityRef.current = {
         ...prev,
         longTaskCount: prev.longTaskCount + 1,
         lastLongTaskMs: ms,
         maxLongTaskMs: Math.max(prev.maxLongTaskMs, ms),
         lastLongTaskSource: nextSource,
+        hotLongTaskSource: hot,
       }
     }
 
     try {
       if (supported.includes('longtask')) {
         const lt = new PerformanceObserver((list) => {
-          let added = 0
           for (const entry of list.getEntries()) {
-            added++
             recordTask(entry, longTaskSourceOf(entry))
           }
-          if (added === 0) return
-          commitStability()
         })
         lt.observe({ type: 'longtask', buffered: true })
         observers.push(lt)
@@ -379,26 +401,21 @@ export function usePerfMetrics(isExpanded: boolean) {
     try {
       if (supported.includes('long-animation-frame')) {
         const loaf = new PerformanceObserver((list) => {
-          let changed = false
           for (const entry of list.getEntries()) {
             const source = loafSourceOf(entry)
-            if (!source) continue
-            const prev = stabilityRef.current
-            if (prev.lastLongTaskSource) continue
-            stabilityRef.current = {
-              ...prev,
-              lastLongTaskSource: source,
+            if (source) {
+              const hot = bumpHot(source)
+              const prev = stabilityRef.current
+              stabilityRef.current = {
+                ...prev,
+                lastLongTaskSource: prev.lastLongTaskSource || source,
+                hotLongTaskSource: hot || prev.hotLongTaskSource,
+              }
             }
-            changed = true
-          }
-          if (!supported.includes('longtask')) {
-            for (const entry of list.getEntries()) {
-              if (entry.duration < 50) continue
-              recordTask(entry, loafSourceOf(entry))
-              changed = true
+            if (!supported.includes('longtask') && entry.duration >= 50) {
+              recordTask(entry, source)
             }
           }
-          if (changed) commitStability()
         })
         loaf.observe({ type: 'long-animation-frame', buffered: true })
         observers.push(loaf)
@@ -495,7 +512,9 @@ export function usePerfMetrics(isExpanded: boolean) {
       lastLongTaskMs: 0,
       maxLongTaskMs: 0,
       lastLongTaskSource: '',
+      hotLongTaskSource: '',
     }
+    sourceCountsRef.current = new Map()
     stabilityRef.current = stability
     commit({ ...snapshotRef.current, stability }, isExpanded)
   }, [commit, isExpanded])

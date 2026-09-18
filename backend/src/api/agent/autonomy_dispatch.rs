@@ -126,7 +126,14 @@ async fn dispatch_one(db: &DatabaseConnection, intent: IntentRecord) -> Result<(
         ctx.run_id = Some(run_id.clone());
         ctx.lane_key = Some(lane_key.clone());
     }
-    let _ = persist_user_message(db, &session_id, &intent.proposal.instruction).await;
+    if let Err(error) = require_user_message_persisted(
+        persist_user_message(db, &session_id, &intent.proposal.instruction).await,
+    ) {
+        let _ = store
+            .reclaim_running_to_accepted(&intent.id, intent.user_id)
+            .await;
+        return Err(error);
+    }
     let _ = progress_tx
         .send(AgentProgressEvent::SessionCreated {
             session_id: session_id.clone(),

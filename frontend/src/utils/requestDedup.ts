@@ -1,9 +1,10 @@
 import { API_URL } from '../config'
 import { ApiError } from '../services/api'
 import { readJsonOk } from './apiHelper'
+import { httpStatusMessage } from './httpStatus'
 import { normalizeJsonMediaUrls } from './proxyImageUrl'
 import { RequestCache } from './requestCache'
-import { httpStatusMessage, isUselessErrorText } from './userFacingError'
+import { isUselessErrorText } from './uselessErrorText'
 
 async function fetchDedupedJson(url: string): Promise<any> {
   const response = await fetch(url, {

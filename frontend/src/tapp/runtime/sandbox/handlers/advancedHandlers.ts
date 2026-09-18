@@ -6,6 +6,7 @@ import { isExlight } from '../../../../hooks/useAnimationLevel'
 import { getDynamicContentProvider } from '../../../../services/DynamicContentProvider'
 import { isKnownGuest } from '../../../../utils/authState'
 import { analyzeBeatGrid } from '../../../../utils/beatAnalyzer'
+import { getClientGeoLocation } from '../../../../utils/geoLocation'
 import {
   getLyricsWithVerbatim,
   getNeteaseAudioUrlImmediate,
@@ -1569,10 +1570,21 @@ export function registerContextHandlers(
 
   bridge.registerHandler('context.getGeo', async () => {
     try {
-      const geo = await TappApiService.getContextGeo(
-        await bridge.getRuntimeGrant(),
-      )
-      return { success: true, data: geo }
+      const geo = await getClientGeoLocation()
+      if (!geo) {
+        return { success: false, error: 'geolocation unavailable' }
+      }
+      return {
+        success: true,
+        data: {
+          lat: geo.latitude,
+          lon: geo.longitude,
+          city: geo.city,
+          region: geo.region ?? '',
+          country: geo.country ?? '',
+          countryCode: geo.countryCode,
+        },
+      }
     } catch (error) {
       return {
         success: false,

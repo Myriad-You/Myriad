@@ -15,6 +15,7 @@ import {
 import { useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
 import { InputItem, ManagedList } from '../../settings'
+import { mediaPointerUrl } from '../logic/mediaPointer'
 import {
   collectWorkbenchMediaFormats,
   filterWorkbenchMedia,
@@ -24,7 +25,6 @@ import {
   workbenchMediaRefLabel,
 } from '../logic/workbench'
 import { noteScheduleLabel } from '../notes/noteBoard'
-import { displayImageUrl } from '../notes/noteImageUrl'
 import { PhantasiWorkbenchIcon } from '../ui/PhantasiWorkbenchIcon'
 import { MediaEditorDialog } from './MediaEditorDialog'
 import { PageAction, WorkbenchPage } from './PhantasiWorkbenchChrome'
@@ -95,7 +95,7 @@ export function WorkbenchMediaPane({
   const mediaItems = useMemo<ManagedListItem[]>(
     () =>
       visibleMedia.map((item) => {
-        const src = displayImageUrl(item.url)
+        const src = mediaPointerUrl(item.url) ?? undefined
         const inUse = item.references.length > 0
         const refs = workbenchMediaRefLabel(item.references, {
           notes: phantasi.workbenchNotes,

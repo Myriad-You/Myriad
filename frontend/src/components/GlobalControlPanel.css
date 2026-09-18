@@ -1114,6 +1114,27 @@ html.gcp-widget-edit .control-panel-overlay.visible {
   flex-shrink: 0;
 }
 
+.dynamic-notification-affordance {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: 0;
+  cursor: pointer;
+}
+
+.dynamic-notification-affordance:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary, #94a3b8) 65%, white);
+  outline-offset: 2px;
+  border-radius: 9px;
+}
+
 .tapp-resident-indicator {
   display: inline-flex;
   align-items: center;

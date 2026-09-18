@@ -112,14 +112,28 @@ impl AgentRun {
             mpsc::channel::<(AgentRunEnvelope, PersistedAgentRun)>(PERSISTENCE_QUEUE_LIMIT);
         tokio::spawn(async move {
             while let Some((envelope, snapshot)) = rx.recv().await {
-                if tokio::time::timeout(
+                match tokio::time::timeout(
                     std::time::Duration::from_secs(30),
                     Self::persist(&envelope, &snapshot),
                 )
                 .await
-                .is_err()
                 {
-                    tracing::warn!(run_id = %snapshot.run_id, sequence = envelope.sequence, "[Agent Run] Persistence timed out");
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => {
+                        tracing::error!(
+                            run_id = %snapshot.run_id,
+                            sequence = envelope.sequence,
+                            %error,
+                            "[Agent Run] Failed to persist shared run snapshot"
+                        );
+                    }
+                    Err(_) => {
+                        tracing::error!(
+                            run_id = %snapshot.run_id,
+                            sequence = envelope.sequence,
+                            "[Agent Run] Persistence timed out"
+                        );
+                    }
                 }
             }
         });
@@ -262,35 +276,22 @@ ORDER BY record_id ASC
             .collect()
     }
 
-    async fn persist(envelope: &AgentRunEnvelope, snapshot: &PersistedAgentRun) {
-        let Ok(db) = shared_registry::database() else {
-            tracing::warn!(run_id = %snapshot.run_id, "[Agent Run] Database unavailable; run snapshot remains local");
-            return;
-        };
+    async fn persist(
+        envelope: &AgentRunEnvelope,
+        snapshot: &PersistedAgentRun,
+    ) -> Result<(), String> {
+        let db = shared_registry::database().map_err(|error| error.to_string())?;
         let expires_at =
             (snapshot.updated_at + chrono::Duration::hours(RUN_RETENTION_HOURS)).timestamp();
-        let snapshot_payload = match serde_json::to_value(&snapshot) {
-            Ok(payload) => payload,
-            Err(error) => {
-                tracing::warn!(run_id = %snapshot.run_id, %error, "[Agent Run] Failed to serialize run snapshot");
-                return;
-            }
-        };
-        let event_payload = match serde_json::to_value(envelope) {
-            Ok(payload) => payload,
-            Err(error) => {
-                tracing::warn!(run_id = %snapshot.run_id, %error, "[Agent Run] Failed to serialize run event");
-                return;
-            }
-        };
+        let snapshot_payload = serde_json::to_value(&snapshot)
+            .map_err(|error| format!("Failed to serialize run snapshot: {error}"))?;
+        let event_payload = serde_json::to_value(envelope)
+            .map_err(|error| format!("Failed to serialize run event: {error}"))?;
         let event_record_id = format!("{}:{:020}", snapshot.run_id, envelope.sequence);
-        let transaction = match db.begin().await {
-            Ok(transaction) => transaction,
-            Err(error) => {
-                tracing::warn!(run_id = %snapshot.run_id, %error, "[Agent Run] Failed to begin persistence transaction");
-                return;
-            }
-        };
+        let transaction = db
+            .begin()
+            .await
+            .map_err(|error| format!("Failed to begin persistence transaction: {error}"))?;
         let result = async {
             transaction
                 .execute_raw(Statement::from_sql_and_values(
@@ -367,10 +368,12 @@ WHERE namespace = $1 AND runtime_id = $2
             transaction.commit().await
         }
         .await;
-        if let Err(error) = result {
-            tracing::warn!(run_id = %snapshot.run_id, %error, "[Agent Run] Failed to persist shared run snapshot");
-        } else {
-            shared_registry::maybe_cleanup(&db).await;
+        match result {
+            Ok(()) => {
+                shared_registry::maybe_cleanup(&db).await;
+                Ok(())
+            }
+            Err(error) => Err(error.to_string()),
         }
     }
 
@@ -691,7 +694,7 @@ pub async fn user_executing_run_count(user_id: i32) -> usize {
     count
 }
 
-pub async fn get_run_for_user(run_id: &str, user_id: i32) -> Option<Arc<AgentRun>> {
+pub async fn get_run_for_user(run_id: &str, user_id: i32) -> Result<Option<Arc<AgentRun>>, String> {
     if let Some(run) = AGENT_RUNS
         .read()
         .await
@@ -699,24 +702,34 @@ pub async fn get_run_for_user(run_id: &str, user_id: i32) -> Option<Arc<AgentRun
         .filter(|run| run.user_id == user_id)
         .cloned()
     {
-        return Some(run);
+        return Ok(Some(run));
     }
 
-    let db = shared_registry::database().ok()?;
-    let persisted = shared_registry::get::<PersistedAgentRun>(&db, RUN_REGISTRY_NAMESPACE, run_id)
-        .await
-        .ok()??;
+    let db = shared_registry::database().map_err(|error| error.to_string())?;
+    let persisted = match shared_registry::get::<PersistedAgentRun>(
+        &db,
+        RUN_REGISTRY_NAMESPACE,
+        run_id,
+    )
+    .await
+    {
+        Ok(Some(persisted)) => persisted,
+        Ok(None) => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    };
     if persisted.user_id != user_id || persisted.run_id != run_id {
-        return None;
+        return Ok(None);
     }
-    let events = AgentRun::load_persisted_events(&db, run_id).await.ok()?;
+    let events = AgentRun::load_persisted_events(&db, run_id)
+        .await
+        .map_err(|error| error.to_string())?;
     let run = AgentRun::from_persisted(persisted, events);
     let mut runs = AGENT_RUNS.write().await;
-    Some(
+    Ok(Some(
         runs.entry(run_id.to_string())
             .or_insert_with(|| run.clone())
             .clone(),
-    )
+    ))
 }
 
 /// Live-only lookup for transient playback; no disk rehydration or model call.
@@ -865,6 +878,64 @@ mod tests {
         assert_eq!(restored_history.len(), 3);
         assert_eq!(restored_sequence, 3);
         assert!(restored_completed);
+    }
+
+    #[tokio::test]
+    async fn persist_fails_when_database_unavailable() {
+        if shared_registry::database().is_ok() {
+            return;
+        }
+        let snapshot = PersistedAgentRun {
+            run_id: "run_persist_err".into(),
+            user_id: 1,
+            session_id: None,
+            created_at: Utc::now(),
+            next_sequence: 2,
+            task_id: None,
+            status: "running".into(),
+            progress: 0,
+            message: "x".into(),
+            completed: false,
+            updated_at: Utc::now(),
+        };
+        let envelope = AgentRunEnvelope {
+            sequence: 1,
+            event: AgentProgressEvent::RunStarted {
+                run_id: "run_persist_err".into(),
+                session_id: None,
+            },
+        };
+        assert!(
+            AgentRun::persist(&envelope, &snapshot).await.is_err(),
+            "missing DB must not look like a successful durable write"
+        );
+    }
+
+    #[tokio::test]
+    async fn rehydrate_error_is_not_missing_run() {
+        if shared_registry::database().is_ok() {
+            return;
+        }
+        let result = get_run_for_user("run_does_not_exist", 42).await;
+        assert!(
+            result.is_err(),
+            "registry/db error must not look like a missing run"
+        );
+    }
+
+    #[tokio::test]
+    async fn live_run_lookup_does_not_require_registry() {
+        let run = AgentRun::new("run_live_lookup".into(), 77, None);
+        AGENT_RUNS
+            .write()
+            .await
+            .insert(run.run_id().to_string(), run.clone());
+        let found = get_run_for_user(run.run_id(), 77)
+            .await
+            .unwrap()
+            .expect("live run");
+        assert_eq!(found.run_id(), run.run_id());
+        AGENT_RUNS.write().await.remove(run.run_id());
     }
 
     #[tokio::test]

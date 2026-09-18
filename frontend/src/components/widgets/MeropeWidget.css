@@ -76,6 +76,12 @@
   animation: merope-widget-talk 0.58s ease-in-out infinite alternate;
 }
 
+html[data-page-hidden] .merope-widget__rig--idle[data-rig-quality='static'],
+html[data-page-hidden] .merope-widget__rig--thinking[data-rig-quality='static'],
+html[data-page-hidden] .merope-widget__rig--talking[data-rig-quality='static'] {
+  animation-play-state: paused;
+}
+
 .merope-widget__surface[data-face-phase='enter'] .merope-widget__rig,
 .merope-widget__surface[data-face-phase='exit'] .merope-widget__rig,
 .merope-widget__surface[data-face-phase='pending'] .merope-widget__rig,
