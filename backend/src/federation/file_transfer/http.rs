@@ -607,7 +607,7 @@ pub async fn upload_chunk(
                     "isLast": is_last_chunk
                 }
             });
-            let _ = crate::federation::room::fanout_to_remote_members(
+            if let Err(error) = crate::federation::room::fanout_to_remote_members(
                 db,
                 user_id,
                 rid,
@@ -616,7 +616,10 @@ pub async fn upload_chunk(
                 "FileTransfer",
                 "FileChunk",
             )
-            .await;
+            .await
+            {
+                tracing::warn!(%error, "file chunk room fanout failed");
+            }
         } else if let Some(inbox) = remote_inbox.filter(|i| !i.is_empty()) {
             let activity_id = generate_activity_id(&base_url);
             let chunk_activity = json!({
@@ -1144,7 +1147,7 @@ pub async fn cancel_transfer(
             "actor": &local_actor,
             "object": cancel_object
         });
-        let _ = crate::federation::room::fanout_to_remote_members(
+        if let Err(error) = crate::federation::room::fanout_to_remote_members(
             db,
             user_id,
             rid,
@@ -1153,7 +1156,10 @@ pub async fn cancel_transfer(
             "FileTransfer",
             "FileCancel",
         )
-        .await;
+        .await
+        {
+            tracing::warn!(%error, "file cancel room fanout failed");
+        }
         crate::federation::ws_gateway::broadcast_to_room(
             rid,
             &json!({
@@ -1229,8 +1235,12 @@ mod tests {
         assert!(src.contains("insert_local_activity"));
         assert!(src.contains("enqueue_delivery"));
         assert!(src.contains("fanout_to_remote_members"));
+        // Built at runtime so this assertion's own literal is not the needle it
+        // forbids (include_str! would otherwise always match it).
+        let ignored =
+            ["let _ = crate::federation::room::", "fanout_to_remote_members"].concat();
         assert!(
-            !src.contains("let _ = crate::federation::room::fanout_to_remote_members"),
+            !src.contains(&ignored),
             "room transfer fanout must not be ignored after pending insert"
         );
     }

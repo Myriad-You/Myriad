@@ -584,7 +584,10 @@ mod tests {
         let src = include_str!("publish.rs");
         assert!(src.contains("query_all_raw"));
         assert!(src.contains("unique_unpublish_row"));
-        assert!(!src.contains("`LIMIT 2` then `query_one_raw`"));
+        // Built at runtime so this assertion's own literal is not the needle it
+        // forbids (include_str! would otherwise always match it).
+        let legacy = ["`LIMIT 2`", " then ", "`query_one_raw`"].concat();
+        assert!(!src.contains(&legacy));
     }
 }
 use myriad_error::AppError;
