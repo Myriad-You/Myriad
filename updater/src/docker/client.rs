@@ -847,18 +847,11 @@ mod worker_presence_tests {
 
     #[tokio::test]
     async fn force_stop_treats_inspect_404_as_already_stopped() {
-        async fn fake_guard(uri: Uri) -> impl IntoResponse {
-            if uri.path().ends_with("/containers/missing/json") {
-                (
-                    StatusCode::NOT_FOUND,
-                    Json(serde_json::json!({"message": "no such container"})),
-                )
-            } else {
-                (
-                    StatusCode::NOT_FOUND,
-                    Json(serde_json::json!({"message": "no such container"})),
-                )
-            }
+        async fn fake_guard(_uri: Uri) -> impl IntoResponse {
+            (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"message": "no such container"})),
+            )
         }
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
@@ -880,18 +873,11 @@ mod worker_presence_tests {
 
     #[tokio::test]
     async fn force_stop_does_not_treat_inspect_failure_as_stopped() {
-        async fn fake_guard(uri: Uri) -> impl IntoResponse {
-            if uri.path().contains("/containers/") && uri.path().ends_with("/json") {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"message": "daemon unavailable"})),
-                )
-            } else {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"message": "daemon unavailable"})),
-                )
-            }
+        async fn fake_guard(_uri: Uri) -> impl IntoResponse {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"message": "daemon unavailable"})),
+            )
         }
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());

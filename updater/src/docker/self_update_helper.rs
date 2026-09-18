@@ -1579,7 +1579,7 @@ mod tests {
         let mut changed = identity.clone();
         changed.version = "v0.4.6".into();
         assert!(persist_reconciled_policy(&cfg, &vec![changed; 3]).is_err());
-        assert!(persist_reconciled_policy(&cfg, &[identity.clone()]).is_err());
+        assert!(persist_reconciled_policy(&cfg, std::slice::from_ref(&identity)).is_err());
         let mut live_updater_view = std::fs::File::open(&cfg.app_env_file).unwrap();
         persist_reconciled_policy(&cfg, &vec![identity; 3]).unwrap();
         let mut live_text = String::new();
