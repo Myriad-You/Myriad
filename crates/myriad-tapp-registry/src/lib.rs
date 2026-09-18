@@ -552,6 +552,7 @@ WHERE namespace = $1
     Ok(result.rows_affected())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn delete_matching_payload_text(
     db: &impl ConnectionTrait,
     namespace: &str,
