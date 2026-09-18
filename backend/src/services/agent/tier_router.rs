@@ -136,6 +136,11 @@ impl TierRouter {
             // 其余只读查询
             "random.content" | "permission.check" | "report.list" => TaskComplexity::Simple,
 
+            // Agent SEO/GEO：inspect 只读、apply 只写，均不调用模型；
+            // generate 依据 inspect 事实起草文案，走一次模型。
+            "seo.inspect" | "seo.apply" => TaskComplexity::Simple,
+            "seo.generate" => TaskComplexity::Medium,
+
             // Skill 执行会先跑一次 AI 把 instructions 翻译成调用序列
             id if id.starts_with("skill:") => TaskComplexity::Medium,
             // MCP 工具是外部进程调用，不消耗本地模型预算

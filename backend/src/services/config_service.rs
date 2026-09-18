@@ -912,12 +912,14 @@ impl ConfigService {
         if let Some(v) = map.get("site_ai_intro") {
             config.site_ai_intro = v.as_str().map(|s| s.to_string());
         }
-        config.site_seo_review_cadence = crate::api::seo_policy::normalize_seo_review_cadence(
-            map.get("site_seo_review_cadence")
-                .and_then(|v| v.as_str())
-                .unwrap_or(""),
-        )
-        .to_string();
+        if let Some(v) = map.get("site_seo_review_cadence") {
+            config.site_seo_review_cadence =
+                crate::api::seo_policy::normalize_seo_review_cadence(v.as_str().unwrap_or(""))
+                    .to_string();
+        } else {
+            config.site_seo_review_cadence =
+                crate::api::seo_policy::normalize_seo_review_cadence("").to_string();
+        }
         // Keep noindex in sync with policy when policy is set.
         if !config.site_visibility_policy.trim().is_empty() {
             let pol = config.site_visibility_policy.trim();
