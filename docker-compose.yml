@@ -390,9 +390,11 @@ services:
 
   docker-guard:
     # Writes ./guard-policy/docker-guard.env on first start.
-    # Normal host deployment follows TAG. Trusted handoffs use a temporary,
-    # operation-scoped Compose override with freshly verified exact digests.
-    image: ${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG:?Set UPDATER_TAG to a release or dev tag}
+    # Normal host deployment follows TAG. Trusted handoffs select freshly
+    # verified exact digests through process-only MYRIAD_TCB_GUARD_IMAGE, which
+    # is never written to .env nor passed as a `-f` override, so later host-side
+    # rebuilds fall back to TAG.
+    image: ${MYRIAD_TCB_GUARD_IMAGE:-${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG:?Set UPDATER_TAG to a release or dev tag}}
     container_name: myriad-docker-guard
     entrypoint: ["/bin/sh", "-c"]
     command:
@@ -407,7 +409,7 @@ services:
       MYRIAD_DOCKER_GUARD_NETWORK: ${GUARD_MYRIAD_DOCKER_GUARD_NETWORK:-myriad-docker-guard-net}
       DOCKER_GUARD_COMPOSE_DIR: /host/compose
       DOCKER_GUARD_STATE_DIR: /host/state
-      DOCKER_GUARD_EXPECTED_IMAGE: ${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG:?Set UPDATER_TAG to a release or dev tag}
+      DOCKER_GUARD_EXPECTED_IMAGE: ${MYRIAD_TCB_GUARD_IMAGE:-${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG:?Set UPDATER_TAG to a release or dev tag}}
       DOCKER_GUARD_HOST_POLICY_PATH: /guard-policy/docker-guard.env
       # Dedicated capability from the host-owned policy file. It is separate
       # from UPDATE_TOKEN and prevents unrelated guard-net peers from invoking
@@ -443,7 +445,7 @@ services:
 
   updater:
     # Cached pins never override an operator's deployment target.
-    image: ${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG:?Set UPDATER_TAG to a release or dev tag}
+    image: ${MYRIAD_TCB_UPDATER_IMAGE:-${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG:?Set UPDATER_TAG to a release or dev tag}}
     container_name: myriad-updater
     environment:
       UPDATE_TOKEN: ${UPDATE_TOKEN}
@@ -526,7 +528,7 @@ services:
     # Same image/tag as updater; thin binary injects UPDATE_TOKEN for backend.
     # Requires UPDATER_GATEWAY_SECRET from backend hop. Not created via docker-guard
     # create API — managed business services only; TCB upgrades use Guard's dedicated handoff.
-    image: ${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG:?Set UPDATER_TAG to a release or dev tag}
+    image: ${MYRIAD_TCB_GATEWAY_IMAGE:-${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG:?Set UPDATER_TAG to a release or dev tag}}
     container_name: myriad-updater-gateway
     entrypoint: ["/usr/bin/tini", "--", "/usr/local/bin/myriad-updater-gateway"]
     environment:

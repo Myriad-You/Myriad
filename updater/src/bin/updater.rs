@@ -45,6 +45,7 @@ async fn main() -> Result<()> {
     logging::init();
 
     info!(version = self_version(), "myriad-updater starting");
+    require_absolute_compose_dir(&cli.compose_dir)?;
 
     // Phase 1: load config & open state. Failures here are fatal.
     let config = Config::load_from_env().map_err(|e| {
@@ -212,6 +213,20 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// The deployment root is used both as a container path and (via
+/// `MYRIAD_COMPOSE_HOST_ROOT`) as a Compose bind target, so it must be absolute.
+/// A relative value would only fail later, deep inside `docker compose`.
+fn require_absolute_compose_dir(path: &std::path::Path) -> Result<()> {
+    if path.is_absolute() {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "UPDATER_COMPOSE_DIR must be an absolute path (got {}); set \
+         MYRIAD_COMPOSE_HOST_ROOT to an absolute host path or leave it unset",
+        path.display()
+    )
+}
+
 /// Wait for Ctrl+C or (on Unix) SIGTERM so Docker/K8s `stop` enters Axum graceful shutdown.
 async fn shutdown_signal() {
     use tokio::signal;
@@ -240,5 +255,16 @@ async fn shutdown_signal() {
         _ = terminate => {
             info!("Received terminate signal");
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::require_absolute_compose_dir;
+
+    #[test]
+    fn compose_dir_must_be_absolute() {
+        assert!(require_absolute_compose_dir(std::path::Path::new("/host/compose")).is_ok());
+        assert!(require_absolute_compose_dir(std::path::Path::new("host/compose")).is_err());
     }
 }

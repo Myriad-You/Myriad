@@ -255,8 +255,10 @@ bash scripts/extra/deploy.sh upgrade
 This requires the current Compose file: older `image:` expressions that prefer
 pins remain pin-first until the host composition is updated. Guard refreshes
 records after inspecting the healthy deployment. Automated self-updates and
-rollbacks use a temporary exact-image Compose override for that transaction only;
-they do not leave a persistent override that could defeat the next manual TAG change.
+rollbacks select the verified exact digests for that transaction through
+process-only `MYRIAD_TCB_*_IMAGE` variables: they are never written to `.env`
+nor passed as a Compose `-f` override, so a later host-side rebuild (1Panel)
+falls back to `UPDATER_TAG` and cannot be pinned by a leftover selector.
 
 Day-to-day updates should be started from the admin UI:
 

@@ -614,20 +614,6 @@ pub(super) fn write_status(path: &Path, status: &SelfUpdateLastStatus) -> Result
     atomic::write_atomic_json(path, status)
 }
 
-fn exact_image_override(images: &[String; 3]) -> Result<Value> {
-    for image in images {
-        validate_exact_image(image)?;
-    }
-    Ok(serde_json::json!({"services": {
-        "docker-guard": {
-            "image": images[0],
-            "environment": {"DOCKER_GUARD_EXPECTED_IMAGE": images[0]}
-        },
-        "updater": {"image": images[1]},
-        "updater-gateway": {"image": images[2]}
-    }}))
-}
-
 fn run_compose(
     cfg: &HelperConfig,
     files: &[PathBuf],
@@ -636,23 +622,14 @@ fn run_compose(
     tail: &[&str],
 ) -> Result<Vec<u8>> {
     // Pins in .env are observations, not deployment selectors. Only this
-    // authenticated, fixed-service handoff may select per-service exact images
-    // for its current transaction. Never leave an override in the project: a
-    // subsequent host `compose up` must honor UPDATER_TAG again.
-    // Persist the exact-image override under the deployment root instead of a
-    // private temp file. Compose records every `-f` in the container label
-    // com.docker.compose.project.config_files, and host-side managers (1Panel)
-    // open each entry on the host. A deleted temp path would dangle; the host
-    // path below stays valid because the deployment root is identity-mounted.
-    let override_write = cfg
-        .status_file
-        .parent()
-        .ok_or_else(|| UpdaterError::Precondition("self-update status has no parent".into()))?
-        .join("self-update-override.json");
-    std::fs::write(&override_write, serde_json::to_vec(&exact_image_override(images)?)?)?;
-    let override_host = Path::new(&cfg.host_compose_root)
-        .join("state")
-        .join("self-update-override.json");
+    // authenticated, fixed-service handoff may select per-service exact images,
+    // and it does so through process-only env (MYRIAD_TCB_*_IMAGE). Never pass a
+    // `-f` override: Compose records every `-f` in the container label
+    // com.docker.compose.project.config_files, so a persisted selector would pin
+    // images on later host-side rebuilds (1Panel) instead of honoring UPDATER_TAG.
+    for image in images {
+        validate_exact_image(image)?;
+    }
     let mut command = Command::new("docker");
     command.args([
         "compose",
@@ -666,15 +643,18 @@ fn run_compose(
     for file in files {
         command.arg("-f").arg(file);
     }
-    command.arg("-f").arg(&override_host);
     command
         .arg("--env-file")
         .arg(&cfg.app_env_file)
         .arg("--env-file")
         .arg(&cfg.guard_env_file)
         .args(tail)
-        // Keep old Compose files compatible; the exact-image override above is
-        // authoritative even when the base file selects images solely by TAG.
+        // Select the Guard-verified exact digests for this transaction via
+        // process-only env; the base compose falls back to UPDATER_TAG when they
+        // are unset, so a later host `compose up` selects by TAG again.
+        .env("MYRIAD_TCB_GUARD_IMAGE", &images[0])
+        .env("MYRIAD_TCB_UPDATER_IMAGE", &images[1])
+        .env("MYRIAD_TCB_GATEWAY_IMAGE", &images[2])
         .env("UPDATER_IMAGE_REF", &images[1])
         .env("UPDATER_GATEWAY_IMAGE_REF", &images[2])
         .env("UPDATER_TAG", tag)
@@ -1419,7 +1399,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires Docker Compose CLI; no Docker daemon or network needed"]
-    fn compose_handoff_and_rollback_use_temporary_exact_images_without_shadowing_manual_tag() {
+    fn compose_handoff_selects_exact_images_without_shadowing_manual_tag() {
         let dir = tempfile::tempdir().unwrap();
         let mut cfg = config();
         cfg.compose_dir = dir.path().to_owned();
@@ -1432,11 +1412,13 @@ mod tests {
         std::fs::write(&cfg.app_env_file, "UPDATER_TAG=v0.4.14\nUPDATER_IMAGE_REF=stale-updater\nUPDATER_GATEWAY_IMAGE_REF=stale-gateway\nDOCKER_GUARD_IMAGE=stale-guard\n").unwrap();
         std::fs::write(&cfg.guard_env_file, "DOCKER_GUARD_IMAGE=stale-host-pin\n").unwrap();
         let compose = dir.path().join("compose.json");
-        let tag_image = "docker.io/somekawahitomi/myriad-updater:${UPDATER_TAG}";
         let base = serde_json::json!({"services": {
-            "docker-guard": {"image": tag_image, "environment": {"DOCKER_GUARD_EXPECTED_IMAGE": tag_image}},
-            "updater": {"image": tag_image},
-            "updater-gateway": {"image": tag_image},
+            "docker-guard": {
+                "image": "${MYRIAD_TCB_GUARD_IMAGE:-docker.io/somekawahitomi/myriad-updater:${UPDATER_TAG}}",
+                "environment": {"DOCKER_GUARD_EXPECTED_IMAGE": "${MYRIAD_TCB_GUARD_IMAGE:-docker.io/somekawahitomi/myriad-updater:${UPDATER_TAG}}"}
+            },
+            "updater": {"image": "${MYRIAD_TCB_UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater:${UPDATER_TAG}}"},
+            "updater-gateway": {"image": "${MYRIAD_TCB_GATEWAY_IMAGE:-docker.io/somekawahitomi/myriad-updater:${UPDATER_TAG}}"},
             "proxy": {"image": "docker.io/somekawahitomi/myriad-proxy:v0.3.32"}
         }});
         std::fs::write(&compose, serde_json::to_vec(&base).unwrap()).unwrap();
@@ -1472,8 +1454,9 @@ mod tests {
                 base["services"]["proxy"]["image"]
             );
         }
-        // A later ordinary host invocation has no handoff override, even though
-        // all three stale pins still exist in its two env files.
+        // A later ordinary host invocation (e.g. a 1Panel rebuild) does not set
+        // the handoff selectors, so the TCB images resolve by TAG again even
+        // though the stale observed *_REF pins still sit in both env files.
         let output = Command::new("docker")
             .args(["compose", "-p", "myriad-tag-test", "-f"])
             .arg(&compose)
@@ -1483,6 +1466,9 @@ mod tests {
             .arg(&cfg.guard_env_file)
             .args(["config", "--format", "json"])
             .env_remove("UPDATER_TAG")
+            .env_remove("MYRIAD_TCB_GUARD_IMAGE")
+            .env_remove("MYRIAD_TCB_UPDATER_IMAGE")
+            .env_remove("MYRIAD_TCB_GATEWAY_IMAGE")
             .output()
             .unwrap();
         assert!(
@@ -1497,19 +1483,21 @@ mod tests {
                 "docker.io/somekawahitomi/myriad-updater:v0.4.14"
             );
         }
+        // No handoff override file may remain under the deployment root.
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 3);
+        assert!(!dir.path().join("state/self-update-override.json").exists());
     }
 
     #[test]
-    fn transaction_image_override_rejects_untrusted_refs() {
-        let mut images = std::array::from_fn(|_| exact_image());
-        assert!(exact_image_override(&images).is_ok());
+    fn transaction_image_selection_rejects_untrusted_refs() {
+        let mut images: [String; 3] = std::array::from_fn(|_| exact_image());
+        assert!(images.iter().all(|image| validate_exact_image(image).is_ok()));
         for bad in [
             "evil.example/updater:v1.2.3",
             "docker.io/somekawahitomi/myriad-updater:v1.2.3",
         ] {
             images[2] = bad.into();
-            assert!(exact_image_override(&images).is_err());
+            assert!(validate_exact_image(&images[2]).is_err());
         }
     }
 
@@ -1818,6 +1806,29 @@ mod tests {
             assert!(text.contains(
                 "MYRIAD_SETUP_SECRET: ${MYRIAD_SETUP_SECRET:?Set MYRIAD_SETUP_SECRET in .env}"
             ));
+        }
+    }
+
+    #[test]
+    fn official_compose_selects_tcb_images_by_process_env_with_tag_fallback() {
+        let compose = include_str!("../../../docker-compose.yml");
+        let example = include_str!(
+            "../../../docs/deployment/examples/docker-compose.external-db.example.yml"
+        );
+        for text in [compose, example] {
+            for selector in [
+                "${MYRIAD_TCB_GUARD_IMAGE:-",
+                "${MYRIAD_TCB_UPDATER_IMAGE:-",
+                "${MYRIAD_TCB_GATEWAY_IMAGE:-",
+            ] {
+                assert!(text.contains(selector), "missing {selector}");
+            }
+            // The observed *_REF / DOCKER_GUARD_IMAGE records must never become
+            // Compose image selectors, or a host-side rebuild (1Panel) would pin
+            // instead of honoring UPDATER_TAG.
+            assert!(!text.contains("image: ${UPDATER_IMAGE_REF"));
+            assert!(!text.contains("image: ${UPDATER_GATEWAY_IMAGE_REF"));
+            assert!(!text.contains("image: ${DOCKER_GUARD_IMAGE"));
         }
     }
 
