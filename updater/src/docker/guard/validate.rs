@@ -52,6 +52,10 @@ pub(crate) fn validate_container_rename(
         .unwrap_or(requested);
     let allowed = [
         "backend",
+        // Compose recreates the one-shot volume initializer in place on every
+        // update (`init_backend_volumes`), so its rename must be permitted just
+        // like the services. `service_images` already allows creating it.
+        "backend-volume-init",
         "federation-worker",
         "persona-worker",
         "frontend",

@@ -898,6 +898,10 @@ fn compose_recreate_rename_is_narrowly_allowed() {
         "myriad-backend-1",
         "myriad_backend_1",
         "0fea459923c4_myriad-backend-1",
+        // The one-shot volume initializer is recreated (and therefore renamed)
+        // on every update; `init_backend_volumes` depends on this.
+        "myriad-backend-volume-init",
+        "0fea459923c4_myriad-backend-volume-init",
     ] {
         let uri: Uri = format!("/v1.51/containers/abc123/rename?name={name}")
             .parse()
