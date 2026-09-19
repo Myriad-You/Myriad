@@ -764,7 +764,7 @@ docker compose --env-file .env --env-file ./guard-policy/docker-guard.env up -d 
   frontend / postgres / federation-worker / persona-worker 不得 dual-home 到 guard 网，避免在 updater 被攻破后把业务容器拉进
   未鉴权的 Docker API（`:2375`）。
 - **允许的网络名**（create/connect）：业务 `myriad-net`、管理平面 `myriad-admin-net`
-  （`MYRIAD_ADMIN_NETWORK`）、guard-net，以及 `MYRIAD_BACKEND_EXTRA_NETWORK`（默认 `myriad-backend-ext`，仅 backend / federation-worker / persona-worker）。其它网络名拒绝。
+  （`MYRIAD_ADMIN_NETWORK`）、guard-net，以及 `MYRIAD_BACKEND_EXTRA_NETWORK`（默认 `myriad-backend-ext`，仅 backend / federation-worker / persona-worker）。内置兜底还放行面板网络 `1panel-network`（服务范围同上，1Panel 自行挂载，无需显式配置）。其它网络名拒绝。
 - **更新 preflight**（不改编排，仅只读探测，失败则**不停服**）：
   1. **本地环境**：`.env` 仍含 `MYRIAD_TAG` / `PROXY_TAG` / `UPDATER_TAG`；compose 仍引用
      `${MYRIAD_TAG}`；`state/`（及 bundled 下 `state/snapshots/`）与 `.env` 可写；经

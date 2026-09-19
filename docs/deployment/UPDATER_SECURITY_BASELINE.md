@@ -125,6 +125,8 @@ services from the host first; only then remove that sentinel and restart Guard.
 Preflight and Guard share the service attachment policy: backend and both workers
 may additionally join the existing `MYRIAD_BACKEND_EXTRA_NETWORK` network (default
 `myriad-backend-ext`, any valid Docker name not colliding with the managed networks).
+The panel network `1panel-network` is accepted for those same three services even
+without an explicit selector, because 1Panel attaches it on its own.
 Frontend, proxy, postgres, updater and other services cannot join it through Guard.
 Workers still cannot join admin/Guard networks; networks not named by that key are
 rejected. Network creation remains a host operation. Older updater/Guard builds that

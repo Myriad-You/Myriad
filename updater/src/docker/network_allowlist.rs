@@ -16,6 +16,13 @@ use crate::error::UpdaterError;
 /// differ from the three managed networks (business/admin/guard).
 pub const DEFAULT_EXTERNAL_DATABASE_NETWORK: &str = "myriad-backend-ext";
 
+/// Built-in extra networks that the database clients may join even when the
+/// operator has not declared `MYRIAD_BACKEND_EXTRA_NETWORK`. These are
+/// first-party panel networks a host-side manager attaches on its own, so the
+/// Guard must recognize them without an explicit selector. Same service scope
+/// as the configured external network; never overrides the managed networks.
+pub const FALLBACK_EXTRA_NETWORKS: &[&str] = &["1panel-network"];
+
 /// Shared by preflight and Guard create/connect/disconnect authorization.
 pub(crate) fn service_network_allowed(
     service: &str,
@@ -26,7 +33,8 @@ pub(crate) fn service_network_allowed(
     external: &str,
 ) -> bool {
     let network = network.trim_start_matches('/');
-    if network == external && network != business && network != admin && network != guard {
+    let managed = network == business || network == admin || network == guard;
+    if !managed && (network == external || FALLBACK_EXTRA_NETWORKS.contains(&network)) {
         return matches!(service, "backend" | "federation-worker" | "persona-worker");
     }
     match service {
@@ -95,6 +103,7 @@ impl NetworkAllowlist {
             || name == self.admin_network
             || name == self.guard_network
             || name == self.external_database_network
+            || FALLBACK_EXTRA_NETWORKS.contains(&name)
     }
 
     pub fn allows_service(&self, service: &str, name: &str) -> bool {
@@ -110,11 +119,12 @@ impl NetworkAllowlist {
 
     pub fn describe(&self) -> String {
         format!(
-            "{}, {}, {}, {} (backend/federation-worker/persona-worker only)",
+            "{}, {}, {}, {} (backend/federation-worker/persona-worker only), {} (built-in extra network, same services)",
             self.compose_network,
             self.admin_network,
             self.guard_network,
-            self.external_database_network
+            self.external_database_network,
+            FALLBACK_EXTRA_NETWORKS.join(", ")
         )
     }
 }
@@ -289,6 +299,32 @@ mod tests {
         assert!(custom.contains("my-custom-db-net"));
         assert!(!custom.contains("myriad-backend-ext"));
         assert!(!custom.allows_service("frontend", "my-custom-db-net"));
+    }
+
+    #[test]
+    fn builtin_fallback_network_allows_only_database_clients() {
+        let a = allow();
+        for service in ["backend", "federation-worker", "persona-worker"] {
+            assert!(a.allows_service(service, "1panel-network"), "{service}");
+        }
+        for service in [
+            "frontend",
+            "proxy",
+            "postgres",
+            "updater",
+            "updater-gateway",
+            "docker-guard",
+            "backend-volume-init",
+        ] {
+            assert!(!a.allows_service(service, "1panel-network"), "{service}");
+        }
+        assert!(a.contains("1panel-network"));
+        assert!(a.contains("/1panel-network"));
+        // Managed networks keep their normal service rules; the fallback branch
+        // only adds extra networks.
+        assert!(a.allows_service("backend", "myriad-net"));
+        assert!(a.allows_service("frontend", "myriad-net"));
+        assert!(!a.allows_service("frontend", "myriad-admin-net"));
     }
 
     #[test]

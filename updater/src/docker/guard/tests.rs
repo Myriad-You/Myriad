@@ -1046,6 +1046,36 @@ fn custom_external_database_network_name_is_accepted() {
 }
 
 #[test]
+fn builtin_fallback_network_name_is_accepted() {
+    let s = state();
+    // 1Panel attaches this network on its own; it is allowed for the database
+    // clients without an explicit MYRIAD_BACKEND_EXTRA_NETWORK selector.
+    for service in ["backend", "federation-worker", "persona-worker"] {
+        assert!(authorize_guard_network_attachment(service, "1panel-network", &s.config).is_ok());
+    }
+    for service in ["frontend", "proxy", "postgres", "updater", "updater-gateway"] {
+        assert!(
+            authorize_guard_network_attachment(service, "1panel-network", &s.config).is_err(),
+            "{service}"
+        );
+    }
+    let backend = create_with_networking(
+        "backend",
+        "docker.io/example/backend:v1.2.3",
+        json!({"NetworkMode": "myriad-net"}),
+        json!({"myriad-net": {}, "1panel-network": {}}),
+    );
+    assert!(validate_container_create(&s, &backend).is_ok());
+    let frontend = create_with_networking(
+        "frontend",
+        "docker.io/example/frontend:v1.2.3",
+        json!({"NetworkMode": "myriad-net"}),
+        json!({"myriad-net": {}, "1panel-network": {}}),
+    );
+    assert!(validate_container_create(&s, &frontend).is_err());
+}
+
+#[test]
 fn generic_api_cannot_create_any_guard_network_client() {
     let s = state();
     let backend = create_with_networking(

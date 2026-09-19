@@ -134,7 +134,7 @@ docker network connect --alias db "$EXT_NET" YOUR_POSTGRES_CONTAINER
 
 ### 在线更新与旧版本升级
 
-updater 预检与 Guard 使用同一条规则：`MYRIAD_BACKEND_EXTRA_NETWORK` 指定的网络（默认 `myriad-backend-ext`）只允许 backend、federation-worker、persona-worker 接入。前端、proxy、updater 等服务不能接入；worker 仍不能接入管理网或 Guard 网。网络必须由宿主机预先创建，未配置的网络名仍被拒绝。
+updater 预检与 Guard 使用同一条规则：`MYRIAD_BACKEND_EXTRA_NETWORK` 指定的网络（默认 `myriad-backend-ext`）只允许 backend、federation-worker、persona-worker 接入。前端、proxy、updater 等服务不能接入；worker 仍不能接入管理网或 Guard 网。网络必须由宿主机预先创建，未配置的网络名仍被拒绝。此外内置兜底放行面板网络 `1panel-network`（1Panel 会自行把容器接入该网），服务范围与外部 DB 网完全相同，无需显式配置。
 
 **旧版 updater 和 Guard 只支持固定名 `myriad-backend-ext`，必须先一起升级到包含此修复的构建。** 若已因额外网络被拦截，从宿主机按 [TCB 升级说明](./UPDATER_SECURITY_BASELINE.md) 更新这组服务；只升级业务 backend 镜像不生效。升级后可保留外部数据库网络执行站内更新/回滚，不要移除 worker 的数据库网络来绕过旧检查。
 

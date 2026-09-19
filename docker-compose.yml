@@ -20,6 +20,16 @@
 # 升级流程见 docs/updater-spec.md。
 # 直连 backend/frontend 端口和 :latest 镜像的旧布局已移除。
 #
+# 外置数据库（可选）：默认内置 postgres。改用栈外 PostgreSQL（云 RDS / 1Panel /
+# 独立容器）时，按文件中带 [外置数据库] 的注释操作：
+#   1. 注释 postgres 服务与 backend 的 depends_on.postgres；
+#   2. 解除 backend / federation-worker / persona-worker 的 DATABASE_URL 与
+#      myriad-backend-ext 网络注释；
+#   3. 解除文件末尾 networks 里 myriad-backend-ext 的注释；
+#   4. 在 .env 配置 DATABASE_URL / PERSONA_DATABASE_URL / FEDERATION_DATABASE_URL
+#      与 MYRIAD_BACKEND_EXTRA_NETWORK（默认 myriad-backend-ext，网络须先创建）。
+# Guard/updater 已内置 MYRIAD_BACKEND_EXTRA_NETWORK，仅 backend 与两个 worker 可接入该网。
+#
 # ============================================================================
 # 必需变量（scripts/extra/deploy.sh 会补齐当前布局所需目录、空 UPDATE_TOKEN /
 # UPDATER_GATEWAY_SECRET / MYRIAD_SETUP_SECRET / PERSONA_DB_PASSWORD /
@@ -59,6 +69,7 @@
 
 services:
   postgres:
+    # [外置数据库] 使用栈外 PostgreSQL 时，注释掉本服务与 backend 的 depends_on.postgres。
     # Track the latest PostgreSQL 18 patch release on Alpine for fresh deployments.
     # Existing pre-18 clusters still require pg_upgrade or dump/restore before changing majors.
     image: postgres:18-alpine
@@ -141,6 +152,8 @@ services:
     environment:
       MYRIAD_PROCESS_ROLE: web
       DATABASE_URL: postgres://myriad:${POSTGRES_PASSWORD}@postgres:5432/myriad
+      # [外置数据库] 注释上一行，解除下一行；值在 .env 配置（外部主机/端口/库名）
+      # DATABASE_URL: ${DATABASE_URL}
       SERVER_HOST: 0.0.0.0
       SERVER_PORT: 1103
       # Keep runtime storage paths identical to the volumes repaired by the
@@ -196,6 +209,7 @@ services:
       UPDATER_GATEWAY_SECRET: ${UPDATER_GATEWAY_SECRET}
     # NOTE: no `ports:` — only proxy exposes a host port.
     depends_on:
+      # [外置数据库] 使用栈外 PostgreSQL 时注释掉下一行
       postgres: { condition: service_healthy }
       backend-volume-init: { condition: service_completed_successfully }
     healthcheck:
@@ -207,7 +221,11 @@ services:
     volumes:
       - backend_cache:/app/cache
       - backend_data:/app/data
-    networks: [myriad-net, myriad-admin-net]
+    networks:
+      - myriad-net
+      - myriad-admin-net
+      # [外置数据库] 解除下一行注释（外部 PostgreSQL 与本服务共用该网）
+      # - myriad-backend-ext
     restart: unless-stopped
     security_opt: [no-new-privileges:true]
     read_only: false
@@ -232,6 +250,8 @@ services:
     environment:
       MYRIAD_PROCESS_ROLE: federation-worker
       DATABASE_URL: postgres://myriad_federation:${FEDERATION_DB_PASSWORD:?Run deploy.sh to generate worker DB passwords}@postgres:5432/myriad
+      # [外置数据库] 注释上一行，解除下一行；值在 .env 配置
+      # DATABASE_URL: ${FEDERATION_DATABASE_URL}
       SERVER_HOST: 0.0.0.0
       SERVER_PORT: 1103
       DATA_DIR: /app/data
@@ -266,7 +286,10 @@ services:
         source: backend_cache
         target: /tmp/cache/images
         volume: { subpath: images, nocopy: true }
-    networks: [myriad-net]
+    networks:
+      - myriad-net
+      # [外置数据库] 解除下一行注释
+      # - myriad-backend-ext
     # Geographic disablement exits 0; do not loop an idle worker.
     restart: on-failure
     security_opt: [no-new-privileges:true]
@@ -290,6 +313,8 @@ services:
     environment:
       MYRIAD_PROCESS_ROLE: persona-worker
       DATABASE_URL: postgres://myriad_persona:${PERSONA_DB_PASSWORD:?Run deploy.sh to generate worker DB passwords}@postgres:5432/myriad
+      # [外置数据库] 注释上一行，解除下一行；值在 .env 配置
+      # DATABASE_URL: ${PERSONA_DATABASE_URL}
       SERVER_HOST: 0.0.0.0
       SERVER_PORT: 1103
       DATA_DIR: /app/data
@@ -316,7 +341,10 @@ services:
     volumes:
       - backend_data:/app/data
       - backend_cache:/app/cache
-    networks: [myriad-net]
+    networks:
+      - myriad-net
+      # [外置数据库] 解除下一行注释
+      # - myriad-backend-ext
     stop_grace_period: 45s
     restart: unless-stopped
     security_opt: [no-new-privileges:true]
@@ -564,6 +592,11 @@ volumes:
   backend_data: { driver: local }
 
 networks:
+  # [外置数据库] 解除本节注释。该网须先在宿主机创建，外部 PostgreSQL 容器接入；
+  # 只有 backend / federation-worker / persona-worker 会加入它。
+  # myriad-backend-ext:
+  #   name: ${MYRIAD_BACKEND_EXTRA_NETWORK:-myriad-backend-ext}
+  #   external: true
   myriad-net:
     name: ${MYRIAD_DOCKER_NETWORK:-myriad-net}
     driver: bridge
