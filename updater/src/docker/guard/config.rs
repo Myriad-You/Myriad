@@ -10,6 +10,7 @@ use anyhow::{Context, Result, anyhow};
 use tracing::{info, warn};
 
 use crate::config::{GUARD_SELF_UPDATE_TOKEN_MIN_LEN, SecretString};
+use crate::docker::network_allowlist::DEFAULT_EXTERNAL_DATABASE_NETWORK;
 
 use super::{POLICY_CONTAINER_FILE, TRUSTED_GUARD_REPOSITORY, validate_identifier};
 
@@ -24,6 +25,9 @@ pub struct GuardConfig {
     /// Admin plane (backend / updater / updater-gateway / proxy rescue). Not internal.
     pub admin_network: String,
     pub guard_network: String,
+    /// Operator-owned network shared with an external PostgreSQL container.
+    /// `MYRIAD_BACKEND_EXTRA_NETWORK`, default `myriad-backend-ext`.
+    pub external_database_network: String,
     pub compose_dir: PathBuf,
     pub state_dir: PathBuf,
     pub expected_guard_image: String,
@@ -53,6 +57,17 @@ impl GuardConfig {
         let guard_network = std::env::var("MYRIAD_DOCKER_GUARD_NETWORK")
             .unwrap_or_else(|_| "myriad-docker-guard-net".into());
         validate_simple_name("MYRIAD_DOCKER_GUARD_NETWORK", &guard_network)?;
+        let external_database_network = std::env::var("MYRIAD_BACKEND_EXTRA_NETWORK")
+            .unwrap_or_else(|_| DEFAULT_EXTERNAL_DATABASE_NETWORK.into());
+        validate_simple_name("MYRIAD_BACKEND_EXTRA_NETWORK", &external_database_network)?;
+        if external_database_network == compose_network
+            || external_database_network == admin_network
+            || external_database_network == guard_network
+        {
+            return Err(anyhow!(
+                "MYRIAD_BACKEND_EXTRA_NETWORK must differ from the managed networks"
+            ));
+        }
         let compose_dir = std::env::var("DOCKER_GUARD_COMPOSE_DIR")
             .unwrap_or_else(|_| "/host/compose".into())
             .into();
@@ -104,6 +119,7 @@ impl GuardConfig {
             compose_network,
             admin_network,
             guard_network,
+            external_database_network,
             compose_dir,
             state_dir,
             expected_guard_image,

@@ -880,7 +880,7 @@ fn check_disk(worker: &Worker) -> Result<()> {
 /// docker-guard will reject — otherwise `compose up` fails after stop/snapshot and
 /// rollback hits the same error (site stuck down).
 async fn check_compose_networks(worker: &Arc<Worker>) -> Result<()> {
-    let allow = NetworkAllowlist::resolve(Some(worker.cli().env_file.as_path()));
+    let allow = NetworkAllowlist::resolve(Some(worker.cli().env_file.as_path()))?;
     let compose = crate::worker::update::build_compose_runner_pub(worker)
         .await
         .map_err(|e| {

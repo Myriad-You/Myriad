@@ -8,10 +8,13 @@
 use std::path::Path;
 
 use crate::env_file::EnvFile;
+use crate::error::UpdaterError;
 
-/// Existing operator-owned network shared with an external PostgreSQL container.
-/// Fixed name: this is not a general-purpose additional-network allowlist.
-pub const EXTERNAL_DATABASE_NETWORK: &str = "myriad-backend-ext";
+/// Default name of the operator-owned network shared with an external PostgreSQL
+/// container. Override with `MYRIAD_BACKEND_EXTRA_NETWORK`. Only
+/// backend / federation-worker / persona-worker may attach to it, and it must
+/// differ from the three managed networks (business/admin/guard).
+pub const DEFAULT_EXTERNAL_DATABASE_NETWORK: &str = "myriad-backend-ext";
 
 /// Shared by preflight and Guard create/connect/disconnect authorization.
 pub(crate) fn service_network_allowed(
@@ -20,9 +23,10 @@ pub(crate) fn service_network_allowed(
     business: &str,
     admin: &str,
     guard: &str,
+    external: &str,
 ) -> bool {
     let network = network.trim_start_matches('/');
-    if network == EXTERNAL_DATABASE_NETWORK {
+    if network == external && network != business && network != admin && network != guard {
         return matches!(service, "backend" | "federation-worker" | "persona-worker");
     }
     match service {
@@ -39,20 +43,50 @@ pub struct NetworkAllowlist {
     pub compose_network: String,
     pub admin_network: String,
     pub guard_network: String,
+    pub external_database_network: String,
 }
 
 impl NetworkAllowlist {
     /// Resolve from process env, then optional `.env`, then docker-guard defaults.
-    pub fn resolve(env_file: Option<&Path>) -> Self {
-        Self {
-            compose_network: resolve_name("MYRIAD_DOCKER_NETWORK", "myriad-net", env_file),
-            admin_network: resolve_name("MYRIAD_ADMIN_NETWORK", "myriad-admin-net", env_file),
-            guard_network: resolve_name(
-                "MYRIAD_DOCKER_GUARD_NETWORK",
-                "myriad-docker-guard-net",
-                env_file,
+    pub fn resolve(env_file: Option<&Path>) -> Result<Self, UpdaterError> {
+        let compose_network = resolve_name("MYRIAD_DOCKER_NETWORK", "myriad-net", env_file);
+        let admin_network = resolve_name("MYRIAD_ADMIN_NETWORK", "myriad-admin-net", env_file);
+        let guard_network = resolve_name(
+            "MYRIAD_DOCKER_GUARD_NETWORK",
+            "myriad-docker-guard-net",
+            env_file,
+        );
+        let external_database_network = resolve_name(
+            "MYRIAD_BACKEND_EXTRA_NETWORK",
+            DEFAULT_EXTERNAL_DATABASE_NETWORK,
+            env_file,
+        );
+        for (key, value) in [
+            ("MYRIAD_DOCKER_NETWORK", compose_network.as_str()),
+            ("MYRIAD_ADMIN_NETWORK", admin_network.as_str()),
+            ("MYRIAD_DOCKER_GUARD_NETWORK", guard_network.as_str()),
+            (
+                "MYRIAD_BACKEND_EXTRA_NETWORK",
+                external_database_network.as_str(),
             ),
+        ] {
+            crate::docker::guard::validate_identifier(value)
+                .map_err(|e| UpdaterError::Precondition(format!("{key}: {e}")))?;
         }
+        if external_database_network == compose_network
+            || external_database_network == admin_network
+            || external_database_network == guard_network
+        {
+            return Err(UpdaterError::Precondition(
+                "MYRIAD_BACKEND_EXTRA_NETWORK must differ from the managed networks".into(),
+            ));
+        }
+        Ok(Self {
+            compose_network,
+            admin_network,
+            guard_network,
+            external_database_network,
+        })
     }
 
     pub fn contains(&self, name: &str) -> bool {
@@ -60,7 +94,7 @@ impl NetworkAllowlist {
         name == self.compose_network
             || name == self.admin_network
             || name == self.guard_network
-            || name == EXTERNAL_DATABASE_NETWORK
+            || name == self.external_database_network
     }
 
     pub fn allows_service(&self, service: &str, name: &str) -> bool {
@@ -70,13 +104,17 @@ impl NetworkAllowlist {
             &self.compose_network,
             &self.admin_network,
             &self.guard_network,
+            &self.external_database_network,
         )
     }
 
     pub fn describe(&self) -> String {
         format!(
             "{}, {}, {}, {} (backend/federation-worker/persona-worker only)",
-            self.compose_network, self.admin_network, self.guard_network, EXTERNAL_DATABASE_NETWORK
+            self.compose_network,
+            self.admin_network,
+            self.guard_network,
+            self.external_database_network
         )
     }
 }
@@ -181,6 +219,14 @@ mod tests {
             compose_network: "myriad-net".into(),
             admin_network: "myriad-admin-net".into(),
             guard_network: "myriad-docker-guard-net".into(),
+            external_database_network: DEFAULT_EXTERNAL_DATABASE_NETWORK.into(),
+        }
+    }
+
+    fn allow_with_external(external: &str) -> NetworkAllowlist {
+        NetworkAllowlist {
+            external_database_network: external.into(),
+            ..allow()
         }
     }
 
@@ -231,6 +277,34 @@ mod tests {
         )
         .collect();
         assert_eq!(find_disallowed_attachments(&allow(), &entries), entries);
+    }
+
+    #[test]
+    fn custom_external_database_network_is_honored() {
+        let custom = allow_with_external("my-custom-db-net");
+        for service in ["backend", "federation-worker", "persona-worker"] {
+            assert!(custom.allows_service(service, "my-custom-db-net"));
+            assert!(!custom.allows_service(service, "myriad-backend-ext"));
+        }
+        assert!(custom.contains("my-custom-db-net"));
+        assert!(!custom.contains("myriad-backend-ext"));
+        assert!(!custom.allows_service("frontend", "my-custom-db-net"));
+    }
+
+    #[test]
+    fn external_network_must_not_alias_a_managed_network() {
+        // Even if misconfigured, the external branch must not widen worker
+        // access to the admin/guard networks.
+        for managed in ["myriad-admin-net", "myriad-docker-guard-net"] {
+            let cfg = allow_with_external(managed);
+            for worker in ["federation-worker", "persona-worker"] {
+                assert!(!cfg.allows_service(worker, managed));
+            }
+        }
+        assert!(
+            !allow_with_external("myriad-docker-guard-net")
+                .allows_service("backend", "myriad-docker-guard-net")
+        );
     }
 
     #[test]

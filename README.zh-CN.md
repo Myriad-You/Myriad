@@ -440,7 +440,7 @@ host HTTP_PORT
        (rescue) updater when PROXY_ALLOW_DIRECT_UPDATER=true
 ```
 
-上图为内置 PostgreSQL，两个 worker 也直接连接同一数据库。使用独立外部 DB 容器时，backend 和两个 worker 都须与数据库接入 `myriad-backend-ext`。更新器仅允许这三个服务接入该网络；旧版 updater/Guard 须先一起升级，再使用站内更新。见[外部 PostgreSQL](docs/deployment/EXTERNAL_POSTGRES.md)。
+上图为内置 PostgreSQL，两个 worker 也直接连接同一数据库。使用独立外部 DB 容器时，backend 和两个 worker 都须与数据库接入 `MYRIAD_BACKEND_EXTRA_NETWORK`（默认 `myriad-backend-ext`）。更新器仅允许这三个服务接入该网络；旧版 updater/Guard 只认固定默认名，须先一起升级，再使用站内更新。见[外部 PostgreSQL](docs/deployment/EXTERNAL_POSTGRES.md)。
 
 </details>
 

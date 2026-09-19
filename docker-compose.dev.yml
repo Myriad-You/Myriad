@@ -59,6 +59,7 @@ services:
       MYRIAD_DOCKER_NETWORK: myriad-dev-updater_default
       MYRIAD_ADMIN_NETWORK: myriad-dev-admin-net
       MYRIAD_DOCKER_GUARD_NETWORK: myriad-dev-docker-guard-net
+      MYRIAD_BACKEND_EXTRA_NETWORK: ${MYRIAD_BACKEND_EXTRA_NETWORK:-myriad-backend-ext}
       DOCKER_GUARD_EXPECTED_IMAGE: ${UPDATER_IMAGE:-myriad-updater-dev}:${UPDATER_TAG:-v0.0.0-dev}
       DOCKER_GUARD_HOST_POLICY_PATH: /guard-policy/docker-guard.env
       DOCKER_GUARD_SELF_UPDATE_TOKEN: ${GUARD_SELF_UPDATE_TOKEN:-dev-guard-self-update-token-32chars!!}
@@ -104,6 +105,7 @@ services:
       DOCKER_GUARD_SELF_UPDATE_TOKEN: ${GUARD_SELF_UPDATE_TOKEN:-dev-guard-self-update-token-32chars!!}
       UPDATER_GUARD_ENV_FILE: /run/secrets/docker-guard.env
       COMPOSE_PROJECT_NAME: myriad-dev-updater
+      MYRIAD_BACKEND_EXTRA_NETWORK: ${MYRIAD_BACKEND_EXTRA_NETWORK:-myriad-backend-ext}
       TZ: Asia/Shanghai
     volumes:
       - ./.dev-updater:/host/compose:ro

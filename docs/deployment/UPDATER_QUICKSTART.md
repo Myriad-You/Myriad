@@ -406,7 +406,7 @@ UPDATER_ALLOW_INSECURE_COSIGN=true   # 或 COSIGN_INSECURE_OK=true
 | `MYRIAD_DB_MODE=external` | updater **跳过** pgdata 快照与恢复（日志：`db_mode=external; skipping pgdata snapshot`） |
 | `DATABASE_URL` | backend 连接的 **唯一真相源**（写完整连接串）；**不会**据此静默改 `MYRIAD_DB_MODE` |
 | `PERSONA_DATABASE_URL` / `FEDERATION_DATABASE_URL` | 两个 worker 的独立登录，连接与 backend 相同的库/schema |
-| `myriad-backend-ext` | 独立 DB 容器与 backend、两个 worker 共用；预检和 Guard 仅放行这三个服务，网络须预先存在 |
+| `MYRIAD_BACKEND_EXTRA_NETWORK` | 外部 DB 网络名（默认 `myriad-backend-ext`）；独立 DB 容器与 backend、两个 worker 共用；预检和 Guard 仅放行这三个服务，网络须预先存在 |
 | 栈内 `postgres` / `./pgdata` | **不要** 再部署；勿留空 `./pgdata` 装样子；更新**不要求**路径存在 |
 | 镜像 tag / 维护模式 | updater **仍管理**；回滚/rescue **只恢复镜像 tag**，从不写 pgdata |
 | `/status` · env-probe | `db_mode=external`、`pgdata_snapshot_enabled=false` |

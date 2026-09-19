@@ -5,7 +5,8 @@ Current port ownership after the proxy + updater migration.
 ## Production
 
 The table describes bundled PostgreSQL. The [external DB example](./EXTERNAL_POSTGRES.md)
-removes `postgres` and also attaches backend and both workers to `myriad-backend-ext`.
+removes `postgres` and also attaches backend and both workers to
+`MYRIAD_BACKEND_EXTRA_NETWORK` (default `myriad-backend-ext`).
 Ports are unchanged; workers stay off the admin network.
 
 | Service | Container port | Host exposure | Notes |

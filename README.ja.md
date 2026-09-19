@@ -440,7 +440,7 @@ host HTTP_PORT
        (rescue) updater when PROXY_ALLOW_DIRECT_UPDATER=true
 ```
 
-図は内蔵 PostgreSQL の構成で、両 worker も同じデータベースへ直接接続します。外部 DB コンテナを使う場合は、backend と両 worker を DB と同じ `myriad-backend-ext` に接続します。Updater/Guard はこの 3 サービスに限り同ネットワークを許可します。旧版の場合は両方を先にアップグレードしてからサイト内更新を利用してください。[外部 PostgreSQL](docs/deployment/EXTERNAL_POSTGRES.md) を参照。
+図は内蔵 PostgreSQL の構成で、両 worker も同じデータベースへ直接接続します。外部 DB コンテナを使う場合は、backend と両 worker を DB と同じ `MYRIAD_BACKEND_EXTRA_NETWORK`（既定 `myriad-backend-ext`）に接続します。Updater/Guard はこの 3 サービスに限り同ネットワークを許可します。旧版は固定の既定名しか認識しないため、両方を先にアップグレードしてからサイト内更新を利用してください。[外部 PostgreSQL](docs/deployment/EXTERNAL_POSTGRES.md) を参照。
 
 </details>
 

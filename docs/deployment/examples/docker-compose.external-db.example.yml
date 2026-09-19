@@ -24,10 +24,11 @@
 #
 # 可选：
 #   extra_hosts on backend AND both workers for host.docker.internal:host-gateway
-#   For host/cloud DB, remove myriad-backend-ext from all three services and the
+#   For host/cloud DB, remove the external network from all three services and the
 #   top-level declaration if no shared Docker DB network is needed.
 #   Upgrade updater and Guard before online updates: only backend and both
-#   workers may attach to the fixed, existing myriad-backend-ext network.
+#   workers may attach to the existing MYRIAD_BACKEND_EXTRA_NETWORK network
+#   (default myriad-backend-ext).
 #   BASE_URL / FRONTEND_URL / HTTP_PORT / CHANNEL / COSIGN_* 等同默认部署
 #
 # 不需要：
@@ -300,6 +301,7 @@ services:
       MYRIAD_DOCKER_NETWORK: ${GUARD_MYRIAD_DOCKER_NETWORK:-myriad-net}
       MYRIAD_ADMIN_NETWORK: ${GUARD_MYRIAD_ADMIN_NETWORK:-myriad-admin-net}
       MYRIAD_DOCKER_GUARD_NETWORK: ${GUARD_MYRIAD_DOCKER_GUARD_NETWORK:-myriad-docker-guard-net}
+      MYRIAD_BACKEND_EXTRA_NETWORK: ${MYRIAD_BACKEND_EXTRA_NETWORK:-myriad-backend-ext}
       DOCKER_GUARD_COMPOSE_DIR: /host/compose
       DOCKER_GUARD_STATE_DIR: /host/state
       DOCKER_GUARD_EXPECTED_IMAGE: ${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG:?Set UPDATER_TAG to a release or dev tag}
@@ -357,6 +359,7 @@ services:
       COSIGN_INSECURE_OK: ${COSIGN_INSECURE_OK:-}
       COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-myriad}
       MYRIAD_DOCKER_NETWORK: ${MYRIAD_DOCKER_NETWORK:-myriad-net}
+      MYRIAD_BACKEND_EXTRA_NETWORK: ${MYRIAD_BACKEND_EXTRA_NETWORK:-myriad-backend-ext}
       TZ: Asia/Shanghai
     volumes:
       - type: bind
@@ -422,7 +425,7 @@ volumes:
 networks:
   # Existing shared network; the external PostgreSQL container must also join it.
   myriad-backend-ext:
-    name: myriad-backend-ext
+    name: ${MYRIAD_BACKEND_EXTRA_NETWORK:-myriad-backend-ext}
     external: true
   myriad-net:
     name: ${MYRIAD_DOCKER_NETWORK:-myriad-net}
