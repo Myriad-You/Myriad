@@ -407,6 +407,9 @@ services:
       MYRIAD_DOCKER_NETWORK: ${GUARD_MYRIAD_DOCKER_NETWORK:-myriad-net}
       MYRIAD_ADMIN_NETWORK: ${GUARD_MYRIAD_ADMIN_NETWORK:-myriad-admin-net}
       MYRIAD_DOCKER_GUARD_NETWORK: ${GUARD_MYRIAD_DOCKER_GUARD_NETWORK:-myriad-docker-guard-net}
+      # Operator-owned network for an external PostgreSQL container. Only
+      # backend/federation-worker/persona-worker may attach to it.
+      MYRIAD_BACKEND_EXTRA_NETWORK: ${MYRIAD_BACKEND_EXTRA_NETWORK:-myriad-backend-ext}
       DOCKER_GUARD_COMPOSE_DIR: /host/compose
       DOCKER_GUARD_STATE_DIR: /host/state
       DOCKER_GUARD_EXPECTED_IMAGE: ${MYRIAD_TCB_GUARD_IMAGE:-${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG:?Set UPDATER_TAG to a release or dev tag}}
@@ -483,6 +486,7 @@ services:
       COSIGN_INSECURE_OK: ${COSIGN_INSECURE_OK:-}
       COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-myriad}
       MYRIAD_DOCKER_NETWORK: ${MYRIAD_DOCKER_NETWORK:-myriad-net}
+      MYRIAD_BACKEND_EXTRA_NETWORK: ${MYRIAD_BACKEND_EXTRA_NETWORK:-myriad-backend-ext}
       # Identity is baked into the image (Dockerfile ENV). Do not overlay
       # MYRIAD_VERSION with UPDATER_TAG: a target is not a running identity.
       TZ: Asia/Shanghai

@@ -439,8 +439,9 @@ host HTTP_PORT
 ```
 
 The diagram shows bundled PostgreSQL; both workers also connect directly to it.
-For an external DB container, backend and both workers share `myriad-backend-ext`
-with it. Updater/Guard permit this fixed network only for those three services;
+For an external DB container, backend and both workers share
+`MYRIAD_BACKEND_EXTRA_NETWORK` (default `myriad-backend-ext`) with it.
+Updater/Guard permit this network only for those three services;
 upgrade both before using online updates with this topology. See
 [external PostgreSQL](docs/deployment/EXTERNAL_POSTGRES.md).
 

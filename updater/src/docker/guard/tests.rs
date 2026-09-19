@@ -45,6 +45,7 @@ fn state_with_visible_root(visible_root: PathBuf) -> GuardState {
             compose_network: "myriad-net".into(),
             admin_network: "myriad-admin-net".into(),
             guard_network: "myriad-docker-guard-net".into(),
+            external_database_network: "myriad-backend-ext".into(),
             compose_dir: visible_root,
             state_dir: "/host/state".into(),
             expected_guard_image: format!("{TRUSTED_GUARD_REPOSITORY}@sha256:{}", "a".repeat(64)),
@@ -1024,6 +1025,20 @@ fn external_database_network_create_and_connect_are_service_scoped() {
         json!({"myriad-net": {}, "myriad-backend-ext": {}}),
     );
     assert!(validate_container_create(&s, &frontend).is_err());
+}
+
+#[test]
+fn custom_external_database_network_name_is_accepted() {
+    let mut s = state();
+    Arc::make_mut(&mut s.config).external_database_network = "my-custom-db-net".into();
+    for service in ["backend", "federation-worker", "persona-worker"] {
+        assert!(authorize_guard_network_attachment(service, "my-custom-db-net", &s.config).is_ok());
+        assert!(
+            authorize_guard_network_attachment(service, "myriad-backend-ext", &s.config).is_err()
+        );
+    }
+    assert!(authorize_guard_network_attachment("frontend", "my-custom-db-net", &s.config).is_err());
+    assert!(authorize_guard_network_attachment("updater", "my-custom-db-net", &s.config).is_err());
 }
 
 #[test]

@@ -25,8 +25,9 @@ never be launched as workers just by changing an environment variable: they do n
 understand the role and would start the entire application.
 
 For external PostgreSQL in another container, backend and both workers retain
-`myriad-net` and join `myriad-backend-ext` with the database. Network membership is
-per container. Updater/Guard permit this fixed network only for these three services;
+`myriad-net` and join `MYRIAD_BACKEND_EXTRA_NETWORK` (default `myriad-backend-ext`)
+with the database. Network membership is
+per container. Updater/Guard permit this network only for these three services;
 upgrade both from older builds before online updates. Workers still cannot join
 admin or Guard networks. See [external PostgreSQL](EXTERNAL_POSTGRES.md).
 

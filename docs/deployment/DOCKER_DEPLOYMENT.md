@@ -37,10 +37,11 @@ Networks (bundled PostgreSQL):
 | `myriad-docker-guard-net` (internal) | updater, docker-guard | Only updater may join (guard policy). |
 
 The [external DB example](./examples/docker-compose.external-db.example.yml) removes
-`postgres` and attaches backend and both workers to the existing `myriad-backend-ext`
-network shared with the DB container, retaining their original networks. Updater/Guard
-allow this fixed network only for those three services. Older updater/Guard builds
-must be upgraded first; see [external DB setup](./EXTERNAL_POSTGRES.md).
+`postgres` and attaches backend and both workers to the existing
+`MYRIAD_BACKEND_EXTRA_NETWORK` network (default `myriad-backend-ext`) shared with the
+DB container, retaining their original networks. Updater/Guard allow this network only
+for those three services. Older updater/Guard builds only recognize the fixed default
+name and must be upgraded first; see [external DB setup](./EXTERNAL_POSTGRES.md).
 
 - Only `proxy` publishes a host port.
 - **Proxy routing**: SPA/static via frontend; persona prefixes via
@@ -286,9 +287,9 @@ host install, separate DB stack):
    `FEDERATION_DATABASE_URL` in `.env`. Use separate bounded worker logins for the same database/schema.
 2. Do **not** run a `postgres` service or mount `./pgdata` for Myriad.
 3. For a separate DB container, attach it, backend, and both workers to the existing
-   `myriad-backend-ext` network. Verify all three services.
-4. Upgrade updater and Guard to builds supporting this fixed network before online
-   updates/rollback. Other services and arbitrary additional networks remain denied.
+   `MYRIAD_BACKEND_EXTRA_NETWORK` network (default `myriad-backend-ext`). Verify all three services.
+4. Upgrade updater and Guard to builds that read `MYRIAD_BACKEND_EXTRA_NETWORK` before
+   online updates/rollback. Other services and networks not named by that key remain denied.
 5. **You** own DB backups (`pg_dump` / cloud / panel).
 
 Full runbook and example compose:
