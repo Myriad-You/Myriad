@@ -171,6 +171,18 @@ async fn try_fetch_release_manifest(
     }
 }
 
+/// True only when the running updater reports a parseable release version that
+/// is older than the release floor.
+///
+/// `self_version()` is the image's `MYRIAD_VERSION`: release builds embed a
+/// `vX.Y.Z` semver, but CI commit builds embed `dev-<sha>`, which is not a
+/// [`MyriadVersion`] and cannot be ordered against a semver floor. An
+/// unparseable (commit/dev) self version must not hard-fail the upgrade; it is
+/// treated as "not below the floor", matching `worker::check`.
+fn updater_below_min(self_version: &str, min: &MyriadVersion) -> bool {
+    MyriadVersion::parse(self_version).is_ok_and(|v| v.older_than(min))
+}
+
 async fn run_release_with_manifest(
     worker: Arc<Worker>,
     target: &DeployTag,
@@ -185,16 +197,11 @@ async fn run_release_with_manifest(
         )));
     }
 
-    let self_v = MyriadVersion::parse(crate::self_version()).map_err(|e| {
-        UpdaterError::Precondition(format!(
-            "could not parse own updater version {:?}: {e}",
-            crate::self_version()
-        ))
-    })?;
-    if self_v.older_than(&manifest.updater.min_updater_version) {
+    if updater_below_min(crate::self_version(), &manifest.updater.min_updater_version) {
         return Err(UpdaterError::Precondition(format!(
             "this updater ({}) is older than required min_updater_version {}; self-update first",
-            self_v, manifest.updater.min_updater_version
+            crate::self_version(),
+            manifest.updater.min_updater_version
         )));
     }
 
@@ -1269,5 +1276,20 @@ mod external_db_tests {
             applicable_required_env_keys(&manifest, DbMode::External),
             ["JWT_SECRET", "CORS_ORIGINS"]
         );
+    }
+
+    #[test]
+    fn commit_build_self_version_does_not_trip_min_updater_version() {
+        let min = MyriadVersion::parse("v0.5.0").expect("valid floor");
+        assert!(updater_below_min("v0.4.9", &min));
+        assert!(!updater_below_min("v0.5.0", &min));
+        assert!(!updater_below_min("v0.5.1", &min));
+        // CI commit/dev builds are not release semver; they must not hard-fail
+        // a release preflight (regression: dev-<full sha> previously errored).
+        assert!(!updater_below_min("dev-1485875", &min));
+        assert!(!updater_below_min(
+            "dev-1485875bfbffc186a0092cc89e6a746f5ea315d1",
+            &min
+        ));
     }
 }
