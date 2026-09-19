@@ -155,6 +155,8 @@ docker compose --env-file .env up -d
 ```
 
 > **1Panel**：用「编排」导入上述 compose + `.env` 即可。应用商店里的 Postgres 与 Myriad 栈 **分开** 创建；Myriad 栈内不要再勾选/附带 postgres 容器。网络互通见下一节。
+>
+> 另外把 `.env` 里的 `MYRIAD_COMPOSE_HOST_ROOT` 设为编排目录的**绝对路径**（如 `/opt/1panel/docker/compose/myriad`）。否则 updater 容器内的部署根是 `/host/compose`，Compose 会把该容器内路径写进容器的 `com.docker.compose.project.config_files` 标签，1Panel 重建时会按这个标签在宿主机上找文件而报 `no such file or directory`。设为宿主绝对路径后，容器内外路径一致，标签即为宿主有效路径。
 
 ---
 

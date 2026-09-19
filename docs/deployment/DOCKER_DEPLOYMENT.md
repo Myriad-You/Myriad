@@ -309,6 +309,19 @@ snapshots, and `.env` are accessed below that root without additional host binds
 With `MYRIAD_DB_MODE=external`, do not leave an empty unused `./pgdata` directory
 as if it were live data.
 
+By default the updater sees the deployment root at `/host/compose`. Docker
+Compose records the `-f` path it is given in the container label
+`com.docker.compose.project.config_files`, and `--project-directory` in
+`com.docker.compose.project.working_dir`. A container-only path such as
+`/host/compose/docker-compose.yml` is meaningless on the host, so host-side
+compose managers (1Panel, Portainer) that resolve those labels cannot find the
+file. Set `MYRIAD_COMPOSE_HOST_ROOT` to the **absolute** path of the deployment
+root (e.g. `/opt/1panel/docker/compose/myriad`) to mount it at the same path
+inside the updater. The updater then passes host-valid `-f` /
+`--project-directory` values and the recorded labels resolve on the host. Leave
+it unset to keep the legacy `/host/compose` layout; it must be an absolute path
+when set (it is used as a bind target).
+
 ## Development
 
 Use `docker-compose.dev.yml` only for local PostgreSQL:

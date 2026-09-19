@@ -452,13 +452,20 @@ services:
       REGISTRY_MIRROR: ${REGISTRY_MIRROR:-}
       MYRIAD_GITHUB_REPO: ${MYRIAD_GITHUB_REPO:-Myriad-You/Myriad}
       CHECK_INTERVAL_SECS: ${CHECK_INTERVAL_SECS:-3600}
-      UPDATER_STATE_DIR: /host/compose/state
-      UPDATER_ENV_FILE: /host/compose/.env
+      # Keep the deployment root at the *same* path inside and outside the
+      # container. Docker Compose records the `-f` path in the container label
+      # com.docker.compose.project.config_files; an in-container-only path
+      # (e.g. /host/compose) makes external tools (1Panel) look for a compose
+      # file that does not exist on the host. Defaulting to /host/compose keeps
+      # the legacy layout; set MYRIAD_COMPOSE_HOST_ROOT to the absolute host
+      # path to make the paths identical (see docs/deployment/DOCKER_DEPLOYMENT.md).
+      UPDATER_STATE_DIR: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}/state
+      UPDATER_ENV_FILE: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}/.env
       # Prefer the path *inside* the compose-dir bind mount. Renaming a dedicated
       # mount point (./pgdata:/host/pgdata) returns EBUSY on Linux and used to break
       # snapshot restore / automatic rollback.
-      UPDATER_PGDATA: /host/compose/pgdata
-      UPDATER_COMPOSE_DIR: /host/compose
+      UPDATER_PGDATA: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}/pgdata
+      UPDATER_COMPOSE_DIR: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}
       DOCKER_HOST: tcp://docker-guard:2375
       DOCKER_GUARD_SELF_UPDATE_TOKEN: ${GUARD_SELF_UPDATE_TOKEN:?Host Guard self-update token is required}
       # Guard policy directory is mounted read-only. After first start the file
@@ -482,17 +489,17 @@ services:
       # only the state it genuinely owns as writable submounts.
       - type: bind
         source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}
-        target: /host/compose
+        target: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}
         read_only: true
       - type: bind
         source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/.env
-        target: /host/compose/.env
+        target: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}/.env
       - type: bind
         source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/state
-        target: /host/compose/state
+        target: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}/state
       - type: bind
         source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/pgdata
-        target: /host/compose/pgdata
+        target: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}/pgdata
       - type: bind
         source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/guard-policy
         target: /run/secrets

@@ -639,9 +639,20 @@ fn run_compose(
     // authenticated, fixed-service handoff may select per-service exact images
     // for its current transaction. Never leave an override in the project: a
     // subsequent host `compose up` must honor UPDATER_TAG again.
-    let mut override_file = tempfile::Builder::new().suffix(".json").tempfile()?;
-    serde_json::to_writer(override_file.as_file_mut(), &exact_image_override(images)?)?;
-    override_file.as_file_mut().flush()?;
+    // Persist the exact-image override under the deployment root instead of a
+    // private temp file. Compose records every `-f` in the container label
+    // com.docker.compose.project.config_files, and host-side managers (1Panel)
+    // open each entry on the host. A deleted temp path would dangle; the host
+    // path below stays valid because the deployment root is identity-mounted.
+    let override_write = cfg
+        .status_file
+        .parent()
+        .ok_or_else(|| UpdaterError::Precondition("self-update status has no parent".into()))?
+        .join("self-update-override.json");
+    std::fs::write(&override_write, serde_json::to_vec(&exact_image_override(images)?)?)?;
+    let override_host = Path::new(&cfg.host_compose_root)
+        .join("state")
+        .join("self-update-override.json");
     let mut command = Command::new("docker");
     command.args([
         "compose",
@@ -655,14 +666,14 @@ fn run_compose(
     for file in files {
         command.arg("-f").arg(file);
     }
-    command.arg("-f").arg(override_file.path());
+    command.arg("-f").arg(&override_host);
     command
         .arg("--env-file")
         .arg(&cfg.app_env_file)
         .arg("--env-file")
         .arg(&cfg.guard_env_file)
         .args(tail)
-        // Keep old Compose files compatible; the temporary override above is
+        // Keep old Compose files compatible; the exact-image override above is
         // authoritative even when the base file selects images solely by TAG.
         .env("UPDATER_IMAGE_REF", &images[1])
         .env("UPDATER_GATEWAY_IMAGE_REF", &images[2])
@@ -844,7 +855,7 @@ fn validate_stack_compose_model(
         ));
     }
     require_healthcheck(updater, "http://localhost:1101/healthz", "updater")?;
-    require_updater_mount_targets(updater)?;
+    require_updater_mount_targets(updater, &cfg.host_compose_root)?;
     require_networks(
         updater,
         &[&cfg.admin_network, &cfg.guard_network],
@@ -1001,41 +1012,53 @@ fn require_mount_targets(service: &Value, expected: &[&str], name: &str) -> Resu
     Ok(())
 }
 
-fn require_updater_mount_targets(service: &Value) -> Result<()> {
-    let mut actual = persistent_mount_targets(service);
+fn require_updater_mount_targets(service: &Value, host_root: &str) -> Result<()> {
+    let mut actual = persistent_mount_targets(service)
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
     actual.sort_unstable();
     // Official: extra .env file bind over a read-only deploy root.
     // Writable-root: omit that bind so v0.3.37 can persist MYRIAD_TAG via
     // sibling .bak/.tmp (file-bind + RO root is EROFS). Guard policy stays
     // the separate /run/secrets mount. External DB omits pgdata.
-    let allowed = [
-        &[
-            "/host/compose",
-            "/host/compose/.env",
-            "/host/compose/pgdata",
-            "/host/compose/state",
-            "/run/secrets",
-        ][..],
-        &[
-            "/host/compose",
-            "/host/compose/.env",
-            "/host/compose/state",
-            "/run/secrets",
-        ][..],
-        &[
-            "/host/compose",
-            "/host/compose/pgdata",
-            "/host/compose/state",
-            "/run/secrets",
-        ][..],
-        &["/host/compose", "/host/compose/state", "/run/secrets"][..],
-    ];
-    if allowed.iter().any(|expected| {
-        let mut expected = expected.to_vec();
-        expected.sort_unstable();
-        actual == expected
-    }) {
-        return Ok(());
+    //
+    // The deployment root is either the legacy in-container path
+    // (/host/compose) or, so Compose records host-valid labels, the host path
+    // itself (identity bind). Accept both.
+    for root in ["/host/compose", host_root] {
+        let variants: [Vec<String>; 4] = [
+            vec![
+                root.to_owned(),
+                format!("{root}/.env"),
+                format!("{root}/pgdata"),
+                format!("{root}/state"),
+                "/run/secrets".to_owned(),
+            ],
+            vec![
+                root.to_owned(),
+                format!("{root}/.env"),
+                format!("{root}/state"),
+                "/run/secrets".to_owned(),
+            ],
+            vec![
+                root.to_owned(),
+                format!("{root}/pgdata"),
+                format!("{root}/state"),
+                "/run/secrets".to_owned(),
+            ],
+            vec![
+                root.to_owned(),
+                format!("{root}/state"),
+                "/run/secrets".to_owned(),
+            ],
+        ];
+        for mut expected in variants {
+            expected.sort_unstable();
+            if actual == expected {
+                return Ok(());
+            }
+        }
     }
     Err(UpdaterError::Precondition(
         "updater mount targets are outside the fixed bundled/external contract".into(),
@@ -1401,8 +1424,11 @@ mod tests {
         let mut cfg = config();
         cfg.compose_dir = dir.path().to_owned();
         cfg.project_directory = dir.path().to_owned();
+        cfg.host_compose_root = dir.path().to_string_lossy().into_owned();
         cfg.app_env_file = dir.path().join(".env");
         cfg.guard_env_file = dir.path().join("guard.env");
+        std::fs::create_dir_all(dir.path().join("state")).unwrap();
+        cfg.status_file = dir.path().join("state").join("self-update-last.json");
         std::fs::write(&cfg.app_env_file, "UPDATER_TAG=v0.4.14\nUPDATER_IMAGE_REF=stale-updater\nUPDATER_GATEWAY_IMAGE_REF=stale-gateway\nDOCKER_GUARD_IMAGE=stale-guard\n").unwrap();
         std::fs::write(&cfg.guard_env_file, "DOCKER_GUARD_IMAGE=stale-host-pin\n").unwrap();
         let compose = dir.path().join("compose.json");
@@ -1579,7 +1605,7 @@ mod tests {
         let mut changed = identity.clone();
         changed.version = "v0.4.6".into();
         assert!(persist_reconciled_policy(&cfg, &vec![changed; 3]).is_err());
-        assert!(persist_reconciled_policy(&cfg, &[identity.clone()]).is_err());
+        assert!(persist_reconciled_policy(&cfg, std::slice::from_ref(&identity)).is_err());
         let mut live_updater_view = std::fs::File::open(&cfg.app_env_file).unwrap();
         persist_reconciled_policy(&cfg, &vec![identity; 3]).unwrap();
         let mut live_text = String::new();
@@ -1698,6 +1724,24 @@ mod tests {
             .as_array_mut()
             .unwrap()
             .retain(|mount| mount["target"] != "/host/compose/.env");
+        let bytes = serde_json::to_vec(&model).unwrap();
+        assert!(validate_compose_model(&bytes, &image, &config()).is_ok());
+    }
+
+    #[test]
+    fn fixed_compose_model_accepts_identity_host_root_mounts() {
+        let image = exact_image();
+        let mut model = compose_model(&image);
+        for mount in model["services"]["updater"]["volumes"]
+            .as_array_mut()
+            .unwrap()
+        {
+            if let Some(target) = mount["target"].as_str()
+                && let Some(rest) = target.strip_prefix("/host/compose")
+            {
+                mount["target"] = serde_json::json!(format!("/srv/myriad{rest}"));
+            }
+        }
         let bytes = serde_json::to_vec(&model).unwrap();
         assert!(validate_compose_model(&bytes, &image, &config()).is_ok());
     }

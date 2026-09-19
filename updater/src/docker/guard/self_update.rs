@@ -1388,10 +1388,13 @@ async fn launch_trusted_helper(
     let socket = state.config.socket_path.to_string_lossy().into_owned();
     let docker_host = format!("unix://{socket}");
     let host_root = state.host_compose_root.to_string_lossy().into_owned();
-    // `host_compose_root` is a Docker-daemon host source and generally does
-    // not exist at the same path inside Guard (especially on Docker Desktop).
-    // Validate through the dedicated container-visible read-only/read-write
-    // mounts, then pass the host source only to Docker's --mount API.
+    // Mount the deployment root at the *host* path inside the helper so the
+    // Compose file it passes to `-f` is recorded in the container label
+    // com.docker.compose.project.config_files as a host-valid path. An
+    // in-container-only path (e.g. /host/compose) makes external tools such as
+    // 1Panel look for a compose file that does not exist on the host.
+    // `host_compose_root` is a Docker-daemon host source; the helper receives it
+    // as an identity bind target, and the host source is passed to --mount.
     let env_path = state.config.compose_dir.join(".env");
     let state_path = &state.config.state_dir;
     if !env_path.is_file() || !state_path.is_dir() {
@@ -1432,7 +1435,7 @@ async fn launch_trusted_helper(
         // second, short-lived mount of the same host root; only this verified,
         // fixed-entrypoint helper receives the writable view.
         "--mount",
-        &format!("type=bind,source={host_root},target=/host/compose,readonly"),
+        &format!("type=bind,source={host_root},target={host_root},readonly"),
         "--mount",
         &format!("type=bind,source={host_root},target=/host/write"),
         "--mount",
@@ -1461,7 +1464,7 @@ async fn launch_trusted_helper(
         ),
         (
             crate::docker::self_update_helper::ENV_PROJECT_DIRECTORY,
-            "/host/compose",
+            &host_root,
         ),
         (
             crate::docker::self_update_helper::ENV_HOST_COMPOSE_ROOT,
@@ -1469,7 +1472,7 @@ async fn launch_trusted_helper(
         ),
         (
             crate::docker::self_update_helper::ENV_COMPOSE_DIR,
-            "/host/compose",
+            &host_root,
         ),
         (
             crate::docker::self_update_helper::ENV_APP_ENV_FILE,

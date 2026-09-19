@@ -789,6 +789,23 @@ fn validate_mount_pair(
                 }
                 return validate_visible_host_directory(state, "guard-policy");
             }
+            // Identity layout: the deployment root is mounted at the host path
+            // itself so Compose records a host-valid
+            // com.docker.compose.project.config_files label (1Panel and other
+            // host-side managers resolve that path on the host).
+            let root_str = root.to_string_lossy();
+            if source_path == root && target == root_str.as_ref() {
+                return validate_visible_host_directory(state, "");
+            }
+            if source_path == root.join(".env") && target == format!("{root_str}/.env") {
+                return validate_visible_host_path(state, ".env", false);
+            }
+            if source_path == root.join("state") && target == format!("{root_str}/state") {
+                return validate_visible_host_directory(state, "state");
+            }
+            if source_path == root.join("pgdata") && target == format!("{root_str}/pgdata") {
+                return validate_visible_host_directory(state, "pgdata");
+            }
             Err("updater host bind is outside the fixed deployment allowlist".into())
         }
         "proxy" => {

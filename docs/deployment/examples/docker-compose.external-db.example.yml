@@ -343,12 +343,12 @@ services:
       REGISTRY_MIRROR: ${REGISTRY_MIRROR:-}
       MYRIAD_GITHUB_REPO: ${MYRIAD_GITHUB_REPO:-Myriad-You/Myriad}
       CHECK_INTERVAL_SECS: ${CHECK_INTERVAL_SECS:-3600}
-      UPDATER_STATE_DIR: /host/compose/state
-      UPDATER_ENV_FILE: /host/compose/.env
+      UPDATER_STATE_DIR: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}/state
+      UPDATER_ENV_FILE: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}/.env
       # External DB: skip pgdata snapshot/restore. Operator owns backups (pg_dump / cloud).
       # UPDATER_PGDATA is intentionally omitted; do not create an empty ./pgdata bind.
       MYRIAD_DB_MODE: ${MYRIAD_DB_MODE:-external}
-      UPDATER_COMPOSE_DIR: /host/compose
+      UPDATER_COMPOSE_DIR: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}
       DOCKER_HOST: tcp://docker-guard:2375
       DOCKER_GUARD_SELF_UPDATE_TOKEN: ${GUARD_SELF_UPDATE_TOKEN:?Host Guard self-update token is required}
       UPDATER_GUARD_ENV_FILE: /run/secrets/docker-guard.env
@@ -361,14 +361,14 @@ services:
     volumes:
       - type: bind
         source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}
-        target: /host/compose
+        target: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}
         read_only: true
       - type: bind
         source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/.env
-        target: /host/compose/.env
+        target: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}/.env
       - type: bind
         source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/state
-        target: /host/compose/state
+        target: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}/state
       - type: bind
         source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/guard-policy
         target: /run/secrets
