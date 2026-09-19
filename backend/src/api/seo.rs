@@ -1220,6 +1220,10 @@ fn html_response(status: StatusCode, body: String) -> Response {
         [
             (header::CONTENT_TYPE, "text/html; charset=utf-8"),
             (header::CACHE_CONTROL, "public, max-age=300"),
+            // The proxy picks SEO HTML vs SPA by User-Agent for the same URL, so a
+            // shared cache (Nginx/CDN) must key HTML documents on it; otherwise a
+            // link-preview crawler response is replayed to a human browser (#545).
+            (header::VARY, "User-Agent"),
         ],
         body,
     )
@@ -2411,6 +2415,24 @@ mod tests {
         assert_eq!(
             format_document_title("Todo", "Myriad Site"),
             "Todo · Myriad Site"
+        );
+    }
+
+    #[test]
+    fn seo_html_declares_user_agent_variance() {
+        let res = html_response(StatusCode::OK, "<html></html>".to_string());
+        assert_eq!(
+            res.headers()
+                .get(header::VARY)
+                .and_then(|v| v.to_str().ok()),
+            Some("User-Agent"),
+            "SEO HTML is selected by User-Agent; shared caches must key on it (#545)"
+        );
+        assert_eq!(
+            res.headers()
+                .get(header::CACHE_CONTROL)
+                .and_then(|v| v.to_str().ok()),
+            Some("public, max-age=300")
         );
     }
 
