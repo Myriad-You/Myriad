@@ -172,6 +172,11 @@ fn map_generation_error(error: ImageGenerationError) -> HttpError {
         ImageGenerationError::NotConfigured(_) | ImageGenerationError::UnsupportedProvider(_) => {
             AppError::bad_request(error.to_string())
         }
+        // A provider 4xx is our request (model/params/input), not a gateway fault;
+        // surfacing it as 502 made UI errors misleading (issue #546).
+        ImageGenerationError::Provider(_) if code == "image_provider_rejected" => {
+            AppError::bad_request(error.to_string())
+        }
         ImageGenerationError::Provider(_) | ImageGenerationError::InvalidResponse(_) => {
             AppError::bad_gateway(error.to_string())
         }

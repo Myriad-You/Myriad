@@ -597,7 +597,9 @@ fn request_parts_with_background(
             body.insert("prompt".to_string(), json!(prompt));
             body.insert("size".to_string(), json!(size));
             body.insert("response_format".to_string(), json!("url"));
-            body.insert("sequential_image_generation".to_string(), json!("disabled"));
+            // `sequential_image_generation` defaults to disabled and is rejected by
+            // models without group-image support (e.g. Seedream 5.0 pro). We always
+            // request a single image, so never send it.
             body.insert("watermark".to_string(), json!(false));
             body.insert("stream".to_string(), json!(false));
             if !reference_data_urls.is_empty() {
@@ -1347,6 +1349,33 @@ mod tests {
             )
             .unwrap();
             assert!(body.get(key).is_some());
+        }
+    }
+
+    #[test]
+    fn volcengine_single_image_omits_sequential_generation() {
+        for provider in ["volcengine", "ark", "seedream"] {
+            let config = ImageGenerationConfig {
+                provider: provider.to_string(),
+                model: "doubao-seedream-5-0-pro-260628".to_string(),
+                api_key: "secret".to_string(),
+                base_url: "https://ark.cn-beijing.volces.com/api/v3".to_string(),
+            };
+            let (endpoint, body) =
+                request_parts_with_background(&config, "a cat", 1024, 1024, &[], None).unwrap();
+            assert_eq!(
+                endpoint,
+                "https://ark.cn-beijing.volces.com/api/v3/images/generations"
+            );
+            assert_eq!(body["model"], "doubao-seedream-5-0-pro-260628");
+            assert_eq!(body["size"], "1024x1024");
+            assert_eq!(body["response_format"], "url");
+            assert_eq!(body["watermark"], false);
+            assert_eq!(body["stream"], false);
+            assert!(
+                body.get("sequential_image_generation").is_none(),
+                "Seedream 5.0 pro rejects sequential_image_generation; default is already disabled"
+            );
         }
     }
 
