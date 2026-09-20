@@ -313,24 +313,58 @@ fn check_manageable_tag_vars(worker: &Worker) -> Result<()> {
             worker.cli().compose_dir.display()
         )));
     }
-    let mut refs_tag = false;
-    for f in &files {
-        let s = std::fs::read_to_string(f).map_err(|error| {
-            UpdaterError::Precondition(format!("cannot read compose file {}: {error}", f.display()))
-        })?;
+    compose_files_reference_tag(&files)
+}
+
+/// Scan every discovered compose candidate for a `${MYRIAD_TAG}` reference.
+///
+/// A candidate that cannot be read must not hide a readable one: panels often
+/// leave stray files (or directories) named like a compose file beside the real
+/// one. Unreadable candidates are recorded and the scan continues; the fault is
+/// only surfaced when no readable candidate wires `${MYRIAD_TAG}`.
+fn compose_files_reference_tag(files: &[PathBuf]) -> Result<()> {
+    let mut unreadable = Vec::new();
+    for f in files {
+        let s = match std::fs::read_to_string(f) {
+            Ok(s) => s,
+            Err(error) => {
+                unreadable.push(format!("{}: {error}", f.display()));
+                continue;
+            }
+        };
         if s.contains("${MYRIAD_TAG}") || s.contains("$MYRIAD_TAG") {
-            refs_tag = true;
-            break;
+            return Ok(());
         }
     }
-    if !refs_tag {
-        return Err(UpdaterError::Precondition(
-            "compose file does not reference ${MYRIAD_TAG}; refusing update \
-             (panel-rewritten compose often drops tag interpolation)"
-                .into(),
-        ));
+    if !unreadable.is_empty() {
+        return Err(UpdaterError::Precondition(format!(
+            "no readable compose file references ${{MYRIAD_TAG}}; refusing update. \
+             Unreadable candidate(s): {}",
+            unreadable.join("; ")
+        )));
     }
-    Ok(())
+    Err(UpdaterError::Precondition(
+        "compose file does not reference ${MYRIAD_TAG}; refusing update \
+         (panel-rewritten compose often drops tag interpolation)"
+            .into(),
+    ))
+}
+
+/// Presence probe for compose candidates under the deployment root.
+///
+/// [`crate::probe::filesystem::path_is_present`] reports a non-NotFound stat
+/// fault as `Internal`, which surfaces as HTTP 500 and reads like an updater
+/// bug. Under the deployment root the same fault is an operator-fixable mount or
+/// permission problem, so report it as a `Precondition` (HTTP 412) instead.
+fn probe_present(path: &Path) -> Result<bool> {
+    match std::fs::metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(UpdaterError::Precondition(format!(
+            "cannot inspect {}: {error}",
+            path.display()
+        ))),
+    }
 }
 
 fn discover_compose_files(compose_dir: &Path) -> Result<Vec<PathBuf>> {
@@ -343,7 +377,7 @@ fn discover_compose_files(compose_dir: &Path) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     for name in names {
         let p = compose_dir.join(name);
-        if crate::probe::filesystem::path_is_present(&p)? {
+        if probe_present(&p)? {
             files.push(p);
         }
     }
@@ -366,7 +400,7 @@ fn discover_compose_files(compose_dir: &Path) -> Result<Vec<PathBuf>> {
             }
             for name in names {
                 let p = entry.path().join(name);
-                if crate::probe::filesystem::path_is_present(&p)? {
+                if probe_present(&p)? {
                     files.push(p);
                 }
             }
@@ -849,6 +883,53 @@ mod tests {
         let external = running_check_containers(DbMode::External);
         assert!(!external.contains(&"myriad-postgres"));
         assert!(external.contains(&"myriad-backend"));
+    }
+
+    #[test]
+    fn tag_scan_skips_unreadable_candidate_and_keeps_scanning() {
+        let dir = tempfile::tempdir().unwrap();
+        // A directory named like a compose file is the panel-stray case: it stats
+        // fine but cannot be read as a file.
+        std::fs::create_dir(dir.path().join("compose.yaml")).unwrap();
+        std::fs::write(
+            dir.path().join("docker-compose.yml"),
+            "services:\n  backend:\n    image: x:${MYRIAD_TAG}\n",
+        )
+        .unwrap();
+        let files = discover_compose_files(dir.path()).unwrap();
+        assert_eq!(files.len(), 2, "{files:?}");
+        compose_files_reference_tag(&files).unwrap();
+    }
+
+    #[test]
+    fn tag_scan_reports_unreadable_candidate_when_nothing_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("compose.yaml")).unwrap();
+        std::fs::write(dir.path().join("docker-compose.yml"), "services: {}\n").unwrap();
+        let files = discover_compose_files(dir.path()).unwrap();
+        let err = compose_files_reference_tag(&files).unwrap_err();
+        assert!(err.to_string().contains("Unreadable"), "{err}");
+        assert!(err.to_string().contains("compose.yaml"), "{err}");
+    }
+
+    #[test]
+    fn tag_scan_plain_miss_keeps_original_message() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("docker-compose.yml"), "services: {}\n").unwrap();
+        let files = discover_compose_files(dir.path()).unwrap();
+        let err = compose_files_reference_tag(&files).unwrap_err();
+        assert!(err.to_string().contains("does not reference"), "{err}");
+    }
+
+    #[test]
+    fn probe_present_reports_io_faults_as_precondition() {
+        // ENOTDIR (a file used as a directory) is not NotFound, so it must not be
+        // swallowed as absence nor surfaced as an Internal/HTTP 500 error.
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("not-a-dir");
+        std::fs::write(&file, "x").unwrap();
+        let err = probe_present(&file.join("compose.yaml")).unwrap_err();
+        assert!(matches!(err, UpdaterError::Precondition(_)), "got {err}");
     }
 }
 
