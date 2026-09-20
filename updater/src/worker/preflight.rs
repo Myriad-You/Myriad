@@ -205,6 +205,8 @@ async fn run_release_with_manifest(
         )));
     }
 
+    // Bundled deployments must meet the release floor; external deployments are
+    // logged and left to the operator (see `enforce_min_pg_version`).
     enforce_min_pg_version(
         worker.cli().db_mode,
         &worker.cli().pgdata,
@@ -1022,7 +1024,13 @@ pub(crate) fn should_skip_pgdata_disk_check(db_mode: crate::config::DbMode) -> b
 }
 
 /// Bundled PGDATA: read `PG_VERSION` and refuse updates below the release floor.
-/// External DB has no local PGDATA; the floor is logged, not probed via docker exec.
+///
+/// The floor describes the PostgreSQL major shipped in the bundled compose
+/// image, so it is only enforceable where the updater owns `PGDATA`. An external
+/// deployment (`MYRIAD_DB_MODE=external`) points at an operator-managed server
+/// the updater cannot read, and release manifests always declare
+/// `min_pg_version`, so refusing here would block every external deployment.
+/// Log the floor and leave the operator's server unverified instead.
 pub(crate) fn enforce_min_pg_version(
     db_mode: crate::config::DbMode,
     pgdata: &std::path::Path,
@@ -1038,9 +1046,15 @@ pub(crate) fn enforce_min_pg_version(
         }
     };
     if db_mode.is_external() {
-        return Err(UpdaterError::Precondition(format!(
-            "db_mode=external cannot verify PostgreSQL >= {min} from PG_VERSION; refusing update"
-        )));
+        // External DB is outside compose: there is no PGDATA to probe, so the
+        // floor is advisory here. Refusing would block every external
+        // deployment because release manifests always declare min_pg_version.
+        warn!(
+            min_pg = min,
+            "preflight: release requires PostgreSQL >= {min}; db_mode=external has no \
+             PGDATA to probe, leaving the operator's server unverified"
+        );
+        return Ok(());
     }
     let running = read_pgdata_major(pgdata)?;
     if running < min {
@@ -1171,11 +1185,21 @@ mod min_pg_version_tests {
     }
 
     #[test]
-    fn external_declared_floor_is_not_skipped() {
+    fn external_declared_floor_is_logged_not_enforced() {
+        // The updater cannot probe an operator-managed server, and every release
+        // manifest declares a floor, so external mode must proceed rather than
+        // refusing the update.
         let dir = tempfile::tempdir().unwrap();
-        let err = enforce_min_pg_version(DbMode::External, dir.path(), "16").unwrap_err();
+        enforce_min_pg_version(DbMode::External, dir.path(), "16").unwrap();
+    }
+
+    #[test]
+    fn external_still_refuses_an_illegal_floor() {
+        // A malformed manifest is rejected before db_mode is considered.
+        let dir = tempfile::tempdir().unwrap();
+        let err = enforce_min_pg_version(DbMode::External, dir.path(), "latest").unwrap_err();
         assert!(matches!(err, UpdaterError::Precondition(_)), "got {err}");
-        assert!(err.to_string().contains("external"));
+        assert!(err.to_string().contains("invalid"), "got {err}");
     }
 }
 

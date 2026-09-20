@@ -127,7 +127,7 @@ updater 唯一权威数据源。完整 JSON Schema 见 [release/release-schema.j
 - `schema_version`：增量整数。updater 必须能解析自己 ≤ 的版本，更高版本拒绝。
 - `min_from_version`：禁止跨太多版本直接升，强制走中间版本。
 - `min_updater_version`：高于当前 updater → 拒绝业务更新，提示先升级 updater。
-- `postgres.min_pg_version`：唯一有效的 PostgreSQL 兼容边界；不设置上限。
+- `postgres.min_pg_version`：唯一有效的 PostgreSQL 兼容边界；不设置上限。仅对 bundled 生效（updater 读 `PGDATA/PG_VERSION` 校验）；外置数据库（`MYRIAD_DB_MODE=external`）无本地 PGDATA 可探测，updater 只记录该下限、不据此拒绝更新，版本由运维自行保证。
 - `postgres.max_pg_version`：仅为兼容旧 updater 保留，可省略；`unbounded` 明确表示无上限。
 - `signature`：M2 启用 cosign 签名，M1 留 null。
 - `images.backend` / `images.frontend`：**必填**。`images.proxy` / `images.updater`：**可选**；infra 无变动的 app release 应省略二者（不对齐版本、不 retag）。
