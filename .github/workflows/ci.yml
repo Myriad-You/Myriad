@@ -207,6 +207,10 @@ jobs:
         env:
           MYRIAD_SCHEMA_DRIFT_DB: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_drift
         run: cargo test --workspace --locked federation_outbox_and_delivery_lease_db_contracts -- --nocapture
+      - name: AI quota batching and concurrency contracts
+        env:
+          AI_QUOTA_TEST_DATABASE_URL: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_drift
+        run: cargo test -p myriad-backend --locked services::ai_quota::database_tests -- --ignored --nocapture
       - name: Native Work loop database and provider contracts
         env:
           PGHOST: 127.0.0.1
