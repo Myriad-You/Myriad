@@ -61,6 +61,8 @@ pub struct ProxyUpdateLastStatus {
     pub rolled_back: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub previous_image_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_image: Option<String>,
 }
 
 impl ProxyUpdateLastStatus {
@@ -74,6 +76,7 @@ impl ProxyUpdateLastStatus {
             error: None,
             rolled_back: false,
             previous_image_id: None,
+            previous_image: None,
         }
     }
 
@@ -92,6 +95,7 @@ impl ProxyUpdateLastStatus {
             error: Some(error.into()),
             rolled_back,
             previous_image_id: None,
+            previous_image: None,
         }
     }
 }
@@ -230,23 +234,31 @@ async fn run(
             .ok_or_else(|| UpdaterError::Docker("previous proxy image is missing".into()))?,
     };
     let repo = worker.proxy_image_repo()?;
-    let previous_digest = worker
-        .docker()
-        .raw()
-        .inspect_image(&previous_id)
-        .await
-        .map_err(|e| UpdaterError::Docker(format!("inspect previous proxy image: {e}")))?
-        .repo_digests
-        .unwrap_or_default()
-        .into_iter()
-        .find_map(|reference| {
-            let (source, digest) = reference.rsplit_once('@')?;
-            (source.trim_start_matches("docker.io/") == repo.trim_start_matches("docker.io/"))
-                .then(|| digest.to_owned())
-        })
-        .ok_or_else(|| UpdaterError::Docker("previous proxy has no repository digest".into()))?;
+    let previous_digest = match &pending.previous_image {
+        Some(image) => image.clone(),
+        None => worker
+            .docker()
+            .raw()
+            .inspect_image(&previous_id)
+            .await
+            .map_err(|e| UpdaterError::Docker(format!("inspect previous proxy image: {e}")))?
+            .repo_digests
+            .unwrap_or_default()
+            .into_iter()
+            .find_map(|reference| {
+                let (source, digest) = reference.rsplit_once('@')?;
+                (source.trim_start_matches("docker.io/") == repo.trim_start_matches("docker.io/"))
+                    .then(|| digest.to_owned())
+            })
+            .ok_or_else(|| {
+                UpdaterError::Docker("previous proxy has no repository digest".into())
+            })?,
+    };
     pending.target_tag = resolved.tag.clone();
     pending.previous_image_id = Some(previous_id.clone());
+    // Pulling a mutable tag can remove the old image's RepoDigests. Retain its
+    // deployment reference before the pull so restart recovery uses the same image.
+    pending.previous_image = Some(previous_digest.clone());
     write_proxy_update_last(worker.state().root(), &pending)?;
 
     info!(

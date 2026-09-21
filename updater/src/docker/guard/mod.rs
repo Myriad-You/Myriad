@@ -36,7 +36,7 @@ use forward::{daemon_json, discover_host_compose_root, handle};
 use self_update::{
     cleanup_helper, helper_container_exists, helper_container_exit_code, helper_container_running,
     inspect_handoff_attempt, monitor_handoff, recovery_attempt_from_status, restart_helper,
-    resume_staged_recovery, stop_helper, wait_for_helper_absence,
+    resume_staged_recovery, stop_helper,
 };
 
 pub(crate) const TRUSTED_GUARD_REPOSITORY: &str = "docker.io/somekawahitomi/myriad-updater";
@@ -141,19 +141,16 @@ pub async fn run(mut config: GuardConfig) -> Result<()> {
         let mut monitor_ready = true;
         if recovery_only {
             let docker_host = format!("unix://{}", state.config.socket_path.display());
-            let normal_absent =
+            let normal_stopped =
                 if helper_container_exists(&state.config.socket_path, SELF_UPDATE_HELPER_NAME)
                     .await
                     .unwrap_or(true)
                 {
-                    stop_helper(&docker_host, SELF_UPDATE_HELPER_NAME).await
-                        && cleanup_helper(&docker_host, SELF_UPDATE_HELPER_NAME).await
-                        && wait_for_helper_absence(
-                            &state.config.socket_path,
-                            SELF_UPDATE_HELPER_NAME,
-                            Duration::from_secs(30),
-                        )
-                        .await
+                    let stopped = stop_helper(&docker_host, SELF_UPDATE_HELPER_NAME).await;
+                    if stopped {
+                        let _ = cleanup_helper(&docker_host, SELF_UPDATE_HELPER_NAME).await;
+                    }
+                    stopped
                 } else {
                     true
                 };
@@ -164,7 +161,7 @@ pub async fn run(mut config: GuardConfig) -> Result<()> {
                 .await
                 .ok()
                 .flatten();
-            if !normal_absent
+            if !normal_stopped
                 || (!recovery_running
                     && recovery_exit.is_none()
                     && !restart_helper(&docker_host, helper_name).await)

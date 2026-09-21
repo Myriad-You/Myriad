@@ -684,13 +684,13 @@ inspect 自身容器和实际 image ID，核验 Compose 项目、服务、官方
 宿主手动部署可使用官方版本 tag，旧 `DOCKER_GUARD_EXPECTED_IMAGE` 不再阻止新镜像启动。
 `.env`、容器覆盖的版本环境变量、Updater 提供的仓库/digest 或 updater 状态均不是身份权威。
 
-Guard 开始提供健康检查后，启动核验等待 Guard、updater、gateway 全部健康且运行相同
-image ID、摘要和内置版本，再同步 `.env` 的 `UPDATER_TAG`、`UPDATER_IMAGE_REF`、
-`DOCKER_GUARD_IMAGE` 和 `guard-policy/docker-guard.env` 的 `DOCKER_GUARD_IMAGE`。
+Guard 启动时读取 Guard、updater、gateway 各自实际安装的镜像身份，同步 `.env` 的
+`UPDATER_IMAGE_REF`、`UPDATER_GATEWAY_IMAGE_REF`、`DOCKER_GUARD_IMAGE` 和
+`guard-policy/docker-guard.env` 的 `DOCKER_GUARD_IMAGE`，保留用户选择的 `UPDATER_TAG`。
 回写由实际镜像中的固定维护入口执行，不拉取镜像、不重建容器；`.env` 原位写入以保留
 运行中 updater 的文件绑定挂载。两份文件不是跨文件事务，中断后再次启动核验可收敛。
-正在进行的升级/回滚优先；组件混版、不健康或无法验证时不覆盖固定值，并记录原因。
-只改 tag 而没有真正换镜像不会被视为已升级，配置会同步为实际运行版本。
+正在进行的升级/回滚优先；身份无法读取时保留原值并记录原因。元数据同步不等待健康，
+也不要求三个组件版本一致，避免旧组件故障阻止修复更新。升级结果仍以实际镜像和健康检查为准。
 
 自更新直接从组件自己的 Docker Hub 仓库选版本，不下载业务 release.json 或签名文件。
 版本偏好只用于默认选择；Guard 接受合法 Docker tag，不按版本号、构建时间或分支名称拒绝请求。
@@ -918,6 +918,13 @@ M1 release 前必须跑通。状态：
 | 18 | release.json 未知字段 | 忽略继续 | unit (serde flatten + skip_unknown) |
 | 19 | frontend cache 旧版本 | health meta 失败 → 回滚 | manual |
 | 20 | proxy 重启 | 维护状态从磁盘恢复 | **e2e ✓** (fail-open + maintenance.json 切换) |
+
+组件更新的 mock 黑盒测试位于 `updater/tests/component_update_api.rs` 和
+`updater/tests/self_update_handoff.rs`，可运行
+`cargo test --test component_update_api --test self_update_handoff`。
+测试启动真实 updater/helper 进程，模拟 Docker、Guard 和镜像仓库故障，覆盖立即受理、
+发现失败后重试、v0.5.3 响应丢失、重启续接、proxy 自动恢复、已完成更新不重复执行，
+以及三个组件按各自旧镜像恢复。无需真实部署或外部仓库凭据；这些测试不替代真实升级演练。
 
 E2E 实际覆盖（11 项 / 全过，2026-07-17）：
 

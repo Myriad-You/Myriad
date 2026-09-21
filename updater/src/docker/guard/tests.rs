@@ -1669,6 +1669,42 @@ async fn startup_waits_for_interrupted_reconciliation_to_finish() {
 }
 
 #[tokio::test]
+async fn startup_releases_its_gate_when_docker_recovers_without_guard_restart() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("docker.sock");
+    let mut state = state();
+    let cfg = Arc::make_mut(&mut state.config);
+    cfg.socket_path = socket.clone();
+    cfg.state_dir = dir.path().into();
+    super::startup::schedule_reconciliation(state.clone());
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert_ne!(state.mutation_gate.load(Ordering::SeqCst), 0);
+    let listener = tokio::net::UnixListener::bind(socket).unwrap();
+    let daemon = tokio::spawn(async move {
+        loop {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0; 1024];
+            let _ = stream.read(&mut request).await;
+            stream
+                .write_all(
+                    b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .unwrap();
+        }
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while state.mutation_gate.load(Ordering::SeqCst) != 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    daemon.abort();
+}
+
+#[tokio::test]
 async fn guard_accepts_before_preparation_and_records_preparation_failure() {
     let root = tempfile::tempdir().unwrap();
     let mut state = state();

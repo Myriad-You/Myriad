@@ -378,7 +378,7 @@ fn reconcile_running_policy(cfg: &HelperConfig) -> Result<()> {
         validate_image_id(id).map_err(|e| UpdaterError::Precondition(e.to_string()))?;
         let image = docker_inspect_json("image", id)?;
         identities.push(
-            runtime_identity(&container, &image, &cfg.project, service, true)
+            runtime_identity(&container, &image, &cfg.project, service, false)
                 .map_err(|e| UpdaterError::Precondition(e.to_string()))?,
         );
     }

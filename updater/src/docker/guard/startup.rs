@@ -137,7 +137,6 @@ const STARTUP_GATE: usize = super::SELF_UPDATE_GATE | 1;
 
 pub(crate) fn schedule_reconciliation(state: super::GuardState) {
     use std::sync::atomic::Ordering;
-    use std::time::Duration;
     if state.config.allow_unpinned_dev {
         return;
     }
@@ -163,52 +162,41 @@ pub(crate) fn schedule_reconciliation(state: super::GuardState) {
                     super::self_update::wait_for_stopped_helper(&state, name).await?;
                 }
             }
-            // Guard must serve its health endpoint first: updater depends on it.
-            let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
-            let identity = loop {
-                let result = healthy_stack(&state.config).await;
-                match result {
-                    Ok(identity) => break identity,
-                    Err(error) if tokio::time::Instant::now() >= deadline => return Err(error),
-                    Err(_) => tokio::time::sleep(Duration::from_secs(2)).await,
-                }
-            };
+            // Metadata follows installed images. An unhealthy old stack still needs repair.
+            let identity = inspect_stack(&state.config, false).await?;
             if !policy_matches(&state, &identity)? {
                 super::self_update::reconcile_runtime_policy(&state, &identity).await?;
             }
-            tracing::info!(version = %identity[1].version, image = %identity[1].image, guard_image = %identity[0].image, gateway_image = %identity[2].image, "reconciled healthy host deployment identity");
+            tracing::info!(version = %identity[1].version, image = %identity[1].image, guard_image = %identity[0].image, gateway_image = %identity[2].image, "reconciled host deployment identity");
             Ok::<(), anyhow::Error>(())
         }.await;
         if let Err(error) = result {
             tracing::warn!(%error, "startup identity reconciliation deferred; existing policy retained");
         }
-        // An uncertain helper outcome must not race the next self-update.
-        if super::self_update::helper_container_exists(
+        // A temporary Docker outage must not leave a permanent mutation gate.
+        while super::self_update::helper_container_exists(
             &state.config.socket_path,
             super::STARTUP_RECONCILE_NAME,
         )
         .await
         .unwrap_or(true)
-            && super::self_update::helper_container_running(
-                &state.config.socket_path,
-                super::STARTUP_RECONCILE_NAME,
-            )
-            .await
-            .unwrap_or(true)
         {
-            tracing::warn!("reconciliation helper has not stopped; retaining mutation gate");
-            return;
+            match super::self_update::wait_for_stopped_helper(&state, super::STARTUP_RECONCILE_NAME)
+                .await
+            {
+                Ok(()) => break,
+                Err(error) => tracing::warn!(%error, "waiting for reconciliation helper to stop"),
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         }
-        {
-            let _ = super::self_update::finalize_or_fail_orphaned_pending_handoff(&state).await;
-            // All helper execution has stopped; failed health does not forbid repair.
-            let _ = state.mutation_gate.compare_exchange(
-                STARTUP_GATE,
-                0,
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-            );
-        }
+        let _ = super::self_update::finalize_or_fail_orphaned_pending_handoff(&state).await;
+        // All helper execution has stopped; failed health does not forbid repair.
+        let _ = state.mutation_gate.compare_exchange(
+            STARTUP_GATE,
+            0,
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        );
     });
 }
 
@@ -356,7 +344,7 @@ mod tests {
     }
 
     #[test]
-    fn guard_can_boot_before_its_healthcheck_but_cannot_persist_yet() {
+    fn metadata_identity_does_not_require_health_acceptance() {
         let (mut container, image) = fixture();
         container["State"]["Health"]["Status"] = json!("starting");
         assert!(runtime_identity(&container, &image, "myriad", "updater", false).is_ok());

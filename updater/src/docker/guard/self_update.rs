@@ -390,23 +390,16 @@ pub(crate) fn monitor_handoff(
             {
                 Ok(recovery_id) => {
                     let old_stopped = stop_helper(&docker_host, &helper_id).await;
-                    let old_removed = old_stopped
-                        && cleanup_helper(&docker_host, &helper_id).await
-                        && wait_for_helper_absence(
-                            &state.config.socket_path,
-                            &helper_id,
-                            Duration::from_secs(30),
-                        )
-                        .await;
-                    if !old_removed {
+                    if !old_stopped {
                         error!(
                             %helper_id,
                             %recovery_id,
-                            "old helper cleanup is unconfirmed; recovery remains staged"
+                            "old helper has not stopped; recovery remains staged"
                         );
                         resume_staged_recovery(state, attempt.clone(), 0);
                         return;
                     }
+                    let _ = cleanup_helper(&docker_host, &helper_id).await;
                     if !restart_helper(&docker_host, &recovery_id).await {
                         error!(
                             %recovery_id,
@@ -633,15 +626,11 @@ pub(crate) fn resume_staged_recovery(
                 helper_container_exists(&state.config.socket_path, SELF_UPDATE_HELPER_NAME)
                     .await
                     .unwrap_or(true);
-            let normal_absent = !normal_exists
-                || (stop_helper(&docker_host, SELF_UPDATE_HELPER_NAME).await
-                    && cleanup_helper(&docker_host, SELF_UPDATE_HELPER_NAME).await
-                    && wait_for_helper_absence(
-                        &state.config.socket_path,
-                        SELF_UPDATE_HELPER_NAME,
-                        Duration::from_secs(30),
-                    )
-                    .await);
+            let normal_stopped =
+                !normal_exists || stop_helper(&docker_host, SELF_UPDATE_HELPER_NAME).await;
+            if normal_exists && normal_stopped {
+                let _ = cleanup_helper(&docker_host, SELF_UPDATE_HELPER_NAME).await;
+            }
             if recovery_retries > 0 && !persist_recovery_attempt(&state, &attempt, recovery_retries)
             {
                 warn!("could not persist recovery retry budget; retrying without execution");
@@ -658,7 +647,7 @@ pub(crate) fn resume_staged_recovery(
                     .ok()
                     .flatten()
                     == Some(0);
-            if normal_absent
+            if normal_stopped
                 && (recovery_running
                     || recovery_succeeded
                     || restart_helper(&docker_host, SELF_UPDATE_RECOVERY_NAME).await)
@@ -851,30 +840,6 @@ pub(crate) fn helper_exit_code_from_inspect(inspect: &Value) -> Result<Option<i6
         .and_then(Value::as_i64)
         .map(Some)
         .ok_or_else(|| anyhow!("trusted helper has no exit code"))
-}
-
-pub(crate) async fn wait_for_helper_absence(
-    socket: &Path,
-    helper_id: &str,
-    timeout: Duration,
-) -> bool {
-    let deadline = tokio::time::Instant::now() + timeout;
-    let mut consecutive_absent = 0u8;
-    loop {
-        match helper_container_exists(socket, helper_id).await {
-            Ok(false) => {
-                consecutive_absent += 1;
-                if consecutive_absent >= 5 {
-                    return true;
-                }
-            }
-            Ok(true) | Err(_) => consecutive_absent = 0,
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return false;
-        }
-        tokio::time::sleep(Duration::from_secs(1)).await;
-    }
 }
 
 pub(crate) async fn inspect_handoff_attempt(

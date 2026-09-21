@@ -72,23 +72,64 @@ async fn request_handoff(worker: &Worker, actor: Option<String>) -> Result<()> {
     }
     let target = &pending.target_tag;
     let before_at = Some(pending.at.as_str());
+    let endpoint = std::env::var("DOCKER_GUARD_SELF_UPDATE_URL")
+        .unwrap_or_else(|_| "http://docker-guard:2375/_myriad/self-update".into());
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| UpdaterError::Docker(format!("build docker guard client: {e}")))?;
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(120);
+    let mut response_lost = false;
     let persisted = loop {
-        match schedule_guarded_recreate(
-            target,
-            "dockerhub_tag",
-            worker.config().guard_self_update_token.expose(),
-        )
-        .await
-        {
-            Err(UpdaterError::Conflict) if tokio::time::Instant::now() < deadline => {
-                if read_status(worker.state().root())?.is_some_and(|s| !s.queued) {
-                    return Ok(());
-                }
-                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-            }
-            result => break result?,
+        if read_status(worker.state().root())?.is_some_and(|s| !s.queued) {
+            return Ok(());
         }
+        let response = client
+            .post(&endpoint)
+            .header(
+                "X-Guard-Self-Update-Token",
+                worker.config().guard_self_update_token.expose(),
+            )
+            .json(&self_update_request_body(target, "dockerhub_tag"))
+            .send()
+            .await;
+        match response {
+            Ok(response) if response.status().is_success() => {
+                // A successful response with a truncated body is still acceptance.
+                let body: serde_json::Value = response.json().await.unwrap_or_default();
+                break body["status_persisted"].as_bool().unwrap_or(false);
+            }
+            Ok(response) if response.status() == reqwest::StatusCode::CONFLICT => {
+                // v0.5.3 writes its record after preparation. If our response was lost,
+                // a busy Guard may already be executing this request. Remove next release.
+                if response_lost {
+                    break false;
+                }
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(UpdaterError::Conflict);
+                }
+            }
+            Ok(response) => {
+                let status = response.status();
+                let detail = response.text().await.unwrap_or_default();
+                return Err(UpdaterError::Docker(format!(
+                    "docker guard rejected self-update ({status}): {detail}"
+                )));
+            }
+            Err(error) => {
+                response_lost |= !error.is_connect();
+                if tokio::time::Instant::now() >= deadline {
+                    if response_lost {
+                        break false;
+                    }
+                    return Err(UpdaterError::Docker(format!(
+                        "schedule guarded self-update: {error}"
+                    )));
+                }
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     };
     // v0.5.3 accepts before writing status. Remove after the refactor's first release.
     if !persisted {
@@ -135,41 +176,6 @@ async fn wait_for_legacy_guard_acceptance(
         }
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
-}
-
-async fn schedule_guarded_recreate(
-    target_tag: &str,
-    trust_path: &str,
-    guard_self_update_token: &str,
-) -> Result<bool> {
-    let endpoint = std::env::var("DOCKER_GUARD_SELF_UPDATE_URL")
-        .unwrap_or_else(|_| "http://docker-guard:2375/_myriad/self-update".into());
-    let response = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(5))
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| UpdaterError::Docker(format!("build docker guard client: {e}")))?
-        .post(endpoint)
-        .header("X-Guard-Self-Update-Token", guard_self_update_token)
-        .json(&self_update_request_body(target_tag, trust_path))
-        .send()
-        .await
-        .map_err(|e| UpdaterError::Docker(format!("schedule guarded self-update: {e}")))?;
-    if response.status() == reqwest::StatusCode::CONFLICT {
-        return Err(UpdaterError::Conflict);
-    }
-    if !response.status().is_success() {
-        let status = response.status();
-        let detail = response.text().await.unwrap_or_default();
-        return Err(UpdaterError::Docker(format!(
-            "docker guard rejected self-update ({status}): {detail}"
-        )));
-    }
-    let accepted: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|error| UpdaterError::Docker(format!("read Guard acceptance: {error}")))?;
-    Ok(accepted["status_persisted"].as_bool().unwrap_or(false))
 }
 
 fn self_update_request_body(target_tag: &str, trust_path: &str) -> serde_json::Value {
