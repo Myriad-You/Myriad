@@ -69,6 +69,19 @@ impl Worker {
         ) {
             return Ok(None);
         }
+        // Retry preflight failures on the next check, but do not repeatedly take
+        // the site down for a target that already failed after replacement.
+        if let Some(failed) = &st.last_failed_update
+            && failed.to_version.as_ref() == Some(&la.version)
+            && self
+                .state
+                .read_job(&failed.job_id)?
+                .steps
+                .iter()
+                .any(|step| step.phase.is_post_swap())
+        {
+            return Ok(None);
+        }
         let target = la.version.clone();
         if st.current_version.as_ref() == Some(&target) {
             return Ok(None);
@@ -97,11 +110,8 @@ impl Worker {
                 allow_diverged: None,
                 allow_unknown: None,
                 allow_irreversible: None,
-                idempotency_key: Some(format!(
-                    "auto-install-{}-{}",
-                    mode.as_str(),
-                    target.as_str()
-                )),
+                // Each periodic attempt is a new request; failed jobs must not replay.
+                idempotency_key: None,
                 actor: Some("auto-install".into()),
                 reply: tx,
             })

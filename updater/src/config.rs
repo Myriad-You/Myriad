@@ -62,17 +62,18 @@ impl DbMode {
     /// Does **not** auto-switch from `DATABASE_URL` host — external mode must be explicit.
     pub fn resolve(env_file: Option<&Path>) -> Result<Self, UpdaterError> {
         if let Ok(raw) = std::env::var("MYRIAD_DB_MODE")
-            && !raw.trim().is_empty() {
-                return Self::parse(&raw);
-            }
-        if let Some(path) = env_file {
-            if crate::probe::filesystem::path_is_present(path)? {
-                let env = crate::env_file::EnvFile::load(path)?;
-                if let Some(raw) = env.get("MYRIAD_DB_MODE")
-                    && !raw.trim().is_empty()
-                {
-                    return Self::parse(raw);
-                }
+            && !raw.trim().is_empty()
+        {
+            return Self::parse(&raw);
+        }
+        if let Some(path) = env_file
+            && crate::probe::filesystem::path_is_present(path)?
+        {
+            let env = crate::env_file::EnvFile::load(path)?;
+            if let Some(raw) = env.get("MYRIAD_DB_MODE")
+                && !raw.trim().is_empty()
+            {
+                return Self::parse(raw);
             }
         }
         Ok(DbMode::Bundled)
@@ -110,9 +111,6 @@ pub struct Config {
     ///   tags when the token is absent (typical for private source repos that only publish
     ///   images publicly).
     pub github_token: Option<SecretString>,
-
-    /// Optional image mirror prefix (e.g. `mirror.local`). Applied as a rewrite.
-    pub registry_mirror: Option<String>,
 
     /// How often to poll GitHub for new releases. Set to 0 to disable polling.
     pub check_interval_secs: u64,
@@ -222,10 +220,6 @@ impl Config {
 
         let github_token = optional_secret(std::env::var("GITHUB_TOKEN").ok());
 
-        let registry_mirror = std::env::var("REGISTRY_MIRROR")
-            .ok()
-            .filter(|s| !s.trim().is_empty());
-
         let check_interval_secs: u64 = std::env::var("CHECK_INTERVAL_SECS")
             .ok()
             .and_then(|s| s.parse().ok())
@@ -244,7 +238,6 @@ impl Config {
             channel,
             github_repo,
             github_token,
-            registry_mirror,
             check_interval_secs,
             cosign_verify,
         })
@@ -353,7 +346,6 @@ mod tests {
             channel: Channel::Stable,
             github_repo: "Myriad-You/Myriad".into(),
             github_token: None,
-            registry_mirror: None,
             check_interval_secs: 3600,
             cosign_verify: "off".into(),
         };

@@ -286,7 +286,7 @@ impl Worker {
         match plan {
             CrashRecoveryPlan::Idle => Ok(RecoveryReport::Idle),
             CrashRecoveryPlan::FinishCommitted => {
-                crate::worker::machine::clear_maintenance(&state)?;
+                super::update::finish_successful_deploy(&state, job_id.as_deref().unwrap(), None)?;
                 Ok(RecoveryReport::Idle)
             }
             CrashRecoveryPlan::NeedsManual {
@@ -466,6 +466,41 @@ mod recovery_plan_tests {
             job_id: job_id.map(|s| s.to_string()),
             message_key: "test".into(),
         }
+    }
+
+    #[test]
+    fn successful_deploy_resumes_after_state_write_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = StateDir::open(dir.path()).unwrap();
+        let mut j = job(JobStatus::Running, Phase::HealthProbing);
+        let target = DeployTag::parse("v1.2.3").unwrap();
+        j.to_version = Some(target.clone());
+        state.write_job(&j).unwrap();
+        state.set_current_job(Some("j1")).unwrap();
+        state
+            .write_maintenance(&maint(true, Phase::HealthProbing, Some("j1")))
+            .unwrap();
+        let state_path = dir.path().join("updater.json");
+        std::fs::create_dir(&state_path).unwrap();
+        assert!(super::super::update::finish_successful_deploy(&state, "j1", None).is_err());
+        let saved = state.read_job("j1").unwrap();
+        assert_eq!(saved.status, JobStatus::Succeeded);
+        assert_eq!(
+            plan_crash_recovery(
+                &state.read_maintenance().unwrap(),
+                Some("j1"),
+                Some(&saved),
+                &EnvTagObservation::Known(target.to_string())
+            ),
+            CrashRecoveryPlan::FinishCommitted
+        );
+        assert!(state.read_maintenance().unwrap().active);
+        std::fs::remove_dir(state_path).unwrap();
+        super::super::update::finish_successful_deploy(&state, "j1", None).unwrap();
+        assert_eq!(state.read_updater().unwrap().current_version, Some(target));
+        assert!(!state.read_maintenance().unwrap().active);
+        assert!(state.read_current_job().unwrap().is_none());
+        assert_eq!(state.read_job("j1").unwrap().steps.len(), 2);
     }
 
     #[test]

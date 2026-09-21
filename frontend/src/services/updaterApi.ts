@@ -512,6 +512,7 @@ export function makeUpdaterApi(
         new_proxy_tag: string
         image_ref: string
         pulled_digest: string
+        scheduled?: boolean
       }>(
         'POST',
         mode === 'backend' ? '/proxy-update' : '/admin/proxy-update',

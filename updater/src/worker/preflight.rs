@@ -334,7 +334,6 @@ async fn run_release_with_manifest(
     check_env_keys(worker.as_ref(), Some(&manifest))?;
     check_disk(worker.as_ref())?;
     crate::worker::preflight_env::check_local_environment(&worker).await?;
-    check_compose_networks(&worker).await?;
 
     let backend = manifest
         .image("backend")
@@ -352,11 +351,11 @@ async fn run_release_with_manifest(
     }
 
     let backend_pulled = worker
-        .docker_pull_with_mirror(&backend.r#ref)
+        .pull_image(&backend.r#ref)
         .await
         .map_err(|e| UpdaterError::Precondition(format!("pull backend: {e}")))?;
     let frontend_pulled = worker
-        .docker_pull_with_mirror(&frontend.r#ref)
+        .pull_image(&frontend.r#ref)
         .await
         .map_err(|e| UpdaterError::Precondition(format!("pull frontend: {e}")))?;
 
@@ -373,6 +372,7 @@ async fn run_release_with_manifest(
         )));
     }
 
+    check_compose_networks(&worker, &backend.r#ref).await?;
     let estimated = manifest.migrations.estimated_seconds;
     let target_commit_sha = match manifest.commit_sha.clone() {
         some @ Some(_) => some,
@@ -513,7 +513,6 @@ async fn run_release_via_dockerhub(
     check_env_keys(worker.as_ref(), None)?;
     check_disk(worker.as_ref())?;
     crate::worker::preflight_env::check_local_environment(&worker).await?;
-    check_compose_networks(&worker).await?;
 
     let (backend_repo, frontend_repo) = worker.image_repos_required()?;
     let tag = release.as_str();
@@ -534,22 +533,16 @@ async fn run_release_via_dockerhub(
         "preflight(release): pulling release images via Docker Hub"
     );
 
-    worker
-        .docker_pull_with_mirror(&backend_ref)
-        .await
-        .map_err(|e| {
-            UpdaterError::Precondition(format!(
-                "pull backend {backend_ref}: {e} (is release {tag} published on Docker Hub?)"
-            ))
-        })?;
-    worker
-        .docker_pull_with_mirror(&frontend_ref)
-        .await
-        .map_err(|e| {
-            UpdaterError::Precondition(format!(
-                "pull frontend {frontend_ref}: {e} (is release {tag} published on Docker Hub?)"
-            ))
-        })?;
+    worker.pull_image(&backend_ref).await.map_err(|e| {
+        UpdaterError::Precondition(format!(
+            "pull backend {backend_ref}: {e} (is release {tag} published on Docker Hub?)"
+        ))
+    })?;
+    worker.pull_image(&frontend_ref).await.map_err(|e| {
+        UpdaterError::Precondition(format!(
+            "pull frontend {frontend_ref}: {e} (is release {tag} published on Docker Hub?)"
+        ))
+    })?;
 
     // Optional commit_sha when GitHub is reachable but only the release asset was missing.
     let target_commit_sha = if worker.github_commit_metadata_enabled() {
@@ -571,6 +564,7 @@ async fn run_release_via_dockerhub(
         None
     };
 
+    check_compose_networks(&worker, &backend_ref).await?;
     Ok(PreflightReport {
         manifest: None,
         from_version,
@@ -741,7 +735,6 @@ async fn run_commit(
     check_env_keys(worker.as_ref(), None)?;
     check_disk(worker.as_ref())?;
     crate::worker::preflight_env::check_local_environment(&worker).await?;
-    check_compose_networks(&worker).await?;
 
     let (backend_repo, frontend_repo) = worker.image_repos_required()?;
     let tag = effective.as_str();
@@ -756,23 +749,18 @@ async fn run_commit(
         }
     }
 
-    worker
-        .docker_pull_with_mirror(&backend_ref)
-        .await
-        .map_err(|e| {
-            UpdaterError::Precondition(format!(
-                "pull backend {backend_ref}: {e} (is the commit built by CI?)"
-            ))
-        })?;
-    worker
-        .docker_pull_with_mirror(&frontend_ref)
-        .await
-        .map_err(|e| {
-            UpdaterError::Precondition(format!(
-                "pull frontend {frontend_ref}: {e} (is the commit built by CI?)"
-            ))
-        })?;
+    worker.pull_image(&backend_ref).await.map_err(|e| {
+        UpdaterError::Precondition(format!(
+            "pull backend {backend_ref}: {e} (is the commit built by CI?)"
+        ))
+    })?;
+    worker.pull_image(&frontend_ref).await.map_err(|e| {
+        UpdaterError::Precondition(format!(
+            "pull frontend {frontend_ref}: {e} (is the commit built by CI?)"
+        ))
+    })?;
 
+    check_compose_networks(&worker, &backend_ref).await?;
     Ok(PreflightReport {
         manifest: None,
         from_version,
@@ -890,7 +878,7 @@ fn check_disk(worker: &Worker) -> Result<()> {
 /// Fail closed when compose would attach update/rollback services to a network
 /// docker-guard will reject — otherwise `compose up` fails after stop/snapshot and
 /// rollback hits the same error (site stuck down).
-async fn check_compose_networks(worker: &Arc<Worker>) -> Result<()> {
+async fn check_compose_networks(worker: &Arc<Worker>, backend_image: &str) -> Result<()> {
     let allow = NetworkAllowlist::resolve(Some(worker.cli().env_file.as_path()))?;
     let compose = crate::worker::update::build_compose_runner_pub(worker)
         .await
@@ -905,8 +893,23 @@ async fn check_compose_networks(worker: &Arc<Worker>) -> Result<()> {
     })?;
 
     // Topology / volume / project-label contract — inspect only; does not alter compose.
-    crate::worker::preflight_env::check_compose_contract(worker, &config, compose.project())
-        .await?;
+    let workers = [
+        worker
+            .docker()
+            .supports_federation_worker(backend_image)
+            .await?,
+        worker
+            .docker()
+            .supports_persona_worker(backend_image)
+            .await?,
+    ];
+    crate::worker::preflight_env::check_compose_contract(
+        worker,
+        &config,
+        compose.project(),
+        workers,
+    )
+    .await?;
 
     let mut services: Vec<&str> = UPDATE_RECREATE_SERVICES.to_vec();
     if worker.cli().db_mode.is_external() {

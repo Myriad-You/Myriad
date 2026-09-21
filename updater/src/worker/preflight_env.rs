@@ -49,13 +49,18 @@ pub async fn check_compose_contract(
     worker: &Arc<Worker>,
     compose_config: &serde_json::Value,
     project: &str,
+    workers: [bool; 2],
 ) -> Result<()> {
     let db_mode = worker.cli().db_mode;
-    check_compose_topology(compose_config, db_mode)?;
-    check_federation_http_storage(compose_config)?;
-    check_federation_edge(worker.as_ref()).await?;
-    check_persona_runtime(compose_config)?;
-    check_persona_edge(worker.as_ref()).await?;
+    check_target_topology(compose_config, db_mode, workers)?;
+    if workers[0] {
+        check_federation_http_storage(compose_config)?;
+        check_federation_edge(worker.as_ref()).await?;
+    }
+    if workers[1] {
+        check_persona_runtime(compose_config)?;
+        check_persona_edge(worker.as_ref()).await?;
+    }
     check_postgres_pgdata_volume(compose_config, db_mode)?;
     check_running_compose_project(worker.as_ref(), project).await?;
     info!(
@@ -525,7 +530,16 @@ async fn check_docker_api(worker: &Worker) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 /// Fail if required services missing or `container_name` rewritten away from production names.
+#[cfg(test)]
 pub fn check_compose_topology(config: &serde_json::Value, db_mode: DbMode) -> Result<()> {
+    check_target_topology(config, db_mode, [true, true])
+}
+
+fn check_target_topology(
+    config: &serde_json::Value,
+    db_mode: DbMode,
+    workers: [bool; 2],
+) -> Result<()> {
     let Some(services) = config.get("services").and_then(|v| v.as_object()) else {
         return Err(UpdaterError::Precondition(
             "compose config has no services map; refusing update".into(),
@@ -534,18 +548,23 @@ pub fn check_compose_topology(config: &serde_json::Value, db_mode: DbMode) -> Re
 
     // Reject before maintenance/stop: a new image must never discover the
     // missing role only after the running installation has been taken offline.
-    if config
-        .pointer("/services/backend/environment/MYRIAD_PROCESS_ROLE")
-        .and_then(serde_json::Value::as_str)
-        != Some("web")
+    if workers.iter().any(|required| *required)
+        && config
+            .pointer("/services/backend/environment/MYRIAD_PROCESS_ROLE")
+            .and_then(serde_json::Value::as_str)
+            != Some("web")
     {
         return Err(UpdaterError::Precondition(
             "migrate Compose and updater/Guard before upgrading: backend requires explicit MYRIAD_PROCESS_ROLE=web, federation-worker and persona-worker; implicit combined execution is no longer supported".into(),
         ));
     }
     let mut required = required_services(db_mode);
-    required.push("federation-worker");
-    required.push("persona-worker");
+    if workers[0] {
+        required.push("federation-worker");
+    }
+    if workers[1] {
+        required.push("persona-worker");
+    }
     let mut missing_svc = Vec::new();
     let mut name_issues = Vec::new();
 
@@ -732,6 +751,16 @@ async fn check_running_compose_project(worker: &Worker, project: &str) -> Result
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn combined_backend_target_does_not_require_split_workers() {
+        let config = json!({"services": {
+            "backend": {"container_name":"myriad-backend"},
+            "frontend": {"container_name":"myriad-frontend"}
+        }});
+        assert!(check_target_topology(&config, DbMode::External, [false, false]).is_ok());
+        assert!(check_target_topology(&config, DbMode::External, [true, true]).is_err());
+    }
 
     #[test]
     fn federation_http_storage_requires_exact_existing_volume_subpaths() {

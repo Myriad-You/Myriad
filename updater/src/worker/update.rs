@@ -8,9 +8,8 @@
 //! 1. **After app stop**: any `Err` must go through `dispatch_update_failure` → restart app
 //!    (`PreSwap`) or full rollback (`PostSwap`).
 //! 2. **`post_swap` only after `swap_tag` Ok** — failed tag write must not snapshot-restore.
-//! 3. **`committed` immediately after health Ok** — never rollback a live healthy stack.
-//! 4. **After `committed`**: persist success before clearing maintenance. Audit/log
-//!    failures are non-fatal; state persistence failures must not restore old data.
+//! 3. **After health Ok**: finish state writes without returning to the rollback path.
+//! 4. Durable success allows restart recovery to finish the same state writes.
 //! 5. **Preflight / maintenance entry failures**: always clear maintenance (best-effort).
 //! 6. **Rollback paths**: failed restoration keeps writers stopped and maintenance
 //!    active for explicit recovery; never start services on uncertain pgdata.
@@ -87,7 +86,7 @@ pub async fn run(
     let _ = worker.state().append_audit(&audit);
 
     if let Err(e) = rec.enter(Phase::Preflight, "updater.phase.preflight") {
-        record_preflight_failure(&worker, &rec, &e);
+        record_preflight_failure(worker.state(), &rec, &e);
         let _ = rec.finalize(JobStatus::Failed);
         let _ = crate::worker::machine::clear_maintenance(worker.state());
         return Err(e);
@@ -100,9 +99,8 @@ pub async fn run(
         Err(e) => {
             error!(job = %job_id, err = %e, "preflight failed");
             let _ = rec.finish_step_err(format!("preflight: {e}"));
-            // Surface reason on About → update block; stop auto-install so a
-            // broken pre-check does not keep firing until the operator fixes it.
-            record_preflight_failure(&worker, &rec, &e);
+            // Surface the failure; the next scheduled attempt keeps the user preference.
+            record_preflight_failure(worker.state(), &rec, &e);
             let _ = rec.finalize(JobStatus::Failed);
             let _ = crate::worker::machine::clear_maintenance(worker.state());
             return Err(e);
@@ -183,8 +181,6 @@ pub(crate) struct UpdateFlowCtx {
     snapshot_id: String,
     /// Previous MYRIAD_TAG to restore on rollback.
     from_tag: Option<String>,
-    /// Health passed and deploy was recorded — never auto-rollback after this.
-    committed: bool,
 }
 
 impl UpdateFlowCtx {
@@ -194,7 +190,6 @@ impl UpdateFlowCtx {
             post_swap: false,
             snapshot_id: String::new(),
             from_tag: None,
-            committed: false,
         }
     }
 }
@@ -204,14 +199,10 @@ impl UpdateFlowCtx {
 pub(crate) enum UpdateFailureKind {
     PreSwap(PreSwapRestoreScope),
     PostSwap,
-    /// Health already passed; log-only (do not destroy the new stack).
-    Committed,
 }
 
 pub(crate) fn classify_update_failure(flow: &UpdateFlowCtx) -> UpdateFailureKind {
-    if flow.committed {
-        UpdateFailureKind::Committed
-    } else if flow.post_swap {
+    if flow.post_swap {
         UpdateFailureKind::PostSwap
     } else {
         UpdateFailureKind::PreSwap(flow.scope)
@@ -228,19 +219,6 @@ async fn dispatch_update_failure(
 ) -> Result<()> {
     let kind = classify_update_failure(flow);
     match kind {
-        UpdateFailureKind::Committed => {
-            // Never restore old data after accepting the healthy target. Keep
-            // maintenance and report incomplete finalization instead of false success.
-            let _ = rec.finish_step_err(format!("finalization: {err}"));
-            let _ = rec.finalize(JobStatus::NeedsManual);
-            if let Ok(mut maintenance) = worker.state().read_maintenance() {
-                maintenance.active = true;
-                maintenance.phase = Phase::NeedsManual;
-                maintenance.message_key = "updater.phase.needs_manual".into();
-                let _ = worker.state().write_maintenance(&maintenance);
-            }
-            Err(err)
-        }
         UpdateFailureKind::PostSwap => {
             let _ = rec.finish_step_err(err.to_string());
             finish_with_rollback(
@@ -463,18 +441,17 @@ async fn run_update_body(
     )
     .await?;
 
-    // CRITICAL: mark committed immediately after health OK, *before* any state
-    // writes. A finish_step_ok / write_updater failure must not trigger rollback
-    // of a live, healthy new stack.
-    flow.committed = true;
-    rec.finish_step_ok()?;
-    let mut state = worker.state().read_updater()?;
-    record_successful_deploy(&mut state, target.clone(), pre.target_commit_sha.clone());
-    worker.state().write_updater(&state)?;
-    rec.enter(Phase::Finalize, "updater.phase.finalize")?;
-    rec.finish_step_ok()?;
-    rec.finalize(JobStatus::Succeeded)?;
-    crate::worker::machine::clear_maintenance(worker.state())?;
+    // The selected stack is healthy. Retry only bookkeeping; never restore old
+    // data because a state write was temporarily unavailable.
+    loop {
+        match finish_successful_deploy(worker.state(), &rec.job_id, pre.target_commit_sha.clone()) {
+            Ok(()) => break,
+            Err(error) => {
+                warn!(%error, "deployment is healthy; retrying finalization");
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+        }
+    }
     // Prune *after* clearing job.current so the just-created snapshot counts
     // toward keep_n (not as an extra in-use slot outside the limit).
     worker.best_effort_prune_snapshots("update_success");
@@ -606,6 +583,39 @@ async fn heal_rollback_pair_from_version(
         info!(%comp, %source, "healed rollback pin from version tag");
     }
     Ok(())
+}
+
+/// Used by the live flow and startup recovery after durable success.
+pub(crate) fn finish_successful_deploy(
+    state: &crate::state::StateDir,
+    job_id: &str,
+    commit_sha: Option<String>,
+) -> Result<()> {
+    let mut job = state.read_job(job_id)?;
+    let target = job
+        .to_version
+        .clone()
+        .ok_or_else(|| UpdaterError::State("successful update has no target".into()))?;
+    if job.status != JobStatus::Succeeded {
+        if let Some(step) = job.steps.last_mut() {
+            step.finish_ok();
+        }
+        let mut step = crate::state::JobStep::start(Phase::Finalize);
+        step.finish_ok();
+        job.steps.push(step);
+        job.status = JobStatus::Succeeded;
+        job.finished_at = Some(Utc::now());
+        state.write_job(&job)?;
+    }
+    let mut current = state.read_updater()?;
+    let commit_sha = commit_sha.or_else(|| {
+        (current.current_version.as_ref() == Some(&target))
+            .then(|| current.current_commit_sha.clone())
+            .flatten()
+    });
+    record_successful_deploy(&mut current, target, commit_sha);
+    state.write_updater(&current)?;
+    crate::worker::machine::clear_maintenance(state)
 }
 
 fn record_successful_deploy(
@@ -874,48 +884,22 @@ async fn finish_with_rollback(
     }
 }
 
-/// Persist preflight failure for the About-page update block and turn off
-/// auto-install so a hard pre-check failure cannot loop on the next tick.
-fn record_preflight_failure(worker: &Worker, rec: &PhaseRecorder<'_>, err: &UpdaterError) {
-    if let Ok(mut st) = worker.state().read_updater() {
-        let was_auto = st.auto_install;
-        let reason = if was_auto {
-            format!("preflight: {err} (auto-update disabled)")
-        } else {
-            format!("preflight: {err}")
-        };
-        st.last_failed_update = Some(crate::state::FailedUpdate {
+/// Keep the failure visible without changing the user's update preference.
+fn record_preflight_failure(
+    store: &crate::state::StateDir,
+    rec: &PhaseRecorder<'_>,
+    err: &UpdaterError,
+) {
+    if let Ok(mut state) = store.read_updater() {
+        state.last_failed_update = Some(crate::state::FailedUpdate {
             from_version: rec.from_version.clone(),
             to_version: rec.to_version.clone(),
             at: Utc::now(),
-            reason: reason.clone(),
+            reason: format!("preflight: {err}"),
             job_id: rec.job_id.clone(),
         });
-        if was_auto {
-            st.auto_install = false;
-        }
-        if let Err(e) = worker.state().write_updater(&st) {
-            warn!(err = %e, "preflight failure: write_updater failed");
-            return;
-        }
-        if was_auto {
-            info!(
-                job = %rec.job_id,
-                "preflight failed: auto_install disabled"
-            );
-            let _ = worker.state().append_history(&format!(
-                "job {}: PREFLIGHT_FAIL auto_install=off reason={reason}",
-                rec.job_id
-            ));
-            let _ = worker.state().append_audit(&format!(
-                "audit: preflight_failed_auto_install_off job={} reason={reason}",
-                rec.job_id
-            ));
-        } else {
-            let _ = worker.state().append_history(&format!(
-                "job {}: PREFLIGHT_FAIL reason={reason}",
-                rec.job_id
-            ));
+        if let Err(error) = store.write_updater(&state) {
+            warn!(%error, "cannot record preflight failure");
         }
     }
 }
@@ -1173,6 +1157,32 @@ mod health_match_tests {
     use crate::version::DeployTag;
 
     #[test]
+    fn preflight_failure_keeps_auto_install_enabled() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::state::StateDir::open(dir.path()).unwrap();
+        state
+            .write_updater(&UpdaterStateFile {
+                auto_install: true,
+                ..Default::default()
+            })
+            .unwrap();
+        let rec = PhaseRecorder {
+            state: &state,
+            job_id: "attempt".into(),
+            from_version: None,
+            to_version: DeployTag::parse("v1.2.3").ok(),
+        };
+        record_preflight_failure(
+            &state,
+            &rec,
+            &UpdaterError::Docker("registry unavailable".into()),
+        );
+        let saved = state.read_updater().unwrap();
+        assert!(saved.auto_install);
+        assert_eq!(saved.last_failed_update.unwrap().job_id, "attempt");
+    }
+
+    #[test]
     fn successful_deploy_preserves_previous_rollback_slot() {
         let previous = DeployTag::parse("v0.2.2").unwrap();
         let target = DeployTag::parse("v0.2.3").unwrap();
@@ -1242,8 +1252,5 @@ mod health_match_tests {
         );
         flow.post_swap = true;
         assert_eq!(classify_update_failure(&flow), UpdateFailureKind::PostSwap);
-        // committed wins over post_swap — never destroy a healthy stack
-        flow.committed = true;
-        assert_eq!(classify_update_failure(&flow), UpdateFailureKind::Committed);
     }
 }

@@ -928,6 +928,7 @@ async fn proxy_update(
         "new_proxy_tag": report.new_proxy_tag,
         "image_ref": report.image_ref,
         "pulled_digest": report.pulled_digest,
+        "scheduled": report.scheduled,
     })))
 }
 
@@ -976,7 +977,6 @@ async fn diagnostics(State(st): State<ApiState>) -> Result<Json<Value>, ApiError
         "updater_version": crate::self_version(),
         "config": {
             "channel": st.config.channel.to_string(),
-            "registry_mirror": st.config.registry_mirror,
             "check_interval_secs": st.config.check_interval_secs,
             "db_mode": db_mode.as_str(),
             "pgdata_snapshot_enabled": db_mode.pgdata_snapshot_enabled(),

@@ -109,6 +109,9 @@ impl Worker {
         if name == "self-update-last.json" {
             super::self_update::require_no_pending_handoff(&self.state)?;
         }
+        if name == super::proxy_update::PROXY_UPDATE_LAST_FILE {
+            super::proxy_update::require_no_pending(&self.state)?;
+        }
         match std::fs::remove_file(&path) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}

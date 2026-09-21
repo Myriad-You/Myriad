@@ -46,11 +46,13 @@ pub struct ProxyUpdateReport {
     pub new_proxy_tag: String,
     pub image_ref: String,
     pub pulled_digest: String,
+    pub scheduled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ProxyUpdateOutcome {
+    Pending,
     Succeeded,
     Failed,
 }
@@ -68,6 +70,8 @@ pub struct ProxyUpdateLastStatus {
     /// True when compose failed or health failed and we restored `PROXY_TAG`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub rolled_back: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_image_id: Option<String>,
 }
 
 impl ProxyUpdateLastStatus {
@@ -79,6 +83,7 @@ impl ProxyUpdateLastStatus {
             at: Utc::now().to_rfc3339(),
             error: None,
             rolled_back: false,
+            previous_image_id: None,
         }
     }
 
@@ -95,6 +100,7 @@ impl ProxyUpdateLastStatus {
             at: Utc::now().to_rfc3339(),
             error: Some(error.into()),
             rolled_back,
+            previous_image_id: None,
         }
     }
 }
@@ -113,6 +119,66 @@ pub fn read_proxy_update_last(state_root: &Path) -> Option<ProxyUpdateLastStatus
     serde_json::from_str(&raw).ok()
 }
 
+pub(crate) fn require_no_pending(state: &crate::state::StateDir) -> Result<()> {
+    if read_proxy_update_last(state.root()).is_some_and(|s| s.status == ProxyUpdateOutcome::Pending)
+    {
+        return Err(UpdaterError::Conflict);
+    }
+    Ok(())
+}
+
+pub fn schedule(
+    worker: Arc<Worker>,
+    actor: Option<String>,
+    target: Option<String>,
+) -> Result<ProxyUpdateReport> {
+    let env = EnvFile::load(&worker.cli().env_file)?;
+    let previous = env.get("PROXY_TAG").unwrap_or_default();
+    let mut pending =
+        ProxyUpdateLastStatus::succeeded(previous, target.as_deref().unwrap_or_default());
+    pending.status = ProxyUpdateOutcome::Pending;
+    write_proxy_update_last(worker.state().root(), &pending)?;
+    let report = ProxyUpdateReport {
+        previous_proxy_tag: pending.previous_tag.clone(),
+        new_proxy_tag: pending.target_tag.clone(),
+        image_ref: String::new(),
+        pulled_digest: String::new(),
+        scheduled: true,
+    };
+    spawn_update(worker, actor, pending);
+    Ok(report)
+}
+
+pub fn resume_pending(worker: Arc<Worker>) {
+    if let Some(pending) = read_proxy_update_last(worker.state().root())
+        && pending.status == ProxyUpdateOutcome::Pending
+    {
+        spawn_update(worker, None, pending);
+    }
+}
+
+fn spawn_update(worker: Arc<Worker>, actor: Option<String>, pending: ProxyUpdateLastStatus) {
+    tokio::spawn(async move {
+        if let Err(error) = run(worker.clone(), actor, pending.clone()).await {
+            // run records replacement failures with their recovery result. Resolve/pull
+            // failures must also terminate the accepted request.
+            let last = read_proxy_update_last(worker.state().root()).unwrap_or(pending);
+            if last.status == ProxyUpdateOutcome::Pending {
+                let _ = write_proxy_update_last(
+                    worker.state().root(),
+                    &ProxyUpdateLastStatus::failed(
+                        &last.previous_tag,
+                        &last.target_tag,
+                        error.to_string(),
+                        false,
+                    ),
+                );
+            }
+            warn!(%error, "proxy update failed");
+        }
+    });
+}
+
 /// Resolved proxy target before pull/rewrite.
 struct ProxyTarget {
     tag: String,
@@ -124,12 +190,13 @@ struct ProxyTarget {
 
 /// Upgrade the `proxy` service to the proxy image from the latest release for
 /// the current channel (or to `explicit_tag` when provided).
-pub async fn run(
+async fn run(
     worker: Arc<Worker>,
     actor: Option<String>,
-    explicit_tag: Option<String>,
+    mut pending: ProxyUpdateLastStatus,
 ) -> Result<ProxyUpdateReport> {
-    let resolved = resolve_proxy_target(worker.as_ref(), explicit_tag).await?;
+    let target = (!pending.target_tag.is_empty()).then(|| pending.target_tag.clone());
+    let resolved = resolve_proxy_target(worker.as_ref(), target).await?;
     info!(
         target = %resolved.tag,
         image = %resolved.image_ref,
@@ -137,25 +204,28 @@ pub async fn run(
         "proxy-update: resolved target"
     );
 
-    let previous_tag = {
-        let env = EnvFile::load(&worker.cli().env_file)?;
-        env.get("PROXY_TAG").unwrap_or_default().to_string()
+    let previous_tag = pending.previous_tag.clone();
+    let previous_id = match pending.previous_image_id.clone() {
+        Some(id) => id,
+        None => {
+            worker
+                .docker()
+                .image_id(&format!("{}:{previous_tag}", worker.proxy_image_repo()?))
+                .await?
+        }
     };
-    if previous_tag == resolved.tag {
-        info!(tag = %resolved.tag, "proxy-update: PROXY_TAG already at target; still recreating container");
-    }
+    pending.target_tag = resolved.tag.clone();
+    pending.previous_image_id = Some(previous_id.clone());
+    write_proxy_update_last(worker.state().root(), &pending)?;
 
     info!(
         target = %resolved.tag,
         image = %resolved.image_ref,
         "proxy-update: pulling proxy image"
     );
-    let pulled_digest = worker
-        .docker_pull_with_mirror(&resolved.image_ref)
-        .await
-        .map_err(|e| {
-            UpdaterError::Precondition(format_proxy_pull_error(&resolved.image_ref, &e))
-        })?;
+    let pulled_digest = worker.pull_image(&resolved.image_ref).await.map_err(|e| {
+        UpdaterError::Precondition(format_proxy_pull_error(&resolved.image_ref, &e))
+    })?;
     if let Some(expected) = &resolved.expected_digest
         && !pulled_digest.ends_with(expected)
         && pulled_digest != *expected
@@ -168,21 +238,6 @@ pub async fn run(
     // Resolve all local prerequisites before mutating deployment intent.
     let compose = crate::worker::update::build_compose_runner_pub(&worker).await?;
     let target_id = worker.docker().image_id(&resolved.image_ref).await?;
-    let previous = worker
-        .docker()
-        .raw()
-        .inspect_container("myriad-proxy", None)
-        .await
-        .map_err(|e| UpdaterError::Docker(format!("inspect previous proxy: {e}")))?;
-    let previous_id = previous
-        .image
-        .filter(|id| !id.is_empty())
-        .ok_or_else(|| UpdaterError::Precondition("previous proxy has no image identity".into()))?;
-    if previous_tag.trim().is_empty() {
-        return Err(UpdaterError::Precondition(
-            "PROXY_TAG is required for recoverable replacement".into(),
-        ));
-    }
     let apply = async {
         restore_proxy_tag(&resolved.tag, worker.as_ref())?;
         recreate_proxy(&compose).await?;
@@ -207,10 +262,11 @@ pub async fn run(
         )?;
         return Err(UpdaterError::Precondition(detail));
     }
-    write_proxy_update_last(
-        worker.state().root(),
-        &ProxyUpdateLastStatus::succeeded(&previous_tag, &resolved.tag),
-    )?;
+    let success = ProxyUpdateLastStatus::succeeded(&previous_tag, &resolved.tag);
+    while let Err(error) = write_proxy_update_last(worker.state().root(), &success) {
+        warn!(%error, "proxy is healthy; retrying outcome write");
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
 
     let actor_suffix = actor
         .as_deref()
@@ -229,6 +285,7 @@ pub async fn run(
         new_proxy_tag: resolved.tag,
         image_ref: resolved.image_ref,
         pulled_digest,
+        scheduled: false,
     })
 }
 
@@ -618,6 +675,27 @@ mod tests {
             !msg.contains("independently verified docker-guard policy"),
             "non-allowlist errors should not mention allowlist: {msg}"
         );
+    }
+
+    #[test]
+    fn accepted_proxy_update_retains_recovery_identity_and_excludes_other_mutations() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::state::StateDir::open(dir.path()).unwrap();
+        let mut pending = ProxyUpdateLastStatus::succeeded("v1.0.0", "v1.1.0");
+        pending.status = ProxyUpdateOutcome::Pending;
+        pending.previous_image_id = Some("old-content".into());
+        write_proxy_update_last(dir.path(), &pending).unwrap();
+        assert_eq!(read_proxy_update_last(dir.path()).unwrap(), pending);
+        assert!(matches!(
+            require_no_pending(&state),
+            Err(UpdaterError::Conflict)
+        ));
+        write_proxy_update_last(
+            dir.path(),
+            &ProxyUpdateLastStatus::failed("v1.0.0", "v1.1.0", "pull failed", false),
+        )
+        .unwrap();
+        assert!(require_no_pending(&state).is_ok());
     }
 
     #[test]

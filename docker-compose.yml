@@ -59,7 +59,6 @@
 # CHANNEL                stable | beta | nightly
 # GITHUB_TOKEN           可选。Release 模式读 release.json 需要（私有仓必填）。
 #                        Commit/开发版模式可不设：走 Docker Hub 公共镜像发现（私有源码仓常态）
-# REGISTRY_MIRROR        可选：镜像 mirror 前缀
 # MYRIAD_GITHUB_REPO     默认 Myriad-You/Myriad
 # MYRIAD_DOCKER_NETWORK  可选：业务 Docker 网络名，默认 myriad-net
 # MYRIAD_ADMIN_NETWORK   可选：管理平面网络名，默认 myriad-admin-net
@@ -486,7 +485,6 @@ services:
       UPDATE_TOKEN: ${UPDATE_TOKEN}
       CHANNEL: ${CHANNEL:-stable}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
-      REGISTRY_MIRROR: ${REGISTRY_MIRROR:-}
       MYRIAD_GITHUB_REPO: ${MYRIAD_GITHUB_REPO:-Myriad-You/Myriad}
       CHECK_INTERVAL_SECS: ${CHECK_INTERVAL_SECS:-3600}
       # Keep the deployment root at the *same* path inside and outside the

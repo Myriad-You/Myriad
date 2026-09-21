@@ -142,6 +142,8 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
   const [accessDenied, setAccessDenied] = useState(false)
   const [sel, setSel] = useState<ChannelKey>('stable')
   const selHydratedRef = useRef(false)
+  const infraPending = status?.self_update_last?.status === 'pending'
+    || status?.proxy_update_last?.status === 'pending'
   const pollRef = useRef<number | null>(null)
   const autoRecheckDoneRef = useRef(false)
   const [nowTick, setNowTick] = useState(() => Date.now())
@@ -336,7 +338,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
   }, [api, refresh, status?.last_failed_update?.job_id])
 
   useEffect(() => {
-    if (status?.job_in_flight) {
+    if (status?.job_in_flight || infraPending) {
       pollRef.current = window.setInterval(refresh, POLL_INTERVAL)
     } else if (pollRef.current) {
       window.clearInterval(pollRef.current)
@@ -345,7 +347,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     return () => {
       if (pollRef.current) window.clearInterval(pollRef.current)
     }
-  }, [status?.job_in_flight, refresh])
+  }, [status?.job_in_flight, infraPending, refresh])
 
   // clear proxy poller on unmount or when the job ends without maintenance
   useEffect(() => {
@@ -742,10 +744,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
       })
       return
     }
-    const tip = status?.latest_available?.version
-    const ok = tip
-      ? confirm(format(u.updaterInfraProxyConfirm, { version: tip }))
-      : confirm(u.updaterInfraProxyConfirmAuto)
+    const ok = confirm(u.updaterInfraProxyConfirmAuto)
     if (!ok) return
     const beforeAt = status?.proxy_update_last?.at
     setBusy('proxy-update')
@@ -755,7 +754,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     let shouldWait = true
     try {
       try {
-        const report = await api.triggerProxyUpdate(tip || undefined)
+        const report = await api.triggerProxyUpdate()
         target = report.new_proxy_tag || ''
       } catch (e) {
         if (!isTransientUpdaterError(e)) {
@@ -1136,7 +1135,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
                 role="radio"
                 aria-checked={sel === opt.key}
                 className={`updater-channel-card${sel === opt.key ? ' selected' : ''}`}
-                disabled={!!busy || tokenRequired}
+                disabled={!!busy || infraPending || tokenRequired}
                 onClick={() => selectChannel(opt.key)}
               >
                 <span className="updater-channel-radio" aria-hidden="true" />
@@ -1277,7 +1276,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
                   )}
                 </p>
                 <InfraCardNotice
-                  inProgress={busy === 'self-update'}
+                  inProgress={busy === 'self-update' || status?.self_update_last?.status === 'pending'}
                   linkDown={linkDown}
                   waiting={u.updaterSelfUpdateWaiting}
                   reconnecting={u.updaterSelfUpdateReconnecting}
@@ -1304,7 +1303,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
                     variant={requiresSelfUpdate ? 'primary' : 'secondary'}
                     disabled={
                       // backend clears latest_available; don't require it
-                      !!busy || tokenRequired || !status
+                      !!busy || infraPending || tokenRequired || !status
                     }
                     loading={busy === 'self-update'}
                     onClick={() => triggerSelfUpdate()}
@@ -1327,7 +1326,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
                   <code>{status?.proxy_version ?? '—'}</code>
                 </p>
                 <InfraCardNotice
-                  inProgress={busy === 'proxy-update'}
+                  inProgress={busy === 'proxy-update' || status?.proxy_update_last?.status === 'pending'}
                   linkDown={linkDown}
                   waiting={u.updaterProxyUpdateWaiting}
                   reconnecting={u.updaterProxyUpdateReconnecting}
@@ -1356,7 +1355,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
                   <SettingsButton
                     size="sm"
                     variant="secondary"
-                    disabled={!!busy || tokenRequired || !status}
+                    disabled={!!busy || infraPending || tokenRequired || !status}
                     loading={busy === 'proxy-update'}
                     onClick={() => triggerProxyUpdate()}
                   >
@@ -1381,7 +1380,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
           <TargetPicker
             api={api}
             option={selOption}
-            disabled={!!busy || tokenRequired}
+            disabled={!!busy || infraPending || tokenRequired}
             installing={busy === 'update'}
             u={u}
             onInstall={(target, opts) =>
@@ -1407,7 +1406,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
           <SnapshotLimitPrefs
             status={status}
             snapshotStats={snapshotStats}
-            disabled={!!busy || tokenRequired}
+            disabled={!!busy || infraPending || tokenRequired}
             saving={busy === 'snapshot-limit'}
             u={u}
             onSave={saveSnapshotLimitPrefs}

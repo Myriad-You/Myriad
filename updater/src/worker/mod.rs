@@ -199,6 +199,7 @@ impl Worker {
 
     fn require_idle_mutation(&self) -> Result<()> {
         self_update::require_no_pending_handoff(&self.state)?;
+        proxy_update::require_no_pending(&self.state)?;
         if self.state.read_current_job()?.is_some() {
             return Err(UpdaterError::Conflict);
         }
@@ -342,15 +343,9 @@ impl Worker {
         }
     }
 
-    /// Pull an image, applying REGISTRY_MIRROR rewriting if configured. Returns the digest
-    /// of the pulled image (`sha256:...`).
-    pub async fn docker_pull_with_mirror(&self, image_ref: &str) -> Result<String> {
-        let actual_ref = match &self.config.registry_mirror {
-            Some(mirror) => rewrite_with_mirror(image_ref, mirror),
-            None => image_ref.to_string(),
-        };
-        let digest = self.docker.pull(&actual_ref, None).await?;
-        // Strip "<image>@" prefix, keep only "sha256:..."
+    /// Keep the official reference unchanged. Docker's registry mirrors are transparent.
+    pub async fn pull_image(&self, image_ref: &str) -> Result<String> {
+        let digest = self.docker.pull(image_ref, None).await?;
         Ok(digest.split('@').next_back().unwrap_or(&digest).to_string())
     }
 
@@ -493,6 +488,7 @@ impl Worker {
             .take()
             .expect("worker rx already taken");
         let me = self.clone();
+        proxy_update::resume_pending(self.clone());
 
         // Periodic poller. Interval is re-read each cycle so prefs hot-reload without restart.
         // Each tick enqueues CheckUpdates on the single-slot worker channel.
@@ -716,7 +712,7 @@ impl Worker {
                     reply,
                 } => {
                     let res = match self.require_idle_mutation() {
-                        Ok(()) => proxy_update::run(self.clone(), actor, explicit_tag).await,
+                        Ok(()) => proxy_update::schedule(self.clone(), actor, explicit_tag),
                         Err(error) => Err(error),
                     };
                     let _ = reply.send(res);
@@ -754,6 +750,7 @@ impl Worker {
         }
 
         self_update::require_no_pending_handoff(&self.state)?;
+        proxy_update::require_no_pending(&self.state)?;
         if let Some(_existing) = self.state.read_current_job()? {
             return Err(UpdaterError::Conflict);
         }
@@ -805,6 +802,7 @@ impl Worker {
         actor: Option<String>,
     ) -> Result<String> {
         self_update::require_no_pending_handoff(&self.state)?;
+        proxy_update::require_no_pending(&self.state)?;
         if let Some(existing) = self.state.read_current_job()?
             && self.state.read_job(&existing)?.status != JobStatus::NeedsManual
         {
@@ -943,15 +941,6 @@ fn strip_image_repo_tag(raw: &str) -> String {
         return before.to_string();
     }
     s.to_string()
-}
-
-fn rewrite_with_mirror(image_ref: &str, mirror: &str) -> String {
-    // image_ref looks like "docker.io/foo/bar:v1". Replace the registry host with `mirror`.
-    let mirror = mirror.trim_end_matches('/');
-    match image_ref.split_once('/') {
-        Some((_host, rest)) => format!("{mirror}/{rest}"),
-        None => format!("{mirror}/{image_ref}"),
-    }
 }
 
 #[cfg(test)]

@@ -235,7 +235,6 @@ PERSONA_DB_PASSWORD=<32+ URL-safe>      # bundled；external 另需 PERSONA_DATA
 FEDERATION_DB_PASSWORD=<32+ URL-safe>   # bundled；external 另需 FEDERATION_DATABASE_URL
 CHANNEL=stable
 GITHUB_TOKEN=    # 可选，提升 rate limit
-REGISTRY_MIRROR= # 可选
 # MYRIAD_DOCKER_NETWORK=myriad-net # 可选；默认固定 Docker 网络名
 ```
 
@@ -376,7 +375,8 @@ updater 会先从 `*:myriad-rollback` 重新创建原版本 tag，再交给 Comp
 
 - 通过 docker 调用 `pull` (bollard)；**不钉死 platform**，由引擎按宿主机选 amd64/arm64
 - **pull 后**读取 `RepoDigests`，与 `release.json` 中的 manifest-list digest 对账（相等或 `ends_with`）
-- 支持 `REGISTRY_MIRROR` env：retag 后 pull，digest 校验保持
+- 拉取和启动使用同一官方镜像引用；加速由 Docker daemon 的原生 registry mirror 处理。
+  旧 `REGISTRY_MIRROR` 环境变量不再改写仓库地址。
 - Docker Hub tip / 列表回退路径不做 digest 对账（只按 tag pull）
 - 失败分类：401/403 token 错误；404 版本失效；5xx/网络 重试
 
@@ -568,7 +568,9 @@ frontend 使用容器自身的本地 HTTP healthcheck；不再猜测页面文本
 
 - 每 2s 探测一次，连续两次完整通过。
 - 总超时 `max(300s, migrations.estimated_seconds × 3)`。
-- 未通过则在维护模式内自动回滚；成功落盘后重启可自动完成解除维护。
+- 未通过则在维护模式内自动回滚；成功落盘后重启可自动完成状态收尾和解除维护。
+- 健康通过后的状态写入故障自动重试，不重新回滚，也不改为人工恢复。
+- 预检失败保留自动更新偏好，下一次定时检查可重新尝试；已切换后失败的同一目标不反复自动安装。
 
 ## 12. proxy 维护页
 
@@ -716,19 +718,16 @@ digest **没有**与签名 release manifest 中的 `expected_digest` 做字节�
 `state/` 或 `.env` 自动决定回滚 Guard 身份。业务镜像的日常更新仍经
 `DOCKER_HOST=tcp://docker-guard:2375` 受固定请求体与镜像策略约束。
 
-### 14.4 手动 proxy 升级的失败回退（轻量）
+### 14.4 proxy 升级
 
-`POST /admin/proxy-update`（同步）在改写 `PROXY_TAG` 并 `compose up proxy` 后：
+`POST /admin/proxy-update` 先记录 Pending 并返回受理结果。后台选择 proxy 自己的
+版本，拉取、替换并检查实际镜像身份和 /healthz；不使用业务程序的版本作为默认目标。
 
-1. 在 compose 网络上轮询 `http://proxy:80/healthz`（约 25s）。
-2. **compose 失败或 healthz 失败**：将 `PROXY_TAG` 写回 `previous_tag`，再
-   `compose up proxy` 尽量拉起旧镜像；写入
-   `state/proxy-update-last.json`（`status: failed`、`rolled_back`、`error`）。
-3. **成功**：写 `status: succeeded`。
-4. **`GET /status`** 可选字段 `proxy_update_last`（与 `self_update_last` 同形）。
-
-仍不保证「健康检查误报」或「旧镜像也已损坏」时的二次恢复；此时需主机手动改
-`PROXY_TAG` 后 `docker compose up -d proxy`。
+失败时自动恢复旧 PROXY_TAG 并重建旧容器，确认旧镜像运行且 /healthz 正常后才记录
+`rolled_back: true`。解析或拉取失败也会写入终态，避免页面一直等待。
+结果保存在既有的 `proxy-update-last.json`，通过 GET /status 读取。
+Pending 期间不接受其他更新，进程重启后继续同一目标并保留原版本用于恢复。
+页面重新打开后依据 Pending 继续刷新状态。
 
 ### 14.2 兜底
 
@@ -953,7 +952,7 @@ E2E 实际覆盖（11 项 / 全过，2026-07-17）：
 
 - btrfs/zfs snapshot 优化
 - ~~cosign 验签~~ ✅ 已实现（§15.4）
-- registry mirror（基础支持已实现，通过 `REGISTRY_MIRROR` env）
+- Docker daemon 原生 registry mirror（保持镜像仓库引用不变）
 
 ### M3（可选，可能永不做）
 

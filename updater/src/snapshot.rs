@@ -517,6 +517,7 @@ impl<'a> SnapshotManager<'a> {
     /// - opaque snapshot id (`[A-Za-z0-9_-]+`)
     /// - create leftover `{id}.tmp`
     /// - restore staging `restore-stage-*`
+    ///
     /// Safety copies (`aside-*`, `broken-inplace-*`) are never swept.
     ///
     /// Never touches names with path separators or other characters.
