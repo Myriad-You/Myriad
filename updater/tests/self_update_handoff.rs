@@ -106,6 +106,14 @@ fn recovery_restores_each_previous_image_and_preserves_unrelated_configuration()
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    assert_eq!(
+        fs::read_link(dir.path().join("compose.yaml")).unwrap(),
+        std::path::PathBuf::from("state/compose/compose.yaml")
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("compose.yaml")).unwrap(),
+        "services: {}\n"
+    );
     let images = fs::read_to_string(dir.path().join("running")).unwrap();
     let images: Vec<_> = images.lines().collect();
     assert_eq!(images.len(), 3);
@@ -127,6 +135,14 @@ fn branch_target_is_resolved_to_one_image_for_all_services() {
         output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read_link(dir.path().join("compose.yaml")).unwrap(),
+        std::path::PathBuf::from("state/compose/compose.yaml")
+    );
+    assert_eq!(
+        fs::read_to_string(dir.path().join("compose.yaml")).unwrap(),
+        "services: {}\n"
     );
     let images = fs::read_to_string(dir.path().join("running")).unwrap();
     let images: Vec<_> = images.lines().collect();

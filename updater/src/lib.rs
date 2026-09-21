@@ -3,6 +3,7 @@
 
 pub mod api;
 pub mod config;
+pub mod deployment;
 pub mod docker;
 pub mod env_file;
 pub mod error;

@@ -70,12 +70,6 @@ pub async fn run_all(inputs: &ProbeInputs) -> Result<EnvProbe> {
     if let Some(e) = &compose.error {
         fatal.push(format!("compose: {e}"));
     }
-    if !compose.references_required_tag_vars {
-        fatal.push(
-            "compose file does not reference ${MYRIAD_TAG}; refusing to manage updates".into(),
-        );
-    }
-
     let docker_probe = docker::probe().await;
     if let Some(e) = &docker_probe.error {
         fatal.push(format!("docker: {e}"));

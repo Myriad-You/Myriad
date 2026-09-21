@@ -334,13 +334,14 @@ updater 会先从 `*:myriad-rollback` 重新创建原版本 tag，再交给 Comp
 | `preflight` | 撤销 lock，回 idle（无副作用） |
 | `maintenance_on` | 退维护，回 idle |
 | `stopping` / `snapshotting` | 清 maintenance + 标记 job failed，并 **best-effort 重启** 上一栈（postgres + backend + federation-worker + persona-worker + frontend）；不自动进入 swap |
-| `swap_tag` 之后任意步骤 | **不自动恢复**，进 `needs_manual` |
-| `health_probing` 且 `active=false`（为测前端已抬起维护） | **仍算 post-swap**：进 `needs_manual`（**禁止**当 idle） |
-| `job.current` 仍指向 Running 且 last step 为 post-swap | 即使 maintenance 文件 inactive / 损坏 → `needs_manual` |
-| `rollback_in_progress` | 检查 snapshot 在 → 继续 restore；不在 → `needs_manual` |
-| `needs_manual` | 维持，proxy 维护页显示 rescue 指令 |
+| `swap_tag` 已写入目标 tag / 后续启动或健康检查 | 从持久化准备结果接续目标；启动失败走原回滚路径 |
+| `health_probing` 且 `active=false` / 仅剩 `job.current` | 仍接续该任务，完成前保持维护与互斥 |
+| `rollback_in_progress` | 继续恢复旧编排、版本和快照，再启动旧服务 |
+| 已持久化成功 / 已完成回滚 | 仅收尾状态，不重复安装或恢复数据 |
+| `needs_manual` | 按最后执行阶段重试恢复；缺失必要恢复数据仍保留维护与错误 |
 
-**规则**：`swap_tag` 之后的任何步骤崩溃，必须人工 `POST /rescue/continue` 或 `/rescue/rollback`。
+更新准备结果包含选定镜像、目标和原始/目标 Compose，在停服前写入 `state/prepared.<job>.json`。新 backend 镜像携带内置/外置数据库两种源码模板；可信 helper 将宿主入口迁到可写 `state/compose/`，业务更新自动合并版本定义和站点配置。v0.5.3 的无模板镜像及未持久化准备结果任务保留一个发布周期的兼容。完整验收见 [mock 黑盒报告](deployment/UPDATER_BLACKBOX_ACCEPTANCE.md)。
+
 崩溃恢复决策以 `plan_crash_recovery` 为准，**不得**只看 `maintenance.active`。
 
 **审计行**：`audit: pre_swap_cleanup_ok` / `audit: pre_swap_restore_failed`（swap 前失败恢复）；
@@ -756,7 +757,7 @@ docker compose --env-file .env --env-file ./guard-policy/docker-guard.env up -d 
   未鉴权的 Docker API（`:2375`）。
 - **允许的网络名**（create/connect）：业务 `myriad-net`、管理平面 `myriad-admin-net`
   （`MYRIAD_ADMIN_NETWORK`）、guard-net，以及 `MYRIAD_BACKEND_EXTRA_NETWORK`（默认 `myriad-backend-ext`，仅 backend / federation-worker / persona-worker）。内置兜底还放行面板网络 `1panel-network`（服务范围同上，1Panel 自行挂载，无需显式配置）。其它网络名拒绝。
-- **更新 preflight**（不改编排，仅只读探测，失败则**不停服**）：
+- **更新 preflight**（准备并验证目标编排，不改运行中的编排，失败则**不停服**）：
   1. **本地环境**：`.env` 仍含 `MYRIAD_TAG` / `PROXY_TAG` / `UPDATER_TAG`；compose 仍引用
      `${MYRIAD_TAG}`；`state/`（及 bundled 下 `state/snapshots/`）与 `.env` 可写；经
      docker-guard 的 Docker API `ping` 可达。external 模式要求 `DATABASE_URL`（不要求

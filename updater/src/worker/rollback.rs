@@ -152,6 +152,9 @@ pub async fn execute_inline(
     }
     let _ = rec.finish_step_ok();
 
+    let source_job = snapshot_id.strip_prefix("snap-").unwrap_or(&rec.job_id);
+    super::update::restore_compose(worker.state(), source_job)?;
+
     // --- Resolve + restore MYRIAD_TAG BEFORE snapshot work ---
     // So any later failure (EBUSY restore, etc.) still leaves env at the rollback version.
     let prev_tag = resolve_previous_tag(worker.state(), snapshot_id, swap_back_tag)?;

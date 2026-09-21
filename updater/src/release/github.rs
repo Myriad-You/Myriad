@@ -43,6 +43,42 @@ pub struct Asset {
 }
 
 impl GithubClient {
+    /// Templates come from the selected source revision, including dev builds
+    /// and v0.5.3, which has no Compose release asset.
+    pub async fn compose_template(&self, revision: &str, external: bool) -> Result<Vec<u8>> {
+        let variant = if external { "external" } else { "bundled" };
+        let key: String = url::form_urlencoded::byte_serialize(revision.as_bytes()).collect();
+        let cache = self.cache_dir.join(format!("compose-{key}-{variant}.yaml"));
+        if let Some(bytes) = crate::state::read_existing(&cache)? {
+            return Ok(bytes);
+        }
+        let path = if external {
+            "docs/deployment/examples/docker-compose.external-db.example.yml"
+        } else {
+            "docker-compose.yml"
+        };
+        let response = self
+            .client
+            .get(format!(
+                "https://api.github.com/repos/{}/contents/{path}?ref={key}",
+                self.repo
+            ))
+            .headers(self.auth_headers())
+            .header(ACCEPT, "application/vnd.github.raw+json")
+            .send()
+            .await
+            .map_err(|e| UpdaterError::Github(format!("fetch deployment template: {e}")))?
+            .error_for_status()
+            .map_err(|e| UpdaterError::Github(format!("fetch deployment template: {e}")))?;
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| UpdaterError::Github(e.to_string()))?
+            .to_vec();
+        atomic::write_atomic_bytes(&cache, &bytes)?;
+        Ok(bytes)
+    }
+
     /// True when an error is the expected "no access / private / missing" class that
     /// commit-mode should treat as "use Docker Hub" rather than a hard failure.
     pub fn is_expected_unauthenticated_failure(err: &UpdaterError) -> bool {

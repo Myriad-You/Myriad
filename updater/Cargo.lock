@@ -1084,6 +1084,7 @@ version = "0.5.2"
 dependencies = [
  "anyhow",
  "axum",
+ "base64 0.22.1",
  "bollard",
  "bytes",
  "chrono",

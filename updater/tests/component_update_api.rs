@@ -193,16 +193,13 @@ esac
                 tokio::spawn(handler.serve(socket));
             }
         });
-        let listen = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let url = format!("http://{}", listen.local_addr().unwrap());
-        drop(listen);
         Self {
             _dir: dir,
             mock,
             mock_url,
             server,
             process: None,
-            url,
+            url: String::new(),
             client: reqwest::Client::builder()
                 .no_proxy()
                 .timeout(Duration::from_secs(3))
@@ -212,6 +209,7 @@ esac
     }
 
     async fn start(&mut self) {
+        self.url.clear();
         let root = &self.mock.root;
         let mut command = Command::new(env!("CARGO_BIN_EXE_myriad-updater"));
         command
@@ -221,15 +219,16 @@ esac
                 format!("{}:{}", root.display(), std::env::var("PATH").unwrap()),
             )
             .env("TEST_ROOT", root)
+            .env("RUST_LOG", "info")
             .env("UPDATE_TOKEN", TOKEN)
             .env("DOCKER_GUARD_SELF_UPDATE_TOKEN", TOKEN)
             .env("UPDATER_STATE_DIR", root.join("state"))
             .env("UPDATER_COMPOSE_DIR", root)
             .env("UPDATER_ENV_FILE", root.join(".env"))
             .env("UPDATER_PGDATA", root.join("pgdata"))
-            .env("UPDATER_LISTEN", self.url.trim_start_matches("http://"))
+            .env("UPDATER_LISTEN", "127.0.0.1:0")
             .env("UPDATER_GUARD_ENV_FILE", root.join("guard.env"))
-            .env("MYRIAD_DB_MODE", "external")
+            .env_remove("MYRIAD_DB_MODE")
             .env("CHECK_INTERVAL_SECS", "0")
             .env_remove("GITHUB_TOKEN")
             .env_remove("DOCKER_TLS_VERIFY")
@@ -266,12 +265,27 @@ esac
                     fs::read_to_string(root.join("daemon.err")).unwrap()
                 );
             }
-            if self
-                .client
-                .get(format!("{}/healthz", self.url))
-                .send()
-                .await
-                .is_ok()
+            if let Some(address) = fs::read_to_string(root.join("daemon.log"))
+                .unwrap()
+                .lines()
+                .find_map(|line| {
+                    line.split_once("HTTP API listening on ")
+                        .map(|(_, address)| address.to_string())
+                })
+            {
+                let address: String = address
+                    .chars()
+                    .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == ':')
+                    .collect();
+                self.url = format!("http://{address}");
+            }
+            if !self.url.is_empty()
+                && self
+                    .client
+                    .get(format!("{}/healthz", self.url))
+                    .send()
+                    .await
+                    .is_ok()
             {
                 return;
             }

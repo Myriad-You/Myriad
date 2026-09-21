@@ -54,7 +54,7 @@ updater (内网) ─► docker-guard ─► docker.sock
 只有 `proxy` 暴露宿主端口。`HTTP_PORT` 可以在 `.env` 调（默认 80）。原始 Docker socket
 只挂载给 `docker-guard`；updater 通过内部网络访问经项目/镜像/请求体白名单限制的 API。
 updater 对部署根本身只读，仅通过独立挂载写入 `./.env`、`./pgdata`、`./state`；Compose
-文件和 `./guard-policy/` 对 updater 只读。
+入口由可信 helper 自动迁为指向 `state/compose/` 的相对链接，业务更新可写入新版本定义，失败时恢复旧内容；`./guard-policy/` 继续只读。用户无需手改挂载。
 
 当前拓扑见 [deployment/DOCKER_DEPLOYMENT.md](./DOCKER_DEPLOYMENT.md)
 （三网 + docker-guard + updater-gateway）。首次或改拓扑请在宿主执行
@@ -235,7 +235,9 @@ preflight → maintenance_on → stopping → snapshotting → swap_tag
   → starting_new → health_probing → swapping_proxy → finalize
 ```
 
-失败时的自动恢复分两段（这是用户最常踩的点）：
+更新中断后会自动恢复：切换 tag 前恢复旧栈，切换后接续已保存的目标，目标启动失败则回滚；回滚中断后继续恢复。健康目标不会重复启动。
+
+运行中的操作报错时，恢复分两段：
 
 | 失败时机 | 自动行为 | 不会做的事 |
 | -------- | -------- | ---------- |
@@ -256,13 +258,15 @@ history 是否有 `PRE_SWAP_FAIL` / `ROLLBACK_OK` / `NEEDS_MANUAL`；再按 §5 
 「上次更新未成功」横幅，避免误以为升级成功。横幅可永久关闭（`POST /last-failed/dismiss`）；
 下次失败会再出现。
 
+升级与中断的 mock 验收、运行方法和覆盖边界见 [黑盒验收报告](UPDATER_BLACKBOX_ACCEPTANCE.md)。
+
 本地回归：
 
 ```bash
 # 无 Docker 的决策矩阵 + schema 冒烟
 ./scripts/extra/test-updater-smoke.sh
 
-# 需 release 二进制 + Docker：含 crash recovery（health_probing active=false → needs_manual）
+# 需 release 二进制 + Docker：含旧任务缺失快照时的恢复失败检查
 cd updater && cargo build --release --bins
 cd proxy && cargo build --release
 ./scripts/extra/test-updater-e2e.sh

@@ -174,6 +174,28 @@ async fn main() -> Result<()> {
             }
         }
     }
+    if let RecoveryReport::Resume { job_id, rollback } = recovery {
+        let recovering = worker.clone();
+        tokio::spawn(async move {
+            if let Err(error) =
+                myriad_updater::worker::update::resume(recovering.clone(), &job_id, rollback).await
+            {
+                warn!(%error, "recovered update did not complete on its target");
+                if recovering
+                    .state()
+                    .read_job(&job_id)
+                    .is_ok_and(|job| job.status == myriad_updater::state::JobStatus::Running)
+                {
+                    let _ = myriad_updater::worker::record_recovery_failure(
+                        recovering.state(),
+                        &job_id,
+                        &error.to_string(),
+                    );
+                }
+            }
+            let _ = recovering.reconcile_current_deploy().await;
+        });
+    }
     if let Err(e) = worker.reconcile_current_deploy().await {
         warn!(err = %e, "failed to reconcile current deploy identity; continuing with persisted state");
     }
@@ -199,7 +221,7 @@ async fn main() -> Result<()> {
     let app = api::router(api_state);
 
     let listener = tokio::net::TcpListener::bind(&worker.cli().listen).await?;
-    info!(addr = %worker.cli().listen, "HTTP API listening");
+    info!("HTTP API listening on {}", listener.local_addr()?);
 
     axum::serve(
         listener,

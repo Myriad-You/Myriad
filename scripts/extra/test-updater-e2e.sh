@@ -454,7 +454,7 @@ check_rescue_status() {
 }
 run_check "myriad-rescue status succeeds against testbed" check_rescue_status
 
-# 12. Crash recovery: simulate mid-health-probe state, restart updater, expect needs_manual
+# 12. Legacy recovery with no prepared deployment and a missing snapshot cannot restore.
 check_recovery_health_probe_lifted() {
     # Stop running updater so we can rewrite state and re-run recover_or_idle on start.
     if [ -n "$UPDATER_PID" ]; then
@@ -521,6 +521,11 @@ JSON
     done
     [ "$ready" = "1" ] || return 1
 
+    # Recovery runs in the background; wait for the missing-snapshot failure.
+    for i in $(seq 1 120); do
+        jq -e '.status == "needs_manual"' "$TESTBED/state/job.e2e-probe.json" >/dev/null && break
+        sleep 0.25
+    done
     local body phase active
     body=$(curl -fsS -H "X-Update-Token: $TOKEN" "http://127.0.0.1:$UPDATER_PORT/status")
     phase=$(echo "$body" | jq -r '.maintenance_phase')
@@ -536,7 +541,7 @@ JSON
     # job file should be needs_manual
     jq -e '.status == "needs_manual"' "$TESTBED/state/job.e2e-probe.json" >/dev/null
 }
-run_check "crash recovery: health_probing active=false → needs_manual on restart" check_recovery_health_probe_lifted
+run_check "legacy recovery: missing snapshot retains maintenance" check_recovery_health_probe_lifted
 
 # 13. Crash recovery: pre-swap stopping → clear + failed job (stack restore best-effort)
 check_recovery_pre_swap_clear() {

@@ -121,6 +121,7 @@ pub(crate) fn validate_guard_policy_file(path: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
+#[derive(Clone)]
 pub struct ComposeRunner {
     binary: ComposeBinary,
     project: String,
@@ -157,6 +158,16 @@ impl ComposeOutput {
 }
 
 impl ComposeRunner {
+    pub(crate) fn files(&self) -> &[PathBuf] {
+        &self.files
+    }
+
+    pub(crate) fn with_files(&self, files: Vec<PathBuf>) -> Self {
+        Self {
+            files,
+            ..self.clone()
+        }
+    }
     pub fn new(
         binary: ComposeBinary,
         project: impl Into<String>,
@@ -472,8 +483,24 @@ impl ComposeRunner {
     /// Used by preflight network allowlist checks — must not truncate lest we
     /// parse incomplete JSON on larger stacks.
     pub async fn config_json(&self) -> Result<serde_json::Value> {
+        self.read_config(false).await
+    }
+
+    pub(crate) async fn source_json(&self) -> Result<serde_json::Value> {
+        self.read_config(true).await
+    }
+
+    async fn read_config(&self, source: bool) -> Result<serde_json::Value> {
         let mut cmd = self.base_cmd();
         cmd.args(["config", "--format", "json"]);
+        if source {
+            cmd.args([
+                "--no-interpolate",
+                "--no-normalize",
+                "--no-path-resolution",
+                "--no-env-resolution",
+            ]);
+        }
         debug!(project = %self.project, "compose config --format json");
 
         let mut child = cmd

@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{Result, UpdaterError};
 
-fn read_existing(path: &Path) -> Result<Option<Vec<u8>>> {
+pub(crate) fn read_existing(path: &Path) -> Result<Option<Vec<u8>>> {
     match std::fs::read(path) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),

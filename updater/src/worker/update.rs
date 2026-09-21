@@ -1,7 +1,7 @@
 //! Normal update flow. State machine progression per spec §7.
 //! Supports release (GitHub `release.json` when present, else Docker Hub `vX.Y.Z` images)
 //! and commit (CI image tags) modes. Swap/health use the local image IDs selected during preflight;
-//! a missing `pre.manifest` is fine for the Docker Hub release path.
+//! The selected images and Compose changes are persisted before stopping services.
 //!
 //! # Failure invariants (do not regress)
 //!
@@ -91,7 +91,18 @@ pub async fn run(
         let _ = crate::worker::machine::clear_maintenance(worker.state());
         return Err(e);
     }
-    let pre = match preflight::run(worker.clone(), &target, mode, risk).await {
+    let pre = match preflight::run(worker.clone(), &target, mode, risk)
+        .await
+        .and_then(|r| {
+            crate::state::atomic::write_atomic_json(
+                &worker
+                    .state()
+                    .root()
+                    .join(format!("prepared.{job_id}.json")),
+                &r,
+            )?;
+            Ok(r)
+        }) {
         Ok(r) => {
             let _ = rec.finish_step_ok();
             r
@@ -160,7 +171,6 @@ pub async fn run(
         &mut flow,
         &pre,
         &target,
-        mode,
         &job_id,
     )
     .await
@@ -253,7 +263,6 @@ async fn run_update_body(
     flow: &mut UpdateFlowCtx,
     pre: &preflight::PreflightReport,
     target: &DeployTag,
-    mode: UpdateMode,
     job_id: &str,
 ) -> Result<()> {
     // ----- Stop app -----
@@ -324,13 +333,10 @@ async fn run_update_body(
         // Postgres is back; only app containers remain down.
         flow.scope = PreSwapRestoreScope::App;
         flow.snapshot_id = snapshot_id.clone();
-        // Snapshot id is best-effort metadata — failure must not leave stack down.
-        if let Ok(mut job) = worker.state().read_job(job_id) {
-            job.snapshot_id = Some(snapshot_id);
-            if let Err(e) = worker.state().write_job(&job) {
-                warn!(err = %e, "failed to record snapshot_id on job; continuing");
-            }
-        }
+        // Recovery must know the snapshot before any new-version writer can start.
+        let mut job = worker.state().read_job(job_id)?;
+        job.snapshot_id = Some(snapshot_id);
+        worker.state().write_job(&job)?;
     }
     rec.finish_step_ok()?;
 
@@ -344,6 +350,7 @@ async fn run_update_body(
     flow.from_tag = from_tag_hint.clone();
     // Keep post_swap=false until swap_tag succeeds so a failed tag write does not
     // trigger snapshot restore (postgres stop) — only app restart via PreSwap.
+    pre.compose.install()?;
     let from_tag_backup = swap_tag(&worker, target.as_str())?;
     flow.post_swap = true;
     flow.from_tag = Some(from_tag_backup.clone());
@@ -383,6 +390,17 @@ async fn run_update_body(
         }
     }
 
+    start_and_finish(&worker, rec, compose, pre).await
+}
+
+async fn start_and_finish(
+    worker: &Arc<Worker>,
+    rec: &PhaseRecorder<'_>,
+    compose: &ComposeRunner,
+    pre: &preflight::PreflightReport,
+) -> Result<()> {
+    let target = &pre.target;
+    let job_id = &rec.job_id;
     // ----- Start new -----
     rec.enter(Phase::StartingNew, "updater.phase.starting_new")?;
     // Do not run migrations/initializers from a different image than preflight.
@@ -402,31 +420,37 @@ async fn run_update_body(
             )));
         }
     }
-    let volume_init = compose.init_backend_volumes().await.map_err(|e| {
-        UpdaterError::Internal(anyhow::anyhow!(
-            "backend volume ownership initialization failed: {e}"
-        ))
-    })?;
-    if !volume_init.ok() {
-        return Err(UpdaterError::Internal(anyhow::anyhow!(
-            "backend volume ownership initialization failed: {}",
-            volume_init.error_summary()
-        )));
-    }
-    tracing::info!(
-        output = %volume_init.stdout_tail.trim(),
-        diagnostics = %volume_init.stderr_tail.trim(),
-        "backend volume ownership and write verification completed"
+    let already_ready = matches!(
+        probe_one_tick(worker, [&pre.backend_image_id, &pre.frontend_image_id]).await,
+        ProbeTick::HardOk { .. }
     );
-    let up = compose
-        .up_detached_recreate(&["backend", "frontend"])
-        .await
-        .map_err(|e| UpdaterError::Internal(anyhow::anyhow!("compose up new failed: {e}")))?;
-    if !up.ok() {
-        return Err(UpdaterError::Internal(anyhow::anyhow!(
-            "compose up new failed: {}",
-            up.error_summary()
-        )));
+    if !already_ready {
+        let volume_init = compose.init_backend_volumes().await.map_err(|e| {
+            UpdaterError::Internal(anyhow::anyhow!(
+                "backend volume ownership initialization failed: {e}"
+            ))
+        })?;
+        if !volume_init.ok() {
+            return Err(UpdaterError::Internal(anyhow::anyhow!(
+                "backend volume ownership initialization failed: {}",
+                volume_init.error_summary()
+            )));
+        }
+        tracing::info!(
+            output = %volume_init.stdout_tail.trim(),
+            diagnostics = %volume_init.stderr_tail.trim(),
+            "backend volume ownership and write verification completed"
+        );
+        let up = compose
+            .up_detached_recreate(&["backend", "frontend"])
+            .await
+            .map_err(|e| UpdaterError::Internal(anyhow::anyhow!("compose up new failed: {e}")))?;
+        if !up.ok() {
+            return Err(UpdaterError::Internal(anyhow::anyhow!(
+                "compose up new failed: {}",
+                up.error_summary()
+            )));
+        }
     }
     rec.finish_step_ok()?;
 
@@ -434,7 +458,7 @@ async fn run_update_body(
     rec.enter(Phase::HealthProbing, "updater.phase.health_probing")?;
     let deadline = Duration::from_secs(300u64.max((pre.estimated_seconds as u64) * 3));
     health_probe(
-        &worker,
+        worker,
         target,
         [&pre.backend_image_id, &pre.frontend_image_id],
         deadline,
@@ -457,14 +481,72 @@ async fn run_update_body(
     worker.best_effort_prune_snapshots("update_success");
     let _ = worker
         .state()
-        .append_history(&format!("job {job_id}: SUCCESS {target} ({mode})"));
+        .append_history(&format!("job {job_id}: SUCCESS {target}"));
     let _ = worker.state().append_audit(&format!(
-        "audit: update_succeeded job={job_id} target={} mode={}",
+        "audit: update_succeeded job={job_id} target={}",
         target.as_str(),
-        mode.as_str()
     ));
-    info!(job = %job_id, %target, ?mode, "update succeeded");
+    info!(job = %job_id, %target, "update succeeded");
     Ok(())
+}
+
+/// Restart at the first repeatable operation after the tag switch. Never take a
+/// second snapshot of a database that may already have run the new migrations.
+pub async fn resume(worker: Arc<Worker>, job_id: &str, rollback: bool) -> Result<()> {
+    let mut job = worker.state().read_job(job_id)?;
+    if job.kind == crate::state::JobKind::Rollback {
+        return rollback::run(
+            worker.clone(),
+            job_id.into(),
+            job.snapshot_id.unwrap_or_default(),
+            None,
+        )
+        .await;
+    }
+    job.status = JobStatus::Running;
+    job.finished_at = None;
+    worker.state().write_job(&job)?;
+    let rec = PhaseRecorder {
+        state: worker.state(),
+        job_id: job_id.into(),
+        from_version: job.from_version.clone(),
+        to_version: job.to_version.clone(),
+    };
+    let compose = build_compose_runner(&worker).await?;
+    let snap = SnapshotManager {
+        state: worker.state(),
+        pgdata: worker.cli().pgdata.clone(),
+    };
+    let path = worker
+        .state()
+        .root()
+        .join(format!("prepared.{job_id}.json"));
+    // v0.5.3 did not persist preflight results. Recover that interrupted update
+    // with its existing snapshot instead; remove after the first refactor release.
+    let error = if !rollback && path.try_exists()? {
+        let attempt = async {
+            let pre: preflight::PreflightReport = serde_json::from_slice(&std::fs::read(path)?)?;
+            pre.compose.install()?;
+            start_and_finish(&worker, &rec, &compose, &pre).await
+        }
+        .await;
+        match attempt {
+            Ok(()) => return Ok(()),
+            Err(error) => error,
+        }
+    } else {
+        UpdaterError::Precondition("resuming interrupted rollback".into())
+    };
+    finish_with_rollback(
+        &worker,
+        &rec,
+        &compose,
+        &snap,
+        job.snapshot_id.as_deref().unwrap_or(""),
+        job.from_version.as_ref().map(|v| v.as_str()),
+        error,
+    )
+    .await
 }
 
 /// Pin both backend and frontend `:{previous_tag}` images as `*:myriad-rollback`.
@@ -581,6 +663,15 @@ async fn heal_rollback_pair_from_version(
                 UpdaterError::Docker(format!("heal rollback pin {comp} ({source}): {e}"))
             })?;
         info!(%comp, %source, "healed rollback pin from version tag");
+    }
+    Ok(())
+}
+
+pub(crate) fn restore_compose(state: &crate::state::StateDir, job_id: &str) -> Result<()> {
+    let path = state.root().join(format!("prepared.{job_id}.json"));
+    if let Some(bytes) = crate::state::read_existing(&path)? {
+        let pre: preflight::PreflightReport = serde_json::from_slice(&bytes)?;
+        pre.compose.restore()?;
     }
     Ok(())
 }
@@ -715,8 +806,11 @@ async fn finish_pre_swap_failure(
         rec.job_id
     ));
 
-    let mut restore_err: Option<String> = None;
+    let mut restore_err = restore_compose(worker.state(), &rec.job_id)
+        .err()
+        .map(|e| e.to_string());
     match compose {
+        _ if restore_err.is_some() => {}
         Some(c) => {
             if let Err(e) = restore_previous_stack(worker, c, scope).await {
                 error!(err = %e, "pre-swap stack restore failed");

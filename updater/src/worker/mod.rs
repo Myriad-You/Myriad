@@ -25,8 +25,8 @@ pub use prefs::{
     validate_snapshot_limit,
 };
 pub use recovery::{
-    CrashRecoveryPlan, RecoveryReport, commit_pre_swap_stack_restored,
-    freeze_pre_swap_restore_failed, plan_crash_recovery,
+    CrashRecoveryPlan, RecoveryReport, commit_pre_swap_stack_restored, plan_crash_recovery,
+    record_recovery_failure,
 };
 
 use std::sync::Arc;
@@ -346,11 +346,14 @@ impl Worker {
     /// only after restore succeeds.
     pub async fn restore_stack_after_pre_swap(self: &Arc<Self>) -> Result<()> {
         let job_id = self.state.read_current_job()?;
+        if let Some(id) = &job_id {
+            update::restore_compose(&self.state, id)?;
+        }
         let compose = match update::build_compose_runner_pub(self).await {
             Ok(c) => c,
             Err(e) => {
                 if let Some(id) = job_id.as_deref() {
-                    freeze_pre_swap_restore_failed(&self.state, id, &e.to_string())?;
+                    record_recovery_failure(&self.state, id, &e.to_string())?;
                 }
                 return Err(e);
             }
@@ -367,7 +370,7 @@ impl Worker {
             Ok(()) => commit_pre_swap_stack_restored(&self.state),
             Err(e) => {
                 if let Some(id) = job_id.as_deref() {
-                    freeze_pre_swap_restore_failed(&self.state, id, &e.to_string())?;
+                    record_recovery_failure(&self.state, id, &e.to_string())?;
                 }
                 Err(e)
             }
@@ -392,6 +395,11 @@ impl Worker {
     /// deploy tag through GitHub. If the backend is not ready yet, MYRIAD_TAG from the managed
     /// `.env` still prevents a fresh/cleared state directory from reporting "unknown".
     pub async fn reconcile_current_deploy(&self) -> Result<()> {
+        // An in-flight update owns its version; probing partially started services
+        // must not publish a new current_version before that update commits.
+        if self.state.read_current_job()?.is_some() {
+            return Ok(());
+        }
         let mut st = self.state.read_updater()?;
         let updater_identity_changed = self.heal_running_updater_identity(&mut st);
         let previous_version = st.current_version.clone();

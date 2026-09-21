@@ -11,8 +11,6 @@ pub struct ComposeProbe {
     /// Which command is invokable: "docker compose" (v2) or "docker-compose" (v1) or None.
     pub binary: Option<ComposeBinary>,
     pub compose_files: Vec<PathBuf>,
-    /// True if compose.yaml/yml references `${MYRIAD_TAG}` (and friends) as required by spec.
-    pub references_required_tag_vars: bool,
     pub project_name_pinned: bool,
     pub error: Option<String>,
 }
@@ -33,33 +31,11 @@ pub async fn probe(compose_dir: &Path) -> ComposeProbe {
             return ComposeProbe {
                 binary,
                 compose_files: Vec::new(),
-                references_required_tag_vars: false,
                 project_name_pinned: false,
                 error: Some(error),
             };
         }
     };
-
-    let mut refs_tag = false;
-    for f in &files {
-        let s = match std::fs::read_to_string(f) {
-            Ok(s) => s,
-            Err(error) => {
-                let path = f.display().to_string();
-                return ComposeProbe {
-                    binary,
-                    compose_files: files,
-                    references_required_tag_vars: false,
-                    project_name_pinned: false,
-                    error: Some(format!("cannot read compose file {path}: {error}")),
-                };
-            }
-        };
-        if s.contains("${MYRIAD_TAG}") || s.contains("$MYRIAD_TAG") {
-            refs_tag = true;
-            break;
-        }
-    }
 
     let mut project_name_pinned = std::env::var("COMPOSE_PROJECT_NAME").is_ok();
     if !project_name_pinned {
@@ -71,7 +47,6 @@ pub async fn probe(compose_dir: &Path) -> ComposeProbe {
                     return ComposeProbe {
                         binary,
                         compose_files: files,
-                        references_required_tag_vars: refs_tag,
                         project_name_pinned: false,
                         error: Some(format!("cannot read compose file {path}: {error}")),
                     };
@@ -100,7 +75,6 @@ pub async fn probe(compose_dir: &Path) -> ComposeProbe {
     ComposeProbe {
         binary,
         compose_files: files,
-        references_required_tag_vars: refs_tag,
         project_name_pinned,
         error,
     }

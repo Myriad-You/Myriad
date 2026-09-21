@@ -39,9 +39,8 @@ use crate::release::{CommitRelation, Manifest};
 use crate::version::{DeployTag, DeployTagKind, MyriadVersion, UpdateMode};
 use crate::worker::Worker;
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct PreflightReport {
-    /// Present only for release-mode updates.
-    pub manifest: Option<Manifest>,
     pub from_version: Option<DeployTag>,
     /// Tag actually written to MYRIAD_TAG (commit mode: always `dev-<sha>`).
     pub target: DeployTag,
@@ -49,9 +48,8 @@ pub struct PreflightReport {
     pub target_commit_sha: Option<String>,
     pub backend_image_id: String,
     pub frontend_image_id: String,
+    pub compose: crate::deployment::PreparedCompose,
     pub estimated_seconds: u32,
-    pub is_downgrade: bool,
-    pub is_diverged: bool,
 }
 
 /// Operator confirmation flags. `allow_risk` is a backward-compatible umbrella that
@@ -338,8 +336,13 @@ async fn run_release_with_manifest(
         .image("frontend")
         .ok_or_else(|| UpdaterError::Precondition("manifest lacks frontend image".into()))?;
 
-    let [backend_image_id, frontend_image_id] =
-        prepare_images(&worker, Some(&manifest), [&backend.r#ref, &frontend.r#ref]).await?;
+    let ([backend_image_id, frontend_image_id], compose) = prepare_images(
+        &worker,
+        Some(&manifest),
+        [&backend.r#ref, &frontend.r#ref],
+        target,
+    )
+    .await?;
     let estimated = manifest.migrations.estimated_seconds;
     let target_commit_sha = match manifest.commit_sha.clone() {
         some @ Some(_) => some,
@@ -352,15 +355,13 @@ async fn run_release_with_manifest(
         },
     };
     Ok(PreflightReport {
-        manifest: Some(manifest),
         from_version,
         target: target.clone(),
         target_commit_sha,
         backend_image_id,
         frontend_image_id,
+        compose,
         estimated_seconds: estimated,
-        is_downgrade,
-        is_diverged,
     })
 }
 
@@ -480,8 +481,8 @@ async fn run_release_via_dockerhub(
     let backend_ref = format!("{backend_repo}:{tag}");
     let frontend_ref = format!("{frontend_repo}:{tag}");
 
-    let [backend_image_id, frontend_image_id] =
-        prepare_images(&worker, None, [&backend_ref, &frontend_ref]).await?;
+    let ([backend_image_id, frontend_image_id], compose) =
+        prepare_images(&worker, None, [&backend_ref, &frontend_ref], target).await?;
 
     // Optional commit_sha when GitHub is reachable but only the release asset was missing.
     let target_commit_sha = if worker.github_commit_metadata_enabled() {
@@ -504,15 +505,13 @@ async fn run_release_via_dockerhub(
     };
 
     Ok(PreflightReport {
-        manifest: None,
         from_version,
         target: target.clone(),
         target_commit_sha,
         backend_image_id,
         frontend_image_id,
+        compose,
         estimated_seconds: 60,
-        is_downgrade,
-        is_diverged,
     })
 }
 
@@ -597,7 +596,6 @@ async fn run_commit(
     }
 
     let mut is_downgrade = false;
-    let mut is_diverged = false;
 
     if let Some(compare_ref) = compare_ref.as_deref() {
         // Only runs when GitHub resolved the target; otherwise we skip ancestry entirely.
@@ -608,7 +606,6 @@ async fn run_commit(
         {
             Ok(Some(f)) => {
                 is_downgrade = f.is_downgrade();
-                is_diverged = matches!(f.relation, CommitRelation::Diverged);
                 info!(
                     relation = f.relation.as_str(),
                     ahead = f.ahead_by,
@@ -675,18 +672,16 @@ async fn run_commit(
     let backend_ref = format!("{backend_repo}:{tag}");
     let frontend_ref = format!("{frontend_repo}:{tag}");
 
-    let [backend_image_id, frontend_image_id] =
-        prepare_images(&worker, None, [&backend_ref, &frontend_ref]).await?;
+    let ([backend_image_id, frontend_image_id], compose) =
+        prepare_images(&worker, None, [&backend_ref, &frontend_ref], &effective).await?;
     Ok(PreflightReport {
-        manifest: None,
         from_version,
         target: effective,
         target_commit_sha,
         backend_image_id,
         frontend_image_id,
+        compose,
         estimated_seconds: 60,
-        is_downgrade,
-        is_diverged,
     })
 }
 
@@ -695,7 +690,8 @@ async fn prepare_images(
     worker: &Arc<Worker>,
     manifest: Option<&Manifest>,
     images: [&str; 2],
-) -> Result<[String; 2]> {
+    target: &DeployTag,
+) -> Result<([String; 2], crate::deployment::PreparedCompose)> {
     check_env_keys(worker, manifest)?;
     check_disk(worker)?;
     crate::worker::preflight_env::check_local_environment(worker).await?;
@@ -718,11 +714,17 @@ async fn prepare_images(
             )));
         }
     }
-    check_compose_networks(worker, images[0]).await?;
-    Ok([
-        worker.docker().image_id(images[0]).await?,
-        worker.docker().image_id(images[1]).await?,
-    ])
+    let runner = crate::worker::update::build_compose_runner_pub(worker).await?;
+    let (prepared, candidate) =
+        crate::deployment::prepare(worker, &runner, images[0], target).await?;
+    check_compose_networks(worker, images[0], &candidate).await?;
+    Ok((
+        [
+            worker.docker().image_id(images[0]).await?,
+            worker.docker().image_id(images[1]).await?,
+        ],
+        prepared,
+    ))
 }
 
 fn require_downgrade(allowed: bool, target: &str) -> Result<()> {
@@ -829,16 +831,12 @@ fn check_disk(worker: &Worker) -> Result<()> {
 /// Fail closed when compose would attach update/rollback services to a network
 /// docker-guard will reject — otherwise `compose up` fails after stop/snapshot and
 /// rollback hits the same error (site stuck down).
-async fn check_compose_networks(worker: &Arc<Worker>, backend_image: &str) -> Result<()> {
+async fn check_compose_networks(
+    worker: &Arc<Worker>,
+    backend_image: &str,
+    compose: &crate::docker::ComposeRunner,
+) -> Result<()> {
     let allow = NetworkAllowlist::resolve(Some(worker.cli().env_file.as_path()))?;
-    let compose = crate::worker::update::build_compose_runner_pub(worker)
-        .await
-        .map_err(|e| {
-            UpdaterError::Precondition(format!(
-                "cannot build compose runner for network preflight: {e}"
-            ))
-        })?;
-
     let config = compose.config_json().await.map_err(|e| {
         UpdaterError::Precondition(format!("compose config for network preflight failed: {e}"))
     })?;

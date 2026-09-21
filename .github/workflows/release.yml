@@ -255,6 +255,16 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Bundle deployment templates
+        if: steps.check.outputs.present == 'true' && matrix.component == 'backend'
+        id: compose
+        run: |
+          {
+            echo 'labels<<MYRIAD_COMPOSE'
+            bash scripts/extra/compose-image-labels.sh
+            echo 'MYRIAD_COMPOSE'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build & push by digest
         if: steps.check.outputs.present == 'true'
         id: build
@@ -269,6 +279,7 @@ jobs:
             MYRIAD_VERSION=${{ needs.resolve.outputs.version }}
             MYRIAD_COMMIT_SHA=${{ github.sha }}
             CARGO_PROFILE=ci-release
+          labels: ${{ steps.compose.outputs.labels }}
           outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ matrix.component }}-${{ steps.paths.outputs.platform_pair }}
           cache-to: type=gha,scope=${{ matrix.component }}-${{ steps.paths.outputs.platform_pair }},mode=max
