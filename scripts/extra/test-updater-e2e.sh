@@ -608,6 +608,10 @@ JSON
     done
     [ "$ready" = "1" ] || return 1
 
+    for i in $(seq 1 120); do
+        [ ! -s "$TESTBED/state/job.current" ] && break
+        sleep 0.25
+    done
     local body active
     body=$(curl -fsS -H "X-Update-Token: $TOKEN" "http://127.0.0.1:$UPDATER_PORT/status")
     active=$(echo "$body" | jq -r '.maintenance_active')

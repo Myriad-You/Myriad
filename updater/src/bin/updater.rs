@@ -160,31 +160,31 @@ async fn main() -> Result<()> {
         config.clone(),
         worker_cli,
     ));
-    // Pre-swap crash recovery only cleared maintenance; services may still be stopped.
-    if matches!(recovery, RecoveryReport::ClearedPreSwap) {
-        match worker.restore_stack_after_pre_swap().await {
-            Ok(()) => info!("recovery: pre-swap stack restore completed"),
-            Err(e) => {
-                error!(
-                    err = %e,
-                    "recovery: pre-swap stack restore failed; site may stay down until manual compose up"
-                );
-                let _ =
-                    state.append_history(&format!("recovery: pre-swap stack restore failed: {e}"));
-            }
-        }
-    }
-    if let RecoveryReport::Resume { job_id, rollback } = recovery {
+    if matches!(
+        recovery,
+        RecoveryReport::ClearedPreSwap | RecoveryReport::Resume { .. }
+    ) {
         let recovering = worker.clone();
+        let recovery_job = state.read_current_job()?;
         tokio::spawn(async move {
-            if let Err(error) =
-                myriad_updater::worker::update::resume(recovering.clone(), &job_id, rollback).await
-            {
+            let result = match recovery {
+                RecoveryReport::ClearedPreSwap => recovering.restore_stack_after_pre_swap().await,
+                RecoveryReport::Resume { job_id, rollback } => {
+                    myriad_updater::worker::update::resume(recovering.clone(), &job_id, rollback)
+                        .await
+                }
+                _ => unreachable!(),
+            };
+            if let Err(error) = result {
                 warn!(%error, "recovered update did not complete on its target");
-                if recovering
-                    .state()
-                    .read_job(&job_id)
-                    .is_ok_and(|job| job.status == myriad_updater::state::JobStatus::Running)
+                if let Some(job_id) = recovery_job
+                    && recovering
+                        .state()
+                        .read_current_job()
+                        .ok()
+                        .flatten()
+                        .as_deref()
+                        == Some(job_id.as_str())
                 {
                     let _ = myriad_updater::worker::record_recovery_failure(
                         recovering.state(),

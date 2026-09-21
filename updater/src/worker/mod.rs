@@ -349,32 +349,10 @@ impl Worker {
         if let Some(id) = &job_id {
             update::restore_compose(&self.state, id)?;
         }
-        let compose = match update::build_compose_runner_pub(self).await {
-            Ok(c) => c,
-            Err(e) => {
-                if let Some(id) = job_id.as_deref() {
-                    record_recovery_failure(&self.state, id, &e.to_string())?;
-                }
-                return Err(e);
-            }
-        };
-        // Conservative: always try postgres (no-op-ish if already up / external skip via scope)
-        // AppAndPostgres is safe for external mode — restore_previous_stack skips pg.
-        match update::restore_previous_stack(
-            self,
-            &compose,
-            update::PreSwapRestoreScope::AppAndPostgres,
-        )
-        .await
-        {
-            Ok(()) => commit_pre_swap_stack_restored(&self.state),
-            Err(e) => {
-                if let Some(id) = job_id.as_deref() {
-                    record_recovery_failure(&self.state, id, &e.to_string())?;
-                }
-                Err(e)
-            }
-        }
+        let compose = update::build_compose_runner_pub(self).await?;
+        update::restore_previous_stack(self, &compose, update::PreSwapRestoreScope::AppAndPostgres)
+            .await?;
+        commit_pre_swap_stack_restored(&self.state)
     }
 
     /// Keep the official reference unchanged. Docker's registry mirrors are transparent.

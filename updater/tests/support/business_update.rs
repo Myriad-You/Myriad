@@ -255,8 +255,15 @@ async fn business_power_cut_after_stop_restores_old_services_without_user_input(
     assert_eq!(daemon.status().await["maintenance_active"], true);
     assert!(!daemon.mock.root.join("app-running").exists());
     daemon.power_cut();
+    fs::remove_file(daemon.mock.root.join("reached")).unwrap();
+    fs::write(daemon.mock.root.join("cut-point"), "started").unwrap();
+    daemon.start().await;
+    daemon.wait_at_cut(&id).await;
+    assert_eq!(daemon.status().await["maintenance_active"], true);
+    daemon.power_cut();
     fs::write(daemon.mock.root.join("cut-point"), "").unwrap();
     daemon.start().await;
+    daemon.completed_job(&id, "failed").await;
     assert!(daemon.mock.root.join("app-running").exists());
     assert_eq!(
         fs::read_to_string(daemon.mock.root.join("app-version"))
@@ -379,9 +386,16 @@ async fn bundled_upgrade_and_snapshot_power_cut_preserve_database() {
             fs::write(daemon.mock.root.join("cut-point"), "").unwrap();
             daemon.start().await;
         }
-        if cut != "snapshot-copied" {
-            daemon.completed_job(&id, "succeeded").await;
-        }
+        daemon
+            .completed_job(
+                &id,
+                if cut == "snapshot-copied" {
+                    "failed"
+                } else {
+                    "succeeded"
+                },
+            )
+            .await;
         assert_eq!(
             fs::read_to_string(daemon.mock.root.join("pgdata/record")).unwrap(),
             "original",
