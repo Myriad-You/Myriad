@@ -106,6 +106,9 @@ impl Worker {
         audit: &str,
     ) -> Result<()> {
         let path = self.cli.state_dir.join(name);
+        if name == "self-update-last.json" {
+            super::self_update::require_no_pending_handoff(&self.state)?;
+        }
         match std::fs::remove_file(&path) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}

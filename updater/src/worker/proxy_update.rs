@@ -39,7 +39,6 @@ const PROXY_HEALTH_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Compose service DNS + container_name (either may resolve depending on network aliases).
 const PROXY_HEALTH_URLS: &[&str] = &["http://proxy:80/healthz", "http://myriad-proxy:80/healthz"];
-const PROXY_CONTAINER_NAMES: &[&str] = &["myriad-proxy", "proxy"];
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProxyUpdateReport {
@@ -166,66 +165,52 @@ pub async fn run(
         )));
     }
 
-    info!(new_tag = %resolved.tag, "proxy-update: rewriting PROXY_TAG in .env");
-    {
-        let mut env = EnvFile::load(&worker.cli().env_file)?;
-        env.set("PROXY_TAG", &resolved.tag)?;
-        env.save()?;
-    }
-
+    // Resolve all local prerequisites before mutating deployment intent.
     let compose = crate::worker::update::build_compose_runner_pub(&worker).await?;
-    let up = compose.up_detached(&["proxy"]).await?;
-    if !up.ok() {
-        let compose_err = up.error_summary();
-        let rolled_back = restore_proxy_tag(&previous_tag, worker.as_ref()).is_ok();
-        // Best-effort bring previous image back if we rewrote .env.
-        if rolled_back && !previous_tag.is_empty() {
-            let _ = compose.up_detached(&["proxy"]).await;
-        }
-        let msg = format!("compose up proxy failed: {compose_err}");
-        let _ = write_proxy_update_last(
-            worker.state().root(),
-            &ProxyUpdateLastStatus::failed(&previous_tag, &resolved.tag, &msg, rolled_back),
-        );
-        return Err(UpdaterError::Internal(anyhow::anyhow!(msg)));
+    let target_id = worker.docker().image_id(&resolved.image_ref).await?;
+    let previous = worker
+        .docker()
+        .raw()
+        .inspect_container("myriad-proxy", None)
+        .await
+        .map_err(|e| UpdaterError::Docker(format!("inspect previous proxy: {e}")))?;
+    let previous_id = previous
+        .image
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| UpdaterError::Precondition("previous proxy has no image identity".into()))?;
+    if previous_tag.trim().is_empty() {
+        return Err(UpdaterError::Precondition(
+            "PROXY_TAG is required for recoverable replacement".into(),
+        ));
     }
-
-    // Compose exit 0 is not enough — wait for /healthz; otherwise roll back tag.
-    if let Err(health_err) = wait_proxy_healthy(worker.as_ref()).await {
-        warn!(err = %health_err, "proxy-update: health probe failed; rolling back PROXY_TAG");
-        let mut parts = vec![health_err.to_string()];
-        let mut rolled_back = false;
-        match restore_proxy_tag(&previous_tag, worker.as_ref()) {
-            Ok(()) => {
-                rolled_back = true;
-                parts.push(format!("restored PROXY_TAG to {previous_tag}"));
-                match compose.up_detached(&["proxy"]).await {
-                    Ok(rollback_up) if rollback_up.ok() => {
-                        parts.push("recreated proxy with previous tag".into());
-                    }
-                    Ok(rollback_up) => {
-                        parts.push(format!(
-                            "previous-tag compose failed: {}",
-                            rollback_up.error_summary()
-                        ));
-                    }
-                    Err(e) => parts.push(format!("previous-tag compose error: {e}")),
-                }
-            }
-            Err(e) => parts.push(format!("FAILED to restore PROXY_TAG: {e}")),
-        }
-        let combined = parts.join("; ");
-        let _ = write_proxy_update_last(
-            worker.state().root(),
-            &ProxyUpdateLastStatus::failed(&previous_tag, &resolved.tag, &combined, rolled_back),
-        );
-        return Err(UpdaterError::Precondition(combined));
+    let apply = async {
+        restore_proxy_tag(&resolved.tag, worker.as_ref())?;
+        recreate_proxy(&compose).await?;
+        wait_proxy_healthy(worker.as_ref(), &target_id).await
     }
-
-    let _ = write_proxy_update_last(
+    .await;
+    if let Err(error) = apply {
+        let recovery = async {
+            restore_proxy_tag(&previous_tag, worker.as_ref())?;
+            recreate_proxy(&compose).await?;
+            wait_proxy_healthy(worker.as_ref(), &previous_id).await
+        }
+        .await;
+        let rolled_back = recovery.is_ok();
+        let detail = match recovery {
+            Ok(()) => format!("proxy update failed: {error}; previous proxy restored and healthy"),
+            Err(recovery) => format!("proxy update failed: {error}; recovery failed: {recovery}"),
+        };
+        write_proxy_update_last(
+            worker.state().root(),
+            &ProxyUpdateLastStatus::failed(&previous_tag, &resolved.tag, &detail, rolled_back),
+        )?;
+        return Err(UpdaterError::Precondition(detail));
+    }
+    write_proxy_update_last(
         worker.state().root(),
         &ProxyUpdateLastStatus::succeeded(&previous_tag, &resolved.tag),
-    );
+    )?;
 
     let actor_suffix = actor
         .as_deref()
@@ -235,7 +220,7 @@ pub async fn run(
         "audit: proxy_update previous_tag={previous_tag} new_tag={} image={} digest={pulled_digest} source={}{actor_suffix}",
         resolved.tag, resolved.image_ref, resolved.source
     );
-    worker.state().append_history(&audit)?;
+    let _ = worker.state().append_history(&audit);
     let _ = worker.state().append_audit(&audit);
     info!(%resolved.tag, "proxy-update: proxy recreated and healthy");
 
@@ -260,21 +245,36 @@ fn restore_proxy_tag(previous_tag: &str, worker: &Worker) -> Result<()> {
 }
 
 /// Poll proxy `/healthz` (and container running) until deadline.
-async fn wait_proxy_healthy(worker: &Worker) -> Result<()> {
+async fn wait_proxy_healthy(worker: &Worker, image_id: &str) -> Result<()> {
     let start = std::time::Instant::now();
     let mut last = String::from("no probe yet");
     while start.elapsed() < PROXY_HEALTH_DEADLINE {
         tokio::time::sleep(PROXY_HEALTH_INTERVAL).await;
 
-        let running = proxy_container_running(worker).await;
+        let running = match worker
+            .docker()
+            .raw()
+            .inspect_container("myriad-proxy", None)
+            .await
+        {
+            Ok(container) => {
+                container.image.as_deref() == Some(image_id)
+                    && container.state.as_ref().and_then(|state| state.running) == Some(true)
+            }
+            Err(error) => {
+                last = format!("inspect proxy: {error}");
+                continue;
+            }
+        };
         match probe_proxy_healthz(worker).await {
-            Ok(()) => {
+            Ok(()) if running => {
                 info!(
                     elapsed_ms = start.elapsed().as_millis() as u64,
                     "proxy-update: healthz ok"
                 );
                 return Ok(());
             }
+            Ok(()) => last = "proxy image/health does not match the expected deployment".into(),
             Err(e) => {
                 last = if running {
                     format!("running but healthz failed: {e}")
@@ -290,13 +290,12 @@ async fn wait_proxy_healthy(worker: &Worker) -> Result<()> {
     )))
 }
 
-async fn proxy_container_running(worker: &Worker) -> bool {
-    for name in PROXY_CONTAINER_NAMES {
-        if worker.docker().is_running(name).await.unwrap_or(false) {
-            return true;
-        }
+async fn recreate_proxy(compose: &crate::docker::ComposeRunner) -> Result<()> {
+    let output = compose.up_detached_recreate(&["proxy"]).await?;
+    if !output.ok() {
+        return Err(UpdaterError::Docker(output.error_summary()));
     }
-    false
+    Ok(())
 }
 
 async fn probe_proxy_healthz(worker: &Worker) -> Result<()> {
@@ -335,7 +334,7 @@ async fn resolve_proxy_target(
         Err(e) => return Err(e),
     }
 
-    // 2) Docker Hub / env image repo + tag (commit tips and private-repo releases).
+    // Docker Hub remains the available source when GitHub discovery is unavailable.
     resolve_proxy_via_dockerhub(worker, explicit_tag).await
 }
 

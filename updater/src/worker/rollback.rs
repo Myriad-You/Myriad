@@ -143,9 +143,7 @@ pub async fn execute_inline(
         }
     }
     if let Err(e) = worker.docker().stop_app_writers_for_restore().await {
-        let msg = format!(
-            "rollback: cannot prove app writers are stopped ({e}); refusing restore"
-        );
+        let msg = format!("rollback: cannot prove app writers are stopped ({e}); refusing restore");
         error!(err = %e, %msg, "rollback writer stop failed");
         return Err(UpdaterError::Precondition(msg));
     }
@@ -549,7 +547,6 @@ mod tests {
             size_bytes: 1,
             file_count: 1,
             keep: false,
-            sample_sha256: None,
         });
         state.write_snapshots(&sf).unwrap();
         let got = resolve_previous_tag(&state, "snap-abc", None).unwrap();
@@ -581,7 +578,6 @@ mod tests {
             size_bytes: 1,
             file_count: 1,
             keep: false,
-            sample_sha256: None,
         });
         state.write_snapshots(&sf).unwrap();
         let got = resolve_previous_tag(&state, "snap-abc", Some("v0.8.0")).unwrap();

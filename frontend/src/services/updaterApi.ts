@@ -185,7 +185,6 @@ export interface SnapshotMeta {
   size_bytes: number
   file_count: number
   keep: boolean
-  sample_sha256: string | null
 }
 
 export interface SnapshotsResponse {

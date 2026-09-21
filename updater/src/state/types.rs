@@ -320,7 +320,6 @@ pub struct SnapshotMeta {
     pub size_bytes: u64,
     pub file_count: u64,
     pub keep: bool,
-    pub sample_sha256: Option<String>,
 }
 
 fn default_schema() -> u32 {

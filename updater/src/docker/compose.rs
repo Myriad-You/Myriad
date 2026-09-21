@@ -294,28 +294,32 @@ impl ComposeRunner {
         starting: bool,
     ) -> Result<Vec<&'a str>> {
         let mut services = requested.to_vec();
-        if requested.contains(&"backend") && !requested.contains(&"federation-worker")
-            && let Some(image) = self.federation_worker_image().await? {
-                let supported = !starting
-                    || super::DockerClient::connect()
-                        .await?
-                        .supports_federation_worker(&image)
-                        .await?;
-                if supported {
-                    services.insert(0, "federation-worker");
-                }
+        if requested.contains(&"backend")
+            && !requested.contains(&"federation-worker")
+            && let Some(image) = self.federation_worker_image().await?
+        {
+            let supported = !starting
+                || super::DockerClient::connect()
+                    .await?
+                    .supports_federation_worker(&image)
+                    .await?;
+            if supported {
+                services.insert(0, "federation-worker");
             }
-        if requested.contains(&"backend") && !requested.contains(&"persona-worker")
-            && let Some(image) = self.persona_worker_image().await? {
-                let supported = !starting
-                    || super::DockerClient::connect()
-                        .await?
-                        .supports_persona_worker(&image)
-                        .await?;
-                if supported {
-                    services.insert(0, "persona-worker");
-                }
+        }
+        if requested.contains(&"backend")
+            && !requested.contains(&"persona-worker")
+            && let Some(image) = self.persona_worker_image().await?
+        {
+            let supported = !starting
+                || super::DockerClient::connect()
+                    .await?
+                    .supports_persona_worker(&image)
+                    .await?;
+            if supported {
+                services.insert(0, "persona-worker");
             }
+        }
         Ok(services)
     }
 
@@ -361,7 +365,7 @@ impl ComposeRunner {
         force_recreate: bool,
     ) -> Result<ComposeOutput> {
         let services = self.application_services(services, true).await?;
-        let mut args: Vec<&str> = vec!["up", "-d", "--no-deps"];
+        let mut args: Vec<&str> = vec!["up", "-d", "--no-deps", "--pull", "never"];
         if force_recreate {
             args.push("--force-recreate");
         }
@@ -381,6 +385,8 @@ impl ComposeRunner {
                     "-d",
                     "--no-deps",
                     "--force-recreate",
+                    "--pull",
+                    "never",
                     "backend-volume-init",
                 ],
                 Duration::from_secs(600),

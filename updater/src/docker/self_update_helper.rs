@@ -299,7 +299,7 @@ fn run_recovery(cfg: &HelperConfig) -> Result<()> {
 
 fn run_handoff(cfg: &HelperConfig) -> Result<()> {
     // Validate the exact recovery model before writing pins or stopping any
-    // service. The transient override also works with older Compose layouts.
+    // service. Image identity also accepts equivalent tag-based Compose layouts.
     if let Some(images) = &cfg.previous_images {
         let files = find_compose_files(&cfg.compose_dir)?;
         let model = run_compose(
@@ -311,10 +311,12 @@ fn run_handoff(cfg: &HelperConfig) -> Result<()> {
         )?;
         validate_stack_compose_model(&model, images, cfg)?;
     }
+    let target_images = std::array::from_fn(|_| cfg.target_image.clone());
+    let files = prepare_install(cfg, &target_images, &cfg.target_tag)?;
     let app_before = std::fs::read(&cfg.app_env_file)?;
     let guard_before = std::fs::read(&cfg.guard_env_file)?;
 
-    if let Err(error) = install(cfg, &cfg.target_image, &cfg.target_tag) {
+    if let Err(error) = install_prepared(cfg, &files, &target_images, &cfg.target_tag) {
         let restore_files = restore_files(cfg, &app_before, &guard_before);
         let quiescence = wait_for_compose_quiescence(Duration::from_secs(120));
         let rollback = match &quiescence {
@@ -413,18 +415,28 @@ fn ensure_status_writable(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn install(cfg: &HelperConfig, exact_image: &str, tag: &str) -> Result<()> {
-    install_images(cfg, &std::array::from_fn(|_| exact_image.to_owned()), tag)
+fn install_images(cfg: &HelperConfig, images: &[String; 3], tag: &str) -> Result<()> {
+    let files = prepare_install(cfg, images, tag)?;
+    install_prepared(cfg, &files, images, tag)
 }
 
-fn install_images(cfg: &HelperConfig, images: &[String; 3], tag: &str) -> Result<()> {
-    write_stack_policy_files(cfg, images, Some(tag), false)?;
+fn prepare_install(cfg: &HelperConfig, images: &[String; 3], tag: &str) -> Result<Vec<PathBuf>> {
     let files = find_compose_files(&cfg.compose_dir)?;
     let config = run_compose(cfg, &files, images, tag, &["config", "--format", "json"])?;
     validate_stack_compose_model(&config, images, cfg)?;
+    Ok(files)
+}
+
+fn install_prepared(
+    cfg: &HelperConfig,
+    files: &[PathBuf],
+    images: &[String; 3],
+    tag: &str,
+) -> Result<()> {
+    write_stack_policy_files(cfg, images, Some(tag), false)?;
     run_compose(
         cfg,
-        &files,
+        files,
         images,
         tag,
         &[
@@ -432,6 +444,8 @@ fn install_images(cfg: &HelperConfig, images: &[String; 3], tag: &str) -> Result
             "-d",
             "--no-deps",
             "--force-recreate",
+            "--pull",
+            "never",
             SERVICES[0],
             SERVICES[1],
             SERVICES[2],
@@ -627,9 +641,6 @@ fn run_compose(
     // `-f` override: Compose records every `-f` in the container label
     // com.docker.compose.project.config_files, so a persisted selector would pin
     // images on later host-side rebuilds (1Panel) instead of honoring UPDATER_TAG.
-    for image in images {
-        validate_exact_image(image)?;
-    }
     let mut command = Command::new("docker");
     command.args([
         "compose",
@@ -782,9 +793,9 @@ fn validate_stack_compose_model(
             UpdaterError::Precondition(format!("compose config is missing {service}"))
         })?;
         let actual_image = value.get("image").and_then(Value::as_str).unwrap_or("");
-        if !digest_matches(actual_image, exact_image) {
+        if !same_local_image(actual_image, exact_image)? {
             return Err(UpdaterError::Precondition(format!(
-                "{service} image is not the Guard-verified digest"
+                "{service} image does not resolve to the selected image"
             )));
         }
         if value.get("privileged").and_then(Value::as_bool) == Some(true) {
@@ -1098,45 +1109,38 @@ fn verify_running_services(images: &[String; 3]) -> Result<()> {
                 "{container} is not running and healthy"
             )));
         }
-        let configured = inspected
-            .pointer("/Config/Image")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let image_id = inspected
-            .get("Image")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        if !digest_matches(configured, exact_image) || !image_id.starts_with("sha256:") {
+        let selected = docker_inspect_json("image", exact_image)?;
+        if !running_selected_image(inspected, &selected) {
             return Err(UpdaterError::Precondition(format!(
-                "{container} did not start from the Guard-verified digest"
-            )));
-        }
-        let mut image_inspect = Command::new("docker");
-        image_inspect.args([
-            "image",
-            "inspect",
-            "--format",
-            "{{json .RepoDigests}}",
-            image_id,
-        ]);
-        let output = command_output_with_timeout(
-            &mut image_inspect,
-            DOCKER_INSPECT_TIMEOUT,
-            &format!("inspect image for {container}"),
-        )?;
-        let digests: Vec<String> = serde_json::from_slice(&output.stdout).map_err(|error| {
-            UpdaterError::Precondition(format!("invalid RepoDigests for {container}: {error}"))
-        })?;
-        if !digests
-            .iter()
-            .any(|actual| digest_matches(actual, exact_image))
-        {
-            return Err(UpdaterError::Precondition(format!(
-                "{container} content digest does not match the verified target"
+                "{container} is not running the selected image"
             )));
         }
     }
     Ok(())
+}
+
+fn running_selected_image(container: &Value, image: &Value) -> bool {
+    match (
+        container.get("Image").and_then(Value::as_str),
+        image.get("Id").and_then(Value::as_str),
+    ) {
+        (Some(actual), Some(expected)) => !actual.is_empty() && actual == expected,
+        _ => false,
+    }
+}
+
+/// A version tag and a digest reference may identify the same local image.
+/// Compare Docker's content identity, not the spelling chosen by an old Compose file.
+fn same_local_image(actual: &str, expected: &str) -> Result<bool> {
+    if digest_matches(actual, expected) {
+        return Ok(true);
+    }
+    let actual = docker_inspect_json("image", actual)?;
+    let expected = docker_inspect_json("image", expected)?;
+    Ok(
+        matches!((actual.get("Id").and_then(Value::as_str), expected.get("Id").and_then(Value::as_str)),
+        (Some(a), Some(b)) if !a.is_empty() && a == b),
+    )
 }
 
 fn digest_matches(actual: &str, expected: &str) -> bool {
@@ -1254,6 +1258,35 @@ mod tests {
 
     fn exact_image() -> String {
         format!("{TRUSTED_UPDATER_REPOSITORY}@sha256:{}", "a".repeat(64))
+    }
+
+    #[test]
+    fn running_identity_is_content_not_reference_spelling() {
+        let selected = serde_json::json!({"Id":"sha256:selected"});
+        let mut container = serde_json::json!({"Image":"sha256:selected", "Config":{"Image":"official/updater:v0.5.2"}});
+        assert!(running_selected_image(&container, &selected));
+        container["Image"] = serde_json::json!("sha256:old");
+        assert!(!running_selected_image(&container, &selected));
+        assert!(!running_selected_image(
+            &serde_json::json!({}),
+            &serde_json::json!({})
+        ));
+    }
+
+    #[test]
+    #[ignore = "requires Docker daemon and local debian:trixie-slim; read-only"]
+    fn legacy_compose_tag_is_accepted_when_it_resolves_to_selected_content() {
+        let reference = "debian:trixie-slim";
+        let image = docker_inspect_json("image", reference).unwrap();
+        let id = image["Id"].as_str().unwrap().to_string();
+        let model = compose_model(reference);
+        validate_stack_compose_model(
+            &serde_json::to_vec(&model).unwrap(),
+            &std::array::from_fn(|_| id.clone()),
+            &config(),
+        )
+        .unwrap();
+        assert!(!same_local_image(reference, "rust:1.98.1-slim-trixie").unwrap());
     }
 
     fn config() -> HelperConfig {
@@ -1484,14 +1517,18 @@ mod tests {
             );
         }
         // No handoff override file may remain under the deployment root.
-        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 3);
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 4);
         assert!(!dir.path().join("state/self-update-override.json").exists());
     }
 
     #[test]
     fn transaction_image_selection_rejects_untrusted_refs() {
         let mut images: [String; 3] = std::array::from_fn(|_| exact_image());
-        assert!(images.iter().all(|image| validate_exact_image(image).is_ok()));
+        assert!(
+            images
+                .iter()
+                .all(|image| validate_exact_image(image).is_ok())
+        );
         for bad in [
             "evil.example/updater:v1.2.3",
             "docker.io/somekawahitomi/myriad-updater:v1.2.3",

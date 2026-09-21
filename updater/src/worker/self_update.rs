@@ -51,8 +51,6 @@ pub async fn run(worker: Arc<Worker>, actor: Option<String>) -> Result<SelfUpdat
     let resolved = resolve_self_update_target(worker.as_ref()).await?;
     // UPDATER_TAG can already contain a pending manual deployment target.
     let previous_tag = crate::self_version().to_string();
-    let status_path = worker.state().root().join("self-update-last.json");
-    let previous_status_at = read_self_update_status(&status_path).map(|status| status.at);
 
     info!(
         target = %resolved.tag,
@@ -74,7 +72,7 @@ pub async fn run(worker: Arc<Worker>, actor: Option<String>) -> Result<SelfUpdat
         "audit: self_update_scheduled target_tag={} previous_tag={} trust_path={} executor=docker-guard services=docker-guard,updater,updater-gateway scheduled=true source=self_update_guard{actor_suffix}",
         resolved.tag, previous_tag, resolved.trust_path
     );
-    worker.state().append_history(&audit)?;
+    let _ = worker.state().append_history(&audit);
     let _ = worker.state().append_audit(&audit);
     info!(
         target = %resolved.tag,
@@ -82,12 +80,7 @@ pub async fn run(worker: Arc<Worker>, actor: Option<String>) -> Result<SelfUpdat
         "self-update: docker guard accepted fixed TCB replacement"
     );
 
-    // Do not release the single worker queue while Guard is preparing the
-    // handoff. On success this updater process is recreated and the HTTP caller
-    // observes the expected transient disconnect. On pre-handoff rejection,
-    // Guard writes a durable failure and this command returns normally.
-    wait_for_guarded_handoff_outcome(&status_path, &resolved.tag, previous_status_at.as_deref())
-        .await?;
+    // Guard owns the durable outcome; accepted is not completed.
 
     Ok(SelfUpdateReport {
         // Compatibility field: Guard, not an updater helper, owns the switch.
@@ -98,43 +91,17 @@ pub async fn run(worker: Arc<Worker>, actor: Option<String>) -> Result<SelfUpdat
     })
 }
 
-fn read_self_update_status(path: &std::path::Path) -> Option<SelfUpdateLastStatus> {
-    std::fs::read(path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-}
-
-async fn wait_for_guarded_handoff_outcome(
-    status_path: &std::path::Path,
-    target_tag: &str,
-    previous_status_at: Option<&str>,
-) -> Result<()> {
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(90 * 60);
-    loop {
-        if let Some(status) = read_self_update_status(status_path) {
-            let changed = previous_status_at != Some(status.at.as_str());
-            if changed && status.target_tag == target_tag {
-                return match status.status {
-                    SelfUpdateOutcome::Pending => {
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                        continue;
-                    }
-                    SelfUpdateOutcome::Succeeded => Ok(()),
-                    SelfUpdateOutcome::Failed => Err(UpdaterError::Precondition(
-                        status
-                            .error
-                            .unwrap_or_else(|| "trusted self-update failed".into()),
-                    )),
-                };
-            }
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return Err(UpdaterError::Precondition(
-                "trusted self-update outcome was not recorded within 90 minutes".into(),
-            ));
-        }
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+pub(crate) fn require_no_pending_handoff(state: &crate::state::StateDir) -> Result<()> {
+    let bytes = match std::fs::read(state.root().join("self-update-last.json")) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    let status: SelfUpdateLastStatus = serde_json::from_slice(&bytes)?;
+    if status.status == SelfUpdateOutcome::Pending {
+        return Err(UpdaterError::Conflict);
     }
+    Ok(())
 }
 
 /// Prefer a strictly verified release manifest, then use Docker Hub immutable
@@ -332,6 +299,25 @@ pub struct SelfUpdateReport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accepted_handoff_excludes_mutations_until_durable_terminal_outcome() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::state::StateDir::open(&dir.path().join("state")).unwrap();
+        assert!(require_no_pending_handoff(&state).is_ok());
+        let path = state.root().join("self-update-last.json");
+        let mut status = serde_json::json!({"status":"pending", "target_tag":"v0.5.2", "previous_tag":"v0.5.0", "at":"2026-09-21T00:00:00Z"});
+        std::fs::write(&path, serde_json::to_vec(&status).unwrap()).unwrap();
+        assert!(matches!(
+            require_no_pending_handoff(&state),
+            Err(UpdaterError::Conflict)
+        ));
+        status["status"] = serde_json::json!("succeeded");
+        std::fs::write(&path, serde_json::to_vec(&status).unwrap()).unwrap();
+        assert!(require_no_pending_handoff(&state).is_ok());
+        std::fs::write(path, b"broken").unwrap();
+        assert!(require_no_pending_handoff(&state).is_err());
+    }
 
     #[test]
     fn immutable_tag_accepts_release_and_commit() {

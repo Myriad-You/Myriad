@@ -29,6 +29,8 @@ pub enum RecoveryReport {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CrashRecoveryPlan {
     Idle,
+    /// Success was durable before the process exited; only release maintenance.
+    FinishCommitted,
     /// Pre-swap stop/snapshot interrupted — clear maint and restart previous stack.
     ClearPreSwap {
         job_id: String,
@@ -81,6 +83,12 @@ pub fn plan_crash_recovery(
         )
     });
     let last_step_phase = job.and_then(|j| j.steps.last().map(|s| s.phase));
+    if job.is_some_and(|j| {
+        j.kind == crate::state::JobKind::Update && j.status == JobStatus::Succeeded
+    }) && matches!(last_step_phase, Some(Phase::Finalize))
+    {
+        return CrashRecoveryPlan::FinishCommitted;
+    }
 
     // Effective phase: prefer maintenance phase when it still carries work context;
     // otherwise fall back to the job's last step (covers active=false health probe).
@@ -277,6 +285,10 @@ impl Worker {
         let plan = plan_crash_recovery(&maint, job_id.as_deref(), job.as_ref(), &env_tag);
         match plan {
             CrashRecoveryPlan::Idle => Ok(RecoveryReport::Idle),
+            CrashRecoveryPlan::FinishCommitted => {
+                crate::worker::machine::clear_maintenance(&state)?;
+                Ok(RecoveryReport::Idle)
+            }
             CrashRecoveryPlan::NeedsManual {
                 job_id,
                 phase,
@@ -466,6 +478,21 @@ mod recovery_plan_tests {
     }
 
     #[test]
+    fn durable_success_finishes_cleanup_but_inflight_finalization_stays_closed() {
+        let m = maint(true, Phase::Finalize, Some("j1"));
+        let mut j = job(JobStatus::Succeeded, Phase::Finalize);
+        assert_eq!(
+            plan_crash_recovery(&m, Some("j1"), Some(&j), &EnvTagObservation::Absent),
+            CrashRecoveryPlan::FinishCommitted
+        );
+        j.status = JobStatus::Running;
+        assert!(matches!(
+            plan_crash_recovery(&m, Some("j1"), Some(&j), &EnvTagObservation::Absent),
+            CrashRecoveryPlan::NeedsManual { .. }
+        ));
+    }
+
+    #[test]
     fn health_probe_lifted_maintenance_is_needs_manual_not_idle() {
         // Phase 2 frontend probe sets active=false while job still running post-swap.
         let m = maint(false, Phase::HealthProbing, Some("j1"));
@@ -509,7 +536,12 @@ mod recovery_plan_tests {
         j.to_version = Some(DeployTag::parse("v0.2.3").unwrap());
         j.from_version = Some(DeployTag::parse("v0.2.2").unwrap());
         // .env still on old tag → pre-write crash
-        match plan_crash_recovery(&m, Some("j1"), Some(&j), &EnvTagObservation::Known("v0.2.2".into())) {
+        match plan_crash_recovery(
+            &m,
+            Some("j1"),
+            Some(&j),
+            &EnvTagObservation::Known("v0.2.2".into()),
+        ) {
             CrashRecoveryPlan::ClearPreSwap { phase, .. } => {
                 assert_eq!(phase, Phase::SwapTag);
             }
@@ -522,7 +554,12 @@ mod recovery_plan_tests {
         let m = maint(true, Phase::SwapTag, Some("j1"));
         let mut j = job(JobStatus::Running, Phase::SwapTag);
         j.to_version = Some(DeployTag::parse("v0.2.3").unwrap());
-        match plan_crash_recovery(&m, Some("j1"), Some(&j), &EnvTagObservation::Known("v0.2.3".into())) {
+        match plan_crash_recovery(
+            &m,
+            Some("j1"),
+            Some(&j),
+            &EnvTagObservation::Known("v0.2.3".into()),
+        ) {
             CrashRecoveryPlan::NeedsManual { phase, .. } => {
                 assert_eq!(phase, Phase::SwapTag);
             }

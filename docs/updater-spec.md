@@ -548,28 +548,27 @@ Vite dev proxy 转发；updater 仍直连 `http://backend:1103/health` 读 JSON�
 执行写入探针；探针失败时不得进入健康状态。`storage_writable` 是最近一次
 写入探测，不是启动预检本身。
 
-### 11.2 frontend 健康
+### 11.2 部署健康与镜像一致性
 
-- HTTP 200
-- index.html 包含 `<meta name="myriad-version" content="v1.2.3">`
-- index.html 包含 `<meta name="myriad-commit" content="<40-char sha>">`
-- updater 抓取并对比 target version
+预检保存拉取后的 backend/frontend 本地 Image ID；启动迁移前检查 Compose 选择的
+backend、frontend 和 backend-volume-init 确实使用这些镜像。Compose 启动使用
+`--pull never`，避免预检后再次拉取浮动 tag。
 
-### 11.2.1 two-phase probe (post-swap)
+维护模式保持开启，同时检查：
 
-After start_new, health probing is **two-phase** so frontend is checked on the live path (not only behind maintenance HTML):
+- backend/frontend 实际容器 Image ID 与预检选择一致，容器运行且 Docker health 为 healthy。
+- backend 私有 /health 的数据库、迁移、路由和存储状态就绪。
+- federation/persona worker 健康，proxy /healthz 正常。
 
-1. **Backend-only** while maintenance is still `active=true`: direct `http://backend:1103/health` (version / commit_sha / image tag identity + DB). Users still see the maintenance page.
-2. **Deactivate maintenance** (`active=false`) but **keep job id / phase** so rollback can re-enter maintenance if needed. Proxy cache settle ~2s.
-3. **Live frontend via proxy** `http://proxy:80/`: prefer real-page meta (`myriad-version` / commit); reject maintenance HTML; soft path allows dual image-tag match if stamps lag.
-
-Hard vs soft outcomes are logged with a `pass_kind` (e.g. `hard_backend`, `hard_fe_meta`, `soft_dual_image`). Needs **2** consecutive OK ticks per phase. Deadline recheck before destructive rollback uses live-via-proxy mode.
+frontend 使用容器自身的本地 HTTP healthcheck；不再猜测页面文本、版本 tag 子串，
+也不为探测提前开放用户流量。连续两次通过后持久化成功，再解除维护。
+这不等价于从公网验证用户入口；公网 DNS/TLS 不属于此探针。
 
 ### 11.3 deadline
 
-- 初始等待 ~5s（实现），再进入 phase loops
-- 每 2s 探一次；每 phase 连续 2 次 hard（或 soft 窗口后）算通过
-- 总超时 `max(300s, migrations.estimated_seconds × 3)`；phase1 约占总预算 55%（至少 60s）
+- 每 2s 探测一次，连续两次完整通过。
+- 总超时 `max(300s, migrations.estimated_seconds × 3)`。
+- 未通过则在维护模式内自动回滚；成功落盘后重启可自动完成解除维护。
 
 ## 12. proxy 维护页
 
@@ -686,13 +685,15 @@ image ID、摘要和内置版本，再同步 `.env` 的 `UPDATER_TAG`、`UPDATER
 
 当前私有仓库阶段的自动交接流程（#265 的显式 `dockerhub_tag` 路径）：
 
-1. Guard 只接受 `vX.Y.Z` / `dev-<sha>`，固定编译内置的官方 updater 仓库；tag 仅是意图。
+1. Guard 接受请求前写入 Pending，HTTP 随即返回已安排，由 UI 轮询既有状态文件；
+   Pending 期间排斥其他更新操作。Guard 只接受 `vX.Y.Z` / `dev-<sha>`，固定编译内置的官方 updater 仓库；tag 仅是意图。
 2. Guard 通过宿主 Docker daemon 拉取 `official_repo:tag`，从实际镜像 `RepoDigests` 得到
    `official_repo@sha256`；禁止 release semver 与镜像创建时间回退。
 3. Guard 先确认当前 updater/gateway 与宿主固定的旧 Guard digest 一致，再从目标精确
    digest 启动固定入口 `myriad-tcb-self-update`。请求方不能提供 entrypoint/argv/mount。
-4. 交接程序校验渲染后的三项服务模型、镜像、网络、挂载、entrypoint 与安全选项，只执行
-   `docker compose up --no-deps --force-recreate docker-guard updater updater-gateway`。
+4. 交接程序先校验渲染后的三项服务模型、镜像、网络、挂载、entrypoint 与安全选项；
+   旧 Compose 的 tag 引用只需解析为选定的实际 Image ID，无需用户改写配置。只执行
+   `docker compose up --pull never --no-deps --force-recreate docker-guard updater updater-gateway`。
 5. 成功时原子写入 `.env` 的 `UPDATER_TAG` / `UPDATER_IMAGE_REF` 与宿主策略的
    `DOCKER_GUARD_IMAGE`；任一步失败恢复旧文件并用旧精确 digest 回滚。状态写入
    `state/self-update-last.json`，UI 在短暂断线后轮询结果。
@@ -782,7 +783,7 @@ docker compose --env-file .env --env-file ./guard-policy/docker-guard.env up -d 
      `vX.Y.Z` 镜像（开发频道 / 无私有 GitHub 常态）；该路径无 digest/cosign/min_from。
      cosign **硬失败** 仍不 fallback。
   5. **NeedsManual**：卡住时拒绝新的业务 update / auto-install（rescue/rollback 仍可用）。
-  6. **健康 recheck**：探针超时后仅 **HardOk** 可跳过回滚；SoftOk（含维护页）必须回滚。
+  6. **健康检查**：实际镜像身份与服务健康共同通过；不以维护页或 tag 子串判定成功。
   面板改 project / container_name / 外来网络 / pgdata named volume 时，应在此阶段被拦下。
 - **updater 不在业务 `myriad-net`**：frontend/postgres 与 updater HTTP 无共享 L2；
   backend 经 admin-net 访问 `updater-gateway`。
@@ -794,7 +795,7 @@ docker compose --env-file .env --env-file ./guard-policy/docker-guard.env up -d 
   `UPDATE_TOKEN` 进入 backend 进程）。客户端若自带 `X-Update-Token`，gateway 拒绝并覆盖注入。
 - updater 重建只允许单一部署根 bind；postgres pgdata bind 会逐级拒绝符号链接、异常文件
   类型和共享/从属 mount propagation。
-- 健康探测只走 Compose 内网 HTTP，不使用 Docker exec，也不临时创建探测容器。
+- 健康探测使用 Docker inspect（实际镜像和已有 healthcheck）与 Compose 内网 HTTP；不新增 Docker exec 或临时探测容器。
 - 所有外部输入严格校验
 - updater 侧仍强制 `UPDATE_TOKEN`；backend→gateway 强制 `UPDATER_GATEWAY_SECRET`（不再仅靠
   admin-net 成员关系）

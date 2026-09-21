@@ -192,11 +192,17 @@ impl Worker {
 
     /// Block business updates while the stack is in a stuck rescue state.
     ///
-    /// `NeedsManual` clears `job.current` when the spawn ends, so conflict alone
-    /// is not enough — operators (or auto_install) could start another update
-    /// and overwrite maintenance while services are still half-down.
+    /// Maintenance remains authoritative even when no current job is recorded.
     pub(crate) fn refuse_update_if_stuck(&self) -> Result<()> {
         refuse_update_if_stuck_in(&self.state)
+    }
+
+    fn require_idle_mutation(&self) -> Result<()> {
+        self_update::require_no_pending_handoff(&self.state)?;
+        if self.state.read_current_job()?.is_some() {
+            return Err(UpdaterError::Conflict);
+        }
+        self.refuse_update_if_stuck()
     }
 
     pub fn cli(&self) -> &WorkerCli {
@@ -614,24 +620,32 @@ impl Worker {
                     limit,
                     reply,
                 } => {
-                    let res = self.clone().handle_list_commits(branch, limit).await;
-                    let _ = reply.send(res);
+                    let worker = self.clone();
+                    tokio::spawn(async move {
+                        let _ = reply.send(worker.handle_list_commits(branch, limit).await);
+                    });
                 }
                 Command::ListBuilds { limit, reply } => {
-                    let res = self.clone().handle_list_builds(limit).await;
-                    let _ = reply.send(res);
+                    let worker = self.clone();
+                    tokio::spawn(async move {
+                        let _ = reply.send(worker.handle_list_builds(limit).await);
+                    });
                 }
                 Command::ListReleases {
                     channel,
                     limit,
                     reply,
                 } => {
-                    let res = self.clone().handle_list_releases(channel, limit).await;
-                    let _ = reply.send(res);
+                    let worker = self.clone();
+                    tokio::spawn(async move {
+                        let _ = reply.send(worker.handle_list_releases(channel, limit).await);
+                    });
                 }
                 Command::Compare { from, to, reply } => {
-                    let res = self.clone().handle_compare(from, to).await;
-                    let _ = reply.send(res);
+                    let worker = self.clone();
+                    tokio::spawn(async move {
+                        let _ = reply.send(worker.handle_compare(from, to).await);
+                    });
                 }
                 Command::Rollback {
                     snapshot_id,
@@ -690,7 +704,10 @@ impl Worker {
                     let _ = reply.send(res);
                 }
                 Command::SelfUpdate { actor, reply } => {
-                    let res = self_update::run(self.clone(), actor).await;
+                    let res = match self.require_idle_mutation() {
+                        Ok(()) => self_update::run(self.clone(), actor).await,
+                        Err(error) => Err(error),
+                    };
                     let _ = reply.send(res);
                 }
                 Command::ProxyUpdate {
@@ -698,7 +715,10 @@ impl Worker {
                     explicit_tag,
                     reply,
                 } => {
-                    let res = proxy_update::run(self.clone(), actor, explicit_tag).await;
+                    let res = match self.require_idle_mutation() {
+                        Ok(()) => proxy_update::run(self.clone(), actor, explicit_tag).await,
+                        Err(error) => Err(error),
+                    };
                     let _ = reply.send(res);
                 }
             }
@@ -733,6 +753,7 @@ impl Worker {
             return Ok(jid);
         }
 
+        self_update::require_no_pending_handoff(&self.state)?;
         if let Some(_existing) = self.state.read_current_job()? {
             return Err(UpdaterError::Conflict);
         }
@@ -773,7 +794,6 @@ impl Worker {
             {
                 error!(job = %job_id_clone, err = %e, "update flow exited with error");
             }
-            let _ = me.state.set_current_job(None);
         });
 
         Ok(job_id)
@@ -784,7 +804,10 @@ impl Worker {
         snapshot_id: String,
         actor: Option<String>,
     ) -> Result<String> {
-        if let Some(_existing) = self.state.read_current_job()? {
+        self_update::require_no_pending_handoff(&self.state)?;
+        if let Some(existing) = self.state.read_current_job()?
+            && self.state.read_job(&existing)?.status != JobStatus::NeedsManual
+        {
             return Err(UpdaterError::Conflict);
         }
         let job_id = uuid::Uuid::new_v4().simple().to_string();
@@ -810,7 +833,6 @@ impl Worker {
             if let Err(e) = rollback::run(me.clone(), id.clone(), snapshot_id, actor).await {
                 error!(job = %id, err = %e, "rollback flow exited with error");
             }
-            let _ = me.state.set_current_job(None);
         });
         Ok(job_id)
     }

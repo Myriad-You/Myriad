@@ -41,6 +41,33 @@ impl DockerClient {
         &self.inner
     }
 
+    pub async fn image_id(&self, image: &str) -> Result<String> {
+        self.inner
+            .inspect_image(image)
+            .await
+            .map_err(|error| UpdaterError::Docker(format!("inspect image {image}: {error}")))?
+            .id
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| UpdaterError::Docker(format!("image {image} has no content identity")))
+    }
+
+    /// The container's actual image and local healthcheck are execution evidence.
+    /// Config.Image (a mutable tag) and public-page text are not.
+    pub async fn container_ready(&self, name: &str, image_id: &str) -> Result<bool> {
+        let info = self
+            .inner
+            .inspect_container(name, None)
+            .await
+            .map_err(|error| UpdaterError::Docker(format!("inspect {name}: {error}")))?;
+        let state = info.state.as_ref();
+        Ok(info.image.as_deref() == Some(image_id)
+            && state.and_then(|s| s.running) == Some(true)
+            && state
+                .and_then(|s| s.health.as_ref())
+                .and_then(|h| h.status.as_ref())
+                .is_some_and(|s| s.to_string() == "healthy"))
+    }
+
     /// Pull an image, streaming progress lines. Returns the resolved digest of the pulled image
     /// (read from `inspect` post-pull).
     pub async fn pull(&self, image_ref: &str, creds: Option<DockerCredentials>) -> Result<String> {
@@ -621,6 +648,53 @@ mod tests {
 #[cfg(test)]
 mod worker_presence_tests {
     use super::*;
+    #[tokio::test]
+    async fn readiness_uses_actual_image_and_local_health_not_config_tag() {
+        use std::future::IntoFuture;
+        let current = std::sync::Arc::new(std::sync::Mutex::new(serde_json::json!({
+            "Image": "sha256:selected",
+            "Config": {"Image": "repo:v0.5.30"},
+            "State": {"Running": true, "Health": {"Status": "healthy"}}
+        })));
+        let response = current.clone();
+        let app = axum::Router::new().fallback(move || {
+            let value = response.lock().unwrap().clone();
+            async move { axum::Json(value) }
+        });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(axum::serve(listener, app).into_future());
+        let client = DockerClient {
+            inner: Docker::connect_with_http(&address, 2, bollard::API_DEFAULT_VERSION).unwrap(),
+        };
+        assert!(
+            client
+                .container_ready("frontend", "sha256:selected")
+                .await
+                .unwrap()
+        );
+        assert!(
+            !client
+                .container_ready("frontend", "sha256:other")
+                .await
+                .unwrap()
+        );
+        current.lock().unwrap()["State"]["Health"]["Status"] = serde_json::json!("starting");
+        assert!(
+            !client
+                .container_ready("frontend", "sha256:selected")
+                .await
+                .unwrap()
+        );
+        current.lock().unwrap()["State"] = serde_json::json!({"Running": true});
+        assert!(
+            !client
+                .container_ready("frontend", "sha256:selected")
+                .await
+                .unwrap()
+        );
+        server.abort();
+    }
     use axum::{
         Json, Router,
         extract::State,

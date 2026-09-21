@@ -43,8 +43,9 @@ impl<'a> PhaseRecorder<'a> {
         }
         self.state.write_job(&job)?;
         info!(job = %self.job_id, ?phase, "phase enter");
-        self.state
-            .append_history(&format!("job {}: -> {:?}", self.job_id, phase))?;
+        let _ = self
+            .state
+            .append_history(&format!("job {}: -> {:?}", self.job_id, phase));
         Ok(())
     }
 
@@ -63,8 +64,9 @@ impl<'a> PhaseRecorder<'a> {
             step.finish_err(err.clone());
         }
         self.state.write_job(&job)?;
-        self.state
-            .append_history(&format!("job {}: ERR {}", self.job_id, err))?;
+        let _ = self
+            .state
+            .append_history(&format!("job {}: ERR {}", self.job_id, err));
         Ok(())
     }
 
@@ -73,8 +75,9 @@ impl<'a> PhaseRecorder<'a> {
         job.status = status;
         job.finished_at = Some(Utc::now());
         self.state.write_job(&job)?;
-        self.state
-            .append_history(&format!("job {}: finalize {:?}", self.job_id, status))?;
+        let _ = self
+            .state
+            .append_history(&format!("job {}: finalize {:?}", self.job_id, status));
         let _ = self.state.append_audit(&format!(
             "audit: job_terminal job={} status={:?}",
             self.job_id, status

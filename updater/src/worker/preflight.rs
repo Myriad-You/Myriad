@@ -47,8 +47,8 @@ pub struct PreflightReport {
     pub target: DeployTag,
     /// Full source commit for the target image set.
     pub target_commit_sha: Option<String>,
-    pub backend_digest: String,
-    pub frontend_digest: String,
+    pub backend_image_id: String,
+    pub frontend_image_id: String,
     pub estimated_seconds: u32,
     pub is_downgrade: bool,
     pub is_diverged: bool,
@@ -384,13 +384,15 @@ async fn run_release_with_manifest(
             }
         },
     };
+    let backend_image_id = worker.docker().image_id(&backend.r#ref).await?;
+    let frontend_image_id = worker.docker().image_id(&frontend.r#ref).await?;
     Ok(PreflightReport {
         manifest: Some(manifest),
         from_version,
         target: target.clone(),
         target_commit_sha,
-        backend_digest: backend_pulled,
-        frontend_digest: frontend_pulled,
+        backend_image_id,
+        frontend_image_id,
         estimated_seconds: estimated,
         is_downgrade,
         is_diverged,
@@ -532,7 +534,7 @@ async fn run_release_via_dockerhub(
         "preflight(release): pulling release images via Docker Hub"
     );
 
-    let backend_pulled = worker
+    worker
         .docker_pull_with_mirror(&backend_ref)
         .await
         .map_err(|e| {
@@ -540,7 +542,7 @@ async fn run_release_via_dockerhub(
                 "pull backend {backend_ref}: {e} (is release {tag} published on Docker Hub?)"
             ))
         })?;
-    let frontend_pulled = worker
+    worker
         .docker_pull_with_mirror(&frontend_ref)
         .await
         .map_err(|e| {
@@ -574,8 +576,8 @@ async fn run_release_via_dockerhub(
         from_version,
         target: target.clone(),
         target_commit_sha,
-        backend_digest: backend_pulled,
-        frontend_digest: frontend_pulled,
+        backend_image_id: worker.docker().image_id(&backend_ref).await?,
+        frontend_image_id: worker.docker().image_id(&frontend_ref).await?,
         estimated_seconds: 60,
         is_downgrade,
         is_diverged,
@@ -754,7 +756,7 @@ async fn run_commit(
         }
     }
 
-    let backend_pulled = worker
+    worker
         .docker_pull_with_mirror(&backend_ref)
         .await
         .map_err(|e| {
@@ -762,7 +764,7 @@ async fn run_commit(
                 "pull backend {backend_ref}: {e} (is the commit built by CI?)"
             ))
         })?;
-    let frontend_pulled = worker
+    worker
         .docker_pull_with_mirror(&frontend_ref)
         .await
         .map_err(|e| {
@@ -776,8 +778,8 @@ async fn run_commit(
         from_version,
         target: effective,
         target_commit_sha,
-        backend_digest: backend_pulled,
-        frontend_digest: frontend_pulled,
+        backend_image_id: worker.docker().image_id(&backend_ref).await?,
+        frontend_image_id: worker.docker().image_id(&frontend_ref).await?,
         estimated_seconds: 60,
         is_downgrade,
         is_diverged,

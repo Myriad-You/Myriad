@@ -189,6 +189,24 @@ pub(crate) async fn handle_self_update(state: GuardState, req: Request<Body>) ->
     }
 
     let target_tag = request.target_tag;
+    // Persist acceptance before replying: callers use this record for exclusion.
+    let previous_tag = running_updater_tag(&state.config.socket_path)
+        .await
+        .unwrap_or_else(|_| "unknown".into());
+    let pending = crate::docker::self_update_helper::SelfUpdateLastStatus::pending_before_handoff(
+        target_tag.clone(),
+        previous_tag,
+    );
+    if let Err(error) = crate::docker::self_update_helper::write_status(
+        &state.config.state_dir.join("self-update-last.json"),
+        &pending,
+    ) {
+        state.mutation_gate.store(0, Ordering::SeqCst);
+        return denial(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("persist self-update acceptance: {error}"),
+        );
+    }
     let task_state = state.clone();
     let task_target = target_tag.clone();
     tokio::spawn(async move {
@@ -1076,18 +1094,6 @@ async fn prepare_trusted_self_update(
         prevent_release_downgrade(&identity.version, requested_tag)?;
     }
     let previous_images = recovery_images(&stack);
-
-    // Record intent before the pull so a long Hub fetch is not an invisible
-    // "confirming result" gap, and a post-pull rejection can replace it.
-    let pending = crate::docker::self_update_helper::SelfUpdateLastStatus::pending_before_handoff(
-        requested_tag.to_owned(),
-        previous_tag.clone(),
-    );
-    crate::docker::self_update_helper::write_status(
-        &state.config.state_dir.join("self-update-last.json"),
-        &pending,
-    )
-    .context("persist trusted handoff intent")?;
 
     // Guard has no egress. The host daemon pulls only the compiled-in official
     // repository; Guard then converts the result to repo@sha256 before handoff.
