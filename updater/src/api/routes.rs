@@ -162,8 +162,16 @@ async fn status(State(st): State<ApiState>) -> Result<Json<StatusResp>, ApiError
     // Product tracks. Commit mode is only valid when channel == preview (enforced
     // in validate_channel_for_mode); the channel list itself does not change.
     let available_channels = vec!["stable", "preview"];
-    let self_update_last = crate::docker::self_update_helper::read_status(st.state.root())?;
-    let proxy_update_last = crate::worker::proxy_update::read_proxy_update_last(st.state.root())?;
+    let self_update_last = crate::docker::self_update_helper::read_status(st.state.root())
+        .unwrap_or_else(|error| {
+            tracing::warn!(%error, "self-update outcome unavailable");
+            None
+        });
+    let proxy_update_last = crate::worker::proxy_update::read_proxy_update_last(st.state.root())
+        .unwrap_or_else(|error| {
+            tracing::warn!(%error, "proxy update outcome unavailable");
+            None
+        });
     let proxy_version = crate::env_file::EnvFile::load(&st.worker.cli().env_file)
         .ok()
         .and_then(|env| env.get("PROXY_TAG").map(str::to_owned))

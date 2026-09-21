@@ -39,12 +39,12 @@ pub(crate) fn runtime_identity(
             .pointer("/Config/Labels/com.docker.compose.service")
             .and_then(Value::as_str)
             != Some(service)
-        || container.pointer("/State/Running").and_then(Value::as_bool) != Some(true)
         || (require_healthy
-            && container
-                .pointer("/State/Health/Status")
-                .and_then(Value::as_str)
-                != Some("healthy"))
+            && (container.pointer("/State/Running").and_then(Value::as_bool) != Some(true)
+                || container
+                    .pointer("/State/Health/Status")
+                    .and_then(Value::as_str)
+                    != Some("healthy")))
     {
         return Err(anyhow!(
             "{service} is not a healthy member of the configured project"
@@ -135,7 +135,7 @@ pub(crate) async fn inspect_identity(
 
 const STARTUP_GATE: usize = super::SELF_UPDATE_GATE | 1;
 
-pub(crate) fn schedule_reconciliation(state: super::GuardState, recovery_exhausted: bool) {
+pub(crate) fn schedule_reconciliation(state: super::GuardState) {
     use std::sync::atomic::Ordering;
     use std::time::Duration;
     if state.config.allow_unpinned_dev {
@@ -143,16 +143,7 @@ pub(crate) fn schedule_reconciliation(state: super::GuardState, recovery_exhaust
     }
     if state
         .mutation_gate
-        .compare_exchange(
-            if recovery_exhausted {
-                super::SELF_UPDATE_GATE
-            } else {
-                0
-            },
-            STARTUP_GATE,
-            Ordering::SeqCst,
-            Ordering::SeqCst,
-        )
+        .compare_exchange(0, STARTUP_GATE, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
     {
         return;
@@ -185,16 +176,9 @@ pub(crate) fn schedule_reconciliation(state: super::GuardState, recovery_exhaust
             if !policy_matches(&state, &identity)? {
                 super::self_update::reconcile_runtime_policy(&state, &identity).await?;
             }
-            if recovery_exhausted {
-                let host = format!("unix://{}", state.config.socket_path.display());
-                if !super::self_update::cleanup_helper(&host, super::SELF_UPDATE_EXHAUSTED_NAME).await {
-                    return Err(anyhow!("could not clear recovered startup marker"));
-                }
-            }
             tracing::info!(version = %identity[1].version, image = %identity[1].image, guard_image = %identity[0].image, gateway_image = %identity[2].image, "reconciled healthy host deployment identity");
             Ok::<(), anyhow::Error>(())
         }.await;
-        let recovered = result.is_ok();
         if let Err(error) = result {
             tracing::warn!(%error, "startup identity reconciliation deferred; existing policy retained");
         }
@@ -215,10 +199,9 @@ pub(crate) fn schedule_reconciliation(state: super::GuardState, recovery_exhaust
             tracing::warn!("reconciliation helper has not stopped; retaining mutation gate");
             return;
         }
-        if !recovery_exhausted || recovered {
+        {
             let _ = super::self_update::finalize_or_fail_orphaned_pending_handoff(&state).await;
-            // Finalization may replace our lease with a recovery lock. Never
-            // clear that lock or expose a new handoff while finalization awaits.
+            // All helper execution has stopped; failed health does not forbid repair.
             let _ = state.mutation_gate.compare_exchange(
                 STARTUP_GATE,
                 0,
@@ -230,13 +213,20 @@ pub(crate) fn schedule_reconciliation(state: super::GuardState, recovery_exhaust
 }
 
 pub(crate) async fn healthy_stack(config: &super::GuardConfig) -> Result<[RuntimeIdentity; 3]> {
-    let guard = inspect_identity(config, "myriad-docker-guard", "docker-guard", true).await?;
+    inspect_stack(config, true).await
+}
+
+pub(crate) async fn inspect_stack(
+    config: &super::GuardConfig,
+    healthy: bool,
+) -> Result<[RuntimeIdentity; 3]> {
+    let guard = inspect_identity(config, "myriad-docker-guard", "docker-guard", healthy).await?;
     if guard.image != config.expected_guard_image {
         return Err(anyhow!("Guard was replaced during startup reconciliation"));
     }
-    let updater = inspect_identity(config, "myriad-updater", "updater", true).await?;
+    let updater = inspect_identity(config, "myriad-updater", "updater", healthy).await?;
     let gateway =
-        inspect_identity(config, "myriad-updater-gateway", "updater-gateway", true).await?;
+        inspect_identity(config, "myriad-updater-gateway", "updater-gateway", healthy).await?;
     Ok([guard, updater, gateway])
 }
 
@@ -281,17 +271,21 @@ mod tests {
     }
 
     #[test]
-    fn startup_accepts_official_manual_tags_but_not_floating_or_foreign_images() {
+    fn startup_accepts_official_tags_but_not_foreign_images() {
         assert!(
             validate_startup_reference("docker.io/somekawahitomi/myriad-updater:v0.4.13", false)
                 .is_ok()
         );
-        for reference in [
-            "docker.io/somekawahitomi/myriad-updater:latest",
-            "evil.example/myriad-updater:v0.4.13",
-        ] {
-            assert!(validate_startup_reference(reference, false).is_err());
-        }
+        assert!(validate_startup_reference("evil.example/myriad-updater:v0.4.13", false).is_err());
+    }
+
+    #[test]
+    fn unhealthy_existing_service_can_be_selected_for_repair() {
+        let (mut container, image) = fixture();
+        container["State"]["Running"] = serde_json::json!(false);
+        container["State"]["Health"]["Status"] = serde_json::json!("unhealthy");
+        assert!(runtime_identity(&container, &image, "myriad", "updater", false).is_ok());
+        assert!(runtime_identity(&container, &image, "myriad", "updater", true).is_err());
     }
 
     #[test]
@@ -349,7 +343,7 @@ mod tests {
                 "/RepoDigests",
                 json!([format!("evil.example/updater@sha256:{}", "c".repeat(64))]),
             ),
-            ("/Config/Env", json!(["MYRIAD_VERSION=garbage"])),
+            ("/Config/Env", json!(["MYRIAD_VERSION=bad/tag"])),
             ("/Id", json!(format!("sha256:{}", "d".repeat(64)))),
         ] {
             let mut changed = image.clone();

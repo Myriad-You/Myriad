@@ -19,8 +19,8 @@ use super::forward::GenericMutationLease;
 use super::self_update::{
     HandoffAttempt, SELF_UPDATE_TOKEN_HEADER, SelfUpdateRequestBody, ensure_no_business_update,
     finalize_or_fail_orphaned_pending_handoff, handle_self_update, handoff_attempt_from_inspect,
-    helper_exit_code_from_inspect, persist_recovery_attempt, prevent_release_downgrade,
-    recovery_attempt_from_status, recovery_is_durably_exhausted, validate_self_update_tag,
+    helper_exit_code_from_inspect, persist_recovery_attempt, recovery_attempt_from_status,
+    validate_self_update_tag,
 };
 use super::validate::{
     allowlisted_network_name, authorize_guard_network_attachment, managed_project_service,
@@ -84,9 +84,12 @@ fn state_with_visible_root(visible_root: PathBuf) -> GuardState {
 }
 
 #[test]
-fn compromised_updater_cannot_inject_mutable_or_foreign_image_identity() {
-    for tag in ["latest", "preview", "../v9.9.9", "v1.2.3;id"] {
+fn self_update_accepts_tags_without_allowing_foreign_image_or_shell_input() {
+    for tag in ["", "../v9.9.9", "v1.2.3;id", "evil/repo:tag"] {
         assert!(validate_self_update_tag(tag).is_err(), "accepted {tag}");
+    }
+    for tag in ["latest", "preview", "main", "custom-build", "v0.1.0"] {
+        assert!(validate_self_update_tag(tag).is_ok());
     }
     assert!(validate_self_update_tag("v1.2.3").is_ok());
     assert!(validate_self_update_tag("dev-0123456").is_ok());
@@ -276,13 +279,6 @@ fn ensure_host_policy_file_heals_legacy_compose_path() {
     let again = healed.clone();
     assert!(ensure_host_policy_file(&cfg, &path).is_ok());
     assert_eq!(fs::read_to_string(&path).unwrap(), again);
-}
-
-#[test]
-fn release_self_update_rejects_semver_downgrade() {
-    assert!(prevent_release_downgrade("v1.2.3", "v1.2.2").is_err());
-    assert!(prevent_release_downgrade("v1.2.3", "v1.2.3").is_ok());
-    assert!(prevent_release_downgrade("v1.2.3", "v1.3.0").is_ok());
 }
 
 fn create(service: &str, image: &str, host: Value) -> Bytes {
@@ -699,7 +695,7 @@ async fn orphaned_pending_handoff_becomes_a_fresh_failure() {
     );
     super::super::self_update_helper::write_status(&path, &pending).unwrap();
 
-    assert!(!finalize_or_fail_orphaned_pending_handoff(&state).await);
+    assert!(finalize_or_fail_orphaned_pending_handoff(&state).await);
 
     let status: super::super::self_update_helper::SelfUpdateLastStatus =
         serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
@@ -713,7 +709,7 @@ async fn orphaned_pending_handoff_becomes_a_fresh_failure() {
             .unwrap()
             .contains("target TCB was not fully active")
     );
-    assert_eq!(state.mutation_gate.load(Ordering::SeqCst), SELF_UPDATE_GATE);
+    assert_eq!(state.mutation_gate.load(Ordering::SeqCst), 0);
 }
 
 #[test]
@@ -747,15 +743,6 @@ fn recovery_retry_budget_survives_guard_restart() {
         super::super::self_update_helper::SelfUpdateOutcome::Pending
     ));
     assert_eq!(status.recovery_attempt, 1);
-}
-
-#[test]
-fn third_recovery_failure_is_exhausted_even_before_final_status_write() {
-    assert!(recovery_is_durably_exhausted(Some(1), 2, false));
-    assert!(recovery_is_durably_exhausted(Some(1), 0, true));
-    assert!(!recovery_is_durably_exhausted(Some(1), 1, false));
-    assert!(!recovery_is_durably_exhausted(Some(0), 2, true));
-    assert!(!recovery_is_durably_exhausted(None, 2, true));
 }
 
 #[test]
@@ -1637,18 +1624,6 @@ async fn healthy_mixed_deployment_is_accepted_and_stale_pending_does_not_lock_it
     daemon.await.unwrap();
 }
 
-#[test]
-fn mixed_recovery_uses_an_explicit_helper_capability_not_version_equality() {
-    let supported = json!({"Config": {"Labels": {"io.myriad.updater.mixed-recovery": "1"}}});
-    assert!(super::self_update::require_mixed_recovery_support(&supported).is_ok());
-    for image in [
-        json!({}),
-        json!({"Config": {"Labels": {"io.myriad.updater.mixed-recovery": "2"}}}),
-    ] {
-        assert!(super::self_update::require_mixed_recovery_support(&image).is_err());
-    }
-}
-
 #[tokio::test]
 async fn startup_waits_for_interrupted_reconciliation_to_finish() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -1691,4 +1666,72 @@ async fn startup_waits_for_interrupted_reconciliation_to_finish() {
     .unwrap()
     .unwrap();
     daemon.await.unwrap();
+}
+
+#[tokio::test]
+async fn guard_accepts_before_preparation_and_records_preparation_failure() {
+    let root = tempfile::tempdir().unwrap();
+    let mut state = state();
+    let cfg = Arc::make_mut(&mut state.config);
+    cfg.state_dir = root.path().into();
+    cfg.socket_path = root.path().join("unavailable.sock");
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("/_myriad/self-update")
+        .header(
+            SELF_UPDATE_TOKEN_HEADER,
+            state.config.self_update_token.expose(),
+        )
+        .body(Body::from(
+            r#"{"target_tag":"preview","trust_path":"dockerhub_tag"}"#,
+        ))
+        .unwrap();
+    let response = handle_self_update(state.clone(), request).await;
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let accepted = super::super::self_update_helper::read_status(root.path())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        accepted.status,
+        super::super::self_update_helper::SelfUpdateOutcome::Pending
+    );
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+        if state.mutation_gate.load(Ordering::SeqCst) == 0 {
+            break;
+        }
+    }
+    let failed = super::super::self_update_helper::read_status(root.path())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        failed.status,
+        super::super::self_update_helper::SelfUpdateOutcome::Failed
+    );
+    assert_eq!(state.mutation_gate.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn startup_does_not_finalize_a_request_still_owned_by_the_worker() {
+    let root = tempfile::tempdir().unwrap();
+    let mut state = state();
+    Arc::make_mut(&mut state.config).state_dir = root.path().into();
+    let mut pending =
+        super::super::self_update_helper::SelfUpdateLastStatus::pending_before_handoff(
+            String::new(),
+            "v0.5.3".into(),
+        );
+    pending.queued = true;
+    super::super::self_update_helper::write_status(
+        &root.path().join("self-update-last.json"),
+        &pending,
+    )
+    .unwrap();
+    assert!(!finalize_or_fail_orphaned_pending_handoff(&state).await);
+    assert_eq!(
+        super::super::self_update_helper::read_status(root.path())
+            .unwrap()
+            .unwrap(),
+        pending
+    );
 }

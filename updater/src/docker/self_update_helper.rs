@@ -6,7 +6,7 @@
 //! `updater-gateway` on that exact image, or restore each service's previous
 //! exact image from the Guard-verified recovery snapshot.
 
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -16,7 +16,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::env_file::{EnvFile, persist_env_bytes};
+use crate::env_file::EnvFile;
 use crate::error::{Result, UpdaterError};
 use crate::state::atomic;
 
@@ -24,6 +24,7 @@ pub const ENV_PREVIOUS_IMAGE: &str = "MYRIAD_SELF_UPDATE_PREVIOUS_IMAGE";
 // Fixed order: Guard, updater, gateway. Stored in the trusted helper's immutable
 // container configuration so recovery survives Guard restarts.
 pub const ENV_PREVIOUS_IMAGES: &str = "MYRIAD_SELF_UPDATE_PREVIOUS_IMAGES";
+// v0.5.3 Guard checks this image label; remove after the refactor's first release.
 pub const MIXED_RECOVERY_LABEL: &str = "io.myriad.updater.mixed-recovery";
 pub const ENV_TARGET_IMAGE: &str = "MYRIAD_SELF_UPDATE_TARGET_IMAGE";
 pub const ENV_PREVIOUS_TAG: &str = "MYRIAD_SELF_UPDATE_PREVIOUS_TAG";
@@ -59,7 +60,12 @@ pub enum SelfUpdateOutcome {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SelfUpdateLastStatus {
     pub status: SelfUpdateOutcome,
+    /// Accepted by the worker, not yet handed to Guard. Restart resumes discovery.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub queued: bool,
     pub target_tag: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_image: Option<String>,
     pub previous_tag: String,
     pub at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -75,8 +81,10 @@ fn is_zero(value: &u8) -> bool {
 impl SelfUpdateLastStatus {
     fn pending(cfg: &HelperConfig, recovery_attempt: u8) -> Self {
         Self {
+            queued: false,
             status: SelfUpdateOutcome::Pending,
             target_tag: cfg.target_tag.clone(),
+            target_image: (!cfg.recovery_only).then(|| cfg.target_image.clone()),
             previous_tag: cfg.previous_tag.clone(),
             at: Utc::now().to_rfc3339(),
             error: None,
@@ -84,10 +92,12 @@ impl SelfUpdateLastStatus {
         }
     }
 
-    pub(super) fn succeeded_after_handoff(target_tag: String, previous_tag: String) -> Self {
+    pub(crate) fn succeeded_after_handoff(target_tag: String, previous_tag: String) -> Self {
         Self {
+            queued: false,
             status: SelfUpdateOutcome::Succeeded,
             target_tag,
+            target_image: None,
             previous_tag,
             at: Utc::now().to_rfc3339(),
             error: None,
@@ -97,8 +107,10 @@ impl SelfUpdateLastStatus {
 
     fn recovery_pending(cfg: &HelperConfig, error: String, recovery_attempt: u8) -> Self {
         Self {
+            queued: false,
             status: SelfUpdateOutcome::Pending,
             target_tag: cfg.target_tag.clone(),
+            target_image: (!cfg.recovery_only).then(|| cfg.target_image.clone()),
             previous_tag: cfg.previous_tag.clone(),
             at: Utc::now().to_rfc3339(),
             error: Some(error),
@@ -106,14 +118,16 @@ impl SelfUpdateLastStatus {
         }
     }
 
-    pub(super) fn failed_before_handoff(
+    pub(crate) fn failed_before_handoff(
         target_tag: String,
         previous_tag: String,
         error: String,
     ) -> Self {
         Self {
+            queued: false,
             status: SelfUpdateOutcome::Failed,
             target_tag,
+            target_image: None,
             previous_tag,
             at: Utc::now().to_rfc3339(),
             error: Some(error),
@@ -121,10 +135,12 @@ impl SelfUpdateLastStatus {
         }
     }
 
-    pub(super) fn pending_before_handoff(target_tag: String, previous_tag: String) -> Self {
+    pub(crate) fn pending_before_handoff(target_tag: String, previous_tag: String) -> Self {
         Self {
+            queued: false,
             status: SelfUpdateOutcome::Pending,
             target_tag,
+            target_image: None,
             previous_tag,
             at: Utc::now().to_rfc3339(),
             error: None,
@@ -195,8 +211,9 @@ impl HelperConfig {
             ));
         }
         validate_exact_image(&cfg.target_image)?;
-        crate::version::DeployTag::parse(&cfg.previous_tag)?;
-        crate::version::DeployTag::parse(&cfg.target_tag)?;
+        crate::version::validate_image_tag(&cfg.previous_tag)
+            .map_err(UpdaterError::InvalidInput)?;
+        crate::version::validate_image_tag(&cfg.target_tag).map_err(UpdaterError::InvalidInput)?;
         for (name, value) in [
             (ENV_PROJECT, cfg.project.as_str()),
             (ENV_COMPOSE_NETWORK, cfg.compose_network.as_str()),
@@ -204,11 +221,6 @@ impl HelperConfig {
             (ENV_GUARD_NETWORK, cfg.guard_network.as_str()),
         ] {
             validate_simple_name(name, value)?;
-        }
-        if cfg.guard_env_file != Path::new("/guard-policy/docker-guard.env") {
-            return Err(UpdaterError::Precondition(
-                "Guard policy file must be /guard-policy/docker-guard.env".into(),
-            ));
         }
         Ok(cfg)
     }
@@ -234,9 +246,6 @@ pub fn main_from_env() -> Result<()> {
             ));
         }
     }
-    // Let Guard finish the HTTP 202 response before Compose replaces it.
-    std::thread::sleep(std::time::Duration::from_secs(2));
-    ensure_status_writable(&cfg.status_file)?;
     let recovery_attempt = std::fs::read(&cfg.status_file)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<SelfUpdateLastStatus>(&bytes).ok())
@@ -272,147 +281,27 @@ pub fn main_from_env() -> Result<()> {
         Ok(()) => Ok(()),
         Err(error) => {
             let detail = error.to_string();
-            // Terminal failure — not recovery_pending. The updater HTTP waiter
-            // and admin UI only leave "confirming result" on succeeded/failed.
-            // A pending error left them spinning after a pull-but-no-switch.
-            if let Err(status_error) = write_status(
+            // Guard owns the outcome, including recovery after this process exits.
+            write_status(
                 &cfg.status_file,
-                &SelfUpdateLastStatus::failed_before_handoff(
-                    cfg.target_tag.clone(),
-                    cfg.previous_tag.clone(),
-                    detail.clone(),
-                ),
-            ) {
-                return Err(UpdaterError::Precondition(format!(
-                    "{detail}; persist failed outcome: {status_error}"
-                )));
-            }
+                &SelfUpdateLastStatus::recovery_pending(&cfg, detail, recovery_attempt),
+            )?;
             Err(error)
         }
     }
 }
 
 fn run_recovery(cfg: &HelperConfig) -> Result<()> {
-    wait_for_compose_quiescence(Duration::from_secs(120))?;
-    rollback_previous(cfg)
+    let images = cfg
+        .previous_images
+        .clone()
+        .unwrap_or_else(|| std::array::from_fn(|_| cfg.previous_image.clone()));
+    install_images(cfg, &images, &cfg.previous_tag)
 }
 
 fn run_handoff(cfg: &HelperConfig) -> Result<()> {
-    // Validate the exact recovery model before writing pins or stopping any
-    // service. Image identity also accepts equivalent tag-based Compose layouts.
-    if let Some(images) = &cfg.previous_images {
-        let files = find_compose_files(&cfg.compose_dir)?;
-        let model = run_compose(
-            cfg,
-            &files,
-            images,
-            &cfg.previous_tag,
-            &["config", "--format", "json"],
-        )?;
-        validate_stack_compose_model(&model, images, cfg)?;
-    }
-    let target_images = std::array::from_fn(|_| cfg.target_image.clone());
-    let files = prepare_install(cfg, &target_images, &cfg.target_tag)?;
-    let app_before = std::fs::read(&cfg.app_env_file)?;
-    let guard_before = std::fs::read(&cfg.guard_env_file)?;
-
-    if let Err(error) = install_prepared(cfg, &files, &target_images, &cfg.target_tag) {
-        let restore_files = restore_files(cfg, &app_before, &guard_before);
-        let quiescence = wait_for_compose_quiescence(Duration::from_secs(120));
-        let rollback = match &quiescence {
-            Ok(()) => rollback_previous(cfg),
-            Err(error) => Err(UpdaterError::Precondition(format!(
-                "target Docker operations did not quiesce before rollback: {error}"
-            ))),
-        };
-        let detail = format!(
-            "target switch failed: {error}; restore files: {}; quiescence: {}; rollback: {}",
-            display_result(restore_files),
-            display_result(quiescence),
-            display_result(rollback)
-        );
-        return Err(UpdaterError::Precondition(detail));
-    }
-    Ok(())
-}
-
-fn wait_for_compose_quiescence(timeout: Duration) -> Result<()> {
-    let deadline = Instant::now() + timeout;
-    let mut previous = None;
-    let mut stable_samples = 0u8;
-    loop {
-        let mut sample = Vec::new();
-        let mut sample_complete = true;
-        for container in [
-            "myriad-docker-guard",
-            "myriad-updater",
-            "myriad-updater-gateway",
-        ] {
-            let mut inspect = Command::new("docker");
-            inspect.args([
-                "container",
-                "inspect",
-                "--format",
-                "{{.Id}}|{{.State.Status}}|{{.Image}}",
-                container,
-            ]);
-            match command_output_with_timeout(
-                &mut inspect,
-                DOCKER_INSPECT_TIMEOUT,
-                "inspect TCB quiescence",
-            ) {
-                Ok(output) if output.status.success() => {
-                    sample.extend_from_slice(container.as_bytes());
-                    sample.push(b'=');
-                    sample.extend_from_slice(&output.stdout);
-                }
-                Ok(output) if is_missing_container_error(&output.stderr) => {
-                    sample.extend_from_slice(container.as_bytes());
-                    sample.extend_from_slice(b"=<absent>\n");
-                }
-                Ok(_) | Err(_) => {
-                    sample_complete = false;
-                    break;
-                }
-            }
-        }
-        if sample_complete {
-            if previous.as_deref() == Some(sample.as_slice()) {
-                stable_samples += 1;
-                if stable_samples >= 5 {
-                    return Ok(());
-                }
-            } else {
-                previous = Some(sample);
-                stable_samples = 0;
-            }
-        } else {
-            stable_samples = 0;
-            previous = None;
-        }
-        if Instant::now() >= deadline {
-            return Err(UpdaterError::Precondition(
-                "TCB container identities did not stabilize".into(),
-            ));
-        }
-        std::thread::sleep(Duration::from_secs(1));
-    }
-}
-
-fn is_missing_container_error(stderr: &[u8]) -> bool {
-    let error = String::from_utf8_lossy(stderr);
-    error.contains("No such container") || error.contains("No such object")
-}
-
-fn ensure_status_writable(path: &Path) -> Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| UpdaterError::Precondition("self-update status has no parent".into()))?;
-    std::fs::create_dir_all(parent)?;
-    let mut probe = tempfile::NamedTempFile::new_in(parent)?;
-    probe.write_all(b"self-update-status-probe")?;
-    probe.as_file().sync_all()?;
-    Ok(())
+    let images = std::array::from_fn(|_| cfg.target_image.clone());
+    install_images(cfg, &images, &cfg.target_tag)
 }
 
 fn install_images(cfg: &HelperConfig, images: &[String; 3], tag: &str) -> Result<()> {
@@ -453,23 +342,6 @@ fn install_prepared(
     )?;
     wait_for_running_services(images, SERVICE_HEALTH_TIMEOUT)?;
     Ok(())
-}
-
-fn rollback_previous(cfg: &HelperConfig) -> Result<()> {
-    let images = cfg
-        .previous_images
-        .clone()
-        .unwrap_or_else(|| std::array::from_fn(|_| cfg.previous_image.clone()));
-    for attempt in 1..=2 {
-        match install_images(cfg, &images, &cfg.previous_tag) {
-            Ok(()) => return Ok(()),
-            Err(error) if attempt == 2 => return Err(error),
-            Err(_) => std::thread::sleep(Duration::from_secs(2)),
-        }
-    }
-    Err(UpdaterError::Precondition(
-        "rollback did not reach the previous TCB invariant".into(),
-    ))
 }
 
 /// A host already replaced the stack. Verify again in the only process with
@@ -616,16 +488,11 @@ fn write_stack_policy_files(
     guard.save()
 }
 
-fn restore_files(cfg: &HelperConfig, app: &[u8], guard: &[u8]) -> Result<()> {
-    persist_env_bytes(&cfg.app_env_file, app)?;
-    persist_env_bytes(&cfg.guard_env_file, guard)
-}
-
 pub(crate) fn read_status(state_root: &Path) -> Result<Option<SelfUpdateLastStatus>> {
     crate::state::read_json(&state_root.join("self-update-last.json"))
 }
 
-pub(super) fn write_status(path: &Path, status: &SelfUpdateLastStatus) -> Result<()> {
+pub(crate) fn write_status(path: &Path, status: &SelfUpdateLastStatus) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -783,7 +650,7 @@ fn validate_compose_model(bytes: &[u8], exact_image: &str, cfg: &HelperConfig) -
 fn validate_stack_compose_model(
     bytes: &[u8],
     images: &[String; 3],
-    cfg: &HelperConfig,
+    _cfg: &HelperConfig,
 ) -> Result<()> {
     let model: Value = serde_json::from_slice(bytes).map_err(|error| {
         UpdaterError::Precondition(format!("compose config is not valid JSON: {error}"))
@@ -802,268 +669,18 @@ fn validate_stack_compose_model(
                 "{service} image does not resolve to the selected image"
             )));
         }
-        if value.get("privileged").and_then(Value::as_bool) == Some(true) {
-            return Err(UpdaterError::Precondition(format!(
-                "{service} may not be privileged"
-            )));
-        }
-        for forbidden in ["ports", "cap_add", "devices", "pid", "ipc"] {
-            if value.get(forbidden).is_some_and(nonempty_json) {
-                return Err(UpdaterError::Precondition(format!(
-                    "{service} field {forbidden} is outside the fixed TCB contract"
-                )));
-            }
-        }
-        if service != "docker-guard" && value.get("command").is_some_and(nonempty_json) {
-            return Err(UpdaterError::Precondition(format!(
-                "{service} field command is outside the fixed TCB contract"
-            )));
-        }
-        let security_opt = value
-            .get("security_opt")
-            .and_then(Value::as_array)
-            .ok_or_else(|| {
-                UpdaterError::Precondition(format!("{service} must set no-new-privileges"))
-            })?;
-        if security_opt.len() != 1
-            || !security_opt[0].as_str().is_some_and(|option| {
-                matches!(option, "no-new-privileges:true" | "no-new-privileges")
-            })
-        {
-            return Err(UpdaterError::Precondition(format!(
-                "{service} security options are outside the fixed TCB contract"
-            )));
-        }
-    }
-
-    let guard = &services["docker-guard"];
-    require_read_only(guard, true, "docker-guard")?;
-    require_guard_bootstrap(guard)?;
-    require_healthcheck(guard, "http://localhost:2375/_ping", "docker-guard")?;
-    require_guard_mount_targets(guard)?;
-    require_networks(guard, &[&cfg.guard_network], "docker-guard")?;
-    let updater = &services["updater"];
-    require_read_only(updater, false, "updater")?;
-    if updater.get("entrypoint").is_some_and(nonempty_json) {
-        return Err(UpdaterError::Precondition(
-            "updater entrypoint override is forbidden".into(),
-        ));
-    }
-    require_healthcheck(updater, "http://localhost:1101/healthz", "updater")?;
-    require_updater_mount_targets(updater, &cfg.host_compose_root)?;
-    require_networks(
-        updater,
-        &[&cfg.admin_network, &cfg.guard_network],
-        "updater",
-    )?;
-    let gateway = &services["updater-gateway"];
-    require_read_only(gateway, true, "updater-gateway")?;
-    require_entrypoint(
-        gateway,
-        &[
-            "/usr/bin/tini",
-            "--",
-            "/usr/local/bin/myriad-updater-gateway",
-        ],
-        "updater-gateway",
-    )?;
-    require_healthcheck(gateway, "http://localhost:1104/healthz", "updater-gateway")?;
-    require_mount_targets(gateway, &[], "updater-gateway")?;
-    require_networks(gateway, &[&cfg.admin_network], "updater-gateway")?;
-    Ok(())
-}
-
-fn nonempty_json(value: &Value) -> bool {
-    match value {
-        Value::Null => false,
-        Value::Bool(value) => *value,
-        Value::String(value) => !value.is_empty(),
-        Value::Array(value) => !value.is_empty(),
-        Value::Object(value) => !value.is_empty(),
-        Value::Number(_) => true,
-    }
-}
-
-fn require_read_only(service: &Value, expected: bool, name: &str) -> Result<()> {
-    let actual = service
-        .get("read_only")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    if actual != expected {
-        return Err(UpdaterError::Precondition(format!(
-            "{name} read_only does not match the fixed TCB contract"
-        )));
     }
     Ok(())
-}
-
-fn service_string_list<'a>(service: &'a Value, key: &str) -> Vec<&'a str> {
-    service
-        .get(key)
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .collect()
-}
-
-fn require_guard_bootstrap(service: &Value) -> Result<()> {
-    let entrypoint = service_string_list(service, "entrypoint");
-    if entrypoint != ["/bin/sh", "-c"] {
-        return Err(UpdaterError::Precondition(
-            "docker-guard entrypoint is outside the fixed TCB contract".into(),
-        ));
-    }
-    let script = match service.get("command") {
-        Some(Value::Array(items)) if items.len() == 1 => items[0].as_str().unwrap_or(""),
-        Some(Value::String(text)) => text.as_str(),
-        _ => {
-            return Err(UpdaterError::Precondition(
-                "docker-guard command must be the policy bootstrap script".into(),
-            ));
-        }
-    };
-    if !script.contains("exec /usr/bin/tini -- /usr/local/bin/myriad-docker-guard")
-        || !script.contains("/guard-policy/docker-guard.env")
-        || !script.contains("umask 077")
-        || script.contains("docker.sock")
-        || script.contains("privileged")
-        || script.contains("cat >")
-        || script.contains("<<")
-    {
-        return Err(UpdaterError::Precondition(
-            "docker-guard command is outside the fixed TCB contract".into(),
-        ));
-    }
-    Ok(())
-}
-
-fn require_guard_mount_targets(service: &Value) -> Result<()> {
-    require_mount_targets(
-        service,
-        &[
-            "/var/run/docker.sock",
-            "/host/compose",
-            "/host/state",
-            "/guard-policy",
-        ],
-        "docker-guard",
-    )
-}
-
-fn require_entrypoint(service: &Value, expected: &[&str], name: &str) -> Result<()> {
-    let actual = service
-        .get("entrypoint")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .collect::<Vec<_>>();
-    if actual != expected {
-        return Err(UpdaterError::Precondition(format!(
-            "{name} entrypoint is outside the fixed TCB contract"
-        )));
-    }
-    Ok(())
-}
-
-fn require_healthcheck(service: &Value, url: &str, name: &str) -> Result<()> {
-    let actual = service
-        .pointer("/healthcheck/test")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .collect::<Vec<_>>();
-    if actual != ["CMD", "curl", "-fsS", url] {
-        return Err(UpdaterError::Precondition(format!(
-            "{name} healthcheck is outside the fixed TCB contract"
-        )));
-    }
-    Ok(())
-}
-
-fn persistent_mount_targets(service: &Value) -> Vec<&str> {
-    service
-        .get("volumes")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter(|mount| mount.get("type").and_then(Value::as_str) != Some("tmpfs"))
-        .filter_map(|mount| mount.get("target").and_then(Value::as_str))
-        .collect()
-}
-
-fn require_mount_targets(service: &Value, expected: &[&str], name: &str) -> Result<()> {
-    let mut actual = persistent_mount_targets(service);
-    let mut expected = expected.to_vec();
-    actual.sort_unstable();
-    expected.sort_unstable();
-    if actual != expected {
-        return Err(UpdaterError::Precondition(format!(
-            "{name} mount targets are outside the fixed TCB contract"
-        )));
-    }
-    Ok(())
-}
-
-fn require_updater_mount_targets(service: &Value, host_root: &str) -> Result<()> {
-    let mut actual = persistent_mount_targets(service)
-        .into_iter()
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
-    actual.sort_unstable();
-    // Official: extra .env file bind over a read-only deploy root.
-    // Writable-root: omit that bind so v0.3.37 can persist MYRIAD_TAG via
-    // sibling .bak/.tmp (file-bind + RO root is EROFS). Guard policy stays
-    // the separate /run/secrets mount. External DB omits pgdata.
-    //
-    // The deployment root is either the legacy in-container path
-    // (/host/compose) or, so Compose records host-valid labels, the host path
-    // itself (identity bind). Accept both.
-    for root in ["/host/compose", host_root] {
-        let variants: [Vec<String>; 4] = [
-            vec![
-                root.to_owned(),
-                format!("{root}/.env"),
-                format!("{root}/pgdata"),
-                format!("{root}/state"),
-                "/run/secrets".to_owned(),
-            ],
-            vec![
-                root.to_owned(),
-                format!("{root}/.env"),
-                format!("{root}/state"),
-                "/run/secrets".to_owned(),
-            ],
-            vec![
-                root.to_owned(),
-                format!("{root}/pgdata"),
-                format!("{root}/state"),
-                "/run/secrets".to_owned(),
-            ],
-            vec![
-                root.to_owned(),
-                format!("{root}/state"),
-                "/run/secrets".to_owned(),
-            ],
-        ];
-        for mut expected in variants {
-            expected.sort_unstable();
-            if actual == expected {
-                return Ok(());
-            }
-        }
-    }
-    Err(UpdaterError::Precondition(
-        "updater mount targets are outside the fixed bundled/external contract".into(),
-    ))
 }
 
 fn wait_for_running_services(images: &[String; 3], timeout: Duration) -> Result<()> {
+    let selected = images
+        .iter()
+        .map(|image| docker_inspect_json("image", image))
+        .collect::<Result<Vec<_>>>()?;
     let deadline = Instant::now() + timeout;
     loop {
-        let error = match verify_running_services(images) {
+        let error = match verify_running_services(&selected) {
             Ok(()) => return Ok(()),
             Err(error) => error,
         };
@@ -1074,7 +691,7 @@ fn wait_for_running_services(images: &[String; 3], timeout: Duration) -> Result<
     }
 }
 
-fn verify_running_services(images: &[String; 3]) -> Result<()> {
+fn verify_running_services(images: &[Value]) -> Result<()> {
     for (container, exact_image) in [
         "myriad-docker-guard",
         "myriad-updater",
@@ -1103,7 +720,6 @@ fn verify_running_services(images: &[String; 3]) -> Result<()> {
             .first()
             .ok_or_else(|| UpdaterError::Precondition(format!("empty inspect for {container}")))?;
         if inspected.pointer("/State/Running").and_then(Value::as_bool) != Some(true)
-            || inspected.pointer("/State/Status").and_then(Value::as_str) != Some("running")
             || inspected
                 .pointer("/State/Health/Status")
                 .and_then(Value::as_str)
@@ -1113,8 +729,7 @@ fn verify_running_services(images: &[String; 3]) -> Result<()> {
                 "{container} is not running and healthy"
             )));
         }
-        let selected = docker_inspect_json("image", exact_image)?;
-        if !running_selected_image(inspected, &selected) {
+        if !running_selected_image(inspected, exact_image) {
             return Err(UpdaterError::Precondition(format!(
                 "{container} is not running the selected image"
             )));
@@ -1173,31 +788,6 @@ fn normalize_image_repository(repo: &str) -> String {
     repo.to_string()
 }
 
-fn require_networks(service: &Value, expected: &[&str], name: &str) -> Result<()> {
-    let mut actual: Vec<String> =
-        if let Some(map) = service.get("networks").and_then(Value::as_object) {
-            map.keys().cloned().collect()
-        } else if let Some(list) = service.get("networks").and_then(Value::as_array) {
-            list.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_owned)
-                .collect()
-        } else {
-            return Err(UpdaterError::Precondition(format!(
-                "{name} has no network map"
-            )));
-        };
-    let mut expected: Vec<String> = expected.iter().map(|item| (*item).to_string()).collect();
-    actual.sort();
-    expected.sort();
-    if actual != expected {
-        return Err(UpdaterError::Precondition(format!(
-            "{name} network topology is outside the fixed allowlist"
-        )));
-    }
-    Ok(())
-}
-
 fn find_compose_files(root: &Path) -> Result<Vec<PathBuf>> {
     let files =
         crate::probe::compose::collect_compose_files(root).map_err(UpdaterError::Precondition)?;
@@ -1240,13 +830,6 @@ fn required_env(name: &str) -> Result<String> {
         .map_err(|_| UpdaterError::Precondition(format!("missing required helper env {name}")))
 }
 
-fn display_result(result: Result<()>) -> String {
-    match result {
-        Ok(()) => "ok".into(),
-        Err(error) => error.to_string(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1284,6 +867,28 @@ mod tests {
             .unwrap();
             validate_stack_compose_model(&bytes, &images, &cfg).unwrap();
         }
+        let pinned = format!("preview@sha256:{}", "d".repeat(64));
+        let output = Command::new("docker")
+            .args(["compose", "-f"])
+            .arg(&file)
+            .arg("--env-file")
+            .arg(&cfg.app_env_file)
+            .args(["config", "--format", "json"])
+            .env("PROXY_TAG", &pinned)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let model: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert!(
+            model["services"]["proxy"]["image"]
+                .as_str()
+                .unwrap()
+                .ends_with(&pinned)
+        );
         assert_eq!(std::fs::read_to_string(file).unwrap(), compose);
         assert_eq!(std::fs::read_to_string(&cfg.app_env_file).unwrap(), env);
     }
@@ -1745,16 +1350,35 @@ mod tests {
     }
 
     #[test]
-    fn fixed_compose_model_accepts_only_guard_owned_image_and_services() {
+    fn host_compose_customization_does_not_block_selected_images() {
         let image = exact_image();
         let model = compose_model(&image);
         let bytes = serde_json::to_vec(&model).unwrap();
         assert!(validate_compose_model(&bytes, &image, &config()).is_ok());
 
-        let mut injected = model;
-        injected["services"]["updater"]["command"] = serde_json::json!(["sh", "-c", "id"]);
-        let bytes = serde_json::to_vec(&injected).unwrap();
-        assert!(validate_compose_model(&bytes, &image, &config()).is_err());
+        let mut custom = model;
+        custom["services"]["docker-guard"]["command"] =
+            json!(["sh", "-c", "exec /usr/local/bin/myriad-docker-guard"]);
+        custom["services"]["updater"]["healthcheck"] =
+            json!({"test":["CMD-SHELL", "curl http://localhost:1101/healthz"]});
+        custom["services"]["updater"]["volumes"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"target":"/etc/ssl/certs/custom.pem"}));
+        custom["services"]["updater"]["security_opt"] =
+            json!(["no-new-privileges:true", "apparmor:custom"]);
+        assert!(
+            validate_compose_model(&serde_json::to_vec(&custom).unwrap(), &image, &config())
+                .is_ok()
+        );
+        custom["services"]
+            .as_object_mut()
+            .unwrap()
+            .remove("updater-gateway");
+        assert!(
+            validate_compose_model(&serde_json::to_vec(&custom).unwrap(), &image, &config())
+                .is_err()
+        );
     }
 
     #[test]
@@ -1838,25 +1462,6 @@ mod tests {
     }
 
     #[test]
-    fn guard_bootstrap_rejects_quoted_policy_stub() {
-        let stub = serde_json::json!({
-            "entrypoint": ["/bin/sh", "-c"],
-            "command": [
-                "set -eu\nif [ ! -f /guard-policy/docker-guard.env ]; then\n  umask 077\n  cat > /guard-policy/docker-guard.env <<'POLICY'\nDOCKER_GUARD_IMAGE=bad\nPOLICY\nfi\nexec /usr/bin/tini -- /usr/local/bin/myriad-docker-guard\n"
-            ]
-        });
-        assert!(require_guard_bootstrap(&stub).is_err());
-
-        let umask_only = serde_json::json!({
-            "entrypoint": ["/bin/sh", "-c"],
-            "command": [
-                "set -eu\nif [ ! -f /guard-policy/docker-guard.env ]; then umask 077; fi\nexec /usr/bin/tini -- /usr/local/bin/myriad-docker-guard\n"
-            ]
-        });
-        assert!(require_guard_bootstrap(&umask_only).is_ok());
-    }
-
-    #[test]
     fn official_compose_guard_command_does_not_write_policy_stub() {
         let compose = include_str!("../../../docker-compose.yml");
         let example = include_str!(
@@ -1895,18 +1500,5 @@ mod tests {
             assert!(!text.contains("image: ${UPDATER_GATEWAY_IMAGE_REF"));
             assert!(!text.contains("image: ${DOCKER_GUARD_IMAGE"));
         }
-    }
-
-    #[test]
-    fn missing_container_is_a_stable_quiescence_state() {
-        assert!(is_missing_container_error(
-            b"Error: No such container: myriad-updater"
-        ));
-        assert!(is_missing_container_error(
-            b"Error response from daemon: No such object: myriad-updater"
-        ));
-        assert!(!is_missing_container_error(
-            b"Cannot connect to the Docker daemon"
-        ));
     }
 }

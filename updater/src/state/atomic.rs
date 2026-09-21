@@ -54,6 +54,17 @@ pub fn write_atomic_json<T: serde::Serialize>(path: &Path, value: &T) -> Result<
     write_atomic_bytes(path, &bytes)
 }
 
+/// A completed operation must not be rerun because its outcome could not be saved.
+pub(crate) async fn write_json_until_saved<T: serde::Serialize>(path: &Path, value: &T) {
+    loop {
+        match write_atomic_json(path, value) {
+            Ok(()) => return,
+            Err(error) => tracing::warn!(%error, "retrying outcome write"),
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    }
+}
+
 #[cfg(unix)]
 fn fsync_dir(p: &Path) -> Result<()> {
     let f = File::open(p)?;
@@ -70,6 +81,25 @@ fn fsync_dir(_p: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[tokio::test(start_paused = true)]
+    async fn outcome_write_recovers_after_a_temporary_filesystem_failure() {
+        let dir = tempdir().unwrap();
+        let target = dir.path().join("outcome.json");
+        std::fs::create_dir(&target).unwrap();
+        let path = target.clone();
+        let task = tokio::spawn(async move {
+            write_json_until_saved(&path, &serde_json::json!({"status":"succeeded"})).await;
+        });
+        tokio::task::yield_now().await;
+        assert!(!task.is_finished());
+        std::fs::remove_dir(&target).unwrap();
+        tokio::time::advance(std::time::Duration::from_secs(2)).await;
+        task.await.unwrap();
+        let value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(target).unwrap()).unwrap();
+        assert_eq!(value["status"], "succeeded");
+    }
 
     #[test]
     fn roundtrip() {

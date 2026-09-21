@@ -14,16 +14,15 @@ use tokio::process::Command;
 use tracing::{error, info, warn};
 
 use crate::api::auth::constant_time_eq;
-use crate::version::{DeployTag, DeployTagKind, MyriadVersion};
 
 use super::config::{
     canonicalize_trusted_digest_ref, digest_reference_matches, validate_guard_image_ref,
 };
 use super::forward::{daemon_json, forward};
 use super::{
-    DOCKER_API_TIMEOUT, GuardState, POLICY_CONTAINER_FILE, SELF_UPDATE_EXHAUSTED_NAME,
-    SELF_UPDATE_GATE, SELF_UPDATE_HELPER_NAME, SELF_UPDATE_RECOVERY_NAME,
-    TRUSTED_UPDATER_REPOSITORY, denial, validate_identifier,
+    DOCKER_API_TIMEOUT, GuardState, POLICY_CONTAINER_FILE, SELF_UPDATE_GATE,
+    SELF_UPDATE_HELPER_NAME, SELF_UPDATE_RECOVERY_NAME, TRUSTED_UPDATER_REPOSITORY, denial,
+    validate_identifier,
 };
 
 pub(crate) const SELF_UPDATE_TOKEN_HEADER: &str = "x-guard-self-update-token";
@@ -52,30 +51,6 @@ pub(crate) struct HandoffAttempt {
     pub(crate) recovery_only: bool,
 }
 
-pub(crate) fn fail_exhausted_pending_handoff(state: &GuardState) {
-    let path = state.config.state_dir.join("self-update-last.json");
-    let Some(pending) = std::fs::read(&path).ok().and_then(|bytes| {
-        serde_json::from_slice::<crate::docker::self_update_helper::SelfUpdateLastStatus>(&bytes)
-            .ok()
-    }) else {
-        return;
-    };
-    if !matches!(
-        pending.status,
-        crate::docker::self_update_helper::SelfUpdateOutcome::Pending
-    ) {
-        return;
-    }
-    let failed = crate::docker::self_update_helper::SelfUpdateLastStatus::failed_before_handoff(
-        pending.target_tag,
-        pending.previous_tag,
-        "previous-digest recovery retries are exhausted; host recovery is required".into(),
-    );
-    if let Err(error) = crate::docker::self_update_helper::write_status(&path, &failed) {
-        warn!(%error, "could not persist exhausted self-update outcome");
-    }
-}
-
 pub(crate) async fn finalize_or_fail_orphaned_pending_handoff(state: &GuardState) -> bool {
     let path = state.config.state_dir.join("self-update-last.json");
     let Some(pending) = std::fs::read(&path).ok().and_then(|bytes| {
@@ -84,17 +59,25 @@ pub(crate) async fn finalize_or_fail_orphaned_pending_handoff(state: &GuardState
     }) else {
         return false;
     };
-    if !matches!(
-        pending.status,
-        crate::docker::self_update_helper::SelfUpdateOutcome::Pending
-    ) {
+    if pending.queued
+        || !matches!(
+            pending.status,
+            crate::docker::self_update_helper::SelfUpdateOutcome::Pending
+        )
+    {
         return false;
     }
     let stack = super::startup::healthy_stack(&state.config).await;
-    let tcb_consistent = stack.is_ok();
     let target_active = stack.as_ref().is_ok_and(|stack| {
         stack.iter().all(|identity| {
-            identity.image == stack[0].image && identity.version == pending.target_tag
+            pending.target_image.as_ref().map_or_else(
+                || {
+                    pending.target_tag != pending.previous_tag
+                        && identity.image == stack[0].image
+                        && identity.version == pending.target_tag
+                },
+                |target| &identity.image == target,
+            )
         })
     });
     let status = if target_active {
@@ -103,22 +86,14 @@ pub(crate) async fn finalize_or_fail_orphaned_pending_handoff(state: &GuardState
             pending.previous_tag,
         )
     } else {
-        if !tcb_consistent {
-            state
-                .mutation_gate
-                .store(SELF_UPDATE_GATE, Ordering::SeqCst);
-            error!("orphaned handoff left an inconsistent TCB; retaining mutation gate");
-        }
         crate::docker::self_update_helper::SelfUpdateLastStatus::failed_before_handoff(
             pending.target_tag,
             pending.previous_tag,
             "trusted handoff was interrupted; target TCB was not fully active".into(),
         )
     };
-    if let Err(error) = crate::docker::self_update_helper::write_status(&path, &status) {
-        warn!(%error, "could not persist interrupted self-update outcome");
-    }
-    tcb_consistent
+    crate::state::atomic::write_json_until_saved(&path, &status).await;
+    true
 }
 
 const MAX_SELF_UPDATE_BODY: usize = 4 * 1024;
@@ -190,9 +165,11 @@ pub(crate) async fn handle_self_update(state: GuardState, req: Request<Body>) ->
 
     let target_tag = request.target_tag;
     // Persist acceptance before replying: callers use this record for exclusion.
-    let previous_tag = running_updater_tag(&state.config.socket_path)
-        .await
-        .unwrap_or_else(|_| "unknown".into());
+    let previous_tag = crate::docker::self_update_helper::read_status(&state.config.state_dir)
+        .ok()
+        .flatten()
+        .map(|status| status.previous_tag)
+        .unwrap_or_default();
     let pending = crate::docker::self_update_helper::SelfUpdateLastStatus::pending_before_handoff(
         target_tag.clone(),
         previous_tag,
@@ -226,9 +203,12 @@ pub(crate) async fn handle_self_update(state: GuardState, req: Request<Body>) ->
             Err(error) => {
                 let retain_gate = error.downcast_ref::<HandoffCleanupUnconfirmed>().is_some();
                 warn!(%error, target_tag = %task_target, "trusted self-update rejected");
-                let previous_tag = running_updater_tag(&task_state.config.socket_path)
-                    .await
-                    .unwrap_or_else(|_| "unknown".into());
+                let previous_tag =
+                    crate::docker::self_update_helper::read_status(&task_state.config.state_dir)
+                        .ok()
+                        .flatten()
+                        .map(|status| status.previous_tag)
+                        .unwrap_or_default();
                 let helper_exists = if retain_gate {
                     helper_container_exists(&task_state.config.socket_path, SELF_UPDATE_HELPER_NAME)
                         .await
@@ -261,12 +241,11 @@ pub(crate) async fn handle_self_update(state: GuardState, req: Request<Body>) ->
                             previous_tag,
                             error.to_string(),
                         );
-                    if let Err(status_error) = crate::docker::self_update_helper::write_status(
+                    crate::state::atomic::write_json_until_saved(
                         &task_state.config.state_dir.join("self-update-last.json"),
                         &status,
-                    ) {
-                        warn!(%status_error, "could not persist rejected self-update outcome");
-                    }
+                    )
+                    .await;
                 }
             }
         }
@@ -481,67 +460,45 @@ pub(crate) fn monitor_handoff(
                 resume_unidentified_handoff(state, helper_id);
                 return;
             }
-            let failure_tags = attempt
-                .as_ref()
-                .map(|attempt| (attempt.target_tag.clone(), attempt.previous_tag.clone()))
-                .or_else(|| {
-                    std::fs::read(state.config.state_dir.join("self-update-last.json"))
-                        .ok()
-                        .and_then(|bytes| {
-                            serde_json::from_slice::<
-                                crate::docker::self_update_helper::SelfUpdateLastStatus,
-                            >(&bytes)
-                            .ok()
-                        })
-                        .filter(|status| {
-                            matches!(
-                                status.status,
-                                crate::docker::self_update_helper::SelfUpdateOutcome::Pending
-                            )
-                        })
-                        .map(|status| (status.target_tag, status.previous_tag))
-                });
-            if let Some((target_tag, previous_tag)) = failure_tags {
-                record_helper_failure_if_missing(
-                    &state,
-                    &target_tag,
-                    &previous_tag,
-                    failure,
-                    monitor_started,
-                );
-            }
-            if recovery_only
-                && recovery_retries >= 2
-                && !mark_recovery_exhausted(&docker_host, &helper_id).await
+            let attempt = attempt.unwrap();
+            // A terminal result is only published once no executor can keep mutating.
+            if helper_container_exit_code(&state.config.socket_path, &helper_id)
+                .await
+                .ok()
+                .flatten()
+                .is_none()
+                && !stop_helper(&docker_host, &helper_id).await
             {
-                warn!(
-                    %helper_id,
-                    "could not persist exhausted recovery identity; durable failure remains"
-                );
-            }
-            error!(
-                %helper_id,
-                "trusted handoff did not converge; retaining mutation gate"
-            );
-            return;
-        }
-        let current_clean = cleanup_helper(&docker_host, &helper_id).await;
-        let normal_clean =
-            !recovery_only || cleanup_helper(&docker_host, SELF_UPDATE_HELPER_NAME).await;
-        if !current_clean || !normal_clean {
-            warn!("trusted helper cleanup is pending before gate recovery");
-        }
-        release_gate_when_helpers_absent(state.clone()).await;
-        if let Some(attempt) = attempt {
-            if restored && failed_status_matches_attempt(&state, &attempt) {
-                // Keep the helper's actionable rejection / rollback detail.
+                resume_staged_recovery(state, attempt, recovery_retries);
                 return;
             }
+            record_helper_failure_if_missing(
+                &state,
+                &attempt.target_tag,
+                &attempt.previous_tag,
+                failure,
+                monitor_started,
+            )
+            .await;
+            let _ = cleanup_helper(&docker_host, &helper_id).await;
+            state.mutation_gate.store(0, Ordering::SeqCst);
+            error!(%helper_id, "recovery failed; stopped execution and released the update slot");
+            return;
+        }
+        if let Some(attempt) = attempt {
             let status = if recovery_only {
+                let detail =
+                    crate::docker::self_update_helper::read_status(&state.config.state_dir)
+                        .ok()
+                        .flatten()
+                        .and_then(|status| status.error)
+                        .unwrap_or_else(|| {
+                            "target switch failed; previous components restored".into()
+                        });
                 crate::docker::self_update_helper::SelfUpdateLastStatus::failed_before_handoff(
                     attempt.target_tag,
                     attempt.previous_tag,
-                    "trusted handoff terminated; previous TCB restored".into(),
+                    detail,
                 )
             } else {
                 crate::docker::self_update_helper::SelfUpdateLastStatus::succeeded_after_handoff(
@@ -549,13 +506,14 @@ pub(crate) fn monitor_handoff(
                     attempt.previous_tag,
                 )
             };
-            if let Err(error) = crate::docker::self_update_helper::write_status(
+            crate::state::atomic::write_json_until_saved(
                 &state.config.state_dir.join("self-update-last.json"),
                 &status,
-            ) {
-                warn!(%error, "could not persist final trusted handoff outcome");
-            }
+            )
+            .await;
         }
+        let _ = cleanup_helper(&docker_host, &helper_id).await;
+        state.mutation_gate.store(0, Ordering::SeqCst);
     });
 }
 
@@ -613,7 +571,7 @@ fn resume_unidentified_handoff(state: GuardState, helper_id: String) {
                         Ok(false) => {
                             warn!(%helper_id, %error, "unidentified helper disappeared");
                             if finalize_or_fail_orphaned_pending_handoff(&state).await {
-                                release_gate_when_helpers_absent(state).await;
+                                state.mutation_gate.store(0, Ordering::SeqCst);
                             } else {
                                 error!(
                                     %helper_id,
@@ -720,7 +678,7 @@ pub(crate) fn resume_staged_recovery(
     });
 }
 
-fn record_helper_failure_if_missing(
+async fn record_helper_failure_if_missing(
     state: &GuardState,
     target_tag: &str,
     previous_tag: &str,
@@ -754,27 +712,7 @@ fn record_helper_failure_if_missing(
         previous_tag.to_owned(),
         error,
     );
-    if let Err(status_error) = crate::docker::self_update_helper::write_status(&path, &status) {
-        warn!(%status_error, "could not persist helper failure outcome");
-    }
-}
-
-pub(crate) fn failed_status_matches_attempt(state: &GuardState, attempt: &HandoffAttempt) -> bool {
-    std::fs::read(state.config.state_dir.join("self-update-last.json"))
-        .ok()
-        .and_then(|bytes| {
-            serde_json::from_slice::<crate::docker::self_update_helper::SelfUpdateLastStatus>(
-                &bytes,
-            )
-            .ok()
-        })
-        .is_some_and(|status| {
-            matches!(
-                status.status,
-                crate::docker::self_update_helper::SelfUpdateOutcome::Failed
-            ) && status.target_tag == attempt.target_tag
-                && status.previous_tag == attempt.previous_tag
-        })
+    crate::state::atomic::write_json_until_saved(&path, &status).await;
 }
 
 pub(crate) fn recovery_attempt_from_status(state: &GuardState, attempt: &HandoffAttempt) -> u8 {
@@ -791,15 +729,6 @@ pub(crate) fn recovery_attempt_from_status(state: &GuardState, attempt: &Handoff
         })
         .map(|status| status.recovery_attempt.min(2))
         .unwrap_or(0)
-}
-
-pub(crate) fn recovery_is_durably_exhausted(
-    completed_exit: Option<i64>,
-    recovery_retries: u8,
-    matching_failed_status: bool,
-) -> bool {
-    completed_exit.is_some_and(|code| code != 0)
-        && (recovery_retries >= 2 || matching_failed_status)
 }
 
 pub(crate) fn persist_recovery_attempt(
@@ -830,40 +759,6 @@ pub(crate) fn persist_recovery_attempt(
     crate::docker::self_update_helper::write_status(&path, &status).is_ok()
 }
 
-async fn release_gate_when_helpers_absent(state: GuardState) {
-    let docker_host = format!("unix://{}", state.config.socket_path.display());
-    let mut consecutive_absent = 0u8;
-    loop {
-        let mut all_absent = true;
-        for helper in [SELF_UPDATE_HELPER_NAME, SELF_UPDATE_RECOVERY_NAME] {
-            match helper_container_exists(&state.config.socket_path, helper).await {
-                Ok(false) => {}
-                Ok(true) => {
-                    all_absent = false;
-                    if !cleanup_helper(&docker_host, helper).await {
-                        warn!(%helper, "trusted helper cleanup retry did not complete");
-                    }
-                }
-                Err(error) => {
-                    all_absent = false;
-                    warn!(%helper, %error, "cannot yet recover self-update mutation gate");
-                }
-            }
-        }
-        if all_absent {
-            consecutive_absent += 1;
-            if consecutive_absent >= 5 {
-                state.mutation_gate.store(0, Ordering::SeqCst);
-                info!("self-update helpers are stably absent; mutation gate recovered");
-                return;
-            }
-        } else {
-            consecutive_absent = 0;
-        }
-        tokio::time::sleep(Duration::from_secs(1)).await;
-    }
-}
-
 pub(crate) async fn stop_helper(docker_host: &str, helper_id: &str) -> bool {
     let mut stop = Command::new("docker");
     stop.env("DOCKER_HOST", docker_host)
@@ -877,21 +772,6 @@ pub(crate) async fn stop_helper(docker_host: &str, helper_id: &str) -> bool {
         }
         _ => false,
     }
-}
-
-pub(crate) async fn mark_recovery_exhausted(docker_host: &str, helper_id: &str) -> bool {
-    let mut rename = Command::new("docker");
-    rename.env("DOCKER_HOST", docker_host).args([
-        "container",
-        "rename",
-        helper_id,
-        SELF_UPDATE_EXHAUSTED_NAME,
-    ]);
-    rename.kill_on_drop(true);
-    matches!(
-        tokio::time::timeout(HELPER_LAUNCH_TIMEOUT, rename.output()).await,
-        Ok(Ok(output)) if output.status.success()
-    )
 }
 
 pub(crate) async fn restart_helper(docker_host: &str, helper_id: &str) -> bool {
@@ -1076,7 +956,10 @@ pub(crate) fn handoff_attempt_from_inspect(inspect: &Value) -> Result<HandoffAtt
         .pointer("/Config/Image")
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("trusted handoff helper has no configured image"))?;
-    if !digest_reference_matches(configured_image, &attempt.target_image) {
+    if !digest_reference_matches(configured_image, &attempt.target_image)
+        && !(attempt.recovery_only
+            && digest_reference_matches(configured_image, &attempt.previous_image))
+    {
         return Err(anyhow!(
             "trusted handoff helper image does not match its target digest"
         ));
@@ -1088,44 +971,23 @@ async fn prepare_trusted_self_update(
     state: &GuardState,
     requested_tag: &str,
 ) -> Result<(String, HandoffAttempt)> {
-    let stack = super::startup::healthy_stack(&state.config).await?;
+    let stack = super::startup::inspect_stack(&state.config, false).await?;
     let previous_image = stack[0].image.clone();
     let previous_tag = stack[1].version.clone();
-    for identity in &stack {
-        prevent_release_downgrade(&identity.version, requested_tag)?;
-    }
     let previous_images = recovery_images(&stack);
-
-    // Guard has no egress. The host daemon pulls only the compiled-in official
-    // repository; Guard then converts the result to repo@sha256 before handoff.
-    let (exact_image, target_created_at) =
+    // A tag selects the target; the resolved digest fixes this operation's bytes.
+    let exact_image =
         pull_trusted_tag_and_resolve(&state.config.socket_path, requested_tag).await?;
-    if previous_images.is_some() {
-        let target = daemon_json(
-            &state.config.socket_path,
-            &format!("/images/{exact_image}/json"),
-        )
-        .await?;
-        require_mixed_recovery_support(&target)?;
-    }
-    for container in [
-        "myriad-docker-guard",
-        "myriad-updater",
-        "myriad-updater-gateway",
-    ] {
-        let current_created_at =
-            managed_container_image_created_at(&state.config.socket_path, container).await?;
-        if target_created_at < current_created_at {
-            return Err(anyhow!(
-                "TCB image creation-time downgrade is forbidden for {container}"
-            ));
-        }
-    }
-    if super::startup::healthy_stack(&state.config).await? != stack {
-        return Err(anyhow!(
-            "running TCB changed while preparing self-update; retry"
-        ));
-    }
+    let mut pending =
+        crate::docker::self_update_helper::SelfUpdateLastStatus::pending_before_handoff(
+            requested_tag.to_owned(),
+            previous_tag.clone(),
+        );
+    pending.target_image = Some(exact_image.clone());
+    crate::docker::self_update_helper::write_status(
+        &state.config.state_dir.join("self-update-last.json"),
+        &pending,
+    )?;
     let attempt = HandoffAttempt {
         previous_image: previous_image.clone(),
         previous_images,
@@ -1156,67 +1018,11 @@ pub(crate) fn recovery_images(stack: &[super::startup::RuntimeIdentity; 3]) -> O
     }
 }
 
-pub(crate) fn require_mixed_recovery_support(image: &Value) -> Result<()> {
-    if image
-        .pointer("/Config/Labels")
-        .and_then(|labels| labels.get(crate::docker::self_update_helper::MIXED_RECOVERY_LABEL))
-        .and_then(Value::as_str)
-        != Some("1")
-    {
-        return Err(anyhow!(
-            "target updater image lacks mixed-deployment recovery protocol v1; choose a release that supports per-service rollback"
-        ));
-    }
-    Ok(())
-}
-
 pub(crate) fn validate_self_update_tag(tag: &str) -> std::result::Result<(), String> {
-    let parsed = DeployTag::parse(tag).map_err(|error| error.to_string())?;
-    if matches!(parsed.kind(), DeployTagKind::Branch) {
-        return Err("mutable branch tags are forbidden for TCB self-update".into());
-    }
-    Ok(())
+    crate::version::validate_image_tag(tag)
 }
 
-pub(crate) fn prevent_release_downgrade(previous: &str, target: &str) -> Result<()> {
-    if let (Ok(previous), Ok(target)) =
-        (MyriadVersion::parse(previous), MyriadVersion::parse(target))
-        && target.older_than(&previous)
-    {
-        return Err(anyhow!("TCB release downgrade is forbidden"));
-    }
-    Ok(())
-}
-
-async fn running_updater_tag(socket: &Path) -> Result<String> {
-    // Image-baked ENV (Dockerfile), not Compose ${UPDATER_TAG}. Overlaying the
-    // tag made digest-pinned TCB advertise a version it was not running.
-    let inspect = daemon_json(socket, "/containers/myriad-updater/json").await?;
-    let image_id = inspect
-        .get("Image")
-        .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("running updater has no image id"))?;
-    super::startup::validate_image_id(image_id)?;
-    let image = daemon_json(socket, &format!("/images/{image_id}/json")).await?;
-    image
-        .pointer("/Config/Env")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .find_map(|entry| entry.strip_prefix("MYRIAD_VERSION="))
-        .map(str::to_owned)
-        .ok_or_else(|| anyhow!("running updater has no immutable MYRIAD_VERSION identity"))
-        .and_then(|tag| {
-            validate_self_update_tag(&tag).map_err(anyhow::Error::msg)?;
-            Ok(tag)
-        })
-}
-
-async fn pull_trusted_tag_and_resolve(
-    socket: &Path,
-    target_tag: &str,
-) -> Result<(String, chrono::DateTime<chrono::FixedOffset>)> {
+async fn pull_trusted_tag_and_resolve(socket: &Path, target_tag: &str) -> Result<String> {
     let docker_host = format!("unix://{}", socket.display());
     let tagged_image = format!("{TRUSTED_UPDATER_REPOSITORY}:{target_tag}");
     let mut pull = Command::new("docker");
@@ -1262,31 +1068,7 @@ async fn pull_trusted_tag_and_resolve(
         .filter_map(Value::as_str)
         .find_map(|actual| canonicalize_trusted_digest_ref(actual).ok())
         .ok_or_else(|| anyhow!("pulled image has no trusted updater repository digest"))?;
-    let created = image
-        .get("Created")
-        .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("pulled updater image has no creation timestamp"))?;
-    let created = chrono::DateTime::parse_from_rfc3339(created)
-        .context("pulled updater image has invalid creation timestamp")?;
-    Ok((exact_image, created))
-}
-
-async fn managed_container_image_created_at(
-    socket: &Path,
-    container: &str,
-) -> Result<chrono::DateTime<chrono::FixedOffset>> {
-    let inspect = daemon_json(socket, &format!("/containers/{container}/json")).await?;
-    let image_id = inspect
-        .get("Image")
-        .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("{container} has no immutable image id"))?;
-    let image = daemon_json(socket, &format!("/images/{image_id}/json")).await?;
-    let created = image
-        .get("Created")
-        .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("{container} image has no creation timestamp"))?;
-    chrono::DateTime::parse_from_rfc3339(created)
-        .with_context(|| format!("{container} image has invalid creation timestamp"))
+    Ok(exact_image)
 }
 
 async fn launch_trusted_handoff(
@@ -1392,6 +1174,18 @@ async fn launch_trusted_helper(
     } else {
         SELF_UPDATE_HELPER_NAME
     };
+    if helper_container_exists(&state.config.socket_path, helper_name).await? {
+        if helper_container_exit_code(&state.config.socket_path, helper_name)
+            .await?
+            .is_none()
+        {
+            return Err(anyhow::Error::new(HandoffCleanupUnconfirmed));
+        }
+        let host = format!("unix://{}", state.config.socket_path.display());
+        if !cleanup_helper(&host, helper_name).await {
+            return Err(anyhow::Error::new(HandoffCleanupUnconfirmed));
+        }
+    }
     let socket = state.config.socket_path.to_string_lossy().into_owned();
     let docker_host = format!("unix://{socket}");
     let host_root = state.host_compose_root.to_string_lossy().into_owned();
@@ -1455,7 +1249,14 @@ async fn launch_trusted_helper(
         ),
         (
             crate::docker::self_update_helper::ENV_TARGET_IMAGE,
-            target_image,
+            // v0.5.3 identifies a helper by TARGET_IMAGE == Config.Image.
+            // Recovery runs the previous binary; keep that identity consistent.
+            // Remove this compatibility constraint after the refactor's first release.
+            if recovery_only {
+                previous_image
+            } else {
+                target_image
+            },
         ),
         (
             crate::docker::self_update_helper::ENV_PREVIOUS_TAG,
@@ -1527,7 +1328,12 @@ async fn launch_trusted_helper(
             serde_json::to_string(images)?
         ));
     }
-    command.arg(target_image);
+    // Recovery must work even when the target helper cannot run.
+    command.arg(if recovery_only {
+        previous_image
+    } else {
+        target_image
+    });
     command.kill_on_drop(true);
     let output = match tokio::time::timeout(HELPER_LAUNCH_TIMEOUT, command.output()).await {
         Ok(output) => output.context("launch trusted TCB handoff")?,

@@ -37,10 +37,19 @@ fn read_existing(path: &Path) -> Result<Option<Vec<u8>>> {
     }
 }
 
+/// Optional component outcome, not the execution lock. Invalid history must not
+/// take down /status; running tasks and Guard retain execution ownership.
 pub(crate) fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Option<T>> {
-    read_existing(path)?
-        .map(|bytes| serde_json::from_slice(&bytes).map_err(Into::into))
-        .transpose()
+    let Some(bytes) = read_existing(path)? else {
+        return Ok(None);
+    };
+    match serde_json::from_slice(&bytes) {
+        Ok(value) => Ok(Some(value)),
+        Err(error) => {
+            tracing::warn!(%error, "ignoring unreadable component outcome");
+            Ok(None)
+        }
+    }
 }
 
 pub use types::*;

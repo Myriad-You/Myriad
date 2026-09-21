@@ -1,18 +1,5 @@
-//! Manual proxy image upgrade (spec §12.3).
-//!
-//! Proxy is not part of the automatic business update path. Operators trigger this
-//! when a release ships a newer `images.proxy` (or when `PROXY_TAG` lags). Flow:
-//!   1. Resolve target: prefer GitHub `release.json` `images.proxy`; on GitHub
-//!      unavailable / 404 / commit-channel tip, fall back to Docker Hub
-//!      `PROXY_IMAGE:<tag>` (same pattern as backend/frontend preflight).
-//!   2. Pull proxy image and verify digest when present in manifest
-//!   3. Rewrite `.env` `PROXY_TAG`
-//!   4. `docker compose up -d --no-deps proxy` via the policy docker-guard
-//!   5. Probe `/healthz` on the compose network; on failure restore `PROXY_TAG`
-//!      and recreate the previous proxy image
-//!
-//! Brief downtime (<10s) is expected while the edge container recreates.
-//! Durable outcome: `state/proxy-update-last.json` (mirrors self-update-last).
+//! Explicit proxy update: resolve from its image repository, pull, replace and
+//! check health. Failure restores the previous running image automatically.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -24,9 +11,7 @@ use tracing::{info, warn};
 
 use crate::env_file::EnvFile;
 use crate::error::{Result, UpdaterError};
-use crate::release::GithubClient;
 use crate::state::atomic;
-use crate::version::{DeployTag, DeployTagKind, UpdateMode};
 use crate::worker::Worker;
 
 /// File under the deployment state root.
@@ -64,6 +49,8 @@ pub enum ProxyUpdateOutcome {
 pub struct ProxyUpdateLastStatus {
     pub status: ProxyUpdateOutcome,
     pub target_tag: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_image: Option<String>,
     pub previous_tag: String,
     /// RFC3339 UTC.
     pub at: String,
@@ -81,6 +68,7 @@ impl ProxyUpdateLastStatus {
         Self {
             status: ProxyUpdateOutcome::Succeeded,
             target_tag: target_tag.to_string(),
+            target_image: None,
             previous_tag: previous_tag.to_string(),
             at: Utc::now().to_rfc3339(),
             error: None,
@@ -98,6 +86,7 @@ impl ProxyUpdateLastStatus {
         Self {
             status: ProxyUpdateOutcome::Failed,
             target_tag: target_tag.to_string(),
+            target_image: None,
             previous_tag: previous_tag.to_string(),
             at: Utc::now().to_rfc3339(),
             error: Some(error.into()),
@@ -161,7 +150,8 @@ pub fn resume_pending(worker: Arc<Worker>) {
 }
 
 fn spawn_update(worker: Arc<Worker>, actor: Option<String>, pending: ProxyUpdateLastStatus) {
-    tokio::spawn(async move {
+    let owner = worker.clone();
+    let task = tokio::spawn(async move {
         let outcome = match run(worker.clone(), actor, pending.clone()).await {
             Ok(outcome) => outcome,
             Err(error) => {
@@ -178,20 +168,19 @@ fn spawn_update(worker: Arc<Worker>, actor: Option<String>, pending: ProxyUpdate
                 )
             }
         };
-        while let Err(error) = write_proxy_update_last(worker.state().root(), &outcome) {
-            warn!(%error, "retrying proxy outcome write");
-            tokio::time::sleep(Duration::from_secs(2)).await;
-        }
+        crate::state::atomic::write_json_until_saved(
+            &worker.state().root().join(PROXY_UPDATE_LAST_FILE),
+            &outcome,
+        )
+        .await;
     });
+    *owner.component_task.lock().unwrap() = Some(task);
 }
 
 /// Resolved proxy target before pull/rewrite.
 struct ProxyTarget {
     tag: String,
     image_ref: String,
-    /// Digest pin from release.json when available.
-    expected_digest: Option<String>,
-    source: &'static str,
 }
 
 /// Upgrade the `proxy` service to the proxy image from the latest release for
@@ -201,25 +190,61 @@ async fn run(
     actor: Option<String>,
     mut pending: ProxyUpdateLastStatus,
 ) -> Result<ProxyUpdateLastStatus> {
-    let target = (!pending.target_tag.is_empty()).then(|| pending.target_tag.clone());
-    let resolved = resolve_proxy_target(worker.as_ref(), target).await?;
+    let resolved = if let Some(image_ref) = &pending.target_image {
+        let target_id = worker.docker().image_id(image_ref).await?;
+        if worker
+            .docker()
+            .container_ready("myriad-proxy", &target_id)
+            .await
+            .unwrap_or(false)
+        {
+            return Ok(ProxyUpdateLastStatus::succeeded(
+                &pending.previous_tag,
+                &pending.target_tag,
+            ));
+        }
+        ProxyTarget {
+            tag: pending.target_tag.clone(),
+            image_ref: image_ref.clone(),
+        }
+    } else {
+        let target = (!pending.target_tag.is_empty()).then(|| pending.target_tag.clone());
+        resolve_proxy_target(worker.as_ref(), target).await?
+    };
     info!(
         target = %resolved.tag,
         image = %resolved.image_ref,
-        source = resolved.source,
         "proxy-update: resolved target"
     );
 
     let previous_tag = pending.previous_tag.clone();
     let previous_id = match pending.previous_image_id.clone() {
         Some(id) => id,
-        None => {
-            worker
-                .docker()
-                .image_id(&format!("{}:{previous_tag}", worker.proxy_image_repo()?))
-                .await?
-        }
+        None => worker
+            .docker()
+            .raw()
+            .inspect_container("myriad-proxy", None)
+            .await
+            .map_err(|e| UpdaterError::Docker(format!("inspect previous proxy: {e}")))?
+            .image
+            .ok_or_else(|| UpdaterError::Docker("previous proxy image is missing".into()))?,
     };
+    let repo = worker.proxy_image_repo()?;
+    let previous_digest = worker
+        .docker()
+        .raw()
+        .inspect_image(&previous_id)
+        .await
+        .map_err(|e| UpdaterError::Docker(format!("inspect previous proxy image: {e}")))?
+        .repo_digests
+        .unwrap_or_default()
+        .into_iter()
+        .find_map(|reference| {
+            let (source, digest) = reference.rsplit_once('@')?;
+            (source.trim_start_matches("docker.io/") == repo.trim_start_matches("docker.io/"))
+                .then(|| digest.to_owned())
+        })
+        .ok_or_else(|| UpdaterError::Docker("previous proxy has no repository digest".into()))?;
     pending.target_tag = resolved.tag.clone();
     pending.previous_image_id = Some(previous_id.clone());
     write_proxy_update_last(worker.state().root(), &pending)?;
@@ -229,31 +254,31 @@ async fn run(
         image = %resolved.image_ref,
         "proxy-update: pulling proxy image"
     );
-    let pulled_digest = worker.pull_image(&resolved.image_ref).await.map_err(|e| {
-        UpdaterError::Precondition(format_proxy_pull_error(&resolved.image_ref, &e))
-    })?;
-    if let Some(expected) = &resolved.expected_digest
-        && !pulled_digest.ends_with(expected)
-        && pulled_digest != *expected
-    {
-        return Err(UpdaterError::Precondition(format!(
-            "proxy digest mismatch: pulled {pulled_digest}, expected {expected}"
-        )));
-    }
-
+    let pulled_digest = match &pending.target_image {
+        Some(image) => image.clone(),
+        None => {
+            let digest = worker.pull_image(&resolved.image_ref).await.map_err(|e| {
+                UpdaterError::Precondition(format_proxy_pull_error(&resolved.image_ref, &e))
+            })?;
+            let image = format!("{repo}@{}", digest.rsplit('@').next().unwrap_or(&digest));
+            pending.target_image = Some(image.clone());
+            write_proxy_update_last(worker.state().root(), &pending)?;
+            image
+        }
+    };
     // Resolve all local prerequisites before mutating deployment intent.
     let compose = crate::worker::update::build_compose_runner_pub(&worker).await?;
-    let target_id = worker.docker().image_id(&resolved.image_ref).await?;
+    let target_id = worker.docker().image_id(&pulled_digest).await?;
     let apply = async {
         restore_proxy_tag(&resolved.tag, worker.as_ref())?;
-        recreate_proxy(&compose).await?;
+        recreate_proxy(&compose, &resolved.tag, &pulled_digest).await?;
         wait_proxy_healthy(worker.as_ref(), &target_id).await
     }
     .await;
     if let Err(error) = apply {
         let recovery = async {
             restore_proxy_tag(&previous_tag, worker.as_ref())?;
-            recreate_proxy(&compose).await?;
+            recreate_proxy(&compose, &previous_tag, &previous_digest).await?;
             wait_proxy_healthy(worker.as_ref(), &previous_id).await
         }
         .await;
@@ -275,8 +300,8 @@ async fn run(
         .map(|a| format!(" actor={a}"))
         .unwrap_or_default();
     let audit = format!(
-        "audit: proxy_update previous_tag={previous_tag} new_tag={} image={} digest={pulled_digest} source={}{actor_suffix}",
-        resolved.tag, resolved.image_ref, resolved.source
+        "audit: proxy_update previous_tag={previous_tag} new_tag={} image={} digest={pulled_digest} source=dockerhub{actor_suffix}",
+        resolved.tag, resolved.image_ref
     );
     let _ = worker.state().append_history(&audit);
     let _ = worker.state().append_audit(&audit);
@@ -346,8 +371,28 @@ async fn wait_proxy_healthy(worker: &Worker, image_id: &str) -> Result<()> {
     )))
 }
 
-async fn recreate_proxy(compose: &crate::docker::ComposeRunner) -> Result<()> {
-    let output = compose.up_detached_recreate(&["proxy"]).await?;
+async fn recreate_proxy(
+    compose: &crate::docker::ComposeRunner,
+    tag: &str,
+    digest: &str,
+) -> Result<()> {
+    let digest = digest.rsplit('@').next().unwrap_or(digest);
+    let pinned_tag = format!("{tag}@{digest}");
+    let output = compose
+        .run_with_env(
+            &[
+                "up",
+                "-d",
+                "--no-deps",
+                "--force-recreate",
+                "--pull",
+                "never",
+                "proxy",
+            ],
+            Duration::from_secs(120),
+            &[("PROXY_TAG", pinned_tag.as_str())],
+        )
+        .await?;
     if !output.ok() {
         return Err(UpdaterError::Docker(output.error_summary()));
     }
@@ -381,220 +426,12 @@ async fn resolve_proxy_target(
     worker: &Worker,
     explicit_tag: Option<String>,
 ) -> Result<ProxyTarget> {
-    // 1) Prefer GitHub release.json when the target is a formal release (or channel tip).
-    match try_proxy_from_github(worker, explicit_tag.as_deref()).await {
-        Ok(Some(t)) => return Ok(t),
-        Ok(None) => {
-            warn!("proxy-update: GitHub release.json unavailable; falling back to Docker Hub");
-        }
-        Err(e) => return Err(e),
-    }
-
-    // Docker Hub remains the available source when GitHub discovery is unavailable.
-    resolve_proxy_via_dockerhub(worker, explicit_tag).await
-}
-
-/// Attempt to resolve proxy from GitHub.
-///
-/// - `Ok(Some)` — manifest with proxy image
-/// - `Ok(None)` — GitHub unavailable / no matching release / release omits
-///   `images.proxy` (independent cadence); caller may fall back to Docker Hub
-/// - `Err` — hard failure (cosign, invalid manifest with present asset)
-async fn try_proxy_from_github(
-    worker: &Worker,
-    explicit_tag: Option<&str>,
-) -> Result<Option<ProxyTarget>> {
-    // Commit-mode immutable tips never have release.json; skip GitHub noise.
-    if let Some(tag) = explicit_tag
-        && let Ok(dt) = DeployTag::parse(tag)
-        && dt.kind() == DeployTagKind::Commit
-    {
-        info!(
-            tag = %tag,
-            "proxy-update: commit tag; skipping GitHub, using Docker Hub path"
-        );
-        return Ok(None);
-    }
-
-    let gh = match worker.github_client() {
-        Ok(gh) => gh,
-        Err(e) => {
-            warn!(err = %e, "proxy-update: cannot build GitHub client");
-            return Ok(None);
-        }
-    };
-
-    if let Some(tag) = explicit_tag {
-        let manifest = match gh.fetch_manifest(tag).await {
-            Ok(m) => m,
-            Err(e) if GithubClient::is_release_json_unavailable(&e) => {
-                warn!(err = %e, tag = %tag, "proxy-update: GitHub release.json unavailable");
-                return Ok(None);
-            }
-            Err(e) => return Err(e),
-        };
-        let Some(proxy) = manifest.image("proxy") else {
-            warn!(
-                tag = %tag,
-                "proxy-update: release omits images.proxy; falling back to Docker Hub"
-            );
-            return Ok(None);
-        };
-        return Ok(Some(ProxyTarget {
-            tag: manifest.version.as_str().to_string(),
-            image_ref: proxy.r#ref.clone(),
-            expected_digest: Some(proxy.digest.clone()),
-            source: "github",
-        }));
-    }
-
-    let cfg = worker.config();
-    let ch_name = crate::version::release_channel_name_for_self_update(&worker.effective_channel());
-    let ch: crate::config::Channel = ch_name.parse().unwrap_or(cfg.channel);
-    // Walk recent channel releases — app tags often omit proxy when unchanged.
-    info!(
-        channel = %ch,
-        "proxy-update: looking up GitHub releases for channel (may skip releases without images.proxy)"
-    );
-    let releases = match gh.list_releases_for_channel(ch, 20).await {
-        Ok(r) if !r.is_empty() => r,
-        Ok(_) => {
-            warn!(channel = %ch, "proxy-update: channel has no GitHub releases");
-            return Ok(None);
-        }
-        Err(e) if GithubClient::is_release_json_unavailable(&e) => {
-            warn!(err = %e, "proxy-update: GitHub list releases failed");
-            return Ok(None);
-        }
-        Err(e) => return Err(e),
-    };
-
-    for rel in releases {
-        let manifest = match gh.fetch_manifest(&rel.tag_name).await {
-            Ok(m) => m,
-            Err(e) if GithubClient::is_release_json_unavailable(&e) => {
-                warn!(
-                    err = %e,
-                    tag = %rel.tag_name,
-                    "proxy-update: GitHub release.json unavailable; trying older release"
-                );
-                continue;
-            }
-            Err(e) => return Err(e),
-        };
-        let Some(proxy) = manifest.image("proxy") else {
-            info!(
-                tag = %rel.tag_name,
-                "proxy-update: release omits images.proxy; trying older release"
-            );
-            continue;
-        };
-        return Ok(Some(ProxyTarget {
-            tag: manifest.version.as_str().to_string(),
-            image_ref: proxy.r#ref.clone(),
-            expected_digest: Some(proxy.digest.clone()),
-            source: "github",
-        }));
-    }
-
-    warn!(
-        channel = %ch,
-        "proxy-update: no recent GitHub release lists images.proxy"
-    );
-    Ok(None)
-}
-
-async fn resolve_proxy_via_dockerhub(
-    worker: &Worker,
-    explicit_tag: Option<String>,
-) -> Result<ProxyTarget> {
     let repo = worker.proxy_image_repo()?;
-    let tag = if let Some(tag) = explicit_tag {
-        validate_immutable_component_tag(&tag)?;
-        tag
-    } else {
-        // List proxy tags first. App `latest_available` may not exist on proxy repo.
-        let prefer_release = worker.effective_mode()? == UpdateMode::Release;
-        let tags = worker
-            .dockerhub_client()?
-            .list_immutable_tags(&repo, 25)
-            .await?;
-        if let Some(from_state) = tip_tag_from_state(worker)? {
-            if tags.iter().any(|t| t.tag == from_state) {
-                info!(
-                    tag = %from_state,
-                    "proxy-update: state tip exists on proxy repo; using it"
-                );
-                from_state
-            } else {
-                let tip = crate::release::select_component_tip(&tags, prefer_release).ok_or_else(
-                    || {
-                        UpdaterError::Precondition(format!(
-                            "Docker Hub has no immutable tags for {repo} (need dev-<sha> or vX.Y.Z)"
-                        ))
-                    },
-                )?;
-                info!(
-                    state_tip = %from_state,
-                    tag = %tip.tag,
-                    kind = tip.kind,
-                    "proxy-update: state tip missing on proxy repo; selected component tip"
-                );
-                tip.tag.clone()
-            }
-        } else {
-            let tip =
-                crate::release::select_component_tip(&tags, prefer_release).ok_or_else(|| {
-                    UpdaterError::Precondition(format!(
-                        "Docker Hub has no immutable tags for {repo} (need dev-<sha> or vX.Y.Z)"
-                    ))
-                })?;
-            info!(
-                tag = %tip.tag,
-                kind = tip.kind,
-                "proxy-update: selected tip from Docker Hub proxy tags"
-            );
-            tip.tag.clone()
-        }
-    };
-
-    if tag.ends_with(":latest") || tag == "latest" {
-        return Err(UpdaterError::Precondition(
-            "proxy image tag must be immutable (dev-<sha> or vX.Y.Z), got latest".into(),
-        ));
-    }
-
+    let tag = worker.component_target(&repo, explicit_tag).await?;
     Ok(ProxyTarget {
         image_ref: format!("{repo}:{tag}"),
         tag,
-        expected_digest: None,
-        source: "dockerhub",
     })
-}
-
-fn tip_tag_from_state(worker: &Worker) -> Result<Option<String>> {
-    let st = worker.state().read_updater()?;
-    Ok(st
-        .latest_available
-        .as_ref()
-        .map(|la| la.version.as_str().to_string())
-        .filter(|t| DeployTag::parse(t).is_ok_and(|d| d.kind() != DeployTagKind::Branch)))
-}
-
-fn validate_immutable_component_tag(tag: &str) -> Result<()> {
-    let tag = tag.trim();
-    if tag.is_empty() {
-        return Err(UpdaterError::InvalidInput("empty proxy target tag".into()));
-    }
-    match DeployTag::parse(tag) {
-        Ok(d) if d.kind() == DeployTagKind::Branch => Err(UpdaterError::InvalidInput(format!(
-            "proxy target {tag} is a mutable branch tip; use dev-<sha> or vX.Y.Z"
-        ))),
-        Ok(_) => Ok(()),
-        Err(e) => Err(UpdaterError::InvalidInput(format!(
-            "invalid proxy target tag {tag}: {e}"
-        ))),
-    }
 }
 
 /// Operator-facing pull failure message. The Guard image policy is compiled into
@@ -637,19 +474,7 @@ mod tests {
             assert!(require_no_pending(&state).is_ok());
         }
         std::fs::write(&path, b"{broken").unwrap();
-        assert!(require_no_pending(&state).is_err());
-    }
-
-    #[test]
-    fn rejects_branch_tip_tags() {
-        assert!(validate_immutable_component_tag("preview").is_err());
-        assert!(validate_immutable_component_tag("main").is_err());
-    }
-
-    #[test]
-    fn accepts_commit_and_release_tags() {
-        assert!(validate_immutable_component_tag("dev-abc1234").is_ok());
-        assert!(validate_immutable_component_tag("v0.3.6").is_ok());
+        assert!(require_no_pending(&state).is_ok());
     }
 
     #[test]

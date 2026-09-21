@@ -170,6 +170,7 @@ pub struct Worker {
     cli: WorkerCli,
     tx: mpsc::Sender<Command>,
     rx: Mutex<Option<mpsc::Receiver<Command>>>,
+    component_task: std::sync::Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Worker {
@@ -187,6 +188,7 @@ impl Worker {
             cli,
             tx,
             rx: Mutex::new(Some(rx)),
+            component_task: std::sync::Mutex::new(None),
         }
     }
 
@@ -197,9 +199,22 @@ impl Worker {
         refuse_update_if_stuck_in(&self.state)
     }
 
-    fn require_idle_mutation(&self) -> Result<()> {
+    fn require_no_component_update(&self) -> Result<()> {
+        if self
+            .component_task
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|task| !task.is_finished())
+        {
+            return Err(UpdaterError::Conflict);
+        }
         self_update::require_no_pending_handoff(&self.state)?;
-        proxy_update::require_no_pending(&self.state)?;
+        proxy_update::require_no_pending(&self.state)
+    }
+
+    fn require_idle_mutation(&self) -> Result<()> {
+        self.require_no_component_update()?;
         if self.state.read_current_job()?.is_some() {
             return Err(UpdaterError::Conflict);
         }
@@ -237,6 +252,22 @@ impl Worker {
 
     pub fn dockerhub_client(&self) -> Result<DockerHubClient> {
         DockerHubClient::new()
+    }
+
+    async fn component_target(&self, repo: &str, requested: Option<String>) -> Result<String> {
+        if let Some(tag) = requested {
+            crate::version::validate_image_tag(&tag).map_err(UpdaterError::InvalidInput)?;
+            return Ok(tag);
+        }
+        let tags = self
+            .dockerhub_client()?
+            .list_immutable_tags(repo, 25)
+            .await?;
+        crate::release::select_component_tip(&tags, self.effective_mode()? == UpdateMode::Release)
+            .map(|target| target.tag.clone())
+            .ok_or_else(|| {
+                UpdaterError::Precondition(format!("No component image available in {repo}"))
+            })
     }
 
     /// Image repositories are explicit deployment inputs. Shared by commit-mode preflight,
@@ -489,6 +520,7 @@ impl Worker {
             .expect("worker rx already taken");
         let me = self.clone();
         proxy_update::resume_pending(self.clone());
+        self_update::resume_pending(self.clone());
 
         // Periodic poller. Interval is re-read each cycle so prefs hot-reload without restart.
         // Each tick enqueues CheckUpdates on the single-slot worker channel.
@@ -701,7 +733,7 @@ impl Worker {
                 }
                 Command::SelfUpdate { actor, reply } => {
                     let res = match self.require_idle_mutation() {
-                        Ok(()) => self_update::run(self.clone(), actor).await,
+                        Ok(()) => self_update::schedule(self.clone(), actor),
                         Err(error) => Err(error),
                     };
                     let _ = reply.send(res);
@@ -749,8 +781,7 @@ impl Worker {
             return Ok(jid);
         }
 
-        self_update::require_no_pending_handoff(&self.state)?;
-        proxy_update::require_no_pending(&self.state)?;
+        self.require_no_component_update()?;
         if let Some(_existing) = self.state.read_current_job()? {
             return Err(UpdaterError::Conflict);
         }
@@ -801,8 +832,7 @@ impl Worker {
         snapshot_id: String,
         actor: Option<String>,
     ) -> Result<String> {
-        self_update::require_no_pending_handoff(&self.state)?;
-        proxy_update::require_no_pending(&self.state)?;
+        self.require_no_component_update()?;
         if let Some(existing) = self.state.read_current_job()?
             && self.state.read_job(&existing)?.status != JobStatus::NeedsManual
         {

@@ -369,3 +369,37 @@ mod tests {
         assert_eq!(release_channel_name_for_self_update("preview"), "preview");
     }
 }
+
+/// Docker tag syntax only. Version ordering and channel are selection preferences.
+pub(crate) fn validate_image_tag(tag: &str) -> std::result::Result<(), String> {
+    if tag.is_empty()
+        || tag.len() > 128
+        || !tag
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
+        || matches!(tag.as_bytes()[0], b'.' | b'-')
+    {
+        return Err("invalid image tag".into());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod image_tag_tests {
+    #[test]
+    fn versions_and_channels_do_not_restrict_image_tags() {
+        for tag in [
+            "v0.1.0",
+            "v9.0.0",
+            "preview",
+            "main",
+            "latest",
+            "custom-build",
+        ] {
+            assert!(super::validate_image_tag(tag).is_ok());
+        }
+        for tag in ["", "../image", "foreign/repo:tag", "-flag", "a\nb"] {
+            assert!(super::validate_image_tag(tag).is_err());
+        }
+    }
+}

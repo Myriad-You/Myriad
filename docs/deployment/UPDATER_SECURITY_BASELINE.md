@@ -82,8 +82,7 @@ These are **by design** for single-tenant self-host, not open bugs:
 - The self-update helper is itself trusted target-image code. During a handoff
   it receives the deployment root at `/host/write` and the Guard-policy parent
   directory read-write so atomic file replacement works. Compose definitions
-  are separately mounted read-only and the helper validates the fixed three-service
-  model, but narrowing the writable host surface further remains desirable.
+  are separately mounted read-only and the helper checks the three selected service images, but narrowing the writable host surface further remains desirable.
 - `GUARD_SELF_UPDATE_TOKEN` is a second defense against accidental guard-network
   membership drift, not a defense against the updater that legitimately reads
   it. If another service is attached to guard-net and also receives this secret,
@@ -96,7 +95,7 @@ These are **by design** for single-tenant self-host, not open bugs:
 The normal path is the admin UI's one-click TCB upgrade. Updater provides only a
 tag intent plus the host-policy capability; Guard fixes the official repository,
 resolves the pulled image to an
-exact digest, validates the current TCB/downgrade fences, and launches a fixed
+exact digest, records the current component images, and launches a fixed
 handoff from that exact image. The handoff updates the host policy and the three
 TCB services, verifies their resulting digests, and automatically restores the
 previous policy/image on failure.
@@ -113,10 +112,10 @@ Compose file and deploy script, and run `deploy.sh doctor`. Keep a copy of the
 previous policy/digest as the manual recovery point; updater-writable state is
 never the source of repository or digest identity.
 
-If three fixed previous-digest recovery attempts are exhausted, Guard keeps the
-mutation gate closed and preserves the daemon sentinel
-`myriad-tcb-self-update-recovery-exhausted`. Restore and verify the three TCB
-services from the host first; only then remove that sentinel and restart Guard.
+Guard owns recovery attempts; the helper does not retry the full rollback internally.
+After recovery fails and helper execution has stopped, the failed result remains visible and
+a new update can be requested. Cleanup is not a prerequisite for saving the result.
+An executor that cannot yet be stopped retains exclusion until it is stopped.
 
 ---
 

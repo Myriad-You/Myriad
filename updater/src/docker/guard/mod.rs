@@ -34,10 +34,8 @@ pub use config::GuardConfig;
 use config::{digest_reference_matches, ensure_host_policy_file, validate_guard_image_ref};
 use forward::{daemon_json, discover_host_compose_root, handle};
 use self_update::{
-    cleanup_helper, fail_exhausted_pending_handoff, failed_status_matches_attempt,
-    helper_container_exists, helper_container_exit_code, helper_container_running,
-    inspect_handoff_attempt, mark_recovery_exhausted, monitor_handoff,
-    recovery_attempt_from_status, recovery_is_durably_exhausted, restart_helper,
+    cleanup_helper, helper_container_exists, helper_container_exit_code, helper_container_running,
+    inspect_handoff_attempt, monitor_handoff, recovery_attempt_from_status, restart_helper,
     resume_staged_recovery, stop_helper, wait_for_helper_absence,
 };
 
@@ -90,28 +88,23 @@ pub async fn run(mut config: GuardConfig) -> Result<()> {
         mutation_gate: Arc::new(AtomicUsize::new(0)),
         log_read_gate: Arc::new(Semaphore::new(MAX_CONCURRENT_LOG_READS)),
     };
-    let recovery_exhausted =
-        helper_container_exists(&state.config.socket_path, SELF_UPDATE_EXHAUSTED_NAME).await?;
-    let residual_helper = if recovery_exhausted {
-        None
-    } else if helper_container_exists(&state.config.socket_path, SELF_UPDATE_RECOVERY_NAME).await? {
-        Some((SELF_UPDATE_RECOVERY_NAME, true))
-    } else if helper_container_exists(&state.config.socket_path, SELF_UPDATE_HELPER_NAME).await? {
-        Some((SELF_UPDATE_HELPER_NAME, false))
-    } else {
-        None
-    };
-    if recovery_exhausted {
-        state
-            .mutation_gate
-            .store(SELF_UPDATE_GATE, Ordering::SeqCst);
-        error!(
-            helper = SELF_UPDATE_EXHAUSTED_NAME,
-            "previous-digest recovery retries are exhausted; host recovery is required"
-        );
-        fail_exhausted_pending_handoff(&state);
-        startup::schedule_reconciliation(state.clone(), true);
-    } else if let Some((helper_name, recovery_only)) = residual_helper {
+    // v0.5.3 retained exhausted recovery under a third name. Treat it as a
+    // stopped recovery, not a permanent lock. Remove this name next release.
+    let residual_helper =
+        if helper_container_exists(&state.config.socket_path, SELF_UPDATE_RECOVERY_NAME).await? {
+            Some((SELF_UPDATE_RECOVERY_NAME, true))
+        } else if helper_container_exists(&state.config.socket_path, SELF_UPDATE_HELPER_NAME)
+            .await?
+        {
+            Some((SELF_UPDATE_HELPER_NAME, false))
+        } else if helper_container_exists(&state.config.socket_path, SELF_UPDATE_EXHAUSTED_NAME)
+            .await?
+        {
+            Some((SELF_UPDATE_EXHAUSTED_NAME, true))
+        } else {
+            None
+        };
+    if let Some((helper_name, recovery_only)) = residual_helper {
         state
             .mutation_gate
             .store(SELF_UPDATE_GATE, Ordering::SeqCst);
@@ -135,7 +128,9 @@ pub async fn run(mut config: GuardConfig) -> Result<()> {
                 "trusted helper name and mode disagree"
             );
         }
-        let recovered_retries = if recovery_only {
+        let recovered_retries = if helper_name == SELF_UPDATE_EXHAUSTED_NAME {
+            2
+        } else if recovery_only {
             attempt
                 .as_ref()
                 .map(|attempt| recovery_attempt_from_status(&state, attempt))
@@ -144,7 +139,6 @@ pub async fn run(mut config: GuardConfig) -> Result<()> {
             0
         };
         let mut monitor_ready = true;
-        let mut durable_exhausted = false;
         if recovery_only {
             let docker_host = format!("unix://{}", state.config.socket_path.display());
             let normal_absent =
@@ -170,24 +164,9 @@ pub async fn run(mut config: GuardConfig) -> Result<()> {
                 .await
                 .ok()
                 .flatten();
-            let recovery_succeeded = recovery_exit == Some(0);
-            durable_exhausted = recovery_is_durably_exhausted(
-                recovery_exit,
-                recovered_retries,
-                attempt
-                    .as_ref()
-                    .is_some_and(|attempt| failed_status_matches_attempt(&state, attempt)),
-            );
-            if durable_exhausted {
-                let _ = mark_recovery_exhausted(&docker_host, helper_name).await;
-                error!(
-                    helper = helper_name,
-                    "durable recovery failure is exhausted; retaining mutation gate"
-                );
-                monitor_ready = false;
-            } else if !normal_absent
+            if !normal_absent
                 || (!recovery_running
-                    && !recovery_succeeded
+                    && recovery_exit.is_none()
                     && !restart_helper(&docker_host, helper_name).await)
             {
                 error!(
@@ -226,14 +205,14 @@ pub async fn run(mut config: GuardConfig) -> Result<()> {
                 recovery_only,
                 recovered_retries,
             );
-        } else if !durable_exhausted && let Some(attempt) = attempt {
+        } else if let Some(attempt) = attempt {
             resume_staged_recovery(state.clone(), attempt, recovered_retries);
         }
     } else {
         if state.config.allow_unpinned_dev {
             let _ = self_update::finalize_or_fail_orphaned_pending_handoff(&state).await;
         } else {
-            startup::schedule_reconciliation(state.clone(), false);
+            startup::schedule_reconciliation(state.clone());
         }
     }
 

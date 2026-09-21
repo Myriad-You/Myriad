@@ -22,8 +22,9 @@ tag，而不是并行保留 A/B 两套在线分区。
 
 以下过渡逻辑在本次改动发布后的下一版移除：
 
-- v0.5.3 Guard 在写入受理状态前返回 HTTP 响应。新版 updater 等它写出新记录后才释放操作队列；新版 Guard 在响应中确认状态已写入，直接走异步流程。
+- v0.5.3 Guard 在写入受理状态前返回 HTTP 响应。新版 updater 在后台等待它写出新记录，期间保持更新互斥；新版 Guard 在响应中确认状态已写入，直接走异步流程。
 - v0.5.3 proxy 接口同步等待结果，替换期间可能丢失响应。页面沿用旧版 90 分钟的结果观察窗口，使用同一个状态轮询等待新结果；组件返回的 `scheduled` 缺失不会被当成错误。
+- 旧 Guard 的恢复 helper 镜像身份约定、混合版本恢复标签，以及旧的恢复耗尽容器名，由新版自动识别和处理。
 - 自更新响应中的 `helper_container_id`，以及 proxy 响应中的 `image_ref`、`pulled_digest`，只为旧客户端保留。是否完成由持久状态确定。
 
 生产代码只保留一份 Compose 文件发现、一份业务镜像准备流程和一套页面状态轮询。worker 的停止、镜像能力和健康检查共用读取结果，但 federation 正常退出与 persona 持续运行的条件分别保留。
@@ -691,57 +692,41 @@ image ID、摘要和内置版本，再同步 `.env` 的 `UPDATER_TAG`、`UPDATER
 正在进行的升级/回滚优先；组件混版、不健康或无法验证时不覆盖固定值，并记录原因。
 只改 tag 而没有真正换镜像不会被视为已升级，配置会同步为实际运行版本。
 
-当前私有仓库阶段的自动交接流程（#265 的显式 `dockerhub_tag` 路径）：
+自更新直接从组件自己的 Docker Hub 仓库选版本，不下载业务 release.json 或签名文件。
+版本偏好只用于默认选择；Guard 接受合法 Docker tag，不按版本号、构建时间或分支名称拒绝请求。
 
-1. Guard 接受请求前写入 Pending，HTTP 随即返回已安排，由 UI 轮询既有状态文件；
-   Pending 期间排斥其他更新操作。Guard 只接受 `vX.Y.Z` / `dev-<sha>`，固定编译内置的官方 updater 仓库；tag 仅是意图。
-2. Guard 通过宿主 Docker daemon 拉取 `official_repo:tag`，从实际镜像 `RepoDigests` 得到
-   `official_repo@sha256`；禁止 release semver 与镜像创建时间回退。
-3. Guard 先确认当前 updater/gateway 与宿主固定的旧 Guard digest 一致，再从目标精确
-   digest 启动固定入口 `myriad-tcb-self-update`。请求方不能提供 entrypoint/argv/mount。
-4. 交接程序先校验渲染后的三项服务模型、镜像、网络、挂载、entrypoint 与安全选项；
-   旧 Compose 的 tag 引用只需解析为选定的实际 Image ID，无需用户改写配置。只执行
-   `docker compose up --pull never --no-deps --force-recreate docker-guard updater updater-gateway`。
-5. 成功时原子写入 `.env` 的 `UPDATER_TAG` / `UPDATER_IMAGE_REF` 与宿主策略的
-   `DOCKER_GUARD_IMAGE`；任一步失败恢复旧文件并用旧精确 digest 回滚。状态写入
-   `state/self-update-last.json`，UI 在短暂断线后轮询结果。
+1. Worker 持久化 Pending 后立即返回，在后台选版本。`queued` 表示尚未交给 Guard；
+   重启后继续同一请求，查询失败写入失败结果。
+2. Guard 用独立 capability 受理，固定官方仓库，通过 Docker daemon 拉取并解析精确镜像。
+   更新前记录各服务的实际镜像，不要求旧服务已经健康。
+3. helper 使用宿主 Compose，只检查目标服务存在且选择了本次镜像；不限制健康命令、
+   挂载列表、网络列表或启动脚本的具体写法。执行 `up --pull never --no-deps --force-recreate`。
+4. helper 检查替换后的实际镜像与健康状态。它不发布失败终态，也不在内部再做一套回滚。
+   Guard 负责恢复；恢复使用先前 Guard 镜像中的 helper 和各服务原有镜像。
+5. Guard 在执行结束后写入最终结果，暂时写入失败只重试保存，不重新替换。
+   已停止 helper 的清理失败不会丢失结果或无限锁住更新。恢复失败、执行已停止时允许再次更新。
 
-这里的“原子”仅指单个策略文件的临时文件替换，不表示 Docker Compose 的三容器切换是
-事务。交接程序以固定摘要、健康检查、稳定性等待和最多两次回滚收敛保证最终一致；Guard
-异常重启时从保留的固定 helper 容器恢复意图，且在 helper 未清理或回滚未收敛时保持
-Docker mutation gate 关闭。
-三次旧摘要恢复都失败时，Guard 将失败 helper 固定重命名为
-`myriad-tcb-self-update-recovery-exhausted`；该 Docker daemon sentinel 跨 Guard 重启保留，
-阻止重启后重置重试预算。宿主完成手动 TCB 恢复和校验后才能删除它并重启 Guard。
+策略文件各自原子写入，不把多文件或多容器切换称作事务。Guard 重启从 Docker 中保留的
+helper 配置恢复执行信息；helper 不存在时核对实际运行状态并结束遗留 Pending。
+`self-update-last.json` 保存结果，`queued` 记录交接阶段；运行中的任务和 Guard 负责互斥。
 
-该路径信任 Docker Hub 官方仓库身份和 TLS/registry 控制面。Guard 解析出的 registry
-digest **没有**与签名 release manifest 中的 `expected_digest` 做字节级绑定，因此不声称
-做了 release.json/Cosign 验证。公开 GA 前按 #265 增加该签名证明路径；正常用户操作仍
-保持同一个一键按钮。
-4. 运行 `deploy.sh doctor`，确认运行镜像与期望 digest 完全一致且无旧版动态策略/token。
-
-回滚同样由宿主把策略文件恢复到此前已验证的 digest 后重建 TCB。不得从 updater 的
-`state/` 或 `.env` 自动决定回滚 Guard 身份。业务镜像的日常更新仍经
-`DOCKER_HOST=tcp://docker-guard:2375` 受固定请求体与镜像策略约束。
+这里信任官方镜像仓库及 registry 传输。digest 用于固定本次执行与恢复的内容身份，
+不声称它证明了发布者签名，也不要求用户填写摘要。
 
 ### 14.4 proxy 升级
 
-`POST /admin/proxy-update` 先记录 Pending 并返回受理结果。后台选择 proxy 自己的
-版本，拉取、替换并检查实际镜像身份和 /healthz；不使用业务程序的版本作为默认目标。
+先持久化 Pending，再后台执行。Proxy 与自更新共用组件版本选择，不借用业务程序版本。
+选定后拉取镜像，按固定 digest 重建并验证健康；失败按原容器镜像恢复，即使原 tag 已移动。
+临时的 Compose 环境变量固定本次镜像，不向宿主配置添加永久覆盖文件。
+结果保存失败自动重试保存；重启后自动继续 Pending。旧结果文件无法解析时不阻断整个状态页。
 
-失败时自动恢复旧 PROXY_TAG 并重建旧容器，确认旧镜像运行且 /healthz 正常后才记录
-`rolled_back: true`。解析或拉取失败也会写入终态，避免页面一直等待。
-结果保存在既有的 `proxy-update-last.json`，通过 GET /status 读取。
-Pending 期间不接受其他更新，进程重启后继续同一目标并保留原版本用于恢复。
-页面重新打开后依据 Pending 继续刷新状态。
 
 ### 14.2 兜底
 
 用户可在部署目录手动执行（宿主机管理员路径）：
 
 ```
-# 生产请改 UPDATER_IMAGE_REF 与 DOCKER_GUARD_IMAGE（同一 digest），再重建 TCB
-# 无 pin 的开发安装才改 UPDATER_TAG
+# 修改 UPDATER_TAG 后重建；启动时自动同步实际镜像身份
 docker compose --env-file .env --env-file ./guard-policy/docker-guard.env up -d docker-guard updater updater-gateway
 ```
 

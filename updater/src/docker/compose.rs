@@ -201,8 +201,17 @@ impl ComposeRunner {
 
     /// Run `compose <args...>` with a timeout. Captures stdout/stderr (last 32 KiB each).
     pub async fn run(&self, args: &[&str], timeout: Duration) -> Result<ComposeOutput> {
+        self.run_with_env(args, timeout, &[]).await
+    }
+
+    pub(crate) async fn run_with_env(
+        &self,
+        args: &[&str],
+        timeout: Duration,
+        env: &[(&str, &str)],
+    ) -> Result<ComposeOutput> {
         let mut cmd = self.base_cmd();
-        cmd.args(args);
+        cmd.args(args).envs(env.iter().copied());
         debug!(?args, project = %self.project, "compose exec");
 
         let mut child = cmd
