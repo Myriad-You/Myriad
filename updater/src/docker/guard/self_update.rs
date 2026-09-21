@@ -276,6 +276,7 @@ pub(crate) async fn handle_self_update(state: GuardState, req: Request<Body>) ->
         StatusCode::ACCEPTED,
         axum::Json(json!({
             "scheduled": true,
+            "status_persisted": true,
             "executor": "docker-guard",
             "target_tag": target_tag,
             "services": ["docker-guard", "updater", "updater-gateway"],

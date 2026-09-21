@@ -25,7 +25,7 @@ use std::sync::Arc;
 use tracing::{info, warn};
 
 use crate::config::Channel;
-use crate::docker::self_update_helper::{SelfUpdateLastStatus, SelfUpdateOutcome};
+use crate::docker::self_update_helper::SelfUpdateOutcome;
 use crate::error::{Result, UpdaterError};
 use crate::release::{CosignPolicy, GithubClient};
 use crate::version::{
@@ -57,12 +57,24 @@ pub async fn run(worker: Arc<Worker>, actor: Option<String>) -> Result<SelfUpdat
         trust_path = resolved.trust_path,
         "self-update: requesting docker guard TCB replacement"
     );
-    schedule_guarded_recreate(
+    let before_at = crate::docker::self_update_helper::read_status(worker.state().root())?
+        .map(|status| status.at);
+    let persisted = schedule_guarded_recreate(
         &resolved.tag,
         resolved.trust_path,
         worker.config().guard_self_update_token.expose(),
     )
     .await?;
+    // Compatibility with v0.5.3 Guard: it replies before persisting acceptance.
+    // Keep the queue until Guard owns a visible outcome; remove next release.
+    if !persisted {
+        wait_for_legacy_guard_acceptance(
+            worker.state().root(),
+            &resolved.tag,
+            before_at.as_deref(),
+        )
+        .await?;
+    }
 
     let actor_suffix = actor
         .as_deref()
@@ -92,16 +104,36 @@ pub async fn run(worker: Arc<Worker>, actor: Option<String>) -> Result<SelfUpdat
 }
 
 pub(crate) fn require_no_pending_handoff(state: &crate::state::StateDir) -> Result<()> {
-    let bytes = match std::fs::read(state.root().join("self-update-last.json")) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error.into()),
+    let Some(status) = crate::docker::self_update_helper::read_status(state.root())? else {
+        return Ok(());
     };
-    let status: SelfUpdateLastStatus = serde_json::from_slice(&bytes)?;
     if status.status == SelfUpdateOutcome::Pending {
         return Err(UpdaterError::Conflict);
     }
     Ok(())
+}
+
+// Compatibility with v0.5.3; remove in the release after this refactor ships.
+async fn wait_for_legacy_guard_acceptance(
+    root: &std::path::Path,
+    target: &str,
+    before_at: Option<&str>,
+) -> Result<()> {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(90 * 60);
+    loop {
+        if let Some(status) = crate::docker::self_update_helper::read_status(root)?
+            && status.target_tag == target
+            && Some(status.at.as_str()) != before_at
+        {
+            return Ok(());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(UpdaterError::Precondition(
+                "Guard has not recorded self-update acceptance".into(),
+            ));
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
 }
 
 /// Prefer a strictly verified release manifest, then use Docker Hub immutable
@@ -257,7 +289,7 @@ async fn schedule_guarded_recreate(
     target_tag: &str,
     trust_path: &str,
     guard_self_update_token: &str,
-) -> Result<()> {
+) -> Result<bool> {
     let endpoint = std::env::var("DOCKER_GUARD_SELF_UPDATE_URL")
         .unwrap_or_else(|_| "http://docker-guard:2375/_myriad/self-update".into());
     let response = reqwest::Client::builder()
@@ -278,7 +310,11 @@ async fn schedule_guarded_recreate(
             "docker guard rejected self-update ({status}): {detail}"
         )));
     }
-    Ok(())
+    let accepted: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|error| UpdaterError::Docker(format!("read Guard acceptance: {error}")))?;
+    Ok(accepted["status_persisted"].as_bool().unwrap_or(false))
 }
 
 fn self_update_request_body(target_tag: &str, trust_path: &str) -> serde_json::Value {
@@ -290,6 +326,7 @@ fn self_update_request_body(target_tag: &str, trust_path: &str) -> serde_json::V
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SelfUpdateReport {
+    // Compatibility with v0.5.3 clients; remove next release.
     pub helper_container_id: String,
     pub new_updater_tag: String,
     pub previous_updater_tag: String,
@@ -299,6 +336,31 @@ pub struct SelfUpdateReport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn v053_guard_acceptance_waits_for_a_fresh_record_not_completion() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_owned();
+        let path = root.join("self-update-last.json");
+        let old = serde_json::json!({"status":"succeeded", "target_tag":"v0.5.4", "previous_tag":"v0.5.3", "at":"old"});
+        std::fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+        let task = tokio::spawn(async move {
+            wait_for_legacy_guard_acceptance(&root, "v0.5.4", Some("old")).await
+        });
+        tokio::task::yield_now().await;
+        assert!(!task.is_finished());
+        let mut accepted = old;
+        accepted["status"] = serde_json::json!("pending");
+        accepted["at"] = serde_json::json!("new");
+        std::fs::write(&path, serde_json::to_vec(&accepted).unwrap()).unwrap();
+        tokio::time::advance(std::time::Duration::from_secs(1)).await;
+        task.await.unwrap().unwrap();
+        let state = crate::state::StateDir::open(dir.path()).unwrap();
+        assert!(matches!(
+            require_no_pending_handoff(&state),
+            Err(UpdaterError::Conflict)
+        ));
+    }
 
     #[test]
     fn accepted_handoff_excludes_mutations_until_durable_terminal_outcome() {

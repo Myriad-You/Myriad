@@ -331,10 +331,6 @@ async fn run_release_with_manifest(
         }
     }
 
-    check_env_keys(worker.as_ref(), Some(&manifest))?;
-    check_disk(worker.as_ref())?;
-    crate::worker::preflight_env::check_local_environment(&worker).await?;
-
     let backend = manifest
         .image("backend")
         .ok_or_else(|| UpdaterError::Precondition("manifest lacks backend image".into()))?;
@@ -342,37 +338,8 @@ async fn run_release_with_manifest(
         .image("frontend")
         .ok_or_else(|| UpdaterError::Precondition("manifest lacks frontend image".into()))?;
 
-    for img in [&backend.r#ref, &frontend.r#ref] {
-        if img.ends_with(":latest") {
-            return Err(UpdaterError::Precondition(format!(
-                "image ref must use immutable tag, got: {img}"
-            )));
-        }
-    }
-
-    let backend_pulled = worker
-        .pull_image(&backend.r#ref)
-        .await
-        .map_err(|e| UpdaterError::Precondition(format!("pull backend: {e}")))?;
-    let frontend_pulled = worker
-        .pull_image(&frontend.r#ref)
-        .await
-        .map_err(|e| UpdaterError::Precondition(format!("pull frontend: {e}")))?;
-
-    if !digest_matches(&backend_pulled, &backend.digest) {
-        return Err(UpdaterError::Precondition(format!(
-            "backend digest mismatch: pulled {backend_pulled}, expected {}",
-            backend.digest
-        )));
-    }
-    if !digest_matches(&frontend_pulled, &frontend.digest) {
-        return Err(UpdaterError::Precondition(format!(
-            "frontend digest mismatch: pulled {frontend_pulled}, expected {}",
-            frontend.digest
-        )));
-    }
-
-    check_compose_networks(&worker, &backend.r#ref).await?;
+    let [backend_image_id, frontend_image_id] =
+        prepare_images(&worker, Some(&manifest), [&backend.r#ref, &frontend.r#ref]).await?;
     let estimated = manifest.migrations.estimated_seconds;
     let target_commit_sha = match manifest.commit_sha.clone() {
         some @ Some(_) => some,
@@ -384,8 +351,6 @@ async fn run_release_with_manifest(
             }
         },
     };
-    let backend_image_id = worker.docker().image_id(&backend.r#ref).await?;
-    let frontend_image_id = worker.docker().image_id(&frontend.r#ref).await?;
     Ok(PreflightReport {
         manifest: Some(manifest),
         from_version,
@@ -510,39 +475,13 @@ async fn run_release_via_dockerhub(
     }
 
     // No manifest: cannot enforce min_from_version / irreversible / min_updater_version.
-    check_env_keys(worker.as_ref(), None)?;
-    check_disk(worker.as_ref())?;
-    crate::worker::preflight_env::check_local_environment(&worker).await?;
-
     let (backend_repo, frontend_repo) = worker.image_repos_required()?;
     let tag = release.as_str();
     let backend_ref = format!("{backend_repo}:{tag}");
     let frontend_ref = format!("{frontend_repo}:{tag}");
 
-    for img in [&backend_ref, &frontend_ref] {
-        if img.ends_with(":latest") {
-            return Err(UpdaterError::Precondition(format!(
-                "image ref must use immutable tag, got: {img}"
-            )));
-        }
-    }
-
-    info!(
-        backend = %backend_ref,
-        frontend = %frontend_ref,
-        "preflight(release): pulling release images via Docker Hub"
-    );
-
-    worker.pull_image(&backend_ref).await.map_err(|e| {
-        UpdaterError::Precondition(format!(
-            "pull backend {backend_ref}: {e} (is release {tag} published on Docker Hub?)"
-        ))
-    })?;
-    worker.pull_image(&frontend_ref).await.map_err(|e| {
-        UpdaterError::Precondition(format!(
-            "pull frontend {frontend_ref}: {e} (is release {tag} published on Docker Hub?)"
-        ))
-    })?;
+    let [backend_image_id, frontend_image_id] =
+        prepare_images(&worker, None, [&backend_ref, &frontend_ref]).await?;
 
     // Optional commit_sha when GitHub is reachable but only the release asset was missing.
     let target_commit_sha = if worker.github_commit_metadata_enabled() {
@@ -564,14 +503,13 @@ async fn run_release_via_dockerhub(
         None
     };
 
-    check_compose_networks(&worker, &backend_ref).await?;
     Ok(PreflightReport {
         manifest: None,
         from_version,
         target: target.clone(),
         target_commit_sha,
-        backend_image_id: worker.docker().image_id(&backend_ref).await?,
-        frontend_image_id: worker.docker().image_id(&frontend_ref).await?,
+        backend_image_id,
+        frontend_image_id,
         estimated_seconds: 60,
         is_downgrade,
         is_diverged,
@@ -732,46 +670,59 @@ async fn run_commit(
         warn!(to = %effective, "preflight: explicit commit DOWNgrade allowed");
     }
 
-    check_env_keys(worker.as_ref(), None)?;
-    check_disk(worker.as_ref())?;
-    crate::worker::preflight_env::check_local_environment(&worker).await?;
-
     let (backend_repo, frontend_repo) = worker.image_repos_required()?;
     let tag = effective.as_str();
     let backend_ref = format!("{backend_repo}:{tag}");
     let frontend_ref = format!("{frontend_repo}:{tag}");
 
-    for img in [&backend_ref, &frontend_ref] {
-        if img.ends_with(":latest") {
-            return Err(UpdaterError::Precondition(format!(
-                "image ref must use immutable tag, got: {img}"
-            )));
-        }
-    }
-
-    worker.pull_image(&backend_ref).await.map_err(|e| {
-        UpdaterError::Precondition(format!(
-            "pull backend {backend_ref}: {e} (is the commit built by CI?)"
-        ))
-    })?;
-    worker.pull_image(&frontend_ref).await.map_err(|e| {
-        UpdaterError::Precondition(format!(
-            "pull frontend {frontend_ref}: {e} (is the commit built by CI?)"
-        ))
-    })?;
-
-    check_compose_networks(&worker, &backend_ref).await?;
+    let [backend_image_id, frontend_image_id] =
+        prepare_images(&worker, None, [&backend_ref, &frontend_ref]).await?;
     Ok(PreflightReport {
         manifest: None,
         from_version,
         target: effective,
         target_commit_sha,
-        backend_image_id: worker.docker().image_id(&backend_ref).await?,
-        frontend_image_id: worker.docker().image_id(&frontend_ref).await?,
+        backend_image_id,
+        frontend_image_id,
         estimated_seconds: 60,
         is_downgrade,
         is_diverged,
     })
+}
+
+/// All target sources use the same checks, pulls and local image identities.
+async fn prepare_images(
+    worker: &Arc<Worker>,
+    manifest: Option<&Manifest>,
+    images: [&str; 2],
+) -> Result<[String; 2]> {
+    check_env_keys(worker, manifest)?;
+    check_disk(worker)?;
+    crate::worker::preflight_env::check_local_environment(worker).await?;
+    for (role, image) in ["backend", "frontend"].into_iter().zip(images) {
+        if image.ends_with(":latest") {
+            return Err(UpdaterError::Precondition(format!(
+                "image ref must use immutable tag, got: {image}"
+            )));
+        }
+        let pulled = worker
+            .pull_image(image)
+            .await
+            .map_err(|error| UpdaterError::Precondition(format!("pull {role} {image}: {error}")))?;
+        if let Some(expected) = manifest.and_then(|manifest| manifest.image(role))
+            && !digest_matches(&pulled, &expected.digest)
+        {
+            return Err(UpdaterError::Precondition(format!(
+                "{role} digest mismatch: pulled {pulled}, expected {}",
+                expected.digest
+            )));
+        }
+    }
+    check_compose_networks(worker, images[0]).await?;
+    Ok([
+        worker.docker().image_id(images[0]).await?,
+        worker.docker().image_id(images[1]).await?,
+    ])
 }
 
 fn require_downgrade(allowed: bool, target: &str) -> Result<()> {
@@ -893,16 +844,7 @@ async fn check_compose_networks(worker: &Arc<Worker>, backend_image: &str) -> Re
     })?;
 
     // Topology / volume / project-label contract — inspect only; does not alter compose.
-    let workers = [
-        worker
-            .docker()
-            .supports_federation_worker(backend_image)
-            .await?,
-        worker
-            .docker()
-            .supports_persona_worker(backend_image)
-            .await?,
-    ];
+    let workers = worker.docker().worker_support(backend_image).await?;
     crate::worker::preflight_env::check_compose_contract(
         worker,
         &config,

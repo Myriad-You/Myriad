@@ -12,6 +12,8 @@ use tracing::{debug, warn};
 
 use crate::error::{Result, UpdaterError};
 
+pub(crate) const APP_WORKERS: [&str; 2] = ["federation-worker", "persona-worker"];
+
 pub struct DockerClient {
     inner: Docker,
 }
@@ -296,9 +298,8 @@ impl DockerClient {
         Ok(())
     }
 
-    async fn federation_worker_present(&self) -> Result<bool> {
-        // Guard intentionally turns unauthorized/missing inspect into 403. Use
-        // the read-only inventory to distinguish absence from an inspect failure.
+    async fn worker_names(&self) -> Result<Vec<String>> {
+        // Guard denies missing inspect requests; inventory distinguishes absence.
         let options = bollard::query_parameters::ListContainersOptionsBuilder::default()
             .all(true)
             .build();
@@ -306,250 +307,102 @@ impl DockerClient {
             .inner
             .list_containers(Some(options))
             .await
-            .map_err(|e| UpdaterError::Docker(format!("list worker presence: {e}")))?;
-        Ok(containers.iter().any(|container| {
-            container.names.as_ref().is_some_and(|names| {
-                names
-                    .iter()
-                    .any(|name| name.trim_start_matches('/') == "myriad-federation-worker")
-            })
+            .map_err(|error| UpdaterError::Docker(format!("list workers: {error}")))?;
+        Ok(containers
+            .into_iter()
+            .flat_map(|container| container.names.unwrap_or_default())
+            .map(|name| name.trim_start_matches('/').to_owned())
+            .collect())
+    }
+
+    /// Also stops a writer removed from the host Compose file.
+    pub async fn stop_worker(&self, role: &str) -> Result<()> {
+        let name = format!("myriad-{role}");
+        if !self.worker_names().await?.contains(&name) {
+            return Ok(());
+        }
+        // force_stop_container already verifies the terminal state after stop/kill.
+        self.force_stop_container(&name).await
+    }
+
+    pub async fn worker_support(&self, image: &str) -> Result<[bool; 2]> {
+        let info =
+            self.inner.inspect_image(image).await.map_err(|error| {
+                UpdaterError::Docker(format!("inspect worker capability: {error}"))
+            })?;
+        let labels = info
+            .config
+            .and_then(|config| config.labels)
+            .unwrap_or_default();
+        Ok(APP_WORKERS.map(|role| {
+            labels
+                .get(&format!("io.myriad.runtime.{role}"))
+                .is_some_and(|value| value == "1")
         }))
     }
 
-    /// Quiesce the optional writer even if the host compose file no longer
-    /// mentions it. Inspection errors are not evidence that it has stopped.
-    pub async fn stop_federation_worker(&self) -> Result<()> {
-        const NAME: &str = "myriad-federation-worker";
-        for attempt in 0..12 {
-            if !self.federation_worker_present().await? {
-                return Ok(());
-            }
-            match self.inner.inspect_container(NAME, None).await {
-                Err(bollard::errors::Error::DockerResponseServerError {
-                    status_code: 404, ..
-                }) => return Ok(()),
-                Err(error) => {
-                    return Err(UpdaterError::Docker(format!(
-                        "verify worker stopped: {error}"
-                    )));
-                }
-                Ok(info) => match info.state.and_then(|state| state.running) {
-                    Some(false) => return Ok(()),
-                    Some(true) if attempt == 0 => self.force_stop_container(NAME).await?,
-                    Some(true) => tokio::time::sleep(Duration::from_millis(200)).await,
-                    None => {
-                        return Err(UpdaterError::Docker(
-                            "worker running state unavailable".into(),
-                        ));
-                    }
-                },
-            }
-        }
-        Err(UpdaterError::Precondition(
-            "federation worker is still writing; database restore forbidden".into(),
-        ))
-    }
-
-    /// Inspect the running backend's immutable image identity and role. This
-    /// needs neither compose subprocesses on every health tick nor worker-network access.
-    pub async fn federation_worker_healthy(&self) -> Result<bool> {
-        let backend = match self.inner.inspect_container("myriad-backend", None).await {
-            Ok(value) => value,
-            Err(_) => self
-                .inner
-                .inspect_container("backend", None)
-                .await
-                .map_err(|e| UpdaterError::Docker(format!("inspect backend role: {e}")))?,
-        };
-        let backend_image = backend
+    pub async fn workers_healthy(&self) -> Result<bool> {
+        let backend = self
+            .inner
+            .inspect_container("myriad-backend", None)
+            .await
+            .map_err(|error| UpdaterError::Docker(format!("inspect backend role: {error}")))?;
+        let image = backend
             .image
             .ok_or_else(|| UpdaterError::Docker("backend image identity missing".into()))?;
-        let split = backend
+        let web = backend
             .config
             .as_ref()
-            .and_then(|c| c.env.as_ref())
-            .is_some_and(|env| env.iter().any(|v| v == "MYRIAD_PROCESS_ROLE=web"))
-            && self.supports_federation_worker(&backend_image).await?;
-        if !self.federation_worker_present().await? {
-            return Ok(!split);
-        }
-        let worker = match self
-            .inner
-            .inspect_container("myriad-federation-worker", None)
-            .await
-        {
-            Ok(value) => Some(value),
-            Err(bollard::errors::Error::DockerResponseServerError {
-                status_code: 404, ..
-            }) => None,
-            Err(error) => {
-                return Err(UpdaterError::Docker(format!(
-                    "inspect federation worker: {error}"
-                )));
-            }
+            .and_then(|config| config.env.as_ref())
+            .is_some_and(|env| env.iter().any(|value| value == "MYRIAD_PROCESS_ROLE=web"));
+        let support = if web {
+            self.worker_support(&image).await?
+        } else {
+            [false, false]
         };
-        if !split {
-            return Ok(worker.and_then(|w| w.state).and_then(|s| s.running) != Some(true));
-        }
-        let Some(worker) = worker else {
-            return Ok(false);
-        };
-        if worker.image.as_deref() != Some(backend_image.as_str()) {
-            return Ok(false);
-        }
-        let Some(state) = worker.state else {
-            return Ok(false);
-        };
-        if state.running == Some(true) {
-            return Ok(state
-                .health
-                .as_ref()
-                .and_then(|h| h.status.as_ref())
-                .is_some_and(|status| status.to_string().eq_ignore_ascii_case("healthy")));
-        }
-        // Gate-closed worker exits 0; compose `on-failure` leaves it down.
-        Ok(state.exit_code == Some(0))
-    }
-
-    /// Capability is read from the actual local image, not inferred from a tag.
-    /// Old images lack the worker executable and must keep their combined backend.
-    pub async fn supports_federation_worker(&self, image: &str) -> Result<bool> {
-        let info = self
-            .inner
-            .inspect_image(image)
-            .await
-            .map_err(|e| UpdaterError::Docker(format!("inspect worker capability: {e}")))?;
-        Ok(info
-            .config
-            .and_then(|c| c.labels)
-            .and_then(|labels| labels.get("io.myriad.runtime.federation-worker").cloned())
-            .as_deref()
-            == Some("1"))
-    }
-
-    async fn persona_worker_present(&self) -> Result<bool> {
-        // Guard intentionally turns unauthorized/missing inspect into 403. Use
-        // the read-only inventory to distinguish absence from an inspect failure.
-        let options = bollard::query_parameters::ListContainersOptionsBuilder::default()
-            .all(true)
-            .build();
-        let containers = self
-            .inner
-            .list_containers(Some(options))
-            .await
-            .map_err(|e| UpdaterError::Docker(format!("list worker presence: {e}")))?;
-        Ok(containers.iter().any(|container| {
-            container.names.as_ref().is_some_and(|names| {
-                names
-                    .iter()
-                    .any(|name| name.trim_start_matches('/') == "myriad-persona-worker")
-            })
-        }))
-    }
-
-    /// Quiesce the optional writer even if the host compose file no longer
-    /// mentions it. Inspection errors are not evidence that it has stopped.
-    pub async fn stop_persona_worker(&self) -> Result<()> {
-        const NAME: &str = "myriad-persona-worker";
-        for attempt in 0..12 {
-            if !self.persona_worker_present().await? {
-                return Ok(());
-            }
-            match self.inner.inspect_container(NAME, None).await {
-                Err(bollard::errors::Error::DockerResponseServerError {
-                    status_code: 404, ..
-                }) => return Ok(()),
-                Err(error) => {
-                    return Err(UpdaterError::Docker(format!(
-                        "verify worker stopped: {error}"
-                    )));
+        let names = self.worker_names().await?;
+        for (role, supported) in APP_WORKERS.into_iter().zip(support) {
+            let split = web && supported;
+            let name = format!("myriad-{role}");
+            if !names.contains(&name) {
+                if split {
+                    return Ok(false);
                 }
-                Ok(info) => match info.state.and_then(|state| state.running) {
-                    Some(false) => return Ok(()),
-                    Some(true) if attempt == 0 => self.force_stop_container(NAME).await?,
-                    Some(true) => tokio::time::sleep(Duration::from_millis(200)).await,
-                    None => {
-                        return Err(UpdaterError::Docker(
-                            "worker running state unavailable".into(),
-                        ));
-                    }
-                },
+                continue;
             }
-        }
-        Err(UpdaterError::Precondition(
-            "persona worker is still writing; database restore forbidden".into(),
-        ))
-    }
-
-    /// Inspect the running backend's immutable image identity and role. This
-    /// needs neither compose subprocesses on every health tick nor worker-network access.
-    pub async fn persona_worker_healthy(&self) -> Result<bool> {
-        let backend = match self.inner.inspect_container("myriad-backend", None).await {
-            Ok(value) => value,
-            Err(_) => self
+            let worker = self
                 .inner
-                .inspect_container("backend", None)
+                .inspect_container(&name, None)
                 .await
-                .map_err(|e| UpdaterError::Docker(format!("inspect backend role: {e}")))?,
-        };
-        let backend_image = backend
-            .image
-            .ok_or_else(|| UpdaterError::Docker("backend image identity missing".into()))?;
-        let split = backend
-            .config
-            .as_ref()
-            .and_then(|c| c.env.as_ref())
-            .is_some_and(|env| env.iter().any(|v| v == "MYRIAD_PROCESS_ROLE=web"))
-            && self.supports_persona_worker(&backend_image).await?;
-        if !self.persona_worker_present().await? {
-            return Ok(!split);
-        }
-        let worker = match self
-            .inner
-            .inspect_container("myriad-persona-worker", None)
-            .await
-        {
-            Ok(value) => Some(value),
-            Err(bollard::errors::Error::DockerResponseServerError {
-                status_code: 404, ..
-            }) => None,
-            Err(error) => {
-                return Err(UpdaterError::Docker(format!(
-                    "inspect persona worker: {error}"
-                )));
+                .map_err(|error| UpdaterError::Docker(format!("inspect {role}: {error}")))?;
+            let state = worker.state;
+            if !split {
+                if state.and_then(|state| state.running) == Some(true) {
+                    return Ok(false);
+                }
+                continue;
             }
-        };
-        if !split {
-            return Ok(worker.and_then(|w| w.state).and_then(|s| s.running) != Some(true));
-        }
-        let Some(worker) = worker else {
-            return Ok(false);
-        };
-        let healthy = worker.state.as_ref().is_some_and(|state| {
-            state.running == Some(true)
-                && state
+            if worker.image.as_deref() != Some(image.as_str()) {
+                return Ok(false);
+            }
+            let Some(state) = state else {
+                return Ok(false);
+            };
+            let healthy = if state.running == Some(true) {
+                state
                     .health
                     .as_ref()
-                    .and_then(|h| h.status.as_ref())
+                    .and_then(|health| health.status.as_ref())
                     .is_some_and(|status| status.to_string().eq_ignore_ascii_case("healthy"))
-        });
-        Ok(healthy && worker.image.as_deref() == Some(backend_image.as_str()))
-    }
-
-    /// Capability is read from the actual local image, not inferred from a tag.
-    /// Old images lack the worker executable and must keep their combined backend.
-    pub async fn supports_persona_worker(&self, image: &str) -> Result<bool> {
-        let info = self
-            .inner
-            .inspect_image(image)
-            .await
-            .map_err(|e| UpdaterError::Docker(format!("inspect worker capability: {e}")))?;
-        Ok(info
-            .config
-            .and_then(|c| c.labels)
-            .and_then(|labels| labels.get("io.myriad.runtime.persona-worker").cloned())
-            .as_deref()
-            == Some("1"))
+            } else {
+                // Federation can exit normally when its application gate is closed.
+                role == "federation-worker" && state.exit_code == Some(0)
+            };
+            if !healthy {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// True if the named image ref exists locally (inspect succeeds).
@@ -739,9 +592,9 @@ mod worker_presence_tests {
         let client = DockerClient {
             inner: Docker::connect_with_http(&address, 2, bollard::API_DEFAULT_VERSION).unwrap(),
         };
-        assert!(client.stop_federation_worker().await.is_ok());
+        assert!(client.stop_worker("federation-worker").await.is_ok());
         present.store(true, Ordering::Release);
-        assert!(client.stop_federation_worker().await.is_err());
+        assert!(client.stop_worker("federation-worker").await.is_err());
         server.abort();
     }
     #[tokio::test]
@@ -800,28 +653,28 @@ mod worker_presence_tests {
         let client = DockerClient {
             inner: Docker::connect_with_http(&address, 2, bollard::API_DEFAULT_VERSION).unwrap(),
         };
-        assert!(client.federation_worker_healthy().await.unwrap());
+        assert!(client.workers_healthy().await.unwrap());
         state.lock().unwrap().running = false;
-        assert!(client.federation_worker_healthy().await.unwrap());
+        assert!(client.workers_healthy().await.unwrap());
         state.lock().unwrap().exit_code = 1;
-        assert!(!client.federation_worker_healthy().await.unwrap());
+        assert!(!client.workers_healthy().await.unwrap());
         state.lock().unwrap().running = true;
         state.lock().unwrap().exit_code = 0;
         state.lock().unwrap().matching = false;
-        assert!(!client.federation_worker_healthy().await.unwrap());
+        assert!(!client.workers_healthy().await.unwrap());
         state.lock().unwrap().matching = true;
         state.lock().unwrap().healthy = false;
-        assert!(!client.federation_worker_healthy().await.unwrap());
+        assert!(!client.workers_healthy().await.unwrap());
         state.lock().unwrap().present = false;
-        assert!(!client.federation_worker_healthy().await.unwrap());
+        assert!(!client.workers_healthy().await.unwrap());
         state.lock().unwrap().capable = false;
-        assert!(client.federation_worker_healthy().await.unwrap());
+        assert!(client.workers_healthy().await.unwrap());
         state.lock().unwrap().present = true;
-        assert!(!client.federation_worker_healthy().await.unwrap());
+        assert!(!client.workers_healthy().await.unwrap());
         state.lock().unwrap().web = false;
         state.lock().unwrap().capable = true;
         state.lock().unwrap().present = false;
-        assert!(client.federation_worker_healthy().await.unwrap());
+        assert!(client.workers_healthy().await.unwrap());
         server.abort();
     }
     #[tokio::test]
@@ -856,9 +709,9 @@ mod worker_presence_tests {
         let client = DockerClient {
             inner: Docker::connect_with_http(&address, 2, bollard::API_DEFAULT_VERSION).unwrap(),
         };
-        assert!(client.stop_persona_worker().await.is_ok());
+        assert!(client.stop_worker("persona-worker").await.is_ok());
         present.store(true, Ordering::Release);
-        assert!(client.stop_persona_worker().await.is_err());
+        assert!(client.stop_worker("persona-worker").await.is_err());
         server.abort();
     }
     #[tokio::test]
@@ -913,22 +766,22 @@ mod worker_presence_tests {
         let client = DockerClient {
             inner: Docker::connect_with_http(&address, 2, bollard::API_DEFAULT_VERSION).unwrap(),
         };
-        assert!(client.persona_worker_healthy().await.unwrap());
+        assert!(client.workers_healthy().await.unwrap());
         state.lock().unwrap().matching = false;
-        assert!(!client.persona_worker_healthy().await.unwrap());
+        assert!(!client.workers_healthy().await.unwrap());
         state.lock().unwrap().matching = true;
         state.lock().unwrap().healthy = false;
-        assert!(!client.persona_worker_healthy().await.unwrap());
+        assert!(!client.workers_healthy().await.unwrap());
         state.lock().unwrap().present = false;
-        assert!(!client.persona_worker_healthy().await.unwrap());
+        assert!(!client.workers_healthy().await.unwrap());
         state.lock().unwrap().capable = false;
-        assert!(client.persona_worker_healthy().await.unwrap());
+        assert!(client.workers_healthy().await.unwrap());
         state.lock().unwrap().present = true;
-        assert!(!client.persona_worker_healthy().await.unwrap());
+        assert!(!client.workers_healthy().await.unwrap());
         state.lock().unwrap().web = false;
         state.lock().unwrap().capable = true;
         state.lock().unwrap().present = false;
-        assert!(client.persona_worker_healthy().await.unwrap());
+        assert!(client.workers_healthy().await.unwrap());
         server.abort();
     }
 

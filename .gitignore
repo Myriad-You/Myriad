@@ -328,3 +328,8 @@ backend/data/.bootstrap-claimed
 # Agent host startup regression coverage
 !/frontend/tests/browser/agentSessionStartup.spec.ts
 !/frontend/tests/browser/fixture/agentSessionStartup.tsx
+
+# Updater lifecycle and previous-release browser regressions
+!/frontend/tests/browser/updater.spec.ts
+!/frontend/tests/browser/fixture/updater.html
+!/frontend/tests/browser/fixture/updater.tsx

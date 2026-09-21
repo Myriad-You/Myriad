@@ -621,6 +621,10 @@ fn restore_files(cfg: &HelperConfig, app: &[u8], guard: &[u8]) -> Result<()> {
     persist_env_bytes(&cfg.guard_env_file, guard)
 }
 
+pub(crate) fn read_status(state_root: &Path) -> Result<Option<SelfUpdateLastStatus>> {
+    crate::state::read_json(&state_root.join("self-update-last.json"))
+}
+
 pub(super) fn write_status(path: &Path, status: &SelfUpdateLastStatus) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -1195,16 +1199,8 @@ fn require_networks(service: &Value, expected: &[&str], name: &str) -> Result<()
 }
 
 fn find_compose_files(root: &Path) -> Result<Vec<PathBuf>> {
-    let files = [
-        "compose.yaml",
-        "compose.yml",
-        "docker-compose.yaml",
-        "docker-compose.yml",
-    ]
-    .into_iter()
-    .map(|name| root.join(name))
-    .filter(|path| path.is_file())
-    .collect::<Vec<_>>();
+    let files =
+        crate::probe::compose::collect_compose_files(root).map_err(UpdaterError::Precondition)?;
     if files.is_empty() {
         return Err(UpdaterError::Precondition(format!(
             "no Compose file found in {}",
@@ -1258,6 +1254,38 @@ mod tests {
 
     fn exact_image() -> String {
         format!("{TRUSTED_UPDATER_REPOSITORY}@sha256:{}", "a".repeat(64))
+    }
+
+    #[test]
+    #[ignore = "requires Docker Compose CLI; no daemon or network needed"]
+    fn v053_published_compose_accepts_upgrade_and_rollback_without_host_edits() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = config();
+        cfg.compose_dir = dir.path().to_owned();
+        cfg.project_directory = dir.path().to_owned();
+        cfg.host_compose_root = dir.path().to_string_lossy().into_owned();
+        cfg.app_env_file = dir.path().join(".env");
+        cfg.guard_env_file = dir.path().join("guard.env");
+        let compose = include_str!("../../testdata/v0.5.3/docker-compose.yml");
+        let file = dir.path().join("docker-compose.yml");
+        std::fs::write(&file, compose).unwrap();
+        let env = "MYRIAD_TAG=v0.5.3\nUPDATER_TAG=v0.5.3\nPROXY_TAG=v0.5.3\nMYRIAD_SETUP_SECRET=test\nGUARD_SELF_UPDATE_TOKEN=test\nPERSONA_DB_PASSWORD=test\nFEDERATION_DB_PASSWORD=test\nPOSTGRES_PASSWORD=test\nUPDATE_TOKEN=test\nREGISTRY_MIRROR=\n";
+        std::fs::write(&cfg.app_env_file, env).unwrap();
+        std::fs::write(&cfg.guard_env_file, "").unwrap();
+        for tag in ["v0.5.4", "v0.5.3"] {
+            let images = std::array::from_fn(|_| exact_image());
+            let bytes = run_compose(
+                &cfg,
+                &find_compose_files(dir.path()).unwrap(),
+                &images,
+                tag,
+                &["config", "--format", "json"],
+            )
+            .unwrap();
+            validate_stack_compose_model(&bytes, &images, &cfg).unwrap();
+        }
+        assert_eq!(std::fs::read_to_string(file).unwrap(), compose);
+        assert_eq!(std::fs::read_to_string(&cfg.app_env_file).unwrap(), env);
     }
 
     #[test]

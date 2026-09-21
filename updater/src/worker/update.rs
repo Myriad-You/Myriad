@@ -1056,29 +1056,16 @@ enum ProbeTick {
 }
 
 async fn probe_one_tick(worker: &Arc<Worker>, images: [&str; 2]) -> ProbeTick {
-    match worker.docker().federation_worker_healthy().await {
+    match worker.docker().workers_healthy().await {
         Ok(true) => {}
         Ok(false) => {
             return ProbeTick::NotReady {
-                detail: "federation worker health/image not ready".into(),
+                detail: "worker health/image not ready".into(),
             };
         }
         Err(error) => {
             return ProbeTick::NotReady {
-                detail: format!("federation worker probe: {error}"),
-            };
-        }
-    }
-    match worker.docker().persona_worker_healthy().await {
-        Ok(true) => {}
-        Ok(false) => {
-            return ProbeTick::NotReady {
-                detail: "persona worker health/image not ready".into(),
-            };
-        }
-        Err(error) => {
-            return ProbeTick::NotReady {
-                detail: format!("persona worker probe: {error}"),
+                detail: format!("worker probe: {error}"),
             };
         }
     }

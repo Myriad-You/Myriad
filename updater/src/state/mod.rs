@@ -37,6 +37,12 @@ fn read_existing(path: &Path) -> Result<Option<Vec<u8>>> {
     }
 }
 
+pub(crate) fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Option<T>> {
+    read_existing(path)?
+        .map(|bytes| serde_json::from_slice(&bytes).map_err(Into::into))
+        .transpose()
+}
+
 pub use types::*;
 
 /// Owned handle to the state directory. The updater daemon holds an exclusive process lock
@@ -277,12 +283,19 @@ mod tests {
             .expect("manual_override_enabled");
         assert!(!override_fn.contains("path.exists()"));
         assert!(override_fn.contains("path_is_present"));
-        for name in ["read_updater", "read_maintenance", "read_current_job", "read_snapshots"] {
+        for name in [
+            "read_updater",
+            "read_maintenance",
+            "read_current_job",
+            "read_snapshots",
+        ] {
             let start = src.find(&format!("pub fn {name}")).expect(name);
             let body = &src[start..];
             let end = body[1..]
-                .find("
-    pub fn ")
+                .find(
+                    "
+    pub fn ",
+                )
                 .map(|i| i + 1)
                 .unwrap_or(body.len());
             let fn_src = &body[..end];

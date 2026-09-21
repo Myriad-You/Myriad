@@ -1,0 +1,617 @@
+# Myriad Docker Compose 配置文件（proxy + updater）
+#
+# ============================================================================
+# 概述
+# ============================================================================
+# 这个 compose 文件配合 Myriad updater 系统使用。架构：
+#
+#   myriad-net:        proxy, frontend, backend, federation-worker,
+#                      persona-worker, postgres
+#   myriad-admin-net:  backend, updater, updater-gateway, proxy (rescue)
+#   myriad-docker-guard-net (internal): updater, docker-guard
+#
+#   proxy (80) ──┬──► frontend
+#                ├──► backend ──► postgres
+#                ├──► federation-worker
+#                ├──► persona-worker
+#                │
+#                └──► backend ──► updater-gateway ──► updater ──► docker-guard ──► docker.sock
+#
+# 升级流程见 docs/updater-spec.md。
+# 直连 backend/frontend 端口和 :latest 镜像的旧布局已移除。
+#
+# 外置数据库（可选）：默认内置 postgres。改用栈外 PostgreSQL（云 RDS / 1Panel /
+# 独立容器）时，按文件中带 [外置数据库] 的注释操作：
+#   1. 注释 postgres 服务与 backend 的 depends_on.postgres；
+#   2. 解除 backend / federation-worker / persona-worker 的 DATABASE_URL 与
+#      myriad-backend-ext 网络注释；
+#   3. 解除文件末尾 networks 里 myriad-backend-ext 的注释；
+#   4. 在 .env 配置 DATABASE_URL / PERSONA_DATABASE_URL / FEDERATION_DATABASE_URL
+#      与 MYRIAD_BACKEND_EXTRA_NETWORK（默认 myriad-backend-ext，网络须先创建）。
+# Guard/updater 已内置 MYRIAD_BACKEND_EXTRA_NETWORK，仅 backend 与两个 worker 可接入该网。
+#
+# ============================================================================
+# 必需变量（scripts/extra/deploy.sh 会补齐当前布局所需目录、空 UPDATE_TOKEN /
+# UPDATER_GATEWAY_SECRET / MYRIAD_SETUP_SECRET / PERSONA_DB_PASSWORD /
+# FEDERATION_DB_PASSWORD，以及宿主 Guard 策略中的 GUARD_SELF_UPDATE_TOKEN）
+# ============================================================================
+# MYRIAD_TAG             业务镜像版本（选图用，不覆盖容器 MYRIAD_VERSION）
+# PROXY_TAG              代理镜像版本（选图用）
+# UPDATER_TAG            更新器、Guard、网关的部署目标；手动改 TAG 后重建即可换版本
+# UPDATER_IMAGE_REF / DOCKER_GUARD_IMAGE / UPDATER_GATEWAY_IMAGE_REF
+#                       实际镜像摘要记录，供核验/恢复使用，不覆盖手动部署 TAG
+# UPDATER_TAG            无 pin 时的首次安装回退 tag
+# COMPOSE_PROJECT_NAME=myriad  （compose/updater 使用这个定位同一套 stack）
+#
+# POSTGRES_PASSWORD      数据库密码（≥32 字符）
+# JWT_SECRET             JWT 密钥（≥32 字符）
+# CORS_ORIGINS           生产环境必填
+#
+# UPDATE_TOKEN           updater 鉴权 token（≥32 字符）
+#                        注入 updater + updater-gateway；docker-guard 不持有该 token，
+#                        **不**注入 backend / worker 进程环境
+# UPDATER_GATEWAY_SECRET backend ↔ updater-gateway 共享密钥（≥32 字符）
+#                        注入 backend + updater-gateway；**不**注入 frontend / worker
+#                        泄露 ≈ 可经 gateway 驱动更新（仍优于 UPDATE_TOKEN 进胖进程）
+# PERSONA_DB_PASSWORD / FEDERATION_DB_PASSWORD
+#                        bundled worker 独立登录；deploy.sh 空值时生成；勿复用 POSTGRES_PASSWORD
+# MYRIAD_SETUP_SECRET    官方 compose 已写 DATABASE_URL 时，安装写操作暗号
+# CHANNEL                stable | beta | nightly
+# GITHUB_TOKEN           可选。Release 模式读 release.json 需要（私有仓必填）。
+#                        Commit/开发版模式可不设：走 Docker Hub 公共镜像发现（私有源码仓常态）
+# REGISTRY_MIRROR        可选：镜像 mirror 前缀
+# MYRIAD_GITHUB_REPO     默认 Myriad-You/Myriad
+# MYRIAD_DOCKER_NETWORK  可选：业务 Docker 网络名，默认 myriad-net
+# MYRIAD_ADMIN_NETWORK   可选：管理平面网络名，默认 myriad-admin-net
+# MYRIAD_DOCKER_GUARD_NETWORK 可选：updater/guard 专用内部网络名
+# MALLOC_ARENA_MAX       可选：glibc arena 上限，默认 4（避免 8*nCPU x 64MiB 钉死 RSS）
+# ============================================================================
+
+services:
+  postgres:
+    # [外置数据库] 使用栈外 PostgreSQL 时，注释掉本服务与 backend 的 depends_on.postgres。
+    # Track the latest PostgreSQL 18 patch release on Alpine for fresh deployments.
+    # Existing pre-18 clusters still require pg_upgrade or dump/restore before changing majors.
+    image: postgres:18-alpine
+    container_name: myriad-postgres
+    deploy:
+      resources:
+        limits: { cpus: '2.0', memory: 2G }
+        reservations: { cpus: '0.5', memory: 512M }
+    environment:
+      POSTGRES_DB: myriad
+      POSTGRES_USER: myriad
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C --lc-collate=C --lc-ctype=C"
+      POSTGRES_SHARED_BUFFERS: 512MB
+      POSTGRES_EFFECTIVE_CACHE_SIZE: 1536MB
+      POSTGRES_MAINTENANCE_WORK_MEM: 128MB
+      POSTGRES_CHECKPOINT_COMPLETION_TARGET: 0.9
+      POSTGRES_WAL_BUFFERS: 16MB
+      POSTGRES_DEFAULT_STATISTICS_TARGET: 100
+      POSTGRES_RANDOM_PAGE_COST: 1.1
+      POSTGRES_EFFECTIVE_IO_CONCURRENCY: 200
+      POSTGRES_WORK_MEM: 4MB
+      POSTGRES_MIN_WAL_SIZE: 1GB
+      POSTGRES_MAX_WAL_SIZE: 4GB
+      POSTGRES_MAX_WORKER_PROCESSES: 4
+      POSTGRES_MAX_PARALLEL_WORKERS_PER_GATHER: 2
+      POSTGRES_MAX_PARALLEL_WORKERS: 4
+      POSTGRES_MAX_PARALLEL_MAINTENANCE_WORKERS: 2
+      TZ: Asia/Shanghai
+    volumes:
+      # IMPORTANT: bind mount, not named volume. The updater relies on file-level snapshots.
+      # PostgreSQL 18+ uses a major-version-specific PGDATA below /var/lib/postgresql.
+      - ./pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myriad -d myriad"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks: [myriad-net]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    read_only: false
+    tmpfs: [/tmp, /run]
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+  backend-volume-init:
+    # Completed latch for volume ownership. Updater recreates this
+    # service in place; do not compose-run a second container beside it.
+    image: ${BACKEND_IMAGE:-docker.io/somekawahitomi/myriad-backend}:${MYRIAD_TAG}
+    container_name: myriad-backend-volume-init
+    user: "0:0"
+    environment:
+      MYRIAD_VOLUME_INIT_ONLY: "true"
+    volumes:
+      - backend_cache:/app/cache
+      - backend_data:/app/data
+    network_mode: none
+    restart: "no"
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp]
+    # Compose v5 sends LogConfig.Type="" when this block is omitted; Guard then
+    # rejects the updater's one-off `compose run` even though the engine would
+    # apply json-file. Keep it explicit.
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+  backend:
+    # NOTE: image tag is driven by updater via ${MYRIAD_TAG}.
+    image: ${BACKEND_IMAGE:-docker.io/somekawahitomi/myriad-backend}:${MYRIAD_TAG}
+    container_name: myriad-backend
+    deploy:
+      resources:
+        limits: { cpus: '2.0', memory: 2G }
+        reservations: { cpus: '0.5', memory: 512M }
+    environment:
+      MYRIAD_PROCESS_ROLE: web
+      DATABASE_URL: postgres://myriad:${POSTGRES_PASSWORD}@postgres:5432/myriad
+      # [外置数据库] 注释上一行，解除下一行；值在 .env 配置（外部主机/端口/库名）
+      # DATABASE_URL: ${DATABASE_URL}
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 1103
+      # Keep runtime storage paths identical to the volumes repaired by the
+      # one-shot initializer. Do not redirect these to the container layer.
+      DATA_DIR: /app/data
+      CACHE_DIR: /app/cache
+      PERSONA_DB_PASSWORD: ${PERSONA_DB_PASSWORD:?Run deploy.sh to generate worker DB passwords}
+      FEDERATION_DB_PASSWORD: ${FEDERATION_DB_PASSWORD:?Run deploy.sh to generate worker DB passwords}
+      JWT_SECRET: ${JWT_SECRET}
+      # Official compose always writes DATABASE_URL, so setup writes must match
+      # this passphrase. deploy.sh / the generator fill host .env if empty.
+      # Never expose the value in the admin UI.
+      MYRIAD_SETUP_SECRET: ${MYRIAD_SETUP_SECRET:?Set MYRIAD_SETUP_SECRET in .env}
+      # Visitor-hash salt for first-party analytics. Prefer a dedicated random value
+      # (openssl rand -hex 32). When empty, backend derives from JWT_SECRET so
+      # collect does not 503 on stock compose (ENVIRONMENT=production).
+      ANALYTICS_SALT: ${ANALYTICS_SALT:-}
+      # Official store install stats (no secrets; 1 count/instance/app/day).
+      TAPP_STORE_STATS_URL: ${TAPP_STORE_STATS_URL:-https://stats.store.myriad.you}
+      TAPP_STORE_STATS_ENABLED: ${TAPP_STORE_STATS_ENABLED:-true}
+      # The bundled proxy rewrites X-Real-IP / X-Forwarded-For to the real client.
+      # Backend must trust those headers from the proxy peer or weather/geo falls
+      # back to the *server* public IP (classic "weather shows datacenter city" bug).
+      TRUST_PROXY_HEADERS: "true"
+      # TCP peers allowed to supply X-Forwarded-For / X-Real-IP (MYR-026).
+      # Backend default when unset/empty is narrow: loopback + docker0 only
+      # (127.0.0.0/8, ::1, 172.17.0.0/16) — NOT entire RFC1918.
+      #
+      # Stock compose pins:
+      #   - loopback (host tooling / local reverse-proxy)
+      #   - docker0 default bridge (172.17.0.0/16)
+      #   - fixed myriad-net subnet below (172.28.0.0/16) where proxy → backend runs
+      # Override with an explicit list for custom networks, e.g. only the proxy
+      # service network from `docker network inspect`. Never use full 10/8 +
+      # 172.16/12 + 192.168/16 unless you accept any RFC1918 peer forging XFF.
+      # Backend warns at startup when peers look overly broad.
+      TRUST_PROXY_PEERS: ${TRUST_PROXY_PEERS:-127.0.0.0/8,::1,172.17.0.0/16,172.28.0.0/16}
+      # Public frontend origin(s), comma-separated. Production requires this
+      # (backend panics if empty when ENVIRONMENT=production). Never use *.
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      CSP_CONNECT_SRC: ${CSP_CONNECT_SRC:-'self' https:}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      FRONTEND_URL: ${FRONTEND_URL:-}
+      BASE_URL: ${BASE_URL:-}
+      RUST_LOG: ${RUST_LOG:-info}
+      TZ: Asia/Shanghai
+      # glibc arena cap; image default is also 4. Raise only if malloc contention shows up.
+      MALLOC_ARENA_MAX: ${MALLOC_ARENA_MAX:-4}
+      # Server-side updater proxy: backend forwards admin-authenticated UI requests
+      # to updater-gateway with X-Updater-Gateway-Secret. Gateway injects X-Update-Token;
+      # backend does NOT hold UPDATE_TOKEN.
+      MYRIAD_UPDATER_URL: http://updater-gateway:1104
+      UPDATER_GATEWAY_SECRET: ${UPDATER_GATEWAY_SECRET}
+    # NOTE: no `ports:` — only proxy exposes a host port.
+    depends_on:
+      # [外置数据库] 使用栈外 PostgreSQL 时注释掉下一行
+      postgres: { condition: service_healthy }
+      backend-volume-init: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:1103/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    volumes:
+      - backend_cache:/app/cache
+      - backend_data:/app/data
+    networks:
+      - myriad-net
+      - myriad-admin-net
+      # [外置数据库] 解除下一行注释（外部 PostgreSQL 与本服务共用该网）
+      # - myriad-backend-ext
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    read_only: false
+    tmpfs: [/tmp]
+    # Runs as Dockerfile USER myriad (uid 1000). The one-shot init service repairs
+    # ownership left by older root containers before this service starts.
+    # Listens on 1103 (no privileged ports); do not force user 0:0.
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+  federation-worker:
+    image: ${BACKEND_IMAGE:-docker.io/somekawahitomi/myriad-backend}:${MYRIAD_TAG}
+    container_name: myriad-federation-worker
+    command: ["/app/myriad-federation-worker"]
+    user: "1000:1000"
+    deploy:
+      resources:
+        limits: { cpus: '0.5', memory: 512M, pids: 64 }
+        reservations: { cpus: '0.1', memory: 64M }
+    pids_limit: 64
+    environment:
+      MYRIAD_PROCESS_ROLE: federation-worker
+      DATABASE_URL: postgres://myriad_federation:${FEDERATION_DB_PASSWORD:?Run deploy.sh to generate worker DB passwords}@postgres:5432/myriad
+      # [外置数据库] 注释上一行，解除下一行；值在 .env 配置
+      # DATABASE_URL: ${FEDERATION_DATABASE_URL}
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 1103
+      DATA_DIR: /app/data
+      CACHE_DIR: /tmp/cache
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      FRONTEND_URL: ${FRONTEND_URL:-}
+      BASE_URL: ${BASE_URL:-}
+      TRUST_PROXY_HEADERS: "true"
+      TRUST_PROXY_PEERS: ${TRUST_PROXY_PEERS:-127.0.0.0/8,::1,172.17.0.0/16,172.28.0.0/16}
+      RUST_LOG: ${RUST_LOG:-info}
+    depends_on:
+      backend: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "/usr/bin/wget", "--spider", "-q", "http://localhost:1103/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    volumes:
+      - backend_data:/app/data:ro
+      - type: volume
+        source: backend_data
+        target: /app/data/federation
+        volume: { subpath: federation, nocopy: true }
+      - type: volume
+        source: backend_data
+        target: /app/data/federation_media
+        volume: { subpath: federation_media, nocopy: true }
+      - type: volume
+        source: backend_data
+        target: /app/data/media
+        volume: { subpath: media, nocopy: true }
+      - type: volume
+        source: backend_cache
+        target: /tmp/cache/images
+        volume: { subpath: images, nocopy: true }
+    networks:
+      - myriad-net
+      # [外置数据库] 解除下一行注释
+      # - myriad-backend-ext
+    # Geographic disablement exits 0; do not loop an idle worker.
+    restart: on-failure
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs: ["/tmp:size=32m,mode=1777"]
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+  persona-worker:
+    image: ${BACKEND_IMAGE:-docker.io/somekawahitomi/myriad-backend}:${MYRIAD_TAG}
+    container_name: myriad-persona-worker
+    command: ["/app/myriad-persona-worker"]
+    user: "1000:1000"
+    deploy:
+      resources:
+        limits: { cpus: '1.0', memory: 1G, pids: 64 }
+        reservations: { cpus: '0.1', memory: 64M }
+    pids_limit: 64
+    environment:
+      MYRIAD_PROCESS_ROLE: persona-worker
+      DATABASE_URL: postgres://myriad_persona:${PERSONA_DB_PASSWORD:?Run deploy.sh to generate worker DB passwords}@postgres:5432/myriad
+      # [外置数据库] 注释上一行，解除下一行；值在 .env 配置
+      # DATABASE_URL: ${PERSONA_DATABASE_URL}
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 1103
+      DATA_DIR: /app/data
+      CACHE_DIR: /app/cache
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      FRONTEND_URL: ${FRONTEND_URL:-}
+      BASE_URL: ${BASE_URL:-}
+      TRUST_PROXY_HEADERS: "true"
+      TRUST_PROXY_PEERS: ${TRUST_PROXY_PEERS:-127.0.0.0/8,::1,172.17.0.0/16,172.28.0.0/16}
+      PERSONA_WEB_UPSTREAM: http://backend:1103
+      MYRIAD_MCP_GATEWAY_URL: ${MYRIAD_MCP_GATEWAY_URL:-}
+      MYRIAD_MCP_GATEWAY_TOKEN: ${MYRIAD_MCP_GATEWAY_TOKEN:-}
+      RUST_LOG: ${RUST_LOG:-info}
+    depends_on:
+      backend: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "/usr/bin/wget", "--spider", "-q", "http://localhost:1103/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    volumes:
+      - backend_data:/app/data
+      - backend_cache:/app/cache
+    networks:
+      - myriad-net
+      # [外置数据库] 解除下一行注释
+      # - myriad-backend-ext
+    stop_grace_period: 45s
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs: ["/tmp:size=32m,mode=1777"]
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-docker.io/somekawahitomi/myriad-frontend}:${MYRIAD_TAG}
+    container_name: myriad-frontend
+    deploy:
+      resources:
+        limits: { cpus: '1.0', memory: 1G }
+        reservations: { cpus: '0.25', memory: 256M }
+    environment:
+      NODE_ENV: production
+      TZ: Asia/Shanghai
+      # Operator-only; never taken from the request. Same public fields as SEO.
+      BRANDING_METADATA_URL: http://backend:1103/api/config/metadata
+    depends_on:
+      backend: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:1102"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks: [myriad-net]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp]
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+  proxy:
+    image: ${PROXY_IMAGE:-docker.io/somekawahitomi/myriad-proxy}:${PROXY_TAG}
+    container_name: myriad-proxy
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    environment:
+      PROXY_STATE_FILE: /state/maintenance.json
+      PROXY_BACKEND_UPSTREAM: http://backend:1103
+      PROXY_FEDERATION_UPSTREAM: http://federation-worker:1103
+      PROXY_PERSONA_UPSTREAM: http://persona-worker:1103
+      PROXY_FRONTEND_UPSTREAM: http://frontend:1102
+      # Rescue path resolves updater on admin-net when PROXY_ALLOW_DIRECT_UPDATER=true.
+      PROXY_UPDATER_UPSTREAM: http://updater:1101
+      # Comma-separated IP/CIDR allowlist for an outer Nginx/Caddy/CDN proxy.
+      # Only listed peers may provide the real client IP via forwarding headers.
+      PROXY_TRUSTED_UPSTREAMS: ${PROXY_TRUSTED_UPSTREAMS:-}
+      # Direct updater channel is OFF by default. Backend /api/admin/updater/* is the
+      # recommended path. Enable only for rescue scenarios when the backend is down.
+      PROXY_ALLOW_DIRECT_UPDATER: ${PROXY_ALLOW_DIRECT_UPDATER:-false}
+      TZ: Asia/Shanghai
+    volumes:
+      - ./state:/state:ro
+    # Business net for frontend/backend; admin-net so rescue can still resolve updater.
+    networks: [myriad-net, myriad-admin-net]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp]
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+  docker-guard:
+    # Writes ./guard-policy/docker-guard.env on first start.
+    # Normal host deployment follows TAG. Trusted handoffs select freshly
+    # verified exact digests through process-only MYRIAD_TCB_GUARD_IMAGE, which
+    # is never written to .env nor passed as a `-f` override, so later host-side
+    # rebuilds fall back to TAG.
+    image: ${MYRIAD_TCB_GUARD_IMAGE:-${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG:?Set UPDATER_TAG to a release or dev tag}}
+    container_name: myriad-docker-guard
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        if [ ! -f /guard-policy/docker-guard.env ]; then umask 077; fi
+        exec /usr/bin/tini -- /usr/local/bin/myriad-docker-guard
+    environment:
+      COMPOSE_PROJECT_NAME: ${GUARD_COMPOSE_PROJECT_NAME:-myriad}
+      MYRIAD_DOCKER_NETWORK: ${GUARD_MYRIAD_DOCKER_NETWORK:-myriad-net}
+      MYRIAD_ADMIN_NETWORK: ${GUARD_MYRIAD_ADMIN_NETWORK:-myriad-admin-net}
+      MYRIAD_DOCKER_GUARD_NETWORK: ${GUARD_MYRIAD_DOCKER_GUARD_NETWORK:-myriad-docker-guard-net}
+      # Operator-owned network for an external PostgreSQL container. Only
+      # backend/federation-worker/persona-worker may attach to it.
+      MYRIAD_BACKEND_EXTRA_NETWORK: ${MYRIAD_BACKEND_EXTRA_NETWORK:-myriad-backend-ext}
+      DOCKER_GUARD_COMPOSE_DIR: /host/compose
+      DOCKER_GUARD_STATE_DIR: /host/state
+      DOCKER_GUARD_EXPECTED_IMAGE: ${MYRIAD_TCB_GUARD_IMAGE:-${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG:?Set UPDATER_TAG to a release or dev tag}}
+      DOCKER_GUARD_HOST_POLICY_PATH: /guard-policy/docker-guard.env
+      # Dedicated capability from the host-owned policy file. It is separate
+      # from UPDATE_TOKEN and prevents unrelated guard-net peers from invoking
+      # the privileged self-update endpoint if network isolation drifts.
+      DOCKER_GUARD_SELF_UPDATE_TOKEN: ${GUARD_SELF_UPDATE_TOKEN:?Host Guard self-update token is required}
+      RUST_LOG: ${DOCKER_GUARD_LOG:-info}
+      TZ: Asia/Shanghai
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - type: bind
+        source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}
+        target: /host/compose
+        read_only: true
+      - type: bind
+        source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/state
+        target: /host/state
+      - type: bind
+        source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/guard-policy
+        target: /guard-policy
+    networks: [myriad-docker-guard-net]
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp, /run]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:2375/_ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+  updater:
+    # Cached pins never override an operator's deployment target.
+    image: ${MYRIAD_TCB_UPDATER_IMAGE:-${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG:?Set UPDATER_TAG to a release or dev tag}}
+    container_name: myriad-updater
+    environment:
+      UPDATE_TOKEN: ${UPDATE_TOKEN}
+      CHANNEL: ${CHANNEL:-stable}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      REGISTRY_MIRROR: ${REGISTRY_MIRROR:-}
+      MYRIAD_GITHUB_REPO: ${MYRIAD_GITHUB_REPO:-Myriad-You/Myriad}
+      CHECK_INTERVAL_SECS: ${CHECK_INTERVAL_SECS:-3600}
+      # Keep the deployment root at the *same* path inside and outside the
+      # container. Docker Compose records the `-f` path in the container label
+      # com.docker.compose.project.config_files; an in-container-only path
+      # (e.g. /host/compose) makes external tools (1Panel) look for a compose
+      # file that does not exist on the host. Defaulting to /host/compose keeps
+      # the legacy layout; set MYRIAD_COMPOSE_HOST_ROOT to the absolute host
+      # path to make the paths identical (see docs/deployment/DOCKER_DEPLOYMENT.md).
+      UPDATER_STATE_DIR: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}/state
+      UPDATER_ENV_FILE: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}/.env
+      # Prefer the path *inside* the compose-dir bind mount. Renaming a dedicated
+      # mount point (./pgdata:/host/pgdata) returns EBUSY on Linux and used to break
+      # snapshot restore / automatic rollback.
+      UPDATER_PGDATA: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}/pgdata
+      UPDATER_COMPOSE_DIR: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}
+      DOCKER_HOST: tcp://docker-guard:2375
+      DOCKER_GUARD_SELF_UPDATE_TOKEN: ${GUARD_SELF_UPDATE_TOKEN:?Host Guard self-update token is required}
+      # Guard policy directory is mounted read-only. After first start the file
+      # is ./guard-policy/docker-guard.env; updater cannot rewrite it.
+      UPDATER_GUARD_ENV_FILE: /run/secrets/docker-guard.env
+      # cosign signature policy: strict (default) | soft | off
+      # Strict requires release.json.sig + release.json.pem assets to be present and
+      # the OIDC subject to match the configured repo's workflows.
+      # COSIGN_VERIFY=off alone fails closed: also set UPDATER_ALLOW_INSECURE_COSIGN=true
+      # (or COSIGN_INSECURE_OK=true).
+      COSIGN_VERIFY: ${COSIGN_VERIFY:-strict}
+      UPDATER_ALLOW_INSECURE_COSIGN: ${UPDATER_ALLOW_INSECURE_COSIGN:-}
+      COSIGN_INSECURE_OK: ${COSIGN_INSECURE_OK:-}
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-myriad}
+      MYRIAD_DOCKER_NETWORK: ${MYRIAD_DOCKER_NETWORK:-myriad-net}
+      MYRIAD_BACKEND_EXTRA_NETWORK: ${MYRIAD_BACKEND_EXTRA_NETWORK:-myriad-backend-ext}
+      # Identity is baked into the image (Dockerfile ENV). Do not overlay
+      # MYRIAD_VERSION with UPDATER_TAG: a target is not a running identity.
+      TZ: Asia/Shanghai
+    volumes:
+      # Deployment definitions are immutable to a compromised updater. Overlay
+      # only the state it genuinely owns as writable submounts.
+      - type: bind
+        source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}
+        target: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}
+        read_only: true
+      - type: bind
+        source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/.env
+        target: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}/.env
+      - type: bind
+        source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/state
+        target: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}/state
+      - type: bind
+        source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/pgdata
+        target: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}/pgdata
+      - type: bind
+        source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/guard-policy
+        target: /run/secrets
+        read_only: true
+    # Admin plane for gateway/backend/proxy; guard-net for docker-guard only.
+    # Not on myriad-net: frontend/postgres must not share L2 with updater HTTP.
+    networks: [myriad-admin-net, myriad-docker-guard-net]
+    depends_on:
+      docker-guard: { condition: service_healthy }
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    # NOTE: deliberately no `read_only`: updater needs to write state/snapshots/.env.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:1101/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+  updater-gateway:
+    # Same image/tag as updater; thin binary injects UPDATE_TOKEN for backend.
+    # Requires UPDATER_GATEWAY_SECRET from backend hop. Not created via docker-guard
+    # create API — managed business services only; TCB upgrades use Guard's dedicated handoff.
+    image: ${MYRIAD_TCB_GATEWAY_IMAGE:-${UPDATER_IMAGE:-docker.io/somekawahitomi/myriad-updater}:${UPDATER_TAG:?Set UPDATER_TAG to a release or dev tag}}
+    container_name: myriad-updater-gateway
+    entrypoint: ["/usr/bin/tini", "--", "/usr/local/bin/myriad-updater-gateway"]
+    environment:
+      UPDATE_TOKEN: ${UPDATE_TOKEN}
+      UPDATER_GATEWAY_SECRET: ${UPDATER_GATEWAY_SECRET}
+      UPDATER_UPSTREAM: http://updater:1101
+      GATEWAY_LISTEN: 0.0.0.0:1104
+      TZ: Asia/Shanghai
+    # Admin-net only: reach updater; no compose bind, no docker.sock.
+    networks: [myriad-admin-net]
+    depends_on:
+      - updater
+    restart: unless-stopped
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp, /run]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:1104/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  backend_cache: { driver: local }
+  backend_data: { driver: local }
+
+networks:
+  # [外置数据库] 解除本节注释。该网须先在宿主机创建，外部 PostgreSQL 容器接入；
+  # 只有 backend / federation-worker / persona-worker 会加入它。
+  # myriad-backend-ext:
+  #   name: ${MYRIAD_BACKEND_EXTRA_NETWORK:-myriad-backend-ext}
+  #   external: true
+  myriad-net:
+    name: ${MYRIAD_DOCKER_NETWORK:-myriad-net}
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+  myriad-admin-net:
+    # Bridge (not internal): backend dual-homes business + admin; DNS for updater-gateway.
+    name: ${MYRIAD_ADMIN_NETWORK:-myriad-admin-net}
+    driver: bridge
+  myriad-docker-guard-net:
+    name: ${MYRIAD_DOCKER_GUARD_NETWORK:-myriad-docker-guard-net}
+    driver: bridge
+    internal: true

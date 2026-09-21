@@ -44,7 +44,9 @@ const PROXY_HEALTH_URLS: &[&str] = &["http://proxy:80/healthz", "http://myriad-p
 pub struct ProxyUpdateReport {
     pub previous_proxy_tag: String,
     pub new_proxy_tag: String,
+    // Compatibility with v0.5.3 clients; remove next release.
     pub image_ref: String,
+    // Compatibility with v0.5.3 clients; remove next release.
     pub pulled_digest: String,
     pub scheduled: bool,
 }
@@ -113,14 +115,13 @@ pub fn write_proxy_update_last(state_root: &Path, status: &ProxyUpdateLastStatus
     atomic::write_atomic_json(&path, status)
 }
 
-pub fn read_proxy_update_last(state_root: &Path) -> Option<ProxyUpdateLastStatus> {
-    let path = state_root.join(PROXY_UPDATE_LAST_FILE);
-    let raw = std::fs::read_to_string(path).ok()?;
-    serde_json::from_str(&raw).ok()
+pub fn read_proxy_update_last(state_root: &Path) -> Result<Option<ProxyUpdateLastStatus>> {
+    crate::state::read_json(&state_root.join(PROXY_UPDATE_LAST_FILE))
 }
 
 pub(crate) fn require_no_pending(state: &crate::state::StateDir) -> Result<()> {
-    if read_proxy_update_last(state.root()).is_some_and(|s| s.status == ProxyUpdateOutcome::Pending)
+    if read_proxy_update_last(state.root())?
+        .is_some_and(|s| s.status == ProxyUpdateOutcome::Pending)
     {
         return Err(UpdaterError::Conflict);
     }
@@ -150,31 +151,36 @@ pub fn schedule(
 }
 
 pub fn resume_pending(worker: Arc<Worker>) {
-    if let Some(pending) = read_proxy_update_last(worker.state().root())
-        && pending.status == ProxyUpdateOutcome::Pending
-    {
-        spawn_update(worker, None, pending);
+    match read_proxy_update_last(worker.state().root()) {
+        Ok(Some(pending)) if pending.status == ProxyUpdateOutcome::Pending => {
+            spawn_update(worker, None, pending)
+        }
+        Err(error) => warn!(%error, "cannot read proxy update state"),
+        _ => {}
     }
 }
 
 fn spawn_update(worker: Arc<Worker>, actor: Option<String>, pending: ProxyUpdateLastStatus) {
     tokio::spawn(async move {
-        if let Err(error) = run(worker.clone(), actor, pending.clone()).await {
-            // run records replacement failures with their recovery result. Resolve/pull
-            // failures must also terminate the accepted request.
-            let last = read_proxy_update_last(worker.state().root()).unwrap_or(pending);
-            if last.status == ProxyUpdateOutcome::Pending {
-                let _ = write_proxy_update_last(
-                    worker.state().root(),
-                    &ProxyUpdateLastStatus::failed(
-                        &last.previous_tag,
-                        &last.target_tag,
-                        error.to_string(),
-                        false,
-                    ),
-                );
+        let outcome = match run(worker.clone(), actor, pending.clone()).await {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                warn!(%error, "proxy update failed before replacement");
+                let last = read_proxy_update_last(worker.state().root())
+                    .ok()
+                    .flatten()
+                    .unwrap_or(pending);
+                ProxyUpdateLastStatus::failed(
+                    &last.previous_tag,
+                    &last.target_tag,
+                    error.to_string(),
+                    false,
+                )
             }
-            warn!(%error, "proxy update failed");
+        };
+        while let Err(error) = write_proxy_update_last(worker.state().root(), &outcome) {
+            warn!(%error, "retrying proxy outcome write");
+            tokio::time::sleep(Duration::from_secs(2)).await;
         }
     });
 }
@@ -194,7 +200,7 @@ async fn run(
     worker: Arc<Worker>,
     actor: Option<String>,
     mut pending: ProxyUpdateLastStatus,
-) -> Result<ProxyUpdateReport> {
+) -> Result<ProxyUpdateLastStatus> {
     let target = (!pending.target_tag.is_empty()).then(|| pending.target_tag.clone());
     let resolved = resolve_proxy_target(worker.as_ref(), target).await?;
     info!(
@@ -256,16 +262,12 @@ async fn run(
             Ok(()) => format!("proxy update failed: {error}; previous proxy restored and healthy"),
             Err(recovery) => format!("proxy update failed: {error}; recovery failed: {recovery}"),
         };
-        write_proxy_update_last(
-            worker.state().root(),
-            &ProxyUpdateLastStatus::failed(&previous_tag, &resolved.tag, &detail, rolled_back),
-        )?;
-        return Err(UpdaterError::Precondition(detail));
-    }
-    let success = ProxyUpdateLastStatus::succeeded(&previous_tag, &resolved.tag);
-    while let Err(error) = write_proxy_update_last(worker.state().root(), &success) {
-        warn!(%error, "proxy is healthy; retrying outcome write");
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        return Ok(ProxyUpdateLastStatus::failed(
+            &previous_tag,
+            &resolved.tag,
+            &detail,
+            rolled_back,
+        ));
     }
 
     let actor_suffix = actor
@@ -280,13 +282,10 @@ async fn run(
     let _ = worker.state().append_audit(&audit);
     info!(%resolved.tag, "proxy-update: proxy recreated and healthy");
 
-    Ok(ProxyUpdateReport {
-        previous_proxy_tag: previous_tag,
-        new_proxy_tag: resolved.tag,
-        image_ref: resolved.image_ref,
-        pulled_digest,
-        scheduled: false,
-    })
+    Ok(ProxyUpdateLastStatus::succeeded(
+        &previous_tag,
+        &resolved.tag,
+    ))
 }
 
 fn restore_proxy_tag(previous_tag: &str, worker: &Worker) -> Result<()> {
@@ -626,6 +625,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn v053_outcomes_remain_readable_without_new_recovery_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::state::StateDir::open(dir.path()).unwrap();
+        let path = dir.path().join(PROXY_UPDATE_LAST_FILE);
+        for status in ["succeeded", "failed"] {
+            let old = serde_json::json!({"status":status,"target_tag":"v0.5.3","previous_tag":"v0.5.2","at":"2026-09-21T02:20:54Z"});
+            std::fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+            let loaded = read_proxy_update_last(dir.path()).unwrap().unwrap();
+            assert_eq!(loaded.previous_image_id, None);
+            assert!(require_no_pending(&state).is_ok());
+        }
+        std::fs::write(&path, b"{broken").unwrap();
+        assert!(require_no_pending(&state).is_err());
+    }
+
+    #[test]
     fn rejects_branch_tip_tags() {
         assert!(validate_immutable_component_tag("preview").is_err());
         assert!(validate_immutable_component_tag("main").is_err());
@@ -685,7 +700,10 @@ mod tests {
         pending.status = ProxyUpdateOutcome::Pending;
         pending.previous_image_id = Some("old-content".into());
         write_proxy_update_last(dir.path(), &pending).unwrap();
-        assert_eq!(read_proxy_update_last(dir.path()).unwrap(), pending);
+        assert_eq!(
+            read_proxy_update_last(dir.path()).unwrap().unwrap(),
+            pending
+        );
         assert!(matches!(
             require_no_pending(&state),
             Err(UpdaterError::Conflict)
@@ -703,7 +721,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let failed = ProxyUpdateLastStatus::failed("v0.1.0", "v0.2.0", "health boom", true);
         write_proxy_update_last(dir.path(), &failed).unwrap();
-        let loaded = read_proxy_update_last(dir.path()).expect("load last");
+        let loaded = read_proxy_update_last(dir.path())
+            .unwrap()
+            .expect("load last");
         assert_eq!(loaded.status, ProxyUpdateOutcome::Failed);
         assert_eq!(loaded.previous_tag, "v0.1.0");
         assert_eq!(loaded.target_tag, "v0.2.0");
@@ -712,7 +732,9 @@ mod tests {
 
         let ok = ProxyUpdateLastStatus::succeeded("v0.1.0", "v0.2.0");
         write_proxy_update_last(dir.path(), &ok).unwrap();
-        let loaded = read_proxy_update_last(dir.path()).expect("load ok");
+        let loaded = read_proxy_update_last(dir.path())
+            .unwrap()
+            .expect("load ok");
         assert_eq!(loaded.status, ProxyUpdateOutcome::Succeeded);
         assert!(!loaded.rolled_back);
     }

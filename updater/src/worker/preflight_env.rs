@@ -13,6 +13,7 @@ use tracing::info;
 use crate::config::DbMode;
 use crate::env_file::EnvFile;
 use crate::error::{Result, UpdaterError};
+use crate::probe::compose::collect_compose_files;
 use crate::worker::Worker;
 
 /// Fixed `container_name` values assumed by production compose, network preflight, and
@@ -55,12 +56,11 @@ pub async fn check_compose_contract(
     check_target_topology(compose_config, db_mode, workers)?;
     if workers[0] {
         check_federation_http_storage(compose_config)?;
-        check_federation_edge(worker.as_ref()).await?;
     }
     if workers[1] {
         check_persona_runtime(compose_config)?;
-        check_persona_edge(worker.as_ref()).await?;
     }
+    check_worker_routes(worker.as_ref(), workers).await?;
     check_postgres_pgdata_volume(compose_config, db_mode)?;
     check_running_compose_project(worker.as_ref(), project).await?;
     info!(
@@ -73,66 +73,18 @@ pub async fn check_compose_contract(
 /// The edge is TCB and must already understand split routing before a business
 /// image removes these endpoints from web. Inspect the running image and env,
 /// not merely the host file an operator may not have applied yet.
-async fn check_federation_edge(worker: &Worker) -> Result<()> {
-    let proxy = worker
-        .docker()
-        .raw()
-        .inspect_container("myriad-proxy", None)
-        .await
-        .map_err(|error| UpdaterError::Precondition(format!("inspect federation edge: {error}")))?;
-    let running = proxy.state.as_ref().and_then(|state| state.running) == Some(true);
-    let routing_env = proxy
-        .config
-        .as_ref()
-        .and_then(|config| config.env.as_ref())
-        .is_some_and(|env| {
-            env.iter()
-                .any(|value| value == "PROXY_FEDERATION_UPSTREAM=http://federation-worker:1103")
-        });
-    let image = proxy
-        .image
-        .as_deref()
-        .ok_or_else(|| UpdaterError::Precondition("proxy image identity missing".into()))?;
-    let image = worker
-        .docker()
-        .raw()
-        .inspect_image(image)
-        .await
-        .map_err(|error| {
-            UpdaterError::Precondition(format!("inspect federation edge capability: {error}"))
-        })?;
-    let capable = image
-        .config
-        .and_then(|config| config.labels)
-        .is_some_and(|labels| {
-            labels
-                .get("io.myriad.proxy.federation-routing")
-                .is_some_and(|value| value == "1")
-        });
-    if !running || !routing_env || !capable {
-        return Err(UpdaterError::Precondition(
-            "upgrade/recreate the proxy TCB with federation-routing support and PROXY_FEDERATION_UPSTREAM=http://federation-worker:1103 before upgrading the backend".into(),
-        ));
+async fn check_worker_routes(worker: &Worker, required: [bool; 2]) -> Result<()> {
+    if !required.into_iter().any(|enabled| enabled) {
+        return Ok(());
     }
-    Ok(())
-}
-
-async fn check_persona_edge(worker: &Worker) -> Result<()> {
     let proxy = worker
         .docker()
         .raw()
         .inspect_container("myriad-proxy", None)
         .await
-        .map_err(|error| UpdaterError::Precondition(format!("inspect persona edge: {error}")))?;
+        .map_err(|error| UpdaterError::Precondition(format!("inspect proxy: {error}")))?;
     let running = proxy.state.as_ref().and_then(|state| state.running) == Some(true);
-    let routing_env = proxy
-        .config
-        .as_ref()
-        .and_then(|config| config.env.as_ref())
-        .is_some_and(|env| {
-            env.iter()
-                .any(|value| value == "PROXY_PERSONA_UPSTREAM=http://persona-worker:1103")
-        });
+    let env = proxy.config.as_ref().and_then(|config| config.env.as_ref());
     let image = proxy
         .image
         .as_deref()
@@ -143,20 +95,36 @@ async fn check_persona_edge(worker: &Worker) -> Result<()> {
         .inspect_image(image)
         .await
         .map_err(|error| {
-            UpdaterError::Precondition(format!("inspect persona edge capability: {error}"))
+            UpdaterError::Precondition(format!("inspect proxy capability: {error}"))
         })?;
-    let capable = image
-        .config
-        .and_then(|config| config.labels)
-        .is_some_and(|labels| {
-            labels
-                .get("io.myriad.proxy.persona-routing")
-                .is_some_and(|value| value == "1")
-        });
-    if !running || !routing_env || !capable {
-        return Err(UpdaterError::Precondition(
-            "upgrade/recreate the proxy TCB with persona-routing support and PROXY_PERSONA_UPSTREAM=http://persona-worker:1103 before upgrading the backend".into(),
-        ));
+    let labels = image.config.and_then(|config| config.labels);
+    for (required, role, route, capability) in [
+        (
+            required[0],
+            "federation",
+            "PROXY_FEDERATION_UPSTREAM=http://federation-worker:1103",
+            "io.myriad.proxy.federation-routing",
+        ),
+        (
+            required[1],
+            "persona",
+            "PROXY_PERSONA_UPSTREAM=http://persona-worker:1103",
+            "io.myriad.proxy.persona-routing",
+        ),
+    ] {
+        if !required {
+            continue;
+        }
+        let routed = env.is_some_and(|env| env.iter().any(|value| value == route));
+        let capable = labels
+            .as_ref()
+            .and_then(|labels| labels.get(capability))
+            .is_some_and(|value| value == "1");
+        if !running || !routed || !capable {
+            return Err(UpdaterError::Precondition(format!(
+                "upgrade/recreate the proxy TCB with {role}-routing support and {route} before upgrading the backend"
+            )));
+        }
     }
     Ok(())
 }
@@ -335,7 +303,8 @@ fn check_manageable_tag_vars(worker: &Worker) -> Result<()> {
         )));
     }
 
-    let files = discover_compose_files(&worker.cli().compose_dir)?;
+    let files =
+        collect_compose_files(&worker.cli().compose_dir).map_err(UpdaterError::Precondition)?;
     if files.is_empty() {
         return Err(UpdaterError::Precondition(format!(
             "no compose file under {} (or one level below); cannot verify ${{MYRIAD_TAG}} wiring",
@@ -377,65 +346,6 @@ fn compose_files_reference_tag(files: &[PathBuf]) -> Result<()> {
          (panel-rewritten compose often drops tag interpolation)"
             .into(),
     ))
-}
-
-/// Presence probe for compose candidates under the deployment root.
-///
-/// [`crate::probe::filesystem::path_is_present`] reports a non-NotFound stat
-/// fault as `Internal`, which surfaces as HTTP 500 and reads like an updater
-/// bug. Under the deployment root the same fault is an operator-fixable mount or
-/// permission problem, so report it as a `Precondition` (HTTP 412) instead.
-fn probe_present(path: &Path) -> Result<bool> {
-    match std::fs::metadata(path) {
-        Ok(_) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(UpdaterError::Precondition(format!(
-            "cannot inspect {}: {error}",
-            path.display()
-        ))),
-    }
-}
-
-fn discover_compose_files(compose_dir: &Path) -> Result<Vec<PathBuf>> {
-    let names = [
-        "compose.yaml",
-        "compose.yml",
-        "docker-compose.yaml",
-        "docker-compose.yml",
-    ];
-    let mut files = Vec::new();
-    for name in names {
-        let p = compose_dir.join(name);
-        if probe_present(&p)? {
-            files.push(p);
-        }
-    }
-    if files.is_empty() {
-        let rd = std::fs::read_dir(compose_dir).map_err(|error| {
-            UpdaterError::Precondition(format!(
-                "cannot list compose dir {}: {error}",
-                compose_dir.display()
-            ))
-        })?;
-        for entry in rd {
-            let entry = entry.map_err(|error| {
-                UpdaterError::Precondition(format!(
-                    "cannot read compose dir {}: {error}",
-                    compose_dir.display()
-                ))
-            })?;
-            if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                continue;
-            }
-            for name in names {
-                let p = entry.path().join(name);
-                if probe_present(&p)? {
-                    files.push(p);
-                }
-            }
-        }
-    }
-    Ok(files)
 }
 
 fn check_paths_writable(worker: &Worker) -> Result<()> {
@@ -753,6 +663,46 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    #[ignore = "requires Docker Compose CLI; no daemon or network needed"]
+    fn v053_published_compose_satisfies_business_upgrade_contract() {
+        let dir = tempfile::tempdir().unwrap();
+        let compose = dir.path().join("docker-compose.yml");
+        std::fs::write(
+            &compose,
+            include_str!("../../testdata/v0.5.3/docker-compose.yml"),
+        )
+        .unwrap();
+        let output = std::process::Command::new("docker")
+            .args(["compose", "-p", "myriad", "-f"])
+            .arg(&compose)
+            .args(["config", "--format", "json"])
+            .envs([
+                ("MYRIAD_TAG", "v0.5.3"),
+                ("UPDATER_TAG", "v0.5.3"),
+                ("PROXY_TAG", "v0.5.3"),
+                ("MYRIAD_SETUP_SECRET", "test"),
+                ("GUARD_SELF_UPDATE_TOKEN", "test"),
+                ("PERSONA_DB_PASSWORD", "test"),
+                ("FEDERATION_DB_PASSWORD", "test"),
+                ("POSTGRES_PASSWORD", "test"),
+                ("UPDATE_TOKEN", "test"),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let model: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        check_target_topology(&model, DbMode::Bundled, [true, true]).unwrap();
+        check_postgres_pgdata_volume(&model, DbMode::Bundled).unwrap();
+        check_federation_http_storage(&model).unwrap();
+        check_persona_runtime(&model).unwrap();
+        compose_files_reference_tag(&[compose]).unwrap();
+    }
+
+    #[test]
     fn combined_backend_target_does_not_require_split_workers() {
         let config = json!({"services": {
             "backend": {"container_name":"myriad-backend"},
@@ -966,7 +916,7 @@ mod tests {
             "services:\n  backend:\n    image: x:${MYRIAD_TAG}\n",
         )
         .unwrap();
-        let files = discover_compose_files(dir.path()).unwrap();
+        let files = collect_compose_files(dir.path()).unwrap();
         assert_eq!(files.len(), 2, "{files:?}");
         compose_files_reference_tag(&files).unwrap();
     }
@@ -976,7 +926,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join("compose.yaml")).unwrap();
         std::fs::write(dir.path().join("docker-compose.yml"), "services: {}\n").unwrap();
-        let files = discover_compose_files(dir.path()).unwrap();
+        let files = collect_compose_files(dir.path()).unwrap();
         let err = compose_files_reference_tag(&files).unwrap_err();
         assert!(err.to_string().contains("Unreadable"), "{err}");
         assert!(err.to_string().contains("compose.yaml"), "{err}");
@@ -986,19 +936,21 @@ mod tests {
     fn tag_scan_plain_miss_keeps_original_message() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("docker-compose.yml"), "services: {}\n").unwrap();
-        let files = discover_compose_files(dir.path()).unwrap();
+        let files = collect_compose_files(dir.path()).unwrap();
         let err = compose_files_reference_tag(&files).unwrap_err();
         assert!(err.to_string().contains("does not reference"), "{err}");
     }
 
     #[test]
-    fn probe_present_reports_io_faults_as_precondition() {
+    fn compose_discovery_reports_io_faults_as_precondition() {
         // ENOTDIR (a file used as a directory) is not NotFound, so it must not be
         // swallowed as absence nor surfaced as an Internal/HTTP 500 error.
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("not-a-dir");
         std::fs::write(&file, "x").unwrap();
-        let err = probe_present(&file.join("compose.yaml")).unwrap_err();
+        let err = collect_compose_files(&file)
+            .map_err(UpdaterError::Precondition)
+            .unwrap_err();
         assert!(matches!(err, UpdaterError::Precondition(_)), "got {err}");
     }
 }

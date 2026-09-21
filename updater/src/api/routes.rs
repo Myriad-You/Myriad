@@ -162,8 +162,8 @@ async fn status(State(st): State<ApiState>) -> Result<Json<StatusResp>, ApiError
     // Product tracks. Commit mode is only valid when channel == preview (enforced
     // in validate_channel_for_mode); the channel list itself does not change.
     let available_channels = vec!["stable", "preview"];
-    let self_update_last = read_self_update_last(st.state.root());
-    let proxy_update_last = crate::worker::proxy_update::read_proxy_update_last(st.state.root());
+    let self_update_last = crate::docker::self_update_helper::read_status(st.state.root())?;
+    let proxy_update_last = crate::worker::proxy_update::read_proxy_update_last(st.state.root())?;
     let proxy_version = crate::env_file::EnvFile::load(&st.worker.cli().env_file)
         .ok()
         .and_then(|env| env.get("PROXY_TAG").map(str::to_owned))
@@ -203,17 +203,9 @@ async fn status(State(st): State<ApiState>) -> Result<Json<StatusResp>, ApiError
     }))
 }
 
-fn read_self_update_last(
-    state_root: &std::path::Path,
-) -> Option<crate::docker::self_update_helper::SelfUpdateLastStatus> {
-    let path = state_root.join("self-update-last.json");
-    let raw = std::fs::read_to_string(path).ok()?;
-    serde_json::from_str(&raw).ok()
-}
-
 /// Token-authenticated compatibility view of legacy `state/self-update-last.json`.
 async fn self_update_last(State(st): State<ApiState>) -> Result<Json<Value>, ApiError> {
-    match read_self_update_last(st.state.root()) {
+    match crate::docker::self_update_helper::read_status(st.state.root())? {
         Some(s) => Ok(Json(serde_json::to_value(s)?)),
         None => Ok(Json(json!(null))),
     }

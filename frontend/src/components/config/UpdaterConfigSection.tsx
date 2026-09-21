@@ -49,8 +49,6 @@ import {
   deriveSelection,
   format,
   formatBytes,
-  INFRA_OUTCOME_MAX_TRIES,
-  INFRA_OUTCOME_POLL_MS,
   infraCompatibility,
   isDismissedLastFailed,
   isFreshInfraOutcome,
@@ -58,7 +56,6 @@ import {
   modeForTarget,
   POLL_INTERVAL,
   rememberDismissedLastFailed,
-  sleep,
   snapshotDeleteBlockReason,
   upstreamDetail,
 } from './updater/helpers'
@@ -142,9 +139,13 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
   const [accessDenied, setAccessDenied] = useState(false)
   const [sel, setSel] = useState<ChannelKey>('stable')
   const selHydratedRef = useRef(false)
-  const infraPending = status?.self_update_last?.status === 'pending'
+  // Correlate this click with the next durable outcome, including v0.5.3 responses.
+  const [infraRequest, setInfraRequest] = useState<{
+    kind: 'self' | 'proxy'
+    beforeAt?: string
+  } | null>(null)
+  const infraPending = !!infraRequest || status?.self_update_last?.status === 'pending'
     || status?.proxy_update_last?.status === 'pending'
-  const pollRef = useRef<number | null>(null)
   const autoRecheckDoneRef = useRef(false)
   const [nowTick, setNowTick] = useState(() => Date.now())
   const [autoRechecking, setAutoRechecking] = useState(false)
@@ -338,14 +339,17 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
   }, [api, refresh, status?.last_failed_update?.job_id])
 
   useEffect(() => {
-    if (status?.job_in_flight || infraPending) {
-      pollRef.current = window.setInterval(refresh, POLL_INTERVAL)
-    } else if (pollRef.current) {
-      window.clearInterval(pollRef.current)
-      pollRef.current = null
+    if (!status?.job_in_flight && !infraPending) return
+    let stopped = false
+    let timer: number
+    const poll = async () => {
+      await refresh()
+      if (!stopped) timer = window.setTimeout(poll, POLL_INTERVAL)
     }
+    timer = window.setTimeout(poll, POLL_INTERVAL)
     return () => {
-      if (pollRef.current) window.clearInterval(pollRef.current)
+      stopped = true
+      window.clearTimeout(timer)
     }
   }, [status?.job_in_flight, infraPending, refresh])
 
@@ -418,7 +422,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     if (autoRecheckDoneRef.current) return
     if (!status) return
     if (accessDenied || tokenRequired) return
-    if (status.job_in_flight || status.maintenance_active) return
+    if (status.job_in_flight || status.maintenance_active || infraPending) return
     if (busy) return
 
     autoRecheckDoneRef.current = true
@@ -426,7 +430,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     void checkAvailable({ silent: true }).finally(() => {
       setAutoRechecking(false)
     })
-  }, [status, accessDenied, tokenRequired, busy, checkAvailable])
+  }, [status, accessDenied, tokenRequired, busy, infraPending, checkAvailable])
 
   const selectChannel = useCallback(
     async (key: ChannelKey) => {
@@ -586,212 +590,67 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     })
   }, [api, busy, tokenRequired, explain, u, selOption.mode, dispatchUpdate])
 
-  /** poll `*_update_last` through the HTTP blip; keep last status on errors */
-  const waitInfraUpdateOutcome = useCallback(
-    async (opts: {
-      kind: 'self' | 'proxy'
-      beforeAt: string | null | undefined
-      targetTag: string
-    }): Promise<'succeeded' | 'failed' | 'timeout'> => {
-      setLinkDown(false)
+  useEffect(() => {
+    if (!infraRequest) return
+    const last = infraRequest.kind === 'self' ? status?.self_update_last : status?.proxy_update_last
+    const outcome = isFreshInfraOutcome(last, infraRequest.beforeAt, '')
+    if (!outcome || !last) return
+    setInfraRequest(null)
+    reportInfraFeedback({
+      scope: infraRequest.kind,
+      kind: outcome === 'succeeded' ? 'ok' : 'error',
+      text: outcome === 'succeeded'
+        ? format(infraRequest.kind === 'self' ? u.updaterSelfUpdateSucceeded : u.updaterProxyUpdateSucceeded, {
+            version: last.target_tag || '—', previous: last.previous_tag || '—',
+          })
+        : format(infraRequest.kind === 'self' ? u.updaterSelfUpdateFailed : u.updaterProxyUpdateFailed, {
+            error: last.error || '—',
+          }),
+    })
+    void api.available().then(setAvailable).catch(() => {})
+  }, [api, infraRequest, status, reportInfraFeedback, u])
 
-      let sawDisconnect = false
-      for (let i = 0; i < INFRA_OUTCOME_MAX_TRIES; i++) {
-        await sleep(INFRA_OUTCOME_POLL_MS)
-        try {
-          const s = await api.status()
-          if (sawDisconnect) {
-            setLinkDown(false)
-            sawDisconnect = false
-          }
-          setStatus(s)
-          const last =
-            opts.kind === 'self' ? s?.self_update_last : s?.proxy_update_last
-          const outcome = isFreshInfraOutcome(last, opts.beforeAt, opts.targetTag)
-          if (outcome === 'succeeded' && last) {
-            setLinkDown(false)
-            reportInfraFeedback({
-              scope: opts.kind,
-              kind: 'ok',
-              text:
-                opts.kind === 'self'
-                  ? format(u.updaterSelfUpdateSucceeded, {
-                      version: last.target_tag || opts.targetTag || '—',
-                      previous: last.previous_tag || '—',
-                    })
-                  : format(u.updaterProxyUpdateSucceeded, {
-                      version: last.target_tag || opts.targetTag || '—',
-                      previous: last.previous_tag || '—',
-                    }),
-            })
-            return 'succeeded'
-          }
-          if (outcome === 'failed' && last) {
-            setLinkDown(false)
-            reportInfraFeedback({
-              scope: opts.kind,
-              kind: 'error',
-              text:
-                opts.kind === 'self'
-                  ? format(u.updaterSelfUpdateFailed, {
-                      error: last.error || '—',
-                    })
-                  : format(u.updaterProxyUpdateFailed, {
-                      error: last.error || '—',
-                    }),
-            })
-            return 'failed'
-          }
-        } catch {
-          // updater/proxy replace: brief blip
-          sawDisconnect = true
-          setLinkDown(true)
-        }
-      }
-      setLinkDown(false)
+  useEffect(() => {
+    if (!infraRequest) return
+    // v0.5.3 may lose the synchronous response before writing an outcome.
+    // Keep its existing 90-minute observation window; remove next release.
+    const timer = window.setTimeout(() => {
+      setInfraRequest(null)
       reportInfraFeedback({
-        scope: opts.kind,
-        kind: 'ok',
-        text:
-          opts.kind === 'self'
-            ? u.updaterSelfUpdateStillPending
-            : u.updaterProxyUpdateStillPending,
+        scope: infraRequest.kind, kind: 'ok',
+        text: infraRequest.kind === 'self' ? u.updaterSelfUpdateStillPending : u.updaterProxyUpdateStillPending,
       })
-      return 'timeout'
-    },
-    [api, reportInfraFeedback, u],
-  )
+    }, 90 * 60 * 1000)
+    return () => window.clearTimeout(timer)
+  }, [infraRequest, reportInfraFeedback, u])
 
-  const refreshAfterInfra = useCallback(async () => {
-    try {
-      await refresh()
-    } catch {
-    }
-    try {
-      const manifest = await api.available()
-      setAvailable(manifest)
-      await refresh()
-    } catch {
-    }
-  }, [api, refresh])
-
-  const triggerSelfUpdate = useCallback(async () => {
+  const triggerInfraUpdate = useCallback(async (kind: 'self' | 'proxy') => {
     if (tokenRequired) {
-      reportInfraFeedback({
-        scope: 'self',
-        kind: 'error',
-        text: u.updaterTokenRequiredDirect,
-      })
+      reportInfraFeedback({ scope: kind, kind: 'error', text: u.updaterTokenRequiredDirect })
       return
     }
-    const tip = status?.latest_available?.version
-    const ok = tip
-      ? confirm(format(u.updaterSelfUpdateConfirm, { version: tip }))
-      : confirm(u.updaterSelfUpdateConfirmAuto)
-    if (!ok) return
-    const beforeAt = status?.self_update_last?.at
-    setBusy('self-update')
+    const confirmation = kind === 'self' ? u.updaterSelfUpdateConfirmAuto : u.updaterInfraProxyConfirmAuto
+    if (!confirm(confirmation)) return
+    const beforeAt = (kind === 'self' ? status?.self_update_last : status?.proxy_update_last)?.at
+    setBusy(kind === 'self' ? 'self-update' : 'proxy-update')
+    setInfraRequest({ kind, beforeAt })
     setInfraFeedback(null)
     setLinkDown(false)
-    // POST success kills this process; don't fall back to the app tip
-    let target = ''
-    let shouldWait = true
     try {
-      try {
-        const report = await api.triggerSelfUpdate()
-        target = report.new_updater_tag || ''
-      } catch (e) {
-        if (!isTransientUpdaterError(e)) {
-          reportInfraFeedback({
-            scope: 'self',
-            kind: 'error',
-            text: explain(e),
-          })
-          shouldWait = false
-        } else {
-          setLinkDown(true)
-        }
-      }
-      if (shouldWait) {
-        await waitInfraUpdateOutcome({
-          kind: 'self',
-          beforeAt,
-          targetTag: target,
-        })
-        await refreshAfterInfra()
+      if (kind === 'self') await api.triggerSelfUpdate()
+      else await api.triggerProxyUpdate()
+    } catch (error) {
+      if (isTransientUpdaterError(error)) {
+        setLinkDown(true)
+      } else {
+        setInfraRequest(null)
+        reportInfraFeedback({ scope: kind, kind: 'error', text: explain(error) })
       }
     } finally {
       setBusy(null)
-      setLinkDown(false)
+      void refresh()
     }
-  }, [
-    api,
-    status,
-    tokenRequired,
-    explain,
-    u,
-    waitInfraUpdateOutcome,
-    refreshAfterInfra,
-    reportInfraFeedback,
-  ])
-
-  const triggerProxyUpdate = useCallback(async () => {
-    if (tokenRequired) {
-      reportInfraFeedback({
-        scope: 'proxy',
-        kind: 'error',
-        text: u.updaterTokenRequiredDirect,
-      })
-      return
-    }
-    const ok = confirm(u.updaterInfraProxyConfirmAuto)
-    if (!ok) return
-    const beforeAt = status?.proxy_update_last?.at
-    setBusy('proxy-update')
-    setInfraFeedback(null)
-    setLinkDown(false)
-    let target = ''
-    let shouldWait = true
-    try {
-      try {
-        const report = await api.triggerProxyUpdate()
-        target = report.new_proxy_tag || ''
-      } catch (e) {
-        if (!isTransientUpdaterError(e)) {
-          await refresh().catch(() => {})
-          reportInfraFeedback({
-            scope: 'proxy',
-            kind: 'error',
-            text: explain(e),
-          })
-          shouldWait = false
-        } else {
-          setLinkDown(true)
-        }
-      }
-      if (shouldWait) {
-        await waitInfraUpdateOutcome({
-          kind: 'proxy',
-          beforeAt,
-          targetTag: target,
-        })
-        await refreshAfterInfra()
-      }
-    } finally {
-      setBusy(null)
-      setLinkDown(false)
-    }
-  }, [
-    api,
-    status,
-    refresh,
-    tokenRequired,
-    explain,
-    u,
-    waitInfraUpdateOutcome,
-    refreshAfterInfra,
-    reportInfraFeedback,
-  ])
+  }, [api, explain, refresh, reportInfraFeedback, status, tokenRequired, u])
 
   const rollbackTo = useCallback(
     async (snap: SnapshotMeta) => {
@@ -1276,7 +1135,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
                   )}
                 </p>
                 <InfraCardNotice
-                  inProgress={busy === 'self-update' || status?.self_update_last?.status === 'pending'}
+                  inProgress={infraRequest?.kind === 'self' || busy === 'self-update' || status?.self_update_last?.status === 'pending'}
                   linkDown={linkDown}
                   waiting={u.updaterSelfUpdateWaiting}
                   reconnecting={u.updaterSelfUpdateReconnecting}
@@ -1306,7 +1165,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
                       !!busy || infraPending || tokenRequired || !status
                     }
                     loading={busy === 'self-update'}
-                    onClick={() => triggerSelfUpdate()}
+                    onClick={() => triggerInfraUpdate('self')}
                   >
                     {u.updaterSelfUpdateButton}
                   </SettingsButton>
@@ -1326,7 +1185,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
                   <code>{status?.proxy_version ?? '—'}</code>
                 </p>
                 <InfraCardNotice
-                  inProgress={busy === 'proxy-update' || status?.proxy_update_last?.status === 'pending'}
+                  inProgress={infraRequest?.kind === 'proxy' || busy === 'proxy-update' || status?.proxy_update_last?.status === 'pending'}
                   linkDown={linkDown}
                   waiting={u.updaterProxyUpdateWaiting}
                   reconnecting={u.updaterProxyUpdateReconnecting}
@@ -1357,7 +1216,7 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
                     variant="secondary"
                     disabled={!!busy || infraPending || tokenRequired || !status}
                     loading={busy === 'proxy-update'}
-                    onClick={() => triggerProxyUpdate()}
+                    onClick={() => triggerInfraUpdate('proxy')}
                   >
                     {u.updaterInfraProxyUpdateButton}
                   </SettingsButton>
