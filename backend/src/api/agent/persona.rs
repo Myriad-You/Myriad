@@ -946,8 +946,10 @@ pub async fn observe_visual_from_portrait(
             })),
         ))
     })?;
-    let (bytes, mime) = crate::services::image_cache::ImageCacheService::new()
-        .read_local_public_url(portrait_url)
+    // An uploaded portrait lives in the media store (`/media/assets/...`), not the
+    // image cache, so read it through the loader that covers both. Reading the
+    // cache directly reports an uploaded portrait as missing.
+    let image = crate::services::image_generation::load_local_reference(portrait_url)
         .await
         .map_err(|error| {
             tracing::error!(%error, "imported portrait bytes missing");
@@ -955,17 +957,6 @@ pub async fn observe_visual_from_portrait(
                 StatusCode::CONFLICT,
                 Json(json!({
                     "error": "Uploaded master portrait is missing from storage",
-                    "code": "portrait_required"
-                })),
-            ))
-        })?;
-    let image =
-        crate::services::image_generation::ImageReference::new(bytes, mime).map_err(|error| {
-            tracing::error!(%error, "imported portrait is not a usable image");
-            HttpError::from((
-                StatusCode::BAD_REQUEST,
-                Json(json!({
-                    "error": "Uploaded master portrait is not a usable image",
                     "code": "portrait_required"
                 })),
             ))

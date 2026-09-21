@@ -1012,12 +1012,10 @@ pub async fn decompose_with_see_through(
         see_through::configured_hf_token(&config)
     }
     .ok_or_else(|| see_through_error(see_through::SeeThroughError::NotConfigured))?;
-    let (image, media_type) = crate::services::image_cache::ImageCacheService::new()
-        .read_local_public_url(&master.asset_id)
+    // Uploaded portraits live in the media store, not the image cache.
+    let image = image_generation::load_local_reference(&master.asset_id)
         .await
-        .map_err(|_| {
-            bad_request("The current master portrait is not available in the site image cache")
-        })?;
+        .map_err(|_| bad_request("The current master portrait is not available"))?;
     let defaults = see_through::DecomposeOptions::default();
     let options = see_through::DecomposeOptions {
         resolution: payload.resolution.unwrap_or(defaults.resolution),
@@ -1032,7 +1030,7 @@ pub async fn decompose_with_see_through(
         .await
         .map_err(see_through_error)?;
     let output = client
-        .decompose(image, &media_type, options)
+        .decompose(image.bytes, &image.media_type, options)
         .await
         .map_err(see_through_error)?;
 

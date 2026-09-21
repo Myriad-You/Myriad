@@ -1470,7 +1470,7 @@ describe('userFacingError', () => {
     const imported = userFacingError('Invalid rig import')
     const portrait = userFacingError('Portrait image exceeds 10 MB')
     const missing = userFacingError(
-      'The current master portrait is not available in the site image cache',
+      'The current master portrait is not available',
     )
     const token = userFacingError(
       new ApiError(
