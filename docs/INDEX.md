@@ -39,6 +39,7 @@ docs/
 | [MCP_CAPABILITIES.md](deployment/MCP_CAPABILITIES.md) | MCP 网关网络与持久化能力 |
 | [SETUP_BOOTSTRAP.md](deployment/SETUP_BOOTSTRAP.md) | 编排安装时的安装暗号 |
 | [UPDATER_QUICKSTART.md](deployment/UPDATER_QUICKSTART.md) | 更新 / 回滚 / 救援 |
+| [UPDATER_BLACKBOX_ACCEPTANCE.md](deployment/UPDATER_BLACKBOX_ACCEPTANCE.md) | 升级与中断 mock 黑盒的运行方法、结果和未通过项 |
 | [updater-spec.md](updater-spec.md) | Updater 协议与失败模式 |
 | [UPDATER_SECURITY_BASELINE.md](deployment/UPDATER_SECURITY_BASELINE.md) | Updater 安全基线 |
 | [UPDATER_GATEWAY_THREAT_MODEL.md](deployment/UPDATER_GATEWAY_THREAT_MODEL.md) | updater-gateway 能力边界 |

@@ -2,7 +2,7 @@
 use serde_json::{Value, json};
 use std::{
     fs,
-    os::unix::fs::PermissionsExt,
+    os::unix::{fs::PermissionsExt, process::CommandExt},
     path::PathBuf,
     process::{Child, Command, Stdio},
     sync::{
@@ -21,6 +21,9 @@ const TOKEN: &str = "87f1c493a572db0e69fe38214cb859a64b3c901d";
 const OLD: &str = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const NEW: &str = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const REPO: &str = "docker.io/somekawahitomi/myriad-proxy";
+
+#[path = "support/business_update.rs"]
+mod business;
 
 struct Mock {
     root: PathBuf,
@@ -64,7 +67,9 @@ impl Mock {
         let request = String::from_utf8_lossy(&input);
         let first = request.lines().next().unwrap();
         let mut code = "200 OK";
-        let body = if first.starts_with("CONNECT ") {
+        let body = if let Some(body) = self.business_response(first) {
+            body
+        } else if first.starts_with("CONNECT ") {
             if first.contains("hub.docker.com") {
                 self.registry_calls.fetch_add(1, Ordering::SeqCst);
                 self.release_registry.acquire().await.unwrap().forget();
@@ -98,7 +103,9 @@ impl Mock {
             };
             json!({"Id":id,"RepoDigests":digests}).to_string()
         } else if first.contains("/containers/myriad-proxy/json") {
-            json!({"Image":if self.running_target { NEW } else { OLD },"State":{"Running":true,"Health":{"Status":"healthy"}}}).to_string()
+            let running_target =
+                self.running_target || self.root.join("proxy-running-target").exists();
+            json!({"Image":if running_target { NEW } else { OLD },"State":{"Running":true,"Health":{"Status":"healthy"}}}).to_string()
         } else if first.contains("/containers/") {
             json!({"Mounts":[{"Source":self.root,"Destination":self.root,"Type":"bind"}]})
                 .to_string()
@@ -152,7 +159,13 @@ case "$1" in
       *' version '*) echo '2.39.0' ;;
       *' up '*)
         printf '%s\n' "$PROXY_TAG" >> "$TEST_ROOT/compose-calls"
-        case "$PROXY_TAG" in *bbbb*) echo 'injected replacement failure' >&2; exit 1 ;; esac ;;
+        case "$PROXY_TAG" in *bbbb*)
+          if [ -f "$TEST_ROOT/proxy-cut-after-apply" ]; then
+            touch "$TEST_ROOT/proxy-running-target"
+            while :; do sleep 1; done
+          fi
+          echo 'injected replacement failure' >&2; exit 1 ;;
+        esac ;;
       *) exit 8 ;;
     esac ;;
   *) exit 9 ;;
@@ -202,6 +215,7 @@ esac
         let root = &self.mock.root;
         let mut command = Command::new(env!("CARGO_BIN_EXE_myriad-updater"));
         command
+            .process_group(0)
             .env(
                 "PATH",
                 format!("{}:{}", root.display(), std::env::var("PATH").unwrap()),
@@ -266,6 +280,17 @@ esac
         panic!("daemon did not start");
     }
 
+    fn power_cut(&mut self) {
+        if let Some(mut child) = self.process.take() {
+            // Stop the daemon and its Compose children without shutdown handlers.
+            let _ = nix::sys::signal::killpg(
+                nix::unistd::Pid::from_raw(child.id() as i32),
+                nix::sys::signal::Signal::SIGKILL,
+            );
+            child.wait().unwrap();
+        }
+    }
+
     async fn post(&self, route: &str, body: Value) -> reqwest::Response {
         self.client
             .post(format!("{}{route}", self.url))
@@ -304,10 +329,7 @@ esac
 
 impl Drop for Daemon {
     fn drop(&mut self) {
-        if let Some(child) = &mut self.process {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
+        self.power_cut();
         self.server.abort();
     }
 }
@@ -480,4 +502,66 @@ async fn proxy_restart_finishes_an_already_healthy_target_without_recreating_it(
     daemon.outcome("proxy_update_last", "succeeded").await;
     assert_eq!(daemon.mock.pulls.load(Ordering::SeqCst), 0);
     assert!(!daemon.mock.root.join("compose-calls").exists());
+}
+
+#[tokio::test]
+async fn self_update_power_cut_during_discovery_resumes_the_accepted_request() {
+    let mut daemon = Daemon::new(0, false, false).await;
+    daemon.start().await;
+    assert!(
+        daemon
+            .post("/admin/self-update", json!({}))
+            .await
+            .status()
+            .is_success()
+    );
+    wait_calls(&daemon.mock.registry_calls, 1).await;
+    daemon.power_cut();
+    daemon.start().await;
+    wait_calls(&daemon.mock.registry_calls, 2).await;
+    assert_eq!(
+        daemon.status().await["self_update_last"]["status"],
+        "pending"
+    );
+    // Both the abandoned socket and the restarted request are waiting in the mock.
+    daemon.mock.release_registry.add_permits(2);
+    daemon.outcome("self_update_last", "failed").await;
+    assert_eq!(daemon.mock.guard_calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn proxy_power_cut_after_replacement_finishes_without_recreating_the_target() {
+    let mut daemon = Daemon::new(0, false, false).await;
+    fs::write(daemon.mock.root.join("proxy-cut-after-apply"), "").unwrap();
+    daemon.start().await;
+    assert!(
+        daemon
+            .post("/admin/proxy-update", json!({"target_version":"preview"}))
+            .await
+            .status()
+            .is_success()
+    );
+    for _ in 0..200 {
+        if daemon.mock.root.join("proxy-running-target").exists() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        daemon.mock.root.join("proxy-running-target").exists(),
+        "{}",
+        daemon.status().await
+    );
+    assert_eq!(
+        daemon.status().await["proxy_update_last"]["status"],
+        "pending"
+    );
+    daemon.power_cut();
+    daemon.start().await;
+    daemon.outcome("proxy_update_last", "succeeded").await;
+    assert_eq!(daemon.mock.pulls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        fs::read_to_string(daemon.mock.root.join("compose-calls")).unwrap(),
+        format!("preview@{NEW}\n")
+    );
 }
