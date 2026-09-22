@@ -824,7 +824,7 @@ async fn postgres_rss_shared_assets_are_protected_and_new_feed_writes_are_atomic
     assert!(progress.complete, "{:?}", progress.error);
     assert_eq!(active_count(&f.db, 1).await.unwrap(), 2);
     let txn = f.db.begin().await.unwrap();
-    bind_note_draft(&txn, 1, None, "", &[]).await.unwrap();
+    bind_note_draft(&txn, 1, 0, None, "", &[]).await.unwrap();
     txn.commit().await.unwrap();
     assert_eq!(
         f.service.delete(&f.db, 1).await.unwrap_err(),
@@ -909,7 +909,9 @@ async fn postgres_upgrade_defers_locked_note_and_binds_latest_edit() {
     ))
     .await
     .unwrap();
-    bind_note_draft(&edit, 1, None, &body, &[]).await.unwrap();
+    bind_note_draft(&edit, 1, 0, None, &body, &[])
+        .await
+        .unwrap();
     let p = tokio::time::timeout(
         std::time::Duration::from_secs(2),
         upgrade::automatic_step(&f.db, f.service.store(), &paths, &[], now),
@@ -1223,5 +1225,161 @@ async fn postgres_upgrade_does_not_rebind_completed_concurrent_delivery() {
         1,
         "activity reference still protects the attachment"
     );
+    f.close().await;
+}
+
+#[tokio::test]
+async fn postgres_catalog_paginates_filters_and_reads_only_live_reference_labels() {
+    use crate::services::media_catalog::{MediaListQuery, list_assets};
+    let Some(f) = Fixture::new().await else {
+        return;
+    };
+    f.db.execute_unprepared(
+        r#"
+INSERT INTO media_assets (id, kind, url, mime, name, created_at, state)
+SELECT n, CASE WHEN n % 2 = 0 THEN 'generated' ELSE 'upload' END,
+'/test/' || n, CASE WHEN n % 2 = 0 THEN 'image/png' ELSE 'application/octet-stream' END,
+CASE WHEN n % 2 = 0 THEN 'Sky 100%_' || n || '.png' ELSE 'Photo-' || n || '.JPG' END,
+'2026-09-22 01:02:03.123456+00'::timestamptz, 'ready' FROM generate_series(1, 105) n;
+INSERT INTO media_assets (id, kind, url, mime, name, state) VALUES
+(106,'upload','/staging','image/png','staging','staging'),
+(107,'upload','/deleted','image/png','deleted','deleted'),
+(108,'upload','/deleting','image/png','deleting','deleting');
+INSERT INTO media_references (asset_id, consumer_type, consumer_id, slot, expires_at) VALUES
+(105,'note_draft','1','a',NULL), (105,'note_draft','2','b',NULL),
+(105,'note_history','3','c',NOW() - interval '1 second'),
+(105,'rss_item','4','d',NOW() + interval '1 day'),
+(105,'sticker','5','e',NOW() - interval '1 second');
+"#,
+    )
+    .await
+    .unwrap();
+    let first = list_assets(&f.db, &MediaListQuery::default())
+        .await
+        .unwrap();
+    assert_eq!(first.total, Some(105));
+    assert_eq!(first.items.len(), 48);
+    assert_eq!(first.items[0].id, 105);
+    let mut labels = first.items[0].references.clone();
+    labels.sort();
+    assert_eq!(labels, ["articles", "notes"]);
+    let mut ids: Vec<_> = first.items.iter().map(|a| a.id).collect();
+    let mut cursor = first.next_cursor;
+    while let Some(next) = cursor {
+        let page = list_assets(
+            &f.db,
+            &MediaListQuery {
+                before_created_at: Some(next.created_at),
+                before_id: Some(next.id),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(page.total, None);
+        ids.extend(page.items.iter().map(|a| a.id));
+        cursor = page.next_cursor;
+    }
+    assert_eq!(ids, (1..=105).rev().collect::<Vec<_>>());
+    let filtered = list_assets(
+        &f.db,
+        &MediaListQuery {
+            kind: Some("generated".into()),
+            format: Some("png".into()),
+            query: Some("SKY 100%_".into()),
+            limit: Some(100),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(filtered.total, Some(52));
+    assert_eq!(filtered.items.len(), 52);
+    assert!(filtered.items.iter().all(|a| a.id % 2 == 0));
+    let jpeg = list_assets(
+        &f.db,
+        &MediaListQuery {
+            format: Some("jpeg".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(jpeg.total, Some(53));
+    let empty = list_assets(
+        &f.db,
+        &MediaListQuery {
+            query: Some("100%Z".into()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(empty.total, Some(0));
+    assert!(empty.items.is_empty());
+    assert!(empty.next_cursor.is_none());
+    f.close().await;
+}
+
+#[tokio::test]
+async fn postgres_report_catalog_projects_summary_and_preserves_full_detail() {
+    use crate::services::tapp_reports::*;
+    let Some(f) = Fixture::new().await else {
+        return;
+    };
+    f.db.execute_unprepared(r#"
+INSERT INTO platform_reports (user_id, platform, metadata, report, created_at) VALUES
+(1, 'steam', '{}', json_build_object('summary', 'Latest', 'card_visuals', repeat('x', 100000)), '2026-09-22'),
+(1, 'github', '{}', '{"summary":null}', '2026-09-21'),
+(2, 'steam', '{}', '{"summary":"Another user"}', '2026-09-23');
+"#).await.unwrap();
+    let rows = list_user_platform_reports(&f.db, 1).await.unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].summary, "Latest");
+    assert_eq!(rows[1].summary, "");
+    let compact = platform_report_list_item(&rows[0]);
+    assert!(compact.to_string().len() < 200);
+    let full = get_user_platform_report(&f.db, 1, rows[0].id)
+        .await
+        .unwrap();
+    let payload = platform_report_payload(&full);
+    assert_eq!(
+        payload["content"]["card_visuals"].as_str().unwrap().len(),
+        100000
+    );
+    assert!(payload.get("card_visuals").is_none());
+    assert!(
+        get_user_platform_report(&f.db, 2, rows[0].id)
+            .await
+            .is_err()
+    );
+    f.close().await;
+}
+
+#[tokio::test]
+async fn postgres_recent_activity_uses_history_projection_without_snapshots() {
+    use crate::api::profile::{ActivityQuery, get_recent_activities};
+    use axum::extract::{Query, State};
+    let Some(f) = Fixture::new().await else {
+        return;
+    };
+    f.db.execute_unprepared(r#"
+UPDATE users SET is_owner = TRUE WHERE id = 1;
+INSERT INTO metadata_history (user_id, platform_name, changed_fields, old_data, new_data, change_date) VALUES
+(1, 'steam', '["games", "playtime"]', json_build_object('large', repeat('x', 100000)), '{}', '2026-09-22'),
+(1, 'steam', '["games"]', '{}', '{}', '2026-09-22'),
+(2, 'github', '["repos"]', '{}', '{}', '2026-09-23');
+ALTER TABLE metadata_history DROP COLUMN old_data, DROP COLUMN new_data;
+"#).await.unwrap();
+    // Removing the unused columns makes an accidental full-entity SELECT fail.
+    let (status, axum::Json(body)) = get_recent_activities(
+        Query(ActivityQuery { limit: Some(10) }),
+        State(f.db.clone()),
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::OK);
+    assert_eq!(body["count"], 1);
+    assert_eq!(body["activities"][0]["platform_name"], "steam");
+    assert_eq!(body["activities"][0]["change_count"], 3);
     f.close().await;
 }

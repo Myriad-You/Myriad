@@ -857,7 +857,9 @@ async fn execute_task_submit(params: &HashMap<String, Value>) -> Result<Value, S
         .unwrap_or("unknown")
         .to_string();
 
-    match crate::api::tasks::submit_and_start_platform_task(platform.clone()).await {
+    match crate::services::background_processor::submit_and_start_platform_task(platform.clone())
+        .await
+    {
         Ok(task_id) => Ok(json!({
             "success": true,
             "taskId": task_id,

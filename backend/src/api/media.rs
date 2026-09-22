@@ -4,7 +4,7 @@
 use axum::{
     Json,
     body::Bytes,
-    extract::{Path, Request, State},
+    extract::{Path, Query, Request, State},
     http::{HeaderMap, StatusCode},
     response::Response,
 };
@@ -19,7 +19,7 @@ use crate::services::media::{
     MediaActor, MediaContext, MediaExposure, MediaService, MediaSource, MediaStore, NewMediaBytes,
     resolve_authenticated_content,
 };
-use crate::services::media_catalog::{delete_asset, list_assets};
+use crate::services::media_catalog::{MediaListQuery, MediaPage, delete_asset, list_assets};
 use crate::services::memory_profile::{note_image_limit, note_video_limit};
 use myriad_error::AppError;
 
@@ -67,13 +67,17 @@ fn catalog_item(asset: &crate::services::media::MediaAsset) -> Value {
 pub async fn list_media(
     State(db): State<DatabaseConnection>,
     headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, HttpError> {
+    Query(query): Query<MediaListQuery>,
+) -> Result<Json<MediaPage>, HttpError> {
     require_admin(&headers, &db).await?;
-    let items = list_assets(&db).await.map_err(|err| {
+    if !query.valid() {
+        return Err(media_http(StatusCode::BAD_REQUEST, "Invalid media query"));
+    }
+    let page = list_assets(&db, &query).await.map_err(|err| {
         tracing::error!(%err, "list media catalog");
         media_http(StatusCode::INTERNAL_SERVER_ERROR, "Failed to list media")
     })?;
-    Ok(Json(json!({ "success": true, "items": items })))
+    Ok(Json(page))
 }
 
 /// POST /api/media

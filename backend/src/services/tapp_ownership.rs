@@ -185,7 +185,12 @@ pub async fn subject_is_admin(
             TappAccessError::Database
         })?;
     Ok(result
-        .and_then(|row| row.try_get::<bool>("", "is_admin").ok())
+        .map(|row| row.try_get::<bool>("", "is_admin"))
+        .transpose()
+        .map_err(|e| {
+            tracing::error!(%e, "[TAPP] Database error decoding is_admin");
+            TappAccessError::Database
+        })?
         .unwrap_or(false))
 }
 
@@ -494,8 +499,7 @@ mod tests {
     use super::{
         canonical_installation_owner_id, installation_conflict_owner_ids,
         parse_authenticated_subject_id, positive_user_id, private_install_lookup_user_id,
-        tapp_lifecycle_lock_key,
-        tapp_owner_priority,
+        tapp_lifecycle_lock_key, tapp_owner_priority,
     };
     use crate::services::permission_service::UserRole;
 
@@ -549,7 +553,6 @@ mod tests {
             theme_color: None,
             manifest: json!({}),
             status: tapps::TappStatus::Installed,
-            granted_permissions: json!([]),
             approved_permissions: json!([]),
             file_path: "".into(),
             code_path: "".into(),

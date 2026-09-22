@@ -60,54 +60,47 @@ impl std::fmt::Display for ReportCatalogError {
 
 impl std::error::Error for ReportCatalogError {}
 
-/// Project a platform_reports row for Tapp catalog clients.
-///
-/// Exposes nested `content` (legacy) and top-level `card_visuals` / `cardVisuals`.
-/// Host home cards use `GET /api/reports/latest`, not this payload.
+/// Full report content has one wire representation. SDK projections derive their fields from it.
 pub fn platform_report_payload(report: &platform_reports::Model) -> Value {
-    let card_visuals = report
-        .report
-        .get("card_visuals")
-        .cloned()
-        .filter(|v| !v.is_null())
-        .unwrap_or_else(|| json!({}));
-    let insights = report
-        .report
-        .get("insights")
-        .cloned()
-        .unwrap_or_else(|| json!([]));
     json!({
         "id": report.id,
         "platform": report.platform,
         "type": "platform",
-        "summary": report.report.get("summary").and_then(Value::as_str).unwrap_or(""),
-        "insights": insights,
         "content": report.report,
-        "metadata": report.metadata,
-        "card_visuals": card_visuals.clone(),
-        "cardVisuals": card_visuals,
         "createdAt": report.created_at.to_string()
     })
 }
 
+#[derive(sea_orm::FromQueryResult)]
+pub struct PlatformReportSummary {
+    pub id: i32,
+    pub platform: String,
+    pub created_at: chrono::NaiveDateTime,
+    pub summary: String,
+}
+
 /// Compact list row used by host `GET /api/reports/list`.
-pub fn platform_report_list_item(report: &platform_reports::Model) -> Value {
+pub fn platform_report_list_item(report: &PlatformReportSummary) -> Value {
     json!({
         "id": report.id,
         "platform": report.platform,
         "type": "platform",
         "createdAt": report.created_at.to_string(),
-        "summary": report.report.get("summary").and_then(|v| v.as_str()).unwrap_or("")
+        "summary": report.summary
     })
 }
 
 pub async fn list_user_platform_reports(
     db: &DatabaseConnection,
     user_id: i32,
-) -> Result<Vec<platform_reports::Model>, ReportCatalogError> {
+) -> Result<Vec<PlatformReportSummary>, ReportCatalogError> {
     platform_reports::Entity::find()
+        .select_only()
+        .columns([platform_reports::Column::Id, platform_reports::Column::Platform, platform_reports::Column::CreatedAt])
+        .column_as(sea_orm::sea_query::Expr::cust("CASE WHEN json_typeof(report::json->'summary') = 'string' THEN report->>'summary' ELSE '' END"), "summary")
         .filter(platform_reports::Column::UserId.eq(user_id))
         .order_by_desc(platform_reports::Column::CreatedAt)
+        .into_model::<PlatformReportSummary>()
         .all(db)
         .await
         .map_err(|error| {
@@ -421,26 +414,31 @@ mod tests {
             }),
             metadata: json!({ "source": "test" }),
             created_at: now,
-            expires_at: now,
             report_title: Some("Weekly".into()),
         }
     }
 
     #[test]
-    fn platform_payload_exposes_card_visuals_aliases() {
+    fn platform_payload_serializes_content_once() {
         let payload = platform_report_payload(&sample_report());
         assert_eq!(payload["id"], 7);
         assert_eq!(payload["platform"], "steam");
-        assert_eq!(payload["summary"], "Played a lot");
-        assert_eq!(payload["card_visuals"]["accent"], "#f00");
-        assert_eq!(payload["cardVisuals"]["accent"], "#f00");
+        assert!(payload.get("summary").is_none());
+        assert!(payload.get("card_visuals").is_none());
+        assert!(payload.get("cardVisuals").is_none());
+        assert_eq!(payload["content"]["card_visuals"]["accent"], "#f00");
         assert_eq!(payload["content"]["summary"], "Played a lot");
         assert_eq!(payload["type"], "platform");
     }
 
     #[test]
     fn list_item_is_compact() {
-        let item = platform_report_list_item(&sample_report());
+        let item = platform_report_list_item(&super::PlatformReportSummary {
+            id: 7,
+            platform: "steam".into(),
+            created_at: Utc::now().naive_utc(),
+            summary: "Played a lot".into(),
+        });
         assert_eq!(item["id"], 7);
         assert_eq!(item["summary"], "Played a lot");
         assert!(item.get("card_visuals").is_none());

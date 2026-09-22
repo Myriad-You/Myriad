@@ -447,7 +447,7 @@ mod tests {
         let (session, key) = ChatSession::register(claims, "chat-wire".into())
             .await
             .unwrap();
-        let run = crate::services::agent::run_hub::create_run(7201, Some("chat-wire".into())).await;
+        let run = crate::services::agent::run_hub::create_run_for_test(7201, Some("chat-wire".into())).await;
         run.publish(AgentProgressEvent::ThinkingToken {
             token: "private reasoning".into(),
             done: false,
@@ -472,7 +472,14 @@ mod tests {
         let body = Sse::new(completion_stream(run, session.clone()))
             .into_response()
             .into_body();
-        let text = String::from_utf8(to_bytes(body, 64 * 1024).await.unwrap().to_vec()).unwrap();
+        let text = String::from_utf8(
+            tokio::time::timeout(std::time::Duration::from_secs(5), to_bytes(body, 64 * 1024))
+                .await
+                .expect("speech stream must terminate")
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
         assert!(text.contains("你好"));
         assert_eq!(text.matches("你好").count(), 1);
         assert!(!text.contains("private reasoning"));
@@ -488,7 +495,7 @@ mod tests {
             .await
             .unwrap();
         let run =
-            crate::services::agent::run_hub::create_run(7202, Some("chat-long-wire".into())).await;
+            crate::services::agent::run_hub::create_run_for_test(7202, Some("chat-long-wire".into())).await;
         for _ in 0..520 {
             run.publish(AgentProgressEvent::SummaryToken {
                 token: "partial ".into(),
@@ -505,7 +512,17 @@ mod tests {
         let body = Sse::new(completion_stream(run, session.clone()))
             .into_response()
             .into_body();
-        let text = String::from_utf8(to_bytes(body, 256 * 1024).await.unwrap().to_vec()).unwrap();
+        let text = String::from_utf8(
+            tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                to_bytes(body, 256 * 1024),
+            )
+            .await
+            .expect("speech stream must terminate")
+            .unwrap()
+            .to_vec(),
+        )
+        .unwrap();
         assert_eq!(text.matches("whole reply").count(), 1);
         assert!(!text.contains("partial"));
         assert!(text.contains("[DONE]"));

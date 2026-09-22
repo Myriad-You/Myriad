@@ -15,6 +15,8 @@ pub(crate) mod legacy;
 mod maintenance;
 mod migration;
 mod recovery;
+#[cfg(test)]
+mod reference_tests;
 mod references;
 mod scan;
 pub(crate) mod serve;
@@ -27,6 +29,7 @@ mod urls;
 mod validate;
 
 pub use access::{can_manage, can_read};
+pub(crate) use cite::sync_note_history_refs;
 pub use cite::{
     bind_ai_task, bind_and_publish_dashboard_layout, bind_channel_message, bind_consumer,
     bind_note_draft, bind_note_published, bind_persona, bind_rss_item, bind_stickers,
@@ -252,7 +255,7 @@ impl MediaService {
                             if !row.references_complete {
                                 return Err(MediaError::InUse);
                             }
-                            if references::active_count(txn, id).await? > 0 {
+                            if references::has_active(txn, id, false).await? {
                                 return Err(MediaError::InUse);
                             }
                             if !assets::mark_deleting(txn, id).await? {
@@ -309,7 +312,7 @@ impl MediaService {
                 {
                     return Err(MediaError::NotReady);
                 }
-                if references::public_count(txn, id).await? > 0 {
+                if references::has_active(txn, id, true).await? {
                     return Err(MediaError::PublicInUse);
                 }
                 assets::mark_private(txn, id, &content_path(id)).await?;

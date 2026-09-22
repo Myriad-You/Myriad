@@ -510,15 +510,16 @@ pub async fn ensure_current_admin_on(
         return Err(admin_forbidden());
     }
 
-    let user_id = crate::services::tapp_ownership::positive_user_id(&claims.sub).ok_or_else(|| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({
-                "error": "Unauthorized",
-                "message": "Invalid user ID in authorization token."
-            })),
-        )
-    })?;
+    let user_id =
+        crate::services::tapp_ownership::positive_user_id(&claims.sub).ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({
+                    "error": "Unauthorized",
+                    "message": "Invalid user ID in authorization token."
+                })),
+            )
+        })?;
 
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
@@ -540,7 +541,19 @@ pub async fn ensure_current_admin_on(
         })?;
 
     let is_admin = row
-        .and_then(|r| r.try_get::<bool>("", "is_admin").ok())
+        .map(|r| r.try_get::<bool>("", "is_admin"))
+        .transpose()
+        .map_err(|e| {
+            tracing::error!(%e, "Failed to decode current admin status");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "error": "Database error",
+                    "code": "database_error",
+                    "message": "Administrator status cannot be verified."
+                })),
+            )
+        })?
         .unwrap_or(false);
 
     if is_admin {
@@ -1269,6 +1282,90 @@ mod tests {
                 }
             }
         });
+    }
+
+    #[tokio::test]
+    async fn role_read_failures_are_unavailable_and_recover_without_demotion() {
+        use crate::services::tapp_ownership::{TappAccessError, subject_is_admin};
+        use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseBackend, Statement};
+        let Ok(url) = std::env::var("AUTH_TEST_DATABASE_URL") else {
+            return;
+        };
+        let mut options = ConnectOptions::new(url);
+        options.max_connections(1).min_connections(1);
+        let db = Database::connect(options).await.unwrap();
+        let claims = super::mint_session_claims(2, "subject", true, false, 0);
+        for sql in [
+            "CREATE TEMP TABLE users (id INTEGER PRIMARY KEY, is_admin BOOLEAN, is_owner BOOLEAN)",
+            "INSERT INTO users VALUES (1, true, true), (2, NULL, false)",
+        ] {
+            db.execute_raw(Statement::from_string(DatabaseBackend::Postgres, sql))
+                .await
+                .unwrap();
+        }
+        // A NULL result cannot be decoded as bool; it is not a false role.
+        assert_eq!(
+            super::ensure_current_admin_on(&claims, &db)
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+        assert!(matches!(
+            subject_is_admin(&db, 2).await,
+            Err(TappAccessError::Database)
+        ));
+        db.execute_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "ALTER TABLE users RENAME COLUMN is_admin TO unavailable",
+        ))
+        .await
+        .unwrap();
+        assert_eq!(
+            super::ensure_current_admin_on(&claims, &db)
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+        assert!(matches!(
+            subject_is_admin(&db, 2).await,
+            Err(TappAccessError::Database)
+        ));
+        db.execute_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "ALTER TABLE users RENAME COLUMN unavailable TO is_admin",
+        ))
+        .await
+        .unwrap();
+        for (value, allowed) in [("true", true), ("false", false)] {
+            db.execute_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                format!("UPDATE users SET is_admin = {value} WHERE id = 2"),
+            ))
+            .await
+            .unwrap();
+            assert_eq!(
+                super::ensure_current_admin_on(&claims, &db).await.is_ok(),
+                allowed
+            );
+            assert_eq!(subject_is_admin(&db, 2).await.unwrap(), allowed);
+        }
+        db.execute_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "DELETE FROM users WHERE id = 2",
+        ))
+        .await
+        .unwrap();
+        assert_eq!(
+            super::ensure_current_admin_on(&claims, &db)
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::FORBIDDEN
+        );
+        assert!(!subject_is_admin(&db, 2).await.unwrap());
+        db.close().await.unwrap();
     }
 
     /// Run against an explicit test DB; a single-connection TEMP table keeps

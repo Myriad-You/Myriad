@@ -1,7 +1,7 @@
 /** 管理员工作台皮。不进口 phantasiApi / manager。侧栏一页一项，分类标题用 SettingSection。 */
 
 import type { ReactNode } from 'react'
-import type { MediaAsset } from '../../../services/mediaApi'
+import type { MediaAsset, MediaFilter } from '../../../services/mediaApi'
 import type {
   CommentItem,
   PhantasiNoteDoc,
@@ -152,6 +152,11 @@ export default function PhantasiWorkbench({
   onPane,
   docs,
   media,
+  mediaTotal,
+  mediaFilter,
+  onMediaFilter,
+  mediaHasMore,
+  onLoadMoreMedia,
   comments = [],
   applications = [],
   notesLoading,
@@ -192,6 +197,11 @@ export default function PhantasiWorkbench({
   onPane: (pane: WorkbenchPane) => void
   docs: PhantasiNoteDoc[]
   media: MediaAsset[]
+  mediaTotal: number
+  mediaFilter: MediaFilter
+  onMediaFilter: (filter: MediaFilter) => void
+  mediaHasMore: boolean
+  onLoadMoreMedia: () => void
   comments?: CommentItem[]
   applications?: PhantasiSourceApplication[]
   notesLoading: boolean
@@ -240,7 +250,7 @@ export default function PhantasiWorkbench({
   const homeEmpty = workbenchHomeIsEmpty(
     docs.length,
     feedCount,
-    media.length,
+    mediaTotal,
     pendingReviews.length,
   )
   const homeDrafts = useMemo(() => workbenchHomeDrafts(docs), [docs])
@@ -379,6 +389,7 @@ export default function PhantasiWorkbench({
               quiet={homeQuiet}
               docs={docs}
               media={media}
+              mediaTotal={mediaTotal}
               sources={sources}
               comments={comments}
               pendingReviews={pendingReviews}
@@ -435,6 +446,10 @@ export default function PhantasiWorkbench({
           back={back}
           media={media}
           mediaLoading={mediaLoading}
+          mediaFilter={mediaFilter}
+          onMediaFilter={onMediaFilter}
+          mediaHasMore={mediaHasMore}
+          onLoadMoreMedia={onLoadMoreMedia}
           busy={busy}
           {...bindGuide('workbench.media', g.media)}
           onUpload={onUpload}

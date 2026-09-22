@@ -333,3 +333,7 @@ backend/data/.bootstrap-claimed
 !/frontend/tests/browser/updater.spec.ts
 !/frontend/tests/browser/fixture/updater.html
 !/frontend/tests/browser/fixture/updater.tsx
+
+!frontend/tests/browser/friendLinks.spec.ts
+!frontend/tests/browser/fixture/friendLinks.html
+!frontend/tests/browser/fixture/friendLinks.tsx

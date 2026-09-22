@@ -1256,10 +1256,26 @@ pub async fn get_recent_activities(
     // before applying the user-facing limit.
     let audit_limit = (limit * 10).min(500);
 
+    #[derive(sea_orm::FromQueryResult)]
+    struct ActivityHistory {
+        id: i32,
+        platform_name: String,
+        changed_fields: Value,
+        change_date: chrono::NaiveDateTime,
+    }
+
     match metadata_history::Entity::find()
+        .select_only()
+        .columns([
+            metadata_history::Column::Id,
+            metadata_history::Column::PlatformName,
+            metadata_history::Column::ChangedFields,
+            metadata_history::Column::ChangeDate,
+        ])
         .filter(metadata_history::Column::UserId.eq(user_id))
         .order_by_desc(metadata_history::Column::ChangeDate)
         .limit(audit_limit)
+        .into_model::<ActivityHistory>()
         .all(&db)
         .await
     {

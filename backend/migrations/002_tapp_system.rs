@@ -41,12 +41,6 @@ impl MigrationTrait for Migration {
                             .default("installed"),
                     )
                     .col(
-                        ColumnDef::new(Tapps::GrantedPermissions)
-                            .json()
-                            .not_null()
-                            .default("[]"),
-                    )
-                    .col(
                         ColumnDef::new(Tapps::ApprovedPermissions)
                             .json_binary()
                             .not_null()
@@ -1014,7 +1008,6 @@ enum Tapps {
     ThemeColor,
     Manifest,
     Status,
-    GrantedPermissions,
     ApprovedPermissions,
     NeedsReauthorization,
     FilePath,

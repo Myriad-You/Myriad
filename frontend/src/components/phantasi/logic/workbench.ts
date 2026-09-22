@@ -6,8 +6,6 @@ export type WorkbenchNoteOpen =
   | { kind: 'item'; id: number }
   | { kind: 'doc'; id: number }
 
-export type WorkbenchMediaKindFilter = 'all' | 'upload' | 'generated'
-
 export function workbenchNoteOpen(doc: {
   id: number
   item_id: number | null
@@ -284,7 +282,6 @@ export const WORKBENCH_MEDIA_FORMATS = [
 ] as const
 
 export type WorkbenchMediaFormatKey = (typeof WORKBENCH_MEDIA_FORMATS)[number]
-export type WorkbenchMediaFormatFilter = 'all' | WorkbenchMediaFormatKey
 
 const MEDIA_MIME_FORMAT: Record<string, WorkbenchMediaFormatKey> = {
   'image/jpeg': 'jpeg',
@@ -336,47 +333,6 @@ export function workbenchMediaFormatLabel(
   if (key === 'webm') return 'WebM'
   if (key === 'mov') return 'MOV'
   return otherLabel
-}
-
-export function collectWorkbenchMediaFormats(
-  items: ReadonlyArray<{ mime: string; name?: string | null }>,
-): WorkbenchMediaFormatKey[] {
-  const seen = new Set<WorkbenchMediaFormatKey>()
-  for (const item of items) seen.add(workbenchMediaFormatKey(item))
-  return WORKBENCH_MEDIA_FORMATS.filter((key) => seen.has(key))
-}
-
-export function filterWorkbenchMedia<
-  T extends { kind: string; mime: string; name: string },
->(
-  items: readonly T[],
-  filter: {
-    kind: WorkbenchMediaKindFilter
-    format?: WorkbenchMediaFormatFilter
-    query?: string
-  },
-): T[] {
-  const needle = filter.query?.trim().toLowerCase() ?? ''
-  return items.filter((item) => {
-    if (filter.kind !== 'all' && item.kind !== filter.kind) return false
-    if (
-      filter.format != null &&
-      filter.format !== 'all' &&
-      workbenchMediaFormatKey(item) !== filter.format
-    ) {
-      return false
-    }
-    if (!needle) return true
-    return mediaSearchHaystack(item).includes(needle)
-  })
-}
-
-function mediaSearchHaystack(item: {
-  name: string
-  mime: string
-  kind: string
-}): string {
-  return [item.name, item.mime, item.kind].join('\n').toLowerCase()
 }
 
 export function formatWorkbenchBytes(bytes: number): string {

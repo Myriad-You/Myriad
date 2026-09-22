@@ -212,13 +212,14 @@ pub async fn bind_consumer(
 pub async fn bind_note_draft(
     txn: &impl ConnectionTrait,
     doc_id: i32,
+    history_since_revision: i64,
     image: Option<&str>,
     content_md: &str,
     origins: &[String],
 ) -> Result<(), MediaError> {
     let refs = references_from_fields(txn, origins, image, content_md, false).await?;
     bind_consumer(txn, "note_draft", doc_id.to_string(), &refs).await?;
-    sync_note_history_refs(txn, doc_id, origins).await
+    sync_note_history_refs(txn, doc_id, history_since_revision, origins).await
 }
 
 /// RSS downloads remain an evictable cache. Protect any referenced asset that
@@ -456,19 +457,31 @@ pub async fn clear_note_doc(
     Ok(())
 }
 
-async fn sync_note_history_refs(
+/// Bind snapshots captured by this write; retained revisions are immutable.
+/// Migration passes zero to rebuild all retained history.
+pub(crate) async fn sync_note_history_refs(
     txn: &impl ConnectionTrait,
     doc_id: i32,
+    since_revision: i64,
     origins: &[String],
 ) -> Result<(), MediaError> {
     let rows = txn
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT revision, snapshot FROM phantasi_note_history WHERE doc_id = $1",
-            [doc_id.into()],
+            "SELECT revision, snapshot FROM phantasi_note_history WHERE doc_id = $1 AND revision >= $2",
+            [doc_id.into(), since_revision.into()],
         ))
         .await?;
-    clear_history_prefix(txn, doc_id).await?;
+    // The history trigger prunes old versions in this same document transaction.
+    txn.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "DELETE FROM media_references AS r
+         WHERE r.consumer_type = 'note_history' AND r.consumer_id LIKE $1
+           AND NOT EXISTS (SELECT 1 FROM phantasi_note_history AS h
+             WHERE h.doc_id = $2 AND r.consumer_id = h.doc_id::text || ':' || h.revision::text)",
+        [format!("{doc_id}:%").into(), doc_id.into()],
+    ))
+    .await?;
     for row in rows {
         let revision: i64 = row.try_get("", "revision")?;
         let snapshot: Value = row.try_get("", "snapshot")?;

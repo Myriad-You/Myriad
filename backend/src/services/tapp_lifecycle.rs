@@ -5,8 +5,6 @@
 //! list projection. HTTP handlers keep DB/fs/grant side effects and map
 //! outcomes to status codes.
 
-use std::path::PathBuf;
-
 use serde::Serialize;
 
 use crate::services::tapp_catalog::{icon_svg_from_manifest, manifest_locales};
@@ -29,24 +27,6 @@ pub fn select_uninstall_target(has_own_install: bool, has_public_install: bool) 
         UninstallTarget::PublicRequiresAdmin
     } else {
         UninstallTarget::NotFound
-    }
-}
-
-/// After a successful uninstall DB commit, choose which filesystem path to delete.
-///
-/// Prefer the quarantine directory when rename succeeded; otherwise fall back to
-/// the live install dir so a failed rename never blocks uninstall completion.
-pub fn uninstall_post_commit_cleanup_path(
-    quarantined_dir: Option<PathBuf>,
-    live_tapp_dir: PathBuf,
-    live_dir_exists: bool,
-) -> Option<PathBuf> {
-    if let Some(quarantine) = quarantined_dir {
-        Some(quarantine)
-    } else if live_dir_exists {
-        Some(live_tapp_dir)
-    } else {
-        None
     }
 }
 
@@ -328,22 +308,6 @@ mod tests {
             select_uninstall_target(false, false),
             UninstallTarget::NotFound
         );
-    }
-
-    #[test]
-    fn uninstall_post_commit_prefers_quarantine_then_live_dir() {
-        let live = PathBuf::from("/data/tapps/1/com.example.app");
-        let quarantine = PathBuf::from("/data/tapps/1/.com.example.app.uninstall-deadbeef");
-
-        assert_eq!(
-            uninstall_post_commit_cleanup_path(Some(quarantine.clone()), live.clone(), false),
-            Some(quarantine.clone())
-        );
-        assert_eq!(
-            uninstall_post_commit_cleanup_path(None, live.clone(), true),
-            Some(live.clone())
-        );
-        assert_eq!(uninstall_post_commit_cleanup_path(None, live, false), None);
     }
 
     #[test]

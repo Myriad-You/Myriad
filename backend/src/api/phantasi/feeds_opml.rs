@@ -69,7 +69,6 @@ pub(crate) async fn import_opml(
             enabled: Set(true),
             error_count: Set(0),
             item_count: Set(0),
-            unread_count: Set(0),
             update_interval: Set(30),
             created_at: Set(now.into()),
             updated_at: Set(now.into()),

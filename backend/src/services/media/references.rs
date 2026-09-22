@@ -1,7 +1,10 @@
 //! Asset references. Callers pass an open transaction so business writes stay atomic.
 
 use chrono::{DateTime, Utc};
-use sea_orm::{ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set};
+use sea_orm::{
+    ColumnTrait, Condition, ConnectionTrait, DatabaseBackend, EntityTrait, PaginatorTrait,
+    QueryFilter, Set, Statement,
+};
 
 use crate::models::entities::media_references;
 
@@ -40,28 +43,37 @@ pub fn parse_consumer_type(value: &str) -> Result<&str, MediaError> {
 }
 
 pub async fn active_count(db: &impl ConnectionTrait, asset_id: i32) -> Result<i64, MediaError> {
-    let rows = media_references::Entity::find()
+    Ok(media_references::Entity::find()
         .filter(media_references::Column::AssetId.eq(asset_id))
-        .all(db)
-        .await?;
-    let now = Utc::now().fixed_offset();
-    Ok(rows
-        .iter()
-        .filter(|row| row.expires_at.is_none_or(|expires| expires > now))
-        .count() as i64)
+        .filter(
+            Condition::any()
+                .add(media_references::Column::ExpiresAt.is_null())
+                .add(media_references::Column::ExpiresAt.gt(Utc::now().fixed_offset())),
+        )
+        .count(db)
+        .await? as i64)
 }
 
-pub async fn public_count(db: &impl ConnectionTrait, asset_id: i32) -> Result<i64, MediaError> {
-    let rows = media_references::Entity::find()
-        .filter(media_references::Column::AssetId.eq(asset_id))
-        .filter(media_references::Column::RequiresPublic.eq(true))
-        .all(db)
-        .await?;
-    let now = Utc::now().fixed_offset();
-    Ok(rows
-        .iter()
-        .filter(|row| row.expires_at.is_none_or(|expires| expires > now))
-        .count() as i64)
+pub(super) async fn has_active(
+    db: &impl ConnectionTrait,
+    asset_id: i32,
+    public_only: bool,
+) -> Result<bool, MediaError> {
+    let row = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT EXISTS (SELECT 1 FROM media_references WHERE asset_id = $1
+            AND (expires_at IS NULL OR expires_at > $2)
+            AND (NOT $3 OR requires_public)) AS present",
+            [
+                asset_id.into(),
+                Utc::now().fixed_offset().into(),
+                public_only.into(),
+            ],
+        ))
+        .await?
+        .ok_or(MediaError::StoreFailed)?;
+    Ok(row.try_get("", "present")?)
 }
 
 /// Replace every slot for one consumer. Locks assets in id order.
@@ -75,8 +87,11 @@ pub async fn replace_for_consumer(
     if consumer_id.trim().is_empty() {
         return Err(MediaError::invalid("Invalid media consumer"));
     }
-    let mut ids: Vec<i32> = refs.iter().map(|item| item.asset_id).collect();
-    let locked = assets::lock_by_ids_sorted(txn, ids.clone()).await?;
+    if refs.iter().any(|item| item.slot.trim().is_empty()) {
+        return Err(MediaError::invalid("Invalid media slot"));
+    }
+    let ids = refs.iter().map(|item| item.asset_id).collect();
+    let locked = assets::lock_by_ids_sorted(txn, ids).await?;
     for row in &locked {
         let state = row.state.as_deref().unwrap_or("");
         if MediaState::parse(state).ok() != Some(MediaState::Ready) {
@@ -88,24 +103,23 @@ pub async fn replace_for_consumer(
         .filter(media_references::Column::ConsumerId.eq(consumer_id))
         .exec(txn)
         .await?;
-    ids.sort_unstable();
-    let now = Utc::now().fixed_offset();
-    for item in refs {
-        if item.slot.trim().is_empty() {
-            return Err(MediaError::invalid("Invalid media slot"));
-        }
-        let row = media_references::ActiveModel {
-            asset_id: Set(item.asset_id),
-            consumer_type: Set(consumer_type.to_string()),
-            consumer_id: Set(consumer_id.to_string()),
-            slot: Set(item.slot.clone()),
-            requires_public: Set(item.requires_public),
-            expires_at: Set(item.expires_at.map(|ts| ts.fixed_offset())),
-            created_at: Set(now),
-            ..Default::default()
-        };
-        row.insert(txn).await?;
+    if refs.is_empty() {
+        return Ok(());
     }
+    let now = Utc::now().fixed_offset();
+    let rows = refs.iter().map(|item| media_references::ActiveModel {
+        asset_id: Set(item.asset_id),
+        consumer_type: Set(consumer_type.to_string()),
+        consumer_id: Set(consumer_id.to_string()),
+        slot: Set(item.slot.clone()),
+        requires_public: Set(item.requires_public),
+        expires_at: Set(item.expires_at.map(|ts| ts.fixed_offset())),
+        created_at: Set(now),
+        ..Default::default()
+    });
+    media_references::Entity::insert_many(rows)
+        .exec_without_returning(txn)
+        .await?;
     Ok(())
 }
 

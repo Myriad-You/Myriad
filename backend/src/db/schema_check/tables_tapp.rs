@@ -73,12 +73,6 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     not_null: false,
                 },
                 ColumnDef {
-                    name: "granted_permissions".into(),
-                    data_type: "jsonb".into(),
-                    default_value: Some("'[]'".into()),
-                    not_null: false,
-                },
-                ColumnDef {
                     name: "approved_permissions".into(),
                     data_type: "jsonb".into(),
                     default_value: Some("'[]'".into()),

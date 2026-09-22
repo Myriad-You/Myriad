@@ -144,12 +144,6 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     not_null: false,
                 },
                 ColumnDef {
-                    name: "unread_count".into(),
-                    data_type: "integer".into(),
-                    default_value: Some("0".into()),
-                    not_null: false,
-                },
-                ColumnDef {
                     name: "card_size".into(),
                     data_type: "character varying".into(),
                     default_value: None,

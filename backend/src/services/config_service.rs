@@ -1,6 +1,6 @@
 use crate::config::DynamicConfig;
 use anyhow::{Context, Result};
-use sea_orm::{ConnectionTrait, DatabaseConnection, Statement, TransactionTrait};
+use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 
@@ -1317,31 +1317,14 @@ impl ConfigService {
         upsert_configuration(&self.db, key, value).await
     }
 
-    /// 批量更新配置。先全部封存，再在同一事务里 UPSERT；中途失败整批回滚。
+    /// Seal every value before one atomic, parameterized multi-row UPSERT.
     pub async fn update_configs(&self, updates: HashMap<String, JsonValue>) -> Result<()> {
-        let count = updates.len();
-        if count == 0 {
-            return Ok(());
-        }
-        let sealed = seal_config_updates(updates)?;
-        let txn = self
-            .db
-            .begin()
-            .await
-            .context("Failed to start configuration update transaction")?;
-        for (key, value) in sealed {
-            upsert_configuration(&txn, &key, value).await?;
-        }
-        txn.commit()
-            .await
-            .context("Failed to commit configuration update transaction")?;
-        tracing::info!("✅ Updated {count} configurations");
-        Ok(())
+        Self::update_configs_on(&self.db, updates).await
     }
 
-    /// Same UPSERT as [`Self::update_configs`], on a caller-owned transaction.
+    /// Same batch UPSERT, optionally on a caller-owned transaction.
     pub async fn update_configs_on(
-        txn: &impl ConnectionTrait,
+        db: &impl ConnectionTrait,
         updates: HashMap<String, JsonValue>,
     ) -> Result<()> {
         let count = updates.len();
@@ -1349,9 +1332,31 @@ impl ConfigService {
             return Ok(());
         }
         let sealed = seal_config_updates(updates)?;
-        for (key, value) in sealed {
-            upsert_configuration(txn, &key, value).await?;
+        let mut sql = String::from("INSERT INTO configurations (key, value, updated_at) VALUES ");
+        let mut values = Vec::with_capacity(count * 2);
+        for (index, (key, value)) in sealed.into_iter().enumerate() {
+            if index > 0 {
+                sql.push_str(", ");
+            }
+            use std::fmt::Write;
+            write!(
+                sql,
+                "(${}, ${}, CURRENT_TIMESTAMP)",
+                index * 2 + 1,
+                index * 2 + 2
+            )
+            .expect("writing to a String cannot fail");
+            values.push(key.into());
+            values.push(value.into());
         }
+        sql.push_str(" ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP");
+        db.execute_raw(Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            sql,
+            values,
+        ))
+        .await
+        .context("Failed to update configurations")?;
         tracing::info!("✅ Updated {count} configurations");
         Ok(())
     }
@@ -1505,6 +1510,12 @@ mod tests {
         )
         .await
         .unwrap();
+        db.execute_unprepared("CREATE TABLE write_count (n INTEGER NOT NULL); INSERT INTO write_count VALUES (0);
+            CREATE FUNCTION count_config_write() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN UPDATE write_count SET n = n + 1; RETURN NULL; END $$;
+            CREATE TRIGGER count_write AFTER INSERT ON configurations FOR EACH STATEMENT EXECUTE FUNCTION count_config_write();
+            ALTER TABLE configurations ADD CONSTRAINT reject_bad_value CHECK (value <> '\"reject-sql\"'::jsonb)")
+            .await.unwrap();
         let service = super::ConfigService::new(db.clone());
         let mut bad = HashMap::new();
         bad.insert("site_title".into(), json!("new"));
@@ -1536,9 +1547,28 @@ mod tests {
         ok.insert("site_title".into(), json!("saved"));
         ok.insert(
             "ai_vendor_sources".into(),
-            json!([{"slug":"openai","kind":"openai","api_key":"sk-nested"}]),
+            json!([{"slug":"openai","kind":"openai","display_name":"OpenAI","enabled":true,"api_key":"sk-nested"}]),
         );
         service.update_configs(ok).await.unwrap();
+        let count = db
+            .query_one_raw(sea_orm::Statement::from_string(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT n FROM write_count".to_string(),
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get::<i32>("", "n")
+            .unwrap();
+        assert_eq!(
+            count, 1,
+            "the production batch must execute one INSERT statement"
+        );
+        let mut sql_failure = HashMap::new();
+        sql_failure.insert("site_title".into(), json!("partial"));
+        sql_failure.insert("bad_value".into(), json!("reject-sql"));
+        assert!(service.update_configs(sql_failure).await.is_err());
+        service.update_configs(HashMap::new()).await.unwrap();
         let loaded = service.load_config().await.unwrap();
         assert_eq!(loaded.site_title.as_deref(), Some("saved"));
         assert_eq!(

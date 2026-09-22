@@ -3,7 +3,7 @@
 use super::cite::extract_registered_paths;
 use super::error::MediaError;
 use crate::models::entities::media_references;
-use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, Condition, ConnectionTrait, EntityTrait, QueryFilter, QuerySelect};
 use std::collections::HashMap;
 
 /// Map live consumer types onto the catalog UI's notes/articles/site labels.
@@ -35,18 +35,24 @@ pub async fn catalog_labels_for_assets(
     }
     let now = chrono::Utc::now().fixed_offset();
     let rows = media_references::Entity::find()
+        .select_only()
+        .columns([
+            media_references::Column::AssetId,
+            media_references::Column::ConsumerType,
+        ])
+        .distinct()
         .filter(media_references::Column::AssetId.is_in(asset_ids.iter().copied()))
+        .filter(
+            Condition::any()
+                .add(media_references::Column::ExpiresAt.is_null())
+                .add(media_references::Column::ExpiresAt.gt(now)),
+        )
+        .into_tuple::<(i32, String)>()
         .all(db)
         .await?;
     let mut grouped: HashMap<i32, Vec<String>> = HashMap::new();
-    for row in rows {
-        if row.expires_at.is_some_and(|expires| expires <= now) {
-            continue;
-        }
-        grouped
-            .entry(row.asset_id)
-            .or_default()
-            .push(row.consumer_type);
+    for (asset_id, consumer_type) in rows {
+        grouped.entry(asset_id).or_default().push(consumer_type);
     }
     Ok(grouped
         .into_iter()

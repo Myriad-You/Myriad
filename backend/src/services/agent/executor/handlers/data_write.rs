@@ -144,7 +144,9 @@ async fn execute_platform_refresh(params: &HashMap<String, Value>) -> Result<Val
     // 尝试通过后台处理器提交刷新任务
     let mut results = Vec::new();
     for p in &platforms_to_refresh {
-        match crate::api::tasks::submit_and_start_platform_task(p.to_string()).await {
+        match crate::services::background_processor::submit_and_start_platform_task(p.to_string())
+            .await
+        {
             Ok(task_id) => {
                 results.push(json!({
                     "platform": p,
@@ -394,7 +396,6 @@ async fn execute_phantasi_subscribe(
                     enabled: Set(true),
                     error_count: Set(0),
                     item_count: Set(0),
-                    unread_count: Set(0),
                     update_interval: Set(update_interval),
                     created_at: Set(now.into()),
                     updated_at: Set(now.into()),

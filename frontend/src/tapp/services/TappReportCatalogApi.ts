@@ -15,18 +15,21 @@ export async function listPlatform(runtimeGrant?: string): Promise<{
 export async function getPlatform(
   reportId: string,
   runtimeGrant?: string,
-): Promise<{
-  id: string
-  platform?: string
-  type: 'platform'
-  summary?: string
-  content: unknown
-  createdAt: string
-}> {
-  return apiRequest(
+) {
+  const report = await apiRequest<{
+    id: string
+    platform?: string
+    type: 'platform'
+    content: unknown
+    createdAt: string
+  }>(
     `/api/tapp/report-catalog/${encodeURIComponent(reportId)}`,
     { runtimeGrant },
   )
+  const summary = report.content && typeof report.content === 'object' && 'summary' in report.content
+    ? report.content.summary
+    : undefined
+  return { ...report, summary: typeof summary === 'string' ? summary : '' }
 }
 
 export async function byPlatform(

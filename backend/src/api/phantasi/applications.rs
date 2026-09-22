@@ -194,7 +194,6 @@ async fn create_friend_source<C: ConnectionTrait>(
         enabled: Set(true),
         error_count: Set(0),
         item_count: Set(0),
-        unread_count: Set(0),
         admin_only: Set(false),
         created_at: Set(now.into()),
         updated_at: Set(now.into()),

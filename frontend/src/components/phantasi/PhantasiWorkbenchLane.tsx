@@ -88,6 +88,11 @@ export default function PhantasiWorkbenchLane({
       onPane={onPane}
       docs={workbench.docs}
       media={workbench.media}
+      mediaTotal={workbench.mediaTotal}
+      mediaFilter={workbench.mediaFilter}
+      onMediaFilter={workbench.setMediaFilter}
+      mediaHasMore={workbench.mediaHasMore}
+      onLoadMoreMedia={workbench.loadMoreMedia}
       comments={workbench.comments}
       applications={workbench.applications}
       notesLoading={workbench.notesLoading}

@@ -1203,3 +1203,16 @@ END $$;
     .await?;
     Ok(())
 }
+
+/// Retire derived snapshots; approved permissions and per-user reading states remain authoritative.
+pub(crate) async fn ensure_read_projection_schema(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(migration::SOURCE_RECENT_INDEX_SQL)
+        .await?;
+    db.execute_unprepared("CREATE INDEX IF NOT EXISTS idx_metadata_history_user_date ON metadata_history (user_id, change_date);
+        DROP INDEX IF EXISTS idx_phantasi_items_published;
+        DROP INDEX IF EXISTS idx_metadata_history_user;
+        ALTER TABLE tapps DROP COLUMN IF EXISTS granted_permissions;
+        ALTER TABLE platform_reports DROP COLUMN IF EXISTS expires_at;
+        ALTER TABLE phantasi_sources DROP COLUMN IF EXISTS unread_count;").await?;
+    Ok(())
+}

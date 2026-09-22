@@ -527,9 +527,10 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 Index::create()
-                    .name("idx_metadata_history_user")
+                    .name("idx_metadata_history_user_date")
                     .table(MetadataHistory::Table)
                     .col(MetadataHistory::UserId)
+                    .col(MetadataHistory::ChangeDate)
                     .if_not_exists()
                     .to_owned(),
             )
@@ -606,11 +607,6 @@ CREATE INDEX IF NOT EXISTS idx_activity_events_platform_date
                             .timestamp()
                             .not_null()
                             .default(Expr::current_timestamp()),
-                    )
-                    .col(
-                        ColumnDef::new(PlatformReports::ExpiresAt)
-                            .timestamp()
-                            .not_null(),
                     )
                     .to_owned(),
             )
@@ -871,5 +867,4 @@ enum PlatformReports {
     Report,
     ReportTitle,
     CreatedAt,
-    ExpiresAt,
 }

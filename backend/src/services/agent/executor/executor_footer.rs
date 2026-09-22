@@ -60,8 +60,10 @@ pub(crate) async fn execute_capability_with_timeout_and_cancel(
     timeout_secs: u64,
     task_id: Option<&str>,
 ) -> Result<Value, String> {
-    let work = handlers::execute_capability(capability_id, action, category, params, handler_ctx);
-    tokio::pin!(work);
+    // Keep the large handler dispatch future out of every enclosing Work frame.
+    let mut work = Box::pin(handlers::execute_capability(
+        capability_id, action, category, params, handler_ctx,
+    ));
 
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
     let mut cancel_tick = tokio::time::interval(std::time::Duration::from_millis(500));
