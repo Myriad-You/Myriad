@@ -406,6 +406,7 @@ pub use types::*;
 #[cfg(test)]
 mod envelope_stream_tests {
     use super::*;
+    use crate::services::agent::run_hub::create_run_for_test as create_run;
 
     fn progress(message: &str) -> AgentProgressEvent {
         AgentProgressEvent::Progress {
