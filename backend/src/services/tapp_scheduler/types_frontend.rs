@@ -33,7 +33,6 @@ pub const SCHEDULER_MAILBOX_BATCH_SIZE: i64 = 32;
 
 pub(crate) static SCHEDULER_DISPATCHED: AtomicU64 = AtomicU64::new(0);
 pub(crate) static SCHEDULER_DELIVERY_FAILURES: AtomicU64 = AtomicU64::new(0);
-pub(crate) static SCHEDULER_REQUEUED: AtomicU64 = AtomicU64::new(0);
 pub(crate) static SCHEDULER_COMPLETED: AtomicU64 = AtomicU64::new(0);
 pub(crate) static SCHEDULER_TIMEOUTS: AtomicU64 = AtomicU64::new(0);
 
@@ -42,7 +41,6 @@ pub(crate) static SCHEDULER_TIMEOUTS: AtomicU64 = AtomicU64::new(0);
 pub struct SchedulerCounters {
     pub dispatched: u64,
     pub delivery_failures: u64,
-    pub requeued: u64,
     pub completed: u64,
     pub timeouts: u64,
 }
@@ -51,7 +49,6 @@ pub fn scheduler_counters() -> SchedulerCounters {
     SchedulerCounters {
         dispatched: SCHEDULER_DISPATCHED.load(Ordering::Relaxed),
         delivery_failures: SCHEDULER_DELIVERY_FAILURES.load(Ordering::Relaxed),
-        requeued: SCHEDULER_REQUEUED.load(Ordering::Relaxed),
         completed: SCHEDULER_COMPLETED.load(Ordering::Relaxed),
         timeouts: SCHEDULER_TIMEOUTS.load(Ordering::Relaxed),
     }
