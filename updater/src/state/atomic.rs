@@ -4,7 +4,7 @@ use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::error::Result;
 
@@ -54,15 +54,46 @@ pub fn write_atomic_json<T: serde::Serialize>(path: &Path, value: &T) -> Result<
     write_atomic_bytes(path, &bytes)
 }
 
-/// A completed operation must not be rerun because its outcome could not be saved.
+/// Completed attempts past which the log escalates from `warn` to `error`.
+const OUTCOME_WRITE_WARN_ATTEMPTS: u32 = 5;
+
+/// A completed operation must not be rerun because its outcome could not be saved,
+/// so this never gives up. It does back off and escalate, so a host that cannot
+/// persist state shows up in the log instead of silently spinning every 2s.
 pub(crate) async fn write_json_until_saved<T: serde::Serialize>(path: &Path, value: &T) {
+    let mut attempt: u32 = 0;
     loop {
         match write_atomic_json(path, value) {
-            Ok(()) => return,
-            Err(error) => tracing::warn!(%error, "retrying outcome write"),
+            Ok(()) => {
+                if attempt > 0 {
+                    tracing::info!(
+                        attempts = attempt + 1,
+                        path = %path.display(),
+                        "outcome write recovered"
+                    );
+                }
+                return;
+            }
+            Err(error) if attempt < OUTCOME_WRITE_WARN_ATTEMPTS => {
+                tracing::warn!(%error, attempt = attempt + 1, "retrying outcome write");
+            }
+            Err(error) => {
+                tracing::error!(
+                    %error,
+                    attempt = attempt + 1,
+                    path = %path.display(),
+                    "outcome write still failing; the result is not persisted yet"
+                );
+            }
         }
-        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        attempt = attempt.saturating_add(1);
+        tokio::time::sleep(outcome_write_backoff(attempt)).await;
     }
+}
+
+/// 2s, 4s, 8s … capped at 60s. `attempt` counts completed writes.
+fn outcome_write_backoff(attempt: u32) -> Duration {
+    Duration::from_secs((2u64 << attempt.saturating_sub(1).min(5)).min(60))
 }
 
 #[cfg(unix)]
@@ -99,6 +130,15 @@ mod tests {
         let value: serde_json::Value =
             serde_json::from_slice(&std::fs::read(target).unwrap()).unwrap();
         assert_eq!(value["status"], "succeeded");
+    }
+
+    #[test]
+    fn outcome_write_backoff_grows_then_caps() {
+        assert_eq!(outcome_write_backoff(1), Duration::from_secs(2));
+        assert_eq!(outcome_write_backoff(2), Duration::from_secs(4));
+        assert_eq!(outcome_write_backoff(3), Duration::from_secs(8));
+        assert_eq!(outcome_write_backoff(6), Duration::from_secs(60));
+        assert_eq!(outcome_write_backoff(50), Duration::from_secs(60));
     }
 
     #[test]

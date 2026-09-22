@@ -293,6 +293,18 @@ impl StateDir {
     pub fn append_audit(&self, line: &str) -> Result<()> {
         audit::append(&self.root.join("audit.log"), line)
     }
+
+    /// Record one operational line in both history and audit. Unlike a bare
+    /// `let _ =`, a failure is logged: this trail is the only record of what an
+    /// update did to a host, so it must not vanish silently.
+    pub fn record_operation(&self, line: &str) {
+        if let Err(error) = self.append_history(line) {
+            tracing::warn!(%error, "history append failed");
+        }
+        if let Err(error) = self.append_audit(line) {
+            tracing::warn!(%error, "audit append failed");
+        }
+    }
 }
 
 #[cfg(test)]
