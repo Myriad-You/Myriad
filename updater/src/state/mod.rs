@@ -255,14 +255,20 @@ impl StateDir {
     /// the rollback path restores the pgdata snapshot and the Compose snapshot together.
     /// Without this sweep they accumulate one file per update, forever.
     pub fn sweep_prepared_reports(&self) -> Result<Vec<String>> {
-        let current = self.read_current_job()?;
-        let snapshots: std::collections::HashSet<String> = self
-            .read_snapshots()?
-            .items
-            .into_iter()
-            .map(|m| m.id)
-            .collect();
-        let mut removed = Vec::new();
+        self.sweep_prepared_reports_with(|| {})
+    }
+
+    /// `interleave` runs immediately before the directory listing so a test can
+    /// admit a job in the middle of a sweep.
+    ///
+    /// The listing comes *first*, and the live references are read *after* it.
+    /// Admission publishes `job.current` before the report exists, so any report
+    /// visible in the listing already had its reference published too — a job
+    /// admitted while the sweep runs cannot lose the report that its resume and
+    /// rollback depend on. Reading the references first (the previous order) let a
+    /// job admitted in between have its report deleted as an orphan.
+    fn sweep_prepared_reports_with<F: FnOnce()>(&self, interleave: F) -> Result<Vec<String>> {
+        let mut candidates = Vec::new();
         for entry in std::fs::read_dir(&self.root)? {
             let entry = entry?;
             if !entry.file_type()?.is_file() {
@@ -278,13 +284,27 @@ impl StateDir {
             else {
                 continue;
             };
-            if current.as_deref() == Some(job_id) || snapshots.contains(&format!("snap-{job_id}")) {
+            candidates.push((job_id.to_string(), entry.path()));
+        }
+        interleave();
+        let current = self.read_current_job()?;
+        let snapshots: std::collections::HashSet<String> = self
+            .read_snapshots()?
+            .items
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        let mut removed = Vec::new();
+        for (job_id, path) in candidates {
+            if current.as_deref() == Some(job_id.as_str())
+                || snapshots.contains(&format!("snap-{job_id}"))
+            {
                 continue;
             }
-            match std::fs::remove_file(entry.path()) {
+            match std::fs::remove_file(&path) {
                 Ok(()) => {
                     tracing::info!(job = %job_id, "removed stale preflight report");
-                    removed.push(job_id.to_string());
+                    removed.push(job_id);
                 }
                 Err(error) => {
                     tracing::warn!(job = %job_id, %error, "failed to remove stale preflight report");
@@ -469,5 +489,25 @@ mod tests {
         );
         assert!(state.sweep_prepared_reports().unwrap().is_empty());
         assert!(state.root().join("job.done.json").is_file());
+    }
+
+    /// Regression: a job admitted while the sweep runs must not lose its report.
+    /// The sweep used to read the live references before listing the directory, so
+    /// a job admitted in between had its `prepared` file deleted as an orphan.
+    #[test]
+    fn sweep_prepared_reports_keeps_a_job_admitted_during_the_sweep() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = StateDir::open(dir.path()).unwrap();
+
+        let removed = state
+            .sweep_prepared_reports_with(|| {
+                // Admission publishes job.current before writing the report.
+                state.set_current_job(Some("arriving")).unwrap();
+                plant_prepared(&state, "arriving");
+            })
+            .unwrap();
+
+        assert!(removed.is_empty(), "kept nothing to remove, got {removed:?}");
+        assert!(state.prepared_report_path("arriving").is_file());
     }
 }
