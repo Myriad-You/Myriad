@@ -21,6 +21,20 @@ const APPLICATION: [&str; 5] = [
     "persona-worker",
 ];
 
+/// Service keys the host owns: `merge_application` copies them from the current
+/// deployment instead of taking the target template's value.
+const SITE_OWNED_KEYS: [&str; 9] = [
+    "ports",
+    "networks",
+    "extra_hosts",
+    "dns",
+    "dns_search",
+    "logging",
+    "restart",
+    "env_file",
+    "labels",
+];
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PreparedCompose {
     files: Vec<ComposeChange>,
@@ -90,6 +104,8 @@ pub async fn prepare(
     let candidate_runner = compose.with_files(vec![candidate.clone()]);
     let current = compose.source_json().await?;
     let target = candidate_runner.source_json().await?;
+    // Report host fields the target will overwrite before merging consumes them.
+    let replaced = replaced_site_overrides(&current, &target);
     let merged = merge_application(current, target)?;
     let after = serde_json::to_vec_pretty(&merged)?;
     atomic::write_atomic_bytes(&candidate, &after)?;
@@ -119,6 +135,13 @@ pub async fn prepare(
             blanked.join(",")
         ));
     }
+    if !replaced.is_empty() {
+        worker.state().record_operation(&format!(
+            "audit: compose_site_overrides_replaced count={} fields={}",
+            replaced.len(),
+            replaced.join(",")
+        ));
+    }
     Ok((PreparedCompose { files }, candidate_runner))
 }
 
@@ -140,17 +163,7 @@ fn merge_application(mut current: Value, target: Value) -> Result<Value> {
         };
         let mut next = next.clone();
         if let Some(previous) = services.get(name) {
-            for key in [
-                "ports",
-                "networks",
-                "extra_hosts",
-                "dns",
-                "dns_search",
-                "logging",
-                "restart",
-                "env_file",
-                "labels",
-            ] {
+            for key in SITE_OWNED_KEYS {
                 if let Some(value) = previous.get(key) {
                     next[key] = value.clone();
                 }
@@ -194,6 +207,54 @@ fn merge_application(mut current: Value, target: Value) -> Result<Value> {
         }
     }
     Ok(current)
+}
+
+/// `<service>.<key>` pairs where the host holds a value the target template will
+/// replace, so the next update is not silent about losing a host edit.
+///
+/// `image` is skipped: a panel commonly resolves `${MYRIAD_TAG}` to a literal, which
+/// is expected rather than a host override. Any value still containing an
+/// interpolation is skipped for the same reason — the two sides cannot be compared.
+fn replaced_site_overrides(current: &Value, target: &Value) -> Vec<String> {
+    let (Some(site_services), Some(target_services)) =
+        (current["services"].as_object(), target["services"].as_object())
+    else {
+        return Vec::new();
+    };
+    let mut replaced = Vec::new();
+    for name in APPLICATION {
+        let (Some(site), Some(next)) = (site_services.get(name), target_services.get(name)) else {
+            continue;
+        };
+        let (Some(site), Some(next)) = (site.as_object(), next.as_object()) else {
+            continue;
+        };
+        for (key, site_value) in site {
+            // Preserved keys, and the ones the merge combines, are not replaced.
+            if SITE_OWNED_KEYS.contains(&key.as_str())
+                || matches!(key.as_str(), "image" | "volumes" | "environment")
+            {
+                continue;
+            }
+            // A key the target dropped is a template change, not a host override.
+            let Some(target_value) = next.get(key) else {
+                continue;
+            };
+            if site_value == target_value
+                || is_interpolated(site_value)
+                || is_interpolated(target_value)
+            {
+                continue;
+            }
+            replaced.push(format!("{name}.{key}"));
+        }
+    }
+    replaced.sort();
+    replaced
+}
+
+fn is_interpolated(value: &Value) -> bool {
+    value.to_string().contains("${")
 }
 
 /// The target owns which mounts a service *needs*, but a host may have added its
@@ -529,6 +590,51 @@ mod tests {
                 .unwrap()
                 .len(),
             2
+        );
+    }
+
+    /// Regression: a host edit to a target-owned field was replaced with no record.
+    #[test]
+    fn replaced_site_overrides_reports_host_fields_but_not_panel_images() {
+        let current = serde_json::json!({
+            "services": {
+                "backend": {
+                    "image": "example/backend:v0.5.3",
+                    "command": ["/app/custom-entry"],
+                    "healthcheck": {"test": ["CMD", "curl", "-f", "http://localhost/health"]},
+                    "tmpfs": ["/tmp"],
+                    "ports": ["8080:80"],
+                    "environment": {"CUSTOM": "keep"},
+                    "volumes": ["/host/x:/app/x"],
+                }
+            }
+        });
+        let target = serde_json::json!({
+            "services": {
+                "backend": {
+                    "image": "example/backend:${MYRIAD_TAG}",
+                    "command": ["/app/myriad-backend"],
+                    "healthcheck": {"test": ["CMD", "curl", "-f", "http://localhost:8080/healthz"]},
+                    "tmpfs": ["/tmp"],
+                    "ports": ["80:80"],
+                    "environment": {"CUSTOM": "${CUSTOM}"},
+                    "volumes": [{"type": "volume", "target": "/app/data"}],
+                }
+            }
+        });
+
+        assert_eq!(
+            replaced_site_overrides(&current, &target),
+            vec!["backend.command".to_string(), "backend.healthcheck".to_string()],
+            "panel-resolved images, site-owned keys, merged keys and equal values are not reported"
+        );
+
+        let mut interpolated = current.clone();
+        interpolated["services"]["backend"]["command"] = serde_json::json!("${SITE_CMD}");
+        assert_eq!(
+            replaced_site_overrides(&interpolated, &target),
+            vec!["backend.healthcheck".to_string()],
+            "a site value that is itself an interpolation cannot be compared"
         );
     }
 }
