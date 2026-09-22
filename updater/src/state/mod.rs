@@ -53,6 +53,32 @@ pub(crate) fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<O
     }
 }
 
+/// Durable component outcome that keeps "no request recorded" apart from
+/// "recorded but unreadable".
+///
+/// `/status` may stay fail-open, but mutation admission and recovery must not:
+/// collapsing a corrupt outcome file into "no request" admits a second mutation
+/// while the previous Guard/helper task may still be running, and leaves nothing
+/// for `resume_pending` to recover.
+pub(crate) enum Outcome<T> {
+    Absent,
+    Present(T),
+    Unreadable(serde_json::Error),
+}
+
+pub(crate) fn read_outcome<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Outcome<T>> {
+    let Some(bytes) = read_existing(path)? else {
+        return Ok(Outcome::Absent);
+    };
+    match serde_json::from_slice(&bytes) {
+        Ok(value) => Ok(Outcome::Present(value)),
+        Err(error) => {
+            tracing::warn!(%error, "unreadable component outcome");
+            Ok(Outcome::Unreadable(error))
+        }
+    }
+}
+
 pub use types::*;
 
 /// Owned handle to the state directory. The updater daemon holds an exclusive process lock

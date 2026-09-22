@@ -112,13 +112,27 @@ pub fn read_proxy_update_last(state_root: &Path) -> Result<Option<ProxyUpdateLas
     crate::state::read_json(&state_root.join(PROXY_UPDATE_LAST_FILE))
 }
 
+/// Admission and recovery read. Unlike [`read_proxy_update_last`], a corrupt
+/// record is not reported as "no request": that would let a new mutation start
+/// while the previous proxy update may still be running.
+pub(crate) fn read_proxy_update_last_outcome(
+    state_root: &Path,
+) -> Result<crate::state::Outcome<ProxyUpdateLastStatus>> {
+    crate::state::read_outcome(&state_root.join(PROXY_UPDATE_LAST_FILE))
+}
+
 pub(crate) fn require_no_pending(state: &crate::state::StateDir) -> Result<()> {
-    if read_proxy_update_last(state.root())?
-        .is_some_and(|s| s.status == ProxyUpdateOutcome::Pending)
-    {
-        return Err(UpdaterError::Conflict);
+    match read_proxy_update_last_outcome(state.root())? {
+        crate::state::Outcome::Present(status)
+            if status.status == ProxyUpdateOutcome::Pending =>
+        {
+            Err(UpdaterError::Conflict)
+        }
+        crate::state::Outcome::Unreadable(error) => Err(UpdaterError::State(format!(
+            "proxy update outcome is unreadable; refusing a new mutation: {error}"
+        ))),
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 pub fn schedule(
@@ -144,10 +158,16 @@ pub fn schedule(
 }
 
 pub fn resume_pending(worker: Arc<Worker>) {
-    match read_proxy_update_last(worker.state().root()) {
-        Ok(Some(pending)) if pending.status == ProxyUpdateOutcome::Pending => {
+    match read_proxy_update_last_outcome(worker.state().root()) {
+        Ok(crate::state::Outcome::Present(pending))
+            if pending.status == ProxyUpdateOutcome::Pending =>
+        {
             spawn_update(worker, None, pending)
         }
+        Ok(crate::state::Outcome::Unreadable(error)) => warn!(
+            %error,
+            "proxy update outcome is unreadable; not resuming and not treating it as absent"
+        ),
         Err(error) => warn!(%error, "cannot read proxy update state"),
         _ => {}
     }
@@ -486,7 +506,10 @@ mod tests {
             assert!(require_no_pending(&state).is_ok());
         }
         std::fs::write(&path, b"{broken").unwrap();
-        assert!(require_no_pending(&state).is_ok());
+        assert!(
+            matches!(require_no_pending(&state), Err(UpdaterError::State(_))),
+            "a corrupt outcome must fail closed, not look like no request"
+        );
     }
 
     #[test]

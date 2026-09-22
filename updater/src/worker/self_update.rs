@@ -1,6 +1,6 @@
 //! Self-update admission and discovery. Guard alone replaces the stack.
 use crate::docker::self_update_helper::{
-    SelfUpdateLastStatus, SelfUpdateOutcome, read_status, write_status,
+    SelfUpdateLastStatus, SelfUpdateOutcome, read_status, read_status_outcome, write_status,
 };
 use crate::error::{Result, UpdaterError};
 use crate::worker::Worker;
@@ -26,10 +26,16 @@ pub fn schedule(worker: Arc<Worker>, actor: Option<String>) -> Result<SelfUpdate
 }
 
 pub(crate) fn resume_pending(worker: Arc<Worker>) {
-    match read_status(worker.state().root()) {
-        Ok(Some(status)) if status.queued && status.status == SelfUpdateOutcome::Pending => {
+    match read_status_outcome(worker.state().root()) {
+        Ok(crate::state::Outcome::Present(status))
+            if status.queued && status.status == SelfUpdateOutcome::Pending =>
+        {
             spawn_request(worker, None)
         }
+        Ok(crate::state::Outcome::Unreadable(error)) => warn!(
+            %error,
+            "self-update request is unreadable; not resuming and not treating it as absent"
+        ),
         Err(error) => warn!(%error, "cannot read self-update request"),
         _ => {}
     }
@@ -60,8 +66,17 @@ fn spawn_request(worker: Arc<Worker>, actor: Option<String>) {
 }
 
 async fn request_handoff(worker: &Worker, actor: Option<String>) -> Result<()> {
-    let mut pending = read_status(worker.state().root())?
-        .ok_or_else(|| UpdaterError::State("self-update request is missing".into()))?;
+    let mut pending = match read_status_outcome(worker.state().root())? {
+        crate::state::Outcome::Present(status) => status,
+        crate::state::Outcome::Absent => {
+            return Err(UpdaterError::State("self-update request is missing".into()));
+        }
+        crate::state::Outcome::Unreadable(error) => {
+            return Err(UpdaterError::State(format!(
+                "self-update request is unreadable: {error}"
+            )));
+        }
+    };
     if pending.target_tag.is_empty() {
         let repo = worker.updater_image_repo()?;
         pending.target_tag = worker.component_target(&repo, None).await?;
@@ -146,13 +161,15 @@ async fn request_handoff(worker: &Worker, actor: Option<String>) -> Result<()> {
 }
 
 pub(crate) fn require_no_pending_handoff(state: &crate::state::StateDir) -> Result<()> {
-    let Some(status) = crate::docker::self_update_helper::read_status(state.root())? else {
-        return Ok(());
-    };
-    if status.status == SelfUpdateOutcome::Pending {
-        return Err(UpdaterError::Conflict);
+    match crate::docker::self_update_helper::read_status_outcome(state.root())? {
+        crate::state::Outcome::Present(status) if status.status == SelfUpdateOutcome::Pending => {
+            Err(UpdaterError::Conflict)
+        }
+        crate::state::Outcome::Unreadable(error) => Err(UpdaterError::State(format!(
+            "self-update outcome is unreadable; refusing a new mutation: {error}"
+        ))),
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 // Compatibility with v0.5.3; remove in the release after this refactor ships.
@@ -317,7 +334,13 @@ mod tests {
         std::fs::write(&path, serde_json::to_vec(&status).unwrap()).unwrap();
         assert!(require_no_pending_handoff(&state).is_ok());
         std::fs::write(path, b"broken").unwrap();
-        assert!(require_no_pending_handoff(&state).is_ok());
+        assert!(
+            matches!(
+                require_no_pending_handoff(&state),
+                Err(UpdaterError::State(_))
+            ),
+            "a corrupt outcome must fail closed, not look like no request"
+        );
     }
 
     #[test]

@@ -494,6 +494,15 @@ pub(crate) fn read_status(state_root: &Path) -> Result<Option<SelfUpdateLastStat
     crate::state::read_json(&state_root.join("self-update-last.json"))
 }
 
+/// Admission and recovery read. Unlike [`read_status`], a corrupt record is not
+/// reported as "no request": that would let a new mutation start while Guard is
+/// still running the previous handoff.
+pub(crate) fn read_status_outcome(
+    state_root: &Path,
+) -> Result<crate::state::Outcome<SelfUpdateLastStatus>> {
+    crate::state::read_outcome(&state_root.join("self-update-last.json"))
+}
+
 pub(crate) fn write_status(path: &Path, status: &SelfUpdateLastStatus) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
