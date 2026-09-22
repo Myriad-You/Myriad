@@ -14,6 +14,7 @@ import {
 } from '@lib/icons'
 import { useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../../contexts/I18nContext'
+import { draftMediaSrc } from '../../../services/mediaApi'
 import { InputItem, ManagedList } from '../../settings'
 import {
   collectWorkbenchMediaFormats,
@@ -28,7 +29,6 @@ import { PhantasiWorkbenchIcon } from '../ui/PhantasiWorkbenchIcon'
 import { AuthenticatedMedia } from './AuthenticatedMedia'
 import { MediaEditorDialog } from './MediaEditorDialog'
 import { PageAction, WorkbenchPage } from './PhantasiWorkbenchChrome'
-import { draftMediaSrc } from '../../../services/mediaApi'
 import './WorkbenchMediaCards.css'
 
 export function WorkbenchMediaPane({

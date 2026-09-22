@@ -406,6 +406,7 @@ pub use types::*;
 #[cfg(test)]
 mod envelope_stream_tests {
     use super::*;
+    use crate::services::agent::run_hub::create_run_for_test as create_run;
 
     fn progress(message: &str) -> AgentProgressEvent {
         AgentProgressEvent::Progress {
@@ -463,7 +464,7 @@ mod envelope_stream_tests {
 
     #[tokio::test]
     async fn completed_history_replays_then_ends() {
-        let run = create_run(8101, Some("envelope-completed".into())).await;
+        let run = crate::services::agent::run_hub::create_run_for_test(8101, Some("envelope-completed".into())).await;
         run.publish(progress("working")).await;
         run.publish(completed("done")).await;
 
@@ -523,7 +524,7 @@ mod envelope_stream_tests {
 
     #[tokio::test]
     async fn terminal_event_closes_the_stream() {
-        let run = create_run(8103, Some("envelope-terminal".into())).await;
+        let run = crate::services::agent::run_hub::create_run_for_test(8103, Some("envelope-terminal".into())).await;
         let mut stream = std::pin::pin!(agent_run_envelopes(run.clone()));
         let started = stream.next().await.expect("RunStarted");
         assert!(matches!(
@@ -549,7 +550,7 @@ mod envelope_stream_tests {
 
     #[tokio::test]
     async fn waiting_for_input_does_not_close_the_stream() {
-        let run = create_run(8104, Some("envelope-wait".into())).await;
+        let run = crate::services::agent::run_hub::create_run_for_test(8104, Some("envelope-wait".into())).await;
         let mut stream = std::pin::pin!(agent_run_envelopes(run.clone()));
         let _ = stream.next().await;
 
@@ -591,7 +592,7 @@ mod envelope_stream_tests {
 
     #[tokio::test]
     async fn lagged_subscriber_replays_from_snapshot() {
-        let run = create_run(8105, Some("envelope-lag".into())).await;
+        let run = crate::services::agent::run_hub::create_run_for_test(8105, Some("envelope-lag".into())).await;
         let mut stream = std::pin::pin!(agent_run_envelopes(run.clone()));
         let started = stream.next().await.expect("RunStarted");
         assert!(matches!(
@@ -633,7 +634,7 @@ mod envelope_stream_tests {
 
     #[tokio::test]
     async fn error_event_closes_the_stream() {
-        let run = create_run(8106, Some("envelope-error".into())).await;
+        let run = crate::services::agent::run_hub::create_run_for_test(8106, Some("envelope-error".into())).await;
         let mut stream = std::pin::pin!(agent_run_envelopes(run.clone()));
         let _ = stream.next().await;
 

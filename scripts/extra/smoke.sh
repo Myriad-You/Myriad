@@ -87,6 +87,7 @@ else
 fi
 
 export ENVIRONMENT="${ENVIRONMENT:-development}"
+export MYRIAD_PROCESS_ROLE=all
 export JWT_SECRET
 export MYRIAD_SETUP_SECRET="$SETUP_SECRET"
 export DATA_DIR="$SMOKE_DIR/data"

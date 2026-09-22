@@ -317,11 +317,10 @@ async fn install_prepared_package(
         api_http_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error")
     })?;
 
-    if existing.is_some() && !overwrite {
-        return Err(install_conflict_error(
-            &manifest,
-            existing.as_ref().expect("checked above"),
-        ));
+    if let Some(existing) = existing.as_ref()
+        && !overwrite
+    {
+        return Err(install_conflict_error(&manifest, existing));
     }
 
     // 所有资源先写入同文件系统的 staging 目录；校验通过后再原子切换。

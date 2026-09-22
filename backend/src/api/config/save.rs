@@ -586,10 +586,7 @@ pub(crate) fn collect_database_updates_with_vendor(
                 }
                 let parsed = merge_vendor_source_secrets_with(
                     parsed,
-                    vendor_existing
-                        .as_ref()
-                        .map(|sources| sources.clone())
-                        .map_err(|error| error.clone()),
+                    vendor_existing.clone(),
                 )?;
                 ("ai_vendor_sources", parsed)
             }

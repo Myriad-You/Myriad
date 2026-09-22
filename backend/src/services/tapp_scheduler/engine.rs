@@ -813,18 +813,12 @@ SELECT EXISTS (
             return Ok(());
         }
 
-        let task = tapp_scheduled_tasks::Entity::find_by_id(execution.scheduled_task_id)
-            .one(db)
-            .await
-            .map_err(|error| scheduler_store_failed("query scheduled task", error))?
-            .ok_or_else(|| "Scheduled task no longer exists".to_string())?;
-
         let now = Utc::now();
         let executed_at = execution.executed_at.with_timezone(&Utc);
         let duration_ms = (now - executed_at)
             .num_milliseconds()
             .clamp(0, i32::MAX as i64) as i32;
-        let result = execution.result.clone();
+        let result = execution.result;
 
         // Multiple Tapp-scope clients may acknowledge the same broadcast. Claim
         // the running row atomically so task stats are finalized exactly once.
@@ -859,8 +853,14 @@ SELECT EXISTS (
             return Ok(());
         }
 
-        Self::update_task_after_frontend_completion(&txn, &task, &status, result, error.clone())
-            .await?;
+        let task = Self::update_task_after_frontend_completion(
+            &txn,
+            execution.scheduled_task_id,
+            &status,
+            result,
+            error.clone(),
+        )
+        .await?;
         txn.commit()
             .await
             .map_err(|error| scheduler_store_failed("commit frontend completion", error))?;
@@ -1512,12 +1512,12 @@ SELECT EXISTS (
     /// 前端回执只补齐最终状态；total_runs 已在 dispatch 时增加。
     async fn update_task_after_frontend_completion(
         db: &impl ConnectionTrait,
-        task: &tapp_scheduled_tasks::Model,
+        task_id: i32,
         status: &ExecutionStatus,
         result: Option<serde_json::Value>,
         error: Option<String>,
-    ) -> Result<(), String> {
-        let current = tapp_scheduled_tasks::Entity::find_by_id(task.id)
+    ) -> Result<tapp_scheduled_tasks::Model, String> {
+        let current = tapp_scheduled_tasks::Entity::find_by_id(task_id)
             .lock_exclusive()
             .one(db)
             .await
@@ -1542,8 +1542,7 @@ SELECT EXISTS (
         active
             .update(db)
             .await
-            .map_err(|error| scheduler_store_failed("finalize frontend task stats", error))?;
-        Ok(())
+            .map_err(|error| scheduler_store_failed("finalize frontend task stats", error))
     }
 
     /// 更新任务执行后的状态
@@ -2015,5 +2014,104 @@ mod claim_contract_tests {
         assert!(claim.contains("claim_now"));
         assert!(claim.contains("claim_now + lease_duration"));
         assert!(claim.contains("due_cutoff"));
+    }
+}
+
+#[cfg(test)]
+mod frontend_finalizer_tests {
+    use super::*;
+
+    #[tokio::test]
+    #[ignore = "requires a disposable MYRIAD_RUNTIME_ISOLATION_TEST_DB"]
+    async fn frontend_finalizer_rolls_back_stats_failure_and_counts_one_winner() {
+        use sea_orm::{ConnectOptions, Database, DbBackend, Schema};
+        let url = std::env::var("MYRIAD_RUNTIME_ISOLATION_TEST_DB").unwrap();
+        let admin = Database::connect(&url).await.unwrap();
+        let schema_name = format!("finalizer_{}", uuid::Uuid::new_v4().simple());
+        admin
+            .execute_unprepared(&format!("CREATE SCHEMA {schema_name}"))
+            .await
+            .unwrap();
+        let mut options = ConnectOptions::new(url);
+        options.max_connections(4).map_sqlx_postgres_opts({
+            let schema_name = schema_name.clone();
+            move |options| options.options([("search_path", schema_name.as_str())])
+        });
+        let db = Database::connect(options).await.unwrap();
+        let schema = Schema::new(DbBackend::Postgres);
+        db.execute(&schema.create_table_from_entity(tapp_scheduled_tasks::Entity))
+            .await
+            .unwrap();
+        db.execute(&schema.create_table_from_entity(tapp_task_executions::Entity))
+            .await
+            .unwrap();
+        db.execute_unprepared("INSERT INTO tapp_scheduled_tasks
+            (id, task_id, tapp_id, user_id, name, schedule_type, schedule_config, execution_target,
+             enabled, missed_policy, scope, stats, created_at, updated_at)
+            VALUES (1, 'test', 'test', 1, 'Test', 'interval', '{}', 'frontend', true, 'skip', 'user',
+                    '{\"totalRuns\":1,\"successRuns\":0,\"failedRuns\":0}', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+            INSERT INTO tapp_task_executions
+            (id, scheduled_task_id, user_id, tapp_id, task_id, scheduled_at, executed_at, execution_target, status, is_compensation, retry_count)
+            VALUES (1, 1, 1, 'test', 'test', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'frontend', 'running', false, 0);
+            ALTER TABLE tapp_scheduled_tasks ADD CONSTRAINT reject_stats CHECK ((stats->>'successRuns')::int = 0)")
+            .await.unwrap();
+        let execution = tapp_task_executions::Entity::find_by_id(1)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            TappSchedulerEngine::finalize_frontend_execution(
+                &db,
+                execution.clone(),
+                ExecutionStatus::Success,
+                None
+            )
+            .await
+            .is_err()
+        );
+        assert_eq!(
+            tapp_task_executions::Entity::find_by_id(1)
+                .one(&db)
+                .await
+                .unwrap()
+                .unwrap()
+                .status,
+            ExecutionStatus::Running
+        );
+        db.execute_unprepared("ALTER TABLE tapp_scheduled_tasks DROP CONSTRAINT reject_stats")
+            .await
+            .unwrap();
+        let (receipt, timeout) = tokio::join!(
+            TappSchedulerEngine::finalize_frontend_execution(
+                &db,
+                execution.clone(),
+                ExecutionStatus::Success,
+                None
+            ),
+            TappSchedulerEngine::finalize_frontend_execution(
+                &db,
+                execution.clone(),
+                ExecutionStatus::Timeout,
+                Some("timeout".into())
+            ),
+        );
+        receipt.unwrap();
+        timeout.unwrap();
+        TappSchedulerEngine::finalize_frontend_execution(&db, execution, ExecutionStatus::Success, None)
+            .await
+            .unwrap();
+        let task = tapp_scheduled_tasks::Entity::find_by_id(1)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        let stats: TaskStats = serde_json::from_value(task.stats).unwrap();
+        assert_eq!(stats.total_runs, 1);
+        assert_eq!(stats.success_runs + stats.failed_runs, 1);
+        admin
+            .execute_unprepared(&format!("DROP SCHEMA {schema_name} CASCADE"))
+            .await
+            .unwrap();
     }
 }

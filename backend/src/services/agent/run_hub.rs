@@ -44,7 +44,7 @@ struct AgentRunState {
     updated_at: chrono::DateTime<Utc>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct PersistedAgentRun {
     run_id: String,
     user_id: i32,
@@ -65,6 +65,8 @@ struct PersistedAgentRunEventRow {
 }
 
 pub struct AgentRun {
+    #[cfg(test)]
+    durable_test_result: Option<Result<(), String>>,
     execution: std::sync::Mutex<Option<tokio::task::AbortHandle>>,
     pub(crate) playback_direction: super::playback_direction::PlaybackDirection,
     run_id: String,
@@ -75,6 +77,8 @@ pub struct AgentRun {
     publish_order: Mutex<()>,
     persistence_tx: mpsc::Sender<(AgentRunEnvelope, PersistedAgentRun)>,
     events_tx: broadcast::Sender<AgentRunEnvelope>,
+    #[cfg(test)]
+    test_records: Option<Mutex<Vec<(AgentRunEnvelope, PersistedAgentRun)>>>,
 }
 
 static AGENT_RUNS: Lazy<RwLock<HashMap<String, Arc<AgentRun>>>> =
@@ -84,6 +88,8 @@ impl AgentRun {
     fn new(run_id: String, user_id: i32, session_id: Option<String>) -> Arc<Self> {
         let (events_tx, _) = broadcast::channel(EVENT_HISTORY_LIMIT);
         Arc::new(Self {
+            #[cfg(test)]
+            durable_test_result: None,
             execution: std::sync::Mutex::new(None),
             publish_order: Mutex::new(()),
             persistence_tx: Self::persistence_channel(),
@@ -103,6 +109,8 @@ impl AgentRun {
                 updated_at: Utc::now(),
             }),
             events_tx,
+            #[cfg(test)]
+            test_records: None,
         })
     }
 
@@ -121,7 +129,9 @@ impl AgentRun {
 
     #[cfg(test)]
     pub(crate) fn new_for_test(run_id: impl Into<String>, user_id: i32) -> Arc<Self> {
-        Self::new(run_id.into(), user_id, None)
+        let mut run = Self::new(run_id.into(), user_id, None);
+        Arc::get_mut(&mut run).unwrap().test_records = Some(Mutex::new(Vec::new()));
+        run
     }
 
     fn from_persisted(
@@ -132,6 +142,8 @@ impl AgentRun {
         let playback_direction = super::playback_direction::PlaybackDirection::default();
         playback_direction.close(); // Restored history must never revive a live director.
         Arc::new(Self {
+            #[cfg(test)]
+            durable_test_result: None,
             execution: std::sync::Mutex::new(None),
             publish_order: Mutex::new(()),
             persistence_tx: Self::persistence_channel(),
@@ -151,6 +163,8 @@ impl AgentRun {
                 updated_at: persisted.updated_at,
             }),
             events_tx,
+            #[cfg(test)]
+            test_records: None,
         })
     }
 
@@ -293,6 +307,23 @@ ORDER BY record_id ASC
             "[Agent Run] Failed to persist shared run snapshot"
         );
         Err(last_error)
+    }
+
+    async fn persist_terminal(
+        &self,
+        envelope: &AgentRunEnvelope,
+        snapshot: &PersistedAgentRun,
+    ) -> Result<(), String> {
+        #[cfg(test)]
+        if let Some(result) = &self.durable_test_result {
+            return result.clone();
+        }
+        #[cfg(test)]
+        if let Some(records) = &self.test_records {
+            records.lock().await.push((envelope.clone(), snapshot.clone()));
+            return Ok(());
+        }
+        Self::persist_according_to_duty(envelope, snapshot).await
     }
 
     async fn persist(
@@ -610,7 +641,7 @@ WHERE namespace = $1 AND runtime_id = $2
         };
 
         let persistence = if durable {
-            if let Err(error) = Self::persist_according_to_duty(&envelope, &snapshot).await {
+            if let Err(error) = self.persist_terminal(&envelope, &snapshot).await {
                 tracing::error!(
                     run_id = %self.run_id,
                     sequence = envelope.sequence,
@@ -709,6 +740,17 @@ pub async fn create_run(user_id: i32, session_id: Option<String>) -> Arc<AgentRu
         session_id,
     )
     .await
+}
+
+/// Stream unit-test fixture with an explicit successful durable-write outcome.
+#[cfg(test)]
+pub(crate) async fn create_run_for_test(user_id: i32, session_id: Option<String>) -> Arc<AgentRun> {
+    let run_id = format!("test_{}", uuid::Uuid::new_v4().simple());
+    let mut run = AgentRun::new_for_test(run_id.clone(), user_id);
+    Arc::get_mut(&mut run).unwrap().session_id = session_id.clone();
+    run.publish(AgentProgressEvent::RunStarted { run_id, session_id })
+        .await;
+    run
 }
 
 /// The server may reserve an ID while committing input references, before
@@ -821,13 +863,30 @@ mod tests {
             })
             .expect("publish");
         let persist_at = publish
-            .find("persist_according_to_duty")
+            .find("persist_terminal")
             .expect("durable persist");
         let send_at = publish.find("events_tx.send").expect("sse send");
         assert!(
             persist_at < send_at,
             "terminal records must persist before they become visible"
         );
+    }
+
+    #[tokio::test]
+    async fn durable_write_failure_keeps_terminal_invisible() {
+        let mut run = AgentRun::new_for_test("failed-durable-write", 702);
+        Arc::get_mut(&mut run).unwrap().durable_test_result = Some(Err("injected failure".into()));
+        let mut subscriber = run.subscribe();
+        run.publish(AgentProgressEvent::Error {
+            task_id: None,
+            message: "failed".into(),
+            code: "TEST".into(),
+        })
+        .await;
+        let (history, _, completed) = run.snapshot().await;
+        assert!(history.is_empty());
+        assert!(!completed);
+        assert!(subscriber.try_recv().is_err());
     }
 
     #[tokio::test]
@@ -1142,7 +1201,7 @@ mod execution_cancellation_tests {
     use super::*;
     #[tokio::test]
     async fn explicit_cancel_drops_planning_before_task_creation() {
-        let run = AgentRun::new("channel-cancel-test".into(), 777, Some("session".into()));
+        let run = AgentRun::new_for_test("channel-cancel-test", 777);
         let (committed, result) = tokio::sync::oneshot::channel::<()>();
         let execution = tokio::spawn(async move {
             std::future::pending::<()>().await;

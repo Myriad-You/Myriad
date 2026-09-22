@@ -5,11 +5,11 @@ use super::{
     cleanup_reinstall_orphans, fail_next_activation_rename, fail_next_activation_rename_with_kind,
     has_reinstall_orphan_state, installation_conflict_owner_ids, orphaned_tapp_directories,
     recover_tapp_directory, reinstall_orphan_paths, tapp_dir_for, tapp_filesystem_error_message,
-    tapp_filesystem_error_status, tapp_setting_value_is_valid, uninstall_post_commit_cleanup_path,
-    unsupported_package_structure, validate_asset_path, validate_installed_resources,
-    validate_resource_path, validate_store_manifest_category, validate_tapp_archive,
-    validate_tapp_id, validate_tapp_manifest, validate_widget_template_contents,
-    widget_template_path, write_install_generation,
+    tapp_filesystem_error_status, tapp_setting_value_is_valid, unsupported_package_structure,
+    validate_asset_path, validate_installed_resources, validate_resource_path,
+    validate_store_manifest_category, validate_tapp_archive, validate_tapp_id,
+    validate_tapp_manifest, validate_widget_template_contents, widget_template_path,
+    write_install_generation,
 };
 use crate::models::entities::{tapp_widgets, tapps};
 use crate::services::permission_service::UserRole;
@@ -104,25 +104,6 @@ fn uninstall_prefers_own_install_when_public_coexists() {
         select_uninstall_target(false, false),
         UninstallTarget::NotFound
     );
-}
-
-#[test]
-fn uninstall_post_commit_prefers_quarantine_then_live_dir() {
-    let live = PathBuf::from("/data/tapps/1/com.example.app");
-    let quarantine = PathBuf::from("/data/tapps/1/.com.example.app.uninstall-deadbeef");
-
-    // Rename succeeded: always clean quarantine, even if live path is gone.
-    assert_eq!(
-        uninstall_post_commit_cleanup_path(Some(quarantine.clone()), live.clone(), false),
-        Some(quarantine.clone())
-    );
-    // Rename failed but live dir still present: best-effort delete live.
-    assert_eq!(
-        uninstall_post_commit_cleanup_path(None, live.clone(), true),
-        Some(live.clone())
-    );
-    // Nothing on disk after commit: no filesystem work.
-    assert_eq!(uninstall_post_commit_cleanup_path(None, live, false), None);
 }
 
 #[test]
@@ -2294,4 +2275,155 @@ fn validates_manifest_paths_before_install_or_update() {
         std::collections::HashMap::from([("2x2".to_string(), "template".to_string())]),
     )]);
     assert!(validate_widget_template_contents(&same_size_templates, &unknown_widget).is_err());
+}
+
+#[tokio::test]
+async fn recovery_preserves_unpublished_staging_during_install_and_update() {
+    let root =
+        std::env::temp_dir().join(format!("myriad-concurrent-stage-{}", uuid::Uuid::new_v4()));
+    let owner = root.join("1");
+    let live = owner.join("com.example.app");
+    let manifest =
+        json!({"id": "com.example.app", "version": "1.0.0", "core": {"entry": "main.js"}});
+    let generation = chrono::Utc::now().fixed_offset();
+    let stage = TappDirStage::create(&live).await.unwrap();
+    std::fs::write(
+        stage.path().join("manifest.json"),
+        serde_json::to_vec(&manifest).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(stage.path().join("main.js"), "pending").unwrap();
+    write_install_generation(stage.path(), generation).unwrap();
+    // Even a matching staging generation must not become a recovery source.
+    assert!(!recover_tapp_directory(&live, &manifest, generation).unwrap());
+    assert!(!live.exists());
+    assert!(stage.path().exists());
+    assert!(
+        orphaned_tapp_directories(&root, &Default::default())
+            .unwrap()
+            .is_empty()
+    );
+    let activated = stage.activate(&live).await.unwrap();
+    activated.commit().await;
+    let update = TappDirStage::create(&live).await.unwrap();
+    std::fs::write(update.path().join("main.js"), "updating").unwrap();
+    // Matching live normally discards artifacts, but cannot discard another writer.
+    assert!(!recover_tapp_directory(&live, &manifest, generation).unwrap());
+    assert_eq!(
+        std::fs::read_to_string(update.path().join("main.js")).unwrap(),
+        "updating"
+    );
+    drop(update);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// Uses an explicitly supplied disposable database, shared by two connections.
+#[tokio::test]
+async fn recovery_waits_for_activation_commit_and_rereads_generation() {
+    use sea_orm::{
+        ActiveModelTrait, ConnectionTrait, Database, DatabaseBackend, IntoActiveModel, Schema,
+        Statement, TransactionTrait,
+    };
+    let Ok(url) = std::env::var("TAPP_TEST_DATABASE_URL") else {
+        return;
+    };
+    let db = Database::connect(url).await.unwrap();
+    let backend = DatabaseBackend::Postgres;
+    db.execute_raw(backend.build(&Schema::new(backend).create_table_from_entity(tapps::Entity)))
+        .await
+        .unwrap();
+    let id = format!("com.example.race{}", uuid::Uuid::new_v4().simple());
+    let live = tapp_dir_for(987654, &id).unwrap();
+    // A first install can be writing staging before any row or lifecycle lock.
+    let first_stage = TappDirStage::create(&live).await.unwrap();
+    super::recover_tapp_filesystem_state(&db).await.unwrap();
+    assert!(first_stage.path().exists());
+    drop(first_stage);
+    let old = chrono::Utc::now().fixed_offset();
+    let new = old + chrono::Duration::seconds(1);
+    let manifest = json!({"id": id, "version": "1.0.0", "core": {"entry": "main.js"}});
+    let tapp = tapps::Model {
+        id: 1,
+        tapp_id: id.clone(),
+        user_id: 987654,
+        name: "Race".into(),
+        version: "1.0.0".into(),
+        description: None,
+        author: None,
+        icon: None,
+        theme_color: None,
+        manifest: manifest.clone(),
+        status: tapps::TappStatus::Installed,
+        granted_permissions: json!([]),
+        approved_permissions: json!([]),
+        needs_reauthorization: false,
+        file_path: "manifest.json".into(),
+        code_path: "main.js".into(),
+        installed_at: old,
+        last_run_at: None,
+        updated_at: old,
+        error_message: None,
+        visibility: "all".into(),
+    };
+    tapp.into_active_model().insert(&db).await.unwrap();
+    std::fs::create_dir_all(&live).unwrap();
+    std::fs::write(
+        live.join("manifest.json"),
+        serde_json::to_vec(&manifest).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(live.join("main.js"), "old").unwrap();
+    write_install_generation(&live, old).unwrap();
+    let stage = TappDirStage::create(&live).await.unwrap();
+    std::fs::write(
+        stage.path().join("manifest.json"),
+        serde_json::to_vec(&manifest).unwrap(),
+    )
+    .unwrap();
+    std::fs::write(stage.path().join("main.js"), "new").unwrap();
+    write_install_generation(stage.path(), new).unwrap();
+    super::recover_tapp_filesystem_state(&db).await.unwrap();
+    assert!(
+        stage.path().exists(),
+        "live recovery must preserve an ongoing update"
+    );
+    let txn = db.begin().await.unwrap();
+    super::lock_tapp_lifecycle(&txn, &id).await.unwrap();
+    let activated = stage.activate(&live).await.unwrap();
+    txn.execute_raw(Statement::from_sql_and_values(
+        backend,
+        "UPDATE tapps SET updated_at = $1 WHERE tapp_id = $2",
+        [new.into(), id.clone().into()],
+    ))
+    .await
+    .unwrap();
+    let recovery_db = db.clone();
+    let mut recovery =
+        tokio::spawn(async move { super::recover_tapp_filesystem_state(&recovery_db).await });
+    // Observe the actual blocked advisory-lock query, rather than relying on a sleep.
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let waiting = db.query_one_raw(Statement::from_string(backend,
+                "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted) AS waiting")).await.unwrap().unwrap();
+            if waiting.try_get::<bool>("", "waiting").unwrap() { break; }
+            assert!(!recovery.is_finished(), "recovery must wait for the writer lock");
+            tokio::task::yield_now().await;
+        }
+    }).await.unwrap();
+    txn.commit().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(10), &mut recovery)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(live.join("main.js")).unwrap(),
+        "new"
+    );
+    activated.commit().await;
+    db.execute_raw(Statement::from_string(backend, "DROP TABLE tapps"))
+        .await
+        .unwrap();
+    std::fs::remove_dir_all(live).unwrap();
+    db.close().await.unwrap();
 }
