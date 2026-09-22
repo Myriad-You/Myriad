@@ -17,9 +17,8 @@
 //! `v` (version), `n` (nonce hex / browser_tx / OIDC nonce), `s` (slug),
 //! `p` (login|link|platform), `uid?`, `plat?`, `exp` (unix seconds)
 //!
-//! PKCE `code_verifier` is **not** in this payload. It lives in process-local
-//! server storage keyed by `n`, plus the HttpOnly `oauth_pkce` cookie so another
-//! instance can finish the callback.
+//! PKCE `code_verifier` is **not** in this payload. The HttpOnly `oauth_pkce`
+//! cookie carries it across instances and process restarts.
 //!
 //! Secret: `OAUTH_STATE_SECRET` if set, else `JWT_SECRET`.
 
@@ -177,7 +176,14 @@ pub fn oauth_pkce_clear_cookie_value(is_production: bool) -> String {
 /// PKCE verifier from the request `Cookie` header, if present.
 pub fn oauth_pkce_from_cookie(cookie_header: Option<&str>) -> Option<String> {
     let header = cookie_header?;
-    cookie_value_from_header(header, OAUTH_PKCE_COOKIE).map(str::to_string)
+    cookie_value_from_header(header, OAUTH_PKCE_COOKIE)
+        .filter(|value| {
+            (43..=128).contains(&value.len())
+                && value
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"-._~".contains(&b))
+        })
+        .map(str::to_string)
 }
 
 /// Read a single cookie value from a raw `Cookie` header string.
@@ -248,9 +254,6 @@ struct StatePayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     plat: Option<String>,
     exp: i64,
-    /// Legacy PKCE field. New tokens omit it; ignored on verify.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    cv: Option<String>,
 }
 
 /// Process-local used-nonce table with O(1) oldest eviction.
@@ -326,37 +329,6 @@ static USED_NONCES: Lazy<Arc<RwLock<UsedNonceStore>>> = Lazy::new(|| {
 
     store
 });
-
-/// Process-local PKCE verifiers keyed by state nonce (`browser_tx`).
-///
-/// Not a substitute for the HttpOnly cookie: another process will not see this
-/// map. The cookie is the cross-instance session copy; this map is same-process.
-static PKCE_VERIFIERS: Lazy<Arc<RwLock<HashMap<String, (String, Instant)>>>> =
-    Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
-
-async fn store_pkce_verifier(nonce: &str, code_verifier: &str) {
-    let mut store = PKCE_VERIFIERS.write().await;
-    let now = Instant::now();
-    store.retain(|_, (_, until)| *until > now);
-    store.insert(
-        nonce.to_string(),
-        (
-            code_verifier.to_string(),
-            now + STATE_TTL + Duration::from_secs(60),
-        ),
-    );
-}
-
-async fn lookup_pkce_verifier(nonce: &str) -> Option<String> {
-    let store = PKCE_VERIFIERS.read().await;
-    store.get(nonce).and_then(|(verifier, until)| {
-        if *until > Instant::now() {
-            Some(verifier.clone())
-        } else {
-            None
-        }
-    })
-}
 
 fn unix_now() -> i64 {
     SystemTime::now()
@@ -461,7 +433,6 @@ fn stored_to_payload(stored: &StoredState, nonce: String, exp: i64) -> StatePayl
         uid,
         plat,
         exp,
-        cv: None,
     }
 }
 
@@ -489,7 +460,6 @@ pub async fn issue_state(stored: StoredState) -> Result<IssuedState, String> {
     let code_verifier = random_code_verifier();
     let exp = unix_now() + STATE_TTL.as_secs() as i64;
     let payload = stored_to_payload(&stored, nonce.clone(), exp);
-    store_pkce_verifier(&nonce, &code_verifier).await;
     let json = serde_json::to_vec(&payload).map_err(|error| {
         tracing::error!(%error, "oauth state serialize failed");
         "state serialize failed".to_string()
@@ -522,7 +492,6 @@ pub async fn issue_state(stored: StoredState) -> Result<IssuedState, String> {
 pub struct VerifiedState {
     stored: StoredState,
     browser_tx: String,
-    code_verifier: String,
     /// Keep used-nonce until remaining `exp` plus 60s grace.
     remaining_ttl: Duration,
 }
@@ -534,11 +503,6 @@ impl VerifiedState {
 
     pub fn browser_tx(&self) -> &str {
         &self.browser_tx
-    }
-
-    /// PKCE code_verifier from server-side storage (empty when missing).
-    pub fn code_verifier(&self) -> &str {
-        &self.code_verifier
     }
 
     /// OIDC `nonce` expected in id_token — same high-entropy value as browser_tx.
@@ -645,7 +609,6 @@ pub async fn verify_state(token: &str) -> Result<VerifiedState, ConsumeStateErro
     }
 
     let browser_tx = payload.n.clone();
-    let code_verifier = lookup_pkce_verifier(&browser_tx).await.unwrap_or_default();
     let remaining_ttl =
         Duration::from_secs((payload.exp - unix_now()).max(0) as u64) + Duration::from_secs(60); // grace so cleanup does not race TTL edge
 
@@ -654,7 +617,6 @@ pub async fn verify_state(token: &str) -> Result<VerifiedState, ConsumeStateErro
     Ok(VerifiedState {
         stored,
         browser_tx,
-        code_verifier,
         remaining_ttl,
     })
 }
@@ -737,22 +699,105 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn callback_requires_browser_provider_and_pkce_before_consuming_nonce() {
+        use axum::{
+            extract::{Path, Query},
+            http::{HeaderMap, HeaderValue, header},
+        };
+        ensure_test_secret();
+        for (tx_valid, provider_valid, pkce, expected) in [
+            (false, true, true, "browser_tx_mismatch"),
+            (true, false, true, "state_slug_mismatch"),
+            (true, true, false, "invalid_pkce_cookie"),
+            (true, true, true, "provider_unavailable"),
+        ] {
+            let issued = issue_state(StoredState {
+                provider_slug: "missing-test-provider".into(),
+                purpose: OAuthPurpose::Login,
+            })
+            .await
+            .unwrap();
+            let tx = if tx_valid {
+                issued.browser_tx.as_str()
+            } else {
+                "mismatch"
+            };
+            let mut cookie = format!("oauth_tx={tx}");
+            if pkce {
+                cookie.push_str(&format!("; oauth_pkce={}", issued.code_verifier));
+            }
+            let mut headers = HeaderMap::new();
+            headers.insert(header::COOKIE, HeaderValue::from_str(&cookie).unwrap());
+            let query = serde_json::from_value(
+                serde_json::json!({"code": "test-code", "state": issued.token}),
+            )
+            .unwrap();
+            let slug = if provider_valid {
+                "missing-test-provider"
+            } else {
+                "wrong-provider"
+            };
+            let response = crate::api::oauth::provider_callback(
+                Path(slug.into()),
+                Query(query),
+                headers,
+                crate::extract::Db(sea_orm::DatabaseConnection::default()),
+            )
+            .await
+            .unwrap();
+            assert!(
+                response.headers()[header::LOCATION]
+                    .to_str()
+                    .unwrap()
+                    .contains(expected)
+            );
+            let consumed = verify_state(&issued.token).await.unwrap().mark_used().await;
+            assert_eq!(
+                matches!(consumed, ConsumeOutcome::Replay { .. }),
+                tx_valid && provider_valid && pkce
+            );
+        }
+    }
+
+    #[test]
+    fn pkce_cookie_requires_a_valid_verifier() {
+        for invalid in [
+            None,
+            Some("oauth_pkce="),
+            Some("oauth_pkce=short"),
+            Some("oauth_pkce=deleted"),
+        ] {
+            assert!(oauth_pkce_from_cookie(invalid).is_none());
+        }
+        for invalid in ["a".repeat(129), format!("{}!", "a".repeat(43))] {
+            assert!(oauth_pkce_from_cookie(Some(&format!("oauth_pkce={invalid}"))).is_none());
+        }
+        for valid in ["a".repeat(43), "-._~".repeat(32)] {
+            assert_eq!(
+                oauth_pkce_from_cookie(Some(&format!("oauth_pkce={valid}"))),
+                Some(valid)
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn issue_keeps_pkce_verifier_out_of_client_visible_state() {
         ensure_test_secret();
         let issued = issue_state(sample_login()).await.expect("issue");
         let (payload_b64, _) = issued.token.split_once('.').unwrap();
         let json = URL_SAFE_NO_PAD.decode(payload_b64).unwrap();
-        let payload: StatePayload = serde_json::from_slice(&json).unwrap();
-        assert!(payload.cv.is_none(), "signed state must omit PKCE verifier");
+        let payload: serde_json::Value = serde_json::from_slice(&json).unwrap();
+        assert!(
+            payload.get("cv").is_none(),
+            "signed state must omit PKCE verifier"
+        );
         let raw = String::from_utf8(json).unwrap();
         assert!(
             !raw.contains(&issued.code_verifier),
             "client-visible state must not contain the verifier"
         );
         let verified = verify_state(&issued.token).await.expect("verify");
-        assert_eq!(verified.code_verifier(), issued.code_verifier);
         assert_eq!(verified.oidc_nonce(), issued.browser_tx);
-        assert!(!verified.code_verifier().is_empty());
         let from_cookie = oauth_pkce_from_cookie(Some(&format!(
             "oauth_tx={}; oauth_pkce={}",
             issued.browser_tx, issued.code_verifier
@@ -811,7 +856,6 @@ mod tests {
             uid: None,
             plat: None,
             exp: unix_now() + 600,
-            cv: None,
         };
         let fake_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&fake).unwrap());
         let bad = format!("{fake_b64}.{sig_b64}");
@@ -831,7 +875,6 @@ mod tests {
             uid: None,
             plat: None,
             exp: unix_now() - 10,
-            cv: None,
         };
         let json = serde_json::to_vec(&payload).unwrap();
         let payload_b64 = URL_SAFE_NO_PAD.encode(&json);

@@ -213,6 +213,8 @@ jobs:
         run: cargo test -p myriad-backend --locked services::ai_quota::database_tests -- --ignored --nocapture
       - name: Native Work loop database and provider contracts
         env:
+          # Debug Work futures exceed the test harness default 2 MiB stack.
+          RUST_MIN_STACK: 16777216
           PGHOST: 127.0.0.1
           PGPORT: 5432
           PGUSER: myriad

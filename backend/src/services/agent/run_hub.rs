@@ -65,6 +65,8 @@ struct PersistedAgentRunEventRow {
 }
 
 pub struct AgentRun {
+    #[cfg(test)]
+    durable_test_result: Option<Result<(), String>>,
     execution: std::sync::Mutex<Option<tokio::task::AbortHandle>>,
     pub(crate) playback_direction: super::playback_direction::PlaybackDirection,
     run_id: String,
@@ -86,6 +88,8 @@ impl AgentRun {
     fn new(run_id: String, user_id: i32, session_id: Option<String>) -> Arc<Self> {
         let (events_tx, _) = broadcast::channel(EVENT_HISTORY_LIMIT);
         Arc::new(Self {
+            #[cfg(test)]
+            durable_test_result: None,
             execution: std::sync::Mutex::new(None),
             publish_order: Mutex::new(()),
             persistence_tx: Self::persistence_channel(),
@@ -138,6 +142,8 @@ impl AgentRun {
         let playback_direction = super::playback_direction::PlaybackDirection::default();
         playback_direction.close(); // Restored history must never revive a live director.
         Arc::new(Self {
+            #[cfg(test)]
+            durable_test_result: None,
             execution: std::sync::Mutex::new(None),
             publish_order: Mutex::new(()),
             persistence_tx: Self::persistence_channel(),
@@ -308,6 +314,10 @@ ORDER BY record_id ASC
         envelope: &AgentRunEnvelope,
         snapshot: &PersistedAgentRun,
     ) -> Result<(), String> {
+        #[cfg(test)]
+        if let Some(result) = &self.durable_test_result {
+            return result.clone();
+        }
         #[cfg(test)]
         if let Some(records) = &self.test_records {
             records.lock().await.push((envelope.clone(), snapshot.clone()));
@@ -732,6 +742,17 @@ pub async fn create_run(user_id: i32, session_id: Option<String>) -> Arc<AgentRu
     .await
 }
 
+/// Stream unit-test fixture with an explicit successful durable-write outcome.
+#[cfg(test)]
+pub(crate) async fn create_run_for_test(user_id: i32, session_id: Option<String>) -> Arc<AgentRun> {
+    let run_id = format!("test_{}", uuid::Uuid::new_v4().simple());
+    let mut run = AgentRun::new_for_test(run_id.clone(), user_id);
+    Arc::get_mut(&mut run).unwrap().session_id = session_id.clone();
+    run.publish(AgentProgressEvent::RunStarted { run_id, session_id })
+        .await;
+    run
+}
+
 /// The server may reserve an ID while committing input references, before
 /// publishing RunStarted or admitting execution. Never accepts a client ID.
 pub(crate) async fn create_run_with_id(
@@ -744,15 +765,6 @@ pub(crate) async fn create_run_with_id(
     AGENT_RUNS.write().await.insert(run_id.clone(), run.clone());
     run.publish(AgentProgressEvent::RunStarted { run_id, session_id })
         .await;
-    run
-}
-
-#[cfg(test)]
-pub(crate) async fn create_run_for_test(user_id: i32, session_id: Option<String>) -> Arc<AgentRun> {
-    let run_id = uuid::Uuid::new_v4().to_string();
-    let mut run = AgentRun::new_for_test(run_id.clone(), user_id);
-    Arc::get_mut(&mut run).unwrap().session_id = session_id.clone();
-    run.publish(AgentProgressEvent::RunStarted { run_id, session_id }).await;
     run
 }
 
@@ -858,6 +870,23 @@ mod tests {
             persist_at < send_at,
             "terminal records must persist before they become visible"
         );
+    }
+
+    #[tokio::test]
+    async fn durable_write_failure_keeps_terminal_invisible() {
+        let mut run = AgentRun::new_for_test("failed-durable-write", 702);
+        Arc::get_mut(&mut run).unwrap().durable_test_result = Some(Err("injected failure".into()));
+        let mut subscriber = run.subscribe();
+        run.publish(AgentProgressEvent::Error {
+            task_id: None,
+            message: "failed".into(),
+            code: "TEST".into(),
+        })
+        .await;
+        let (history, _, completed) = run.snapshot().await;
+        assert!(history.is_empty());
+        assert!(!completed);
+        assert!(subscriber.try_recv().is_err());
     }
 
     #[tokio::test]

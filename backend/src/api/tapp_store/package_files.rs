@@ -554,8 +554,14 @@ pub(crate) fn recover_tapp_directory(
     expected_updated_at: chrono::DateTime<chrono::FixedOffset>,
 ) -> Result<bool, std::io::Error> {
     let mut artifacts = lifecycle_artifact_directories(final_path)?;
-    // A backup/uninstall quarantine is the authoritative pre-transaction
-    // generation. Consider staging only after those recovery sources.
+    // Unpublished staging belongs to its writer, including other instances.
+    artifacts.retain(|path| {
+        !path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(is_staging_artifact_filename)
+    });
+    // Published backup/quarantine generations are the only recovery sources.
     sort_recovery_artifact_paths(&mut artifacts);
 
     let live_matches =
@@ -595,11 +601,11 @@ pub(crate) fn recover_tapp_directory(
                 return Err(error);
             }
             if had_live_path {
-                let _ = std::fs::remove_dir_all(&discard_path);
+                std::fs::remove_dir_all(&discard_path)?;
             }
             for artifact in recovery_artifacts_to_remove_after_promote(&artifacts, &recovery_source)
             {
-                let _ = std::fs::remove_dir_all(artifact);
+                std::fs::remove_dir_all(artifact)?;
             }
             Ok(recovery_plan_mutates_live(plan))
         }
@@ -643,6 +649,9 @@ pub(crate) fn orphaned_tapp_directories(
             let Some(filename) = entry.file_name().to_str().map(String::from) else {
                 continue;
             };
+            if is_staging_artifact_filename(&filename) {
+                continue;
+            }
             let looks_like = looks_like_tapp_installation(&entry.path());
             let Some((owner_id, tapp_id)) =
                 orphan_tapp_key_if_unowned(owner_id, &filename, looks_like, installed)
@@ -708,29 +717,38 @@ pub(crate) async fn cleanup_orphaned_tapp_directories(
 /// Recover filesystem/DB generations (startup and after live DB reconnect).
 pub(crate) async fn recover_tapp_filesystem_state(db: &DatabaseConnection) -> Result<usize, DbErr> {
     let installed = tapps::Entity::find().all(db).await?;
-    let installed_keys = installed
+    let mut installed_keys = installed
         .iter()
         .map(|tapp| (tapp.user_id, tapp.tapp_id.clone()))
         .collect::<std::collections::HashSet<_>>();
     let mut recovered = 0;
-    for tapp in installed {
-        let Ok(final_path) = installed_tapp_dir(&tapp) else {
-            tracing::error!(tapp_id = %tapp.tapp_id, "Invalid installed Tapp path during recovery");
-            continue;
-        };
-        match recover_tapp_directory(&final_path, &tapp.manifest, tapp.updated_at) {
-            Ok(true) => {
+    for candidate in installed {
+        // Enumeration only discovers keys. Read the committed generation after
+        // acquiring the same transaction-scoped lock used by every writer.
+        let txn = db.begin().await?;
+        lock_tapp_lifecycle(&txn, &candidate.tapp_id).await?;
+        let current = tapps::Entity::find()
+            .filter(tapps::Column::UserId.eq(candidate.user_id))
+            .filter(tapps::Column::TappId.eq(&candidate.tapp_id))
+            .one(&txn)
+            .await?;
+        if let Some(tapp) = current {
+            let final_path = installed_tapp_dir(&tapp).map_err(|_| {
+                DbErr::Custom(format!("Invalid installed Tapp path: {}", tapp.tapp_id))
+            })?;
+            let changed = recover_tapp_directory(&final_path, &tapp.manifest, tapp.updated_at)
+                .map_err(|error| {
+                    DbErr::Custom(format!("Failed to recover Tapp {}: {error}", tapp.tapp_id))
+                })?;
+            if changed {
                 recovered += 1;
                 tracing::warn!(tapp_id = %tapp.tapp_id, owner_id = tapp.user_id, "Recovered interrupted Tapp filesystem transaction");
             }
-            Ok(false) => {}
-            Err(error) => tracing::error!(
-                tapp_id = %tapp.tapp_id,
-                owner_id = tapp.user_id,
-                %error,
-                "Failed to recover interrupted Tapp filesystem transaction"
-            ),
+        } else {
+            // Orphan cleanup below acquires the lock and checks again before deleting.
+            installed_keys.remove(&(candidate.user_id, candidate.tapp_id));
         }
+        txn.commit().await?;
     }
     let removed = cleanup_orphaned_tapp_directories(db, &installed_keys).await?;
     if removed > 0 {

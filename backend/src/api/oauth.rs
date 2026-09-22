@@ -250,8 +250,8 @@ pub async fn provider_login(Path(slug): Path<String>) -> Result<Response, HttpEr
     .map_err(oauth_start_failed)?;
 
     let secrets = AuthFlowSecrets {
-        code_verifier: issued.code_verifier.clone(),
-        oidc_nonce: issued.browser_tx.clone(),
+        code_verifier: issued.code_verifier,
+        oidc_nonce: issued.browser_tx,
     };
     let redirect_uri = build_redirect_uri(&slug).await;
     let auth_url = provider
@@ -260,7 +260,7 @@ pub async fn provider_login(Path(slug): Path<String>) -> Result<Response, HttpEr
         .map_err(oauth_start_failed)?;
 
     // Bind signed state to this browser via oauth_tx + PKCE cookie.
-    Ok(redirect_with_oauth_tx(&auth_url, &issued.browser_tx, &issued.code_verifier).await)
+    Ok(redirect_with_oauth_tx(&auth_url, &secrets.oidc_nonce, &secrets.code_verifier).await)
 }
 
 // GET /api/auth/oauth/:slug/link  (任何已登录用户)
@@ -301,8 +301,8 @@ pub async fn provider_link(
     .map_err(oauth_start_failed)?;
 
     let secrets = AuthFlowSecrets {
-        code_verifier: issued.code_verifier.clone(),
-        oidc_nonce: issued.browser_tx.clone(),
+        code_verifier: issued.code_verifier,
+        oidc_nonce: issued.browser_tx,
     };
     let redirect_uri = build_redirect_uri(&slug).await;
     let auth_url = provider
@@ -310,7 +310,7 @@ pub async fn provider_link(
         .await
         .map_err(oauth_start_failed)?;
 
-    Ok(redirect_with_oauth_tx(&auth_url, &issued.browser_tx, &issued.code_verifier).await)
+    Ok(redirect_with_oauth_tx(&auth_url, &secrets.oidc_nonce, &secrets.code_verifier).await)
 }
 
 // GET /api/auth/oauth/:slug/callback
@@ -401,14 +401,14 @@ pub async fn provider_callback(
         .await);
     }
 
-    // Capture PKCE / OIDC secrets before mark_used consumes VerifiedState.
-    // Same-process map first; HttpOnly cookie covers another instance.
-    let mut code_verifier = verified.code_verifier().to_string();
-    if code_verifier.is_empty() {
-        if let Some(from_cookie) = oauth_pkce_from_cookie(cookie_header) {
-            code_verifier = from_cookie;
-        }
-    }
+    // The browser cookie is the single PKCE verifier source on every instance.
+    let Some(code_verifier) = oauth_pkce_from_cookie(cookie_header) else {
+        return Ok(with_oauth_tx_cleared(oauth_client_error_redirect(
+            &frontend_base,
+            "invalid_pkce_cookie",
+        ))
+        .await);
+    };
     let secrets = AuthFlowSecrets {
         code_verifier,
         oidc_nonce: verified.oidc_nonce().to_string(),

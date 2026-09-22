@@ -109,9 +109,10 @@ impl GithubClient {
             HeaderValue::from_static("application/vnd.github+json"),
         );
         if let Some(t) = &self.token
-            && let Ok(v) = HeaderValue::from_str(&format!("Bearer {}", t.expose())) {
-                h.insert(AUTHORIZATION, v);
-            }
+            && let Ok(v) = HeaderValue::from_str(&format!("Bearer {}", t.expose()))
+        {
+            h.insert(AUTHORIZATION, v);
+        }
         h
     }
 
@@ -518,9 +519,10 @@ impl GithubClient {
         // not token-authenticated reliably for private repositories.
         headers.insert(ACCEPT, HeaderValue::from_static("application/octet-stream"));
         if let Ok(etag) = std::fs::read_to_string(&etag_path)
-            && let Ok(v) = HeaderValue::from_str(etag.trim()) {
-                headers.insert(IF_NONE_MATCH, v);
-            }
+            && let Ok(v) = HeaderValue::from_str(etag.trim())
+        {
+            headers.insert(IF_NONE_MATCH, v);
+        }
 
         let resp = self
             .client

@@ -185,7 +185,12 @@ pub async fn subject_is_admin(
             TappAccessError::Database
         })?;
     Ok(result
-        .and_then(|row| row.try_get::<bool>("", "is_admin").ok())
+        .map(|row| row.try_get::<bool>("", "is_admin"))
+        .transpose()
+        .map_err(|e| {
+            tracing::error!(%e, "[TAPP] Database error decoding is_admin");
+            TappAccessError::Database
+        })?
         .unwrap_or(false))
 }
 
