@@ -1742,7 +1742,7 @@ mod tests {
         let production = src.split("#[cfg(test)]").next().expect("production");
         for name in ["leave_ring", "add_peer", "remove_peer", "trigger_sync"] {
             assert!(
-                production.contains(&format!("user_id: i32")),
+                production.contains("user_id: i32"),
                 "{name} must take authenticated user_id"
             );
         }
