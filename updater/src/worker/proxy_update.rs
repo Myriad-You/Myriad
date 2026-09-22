@@ -158,18 +158,45 @@ pub fn schedule(
 }
 
 pub fn resume_pending(worker: Arc<Worker>) {
+    if let Err(error) = converge_unreadable_outcome(worker.state()) {
+        warn!(%error, "cannot converge an unreadable proxy-update outcome");
+        return;
+    }
     match read_proxy_update_last_outcome(worker.state().root()) {
         Ok(crate::state::Outcome::Present(pending))
             if pending.status == ProxyUpdateOutcome::Pending =>
         {
             spawn_update(worker, None, pending)
         }
-        Ok(crate::state::Outcome::Unreadable(error)) => warn!(
-            %error,
-            "proxy update outcome is unreadable; not resuming and not treating it as absent"
-        ),
         Err(error) => warn!(%error, "cannot read proxy update state"),
         _ => {}
+    }
+}
+
+/// Turn an outcome record that cannot be parsed into a terminal one.
+///
+/// `Pending` is the only value that means "an executor owns this component", and
+/// an unreadable record cannot prove it. Callers reach this only once they know
+/// no executor owns the component, so the record describes history: leaving it
+/// unreadable would refuse every mutation forever, including the dismiss that
+/// would clear it. The parse error is kept in `error` for diagnosis.
+pub(crate) fn converge_unreadable_outcome(state: &crate::state::StateDir) -> Result<()> {
+    match read_proxy_update_last_outcome(state.root())? {
+        crate::state::Outcome::Unreadable(error) => {
+            warn!(%error, "converging an unreadable proxy-update outcome to a terminal record");
+            write_proxy_update_last(
+                state.root(),
+                &ProxyUpdateLastStatus::failed(
+                    "",
+                    "",
+                    format!(
+                        "previous outcome record was unreadable and could not be resumed: {error}"
+                    ),
+                    false,
+                ),
+            )
+        }
+        _ => Ok(()),
     }
 }
 
@@ -509,6 +536,45 @@ mod tests {
         assert!(
             matches!(require_no_pending(&state), Err(UpdaterError::State(_))),
             "a corrupt outcome must fail closed, not look like no request"
+        );
+    }
+
+    #[test]
+    fn unreadable_history_converges_instead_of_locking_the_system() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::state::StateDir::open(dir.path()).unwrap();
+        let path = dir.path().join(PROXY_UPDATE_LAST_FILE);
+        std::fs::write(&path, b"{broken").unwrap();
+        assert!(
+            matches!(require_no_pending(&state), Err(UpdaterError::State(_))),
+            "the record on its own must stay fail-closed"
+        );
+
+        converge_unreadable_outcome(&state).unwrap();
+
+        assert!(require_no_pending(&state).is_ok());
+        let converged = read_proxy_update_last(dir.path()).unwrap().unwrap();
+        assert_eq!(converged.status, ProxyUpdateOutcome::Failed);
+        assert!(!converged.rolled_back);
+        assert!(
+            converged.error.unwrap().contains("unreadable"),
+            "the parse error must stay in the record for diagnosis"
+        );
+    }
+
+    #[test]
+    fn convergence_leaves_a_readable_pending_request_locked() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::state::StateDir::open(dir.path()).unwrap();
+        let mut pending = ProxyUpdateLastStatus::succeeded("v1.0.0", "v1.1.0");
+        pending.status = ProxyUpdateOutcome::Pending;
+        write_proxy_update_last(dir.path(), &pending).unwrap();
+
+        converge_unreadable_outcome(&state).unwrap();
+
+        assert!(
+            matches!(require_no_pending(&state), Err(UpdaterError::Conflict)),
+            "a readable pending request still has an executor"
         );
     }
 

@@ -26,18 +26,44 @@ pub fn schedule(worker: Arc<Worker>, actor: Option<String>) -> Result<SelfUpdate
 }
 
 pub(crate) fn resume_pending(worker: Arc<Worker>) {
+    if let Err(error) = converge_unreadable_outcome(worker.state()) {
+        warn!(%error, "cannot converge an unreadable self-update outcome");
+        return;
+    }
     match read_status_outcome(worker.state().root()) {
         Ok(crate::state::Outcome::Present(status))
             if status.queued && status.status == SelfUpdateOutcome::Pending =>
         {
             spawn_request(worker, None)
         }
-        Ok(crate::state::Outcome::Unreadable(error)) => warn!(
-            %error,
-            "self-update request is unreadable; not resuming and not treating it as absent"
-        ),
         Err(error) => warn!(%error, "cannot read self-update request"),
         _ => {}
+    }
+}
+
+/// Turn an outcome record that cannot be parsed into a terminal one.
+///
+/// `Pending` is the only value that means "an executor owns this component", and
+/// an unreadable record cannot prove it. Callers reach this only once they know
+/// no executor owns the component, so the record describes history: leaving it
+/// unreadable would refuse every mutation forever, including the dismiss that
+/// would clear it. The parse error is kept in `error` for diagnosis.
+pub(crate) fn converge_unreadable_outcome(state: &crate::state::StateDir) -> Result<()> {
+    match read_status_outcome(state.root())? {
+        crate::state::Outcome::Unreadable(error) => {
+            warn!(%error, "converging an unreadable self-update outcome to a terminal record");
+            write_status(
+                &state.root().join("self-update-last.json"),
+                &SelfUpdateLastStatus::failed_before_handoff(
+                    String::new(),
+                    String::new(),
+                    format!(
+                        "previous outcome record was unreadable and could not be resumed: {error}"
+                    ),
+                ),
+            )
+        }
+        _ => Ok(()),
     }
 }
 
@@ -291,6 +317,57 @@ mod tests {
         task.abort();
         let _ = task.await;
         assert!(worker.require_no_component_update().is_ok());
+        let converged = read_status(dir.path()).unwrap().unwrap();
+        assert_eq!(
+            converged.status,
+            SelfUpdateOutcome::Failed,
+            "the corrupt record must converge, not lock the idle system"
+        );
+    }
+
+    #[test]
+    fn unreadable_history_converges_instead_of_locking_the_system() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::state::StateDir::open(dir.path()).unwrap();
+        std::fs::write(state.root().join("self-update-last.json"), b"broken").unwrap();
+        assert!(
+            matches!(
+                require_no_pending_handoff(&state),
+                Err(UpdaterError::State(_))
+            ),
+            "the record on its own must stay fail-closed"
+        );
+
+        converge_unreadable_outcome(&state).unwrap();
+
+        assert!(require_no_pending_handoff(&state).is_ok());
+        let converged = read_status(state.root()).unwrap().unwrap();
+        assert_eq!(converged.status, SelfUpdateOutcome::Failed);
+        assert!(!converged.queued);
+        assert!(
+            converged.error.unwrap().contains("unreadable"),
+            "the parse error must stay in the record for diagnosis"
+        );
+    }
+
+    #[test]
+    fn convergence_leaves_a_readable_pending_request_locked() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = crate::state::StateDir::open(dir.path()).unwrap();
+        let mut pending =
+            SelfUpdateLastStatus::pending_before_handoff("v0.5.4".into(), "v0.5.3".into());
+        pending.queued = true;
+        write_status(&state.root().join("self-update-last.json"), &pending).unwrap();
+
+        converge_unreadable_outcome(&state).unwrap();
+
+        assert!(
+            matches!(
+                require_no_pending_handoff(&state),
+                Err(UpdaterError::Conflict)
+            ),
+            "a readable pending request still has an executor"
+        );
     }
 
     #[tokio::test(start_paused = true)]

@@ -209,6 +209,15 @@ impl Worker {
         {
             return Err(UpdaterError::Conflict);
         }
+        // `component_task` is the only executor of a component update in this
+        // process; a self-update is handed to Guard, which keeps its own gate and
+        // refuses Docker mutations while it runs. With no task here, an outcome
+        // record we cannot parse describes history, not a running task: converge
+        // it so a corrupt file cannot refuse every mutation — including the
+        // dismiss that would clear it — for the lifetime of the system. A readable
+        // `Pending` record still refuses below.
+        self_update::converge_unreadable_outcome(&self.state)?;
+        proxy_update::converge_unreadable_outcome(&self.state)?;
         self_update::require_no_pending_handoff(&self.state)?;
         proxy_update::require_no_pending(&self.state)
     }
