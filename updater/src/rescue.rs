@@ -77,6 +77,12 @@ pub async fn rollback(ctx: &Context, snapshot_id: &str) -> Result<()> {
     info!(snapshot = snapshot_id, "rescue rollback: stopping services");
     compose_v2_or_v1(ctx, &["stop", "-t", "30", "frontend", "backend"]).await?;
 
+    // Reuse the prepared record so the CLI restores the same Compose the worker's
+    // automatic rollback does. Restoring only MYRIAD_TAG would start the old images
+    // with the new version's definition, which is what `restore_compose` prevents.
+    let source_job = snapshot_id.strip_prefix("snap-").unwrap_or(snapshot_id);
+    crate::worker::update::restore_compose(&ctx.state, source_job)?;
+
     if ctx.db_mode.is_external() {
         info!("db_mode=external; skipping pgdata restore (tag-only rescue rollback)");
     } else {
