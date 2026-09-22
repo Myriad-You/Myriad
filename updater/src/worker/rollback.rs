@@ -147,9 +147,6 @@ pub async fn execute_inline(
         error!(err = %e, %msg, "rollback writer stop failed");
         return Err(UpdaterError::Precondition(msg));
     }
-    for role in crate::docker::client::APP_WORKERS {
-        worker.docker().stop_worker(role).await?;
-    }
     let _ = rec.finish_step_ok();
 
     let source_job = snapshot_id.strip_prefix("snap-").unwrap_or(&rec.job_id);
