@@ -288,7 +288,10 @@ touch ./state/manual-override
 docker exec myriad-updater myriad-rescue exit-maintenance --force
 ```
 
-`manual-override` 是宿主文件级 flag，proxy 一旦读到不存在的话所有 rescue 端点都返回 403。这阻止远端通过 API 单独触发 rescue。
+`manual-override` 是宿主文件级 flag，只约束 `/rescue/exit-maintenance` 与 `/rescue/forget-current`
+（缺该文件时返回 403），用来阻止远端仅凭 token 强制退出维护、或丢掉当前任务。
+`/rescue/continue`（管理 UI 的「一键回退到升级前版本」，见 §5.2）**不需要**它：它只回滚到失败任务
+已经关联的那个快照，权限与 `/rollback` 相同。端点的分层见 `updater/src/api/routes.rs:26-68`。
 
 ### 5.2 升级后服务起不来 / needs_manual
 
