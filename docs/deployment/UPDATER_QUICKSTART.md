@@ -79,16 +79,17 @@ Updater 使用宿主策略 capability 提交意图；Guard 固定官方 updater 
 | 版本 | `image`、`command`、`entrypoint`、`healthcheck`、`ulimits`、`deploy`、`tmpfs`、`user`、`cap_add`、`security_opt` 等 | 每次更新以目标模板为准，站点改动会被覆盖 |
 | 站点 | `ports`、`networks`、`extra_hosts`、`dns`、`dns_search`、`logging`、`restart`、`env_file`、`labels` | 保留站点值 |
 | 站点 | `environment` 中目标只用 `${...}` 占位的键，以及站点自定义的键 | 保留站点值 |
-| 两者 | `volumes` | 目标模板的挂载在前，站点自加且容器路径不冲突的挂载追加在后 |
+| 版本 | `volumes` | 以目标模板的挂载列表为准。Guard 只放行模板已有的卷（见下），站点自加的挂载无法启动 |
 | 站点 | 顶层 `volumes` / `networks` / `configs` / `secrets` 的名称 | 只增不改，卷名保持站点原有身份 |
 
 `proxy`、`updater`、`docker-guard`、`updater-gateway`、`postgres` 不在这 5 个服务内，更新器
 **不迁移**它们的定义；发行版若改了这些服务（例如新增挂载），需要宿主按
 [deployment/DOCKER_DEPLOYMENT.md](./DOCKER_DEPLOYMENT.md) 手动同步。
 
-被覆盖的站点字段会写进 `state/history.log` 与 `state/audit.log`
-（`audit: compose_site_overrides_replaced ...`），可用
-`docker exec myriad-updater myriad-rescue diagnose` 收集。
+这 5 个服务的挂载由 `docker-guard` 校验：只接受模板自带的 `*_backend_data` /
+`*_backend_cache` 卷及其固定容器路径（例如 `federation-worker` 的 `/app/data/media`
+子挂载）。宿主自加的绑定挂载或第三方卷会被 Guard 拒绝，容器在停服切换后无法启动，
+所以更新器不会把它们保留到新编排里。
 
 **不要直接编辑被托管的 Compose 文件。** 宿主 Compose 入口已是指向 `state/compose/` 的相对
 链接（见上），更新器每次更新都会重写其内容。站点侧的改动应放在 `.env`、站点配置，或上表

@@ -104,8 +104,6 @@ pub async fn prepare(
     let candidate_runner = compose.with_files(vec![candidate.clone()]);
     let current = compose.source_json().await?;
     let target = candidate_runner.source_json().await?;
-    // Report host fields the target will overwrite before merging consumes them.
-    let replaced = replaced_site_overrides(&current, &target);
     let merged = merge_application(current, target)?;
     let after = serde_json::to_vec_pretty(&merged)?;
     atomic::write_atomic_bytes(&candidate, &after)?;
@@ -133,13 +131,6 @@ pub async fn prepare(
             "audit: compose_fragments_blanked count={} files={}",
             blanked.len(),
             blanked.join(",")
-        ));
-    }
-    if !replaced.is_empty() {
-        worker.state().record_operation(&format!(
-            "audit: compose_site_overrides_replaced count={} fields={}",
-            replaced.len(),
-            replaced.join(",")
         ));
     }
     Ok((PreparedCompose { files }, candidate_runner))
@@ -185,7 +176,6 @@ fn merge_application(mut current: Value, target: Value) -> Result<Value> {
                     }
                 }
             }
-            keep_site_mounts(previous, &mut next);
         } else if name.ends_with("-worker")
             && let Some(networks) = &backend_networks
         {
@@ -207,107 +197,6 @@ fn merge_application(mut current: Value, target: Value) -> Result<Value> {
         }
     }
     Ok(current)
-}
-
-/// `<service>.<key>` pairs where the host holds a value the target template will
-/// replace, so the next update is not silent about losing a host edit.
-///
-/// `image` is skipped: a panel commonly resolves `${MYRIAD_TAG}` to a literal, which
-/// is expected rather than a host override. Any value still containing an
-/// interpolation is skipped for the same reason — the two sides cannot be compared.
-fn replaced_site_overrides(current: &Value, target: &Value) -> Vec<String> {
-    let (Some(site_services), Some(target_services)) =
-        (current["services"].as_object(), target["services"].as_object())
-    else {
-        return Vec::new();
-    };
-    let mut replaced = Vec::new();
-    for name in APPLICATION {
-        let (Some(site), Some(next)) = (site_services.get(name), target_services.get(name)) else {
-            continue;
-        };
-        let (Some(site), Some(next)) = (site.as_object(), next.as_object()) else {
-            continue;
-        };
-        for (key, site_value) in site {
-            // Preserved keys, and the ones the merge combines, are not replaced.
-            if SITE_OWNED_KEYS.contains(&key.as_str())
-                || matches!(key.as_str(), "image" | "volumes" | "environment")
-            {
-                continue;
-            }
-            // A key the target dropped is a template change, not a host override.
-            let Some(target_value) = next.get(key) else {
-                continue;
-            };
-            if site_value == target_value
-                || is_interpolated(site_value)
-                || is_interpolated(target_value)
-            {
-                continue;
-            }
-            replaced.push(format!("{name}.{key}"));
-        }
-    }
-    replaced.sort();
-    replaced
-}
-
-fn is_interpolated(value: &Value) -> bool {
-    value.to_string().contains("${")
-}
-
-/// The target owns which mounts a service *needs*, but a host may have added its
-/// own (extra media, backups, caches). Keep the target's list and append the site
-/// mounts whose container path the target does not already define, so an update
-/// cannot silently detach host storage from a running service.
-///
-/// A mount the target dropped is kept as well; the alternative — taking the
-/// target list wholesale — is what made a host-added mount disappear on update.
-fn keep_site_mounts(previous: &Value, next: &mut Value) {
-    let (Some(site), Some(target)) = (
-        previous.get("volumes").and_then(Value::as_array),
-        next.get_mut("volumes").and_then(Value::as_array_mut),
-    ) else {
-        return;
-    };
-    let defined: std::collections::HashSet<String> = target
-        .iter()
-        .filter_map(volume_target)
-        .map(str::to_owned)
-        .collect();
-    let extra: Vec<Value> = site
-        .iter()
-        .filter(|mount| volume_target(mount).is_none_or(|path| !defined.contains(path)))
-        .cloned()
-        .collect();
-    target.extend(extra);
-}
-
-/// Container path of a Compose volume entry, in either syntax. Compose is invoked
-/// with `--no-normalize`, so short entries stay strings next to long mappings.
-///
-/// `None` means the entry could not be read safely; callers keep it rather than
-/// risk dropping a host mount.
-fn volume_target(entry: &Value) -> Option<&str> {
-    if let Some(target) = entry.get("target").and_then(Value::as_str) {
-        return Some(target);
-    }
-    let parts: Vec<&str> = entry.as_str()?.split(':').collect();
-    match parts.as_slice() {
-        [] => None,
-        [only] => Some(only),
-        [.., last] if is_access_mode(last) => parts.get(parts.len() - 2).copied(),
-        [.., last] => Some(last),
-    }
-}
-
-/// Short-syntax access modes that may follow `source:target`.
-fn is_access_mode(part: &str) -> bool {
-    matches!(
-        part,
-        "ro" | "rw" | "z" | "Z" | "cached" | "delegated" | "consistent"
-    )
 }
 
 /// Called by the existing trusted helper, including when launched by v0.5.3.
@@ -490,41 +379,12 @@ mod tests {
         assert_eq!(labels.len(), 2);
     }
 
+    /// The version owns the mount list. Keeping a site mount was not an option
+    /// either: the Guard rejects every site-added mount on these services (only
+    /// their own `*_backend_data`/`*_backend_cache` volumes at fixed targets are
+    /// allowed), so a stack that carried one could not start after the swap.
     #[test]
-    fn volume_target_reads_short_and_long_forms() {
-        let cases = [
-            (serde_json::json!("/app/data"), Some("/app/data")),
-            (
-                serde_json::json!("backend_data:/app/data"),
-                Some("/app/data"),
-            ),
-            (
-                serde_json::json!("backend_data:/app/data:ro"),
-                Some("/app/data"),
-            ),
-            (
-                serde_json::json!("/host/media:/app/data/media:rw"),
-                Some("/app/data/media"),
-            ),
-            (
-                serde_json::json!({"type": "volume", "source": "backend_data", "target": "/app/data/media"}),
-                Some("/app/data/media"),
-            ),
-            (
-                serde_json::json!({"type": "tmpfs", "target": "/tmp"}),
-                Some("/tmp"),
-            ),
-            (serde_json::json!(42), None),
-        ];
-        for (entry, expected) in cases {
-            assert_eq!(volume_target(&entry), expected, "entry {entry}");
-        }
-    }
-
-    /// Regression: the target's mount list used to replace the host's outright,
-    /// so a host-added mount disappeared on the next update.
-    #[test]
-    fn merge_keeps_host_mounts_and_site_environment() {
+    fn merge_takes_the_target_mount_list() {
         let current = serde_json::json!({
             "services": {
                 "backend": {
@@ -556,11 +416,10 @@ mod tests {
         let merged = merge_application(current, target).unwrap();
 
         let volumes = merged["services"]["backend"]["volumes"].as_array().unwrap();
-        let targets: Vec<&str> = volumes.iter().filter_map(volume_target).collect();
         assert_eq!(
-            targets,
-            vec!["/app/data", "/app/cache", "/app/data/media"],
-            "target mounts first, then the host mount the target does not define"
+            volumes.len(),
+            2,
+            "the target mount list replaces the host's: {volumes:?}"
         );
         assert_eq!(
             merged["services"]["backend"]["environment"]["DATABASE_URL"],
@@ -572,69 +431,6 @@ mod tests {
         assert_eq!(
             merged["volumes"]["backend_data"]["name"], "existing",
             "volume identity stays the host's"
-        );
-    }
-
-    #[test]
-    fn merge_keeps_a_mount_it_cannot_read() {
-        let current = serde_json::json!({
-            "services": {"backend": {"volumes": [{"type": "bind"}]}},
-        });
-        let target = serde_json::json!({
-            "services": {"backend": {"volumes": [{"type": "volume", "target": "/app/data"}]}},
-        });
-        let merged = merge_application(current, target).unwrap();
-        assert_eq!(
-            merged["services"]["backend"]["volumes"]
-                .as_array()
-                .unwrap()
-                .len(),
-            2
-        );
-    }
-
-    /// Regression: a host edit to a target-owned field was replaced with no record.
-    #[test]
-    fn replaced_site_overrides_reports_host_fields_but_not_panel_images() {
-        let current = serde_json::json!({
-            "services": {
-                "backend": {
-                    "image": "example/backend:v0.5.3",
-                    "command": ["/app/custom-entry"],
-                    "healthcheck": {"test": ["CMD", "curl", "-f", "http://localhost/health"]},
-                    "tmpfs": ["/tmp"],
-                    "ports": ["8080:80"],
-                    "environment": {"CUSTOM": "keep"},
-                    "volumes": ["/host/x:/app/x"],
-                }
-            }
-        });
-        let target = serde_json::json!({
-            "services": {
-                "backend": {
-                    "image": "example/backend:${MYRIAD_TAG}",
-                    "command": ["/app/myriad-backend"],
-                    "healthcheck": {"test": ["CMD", "curl", "-f", "http://localhost:8080/healthz"]},
-                    "tmpfs": ["/tmp"],
-                    "ports": ["80:80"],
-                    "environment": {"CUSTOM": "${CUSTOM}"},
-                    "volumes": [{"type": "volume", "target": "/app/data"}],
-                }
-            }
-        });
-
-        assert_eq!(
-            replaced_site_overrides(&current, &target),
-            vec!["backend.command".to_string(), "backend.healthcheck".to_string()],
-            "panel-resolved images, site-owned keys, merged keys and equal values are not reported"
-        );
-
-        let mut interpolated = current.clone();
-        interpolated["services"]["backend"]["command"] = serde_json::json!("${SITE_CMD}");
-        assert_eq!(
-            replaced_site_overrides(&interpolated, &target),
-            vec!["backend.healthcheck".to_string()],
-            "a site value that is itself an interpolation cannot be compared"
         );
     }
 }
