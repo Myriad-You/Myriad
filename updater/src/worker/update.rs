@@ -95,10 +95,7 @@ pub async fn run(
         .await
         .and_then(|r| {
             crate::state::atomic::write_atomic_json(
-                &worker
-                    .state()
-                    .root()
-                    .join(format!("prepared.{job_id}.json")),
+                &worker.state().prepared_report_path(&job_id),
                 &r,
             )?;
             Ok(r)
@@ -517,10 +514,7 @@ pub async fn resume(worker: Arc<Worker>, job_id: &str, rollback: bool) -> Result
         state: worker.state(),
         pgdata: worker.cli().pgdata.clone(),
     };
-    let path = worker
-        .state()
-        .root()
-        .join(format!("prepared.{job_id}.json"));
+    let path = worker.state().prepared_report_path(job_id);
     // v0.5.3 did not persist preflight results. Recover that interrupted update
     // with its existing snapshot instead; remove after the first refactor release.
     let error = if !rollback && path.try_exists()? {
@@ -668,7 +662,7 @@ async fn heal_rollback_pair_from_version(
 }
 
 pub(crate) fn restore_compose(state: &crate::state::StateDir, job_id: &str) -> Result<()> {
-    let path = state.root().join(format!("prepared.{job_id}.json"));
+    let path = state.prepared_report_path(job_id);
     if let Some(bytes) = crate::state::read_existing(&path)? {
         let pre: preflight::PreflightReport = serde_json::from_slice(&bytes)?;
         pre.compose.restore()?;
