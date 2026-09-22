@@ -164,14 +164,18 @@ fn merge_application(mut current: Value, target: Value) -> Result<Value> {
                 next.get_mut("environment").and_then(Value::as_object_mut),
             ) {
                 for (key, value) in old_env {
-                    // The target template defers site-owned values to `${...}`
-                    // placeholders, so the site value wins whenever the target does
-                    // not supply a literal. A site value that is itself an
-                    // interpolation (`${MY_DB_URL}`) must survive too.
+                    // A previous interpolation is a template default from the version
+                    // being replaced, so it must follow the target. Only an explicit
+                    // site setting survives: a literal the target defers on, or a
+                    // variable the target does not define at all. Site values supplied
+                    // through the env file are unaffected either way — the target's
+                    // `${...}` reads them at compose time.
+                    let site_added = !new_env.contains_key(key);
                     let target_defers = new_env
                         .get(key)
-                        .is_none_or(|new| new.as_str().is_some_and(|s| s.contains("${")));
-                    if target_defers {
+                        .is_some_and(|new| new.as_str().is_some_and(|s| s.contains("${")));
+                    let site_literal = !value.as_str().is_some_and(|s| s.contains("${"));
+                    if site_added || (target_defers && site_literal) {
                         new_env.insert(key.clone(), value.clone());
                     }
                 }
@@ -423,14 +427,58 @@ mod tests {
         );
         assert_eq!(
             merged["services"]["backend"]["environment"]["DATABASE_URL"],
-            "${MY_DB_URL}",
-            "a site value that is itself an interpolation must survive"
+            "${DATABASE_URL}",
+            "a previous template default must follow the target version"
         );
-        assert_eq!(merged["services"]["backend"]["environment"]["CUSTOM"], "keep");
+        assert_eq!(
+            merged["services"]["backend"]["environment"]["CUSTOM"], "keep",
+            "a variable the target does not define is a site setting"
+        );
         assert_eq!(merged["services"]["backend"]["ports"][0], "8080:80");
         assert_eq!(
             merged["volumes"]["backend_data"]["name"], "existing",
             "volume identity stays the host's"
+        );
+    }
+
+    /// Template defaults follow the target version; only explicit site settings
+    /// survive. Both directions are checked, because the value alone cannot say
+    /// which one it is: an old `${CACHE_DIR:-/old-cache}` is a default from the
+    /// version being replaced, while a literal the target defers on is a site
+    /// setting.
+    #[test]
+    fn merge_updates_template_defaults_and_keeps_explicit_site_env() {
+        let current = serde_json::json!({
+            "services": {
+                "backend": {
+                    "environment": {
+                        "CACHE_DIR": "${CACHE_DIR:-/old-cache}",
+                        "POSTGRES_PASSWORD": "site-secret",
+                    }
+                }
+            }
+        });
+        let target = serde_json::json!({
+            "services": {
+                "backend": {
+                    "environment": {
+                        "CACHE_DIR": "${CACHE_DIR:-/new-cache}",
+                        "POSTGRES_PASSWORD": "${POSTGRES_PASSWORD}",
+                    }
+                }
+            }
+        });
+
+        let merged = merge_application(current, target).unwrap();
+
+        let env = &merged["services"]["backend"]["environment"];
+        assert_eq!(
+            env["CACHE_DIR"], "${CACHE_DIR:-/new-cache}",
+            "an old template default must not pin the previous version's default"
+        );
+        assert_eq!(
+            env["POSTGRES_PASSWORD"], "site-secret",
+            "an explicit site value the target defers on must survive"
         );
     }
 }

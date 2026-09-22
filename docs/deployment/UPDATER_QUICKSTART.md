@@ -78,7 +78,8 @@ Updater 使用宿主策略 capability 提交意图；Guard 固定官方 updater 
 | --- | --- | --- |
 | 版本 | `image`、`command`、`entrypoint`、`healthcheck`、`ulimits`、`deploy`、`tmpfs`、`user`、`cap_add`、`security_opt` 等 | 每次更新以目标模板为准，站点改动会被覆盖 |
 | 站点 | `ports`、`networks`、`extra_hosts`、`dns`、`dns_search`、`logging`、`restart`、`env_file`、`labels` | 保留站点值 |
-| 站点 | `environment` 中目标只用 `${...}` 占位的键，以及站点自定义的键 | 保留站点值 |
+| 站点 | `environment` 中目标未定义的键，以及目标只用 `${...}` 占位、而站点写成字面量的键 | 保留站点值。站点把变量放进 `.env` 即可，无需改 Compose |
+| 版本 | `environment` 中形如 `${VAR:-默认值}` 的模板默认值 | 随目标版本更新，不会把旧版本的默认值带到新版本 |
 | 版本 | `volumes` | 以目标模板的挂载列表为准。Guard 只放行模板已有的卷（见下），站点自加的挂载无法启动 |
 | 站点 | 顶层 `volumes` / `networks` / `configs` / `secrets` 的名称 | 只增不改，卷名保持站点原有身份 |
 
