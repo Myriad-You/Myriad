@@ -447,7 +447,7 @@ mod tests {
         let (session, key) = ChatSession::register(claims, "chat-wire".into())
             .await
             .unwrap();
-        let run = crate::services::agent::run_hub::create_run(7201, Some("chat-wire".into())).await;
+        let run = crate::services::agent::run_hub::create_run_for_test(7201, Some("chat-wire".into())).await;
         run.publish(AgentProgressEvent::ThinkingToken {
             token: "private reasoning".into(),
             done: false,
@@ -488,7 +488,7 @@ mod tests {
             .await
             .unwrap();
         let run =
-            crate::services::agent::run_hub::create_run(7202, Some("chat-long-wire".into())).await;
+            crate::services::agent::run_hub::create_run_for_test(7202, Some("chat-long-wire".into())).await;
         for _ in 0..520 {
             run.publish(AgentProgressEvent::SummaryToken {
                 token: "partial ".into(),
