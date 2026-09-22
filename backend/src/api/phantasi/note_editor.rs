@@ -261,6 +261,7 @@ async fn restore_version(
     crate::services::media::bind_note_draft(
         &txn,
         saved.id,
+        req.revision,
         saved.image.as_deref(),
         &saved.content_md,
         &[],

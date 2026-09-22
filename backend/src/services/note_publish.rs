@@ -305,6 +305,7 @@ pub async fn publish_doc(
         crate::services::media::bind_note_draft(
             &txn,
             saved.id,
+            saved.revision - 1,
             saved.image.as_deref(),
             &saved.content_md,
             &[],
@@ -448,6 +449,9 @@ pub async fn update_note_doc_topic(
                 "Note draft was updated elsewhere",
             ));
         }
+        crate::services::media::sync_note_history_refs(&txn, doc_id, expected_revision, &[])
+            .await
+            .map_err(media_bind_http)?;
         phantasi_note_docs::Entity::find_by_id(doc_id)
             .one(&txn)
             .await
@@ -694,6 +698,7 @@ pub async fn write_note_with_doc(
         crate::services::media::bind_note_draft(
             &txn,
             doc.id,
+            doc.revision - 1,
             doc.image.as_deref(),
             &doc.content_md,
             &[],
@@ -748,6 +753,8 @@ mod tests {
             schema.create_table_from_entity(phantasi_sources::Entity),
             schema.create_table_from_entity(phantasi_note_docs::Entity),
             schema.create_table_from_entity(phantasi_items::Entity),
+            schema.create_table_from_entity(crate::models::entities::media_assets::Entity),
+            schema.create_table_from_entity(crate::models::entities::media_references::Entity),
         ] {
             let sql = statement
                 .to_string(sea_orm::sea_query::PostgresQueryBuilder)
@@ -756,6 +763,13 @@ mod tests {
                 .await
                 .expect("create isolated temporary table");
         }
+        db.execute_unprepared(
+            "CREATE TEMP TABLE phantasi_note_history (
+            doc_id integer, revision bigint, snapshot jsonb
+        )",
+        )
+        .await
+        .unwrap();
         db.execute_unprepared(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_phantasi_sources_note_type \
              ON phantasi_sources ((true)) WHERE source_type = 'note'",

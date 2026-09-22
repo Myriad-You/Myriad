@@ -824,7 +824,7 @@ async fn postgres_rss_shared_assets_are_protected_and_new_feed_writes_are_atomic
     assert!(progress.complete, "{:?}", progress.error);
     assert_eq!(active_count(&f.db, 1).await.unwrap(), 2);
     let txn = f.db.begin().await.unwrap();
-    bind_note_draft(&txn, 1, None, "", &[]).await.unwrap();
+    bind_note_draft(&txn, 1, 0, None, "", &[]).await.unwrap();
     txn.commit().await.unwrap();
     assert_eq!(
         f.service.delete(&f.db, 1).await.unwrap_err(),
@@ -909,7 +909,9 @@ async fn postgres_upgrade_defers_locked_note_and_binds_latest_edit() {
     ))
     .await
     .unwrap();
-    bind_note_draft(&edit, 1, None, &body, &[]).await.unwrap();
+    bind_note_draft(&edit, 1, 0, None, &body, &[])
+        .await
+        .unwrap();
     let p = tokio::time::timeout(
         std::time::Duration::from_secs(2),
         upgrade::automatic_step(&f.db, f.service.store(), &paths, &[], now),

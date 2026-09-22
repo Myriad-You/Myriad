@@ -278,6 +278,7 @@ pub(crate) async fn create_note_doc(
     crate::services::media::bind_note_draft(
         &txn,
         doc.id,
+        doc.revision,
         doc.image.as_deref(),
         &doc.content_md,
         &[],
@@ -419,6 +420,7 @@ pub(crate) async fn update_note_doc(
     crate::services::media::bind_note_draft(
         &txn,
         saved.id,
+        expected,
         saved.image.as_deref(),
         &saved.content_md,
         &[],
@@ -653,6 +655,7 @@ pub(crate) async fn schedule_note_doc(
     crate::services::media::bind_note_draft(
         &txn,
         saved.id,
+        expected,
         saved.image.as_deref(),
         &saved.content_md,
         &[],
@@ -736,6 +739,7 @@ pub(crate) async fn unschedule_note_doc(
     crate::services::media::bind_note_draft(
         &txn,
         saved.id,
+        expected,
         saved.image.as_deref(),
         &saved.content_md,
         &[],

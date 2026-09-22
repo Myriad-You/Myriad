@@ -631,6 +631,7 @@ async fn bind_row(
             cite::bind_note_draft(
                 db,
                 id()?,
+                0,
                 text("image"),
                 text("content_md").unwrap_or(""),
                 origins,
