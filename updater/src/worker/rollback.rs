@@ -160,7 +160,13 @@ pub async fn execute_inline(
             let _ = rec.enter(Phase::SwapTagBack, "updater.phase.swap_tag_back");
             let parsed = DeployTag::parse(tag).ok();
             if let Some(ref version) = parsed
-                && let Err(e) = materialize_pinned_rollback_images(worker.as_ref(), version).await
+                && let Err(e) = materialize_pinned_rollback_images(
+                    worker.docker(),
+                    worker.state(),
+                    &worker.cli().env_file,
+                    version.as_str(),
+                )
+                .await
             {
                 warn!(
                     err = %e,
@@ -303,13 +309,22 @@ pub async fn execute_inline(
 /// Recreate the immutable Compose image refs from the local rollback aliases when
 /// they are the slot recorded for `version`. This turns `*:myriad-rollback` into a
 /// usable offline fallback instead of merely a dangling-image protection tag.
-async fn materialize_pinned_rollback_images(worker: &Worker, version: &DeployTag) -> Result<()> {
-    let state = worker.state().read_updater()?;
+///
+/// The rescue CLI and the automatic rollback share this implementation: both reach
+/// the same guarded Docker endpoint, so only the client and where the version comes
+/// from differ between the two entry points.
+pub(crate) async fn materialize_pinned_rollback_images(
+    docker: &crate::docker::DockerClient,
+    state_dir: &StateDir,
+    env_file: &std::path::Path,
+    version: &str,
+) -> Result<()> {
+    let state = state_dir.read_updater()?;
     if !rollback_slot_matches(&state, version) {
         return Ok(());
     }
 
-    let env = EnvFile::load(&worker.cli().env_file)?;
+    let env = EnvFile::load(env_file)?;
     let backend = env.get("BACKEND_IMAGE").ok_or_else(|| {
         UpdaterError::Precondition(
             "BACKEND_IMAGE missing; cannot restore pinned rollback image".into(),
@@ -331,13 +346,13 @@ async fn materialize_pinned_rollback_images(worker: &Worker, version: &DeployTag
     let mut missing_pins = Vec::new();
     for (component, repo) in &pair {
         let rollback_ref = format!("{repo}:{ROLLBACK_IMAGE_TAG}");
-        if !worker.docker().image_exists_local(&rollback_ref).await {
+        if !docker.image_exists_local(&rollback_ref).await {
             missing_pins.push((*component).to_string());
         }
     }
     if !should_materialize_rollback_pair(&missing_pins) {
         warn!(
-            version = %version.as_str(),
+            version = %version,
             missing = ?missing_pins,
             "incomplete local rollback slot (*:myriad-rollback); will not materialize a split pair"
         );
@@ -345,15 +360,14 @@ async fn materialize_pinned_rollback_images(worker: &Worker, version: &DeployTag
     }
 
     for (component, repo) in &pair {
-        let version_ref = format!("{repo}:{}", version.as_str());
-        if worker.docker().image_exists_local(&version_ref).await {
+        let version_ref = format!("{repo}:{version}");
+        if docker.image_exists_local(&version_ref).await {
             continue;
         }
 
         let rollback_ref = format!("{repo}:{ROLLBACK_IMAGE_TAG}");
-        worker
-            .docker()
-            .tag_image(&rollback_ref, repo, version.as_str())
+        docker
+            .tag_image(&rollback_ref, repo, version)
             .await
             .map_err(|e| {
                 UpdaterError::Docker(format!(
@@ -371,8 +385,8 @@ async fn materialize_pinned_rollback_images(worker: &Worker, version: &DeployTag
     Ok(())
 }
 
-fn rollback_slot_matches(state: &UpdaterStateFile, version: &DeployTag) -> bool {
-    state.rollback_version.as_ref() == Some(version)
+fn rollback_slot_matches(state: &UpdaterStateFile, version: &str) -> bool {
+    state.rollback_version.as_ref().map(|v| v.as_str()) == Some(version)
 }
 
 /// Pure helper: incomplete pairs must not materialize (avoids one-sided version retag).
@@ -526,14 +540,8 @@ mod tests {
             ..UpdaterStateFile::default()
         };
 
-        assert!(rollback_slot_matches(
-            &updater,
-            &DeployTag::parse("v1.2.3").unwrap()
-        ));
-        assert!(!rollback_slot_matches(
-            &updater,
-            &DeployTag::parse("v1.2.4").unwrap()
-        ));
+        assert!(rollback_slot_matches(&updater, "v1.2.3"));
+        assert!(!rollback_slot_matches(&updater, "v1.2.4"));
     }
 
     #[test]

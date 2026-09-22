@@ -7,7 +7,7 @@ use std::process::Stdio;
 use anyhow::{Context as _, Result};
 use tracing::info;
 
-use crate::docker::{ROLLBACK_IMAGE_TAG, compose::harden_docker_command};
+use crate::docker::compose::harden_docker_command;
 use crate::snapshot::SnapshotManager;
 use crate::state::StateDir;
 
@@ -144,80 +144,15 @@ pub async fn rollback(ctx: &Context, snapshot_id: &str) -> Result<()> {
 }
 
 async fn materialize_pinned_rollback_images(ctx: &Context, version: &str) -> Result<()> {
-    let updater = ctx.state.read_updater()?;
-    if updater.rollback_version.as_ref().map(|v| v.as_str()) != Some(version) {
-        return Ok(());
-    }
-
-    let env = crate::env_file::EnvFile::load(&ctx.env_file)?;
-    let backend = env
-        .get("BACKEND_IMAGE")
-        .context("BACKEND_IMAGE missing; cannot restore pinned rollback image")?;
-    let frontend = env
-        .get("FRONTEND_IMAGE")
-        .context("FRONTEND_IMAGE missing; cannot restore pinned rollback image")?;
-
-    // Pair integrity: only materialize when BOTH components have *:myriad-rollback.
-    let pair = [
-        ("backend", backend.to_string()),
-        ("frontend", frontend.to_string()),
-    ];
-    let mut missing_pins = Vec::new();
-    for (component, repo) in &pair {
-        let rollback_ref = format!("{repo}:{ROLLBACK_IMAGE_TAG}");
-        if !docker_image_exists(&rollback_ref).await {
-            missing_pins.push((*component).to_string());
-        }
-    }
-    if !missing_pins.is_empty() {
-        tracing::warn!(
-            %version,
-            missing = ?missing_pins,
-            "incomplete local rollback slot; rescue will not materialize a split pair"
-        );
-        return Ok(());
-    }
-
-    for (component, repo) in &pair {
-        let version_ref = format!("{repo}:{version}");
-        if docker_image_exists(&version_ref).await {
-            continue;
-        }
-
-        let rollback_ref = format!("{repo}:{ROLLBACK_IMAGE_TAG}");
-        let mut command = tokio::process::Command::new("docker");
-        harden_docker_command(&mut command);
-        let status = command
-            .args(["image", "tag", &rollback_ref, &version_ref])
-            .status()
-            .await
-            .context("spawn docker image tag")?;
-        if !status.success() {
-            anyhow::bail!(
-                "docker image tag {rollback_ref} {version_ref} failed with status {status}"
-            );
-        }
-        info!(
-            %component,
-            source = %rollback_ref,
-            target = %version_ref,
-            "rescue restored version ref from local rollback slot"
-        );
-    }
-
-    Ok(())
-}
-
-async fn docker_image_exists(image_ref: &str) -> bool {
-    let mut command = tokio::process::Command::new("docker");
-    harden_docker_command(&mut command);
-    command
-        .args(["image", "inspect", image_ref])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .await
-        .is_ok_and(|status| status.success())
+    let docker = crate::docker::DockerClient::connect().await?;
+    crate::worker::rollback::materialize_pinned_rollback_images(
+        &docker,
+        &ctx.state,
+        &ctx.env_file,
+        version,
+    )
+    .await
+    .map_err(anyhow::Error::from)
 }
 
 pub async fn diagnose(ctx: &Context, output: &PathBuf) -> Result<()> {
