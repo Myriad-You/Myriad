@@ -250,14 +250,15 @@ jobs:
         run: cargo metadata --locked --no-deps --format-version 1
       - name: Prove rkyv stays out of the resolved graph
         run: |
-          cargo metadata --locked --format-version 1 > "$RUNNER_TEMP/backend-dependency-graph.json"
-          python3 - "$RUNNER_TEMP/backend-dependency-graph.json" <<'PYTHON'
+          cargo metadata --locked --format-version 1 > "$RUNNER_TEMP/resolved-dependencies.json"
+          python3 - "$RUNNER_TEMP/resolved-dependencies.json" <<'PYTHON'
           import json
           import sys
-          with open(sys.argv[1]) as graph:
-              packages = json.load(graph)["packages"]
-          if any(package["name"] == "rkyv" for package in packages):
-              sys.exit("rkyv reappeared after rust_decimal 1.43 dropped it; restore or upgrade past RUSTSEC-2026-0235")
+          with open(sys.argv[1]) as source:
+              graph = json.load(source)
+          resolved = {node['id'] for node in graph['resolve']['nodes']}
+          if any(package['name'] == 'rkyv' and package['id'] in resolved for package in graph['packages']):
+              sys.exit('rkyv reappeared after rust_decimal 1.43 dropped it; restore or upgrade past RUSTSEC-2026-0235')
           PYTHON
       # MYR-027: hard-fail on unignored *vulnerabilities*; soft-report warnings
       # (unmaintained/unsound/yanked). Allowlist: .cargo/audit.toml.

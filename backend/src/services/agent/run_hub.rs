@@ -44,7 +44,7 @@ struct AgentRunState {
     updated_at: chrono::DateTime<Utc>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct PersistedAgentRun {
     run_id: String,
     user_id: i32,
@@ -77,6 +77,8 @@ pub struct AgentRun {
     publish_order: Mutex<()>,
     persistence_tx: mpsc::Sender<(AgentRunEnvelope, PersistedAgentRun)>,
     events_tx: broadcast::Sender<AgentRunEnvelope>,
+    #[cfg(test)]
+    test_records: Option<Mutex<Vec<(AgentRunEnvelope, PersistedAgentRun)>>>,
 }
 
 static AGENT_RUNS: Lazy<RwLock<HashMap<String, Arc<AgentRun>>>> =
@@ -107,6 +109,8 @@ impl AgentRun {
                 updated_at: Utc::now(),
             }),
             events_tx,
+            #[cfg(test)]
+            test_records: None,
         })
     }
 
@@ -127,6 +131,7 @@ impl AgentRun {
     pub(crate) fn new_for_test(run_id: impl Into<String>, user_id: i32) -> Arc<Self> {
         let mut run = Self::new(run_id.into(), user_id, None);
         Arc::get_mut(&mut run).unwrap().durable_test_result = Some(Ok(()));
+        Arc::get_mut(&mut run).unwrap().test_records = Some(Mutex::new(Vec::new()));
         run
     }
 
@@ -159,6 +164,8 @@ impl AgentRun {
                 updated_at: persisted.updated_at,
             }),
             events_tx,
+            #[cfg(test)]
+            test_records: None,
         })
     }
 
@@ -301,6 +308,23 @@ ORDER BY record_id ASC
             "[Agent Run] Failed to persist shared run snapshot"
         );
         Err(last_error)
+    }
+
+    async fn persist_terminal(
+        &self,
+        envelope: &AgentRunEnvelope,
+        snapshot: &PersistedAgentRun,
+    ) -> Result<(), String> {
+        #[cfg(test)]
+        if let Some(result) = &self.durable_test_result {
+            return result.clone();
+        }
+        #[cfg(test)]
+        if let Some(records) = &self.test_records {
+            records.lock().await.push((envelope.clone(), snapshot.clone()));
+            return Ok(());
+        }
+        Self::persist_according_to_duty(envelope, snapshot).await
     }
 
     async fn persist(
@@ -618,14 +642,7 @@ WHERE namespace = $1 AND runtime_id = $2
         };
 
         let persistence = if durable {
-            let persist = async {
-                #[cfg(test)]
-                if let Some(result) = &self.durable_test_result {
-                    return result.clone();
-                }
-                Self::persist_according_to_duty(&envelope, &snapshot).await
-            };
-            if let Err(error) = persist.await {
+            if let Err(error) = self.persist_terminal(&envelope, &snapshot).await {
                 tracing::error!(
                     run_id = %self.run_id,
                     sequence = envelope.sequence,
@@ -847,7 +864,7 @@ mod tests {
             })
             .expect("publish");
         let persist_at = publish
-            .find("persist_according_to_duty")
+            .find("persist_terminal")
             .expect("durable persist");
         let send_at = publish.find("events_tx.send").expect("sse send");
         assert!(

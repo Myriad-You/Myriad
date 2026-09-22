@@ -317,7 +317,7 @@ async fn install_prepared_package(
         api_http_error(StatusCode::INTERNAL_SERVER_ERROR, "Database error")
     })?;
 
-    if let Some(existing) = &existing
+    if let Some(existing) = existing.as_ref()
         && !overwrite
     {
         return Err(install_conflict_error(&manifest, existing));
