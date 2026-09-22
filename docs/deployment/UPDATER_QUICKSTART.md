@@ -68,6 +68,33 @@ Updater 使用宿主策略 capability 提交意图；Guard 固定官方 updater 
 该 registry digest 尚未与签名 release manifest 的 expected digest 做字节级绑定，因此不会
 把它描述成 release.json/Cosign 路径。日常业务 Docker API 仍经 Guard 固定策略代理。
 
+### 2.1 编排的归属：哪些键属于版本、哪些属于站点
+
+业务更新时，更新器用目标版本的模板重建 `backend`、`frontend`、`backend-volume-init`、
+`federation-worker`、`persona-worker` 这 5 个服务的定义。因此这些服务上**部分字段属于版本、
+部分字段属于站点**：
+
+| 归属 | 字段 | 行为 |
+| --- | --- | --- |
+| 版本 | `image`、`command`、`entrypoint`、`healthcheck`、`ulimits`、`deploy`、`tmpfs`、`user`、`cap_add`、`security_opt` 等 | 每次更新以目标模板为准，站点改动会被覆盖 |
+| 站点 | `ports`、`networks`、`extra_hosts`、`dns`、`dns_search`、`logging`、`restart`、`env_file`、`labels` | 保留站点值 |
+| 站点 | `environment` 中目标只用 `${...}` 占位的键，以及站点自定义的键 | 保留站点值 |
+| 两者 | `volumes` | 目标模板的挂载在前，站点自加且容器路径不冲突的挂载追加在后 |
+| 站点 | 顶层 `volumes` / `networks` / `configs` / `secrets` 的名称 | 只增不改，卷名保持站点原有身份 |
+
+`proxy`、`updater`、`docker-guard`、`updater-gateway`、`postgres` 不在这 5 个服务内，更新器
+**不迁移**它们的定义；发行版若改了这些服务（例如新增挂载），需要宿主按
+[deployment/DOCKER_DEPLOYMENT.md](./DOCKER_DEPLOYMENT.md) 手动同步。
+
+被覆盖的站点字段会写进 `state/history.log` 与 `state/audit.log`
+（`audit: compose_site_overrides_replaced ...`），可用
+`docker exec myriad-updater myriad-rescue diagnose` 收集。
+
+**不要直接编辑被托管的 Compose 文件。** 宿主 Compose 入口已是指向 `state/compose/` 的相对
+链接（见上），更新器每次更新都会重写其内容。站点侧的改动应放在 `.env`、站点配置，或上表
+「站点」一列的字段里。多份 Compose 分片（面板生成的 `*.yml`）会被合并进第一个文件，其余
+文件在更新时被置空；置空记录同样写入 history/audit（`audit: compose_fragments_blanked ...`）。
+
 ## 3. 打开 updater UI
 
 浏览器访问你的 Myriad 站点，登录管理员账户后进入：
