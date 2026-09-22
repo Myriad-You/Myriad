@@ -666,8 +666,7 @@ async fn handle_scheduler_socket(socket: WebSocket, user_id: i32, db: DatabaseCo
                 match drain_frontend_messages(&db, &connection_id).await {
                     Ok(messages) => {
                         let mut disconnected = false;
-                        let mut pending = messages.into_iter();
-                        while let Some(task_msg) = pending.next() {
+                        for task_msg in messages {
                             let msg = match serde_json::to_string(&task_msg) {
                                 Ok(msg) => msg,
                                 Err(error) => {

@@ -204,7 +204,8 @@ impl<'a> SnapshotManager<'a> {
                     );
                     if let Err(e) = copy_tree(&snap_path, &self.pgdata).await {
                         // Best-effort undo of the rename.
-                        if crate::probe::filesystem::path_is_present(&broken_sibling).unwrap_or(false)
+                        if crate::probe::filesystem::path_is_present(&broken_sibling)
+                            .unwrap_or(false)
                             && matches!(
                                 crate::probe::filesystem::path_is_present(&self.pgdata),
                                 Ok(false)
@@ -469,8 +470,7 @@ impl<'a> SnapshotManager<'a> {
                 }
                 Ok(true) => {}
             }
-            if let Err(e) = std::fs::remove_dir_all(&p)
-            {
+            if let Err(e) = std::fs::remove_dir_all(&p) {
                 warn!(
                     snapshot = %id,
                     path = %p.display(),
@@ -520,6 +520,7 @@ impl<'a> SnapshotManager<'a> {
     /// - opaque snapshot id (`[A-Za-z0-9_-]+`)
     /// - create leftover `{id}.tmp`
     /// - restore staging `restore-stage-*`
+    ///
     /// Safety copies (`aside-*`, `broken-inplace-*`) are never swept.
     ///
     /// Never touches names with path separators or other characters.
@@ -839,9 +840,17 @@ mod tests {
             .into_iter()
             .filter(|m| m.id.starts_with("aside-") && m.keep)
             .collect();
-        assert_eq!(asides.len(), 1, "pre-restore pgdata must be a pinned snapshot");
+        assert_eq!(
+            asides.len(),
+            1,
+            "pre-restore pgdata must be a pinned snapshot"
+        );
         assert!(
-            state.snapshots_dir().join(&asides[0].id).join("base/1").exists(),
+            state
+                .snapshots_dir()
+                .join(&asides[0].id)
+                .join("base/1")
+                .exists(),
             "aside snapshot must contain the mutated live tree"
         );
     }
@@ -882,7 +891,10 @@ mod tests {
             .into_iter()
             .find(|m| m.id == "aside-testts")
             .expect("safety copy registered");
-        assert!(meta.keep, "pre-restore copy must be pinned until health is confirmed");
+        assert!(
+            meta.keep,
+            "pre-restore copy must be pinned until health is confirmed"
+        );
     }
 
     #[test]
