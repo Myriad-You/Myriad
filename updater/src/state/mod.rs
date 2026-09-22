@@ -6,6 +6,7 @@
 //!     maintenance.json
 //!     job.current
 //!     job.<id>.json
+//!     prepared.<id>.json    (preflight report + Compose before/after for one job)
 //!     lock                  (flock-style process lock)
 //!     manual-override       (touch to enable rescue endpoints)
 //!     snapshots/            (pgdata snapshots)
@@ -215,6 +216,58 @@ impl StateDir {
         self.root.join(format!("job.{id}.json"))
     }
 
+    /// Preflight report (selected images, Compose before/after) persisted before the
+    /// destructive zone so a crash can resume or roll back this exact job.
+    pub fn prepared_report_path(&self, job_id: &str) -> PathBuf {
+        self.root.join(format!("prepared.{job_id}.json"))
+    }
+
+    /// Drop persisted preflight reports that can no longer be used.
+    ///
+    /// A report belongs to one job and carries that job's Compose before/after. It is
+    /// live only while the job is in flight or while `snap-<job>` still exists, because
+    /// the rollback path restores the pgdata snapshot and the Compose snapshot together.
+    /// Without this sweep they accumulate one file per update, forever.
+    pub fn sweep_prepared_reports(&self) -> Result<Vec<String>> {
+        let current = self.read_current_job()?;
+        let snapshots: std::collections::HashSet<String> = self
+            .read_snapshots()?
+            .items
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        let mut removed = Vec::new();
+        for entry in std::fs::read_dir(&self.root)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_file() {
+                continue;
+            }
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                continue;
+            };
+            let Some(job_id) = name
+                .strip_prefix("prepared.")
+                .and_then(|rest| rest.strip_suffix(".json"))
+            else {
+                continue;
+            };
+            if current.as_deref() == Some(job_id) || snapshots.contains(&format!("snap-{job_id}")) {
+                continue;
+            }
+            match std::fs::remove_file(entry.path()) {
+                Ok(()) => {
+                    tracing::info!(job = %job_id, "removed stale preflight report");
+                    removed.push(job_id.to_string());
+                }
+                Err(error) => {
+                    tracing::warn!(job = %job_id, %error, "failed to remove stale preflight report");
+                }
+            }
+        }
+        Ok(removed)
+    }
+
     pub fn read_snapshots(&self) -> Result<SnapshotsFile> {
         let path = self.root.join("snapshots.json");
         let Some(bytes) = read_existing(&path)? else {
@@ -326,5 +379,57 @@ mod tests {
             matches!(err, UpdaterError::Json(_)),
             "corrupt maintenance with no job pointer must not become idle, got {err}"
         );
+    }
+
+    fn plant_prepared(state: &StateDir, job_id: &str) {
+        std::fs::write(state.prepared_report_path(job_id), b"{}").unwrap();
+    }
+
+    fn plant_snapshot(state: &StateDir, id: &str) {
+        let mut sf = state.read_snapshots().unwrap();
+        sf.items.push(SnapshotMeta {
+            id: id.to_string(),
+            created_at: chrono::Utc::now(),
+            source_version: None,
+            size_bytes: 1,
+            file_count: 1,
+            keep: false,
+        });
+        state.write_snapshots(&sf).unwrap();
+    }
+
+    /// Regression: reports used to be kept forever, one per update.
+    #[test]
+    fn sweep_prepared_reports_keeps_in_flight_and_snapshot_backed_jobs() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = StateDir::open(dir.path()).unwrap();
+        plant_prepared(&state, "live");
+        plant_prepared(&state, "rollbackable");
+        plant_prepared(&state, "orphan");
+        plant_snapshot(&state, "snap-rollbackable");
+        state.set_current_job(Some("live")).unwrap();
+
+        let removed = state.sweep_prepared_reports().unwrap();
+
+        assert_eq!(removed, vec!["orphan".to_string()]);
+        assert!(state.prepared_report_path("live").is_file());
+        assert!(state.prepared_report_path("rollbackable").is_file());
+        assert!(!state.prepared_report_path("orphan").exists());
+    }
+
+    /// Once the job is no longer current and its snapshot is gone, the report follows.
+    #[test]
+    fn sweep_prepared_reports_drops_finished_jobs_and_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = StateDir::open(dir.path()).unwrap();
+        std::fs::write(state.root().join("job.done.json"), b"{}").unwrap();
+        plant_prepared(&state, "done");
+
+        assert_eq!(
+            state.sweep_prepared_reports().unwrap(),
+            vec!["done".to_string()]
+        );
+        assert!(state.sweep_prepared_reports().unwrap().is_empty());
+        assert!(state.root().join("job.done.json").is_file());
     }
 }

@@ -175,7 +175,8 @@ impl Worker {
 
     /// Like [`Self::maybe_prune_snapshots`] but never fails the caller: logs and
     /// optionally records history/audit when removals happen. Use on update
-    /// success/failure cleanup paths.
+    /// success/failure cleanup paths. Also sweeps preflight reports whose job and
+    /// snapshot are both gone, so retention covers them too.
     pub fn best_effort_prune_snapshots(&self, reason: &str) {
         match self.maybe_prune_snapshots() {
             Ok(ids) if !ids.is_empty() => {
@@ -193,6 +194,31 @@ impl Worker {
             Ok(_) => {}
             Err(e) => {
                 warn!(err = %e, %reason, "snapshot prune failed (best-effort)");
+            }
+        }
+        self.sweep_stale_prepared_reports(reason);
+    }
+
+    /// A preflight report holds one job's Compose before/after; it stays useful only
+    /// while that job runs or its pgdata snapshot exists, so it follows snapshot
+    /// retention. Without this they accumulate one file per update, forever.
+    fn sweep_stale_prepared_reports(&self, reason: &str) {
+        match self.state.sweep_prepared_reports() {
+            Ok(ids) if !ids.is_empty() => {
+                let _ = self.state.append_history(&format!(
+                    "prepared report sweep ({reason}): removed {} ({})",
+                    ids.len(),
+                    ids.join(",")
+                ));
+                let _ = self.state.append_audit(&format!(
+                    "audit: prepared_report_sweep reason={reason} count={} ids={}",
+                    ids.len(),
+                    ids.join(",")
+                ));
+            }
+            Ok(_) => {}
+            Err(e) => {
+                warn!(err = %e, %reason, "prepared report sweep failed (best-effort)");
             }
         }
     }
