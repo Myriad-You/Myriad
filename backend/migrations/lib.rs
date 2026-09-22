@@ -24,6 +24,8 @@ mod phantasi_legacy_rename;
 
 pub use phantasi_legacy_rename::rename_brew_to_phantasi_if_needed;
 
+pub const SOURCE_RECENT_INDEX_SQL: &str = "CREATE INDEX IF NOT EXISTS idx_phantasi_items_source_recent ON phantasi_items (source_id, published_at DESC NULLS LAST, id DESC)";
+
 pub struct Migrator;
 
 impl Migrator {

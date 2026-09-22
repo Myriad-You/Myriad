@@ -546,7 +546,6 @@ mod tests {
             error_count: 0,
             enabled: true,
             item_count: 0,
-            unread_count: 0,
             card_size: None,
             theme_color: None,
             sort_order: None,

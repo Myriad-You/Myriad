@@ -287,7 +287,6 @@ mod tests {
                 "permissions": ["storage:read", "phantasi:write", "ai:generate"]
             }),
             status: tapps::TappStatus::Installed,
-            granted_permissions: json!(["storage:read"]),
             approved_permissions: approved,
             file_path: "manifest.json".to_string(),
             code_path: "main.js".to_string(),

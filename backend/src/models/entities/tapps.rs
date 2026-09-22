@@ -63,10 +63,6 @@ pub struct Model {
     /// 当前状态
     pub status: TappStatus,
 
-    /// 安装时落库的权限列。运行时授予权限不读本列，见 `tapp_detail_from_model`。
-    #[sea_orm(column_type = "Json")]
-    pub granted_permissions: serde_json::Value,
-
     /// 安装时由用户批准的权限；运行时再与当前角色和管理员策略求交集
     #[sea_orm(column_type = "JsonBinary")]
     pub approved_permissions: serde_json::Value,

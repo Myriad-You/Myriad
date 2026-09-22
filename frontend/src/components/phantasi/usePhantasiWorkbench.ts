@@ -1,4 +1,4 @@
-import type { MediaAsset } from '../../services/mediaApi'
+import type { MediaAsset, MediaCursor, MediaFilter } from '../../services/mediaApi'
 import type { CommentItem } from '../../services/phantasiApi'
 import type { PhantasiNoteDoc, PhantasiSourceApplication } from '../../types/phantasi'
 import type { WorkbenchPane } from './logic/board'
@@ -8,6 +8,8 @@ import * as phantasiApi from '../../services/phantasiApi'
 import { userFacingError } from '../../utils/userFacingError'
 import { RequestTurn } from './logic/requestTurn'
 import { loadNoteDocs } from './pageData'
+
+const ALL_MEDIA: MediaFilter = { kind: 'all', format: 'all', query: '' }
 
 export function usePhantasiWorkbench(
   pane: WorkbenchPane,
@@ -44,6 +46,12 @@ export function usePhantasiWorkbench(
   demandRef.current = { needsNotes, needsMedia, needsComments, needsApplications }
   const [docs, setDocs] = useState<PhantasiNoteDoc[]>([])
   const [media, setMedia] = useState<MediaAsset[]>([])
+  const [mediaTotal, setMediaTotal] = useState(0)
+  const [mediaFilter, setMediaFilter] = useState<MediaFilter>(ALL_MEDIA)
+  const [mediaCursor, setMediaCursor] = useState<MediaCursor | null>(null)
+  const [mediaEpoch, setMediaEpoch] = useState(0)
+  const mediaFetching = useRef(false)
+  const activeMediaFilter = pane === 'media' ? mediaFilter : ALL_MEDIA
   const [comments, setComments] = useState<CommentItem[]>([])
   const [applications, setApplications] = useState<PhantasiSourceApplication[]>(
     [],
@@ -85,18 +93,48 @@ export function usePhantasiWorkbench(
       return
     }
     const signal = mediaTurn.current.begin()
+    mediaFetching.current = true
     setMediaLoading(true)
+    setMediaCursor(null)
     try {
-      const next = await mediaApi.listMedia(signal)
-      if (!signal.aborted) setMedia(next)
+      const next = await mediaApi.listMedia({ filter: activeMediaFilter }, signal)
+      if (!signal.aborted) {
+        setMedia(next.items)
+        setMediaTotal(next.total ?? 0)
+        setMediaCursor(next.next_cursor)
+      }
     } catch (err) {
       if (signal.aborted) return
       setError(userFacingError(err, labelsRef.current.mediaLoadFailed))
       setMedia([])
     } finally {
-      if (!signal.aborted) setMediaLoading(false)
+      if (!signal.aborted) {
+        mediaFetching.current = false
+        setMediaLoading(false)
+      }
     }
-  }, [needsMedia, setError])
+  }, [needsMedia, activeMediaFilter, setError])
+
+  const loadMoreMedia = useCallback(async () => {
+    if (!mediaCursor || mediaFetching.current || !demandRef.current.needsMedia) return
+    const signal = mediaTurn.current.begin()
+    mediaFetching.current = true
+    setMediaLoading(true)
+    try {
+      const next = await mediaApi.listMedia({ filter: activeMediaFilter, cursor: mediaCursor }, signal)
+      if (!signal.aborted) {
+        setMedia(previous => [...previous, ...next.items])
+        setMediaCursor(next.next_cursor)
+      }
+    } catch (err) {
+      if (!signal.aborted) setError(userFacingError(err, labelsRef.current.mediaLoadFailed))
+    } finally {
+      if (!signal.aborted) {
+        mediaFetching.current = false
+        setMediaLoading(false)
+      }
+    }
+  }, [activeMediaFilter, mediaCursor, setError])
 
   useEffect(() => {
     void loadNotes()
@@ -106,7 +144,7 @@ export function usePhantasiWorkbench(
   useEffect(() => {
     void loadMedia()
     return () => mediaTurn.current.cancel()
-  }, [loadMedia])
+  }, [loadMedia, mediaEpoch])
 
   const loadComments = useCallback(async () => {
     if (!needsComments || !demandRef.current.needsComments) {
@@ -221,8 +259,8 @@ export function usePhantasiWorkbench(
     async (file: File) => {
       setBusy(true)
       try {
-        const item = await mediaApi.uploadMedia(file)
-        setMedia((prev) => [item, ...prev.filter((row) => row.id !== item.id)])
+        await mediaApi.uploadMedia(file)
+        setMediaEpoch(value => value + 1)
       } catch (err) {
         setError(userFacingError(err, labelsRef.current.mediaUploadFailed))
       } finally {
@@ -237,7 +275,7 @@ export function usePhantasiWorkbench(
       setBusy(true)
       try {
         await mediaApi.deleteMedia(id)
-        setMedia((prev) => prev.filter((row) => row.id !== id))
+        setMediaEpoch(value => value + 1)
       } catch (err) {
         setError(userFacingError(err, labelsRef.current.mediaDeleteFailed))
       } finally {
@@ -357,6 +395,11 @@ export function usePhantasiWorkbench(
     needsCategories,
     docs,
     media,
+    mediaTotal,
+    mediaFilter,
+    setMediaFilter,
+    mediaHasMore: mediaCursor !== null,
+    loadMoreMedia,
     comments,
     applications,
     notesLoading,
@@ -375,7 +418,7 @@ export function usePhantasiWorkbench(
     removeMedia,
     reloadNotes: loadNotes,
     reloadMedia: loadMedia,
-    acceptMedia: (item: MediaAsset) => setMedia(prev => [item, ...prev.filter(row => row.id !== item.id)]),
+    acceptMedia: () => setMediaEpoch(value => value + 1),
     reloadComments: loadComments,
     reloadApplications: loadApplications,
   }

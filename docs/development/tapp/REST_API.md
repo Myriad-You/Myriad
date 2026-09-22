@@ -591,6 +591,8 @@ Tapp 通知进入 Myriad 的统一通知流，不存在独立的 Tapp-only toast
 | DELETE         | `/api/tapp/shortcuts/{tappId}/{shortcutId}`                   | `Tapp.shortcut.unregister` |
 | GET            | `/api/tapp/shortcuts`                                         | `Tapp.shortcut.list` |
 
+平台报告目录只返回 `id`、`platform`、`type`、`createdAt`、`summary`。完整报告通过 ID 或平台详情接口读取，正文、洞察、元数据和卡片数据统一放在 `content`，不再重复返回顶层 `card_visuals` / `cardVisuals` 等别名。SDK 的 `byPlatform` 从 `content` 提取现有字段；直接调用 REST 的客户端应从 `content` 读取详情。
+
 这些路由都需要登录；具体能力还受 `report:*`、`component:*` 与 `shortcut:register` 等最终授权约束。
 
 ### 指标与限流

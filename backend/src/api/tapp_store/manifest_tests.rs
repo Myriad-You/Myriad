@@ -1921,7 +1921,6 @@ fn batch_detail_mapping_applies_current_role_and_phantasi_capability_rules() {
             "permissions": ["storage:read", "phantasi:write", "ai:generate"]
         }),
         status: tapps::TappStatus::Installed,
-        granted_permissions: json!(["storage:read", "phantasi:write"]),
         approved_permissions: json!(["storage:read", "phantasi:write", "ai:generate"]),
         file_path: "manifest.json".to_string(),
         code_path: "main.js".to_string(),

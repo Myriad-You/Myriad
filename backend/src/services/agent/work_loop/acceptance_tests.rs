@@ -113,7 +113,7 @@ pub(super) async fn model(
 
 pub(super) async fn article_fixture(db: &sea_orm::DatabaseConnection, user: i32) -> Vec<String> {
     let row = db.query_one_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres,
-        "INSERT INTO phantasi_sources(user_id,name,url,feed_type,source_type,update_interval,error_count,enabled,item_count,unread_count,admin_only,created_at,updated_at) VALUES ($1,'Work acceptance','https://example.invalid/feed','rss','rss',60,0,true,3,3,false,NOW(),NOW()) RETURNING id",
+        "INSERT INTO phantasi_sources(user_id,name,url,feed_type,source_type,update_interval,error_count,enabled,item_count,admin_only,created_at,updated_at) VALUES ($1,'Work acceptance','https://example.invalid/feed','rss','rss',60,0,true,3,false,NOW(),NOW()) RETURNING id",
         [user.into()])).await.unwrap().unwrap();
     let source: i32 = row.try_get("", "id").unwrap();
     let mut facts = Vec::new();

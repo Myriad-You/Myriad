@@ -18,7 +18,7 @@ it('list and saved edits retain API references and paths; display resolves per o
   const items = [asset]
   mock.method(apiService, 'get', async () => ({ success: true, items }))
   mock.method(apiService, 'post', async () => ({ item: asset }))
-  assert.equal(await listMedia(), items)
+  assert.equal((await listMedia()).items, items)
   assert.equal(await saveMediaEdit(7, 'data:image/png;base64,AA==', false), asset)
   for (const origin of ['', 'https://api.example']) {
     assert.equal(displayImageUrl(asset.url, origin), `${origin}${asset.url}`)
@@ -106,4 +106,17 @@ it('a body that completes after cancellation cannot allocate an orphaned preview
   finish(new Blob(['image']))
   await assert.rejects(result, { name: 'AbortError' })
   assert.equal(create.mock.callCount(), 0)
+})
+
+it('serializes filters and the full timestamp cursor without changing its precision', async () => {
+  const cursor = { created_at: '2026-09-22T01:02:03.123456+00:00', id: 42 }
+  const page = { items: [asset], next_cursor: null }
+  const get = mock.method(apiService, 'get', async () => page)
+  assert.equal(await listMedia({ filter: { kind: 'generated', format: 'png', query: '  100% sky  ' }, cursor, limit: 10 }), page)
+  const url = new URL(get.mock.calls[0].arguments[0], 'https://test.invalid')
+  assert.equal(url.pathname, '/media')
+  assert.deepEqual(Object.fromEntries(url.searchParams), {
+    kind: 'generated', format: 'png', query: '100% sky',
+    before_created_at: cursor.created_at, before_id: '42', limit: '10',
+  })
 })

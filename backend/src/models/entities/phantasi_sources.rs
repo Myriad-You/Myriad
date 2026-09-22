@@ -47,8 +47,6 @@ pub struct Model {
     pub enabled: bool,
     /// 文章总数缓存
     pub item_count: i32,
-    /// 未读数缓存
-    pub unread_count: i32,
     /// 卡片显示尺寸: full, mini
     pub card_size: Option<String>,
     /// 主题颜色（从图标提取）
@@ -255,7 +253,7 @@ impl From<Model> for SourceResponse {
             error_count: m.error_count,
             enabled: m.enabled,
             item_count: m.item_count,
-            unread_count: m.unread_count,
+            unread_count: 0,
             card_size: m.card_size,
             theme_color: m.theme_color,
             sort_order: m.sort_order,

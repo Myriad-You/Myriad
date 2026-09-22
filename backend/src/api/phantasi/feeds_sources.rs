@@ -60,7 +60,7 @@ const PULSE_WINDOW_DAYS: i64 = 730;
 /// 每个源最多回多少根节律线。上千篇的源必须截断，否则响应体白胀几十倍。
 const PULSE_MAX_POINTS: i64 = 60;
 
-/// 节律查询 SQL：一次窗口查询覆盖全部源，禁止 N+1。
+/// 节律查询 SQL：一次 LATERAL 查询覆盖全部源，禁止 N+1。
 ///
 /// `source_count` 决定 `$1..$n` 占位符个数。返回「距今天数」不是时间戳。
 pub(crate) fn build_pulses_sql(source_count: usize) -> String {
@@ -69,7 +69,39 @@ pub(crate) fn build_pulses_sql(source_count: usize) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        "SELECT source_id,                 GREATEST(0, (EXTRACT(EPOCH FROM (now() - published_at)) / 86400)::int)                   AS days_ago          FROM (            SELECT source_id, published_at,                   ROW_NUMBER() OVER                     (PARTITION BY source_id ORDER BY published_at DESC) AS rn            FROM phantasi_items            WHERE source_id IN ({src_ph})              AND published_at > now() - INTERVAL '{PULSE_WINDOW_DAYS} days'          ) t          WHERE rn <= {PULSE_MAX_POINTS}          ORDER BY source_id, days_ago"
+        "SELECT source.id AS source_id,
+                GREATEST(0, (EXTRACT(EPOCH FROM (now() - i.published_at)) / 86400)::int) AS days_ago
+         FROM phantasi_sources source
+         CROSS JOIN LATERAL (
+             SELECT published_at FROM phantasi_items
+             WHERE source_id = source.id
+               AND published_at > now() - INTERVAL '{PULSE_WINDOW_DAYS} days'
+             ORDER BY published_at DESC NULLS LAST, id DESC LIMIT {PULSE_MAX_POINTS}
+         ) i
+         WHERE source.id IN ({src_ph})
+         ORDER BY source.id, days_ago"
+    )
+}
+
+fn build_previews_sql(source_count: usize) -> String {
+    let src_ph = (2..source_count + 2)
+        .map(|i| format!("${i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let summary = phantasi_items::preview_summary_sql("i.summary");
+    format!(
+        "SELECT i.id, i.source_id, i.title, {summary} AS summary, i.image,
+                i.published_at, i.topic, COALESCE(s.is_read, false) AS is_read,
+                COALESCE(s.is_starred, false) AS is_starred
+         FROM phantasi_sources source
+         CROSS JOIN LATERAL (
+             SELECT id, source_id, title, summary, image, published_at, topic
+             FROM phantasi_items WHERE source_id = source.id
+             ORDER BY published_at DESC NULLS LAST, id DESC LIMIT 8
+         ) i
+         LEFT JOIN phantasi_user_states s ON s.item_id = i.id AND s.user_id = $1
+         WHERE source.id IN ({src_ph})
+         ORDER BY source.id, i.published_at DESC NULLS LAST, i.id DESC"
     )
 }
 
@@ -247,8 +279,8 @@ pub(crate) async fn list_sources(
 
     // 并行三个 SQL 查询，均只传输必要字段：
     // (a) 每源未读数：SQL 聚合，避免把所有 item_id 拉到内存再过滤
-    // (b) 每源最新 8 篇预览：窗口函数 `rn <= 8`，仅加载预览字段
-    // (c) 每源节律：一次窗口查询拿全部源的近两年发布时间，绝不 N+1
+    // (b) 每源最新 8 篇预览：每源索引 LIMIT 8，仅加载预览字段
+    // (c) 每源节律：一次 LATERAL 查询拿全部源的近两年发布时间，绝不 N+1
     let (source_unread_counts, items_by_source, mut pulses_by_source) = tokio::join!(
         // (a) 未读数：LEFT JOIN phantasi_user_states，统计无已读状态的文章数
         async {
@@ -283,35 +315,12 @@ pub(crate) async fn list_sources(
             }
             Ok::<_, sea_orm::DbErr>(counts)
         },
-        // (b) 每源最新 8 篇预览（`rn <= 8`）。
+        // (b) 每源最新 8 篇预览。
         async {
             let mut map: std::collections::HashMap<i32, Vec<ItemPreview>> =
                 std::collections::HashMap::new();
             if !source_ids.is_empty() {
-                let src_ph = source_ids
-                    .iter()
-                    .enumerate()
-                    .map(|(i, _)| format!("${}", i + 2))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                // $1 = user_id（游客传 -1，不存在的 ID，LEFT JOIN 不会匹配任何行）
-                let summary = phantasi_items::preview_summary_sql("i.summary");
-                let sql = format!(
-                    "SELECT id, source_id, title, summary, image, published_at, topic, \
-                            COALESCE(is_read, false) AS is_read, \
-                            COALESCE(is_starred, false) AS is_starred \
-                     FROM ( \
-                        SELECT i.id, i.source_id, i.title, {summary} AS summary, i.image, \
-                              i.published_at, i.topic, s.is_read, s.is_starred, \
-                              ROW_NUMBER() OVER \
-                                (PARTITION BY i.source_id ORDER BY i.published_at DESC NULLS LAST) AS rn \
-                       FROM phantasi_items i \
-                       LEFT JOIN phantasi_user_states s \
-                         ON s.item_id = i.id AND s.user_id = $1 \
-                       WHERE i.source_id IN ({src_ph}) \
-                     ) ranked \
-                     WHERE rn <= 8"
-                );
+                let sql = build_previews_sql(source_ids.len());
                 let uid_val: i32 = user_id.unwrap_or(-1);
                 let mut values: Vec<sea_orm::Value> = vec![uid_val.into()];
                 values.extend(source_ids.iter().map(|&id| sea_orm::Value::Int(Some(id))));
@@ -343,7 +352,7 @@ pub(crate) async fn list_sources(
             }
             Ok::<_, sea_orm::DbErr>(map)
         },
-        // (c) 每源节律：ROW_NUMBER() 截到 PULSE_MAX_POINTS，窗口内按新→旧。
+        // (c) 每源节律：每源 LIMIT PULSE_MAX_POINTS，按新→旧。
         // 后端算「距今天数」；`pulses` 为空时前端仍可从预览时间戳合成。
         async {
             let mut map: std::collections::HashMap<i32, Vec<i32>> =
@@ -648,7 +657,6 @@ pub(crate) async fn add_source(
         enabled: Set(req.enabled.unwrap_or(true)),
         error_count: Set(0),
         item_count: Set(0),
-        unread_count: Set(0),
         extra_config: Set(extra_config),
         rsshub_route: Set(rsshub_route),
         admin_only: Set(req.admin_only.unwrap_or(false)),
@@ -1168,6 +1176,91 @@ mod tests {
         listed_board_keeps, normalize_listed_category_token, source_matches_listed_category,
     };
     use crate::models::entities::phantasi_sources::SourceType;
+
+    #[tokio::test]
+    async fn postgres_source_previews_and_pulses_are_bounded_index_reads() {
+        use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+            return;
+        };
+        let mut options = sea_orm::ConnectOptions::new(url);
+        options.max_connections(1).sqlx_logging(false);
+        let db = sea_orm::Database::connect(options).await.unwrap();
+        db.execute_unprepared(r#"
+CREATE TEMP TABLE phantasi_sources (id INTEGER PRIMARY KEY);
+CREATE TEMP TABLE phantasi_items (id INTEGER PRIMARY KEY, source_id INTEGER NOT NULL, title TEXT,
+summary TEXT, image TEXT, published_at TIMESTAMPTZ, topic TEXT);
+CREATE TEMP TABLE phantasi_user_states (item_id INTEGER, user_id INTEGER, is_read BOOLEAN, is_starred BOOLEAN,
+PRIMARY KEY (item_id, user_id));
+INSERT INTO phantasi_sources VALUES (1), (2), (3);
+INSERT INTO phantasi_items (id, source_id, title, summary, published_at)
+SELECT n, CASE WHEN n <= 2000 THEN 1 ELSE 2 END, n::text, repeat('s', 10000), NOW() FROM generate_series(1, 4000) n;
+INSERT INTO phantasi_items (id, source_id, title) VALUES (4001, 1, 'undated'), (4002, 3, 'only undated');
+INSERT INTO phantasi_user_states VALUES (2000, 42, true, true), (4000, 99, true, true);
+"#).await.unwrap();
+        db.execute_unprepared(migration::SOURCE_RECENT_INDEX_SQL)
+            .await
+            .unwrap();
+        db.execute_unprepared("ANALYZE phantasi_items; ANALYZE phantasi_sources;")
+            .await
+            .unwrap();
+        let sql = super::build_previews_sql(3);
+        let values: Vec<sea_orm::Value> = vec![42.into(), 1.into(), 2.into(), 3.into()];
+        let rows = db
+            .query_all_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                &sql,
+                values.clone(),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 17);
+        assert_eq!(rows[0].try_get::<i32>("", "id").unwrap(), 2000);
+        assert!(rows[0].try_get::<bool>("", "is_read").unwrap());
+        assert_eq!(rows[8].try_get::<i32>("", "id").unwrap(), 4000);
+        assert!(!rows[8].try_get::<bool>("", "is_read").unwrap());
+        assert_eq!(rows[16].try_get::<i32>("", "id").unwrap(), 4002);
+        assert!(rows[0].try_get::<String>("", "summary").unwrap().len() < 10000);
+        let pulse_sql = super::build_pulses_sql(3);
+        let pulse_values: Vec<sea_orm::Value> = vec![1.into(), 2.into(), 3.into()];
+        let pulses = db
+            .query_all_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                &pulse_sql,
+                pulse_values.clone(),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(pulses.len(), 120);
+        for (query, bindings, bound) in [(sql, values, 8.0), (pulse_sql, pulse_values, 60.0)] {
+            let row = db
+                .query_one_raw(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    format!("EXPLAIN (ANALYZE, FORMAT JSON) {query}"),
+                    bindings,
+                ))
+                .await
+                .unwrap()
+                .unwrap();
+            let plan: serde_json::Value = row.try_get("", "QUERY PLAN").unwrap();
+            fn assert_bounded(node: &serde_json::Value, bound: f64) -> usize {
+                let mut count = 0;
+                if node["Index Name"] == "idx_phantasi_items_source_recent" {
+                    assert!(node["Actual Rows"].as_f64().unwrap() <= bound, "{node}");
+                    count += 1;
+                }
+                if let Some(children) = node["Plans"].as_array() {
+                    count += children
+                        .iter()
+                        .map(|child| assert_bounded(child, bound))
+                        .sum::<usize>();
+                }
+                count
+            }
+            assert!(assert_bounded(&plan[0]["Plan"], bound) > 0, "{plan}");
+        }
+        db.close().await.unwrap();
+    }
 
     #[test]
     fn list_sources_rewrites_inline_icons_before_serialize() {

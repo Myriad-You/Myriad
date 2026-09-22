@@ -2,11 +2,9 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { resolveWorkbenchPane } from './board.ts'
 import {
-  collectWorkbenchMediaFormats,
   collectWorkbenchNoteAuthors,
   collectWorkbenchNoteTopics,
   filterWorkbenchComments,
-  filterWorkbenchMedia,
   filterWorkbenchNotes,
   filterWorkbenchReviews,
   formatWorkbenchBytes,
@@ -139,58 +137,8 @@ describe('workbenchNoteWhen', () => {
   })
 })
 
-describe('filterWorkbenchMedia', () => {
-  const items = [
-    {
-      id: 1,
-      kind: 'upload',
-      mime: 'image/jpeg',
-      name: 'cover.jpg',
-    },
-    {
-      id: 2,
-      kind: 'generated',
-      mime: 'image/png',
-      name: 'ai-sky.png',
-    },
-    {
-      id: 3,
-      kind: 'upload',
-      mime: 'video/mp4',
-      name: 'clip.mp4',
-    },
-  ]
-
-  it('按来源、格式和文件名筛', () => {
-    assert.deepEqual(
-      filterWorkbenchMedia(items, { kind: 'all' }).map((item) => item.id),
-      [1, 2, 3],
-    )
-    assert.deepEqual(
-      filterWorkbenchMedia(items, { kind: 'upload' }).map((item) => item.id),
-      [1, 3],
-    )
-    assert.deepEqual(
-      filterWorkbenchMedia(items, { kind: 'generated' }).map((item) => item.id),
-      [2],
-    )
-    assert.deepEqual(
-      filterWorkbenchMedia(items, { kind: 'all', format: 'jpeg' }).map(
-        (item) => item.id,
-      ),
-      [1],
-    )
-    assert.deepEqual(
-      filterWorkbenchMedia(items, { kind: 'all', query: 'sky' }).map(
-        (item) => item.id,
-      ),
-      [2],
-    )
-    assert.deepEqual(collectWorkbenchMediaFormats(items), [
-      'jpeg',
-      'png',
-      'mp4',
-    ])
+describe('media format labels', () => {
+  it('uses filename fallback and known labels', () => {
     assert.equal(
       workbenchMediaFormatKey({
         mime: 'application/octet-stream',

@@ -21,7 +21,7 @@ use super::seeds::{ensure_default_config, ensure_default_platforms};
 /// `seaql_migrations` 行在 `Migrator::up` 之前删掉。普通缺列走
 /// `get_expected_schema` 通用 ADD。Support floor: product ≥ 0.3.10。
 /// Current: drop July CREATE heals; 003 source applications; 006 identities in TableDef。
-pub const SCHEMA_VERSION: &str = "2026.09.20.1";
+pub const SCHEMA_VERSION: &str = "2026.09.22.1";
 
 const SCHEMA_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 const SCHEMA_LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(250);
@@ -226,6 +226,7 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     // Rebuild `federation_inbox_receipts` before generic ADD COLUMN:
     // `inbox_scope` is NOT NULL without a default and belongs in the PK.
     ensure_federation_inbox_receipts_table(db).await?;
+    ensure_read_projection_schema(db).await?;
 
     // 2/3. 比对期望列与索引（整表创建已不再由 schema_check 兜底）
     let drift = report_schema_drift(db).await?;

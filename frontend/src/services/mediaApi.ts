@@ -32,14 +32,44 @@ function validateMediaAsset(item: MediaAsset): void {
   }
 }
 
-export async function listMedia(signal?: AbortSignal): Promise<MediaAsset[]> {
-  const data = await apiService.get<{ success: boolean; items: MediaAsset[] }>(
-    '/media',
-    { signal },
-  )
+export interface MediaFilter {
+  kind: 'all' | MediaKind
+  format: string
+  query: string
+}
+
+export interface MediaCursor {
+  created_at: string
+  id: number
+}
+
+export interface MediaPage {
+  items: MediaAsset[]
+  next_cursor: MediaCursor | null
+  total?: number
+}
+
+export async function listMedia(
+  options: { filter?: MediaFilter; cursor?: MediaCursor; limit?: number } = {},
+  signal?: AbortSignal,
+): Promise<MediaPage> {
+  const params = new URLSearchParams()
+  if (options.filter) {
+    const { kind, format, query } = options.filter
+    if (kind !== 'all') params.set('kind', kind)
+    if (format !== 'all') params.set('format', format)
+    if (query.trim()) params.set('query', query.trim())
+  }
+  if (options.cursor) {
+    params.set('before_created_at', options.cursor.created_at)
+    params.set('before_id', String(options.cursor.id))
+  }
+  if (options.limit) params.set('limit', String(options.limit))
+  const suffix = params.size ? `?${params}` : ''
+  const data = await apiService.get<MediaPage>(`/media${suffix}`, { signal })
   if (!Array.isArray(data.items)) throw new Error('Invalid media response')
   data.items.forEach(validateMediaAsset)
-  return data.items
+  return data
 }
 
 export async function deleteMedia(id: number): Promise<void> {

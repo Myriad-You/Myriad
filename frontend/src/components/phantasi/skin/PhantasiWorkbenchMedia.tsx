@@ -1,10 +1,6 @@
 import type { ReactNode } from 'react'
-import type { MediaAsset } from '../../../services/mediaApi'
+import type { MediaAsset, MediaFilter } from '../../../services/mediaApi'
 import type { ManagedListItem } from '../../settings/ManagedList'
-import type {
-  WorkbenchMediaFormatFilter,
-  WorkbenchMediaKindFilter,
-} from '../logic/workbench'
 import {
   LuFileText,
   LuImage,
@@ -13,13 +9,12 @@ import {
   LuUpload,
 } from '@lib/icons'
 import { useMemo, useRef, useState } from 'react'
-import { useI18n } from '../../../contexts/I18nContext'
+import { useConfigI18n as useI18n } from '../../../contexts/I18nContext'
 import { draftMediaSrc } from '../../../services/mediaApi'
-import { InputItem, ManagedList } from '../../settings'
+import { InputItem, ManagedList, SettingsButton } from '../../settings'
 import {
-  collectWorkbenchMediaFormats,
-  filterWorkbenchMedia,
   formatWorkbenchBytes,
+  WORKBENCH_MEDIA_FORMATS,
   workbenchMediaFormatKey,
   workbenchMediaFormatLabel,
   workbenchMediaRefLabel,
@@ -36,6 +31,10 @@ export function WorkbenchMediaPane({
   back,
   media,
   mediaLoading,
+  mediaFilter,
+  onMediaFilter,
+  mediaHasMore,
+  onLoadMoreMedia,
   busy,
   guide,
   guidePath,
@@ -47,6 +46,10 @@ export function WorkbenchMediaPane({
   back: ReactNode
   media: MediaAsset[]
   mediaLoading: boolean
+  mediaFilter: MediaFilter
+  onMediaFilter: (filter: MediaFilter) => void
+  mediaHasMore: boolean
+  onLoadMoreMedia: () => void
   busy: boolean
   guide?: ReactNode
   guidePath?: string
@@ -57,44 +60,23 @@ export function WorkbenchMediaPane({
   const { t, locale } = useI18n()
   const phantasi = t.phantasi
   const fileRef = useRef<HTMLInputElement>(null)
-  const [mediaKind, setMediaKind] = useState<WorkbenchMediaKindFilter>('all')
-  const [mediaFormat, setMediaFormat] =
-    useState<WorkbenchMediaFormatFilter>('all')
+  const { kind: mediaKind, format: mediaFormat, query: mediaQuery } = mediaFilter
   const [selectedId, setSelectedId] = useState<number | null>(null)
-  const [mediaQuery, setMediaQuery] = useState('')
   const [mediaLayout, setMediaLayout] = useState<'list' | 'grid'>('grid')
-  const mediaFormats = useMemo(
-    () => collectWorkbenchMediaFormats(media),
-    [media],
-  )
   const mediaFormatOptions = useMemo(
     () => [
       { key: 'all', label: phantasi.workbenchMediaAll },
-      ...mediaFormats.map((key) => ({
+      ...WORKBENCH_MEDIA_FORMATS.map((key) => ({
         key,
         label: workbenchMediaFormatLabel(key, phantasi.workbenchMediaFormatOther),
       })),
     ],
-    [phantasi.workbenchMediaAll, phantasi.workbenchMediaFormatOther, mediaFormats],
-  )
-  const resolvedMediaFormat = mediaFormatOptions.some(
-    (opt) => opt.key === mediaFormat,
-  )
-    ? mediaFormat
-    : 'all'
-  const visibleMedia = useMemo(
-    () =>
-      filterWorkbenchMedia(media, {
-        kind: mediaKind,
-        format: resolvedMediaFormat,
-        query: mediaQuery,
-      }),
-    [media, mediaKind, mediaQuery, resolvedMediaFormat],
+    [phantasi.workbenchMediaAll, phantasi.workbenchMediaFormatOther],
   )
 
   const mediaItems = useMemo<ManagedListItem[]>(
     () =>
-      visibleMedia.map((item) => {
+      media.map((item) => {
         const src = draftMediaSrc(item) || undefined
         const inUse = item.references.length > 0
         const refs = workbenchMediaRefLabel(item.references, {
@@ -152,11 +134,11 @@ export function WorkbenchMediaPane({
           ],
         }
       }),
-    [phantasi, busy, locale, onDeleteMedia, visibleMedia],
+    [phantasi, busy, locale, onDeleteMedia, media],
   )
 
-  const selectedIndex = visibleMedia.findIndex(item => item.id === selectedId)
-  const selected = visibleMedia[selectedIndex]
+  const selectedIndex = media.findIndex(item => item.id === selectedId)
+  const selected = media[selectedIndex]
   if (!active) return null
 
   return (
@@ -171,7 +153,7 @@ export function WorkbenchMediaPane({
           itemKey="workbench-media-search"
           label={phantasi.workbenchSearchMedia}
           value={mediaQuery}
-          onChange={setMediaQuery}
+          onChange={query => onMediaFilter({ ...mediaFilter, query })}
           placeholder={phantasi.workbenchSearchMedia}
           inputType="search"
           size="sm"
@@ -198,9 +180,9 @@ export function WorkbenchMediaPane({
             icon: <LuFileText />,
             ariaLabel: phantasi.workbenchMediaFormat,
             options: mediaFormatOptions,
-            value: resolvedMediaFormat,
+            value: mediaFormat,
             onChange: (key) =>
-              setMediaFormat(key as WorkbenchMediaFormatFilter),
+              onMediaFilter({ ...mediaFilter, format: key }),
           },
           {
             label: phantasi.workbenchMediaSource,
@@ -216,7 +198,7 @@ export function WorkbenchMediaPane({
             ],
             value: mediaKind,
             onChange: (key) =>
-              setMediaKind(key as WorkbenchMediaKindFilter),
+              onMediaFilter({ ...mediaFilter, kind: key as MediaFilter['kind'] }),
           },
           {
             label: phantasi.workbenchMediaLayout,
@@ -245,18 +227,23 @@ export function WorkbenchMediaPane({
         working={busy}
         items={mediaItems}
         emptyText={
-          media.length === 0
-            ? phantasi.workbenchMediaEmpty
-            : phantasi.workbenchMediaKindEmpty
+          mediaKind !== 'all' || mediaFormat !== 'all' || mediaQuery.trim()
+            ? phantasi.workbenchMediaKindEmpty
+            : phantasi.workbenchMediaEmpty
         }
         maxHeight={null}
+        footer={mediaHasMore ? (
+          <SettingsButton variant="ghost" size="sm" loading={mediaLoading} onClick={onLoadMoreMedia}>
+            {t.config.managedListShowMore}
+          </SettingsButton>
+        ) : undefined}
       />
       {selected && <MediaEditorDialog
         key={selected.id}
         item={selected}
         onClose={() => setSelectedId(null)}
-        onPrevious={selectedIndex > 0 ? () => setSelectedId(visibleMedia[selectedIndex - 1].id) : undefined}
-        onNext={selectedIndex + 1 < visibleMedia.length ? () => setSelectedId(visibleMedia[selectedIndex + 1].id) : undefined}
+        onPrevious={selectedIndex > 0 ? () => setSelectedId(media[selectedIndex - 1].id) : undefined}
+        onNext={selectedIndex + 1 < media.length ? () => setSelectedId(media[selectedIndex + 1].id) : undefined}
         onSaved={item => onMediaSaved?.(item)}
                    />}
       <input

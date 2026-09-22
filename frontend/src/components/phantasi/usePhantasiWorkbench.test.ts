@@ -35,7 +35,7 @@ const replies: Record<string, unknown> = {
     id: 4, kind: 'feed', status: 'pending', site_name: 'Site', site_url: 'https://test.invalid',
     created_at: 1, updated_at: 1, has_feed: true,
   }] },
-  [mediaPath]: { success: true, items: [{
+  [mediaPath]: { total: 1, next_cursor: null, items: [{
     id: 5, kind: 'upload', url: '/asset.png', mime: 'image/png', name: 'asset.png',
     size: 12, created_at: 1, references: [],
   }] },
@@ -213,6 +213,51 @@ it('leaving notes discards a late shared-cache result without clearing previousl
     })
     assert.deepEqual(current().docs, [doc])
     assert.equal(current().notesLoading, false)
+    assert.deepEqual(errors, [])
+  })
+})
+
+it('appends cursor pages, preserves total, and cancels the old page on filter changes', async () => {
+  await withWorkbench(async ({ render, current, errors }) => {
+    const asset = { id: 50, kind: 'upload', url: '/50.png', mime: 'image/png', name: '50.png', size: 1, created_at: 1, references: [] }
+    const cursor = { created_at: '2026-09-22T01:02:03.123456+00:00', id: 50 }
+    const urls: URL[] = []
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input), 'https://test.invalid')
+      urls.push(url)
+      return Response.json(url.searchParams.has('before_id')
+        ? { items: [{ ...asset, id: 49 }], next_cursor: cursor }
+        : { items: [asset], total: 100, next_cursor: cursor })
+    }
+    await render('media')
+    assert.equal(current().mediaTotal, 100)
+    assert.equal(current().media.length, 1)
+    await act(async () => { await current().loadMoreMedia() })
+    assert.deepEqual(current().media.map(row => row.id), [50, 49])
+    assert.equal(current().mediaTotal, 100)
+    assert.equal(urls[1].searchParams.get('before_created_at'), cursor.created_at)
+    const late = Promise.withResolvers<Response>()
+    let oldSignal: AbortSignal | null | undefined
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(String(input), 'https://test.invalid')
+      if (url.searchParams.has('before_id')) {
+        oldSignal = init?.signal
+        return late.promise
+      }
+      assert.equal(url.searchParams.get('format'), 'webp')
+      return Response.json({ items: [{ ...asset, id: 10 }], total: 1, next_cursor: null })
+    }
+    let pending!: Promise<void>
+    await act(async () => { pending = current().loadMoreMedia() })
+    await act(async () => { current().setMediaFilter({ kind: 'all', format: 'webp', query: '' }) })
+    assert.equal(oldSignal?.aborted, true)
+    await act(async () => {
+      late.resolve(Response.json({ items: [{ ...asset, id: 48 }], next_cursor: cursor }))
+      await pending
+    })
+    assert.deepEqual(current().media.map(row => row.id), [10])
+    assert.equal(current().mediaTotal, 1)
+    assert.equal(current().mediaHasMore, false)
     assert.deepEqual(errors, [])
   })
 })

@@ -92,13 +92,6 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(0),
                     )
-                    // 未读数缓存
-                    .col(
-                        ColumnDef::new(PhantasiSources::UnreadCount)
-                            .integer()
-                            .not_null()
-                            .default(0),
-                    )
                     // optional varchar(20)；本 migration 无 CHECK
                     .col(ColumnDef::new(PhantasiSources::CardSize).string_len(20))
                     // 主题颜色
@@ -294,17 +287,9 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // 索引：按发布时间排序
         manager
-            .create_index(
-                Index::create()
-                    .name("idx_phantasi_items_published")
-                    .table(PhantasiItems::Table)
-                    .col(PhantasiItems::SourceId)
-                    .col(PhantasiItems::PublishedAt)
-                    .if_not_exists()
-                    .to_owned(),
-            )
+            .get_connection()
+            .execute_unprepared(crate::SOURCE_RECENT_INDEX_SQL)
             .await?;
 
         // 索引：全局按时间排序（用于时间线视图）
@@ -1161,7 +1146,6 @@ enum PhantasiSources {
     ErrorCount,
     Enabled,
     ItemCount,
-    UnreadCount,
     CardSize,
     ThemeColor,
     SortOrder,

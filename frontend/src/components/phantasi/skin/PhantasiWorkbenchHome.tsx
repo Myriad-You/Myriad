@@ -133,6 +133,7 @@ export function WorkbenchHome({
   quiet,
   docs,
   media,
+  mediaTotal,
   sources,
   comments,
   pendingReviews = [],
@@ -149,6 +150,7 @@ export function WorkbenchHome({
   quiet: { notes: readonly PhantasiNoteDoc[]; sources: readonly PhantasiSource[] }
   docs: readonly PhantasiNoteDoc[]
   media: readonly MediaAsset[]
+  mediaTotal: number
   sources: readonly PhantasiSource[]
   comments: readonly CommentItem[]
   pendingReviews?: readonly PhantasiSourceApplication[]
@@ -197,7 +199,7 @@ export function WorkbenchHome({
           tone={pendingReviews.length > 0 ? 'warn' : undefined}
           onPick={() => onOpen('reviews')}
         />
-        <Kpi value={media.length} label={copy.workbenchMedia} onPick={() => onOpen('media')} />
+        <Kpi value={mediaTotal} label={copy.workbenchMedia} onPick={() => onOpen('media')} />
         <Kpi value={feedCount} label={copy.workbenchSources} onPick={() => onOpen('sources')} />
       </section>
       <div className="phantasi-workbench__home-body">

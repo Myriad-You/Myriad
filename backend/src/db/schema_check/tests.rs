@@ -190,9 +190,7 @@ fn uniqueness_heals_are_invoked_and_partial() {
     assert!(heals.contains("idx_phantasi_sources_note_type"));
     assert!(heals.contains("idx_rsshub_instances_global_url"));
     assert!(heals.contains("CASE health_status"));
-    assert!(heals.contains(
-        "active channel relationship collision across different channel_id"
-    ));
+    assert!(heals.contains("active channel relationship collision across different channel_id"));
     assert!(heals.contains("shortcut chord collision across different bindings"));
     assert!(heals.contains("idx_phantasi_source_applications_pending_site"));
     assert!(heals.contains("idx_tapp_shortcuts_owner_chord"));
@@ -651,6 +649,19 @@ VALUES
         "tapp_storage must reject encrypted payloads outside _credentials.*"
     );
 
+    db.execute_unprepared(r#"
+ALTER TABLE tapps ADD COLUMN granted_permissions JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE platform_reports ADD COLUMN expires_at TIMESTAMP;
+ALTER TABLE phantasi_sources ADD COLUMN unread_count INTEGER NOT NULL DEFAULT 0;
+DROP INDEX idx_phantasi_items_source_recent;
+DROP INDEX idx_metadata_history_user_date;
+DROP INDEX idx_media_assets_created_id;
+CREATE INDEX idx_phantasi_items_published ON phantasi_items (source_id, published_at);
+CREATE INDEX idx_metadata_history_user ON metadata_history (user_id);
+INSERT INTO tapps (tapp_id, user_id, name, version, manifest, file_path, code_path, approved_permissions, granted_permissions)
+VALUES ('projection-upgrade-test', 2147483647, 'Test', '1', '{}', '', '', '["report:read"]', '["obsolete"]');
+"#).await.unwrap();
+
     // Scope-less `federation_inbox_receipts` shape; `ensure_schema` must heal it.
     db.execute_unprepared(
         r#"
@@ -693,6 +704,38 @@ VALUES (-2, 2147483647, 'https://schema.test/activity', TRUE),
     ensure_schema(&db)
         .await
         .expect("schema heal must upgrade legacy receipts and deduplicate before creating indexes");
+
+    let retired = db.query_one_raw(Statement::from_string(DatabaseBackend::Postgres, r#"
+SELECT COUNT(*) AS n FROM information_schema.columns WHERE table_schema = current_schema()
+AND (table_name, column_name) IN (('tapps', 'granted_permissions'), ('platform_reports', 'expires_at'), ('phantasi_sources', 'unread_count'))
+"#)).await.unwrap().unwrap();
+    assert_eq!(retired.try_get::<i64>("", "n").unwrap(), 0);
+    let approved = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT approved_permissions FROM tapps WHERE tapp_id = 'projection-upgrade-test'",
+        ))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        approved
+            .try_get::<serde_json::Value>("", "approved_permissions")
+            .unwrap(),
+        serde_json::json!(["report:read"])
+    );
+    let index = db.query_one_raw(Statement::from_string(DatabaseBackend::Postgres,
+        "SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_phantasi_items_source_recent'"))
+        .await.unwrap().unwrap();
+    assert!(
+        index
+            .try_get::<String>("", "indexdef")
+            .unwrap()
+            .contains("published_at DESC NULLS LAST, id DESC")
+    );
+    db.execute_unprepared("DELETE FROM tapps WHERE tapp_id = 'projection-upgrade-test'")
+        .await
+        .unwrap();
 
     for table in ["federation_delivery_queue", "federation_timeline"] {
         let rows = db
