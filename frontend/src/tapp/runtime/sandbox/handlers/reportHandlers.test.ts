@@ -110,6 +110,25 @@ function mockOk(body: unknown) {
 }
 
 describe('registerReportHandlers', { concurrency: false }, () => {
+  it('exposes the platform report summary and content through the sandbox bridge', async () => {
+    const content = { summary: 'Weekly activity', insights: ['Played'], metadata: { games: 4 } }
+    const detail = { id: 7, type: 'platform', platform: 'steam', content, createdAt: '2026-09-22' }
+    mockOk(detail)
+    const bridge = new FakeBridge()
+    registerReportHandlers(bridge as unknown as TappBridge, instance, { readOnly: true })
+
+    assert.deepEqual(await invoke(bridge, 'report.platform.get', ['7']), {
+      success: true,
+      data: { ...detail, summary: content.summary },
+    })
+    assert.deepEqual(calls, [{
+      url: '/api/tapp/report-catalog/7',
+      method: 'GET',
+      grant: GRANT,
+      body: undefined,
+    }])
+  })
+
   it('rejects incomplete reads and omits writes in read-only mode', async () => {
     const bridge = new FakeBridge()
     registerReportHandlers(bridge as unknown as TappBridge, instance, {
