@@ -94,17 +94,30 @@ pub async fn prepare(
     let after = serde_json::to_vec_pretty(&merged)?;
     atomic::write_atomic_bytes(&candidate, &after)?;
     let mut files = Vec::new();
+    let mut blanked = Vec::new();
     for (index, path) in compose.files().iter().enumerate() {
+        // Compose already combined any panel fragments. Keep one authority, so
+        // every fragment after the first is emptied. Record which ones: an
+        // operator reverting to an older updater would otherwise find empty files
+        // with nothing saying where the contents went.
+        let after_bytes = if index == 0 {
+            after.clone()
+        } else {
+            blanked.push(path.display().to_string());
+            b"{\"services\":{}}".to_vec()
+        };
         files.push(ComposeChange {
             path: path.clone(),
             before: std::fs::read(path)?,
-            // Compose already combined any panel fragments. Keep one authority.
-            after: if index == 0 {
-                after.clone()
-            } else {
-                b"{\"services\":{}}".to_vec()
-            },
+            after: after_bytes,
         });
+    }
+    if !blanked.is_empty() {
+        worker.state().record_operation(&format!(
+            "audit: compose_fragments_blanked count={} files={}",
+            blanked.len(),
+            blanked.join(",")
+        ));
     }
     Ok((PreparedCompose { files }, candidate_runner))
 }
@@ -147,17 +160,19 @@ fn merge_application(mut current: Value, target: Value) -> Result<Value> {
                 next.get_mut("environment").and_then(Value::as_object_mut),
             ) {
                 for (key, value) in old_env {
-                    // Keep explicit site values and custom keys. Fixed process
-                    // roles/paths belong to the target; template defaults may evolve.
-                    let site_value = new_env.get(key).is_none_or(|new| {
-                        new.as_str().is_some_and(|s| s.contains("${"))
-                            && !value.as_str().is_some_and(|s| s.contains("${"))
-                    });
-                    if site_value {
+                    // The target template defers site-owned values to `${...}`
+                    // placeholders, so the site value wins whenever the target does
+                    // not supply a literal. A site value that is itself an
+                    // interpolation (`${MY_DB_URL}`) must survive too.
+                    let target_defers = new_env
+                        .get(key)
+                        .is_none_or(|new| new.as_str().is_some_and(|s| s.contains("${")));
+                    if target_defers {
                         new_env.insert(key.clone(), value.clone());
                     }
                 }
             }
+            keep_site_mounts(previous, &mut next);
         } else if name.ends_with("-worker")
             && let Some(networks) = &backend_networks
         {
@@ -179,6 +194,59 @@ fn merge_application(mut current: Value, target: Value) -> Result<Value> {
         }
     }
     Ok(current)
+}
+
+/// The target owns which mounts a service *needs*, but a host may have added its
+/// own (extra media, backups, caches). Keep the target's list and append the site
+/// mounts whose container path the target does not already define, so an update
+/// cannot silently detach host storage from a running service.
+///
+/// A mount the target dropped is kept as well; the alternative — taking the
+/// target list wholesale — is what made a host-added mount disappear on update.
+fn keep_site_mounts(previous: &Value, next: &mut Value) {
+    let (Some(site), Some(target)) = (
+        previous.get("volumes").and_then(Value::as_array),
+        next.get_mut("volumes").and_then(Value::as_array_mut),
+    ) else {
+        return;
+    };
+    let defined: std::collections::HashSet<String> = target
+        .iter()
+        .filter_map(volume_target)
+        .map(str::to_owned)
+        .collect();
+    let extra: Vec<Value> = site
+        .iter()
+        .filter(|mount| volume_target(mount).is_none_or(|path| !defined.contains(path)))
+        .cloned()
+        .collect();
+    target.extend(extra);
+}
+
+/// Container path of a Compose volume entry, in either syntax. Compose is invoked
+/// with `--no-normalize`, so short entries stay strings next to long mappings.
+///
+/// `None` means the entry could not be read safely; callers keep it rather than
+/// risk dropping a host mount.
+fn volume_target(entry: &Value) -> Option<&str> {
+    if let Some(target) = entry.get("target").and_then(Value::as_str) {
+        return Some(target);
+    }
+    let parts: Vec<&str> = entry.as_str()?.split(':').collect();
+    match parts.as_slice() {
+        [] => None,
+        [only] => Some(only),
+        [.., last] if is_access_mode(last) => parts.get(parts.len() - 2).copied(),
+        [.., last] => Some(last),
+    }
+}
+
+/// Short-syntax access modes that may follow `source:target`.
+fn is_access_mode(part: &str) -> bool {
+    matches!(
+        part,
+        "ro" | "rw" | "z" | "Z" | "cached" | "delegated" | "consistent"
+    )
 }
 
 /// Called by the existing trusted helper, including when launched by v0.5.3.
@@ -359,5 +427,108 @@ mod tests {
             );
         }
         assert_eq!(labels.len(), 2);
+    }
+
+    #[test]
+    fn volume_target_reads_short_and_long_forms() {
+        let cases = [
+            (serde_json::json!("/app/data"), Some("/app/data")),
+            (
+                serde_json::json!("backend_data:/app/data"),
+                Some("/app/data"),
+            ),
+            (
+                serde_json::json!("backend_data:/app/data:ro"),
+                Some("/app/data"),
+            ),
+            (
+                serde_json::json!("/host/media:/app/data/media:rw"),
+                Some("/app/data/media"),
+            ),
+            (
+                serde_json::json!({"type": "volume", "source": "backend_data", "target": "/app/data/media"}),
+                Some("/app/data/media"),
+            ),
+            (
+                serde_json::json!({"type": "tmpfs", "target": "/tmp"}),
+                Some("/tmp"),
+            ),
+            (serde_json::json!(42), None),
+        ];
+        for (entry, expected) in cases {
+            assert_eq!(volume_target(&entry), expected, "entry {entry}");
+        }
+    }
+
+    /// Regression: the target's mount list used to replace the host's outright,
+    /// so a host-added mount disappeared on the next update.
+    #[test]
+    fn merge_keeps_host_mounts_and_site_environment() {
+        let current = serde_json::json!({
+            "services": {
+                "backend": {
+                    "image": "example/backend:${MYRIAD_TAG}",
+                    "environment": {"DATABASE_URL": "${MY_DB_URL}", "CUSTOM": "keep"},
+                    "volumes": [
+                        "backend_data:/app/data",
+                        "/host/media:/app/data/media",
+                    ],
+                    "ports": ["8080:80"],
+                }
+            },
+            "volumes": {"backend_data": {"name": "existing"}},
+        });
+        let target = serde_json::json!({
+            "services": {
+                "backend": {
+                    "image": "example/backend:${MYRIAD_TAG}",
+                    "environment": {"DATABASE_URL": "${DATABASE_URL}"},
+                    "volumes": [
+                        {"type": "volume", "source": "backend_data", "target": "/app/data"},
+                        {"type": "volume", "source": "backend_cache", "target": "/app/cache"},
+                    ],
+                }
+            },
+            "volumes": {"backend_data": {"name": "would-lose-data"}, "backend_cache": {}},
+        });
+
+        let merged = merge_application(current, target).unwrap();
+
+        let volumes = merged["services"]["backend"]["volumes"].as_array().unwrap();
+        let targets: Vec<&str> = volumes.iter().filter_map(volume_target).collect();
+        assert_eq!(
+            targets,
+            vec!["/app/data", "/app/cache", "/app/data/media"],
+            "target mounts first, then the host mount the target does not define"
+        );
+        assert_eq!(
+            merged["services"]["backend"]["environment"]["DATABASE_URL"],
+            "${MY_DB_URL}",
+            "a site value that is itself an interpolation must survive"
+        );
+        assert_eq!(merged["services"]["backend"]["environment"]["CUSTOM"], "keep");
+        assert_eq!(merged["services"]["backend"]["ports"][0], "8080:80");
+        assert_eq!(
+            merged["volumes"]["backend_data"]["name"], "existing",
+            "volume identity stays the host's"
+        );
+    }
+
+    #[test]
+    fn merge_keeps_a_mount_it_cannot_read() {
+        let current = serde_json::json!({
+            "services": {"backend": {"volumes": [{"type": "bind"}]}},
+        });
+        let target = serde_json::json!({
+            "services": {"backend": {"volumes": [{"type": "volume", "target": "/app/data"}]}},
+        });
+        let merged = merge_application(current, target).unwrap();
+        assert_eq!(
+            merged["services"]["backend"]["volumes"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
     }
 }
