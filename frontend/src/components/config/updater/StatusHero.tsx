@@ -73,6 +73,9 @@ export function StatusHero({
   const notesUrl = available?.notes_url || latest?.notes_url || null
   const source = available?.source ?? latest?.source
   const irreversible = available?.migrations?.irreversible === true
+  // External DB: the updater takes no pgdata snapshot, so a rollback restores the
+  // image version only. Say so where the update decision is made.
+  const noDbSnapshot = status?.pgdata_snapshot_enabled === false
   const showUpdateDetails =
     !stale && (mood === 'available' || mood === 'downgrade') && !!targetVersion
 
@@ -248,9 +251,15 @@ export function StatusHero({
         </div>
         {action && <div className="updater-hero-action">{action}</div>}
       </div>
-      {showUpdateDetails && (freshness || irreversible || notesUrl) && (
+      {showUpdateDetails &&
+        (freshness || irreversible || notesUrl || noDbSnapshot) && (
         <div className="updater-hero-details">
           {freshness && <p>{freshness}</p>}
+          {noDbSnapshot && (
+            <p className="updater-hero-warning">
+              {u.updaterNoDbSnapshotWarn}
+            </p>
+          )}
           {irreversible && (
             <p className="updater-hero-warning">
               {u.updaterIrreversibleWarn}
