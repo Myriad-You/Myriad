@@ -99,3 +99,12 @@ cargo test -p myriad-phantasi-notes
 
 数据库测试各自创建独立 schema 并在成功后删除，不依赖现有业务数据。
 未设置该变量时数据库测试会跳过，不能据此声称已完成数据库验收。
+
+
+## 媒体目录分页
+
+管理员 `GET /api/media` 每页默认返回 48 条，`limit` 范围为 1–100，按创建时间和 ID 倒序排列。响应包含 `items`、`next_cursor`；首个页面另有匹配当前筛选的 `total`，用于概览统计。
+
+下一页传入 `next_cursor.created_at` 和 `next_cursor.id`，参数名分别为 `before_created_at`、`before_id`。时间字符串应原样传回，保留微秒精度；`next_cursor: null` 表示结束。筛选条件改变时应从第一页重新开始。
+
+`kind` 支持 `all`、`upload`、`generated`；`format` 支持 `all`、`jpeg`、`png`、`gif`、`webp`、`mp4`、`webm`、`mov`、`other`；`query` 对文件名、MIME 和来源作不区分大小写的字面子串匹配。引用标签仅统计当前页资产的未过期引用。

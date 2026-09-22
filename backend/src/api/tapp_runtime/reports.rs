@@ -64,7 +64,7 @@ pub async fn list_runtime_reports(
         .await
         .map_err(catalog_http_error)?;
     Ok(Json(json!({
-        "reports": reports.iter().map(tapp_reports::platform_report_payload).collect::<Vec<_>>()
+        "reports": reports.iter().map(tapp_reports::platform_report_list_item).collect::<Vec<_>>()
     })))
 }
 

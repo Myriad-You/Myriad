@@ -23,7 +23,6 @@ pub(super) async fn persist_platform_report_atomic(
     db: &DatabaseConnection,
     user_id: i32,
     report: &PlatformReport,
-    report_settings: &crate::api::config::ReportSettings,
 ) -> Result<(), String> {
     tracing::debug!("💾 Serializing report for platform: {}", report.platform);
 
@@ -67,9 +66,6 @@ pub(super) async fn persist_platform_report_atomic(
         report: Set(report_json),
         report_title: Set(None),
         created_at: Set(chrono::Utc::now().naive_utc()),
-        expires_at: Set(
-            (chrono::Utc::now() + chrono::Duration::days(report_settings.expiry_days)).naive_utc(),
-        ),
         ..Default::default()
     };
 

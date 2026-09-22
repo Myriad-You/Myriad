@@ -30,16 +30,12 @@ pub(crate) async fn generate_platform_reports_internal(
 ) -> (Vec<PlatformReport>, Vec<(String, String)>) {
     use futures::stream::{self, StreamExt};
 
-    // 过期天数可配置（设置页 → 模块设置 → 报告页设置）
-    let report_settings = crate::api::config::load_report_settings(db).await;
-
     let db_clone = db.clone();
     let locale_override =
         locale.map(|s| crate::api::reports::locale::normalize_report_locale(s).to_string());
     let results = stream::iter(platforms)
         .map(move |platform| {
             let db_for_task = db_clone.clone();
-            let report_settings = report_settings.clone();
             let locale_override = locale_override.clone();
             async move {
             tracing::info!("🔄 Processing platform: {}", platform);
@@ -972,7 +968,7 @@ pub(crate) async fn generate_platform_reports_internal(
             // Persist as soon as this platform finishes (atomic txn).
             // Partial cancel: if the parent future is dropped later, this row stays.
             if let Err(e) =
-                persist_platform_report_atomic(&db_for_task, user_id, &report, &report_settings)
+                persist_platform_report_atomic(&db_for_task, user_id, &report)
                     .await
             {
                 tracing::error!(

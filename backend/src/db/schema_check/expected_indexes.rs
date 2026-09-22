@@ -4,6 +4,12 @@ use super::types::IndexDef;
 pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
     vec![
         IndexDef {
+            name: "idx_media_assets_created_id".into(),
+            table: "media_assets".into(),
+            columns: vec!["created_at".into(), "id".into()],
+            is_unique: false,
+        },
+        IndexDef {
             name: "idx_users_github_id".into(),
             table: "users".into(),
             columns: vec!["github_id".into()],
@@ -70,9 +76,9 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             is_unique: true,
         },
         IndexDef {
-            name: "idx_metadata_history_user".into(),
+            name: "idx_metadata_history_user_date".into(),
             table: "metadata_history".into(),
-            columns: vec!["user_id".into()],
+            columns: vec!["user_id".into(), "change_date".into()],
             is_unique: false,
         },
         IndexDef {
@@ -317,9 +323,9 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             is_unique: true,
         },
         IndexDef {
-            name: "idx_phantasi_items_published".into(),
+            name: "idx_phantasi_items_source_recent".into(),
             table: "phantasi_items".into(),
-            columns: vec!["source_id".into(), "published_at".into()],
+            columns: vec!["source_id".into(), "published_at".into(), "id".into()],
             is_unique: false,
         },
         IndexDef {

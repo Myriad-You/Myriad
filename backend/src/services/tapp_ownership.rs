@@ -553,7 +553,6 @@ mod tests {
             theme_color: None,
             manifest: json!({}),
             status: tapps::TappStatus::Installed,
-            granted_permissions: json!([]),
             approved_permissions: json!([]),
             file_path: "".into(),
             code_path: "".into(),

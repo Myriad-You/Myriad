@@ -114,7 +114,7 @@ pub fn select_overwrite_approved_permissions(
 /// Whether the installation owner namespace is the public site-owner row.
 pub fn is_public_installation_namespace(installation_owner_id: i32, site_owner_id: i32) -> bool {
     installation_owner_id == site_owner_id
-}// ── Persist path + column snapshots ─────────────────────────────────────────
+} // ── Persist path + column snapshots ─────────────────────────────────────────
 
 use std::path::Path;
 
@@ -172,7 +172,6 @@ pub struct NewInstallPersist {
     pub theme_color: Option<String>,
     pub manifest: serde_json::Value,
     pub start_running: bool,
-    pub granted_permissions: serde_json::Value,
     pub approved_permissions: serde_json::Value,
     /// Re-authorization marker. Always `false` here: only the upgrade
     /// migration sets `true`, and every successful install/update is an
@@ -189,7 +188,6 @@ pub struct NewInstallPersist {
 pub fn build_new_install_persist(
     manifest: &TappManifest,
     installation_owner_id: i32,
-    granted: &[String],
     approved: &[String],
     final_tapp_dir: &Path,
     now: DateTime<FixedOffset>,
@@ -210,7 +208,6 @@ pub fn build_new_install_persist(
         theme_color: manifest.theme_color.clone(),
         manifest: manifest_json,
         start_running: true,
-        granted_permissions: serde_json::to_value(granted).unwrap_or_default(),
         approved_permissions: serde_json::to_value(approved).unwrap_or_default(),
         needs_reauthorization: false,
         file_path: paths.file_path,
@@ -231,7 +228,6 @@ pub struct UpdateInstallPersist {
     pub icon: Option<String>,
     pub theme_color: Option<String>,
     pub manifest: serde_json::Value,
-    pub granted_permissions: serde_json::Value,
     pub approved_permissions: serde_json::Value,
     /// Re-authorization marker. Always `false` here: only the upgrade
     /// migration sets `true`, and every successful install/update is an
@@ -244,7 +240,6 @@ pub struct UpdateInstallPersist {
 /// Project updated package + approvals into update DB columns.
 pub fn build_update_install_persist(
     manifest: &TappManifest,
-    granted: &[String],
     approved: &[String],
     final_tapp_dir: &Path,
     now: DateTime<FixedOffset>,
@@ -262,7 +257,6 @@ pub fn build_update_install_persist(
         icon: manifest.icon.clone(),
         theme_color: manifest.theme_color.clone(),
         manifest: manifest_json,
-        granted_permissions: serde_json::to_value(granted).unwrap_or_default(),
         approved_permissions: serde_json::to_value(approved).unwrap_or_default(),
         needs_reauthorization: false,
         code_path: paths.code_path,
@@ -467,7 +461,6 @@ mod tests {
             &sample_manifest(),
             7,
             &["storage:read".into()],
-            &["storage:read".into()],
             Path::new("/data/tapps/7/com.example.app"),
             now,
         )
@@ -481,7 +474,7 @@ mod tests {
         assert_eq!(snap.code_path, root.join("src/core.js").to_string_lossy());
         assert_eq!(snap.installed_at, now);
         assert_eq!(snap.last_run_at, now);
-        assert_eq!(snap.granted_permissions, json!(["storage:read"]));
+        assert_eq!(snap.approved_permissions, json!(["storage:read"]));
         assert!(
             !snap.needs_reauthorization,
             "new installs are never pre-flagged"
@@ -494,7 +487,6 @@ mod tests {
         let now = DateTime::parse_from_rfc3339("2026-02-01T00:00:00+00:00").unwrap();
         let snap = build_update_install_persist(
             &sample_manifest(),
-            &["storage:read".into()],
             &["storage:read".into()],
             Path::new("/data/tapps/1/com.example.app"),
             now,

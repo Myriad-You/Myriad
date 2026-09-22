@@ -125,7 +125,7 @@ describe('phantasi/skin 边界', () => {
     assert.match(src, /filterWorkbenchNotes/)
     assert.match(src, /workbenchNoteAuthor/)
     assert.match(src, /collectWorkbenchNoteAuthors/)
-    assert.match(src, /filterWorkbenchMedia/)
+    assert.match(src, /onMediaFilter/)
     assert.match(src, /workbenchMedia/)
     assert.match(src, /workbenchSources/)
     assert.match(src, /workbenchNavTransfer/)

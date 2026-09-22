@@ -416,13 +416,10 @@ async fn install_prepared_package(
         }
         None => select_install_approved_permissions(&manifest.permissions, requested),
     };
-    let granted = match filter_install_permissions(dynamic_config, role, approved.clone()).await {
-        Ok(granted) => granted,
-        Err(error) => {
-            txn.rollback().await.ok();
-            return Err(error);
-        }
-    };
+    if let Err(error) = filter_install_permissions(dynamic_config, role, approved.clone()).await {
+        txn.rollback().await.ok();
+        return Err(error);
+    }
 
     // Clean leftover live/uninstall artifacts under the lifecycle lock.
     // Staging dirs are skipped: they may belong to a concurrent install.
@@ -460,9 +457,8 @@ async fn install_prepared_package(
     // Overwrite of an existing install: update in place, preserving live status
     // and user data (storage is keyed by user+tapp and is never touched here).
     if let Some(existing_tx) = existing_tx {
-        let persist =
-            build_update_install_persist(&manifest, &granted, &approved, &final_tapp_dir, now)
-                .map_err(|error| api_http_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
+        let persist = build_update_install_persist(&manifest, &approved, &final_tapp_dir, now)
+            .map_err(|error| api_http_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
         let mut active: tapps::ActiveModel = existing_tx.clone().into();
         active.name = Set(persist.name);
         active.version = Set(persist.version);
@@ -471,7 +467,6 @@ async fn install_prepared_package(
         active.icon = Set(persist.icon);
         active.theme_color = Set(persist.theme_color);
         active.manifest = Set(persist.manifest);
-        active.granted_permissions = Set(persist.granted_permissions);
         active.approved_permissions = Set(persist.approved_permissions);
         // A successful overwrite is explicit re-authorization.
         active.needs_reauthorization = Set(persist.needs_reauthorization);
@@ -533,7 +528,7 @@ async fn install_prepared_package(
             ));
         }
         activated.commit().await;
-        // Code or approved/granted columns changed; drop runtime grants.
+        // Code or approved permissions changed; drop runtime grants.
         crate::api::tapp_runtime::revoke_all_tapp_runtime_grants(
             db,
             installation_owner_id,
@@ -551,7 +546,6 @@ async fn install_prepared_package(
     let persist = build_new_install_persist(
         &manifest,
         installation_owner_id,
-        &granted,
         &approved,
         &final_tapp_dir,
         now,
@@ -574,7 +568,6 @@ async fn install_prepared_package(
         } else {
             tapps::TappStatus::Installed
         }),
-        granted_permissions: Set(persist.granted_permissions),
         approved_permissions: Set(persist.approved_permissions),
         needs_reauthorization: Set(persist.needs_reauthorization),
         file_path: Set(persist.file_path),
@@ -949,7 +942,7 @@ pub(super) async fn update_tapp(
         permissions.as_deref(),
         &previous_approved,
     );
-    let granted = filter_install_permissions(&dynamic_config, role, approved.clone()).await?;
+    filter_install_permissions(&dynamic_config, role, approved.clone()).await?;
 
     let activated = match stage.activate(&final_tapp_dir).await {
         Ok(activated) => activated,
@@ -973,9 +966,8 @@ pub(super) async fn update_tapp(
         }
     };
     // Column projection is pure domain; ActiveModel mapping stays here.
-    let persist =
-        build_update_install_persist(&manifest, &granted, &approved, &final_tapp_dir, now)
-            .map_err(|error| api_http_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    let persist = build_update_install_persist(&manifest, &approved, &final_tapp_dir, now)
+        .map_err(|error| api_http_error(StatusCode::INTERNAL_SERVER_ERROR, error))?;
     let mut active: tapps::ActiveModel = existing_tapp.clone().into();
     active.name = Set(persist.name);
     active.version = Set(persist.version);
@@ -984,7 +976,6 @@ pub(super) async fn update_tapp(
     active.icon = Set(persist.icon);
     active.theme_color = Set(persist.theme_color);
     active.manifest = Set(persist.manifest);
-    active.granted_permissions = Set(persist.granted_permissions);
     active.approved_permissions = Set(persist.approved_permissions);
     // Successful update is explicit re-authorization; persist always clears the flag.
     active.needs_reauthorization = Set(persist.needs_reauthorization);
@@ -1025,7 +1016,7 @@ pub(super) async fn update_tapp(
     }
     activated.commit().await;
 
-    // Code or approved/granted columns may have changed; drop runtime grants.
+    // Code or approved permissions may have changed; drop runtime grants.
     crate::api::tapp_runtime::revoke_all_tapp_runtime_grants(&db, target_owner_id, &tapp_id).await;
 
     // manifest 已更新，清除 API 解析缓存
@@ -1083,7 +1074,6 @@ mod tests {
             theme_color: None,
             manifest: json!({}),
             status: tapps::TappStatus::Installed,
-            granted_permissions: json!([]),
             approved_permissions: approved,
             file_path: "manifest.json".to_string(),
             code_path: "main.js".to_string(),

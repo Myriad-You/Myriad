@@ -73,7 +73,7 @@ async fn persist_agent_tapp(
     } else {
         UserRole::User
     };
-    let granted_permissions = {
+    {
         let config = GLOBAL_DYNAMIC_CONFIG.read().await;
         TappPermissionService::filter_permissions_for_role(&config, role, &approved_permissions)
     }
@@ -146,7 +146,6 @@ async fn persist_agent_tapp(
         theme_color: Set(theme_color),
         manifest: Set(manifest),
         status: Set(tapps::TappStatus::Running),
-        granted_permissions: Set(json!(granted_permissions)),
         approved_permissions: Set(json!(approved_permissions)),
         file_path: Set(manifest_path.to_string_lossy().to_string()),
         code_path: Set(code_path.to_string_lossy().to_string()),

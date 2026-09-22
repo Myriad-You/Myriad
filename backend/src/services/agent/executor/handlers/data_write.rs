@@ -396,7 +396,6 @@ async fn execute_phantasi_subscribe(
                     enabled: Set(true),
                     error_count: Set(0),
                     item_count: Set(0),
-                    unread_count: Set(0),
                     update_interval: Set(update_interval),
                     created_at: Set(now.into()),
                     updated_at: Set(now.into()),

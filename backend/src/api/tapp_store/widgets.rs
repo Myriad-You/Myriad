@@ -13,7 +13,7 @@ use axum::{
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, ConnectionTrait, DatabaseBackend,
-    DatabaseConnection, EntityTrait, QueryFilter, Set, Statement, TransactionTrait,
+    DatabaseConnection, EntityTrait, QueryFilter, QuerySelect, Set, Statement, TransactionTrait,
 };
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -78,13 +78,16 @@ pub(super) async fn list_all_widgets(
     let admin_id = find_admin_user_id(&db).await?;
     let admin_tapp_ids: HashSet<String> = if let Some(admin_id) = admin_id {
         tapps::Entity::find()
+            .select_only()
+            .columns([tapps::Column::TappId, tapps::Column::Visibility])
             .filter(tapps::Column::UserId.eq(admin_id))
+            .into_tuple::<(String, String)>()
             .all(&db)
             .await
             .map_err(|_| HttpError(AppError::internal("Database error")))?
             .into_iter()
-            .filter(|tapp| public_install_visible_to_viewer(&tapp.visibility, is_admin))
-            .map(|tapp| tapp.tapp_id)
+            .filter(|(_, visibility)| public_install_visible_to_viewer(visibility, is_admin))
+            .map(|(id, _)| id)
             .collect()
     } else {
         HashSet::new()
@@ -92,12 +95,14 @@ pub(super) async fn list_all_widgets(
     let user_tapp_ids: HashSet<String> = if let Some(uid) = user_id {
         if Some(uid) != admin_id {
             tapps::Entity::find()
+                .select_only()
+                .column(tapps::Column::TappId)
                 .filter(tapps::Column::UserId.eq(uid))
+                .into_tuple::<String>()
                 .all(&db)
                 .await
                 .map_err(|_| HttpError(AppError::internal("Database error")))?
                 .into_iter()
-                .map(|tapp| tapp.tapp_id)
                 .collect()
         } else {
             HashSet::new()

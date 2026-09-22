@@ -180,3 +180,5 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_media_migration_jobs_source
     ON media_migration_jobs (source_kind, source_key);
 CREATE INDEX IF NOT EXISTS idx_media_migration_jobs_copy_state
     ON media_migration_jobs (copy_state, id);
+
+CREATE INDEX IF NOT EXISTS idx_media_assets_created_id ON media_assets (created_at, id);
