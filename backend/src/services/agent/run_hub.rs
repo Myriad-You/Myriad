@@ -130,7 +130,6 @@ impl AgentRun {
     #[cfg(test)]
     pub(crate) fn new_for_test(run_id: impl Into<String>, user_id: i32) -> Arc<Self> {
         let mut run = Self::new(run_id.into(), user_id, None);
-        Arc::get_mut(&mut run).unwrap().durable_test_result = Some(Ok(()));
         Arc::get_mut(&mut run).unwrap().test_records = Some(Mutex::new(Vec::new()));
         run
     }
