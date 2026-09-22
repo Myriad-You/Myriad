@@ -2353,7 +2353,6 @@ async fn recovery_waits_for_activation_commit_and_rereads_generation() {
         theme_color: None,
         manifest: manifest.clone(),
         status: tapps::TappStatus::Installed,
-        granted_permissions: json!([]),
         approved_permissions: json!([]),
         needs_reauthorization: false,
         file_path: "manifest.json".into(),
