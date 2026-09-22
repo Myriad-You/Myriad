@@ -6,7 +6,7 @@ import {
 } from '@lib/icons'
 import { useEffect, useRef, useState } from 'react'
 import { useI18n } from '../contexts/I18nContext'
-import { useManagedFetch } from '../hooks/useManagedFetch'
+import { readJsonOk } from '../utils/apiHelper'
 import { reportUserFacingError } from '../utils/reportError'
 import { userFacingError } from '../utils/userFacingError'
 import { Spinner } from './Spinner'
@@ -41,7 +41,6 @@ export function TaskStatus({
 }: TaskStatusProps) {
   const [task, setTask] = useState<Task | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const { fetch: managedFetch } = useManagedFetch()
   const { t, locale } = useI18n()
   const latest = useRef({
     onComplete, onError, onClose, autoClose, autoCloseDelay,
@@ -56,7 +55,7 @@ export function TaskStatus({
   }, [onComplete, onError, onClose, autoClose, autoCloseDelay, t.task.fetchFailed])
 
   useEffect(() => {
-    let active = true
+    const controller = new AbortController()
     let pollCount = 0
     let currentTask: Task | null = null
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -81,15 +80,16 @@ export function TaskStatus({
 
     const fetchTaskStatus = async () => {
       try {
-        const data = await managedFetch<{
+        const response = await fetch(`/api/tasks/${taskId}`, {
+          credentials: 'include',
+          signal: controller.signal,
+        })
+        const data: {
           success: boolean
           task?: Task
           error?: string
-        }>(`/api/tasks/${taskId}`, { credentials: 'include' }, {
-          key: `task-status-${taskId}`,
-          priority: 1,
-        })
-        if (!active) return
+        } = await readJsonOk(response, latest.current.fetchFailed)
+        if (controller.signal.aborted) return
 
         if (data) {
           if (!data.success || !data.task) {
@@ -102,7 +102,7 @@ export function TaskStatus({
           if (currentTask.status === 'Completed') {
             if (latest.current.autoClose) {
               closeTimer = setTimeout(() => {
-                if (active) latest.current.onClose?.()
+                if (!controller.signal.aborted) latest.current.onClose?.()
               }, latest.current.autoCloseDelay)
             }
             latest.current.onComplete?.(currentTask)
@@ -114,24 +114,22 @@ export function TaskStatus({
           }
         }
       } catch (err) {
-        if (!active) return
-        if (!(err instanceof Error && err.message.includes('cancelled'))) {
-          console.error('Error fetching task status:', err)
-          setError(userFacingError(err, latest.current.fetchFailed))
-          return
-        }
+        if (controller.signal.aborted) return
+        console.error('Error fetching task status:', err)
+        setError(userFacingError(err, latest.current.fetchFailed))
+        return
       }
       // Schedule only after settlement so slow requests never overlap.
-      if (active) timer = setTimeout(fetchTaskStatus, getPollingInterval())
+      if (!controller.signal.aborted) timer = setTimeout(fetchTaskStatus, getPollingInterval())
     }
 
     void fetchTaskStatus()
     return () => {
-      active = false
+      controller.abort()
       clearTimeout(timer)
       clearTimeout(closeTimer)
     }
-  }, [taskId, managedFetch])
+  }, [taskId])
 
   if (error) {
     return (
