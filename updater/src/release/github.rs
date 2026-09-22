@@ -530,10 +530,10 @@ impl GithubClient {
             .await
             .map_err(|e| UpdaterError::Github(format!("download manifest: {e}")))?;
 
-        if resp.status() == reqwest::StatusCode::NOT_MODIFIED {
-            if crate::probe::filesystem::path_is_present(&cache_path)? {
-                return Ok(std::fs::read(&cache_path)?);
-            }
+        if resp.status() == reqwest::StatusCode::NOT_MODIFIED
+            && crate::probe::filesystem::path_is_present(&cache_path)?
+        {
+            return Ok(std::fs::read(&cache_path)?);
         }
         if !resp.status().is_success() {
             return Err(UpdaterError::Github(format!(

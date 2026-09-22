@@ -62,17 +62,18 @@ impl DbMode {
     /// Does **not** auto-switch from `DATABASE_URL` host — external mode must be explicit.
     pub fn resolve(env_file: Option<&Path>) -> Result<Self, UpdaterError> {
         if let Ok(raw) = std::env::var("MYRIAD_DB_MODE")
-            && !raw.trim().is_empty() {
-                return Self::parse(&raw);
-            }
-        if let Some(path) = env_file {
-            if crate::probe::filesystem::path_is_present(path)? {
-                let env = crate::env_file::EnvFile::load(path)?;
-                if let Some(raw) = env.get("MYRIAD_DB_MODE")
-                    && !raw.trim().is_empty()
-                {
-                    return Self::parse(raw);
-                }
+            && !raw.trim().is_empty()
+        {
+            return Self::parse(&raw);
+        }
+        if let Some(path) = env_file
+            && crate::probe::filesystem::path_is_present(path)?
+        {
+            let env = crate::env_file::EnvFile::load(path)?;
+            if let Some(raw) = env.get("MYRIAD_DB_MODE")
+                && !raw.trim().is_empty()
+            {
+                return Self::parse(raw);
             }
         }
         Ok(DbMode::Bundled)

@@ -248,12 +248,16 @@ jobs:
         run: cargo metadata --locked --no-deps --format-version 1
       - name: Prove rkyv stays out of the resolved graph
         run: |
-          rkyv_tree="$(cargo tree -i rkyv --target all --locked 2>/dev/null)"
-          if [ -n "$rkyv_tree" ]; then
-            printf '%s\n' "$rkyv_tree" >&2
-            echo 'rkyv reappeared after rust_decimal 1.43 dropped it; restore or upgrade past RUSTSEC-2026-0235' >&2
-            exit 1
-          fi
+          cargo metadata --locked --format-version 1 > "$RUNNER_TEMP/resolved-dependencies.json"
+          python3 - "$RUNNER_TEMP/resolved-dependencies.json" <<'PYTHON'
+          import json
+          import sys
+          with open(sys.argv[1]) as source:
+              graph = json.load(source)
+          resolved = {node['id'] for node in graph['resolve']['nodes']}
+          if any(package['name'] == 'rkyv' and package['id'] in resolved for package in graph['packages']):
+              sys.exit('rkyv reappeared after rust_decimal 1.43 dropped it; restore or upgrade past RUSTSEC-2026-0235')
+          PYTHON
       # MYR-027: hard-fail on unignored *vulnerabilities*; soft-report warnings
       # (unmaintained/unsound/yanked). Allowlist: .cargo/audit.toml.
       # Soft steps keep continue-on-error; hard steps do not.
