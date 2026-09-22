@@ -1,7 +1,7 @@
 //! Tapp uninstall lifecycle: authorization, transactional cleanup and filesystem recovery.
 
 use super::{
-    ApiResponse, current_is_admin, find_admin_user_id, lock_tapp_lifecycle, reinstall_orphan_paths,
+    ApiResponse, current_is_admin, find_admin_user_id, lock_tapp_lifecycle,
     remove_path_best_effort, require_current_admin, tapp_dir_for, validate_tapp_id,
 };
 use axum::{
@@ -22,9 +22,6 @@ use crate::services::tapp_lifecycle::{
     UninstallTarget, select_uninstall_target, uninstall_quarantine_dir_name,
 };
 use myriad_error::AppError;
-
-// Path-stable re-export for handlers + manifest_tests / parent crate test imports.
-pub(super) use crate::services::tapp_lifecycle::uninstall_post_commit_cleanup_path;
 
 /// 卸载 Tapp 查询参数
 #[derive(Debug, Deserialize)]
@@ -161,8 +158,8 @@ async fn do_uninstall_tapp(
 
     // Prefer moving files out of the live path so a failed DB cleanup can restore
     // them. Rename failures (permissions, busy mount, EXDEV) must not abort
-    // uninstall — DB cleanup still proceeds and post-commit best-effort deletes
-    // either the quarantine path or the live directory.
+    // uninstall — DB cleanup still proceeds. Only a successful quarantine
+    // rename gives post-commit cleanup exclusive ownership of a path.
     let tapp_dir = tapp_dir_for(user_id, tapp_id)
         .map_err(|_| HttpError(AppError::bad_request("Bad request")))?;
     let quarantined_dir = if !tapp_dir.exists() {
@@ -368,13 +365,9 @@ async fn do_uninstall_tapp(
         return Err(HttpError(AppError::internal("Database error")));
     }
 
-    // Install row is gone. Best-effort filesystem cleanup must not fail uninstall.
-    // Prefer quarantine (when rename succeeded) or live dir, then sweep remaining
-    // lifecycle artifacts so reinstall is not blocked by orphan paths.
-    let live_dir_exists = tapp_dir.exists();
-    if let Some(cleanup_path) =
-        uninstall_post_commit_cleanup_path(quarantined_dir, tapp_dir.clone(), live_dir_exists)
-    {
+    // The lifecycle lock is released. Only our unique quarantine is still ours;
+    // a reinstall may already own the shared live path and its staging directories.
+    if let Some(cleanup_path) = quarantined_dir {
         if let Err(error) = remove_path_best_effort(&cleanup_path).await {
             tracing::warn!(
                 tapp_id,
@@ -386,34 +379,6 @@ async fn do_uninstall_tapp(
             );
         }
     }
-    match reinstall_orphan_paths(&tapp_dir) {
-        Ok(residual) if !residual.is_empty() => {
-            for path in residual {
-                if let Err(error) = remove_path_best_effort(&path).await {
-                    tracing::warn!(
-                        tapp_id,
-                        user_id,
-                        path = %path.display(),
-                        kind = ?error.kind(),
-                        %error,
-                        "Failed to remove residual Tapp lifecycle path after uninstall"
-                    );
-                }
-            }
-        }
-        Ok(_) => {}
-        Err(error) => {
-            tracing::warn!(
-                tapp_id,
-                user_id,
-                path = %tapp_dir.display(),
-                kind = ?error.kind(),
-                %error,
-                "Failed to inspect residual Tapp paths after uninstall"
-            );
-        }
-    }
-
     crate::api::tapp_runtime::invalidate_tapp_apis_cache(tapp_id).await;
 
     Ok(Json(ApiResponse::success(())))
