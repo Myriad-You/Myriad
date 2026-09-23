@@ -75,16 +75,45 @@ export const routeComponents = {
 
   library: lazyWithPreload(() => import('../views/Library')),
 
+  phantasi: lazyWithPreload(() => import('../views/Phantasi')),
+
+  reports: lazyWithPreload(() => import('../views/Reports')),
+
   config: lazyWithPreload(() => import('../views/Config')),
+
+  agentSettings: lazyWithPreload(() => import('../views/AgentSettings')),
 
   setup: lazyWithPreload(() => import('../views/Setup')),
 
   login: lazyWithPreload(() => import('../views/Login')),
 
+  register: lazyWithPreload(() => import('../views/Register')),
+
   tapp: lazyWithPreload(() => import('../tapp/pages/TappListPage.tsx')),
   tappStore: lazyWithPreload(() => import('../tapp/pages/TappStorePage.tsx')),
   tappDetail: lazyWithPreload(() => import('../tapp/pages/TappDetailPage.tsx')),
   tappRun: lazyWithPreload(() => import('../tapp/pages/TappRunPage.tsx')),
+  tappPlayground: lazyWithPreload(
+    () => import('../tapp/pages/TappPlaygroundPage.tsx'),
+  ),
+}
+
+/** Public landing routes only; guarded pages would fetch code the guard may reject. */
+const LANDING_ROUTES: readonly (readonly [RegExp, keyof typeof routeComponents])[] = [
+  [/^\/$/, 'home'],
+  [/^\/journal(?:\/|$)/, 'phantasi'],
+  [/^\/library\/?$/, 'library'],
+  [/^\/tapp\/?$/, 'tapp'],
+  [/^\/tapp\/store\/?$/, 'tappStore'],
+]
+
+/**
+ * The landing route's chunk is otherwise requested only when it first renders,
+ * which waits for the entry to evaluate and the shell locale to arrive.
+ */
+export function preloadLandingRoute(pathname: string): void {
+  const route = LANDING_ROUTES.find(([pattern]) => pattern.test(pathname))?.[1]
+  if (route) routeComponents[route].preload().catch(() => {})
 }
 
 export const CRITICAL_PRELOAD_ROUTES = ['library', 'tapp', 'tappStore'] as const

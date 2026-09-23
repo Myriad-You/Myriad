@@ -1,11 +1,13 @@
 /** skin 不进口。 */
 
 import type { MutableRefObject } from 'react'
-import type { PhantasiItem } from '../../types/phantasi'
+import type { ReadingList } from '../../contexts/ReadingListContext'
 
+import type { PhantasiItem } from '../../types/phantasi'
 import type { ArticleLoader, OpenArticleOptions } from './useArticleOpen'
 import { useEffect, useRef } from 'react'
 import * as phantasiApi from '../../services/phantasiApi'
+import { emitAppEvent } from '../../utils/appEvents'
 import { phantasiSubject } from '../../utils/phantasiSubject'
 import {
   findAgentArticle,
@@ -37,12 +39,8 @@ interface AgentOpenDetail {
     fromWebSearch?: boolean
     isWebSearchArticle?: boolean
   }
-  readingList?: {
-    createdAt: string
-    name?: string
-    items?: Array<{ id: number; title: string }>
-    [key: string]: unknown
-  }
+  /** A ReadingList as AgentGlobalActions serialized it into sessionStorage. */
+  readingList?: Omit<ReadingList, 'createdAt'> & { createdAt: string }
 }
 
 interface AgentOpenIo {
@@ -159,14 +157,10 @@ export function usePhantasiAgentOpen(io: AgentOpenIo) {
     const pendingReading = takePending(PENDING_READING_KEY)
     if (pendingReading) {
       if (pendingReading.readingList) {
-        window.dispatchEvent(
-          new CustomEvent('agent:set-reading-list', {
-            detail: {
-              ...pendingReading.readingList,
-              createdAt: new Date(pendingReading.readingList.createdAt),
-            },
-          }),
-        )
+        emitAppEvent('agent:set-reading-list', {
+          ...pendingReading.readingList,
+          createdAt: new Date(pendingReading.readingList.createdAt),
+        })
       }
       if (pendingReading.articleId) {
         timers.push(

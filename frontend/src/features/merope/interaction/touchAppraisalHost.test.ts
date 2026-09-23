@@ -14,12 +14,18 @@ const flush = () => new Promise(resolve => setImmediate(resolve))
 
 test('production touch host publishes perception and one completion after release; lifecycle aborts delivery', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
-  const originals = ['document', 'sessionStorage', 'fetch'].map(key =>
+  const originals = ['window', 'document', 'sessionStorage', 'localStorage', 'fetch'].map(key =>
     [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const)
   const token = `v1.${'a'.repeat(16)}.${'b'.repeat(43)}`
   const storage = new Map([
     ['csrf_token', token], ['csrf_token_stored_at', String(Date.now())],
   ])
+  // The shared client resolves relative API paths against the page origin and
+  // sends the host locale, which it reads from storage.
+  Object.defineProperty(globalThis, 'window', { configurable: true,
+    value: Object.assign(new EventTarget(), { location: { origin: 'https://test.invalid' } }) })
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true,
+    value: { getItem: () => null, setItem: () => {}, removeItem: () => {} } })
   Object.defineProperty(globalThis, 'document', { configurable: true,
     value: { hidden: false, visibilityState: 'visible' } })
   Object.defineProperty(globalThis, 'sessionStorage', { configurable: true,

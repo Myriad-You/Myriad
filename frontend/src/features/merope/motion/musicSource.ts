@@ -233,7 +233,9 @@ export class MusicMotionSource {
     }
 
     const audioPaused = !audio || audio.paused
-    if (audio && this.connectedAudio !== audio) {
+    // A paused element has nothing to analyse, and wiring it creates the
+    // AudioContext before any user gesture. The player also connects on play.
+    if (audio && !audioPaused && this.connectedAudio !== audio) {
       this.connectedAudio = this.audio.connectAudioToAnalyser(audio)
         ? audio
         : null

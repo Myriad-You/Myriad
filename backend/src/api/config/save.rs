@@ -893,6 +893,14 @@ pub(crate) fn collect_database_updates_with_vendor(
                 let enabled = field.value == "true";
                 ("music_enabled", JsonValue::Bool(enabled))
             }
+            "music_proxy_enabled" => {
+                let enabled = field.value != "false" && field.value != "0";
+                ("music_proxy_enabled", JsonValue::Bool(enabled))
+            }
+            "music_preload_enabled" => {
+                let enabled = field.value != "false" && field.value != "0";
+                ("music_preload_enabled", JsonValue::Bool(enabled))
+            }
             "island_show_greeting" => {
                 let enabled = field.value != "false" && field.value != "0";
                 ("island_show_greeting", JsonValue::Bool(enabled))

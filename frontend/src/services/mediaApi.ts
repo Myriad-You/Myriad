@@ -1,9 +1,8 @@
 import { API_URL } from '../config'
 import { currentCopy } from '../i18n/localeCopy'
-import { getCSRFToken } from '../utils/csrf'
 import { siteMediaUrl } from '../utils/siteMediaUrl'
 import { userFacingError } from '../utils/userFacingError'
-import { apiService } from './api'
+import { ApiError, apiService } from './api'
 
 export type MediaKind = 'upload' | 'generated'
 
@@ -124,34 +123,22 @@ export async function unpublishMedia(id: number): Promise<MediaAsset> {
   return data.item
 }
 
+/** Media files are large; the default 30s budget would cut slow uploads short. */
+const MEDIA_UPLOAD_TIMEOUT_MS = 10 * 60_000
+
 export async function uploadMedia(
   file: File,
   signal?: AbortSignal,
 ): Promise<MediaAsset> {
   const form = new FormData()
   form.append('file', file, file.name)
-  const headers: Record<string, string> = {}
-  const csrf = await getCSRFToken()
-  if (csrf) headers['X-CSRF-Token'] = csrf
-  const response = await fetch(`${API_URL}/api/media`, {
-    method: 'POST',
-    headers,
-    body: form,
-    credentials: 'include',
-    signal,
-  })
-  if (!response.ok) {
-    const errBody = await response.json().catch(() => ({}))
-    throw new Error(
-      userFacingError(
-        (errBody as { error?: string; message?: string }).error ||
-          (errBody as { message?: string }).message ||
-          `Media upload failed: ${response.status}`,
-        currentCopy().errors.mediaUploadFailed,
-      ),
-    )
+  let data: { success: boolean; item: MediaAsset }
+  try {
+    data = await apiService.post('/media', form, { signal, timeout: MEDIA_UPLOAD_TIMEOUT_MS })
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error
+    throw new Error(userFacingError(error, currentCopy().errors.mediaUploadFailed))
   }
-  const data = (await response.json()) as { success: boolean; item: MediaAsset }
   validateMediaAsset(data.item)
   return data.item
 }

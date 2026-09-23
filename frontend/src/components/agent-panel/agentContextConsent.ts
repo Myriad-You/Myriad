@@ -1,8 +1,7 @@
-const STORAGE_KEY = 'myriad.agentPanel.contextConsent'
+import type { Store } from '../../utils/store'
+import { createStore } from '../../utils/store'
 
-let consent = true
-let loaded = false
-const listeners = new Set<() => void>()
+const STORAGE_KEY = 'myriad.agentPanel.contextConsent'
 
 function read(): boolean {
   try {
@@ -12,34 +11,30 @@ function read(): boolean {
   }
 }
 
-function ensureLoaded(): void {
-  if (loaded) return
-  loaded = true
-  if (typeof window !== 'undefined') consent = read()
-}
+let consent: Store<boolean> | null = null
 
-export function getAgentContextConsent(): boolean {
-  ensureLoaded()
+/** Created on first use from storage, so the initial read publishes nothing. */
+function store(): Store<boolean> {
+  consent ??= createStore(typeof window !== 'undefined' ? read() : true)
   return consent
 }
 
+export function getAgentContextConsent(): boolean {
+  return store().get()
+}
+
 export function setAgentContextConsent(next: boolean): void {
-  ensureLoaded()
-  if (consent === next) return
-  consent = next
+  if (store().get() === next) return
+  store().set(next)
   try {
     window.localStorage.setItem(STORAGE_KEY, next ? 'on' : 'off')
   } catch {
     /* session-only */
   }
-  for (const listener of listeners) listener()
 }
 
 export function subscribeAgentContextConsent(listener: () => void): () => void {
-  listeners.add(listener)
-  return () => {
-    listeners.delete(listener)
-  }
+  return store().subscribe(listener)
 }
 
 export function getServerAgentContextConsent(): boolean {

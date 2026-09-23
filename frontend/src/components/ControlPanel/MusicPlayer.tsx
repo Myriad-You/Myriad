@@ -13,6 +13,7 @@ import React, {
 } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
+import { emitAppEvent } from '../../utils/appEvents'
 import { formatMusicError } from '../../utils/musicError'
 import {
   formatTime,
@@ -288,14 +289,10 @@ const MusicInfoView = memo(({
                 e.currentTarget.nextElementSibling?.classList.add('hidden')
                 // 通知 hook：显示图已解码，可走 DOM 同步取色（比二次请求稳）
                 if (currentSong.cover) {
-                  window.dispatchEvent(
-                    new CustomEvent('music-cover-loaded', {
-                      detail: {
+                  emitAppEvent('music-cover-loaded', {
                         songId: currentSong.id,
                         cover: currentSong.cover,
-                      },
-                    }),
-                  )
+                      })
                 }
               }}
               onError={(e) => {

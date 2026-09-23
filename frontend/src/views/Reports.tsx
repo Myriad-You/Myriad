@@ -34,7 +34,6 @@ import { setStageLeaveHandler } from '../components/stageLeaveGate'
 import StageMode from '../components/StageMode'
 import { preloadPlatformFaces } from '../components/widgets/reportCard/platformFaceLoaders'
 import { ReportCardWidget } from '../components/widgets/ReportCardWidget'
-import { API_URL } from '../config'
 import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
 import { usePageReady } from '../hooks/animation'
@@ -45,10 +44,11 @@ import {
   useResolvedTitleColor,
   useTitleFont,
 } from '../hooks/useTitleFont'
-import { hostLocaleHeaders } from '../i18n/hostLocaleHeaders'
-import { fetchWithAiConfiguration } from '../utils/aiConfiguration'
-import { getCSRFToken } from '../utils/csrf'
-import { notifyHttpRateLimit } from '../utils/httpRateLimitToast'
+import { ApiError, apiService } from '../services/api'
+import {
+  fetchPlatformData,
+  generatePlatformReports,
+} from '../services/platformTasksApi'
 import { buildModulePageSeo } from '../utils/modulePageSeo'
 import {
   canAccessModuleVisibility,
@@ -58,7 +58,7 @@ import { resolvePlatformId } from '../utils/platformId'
 import { notifyRecentActivityUpdated } from '../utils/recentActivity'
 import { REPORT_PLATFORM_IDS } from '../utils/reportCardVisuals'
 import { reportUserFacingError } from '../utils/reportError'
-import { invalidateLatestReportCache } from '../utils/requestDedup'
+import { getLatestReportDeduped, invalidateLatestReportCache } from '../utils/requestDedup'
 import { showToast } from '../utils/toastManager'
 import { userFacingError } from '../utils/userFacingError'
 import { pickReportHook } from './reports/reportsDynamicStatus'
@@ -69,12 +69,10 @@ import {
   REPORT_STRIP_ALIGN_PAD,
 } from './reports/types'
 
-function jsonLocaleHeaders(csrfToken: string): Record<string, string> {
-  return {
-    'Content-Type': 'application/json',
-    'X-CSRF-Token': csrfToken,
-    ...hostLocaleHeaders(),
-  }
+/** The readable reason a report endpoint put in `message`, if any. */
+function bodyMessage(body: unknown): string | null {
+  const message = (body as { message?: unknown } | null | undefined)?.message
+  return typeof message === 'string' ? message : null
 }
 
 interface PlatformReport {
@@ -614,57 +612,21 @@ export default function Reports() {
     setRefreshingStage(true)
 
     try {
-      const csrfToken = await getCSRFToken(true)
-      if (!csrfToken) {
-        showToastMessage(t.reportsPage.getTokenFailed, 'error')
-        setRefreshingStage(false)
-        return
-      }
-
       showToastMessage(
         format(t.reportsPage.refreshingReport, { platform: platformName }),
         'success',
       )
 
       try {
-        const fetchResponse = await fetch(
-          `${API_URL}/api/profile/fetch-platform`,
-          {
-            method: 'POST',
-            headers: jsonLocaleHeaders(csrfToken),
-            credentials: 'include',
-            body: JSON.stringify({ platform: platformId }),
-          },
-        )
-        notifyHttpRateLimit(fetchResponse)
-        const fetchBody = await fetchResponse.json().catch(() => null)
-        if (fetchResponse.ok && fetchBody?.success !== false) {
-          notifyRecentActivityUpdated()
-        }
+        const fetched = await fetchPlatformData(platformId)
+        if (fetched.success !== false) notifyRecentActivityUpdated()
       } catch (fetchErr) {
         console.warn(`Refresh ${platformId} data request error:`, fetchErr)
       }
 
-      const response = await fetchWithAiConfiguration(`${API_URL}/api/reports/platform`, {
-        method: 'POST',
-        headers: jsonLocaleHeaders(csrfToken),
-        credentials: 'include',
-        body: JSON.stringify({ platforms: [platformId] }),
-      })
-
-      notifyHttpRateLimit(response)
-      if (!response.ok) {
-        throw new Error(
-          reportUserFacingError(
-            `HTTP ${response.status}`,
-            t.reportsPage.generateFailed,
-            t.reportsPage,
-          ),
-        )
-      }
-
+      // Any generation failure lands in the catch below as refreshReportFailed.
+      const genBody = await generatePlatformReports<PlatformReport>([platformId])
       // Surface backend skip reasons (empty/unfetched).
-      const genBody = await response.json().catch(() => null)
       const skippedReason =
         genBody?.success === false
           ? genBody?.message
@@ -733,15 +695,7 @@ export default function Reports() {
 
     const fetchEnabledPlatforms = async () => {
       try {
-        const response = await fetch(`${API_URL}/api/config/public`, {
-          credentials: 'include',
-        })
-
-        if (!response.ok) {
-          throw new Error(`Failed to fetch public config: HTTP ${response.status}`)
-        }
-
-        const data = await response.json()
+        const data = await apiService.get<{ platforms?: unknown }>('/config/public')
         if (!Array.isArray(data.platforms)) {
           throw new TypeError('Public config does not contain platforms')
         }
@@ -789,19 +743,13 @@ export default function Reports() {
   useEffect(() => {
     const fetchLatestReport = async () => {
       try {
-        const platformResponse = await fetch(`${API_URL}/api/reports/latest`, {
-          credentials: 'include',
-        })
-
+        // Shares the home report cards' cached read; any failure shows an empty set.
+        const platformData = await getLatestReportDeduped().catch(() => null)
         let platformReports = []
         let createdAt = new Date().toISOString()
-
-        if (platformResponse.ok) {
-          const platformData = await platformResponse.json()
-          if (platformData.platform_reports) {
-            platformReports = platformData.platform_reports
-            createdAt = platformData.created_at || createdAt
-          }
+        if (platformData?.platform_reports) {
+          platformReports = platformData.platform_reports
+          createdAt = platformData.created_at || createdAt
         }
 
         setReport({
@@ -823,68 +771,34 @@ export default function Reports() {
       const platformName =
         translatedPlatforms.find((p) => p.id === platformId)?.name || platformId
       try {
-        const csrfToken = await getCSRFToken(true)
-        if (!csrfToken) {
-          showToastMessage(t.reportsPage.getTokenFailed, 'error')
-          return
-        }
-
+        const refreshFailed = format(t.reportsPage.refreshReportFailed, {
+          platform: platformName,
+        })
         let fetchWarning: string | null = null
         try {
-          const fetchResponse = await fetch(
-            `${API_URL}/api/profile/fetch-platform`,
-            {
-              method: 'POST',
-              headers: jsonLocaleHeaders(csrfToken),
-              credentials: 'include',
-              body: JSON.stringify({ platform: platformId }),
-            },
-          )
-          notifyHttpRateLimit(fetchResponse)
-
           // Empty fetch returns success:false plus a readable reason.
-          const fetchBody = await fetchResponse.json().catch(() => null)
-          if (!fetchResponse.ok || fetchBody?.success === false) {
-            fetchWarning = reportUserFacingError(
-              typeof fetchBody?.message === 'string' ? fetchBody.message : null,
-              format(t.reportsPage.refreshReportFailed, {
-                platform: platformName,
-              }),
-              t.reportsPage,
-            )
+          const fetched = await fetchPlatformData(platformId)
+          if (fetched.success === false) {
+            fetchWarning = reportUserFacingError(bodyMessage(fetched), refreshFailed, t.reportsPage)
             console.warn(fetchWarning)
           } else {
             notifyRecentActivityUpdated()
           }
         } catch (fetchErr) {
-          fetchWarning = format(t.reportsPage.refreshReportFailed, {
-            platform: platformName,
-          })
+          fetchWarning = fetchErr instanceof ApiError && fetchErr.status > 0
+            ? reportUserFacingError(bodyMessage(fetchErr.body), refreshFailed, t.reportsPage)
+            : refreshFailed
           console.warn(`刷新 ${platformId} 数据请求出错:`, fetchErr)
         }
 
-        const response = await fetchWithAiConfiguration(`${API_URL}/api/reports/platform`, {
-          method: 'POST',
-          headers: jsonLocaleHeaders(csrfToken),
-          credentials: 'include',
-          body: JSON.stringify({ platforms: [platformId] }),
-        })
-        notifyHttpRateLimit(response)
-
-        const genBody = await response.json().catch(() => null)
-        if (!response.ok) {
+        let genBody
+        try {
+          genBody = await generatePlatformReports<PlatformReport>([platformId])
+        } catch (genErr) {
+          if (!(genErr instanceof ApiError) || genErr.status === 0) throw genErr
           throw new Error(
-            reportUserFacingError(
-              typeof genBody?.message === 'string' ? genBody.message : null,
-              t.reportsPage.generateFailed,
-              t.reportsPage,
-            ),
+            reportUserFacingError(bodyMessage(genErr.body), t.reportsPage.generateFailed, t.reportsPage),
           )
-        }
-
-        if (!genBody) {
-          showToastMessage(t.reportsPage.generateFailed, 'error')
-          return
         }
 
         if (genBody.success === false) {

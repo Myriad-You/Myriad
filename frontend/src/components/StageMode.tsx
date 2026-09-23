@@ -7,6 +7,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'rea
 import { useI18n } from '../contexts/I18nContext'
 import { isExlight } from '../hooks/useAnimationLevel'
 
+import { emitAppEvent } from '../utils/appEvents'
 import { ReportCardWidget } from './widgets/ReportCardWidget'
 
 const DARK_ORIGINAL_BG =
@@ -515,11 +516,7 @@ export default function StageMode({
   }, [])
 
   useEffect(() => {
-    window.dispatchEvent(
-      new CustomEvent('stage-pause-state-change', {
-        detail: { isPaused },
-      }),
-    )
+    emitAppEvent('stage-pause-state-change', { isPaused })
   }, [isPaused])
 
   useEffect(() => {
@@ -630,7 +627,7 @@ export default function StageMode({
       if (currentChapter < chapters.length - 1) {
         setCurrentChapter((prev) => prev + 1)
       } else {
-        window.dispatchEvent(new CustomEvent('stage-playback-complete'))
+        emitAppEvent('stage-playback-complete')
         if (!playAllMode) {
           onCloseRef.current()
         }

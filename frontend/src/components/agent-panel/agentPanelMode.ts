@@ -1,5 +1,5 @@
-import { useSyncExternalStore } from 'react'
 import { isImeComposing } from '../../utils/ime'
+import { createStore, useStore } from '../../utils/store'
 
 export const AGENT_PANEL_MODES = ['work', 'chat'] as const
 
@@ -7,30 +7,21 @@ export type AgentPanelMode = (typeof AGENT_PANEL_MODES)[number]
 
 export const DEFAULT_AGENT_PANEL_MODE: AgentPanelMode = 'work'
 
-let mode: AgentPanelMode = DEFAULT_AGENT_PANEL_MODE
-
-const listeners = new Set<() => void>()
-
-function notify(): void {
-  for (const listener of listeners) listener()
-}
+const mode = createStore<AgentPanelMode>(DEFAULT_AGENT_PANEL_MODE)
 
 export function isAgentPanelMode(value: unknown): value is AgentPanelMode {
   return value === 'work' || value === 'chat'
 }
 
-export function getAgentPanelMode(): AgentPanelMode {
-  return mode
-}
+export const getAgentPanelMode = mode.get
+export const subscribeAgentPanelMode = mode.subscribe
 
 export function setAgentPanelMode(next: AgentPanelMode): void {
-  if (mode === next) return
-  mode = next
-  notify()
+  mode.set(next)
 }
 
 export function cycleAgentPanelMode(step = 1): AgentPanelMode {
-  const index = AGENT_PANEL_MODES.indexOf(mode)
+  const index = AGENT_PANEL_MODES.indexOf(mode.get())
   const next =
     AGENT_PANEL_MODES[
       (index + step + AGENT_PANEL_MODES.length) % AGENT_PANEL_MODES.length
@@ -39,15 +30,8 @@ export function cycleAgentPanelMode(step = 1): AgentPanelMode {
   return next
 }
 
-export function subscribeAgentPanelMode(onStoreChange: () => void): () => void {
-  listeners.add(onStoreChange)
-  return () => {
-    listeners.delete(onStoreChange)
-  }
-}
-
 export function useAgentPanelMode(): AgentPanelMode {
-  return useSyncExternalStore(subscribeAgentPanelMode, getAgentPanelMode)
+  return useStore(mode)
 }
 
 /** Tab cycles modes inside the shell; skip IME, defaultPrevented, and outside focus. */

@@ -1247,7 +1247,10 @@
     "playlistRateLimited": "音乐源限流了，稍后再试或换 QQ 音乐。",
     "playlistBlocked": "这个歌单因版权或地区限制无法播放，可换 QQ 音乐试试。",
     "playFailed": "播放失败，请检查网络连接或歌曲是否可用",
-    "vipPlayFailed": "VIP 歌曲无法播放（需会员或暂无试听）"
+    "vipPlayFailed": "VIP 歌曲无法播放（需会员或暂无试听）",
+    "sourceDenied": "QQ 音乐拒绝了匿名取链（需要登录或被风控），不是这首歌的问题，可以换网易云试试。",
+    "songUnavailable": "这首歌在音乐源没有可播放的授权（版权、VIP 或地区限制）。",
+    "sourceUnreachable": "音乐源暂时连不上，请稍后再试。"
   },
   "task": {
     "fetchFailed": "获取任务状态失败",

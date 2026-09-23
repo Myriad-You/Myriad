@@ -29,6 +29,8 @@ export interface MusicPreloadApi {
 }
 
 export function usePreload(options: {
+  /** Admin switch; off skips next-track preloading entirely. */
+  enabled: boolean
   playlist: Song[]
   excludeVipSongs: boolean
   volume: number
@@ -36,6 +38,7 @@ export function usePreload(options: {
   neteaseProxyFallbackTriedRef: MutableRefObject<Set<string>>
 }): MusicPreloadApi {
   const {
+    enabled,
     playlist,
     excludeVipSongs,
     volume,
@@ -85,6 +88,7 @@ export function usePreload(options: {
 
   const preloadNextSong = useCallback(
     (nextIndex: number, force: boolean = false) => {
+      if (!enabled) return
       if (preloadDisabledUntilRef.current > Date.now()) {
         return
       }
@@ -223,7 +227,7 @@ export function usePreload(options: {
         })
       })
     },
-    [playlist, excludeVipSongs, setPlaylist, neteaseProxyFallbackTriedRef],
+    [enabled, playlist, excludeVipSongs, setPlaylist, neteaseProxyFallbackTriedRef],
   )
 
   const maybeTriggerPreload = useCallback(
@@ -232,6 +236,7 @@ export function usePreload(options: {
       currentSongIndex: number,
       nextShuffleIndexRef: MutableRefObject<number>,
     ) => {
+      if (!enabled) return
       if (!currentSongLoadedRef.current || preloadTriggeredRef.current) {
         return
       }
@@ -265,7 +270,7 @@ export function usePreload(options: {
         }
       }
     },
-    [playlist, excludeVipSongs, preloadNextSong],
+    [enabled, playlist, excludeVipSongs, preloadNextSong],
   )
 
   return {

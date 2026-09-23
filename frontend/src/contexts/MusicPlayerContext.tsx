@@ -12,6 +12,7 @@ import {
   useSyncExternalStore,
 } from 'react'
 import { bindMusicMoodListening } from '../features/merope/musicMood'
+import { emitAppEvent } from '../utils/appEvents'
 import {
   mergeMusicContextState,
   pickMusicContextState,
@@ -148,15 +149,15 @@ export function useMusicPlayerControl() {
   )
 
   const playSong = useCallback((song: Song) => {
-    window.dispatchEvent(new CustomEvent('play-song', { detail: { song } }))
+    emitAppEvent('play-song', { song })
   }, [])
 
   const togglePlayPause = useCallback(() => {
-    window.dispatchEvent(new CustomEvent('toggle-play-pause'))
+    emitAppEvent('toggle-play-pause')
   }, [])
 
   const stopTempPlay = useCallback(() => {
-    window.dispatchEvent(new CustomEvent('stop-temp-play'))
+    emitAppEvent('stop-temp-play')
   }, [])
 
   return useMemo(

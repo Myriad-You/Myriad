@@ -499,6 +499,8 @@ pub async fn get_public_ui_config(
             db_config.as_ref().and_then(|c| c.music_playlist_id.clone()),
             "MUSIC_PLAYLIST_ID"
         ),
+        "music_proxy_enabled": db_config.as_ref().map(|c| c.music_proxy_enabled).unwrap_or(true),
+        "music_preload_enabled": db_config.as_ref().map(|c| c.music_preload_enabled).unwrap_or(true),
         "island_show_greeting": db_config.as_ref().map(|c| c.island_show_greeting).unwrap_or(true),
         "island_show_weather": db_config.as_ref().map(|c| c.island_show_weather).unwrap_or(true),
         "island_show_quote": db_config.as_ref().map(|c| c.island_show_quote).unwrap_or(true),

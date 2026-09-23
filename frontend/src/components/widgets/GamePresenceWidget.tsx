@@ -5,12 +5,12 @@ import {
   motionShim as motion,
 } from '@lib/motionShim'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { API_URL } from '../../config'
 import { useI18n } from '../../contexts/I18nContext'
 import { useVisibilityInterval } from '../../hooks/animation'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { useWidgetSize } from '../../hooks/useWidgetSize'
 import { armWidgetSettingsHost } from '../../lib/widgetSettingsHost'
+import { ApiError, apiService } from '../../services/api'
 import { useThemeMode } from '../../utils/themeSubscriber'
 import { userFacingError } from '../../utils/userFacingError'
 import {
@@ -390,27 +390,23 @@ async function fetchGamePresence(
 
   const p = (async () => {
     try {
-      const params = new URLSearchParams({
-        platform: platformId,
-        id: accountId,
-        lang,
+      const body = await apiService.get<{ success?: boolean, data?: unknown }>('/game/presence', {
+        params: {
+          platform: platformId,
+          id: accountId,
+          lang,
+          game: platformId === 'hoyolab' ? game : undefined,
+        },
+        timeout: 15_000,
       })
-      if (platformId === 'hoyolab') params.set('game', game)
-      const res = await fetch(
-        `${API_URL}/api/game/presence?${params}`,
-        { signal: AbortSignal.timeout(15000) },
-      )
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const body = await res.json()
       if (body?.success && body?.data) {
         setDataCache(key, body.data as GamePresenceData)
         return body.data as GamePresenceData
       }
       return null
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        return null
-      }
+      // A slow upstream is "no data yet", not a widget error.
+      if (error instanceof ApiError && error.code === 'TIMEOUT') return null
       throw error
     } finally {
       inflight.delete(key)
@@ -627,15 +623,7 @@ const GamePresenceWidget = memo(
           game: next.game,
           fontUrl: next.fontUrl,
         }
-        if (typeof onConfigChange === 'function') {
-          onConfigChange(payload)
-        } else {
-          window.dispatchEvent(
-            new CustomEvent('widget-config-update', {
-              detail: { widgetId: config.id, config: payload },
-            }),
-          )
-        }
+        onConfigChange?.(payload)
       },
       [config.config, config.id, onConfigChange],
     )

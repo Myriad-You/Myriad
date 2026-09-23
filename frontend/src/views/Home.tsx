@@ -40,7 +40,6 @@ import {
   getBuiltinWidgets,
   preloadBuiltinWidgets,
 } from '../components/widgets/builtinWidgets'
-import { API_URL } from '../config'
 import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
 import { useImmersiveChrome } from '../contexts/NavigationContext'
@@ -56,6 +55,7 @@ import { useTappWidgets } from '../hooks/useTappWidgets'
 import { useResolvedTitleColor, useTitleFont } from '../hooks/useTitleFont'
 import { currentCopy } from '../i18n/localeCopy'
 import { ensureMotionReady } from '../lib/lazyMotion'
+import { saveDashboardConfig } from '../services/dashboardConfigApi'
 import { formatUserFacingError } from '../utils/formatUserFacingError'
 import { startHomeDashboardLoad } from '../utils/homeDashboardLoader'
 import {
@@ -100,7 +100,7 @@ function readHomeEditTourDockPose() {
 }
 
 export default function Home() {
-  const { isAuthenticated, hasChecked, isAdmin } = useAuth()
+  const { isAdmin } = useAuth()
   const { t, format } = useI18n()
   const isPageReady = usePageReady()
   // Same viewportBands as WidgetGrid (phone≤767 / desktop≥1078).
@@ -171,7 +171,6 @@ export default function Home() {
   })
   // '' = server value not yet loaded; never flash a hardcoded 'Dashboard'.
   const [dashboardTitle, setDashboardTitle] = useState('')
-  const [csrfToken, setCsrfToken] = useState<string>('')
 
   const { currentFont, titleFontSize } = useTitleFont()
   const titleColorCss = useResolvedTitleColor()
@@ -248,24 +247,6 @@ export default function Home() {
     t.home.exitEditConfirm,
   )
   const showHomeAdminActions = Boolean(isAdmin && isDesktopBand)
-
-  // Refresh the server CSRF token after authentication.
-  useEffect(() => {
-    async function fetchCsrfToken() {
-      if (isAuthenticated && hasChecked) {
-        try {
-          const { getCSRFToken } = await import('../utils/csrf')
-          const token = await getCSRFToken(true)
-          if (token) {
-            setCsrfToken(token)
-          }
-        } catch {
-          // CSRF fetch is best-effort.
-        }
-      }
-    }
-    fetchCsrfToken()
-  }, [isAuthenticated, hasChecked])
 
   const [rawLayouts, setRawLayouts] = useState<HomeDashboardLayouts | null>(
     null,
@@ -352,25 +333,7 @@ export default function Home() {
     if (!isAdmin) return
     void (async () => {
       try {
-        const { getCSRFToken } = await import('../utils/csrf')
-        const token = (await getCSRFToken(true)) || csrfToken
-        if (!token) {
-          showError(t.errors.csrfUnavailable)
-          return
-        }
-        if (token !== csrfToken) setCsrfToken(token)
-        const res = await fetch(`${API_URL}/api/config/dashboard`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': token,
-          },
-          credentials: 'include',
-          body: JSON.stringify({ layout_mode: next }),
-        })
-        if (!res.ok) {
-          throw new Error(`Failed to save dashboard layout mode: HTTP ${res.status}`)
-        }
+        await saveDashboardConfig({ layout_mode: next })
       } catch (err) {
         console.error('保存首页布局模式失败:', err)
         showError(await formatUserFacingError(err, t.errors.dashboardLayoutSaveFailed))
@@ -391,52 +354,25 @@ export default function Home() {
         layoutSaveTimerRef.current = null
       }
       try {
-        const [{ getCSRFToken }, { clearDedupCache }, { restoreStickerAssets }, { uploadHomeSticker }] = await Promise.all([
-          import('../utils/csrf'),
-          import('../utils/requestDedup'),
+        const [{ restoreStickerAssets }, { uploadHomeSticker }] = await Promise.all([
           import('../utils/homeLayoutStickerAssets'),
           import('../utils/homeStickers'),
         ])
-        const token = (await getCSRFToken(true)) || csrfToken
-        if (!token) {
-          showError(t.errors.csrfUnavailable)
-          return
-        }
-        if (token !== csrfToken) setCsrfToken(token)
         const restored = await restoreStickerAssets(
           payload.layouts,
           payload.assets ?? {},
-          async (image) => {
-            const uploaded = await uploadHomeSticker({
-              image,
-              csrfToken: token,
-            })
-            return uploaded.imageUrl
-          },
+          async (image) => (await uploadHomeSticker({ image })).imageUrl,
         )
         let next = restored.layouts
-        const res = await fetch(`${API_URL}/api/config/dashboard`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': token,
-          },
-          credentials: 'include',
-          body: JSON.stringify({
-            layout: serializeDashboardLayout(next),
-            ...(payload.mode ? { layout_mode: payload.mode } : {}),
-          }),
+        const saved = await saveDashboardConfig({
+          layout: serializeDashboardLayout(next),
+          ...(payload.mode ? { layout_mode: payload.mode } : {}),
         })
-        if (!res.ok) {
-          throw new Error(
-            `Failed to import dashboard layout: HTTP ${res.status}`,
-          )
-        }
         if (layoutSaveTimerRef.current) {
           clearTimeout(layoutSaveTimerRef.current)
           layoutSaveTimerRef.current = null
         }
-        next = applyPublishedStickerUrls(next, next, (await res.json()).layout)
+        next = applyPublishedStickerUrls(next, next, saved.layout)
         layoutApplyGenerationRef.current += 1
         setRawLayouts(next)
         setLayouts(next)
@@ -450,7 +386,6 @@ export default function Home() {
         void preloadBuiltinWidgets(
           [...next.standard, ...next.free].map((widget) => widget.type),
         )
-        clearDedupCache(`${API_URL}/api/config/ui`)
         if (restored.failed.length > 0) {
           showWarning(
             format(t.home.importLayoutPartial, {
@@ -467,7 +402,7 @@ export default function Home() {
         layoutImportInFlightRef.current = false
       }
     },
-    [csrfToken, isAdmin, t, format],
+    [isAdmin, t, format],
   )
 
   const { layoutFade, transitionTo } = useHomeLayoutTransition(commitLayoutMode)
@@ -502,30 +437,9 @@ export default function Home() {
     layoutSaveTimerRef.current = setTimeout(() => {
       void (async () => {
         try {
-          const { getCSRFToken } = await import('../utils/csrf')
-          const token = (await getCSRFToken(true)) || csrfToken
-          if (!token) {
-            showError(t.errors.csrfUnavailable)
-            return
-          }
-          if (token !== csrfToken) setCsrfToken(token)
-          const res = await fetch(`${API_URL}/api/config/dashboard`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-CSRF-Token': token,
-            },
-            credentials: 'include',
-            body: JSON.stringify({
-              layout: serializeDashboardLayout(nextLayouts),
-            }),
+          const saved = await saveDashboardConfig({
+            layout: serializeDashboardLayout(nextLayouts),
           })
-          if (!res.ok) {
-            throw new Error(
-              `Failed to save dashboard layout: HTTP ${res.status}`,
-            )
-          }
-          const saved = await res.json()
           setLayouts(current => applyPublishedStickerUrls(current, nextLayouts, saved.layout))
         } catch (err) {
           console.error('保存小组件配置失败:', err)
@@ -547,22 +461,13 @@ export default function Home() {
     if (!stickerDraft || stickerBusy) return
     setStickerBusy(true)
     try {
-      const [{ getCSRFToken }, { generateHomeSticker }] = await Promise.all([
-        import('../utils/csrf'),
-        import('../utils/homeStickers'),
-      ])
-      const token = (await getCSRFToken(true)) || csrfToken
-      if (!token) {
-        showError(t.errors.csrfUnavailable)
-        return
-      }
+      const { generateHomeSticker } = await import('../utils/homeStickers')
       const pixels = stickerPixelSize(stickerDraft.size)
       const slot = widgetSizeSpan(stickerDraft.size)
       const generated = await generateHomeSticker({
         prompt,
         width: pixels.width,
         height: pixels.height,
-        csrfToken: token,
         referenceImages,
         aspect: stickerAspectKey(stickerDraft.size),
         slotCols: slot.w,
@@ -598,19 +503,8 @@ export default function Home() {
     if (!stickerDraft || stickerBusy) return
     setStickerBusy(true)
     try {
-      const [{ getCSRFToken }, { uploadHomeSticker }] = await Promise.all([
-        import('../utils/csrf'),
-        import('../utils/homeStickers'),
-      ])
-      const token = (await getCSRFToken(true)) || csrfToken
-      if (!token) {
-        showError(t.errors.csrfUnavailable)
-        return
-      }
-      const uploaded = await uploadHomeSticker({
-        image,
-        csrfToken: token,
-      })
+      const { uploadHomeSticker } = await import('../utils/homeStickers')
+      const uploaded = await uploadHomeSticker({ image })
       handleWidgetsChange([
         ...layoutsRef.current.free,
         createHomeStickerItem({
@@ -637,27 +531,7 @@ export default function Home() {
     if (!isAdmin) return
 
     try {
-      const { getCSRFToken } = await import('../utils/csrf')
-      const token = (await getCSRFToken(true)) || csrfToken
-      if (!token) {
-        showError(t.errors.csrfUnavailable)
-        return
-      }
-      if (token !== csrfToken) setCsrfToken(token)
-      const res = await fetch(`${API_URL}/api/config/dashboard`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': token,
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          title: newTitle,
-        }),
-      })
-      if (!res.ok) {
-        throw new Error(`Failed to save dashboard title: HTTP ${res.status}`)
-      }
+      await saveDashboardConfig({ title: newTitle })
     } catch (err) {
       console.error('保存标题失败:', err)
       showError(await formatUserFacingError(err, t.errors.dashboardTitleSaveFailed))
@@ -675,30 +549,9 @@ export default function Home() {
       if (!isAdmin) return
 
       try {
-        const { getCSRFToken } = await import('../utils/csrf')
-        const { clearDedupCache } = await import('../utils/requestDedup')
-        const token = (await getCSRFToken(true)) || csrfToken
-        if (!token) {
-          showError(t.errors.csrfUnavailable)
-          return
-        }
-        const response = await fetch(`${API_URL}/api/config/dashboard`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': token,
-          },
-          credentials: 'include',
-          body: JSON.stringify({
-            custom_platforms: JSON.stringify(customEvent.detail.platforms),
-          }),
+        await saveDashboardConfig({
+          custom_platforms: JSON.stringify(customEvent.detail.platforms),
         })
-        if (!response.ok) {
-          throw new Error(
-            `Failed to save custom platforms: HTTP ${response.status}`,
-          )
-        }
-        clearDedupCache(`${API_URL}/api/config/ui`)
       } catch (err) {
         console.error('保存自定义平台失败:', err)
         showError(await formatUserFacingError(err, t.errors.customPlatformsSaveFailed))
@@ -715,7 +568,7 @@ export default function Home() {
         handleCustomPlatformsUpdate,
       )
     }
-  }, [isAdmin, csrfToken, t])
+  }, [isAdmin, t])
 
   return (
     <AnimatedView
@@ -866,7 +719,6 @@ export default function Home() {
                         <HomeStatusBarActions
                           isEditMode={isEditMode}
                           toggleEditMode={toggleEditMode}
-                          csrfToken={csrfToken}
                           handleLayoutModeToggle={handleLayoutModeToggle}
                           layouts={layouts}
                           resolvedLayoutMode={resolvedLayoutMode}
@@ -889,7 +741,6 @@ export default function Home() {
         <HomeLayoutRail
           isEditMode={isEditMode}
           toggleEditMode={toggleEditMode}
-          csrfToken={csrfToken}
           handleLayoutModeToggle={handleLayoutModeToggle}
           layouts={layouts}
           resolvedLayoutMode={resolvedLayoutMode}

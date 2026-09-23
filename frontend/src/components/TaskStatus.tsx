@@ -1,3 +1,4 @@
+import type { Task } from '../services/platformTasksApi'
 import {
   FaCheckCircle,
   FaExclamationCircle,
@@ -6,21 +7,12 @@ import {
 } from '@lib/icons'
 import { useEffect, useRef, useState } from 'react'
 import { useI18n } from '../contexts/I18nContext'
-import { readJsonOk } from '../utils/apiHelper'
+import { getTask } from '../services/platformTasksApi'
 import { reportUserFacingError } from '../utils/reportError'
 import { userFacingError } from '../utils/userFacingError'
 import { Spinner } from './Spinner'
 
-export interface Task {
-  id: string
-  platform: string
-  status: 'Pending' | 'Processing' | 'Completed' | 'Failed'
-  progress: number
-  error?: string
-  created_at: string
-  updated_at: string
-  completed_at?: string
-}
+export type { Task }
 
 interface TaskStatusProps {
   taskId: string
@@ -80,15 +72,7 @@ export function TaskStatus({
 
     const fetchTaskStatus = async () => {
       try {
-        const response = await fetch(`/api/tasks/${taskId}`, {
-          credentials: 'include',
-          signal: controller.signal,
-        })
-        const data: {
-          success: boolean
-          task?: Task
-          error?: string
-        } = await readJsonOk(response, latest.current.fetchFailed)
+        const data = await getTask(taskId, controller.signal)
         if (controller.signal.aborted) return
 
         if (data) {

@@ -83,11 +83,7 @@ function mockOk(body: unknown = { id: 'task-1' }) {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.includes('/api/csrf-token')) {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ csrf_token: null }),
-      } as Response
+      return Response.json(({ csrf_token: null }), { status: 200 })
     }
     const headers = (init?.headers || {}) as Record<string, string>
     calls.push({
@@ -102,11 +98,7 @@ function mockOk(body: unknown = { id: 'task-1' }) {
         body: init?.body,
       }),
     })
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({ success: true, data: body }),
-    } as Response
+    return Response.json(({ success: true, data: body }), { status: 200 })
   }) as typeof fetch
 }
 

@@ -95,11 +95,7 @@ function mockHost(handler: (url: string) => {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.includes('/api/csrf-token')) {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ csrf_token: null }),
-      } as Response
+      return Response.json(({ csrf_token: null }), { status: 200 })
     }
     const headers = (init?.headers || {}) as Record<string, string>
     calls.push({
@@ -115,11 +111,7 @@ function mockHost(handler: (url: string) => {
       }),
     })
     const result = handler(url)
-    return {
-      ok: result.ok,
-      status: result.status,
-      json: async () => result.body,
-    } as Response
+    return Response.json(result.body, { status: result.status })
   }) as typeof fetch
 }
 

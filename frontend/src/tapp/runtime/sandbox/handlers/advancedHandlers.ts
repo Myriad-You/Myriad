@@ -1,9 +1,11 @@
 import type { DynamicContentItem } from '../../../../services/DynamicContentProvider'
+import type { MusicSource, Song } from '../../../../utils/musicPlayer'
 import type { BackgroundRequirement, TappInstance } from '../../../types'
 import type { TappBridge } from '../../TappBridge'
 import type { AnimationConfigRef } from '../types'
 import { isExlight } from '../../../../hooks/useAnimationLevel'
 import { getDynamicContentProvider } from '../../../../services/DynamicContentProvider'
+import { emitAppEvent } from '../../../../utils/appEvents'
 import { isKnownGuest } from '../../../../utils/authState'
 import { analyzeBeatGrid } from '../../../../utils/beatAnalyzer'
 import { getClientGeoLocation } from '../../../../utils/geoLocation'
@@ -21,6 +23,12 @@ import {
   hostUnbindShortcut,
 } from '../../HostShortcutManager'
 import { getTappRuntime } from '../../TappRuntime'
+
+/** A TAPP-supplied source must be one the player knows; absent means the default. */
+function musicSourceOf(raw: unknown): MusicSource | null {
+  if (raw == null || raw === '') return 'netease'
+  return raw === 'netease' || raw === 'qq' ? raw : null
+}
 
 export function registerMediaHandlers(
   bridge: TappBridge,
@@ -43,7 +51,7 @@ export function registerMediaHandlers(
               window as { __musicPlayerState?: Record<string, unknown> }
             ).__musicPlayerState
             if (!globalState?.isPlaying) {
-              window.dispatchEvent(new CustomEvent('toggle-play-pause'))
+              emitAppEvent('toggle-play-pause')
             }
           }
           break
@@ -53,44 +61,31 @@ export function registerMediaHandlers(
               window as { __musicPlayerState?: Record<string, unknown> }
             ).__musicPlayerState
             if (globalState?.isPlaying) {
-              window.dispatchEvent(new CustomEvent('toggle-play-pause'))
+              emitAppEvent('toggle-play-pause')
             }
           }
           break
         case 'next':
-          window.dispatchEvent(new CustomEvent('music-player-next'))
+          emitAppEvent('music-player-next')
           break
         case 'prev':
-          window.dispatchEvent(new CustomEvent('music-player-prev'))
+          emitAppEvent('music-player-prev')
           break
+        // TAPP input: forward only well-typed values to the player.
         case 'seek':
-          window.dispatchEvent(
-            new CustomEvent('music-player-seek', {
-              detail: { position: value },
-            }),
-          )
+          if (typeof value === 'number') emitAppEvent('music-player-seek', { position: value })
           break
         case 'volume':
-          window.dispatchEvent(
-            new CustomEvent('music-player-volume', {
-              detail: { volume: value },
-            }),
-          )
+          if (typeof value === 'number') emitAppEvent('music-player-volume', { volume: value })
           break
         case 'mute':
-          window.dispatchEvent(
-            new CustomEvent('music-player-mute', { detail: { muted: true } }),
-          )
+          emitAppEvent('music-player-mute', { muted: true })
           break
         case 'unmute':
-          window.dispatchEvent(
-            new CustomEvent('music-player-mute', { detail: { muted: false } }),
-          )
+          emitAppEvent('music-player-mute', { muted: false })
           break
         case 'mode':
-          window.dispatchEvent(
-            new CustomEvent('music-player-mode', { detail: { mode: value } }),
-          )
+          if (typeof value === 'string' && value) emitAppEvent('music-player-mode', { mode: value })
           break
       }
 
@@ -279,11 +274,7 @@ export function registerMediaHandlers(
     const [params] = (message.payload as { args: unknown[] }).args || []
     const { value } = (params || {}) as { value?: boolean }
     const skipVip = !!value
-    window.dispatchEvent(
-      new CustomEvent('music-player-set-skip-vip', {
-        detail: { value: skipVip },
-      }),
-    )
+    emitAppEvent('music-player-set-skip-vip', { value: skipVip })
     return { success: true, data: { skipVip } }
   })
 
@@ -539,7 +530,10 @@ export function registerMediaHandlers(
           : null
     if (songIn && (songIn.id || songIn.trackId)) {
       const id = String(songIn.id || songIn.trackId || '')
-      const source = String(songIn.source || 'netease')
+      const source = musicSourceOf(songIn.source)
+      if (!source) {
+        return { success: false, error: 'Unsupported music source' }
+      }
       let url = String(songIn.url || '')
       if (!url) {
         if (source === 'netease') {
@@ -563,8 +557,8 @@ export function registerMediaHandlers(
         source,
         isVip: !!songIn.isVip,
       }
-      window.dispatchEvent(new CustomEvent('play-song', { detail: { song } }))
-      window.dispatchEvent(new CustomEvent('open-control-panel'))
+      emitAppEvent('play-song', { song })
+      emitAppEvent('open-control-panel')
       return {
         success: true,
         data: {
@@ -600,11 +594,8 @@ export function registerMediaHandlers(
         if (targetIndex >= 0) targetSong = playlist[targetIndex]
       }
       if (targetSong) {
-        window.dispatchEvent(
-          new CustomEvent('play-song-at-index', {
-            detail: { index: targetIndex, song: targetSong },
-          }),
-        )
+        // Playlist entries are the player's own Songs; the window mirror is just untyped.
+        emitAppEvent('play-song-at-index', { index: targetIndex, song: targetSong as unknown as Song })
         return {
           success: true,
           data: {
@@ -633,11 +624,7 @@ export function registerMediaHandlers(
       const playlist = globalState.playlist as Array<Record<string, unknown>>
       if (index >= 0 && index < playlist.length) {
         const targetSong = playlist[index]
-        window.dispatchEvent(
-          new CustomEvent('jump-to-index', {
-            detail: { index, song: targetSong },
-          }),
-        )
+        emitAppEvent('jump-to-index', { index, song: targetSong as unknown as Song })
         return {
           success: true,
           data: {
@@ -672,14 +659,10 @@ export function registerMediaHandlers(
     }
 
     try {
-      window.dispatchEvent(
-        new CustomEvent('music-player-load-playlist', {
-          detail: {
+      emitAppEvent('music-player-load-playlist', {
             playlistId,
             source: 'netease',
-          },
-        }),
-      )
+          })
 
       return {
         success: true,

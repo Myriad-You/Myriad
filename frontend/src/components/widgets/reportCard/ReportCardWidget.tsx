@@ -192,18 +192,7 @@ export const ReportCardWidget = memo(
     const applyClickAction = useCallback(
       (action: ReportCardClickAction) => {
         const nextConfig = { ...config.config, platformId, clickAction: action }
-        if (typeof onConfigChange === 'function') {
-          onConfigChange(nextConfig)
-        } else {
-          window.dispatchEvent(
-            new CustomEvent('widget-config-update', {
-              detail: {
-                widgetId: config.id,
-                config: nextConfig,
-              },
-            }),
-          )
-        }
+        onConfigChange?.(nextConfig)
         isLongPressRef.current = false
       },
       [config.id, config.config, onConfigChange, platformId],

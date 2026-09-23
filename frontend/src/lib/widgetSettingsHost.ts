@@ -1,21 +1,11 @@
-/** First widget-settings open arms the lazy modal hosts in AppLayout. */
+import { createStore } from '../utils/store'
 
-let armed = false
-const listeners = new Set<() => void>()
+/** First widget-settings open arms the lazy modal hosts in AppLayout. */
+const armed = createStore(false)
 
 export function armWidgetSettingsHost(): void {
-  if (armed) return
-  armed = true
-  listeners.forEach((listener) => listener())
+  armed.set(true)
 }
 
-export function isWidgetSettingsHostArmed(): boolean {
-  return armed
-}
-
-export function subscribeWidgetSettingsHost(listener: () => void): () => void {
-  listeners.add(listener)
-  return () => {
-    listeners.delete(listener)
-  }
-}
+export const isWidgetSettingsHostArmed = armed.get
+export const subscribeWidgetSettingsHost = armed.subscribe

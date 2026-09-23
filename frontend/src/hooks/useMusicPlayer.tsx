@@ -8,8 +8,12 @@ import type {
 } from './musicPlayer/types'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { emitAppEvent } from '../utils/appEvents'
 import { notifyHttpRateLimit } from '../utils/httpRateLimitToast'
-import { classifyMusicLoadError } from '../utils/musicError'
+import {
+  classifyMusicLoadError,
+  musicProxyFailureKey,
+} from '../utils/musicError'
 import {
   audioManager,
   clampSeekTime,
@@ -22,6 +26,7 @@ import {
   getQQPlaylist,
   pickAdjacentIndex,
   pickShuffleIndex,
+  setMusicStreamProxyEnabled,
   shouldPreserveNativeAudioOutput,
   throttle,
   withSpectrumSafePlaybackUrl,
@@ -52,6 +57,11 @@ export type {
   UseMusicPlayerReturn,
 } from './musicPlayer/types'
 
+/** Default-on flags: only an explicit false / "false" / "0" turns them off. */
+function configFlagOn(value: unknown): boolean {
+  return value !== false && value !== 0 && value !== 'false' && value !== '0'
+}
+
 export function useMusicPlayer(): UseMusicPlayerReturn {
   const [playlist, setPlaylist] = useState<Song[]>([])
   const playlistRef = useRef<Song[]>([])
@@ -69,8 +79,10 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
   const [musicErrorKey, setMusicErrorKey] = useState('')
   const [musicErrorDetail, setMusicErrorDetail] = useState('')
   const musicErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const musicErrorSeqRef = useRef(0)
 
   const flashMusicError = useCallback((key: string, detail = '') => {
+    musicErrorSeqRef.current += 1
     if (musicErrorTimerRef.current) {
       clearTimeout(musicErrorTimerRef.current)
     }
@@ -117,6 +129,7 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
 
   const [playlistSearchQuery, setPlaylistSearchQuery] = useState('')
   const [excludeVipSongs, setExcludeVipSongs] = useState(true)
+  const [preloadEnabled, setPreloadEnabled] = useState(true)
   const [showVolumePopup, setShowVolumePopup] = useState(false)
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -181,6 +194,7 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
     selectGenerationRef,
     tempPlayModeRef,
     musicEnabled,
+    preloadEnabled,
     volume,
     playMode,
   })
@@ -194,6 +208,7 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
     resetPreloadBackoff,
     maybeTriggerPreload,
   } = usePreload({
+    enabled: preloadEnabled,
     playlist,
     excludeVipSongs,
     volume,
@@ -557,6 +572,9 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
       )
       const plistId = normalizeMusicPlaylistId(data.music_playlist_id || '')
 
+      // Must land before loadPlaylist: playback URLs are built from it.
+      setMusicStreamProxyEnabled(configFlagOn(data.music_proxy_enabled))
+      setPreloadEnabled(configFlagOn(data.music_preload_enabled))
       setMusicEnabled(enabled)
       setMusicSource(source as MusicSource)
       setPlaylistId(plistId)
@@ -832,15 +850,11 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
         audioDuration: audio.duration || 0,
       })
 
-      window.dispatchEvent(
-        new CustomEvent('music-player-progress', {
-          detail: {
+      emitAppEvent('music-player-progress', {
             currentTime: t,
             audioDuration: audio.duration || 0,
             songId: currentSongRef.current?.id ?? null,
-          },
-        }),
-      )
+          })
 
       if (lyricsRef.current.length > 0) {
         const index = getCurrentLyricIndex(lyricsRef.current, t)
@@ -925,24 +939,27 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
       }
 
       const probeUrl = song.url || ''
+      let failureKeyProbe: Promise<string | null> | null = null
       if (
         probeUrl.includes('/api/proxy/music/') ||
         probeUrl.includes('/proxy/music/')
       ) {
-        void fetch(probeUrl, { method: 'GET', cache: 'no-store' })
+        failureKeyProbe = fetch(probeUrl, { method: 'GET', cache: 'no-store' })
           .then(async (res) => {
-            if (res.status !== 429) return
+            if (res.ok) return null
             let body: unknown
             try {
               body = await res.clone().json()
             } catch {
               body = undefined
             }
-            notifyHttpRateLimit(res, body)
+            if (res.status === 429) {
+              notifyHttpRateLimit(res, body)
+              return null
+            }
+            return musicProxyFailureKey(body)
           })
-          .catch(() => {
-            /* ignore probe failures */
-          })
+          .catch(() => null)
       }
 
       if (song.source === 'netease' || song.source === 'qq') {
@@ -1010,6 +1027,15 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
         generation: selectGenerationRef.current,
       })
       flashMusicError(song.isVip ? 'vipPlayFailed' : 'playFailed')
+      if (failureKeyProbe) {
+        // Only replace the generic flash we just showed, never a newer one.
+        const flashSeq = musicErrorSeqRef.current
+        void failureKeyProbe.then((key) => {
+          if (!key || musicErrorSeqRef.current !== flashSeq) return
+          if (!musicErrorTimerRef.current) return
+          flashMusicError(key)
+        })
+      }
 
       if (playlist.length > 1 && playMode !== 'single') {
         if (errorAdvanceTimer !== null) clearTimeout(errorAdvanceTimer)

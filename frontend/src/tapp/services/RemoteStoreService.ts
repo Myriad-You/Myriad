@@ -2,7 +2,7 @@ import type { TappManifest } from '../types'
 import type { RemoteStoreLocales } from '../utils/storeLocale'
 import type { StorePreviewDescriptor } from '../utils/storePreview'
 import { currentCopy, formatCurrent } from '../../i18n/localeCopy'
-import api from '../../lib/api'
+import { ApiError, apiService } from '../../services/api'
 import {
   httpStatusMessage,
   isUselessErrorText,
@@ -17,6 +17,22 @@ import {
 import { isStoreAppAvailable } from '../utils/storePolicy'
 import { parseStorePreview } from '../utils/storePreview'
 import { maxDeclaredAssets } from '../utils/tappPackageLimits'
+
+/** `{ success, error, data }` envelope of the store-source admin endpoints. */
+interface StoreEnvelope {
+  success?: boolean
+  error?: unknown
+  data?: any
+}
+
+function failureStatus(error: unknown): number | undefined {
+  return error instanceof ApiError ? error.status : undefined
+}
+
+function failureBodyError(error: unknown): string | undefined {
+  const body = error instanceof ApiError ? (error.body as { error?: unknown } | undefined) : undefined
+  return typeof body?.error === 'string' ? body.error : undefined
+}
 
 export {
   storeAssetStorePath,
@@ -137,9 +153,9 @@ class RemoteStoreServiceImpl {
 
     this.loadingPromise = (async () => {
       try {
-        const response = await api.get('/api/tapps/store/sources')
-        if (response.data?.success && Array.isArray(response.data.data)) {
-          this.sources = response.data.data.map((s: any) => ({
+        const envelope = await apiService.get<StoreEnvelope>('/tapps/store/sources')
+        if (envelope?.success && Array.isArray(envelope.data)) {
+          this.sources = envelope.data.map((s: any) => ({
             id: s.id,
             name: s.name,
             description: s.description,
@@ -193,15 +209,7 @@ class RemoteStoreServiceImpl {
   }
 
   private storeSourceFailure(error: unknown, fallback: string): Error {
-    const axiosError = error as {
-      response?: { data?: { error?: unknown } }
-      message?: string
-    }
-    const bodyError =
-      typeof axiosError.response?.data?.error === 'string'
-        ? axiosError.response.data.error
-        : ''
-    const raw = bodyError || axiosError.message || ''
+    const raw = failureBodyError(error) || (error instanceof Error ? error.message : '')
     return new Error(
       raw && !isUselessErrorText(raw) ? raw : userFacingError(error, fallback),
     )
@@ -211,7 +219,7 @@ class RemoteStoreServiceImpl {
     source: Omit<RemoteStoreSource, 'id' | 'official'>,
   ): Promise<void> {
     try {
-      const response = await api.post('/api/tapps/store/sources', {
+      const envelope = await apiService.post<StoreEnvelope>('/tapps/store/sources', {
         name: source.name,
         description: source.description,
         url: source.url,
@@ -219,30 +227,30 @@ class RemoteStoreServiceImpl {
         icon: source.icon,
       })
 
-      if (!response.data?.success) {
+      if (!envelope?.success) {
         throw new Error(
-          typeof response.data?.error === 'string' &&
-            !isUselessErrorText(response.data.error)
-            ? response.data.error
+          typeof envelope?.error === 'string' &&
+            !isUselessErrorText(envelope.error)
+            ? envelope.error
             : currentCopy().tapp.storeAddFailed,
         )
       }
 
       const newSource: RemoteStoreSource = {
-        id: response.data.data.id,
-        name: response.data.data.name,
-        description: response.data.data.description,
-        url: response.data.data.url,
-        enabled: response.data.data.enabled,
-        official: response.data.data.official,
-        icon: response.data.data.icon,
+        id: envelope.data.id,
+        name: envelope.data.name,
+        description: envelope.data.description,
+        url: envelope.data.url,
+        enabled: envelope.data.enabled,
+        official: envelope.data.official,
+        icon: envelope.data.icon,
       }
       this.sources.push(newSource)
-    } catch (error: any) {
-      if (error.response?.status === 403) {
+    } catch (error) {
+      if (failureStatus(error) === 403) {
         throw new Error(currentCopy().tapp.storeAdminRequired)
       }
-      if (error.response?.status === 409) {
+      if (failureStatus(error) === 409) {
         throw new Error(currentCopy().tapp.storeSourceExists)
       }
       throw this.storeSourceFailure(error, currentCopy().tapp.storeAddFailed)
@@ -256,24 +264,24 @@ class RemoteStoreServiceImpl {
     }
 
     try {
-      const response = await api.delete(`/api/tapps/store/sources/${sourceId}`)
+      const envelope = await apiService.delete<StoreEnvelope>(`/tapps/store/sources/${sourceId}`)
 
-      if (!response.data?.success) {
+      if (!envelope?.success) {
         throw new Error(
-          typeof response.data?.error === 'string' &&
-            !isUselessErrorText(response.data.error)
-            ? response.data.error
+          typeof envelope?.error === 'string' &&
+            !isUselessErrorText(envelope.error)
+            ? envelope.error
             : currentCopy().tapp.storeRemoveFailed,
         )
       }
 
       this.sources = this.sources.filter((s) => s.id !== sourceId)
       if (source) this.clearCachedSource(source.url)
-    } catch (error: any) {
-      if (error.response?.status === 403) {
+    } catch (error) {
+      if (failureStatus(error) === 403) {
         throw new Error(currentCopy().tapp.storeCannotRemoveOfficial)
       }
-      if (error.response?.status === 404) {
+      if (failureStatus(error) === 404) {
         throw new Error(currentCopy().tapp.storeSourceNotFound)
       }
       throw this.storeSourceFailure(error, currentCopy().tapp.storeRemoveFailed)
@@ -282,15 +290,15 @@ class RemoteStoreServiceImpl {
 
   async toggleSource(sourceId: number, enabled: boolean): Promise<void> {
     try {
-      const response = await api.post(`/api/tapps/store/sources/${sourceId}`, {
+      const envelope = await apiService.post<StoreEnvelope>(`/tapps/store/sources/${sourceId}`, {
         enabled,
       })
 
-      if (!response.data?.success) {
+      if (!envelope?.success) {
         throw new Error(
-          typeof response.data?.error === 'string' &&
-            !isUselessErrorText(response.data.error)
-            ? response.data.error
+          typeof envelope?.error === 'string' &&
+            !isUselessErrorText(envelope.error)
+            ? envelope.error
             : currentCopy().tapp.storeUpdateFailed,
         )
       }
@@ -299,11 +307,11 @@ class RemoteStoreServiceImpl {
       if (source) {
         source.enabled = enabled
       }
-    } catch (error: any) {
-      if (error.response?.status === 403) {
+    } catch (error) {
+      if (failureStatus(error) === 403) {
         throw new Error(currentCopy().tapp.storeAdminRequired)
       }
-      if (error.response?.status === 404) {
+      if (failureStatus(error) === 404) {
         throw new Error(currentCopy().tapp.storeSourceNotFound)
       }
       throw this.storeSourceFailure(error, currentCopy().tapp.storeUpdateFailed)
@@ -326,21 +334,20 @@ class RemoteStoreServiceImpl {
     }
 
     try {
-      const response = await api.post(
-        `/api/tapps/store/sources/${sourceId}`,
+      const envelope = await apiService.post<StoreEnvelope>(`/tapps/store/sources/${sourceId}`,
         patch,
       )
 
-      if (!response.data?.success) {
+      if (!envelope?.success) {
         throw new Error(
-          typeof response.data?.error === 'string' &&
-            !isUselessErrorText(response.data.error)
-            ? response.data.error
+          typeof envelope?.error === 'string' &&
+            !isUselessErrorText(envelope.error)
+            ? envelope.error
             : currentCopy().tapp.storeUpdateFailed,
         )
       }
 
-      const data = response.data.data
+      const data = envelope.data
       const updated: RemoteStoreSource = {
         id: data.id,
         name: data.name,
@@ -363,20 +370,20 @@ class RemoteStoreServiceImpl {
         this.sources.push(updated)
       }
       return updated
-    } catch (error: any) {
-      if (error.response?.status === 403) {
+    } catch (error) {
+      if (failureStatus(error) === 403) {
         throw new Error(
-          error.response?.data?.error || currentCopy().tapp.storeCannotEditOfficialUrl,
+          failureBodyError(error) || currentCopy().tapp.storeCannotEditOfficialUrl,
         )
       }
-      if (error.response?.status === 404) {
+      if (failureStatus(error) === 404) {
         throw new Error(currentCopy().tapp.storeSourceNotFound)
       }
-      if (error.response?.status === 409) {
+      if (failureStatus(error) === 409) {
         throw new Error(currentCopy().tapp.storeUrlExists)
       }
-      if (error.response?.status === 400) {
-        throw new Error(error.response?.data?.error || currentCopy().tapp.storeInvalidSource)
+      if (failureStatus(error) === 400) {
+        throw new Error(failureBodyError(error) || currentCopy().tapp.storeInvalidSource)
       }
       throw this.storeSourceFailure(error, currentCopy().tapp.storeUpdateFailed)
     }
@@ -494,9 +501,9 @@ class RemoteStoreServiceImpl {
   }
 
   async fetchPolicy(): Promise<{ federationEnabled: boolean }> {
-    const response = await api.get('/api/tapps/store/policy')
-    const policy = response.data?.data
-    if (!response.data?.success || typeof policy?.federationEnabled !== 'boolean') {
+    const envelope = await apiService.get<StoreEnvelope>('/tapps/store/policy')
+    const policy = envelope?.data
+    if (!envelope?.success || typeof policy?.federationEnabled !== 'boolean') {
       throw new Error(currentCopy().tapp.loadRemoteFailed)
     }
     return policy

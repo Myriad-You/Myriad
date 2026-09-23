@@ -1,26 +1,17 @@
-let visible = false
-const listeners = new Set<() => void>()
+import { createStore } from '../../utils/store'
 
-export function getAgentPanelVisible(): boolean {
-  return visible
-}
+const visible = createStore(false)
+
+export const getAgentPanelVisible = visible.get
+export const subscribeAgentPanelVisible = visible.subscribe
 
 /** Hidden tab with the panel mounted is not looking. */
 export function isLookingAtAgentPanel(): boolean {
-  return visible && (typeof document === 'undefined' || !document.hidden)
+  return visible.get() && (typeof document === 'undefined' || !document.hidden)
 }
 
 export function setAgentPanelVisible(next: boolean): void {
-  if (visible === next) return
-  visible = next
-  for (const listener of listeners) listener()
-}
-
-export function subscribeAgentPanelVisible(listener: () => void): () => void {
-  listeners.add(listener)
-  return () => {
-    listeners.delete(listener)
-  }
+  visible.set(next)
 }
 
 export function subscribeLookingAtAgentPanel(listener: () => void): () => void {

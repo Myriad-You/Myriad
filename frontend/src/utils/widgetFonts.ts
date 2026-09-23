@@ -1,7 +1,6 @@
 import { API_URL } from '../config'
 import { currentCopy } from '../i18n/localeCopy'
-import { fetchJson } from './apiHelper'
-import { getCSRFHeaderName, getCSRFToken } from './csrf'
+import { apiService } from '../services/api'
 
 export const WIDGET_FONT_MAX_BYTES = 2 * 1024 * 1024
 export const WIDGET_FONT_URL_RE =
@@ -47,23 +46,7 @@ export async function uploadWidgetFont(file: File): Promise<string> {
     throw new Error(failed)
   }
   const font = await readFileAsDataUrl(file)
-  const csrfToken = await getCSRFToken()
-  if (!csrfToken) {
-    throw new Error(failed)
-  }
-  const data = await fetchJson(
-    `${API_URL}/api/home/widget-fonts`,
-    {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        [getCSRFHeaderName()]: csrfToken,
-      },
-      body: JSON.stringify({ font }),
-    },
-    failed,
-  )
+  const data = await apiService.post('/home/widget-fonts', { font })
   const url = sanitizeWidgetFontUrl(
     data && typeof data === 'object' && Object.hasOwn(data, 'url')
       ? (data as { url: unknown }).url

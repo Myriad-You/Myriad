@@ -1247,7 +1247,10 @@
     "playlistRateLimited": "음악 소스가 이 요청을 제한했습니다. 나중에 다시 시도하거나 QQ Music으로 바꾸세요.",
     "playlistBlocked": "이 재생목록은 저작권 또는 지역 제한으로 막혀 있습니다. QQ Music을 시도하세요.",
     "playFailed": "재생에 실패했습니다. 네트워크나 곡 이용 가능 여부를 확인하세요",
-    "vipPlayFailed": "VIP 곡을 재생할 수 없습니다(멤버십 또는 미리듣기 필요)"
+    "vipPlayFailed": "VIP 곡을 재생할 수 없습니다(멤버십 또는 미리듣기 필요)",
+    "sourceDenied": "QQ Music이 익명 재생 링크 발급을 거부했습니다(로그인 필요 또는 접근 제한). 곡 문제가 아니니 NetEase를 시도하세요.",
+    "songUnavailable": "이 곡은 음악 소스에서 재생 권한이 없습니다(저작권, VIP 또는 지역 제한).",
+    "sourceUnreachable": "지금은 음악 소스에 연결할 수 없습니다. 나중에 다시 시도하세요."
   },
   "task": {
     "fetchFailed": "작업 상태를 가져오지 못했습니다",

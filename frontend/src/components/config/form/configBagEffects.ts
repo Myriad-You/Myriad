@@ -2,9 +2,8 @@ import type { ConfigEffect } from './configDomain'
 import type { Config } from './types'
 import { API_URL } from '../../../config'
 import { notifyPersonaUpdated } from '../../../features/merope/events'
-import { reloadSystemConfig } from '../../../lib/api'
+import { reloadSystemConfig } from '../../../services/configApi'
 import { invalidateSpeechStatusCache } from '../../../services/speechApi'
-import { getCSRFToken } from '../../../utils/csrf'
 import { deepEqual } from '../../../utils/deepEqual'
 import { ISLAND_CONTENT_CHANGED_EVENT } from '../../../utils/islandContent'
 import {
@@ -34,7 +33,6 @@ export function configBagEffects(
     effects.push({
       id: 'runtime',
       run: async () => {
-        await getCSRFToken(true)
         const result = await reloadSystemConfig()
         if (result?.success === false)
           throw new Error(result.message || 'Runtime reload failed')

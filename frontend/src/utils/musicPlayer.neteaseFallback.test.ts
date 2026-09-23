@@ -15,6 +15,7 @@ import {
   isQQDirectPlayUrl,
   isWebAudioUnsafeMediaUrl,
   prefersSameOriginMusicProxy,
+  setMusicStreamProxyEnabled,
   withSpectrumSafePlaybackUrl,
 } from './musicPlayer'
 
@@ -166,5 +167,21 @@ describe('desktop Web Audio spectrum CORS (play-url → same-origin /audio/)', (
     const mid = '003xxx'
     assert.equal(isQQDirectPlayUrl(getQQPlayUrl(mid)), true)
     assert.equal(isQQDirectPlayUrl(getQQProxyAudioUrl(mid)), false)
+  })
+})
+
+describe('music stream proxy switch', () => {
+  it('uses play-url everywhere and never falls back to the proxy when off', (context) => {
+    setMusicStreamProxyEnabled(false)
+    context.after(() => setMusicStreamProxyEnabled(true))
+    const id = '12345'
+    assert.equal(prefersSameOriginMusicProxy(), false)
+    assert.equal(getNeteaseGeoPlaybackUrl(id, false), getNeteasePlayUrl(id))
+    assert.equal(getNeteaseAudioUrlImmediate(id), getNeteasePlayUrl(id))
+    assert.equal(getQQGeoPlaybackUrl(id, false), getQQPlayUrl(id))
+    assert.equal(getQQAudioUrlImmediate(id), getQQPlayUrl(id))
+    const song = { id, source: 'netease' as const, url: getNeteasePlayUrl(id) }
+    assert.equal(getNeteaseProxyFallbackUrl(song), null)
+    assert.equal(ensureSpectrumSafePlaybackUrl(song), song.url)
   })
 })

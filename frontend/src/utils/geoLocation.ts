@@ -2,7 +2,7 @@
 
 import { API_URL } from '../config'
 import { currentCopy } from '../i18n/localeCopy'
-import { httpStatusMessage } from './httpStatus'
+import { apiService } from '../services/api'
 import { dedupedFetch, getUIConfigDeduped } from './requestDedup'
 
 export interface GeoLocationData {
@@ -202,15 +202,7 @@ export function resetGeoCache(): void {
 async function getClientGeoFromBackend(): Promise<GeoLocationData | null> {
   const data = await dedupedFetch<GeoApiResponse>(
     `${API_URL}/api/proxy/client-geo`,
-    async () => {
-      const response = await fetch(`${API_URL}/api/proxy/client-geo`, {
-        signal: AbortSignal.timeout(10000),
-      })
-      if (!response.ok) {
-        throw new Error(httpStatusMessage(response.status))
-      }
-      return response.json()
-    },
+    () => apiService.get<GeoApiResponse>('/proxy/client-geo', { timeout: 10_000 }),
     { cacheTTL: GEO_CACHE_TTL },
   )
 

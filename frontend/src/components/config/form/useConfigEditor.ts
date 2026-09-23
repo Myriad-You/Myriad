@@ -93,22 +93,11 @@ export function useConfigEditor(
     return () => lifetime.abort()
   }, [load])
   useEffect(() => {
-    window.dispatchEvent(
-      new CustomEvent('config-dirty-state', { detail: { dirty: isDirty } }),
-    )
     if (!isDirty && !saving) return
     const beforeUnload = (event: BeforeUnloadEvent) => event.preventDefault()
     window.addEventListener('beforeunload', beforeUnload)
     return () => window.removeEventListener('beforeunload', beforeUnload)
   }, [isDirty, saving])
-  useEffect(
-    () => () => {
-      window.dispatchEvent(
-        new CustomEvent('config-dirty-state', { detail: { dirty: false } }),
-      )
-    },
-    [],
-  )
 
   const run = useCallback(async (scope?: string) => {
     // Save, reset and external save events share the same synchronous lock.

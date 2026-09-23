@@ -1,0 +1,29 @@
+name: Set up frontend
+description: Node 24, pnpm from frontend/package.json, frozen install, optional Playwright Chromium.
+
+inputs:
+  playwright:
+    description: Also install Playwright Chromium with system deps
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v5
+      with:
+        node-version: 24
+    - name: Install pnpm
+      shell: bash
+      run: npm install --global pnpm@11.25.0
+    - name: Install frontend dependencies
+      shell: bash
+      working-directory: frontend
+      run: pnpm install --frozen-lockfile
+      env:
+        HUSKY: '0'
+    - name: Install Playwright Chromium
+      if: inputs.playwright == 'true'
+      shell: bash
+      working-directory: frontend
+      run: pnpm exec playwright install --with-deps chromium

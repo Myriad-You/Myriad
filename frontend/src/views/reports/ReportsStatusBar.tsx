@@ -22,6 +22,7 @@ import {
   useState,
 } from 'react'
 import { Avatar } from '../../components/Avatar'
+import { emitAppEvent } from '../../utils/appEvents'
 import {
   buildReportsDynamicTips,
   marqueeDurationMs,
@@ -365,7 +366,7 @@ export default function ReportsStatusBar({
                 <button
                   type="button"
                   onClick={() => {
-                    window.dispatchEvent(new CustomEvent('stage-toggle-pause'))
+                    emitAppEvent('stage-toggle-pause')
                   }}
                   className={`rsb-btn is-icon ${stagePaused ? 'is-key' : ''}`}
                   title={

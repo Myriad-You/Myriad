@@ -1,3 +1,5 @@
+import { createStore } from '../../../utils/store'
+
 export interface ReadingProgress {
   get: () => number
   set: (value: number) => void
@@ -10,21 +12,10 @@ export function clampProgress(value: number): number {
 }
 
 export function createReadingProgress(initial = 0): ReadingProgress {
-  let value = clampProgress(initial)
-  const listeners = new Set<() => void>()
+  const store = createStore(clampProgress(initial))
   return {
-    get: () => value,
-    set: (next) => {
-      const clamped = clampProgress(next)
-      if (clamped === value) return
-      value = clamped
-      listeners.forEach((listener) => listener())
-    },
-    subscribe: (onStoreChange) => {
-      listeners.add(onStoreChange)
-      return () => {
-        listeners.delete(onStoreChange)
-      }
-    },
+    get: store.get,
+    set: next => store.set(clampProgress(next)),
+    subscribe: store.subscribe,
   }
 }

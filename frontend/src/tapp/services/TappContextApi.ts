@@ -1,7 +1,4 @@
-import { API_URL } from '../../config'
-import { hostLocaleHeaders } from '../../i18n/hostLocaleHeaders'
-import { getCSRFToken } from '../../utils/csrf'
-import { apiRequest } from './TappHttpClient'
+import { apiRequest, TappHttpError, tappRequest } from './TappHttpClient'
 
 export type DataInput =
   | { source: 'platform'; platform: string }
@@ -214,57 +211,31 @@ export async function executeTappApi(
   params?: Record<string, unknown>,
   runtimeGrant?: string,
 ): Promise<TappApiExecuteResponse> {
-  const execute = async (
-    grant: string | undefined,
-    retryOnRuntimeGrant: boolean,
-  ): Promise<TappApiExecuteResponse> => {
-    const csrfToken = (await getCSRFToken()) || ''
-    const response = await fetch(
-      `${API_URL}/api/tapp/${encodeURIComponent(tappId)}/api/${encodeURIComponent(apiName)}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken,
-          ...hostLocaleHeaders(),
-          ...(grant ? { 'X-Tapp-Runtime-Grant': grant } : {}),
-        },
-        body: JSON.stringify({ params }),
-        credentials: 'include',
-      },
+  try {
+    const result = await tappRequest<{
+      success?: boolean
+      data?: unknown
+      error?: string
+      cached?: boolean
+    }>(
+      `/api/tapp/${encodeURIComponent(tappId)}/api/${encodeURIComponent(apiName)}`,
+      { method: 'POST', body: JSON.stringify({ params }), runtimeGrant },
     )
-
-    const result = await response.json().catch(() => ({}))
-    if (
-      response.status === 401 &&
-      retryOnRuntimeGrant &&
-      grant &&
-      result.code === 'INVALID_RUNTIME_GRANT'
-    ) {
-      const { TappRuntimeGrant } = await import('../runtime/TappRuntimeGrant')
-      const replacement = await TappRuntimeGrant.recoverRejectedToken(grant)
-      if (replacement) return execute(replacement, false)
-    }
-
-    if (!response.ok) {
-      return {
-        success: false,
-        error:
-          result.message ||
-          result.error ||
-          `Declared API request failed (${response.status})`,
-      }
-    }
-
     return {
       success: result.success ?? false,
       data: result.data,
       error: result.error,
       cached: result.cached,
     }
+  } catch (error) {
+    // A declared API's refusal is data for the TAPP, not an exception.
+    if (!(error instanceof TappHttpError) || error.status === 0) throw error
+    const body = error.body as { message?: string, error?: string } | undefined
+    return {
+      success: false,
+      error: body?.message || body?.error || `Declared API request failed (${error.status})`,
+    }
   }
-
-  return execute(runtimeGrant, true)
 }
 
 export async function listTappApis(

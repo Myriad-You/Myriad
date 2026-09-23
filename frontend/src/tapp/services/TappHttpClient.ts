@@ -1,16 +1,9 @@
 import { API_URL } from '../../config'
 import { hostLocaleHeaders } from '../../i18n/hostLocaleHeaders'
 import { currentCopy } from '../../i18n/localeCopy'
-import { parseApiErrorBody } from '../../services/api'
+import { ApiError, apiService, parseApiErrorBody } from '../../services/api'
 import { authSubject } from '../../utils/authSubject'
-import { awaitAbortable } from '../../utils/awaitAbortable'
-import { getCSRFToken } from '../../utils/csrf'
 import { notifyHostSessionFailure } from '../../utils/hostSessionFailure'
-import {
-  notifyHttpRateLimit,
-  parseRetryAfterSeconds,
-  retryAfterSecondsFromBody,
-} from '../../utils/httpRateLimitToast'
 import { userFacingError } from '../../utils/userFacingError'
 
 export interface ApiRequestOptions extends RequestInit {
@@ -36,89 +29,62 @@ export class TappHttpError extends Error {
     this.retryAfter = opts?.retryAfter
     this.body = opts?.body
   }
+
+  static from(error: ApiError): TappHttpError {
+    return new TappHttpError(error.message, error.status, {
+      retryAfter: error.retryAfter,
+      body: error.body,
+      code: error.code,
+    })
+  }
 }
 
-export async function apiRequest<T>(
+/**
+ * TAPP endpoints over the shared client: CSRF, session-failure and rate-limit
+ * handling are the host's. This layer adds only the runtime grant (with its
+ * one-shot recovery) and no time budget — installs and store downloads are
+ * long-running. Resolves the raw body; see `apiRequest` for the envelope.
+ */
+export async function tappRequest<T>(
   endpoint: string,
   options: ApiRequestOptions = {},
-  retryOnCsrf: boolean = true,
   retryOnRuntimeGrant: boolean = true,
 ): Promise<T> {
-  options.signal?.throwIfAborted()
-  const requestSubject = authSubject.signal
-  const { runtimeGrant, ...fetchOptions } = options
-  const method = (options.method || 'GET').toUpperCase()
-  const needsCsrf =
-    method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS'
-  const csrfRequest = needsCsrf ? getCSRFToken() : Promise.resolve(null)
-  const csrfToken = (await (options.signal ? awaitAbortable(csrfRequest, options.signal) : csrfRequest)) || ''
-  options.signal?.throwIfAborted()
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...hostLocaleHeaders(),
-    ...(options.headers as Record<string, string>),
-  }
-
-  if (runtimeGrant) headers['X-Tapp-Runtime-Grant'] = runtimeGrant
-  if (needsCsrf && csrfToken) headers['X-CSRF-Token'] = csrfToken
-
-  const response = await fetch(`${API_URL}${endpoint}`, {
-    ...fetchOptions,
-    headers,
-    credentials: 'include',
-  })
-
-  options.signal?.throwIfAborted()
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}))
-    if (response.status === 429) {
-      notifyHttpRateLimit(response, errorData)
-    }
+  const { runtimeGrant, headers, ...init } = options
+  try {
+    return await apiService.request<T>(endpoint.replace(/^\/api(?=\/)/, ''), {
+      ...init,
+      timeout: 0,
+      headers: {
+        ...(headers as Record<string, string> | undefined),
+        ...(runtimeGrant ? { 'X-Tapp-Runtime-Grant': runtimeGrant } : {}),
+      },
+    })
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error
     if (
-      response.status === 403 &&
-      retryOnCsrf &&
-      (errorData.error?.includes('CSRF') || errorData.error?.includes('csrf'))
-    ) {
-      await getCSRFToken(true)
-      return apiRequest(endpoint, options, false, retryOnRuntimeGrant)
-    }
-
-    if (
-      response.status === 401 &&
+      error.status === 401 &&
       retryOnRuntimeGrant &&
       runtimeGrant &&
-      errorData.code === 'INVALID_RUNTIME_GRANT'
+      error.code === 'INVALID_RUNTIME_GRANT'
     ) {
       const { TappRuntimeGrant } = await import('../runtime/TappRuntimeGrant')
       const replacement =
         await TappRuntimeGrant.recoverRejectedToken(runtimeGrant)
       if (replacement) {
-        return apiRequest(
-          endpoint,
-          { ...options, runtimeGrant: replacement },
-          retryOnCsrf,
-          false,
-        )
+        return tappRequest(endpoint, { ...options, runtimeGrant: replacement }, false)
       }
     }
-
-    notifyHostSessionFailure(response.status, errorData, requestSubject)
-    const parsed = parseApiErrorBody(errorData, response.status)
-    const retryAfter =
-      response.status === 429
-        ? (parseRetryAfterSeconds(response) ??
-          retryAfterSecondsFromBody(errorData) ??
-          undefined)
-        : undefined
-    throw new TappHttpError(parsed.message, response.status, {
-      retryAfter,
-      body: errorData,
-      code: parsed.code,
-    })
+    throw TappHttpError.from(error)
   }
+}
 
-  const result = await response.json()
+/** `tappRequest` plus the standard `{ success, data }` envelope. */
+export async function apiRequest<T>(
+  endpoint: string,
+  options: ApiRequestOptions = {},
+): Promise<T> {
+  const result = await tappRequest<unknown>(endpoint, options)
   if (
     typeof result === 'object' &&
     result !== null &&

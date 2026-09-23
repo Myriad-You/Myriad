@@ -1247,7 +1247,10 @@
     "playlistRateLimited": "La source musique a limité cette requête. Réessayez plus tard ou passez à QQ Music.",
     "playlistBlocked": "Cette playlist est bloquée par les droits ou la région. Essayez QQ Music.",
     "playFailed": "Lecture échouée, vérifiez le réseau ou la dispo du titre",
-    "vipPlayFailed": "Titre VIP indisponible (abonnement ou essai requis)"
+    "vipPlayFailed": "Titre VIP indisponible (abonnement ou essai requis)",
+    "sourceDenied": "QQ Music refuse de fournir un lien de lecture anonyme (connexion requise ou accès bloqué). Ce n'est pas le titre : essayez NetEase.",
+    "songUnavailable": "Ce titre n'a pas de licence de lecture sur la source (droits, VIP ou région).",
+    "sourceUnreachable": "Source musique injoignable pour le moment. Réessayez plus tard."
   },
   "task": {
     "fetchFailed": "Impossible de récupérer l'état de la tâche",

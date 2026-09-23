@@ -6,46 +6,198 @@ on:
   push:
     # Post-merge gate for production line only; avoid double-run when PRs merge into preview/beta
     branches: [main]
+  # Path filters on PRs are hand-maintained; a missed cross-tree read would let
+  # a PR skip a job it can break. PR merges into preview/beta get no push run,
+  # so a nightly full run on the default branch (preview) bounds that window.
+  schedule:
+    - cron: '0 18 * * *'
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Only superseded PR pushes are cancelled; a newer push to main must not
+  # cancel the post-merge gate of the commit before it.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
+# Rust caches (Swatinem/rust-cache) are saved only by non-PR runs. A PR's cache
+# lives under refs/pull/N/merge and no other PR can read it, so saving per PR
+# only churned the 10 GB repo quota and evicted everything (every job was a
+# cold build). Base-branch caches written by push/nightly runs are readable by
+# every PR targeting that branch. The root workspace jobs share one key; only
+# the backend job saves it because it builds the superset of their artifacts.
+
 jobs:
-  frontend:
-    name: Frontend contracts and build
+  # Path gate: on PRs each job runs only when its module (or something its
+  # tests read across trees) changed. Push to main, the nightly schedule and
+  # manual dispatch run everything. Editing this workflow reruns everything.
+  changes:
+    name: Detect changed modules
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      frontend_contracts: ${{ github.event_name != 'pull_request' || steps.filter.outputs.frontend_contracts == 'true' }}
+      frontend_build: ${{ github.event_name != 'pull_request' || steps.filter.outputs.frontend_build == 'true' }}
+      frontend_browser: ${{ github.event_name != 'pull_request' || steps.filter.outputs.frontend_browser == 'true' }}
+      backend: ${{ github.event_name != 'pull_request' || steps.filter.outputs.backend == 'true' }}
+      proxy: ${{ github.event_name != 'pull_request' || steps.filter.outputs.proxy == 'true' }}
+      updater: ${{ github.event_name != 'pull_request' || steps.filter.outputs.updater == 'true' }}
+      smoke: ${{ github.event_name != 'pull_request' || steps.filter.outputs.smoke == 'true' }}
+      audit: ${{ github.event_name != 'pull_request' || steps.filter.outputs.audit == 'true' }}
+      tapp_cli: ${{ github.event_name != 'pull_request' || steps.filter.outputs.tapp_cli == 'true' }}
+    steps:
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            workflow: &workflow
+              - .github/workflows/ci.yml
+              - .github/actions/**
+            rust_toolchain: &rust_toolchain
+              - rust-toolchain.toml
+            frontend_build: &frontend_build
+              - *workflow
+              - frontend/**
+              - shared/**
+            frontend_browser:
+              - *frontend_build
+              # Fixtures read by the browser round-trip spec.
+              - crates/myriad-phantasi-notes/testdata/**
+            frontend_contracts:
+              - *frontend_build
+              - tests/merope/**
+              # Unit contract tests read these sources directly.
+              - backend/src/**
+              - crates/**
+              - docs/development/**
+              - proxy/src/main.rs
+            backend:
+              - *workflow
+              - *rust_toolchain
+              - Cargo.toml
+              - Cargo.lock
+              - .cargo/**
+              - backend/**
+              - crates/**
+              - tools/tapp-contract-export/**
+              - shared/**
+              - tests/merope/**
+              # include_str! targets
+              - docs/development/**
+              - docs/features/**
+            proxy:
+              - *workflow
+              - *rust_toolchain
+              - proxy/**
+            updater:
+              - *workflow
+              - *rust_toolchain
+              - updater/**
+              # Read by updater tests and the deployment compatibility script.
+              - docs/deployment/**
+              - scripts/extra/test-deployment-compatibility.py
+              - scripts/extra/deploy.sh
+              - .env.production.example
+              - docker-compose.yml
+              - .github/workflows/release.yml
+            smoke:
+              - *workflow
+              - *rust_toolchain
+              - Cargo.toml
+              - Cargo.lock
+              - backend/**
+              - crates/**
+              - frontend/**
+              - shared/**
+              - scripts/extra/smoke.sh
+            audit:
+              - *workflow
+              - .cargo/audit.toml
+              - .github/dependency-audit/**
+              - '**/Cargo.toml'
+              - '**/Cargo.lock'
+              - frontend/package.json
+              - frontend/pnpm-lock.yaml
+              - frontend/pnpm-workspace.yaml
+            tapp_cli:
+              - *workflow
+              - *rust_toolchain
+              - Cargo.toml
+              - Cargo.lock
+              - tools/tapp-cli/**
+              - tools/tapp-contract-export/**
+              - crates/**
+
+  # Split so backend-only changes rerun just the contract tests that read
+  # backend/crate sources, not the build, budget and browser suites.
+  frontend-contracts:
+    name: Frontend unit and static checks
+    needs: changes
+    if: needs.changes.outputs.frontend_contracts == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-      - name: Install pnpm
-        run: npm install --global pnpm@11.25.0
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-        env:
-          HUSKY: '0'
+      - uses: ./.github/actions/setup-frontend
       - name: Unit and static checks
         run: pnpm test
+
+  frontend-build:
+    name: Frontend build and first-paint budget
+    needs: changes
+    if: needs.changes.outputs.frontend_build == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-frontend
       - name: Production build
         run: pnpm build
       - name: Home first-paint budget
         run: pnpm test:home-budget
-      - name: Install browser for speech regression
-        run: pnpm exec playwright install --with-deps chromium
-      - name: Browser speech lifecycle regression (mock providers)
-        run: pnpm test:browser
+
+  # ~300 specs on one worker took ~9 min serially and gated the whole run.
+  # The suite serves itself from a Vite dev server (no production build
+  # needed), so shards run on separate runners with no shared state.
+  frontend-browser:
+    name: Frontend browser regression (${{ matrix.shard }}/3)
+    needs: changes
+    if: needs.changes.outputs.frontend_browser == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/setup-frontend
+        with:
+          playwright: 'true'
+      - name: Browser regression (mock providers)
+        run: pnpm test:browser --shard=${{ matrix.shard }}/3
 
   backend:
     name: Backend contracts and lints
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: backend
@@ -58,10 +210,14 @@ jobs:
         with:
           # Virtual workspace at repo root (backend + migrations + tapp-contract)
           workspaces: .
-      - name: Check all workspace targets
-        # cwd=backend still resolves the root workspace; --workspace prevents
-        # default-members from hiding a package from this gate.
-        run: cargo check --workspace --all-targets --locked
+          shared-key: workspace
+          save-if: ${{ github.event_name != 'pull_request' }}
+      # Clippy type-checks every target, so a separate `cargo check` pass only
+      # repeated the work. Running it first keeps lint/type errors fast-failing.
+      # cwd=backend still resolves the root workspace; --workspace prevents
+      # default-members from hiding a package from this gate.
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
       # Runs the whole suite, not just `cargo test tapp`. None of these tests
       # need a database — they were simply never wired into CI, so ~900 of them
       # had never run here.
@@ -70,12 +226,13 @@ jobs:
       # probes and manual asset reprocessing remain excluded from this suite.
       - name: Workspace tests
         run: cargo test --workspace --all-targets --locked
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   proxy:
     name: Proxy tests and lints
+    needs: changes
+    if: needs.changes.outputs.proxy == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: proxy
@@ -87,18 +244,20 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: proxy
+          save-if: ${{ github.event_name != 'pull_request' }}
       - name: Format proxy
         run: cargo fmt --all -- --check
-      - name: Check all targets
-        run: cargo check --all-targets --locked
-      - name: Proxy tests
-        run: cargo test --all-targets --locked
       - name: Clippy
         run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Proxy tests
+        run: cargo test --all-targets --locked
 
   updater:
     name: Updater tests and lints
+    needs: changes
+    if: needs.changes.outputs.updater == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: updater
@@ -110,20 +269,22 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: updater
-      - name: Check all targets
-        run: cargo check --all-targets --locked
+          save-if: ${{ github.event_name != 'pull_request' }}
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
       # The updater holds the highest-privilege paths in the system (Docker
       # socket, pgdata snapshots, image tags) and had no CI coverage at all.
       - name: Deployment compatibility
         run: python3 ../scripts/extra/test-deployment-compatibility.py
       - name: Updater tests
         run: cargo test --all-targets --locked
-      - name: Clippy
-        run: cargo clippy --all-targets --locked -- -D warnings
 
   business-smoke:
     name: Real backend business smoke
+    needs: changes
+    if: needs.changes.outputs.smoke == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:18-alpine
@@ -150,24 +311,18 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: .
-      - uses: actions/setup-node@v5
+          shared-key: workspace
+          save-if: false
+      - uses: ./.github/actions/setup-frontend
         with:
-          node-version: 24
-      - name: Install pnpm
-        run: npm install --global pnpm@11.25.0
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: pnpm install --frozen-lockfile
-        env:
-          HUSKY: '0'
-      - name: Install Playwright
-        working-directory: frontend
-        run: pnpm exec playwright install --with-deps chromium
+          playwright: 'true'
       - name: Business API smoke
         run: bash scripts/extra/smoke.sh
 
   schema-drift:
     name: Migrations vs schema_check drift gate
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -179,6 +334,7 @@ jobs:
     #
     # This job asserts the invariant that makes the duplication safe:
     # a freshly-migrated database needs zero healing.
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:18-alpine
@@ -199,6 +355,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: .
+          shared-key: workspace
+          save-if: false
       - name: Assert migrations leave no schema drift
         env:
           MYRIAD_SCHEMA_DRIFT_DB: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_drift
@@ -207,15 +365,18 @@ jobs:
         env:
           MYRIAD_SCHEMA_DRIFT_DB: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_drift
         run: cargo test --workspace --locked federation_outbox_and_delivery_lease_db_contracts -- --nocapture
+      # --workspace (not -p myriad-backend) keeps the feature set identical to
+      # the step above; -p re-resolved features and rebuilt a third of the
+      # graph. The test-path filters already scope these to the backend.
       - name: AI quota batching and concurrency contracts
         env:
           AI_QUOTA_TEST_DATABASE_URL: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_drift
-        run: cargo test -p myriad-backend --locked services::ai_quota::database_tests -- --ignored --nocapture
+        run: cargo test --workspace --locked services::ai_quota::database_tests -- --ignored --nocapture
       - name: Site owner resolution query
         env:
           # The test shadows `users` with a session-local temp table.
           SITE_OWNER_TEST_DATABASE_URL: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_drift
-        run: cargo test -p myriad-backend --locked services::site_owner::tests -- --ignored --nocapture
+        run: cargo test --workspace --locked services::site_owner::tests -- --ignored --nocapture
       - name: Native Work loop database and provider contracts
         env:
           # Debug Work futures exceed the test harness default 2 MiB stack.
@@ -227,11 +388,14 @@ jobs:
           MYRIAD_WORK_TEST_DATABASE_URL: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_work_loop_test
         run: |
           createdb myriad_work_loop_test
-          cargo test -p myriad-backend --locked services::agent::work_loop:: -- --ignored --skip configured_model_search_read_save_business_acceptance --skip work_process_fixture --test-threads=1 --nocapture
+          cargo test --workspace --locked services::agent::work_loop:: -- --ignored --skip configured_model_search_read_save_business_acceptance --skip work_process_fixture --test-threads=1 --nocapture
 
   dependency-audit:
     name: Dependency vulnerability scan
+    needs: changes
+    if: needs.changes.outputs.audit == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@1.98
@@ -241,8 +405,13 @@ jobs:
             .
             proxy
             updater
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+          # Only `cargo metadata` runs here; keep the registry, skip targets.
+          cache-targets: false
+          save-if: ${{ github.event_name != 'pull_request' }}
+      # Prebuilt binary; `cargo install` compiled it from source (~3 min).
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
       # cargo-audit has no --locked flag of its own. Resolve metadata with
       # Cargo's lock enforcement, then point audit at the exact committed lock.
       - name: Verify backend workspace lockfile
@@ -305,7 +474,10 @@ jobs:
 
   tapp-cli:
     name: Tapp CLI contract and tests
+    needs: changes
+    if: needs.changes.outputs.tapp_cli == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: tools/tapp-cli

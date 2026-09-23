@@ -17,12 +17,11 @@ import {
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Spinner } from '../../components/Spinner'
-import { API_URL as CONFIG_API_URL } from '../../config'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
 import { isPageVisible, startPage } from '../../hooks/animation'
 import { isExlight, useAnimationLevel } from '../../hooks/useAnimationLevel'
-import { getCSRFToken } from '../../utils/csrf'
+import { apiService } from '../../services/api'
 import { getUIConfigDeduped } from '../../utils/requestDedup'
 import { useTappSubject } from '../../utils/tappSubject'
 import { showError } from '../../utils/toastManager'
@@ -49,8 +48,6 @@ import { TappIcon } from './TappIcon'
 import { TappIconBadge } from './TappIconBadge'
 import { TappStore } from './TappStore'
 import './TappWindowManager.css'
-
-const API_URL = CONFIG_API_URL
 
 export type TappWindowKind = 'tapp' | 'host'
 
@@ -1137,29 +1134,9 @@ export const TappWindowManager: React.FC<TappWindowManagerProps> = ({
   })
 
   const saveToCloud = useCallback(async (schemes: WindowScheme[]) => {
-    const csrfToken = await getCSRFToken(true)
-    if (!csrfToken) {
-      throw new Error('csrf token unavailable')
-    }
-
-    const response = await fetch(
-      `${API_URL}/api/config/tapp-window-schemes`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken,
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          schemes: JSON.stringify(schemes),
-        }),
-      },
-    )
-
-    if (!response.ok) {
-      throw new Error(`Failed to save window schemes: HTTP ${response.status}`)
-    }
+    await apiService.post('/config/tapp-window-schemes', {
+      schemes: JSON.stringify(schemes),
+    })
   }, [])
 
   const saveCurrentScheme = useCallback(async () => {

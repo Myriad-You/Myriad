@@ -27,6 +27,7 @@ describe('proxyImageUrl', () => {
       'https://i1.hdslb.com/bfs/face/abc.jpg',
       'https://avatars.steamstatic.com/xxx_full.jpg',
       'https://p1.music.126.net/cover.jpg',
+      'https://y.gtimg.cn/music/photo_new/T002R300x300M000003H4b1P4V0990.jpg',
       'https://lain.bgm.tv/pic/cover/l/1.jpg',
       'https://pbs.twimg.com/profile_images/1/normal.jpg',
       'https://steamcdn-a.akamaihd.net/steamcommunity/public/images/avatars/a.jpg',

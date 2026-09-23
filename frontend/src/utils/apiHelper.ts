@@ -3,6 +3,7 @@ import { currentCopy, formatCurrent } from '../i18n/localeCopy'
 import { ApiError, parseApiErrorBody } from '../services/api'
 import { fetchWithAiConfiguration } from './aiConfiguration'
 import { withAiTimeoutSignal } from './aiRequestTimeout.mjs'
+import { parseRetryAfterSeconds, retryAfterSecondsFromBody } from './httpRateLimitToast'
 import { httpStatusMessage } from './httpStatus'
 import { isUselessErrorText } from './uselessErrorText'
 
@@ -42,7 +43,8 @@ export async function handleErrorResponse(
 
   if (hasJson) {
     try {
-      const parsed = parseApiErrorBody(await response.json(), response.status)
+      const body = await response.json()
+      const parsed = parseApiErrorBody(body, response.status)
       const message =
         !isUselessErrorText(parsed.message)
           ? parsed.message
@@ -53,6 +55,10 @@ export async function handleErrorResponse(
         parsed.code,
         parsed.details,
         parsed.hint,
+        body,
+        response.status === 429
+          ? (parseRetryAfterSeconds(response) ?? retryAfterSecondsFromBody(body) ?? undefined)
+          : undefined,
       )
     } catch (error) {
       if (error instanceof ApiError || isResponseCancellation(error)) throw error
@@ -93,6 +99,11 @@ function isIdempotent(method?: string): boolean {
   return m === 'GET' || m === 'HEAD'
 }
 
+/**
+ * Pre-session auth flows only (login, registration). Everything else uses
+ * `apiService`, whose 401 handling asks the host to re-validate its session —
+ * the wrong reaction to a mistyped password.
+ */
 export async function fetchJson<T = any>(
   url: string,
   options?: RequestInit,

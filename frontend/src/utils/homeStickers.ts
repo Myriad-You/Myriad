@@ -1,13 +1,10 @@
-import { API_URL } from '../config'
 import { currentCopy } from '../i18n/localeCopy'
-import { fetchJson } from './apiHelper'
-import { getCSRFHeaderName } from './csrf'
+import { apiService } from '../services/api'
 
 export interface GenerateHomeStickerInput {
   prompt: string
   width: number
   height: number
-  csrfToken: string
   referenceImages?: string[]
   aspect?: string
   slotCols?: number
@@ -58,52 +55,33 @@ export async function generateHomeSticker(
     0,
     HOME_STICKER_MAX_REFERENCES,
   )
-  const data = await fetchJson(
-    `${API_URL}/api/home/stickers/generate`,
+  const data = await apiService.post(
+    '/home/stickers/generate',
     {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        [getCSRFHeaderName()]: input.csrfToken,
-      },
-      signal: AbortSignal.timeout(STICKER_REQUEST_TIMEOUT_MS),
-      body: JSON.stringify({
-        prompt,
-        width: input.width,
-        height: input.height,
-        referenceImages,
-        aspect: input.aspect,
-        slotCols: input.slotCols,
-        slotRows: input.slotRows,
-      }),
+      prompt,
+      width: input.width,
+      height: input.height,
+      referenceImages,
+      aspect: input.aspect,
+      slotCols: input.slotCols,
+      slotRows: input.slotRows,
     },
-    currentCopy().home.stickerFailed,
+    { timeout: STICKER_REQUEST_TIMEOUT_MS },
   )
   return parseGenerateHomeStickerResponse(data)
 }
 
 export async function uploadHomeSticker(input: {
   image: string
-  csrfToken: string
 }): Promise<GeneratedHomeSticker> {
   const image = input.image.trim()
   if (!image.startsWith('data:image/')) {
     throw new Error(currentCopy().home.stickerUploadFailed)
   }
-  const data = await fetchJson(
-    `${API_URL}/api/home/stickers/upload`,
-    {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        [getCSRFHeaderName()]: input.csrfToken,
-      },
-      signal: AbortSignal.timeout(STICKER_REQUEST_TIMEOUT_MS),
-      body: JSON.stringify({ image }),
-    },
-    currentCopy().home.stickerUploadFailed,
+  const data = await apiService.post(
+    '/home/stickers/upload',
+    { image },
+    { timeout: STICKER_REQUEST_TIMEOUT_MS },
   )
   return parseGenerateHomeStickerResponse(data)
 }

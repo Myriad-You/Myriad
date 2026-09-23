@@ -5,6 +5,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useI18n } from '../../contexts/I18nContext'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
+import { emitAppEvent } from '../../utils/appEvents'
 import {
   buildTappMediaState,
   mergeMusicPlayerEventDetail,
@@ -451,7 +452,7 @@ export const TappPageSandbox: React.FC<TappPageSandboxProps> = ({
       bridge.emit('mediaStateChange', buildMediaState(currentGlobalState))
     } else {
       // 全局状态尚未初始化，触发同步请求（监听器已就位，会收到结果）
-      window.dispatchEvent(new CustomEvent('request-music-state-sync'))
+      emitAppEvent('request-music-state-sync')
     }
 
     // SDK 监听器就绪后再推一次

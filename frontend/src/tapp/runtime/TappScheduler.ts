@@ -1,10 +1,7 @@
 import type { TappAPIResponse } from '../types'
-import { hostLocaleHeaders } from '../../i18n/hostLocaleHeaders'
 import { currentCopy } from '../../i18n/localeCopy'
-import { getCSRFToken } from '../../utils/csrf'
 import { httpStatusMessage, userFacingError } from '../../utils/userFacingError'
-import { TappHttpError } from '../services/TappHttpClient'
-import { TappRuntimeGrant } from './TappRuntimeGrant'
+import { TappHttpError, tappRequest } from '../services/TappHttpClient'
 
 export type ScheduleType = 'cron' | 'interval' | 'once' | 'daily'
 
@@ -155,8 +152,6 @@ export class TappScheduler {
 
   private apiBaseUrl: string = ''
 
-  private authToken: string = ''
-
   private constructor() {}
 
   static getInstance(): TappScheduler {
@@ -171,9 +166,8 @@ export class TappScheduler {
     TappScheduler.instance = null
   }
 
-  initialize(apiBaseUrl: string, authToken: string): void {
+  initialize(apiBaseUrl: string): void {
     this.apiBaseUrl = apiBaseUrl.replaceAll(/\/$/g, '')
-    this.authToken = authToken
     if (this.shouldStayConnected()) this.ensureConnected()
   }
 
@@ -570,61 +564,25 @@ export class TappScheduler {
     endpoint: string,
     body?: unknown,
     runtimeGrant?: string,
-    retryOnRuntimeGrant: boolean = true,
   ): Promise<T> {
-    const url = `${this.apiBaseUrl}/tapp/scheduler${endpoint}`
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      ...hostLocaleHeaders(),
-    }
-
-    if (this.authToken) {
-      headers.Authorization = `Bearer ${this.authToken}`
-    }
-    if (runtimeGrant) {
-      headers['X-Tapp-Runtime-Grant'] = runtimeGrant
-    }
-    const upper = method.toUpperCase()
-    if (upper !== 'GET' && upper !== 'HEAD' && upper !== 'OPTIONS') {
-      const csrf = (await getCSRFToken()) || ''
-      if (csrf) headers['X-CSRF-Token'] = csrf
-    }
-
-    const response = await fetch(url, {
-      method,
-      headers,
-      credentials: 'include',
-      body: body ? JSON.stringify(body) : undefined,
-    })
-
-    if (!response.ok) {
-      const error = await response
-        .json()
-        .catch(() => ({ error: currentCopy().errors.requestFailed }))
-      if (
-        response.status === 401 &&
-        retryOnRuntimeGrant &&
-        runtimeGrant &&
-        error.code === 'INVALID_RUNTIME_GRANT'
-      ) {
-        const replacement =
-          await TappRuntimeGrant.recoverRejectedToken(runtimeGrant)
-        if (replacement) {
-          return this.apiRequest(method, endpoint, body, replacement, false)
-        }
-      }
+    try {
+      return await tappRequest<T>(`/api/tapp/scheduler${endpoint}`, {
+        method,
+        body: body ? JSON.stringify(body) : undefined,
+        runtimeGrant,
+      })
+    } catch (error) {
+      if (!(error instanceof TappHttpError) || error.status === 0) throw error
+      const reason = (error.body as { error?: string } | undefined)?.error
       throw new TappHttpError(
         userFacingError(
-          error.error || httpStatusMessage(response.status),
+          reason || httpStatusMessage(error.status),
           currentCopy().errors.noticeScheduleFailed,
         ),
-        response.status,
-        { body: error, code: error.code },
+        error.status,
+        { body: error.body, code: error.code },
       )
     }
-
-    return response.json()
   }
 }
 

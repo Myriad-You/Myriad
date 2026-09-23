@@ -1,5 +1,6 @@
 import type { AgentAttachment } from './agentAttachments'
 import type { AgentPanelMode } from './agentPanelMode'
+import { createStore, patchStore } from '../../utils/store'
 import { getAgentPanelMode, isAgentPanelMode } from './agentPanelMode'
 
 export const AGENT_PANEL_SUBMIT_EVENT = 'agent-panel-submit'
@@ -116,17 +117,84 @@ export interface QueuedAgentPanelOpen {
   stage: 'overlay' | 'full'
 }
 
-let queuedAgentPanelOpen: QueuedAgentPanelOpen | null = null
-
-/** 引擎尚未挂上时先记下打开请求，面板 mount 后再消费。 */
-export function queueAgentPanelOpen(next: QueuedAgentPanelOpen): void {
-  queuedAgentPanelOpen = next
+export interface QueuedAgentSessionOpen {
+  sessionId: string
+  runId?: string
+  taskId?: string
 }
 
-export function takeQueuedAgentPanelOpen(): QueuedAgentPanelOpen | null {
-  const next = queuedAgentPanelOpen
-  queuedAgentPanelOpen = null
-  return next
+/**
+ * 面板/引擎挂上之前（访问检查、语言包、懒加载 chunk）打开请求没有监听者。
+ * 先记在这里，由挂上的一方 attach 时消费；attach 之后由它自己听事件，不再排队。
+ */
+const panelQueue = createStore<{ open: QueuedAgentPanelOpen | null, attached: boolean }>({
+  open: null,
+  attached: false,
+})
+let queuedAgentSessionOpen: QueuedAgentSessionOpen | null = null
+let engineAttached = false
+
+/** Fires when a panel open is queued, consumed or discarded, or the panel attaches/detaches. */
+export const subscribeAgentOpenQueue = panelQueue.subscribe
+
+export function isAgentPanelAttached(): boolean {
+  return panelQueue.get().attached
+}
+
+export function queueAgentPanelOpen(next: QueuedAgentPanelOpen): void {
+  if (!panelQueue.get().attached) patchStore(panelQueue, { open: next })
+}
+
+export function hasQueuedAgentPanelOpen(): boolean {
+  return panelQueue.get().open !== null
+}
+
+/** 面板 mount：取走排队的打开请求，并接管后续打开。 */
+export function attachAgentPanelOpenQueue(): {
+  queued: QueuedAgentPanelOpen | null
+  detach: () => void
+} {
+  const queued = panelQueue.get().open
+  patchStore(panelQueue, { open: null, attached: true })
+  return {
+    queued,
+    detach: () => {
+      patchStore(panelQueue, { attached: false })
+    },
+  }
+}
+
+export function queueAgentSessionOpen(event: Event): void {
+  if (engineAttached) return
+  const detail = (event as CustomEvent<Partial<QueuedAgentSessionOpen> | null>).detail
+  if (typeof detail?.sessionId !== 'string' || !detail.sessionId) return
+  queuedAgentSessionOpen = {
+    sessionId: detail.sessionId,
+    runId: typeof detail.runId === 'string' ? detail.runId : undefined,
+    taskId: typeof detail.taskId === 'string' ? detail.taskId : undefined,
+  }
+}
+
+/** 引擎 mount：取走排队的会话打开请求，并接管后续请求。 */
+export function attachAgentSessionOpenQueue(): {
+  queued: QueuedAgentSessionOpen | null
+  detach: () => void
+} {
+  engineAttached = true
+  const queued = queuedAgentSessionOpen
+  queuedAgentSessionOpen = null
+  return {
+    queued,
+    detach: () => {
+      engineAttached = false
+    },
+  }
+}
+
+/** 访问被拒时丢弃未兑现的请求，避免之后获准时突然弹出。 */
+export function clearQueuedAgentOpens(): void {
+  queuedAgentSessionOpen = null
+  patchStore(panelQueue, { open: null })
 }
 
 export const AGENT_PANEL_CLOSE_EVENT = 'agent-panel-close'

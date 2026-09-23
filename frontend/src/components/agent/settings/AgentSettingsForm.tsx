@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { useConfigI18n as useI18n } from '../../../contexts/I18nContext'
 import { settingsAgentLabel } from '../../../features/merope/publicName'
 import { usePersonaPublicName } from '../../../features/merope/usePersonaPublicName'
+import { emitAppEvent } from '../../../utils/appEvents'
 import { AgentConfigSection } from '../../config'
 import { ConfigDefaultsProvider } from '../../config/ConfigDefaultsProvider'
 import {
@@ -35,7 +36,7 @@ const AgentSettingsEditor: React.FC = () => {
 
   const contentReady = agent.ready && !agent.loading && !agent.error
   useEffect(() => {
-    if (contentReady) window.dispatchEvent(new CustomEvent('config-loaded'))
+    if (contentReady) emitAppEvent('config-loaded')
   }, [contentReady])
 
   useEffect(() => {

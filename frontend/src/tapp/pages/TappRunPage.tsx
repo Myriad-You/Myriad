@@ -24,6 +24,7 @@ import { useI18n } from '../../contexts/I18nContext'
 import { isExlight, useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { useBreakpoints } from '../../hooks/useBreakpoints'
 import { usePageSeo } from '../../hooks/usePageSeo'
+import { emitAppEvent } from '../../utils/appEvents'
 import {
   canAccessModuleVisibility,
   useModuleVisibilityPreferences,
@@ -571,11 +572,7 @@ function TappRunPageStandard({
               )}
               <motion.button
                 onClick={() =>
-                  window.dispatchEvent(
-                    new CustomEvent('arael-open-session', {
-                      detail: { sessionId: '' },
-                    }),
-                  )
+                  emitAppEvent('arael-open-session', { sessionId: '' })
                 }
                 className="rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-900/20 dark:hover:text-indigo-400"
                 title={t.agentPanel.askArael}

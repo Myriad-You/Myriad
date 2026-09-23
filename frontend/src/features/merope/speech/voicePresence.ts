@@ -1,35 +1,38 @@
+import { createStore, patchStore } from '../../../utils/store'
+
 export interface VoicePresenceState {
   listening: boolean
   ttsPlaying: boolean
   userSpeaking: boolean
 }
 
-const listeners = new Set<() => void>()
-let state: VoicePresenceState = {
+let listenerCount = 0
+const state = createStore<VoicePresenceState>({
   listening: false,
   ttsPlaying: false,
   userSpeaking: false,
-}
+})
 
-export function getVoicePresence(): VoicePresenceState {
-  return state
-}
+export const getVoicePresence = state.get
 
 export function patchVoicePresence(
   patch: Partial<VoicePresenceState>,
 ): VoicePresenceState {
-  state = { ...state, ...patch }
-  for (const listener of listeners) listener()
-  return state
+  return patchStore(state, patch)
 }
 
 export function subscribeVoicePresence(listener: () => void): () => void {
-  listeners.add(listener)
+  const stop = state.subscribe(listener)
+  listenerCount++
+  let active = true
   return () => {
-    listeners.delete(listener)
+    if (!active) return
+    active = false
+    listenerCount--
+    stop()
   }
 }
 
 export function voicePresenceListenerCount(): number {
-  return listeners.size
+  return listenerCount
 }

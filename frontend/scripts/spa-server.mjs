@@ -9,6 +9,7 @@ import http from 'node:http'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import zlib from 'node:zlib'
 
 import { isClientAbortError } from './devServerResponse.mjs'
 import {
@@ -148,6 +149,51 @@ function cacheControl(urlPath) {
   return 'no-cache'
 }
 
+// Variants emitted by scripts/vite/precompress.mjs. dist is immutable for
+// the life of the process, so each file is probed once.
+const ENCODINGS = [
+  { token: 'br', ext: '.br' },
+  { token: 'gzip', ext: '.gz' },
+]
+const variantCache = new Map()
+
+function variantsOf(file) {
+  let found = variantCache.get(file)
+  if (!found) {
+    found = ENCODINGS.flatMap(({ token, ext }) => {
+      try {
+        const st = statSync(file + ext)
+        return st.isFile() ? [{ token, file: file + ext, size: st.size }] : []
+      } catch {
+        return []
+      }
+    })
+    variantCache.set(file, found)
+  }
+  return found
+}
+
+/** Encodings the client accepts (q > 0), in server preference order. */
+function acceptedEncodings(header) {
+  const accepted = new Set()
+  for (const part of String(header || '').split(',')) {
+    const [token, ...params] = part.trim().toLowerCase().split(';')
+    const q = params.map((p) => p.trim()).find((p) => p.startsWith('q='))
+    if (token && !(q && Number(q.slice(2)) === 0)) accepted.add(token)
+  }
+  return ENCODINGS.map(({ token }) => token).filter((token) => accepted.has(token))
+}
+
+/** Stamped HTML is per-request and small; fast levels keep it sub-millisecond. */
+function compressDynamic(body, token) {
+  if (token === 'br') {
+    return zlib.brotliCompressSync(body, {
+      params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 5 },
+    })
+  }
+  return zlib.gzipSync(body, { level: 6 })
+}
+
 function contentType(file) {
   return MIME.get(path.extname(file).toLowerCase()) || 'application/octet-stream'
 }
@@ -201,19 +247,37 @@ async function handle(req, res) {
       const parsed = JSON.parse(raw.toString('utf8'))
       body = Buffer.from(JSON.stringify(stampWebManifest(parsed, brand)))
     }
+    headers.Vary = 'Accept-Encoding'
+    const [token] = acceptedEncodings(req.headers['accept-encoding'])
+    if (token) {
+      body = compressDynamic(body, token)
+      headers['Content-Encoding'] = token
+    }
     headers['Content-Length'] = body.length
     send(res, { status: 200, headers, body, method })
     return
   }
 
-  const { size } = statSync(found.file)
+  let file = found.file
+  let { size } = statSync(file)
+  const variants = variantsOf(file)
+  if (variants.length > 0) {
+    headers.Vary = 'Accept-Encoding'
+    const accepted = acceptedEncodings(req.headers['accept-encoding'])
+    const variant = variants.find(({ token }) => accepted.includes(token))
+    if (variant) {
+      file = variant.file
+      size = variant.size
+      headers['Content-Encoding'] = variant.token
+    }
+  }
   headers['Content-Length'] = size
   res.writeHead(200, headers)
   if (method === 'HEAD') {
     res.end()
     return
   }
-  createReadStream(found.file).pipe(res)
+  createReadStream(file).pipe(res)
 }
 
 if (!existsSync(INDEX)) {

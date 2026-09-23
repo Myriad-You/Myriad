@@ -21,12 +21,18 @@ test('task polling waits for completion, stops at terminal states, and discards 
   let nextTimer = 0
   const schedule = (callback: () => void, delay: number) => { timers.set(++nextTimer, { callback, delay }); return nextTimer }
   const requests: { url: string; signal: AbortSignal; resolve: (data: Response) => void; reject: (error: Error) => void }[] = []
-  const fetchTask = (url: string, options: RequestInit) => new Promise<Response>((resolve, reject) => requests.push({ url, signal: options.signal!, resolve, reject }))
+  // Stand-in for the service: transport per call, non-2xx rejects with the server message.
+  const getTask = async (url: string, signal: AbortSignal) => {
+    const response = await new Promise<Response>((resolve, reject) => requests.push({ url, signal, resolve, reject }))
+    const body = await response.json()
+    if (!response.ok) throw Object.assign(new Error(body.error), { status: response.status })
+    return body
+  }
   const bundle = await build({
     entryPoints: [fileURLToPath(new URL('./TaskStatus.tsx', import.meta.url))], bundle: true, write: false,
     platform: 'node', format: 'cjs', packages: 'external', define: { 'import.meta.env': '{}' },
     plugins: [{ name: 'boundaries', setup(builder) {
-      builder.onResolve({ filter: /(@lib\/icons|contexts\/I18nContext|\.\/Spinner)$/ }, ({ path }) => ({ path, external: true }))
+      builder.onResolve({ filter: /(@lib\/icons|contexts\/I18nContext|services\/platformTasksApi|\.\/Spinner)$/ }, ({ path }) => ({ path, external: true }))
     } }],
   })
   const t = { task: { fetchFailed: 'Fetch failed' }, common: {}, reportsPage: {} }
@@ -34,11 +40,12 @@ test('task polling waits for completion, stops at terminal states, and discards 
     if (path.includes('I18nContext')) return { useI18n: () => ({ t, locale: 'en-US' }) }
     if (path === '@lib/icons') return Object.fromEntries(['FaCheckCircle', 'FaExclamationCircle', 'FaSpinner', 'FaTimes'].map(key => [key, () => null]))
     if (path === './Spinner') return { Spinner: () => null }
+    if (path.includes('platformTasksApi')) return { getTask }
     return require(path)
   }
   const module = { exports: {} as typeof import('./TaskStatus') }
-  compileFunction(bundle.outputFiles[0].text, ['require', 'module', 'exports', 'setTimeout', 'clearTimeout', 'fetch'])(
-    mockRequire, module, module.exports, schedule, (id: number) => timers.delete(id), fetchTask,
+  compileFunction(bundle.outputFiles[0].text, ['require', 'module', 'exports', 'setTimeout', 'clearTimeout'])(
+    mockRequire, module, module.exports, schedule, (id: number) => timers.delete(id),
   )
   const root = createRoot(dom.window.document.getElementById('root'))
   let completed = 0

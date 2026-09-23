@@ -17,7 +17,7 @@ import React, {
 } from 'react'
 import { API_URL } from '../../config'
 import { useConfigI18n as useI18n } from '../../contexts/I18nContext'
-import { fetchJson } from '../../utils/apiHelper'
+import { apiService } from '../../services/api'
 import { resolvePlatformId } from '../../utils/platformId'
 import { userFacingError } from '../../utils/userFacingError'
 import PlatformIcon from '../PlatformIcon'
@@ -272,11 +272,7 @@ const PlatformsConfigSection: React.FC<PlatformsConfigSectionProps> = ({
 
   const loadCardPreviews = useCallback(async () => {
     try {
-      const data = await fetchJson<CardPreviewsResponse>(
-        `${API_URL}/api/cache/previews`,
-        undefined,
-        'Unable to load platform previews',
-      )
+      const data = await apiService.get<CardPreviewsResponse>('/cache/previews')
       if (data?.success && data.previews) {
         setCardPreviews(data.previews)
       }

@@ -19,6 +19,7 @@ import { useI18n } from '../../contexts/I18nContext'
 import { useVisibilityInterval } from '../../hooks/animation'
 import { useEditModeEscape } from '../../hooks/useEditModeEscape'
 import { useTappWidgets } from '../../hooks/useTappWidgets'
+import { emitAppEvent } from '../../utils/appEvents'
 import WidgetGrid, { startGridLibraryDrag } from '../WidgetGrid'
 import { getBuiltinWidgets } from '../widgets/builtinWidgets'
 import {
@@ -162,9 +163,7 @@ export const ControlPanelWidgets: React.FC<ControlPanelWidgetsProps> = memo(
       if (Math.abs(to - from) < 1) return
 
       // 先让外壳读 auto 下的 scrollHeight，再钉高度。
-      window.dispatchEvent(
-        new CustomEvent('gcp-remeasure', { detail: { immediate: true } }),
-      )
+      emitAppEvent('gcp-remeasure', { immediate: true })
 
       el.style.height = `${from}px`
       void el.offsetHeight

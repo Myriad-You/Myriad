@@ -1,40 +1,30 @@
-import { API_URL } from '../config'
+import type { DashboardConfigPatch } from './dashboardConfigApi'
 import { currentCopy } from '../i18n/localeCopy'
 import { authSubject } from '../utils/authSubject'
 import { DebouncedLatestWriter } from '../utils/debouncedLatestWriter'
 import { formatUserFacingError } from '../utils/formatUserFacingError'
-import { clearDedupCache } from '../utils/requestDedup'
 import { showError } from '../utils/toastManager'
+import { saveDashboardConfig } from './dashboardConfigApi'
 
-export type DashboardAppearancePatch = Partial<{
-  title_font: string
-  title_font_size: number
-  title_color: string
-  widget_theme: string
-}>
+export type DashboardAppearancePatch = Pick<
+  DashboardConfigPatch,
+  'title_font' | 'title_font_size' | 'title_color' | 'widget_theme'
+>
 
 type SaveErrorKey = 'titleStyleSaveFailed' | 'widgetThemeSaveFailed'
 
 function createWriter(signal: AbortSignal) {
   let pending: DashboardAppearancePatch = {}
   let activeErrorKey: SaveErrorKey = 'titleStyleSaveFailed'
-  const queue = new DebouncedLatestWriter<{ settings: DashboardAppearancePatch, token: string, errorKey: SaveErrorKey }>({
+  const queue = new DebouncedLatestWriter<{ settings: DashboardAppearancePatch, errorKey: SaveErrorKey }>({
     signal,
     delay: 500,
-    write: async ({ settings, token, errorKey }, owner) => {
+    write: async ({ settings, errorKey }, owner) => {
       pending = {}
       activeErrorKey = errorKey
       owner.throwIfAborted()
-      const response = await fetch(`${API_URL}/api/config/dashboard`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token },
-        credentials: 'include',
-        signal: owner,
-        body: JSON.stringify(settings),
-      })
-      if (!response.ok) throw new Error(`Failed to save dashboard appearance: HTTP ${response.status}`)
+      await saveDashboardConfig(settings, { signal: owner })
       owner.throwIfAborted()
-      clearDedupCache(`${API_URL}/api/config/ui`)
     },
     onError: async (error, owner) => {
       const message = await formatUserFacingError(error, currentCopy().errors[activeErrorKey])
@@ -43,9 +33,9 @@ function createWriter(signal: AbortSignal) {
   })
   return {
     signal,
-    enqueue(settings: DashboardAppearancePatch, token: string, errorKey: SaveErrorKey) {
+    enqueue(settings: DashboardAppearancePatch, errorKey: SaveErrorKey) {
       pending = { ...pending, ...settings }
-      queue.enqueue({ settings: pending, token, errorKey })
+      queue.enqueue({ settings: pending, errorKey })
     },
   }
 }
@@ -53,8 +43,8 @@ function createWriter(signal: AbortSignal) {
 let writer: ReturnType<typeof createWriter> | null = null
 
 /** Account-owned writes survive panel closure; a subject change cancels pending work. */
-export function saveDashboardAppearance(csrfToken: string, settings: DashboardAppearancePatch, errorKey: SaveErrorKey, owner = authSubject.signal) {
+export function saveDashboardAppearance(settings: DashboardAppearancePatch, errorKey: SaveErrorKey, owner = authSubject.signal) {
   if (owner.aborted || owner !== authSubject.signal) return
   if (!writer || writer.signal !== owner) writer = createWriter(owner)
-  writer.enqueue(settings, csrfToken, errorKey)
+  writer.enqueue(settings, errorKey)
 }

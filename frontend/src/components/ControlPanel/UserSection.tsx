@@ -15,6 +15,7 @@ import { useI18n } from '../../contexts/I18nContext'
 import { setForegroundSurface } from '../../features/merope/perception/surface'
 import { useSiteOwnerProfile } from '../../hooks/useSiteOwnerProfile'
 import { onProfileDisplayChanged } from '../../services/avatarSourceApi'
+import { emitAppEvent } from '../../utils/appEvents'
 import { getCSRFToken } from '../../utils/csrf'
 import { clearPlaylistCache } from '../../utils/musicPlayer'
 import { lockScroll } from '../../utils/scrollLock'
@@ -162,14 +163,10 @@ export const UserSection: React.FC<UserSectionProps> = memo(
         },
       )
 
-      window.dispatchEvent(
-        new CustomEvent('auth-state-changed', {
-          detail: {
+      emitAppEvent('auth-state-changed', {
             isAuthenticated: false,
             isAdmin: false,
-          },
-        }),
-      )
+          })
 
       try {
         const { cleanupTemporaryTapps } = await import(

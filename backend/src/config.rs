@@ -524,6 +524,11 @@ pub struct DynamicConfig {
     pub music_enabled: Option<String>,
     pub music_source: Option<String>,
     pub music_playlist_id: Option<String>,
+    /// 播放器是否走同源全量音频代理。关闭后一律用 play-url 直连 CDN，
+    /// 桌面端频谱因 CORS 不可用。缺省开。
+    pub music_proxy_enabled: bool,
+    /// 播放器是否预加载下一首。缺省开。
+    pub music_preload_enabled: bool,
 
     /// 智能岛收缩态是否轮播问候 / 天气 / 一言 / 音乐 / Tapp。缺省全开。
     /// 通知进岛走通知偏好，不走这组开关。
@@ -888,6 +893,8 @@ impl Default for DynamicConfig {
             music_enabled: None,
             music_source: None,
             music_playlist_id: None,
+            music_proxy_enabled: true,
+            music_preload_enabled: true,
 
             island_show_greeting: true,
             island_show_weather: true,

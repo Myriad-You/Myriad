@@ -9,6 +9,7 @@ import { motionShim as motion } from '@lib/motionShim'
 import React, { useCallback, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useConfigI18n as useI18n } from '../contexts/I18nContext'
+import { emitAppEvent } from '../utils/appEvents'
 import {
   AboutConfigSection,
   AdvancedConfigSection,
@@ -139,7 +140,7 @@ const ModernConfigForm: React.FC = () => {
         (domain.ready && !domain.loading && !domain.error),
     )
   useEffect(() => {
-    if (contentReady) window.dispatchEvent(new CustomEvent('config-loaded'))
+    if (contentReady) emitAppEvent('config-loaded')
   }, [contentReady, activeSection])
 
   useEffect(() => {

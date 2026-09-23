@@ -41,7 +41,6 @@ function HomeStatusBarSlot({
 export interface HomeAdminChromeProps {
   isEditMode: boolean
   toggleEditMode: () => void
-  csrfToken: string
   handleLayoutModeToggle: () => void
   layouts: HomeDashboardLayouts
   resolvedLayoutMode: HomeLayoutMode
@@ -55,7 +54,6 @@ export interface HomeAdminChromeProps {
 export function HomeStatusBarActions({
   isEditMode,
   toggleEditMode,
-  csrfToken,
   handleLayoutModeToggle,
   layouts,
   resolvedLayoutMode,
@@ -72,7 +70,7 @@ export function HomeStatusBarActions({
       <HomeStatusBarSlot open={isEditMode} side="before">
         {isEditMode ? (
           <Suspense fallback={null}>
-            <TitleFontSelector csrfToken={csrfToken} />
+            <TitleFontSelector />
           </Suspense>
         ) : null}
       </HomeStatusBarSlot>
@@ -143,7 +141,6 @@ export function HomeStatusBarActions({
 export function HomeLayoutRail({
   isEditMode,
   toggleEditMode,
-  csrfToken,
   handleLayoutModeToggle,
   layouts,
   resolvedLayoutMode,
@@ -226,7 +223,6 @@ export function HomeLayoutRail({
             {isEditMode ? (
               <Suspense fallback={null}>
                 <TitleFontSelector
-                  csrfToken={csrfToken}
                   buttonClassName="home-layout-rail__btn"
                   showHeroOptions={false}
                 />

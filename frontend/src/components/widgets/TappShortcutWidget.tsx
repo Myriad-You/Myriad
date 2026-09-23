@@ -410,15 +410,7 @@ export const TappShortcutWidget = memo(
       (nextTappId: string) => {
         setTappId(nextTappId)
         const payload = { ...config.config, tappId: nextTappId }
-        if (typeof onConfigChange === 'function') {
-          onConfigChange(payload)
-        } else {
-          window.dispatchEvent(
-            new CustomEvent('widget-config-update', {
-              detail: { widgetId: config.id, config: payload },
-            }),
-          )
-        }
+        onConfigChange?.(payload)
       },
       [config.config, config.id, onConfigChange],
     )

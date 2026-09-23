@@ -104,17 +104,10 @@ describe('registerAssetHandlers', { concurrency: false }, () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.includes('/api/csrf-token')) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ csrf_token: null }),
-        } as Response
+        return Response.json(({ csrf_token: null }), { status: 200 })
       }
       calls.push({ url, method: (init?.method || 'GET').toUpperCase() })
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+      return Response.json(({
           success: true,
           data: {
             path: 'assets/icon.png',
@@ -122,8 +115,7 @@ describe('registerAssetHandlers', { concurrency: false }, () => {
             size: 4,
             base64: 'iVBOR',
           },
-        }),
-      } as Response
+        }), { status: 200 })
     }) as typeof fetch
     const bridge = new FakeBridge()
     registerAssetHandlers(bridge as unknown as TappBridge, instance)

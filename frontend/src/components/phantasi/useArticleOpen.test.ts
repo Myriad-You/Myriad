@@ -101,7 +101,8 @@ it('Phantasi hooks reject stale opens, retry failed pages, and settle partial un
       assert.equal(url.searchParams.get('filter'), 'starred')
       if (cursor && failNextPage) {
         failNextPage = false
-        return Response.json({ error: 'page unavailable' }, { status: 503 })
+        // 500, not a gateway 5xx: the shared client retries 502–504 on reads by itself.
+        return Response.json({ error: 'page unavailable' }, { status: 500 })
       }
       const id = cursor ? 2 : 1
       return Response.json({
@@ -263,7 +264,8 @@ it('Phantasi hooks reject stale opens, retry failed pages, and settle partial un
       cursors.push(cursor)
       if (failRepair) {
         failRepair = false
-        return Response.json({ error: 'repair unavailable' }, { status: 503 })
+        // Not a gateway 5xx, which the shared client would retry by itself.
+        return Response.json({ error: 'repair unavailable' }, { status: 500 })
       }
       const afterId = cursor ? Number(cursor.split(':')[1]) : 0
       const start = serverItems.findIndex(item => item.id > afterId)

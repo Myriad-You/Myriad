@@ -29,6 +29,8 @@ it('cached journal reads stop their transport when the last caller leaves', asyn
       requestCache.clear()
       const owner = new AbortController()
       const first = read(owner.signal)
+      // The shared client dispatches after its async pre-flight checks.
+      await new Promise(resolve => setImmediate(resolve))
       const transport = signals.at(-1)!
       owner.abort()
       await assert.rejects(first, { name: 'AbortError' })

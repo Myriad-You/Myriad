@@ -9,6 +9,7 @@ import type { LibraryItem } from './libraryCanvasVisible'
 import { FaBook, FaGamepad, FaMusic, FaVideo } from '@lib/icons'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../../contexts/I18nContext'
+import { emitAppEvent } from '../../utils/appEvents'
 import {
   acquireCoverDecodeSlot,
   LIBRARY_CARD_COVER_SIZES,
@@ -1320,10 +1321,10 @@ export function useLibraryCardActions() {
         musicState?.currentSong?.id != null &&
         String(musicState.currentSong.id) === songId
       ) {
-        window.dispatchEvent(new CustomEvent('open-control-panel'))
+        emitAppEvent('open-control-panel')
         // 暂停中再点同一首应恢复，不要当成已在播放。
         if (!musicState.isPlaying) {
-          window.dispatchEvent(new CustomEvent('toggle-play-pause'))
+          emitAppEvent('toggle-play-pause')
         }
         return
       }
@@ -1376,8 +1377,8 @@ export function useLibraryCardActions() {
         isVip,
       }
 
-      window.dispatchEvent(new CustomEvent('open-control-panel'))
-      window.dispatchEvent(new CustomEvent('play-song', { detail: { song } }))
+      emitAppEvent('open-control-panel')
+      emitAppEvent('play-song', { song })
       void import('../../utils/analyticsEvents').then(
         ({ trackProductEvent, AnalyticsEvents }) => {
           trackProductEvent(AnalyticsEvents.MUSIC_LIBRARY_PLAY, {

@@ -1,6 +1,5 @@
 import type { Config, PlatformAutoFetchConfig } from './types'
-import { fetchConfig, updateConfig } from '../../../lib/api'
-import { getCSRFToken } from '../../../utils/csrf'
+import { fetchConfig, updateConfig } from '../../../services/configApi'
 import {
   hasBangumiCredential,
   isBangumiPlatform,
@@ -40,7 +39,6 @@ export function useConfigBagState(messages: {
       ) {
         throw new Error(messages.bangumiCredentialMissing)
       }
-      await getCSRFToken(true)
       const result = await updateConfig(omitAgentOwnedFields(config))
       if (result?.success === false)
         throw new Error(result.message || messages.configSaveFailed)

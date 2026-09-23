@@ -2,6 +2,7 @@
 
 import { API_URL } from '../config'
 import { proxyImageUrl } from './proxyImageUrl'
+import { getUIConfigDeduped } from './requestDedup'
 
 const SW_URL = '/sw.js'
 const MANIFEST_HREF = '/manifest.webmanifest'
@@ -750,16 +751,12 @@ function parsePwaEnabled(raw: unknown): boolean {
 export async function syncPwaFromServer(): Promise<boolean> {
   let enabled = true
   try {
-    const base = API_URL || ''
-    const url = base ? `${base}/api/config/ui` : '/api/config/ui'
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 3000)
-    const response = await fetch(url, { signal: controller.signal })
-    clearTimeout(timeoutId)
-    if (response.ok) {
-      const data = (await response.json()) as { pwa_enabled?: unknown }
-      enabled = parsePwaEnabled(data?.pwa_enabled)
-    }
+    // Shares the shell's in-flight request; the 3s cap only bounds our wait.
+    const data = (await Promise.race([
+      getUIConfigDeduped(),
+      new Promise<never>((_, reject) => setTimeout(reject, 3000)),
+    ])) as { pwa_enabled?: unknown }
+    enabled = parsePwaEnabled(data?.pwa_enabled)
   } catch {
   }
   await applyPwaEnabled(enabled)

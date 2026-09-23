@@ -25,9 +25,9 @@ import {
   AGENT_PANEL_CLOSE_EVENT,
   AGENT_PANEL_OPEN_EVENT,
   agentPanelOpenView,
+  attachAgentPanelOpenQueue,
   dispatchAgentPanelAction,
   dispatchAgentPanelSubmit,
-  takeQueuedAgentPanelOpen,
 } from './agentPanelEvents'
 import { AgentPanelFull, AgentPanelSessionChrome } from './AgentPanelFull'
 import { AgentPanelIntention } from './AgentPanelIntention'
@@ -138,7 +138,7 @@ export const AgentPanel: React.FC = () => {
   const showsComposer = !pendingAction && !(showsFull && fullView === 'manage')
 
   useEffect(() => {
-    const queued = takeQueuedAgentPanelOpen()
+    const { queued, detach } = attachAgentPanelOpenQueue()
     if (queued) {
       setFullView(queued.view)
       dispatch({ type: 'open', stage: queued.stage })
@@ -148,7 +148,10 @@ export const AgentPanel: React.FC = () => {
       dispatch({ type: 'open', stage: 'full' })
     }
     window.addEventListener(AGENT_PANEL_OPEN_EVENT, onOpen)
-    return () => window.removeEventListener(AGENT_PANEL_OPEN_EVENT, onOpen)
+    return () => {
+      window.removeEventListener(AGENT_PANEL_OPEN_EVENT, onOpen)
+      detach()
+    }
   }, [])
 
   useEffect(() => {
@@ -207,7 +210,12 @@ export const AgentPanel: React.FC = () => {
 
   useEffect(() => watchAgentSelection(), [])
 
+  // 只在路由真正变化时收起：面板常由一次打开请求触发首次挂载，
+  // 挂载时也执行会把刚兑现的排队打开立刻关掉（首次打开不显示）。
+  const shownPathname = useRef(location.pathname)
   useEffect(() => {
+    if (shownPathname.current === location.pathname) return
+    shownPathname.current = location.pathname
     dispatch({ type: 'close' })
     clearAgentSelection()
   }, [location.pathname])

@@ -1,8 +1,9 @@
-import { API_URL } from '../config'
 import { currentCopy } from '../i18n/localeCopy'
-import api from '../lib/api'
-import { getCSRFHeaderName, getCSRFToken } from '../utils/csrf'
 import { userFacingError } from '../utils/userFacingError'
+import { apiService } from './api'
+
+/** Source uploads are unbounded by the default 30s request budget. */
+const UPLOAD_TIMEOUT_MS = 10 * 60_000
 
 export type TripoOperation =
   'image_to_model' | 'multiview_to_model' | 'rig_check' | 'rig' | 'retarget'
@@ -74,38 +75,25 @@ export interface AwaitTripoTaskOptions {
   onProgress?: (task: TripoTask) => void
 }
 
-export async function getTripoStatus(): Promise<TripoStatus> {
-  const response = await api.get<TripoStatus>('/api/model3d/status')
-  return response.data
+export function getTripoStatus(): Promise<TripoStatus> {
+  return apiService.get<TripoStatus>('/model3d/status')
 }
 
 export async function uploadTripoFile(file: File): Promise<string> {
   const form = new FormData()
   form.append('file', file, file.name)
-  const headers: Record<string, string> = {}
-  const csrf = await getCSRFToken()
-  if (csrf) headers[getCSRFHeaderName()] = csrf
-
-  // Do not use shared Axios (breaks multipart boundary).
-  const response = await fetch(`${API_URL}/api/model3d/files`, {
-    method: 'POST',
-    headers,
-    body: form,
-    credentials: 'include',
-  })
-  const data = (await response.json().catch(() => ({}))) as {
-    file_token?: string
-    error?: string
-    message?: string
-  }
-  if (!response.ok || !data.file_token) {
+  let data: { file_token?: string }
+  try {
+    data = await apiService.post('/model3d/files', form, { timeout: UPLOAD_TIMEOUT_MS })
+  } catch (error) {
     throw new Error(
       userFacingError(
-        data.error || data.message || `Tripo upload failed: ${response.status}`,
+        error instanceof Error ? error.message : '',
         currentCopy().errors.model3dFailed,
       ),
     )
   }
+  if (!data.file_token) throw new Error(currentCopy().errors.model3dFailed)
   return data.file_token
 }
 
@@ -113,24 +101,23 @@ export async function createTripoTask(
   operation: TripoOperation,
   payload: Record<string, unknown>,
 ): Promise<string> {
-  const response = await api.post<{ task_id: string }>(
-    '/api/model3d/tasks',
+  const data = await apiService.post<{ task_id: string }>(
+    '/model3d/tasks',
     { operation, payload },
   )
-  if (!response.data.task_id)
+  if (!data.task_id)
     throw new Error(currentCopy().errors.model3dFailed)
-  return response.data.task_id
+  return data.task_id
 }
 
-export async function getTripoTask(
+export function getTripoTask(
   taskId: string,
   signal?: AbortSignal,
 ): Promise<TripoTask> {
-  const response = await api.get<TripoTask>(
-    `/api/model3d/tasks/${encodeURIComponent(taskId)}`,
+  return apiService.get<TripoTask>(
+    `/model3d/tasks/${encodeURIComponent(taskId)}`,
     { timeout: 15 * 60_000, signal },
   )
-  return response.data
 }
 
 function abortError(): Error {

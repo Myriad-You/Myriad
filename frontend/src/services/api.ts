@@ -7,16 +7,22 @@ import { authSubject } from '../utils/authSubject'
 import { awaitAbortable } from '../utils/awaitAbortable'
 import { clearCSRFToken, getCSRFToken } from '../utils/csrf'
 import { notifyHostSessionFailure } from '../utils/hostSessionFailure'
-import { notifyHttpRateLimit } from '../utils/httpRateLimitToast'
+import {
+  notifyHttpRateLimit,
+  parseRetryAfterSeconds,
+  retryAfterSecondsFromBody,
+} from '../utils/httpRateLimitToast'
 import { httpStatusMessage } from '../utils/httpStatus'
 
 const API_BASE = `${API_URL}/api`
 
 export interface ApiRequestOptions extends RequestInit {
   requireAuth?: boolean
-  /** ms */
+  /** ms; 0 leaves the request unbounded (AI routes keep their own floor). */
   timeout?: number
   params?: Record<string, string | number | boolean | undefined>
+  /** Resolve the success body as a Blob instead of JSON. */
+  responseType?: 'json' | 'blob'
 }
 
 export class ApiError extends Error {
@@ -26,10 +32,23 @@ export class ApiError extends Error {
     public code?: string,
     public details?: unknown,
     public hint?: string,
+    /** Parsed error response body, when the server sent JSON. */
+    public body?: unknown,
+    /** Seconds the server asked us to wait (429 only). */
+    public retryAfter?: number,
   ) {
     super(message)
     this.name = 'ApiError'
   }
+}
+
+/** Multipart and binary bodies go out as-is; the browser sets their Content-Type. */
+function encodeBody(data: unknown): BodyInit | undefined {
+  if (!data) return undefined
+  if (data instanceof FormData || data instanceof Blob || data instanceof URLSearchParams) {
+    return data
+  }
+  return JSON.stringify(data)
 }
 
 /** Machine codes: snake_case, SCREAMING_SNAKE, or short ALLCAPS. Not English labels. */
@@ -68,21 +87,19 @@ export function parseApiErrorBody(
   }
 }
 
+/** Relative to the page when API_URL is empty; no dependency on `window`. */
 function buildUrl(
   endpoint: string,
   params?: Record<string, string | number | boolean | undefined>,
 ): string {
-  const url = new URL(`${API_BASE}${endpoint}`, window.location.origin)
-
-  if (params) {
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined) {
-        url.searchParams.append(key, String(value))
-      }
-    })
+  const url = `${API_BASE}${endpoint}`
+  if (!params) return url
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) query.append(key, String(value))
   }
-
-  return url.toString()
+  const search = query.toString()
+  return search ? `${url}${url.includes('?') ? '&' : '?'}${search}` : url
 }
 
 function isCsrfErrorBody(body: {
@@ -92,6 +109,56 @@ function isCsrfErrorBody(body: {
   const haystack =
     `${String(body.error ?? '')} ${String(body.message ?? '')}`.toLowerCase()
   return haystack.includes('csrf')
+}
+
+/** Gateway hiccups and dropped connections: safe to repeat only for reads. */
+const TRANSIENT_STATUSES = new Set([502, 503, 504])
+const TRANSIENT_RETRIES = 3
+
+/** Longest Retry-After a read will quietly wait out before surfacing a 429. */
+export const RATE_LIMIT_RETRY_MAX_MS = 8_000
+
+/** How long to wait before repeating a rate-limited read, or null to give up. */
+export function rateLimitRetryDelayMs(retryAfterSeconds: number | null): number | null {
+  if (retryAfterSeconds == null) return 1_000
+  const ms = Math.ceil(retryAfterSeconds * 1000)
+  return ms <= RATE_LIMIT_RETRY_MAX_MS ? Math.max(ms, 250) : null
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return awaitAbortable(new Promise<void>(resolve => setTimeout(resolve, ms)), signal)
+}
+
+/**
+ * Idempotent reads retry transient failures and wait out one short 429 window
+ * (no red toast for a blip); everything else is sent once.
+ */
+async function dispatch(url: string, init: RequestInit, idempotent: boolean): Promise<Response> {
+  const signal = init.signal!
+  let waitedOutRateLimit = false
+  for (let attempt = 0; ; attempt++) {
+    const last = !idempotent || attempt >= TRANSIENT_RETRIES
+    let response: Response
+    try {
+      response = await fetchWithAiConfiguration(url, init)
+    } catch (error) {
+      if (last || !(error instanceof TypeError) || signal.aborted) throw error
+      await sleep(150 * (attempt + 1), signal)
+      continue
+    }
+    if (idempotent && response.status === 429 && !waitedOutRateLimit) {
+      const wait = rateLimitRetryDelayMs(parseRetryAfterSeconds(response))
+      if (wait != null) {
+        waitedOutRateLimit = true
+        void response.body?.cancel().catch(() => {})
+        await sleep(wait, signal)
+        continue
+      }
+    }
+    if (last || !TRANSIENT_STATUSES.has(response.status)) return response
+    void response.body?.cancel().catch(() => {})
+    await sleep(150 * (attempt + 1), signal)
+  }
 }
 
 /** CSRF: retry once. */
@@ -106,6 +173,7 @@ async function request<T>(
     requireAuth: _requireAuth = false,
     timeout: timeoutOpt = 30000,
     params,
+    responseType = 'json',
     ...fetchOptions
   } = options
 
@@ -113,6 +181,9 @@ async function request<T>(
     'Content-Type': 'application/json',
     ...hostLocaleHeaders(),
     ...(fetchOptions.headers as Record<string, string>),
+  }
+  if (fetchOptions.body != null && typeof fetchOptions.body !== 'string') {
+    delete headers['Content-Type']
   }
 
   const method = fetchOptions.method?.toUpperCase() || 'GET'
@@ -122,7 +193,7 @@ async function request<T>(
   const timeout = Math.max(timeoutOpt, aiRequestTimeoutMs(url) ?? 0)
 
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), timeout)
+  const timeoutId = timeout > 0 ? setTimeout(() => controller.abort(), timeout) : undefined
 
   const signal = options.signal
     ? AbortSignal.any([options.signal, controller.signal])
@@ -134,17 +205,16 @@ async function request<T>(
       signal.throwIfAborted()
       if (csrfToken) headers['X-CSRF-Token'] = csrfToken
     }
-    const response = await fetchWithAiConfiguration(url, {
+    const response = await dispatch(url, {
       ...fetchOptions,
       headers,
       credentials: 'include',
       signal,
-    })
+    }, method === 'GET' || method === 'HEAD')
 
     options.signal?.throwIfAborted()
 
     if (!response.ok) {
-      notifyHttpRateLimit(response)
       let errorMessage = httpStatusMessage(response.status)
       let errorCode: string | undefined
       let errorDetails: unknown
@@ -164,6 +234,7 @@ async function request<T>(
         options.signal?.throwIfAborted()
       }
 
+      notifyHttpRateLimit(response, errorBody)
       notifyHostSessionFailure(response.status, errorBody, requestSubject)
 
       // CSRF: force-refresh and retry once.
@@ -194,8 +265,14 @@ async function request<T>(
         errorCode,
         errorDetails,
         errorHint,
+        errorBody ?? undefined,
+        response.status === 429
+          ? (parseRetryAfterSeconds(response) ?? retryAfterSecondsFromBody(errorBody) ?? undefined)
+          : undefined,
       )
     }
+
+    if (responseType === 'blob') return (await response.blob()) as T
 
     const contentType = response.headers.get('content-type')
     if (contentType?.includes('application/json')) {
@@ -313,6 +390,11 @@ async function requestBlob(
 }
 
 export const apiService = {
+  /** Escape hatch for callers that build their own RequestInit (method, raw body). */
+  request<T>(endpoint: string, options?: ApiRequestOptions): Promise<T> {
+    return request<T>(endpoint, options)
+  },
+
   get<T>(endpoint: string, options?: ApiRequestOptions): Promise<T> {
     return request<T>(endpoint, { ...options, method: 'GET' })
   },
@@ -332,7 +414,7 @@ export const apiService = {
     return request<T>(endpoint, {
       ...options,
       method: 'POST',
-      body: data ? JSON.stringify(data) : undefined,
+      body: encodeBody(data),
     })
   },
 
@@ -344,7 +426,7 @@ export const apiService = {
     return request<T>(endpoint, {
       ...options,
       method: 'PUT',
-      body: data ? JSON.stringify(data) : undefined,
+      body: encodeBody(data),
     })
   },
 
@@ -356,7 +438,7 @@ export const apiService = {
     return request<T>(endpoint, {
       ...options,
       method: 'PATCH',
-      body: data ? JSON.stringify(data) : undefined,
+      body: encodeBody(data),
     })
   },
 

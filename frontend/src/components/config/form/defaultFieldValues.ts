@@ -87,6 +87,8 @@ export function defaultUiFieldValue(key: string): string {
   if (key === 'site_footer_custom') return ''
   if (key === 'music_source') return 'netease'
   if (key === 'music_playlist_id') return ''
+  if (key === 'music_proxy_enabled') return 'true'
+  if (key === 'music_preload_enabled') return 'true'
   if (key === 'proxy_enabled') return 'false'
   if (key === 'memory_saver_enabled') return 'false'
   if (key === 'precise_location_enabled') return 'false'

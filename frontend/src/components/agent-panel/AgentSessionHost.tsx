@@ -5,7 +5,10 @@ import {
   AGENT_PANEL_OPEN_EVENT,
   AGENT_PANEL_OPEN_SESSION_EVENT,
   agentPanelOpenView,
+  hasQueuedAgentPanelOpen,
   queueAgentPanelOpen,
+  queueAgentSessionOpen,
+  subscribeAgentOpenQueue,
 } from './agentPanelEvents'
 import { LONG_PRESS_DURATION, useLongPress } from './useLongPress'
 import './agent-panel-longpress.css'
@@ -20,51 +23,69 @@ const WAKE_EVENTS = [
   'arael-open-manage',
 ] as const
 
+const LONG_PRESS_OPEN: QueuedAgentPanelOpen = { view: 'messages', stage: 'overlay' }
+
 // React lazy surfaces import failures through its render boundary; warming is optional.
 function preloadAgentSession(): void {
   void import('./AgentEngine').catch(() => {})
   void import('./AgentPanel').catch(() => {})
 }
 
+function queueOpenFor(event: Event): void {
+  if (event.type === 'arael-open-session') queueAgentSessionOpen(event)
+  queueAgentPanelOpen({
+    view: event.type === AGENT_PANEL_OPEN_EVENT
+      ? agentPanelOpenView(event)
+      : event.type === 'arael-open-manage' ? 'manage' : 'messages',
+    stage: 'full',
+  })
+}
+
+/**
+ * 面板 attach 之前（访问检查、语言包、懒加载 chunk）替它收下长按与打开事件，
+ * 记进队列由面板/引擎挂上后兑现。只收集意图，不画长按指示——那由宿主负责。
+ */
+export function AgentOpenIntentCapture() {
+  useEffect(() => {
+    for (const name of WAKE_EVENTS) window.addEventListener(name, queueOpenFor)
+    return () => {
+      for (const name of WAKE_EVENTS) window.removeEventListener(name, queueOpenFor)
+    }
+  }, [])
+  useLongPress(
+    LONG_PRESS_DURATION,
+    useCallback(() => queueAgentPanelOpen(LONG_PRESS_OPEN), []),
+    true,
+  )
+  return null
+}
+
 /**
  * 推迟 AgentEngine / AgentPanel 的第一次 import。
- * 打开面板立刻挂；否则首屏后 5s + idle，避开 3s 后台 Tapp。挂上之后关面板不卸。
+ * 有排队的打开请求立刻挂；否则首屏后 5s + idle，避开 3s 后台 Tapp。挂上之后关面板不卸。
  */
 export function AgentSessionHost({ children }: { children: React.ReactNode }) {
   const documentReady = useSyncExternalStore(subscribeDocumentReady, isDocumentReady, () => false)
+  const openQueued = useSyncExternalStore(
+    subscribeAgentOpenQueue,
+    hasQueuedAgentPanelOpen,
+    () => false,
+  )
   const [ready, setReady] = useState(false)
 
-  const wake = useCallback((queued?: QueuedAgentPanelOpen) => {
-    if (queued) queueAgentPanelOpen(queued)
+  const wake = useCallback(() => {
     preloadAgentSession()
     setReady(true)
   }, [])
 
   useEffect(() => {
-    if (ready) return
-    const onEvent = (event: Event) => {
-      if (event.type === AGENT_PANEL_OPEN_EVENT) {
-        wake({ view: agentPanelOpenView(event), stage: 'full' })
-        return
-      }
-      if (event.type === 'arael-open-manage') {
-        wake({ view: 'manage', stage: 'full' })
-        return
-      }
-      if (
-        event.type === AGENT_PANEL_OPEN_SESSION_EVENT ||
-        event.type === 'arael-open-session'
-      ) {
-        wake({ view: 'messages', stage: 'full' })
-        return
-      }
-      wake({ view: 'messages', stage: 'full' })
-    }
-    for (const name of WAKE_EVENTS) {
-      window.addEventListener(name, onEvent)
-    }
+    if (!ready && openQueued) wake()
+  }, [openQueued, ready, wake])
+
+  useEffect(() => {
+    if (ready || !documentReady) return
     let idleId: number | null = null
-    const timerId = documentReady ? window.setTimeout(() => {
+    const timerId = window.setTimeout(() => {
       if ('requestIdleCallback' in window) {
         idleId = requestIdleCallback(() => wake(), {
           timeout: AGENT_SESSION_IDLE_TIMEOUT_MS,
@@ -72,25 +93,17 @@ export function AgentSessionHost({ children }: { children: React.ReactNode }) {
       } else {
         wake()
       }
-    }, AGENT_SESSION_DELAY_MS) : null
+    }, AGENT_SESSION_DELAY_MS)
     return () => {
-      for (const name of WAKE_EVENTS) {
-        window.removeEventListener(name, onEvent)
-      }
-      if (timerId !== null) window.clearTimeout(timerId)
+      window.clearTimeout(timerId)
       if (idleId !== null && 'cancelIdleCallback' in window) {
         cancelIdleCallback(idleId)
       }
     }
   }, [documentReady, ready, wake])
 
-  const { indicator } = useLongPress(
-    LONG_PRESS_DURATION,
-    useCallback(() => {
-      wake({ view: 'messages', stage: 'overlay' })
-    }, [wake]),
-    !ready,
-  )
+  // 触发由 AgentOpenIntentCapture 排队；这里只画按压反馈。
+  const { indicator } = useLongPress(LONG_PRESS_DURATION, undefined, !ready)
 
   if (ready) return children
 

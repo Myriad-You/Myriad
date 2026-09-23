@@ -1,14 +1,17 @@
+import type { CacheInfo } from '../../services/platformTasksApi'
 import type { ToastType } from '../Toast'
 
 import type { PlatformDataPreviewHandle } from './PlatformDataPreview'
 import { FaSyncAlt, FaTrash } from '@lib/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { API_URL } from '../../config'
 import { useI18n } from '../../contexts/I18nContext'
-import { useBackgroundTasks } from '../../hooks/useBackgroundTasks'
-import { hostLocaleHeaders } from '../../i18n/hostLocaleHeaders'
-import { fetchJson } from '../../utils/apiHelper'
-import { getCSRFToken } from '../../utils/csrf'
+import {
+  clearPlatformCache,
+  fetchPlatformData,
+  getPlatformCacheStatus,
+  getPlatformMetadataStatus,
+  submitPlatformTask,
+} from '../../services/platformTasksApi'
 import { resolvePlatformId } from '../../utils/platformId'
 import { platformFetchDetails, refreshPlatformViews } from '../../utils/platformRefresh'
 import { notifyRecentActivityUpdated } from '../../utils/recentActivity'
@@ -17,26 +20,10 @@ import { ButtonItem, SettingGroup, useSettingGuide } from '../settings'
 import { TaskStatus } from '../TaskStatus'
 import PlatformDataPreview from './PlatformDataPreview'
 
-interface CacheInfo {
-  platform: string
-  exists: boolean
-  size_bytes?: number
-  modified_at?: string
-  path: string
-}
-
 interface PlatformStatus {
   hasRawData: boolean
   rawDataSize: number
   rawFetchedAt: string | null
-}
-
-interface PlatformMetadataStatusResponse {
-  success: boolean
-  platform: string
-  has_raw_data: boolean
-  raw_data_size: number
-  raw_fetched_at: string | null
 }
 
 export interface PlatformDataManagementProps {
@@ -70,8 +57,6 @@ export default function PlatformDataManagement({
   const [processing, setProcessing] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [activeTask, setActiveTask] = useState<string | null>(null)
-  const { clearPlatformCache, getPlatformCacheStatus, submitTask } =
-    useBackgroundTasks()
   const loadRequestRef = useRef(0)
   const previewRef = useRef<PlatformDataPreviewHandle>(null)
 
@@ -84,11 +69,7 @@ export default function PlatformDataManagement({
     setCacheStatusError(false)
 
     const [rawResult, cacheResult] = await Promise.allSettled([
-      fetchJson<PlatformMetadataStatusResponse>(
-        `${API_URL}/api/profile/metadata/status/${encodeURIComponent(platformId)}`,
-        undefined,
-        'Unable to load platform data status',
-      ),
+      getPlatformMetadataStatus(platformId),
       getPlatformCacheStatus(platformId),
     ])
 
@@ -133,7 +114,6 @@ export default function PlatformDataManagement({
       setStatusLoading(false)
     }
   }, [
-    getPlatformCacheStatus,
     platformId,
     platformName,
     showMessage,
@@ -168,27 +148,7 @@ export default function PlatformDataManagement({
     setRefreshing(true)
     setFetchResult(null)
     try {
-      const csrfToken = await getCSRFToken(true)
-      if (!csrfToken) {
-        showMessage(t.dataManagement.csrfTokenError, 'error', 5000)
-        return
-      }
-
-      const response = await fetch(`${API_URL}/api/profile/fetch-platform`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken,
-          ...hostLocaleHeaders(),
-        },
-        body: JSON.stringify({ platform: platformId }),
-      })
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.message || format(t.errors.httpStatus, { status: response.status }))
-      }
+      const data = await fetchPlatformData(platformId)
 
       // Both full and partial fetches may have updated persisted data.
       await refreshPlatformViews(loadStatus, async () => previewRef.current?.reload())
@@ -219,8 +179,11 @@ export default function PlatformDataManagement({
   const processPlatform = async () => {
     if (!platformId) return
 
-    const taskId = await submitTask(platformId)
-    if (!taskId) {
+    let taskId: string
+    try {
+      taskId = await submitPlatformTask(platformId)
+    } catch (error) {
+      console.error('Error submitting task:', error)
       showMessage(
         format(t.dataManagement.submitTaskFailed, { platform: platformName }),
         'error',
@@ -244,8 +207,11 @@ export default function PlatformDataManagement({
 
     setClearing(true)
     try {
-      const success = await clearPlatformCache(platformId)
-      if (!success) {
+      const cleared = await clearPlatformCache(platformId).then(() => true, (error) => {
+        console.error('Error clearing platform cache:', error)
+        return false
+      })
+      if (!cleared) {
         showMessage(
           format(t.dataManagement.clearCacheFailed, { platform: platformName }),
           'error',

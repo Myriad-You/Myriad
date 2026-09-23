@@ -19,12 +19,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { API_URL } from '../../config'
 import { useI18n, withI18nNamespace } from '../../contexts/I18nContext'
+import { currentCopy } from '../../i18n/localeCopy'
+import { ApiError, apiService } from '../../services/api'
 import { TappIconBadge } from '../../tapp/components/TappIconBadge'
 import { getRecentTapps, listTapps } from '../../tapp/services/TappLifecycleApi'
 import { resolveManifestText } from '../../tapp/utils/manifestLocale'
 import { getTappIconStyle } from '../../tapp/utils/tappColors'
 import { TAPP_LIST_PATH, tappRunPath } from '../../tapp/utils/tappPaths'
-import { getCSRFToken } from '../../utils/csrf'
 import { normalizeOAuthIconUrl } from '../../utils/oauthIcons'
 import { showError, showStickyToast, showSuccess } from '../../utils/toastManager'
 import { userFacingError } from '../../utils/userFacingError'
@@ -58,6 +59,21 @@ interface UserInfo {
   avatar: string | null
   bio: string
   platform: string
+}
+
+interface PasswordResult {
+  success?: boolean
+  message?: string
+  error?: string
+}
+
+/** The server's refusal keeps its own fallback; only transport failures read as network errors. */
+function requestFailure(error: unknown, rejectedFallback: string): string {
+  const copy = currentCopy()
+  return userFacingError(
+    error,
+    error instanceof ApiError && error.status > 0 ? rejectedFallback : copy.userModal.networkError,
+  )
 }
 
 interface UserModalProps {
@@ -254,14 +270,12 @@ const UserModalBody: FC<UserModalProps> = ({
   const loadOAuthBindings = useCallback(async () => {
     setOAuthLoading(true)
     try {
-      const [providersRes, identitiesRes] = await Promise.all([
-        fetch(`${API_URL}/api/auth/oauth/providers`, {
-          credentials: 'include',
-        }),
-        fetch(`${API_URL}/api/auth/identities`, { credentials: 'include' }),
+      const [providersRes, identitiesRes] = await Promise.allSettled([
+        apiService.get<{ providers?: unknown }>('/auth/oauth/providers'),
+        apiService.get<{ identities?: unknown }>('/auth/identities'),
       ])
-      if (providersRes.ok) {
-        const data = await providersRes.json()
+      if (providersRes.status === 'fulfilled') {
+        const data = providersRes.value
         setOAuthProviders(
           (Array.isArray(data?.providers) ? data.providers : []).filter(
             (provider: { slug?: string }) =>
@@ -269,8 +283,8 @@ const UserModalBody: FC<UserModalProps> = ({
           ),
         )
       }
-      if (identitiesRes.ok) {
-        const data = await identitiesRes.json()
+      if (identitiesRes.status === 'fulfilled') {
+        const data = identitiesRes.value
         const list = Array.isArray(data?.identities) ? data.identities : []
         setIdentities(
           list
@@ -417,41 +431,13 @@ const UserModalBody: FC<UserModalProps> = ({
     if (!window.confirm(t.userModal.oauthUnbindConfirm)) return
     setUnbindingId(identity.id)
     try {
-      const csrfToken = await getCSRFToken()
-      if (!csrfToken) {
-        showStickyToast({
-          message: t.userModal.cannotGetCsrf,
-          type: 'error',
-          replaceKey: 'user-oauth',
-        })
-        return
-      }
-      const response = await fetch(
-        `${API_URL}/api/auth/oauth/${encodeURIComponent(identity.provider)}/unlink/${identity.id}`,
-        {
-          method: 'DELETE',
-          credentials: 'include',
-          headers: { 'X-CSRF-Token': csrfToken },
-        },
+      await apiService.delete(
+        `/auth/oauth/${encodeURIComponent(identity.provider)}/unlink/${identity.id}`,
       )
-      if (!response.ok) {
-        const body = await response.json().catch(() => null)
-        showStickyToast({
-          message: userFacingError(
-            (typeof body?.message === 'string' && body.message) ||
-              (typeof body?.error === 'string' && body.error) ||
-              `HTTP ${response.status}`,
-            t.userModal.oauthUnbindFailed,
-          ),
-          type: 'error',
-          replaceKey: 'user-oauth',
-        })
-        return
-      }
       await loadOAuthBindings()
     } catch (error) {
       showStickyToast({
-        message: userFacingError(error, t.userModal.networkError),
+        message: requestFailure(error, t.userModal.oauthUnbindFailed),
         type: 'error',
         replaceKey: 'user-oauth',
       })
@@ -512,41 +498,18 @@ const UserModalBody: FC<UserModalProps> = ({
     setPasswordSubmitting(true)
 
     try {
-      const csrfToken = await getCSRFToken(true)
-      if (!csrfToken) {
-        setPasswordError(t.userModal.cannotGetCsrf)
-        setPasswordSubmitting(false)
-        return
-      }
-
-      const response = await fetch(`${API_URL}/api/auth/change-password`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken,
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          old_password: oldPassword,
-          new_password: newPassword,
-        }),
+      const result = await apiService.post<PasswordResult>('/auth/change-password', {
+        old_password: oldPassword,
+        new_password: newPassword,
       })
-
-      const result = await response.json()
-
-      if (response.ok && result.success) {
+      if (result.success) {
         showSuccess(t.userModal.passwordChanged)
         setPage('main')
       } else {
-        setPasswordError(
-          userFacingError(
-            result.message || result.error || `HTTP ${response.status}`,
-            t.errors.passwordChangeFailed,
-          ),
-        )
+        setPasswordError(userFacingError(result.message || result.error, t.errors.passwordChangeFailed))
       }
     } catch (error) {
-      setPasswordError(userFacingError(error, t.userModal.networkError))
+      setPasswordError(requestFailure(error, t.errors.passwordChangeFailed))
     } finally {
       setPasswordSubmitting(false)
     }
@@ -579,39 +542,18 @@ const UserModalBody: FC<UserModalProps> = ({
     setPasswordSubmitting(true)
 
     try {
-      const csrfToken = await getCSRFToken(true)
-      if (!csrfToken) {
-        setPasswordError(t.userModal.cannotGetCsrf)
-        setPasswordSubmitting(false)
-        return
-      }
-
-      const response = await fetch(`${API_URL}/api/auth/me/set-password`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken,
-        },
-        credentials: 'include',
-        body: JSON.stringify({ new_password: newPassword }),
+      const result = await apiService.post<PasswordResult>('/auth/me/set-password', {
+        new_password: newPassword,
       })
-
-      const result = await response.json()
-
-      if (response.ok && result.success) {
+      if (result.success) {
         showSuccess(t.userModal.passwordSet)
         setHasPassword(true)
         setPage('main')
       } else {
-        setPasswordError(
-          userFacingError(
-            result.message || result.error || `HTTP ${response.status}`,
-            t.errors.passwordSetFailed,
-          ),
-        )
+        setPasswordError(userFacingError(result.message || result.error, t.errors.passwordSetFailed))
       }
     } catch (error) {
-      setPasswordError(userFacingError(error, t.userModal.networkError))
+      setPasswordError(requestFailure(error, t.errors.passwordSetFailed))
     } finally {
       setPasswordSubmitting(false)
     }

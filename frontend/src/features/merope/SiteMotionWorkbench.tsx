@@ -42,6 +42,7 @@ import {
 import { useI18n } from '../../contexts/I18nContext'
 import { agentService } from '../../services/agent'
 import { notifyAvatarChanged } from '../../services/avatarSourceApi'
+import { emitAppEvent } from '../../utils/appEvents'
 import { invalidatePublicConfigCache } from '../../utils/requestDedup'
 import { siteMediaUrl } from '../../utils/siteMediaUrl'
 import { showStickyToast } from '../../utils/toastManager'
@@ -572,7 +573,7 @@ export default function SiteMotionWorkbench({
           setManagingOutfitId(null)
         }
         setPersonaSnapshot(saved)
-        window.dispatchEvent(new CustomEvent('arael-persona-updated'))
+        emitAppEvent('arael-persona-updated')
       } catch (reason) {
         reportMeropeError(userFacingError(reason, o.saveFailed))
       }

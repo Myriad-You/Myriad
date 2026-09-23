@@ -3,6 +3,7 @@ import { describe, it } from 'node:test'
 import {
   classifyMusicLoadError,
   formatMusicError,
+  musicProxyFailureKey,
 } from './musicError.ts'
 
 describe('classifyMusicLoadError', () => {
@@ -55,5 +56,20 @@ describe('formatMusicError', () => {
   it('joins the localized key with extra detail', () => {
     assert.equal(formatMusicError('加载歌单失败', '网易云API错误 (404)'), '加载歌单失败 · 网易云API错误 (404)')
     assert.equal(formatMusicError('加载歌单失败', '加载歌单失败'), '加载歌单失败')
+  })
+})
+
+describe('musicProxyFailureKey', () => {
+  it('maps backend proxy failure codes to i18n keys', () => {
+    assert.equal(musicProxyFailureKey({ error: 'upstream_denied' }), 'sourceDenied')
+    assert.equal(musicProxyFailureKey({ error: 'song_unavailable' }), 'songUnavailable')
+    assert.equal(musicProxyFailureKey({ error: 'cdn_unavailable' }), 'sourceUnreachable')
+    assert.equal(musicProxyFailureKey({ error: 'upstream_unreachable' }), 'sourceUnreachable')
+  })
+
+  it('ignores unknown or malformed bodies', () => {
+    assert.equal(musicProxyFailureKey({ error: 'Too many requests' }), null)
+    assert.equal(musicProxyFailureKey('Audio not available'), null)
+    assert.equal(musicProxyFailureKey(undefined), null)
   })
 })

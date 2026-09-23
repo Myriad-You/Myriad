@@ -180,8 +180,8 @@ function useTitleStyle() {
   return state
 }
 
-function persistTitleStyle(token: string, settings: DashboardAppearancePatch, owner = authSubject.signal) {
-  void import('../services/dashboardAppearancePersistence').then(({ saveDashboardAppearance }) => saveDashboardAppearance(token, settings, 'titleStyleSaveFailed', owner))
+function persistTitleStyle(settings: DashboardAppearancePatch, owner = authSubject.signal) {
+  void import('../services/dashboardAppearancePersistence').then(({ saveDashboardAppearance }) => saveDashboardAppearance(settings, 'titleStyleSaveFailed', owner))
 }
 
 async function initGlobalState(): Promise<void> {
@@ -255,7 +255,7 @@ export function useTitleFont() {
   }, [])
 
   const setTitleFont = useCallback(
-    async (fontId: string, csrfToken?: string) => {
+    async (fontId: string) => {
       const font = fontMap.get(fontId)
       if (!font) return
 
@@ -267,9 +267,7 @@ export function useTitleFont() {
         await loadFont(font)
         if (owner.aborted || revision !== editRevision.font) return
         updateGlobalState({ font: fontId })
-        if (csrfToken) {
-          persistTitleStyle(csrfToken, { title_font: fontId }, owner)
-        }
+        persistTitleStyle({ title_font: fontId }, owner)
       } finally {
         if (mountedRef.current && request === fontRequest.current) {
           setIsLoading(false)
@@ -279,22 +277,18 @@ export function useTitleFont() {
     [],
   )
 
-  const setTitleFontSize = useCallback((size: number, csrfToken?: string) => {
+  const setTitleFontSize = useCallback((size: number) => {
     if (!sizeMap.has(size)) return
     editRevision.fontSize++
     updateGlobalState({ fontSize: size })
-    if (csrfToken) {
-      persistTitleStyle(csrfToken, { title_font_size: size })
-    }
+    persistTitleStyle({ title_font_size: size })
   }, [])
 
-  const setTitleColor = useCallback((colorId: string, csrfToken?: string) => {
+  const setTitleColor = useCallback((colorId: string) => {
     if (!colorMap.has(colorId)) return
     editRevision.color++
     updateGlobalState({ color: colorId })
-    if (csrfToken) {
-      persistTitleStyle(csrfToken, { title_color: colorId })
-    }
+    persistTitleStyle({ title_color: colorId })
   }, [])
 
   const preloadAllFonts = useCallback(() => {

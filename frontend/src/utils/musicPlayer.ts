@@ -17,8 +17,19 @@ export function getNeteaseProxyAudioUrl(songId: string): string {
   return `${API_URL}/api/proxy/music/netease/audio/${songId}`
 }
 
+let musicStreamProxyEnabled = true
+
+/** Admin switch: off means play-url everywhere, no full-proxy fallback. */
+export function setMusicStreamProxyEnabled(enabled: boolean): void {
+  musicStreamProxyEnabled = enabled
+}
+
+export function isMusicStreamProxyEnabled(): boolean {
+  return musicStreamProxyEnabled
+}
+
 export function prefersSameOriginMusicProxy(): boolean {
-  return !shouldPreserveNativeAudioOutput()
+  return musicStreamProxyEnabled && !shouldPreserveNativeAudioOutput()
 }
 
 /** False for /audio/ to avoid fallback loops. */
@@ -74,6 +85,7 @@ export function getNeteaseGeoPlaybackUrl(
   songId: string,
   inChina: boolean,
 ): string {
+  if (!musicStreamProxyEnabled) return getNeteasePlayUrl(songId)
   if (!inChina) return getNeteaseProxyAudioUrl(songId)
   if (prefersSameOriginMusicProxy()) return getNeteaseProxyAudioUrl(songId)
   return getNeteasePlayUrl(songId)
@@ -83,12 +95,14 @@ export function getNeteaseGeoPlaybackUrl(
 export function getNeteaseProxyFallbackUrl(
   song: Pick<Song, 'id' | 'source' | 'url'>,
 ): string | null {
+  if (!musicStreamProxyEnabled) return null
   if (song.source !== 'netease') return null
   if (!isNeteaseDirectPlayUrl(song.url)) return null
   return getNeteaseProxyAudioUrl(song.id)
 }
 
 export function getNeteaseAudioUrlImmediate(songId: string): string {
+  if (!musicStreamProxyEnabled) return getNeteasePlayUrl(songId)
   // createMediaElementSource cannot use play-url CDN.
   if (prefersSameOriginMusicProxy()) return getNeteaseProxyAudioUrl(songId)
 
@@ -124,6 +138,7 @@ export function isQQDirectPlayUrl(url: string): boolean {
 }
 
 export function getQQGeoPlaybackUrl(songMid: string, inChina: boolean): string {
+  if (!musicStreamProxyEnabled) return getQQPlayUrl(songMid)
   if (!inChina) return getQQProxyAudioUrl(songMid)
   if (prefersSameOriginMusicProxy()) return getQQProxyAudioUrl(songMid)
   return getQQPlayUrl(songMid)
@@ -132,6 +147,7 @@ export function getQQGeoPlaybackUrl(songMid: string, inChina: boolean): string {
 export function getQQProxyFallbackUrl(
   song: Pick<Song, 'id' | 'source' | 'url'>,
 ): string | null {
+  if (!musicStreamProxyEnabled) return null
   if (song.source !== 'qq') return null
   if (!isQQDirectPlayUrl(song.url)) return null
   return getQQProxyAudioUrl(song.id)
@@ -146,6 +162,7 @@ export function getMusicProxyFallbackUrl(
 }
 
 export function getQQAudioUrlImmediate(songMid: string): string {
+  if (!musicStreamProxyEnabled) return getQQPlayUrl(songMid)
   if (prefersSameOriginMusicProxy()) return getQQProxyAudioUrl(songMid)
 
   const cached = getCachedIsChinaMainland()
@@ -614,7 +631,9 @@ async function loadPlayerPlaylist(
   const useSameOriginProxy = prefersSameOriginMusicProxy()
   console.log(
     `[MusicPlayer] 歌单加载完成，用户在中国大陆: ${inChina}，${
-      !inChina || useSameOriginProxy
+      !isMusicStreamProxyEnabled()
+        ? 'play-url 直连 CDN（代理已关闭）'
+        : !inChina || useSameOriginProxy
         ? `全量代理${useSameOriginProxy && inChina ? '（桌面频谱 CORS）' : ''}`
         : 'play-url 直连 CDN'
     }`,

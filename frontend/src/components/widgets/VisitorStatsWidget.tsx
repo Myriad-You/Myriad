@@ -4,11 +4,10 @@ import type { WidgetComponentProps } from '../widgetGridTypes'
 
 import { LuEye, LuUsers } from '@lib/icons'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { API_URL } from '../../config'
 import { useI18n } from '../../contexts/I18nContext'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
 import { useWidgetSize } from '../../hooks/useWidgetSize'
-import { fetchJson } from '../../utils/apiHelper'
+import { apiService } from '../../services/api'
 import {
   ANALYTICS_PAGEVIEW_FLUSHED_EVENT,
   peekVisitorId,
@@ -91,12 +90,10 @@ async function requestCard(force = false): Promise<VisitorCard> {
 
   globalFetchPromise = (async () => {
     const vid = peekVisitorId()
-    const url = `${API_URL}/api/analytics/visitor${vid ? `?vid=${vid}` : ''}`
-    const res = await fetchJson<VisitorCard>(
-      url,
-      { signal: AbortSignal.timeout(10000) },
-      'Unable to load visitor stats',
-    )
+    const res = await apiService.get<VisitorCard>('/analytics/visitor', {
+      params: { vid: vid || undefined },
+      timeout: 10_000,
+    })
     if (!res?.success) throw new Error('visitor card unavailable')
     globalCacheData = res
     globalCacheTimestamp = Date.now()

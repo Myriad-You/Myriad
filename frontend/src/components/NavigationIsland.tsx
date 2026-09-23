@@ -17,6 +17,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
 import { useNavigation } from '../contexts/NavigationContext'
+import { emitAppEvent } from '../utils/appEvents'
 import { preloadTappRoutes } from '../utils/codeSplitting'
 import {
   canAccessModuleVisibility,
@@ -530,11 +531,7 @@ export function NavigationIsland() {
     ) {
       autoExpandedRef.current = location.pathname
       const timer = setTimeout(() => {
-        window.dispatchEvent(
-          new CustomEvent('nav-expand-secondary', {
-            detail: { path: location.pathname },
-          }),
-        )
+        emitAppEvent('nav-expand-secondary', { path: location.pathname })
       }, 300)
       return () => clearTimeout(timer)
     }
@@ -650,9 +647,7 @@ export function NavigationIsland() {
           navigate(path)
           setTimeout(() => {
             if (window.location.pathname === path) {
-              window.dispatchEvent(
-                new CustomEvent('nav-expand-secondary', { detail: { path } }),
-              )
+              emitAppEvent('nav-expand-secondary', { path })
             }
           }, 150)
         }

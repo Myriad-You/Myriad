@@ -1824,6 +1824,28 @@ pub(crate) async fn build_config(
                     required: false,
                 },
                 ConfigField {
+                    key: "music_proxy_enabled".to_string(),
+                    label: "Music stream proxy".to_string(),
+                    field_type: "checkbox".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.music_proxy_enabled.to_string())
+                        .unwrap_or_else(|| "true".to_string()),
+                    placeholder: "true".to_string(),
+                    required: false,
+                },
+                ConfigField {
+                    key: "music_preload_enabled".to_string(),
+                    label: "Music preload".to_string(),
+                    field_type: "checkbox".to_string(),
+                    value: db_config
+                        .as_ref()
+                        .map(|c| c.music_preload_enabled.to_string())
+                        .unwrap_or_else(|| "true".to_string()),
+                    placeholder: "true".to_string(),
+                    required: false,
+                },
+                ConfigField {
                     key: "island_show_greeting".to_string(),
                     label: "Island greeting".to_string(),
                     field_type: "checkbox".to_string(),

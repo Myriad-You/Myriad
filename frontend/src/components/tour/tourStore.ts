@@ -1,4 +1,5 @@
 import type { TourStepDef } from './tourTypes'
+import { createStore } from '../../utils/store'
 import { setTourDomActive } from './tourDom'
 import { markTourDone } from './tourDone'
 
@@ -19,12 +20,10 @@ export const EMPTY_TOUR_SNAPSHOT: TourSnapshot = {
 }
 
 let visible: TourStepDef[] = []
-let snapshot: TourSnapshot = EMPTY_TOUR_SNAPSHOT
-const listeners = new Set<() => void>()
+const snapshot = createStore(EMPTY_TOUR_SNAPSHOT)
 
 export function emitTourSnapshot(next: TourSnapshot): void {
-  snapshot = next
-  listeners.forEach((listener) => listener())
+  snapshot.set(next)
 }
 
 export function getTourVisibleSteps(): TourStepDef[] {
@@ -41,23 +40,16 @@ export function stopTourInternal(): void {
   emitTourSnapshot(EMPTY_TOUR_SNAPSHOT)
 }
 
-export function subscribeTour(onStoreChange: () => void): () => void {
-  listeners.add(onStoreChange)
-  return () => {
-    listeners.delete(onStoreChange)
-  }
-}
-
-export function getTourSnapshot(): TourSnapshot {
-  return snapshot
-}
+export const subscribeTour = snapshot.subscribe
+export const getTourSnapshot = snapshot.get
 
 export type StopTourReason = 'done' | 'skip' | 'abort'
 
 export function stopTour(reason: StopTourReason = 'abort'): void {
-  if (!snapshot.active) return
-  if ((reason === 'done' || reason === 'skip') && snapshot.tourId) {
-    markTourDone(snapshot.tourId)
+  const current = snapshot.get()
+  if (!current.active) return
+  if ((reason === 'done' || reason === 'skip') && current.tourId) {
+    markTourDone(current.tourId)
   }
   stopTourInternal()
 }

@@ -82,6 +82,12 @@ function sizeBadness(s: number, min: number, ideal: number): number {
 /** 每轮一次强制同步重排；6 轮把 [min,max] 收到约 (max-min)/64。 */
 const BISECT_STEPS = 6
 
+/**
+ * 预测宽度与阈值相差不到这个量时改为实测。取算法自身容差 TOL：
+ * 同一轮内模型误差在 LayoutUnit 量级（约 0.06px），低于比较本身的精度。
+ */
+const PREDICT_GUARD_PX = TOL
+
 /** 先试上限，放得下直接用。 */
 function largestFitting(
   lo: number,
@@ -106,6 +112,74 @@ function largestFitting(
   }
   apply(best)
   return best
+}
+
+interface WidthSample {
+  size: number
+  width: number
+}
+
+/**
+ * 单行宽度对字号是仿射的：字形按字号等比缩放，图标与 px 间距不变。
+ * 二分各轮按模型判定，只有贴近阈值时才改字号实测，走出的路径与结果
+ * 和逐轮实测相同。实测贵在每个新字号都要实例化字体（CJK 还要走回退），
+ * 所以能用已渲染字号的样本（proportional）就不去碰新字号。
+ */
+function largestFittingWidth(
+  lo: number,
+  hi: number,
+  apply: (s: number) => void,
+  width: () => number,
+  limit: number,
+  proportional: WidthSample | null,
+): { size: number, predict: (s: number) => number } {
+  let predict: (s: number) => number
+  if (proportional) {
+    const { size, width: w } = proportional
+    predict = s => (w * s) / size
+  } else {
+    apply(hi)
+    const wHi = width()
+    if (wHi <= limit || hi <= lo) {
+      const size = wHi <= limit ? hi : lo
+      if (size !== hi) apply(size)
+      return { size, predict: () => wHi }
+    }
+    apply(lo)
+    const wLo = width()
+    predict = s => wLo + ((wHi - wLo) * (s - lo)) / (hi - lo)
+  }
+  const fits = (s: number) => {
+    const predicted = predict(s)
+    if (Math.abs(predicted - limit) > PREDICT_GUARD_PX) return predicted <= limit
+    apply(s)
+    return width() <= limit
+  }
+  if (fits(hi)) {
+    apply(hi)
+    return { size: hi, predict }
+  }
+  let best = lo
+  let l = lo
+  let h = hi
+  for (let i = 0; i < BISECT_STEPS; i++) {
+    const mid = (l + h) / 2
+    if (fits(mid)) {
+      best = mid
+      l = mid
+    } else {
+      h = mid
+    }
+  }
+  apply(best)
+  return { size: best, predict }
+}
+
+/** 纯文本、字距与词距为默认值时，宽度与字号严格成正比。 */
+function isProportionalText(el: HTMLElement, style: CSSStyleDeclaration): boolean {
+  return style.letterSpacing === 'normal'
+    && style.wordSpacing === '0px'
+    && el.querySelector(':not([data-fittext-track])') === null
 }
 
 export function useFitText(options: FitTextOptions): FitTextResult {
@@ -205,8 +279,27 @@ export function useFitText(options: FitTextOptions): FitTextResult {
     }
 
     el.style.whiteSpace = 'nowrap'
-    const sSingle = largestFitting(floor, ideal, applySize, widthOkGrow)
-    const singleFits = widthOkHard()
+    const hardLimit = measuredBoxWidth + TOL
+    const rendered = getComputedStyle(el)
+    const renderedSize = Number.parseFloat(rendered.fontSize)
+    let sample: WidthSample | null = null
+    if (renderedSize > 0 && isProportionalText(el, rendered)) {
+      const renderedWidth = contentWidth()
+      if (renderedWidth > 0) sample = { size: renderedSize, width: renderedWidth }
+    }
+    const single = largestFittingWidth(
+      floor,
+      ideal,
+      applySize,
+      contentWidth,
+      measuredBoxWidth * RESTRAINT + TOL,
+      sample,
+    )
+    const sSingle = single.size
+    const predictedSingle = single.predict(sSingle)
+    const singleFits = Math.abs(predictedSingle - hardLimit) > PREDICT_GUARD_PX
+      ? predictedSingle <= hardLimit
+      : widthOkHard()
     let best = {
       mode: 'single' as FitTextMode,
       size: sSingle,

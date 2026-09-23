@@ -1,25 +1,16 @@
+import { createStore } from '../../../utils/store'
+
 export type ForegroundSurface =
   | 'control_panel'
   | 'notification'
   | 'user_modal'
   | 'none'
 
-const listeners = new Set<() => void>()
-let surface: ForegroundSurface = 'none'
+const surface = createStore<ForegroundSurface>('none')
 
-export function getForegroundSurface(): ForegroundSurface {
-  return surface
-}
+export const getForegroundSurface = surface.get
+export const subscribeForegroundSurface = surface.subscribe
 
 export function setForegroundSurface(next: ForegroundSurface): void {
-  if (surface === next) return
-  surface = next
-  for (const listener of listeners) listener()
-}
-
-export function subscribeForegroundSurface(listener: () => void): () => void {
-  listeners.add(listener)
-  return () => {
-    listeners.delete(listener)
-  }
+  surface.set(next)
 }

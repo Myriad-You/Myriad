@@ -1,74 +1,32 @@
 /** Subscribe to active, not cursor (avoids 60fps reconcile). */
 
-import { useSyncExternalStore } from 'react'
+import { createStore, useStore } from './store'
 
 export interface WidgetDragCursor {
   x: number
   y: number
 }
 
-let cursor: WidgetDragCursor | null = null
-let active = false
-const cursorListeners = new Set<() => void>()
-const activeListeners = new Set<() => void>()
+const cursor = createStore<WidgetDragCursor | null>(
+  null,
+  (a, b) => a === b || (a !== null && b !== null && a.x === b.x && a.y === b.y),
+)
+const active = createStore(false)
 
-function notify(listeners: Set<() => void>): void {
-  for (const listen of listeners) listen()
-}
-
-export function getWidgetDragCursor(): WidgetDragCursor | null {
-  return cursor
-}
-
-export function getWidgetDragActive(): boolean {
-  return active
-}
+export const getWidgetDragCursor = cursor.get
+export const getWidgetDragActive = active.get
+export const subscribeWidgetDragCursor = cursor.subscribe
+export const subscribeWidgetDragActive = active.subscribe
 
 export function setWidgetDragCursor(next: WidgetDragCursor | null): void {
-  if (
-    cursor === next ||
-    (next && cursor?.x === next.x && cursor.y === next.y)
-  ) {
-    return
-  }
-  cursor = next
-  notify(cursorListeners)
-  const nextActive = next !== null
-  if (active === nextActive) return
-  active = nextActive
-  notify(activeListeners)
-}
-
-export function subscribeWidgetDragCursor(
-  onStoreChange: () => void,
-): () => void {
-  cursorListeners.add(onStoreChange)
-  return () => {
-    cursorListeners.delete(onStoreChange)
-  }
-}
-
-export function subscribeWidgetDragActive(
-  onStoreChange: () => void,
-): () => void {
-  activeListeners.add(onStoreChange)
-  return () => {
-    activeListeners.delete(onStoreChange)
-  }
+  cursor.set(next)
+  active.set(next !== null)
 }
 
 export function useWidgetDragCursor(): WidgetDragCursor | null {
-  return useSyncExternalStore(
-    subscribeWidgetDragCursor,
-    getWidgetDragCursor,
-    () => null,
-  )
+  return useStore(cursor)
 }
 
 export function useWidgetDragActive(): boolean {
-  return useSyncExternalStore(
-    subscribeWidgetDragActive,
-    getWidgetDragActive,
-    () => false,
-  )
+  return useStore(active)
 }

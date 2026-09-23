@@ -1,7 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { API_URL } from '../../config'
 import { useI18n } from '../../contexts/I18nContext'
-import { fetchJson } from '../../utils/apiHelper'
+import { apiService } from '../../services/api'
 import { resolvePlatformId } from '../../utils/platformId'
 import { localizePlatformSummary } from '../../utils/platformRefresh'
 import { userFacingError } from '../../utils/userFacingError'
@@ -96,10 +95,8 @@ export const PlatformDataPreview = forwardRef<
     setLoading(true)
     setError(null)
     try {
-      const data = await fetchJson<PlatformCachePreviewResponse>(
-        `${API_URL}/api/cache/preview/${encodeURIComponent(platformId)}`,
-        undefined,
-        'Unable to load platform data preview',
+      const data = await apiService.get<PlatformCachePreviewResponse>(
+        `/cache/preview/${encodeURIComponent(platformId)}`,
       )
       if (requestId !== requestRef.current) return
       if (!data.success) {

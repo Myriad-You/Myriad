@@ -1,22 +1,13 @@
-let homeEditSurface = false
-const homeEditListeners = new Set<() => void>()
+import { createStore } from '../../utils/store'
+
+const homeEditSurface = createStore(false)
 
 export function setHomeEditSurface(active: boolean): void {
-  if (homeEditSurface === active) return
-  homeEditSurface = active
-  homeEditListeners.forEach((listener) => listener())
+  homeEditSurface.set(active)
 }
 
-export function isHomeEditSurface(): boolean {
-  return homeEditSurface
-}
-
-export function subscribeHomeEditSurface(onStoreChange: () => void): () => void {
-  homeEditListeners.add(onStoreChange)
-  return () => {
-    homeEditListeners.delete(onStoreChange)
-  }
-}
+export const isHomeEditSurface = homeEditSurface.get
+export const subscribeHomeEditSurface = homeEditSurface.subscribe
 
 export type HomeEditTourDockPose = 'parked' | 'restored'
 export type HomeBrowseTourPanelPose = 'collapsed' | 'expanded'

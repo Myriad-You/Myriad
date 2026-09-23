@@ -4,6 +4,7 @@ import { FaLock, FaUser } from 'react-icons/fa'
 import { API_URL } from '../config'
 import { useI18n } from '../contexts/I18nContext'
 import { fetchJson } from '../utils/apiHelper'
+import { emitAppEvent } from '../utils/appEvents'
 import { messageForRegisterError } from '../utils/authErrorMessages'
 import { sanitizeUsername } from '../utils/inputSanitizer'
 import { setSessionHint } from '../utils/sessionDetection'
@@ -78,16 +79,8 @@ const RegisterForm: FC = () => {
       }
 
       setSessionHint()
-      window.dispatchEvent(
-        new CustomEvent('auth-login-success', {
-          detail: { user: data.user, isAdmin: false },
-        }),
-      )
-      window.dispatchEvent(
-        new CustomEvent('auth-state-changed', {
-          detail: { isAuthenticated: true, isAdmin: false },
-        }),
-      )
+      emitAppEvent('auth-login-success', { user: data.user, isAdmin: false })
+      emitAppEvent('auth-state-changed', { isAuthenticated: true, isAdmin: false })
 
       setTimeout(() => {
         window.location.href = '/'

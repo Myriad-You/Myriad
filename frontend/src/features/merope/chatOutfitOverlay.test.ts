@@ -60,7 +60,7 @@ test('panel chat can overlay a saved set without wearing it', () => {
   assert.match(engine, /stripChatWearMarker/)
   assert.match(engine, /case 'music_control'/)
   assert.match(engine, /if \(current === 'chat'\) clearChatOutfitOverlay\(\)/)
-  assert.match(api, /\/api\/agent\/wardrobe\/\$\{encodeURIComponent\(id\)\}\/face/)
+  assert.match(api, /\/agent\/wardrobe\/\$\{encodeURIComponent\(id\)\}\/face/)
   assert.doesNotMatch(composer, /wardrobeWear/)
   assert.doesNotMatch(composer, /OutfitWardrobe/)
   assert.doesNotMatch(composer, /wearOutfit/)

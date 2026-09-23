@@ -54,9 +54,11 @@ import type {
 import type { ApiRequestOptions } from './api'
 import { currentCopy } from '../i18n/localeCopy'
 import { formatUserFacingError } from '../utils/formatUserFacingError'
-import { apiService } from './api'
+import { ApiError, apiService } from './api'
 
 const PREFIX = '/federation'
+/** Media is capped at ~50MB server-side; the default 30s budget would cut slow uploads short. */
+const MEDIA_UPLOAD_TIMEOUT_MS = 10 * 60_000
 
 function attributionOptions(
   runtimeGrant?: string,
@@ -253,39 +255,22 @@ export const federationApi = {
     file: Blob,
     options?: { filename?: string; runtimeGrant?: string },
   ): Promise<MediaUploadResponse> {
-    const { API_URL } = await import('../config')
-    const { getCSRFToken } = await import('../utils/csrf')
     const formData = new FormData()
     const filename =
       options?.filename ||
       (file instanceof File && file.name ? file.name : 'upload.bin')
     formData.append('file', file, filename)
-
-    const headers: Record<string, string> = {}
-    const csrf = await getCSRFToken()
-    if (csrf) headers['X-CSRF-Token'] = csrf
-    if (options?.runtimeGrant) {
-      headers['X-Tapp-Runtime-Grant'] = options.runtimeGrant
-    }
-
-    const response = await fetch(`${API_URL}/api${PREFIX}/media`, {
-      method: 'POST',
-      headers,
-      body: formData,
-      credentials: 'include',
-    })
-    if (!response.ok) {
-      const errBody = await response.json().catch(() => ({}))
+    try {
+      return await apiService.post<MediaUploadResponse>(`${PREFIX}/media`, formData, {
+        ...attributionOptions(options?.runtimeGrant),
+        timeout: MEDIA_UPLOAD_TIMEOUT_MS,
+      })
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error
       throw new Error(
-        await formatUserFacingError(
-          (errBody as { error?: string; message?: string }).error ||
-            (errBody as { message?: string }).message ||
-            `Media upload failed: ${response.status}`,
-          currentCopy().errors.federationMediaUploadFailed,
-        ),
+        await formatUserFacingError(error, currentCopy().errors.federationMediaUploadFailed),
       )
     }
-    return (await response.json()) as MediaUploadResponse
   },
 
   unpublish(

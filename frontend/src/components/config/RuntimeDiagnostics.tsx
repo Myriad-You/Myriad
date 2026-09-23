@@ -23,8 +23,7 @@ import {
   useState,
 } from 'react'
 import { useConfigI18n as useI18n } from '../../contexts/I18nContext'
-import { ApiError } from '../../services/api'
-import { fetchJson } from '../../utils/apiHelper'
+import { ApiError, apiService } from '../../services/api'
 import { getBuildInfo } from '../../utils/buildInfo'
 import { userFacingError } from '../../utils/userFacingError'
 import {
@@ -158,11 +157,7 @@ export default function RuntimeDiagnostics({
     setError(null)
 
     try {
-      const response = await fetchJson<RuntimeDiagnosticsResponse>(
-        '/api/admin/diagnostics',
-        undefined,
-        t.config.runtimeDiagnosticsLoadFailed,
-      )
+      const response = await apiService.get<RuntimeDiagnosticsResponse>('/admin/diagnostics')
       if (!response.success) {
         throw new Error(t.config.runtimeDiagnosticsLoadFailed)
       }
@@ -499,11 +494,9 @@ export default function RuntimeDiagnostics({
   const exportProcessLogs = useCallback(async () => {
     setExportingProcessLogs(true)
     try {
-      const report = await fetchJson<ProcessLogExport>(
-        '/api/admin/updater/process-logs',
-        undefined,
-        t.config.processLogsExportFailed,
-      )
+      const report = await apiService.get<ProcessLogExport>('/admin/updater/process-logs', {
+        timeout: 5 * 60_000,
+      })
       if (
         report.format !== 'myriad-process-log-export' ||
         !Array.isArray(report.sources) ||

@@ -14,7 +14,7 @@ const { build } = createRequire(import.meta.resolve('tsx/package.json'))('esbuil
 test('partial refresh reloads persisted views and keeps localized failure details across language changes', async () => {
   const dom = new JSDOM('<div id="root"></div>')
   let response: { success: boolean; partial: boolean; issues: { stage: string; reason: string }[]; message?: string } = { success: false, partial: true, issues: [{ stage: 'bangumi', reason: 'private' }] }
-  const globals = { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true, fetch: async () => ({ ok: true, json: async () => response }) }
+  const globals = { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true }
   const previous = new Map(Object.keys(globals).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
   for (const [key, value] of Object.entries(globals)) Object.defineProperty(globalThis, key, { configurable: true, value })
   dom.window.confirm = () => true
@@ -22,22 +22,25 @@ test('partial refresh reloads persisted views and keeps localized failure detail
   let previewLoads = 0
   let locale = 'zh-CN'
   const cacheStatus = async () => ({ exists: true })
-  const tasks = { getPlatformCacheStatus: cacheStatus, clearPlatformCache: async () => true, submitTask: async () => null }
+  const platformTasks = {
+    getPlatformCacheStatus: cacheStatus,
+    getPlatformMetadataStatus: async () => { statusLoads++; return { success: true, has_raw_data: true } },
+    fetchPlatformData: async () => response,
+    clearPlatformCache: async () => {},
+    submitPlatformTask: async () => 'task',
+  }
   const bindGuide = () => ({})
   const Preview = forwardRef((_props, ref) => { useImperativeHandle(ref, () => ({ reload: async () => { previewLoads++ } })); return null })
   const bundle = await build({
     entryPoints: [new URL('./PlatformDataManagement.tsx', import.meta.url).pathname], bundle: true, write: false,
     platform: 'node', format: 'cjs', packages: 'external', define: { 'import.meta.env': '{}' },
     plugins: [{ name: 'boundaries', setup(builder) {
-      builder.onResolve({ filter: /(@lib\/icons|contexts\/I18nContext|hooks\/useBackgroundTasks|i18n\/hostLocaleHeaders|utils\/(apiHelper|csrf|recentActivity|userFacingError)|\/settings|\/TaskStatus|\/PlatformDataPreview)$/ }, ({ path }) => ({ path, external: true }))
+      builder.onResolve({ filter: /(@lib\/icons|contexts\/I18nContext|services\/platformTasksApi|utils\/(recentActivity|userFacingError)|\/settings|\/TaskStatus|\/PlatformDataPreview)$/ }, ({ path }) => ({ path, external: true }))
     } }],
   })
   const mockRequire = (path: string) => {
-    if (path.includes('useBackgroundTasks')) return { useBackgroundTasks: () => tasks }
+    if (path.includes('platformTasksApi')) return platformTasks
     if (path.includes('I18nContext')) return { useI18n: () => ({ t: locale === 'zh-CN' ? zh : en, locale, format: (text: string) => text }) }
-    if (path.includes('hostLocaleHeaders')) return { hostLocaleHeaders: () => ({}) }
-    if (path.includes('apiHelper')) return { fetchJson: async () => { statusLoads++; return { success: true, has_raw_data: true } } }
-    if (path.includes('csrf')) return { getCSRFToken: async () => 'test' }
     if (path.includes('recentActivity')) return { notifyRecentActivityUpdated: () => {} }
     if (path.includes('userFacingError')) return { userFacingError: (message: unknown, fallback: string) => typeof message === 'string' ? message : fallback }
     if (path.endsWith('/settings')) return { useSettingGuide: () => ({ catalog: { platforms: {} }, bindGuide }), SettingGroup: ({ children }: { children: React.ReactNode }) => createElement('div', null, children), ButtonItem: (props: { itemKey: string; onClick: () => void }) => createElement('button', { onClick: props.onClick, 'data-key': props.itemKey }) }

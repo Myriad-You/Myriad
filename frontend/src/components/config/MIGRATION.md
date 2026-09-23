@@ -86,7 +86,7 @@
 | ------- | -------- | -------- |
 | **UI**（基础） | `wallpaper_url` `wallpaper_blur` · `site_title` `site_description` `site_favicon` · `site_keywords` `site_og_image` `site_noindex` `site_visibility_policy` `site_ai_intro` `site_seo_review_cadence` `pwa_enabled` · `site_icp` `site_gongan` `cloud_sponsors` `site_footer_custom` · `evocative_*` | `UI_RESET_KEYS`（**不含** `base_url`：域名走 `SiteUrlField` 独立 API） |
 | **Platforms**（数据及统计） | `analytics_enabled` · `ga_measurement_id` `umami_website_id` `umami_script_url` | `PLATFORMS_UI_RESET_KEYS` |
-| **Modules** | `music_enabled` `music_source` `music_playlist_id` | `MODULE_UI_RESET_KEYS` |
+| **Modules** | `music_enabled` `music_source` `music_playlist_id` `music_proxy_enabled` `music_preload_enabled` | `MODULE_UI_RESET_KEYS` |
 | **Advanced** | `proxy_enabled` `proxy_url` `proxy_bypass` `gemini_base_url` `github_api_base_url` | `ADVANCED_RESET_KEYS` |
 | **OAuth** | 只读 `base_url`（编辑走独立 API） | — |
 

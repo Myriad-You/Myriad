@@ -25,9 +25,6 @@ import type {
 } from '../types/phantasi'
 import { parseFeedTopicCards } from '../components/phantasi/logic/feedTopicCards'
 import { API_URL } from '../config'
-import { hostLocaleHeaders } from '../i18n/hostLocaleHeaders'
-import { getCSRFToken } from '../utils/csrf'
-import { notifyHttpRateLimit, parseRetryAfterSeconds } from '../utils/httpRateLimitToast'
 import { KeyedWrites } from '../utils/keyedWrites'
 import { phantasiItemState } from '../utils/phantasiItemState'
 import { PhantasiRevisionChain } from '../utils/phantasiRevisionChain'
@@ -35,7 +32,7 @@ import { phantasiSubject } from '../utils/phantasiSubject'
 import { PhantasiSyncConflictError } from '../utils/phantasiSyncConflict'
 import { requestCache } from '../utils/requestCache'
 import { httpStatusMessage, isUselessErrorText } from '../utils/userFacingError'
-import { ApiError, parseApiErrorBody } from './api'
+import { ApiError, apiService, parseApiErrorBody } from './api'
 import {
   invalidatePhantasiBoardCache,
   invalidatePhantasiNoteDocsCache,
@@ -64,121 +61,36 @@ const CACHE_TTL = {
 }
 
 /** 429 后最多等这么久再重试一次；更长的窗口就直接报错，别让页面挂着转圈。 */
-export const RATE_LIMIT_RETRY_MAX_MS = 8_000
-
-/** Retry-After 在可等范围内就返回毫秒；没头或太长返回 null。 */
-export function rateLimitRetryDelayMs(retryAfterSeconds: number | null): number | null {
-  if (retryAfterSeconds == null) return 1_000
-  const ms = Math.ceil(retryAfterSeconds * 1000)
-  return ms <= RATE_LIMIT_RETRY_MAX_MS ? Math.max(ms, 250) : null
-}
-
-function sleepWithSignal(ms: number, signal?: AbortSignal | null): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(signal.reason instanceof Error ? signal.reason : new DOMException('Aborted', 'AbortError'))
-      return
-    }
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort)
-      resolve()
-    }, ms)
-    function onAbort() {
-      clearTimeout(timer)
-      reject(signal?.reason instanceof Error ? signal.reason : new DOMException('Aborted', 'AbortError'))
-    }
-    signal?.addEventListener('abort', onAbort, { once: true })
-  })
-}
 
 /** CSRF: retry once. */
+/**
+ * Phantasi over the shared client (CSRF, session failure, transient and short
+ * 429 retries). This layer owns the domain rules: requests die with the
+ * Phantasi subject, and every item a read returns is reported to the shared
+ * item state.
+ */
 async function request<T>(
   endpoint: string,
   options: RequestInit = {},
-  retryOnCSRFError: boolean = true,
 ): Promise<T> {
   const subject = phantasiSubject.capture()
   const stateRevision = phantasiItemState.getSnapshot()
-  options = {
-    ...options,
-    signal: options.signal
-      ? AbortSignal.any([options.signal, subject.signal])
-      : subject.signal,
-  }
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...hostLocaleHeaders(),
-    ...(options.headers as Record<string, string>),
-  }
-
+  const signal = options.signal
+    ? AbortSignal.any([options.signal, subject.signal])
+    : subject.signal
   const method = options.method?.toUpperCase() || 'GET'
-  const needsCSRF = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
-  options.signal?.throwIfAborted()
-
-  if (needsCSRF) {
-    const csrfToken = await getCSRFToken()
-    if (csrfToken) {
-      headers['X-CSRF-Token'] = csrfToken
-    }
-  }
-
+  signal.throwIfAborted()
   phantasiSubject.assert(subject)
-  options.signal?.throwIfAborted()
-  let response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers,
-    credentials: 'include',
-  })
 
-  // 只读请求撞上短的限流窗口：等一下再试一次，不要直接给用户一个红条。
-  if (response.status === 429 && method === 'GET') {
-    const wait = rateLimitRetryDelayMs(parseRetryAfterSeconds(response))
-    if (wait != null) {
-      await sleepWithSignal(wait, options.signal)
-      phantasiSubject.assert(subject)
-      response = await fetch(`${API_BASE}${endpoint}`, {
-        ...options,
-        headers,
-        credentials: 'include',
-      })
-    }
+  let data: any
+  try {
+    data = await apiService.request<any>(`/phantasi${endpoint}`, { ...options, signal, timeout: 0 })
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error
+    throw phantasiHttpError(error.status, error.body)
   }
-
-  if (!response.ok) {
-    notifyHttpRateLimit(response)
-  }
-
-  const data = await response.json()
   phantasiSubject.assert(subject)
-  options.signal?.throwIfAborted()
-
-  if (!response.ok) {
-    if (response.status === 403 && needsCSRF && retryOnCSRFError) {
-      const errorMsg = data.error || ''
-      if (errorMsg.toLowerCase().includes('csrf')) {
-        console.warn('CSRF token invalid, refreshing and retrying...')
-        const newToken = await getCSRFToken(true)
-        phantasiSubject.assert(subject)
-        options.signal?.throwIfAborted()
-        if (newToken) {
-          headers['X-CSRF-Token'] = newToken
-          const retryResponse = await fetch(`${API_BASE}${endpoint}`, {
-            ...options,
-            headers,
-            credentials: 'include',
-          })
-          const retryData = await retryResponse.json()
-          phantasiSubject.assert(subject)
-          options.signal?.throwIfAborted()
-          if (!retryResponse.ok) {
-            throw phantasiHttpError(retryResponse.status, retryData)
-          }
-          return retryData
-        }
-      }
-    }
-    throw phantasiHttpError(response.status, data)
-  }
+  signal.throwIfAborted()
 
   if (method === 'GET') {
     const items = [

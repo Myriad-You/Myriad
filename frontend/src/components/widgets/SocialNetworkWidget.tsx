@@ -24,7 +24,6 @@ import {
   useSyncExternalStore,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { API_URL } from '../../config'
 import { useI18n } from '../../contexts/I18nContext'
 import { useLoopAnimation } from '../../hooks/animation'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
@@ -37,9 +36,10 @@ import {
   subscribeNamedIcons,
 } from '../../lib/namedIconCatalog'
 import { armWidgetSettingsHost } from '../../lib/widgetSettingsHost'
-import { getCSRFToken } from '../../utils/csrf'
+import { apiService } from '../../services/api'
+import { saveDashboardConfig } from '../../services/dashboardConfigApi'
+import { emitAppEvent } from '../../utils/appEvents'
 import {
-  clearDedupCache,
   getPublicConfigDeduped,
   getUIConfigDeduped,
 } from '../../utils/requestDedup'
@@ -349,31 +349,8 @@ async function saveCustomPlatforms(platforms: CustomPlatformData[]) {
   platformInfoCache.clear()
 
   try {
-    const csrfToken = await getCSRFToken(true)
-    if (!csrfToken) {
-      throw new Error(currentCopy().errors.csrfUnavailable)
-    }
-    const response = await fetch(`${API_URL}/api/config/dashboard`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRF-Token': csrfToken,
-      },
-      credentials: 'include',
-      body: JSON.stringify({
-        custom_platforms: JSON.stringify(platforms),
-      }),
-    })
-    if (!response.ok) {
-      throw new Error(`Failed to save custom platforms: HTTP ${response.status}`)
-    }
-    // 清 30s UI 配置缓存，刷新和其他小组件才能看到新列表。
-    clearDedupCache(`${API_URL}/api/config/ui`)
-    window.dispatchEvent(
-      new CustomEvent('custom-platforms-update', {
-        detail: { platforms, persisted: true },
-      }),
-    )
+    await saveDashboardConfig({ custom_platforms: JSON.stringify(platforms) })
+    emitAppEvent('custom-platforms-update', { platforms, persisted: true })
   } catch (err) {
     // 失败则回滚内存，与服务器一致。
     customPlatformsData = previous
@@ -1031,26 +1008,17 @@ const GlobalSettingsModal = memo(() => {
       } = {}
 
       try {
-        const response = await fetch(`${API_URL}/api/ai/recommend-icon`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            platform_name: customFormData.name,
-          }),
-        })
-
-        if (response.ok) {
-          const data = await response.json()
-          iconData = {
-            iconType: data.icon_type as 'react-icons' | 'url',
-            iconLibrary: data.icon_library,
-            iconName: data.icon_name,
-            iconUrl: data.icon_url,
-            recommendedColor: data.color_suggestion,
-            urlPattern: data.url_pattern,
-          }
+        const data = await apiService.post<Record<string, string>>(
+          '/ai/recommend-icon',
+          { platform_name: customFormData.name },
+        )
+        iconData = {
+          iconType: data.icon_type as 'react-icons' | 'url',
+          iconLibrary: data.icon_library,
+          iconName: data.icon_name,
+          iconUrl: data.icon_url,
+          recommendedColor: data.color_suggestion,
+          urlPattern: data.url_pattern,
         }
       } catch (error) {
         console.error('Failed to get AI icon recommendation:', error)
@@ -1436,18 +1404,7 @@ export const SocialNetworkWidget = memo(
     const handleSelectPlatform = useCallback(
       (platformId: string) => {
         setSelectedPlatformId(platformId)
-        if (typeof onConfigChange === 'function') {
-          onConfigChange({ ...config.config, platformId })
-        } else {
-          window.dispatchEvent(
-            new CustomEvent('widget-config-update', {
-              detail: {
-                widgetId: config.id,
-                config: { ...config.config, platformId },
-              },
-            }),
-          )
-        }
+        onConfigChange?.({ ...config.config, platformId })
       },
       [config.id, config.config, onConfigChange],
     )

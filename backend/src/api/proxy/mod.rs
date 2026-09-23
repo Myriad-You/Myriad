@@ -4,6 +4,7 @@
 
 mod hitokoto_web;
 mod image_music_geo;
+mod music_switch;
 
 pub use hitokoto_web::*;
 pub use image_music_geo::*;

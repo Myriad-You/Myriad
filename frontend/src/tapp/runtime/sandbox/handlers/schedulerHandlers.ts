@@ -13,7 +13,7 @@ let schedulerUsers = 0
 function getOrInitScheduler() {
   const scheduler = getTappScheduler()
   if (!schedulerInitialized) {
-    scheduler.initialize(`${API_URL}/api`, '')
+    scheduler.initialize(`${API_URL}/api`)
     schedulerInitialized = true
   }
   return scheduler

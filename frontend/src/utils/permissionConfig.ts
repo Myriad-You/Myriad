@@ -48,7 +48,7 @@ export function createPermissionConfigStore(fetchConfig: () => Promise<Permissio
 }
 
 const store = createPermissionConfigStore(async () => {
-  const { fetchPermissionsConfig } = await import('../lib/api')
+  const { fetchPermissionsConfig } = await import('../services/configApi')
   return fetchPermissionsConfig()
 })
 export const invalidatePermissionConfig = store.invalidate

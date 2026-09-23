@@ -1,16 +1,11 @@
 import type { NoteAiRequest } from '../components/phantasi/notes/noteAiEdit'
 import type { NoteAiResult } from '../components/phantasi/notes/useNoteAiEdit'
-import { API_URL } from '../config'
 import { currentCopy } from '../i18n/localeCopy'
 import { getDefaultLocale } from '../i18n/locales'
-import { fetchWithAiConfiguration } from '../utils/aiConfiguration'
-import { withAiTimeoutSignal } from '../utils/aiRequestTimeout.mjs'
-import { clearCSRFToken, getCSRFToken } from '../utils/csrf'
+import { getCSRFToken } from '../utils/csrf'
 import { phantasiSubject } from '../utils/phantasiSubject'
 import { httpStatusMessage, isUselessErrorText } from '../utils/userFacingError'
-import { parseApiErrorBody } from './api'
-
-const API_BASE = `${API_URL}/api/phantasiai`
+import { ApiError, apiService } from './api'
 
 export type AnnotationType =
   'term' | 'reference' | 'implicit' | 'context' | 'abbreviation'
@@ -84,76 +79,42 @@ export interface AnnotationsResponse {
   error?: string
 }
 
+/**
+ * Phantasi AI over the shared client (CSRF refresh, AI time budget, AI
+ * configuration gate). Domain rules kept here: requests die with the Phantasi
+ * subject, writes need a signed-in session, and note AI codes pass through.
+ */
 async function request<T>(
   endpoint: string,
   options: RequestInit = {},
-  retryOnCSRFError: boolean = true,
 ): Promise<T> {
   const subject = phantasiSubject.capture()
-  options = {
-    ...options,
-    signal: options.signal
-      ? AbortSignal.any([options.signal, subject.signal])
-      : subject.signal,
-  }
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  }
-
+  const signal = options.signal
+    ? AbortSignal.any([options.signal, subject.signal])
+    : subject.signal
   const method = options.method?.toUpperCase() || 'GET'
-  const needsCSRF = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
-
-  if (needsCSRF) {
-    const csrfToken = await getCSRFToken()
-    if (!csrfToken) {
-      throw new Error(currentCopy().userModal.pleaseLogin)
-    }
-    headers['X-CSRF-Token'] = csrfToken
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && !(await getCSRFToken())) {
+    // No CSRF token means no session: AI writes are for signed-in users only.
+    throw new Error(currentCopy().userModal.pleaseLogin)
   }
-
-  const url = `${API_BASE}${endpoint}`
-  phantasiSubject.assert(subject)
-  const response = await fetchWithAiConfiguration(
-    url,
-    withAiTimeoutSignal(url, {
-      ...options,
-      headers,
-      credentials: 'include',
-    }),
-  )
-
-  const data = await response.json()
   phantasiSubject.assert(subject)
 
-  if (!response.ok) {
-    if (response.status === 403 && retryOnCSRFError && needsCSRF) {
-      const errorMsg = data.error || ''
-      if (errorMsg.includes('CSRF') || errorMsg.includes('csrf')) {
-        console.warn(
-          '[PhantasiaiAPI] CSRF rejection — force-refreshing token and retrying once',
-        )
-        clearCSRFToken()
-        const fresh = await getCSRFToken(true)
-        phantasiSubject.assert(subject)
-        if (!fresh) {
-          throw new Error(currentCopy().errors.csrfUnavailable)
-        }
-        return request<T>(endpoint, options, false)
-      }
-    }
-    const parsed = parseApiErrorBody(data, response.status)
-    if (parsed.code?.startsWith('note_ai_')) throw new Error(parsed.code)
-    if (parsed.code === 'ai_not_configured') {
+  let data: T
+  try {
+    data = await apiService.request<T>(`/phantasiai${endpoint}`, { ...options, signal })
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error
+    if (error.code?.startsWith('note_ai_')) throw new Error(error.code)
+    if (error.code === 'ai_not_configured') {
       throw new Error(currentCopy().errors.aiNotConfigured)
     }
     throw new Error(
-      isUselessErrorText(parsed.message)
-        ? httpStatusMessage(response.status)
-        : parsed.message,
+      error.status > 0 && isUselessErrorText(error.message)
+        ? httpStatusMessage(error.status)
+        : error.message,
     )
   }
-
+  phantasiSubject.assert(subject)
   return data
 }
 

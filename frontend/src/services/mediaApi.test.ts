@@ -49,9 +49,9 @@ it('upload retains the response asset and sends file contents in multipart', asy
     assert.equal(options?.method, 'POST')
     const uploaded = (options?.body as FormData).get('file') as File
     assert.equal(await uploaded.text(), await file.text())
-    return { ok: true, json: async () => ({ success: true, item: asset }) } as Response
+    return Response.json({ success: true, item: asset })
   })
-  assert.equal(await uploadMedia(file), asset)
+  assert.deepEqual(await uploadMedia(file), asset)
 })
 
 it('drafts prefer the authenticated content path until publication', () => {

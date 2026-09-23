@@ -61,6 +61,8 @@ export const MODULE_UI_RESET_KEYS: readonly string[] = Object.freeze([
   'music_enabled',
   'music_source',
   'music_playlist_id',
+  'music_proxy_enabled',
+  'music_preload_enabled',
   'island_show_greeting',
   'island_show_weather',
   'island_show_quote',

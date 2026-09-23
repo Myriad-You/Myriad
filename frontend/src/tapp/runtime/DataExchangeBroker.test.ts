@@ -145,11 +145,7 @@ function mockExchange(options: {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.includes('/api/csrf-token')) {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ csrf_token: null }),
-      } as Response
+      return Response.json(({ csrf_token: null }), { status: 200 })
     }
     const headers = (init?.headers || {}) as Record<string, string>
     const call: ExchangeCall = {
@@ -164,10 +160,7 @@ function mockExchange(options: {
       await options.hangPrepare
     }
     if (url.endsWith('/api/tapp/data-exchange/requests') && call.method === 'POST') {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+      return Response.json(({
           success: true,
           data: {
             requestId: 'req-1',
@@ -183,14 +176,10 @@ function mockExchange(options: {
             expiresAt: new Date(Date.now() + 60_000).toISOString(),
             ...options.prepared,
           },
-        }),
-      } as Response
+        }), { status: 200 })
     }
     if (url.includes('/authorize')) {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+      return Response.json(({
           success: true,
           data: {
             version: 1,
@@ -207,24 +196,15 @@ function mockExchange(options: {
             expiresAt: new Date(Date.now() + 60_000).toISOString(),
             ...options.access,
           },
-        }),
-      } as Response
+        }), { status: 200 })
     }
     if (url.endsWith('/api/tapp/data-exchange/consume')) {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+      return Response.json(({
           success: true,
           data: options.consume ?? { items: [1] },
-        }),
-      } as Response
+        }), { status: 200 })
     }
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({ success: true, data: null }),
-    } as Response
+    return Response.json(({ success: true, data: null }), { status: 200 })
   }) as typeof fetch
   return calls
 }

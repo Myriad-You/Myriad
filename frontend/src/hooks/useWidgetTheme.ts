@@ -97,7 +97,7 @@ function updateGlobalState(updates: Partial<WidgetThemeState>) {
   listeners.forEach(listener => listener())
 }
 
-async function persistTheme(csrfToken: string) {
+async function persistTheme() {
   const owner = authSubject.signal
   // The endpoint replaces the entire theme. Resolve untouched server fields
   // before taking the snapshot, while local preview remains immediate.
@@ -105,7 +105,7 @@ async function persistTheme(csrfToken: string) {
   if (owner.aborted) return
   const widget_theme = JSON.stringify(globalState)
   const { saveDashboardAppearance } = await import('../services/dashboardAppearancePersistence')
-  saveDashboardAppearance(csrfToken, { widget_theme }, 'widgetThemeSaveFailed', owner)
+  saveDashboardAppearance({ widget_theme }, 'widgetThemeSaveFailed', owner)
 }
 
 async function initGlobalState(): Promise<void> {
@@ -148,25 +148,21 @@ export function useWidgetTheme() {
   useEffect(() => { void initGlobalState() }, [])
 
   const setSurface = useCallback(
-    (surface: WidgetSurface, csrfToken?: string) => {
+    (surface: WidgetSurface) => {
       if (!isSurface(surface)) return
       edited.add('surface')
       updateGlobalState({ surface })
-      if (csrfToken) {
-        void persistTheme(csrfToken)
-      }
+      void persistTheme()
     },
     [],
   )
 
   const setGlowMode = useCallback(
-    (glow: WidgetGlowMode, csrfToken?: string) => {
+    (glow: WidgetGlowMode) => {
       if (!isGlowMode(glow)) return
       edited.add('glow')
       updateGlobalState({ glow })
-      if (csrfToken) {
-        void persistTheme(csrfToken)
-      }
+      void persistTheme()
     },
     [],
   )

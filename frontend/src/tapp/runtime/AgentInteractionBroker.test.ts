@@ -105,11 +105,7 @@ function mockOk(data: unknown = { id: 'ix-1' }) {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.includes('/api/csrf-token')) {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ csrf_token: null }),
-      } as Response
+      return Response.json(({ csrf_token: null }), { status: 200 })
     }
     const headers = (init?.headers || {}) as Record<string, string>
     calls.push({
@@ -118,11 +114,7 @@ function mockOk(data: unknown = { id: 'ix-1' }) {
       grant: headers['X-Tapp-Runtime-Grant'],
       body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
     })
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({ success: true, data }),
-    } as Response
+    return Response.json(({ success: true, data }), { status: 200 })
   }) as typeof fetch
 }
 

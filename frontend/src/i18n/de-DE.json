@@ -1247,7 +1247,10 @@
     "playlistRateLimited": "Die Musikquelle hat diese Anfrage gedrosselt. Später erneut versuchen oder zu QQ Music wechseln.",
     "playlistBlocked": "Diese Playlist ist durch Urheberrecht oder Region gesperrt. QQ Music versuchen.",
     "playFailed": "Wiedergabe fehlgeschlagen, Netzwerk oder Verfügbarkeit des Songs prüfen",
-    "vipPlayFailed": "VIP-Song nicht verfügbar (Abo oder Probe nötig)"
+    "vipPlayFailed": "VIP-Song nicht verfügbar (Abo oder Probe nötig)",
+    "sourceDenied": "QQ Music verweigert anonyme Wiedergabelinks (Login nötig oder Zugriff gesperrt). Am Song liegt es nicht – NetEase versuchen.",
+    "songUnavailable": "Für diesen Song gibt es bei der Quelle keine abspielbare Lizenz (Urheberrecht, VIP oder Region).",
+    "sourceUnreachable": "Musikquelle gerade nicht erreichbar. Später erneut versuchen."
   },
   "task": {
     "fetchFailed": "Aufgabenstatus ließ sich nicht holen",

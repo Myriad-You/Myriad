@@ -85,22 +85,14 @@ function mockOk(body: unknown) {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.includes('/api/csrf-token')) {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ csrf_token: null }),
-      } as Response
+      return Response.json(({ csrf_token: null }), { status: 200 })
     }
     calls.push({
       url,
       method: (init?.method || 'GET').toUpperCase(),
       body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
     })
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({ success: true, data: body }),
-    } as Response
+    return Response.json(({ success: true, data: body }), { status: 200 })
   }) as typeof fetch
 }
 

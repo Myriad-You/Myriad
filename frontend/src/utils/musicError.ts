@@ -41,3 +41,19 @@ export function formatMusicError(
   if (!extra || extra === translated) return translated
   return `${translated} · ${extra}`
 }
+
+/** Backend music proxy `error` codes → `music.*` i18n keys. */
+const PROXY_FAILURE_KEYS: Record<string, string> = {
+  upstream_denied: 'sourceDenied',
+  song_unavailable: 'songUnavailable',
+  cdn_unavailable: 'sourceUnreachable',
+  upstream_unreachable: 'sourceUnreachable',
+}
+
+/** `<audio>` cannot read error bodies; a re-fetch of the proxy URL can. */
+export function musicProxyFailureKey(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return null
+  const code = (body as { error?: unknown }).error
+  if (typeof code !== 'string') return null
+  return PROXY_FAILURE_KEYS[code] ?? null
+}

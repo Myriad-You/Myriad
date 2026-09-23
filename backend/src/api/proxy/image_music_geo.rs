@@ -2,7 +2,7 @@ use myriad_error::AppError;
 // 图片代理服务 - 用于处理Bilibili等平台的防盗链图片
 use axum::{
     Json,
-    extract::{Path, Query},
+    extract::{Path, Query, State},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, RwLock};
 
 use crate::services::http_client::MEDIA_FETCH_CLIENT;
+use crate::state::AppState;
 use crate::services::keyed_lock::KeyedLocks;
 
 // 网易云 / 酷狗服务与共享缓存、限流
@@ -191,6 +192,8 @@ fn get_domain_key(url: &str) -> String {
         return "bangumi".to_string();
     } else if host_matches_domain(&host, "126.net") || host_matches_domain(&host, "163.com") {
         return "netease".to_string();
+    } else if host_matches_domain(&host, "y.gtimg.cn") {
+        return "qqmusic".to_string();
     } else if host_matches_domain(&host, "myanimelist.net") {
         return "mal".to_string();
     } else if host_matches_domain(&host, "twimg.com") {
@@ -220,6 +223,8 @@ async fn wait_for_proxy_permit(url: &str) -> Result<(), ()> {
                     "bangumi" => TokenBucket::new(12.0, 60.0),
                     // 网易云
                     "netease" => TokenBucket::new(12.0, 60.0),
+                    // QQ 音乐封面 CDN
+                    "qqmusic" => TokenBucket::new(12.0, 60.0),
                     // MyAnimeList CDN
                     "mal" => TokenBucket::new(12.0, 60.0),
                     // twimg（domain key "x"）等未单列的 allowlist 域名
@@ -480,6 +485,8 @@ fn get_referer_for_url(url: &str) -> &'static str {
         "https://bgm.tv/"
     } else if host_matches_domain(&host, "126.net") || host_matches_domain(&host, "163.com") {
         "https://music.163.com/"
+    } else if host_matches_domain(&host, "y.gtimg.cn") {
+        "https://y.qq.com/"
     } else if host_matches_domain(&host, "myanimelist.net") {
         "https://myanimelist.net/"
     } else if host_matches_domain(&host, "twimg.com") {
@@ -548,6 +555,10 @@ mod image_proxy_tests {
             "http://steamcdn-a.akamaihd.net/steamcommunity/public/images/avatars/a.jpg"
         ));
         assert!(is_allowed_domain("https://p1.music.126.net/cover.jpg"));
+        assert!(is_allowed_domain(
+            "https://y.gtimg.cn/music/photo_new/T002R300x300M000003H4b1P4V0990.jpg"
+        ));
+        assert!(!is_allowed_domain("https://gtimg.cn/x.jpg"));
         assert!(is_allowed_domain("https://lain.bgm.tv/pic/cover/l/1.jpg"));
         assert!(is_allowed_domain(
             "https://pbs.twimg.com/profile_images/1/normal.jpg"
@@ -1023,7 +1034,13 @@ pub(crate) fn respond_netease_play_url(
 ///
 /// 海外或需绕过 CORS/防盗链时使用：本机拉取 CDN 再回传（流量经服务器）。
 /// 国内 HTTPS 站点优先用 [`proxy_netease_play_url`] 直连 CDN。
-pub async fn proxy_netease_audio(Path(song_id): Path<String>) -> Response {
+pub async fn proxy_netease_audio(
+    State(state): State<AppState>,
+    Path(song_id): Path<String>,
+) -> Response {
+    if !super::music_switch::music_proxy_enabled(state.db()).await {
+        return super::music_switch::music_proxy_disabled_response();
+    }
     let song_id_i64 = match song_id.parse::<i64>() {
         Ok(id) => id,
         Err(_) => {
@@ -1114,10 +1131,152 @@ fn is_valid_qq_songmid(song_mid: &str) -> bool {
     (8..=32).contains(&len) && song_mid.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
+/// QQ 取链失败的分类。四个文件名封装会各试一次，取走得最远的那一类作为结论。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum QqAudioFailure {
+    /// 请求 GetEVkey 本身失败（网络、超时、响应不可解析）。
+    Unreachable,
+    /// GetEVkey `req_0.code != 0`：QQ 拒绝匿名取链（需登录态、仅放行加密格式或风控），与单曲无关。
+    UpstreamDenied,
+    /// `code == 0` 但 `purl` 为空：该曲目没有可播放授权（版权、VIP 或地区）。
+    NoLicense,
+    /// 拿到了 `purl`，CDN 却不给音频。
+    CdnUnavailable,
+}
+
+impl QqAudioFailure {
+    const ALL: [Self; 4] = [
+        Self::Unreachable,
+        Self::UpstreamDenied,
+        Self::NoLicense,
+        Self::CdnUnavailable,
+    ];
+
+    /// 返回给前端的机器码，前端据此选择本地化文案。
+    fn code(self) -> &'static str {
+        match self {
+            Self::Unreachable => "upstream_unreachable",
+            Self::UpstreamDenied => "upstream_denied",
+            Self::NoLicense => "song_unavailable",
+            Self::CdnUnavailable => "cdn_unavailable",
+        }
+    }
+
+    fn from_code(code: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|f| f.code() == code)
+    }
+
+    fn message(self) -> &'static str {
+        match self {
+            Self::Unreachable => "QQ Music API is unreachable",
+            Self::UpstreamDenied => {
+                "QQ Music refused to issue a play URL (login required or anonymous access restricted); this is not specific to the song"
+            }
+            Self::NoLicense => "Audio not available (copyright, VIP, or geo-restriction)",
+            Self::CdnUnavailable => "QQ Music CDN did not serve the audio",
+        }
+    }
+
+    fn status(self) -> StatusCode {
+        match self {
+            Self::NoLicense => StatusCode::NOT_FOUND,
+            Self::Unreachable | Self::UpstreamDenied | Self::CdnUnavailable => {
+                StatusCode::BAD_GATEWAY
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+struct QqResolveError {
+    failure: QqAudioFailure,
+    /// 各次尝试的上游返回摘要，只进日志，不进响应。
+    attempts: Vec<String>,
+}
+
+impl QqResolveError {
+    fn record(&mut self, failure: QqAudioFailure, attempt: String) {
+        self.failure = self.failure.max(failure);
+        self.attempts.push(attempt);
+    }
+}
+
+/// QQ 返回的 `msg` 以服务器出口 IP 开头（如 `1.2.3.4;invalidq;`），日志里去掉它。
+fn qq_vkey_msg(data: &Value) -> String {
+    let msg = data
+        .pointer("/req_0/data/msg")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    msg.split(';')
+        .filter(|part| !part.is_empty() && part.parse::<std::net::IpAddr>().is_err())
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
+/// 失败结论短时缓存，避免浏览器重试与前端探测反复打 QQ 接口。
+const QQ_AUDIO_FAILURE_TTL: Duration = Duration::from_secs(2 * 60);
+
+fn qq_audio_failure_cache_key(song_mid: &str) -> String {
+    format!("qq_audio_fail:{}", song_mid)
+}
+
+fn qq_audio_failure_response(failure: QqAudioFailure) -> Response {
+    (
+        failure.status(),
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(json!({
+            "error": failure.code(),
+            "message": failure.message(),
+        })),
+    )
+        .into_response()
+}
+
+/// 带负缓存的取链：命中失败缓存直接返回，失败时写入缓存并按分类记日志。
+async fn resolve_qq_audio_url_cached(song_mid: &str) -> Result<String, QqAudioFailure> {
+    let fail_key = qq_audio_failure_cache_key(song_mid);
+    {
+        let mut cache = MUSIC_CACHE.write().await;
+        if let Some(entry) = cache.get(&fail_key) {
+            if entry.expires_at > Instant::now() {
+                if let Some(failure) = entry
+                    .data
+                    .get("failure")
+                    .and_then(|v| v.as_str())
+                    .and_then(QqAudioFailure::from_code)
+                {
+                    return Err(failure);
+                }
+            }
+        }
+    }
+
+    match resolve_qq_audio_url(song_mid).await {
+        Ok(url) => Ok(url),
+        Err(err) => {
+            tracing::warn!(
+                failure = err.failure.code(),
+                "Failed to resolve QQ audio for {}: {}",
+                song_mid,
+                err.attempts.join(" | ")
+            );
+            let mut cache = MUSIC_CACHE.write().await;
+            cache.insert(
+                fail_key,
+                CacheEntry {
+                    data: json!({ "failure": err.failure.code() }),
+                    expires_at: Instant::now() + QQ_AUDIO_FAILURE_TTL,
+                },
+            );
+            Err(err.failure)
+        }
+    }
+}
+
 /// 通过 QQ 音乐 GetEVkey 接口解析可播放音频 URL
 ///
 /// `music.vkey.GetEVkey` + `RS02{songmid}.mp3`（部分曲目需回退其它封装）。
-async fn resolve_qq_audio_url(song_mid: &str) -> Result<String, String> {
+async fn resolve_qq_audio_url(song_mid: &str) -> Result<String, QqResolveError> {
     let client = MEDIA_FETCH_CLIENT.clone();
 
     // 优先 RS02（海外匿名可拿到 purl），再回退常见清晰度封装
@@ -1129,6 +1288,10 @@ async fn resolve_qq_audio_url(song_mid: &str) -> Result<String, String> {
     ];
 
     let guid = format!("{:010}", rand::random::<u32>() % 1_000_000_000);
+    let mut error = QqResolveError {
+        failure: QqAudioFailure::Unreachable,
+        attempts: Vec::with_capacity(filenames.len()),
+    };
 
     for filename in &filenames {
         let payload = json!({
@@ -1159,7 +1322,10 @@ async fn resolve_qq_audio_url(song_mid: &str) -> Result<String, String> {
         {
             Ok(r) => r,
             Err(e) => {
-                tracing::debug!("QQ GetEVkey request failed for {}: {}", filename, e);
+                error.record(
+                    QqAudioFailure::Unreachable,
+                    format!("{}: request failed: {}", filename, e),
+                );
                 continue;
             }
         };
@@ -1167,18 +1333,24 @@ async fn resolve_qq_audio_url(song_mid: &str) -> Result<String, String> {
         let data: Value = match read_limited_json(resp).await {
             Ok(v) => v,
             Err(e) => {
-                tracing::debug!("QQ GetEVkey parse failed for {}: {}", filename, e);
+                error.record(
+                    QqAudioFailure::Unreachable,
+                    format!("{}: parse failed: {}", filename, e),
+                );
                 continue;
             }
         };
 
         let req_code = data.pointer("/req_0/code").and_then(|v| v.as_i64());
         if req_code != Some(0) {
-            tracing::debug!(
-                "QQ GetEVkey req_0.code={:?} for {} / {}",
-                req_code,
-                song_mid,
-                filename
+            error.record(
+                QqAudioFailure::UpstreamDenied,
+                format!(
+                    "{}: req_0.code={:?} msg={:?}",
+                    filename,
+                    req_code,
+                    qq_vkey_msg(&data)
+                ),
             );
             continue;
         }
@@ -1186,7 +1358,10 @@ async fn resolve_qq_audio_url(song_mid: &str) -> Result<String, String> {
         let midinfo = match data.pointer("/req_0/data/midurlinfo/0") {
             Some(v) => v,
             None => {
-                tracing::debug!("QQ GetEVkey empty midurlinfo for {}", filename);
+                error.record(
+                    QqAudioFailure::NoLicense,
+                    format!("{}: empty midurlinfo", filename),
+                );
                 continue;
             }
         };
@@ -1198,11 +1373,14 @@ async fn resolve_qq_audio_url(song_mid: &str) -> Result<String, String> {
             .to_string();
         if purl.is_empty() {
             let result = midinfo.get("result").and_then(|v| v.as_i64());
-            tracing::debug!(
-                "QQ GetEVkey empty purl result={:?} for {} / {}",
-                result,
-                song_mid,
-                filename
+            error.record(
+                QqAudioFailure::NoLicense,
+                format!(
+                    "{}: empty purl result={:?} msg={:?}",
+                    filename,
+                    result,
+                    qq_vkey_msg(&data)
+                ),
             );
             continue;
         }
@@ -1235,20 +1413,56 @@ async fn resolve_qq_audio_url(song_mid: &str) -> Result<String, String> {
                 return Ok(audio_url);
             }
             Ok(probe) => {
-                tracing::debug!(
-                    "QQ audio probe {} for {} -> {}",
-                    probe.status(),
-                    filename,
-                    song_mid
+                error.record(
+                    QqAudioFailure::CdnUnavailable,
+                    format!("{}: CDN probe {}", filename, probe.status()),
                 );
             }
             Err(e) => {
-                tracing::debug!("QQ audio probe error for {}: {}", filename, e);
+                error.record(
+                    QqAudioFailure::CdnUnavailable,
+                    format!("{}: CDN probe error: {}", filename, e),
+                );
             }
         }
     }
 
-    Err(format!("No playable QQ audio URL for songmid {}", song_mid))
+    Err(error)
+}
+
+#[cfg(test)]
+mod qq_audio_failure_tests {
+    use super::*;
+
+    #[test]
+    fn furthest_stage_wins() {
+        let mut err = QqResolveError {
+            failure: QqAudioFailure::Unreachable,
+            attempts: Vec::new(),
+        };
+        err.record(QqAudioFailure::NoLicense, "a".into());
+        err.record(QqAudioFailure::UpstreamDenied, "b".into());
+        assert_eq!(err.failure, QqAudioFailure::NoLicense);
+        err.record(QqAudioFailure::CdnUnavailable, "c".into());
+        assert_eq!(err.failure, QqAudioFailure::CdnUnavailable);
+    }
+
+    #[test]
+    fn failure_codes_round_trip() {
+        for failure in QqAudioFailure::ALL {
+            assert_eq!(QqAudioFailure::from_code(failure.code()), Some(failure));
+        }
+        assert_eq!(QqAudioFailure::from_code("nope"), None);
+    }
+
+    #[test]
+    fn vkey_msg_drops_egress_ip() {
+        let data =
+            json!({ "req_0": { "data": { "msg": "203.0.113.7;必须请求加密文件;invalidq;" } } });
+        assert_eq!(qq_vkey_msg(&data), "必须请求加密文件;invalidq");
+        let v6 = json!({ "req_0": { "data": { "msg": "2001:db8::1;invalidq;" } } });
+        assert_eq!(qq_vkey_msg(&v6), "invalidq");
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -1289,7 +1503,7 @@ pub async fn proxy_qq_play_url(
         }
     }
 
-    match resolve_qq_audio_url(&song_mid).await {
+    match resolve_qq_audio_url_cached(&song_mid).await {
         Ok(audio_url) => {
             {
                 let mut cache = MUSIC_CACHE.write().await;
@@ -1303,14 +1517,7 @@ pub async fn proxy_qq_play_url(
             }
             respond_qq_play_url(&audio_url, query.format.as_deref())
         }
-        Err(e) => {
-            tracing::error!("Failed to resolve QQ play URL for {}: {}", song_mid, e);
-            (
-                StatusCode::NOT_FOUND,
-                "Audio not available (copyright, VIP, or geo-restriction)",
-            )
-                .into_response()
-        }
+        Err(failure) => qq_audio_failure_response(failure),
     }
 }
 
@@ -1344,7 +1551,13 @@ pub(crate) fn respond_qq_play_url(audio_url: &str, format: Option<&str>) -> Resp
 ///
 /// 解析临时 vkey 后拉取音频并回传（与网易云海外代理一致，便于 CORS / 频谱分析）。
 /// 国内 HTTPS 站点优先用 [`proxy_qq_play_url`] 直连 CDN。
-pub async fn proxy_qq_audio(Path(song_mid): Path<String>) -> Response {
+pub async fn proxy_qq_audio(
+    State(state): State<AppState>,
+    Path(song_mid): Path<String>,
+) -> Response {
+    if !super::music_switch::music_proxy_enabled(state.db()).await {
+        return super::music_switch::music_proxy_disabled_response();
+    }
     if !is_valid_qq_songmid(&song_mid) {
         return (StatusCode::BAD_REQUEST, "Invalid QQ songmid").into_response();
     }
@@ -1357,16 +1570,9 @@ pub async fn proxy_qq_audio(Path(song_mid): Path<String>) -> Response {
         }
     }
 
-    let audio_url = match resolve_qq_audio_url(&song_mid).await {
+    let audio_url = match resolve_qq_audio_url_cached(&song_mid).await {
         Ok(url) => url,
-        Err(e) => {
-            tracing::error!("Failed to resolve QQ audio for {}: {}", song_mid, e);
-            return (
-                StatusCode::NOT_FOUND,
-                "Audio not available (copyright, VIP, or geo-restriction)",
-            )
-                .into_response();
-        }
+        Err(failure) => return qq_audio_failure_response(failure),
     };
 
     let client = MEDIA_FETCH_CLIENT.clone();
@@ -1385,7 +1591,7 @@ pub async fn proxy_qq_audio(Path(song_mid): Path<String>) -> Response {
                     audio_resp.status(),
                     song_mid
                 );
-                return (StatusCode::BAD_GATEWAY, "Failed to fetch audio stream").into_response();
+                return qq_audio_failure_response(QqAudioFailure::CdnUnavailable);
             }
 
             let content_type = audio_resp
@@ -1420,7 +1626,7 @@ pub async fn proxy_qq_audio(Path(song_mid): Path<String>) -> Response {
         }
         Err(e) => {
             tracing::error!("Failed to fetch QQ audio stream for {}: {}", song_mid, e);
-            (StatusCode::BAD_GATEWAY, "Failed to fetch audio stream").into_response()
+            qq_audio_failure_response(QqAudioFailure::CdnUnavailable)
         }
     }
 }

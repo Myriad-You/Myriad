@@ -26,10 +26,8 @@ import React, {
   useRef,
   useState,
 } from 'react'
-import { API_URL } from '../../config'
 import { useConfigI18n as useI18n } from '../../contexts/I18nContext'
-import { fetchJson } from '../../utils/apiHelper'
-import { getCSRFHeaderName, getCSRFToken } from '../../utils/csrf'
+import { apiService } from '../../services/api'
 import {
   isAnalyticsOptedOut,
   setAnalyticsOptOut,
@@ -210,6 +208,8 @@ function pageLabel(
 }
 
 const ANALYTICS_BACKUP_FORMAT = 'myriad-analytics-backup'
+/** Full-history backups can be large; the default 30s budget is for ordinary calls. */
+const ANALYTICS_TRANSFER_TIMEOUT_MS = 5 * 60_000
 
 interface SiteAnalyticsSectionProps {
   showMessage?: (message: string, type?: ToastType, duration?: number) => void
@@ -295,10 +295,9 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
       setLoading(true)
       setError(null)
       try {
-        const res = await fetchJson<AnalyticsSummary>(
-          `${API_URL}/api/analytics/summary?${analyticsRangeQuery(range)}`,
-          signal ? { signal } : undefined,
-          'Unable to load analytics',
+        const res = await apiService.get<AnalyticsSummary>(
+          `/analytics/summary?${analyticsRangeQuery(range)}`,
+          { signal },
         )
         if (signal?.aborted) return
         if (res?.success) {
@@ -487,11 +486,9 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
     if (ioBusy) return
     setIoBusy(true)
     try {
-      const backup = await fetchJson<Record<string, unknown>>(
-        `${API_URL}/api/analytics/export`,
-        undefined,
-        a.exportFailed,
-      )
+      const backup = await apiService.get<Record<string, unknown>>('/analytics/export', {
+        timeout: ANALYTICS_TRANSFER_TIMEOUT_MS,
+      })
       if (!backup || backup.success === false) {
         throw new Error(
           typeof backup?.error === 'string' ? backup.error : a.exportFailed,
@@ -539,26 +536,13 @@ const SiteAnalyticsSection: React.FC<SiteAnalyticsSectionProps> = ({
           if (!window.confirm(a.importConfirm)) return
 
           setIoBusy(true)
-          const csrf = await getCSRFToken(true)
-          const headers: Record<string, string> = {
-            'Content-Type': 'application/json',
-          }
-          if (csrf) headers[getCSRFHeaderName()] = csrf
-
-          const res = await fetchJson<{
+          const res = await apiService.post<{
             success?: boolean
             error?: string
           }>(
-            `${API_URL}/api/analytics/import`,
-            {
-              method: 'POST',
-              headers,
-              body: JSON.stringify({
-                ...raw,
-                mode: 'replace',
-              }),
-            },
-            a.importFailed,
+            '/analytics/import',
+            { ...raw, mode: 'replace' },
+            { timeout: ANALYTICS_TRANSFER_TIMEOUT_MS },
           )
           if (!res?.success) {
             throw new Error(

@@ -32,6 +32,7 @@ function harness(csrf: () => Promise<string>, fetcher: typeof fetch) {
     },
     exports, fetch: fetcher, window: { location: { origin: 'https://example.test' } },
     URL, AbortController, AbortSignal, setTimeout, clearTimeout, Error, console,
+    FormData, Blob, URLSearchParams,
   })
   return exports.apiService!
 }

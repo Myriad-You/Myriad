@@ -6,9 +6,9 @@ import {
   motionShim as motion,
 } from '@lib/motionShim'
 import { memo, useEffect, useMemo, useState } from 'react'
-import { API_URL } from '../../../../config'
 import { useI18n } from '../../../../contexts/I18nContext'
 import { useAnimationLevel } from '../../../../hooks/useAnimationLevel'
+import { apiService } from '../../../../services/api'
 import { proxyImageUrl } from '../../../../utils/proxyImageUrl'
 import {
   CONTENT_FADE_ANIMATE,
@@ -38,15 +38,10 @@ async function fetchSteamPresence(
 
   steamPresencePromise = (async () => {
     try {
-      const res = await fetch(`${API_URL}/api/steam/presence`, {
-        signal: AbortSignal.timeout(10000),
-      })
-      if (!res.ok) {
-        cachedSteamPresence = null
-        cachedSteamPresenceAt = 0
-        return null
-      }
-      const body = await res.json()
+      const body = await apiService.get<{ success?: boolean, data?: unknown }>(
+        '/steam/presence',
+        { timeout: 10_000 },
+      )
       if (body?.success && body?.data) {
         cachedSteamPresence = body.data as SteamPresence
         cachedSteamPresenceAt = Date.now()
@@ -109,19 +104,11 @@ async function fetchXboxPresence(
 
   const promise = (async () => {
     try {
-      const params = new URLSearchParams({
-        platform: 'xbox',
-        id: key,
+      // Any failure lands in the catch below: drop the cache entry, report offline-unknown.
+      const body = await apiService.get<{ success?: boolean, data?: any }>('/game/presence', {
+        params: { platform: 'xbox', id: key },
+        timeout: 12_000,
       })
-      const res = await fetch(
-        `${API_URL}/api/game/presence?${params.toString()}`,
-        { signal: AbortSignal.timeout(12000) },
-      )
-      if (!res.ok) {
-        xboxPresenceCache.delete(key)
-        return null
-      }
-      const body = await res.json()
       const d = body?.data
       if (!body?.success || !d) {
         xboxPresenceCache.delete(key)
@@ -1350,16 +1337,11 @@ async function fetchPsnPresence(
 
   const promise = (async () => {
     try {
-      const params = new URLSearchParams({ platform: 'psn', id: key })
-      const res = await fetch(
-        `${API_URL}/api/game/presence?${params.toString()}`,
-        { signal: AbortSignal.timeout(12000) },
-      )
-      if (!res.ok) {
-        psnPresenceCache.delete(key)
-        return null
-      }
-      const body = await res.json()
+      // Any failure lands in the catch below: drop the cache entry, report offline-unknown.
+      const body = await apiService.get<{ success?: boolean, data?: any }>('/game/presence', {
+        params: { platform: 'psn', id: key },
+        timeout: 12_000,
+      })
       const d = body?.data
       if (!body?.success || !d) {
         psnPresenceCache.delete(key)

@@ -93,11 +93,7 @@ describe('EventBroker', { concurrency: false }, () => {
     const calls: string[] = []
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       calls.push(String(input))
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ success: true, data: { accepted: true } }),
-      } as Response
+      return Response.json(({ success: true, data: { accepted: true } }), { status: 200 })
     }) as typeof fetch
     const bridge = new FakeBridge()
     const stop = registerEventHandlers(
@@ -119,11 +115,7 @@ describe('EventBroker', { concurrency: false }, () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.includes('/api/csrf-token')) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ csrf_token: null }),
-        } as Response
+        return Response.json(({ csrf_token: null }), { status: 200 })
       }
       const headers = (init?.headers || {}) as Record<string, string>
       calls.push({
@@ -131,14 +123,10 @@ describe('EventBroker', { concurrency: false }, () => {
         grant: headers['X-Tapp-Runtime-Grant'],
         body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
       })
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
+      return Response.json(({
           success: true,
           data: { accepted: true, deduplicated: false, delivered: 1, event: {} },
-        }),
-      } as Response
+        }), { status: 200 })
     }) as typeof fetch
 
     const bridge = new FakeBridge()

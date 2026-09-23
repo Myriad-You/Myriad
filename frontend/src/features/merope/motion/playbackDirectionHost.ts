@@ -56,17 +56,11 @@ export const playbackDirection = new PlaybackDirectionClient({
         },
       },
     ),
-  read: async (runId, after, signal) => {
-    const response = await fetch(
-      `${API_URL}/api/agent/runs/${encodeURIComponent(runId)}/performance?after=${after}`,
-      {
-        credentials: 'include',
-        signal,
-      },
-    )
-    if (!response.ok) throw new Error('Direction unavailable')
-    return response.json()
-  },
+  read: (runId, after, signal) =>
+    apiService.get(`/agent/runs/${encodeURIComponent(runId)}/performance`, {
+      params: { after },
+      signal,
+    }),
   close: (runId) => {
     void apiService
       .delete(`/agent/runs/${encodeURIComponent(runId)}/performance`)

@@ -1,7 +1,5 @@
 import type { Locale } from './index'
-import { API_URL } from '../config'
-import { getCSRFToken } from '../utils/csrf'
-import { hostLocaleHeaders } from './hostLocaleHeaders'
+import { ApiError, apiService } from '../services/api'
 
 let persistHandler: ((locale: Locale) => void) | null = null
 
@@ -15,20 +13,12 @@ export function persistLocaleToAccount(locale: Locale): void {
   persistHandler?.(locale)
 }
 
+/** A 403 means this account may not keep a preference; the local choice stands. */
 export async function putAccountLocale(locale: Locale): Promise<void> {
-  const csrfToken = await getCSRFToken()
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...hostLocaleHeaders(),
-  }
-  if (csrfToken) headers['X-CSRF-Token'] = csrfToken
-  const response = await fetch(`${API_URL}/api/auth/me/locale`, {
-    method: 'PUT',
-    credentials: 'include',
-    headers,
-    body: JSON.stringify({ locale }),
-  })
-  if (!response.ok && response.status !== 403) {
-    throw new Error(`locale persist failed (${response.status})`)
+  try {
+    await apiService.put('/auth/me/locale', { locale })
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 403) return
+    throw error
   }
 }

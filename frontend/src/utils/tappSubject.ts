@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { emitAppEvent } from './appEvents'
 
 let snapshot = { epoch: 0, ready: true }
 const listeners = new Set<() => void>()
@@ -16,7 +17,7 @@ export function finishTappSubjectChange(epoch: number, isAuthenticated: boolean)
   if (epoch !== snapshot.epoch) return
   snapshot = { epoch, ready: true }
   listeners.forEach(listener => listener())
-  window.dispatchEvent(new CustomEvent('tapp-subject-ready', { detail: { isAuthenticated } }))
+  emitAppEvent('tapp-subject-ready', { isAuthenticated })
 }
 
 export function useTappSubject() {

@@ -11,9 +11,8 @@ import {
   SiCloudflare,
 } from '@lib/icons'
 import React, { useCallback, useMemo, useState } from 'react'
-import { API_URL } from '../../config'
 import { useConfigI18n as useI18n } from '../../contexts/I18nContext'
-import { getCSRFToken } from '../../utils/csrf'
+import { apiService } from '../../services/api'
 import {
   emptyFooterCustomItem,
   FOOTER_CUSTOM_MAX,
@@ -21,7 +20,7 @@ import {
   serializeFooterCustom,
 } from '../../utils/footerCustomLogic'
 import { showStickyToast, showToast } from '../../utils/toastManager'
-import { httpStatusMessage, userFacingError } from '../../utils/userFacingError'
+import { userFacingError } from '../../utils/userFacingError'
 import {
   CheckboxGroupItem,
   guideDomProps,
@@ -254,35 +253,18 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
       setAiGenField(field)
       setAiGenFeedback(null)
       try {
-        const base = API_URL || ''
-        const csrfToken = await getCSRFToken()
-        if (!csrfToken) {
-          throw new Error('csrf')
-        }
-        const res = await fetch(`${base}/api/seo/generate-copy`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': csrfToken,
-          },
-          body: JSON.stringify({
-            site_title: title,
-            site_description: description,
-            hint: hint.trim(),
-            language: seoCopyLanguage(locale),
-            fields: [field],
-          }),
-        })
-        if (!res.ok) {
-          throw new Error(httpStatusMessage(res.status))
-        }
-        const data = (await res.json()) as {
+        const data = await apiService.post<{
           site_description?: string
           site_keywords?: string
           site_ai_intro?: string
           source?: string
-        }
+        }>('/seo/generate-copy', {
+          site_title: title,
+          site_description: description,
+          hint: hint.trim(),
+          language: seoCopyLanguage(locale),
+          fields: [field],
+        })
         const generated =
           field === 'site_description'
             ? data.site_description

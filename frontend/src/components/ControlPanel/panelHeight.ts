@@ -1,4 +1,5 @@
 import { observeResize } from '../../hooks/animation'
+import { emitAppEvent } from '../../utils/appEvents'
 import { CONTROL_PANEL_HEIGHT_COMPENSATION } from '../../utils/libraryDockStage'
 
 /** Follow content geometry without a timer lag or interrupting the opening morph. */
@@ -42,7 +43,7 @@ export function trackPanelHeight(
       shell.style.height = `${height}px`
       // The measured panel owns geometry notifications, including music and
       // notification content. Children must not start a second resize pipeline.
-      window.dispatchEvent(new CustomEvent('control-panel-content-resize'))
+      emitAppEvent('control-panel-content-resize')
     }
   }
 

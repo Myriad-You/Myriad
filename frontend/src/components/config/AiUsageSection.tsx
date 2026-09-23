@@ -13,9 +13,8 @@ import {
   LuUsers,
 } from '@lib/icons'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { API_URL } from '../../config'
 import { useConfigI18n as useI18n } from '../../contexts/I18nContext'
-import { fetchJson } from '../../utils/apiHelper'
+import { apiService } from '../../services/api'
 import { userFacingError } from '../../utils/userFacingError'
 import {
   SettingGroup,
@@ -148,10 +147,9 @@ const AiUsageSection: React.FC<AiUsageSectionProps> = ({ showMessage }) => {
         if (subjectId) params.set('subject_id', subjectId)
         if (model) params.set('model', model)
         if (source) params.set('source', source)
-        const res = await fetchJson<AiUsageSummary>(
-          `${API_URL}/api/analytics/ai-usage?${params.toString()}`,
-          signal ? { signal } : undefined,
-          'Unable to load AI usage',
+        const res = await apiService.get<AiUsageSummary>(
+          `/analytics/ai-usage?${params.toString()}`,
+          { signal },
         )
         if (signal?.aborted) return
         if (res?.success) {

@@ -64,6 +64,8 @@ export function useCoverColors(options: {
   selectGenerationRef: MutableRefObject<number>
   tempPlayModeRef: MutableRefObject<TempPlayMode>
   musicEnabled: boolean
+  /** Same admin switch as audio preload; off skips neighbour cover warm-up. */
+  preloadEnabled: boolean
   volume: number
   playMode: PlayMode
 }): CoverColorsApi {
@@ -76,6 +78,7 @@ export function useCoverColors(options: {
     selectGenerationRef,
     tempPlayModeRef,
     musicEnabled,
+    preloadEnabled,
     volume,
     playMode,
   } = options
@@ -378,6 +381,7 @@ export function useCoverColors(options: {
 
   const prefetchAroundIndex = useCallback(
     (center: number) => {
+      if (!preloadEnabled) return
       const list = playlistRef.current
       if (!list.length) return
       const targets = [center - 1, center + 1, center + 2]
@@ -399,7 +403,7 @@ export function useCoverColors(options: {
           .catch(() => {})
       }
     },
-    [playlistRef, rememberCoverColors],
+    [preloadEnabled, playlistRef, rememberCoverColors],
   )
 
   useEffect(() => {

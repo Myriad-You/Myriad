@@ -107,6 +107,7 @@ import {
   agentPanelOpenSessionCount,
   agentPanelOpenSessionId,
   agentPanelSubmitDetail,
+  attachAgentSessionOpenQueue,
   dispatchAgentPanelOpen, dispatchHistoryAnswerResult,
 } from './agentPanelEvents'
 import { getAgentPanelMode, useAgentPanelMode } from './agentPanelMode'
@@ -542,8 +543,14 @@ export const AgentEngine: React.FC = () => {
       )
     }
     window.addEventListener('arael-open-session', handleOpenSession)
-    return () =>
+    const { queued, detach } = attachAgentSessionOpenQueue()
+    if (queued) {
+      handleOpenSession(new CustomEvent('arael-open-session', { detail: queued }))
+    }
+    return () => {
       window.removeEventListener('arael-open-session', handleOpenSession)
+      detach()
+    }
   }, [loadSession])
 
   useEffect(() => {

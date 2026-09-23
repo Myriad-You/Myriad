@@ -2,6 +2,7 @@ import type { DynamicContentType } from '../services/DynamicContentProvider'
 import type { DynamicContent } from './ControlPanel/islandContentTypes'
 import type { PanelTab } from './ControlPanel/panelTransition'
 import React, {
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -17,17 +18,20 @@ import { useAuth } from '../contexts/AuthContext'
 import { useI18n } from '../contexts/I18nContext'
 import { resetMeropeState } from '../features/merope/meropeAffectState'
 import { setForegroundSurface } from '../features/merope/perception/surface'
-
+import { useIdleEffect } from '../hooks/animation'
 import { useAnimationLevel } from '../hooks/useAnimationLevel'
+
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
 import { usePerformanceProfile } from '../hooks/usePerformanceProfile'
 import { usePublicUiConfig } from '../hooks/usePublicUiConfig'
-
 import { useThemePreference } from '../hooks/useThemePreference'
+
 import { useVisibleState } from '../hooks/useVisibleState'
 import { useWallpaper } from '../hooks/useWallpaper'
 import { getDynamicContentProvider } from '../services/DynamicContentProvider'
 import { useBackgroundResidents } from '../tapp/runtime/backgroundResidentStore'
+import { emitAppEvent } from '../utils/appEvents'
+import { lazyWithPreload } from '../utils/codeSplitting'
 import {
   allowsIslandType,
   ISLAND_CONTENT_CHANGED_EVENT,
@@ -68,13 +72,18 @@ import { useIslandTextMotion } from './ControlPanel/useIslandTextMotion'
 import { UserSection } from './ControlPanel/UserSection'
 import { useTappIslandContents } from './ControlPanel/useTappIslandContents'
 import { isHoverCapablePointer } from './ControlPanel/widgetCarousel'
-import NotificationPanelList from './NotificationPanelList'
 import { homeBrowseTourPanelPose } from './tour/tourHomePose'
 import {
   getTourSnapshot,
   subscribeTour,
 } from './tour/tourStore'
 import './GlobalControlPanel.css'
+
+/**
+ * Only the notifications tab renders this, so it stays out of the entry chunk;
+ * an idle preload after first paint makes the first tab switch instant.
+ */
+const NotificationPanelList = lazyWithPreload(() => import('./NotificationPanelList'))
 
 function readHomeBrowseTourPanelPose() {
   const snapshot = getTourSnapshot()
@@ -83,6 +92,9 @@ function readHomeBrowseTourPanelPose() {
 
 const GlobalControlPanel: React.FC = () => {
   const navigate = useNavigate()
+  useIdleEffect(() => {
+    NotificationPanelList.preload().catch(() => {})
+  }, [], { priority: 'low' })
   const { user } = useAuth()
   useLayoutEffect(() => {
     resetMeropeState()
@@ -256,7 +268,7 @@ const GlobalControlPanel: React.FC = () => {
     const activeMotion = motionRef.current
 
     return watchPanelTransition(el, activeMotion.spatial, settleTimeoutMs(activeMotion), () => {
-      window.dispatchEvent(new CustomEvent('gcp-animation-end'))
+      emitAppEvent('gcp-animation-end')
       dispatchPanel({ type: 'settle', generation })
     })
   }, [panel.phase, panel.generation])
@@ -372,15 +384,11 @@ const GlobalControlPanel: React.FC = () => {
   const handleOpenNotifSession = useCallback(
     (sessionId: string, opts?: { runId?: string; taskId?: string }) => {
       handleClosePanel()
-      window.dispatchEvent(
-        new CustomEvent('arael-open-session', {
-          detail: {
+      emitAppEvent('arael-open-session', {
             sessionId,
             runId: opts?.runId,
             taskId: opts?.taskId,
-          },
-        }),
-      )
+          })
     },
     [handleClosePanel],
   )
@@ -388,11 +396,7 @@ const GlobalControlPanel: React.FC = () => {
   const handleOpenAgentManage = useCallback(
     (tab?: 'heartbeat' | 'skills' | 'memory') => {
       handleClosePanel()
-      window.dispatchEvent(
-        new CustomEvent('arael-open-manage', {
-          detail: tab ? { tab } : {},
-        }),
-      )
+      emitAppEvent('arael-open-manage', tab ? { tab } : {})
     },
     [handleClosePanel],
   )
@@ -757,16 +761,18 @@ const GlobalControlPanel: React.FC = () => {
                     className={`notif-overlay ${panelTab === 'notifications' ? 'active' : ''}`}
                     inert={panelTab !== 'notifications'}
                   >
-                    <NotificationPanelList
-                      center={notifCenter}
-                      fill
-                      onOpenSession={handleOpenNotifSession}
-                      onNavigate={handleNavigateFromPanel}
-                      onOpenAgentManage={handleOpenAgentManage}
-                      browserNotificationsEnabled={
-                        notificationPreferences.delivery.browser
-                      }
-                    />
+                    <Suspense fallback={null}>
+                      <NotificationPanelList
+                        center={notifCenter}
+                        fill
+                        onOpenSession={handleOpenNotifSession}
+                        onNavigate={handleNavigateFromPanel}
+                        onOpenAgentManage={handleOpenAgentManage}
+                        browserNotificationsEnabled={
+                          notificationPreferences.delivery.browser
+                        }
+                      />
+                    </Suspense>
                   </div>
                 )}
               </div>

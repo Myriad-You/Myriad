@@ -1,5 +1,6 @@
 import type { HyaliteAPI, HyaliteOptions } from './vendor/hyalite'
 
+import { LENS_VIEWPORT_QUERY } from './lensViewport'
 import { createHyalite } from './vendor/hyalite'
 
 const SURFACES = [
@@ -11,7 +12,7 @@ const CHROME = '.control-bar-trigger, .surface-dialog'
 
 export function mountSurfaceLenses(engine: HyaliteAPI = createHyalite()): () => void {
   const root = document.documentElement
-  const desktop = matchMedia('(min-width: 768px)')
+  const desktop = matchMedia(LENS_VIEWPORT_QUERY)
   const reduced = matchMedia('(prefers-reduced-motion: reduce)')
   const candidates = new Set<HTMLElement>()
   const visible = new Set<HTMLElement>()
@@ -137,7 +138,34 @@ export function mountSurfaceLenses(engine: HyaliteAPI = createHyalite()): () => 
     }
     schedule()
   })
-  const rootObserver = new MutationObserver(invalidateAll)
+  // Tracking costs a subtree-wide class observer; off (mobile, reduced
+  // motion, light tiers, hidden tab) it is torn down, and a fresh discovery
+  // on the way back marks every surface dirty like invalidateAll would.
+  let tracking = false
+  const sync = () => {
+    const on = enabled()
+    if (on !== tracking) {
+      tracking = on
+      if (on) {
+        discover(document.body)
+        bodyObserver.observe(document.body, {
+          subtree: true, childList: true, attributes: true,
+          attributeFilter: ['class', 'data-liquid-lens-skip', 'data-nav-idle'],
+        })
+      } else {
+        bodyObserver.disconnect()
+        // No longer candidates, so the next flush detaches whatever is attached.
+        for (const el of candidates) {
+          intersection.unobserve(el)
+          dirty.add(el)
+        }
+        candidates.clear()
+        visible.clear()
+      }
+    }
+    invalidateAll()
+  }
+  const rootObserver = new MutationObserver(sync)
   const geometryEnded = (event: Event) => {
     if (event instanceof TransitionEvent
       && !/^(width|height|min-width|max-width|min-height|max-height|padding(?:-.+)?|border(?:-.+)?|font-size|line-height|flex-basis|gap|row-gap|column-gap)$/.test(event.propertyName)) { return
@@ -149,20 +177,15 @@ export function mountSurfaceLenses(engine: HyaliteAPI = createHyalite()): () => 
       schedule()
     }
   }
-  discover(document.body)
-  bodyObserver.observe(document.body, {
-    subtree: true, childList: true, attributes: true,
-    attributeFilter: ['class', 'data-liquid-lens-skip', 'data-nav-idle'],
-  })
   rootObserver.observe(root, {
     attributes: true, attributeFilter: ['class', 'data-surface', 'data-perf-mode'],
   })
-  desktop.addEventListener('change', invalidateAll)
-  reduced.addEventListener('change', invalidateAll)
-  document.addEventListener('visibilitychange', invalidateAll)
+  desktop.addEventListener('change', sync)
+  reduced.addEventListener('change', sync)
+  document.addEventListener('visibilitychange', sync)
   document.addEventListener('transitionend', geometryEnded)
   document.addEventListener('animationend', geometryEnded)
-  schedule()
+  sync()
 
   return () => {
     stopped = true
@@ -170,9 +193,9 @@ export function mountSurfaceLenses(engine: HyaliteAPI = createHyalite()): () => 
     bodyObserver.disconnect()
     rootObserver.disconnect()
     intersection.disconnect()
-    desktop.removeEventListener('change', invalidateAll)
-    reduced.removeEventListener('change', invalidateAll)
-    document.removeEventListener('visibilitychange', invalidateAll)
+    desktop.removeEventListener('change', sync)
+    reduced.removeEventListener('change', sync)
+    document.removeEventListener('visibilitychange', sync)
     document.removeEventListener('transitionend', geometryEnded)
     document.removeEventListener('animationend', geometryEnded)
     attached.forEach((_, el) => detach(el))

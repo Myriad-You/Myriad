@@ -26,7 +26,7 @@ for (const reason of ['abort', 'timeout'] as const) {
       loadResource: { low: (_id: string, next: typeof loader) => { loader = next } },
     }
     const hook = compileFunction(`${script}; return usePreload;`, Object.keys(dependencies))(...Object.values(dependencies))
-    const api = hook({ playlist: [{ id: 'a' }], volume: 1, setPlaylist: () => {}, neteaseProxyFallbackTriedRef: { current: new Set() } })
+    const api = hook({ enabled: true, playlist: [{ id: 'a' }], volume: 1, setPlaylist: () => {}, neteaseProxyFallbackTriedRef: { current: new Set() } })
     const cleanup = effects.map(effect => effect())
     api.preloadNextSong(0, true)
     const controller = new AbortController()
@@ -41,3 +41,20 @@ for (const reason of ['abort', 'timeout'] as const) {
     assert.equal(cancelled, 1)
   })
 }
+
+test('music preload does nothing when disabled', () => {
+  let scheduled = 0
+  const dependencies = {
+    useRef: (current: unknown) => ({ current }), useState: (initial: unknown) => [initial, () => {}],
+    useCallback: (callback: unknown) => callback, useEffect: () => {},
+    createPreloadAudioElement: () => null, ensureSpectrumSafePlaybackUrl: () => 'https://music.test/audio',
+    getMusicProxyFallbackUrl: () => null, pickAdjacentIndex: () => 0, pickShuffleIndex: () => 0,
+    globalResourceLoader: { cancelTask: () => {} },
+    loadResource: { low: () => { scheduled++ } },
+  }
+  const hook = compileFunction(`${script}; return usePreload;`, Object.keys(dependencies))(...Object.values(dependencies))
+  const api = hook({ enabled: false, playlist: [{ id: 'a' }], volume: 1, setPlaylist: () => {}, neteaseProxyFallbackTriedRef: { current: new Set() } })
+  api.preloadAudioRef.current = {}
+  api.preloadNextSong(0, true)
+  assert.equal(scheduled, 0)
+})

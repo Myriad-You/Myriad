@@ -44,6 +44,27 @@ impl ConfigService {
         Ok(Self::parse_config(map))
     }
 
+    /// Audio relay switch only; the full load decrypts every secret, too heavy
+    /// for a per-request guard. Same parser, so the default cannot drift.
+    pub async fn load_music_proxy_enabled_on(db: &impl ConnectionTrait) -> Result<bool> {
+        let rows = db
+            .query_all_raw(Statement::from_string(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT key, value FROM configurations WHERE key = 'music_proxy_enabled'"
+                    .to_string(),
+            ))
+            .await
+            .context("Failed to load music proxy switch")?;
+        let mut map = HashMap::new();
+        for row in rows {
+            map.insert(
+                row.try_get::<String>("", "key")?,
+                row.try_get::<JsonValue>("", "value")?,
+            );
+        }
+        Ok(Self::parse_config(map).music_proxy_enabled)
+    }
+
     /// 从数据库加载所有配置
     pub async fn load_config(&self) -> Result<DynamicConfig> {
         // 使用 ConnectionTrait 的方法进行查询
@@ -971,6 +992,20 @@ impl ConfigService {
         if let Some(v) = map.get("music_playlist_id") {
             config.music_playlist_id = v.as_str().map(|s| s.to_string());
         }
+        if let Some(v) = map.get("music_proxy_enabled") {
+            if let Some(b) = v.as_bool() {
+                config.music_proxy_enabled = b;
+            } else if let Some(s) = v.as_str() {
+                config.music_proxy_enabled = s != "false" && s != "0";
+            }
+        }
+        if let Some(v) = map.get("music_preload_enabled") {
+            if let Some(b) = v.as_bool() {
+                config.music_preload_enabled = b;
+            } else if let Some(s) = v.as_str() {
+                config.music_preload_enabled = s != "false" && s != "0";
+            }
+        }
 
         if let Some(v) = map.get("island_show_greeting") {
             if let Some(b) = v.as_bool() {
@@ -1734,6 +1769,27 @@ mod tests {
         assert!(mixed.island_show_quote);
         assert!(!mixed.island_show_music);
         assert!(mixed.island_show_tapp);
+    }
+
+    #[test]
+    fn parses_music_playback_flags_from_database_config() {
+        let missing = ConfigService::parse_config(HashMap::new());
+        assert!(missing.music_proxy_enabled);
+        assert!(missing.music_preload_enabled);
+
+        let off = ConfigService::parse_config(HashMap::from([
+            ("music_proxy_enabled".into(), json!(false)),
+            ("music_preload_enabled".into(), json!("false")),
+        ]));
+        assert!(!off.music_proxy_enabled);
+        assert!(!off.music_preload_enabled);
+
+        let on = ConfigService::parse_config(HashMap::from([
+            ("music_proxy_enabled".into(), json!("true")),
+            ("music_preload_enabled".into(), json!(true)),
+        ]));
+        assert!(on.music_proxy_enabled);
+        assert!(on.music_preload_enabled);
     }
 
     #[test]

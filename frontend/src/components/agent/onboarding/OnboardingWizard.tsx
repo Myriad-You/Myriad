@@ -11,6 +11,7 @@ import { useI18n } from '../../../contexts/I18nContext'
 import { notifyPersonaUpdated } from '../../../features/merope/events'
 import { seedWardrobeFromIdentity } from '../../../features/merope/wardrobe'
 import { agentService } from '../../../services/agent'
+import { emitAppEvent } from '../../../utils/appEvents'
 import { invalidatePublicConfigCache } from '../../../utils/requestDedup'
 import {
   CHOICE_STEP,
@@ -365,9 +366,7 @@ export default function OnboardingWizard({
                     setPersona(next)
                     if (personaChanged) setVisualIdentity(null)
                     invalidatePublicConfigCache()
-                    window.dispatchEvent(
-                      new CustomEvent('arael-persona-updated'),
-                    )
+                    emitAppEvent('arael-persona-updated')
                     return 5
                   })
                 }

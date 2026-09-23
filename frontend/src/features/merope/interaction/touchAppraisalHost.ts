@@ -1,5 +1,5 @@
 import type { TouchMotionSource } from '../motion/touchSource'
-import { API_URL } from '../../../config'
+import { apiService } from '../../../services/api'
 import { getCSRFToken } from '../../../utils/csrf'
 import { liveMotionGeneration } from '../motion/liveGeneration'
 import { reportPresence } from '../perception/inbound'
@@ -25,13 +25,10 @@ export function createTouchAppraisal(owner: string, source: TouchMotionSource) {
     const timeout = setTimeout(() => controller.abort(), 4000)
     void (async () => {
       await reportPresence('avatar-touch')
+      // No token means no signed-in session: the addressee endpoints are not for guests.
       const token = await getCSRFToken()
       if (!token || controller.signal.aborted || document.visibilityState !== 'visible') return
-      await fetch(`${API_URL}/api/agent/addressee/touch/complete`, {
-        method: 'POST', credentials: 'include', signal: controller.signal,
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token },
-        body: JSON.stringify(summary),
-      })
+      await apiService.post('/agent/addressee/touch/complete', summary, { signal: controller.signal })
     })().catch(() => {}).finally(() => {
       clearTimeout(timeout)
       if (completion === controller) completion = null
@@ -44,12 +41,8 @@ export function createTouchAppraisal(owner: string, source: TouchMotionSource) {
       const displayedReaction = source.displayedReaction(owner, contactId)
       const token = await getCSRFToken()
       if (signal.aborted || !token) return null
-      const response = await fetch(`${API_URL}/api/agent/addressee/touch`, {
-        method: 'POST', credentials: 'include', signal,
-        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': token },
-        body: JSON.stringify({ ...summary, displayedReaction }),
-      })
-      return response.ok ? response.json() : null
+      return apiService.post<any>('/agent/addressee/touch', { ...summary, displayedReaction }, { signal })
+        .catch(() => null)
     },
     apply: (revision, reaction) => {
       if (document.visibilityState !== 'visible' || liveMotionGeneration() !== generation) return

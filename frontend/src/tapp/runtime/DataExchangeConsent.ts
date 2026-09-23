@@ -1,4 +1,5 @@
 import type { PreparedDataExchange } from '../services/TappApiService'
+import { createStore } from '../../utils/store'
 
 export type DataExchangeConsentDecision =
   'allow' | 'deny' | 'expired' | 'cancelled'
@@ -21,17 +22,20 @@ interface ConsentSnapshot {
 }
 
 let queue: PendingConsent[] = []
-const listeners = new Set<() => void>()
-let snapshot: ConsentSnapshot = { current: null }
+const snapshot = createStore<ConsentSnapshot>(
+  { current: null },
+  (a, b) =>
+    a.current?.prepared === b.current?.prepared &&
+    a.current?.queuedCount === b.current?.queuedCount,
+)
 
 function publish(): void {
   const current = queue[0]
-  snapshot = {
+  snapshot.set({
     current: current
       ? { prepared: current.prepared, queuedCount: queue.length - 1 }
       : null,
-  }
-  listeners.forEach((listener) => listener())
+  })
 }
 
 function settle(
@@ -96,11 +100,5 @@ export function decideDataExchangeConsent(
   return settle(requestId, allowed ? 'allow' : 'deny')
 }
 
-export function subscribeDataExchangeConsent(listener: () => void): () => void {
-  listeners.add(listener)
-  return () => listeners.delete(listener)
-}
-
-export function getDataExchangeConsentSnapshot(): ConsentSnapshot {
-  return snapshot
-}
+export const subscribeDataExchangeConsent = snapshot.subscribe
+export const getDataExchangeConsentSnapshot = snapshot.get

@@ -2,8 +2,7 @@ import type { PermissionConfigValues } from '../types'
 import {
   fetchPermissionsConfig,
   updatePermissionsConfig,
-} from '../../../../lib/api'
-import { getCSRFToken } from '../../../../utils/csrf'
+} from '../../../../services/configApi'
 import { DEFAULT_PERMISSION_CONFIG } from '../defaults'
 import { useConfigDomain } from '../useConfigDomain'
 
@@ -69,7 +68,6 @@ export function usePermissionDomain(messages: {
       return loaded
     },
     persist: async (draft, saved) => {
-      await getCSRFToken(true)
       const patch = Object.fromEntries(
         Object.entries(draft).filter(([key, value]) => saved[key] !== value),
       )

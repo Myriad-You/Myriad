@@ -91,11 +91,7 @@ function mockPhantasi(body: unknown) {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.includes('/api/csrf-token')) {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ csrf_token: null }),
-      } as Response
+      return Response.json(({ csrf_token: null }), { status: 200 })
     }
     const headers = (init?.headers || {}) as Record<string, string>
     calls.push({
@@ -103,11 +99,7 @@ function mockPhantasi(body: unknown) {
       method: (init?.method || 'GET').toUpperCase(),
       grant: headers['X-Tapp-Runtime-Grant'],
     })
-    return {
-      ok: true,
-      status: 200,
-      json: async () => body,
-    } as Response
+    return Response.json(body, { status: 200 })
   }) as typeof fetch
 }
 

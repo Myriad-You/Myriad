@@ -1,4 +1,4 @@
-import type { SettingsRestorePreview } from '../../lib/api'
+import type { SettingsRestorePreview } from '../../services/configApi'
 
 import {
   FaGlobe,
@@ -13,12 +13,6 @@ import {
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useConfigI18n as useI18n } from '../../contexts/I18nContext'
 import {
-  fetchSettingsBackup,
-  previewSettingsBackup,
-  restoreSettingsBackup,
-  updateConfig,
-} from '../../lib/api'
-import {
   clearRestoreNotice,
   EMPTY_RESTORE_NOTICE,
   formatRestoreNotice,
@@ -27,8 +21,13 @@ import {
   stashRestoreNotice,
   summarizeKeys,
 } from '../../lib/settingsRestoreNotice'
+import {
+  fetchSettingsBackup,
+  previewSettingsBackup,
+  restoreSettingsBackup,
+  updateConfig,
+} from '../../services/configApi'
 
-import { getCSRFToken } from '../../utils/csrf'
 import { purgeFrontendCachesAndReload } from '../../utils/frontendCachePurge'
 import { userFacingError } from '../../utils/userFacingError'
 import {
@@ -362,7 +361,6 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
     setImportConfirmOpen(false)
 
     try {
-      await getCSRFToken(true)
       let attentionCount = 0
       if (isVersionedSettingsBackup(pendingImportData)) {
         const result = await restoreSettingsBackup(pendingImportData)

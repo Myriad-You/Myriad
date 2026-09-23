@@ -9,6 +9,7 @@ import {
   registerActionHandler,
   unregisterActionHandler,
 } from '../services/agent/frontendActions'
+import { emitAppEvent } from '../utils/appEvents'
 import { phantasiSubject } from '../utils/phantasiSubject'
 import { useMusicPlayerControl } from './MusicPlayerContext'
 
@@ -413,54 +414,42 @@ export function AgentGlobalActions() {
       switch (action) {
         case 'play':
           if (!musicPlayer.isPlaying) {
-            window.dispatchEvent(new CustomEvent('toggle-play-pause'))
+            emitAppEvent('toggle-play-pause')
           }
           break
         case 'pause':
           if (musicPlayer.isPlaying) {
-            window.dispatchEvent(new CustomEvent('toggle-play-pause'))
+            emitAppEvent('toggle-play-pause')
           }
           break
         case 'toggle':
         case 'toggle-play-pause':
-          window.dispatchEvent(new CustomEvent('toggle-play-pause'))
+          emitAppEvent('toggle-play-pause')
           break
 
         case 'next':
-          window.dispatchEvent(new CustomEvent('music-player-next'))
+          emitAppEvent('music-player-next')
           break
 
         case 'previous':
         case 'prev':
-          window.dispatchEvent(new CustomEvent('music-player-prev'))
+          emitAppEvent('music-player-prev')
           break
 
         case 'volume':
           if (value !== undefined) {
             // Volume is 0–1 (backend already converted).
-            window.dispatchEvent(
-              new CustomEvent('music-player-volume', {
-                detail: { volume: value },
-              }),
-            )
+            emitAppEvent('music-player-volume', { volume: value })
           }
           break
 
         case 'mute':
-          window.dispatchEvent(
-            new CustomEvent('music-player-mute', {
-              detail: { muted: frontendAction.value !== false },
-            }),
-          )
+          emitAppEvent('music-player-mute', { muted: frontendAction.value !== false })
           break
 
         case 'seek':
           if (value !== undefined) {
-            window.dispatchEvent(
-              new CustomEvent('music-player-seek', {
-                detail: { position: value },
-              }),
-            )
+            emitAppEvent('music-player-seek', { position: value })
           }
           break
 
@@ -506,16 +495,12 @@ export function AgentGlobalActions() {
         `[AgentGlobalActions] Loading playlist: ${playlistId} from ${source}, autoPlay: ${autoPlay}`,
       )
 
-      window.dispatchEvent(
-        new CustomEvent('music-player-load-playlist', {
-          detail: {
+      emitAppEvent('music-player-load-playlist', {
             playlistId,
             source,
             autoPlay,
             timestamp: Date.now(),
-          },
-        }),
-      )
+          })
 
       return true
     },
@@ -620,25 +605,20 @@ export function AgentGlobalActions() {
 
         navigate('/journal')
       } else {
-        window.dispatchEvent(
-          new CustomEvent('agent:set-reading-list', {
-            detail: readingListData,
-          }),
-        )
+        emitAppEvent('agent:set-reading-list', {
+          ...readingListData,
+          createdAt: new Date(readingListData.createdAt),
+        })
 
         if (firstItem) {
           // Wait until the reading list is applied.
           setTimeout(() => {
-            window.dispatchEvent(
-              new CustomEvent('agent:open-phantasi-article', {
-                detail: {
+            emitAppEvent('agent:open-phantasi-article', {
                   articleId: firstItem.id.toString(),
                   openLatest: false,
                   // Pass full payload for web-search items.
                   webSearchArticle: firstItemData,
-                },
-              }),
-            )
+                })
           }, 100)
         }
       }

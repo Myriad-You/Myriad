@@ -14,6 +14,7 @@ import {
 } from '../../features/merope/events'
 import SiteMotionWorkbench from '../../features/merope/SiteMotionWorkbench'
 import { agentService } from '../../services/agent'
+import { emitAppEvent } from '../../utils/appEvents'
 import { invalidatePublicConfigCache } from '../../utils/requestDedup'
 import { siteMediaUrl } from '../../utils/siteMediaUrl'
 import { showStickyToast } from '../../utils/toastManager'
@@ -170,7 +171,7 @@ export const AgentConfigSection: React.FC<AgentConfigSectionProps> = ({
     try {
       await agentService.deletePersona()
       invalidatePublicConfigCache()
-      window.dispatchEvent(new CustomEvent('arael-persona-updated'))
+      emitAppEvent('arael-persona-updated')
     } catch (error) {
       showStickyToast({
         message: userFacingError(error, t.config.agentPersonaDeleteFailed),

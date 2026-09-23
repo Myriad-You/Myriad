@@ -38,7 +38,6 @@ import {
 } from './titleFontSelectorPlacement'
 
 interface TitleFontSelectorProps {
-  csrfToken: string
   className?: string
   // 自由布局底栏直接用轨道按钮，不要外包一层再 display:contents。
   buttonClassName?: string
@@ -49,7 +48,6 @@ type TabType = 'font' | 'size' | 'color' | 'surface' | 'glow' | 'preset'
 
 export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
   ({
-      csrfToken,
       className = '',
       buttonClassName,
       showHeroOptions = true,
@@ -185,45 +183,45 @@ export const TitleFontSelector: React.FC<TitleFontSelectorProps> = React.memo(
 
     const handleSelectFont = useCallback(
       (font: FontOption) => {
-        setTitleFont(font.id, csrfToken)
+        setTitleFont(font.id)
       },
-      [setTitleFont, csrfToken],
+      [setTitleFont],
     )
 
     const handleSelectSize = useCallback(
       (size: number) => {
-        setTitleFontSize(size, csrfToken)
+        setTitleFontSize(size)
       },
-      [setTitleFontSize, csrfToken],
+      [setTitleFontSize],
     )
 
     const handleSelectColor = useCallback(
       (colorId: string) => {
-        setTitleColor(colorId, csrfToken)
+        setTitleColor(colorId)
       },
-      [setTitleColor, csrfToken],
+      [setTitleColor],
     )
 
     const handleSelectSurface = useCallback(
       (id: WidgetSurface) => {
-        setSurface(id, csrfToken)
+        setSurface(id)
       },
-      [setSurface, csrfToken],
+      [setSurface],
     )
 
     const handleSelectGlow = useCallback(
       (id: WidgetGlowMode) => {
-        setGlowMode(id, csrfToken)
+        setGlowMode(id)
       },
-      [setGlowMode, csrfToken],
+      [setGlowMode],
     )
 
     const handleApplyPreset = useCallback(
       (preset: { surface?: WidgetSurface; glow?: WidgetGlowMode }) => {
-        if (preset.surface) setSurface(preset.surface, csrfToken)
-        if (preset.glow) setGlowMode(preset.glow, csrfToken)
+        if (preset.surface) setSurface(preset.surface)
+        if (preset.glow) setGlowMode(preset.glow)
       },
-      [setSurface, setGlowMode, csrfToken],
+      [setSurface, setGlowMode],
     )
 
     const handleTabChange = useCallback((tab: TabType) => {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { RATE_LIMIT_RETRY_MAX_MS, rateLimitRetryDelayMs } from './phantasiApi'
+import { RATE_LIMIT_RETRY_MAX_MS, rateLimitRetryDelayMs } from './api'
 
 describe('rateLimitRetryDelayMs', () => {
   it('没有 Retry-After 就等一秒再试', () => {

@@ -52,11 +52,7 @@ function mockFetch(
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.includes('/api/csrf-token')) {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ csrf_token: null }),
-      } as Response
+      return Response.json(({ csrf_token: null }), { status: 200 })
     }
     const headers = headerRecord(init)
     calls.push({
@@ -68,11 +64,7 @@ function mockFetch(
       blob: JSON.stringify({ url, method: init?.method, headers, body: init?.body }),
     })
     const result = handler(url, init)
-    return {
-      ok: result.ok,
-      status: result.status,
-      json: async () => result.body,
-    } as Response
+    return Response.json(result.body, { status: result.status })
   }) as typeof fetch
 }
 
@@ -103,7 +95,8 @@ describe('TappContextApi declared API client', { concurrency: false }, () => {
     assert.equal(calls[0]!.url, '/api/tapp/com.example.app/api/weather')
     assert.equal(calls[0]!.method, 'POST')
     assert.equal(calls[0]!.grant, GRANT)
-    assert.equal(calls[0]!.csrf, '')
+    // The fixture session is a guest (csrf_token: null): no token, so no header at all.
+    assert.equal(calls[0]!.csrf, undefined)
     assert.deepEqual(calls[0]!.body, { params: { q: 'tokyo' } })
     assertNoSecret(calls)
     assert.equal(calls[0]!.blob.includes(SECRET), false)

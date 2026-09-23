@@ -294,14 +294,13 @@ function getRippleViewportRect(): DOMRect {
 function createRippleCanvas(
   wallpaperEl: HTMLElement,
   parallaxEnabled: boolean,
-  rippleScale: number,
 ): HTMLCanvasElement {
   const canvas = document.createElement('canvas')
   canvas.id = 'wallpaper-ripple-canvas'
-  // Bitmap = visible container crop (canvas DOM stays inset:0; #wallpaper is oversized)
-  const { width: vw, height: vh } = getRippleViewportSize()
-  canvas.width = (vw * rippleScale) | 0
-  canvas.height = (vh * rippleScale) | 0
+  // Bitmap = visible container crop (canvas DOM stays inset:0; #wallpaper is oversized).
+  // Sized lazily by startRipple; an idle canvas holds no backing store.
+  canvas.width = 0
+  canvas.height = 0
 
   const computedStyle = window.getComputedStyle(wallpaperEl)
   const transformOrigin = parallaxEnabled
@@ -749,7 +748,7 @@ export function useEvocativeWallpaper(
     }
 
     if (enableRipple) {
-      s.rippleCanvas = createRippleCanvas(el, enableParallax, rippleScale)
+      s.rippleCanvas = createRippleCanvas(el, enableParallax)
       s.rippleCtx = s.rippleCanvas.getContext('2d', {
         willReadFrequently: true,
       })
@@ -814,6 +813,9 @@ export function useEvocativeWallpaper(
             s.rippleIsFadingOut = false
             if (s.rippleCanvas) {
               s.rippleCanvas.style.transition = 'opacity 0.15s ease-out'
+              // 已淡出不可见；释放视口大小的位图，下次 startRipple 按需重建
+              s.rippleCanvas.width = 0
+              s.rippleCanvas.height = 0
             }
           }
           s.rippleFadeoutTimer = null

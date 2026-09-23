@@ -1,11 +1,7 @@
 import type { TappManifest } from '../types'
 import type { TappListItem } from './TappLifecycleApi'
 import type { TappPlaygroundCode } from './TappPlaygroundService'
-import { API_URL } from '../../config'
-import { hostLocaleHeaders } from '../../i18n/hostLocaleHeaders'
 import { currentCopy, formatCurrent } from '../../i18n/localeCopy'
-import { parseApiErrorBody } from '../../services/api'
-import { getCSRFToken } from '../../utils/csrf'
 import { generateOnDemandTailwindCSS } from '../runtime/sandbox/styles'
 import { tappLayerEntries } from '../utils/manifestLayers'
 
@@ -217,34 +213,11 @@ export async function installTappFile(
     formData.append('permissions', JSON.stringify(permissions))
   }
 
-  const csrfToken = (await getCSRFToken()) || ''
-
   const query = overwrite ? '?overwrite=true' : ''
-  const response = await fetch(`${API_URL}/api/tapps/install-file${query}`, {
+  return apiRequest<TappListItem>(`/api/tapps/install-file${query}`, {
     method: 'POST',
-    headers: {
-      'X-CSRF-Token': csrfToken,
-      ...hostLocaleHeaders(),
-    },
     body: formData,
-    credentials: 'include',
   })
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}))
-    const parsed = parseApiErrorBody(errorData, response.status)
-    throw new TappHttpError(
-      parsed.message || currentCopy().tapp.installFailed,
-      response.status,
-      { body: errorData, code: parsed.code },
-    )
-  }
-
-  const result = await response.json()
-  if (result.success === false) {
-    throw new Error(result.error || currentCopy().tapp.installFailed)
-  }
-  return result.data || result
 }
 
 /** source 是目录 URL 或商店源 id，不是 mode 字符串 store。 */

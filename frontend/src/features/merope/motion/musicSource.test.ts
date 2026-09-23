@@ -482,6 +482,37 @@ test('reconnects the analyser when the player swaps its audio element', () => {
   assert.equal(connected[1], current)
 })
 
+test('leaves a paused element unwired so no AudioContext starts before a gesture', () => {
+  const connected: object[] = []
+  const current = { paused: true, currentTime: 0 }
+  const audio: MusicMotionAudio = {
+    getCurrentAudio: () => current,
+    getMotionAudioFeatures: () => ({
+      energy: 0,
+      bass: 0,
+      pulse: 0,
+      presence: 0,
+    }),
+    connectAudioToAnalyser: (element) => {
+      connected.push(element)
+      return true
+    },
+  }
+  const source = new MusicMotionSource(
+    new RigMotionCoordinator(),
+    fakeClock(),
+    audio,
+    visible,
+  )
+  source.sampleNow(10)
+  assert.equal(connected.length, 0)
+
+  current.paused = false
+  source.setPlayback(true, false)
+  source.sampleNow(20)
+  assert.equal(connected.length, 1)
+})
+
 test('publishes the next audio-clock beat as a mutable anticipator peg', () => {
   let currentTime = 0
   let bass = 0.05

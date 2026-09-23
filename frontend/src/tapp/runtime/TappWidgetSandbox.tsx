@@ -7,17 +7,18 @@ import {
 } from '../../components/widgets/shared/WidgetSkeleton'
 import { useI18n } from '../../contexts/I18nContext'
 import { useAnimationLevel } from '../../hooks/useAnimationLevel'
+import { emitAppEvent } from '../../utils/appEvents'
 import {
   buildTappMediaState,
   mergeMusicPlayerEventDetail,
 } from '../../utils/musicPlayerState'
 import { useTappSubject } from '../../utils/tappSubject'
+
 import {
   calculateWidgetDimensions,
   sendResizeMessage,
   useIframeResize,
 } from '../utils/iframeResize'
-
 import {
   buildLayerScript,
   getCodeStructureFingerprint,
@@ -387,7 +388,7 @@ export const TappWidgetSandbox = memo(
       if (currentGlobalState) {
         bridge.emit('mediaStateChange', buildMediaState(currentGlobalState))
       } else {
-        window.dispatchEvent(new CustomEvent('request-music-state-sync'))
+        emitAppEvent('request-music-state-sync')
       }
 
       const retryTimer = setTimeout(pushCurrentState, 150)

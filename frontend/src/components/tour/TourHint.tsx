@@ -11,6 +11,7 @@ import { useLocation } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
 import { useBreakpoints } from '../../hooks/useBreakpoints'
+import { emitAppEvent } from '../../utils/appEvents'
 import { getCurrentMetadata } from '../../utils/siteMetadata'
 import {
   prefersReducedMotion,
@@ -240,11 +241,7 @@ export function TourHint() {
             onClick={() => {
               prepareTourOverlay()
               if (def.route === '/library') {
-                window.dispatchEvent(
-                  new CustomEvent('nav-expand-secondary', {
-                    detail: { path: '/library' },
-                  }),
-                )
+                emitAppEvent('nav-expand-secondary', { path: '/library' })
               }
               const first = def.steps.find((step) => isTourStepAvailable(step))
               if (first) revealTourAnchor(first.anchor, first.id)

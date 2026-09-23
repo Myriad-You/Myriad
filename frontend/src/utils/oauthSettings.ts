@@ -1,6 +1,4 @@
-import { API_URL } from '../config'
-import { fetchJson } from './apiHelper'
-import { clearCSRFToken, getCSRFToken } from './csrf'
+import { apiService } from '../services/api'
 import { normalizeOAuthIconUrl } from './oauthIcons'
 
 export interface OAuthProviderEntry {
@@ -93,52 +91,17 @@ export function areOAuthSettingsEqual(
 }
 
 export async function fetchOAuthSettings(): Promise<OAuthSettings> {
-  const data = await fetchJson(`${API_URL}/api/config/oauth-providers`, {
-    credentials: 'include',
-  })
-  return normalizeOAuthSettings(data)
+  return normalizeOAuthSettings(await apiService.get('/config/oauth-providers'))
 }
 
 export async function writeOAuthSettings(
   settings: OAuthSettings,
 ): Promise<void> {
-  const body = JSON.stringify({
+  await apiService.put('/config/oauth-providers', {
     providers: settings.providers.map(normalizeProviderEntry),
     allow_local_registration: settings.allowLocalRegistration,
     tapp_private_install_cleanup: settings.privateTappInstallCleanup,
     tapp_private_install_inactivity_days:
       settings.privateTappInstallInactivityDays,
   })
-
-  const putOnce = async (forceCsrfRefresh: boolean) => {
-    if (forceCsrfRefresh) clearCSRFToken()
-    const csrfToken = await getCSRFToken(forceCsrfRefresh)
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    }
-    if (csrfToken) headers['X-CSRF-Token'] = csrfToken
-
-    await fetchJson(`${API_URL}/api/config/oauth-providers`, {
-      method: 'PUT',
-      credentials: 'include',
-      headers,
-      body,
-    })
-  }
-
-  try {
-    await putOnce(false)
-  } catch (error) {
-    // CSRF: one refresh + retry on 403.
-    const message =
-      error instanceof Error ? error.message.toLowerCase() : String(error)
-    if (message.includes('csrf')) {
-      console.warn(
-        '[oauthSettings] CSRF rejection — refreshing token and retrying once',
-      )
-      await putOnce(true)
-    } else {
-      throw error
-    }
-  }
 }

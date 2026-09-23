@@ -124,19 +124,11 @@ describe('registerSchedulerHandlers', { concurrency: false }, () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.includes('/api/csrf-token')) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ csrf_token: null }),
-        } as Response
+        return Response.json(({ csrf_token: null }), { status: 200 })
       }
       const headers = (init?.headers || {}) as Record<string, string>
       grants.push(headers['X-Tapp-Runtime-Grant'] || '')
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ success: true, tasks: [] }),
-      } as Response
+      return Response.json(({ success: true, tasks: [] }), { status: 200 })
     }) as typeof fetch
 
     const bridge = new FakeBridge()
@@ -182,17 +174,9 @@ describe('registerSchedulerHandlers', { concurrency: false }, () => {
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input)
       if (url.includes('/api/csrf-token')) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ csrf_token: null }),
-        } as Response
+        return Response.json(({ csrf_token: null }), { status: 200 })
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ success: true }),
-      } as Response
+      return Response.json(({ success: true }), { status: 200 })
     }) as typeof fetch
 
     const bridge = new FakeBridge()
@@ -239,17 +223,9 @@ describe('registerSchedulerHandlers', { concurrency: false }, () => {
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input)
       if (url.includes('/api/csrf-token')) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ csrf_token: null }),
-        } as Response
+        return Response.json(({ csrf_token: null }), { status: 200 })
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ success: true, task: { taskId: 'job' } }),
-      } as Response
+      return Response.json(({ success: true, task: { taskId: 'job' } }), { status: 200 })
     }) as typeof fetch
 
     const bridge = new FakeBridge()
@@ -277,17 +253,9 @@ describe('registerSchedulerHandlers', { concurrency: false }, () => {
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input)
       if (url.includes('/api/csrf-token')) {
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({ csrf_token: null }),
-        } as Response
+        return Response.json(({ csrf_token: null }), { status: 200 })
       }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({ success: true, task: { taskId: 'daily' } }),
-      } as Response
+      return Response.json(({ success: true, task: { taskId: 'daily' } }), { status: 200 })
     }) as typeof fetch
 
     const bridge = new FakeBridge()

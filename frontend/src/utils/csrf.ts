@@ -177,15 +177,11 @@ export function isValidCSRFToken(token: string): boolean {
   return true
 }
 
-/** Broadcast csrf-token-cleared so memory caches drop. */
 export function clearCSRFToken(): void {
   sessionStorage.removeItem(CSRF_TOKEN_KEY)
   sessionStorage.removeItem(CSRF_TOKEN_STORED_AT_KEY)
   sessionStorage.removeItem(CSRF_TOKEN_EXPIRES_AT_KEY)
   inflight = null
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('csrf-token-cleared'))
-  }
 }
 
 export function getCSRFHeaderName(): string {

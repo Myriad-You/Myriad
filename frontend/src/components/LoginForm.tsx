@@ -4,11 +4,12 @@ import { FaGithub } from '@lib/platformBrandIcons'
 import { useEffect, useState } from 'react'
 import { API_URL } from '../config'
 import { useI18n } from '../contexts/I18nContext'
+import { ApiError } from '../services/api'
 import { fetchJson } from '../utils/apiHelper'
+import { emitAppEvent } from '../utils/appEvents'
 import { messageForLocalLoginError } from '../utils/authErrorMessages'
 import { sanitizeUsername } from '../utils/inputSanitizer'
 import { normalizeOAuthIconUrl, preloadOAuthIcons } from '../utils/oauthIcons'
-import { RateLimitError } from '../utils/rateLimiter'
 import { setSessionHint } from '../utils/sessionDetection'
 import OAuthIconImage from './OAuthIconImage'
 import { Spinner } from './Spinner'
@@ -132,31 +133,22 @@ const LoginForm: FC = () => {
       } catch {
       }
 
-      window.dispatchEvent(
-        new CustomEvent('auth-login-success', {
-          detail: {
+      emitAppEvent('auth-login-success', {
             user: data.user,
             isAdmin: data.user?.is_admin || false,
-          },
-        }),
-      )
+          })
 
-      window.dispatchEvent(
-        new CustomEvent('auth-state-changed', {
-          detail: {
+      emitAppEvent('auth-state-changed', {
             isAuthenticated: true,
             isAdmin: data.user?.is_admin || false,
-          },
-        }),
-      )
+          })
 
       setTimeout(() => {
         window.location.href = '/'
       }, 100)
     } catch (err: unknown) {
-      if (err instanceof RateLimitError) {
-        const seconds = Math.ceil(err.retryAfter / 1000)
-        setError(format(t.auth.rateLimitError, { seconds }))
+      if (err instanceof ApiError && err.status === 429) {
+        setError(format(t.auth.rateLimitError, { seconds: err.retryAfter ?? 60 }))
       } else {
         setError(messageForLocalLoginError(err, t, format))
       }

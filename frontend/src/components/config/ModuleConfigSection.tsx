@@ -369,6 +369,9 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
   const musicEnabled = getUiFieldValue('music_enabled') === 'true'
   const musicSource = getUiFieldValue('music_source')
   const playlistId = getUiFieldValue('music_playlist_id')
+  const musicProxyEnabled = getUiFieldValue('music_proxy_enabled') !== 'false'
+  const musicPreloadEnabled =
+    getUiFieldValue('music_preload_enabled') !== 'false'
   const islandContent = islandContentFromBagFields(uiConfigFields)
   const islandSelected = ISLAND_CONTENT_KEYS.filter((key) => islandContent[key])
 
@@ -851,6 +854,26 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
           }
           {...bindGuide('modules.musicPlaylist', g.modules.musicPlaylist)}
           layout="vertical"
+          disabled={!musicEnabled}
+        />
+        <SwitchItem
+          itemKey="music_proxy_enabled"
+          label={t.config.musicProxyEnabled}
+          description={t.config.musicProxyEnabledDesc}
+          value={musicProxyEnabled}
+          onChange={(v) =>
+            updateUiFieldValue('music_proxy_enabled', v.toString())
+          }
+          disabled={!musicEnabled}
+        />
+        <SwitchItem
+          itemKey="music_preload_enabled"
+          label={t.config.musicPreloadEnabled}
+          description={t.config.musicPreloadEnabledDesc}
+          value={musicPreloadEnabled}
+          onChange={(v) =>
+            updateUiFieldValue('music_preload_enabled', v.toString())
+          }
           disabled={!musicEnabled}
         />
         <ButtonItem

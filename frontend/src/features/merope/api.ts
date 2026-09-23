@@ -1,10 +1,10 @@
 import type { PoseCorrection } from './anime25drig/poseCorrections'
 import type { MeropeRigImportSource, MeropeRigManifest } from './rig/types'
 import { currentCopy } from '../../i18n/localeCopy'
-import api from '../../lib/api'
+import { ApiError, apiService } from '../../services/api'
 import { isLiveMeropeManifest, isRigManifest } from './rig/types'
 
-const PREFIX = '/api/merope/rig'
+const PREFIX = '/merope/rig'
 const RIG_MUTATION_TIMEOUT_MS = 6 * 60 * 1000
 /** Keep in sync with MEROPE_PROXY_TIMEOUT_MS and get_long_running_client. */
 const PORTRAIT_GENERATION_TIMEOUT_MS = 15 * 60 * 1000
@@ -52,14 +52,11 @@ function meropeError(
   fallback: string,
   status = 500,
 ): MeropeApiError {
-  const response = (
-    reason as { response?: { status?: unknown; data?: unknown } } | null
-  )?.response
-  const resolvedStatus =
-    typeof response?.status === 'number' ? response.status : status
+  const failure = reason instanceof ApiError && reason.status > 0 ? reason : null
+  const resolvedStatus = failure ? failure.status : status
   const payload =
-    response?.data && typeof response.data === 'object'
-      ? (response.data as Record<string, unknown>)
+    failure?.body && typeof failure.body === 'object'
+      ? (failure.body as Record<string, unknown>)
       : {}
   return new MeropeApiError(
     typeof payload.error === 'string'
@@ -86,13 +83,13 @@ export async function getSiteFace(): Promise<SiteFace> {
 
 async function loadFace(path: string): Promise<SiteFace> {
   try {
-    const response = await api.get<{
+    const data = await apiService.get<{
       manifest?: unknown
       portraitUrl?: unknown
       generationFingerprint?: unknown
       assetId?: unknown
     }>(path)
-    return readFaceResponse(response.data)
+    return readFaceResponse(data)
   } catch (reason) {
     const error = meropeError(reason, currentCopy().merope.loadFailed)
     if (error.status === 404) return readFaceResponse({})
@@ -110,7 +107,7 @@ export async function getWardrobeFace(outfitId: string): Promise<SiteFace> {
       assetId: null,
     }
   }
-  return loadFace(`/api/agent/wardrobe/${encodeURIComponent(id)}/face`)
+  return loadFace(`/agent/wardrobe/${encodeURIComponent(id)}/face`)
 }
 
 function readFaceResponse(
@@ -135,67 +132,53 @@ function readFaceResponse(
 }
 
 export async function getSeeThroughStatus(): Promise<SeeThroughStatus> {
-  const response = await api.get<Partial<SeeThroughStatus>>(
+  const data = await apiService.get<Partial<SeeThroughStatus>>(
     `${PREFIX}/see-through/status`,
   )
   return {
     provider:
-      typeof response.data.provider === 'string'
-        ? response.data.provider
+      typeof data.provider === 'string'
+        ? data.provider
         : '24yearsold/see-through-demo',
-    tokenConfigured: response.data.tokenConfigured === true,
+    tokenConfigured: data.tokenConfigured === true,
     defaultResolution:
-      typeof response.data.defaultResolution === 'number'
-        ? response.data.defaultResolution
+      typeof data.defaultResolution === 'number'
+        ? data.defaultResolution
         : 1280,
-    splitArmsAndLegs: response.data.splitArmsAndLegs !== false,
+    splitArmsAndLegs: data.splitArmsAndLegs !== false,
   }
 }
 
 export async function updateSeeThroughToken(
   token: string,
 ): Promise<SeeThroughStatus> {
-  const response = await api.patch<Partial<SeeThroughStatus>>(
+  const data = await apiService.patch<Partial<SeeThroughStatus>>(
     `${PREFIX}/see-through/token`,
     { token },
   )
   return {
     provider:
-      typeof response.data.provider === 'string'
-        ? response.data.provider
+      typeof data.provider === 'string'
+        ? data.provider
         : '24yearsold/see-through-demo',
-    tokenConfigured: response.data.tokenConfigured === true,
+    tokenConfigured: data.tokenConfigured === true,
     defaultResolution: 1280,
     splitArmsAndLegs: true,
   }
 }
 
-async function binaryApiError(
-  status: number,
-  data: unknown,
-  fallback: string,
-): Promise<MeropeApiError> {
-  let payload: unknown = data
-  if (typeof Blob !== 'undefined' && data instanceof Blob) {
-    try {
-      const text = await data.text()
-      payload = text ? JSON.parse(text) : null
-    } catch {
-      payload = null
-    }
-  }
-  const body =
-    payload && typeof payload === 'object'
-      ? (payload as Record<string, unknown>)
-      : {}
+/** The PSD endpoint's failures carry no useful HTTP status text; prefer the domain fallback. */
+function seeThroughError(status: number, body: unknown, fallback: string): MeropeApiError {
+  const payload =
+    body && typeof body === 'object' ? (body as Record<string, unknown>) : {}
   return new MeropeApiError(
-    typeof body.error === 'string'
-      ? body.error
-      : typeof body.message === 'string'
-        ? body.message
+    typeof payload.error === 'string'
+      ? payload.error
+      : typeof payload.message === 'string'
+        ? payload.message
         : fallback,
     status,
-    payloadCode(body),
+    payloadCode(payload),
   )
 }
 
@@ -207,7 +190,7 @@ export async function decomposeSitePortraitWithSeeThrough(input: {
   splitArmsAndLegs?: boolean
 }): Promise<File> {
   try {
-    const response = await api.post<Blob>(
+    const psd = await apiService.post<Blob>(
       `${PREFIX}/see-through/decompose`,
       input,
       {
@@ -215,24 +198,21 @@ export async function decomposeSitePortraitWithSeeThrough(input: {
         timeout: SEE_THROUGH_TIMEOUT_MS,
       },
     )
-    if (!(response.data instanceof Blob) || response.data.size === 0) {
+    if (!(psd instanceof Blob) || psd.size === 0) {
       throw new MeropeApiError(
         currentCopy().merope.motionSeeThroughUpstream,
         502,
       )
     }
-    return new File([response.data], 'see-through.psd', {
+    return new File([psd], 'see-through.psd', {
       type: 'image/vnd.adobe.photoshop',
     })
   } catch (reason) {
     if (reason instanceof MeropeApiError) throw reason
-    const response = (
-      reason as { response?: { status?: unknown; data?: unknown } } | null
-    )?.response
-    if (typeof response?.status === 'number') {
-      throw await binaryApiError(
-        response.status,
-        response.data,
+    if (reason instanceof ApiError && reason.status > 0) {
+      throw seeThroughError(
+        reason.status,
+        reason.body,
         currentCopy().merope.motionSeeThroughUpstream,
       )
     }
@@ -249,11 +229,11 @@ export async function importMeropeRig(
 
 export async function saveRigPoseCorrections(assetId: string, corrections: PoseCorrection[]): Promise<{ manifest: MeropeRigManifest; assetId: string }> {
   try {
-    const response = await api.patch<{ manifest: unknown; assetId: unknown }>(`${PREFIX}/pose-corrections`, { assetId, corrections })
-    if (!isRigManifest(response.data.manifest) || typeof response.data.assetId !== 'string' || !/^[0-9a-f]{64}$/u.test(response.data.assetId)) {
+    const data = await apiService.patch<{ manifest: unknown; assetId: unknown }>(`${PREFIX}/pose-corrections`, { assetId, corrections })
+    if (!isRigManifest(data.manifest) || typeof data.assetId !== 'string' || !/^[0-9a-f]{64}$/u.test(data.assetId)) {
       throw new Error(currentCopy().merope.poseCorrection.failed)
     }
-    return { manifest: response.data.manifest, assetId: response.data.assetId }
+    return { manifest: data.manifest, assetId: data.assetId }
   } catch (reason) {
     const error = meropeError(reason, currentCopy().merope.poseCorrection.failed)
     if (error.status === 409) throw new Error(currentCopy().merope.poseCorrection.conflict)
@@ -288,10 +268,9 @@ async function submitMeropeRigImport(
   if (analysisReference) {
     body.append('analysisReference', analysisReference, 'rig-analysis.png')
   }
-  let response
+  let data
   try {
-    response = await api.post<{ manifest: unknown }>(`${PREFIX}${path}`, body, {
-      headers: { 'Content-Type': undefined },
+    data = await apiService.post<{ manifest: unknown }>(`${PREFIX}${path}`, body, {
       timeout: RIG_MUTATION_TIMEOUT_MS,
     })
   } catch (reason) {
@@ -302,10 +281,10 @@ async function submitMeropeRigImport(
         : currentCopy().merope.rigImportFailed,
     )
   }
-  if (!isRigManifest(response.data.manifest)) {
+  if (!isRigManifest(data.manifest)) {
     throw new Error(currentCopy().merope.rigCompileFailed)
   }
-  return response.data.manifest
+  return data.manifest
 }
 
 export async function uploadSitePortrait(image: Blob): Promise<{
@@ -318,15 +297,14 @@ export async function uploadSitePortrait(image: Blob): Promise<{
     image instanceof File ? image.name : 'uploaded-portrait.png',
   )
   try {
-    const response = await api.post<{ portraitUrl?: unknown }>(
+    const data = await apiService.post<{ portraitUrl?: unknown }>(
       `${PREFIX}/portrait/upload`,
       body,
       {
-        headers: { 'Content-Type': undefined },
         timeout: RIG_MUTATION_TIMEOUT_MS,
       },
     )
-    const portraitUrl = readPortraitUrl(response.data)
+    const portraitUrl = readPortraitUrl(data)
     if (!portraitUrl) {
       throw new MeropeApiError(currentCopy().merope.portraitUploadFailed, 502)
     }
@@ -341,16 +319,16 @@ export async function generateStickerAvatar(): Promise<{
   avatarUrl: string | null
 }> {
   try {
-    const response = await api.post<{ avatarUrl?: unknown }>(
+    const data = await apiService.post<{ avatarUrl?: unknown }>(
       `${PREFIX}/avatar`,
       {},
       { timeout: PORTRAIT_GENERATION_TIMEOUT_MS },
     )
     return {
       avatarUrl:
-        typeof response.data.avatarUrl === 'string' &&
-        response.data.avatarUrl.trim()
-          ? response.data.avatarUrl
+        typeof data.avatarUrl === 'string' &&
+        data.avatarUrl.trim()
+          ? data.avatarUrl
           : null,
     }
   } catch (reason) {
@@ -367,7 +345,7 @@ export async function generateSitePortrait(
   generationFingerprint: string | null
 }> {
   try {
-    const response = await api.post<{
+    const data = await apiService.post<{
       portraitUrl?: unknown
       generationFingerprint?: unknown
     }>(
@@ -376,12 +354,12 @@ export async function generateSitePortrait(
       { timeout: PORTRAIT_GENERATION_TIMEOUT_MS },
     )
     const fingerprint =
-      typeof response.data.generationFingerprint === 'string' &&
-      /^[0-9a-f]{64}$/iu.test(response.data.generationFingerprint)
-        ? response.data.generationFingerprint.toLowerCase()
+      typeof data.generationFingerprint === 'string' &&
+      /^[0-9a-f]{64}$/iu.test(data.generationFingerprint)
+        ? data.generationFingerprint.toLowerCase()
         : null
     return {
-      portraitUrl: readPortraitUrl(response.data),
+      portraitUrl: readPortraitUrl(data),
       generationFingerprint: fingerprint,
     }
   } catch (reason) {

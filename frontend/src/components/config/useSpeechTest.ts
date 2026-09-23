@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useConfigI18n as useI18n } from '../../contexts/I18nContext'
-import { testSpeechService } from '../../lib/api'
+import { testSpeechService } from '../../services/configApi'
 import { userFacingError } from '../../utils/userFacingError'
 
 export function useSpeechTest() {

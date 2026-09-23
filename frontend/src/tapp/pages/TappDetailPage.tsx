@@ -50,6 +50,7 @@ import { Spinner } from '../../components/Spinner'
 import { useAuth } from '../../contexts/AuthContext'
 import { useI18n } from '../../contexts/I18nContext'
 import { usePageSeo } from '../../hooks/usePageSeo'
+import { emitAppEvent } from '../../utils/appEvents'
 import { sanitizeUrl } from '../../utils/inputSanitizer'
 import {
   canAccessModuleVisibility,
@@ -824,11 +825,7 @@ export function TappDetailPage() {
       key: 'ask-arael',
       label: t.agentPanel.askArael,
       onClick: () =>
-        window.dispatchEvent(
-          new CustomEvent('arael-open-session', {
-            detail: { sessionId: '' },
-          }),
-        ),
+        emitAppEvent('arael-open-session', { sessionId: '' }),
       variant: 'secondary' as const,
     },
     {

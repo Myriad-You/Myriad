@@ -1,6 +1,5 @@
 import type { AgentSettingsSlice } from '../agentBagSlice'
-import { fetchConfig, updateConfig } from '../../../../lib/api'
-import { getCSRFToken } from '../../../../utils/csrf'
+import { fetchConfig, updateConfig } from '../../../../services/configApi'
 import { sanitizeMaskedFieldValue } from '../../platformConfigRules'
 import {
   agentSliceAsConfig,
@@ -26,7 +25,6 @@ export function useAgentDomain(messages: {
       if (!draft.aiFields.length && !draft.uiFields.length) {
         throw new Error(messages.configEmpty)
       }
-      await getCSRFToken(true)
       const result = await updateConfig(agentSlicePersistPayload(draft))
       if (result?.success === false) {
         throw new Error(result.message || messages.configSaveFailed)

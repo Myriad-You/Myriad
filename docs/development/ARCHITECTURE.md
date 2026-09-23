@@ -95,6 +95,42 @@ Schema 权威在 `backend/migrations/`（SeaORM），不是独立 `database/` SQ
 - Library / Phantasi（`/journal`）/ Reports / Config / Agent 设置（`/agent/settings`）/ Tapp Store
 - i18n：`zh-CN` / `zh-TW` / `en-US` / `ja-JP` / `ko-KR` / `fr-FR` / `de-DE`
 
+## Frontend conventions
+
+These rules keep one mechanism per concern. New code follows them; existing code
+converges when it is touched rather than in dedicated migrations.
+
+- **HTTP.** Same-origin API calls go through `apiService` (`src/services/api.ts`),
+  which owns CSRF, session-loss notification, timeouts, transient read retry and
+  `ApiError`. Domain modules wrap it (`src/services/*Api.ts`); components do not
+  call `fetch` for API data. TAPP host calls use `tappRequest` / `apiRequest`
+  (`src/tapp/services/TappHttpClient.ts`), which add the runtime grant on top of
+  `apiService`. Raw `fetch` is reserved for: the pre-session bootstrap (CSRF,
+  session probe, logout, setup), the updater's separate trust domain, streaming
+  bodies (SSE, audio, binary exports) and third-party URLs.
+- **Shared state.** Module-level state that React reads is a `createStore`
+  (`src/utils/store.ts`) consumed with `useStore`; a store publishes only real
+  changes, so subscribers re-render only then. Hand-rolled listener sets are not
+  added.
+- **Window events.** Every host-level `CustomEvent` is declared with its payload
+  in `AppEventMap` (`src/utils/appEvents.ts`) and dispatched with `emitAppEvent`.
+  An event with no listener is deleted, not kept for symmetry. Parent/child
+  communication stays in props; events are for decoupled surfaces only.
+- **Startup budget.** The initial bundle holds only what the first paint of any
+  route needs. Panels, dialogs and capability engines (notification list, Agent
+  global actions, liquid-glass lenses) load on demand or at idle, and are gated
+  by the condition that makes them useful — a viewport, an open intent — rather
+  than by a timer alone. `pnpm test:home-budget` guards the home page.
+- **Motion.** Components use `motionShim` / `AnimatePresenceShim`
+  (`src/lib/motionShim.tsx`), which render static markup until `motion` loads.
+  The shim changes element type when `motion` arrives, which remounts its
+  subtree; surfaces that must not remount either wait for `ensureMotionReady()`
+  before mounting animated children (dashboards, TAPP store) or keep static
+  markup for the committed view (the route frame in `App.tsx`).
+- **Layout.** New domain code lives in `src/features/<domain>/` (see
+  `features/merope`). Global styles live in `src/styles/`; component styles are
+  imported by the component, so they ship with its chunk.
+
 ## Data & AI
 
 - **PostgreSQL**：Compose 默认 `postgres:18-alpine`；release 兼容地板见 `release.json` 的 `min_pg_version`

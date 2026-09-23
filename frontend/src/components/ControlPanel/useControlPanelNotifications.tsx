@@ -10,6 +10,7 @@ import {
   shouldEmitNotificationToast,
   shouldSurfaceNotification,
 } from '../../services/notificationDelivery'
+import { emitAppEvent } from '../../utils/appEvents'
 import { notificationFacingBody, notificationFacingTitle } from '../../utils/notificationFacing'
 import { showToast } from '../../utils/toastManager'
 import { isLookingAtAgentPanel, subscribeLookingAtAgentPanel } from '../agent-panel/agentPanelVisible'
@@ -107,11 +108,7 @@ export function useControlPanelNotifications({
           onClick: showInPanel
             ? () => {
                 // 复用打开面板事件带 tab：已展开则只切 tab。
-                window.dispatchEvent(
-                  new CustomEvent('open-control-panel', {
-                    detail: { tab: 'notifications' },
-                  }),
-                )
+                emitAppEvent('open-control-panel', { tab: 'notifications' })
               }
             : undefined,
         })

@@ -9,9 +9,8 @@ import {
 } from '@lib/icons'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { API_URL } from '../../../config'
 import { useI18n } from '../../../contexts/I18nContext'
-import { getCSRFHeaderName, getCSRFToken } from '../../../utils/csrf'
+import { ApiError, apiService } from '../../../services/api'
 import { showError } from '../../../utils/toastManager'
 import { CheckboxCard } from '../../settings/items/CheckboxCard'
 import { InputItem } from '../../settings/items/InputItem'
@@ -22,8 +21,6 @@ import { ManagedList } from '../../settings/ManagedList'
 import { SettingTitleTag } from '../../settings/SettingTitleTag'
 import { Spinner } from '../../Spinner'
 import './RSSHubInstances.css'
-
-const API_BASE = `${API_URL}/api/phantasi`
 
 export interface RsshubInstance {
   id: number
@@ -55,22 +52,30 @@ const HEALTH_LABEL = {
   unknown: 'rsshubUnknown',
 } as const
 
-async function authHeaders() {
-  const cookies = document.cookie.split(';').reduce(
-    (acc, cookie) => {
-      const [key, value] = cookie.trim().split('=')
-      acc[key] = value
-      return acc
-    },
-    {} as Record<string, string>,
-  )
-  const csrfToken = await getCSRFToken(true)
-  return {
-    'Content-Type': 'application/json',
-    ...(cookies.auth_token
-      ? { Authorization: `Bearer ${cookies.auth_token}` }
-      : {}),
-    ...(csrfToken ? { [getCSRFHeaderName()]: csrfToken } : {}),
+/** These admin endpoints answer `{ success, error, ... }` on every status. */
+interface RsshubEnvelope {
+  success?: boolean
+  error?: string
+  /** Present whenever a single-instance call reports success. */
+  instance: RsshubInstance
+  instances?: RsshubInstance[]
+}
+
+/** A rejection's body is the same envelope, so callers keep one success check; only transport failures throw. */
+async function rsshubRequest(
+  path: string,
+  init: { method?: 'POST' | 'PUT' | 'DELETE', body?: unknown } = {},
+): Promise<RsshubEnvelope> {
+  try {
+    return await apiService.request<RsshubEnvelope>(`/phantasi/rsshub${path}`, {
+      method: init.method ?? 'GET',
+      body: init.body === undefined ? undefined : JSON.stringify(init.body),
+    })
+  } catch (error) {
+    if (error instanceof ApiError && error.status > 0 && error.body && typeof error.body === 'object') {
+      return error.body as RsshubEnvelope
+    }
+    throw error
   }
 }
 
@@ -128,10 +133,7 @@ export function RSSHubInstances({
   const load = useCallback(async () => {
     try {
       setLoading(true)
-      const response = await fetch(`${API_BASE}/rsshub/instances`, {
-        headers: await authHeaders(),
-      })
-      const data = await response.json()
+      const data = await rsshubRequest('/instances')
       if (!data.success) {
         showError(data.error || phantasi.errorLoadFailed)
         return
@@ -170,17 +172,15 @@ export function RSSHubInstances({
     if (!draft.name.trim() || !draft.url.trim()) return
     try {
       setAdding(true)
-      const response = await fetch(`${API_BASE}/rsshub/instances`, {
+      const data = await rsshubRequest('/instances', {
         method: 'POST',
-        headers: await authHeaders(),
-        body: JSON.stringify({
+        body: {
           name: draft.name.trim(),
           url: draft.url.trim().replaceAll(/\/$/g, ''),
           access_key: draft.accessKey.trim() || null,
           priority: draft.priority,
-        }),
+        },
       })
-      const data = await response.json()
       if (!data.success) {
         showError(data.error || phantasi.errorAddFailed)
         return
@@ -199,17 +199,15 @@ export function RSSHubInstances({
   const handleUpdate = async (id: number) => {
     try {
       setSavingId(id)
-      const response = await fetch(`${API_BASE}/rsshub/instances/${id}`, {
+      const data = await rsshubRequest(`/instances/${id}`, {
         method: 'PUT',
-        headers: await authHeaders(),
-        body: JSON.stringify({
+        body: {
           name: edit.name.trim() || undefined,
           url: edit.url.trim().replaceAll(/\/$/g, '') || undefined,
           access_key: edit.accessKey.trim() || undefined,
           priority: edit.priority,
-        }),
+        },
       })
-      const data = await response.json()
       if (!data.success) {
         showError(data.error || phantasi.errorUpdateFailed)
         return
@@ -227,11 +225,7 @@ export function RSSHubInstances({
 
   const handleDelete = async (id: number) => {
     try {
-      const response = await fetch(`${API_BASE}/rsshub/instances/${id}`, {
-        method: 'DELETE',
-        headers: await authHeaders(),
-      })
-      const data = await response.json()
+      const data = await rsshubRequest(`/instances/${id}`, { method: 'DELETE' })
       if (!data.success) {
         showError(data.error || phantasi.errorDeleteFailed)
         return
@@ -253,15 +247,7 @@ export function RSSHubInstances({
   const handleToggle = async (instance: RsshubInstance) => {
     try {
       setSavingId(instance.id)
-      const response = await fetch(
-        `${API_BASE}/rsshub/instances/${instance.id}`,
-        {
-          method: 'PUT',
-          headers: await authHeaders(),
-          body: JSON.stringify({ enabled: !instance.enabled }),
-        },
-      )
-      const data = await response.json()
+      const data = await rsshubRequest(`/instances/${instance.id}`, { method: 'PUT', body: { enabled: !instance.enabled } })
       if (!data.success) {
         showError(data.error || phantasi.errorSaveFailed)
         return
@@ -281,11 +267,7 @@ export function RSSHubInstances({
   const handleCheck = async (id: number) => {
     try {
       setCheckingId(id)
-      const response = await fetch(
-        `${API_BASE}/rsshub/instances/${id}/health-check`,
-        { method: 'POST', headers: await authHeaders() },
-      )
-      const data = await response.json()
+      const data = await rsshubRequest(`/instances/${id}/health-check`, { method: 'POST' })
       if (data.success) await load()
     } catch {
       showError(phantasi.errorHealthCheckFailed)
@@ -297,11 +279,7 @@ export function RSSHubInstances({
   const handleCheckAll = async () => {
     try {
       setCheckingAll(true)
-      const response = await fetch(`${API_BASE}/rsshub/health-check-all`, {
-        method: 'POST',
-        headers: await authHeaders(),
-      })
-      const data = await response.json()
+      const data = await rsshubRequest('/health-check-all', { method: 'POST' })
       if (data.success) await load()
     } catch {
       showError(phantasi.errorHealthCheckFailed)
@@ -312,11 +290,7 @@ export function RSSHubInstances({
 
   const handleReset = async (id: number) => {
     try {
-      const response = await fetch(`${API_BASE}/rsshub/instances/${id}/reset`, {
-        method: 'POST',
-        headers: await authHeaders(),
-      })
-      const data = await response.json()
+      const data = await rsshubRequest(`/instances/${id}/reset`, { method: 'POST' })
       if (data.success) await load()
     } catch {
       showError(phantasi.errorResetFailed)

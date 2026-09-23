@@ -1,5 +1,6 @@
 import type { BackgroundRequirement, TappInstance } from '../types'
 import { useSyncExternalStore } from 'react'
+import { createStore } from '../../utils/store'
 
 export interface BackgroundResident {
   id: string
@@ -9,9 +10,7 @@ export interface BackgroundResident {
 
 const EMPTY_RESIDENTS: readonly BackgroundResident[] = []
 
-let residents = EMPTY_RESIDENTS
 let stopHandler: ((tappId: string) => void) | null = null
-const listeners = new Set<() => void>()
 
 function sameResidents(
   left: readonly BackgroundResident[],
@@ -34,9 +33,7 @@ function sameResidents(
   )
 }
 
-function notify(): void {
-  for (const listener of listeners) listener()
-}
+const residents = createStore<readonly BackgroundResident[]>(EMPTY_RESIDENTS, sameResidents)
 
 export function publishBackgroundResidents(
   tapps: readonly TappInstance[],
@@ -47,15 +44,11 @@ export function publishBackgroundResidents(
     name: tapp.manifest.name,
     requirements: requirementsFor(tapp.id),
   }))
-  if (sameResidents(residents, next)) return
-  residents = next.length > 0 ? next : EMPTY_RESIDENTS
-  notify()
+  residents.set(next.length > 0 ? next : EMPTY_RESIDENTS)
 }
 
 export function clearBackgroundResidents(): void {
-  if (residents.length === 0) return
-  residents = EMPTY_RESIDENTS
-  notify()
+  residents.set(EMPTY_RESIDENTS)
 }
 
 export function registerBackgroundResidentStopHandler(
@@ -71,14 +64,8 @@ export function stopBackgroundResident(tappId: string): void {
   stopHandler?.(tappId)
 }
 
-export function subscribeBackgroundResidents(listener: () => void): () => void {
-  listeners.add(listener)
-  return () => listeners.delete(listener)
-}
-
-export function getBackgroundResidentsSnapshot(): readonly BackgroundResident[] {
-  return residents
-}
+export const subscribeBackgroundResidents = residents.subscribe
+export const getBackgroundResidentsSnapshot = residents.get
 
 export function getServerBackgroundResidentsSnapshot(): readonly BackgroundResident[] {
   return EMPTY_RESIDENTS
