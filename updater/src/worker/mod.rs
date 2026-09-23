@@ -863,6 +863,7 @@ pub(crate) fn refuse_update_if_stuck_in(state: &StateDir) -> Result<()> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn update_request_fingerprint(
     target: &DeployTag,
     mode: UpdateMode,

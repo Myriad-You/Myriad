@@ -396,21 +396,16 @@ async fn run_release_via_dockerhub(
                 // routinely diverge from the release line, so moving to a release is
                 // always allowed (no downgrade/diverged gate). Only a no-op (same
                 // commit) is rejected when GitHub ancestry is available.
-                if worker.github_commit_metadata_enabled() {
-                    if let Ok(gh) = worker.github_client() {
-                        match gh.compare_deploy_to_ref(Some(curr), target.as_str()).await {
-                            Ok(Some(f)) => {
-                                if matches!(f.relation, CommitRelation::Identical) {
-                                    return Err(UpdaterError::Precondition(format!(
-                                        "target {} points at the same git commit as current {}",
-                                        target.as_str(),
-                                        curr
-                                    )));
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
+                if worker.github_commit_metadata_enabled()
+                    && let Ok(gh) = worker.github_client()
+                    && let Ok(Some(f)) = gh.compare_deploy_to_ref(Some(curr), target.as_str()).await
+                    && matches!(f.relation, CommitRelation::Identical)
+                {
+                    return Err(UpdaterError::Precondition(format!(
+                        "target {} points at the same git commit as current {}",
+                        target.as_str(),
+                        curr
+                    )));
                 }
             }
         }
