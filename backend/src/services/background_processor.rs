@@ -55,22 +55,15 @@ impl BackgroundProcessor {
     async fn submit_task(&self, platform: &str) -> (String, bool) {
         // 检查是否已有该平台的处理任务
         let mut processing = self.processing_platforms.write().await;
+        // 索引命中即活跃任务：终态更新在同一把 processing 锁下移除索引，
+        // cleanup 只删已完成记录，无需再锁 tasks 复查状态。
         if let Some(existing_task_id) = processing.get(platform) {
-            // 检查任务状态
-            let tasks = self.tasks.read().await;
-            if let Some(task) = tasks.get(existing_task_id) {
-                match task.status {
-                    TaskStatus::Pending | TaskStatus::Processing => {
-                        tracing::info!(
-                            "Task for {} already in progress: {}",
-                            platform,
-                            existing_task_id
-                        );
-                        return (existing_task_id.clone(), false);
-                    }
-                    _ => {}
-                }
-            }
+            tracing::info!(
+                "Task for {} already in progress: {}",
+                platform,
+                existing_task_id
+            );
+            return (existing_task_id.clone(), false);
         }
 
         // 创建新任务
