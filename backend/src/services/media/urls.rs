@@ -107,6 +107,28 @@ pub fn alias_local_path(raw: &str, allowed_origins: &[String]) -> Option<String>
     registered_local_path(trimmed)
 }
 
+/// Pathname of an absolute http(s) URL shaped like platform-owned media, whatever
+/// its origin. Mirrors the frontend `siteMediaUrl` rule, which reads such values
+/// through the current API origin because they may carry a previous site domain.
+/// The shape alone proves nothing: callers must confirm the path resolves to
+/// media on this instance before treating the value as local.
+pub fn media_shaped_path(raw: &str) -> Option<String> {
+    let parsed = url::Url::parse(raw.trim()).ok()?;
+    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+        return None;
+    }
+    let path = parsed.path();
+    let content_id = path
+        .strip_prefix("/api/media/")
+        .and_then(|rest| rest.strip_suffix("/content"))
+        .is_some_and(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit()));
+    if !(path.starts_with("/media/assets/") || path.starts_with("/media/federation/") || content_id)
+    {
+        return None;
+    }
+    registered_local_path(path)
+}
+
 fn origin_of(raw: &str) -> Option<String> {
     let parsed = url::Url::parse(raw).ok()?;
     if parsed.cannot_be_a_base() {
@@ -246,5 +268,37 @@ mod tests {
             "passwd.png"
         );
         assert_eq!(display_filename("Photo 1.PNG", "jpg", id), "Photo1.jpg");
+    }
+
+    #[test]
+    fn media_shaped_paths_match_the_frontend_site_media_rule() {
+        let asset = "/media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/a.png";
+        assert_eq!(
+            media_shaped_path(&format!("https://old.example{asset}?v=1#x")),
+            Some(asset.into())
+        );
+        assert_eq!(
+            media_shaped_path("http://old.example:8080/media/federation/1/a.jpg"),
+            Some("/media/federation/1/a.jpg".into())
+        );
+        assert_eq!(
+            media_shaped_path("https://old.example/api/media/42/content"),
+            Some("/api/media/42/content".into())
+        );
+        // Path-only values are the trusted cite path's job, not this one.
+        assert!(media_shaped_path(asset).is_none());
+        for rejected in [
+            "https://old.example/api/media/42",
+            "https://old.example/api/media/42/content/extra",
+            "https://old.example/api/media/x/content",
+            "https://old.example/api/phantasi/image-cache/aa/b.png",
+            "https://old.example/uploads/media/assets/a.png",
+            "https://old.example/media/federation/../secret",
+            "https://old.example/media/federation/%2e%2e/secret",
+            "ftp://old.example/media/federation/1/a.jpg",
+            "data:image/png;base64,AAAA",
+        ] {
+            assert!(media_shaped_path(rejected).is_none(), "{rejected}");
+        }
     }
 }

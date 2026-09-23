@@ -10,7 +10,9 @@ use super::assets;
 use super::error::MediaError;
 use super::references::{NewReference, replace_for_consumer};
 use super::types::MediaState;
-use super::urls::{cite_local_path, compatible_url, content_path, filename_for_mime};
+use super::urls::{
+    cite_local_path, compatible_url, content_path, filename_for_mime, media_shaped_path,
+};
 
 pub fn extract_registered_paths(text: &str, origins: &[String]) -> Vec<String> {
     let mut found = Vec::new();
@@ -558,13 +560,33 @@ pub async fn publish_local_url(
         .unwrap_or_else(|| url.to_string()))
 }
 
+/// Local path of a site-level media setting. Path-only and allowlisted-origin
+/// values follow [`cite_local_path`]. A URL under any other origin (typically a
+/// previous site domain) counts as local only when its media-shaped path resolves
+/// to an asset catalogued here; otherwise it stays an external URL.
+pub async fn site_media_local_path(
+    db: &impl ConnectionTrait,
+    url: &str,
+    origins: &[String],
+) -> Result<Option<String>, MediaError> {
+    if let Some(path) = cite_local_path(url, origins) {
+        return Ok(Some(path));
+    }
+    let Some(path) = media_shaped_path(url) else {
+        return Ok(None);
+    };
+    Ok(resolve_asset_id(db, &path).await?.map(|_| path))
+}
+
 /// Saving a wallpaper is publication; bind it in the same transaction as config.
+/// Returns the value to store: local media as its path-only public URL (which
+/// drops any stale origin), anything else unchanged.
 pub async fn bind_and_publish_wallpaper(
     txn: &impl ConnectionTrait,
     url: &str,
     origins: &[String],
 ) -> Result<String, MediaError> {
-    let local = cite_local_path(url, origins);
+    let local = site_media_local_path(txn, url, origins).await?;
     let published = publish_local_url(txn, local.as_deref().unwrap_or(url), origins).await?;
     let refs = references_from_urls(
         txn,

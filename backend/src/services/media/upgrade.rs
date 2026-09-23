@@ -11,7 +11,9 @@ use serde_json::Value;
 
 const JOB: &str = "platform_media_v2";
 const BATCH: u64 = 50;
-const REVISION: u32 = 2;
+/// 3: backfill the `site_wallpaper` reference for existing wallpaper settings.
+const REVISION: u32 = 3;
+const WALLPAPER_KEY: &str = "ui_wallpaper_url";
 const FAILURE_JOB: &str = "upgrade_failure";
 const PHASES: &[(&str, &str, &str)] = &[
     ("media_assets", "id", "TRUE"),
@@ -37,6 +39,8 @@ const PHASES: &[(&str, &str, &str)] = &[
     ),
     ("federation_channel_messages", "id", "is_encrypted = FALSE"),
     ("agent_messages", "id", "TRUE"),
+    // Appended so earlier phase indices (and their failure keys) stay stable.
+    ("configurations", "key", "key = 'ui_wallpaper_url'"),
 ];
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -186,8 +190,9 @@ async fn advance_inner(
             "DELETE FROM media_migration_jobs WHERE source_kind = 'upgrade_failure'",
         )
         .await?;
-        // Older completed jobs did not repair dashboard URLs. Recheck their
-        // consumers before allowing migrated assets to be deleted.
+        // Older completed jobs did not repair dashboard URLs or bind the site
+        // wallpaper. Recheck their consumers before allowing migrated assets
+        // to be deleted.
         txn.execute_unprepared("UPDATE media_assets SET references_complete = FALSE WHERE source = 'legacy' AND state = 'ready'").await?;
     }
     let saved_progress = progress.clone();
@@ -433,7 +438,13 @@ async fn process_row(
         if table == "phantasi_items" && payload["content_md"].is_null() {
             return Ok(());
         }
-        let layout = parse_layout(table, &payload);
+        let layout = if is_wallpaper(table, cursor) {
+            Some(Value::String(
+                wallpaper_candidate(db, paths, origins, payload).await?,
+            ))
+        } else {
+            parse_layout(table, &payload)
+        };
         import_cited(
             db,
             store,
@@ -571,6 +582,43 @@ async fn import_cited(
     Ok(urls)
 }
 
+fn is_wallpaper(table: &str, cursor: &str) -> bool {
+    table == "configurations" && cursor == WALLPAPER_KEY
+}
+
+fn stored_wallpaper(payload: &Value) -> String {
+    parse_layout("configurations", payload)
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_default()
+}
+
+/// The stored wallpaper, with a URL saved under a previous site origin reduced
+/// to its path when that path is media of this instance: already catalogued, or
+/// a legacy file present on disk awaiting import. Anything else stays external.
+async fn wallpaper_candidate(
+    db: &impl ConnectionTrait,
+    paths: &LegacyPaths,
+    origins: &[String],
+    payload: &Value,
+) -> Result<String, MediaError> {
+    let url = stored_wallpaper(payload);
+    if super::urls::cite_local_path(&url, origins).is_some() {
+        return Ok(url);
+    }
+    let Some(path) = super::urls::media_shaped_path(&url) else {
+        return Ok(url);
+    };
+    if cite::resolve_asset_id(db, &path).await?.is_some() {
+        return Ok(path);
+    }
+    if let Ok(plan) = migration::plan_catalog_url(&path, origins, paths) {
+        if tokio::fs::try_exists(&plan.disk).await.unwrap_or(false) {
+            return Ok(path);
+        }
+    }
+    Ok(url)
+}
+
 fn parse_layout(table: &str, payload: &Value) -> Option<Value> {
     // Config values may contain a JSON string wrapping the layout document.
     if table == "configurations" {
@@ -604,6 +652,30 @@ async fn bind_row(
     let layout = parse_layout(table, payload);
     if table == "phantasi_items" && payload["content_md"].is_null() {
         return cite::bind_rss_item(db, id()?, payload, origins).await;
+    }
+    if is_wallpaper(table, cursor) {
+        let stored = stored_wallpaper(payload);
+        let candidate = wallpaper_candidate(db, paths, origins, payload).await?;
+        import_cited(
+            db,
+            store,
+            paths,
+            origins,
+            &Value::String(candidate.clone()),
+            true,
+        )
+        .await?;
+        // Same binder as saving the setting; clears stale references when unset.
+        let published = cite::bind_and_publish_wallpaper(db, &candidate, origins).await?;
+        if published != stored {
+            db.execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "UPDATE configurations SET value = $1, updated_at = NOW() WHERE key = $2",
+                [serde_json::json!(published).into(), WALLPAPER_KEY.into()],
+            ))
+            .await?;
+        }
+        return Ok(());
     }
     let urls = import_cited(
         db,

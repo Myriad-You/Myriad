@@ -136,7 +136,9 @@ async fn save_to_database(
         .await
         .map_err(|error| ConfigPersistError::Store(error.to_string()))?;
     if let Some(url) = updates.get("ui_wallpaper_url").and_then(Value::as_str) {
-        let origins = vec![crate::oauth_url_builder::SiteConfig::get_base_url().await];
+        // Same origin set as the media upgrade backfill. URLs under an older
+        // site origin are recognized by the binder when they resolve locally.
+        let origins = crate::services::media::upgrade::configured_origins().await;
         let published = crate::services::media::bind_and_publish_wallpaper(&txn, url, &origins)
             .await
             .map_err(|error| ConfigPersistError::Store(error.to_string()))?;
