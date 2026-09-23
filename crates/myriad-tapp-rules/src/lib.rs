@@ -16,7 +16,9 @@ pub use feed::{
     federation_feed_includes_personal, federation_feed_item, merge_federation_feed,
     merge_federation_feed_with_limit,
 };
-pub use hmac::{encode_hmac, hmac_matches, hmac_sha256};
+pub use hmac::{
+    encode_hmac, hmac_matches, hmac_segments_match, hmac_sha256, hmac_sha256_segments,
+};
 pub use outbound::{
     OutboundHttpErrorKind, classify_outbound_http_error, outbound_endpoint_identity,
     strip_urls_from_error,

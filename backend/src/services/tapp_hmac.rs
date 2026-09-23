@@ -1,6 +1,6 @@
 //! Shared HMAC-SHA256 helper for outbound signed credentials and inbound `/tapi` verify.
 
-pub use myriad_tapp_rules::{encode_hmac, hmac_matches, hmac_sha256};
+pub use myriad_tapp_rules::{encode_hmac, hmac_matches, hmac_segments_match, hmac_sha256};
 
 #[cfg(test)]
 mod tests {

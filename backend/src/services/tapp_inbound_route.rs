@@ -106,6 +106,29 @@ pub fn signing_full_path(tapp_id: &str, route_path: &str) -> String {
     format!("/tapi/{tapp_id}{route_path}")
 }
 
+/// 签名材料的有序分段：`method \n path \n timestamp \n nonce \n payload`。
+/// 校验时逐段喂给 HMAC，不拼出完整材料。
+pub fn signing_segments<'a>(
+    method: &'a str,
+    full_path: &'a str,
+    timestamp: &'a str,
+    nonce: &'a str,
+    payload: &'a [u8],
+) -> [&'a [u8]; 9] {
+    [
+        method.as_bytes(),
+        b"\n",
+        full_path.as_bytes(),
+        b"\n",
+        timestamp.as_bytes(),
+        b"\n",
+        nonce.as_bytes(),
+        b"\n",
+        payload,
+    ]
+}
+
+#[cfg(test)]
 pub fn signing_material(
     method: &str,
     full_path: &str,
@@ -113,19 +136,7 @@ pub fn signing_material(
     nonce: &str,
     payload: &[u8],
 ) -> Vec<u8> {
-    let mut material = Vec::with_capacity(
-        method.len() + full_path.len() + timestamp.len() + nonce.len() + payload.len() + 4,
-    );
-    material.extend_from_slice(method.as_bytes());
-    material.push(b'\n');
-    material.extend_from_slice(full_path.as_bytes());
-    material.push(b'\n');
-    material.extend_from_slice(timestamp.as_bytes());
-    material.push(b'\n');
-    material.extend_from_slice(nonce.as_bytes());
-    material.push(b'\n');
-    material.extend_from_slice(payload);
-    material
+    signing_segments(method, full_path, timestamp, nonce, payload).concat()
 }
 
 pub fn canonical_query(raw_query: Option<&str>) -> Result<String, InboundRouteError> {
@@ -254,22 +265,19 @@ pub fn verify_signature(
     }
     let presented = presented_signature(signature, route.verify.prefix.as_deref())?;
     let unix = parse_unix_timestamp(timestamp)?;
-    let payload = match route.verify.over {
-        TappRouteVerifyOver::CanonicalQuery => canonical_query(raw_query)
-            .map_err(|_| InboundRouteError::VerifyInvalid)?
-            .into_bytes(),
-        TappRouteVerifyOver::RawBody => raw_body.to_vec(),
+    let canonical;
+    let payload: &[u8] = match route.verify.over {
+        TappRouteVerifyOver::CanonicalQuery => {
+            canonical =
+                canonical_query(raw_query).map_err(|_| InboundRouteError::VerifyInvalid)?;
+            canonical.as_bytes()
+        }
+        TappRouteVerifyOver::RawBody => raw_body,
     };
-    let material = signing_material(
-        method,
-        &signing_full_path(tapp_id, &route.path),
-        timestamp,
-        nonce,
-        &payload,
-    );
-    if !tapp_hmac::hmac_matches(
+    let full_path = signing_full_path(tapp_id, &route.path);
+    if !tapp_hmac::hmac_segments_match(
         secret.as_bytes(),
-        &material,
+        &signing_segments(method, &full_path, timestamp, nonce, payload),
         presented,
         route.verify.encoding,
     ) {

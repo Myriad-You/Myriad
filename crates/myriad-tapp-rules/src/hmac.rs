@@ -10,8 +10,16 @@ use subtle::ConstantTimeEq;
 type HmacSha256 = Hmac<Sha256>;
 
 pub fn hmac_sha256(secret: &[u8], material: &[u8]) -> Vec<u8> {
+    hmac_sha256_segments(secret, &[material])
+}
+
+/// HMAC over the concatenation of `segments`, fed incrementally so callers never
+/// build the joined signing material.
+pub fn hmac_sha256_segments(secret: &[u8], segments: &[&[u8]]) -> Vec<u8> {
     let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC-SHA256 accepts any key length");
-    mac.update(material);
+    for segment in segments {
+        mac.update(segment);
+    }
     mac.finalize().into_bytes().to_vec()
 }
 
@@ -28,7 +36,18 @@ pub fn hmac_matches(
     presented: &str,
     encoding: TappRouteVerifyEncoding,
 ) -> bool {
-    let expected = hmac_sha256(secret, material);
+    hmac_segments_match(secret, &[material], presented, encoding)
+}
+
+/// Constant-time check of `presented` against the HMAC of the concatenated
+/// `segments` (see [`hmac_sha256_segments`]).
+pub fn hmac_segments_match(
+    secret: &[u8],
+    segments: &[&[u8]],
+    presented: &str,
+    encoding: TappRouteVerifyEncoding,
+) -> bool {
+    let expected = hmac_sha256_segments(secret, segments);
     let actual = match encoding {
         TappRouteVerifyEncoding::Hex => hex::decode(presented).ok(),
         TappRouteVerifyEncoding::Base64 => BASE64.decode(presented.trim()).ok(),
@@ -46,8 +65,16 @@ pub fn hmac_matches(
 
 #[cfg(test)]
 mod tests {
-    use super::{encode_hmac, hmac_matches, hmac_sha256};
+    use super::{encode_hmac, hmac_matches, hmac_sha256, hmac_sha256_segments};
     use myriad_tapp_contract::manifest::TappRouteVerifyEncoding;
+
+    #[test]
+    fn segments_match_concatenated_material() {
+        let secret = b"secret";
+        let joined = hmac_sha256(secret, b"POST\n/tapi/a\nbody");
+        let segmented = hmac_sha256_segments(secret, &[b"POST", b"\n", b"/tapi/a\n", b"body"]);
+        assert_eq!(joined, segmented);
+    }
 
     #[test]
     fn rfc4231_case_1() {
