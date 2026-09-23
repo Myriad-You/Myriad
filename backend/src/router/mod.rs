@@ -56,6 +56,15 @@ pub(crate) fn http_cors_layer() -> tower_http::cors::CorsLayer {
         .allow_credentials(true)
 }
 
+/// Backend-owned path spaces. Unmatched requests here get an API answer and
+/// never fall through to the SPA (`/tapi/...` is not registered in config mode).
+fn is_api_path(path: &str) -> bool {
+    let under = |prefix: &str| {
+        path.strip_prefix(prefix).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+    };
+    under("/api") || under("/tapi") || path == "/health"
+}
+
 /// Final API fallback. A config-mode process only built the setup route graph,
 /// so anything it did not register is "finish setup first", not "no such API".
 fn unmatched_api_response(config_mode: bool, req: &Request) -> Response {
@@ -220,7 +229,7 @@ pub(crate) async fn start_unified_server(
             let serve_dir = serve_dir.clone();
             async move {
                 let path = req.uri().path();
-                if path.starts_with("/api/") || path == "/health" {
+                if is_api_path(path) {
                     return unmatched_api_response(config_mode, &req);
                 }
                 // Resolve the cache tier before `req` is consumed by oneshot.
@@ -571,7 +580,7 @@ mod api_compression_tests {
 
 #[cfg(test)]
 mod config_mode_fallback_tests {
-    use super::{base, unmatched_api_response};
+    use super::{base, is_api_path, unmatched_api_response};
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use tower::ServiceExt;
@@ -608,6 +617,28 @@ mod config_mode_fallback_tests {
 
         let (code, _) = status("/health").await;
         assert_ne!(code, StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[test]
+    fn backend_path_spaces_never_reach_the_spa() {
+        for path in [
+            "/api",
+            "/api/x",
+            "/tapi",
+            "/tapi/com.example/route",
+            "/health",
+        ] {
+            assert!(is_api_path(path), "{path} must be answered by the API fallback");
+        }
+        for path in ["/", "/apix", "/tapix/y", "/settings", "/assets/app.js"] {
+            assert!(!is_api_path(path), "{path} belongs to the SPA");
+        }
+    }
+
+    #[tokio::test]
+    async fn config_mode_rejects_unregistered_tapi_routes() {
+        let (code, _) = status("/tapi/com.example/route").await;
+        assert_eq!(code, StatusCode::SERVICE_UNAVAILABLE);
     }
 
     #[test]
