@@ -29,11 +29,12 @@ pub(crate) fn phantasi_store_http(
     )
 }
 
+/// Subject parsed once at the auth boundary (never re-parsed from `sub`).
 fn parse_user_id(claims: &Claims) -> Result<i32, HttpError> {
     claims
-        .sub
-        .parse::<i32>()
-        .map_err(|_| phantasi_http_err(StatusCode::UNAUTHORIZED, "Invalid user ID"))
+        .subject()
+        .map(|subject| subject.id())
+        .ok_or_else(|| phantasi_http_err(StatusCode::UNAUTHORIZED, "Invalid user ID"))
 }
 
 /// 管理功能的用户 ID。`AdminClaims` 已完成当前管理员核验（非管理员 403）。

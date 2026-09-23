@@ -383,6 +383,7 @@ async fn postgres_channel_reference_failure_never_admits_run() {
         exp: chrono::Utc::now().timestamp() + 60,
         iat: chrono::Utc::now().timestamp(),
         tv: 0,
+        subject: crate::middleware::auth::AuthSubject::from_test_sub(&user_id.to_string()),
     };
     let req = crate::api::agent::ProcessRequest {
         input: "Inspect the attached image".into(),

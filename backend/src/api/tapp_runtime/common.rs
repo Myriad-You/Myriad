@@ -211,9 +211,9 @@ pub async fn verify_tapp_approved_permissions(
 /// Used by `resolve_accessible_tapp` (and declared-API paths that call it).
 pub use tapp_ownership::tapp_owner_priority;
 
-/// 从 Claims 解析 user_id
+/// 认证边界已解析的持久 user_id（不再解析 `claims.sub`）。
 pub fn parse_user_id(claims: &Claims) -> Result<i32, HttpError> {
-    crate::services::tapp_ownership::positive_user_id(&claims.sub).ok_or_else(|| {
+    claims.durable_user_id().ok_or_else(|| {
         HttpError::from((
             StatusCode::UNAUTHORIZED,
             Json(AppError::public_json("Invalid user ID")),
@@ -226,9 +226,8 @@ pub async fn current_tapp_user_role(db: &DatabaseConnection, claims: &Claims) ->
     if claims.is_admin && ensure_current_admin_on(claims, db).await.is_ok() {
         UserRole::Admin
     } else {
-        match claims.sub.parse::<i32>() {
-            Ok(user_id) if user_id < 0 => UserRole::Guest,
-            Ok(user_id) if user_id > 0 => UserRole::User,
+        match claims.subject().map(|subject| subject.id()) {
+            Some(user_id) if user_id > 0 => UserRole::User,
             _ => UserRole::Guest,
         }
     }
@@ -245,20 +244,26 @@ pub use myriad_prompt_security::validate_prompt_security;
 mod tests {
     use super::tapp_owner_priority;
 
-    #[test]
-    fn parse_user_id_requires_positive_subject() {
-        let src = include_str!("common.rs");
-        let parse = src
-            .split("pub fn parse_user_id")
-            .nth(1)
-            .expect("parse_user_id");
-        assert!(parse.contains("positive_user_id"));
-        let role = src
-            .split("pub async fn current_tapp_user_role")
-            .nth(1)
-            .and_then(|rest| rest.split("pub use myriad_prompt_security").next())
-            .expect("current_tapp_user_role");
-        assert!(role.contains("user_id > 0"));
+    #[tokio::test]
+    async fn subject_comes_from_the_auth_boundary_not_sub() {
+        use crate::middleware::auth::mint_session_claims;
+        use crate::services::permission_service::UserRole;
+        let claims = |id| mint_session_claims(id, "u", false, false, 0);
+        assert_eq!(super::parse_user_id(&claims(7)).unwrap(), 7);
+        assert!(super::parse_user_id(&claims(0)).is_err());
+        assert!(super::parse_user_id(&claims(-3)).is_err());
+        let mut unbound = claims(7);
+        unbound.subject = None;
+        assert!(super::parse_user_id(&unbound).is_err(), "sub is never re-parsed");
+
+        let db = sea_orm::DatabaseConnection::default();
+        assert_eq!(super::current_tapp_user_role(&db, &claims(7)).await, UserRole::User);
+        assert_eq!(super::current_tapp_user_role(&db, &claims(-3)).await, UserRole::Guest);
+        assert_eq!(super::current_tapp_user_role(&db, &unbound).await, UserRole::Guest);
+        // A stale admin claim whose subject never passed the boundary is not admin.
+        let mut stale_admin = mint_session_claims(7, "u", true, false, 0);
+        stale_admin.subject = None;
+        assert_eq!(super::current_tapp_user_role(&db, &stale_admin).await, UserRole::Guest);
     }
 
     #[test]

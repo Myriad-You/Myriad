@@ -20,9 +20,9 @@ pub(crate) async fn phantasi_websocket(
     crate::middleware::ws_origin::assert_ws_origin_for_cookie_session(&headers, &allowed)?;
 
     let user_id = claims
-        .sub
-        .parse::<i32>()
-        .map_err(|_| phantasi_http_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
+        .subject()
+        .map(|subject| subject.id())
+        .ok_or_else(|| phantasi_http_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
     // Only "not a current admin" downgrades; a database failure fails the upgrade.
     let is_admin = crate::middleware::auth::current_admin_status(&claims, &db)
         .await

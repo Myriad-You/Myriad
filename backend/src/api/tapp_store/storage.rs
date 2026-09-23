@@ -758,6 +758,7 @@ mod private_kv_gate_tests {
             exp: 0,
             iat: 0,
             tv: 0,
+            subject: crate::middleware::auth::AuthSubject::from_test_sub(sub),
         }
     }
 

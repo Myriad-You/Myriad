@@ -140,6 +140,7 @@ mod tests {
             exp: i64::MAX,
             iat: 0,
             tv: 0,
+            subject: crate::middleware::auth::AuthSubject::from_test_sub(sub),
         }
     }
 

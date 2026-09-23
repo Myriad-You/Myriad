@@ -566,6 +566,7 @@ mod tests {
             exp: now + 3600,
             iat: now,
             tv: epoch,
+            subject: crate::middleware::auth::AuthSubject::from_test_sub(sub),
         };
         encode(
             &Header::default(),

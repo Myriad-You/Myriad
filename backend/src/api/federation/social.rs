@@ -1906,30 +1906,30 @@ mod tests {
     #[tokio::test]
     async fn durable_user_extractor_rejects_guest_zero_and_missing_subject() {
         use crate::extract::DurableUserId;
-        use crate::middleware::auth::AuthSubject;
+        use crate::middleware::auth::{Claims, mint_session_claims};
         use axum::extract::FromRequestParts;
         use axum::http::StatusCode;
 
-        async fn extract(subject: Option<AuthSubject>) -> Result<i32, StatusCode> {
+        async fn extract(claims: Option<Claims>) -> Result<i32, StatusCode> {
             let (mut parts, ()) = axum::http::Request::new(()).into_parts();
-            if let Some(subject) = subject {
-                parts.extensions.insert(subject);
+            if let Some(claims) = claims {
+                parts.extensions.insert(claims);
             }
             DurableUserId::from_request_parts(&mut parts, &())
                 .await
                 .map(|DurableUserId(id)| id)
                 .map_err(|(status, _)| status)
         }
+        let minted = |id| Some(mint_session_claims(id, "u", false, false, 0));
 
-        assert_eq!(extract(Some(AuthSubject::for_test(7))).await, Ok(7));
-        assert_eq!(
-            extract(Some(AuthSubject::for_test(0))).await,
-            Err(StatusCode::FORBIDDEN)
-        );
-        assert_eq!(
-            extract(Some(AuthSubject::for_test(-42))).await,
-            Err(StatusCode::FORBIDDEN)
-        );
+        assert_eq!(extract(minted(7)).await, Ok(7));
+        assert_eq!(extract(minted(0)).await, Err(StatusCode::FORBIDDEN));
+        assert_eq!(extract(minted(-42)).await, Err(StatusCode::FORBIDDEN));
+        // Claims that never passed the auth boundary carry no typed subject,
+        // even with a valid-looking `sub`: never re-parsed, fail closed.
+        let mut unbound = mint_session_claims(7, "u", false, false, 0);
+        unbound.subject = None;
+        assert_eq!(extract(Some(unbound)).await, Err(StatusCode::UNAUTHORIZED));
         assert_eq!(extract(None).await, Err(StatusCode::UNAUTHORIZED));
     }
 }

@@ -94,9 +94,10 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthedClaims {
 
 /// 认证边界已解析的持久用户 ID（`sub > 0`）。
 ///
-/// 直接读取认证中间件注入的 [`AuthSubject`](crate::middleware::auth::AuthSubject)，
-/// 不再解析 `claims.sub`。未挂认证中间件时 401；游客（负数）与 `0` 主体 403，
-/// 在 handler 与任何业务写之前拒绝。
+/// 直接读取认证中间件注入的 `Claims` 上已解析的 typed subject
+/// （[`Claims::subject`](crate::middleware::auth::Claims::subject)），不再解析
+/// `claims.sub`，也不 clone Claims。未挂认证中间件时 401；游客（负数）与 `0`
+/// 主体 403，在 handler 与任何业务写之前拒绝。
 #[derive(Debug, Clone, Copy)]
 pub struct DurableUserId(pub i32);
 
@@ -106,8 +107,8 @@ impl<S: Send + Sync> FromRequestParts<S> for DurableUserId {
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         let subject = parts
             .extensions
-            .get::<crate::middleware::auth::AuthSubject>()
-            .copied()
+            .get::<Claims>()
+            .and_then(Claims::subject)
             .ok_or_else(|| {
                 (
                     StatusCode::UNAUTHORIZED,
@@ -271,6 +272,7 @@ mod tests {
             exp: 0,
             iat: 0,
             tv: 0,
+            subject: crate::middleware::auth::AuthSubject::from_test_sub(sub),
         }
     }
 

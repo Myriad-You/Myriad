@@ -25,7 +25,7 @@ use axum::{
 use sea_orm::DatabaseConnection;
 use serde_json::json;
 
-use crate::middleware::auth::{Claims, verify_jwt_token};
+use crate::middleware::auth::{Claims, authenticate_request};
 use crate::services::permission_service::TappPermission;
 use crate::services::tapp_host_attribution::{
     self, error_codes, federation_permission, phantasi_permission, speech_permission,
@@ -63,19 +63,21 @@ async fn attribute_host_request(
     };
 
     // Speech and federation routes run behind auth_middleware and already carry
-    // Claims; Phantasi routes resolve identity per-handler, so fall back to the JWT
-    // directly.
+    // Claims (with the subject parsed at that boundary); Phantasi routes resolve
+    // identity per-handler, so this is their auth boundary: the same full
+    // current-session check, never a bare JWT signature check.
     let claims: Claims = match req.extensions().get::<Claims>().cloned() {
         Some(claims) => claims,
-        None => match verify_jwt_token(req.headers()) {
+        None => match authenticate_request(req.headers(), db).await {
             Ok(claims) => claims,
-            Err(_) => {
+            Err(response) if response.status() == StatusCode::UNAUTHORIZED => {
                 return attribution_error(
                     StatusCode::UNAUTHORIZED,
                     error_codes::UNAUTHENTICATED,
                     "A Tapp-attributed request requires an authenticated subject",
                 );
             }
+            Err(response) => return *response,
         },
     };
 

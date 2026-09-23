@@ -26,7 +26,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
-use crate::middleware::auth::{AuthSubject, Claims};
+use crate::middleware::auth::Claims;
 use crate::middleware::ws_origin::{
     allowed_origins_from_global_config, assert_ws_origin_for_cookie_session,
 };
@@ -158,14 +158,13 @@ pub async fn channel_websocket(
     State(db): State<DatabaseConnection>,
     ws: WebSocketUpgrade,
     Extension(claims): Extension<Claims>,
-    Extension(subject): Extension<AuthSubject>,
     headers: HeaderMap,
     axum::extract::Path(channel_id): axum::extract::Path<String>,
     Query(query): Query<FederationWsQuery>,
 ) -> Response {
     // The subject was parsed once at the auth boundary; only durable users may
     // open a federation socket, and that is decided before any ticket is consumed.
-    let Some(user_id) = subject.durable_user_id() else {
+    let Some(user_id) = claims.durable_user_id() else {
         return ws_ticket_http_error(WsTicketError::InvalidSubject).into_response();
     };
     let allowed = allowed_origins_from_global_config().await;
@@ -376,14 +375,13 @@ pub async fn room_websocket(
     State(db): State<DatabaseConnection>,
     ws: WebSocketUpgrade,
     Extension(claims): Extension<Claims>,
-    Extension(subject): Extension<AuthSubject>,
     headers: HeaderMap,
     axum::extract::Path(room_id): axum::extract::Path<String>,
     Query(query): Query<FederationWsQuery>,
 ) -> Response {
     // The subject was parsed once at the auth boundary; only durable users may
     // open a federation socket, and that is decided before any ticket is consumed.
-    let Some(user_id) = subject.durable_user_id() else {
+    let Some(user_id) = claims.durable_user_id() else {
         return ws_ticket_http_error(WsTicketError::InvalidSubject).into_response();
     };
     let allowed = allowed_origins_from_global_config().await;
@@ -703,7 +701,7 @@ mod registry_lifecycle_tests {
     fn websocket_upgrade_rejects_non_positive_subject() {
         let src = include_str!("ws_gateway.rs");
         let production = src.split("#[cfg(test)]").next().expect("production");
-        assert_eq!(production.matches("subject.durable_user_id()").count(), 2);
+        assert_eq!(production.matches("claims.durable_user_id()").count(), 2);
         assert!(!production.contains("claims.sub"));
         assert!(!production.contains("unwrap_or(-1)"));
     }
