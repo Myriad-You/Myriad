@@ -770,11 +770,18 @@ impl Worker {
             allow_unknown,
             allow_irreversible,
         );
-        if let Some(k) = &idempotency_key
-            && let Some(jid) = replay_idempotent_update(&self.state, k, &fingerprint)?
-        {
-            return Ok(jid);
-        }
+        // A keyed job the executor system already accepted replays its id. A keyed
+        // job whose admission never committed (Pending, never started, not
+        // `job.current`) finishes the same admission below instead of being
+        // reported as accepted while nothing runs it.
+        let unadmitted = match &idempotency_key {
+            Some(k) => match replay_idempotent_update(&self.state, k, &fingerprint)? {
+                Some(IdempotentReplay::Accepted(jid)) => return Ok(jid),
+                Some(IdempotentReplay::Unadmitted(job)) => Some(job),
+                None => None,
+            },
+            None => None,
+        };
 
         self.require_no_component_update()?;
         if let Some(_existing) = self.state.read_current_job()? {
@@ -784,21 +791,31 @@ impl Worker {
         // Rollback and rescue APIs remain available.
         self.refuse_update_if_stuck()?;
 
-        let job_id = uuid::Uuid::new_v4().simple().to_string();
         let from_version = self.state.read_updater()?.current_version;
-        let job = Job {
-            id: job_id.clone(),
-            kind: JobKind::Update,
-            created_at: Utc::now(),
-            finished_at: None,
-            from_version,
-            to_version: Some(target.clone()),
-            snapshot_id: None,
-            status: JobStatus::Pending,
-            steps: Vec::new(),
-            idempotency_key: idempotency_key.clone(),
-            idempotency_fingerprint: idempotency_key.as_ref().map(|_| fingerprint),
+        let job = match unadmitted {
+            Some(mut job) => {
+                job.from_version = from_version;
+                job
+            }
+            None => Job {
+                id: uuid::Uuid::new_v4().simple().to_string(),
+                kind: JobKind::Update,
+                created_at: Utc::now(),
+                finished_at: None,
+                from_version,
+                to_version: Some(target.clone()),
+                snapshot_id: None,
+                status: JobStatus::Pending,
+                steps: Vec::new(),
+                idempotency_key: idempotency_key.clone(),
+                idempotency_fingerprint: idempotency_key.as_ref().map(|_| fingerprint),
+            },
         };
+        let job_id = job.id.clone();
+        // Admission commit point: `job.current` naming this job. The job file is
+        // written first so the pointer never names a missing job; a failure or
+        // exit between the two leaves an unadmitted Pending job that a replay of
+        // the same key completes (see `replay_idempotent_update`).
         self.state.write_job(&job)?;
         self.state.set_current_job(Some(&job_id))?;
 
@@ -906,11 +923,26 @@ pub(crate) fn update_request_fingerprint(
     )
 }
 
+/// Durable Idempotency-Key lookup result. Job files are the only authority.
+#[derive(Debug)]
+pub(crate) enum IdempotentReplay {
+    /// Admitted (`job.current`), started, or terminal: replay the id, never rerun.
+    Accepted(String),
+    /// Written but never admitted: Pending, no step, not `job.current`.
+    Unadmitted(Job),
+}
+
+/// A job the executor never touched: `PhaseRecorder` flips Pending to Running
+/// together with the first step, so Pending with no step means no side effect.
+pub(crate) fn job_never_started(job: &Job) -> bool {
+    job.status == JobStatus::Pending && job.steps.is_empty()
+}
+
 pub(crate) fn replay_idempotent_update(
     state: &StateDir,
     key: &str,
     fingerprint: &str,
-) -> Result<Option<String>> {
+) -> Result<Option<IdempotentReplay>> {
     let mut found: Option<Job> = None;
     for id in state.list_jobs()? {
         let job = match state.read_job(&id) {
@@ -931,7 +963,14 @@ pub(crate) fn replay_idempotent_update(
     match found {
         None => Ok(None),
         Some(job) => match job.idempotency_fingerprint.as_deref() {
-            Some(fp) if fp == fingerprint => Ok(Some(job.id)),
+            Some(fp) if fp == fingerprint => {
+                let admitted = state.read_current_job()?.as_deref() == Some(job.id.as_str());
+                if job_never_started(&job) && !admitted {
+                    Ok(Some(IdempotentReplay::Unadmitted(job)))
+                } else {
+                    Ok(Some(IdempotentReplay::Accepted(job.id)))
+                }
+            }
             Some(_) | None => Err(UpdaterError::InvalidInput(
                 "Idempotency-Key was already used for a different update request".into(),
             )),
@@ -1062,6 +1101,67 @@ mod stuck_and_idempotency_tests {
         }
     }
 
+    fn accepted(replay: Option<IdempotentReplay>) -> Option<String> {
+        match replay {
+            Some(IdempotentReplay::Accepted(id)) => Some(id),
+            Some(IdempotentReplay::Unadmitted(job)) => panic!("unexpected unadmitted {}", job.id),
+            None => None,
+        }
+    }
+
+    fn pending_keyed(id: &str) -> Job {
+        let mut job = sample_job(id, Some("k"), Some("fp"));
+        job.status = JobStatus::Pending;
+        job
+    }
+
+    /// `write_job` succeeded, `set_current_job` failed (or the process exited
+    /// between them): the replay must resume admission, not report success.
+    #[test]
+    fn unadmitted_pending_job_is_resumed_not_replayed() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = StateDir::open(dir.path()).unwrap();
+        state.write_job(&pending_keyed("orphan")).unwrap();
+        assert!(matches!(
+            replay_idempotent_update(&state, "k", "fp").unwrap(),
+            Some(IdempotentReplay::Unadmitted(job)) if job.id == "orphan"
+        ));
+        // Same answer from a fresh process: job files are the only authority.
+        let restarted = StateDir::open_readonly(dir.path()).unwrap();
+        assert!(matches!(
+            replay_idempotent_update(&restarted, "k", "fp").unwrap(),
+            Some(IdempotentReplay::Unadmitted(_))
+        ));
+        // Admission resumed with different parameters is still refused.
+        assert!(matches!(
+            replay_idempotent_update(&state, "k", "other"),
+            Err(UpdaterError::InvalidInput(_))
+        ));
+    }
+
+    /// Once admitted or started, a replay returns the id and never reruns.
+    #[test]
+    fn admitted_or_started_job_replays_id_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = StateDir::open(dir.path()).unwrap();
+        state.write_job(&pending_keyed("admitted")).unwrap();
+        state.set_current_job(Some("admitted")).unwrap();
+        assert_eq!(
+            accepted(replay_idempotent_update(&state, "k", "fp").unwrap()).as_deref(),
+            Some("admitted")
+        );
+
+        let mut running = pending_keyed("admitted");
+        running.status = JobStatus::Running;
+        running.steps.push(crate::state::JobStep::start(Phase::Preflight));
+        state.write_job(&running).unwrap();
+        state.set_current_job(None).unwrap();
+        assert_eq!(
+            accepted(replay_idempotent_update(&state, "k", "fp").unwrap()).as_deref(),
+            Some("admitted")
+        );
+    }
+
     #[test]
     fn refuse_update_propagates_maintenance_io() {
         let dir = tempfile::tempdir().unwrap();
@@ -1164,9 +1264,7 @@ mod stuck_and_idempotency_tests {
             .unwrap();
 
         assert_eq!(
-            replay_idempotent_update(&state, "k1", &fp)
-                .unwrap()
-                .as_deref(),
+            accepted(replay_idempotent_update(&state, "k1", &fp).unwrap()).as_deref(),
             Some("job-a")
         );
         let other = update_request_fingerprint(
@@ -1196,9 +1294,7 @@ mod stuck_and_idempotency_tests {
         // New StateDir handle = new process with no in-memory queue.
         let state2 = StateDir::open_readonly(dir.path()).unwrap();
         assert_eq!(
-            replay_idempotent_update(&state2, "restart-key", fp)
-                .unwrap()
-                .as_deref(),
+            accepted(replay_idempotent_update(&state2, "restart-key", fp).unwrap()).as_deref(),
             Some("durable")
         );
     }
