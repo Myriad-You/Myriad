@@ -29,7 +29,7 @@ import { widgetPerfMark } from '../../tapp/runtime/WidgetLoadPerf'
 import { onTappWidgetInvalidate } from '../../tapp/runtime/WidgetRuntimeSignals'
 import { resolveManifestText } from '../../tapp/utils/manifestLocale'
 import { getTappIconStyle } from '../../tapp/utils/tappColors'
-import { tappDetailPath } from '../../tapp/utils/tappPaths'
+import { tappDetailPath, tappRunPath } from '../../tapp/utils/tappPaths'
 import { useTappSubject } from '../../utils/tappSubject'
 import { userFacingError } from '../../utils/userFacingError'
 import { GlowBackground } from './shared/GlowBackground'
@@ -997,10 +997,21 @@ function TappWidgetRuntime({
   return (
     <div
       ref={containerRef}
-      className="w-full h-full rounded-xl overflow-hidden"
+      className="relative group w-full h-full rounded-xl overflow-hidden"
       style={pointerEventsStyle}
       data-no-ripple
     >
+      {tappInstance.manifest.page && !isPreview && !isEditMode && (
+        <button
+          type="button"
+          onClick={() => navigate(tappRunPath(tappInstance.manifest.id))}
+          aria-label={`${t.tapp.start}: ${resolveManifestText(tappInstance.manifest, locale).name}`}
+          title={resolveManifestText(tappInstance.manifest, locale).name}
+          className="absolute top-2 right-2 z-10 rounded-lg bg-white/90 dark:bg-black/80 px-2 py-1 text-xs shadow opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+        >
+          ↗ {t.tapp.start}
+        </button>
+      )}
       {/* 隐藏时 iframe 原地保留，只有暂存池淘汰才销毁。 */}
       <div ref={sandboxHostRef} className="w-full h-full">
         {((inViewport && pageVisible) || retained) ? (
