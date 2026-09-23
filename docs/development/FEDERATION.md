@@ -106,17 +106,28 @@ to several actor inboxes when it does not use `sharedInbox`; processing Alice's
 copy must not suppress Bob's. Shared-inbox delivery uses its own scope and the
 existing per-user/activity uniqueness constraints keep fan-out idempotent.
 
+### Inbound Move
+
+Verification fetches the old and new actor documents over remote HTTP, so it
+runs as a preflight after signature verification and before the receipt is
+claimed: `actor` = signer = `object`, a distinct `target`, the old document's
+`movedTo` = target and the new document's `alsoKnownAs` containing the old id.
+The new actor is resolved through the actor cache in the same preflight. Only
+the follow rewrite (row locks + savepoint merge), the Move activity record and
+the receipt completion then run in one DB transaction; any failure rolls all
+of it back. Unreachable documents are a retryable `503` with no receipt; link
+mismatches are a permanent `400`.
+
 ### Temporarily unavailable handlers
 
-The durable receipt boundary currently returns retryable `503` for two handlers
+The durable receipt boundary currently returns retryable `503` for one handler
 whose effects cannot yet be committed atomically:
 
 | Handler | Why it is disabled | Required recovery design |
 | --- | --- | --- |
-| inbound `Move` | Verification fetches old and new actor documents over remote HTTP. Running those fetches inside the receipt transaction would hold locks across unbounded I/O; running the follow rewrite outside it can leave a crash-partial migration. | Perform the HTTP fetch and `movedTo` / `alsoKnownAs` validation as a bounded preflight, bind the verified old/new actor ids to the signed request, then claim the receipt and perform only the follow rewrite, activity log, and receipt completion in one DB transaction. |
 | `myriad:FileChunk` | Chunk handling writes the filesystem, which cannot roll back with PostgreSQL. Returning success before both sides are durable can lose a chunk permanently. | Stage content-addressed bytes durably and verify their digest before the DB transaction; atomically commit chunk metadata plus a finalize outbox and the receipt; an idempotent worker then promotes the staged file and recovers after crashes. A DB-backed chunk store is also valid if it commits with the receipt. |
 
-Do not replace either `503` with best-effort success. Re-enable a handler only
+Do not replace this `503` with best-effort success. Re-enable a handler only
 when its preflight/transaction/outbox contract has crash-recovery tests.
 
 ## Keys: ensure vs rotate

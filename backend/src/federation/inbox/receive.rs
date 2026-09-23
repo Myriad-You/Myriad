@@ -14,6 +14,7 @@ use serde_json::json;
 
 use crate::federation::actor::{RemoteActorInfo, fetch_remote_actor};
 use crate::federation::errors::public_inbox_error;
+use crate::federation::move_actor::{VerifiedMove, preflight_move};
 use crate::federation::limits::{
     buffer_inbox_body, try_acquire_inbox_parse, validate_inbox_json_budget,
 };
@@ -21,7 +22,8 @@ use crate::federation::types::*;
 
 use super::activities::{
     distribute_to_followers, extract_accept_object_id, extract_activity_actor_id, handle_accept,
-    handle_content_activity, handle_follow, handle_reject, handle_undo, record_room_peer_activity,
+    handle_content_activity, handle_follow, handle_reject, handle_undo, handle_verified_move,
+    move_preflight_error, record_room_peer_activity,
 };
 use super::inbox_err;
 use super::local_deliver::DeliveryMode;
@@ -136,6 +138,26 @@ fn require_verified_actor(
             })),
         )
     })
+}
+
+/// Verify a Move before the receipt transaction opens: the signer must be a
+/// persisted verified actor (the old identity whose follows move), and the
+/// actor documents are fetched here so the database phase performs no HTTP.
+async fn preflight_signed_move(
+    db: &DatabaseConnection,
+    activity_type: &str,
+    actor_url: &str,
+    activity: &serde_json::Value,
+    verified_actor: &Result<RemoteActorInfo, String>,
+) -> Result<Option<VerifiedMove>, (StatusCode, Json<serde_json::Value>)> {
+    if activity_type != "Move" {
+        return Ok(None);
+    }
+    require_verified_actor(verified_actor)?;
+    preflight_move(db, actor_url, activity)
+        .await
+        .map(Some)
+        .map_err(move_preflight_error)
 }
 
 /// 4xx handler results are deterministic peer/state failures and can be
@@ -317,6 +339,9 @@ pub async fn post_inbox(
         None
     };
     preflight_room_join_member(&db, &activity_type, &actor_url_str, &activity).await?;
+    let move_verified =
+        preflight_signed_move(&db, &activity_type, &actor_url_str, &activity, &verified_actor)
+            .await?;
 
     tracing::info!(
         "📬 Inbox received: type={}, actor={}, target_user={}",
@@ -355,6 +380,7 @@ pub async fn post_inbox(
         &activity,
         follow_remote,
         content_remote,
+        move_verified.as_ref(),
         DeliveryMode::QueueOnly,
     )
     .await;
@@ -390,6 +416,7 @@ async fn dispatch_personal_activity<C: ConnectionTrait>(
     activity: &serde_json::Value,
     follow_remote: Option<&RemoteActorInfo>,
     content_remote: Option<&RemoteActorInfo>,
+    move_verified: Option<&VerifiedMove>,
     delivery_mode: DeliveryMode<'_>,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     match activity_type {
@@ -407,15 +434,8 @@ async fn dispatch_personal_activity<C: ConnectionTrait>(
         "Accept" => handle_accept(db, local_user_id, activity).await,
         "Reject" => handle_reject(db, local_user_id, actor_url_str, activity).await,
         "Undo" => handle_undo(db, local_user_id, actor_url_str, activity).await,
-        // Move verification performs remote HTTP fetches.  It must be split
-        // into preflight + transactional migration before being accepted here;
-        // never claim a receipt and then execute crash-partial DB effects.
-        "Move" => Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(AppError::public_json(
-                "Move handling temporarily unavailable while transactional verification is pending",
-            )),
-        )),
+        // Verified during preflight; only the DB migration runs in the receipt txn.
+        "Move" => handle_verified_move(db, move_verified, activity).await,
         "Create" | "Update" | "Delete" | "Announce" | "Like" => {
             handle_content_activity(
                 db,
@@ -545,6 +565,9 @@ pub async fn post_shared_inbox(
         None
     };
     preflight_room_join_member(&db, &activity_type, &actor_url_str, &activity).await?;
+    let move_verified =
+        preflight_signed_move(&db, &activity_type, &actor_url_str, &activity, &verified_actor)
+            .await?;
 
     let key = receipt_key(&actor_url_str, activity_id, "shared", &body);
     let txn = db
@@ -575,6 +598,7 @@ pub async fn post_shared_inbox(
         public_remote_id,
         follow_remote,
         content_remote,
+        move_verified.as_ref(),
     )
     .await;
     match result {
@@ -609,6 +633,7 @@ async fn dispatch_shared_activity<C: ConnectionTrait>(
     public_remote_id: Option<i32>,
     follow_remote: Option<&RemoteActorInfo>,
     content_remote: Option<&RemoteActorInfo>,
+    move_verified: Option<&VerifiedMove>,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     if matches!(activity_type, "Create" | "Announce") {
         if let Some(remote_id) = public_remote_id {
@@ -619,15 +644,10 @@ async fn dispatch_shared_activity<C: ConnectionTrait>(
         return Ok(StatusCode::ACCEPTED);
     }
 
-    // Move verification currently requires remote HTTP actor documents.  Do
-    // not execute its DB migration outside the receipt transaction.
+    // Move is instance-wide (it re-points every local follow of the signer),
+    // verified during preflight; only the DB migration runs in the receipt txn.
     if activity_type == "Move" {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(AppError::public_json(
-                "Move handling temporarily unavailable while transactional verification is pending",
-            )),
-        ));
+        return handle_verified_move(db, move_verified, activity).await;
     }
 
     if activity_type.starts_with("myriad:")
@@ -864,6 +884,93 @@ mod tests {
             super::room_join_member_actor("Create", "https://owner.example/users/alice", &activity),
             None
         );
+    }
+
+    #[tokio::test]
+    async fn move_signer_mismatch_is_rejected_before_any_fetch() {
+        // Disconnected DB: any fetch or cache access would fail with 503, so a
+        // 400 proves the structural binding is checked first.
+        let db = DatabaseConnection::default();
+        let activity = serde_json::json!({
+            "id": "https://evil.example/moves/1",
+            "type": "Move",
+            "actor": "https://victim.example/users/a",
+            "object": "https://victim.example/users/a",
+            "target": "https://evil.example/users/a",
+        });
+        let signer: Result<RemoteActorInfo, String> = Ok(RemoteActorInfo {
+            id: 7,
+            actor_url: "https://evil.example/users/x".into(),
+            username: None,
+            domain: "evil.example".into(),
+            display_name: None,
+            avatar_url: None,
+            inbox_url: "https://evil.example/users/x/inbox".into(),
+            public_key_pem: None,
+            public_key_id: None,
+            mfp_version: None,
+        });
+        let (status, _) = preflight_signed_move(
+            &db,
+            "Move",
+            "https://evil.example/users/x",
+            &activity,
+            &signer,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        // A signer that could not be persisted is retryable, never a migration.
+        let unpersisted: Result<RemoteActorInfo, String> = Err("db down".into());
+        let (status, _) = preflight_signed_move(
+            &db,
+            "Move",
+            "https://victim.example/users/a",
+            &activity,
+            &unpersisted,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert!(!receipt_result_is_permanent(status));
+
+        assert!(
+            preflight_signed_move(&db, "Follow", "https://a.example/u", &activity, &signer)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn move_preflight_failures_map_to_retryable_or_permanent() {
+        use crate::federation::move_actor::MovePreflightError;
+        let (status, body) =
+            move_preflight_error(MovePreflightError::Unavailable("connect 10.0.0.1: refused".into()));
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert!(!receipt_result_is_permanent(status));
+        assert!(!body.0.to_string().contains("10.0.0.1"));
+        let (status, _) =
+            move_preflight_error(MovePreflightError::Invalid("movedTo mismatch".into()));
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn both_inboxes_verify_move_before_the_receipt_transaction() {
+        let src = include_str!("receive.rs");
+        let production = src.split("#[cfg(test)]").next().expect("production");
+        for handler in ["pub async fn post_inbox(", "pub async fn post_shared_inbox("] {
+            let body = production
+                .split(handler)
+                .nth(1)
+                .and_then(|rest| rest.split("\nasync fn ").next())
+                .expect(handler);
+            let preflight = body.find("preflight_signed_move(").expect("preflight");
+            let begin = body.find("db\n        .begin()").expect("begin");
+            assert!(preflight < begin, "{handler}");
+        }
+        assert_eq!(production.matches("handle_verified_move(db, move_verified").count(), 2);
     }
 
     #[test]

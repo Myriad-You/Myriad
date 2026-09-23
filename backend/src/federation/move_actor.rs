@@ -642,7 +642,7 @@ async fn local_actor_document_for_base(
 
 /// Pure decision for one follow row when re-pointing old → new remote actor.
 ///
-/// Used by `migrate_follows_old_to_new` and unit-tested for idempotent merge rules.
+/// Used by `migrate_follows_in_txn` and unit-tested for idempotent merge rules.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FollowRepointAction {
     /// No existing row on the new actor: update remote_actor_id in place.
@@ -774,16 +774,126 @@ async fn merge_follow_onto_existing(
     }
 }
 
-/// Re-point local follow rows from old remote actor URL to new (idempotent).
+/// A Move whose signer, actor/object/target, `movedTo` and `alsoKnownAs` links
+/// were verified during preflight, with the new actor already resolved into
+/// `federation_remote_actors`. Carries everything the database phase needs, so
+/// that phase performs no HTTP.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedMove {
+    /// Signed actor URL as stored for the verified signer (the old identity).
+    pub old_actor: String,
+    pub new_actor: String,
+    pub new_remote_id: i32,
+}
+
+/// Why a Move failed preflight.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MovePreflightError {
+    /// The Move or its actor documents do not establish the migration. Permanent.
+    Invalid(String),
+    /// A remote document or the actor cache could not be read now. Retryable.
+    Unavailable(String),
+}
+
+/// Verify a Move before any receipt is claimed.
 ///
-/// HTTP resolution stays outside the transaction. Row locks + savepoints keep
-/// accepted status and activity references when the unique key already exists.
-pub async fn migrate_follows_old_to_new(
+/// Fail-closed, all before the database phase:
+/// 1. `actor` == signed actor == `object` (old id); `target` present and distinct
+/// 2. Fresh fetch of the old actor has `movedTo` == target
+/// 3. Fresh fetch of the new actor has `alsoKnownAs` containing the old id
+/// 4. The new actor is resolved through the existing actor cache
+///
+/// The only writes are the actor cache's own (step 4); follows, the Activity
+/// record and the receipt are left to [`apply_verified_move`].
+pub async fn preflight_move(
     db: &DatabaseConnection,
-    old_actor_url: &str,
-    new_actor_url: &str,
+    signed_actor: &str,
+    activity: &serde_json::Value,
+) -> Result<VerifiedMove, MovePreflightError> {
+    let (old_actor, new_actor) =
+        verify_move_structure(activity, signed_actor).map_err(MovePreflightError::Invalid)?;
+
+    let old_doc = fetch_actor_document(db, &old_actor)
+        .await
+        .map_err(MovePreflightError::Unavailable)?;
+    verify_old_actor_moved_to(&old_doc, &old_actor, &new_actor)
+        .map_err(MovePreflightError::Invalid)?;
+
+    let new_doc = fetch_actor_document(db, &new_actor)
+        .await
+        .map_err(MovePreflightError::Unavailable)?;
+    verify_new_actor_also_known_as(&new_doc, &new_actor, &old_actor)
+        .map_err(MovePreflightError::Invalid)?;
+
+    let new_remote = fetch_remote_actor(db, &new_actor)
+        .await
+        .map_err(|e| MovePreflightError::Unavailable(format!("Cannot resolve new actor: {e}")))?;
+    if new_remote.id <= 0 {
+        return Err(MovePreflightError::Unavailable(
+            "new actor was not persisted".into(),
+        ));
+    }
+
+    Ok(VerifiedMove {
+        old_actor: signed_actor.to_string(),
+        new_actor,
+        new_remote_id: new_remote.id,
+    })
+}
+
+/// Database phase of an accepted Move: re-point follows and record the Move
+/// Activity on `db`, which is the caller's receipt transaction. Any error is
+/// returned so the caller rolls the whole transaction back; nothing here is
+/// best-effort and nothing here performs HTTP.
+///
+/// Idempotent: a replay finds no follows left on the old actor and the
+/// Activity row already present.
+pub async fn apply_verified_move(
+    db: &impl ConnectionTrait,
+    verified: &VerifiedMove,
+    activity: &serde_json::Value,
 ) -> Result<u32, String> {
-    let old_remote = match db
+    let migrated = migrate_follows_in_txn(db, &verified.old_actor, verified.new_remote_id).await?;
+
+    if let Some(activity_id) = activity["id"]
+        .as_str()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"INSERT INTO federation_activities
+                   (activity_id, activity_type, object_type, object_json, is_local, received_at, published_at)
+               VALUES ($1, 'Move', 'Person', $2, false, NOW(), NOW())
+               ON CONFLICT (activity_id) DO NOTHING"#,
+            [activity_id.into(), activity.clone().into()],
+        ))
+        .await
+        .map_err(|e| {
+            tracing::error!("DB error recording Move activity: {}", e);
+            "Database error".to_string()
+        })?;
+    }
+
+    tracing::info!(
+        old = %verified.old_actor,
+        new = %verified.new_actor,
+        migrated,
+        "Migrated local follows after Move"
+    );
+    Ok(migrated)
+}
+
+/// Re-point local follow rows from the old remote actor to the new one.
+///
+/// Runs on the caller's transaction. Row locks + a nested savepoint keep
+/// accepted status and activity references when the unique key already exists.
+async fn migrate_follows_in_txn(
+    txn: &impl ConnectionTrait,
+    old_actor_url: &str,
+    new_remote_id: i32,
+) -> Result<u32, String> {
+    let old_remote = match txn
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT id FROM federation_remote_actors WHERE actor_url = $1 LIMIT 1",
@@ -801,19 +911,9 @@ pub async fn migrate_follows_old_to_new(
     if old_remote <= 0 {
         return Err("old remote actor id is invalid".into());
     }
-
-    let new_remote = fetch_remote_actor(db, new_actor_url)
-        .await
-        .map_err(|e| format!("Cannot resolve new actor after Move: {}", e))?;
-
-    if new_remote.id == old_remote {
+    if new_remote_id == old_remote {
         return Ok(0);
     }
-
-    let txn = db.begin().await.map_err(|e| {
-        tracing::error!("DB error beginning follow migration: {}", e);
-        "Database error".to_string()
-    })?;
 
     let follows = txn
         .query_all_raw(Statement::from_sql_and_values(
@@ -850,7 +950,7 @@ pub async fn migrate_follows_old_to_new(
                    FOR UPDATE"#,
                 [
                     user_id.into(),
-                    new_remote.id.into(),
+                    new_remote_id.into(),
                     direction.clone().into(),
                 ],
             ))
@@ -871,10 +971,10 @@ pub async fn migrate_follows_old_to_new(
                 promote_new_to_accepted: _,
             } => {
                 merge_follow_onto_existing(
-                    &txn,
+                    txn,
                     follow_id,
                     user_id,
-                    new_remote.id,
+                    new_remote_id,
                     &direction,
                     &status,
                     activity_id,
@@ -895,7 +995,7 @@ pub async fn migrate_follows_old_to_new(
                         r#"UPDATE federation_follows
                            SET remote_actor_id = $1
                            WHERE id = $2"#,
-                        [new_remote.id.into(), follow_id.into()],
+                        [new_remote_id.into(), follow_id.into()],
                     ))
                     .await;
                 match classify_follow_update(res) {
@@ -916,10 +1016,10 @@ pub async fn migrate_follows_old_to_new(
                                 "Database error".to_string()
                             })?;
                         merge_follow_onto_existing(
-                            &txn,
+                            txn,
                             follow_id,
                             user_id,
-                            new_remote.id,
+                            new_remote_id,
                             &direction,
                             &status,
                             activity_id,
@@ -935,18 +1035,6 @@ pub async fn migrate_follows_old_to_new(
             }
         }
     }
-
-    txn.commit().await.map_err(|e| {
-        tracing::error!("DB error committing follow migration: {}", e);
-        "Database error".to_string()
-    })?;
-
-    tracing::info!(
-        old = %old_actor_url,
-        new = %new_actor_url,
-        migrated,
-        "Migrated local follows after Move"
-    );
 
     Ok(migrated)
 }
@@ -1598,7 +1686,7 @@ mod tests {
     fn move_identity_rows_do_not_decode_to_zero() {
         let src = include_str!("move_actor.rs");
         let migrate = src
-            .split("pub async fn migrate_follows_old_to_new")
+            .split("async fn migrate_follows_in_txn")
             .nth(1)
             .and_then(|rest| rest.split("pub async fn store_domain_alias").next())
             .expect("migrate");
@@ -1610,10 +1698,10 @@ mod tests {
     fn unique_conflict_merges_instead_of_blind_delete() {
         let src = include_str!("move_actor.rs");
         let migrate = src
-            .split("pub async fn migrate_follows_old_to_new")
+            .split("async fn migrate_follows_in_txn")
             .nth(1)
             .and_then(|rest| rest.split("pub async fn store_domain_alias").next())
-            .expect("migrate_follows_old_to_new");
+            .expect("migrate_follows_in_txn");
         assert!(migrate.contains("SAVEPOINT follow_repoint"));
         assert!(migrate.contains("ROLLBACK TO SAVEPOINT follow_repoint"));
         assert!(migrate.contains("merge_follow_onto_existing"));
@@ -2086,5 +2174,106 @@ mod tests {
         );
         assert_eq!(activity_id_string(&serde_json::json!({})), None);
     }
+
+    async fn follow_rows(db: &DatabaseConnection) -> Vec<(i32, i32, String, String)> {
+        db.query_all_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT user_id, remote_actor_id, direction, status FROM federation_follows \
+             ORDER BY user_id, direction, remote_actor_id",
+        ))
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|r| {
+            (
+                r.try_get("", "user_id").unwrap(),
+                r.try_get("", "remote_actor_id").unwrap(),
+                r.try_get("", "direction").unwrap(),
+                r.try_get("", "status").unwrap(),
+            )
+        })
+        .collect()
+    }
+
+    /// Database phase of an inbound Move against a real schema: it runs on the
+    /// caller's receipt transaction, a rollback leaves no migration effects, a
+    /// commit re-points/merges follows and records the Activity once, and a
+    /// replay is a no-op.
+    #[tokio::test]
+    async fn verified_move_migrates_in_caller_txn_and_replays_idempotently() {
+        let Some(fixture) = crate::federation::test_db::SchemaDb::new().await else {
+            return;
+        };
+        let db = &fixture.db;
+        db.execute_unprepared(
+            r#"
+            INSERT INTO users (id, username) VALUES (1, 'alice'), (2, 'bob');
+            INSERT INTO federation_remote_actors (id, actor_url, domain, inbox_url) VALUES
+                (10, 'https://old.example/users/a', 'old.example', 'https://old.example/users/a/inbox'),
+                (20, 'https://new.example/users/a', 'new.example', 'https://new.example/users/a/inbox');
+            INSERT INTO federation_follows (user_id, remote_actor_id, direction, status, activity_id) VALUES
+                (1, 10, 'outgoing', 'accepted', 'https://local/follow/1'),
+                (2, 10, 'outgoing', 'accepted', 'https://local/follow/2'),
+                (2, 20, 'outgoing', 'pending', NULL),
+                (1, 10, 'incoming', 'accepted', 'https://old.example/follow/9');
+            "#,
+        )
+        .await
+        .unwrap();
+        let before = follow_rows(db).await;
+        let verified = VerifiedMove {
+            old_actor: "https://old.example/users/a".into(),
+            new_actor: "https://new.example/users/a".into(),
+            new_remote_id: 20,
+        };
+        let activity = serde_json::json!({
+            "id": "https://old.example/moves/1",
+            "type": "Move",
+            "actor": "https://old.example/users/a",
+            "object": "https://old.example/users/a",
+            "target": "https://new.example/users/a",
+        });
+        let move_rows = || async {
+            db.query_one_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT COUNT(*)::BIGINT AS n FROM federation_activities \
+                 WHERE activity_id = 'https://old.example/moves/1'",
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get::<i64>("", "n")
+            .unwrap()
+        };
+
+        // Receipt transaction rolled back (e.g. receipt completion failed).
+        let txn = db.begin().await.unwrap();
+        assert_eq!(apply_verified_move(&txn, &verified, &activity).await.unwrap(), 3);
+        txn.rollback().await.unwrap();
+        assert_eq!(follow_rows(db).await, before);
+        assert_eq!(move_rows().await, 0);
+
+        let txn = db.begin().await.unwrap();
+        assert_eq!(apply_verified_move(&txn, &verified, &activity).await.unwrap(), 3);
+        txn.commit().await.unwrap();
+        assert_eq!(
+            follow_rows(db).await,
+            vec![
+                (1, 20, "incoming".into(), "accepted".into()),
+                (1, 20, "outgoing".into(), "accepted".into()),
+                // Merged onto the existing pending row and promoted.
+                (2, 20, "outgoing".into(), "accepted".into()),
+            ]
+        );
+        assert_eq!(move_rows().await, 1);
+
+        let txn = db.begin().await.unwrap();
+        assert_eq!(apply_verified_move(&txn, &verified, &activity).await.unwrap(), 0);
+        txn.commit().await.unwrap();
+        assert_eq!(move_rows().await, 1);
+
+        fixture.close().await;
+    }
+
 }
 use myriad_error::AppError;

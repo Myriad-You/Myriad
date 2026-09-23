@@ -4,11 +4,11 @@ This document describes how Myriad migrates a federated instance from one domain
 (base URL) to another using the **ActivityPub `Move`** activity — not env-only
 rewrites and not soft-skip verification.
 
-> **Current inbound status:** emitting local Move activities remains supported,
-> but receiving a remote `Move` returns retryable `503` while its remote-document
-> preflight is being separated from the durable inbox receipt transaction. The
-> recovery contract is documented in
-> [Federation development notes](../development/FEDERATION.md#temporarily-unavailable-handlers).
+> **Inbound status:** both the personal and the shared inbox accept a remote
+> `Move`. Remote actor documents are fetched and verified as a preflight before
+> the durable inbox receipt is claimed; the follow rewrite, the Move activity
+> record and the receipt then commit in one transaction (see
+> [Federation development notes](../development/FEDERATION.md#inbound-move)).
 
 ## What this implements
 
@@ -16,7 +16,7 @@ rewrites and not soft-skip verification.
 |--------|--------|----------------|
 | **B** | Actor document fields | Local actors expose `alsoKnownAs` (new base) and/or `movedTo` (old base) from `federation_domain_aliases` so peers can verify Move. |
 | **C** | Send Move | Admin job emits one `Move` per local user: `actor` = `object` = old actor URL, `target` = new. Signed, fan-out to **followers** via the delivery queue. |
-| **D** | Receive Move | Target contract: inbox / shared-inbox accept `Move` only after **fail-closed** checks (HTTP Signature + old `movedTo` + new `alsoKnownAs`) and atomically re-point local follows. Temporarily `503` until the preflight/receipt split above is implemented. |
+| **D** | Receive Move | Target contract: inbox / shared-inbox accept `Move` only after **fail-closed** checks (HTTP Signature + old `movedTo` + new `alsoKnownAs`) and atomically re-point local follows. Verification is a preflight before the receipt; the follow rewrite commits with the receipt. |
 | **E** | Local data rewrite | After Move enqueue, rewrite **this instance’s** stored absolute URLs `old_base` → `new_base` on a **whitelist** of federation columns. **Never** third-party domains. |
 | **G** | Shared keys | Same local user keeps the **same RSA keypair** (same `public_key_pem`). `keyId` host moves to the new domain `#main-key`. **No** fresh keypair per domain. |
 
@@ -137,7 +137,7 @@ Content-Type: application/json
 | Room/channel/ring **semantic** re-home on remotes | Not a full remote protocol migrate; **E** only rewrites **local** self-URLs in those tables |
 | Updater / `.env` domain rewrite | Separate / out of scope |
 | Soft-skip verification on D | Forbidden |
-| Inbound Move while receipt-safe preflight is pending | Retryable `503`; do not acknowledge before the follow rewrite and receipt can commit atomically |
+| Inbound Move whose actor documents cannot be fetched | Retryable `503` before any receipt or follow change; link mismatches are a permanent `400` |
 
 ## Storage
 

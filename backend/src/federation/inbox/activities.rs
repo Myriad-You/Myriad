@@ -2,7 +2,7 @@
 
 use axum::{Json, http::StatusCode};
 use myriad_error::AppError;
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde_json::json;
 
 use crate::federation::actor::RemoteActorInfo;
@@ -13,91 +13,90 @@ use super::local_deliver::{DeliveryMode, enqueue_delivery, enqueue_delivery_queu
 
 // Activity 处理器
 
-/// Handle ActivityPub Move (domain / account migration).
+/// Map a Move preflight failure: link/identity mismatches are permanent 4xx,
+/// unreachable actor documents a retryable 503.
+pub(crate) fn move_preflight_error(
+    error: crate::federation::move_actor::MovePreflightError,
+) -> (StatusCode, Json<serde_json::Value>) {
+    use crate::federation::move_actor::MovePreflightError;
+    match error {
+        MovePreflightError::Invalid(reason) => {
+            tracing::warn!(%reason, "Move rejected");
+            (StatusCode::BAD_REQUEST, Json(AppError::public_json(reason)))
+        }
+        MovePreflightError::Unavailable(reason) => {
+            tracing::warn!(%reason, "Move preflight could not read actor documents");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({
+                    "error": "Move actor documents temporarily unavailable",
+                    "retry": true
+                })),
+            )
+        }
+    }
+}
+
+/// Database phase of an ActivityPub Move (account migration).
 ///
-/// HTTP inbox 对 Move 现为 503（`receive.rs`）；本函数不验签，由 unsigned `local_deliver` 调用。
-/// Fail-closed here:
-/// 1. `actor` == signed actor == `object` (old id); `target` present and distinct
-/// 2. Fresh fetch of old actor has `movedTo` == target
-/// 3. Fresh fetch of new actor has `alsoKnownAs` containing old id
-///
-/// On accept: re-point local `federation_follows` from old remote actor → new.
+/// `verified` comes from [`preflight_move`](crate::federation::move_actor::preflight_move),
+/// run after signature verification and before the receipt is claimed. Here
+/// only the follow re-point and the Activity record run, on the caller's
+/// receipt transaction; a failure is a retryable 5xx so the caller rolls the
+/// whole transaction (receipt included) back.
+pub(crate) async fn handle_verified_move(
+    db: &impl ConnectionTrait,
+    verified: Option<&crate::federation::move_actor::VerifiedMove>,
+    activity: &serde_json::Value,
+) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
+    let verified = verified.ok_or_else(|| {
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(AppError::public_json("Move preflight was not completed")),
+        )
+    })?;
+    let migrated = crate::federation::move_actor::apply_verified_move(db, verified, activity)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "Move follow migration failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "error": "Move migration failed",
+                    "retry": true
+                })),
+            )
+        })?;
+    tracing::info!(
+        old_actor = %verified.old_actor,
+        new_actor = %verified.new_actor,
+        migrated_follows = migrated,
+        "Accepted ActivityPub Move"
+    );
+    Ok(StatusCode::ACCEPTED)
+}
+
+/// Handle a Move delivered in-process (`local_deliver`, no HTTP signature):
+/// the same preflight and database phase as the HTTP inboxes, the latter in
+/// its own transaction.
 pub(crate) async fn handle_move(
     db: &DatabaseConnection,
     signed_actor: &str,
     activity: &serde_json::Value,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
-    use crate::federation::move_actor::{
-        fetch_actor_document, migrate_follows_old_to_new, verify_move_structure,
-        verify_new_actor_also_known_as, verify_old_actor_moved_to,
-    };
-
-    let (old_actor, new_actor) = verify_move_structure(activity, signed_actor).map_err(|e| {
-        tracing::warn!("Move rejected (structure): {}", e);
-        (StatusCode::BAD_REQUEST, Json(AppError::public_json(e)))
-    })?;
-
-    let old_doc = fetch_actor_document(db, &old_actor)
+    let verified = crate::federation::move_actor::preflight_move(db, signed_actor, activity)
         .await
-        .map_err(|error| {
-            tracing::warn!(%error, "Move rejected (old actor fetch)");
-            (
-                StatusCode::BAD_REQUEST,
-                Json(AppError::public_json(
-                    "Cannot fetch old actor for Move verify",
-                )),
-            )
-        })?;
-
-    verify_old_actor_moved_to(&old_doc, &old_actor, &new_actor).map_err(|e| {
-        tracing::warn!("Move rejected (movedTo): {}", e);
-        (StatusCode::BAD_REQUEST, Json(AppError::public_json(e)))
-    })?;
-
-    let new_doc = fetch_actor_document(db, &new_actor)
+        .map_err(move_preflight_error)?;
+    let txn = db
+        .begin()
         .await
-        .map_err(|error| {
-            tracing::warn!(%error, "Move rejected (new actor fetch)");
-            (
-                StatusCode::BAD_REQUEST,
-                Json(AppError::public_json(
-                    "Cannot fetch new actor for Move verify",
-                )),
-            )
-        })?;
-
-    verify_new_actor_also_known_as(&new_doc, &new_actor, &old_actor).map_err(|e| {
-        tracing::warn!("Move rejected (alsoKnownAs): {}", e);
-        (StatusCode::BAD_REQUEST, Json(AppError::public_json(e)))
-    })?;
-
-    let migrated = migrate_follows_old_to_new(db, &old_actor, &new_actor)
+        .map_err(|e| inbox_err("begin Move transaction", e.to_string()))?;
+    // Dropping `txn` on the error path rolls it back.
+    let status = handle_verified_move(&txn, Some(&verified), activity).await?;
+    txn.commit()
         .await
-        .map_err(|e| inbox_err("Move follow migration failed", e))?;
-
-    // Record inbound Move for audit
-    let activity_id = activity["id"].as_str().unwrap_or("").to_string();
-    if !activity_id.is_empty() {
-        let _ = db
-            .execute_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                r#"INSERT INTO federation_activities
-                       (activity_id, activity_type, object_type, object_json, is_local, received_at, published_at)
-                   VALUES ($1, 'Move', 'Person', $2, false, NOW(), NOW())
-                   ON CONFLICT (activity_id) DO NOTHING"#,
-                [activity_id.clone().into(), activity.clone().into()],
-            ))
-            .await;
-    }
-
-    tracing::info!(
-        old_actor = %old_actor,
-        new_actor = %new_actor,
-        migrated_follows = migrated,
-        "Accepted ActivityPub Move"
-    );
-
-    Ok(StatusCode::ACCEPTED)
+        .map_err(|e| inbox_err("commit Move transaction", e.to_string()))?;
+    Ok(status)
 }
 
 /// 处理 Follow 请求
