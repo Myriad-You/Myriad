@@ -304,53 +304,79 @@ async fn deliver_event(
     runtime: &EventRuntime,
     event: &TappEventEnvelope,
 ) -> Result<usize, EventError> {
-    let presences = shared_registry::list(
-        db,
-        EVENT_PRESENCE_NAMESPACE,
-        match event.scope {
-            EventScope::Instance => None,
-            EventScope::Owner => Some(runtime.subject_id),
-        },
-        None,
-    )
-    .await
-    .map_err(|_| EventError::Unavailable {
+    let registry_unavailable = |_| EventError::Unavailable {
         detail: UnavailableDetail::Registry,
-    })?;
-    let mut delivered = 0usize;
-    for presence in presences {
-        let Ok(subscriber) = serde_json::from_value::<OnlineSubscriber>(presence.payload) else {
-            continue;
-        };
-        let runtime_id = presence
-            .runtime_id
-            .as_deref()
-            .unwrap_or(&presence.record_id);
-        let addressed = subscriber.topics.contains(&event.topic)
-            && match event.scope {
-                EventScope::Instance => runtime_id == runtime.runtime_id,
+    };
+    match event.scope {
+        EventScope::Instance => {
+            // Presence is keyed by runtime_id (see `register_subscription`), so
+            // the target runtime is one primary-key lookup, not a namespace scan.
+            let subscriber = shared_registry::get::<OnlineSubscriber>(
+                db,
+                EVENT_PRESENCE_NAMESPACE,
+                &runtime.runtime_id,
+            )
+            .await
+            .map_err(registry_unavailable)?;
+            match subscriber {
+                Some(subscriber) if subscriber.topics.contains(&event.topic) => {
+                    enqueue_event(db, &runtime.runtime_id, event).await?;
+                    Ok(1)
+                }
+                _ => Ok(0),
+            }
+        }
+        EventScope::Owner => {
+            let presences = shared_registry::list(
+                db,
+                EVENT_PRESENCE_NAMESPACE,
+                Some(runtime.subject_id),
+                None,
+            )
+            .await
+            .map_err(registry_unavailable)?;
+            let mut delivered = 0usize;
+            for presence in presences {
+                let Ok(subscriber) = serde_json::from_value::<OnlineSubscriber>(presence.payload)
+                else {
+                    continue;
+                };
                 // `subject_id` is the current user's data-owner space. Using
                 // installation owner_id here would leak shared admin-Tapp
                 // events across ordinary users.
-                EventScope::Owner => subscriber.subject_id == runtime.subject_id,
-            };
-        if !addressed {
-            continue;
+                if !subscriber.topics.contains(&event.topic)
+                    || subscriber.subject_id != runtime.subject_id
+                {
+                    continue;
+                }
+                let runtime_id = presence
+                    .runtime_id
+                    .as_deref()
+                    .unwrap_or(&presence.record_id);
+                enqueue_event(db, runtime_id, event).await?;
+                delivered += 1;
+            }
+            Ok(delivered)
         }
-        shared_registry::enqueue(
-            db,
-            EVENT_MAILBOX_CHANNEL,
-            runtime_id,
-            event,
-            Utc::now().timestamp() + 30,
-        )
-        .await
-        .map_err(|_| EventError::Unavailable {
-            detail: UnavailableDetail::Mailbox,
-        })?;
-        delivered += 1;
     }
-    Ok(delivered)
+}
+
+async fn enqueue_event(
+    db: &impl ConnectionTrait,
+    runtime_id: &str,
+    event: &TappEventEnvelope,
+) -> Result<(), EventError> {
+    shared_registry::enqueue(
+        db,
+        EVENT_MAILBOX_CHANNEL,
+        runtime_id,
+        event,
+        Utc::now().timestamp() + 30,
+    )
+    .await
+    .map_err(|_| EventError::Unavailable {
+        detail: UnavailableDetail::Mailbox,
+    })
 }
 
 /// Publish after the API has authorized EventPublish + rate limit + resolved install.
