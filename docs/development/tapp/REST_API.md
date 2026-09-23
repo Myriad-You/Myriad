@@ -706,7 +706,7 @@ owner 可在 Tapp 详情里停用**该安装**的 `/tapi`（响应 403 `ROUTE_PA
 
 1. 后端路由注册、中间件和 handler 内授权；
 2. `frontend/src/tapp/services/TappApiService.ts` 的 Cookie、CSRF 和字段转换；
-3. sandbox handler 与 `permissionConfig.ts`；
+3. sandbox handler 与 `shared/tapp_sandbox_contract.json`（动作权限表）；
 4. `sdkGenerator.ts` 的公开方法；
 5. 本文和 [SDK API](API_REFERENCE.md)；
 6. Page、Widget、headless 三种宿主是否都应暴露该能力。

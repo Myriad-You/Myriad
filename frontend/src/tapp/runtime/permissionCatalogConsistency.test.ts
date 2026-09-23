@@ -5,8 +5,9 @@ import { dirname, join } from 'node:path'
 import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+import sandboxContract from '../../../../shared/tapp_sandbox_contract.json' with { type: 'json' }
 import { PERMISSION_COPY } from '../constants/permissionCopy.ts'
-import { PERMISSION_LEVELS } from './permissionConfig.ts'
+import { PERMISSION_LEVELS, PERMISSION_MAP } from './permissionConfig.ts'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const repoRoot = join(__dirname, '../../../..')
@@ -61,5 +62,27 @@ describe('permission catalog lock to tapp-contract export', () => {
     const unionMembers = tappPermissionUnionMembers(source)
     const catalogNames = Object.keys(exportedLevels).toSorted()
     assert.deepEqual(unionMembers.toSorted(), catalogNames)
+  })
+
+  it('sandbox actions only require public or catalog permissions', () => {
+    for (const [action, permission] of PERMISSION_MAP) {
+      assert.ok(
+        permission === 'public' || permission in exportedLevels,
+        `${action} requires unknown permission ${permission}`,
+      )
+    }
+  })
+
+  it('SandboxCapabilityProfile literals match the shared sandbox contract', () => {
+    const source = readFileSync(
+      join(repoRoot, 'frontend/src/tapp/runtime/sandbox/capabilityProfiles.ts'),
+      'utf8',
+    )
+    const union = source.match(/export type SandboxCapabilityProfile =([^\n]+)/)
+    assert.ok(union, 'SandboxCapabilityProfile union missing')
+    const literals = Iterator.from(union[1].matchAll(/'([^']+)'/g))
+      .map((match) => match[1])
+      .toArray()
+    assert.deepEqual(literals, sandboxContract.capabilities.profiles)
   })
 })

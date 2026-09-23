@@ -10,8 +10,8 @@
 //! Route → permission facts live in the machine-readable fixture:
 //! `docs/development/tapp/fixtures/host_route_permissions.json`.
 //!
-//! **Edit the fixture first**, then update sandbox `PERMISSION_MAP` /
-//! `action_permissions.json` as needed. Unit tests (and the frontend
+//! **Edit the fixture first**, then update `shared/tapp_sandbox_contract.json`
+//! (sandbox `PERMISSION_MAP`) / `action_permissions.json` as needed. Unit tests (and the frontend
 //! consistency test) enforce that:
 //! - every fixture route is served by the domain mappers below;
 //! - every mapper-covered route appears in the fixture;

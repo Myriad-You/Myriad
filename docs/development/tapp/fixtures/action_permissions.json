@@ -1,5 +1,5 @@
 {
-  "description": "Sandbox bridge actions for host-proxied domains (speech / phantasiList / federation) → Tapp permission string. Source of truth for frontend PERMISSION_MAP entries in those domains. Edit this fixture first, then update permissionConfig.ts; node:test enforces lockstep with host_route_permissions.json permission strings.",
+  "description": "Sandbox bridge actions for host-proxied domains (speech / phantasiList / federation) → Tapp permission string. Source of truth for frontend PERMISSION_MAP entries in those domains. Edit this fixture first, then update shared/tapp_sandbox_contract.json; node:test enforces lockstep with host_route_permissions.json permission strings.",
   "actions": [
     {
       "domain": "speech",

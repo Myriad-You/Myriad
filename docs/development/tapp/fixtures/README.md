@@ -14,7 +14,9 @@ capabilities. Comment-only sync across stacks is not enough; tests fail on drift
    permission strings).
 2. Update `TappPermission` in `crates/tapp-contract/src/permission.rs` and frontend
    `PERMISSION_LEVELS` / types if you introduced a new permission string.
-3. Update frontend `permissionConfig.ts` `PERMISSION_MAP` for action changes.
+3. Update `shared/tapp_sandbox_contract.json` (the sandbox action table read by
+   the frontend `PERMISSION_MAP` and exported to the Tapp CLI) for action changes,
+   then run `npm run sync-contract` in `tools/tapp-cli`.
 4. Host route maps are loaded from `host_route_permissions.json` — no parallel
    hand-written match arms to edit for speech/phantasi/federation.
 5. Run:
@@ -29,6 +31,6 @@ capabilities. Comment-only sync across stacks is not enough; tests fail on drift
 
 ## Out of scope
 
-- Non-host-proxied sandbox actions (storage, AI, etc.) still live only in
-  `PERMISSION_MAP`.
+- Non-host-proxied sandbox actions (storage, AI, etc.) live only in
+  `shared/tapp_sandbox_contract.json`.
 - WebSocket tickets, CSP, quotas.

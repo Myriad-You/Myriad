@@ -481,7 +481,9 @@ sequenceDiagram
 - TappRuntime 列表缓存 TTL 为 30 秒；启动同步使用批量详情接口，Widget 也按集合读取。
   `waitForSync` 直接等待首次同步并明确抛出失败/超时，不得把失败标记成成功空状态。
 - 前端权限等级锁到 `export_tapp_contract()` 的 `permissionLevels`；`permissionConfig.ts` 的
-  `PERMISSION_LEVELS` 是这份目录的前端副本，不是另一份注册表。`PERMISSION_MAP` 仍对 fixture。
+  `PERMISSION_LEVELS` 是这份目录的前端副本，不是另一份注册表。`PERMISSION_MAP` 与 headless
+  禁用动作直接读取 `shared/tapp_sandbox_contract.json`，同一文件经 `export_tapp_contract()`
+  输出给 Tapp CLI/SDK；宿主代理域仍对 fixture。
 - `QuotaManager` 只保存平台读写与声明 API 的短期滑动窗口，未跟踪 action 不创建记录，
   失败调用不计数。AI calls、tokens 与 cooldown 由 PostgreSQL 服务端账本统一执行，前端只展示
   usage snapshot，不再维护另一套计费事实。

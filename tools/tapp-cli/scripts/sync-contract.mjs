@@ -1,11 +1,9 @@
 import { execFile } from 'node:child_process'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
-import { parseCapabilitySource } from './capability-source.mjs'
 import { findMyriadRepoRoot } from './myriad-source.mjs'
-import { parsePermissionSource } from './permission-source.mjs'
 import { generateTappSdkDts } from './sdk-dts.mjs'
 
 const execFileAsync = promisify(execFile)
@@ -17,14 +15,6 @@ if (!repoRoot) {
     'Unable to locate the Myriad source tree; set MYRIAD_REPO_ROOT before syncing the generated contract',
   )
 }
-const permissionSourcePath = resolve(
-  repoRoot,
-  'frontend/src/tapp/runtime/permissionConfig.ts',
-)
-const capabilitySourcePath = resolve(
-  repoRoot,
-  'frontend/src/tapp/runtime/sandbox/capabilityProfiles.ts',
-)
 const exporterManifestPath = resolve(
   repoRoot,
   'tools/tapp-contract-export/Cargo.toml',
@@ -46,23 +36,26 @@ const { stdout } = await execFileAsync(
   ],
   { cwd: repoRoot, maxBuffer: 4 * 1024 * 1024 },
 )
-const backendContract = JSON.parse(stdout)
-const permissionSource = await readFile(permissionSourcePath, 'utf8')
-const { actions } = parsePermissionSource(permissionSource)
+// The neutral contract exporter is the only authority; nothing here reads
+// frontend implementation sources.
+const { actions, capabilities, ...backendContract } = JSON.parse(stdout)
 const permissionLevels = backendContract.permissionLevels
 if (!permissionLevels || Object.keys(permissionLevels).length < 30) {
   throw new Error('tapp-contract export did not include permissionLevels')
 }
-const capabilitySource = await readFile(capabilitySourcePath, 'utf8')
-const capabilities = parseCapabilitySource(capabilitySource)
+if (!actions || Object.keys(actions).length < 150) {
+  throw new Error('tapp-contract export did not include sandbox actions')
+}
+if (!capabilities?.profiles?.length || !capabilities?.headlessDeniedActions?.length) {
+  throw new Error('tapp-contract export did not include capability profiles')
+}
 
 const contract = {
   generatedFrom: [
     'crates/tapp-contract/src/manifest.rs',
     'crates/tapp-contract/src/contract_rules.rs',
     'crates/tapp-contract/src/permission.rs',
-    'frontend/src/tapp/runtime/permissionConfig.ts',
-    'frontend/src/tapp/runtime/sandbox/capabilityProfiles.ts',
+    'shared/tapp_sandbox_contract.json',
   ],
   ...backendContract,
   permissions: { permissionLevels, actions },
