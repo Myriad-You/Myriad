@@ -272,3 +272,184 @@ fn backup_format_constants_stable() {
     assert_eq!(ANALYTICS_BACKUP_FORMAT, "myriad-analytics-backup");
     assert_eq!(ANALYTICS_BACKUP_VERSION, 1);
 }
+
+#[tokio::test]
+async fn sealed_import_replace_then_merge_applies_table_semantics() {
+    use super::backup_integrity::{content_hash, seal_integrity};
+    use sea_orm::{ConnectionTrait, Database, DatabaseBackend, Statement};
+    use sea_orm_migration::MigratorTrait;
+    let Ok(url) = std::env::var("ANALYTICS_TEST_DATABASE_URL") else {
+        return;
+    };
+    let db = Database::connect(&url).await.unwrap();
+    migration::Migrator::up(&db, None).await.unwrap();
+    let day = (chrono::Utc::now().date_naive() - chrono::Duration::days(1)).to_string();
+    let hash = "0123456789abcdef";
+    let tables = json!({
+        "page_daily": [
+            { "day": day, "path": "/", "views": 10, "unique_visitors": 0, "engagement_ms": 100, "engaged_views": 0 },
+            { "day": day, "path": "/library", "views": 3, "unique_visitors": 0, "engagement_ms": 0, "engaged_views": 0 }
+        ],
+        "visitor_seen": [{ "day": day, "path": "/", "visitor_hash": hash, "ordinal": 1 }],
+        "event_daily": [{ "day": day, "event_name": "click", "path": "", "target": "", "count": 4, "unique_visitors": 0 }],
+        "event_visitor": [{ "day": day, "event_name": "click", "path": "", "target": "", "visitor_hash": hash }],
+        "referrer_daily": [{ "day": day, "host": "example.com", "count": 2 }],
+        "country_daily": [{ "day": day, "country_code": "JP", "country_name": "Japan", "views": 5 }],
+        "country_visitor": [{ "day": day, "country_code": "JP", "visitor_hash": hash }]
+    });
+    let rows = |name: &str| tables[name].as_array().unwrap().clone();
+    let digest = content_hash(
+        ANALYTICS_BACKUP_FORMAT,
+        ANALYTICS_BACKUP_VERSION,
+        &rows("page_daily"),
+        &rows("visitor_seen"),
+        &rows("event_daily"),
+        &rows("event_visitor"),
+        &rows("referrer_daily"),
+        &rows("country_daily"),
+        &rows("country_visitor"),
+    )
+    .unwrap();
+    let mut body = tables.clone();
+    body["format"] = json!(ANALYTICS_BACKUP_FORMAT);
+    body["version"] = json!(ANALYTICS_BACKUP_VERSION);
+    body["integrity"] = seal_integrity(&digest).unwrap();
+
+    let scalar = |sql: &'static str| {
+        let db = &db;
+        async move {
+            db.query_one_raw(Statement::from_string(DatabaseBackend::Postgres, sql))
+                .await
+                .unwrap()
+                .unwrap()
+                .try_get::<i64>("", "n")
+                .unwrap()
+        }
+    };
+    for (mode, views, visitors_inserted) in [("replace", 13, 1), ("merge", 26, 0)] {
+        body["mode"] = json!(mode);
+        let (status, response) = super::import_analytics(
+            crate::extract::Db(db.clone()),
+            axum::Json(serde_json::from_value(body.clone()).unwrap()),
+        )
+        .await;
+        assert_eq!(status, axum::http::StatusCode::OK, "{mode}: {:?}", response.0);
+        let inserted = &response.0["inserted"];
+        assert_eq!(inserted["page_daily"], json!(2), "{mode}");
+        assert_eq!(inserted["visitor_seen"], json!(visitors_inserted), "{mode}");
+        assert_eq!(inserted["country_visitor"], json!(visitors_inserted), "{mode}");
+        assert_eq!(
+            scalar("SELECT SUM(views)::bigint AS n FROM analytics_page_daily").await,
+            views
+        );
+    }
+    // merge adds counts; UV comes from the recompute over detail rows.
+    assert_eq!(
+        scalar("SELECT count::bigint AS n FROM analytics_event_daily").await,
+        8
+    );
+    assert_eq!(
+        scalar("SELECT count::bigint AS n FROM analytics_referrer_daily").await,
+        4
+    );
+    assert_eq!(
+        scalar("SELECT views::bigint AS n FROM analytics_country_daily").await,
+        10
+    );
+    assert_eq!(
+        scalar("SELECT unique_visitors::bigint AS n FROM analytics_page_daily WHERE path = '/'")
+            .await,
+        1
+    );
+}
+
+#[tokio::test]
+async fn import_batch_chunks_splits_repeated_keys_and_counts_rows() {
+    use super::admin_api::ImportBatch;
+    use sea_orm::{
+        ConnectOptions, ConnectionTrait, Database, DatabaseBackend, Statement, Value as SeaValue,
+    };
+    let Ok(url) = std::env::var("ANALYTICS_TEST_DATABASE_URL") else {
+        return;
+    };
+    let mut options = ConnectOptions::new(url);
+    options.max_connections(1).min_connections(1);
+    let db = Database::connect(options).await.unwrap();
+    db.execute_unprepared(
+        "CREATE TEMP TABLE import_probe (
+            day integer, k text, v bigint, tag text, PRIMARY KEY (day, k)
+        )",
+    )
+    .await
+    .unwrap();
+    let row = |day: i32, k: &str, v: i64| [SeaValue::from(day), k.into(), SeaValue::from(v)];
+
+    // Additive DO UPDATE: a key repeated inside one pending chunk must be
+    // applied sequentially instead of failing the statement.
+    let mut merge = ImportBatch::with_max_rows(
+        "INSERT INTO import_probe (day, k, v, tag) VALUES ",
+        3,
+        ", 'merge'",
+        " ON CONFLICT (day, k) DO UPDATE SET v = import_probe.v + EXCLUDED.v",
+        3,
+    );
+    for (day, k, v) in [(1, "a", 1), (1, "b", 2), (1, "a", 3), (2, "a", 4), (2, "b", 5)] {
+        merge
+            .push(&db, Some(format!("{day}\u{0}{k}")), row(day, k, v))
+            .await
+            .unwrap();
+    }
+    merge.flush(&db).await.unwrap();
+    assert_eq!(merge.affected(), 5);
+    let totals = db
+        .query_all_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT day, k, v, tag FROM import_probe ORDER BY day, k",
+        ))
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|r| {
+            (
+                r.try_get::<i32>("", "day").unwrap(),
+                r.try_get::<String>("", "k").unwrap(),
+                r.try_get::<i64>("", "v").unwrap(),
+                r.try_get::<String>("", "tag").unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        totals,
+        vec![
+            (1, "a".into(), 4, "merge".into()),
+            (1, "b".into(), 2, "merge".into()),
+            (2, "a".into(), 4, "merge".into()),
+            (2, "b".into(), 5, "merge".into()),
+        ]
+    );
+
+    // DO NOTHING counts only new rows; far more rows than one statement can bind.
+    db.execute_unprepared("TRUNCATE import_probe").await.unwrap();
+    let mut fresh = ImportBatch::new(
+        "INSERT INTO import_probe (day, k, v) VALUES ",
+        3,
+        "",
+        " ON CONFLICT (day, k) DO NOTHING",
+    );
+    for i in 0..25_000 {
+        fresh.push(&db, None, row(i, "x", 1)).await.unwrap();
+    }
+    fresh.push(&db, None, row(0, "x", 9)).await.unwrap();
+    fresh.flush(&db).await.unwrap();
+    assert_eq!(fresh.affected(), 25_000);
+    let count = db
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT COUNT(*) AS n, SUM(v)::bigint AS s FROM import_probe",
+        ))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(count.try_get::<i64>("", "n").unwrap(), 25_000);
+    assert_eq!(count.try_get::<i64>("", "s").unwrap(), 25_000);
+}

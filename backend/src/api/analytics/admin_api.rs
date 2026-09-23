@@ -1180,6 +1180,125 @@ pub(crate) fn normalize_import_event_path(path_raw: &str) -> Option<String> {
 ///
 /// Integrity is always required: export seals a field-canonical content hash
 /// with this instance's data key; hand-edited metrics fail verification.
+/// Bind parameters per import statement, well under PostgreSQL's 65535 limit.
+const IMPORT_BIND_BUDGET: usize = 60_000;
+
+/// Chunked multi-row `INSERT … VALUES (…), (…) ON CONFLICT …` for one import table.
+///
+/// Rows are bound as they are parsed and flushed every `max_rows`, so a maximal
+/// backup costs O(rows / chunk) round-trips without a second full typed copy.
+/// `ON CONFLICT DO UPDATE` may not touch the same key twice in one statement;
+/// when a conflict key repeats inside the pending chunk, the chunk is flushed
+/// first so rows still apply in input order with their per-row semantics.
+pub(crate) struct ImportBatch {
+    head: &'static str,
+    conflict: &'static str,
+    columns: usize,
+    row_tail: &'static str,
+    max_rows: usize,
+    values: Vec<SeaValue>,
+    rows: usize,
+    keys: std::collections::HashSet<String>,
+    affected: u64,
+}
+
+impl ImportBatch {
+    pub(crate) fn new(
+        head: &'static str,
+        columns: usize,
+        row_tail: &'static str,
+        conflict: &'static str,
+    ) -> Self {
+        Self::with_max_rows(head, columns, row_tail, conflict, IMPORT_BIND_BUDGET / columns)
+    }
+
+    pub(crate) fn with_max_rows(
+        head: &'static str,
+        columns: usize,
+        row_tail: &'static str,
+        conflict: &'static str,
+        max_rows: usize,
+    ) -> Self {
+        Self {
+            head,
+            conflict,
+            columns,
+            row_tail,
+            max_rows: max_rows.max(1),
+            values: Vec::new(),
+            rows: 0,
+            keys: std::collections::HashSet::new(),
+            affected: 0,
+        }
+    }
+
+    /// Queue one row. `key` is the conflict key for `DO UPDATE` statements.
+    pub(crate) async fn push<C: ConnectionTrait>(
+        &mut self,
+        conn: &C,
+        key: Option<String>,
+        row: impl IntoIterator<Item = SeaValue>,
+    ) -> Result<(), sea_orm::DbErr> {
+        if let Some(key) = key {
+            if self.keys.contains(&key) {
+                self.flush(conn).await?;
+            }
+            self.keys.insert(key);
+        }
+        let before = self.values.len();
+        self.values.extend(row);
+        debug_assert_eq!(self.values.len() - before, self.columns);
+        self.rows += 1;
+        if self.rows >= self.max_rows {
+            self.flush(conn).await?;
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn flush<C: ConnectionTrait>(
+        &mut self,
+        conn: &C,
+    ) -> Result<(), sea_orm::DbErr> {
+        if self.rows == 0 {
+            return Ok(());
+        }
+        let mut sql = String::with_capacity(
+            self.head.len() + self.conflict.len() + self.rows * (self.columns * 8 + 8),
+        );
+        sql.push_str(self.head);
+        for row in 0..self.rows {
+            sql.push_str(if row == 0 { "(" } else { ", (" });
+            for column in 0..self.columns {
+                if column > 0 {
+                    sql.push_str(", ");
+                }
+                sql.push('$');
+                sql.push_str(&(row * self.columns + column + 1).to_string());
+            }
+            sql.push_str(self.row_tail);
+            sql.push(')');
+        }
+        sql.push_str(self.conflict);
+        let values = std::mem::take(&mut self.values);
+        self.rows = 0;
+        self.keys.clear();
+        let result = conn
+            .execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                sql,
+                values,
+            ))
+            .await?;
+        self.affected += result.rows_affected();
+        Ok(())
+    }
+
+    /// Rows inserted or updated so far (flush first).
+    pub(crate) fn affected(&self) -> u64 {
+        self.affected
+    }
+}
+
 pub async fn import_analytics(
     crate::extract::Db(db): crate::extract::Db,
     Json(body): Json<AnalyticsImportBody>,
@@ -1389,17 +1508,31 @@ TRUNCATE analytics_page_daily,
         }
     }
 
-    let mut inserted = json!({
-        "page_daily": 0u64,
-        "visitor_seen": 0u64,
-        "event_daily": 0u64,
-        "event_visitor": 0u64,
-        "referrer_daily": 0u64,
-        "country_daily": 0u64,
-        "country_visitor": 0u64,
-    });
     let mut skipped: u64 = 0;
 
+    // replace: write aggregates as given (UV fixed by recompute).
+    // merge: only add views + engagement_ms — never sum UV / engaged_views.
+    let mut page_daily = ImportBatch::new(
+        "INSERT INTO analytics_page_daily \
+         (day, path, views, unique_visitors, engagement_ms, engaged_views) VALUES ",
+        6,
+        "",
+        if replace {
+            r#"
+ON CONFLICT (day, path) DO UPDATE SET
+  views = EXCLUDED.views,
+  unique_visitors = EXCLUDED.unique_visitors,
+  engagement_ms = EXCLUDED.engagement_ms,
+  engaged_views = EXCLUDED.engaged_views
+"#
+        } else {
+            r#"
+ON CONFLICT (day, path) DO UPDATE SET
+  views = analytics_page_daily.views + EXCLUDED.views,
+  engagement_ms = analytics_page_daily.engagement_ms + EXCLUDED.engagement_ms
+"#
+        },
+    );
     for row in &body.page_daily {
         let Some(day) = row
             .get("day")
@@ -1431,31 +1564,11 @@ TRUNCATE analytics_page_daily,
             .filter(|&n| metric_ok(n))
             .unwrap_or(0);
 
-        // replace: write aggregates as given (UV fixed by recompute).
-        // merge: only add views + engagement_ms — never sum UV / engaged_views.
-        let sql = if replace {
-            r#"
-INSERT INTO analytics_page_daily (day, path, views, unique_visitors, engagement_ms, engaged_views)
-VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT (day, path) DO UPDATE SET
-  views = EXCLUDED.views,
-  unique_visitors = EXCLUDED.unique_visitors,
-  engagement_ms = EXCLUDED.engagement_ms,
-  engaged_views = EXCLUDED.engaged_views
-"#
-        } else {
-            r#"
-INSERT INTO analytics_page_daily (day, path, views, unique_visitors, engagement_ms, engaged_views)
-VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT (day, path) DO UPDATE SET
-  views = analytics_page_daily.views + EXCLUDED.views,
-  engagement_ms = analytics_page_daily.engagement_ms + EXCLUDED.engagement_ms
-"#
-        };
-        match txn
-            .execute_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                sql,
+        let key = format!("{day}\u{0}{path}");
+        let pushed = page_daily
+            .push(
+                &txn,
+                Some(key),
                 [
                     SeaValue::from(day),
                     SeaValue::from(path),
@@ -1464,18 +1577,22 @@ ON CONFLICT (day, path) DO UPDATE SET
                     SeaValue::from(eng),
                     SeaValue::from(eng_v),
                 ],
-            ))
-            .await
-        {
-            Ok(_) => {
-                if let Some(n) = inserted.get_mut("page_daily") {
-                    *n = json!(n.as_u64().unwrap_or(0) + 1);
-                }
-            }
-            Err(e) => import_db_err!(txn, e),
+            )
+            .await;
+        if let Err(e) = pushed {
+            import_db_err!(txn, e);
         }
     }
+    if let Err(e) = page_daily.flush(&txn).await {
+        import_db_err!(txn, e);
+    }
 
+    let mut visitor_seen = ImportBatch::new(
+        "INSERT INTO analytics_visitor_seen (day, path, visitor_hash, ordinal) VALUES ",
+        4,
+        "",
+        " ON CONFLICT (day, path, visitor_hash) DO NOTHING",
+    );
     for row in &body.visitor_seen {
         let Some(day) = row
             .get("day")
@@ -1502,35 +1619,45 @@ ON CONFLICT (day, path) DO UPDATE SET
         let ordinal = i64_nonneg(row.get("ordinal"))
             .filter(|&n| metric_ok(n))
             .unwrap_or(0);
-        match txn
-            .execute_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                r#"
-INSERT INTO analytics_visitor_seen (day, path, visitor_hash, ordinal)
-VALUES ($1, $2, $3, $4)
-ON CONFLICT (day, path, visitor_hash) DO NOTHING
-"#,
+        let pushed = visitor_seen
+            .push(
+                &txn,
+                None,
                 [
                     SeaValue::from(day),
                     SeaValue::from(path),
-                    SeaValue::from(hash.to_string()),
+                    SeaValue::from(hash),
                     // 老备份没有 ordinal 字段 → 0（序号未知），不影响其余统计
                     SeaValue::from(ordinal),
                 ],
-            ))
-            .await
-        {
-            Ok(res) => {
-                if res.rows_affected() > 0 {
-                    if let Some(n) = inserted.get_mut("visitor_seen") {
-                        *n = json!(n.as_u64().unwrap_or(0) + 1);
-                    }
-                }
-            }
-            Err(e) => import_db_err!(txn, e),
+            )
+            .await;
+        if let Err(e) = pushed {
+            import_db_err!(txn, e);
         }
     }
+    if let Err(e) = visitor_seen.flush(&txn).await {
+        import_db_err!(txn, e);
+    }
 
+    let mut event_daily = ImportBatch::new(
+        "INSERT INTO analytics_event_daily \
+         (day, event_name, path, target, count, unique_visitors) VALUES ",
+        6,
+        "",
+        if replace {
+            r#"
+ON CONFLICT (day, event_name, path, target) DO UPDATE SET
+  count = EXCLUDED.count,
+  unique_visitors = EXCLUDED.unique_visitors
+"#
+        } else {
+            r#"
+ON CONFLICT (day, event_name, path, target) DO UPDATE SET
+  count = analytics_event_daily.count + EXCLUDED.count
+"#
+        },
+    );
     for row in &body.event_daily {
         let Some(day) = row
             .get("day")
@@ -1563,26 +1690,11 @@ ON CONFLICT (day, path, visitor_hash) DO NOTHING
         let uv = i64_nonneg(row.get("unique_visitors"))
             .filter(|&n| metric_ok(n))
             .unwrap_or(0);
-        let sql = if replace {
-            r#"
-INSERT INTO analytics_event_daily (day, event_name, path, target, count, unique_visitors)
-VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT (day, event_name, path, target) DO UPDATE SET
-  count = EXCLUDED.count,
-  unique_visitors = EXCLUDED.unique_visitors
-"#
-        } else {
-            r#"
-INSERT INTO analytics_event_daily (day, event_name, path, target, count, unique_visitors)
-VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT (day, event_name, path, target) DO UPDATE SET
-  count = analytics_event_daily.count + EXCLUDED.count
-"#
-        };
-        match txn
-            .execute_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                sql,
+        let key = format!("{day}\u{0}{name}\u{0}{path}\u{0}{target}");
+        let pushed = event_daily
+            .push(
+                &txn,
+                Some(key),
                 [
                     SeaValue::from(day),
                     SeaValue::from(name),
@@ -1591,18 +1703,23 @@ ON CONFLICT (day, event_name, path, target) DO UPDATE SET
                     SeaValue::from(count),
                     SeaValue::from(uv),
                 ],
-            ))
-            .await
-        {
-            Ok(_) => {
-                if let Some(n) = inserted.get_mut("event_daily") {
-                    *n = json!(n.as_u64().unwrap_or(0) + 1);
-                }
-            }
-            Err(e) => import_db_err!(txn, e),
+            )
+            .await;
+        if let Err(e) = pushed {
+            import_db_err!(txn, e);
         }
     }
+    if let Err(e) = event_daily.flush(&txn).await {
+        import_db_err!(txn, e);
+    }
 
+    let mut event_visitor = ImportBatch::new(
+        "INSERT INTO analytics_event_visitor \
+         (day, event_name, path, target, visitor_hash) VALUES ",
+        5,
+        "",
+        " ON CONFLICT (day, event_name, path, target, visitor_hash) DO NOTHING",
+    );
     for row in &body.event_visitor {
         let Some(day) = row
             .get("day")
@@ -1636,35 +1753,40 @@ ON CONFLICT (day, event_name, path, target) DO UPDATE SET
             skipped += 1;
             continue;
         }
-        match txn
-            .execute_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                r#"
-INSERT INTO analytics_event_visitor (day, event_name, path, target, visitor_hash)
-VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (day, event_name, path, target, visitor_hash) DO NOTHING
-"#,
+        let pushed = event_visitor
+            .push(
+                &txn,
+                None,
                 [
                     SeaValue::from(day),
                     SeaValue::from(name),
                     SeaValue::from(path),
                     SeaValue::from(target),
-                    SeaValue::from(hash.to_string()),
+                    SeaValue::from(hash),
                 ],
-            ))
-            .await
-        {
-            Ok(res) => {
-                if res.rows_affected() > 0 {
-                    if let Some(n) = inserted.get_mut("event_visitor") {
-                        *n = json!(n.as_u64().unwrap_or(0) + 1);
-                    }
-                }
-            }
-            Err(e) => import_db_err!(txn, e),
+            )
+            .await;
+        if let Err(e) = pushed {
+            import_db_err!(txn, e);
         }
     }
+    if let Err(e) = event_visitor.flush(&txn).await {
+        import_db_err!(txn, e);
+    }
 
+    let mut referrer_daily = ImportBatch::new(
+        "INSERT INTO analytics_referrer_daily (day, host, count) VALUES ",
+        3,
+        "",
+        if replace {
+            " ON CONFLICT (day, host) DO UPDATE SET count = EXCLUDED.count"
+        } else {
+            r#"
+ON CONFLICT (day, host) DO UPDATE SET
+  count = analytics_referrer_daily.count + EXCLUDED.count
+"#
+        },
+    );
     for row in &body.referrer_daily {
         let Some(day) = row
             .get("day")
@@ -1684,41 +1806,52 @@ ON CONFLICT (day, event_name, path, target, visitor_hash) DO NOTHING
             skipped += 1;
             continue;
         };
-        let sql = if replace {
-            r#"
-INSERT INTO analytics_referrer_daily (day, host, count)
-VALUES ($1, $2, $3)
-ON CONFLICT (day, host) DO UPDATE SET count = EXCLUDED.count
-"#
-        } else {
-            r#"
-INSERT INTO analytics_referrer_daily (day, host, count)
-VALUES ($1, $2, $3)
-ON CONFLICT (day, host) DO UPDATE SET
-  count = analytics_referrer_daily.count + EXCLUDED.count
-"#
-        };
-        match txn
-            .execute_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                sql,
+        let key = format!("{day}\u{0}{host}");
+        let pushed = referrer_daily
+            .push(
+                &txn,
+                Some(key),
                 [
                     SeaValue::from(day),
                     SeaValue::from(host),
                     SeaValue::from(count),
                 ],
-            ))
-            .await
-        {
-            Ok(_) => {
-                if let Some(n) = inserted.get_mut("referrer_daily") {
-                    *n = json!(n.as_u64().unwrap_or(0) + 1);
-                }
-            }
-            Err(e) => import_db_err!(txn, e),
+            )
+            .await;
+        if let Err(e) = pushed {
+            import_db_err!(txn, e);
         }
     }
+    if let Err(e) = referrer_daily.flush(&txn).await {
+        import_db_err!(txn, e);
+    }
 
+    // unique_visitors will be recomputed from country_visitor
+    let mut country_daily = ImportBatch::new(
+        "INSERT INTO analytics_country_daily \
+         (day, country_code, country_name, views, unique_visitors) VALUES ",
+        4,
+        ", 0",
+        if replace {
+            r#"
+ON CONFLICT (day, country_code) DO UPDATE SET
+  views = EXCLUDED.views,
+  country_name = CASE
+    WHEN EXCLUDED.country_name <> '' THEN EXCLUDED.country_name
+    ELSE analytics_country_daily.country_name
+  END
+"#
+        } else {
+            r#"
+ON CONFLICT (day, country_code) DO UPDATE SET
+  views = analytics_country_daily.views + EXCLUDED.views,
+  country_name = CASE
+    WHEN EXCLUDED.country_name <> '' THEN EXCLUDED.country_name
+    ELSE analytics_country_daily.country_name
+  END
+"#
+        },
+    );
     for row in &body.country_daily {
         let Some(day) = row
             .get("day")
@@ -1746,52 +1879,33 @@ ON CONFLICT (day, host) DO UPDATE SET
             skipped += 1;
             continue;
         };
-        // unique_visitors will be recomputed from country_visitor
-        let sql = if replace {
-            r#"
-INSERT INTO analytics_country_daily (day, country_code, country_name, views, unique_visitors)
-VALUES ($1, $2, $3, $4, 0)
-ON CONFLICT (day, country_code) DO UPDATE SET
-  views = EXCLUDED.views,
-  country_name = CASE
-    WHEN EXCLUDED.country_name <> '' THEN EXCLUDED.country_name
-    ELSE analytics_country_daily.country_name
-  END
-"#
-        } else {
-            r#"
-INSERT INTO analytics_country_daily (day, country_code, country_name, views, unique_visitors)
-VALUES ($1, $2, $3, $4, 0)
-ON CONFLICT (day, country_code) DO UPDATE SET
-  views = analytics_country_daily.views + EXCLUDED.views,
-  country_name = CASE
-    WHEN EXCLUDED.country_name <> '' THEN EXCLUDED.country_name
-    ELSE analytics_country_daily.country_name
-  END
-"#
-        };
-        match txn
-            .execute_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                sql,
+        let key = format!("{day}\u{0}{code}");
+        let pushed = country_daily
+            .push(
+                &txn,
+                Some(key),
                 [
                     SeaValue::from(day),
                     SeaValue::from(code),
                     SeaValue::from(name),
                     SeaValue::from(views),
                 ],
-            ))
-            .await
-        {
-            Ok(_) => {
-                if let Some(n) = inserted.get_mut("country_daily") {
-                    *n = json!(n.as_u64().unwrap_or(0) + 1);
-                }
-            }
-            Err(e) => import_db_err!(txn, e),
+            )
+            .await;
+        if let Err(e) = pushed {
+            import_db_err!(txn, e);
         }
     }
+    if let Err(e) = country_daily.flush(&txn).await {
+        import_db_err!(txn, e);
+    }
 
+    let mut country_visitor = ImportBatch::new(
+        "INSERT INTO analytics_country_visitor (day, country_code, visitor_hash) VALUES ",
+        3,
+        "",
+        " ON CONFLICT (day, country_code, visitor_hash) DO NOTHING",
+    );
     for row in &body.country_visitor {
         let Some(day) = row
             .get("day")
@@ -1818,32 +1932,34 @@ ON CONFLICT (day, country_code) DO UPDATE SET
             skipped += 1;
             continue;
         }
-        match txn
-            .execute_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                r#"
-INSERT INTO analytics_country_visitor (day, country_code, visitor_hash)
-VALUES ($1, $2, $3)
-ON CONFLICT (day, country_code, visitor_hash) DO NOTHING
-"#,
+        let pushed = country_visitor
+            .push(
+                &txn,
+                None,
                 [
                     SeaValue::from(day),
                     SeaValue::from(code),
-                    SeaValue::from(hash.to_string()),
+                    SeaValue::from(hash),
                 ],
-            ))
-            .await
-        {
-            Ok(res) => {
-                if res.rows_affected() > 0 {
-                    if let Some(n) = inserted.get_mut("country_visitor") {
-                        *n = json!(n.as_u64().unwrap_or(0) + 1);
-                    }
-                }
-            }
-            Err(e) => import_db_err!(txn, e),
+            )
+            .await;
+        if let Err(e) = pushed {
+            import_db_err!(txn, e);
         }
     }
+    if let Err(e) = country_visitor.flush(&txn).await {
+        import_db_err!(txn, e);
+    }
+    // DO UPDATE tables count every applied row; DO NOTHING tables count new rows.
+    let inserted = json!({
+        "page_daily": page_daily.affected(),
+        "visitor_seen": visitor_seen.affected(),
+        "event_daily": event_daily.affected(),
+        "event_visitor": event_visitor.affected(),
+        "referrer_daily": referrer_daily.affected(),
+        "country_daily": country_daily.affected(),
+        "country_visitor": country_visitor.affected(),
+    });
 
     // Integrity-sealed restore is all-or-nothing. Prevalidate should have
     // rejected bad rows already; if any row was still soft-skipped during
