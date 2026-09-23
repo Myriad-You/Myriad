@@ -59,20 +59,25 @@ pub(crate) async fn import_opml(
     let new_sources: Vec<phantasi_sources::ActiveModel> = feeds
         .into_iter()
         .filter(|feed| !existing_urls.contains(&feed.url))
-        .map(|feed| phantasi_sources::ActiveModel {
-            user_id: Set(user_id),
-            name: Set(feed.title),
-            url: Set(feed.url),
-            feed_type: Set(phantasi_sources::FeedType::Rss),
-            category: Set(feed.category),
-            site_url: Set(feed.site_url),
-            enabled: Set(true),
-            error_count: Set(0),
-            item_count: Set(0),
-            update_interval: Set(30),
-            created_at: Set(now.into()),
-            updated_at: Set(now.into()),
-            ..Default::default()
+        .map(|feed| {
+            let mut source = phantasi_sources::ActiveModel {
+                user_id: Set(user_id),
+                name: Set(feed.title),
+                url: Set(feed.url),
+                feed_type: Set(phantasi_sources::FeedType::Rss),
+                category: Set(feed.category),
+                site_url: Set(feed.site_url),
+                enabled: Set(true),
+                error_count: Set(0),
+                item_count: Set(0),
+                update_interval: Set(30),
+                created_at: Set(now.into()),
+                updated_at: Set(now.into()),
+                ..Default::default()
+            };
+            // insert_many 不经过 before_save 钩子
+            source.sync_url_keys();
+            source
         })
         .collect();
 

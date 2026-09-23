@@ -2,6 +2,7 @@
 //!
 //! 存储 RSS/Atom 订阅源信息
 
+use sea_orm::ActiveValue;
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -69,6 +70,31 @@ pub struct Model {
     pub admin_only: bool,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
+    /// `url_match_key(url)`；由 ActiveModel 保存钩子维护，用于按规范化 URL 去重。
+    #[sea_orm(column_type = "Text", nullable)]
+    #[serde(skip_serializing, default)]
+    pub url_key: Option<String>,
+    /// `url_match_key(site_url)`；site_url 为空时为 NULL。
+    #[sea_orm(column_type = "Text", nullable)]
+    #[serde(skip_serializing, default)]
+    pub site_url_key: Option<String>,
+}
+
+/// 规范化 URL 比较键：小写 host、去 fragment、去尾部斜杠。无法解析时退化为
+/// 去尾斜杠 + 小写。`url_key` / `site_url_key` 列存的就是它的输出。
+pub fn url_match_key(url: &str) -> String {
+    let Ok(mut parsed) = url::Url::parse(url) else {
+        return url.trim_end_matches('/').to_ascii_lowercase();
+    };
+    if let Some(host) = parsed.host_str().map(|host| host.to_ascii_lowercase()) {
+        let _ = parsed.set_host(Some(&host));
+    }
+    parsed.set_fragment(None);
+    let mut key = parsed.to_string();
+    while key.ends_with('/') {
+        key.pop();
+    }
+    key
 }
 
 /// 订阅源类型
@@ -147,7 +173,37 @@ impl Related<super::phantasi_items::Entity> for Entity {
     }
 }
 
-impl ActiveModelBehavior for ActiveModel {}
+impl ActiveModel {
+    /// 让 `url_key` / `site_url_key` 与当前 url / site_url 一致。`insert`/`update`/`save`
+    /// 经 `before_save` 自动调用；绕过钩子的批量写（`insert_many`）必须手动调用。
+    pub fn sync_url_keys(&mut self) {
+        if let ActiveValue::Set(url) | ActiveValue::Unchanged(url) = &self.url {
+            let key = Some(url_match_key(url));
+            if !matches!(&self.url_key, ActiveValue::Set(k) | ActiveValue::Unchanged(k) if *k == key)
+            {
+                self.url_key = ActiveValue::Set(key);
+            }
+        }
+        if let ActiveValue::Set(site) | ActiveValue::Unchanged(site) = &self.site_url {
+            let key = site.as_deref().map(url_match_key);
+            if !matches!(&self.site_url_key, ActiveValue::Set(k) | ActiveValue::Unchanged(k) if *k == key)
+            {
+                self.site_url_key = ActiveValue::Set(key);
+            }
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl ActiveModelBehavior for ActiveModel {
+    async fn before_save<C>(mut self, _db: &C, _insert: bool) -> Result<Self, DbErr>
+    where
+        C: ConnectionTrait,
+    {
+        self.sync_url_keys();
+        Ok(self)
+    }
+}
 
 /// 更新订阅源的请求
 #[derive(Clone, Debug, Serialize, Deserialize)]

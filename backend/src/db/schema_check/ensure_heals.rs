@@ -1219,3 +1219,72 @@ pub(crate) async fn ensure_read_projection_schema(db: &DatabaseConnection) -> Re
         ALTER TABLE phantasi_sources DROP COLUMN IF EXISTS unread_count;").await?;
     Ok(())
 }
+
+/// Rows backfilled per `url_key` heal statement.
+const SOURCE_URL_KEY_BATCH: i64 = 500;
+
+/// Add the normalized source URL key columns/indexes on upgraded databases and
+/// backfill rows written before them. `url_match_key` is WHATWG normalization,
+/// so keys are computed in Rust and written back in bounded batches.
+pub(crate) async fn ensure_phantasi_source_url_keys(db: &DatabaseConnection) -> Result<(), DbErr> {
+    use sea_orm::{DatabaseBackend, Statement, Value as SeaValue};
+
+    db.execute_unprepared(
+        "ALTER TABLE phantasi_sources ADD COLUMN IF NOT EXISTS url_key TEXT;
+        ALTER TABLE phantasi_sources ADD COLUMN IF NOT EXISTS site_url_key TEXT;
+        CREATE INDEX IF NOT EXISTS idx_phantasi_sources_url_key ON phantasi_sources (url_key);
+        CREATE INDEX IF NOT EXISTS idx_phantasi_sources_site_url_key ON phantasi_sources (site_url_key);",
+    )
+    .await?;
+
+    let url_match_key = crate::models::entities::phantasi_sources::url_match_key;
+    let mut backfilled = 0usize;
+    loop {
+        let rows = db
+            .query_all_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT id, url, site_url FROM phantasi_sources \
+                 WHERE url_key IS NULL OR (site_url IS NOT NULL AND site_url_key IS NULL) \
+                 ORDER BY id LIMIT $1",
+                [SeaValue::from(SOURCE_URL_KEY_BATCH)],
+            ))
+            .await?;
+        if rows.is_empty() {
+            break;
+        }
+        let mut values: Vec<SeaValue> = Vec::with_capacity(rows.len() * 3);
+        let mut tuples = Vec::with_capacity(rows.len());
+        for (index, row) in rows.iter().enumerate() {
+            let id: i32 = row.try_get("", "id")?;
+            let url: String = row.try_get("", "url")?;
+            let site_url: Option<String> = row.try_get("", "site_url")?;
+            let base = index * 3;
+            tuples.push(format!(
+                "(${}::int, ${}::text, ${}::text)",
+                base + 1,
+                base + 2,
+                base + 3
+            ));
+            values.extend([
+                SeaValue::from(id),
+                SeaValue::from(url_match_key(&url)),
+                SeaValue::from(site_url.as_deref().map(url_match_key)),
+            ]);
+        }
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            format!(
+                "UPDATE phantasi_sources s SET url_key = v.url_key, site_url_key = v.site_url_key \
+                 FROM (VALUES {}) AS v(id, url_key, site_url_key) WHERE s.id = v.id",
+                tuples.join(", ")
+            ),
+            values,
+        ))
+        .await?;
+        backfilled += rows.len();
+    }
+    if backfilled > 0 {
+        tracing::info!("Backfilled normalized URL keys for {backfilled} phantasi source(s)");
+    }
+    Ok(())
+}

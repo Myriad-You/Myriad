@@ -125,6 +125,31 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(Expr::current_timestamp()),
                     )
+                    // 规范化 URL 比较键（url_match_key），由应用写入
+                    .col(ColumnDef::new(PhantasiSources::UrlKey).text())
+                    .col(ColumnDef::new(PhantasiSources::SiteUrlKey).text())
+                    .to_owned(),
+            )
+            .await?;
+
+        // 索引：按规范化 URL 去重查找
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_phantasi_sources_url_key")
+                    .table(PhantasiSources::Table)
+                    .col(PhantasiSources::UrlKey)
+                    .if_not_exists()
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_phantasi_sources_site_url_key")
+                    .table(PhantasiSources::Table)
+                    .col(PhantasiSources::SiteUrlKey)
+                    .if_not_exists()
                     .to_owned(),
             )
             .await?;
@@ -1155,6 +1180,8 @@ enum PhantasiSources {
     AdminOnly,
     CreatedAt,
     UpdatedAt,
+    UrlKey,
+    SiteUrlKey,
 }
 
 #[derive(DeriveIden)]

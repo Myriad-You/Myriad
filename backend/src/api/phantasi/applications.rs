@@ -7,7 +7,7 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseBackend,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, Condition, ConnectionTrait, DatabaseBackend,
     DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
     Statement, TransactionTrait,
 };
@@ -95,37 +95,23 @@ fn looks_like_email(raw: &str) -> bool {
         && !host.contains(' ')
 }
 
-fn url_matches_keys(url: &str, keys: &[String]) -> bool {
-    let key = url_match_key(url);
-    keys.iter().any(|candidate| *candidate == key)
-}
-
-/// Source URLs are written by many paths (manual add, OPML, discovery) and are
-/// not stored in `url_match_key` form, so the WHATWG normalization stays in Rust.
-/// Only `(id, url, site_url)` is scanned; the one matching row is then loaded.
+/// `url_key` / `site_url_key` hold `url_match_key` of every source URL (kept in
+/// sync by the entity save hook, backfilled by schema_check), so the lookup is
+/// one indexed query that only returns a matching row.
 async fn find_existing_source<C: ConnectionTrait>(
     db: &C,
     keys: &[String],
 ) -> Result<Option<phantasi_sources::Model>, HttpError> {
-    let candidates = phantasi_sources::Entity::find()
-        .select_only()
-        .column(phantasi_sources::Column::Id)
-        .column(phantasi_sources::Column::Url)
-        .column(phantasi_sources::Column::SiteUrl)
-        .into_tuple::<(i32, String, Option<String>)>()
-        .all(db)
-        .await
-        .map_err(|error| phantasi_store_http("find existing source", error))?;
-    let Some(id) = candidates.into_iter().find_map(|(id, url, site_url)| {
-        (url_matches_keys(&url, keys)
-            || site_url
-                .as_deref()
-                .is_some_and(|site| url_matches_keys(site, keys)))
-        .then_some(id)
-    }) else {
+    if keys.is_empty() {
         return Ok(None);
-    };
-    phantasi_sources::Entity::find_by_id(id)
+    }
+    phantasi_sources::Entity::find()
+        .filter(
+            Condition::any()
+                .add(phantasi_sources::Column::UrlKey.is_in(keys.iter().map(String::as_str)))
+                .add(phantasi_sources::Column::SiteUrlKey.is_in(keys.iter().map(String::as_str))),
+        )
+        .order_by_asc(phantasi_sources::Column::Id)
         .one(db)
         .await
         .map_err(|error| phantasi_store_http("find existing source", error))

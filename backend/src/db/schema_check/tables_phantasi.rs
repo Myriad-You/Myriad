@@ -197,6 +197,8 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     default_value: Some("CURRENT_TIMESTAMP".into()),
                     not_null: false,
                 },
+                ColumnDef::new("url_key", "text"),
+                ColumnDef::new("site_url_key", "text"),
             ],
         },
         TableDef {

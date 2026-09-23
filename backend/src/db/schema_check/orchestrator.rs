@@ -227,6 +227,7 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     // `inbox_scope` is NOT NULL without a default and belongs in the PK.
     ensure_federation_inbox_receipts_table(db).await?;
     ensure_read_projection_schema(db).await?;
+    ensure_phantasi_source_url_keys(db).await?;
 
     // 2/3. 比对期望列与索引（整表创建已不再由 schema_check 兜底）
     let drift = report_schema_drift(db).await?;

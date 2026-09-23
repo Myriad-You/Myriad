@@ -389,20 +389,7 @@ pub(crate) fn normalize_http_url(raw: &str) -> Result<Url, String> {
     Ok(parsed)
 }
 
-pub(crate) fn url_match_key(url: &str) -> String {
-    let Ok(mut parsed) = Url::parse(url) else {
-        return url.trim_end_matches('/').to_ascii_lowercase();
-    };
-    if let Some(host) = parsed.host_str().map(|host| host.to_ascii_lowercase()) {
-        let _ = parsed.set_host(Some(&host));
-    }
-    parsed.set_fragment(None);
-    let mut key = parsed.to_string();
-    while key.ends_with('/') {
-        key.pop();
-    }
-    key
-}
+pub(crate) use crate::models::entities::phantasi_sources::url_match_key;
 
 pub(crate) fn build_feed_discovery_candidates(raw_url: &str) -> Result<Vec<String>, String> {
     let trimmed = raw_url.trim();
@@ -555,6 +542,8 @@ mod tests {
             admin_only: false,
             created_at: now,
             updated_at: now,
+            url_key: Some(url_match_key(url)),
+            site_url_key: site_url.map(url_match_key),
         }
     }
 

@@ -298,6 +298,18 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             is_unique: true,
         },
         IndexDef {
+            name: "idx_phantasi_sources_url_key".into(),
+            table: "phantasi_sources".into(),
+            columns: vec!["url_key".into()],
+            is_unique: false,
+        },
+        IndexDef {
+            name: "idx_phantasi_sources_site_url_key".into(),
+            table: "phantasi_sources".into(),
+            columns: vec!["site_url_key".into()],
+            is_unique: false,
+        },
+        IndexDef {
             name: "idx_phantasi_sources_category".into(),
             table: "phantasi_sources".into(),
             columns: vec!["user_id".into(), "category".into()],
