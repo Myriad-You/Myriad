@@ -733,6 +733,204 @@ pub fn bangumi_label_to_library_type(label: &str, platform: Option<&str>) -> &'s
     }
 }
 
+/// Assemble library items from per-platform data. `take` hands over one
+/// platform's owned value (DB metadata map or raw cache object), so entries are
+/// moved into `LibraryItem.metadata` instead of cloned.
+pub fn assemble_library_items(mut take: impl FnMut(&str) -> Option<Value>) -> Vec<LibraryItem> {
+    let mut items = Vec::new();
+    if let Some(steam) = take("steam") {
+        append_steam_library_items(&mut items, steam);
+    }
+    if let Some(bilibili) = take("bilibili") {
+        append_bilibili_library_items(&mut items, bilibili);
+    }
+    if let Some(netease) = take("netease") {
+        append_netease_library_items(&mut items, netease);
+    }
+    if let Some(bangumi) = take("bangumi") {
+        append_bangumi_library_items(&mut items, &bangumi);
+    }
+    if let Some(mal) = take("mal") {
+        append_mal_library_items(&mut items, &mal);
+    }
+    items
+}
+
+/// Move an array field out of `value`; `None` when absent or not an array.
+fn take_array(value: &mut Value, key: &str) -> Option<Vec<Value>> {
+    match value.get_mut(key).map(Value::take) {
+        Some(Value::Array(items)) => Some(items),
+        _ => None,
+    }
+}
+
+fn append_steam_library_items(library_items: &mut Vec<LibraryItem>, mut steam: Value) {
+    let Some(games) = take_array(&mut steam, "games") else {
+        return;
+    };
+    let total = games.len();
+    for game in games {
+        let (Some(appid), Some(name)) = (
+            game.get("appid").and_then(|a| a.as_i64()),
+            game.get("name").and_then(|n| n.as_str()).map(str::to_string),
+        ) else {
+            continue;
+        };
+        library_items.push(LibraryItem {
+            id: format!("steam_game_{}", appid),
+            item_type: "game".to_string(),
+            title: name,
+            cover: Some(format!(
+                "https://cdn.cloudflare.steamstatic.com/steam/apps/{}/header.jpg",
+                appid
+            )),
+            platform: "Steam".to_string(),
+            metadata: game,
+        });
+    }
+    tracing::info!("✓ Loaded {} Steam games", total);
+}
+
+/// Bilibili 追番/追剧与收藏夹视频。
+fn append_bilibili_library_items(library_items: &mut Vec<LibraryItem>, mut bilibili: Value) {
+    if let Some(bangumi) = take_array(&mut bilibili, "bangumi") {
+        let total = bangumi.len();
+        for mut item in bangumi {
+            let (Some(season_id), Some(title), Some(cover)) = (
+                item.get("season_id").and_then(|s| s.as_i64()),
+                item.get("title").and_then(|t| t.as_str()).map(str::to_string),
+                item.get("cover").and_then(|c| c.as_str()).map(proxy_image_url),
+            ) else {
+                continue;
+            };
+            // 根据season_type判断类型
+            // 1=番剧(动画), 2=电视剧, 3=纪录片, 4=国创, 5=电影
+            let season_type = item
+                .get("season_type")
+                .and_then(|s| s.as_i64())
+                .unwrap_or(1);
+            let item_type = match season_type {
+                1 | 4 => "anime", // 番剧和国创归类为anime
+                2 => "tv_series", // 电视剧
+                3 | 5 => "video", // 纪录片和电影保持为video
+                _ => "anime",     // 默认为anime
+            };
+            if let Some(obj) = item.as_object_mut() {
+                obj.insert(
+                    "url".to_string(),
+                    json!(format!(
+                        "https://www.bilibili.com/bangumi/play/ss{}",
+                        season_id
+                    )),
+                );
+            }
+            library_items.push(LibraryItem {
+                id: format!("bilibili_bangumi_{}", season_id),
+                item_type: item_type.to_string(),
+                title,
+                cover: Some(cover),
+                platform: "Bilibili".to_string(),
+                metadata: item,
+            });
+        }
+        tracing::info!("✓ Loaded {} Bilibili bangumi", total);
+    }
+
+    if let Some(favorites) = take_array(&mut bilibili, "favorites") {
+        let folders = favorites.len();
+        for mut folder in favorites {
+            let Some(videos) = take_array(&mut folder, "videos") else {
+                continue;
+            };
+            for mut video in videos {
+                let (Some(bvid), Some(title), Some(cover)) = (
+                    video.get("bvid").and_then(|b| b.as_str()).map(str::to_string),
+                    video.get("title").and_then(|t| t.as_str()).map(str::to_string),
+                    video.get("cover").and_then(|c| c.as_str()).map(proxy_image_url),
+                ) else {
+                    continue;
+                };
+                if let Some(obj) = video.as_object_mut() {
+                    obj.insert(
+                        "url".to_string(),
+                        json!(format!("https://www.bilibili.com/video/{}", bvid)),
+                    );
+                }
+                library_items.push(LibraryItem {
+                    id: format!("bilibili_video_{}", bvid),
+                    item_type: "video".to_string(),
+                    title,
+                    cover: Some(cover),
+                    platform: "Bilibili".to_string(),
+                    metadata: video,
+                });
+            }
+        }
+        tracing::info!("✓ Loaded {} Bilibili favorite folders", folders);
+    }
+}
+
+/// 网易云 liked_songs；按歌曲 ID 去重，防止分片合并时产生重复歌曲。
+fn append_netease_library_items(library_items: &mut Vec<LibraryItem>, mut netease: Value) {
+    let Some(songs) = take_array(&mut netease, "liked_songs") else {
+        return;
+    };
+    let total = songs.len();
+    let mut seen_song_ids = HashSet::new();
+    let mut added_count = 0;
+    for mut song in songs {
+        let (Some(id), Some(name)) = (
+            song.get("id").and_then(|i| i.as_i64()),
+            song.get("name").and_then(|n| n.as_str()).map(str::to_string),
+        ) else {
+            continue;
+        };
+        if !seen_song_ids.insert(id) {
+            continue;
+        }
+        // 提取封面 - 支持多种字段格式，并通过代理
+        let cover = song
+            .get("al")
+            .or_else(|| song.get("album"))
+            .and_then(|al| {
+                al.get("picUrl")
+                    .or_else(|| al.get("pic_url"))
+                    .or_else(|| al.get("cover"))
+            })
+            .and_then(|p| p.as_str())
+            .map(proxy_image_url);
+        // 规范化metadata确保包含所有必要字段
+        if let Some(obj) = song.as_object_mut() {
+            // 确保有ar字段（艺术家数组）
+            if !obj.contains_key("ar") && !obj.contains_key("artists") {
+                obj.insert("ar".to_string(), json!([]));
+            }
+            // 确保有al字段（专辑信息）
+            if !obj.contains_key("al") && !obj.contains_key("album") {
+                obj.insert("al".to_string(), json!({"name": ""}));
+            }
+            // 确保有dt字段（时长毫秒）
+            if !obj.contains_key("dt") && !obj.contains_key("duration") {
+                obj.insert("dt".to_string(), json!(0));
+            }
+        }
+        library_items.push(LibraryItem {
+            id: format!("netease_song_{}", id),
+            item_type: "music".to_string(),
+            title: name,
+            cover,
+            platform: "Netease".to_string(),
+            metadata: song,
+        });
+        added_count += 1;
+    }
+    tracing::info!(
+        "✓ Loaded {} Netease songs (deduplicated from {})",
+        added_count,
+        total
+    );
+}
+
 pub fn append_bangumi_library_items(library_items: &mut Vec<LibraryItem>, bangumi_data: &Value) {
     let Some(collections) = bangumi_data.get("collections").and_then(|c| c.as_array()) else {
         return;
@@ -929,6 +1127,61 @@ pub fn append_mal_library_items(library_items: &mut Vec<LibraryItem>, mal_data: 
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn db_and_raw_sources_assemble_identically() {
+        let data = json!({
+            "steam": { "games": [{ "appid": 10, "name": "Game" }, { "appid": 11 }] },
+            "bilibili": {
+                "bangumi": [{ "season_id": 5, "title": "Show", "cover": "https://i0.hdslb.com/a.jpg", "season_type": 2 }],
+                "favorites": [{ "videos": [{ "bvid": "BV1", "title": "Clip", "cover": "https://i0.hdslb.com/b.jpg" }] }]
+            },
+            "netease": { "liked_songs": [
+                { "id": 1, "name": "Song", "al": { "picUrl": "https://p1.music.126.net/c.jpg" } },
+                { "id": 1, "name": "Song again" },
+                { "id": 2, "name": "Bare" }
+            ] },
+            "github": { "repos": [] }
+        });
+        let mut map: HashMap<String, Value> = data
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
+        let from_db = assemble_library_items(|platform| map.remove(platform));
+        let mut raw = data;
+        let from_raw =
+            assemble_library_items(|platform| raw.as_object_mut().and_then(|d| d.remove(platform)));
+        let shape = |items: &[LibraryItem]| {
+            items
+                .iter()
+                .map(|item| serde_json::to_value(item).unwrap())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(shape(&from_db), shape(&from_raw));
+        let ids: Vec<&str> = from_db.iter().map(|item| item.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [
+                "steam_game_10",
+                "bilibili_bangumi_5",
+                "bilibili_video_BV1",
+                "netease_song_1",
+                "netease_song_2"
+            ]
+        );
+        assert_eq!(from_db[1].item_type, "tv_series");
+        assert_eq!(
+            from_db[1].metadata["url"],
+            json!("https://www.bilibili.com/bangumi/play/ss5")
+        );
+        assert_eq!(from_db[3].title, "Song");
+        assert!(from_db[3].cover.is_some());
+        assert_eq!(from_db[4].metadata["ar"], json!([]));
+        assert_eq!(from_db[4].metadata["dt"], json!(0));
+        assert!(assemble_library_items(|_| None).is_empty());
+    }
 
     #[test]
     fn canonical_platform_aliases() {

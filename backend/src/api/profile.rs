@@ -514,10 +514,11 @@ pub async fn delete_platform_cache(
 // Media URL rewrite (pure) — implementation in services so schedulers/export can share it.
 pub use crate::services::image_proxy_urls::{normalize_json_media_urls, proxy_image_url};
 
-// library_items：分页/组装缓存；DB 与 Steam/Bili/Netease 组装仍在本文件。
+// library_items：分页/组装缓存与平台条目组装（DB 与 raw 缓存共用）。
 pub use crate::services::library_items::{
     CachedLibraryItems, LIBRARY_SOURCE_PREFERENCES_KEY, LibraryItem, LibrarySourcePreferences,
-    append_bangumi_library_items, append_mal_library_items, cached_library_items,
+    append_bangumi_library_items, append_mal_library_items, assemble_library_items,
+    cached_library_items,
     collect_library_source_options, count_library_items_by_type, invalidate_library_assembly_cache,
     paginate_library_items, store_library_items,
 };
@@ -728,405 +729,35 @@ pub async fn get_library_data(
     // 创建元数据服务
     let metadata_service = crate::services::metadata_service::MetadataService::new(db.clone());
 
-    let mut library_items: Vec<LibraryItem> = Vec::new();
-
-    // 1. 优先从数据库获取数据
-    match metadata_service.get_all_latest_metadata(user_id).await {
-        Ok(db_data) if !db_data.is_empty() => {
+    // 1. 优先从数据库获取数据；DB 与 raw 缓存只负责提供数据，组装共用一份实现。
+    let mut library_items = match metadata_service.get_all_latest_metadata(user_id).await {
+        Ok(mut db_data) if !db_data.is_empty() => {
             tracing::info!("📊 Loading library data from database");
-
-            // 处理 Steam 游戏数据
-            if let Some(steam_data) = db_data.get("steam") {
-                if let Some(games) = steam_data.get("games").and_then(|g| g.as_array()) {
-                    for game in games {
-                        if let (Some(appid), Some(name)) = (
-                            game.get("appid").and_then(|a| a.as_i64()),
-                            game.get("name").and_then(|n| n.as_str()),
-                        ) {
-                            library_items.push(LibraryItem {
-                                id: format!("steam_game_{}", appid),
-                                item_type: "game".to_string(),
-                                title: name.to_string(),
-                                cover: Some(format!(
-                                    "https://cdn.cloudflare.steamstatic.com/steam/apps/{}/header.jpg",
-                                    appid
-                                )),
-                                platform: "Steam".to_string(),
-                                metadata: game.clone(),
-                            });
-                        }
-                    }
-                    tracing::info!("✓ Loaded {} Steam games", games.len());
-                }
-            }
-
-            // 处理 Bilibili 视频数据（追番/追剧）
-            if let Some(bilibili_data) = db_data.get("bilibili") {
-                if let Some(bangumi) = bilibili_data.get("bangumi").and_then(|b| b.as_array()) {
-                    tracing::info!("📺 Processing {} bangumi items", bangumi.len());
-                    for item in bangumi {
-                        tracing::debug!("Bangumi item: {:?}", item);
-                        if let (Some(season_id), Some(title), Some(cover)) = (
-                            item.get("season_id").and_then(|s| s.as_i64()),
-                            item.get("title").and_then(|t| t.as_str()),
-                            item.get("cover").and_then(|c| c.as_str()),
-                        ) {
-                            // 根据season_type判断类型
-                            // 1=番剧(动画), 2=电视剧, 3=纪录片, 4=国创, 5=电影
-                            let season_type = item
-                                .get("season_type")
-                                .and_then(|s| s.as_i64())
-                                .unwrap_or(1);
-                            let item_type = match season_type {
-                                1 | 4 => "anime", // 番剧和国创归类为anime
-                                2 => "tv_series", // 电视剧
-                                3 | 5 => "video", // 纪录片和电影保持为video
-                                _ => "anime",     // 默认为anime
-                            };
-
-                            // 创建包含链接信息的metadata
-                            let mut metadata = item.clone();
-                            if let Some(obj) = metadata.as_object_mut() {
-                                obj.insert(
-                                    "url".to_string(),
-                                    json!(format!(
-                                        "https://www.bilibili.com/bangumi/play/ss{}",
-                                        season_id
-                                    )),
-                                );
-                            }
-
-                            library_items.push(LibraryItem {
-                                id: format!("bilibili_bangumi_{}", season_id),
-                                item_type: item_type.to_string(),
-                                title: title.to_string(),
-                                cover: Some(proxy_image_url(cover)),
-                                platform: "Bilibili".to_string(),
-                                metadata,
-                            });
-                        }
-                    }
-                    tracing::info!("✓ Loaded {} Bilibili bangumi", bangumi.len());
-                }
-
-                // 处理收藏的视频
-                if let Some(favorites) = bilibili_data.get("favorites").and_then(|f| f.as_array()) {
-                    tracing::info!("📁 Processing {} favorite folders", favorites.len());
-                    for fav_folder in favorites {
-                        if let Some(videos) = fav_folder.get("videos").and_then(|v| v.as_array()) {
-                            tracing::info!("📹 Processing {} videos in folder", videos.len());
-                            for video in videos {
-                                if let (Some(bvid), Some(title), Some(cover)) = (
-                                    video.get("bvid").and_then(|b| b.as_str()),
-                                    video.get("title").and_then(|t| t.as_str()),
-                                    video.get("cover").and_then(|c| c.as_str()),
-                                ) {
-                                    // 创建包含链接信息的metadata
-                                    let mut metadata = video.clone();
-                                    if let Some(obj) = metadata.as_object_mut() {
-                                        obj.insert(
-                                            "url".to_string(),
-                                            json!(format!(
-                                                "https://www.bilibili.com/video/{}",
-                                                bvid
-                                            )),
-                                        );
-                                    }
-
-                                    library_items.push(LibraryItem {
-                                        id: format!("bilibili_video_{}", bvid),
-                                        item_type: "video".to_string(),
-                                        title: title.to_string(),
-                                        cover: Some(proxy_image_url(cover)),
-                                        platform: "Bilibili".to_string(),
-                                        metadata,
-                                    });
-                                }
-                            }
-                        }
-                    }
-                    tracing::info!("✓ Loaded {} Bilibili favorite videos", favorites.len());
-                }
-            }
-
-            // 处理网易云 liked_songs。
-            if let Some(netease_data) = db_data.get("netease") {
-                // 直接从 liked_songs 读取完整数据
-                let songs_vec: Vec<Value> = netease_data
-                    .get("liked_songs")
-                    .and_then(|s| s.as_array())
-                    .cloned()
-                    .unwrap_or_default();
-
-                tracing::info!(
-                    "🎵 Processing {} netease songs for library",
-                    songs_vec.len()
-                );
-
-                // 使用 HashSet 去重，防止分片合并时产生重复歌曲
-                let mut seen_song_ids = std::collections::HashSet::new();
-                let mut added_count = 0;
-
-                for song in &songs_vec {
-                    if let (Some(id), Some(name)) = (
-                        song.get("id").and_then(|i| i.as_i64()),
-                        song.get("name").and_then(|n| n.as_str()),
-                    ) {
-                        // 跳过已处理的歌曲ID
-                        if !seen_song_ids.insert(id) {
-                            continue;
-                        }
-
-                        // 提取封面 - 支持多种字段格式，并通过代理
-                        let cover = song
-                            .get("al")
-                            .or_else(|| song.get("album"))
-                            .and_then(|al| {
-                                al.get("picUrl")
-                                    .or_else(|| al.get("pic_url"))
-                                    .or_else(|| al.get("cover"))
-                            })
-                            .and_then(|p| p.as_str())
-                            .map(proxy_image_url);
-
-                        // 规范化metadata确保包含所有必要字段
-                        let mut normalized_metadata = song.clone();
-                        if let Some(obj) = normalized_metadata.as_object_mut() {
-                            // 确保有ar字段（艺术家数组）
-                            if !obj.contains_key("ar") && !obj.contains_key("artists") {
-                                obj.insert("ar".to_string(), json!([]));
-                            }
-                            // 确保有al字段（专辑信息）
-                            if !obj.contains_key("al") && !obj.contains_key("album") {
-                                obj.insert("al".to_string(), json!({"name": ""}));
-                            }
-                            // 确保有dt字段（时长毫秒）
-                            if !obj.contains_key("dt") && !obj.contains_key("duration") {
-                                obj.insert("dt".to_string(), json!(0));
-                            }
-                        }
-
-                        library_items.push(LibraryItem {
-                            id: format!("netease_song_{}", id),
-                            item_type: "music".to_string(),
-                            title: name.to_string(),
-                            cover,
-                            platform: "Netease".to_string(),
-                            metadata: normalized_metadata,
-                        });
-                        added_count += 1;
-                    }
-                }
-                tracing::info!(
-                    "✓ Loaded {} Netease songs (deduplicated from {})",
-                    added_count,
-                    songs_vec.len()
-                );
-            }
-
-            if let Some(bangumi_data) = db_data.get("bangumi") {
-                append_bangumi_library_items(&mut library_items, bangumi_data);
-            }
-
-            if let Some(mal_data) = db_data.get("mal") {
-                append_mal_library_items(&mut library_items, mal_data);
-            }
+            assemble_library_items(|platform| db_data.remove(platform))
         }
         Ok(_) => {
             tracing::info!("📊 Database is empty, falling back to cache");
+            Vec::new()
         }
         Err(e) => {
             tracing::warn!(
                 "Failed to fetch from database: {}, falling back to cache",
                 e
             );
+            Vec::new()
         }
-    }
+    };
 
-    // 2. 如果数据库没有数据，从缓存获取
+    // 2. 数据库没有可展示条目（包括只有非资料库平台的数据）时，从缓存获取
     if library_items.is_empty() {
-        if let Some(cache) = load_platform_data_cache() {
+        if let Some(mut cache) = load_platform_data_cache() {
             tracing::info!("📦 Loading library data from cache file");
-            let data = &cache.data;
-
-            // 处理 Steam 游戏
-            if let Some(games) = data
-                .get("steam")
-                .and_then(|s| s.get("games"))
-                .and_then(|g| g.as_array())
-            {
-                for game in games {
-                    if let (Some(appid), Some(name)) = (
-                        game.get("appid").and_then(|a| a.as_i64()),
-                        game.get("name").and_then(|n| n.as_str()),
-                    ) {
-                        library_items.push(LibraryItem {
-                            id: format!("steam_game_{}", appid),
-                            item_type: "game".to_string(),
-                            title: name.to_string(),
-                            cover: Some(format!(
-                                "https://cdn.cloudflare.steamstatic.com/steam/apps/{}/header.jpg",
-                                appid
-                            )),
-                            platform: "Steam".to_string(),
-                            metadata: game.clone(),
-                        });
-                    }
-                }
-            }
-
-            // 处理 Bilibili 番剧
-            if let Some(bangumi) = data
-                .get("bilibili")
-                .and_then(|b| b.get("bangumi"))
-                .and_then(|b| b.as_array())
-            {
-                for item in bangumi {
-                    if let (Some(season_id), Some(title), Some(cover)) = (
-                        item.get("season_id").and_then(|s| s.as_i64()),
-                        item.get("title").and_then(|t| t.as_str()),
-                        item.get("cover").and_then(|c| c.as_str()),
-                    ) {
-                        // 根据season_type判断类型
-                        let season_type = item
-                            .get("season_type")
-                            .and_then(|s| s.as_i64())
-                            .unwrap_or(1);
-                        let item_type = match season_type {
-                            1 | 4 => "anime",
-                            2 => "tv_series",
-                            3 | 5 => "video",
-                            _ => "anime",
-                        };
-
-                        // 创建包含链接信息的metadata
-                        let mut metadata = item.clone();
-                        if let Some(obj) = metadata.as_object_mut() {
-                            obj.insert(
-                                "url".to_string(),
-                                json!(format!(
-                                    "https://www.bilibili.com/bangumi/play/ss{}",
-                                    season_id
-                                )),
-                            );
-                        }
-
-                        library_items.push(LibraryItem {
-                            id: format!("bilibili_bangumi_{}", season_id),
-                            item_type: item_type.to_string(),
-                            title: title.to_string(),
-                            cover: Some(proxy_image_url(cover)),
-                            platform: "Bilibili".to_string(),
-                            metadata,
-                        });
-                    }
-                }
-            }
-
-            // 处理 Bilibili 收藏
-            if let Some(favorites) = data
-                .get("bilibili")
-                .and_then(|b| b.get("favorites"))
-                .and_then(|f| f.as_array())
-            {
-                for fav_folder in favorites {
-                    if let Some(videos) = fav_folder.get("videos").and_then(|v| v.as_array()) {
-                        for video in videos {
-                            if let (Some(bvid), Some(title), Some(cover)) = (
-                                video.get("bvid").and_then(|b| b.as_str()),
-                                video.get("title").and_then(|t| t.as_str()),
-                                video.get("cover").and_then(|c| c.as_str()),
-                            ) {
-                                // 创建包含链接信息的metadata
-                                let mut metadata = video.clone();
-                                if let Some(obj) = metadata.as_object_mut() {
-                                    obj.insert(
-                                        "url".to_string(),
-                                        json!(format!("https://www.bilibili.com/video/{}", bvid)),
-                                    );
-                                }
-
-                                library_items.push(LibraryItem {
-                                    id: format!("bilibili_video_{}", bvid),
-                                    item_type: "video".to_string(),
-                                    title: title.to_string(),
-                                    cover: Some(proxy_image_url(cover)),
-                                    platform: "Bilibili".to_string(),
-                                    metadata,
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 处理网易云音乐
-            if let Some(songs) = data
-                .get("netease")
-                .and_then(|n| n.get("liked_songs"))
-                .and_then(|s| s.as_array())
-            {
-                // 使用 HashSet 去重
-                let mut seen_song_ids = std::collections::HashSet::new();
-
-                for song in songs {
-                    if let (Some(id), Some(name)) = (
-                        song.get("id").and_then(|i| i.as_i64()),
-                        song.get("name").and_then(|n| n.as_str()),
-                    ) {
-                        // 跳过已处理的歌曲ID
-                        if !seen_song_ids.insert(id) {
-                            continue;
-                        }
-
-                        // 提取封面 - 支持多种字段格式，并通过代理
-                        let cover = song
-                            .get("al")
-                            .or_else(|| song.get("album"))
-                            .and_then(|al| {
-                                al.get("picUrl")
-                                    .or_else(|| al.get("pic_url"))
-                                    .or_else(|| al.get("cover"))
-                            })
-                            .and_then(|p| p.as_str())
-                            .map(proxy_image_url);
-
-                        // 规范化metadata确保包含所有必要字段
-                        let mut normalized_metadata = song.clone();
-                        if let Some(obj) = normalized_metadata.as_object_mut() {
-                            // 确保有ar字段（艺术家数组）
-                            if !obj.contains_key("ar") && !obj.contains_key("artists") {
-                                obj.insert("ar".to_string(), json!([]));
-                            }
-                            // 确保有al字段（专辑信息）
-                            if !obj.contains_key("al") && !obj.contains_key("album") {
-                                obj.insert("al".to_string(), json!({"name": ""}));
-                            }
-                            // 确保有dt字段（时长毫秒）
-                            if !obj.contains_key("dt") && !obj.contains_key("duration") {
-                                obj.insert("dt".to_string(), json!(0));
-                            }
-                        }
-
-                        library_items.push(LibraryItem {
-                            id: format!("netease_song_{}", id),
-                            item_type: "music".to_string(),
-                            title: name.to_string(),
-                            cover,
-                            platform: "Netease".to_string(),
-                            metadata: normalized_metadata,
-                        });
-                    }
-                }
-            }
-
-            if let Some(bangumi_data) = data.get("bangumi") {
-                append_bangumi_library_items(&mut library_items, bangumi_data);
-            }
-
-            if let Some(mal_data) = data.get("mal") {
-                append_mal_library_items(&mut library_items, mal_data);
-            }
+            library_items = assemble_library_items(|platform| {
+                cache
+                    .data
+                    .as_object_mut()
+                    .and_then(|data| data.remove(platform))
+            });
         }
     }
 
