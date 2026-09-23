@@ -138,7 +138,8 @@ fn validate_image(bytes: &[u8], mime: &str) -> Result<(), HttpError> {
             "Image must be at most 10 MB",
         )));
     }
-    ImageReference::new(bytes.to_vec(), mime)
+    image_generation::validate_media_type(mime)
+        .and_then(|()| image_generation::validate_magic(bytes, mime))
         .map_err(|_| HttpError(AppError::bad_request("Invalid image")))?;
     let reader = image::ImageReader::new(std::io::Cursor::new(bytes))
         .with_guessed_format()
@@ -195,9 +196,12 @@ async fn read_reference(asset: &media_assets::Model) -> Result<ImageReference, H
             .map_err(|_| HttpError(AppError::bad_request("Source image is unavailable")))?
             .0
     };
+    // validate_image already ran the MIME + magic checks ImageReference::new performs.
     validate_image(&bytes, &asset.mime)?;
-    ImageReference::new(bytes, &asset.mime)
-        .map_err(|_| HttpError(AppError::bad_request("Invalid reference image")))
+    Ok(ImageReference {
+        bytes: bytes.into(),
+        media_type: asset.mime.clone(),
+    })
 }
 
 pub async fn preview_edit(

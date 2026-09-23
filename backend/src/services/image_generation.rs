@@ -1182,7 +1182,7 @@ fn size_from_value(value: &Value) -> Option<(u32, u32)> {
         .and_then(|(width, height)| Some((width.parse().ok()?, height.parse().ok()?)))
 }
 
-fn validate_media_type(media_type: &str) -> Result<(), ImageGenerationError> {
+pub(crate) fn validate_media_type(media_type: &str) -> Result<(), ImageGenerationError> {
     if matches!(media_type, "image/png" | "image/jpeg" | "image/webp") {
         Ok(())
     } else {
@@ -1192,7 +1192,7 @@ fn validate_media_type(media_type: &str) -> Result<(), ImageGenerationError> {
     }
 }
 
-fn validate_magic(bytes: &[u8], media_type: &str) -> Result<(), ImageGenerationError> {
+pub(crate) fn validate_magic(bytes: &[u8], media_type: &str) -> Result<(), ImageGenerationError> {
     let valid = match media_type {
         "image/png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
         "image/jpeg" => bytes.starts_with(&[0xff, 0xd8, 0xff]),
