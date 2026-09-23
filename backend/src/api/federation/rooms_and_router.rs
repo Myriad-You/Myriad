@@ -138,8 +138,6 @@ async fn federation_download_transfer(
 ) -> Response {
     use axum::body::Body;
     use axum::http::header::{CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE, HeaderValue};
-    use tokio::io::AsyncReadExt;
-    use tokio_stream::wrappers::ReceiverStream;
 
     let user_id = match require_user_id(&claims) {
         Ok(id) => id,
@@ -180,27 +178,8 @@ async fn federation_download_transfer(
         ascii_name, encoded
     );
 
-    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::io::Error>>(4);
-    let mut disk = file.file;
-    tokio::spawn(async move {
-        let mut buf = vec![0u8; 64 * 1024];
-        loop {
-            match disk.read(&mut buf).await {
-                Ok(0) => break,
-                Ok(n) => {
-                    if tx.send(Ok(buf[..n].to_vec())).await.is_err() {
-                        break;
-                    }
-                }
-                Err(e) => {
-                    let _ = tx.send(Err(e)).await;
-                    break;
-                }
-            }
-        }
-    });
-
-    let body = Body::from_stream(ReceiverStream::new(rx));
+    // Read errors mid-stream surface as body stream errors, not a silent EOF.
+    let body = Body::from_stream(tokio_util::io::ReaderStream::new(file.file));
     let mut res = Response::new(body);
     *res.status_mut() = StatusCode::OK;
     let headers = res.headers_mut();
