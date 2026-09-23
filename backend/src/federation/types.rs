@@ -1570,4 +1570,77 @@ mod tests {
         let other = sea_orm::DbErr::Custom("connection reset".into());
         assert!(!is_unique_violation(&other));
     }
+
+    /// One ordered query: first *existing* local user wins, remote / malformed
+    /// candidates are skipped, no local candidate means no query, DB errors surface.
+    #[tokio::test]
+    async fn first_local_recipient_against_real_schema() {
+        use sea_orm::ConnectionTrait;
+        let Some(fixture) = crate::federation::test_db::SchemaDb::new().await else {
+            return;
+        };
+        let db = &fixture.db;
+        let base = "https://local.test";
+        db.execute_unprepared("INSERT INTO users (username) VALUES ('alice'), ('bob')")
+            .await
+            .unwrap();
+        let id_of = |name: &'static str| async move {
+            db.query_one_raw(sea_orm::Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT id FROM users WHERE username = $1",
+                [name.into()],
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get::<i32>("", "id")
+            .unwrap()
+        };
+        let (alice, bob) = (id_of("alice").await, id_of("bob").await);
+
+        let to = [
+            "https://www.w3.org/ns/activitystreams#Public",
+            "https://remote.example/users/bob",
+            "https://local.test/users/ghost",
+            "https://local.test/users/bob",
+            "https://local.test/users/alice",
+        ];
+        assert_eq!(
+            first_local_recipient(db, base, to).await.unwrap(),
+            Some((bob, "bob".to_string()))
+        );
+        assert_eq!(
+            first_local_recipient(db, base, ["https://local.test/users/alice/"])
+                .await
+                .unwrap(),
+            Some((alice, "alice".to_string()))
+        );
+        assert_eq!(
+            first_local_recipient(db, base, ["https://local.test/users/ghost"])
+                .await
+                .unwrap(),
+            None
+        );
+
+        db.execute_unprepared("ALTER TABLE users RENAME TO users_gone")
+            .await
+            .unwrap();
+        assert_eq!(
+            first_local_recipient(db, base, ["https://remote.example/users/x"])
+                .await
+                .unwrap(),
+            None,
+            "no local candidate → no query"
+        );
+        assert!(
+            first_local_recipient(db, base, ["https://local.test/users/alice"])
+                .await
+                .is_err(),
+            "DB error must not read as 'recipient missing'"
+        );
+        db.execute_unprepared("ALTER TABLE users_gone RENAME TO users")
+            .await
+            .unwrap();
+        fixture.close().await;
+    }
 }

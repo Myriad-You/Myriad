@@ -44,13 +44,13 @@ pub async fn handle_room_invite(
     // 查找本地接收者（从 "to" 字段推断）
     //
     // 收件人必须是**本实例**的 Actor URL（`local_username_from_actor_url`），不能取任意 URL 的最后一段当用户名。
-    let to = activity
-        .get("to")
-        .and_then(|v| v.as_array())
-        .into_iter()
-        .flatten()
-        .filter_map(|v| v.as_str());
-    let recipient = first_local_recipient(db, &base_url_val, to)
+    // ActivityStreams allows `to` as a single IRI or an array (same as ChannelOpen).
+    let to: Vec<&str> = match activity.get("to") {
+        Some(serde_json::Value::Array(arr)) => arr.iter().filter_map(|v| v.as_str()).collect(),
+        Some(serde_json::Value::String(s)) => vec![s.as_str()],
+        _ => Vec::new(),
+    };
+    let recipient = first_local_recipient(db, &base_url_val, to.iter().copied())
         .await
         .map_err(|e| e.to_string())?;
 
