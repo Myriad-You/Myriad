@@ -7,7 +7,7 @@ export function siteMediaUrl(src: string, apiUrl = API_URL): string {
   // journal reader, read platform-owned media through the current API origin.
   try {
     const parsed = new URL(path, 'https://media.invalid')
-    if (/^\/(?:media\/(?:assets|federation)\/|api\/media\/\d+\/content$)/.test(parsed.pathname)) {
+    if (/^\/(?:(?:api\/)?media\/(?:assets|federation)\/|api\/media\/\d+\/content$)/.test(parsed.pathname)) {
       path = `${parsed.pathname}${parsed.search}${parsed.hash}`
     }
   } catch { /* Keep non-URL sources unchanged. */ }
