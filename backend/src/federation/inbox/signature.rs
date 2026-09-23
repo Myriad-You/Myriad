@@ -8,7 +8,8 @@ use sea_orm::DatabaseConnection;
 use serde_json::json;
 
 use crate::federation::actor::{
-    ResolvedRemoteActor, fetch_remote_actor_for_verify, persist_verified_remote_actor,
+    RemoteActorInfo, ResolvedRemoteActor, fetch_remote_actor_for_verify,
+    persist_verified_remote_actor,
 };
 use crate::federation::signature::{
     HTTP_DATE_MAX_SKEW, ParsedSignature, parse_signature_header, require_covered_headers,
@@ -151,15 +152,15 @@ pub(crate) fn verify_preparse_gate(
 /// remote Actor material used for the public key is resolved via
 /// [`fetch_remote_actor_for_verify`] (DB cache hit or **ephemeral** HTTP fetch).
 /// Failed signatures never write an unauthenticated remote document into
-/// `federation_remote_actors`. Successful verification may persist via
-/// [`persist_verified_remote_actor`].
+/// `federation_remote_actors`. On success the actor that verified the signature
+/// is returned; the caller promotes it with [`promote_verified_actor`].
 pub(crate) async fn verify_request_signature(
     db: &DatabaseConnection,
     headers: &HeaderMap,
     parsed: &ParsedSignature,
     actor_url_str: &str,
     request_path: &str,
-) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+) -> Result<ResolvedRemoteActor, (StatusCode, Json<serde_json::Value>)> {
     // trusted cache or ephemeral remote fetch — never poison DB on 401.
     let mut resolved: ResolvedRemoteActor = fetch_remote_actor_for_verify(db, actor_url_str, false)
         .await
@@ -235,19 +236,33 @@ pub(crate) async fn verify_request_signature(
         ));
     }
 
-    // Signature OK: promote ephemeral actor material into the trusted cache.
-    if resolved.needs_persist {
-        if let Err(e) = persist_verified_remote_actor(db, &resolved).await {
-            // Handlers re-fetch via fetch_remote_actor; log and continue.
+    Ok(resolved)
+}
+
+/// Promote the actor returned by [`verify_request_signature`] into the trusted
+/// cache and return it with its real `federation_remote_actors.id`.
+///
+/// Cache hits / local actors already carry a real id and are returned as-is.
+/// Ephemeral documents are upserted once. On failure the error is logged and
+/// returned: callers that need the remote id reject the request, the others
+/// ignore it (cache write is best-effort, as before).
+pub(crate) async fn promote_verified_actor(
+    db: &DatabaseConnection,
+    actor_url_str: &str,
+    resolved: ResolvedRemoteActor,
+) -> Result<RemoteActorInfo, String> {
+    if !resolved.needs_persist {
+        return Ok(resolved.info);
+    }
+    persist_verified_remote_actor(db, &resolved)
+        .await
+        .inspect_err(|e| {
             tracing::warn!(
                 actor = %actor_url_str,
                 error = %e,
-                "Failed to persist verified remote actor; handlers may re-fetch"
+                "Failed to persist verified remote actor"
             );
-        }
-    }
-
-    Ok(())
+        })
 }
 
 #[cfg(test)]

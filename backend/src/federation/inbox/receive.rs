@@ -29,7 +29,7 @@ use super::mfp::{ensure_allowed_mfp_type, handle_mfp_activity};
 use super::receipt::{
     ReceiptClaim, ReceiptKey, ReceiptOutcome, claim_receipt, finish_receipt, receipt_key,
 };
-use super::signature::{verify_preparse_gate, verify_request_signature};
+use super::signature::{promote_verified_actor, verify_preparse_gate, verify_request_signature};
 
 /// A receipt conflict is a protocol error, not a replay success.  Returning
 /// 409 makes a peer/operator aware that one activity id was reused for
@@ -257,7 +257,10 @@ pub async fn post_inbox(
 
     // 验证 HTTP Signature（actor fetch is ephemeral until verified）
     let request_path = format!("/users/{}/inbox", username);
-    verify_request_signature(&db, &headers, &signature, &actor_url_str, &request_path).await?;
+    let verified =
+        verify_request_signature(&db, &headers, &signature, &actor_url_str, &request_path).await?;
+    // Same actor facts that verified the signature; no second fetch below.
+    let verified_actor = promote_verified_actor(&db, &actor_url_str, verified).await;
 
     let activity_id = activity["id"].as_str().unwrap_or("");
 
@@ -281,7 +284,7 @@ pub async fn post_inbox(
     // opening the receipt transaction so a failed/unknown actor cannot leave
     // a claimed receipt or partial handler effects behind.
     let follow_remote = if activity_type == "Follow" {
-        Some(fetch_remote_actor(&db, &actor_url_str).await.map_err(|e| {
+        Some(verified_actor.as_ref().map_err(|e| {
             tracing::warn!(actor = %actor_url_str, error = %e, "Failed to resolve Follow actor");
             (
                 StatusCode::BAD_REQUEST,
@@ -295,7 +298,7 @@ pub async fn post_inbox(
         activity_type.as_str(),
         "Create" | "Update" | "Delete" | "Announce" | "Like"
     ) {
-        Some(fetch_remote_actor(&db, &actor_url_str).await.map_err(|e| {
+        Some(verified_actor.as_ref().map_err(|e| {
             tracing::warn!(actor = %actor_url_str, error = %e, "Failed to resolve content actor");
             (
                 StatusCode::BAD_REQUEST,
@@ -342,8 +345,8 @@ pub async fn post_inbox(
         &actor_url_str,
         &activity_type,
         &activity,
-        follow_remote.as_ref(),
-        content_remote.as_ref(),
+        follow_remote,
+        content_remote,
         DeliveryMode::QueueOnly,
     )
     .await;
@@ -470,7 +473,10 @@ pub async fn post_shared_inbox(
     }
 
     // 验证签名（actor fetch is ephemeral until verified）
-    verify_request_signature(&db, &headers, &signature, &actor_url_str, "/inbox").await?;
+    let verified =
+        verify_request_signature(&db, &headers, &signature, &actor_url_str, "/inbox").await?;
+    // Same actor facts that verified the signature; no second fetch below.
+    let verified_actor = promote_verified_actor(&db, &actor_url_str, verified).await;
 
     let activity_id = activity["id"].as_str().unwrap_or("");
 
@@ -502,7 +508,7 @@ pub async fn post_shared_inbox(
     let public_remote_id = if matches!(activity_type.as_str(), "Create" | "Announce")
         && crate::federation::audience::may_distribute_to_followers(&activity, &actor_url_str)
     {
-        let remote = fetch_remote_actor(&db, &actor_url_str).await.map_err(|e| {
+        let remote = verified_actor.as_ref().map_err(|e| {
             tracing::warn!("Failed to fetch remote actor {}: {}", actor_url_str, e);
             (
                 StatusCode::BAD_REQUEST,
@@ -527,7 +533,7 @@ pub async fn post_shared_inbox(
         None
     };
     let follow_remote = if activity_type == "Follow" {
-        Some(fetch_remote_actor(&db, &actor_url_str).await.map_err(|e| {
+        Some(verified_actor.as_ref().map_err(|e| {
             tracing::warn!(actor = %actor_url_str, error = %e, "Failed to resolve Follow actor");
             (
                 StatusCode::BAD_REQUEST,
@@ -538,7 +544,7 @@ pub async fn post_shared_inbox(
         None
     };
     let content_remote = if matches!(activity_type.as_str(), "Delete" | "Update" | "Like") {
-        Some(fetch_remote_actor(&db, &actor_url_str).await.map_err(|e| {
+        Some(verified_actor.as_ref().map_err(|e| {
             tracing::warn!(actor = %actor_url_str, error = %e, "Failed to resolve content actor");
             (
                 StatusCode::BAD_REQUEST,
@@ -577,8 +583,8 @@ pub async fn post_shared_inbox(
         &actor_url_str,
         &activity,
         public_remote_id,
-        follow_remote.as_ref(),
-        content_remote.as_ref(),
+        follow_remote,
+        content_remote,
     )
     .await;
     match result {
