@@ -56,6 +56,28 @@ pub(crate) fn http_cors_layer() -> tower_http::cors::CorsLayer {
         .allow_credentials(true)
 }
 
+/// Final API fallback. A config-mode process only built the setup route graph,
+/// so anything it did not register is "finish setup first", not "no such API".
+fn unmatched_api_response(config_mode: bool, req: &Request) -> Response {
+    if config_mode {
+        let mut body = AppError::service_unavailable("Service in configuration mode")
+            .with_message("Finish database setup first.")
+            .with_hint("After configuration, the service restarts to load the full route table")
+            .with_code("configuration_mode")
+            .to_json();
+        body["configure_endpoint"] = json!("/api/setup/database-config");
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response();
+    }
+    (
+        StatusCode::NOT_FOUND,
+        Json(json!({
+            "error": "Not Found",
+            "message": format!("No API route for {} {}", req.method(), req.uri().path()),
+        })),
+    )
+        .into_response()
+}
+
 async fn installation_claimed(db: &sea_orm::DatabaseConnection) -> anyhow::Result<bool> {
     crate::services::site_owner::installation_has_owner(db)
         .await
@@ -124,6 +146,10 @@ pub(crate) async fn start_unified_server(
     // Build the unified API router. When a DB is available, wire `AppState` once
     // so `extract::Db` resolves from state. Config-mode (no DB) is setup + health
     // + system status + local login/me/logout + OAuth bootstrap.
+    // The route graph is the only config-mode admission authority: the mode is
+    // fixed here by which graph gets built, and the final API fallback reports
+    // the configuration error instead of consulting a second path whitelist.
+    let config_mode = db_opt.is_none();
     let api_router = if let Some(db) = db_opt {
         let app_state = crate::state::AppState::from_shared(
             db,
@@ -158,8 +184,7 @@ pub(crate) async fn start_unified_server(
 
     // Apply middleware and layers
     let api_router = api_router
-        .layer(from_fn(config_mode_middleware))
-        // Availability gate, sibling to config-mode: when the startup
+        // Availability gate: when the startup
         // egress-location probe says this server may not federate, the whole
         // federation path space answers 404 — public AP endpoints included.
         .layer(from_fn(
@@ -196,18 +221,7 @@ pub(crate) async fn start_unified_server(
             async move {
                 let path = req.uri().path();
                 if path.starts_with("/api/") || path == "/health" {
-                    return (
-                        StatusCode::NOT_FOUND,
-                        Json(json!({
-                            "error": "Not Found",
-                            "message": format!(
-                                "No API route for {} {}",
-                                req.method(),
-                                path
-                            ),
-                        })),
-                    )
-                        .into_response();
+                    return unmatched_api_response(config_mode, &req);
                 }
                 // Resolve the cache tier before `req` is consumed by oneshot.
                 let cache_control = static_asset_cache_control(path);
@@ -227,7 +241,9 @@ pub(crate) async fn start_unified_server(
         })
     } else {
         tracing::warn!("Frontend dist path not found, serving API only");
-        api_router
+        api_router.fallback(move |req: Request| async move {
+            unmatched_api_response(config_mode, &req)
+        })
     };
 
     // Spawn background task to clean up old tasks (防止内存泄漏)
@@ -549,6 +565,60 @@ mod api_compression_tests {
                 .and_then(|value| value.to_str().ok()),
             Some("gzip"),
             "JSON API must gzip when the client accepts it"
+        );
+    }
+}
+
+#[cfg(test)]
+mod config_mode_fallback_tests {
+    use super::{base, unmatched_api_response};
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
+    fn config_mode_app() -> axum::Router {
+        base::build_config_mode_router().fallback(|req: axum::extract::Request| async move {
+            unmatched_api_response(true, &req)
+        })
+    }
+
+    async fn status(uri: &str) -> (StatusCode, Vec<u8>) {
+        let res = config_mode_app()
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let status = res.status();
+        let bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        (status, bytes.to_vec())
+    }
+
+    #[tokio::test]
+    async fn config_mode_only_reaches_registered_setup_routes() {
+        let (code, bytes) = status("/api/posts").await;
+        assert_eq!(code, StatusCode::SERVICE_UNAVAILABLE);
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["code"], "configuration_mode");
+        assert_eq!(body["configure_endpoint"], "/api/setup/database-config");
+
+        // A prefix lookalike of a setup route is not admitted by path prefix.
+        let (code, _) = status("/api/setup/unknown").await;
+        assert_eq!(code, StatusCode::SERVICE_UNAVAILABLE);
+
+        let (code, _) = status("/health").await;
+        assert_ne!(code, StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[test]
+    fn full_mode_unmatched_api_is_not_found() {
+        let req = Request::builder()
+            .uri("/api/nope")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(
+            unmatched_api_response(false, &req).status(),
+            StatusCode::NOT_FOUND
         );
     }
 }

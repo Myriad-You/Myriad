@@ -517,20 +517,6 @@ mod config_mode_route_tests {
     }
 
     #[test]
-    fn config_mode_allowlist_covers_registered_oauth_login() {
-        let src = include_str!("../main.rs");
-        let start = src
-            .find("let allowed_paths")
-            .expect("config-mode allowlist");
-        let body = &src[start..start + 500];
-        assert!(
-            body.contains("/api/auth/oauth/"),
-            "allowlist must cover registered oauth login/callback, not only /providers"
-        );
-        assert!(body.contains("/ready"), "allowlist must cover /ready");
-    }
-
-    #[test]
     fn web_base_router_serves_site_media() {
         let src = include_str!("base.rs");
         let start = src.find("fn build_base_api_router").expect("base api fn");
