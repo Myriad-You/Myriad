@@ -819,12 +819,39 @@ pub async fn write_note_with_doc(
     }
 }
 
+/// Test-only note schema shared by every note fixture: the tables a note write
+/// touches, including the media tables that draft, publish and delete bind into.
+/// `temporary` creates connection-local temp tables; otherwise the tables land in
+/// the connection's current schema, visible to every pooled connection.
+#[cfg(test)]
+pub(crate) async fn create_note_fixture_tables(db: &impl ConnectionTrait, temporary: bool) {
+    use crate::models::entities::{media_assets, media_references};
+    let schema = sea_orm::Schema::new(DatabaseBackend::Postgres);
+    for statement in [
+        schema.create_table_from_entity(phantasi_sources::Entity),
+        schema.create_table_from_entity(phantasi_note_docs::Entity),
+        schema.create_table_from_entity(phantasi_items::Entity),
+        schema.create_table_from_entity(media_assets::Entity),
+        schema.create_table_from_entity(media_references::Entity),
+    ] {
+        let sql = statement.to_string(sea_orm::sea_query::PostgresQueryBuilder);
+        let sql = if temporary {
+            sql.replacen("CREATE TABLE", "CREATE TEMP TABLE", 1)
+        } else {
+            sql
+        };
+        db.execute_unprepared(&sql)
+            .await
+            .expect("create note fixture table");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     async fn isolated_note_db() -> Option<DatabaseConnection> {
-        use sea_orm::{ConnectOptions, Database, Schema};
+        use sea_orm::{ConnectOptions, Database};
         let url = std::env::var("PHANTASI_TEST_DATABASE_URL").ok()?;
         let mut options = ConnectOptions::new(url);
         options
@@ -834,21 +861,7 @@ mod tests {
         let db = Database::connect(options)
             .await
             .expect("connect note test database");
-        let schema = Schema::new(DatabaseBackend::Postgres);
-        for statement in [
-            schema.create_table_from_entity(phantasi_sources::Entity),
-            schema.create_table_from_entity(phantasi_note_docs::Entity),
-            schema.create_table_from_entity(phantasi_items::Entity),
-            schema.create_table_from_entity(crate::models::entities::media_assets::Entity),
-            schema.create_table_from_entity(crate::models::entities::media_references::Entity),
-        ] {
-            let sql = statement
-                .to_string(sea_orm::sea_query::PostgresQueryBuilder)
-                .replacen("CREATE TABLE", "CREATE TEMP TABLE", 1);
-            db.execute_unprepared(&sql)
-                .await
-                .expect("create isolated temporary table");
-        }
+        create_note_fixture_tables(&db, true).await;
         db.execute_unprepared(
             "CREATE TEMP TABLE phantasi_note_history (
             doc_id integer, revision bigint, snapshot jsonb
@@ -961,7 +974,7 @@ mod tests {
 
     #[tokio::test]
     async fn concurrent_note_count_writes_follow_committed_item_changes() {
-        use sea_orm::{ConnectOptions, Database, QuerySelect, Schema};
+        use sea_orm::{ConnectOptions, Database, QuerySelect};
         let Ok(url) = std::env::var("PHANTASI_TEST_DATABASE_URL") else {
             return;
         };
@@ -983,19 +996,8 @@ mod tests {
         let a = connect().await.unwrap();
         let b = connect().await.unwrap();
         let blocker = connect().await.unwrap();
-        let schema = Schema::new(DatabaseBackend::Postgres);
-        for statement in [
-            schema.create_table_from_entity(phantasi_sources::Entity),
-            schema.create_table_from_entity(phantasi_note_docs::Entity),
-            schema.create_table_from_entity(phantasi_items::Entity),
-            // delete_note_with_doc clears media references before recounting.
-            schema.create_table_from_entity(crate::models::entities::media_assets::Entity),
-            schema.create_table_from_entity(crate::models::entities::media_references::Entity),
-        ] {
-            a.execute_unprepared(&statement.to_string(sea_orm::sea_query::PostgresQueryBuilder))
-                .await
-                .unwrap();
-        }
+        // a and b share these rows, so real tables in the scoped schema, not temp tables.
+        create_note_fixture_tables(&a, false).await;
         insert_test_source(&a).await;
         let first = insert_test_item(&a).await;
         let second = insert_test_item(&a).await;

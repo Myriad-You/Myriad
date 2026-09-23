@@ -379,22 +379,18 @@ mod tests {
         let mut options = sea_orm::ConnectOptions::new(url);
         options.set_schema_search_path(&schema).max_connections(2);
         let db = sea_orm::Database::connect(options).await.unwrap();
-        db.execute_unprepared(r#"
-            CREATE TABLE users (id INTEGER PRIMARY KEY);
-            CREATE TABLE phantasi_note_docs (
-                id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, item_id INTEGER,
-                title TEXT NOT NULL DEFAULT '', content_md TEXT NOT NULL DEFAULT '',
-                topic TEXT, image TEXT, status VARCHAR NOT NULL DEFAULT 'draft',
-                scheduled_at TIMESTAMPTZ, published_at TIMESTAMPTZ,
-                revision BIGINT NOT NULL DEFAULT 1, last_error TEXT,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-            );
-        "#).await.unwrap();
+        // Real tables in the scoped schema: the concurrent restorations below use two
+        // pooled connections, which temp tables would not span. Restoring binds the
+        // draft's media, so the shared note fixture brings the media tables along.
+        crate::services::note_publish::create_note_fixture_tables(&db, false).await;
+        db.execute_unprepared("CREATE TABLE users (id INTEGER PRIMARY KEY)")
+            .await
+            .unwrap();
         db.execute_unprepared(include_str!("../../../migrations/note_editor.sql"))
             .await
             .unwrap();
         db.execute_unprepared(r#"
-            INSERT INTO phantasi_note_docs(id, user_id, title, content_md, status, scheduled_at) VALUES (1, 1, 'Note', 'original', 'scheduled', now() + interval '1 day');
+            INSERT INTO phantasi_note_docs(id, user_id, title, content_md, status, scheduled_at, revision, created_at, updated_at) VALUES (1, 1, 'Note', 'original', 'scheduled', now() + interval '1 day', 1, now(), now());
             DO $$ BEGIN FOR i IN 1..12 LOOP
                 UPDATE phantasi_note_docs SET content_md = 'edit-' || i, revision = revision + 1, last_edited_by = 1 WHERE id = 1;
             END LOOP; END $$;
