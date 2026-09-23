@@ -591,3 +591,246 @@ fn room_join_never_overwrites_an_existing_role() {
     assert_eq!(room_join_effective_role(Some("owner"), "member"), "owner");
     assert_eq!(room_join_effective_role(Some("member"), "owner"), "member");
 }
+
+/// 真实 `send_room_message` 路径的 E2E fail-closed 行为（需要测试库，未配置时跳过）。
+mod send_e2e_db {
+    use axum::http::StatusCode;
+    use sea_orm::{ConnectionTrait, Database, DatabaseBackend, DatabaseConnection, Statement};
+    use sea_orm_migration::MigratorTrait;
+
+    use super::super::SendRoomMessageRequest;
+
+    async fn test_db() -> Option<DatabaseConnection> {
+        let database_url = std::env::var("ROOM_TEST_DATABASE_URL")
+            .or_else(|_| std::env::var("CHANNEL_TEST_DATABASE_URL"))
+            .or_else(|_| std::env::var("NOTIFICATION_TEST_DATABASE_URL"))
+            .or_else(|_| std::env::var("MYRIAD_SCHEMA_DRIFT_DB"))
+            .ok()?;
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect test db");
+        migration::Migrator::up(&db, None)
+            .await
+            .expect("migrator up");
+        Some(db)
+    }
+
+    struct Fixture {
+        user_id: i32,
+        username: String,
+        room_id: String,
+    }
+
+    /// 本地用户作为 active member 的房间。`published` 是房间已发布的
+    /// actor → 公钥表；`own_e2e` 是本地成员的 e2e 密钥状态。
+    async fn room(
+        db: &DatabaseConnection,
+        published: impl FnOnce(&str) -> Option<serde_json::Value>,
+        own_e2e: Option<serde_json::Value>,
+    ) -> Fixture {
+        let tag = uuid::Uuid::new_v4().simple().to_string();
+        let username = format!("rmsend-{tag}");
+        let user_id: i32 = db
+            .query_one_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "INSERT INTO users (username) VALUES ($1) RETURNING id",
+                [username.clone().into()],
+            ))
+            .await
+            .expect("insert user")
+            .expect("row")
+            .try_get("", "id")
+            .expect("id");
+        let base_url = crate::federation::types::get_base_url().await;
+        let local_actor = crate::federation::types::actor_url(&base_url, &username);
+        let shared = published(&local_actor)
+            .map(|keys| serde_json::json!({"e2e": {"published_keys": keys}}));
+        let room_id = format!("rm_{tag}");
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"INSERT INTO federation_rooms
+               (room_id, name, owner_actor, home_server, shared_data_config)
+               VALUES ($1, 'send test', $2, 'local.test', $3)"#,
+            [room_id.clone().into(), local_actor.clone().into(), shared.into()],
+        ))
+        .await
+        .expect("insert room");
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"INSERT INTO federation_room_members
+               (room_id, actor_url, is_local, local_user_id, role, custom_permissions,
+                membership_status, joined_at)
+               VALUES ($1, $2, true, $3, 'member', $4, 'active', NOW())"#,
+            [
+                room_id.clone().into(),
+                local_actor.into(),
+                user_id.into(),
+                own_e2e.map(|e2e| serde_json::json!({ "e2e": e2e })).into(),
+            ],
+        ))
+        .await
+        .expect("insert member");
+        Fixture {
+            user_id,
+            username,
+            room_id,
+        }
+    }
+
+    async fn side_effects(db: &DatabaseConnection, f: &Fixture) -> (i64, i64) {
+        let row = db
+            .query_one_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                r#"SELECT
+                     (SELECT COUNT(*) FROM federation_room_messages WHERE room_id = $1)
+                       AS messages,
+                     (SELECT COUNT(*) FROM federation_activities WHERE user_id = $2)
+                       AS activities"#,
+                [f.room_id.clone().into(), f.user_id.into()],
+            ))
+            .await
+            .expect("count")
+            .expect("row");
+        (
+            row.try_get("", "messages").expect("messages"),
+            row.try_get("", "activities").expect("activities"),
+        )
+    }
+
+    async fn stored(db: &DatabaseConnection, f: &Fixture) -> (serde_json::Value, bool) {
+        let row = db
+            .query_one_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT payload, is_encrypted FROM federation_room_messages WHERE room_id = $1",
+                [f.room_id.clone().into()],
+            ))
+            .await
+            .expect("select")
+            .expect("row");
+        (
+            row.try_get("", "payload").expect("payload"),
+            row.try_get("", "is_encrypted").expect("flag"),
+        )
+    }
+
+    fn request(encrypt: bool) -> SendRoomMessageRequest {
+        SendRoomMessageRequest {
+            message_type: None,
+            payload: serde_json::json!({"text": "secret plaintext"}),
+            thread_id: None,
+            reply_to: None,
+            encrypt: Some(encrypt),
+        }
+    }
+
+    fn own_keys(kp: &crate::federation::e2e::E2eKeyPair) -> serde_json::Value {
+        serde_json::json!({
+            "local_public_key": kp.public_key,
+            "local_private_key": kp.private_key,
+        })
+    }
+
+    #[tokio::test]
+    async fn encrypt_true_without_keys_writes_nothing() {
+        let Some(db) = test_db().await else {
+            return;
+        };
+        let own = crate::federation::e2e::generate_keypair();
+        let peer = crate::federation::e2e::generate_keypair();
+        let own_pk = own.public_key.clone();
+        let peer_pk = peer.public_key.clone();
+
+        // 缺 session：房间从未发布 E2E 密钥
+        let no_session = room(&db, |_| None, Some(own_keys(&own))).await;
+        // 无对端：只有自己的公钥
+        let only_self = room(
+            &db,
+            move |me: &str| Some(serde_json::json!({ me: own_pk })),
+            Some(own_keys(&own)),
+        )
+        .await;
+        // 缺 key：对端已发布，但本地成员没有自己的 e2e 密钥
+        let no_own_key = room(
+            &db,
+            |_| Some(serde_json::json!({"https://peer.example/users/p": peer_pk})),
+            None,
+        )
+        .await;
+        // 对端公钥非法：加密前即失败
+        let bad_peer = room(
+            &db,
+            |_| Some(serde_json::json!({"https://peer.example/users/p": "not-a-key"})),
+            Some(own_keys(&own)),
+        )
+        .await;
+
+        for (case, f) in [
+            ("no_session", &no_session),
+            ("only_self", &only_self),
+            ("no_own_key", &no_own_key),
+            ("bad_peer", &bad_peer),
+        ] {
+            let (status, body) = super::super::send_room_message(
+                f.user_id,
+                &f.username,
+                &f.room_id,
+                &db,
+                &request(true),
+            )
+            .await
+            .expect_err("encrypt=true must fail closed");
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{case}");
+            assert_eq!(body.0["code"], "e2e_required", "{case}");
+            assert_eq!(side_effects(&db, f).await, (0, 0), "{case}: nothing written");
+        }
+    }
+
+    #[tokio::test]
+    async fn encrypt_true_with_peer_keys_stores_only_ciphertext() {
+        let Some(db) = test_db().await else {
+            return;
+        };
+        let own = crate::federation::e2e::generate_keypair();
+        let peer = crate::federation::e2e::generate_keypair();
+        let peer_pk = peer.public_key.clone();
+        let f = room(
+            &db,
+            |_| Some(serde_json::json!({"https://peer.example/users/p": peer_pk})),
+            Some(own_keys(&own)),
+        )
+        .await;
+        let resp =
+            super::super::send_room_message(f.user_id, &f.username, &f.room_id, &db, &request(true))
+                .await
+                .expect("encrypted send");
+        assert!(resp.is_encrypted);
+        let (payload, is_encrypted) = stored(&db, &f).await;
+        assert!(is_encrypted);
+        assert!(
+            !payload.to_string().contains("secret plaintext"),
+            "plaintext must not be stored"
+        );
+        assert_eq!(side_effects(&db, &f).await.0, 1);
+    }
+
+    #[tokio::test]
+    async fn encrypt_false_stores_plaintext_without_keys() {
+        let Some(db) = test_db().await else {
+            return;
+        };
+        let f = room(&db, |_| None, None).await;
+        let resp = super::super::send_room_message(
+            f.user_id,
+            &f.username,
+            &f.room_id,
+            &db,
+            &request(false),
+        )
+        .await
+        .expect("plaintext send");
+        assert!(!resp.is_encrypted);
+        let (payload, is_encrypted) = stored(&db, &f).await;
+        assert!(!is_encrypted);
+        assert_eq!(payload, serde_json::json!({"text": "secret plaintext"}));
+    }
+}

@@ -80,7 +80,7 @@ pub struct SendRoomMessageRequest {
     pub payload: serde_json::Value,
     pub thread_id: Option<String>,
     pub reply_to: Option<String>,
-    /// 是否尝试 Room E2E；无对端密钥时降级明文
+    /// 是否使用 Room E2E；缺密钥/无对端时拒绝（e2e_required），不降级明文
     #[serde(default)]
     pub encrypt: Option<bool>,
 }
