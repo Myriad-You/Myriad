@@ -90,6 +90,10 @@ impl Mock {
             "busy".into()
         } else if first.contains("/_ping") {
             "OK".into()
+        } else if first.contains("/info") {
+            json!({"ServerVersion":"28.0.0","SecurityOptions":[]}).to_string()
+        } else if first.contains("/version") {
+            json!({"Version":"28.0.0","ApiVersion":"1.48","MinAPIVersion":"1.24"}).to_string()
         } else if first.contains("/images/create") {
             self.pulls.fetch_add(1, Ordering::SeqCst);
             "{\"status\":\"complete\"}\n".into()

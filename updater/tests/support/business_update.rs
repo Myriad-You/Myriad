@@ -173,7 +173,10 @@ esac
 
     async fn business_update(&self) -> String {
         let response = self
-            .post("/update", json!({"target_commit":TARGET,"mode":"commit"}))
+            .post(
+                "/update",
+                json!({"target_commit":TARGET,"mode":"commit","allow_compose_override":true}),
+            )
             .await;
         let code = response.status();
         let body: Value = response.json().await.unwrap();
@@ -451,7 +454,7 @@ async fn failed_upgrade_and_power_cut_during_restore_recover_old_compose_and_dat
 }
 
 #[tokio::test]
-async fn upgrade_adds_media_mount_and_keeps_deployment_settings() {
+async fn upgrade_writes_the_target_compose_in_place() {
     let mut daemon = Daemon::business("").await;
     let root = &daemon.mock.root;
     fs::write(root.join("split-worker"), "").unwrap();
@@ -505,45 +508,14 @@ async fn upgrade_adds_media_mount_and_keeps_deployment_settings() {
     );
     let after: Value =
         serde_json::from_slice(&fs::read(daemon.mock.root.join("compose.yaml")).unwrap()).unwrap();
+    // The target template is written in place; the host's hand edits are not merged.
+    assert_eq!(after, target);
     assert!(
         after["services"]["federation-worker"]["volumes"]
             .as_array()
             .unwrap()
             .iter()
             .any(|mount| mount["target"] == "/app/data/media")
-    );
-    assert_eq!(
-        after["services"]["backend"]["environment"]["DATABASE_URL"],
-        "postgres://custom/database"
-    );
-    assert_eq!(
-        after["services"]["backend"]["environment"]["CUSTOM_SETTING"],
-        "keep"
-    );
-    assert_eq!(
-        after["services"]["backend"]["environment"]["NEW_SETTING"],
-        "1"
-    );
-    assert_eq!(
-        after["services"]["frontend"]["ports"][0]["published"],
-        "8088"
-    );
-    assert_eq!(after["services"]["frontend"]["ports"][0]["target"], 80);
-    assert!(
-        after["services"]["backend"]["extra_hosts"]
-            .to_string()
-            .contains("192.0.2.1")
-    );
-    assert_eq!(after["services"]["proxy"], current["services"]["proxy"]);
-    assert_eq!(
-        after["volumes"]["backend_data"],
-        current["volumes"]["backend_data"]
-    );
-    assert!(
-        !after["services"]
-            .as_object()
-            .unwrap()
-            .contains_key("postgres")
     );
 }
 
