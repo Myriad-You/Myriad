@@ -273,17 +273,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // 创建索引
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_users_github_id")
-                    .table(Users::Table)
-                    .col(Users::GithubId)
-                    .if_not_exists()
-                    .to_owned(),
-            )
-            .await?;
+        // 创建索引（github_id 由列上的 UNIQUE 约束自带唯一索引，不再另建普通索引）
         manager
             .create_index(
                 Index::create()

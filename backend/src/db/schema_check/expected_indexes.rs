@@ -10,12 +10,6 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             is_unique: false,
         },
         IndexDef {
-            name: "idx_users_github_id".into(),
-            table: "users".into(),
-            columns: vec!["github_id".into()],
-            is_unique: false,
-        },
-        IndexDef {
             name: "idx_users_username".into(),
             table: "users".into(),
             columns: vec!["username".into()],
