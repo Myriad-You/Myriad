@@ -11,10 +11,10 @@
 //! Direction gates (fail-closed):
 //! - pure upgrade → ok
 //! - pure downgrade → requires `allow_downgrade`
-//! - diverged → requires `allow_diverged` / `allow_risk`
-//! - **commit/dev**: unknown ancestry does **not** require `allow_unknown` (build-time
-//!   newer / different tag is enough). Release + full manifest still treats unknown as risk;
-//!   release Docker Hub fallback (no git compare) matches commit without ancestry.
+//! - diverged → requires `allow_diverged` / `allow_risk` (release→release and commit→commit only)
+//! - **commit/dev → release**: dev/preview builds are ephemeral and routinely diverge from
+//!   (or sit ahead of) the release line, so moving to a release is always allowed — no
+//!   downgrade/diverged gate, and unknown ancestry does **not** require `allow_unknown`.
 //! - irreversible migration + downgrade → requires both flags (manifest path only)
 //!
 //! Local gates (before image pull when possible):
@@ -234,7 +234,6 @@ async fn run_release_with_manifest(
     let from_version = st.current_version.clone();
 
     let mut is_downgrade = false;
-    let mut is_diverged = false;
 
     // Semver direction when both sides are releases.
     if let (Some(curr), Some(tgt)) = (&from_version, target.as_release()) {
@@ -258,49 +257,20 @@ async fn run_release_with_manifest(
                 }
             }
             _ => {
-                // Current is commit/branch while target is release — use git compare when possible.
+                // Current is a `dev-<sha>` or branch tip while the target is a formal
+                // release. Moving to a release is always allowed: dev/preview builds
+                // are ephemeral and routinely diverge from (or sit ahead of) the
+                // release line, so the downgrade/diverged direction gates do not apply.
+                // Only a no-op (target already at the same commit) is rejected.
                 match gh.compare_deploy_to_ref(Some(curr), target.as_str()).await {
-                    Ok(Some(f)) => {
-                        is_downgrade = f.is_downgrade();
-                        is_diverged = matches!(f.relation, CommitRelation::Diverged);
-                        if matches!(f.relation, CommitRelation::Identical) {
-                            return Err(UpdaterError::Precondition(format!(
-                                "target {} points at the same git commit as current {}",
-                                target.as_str(),
-                                curr
-                            )));
-                        }
-                        if matches!(f.relation, CommitRelation::Unknown) {
-                            require_flag(
-                                risk.allow_unknown,
-                                &format!(
-                                    "cannot determine whether {} is newer than current {}; \
-                                 re-submit with allow_unknown=true (or allow_risk=true)",
-                                    target.as_str(),
-                                    curr
-                                ),
-                            )?;
-                        }
+                    Ok(Some(f)) if matches!(f.relation, CommitRelation::Identical) => {
+                        return Err(UpdaterError::Precondition(format!(
+                            "target {} points at the same git commit as current {}",
+                            target.as_str(),
+                            curr
+                        )));
                     }
-                    Ok(None) => {
-                        require_flag(
-                            risk.allow_unknown,
-                            &format!(
-                                "cannot resolve current deploy {curr} to a git commit for comparison \
-                             with release {}; re-submit with allow_unknown=true (or allow_risk=true)",
-                                target.as_str()
-                            ),
-                        )?;
-                    }
-                    Err(e) => {
-                        require_flag(
-                            risk.allow_unknown,
-                            &format!(
-                                "git compare failed ({e}); refusing update without known direction. \
-                             Fix GitHub access or re-submit with allow_unknown=true (or allow_risk=true)"
-                            ),
-                        )?;
-                    }
+                    _ => {}
                 }
             }
         }
@@ -323,16 +293,6 @@ async fn run_release_with_manifest(
             );
         }
         warn!(to = %target, "preflight: explicit release DOWNgrade allowed");
-    }
-    if is_diverged {
-        require_flag(
-            risk.allow_diverged,
-            &format!(
-                "target {} diverged from current history; re-submit with allow_diverged=true \
-                 (or allow_risk=true)",
-                target.as_str()
-            ),
-        )?;
     }
 
     // min_from only when upgrading between releases.
@@ -406,7 +366,6 @@ async fn run_release_via_dockerhub(
 
     let from_version = worker.state().read_updater()?.current_version.clone();
     let mut is_downgrade = false;
-    let mut is_diverged = false;
 
     // Semver when both sides are releases (no GitHub needed).
     if let (Some(curr), Some(tgt)) = (&from_version, target.as_release()) {
@@ -429,14 +388,14 @@ async fn run_release_via_dockerhub(
                 }
             }
             _ => {
-                // Commit/branch → release without reliable git compare (no release.json path).
-                // Mirror commit mode: do not require allow_unknown solely for missing ancestry.
+                // Commit/branch → release: dev/preview builds are ephemeral and
+                // routinely diverge from the release line, so moving to a release is
+                // always allowed (no downgrade/diverged gate). Only a no-op (same
+                // commit) is rejected when GitHub ancestry is available.
                 if worker.github_commit_metadata_enabled() {
                     if let Ok(gh) = worker.github_client() {
                         match gh.compare_deploy_to_ref(Some(curr), target.as_str()).await {
                             Ok(Some(f)) => {
-                                is_downgrade = f.is_downgrade();
-                                is_diverged = matches!(f.relation, CommitRelation::Diverged);
                                 if matches!(f.relation, CommitRelation::Identical) {
                                     return Err(UpdaterError::Precondition(format!(
                                         "target {} points at the same git commit as current {}",
@@ -444,39 +403,10 @@ async fn run_release_via_dockerhub(
                                         curr
                                     )));
                                 }
-                                if matches!(f.relation, CommitRelation::Unknown) {
-                                    info!(
-                                        target = %target,
-                                        current = %curr,
-                                        "preflight(release/dh): unknown git relation; proceeding \
-                                         without allow_unknown (no release.json)"
-                                    );
-                                }
                             }
-                            Ok(None) => {
-                                info!(
-                                    target = %target,
-                                    current = %curr,
-                                    "preflight(release/dh): cannot resolve current deploy to git; \
-                                     proceeding (semver/tag differ is sufficient without release.json)"
-                                );
-                            }
-                            Err(e) => {
-                                warn!(
-                                    target = %target,
-                                    err = %e,
-                                    "preflight(release/dh): git compare failed; proceeding without allow_unknown"
-                                );
-                            }
+                            _ => {}
                         }
                     }
-                } else {
-                    info!(
-                        target = %target,
-                        current = %curr,
-                        "preflight(release/dh): GITHUB_TOKEN unset; skipping git ancestry for \
-                         commit→release (image pull verifies tags exist)"
-                    );
                 }
             }
         }
@@ -485,16 +415,6 @@ async fn run_release_via_dockerhub(
     if is_downgrade {
         require_downgrade(risk.allow_downgrade, target.as_str())?;
         warn!(to = %target, "preflight: explicit release DOWNgrade allowed (Docker Hub path)");
-    }
-    if is_diverged {
-        require_flag(
-            risk.allow_diverged,
-            &format!(
-                "target {} diverged from current history; re-submit with allow_diverged=true \
-                 (or allow_risk=true)",
-                target.as_str()
-            ),
-        )?;
     }
 
     // No manifest: cannot enforce min_from_version / irreversible / min_updater_version.
