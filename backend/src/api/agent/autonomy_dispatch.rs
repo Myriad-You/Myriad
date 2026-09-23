@@ -283,7 +283,7 @@ async fn finish_autonomy_turn(
                 session_id,
                 run_id,
                 progress_tx,
-                Some(loop_db),
+                loop_db,
                 Some(intent_id),
             )
             .await;

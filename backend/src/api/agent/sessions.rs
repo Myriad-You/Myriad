@@ -295,15 +295,13 @@ pub async fn generate_session_title(
     }
 
     // Oldest four messages (`order_by_asc` + page 0) as title context.
-    let messages = session_title_messages(
-        agent_messages::Entity::find()
-            .filter(agent_messages::Column::SessionId.eq(&session_id))
-            .order_by_asc(agent_messages::Column::CreatedAt)
-            .paginate(&db, 4)
-            .fetch_page(0)
-            .await,
-    )
-    .map_err(|error| session_store_http("load session messages for title", error))?;
+    let messages = agent_messages::Entity::find()
+        .filter(agent_messages::Column::SessionId.eq(&session_id))
+        .order_by_asc(agent_messages::Column::CreatedAt)
+        .paginate(&db, 4)
+        .fetch_page(0)
+        .await
+        .map_err(|error| session_store_http("load session messages for title", error))?;
 
     if messages.is_empty() {
         return Err(HttpError::from((
@@ -368,20 +366,12 @@ pub async fn generate_session_title(
     // 更新数据库
     let mut active: agent_sessions::ActiveModel = session.unwrap().into();
     active.title = Set(Some(title.clone()));
-    session_title_write(active.update(&db).await)
+    active
+        .update(&db)
+        .await
         .map_err(|error| session_store_http("update session title", error))?;
 
     Ok(Json(json!({ "title": title })))
-}
-
-/// Query errors must not be treated as an empty session.
-pub(crate) fn session_title_messages<T, E>(result: Result<Vec<T>, E>) -> Result<Vec<T>, E> {
-    result
-}
-
-/// Title writes must fail the request when persist fails.
-pub(crate) fn session_title_write<T, E>(result: Result<T, E>) -> Result<T, E> {
-    result
 }
 
 /// Durable user-message writes abort the turn; callers must not ignore Err.
@@ -587,27 +577,85 @@ mod mode_tests {
     }
 
     #[test]
-    fn title_query_error_is_not_empty_session() {
-        let error: Result<Vec<i32>, &str> = Err("db down");
-        assert!(session_title_messages(error).is_err());
-        assert!(
-            session_title_messages::<i32, &str>(Ok(vec![]))
-                .unwrap()
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn title_write_error_is_not_success() {
-        let error: Result<(), &str> = Err("write failed");
-        assert!(session_title_write(error).is_err());
-        assert!(session_title_write::<(), &str>(Ok(())).is_ok());
-    }
-
-    #[test]
     fn user_message_persist_error_aborts_the_turn() {
         let error: Result<(), &str> = Err("db down");
         assert!(require_user_message_persisted(error).is_err());
         assert!(require_user_message_persisted::<(), &str>(Ok(())).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod title_endpoint_tests {
+    use super::*;
+    use sea_orm::{ConnectOptions, ConnectionTrait, Database};
+
+    #[tokio::test]
+    async fn title_endpoint_propagates_query_and_write_failures() {
+        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+            return;
+        };
+        let schema = format!("title_test_{}", uuid::Uuid::new_v4().simple());
+        let admin = Database::connect(&url).await.unwrap();
+        admin
+            .execute_unprepared(&format!("CREATE SCHEMA {schema}"))
+            .await
+            .unwrap();
+        let mut options = ConnectOptions::new(url);
+        options.set_schema_search_path(&schema).sqlx_logging(false);
+        let db = Database::connect(options).await.unwrap();
+        db.execute_unprepared("CREATE TABLE agent_sessions (id TEXT PRIMARY KEY, user_id INT NOT NULL, title TEXT, context JSONB, message_count INT NOT NULL DEFAULT 0, archived BOOLEAN NOT NULL DEFAULT false, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), last_active_at TIMESTAMPTZ NOT NULL DEFAULT NOW()); INSERT INTO agent_sessions(id,user_id) VALUES ('test',1)").await.unwrap();
+        let claims = crate::middleware::auth::mint_session_claims(1, "test", false, false, 0);
+        let query_error = generate_session_title(
+            State(db.clone()),
+            Extension(claims.clone()),
+            Path("test".into()),
+        )
+        .await;
+        assert_eq!(
+            query_error.unwrap_err().0.status_u16(),
+            500,
+            "a missing messages table must not become an empty conversation"
+        );
+        db.execute_unprepared("CREATE TABLE agent_messages (id SERIAL PRIMARY KEY, session_id TEXT NOT NULL, task_id TEXT, role TEXT NOT NULL, content TEXT NOT NULL, metadata JSONB, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())").await.unwrap();
+        assert_eq!(
+            generate_session_title(
+                State(db.clone()),
+                Extension(claims.clone()),
+                Path("test".into())
+            )
+            .await
+            .unwrap_err()
+            .0
+            .status_u16(),
+            400
+        );
+        db.execute_unprepared("INSERT INTO agent_messages(session_id,role,content) VALUES ('test','user','A title'); ALTER TABLE agent_sessions ADD CONSTRAINT refuse_title CHECK (title IS NULL)").await.unwrap();
+        assert_eq!(
+            generate_session_title(
+                State(db.clone()),
+                Extension(claims.clone()),
+                Path("test".into())
+            )
+            .await
+            .unwrap_err()
+            .0
+            .status_u16(),
+            500,
+            "a failed title write must not return success"
+        );
+        db.execute_unprepared("ALTER TABLE agent_sessions DROP CONSTRAINT refuse_title")
+            .await
+            .unwrap();
+        let Json(response) =
+            generate_session_title(State(db.clone()), Extension(claims), Path("test".into()))
+                .await
+                .unwrap();
+        assert_eq!(response["title"], "A title");
+        db.close().await.unwrap();
+        admin
+            .execute_unprepared(&format!("DROP SCHEMA {schema} CASCADE"))
+            .await
+            .unwrap();
+        admin.close().await.unwrap();
     }
 }

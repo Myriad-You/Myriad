@@ -120,11 +120,6 @@ fn warn_if_running_as_root() {
     }
 }
 
-/// Durable config load errors must abort full-mode boot, not become defaults.
-fn apply_dynamic_config_load<T, E>(loaded: Result<T, E>) -> Result<T, E> {
-    loaded
-}
-
 // Global core configuration (hot-reloadable)
 pub static GLOBAL_CONFIG: once_cell::sync::Lazy<Arc<RwLock<AppConfig>>> =
     once_cell::sync::Lazy::new(|| Arc::new(RwLock::new(AppConfig::default())));
@@ -424,7 +419,7 @@ async fn run_server(role: runtime_role::RuntimeRole) -> anyhow::Result<()> {
                 let config_service = ConfigService::new(db.clone());
 
                 // Load the merged configuration
-                match apply_dynamic_config_load(config_service.load_config().await) {
+                match config_service.load_config().await {
                     Ok(dynamic_config) => {
                         services::memory_profile::apply_from_saver_flag(
                             dynamic_config.memory_saver_enabled,
@@ -581,7 +576,6 @@ async fn run_server(role: runtime_role::RuntimeRole) -> anyhow::Result<()> {
                 }
 
                 tracing::info!("🌐 Starting in FULL MODE - all features available");
-                services::tapp_registry::set_process_database(db);
                 CONFIG_MODE.store(false, Ordering::Relaxed);
             }
             Err(e) => {
@@ -825,14 +819,7 @@ async fn shutdown_signal() {
 
 #[cfg(test)]
 mod schema_startup_policy_tests {
-    use super::{apply_dynamic_config_load, startup_schema_error};
-
-    #[test]
-    fn dynamic_config_load_error_is_not_unconfigured_default() {
-        let loaded: Result<i32, &str> = Err("db down");
-        assert_eq!(apply_dynamic_config_load(loaded).unwrap_err(), "db down");
-        assert_eq!(apply_dynamic_config_load::<i32, &str>(Ok(7)).unwrap(), 7);
-    }
+    use super::startup_schema_error;
 
     #[test]
     fn missing_migration_history_is_fatal() {

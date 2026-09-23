@@ -748,7 +748,7 @@ pub(crate) async fn start_process_run(
                         session_id_clone.clone(),
                         run_id_for_meta.clone(),
                         tx.clone(),
-                        Some(db_clone.clone()),
+                        db_clone.clone(),
                         source_intent_id_for_work.clone(),
                     )
                     .await;
@@ -1720,7 +1720,7 @@ pub(crate) async fn start_confirm_run(
                         session_id.clone().unwrap_or_default(),
                         run_for_task.run_id().to_string(),
                         tx.clone(),
-                        Some(db_clone.clone()),
+                        db_clone.clone(),
                         source_intent_id.clone(),
                     )
                     .await;

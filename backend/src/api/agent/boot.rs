@@ -40,7 +40,6 @@ pub async fn restore_waiting_runs_after_boot(db: &DatabaseConnection) {
         count = waiting.len(),
         "[Agent API] Boot restore: re-creating run hubs for waiting tasks"
     );
-    let ledger_db = Some(db.clone());
 
     for (user_id, mut task) in waiting {
         let is_work = task
@@ -48,7 +47,7 @@ pub async fn restore_waiting_runs_after_boot(db: &DatabaseConnection) {
             .as_ref()
             .is_some_and(crate::services::agent::work_loop::is_work_recipe);
         if is_work {
-            if let (Some(db), Some(question)) = (&ledger_db, &task.pending_question) {
+            if let Some(question) = &task.pending_question {
                 // Never write a boot snapshot over a newer Work continuation.
                 let _ = crate::services::agent::work_loop::expire_question(
                     db,
@@ -72,7 +71,7 @@ pub async fn restore_waiting_runs_after_boot(db: &DatabaseConnection) {
         let session_id = crate::services::agent::executor::task_store::session_id_from_lane_id(
             task.lane_id.as_deref(),
         );
-        let source_intent = if let (Some(db), Some(session_id)) = (&ledger_db, &session_id) {
+        let source_intent = if let Some(session_id) = &session_id {
             match crate::services::agent::consciousness::IntentStore::new(db.clone())
                 .recoverable_for_session(user_id, session_id)
                 .await
@@ -105,25 +104,21 @@ pub async fn restore_waiting_runs_after_boot(db: &DatabaseConnection) {
                 let mut store = crate::services::agent::executor::TASK_STORE.write().await;
                 store.store(user_id, task);
             }
-            if let Some(db) = &ledger_db {
-                advance_intention_work(
-                    db,
-                    source_intent.as_ref().map(|intent| intent.id.as_str()),
-                    user_id,
-                    crate::services::agent::consciousness::IntentStatus::Failed,
-                    Some("Waiting for input timed out after restart".into()),
-                )
-                .await;
-            }
+            advance_intention_work(
+                db,
+                source_intent.as_ref().map(|intent| intent.id.as_str()),
+                user_id,
+                crate::services::agent::consciousness::IntentStatus::Failed,
+                Some("Waiting for input timed out after restart".into()),
+            )
+            .await;
             continue;
         }
 
         let run = create_run(user_id, session_id.clone()).await;
         let run_id = run.run_id().to_string();
         let task_id = task.task_id.clone();
-        if let (Some(db), Some(session_id), Some(intent)) =
-            (&ledger_db, &session_id, &source_intent)
-        {
+        if let (Some(session_id), Some(intent)) = (&session_id, &source_intent) {
             let store = crate::services::agent::consciousness::IntentStore::new(db.clone());
             let result =
                 if intent.status == crate::services::agent::consciousness::IntentStatus::Running {
@@ -199,7 +194,7 @@ pub async fn restore_waiting_runs_after_boot(db: &DatabaseConnection) {
 
         let session_id_loop = session_id.unwrap_or_default();
         let source_intent_id = source_intent.map(|intent| intent.id);
-        let loop_db = ledger_db.clone();
+        let loop_db = db.clone();
         tokio::spawn(async move {
             spawn_restored_wait_loop(
                 user_id,
@@ -403,9 +398,10 @@ pub(crate) async fn spawn_restored_wait_loop(
     session_id: String,
     run_id: String,
     tx: tokio::sync::mpsc::Sender<AgentProgressEvent>,
-    ledger_db: Option<DatabaseConnection>,
+    db: DatabaseConnection,
     source_intent_id: Option<String>,
 ) {
+    let db = &db;
     let Some(_registration) = WaitLoopRegistration::claim(&task_id) else {
         return;
     };
@@ -431,56 +427,11 @@ pub(crate) async fn spawn_restored_wait_loop(
             Ok(Ok(response_value)) => {
                 let still_waiting = wait_response_still_waiting(&response_value);
                 if still_waiting {
-                    if let Some(db) = &ledger_db {
-                        if !session_id.is_empty() {
-                            let msg = response_value
-                                .get("message")
-                                .and_then(Value::as_str)
-                                .unwrap_or("More information is needed");
-                            let metadata = session_metadata_with_run_identity(
-                                Some(response_value.clone()),
-                                &run_id,
-                                &task_id,
-                            );
-                            let _ = persist_assistant_message(
-                                db,
-                                &session_id,
-                                Some(&task_id),
-                                msg,
-                                Some(metadata),
-                            )
-                            .await;
-                        }
-                    }
-                    continue;
-                }
-                let task_success = response_value
-                    .get("success")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(true);
-                if let Some(db) = &ledger_db {
-                    advance_intention_work(
-                        db,
-                        source_intent_id.as_deref(),
-                        user_id,
-                        if task_success {
-                            crate::services::agent::consciousness::IntentStatus::Completed
-                        } else {
-                            crate::services::agent::consciousness::IntentStatus::Failed
-                        },
-                        response_value
-                            .get("message")
-                            .and_then(Value::as_str)
-                            .map(str::to_string),
-                    )
-                    .await;
-                }
-                if let Some(db) = &ledger_db {
                     if !session_id.is_empty() {
-                        let final_msg = response_value
+                        let msg = response_value
                             .get("message")
                             .and_then(Value::as_str)
-                            .unwrap_or("The task finished");
+                            .unwrap_or("More information is needed");
                         let metadata = session_metadata_with_run_identity(
                             Some(response_value.clone()),
                             &run_id,
@@ -490,11 +441,50 @@ pub(crate) async fn spawn_restored_wait_loop(
                             db,
                             &session_id,
                             Some(&task_id),
-                            final_msg,
+                            msg,
                             Some(metadata),
                         )
                         .await;
                     }
+                    continue;
+                }
+                let task_success = response_value
+                    .get("success")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                advance_intention_work(
+                    db,
+                    source_intent_id.as_deref(),
+                    user_id,
+                    if task_success {
+                        crate::services::agent::consciousness::IntentStatus::Completed
+                    } else {
+                        crate::services::agent::consciousness::IntentStatus::Failed
+                    },
+                    response_value
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                )
+                .await;
+                if !session_id.is_empty() {
+                    let final_msg = response_value
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("The task finished");
+                    let metadata = session_metadata_with_run_identity(
+                        Some(response_value.clone()),
+                        &run_id,
+                        &task_id,
+                    );
+                    let _ = persist_assistant_message(
+                        db,
+                        &session_id,
+                        Some(&task_id),
+                        final_msg,
+                        Some(metadata),
+                    )
+                    .await;
                 }
                 let _ = tx
                     .send(AgentProgressEvent::TaskCompleted {
@@ -507,16 +497,14 @@ pub(crate) async fn spawn_restored_wait_loop(
             }
             Ok(Err(_)) => {
                 let _ = take_waiting_task(&task_id, user_id).await;
-                if let Some(db) = &ledger_db {
-                    advance_intention_work(
-                        db,
-                        source_intent_id.as_deref(),
-                        user_id,
-                        crate::services::agent::consciousness::IntentStatus::Failed,
-                        Some("The wait channel closed".into()),
-                    )
-                    .await;
-                }
+                advance_intention_work(
+                    db,
+                    source_intent_id.as_deref(),
+                    user_id,
+                    crate::services::agent::consciousness::IntentStatus::Failed,
+                    Some("The wait channel closed".into()),
+                )
+                .await;
                 let _ = tx.send(wait_loop_channel_dropped_event(&task_id)).await;
                 break;
             }
@@ -526,7 +514,7 @@ pub(crate) async fn spawn_restored_wait_loop(
                     crate::services::agent::executor::refresh_task_for_user(&task_id, user_id)
                         .await;
 
-                if let (Some(db), Some(task)) = (&ledger_db, &current_task) {
+                if let Some(task) = &current_task {
                     if task
                         .recipe
                         .as_ref()
@@ -559,16 +547,14 @@ pub(crate) async fn spawn_restored_wait_loop(
                             .as_ref()
                             .is_some_and(|q| q.is_expired(chrono::Utc::now()))
                     {
-                        if let Some(db) = &ledger_db {
-                            advance_intention_work(
-                                db,
-                                source_intent_id.as_deref(),
-                                user_id,
-                                crate::services::agent::consciousness::IntentStatus::Failed,
-                                Some("Waiting for input timed out".into()),
-                            )
-                            .await;
-                        }
+                        advance_intention_work(
+                            db,
+                            source_intent_id.as_deref(),
+                            user_id,
+                            crate::services::agent::consciousness::IntentStatus::Failed,
+                            Some("Waiting for input timed out".into()),
+                        )
+                        .await;
                         let response_value = json!({
                             "success": false,
                             "message": "Waiting for input timed out",
@@ -628,16 +614,12 @@ pub(crate) async fn spawn_restored_wait_loop(
                         .as_ref()
                         .is_some_and(crate::services::agent::work_loop::is_work_recipe)
                     {
-                        if let Some(db) = &ledger_db {
-                            crate::services::agent::work_loop::saved_response(db, &task_id, user_id)
-                                .await
-                                .ok()
-                                .and_then(|response| {
-                                    serde_json::to_value(ApiResponse::from(response)).ok()
-                                })
-                        } else {
-                            None
-                        }
+                        crate::services::agent::work_loop::saved_response(db, &task_id, user_id)
+                            .await
+                            .ok()
+                            .and_then(|response| {
+                                serde_json::to_value(ApiResponse::from(response)).ok()
+                            })
                     } else {
                         None
                     };
@@ -658,42 +640,38 @@ pub(crate) async fn spawn_restored_wait_loop(
                         false,
                     )
                 };
-                if let Some(db) = &ledger_db {
-                    advance_intention_work(
+                advance_intention_work(
+                    db,
+                    source_intent_id.as_deref(),
+                    user_id,
+                    if task_success {
+                        crate::services::agent::consciousness::IntentStatus::Completed
+                    } else {
+                        crate::services::agent::consciousness::IntentStatus::Failed
+                    },
+                    response_value
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                )
+                .await;
+                if !session_id.is_empty() {
+                    let metadata = session_metadata_with_run_identity(
+                        Some(response_value.clone()),
+                        &run_id,
+                        &task_id,
+                    );
+                    let _ = persist_assistant_message(
                         db,
-                        source_intent_id.as_deref(),
-                        user_id,
-                        if task_success {
-                            crate::services::agent::consciousness::IntentStatus::Completed
-                        } else {
-                            crate::services::agent::consciousness::IntentStatus::Failed
-                        },
+                        &session_id,
+                        Some(&task_id),
                         response_value
                             .get("message")
                             .and_then(Value::as_str)
-                            .map(str::to_string),
+                            .unwrap_or("The task finished"),
+                        Some(metadata),
                     )
                     .await;
-                }
-                if let Some(db) = &ledger_db {
-                    if !session_id.is_empty() {
-                        let metadata = session_metadata_with_run_identity(
-                            Some(response_value.clone()),
-                            &run_id,
-                            &task_id,
-                        );
-                        let _ = persist_assistant_message(
-                            db,
-                            &session_id,
-                            Some(&task_id),
-                            response_value
-                                .get("message")
-                                .and_then(Value::as_str)
-                                .unwrap_or("The task finished"),
-                            Some(metadata),
-                        )
-                        .await;
-                    }
                 }
                 let _ = tx
                     .send(AgentProgressEvent::TaskCompleted {
@@ -721,7 +699,7 @@ mod tests {
             "session".into(),
             "run".into(),
             tx,
-            None,
+            sea_orm::DatabaseConnection::default(),
             None,
         ));
         tokio::time::timeout(std::time::Duration::from_secs(1), async {
