@@ -29,7 +29,7 @@ mod urls;
 mod validate;
 
 pub use access::{can_manage, can_read};
-pub(crate) use cite::sync_note_history_refs;
+pub(crate) use cite::{bind_restored_dashboard_layout, bind_restored_wallpaper, sync_note_history_refs};
 pub use cite::{
     bind_ai_task, bind_and_publish_dashboard_layout, bind_and_publish_wallpaper,
     bind_channel_message, bind_consumer, bind_note_draft, bind_note_published, bind_persona,

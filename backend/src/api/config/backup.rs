@@ -500,50 +500,66 @@ fn restored_setting_text(value: &Value) -> Option<String> {
     }
 }
 
-/// Bind the media references of restored settings through the same binders as
-/// saving them, so restored media keeps deletion protection. Values are
-/// rewritten to what a save would store (published, path-only local URLs).
+/// Restored setting that cites local media missing on this instance.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct UnresolvedRestoredMedia {
+    pub setting: String,
+    pub url: String,
+}
+
+/// Bind the media references of restored settings like saving them, so restored
+/// media keeps deletion protection, and rewrite values to what a save stores
+/// (published, path-only local URLs). Unlike saving, local media that definitely
+/// does not exist here (such as a media volume that did not come along) does not
+/// fail the restore: it stays as stored, unbound, and is reported back.
 async fn bind_restored_media(
     txn: &impl ConnectionTrait,
     entries: &mut [SettingsBackupEntry],
     origins: &[String],
-) -> Result<(), crate::services::media::MediaError> {
+    legacy: &crate::services::media::LegacyPaths,
+) -> Result<Vec<UnresolvedRestoredMedia>, crate::services::media::MediaError> {
+    let mut unresolved = Vec::new();
     for entry in entries {
         let text = restored_setting_text(&entry.value);
-        let stored = match entry.key.as_str() {
+        let raw = text.as_deref().unwrap_or("");
+        let (stored, dead) = match entry.key.as_str() {
             "ui_wallpaper_url" => {
-                crate::services::media::bind_and_publish_wallpaper(
-                    txn,
-                    text.as_deref().unwrap_or(""),
-                    origins,
-                )
-                .await?
+                crate::services::media::bind_restored_wallpaper(txn, raw, origins, legacy).await?
             }
             "dashboard_layout" => {
-                crate::services::media::bind_and_publish_dashboard_layout(
-                    txn,
-                    text.as_deref().unwrap_or(""),
-                    origins,
-                )
-                .await?
+                crate::services::media::bind_restored_dashboard_layout(txn, raw, origins, legacy)
+                    .await?
             }
             _ => continue,
         };
+        for url in dead {
+            tracing::warn!(
+                setting = %entry.key,
+                url = %url,
+                "restored setting cites local media that does not exist here; left unbound"
+            );
+            unresolved.push(UnresolvedRestoredMedia {
+                setting: entry.key.clone(),
+                url,
+            });
+        }
         // An unset value still clears stale references above, but stays unset.
         if text.is_some() {
             entry.value = Value::String(stored);
         }
     }
-    Ok(())
+    Ok(unresolved)
 }
 
 /// Write restored settings in the caller's transaction, media bindings included.
+/// Returns the local media citations left unresolved.
 pub(crate) async fn write_restored_configurations(
     txn: &impl ConnectionTrait,
     mut entries: Vec<SettingsBackupEntry>,
     origins: &[String],
-) -> Result<(), RestoreWriteError> {
-    bind_restored_media(txn, &mut entries, origins)
+    legacy: &crate::services::media::LegacyPaths,
+) -> Result<Vec<UnresolvedRestoredMedia>, RestoreWriteError> {
+    let unresolved = bind_restored_media(txn, &mut entries, origins, legacy)
         .await
         .map_err(RestoreWriteError::Media)?;
     for entry in entries {
@@ -575,7 +591,7 @@ pub(crate) async fn write_restored_configurations(
         ))
         .await?;
     }
-    Ok(())
+    Ok(unresolved)
 }
 
 pub async fn restore_settings(
@@ -613,6 +629,8 @@ pub async fn restore_settings(
 
     // Same origin set as saving the wallpaper and the media upgrade backfill.
     let origins = crate::services::media::upgrade::configured_origins().await;
+    let legacy =
+        crate::services::media::LegacyPaths::from_data_paths(crate::services::data_paths::paths());
     let transaction = match db.begin().await {
         Ok(transaction) => transaction,
         Err(error) => {
@@ -626,8 +644,9 @@ pub async fn restore_settings(
         }
     };
 
-    let restore_result: Result<(), RestoreWriteError> = async {
-        write_restored_configurations(&transaction, entries, &origins).await?;
+    let restore_result: Result<Vec<UnresolvedRestoredMedia>, RestoreWriteError> = async {
+        let unresolved =
+            write_restored_configurations(&transaction, entries, &origins, &legacy).await?;
 
         let notification_value = serde_json::to_value(&notification_preferences)
             .map_err(|error| sea_orm::DbErr::Custom(error.to_string()))?;
@@ -655,15 +674,15 @@ pub async fn restore_settings(
         }
 
         transaction.commit().await?;
-        Ok(())
+        Ok(unresolved)
     }
     .await;
 
-    match restore_result {
-        Ok(()) => {}
+    let unresolved_media = match restore_result {
+        Ok(unresolved) => unresolved,
         Err(RestoreWriteError::Media(error)) => {
-            // Same semantics as saving the setting: nothing is restored when a
-            // restored wallpaper or sticker cannot keep its media protected.
+            // Invalid media, or media that exists here but cannot be protected
+            // yet, answers like saving the setting: nothing is restored.
             tracing::warn!(%error, "settings restore rejected: media references could not be bound");
             return super::extras::media_binding_failed(&error);
         }
@@ -676,7 +695,7 @@ pub async fn restore_settings(
                 ),
             );
         }
-    }
+    };
 
     let config_service = crate::services::config_service::ConfigService::new(db.clone());
     match config_service.load_config().await {
@@ -722,7 +741,8 @@ pub async fn restore_settings(
             "success": true,
             "message": "Settings restored successfully",
             "requires_reload": false,
-            "preview": preview
+            "preview": preview,
+            "unresolved_media": unresolved_media
         })),
     )
 }

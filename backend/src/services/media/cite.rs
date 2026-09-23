@@ -627,6 +627,53 @@ pub async fn bind_and_publish_wallpaper(
     Ok(published)
 }
 
+/// Settings restore of the wallpaper. Binds like saving it, except that local
+/// media that definitely does not exist on this instance (a media volume that
+/// did not come along) is kept as stored and left unbound instead of failing.
+/// Returns the value to store and the dead URLs as cited.
+pub(crate) async fn bind_restored_wallpaper(
+    txn: &impl ConnectionTrait,
+    url: &str,
+    origins: &[String],
+    paths: &super::LegacyPaths,
+) -> Result<(String, Vec<String>), MediaError> {
+    if let Some(path) = cite_local_path(url, origins) {
+        if super::upgrade::is_dead_local_path(txn, paths, origins, &path).await? {
+            bind_consumer(txn, "site_wallpaper", "site", &[]).await?;
+            return Ok((url.to_string(), vec![url.to_string()]));
+        }
+    }
+    Ok((
+        bind_and_publish_wallpaper(txn, url, origins).await?,
+        Vec::new(),
+    ))
+}
+
+/// Settings restore of the dashboard layout; dead sticker media is handled as
+/// in [`bind_restored_wallpaper`] while live stickers are published and bound.
+pub(crate) async fn bind_restored_dashboard_layout(
+    txn: &impl ConnectionTrait,
+    layout_json: &str,
+    origins: &[String],
+    paths: &super::LegacyPaths,
+) -> Result<(String, Vec<String>), MediaError> {
+    let layout: Value = serde_json::from_str(layout_json).unwrap_or(Value::Null);
+    let mut dead_urls = Vec::new();
+    let mut dead_paths = Vec::new();
+    for url in extract_sticker_image_urls(&layout) {
+        let Some(path) = cite_local_path(&url, origins) else {
+            continue;
+        };
+        if super::upgrade::is_dead_local_path(txn, paths, origins, &path).await? {
+            dead_urls.push(url);
+            push_unique(&mut dead_paths, path);
+        }
+    }
+    let stored =
+        bind_and_publish_dashboard_layout_except(txn, layout_json, origins, &dead_paths).await?;
+    Ok((stored, dead_urls))
+}
+
 pub async fn publish_asset_ids(
     txn: &impl ConnectionTrait,
     ids: &[i32],

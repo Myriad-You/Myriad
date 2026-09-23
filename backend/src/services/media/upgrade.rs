@@ -626,7 +626,7 @@ async fn unresolved_paths(
 /// A catalogued asset that is not ready (such as a legacy row whose file is
 /// missing) is not dead: its bytes may come back, so it stays a retried failure.
 /// Database and filesystem errors propagate and are retried.
-async fn is_dead_local_path(
+pub(super) async fn is_dead_local_path(
     db: &impl ConnectionTrait,
     paths: &LegacyPaths,
     origins: &[String],
