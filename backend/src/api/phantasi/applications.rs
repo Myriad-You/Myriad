@@ -95,25 +95,40 @@ fn looks_like_email(raw: &str) -> bool {
         && !host.contains(' ')
 }
 
-fn source_matches_key(source: &phantasi_sources::Model, key: &str) -> bool {
-    url_match_key(&source.url) == key
-        || source
-            .site_url
-            .as_deref()
-            .is_some_and(|site| url_match_key(site) == key)
+fn url_matches_keys(url: &str, keys: &[String]) -> bool {
+    let key = url_match_key(url);
+    keys.iter().any(|candidate| *candidate == key)
 }
 
+/// Source URLs are written by many paths (manual add, OPML, discovery) and are
+/// not stored in `url_match_key` form, so the WHATWG normalization stays in Rust.
+/// Only `(id, url, site_url)` is scanned; the one matching row is then loaded.
 async fn find_existing_source<C: ConnectionTrait>(
     db: &C,
     keys: &[String],
 ) -> Result<Option<phantasi_sources::Model>, HttpError> {
-    let sources = phantasi_sources::Entity::find()
+    let candidates = phantasi_sources::Entity::find()
+        .select_only()
+        .column(phantasi_sources::Column::Id)
+        .column(phantasi_sources::Column::Url)
+        .column(phantasi_sources::Column::SiteUrl)
+        .into_tuple::<(i32, String, Option<String>)>()
         .all(db)
         .await
         .map_err(|error| phantasi_store_http("find existing source", error))?;
-    Ok(sources
-        .into_iter()
-        .find(|source| keys.iter().any(|key| source_matches_key(source, key))))
+    let Some(id) = candidates.into_iter().find_map(|(id, url, site_url)| {
+        (url_matches_keys(&url, keys)
+            || site_url
+                .as_deref()
+                .is_some_and(|site| url_matches_keys(site, keys)))
+        .then_some(id)
+    }) else {
+        return Ok(None);
+    };
+    phantasi_sources::Entity::find_by_id(id)
+        .one(db)
+        .await
+        .map_err(|error| phantasi_store_http("find existing source", error))
 }
 
 fn unique_violation(err: &impl std::fmt::Display) -> bool {
@@ -141,24 +156,35 @@ async fn lock_url_match_keys<C: ConnectionTrait>(db: &C, keys: &[String]) -> Res
     Ok(())
 }
 
+/// Application URLs are only written through `parse_public_url` (parsed, no
+/// fragment), so `url_match_key` of a stored value is its trailing-slash trim —
+/// the same expression the pending partial UNIQUE indexes use.
 async fn find_pending_for_keys<C: ConnectionTrait>(
     db: &C,
     keys: &[String],
 ) -> Result<Option<phantasi_source_applications::Model>, HttpError> {
-    let rows = phantasi_source_applications::Entity::find()
-        .filter(phantasi_source_applications::Column::Status.eq("pending"))
-        .all(db)
+    if keys.is_empty() {
+        return Ok(None);
+    }
+    let placeholders = (1..=keys.len())
+        .map(|index| format!("${index}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    phantasi_source_applications::Entity::find()
+        .from_raw_sql(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            format!(
+                "SELECT * FROM phantasi_source_applications WHERE status = 'pending' \
+                 AND (regexp_replace(site_url, '/+$', '') IN ({placeholders}) \
+                   OR (feed_url IS NOT NULL AND btrim(feed_url) <> '' \
+                       AND regexp_replace(feed_url, '/+$', '') IN ({placeholders}))) \
+                 LIMIT 1"
+            ),
+            keys.iter().map(|key| key.as_str().into()),
+        ))
+        .one(db)
         .await
-        .map_err(|error| phantasi_store_http("find pending application", error))?;
-    Ok(rows.into_iter().find(|row| {
-        keys.iter().any(|key| {
-            url_match_key(&row.site_url) == *key
-                || row
-                    .feed_url
-                    .as_deref()
-                    .is_some_and(|feed| url_match_key(feed) == *key)
-        })
-    }))
+        .map_err(|error| phantasi_store_http("find pending application", error))
 }
 
 async fn create_friend_source<C: ConnectionTrait>(
@@ -752,6 +778,43 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_phantasi_source_applications_pending_feed
             phantasi_sources::Entity::find().count(&db).await.unwrap(),
             1
         );
+    }
+
+    #[tokio::test]
+    async fn duplicate_lookups_match_only_the_requested_keys() {
+        let Some(db) = isolated_application_db().await else {
+            return;
+        };
+        let key = |url: &str| vec![url_match_key(url)];
+        let pending = pending_application(&db).await;
+        let mut with_feed: phantasi_source_applications::ActiveModel = pending.clone().into();
+        with_feed.feed_url = Set(Some("https://friend.example/feed.xml/".into()));
+        let pending = with_feed.update(&db).await.unwrap();
+        for (url, expected) in [
+            ("https://friend.example/", Some(pending.id)),
+            ("https://friend.example/feed.xml", Some(pending.id)),
+            ("https://other.example/", None),
+        ] {
+            let row = find_pending_for_keys(&db, &key(url)).await.unwrap();
+            assert_eq!(row.map(|row| row.id), expected, "{url}");
+        }
+        assert!(find_pending_for_keys(&db, &[]).await.unwrap().is_none());
+
+        // Sources are not stored normalized; matching still follows url_match_key.
+        let unnormalized = phantasi_source_applications::Model {
+            site_url: "https://Blog.EXAMPLE/".into(),
+            feed_url: Some("https://Blog.EXAMPLE/rss#top".into()),
+            ..pending
+        };
+        let source = create_friend_source(&db, 1, &unnormalized).await.unwrap();
+        for (url, expected) in [
+            ("https://blog.example/rss", Some(source.id)),
+            ("https://blog.example", Some(source.id)),
+            ("https://friend.example", None),
+        ] {
+            let row = find_existing_source(&db, &key(url)).await.unwrap();
+            assert_eq!(row.map(|row| row.id), expected, "{url}");
+        }
     }
 
     #[test]
