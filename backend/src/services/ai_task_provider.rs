@@ -116,10 +116,11 @@ where
     )
     .await
     .map_err(image_provider_error)?;
+    let (width, height) = (generated.width, generated.height);
     let persisted = crate::services::image_generation::persist_generated_with_status(
         db,
         media,
-        &generated,
+        generated,
         "generated",
     )
     .await
@@ -129,8 +130,8 @@ where
         "format": "image",
         "value": {
             "url": url,
-            "width": generated.width,
-            "height": generated.height,
+            "width": width,
+            "height": height,
         },
         "contextProvenance": [],
     }))

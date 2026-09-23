@@ -8,7 +8,6 @@ use axum::body::Bytes;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use flate2::read::GzDecoder;
 use serde_json::{Map, Value, json};
-use std::borrow::Cow;
 use std::io::Read;
 use std::time::Duration;
 
@@ -41,10 +40,18 @@ pub struct ImageGenerationConfig {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GeneratedImage {
-    pub source: String,
+    pub source: GeneratedImageSource,
     pub media_type: String,
     pub width: u32,
     pub height: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GeneratedImageSource {
+    /// Image bytes the provider returned directly (raw body or inline data).
+    Inline(Vec<u8>),
+    /// Remote URL from a JSON provider payload (a `data:` URL is also accepted).
+    Url(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -456,7 +463,7 @@ pub async fn load_local_reference(url: &str) -> Result<ImageReference, ImageGene
 pub async fn persist_generated_with_status(
     db: &DatabaseConnection,
     ctx: MediaContext,
-    generated: &GeneratedImage,
+    generated: GeneratedImage,
     filename: &str,
 ) -> Result<PersistedGeneratedImage, ImageGenerationError> {
     let (bytes, media_type) = load_generated_bytes(generated).await?;
@@ -466,7 +473,7 @@ pub async fn persist_generated_with_status(
             ctx,
             NewMediaBytes {
                 max_bytes: MAX_IMAGE_BYTES,
-                claimed_mime: media_type.clone(),
+                claimed_mime: media_type,
                 filename: filename.to_string(),
                 derived_from_id: None,
                 exposure: MediaExposure::Private,
@@ -543,9 +550,25 @@ fn mime_from_filename(path: &std::path::Path) -> &'static str {
 }
 
 pub(crate) async fn load_generated_bytes(
-    generated: &GeneratedImage,
+    generated: GeneratedImage,
 ) -> Result<(Vec<u8>, String), ImageGenerationError> {
-    if let Some(data) = generated.source.strip_prefix("data:") {
+    let GeneratedImage {
+        source, media_type, ..
+    } = generated;
+    let source = match source {
+        GeneratedImageSource::Inline(bytes) => {
+            validate_media_type(&media_type)?;
+            if bytes.len() > MAX_IMAGE_BYTES {
+                return Err(ImageGenerationError::InvalidResponse(
+                    "generated image exceeds storage limit".to_string(),
+                ));
+            }
+            validate_magic(&bytes, &media_type)?;
+            return Ok((bytes, media_type));
+        }
+        GeneratedImageSource::Url(source) => source,
+    };
+    if let Some(data) = source.strip_prefix("data:") {
         let (metadata, encoded) = data.split_once(',').ok_or_else(|| {
             ImageGenerationError::InvalidResponse("invalid image data URL".to_string())
         })?;
@@ -569,7 +592,7 @@ pub(crate) async fn load_generated_bytes(
     }
 
     let (url, client) = crate::services::outbound_security::build_public_http_client(
-        &generated.source,
+        &source,
         Duration::from_secs(5 * 60),
         Some("Myriad-ImageGeneration/1.0"),
     )
@@ -596,7 +619,7 @@ pub(crate) async fn load_generated_bytes(
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.split(';').next())
-        .unwrap_or(&generated.media_type)
+        .unwrap_or(&media_type)
         .to_string();
     validate_media_type(&media_type)?;
     let bytes = crate::services::outbound_security::read_limited_body(response, MAX_IMAGE_BYTES)
@@ -929,9 +952,9 @@ async fn read_image_api_response(
             provider_label(provider)
         )));
     }
-    let body = decompress_provider_body(&bytes, content_encoding.as_deref())?;
-    if let Some(image) = parse_raw_image(&body, width, height)? {
-        return Ok(image);
+    let body = decompress_provider_body(bytes, content_encoding.as_deref())?;
+    if let Some(media_type) = raw_image_media_type(&body) {
+        return raw_image(body, media_type, width, height);
     }
     let value = decode_provider_body(&body, content_type.as_deref())?;
     parse_image_response(&value, width, height)
@@ -948,12 +971,12 @@ fn header_value(
         .filter(|value| !value.is_empty())
 }
 
-fn decompress_provider_body<'a>(
-    bytes: &'a [u8],
+fn decompress_provider_body(
+    bytes: Vec<u8>,
     content_encoding: Option<&str>,
-) -> Result<Cow<'a, [u8]>, ImageGenerationError> {
+) -> Result<Vec<u8>, ImageGenerationError> {
     if bytes.starts_with(&[0x1f, 0x8b]) {
-        return Ok(Cow::Owned(gzip_decode(bytes)?));
+        return gzip_decode(&bytes);
     }
     let encoding = content_encoding.unwrap_or("").to_ascii_lowercase();
     if encoding.contains("gzip") {
@@ -962,7 +985,7 @@ fn decompress_provider_body<'a>(
             "image provider advertised gzip without gzip magic; parsing the body as-is"
         );
     }
-    Ok(Cow::Borrowed(bytes))
+    Ok(bytes)
 }
 
 fn gzip_decode(bytes: &[u8]) -> Result<Vec<u8>, ImageGenerationError> {
@@ -1058,31 +1081,36 @@ fn parse_sse_image_event(text: &str) -> Option<Value> {
     completed.or(last_with_image)
 }
 
-fn parse_raw_image(
-    bytes: &[u8],
+fn raw_image_media_type(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        Some("image/webp")
+    } else {
+        None
+    }
+}
+
+/// Raw binary provider body: keep the bytes as-is instead of a data URL round trip.
+fn raw_image(
+    bytes: Vec<u8>,
+    media_type: &str,
     width: u32,
     height: u32,
-) -> Result<Option<GeneratedImage>, ImageGenerationError> {
-    let media_type = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        "image/png"
-    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
-        "image/jpeg"
-    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
-        "image/webp"
-    } else {
-        return Ok(None);
-    };
+) -> Result<GeneratedImage, ImageGenerationError> {
     if bytes.len() > MAX_IMAGE_BYTES {
         return Err(ImageGenerationError::InvalidResponse(
             "generated image exceeds storage limit".to_string(),
         ));
     }
-    Ok(Some(GeneratedImage {
-        source: format!("data:{media_type};base64,{}", BASE64.encode(bytes)),
+    Ok(GeneratedImage {
+        source: GeneratedImageSource::Inline(bytes),
         media_type: media_type.to_string(),
         width,
         height,
-    }))
+    })
 }
 
 fn body_preview(bytes: &[u8]) -> String {
@@ -1131,9 +1159,14 @@ fn parse_image_response(
         .or(Some(fallback_media_type))
         .unwrap_or("image/png")
         .to_string();
+    // Native base64 is decoded once here, at the wire boundary.
     let source = match source {
-        ImagePayload::Base64(encoded) => format!("data:{media_type};base64,{encoded}"),
-        ImagePayload::Url(url) => url.to_string(),
+        ImagePayload::Base64(encoded) => {
+            GeneratedImageSource::Inline(BASE64.decode(encoded).map_err(|_| {
+                ImageGenerationError::InvalidResponse("invalid image base64".to_string())
+            })?)
+        }
+        ImagePayload::Url(url) => GeneratedImageSource::Url(url.to_string()),
     };
     let (width, height) = size_from_value(item)
         .or_else(|| size_from_value(value))
@@ -1661,7 +1694,7 @@ mod tests {
     fn parses_base64_and_url_responses() {
         let base64 =
             parse_image_response(&json!({ "data": [{ "b64_json": "AA==" }] }), 1024, 1024).unwrap();
-        assert_eq!(base64.source, "data:image/png;base64,AA==");
+        assert_eq!(base64.source, GeneratedImageSource::Inline(vec![0]));
         let url = parse_image_response(
             &json!({ "data": [{ "url": "https://example.com/image.png", "size": "768x1024" }] }),
             1024,
@@ -1681,7 +1714,7 @@ mod tests {
         .unwrap();
         assert_eq!(jpeg.media_type, "image/jpeg");
         assert_eq!((jpeg.width, jpeg.height), (1536, 1024));
-        assert_eq!(jpeg.source, "data:image/jpeg;base64,AA==");
+        assert_eq!(jpeg.source, GeneratedImageSource::Inline(vec![0]));
     }
 
     #[test]
@@ -1696,7 +1729,7 @@ mod tests {
         );
         let value = decode_provider_body(sse.as_bytes(), Some("text/event-stream")).unwrap();
         let parsed = parse_image_response(&value, 1024, 1024).unwrap();
-        assert_eq!(parsed.source, "data:image/png;base64,AA==");
+        assert_eq!(parsed.source, GeneratedImageSource::Inline(vec![0]));
         assert_eq!((parsed.width, parsed.height), (1024, 1536));
 
         let top_level = parse_image_response(
@@ -1705,7 +1738,7 @@ mod tests {
             512,
         )
         .unwrap();
-        assert_eq!(top_level.source, "data:image/webp;base64,AA==");
+        assert_eq!(top_level.source, GeneratedImageSource::Inline(vec![0]));
 
         let responses = parse_image_response(
             &json!({
@@ -1719,7 +1752,7 @@ mod tests {
             1024,
         )
         .unwrap();
-        assert_eq!(responses.source, "data:image/png;base64,AA==");
+        assert_eq!(responses.source, GeneratedImageSource::Inline(vec![0]));
     }
 
     #[test]
@@ -1732,10 +1765,21 @@ mod tests {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(&json).unwrap();
         let gz = encoder.finish().unwrap();
-        let body = decompress_provider_body(&gz, Some("gzip")).unwrap();
+        let body = decompress_provider_body(gz, Some("gzip")).unwrap();
         let value = decode_provider_body(&body, Some("application/json")).unwrap();
         let parsed = parse_image_response(&value, 1024, 1024).unwrap();
-        assert_eq!(parsed.source, "data:image/png;base64,AA==");
+        assert_eq!(parsed.source, GeneratedImageSource::Inline(vec![0]));
+    }
+
+    #[tokio::test]
+    async fn raw_image_body_is_carried_as_bytes() {
+        let png = b"\x89PNG\r\n\x1a\nraw".to_vec();
+        let body = decompress_provider_body(png.clone(), None).unwrap();
+        let media_type = raw_image_media_type(&body).unwrap();
+        let generated = raw_image(body, media_type, 512, 512).unwrap();
+        assert_eq!(generated.source, GeneratedImageSource::Inline(png.clone()));
+        let (bytes, mime) = load_generated_bytes(generated).await.unwrap();
+        assert_eq!((bytes, mime.as_str()), (png, "image/png"));
     }
 
     #[test]

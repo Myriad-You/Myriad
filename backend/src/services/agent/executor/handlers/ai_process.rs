@@ -1029,6 +1029,7 @@ async fn execute_ai_image(
         crate::services::image_generation::generate_image(&config, &prompt, width, height, None)
             .await
             .map_err(|error| error.to_string())?;
+    let (width, height) = (generated.width, generated.height);
     let persisted = crate::services::image_generation::persist_generated_with_status(
         ctx.db,
         crate::services::media::task_media_context(ctx.user_id, ctx.user_id).with_producer_key(
@@ -1037,15 +1038,11 @@ async fn execute_ai_image(
                 .map(|id| format!("agent:{id}:image"))
                 .unwrap_or_default(),
         ),
-        &generated,
+        generated,
         "generated",
     )
     .await
     .map_err(|error| error.to_string())?;
 
-    Ok(task_image_envelope(
-        &persisted.url,
-        generated.width,
-        generated.height,
-    ))
+    Ok(task_image_envelope(&persisted.url, width, height))
 }

@@ -235,7 +235,7 @@ pub async fn preview_edit(
             "Image editing failed; please try again",
         ))
     })?;
-    let (bytes, mime) = image_generation::load_generated_bytes(&generated)
+    let (bytes, mime) = image_generation::load_generated_bytes(generated)
         .await
         .map_err(|_| HttpError(AppError::bad_gateway("Unable to load generated image")))?;
     validate_candidate(&bytes, &mime)?;

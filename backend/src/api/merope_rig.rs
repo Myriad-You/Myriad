@@ -1688,7 +1688,7 @@ pub async fn generate_portrait(
             crate::services::media::MediaSource::Generated,
         )
         .with_producer_key(generation_token.clone()),
-        &generated,
+        generated,
         "portrait",
     )
     .await
@@ -1968,7 +1968,7 @@ pub async fn generate_sticker_avatar(
             crate::services::media::MediaSource::Generated,
         )
         .with_producer_key(generation_token.clone()),
-        &generated,
+        generated,
         "avatar",
     )
     .await

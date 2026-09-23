@@ -8,7 +8,8 @@ use serde_json::{Value, json};
 
 use crate::services::http_client::get_long_running_client;
 use crate::services::image_generation::{
-    GeneratedImage, ImageGenerationConfig, ImageGenerationError, ImageReference,
+    GeneratedImage, GeneratedImageSource, ImageGenerationConfig, ImageGenerationError,
+    ImageReference,
 };
 
 const DEFAULT_GEMINI_BASE: &str = "https://generativelanguage.googleapis.com";
@@ -163,7 +164,7 @@ pub async fn generate_image(
         .ok_or_else(|| ImageGenerationError::InvalidResponse(gemini_empty_message(&value)))?;
     let media_type = normalize_image_media_type(&media_type, &bytes);
     Ok(GeneratedImage {
-        source: format!("data:{media_type};base64,{}", BASE64.encode(&bytes)),
+        source: GeneratedImageSource::Inline(bytes),
         media_type,
         width,
         height,

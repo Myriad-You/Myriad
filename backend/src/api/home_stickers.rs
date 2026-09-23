@@ -248,7 +248,8 @@ pub async fn generate_home_sticker(
     )
     .await
     .map_err(map_generation_error)?;
-    let (bytes, _) = image_generation::load_generated_bytes(&generated)
+    let (width, height) = (generated.width, generated.height);
+    let (bytes, _) = image_generation::load_generated_bytes(generated)
         .await
         .map_err(map_generation_error)?;
     let png = crate::services::sticker_cutout::prepare_sticker_png(bytes)
@@ -278,8 +279,8 @@ pub async fn generate_home_sticker(
 
     Ok(Json(GenerateHomeStickerResponse {
         image_url: asset.catalog_url(),
-        width: generated.width,
-        height: generated.height,
+        width,
+        height,
     }))
 }
 
