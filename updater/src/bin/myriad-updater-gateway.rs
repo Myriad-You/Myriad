@@ -1205,11 +1205,9 @@ mod tests {
         let uri: Uri = "/last-failed/dismiss".parse().unwrap();
         assert!(validate_capability(&Method::POST, &uri, &headers, b"").is_ok());
         assert!(validate_capability(&Method::POST, &uri, &headers, br#"{}"#).is_err());
-        for path in ["/self-update/last/dismiss"] {
-            let uri: Uri = path.parse().unwrap();
-            assert!(validate_capability(&Method::POST, &uri, &headers, b"").is_ok());
-            assert!(validate_capability(&Method::POST, &uri, &headers, br#"{}"#).is_err());
-        }
+        let uri: Uri = "/self-update/last/dismiss".parse().unwrap();
+        assert!(validate_capability(&Method::POST, &uri, &headers, b"").is_ok());
+        assert!(validate_capability(&Method::POST, &uri, &headers, br#"{}"#).is_err());
     }
 
     #[test]
