@@ -39,21 +39,6 @@ pub(super) fn source_visible(source: &phantasi_sources::Model, is_admin: bool) -
     is_admin || !source.admin_only
 }
 
-pub(super) fn starred_count_sql(is_admin: bool) -> &'static str {
-    if is_admin {
-        "SELECT COUNT(*)::int AS starred_count \
-         FROM phantasi_user_states s \
-         INNER JOIN phantasi_items i ON i.id = s.item_id \
-         WHERE s.user_id = $1 AND s.is_starred = TRUE"
-    } else {
-        "SELECT COUNT(*)::int AS starred_count \
-         FROM phantasi_user_states s \
-         INNER JOIN phantasi_items i ON i.id = s.item_id \
-         INNER JOIN phantasi_sources src ON src.id = i.source_id AND src.admin_only = FALSE \
-         WHERE s.user_id = $1 AND s.is_starred = TRUE"
-    }
-}
-
 fn parse_optional_i32(v: &Value) -> Option<i32> {
     if let Some(n) = v.as_i64() {
         return i32::try_from(n).ok();
@@ -1086,79 +1071,60 @@ pub(super) async fn execute_phantasi_stats(
 ) -> Result<Value, String> {
     let user_id = ctx.user_id;
     let is_admin = crate::services::agent::user_is_current_admin(ctx.db, user_id).await;
-    let totals_sql = if is_admin {
-        "SELECT COUNT(*)::int AS total_sources, COALESCE(SUM(item_count), 0)::int AS total_items FROM phantasi_sources"
+    // One statement returns all four counters. Reading stats only apply to a
+    // signed-in subject ($1 > 0); starred stays admin-only as before.
+    let stats_sql = if is_admin {
+        "SELECT \
+           (SELECT COUNT(*) FROM phantasi_sources)::int AS total_sources, \
+           (SELECT COALESCE(SUM(item_count), 0) FROM phantasi_sources)::int AS total_items, \
+           (CASE WHEN $1 > 0 THEN ( \
+             SELECT COUNT(*) FROM phantasi_items i \
+             WHERE NOT EXISTS ( \
+               SELECT 1 FROM phantasi_user_states s \
+               WHERE s.item_id = i.id AND s.user_id = $1 AND s.is_read = TRUE \
+             ) \
+           ) ELSE 0 END)::int AS unread_count, \
+           (CASE WHEN $1 > 0 THEN ( \
+             SELECT COUNT(*) FROM phantasi_user_states s \
+             INNER JOIN phantasi_items i ON i.id = s.item_id \
+             WHERE s.user_id = $1 AND s.is_starred = TRUE \
+           ) ELSE 0 END)::int AS starred_count"
     } else {
-        "SELECT COUNT(*)::int AS total_sources, COALESCE(SUM(item_count), 0)::int AS total_items FROM phantasi_sources WHERE admin_only = FALSE"
+        "WITH src AS (SELECT id, item_count FROM phantasi_sources WHERE admin_only = FALSE) \
+         SELECT \
+           (SELECT COUNT(*) FROM src)::int AS total_sources, \
+           (SELECT COALESCE(SUM(item_count), 0) FROM src)::int AS total_items, \
+           (CASE WHEN $1 > 0 THEN ( \
+             SELECT COUNT(*) FROM phantasi_items i \
+             INNER JOIN src ON src.id = i.source_id \
+             WHERE NOT EXISTS ( \
+               SELECT 1 FROM phantasi_user_states s \
+               WHERE s.item_id = i.id AND s.user_id = $1 AND s.is_read = TRUE \
+             ) \
+           ) ELSE 0 END)::int AS unread_count, \
+           0::int AS starred_count"
     };
-    let totals = ctx
+    let row = ctx
         .db
-        .query_one_raw(Statement::from_string(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            totals_sql.to_string(),
+            stats_sql,
+            [user_id.into()],
         ))
         .await
         .map_err(|error| phantasi_query_failed("count sources", error))?
         .ok_or_else(|| phantasi_query_failed("count sources", "empty totals"))?;
-    let total_sources: i64 = totals
-        .try_get::<i32>("", "total_sources")
-        .map_err(|error| phantasi_query_failed("read source count", error))?
-        as i64;
-    let total_items: i64 = totals
-        .try_get::<i32>("", "total_items")
-        .map_err(|error| phantasi_query_failed("read item count", error))?
-        as i64;
-
-    let (unread_count, starred_count) = if user_id > 0 {
-        let unread_sql = if is_admin {
-            "SELECT COUNT(*)::int AS unread_count \
-             FROM phantasi_items i \
-             WHERE NOT EXISTS ( \
-               SELECT 1 FROM phantasi_user_states s \
-               WHERE s.item_id = i.id AND s.user_id = $1 AND s.is_read = TRUE \
-             )"
-        } else {
-            "SELECT COUNT(*)::int AS unread_count \
-             FROM phantasi_items i \
-             INNER JOIN phantasi_sources src ON src.id = i.source_id AND src.admin_only = FALSE \
-             WHERE NOT EXISTS ( \
-               SELECT 1 FROM phantasi_user_states s \
-               WHERE s.item_id = i.id AND s.user_id = $1 AND s.is_read = TRUE \
-             )"
-        };
-        let (unread_row, starred_row) = tokio::try_join!(
-            ctx.db.query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                unread_sql,
-                [user_id.into()],
-            )),
-            ctx.db.query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                starred_count_sql(is_admin),
-                [user_id.into()],
-            )),
-        )
-        .map_err(|error| phantasi_query_failed("count reading stats", error))?;
-        let unread: i64 = unread_row
-            .ok_or_else(|| phantasi_query_failed("count unread", "empty unread"))?
-            .try_get::<i32>("", "unread_count")
-            .map_err(|error| phantasi_query_failed("read unread count", error))?
-            as i64;
-        let starred: i64 = starred_row
-            .ok_or_else(|| phantasi_query_failed("count starred", "empty starred"))?
-            .try_get::<i32>("", "starred_count")
-            .map_err(|error| phantasi_query_failed("read starred count", error))?
-            as i64;
-        (unread, starred)
-    } else {
-        (0, 0)
+    let count = |column: &'static str| {
+        row.try_get::<i32>("", column)
+            .map(i64::from)
+            .map_err(|error| phantasi_query_failed("read phantasi stats", error))
     };
 
     Ok(json!({
-        "totalSources": total_sources,
-        "totalItems": total_items,
-        "unreadCount": unread_count,
-        "starredCount": if is_admin { starred_count } else { 0 },
+        "totalSources": count("total_sources")?,
+        "totalItems": count("total_items")?,
+        "unreadCount": count("unread_count")?,
+        "starredCount": count("starred_count")?,
         "userId": if user_id > 0 { Value::from(user_id) } else { Value::Null },
     }))
 }
@@ -1393,11 +1359,15 @@ mod phantasi_db_helpers_tests {
             !stats.contains("phantasi_items::Entity::find()"),
             "agent stats must not materialize item IDs"
         );
-        assert!(stats.contains("starred_count_sql"));
-        assert!(stats.contains("(0, 0)"));
+        assert!(stats.contains("admin_only = FALSE"));
+        assert!(stats.contains("CASE WHEN $1 > 0"));
         assert!(!stats.contains("total_items, 0"));
         assert!(stats.contains("phantasi_query_failed(\"count sources\""));
-        assert!(stats.contains("try_join!"));
+        assert_eq!(
+            stats.matches("query_one_raw").count(),
+            1,
+            "agent stats must be one aggregate statement"
+        );
         assert!(
             !stats.contains(".ok()"),
             "agent stats must not swallow store errors as zeros"
@@ -1482,7 +1452,7 @@ mod phantasi_db_helpers_tests {
                 fn_body.contains("visible_sources_query")
                     || fn_body.contains("visible_source_ids")
                     || fn_body.contains("source_visible")
-                    || fn_body.contains("starred_count_sql"),
+                    || fn_body.contains("admin_only = FALSE"),
                 "{name} must apply admin_only visibility"
             );
             if name.contains("execute_phantasi_read") || name.contains("execute_phantasi_items") {
