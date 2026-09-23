@@ -853,15 +853,6 @@ pub(crate) async fn cleanup_retained_state() {
     }
 }
 
-/// Retain request-driven opportunistic cleanup in addition to the idle sweep.
-pub async fn maybe_cleanup_tasks() {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    static COUNTER: AtomicU32 = AtomicU32::new(0);
-    if COUNTER.fetch_add(1, Ordering::Relaxed).is_multiple_of(20) {
-        cleanup_retained_state().await;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

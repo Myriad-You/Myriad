@@ -40,9 +40,6 @@ impl Agent {
     async fn process_inner(&self, request: UserRequest) -> Result<AgentResponse, String> {
         let user_id = request.user_id;
 
-        // 请求驱动的过期任务清理
-        executor::maybe_cleanup_tasks().await;
-
         tracing::info!(
             user_id = user_id,
             input = %request.raw_input,

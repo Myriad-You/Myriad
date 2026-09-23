@@ -27,8 +27,8 @@ pub mod utils;
 pub use frontend_ack::submit as submit_frontend_ack;
 pub use task_store::{
     TASK_STORE, cancel_task_for_user, claim_task_for_resume, clear_cancellation, enqueue_steering,
-    get_task_for_user, get_user_tasks, init_task_store_db, is_cancelled, maybe_cleanup_tasks,
-    persist_task_async, refresh_task_for_user, request_cancel, take_steering,
+    get_task_for_user, get_user_tasks, init_task_store_db, is_cancelled, persist_task_async,
+    refresh_task_for_user, request_cancel, take_steering,
 };
 pub use utils::{extract_image_url, summarize_output, truncate_str};
 
