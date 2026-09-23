@@ -71,7 +71,7 @@ Updater 使用宿主策略 capability 提交意图；Guard 固定官方 updater 
 ### 2.1 编排的归属：哪些键属于版本、哪些属于站点
 
 业务更新时，更新器用目标版本的模板重建 `backend`、`frontend`、`backend-volume-init`、
-`federation-worker`、`persona-worker` 这 5 个服务的定义。因此这些服务上**部分字段属于版本、
+`federation-worker`、`persona-worker`、`proxy` 这 6 个服务的定义。因此这些服务上**部分字段属于版本、
 部分字段属于站点**：
 
 | 归属 | 字段 | 行为 |
@@ -83,7 +83,7 @@ Updater 使用宿主策略 capability 提交意图；Guard 固定官方 updater 
 | 版本 | `volumes` | 以目标模板的挂载列表为准。Guard 只放行模板已有的卷（见下），站点自加的挂载无法启动 |
 | 站点 | 顶层 `volumes` / `networks` / `configs` / `secrets` 的名称 | 只增不改，卷名保持站点原有身份 |
 
-`proxy`、`updater`、`docker-guard`、`updater-gateway`、`postgres` 不在这 5 个服务内，更新器
+`updater`、`docker-guard`、`updater-gateway`、`postgres` 不在这 6 个服务内，更新器
 **不迁移**它们的定义；发行版若改了这些服务（例如新增挂载），需要宿主按
 [deployment/DOCKER_DEPLOYMENT.md](./DOCKER_DEPLOYMENT.md) 手动同步。
 
@@ -202,7 +202,7 @@ audit: update_request job=… target=… mode=… allow_downgrade=… allow_dive
 [updater-spec.md §16.1](../updater-spec.md)）。
 
 Commit 模式成功后 **只写入 `dev-<shortsha>`** 到 `MYRIAD_TAG`。  
-业务更新只换 **`MYRIAD_TAG`**（web + federation-worker + persona-worker 共用 backend 镜像，加上 frontend）；proxy 独立更新；Guard/updater TCB 可在 UI 中一键升级。
+业务更新只换 **`MYRIAD_TAG`**（web + federation-worker + persona-worker 共用 backend 镜像，加上 frontend）；若本次 release 发布了新 proxy 镜像，也会一并切换 `PROXY_TAG`；Guard/updater TCB 可在 UI 中一键升级。
 成功后 `.env` 的 `UPDATER_IMAGE_REF` 等字段记录实际官方 `repo@sha256`，供核验和恢复。
 手动换版本只需修改 `UPDATER_TAG`，再执行 `deploy.sh upgrade`，或拉取并重建
 `docker-guard updater updater-gateway`；无需清除旧 pin。需要使用本版 Compose 文件，
@@ -261,7 +261,7 @@ watch -n2 "curl -s -H 'X-Update-Token: $UPDATE_TOKEN' http://localhost/_updater/
 
 ```
 preflight → maintenance_on → stopping → snapshotting → swap_tag
-  → starting_new → health_probing → swapping_proxy → finalize
+  → starting_new → health_probing → finalize
 ```
 
 更新中断后会自动恢复：切换 tag 前恢复旧栈，切换后接续已保存的目标，目标启动失败则回滚；回滚中断后继续恢复。健康目标不会重复启动。

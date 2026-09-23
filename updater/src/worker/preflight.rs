@@ -48,8 +48,27 @@ pub struct PreflightReport {
     pub target_commit_sha: Option<String>,
     pub backend_image_id: String,
     pub frontend_image_id: String,
+    /// Pulled local image id of the proxy image shipped by this release, when the
+    /// release actually ships one (proxy keeps its own `PROXY_TAG` cadence).
+    #[serde(default)]
+    pub proxy_image_id: Option<String>,
+    /// Tag to write into `PROXY_TAG` when this release ships a proxy image.
+    #[serde(default)]
+    pub proxy_target_tag: Option<String>,
+    /// `PROXY_TAG` value before the swap, restored on rollback when it changed.
+    #[serde(default)]
+    pub previous_proxy_tag: Option<String>,
     pub compose: crate::deployment::PreparedCompose,
     pub estimated_seconds: u32,
+}
+
+/// Local image identities resolved by [`prepare_images`].
+struct ResolvedImages {
+    backend_image_id: String,
+    frontend_image_id: String,
+    proxy_image_id: Option<String>,
+    proxy_target_tag: Option<String>,
+    previous_proxy_tag: Option<String>,
 }
 
 /// Operator confirmation flags. `allow_risk` is a backward-compatible umbrella that
@@ -336,7 +355,7 @@ async fn run_release_with_manifest(
         .image("frontend")
         .ok_or_else(|| UpdaterError::Precondition("manifest lacks frontend image".into()))?;
 
-    let ([backend_image_id, frontend_image_id], compose) = prepare_images(
+    let (resolved, compose) = prepare_images(
         &worker,
         Some(&manifest),
         [&backend.r#ref, &frontend.r#ref],
@@ -358,8 +377,11 @@ async fn run_release_with_manifest(
         from_version,
         target: target.clone(),
         target_commit_sha,
-        backend_image_id,
-        frontend_image_id,
+        backend_image_id: resolved.backend_image_id,
+        frontend_image_id: resolved.frontend_image_id,
+        proxy_image_id: resolved.proxy_image_id,
+        proxy_target_tag: resolved.proxy_target_tag,
+        previous_proxy_tag: resolved.previous_proxy_tag,
         compose,
         estimated_seconds: estimated,
     })
@@ -481,7 +503,7 @@ async fn run_release_via_dockerhub(
     let backend_ref = format!("{backend_repo}:{tag}");
     let frontend_ref = format!("{frontend_repo}:{tag}");
 
-    let ([backend_image_id, frontend_image_id], compose) =
+    let (resolved, compose) =
         prepare_images(&worker, None, [&backend_ref, &frontend_ref], target).await?;
 
     // Optional commit_sha when GitHub is reachable but only the release asset was missing.
@@ -508,8 +530,11 @@ async fn run_release_via_dockerhub(
         from_version,
         target: target.clone(),
         target_commit_sha,
-        backend_image_id,
-        frontend_image_id,
+        backend_image_id: resolved.backend_image_id,
+        frontend_image_id: resolved.frontend_image_id,
+        proxy_image_id: resolved.proxy_image_id,
+        proxy_target_tag: resolved.proxy_target_tag,
+        previous_proxy_tag: resolved.previous_proxy_tag,
         compose,
         estimated_seconds: 60,
     })
@@ -672,14 +697,17 @@ async fn run_commit(
     let backend_ref = format!("{backend_repo}:{tag}");
     let frontend_ref = format!("{frontend_repo}:{tag}");
 
-    let ([backend_image_id, frontend_image_id], compose) =
+    let (resolved, compose) =
         prepare_images(&worker, None, [&backend_ref, &frontend_ref], &effective).await?;
     Ok(PreflightReport {
         from_version,
         target: effective,
         target_commit_sha,
-        backend_image_id,
-        frontend_image_id,
+        backend_image_id: resolved.backend_image_id,
+        frontend_image_id: resolved.frontend_image_id,
+        proxy_image_id: resolved.proxy_image_id,
+        proxy_target_tag: resolved.proxy_target_tag,
+        previous_proxy_tag: resolved.previous_proxy_tag,
         compose,
         estimated_seconds: 60,
     })
@@ -691,7 +719,7 @@ async fn prepare_images(
     manifest: Option<&Manifest>,
     images: [&str; 2],
     target: &DeployTag,
-) -> Result<([String; 2], crate::deployment::PreparedCompose)> {
+) -> Result<(ResolvedImages, crate::deployment::PreparedCompose)> {
     check_env_keys(worker, manifest)?;
     check_disk(worker)?;
     crate::worker::preflight_env::check_local_environment(worker).await?;
@@ -714,17 +742,62 @@ async fn prepare_images(
             )));
         }
     }
+    // The proxy keeps its own `PROXY_TAG` cadence: it is only pulled/swapped when
+    // the target release actually ships one (manifest carries `images.proxy`). The
+    // Docker Hub fallback and commit mode leave the proxy image untouched.
+    let (proxy_image_id, proxy_target_tag, previous_proxy_tag) =
+        match manifest.and_then(|manifest| manifest.image("proxy")) {
+            Some(proxy) => {
+                if proxy.r#ref.ends_with(":latest") {
+                    return Err(UpdaterError::Precondition(format!(
+                        "image ref must use immutable tag, got: {}",
+                        proxy.r#ref
+                    )));
+                }
+                let pulled = worker
+                    .pull_image(&proxy.r#ref)
+                    .await
+                    .map_err(|error| UpdaterError::Precondition(format!("pull proxy {}: {error}", proxy.r#ref)))?;
+                if !digest_matches(&pulled, &proxy.digest) {
+                    return Err(UpdaterError::Precondition(format!(
+                        "proxy digest mismatch: pulled {pulled}, expected {}",
+                        proxy.digest
+                    )));
+                }
+                let target_tag = image_ref_tag(&proxy.r#ref).ok_or_else(|| {
+                    UpdaterError::Precondition(format!("proxy image ref has no tag: {}", proxy.r#ref))
+                })?;
+                let previous = EnvFile::load(&worker.cli().env_file)
+                    .ok()
+                    .and_then(|env| env.get("PROXY_TAG").map(str::to_owned));
+                (
+                    Some(worker.docker().image_id(&proxy.r#ref).await?),
+                    Some(target_tag),
+                    previous,
+                )
+            }
+            None => (None, None, None),
+        };
     let runner = crate::worker::update::build_compose_runner_pub(worker).await?;
     let (prepared, candidate) =
         crate::deployment::prepare(worker, &runner, images[0], target).await?;
     check_compose_networks(worker, images[0], &candidate).await?;
     Ok((
-        [
-            worker.docker().image_id(images[0]).await?,
-            worker.docker().image_id(images[1]).await?,
-        ],
+        ResolvedImages {
+            backend_image_id: worker.docker().image_id(images[0]).await?,
+            frontend_image_id: worker.docker().image_id(images[1]).await?,
+            proxy_image_id,
+            proxy_target_tag,
+            previous_proxy_tag,
+        },
         prepared,
     ))
+}
+
+/// Tag portion of an image reference (`repo:tag` → `tag`). The repo may contain a
+/// host:port prefix; only the final `:` separates the tag.
+fn image_ref_tag(image_ref: &str) -> Option<String> {
+    image_ref.rsplit_once(':').map(|(_, tag)| tag.to_string())
 }
 
 fn require_downgrade(allowed: bool, target: &str) -> Result<()> {

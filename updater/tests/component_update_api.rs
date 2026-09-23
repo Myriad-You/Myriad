@@ -452,70 +452,6 @@ async fn persisted_guard_acceptance_survives_a_lost_http_response() {
         "guard-accepted"
     );
     assert_eq!(daemon.mock.guard_calls.load(Ordering::SeqCst), 1);
-    assert_eq!(
-        daemon
-            .post("/admin/proxy-update", json!({"target_version":"preview"}))
-            .await
-            .status(),
-        409
-    );
-}
-
-#[tokio::test]
-async fn mutable_proxy_update_failure_automatically_restores_the_previous_image() {
-    let mut daemon = Daemon::new(0, false, false).await;
-    daemon.start().await;
-    assert!(
-        daemon
-            .post("/admin/proxy-update", json!({"target_version":"preview"}))
-            .await
-            .status()
-            .is_success()
-    );
-    let result = daemon.outcome("proxy_update_last", "failed").await;
-    assert_eq!(result["rolled_back"], true, "{result}");
-    assert_eq!(
-        fs::read_to_string(daemon.mock.root.join("compose-calls")).unwrap(),
-        format!("preview@{NEW}\npreview@{OLD}\n")
-    );
-    let env = fs::read_to_string(daemon.mock.root.join(".env")).unwrap();
-    assert!(env.contains("PROXY_TAG=preview"));
-    assert!(env.contains("KEEP=unchanged"));
-    assert!(
-        daemon
-            .post("/proxy-update/last/dismiss", json!({}))
-            .await
-            .status()
-            .is_success()
-    );
-}
-
-fn queued_proxy() -> Value {
-    json!({"status":"pending","target_tag":"preview","target_image":format!("{REPO}@{NEW}"),"previous_tag":"preview","previous_image_id":OLD,"previous_image":OLD,"at":"before-restart"})
-}
-
-#[tokio::test]
-async fn proxy_restart_keeps_recovery_reference_after_mutable_tag_moves() {
-    let mut daemon = Daemon::new(0, false, true).await;
-    daemon.mock.save("proxy-update-last.json", &queued_proxy());
-    daemon.start().await;
-    let result = daemon.outcome("proxy_update_last", "failed").await;
-    assert_eq!(result["rolled_back"], true, "{result}");
-    assert_eq!(daemon.mock.pulls.load(Ordering::SeqCst), 0);
-    assert_eq!(
-        fs::read_to_string(daemon.mock.root.join("compose-calls")).unwrap(),
-        format!("preview@{NEW}\npreview@{OLD}\n")
-    );
-}
-
-#[tokio::test]
-async fn proxy_restart_finishes_an_already_healthy_target_without_recreating_it() {
-    let mut daemon = Daemon::new(0, true, true).await;
-    daemon.mock.save("proxy-update-last.json", &queued_proxy());
-    daemon.start().await;
-    daemon.outcome("proxy_update_last", "succeeded").await;
-    assert_eq!(daemon.mock.pulls.load(Ordering::SeqCst), 0);
-    assert!(!daemon.mock.root.join("compose-calls").exists());
 }
 
 #[tokio::test]
@@ -541,41 +477,4 @@ async fn self_update_power_cut_during_discovery_resumes_the_accepted_request() {
     daemon.mock.release_registry.add_permits(2);
     daemon.outcome("self_update_last", "failed").await;
     assert_eq!(daemon.mock.guard_calls.load(Ordering::SeqCst), 0);
-}
-
-#[tokio::test]
-async fn proxy_power_cut_after_replacement_finishes_without_recreating_the_target() {
-    let mut daemon = Daemon::new(0, false, false).await;
-    fs::write(daemon.mock.root.join("proxy-cut-after-apply"), "").unwrap();
-    daemon.start().await;
-    assert!(
-        daemon
-            .post("/admin/proxy-update", json!({"target_version":"preview"}))
-            .await
-            .status()
-            .is_success()
-    );
-    for _ in 0..200 {
-        if daemon.mock.root.join("proxy-running-target").exists() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    assert!(
-        daemon.mock.root.join("proxy-running-target").exists(),
-        "{}",
-        daemon.status().await
-    );
-    assert_eq!(
-        daemon.status().await["proxy_update_last"]["status"],
-        "pending"
-    );
-    daemon.power_cut();
-    daemon.start().await;
-    daemon.outcome("proxy_update_last", "succeeded").await;
-    assert_eq!(daemon.mock.pulls.load(Ordering::SeqCst), 1);
-    assert_eq!(
-        fs::read_to_string(daemon.mock.root.join("compose-calls")).unwrap(),
-        format!("preview@{NEW}\n")
-    );
 }

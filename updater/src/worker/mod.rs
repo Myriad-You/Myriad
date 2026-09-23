@@ -9,7 +9,6 @@ pub mod backend_health;
 pub mod machine;
 pub mod preflight;
 pub mod preflight_env;
-pub mod proxy_update;
 pub mod rollback;
 pub mod self_update;
 pub mod update;
@@ -124,20 +123,9 @@ pub enum Command {
     DismissSelfUpdateLast {
         reply: tokio::sync::oneshot::Sender<Result<()>>,
     },
-    /// Clear durable proxy-update last-outcome (`proxy-update-last.json`).
-    DismissProxyUpdateLast {
-        reply: tokio::sync::oneshot::Sender<Result<()>>,
-    },
     SelfUpdate {
         actor: Option<String>,
         reply: tokio::sync::oneshot::Sender<Result<self_update::SelfUpdateReport>>,
-    },
-    /// Manual proxy image upgrade (not part of business auto-update).
-    ProxyUpdate {
-        actor: Option<String>,
-        /// When set, fetch this release's proxy image; otherwise latest for channel.
-        explicit_tag: Option<String>,
-        reply: tokio::sync::oneshot::Sender<Result<proxy_update::ProxyUpdateReport>>,
     },
     Shutdown,
 }
@@ -217,9 +205,7 @@ impl Worker {
         // dismiss that would clear it — for the lifetime of the system. A readable
         // `Pending` record still refuses below.
         self_update::converge_unreadable_outcome(&self.state)?;
-        proxy_update::converge_unreadable_outcome(&self.state)?;
-        self_update::require_no_pending_handoff(&self.state)?;
-        proxy_update::require_no_pending(&self.state)
+        self_update::require_no_pending_handoff(&self.state)
     }
 
     fn require_idle_mutation(&self) -> Result<()> {
@@ -308,11 +294,6 @@ impl Worker {
             ));
         }
         Ok((backend, frontend))
-    }
-
-    /// Proxy image repository (no tag). Prefer `.env` `PROXY_IMAGE`; else compose default.
-    pub fn proxy_image_repo(&self) -> Result<String> {
-        self.optional_image_repo("PROXY_IMAGE", "docker.io/somekawahitomi/myriad-proxy")
     }
 
     /// Updater image repository (no tag). Prefer `.env` `UPDATER_IMAGE`; else compose default.
@@ -514,7 +495,6 @@ impl Worker {
             .take()
             .expect("worker rx already taken");
         let me = self.clone();
-        proxy_update::resume_pending(self.clone());
         self_update::resume_pending(self.clone());
 
         // Periodic poller. Interval is re-read each cycle so prefs hot-reload without restart.
@@ -719,27 +699,9 @@ impl Worker {
                     );
                     let _ = reply.send(res);
                 }
-                Command::DismissProxyUpdateLast { reply } => {
-                    let res = self.clone().handle_dismiss_state_file(
-                        proxy_update::PROXY_UPDATE_LAST_FILE,
-                        "audit: proxy_update_last_dismissed",
-                    );
-                    let _ = reply.send(res);
-                }
                 Command::SelfUpdate { actor, reply } => {
                     let res = match self.require_idle_mutation() {
                         Ok(()) => self_update::schedule(self.clone(), actor),
-                        Err(error) => Err(error),
-                    };
-                    let _ = reply.send(res);
-                }
-                Command::ProxyUpdate {
-                    actor,
-                    explicit_tag,
-                    reply,
-                } => {
-                    let res = match self.require_idle_mutation() {
-                        Ok(()) => proxy_update::schedule(self.clone(), actor, explicit_tag),
                         Err(error) => Err(error),
                     };
                     let _ = reply.send(res);

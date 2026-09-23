@@ -62,7 +62,6 @@ describe('infraCompatibility', () => {
     schema_version: 1,
     current_version: 'v0.4.13',
     updater_version: 'v0.4.6',
-    proxy_version: 'v0.3.32',
     channel: 'stable',
     maintenance_active: false,
     maintenance_phase: 'idle',
@@ -78,7 +77,7 @@ describe('infraCompatibility', () => {
     },
   }
 
-  it('allows different compatible application, updater and proxy versions', () => {
+  it('allows different compatible application and updater versions', () => {
     assert.deepEqual(infraCompatibility(status), {
       requiresSelfUpdate: false,
       minUpdaterVersion: 'v0.4.5',
@@ -108,7 +107,6 @@ describe('infraCompatibility', () => {
       infraCompatibility({
         ...status,
         updater_version: '',
-        proxy_version: null,
       }).requiresSelfUpdate,
       false,
     )

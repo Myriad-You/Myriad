@@ -82,6 +82,7 @@ pub async fn rollback(ctx: &Context, snapshot_id: &str) -> Result<()> {
     // with the new version's definition, which is what `restore_compose` prevents.
     let source_job = snapshot_id.strip_prefix("snap-").unwrap_or(snapshot_id);
     crate::worker::update::restore_compose(&ctx.state, source_job)?;
+    crate::worker::update::restore_proxy_tag(&ctx.state, source_job, &ctx.env_file)?;
 
     if ctx.db_mode.is_external() {
         info!("db_mode=external; skipping pgdata restore (tag-only rescue rollback)");
@@ -115,7 +116,7 @@ pub async fn rollback(ctx: &Context, snapshot_id: &str) -> Result<()> {
     if !ctx.db_mode.is_external() {
         compose_v2_or_v1(ctx, &["start", "postgres"]).await?;
     }
-    compose_v2_or_v1(ctx, &["up", "-d", "--no-deps", "backend", "frontend"]).await?;
+    compose_v2_or_v1(ctx, &["up", "-d", "--no-deps", "backend", "frontend", "proxy"]).await?;
 
     if let Some(ref tag) = prev_tag
         && let Ok(v) = crate::version::DeployTag::parse(tag) {

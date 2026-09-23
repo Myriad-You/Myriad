@@ -73,7 +73,6 @@ export interface CompareResult {
 export interface UpdaterStatus {
   schema_version: number
   updater_version: string
-  proxy_version?: string | null
   current_version: string | null
   current_commit_sha?: string | null
   channel: string
@@ -101,7 +100,6 @@ export interface UpdaterStatus {
   rollback_version?: string | null
   available_channels?: string[]
   self_update_last?: InfraUpdateLastStatus | null
-  proxy_update_last?: InfraUpdateLastStatus | null
   last_failed_update?: LastFailedUpdate | null
 }
 
@@ -477,8 +475,6 @@ export function makeUpdaterApi(
       wrap<{ ok: boolean }>('POST', '/last-failed/dismiss'),
     dismissSelfUpdateLast: () =>
       wrap<{ ok: boolean }>('POST', '/self-update/last/dismiss'),
-    dismissProxyUpdateLast: () =>
-      wrap<{ ok: boolean }>('POST', '/proxy-update/last/dismiss'),
     deleteSnapshot: (snapshotId: string) =>
       wrap<{ ok: boolean; id: string }>(
         'DELETE',
@@ -506,19 +502,6 @@ export function makeUpdaterApi(
       }>(
         'POST',
         mode === 'backend' ? '/self-update' : '/admin/self-update',
-      ),
-    triggerProxyUpdate: (targetVersion?: string) =>
-      wrap<{
-        ok: boolean
-        previous_proxy_tag: string
-        new_proxy_tag: string
-        image_ref: string
-        pulled_digest: string
-        scheduled?: boolean
-      }>(
-        'POST',
-        mode === 'backend' ? '/proxy-update' : '/admin/proxy-update',
-        targetVersion ? { target_version: targetVersion } : {},
       ),
   }
 }

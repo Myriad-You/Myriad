@@ -13,12 +13,13 @@ use std::{
     sync::Arc,
 };
 
-const APPLICATION: [&str; 5] = [
+const APPLICATION: [&str; 6] = [
     "backend",
     "frontend",
     "backend-volume-init",
     "federation-worker",
     "persona-worker",
+    "proxy",
 ];
 
 /// Service keys the host owns: `merge_application` copies them from the current

@@ -191,7 +191,6 @@ pub enum Phase {
     SwapTag,
     StartingNew,
     HealthProbing,
-    SwappingProxy,
     Finalize,
     RollbackInProgress,
     StopNew,
@@ -221,7 +220,7 @@ impl Phase {
     /// (see `plan_crash_recovery` + `env_myriad_tag`).
     pub fn is_post_swap(self) -> bool {
         use Phase::*;
-        matches!(self, StartingNew | HealthProbing | SwappingProxy | Finalize)
+        matches!(self, StartingNew | HealthProbing | Finalize)
     }
 
     pub fn is_rollback(self) -> bool {

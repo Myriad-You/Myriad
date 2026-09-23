@@ -132,13 +132,11 @@ fn build_router(state: Arc<GatewayState>) -> Router {
         .route("/prefs", post(proxy))
         .route("/last-failed/dismiss", post(proxy))
         .route("/self-update/last/dismiss", post(proxy))
-        .route("/proxy-update/last/dismiss", post(proxy))
         .route("/rollback", post(proxy))
         .route("/rescue/continue", post(proxy))
         .route("/rescue/exit-maintenance", post(proxy))
         .route("/rescue/forget-current", post(proxy))
         .route("/admin/self-update", post(proxy))
-        .route("/admin/proxy-update", post(proxy))
         .fallback(unknown_capability)
         .with_state(state)
 }
@@ -272,7 +270,6 @@ enum BodySchema {
     Update,
     Prefs,
     Rollback,
-    ProxyUpdate,
 }
 
 struct Capability {
@@ -345,14 +342,9 @@ fn validate_capability(
             ..write_capability(false)
         },
         (&Method::POST, "/last-failed/dismiss")
-        | (&Method::POST, "/self-update/last/dismiss")
-        | (&Method::POST, "/proxy-update/last/dismiss") => write_capability(false),
+        | (&Method::POST, "/self-update/last/dismiss") => write_capability(false),
         (&Method::POST, "/rollback") => Capability {
             body: BodySchema::Rollback,
-            ..write_capability(true)
-        },
-        (&Method::POST, "/admin/proxy-update") => Capability {
-            body: BodySchema::ProxyUpdate,
             ..write_capability(true)
         },
         (&Method::POST, "/rescue/continue")
@@ -581,7 +573,6 @@ fn validate_body(
         BodySchema::Update => validate_update_body(object),
         BodySchema::Prefs => validate_prefs_body(object),
         BodySchema::Rollback => validate_rollback_body(object),
-        BodySchema::ProxyUpdate => validate_proxy_update_body(object),
     }
 }
 
@@ -725,16 +716,6 @@ fn validate_rollback_body(
             "snapshot_id has an invalid shape",
         ))
     }
-}
-
-fn validate_proxy_update_body(
-    object: &serde_json::Map<String, serde_json::Value>,
-) -> Result<(), ValidationError> {
-    deny_unknown_fields(object, &["target_version"])?;
-    if let Some(value) = object.get("target_version") {
-        validate_short_string(value, "target_version")?;
-    }
-    Ok(())
 }
 
 fn validate_short_string(value: &serde_json::Value, field: &str) -> Result<(), ValidationError> {
@@ -1223,7 +1204,7 @@ mod tests {
         let uri: Uri = "/last-failed/dismiss".parse().unwrap();
         assert!(validate_capability(&Method::POST, &uri, &headers, b"").is_ok());
         assert!(validate_capability(&Method::POST, &uri, &headers, br#"{}"#).is_err());
-        for path in ["/self-update/last/dismiss", "/proxy-update/last/dismiss"] {
+        for path in ["/self-update/last/dismiss"] {
             let uri: Uri = path.parse().unwrap();
             assert!(validate_capability(&Method::POST, &uri, &headers, b"").is_ok());
             assert!(validate_capability(&Method::POST, &uri, &headers, br#"{}"#).is_err());

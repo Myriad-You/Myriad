@@ -151,6 +151,7 @@ pub async fn execute_inline(
 
     let source_job = snapshot_id.strip_prefix("snap-").unwrap_or(&rec.job_id);
     super::update::restore_compose(worker.state(), source_job)?;
+    super::update::restore_proxy_tag(worker.state(), source_job, &worker.cli().env_file)?;
 
     // --- Resolve + restore MYRIAD_TAG BEFORE snapshot work ---
     // So any later failure (EBUSY restore, etc.) still leaves env at the rollback version.
@@ -277,7 +278,7 @@ pub async fn execute_inline(
 
     let _ = rec.enter(Phase::StartOld, "updater.phase.start_old");
     let up = compose
-        .up_detached_recreate(&["backend", "frontend"])
+        .up_detached_recreate(&["backend", "frontend", "proxy"])
         .await
         .map_err(|e| UpdaterError::Internal(anyhow::anyhow!("start old failed: {e}")))?;
     if !up.ok() {

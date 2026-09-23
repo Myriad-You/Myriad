@@ -122,10 +122,10 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
   const [infraFeedback, setInfraFeedback] = useState<
-    ({ scope: 'self' | 'proxy' } & NonNullable<Toast>) | null
+    ({ scope: 'self' } & NonNullable<Toast>) | null
   >(null)
   const reportInfraFeedback = useCallback(
-    (next: ({ scope: 'self' | 'proxy' } & NonNullable<Toast>) | null) => {
+    (next: ({ scope: 'self' } & NonNullable<Toast>) | null) => {
       setInfraFeedback(next)
       if (next) emitUpdaterToast({ kind: next.kind, text: next.text })
     },
@@ -141,11 +141,10 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
   const selHydratedRef = useRef(false)
   // Correlate this click with the next durable outcome, including v0.5.3 responses.
   const [infraRequest, setInfraRequest] = useState<{
-    kind: 'self' | 'proxy'
+    kind: 'self'
     beforeAt?: string
   } | null>(null)
   const infraPending = !!infraRequest || status?.self_update_last?.status === 'pending'
-    || status?.proxy_update_last?.status === 'pending'
   const autoRecheckDoneRef = useRef(false)
   const [nowTick, setNowTick] = useState(() => Date.now())
   const [autoRechecking, setAutoRechecking] = useState(false)
@@ -155,9 +154,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
   const [dismissedSelfLastAt, setDismissedSelfLastAt] = useState<string | null>(
     null,
   )
-  const [dismissedProxyLastAt, setDismissedProxyLastAt] = useState<
-    string | null
-  >(null)
 
   const maintWatchJobRef = useRef<string | null>(null)
   const maintPollStopRef = useRef<MaintenancePollStop | null>(null)
@@ -592,18 +588,18 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
 
   useEffect(() => {
     if (!infraRequest) return
-    const last = infraRequest.kind === 'self' ? status?.self_update_last : status?.proxy_update_last
+    const last = status?.self_update_last
     const outcome = isFreshInfraOutcome(last, infraRequest.beforeAt, '')
     if (!outcome || !last) return
     setInfraRequest(null)
     reportInfraFeedback({
-      scope: infraRequest.kind,
+      scope: 'self',
       kind: outcome === 'succeeded' ? 'ok' : 'error',
       text: outcome === 'succeeded'
-        ? format(infraRequest.kind === 'self' ? u.updaterSelfUpdateSucceeded : u.updaterProxyUpdateSucceeded, {
+        ? format(u.updaterSelfUpdateSucceeded, {
             version: last.target_tag || '—', previous: last.previous_tag || '—',
           })
-        : format(infraRequest.kind === 'self' ? u.updaterSelfUpdateFailed : u.updaterProxyUpdateFailed, {
+        : format(u.updaterSelfUpdateFailed, {
             error: last.error || '—',
           }),
     })
@@ -617,28 +613,27 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     const timer = window.setTimeout(() => {
       setInfraRequest(null)
       reportInfraFeedback({
-        scope: infraRequest.kind, kind: 'ok',
-        text: infraRequest.kind === 'self' ? u.updaterSelfUpdateStillPending : u.updaterProxyUpdateStillPending,
+        scope: 'self', kind: 'ok',
+        text: u.updaterSelfUpdateStillPending,
       })
     }, 90 * 60 * 1000)
     return () => window.clearTimeout(timer)
   }, [infraRequest, reportInfraFeedback, u])
 
-  const triggerInfraUpdate = useCallback(async (kind: 'self' | 'proxy') => {
+  const triggerInfraUpdate = useCallback(async (kind: 'self') => {
     if (tokenRequired) {
       reportInfraFeedback({ scope: kind, kind: 'error', text: u.updaterTokenRequiredDirect })
       return
     }
-    const confirmation = kind === 'self' ? u.updaterSelfUpdateConfirmAuto : u.updaterInfraProxyConfirmAuto
+    const confirmation = u.updaterSelfUpdateConfirmAuto
     if (!confirm(confirmation)) return
-    const beforeAt = (kind === 'self' ? status?.self_update_last : status?.proxy_update_last)?.at
-    setBusy(kind === 'self' ? 'self-update' : 'proxy-update')
+    const beforeAt = status?.self_update_last?.at
+    setBusy('self-update')
     setInfraRequest({ kind, beforeAt })
     setInfraFeedback(null)
     setLinkDown(false)
     try {
-      if (kind === 'self') await api.triggerSelfUpdate()
-      else await api.triggerProxyUpdate()
+      await api.triggerSelfUpdate()
     } catch (error) {
       if (isTransientUpdaterError(error)) {
         setLinkDown(true)
@@ -855,16 +850,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
     } catch {
     }
   }, [api, refresh, status?.self_update_last?.at])
-
-  const dismissProxyUpdateLast = useCallback(async () => {
-    const at = status?.proxy_update_last?.at
-    if (at) setDismissedProxyLastAt(at)
-    try {
-      await api.dismissProxyUpdateLast()
-      await refresh()
-    } catch {
-    }
-  }, [api, refresh, status?.proxy_update_last?.at])
 
   const mood = useMemo<Mood>(() => deriveMood(status), [status])
 
@@ -1168,57 +1153,6 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
                     onClick={() => triggerInfraUpdate('self')}
                   >
                     {u.updaterSelfUpdateButton}
-                  </SettingsButton>
-                </div>
-              </div>
-            </SettingGroup>
-
-            <SettingGroup
-              title={u.updaterInfraProxyTitle}
-              description={u.updaterInfraProxyDesc}
-              icon={<FaServer />}
-              className="updater-infra-card"
-            >
-              <div className="updater-infra-card-body">
-                <p className="updater-infra-current">
-                  {u.updaterInfraCurrent}{' '}
-                  <code>{status?.proxy_version ?? '—'}</code>
-                </p>
-                <InfraCardNotice
-                  inProgress={infraRequest?.kind === 'proxy' || busy === 'proxy-update' || status?.proxy_update_last?.status === 'pending'}
-                  linkDown={linkDown}
-                  waiting={u.updaterProxyUpdateWaiting}
-                  reconnecting={u.updaterProxyUpdateReconnecting}
-                  feedback={
-                    infraFeedback?.scope === 'proxy' ? infraFeedback : null
-                  }
-                  lastFail={
-                    status?.proxy_update_last?.status === 'failed' &&
-                    dismissedProxyLastAt !== status.proxy_update_last.at
-                      ? `${format(u.updaterInfraProxyLastFailed, {
-                          target: status.proxy_update_last.target_tag || '—',
-                          previous: status.proxy_update_last.previous_tag || '—',
-                          error: status.proxy_update_last.error || '—',
-                        })}${
-                          status.proxy_update_last.rolled_back
-                            ? ` ${u.updaterInfraProxyRolledBack}`
-                            : ''
-                        }`
-                      : null
-                  }
-                  dismissLabel={u.updaterLastFailedDismiss}
-                  dismissAria={u.updaterLastFailedDismissAria}
-                  onDismiss={() => void dismissProxyUpdateLast()}
-                />
-                <div className="updater-infra-card-actions">
-                  <SettingsButton
-                    size="sm"
-                    variant="secondary"
-                    disabled={!!busy || infraPending || tokenRequired || !status}
-                    loading={busy === 'proxy-update'}
-                    onClick={() => triggerInfraUpdate('proxy')}
-                  >
-                    {u.updaterInfraProxyUpdateButton}
                   </SettingsButton>
                 </div>
               </div>

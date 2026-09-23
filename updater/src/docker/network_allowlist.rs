@@ -155,6 +155,7 @@ pub const UPDATE_RECREATE_SERVICES: &[&str] = &[
     "persona-worker",
     "frontend",
     "postgres",
+    "proxy",
 ];
 
 /// Collect Docker network names that compose will attach for the given services.

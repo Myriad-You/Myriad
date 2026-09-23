@@ -333,7 +333,7 @@ fn is_sensitive_endpoint(path: &str) -> bool {
         || path.contains("/setup/init-database")
 }
 
-/// Listed updater mutate paths (not `proxy-update`; not status/jobs/available/snapshots list).
+/// Listed updater mutate paths (not status/jobs/available/snapshots list).
 fn is_admin_updater_mutate(path: &str) -> bool {
     let p = path.trim_end_matches('/');
     p.ends_with("/api/admin/updater/update")
@@ -342,7 +342,6 @@ fn is_admin_updater_mutate(path: &str) -> bool {
         || p.ends_with("/api/admin/updater/prefs")
         || p.ends_with("/api/admin/updater/last-failed/dismiss")
         || p.ends_with("/api/admin/updater/self-update/last/dismiss")
-        || p.ends_with("/api/admin/updater/proxy-update/last/dismiss")
         || p.contains("/api/admin/updater/rescue/")
         // DELETE /api/admin/updater/snapshots/{id}
         || p.contains("/api/admin/updater/snapshots/")
@@ -409,9 +408,6 @@ mod tests {
         ));
         assert!(is_admin_updater_mutate(
             "/api/admin/updater/self-update/last/dismiss"
-        ));
-        assert!(is_admin_updater_mutate(
-            "/api/admin/updater/proxy-update/last/dismiss"
         ));
         assert!(!is_admin_updater_mutate("/api/admin/updater/defaults"));
         assert!(is_admin_updater_mutate(

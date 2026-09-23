@@ -38,10 +38,6 @@ pub fn build(state: ApiState) -> Router {
         .route("/prefs", post(set_prefs))
         .route("/last-failed/dismiss", post(dismiss_last_failed))
         .route("/self-update/last/dismiss", post(dismiss_self_update_last))
-        .route(
-            "/proxy-update/last/dismiss",
-            post(dismiss_proxy_update_last),
-        )
         .route("/rollback", post(rollback))
         // One-click recovery for needs_manual / stuck post-swap jobs: same privilege as
         // `/rollback` (admin + token via backend). Does not require host manual-override
@@ -50,8 +46,6 @@ pub fn build(state: ApiState) -> Router {
         .route("/admin/self-update", post(self_update))
         // Durable last self-update outcome (also embedded in GET /status as self_update_last).
         .route("/self-update/last", get(self_update_last))
-        // Manual proxy upgrade (spec §12.3; not part of business auto-update).
-        .route("/admin/proxy-update", post(proxy_update))
         .route("/diagnostics", get(diagnostics))
         .route("/process-logs", get(process_logs))
         .layer(middleware::from_fn_with_state(
@@ -78,9 +72,6 @@ pub fn build(state: ApiState) -> Router {
 struct StatusResp {
     schema_version: u32,
     updater_version: String,
-    /// Running `PROXY_TAG` from `.env` (edge reverse-proxy image tag).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    proxy_version: Option<String>,
     current_version: Option<DeployTag>,
     current_commit_sha: Option<String>,
     channel: String,
@@ -117,9 +108,6 @@ struct StatusResp {
     /// Legacy TCB self-update outcome retained for status compatibility.
     #[serde(skip_serializing_if = "Option::is_none")]
     self_update_last: Option<crate::docker::self_update_helper::SelfUpdateLastStatus>,
-    /// Last manual proxy upgrade outcome from `state/proxy-update-last.json` (if any).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    proxy_update_last: Option<crate::worker::proxy_update::ProxyUpdateLastStatus>,
     /// `bundled` | `external` — from `MYRIAD_DB_MODE` (default bundled).
     db_mode: String,
     /// Whether update flow snapshots/restores local pgdata (false when external).
@@ -167,21 +155,11 @@ async fn status(State(st): State<ApiState>) -> Result<Json<StatusResp>, ApiError
             tracing::warn!(%error, "self-update outcome unavailable");
             None
         });
-    let proxy_update_last = crate::worker::proxy_update::read_proxy_update_last(st.state.root())
-        .unwrap_or_else(|error| {
-            tracing::warn!(%error, "proxy update outcome unavailable");
-            None
-        });
-    let proxy_version = crate::env_file::EnvFile::load(&st.worker.cli().env_file)
-        .ok()
-        .and_then(|env| env.get("PROXY_TAG").map(str::to_owned))
-        .filter(|s| !s.trim().is_empty());
 
     let db_mode = st.worker.cli().db_mode;
     Ok(Json(StatusResp {
         schema_version: 1,
         updater_version: crate::self_version().to_string(),
-        proxy_version,
         current_version: u.current_version,
         current_commit_sha: u.current_commit_sha,
         channel,
@@ -204,7 +182,6 @@ async fn status(State(st): State<ApiState>) -> Result<Json<StatusResp>, ApiError
         rollback_version: u.rollback_version,
         available_channels,
         self_update_last,
-        proxy_update_last,
         db_mode: db_mode.as_str().to_string(),
         pgdata_snapshot_enabled: db_mode.pgdata_snapshot_enabled(),
         last_failed_update: u.last_failed_update,
@@ -855,18 +832,6 @@ async fn dismiss_self_update_last(State(st): State<ApiState>) -> Result<Json<Val
     Ok(Json(json!({ "ok": true })))
 }
 
-async fn dismiss_proxy_update_last(State(st): State<ApiState>) -> Result<Json<Value>, ApiError> {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    st.worker
-        .sender()
-        .send(WorkerCmd::DismissProxyUpdateLast { reply: tx })
-        .await
-        .map_err(|_| ApiError(StatusCode::SERVICE_UNAVAILABLE, "worker unavailable".into()))?;
-    rx.await
-        .map_err(|_| ApiError(StatusCode::INTERNAL_SERVER_ERROR, "worker dropped".into()))??;
-    Ok(Json(json!({ "ok": true })))
-}
-
 #[derive(Deserialize)]
 struct RollbackBody {
     snapshot_id: String,
@@ -891,43 +856,6 @@ async fn self_update(
         "helper_container_id": report.helper_container_id,
         "new_updater_tag": report.new_updater_tag,
         "previous_updater_tag": report.previous_updater_tag,
-        "scheduled": report.scheduled,
-    })))
-}
-
-#[derive(Deserialize, Default)]
-struct ProxyUpdateBody {
-    /// Optional release tag (e.g. v0.3.5). When omitted, uses latest for the current channel.
-    #[serde(default)]
-    target_version: Option<String>,
-}
-
-async fn proxy_update(
-    State(st): State<ApiState>,
-    headers: axum::http::HeaderMap,
-    Json(body): Json<ProxyUpdateBody>,
-) -> Result<Json<Value>, ApiError> {
-    let actor = extract_actor(&headers);
-    let explicit = body.target_version.filter(|s| !s.trim().is_empty());
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    st.worker
-        .sender()
-        .send(WorkerCmd::ProxyUpdate {
-            actor,
-            explicit_tag: explicit,
-            reply: tx,
-        })
-        .await
-        .map_err(|_| ApiError(StatusCode::SERVICE_UNAVAILABLE, "worker unavailable".into()))?;
-    let report = rx
-        .await
-        .map_err(|_| ApiError(StatusCode::INTERNAL_SERVER_ERROR, "worker dropped".into()))??;
-    Ok(Json(json!({
-        "ok": true,
-        "previous_proxy_tag": report.previous_proxy_tag,
-        "new_proxy_tag": report.new_proxy_tag,
-        "image_ref": report.image_ref,
-        "pulled_digest": report.pulled_digest,
         "scheduled": report.scheduled,
     })))
 }

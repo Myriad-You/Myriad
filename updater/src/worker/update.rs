@@ -349,6 +349,12 @@ async fn run_update_body(
     // trigger snapshot restore (postgres stop) — only app restart via PreSwap.
     pre.compose.install()?;
     let from_tag_backup = swap_tag(&worker, target.as_str())?;
+    // The proxy keeps its own PROXY_TAG cadence: swap it only when the target
+    // release actually shipped a proxy image. It is written before post_swap so
+    // a crash still leaves both tags pointing at the new stack.
+    if let Some(proxy_tag) = pre.proxy_target_tag.as_deref() {
+        swap_proxy_tag(&worker, proxy_tag)?;
+    }
     flow.post_swap = true;
     flow.from_tag = Some(from_tag_backup.clone());
     rec.finish_step_ok()?;
@@ -417,6 +423,17 @@ async fn start_and_finish(
             )));
         }
     }
+    if let Some(expected) = &pre.proxy_image_id {
+        let reference = model
+            .pointer("/services/proxy/image")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| UpdaterError::Precondition("missing proxy image".into()))?;
+        if worker.docker().image_id(reference).await? != *expected {
+            return Err(UpdaterError::Precondition(
+                "proxy does not select the preflight image".into(),
+            ));
+        }
+    }
     let already_ready = matches!(
         probe_one_tick(worker, [&pre.backend_image_id, &pre.frontend_image_id]).await,
         ProbeTick::HardOk { .. }
@@ -439,7 +456,7 @@ async fn start_and_finish(
             "backend volume ownership and write verification completed"
         );
         let up = compose
-            .up_detached_recreate(&["backend", "frontend"])
+            .up_detached_recreate(&["backend", "frontend", "proxy"])
             .await
             .map_err(|e| UpdaterError::Internal(anyhow::anyhow!("compose up new failed: {e}")))?;
         if !up.ok() {
@@ -670,6 +687,26 @@ pub(crate) fn restore_compose(state: &crate::state::StateDir, job_id: &str) -> R
     Ok(())
 }
 
+/// Restore `PROXY_TAG` to the value it had before the update, when the update
+/// swapped it. The previous value is persisted in the preflight report written
+/// before the swap, so this also works across a crash.
+pub(crate) fn restore_proxy_tag(
+    state: &crate::state::StateDir,
+    job_id: &str,
+    env_file: &std::path::Path,
+) -> Result<()> {
+    let path = state.prepared_report_path(job_id);
+    if let Some(bytes) = crate::state::read_existing(&path)? {
+        let pre: preflight::PreflightReport = serde_json::from_slice(&bytes)?;
+        if let Some(previous) = pre.previous_proxy_tag.as_deref().filter(|s| !s.is_empty()) {
+            let mut env = EnvFile::load(env_file)?;
+            env.set("PROXY_TAG", previous)?;
+            env.save()?;
+        }
+    }
+    Ok(())
+}
+
 /// Used by the live flow and startup recovery after durable success.
 pub(crate) fn finish_successful_deploy(
     state: &crate::state::StateDir,
@@ -766,7 +803,7 @@ pub(crate) async fn restore_previous_stack(
     }
 
     info!("pre-swap restore: bringing backend/frontend back");
-    let up = compose.up_detached(&["backend", "frontend"]).await?;
+    let up = compose.up_detached(&["backend", "frontend", "proxy"]).await?;
     if !up.ok() {
         return Err(UpdaterError::Internal(anyhow::anyhow!(
             "pre-swap restore app failed: {}",
@@ -1060,6 +1097,12 @@ fn swap_tag(worker: &Arc<Worker>, new_tag: &str) -> Result<String> {
     env.set("MYRIAD_TAG", new_tag)?;
     env.save()?;
     Ok(prev)
+}
+
+fn swap_proxy_tag(worker: &Arc<Worker>, new_tag: &str) -> Result<()> {
+    let mut env = EnvFile::load(&worker.cli().env_file)?;
+    env.set("PROXY_TAG", new_tag)?;
+    env.save()
 }
 
 /// Private health probe after starting new backend/frontend.

@@ -180,8 +180,9 @@ jobs:
 镜像 CI 使用 `CARGO_PROFILE=ci-release`（thin LTO）；本地 `cargo build --release`
 与默认 Docker 构建仍为全量 LTO。消费侧只认 tag + manifest-list digest，无需区分。
 
-自更新 / proxy 更新：读 channel 内最近若干份 `release.json`，取**仍列出**
-`images.updater` / `images.proxy` 的最新一份；都没有则回退 Docker Hub tip。
+自更新：读 channel 内最近若干份 `release.json`，取**仍列出**
+`images.updater` 的最新一份；都没有则回退 Docker Hub tip。业务更新里，proxy 只在目标
+release 的 `images.proxy` 存在时随业务一起切换。
 
 ### 4.2 docker-publish.yml（push 条件打包 + workflow_dispatch）
 
@@ -598,8 +599,8 @@ now - maintenance.updated_at > 10min → 维护页加红色横幅 "更新疑似�
 
 ### 12.3 proxy 升级
 
-- proxy 自身升级有短暂 downtime（< 10s）
-- 不在自动更新流程中，需用户手动触发
+- proxy 是业务容器之一，随业务更新自动迁移与重建
+- 只有当目标 release 发布了新 proxy 镜像（`images.proxy`）时，业务更新才会一并切换 `PROXY_TAG`；否则保留宿主现有 `PROXY_TAG`
 
 ## 13. HTTP API
 
@@ -633,7 +634,6 @@ proxy 通道开关：proxy 启动时读 `PROXY_ALLOW_DIRECT_UPDATER`，未开启
 | POST | `/last-failed/dismiss` | token | 永久关闭「上次更新未成功」横幅 |
 | POST | `/rollback` | token | `{snapshot_id}` |
 | POST | `/admin/self-update` | token | 一键请求可信 TCB 交接；Updater 仅提交 tag intent |
-| POST | `/admin/proxy-update` | token | 手动升级 proxy（可选 body `{target_version}`；默认频道最新 release） |
 | GET | `/snapshots` | token | 可恢复快照 |
 | POST | `/rescue/exit-maintenance` | token + manual | 强制清维护 |
 | POST | `/rescue/continue` | token | 一键回退：对 stuck job 的 snapshot 执行与 `/rollback` 相同的恢复（pgdata + MYRIAD_TAG） |
