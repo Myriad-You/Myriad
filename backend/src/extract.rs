@@ -95,7 +95,8 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthedClaims {
 /// 当前仍然是管理员的调用者。
 ///
 /// 5 个 ring 写端点 + `federation_update_trust_policy` 的路由只有 router 级 `auth_middleware`，`AdminClaims` 是它们唯一的管理员防线。
-/// 与 `admin_middleware` 叠加时幂等。`ensure_current_admin_on` 回查数据库，不只看 JWT `is_admin`。
+/// 与 `admin_middleware` 叠加时复用其本请求核验标记，不再二次查库；否则由 `ensure_current_admin_on`
+/// 回查数据库，不只看 JWT `is_admin`。
 #[derive(Debug)]
 pub struct AdminClaims(pub Claims);
 
@@ -108,6 +109,13 @@ impl FromRequestParts<crate::state::AppState> for AdminClaims {
         state: &crate::state::AppState,
     ) -> Result<Self, Self::Rejection> {
         let AuthedClaims(claims) = AuthedClaims::from_request_parts(parts, state).await?;
+        if parts
+            .extensions
+            .get::<crate::middleware::auth::CurrentAdminVerified>()
+            .is_some()
+        {
+            return Ok(AdminClaims(claims));
+        }
         let db = state.db().ok_or_else(db_unavailable)?;
         crate::middleware::auth::ensure_current_admin_on(&claims, &db).await?;
         Ok(AdminClaims(claims))

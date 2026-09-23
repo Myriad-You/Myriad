@@ -14,7 +14,8 @@ use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::middleware::auth::{Claims, authenticate_request};
+use crate::extract::AdminClaims;
+use crate::middleware::auth::authenticate_request;
 use crate::services::profile_text::{
     ProfileTextSourceKind, current_profile_text_source, list_profile_text_sources,
     set_profile_text_source,
@@ -155,9 +156,8 @@ pub async fn set_my_profile_text_source(
 pub async fn list_user_profile_text_sources(
     crate::extract::Db(db): crate::extract::Db,
     Path(user_id): Path<i32>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
 ) -> Result<Json<Value>, ApiError> {
-    require_admin(&headers, &db).await?;
     sources_payload(&db, user_id).await
 }
 
@@ -165,10 +165,9 @@ pub async fn list_user_profile_text_sources(
 pub async fn set_user_profile_text_source(
     crate::extract::Db(db): crate::extract::Db,
     Path(user_id): Path<i32>,
-    headers: axum::http::HeaderMap,
+    AdminClaims(admin): AdminClaims,
     Json(payload): Json<SetProfileTextSourceRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let admin = require_admin(&headers, &db).await?;
     tracing::info!(
         actor = %admin.sub,
         target_user = user_id,
@@ -177,15 +176,4 @@ pub async fn set_user_profile_text_source(
         "Admin changed another user's profile text source"
     );
     apply_source(&db, user_id, payload).await
-}
-
-async fn require_admin(
-    headers: &axum::http::HeaderMap,
-    db: &DatabaseConnection,
-) -> Result<Claims, ApiError> {
-    let claims = authenticate_request(headers, db)
-        .await
-        .map_err(|_| unauthorized())?;
-    crate::middleware::auth::ensure_current_admin_on(&claims, db).await?;
-    Ok(claims)
 }

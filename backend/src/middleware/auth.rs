@@ -489,14 +489,25 @@ pub async fn admin_middleware(
                 claims.username
             );
 
-            // 注入 claims，供后续 `Extension(Claims)`。
+            // 注入 claims，供后续 `Extension(Claims)`；并标记本请求已完成当前管理员核验，
+            // 供 `AdminClaims` 复用，不再二次查库。
             let mut req = req;
             req.extensions_mut().insert(claims);
+            req.extensions_mut().insert(CurrentAdminVerified(()));
             next.run(req).await
         }
         Err(error_response) => *error_response,
     }
 }
+
+/// Request-scoped proof that `admin_middleware` already ran
+/// [`ensure_current_admin_on`] successfully for the `Claims` in this request.
+///
+/// The private field keeps it constructible only here, so neither a header nor
+/// another module can forge it. It holds no identity copy and never outlives the
+/// request; the next request is checked against the database again.
+#[derive(Clone, Copy, Debug)]
+pub struct CurrentAdminVerified(());
 
 /// Verify the signed admin claim against the current database state.
 ///
@@ -1817,5 +1828,59 @@ mod tests {
             .await
             .expect_err("expired binding must fail before a database query");
         assert_eq!(error.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn admin_claims_reuse_the_admin_middleware_proof_without_a_second_query() {
+        use axum::extract::FromRequestParts;
+        let state = crate::state::AppState::new(
+            DatabaseConnection::default(),
+            crate::config::AppConfig::default(),
+            crate::config::DynamicConfig::default(),
+        );
+        let claims = super::Claims {
+            sub: "7".into(),
+            username: "admin".into(),
+            is_admin: true,
+            is_owner: false,
+            exp: 0,
+            iat: 0,
+            tv: 0,
+        };
+        let request = |verified: bool| {
+            let mut request = axum::http::Request::builder().body(()).unwrap();
+            request.extensions_mut().insert(claims.clone());
+            if verified {
+                request
+                    .extensions_mut()
+                    .insert(super::CurrentAdminVerified(()));
+            }
+            request.into_parts().0
+        };
+        // Proof present: no database access (the disconnected DB would fail).
+        let mut parts = request(true);
+        let admin = crate::extract::AdminClaims::from_request_parts(&mut parts, &state)
+            .await
+            .expect("admin_middleware proof is reused");
+        assert_eq!(admin.0.sub, "7");
+        // No proof (auth_middleware-only routes): the live admin check still runs.
+        let mut parts = request(false);
+        let error = crate::extract::AdminClaims::from_request_parts(&mut parts, &state)
+            .await
+            .expect_err("without the proof the current admin check hits the DB");
+        assert_eq!(error.0, StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn admin_proof_is_inserted_only_after_the_live_admin_check() {
+        let src = include_str!("auth.rs");
+        let body = src
+            .split("pub async fn admin_middleware")
+            .nth(1)
+            .and_then(|rest| rest.split("pub async fn ensure_current_admin_on").next())
+            .expect("admin_middleware");
+        let check = body.find("ensure_current_admin_on(").expect("check");
+        let proof = body.find("CurrentAdminVerified(())").expect("proof");
+        assert!(check < proof);
     }
 }

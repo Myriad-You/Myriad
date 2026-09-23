@@ -1,7 +1,7 @@
 //! Admin 用户管理 API（设置页「用户管理」模块）。
 //!
-//! 所有路由要求管理员：router/base.rs 挂 `admin_middleware`，handler 内再复核一次
-//! `ensure_current_admin_on`（与 auth_local.rs 既有做法一致，防止 wrapper 绕过）。
+//! 所有路由要求管理员：router/base.rs 挂 `admin_middleware`；handler 取 `AdminClaims`，
+//! 复用中间件本请求的当前管理员核验结果，不再重新验签/查角色。
 //!
 //! - GET    /api/admin/users                              用户列表（含 OAuth identities、tapp 数、在线状态）
 //! - GET    /api/admin/users/{id}                         用户详情（identities + 已安装 tapp）
@@ -23,7 +23,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
-use crate::middleware::auth::{Claims, authenticate_request, notify_auth_cache_invalidation};
+use crate::extract::AdminClaims;
+use crate::middleware::auth::notify_auth_cache_invalidation;
 
 /// 距最近活跃 ≤300s 视为在线（与 presence 跟踪的会话间隔一致）。
 const ONLINE_WINDOW_SECS: i64 = 300;
@@ -156,20 +157,6 @@ pub async fn actor_is_owner(db: &DatabaseConnection, actor_id: i32) -> Result<bo
     load_is_owner(db, actor_id).await
 }
 
-async fn require_admin(
-    headers: &axum::http::HeaderMap,
-    db: &DatabaseConnection,
-) -> Result<Claims, ApiError> {
-    let claims = authenticate_request(headers, db).await.map_err(|_| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(AppError::public_json("Unauthorized")),
-        )
-    })?;
-    crate::middleware::auth::ensure_current_admin_on(&claims, db).await?;
-    Ok(claims)
-}
-
 fn rfc3339(row: &QueryResult, col: &str) -> Option<String> {
     row.try_get::<Option<DateTime<Utc>>>("", col)
         .ok()
@@ -242,10 +229,8 @@ fn user_select_sql() -> String {
 /// GET /api/admin/users
 pub async fn list_users(
     crate::extract::Db(db): crate::extract::Db,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
 ) -> Result<Json<Value>, ApiError> {
-    require_admin(&headers, &db).await?;
-
     let user_rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -294,10 +279,12 @@ pub async fn list_users(
 pub async fn get_user(
     crate::extract::Db(db): crate::extract::Db,
     Path(user_id): Path<i32>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
 ) -> Result<Json<Value>, ApiError> {
-    require_admin(&headers, &db).await?;
+    user_detail(&db, user_id).await
+}
 
+async fn user_detail(db: &DatabaseConnection, user_id: i32) -> Result<Json<Value>, ApiError> {
     let user_row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -369,10 +356,9 @@ pub const DEMOTE_IMMEDIATE_NOTICE: &str =
 pub async fn update_user(
     crate::extract::Db(db): crate::extract::Db,
     Path(user_id): Path<i32>,
-    headers: axum::http::HeaderMap,
+    AdminClaims(claims): AdminClaims,
     Json(req): Json<UpdateUserRequest>,
 ) -> Result<Json<Value>, ApiError> {
-    let claims = require_admin(&headers, &db).await?;
     let self_id =
         crate::services::tapp_ownership::positive_user_id(&claims.sub).ok_or_else(|| {
             (
@@ -542,7 +528,7 @@ pub async fn update_user(
     );
 
     // 返回更新后的完整行；promote 附带 re-login 提示，demote 附带立即生效提示
-    let Json(mut body) = get_user(crate::extract::Db(db), Path(user_id), headers).await?;
+    let Json(mut body) = user_detail(&db, user_id).await?;
     if req.is_admin == Some(true) && !target_is_admin {
         body["notice"] = json!(PROMOTE_RELOGIN_NOTICE);
         body["message"] = json!(PROMOTE_RELOGIN_NOTICE);
@@ -557,23 +543,20 @@ pub async fn update_user(
 pub async fn uninstall_user_tapp(
     crate::extract::Db(db): crate::extract::Db,
     Path((user_id, tapp_id)): Path<(i32, String)>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
 ) -> Result<Json<Value>, ApiError> {
-    require_admin(&headers, &db).await?;
     let _ = crate::api::tapp_store::uninstall_tapp_for_user(&db, user_id, &tapp_id, false)
         .await
         .map_err(http_to_api)?;
-    get_user(crate::extract::Db(db), Path(user_id), headers).await
+    user_detail(&db, user_id).await
 }
 
 /// DELETE /api/admin/users/{id}/identities/{identity_id}
 pub async fn unlink_identity(
     crate::extract::Db(db): crate::extract::Db,
     Path((user_id, identity_id)): Path<(i32, i32)>,
-    headers: axum::http::HeaderMap,
+    AdminClaims(claims): AdminClaims,
 ) -> Result<Json<Value>, ApiError> {
-    let claims = require_admin(&headers, &db).await?;
-
     let txn = db
         .begin()
         .await
@@ -641,7 +624,7 @@ pub async fn unlink_identity(
         user_id
     );
 
-    get_user(crate::extract::Db(db), Path(user_id), headers).await
+    user_detail(&db, user_id).await
 }
 
 /// 在删除 users 行之前，清理无 FK / 非 CASCADE 的用户关联数据。
@@ -723,9 +706,8 @@ async fn cleanup_user_related_data(
 pub async fn delete_user(
     crate::extract::Db(db): crate::extract::Db,
     Path(user_id): Path<i32>,
-    headers: axum::http::HeaderMap,
+    AdminClaims(claims): AdminClaims,
 ) -> Result<Json<Value>, ApiError> {
-    let claims = require_admin(&headers, &db).await?;
     let self_id =
         crate::services::tapp_ownership::positive_user_id(&claims.sub).ok_or_else(|| {
             (
