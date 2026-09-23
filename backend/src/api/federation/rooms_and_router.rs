@@ -179,7 +179,10 @@ async fn federation_download_transfer(
     );
 
     // Read errors mid-stream surface as body stream errors, not a silent EOF.
-    let body = Body::from_stream(tokio_util::io::ReaderStream::new(file.file));
+    let body = Body::from_stream(tokio_util::io::ReaderStream::with_capacity(
+        file.file,
+        64 * 1024,
+    ));
     let mut res = Response::new(body);
     *res.status_mut() = StatusCode::OK;
     let headers = res.headers_mut();
