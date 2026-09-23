@@ -1713,7 +1713,8 @@ async fn stored_config(f: &Fixture, key: &str) -> Option<serde_json::Value> {
 #[tokio::test]
 async fn settings_restore_rebinds_wallpaper_and_stickers_in_the_config_transaction() {
     use crate::api::config::{
-        RestoreWriteError, UnresolvedRestoredMedia, write_restored_configurations,
+        RestoreWriteError, SETTINGS_BACKUP_FORMAT, SETTINGS_BACKUP_VERSION, SettingsBackup,
+        UnresolvedRestoredMedia, build_settings_restore_plan, write_restored_configurations,
     };
     let Some(f) = Fixture::new().await else {
         return;
@@ -1815,37 +1816,42 @@ async fn settings_restore_rebinds_wallpaper_and_stickers_in_the_config_transacti
             .is_none()
     );
 
-    // A wallpaper that saving would reject (unsafe scheme, private host) fails
-    // the whole restore before anything is bound or written.
+    // A wallpaper that saving would reject (unsafe scheme, private host) is
+    // marked invalid by the restore plan and skipped: the current wallpaper
+    // stays, nothing is published or bound, the rest of the backup restores.
     for unsafe_wallpaper in [
         "javascript:alert(1)",
         "data:image/png;base64,aaa",
         "http://127.0.0.1/wall.png",
     ] {
-        let txn = f.db.begin().await.unwrap();
-        let result = write_restored_configurations(
-            &txn,
-            vec![
-                restored_entry("restore_probe", json!("unsafe")),
+        let plan = build_settings_restore_plan(&SettingsBackup {
+            format: SETTINGS_BACKUP_FORMAT.into(),
+            version: SETTINGS_BACKUP_VERSION,
+            exported_at: "2026-01-01T00:00:00Z".into(),
+            contains_secrets: true,
+            configurations: vec![
+                restored_entry("restore_url_probe", json!(unsafe_wallpaper)),
                 restored_entry("ui_wallpaper_url", json!(unsafe_wallpaper)),
             ],
-            &[],
-            &legacy,
-        )
-        .await;
-        assert!(
-            matches!(result, Err(RestoreWriteError::Invalid(_))),
-            "{unsafe_wallpaper}"
-        );
-        txn.rollback().await.unwrap();
+            effective_config: Default::default(),
+            user_preferences: Default::default(),
+        });
+        assert_eq!(plan.preview.invalid_keys, vec!["ui_wallpaper_url"]);
+        let txn = f.db.begin().await.unwrap();
+        let unresolved = write_restored_configurations(&txn, plan.entries, &[], &legacy)
+            .await
+            .unwrap();
+        txn.commit().await.unwrap();
+        assert!(unresolved.is_empty());
         assert_eq!(
-            stored_config(&f, "restore_probe").await,
-            Some(json!("written"))
+            stored_config(&f, "restore_url_probe").await,
+            Some(json!(unsafe_wallpaper))
         );
         assert_eq!(
             stored_config(&f, "ui_wallpaper_url").await,
             Some(json!(dead_wallpaper))
         );
+        assert!(wallpaper_references(&f).await.is_empty());
     }
 
     // Media that is catalogued here but not ready is not dead: the restore is
