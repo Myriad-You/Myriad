@@ -8,7 +8,7 @@ use axum::{
 };
 use chrono::{Duration, NaiveDate, Utc};
 use sea_orm::{
-    ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait,
+    ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement, TransactionTrait,
     Value as SeaValue,
 };
 use serde::Deserialize;
@@ -23,24 +23,6 @@ fn analytics_db_error(error: impl std::fmt::Display) -> (StatusCode, Json<Value>
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(AppError::fail_json("db_error")),
     )
-}
-
-macro_rules! analytics_rows {
-    ($fut:expr) => {
-        match $fut.await {
-            Ok(rows) => rows,
-            Err(error) => return analytics_db_error(error),
-        }
-    };
-}
-
-macro_rules! analytics_count {
-    ($fut:expr) => {
-        match $fut.await {
-            Ok(value) => value,
-            Err(error) => return analytics_db_error(error),
-        }
-    };
 }
 
 macro_rules! analytics_rows_try {
@@ -74,7 +56,7 @@ use super::intake_helpers::{
     analytics_today, analytics_tz_label, compare_range_kind, count_distinct_site,
     invalidate_summary_cache, metric_delta, normalize_country_code, normalize_country_name,
     normalize_event_name, normalize_path, normalize_referrer_host, normalize_target,
-    read_visitor_ordinal, resolve_visitor_hash, sum_all_time_page_views, sum_page_views,
+    read_visitor_ordinal, resolve_visitor_hash, sum_all_time_page_views,
 };
 
 /// GET /api/analytics/summary?days=7  or  ?from=YYYY-MM-DD&to=YYYY-MM-DD
@@ -107,88 +89,228 @@ pub(crate) async fn build_analytics_summary(
         }
     }
 
-    let today = to_day; // end of selected window (for fill loop / “today” tiles)
-    let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).unwrap_or(from);
-    let tz_label = analytics_tz_label();
-
-    let daily_rows = match db
-        .query_all_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"
-SELECT day::text AS day,
-       COALESCE(SUM(CASE WHEN path <> $3 THEN views ELSE 0 END), 0)::bigint AS views,
-       COALESCE(MAX(CASE WHEN path = $3 THEN unique_visitors ELSE 0 END), 0)::bigint AS unique_visitors,
-       COALESCE(SUM(CASE WHEN path <> $3 THEN engagement_ms ELSE 0 END), 0)::bigint AS engagement_ms,
-       COALESCE(SUM(CASE WHEN path <> $3 THEN engaged_views ELSE 0 END), 0)::bigint AS engaged_views
-FROM analytics_page_daily
-WHERE day >= $1 AND day <= $2
-GROUP BY day
-ORDER BY day ASC
-"#,
-            [
-                SeaValue::from(from),
-                SeaValue::from(today),
-                SeaValue::from(SITE_PATH.to_string()),
-            ],
-        ))
-        .await
-    {
-        Ok(rows) => rows,
-        Err(e) => {
-            tracing::warn!("analytics summary daily failed: {}", e);
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(AppError::fail_json("db_error")),
-            );
-        }
+    let body = match summary_body(db, from, to_day, days).await {
+        Ok(body) => body,
+        Err(error) => return analytics_db_error(error),
     };
 
-    let mut daily = Vec::new();
-    let mut range_views: i64 = 0;
-    let mut range_engagement_ms: i64 = 0;
-    let mut range_engaged_views: i64 = 0;
-    for row in &daily_rows {
-        let day: String = row.try_get("", "day").unwrap_or_default();
-        let views: i64 = row.try_get("", "views").unwrap_or(0);
-        let uv: i64 = row.try_get("", "unique_visitors").unwrap_or(0);
-        let eng: i64 = row.try_get("", "engagement_ms").unwrap_or(0);
-        let eng_v: i64 = row.try_get("", "engaged_views").unwrap_or(0);
-        range_views += views;
-        range_engagement_ms += eng;
-        range_engaged_views += eng_v;
-        daily.push(json!({
-            "day": day,
-            "views": views,
-            "unique_visitors": uv,
-            "engagement_ms": eng,
-        }));
+    {
+        let mut cache = SUMMARY_CACHE.lock().await;
+        cache.insert(cache_key, (Instant::now(), body.clone()));
+        // Keep map small (only a few day windows are ever queried)
+        if cache.len() > 12 {
+            cache.retain(|_, (at, _)| at.elapsed() < SUMMARY_CACHE_TTL * 2);
+        }
     }
 
+    (StatusCode::OK, Json(body))
+}
+
+/// Page rollups for the window and the scalar comparisons, one statement:
+/// `day` rows (site UV from the `SITE_PATH` rollup), the top-50 `path` rows via
+/// one GROUPING SETS pass over the window, plus `all_time` / `prev_day` /
+/// `prev_range` view totals from one FILTER pass over the non-site rows.
+const SUMMARY_PAGE_SQL: &str = r#"
+SELECT kind, key, views, unique_visitors, engagement_ms, engaged_views
+FROM (
+    SELECT CASE WHEN GROUPING(day) = 0 THEN 'day' ELSE 'path' END AS kind,
+           COALESCE(day::text, path) AS key,
+           COALESCE(SUM(views) FILTER (WHERE path <> $3), 0)::bigint AS views,
+           COALESCE(MAX(unique_visitors) FILTER (WHERE path = $3), 0)::bigint AS unique_visitors,
+           COALESCE(SUM(engagement_ms) FILTER (WHERE path <> $3), 0)::bigint AS engagement_ms,
+           COALESCE(SUM(engaged_views) FILTER (WHERE path <> $3), 0)::bigint AS engaged_views,
+           row_number() OVER (
+               PARTITION BY GROUPING(day)
+               ORDER BY COALESCE(SUM(views) FILTER (WHERE path <> $3), 0) DESC, path ASC
+           ) AS rank
+    FROM analytics_page_daily
+    WHERE day >= $1 AND day <= $2
+    GROUP BY GROUPING SETS ((day), (path))
+    HAVING GROUPING(day) = 0 OR path <> $3
+) grouped
+WHERE kind = 'day' OR rank <= 50
+UNION ALL
+SELECT totals.kind, NULL, totals.views, 0, 0, 0
+FROM (
+    SELECT COALESCE(SUM(views), 0)::bigint AS all_time,
+           COALESCE(SUM(views) FILTER (WHERE day = $4), 0)::bigint AS prev_day,
+           COALESCE(SUM(views) FILTER (WHERE day >= $5 AND day <= $6), 0)::bigint AS prev_range
+    FROM analytics_page_daily
+    WHERE path <> $3
+) sums
+CROSS JOIN LATERAL (
+    VALUES ('all_time', sums.all_time), ('prev_day', sums.prev_day), ('prev_range', sums.prev_range)
+) AS totals(kind, views)
+"#;
+
+/// Distinct visitors: the site-wide counts (window, both comparisons,
+/// all-time up to `$2`) in one FILTER pass over the `SITE_PATH` rows, and the
+/// per-path window counts over the disjoint non-site rows.
+const SUMMARY_VISITOR_SQL: &str = r#"
+SELECT 'site' AS kind, NULL AS path,
+       COUNT(DISTINCT visitor_hash) FILTER (WHERE day >= $1)::bigint AS unique_visitors,
+       COUNT(DISTINCT visitor_hash) FILTER (WHERE day = $4)::bigint AS prev_day,
+       COUNT(DISTINCT visitor_hash) FILTER (WHERE day >= $5 AND day <= $6)::bigint AS prev_range,
+       COUNT(DISTINCT visitor_hash)::bigint AS all_time
+FROM analytics_visitor_seen
+WHERE path = $3 AND day <= $2
+UNION ALL
+SELECT 'path', path, COUNT(DISTINCT visitor_hash)::bigint, 0, 0, 0
+FROM analytics_visitor_seen
+WHERE day >= $1 AND day <= $2 AND path <> $3
+GROUP BY path
+"#;
+
+/// Event counts: top-30 names and, per name, top-20 non-empty targets.
+const SUMMARY_EVENT_SQL: &str = r#"
+SELECT event_name, target, count
+FROM (
+    SELECT event_name, target, GROUPING(target) AS by_name,
+           COALESCE(SUM(count), 0)::bigint AS count,
+           row_number() OVER (
+               PARTITION BY GROUPING(target),
+                            CASE WHEN GROUPING(target) = 0 THEN event_name END
+               ORDER BY COALESCE(SUM(count), 0) DESC, event_name ASC, target ASC
+           ) AS rank
+    FROM analytics_event_daily
+    WHERE day >= $1 AND day <= $2 AND event_name <> $3
+    GROUP BY GROUPING SETS ((event_name), (event_name, target))
+    HAVING GROUPING(target) = 1 OR target <> ''
+) grouped
+WHERE (by_name = 1 AND rank <= 30) OR (by_name = 0 AND rank <= 20)
+"#;
+
+/// Event distinct visitors per name and per non-empty (name, target).
+const SUMMARY_EVENT_VISITOR_SQL: &str = r#"
+SELECT event_name, CASE WHEN GROUPING(target) = 0 THEN target END AS target,
+       COUNT(DISTINCT visitor_hash)::bigint AS unique_visitors
+FROM analytics_event_visitor
+WHERE day >= $1 AND day <= $2 AND event_name <> $3
+GROUP BY GROUPING SETS ((event_name), (event_name, target))
+HAVING GROUPING(target) = 1 OR target <> ''
+"#;
+
+const SUMMARY_REFERRER_SQL: &str = r#"
+SELECT host, COALESCE(SUM(count), 0)::bigint AS count
+FROM analytics_referrer_daily
+WHERE day >= $1 AND day <= $2
+GROUP BY host
+ORDER BY count DESC, host ASC
+LIMIT 20
+"#;
+
+/// Top countries from the daily rollup plus true distinct UV per country
+/// (multi-day windows cannot sum daily UV) from the visitor table.
+const SUMMARY_COUNTRY_SQL: &str = r#"
+(
+    SELECT 'daily' AS kind, country_code,
+           MAX(country_name) AS country_name,
+           COALESCE(SUM(views), 0)::bigint AS views,
+           COALESCE(SUM(unique_visitors), 0)::bigint AS unique_visitors
+    FROM analytics_country_daily
+    WHERE day >= $1 AND day <= $2
+    GROUP BY country_code
+    ORDER BY unique_visitors DESC, views DESC, country_code ASC
+    LIMIT 12
+)
+UNION ALL
+SELECT 'distinct', country_code, NULL, 0, COUNT(DISTINCT visitor_hash)::bigint
+FROM analytics_country_visitor
+WHERE day >= $1 AND day <= $2
+GROUP BY country_code
+"#;
+
+/// Cache-miss body of [`build_analytics_summary`]: six independent statements
+/// in one latency wave; any query or decode failure fails the whole summary.
+async fn summary_body(
+    db: &DatabaseConnection,
+    from: NaiveDate,
+    today: NaiveDate,
+    days: i64,
+) -> Result<Value, DbErr> {
+    // 环比：今日 vs 前一日；当前区间 vs 等长上一区间。
+    // kind: day / week / month / period — FE maps to 日/周/月/较上期.
+    let prev_day = today - Duration::days(1);
+    let prev_range_to = from - Duration::days(1);
+    let prev_range_from = prev_range_to - Duration::days(days - 1);
+    let window = || [SeaValue::from(from), SeaValue::from(today)];
+    let with = |extra: SeaValue| -> Vec<SeaValue> {
+        let mut values = window().to_vec();
+        values.push(extra);
+        values
+    };
+    let site = || SeaValue::from(SITE_PATH.to_string());
+    let comparisons = || {
+        let mut values = with(site());
+        values.extend([
+            SeaValue::from(prev_day),
+            SeaValue::from(prev_range_from),
+            SeaValue::from(prev_range_to),
+        ]);
+        values
+    };
+    let engage = || with(SeaValue::from(ENGAGE_MARKER.to_string()));
+    let statement = |sql: &str, values: Vec<SeaValue>| {
+        Statement::from_sql_and_values(DatabaseBackend::Postgres, sql, values)
+    };
+    let (page_rows, visitor_rows, event_rows, event_uv_rows, referrer_rows, country_rows) = tokio::try_join!(
+        db.query_all_raw(statement(SUMMARY_PAGE_SQL, comparisons())),
+        db.query_all_raw(statement(SUMMARY_VISITOR_SQL, comparisons())),
+        db.query_all_raw(statement(SUMMARY_EVENT_SQL, engage())),
+        db.query_all_raw(statement(SUMMARY_EVENT_VISITOR_SQL, engage())),
+        db.query_all_raw(statement(SUMMARY_REFERRER_SQL, window().to_vec())),
+        db.query_all_raw(statement(SUMMARY_COUNTRY_SQL, window().to_vec())),
+    )?;
+
+    // Page rollups: days, top paths, view totals.
+    let mut by_day: HashMap<String, Value> = HashMap::new();
+    let mut path_rows = Vec::new();
+    let (mut range_views, mut range_engagement_ms, mut range_engaged_views) = (0i64, 0i64, 0i64);
+    let (mut all_time_views, mut prev_day_views, mut prev_range_views) = (0i64, 0i64, 0i64);
+    for row in &page_rows {
+        let kind: String = row.try_get("", "kind")?;
+        let views: i64 = row.try_get("", "views")?;
+        match kind.as_str() {
+            "day" => {
+                let day: String = row.try_get("", "key")?;
+                let eng: i64 = row.try_get("", "engagement_ms")?;
+                range_views += views;
+                range_engagement_ms += eng;
+                range_engaged_views += row.try_get::<i64>("", "engaged_views")?;
+                let value = json!({
+                    "day": day,
+                    "views": views,
+                    "unique_visitors": row.try_get::<i64>("", "unique_visitors")?,
+                    "engagement_ms": eng,
+                });
+                by_day.insert(day, value);
+            }
+            "path" => path_rows.push((
+                row.try_get::<String>("", "key")?,
+                views,
+                row.try_get::<i64>("", "engagement_ms")?,
+                row.try_get::<i64>("", "engaged_views")?,
+            )),
+            "all_time" => all_time_views = views,
+            "prev_day" => prev_day_views = views,
+            "prev_range" => prev_range_views = views,
+            other => return Err(DbErr::Custom(format!("unexpected page row kind {other}"))),
+        }
+    }
     let mut filled = Vec::new();
     let mut cursor = from;
-    let by_day: HashMap<String, &Value> = daily
-        .iter()
-        .filter_map(|v| {
-            v.get("day")
-                .and_then(|d| d.as_str())
-                .map(|d| (d.to_string(), v))
-        })
-        .collect();
     while cursor <= today {
         let key = cursor.format("%Y-%m-%d").to_string();
-        if let Some(v) = by_day.get(&key) {
-            filled.push((*v).clone());
-        } else {
-            filled.push(json!({
+        filled.push(by_day.remove(&key).unwrap_or_else(|| {
+            json!({
                 "day": key,
                 "views": 0,
                 "unique_visitors": 0,
                 "engagement_ms": 0,
-            }));
-        }
+            })
+        }));
         cursor += Duration::days(1);
     }
-
     let today_views = filled
         .last()
         .and_then(|v| v.get("views").and_then(|x| x.as_i64()))
@@ -198,17 +320,26 @@ ORDER BY day ASC
         .and_then(|v| v.get("unique_visitors").and_then(|x| x.as_i64()))
         .unwrap_or(0);
 
-    let range_uv = analytics_count!(count_distinct_site(db, from, today));
+    // Distinct visitors.
+    let mut uv_by_path: HashMap<String, i64> = HashMap::new();
+    let mut site_uv = None;
+    for row in &visitor_rows {
+        let kind: String = row.try_get("", "kind")?;
+        let uv: i64 = row.try_get("", "unique_visitors")?;
+        if kind == "site" {
+            site_uv = Some((
+                uv,
+                row.try_get::<i64>("", "prev_day")?,
+                row.try_get::<i64>("", "prev_range")?,
+                row.try_get::<i64>("", "all_time")?,
+            ));
+        } else {
+            uv_by_path.insert(row.try_get("", "path")?, uv);
+        }
+    }
+    let (range_uv, prev_day_uv, prev_range_uv, all_time_uv) =
+        site_uv.ok_or_else(|| DbErr::Custom("analytics site visitor row missing".into()))?;
 
-    // 环比：今日 vs 前一日；当前区间 vs 等长上一区间。
-    // kind: day / week / month / period — FE maps to 日/周/月/较上期.
-    let prev_day = today - Duration::days(1);
-    let prev_range_to = from - Duration::days(1);
-    let prev_range_from = prev_range_to - Duration::days(days - 1);
-    let prev_day_views = analytics_count!(sum_page_views(db, prev_day, prev_day));
-    let prev_day_uv = analytics_count!(count_distinct_site(db, prev_day, prev_day));
-    let prev_range_views = analytics_count!(sum_page_views(db, prev_range_from, prev_range_to));
-    let prev_range_uv = analytics_count!(count_distinct_site(db, prev_range_from, prev_range_to));
     let compare = json!({
         "day": {
             "kind": "day",
@@ -237,291 +368,134 @@ ORDER BY day ASC
         0
     };
 
-    let page_view_rows = analytics_rows!(db.query_all_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        r#"
-SELECT path,
-       COALESCE(SUM(views), 0)::bigint AS views,
-       COALESCE(SUM(engagement_ms), 0)::bigint AS engagement_ms,
-       COALESCE(SUM(engaged_views), 0)::bigint AS engaged_views
-FROM analytics_page_daily
-WHERE day >= $1 AND day <= $2 AND path <> $3
-GROUP BY path
-ORDER BY views DESC, path ASC
-LIMIT 50
-"#,
-        [
-            SeaValue::from(from),
-            SeaValue::from(today),
-            SeaValue::from(SITE_PATH.to_string()),
-        ],
-    )));
-
-    let page_uv_rows = analytics_rows!(db.query_all_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        r#"
-SELECT path, COUNT(DISTINCT visitor_hash)::bigint AS unique_visitors
-FROM analytics_visitor_seen
-WHERE day >= $1 AND day <= $2 AND path <> $3
-GROUP BY path
-"#,
-        [
-            SeaValue::from(from),
-            SeaValue::from(today),
-            SeaValue::from(SITE_PATH.to_string()),
-        ],
-    )));
-
-    let mut uv_by_path: HashMap<String, i64> = HashMap::new();
-    for row in &page_uv_rows {
-        let p: String = row.try_get("", "path").unwrap_or_default();
-        let n: i64 = row.try_get("", "unique_visitors").unwrap_or(0);
-        uv_by_path.insert(p, n);
-    }
-
-    let pages: Vec<Value> = page_view_rows
-        .iter()
-        .map(|row| {
-            let path: String = row.try_get("", "path").unwrap_or_default();
-            let views: i64 = row.try_get("", "views").unwrap_or(0);
-            let eng: i64 = row.try_get("", "engagement_ms").unwrap_or(0);
-            let eng_v: i64 = row.try_get("", "engaged_views").unwrap_or(0);
+    // Same order as the SQL ranking: views desc, path asc.
+    path_rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let pages: Vec<Value> = path_rows
+        .into_iter()
+        .map(|(path, views, eng, eng_v)| {
             let avg = if eng_v > 0 { eng / eng_v } else { 0 };
             json!({
+                "unique_visitors": uv_by_path.get(&path).copied().unwrap_or(0),
                 "path": path,
                 "views": views,
-                "unique_visitors": uv_by_path.get(&path).copied().unwrap_or(0),
                 "avg_engagement_ms": avg,
             })
         })
         .collect();
 
     // Events (aggregate name across paths; optional target breakdown)
-    let event_rows = analytics_rows!(db.query_all_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        r#"
-SELECT event_name,
-       COALESCE(SUM(count), 0)::bigint AS count
-FROM analytics_event_daily
-WHERE day >= $1 AND day <= $2 AND event_name <> $3
-GROUP BY event_name
-ORDER BY count DESC, event_name ASC
-LIMIT 30
-"#,
-        [
-            SeaValue::from(from),
-            SeaValue::from(today),
-            SeaValue::from(ENGAGE_MARKER.to_string()),
-        ],
-    )));
-
-    let event_uv_rows = analytics_rows!(db.query_all_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        r#"
-SELECT event_name, COUNT(DISTINCT visitor_hash)::bigint AS unique_visitors
-FROM analytics_event_visitor
-WHERE day >= $1 AND day <= $2 AND event_name <> $3
-GROUP BY event_name
-"#,
-        [
-            SeaValue::from(from),
-            SeaValue::from(today),
-            SeaValue::from(ENGAGE_MARKER.to_string()),
-        ],
-    )));
     let mut event_uv: HashMap<String, i64> = HashMap::new();
-    for row in &event_uv_rows {
-        let n: String = row.try_get("", "event_name").unwrap_or_default();
-        let c: i64 = row.try_get("", "unique_visitors").unwrap_or(0);
-        event_uv.insert(n, c);
-    }
-
-    // Per (event_name, target) counts — only non-empty targets for UI drill-down.
-    let event_target_rows = analytics_rows!(db.query_all_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        r#"
-SELECT event_name,
-       target,
-       COALESCE(SUM(count), 0)::bigint AS count
-FROM analytics_event_daily
-WHERE day >= $1 AND day <= $2
-  AND event_name <> $3
-  AND target <> ''
-GROUP BY event_name, target
-ORDER BY event_name ASC, count DESC, target ASC
-"#,
-        [
-            SeaValue::from(from),
-            SeaValue::from(today),
-            SeaValue::from(ENGAGE_MARKER.to_string()),
-        ],
-    )));
-    let event_target_uv_rows = analytics_rows!(db.query_all_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        r#"
-SELECT event_name,
-       target,
-       COUNT(DISTINCT visitor_hash)::bigint AS unique_visitors
-FROM analytics_event_visitor
-WHERE day >= $1 AND day <= $2
-  AND event_name <> $3
-  AND target <> ''
-GROUP BY event_name, target
-"#,
-        [
-            SeaValue::from(from),
-            SeaValue::from(today),
-            SeaValue::from(ENGAGE_MARKER.to_string()),
-        ],
-    )));
     let mut event_target_uv: HashMap<(String, String), i64> = HashMap::new();
-    for row in &event_target_uv_rows {
-        let n: String = row.try_get("", "event_name").unwrap_or_default();
-        let t: String = row.try_get("", "target").unwrap_or_default();
-        let c: i64 = row.try_get("", "unique_visitors").unwrap_or(0);
-        event_target_uv.insert((n, t), c);
+    for row in &event_uv_rows {
+        let name: String = row.try_get("", "event_name")?;
+        let uv: i64 = row.try_get("", "unique_visitors")?;
+        match row.try_get::<Option<String>>("", "target")? {
+            Some(target) => {
+                event_target_uv.insert((name, target), uv);
+            }
+            None => {
+                event_uv.insert(name, uv);
+            }
+        }
     }
+    let mut name_rows = Vec::new();
+    let mut target_rows = Vec::new();
+    for row in &event_rows {
+        let name: String = row.try_get("", "event_name")?;
+        let count: i64 = row.try_get("", "count")?;
+        match row.try_get::<Option<String>>("", "target")? {
+            Some(target) => target_rows.push((name, target, count)),
+            None => name_rows.push((name, count)),
+        }
+    }
+    // Same order as the SQL ranking: count desc, then name / target asc.
+    name_rows.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    target_rows.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then_with(|| b.2.cmp(&a.2))
+            .then_with(|| a.1.cmp(&b.1))
+    });
     let mut targets_by_event: HashMap<String, Vec<Value>> = HashMap::new();
-    for row in &event_target_rows {
-        let name: String = row.try_get("", "event_name").unwrap_or_default();
-        let target: String = row.try_get("", "target").unwrap_or_default();
-        if name.is_empty() || target.is_empty() {
+    for (name, target, count) in target_rows {
+        if name.is_empty() {
             continue;
         }
-        let count: i64 = row.try_get("", "count").unwrap_or(0);
         let uv = event_target_uv
             .get(&(name.clone(), target.clone()))
             .copied()
             .unwrap_or(0);
-        let list = targets_by_event.entry(name).or_default();
-        // Cap breakdowns per event so the admin payload stays small.
-        if list.len() < 20 {
-            list.push(json!({
-                "target": target,
-                "count": count,
-                "unique_visitors": uv,
-            }));
-        }
+        targets_by_event.entry(name).or_default().push(json!({
+            "target": target,
+            "count": count,
+            "unique_visitors": uv,
+        }));
     }
-
-    let events: Vec<Value> = event_rows
-        .iter()
-        .map(|row| {
-            let name: String = row.try_get("", "event_name").unwrap_or_default();
+    let events: Vec<Value> = name_rows
+        .into_iter()
+        .map(|(name, count)| {
             let targets = targets_by_event.remove(&name).unwrap_or_default();
             json!({
-                "name": name,
-                "count": row.try_get::<i64>("", "count").unwrap_or(0),
                 "unique_visitors": event_uv.get(&name).copied().unwrap_or(0),
+                "name": name,
+                "count": count,
                 "targets": targets,
             })
         })
         .collect();
 
-    let referrer_rows = analytics_rows!(db.query_all_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        r#"
-SELECT host, COALESCE(SUM(count), 0)::bigint AS count
-FROM analytics_referrer_daily
-WHERE day >= $1 AND day <= $2
-GROUP BY host
-ORDER BY count DESC, host ASC
-LIMIT 20
-"#,
-        [SeaValue::from(from), SeaValue::from(today)],
-    )));
-    let referrers: Vec<Value> = referrer_rows
+    let referrers = referrer_rows
         .iter()
         .map(|row| {
-            json!({
-                "host": row.try_get::<String>("", "host").unwrap_or_default(),
-                "count": row.try_get::<i64>("", "count").unwrap_or(0),
-            })
+            Ok(json!({
+                "host": row.try_get::<String>("", "host")?,
+                "count": row.try_get::<i64>("", "count")?,
+            }))
+        })
+        .collect::<Result<Vec<Value>, DbErr>>()?;
+
+    // Top countries by unique visitors in range (fallback views); prefer true
+    // distinct UV over sum-of-daily when multi-day window.
+    let mut country_uv: HashMap<String, i64> = HashMap::new();
+    let mut daily_countries = Vec::new();
+    for row in &country_rows {
+        let kind: String = row.try_get("", "kind")?;
+        let code: String = row.try_get("", "country_code")?;
+        let uv: i64 = row.try_get("", "unique_visitors")?;
+        if kind == "distinct" {
+            country_uv.insert(code, uv);
+        } else {
+            let name: Option<String> = row.try_get("", "country_name")?;
+            let views: i64 = row.try_get("", "views")?;
+            daily_countries.push((code, name.unwrap_or_default(), views, uv));
+        }
+    }
+    let mut countries: Vec<(String, String, i64, i64)> = daily_countries
+        .into_iter()
+        .map(|(code, name, views, daily_uv)| {
+            let uv = country_uv.get(&code).copied().unwrap_or(daily_uv);
+            let name = if name.is_empty() { code.clone() } else { name };
+            (code, name, views, uv)
         })
         .collect();
-
-    // Top countries by unique visitors in range (fallback views)
-    let country_rows = analytics_rows!(db.query_all_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        r#"
-SELECT country_code,
-       MAX(country_name) AS country_name,
-       COALESCE(SUM(views), 0)::bigint AS views,
-       COALESCE(SUM(unique_visitors), 0)::bigint AS unique_visitors
-FROM analytics_country_daily
-WHERE day >= $1 AND day <= $2
-GROUP BY country_code
-ORDER BY unique_visitors DESC, views DESC, country_code ASC
-LIMIT 12
-"#,
-        [SeaValue::from(from), SeaValue::from(today)],
-    )));
-    // Prefer true distinct UV over sum-of-daily when multi-day window.
-    let country_uv_rows = analytics_rows!(db.query_all_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        r#"
-SELECT country_code, COUNT(DISTINCT visitor_hash)::bigint AS unique_visitors
-FROM analytics_country_visitor
-WHERE day >= $1 AND day <= $2
-GROUP BY country_code
-"#,
-        [SeaValue::from(from), SeaValue::from(today)],
-    )));
-    let mut country_uv: HashMap<String, i64> = HashMap::new();
-    for row in &country_uv_rows {
-        let code: String = row.try_get("", "country_code").unwrap_or_default();
-        let n: i64 = row.try_get("", "unique_visitors").unwrap_or(0);
-        country_uv.insert(code, n);
-    }
-    let mut countries: Vec<Value> = country_rows
-        .iter()
-        .map(|row| {
-            let code: String = row.try_get("", "country_code").unwrap_or_default();
-            let name: String = row.try_get("", "country_name").unwrap_or_default();
-            let views: i64 = row.try_get("", "views").unwrap_or(0);
-            let uv = country_uv
-                .get(&code)
-                .copied()
-                .unwrap_or_else(|| row.try_get::<i64>("", "unique_visitors").unwrap_or(0));
+    countries.sort_by(|a, b| b.3.cmp(&a.3).then(b.2.cmp(&a.2)).then(a.0.cmp(&b.0)));
+    let countries: Vec<Value> = countries
+        .into_iter()
+        .map(|(code, name, views, uv)| {
             json!({
                 "code": code,
-                "name": if name.is_empty() { code.clone() } else { name },
+                "name": name,
                 "views": views,
                 "unique_visitors": uv,
             })
         })
         .collect();
-    countries.sort_by(|a, b| {
-        let ua = a
-            .get("unique_visitors")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
-        let ub = b
-            .get("unique_visitors")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0);
-        let va = a.get("views").and_then(|v| v.as_i64()).unwrap_or(0);
-        let vb = b.get("views").and_then(|v| v.as_i64()).unwrap_or(0);
-        ub.cmp(&ua).then(vb.cmp(&va)).then(
-            a.get("code")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .cmp(b.get("code").and_then(|v| v.as_str()).unwrap_or("")),
-        )
-    });
-    if countries.len() > 12 {
-        countries.truncate(12);
-    }
 
-    let all_time_views = analytics_count!(sum_all_time_page_views(db));
-    let all_time_uv = analytics_count!(count_distinct_site(db, epoch, today));
-
-    let body = json!({
+    Ok(json!({
         "success": true,
         "days": days,
         "from": from.format("%Y-%m-%d").to_string(),
         "to": today.format("%Y-%m-%d").to_string(),
-        "timezone": tz_label,
+        "timezone": analytics_tz_label(),
         "retention": {
             "visitor_days": VISITOR_RETENTION_DAYS,
             "daily_days": DAILY_RETENTION_DAYS,
@@ -557,18 +531,7 @@ GROUP BY country_code
         "events": events,
         "referrers": referrers,
         "countries": countries,
-    });
-
-    {
-        let mut cache = SUMMARY_CACHE.lock().await;
-        cache.insert(cache_key, (Instant::now(), body.clone()));
-        // Keep map small (only a few day windows are ever queried)
-        if cache.len() > 12 {
-            cache.retain(|_, (at, _)| at.elapsed() < SUMMARY_CACHE_TTL * 2);
-        }
-    }
-
-    (StatusCode::OK, Json(body))
+    }))
 }
 
 // ── Public visitor card ────────────────────────────────────────────────────

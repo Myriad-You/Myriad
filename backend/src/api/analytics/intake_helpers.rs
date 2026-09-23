@@ -1417,32 +1417,6 @@ WHERE day >= $1 AND day <= $2 AND path = $3
     row.try_get("", "n").map_err(|error| error.to_string())
 }
 
-/// Pageviews in `[from, to]` excluding the site-wide rollup path.
-pub(crate) async fn sum_page_views(
-    db: &DatabaseConnection,
-    from: NaiveDate,
-    to: NaiveDate,
-) -> Result<i64, String> {
-    let row = db
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"
-SELECT COALESCE(SUM(views), 0)::bigint AS n
-FROM analytics_page_daily
-WHERE day >= $1 AND day <= $2 AND path <> $3
-"#,
-            [
-                SeaValue::from(from),
-                SeaValue::from(to),
-                SeaValue::from(SITE_PATH.to_string()),
-            ],
-        ))
-        .await
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "analytics pageview sum produced no row".to_string())?;
-    row.try_get("", "n").map_err(|error| error.to_string())
-}
-
 pub(crate) async fn sum_all_time_page_views(db: &DatabaseConnection) -> Result<i64, String> {
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
@@ -1516,9 +1490,8 @@ mod compare_tests {
             .nth(1)
             .and_then(|rest| rest.split("pub(crate) fn vid_from_query").next())
             .expect("build_analytics_summary");
-        assert!(summary.contains("analytics_rows!(db.query_all_raw"));
-        assert!(summary.contains("analytics_count!"));
-        assert!(!summary.contains(".ok()\n        .flatten()"));
+        assert!(summary.contains("Err(error) => return analytics_db_error(error)"));
+        assert!(summary.contains("tokio::try_join!"));
         let card = src
             .split("pub(crate) async fn visitor_card_aggregate")
             .nth(1)

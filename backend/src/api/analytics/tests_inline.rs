@@ -455,3 +455,74 @@ async fn import_batch_chunks_splits_repeated_keys_and_counts_rows() {
     assert_eq!(count.try_get::<i64>("", "n").unwrap(), 25_000);
     assert_eq!(count.try_get::<i64>("", "s").unwrap(), 25_000);
 }
+
+#[tokio::test]
+async fn summary_cache_miss_aggregates_in_one_wave_and_fails_whole_on_error() {
+    use sea_orm::ConnectionTrait;
+    let Ok(url) = std::env::var("ANALYTICS_TEST_DATABASE_URL") else {
+        return;
+    };
+    let isolated = crate::db::IsolatedSchema::migrated(&url, "analytics_summary_test").await;
+    let db = isolated.db.clone();
+    let today = analytics_today();
+    let day = |offset: i64| (today - chrono::Duration::days(offset)).to_string();
+    db.execute_unprepared(&format!(
+        r#"
+INSERT INTO analytics_page_daily (day, path, views, unique_visitors, engagement_ms, engaged_views) VALUES
+    ('{d0}', '/a', 5, 0, 100, 2), ('{d0}', '/b', 3, 0, 0, 0), ('{d0}', '__site__', 0, 2, 0, 0),
+    ('{d1}', '/a', 4, 0, 0, 0), ('{d9}', '/a', 7, 0, 0, 0);
+INSERT INTO analytics_visitor_seen (day, path, visitor_hash) VALUES
+    ('{d0}', '__site__', 'v1'), ('{d0}', '__site__', 'v2'), ('{d1}', '__site__', 'v1'),
+    ('{d9}', '__site__', 'v3'), ('{d0}', '/a', 'v1'), ('{d0}', '/a', 'v2');
+INSERT INTO analytics_event_daily (day, event_name, path, target, count) VALUES
+    ('{d0}', 'click', '/a', '', 2), ('{d0}', 'click', '/a', 'buy', 3), ('{d0}', '__engage__', '', '', 9);
+INSERT INTO analytics_event_visitor (day, event_name, path, target, visitor_hash) VALUES
+    ('{d0}', 'click', '/a', 'buy', 'v1'), ('{d0}', 'click', '/a', '', 'v2');
+INSERT INTO analytics_country_daily (day, country_code, country_name, views, unique_visitors) VALUES
+    ('{d0}', 'JP', 'Japan', 5, 1), ('{d1}', 'JP', 'Japan', 1, 1);
+INSERT INTO analytics_country_visitor (day, country_code, visitor_hash) VALUES
+    ('{d0}', 'JP', 'v1'), ('{d1}', 'JP', 'v1');
+"#,
+        d0 = day(0),
+        d1 = day(1),
+        d9 = day(9),
+    ))
+    .await
+    .unwrap();
+    let query = || SummaryQuery {
+        days: Some(7),
+        from: None,
+        to: None,
+    };
+    SUMMARY_CACHE.lock().await.clear();
+    let (status, axum::Json(body)) = super::admin_api::build_analytics_summary(&db, query()).await;
+    assert_eq!(status, axum::http::StatusCode::OK);
+    assert_eq!(body["range"]["views"], 12);
+    assert_eq!(body["range"]["unique_visitors"], 2);
+    assert_eq!(body["today"]["unique_visitors"], 2);
+    assert_eq!(body["compare"]["day"]["views"]["previous"], 4);
+    assert_eq!(body["compare"]["range"]["views"]["previous"], 7);
+    assert_eq!(body["compare"]["range"]["unique_visitors"]["previous"], 1);
+    assert_eq!(body["all_time"]["views"], 19);
+    assert_eq!(body["all_time"]["unique_visitors"], 3);
+    assert_eq!(body["pages"][0]["path"], "/a");
+    assert_eq!(body["pages"][0]["unique_visitors"], 2);
+    assert_eq!(body["events"].as_array().unwrap().len(), 1);
+    assert_eq!(body["events"][0]["count"], 5);
+    assert_eq!(body["events"][0]["targets"][0]["target"], "buy");
+    assert_eq!(body["events"][0]["targets"][0]["unique_visitors"], 1);
+    assert_eq!(body["countries"][0]["unique_visitors"], 1);
+
+    SUMMARY_CACHE.lock().await.clear();
+    db.execute_unprepared("ALTER TABLE analytics_country_visitor RENAME TO country_visitor_off")
+        .await
+        .unwrap();
+    let (status, axum::Json(body)) = super::admin_api::build_analytics_summary(&db, query()).await;
+    assert_eq!(status, axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+    assert!(
+        body.get("range").is_none(),
+        "no partial statistics on failure"
+    );
+    SUMMARY_CACHE.lock().await.clear();
+    isolated.drop().await;
+}
