@@ -2025,3 +2025,47 @@ async fn postgres_upgrade_completes_when_site_settings_cite_dead_local_media() {
     assert_eq!(wallpaper_references(&f).await, vec![late]);
     f.close().await;
 }
+
+#[tokio::test]
+async fn dashboard_save_protects_sticker_urls_under_the_site_origin() {
+    use crate::api::config::{DashboardConfigPayload, save_dashboard_config};
+    let Some(f) = Fixture::new().await else {
+        return;
+    };
+    let origins = ["https://site.example".to_string()];
+    let sticker = f.image().await;
+    let absolute = format!("https://site.example{}", sticker.content_path);
+    let payload = || DashboardConfigPayload {
+        layout: Some(
+            json!({"standard":[],"free":[{"type":"sticker","config":{"imageUrl":absolute}}]})
+                .to_string(),
+        ),
+        layout_mode: None,
+        title: None,
+        custom_platforms: None,
+        title_font: None,
+        title_font_size: None,
+        title_color: None,
+        widget_theme: None,
+    };
+    // Without the site origin the absolute URL reads as external and escapes
+    // deletion protection; this is what the handler used to pass.
+    let (status, _) = save_dashboard_config(&f.db, payload(), &[]).await;
+    assert_eq!(status, axum::http::StatusCode::OK);
+    assert_eq!(active_count(&f.db, sticker.id).await.unwrap(), 0);
+    let (status, body) = save_dashboard_config(&f.db, payload(), &origins).await;
+    assert_eq!(status, axum::http::StatusCode::OK);
+    assert_eq!(active_count(&f.db, sticker.id).await.unwrap(), 1);
+    assert!(matches!(
+        f.service.delete(&f.db, sticker.id).await,
+        Err(MediaError::InUse)
+    ));
+    let saved = body.0["layout"].as_str().unwrap().to_string();
+    assert!(!saved.contains("https://site.example"), "{saved}");
+    assert!(saved.contains("/media/assets/"), "{saved}");
+    assert_eq!(
+        stored_config(&f, "dashboard_layout").await,
+        Some(json!(saved))
+    );
+    f.close().await;
+}
