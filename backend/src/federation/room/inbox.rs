@@ -44,34 +44,18 @@ pub async fn handle_room_invite(
     // 查找本地接收者（从 "to" 字段推断）
     //
     // 收件人必须是**本实例**的 Actor URL（`local_username_from_actor_url`），不能取任意 URL 的最后一段当用户名。
-    let to = activity.get("to").and_then(|v| v.as_array());
-    let local_user_id: Option<i32> = if let Some(targets) = to {
-        let mut found_id = None;
-        for target in targets {
-            let Some(url) = target.as_str() else { continue };
-            let Some(uname) = local_username_from_actor_url(&base_url_val, url) else {
-                continue;
-            };
-            if let Some(row) = db
-                .query_one_raw(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    "SELECT id FROM users WHERE username = $1",
-                    [uname.into()],
-                ))
-                .await
-                .map_err(|e| e.to_string())?
-            {
-                found_id = row.try_get::<i32>("", "id").ok();
-                break;
-            }
-        }
-        found_id
-    } else {
-        None
-    };
+    let to = activity
+        .get("to")
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|v| v.as_str());
+    let recipient = first_local_recipient(db, &base_url_val, to)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    let target_user_id: i32 = match local_user_id {
-        Some(uid) => uid,
+    let (target_user_id, target_username): (i32, String) = match recipient {
+        Some(found) => found,
         None => {
             // 单用户实例的便利回退。多用户实例上「按 id 取第一个」会把没寻址到
             // 任何人的邀请塞给最老的账号 —— 与 resolve_shared_inbox_local_user
@@ -79,7 +63,7 @@ pub async fn handle_room_invite(
             let rows = db
                 .query_all_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
-                    "SELECT id FROM users ORDER BY id LIMIT 2",
+                    "SELECT id, username FROM users ORDER BY id LIMIT 2",
                     [],
                 ))
                 .await
@@ -89,26 +73,13 @@ pub async fn handle_room_invite(
                     "not_member: RoomInvite for {room_id} has no resolvable local recipient"
                 ));
             }
-            rows[0].try_get("", "id").map_err(|e| e.to_string())?
+            (
+                rows[0].try_get("", "id").map_err(|e| e.to_string())?,
+                rows[0].try_get("", "username").map_err(|e| e.to_string())?,
+            )
         }
     };
-
-    // 用 `users.username` 拼本地 actor URL；找不到行则 `actor_url(…, "unknown")`。
-    let local_actor = match db
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT username FROM users WHERE id = $1",
-            [target_user_id.into()],
-        ))
-        .await
-        .map_err(|e| e.to_string())?
-    {
-        Some(row) => {
-            let uname: String = row.try_get("", "username").unwrap_or_default();
-            actor_url(&base_url_val, &uname)
-        }
-        _ => actor_url(&base_url_val, "unknown"),
-    };
+    let local_actor = actor_url(&base_url_val, &target_username);
 
     // Ensure Room row exists; empty/fallback name is upgraded when the invite carries a real name.
     let home_server = object

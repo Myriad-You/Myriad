@@ -57,24 +57,14 @@ pub async fn handle_channel_open(
 
     // 防 DB 放大：`to` 数组可被塞入海量条目，只看前 `MAX_TO_LOOKUPS` 个。
     const MAX_TO_LOOKUPS: usize = 16;
-    let mut target_user_id: Option<i32> = None;
-    for entry in to_entries.iter().take(MAX_TO_LOOKUPS) {
-        let Some(username) = local_username_from_actor_url(&base_url, entry) else {
-            continue;
-        };
-        let row = db
-            .query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT id FROM users WHERE username = $1 LIMIT 1",
-                [username.into()],
-            ))
-            .await
-            .map_err(|e| e.to_string())?;
-        if let Some(uid) = row.and_then(|r| r.try_get::<i32>("", "id").ok()) {
-            target_user_id = Some(uid);
-            break;
-        }
-    }
+    let mut target_user_id = first_local_recipient(
+        db,
+        &base_url,
+        to_entries.iter().take(MAX_TO_LOOKUPS).copied(),
+    )
+    .await
+    .map_err(|e| e.to_string())?
+    .map(|(uid, _)| uid);
 
     if target_user_id.is_none() {
         // 关注关系回退：to 缺失/无法解析（如 BASE_URL 迁移后远端持有旧 URL）
