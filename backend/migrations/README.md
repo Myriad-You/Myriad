@@ -23,7 +23,7 @@ sea-orm-cli migrate generate create_new_table
 3. `003_phantasi_system` - Phantasi sources, items, annotations, cloud note docs (including reading-state `revision` and article `content_revision`), media catalog, and friend-link / subscription applications
 4. `004_agent_system` - Agent tasks, memory, notification state, and Merope persona tables
 5. `005_federation` - Federation identities, messages, delivery queue, and inbox receipts
-6. `006_oauth_identities` - OAuth/OIDC identity bindings
+6. `006_oauth_identities` - OAuth/OIDC identity bindings, plus the user lifecycle (`user_lifecycle.sql`)
 
 Base CREATE tables (001–006) include the current column set for greenfield installs.
 The migrator has no 007+ files. Before SeaORM validates history, leftover
@@ -69,6 +69,7 @@ Recent tables:
 | media_assets | `003` / `media_asset_model.sql` | `ensure_media_assets_table` + TableDef |
 | media_references / media_url_aliases / media_migration_jobs | `003` / `media_asset_model.sql` | `ensure_media_assets_table` + TableDef |
 | note editor history | `003` / `note_editor.sql` | `ensure_note_editor_history` + TableDef |
+| user lifecycle FKs + subject-row delete trigger | `006` / `user_lifecycle.sql` | `ensure_user_lifecycle` (orphans of the listed FKs are removed / set NULL before the constraint is added) |
 
 Older DBs that already applied a pre-feature migration version get tables via
 `ensure_*` (`CREATE IF NOT EXISTS`). The `_schema_versions` mark does **not**

@@ -697,6 +697,7 @@ DROP INDEX idx_timeline_user_activity;
 INSERT INTO federation_delivery_queue (id, activity_id, target_inbox, target_domain, attempts)
 VALUES (-2, 2147483647, 'https://schema.test/inbox', 'schema.test', 3),
        (-1, 2147483647, 'https://schema.test/inbox', 'schema.test', 0);
+INSERT INTO users (id, username) VALUES (2147483647, 'schema-dedup-fixture');
 INSERT INTO federation_timeline (id, user_id, activity_id, is_read)
 VALUES (-2, 2147483647, 'https://schema.test/activity', TRUE),
        (-1, 2147483647, 'https://schema.test/activity', FALSE);
@@ -797,6 +798,7 @@ DROP TRIGGER reject_schema_dedup_delete ON federation_timeline;
 DROP FUNCTION reject_schema_dedup_delete();
 DELETE FROM federation_delivery_queue WHERE id = -2;
 DELETE FROM federation_timeline WHERE id = -2;
+DELETE FROM users WHERE id = 2147483647;
 "#,
     )
     .await

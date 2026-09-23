@@ -1328,6 +1328,7 @@ async fn postgres_report_catalog_projects_summary_and_preserves_full_detail() {
         return;
     };
     f.db.execute_unprepared(r#"
+INSERT INTO users (id, username) VALUES (2, 'report-other');
 INSERT INTO platform_reports (user_id, platform, metadata, report, created_at) VALUES
 (1, 'steam', '{}', json_build_object('summary', 'Latest', 'card_visuals', repeat('x', 100000)), '2026-09-22'),
 (1, 'github', '{}', '{"summary":null}', '2026-09-21'),
@@ -1365,6 +1366,7 @@ async fn postgres_recent_activity_uses_history_projection_without_snapshots() {
     };
     f.db.execute_unprepared(r#"
 UPDATE users SET is_owner = TRUE WHERE id = 1;
+INSERT INTO users (id, username) VALUES (2, 'history-other');
 INSERT INTO metadata_history (user_id, platform_name, changed_fields, old_data, new_data, change_date) VALUES
 (1, 'steam', '["games", "playtime"]', json_build_object('large', repeat('x', 100000)), '{}', '2026-09-22'),
 (1, 'steam', '["games"]', '{}', '{}', '2026-09-22'),
