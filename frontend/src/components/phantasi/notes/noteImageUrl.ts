@@ -7,6 +7,7 @@
 
 import { API_URL } from '../../../config'
 import { proxyImageUrl } from '../../../utils/proxyImageUrl'
+import { siteMediaUrl } from '../../../utils/siteMediaUrl'
 import { emptyNoteWidgetText, stampNoteWidgetNotProse } from './noteWidgetHtml'
 
 const SELF_HOSTED_PREFIXES = ['/media/assets/', '/media/federation/', '/api/']
@@ -14,14 +15,13 @@ const SELF_HOSTED_PREFIXES = ['/media/assets/', '/media/federation/', '/api/']
 export function displayImageUrl(src: string, apiUrl: string = API_URL): string {
   const raw = src.trim()
   if (!raw || raw.startsWith('data:') || raw.startsWith('blob:')) return raw
-  const base = apiUrl.replace(/\/$/, '')
   if (SELF_HOSTED_PREFIXES.some((prefix) => raw.startsWith(prefix))) {
-    return `${base}${raw}`
+    return siteMediaUrl(raw, apiUrl)
   }
   try {
     const url = new URL(raw)
     if (SELF_HOSTED_PREFIXES.some((prefix) => url.pathname.startsWith(prefix))) {
-      return `${base}${url.pathname}${url.search}`
+      return siteMediaUrl(`${url.pathname}${url.search}`, apiUrl)
     }
   } catch {
     return raw

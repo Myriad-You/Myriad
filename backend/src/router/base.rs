@@ -526,4 +526,41 @@ mod config_mode_route_tests {
             "web process must serve /media/federation and /media/assets"
         );
     }
+
+    /// The SPA reads site media through `/api` aliases; in the web route graph
+    /// they reach the public handlers (their `no-store` 404), not an unmatched
+    /// route or the authenticated `/api/media/{id}` routes.
+    #[tokio::test]
+    async fn web_router_serves_site_media_api_aliases() {
+        use axum::http::{Request, StatusCode, header};
+        use tower::ServiceExt;
+
+        let state = crate::state::AppState::new(
+            sea_orm::DatabaseConnection::default(),
+            crate::config::AppConfig::default(),
+            crate::config::DynamicConfig::default(),
+        );
+        let web = super::build_base_api_router(state.clone())
+            .merge(super::super::authenticated::build_authenticated_router(
+                state.clone(),
+            ))
+            .with_state(state);
+        // Both are rejected before any database read.
+        for path in [
+            "/api/media/assets/not-a-uuid/a.png",
+            "/api/media/federation/1/a..png",
+        ] {
+            let request = Request::builder()
+                .uri(path)
+                .body(axum::body::Body::empty())
+                .unwrap();
+            let response = web.clone().oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+            assert_eq!(
+                response.headers().get(header::CACHE_CONTROL).unwrap(),
+                crate::services::media::NO_STORE,
+                "{path} must reach the public media handler"
+            );
+        }
+    }
 }

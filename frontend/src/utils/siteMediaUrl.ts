@@ -11,11 +11,13 @@ export function siteMediaUrl(src: string, apiUrl = API_URL): string {
       path = `${parsed.pathname}${parsed.search}${parsed.hash}`
     }
   } catch { /* Keep non-URL sources unchanged. */ }
-  if (
-    path.startsWith('/api/') ||
-    path.startsWith('/media/assets/') ||
-    path.startsWith('/media/federation/')
-  ) {
+  // The proxy updates only on explicit request, and older ones do not route
+  // `/media/*` to the backend; every proxy forwards `/api/`, where the backend
+  // mirrors these paths.
+  if (path.startsWith('/media/assets/') || path.startsWith('/media/federation/')) {
+    path = `/api${path}`
+  }
+  if (path.startsWith('/api/')) {
     return `${apiUrl.replace(/\/$/, '')}${path}`
   }
   return path

@@ -21,7 +21,7 @@ it('list and saved edits retain API references and paths; display resolves per o
   assert.equal((await listMedia()).items, items)
   assert.equal(await saveMediaEdit(7, 'data:image/png;base64,AA==', false), asset)
   for (const origin of ['', 'https://api.example']) {
-    assert.equal(displayImageUrl(asset.url, origin), `${origin}${asset.url}`)
+    assert.equal(displayImageUrl(asset.url, origin), `${origin}/api${asset.url}`)
   }
   assert.equal(asset.url, '/media/federation/1/photo.png')
 })

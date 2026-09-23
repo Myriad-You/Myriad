@@ -32,7 +32,7 @@ test('switching sources clears the previous private preview immediately, includi
   await expect(page.locator('img')).toHaveCount(0)
   expect(await page.evaluate(() => window.mediaSourceTest.revoked)).toContain(previous)
   await page.evaluate(() => window.mediaSourceTest.show('/media/assets/public.png'))
-  await expect(page.locator('img')).toHaveAttribute('src', '/media/assets/public.png')
+  await expect(page.locator('img')).toHaveAttribute('src', '/api/media/assets/public.png')
   await page.evaluate(() => window.mediaSourceTest.show(undefined))
   await expect(page.locator('img')).toHaveCount(0)
 })

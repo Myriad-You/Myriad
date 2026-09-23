@@ -23,6 +23,11 @@ use crate::services::media::{
     resolve_public_asset,
 };
 
+/// `/api/media/...` mirrors the canonical paths for the SPA's display reads.
+/// The proxy only updates on explicit request, and before 0.5.2 it sent
+/// `/media/assets` to the SPA and `/media/federation` to the federation worker
+/// (absent where the egress gate is closed); every proxy forwards `/api/`.
+/// Stored and published URLs stay canonical.
 pub fn public_media_routes() -> Router<crate::state::AppState> {
     Router::new()
         .route(
@@ -30,7 +35,15 @@ pub fn public_media_routes() -> Router<crate::state::AppState> {
             get(serve_public_asset).head(serve_public_asset),
         )
         .route(
+            "/api/media/assets/{public_id}/{filename}",
+            get(serve_public_asset).head(serve_public_asset),
+        )
+        .route(
             "/media/federation/{user}/{file}",
+            get(serve_federation_media).head(serve_federation_media),
+        )
+        .route(
+            "/api/media/federation/{user}/{file}",
             get(serve_federation_media).head(serve_federation_media),
         )
 }

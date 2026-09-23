@@ -353,6 +353,11 @@ fn is_image_proxy(path: &str) -> bool {
     path == "/api/proxy/image" || path.starts_with("/api/proxy/image/")
 }
 
+/// `/api` aliases of public site media: file reads, not compute.
+fn is_public_media_read(path: &str) -> bool {
+    path.starts_with("/api/media/assets/") || path.starts_with("/api/media/federation/")
+}
+
 /// Phantasi 文章列表的 GET。`/api/phantasi/items/{id}/read` 这类写操作不算。
 fn is_phantasi_list_read(path: &str, method: &axum::http::Method) -> bool {
     method == axum::http::Method::GET && path.trim_end_matches('/') == "/api/phantasi/items"
@@ -362,7 +367,7 @@ fn is_phantasi_list_read(path: &str, method: &axum::http::Method) -> bool {
 /// accidentally throttle high-volume reads that merely contain a substring
 /// (e.g. storage lives under `/api/tapps/…/storage` and has its own Tapp limiter).
 fn is_compute_intensive(path: &str) -> bool {
-    if is_image_proxy(path) {
+    if is_image_proxy(path) || is_public_media_read(path) {
         return false;
     }
     let p = path.trim_end_matches('/');
@@ -450,6 +455,12 @@ mod tests {
         // Image proxy is media volume, not compute.
         assert!(is_image_proxy("/api/proxy/image"));
         assert!(!is_compute_intensive("/api/proxy/image"));
+        // Public media aliases are file reads; private content stays compute.
+        assert!(!is_compute_intensive(
+            "/api/media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/a.png"
+        ));
+        assert!(!is_compute_intensive("/api/media/federation/1/pic.png"));
+        assert!(is_compute_intensive("/api/media/7/content"));
         assert!(!is_compute_intensive("/api/proxy/client-geo"));
         assert!(!is_image_proxy("/api/proxy/client-geo"));
         // Must not catch high-volume reads via loose substring match.

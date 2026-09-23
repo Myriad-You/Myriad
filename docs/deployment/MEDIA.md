@@ -7,6 +7,14 @@
 联邦 worker 停掉不影响本站媒体。历史 `/media/federation/…` 与
 `/api/phantasi/image-cache/…` 只通过已登记别名读取，不再从请求 URL 拼接磁盘路径。
 
+## 显示地址
+
+存储和对外发布的规范地址仍是 `/media/assets/…`、`/media/federation/…`。
+站内页面显示时改走 `/api/media/assets/…`、`/api/media/federation/…`，由同一套公开读取处理。
+proxy 只在管理员显式更新时升级；0.5.2 之前的 proxy 会把 `/media/assets` 交给前端 SPA，
+把 `/media/federation` 交给联邦 worker（出口地区关闭联邦时不可达），而任何版本都转发 `/api/`。
+外部读者（联邦对端、RSS 阅读器）拿到的仍是规范地址，这部分需要更新 proxy。
+
 ## 备份与恢复
 
 与 [BACKUP.md](BACKUP.md) 相同：Postgres + `backend_data` + `.env`。

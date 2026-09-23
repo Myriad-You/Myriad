@@ -18,15 +18,15 @@ const golden = (name: string) => readFileSync(join(gold, name), 'utf8')
 const api = 'http://localhost:3000'
 
 describe('displayImageUrl', () => {
-  it('本站媒体：不管存的是哪个域名，都改成当前 API origin', () => {
+  it('本站媒体：不管存的是哪个域名，都改成当前 API origin 下的 /api 别名', () => {
     assert.equal(
       displayImageUrl('https://my.site/media/federation/1/a.jpg', api),
-      'http://localhost:3000/media/federation/1/a.jpg',
+      'http://localhost:3000/api/media/federation/1/a.jpg',
     )
-    assert.equal(displayImageUrl('/media/federation/1/a.jpg', api), 'http://localhost:3000/media/federation/1/a.jpg')
+    assert.equal(displayImageUrl('/media/federation/1/a.jpg', api), 'http://localhost:3000/api/media/federation/1/a.jpg')
     assert.equal(
       displayImageUrl('/media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/a.jpg', api),
-      'http://localhost:3000/media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/a.jpg',
+      'http://localhost:3000/api/media/assets/3f2a1b4c-5d6e-7f80-91a2-b3c4d5e6f708/a.jpg',
     )
     assert.equal(displayImageUrl('/api/x.png?v=2', api), 'http://localhost:3000/api/x.png?v=2')
   })
@@ -43,7 +43,7 @@ describe('withDisplayImages', () => {
     const html = '<p><img alt="封面" src="https://my.site/media/federation/1/a.jpg?x=1&amp;y=2"></p>'
     assert.equal(
       withDisplayImages(html, api),
-      '<p><img alt="封面" src="http://localhost:3000/media/federation/1/a.jpg?x=1&amp;y=2"></p>',
+      '<p><img alt="封面" src="http://localhost:3000/api/media/federation/1/a.jpg?x=1&amp;y=2"></p>',
     )
   })
 })
