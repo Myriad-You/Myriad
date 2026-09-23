@@ -1807,3 +1807,161 @@ async fn settings_restore_rebinds_wallpaper_and_stickers_in_the_config_transacti
     );
     f.close().await;
 }
+
+async fn drive_upgrade_at(
+    f: &Fixture,
+    paths: &LegacyPaths,
+    origins: &[String],
+    now: i64,
+) -> upgrade::UpgradeProgress {
+    let mut result = upgrade::UpgradeProgress::default();
+    for _ in 0..100 {
+        result = upgrade::automatic_step(&f.db, f.service.store(), paths, origins, now)
+            .await
+            .unwrap()
+            .unwrap();
+        if result.complete || result.next_retry_at.is_some() {
+            break;
+        }
+    }
+    result
+}
+
+#[tokio::test]
+async fn postgres_upgrade_completes_when_site_settings_cite_dead_local_media() {
+    let Some(f) = Fixture::new().await else {
+        return;
+    };
+    let paths = LegacyPaths {
+        federation_root: f.service.store().root().join("old"),
+        cache_images: f.service.store().root().join("cache"),
+    };
+    let origins = ["https://site.example".to_string()];
+    let live = f.image().await;
+    let deleted = f.image().await;
+    assert_eq!(
+        f.service.delete(&f.db, deleted.id).await.unwrap(),
+        DeleteOutcome::Deleted
+    );
+    let unknown_asset = format!("/media/assets/{}/gone.png", Uuid::new_v4());
+    let dead_stickers = [
+        unknown_asset.clone(),
+        "/media/federation/1/gone.png".to_string(),
+        deleted.content_path.clone(),
+        "https://site.example/api/media/2147483000/content".to_string(),
+    ];
+    let mut stickers = vec![live.content_path.clone()];
+    stickers.extend(dead_stickers.iter().cloned());
+    let layout = json!({
+        "standard": [],
+        "free": stickers
+            .iter()
+            .map(|url| json!({"type": "sticker", "config": {"imageUrl": url}}))
+            .collect::<Vec<_>>()
+    });
+    let dead_wallpaper = "https://site.example/media/federation/1/wall-gone.png";
+    for (key, value) in [
+        ("dashboard_layout", json!(layout.to_string())),
+        ("ui_wallpaper_url", json!(dead_wallpaper)),
+    ] {
+        f.db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO configurations(key,value,updated_at) VALUES ($1,$2,NOW())",
+            [key.into(), value.into()],
+        ))
+        .await
+        .unwrap();
+    }
+    let now = chrono::Utc::now().timestamp();
+    let progress = drive_upgrade_at(&f, &paths, &origins, now).await;
+    assert!(
+        progress.complete,
+        "{:?} {:?}",
+        progress.error, progress.error_source
+    );
+    assert_eq!(progress.pending_failures, 0);
+    assert_eq!(progress.unresolved, 5);
+    // Dead citations stay as stored, unbound, and are never catalogued.
+    assert!(wallpaper_references(&f).await.is_empty());
+    assert_eq!(
+        stored_config(&f, "ui_wallpaper_url").await,
+        Some(json!(dead_wallpaper))
+    );
+    for path in [
+        "/media/federation/1/gone.png",
+        "/media/federation/1/wall-gone.png",
+    ] {
+        assert!(
+            resolve_asset_id(&f.db, path).await.unwrap().is_none(),
+            "{path}"
+        );
+    }
+    let stored_layout = stored_config(&f, "dashboard_layout").await.unwrap();
+    let stored_layout = stored_layout.as_str().unwrap();
+    for url in &dead_stickers {
+        assert!(stored_layout.contains(url.as_str()), "{url}");
+    }
+    // The live sticker in the same layout is still published and protected.
+    assert!(!stored_layout.contains(&live.content_path));
+    assert_eq!(
+        assets::find_by_id(&f.db, live.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .exposure
+            .as_deref(),
+        Some("public")
+    );
+    assert_eq!(active_count(&f.db, live.id).await.unwrap(), 1);
+
+    // Unresolved records are rebuilt per setting, not accumulated.
+    f.db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE configurations SET value = $1 WHERE key = 'ui_wallpaper_url'",
+        [json!(unknown_asset).into()],
+    ))
+    .await
+    .unwrap();
+    upgrade::advance(&f.db, f.service.store(), &paths, &origins, true)
+        .await
+        .unwrap();
+    let progress = drive_upgrade_at(&f, &paths, &origins, now).await;
+    assert!(progress.complete, "{:?}", progress.error);
+    assert_eq!(progress.unresolved, 5);
+
+    // A catalogued asset whose file is missing is not dead: it still retries,
+    // and binds once the file comes back.
+    f.db.execute_unprepared("INSERT INTO media_assets(kind,url,mime,name,size) VALUES ('upload','/media/federation/1/late.png','image/png','late.png',0)").await.unwrap();
+    f.db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE configurations SET value = $1 WHERE key = 'ui_wallpaper_url'",
+        [json!("/media/federation/1/late.png").into()],
+    ))
+    .await
+    .unwrap();
+    upgrade::advance(&f.db, f.service.store(), &paths, &origins, true)
+        .await
+        .unwrap();
+    let waiting = drive_upgrade_at(&f, &paths, &origins, now).await;
+    assert!(!waiting.complete);
+    assert!(waiting.next_retry_at.is_some());
+    assert_eq!(waiting.unresolved, 4);
+    tokio::fs::create_dir_all(paths.federation_root.join("1"))
+        .await
+        .unwrap();
+    tokio::fs::write(paths.federation_root.join("1/late.png"), png())
+        .await
+        .unwrap();
+    let repaired = drive_upgrade_at(&f, &paths, &origins, waiting.next_retry_at.unwrap()).await;
+    assert!(
+        repaired.complete,
+        "{:?} {:?}",
+        repaired.error, repaired.error_source
+    );
+    let late = resolve_asset_id(&f.db, "/media/federation/1/late.png")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(wallpaper_references(&f).await, vec![late]);
+    f.close().await;
+}

@@ -15,6 +15,9 @@ const BATCH: u64 = 50;
 const REVISION: u32 = 3;
 const WALLPAPER_KEY: &str = "ui_wallpaper_url";
 const FAILURE_JOB: &str = "upgrade_failure";
+/// Terminal record of a site setting citing local media that can never bind
+/// here. Rebuilt on every bind of that setting and on every upgrade restart.
+const UNRESOLVED_JOB: &str = "upgrade_unresolved";
 const PHASES: &[(&str, &str, &str)] = &[
     ("media_assets", "id", "TRUE"),
     ("phantasi_note_docs", "id", "TRUE"),
@@ -49,6 +52,10 @@ pub struct UpgradeProgress {
     pub revision: u32,
     #[serde(default)]
     pub pending_failures: u64,
+    /// Local media cited by the wallpaper or dashboard stickers that does not
+    /// exist on this instance; left unbound instead of retried.
+    #[serde(default)]
+    pub unresolved: u64,
     #[serde(default)]
     pub retrying: bool,
     /// 0: discover citations, 1: copy catalog, 2: bind consumers.
@@ -187,7 +194,7 @@ async fn advance_inner(
             ..Default::default()
         };
         txn.execute_unprepared(
-            "DELETE FROM media_migration_jobs WHERE source_kind = 'upgrade_failure'",
+            "DELETE FROM media_migration_jobs WHERE source_kind IN ('upgrade_failure', 'upgrade_unresolved')",
         )
         .await?;
         // Older completed jobs did not repair dashboard URLs or bind the site
@@ -407,6 +414,10 @@ async fn refresh_failures(
         "SELECT count(*)::bigint AS count FROM media_migration_jobs WHERE source_kind = 'upgrade_failure'"))
         .await?.ok_or(MediaError::StoreFailed)?;
     progress.pending_failures = row.try_get::<i64>("", "count")? as u64;
+    let row = db.query_one_raw(Statement::from_string(DatabaseBackend::Postgres,
+        "SELECT count(*)::bigint AS count FROM media_migration_jobs WHERE source_kind = 'upgrade_unresolved'"))
+        .await?.ok_or(MediaError::StoreFailed)?;
+    progress.unresolved = row.try_get::<i64>("", "count")? as u64;
     let failure = media_migration_jobs::Entity::find()
         .filter(media_migration_jobs::Column::SourceKind.eq(FAILURE_JOB))
         .filter(media_migration_jobs::Column::ErrorCode.is_not_null())
@@ -445,15 +456,11 @@ async fn process_row(
         } else {
             parse_layout(table, &payload)
         };
-        import_cited(
-            db,
-            store,
-            paths,
-            origins,
-            layout.as_ref().unwrap_or(&payload),
-            false,
-        )
-        .await?;
+        let cited = layout.as_ref().unwrap_or(&payload);
+        // Never catalogue a dead site-setting citation: the row could only
+        // ever be retried as missing.
+        let unresolved = unresolved_paths(db, paths, origins, table, cited).await?;
+        import_cited(db, store, paths, origins, cited, false, &unresolved).await?;
     } else if phase == 0 {
         let asset: media_assets::Model =
             serde_json::from_value(payload.clone()).map_err(|_| MediaError::StoreFailed)?;
@@ -501,19 +508,11 @@ async fn import_cited(
     origins: &[String],
     payload: &Value,
     copy: bool,
+    unresolved: &[String],
 ) -> Result<Vec<String>, MediaError> {
     let _ = store;
-    let mut strings = Vec::new();
-    cite::collect_strings(payload, &mut strings);
-    let mut urls = Vec::new();
-    for text in strings {
-        if let Some(path) = super::urls::cite_local_path(&text, origins) {
-            urls.push(path);
-        }
-        urls.extend(cite::extract_registered_paths(&text, origins));
-    }
-    urls.sort();
-    urls.dedup();
+    let mut urls = cited_local_paths(payload, origins);
+    urls.retain(|url| !unresolved.contains(url));
     for url in &urls {
         let Ok(_plan) = migration::plan_catalog_url(url, origins, paths) else {
             continue;
@@ -582,8 +581,109 @@ async fn import_cited(
     Ok(urls)
 }
 
+fn cited_local_paths(payload: &Value, origins: &[String]) -> Vec<String> {
+    let mut strings = Vec::new();
+    cite::collect_strings(payload, &mut strings);
+    let mut urls = Vec::new();
+    for text in strings {
+        if let Some(path) = super::urls::cite_local_path(&text, origins) {
+            urls.push(path);
+        }
+        urls.extend(cite::extract_registered_paths(&text, origins));
+    }
+    urls.sort();
+    urls.dedup();
+    urls
+}
+
 fn is_wallpaper(table: &str, cursor: &str) -> bool {
     table == "configurations" && cursor == WALLPAPER_KEY
+}
+
+/// Local media cited by a site setting (wallpaper or dashboard stickers) that
+/// can never bind here. Other consumers keep retrying unresolved citations.
+async fn unresolved_paths(
+    db: &impl ConnectionTrait,
+    paths: &LegacyPaths,
+    origins: &[String],
+    table: &str,
+    cited: &Value,
+) -> Result<Vec<String>, MediaError> {
+    if table != "configurations" {
+        return Ok(Vec::new());
+    }
+    let mut dead = Vec::new();
+    for path in cited_local_paths(cited, origins) {
+        if is_dead_local_path(db, paths, origins, &path).await? {
+            dead.push(path);
+        }
+    }
+    Ok(dead)
+}
+
+/// A local path that definitely has no media on this instance: its asset was
+/// deleted, or nothing is catalogued for it and no legacy file exists to import.
+/// A catalogued asset that is not ready (such as a legacy row whose file is
+/// missing) is not dead: its bytes may come back, so it stays a retried failure.
+/// Database and filesystem errors propagate and are retried.
+async fn is_dead_local_path(
+    db: &impl ConnectionTrait,
+    paths: &LegacyPaths,
+    origins: &[String],
+    path: &str,
+) -> Result<bool, MediaError> {
+    let found = match cite::resolve_asset_id(db, path).await? {
+        Some(id) => Some(id),
+        None => match super::legacy::cache_equivalent_path(path) {
+            Some(other) => cite::resolve_asset_id(db, &other).await?,
+            None => None,
+        },
+    };
+    if let Some(id) = found {
+        let row = super::assets::find_by_id(db, id).await?;
+        return Ok(row.is_none_or(|row| row.state.as_deref() == Some("deleted")));
+    }
+    match migration::plan_catalog_url(path, origins, paths) {
+        Ok(plan) => Ok(!tokio::fs::try_exists(&plan.disk).await?),
+        // Platform media paths are only ever created by a catalogued upload.
+        Err(_) => Ok(true),
+    }
+}
+
+/// Replace the terminal unresolved records of one site setting.
+async fn record_unresolved(
+    db: &impl ConnectionTrait,
+    table: &str,
+    cursor: &str,
+    dead: &[String],
+) -> Result<(), MediaError> {
+    let prefix = format!("{table}:{cursor}:");
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "DELETE FROM media_migration_jobs WHERE source_kind = $1 AND starts_with(source_key, $2)",
+        [UNRESOLVED_JOB.into(), prefix.clone().into()],
+    ))
+    .await?;
+    for path in dead {
+        tracing::warn!(
+            setting = cursor,
+            path = %path,
+            "media upgrade leaves a setting citing local media that does not exist here unbound"
+        );
+        migration::record_job(
+            db,
+            UNRESOLVED_JOB,
+            &format!("{prefix}{path}"),
+            None,
+            "skipped",
+            "pending",
+            "pending",
+            Some(MediaError::Missing.code()),
+            Some(path),
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 fn stored_wallpaper(payload: &Value) -> String {
@@ -656,15 +756,14 @@ async fn bind_row(
     if is_wallpaper(table, cursor) {
         let stored = stored_wallpaper(payload);
         let candidate = wallpaper_candidate(db, paths, origins, payload).await?;
-        import_cited(
-            db,
-            store,
-            paths,
-            origins,
-            &Value::String(candidate.clone()),
-            true,
-        )
-        .await?;
+        let cited = Value::String(candidate.clone());
+        let unresolved = unresolved_paths(db, paths, origins, table, &cited).await?;
+        record_unresolved(db, table, cursor, &unresolved).await?;
+        if !unresolved.is_empty() {
+            // Nothing here to protect; keep the stored value and drop stale refs.
+            return cite::bind_consumer(db, "site_wallpaper", "site", &[]).await;
+        }
+        import_cited(db, store, paths, origins, &cited, true, &[]).await?;
         // Same binder as saving the setting; clears stale references when unset.
         let published = cite::bind_and_publish_wallpaper(db, &candidate, origins).await?;
         if published != stored {
@@ -677,15 +776,12 @@ async fn bind_row(
         }
         return Ok(());
     }
-    let urls = import_cited(
-        db,
-        store,
-        paths,
-        origins,
-        layout.as_ref().unwrap_or(payload),
-        true,
-    )
-    .await?;
+    let cited = layout.as_ref().unwrap_or(payload);
+    let unresolved = unresolved_paths(db, paths, origins, table, cited).await?;
+    if table == "configurations" {
+        record_unresolved(db, table, cursor, &unresolved).await?;
+    }
+    let urls = import_cited(db, store, paths, origins, cited, true, &unresolved).await?;
     match table {
         "phantasi_note_docs" => {
             // Import history citations before the existing atomic draft/history binder.
@@ -698,7 +794,7 @@ async fn bind_row(
                 .await?;
             for row in history {
                 let value: Value = row.try_get("", "snapshot")?;
-                import_cited(db, store, paths, origins, &value, true).await?;
+                import_cited(db, store, paths, origins, &value, true, &[]).await?;
             }
             cite::bind_note_draft(
                 db,
@@ -770,10 +866,11 @@ async fn bind_row(
             .await
         }
         "configurations" => {
-            let rewritten = cite::bind_and_publish_dashboard_layout(
+            let rewritten = cite::bind_and_publish_dashboard_layout_except(
                 db,
-                &layout.unwrap_or(Value::Null).to_string(),
+                &cited.to_string(),
                 origins,
+                &unresolved,
             )
             .await?;
             db.execute_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres,
@@ -809,7 +906,7 @@ async fn bind_row(
                 .map(|row| row.try_get::<Value>("", "object_json"))
                 .transpose()?
                 .unwrap_or(Value::Null);
-            let urls = import_cited(db, store, paths, origins, &value, true).await?;
+            let urls = import_cited(db, store, paths, origins, &value, true, &[]).await?;
             let refs =
                 cite::references_from_urls(db, origins, &urls, |i| format!("attachment:{i}"), true)
                     .await?;

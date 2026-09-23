@@ -60,7 +60,11 @@ pub fn start_upgrade_worker() -> tokio::task::JoinHandle<()> {
             .await
             {
                 Ok(Some(progress)) if progress.complete => {
-                    tracing::info!(scanned = progress.scanned, "media upgrade completed")
+                    tracing::info!(
+                        scanned = progress.scanned,
+                        unresolved = progress.unresolved,
+                        "media upgrade completed"
+                    )
                 }
                 Ok(Some(progress)) if progress.error.is_some() => tracing::warn!(
                     error = ?progress.error, source = ?progress.error_source, pending_failures = progress.pending_failures, next_retry_at = ?progress.next_retry_at,

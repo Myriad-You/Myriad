@@ -361,8 +361,18 @@ pub async fn bind_stickers(
     layout: &str,
     origins: &[String],
 ) -> Result<(), MediaError> {
+    bind_sticker_urls(txn, layout, origins, &[]).await
+}
+
+async fn bind_sticker_urls(
+    txn: &impl ConnectionTrait,
+    layout: &str,
+    origins: &[String],
+    unresolved: &[String],
+) -> Result<(), MediaError> {
     let layout: Value = serde_json::from_str(layout).unwrap_or(Value::Null);
-    let urls = extract_sticker_image_urls(&layout);
+    let mut urls = extract_sticker_image_urls(&layout);
+    urls.retain(|url| cite_local_path(url, origins).is_none_or(|path| !unresolved.contains(&path)));
     let refs = references_from_urls(txn, origins, &urls, |i| format!("sticker:{i}"), true).await?;
     bind_consumer(txn, "sticker", "dashboard", &refs).await
 }
@@ -373,8 +383,21 @@ pub async fn bind_and_publish_dashboard_layout(
     layout_json: &str,
     origins: &[String],
 ) -> Result<String, MediaError> {
-    let rewritten = publish_dashboard_layout(txn, layout_json, origins).await?;
-    bind_stickers(txn, &rewritten, origins).await?;
+    bind_and_publish_dashboard_layout_except(txn, layout_json, origins, &[]).await
+}
+
+/// [`bind_and_publish_dashboard_layout`], leaving the `unresolved` local paths
+/// unpublished, unbound and unchanged in the layout. Only the media upgrade
+/// passes any: stored stickers whose media can never exist on this instance.
+/// Writers pass none, so saving such a sticker still fails.
+pub(crate) async fn bind_and_publish_dashboard_layout_except(
+    txn: &impl ConnectionTrait,
+    layout_json: &str,
+    origins: &[String],
+    unresolved: &[String],
+) -> Result<String, MediaError> {
+    let rewritten = publish_dashboard_layout(txn, layout_json, origins, unresolved).await?;
+    bind_sticker_urls(txn, &rewritten, origins, unresolved).await?;
     Ok(rewritten)
 }
 
@@ -382,6 +405,7 @@ async fn publish_dashboard_layout(
     txn: &impl ConnectionTrait,
     layout_json: &str,
     origins: &[String],
+    unresolved: &[String],
 ) -> Result<String, MediaError> {
     let Ok(mut layout) = serde_json::from_str::<Value>(layout_json) else {
         return Ok(layout_json.to_string());
@@ -393,6 +417,9 @@ async fn publish_dashboard_layout(
         let Some(path) = cite_local_path(&url, origins) else {
             continue;
         };
+        if unresolved.contains(&path) {
+            continue;
+        }
         if let Some(id) = resolve_asset_id(txn, &path).await? {
             aliases.push((path, id));
             ids.push(id);
