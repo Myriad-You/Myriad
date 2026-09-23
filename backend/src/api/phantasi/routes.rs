@@ -327,6 +327,10 @@ mod tests {
     ///   `admin_middleware` on phantasiai writes and the note-doc WebSocket);
     /// - JSON API routes reject a presented invalid credential in the auth layer;
     /// - excluded routes (RSS, icons, image cache) never reach an auth layer.
+    ///
+    /// The store is a lazy pool pointed at a closed local port: every query
+    /// fails fast with a connection error instead of panicking, so the excluded
+    /// handlers reach their own deterministic "not found" answer.
     #[test]
     fn production_router_applies_the_intended_auth_layer_per_route() {
         use axum::{
@@ -365,8 +369,16 @@ mod tests {
             .build()
             .expect("runtime");
         runtime.block_on(async {
+            let mut options = sea_orm::ConnectOptions::new("postgres://myriad@127.0.0.1:1/myriad");
+            options
+                .connect_lazy(true)
+                .acquire_timeout(std::time::Duration::from_millis(500))
+                .sqlx_logging(false);
+            let db = sea_orm::Database::connect(options)
+                .await
+                .expect("lazy pool never dials at construction");
             let state = crate::state::AppState::new(
-                sea_orm::DatabaseConnection::default(),
+                db,
                 crate::config::AppConfig::default(),
                 crate::config::DynamicConfig::default(),
             );
@@ -422,27 +434,20 @@ mod tests {
                 );
             }
 
-            // Excluded routes ignore credentials entirely. Handlers that query the
-            // store panic on the disconnected test connection; reaching the handler
-            // is exactly what this asserts, so a panic counts as "no auth layer".
+            // Excluded routes ignore credentials entirely: an invalid bearer still
+            // reaches the handler, which answers its own 404 (notes RSS not public
+            // when its settings cannot be read, missing icon, unresolvable cache
+            // alias). Any auth layer would answer 401 / 500 first.
             for path in [
                 "/api/phantasi/notes.xml",
                 "/api/phantasi/icons/missing.png",
                 "/api/phantasi/image-cache/a/b.png",
             ] {
-                use futures::FutureExt;
-                let Ok((status, body)) =
-                    std::panic::AssertUnwindSafe(call(&app, Method::GET, path, Some("not-a-jwt")))
-                        .catch_unwind()
-                        .await
-                else {
-                    continue;
-                };
-                assert_ne!(status, StatusCode::UNAUTHORIZED, "{path}");
-                let error = body["error"].as_str().unwrap_or_default();
-                assert!(
-                    !auth_layer_errors.contains(&error) && error != "Unauthorized",
-                    "{path} must not sit behind an auth layer: {body}"
+                let (status, body) = call(&app, Method::GET, path, Some("not-a-jwt")).await;
+                assert_eq!(
+                    status,
+                    StatusCode::NOT_FOUND,
+                    "{path} must reach its handler without an auth layer: {body}"
                 );
             }
         });
