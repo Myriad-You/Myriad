@@ -229,12 +229,11 @@ mod tests {
                 .find(&format!("pub(crate) async fn {name}"))
                 .unwrap_or_else(|| panic!("{name}"));
             let body = &impl_src[start..];
-            let end = body[1..]
-                .find("\npub(crate) async fn ")
-                .map(|index| index + 1)
-                .unwrap_or(body.len());
+            // The extractor type in the signature is the guard; the binding
+            // name (`admin` / `_admin`) is irrelevant.
+            let signature = &body[..body.find('{').expect("signature")];
             assert!(
-                body[..end].contains("admin: AdminClaims"),
+                signature.contains(": AdminClaims,"),
                 "{name} must require an admin session"
             );
         }

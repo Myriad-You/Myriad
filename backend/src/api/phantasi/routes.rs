@@ -256,4 +256,66 @@ mod tests {
             .unwrap_or("");
         assert!(!comments.contains("list_rsshub_instances"));
     }
+
+    /// Routes kept outside the optional-auth sub-router must still sit behind
+    /// `phantasi_host_attribution`: a grant-bearing request is stopped there.
+    #[test]
+    fn grant_bearing_requests_hit_attribution_on_every_route_group() {
+        use axum::{
+            body::Body,
+            http::{Request, StatusCode},
+        };
+        use tower::ServiceExt;
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            let state = crate::state::AppState::new(
+                sea_orm::DatabaseConnection::default(),
+                crate::config::AppConfig::default(),
+                crate::config::DynamicConfig::default(),
+            );
+            let app = axum::Router::new()
+                .nest(
+                    "/api/phantasi",
+                    super::create_phantasi_routes(state.clone()),
+                )
+                .with_state(state);
+            for path in [
+                "/api/phantasi/notes.xml",
+                "/api/phantasi/ws",
+                "/api/phantasi/notes/docs/1/ws",
+                "/api/phantasi/icons/example.png",
+                "/api/phantasi/image-cache/a/b.png",
+                "/api/phantasi/items",
+            ] {
+                let response = app
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .uri(path)
+                            .header(
+                                crate::services::tapp_runtime_grant::RUNTIME_GRANT_HEADER,
+                                "forged-grant",
+                            )
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::UNAUTHORIZED, "{path}");
+                let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap();
+                let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                assert_eq!(
+                    body["code"],
+                    crate::services::tapp_host_attribution::error_codes::UNAUTHENTICATED,
+                    "{path} must be rejected by host attribution"
+                );
+            }
+        });
+    }
 }
