@@ -477,7 +477,7 @@ pub async fn persist_generated_with_status(
                 filename: filename.to_string(),
                 derived_from_id: None,
                 exposure: MediaExposure::Private,
-                bytes,
+                bytes: bytes.into(),
             },
         )
         .await

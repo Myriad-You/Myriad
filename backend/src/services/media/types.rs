@@ -237,7 +237,8 @@ pub fn task_media_context(subject_id: i32, owner_id: i32) -> MediaContext {
 
 #[derive(Clone, Debug)]
 pub struct NewMediaBytes {
-    pub bytes: Vec<u8>,
+    /// Storage only borrows this; `Bytes` lets multipart bodies pass through uncopied.
+    pub bytes: axum::body::Bytes,
     pub claimed_mime: String,
     pub filename: String,
     pub max_bytes: usize,

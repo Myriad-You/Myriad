@@ -507,7 +507,7 @@ pub(crate) async fn federation_media_upload(
         Err(response) => return response,
     };
 
-    let mut file_bytes: Option<Vec<u8>> = None;
+    let mut file_bytes: Option<axum::body::Bytes> = None;
     let mut filename = "upload.bin".to_string();
     let mut mime = "application/octet-stream".to_string();
 
@@ -523,7 +523,7 @@ pub(crate) async fn federation_media_upload(
             mime = ct.to_string();
         }
         match field.bytes().await {
-            Ok(b) => file_bytes = Some(b.to_vec()),
+            Ok(b) => file_bytes = Some(b),
             Err(_) => {
                 return (
                     StatusCode::BAD_REQUEST,
@@ -554,7 +554,7 @@ async fn persist_federation_upload(
     user_id: i32,
     filename: &str,
     mime: &str,
-    bytes: Vec<u8>,
+    bytes: axum::body::Bytes,
 ) -> Result<crate::federation::content::MediaUploadResponse, (StatusCode, Json<serde_json::Value>)>
 {
     let mime = mime

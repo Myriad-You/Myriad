@@ -1350,7 +1350,7 @@ pub async fn upload_portrait(
                     crate::services::media::MediaSource::Upload,
                 ),
                 crate::services::media::NewMediaBytes {
-                    bytes: reference.bytes.into(),
+                    bytes: reference.bytes,
                     claimed_mime: reference.media_type,
                     filename: "portrait".into(),
                     max_bytes: 10 * 1024 * 1024,

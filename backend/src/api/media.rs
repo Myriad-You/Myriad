@@ -100,7 +100,7 @@ pub async fn upload_media(
             MediaContext::site(actor, MediaSource::Upload),
             NewMediaBytes {
                 max_bytes: upload_budget(&mime),
-                bytes: bytes.to_vec(),
+                bytes,
                 claimed_mime: mime,
                 filename,
                 derived_from_id: None,

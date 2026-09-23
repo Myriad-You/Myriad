@@ -300,7 +300,7 @@ pub async fn save_edit(
             &db,
             MediaContext::site(actor, source_kind),
             NewMediaBytes {
-                bytes,
+                bytes: bytes.into(),
                 claimed_mime: mime.to_string(),
                 filename: name,
                 max_bytes: MAX_EDIT_BYTES,

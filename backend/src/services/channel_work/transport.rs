@@ -392,7 +392,7 @@ async fn persist_channel_asset(
                 db,
                 ctx,
                 crate::services::media::NewMediaBytes {
-                    bytes,
+                    bytes: bytes.into(),
                     claimed_mime: mime.clone(),
                     filename: image.name.clone(),
                     max_bytes: crate::services::memory_profile::note_image_limit(),

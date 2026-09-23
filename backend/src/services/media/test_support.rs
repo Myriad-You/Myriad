@@ -43,7 +43,7 @@ impl Fixture {
                 &self.db,
                 MediaContext::site(MediaActor::admin(1).unwrap(), MediaSource::Upload),
                 NewMediaBytes {
-                    bytes: png(),
+                    bytes: png().into(),
                     claimed_mime: "image/png".into(),
                     filename: "test.png".into(),
                     max_bytes: 1024 * 1024,

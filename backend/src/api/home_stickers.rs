@@ -264,7 +264,7 @@ pub async fn generate_home_sticker(
                     crate::services::media::MediaSource::Generated,
                 ),
                 crate::services::media::NewMediaBytes {
-                    bytes: png,
+                    bytes: png.into(),
                     claimed_mime: "image/png".into(),
                     filename: "sticker.png".into(),
                     max_bytes: MAX_STICKER_UPLOAD_BYTES,
@@ -302,7 +302,7 @@ pub async fn upload_home_sticker(
                     crate::services::media::MediaSource::Upload,
                 ),
                 crate::services::media::NewMediaBytes {
-                    bytes,
+                    bytes: bytes.into(),
                     claimed_mime: media_type.to_string(),
                     filename: "sticker".into(),
                     max_bytes: MAX_STICKER_UPLOAD_BYTES,

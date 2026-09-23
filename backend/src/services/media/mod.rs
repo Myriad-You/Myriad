@@ -473,7 +473,7 @@ mod tests {
                 &db,
                 ctx,
                 NewMediaBytes {
-                    bytes: png.clone(),
+                    bytes: png.clone().into(),
                     claimed_mime: "image/png".into(),
                     filename: "shot.png".into(),
                     max_bytes: 1024 * 1024,
