@@ -219,7 +219,7 @@ pub async fn post_inbox(
     let (body, _inflight) = buffer_inbox_body(request).await?;
 
     // 先做只依赖 header/原始字节的检查，再解析 body（inbox 上限见 federation::limits::INBOX_BODY_LIMIT）
-    verify_preparse_gate(&headers, &body)?;
+    let signature = verify_preparse_gate(&headers, &body)?;
 
     // Do not queue already-buffered remote bodies behind admitted deliveries,
     // and reject pathological JSON before allocating a complete Value tree.
@@ -257,7 +257,7 @@ pub async fn post_inbox(
 
     // 验证 HTTP Signature（actor fetch is ephemeral until verified）
     let request_path = format!("/users/{}/inbox", username);
-    verify_request_signature(&db, &headers, &body, &actor_url_str, &request_path).await?;
+    verify_request_signature(&db, &headers, &signature, &actor_url_str, &request_path).await?;
 
     let activity_id = activity["id"].as_str().unwrap_or("");
 
@@ -437,7 +437,7 @@ pub async fn post_shared_inbox(
     let (body, _inflight) = buffer_inbox_body(request).await?;
 
     // 先做只依赖 header/原始字节的检查，再解析 body（inbox 上限见 federation::limits::INBOX_BODY_LIMIT）
-    verify_preparse_gate(&headers, &body)?;
+    let signature = verify_preparse_gate(&headers, &body)?;
 
     // Held through verification and dispatch while the complete JSON tree is
     // alive; see FEDERATION.md "Public inbox resource boundary".
@@ -470,7 +470,7 @@ pub async fn post_shared_inbox(
     }
 
     // 验证签名（actor fetch is ephemeral until verified）
-    verify_request_signature(&db, &headers, &body, &actor_url_str, "/inbox").await?;
+    verify_request_signature(&db, &headers, &signature, &actor_url_str, "/inbox").await?;
 
     let activity_id = activity["id"].as_str().unwrap_or("");
 

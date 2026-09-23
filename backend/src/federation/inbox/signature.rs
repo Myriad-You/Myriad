@@ -11,8 +11,8 @@ use crate::federation::actor::{
     ResolvedRemoteActor, fetch_remote_actor_for_verify, persist_verified_remote_actor,
 };
 use crate::federation::signature::{
-    HTTP_DATE_MAX_SKEW, parse_signature_header, require_covered_headers, verify_date_freshness,
-    verify_digest, verify_signature,
+    HTTP_DATE_MAX_SKEW, ParsedSignature, parse_signature_header, require_covered_headers,
+    verify_date_freshness, verify_digest, verify_signature,
 };
 use crate::federation::types::*;
 
@@ -94,10 +94,12 @@ fn signing_header_map(
 ///
 /// 注意这**不是**认证 —— 真正的签名验证仍然在 [`verify_request_signature`] 里
 /// 完成（需要先解析出 actor 才能取公钥）。这只是把最廉价的拒绝点前移。
+/// 返回的 [`ParsedSignature`] 交给同一请求的 [`verify_request_signature`]，
+/// 上述检查不再重做一遍（header / body 在两步之间不变）。
 pub(crate) fn verify_preparse_gate(
     headers: &HeaderMap,
     body: &[u8],
-) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+) -> Result<ParsedSignature, (StatusCode, Json<serde_json::Value>)> {
     let sig_header = unique_header(headers, "signature")?.ok_or_else(|| {
         (
             StatusCode::UNAUTHORIZED,
@@ -136,10 +138,15 @@ pub(crate) fn verify_preparse_gate(
         }
     }
 
-    Ok(())
+    Ok(parsed)
 }
 
 /// 验证请求的 HTTP Signature
+///
+/// `parsed` must come from [`verify_preparse_gate`] on the **same** request:
+/// Signature parsing, covered-header set, Date freshness and Digest were checked
+/// there and are not repeated. Covered-header uniqueness for the signing string
+/// is still enforced here via [`signing_header_map`].
 ///
 /// remote Actor material used for the public key is resolved via
 /// [`fetch_remote_actor_for_verify`] (DB cache hit or **ephemeral** HTTP fetch).
@@ -149,50 +156,10 @@ pub(crate) fn verify_preparse_gate(
 pub(crate) async fn verify_request_signature(
     db: &DatabaseConnection,
     headers: &HeaderMap,
-    body: &[u8],
+    parsed: &ParsedSignature,
     actor_url_str: &str,
     request_path: &str,
 ) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
-    // 获取 Signature header
-    let sig_header = unique_header(headers, "signature")?.ok_or_else(|| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(AppError::public_json("Missing Signature header")),
-        )
-    })?;
-
-    let parsed = parse_signature_header(sig_header)
-        .map_err(|error| inbox_auth_reject("Invalid Signature header", error))?;
-    require_covered_headers(&parsed, !body.is_empty())
-        .map_err(|error| inbox_auth_reject("Invalid signed-header set", error))?;
-
-    let date = unique_header(headers, "date")?.ok_or_else(|| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(AppError::public_json("Missing Date header")),
-        )
-    })?;
-    verify_date_freshness(date, chrono::Utc::now(), HTTP_DATE_MAX_SKEW)
-        .map_err(|error| inbox_auth_reject("Invalid request date", error))?;
-
-    // Digest 验证（非空 body 必须携带 Digest header）
-    if !body.is_empty() {
-        let digest_str = unique_header(headers, "digest")?.ok_or_else(|| {
-            (
-                StatusCode::UNAUTHORIZED,
-                Json(AppError::public_json(
-                    "Missing Digest header for non-empty body",
-                )),
-            )
-        })?;
-        if !verify_digest(body, digest_str) {
-            return Err((
-                StatusCode::UNAUTHORIZED,
-                Json(AppError::public_json("Digest verification failed")),
-            ));
-        }
-    }
-
     // trusted cache or ephemeral remote fetch — never poison DB on 401.
     let mut resolved: ResolvedRemoteActor = fetch_remote_actor_for_verify(db, actor_url_str, false)
         .await
@@ -257,7 +224,7 @@ pub(crate) async fn verify_request_signature(
     // 只取签名覆盖的 header，且每个都必须唯一（见 unique_header）。
     let header_map = signing_header_map(headers, &parsed.headers)?;
 
-    let valid = verify_signature(public_key_pem, &parsed, method, path, &header_map)
+    let valid = verify_signature(public_key_pem, parsed, method, path, &header_map)
         .map_err(|error| inbox_auth_reject("Signature verification failed", error))?;
 
     if !valid {
@@ -371,6 +338,42 @@ mod tests {
         let covered = vec!["host".to_string(), "date".to_string()];
         let map = signing_header_map(&headers, &covered).unwrap();
         assert!(!map.contains_key("x-extra"));
+    }
+
+    /// 闸门返回的 ParsedSignature 就是完整验签使用的那一份：同一请求上
+    /// 闸门通过后，用它和 signing_header_map 验签成功；body 被篡改时闸门拒绝。
+    #[test]
+    fn preparse_gate_hands_its_signature_to_full_verification() {
+        use crate::federation::keys::KeyPair;
+        use crate::federation::signature::{SignatureParams, sign_request};
+
+        let kp = KeyPair::generate().unwrap();
+        let body = br#"{"type":"Create"}"#;
+        let signed = sign_request(
+            &kp,
+            &SignatureParams {
+                key_id: "https://a.example/users/alice#main-key",
+                method: "POST",
+                path: "/inbox",
+                host: "b.example",
+                body: Some(body),
+            },
+        )
+        .unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("host", "b.example".parse().unwrap());
+        headers.insert("date", signed.date.parse().unwrap());
+        headers.insert("digest", signed.digest.unwrap().parse().unwrap());
+        headers.insert("signature", signed.signature.parse().unwrap());
+
+        let parsed = verify_preparse_gate(&headers, body).unwrap();
+        assert_eq!(parsed.key_id, "https://a.example/users/alice#main-key");
+        let map = signing_header_map(&headers, &parsed.headers).unwrap();
+        let pem = kp.public_key_pem().unwrap();
+        assert!(verify_signature(&pem, &parsed, "POST", "/inbox", &map).unwrap());
+
+        let err = verify_preparse_gate(&headers, br#"{"type":"Delete"}"#).unwrap_err();
+        assert_eq!(err.0, StatusCode::UNAUTHORIZED);
     }
 }
 use myriad_error::AppError;
