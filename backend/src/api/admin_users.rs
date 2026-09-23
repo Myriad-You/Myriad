@@ -226,16 +226,23 @@ fn identity_row_to_json(row: &QueryResult) -> Value {
 
 /// User list/detail SELECT with resolved face snapshot as `avatar_url`
 /// (matches `/me` / public face). Identity rows keep identity-level URLs.
-fn user_select_sql() -> String {
+///
+/// Only the list projection computes `tapp_count` in SQL; the detail endpoint
+/// loads the full tapp list anyway and derives the count from it.
+fn user_select_sql(with_tapp_count: bool) -> String {
     format!(
         "SELECT u.id, u.username, u.display_name, u.email, {avatar} AS avatar_url, \
         u.is_admin, u.is_owner, u.auth_provider, u.local_login_disabled, \
         u.tapp_install_disabled, \
         u.password_hash IS NOT NULL AS has_password, \
-        u.created_at, u.last_login_at, u.last_seen_at, u.online_seconds, \
-        (SELECT COUNT(*) FROM tapps t WHERE t.user_id = u.id) AS tapp_count \
+        u.created_at, u.last_login_at, u.last_seen_at, u.online_seconds{tapp_count} \
      FROM users u",
         avatar = crate::services::avatar::avatar_snapshot_expr("u"),
+        tapp_count = if with_tapp_count {
+            ", (SELECT COUNT(*) FROM tapps t WHERE t.user_id = u.id) AS tapp_count"
+        } else {
+            ""
+        },
     )
 }
 
@@ -251,7 +258,7 @@ pub async fn list_users(
             DatabaseBackend::Postgres,
             format!(
                 "{} ORDER BY u.is_owner DESC, u.is_admin DESC, u.created_at ASC",
-                user_select_sql()
+                user_select_sql(true)
             ),
             vec![],
         ))
@@ -301,7 +308,7 @@ pub async fn get_user(
     let user_row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            format!("{} WHERE u.id = $1", user_select_sql()),
+            format!("{} WHERE u.id = $1", user_select_sql(false)),
             [user_id.into()],
         ))
         .await
@@ -346,6 +353,7 @@ pub async fn get_user(
         .collect();
 
     let mut user = user_row_to_json(&user_row, &identities);
+    user["tapp_count"] = json!(tapps.len());
     user["tapps"] = json!(tapps);
     Ok(Json(json!({ "user": user })))
 }
