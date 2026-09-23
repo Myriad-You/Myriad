@@ -160,6 +160,10 @@ pub fn parse_signature_header(header: &str) -> Result<ParsedSignature> {
 /// * `method` - HTTP 方法
 /// * `path` - 请求路径
 /// * `headers` - HTTP 请求头（用于重建签名字符串）
+///
+/// 生产路径（inbox）经 pre-parse 闸门后调用 [`verify_signature_covered`]；
+/// 此完整版本只供测试直接验签使用。
+#[cfg(test)]
 pub fn verify_signature(
     public_key_pem: &str,
     parsed: &ParsedSignature,
