@@ -213,7 +213,7 @@ mod tests {
 
     #[tokio::test]
     async fn every_builtin_tool_has_a_valid_native_parameter_schema() {
-        let registry = super::super::capability::get_registry().await;
+        let registry = super::super::capability::get_registry();
         let capabilities = registry.get_all();
         assert!(!capabilities.is_empty());
         for capability in &capabilities {

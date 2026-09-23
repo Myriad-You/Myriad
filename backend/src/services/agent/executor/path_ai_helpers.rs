@@ -92,7 +92,7 @@ impl Executor {
         let capabilities = if let Some(scope) = capability_scope {
             scope.join(", ")
         } else {
-            let registry = get_registry().await;
+            let registry = get_registry();
             registry
                 .get_all()
                 .iter()

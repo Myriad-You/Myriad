@@ -274,7 +274,7 @@ impl Executor {
 
         // 检查 gating（前置条件）
         if !skill.gating.capabilities.is_empty() {
-            let cap_registry = get_registry().await;
+            let cap_registry = get_registry();
             for required_cap in &skill.gating.capabilities {
                 if cap_registry.get(required_cap).is_none() {
                     return Err(format!(
@@ -292,7 +292,7 @@ impl Executor {
 
         // 构建可用能力列表（仅 Skill gating 中声明的 + 通用 AI 能力）
         let available_caps = {
-            let cap_registry = get_registry().await;
+            let cap_registry = get_registry();
             let mut caps_desc = String::new();
             let gating_caps = &skill.gating.capabilities;
             let all_caps = cap_registry.get_all();
@@ -334,7 +334,6 @@ impl Executor {
                     ));
                 }
             }
-            drop(cap_registry);
             caps_desc
         };
 
@@ -577,7 +576,7 @@ impl Executor {
         let planned_steps: Vec<&Value> = planned_steps.iter().take(MAX_PLAN_STEPS).collect();
 
         // 验证并构建动态步骤（两遍扫描：第一遍建立 id 映射，第二遍解析引用）
-        let cap_registry = get_registry().await;
+        let cap_registry = get_registry();
         // AI step id → 实际 step id 映射（用于 depends_on 和 xxxFrom 引用重写）
         let mut id_map: HashMap<String, String> = HashMap::new();
 
@@ -785,7 +784,6 @@ impl Executor {
                 generator: None,
             });
         }
-        drop(cap_registry);
 
         if dynamic_steps.is_empty() {
             return Err(format!(

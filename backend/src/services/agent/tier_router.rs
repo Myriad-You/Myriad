@@ -391,7 +391,7 @@ mod tests {
         // This table and the capability registry are two independent sources of
         // truth with nothing keeping them in sync. A missing row does not fail
         // anything — it silently bills a plain data read as an LLM step.
-        let registry = crate::services::agent::capability::get_registry().await;
+        let registry = crate::services::agent::capability::get_registry();
         let unregistered: Vec<&str> = registry
             .get_all()
             .iter()

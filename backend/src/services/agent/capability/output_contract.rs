@@ -471,7 +471,7 @@ mod tests {
 
     #[tokio::test]
     async fn declared_schemas_accept_real_handler_output() {
-        let registry = crate::services::agent::capability::get_registry().await;
+        let registry = crate::services::agent::capability::get_registry();
         let mut breaches = Vec::new();
         let mut drifts = Vec::new();
 
@@ -505,7 +505,7 @@ mod tests {
     async fn sampled_capabilities_declare_the_fields_the_planner_will_reference() {
         // `declared_output_fields` feeds the planner's `o` index. A declared field
         // the handler never emits sends the planner after data that cannot exist.
-        let registry = crate::services::agent::capability::get_registry().await;
+        let registry = crate::services::agent::capability::get_registry();
         let mut phantom = Vec::new();
 
         for (capability_id, sample) in ai_handler_samples() {

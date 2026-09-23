@@ -193,9 +193,8 @@ mod tests {
     use super::*;
     #[tokio::test]
     async fn all_builtin_tools_can_be_discovered_with_bounded_schemas_and_current_grants() {
-        let registry = capability::get_registry().await;
+        let registry = capability::get_registry();
         let capabilities: Vec<_> = registry.get_all().into_iter().cloned().collect();
-        drop(registry);
         let granted = capabilities
             .iter()
             .flat_map(|cap| cap.required_permissions.clone())

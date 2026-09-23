@@ -85,7 +85,7 @@ pub async fn skill_covered_by_grants(
     if skill.gating.capabilities.is_empty() {
         return true;
     }
-    let registry = super::capability::get_registry().await;
+    let registry = super::capability::get_registry();
     for cap_id in &skill.gating.capabilities {
         let Some(cap) = registry.get(cap_id) else {
             return false;

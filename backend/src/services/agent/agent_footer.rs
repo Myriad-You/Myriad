@@ -631,7 +631,7 @@ pub async fn get_user_permissions(
 
     // 系统用户或管理员：全部权限
     if user_is_current_admin(db, user_id).await {
-        let registry = capability::get_registry().await;
+        let registry = capability::get_registry();
         let mut permissions: HashSet<String> = registry
             .get_all()
             .iter()
@@ -813,7 +813,7 @@ fn push_missing_from_schema(
 
 /// 收集 Recipe 中缺失的必需参数（静态 registry + 动态 MCP schema + Skill）
 pub(crate) async fn collect_missing_required_params(recipe: &Recipe) -> Vec<MissingRequiredParam> {
-    let registry = capability::get_registry().await;
+    let registry = capability::get_registry();
     let skill_registry = skill::get_skill_registry();
     let mcp_schemas = load_mcp_tool_schemas().await;
     let mut missing = Vec::new();

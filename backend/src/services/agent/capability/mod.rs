@@ -13,43 +13,29 @@ use super::types::*;
 use once_cell::sync::Lazy;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use tokio::sync::RwLock;
 
-/// 全局能力注册表
-static CAPABILITY_REGISTRY: Lazy<Arc<RwLock<CapabilityRegistry>>> =
-    Lazy::new(|| Arc::new(RwLock::new(CapabilityRegistry::new())));
+/// 全局能力注册表：初始化后只读，直接共享借用，无需锁。
+static CAPABILITY_REGISTRY: Lazy<CapabilityRegistry> = Lazy::new(CapabilityRegistry::new);
 
 /// 能力注册表
 pub struct CapabilityRegistry {
     /// 能力 ID -> 能力定义
     capabilities: HashMap<String, Capability>,
-    /// 类别 -> 能力 ID 列表
-    by_category: HashMap<CapabilityCategory, Vec<String>>,
 }
 
 impl CapabilityRegistry {
     pub fn new() -> Self {
         let mut registry = Self {
             capabilities: HashMap::new(),
-            by_category: HashMap::new(),
         };
         // 注册内置能力
         definitions::register_all(&mut registry);
         registry
     }
 
-    /// 注册一个能力
+    /// 注册一个能力（仅初始化期）
     pub fn register(&mut self, capability: Capability) {
-        let id = capability.id.clone();
-
-        // 更新类别索引
-        self.by_category
-            .entry(capability.category.clone())
-            .or_default()
-            .push(id.clone());
-
-        self.capabilities.insert(id, capability);
+        self.capabilities.insert(capability.id.clone(), capability);
     }
 
     /// 根据 ID 获取能力
@@ -72,8 +58,8 @@ impl Default for CapabilityRegistry {
 // 公共 API
 
 /// 获取全局能力注册表（只读）
-pub async fn get_registry() -> tokio::sync::RwLockReadGuard<'static, CapabilityRegistry> {
-    CAPABILITY_REGISTRY.read().await
+pub fn get_registry() -> &'static CapabilityRegistry {
+    &CAPABILITY_REGISTRY
 }
 
 /// Registry is the only confirmation authority. Unknown IDs do not confirm.
@@ -96,7 +82,7 @@ pub async fn capability_requires_confirmation_async(
 }
 
 pub async fn get_capability_summary_filtered(granted: Option<&HashSet<String>>) -> Value {
-    let registry = get_registry().await;
+    let registry = get_registry();
     let all = registry.get_all();
 
     let mut by_category: std::collections::HashMap<String, Vec<Value>> =
@@ -187,7 +173,7 @@ pub fn capability_covered_by_grants(cap: &Capability, granted: Option<&HashSet<S
 /// Note: AI 能力（含 ai.webSearch）始终保持注册与可规划；缺失 API Key 时由执行层
 /// 返回非重试错误，而不是在索引中降级/隐藏能力。
 pub async fn get_compact_index_for_grants(granted: Option<&HashSet<String>>) -> Value {
-    let registry = get_registry().await;
+    let registry = get_registry();
 
     let mut by_category: std::collections::HashMap<String, Vec<Value>> =
         std::collections::HashMap::new();
@@ -221,7 +207,6 @@ pub async fn get_compact_index_for_grants(granted: Option<&HashSet<String>>) -> 
 
         by_category.entry(category).or_default().push(entry);
     }
-    drop(registry);
 
     // 合并动态 Skills 到索引（gating 能力必须已被授予，否则规划会选到执行必拒的技能）
     let mut total: usize = by_category.values().map(Vec::len).sum();
@@ -291,11 +276,8 @@ pub async fn get_capabilities_by_ids(ids: &[String]) -> Vec<Capability> {
 
 /// Resolve either a built-in capability or a currently advertised MCP tool.
 pub async fn get_capability_by_id(id: &str) -> Option<Capability> {
-    if let Some(capability) = {
-        let registry = get_registry().await;
-        registry.get(id).cloned()
-    } {
-        return Some(capability);
+    if let Some(capability) = get_registry().get(id) {
+        return Some(capability.clone());
     }
 
     if !id.starts_with("mcp.") {
@@ -485,7 +467,7 @@ mod tests {
     #[tokio::test]
     async fn hint_falls_back_to_the_capability_description() {
         // `translate.text` has no curated hint; it must still describe itself.
-        let registry = get_registry().await;
+        let registry = get_registry();
         let cap = registry.get("translate.text").expect("translate.text");
         assert!(get_capability_usage_hint(&cap.id).is_empty());
         assert_eq!(resolve_capability_hint(cap), cap.description);
@@ -494,7 +476,7 @@ mod tests {
 
     #[tokio::test]
     async fn curated_hint_wins_over_the_description() {
-        let registry = get_registry().await;
+        let registry = get_registry();
         let cap = registry.get("ai.summarize").expect("ai.summarize");
         assert_eq!(
             resolve_capability_hint(cap),
