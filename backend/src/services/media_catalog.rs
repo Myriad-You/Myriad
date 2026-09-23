@@ -2,7 +2,7 @@
 
 use sea_orm::{
     ColumnTrait, Condition, ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr,
-    EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Statement,
+    EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Statement, TransactionTrait,
 };
 use serde::{Deserialize, Serialize};
 
@@ -239,39 +239,26 @@ pub async fn delete_asset(
 /// Legacy (pre-migration, `state IS NULL`) delete.
 ///
 /// Failure protocol: one SELECT decides eligibility (row, legacy state and
-/// every reference kind); any query or decode failure aborts before touching
-/// disk. The file goes first (NotFound counts as removed), then the row. If the
-/// row delete fails after the file is gone, the error surfaces and a retry of
-/// the same id converges: the file is NotFound and the row is deleted.
+/// every reference kind) and locks the row for the rest of the protocol, so a
+/// concurrent migration cannot flip it to a managed state between the check and
+/// the delete. Any query or decode failure aborts before touching disk. The
+/// file goes first (NotFound counts as removed), then the row, then commit. If
+/// the row delete or commit fails after the file is gone, the error surfaces
+/// and a retry of the same id converges: the file is NotFound and the row is
+/// deleted.
+///
+/// References are substring matches over note/article/config bodies, not FKs;
+/// a body edited concurrently to cite this URL is outside this check (same as
+/// every legacy reference scan).
 async fn delete_unmigrated_asset(
     db: &DatabaseConnection,
     id: i32,
 ) -> Result<Result<(), Vec<String>>, DbErr> {
-    let Some(row) = db
+    let txn = db.begin().await?;
+    let Some(row) = txn
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            r#"
-            SELECT a.url, a.state IS NULL AS unmigrated,
-                   EXISTS (
-                       SELECT 1 FROM phantasi_note_docs
-                       WHERE image LIKE p.pat ESCAPE '\' OR content_md LIKE p.pat ESCAPE '\'
-                   ) AS notes,
-                   EXISTS (
-                       SELECT 1 FROM phantasi_items
-                       WHERE image LIKE p.pat ESCAPE '\'
-                          OR content_md LIKE p.pat ESCAPE '\'
-                          OR content LIKE p.pat ESCAPE '\'
-                   ) AS articles,
-                   EXISTS (
-                       SELECT 1 FROM configurations WHERE value::text LIKE p.pat ESCAPE '\'
-                   ) AS site
-            FROM media_assets a
-            CROSS JOIN LATERAL (
-                SELECT '%' || replace(replace(replace(a.url, '\', '\\'), '%', '\%'), '_', '\_')
-                       || '%' AS pat
-            ) p
-            WHERE a.id = $1
-            "#,
+            LEGACY_DELETE_ELIGIBILITY_SQL,
             [id.into()],
         ))
         .await?
@@ -296,13 +283,61 @@ async fn delete_unmigrated_asset(
         return Ok(Err(refs));
     }
     remove_file(&url).await.map_err(DbErr::Custom)?;
-    media_assets::Entity::delete_many()
+    let deleted = media_assets::Entity::delete_many()
         .filter(media_assets::Column::Id.eq(id))
         .filter(media_assets::Column::State.is_null())
-        .exec(db)
+        .exec(&txn)
         .await?;
+    if deleted.rows_affected != 1 {
+        return Err(DbErr::Custom(format!(
+            "legacy media asset {id} changed under its row lock"
+        )));
+    }
+    txn.commit().await?;
     Ok(Ok(()))
 }
+
+/// Eligibility for [`delete_unmigrated_asset`], locking the catalog row.
+/// References are matched on the canonical catalog path — the same
+/// normalisation as [`canonical_media_url`] (absolute local URLs reduce to
+/// their `/media/federation/…` or `/api/phantasi/image-cache/…` path; anything
+/// else is matched verbatim) — with LIKE metacharacters escaped.
+const LEGACY_DELETE_ELIGIBILITY_SQL: &str = r#"
+            SELECT a.url, a.state IS NULL AS unmigrated,
+                   EXISTS (
+                       SELECT 1 FROM phantasi_note_docs
+                       WHERE image LIKE p.pat ESCAPE '\' OR content_md LIKE p.pat ESCAPE '\'
+                   ) AS notes,
+                   EXISTS (
+                       SELECT 1 FROM phantasi_items
+                       WHERE image LIKE p.pat ESCAPE '\'
+                          OR content_md LIKE p.pat ESCAPE '\'
+                          OR content LIKE p.pat ESCAPE '\'
+                   ) AS articles,
+                   EXISTS (
+                       SELECT 1 FROM configurations WHERE value::text LIKE p.pat ESCAPE '\'
+                   ) AS site
+            FROM media_assets a
+            CROSS JOIN LATERAL (
+                SELECT CASE WHEN btrim(a.url) LIKE '%://%'
+                            THEN substring(btrim(a.url) FROM '://[^/]*(/.*)$')
+                            ELSE btrim(a.url)
+                       END AS path
+            ) raw
+            CROSS JOIN LATERAL (
+                SELECT CASE WHEN raw.path LIKE '/media/federation/%'
+                              OR raw.path LIKE '/api/phantasi/image-cache/%'
+                            THEN raw.path
+                            ELSE a.url
+                       END AS needle
+            ) c
+            CROSS JOIN LATERAL (
+                SELECT '%' || replace(replace(replace(c.needle, '\', '\\'), '%', '\%'), '_', '\_')
+                       || '%' AS pat
+            ) p
+            WHERE a.id = $1
+            FOR UPDATE OF a
+"#;
 
 pub(crate) fn fs_remove_result(result: std::io::Result<()>) -> Result<(), String> {
     match result {
@@ -496,6 +531,50 @@ mod tests {
             .try_get::<i32>("", "n")
             .unwrap();
         assert_eq!(remaining, 1);
+
+        // An absolute local catalog URL is matched on its canonical path, so a
+        // path-only reference still blocks the delete.
+        exec(
+            "INSERT INTO media_assets (id, kind, url, mime) VALUES \
+             (3, 'upload', 'https://site.example/media/federation/987654/abs.png', 'image/png'); \
+             INSERT INTO phantasi_note_docs (user_id, title, content_md) VALUES \
+             (1, 'n', '![](/media/federation/987654/abs.png)')"
+                .into(),
+        )
+        .await;
+        assert_eq!(
+            super::delete_asset(&db, 3).await.unwrap(),
+            Err(vec!["notes".to_string()])
+        );
+        exec("DELETE FROM phantasi_note_docs".into()).await;
+
+        // The eligibility read locks the row: a migration that commits a
+        // managed state while the delete waits makes it fail before unlinking.
+        use sea_orm::TransactionTrait;
+        let migration = db.begin().await.unwrap();
+        migration
+            .execute_unprepared("UPDATE media_assets SET state = 'ready' WHERE id = 3")
+            .await
+            .unwrap();
+        let racing = tokio::spawn({
+            let db = db.clone();
+            async move { super::delete_unmigrated_asset(&db, 3).await }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert!(!racing.is_finished(), "delete must wait on the row lock");
+        migration.commit().await.unwrap();
+        assert!(racing.await.unwrap().is_err());
+        let state = db
+            .query_one_raw(sea_orm::Statement::from_string(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT state FROM media_assets WHERE id = 3",
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get::<Option<String>>("", "state")
+            .unwrap();
+        assert_eq!(state.as_deref(), Some("ready"));
         isolated.drop().await;
     }
 }
