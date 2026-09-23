@@ -614,6 +614,7 @@
   "updaterConfirmUpgrade": "Mettre à jour vers {version} ?\n\nCréation d'un instantané, courte maintenance ; en cas d'échec, retour arrière.",
   "updaterConfirmDowngrade": "⚠ Rétrograder vers {version} (actuel {current}) ?\n\nLa base peut ne pas revenir — risque pour les données.",
   "updaterConfirmRisk": "⚠ Sécurité non confirmée (divergence, inconnu ou irréversible). Les données peuvent être endommagées. Continuer ?",
+  "updaterConfirmComposeOverride": "⚠ Le fichier Compose de déploiement sera écrasé. Il diffère de la dernière version écrite par l'updater. Continuer ?",
   "updaterConfirmRollback": "Restaurer l'état d'avant {version} depuis l'instantané ? Les données plus récentes seront perdues.",
   "updaterConfirmExitMaintenance": "Forcer la sortie de maintenance ?\n\nUniquement si le service est clairement sain.",
   "updaterConfirmRescueContinue": "Restaurer la version d'avant mise à jour {version} (instantané {snapshotId}) ?",

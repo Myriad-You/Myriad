@@ -614,6 +614,7 @@
   "updaterConfirmUpgrade": "{version} に更新しますか？\n\n更新スナップショットを作成し、短いメンテナンス。失敗時はロールバック。",
   "updaterConfirmDowngrade": "⚠ {version} へダウングレード（現在 {current}）？\n\nDB を戻せない場合があり、データリスクがあります。",
   "updaterConfirmRisk": "⚠ 安全を確認できません（分岐・不明・不可逆）。データ破損の恐れ。続行しますか？",
+  "updaterConfirmComposeOverride": "⚠ デプロイの Compose ファイルが上書きされます。更新側が最後に書き込んだ内容と異なります。続行しますか？",
   "updaterConfirmRollback": "{version} 更新前に戻しますか？スナップショット以降のデータは失われます。",
   "updaterConfirmExitMaintenance": "メンテナンスを強制解除しますか？\n\n正常動作を確認できた場合のみ。",
   "updaterConfirmRescueContinue": "更新前バージョン {version}（スナップショット {snapshotId}）に戻しますか？",

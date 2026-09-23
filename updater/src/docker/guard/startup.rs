@@ -164,7 +164,7 @@ pub(crate) fn schedule_reconciliation(state: super::GuardState) {
             }
             // Metadata follows installed images. An unhealthy old stack still needs repair.
             let identity = inspect_stack(&state.config, false).await?;
-            if !policy_matches(&state, &identity)? || !crate::deployment::compose_is_managed(&state.config.compose_dir)? {
+            if !policy_matches(&state, &identity)? {
                 super::self_update::reconcile_runtime_policy(&state, &identity).await?;
             }
             tracing::info!(version = %identity[1].version, image = %identity[1].image, guard_image = %identity[0].image, gateway_image = %identity[2].image, "reconciled host deployment identity");

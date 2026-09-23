@@ -510,11 +510,11 @@ export const UpdaterInlinePanel: React.FC<UpdaterInlinePanelProps> = ({
             e.message,
           )
         ) {
-          const msg = /irreversible|diverged|unknown|allow_risk/i.test(
-            e.message,
-          )
-            ? u.updaterConfirmRisk
-            : format(u.updaterConfirmDowngrade, { version: target, current })
+          const msg = /compose/i.test(e.message)
+            ? u.updaterConfirmComposeOverride
+            : /irreversible|diverged|unknown|allow_risk/i.test(e.message)
+              ? u.updaterConfirmRisk
+              : format(u.updaterConfirmDowngrade, { version: target, current })
           if (confirm(msg)) {
             try {
               const r = await api.triggerUpdate(target, {

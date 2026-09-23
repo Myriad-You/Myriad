@@ -614,6 +614,7 @@
   "updaterConfirmUpgrade": "Update to {version}?\n\nTakes an update snapshot, brief maintenance; failure rolls back.",
   "updaterConfirmDowngrade": "⚠ Downgrade to {version} (current {current})?\n\nDB may not reverse — data risk.",
   "updaterConfirmRisk": "⚠ Cannot confirm safety (diverged, unknown, or irreversible). Data may be damaged. Proceed?",
+  "updaterConfirmComposeOverride": "⚠ The deployment compose file will be overwritten. It differs from the last version the updater wrote. Proceed?",
   "updaterConfirmRollback": "Restore pre-{version} state from snapshot? Later data will be lost.",
   "updaterConfirmExitMaintenance": "Force-exit maintenance?\n\nOnly when the service is confirmed healthy.",
   "updaterConfirmRescueContinue": "Restore pre-update version {version} (snapshot {snapshotId})?",

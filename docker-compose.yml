@@ -521,12 +521,12 @@ services:
       # MYRIAD_VERSION with UPDATER_TAG: a target is not a running identity.
       TZ: Asia/Shanghai
     volumes:
-      # Deployment definitions are immutable to a compromised updater. Overlay
-      # only the state it genuinely owns as writable submounts.
+      # The deployment root is writable: the updater rewrites compose.yml in
+      # place during an update (and backs it up first). Guard still vets the
+      # resulting compose before it is applied.
       - type: bind
         source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}
         target: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}
-        read_only: true
       - type: bind
         source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/.env
         target: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}/.env

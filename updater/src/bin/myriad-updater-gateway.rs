@@ -600,6 +600,7 @@ fn validate_update_body(
         "allow_diverged",
         "allow_unknown",
         "allow_irreversible",
+        "allow_compose_override",
         "allow_skip_versions",
         "confirm_risk",
     ];

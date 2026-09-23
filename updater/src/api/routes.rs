@@ -440,6 +440,8 @@ struct UpdateBody {
     #[serde(default)]
     allow_irreversible: Option<bool>,
     #[serde(default)]
+    allow_compose_override: Option<bool>,
+    #[serde(default)]
     allow_skip_versions: bool,
     /// Required when any risk/downgrade flag is true. Normal upgrades omit this.
     #[serde(default)]
@@ -461,6 +463,7 @@ fn risk_flags_set(body: &UpdateBody) -> bool {
         || body.allow_diverged == Some(true)
         || body.allow_unknown == Some(true)
         || body.allow_irreversible == Some(true)
+        || body.allow_compose_override == Some(true)
 }
 
 fn confirm_risk_present(body: &UpdateBody, headers: &axum::http::HeaderMap) -> bool {
@@ -543,6 +546,7 @@ async fn update(
             allow_diverged: body.allow_diverged,
             allow_unknown: body.allow_unknown,
             allow_irreversible: body.allow_irreversible,
+            allow_compose_override: body.allow_compose_override,
             idempotency_key: idem,
             actor,
             reply: tx,
@@ -560,6 +564,7 @@ async fn update(
         "allow_diverged": body.allow_diverged,
         "allow_unknown": body.allow_unknown,
         "allow_irreversible": body.allow_irreversible,
+        "allow_compose_override": body.allow_compose_override,
         "confirm_risk": confirmed,
     })))
 }
@@ -1154,6 +1159,7 @@ mod tests {
             allow_diverged: None,
             allow_unknown: None,
             allow_irreversible: None,
+            allow_compose_override: None,
             allow_skip_versions: false,
             confirm_risk,
         }

@@ -110,6 +110,7 @@ impl Worker {
                 allow_diverged: None,
                 allow_unknown: None,
                 allow_irreversible: None,
+                allow_compose_override: None,
                 // Each periodic attempt is a new request; failed jobs must not replay.
                 idempotency_key: None,
                 actor: Some("auto-install".into()),

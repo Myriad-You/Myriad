@@ -1,4 +1,6 @@
-//! Version-owned application definitions and host-owned deployment settings.
+//! Version-owned deployment compose. The updater writes the target version's
+//! template directly into the host compose file and keeps a normalized baseline
+//! so the next preflight can detect manual edits before overwriting them.
 use crate::{
     docker::ComposeRunner,
     error::{Result, UpdaterError},
@@ -7,38 +9,23 @@ use crate::{
 };
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-const APPLICATION: [&str; 6] = [
-    "backend",
-    "frontend",
-    "backend-volume-init",
-    "federation-worker",
-    "persona-worker",
-    "proxy",
-];
-
-/// Service keys the host owns: `merge_application` copies them from the current
-/// deployment instead of taking the target template's value.
-const SITE_OWNED_KEYS: [&str; 9] = [
-    "ports",
-    "networks",
-    "extra_hosts",
-    "dns",
-    "dns_search",
-    "logging",
-    "restart",
-    "env_file",
-    "labels",
-];
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PreparedCompose {
     files: Vec<ComposeChange>,
+    /// Where the normalized baseline lives; updated on both install and restore.
+    #[serde(default)]
+    baseline_path: PathBuf,
+    /// Normalized JSON of the compose that `install()` writes.
+    #[serde(default)]
+    install_baseline: Vec<u8>,
+    /// Normalized JSON of the compose that `restore()` writes back.
+    #[serde(default)]
+    restore_baseline: Vec<u8>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -58,21 +45,34 @@ impl PreparedCompose {
 
     fn write(&self, restore: bool) -> Result<()> {
         for file in &self.files {
-            // Follow the host entry point to the writable state file, so the
-            // updater never needs write access to the deployment root or policy.
-            let path = std::fs::canonicalize(&file.path)?;
-            atomic::write_atomic_bytes(&path, if restore { &file.before } else { &file.after })?;
+            atomic::write_atomic_bytes(&file.path, if restore { &file.before } else { &file.after })?;
+        }
+        let baseline = if restore {
+            &self.restore_baseline
+        } else {
+            &self.install_baseline
+        };
+        // Best-effort: a stale/missing baseline only makes the next preflight
+        // prompt again (fail-safe), so never fail the write for it.
+        if !self.baseline_path.as_os_str().is_empty() && !baseline.is_empty() {
+            let _ = atomic::write_atomic_bytes(&self.baseline_path, baseline);
         }
         Ok(())
     }
 }
 
+/// Build the in-place compose write plan for the target image.
+///
+/// Returns the plan, a runner over the target template, and whether the current
+/// compose differs from the last one the updater wrote (`true` means the user
+/// edited it, or there is no baseline yet — e.g. first run / migrated from the
+/// old symlink layout).
 pub async fn prepare(
     worker: &Arc<Worker>,
     compose: &ComposeRunner,
     image: &str,
     target: &crate::version::DeployTag,
-) -> Result<(PreparedCompose, ComposeRunner)> {
+) -> Result<(PreparedCompose, ComposeRunner, bool)> {
     let inspection = worker
         .docker()
         .raw()
@@ -100,30 +100,42 @@ pub async fn prepare(
                 .await?
         }
     };
+
     let candidate = worker.state().root().join("compose-candidate.json");
     atomic::write_atomic_bytes(&candidate, &template)?;
     let candidate_runner = compose.with_files(vec![candidate.clone()]);
     let current = compose.source_json().await?;
-    let target = candidate_runner.source_json().await?;
-    let merged = merge_application(current, target)?;
-    let after = serde_json::to_vec_pretty(&merged)?;
-    atomic::write_atomic_bytes(&candidate, &after)?;
+    let target_json = candidate_runner.source_json().await?;
+
+    // Detect manual edits: the current compose vs the baseline the updater last
+    // wrote. A missing/unreadable baseline counts as changed (fail-safe: prompt).
+    let baseline_path = worker.state().root().join("compose-baseline.json");
+    let baseline = read_baseline(&baseline_path);
+    let compose_changed = baseline.as_ref() != Some(&current);
+
+    let backup_dir = worker.state().root().join("compose-backup");
+    std::fs::create_dir_all(&backup_dir)?;
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
     let mut files = Vec::new();
     let mut blanked = Vec::new();
     for (index, path) in compose.files().iter().enumerate() {
-        // Compose already combined any panel fragments. Keep one authority, so
-        // every fragment after the first is emptied. Record which ones: an
-        // operator reverting to an older updater would otherwise find empty files
-        // with nothing saying where the contents went.
+        let current_bytes = std::fs::read(path)?;
+        // Visible pre-upgrade backup of the original compose, next to the state.
+        let backup_name = format!("{}-{}-{}.yml", target.as_str(), ts, index);
+        let _ = atomic::write_atomic_bytes(&backup_dir.join(&backup_name), &current_bytes);
         let after_bytes = if index == 0 {
-            after.clone()
+            template.clone()
         } else {
             blanked.push(path.display().to_string());
             b"{\"services\":{}}".to_vec()
         };
         files.push(ComposeChange {
             path: path.clone(),
-            before: std::fs::read(path)?,
+            before: current_bytes,
             after: after_bytes,
         });
     }
@@ -134,218 +146,28 @@ pub async fn prepare(
             blanked.join(",")
         ));
     }
-    Ok((PreparedCompose { files }, candidate_runner))
+
+    Ok((
+        PreparedCompose {
+            files,
+            baseline_path,
+            install_baseline: serde_json::to_vec(&target_json)?,
+            restore_baseline: serde_json::to_vec(&current)?,
+        },
+        candidate_runner,
+        compose_changed,
+    ))
 }
 
-fn merge_application(mut current: Value, target: Value) -> Result<Value> {
-    let target_services = target["services"]
-        .as_object()
-        .ok_or_else(|| UpdaterError::Precondition("deployment template has no services".into()))?;
-    let services = current["services"]
-        .as_object_mut()
-        .ok_or_else(|| UpdaterError::Precondition("deployment has no services".into()))?;
-    let backend_networks = services
-        .get("backend")
-        .and_then(|s| s.get("networks"))
-        .cloned();
-    for name in APPLICATION {
-        let Some(next) = target_services.get(name) else {
-            services.remove(name);
-            continue;
-        };
-        let mut next = next.clone();
-        if let Some(previous) = services.get(name) {
-            for key in SITE_OWNED_KEYS {
-                if let Some(value) = previous.get(key) {
-                    next[key] = value.clone();
-                }
-            }
-            if let (Some(old_env), Some(new_env)) = (
-                previous["environment"].as_object(),
-                next.get_mut("environment").and_then(Value::as_object_mut),
-            ) {
-                for (key, value) in old_env {
-                    // A previous interpolation is a template default from the version
-                    // being replaced, so it must follow the target. Only an explicit
-                    // site setting survives: a literal the target defers on, or a
-                    // variable the target does not define at all. Site values supplied
-                    // through the env file are unaffected either way — the target's
-                    // `${...}` reads them at compose time.
-                    let site_added = !new_env.contains_key(key);
-                    let target_defers = new_env
-                        .get(key)
-                        .is_some_and(|new| new.as_str().is_some_and(|s| s.contains("${")));
-                    let site_literal = !value.as_str().is_some_and(|s| s.contains("${"));
-                    if site_added || (target_defers && site_literal) {
-                        new_env.insert(key.clone(), value.clone());
-                    }
-                }
-            }
-        } else if name.ends_with("-worker")
-            && let Some(networks) = &backend_networks
-        {
-            next["networks"] = networks.clone();
-        }
-        services.insert(name.into(), next);
-    }
-    // Preserve volume identities and local network definitions; add only new names.
-    for section in ["volumes", "networks", "configs", "secrets"] {
-        if let Some(additions) = target[section].as_object() {
-            if current.get(section).is_none() {
-                current[section] = serde_json::json!({});
-            }
-            if let Some(existing) = current[section].as_object_mut() {
-                for (key, value) in additions {
-                    existing.entry(key.clone()).or_insert_with(|| value.clone());
-                }
-            }
-        }
-    }
-    Ok(current)
-}
-
-/// Called by the existing trusted helper, including when launched by v0.5.3.
-/// Keep the host Compose filename, but move its contents under the already
-/// writable state mount. The root and Guard policy remain read-only to updater.
-pub(crate) fn manage_compose_files(read_root: &Path, write_root: &Path) -> Result<()> {
-    let files = crate::probe::compose::collect_compose_files(read_root)
-        .map_err(UpdaterError::Precondition)?;
-    for path in files {
-        let relative = path
-            .strip_prefix(read_root)
-            .map_err(|e| UpdaterError::Config(e.to_string()))?;
-        let managed_relative = PathBuf::from("state/compose").join(relative);
-        let host_file = write_root.join(relative);
-        let mut link = PathBuf::new();
-        for _ in relative.parent().unwrap().components() {
-            link.push("..");
-        }
-        link.push(&managed_relative);
-        if std::fs::read_link(&host_file).ok().as_ref() == Some(&link) {
-            continue;
-        }
-        let managed = write_root.join(&managed_relative);
-        std::fs::create_dir_all(managed.parent().unwrap())?;
-        atomic::write_atomic_bytes(&managed, &std::fs::read(&host_file)?)?;
-        let temporary = tempfile::Builder::new()
-            .prefix(".compose-link-")
-            .tempdir_in(host_file.parent().unwrap())?;
-        let new_link = temporary.path().join("link");
-        std::os::unix::fs::symlink(link, &new_link)?;
-        std::fs::rename(new_link, &host_file)?;
-        std::fs::File::open(host_file.parent().unwrap())?.sync_all()?;
-    }
-    Ok(())
-}
-
-pub(crate) fn compose_is_managed(root: &Path) -> Result<bool> {
-    let files =
-        crate::probe::compose::collect_compose_files(root).map_err(UpdaterError::Precondition)?;
-    Ok(!files.is_empty()
-        && files.iter().all(|file| {
-            std::fs::canonicalize(file)
-                .is_ok_and(|path| path.starts_with(root.join("state/compose")))
-        }))
+fn read_baseline(path: &Path) -> Option<serde_json::Value> {
+    let bytes = crate::state::read_existing(path).ok()??;
+    serde_json::from_slice(&bytes).ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::process::Command;
-
-    #[test]
-    fn trusted_helper_adopts_existing_entry_points_without_changing_contents() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path();
-        std::fs::create_dir(root.join("panel")).unwrap();
-        let file = root.join("panel/docker-compose.yml");
-        let original = b"services: {backend: {image: 'example:${MYRIAD_TAG}'}}\n";
-        std::fs::write(&file, original).unwrap();
-        assert!(!compose_is_managed(root).unwrap());
-        manage_compose_files(root, root).unwrap();
-        manage_compose_files(root, root).unwrap();
-        assert!(compose_is_managed(root).unwrap());
-        assert_eq!(std::fs::read(&file).unwrap(), original);
-        let prepared = PreparedCompose {
-            files: vec![ComposeChange {
-                path: file.clone(),
-                before: original.to_vec(),
-                after: b"services: {}\n".to_vec(),
-            }],
-        };
-        prepared.install().unwrap();
-        assert_eq!(std::fs::read(&file).unwrap(), b"services: {}\n");
-        prepared.restore().unwrap();
-        assert_eq!(std::fs::read(&file).unwrap(), original);
-        assert!(file.is_symlink());
-    }
-
-    #[test]
-    fn official_bundled_and_external_templates_merge_and_render() {
-        for target in [
-            include_str!("../../docker-compose.yml"),
-            include_str!("../../docs/deployment/examples/docker-compose.external-db.example.yml"),
-        ] {
-            let dir = tempfile::tempdir().unwrap();
-            let path = dir.path().join("compose.yaml");
-            let command = |source: bool| {
-                let mut cmd = Command::new("docker");
-                cmd.args(["compose", "-p", "myriad", "-f"])
-                    .arg(&path)
-                    .args(["config", "--format", "json"]);
-                if source {
-                    cmd.args([
-                        "--no-interpolate",
-                        "--no-normalize",
-                        "--no-path-resolution",
-                        "--no-env-resolution",
-                    ]);
-                }
-                cmd.envs([
-                    ("MYRIAD_TAG", "v0.5.3"),
-                    ("UPDATER_TAG", "v0.5.3"),
-                    ("PROXY_TAG", "v0.5.3"),
-                    ("MYRIAD_SETUP_SECRET", "fixture"),
-                    ("GUARD_SELF_UPDATE_TOKEN", "fixture"),
-                    ("PERSONA_DB_PASSWORD", "fixture"),
-                    ("FEDERATION_DB_PASSWORD", "fixture"),
-                    ("POSTGRES_PASSWORD", "fixture"),
-                    ("DATABASE_URL", "postgres://fixture/db"),
-                    ("FEDERATION_DATABASE_URL", "postgres://fixture/federation"),
-                    ("PERSONA_DATABASE_URL", "postgres://fixture/persona"),
-                ]);
-                let out = cmd.output().unwrap();
-                assert!(
-                    out.status.success(),
-                    "{}",
-                    String::from_utf8_lossy(&out.stderr)
-                );
-                serde_json::from_slice::<Value>(&out.stdout).unwrap()
-            };
-            std::fs::write(&path, target).unwrap();
-            let template = command(true);
-            let mut current = template.clone();
-            let volumes = current["services"]["federation-worker"]["volumes"]
-                .as_array_mut()
-                .unwrap();
-            volumes.retain(|mount| mount["target"] != "/app/data/media");
-            current["services"]["backend"]["environment"]["JWT_SECRET"] = "site-secret".into();
-            let merged = merge_application(current, template).unwrap();
-            std::fs::write(&path, serde_json::to_vec(&merged).unwrap()).unwrap();
-            let rendered = command(false);
-            assert_eq!(
-                rendered["services"]["backend"]["environment"]["JWT_SECRET"],
-                "site-secret"
-            );
-            assert!(
-                rendered["services"]["federation-worker"]["volumes"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .any(|mount| mount["target"] == "/app/data/media")
-            );
-        }
-    }
 
     #[test]
     fn published_labels_contain_the_source_templates() {
@@ -382,104 +204,5 @@ mod tests {
             );
         }
         assert_eq!(labels.len(), 2);
-    }
-
-    /// The version owns the mount list. Keeping a site mount was not an option
-    /// either: the Guard rejects every site-added mount on these services (only
-    /// their own `*_backend_data`/`*_backend_cache` volumes at fixed targets are
-    /// allowed), so a stack that carried one could not start after the swap.
-    #[test]
-    fn merge_takes_the_target_mount_list() {
-        let current = serde_json::json!({
-            "services": {
-                "backend": {
-                    "image": "example/backend:${MYRIAD_TAG}",
-                    "environment": {"DATABASE_URL": "${MY_DB_URL}", "CUSTOM": "keep"},
-                    "volumes": [
-                        "backend_data:/app/data",
-                        "/host/media:/app/data/media",
-                    ],
-                    "ports": ["8080:80"],
-                }
-            },
-            "volumes": {"backend_data": {"name": "existing"}},
-        });
-        let target = serde_json::json!({
-            "services": {
-                "backend": {
-                    "image": "example/backend:${MYRIAD_TAG}",
-                    "environment": {"DATABASE_URL": "${DATABASE_URL}"},
-                    "volumes": [
-                        {"type": "volume", "source": "backend_data", "target": "/app/data"},
-                        {"type": "volume", "source": "backend_cache", "target": "/app/cache"},
-                    ],
-                }
-            },
-            "volumes": {"backend_data": {"name": "would-lose-data"}, "backend_cache": {}},
-        });
-
-        let merged = merge_application(current, target).unwrap();
-
-        let volumes = merged["services"]["backend"]["volumes"].as_array().unwrap();
-        assert_eq!(
-            volumes.len(),
-            2,
-            "the target mount list replaces the host's: {volumes:?}"
-        );
-        assert_eq!(
-            merged["services"]["backend"]["environment"]["DATABASE_URL"],
-            "${DATABASE_URL}",
-            "a previous template default must follow the target version"
-        );
-        assert_eq!(
-            merged["services"]["backend"]["environment"]["CUSTOM"], "keep",
-            "a variable the target does not define is a site setting"
-        );
-        assert_eq!(merged["services"]["backend"]["ports"][0], "8080:80");
-        assert_eq!(
-            merged["volumes"]["backend_data"]["name"], "existing",
-            "volume identity stays the host's"
-        );
-    }
-
-    /// Template defaults follow the target version; only explicit site settings
-    /// survive. Both directions are checked, because the value alone cannot say
-    /// which one it is: an old `${CACHE_DIR:-/old-cache}` is a default from the
-    /// version being replaced, while a literal the target defers on is a site
-    /// setting.
-    #[test]
-    fn merge_updates_template_defaults_and_keeps_explicit_site_env() {
-        let current = serde_json::json!({
-            "services": {
-                "backend": {
-                    "environment": {
-                        "CACHE_DIR": "${CACHE_DIR:-/old-cache}",
-                        "POSTGRES_PASSWORD": "site-secret",
-                    }
-                }
-            }
-        });
-        let target = serde_json::json!({
-            "services": {
-                "backend": {
-                    "environment": {
-                        "CACHE_DIR": "${CACHE_DIR:-/new-cache}",
-                        "POSTGRES_PASSWORD": "${POSTGRES_PASSWORD}",
-                    }
-                }
-            }
-        });
-
-        let merged = merge_application(current, target).unwrap();
-
-        let env = &merged["services"]["backend"]["environment"];
-        assert_eq!(
-            env["CACHE_DIR"], "${CACHE_DIR:-/new-cache}",
-            "an old template default must not pin the previous version's default"
-        );
-        assert_eq!(
-            env["POSTGRES_PASSWORD"], "site-secret",
-            "an explicit site value the target defers on must survive"
-        );
     }
 }

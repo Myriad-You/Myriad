@@ -79,6 +79,7 @@ pub struct RiskFlags {
     pub allow_diverged: bool,
     pub allow_unknown: bool,
     pub allow_irreversible: bool,
+    pub allow_compose_override: bool,
 }
 
 impl RiskFlags {
@@ -89,12 +90,14 @@ impl RiskFlags {
         allow_diverged: Option<bool>,
         allow_unknown: Option<bool>,
         allow_irreversible: Option<bool>,
+        allow_compose_override: Option<bool>,
     ) -> Self {
         Self {
             allow_downgrade: allow_downgrade || allow_risk,
             allow_diverged: allow_diverged.unwrap_or(allow_risk),
             allow_unknown: allow_unknown.unwrap_or(allow_risk),
             allow_irreversible: allow_irreversible.unwrap_or(allow_risk),
+            allow_compose_override: allow_compose_override.unwrap_or(allow_risk),
         }
     }
 }
@@ -320,6 +323,7 @@ async fn run_release_with_manifest(
         Some(&manifest),
         [&backend.r#ref, &frontend.r#ref],
         target,
+        &risk,
     )
     .await?;
     let estimated = manifest.migrations.estimated_seconds;
@@ -424,7 +428,7 @@ async fn run_release_via_dockerhub(
     let frontend_ref = format!("{frontend_repo}:{tag}");
 
     let (resolved, compose) =
-        prepare_images(&worker, None, [&backend_ref, &frontend_ref], target).await?;
+        prepare_images(&worker, None, [&backend_ref, &frontend_ref], target, &risk).await?;
 
     // Optional commit_sha when GitHub is reachable but only the release asset was missing.
     let target_commit_sha = if worker.github_commit_metadata_enabled() {
@@ -618,7 +622,7 @@ async fn run_commit(
     let frontend_ref = format!("{frontend_repo}:{tag}");
 
     let (resolved, compose) =
-        prepare_images(&worker, None, [&backend_ref, &frontend_ref], &effective).await?;
+        prepare_images(&worker, None, [&backend_ref, &frontend_ref], &effective, &risk).await?;
     Ok(PreflightReport {
         from_version,
         target: effective,
@@ -639,6 +643,7 @@ async fn prepare_images(
     manifest: Option<&Manifest>,
     images: [&str; 2],
     target: &DeployTag,
+    risk: &RiskFlags,
 ) -> Result<(ResolvedImages, crate::deployment::PreparedCompose)> {
     check_env_keys(worker, manifest)?;
     check_disk(worker)?;
@@ -699,8 +704,18 @@ async fn prepare_images(
             None => (None, None, None),
         };
     let runner = crate::worker::update::build_compose_runner_pub(worker).await?;
-    let (prepared, candidate) =
+    let (prepared, candidate, compose_changed) =
         crate::deployment::prepare(worker, &runner, images[0], target).await?;
+    // Fail closed when the deployment compose will be overwritten but the operator
+    // did not acknowledge it: the on-disk compose differs from what the updater last
+    // wrote (or there is no baseline yet).
+    if compose_changed && !risk.allow_compose_override {
+        return Err(UpdaterError::Precondition(
+            "the deployment compose will be overwritten; re-submit with \
+             allow_compose_override=true (or allow_risk=true)"
+                .into(),
+        ));
+    }
     check_compose_networks(worker, images[0], &candidate).await?;
     Ok((
         ResolvedImages {
@@ -1128,20 +1143,22 @@ mod risk_flag_tests {
 
     #[test]
     fn allow_risk_umbrellas_granular_flags() {
-        let r = RiskFlags::from_api(false, true, None, None, None);
+        let r = RiskFlags::from_api(false, true, None, None, None, None);
         assert!(r.allow_downgrade);
         assert!(r.allow_diverged);
         assert!(r.allow_unknown);
         assert!(r.allow_irreversible);
+        assert!(r.allow_compose_override);
     }
 
     #[test]
     fn granular_flags_override_umbrella_defaults() {
-        let r = RiskFlags::from_api(true, false, Some(true), Some(false), None);
+        let r = RiskFlags::from_api(true, false, Some(true), Some(false), None, Some(false));
         assert!(r.allow_downgrade);
         assert!(r.allow_diverged);
         assert!(!r.allow_unknown);
         assert!(!r.allow_irreversible);
+        assert!(!r.allow_compose_override);
     }
 }
 

@@ -48,6 +48,7 @@ pub async fn run(
         allow_diverged = risk.allow_diverged,
         allow_unknown = risk.allow_unknown,
         allow_irreversible = risk.allow_irreversible,
+        allow_compose_override = risk.allow_compose_override,
         actor = actor.as_deref().unwrap_or("-"),
         "update flow starting"
     );
@@ -72,7 +73,8 @@ pub async fn run(
         .unwrap_or_default();
     let audit = format!(
         "audit: update_request job={} target={} mode={} \
-         allow_downgrade={} allow_diverged={} allow_unknown={} allow_irreversible={}{}",
+         allow_downgrade={} allow_diverged={} allow_unknown={} allow_irreversible={} \
+         allow_compose_override={}{}",
         job_id,
         target.as_str(),
         mode.as_str(),
@@ -80,6 +82,7 @@ pub async fn run(
         risk.allow_diverged,
         risk.allow_unknown,
         risk.allow_irreversible,
+        risk.allow_compose_override,
         actor_suffix,
     );
     let _ = worker.state().append_history(&audit);

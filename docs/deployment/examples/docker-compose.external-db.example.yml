@@ -368,7 +368,6 @@ services:
       - type: bind
         source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}
         target: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}
-        read_only: true
       - type: bind
         source: ${MYRIAD_COMPOSE_HOST_ROOT:-.}/.env
         target: ${MYRIAD_COMPOSE_HOST_ROOT:-/host/compose}/.env

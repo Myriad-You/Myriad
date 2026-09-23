@@ -614,6 +614,7 @@
   "updaterConfirmUpgrade": "更新到 {version}？\n\n将创建升级快照、短暂进入维护，失败则回退。",
   "updaterConfirmDowngrade": "⚠ 确定降级到 {version}（当前 {current}）？\n\n数据库可能无法回退，有数据风险。",
   "updaterConfirmRisk": "⚠ 无法确认是否安全（分叉、未知关系或不可逆变更）。继续可能损坏数据。确定？",
+  "updaterConfirmComposeOverride": "⚠ 编排文件（compose）将被覆盖。它与更新器上次写入的版本不一致。确定继续？",
   "updaterConfirmRollback": "回到 {version} 更新前？\n\n用快照恢复；之后的数据会丢失。",
   "updaterConfirmExitMaintenance": "强制退出维护模式？\n\n仅在确认服务已正常时使用。",
   "updaterConfirmRescueContinue": "回到更新前版本 {version}（快照 {snapshotId}）？",

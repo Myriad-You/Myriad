@@ -614,6 +614,7 @@
   "updaterConfirmUpgrade": "{version}(으)로 업데이트할까요?\n\n업데이트 스냅샷을 만들고 짧게 유지보수합니다. 실패하면 롤백합니다.",
   "updaterConfirmDowngrade": "⚠ {version}(으)로 내릴까요(현재 {current})?\n\nDB를 되돌리지 못할 수 있습니다 — 데이터 위험.",
   "updaterConfirmRisk": "⚠ 안전을 확인할 수 없습니다(분기, 알 수 없음, 또는 되돌릴 수 없음). 데이터가 손상될 수 있습니다. 진행할까요?",
+  "updaterConfirmComposeOverride": "⚠ 배포 Compose 파일이 덮어써집니다. 업데이터가 마지막으로 쓴 내용과 다릅니다. 계속할까요?",
   "updaterConfirmRollback": "스냅샷에서 {version} 이전 상태로 되돌릴까요? 그 이후 데이터는 사라집니다.",
   "updaterConfirmExitMaintenance": "유지보수를 강제 종료할까요?\n\n서비스가 정상일 때만.",
   "updaterConfirmRescueContinue": "업데이트 전 버전 {version}(스냅샷 {snapshotId})으로 되돌릴까요?",

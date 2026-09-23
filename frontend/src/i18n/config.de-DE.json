@@ -614,6 +614,7 @@
   "updaterConfirmUpgrade": "Auf {version} aktualisieren?\n\nErstellt einen Update-Snapshot, kurze Wartung; bei Fehler Rollback.",
   "updaterConfirmDowngrade": "⚠ Auf {version} herabstufen (aktuell {current})?\n\nDie DB lässt sich evtl. nicht zurückdrehen — Datenrisiko.",
   "updaterConfirmRisk": "⚠ Sicherheit nicht bestätigt (abweichend, unbekannt oder unumkehrbar). Daten können beschädigt werden. Fortfahren?",
+  "updaterConfirmComposeOverride": "⚠ Die Compose-Datei wird überschrieben. Sie unterscheidet sich von der zuletzt vom Updater geschriebenen Version. Fortfahren?",
   "updaterConfirmRollback": "Zustand vor {version} aus dem Snapshot wiederherstellen? Spätere Daten gehen verloren.",
   "updaterConfirmExitMaintenance": "Wartung zwangsweise beenden?\n\nNur wenn der Dienst nachweislich gesund ist.",
   "updaterConfirmRescueContinue": "Vor-Update-Version {version} wiederherstellen (Snapshot {snapshotId})?",

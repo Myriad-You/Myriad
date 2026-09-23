@@ -67,6 +67,7 @@ pub enum Command {
         allow_diverged: Option<bool>,
         allow_unknown: Option<bool>,
         allow_irreversible: Option<bool>,
+        allow_compose_override: Option<bool>,
         idempotency_key: Option<String>,
         /// Optional admin actor from backend (`X-Update-Actor`), for audit only.
         actor: Option<String>,
@@ -598,6 +599,7 @@ impl Worker {
                     allow_diverged,
                     allow_unknown,
                     allow_irreversible,
+                    allow_compose_override,
                     idempotency_key,
                     actor,
                     reply,
@@ -612,6 +614,7 @@ impl Worker {
                             allow_diverged,
                             allow_unknown,
                             allow_irreversible,
+                            allow_compose_override,
                             idempotency_key,
                             actor,
                         )
@@ -720,6 +723,7 @@ impl Worker {
         allow_diverged: Option<bool>,
         allow_unknown: Option<bool>,
         allow_irreversible: Option<bool>,
+        allow_compose_override: Option<bool>,
         idempotency_key: Option<String>,
         actor: Option<String>,
     ) -> Result<String> {
@@ -731,6 +735,7 @@ impl Worker {
             allow_diverged,
             allow_unknown,
             allow_irreversible,
+            allow_compose_override,
         );
         // A keyed job the executor system already accepted replays its id. A keyed
         // job whose admission never committed (Pending, never started, not
@@ -789,6 +794,7 @@ impl Worker {
             allow_diverged,
             allow_unknown,
             allow_irreversible,
+            allow_compose_override,
         );
         tokio::spawn(async move {
             if let Err(e) =
@@ -865,6 +871,7 @@ pub(crate) fn update_request_fingerprint(
     allow_diverged: Option<bool>,
     allow_unknown: Option<bool>,
     allow_irreversible: Option<bool>,
+    allow_compose_override: Option<bool>,
 ) -> String {
     fn flag(v: Option<bool>) -> &'static str {
         match v {
@@ -874,7 +881,7 @@ pub(crate) fn update_request_fingerprint(
         }
     }
     format!(
-        "update|{}|{}|downgrade={}|risk={}|diverged={}|unknown={}|irreversible={}",
+        "update|{}|{}|downgrade={}|risk={}|diverged={}|unknown={}|irreversible={}|compose_override={}",
         target.as_str(),
         mode.as_str(),
         allow_downgrade,
@@ -882,6 +889,7 @@ pub(crate) fn update_request_fingerprint(
         flag(allow_diverged),
         flag(allow_unknown),
         flag(allow_irreversible),
+        flag(allow_compose_override),
     )
 }
 

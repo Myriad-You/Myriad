@@ -306,7 +306,6 @@ fn run_handoff(cfg: &HelperConfig) -> Result<()> {
 
 fn install_images(cfg: &HelperConfig, images: &[String; 3], tag: &str) -> Result<()> {
     let files = prepare_install(cfg, images, tag)?;
-    crate::deployment::manage_compose_files(&cfg.compose_dir, cfg.app_env_file.parent().unwrap())?;
     install_prepared(cfg, &files, images, tag)
 }
 
@@ -384,7 +383,7 @@ fn reconcile_running_policy(cfg: &HelperConfig) -> Result<()> {
         );
     }
     persist_reconciled_policy(cfg, &identities)?;
-    crate::deployment::manage_compose_files(&cfg.compose_dir, cfg.app_env_file.parent().unwrap())
+    Ok(())
 }
 
 fn docker_inspect_json(kind: &str, name: &str) -> Result<Value> {
