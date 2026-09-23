@@ -1,7 +1,7 @@
 //! 云端笔记文档：草稿、定时、协同。公开文章仍只从 `phantasi_items` 读。
 
 use axum::{
-    Extension, Json,
+    Json,
     extract::{
         Path, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
@@ -22,7 +22,6 @@ use super::helpers::{admin_user_id, phantasi_http_err, phantasi_store_http};
 use super::note_collab::{NoteCollabEvent, note_collab_hub};
 use crate::error::HttpError;
 use crate::extract::AdminClaims;
-use crate::middleware::auth::Claims;
 use crate::models::entities::phantasi_note_docs;
 use crate::services::note_authors::{
     NoteAuthorFace, add_note_author, ensure_note_author,
@@ -824,20 +823,16 @@ pub(crate) async fn remove_note_doc_author(
 pub(crate) async fn note_doc_websocket(
     ws: WebSocketUpgrade,
     State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
+    admin: AdminClaims,
     headers: axum::http::HeaderMap,
     Path(id): Path<i32>,
 ) -> Result<impl IntoResponse, HttpError> {
+    // `admin_middleware` on the route already verified the current admin;
+    // `AdminClaims` reuses that proof instead of querying again.
     let allowed = crate::middleware::ws_origin::allowed_origins_from_global_config().await;
     crate::middleware::ws_origin::assert_ws_origin_for_cookie_session(&headers, &allowed)?;
-    crate::middleware::auth::ensure_current_admin_on(&claims, &db)
-        .await
-        .map_err(|_| phantasi_http_err(StatusCode::FORBIDDEN, "Admin only"))?;
-    let user_id = claims
-        .sub
-        .parse::<i32>()
-        .map_err(|_| phantasi_http_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
-    let username = claims.username.clone();
+    let user_id = admin_user_id(&admin)?;
+    let username = admin.0.username;
     let (owner_id, item_id) = find_doc_owner(&db, id).await?;
     Ok(ws.on_upgrade(move |socket| {
         handle_note_doc_socket(socket, db, id, user_id, owner_id, item_id, username)

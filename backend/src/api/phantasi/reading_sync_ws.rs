@@ -23,9 +23,10 @@ pub(crate) async fn phantasi_websocket(
         .sub
         .parse::<i32>()
         .map_err(|_| phantasi_http_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
-    let is_admin = crate::middleware::auth::ensure_current_admin_on(&claims, &db)
+    // Only "not a current admin" downgrades; a database failure fails the upgrade.
+    let is_admin = crate::middleware::auth::current_admin_status(&claims, &db)
         .await
-        .is_ok();
+        .map_err(HttpError::from)?;
     require_phantasi_module_access(&db, Some(user_id), is_admin).await?;
     Ok(ws.on_upgrade(move |socket| handle_phantasi_websocket(socket, db, user_id)))
 }

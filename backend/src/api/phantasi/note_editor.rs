@@ -9,7 +9,7 @@ use crate::{
 use axum::{
     Json,
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
 };
 use chrono::Utc;
 use sea_orm::{
