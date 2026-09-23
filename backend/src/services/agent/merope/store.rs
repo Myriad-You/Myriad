@@ -643,9 +643,10 @@ where
     }
 }
 
+/// `state` is the row the caller already read (settled) under the addressee lock.
 async fn save_affect_on<C>(
     db: &C,
-    user_id: i32,
+    state: agent_addressee_state::Model,
     affect: Affect,
     touch_user_message: bool,
     touch_music_credit: bool,
@@ -653,7 +654,6 @@ async fn save_affect_on<C>(
 where
     C: ConnectionTrait,
 {
-    let state = get_or_create_state(db, user_id).await?;
     // Revisions travel as milliseconds. Consecutive writes must remain ordered
     // even within one clock tick (and across replicas under the same DB lock).
     let now = Utc::now()
@@ -701,7 +701,7 @@ where
     let before = affect_from_state(&state);
     let mut after = before;
     update(&mut after);
-    let saved = save_affect_on(&transaction, user_id, after, touch_user_message, false).await?;
+    let saved = save_affect_on(&transaction, state, after, touch_user_message, false).await?;
     transaction.commit().await?;
     Ok((before, saved))
 }
@@ -730,10 +730,11 @@ where
         return Ok(None);
     }
     let base = load_affect_baseline(&transaction).await?;
-    let before = affect_from_state(&overlay_settled(state, base));
+    let state = overlay_settled(state, base);
+    let before = affect_from_state(&state);
     let mut after = before;
     update(&mut after);
-    let saved = save_affect_on(&transaction, user_id, after, false, false).await?;
+    let saved = save_affect_on(&transaction, state, after, false, false).await?;
     transaction.commit().await?;
     Ok(Some((before, saved)))
 }
@@ -777,7 +778,7 @@ pub async fn credit_music_listening(
 
     let mut after = before;
     apply_music_listening(&mut after, listened_seconds);
-    let saved = save_affect_on(&transaction, user_id, after, false, true).await?;
+    let saved = save_affect_on(&transaction, state, after, false, true).await?;
     transaction.commit().await?;
     Ok(MusicMoodCredit {
         before,
@@ -1315,9 +1316,10 @@ mod tests {
                 .await
                 .is_err()
         );
+        let locked = super::get_or_create_state(&transaction, 7001).await.unwrap();
         let second = super::save_affect_on(
             &transaction,
-            7001,
+            locked,
             super::affect_from_state(&applied),
             true,
             false,

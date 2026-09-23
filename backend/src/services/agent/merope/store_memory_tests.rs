@@ -327,9 +327,10 @@ async fn explicit_corrections_retire_only_scoped_facts_and_recheck_the_input_und
             .await
             .is_err()
     );
+    let locked = get_or_create_state(&transaction, user_id).await.unwrap();
     save_affect_on(
         &transaction,
-        user_id,
+        locked,
         affect_from_state(&second),
         true,
         false,
