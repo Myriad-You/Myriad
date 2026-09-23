@@ -12,8 +12,8 @@ use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 
 use crate::error::HttpError;
-use crate::extract::AuthedClaims;
-use crate::middleware::auth::{Claims, verify_current_admin_from_headers};
+use crate::extract::{AdminClaims, AuthedClaims};
+use crate::middleware::auth::Claims;
 use crate::services::data_paths::paths;
 use crate::services::media::{
     MediaActor, MediaContext, MediaExposure, MediaService, MediaSource, MediaStore, NewMediaBytes,
@@ -25,13 +25,6 @@ use myriad_error::AppError;
 
 fn media_http(status: StatusCode, error: impl Into<String>) -> HttpError {
     HttpError(AppError::from_status_u16(status.as_u16(), error.into()))
-}
-
-async fn require_admin(headers: &HeaderMap, db: &DatabaseConnection) -> Result<(), HttpError> {
-    verify_current_admin_from_headers(headers, db)
-        .await
-        .map(|_| ())
-        .map_err(|(status, body)| HttpError::from((status, body)))
 }
 
 fn upload_budget(mime: &str) -> usize {
@@ -66,10 +59,9 @@ fn catalog_item(asset: &crate::services::media::MediaAsset) -> Value {
 /// GET /api/media
 pub async fn list_media(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
+    _admin: AdminClaims,
     Query(query): Query<MediaListQuery>,
 ) -> Result<Json<MediaPage>, HttpError> {
-    require_admin(&headers, &db).await?;
     if !query.valid() {
         return Err(media_http(StatusCode::BAD_REQUEST, "Invalid media query"));
     }
@@ -83,11 +75,9 @@ pub async fn list_media(
 /// POST /api/media
 pub async fn upload_media(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
-    AuthedClaims(claims): AuthedClaims,
+    AdminClaims(claims): AdminClaims,
     multipart: axum::extract::Multipart,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    require_admin(&headers, &db).await?;
     let user_id: i32 = claims
         .sub
         .parse()
@@ -118,10 +108,9 @@ pub async fn upload_media(
 /// DELETE /api/media/{id}
 pub async fn delete_media(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
+    _admin: AdminClaims,
     Path(id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    require_admin(&headers, &db).await?;
     match delete_asset(&db, id).await.map_err(|err| {
         tracing::error!(%err, "delete media catalog");
         media_http(StatusCode::INTERNAL_SERVER_ERROR, "Failed to delete media")
@@ -171,10 +160,9 @@ pub async fn serve_media_content(
 /// POST /api/media/{id}/publication
 pub async fn publish_media(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
+    _admin: AdminClaims,
     Path(id): Path<i32>,
 ) -> Result<Json<Value>, HttpError> {
-    require_admin(&headers, &db).await?;
     let asset = MediaService::from_data_paths(paths())
         .publish(&db, id)
         .await
@@ -187,10 +175,9 @@ pub async fn publish_media(
 /// DELETE /api/media/{id}/publication
 pub async fn unpublish_media(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
+    _admin: AdminClaims,
     Path(id): Path<i32>,
 ) -> Result<Json<Value>, HttpError> {
-    require_admin(&headers, &db).await?;
     let asset = MediaService::from_data_paths(paths())
         .unpublish(&db, id)
         .await
@@ -274,9 +261,8 @@ mod tests {
 /// GET /api/media/migration — persisted cursor and last redacted failure.
 pub async fn media_migration_status(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
+    _admin: AdminClaims,
 ) -> Result<Json<Value>, HttpError> {
-    require_admin(&headers, &db).await?;
     let progress = crate::services::media::upgrade::status(&db)
         .await
         .map_err(|error| HttpError(error.into()))?;
@@ -292,10 +278,9 @@ pub struct MediaMigrationRequest {
 /// POST /api/media/migration — one bounded batch; repeat until complete.
 pub async fn advance_media_migration(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
+    _admin: AdminClaims,
     Json(request): Json<MediaMigrationRequest>,
 ) -> Result<Json<Value>, HttpError> {
-    require_admin(&headers, &db).await?;
     let origins = crate::services::media::upgrade::configured_origins().await;
     let store = MediaStore::new(paths().media.clone());
     let legacy = crate::services::media::LegacyPaths::from_data_paths(paths());

@@ -865,7 +865,17 @@ async fn get_podcast_script(
     State(db): State<DatabaseConnection>,
     headers: axum::http::HeaderMap,
     Path(item_id): Path<i32>,
-) -> impl IntoResponse {
+) -> axum::response::Response {
+    podcast_script(db, item_id, Some(&headers)).await
+}
+
+/// `unverified_headers = None` means the caller already verified the current admin
+/// in this request, so a cache miss generates without authenticating again.
+async fn podcast_script(
+    db: DatabaseConnection,
+    item_id: i32,
+    unverified_headers: Option<&axum::http::HeaderMap>,
+) -> axum::response::Response {
     // 先尝试从数据库获取缓存（任何人都可以访问缓存）
     if let Ok(Some(cached)) = phantasi_podcasts::Entity::find()
         .filter(phantasi_podcasts::Column::ItemId.eq(item_id))
@@ -878,7 +888,11 @@ async fn get_podcast_script(
     }
 
     // 没有缓存时，验证管理员身份才能生成
-    if verify_admin(&headers, &db).await.is_err() {
+    let is_admin = match unverified_headers {
+        Some(headers) => verify_admin(headers, &db).await.is_ok(),
+        None => true,
+    };
+    if !is_admin {
         // 非管理员返回空结果而不是错误
         return (
             StatusCode::OK,
@@ -1114,9 +1128,7 @@ async fn regenerate_podcast_script(
     }
 
     // 接着走 `get_podcast_script`（无缓存则生成）
-    get_podcast_script(State(db), headers, Path(item_id))
-        .await
-        .into_response()
+    podcast_script(db, item_id, None).await
 }
 
 /// 构建播客脚本提示词

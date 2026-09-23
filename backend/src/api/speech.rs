@@ -14,7 +14,6 @@ use axum::{
 };
 use sea_orm::DatabaseConnection;
 
-use crate::middleware::auth::verify_current_admin_from_headers;
 use crate::services::data_paths::paths;
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
@@ -31,18 +30,6 @@ use crate::services::tencent_speech_service::{
 
 /// TTS 子目录名
 const TTS_SUBDIR: &str = "tts";
-
-/// 验证当前管理员身份
-#[allow(clippy::result_large_err)]
-async fn verify_admin(
-    headers: &axum::http::HeaderMap,
-    db: &sea_orm::DatabaseConnection,
-) -> Result<(), axum::response::Response> {
-    verify_current_admin_from_headers(headers, db)
-        .await
-        .map(|_| ())
-        .map_err(|(status, body)| (status, body).into_response())
-}
 
 /// 创建语音服务 API 路由
 pub fn create_speech_routes(app_state: crate::state::AppState) -> Router<crate::state::AppState> {
@@ -1869,14 +1856,10 @@ pub struct ClearArticleVoiceCacheQuery {
 ///
 /// DELETE /api/speech/cache/article/voice?source_id=1&article_id=2&voice_id=502007
 pub async fn clear_article_voice_cache(
-    State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    // Route only has auth_middleware: AdminClaims performs the live admin check.
+    _admin: crate::extract::AdminClaims,
     Query(query): Query<ClearArticleVoiceCacheQuery>,
 ) -> impl IntoResponse {
-    // 验证管理员身份
-    if let Err(e) = verify_admin(&headers, &db).await {
-        return e;
-    }
 
     let voice_dir =
         get_article_tts_dir(query.source_id, query.article_id).join(query.voice_id.to_string());

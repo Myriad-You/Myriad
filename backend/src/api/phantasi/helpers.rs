@@ -10,7 +10,7 @@ use serde_json::json;
 
 use crate::error::HttpError;
 use crate::middleware::auth::{
-    authenticate_optional_request, authenticate_request, ensure_current_admin_on,
+    Claims, authenticate_optional_request, authenticate_request, ensure_current_admin_on,
     verify_current_admin_from_headers,
 };
 use crate::models::entities::phantasi_sources;
@@ -31,62 +31,27 @@ pub(crate) fn phantasi_store_http(
     )
 }
 
-/// 从请求头获取用户 ID（含 session epoch 校验）
-pub(crate) async fn get_user_id_from_headers(
-    headers: &axum::http::HeaderMap,
-    db: &DatabaseConnection,
-) -> Result<i32, HttpError> {
-    match authenticate_request(headers, db).await {
-        Ok(claims) => claims
-            .sub
-            .parse::<i32>()
-            .map_err(|_| phantasi_http_err(StatusCode::UNAUTHORIZED, "Invalid user ID")),
-        Err(_) => Err(phantasi_http_err(StatusCode::UNAUTHORIZED, "Unauthorized")),
-    }
-}
-
-/// 无凭据返回 None；提供凭据时必须通过当前会话校验。
-pub(crate) async fn get_optional_user_id_from_headers(
-    headers: &axum::http::HeaderMap,
-    db: &DatabaseConnection,
-) -> Result<Option<i32>, HttpError> {
-    authenticate_optional_request(headers, db)
-        .await
-        .map_err(|response| HttpError::from(response.status()))?
-        .map(|claims| {
-            claims
-                .sub
-                .parse::<i32>()
-                .map_err(|_| phantasi_http_err(StatusCode::UNAUTHORIZED, "Invalid user ID"))
-        })
-        .transpose()
-}
-
-/// 检查请求头中的用户是否为管理员
-/// 返回 (Option<user_id>, is_admin)
-pub(crate) async fn get_user_and_admin_status(
-    headers: &axum::http::HeaderMap,
-    db: &DatabaseConnection,
-) -> (Option<i32>, bool) {
-    match authenticate_request(headers, db).await {
-        Ok(claims) => {
-            let user_id = claims.sub.parse::<i32>().ok().filter(|id| *id != 0);
-            let is_admin = ensure_current_admin_on(&claims, db).await.is_ok();
-            (user_id, is_admin)
-        }
-        Err(_) => (None, false),
-    }
+fn parse_user_id(claims: &Claims) -> Result<i32, HttpError> {
+    claims
+        .sub
+        .parse::<i32>()
+        .map_err(|_| phantasi_http_err(StatusCode::UNAUTHORIZED, "Invalid user ID"))
 }
 
 /// 公开读：无凭据当游客；带了凭据就必须是当前有效会话。
+/// 同一请求只验签一次，再用这份 Claims 查一次当前管理员。
 pub(crate) async fn get_optional_user_and_admin_status(
     headers: &axum::http::HeaderMap,
     db: &DatabaseConnection,
 ) -> Result<(Option<i32>, bool), HttpError> {
-    let Some(user_id) = get_optional_user_id_from_headers(headers, db).await? else {
+    let Some(claims) = authenticate_optional_request(headers, db)
+        .await
+        .map_err(|response| HttpError::from(response.status()))?
+    else {
         return Ok((None, false));
     };
-    let (_, is_admin) = get_user_and_admin_status(headers, db).await;
+    let user_id = parse_user_id(&claims)?;
+    let is_admin = ensure_current_admin_on(&claims, db).await.is_ok();
     Ok((Some(user_id), is_admin))
 }
 
@@ -128,8 +93,11 @@ pub(crate) async fn get_phantasi_user_and_admin_status(
     headers: &axum::http::HeaderMap,
     db: &DatabaseConnection,
 ) -> Result<(i32, bool), HttpError> {
-    let user_id = get_user_id_from_headers(headers, db).await?;
-    let (_, is_admin) = get_user_and_admin_status(headers, db).await;
+    let claims = authenticate_request(headers, db)
+        .await
+        .map_err(|_| phantasi_http_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
+    let user_id = parse_user_id(&claims)?;
+    let is_admin = ensure_current_admin_on(&claims, db).await.is_ok();
     require_phantasi_module_access(db, Some(user_id), is_admin).await?;
     Ok((user_id, is_admin))
 }

@@ -21,7 +21,6 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 
 use crate::config::DynamicConfig;
-use crate::middleware::auth::verify_current_admin_from_headers;
 use crate::oauth_url_builder::SiteConfig;
 use crate::services::config_service::ConfigService;
 use crate::services::fetcher::PlatformFetcher;
@@ -320,13 +319,12 @@ pub async fn discord_status(
 
 /// 管理员发起 Discord 数据平台授权
 pub async fn oauth_start(
-    headers: HeaderMap,
-    crate::extract::Db(db): crate::extract::Db,
+    // Route only has auth_middleware: AdminClaims performs the live admin check.
+    crate::extract::AdminClaims(claims): crate::extract::AdminClaims,
     axum::extract::State(dynamic_config): axum::extract::State<
         std::sync::Arc<tokio::sync::RwLock<crate::config::DynamicConfig>>,
     >,
 ) -> Result<Response, HttpError> {
-    let claims = verify_current_admin_from_headers(&headers, &db).await?;
     let user_id =
         crate::services::tapp_ownership::positive_user_id(&claims.sub).ok_or_else(|| {
             (

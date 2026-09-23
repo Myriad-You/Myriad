@@ -65,7 +65,7 @@ use crate::services::{
         MediaStore, NewMediaBytes, legacy::legacy_disk_path,
     },
 };
-use crate::{GLOBAL_DYNAMIC_CONFIG, error::HttpError, extract::AuthedClaims};
+use crate::{GLOBAL_DYNAMIC_CONFIG, error::HttpError, extract::AdminClaims};
 use axum::{
     Json,
     extract::{Path, State},
@@ -108,14 +108,7 @@ fn validate_edit_request(prompt: &str, width: u32, height: u32) -> Result<(), Ht
     Ok(())
 }
 
-async fn editable_asset(
-    db: &DatabaseConnection,
-    headers: &HeaderMap,
-    id: i32,
-) -> Result<media_assets::Model, HttpError> {
-    crate::middleware::auth::verify_current_admin_from_headers(headers, db)
-        .await
-        .map_err(HttpError::from)?;
+async fn editable_asset(db: &DatabaseConnection, id: i32) -> Result<media_assets::Model, HttpError> {
     let asset = media_assets::Entity::find_by_id(id)
         .one(db)
         .await
@@ -206,11 +199,11 @@ async fn read_reference(asset: &media_assets::Model) -> Result<ImageReference, H
 
 pub async fn preview_edit(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
+    _admin: AdminClaims,
     Path(id): Path<i32>,
     Json(input): Json<EditPreview>,
 ) -> Result<Json<Value>, HttpError> {
-    let asset = editable_asset(&db, &headers, id).await?;
+    let asset = editable_asset(&db, id).await?;
     validate_edit_request(&input.prompt, input.width, input.height)?;
     let _permit = EDIT_SLOTS.try_acquire().map_err(|_| {
         HttpError(AppError::service_unavailable(
@@ -247,12 +240,11 @@ pub async fn preview_edit(
 
 pub async fn save_edit(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
-    AuthedClaims(claims): AuthedClaims,
+    AdminClaims(claims): AdminClaims,
     Path(id): Path<i32>,
     Json(input): Json<SaveEdit>,
 ) -> Result<Json<Value>, HttpError> {
-    let source = editable_asset(&db, &headers, id).await?;
+    let source = editable_asset(&db, id).await?;
     let (metadata, encoded) = input
         .image
         .strip_prefix("data:")
