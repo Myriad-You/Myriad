@@ -1181,6 +1181,8 @@ mod stuck_and_idempotency_tests {
             None,
             None,
             None,
+            None,
+            None,
         );
         let b = update_request_fingerprint(
             &DeployTag::parse("v1.0.1").unwrap(),
@@ -1190,12 +1192,14 @@ mod stuck_and_idempotency_tests {
             None,
             None,
             None,
+            None,
         );
         let c = update_request_fingerprint(
             &DeployTag::parse("v1.0.0").unwrap(),
             UpdateMode::Release,
             true,
             false,
+            None,
             None,
             None,
             None,
@@ -1228,6 +1232,7 @@ mod stuck_and_idempotency_tests {
             None,
             None,
             None,
+            None,
         );
         state
             .write_job(&sample_job("job-a", Some("k1"), Some(&fp)))
@@ -1245,6 +1250,7 @@ mod stuck_and_idempotency_tests {
             None,
             None,
             None,
+            None,
         );
         let err = replay_idempotent_update(&state, "k1", &other).unwrap_err();
         assert!(
@@ -1257,7 +1263,7 @@ mod stuck_and_idempotency_tests {
     fn idempotent_lookup_survives_process_restart_via_job_files() {
         let dir = tempfile::tempdir().unwrap();
         let state = StateDir::open(dir.path()).unwrap();
-        let fp = "update|v1.2.3|release|downgrade=false|risk=false|diverged=unset|unknown=unset|irreversible=unset";
+        let fp = "update|v1.2.3|release|downgrade=false|risk=false|diverged=unset|unknown=unset|irreversible=unset|compose_override=unset";
         state
             .write_job(&sample_job("durable", Some("restart-key"), Some(fp)))
             .unwrap();
