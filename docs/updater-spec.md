@@ -341,7 +341,7 @@ updater 会先从 `*:myriad-rollback` 重新创建原版本 tag，再交给 Comp
 | 已持久化成功 / 已完成回滚 | 仅收尾状态，不重复安装或恢复数据 |
 | `needs_manual` | 按最后执行阶段重试恢复；缺失必要恢复数据仍保留维护与错误 |
 
-更新准备结果包含选定镜像、目标和原始/目标 Compose，在停服前写入 `state/prepared.<job>.json`。新 backend 镜像携带内置/外置数据库两种源码模板；可信 helper 将宿主入口迁到可写 `state/compose/`，业务更新自动合并版本定义和站点配置。v0.5.3 的无模板镜像及未持久化准备结果任务保留一个发布周期的兼容。完整验收见 [mock 黑盒报告](deployment/UPDATER_BLACKBOX_ACCEPTANCE.md)。
+更新准备结果包含选定镜像、目标和原始/目标 Compose，在停服前写入 `state/prepared.<job>.json`。新 backend 镜像携带内置/外置数据库两种源码模板；更新器把目标模板**就地写入宿主 Compose 文件**（写前备份到 `state/compose-backup/`），并把归一化结果存为基线。升级前把当前 Compose 与基线做语义比对，发现手动改动（或没有基线）则要求 `allow_compose_override` 确认。v0.5.3 的无模板镜像及未持久化准备结果任务保留一个发布周期的兼容。完整验收见 [mock 黑盒报告](deployment/UPDATER_BLACKBOX_ACCEPTANCE.md)。
 
 崩溃恢复决策以 `plan_crash_recovery` 为准，**不得**只看 `maintenance.active`。
 
@@ -797,7 +797,7 @@ docker compose --env-file .env --env-file ./guard-policy/docker-guard.env up -d 
 - version / tag 走白名单：`^v\d+\.\d+\.\d+(-[a-z0-9.]+)?$`
 - compose 路径限定预设路径
 - 高风险更新：当 body 含 `allow_risk` / `allow_downgrade` / `allow_diverged|unknown|irreversible`
-  为 true 时，另需 `confirm_risk: true` 或 header `X-Myriad-Confirm-Risk: true`。普通升级无额外字段。
+  / `allow_compose_override` 为 true 时，另需 `confirm_risk: true` 或 header `X-Myriad-Confirm-Risk: true`。普通升级无额外字段。
 
 ### 15.3 token / gateway secret
 

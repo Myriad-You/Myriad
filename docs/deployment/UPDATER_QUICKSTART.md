@@ -47,14 +47,14 @@ proxy (80) ─┬─► frontend
             ├─► federation-worker
             └─► persona-worker
 updater (内网) ─► docker-guard ─► docker.sock
-       └──────── 部署根只读 + .env/pgdata/state 精确可写
+       └──────── 部署根可写（就地改写 compose，写前备份）
 ./guard-policy/docker-guard.env ──► Guard 的独立镜像 digest + 自更新 capability
 ```
 
 只有 `proxy` 暴露宿主端口。`HTTP_PORT` 可以在 `.env` 调（默认 80）。原始 Docker socket
 只挂载给 `docker-guard`；updater 通过内部网络访问经项目/镜像/请求体白名单限制的 API。
-updater 对部署根本身只读，仅通过独立挂载写入 `./.env`、`./pgdata`、`./state`；Compose
-入口由可信 helper 自动迁为指向 `state/compose/` 的相对链接，业务更新可写入新版本定义，失败时恢复旧内容；`./guard-policy/` 继续只读。用户无需手改挂载。
+updater 对部署根可写，就地改写 Compose 文件（写前备份到 `state/compose-backup/`，并保留
+before/after 快照供回滚）；`./guard-policy/` 继续只读。
 
 当前拓扑见 [deployment/DOCKER_DEPLOYMENT.md](./DOCKER_DEPLOYMENT.md)
 （三网 + docker-guard + updater-gateway）。首次或改拓扑请在宿主执行
@@ -68,34 +68,29 @@ Updater 使用宿主策略 capability 提交意图；Guard 固定官方 updater 
 该 registry digest 尚未与签名 release manifest 的 expected digest 做字节级绑定，因此不会
 把它描述成 release.json/Cosign 路径。日常业务 Docker API 仍经 Guard 固定策略代理。
 
-### 2.1 编排的归属：哪些键属于版本、哪些属于站点
+### 2.1 编排归版本所有：站点配置只放在 `.env`
 
-业务更新时，更新器用目标版本的模板重建 `backend`、`frontend`、`backend-volume-init`、
-`federation-worker`、`persona-worker`、`proxy` 这 6 个服务的定义。因此这些服务上**部分字段属于版本、
-部分字段属于站点**：
+业务更新时，更新器用目标版本的模板**整体覆盖** `docker-compose.yml`（内置/外置数据库两套
+模板内嵌在 backend 镜像 label 里），不再做逐服务/逐键合并。所有服务（backend、frontend、
+backend-volume-init、federation-worker、persona-worker、proxy、postgres、docker-guard、
+updater、updater-gateway）的定义都随版本走。
 
-| 归属 | 字段 | 行为 |
-| --- | --- | --- |
-| 版本 | `image`、`command`、`entrypoint`、`healthcheck`、`ulimits`、`deploy`、`tmpfs`、`user`、`cap_add`、`security_opt` 等 | 每次更新以目标模板为准，站点改动会被覆盖 |
-| 站点 | `ports`、`networks`、`extra_hosts`、`dns`、`dns_search`、`logging`、`restart`、`env_file`、`labels` | 保留站点值 |
-| 站点 | `environment` 中目标未定义的键，以及目标只用 `${...}` 占位、而站点写成字面量的键 | 保留站点值。站点把变量放进 `.env` 即可，无需改 Compose |
-| 版本 | `environment` 中形如 `${VAR:-默认值}` 的模板默认值 | 随目标版本更新，不会把旧版本的默认值带到新版本 |
-| 版本 | `volumes` | 以目标模板的挂载列表为准。Guard 只放行模板已有的卷（见下），站点自加的挂载无法启动 |
-| 站点 | 顶层 `volumes` / `networks` / `configs` / `secrets` 的名称 | 只增不改，卷名保持站点原有身份 |
+站点的差异只通过 `.env` 表达：模板里的 `${VAR}` / `${VAR:-默认值}` 在 compose 时从 `.env`
+解析，所以端口、密码、镜像仓库、网络名等站点参数无需改 Compose。
 
-`updater`、`docker-guard`、`updater-gateway`、`postgres` 不在这 6 个服务内，更新器
-**不迁移**它们的定义；发行版若改了这些服务（例如新增挂载），需要宿主按
-[deployment/DOCKER_DEPLOYMENT.md](./DOCKER_DEPLOYMENT.md) 手动同步。
+升级前，更新器会把当前 `docker-compose.yml` 与它上次写入的基线做语义比对（忽略注释与
+格式差异）。若发现被手动改过（或首次升级还没有基线，例如从旧版迁移过来），会在
+preflight 阶段要求 `allow_compose_override` 确认；确认后、覆盖前，把原文件备份到
+`state/compose-backup/`。未改动则直接覆盖。
 
-这 5 个服务的挂载由 `docker-guard` 校验：只接受模板自带的 `*_backend_data` /
-`*_backend_cache` 卷及其固定容器路径（例如 `federation-worker` 的 `/app/data/media`
-子挂载）。宿主自加的绑定挂载或第三方卷会被 Guard 拒绝，容器在停服切换后无法启动，
-所以更新器不会把它们保留到新编排里。
+挂载仍由 `docker-guard` 校验：只接受模板自带的 `*_backend_data` / `*_backend_cache` 卷及
+其固定容器路径（例如 `federation-worker` 的 `/app/data/media` 子挂载）。宿主自加的绑定挂载
+或第三方卷会被 Guard 拒绝，容器在停服切换后无法启动。
 
-**不要直接编辑被托管的 Compose 文件。** 宿主 Compose 入口已是指向 `state/compose/` 的相对
-链接（见上），更新器每次更新都会重写其内容。站点侧的改动应放在 `.env`、站点配置，或上表
-「站点」一列的字段里。多份 Compose 分片（面板生成的 `*.yml`）会被合并进第一个文件，其余
-文件在更新时被置空；置空记录同样写入 history/audit（`audit: compose_fragments_blanked ...`）。
+**不要直接编辑被托管的 Compose 文件。** 站点改动应放在 `.env`；Compose 里的结构改动会在
+下一次更新时被覆盖（覆盖前会被检测出来并弹确认）。多份 Compose 分片（面板生成的 `*.yml`）
+会合并进第一个文件、其余在更新时置空；置空记录写入 history/audit
+（`audit: compose_fragments_blanked ...`）。
 
 ## 3. 打开 updater UI
 

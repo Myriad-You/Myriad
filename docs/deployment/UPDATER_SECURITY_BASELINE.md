@@ -76,12 +76,12 @@ These are **by design** for single-tenant self-host, not open bugs:
 - An **admin with update rights** can change the running stack (images, tags,
   maintenance). That is the product surface.
 - A **compromised updater** can still change the explicitly writable deployment
-  data (`.env`, `pgdata`, `state`), including managed Compose content under
-  `state/compose`. The deployment root and `./guard-policy/docker-guard.env`
-  remain read-only. Guard still authorizes container mutations; editing Compose
-  cannot recreate TCB services or expand Guard policy through its generic API.
-  Host administrators should treat managed Compose as updater-writable input
-  when running privileged Compose commands directly.
+  data (`.env`, `pgdata`, `state`, and the Compose files it rewrites in place).
+  `./guard-policy/docker-guard.env` remains read-only. Guard still authorizes
+  container mutations; editing Compose cannot recreate TCB services or expand
+  Guard policy through its generic API. Host administrators should treat the
+  deployment Compose as updater-writable input when running privileged Compose
+  commands directly.
 - The self-update helper is itself trusted target-image code. During a handoff
   it receives the deployment root at `/host/write` and the Guard-policy parent
   directory read-write so atomic file replacement works. Compose definitions
