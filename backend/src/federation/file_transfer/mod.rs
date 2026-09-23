@@ -11,5 +11,5 @@ mod storage;
 mod types;
 
 pub use http::*;
-pub use inbox::handle_file_transfer;
+pub use inbox::{InboundChunkError, TransferNotice, handle_file_chunk, handle_file_transfer};
 pub use types::*;

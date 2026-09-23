@@ -5,7 +5,32 @@ use myriad_error::AppError;
 use sea_orm::ConnectionTrait;
 use serde_json::json;
 
-use super::inbox_err;
+use super::{PostCommit, inbox_err};
+use crate::federation::file_transfer::InboundChunkError;
+
+/// Map a classified FileChunk failure. Details stay in logs; the peer sees a
+/// stable label, and 4xx vs retryable 5xx follows the classification.
+fn file_chunk_error(error: InboundChunkError) -> (StatusCode, Json<serde_json::Value>) {
+    let status = error.status();
+    if status.is_server_error() {
+        tracing::error!(detail = %error.detail(), %status, "FileChunk handling failed");
+    } else {
+        tracing::warn!(detail = %error.detail(), %status, "FileChunk rejected");
+    }
+    let body = match error {
+        InboundChunkError::Invalid(_) => AppError::public_json("Invalid file chunk"),
+        InboundChunkError::Forbidden(_) => AppError::public_json("Access denied"),
+        InboundChunkError::Closed(_) => AppError::public_json("Target is closed"),
+        InboundChunkError::NotReady(_) => {
+            json!({"error": "Activity not ready", "retry": true})
+        }
+        InboundChunkError::Busy(_) => {
+            json!({"error": "Transfer chunk budget exhausted; retry later", "retry": true})
+        }
+        InboundChunkError::Internal(_) => AppError::public_json("Inbox processing failed"),
+    };
+    (status, Json(body))
+}
 
 pub(crate) fn ensure_allowed_mfp_type(
     activity_type: &str,
@@ -44,12 +69,17 @@ pub(crate) const ALLOWED_MFP_TYPES: &[&str] = &[
 ];
 
 /// 处理 MFP 扩展 Activity（myriad:ChannelOpen, myriad:ChannelMessage, myriad:ChannelClose 等）
+///
+/// `db` must be the caller's transaction for FileTransfer: its advisory lock
+/// and progress update commit together with the receipt. Live-UI notices are
+/// queued on `post_commit` for the caller to run after that commit.
 pub(crate) async fn handle_mfp_activity(
     db: &impl ConnectionTrait,
     _local_user_id: Option<i32>,
     actor_url_str: &str,
     activity_type: &str,
     activity: &serde_json::Value,
+    post_commit: &mut PostCommit,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     tracing::info!(
         "📬 MFP activity received: type={}, actor={}",
@@ -121,22 +151,19 @@ pub(crate) async fn handle_mfp_activity(
             Ok(StatusCode::ACCEPTED)
         }
         "myriad:FileTransfer" => {
-            if activity
+            let chunk = activity
                 .get("object")
-                .and_then(|o| o.get("type"))
-                .and_then(|v| v.as_str())
-                == Some("myriad:FileChunk")
-            {
-                return Err((
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    Json(AppError::public_json(
-                        "FileChunk requires a transactional filesystem outbox",
-                    )),
-                ));
-            }
-            crate::federation::file_transfer::handle_file_transfer(db, actor_url_str, activity)
-                .await
-                .map_err(|e| inbox_err("FileTransfer handling failed", e))?;
+                .filter(|o| o.get("type").and_then(|v| v.as_str()) == Some("myriad:FileChunk"));
+            let notice = if let Some(object) = chunk {
+                crate::federation::file_transfer::handle_file_chunk(db, actor_url_str, object)
+                    .await
+                    .map_err(file_chunk_error)?
+            } else {
+                crate::federation::file_transfer::handle_file_transfer(db, actor_url_str, activity)
+                    .await
+                    .map_err(|e| inbox_err("FileTransfer handling failed", e))?
+            };
+            post_commit.push(notice);
             Ok(StatusCode::ACCEPTED)
         }
         "myriad:ChannelAccept" => {
@@ -227,6 +254,27 @@ mod tests {
             "these MFP types are accepted by the inbox allowlist but have no dispatch arm, \n\
              so they would be signature-verified then fail closed: {undispatched:?}"
         );
+    }
+
+    #[test]
+    fn file_chunk_errors_keep_retry_class_and_hide_details() {
+        use crate::federation::file_transfer::InboundChunkError;
+        use axum::http::StatusCode;
+        let (status, body) = super::file_chunk_error(InboundChunkError::NotReady(
+            "Transfer ft_x not yet present".into(),
+        ));
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body.0["retry"], true);
+        let (status, body) = super::file_chunk_error(InboundChunkError::Internal(
+            "No space left on device: /srv/data/federation/transfers/ft_x/f.part".into(),
+        ));
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(!body.0.to_string().contains("/srv/data"));
+        let (status, _) =
+            super::file_chunk_error(InboundChunkError::Forbidden("sender mismatch".into()));
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        let (status, _) = super::file_chunk_error(InboundChunkError::Closed("cancelled".into()));
+        assert_eq!(status, StatusCode::GONE);
     }
 
     #[test]

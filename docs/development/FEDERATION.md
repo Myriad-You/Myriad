@@ -118,17 +118,24 @@ the receipt completion then run in one DB transaction; any failure rolls all
 of it back. Unreachable documents are a retryable `503` with no receipt; link
 mismatches are a permanent `400`.
 
-### Temporarily unavailable handlers
+### Inbound FileChunk
 
-The durable receipt boundary currently returns retryable `503` for one handler
-whose effects cannot yet be committed atomically:
+A same-version peer's `myriad:FileChunk` runs on the receipt transaction. The
+per-transfer advisory lock serializes it with every other writer of that
+transfer; the chunk is written at the offset owned by `chunks_completed`
+(a half-written tail is truncated and rewritten, a complete earlier attempt is
+byte-compared), the file and any new directory entries are synced, and only
+then does the progress update commit together with the receipt. A rolled-back
+receipt leaves the synced bytes in place for the retry to verify; the database
+never records progress ahead of durable file data. The file I/O runs in its own
+task holding a per-transfer in-process lock, so a cancelled request cannot let
+a retry write the same `.part` while the orphaned write is still running
+(separate replicas on shared storage are not covered by that lock — uncertain).
+Live-UI progress is broadcast only after the receipt commits.
 
-| Handler | Why it is disabled | Required recovery design |
-| --- | --- | --- |
-| `myriad:FileChunk` | Chunk handling writes the filesystem, which cannot roll back with PostgreSQL. Returning success before both sides are durable can lose a chunk permanently. | Stage content-addressed bytes durably and verify their digest before the DB transaction; atomically commit chunk metadata plus a finalize outbox and the receipt; an idempotent worker then promotes the staged file and recovers after crashes. A DB-backed chunk store is also valid if it commits with the receipt. |
-
-Do not replace this `503` with best-effort success. Re-enable a handler only
-when its preflight/transaction/outbox contract has crash-recovery tests.
+Missing transfer metadata or an out-of-order chunk is a retryable `503`; a
+wrong sender, a closed transfer or a malformed chunk is a permanent `4xx`; a
+chunk already committed under another activity id is accepted without effect.
 
 ## Keys: ensure vs rotate
 

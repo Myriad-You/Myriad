@@ -392,6 +392,48 @@ pub(super) async fn lock_transfer_session(
     Ok(())
 }
 
+/// In-process per-transfer file lock, held by the detached file task.
+static TRANSFER_FILE_LOCKS: once_cell::sync::Lazy<
+    std::sync::Mutex<std::collections::HashMap<String, std::sync::Weak<tokio::sync::Mutex<()>>>>,
+> = once_cell::sync::Lazy::new(Default::default);
+
+fn transfer_file_lock(transfer_id: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+    let mut locks = TRANSFER_FILE_LOCKS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(lock) = locks.get(transfer_id).and_then(std::sync::Weak::upgrade) {
+        return lock;
+    }
+    locks.retain(|_, lock| lock.strong_count() > 0);
+    let lock = std::sync::Arc::new(tokio::sync::Mutex::new(()));
+    locks.insert(transfer_id.to_string(), std::sync::Arc::downgrade(&lock));
+    lock
+}
+
+/// Run one transfer's filesystem mutation to completion even if the caller is
+/// cancelled.
+///
+/// The database advisory lock ([`lock_transfer_session`]) is released when a
+/// cancelled request drops its transaction, while blocking file I/O may still
+/// be running. The work therefore runs in its own task that holds this
+/// transfer's in-process lock until the I/O finishes; a retry that re-acquires
+/// the advisory lock then waits here instead of writing the same `.part`
+/// concurrently. (Only covers replicas sharing this process's lock table;
+/// separate replicas on shared storage are not covered — uncertain.)
+pub(super) async fn run_transfer_file_work<T, F>(transfer_id: &str, work: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: std::future::Future<Output = T> + Send + 'static,
+{
+    let lock = transfer_file_lock(transfer_id);
+    tokio::spawn(async move {
+        let _guard = lock.lock_owned().await;
+        work.await
+    })
+    .await
+    .map_err(|error| format!("transfer file task failed: {error}"))
+}
+
 pub(super) fn path_to_db(path: &Path) -> String {
     path.to_string_lossy().to_string()
 }
@@ -515,7 +557,11 @@ async fn write_chunk_to_part(
 
     if current_len == chunk_end {
         drop(file);
-        return verify_chunk_bytes(part_path, decoded, expected_offset).await;
+        verify_chunk_bytes(part_path, decoded, expected_offset).await?;
+        // Matching readable bytes do not prove an earlier attempt's sync
+        // succeeded; make them durable before the caller commits progress.
+        sync_file(part_path).await.map_err(storage_err)?;
+        return sync_new_part_entries(part_path, expected_offset).await;
     }
 
     if current_len > expected_offset {
@@ -529,7 +575,32 @@ async fn write_chunk_to_part(
         .map_err(storage_err)?;
     file.write_all(decoded).await.map_err(storage_err)?;
     file.sync_all().await.map_err(storage_err)?;
+    sync_new_part_entries(part_path, expected_offset).await
+}
+
+/// The first chunk creates the `.part` (and possibly its transfer directory);
+/// those directory entries must be durable before the database records the
+/// chunk. Later chunks only extend a file whose entries were already synced
+/// before chunk 0 committed.
+async fn sync_new_part_entries(
+    part_path: &Path,
+    expected_offset: i64,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    if expected_offset != 0 {
+        return Ok(());
+    }
+    sync_parent_directory(part_path)
+        .await
+        .map_err(storage_err)?;
+    if let Some(dir) = part_path.parent() {
+        sync_parent_directory(dir).await.map_err(storage_err)?;
+    }
     Ok(())
+}
+
+/// fsync an existing file's data and metadata.
+async fn sync_file(path: &Path) -> Result<(), std::io::Error> {
+    fs::File::open(path).await?.sync_all().await
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -592,6 +663,11 @@ pub(super) async fn prepare_chunk_file(
     match fs::metadata(final_path).await {
         Ok(_) if is_last_chunk => {
             verify_chunk_bytes(final_path, decoded, expected_offset).await?;
+            // The rename may have happened in an attempt whose syncs failed.
+            sync_file(final_path).await.map_err(storage_err)?;
+            sync_parent_directory(final_path)
+                .await
+                .map_err(storage_err)?;
             return Ok(ChunkFileState::Final);
         }
         Ok(_) => {
@@ -639,7 +715,11 @@ pub(super) async fn finalize_part_file(
     match fs::rename(part_path, final_path).await {
         Ok(()) => sync_parent_directory(final_path).await.map_err(storage_err),
         Err(rename_error) => match fs::metadata(final_path).await {
-            Ok(_) => validate_completed_file(final_path, file_size, checksum).await,
+            Ok(_) => {
+                validate_completed_file(final_path, file_size, checksum).await?;
+                sync_file(final_path).await.map_err(storage_err)?;
+                sync_parent_directory(final_path).await.map_err(storage_err)
+            }
             Err(_) => Err(storage_err(rename_error)),
         },
     }
@@ -1101,6 +1181,30 @@ mod tests {
         assert_eq!(tokio::fs::read(&final_path).await.unwrap(), payload);
         assert!(!part_path.exists());
         tokio::fs::remove_dir_all(root).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancelled_caller_keeps_transfer_file_lock_until_io_finishes() {
+        use std::sync::Arc;
+        use std::sync::atomic::AtomicBool;
+        let finished = Arc::new(AtomicBool::new(false));
+        let flag = finished.clone();
+        let cancelled = tokio::time::timeout(
+            std::time::Duration::from_millis(20),
+            run_transfer_file_work("ft_cancel_lock", async move {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                flag.store(true, Ordering::SeqCst);
+            }),
+        )
+        .await;
+        assert!(cancelled.is_err(), "caller was cancelled mid-write");
+        let flag = finished.clone();
+        let observed = run_transfer_file_work("ft_cancel_lock", async move {
+            flag.load(Ordering::SeqCst)
+        })
+        .await
+        .unwrap();
+        assert!(observed, "next writer waited for the orphaned write");
     }
 
     #[test]

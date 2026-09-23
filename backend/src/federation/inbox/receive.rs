@@ -25,7 +25,7 @@ use super::activities::{
     handle_content_activity, handle_follow, handle_reject, handle_undo, handle_verified_move,
     move_preflight_error, record_room_peer_activity,
 };
-use super::inbox_err;
+use super::{PostCommit, inbox_err};
 use super::local_deliver::DeliveryMode;
 use super::mfp::{ensure_allowed_mfp_type, handle_mfp_activity};
 use super::receipt::{
@@ -372,6 +372,7 @@ pub async fn post_inbox(
         return Err(error);
     }
 
+    let mut post_commit = PostCommit::default();
     let result = dispatch_personal_activity(
         &txn,
         user_id,
@@ -382,10 +383,18 @@ pub async fn post_inbox(
         content_remote,
         move_verified.as_ref(),
         DeliveryMode::QueueOnly,
+        &mut post_commit,
     )
     .await;
     match result {
-        Ok(status) => finish_and_commit(txn, &key, ReceiptOutcome::Accepted, status, None).await,
+        Ok(status) => {
+            let committed =
+                finish_and_commit(txn, &key, ReceiptOutcome::Accepted, status, None).await;
+            if committed.is_ok() {
+                post_commit.run().await;
+            }
+            committed
+        }
         Err((status, body)) if receipt_result_is_permanent(status) => {
             let message = body
                 .0
@@ -418,6 +427,7 @@ async fn dispatch_personal_activity<C: ConnectionTrait>(
     content_remote: Option<&RemoteActorInfo>,
     move_verified: Option<&VerifiedMove>,
     delivery_mode: DeliveryMode<'_>,
+    post_commit: &mut PostCommit,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     match activity_type {
         "Follow" => {
@@ -449,7 +459,15 @@ async fn dispatch_personal_activity<C: ConnectionTrait>(
         }
         ty if ty.starts_with("myriad:") => {
             ensure_allowed_mfp_type(ty)?;
-            handle_mfp_activity(db, Some(local_user_id), actor_url_str, ty, activity).await
+            handle_mfp_activity(
+                db,
+                Some(local_user_id),
+                actor_url_str,
+                ty,
+                activity,
+                post_commit,
+            )
+            .await
         }
         _ => Ok(StatusCode::ACCEPTED),
     }
@@ -590,6 +608,7 @@ pub async fn post_shared_inbox(
         return Err(error);
     }
 
+    let mut post_commit = PostCommit::default();
     let result = dispatch_shared_activity(
         &txn,
         &activity_type,
@@ -599,10 +618,18 @@ pub async fn post_shared_inbox(
         follow_remote,
         content_remote,
         move_verified.as_ref(),
+        &mut post_commit,
     )
     .await;
     match result {
-        Ok(status) => finish_and_commit(txn, &key, ReceiptOutcome::Accepted, status, None).await,
+        Ok(status) => {
+            let committed =
+                finish_and_commit(txn, &key, ReceiptOutcome::Accepted, status, None).await;
+            if committed.is_ok() {
+                post_commit.run().await;
+            }
+            committed
+        }
         Err((status, body)) if receipt_result_is_permanent(status) => {
             let message = body
                 .0
@@ -634,6 +661,7 @@ async fn dispatch_shared_activity<C: ConnectionTrait>(
     follow_remote: Option<&RemoteActorInfo>,
     content_remote: Option<&RemoteActorInfo>,
     move_verified: Option<&VerifiedMove>,
+    post_commit: &mut PostCommit,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     if matches!(activity_type, "Create" | "Announce") {
         if let Some(remote_id) = public_remote_id {
@@ -659,8 +687,15 @@ async fn dispatch_shared_activity<C: ConnectionTrait>(
         if let Some(uid) = resolve_shared_inbox_local_user(db, activity_type, activity).await {
             if activity_type.starts_with("myriad:") {
                 ensure_allowed_mfp_type(activity_type)?;
-                return handle_mfp_activity(db, Some(uid), actor_url_str, activity_type, activity)
-                    .await;
+                return handle_mfp_activity(
+                    db,
+                    Some(uid),
+                    actor_url_str,
+                    activity_type,
+                    activity,
+                    post_commit,
+                )
+                .await;
             }
             return match activity_type {
                 "Follow" => {

@@ -26,6 +26,23 @@ use serde_json::json;
 
 use crate::federation::errors::{is_permanent_federation_error, map_inbox_handler_error};
 
+/// Local side effects (live-UI broadcasts) that must only run after the inbox
+/// transaction that produced them has committed. Dropped on rollback.
+#[derive(Default)]
+pub(crate) struct PostCommit(Vec<crate::federation::file_transfer::TransferNotice>);
+
+impl PostCommit {
+    pub(crate) fn push(&mut self, notice: Option<crate::federation::file_transfer::TransferNotice>) {
+        self.0.extend(notice);
+    }
+
+    pub(crate) async fn run(self) {
+        for notice in self.0 {
+            notice.broadcast().await;
+        }
+    }
+}
+
 /// Map handler errors to HTTP status; permanent peer-state mismatches → 4xx.
 fn inbox_err(context: &str, e: String) -> (StatusCode, Json<serde_json::Value>) {
     if is_permanent_federation_error(&e) {

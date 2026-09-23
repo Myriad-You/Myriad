@@ -1,7 +1,7 @@
 //! Same-instance inbox delivery and outbound delivery-queue enqueue.
 
 use axum::{Json, http::StatusCode};
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 use serde_json::json;
 
 use crate::federation::actor::fetch_remote_actor;
@@ -11,7 +11,7 @@ use super::activities::{
     extract_activity_actor_id, handle_accept, handle_content_activity, handle_follow, handle_move,
     handle_reject, handle_undo,
 };
-use super::inbox_err;
+use super::{PostCommit, inbox_err};
 use super::mfp::handle_mfp_activity;
 use super::receive::get_local_user;
 
@@ -248,8 +248,39 @@ pub async fn deliver_activity_locally(
             )
             .await
         }
+        // FileTransfer's advisory lock and progress must share one transaction;
+        // its live-UI notices run only after that transaction commits.
+        "myriad:FileTransfer" => {
+            let txn = db.begin().await.map_err(|e| e.to_string())?;
+            let mut post_commit = PostCommit::default();
+            let result = handle_mfp_activity(
+                &txn,
+                Some(user_id),
+                actor_url_str,
+                activity_type,
+                activity,
+                &mut post_commit,
+            )
+            .await;
+            if result.is_ok() {
+                txn.commit().await.map_err(|e| e.to_string())?;
+                post_commit.run().await;
+            }
+            result
+        }
         other if other.starts_with("myriad:") => {
-            handle_mfp_activity(db, Some(user_id), actor_url_str, other, activity).await
+            let mut post_commit = PostCommit::default();
+            let result = handle_mfp_activity(
+                db,
+                Some(user_id),
+                actor_url_str,
+                other,
+                activity,
+                &mut post_commit,
+            )
+            .await;
+            post_commit.run().await;
+            result
         }
         other => {
             tracing::debug!(
