@@ -492,10 +492,16 @@ pub fn verify_new_actor_also_known_as(
 // Fetch actor document (fresh)
 
 /// Fetch an ActivityPub actor document as JSON (fresh HTTP, or local build).
+///
+/// Transport / read / database failures are [`MovePreflightError::Unavailable`]
+/// (retryable). A document that answers for a different id, an internal URL and
+/// a missing local user are [`MovePreflightError::Invalid`]: retrying cannot
+/// change them.
 pub async fn fetch_actor_document(
     db: &DatabaseConnection,
     actor_url_str: &str,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, MovePreflightError> {
+    use MovePreflightError::{Invalid, Unavailable};
     let base_url = get_base_url().await;
     if let Some(local_username) = local_username_from_actor_url(&base_url, actor_url_str) {
         return local_actor_document(db, &base_url, &local_username).await;
@@ -513,7 +519,10 @@ pub async fn fetch_actor_document(
     }
 
     if is_internal_url(actor_url_str) {
-        return Err(format!("Refused to fetch internal URL: {}", actor_url_str));
+        return Err(Invalid(format!(
+            "Refused to fetch internal URL: {}",
+            actor_url_str
+        )));
     }
 
     let user_agent = format!("Myriad/{} (+{})", env!("CARGO_PKG_VERSION"), base_url);
@@ -522,45 +531,55 @@ pub async fn fetch_actor_document(
         std::time::Duration::from_secs(10),
         Some(&user_agent),
     )
-    .await?;
+    .await
+    .map_err(Unavailable)?;
 
     let resp = client
         .get(url)
         .header("Accept", AP_CONTENT_TYPE)
         .send()
         .await
-        .map_err(|e| format!("Failed to fetch actor for Move verify: {}", e))?;
+        .map_err(|e| Unavailable(format!("Failed to fetch actor for Move verify: {}", e)))?;
 
     if !resp.status().is_success() {
-        return Err(format!(
+        return Err(Unavailable(format!(
             "Actor fetch for Move verify returned {}",
             resp.status()
-        ));
+        )));
     }
 
     let body = crate::services::outbound_security::read_limited_body(resp, 1024 * 1024)
         .await
-        .map_err(|e| format!("Failed to read actor body: {}", e))?;
-    let actor_json: serde_json::Value =
-        serde_json::from_slice(&body).map_err(|e| format!("Failed to parse actor JSON: {}", e))?;
+        .map_err(|e| Unavailable(format!("Failed to read actor body: {}", e)))?;
+    let actor_json: serde_json::Value = serde_json::from_slice(&body)
+        .map_err(|e| Unavailable(format!("Failed to parse actor JSON: {}", e)))?;
 
+    check_document_identity(&actor_json, actor_url_str)?;
+    Ok(actor_json)
+}
+
+/// A reachable document that answers for another id is an identity mismatch
+/// (permanent), not an availability problem.
+fn check_document_identity(
+    actor_json: &serde_json::Value,
+    requested: &str,
+) -> Result<(), MovePreflightError> {
     if let Some(json_id) = actor_json.get("id").and_then(|v| v.as_str()) {
-        if !json_id.is_empty() && !same_actor_url(json_id, actor_url_str) {
-            return Err(format!(
+        if !json_id.is_empty() && !same_actor_url(json_id, requested) {
+            return Err(MovePreflightError::Invalid(format!(
                 "Remote actor id mismatch: document id '{}' does not match requested '{}'",
-                json_id, actor_url_str
-            ));
+                json_id, requested
+            )));
         }
     }
-
-    Ok(actor_json)
+    Ok(())
 }
 
 async fn local_actor_document(
     db: &DatabaseConnection,
     base_url: &str,
     username: &str,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, MovePreflightError> {
     let aliases = load_domain_aliases(db).await;
     local_actor_document_for_base(db, base_url, username, &aliases).await
 }
@@ -570,7 +589,7 @@ async fn local_actor_document_for_base(
     serve_base: &str,
     username: &str,
     aliases: &[DomainMoveAlias],
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, MovePreflightError> {
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -585,9 +604,9 @@ async fn local_actor_document_for_base(
         .await
         .map_err(|e| {
             tracing::error!("DB error: {}", e);
-            "Database error".to_string()
+            MovePreflightError::Unavailable("Database error".to_string())
         })?
-        .ok_or_else(|| format!("Local user not found: {}", username))?;
+        .ok_or_else(|| MovePreflightError::Invalid(format!("Local user not found: {}", username)))?;
 
     let display_name: Option<String> = row.try_get("", "display_name").ok();
     let bio: Option<String> = row.try_get("", "bio").ok();
@@ -635,7 +654,7 @@ async fn local_actor_document_for_base(
         mfp_channels_url: Some(format!("{}/users/{}/channels", serve_base, username)),
     };
 
-    serde_json::to_value(actor).map_err(|e| e.to_string())
+    serde_json::to_value(actor).map_err(|e| MovePreflightError::Unavailable(e.to_string()))
 }
 
 // Follow graph migration
@@ -813,15 +832,11 @@ pub async fn preflight_move(
     let (old_actor, new_actor) =
         verify_move_structure(activity, signed_actor).map_err(MovePreflightError::Invalid)?;
 
-    let old_doc = fetch_actor_document(db, &old_actor)
-        .await
-        .map_err(MovePreflightError::Unavailable)?;
+    let old_doc = fetch_actor_document(db, &old_actor).await?;
     verify_old_actor_moved_to(&old_doc, &old_actor, &new_actor)
         .map_err(MovePreflightError::Invalid)?;
 
-    let new_doc = fetch_actor_document(db, &new_actor)
-        .await
-        .map_err(MovePreflightError::Unavailable)?;
+    let new_doc = fetch_actor_document(db, &new_actor).await?;
     verify_new_actor_also_known_as(&new_doc, &new_actor, &old_actor)
         .map_err(MovePreflightError::Invalid)?;
 
@@ -893,27 +908,55 @@ async fn migrate_follows_in_txn(
     old_actor_url: &str,
     new_remote_id: i32,
 ) -> Result<u32, String> {
-    let old_remote = match txn
-        .query_one_raw(Statement::from_sql_and_values(
+    let mut migrated = 0;
+    for old_remote in old_remote_actor_ids(txn, old_actor_url).await? {
+        if old_remote != new_remote_id {
+            migrated += migrate_follows_from_remote(txn, old_remote, new_remote_id).await?;
+        }
+    }
+    Ok(migrated)
+}
+
+/// Every cached row for the old actor under the same canonicalization Move
+/// verification uses ([`same_actor_url`]: host case, trailing slash), so follows
+/// stored under an equivalent URL variant are migrated too. The SQL prefilter
+/// only narrows candidates; the Rust comparison decides.
+async fn old_remote_actor_ids(
+    txn: &impl ConnectionTrait,
+    old_actor_url: &str,
+) -> Result<Vec<i32>, String> {
+    let rows = txn
+        .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT id FROM federation_remote_actors WHERE actor_url = $1 LIMIT 1",
-            [old_actor_url.into()],
+            r#"SELECT id, actor_url FROM federation_remote_actors
+               WHERE lower(rtrim(actor_url, '/')) = lower(rtrim($1, '/'))
+               ORDER BY id"#,
+            [old_actor_url.trim().into()],
         ))
         .await
         .map_err(|e| {
             tracing::error!("DB error: {}", e);
             "Database error".to_string()
-        })? {
-        Some(r) => row_i32(&r, "id")?,
-        None => return Ok(0),
-    };
+        })?;
+    let mut ids = Vec::new();
+    for row in rows {
+        let id = row_i32(&row, "id")?;
+        let url = row_string(&row, "actor_url")?;
+        if id <= 0 {
+            return Err("old remote actor id is invalid".into());
+        }
+        if same_actor_url(&url, old_actor_url) {
+            ids.push(id);
+        }
+    }
+    Ok(ids)
+}
 
-    if old_remote <= 0 {
-        return Err("old remote actor id is invalid".into());
-    }
-    if new_remote_id == old_remote {
-        return Ok(0);
-    }
+async fn migrate_follows_from_remote(
+    txn: &impl ConnectionTrait,
+    old_remote: i32,
+    new_remote_id: i32,
+) -> Result<u32, String> {
 
     let follows = txn
         .query_all_raw(Statement::from_sql_and_values(
@@ -2175,6 +2218,17 @@ mod tests {
         assert_eq!(activity_id_string(&serde_json::json!({})), None);
     }
 
+    #[test]
+    fn actor_document_identity_mismatch_is_permanent() {
+        let doc = serde_json::json!({"id": "https://evil.example/users/x"});
+        assert!(matches!(
+            check_document_identity(&doc, "https://old.example/users/a"),
+            Err(MovePreflightError::Invalid(_))
+        ));
+        let same = serde_json::json!({"id": "https://OLD.example/users/a/"});
+        assert!(check_document_identity(&same, "https://old.example/users/a").is_ok());
+    }
+
     async fn follow_rows(db: &DatabaseConnection) -> Vec<(i32, i32, String, String)> {
         db.query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,
@@ -2207,11 +2261,15 @@ mod tests {
         let db = &fixture.db;
         db.execute_unprepared(
             r#"
-            INSERT INTO users (id, username) VALUES (1, 'alice'), (2, 'bob');
+            INSERT INTO users (id, username) VALUES (1, 'alice'), (2, 'bob'), (3, 'carol');
             INSERT INTO federation_remote_actors (id, actor_url, domain, inbox_url) VALUES
                 (10, 'https://old.example/users/a', 'old.example', 'https://old.example/users/a/inbox'),
+                (11, 'https://OLD.example/users/a/', 'old.example', 'https://old.example/users/a/inbox'),
+                (12, 'https://old.example/users/A', 'old.example', 'https://old.example/users/A/inbox'),
                 (20, 'https://new.example/users/a', 'new.example', 'https://new.example/users/a/inbox');
             INSERT INTO federation_follows (user_id, remote_actor_id, direction, status, activity_id) VALUES
+                (3, 11, 'outgoing', 'accepted', 'https://local/follow/3'),
+                (3, 12, 'incoming', 'accepted', 'https://old.example/follow/other'),
                 (1, 10, 'outgoing', 'accepted', 'https://local/follow/1'),
                 (2, 10, 'outgoing', 'accepted', 'https://local/follow/2'),
                 (2, 20, 'outgoing', 'pending', NULL),
@@ -2248,13 +2306,13 @@ mod tests {
 
         // Receipt transaction rolled back (e.g. receipt completion failed).
         let txn = db.begin().await.unwrap();
-        assert_eq!(apply_verified_move(&txn, &verified, &activity).await.unwrap(), 3);
+        assert_eq!(apply_verified_move(&txn, &verified, &activity).await.unwrap(), 4);
         txn.rollback().await.unwrap();
         assert_eq!(follow_rows(db).await, before);
         assert_eq!(move_rows().await, 0);
 
         let txn = db.begin().await.unwrap();
-        assert_eq!(apply_verified_move(&txn, &verified, &activity).await.unwrap(), 3);
+        assert_eq!(apply_verified_move(&txn, &verified, &activity).await.unwrap(), 4);
         txn.commit().await.unwrap();
         assert_eq!(
             follow_rows(db).await,
@@ -2263,6 +2321,10 @@ mod tests {
                 (1, 20, "outgoing".into(), "accepted".into()),
                 // Merged onto the existing pending row and promoted.
                 (2, 20, "outgoing".into(), "accepted".into()),
+                // Host-case / trailing-slash variant row of the old actor migrates too;
+                // a different path (`/users/A`) is a different actor and stays.
+                (3, 12, "incoming".into(), "accepted".into()),
+                (3, 20, "outgoing".into(), "accepted".into()),
             ]
         );
         assert_eq!(move_rows().await, 1);
