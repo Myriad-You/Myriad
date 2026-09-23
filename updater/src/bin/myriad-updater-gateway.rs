@@ -189,20 +189,17 @@ async fn local_healthz() -> impl IntoResponse {
 }
 
 async fn proxy(State(state): State<Arc<GatewayState>>, req: Request<Body>) -> Response {
-    let method = req.method().clone();
-    let uri = req.uri().clone();
-    let headers = req.headers().clone();
-    let peer = req
-        .extensions()
+    let (parts, body) = req.into_parts();
+    let (method, uri, headers) = (&parts.method, &parts.uri, &parts.headers);
+    let peer = parts
+        .extensions
         .get::<axum::extract::ConnectInfo<SocketAddr>>()
         .map(|axum::extract::ConnectInfo(addr)| *addr);
-    let (parts, body) = req.into_parts();
-    let _ = parts; // method/uri/headers already cloned
 
     // Caller auth: shared secret between backend and gateway (admin-net peers).
     // Wrong secrets are rate-limited per socket peer; correct secrets always pass.
     // X-Forwarded-For is not a source key — this hop has no trusted proxy boundary.
-    if let Err(resp) = authorize_gateway_caller(&headers, &state.gateway_secret, peer) {
+    if let Err(resp) = authorize_gateway_caller(headers, &state.gateway_secret, peer) {
         return resp;
     }
 
@@ -228,14 +225,14 @@ async fn proxy(State(state): State<Arc<GatewayState>>, req: Request<Body>) -> Re
         }
     };
 
-    if let Err(error) = validate_capability(&method, &uri, &headers, &body) {
+    if let Err(error) = validate_capability(method, uri, headers, &body) {
         return error.into_response();
     }
 
-    let target = upstream_url(&state.upstream, &uri);
+    let target = upstream_url(&state.upstream, uri);
     let mut builder = state
         .http
-        .request(method_to_reqwest(&method), &target)
+        .request(method_to_reqwest(method), &target)
         .header("X-Update-Token", &state.token);
 
     // Forward a narrow header allowlist. Never forward gateway secret or update token.
@@ -252,7 +249,8 @@ async fn proxy(State(state): State<Arc<GatewayState>>, req: Request<Body>) -> Re
     }
 
     if !body.is_empty() {
-        builder = builder.body(body.to_vec());
+        // Move the bounded, already-validated Bytes into the upstream request.
+        builder = builder.body(body);
     }
 
     match builder.send().await {
