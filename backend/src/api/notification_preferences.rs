@@ -153,14 +153,9 @@ mod tests {
         // The API must expose the whole catalog, in order; the catalog itself grows
         // whenever a producer gains a new event, so compare against it directly.
         assert_eq!(first["catalog"]["sources"], json!(SOURCE_KEYS));
-        let event_keys: Vec<&str> = first["catalog"]["events"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|event| event["key"].as_str().unwrap())
-            .collect();
+        // Compare whole definitions, so a changed `source` cannot slip through.
+        assert_eq!(first["catalog"]["events"], json!(EVENT_DEFINITIONS.as_slice()));
         let catalog_keys: Vec<&str> = EVENT_DEFINITIONS.iter().map(|event| event.key).collect();
-        assert_eq!(event_keys, catalog_keys);
         assert_eq!(
             catalog_keys
                 .iter()
