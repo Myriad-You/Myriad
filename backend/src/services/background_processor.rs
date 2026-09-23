@@ -201,17 +201,101 @@ impl BackgroundProcessor {
         (tasks.len(), pending, processing, completed, failed)
     }
 
-    /// 返回按最近更新时间倒序排列的任务快照，供管理员诊断使用。
+    /// 在一次读锁内为管理员诊断统计状态并选出要输出的任务。
     ///
-    /// 任务错误可能包含平台响应摘要，因此这里只暴露给受管理员权限保护的
-    /// 诊断接口，并由接口进一步限制数量和错误文本长度。
-    pub async fn list_recent_tasks(&self, limit: usize) -> Vec<ProcessingTask> {
+    /// 活跃任务全部返回（不因近期记录截断而漏掉旧的卡住任务）；失败任务只取
+    /// `recent_failure_after` 之后最近的 `failure_limit` 条。排序只作用于借用
+    /// 的引用，最终只复制响应字段，错误文本先经 `limit_error` 限长再拥有。
+    pub async fn diagnostics(
+        &self,
+        recent_failure_after: DateTime<Utc>,
+        failure_limit: usize,
+        limit_error: impl Fn(&str) -> String,
+    ) -> TaskDiagnostics {
         let tasks = self.tasks.read().await;
-        let mut recent = tasks.values().cloned().collect::<Vec<_>>();
-        recent.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
-        recent.truncate(limit);
-        recent
+        let mut diagnostics = TaskDiagnostics {
+            total: tasks.len(),
+            ..TaskDiagnostics::default()
+        };
+        let mut active = Vec::new();
+        let mut failures = Vec::new();
+        for task in tasks.values() {
+            match task.status {
+                TaskStatus::Pending => diagnostics.pending += 1,
+                TaskStatus::Processing => diagnostics.processing += 1,
+                TaskStatus::Completed => diagnostics.completed += 1,
+                TaskStatus::Failed => diagnostics.failed += 1,
+            }
+            match task.status {
+                TaskStatus::Pending | TaskStatus::Processing => active.push(task),
+                TaskStatus::Failed if task.updated_at >= recent_failure_after => {
+                    failures.push(task)
+                }
+                _ => {}
+            }
+        }
+        active.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+        if failures.len() > failure_limit && failure_limit > 0 {
+            failures.select_nth_unstable_by(failure_limit - 1, |left, right| {
+                right.updated_at.cmp(&left.updated_at)
+            });
+        }
+        failures.truncate(failure_limit);
+        failures.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+
+        diagnostics.active = active
+            .into_iter()
+            .map(|task| ActiveTaskDiagnostic {
+                id: task.id.clone(),
+                platform: task.platform.clone(),
+                status: task.status.clone(),
+                progress: task.progress,
+                created_at: task.created_at,
+                updated_at: task.updated_at,
+            })
+            .collect();
+        diagnostics.recent_failures = failures
+            .into_iter()
+            .map(|task| FailedTaskDiagnostic {
+                id: task.id.clone(),
+                platform: task.platform.clone(),
+                error: task.error.as_deref().map(&limit_error),
+                updated_at: task.updated_at,
+            })
+            .collect();
+        diagnostics
     }
+}
+
+#[derive(Debug, Default)]
+pub struct TaskDiagnostics {
+    pub total: usize,
+    pub pending: usize,
+    pub processing: usize,
+    pub completed: usize,
+    pub failed: usize,
+    /// 全部活跃任务，按 `updated_at` 倒序。
+    pub active: Vec<ActiveTaskDiagnostic>,
+    /// 时间窗口内最近的失败任务，按 `updated_at` 倒序。
+    pub recent_failures: Vec<FailedTaskDiagnostic>,
+}
+
+#[derive(Debug)]
+pub struct ActiveTaskDiagnostic {
+    pub id: String,
+    pub platform: String,
+    pub status: TaskStatus,
+    pub progress: f32,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug)]
+pub struct FailedTaskDiagnostic {
+    pub id: String,
+    pub platform: String,
+    pub error: Option<String>,
+    pub updated_at: DateTime<Utc>,
 }
 
 // 全局后台处理器实例
@@ -389,6 +473,45 @@ mod tests {
         assert_eq!(ids.len(), 1);
         assert_eq!(claims, 1);
         assert_eq!(processor.get_task_stats().await, (1, 1, 0, 0, 0));
+    }
+
+    #[tokio::test]
+    async fn diagnostics_keeps_old_active_tasks_and_limits_failures() {
+        let processor = BackgroundProcessor::new();
+        let (active, _) = processor.submit_task("steam").await;
+        for _ in 0..120 {
+            let (id, _) = processor.submit_task("github").await;
+            processor.complete_task(&id).await;
+        }
+        for index in 0..8 {
+            let (id, _) = processor.submit_task("bilibili").await;
+            processor
+                .fail_task(&id, format!("{index}-{}", "x".repeat(64)))
+                .await;
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        }
+        let window_start = Utc::now() - chrono::Duration::hours(1);
+        let diagnostics = processor
+            .diagnostics(window_start, 3, |detail: &str| {
+                detail.chars().take(4).collect()
+            })
+            .await;
+
+        assert_eq!(diagnostics.pending, 1);
+        assert_eq!(diagnostics.failed, 8);
+        assert_eq!(
+            diagnostics.active.iter().map(|task| task.id.as_str()).collect::<Vec<_>>(),
+            vec![active.as_str()]
+        );
+        let errors = diagnostics
+            .recent_failures
+            .iter()
+            .map(|task| task.error.as_deref().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(errors, vec!["7-xx", "6-xx", "5-xx"]);
+
+        let future = processor.diagnostics(Utc::now(), 3, str::to_owned).await;
+        assert!(future.recent_failures.is_empty());
     }
 
     #[tokio::test]

@@ -1,4 +1,4 @@
-use crate::services::background_processor::{BACKGROUND_PROCESSOR, TaskStatus};
+use crate::services::background_processor::{BACKGROUND_PROCESSOR, TaskDiagnostics};
 use axum::{Json, http::StatusCode};
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use myriad_process_info::{MEMORY_CRITICAL_MB, MEMORY_WARNING_MB};
@@ -9,7 +9,6 @@ use std::time::Instant;
 
 const STUCK_TASK_MINUTES: i64 = 30;
 const RECENT_FAILURE_HOURS: i64 = 24;
-const TASK_SNAPSHOT_LIMIT: usize = 100;
 const RECENT_FAILURE_LIMIT: usize = 5;
 const ERROR_DETAIL_LIMIT: usize = 500;
 
@@ -152,17 +151,25 @@ pub async fn runtime_diagnostics(
         crate::services::server_location::unavailable_assessment(false)
     });
 
-    let (total, pending, processing, completed, failed) =
-        BACKGROUND_PROCESSOR.get_task_stats().await;
-    let recent_tasks = BACKGROUND_PROCESSOR
-        .list_recent_tasks(TASK_SNAPSHOT_LIMIT)
-        .await;
     let stuck_before = generated_at - Duration::minutes(STUCK_TASK_MINUTES);
     let recent_failure_after = generated_at - Duration::hours(RECENT_FAILURE_HOURS);
+    let task_diagnostics = BACKGROUND_PROCESSOR
+        .diagnostics(recent_failure_after, RECENT_FAILURE_LIMIT, |detail: &str| {
+            limited_detail(detail)
+        })
+        .await;
+    let TaskDiagnostics {
+        total,
+        pending,
+        processing,
+        completed,
+        failed,
+        active,
+        recent_failures,
+    } = task_diagnostics;
 
-    let active_tasks = recent_tasks
-        .iter()
-        .filter(|task| matches!(task.status, TaskStatus::Pending | TaskStatus::Processing))
+    let active_tasks = active
+        .into_iter()
         .map(|task| {
             let stuck = task.updated_at < stuck_before;
             json!({
@@ -177,15 +184,13 @@ pub async fn runtime_diagnostics(
         })
         .collect::<Vec<_>>();
 
-    let recent_failures = recent_tasks
-        .iter()
-        .filter(|task| task.status == TaskStatus::Failed && task.updated_at >= recent_failure_after)
-        .take(RECENT_FAILURE_LIMIT)
+    let recent_failures = recent_failures
+        .into_iter()
         .map(|task| {
             json!({
                 "id": task.id,
                 "platform": task.platform,
-                "error": task.error.as_deref().map(limited_detail),
+                "error": task.error,
                 "updated_at": task.updated_at.to_rfc3339(),
             })
         })
