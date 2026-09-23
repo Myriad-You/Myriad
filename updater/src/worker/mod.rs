@@ -1182,7 +1182,6 @@ mod stuck_and_idempotency_tests {
             None,
             None,
             None,
-            None,
         );
         let b = update_request_fingerprint(
             &DeployTag::parse("v1.0.1").unwrap(),
@@ -1213,6 +1212,7 @@ mod stuck_and_idempotency_tests {
                 UpdateMode::Release,
                 false,
                 false,
+                None,
                 None,
                 None,
                 None,
