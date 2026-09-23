@@ -1,4 +1,4 @@
-/** PERMISSION_MAP / PERMISSION_LEVELS 须与 fixtures 一致。先改 fixtures。 */
+/** 宿主代理域的 PERMISSION_MAP（来自 shared/tapp_sandbox_contract.json）须与 fixtures 一致。 */
 
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'

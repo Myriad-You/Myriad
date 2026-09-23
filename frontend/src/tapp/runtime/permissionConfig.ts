@@ -1,6 +1,6 @@
 /**
  * PERMISSION_LEVELS 锁到后端 TappPermission 目录；动作表见
- * `shared/tapp_sandbox_contract.json`。speech / phantasiList / federation 先改 fixtures。
+ * `shared/tapp_sandbox_contract.json`；宿主代理域同步 fixtures 一致性测试。
  */
 
 import type { PermissionLevel, TappPermission } from '../types'
