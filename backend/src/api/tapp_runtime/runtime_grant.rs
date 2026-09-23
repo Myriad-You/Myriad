@@ -86,6 +86,23 @@ impl RuntimeGrantContext {
         self.0.expires_at()
     }
 
+    /// Installation this request's grant was rebound to; borrow it instead of
+    /// re-resolving the same `(subject, tapp_id)` in handlers.
+    pub fn installation(&self) -> &crate::models::entities::tapps::Model {
+        self.0.installation()
+    }
+
+    /// Current role verified while rebinding this request.
+    pub fn role(&self) -> UserRole {
+        self.0.role()
+    }
+
+    /// Granted permissions for this request (never wider than the install's
+    /// approved set filtered for the current role and config).
+    pub fn granted_permissions(&self) -> &[String] {
+        self.0.granted_permissions()
+    }
+
     pub fn has(&self, permission: TappPermission) -> bool {
         self.0.has(permission)
     }

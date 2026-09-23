@@ -28,46 +28,13 @@ use super::runtime_grant::RuntimeGrantContext;
 fn declared_http_error(err: DeclaredApiError) -> (StatusCode, Json<Value>) {
     let status =
         StatusCode::from_u16(err.status_hint()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    match &err {
-        DeclaredApiError::Access(access) => {
-            // AccessDenied/Database/NoAdmin codes differ from tapp_access_http_error; PermissionNotGranted shares the adapter shape.
-            match access {
-                TappAccessError::PermissionNotGranted { .. } => (
-                    status,
-                    Json(json!({
-                        "error": access.error_code(),
-                        "message": access.message(),
-                        "code": "TAPP_PERMISSION_NOT_GRANTED"
-                    })),
-                ),
-                TappAccessError::AccessDenied { .. } => (
-                    status,
-                    Json(json!({
-                        "error": access.error_code(),
-                        "message": access.message(),
-                        "code": err.code(),
-                    })),
-                ),
-                TappAccessError::Database | TappAccessError::NoAdmin => (
-                    status,
-                    Json(json!({
-                        "error": access.error_code(),
-                        "code": err.code(),
-                    })),
-                ),
-            }
-        }
-        DeclaredApiError::GrantScopeChanged
-        | DeclaredApiError::UnknownPermission { .. }
-        | DeclaredApiError::ApiNotFound { .. }
-        | DeclaredApiError::InvalidUser => (
-            status,
-            Json(json!({
-                "error": err.message(),
-                "code": err.code(),
-            })),
-        ),
-    }
+    (
+        status,
+        Json(json!({
+            "error": err.message(),
+            "code": err.code(),
+        })),
+    )
 }
 
 fn credential_http_error(error: TappCredentialError) -> HttpError {
@@ -117,20 +84,11 @@ pub async fn execute_tapp_api(
         claims.username
     );
 
-    let user_id: i32 = claims
-        .sub
-        .parse()
-        .map_err(|_| declared_http_error(DeclaredApiError::InvalidUser))?;
-
-    // 1. Resolve the same private-first installation bound into the Runtime Grant.
-    let tapp = tapp_declared_api::resolve_declared_api_tapp(
-        &db,
-        user_id,
-        &tapp_id,
-        runtime_grant.owner_id(),
-    )
-    .await
-    .map_err(declared_http_error)?;
+    // 1. The grant extractor already verified the subject, rebound this request
+    //    to the live private-first installation and checked it against the
+    //    grant owner; `require_tapp_id` above binds the path to that grant.
+    let user_id = runtime_grant.subject_id();
+    let tapp = runtime_grant.installation();
 
     // 2. 解析 manifest 中的 APIs（带缓存）
     let manifest_cache_key = format!("{}:{}", tapp.user_id, tapp_id);
@@ -154,9 +112,6 @@ pub async fn execute_tapp_api(
         }
     }
 
-    // 3. 读取安装批准权限；再按当前角色过滤为授予权限。
-    let installed_permissions = tapp_declared_api::installed_permissions_from_tapp(&tapp);
-
     // 4. 获取客户端 IP
     let client_ip = crate::middleware::client_ip::client_ip_from_parts(
         &headers,
@@ -165,19 +120,10 @@ pub async fn execute_tapp_api(
     )
     .map(|ip| ip.to_string());
 
-    // 5. 确定用户角色
-    let is_current_admin = claims.is_admin && ensure_current_admin_on(&claims, &db).await.is_ok();
-    let role = if is_current_admin {
-        UserRole::Admin
-    } else if user_id < 0 {
-        UserRole::Guest
-    } else {
-        UserRole::User
-    };
-    let granted_permissions =
-        tapp_declared_api::filter_granted_permissions(installed_permissions, role)
-            .await
-            .map_err(declared_http_error)?;
+    // 5. 角色与授予权限沿用本请求 Grant rebind 的结果：授予权限是签发上限与
+    //    当前角色/配置/批准集的交集，不从批准集重新推导，只会更窄或相同。
+    let is_current_admin = runtime_grant.role() == UserRole::Admin;
+    let granted_permissions = runtime_grant.granted_permissions().to_vec();
 
     // Resolve host-only credential material only after determining that this
     // caller is part of the API's declared audience. This avoids turning
@@ -190,7 +136,7 @@ pub async fn execute_tapp_api(
         }
     };
     let credential = if caller_may_invoke {
-        tapp_credentials::resolve_api_credential(&db, &tapp, api_def)
+        tapp_credentials::resolve_api_credential(&db, tapp, api_def)
             .await
             .map_err(credential_http_error)?
     } else {
@@ -258,7 +204,6 @@ pub async fn execute_tapp_api(
 
 /// GET /api/tapp/{tapp_id}/apis
 pub async fn list_tapp_apis(
-    State(db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
     runtime_grant: RuntimeGrantContext,
     Path(tapp_id): Path<String>,
@@ -270,18 +215,8 @@ pub async fn list_tapp_apis(
         claims.username
     );
 
-    let user_id = claims
-        .sub
-        .parse::<i32>()
-        .map_err(|_| declared_http_error(DeclaredApiError::InvalidUser))?;
-    let tapp = tapp_declared_api::resolve_declared_api_tapp(
-        &db,
-        user_id,
-        &tapp_id,
-        runtime_grant.owner_id(),
-    )
-    .await
-    .map_err(declared_http_error)?;
+    // The grant extractor already rebound this request to the live install.
+    let tapp = runtime_grant.installation();
 
     let manifest_cache_key = format!("{}:{}", tapp.user_id, tapp_id);
     let apis =

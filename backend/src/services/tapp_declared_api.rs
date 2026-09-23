@@ -38,9 +38,6 @@ const MAX_APIS_CACHE_ENTRIES: usize = 1024;
 /// Domain errors for declared-API catalog / install binding.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeclaredApiError {
-    Access(TappAccessError),
-    GrantScopeChanged,
-    InvalidUser,
     UnknownPermission { permission: String },
     ApiNotFound { api_name: String },
 }
@@ -48,14 +45,6 @@ pub enum DeclaredApiError {
 impl DeclaredApiError {
     pub fn code(&self) -> &'static str {
         match self {
-            Self::Access(err) => match err {
-                TappAccessError::Database => "DATABASE_ERROR",
-                TappAccessError::NoAdmin => "NO_ADMIN",
-                TappAccessError::AccessDenied { .. } => "ACCESS_DENIED",
-                TappAccessError::PermissionNotGranted { .. } => "TAPP_PERMISSION_NOT_GRANTED",
-            },
-            Self::GrantScopeChanged => "INVALID_RUNTIME_GRANT",
-            Self::InvalidUser => "INVALID_USER",
             Self::UnknownPermission { .. } => "UNKNOWN_TAPP_PERMISSION",
             Self::ApiNotFound { .. } => "API_NOT_FOUND",
         }
@@ -63,9 +52,6 @@ impl DeclaredApiError {
 
     pub fn message(&self) -> String {
         match self {
-            Self::Access(err) => err.message(),
-            Self::GrantScopeChanged => "Runtime grant installation scope changed".to_string(),
-            Self::InvalidUser => "Invalid user".to_string(),
             Self::UnknownPermission { permission } => {
                 match tapp_permission_replacement_hint(permission) {
                     Some(hint) => {
@@ -82,12 +68,6 @@ impl DeclaredApiError {
 
     pub fn status_hint(&self) -> u16 {
         match self {
-            Self::Access(err) => match err {
-                TappAccessError::Database | TappAccessError::NoAdmin => 500,
-                TappAccessError::AccessDenied { .. }
-                | TappAccessError::PermissionNotGranted { .. } => 403,
-            },
-            Self::GrantScopeChanged | Self::InvalidUser => 401,
             Self::UnknownPermission { .. } => 409,
             Self::ApiNotFound { .. } => 404,
         }
@@ -173,35 +153,6 @@ pub async fn get_tapp_apis(
 pub async fn invalidate_tapp_apis_cache(tapp_id: &str) {
     let mut cache = TAPP_APIS_CACHE.write().await;
     cache.retain(|_, entry| entry.tapp_id != tapp_id);
-}
-
-/// Resolve the install used for declared APIs, matching Runtime Grant issuance:
-/// private subject install first, then site-owner public install.
-/// When a Runtime Grant is present, require its owner_id to match so apis and
-/// approved_permissions come from the same install the grant was issued for.
-pub async fn resolve_declared_api_tapp(
-    db: &DatabaseConnection,
-    user_id: i32,
-    tapp_id: &str,
-    grant_owner_id: i32,
-) -> Result<tapps::Model, DeclaredApiError> {
-    let tapp = tapp_ownership::resolve_accessible_tapp(db, user_id, tapp_id)
-        .await
-        .map_err(DeclaredApiError::Access)?;
-    if tapp.user_id != grant_owner_id {
-        return Err(DeclaredApiError::GrantScopeChanged);
-    }
-    Ok(tapp)
-}
-
-/// Filter approved permissions to the granted set for this role + config.
-pub async fn filter_granted_permissions(
-    installed_permissions: Vec<String>,
-    role: UserRole,
-) -> Result<Vec<String>, DeclaredApiError> {
-    let config = GLOBAL_DYNAMIC_CONFIG.read().await;
-    TappPermissionService::filter_permissions_for_role(&config, role, &installed_permissions)
-        .map_err(DeclaredApiError::from)
 }
 
 /// Parse approved_permissions JSON array from a Tapp install row.
@@ -344,10 +295,6 @@ mod tests {
     #[test]
     fn error_codes_preserve_api_contract() {
         assert_eq!(
-            DeclaredApiError::GrantScopeChanged.code(),
-            "INVALID_RUNTIME_GRANT"
-        );
-        assert_eq!(
             DeclaredApiError::ApiNotFound {
                 api_name: "weather".into()
             }
@@ -361,7 +308,6 @@ mod tests {
             .message(),
             "API 'weather' not defined in manifest"
         );
-        assert_eq!(DeclaredApiError::GrantScopeChanged.status_hint(), 401);
         assert_eq!(
             DeclaredApiError::UnknownPermission {
                 permission: "legacy:unknown".into()

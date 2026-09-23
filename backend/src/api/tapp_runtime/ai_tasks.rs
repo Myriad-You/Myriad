@@ -155,9 +155,11 @@ pub async fn create_ai_task(
 
     let operation_permission = permission_for_operation(request.operation);
     runtime.require(operation_permission)?;
-    let user_id = parse_user_id(&claims)?;
-    let tapp = resolve_accessible_tapp(&db, user_id, runtime.tapp_id()).await?;
-    let declaration = parse_ai_manifest(&tapp.manifest).map_err(logic_api_error)?;
+    // The grant extractor already verified the subject and rebound this request
+    // to the live installation; reuse those facts instead of re-querying.
+    let user_id = runtime.subject_id();
+    let declaration =
+        parse_ai_manifest(&runtime.installation().manifest).map_err(logic_api_error)?;
     if declaration.protocol_version != 2 || !declaration.operations.contains(&request.operation) {
         return Err(api_error(
             StatusCode::FORBIDDEN,
@@ -249,7 +251,7 @@ pub async fn create_ai_task(
         ));
     }
 
-    let role = current_tapp_user_role(&db, &claims).await;
+    let role = runtime.role();
     let context_subject = AiContextSubject {
         subject_id: runtime.subject_id(),
         username: claims.username.clone(),
@@ -632,7 +634,6 @@ struct AiTaskFeed {
 /// GET /api/tapp/ai/v2/usage
 pub async fn ai_usage(
     State(db): State<DatabaseConnection>,
-    Extension(claims): Extension<Claims>,
     runtime: RuntimeGrantContext,
 ) -> Result<Json<Value>, ApiError> {
     if ![
@@ -651,7 +652,7 @@ pub async fn ai_usage(
             "Runtime Grant has no AI capability",
         ));
     }
-    let role = current_tapp_user_role(&db, &claims).await;
+    let role = runtime.role();
     let usage = get_ai_usage(
         &db,
         role,

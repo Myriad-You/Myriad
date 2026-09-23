@@ -48,9 +48,16 @@ struct StoredRuntimeGrant {
 }
 
 /// Validated runtime identity used by handlers after grant rebind.
+///
+/// `tapp` and `role` are the facts the rebind verified for *this* request (the
+/// live installation and the current role). They are never persisted: every
+/// request re-derives them, so handlers may borrow them instead of re-querying
+/// the same `(subject, tapp_id)` without extending authorization past the request.
 #[derive(Debug, Clone)]
 pub struct RuntimeGrant {
     stored: StoredRuntimeGrant,
+    tapp: crate::models::entities::tapps::Model,
+    role: UserRole,
 }
 
 impl RuntimeGrant {
@@ -72,6 +79,22 @@ impl RuntimeGrant {
 
     pub fn expires_at(&self) -> i64 {
         self.stored.expires_at
+    }
+
+    /// Installation rebound for this request (owner already checked against the grant).
+    pub fn installation(&self) -> &crate::models::entities::tapps::Model {
+        &self.tapp
+    }
+
+    /// Current role used to rebind this request's permissions.
+    pub fn role(&self) -> UserRole {
+        self.role
+    }
+
+    /// Granted permissions: the issued upper bound intersected with what the
+    /// current role/config/approval allow for this request.
+    pub fn granted_permissions(&self) -> &[String] {
+        &self.stored.permissions
     }
 
     pub fn has(&self, permission: TappPermission) -> bool {
@@ -306,8 +329,8 @@ pub async fn validate_runtime_grant(
             return Err(RuntimeGrantError::ScopeChanged);
         }
     };
-    let installed_permissions: Vec<String> =
-        serde_json::from_value(tapp.approved_permissions).unwrap_or_default();
+    let installed_permissions =
+        Vec::<String>::deserialize(&tapp.approved_permissions).unwrap_or_default();
     // Refuse the rebind while the install still needs re-authorization.
     refuse_if_needs_reauthorization(tapp.needs_reauthorization)?;
     let currently_allowed = {
@@ -330,7 +353,11 @@ pub async fn validate_runtime_grant(
         "[TAPP] Runtime Grant accepted"
     );
 
-    Ok(RuntimeGrant { stored: grant })
+    Ok(RuntimeGrant {
+        stored: grant,
+        tapp,
+        role,
+    })
 }
 
 /// Issue a new short-lived runtime grant for an already-authorized install.
