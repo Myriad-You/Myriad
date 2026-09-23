@@ -901,6 +901,9 @@ mod tests {
             schema.create_table_from_entity(phantasi_sources::Entity),
             schema.create_table_from_entity(phantasi_note_docs::Entity),
             schema.create_table_from_entity(phantasi_items::Entity),
+            // delete_note_with_doc clears media references before recounting.
+            schema.create_table_from_entity(crate::models::entities::media_assets::Entity),
+            schema.create_table_from_entity(crate::models::entities::media_references::Entity),
         ] {
             a.execute_unprepared(&statement.to_string(sea_orm::sea_query::PostgresQueryBuilder))
                 .await
@@ -952,6 +955,10 @@ mod tests {
         };
         let mut both_blocked = false;
         for _ in 0..500 {
+            // A delete that returns before the count lock can never be blocked.
+            if delete_a.is_finished() || delete_b.is_finished() {
+                break;
+            }
             let row = admin.query_one_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres,
                 "SELECT count(*) AS n FROM pg_stat_activity WHERE pid IN ($1, $2) AND wait_event_type = 'Lock'",
                 [pid_a.into(), pid_b.into()])).await.unwrap().unwrap();
@@ -1018,10 +1025,13 @@ mod tests {
             .await
             .unwrap();
         assert!(
+            deletion_results.0.is_ok() && deletion_results.1.is_ok(),
+            "concurrent deletes must succeed: {deletion_results:?}"
+        );
+        assert!(
             both_blocked,
             "both deletes must reach the controlled count-write interleaving"
         );
-        assert!(deletion_results.0.is_ok() && deletion_results.1.is_ok());
         assert_eq!(
             after_delete, 0,
             "concurrent deletes must count both committed removals"
