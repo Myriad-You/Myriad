@@ -1,12 +1,12 @@
 //! 把云端笔记文档落成公开 `phantasi_items`。草稿不走这里。
 //!
 //! 写 `phantasi_items` 和把文档标成已发布是一个事务：要么公开文章和文档状态一起落地，
-//! 要么什么都不变。调度器发定时稿之前先用 revision 「认领」一次，多实例同时到点
-//! 也只有一个能拿到。
+//! 要么什么都不变。调度器在每篇的发布事务里以 `FOR UPDATE SKIP LOCKED` 取下一篇到点稿件，
+//! 行锁就是认领：多实例同时到点也只有一个能拿到同一篇。
 
 use chrono::{TimeZone, Utc};
 use myriad_phantasi_notes::{
-    NoteDocStatus, is_due, note_guid, note_link, render_note, validate_note,
+    NoteDocStatus, note_guid, note_link, render_note, validate_note,
 };
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection,
@@ -286,43 +286,7 @@ pub async fn publish_doc(
         .begin()
         .await
         .map_err(|e| phantasi_store_http("begin note publish", e))?;
-    let outcome = async {
-        let author = crate::services::note_authors::note_author_line(&txn, doc.id).await?;
-        let item = write_published_item(
-            &txn,
-            doc.user_id,
-            doc.item_id,
-            &doc.title,
-            &doc.content_md,
-            doc.topic.clone(),
-            doc.image.clone(),
-            published_at_ms,
-            author,
-        )
-        .await?;
-        let saved = mark_doc_published(&txn, doc, &item, published_at_ms).await?;
-        crate::services::media::bind_note_draft(
-            &txn,
-            saved.id,
-            saved.revision - 1,
-            saved.image.as_deref(),
-            &saved.content_md,
-            &[],
-        )
-        .await
-        .map_err(media_bind_http)?;
-        crate::services::media::bind_note_published(
-            &txn,
-            item.id,
-            saved.image.as_deref(),
-            &saved.content_md,
-            &[],
-        )
-        .await
-        .map_err(media_bind_http)?;
-        Ok::<_, HttpError>((item, saved))
-    }
-    .await;
+    let outcome = publish_doc_on(&txn, doc, published_at_ms).await;
     match outcome {
         Ok(result) => {
             txn.commit()
@@ -336,6 +300,50 @@ pub async fn publish_doc(
             }
             Err(error)
         }
+    }
+}
+
+/// `publish_doc` 的事务内部分：调用方负责 begin/commit/rollback。
+async fn publish_doc_on<C: ConnectionTrait>(
+    txn: &C,
+    doc: phantasi_note_docs::Model,
+    published_at_ms: Option<i64>,
+) -> Result<(PublishedNote, phantasi_note_docs::Model), HttpError> {
+    {
+        let author = crate::services::note_authors::note_author_line(txn, doc.id).await?;
+        let item = write_published_item(
+            txn,
+            doc.user_id,
+            doc.item_id,
+            &doc.title,
+            &doc.content_md,
+            doc.topic.clone(),
+            doc.image.clone(),
+            published_at_ms,
+            author,
+        )
+        .await?;
+        let saved = mark_doc_published(txn, doc, &item, published_at_ms).await?;
+        crate::services::media::bind_note_draft(
+            txn,
+            saved.id,
+            saved.revision - 1,
+            saved.image.as_deref(),
+            &saved.content_md,
+            &[],
+        )
+        .await
+        .map_err(media_bind_http)?;
+        crate::services::media::bind_note_published(
+            txn,
+            item.id,
+            saved.image.as_deref(),
+            &saved.content_md,
+            &[],
+        )
+        .await
+        .map_err(media_bind_http)?;
+        Ok((item, saved))
     }
 }
 
@@ -474,100 +482,128 @@ pub async fn update_note_doc_topic(
     }
 }
 
-/// 认领一篇到点的定时稿：只在 status/revision 都没变时把 revision 推一格。
-/// 推不动说明别的实例（或用户）先动了它，这一轮跳过。
-async fn claim_due_doc(
-    db: &DatabaseConnection,
-    doc: &phantasi_note_docs::Model,
-) -> Result<Option<phantasi_note_docs::Model>, HttpError> {
-    let claimed_revision = doc.revision + 1;
-    let result = phantasi_note_docs::Entity::update_many()
-        .col_expr(
-            phantasi_note_docs::Column::Revision,
-            sea_orm::sea_query::Expr::value(claimed_revision),
-        )
-        .col_expr(
-            phantasi_note_docs::Column::UpdatedAt,
-            sea_orm::sea_query::Expr::value(Utc::now()),
-        )
-        .filter(phantasi_note_docs::Column::Id.eq(doc.id))
-        .filter(phantasi_note_docs::Column::Status.eq(NoteDocStatus::Scheduled.as_str()))
-        .filter(phantasi_note_docs::Column::Revision.eq(doc.revision))
-        .exec(db)
-        .await
-        .map_err(|e| phantasi_store_http("claim scheduled note", e))?;
-    if result.rows_affected == 0 {
-        return Ok(None);
+/// 单个 tick 最多发布的定时稿数；积压由后续 tick 继续消化，内存与耗时不随积压增长。
+const MAX_DUE_NOTES_PER_TICK: usize = 50;
+
+/// 在调用方事务里锁住下一篇到点稿件。`SKIP LOCKED` 让并发调度器自动分工，
+/// `(scheduled_at, id)` 游标保证同一 tick 不会重复取到刚回滚的那一篇。
+async fn lock_next_due_doc<C: ConnectionTrait>(
+    txn: &C,
+    cutoff: chrono::DateTime<Utc>,
+    after: Option<(sea_orm::prelude::DateTimeWithTimeZone, i32)>,
+) -> Result<Option<phantasi_note_docs::Model>, sea_orm::DbErr> {
+    let mut values: Vec<SeaValue> = vec![NoteDocStatus::Scheduled.as_str().into(), cutoff.into()];
+    let mut cursor = "";
+    if let Some((scheduled_at, id)) = after {
+        values.extend([scheduled_at.into(), id.into()]);
+        cursor = " AND (scheduled_at, id) > ($3, $4)";
     }
-    let mut claimed = doc.clone();
-    claimed.revision = claimed_revision;
-    Ok(Some(claimed))
+    phantasi_note_docs::Entity::find()
+        .from_raw_sql(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            format!(
+                "SELECT * FROM phantasi_note_docs \
+                 WHERE status = $1 AND scheduled_at <= $2{cursor} \
+                 ORDER BY scheduled_at, id LIMIT 1 FOR UPDATE SKIP LOCKED"
+            ),
+            values,
+        ))
+        .one(txn)
+        .await
 }
 
 /// 调度器：把到点的定时稿写成公开文章。
+///
+/// 每篇一个短事务：锁住该篇 → 在 savepoint 内发布 → 提交。确定的 4xx（内容无效）在同一
+/// 已锁事务里退回草稿并记下 last_error，避免下一轮无限重试；409/5xx 整体回滚，稿件保持
+/// scheduled 供后续 tick 重试。
 pub async fn publish_due_note_docs(db: &DatabaseConnection) -> Result<usize, String> {
-    let now = Utc::now();
-    let rows = phantasi_note_docs::Entity::find()
-        .filter(phantasi_note_docs::Column::Status.eq(NoteDocStatus::Scheduled.as_str()))
-        .filter(phantasi_note_docs::Column::ScheduledAt.lte(now))
-        .all(db)
-        .await
-        .map_err(|e| format!("list due note docs: {e}"))?;
-
+    let cutoff = Utc::now();
+    let mut after = None;
     let mut published = 0;
-    for doc in rows {
-        let scheduled_ms = doc.scheduled_at.map(datetime_to_millis);
-        if !is_due(
-            NoteDocStatus::parse(&doc.status).unwrap_or(NoteDocStatus::Draft),
-            scheduled_ms,
-            now.timestamp_millis(),
-        ) {
-            continue;
-        }
-        let doc = match claim_due_doc(db, &doc).await {
-            Ok(Some(claimed)) => claimed,
-            Ok(None) => continue,
+    for _ in 0..MAX_DUE_NOTES_PER_TICK {
+        let txn = db
+            .begin()
+            .await
+            .map_err(|e| format!("begin scheduled note publish: {e}"))?;
+        let doc = match lock_next_due_doc(&txn, cutoff, after).await {
+            Ok(Some(doc)) => doc,
+            Ok(None) => {
+                let _ = txn.rollback().await;
+                break;
+            }
             Err(error) => {
-                tracing::error!(error = ?error, doc_id = doc.id, "failed to claim scheduled note");
-                continue;
+                let _ = txn.rollback().await;
+                return Err(format!("lock due note doc: {error}"));
             }
         };
+        let (doc_id, revision) = (doc.id, doc.revision);
+        let scheduled_ms = doc.scheduled_at.map(datetime_to_millis);
+        after = doc.scheduled_at.map(|scheduled_at| (scheduled_at, doc_id));
         let published_at = scheduled_ms.or(doc.published_at.map(datetime_to_millis));
-        let doc_id = doc.id;
-        match publish_doc(db, doc.clone(), published_at).await {
-            Ok(_) => published += 1,
+
+        let savepoint = match txn.begin().await {
+            Ok(savepoint) => savepoint,
+            Err(error) => {
+                let _ = txn.rollback().await;
+                return Err(format!("savepoint scheduled note publish: {error}"));
+            }
+        };
+        let outcome = publish_doc_on(&savepoint, doc, published_at).await;
+        let committed = match outcome {
+            Ok(_) => match savepoint.commit().await {
+                Ok(()) => txn.commit().await.map(|()| true),
+                Err(error) => Err(error),
+            },
             Err(error) => {
                 tracing::error!(error = ?error, doc_id, "failed to publish scheduled note");
-                // 409 是发布权已转移，不再写；其它 4xx 仅能退回仍由本次认领的稿件。
+                let _ = savepoint.rollback().await;
+                // 409 是发布权已转移，不再写；其它 4xx 在仍持有行锁的事务里退回草稿。
                 // 5xx 保持 scheduled 下一轮再试。
                 if error.0.status().is_client_error() && error.0.status() != StatusCode::CONFLICT {
-                    if let Err(revert) = revert_due_doc(db, doc, error.0.error_label()).await {
-                        tracing::error!(error = ?revert, "failed to revert scheduled note");
+                    match revert_due_doc(&txn, doc_id, revision, error.0.error_label()).await {
+                        Ok(()) => txn.commit().await.map(|()| false),
+                        Err(revert) => {
+                            tracing::error!(error = ?revert, "failed to revert scheduled note");
+                            let _ = txn.rollback().await;
+                            Ok(false)
+                        }
                     }
+                } else {
+                    let _ = txn.rollback().await;
+                    Ok(false)
                 }
+            }
+        };
+        match committed {
+            Ok(true) => published += 1,
+            Ok(false) => {}
+            Err(error) => {
+                tracing::error!(error = %error, doc_id, "failed to commit scheduled note");
             }
         }
     }
     Ok(published)
 }
 
-async fn revert_due_doc(
-    db: &DatabaseConnection,
-    doc: phantasi_note_docs::Model,
+async fn revert_due_doc<C: ConnectionTrait>(
+    db: &C,
+    doc_id: i32,
+    revision: i64,
     label: &str,
 ) -> Result<(), HttpError> {
     let mut active = <phantasi_note_docs::ActiveModel as Default>::default();
     active.status = Set(NoteDocStatus::Draft.as_str().to_string());
     active.last_error = Set(Some(label.to_string()));
     active.updated_at = Set(Utc::now().into());
-    active.revision = Set(doc.revision + 1);
+    active.revision = Set(revision + 1);
     // A user edit, reschedule, or another publisher invalidates this worker's ownership.
     // Zero rows means the current owner decides the state; never undo their work.
     phantasi_note_docs::Entity::update_many()
         .set(active)
-        .filter(phantasi_note_docs::Column::Id.eq(doc.id))
+        .filter(phantasi_note_docs::Column::Id.eq(doc_id))
         .filter(phantasi_note_docs::Column::Status.eq(NoteDocStatus::Scheduled.as_str()))
-        .filter(phantasi_note_docs::Column::Revision.eq(doc.revision))
+        .filter(phantasi_note_docs::Column::Revision.eq(revision))
         .exec(db)
         .await
         .map_err(|e| phantasi_store_http("revert scheduled note", e))?;
@@ -857,7 +893,7 @@ mod tests {
             changed.status = Set(status.into());
             changed.revision = Set(revision);
             let newer = changed.update(&db).await.unwrap();
-            revert_due_doc(&db, claimed, "stale publication")
+            revert_due_doc(&db, claimed.id, claimed.revision, "stale publication")
                 .await
                 .unwrap();
             let saved = phantasi_note_docs::Entity::find_by_id(newer.id)
@@ -1249,7 +1285,7 @@ mod tests {
             return;
         };
         let claimed = insert_test_doc(&db).await;
-        revert_due_doc(&db, claimed.clone(), "invalid note")
+        revert_due_doc(&db, claimed.id, claimed.revision, "invalid note")
             .await
             .unwrap();
         let saved = phantasi_note_docs::Entity::find_by_id(claimed.id)
@@ -1345,34 +1381,81 @@ mod tests {
     }
 
     #[test]
-    fn due_publish_claims_then_publishes_and_reverts_client_failures() {
+    fn due_publish_locks_then_publishes_and_reverts_client_failures() {
         let src = include_str!("note_publish.rs");
         let due = body_of(src, "pub async fn publish_due_note_docs");
+        assert!(due.contains("MAX_DUE_NOTES_PER_TICK"), "a tick must be bounded");
         assert!(
-            due.contains("claim_due_doc"),
-            "must claim before publishing"
+            due.contains("lock_next_due_doc"),
+            "must lock the doc before publishing"
         );
         assert!(
-            due.contains("publish_doc("),
+            due.contains("publish_doc_on("),
             "must go through the transactional path"
         );
         assert!(due.contains("is_client_error"));
         assert!(due.contains("revert_due_doc"));
+        let lock = body_of(src, "async fn lock_next_due_doc");
+        assert!(lock.contains("FOR UPDATE SKIP LOCKED"));
+        assert!(lock.contains("LIMIT 1"));
         let revert = body_of(src, "async fn revert_due_doc");
         assert!(
             revert.contains("NoteDocStatus::Draft"),
             "4xx must put the doc back to draft"
         );
         assert!(revert.contains("last_error"));
+        assert!(revert.contains("Column::Status.eq(NoteDocStatus::Scheduled"));
+        assert!(revert.contains("Column::Revision.eq(revision)"));
     }
 
-    #[test]
-    fn claim_is_conditional_on_status_and_revision() {
-        let src = include_str!("note_publish.rs");
-        let claim = body_of(src, "async fn claim_due_doc");
-        assert!(claim.contains("Column::Status.eq(NoteDocStatus::Scheduled"));
-        assert!(claim.contains("Column::Revision.eq(doc.revision)"));
-        assert!(claim.contains("rows_affected == 0"));
+    #[tokio::test]
+    async fn due_tick_publishes_due_docs_and_reverts_invalid_ones() {
+        let Some(db) = isolated_note_db().await else {
+            return;
+        };
+        db.execute_unprepared(
+            "CREATE TEMP TABLE phantasi_note_authors (
+                doc_id integer, user_id integer, role text, created_at timestamptz
+            );
+            CREATE TEMP TABLE users (id integer, username text, display_name text);
+            ALTER TABLE phantasi_items ALTER COLUMN content_revision SET DEFAULT 1;",
+        )
+        .await
+        .unwrap();
+        let now = Utc::now();
+        let due = insert_test_doc(&db).await;
+        let invalid = insert_test_doc(&db).await;
+        let mut empty_title: phantasi_note_docs::ActiveModel = invalid.clone().into();
+        empty_title.title = Set("   ".into());
+        let invalid = empty_title.update(&db).await.unwrap();
+        let future = insert_test_doc(&db).await;
+        let mut later: phantasi_note_docs::ActiveModel = future.clone().into();
+        later.scheduled_at = Set(Some((now + chrono::Duration::hours(1)).into()));
+        let future = later.update(&db).await.unwrap();
+
+        assert_eq!(publish_due_note_docs(&db).await.unwrap(), 1);
+        let load = |id: i32| {
+            let db = &db;
+            async move {
+                phantasi_note_docs::Entity::find_by_id(id)
+                    .one(db)
+                    .await
+                    .unwrap()
+                    .unwrap()
+            }
+        };
+        let published = load(due.id).await;
+        assert_eq!(published.status, "published");
+        assert!(published.item_id.is_some());
+        let reverted = load(invalid.id).await;
+        assert_eq!(reverted.status, "draft");
+        assert!(reverted.last_error.is_some());
+        assert_eq!(reverted.revision, invalid.revision + 1);
+        assert_eq!(load(future.id).await, future);
+        assert_eq!(phantasi_items::Entity::find().count(&db).await.unwrap(), 1);
+
+        // Nothing is due any more: a second tick is a no-op.
+        assert_eq!(publish_due_note_docs(&db).await.unwrap(), 0);
     }
 
     #[test]
