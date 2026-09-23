@@ -292,9 +292,10 @@ impl TappApiService {
         }
 
         // 2. 检查缓存
-        let cache_key = Self::generate_cache_key(tapp_id, api_name, api_def, &params, context);
-        if api_def.cache_ttl > 0 {
-            if let Some(cached) = Self::get_cached(&cache_key).await {
+        let cache_key = (api_def.cache_ttl > 0)
+            .then(|| Self::generate_cache_key(tapp_id, api_name, api_def, &params, context));
+        if let Some(cache_key) = &cache_key {
+            if let Some(cached) = Self::get_cached(cache_key).await {
                 return ApiExecutionResult {
                     success: true,
                     data: Some(cached),
@@ -344,8 +345,8 @@ impl TappApiService {
         match result {
             Ok(data) => {
                 // 缓存结果
-                if api_def.cache_ttl > 0 {
-                    Self::set_cached(&cache_key, &data, api_def.cache_ttl).await;
+                if let Some(cache_key) = &cache_key {
+                    Self::set_cached(cache_key, &data, api_def.cache_ttl).await;
                 }
 
                 ApiExecutionResult {

@@ -407,11 +407,14 @@ pub async fn publish_event(
         return Err(EventError::TopicNotDeclared);
     }
 
-    let hash = request_hash(&request)?;
-    let dedupe_scope = request
-        .dedupe_key
-        .as_ref()
-        .map(|key| dedupe_record_id(&runtime.runtime_id, key));
+    // The request hash only guards dedupe-key reuse, so skip it without a key.
+    let dedupe = match request.dedupe_key.as_deref() {
+        Some(key) => Some((
+            dedupe_record_id(&runtime.runtime_id, key),
+            request_hash(&request)?,
+        )),
+        None => None,
+    };
     let event = TappEventEnvelope {
         version: 2,
         event_id: format!("evt_{}", Uuid::new_v4().simple()),
@@ -426,7 +429,7 @@ pub async fn publish_event(
         dedupe_key: request.dedupe_key,
     };
 
-    let delivered = if let Some(dedupe_scope) = dedupe_scope {
+    let delivered = if let Some((dedupe_scope, hash)) = dedupe {
         // Serialize one runtime/dedupe key across every backend replica. The
         // mailbox writes and dedupe record commit together, so a retry cannot
         // observe a half-published event.
