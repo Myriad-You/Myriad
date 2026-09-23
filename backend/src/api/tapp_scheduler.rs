@@ -139,6 +139,47 @@ pub struct TaskResponse {
     pub created_at: String,
 }
 
+/// `{success, task}` 单任务响应；直接序列化，不先物化成 JSON Value。
+#[derive(Debug, Serialize)]
+pub struct TaskEnvelope {
+    pub success: bool,
+    pub task: TaskResponse,
+}
+
+impl TaskEnvelope {
+    fn new(task: crate::models::entities::tapp_scheduled_tasks::Model) -> Self {
+        Self {
+            success: true,
+            task: task_to_response(task),
+        }
+    }
+}
+
+/// `{success, tapp_id?, tasks, total}` 列表响应；普通列表不输出 `tapp_id`。
+#[derive(Debug, Serialize)]
+pub struct TaskListEnvelope {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tapp_id: Option<String>,
+    pub tasks: Vec<TaskResponse>,
+    pub total: usize,
+}
+
+impl TaskListEnvelope {
+    fn new(
+        tapp_id: Option<String>,
+        tasks: Vec<crate::models::entities::tapp_scheduled_tasks::Model>,
+    ) -> Self {
+        let tasks: Vec<TaskResponse> = tasks.into_iter().map(task_to_response).collect();
+        Self {
+            success: true,
+            tapp_id,
+            total: tasks.len(),
+            tasks,
+        }
+    }
+}
+
 // 辅助函数
 
 fn parse_schedule_type(s: &str) -> Result<ScheduleType, HttpError> {
@@ -289,7 +330,7 @@ pub async fn register_task(
     Extension(claims): Extension<Claims>,
     runtime_grant: RuntimeGrantContext,
     Json(req): Json<RegisterTaskRequest>,
-) -> Result<Json<Value>, HttpError> {
+) -> Result<Json<TaskEnvelope>, HttpError> {
     runtime_grant.require_tapp_id(&req.tapp_id)?;
     runtime_grant.require(TappPermission::SchedulerRegister)?;
     let user_id = parse_user_id(&claims)?;
@@ -372,10 +413,7 @@ pub async fn register_task(
             )
         })?;
 
-    Ok(Json(json!({
-        "success": true,
-        "task": task_to_response(task),
-    })))
+    Ok(Json(TaskEnvelope::new(task)))
 }
 
 /// 删除定时任务
@@ -413,7 +451,7 @@ pub async fn list_tasks(
     State(_db): State<DatabaseConnection>,
     Extension(claims): Extension<Claims>,
     Query(query): Query<ListTasksQuery>,
-) -> Result<Json<Value>, HttpError> {
+) -> Result<Json<TaskListEnvelope>, HttpError> {
     let user_id = parse_user_id(&claims)?;
     let scheduler = get_scheduler()?;
 
@@ -427,13 +465,7 @@ pub async fn list_tasks(
             )
         })?;
 
-    let task_responses: Vec<TaskResponse> = tasks.into_iter().map(task_to_response).collect();
-
-    Ok(Json(json!({
-        "success": true,
-        "tasks": task_responses,
-        "total": task_responses.len(),
-    })))
+    Ok(Json(TaskListEnvelope::new(None, tasks)))
 }
 
 /// 获取 Tapp 的任务列表
@@ -443,7 +475,7 @@ pub async fn list_tapp_tasks(
     Extension(claims): Extension<Claims>,
     runtime_grant: RuntimeGrantContext,
     Path(tapp_id): Path<String>,
-) -> Result<Json<Value>, HttpError> {
+) -> Result<Json<TaskListEnvelope>, HttpError> {
     runtime_grant.require_tapp_id(&tapp_id)?;
     runtime_grant.require(TappPermission::SchedulerRegister)?;
     let user_id = parse_user_id(&claims)?;
@@ -459,14 +491,7 @@ pub async fn list_tapp_tasks(
             )
         })?;
 
-    let task_responses: Vec<TaskResponse> = tasks.into_iter().map(task_to_response).collect();
-
-    Ok(Json(json!({
-        "success": true,
-        "tapp_id": tapp_id,
-        "tasks": task_responses,
-        "total": task_responses.len(),
-    })))
+    Ok(Json(TaskListEnvelope::new(Some(tapp_id), tasks)))
 }
 
 /// 获取单个任务
@@ -476,7 +501,7 @@ pub async fn get_task(
     Extension(claims): Extension<Claims>,
     runtime_grant: RuntimeGrantContext,
     Path((tapp_id, task_id)): Path<(String, String)>,
-) -> Result<Json<Value>, HttpError> {
+) -> Result<Json<TaskEnvelope>, HttpError> {
     runtime_grant.require_tapp_id(&tapp_id)?;
     runtime_grant.require(TappPermission::SchedulerRegister)?;
     let user_id = parse_user_id(&claims)?;
@@ -498,10 +523,7 @@ pub async fn get_task(
             )
         })?;
 
-    Ok(Json(json!({
-        "success": true,
-        "task": task_to_response(task),
-    })))
+    Ok(Json(TaskEnvelope::new(task)))
 }
 
 /// 启用任务
@@ -782,6 +804,20 @@ mod tests {
         assert_eq!(actions[0]["action"], "storage.set");
         assert!(actions[0].get("type").is_none());
         assert_eq!(actions[1]["action"], "transform");
+    }
+
+    #[test]
+    fn task_list_envelope_keeps_wire_shape() {
+        let plain = serde_json::to_value(TaskListEnvelope::new(None, Vec::new())).unwrap();
+        assert_eq!(plain, json!({"success": true, "tasks": [], "total": 0}));
+
+        let scoped =
+            serde_json::to_value(TaskListEnvelope::new(Some("com.example".into()), Vec::new()))
+                .unwrap();
+        assert_eq!(
+            scoped,
+            json!({"success": true, "tapp_id": "com.example", "tasks": [], "total": 0})
+        );
     }
 
     #[test]
