@@ -194,31 +194,87 @@ async fn resolve_object_author(db: &DatabaseConnection, object_id: &str) -> Opti
 
 // Counts / state
 
+/// One statement for all interaction counts of a batch of objects.
+///
+/// Each CTE aggregates in the database and yields small `(object_id, kind,
+/// cnt, me)` rows: local interactions (COUNT / BOOL_OR for the caller), remote
+/// Like + Announce in one grouped scan, and replies (quote-reposts excluded).
+/// Remote targets come from the stored `object_json`, which is the activity's
+/// `object` (a string IRI, or an object / Create envelope carrying the id) —
+/// never the activity's own id.
+const INTERACTION_STATS_SQL: &str = r#"
+WITH local_interactions AS (
+    SELECT object_id, kind, COUNT(*)::BIGINT AS cnt, BOOL_OR(user_id = $2) AS me
+    FROM federation_object_interactions
+    WHERE object_id = ANY($1) AND kind IN ('like', 'bookmark', 'announce')
+    GROUP BY object_id, kind
+),
+remote_reactions AS (
+    SELECT target.object_id,
+           CASE a.activity_type WHEN 'Like' THEN 'like' ELSE 'announce' END AS kind,
+           COUNT(*)::BIGINT AS cnt,
+           false AS me
+    FROM federation_activities a
+    CROSS JOIN LATERAL (
+        SELECT CASE
+                 WHEN jsonb_typeof(a.object_json::jsonb) = 'string'
+                   THEN a.object_json::jsonb #>> '{}'
+                 ELSE COALESCE(
+                   a.object_json::jsonb ->> 'id',
+                   a.object_json::jsonb #>> '{object,id}'
+                 )
+               END AS object_id
+    ) target
+    WHERE a.activity_type IN ('Like', 'Announce')
+      AND a.is_local = false
+      AND target.object_id = ANY($1)
+    GROUP BY target.object_id, a.activity_type
+),
+replies AS (
+    SELECT parent.object_id, 'reply' AS kind, COUNT(*)::BIGINT AS cnt, false AS me
+    FROM federation_activities a
+    CROSS JOIN LATERAL (
+        SELECT COALESCE(
+                 a.object_json::jsonb #>> '{object,inReplyTo}',
+                 a.object_json::jsonb ->> 'inReplyTo'
+               ) AS object_id
+    ) parent
+    WHERE a.activity_type = 'Create'
+      AND COALESCE(a.object_json::jsonb #>> '{object,mfp:kind}', '') <> 'repost'
+      AND COALESCE(a.object_json::jsonb ->> 'mfp:kind', '') <> 'repost'
+      AND parent.object_id = ANY($1)
+    GROUP BY parent.object_id
+)
+SELECT object_id, kind, cnt, me FROM local_interactions
+UNION ALL
+SELECT object_id, kind, cnt, me FROM remote_reactions
+UNION ALL
+SELECT object_id, kind, cnt, me FROM replies
+"#;
+
 /// Batch interaction stats for a list of object ids (for timeline enrichment).
+///
+/// Objects without any interaction keep all-zero stats; an execution or
+/// required-column decode failure is an error, never a zero.
 pub async fn interaction_stats_for_objects(
-    db: &DatabaseConnection,
+    db: &impl ConnectionTrait,
     user_id: i32,
     object_ids: &[String],
 ) -> Result<std::collections::HashMap<String, InteractionStats>, String> {
     use std::collections::HashMap;
-    let mut map: HashMap<String, InteractionStats> = HashMap::new();
+    let mut map: HashMap<String, InteractionStats> = object_ids
+        .iter()
+        .map(|oid| (oid.clone(), InteractionStats::default()))
+        .collect();
     if object_ids.is_empty() {
         return Ok(map);
     }
 
-    // Initialize zeros
-    for oid in object_ids {
-        map.insert(oid.clone(), InteractionStats::default());
-    }
-
-    // Local interactions (counts + me flags)
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            r#"SELECT object_id, kind, user_id
-               FROM federation_object_interactions
-               WHERE object_id = ANY($1)"#,
-            [object_ids.to_vec().into()],
+            INTERACTION_STATS_SQL,
+            [object_ids.to_vec().into(), user_id.into()],
         ))
         .await
         .map_err(|e| {
@@ -226,148 +282,33 @@ pub async fn interaction_stats_for_objects(
             "Database error".to_string()
         })?;
 
+    let decode = |e: sea_orm::DbErr| {
+        tracing::error!("interaction stats decode error: {}", e);
+        "Database error".to_string()
+    };
     for r in rows {
-        let oid: String = r.try_get("", "object_id").unwrap_or_default();
-        let kind: String = r.try_get("", "kind").unwrap_or_default();
-        let uid: i32 = r.try_get("", "user_id").unwrap_or(0);
+        let oid: String = r.try_get("", "object_id").map_err(decode)?;
+        let kind: String = r.try_get("", "kind").map_err(decode)?;
+        let cnt: i64 = r.try_get("", "cnt").map_err(decode)?;
+        let me: bool = r.try_get("", "me").map_err(decode)?;
         let Some(stats) = map.get_mut(&oid) else {
             continue;
         };
         match kind.as_str() {
             "like" => {
-                stats.like_count += 1;
-                if uid == user_id {
-                    stats.liked_by_me = true;
-                }
+                stats.like_count += cnt;
+                stats.liked_by_me |= me;
             }
             "bookmark" => {
-                stats.bookmark_count += 1;
-                if uid == user_id {
-                    stats.bookmarked_by_me = true;
-                }
+                stats.bookmark_count += cnt;
+                stats.bookmarked_by_me |= me;
             }
             "announce" => {
-                stats.announce_count += 1;
-                if uid == user_id {
-                    stats.announced_by_me = true;
-                }
+                stats.announce_count += cnt;
+                stats.announced_by_me |= me;
             }
+            "reply" => stats.reply_count += cnt,
             _ => {}
-        }
-    }
-
-    // Remote likes (is_local = false) — avoid double-counting local interactions
-    let remote_likes = db
-        .query_all_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"SELECT
-                 CASE
-                   WHEN jsonb_typeof(object_json::jsonb) = 'string'
-                     THEN trim(both '"' from object_json::text)
-                   ELSE COALESCE(
-                     object_json::jsonb ->> 'id',
-                     object_json::jsonb #>> '{object,id}'
-                   )
-                 END AS object_id,
-                 COUNT(*)::bigint AS cnt
-               FROM federation_activities
-               WHERE activity_type = 'Like'
-                 AND is_local = false
-                 AND (
-                   (jsonb_typeof(object_json::jsonb) = 'string'
-                      AND trim(both '"' from object_json::text) = ANY($1))
-                   OR (object_json::jsonb ->> 'id' = ANY($1))
-                   OR (object_json::jsonb #>> '{object,id}' = ANY($1))
-                 )
-               GROUP BY 1"#,
-            [object_ids.to_vec().into()],
-        ))
-        .await
-        .map_err(|e| {
-            tracing::error!("DB error: {}", e);
-            "Database error".to_string()
-        })?;
-
-    for r in remote_likes {
-        let oid: String = r.try_get("", "object_id").unwrap_or_default();
-        let cnt: i64 = r.try_get("", "cnt").unwrap_or(0);
-        if let Some(stats) = map.get_mut(&oid) {
-            stats.like_count += cnt;
-        }
-    }
-
-    // Remote announces
-    let remote_ann = db
-        .query_all_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"SELECT
-                 CASE
-                   WHEN jsonb_typeof(object_json::jsonb) = 'string'
-                     THEN trim(both '"' from object_json::text)
-                   ELSE COALESCE(
-                     object_json::jsonb ->> 'id',
-                     object_json::jsonb #>> '{object,id}'
-                   )
-                 END AS object_id,
-                 COUNT(*)::bigint AS cnt
-               FROM federation_activities
-               WHERE activity_type = 'Announce'
-                 AND is_local = false
-                 AND (
-                   (jsonb_typeof(object_json::jsonb) = 'string'
-                      AND trim(both '"' from object_json::text) = ANY($1))
-                   OR (object_json::jsonb ->> 'id' = ANY($1))
-                   OR (object_json::jsonb #>> '{object,id}' = ANY($1))
-                 )
-               GROUP BY 1"#,
-            [object_ids.to_vec().into()],
-        ))
-        .await
-        .map_err(|e| {
-            tracing::error!("DB error: {}", e);
-            "Database error".to_string()
-        })?;
-
-    for r in remote_ann {
-        let oid: String = r.try_get("", "object_id").unwrap_or_default();
-        let cnt: i64 = r.try_get("", "cnt").unwrap_or(0);
-        if let Some(stats) = map.get_mut(&oid) {
-            stats.announce_count += cnt;
-        }
-    }
-
-    // Reply counts (Create with inReplyTo). Exclude quote-reposts (mfp:kind=repost).
-    let replies = db
-        .query_all_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"SELECT
-                 COALESCE(
-                   object_json::jsonb #>> '{object,inReplyTo}',
-                   object_json::jsonb ->> 'inReplyTo'
-                 ) AS parent_id,
-                 COUNT(*)::bigint AS cnt
-               FROM federation_activities
-               WHERE activity_type = 'Create'
-                 AND COALESCE(object_json::jsonb #>> '{object,mfp:kind}', '') <> 'repost'
-                 AND COALESCE(object_json::jsonb ->> 'mfp:kind', '') <> 'repost'
-                 AND (
-                   object_json::jsonb #>> '{object,inReplyTo}' = ANY($1)
-                   OR object_json::jsonb ->> 'inReplyTo' = ANY($1)
-                 )
-               GROUP BY 1"#,
-            [object_ids.to_vec().into()],
-        ))
-        .await
-        .map_err(|e| {
-            tracing::error!("DB error: {}", e);
-            "Database error".to_string()
-        })?;
-
-    for r in replies {
-        let oid: String = r.try_get("", "parent_id").unwrap_or_default();
-        let cnt: i64 = r.try_get("", "cnt").unwrap_or(0);
-        if let Some(stats) = map.get_mut(&oid) {
-            stats.reply_count += cnt;
         }
     }
 
@@ -651,17 +592,20 @@ pub async fn list_bookmarks(
             DatabaseBackend::Postgres,
             // content_json columns are `json`; activity object_json extracts are `jsonb`.
             // COALESCE requires matching types — cast the timeline branch to jsonb.
-            r#"SELECT i.object_id, i.created_at,
+            // One LATERAL read of the caller's latest timeline row per bookmark
+            // (received_at DESC, id DESC: every column from the same row). The
+            // Create fallback runs only when that row has no content; json
+            // timeline content is cast to jsonb to match it.
+            r#"WITH bookmarks AS (
+                   SELECT object_id, created_at, user_id
+                   FROM federation_object_interactions
+                   WHERE user_id = $1 AND kind = 'bookmark'
+                   ORDER BY created_at DESC
+                   LIMIT 100
+               )
+               SELECT b.object_id, b.created_at,
                       COALESCE(
-                        (
-                          SELECT t.content_json::jsonb FROM federation_timeline t
-                          WHERE t.user_id = i.user_id
-                            AND (
-                              t.content_json->>'id' = i.object_id
-                              OR t.content_json #>> '{object,id}' = i.object_id
-                            )
-                          ORDER BY t.received_at DESC LIMIT 1
-                        ),
+                        t.content_json::jsonb,
                         (
                           SELECT CASE
                                    WHEN a.object_json::jsonb ? 'object'
@@ -672,52 +616,27 @@ pub async fn list_bookmarks(
                           FROM federation_activities a
                           WHERE a.activity_type = 'Create'
                             AND (
-                              a.object_json #>> '{object,id}' = i.object_id
-                              OR a.object_json ->> 'id' = i.object_id
+                              a.object_json #>> '{object,id}' = b.object_id
+                              OR a.object_json ->> 'id' = b.object_id
                             )
                           ORDER BY a.published_at DESC NULLS LAST LIMIT 1
                         )
                       ) AS content_json,
-                      (
-                        SELECT t.activity_id FROM federation_timeline t
-                        WHERE t.user_id = i.user_id
-                          AND (
-                            t.content_json->>'id' = i.object_id
-                            OR t.content_json #>> '{object,id}' = i.object_id
-                          )
-                        ORDER BY t.received_at DESC LIMIT 1
-                      ) AS activity_id,
-                      (
-                        SELECT t.activity_type FROM federation_timeline t
-                        WHERE t.user_id = i.user_id
-                          AND (
-                            t.content_json->>'id' = i.object_id
-                            OR t.content_json #>> '{object,id}' = i.object_id
-                          )
-                        ORDER BY t.received_at DESC LIMIT 1
-                      ) AS activity_type,
-                      (
-                        SELECT t.object_type FROM federation_timeline t
-                        WHERE t.user_id = i.user_id
-                          AND (
-                            t.content_json->>'id' = i.object_id
-                            OR t.content_json #>> '{object,id}' = i.object_id
-                          )
-                        ORDER BY t.received_at DESC LIMIT 1
-                      ) AS object_type,
-                      (
-                        SELECT t.content_preview FROM federation_timeline t
-                        WHERE t.user_id = i.user_id
-                          AND (
-                            t.content_json->>'id' = i.object_id
-                            OR t.content_json #>> '{object,id}' = i.object_id
-                          )
-                        ORDER BY t.received_at DESC LIMIT 1
-                      ) AS content_preview
-               FROM federation_object_interactions i
-               WHERE i.user_id = $1 AND i.kind = 'bookmark'
-               ORDER BY i.created_at DESC
-               LIMIT 100"#,
+                      t.activity_id, t.activity_type, t.object_type, t.content_preview
+               FROM bookmarks b
+               LEFT JOIN LATERAL (
+                   SELECT tl.content_json, tl.activity_id, tl.activity_type,
+                          tl.object_type, tl.content_preview
+                   FROM federation_timeline tl
+                   WHERE tl.user_id = b.user_id
+                     AND (
+                       tl.content_json->>'id' = b.object_id
+                       OR tl.content_json #>> '{object,id}' = b.object_id
+                     )
+                   ORDER BY tl.received_at DESC, tl.id DESC
+                   LIMIT 1
+               ) t ON true
+               ORDER BY b.created_at DESC"#,
             [user_id.into()],
         ))
         .await
@@ -726,7 +645,7 @@ pub async fn list_bookmarks(
     let mut items = Vec::new();
     let mut object_ids = Vec::new();
     for r in &rows {
-        let object_id: String = r.try_get("", "object_id").unwrap_or_default();
+        let object_id: String = r.try_get("", "object_id").map_err(db_err)?;
         object_ids.push(object_id.clone());
         let created_at = r
             .try_get::<chrono::DateTime<chrono::FixedOffset>>("", "created_at")
@@ -1705,6 +1624,86 @@ pub async fn get_object(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Single-statement stats and the LATERAL bookmark list against a real
+    /// schema: aggregated local rows, remote Like/Announce by stored target,
+    /// replies without quote-reposts, real zeros, and a bookmark row whose
+    /// fields all come from the same (latest, tie-broken) timeline row.
+    #[tokio::test]
+    async fn batch_stats_and_bookmark_list_against_real_schema() {
+        let Some(fixture) = crate::federation::test_db::SchemaDb::new().await else {
+            return;
+        };
+        let db = &fixture.db;
+        let target = "https://remote.example/notes/1";
+        let quiet = "https://remote.example/notes/quiet";
+        db.execute_unprepared(&format!(
+            r#"
+            INSERT INTO users (id, username) VALUES (1, 'alice'), (2, 'bob'), (3, 'carol');
+            INSERT INTO federation_object_interactions (user_id, object_id, kind, created_at) VALUES
+                (1, '{target}', 'like', NOW()), (2, '{target}', 'like', NOW()),
+                (3, '{target}', 'like', NOW()), (2, '{target}', 'bookmark', NOW()),
+                (1, '{target}', 'bookmark', NOW() - INTERVAL '1 hour');
+            INSERT INTO federation_activities (activity_id, activity_type, object_json, is_local, published_at) VALUES
+                ('https://r/likes/1', 'Like', '"{target}"', false, NOW()),
+                ('https://r/likes/2', 'Like', '{{"id": "{target}"}}', false, NOW()),
+                ('{target}', 'Like', '"https://elsewhere/x"', false, NOW()),
+                ('https://r/likes/local', 'Like', '"{target}"', true, NOW()),
+                ('https://r/ann/1', 'Announce', '{{"id": "{target}", "type": "Note"}}', false, NOW()),
+                ('https://r/c/1', 'Create', '{{"id": "https://r/n/2", "inReplyTo": "{target}"}}', false, NOW()),
+                ('https://r/c/2', 'Create', '{{"id": "https://r/n/3", "inReplyTo": "{target}", "mfp:kind": "repost"}}', false, NOW());
+            INSERT INTO federation_timeline
+                (user_id, activity_id, activity_type, object_type, content_preview, content_json, received_at) VALUES
+                (1, 'https://r/tl/old', 'Create', 'Note', 'old', '{{"id": "{target}", "content": "old"}}', '2026-01-01T00:00:00Z'),
+                (1, 'https://r/tl/a', 'Create', 'Note', 'tie-a', '{{"id": "{target}", "content": "a"}}', '2026-02-01T00:00:00Z'),
+                (1, 'https://r/tl/b', 'Announce', 'Article', 'tie-b', '{{"object": {{"id": "{target}", "content": "b"}}}}', '2026-02-01T00:00:00Z'),
+                (2, 'https://r/tl/bob', 'Update', 'Page', 'bob', '{{"id": "{target}", "content": "bob"}}', '2026-03-01T00:00:00Z');
+            "#
+        ))
+        .await
+        .unwrap();
+
+        let ids = vec![target.to_string(), quiet.to_string()];
+        let stats = interaction_stats_for_objects(db, 1, &ids).await.unwrap();
+        let st = &stats[target];
+        assert_eq!(st.like_count, 3 + 2, "3 local + 2 remote Likes of the target");
+        assert!(st.liked_by_me);
+        assert_eq!(st.bookmark_count, 2);
+        assert!(st.bookmarked_by_me);
+        assert_eq!(st.announce_count, 1);
+        assert!(!st.announced_by_me);
+        assert_eq!(st.reply_count, 1, "quote-repost excluded");
+        let zero = &stats[quiet];
+        assert_eq!(
+            (zero.like_count, zero.bookmark_count, zero.reply_count),
+            (0, 0, 0)
+        );
+        assert!(!stats_for_one(db, 3, target).await.unwrap().bookmarked_by_me);
+
+        let list = list_bookmarks(1, db).await.unwrap();
+        assert_eq!(list.total, 1);
+        let item = &list.items[0];
+        // Tie on received_at → higher id (the later insert, 'b') wins for every field.
+        assert_eq!(item["activity_id"], "https://r/tl/b");
+        assert_eq!(item["activity_type"], "Announce");
+        assert_eq!(item["object_type"], "Article");
+        assert_eq!(item["content_preview"], "tie-b");
+        assert_eq!(item["content_json"]["object"]["content"], "b");
+        assert_eq!(item["like_count"], 5);
+
+        // No timeline row for this user: falls back to the Create object.
+        db.execute_unprepared(
+            "INSERT INTO federation_object_interactions (user_id, object_id, kind, created_at) \
+             VALUES (3, 'https://r/n/2', 'bookmark', NOW())",
+        )
+        .await
+        .unwrap();
+        let list = list_bookmarks(3, db).await.unwrap();
+        assert_eq!(list.items[0]["content_json"]["inReplyTo"], target);
+        assert_eq!(list.items[0]["activity_type"], "Create");
+
+        fixture.close().await;
+    }
 
     #[test]
     fn interaction_fanout_does_not_ignore_enqueue_failure() {
