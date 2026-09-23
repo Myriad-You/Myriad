@@ -2,6 +2,10 @@
 // 提供歌单获取、用户信息查询等功能，被 proxy API 和平台数据获取共享
 
 use anyhow::{Result, anyhow};
+use myriad_platform_utils::netease::{
+    convert_http_to_https, ensure_https_url, generate_device_id, get_random_china_ip,
+    get_random_user_agent,
+};
 use once_cell::sync::Lazy;
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -10,11 +14,6 @@ use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
 use super::music_player_view::{PlayerPlaylist, PlayerSong};
-
-use super::netease_utils::{
-    convert_http_to_https, ensure_https_url, generate_device_id, get_random_china_ip,
-    get_random_user_agent,
-};
 
 mod player;
 

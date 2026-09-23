@@ -1,6 +1,6 @@
 use super::super::HandlerContext;
 use crate::services::data_paths::platform_filtered_file;
-use crate::services::netease_utils::{get_random_china_ip, get_random_user_agent};
+use myriad_platform_utils::netease::{get_random_china_ip, get_random_user_agent};
 use serde_json::{Value, json};
 use std::cmp::Reverse;
 use std::collections::HashMap;

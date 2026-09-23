@@ -3,6 +3,7 @@
 //! `NeteaseService::fetch_playlist` stays fat — platform liked-songs still needs
 //! full tracks. This module is the player-proxy boundary only.
 
+use myriad_platform_utils::netease::ensure_https_url;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -12,7 +13,6 @@ use std::time::{Duration, Instant};
 use tokio::sync::{OnceCell, RwLock};
 
 use super::netease_service::MUSIC_CACHE;
-use super::netease_utils::ensure_https_url;
 
 type PlaylistResult = Result<Arc<PlayerPlaylist>, PlayerPlaylistError>;
 type PlaylistLoad = OnceCell<PlaylistResult>;

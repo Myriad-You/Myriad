@@ -19,7 +19,6 @@ pub mod ai_task_runtime; // Process-local AI_TASKS map + state transitions
 pub mod analyzer;
 pub mod avatar; // 头像来源枚举/解析（单一解析处；HTTP JSON 走代理，联邦 Actor 不经代理 URL）
 pub mod background_processor;
-pub mod bilibili_utils;
 pub mod config_service;
 pub mod content_databases; // Preset anime/game/artist databases
 pub mod data_key; // Config-key / federation private-key envelope
@@ -42,7 +41,6 @@ pub mod minimax_speech; // MiniMax T2A speech synthesis
 pub mod module_visibility; // Module visibility for Agent (no api::config import)
 pub mod music_player_view; // Player playlist projection (slim cache + Song fields)
 pub mod netease_service;
-pub mod netease_utils;
 pub mod oauth;
 pub mod openai_compatible_speech; // OpenAI / OpenRouter file STT + TTS
 pub mod outbound_security; // Outbound URL validation, DNS pinning, redirect policy
@@ -58,7 +56,6 @@ pub mod server_location; // Egress location dual-source probe
 pub mod site_owner;
 pub mod smart_filter;
 pub mod speech_runtime; // Provider resolve + test/status
-pub mod spoof_utils; // Region IP/UA spoofing helpers
 pub mod standalone_tts; // Standalone TTS (cache + configured provider) for HTTP + agent
 pub mod sticker_cutout; // Local alpha fallback for home stickers
 pub mod store_stats_beacon; // Official store install/update edge stats beacon

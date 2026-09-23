@@ -21,7 +21,7 @@ use tokio::sync::RwLock;
 use crate::services::agent::ai_process_pure::USER_TEXT_MAX_CHARS;
 use crate::services::http_client::TAPP_HTTP_CLIENT;
 use crate::services::permission_service::UserRole;
-use crate::services::spoof_utils::{SpoofConfig, generate_spoof_headers};
+use myriad_platform_utils::spoof::{SpoofConfig, generate_spoof_headers};
 use myriad_tapp_contract::contract_rules::{
     HTTP_BODY_METHODS, MAX_TAPP_NON_JSON_HTTP_REQUEST_BYTES,
 };

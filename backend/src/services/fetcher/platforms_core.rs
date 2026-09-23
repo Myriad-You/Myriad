@@ -1,10 +1,10 @@
 // Core platform fetch implementations (Bilibili, Steam, GitHub, …).
 
 use anyhow::{Result, anyhow};
-
-use crate::services::bilibili_utils::{
+use myriad_platform_utils::bilibili::{
     generate_bilibili_cookie, get_random_china_ip, get_random_user_agent,
 };
+
 use crate::services::http_client::{GitHubApiUrl, get_global_client};
 
 use super::types::*;

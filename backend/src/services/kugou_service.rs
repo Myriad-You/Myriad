@@ -11,12 +11,12 @@
 use anyhow::{Result, anyhow};
 use base64::{Engine, engine::general_purpose};
 use flate2::read::ZlibDecoder;
+use myriad_platform_utils::netease::get_random_user_agent;
 use serde_json::Value;
 use std::io::Read;
 use std::time::{Duration, Instant};
 
 use super::netease_service::{CacheEntry, MUSIC_CACHE, RATE_LIMITER};
-use super::netease_utils::get_random_user_agent;
 
 // KRC XOR 解密密钥（酷狗固定 16 字节）
 const KRC_KEY: [u8; 16] = [
