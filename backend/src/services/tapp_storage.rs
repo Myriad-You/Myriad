@@ -207,6 +207,33 @@ pub async fn sandbox_storage_entries(
     .map_err(|_| TappStorageError::Database)
 }
 
+/// 只投影 key，供 list-keys 使用；与 [`sandbox_storage_entries`] 共用同一谓词与顺序，
+/// 但不读取 value 列。
+pub async fn sandbox_storage_keys(
+    db: &impl ConnectionTrait,
+    user_id: i32,
+    tapp_id: &str,
+) -> Result<Vec<String>, TappStorageError> {
+    #[derive(FromQueryResult)]
+    struct KeyRow {
+        key: String,
+    }
+    let sql = format!(
+        "SELECT key FROM tapp_storage \
+         WHERE user_id = $1 AND tapp_id = $2 AND ({SANDBOX_STORAGE_PREDICATE_SQL}) \
+         ORDER BY id"
+    );
+    KeyRow::find_by_statement(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        sql,
+        vec![user_id.into(), tapp_id.into()],
+    ))
+    .all(db)
+    .await
+    .map_err(|_| TappStorageError::Database)
+    .map(|rows| rows.into_iter().map(|row| row.key).collect())
+}
+
 pub async fn sandbox_storage_count(
     db: &impl ConnectionTrait,
     user_id: i32,
@@ -525,6 +552,12 @@ VALUES
             .expect("list sandbox rows");
         let keys: Vec<_> = entries.iter().map(|entry| entry.key.as_str()).collect();
         assert_eq!(keys, vec!["ordinary.one", "ordinary.two"]);
+        assert_eq!(
+            super::sandbox_storage_keys(&db, user_id, tapp_id)
+                .await
+                .expect("list sandbox keys"),
+            vec!["ordinary.one", "ordinary.two"]
+        );
         assert_eq!(
             super::sandbox_storage_count(&db, user_id, tapp_id)
                 .await

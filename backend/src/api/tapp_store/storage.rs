@@ -631,12 +631,9 @@ pub(super) async fn list_storage_keys(
 ) -> Result<Json<ApiResponse<Vec<String>>>, HttpError> {
     let access = authorize_runtime_storage(&claims, &runtime_grant, &tapp_id)?;
     let keys =
-        storage_svc::sandbox_storage_entries(&db, access.private_storage_namespace(), &tapp_id)
+        storage_svc::sandbox_storage_keys(&db, access.private_storage_namespace(), &tapp_id)
             .await
-            .map_err(|error| HttpError::from(storage_status(error)))?
-            .into_iter()
-            .map(|item| item.key)
-            .collect();
+            .map_err(|error| HttpError::from(storage_status(error)))?;
     Ok(Json(ApiResponse::success(keys)))
 }
 
