@@ -598,11 +598,14 @@ ALTER TABLE federation_file_transfers
 
     let mut missing_clean: u32 = 0;
     let mut missing_orphans: u32 = 0;
+    let mut add_failed: u32 = 0;
 
-    // One catalog round-trip for every candidate constraint name.
-    let names: Vec<String> = FKS.iter().map(|fk| fk.name.to_string()).collect();
-    let existing: std::collections::HashSet<String> = db
-        .query_all_raw(sea_orm::Statement::from_sql_and_values(
+    /// Which of `names` already exist as public-schema foreign keys.
+    async fn existing_fk_names(
+        db: &DatabaseConnection,
+        names: Vec<String>,
+    ) -> Result<std::collections::HashSet<String>, DbErr> {
+        db.query_all_raw(sea_orm::Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Postgres,
             r#"
 SELECT c.conname::text AS name
@@ -617,7 +620,12 @@ WHERE n.nspname = 'public'
         .await?
         .iter()
         .map(|row| row.try_get::<String>("", "name"))
-        .collect::<Result<_, _>>()?;
+        .collect()
+    }
+
+    // One catalog round-trip for every candidate constraint name.
+    let existing =
+        existing_fk_names(db, FKS.iter().map(|fk| fk.name.to_string()).collect()).await?;
 
     let missing: Vec<&FedFk> = FKS
         .iter()
@@ -686,23 +694,50 @@ WHERE n.nspname = 'public'
                 tracing::info!(constraint = fk.name, "✅ Added federation foreign key");
             }
             Err(e) => {
-                // Race with another replica, or unexpected schema: do not fail boot.
-                tracing::warn!(
-                    constraint = fk.name,
-                    error = %e,
-                    "Could not add federation FK (will retry next boot if APPLY still set)"
-                );
+                // Another replica may have added it concurrently: that is success
+                // only if this exact constraint now exists. Anything else is a
+                // real failure — reported as such, but boot is not aborted for
+                // an opt-in, non-critical constraint (retried next boot).
+                let now_exists = existing_fk_names(db, vec![fk.name.to_string()])
+                    .await
+                    .map(|found| found.contains(fk.name))
+                    .unwrap_or(false);
+                if now_exists {
+                    tracing::info!(
+                        constraint = fk.name,
+                        "Federation FK added concurrently by another instance"
+                    );
+                } else {
+                    add_failed += 1;
+                    tracing::error!(
+                        constraint = fk.name,
+                        error = %e,
+                        "Failed to add federation FK (not applied; will retry next boot \
+                         if MYRIAD_FEDERATION_APPLY_FKS is still set)"
+                    );
+                }
             }
         }
     }
 
-    tracing::info!(
-        present,
-        missing_clean,
-        missing_orphans,
-        apply,
-        "Federation FK heal summary (conservative: no orphan cleanup)"
-    );
+    if add_failed > 0 {
+        tracing::error!(
+            present,
+            missing_clean,
+            missing_orphans,
+            add_failed,
+            apply,
+            "Federation FK heal incomplete: some constraints could not be added"
+        );
+    } else {
+        tracing::info!(
+            present,
+            missing_clean,
+            missing_orphans,
+            apply,
+            "Federation FK heal summary (conservative: no orphan cleanup)"
+        );
+    }
 
     Ok(())
 }

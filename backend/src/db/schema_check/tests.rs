@@ -1732,3 +1732,26 @@ VALUES
     .await
     .expect("healed constraint must accept a complete credential row");
 }
+
+/// Federation FK heal against real PostgreSQL (report-only unless
+/// `MYRIAD_FEDERATION_APPLY_FKS` is set): the set-based catalog + orphan
+/// queries must run cleanly and be repeatable.
+#[tokio::test]
+async fn federation_fk_heal_runs_against_real_catalog() {
+    let Ok(url) = std::env::var("MYRIAD_SCHEMA_DRIFT_DB") else {
+        eprintln!("skipping: set MYRIAD_SCHEMA_DRIFT_DB to run the federation FK heal");
+        return;
+    };
+    use sea_orm_migration::MigratorTrait;
+    let db = sea_orm::Database::connect(&url)
+        .await
+        .expect("connect to the drift-check database");
+    crate::db::Migrator::up(&db, None)
+        .await
+        .expect("migrations must apply");
+    for _ in 0..2 {
+        super::ensure_heals::ensure_federation_foreign_keys(&db)
+            .await
+            .expect("federation FK heal must succeed");
+    }
+}
