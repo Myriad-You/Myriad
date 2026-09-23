@@ -144,18 +144,71 @@ fn pairing_user_id(row: &sea_orm::QueryResult) -> Result<i32, DbErr> {
     Ok(user_id)
 }
 
-/// First matching key wins. Empty keys are skipped.
+/// Trim, drop empty and de-duplicate keys, keeping the caller's order.
+fn normalized_keys<S: AsRef<str>>(keys: &[S]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::with_capacity(keys.len());
+    for key in keys {
+        let key = key.as_ref().trim();
+        if !key.is_empty() && !out.iter().any(|seen| seen == key) {
+            out.push(key.to_string());
+        }
+    }
+    out
+}
+
+/// `$first, $first+1, …` for `count` bind parameters.
+fn placeholder_list(first: usize, count: usize) -> String {
+    (first..first + count)
+        .map(|index| format!("${index}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Pairing rows for `keys` under `scope`, as `(provider_user_id, row)`.
+async fn scoped_identity_rows(
+    db: &impl ConnectionTrait,
+    provider: &str,
+    scope: &str,
+    keys: &[String],
+) -> Result<Vec<(String, sea_orm::QueryResult)>, DbErr> {
+    let mut values: Vec<SeaValue> = Vec::with_capacity(keys.len() + 2);
+    values.push(provider.into());
+    values.push(scope.into());
+    values.extend(keys.iter().map(|key| SeaValue::from(key.as_str())));
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            format!(
+                "SELECT provider_user_id, user_id FROM user_identities \
+                 WHERE provider = $1 AND raw_profile->>'channel_scope' = $2 \
+                 AND provider_user_id IN ({})",
+                placeholder_list(3, keys.len())
+            ),
+            values,
+        ))
+        .await?;
+    rows.into_iter()
+        .map(|row| Ok((row.try_get::<String>("", "provider_user_id")?, row)))
+        .collect()
+}
+
+/// First matching key (in caller order) wins. Empty keys are skipped.
 pub async fn lookup_any(
     db: &DatabaseConnection,
     channel: PairingChannel,
     keys: &[String],
 ) -> Result<PairingLookup, DbErr> {
-    for key in keys {
-        match lookup_openid(db, channel, key).await? {
-            PairingLookup::Paired { user_id } => {
-                return Ok(PairingLookup::Paired { user_id });
-            }
-            PairingLookup::Unpaired => {}
+    let keys = normalized_keys(keys);
+    if keys.is_empty() {
+        return Ok(PairingLookup::Unpaired);
+    }
+    let scope = credential_scope(channel.provider).await;
+    let rows = scoped_identity_rows(db, channel.provider, &scope, &keys).await?;
+    for key in &keys {
+        if let Some((_, row)) = rows.iter().find(|(bound, _)| bound == key) {
+            return Ok(PairingLookup::Paired {
+                user_id: pairing_user_id(row)?,
+            });
         }
     }
     Ok(PairingLookup::Unpaired)
@@ -415,6 +468,10 @@ pub async fn ensure_aliases(
     user_id: i32,
     keys: &[String],
 ) -> Result<(), DbErr> {
+    let keys = normalized_keys(keys);
+    if keys.is_empty() {
+        return Ok(());
+    }
     let scope = credential_scope(channel.provider).await;
     let txn = db.begin().await?;
     txn.execute_raw(Statement::from_sql_and_values(
@@ -425,30 +482,61 @@ pub async fn ensure_aliases(
     .await?;
     // An in-flight event must not recreate identities after unpair committed.
     let mut has_current_identity = false;
-    for key in keys {
-        let row = txn.query_one_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres,
-            "SELECT user_id FROM user_identities WHERE provider = $1 AND provider_user_id = $2 AND raw_profile->>'channel_scope' = $3",
-            [channel.provider.into(), key.as_str().into(), scope.clone().into()])).await?;
-        if let Some(row) = row {
-            if row.try_get::<i32>("", "user_id")? != user_id {
-                return Err(DbErr::Custom("Conflicting channel identity aliases".into()));
-            }
-            has_current_identity = true;
+    for (_, row) in scoped_identity_rows(&txn, channel.provider, &scope, &keys).await? {
+        if row.try_get::<i32>("", "user_id")? != user_id {
+            return Err(DbErr::Custom("Conflicting channel identity aliases".into()));
         }
+        has_current_identity = true;
     }
     if !has_current_identity {
         return Ok(());
     }
-    for key in keys
-        .iter()
-        .map(|key| key.trim())
-        .filter(|key| !key.is_empty())
-    {
-        txn.execute_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres,
-            "INSERT INTO user_identities (user_id, provider, provider_user_id, is_primary, linked_at, raw_profile)              VALUES ($1, $2, $3, false, NOW(), jsonb_build_object('channel_scope', $4::text))              ON CONFLICT (provider, provider_user_id) DO NOTHING",
-            [user_id.into(), channel.provider.into(), key.into(), scope.clone().into()])).await?;
-    }
+    txn.execute_raw(insert_pairing_rows(
+        user_id,
+        channel.provider,
+        &scope,
+        &keys,
+        "",
+    ))
+    .await?;
     txn.commit().await
+}
+
+/// One multi-row pairing INSERT for `keys`; `ON CONFLICT (provider,
+/// provider_user_id) DO NOTHING` keeps the global UNIQUE as the authority.
+fn insert_pairing_rows(
+    user_id: i32,
+    provider: &str,
+    scope: &str,
+    keys: &[String],
+    returning: &str,
+) -> Statement {
+    let mut values: Vec<SeaValue> = Vec::with_capacity(keys.len() + 3);
+    values.push(user_id.into());
+    values.push(provider.into());
+    values.push(scope.into());
+    let rows = keys
+        .iter()
+        .enumerate()
+        .map(|(index, key)| {
+            values.push(key.as_str().into());
+            format!(
+                "($1, $2, ${}, false, NOW(), jsonb_build_object('channel_scope', $3::text))",
+                index + 4
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        format!(
+            "INSERT INTO user_identities ( \
+                user_id, provider, provider_user_id, is_primary, linked_at, raw_profile \
+             ) VALUES {rows} \
+             ON CONFLICT (provider, provider_user_id) DO NOTHING{returning}"
+        ),
+        values,
+    )
 }
 
 async fn bind_openids(
@@ -459,11 +547,7 @@ async fn bind_openids(
     scope: &str,
     code: &str,
 ) -> Result<PairingBindResult, DbErr> {
-    let keys: Vec<String> = keys
-        .iter()
-        .map(|key| key.trim().to_string())
-        .filter(|key| !key.is_empty())
-        .collect();
+    let keys = normalized_keys(keys);
     if keys.is_empty() {
         return Ok(PairingBindResult::InvalidOrExpired);
     }
@@ -485,24 +569,11 @@ async fn bind_openids(
     }) {
         return Ok(PairingBindResult::InvalidOrExpired);
     }
-    for key in &keys {
-        let existing = txn
-            .query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT user_id FROM user_identities WHERE provider = $1 AND provider_user_id = $2 AND raw_profile->>'channel_scope' = $3",
-                vec![
-                    SeaValue::String(Some(channel.provider.to_string())),
-                    SeaValue::String(Some(key.clone())),
-                    scope.into(),
-                ],
-            ))
-            .await?;
-        if let Some(row) = existing {
-            let bound_user = pairing_user_id(&row)?;
-            if bound_user != user_id {
-                txn.commit().await?;
-                return Ok(PairingBindResult::OpenidTaken);
-            }
+    for (_, row) in scoped_identity_rows(&txn, channel.provider, scope, &keys).await? {
+        let bound_user = pairing_user_id(&row)?;
+        if bound_user != user_id {
+            txn.commit().await?;
+            return Ok(PairingBindResult::OpenidTaken);
         }
     }
 
@@ -516,37 +587,32 @@ async fn bind_openids(
     ))
     .await?;
 
-    for key in &keys {
-        txn.execute_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres,
-            "DELETE FROM user_identities WHERE provider = $1 AND provider_user_id = $2 AND raw_profile->>'channel_scope' IS DISTINCT FROM $3",
-            [channel.provider.into(), key.as_str().into(), scope.into()])).await?;
-    }
-    let mut inserted_any = false;
-    for key in &keys {
-        let inserted = txn
-            .query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "INSERT INTO user_identities ( \
-                    user_id, provider, provider_user_id, is_primary, linked_at, raw_profile \
-                 ) VALUES ($1, $2, $3, false, NOW(), jsonb_build_object('channel_scope', $4::text)) \
-                 ON CONFLICT (provider, provider_user_id) DO NOTHING \
-                 RETURNING user_id",
-                vec![
-                    SeaValue::Int(Some(user_id)),
-                    SeaValue::String(Some(channel.provider.to_string())),
-                    SeaValue::String(Some(key.clone())),
-                    scope.into(),
-                ],
-            ))
-            .await?;
-        if inserted.is_some() {
-            inserted_any = true;
-        } else {
-            txn.rollback().await?;
-            return Ok(PairingBindResult::OpenidTaken);
-        }
-    }
-    if !inserted_any {
+    let mut stale_scope: Vec<SeaValue> = Vec::with_capacity(keys.len() + 2);
+    stale_scope.push(channel.provider.into());
+    stale_scope.push(scope.into());
+    stale_scope.extend(keys.iter().map(|key| SeaValue::from(key.as_str())));
+    txn.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        format!(
+            "DELETE FROM user_identities WHERE provider = $1 \
+             AND raw_profile->>'channel_scope' IS DISTINCT FROM $2 \
+             AND provider_user_id IN ({})",
+            placeholder_list(3, keys.len())
+        ),
+        stale_scope,
+    ))
+    .await?;
+    // Every key must land; a row kept by DO NOTHING belongs to another user.
+    let inserted = txn
+        .query_all_raw(insert_pairing_rows(
+            user_id,
+            channel.provider,
+            scope,
+            &keys,
+            " RETURNING user_id",
+        ))
+        .await?;
+    if inserted.len() != keys.len() {
         txn.rollback().await?;
         return Ok(PairingBindResult::OpenidTaken);
     }
@@ -560,7 +626,17 @@ async fn bind_openids(
 
 #[cfg(test)]
 mod tests {
-    use super::is_pairing_provider;
+    use super::{is_pairing_provider, normalized_keys, placeholder_list};
+
+    #[test]
+    fn pairing_keys_are_trimmed_deduplicated_and_ordered() {
+        assert_eq!(
+            normalized_keys(&[" ou_1 ", "", "on_2", "ou_1", "  "]),
+            vec!["ou_1".to_string(), "on_2".to_string()]
+        );
+        assert!(normalized_keys::<&str>(&[]).is_empty());
+        assert_eq!(placeholder_list(3, 2), "$3, $4");
+    }
 
     #[test]
     fn pairing_lookup_does_not_treat_decode_failure_as_unpaired() {
@@ -577,8 +653,109 @@ mod tests {
             .nth(1)
             .and_then(|rest| rest.split("txn.execute_raw").next())
             .expect("bound_user");
+        let lookup_any = src
+            .split("pub async fn lookup_any")
+            .nth(1)
+            .and_then(|rest| rest.split("pub async fn status_for_user").next())
+            .expect("lookup_any");
+        assert!(lookup_any.contains("pairing_user_id"));
         assert!(bind.contains("pairing_user_id"));
         assert!(!bind.contains("unwrap_or(0)"));
+    }
+
+    #[tokio::test]
+    async fn batched_alias_bind_lookup_and_conflicts_when_db_provided() {
+        use super::{FEISHU, consume_code_keys, ensure_aliases, lookup_any, mint_code};
+        use myriad_agent_rules::channel::{PairingBindResult, PairingLookup};
+        use sea_orm::{ConnectionTrait, Database, DatabaseBackend, Statement};
+        use sea_orm_migration::MigratorTrait;
+
+        let Ok(database_url) = std::env::var("CHANNEL_TEST_DATABASE_URL") else {
+            return;
+        };
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect test db");
+        migration::Migrator::up(&db, None)
+            .await
+            .expect("migrator up");
+        let tag = uuid::Uuid::new_v4().simple().to_string();
+        let mut users = Vec::new();
+        for who in ["a", "b"] {
+            let row = db
+                .query_one_raw(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "INSERT INTO users (username) VALUES ($1) RETURNING id",
+                    [format!("pairing-{who}-{tag}").into()],
+                ))
+                .await
+                .expect("insert user")
+                .expect("row");
+            users.push(row.try_get::<i32>("", "id").expect("id"));
+        }
+        let (user_a, user_b) = (users[0], users[1]);
+        let key = |name: &str| format!("{name}-{tag}");
+
+        // Duplicate / padded keys collapse into one row per key.
+        let code = mint_code(&db, FEISHU, user_a).await.expect("mint a").code;
+        let bound = consume_code_keys(
+            &db,
+            FEISHU,
+            &[key("k1"), format!(" {} ", key("k1")), key("k2"), String::new()],
+            &code,
+        )
+        .await
+        .expect("bind a");
+        assert_eq!(bound, PairingBindResult::Bound { user_id: user_a });
+        assert_eq!(
+            lookup_any(&db, FEISHU, &[key("missing"), key("k2"), key("k1")])
+                .await
+                .expect("lookup"),
+            PairingLookup::Paired { user_id: user_a }
+        );
+
+        ensure_aliases(&db, FEISHU, user_a, &[key("k1"), key("k3")])
+            .await
+            .expect("alias");
+        assert_eq!(
+            lookup_any(&db, FEISHU, &[key("k3")]).await.expect("lookup alias"),
+            PairingLookup::Paired { user_id: user_a }
+        );
+
+        // Another user's key rejects the whole bind; nothing is written for B.
+        let code = mint_code(&db, FEISHU, user_b).await.expect("mint b").code;
+        let taken = consume_code_keys(&db, FEISHU, &[key("k4"), key("k1")], &code)
+            .await
+            .expect("bind b");
+        assert_eq!(taken, PairingBindResult::OpenidTaken);
+        assert_eq!(
+            lookup_any(&db, FEISHU, &[key("k4")]).await.expect("lookup k4"),
+            PairingLookup::Unpaired
+        );
+        assert!(
+            ensure_aliases(&db, FEISHU, user_b, &[key("k5"), key("k1")])
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            lookup_any(&db, FEISHU, &[key("k5")]).await.expect("lookup k5"),
+            PairingLookup::Unpaired
+        );
+
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "DELETE FROM user_identities WHERE user_id = $1 OR user_id = $2",
+            [user_a.into(), user_b.into()],
+        ))
+        .await
+        .expect("cleanup identities");
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "DELETE FROM users WHERE id = $1 OR id = $2",
+            [user_a.into(), user_b.into()],
+        ))
+        .await
+        .expect("cleanup users");
     }
 
     #[test]
