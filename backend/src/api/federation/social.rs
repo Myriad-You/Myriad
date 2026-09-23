@@ -165,7 +165,11 @@ pub async fn admin_federation_domain_move(
 
 /// GET /api/federation/identity — 获取当前登录用户的联邦地址
 /// 路由已挂 `auth_middleware`，claims 由 `AuthedClaims` 直接取出。
+///
+/// Identity lookup also initialises signing keys for the named account, so only
+/// a durable user may call it: a guest / `0` subject is rejected at the boundary.
 pub(crate) async fn federation_identity(
+    extract::DurableUserId(_): extract::DurableUserId,
     extract::Db(db): extract::Db,
     extract::AuthedClaims(claims): extract::AuthedClaims,
 ) -> Response {
@@ -1896,6 +1900,12 @@ mod tests {
                 .unwrap_or("");
             assert!(body.contains("extract::DurableUserId(user_id)"), "{handler}");
         }
+        let identity = production
+            .split("pub(crate) async fn federation_identity(")
+            .nth(1)
+            .and_then(|rest| rest.split(") -> Response").next())
+            .expect("federation_identity");
+        assert!(identity.contains("extract::DurableUserId"), "guests must not reach identity");
         for file in [production, include_str!("rooms_and_router.rs")] {
             let production = file.split("#[cfg(test)]").next().expect("production");
             assert!(!production.contains("claims.sub"));
