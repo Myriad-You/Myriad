@@ -244,7 +244,7 @@ pub(crate) async fn verify_request_signature(
 ///
 /// Cache hits / local actors already carry a real id and are returned as-is.
 /// Ephemeral documents are upserted once. On failure the error is logged and
-/// returned: callers that need the remote id reject the request, the others
+/// returned: callers that need the remote id answer a retryable 503, the others
 /// ignore it (cache write is best-effort, as before).
 pub(crate) async fn promote_verified_actor(
     db: &DatabaseConnection,
