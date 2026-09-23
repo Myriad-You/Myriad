@@ -9,8 +9,8 @@ use axum::{
     extract::{Path, Query, State},
 };
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, QueryFilter,
-    Statement, TransactionTrait,
+    ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, EntityTrait,
+    QueryFilter, Statement, TransactionTrait,
 };
 use serde::Deserialize;
 use tokio::fs;
@@ -127,9 +127,104 @@ async fn do_uninstall_tapp(
     tapp: &tapps::Model,
     keep_data: bool,
 ) -> Result<Json<ApiResponse<()>>, HttpError> {
-    let user_id = tapp.user_id;
-    let tapp_id = &tapp.tapp_id;
-    let is_public_install = find_admin_user_id(db).await? == Some(user_id);
+    let is_public_install = find_admin_user_id(db).await? == Some(tapp.user_id);
+    match uninstall_install(
+        db,
+        UninstallScope::Install(tapp),
+        is_public_install,
+        keep_data,
+    )
+    .await?
+    {
+        true => Ok(Json(ApiResponse::success(()))),
+        false => Err(HttpError(AppError::not_found("Not found"))),
+    }
+}
+
+/// Which install an uninstall transaction targets and what must still hold
+/// under the lifecycle lock for the delete to proceed.
+enum UninstallScope<'a> {
+    /// An install row the caller already resolved and authorized.
+    Install(&'a tapps::Model),
+    /// A stale-private prune candidate. Candidate discovery is only a hint; the
+    /// in-transaction re-read is the single authority on prune eligibility.
+    StalePrivate {
+        row_id: i32,
+        user_id: i32,
+        tapp_id: &'a str,
+        inactivity_days: i32,
+    },
+}
+
+impl UninstallScope<'_> {
+    fn user_id(&self) -> i32 {
+        match self {
+            Self::Install(tapp) => tapp.user_id,
+            Self::StalePrivate { user_id, .. } => *user_id,
+        }
+    }
+
+    fn tapp_id(&self) -> &str {
+        match self {
+            Self::Install(tapp) => &tapp.tapp_id,
+            Self::StalePrivate { tapp_id, .. } => tapp_id,
+        }
+    }
+
+    /// Re-read the target under the lifecycle lock. `Ok(None)` means the target
+    /// no longer qualifies (gone, or for prune: owner/admin or active again).
+    async fn recheck(&self, txn: &impl ConnectionTrait) -> Result<Option<tapps::Model>, DbErr> {
+        match self {
+            Self::Install(tapp) => {
+                tapps::Entity::find_by_id(tapp.id)
+                    .filter(tapps::Column::UserId.eq(tapp.user_id))
+                    .filter(tapps::Column::TappId.eq(&tapp.tapp_id))
+                    .one(txn)
+                    .await
+            }
+            Self::StalePrivate {
+                row_id,
+                user_id,
+                tapp_id,
+                inactivity_days,
+            } => {
+                // FOR SHARE on the user row blocks a concurrent promotion or login
+                // stamp from committing between this check and our delete.
+                tapps::Entity::find()
+                    .from_raw_sql(Statement::from_sql_and_values(
+                        DatabaseBackend::Postgres,
+                        r#"SELECT t.* FROM tapps t
+                           INNER JOIN users u ON u.id = t.user_id
+                           WHERE t.id = $1 AND t.user_id = $2 AND t.tapp_id = $3
+                             AND COALESCE(u.is_admin, false) = false
+                             AND COALESCE(u.is_owner, false) = false
+                             AND COALESCE(u.last_login_at, u.last_seen_at, u.created_at)
+                                 < NOW() - make_interval(days => $4::int)
+                           FOR UPDATE OF t FOR SHARE OF u"#,
+                        [
+                            (*row_id).into(),
+                            (*user_id).into(),
+                            (*tapp_id).into(),
+                            (*inactivity_days).into(),
+                        ],
+                    ))
+                    .one(txn)
+                    .await
+            }
+        }
+    }
+}
+
+/// Uninstall transaction core. Returns `Ok(false)` when the scope's recheck
+/// under the lifecycle lock no longer matches (nothing is touched).
+async fn uninstall_install(
+    db: &DatabaseConnection,
+    scope: UninstallScope<'_>,
+    is_public_install: bool,
+    keep_data: bool,
+) -> Result<bool, HttpError> {
+    let user_id = scope.user_id();
+    let tapp_id = scope.tapp_id();
 
     let txn = db.begin().await.map_err(|error| {
         tracing::error!(tapp_id, user_id, %error, "Failed to begin uninstall transaction");
@@ -139,20 +234,15 @@ async fn do_uninstall_tapp(
         tracing::error!(tapp_id, user_id, %error, "Failed to acquire tapp lifecycle lock");
         HttpError(AppError::internal("Database error"))
     })?;
-    let still_installed = tapps::Entity::find_by_id(tapp.id)
-        .filter(tapps::Column::UserId.eq(user_id))
-        .filter(tapps::Column::TappId.eq(tapp_id))
-        .one(&txn)
-        .await
-        .map_err(|error| {
-            tracing::error!(tapp_id, user_id, %error, "Failed to re-check tapp install under lock");
-            HttpError(AppError::internal("Database error"))
-        })?
-        .is_some();
-    if !still_installed {
+    let Some(tapp) = scope.recheck(&txn).await.map_err(|error| {
+        tracing::error!(tapp_id, user_id, %error, "Failed to re-check tapp install under lock");
+        HttpError(AppError::internal("Database error"))
+    })?
+    else {
         txn.rollback().await.ok();
-        return Err(HttpError(AppError::not_found("Not found")));
-    }
+        return Ok(false);
+    };
+    let tapp = &tapp;
 
     crate::api::tapp_runtime::revoke_all_tapp_runtime_grants(db, user_id, tapp_id).await;
 
@@ -213,7 +303,7 @@ async fn do_uninstall_tapp(
                        )
                      )"#,
                 vec![
-                    tapp_id.clone().into(),
+                    tapp_id.into(),
                     user_id.into(),
                     user_id.to_string().into(),
                     tapp.id.into(),
@@ -256,12 +346,12 @@ async fn do_uninstall_tapp(
                       AND remaining.tapp_id = tapp_scheduled_tasks.tapp_id
                       AND remaining.id <> $2
                 )",
-                vec![tapp_id.clone().into(), tapp.id.into()],
+                vec![tapp_id.into(), tapp.id.into()],
             )
         } else {
             (
                 "user_id = $1 AND tapp_id = $2",
-                vec![user_id.into(), tapp_id.clone().into()],
+                vec![user_id.into(), tapp_id.into()],
             )
         };
         txn.execute_raw(Statement::from_sql_and_values(
@@ -302,7 +392,7 @@ async fn do_uninstall_tapp(
                    WHERE installed.user_id = activity.user_id
                      AND installed.tapp_id = activity.tapp_id
                  )"#,
-            vec![tapp_id.clone().into()],
+            vec![tapp_id.into()],
         ))
         .await
         .map_err(|error| {
@@ -321,7 +411,7 @@ async fn do_uninstall_tapp(
                        OR remaining.user_id = registry.owner_id
                      )
                  )"#,
-            vec![tapp_id.clone().into()],
+            vec![tapp_id.into()],
         ))
         .await
         .map_err(|error| {
@@ -381,51 +471,33 @@ async fn do_uninstall_tapp(
     }
     crate::api::tapp_runtime::invalidate_tapp_apis_cache(tapp_id).await;
 
-    Ok(Json(ApiResponse::success(())))
-}
-
-/// Owner lookup errors must fail closed; absence (`Ok(None)`) is not an error.
-pub(crate) fn site_owner_id_for_prune<E>(lookup: Result<Option<i32>, E>) -> Result<Option<i32>, E> {
-    lookup
+    Ok(true)
 }
 
 /// Delete private Tapp installs owned by non-admin users who have been inactive
 /// for `inactivity_days` (based on `COALESCE(last_login_at, last_seen_at, created_at)`).
 ///
-/// Never touches site-owner / admin public installs. Used by the daily
-/// background worker only (not the user-facing logout endpoint).
+/// Never touches owner / admin installs: the candidate query is only a hint and
+/// each delete re-confirms eligibility inside its own uninstall transaction.
+/// Used by the daily background worker only (not the user-facing logout endpoint).
 pub async fn prune_stale_private_tapps(
     db: &DatabaseConnection,
     inactivity_days: i64,
 ) -> Result<i32, String> {
-    let days = inactivity_days.max(1);
-    // Site owner id — same authority as SQL `$2`; lookup errors must fail closed.
-    let site_owner_id = site_owner_id_for_prune(
-        find_admin_user_id(db)
-            .await
-            .map_err(|error| error.0.to_string()),
-    )?;
-
+    let days = inactivity_days.clamp(1, i64::from(i32::MAX)) as i32;
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             r#"
-            SELECT t.id
+            SELECT t.id, t.user_id, t.tapp_id
             FROM tapps t
             INNER JOIN users u ON u.id = t.user_id
             WHERE COALESCE(u.is_admin, false) = false
               AND COALESCE(u.is_owner, false) = false
-              AND ($2::int IS NULL OR t.user_id <> $2)
               AND COALESCE(u.last_login_at, u.last_seen_at, u.created_at)
                   < NOW() - make_interval(days => $1::int)
             "#,
-            [
-                (days as i32).into(),
-                match site_owner_id {
-                    Some(id) => id.into(),
-                    None => sea_orm::Value::Int(None),
-                },
-            ],
+            [days.into()],
         ))
         .await
         .map_err(|e| e.to_string())?;
@@ -433,23 +505,22 @@ pub async fn prune_stale_private_tapps(
     let mut deleted = 0i32;
     for row in rows {
         let row_id: i32 = row.try_get("", "id").map_err(|e| e.to_string())?;
-        let Some(model) = tapps::Entity::find_by_id(row_id)
-            .one(db)
-            .await
-            .map_err(|e| e.to_string())?
-        else {
-            continue;
+        let user_id: i32 = row.try_get("", "user_id").map_err(|e| e.to_string())?;
+        let tapp_id: String = row.try_get("", "tapp_id").map_err(|e| e.to_string())?;
+        let scope = UninstallScope::StalePrivate {
+            row_id,
+            user_id,
+            tapp_id: &tapp_id,
+            inactivity_days: days,
         };
-        // Re-check: never uninstall site-owner rows
-        if site_owner_id == Some(model.user_id) {
-            continue;
-        }
-        match do_uninstall_tapp(db, &model, false).await {
-            Ok(_) => deleted += 1,
+        // Eligibility guarantees a non-admin subject, so this is never the public install.
+        match uninstall_install(db, scope, false, false).await {
+            Ok(true) => deleted += 1,
+            Ok(false) => {}
             Err(HttpError(err)) => {
                 tracing::warn!(
-                    tapp_id = %model.tapp_id,
-                    user_id = model.user_id,
+                    tapp_id,
+                    user_id,
                     error = %err,
                     "Failed to prune stale private Tapp install"
                 );
@@ -515,23 +586,6 @@ pub(super) async fn cleanup_temporary_tapps(
 
 #[cfg(test)]
 mod tests {
-    use super::site_owner_id_for_prune;
-
-    #[test]
-    fn prune_fails_closed_when_owner_lookup_errors() {
-        let error: Result<Option<i32>, &str> = Err("database");
-        assert!(site_owner_id_for_prune(error).is_err());
-    }
-
-    #[test]
-    fn prune_allows_missing_owner_before_setup() {
-        assert_eq!(site_owner_id_for_prune::<&str>(Ok(None)).unwrap(), None);
-        assert_eq!(
-            site_owner_id_for_prune::<&str>(Ok(Some(1))).unwrap(),
-            Some(1)
-        );
-    }
-
     #[test]
     fn uninstall_does_not_sweep_other_installs_by_tapp_id() {
         let src = include_str!("uninstall.rs")
@@ -550,5 +604,63 @@ mod tests {
             !src.contains("DELETE FROM tapp_runtime_registry WHERE tapp_id = $1"),
             "unscoped tapp_id registry delete would wipe other owners"
         );
+    }
+
+    #[tokio::test]
+    async fn stale_prune_confirms_eligibility_inside_the_delete_transaction() {
+        use super::{UninstallScope, prune_stale_private_tapps, uninstall_install};
+        use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+        let Ok(url) = std::env::var("TAPP_TEST_DATABASE_URL") else {
+            return;
+        };
+        let isolated = crate::db::IsolatedSchema::migrated(&url, "stale_prune_test").await;
+        let db = isolated.db.clone();
+        let tapp_id = format!("com.example.prune{}", uuid::Uuid::new_v4().simple());
+        db.execute_unprepared(&format!(
+            "INSERT INTO users (id, username, is_admin, is_owner, last_login_at) VALUES \
+             (1, 'owner', true, true, NOW() - INTERVAL '90 days'), \
+             (2, 'admin', true, false, NOW() - INTERVAL '90 days'), \
+             (3, 'stale', false, false, NOW() - INTERVAL '90 days'), \
+             (4, 'active', false, false, NOW()), \
+             (5, 'promoted', false, false, NOW() - INTERVAL '90 days'); \
+             INSERT INTO tapps (id, tapp_id, user_id, name, version, manifest, file_path, code_path) \
+             SELECT u.id, '{tapp_id}', u.id, 'T', '1', '{{}}', '', '' FROM users u;"
+        ))
+        .await
+        .unwrap();
+        let remaining = || async {
+            db.query_all_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT user_id FROM tapps ORDER BY user_id",
+            ))
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| row.try_get::<i32>("", "user_id").unwrap())
+            .collect::<Vec<_>>()
+        };
+
+        // A candidate promoted to admin after discovery is skipped by the recheck.
+        db.execute_unprepared("UPDATE users SET is_admin = true WHERE id = 5")
+            .await
+            .unwrap();
+        let promoted = UninstallScope::StalePrivate {
+            row_id: 5,
+            user_id: 5,
+            tapp_id: &tapp_id,
+            inactivity_days: 30,
+        };
+        assert!(
+            !uninstall_install(&db, promoted, false, false)
+                .await
+                .unwrap()
+        );
+        assert_eq!(remaining().await, vec![1, 2, 3, 4, 5]);
+
+        // Owner, admins and active users are never pruned; the stale user is.
+        assert_eq!(prune_stale_private_tapps(&db, 30).await.unwrap(), 1);
+        assert_eq!(remaining().await, vec![1, 2, 4, 5]);
+        assert_eq!(prune_stale_private_tapps(&db, 30).await.unwrap(), 0);
+        isolated.drop().await;
     }
 }
