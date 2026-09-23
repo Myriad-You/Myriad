@@ -759,16 +759,15 @@ mod tests {
 #[cfg(test)]
 mod platform_read_tests {
     use super::*;
-    use sea_orm::{Database, DatabaseBackend, Statement};
-    use sea_orm_migration::MigratorTrait;
+    use sea_orm::{DatabaseBackend, Statement};
 
     #[tokio::test]
     async fn single_platform_read_matches_full_read_when_db_provided() {
         let Ok(url) = std::env::var("METADATA_TEST_DATABASE_URL") else {
             return;
         };
-        let db = Database::connect(&url).await.unwrap();
-        migration::Migrator::up(&db, None).await.unwrap();
+        let isolated = crate::db::IsolatedSchema::migrated(&url, "metadata_read_test").await;
+        let db = isolated.db.clone();
         let user_id: i32 = db
             .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
@@ -827,19 +826,7 @@ mod platform_read_tests {
                 "{missing}"
             );
         }
-        db.execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "DELETE FROM platform_metadata WHERE user_id = $1",
-            [user_id.into()],
-        ))
-        .await
-        .unwrap();
-        db.execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "DELETE FROM users WHERE id = $1",
-            [user_id.into()],
-        ))
-        .await
-        .unwrap();
+        drop((service, db));
+        isolated.drop().await;
     }
 }

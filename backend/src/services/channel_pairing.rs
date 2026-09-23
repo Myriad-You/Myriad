@@ -667,18 +667,14 @@ mod tests {
     async fn batched_alias_bind_lookup_and_conflicts_when_db_provided() {
         use super::{FEISHU, consume_code_keys, ensure_aliases, lookup_any, mint_code};
         use myriad_agent_rules::channel::{PairingBindResult, PairingLookup};
-        use sea_orm::{ConnectionTrait, Database, DatabaseBackend, Statement};
-        use sea_orm_migration::MigratorTrait;
+        use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
         let Ok(database_url) = std::env::var("CHANNEL_TEST_DATABASE_URL") else {
             return;
         };
-        let db = Database::connect(&database_url)
-            .await
-            .expect("connect test db");
-        migration::Migrator::up(&db, None)
-            .await
-            .expect("migrator up");
+        let isolated =
+            crate::db::IsolatedSchema::migrated(&database_url, "channel_pairing_test").await;
+        let db = isolated.db.clone();
         let tag = uuid::Uuid::new_v4().simple().to_string();
         let mut users = Vec::new();
         for who in ["a", "b"] {
@@ -742,20 +738,8 @@ mod tests {
             PairingLookup::Unpaired
         );
 
-        db.execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "DELETE FROM user_identities WHERE user_id = $1 OR user_id = $2",
-            [user_a.into(), user_b.into()],
-        ))
-        .await
-        .expect("cleanup identities");
-        db.execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "DELETE FROM users WHERE id = $1 OR id = $2",
-            [user_a.into(), user_b.into()],
-        ))
-        .await
-        .expect("cleanup users");
+        drop(db);
+        isolated.drop().await;
     }
 
     #[test]

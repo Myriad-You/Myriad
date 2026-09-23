@@ -527,8 +527,6 @@ pub(super) async fn unregister_widget(
 #[cfg(test)]
 mod reconcile_tests {
     use super::*;
-    use sea_orm::Database;
-    use sea_orm_migration::MigratorTrait;
     use serde_json::json;
 
     fn manifest(tapp_id: &str, widgets: serde_json::Value) -> TappManifest {
@@ -573,8 +571,8 @@ mod reconcile_tests {
         let Ok(url) = std::env::var("TAPP_TEST_DATABASE_URL") else {
             return;
         };
-        let db = Database::connect(&url).await.unwrap();
-        migration::Migrator::up(&db, None).await.unwrap();
+        let isolated = crate::db::IsolatedSchema::migrated(&url, "widget_reconcile_test").await;
+        let db = isolated.db.clone();
         let tapp_id = format!("com.example.w{}", uuid::Uuid::new_v4().simple());
         let full = |local: &str| format_tapp_widget_id(&tapp_id, local);
         let (owner, other) = (910_001, 910_002);
@@ -635,12 +633,7 @@ mod reconcile_tests {
             rows(&db, &tapp_id).await,
             vec![(owner, full("runtime"), "mine".into(), "runtime".into())]
         );
-        db.execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "DELETE FROM tapp_widgets WHERE tapp_id = $1",
-            [tapp_id.as_str().into()],
-        ))
-        .await
-        .unwrap();
+        drop(db);
+        isolated.drop().await;
     }
 }

@@ -276,13 +276,13 @@ fn backup_format_constants_stable() {
 #[tokio::test]
 async fn sealed_import_replace_then_merge_applies_table_semantics() {
     use super::backup_integrity::{content_hash, seal_integrity};
-    use sea_orm::{ConnectionTrait, Database, DatabaseBackend, Statement};
-    use sea_orm_migration::MigratorTrait;
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
     let Ok(url) = std::env::var("ANALYTICS_TEST_DATABASE_URL") else {
         return;
     };
-    let db = Database::connect(&url).await.unwrap();
-    migration::Migrator::up(&db, None).await.unwrap();
+    // `replace` truncates every analytics table: only ever run it in a private schema.
+    let isolated = crate::db::IsolatedSchema::migrated(&url, "analytics_import_test").await;
+    let db = isolated.db.clone();
     let day = (chrono::Utc::now().date_naive() - chrono::Duration::days(1)).to_string();
     let hash = "0123456789abcdef";
     let tables = json!({
@@ -361,6 +361,8 @@ async fn sealed_import_replace_then_merge_applies_table_semantics() {
             .await,
         1
     );
+    drop(db);
+    isolated.drop().await;
 }
 
 #[tokio::test]
