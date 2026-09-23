@@ -18,9 +18,22 @@ pub fn user_id_from_username_row(id: Option<i32>) -> Result<i32, ()> {
     }
 }
 
-/// INSERT ON CONFLICT DO NOTHING: only newly written rows count as imported.
-pub fn timeline_import_delta(rows_affected: u64) -> u32 {
-    u32::from(rows_affected > 0)
+/// RingSync entries to write: first entry per non-empty `activity_id`, in input order.
+///
+/// Later entries with the same id never reach the INSERT, so the row written and
+/// the entry forwarded by gossip are always the same one.
+fn ring_sync_representatives(entries: &[serde_json::Value]) -> Vec<(&str, &serde_json::Value)> {
+    let mut seen = std::collections::HashSet::new();
+    entries
+        .iter()
+        .filter_map(|entry| {
+            let id = entry
+                .get("activity_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            (!id.is_empty() && seen.insert(id)).then_some((id, entry))
+        })
+        .collect()
 }
 
 // 请求/响应类型
@@ -1371,10 +1384,10 @@ pub async fn handle_ring_sync(
         .get("ringType")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
-    let entries = object
+    let entries: &[serde_json::Value] = object
         .get("entries")
         .and_then(|v| v.as_array())
-        .cloned()
+        .map(Vec::as_slice)
         .unwrap_or_default();
     let ttl = object.get("ttl").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
 
@@ -1410,49 +1423,51 @@ pub async fn handle_ring_sync(
     let first_user = user_id_from_username_row(Some(first_user))
         .map_err(|_| "No local users found".to_string())?;
 
-    // 处理收到的条目 — 存入 Timeline
-    let mut imported = 0;
+    // 处理收到的条目 — 一条 INSERT 存入 Timeline；RETURNING 给出真正新写入的 id
+    let representatives = ring_sync_representatives(entries);
     let mut newly_imported: Vec<&serde_json::Value> = Vec::new();
-    for entry in &entries {
-        let entry_type = entry
-            .get("type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-        let data = entry.get("data").cloned().unwrap_or(json!(null));
-        let activity_id_val = entry
-            .get("activity_id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-
-        if activity_id_val.is_empty() {
-            continue;
-        }
-
-        let preview = ring_entry_content_preview(entry_type, &data, actor_url_str);
-
+    if !representatives.is_empty() {
+        let rows: Vec<serde_json::Value> = representatives
+            .iter()
+            .map(|(activity_id, entry)| {
+                let entry_type = entry
+                    .get("type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let data = entry.get("data").unwrap_or(&serde_json::Value::Null);
+                json!({
+                    "a": activity_id,
+                    "t": entry_type,
+                    "p": ring_entry_content_preview(entry_type, data, actor_url_str),
+                    "d": data,
+                })
+            })
+            .collect();
         let inserted = db
-            .execute_raw(Statement::from_sql_and_values(
+            .query_all_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 r#"INSERT INTO federation_timeline
                (user_id, activity_id, activity_type, object_type, content_preview, content_json, received_at)
-               VALUES ($1, $2, 'Create', $3, $4, $5, NOW())
-               ON CONFLICT (user_id, activity_id) DO NOTHING"#,
-                [
-                    first_user.into(),
-                    activity_id_val.into(),
-                    entry_type.into(),
-                    preview.into(),
-                    data.into(),
-                ],
+               SELECT $1, e->>'a', 'Create', e->>'t', e->>'p', (e->'d')::json, NOW()
+               FROM jsonb_array_elements($2::jsonb) AS e
+               ON CONFLICT (user_id, activity_id) DO NOTHING
+               RETURNING activity_id"#,
+                [first_user.into(), serde_json::Value::Array(rows).into()],
             ))
             .await
             .map_err(|e| e.to_string())?;
-        let delta = timeline_import_delta(inserted.rows_affected());
-        if delta > 0 {
-            imported += delta;
-            newly_imported.push(entry);
-        }
+        let written = inserted
+            .iter()
+            .map(|row| row.try_get::<String>("", "activity_id"))
+            .collect::<Result<std::collections::HashSet<String>, _>>()
+            .map_err(|e| e.to_string())?;
+        newly_imported = representatives
+            .into_iter()
+            .filter(|(activity_id, _)| written.contains(*activity_id))
+            .map(|(_, entry)| entry)
+            .collect();
     }
+    let imported = newly_imported.len();
 
     // 更新 last_sync_at 和确保 peer 在列表中
     // known_peers is json (not jsonb); cast for @> / || containment ops
@@ -1509,7 +1524,6 @@ pub async fn handle_ring_sync(
                 .unwrap_or_default();
 
             if !forward_peers.is_empty() {
-                let new_entries: Vec<&serde_json::Value> = newly_imported.clone();
                 let base_url = get_base_url().await;
 
                 // 选取最多 fanout 个 peer
@@ -1527,7 +1541,7 @@ pub async fn handle_ring_sync(
                             "type": "myriad:RingSyncPayload",
                             "ring": ring_id,
                             "ringType": _ring_type,
-                            "entries": &new_entries,
+                            "entries": &newly_imported,
                             "ttl": ttl - 1
                         }
                     });
@@ -1669,10 +1683,21 @@ mod tests {
     }
 
     #[test]
-    fn timeline_import_counts_only_written_rows() {
-        assert_eq!(timeline_import_delta(0), 0);
-        assert_eq!(timeline_import_delta(1), 1);
-        assert_eq!(timeline_import_delta(2), 1);
+    fn ring_sync_keeps_first_entry_per_activity_id() {
+        let entries = vec![
+            json!({"activity_id": "a", "data": {"v": 1}}),
+            json!({"activity_id": "", "data": {"v": 2}}),
+            json!({"data": {"v": 3}}),
+            json!({"activity_id": "b", "data": {"v": 4}}),
+            json!({"activity_id": "a", "data": {"v": 5}}),
+        ];
+        let reps = ring_sync_representatives(&entries);
+        let got: Vec<(&str, i64)> = reps
+            .iter()
+            .map(|(id, entry)| (*id, entry["data"]["v"].as_i64().unwrap()))
+            .collect();
+        assert_eq!(got, vec![("a", 1), ("b", 4)]);
+        assert!(ring_sync_representatives(&[]).is_empty());
     }
 
     #[test]
