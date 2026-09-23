@@ -28,105 +28,69 @@ pub async fn installation_has_owner(db: &DatabaseConnection) -> Result<bool, Str
     })
 }
 
-/// Prefer durable owner id; only fall back to lowest admin when owner is absent.
-/// Query / decode errors must not be treated as "no owner".
-pub(crate) fn owner_id_from_lookups(
-    owner: Result<Option<i32>, String>,
-    admin: Result<Option<i32>, String>,
-) -> Result<i32, String> {
-    match owner {
-        Ok(Some(id)) => Ok(id),
-        Ok(None) => admin.and_then(|id| {
-            id.ok_or_else(|| "No administrator is configured as the site owner".to_string())
-        }),
-        Err(error) => Err(error),
-    }
-}
+/// Durable owner first (lowest id), otherwise the lowest admin id, in one query.
+/// `CASE` keeps a NULL `is_owner` out of the owner tier.
+const SITE_OWNER_SQL: &str = "SELECT id FROM users \
+     WHERE is_owner = true OR is_admin = true \
+     ORDER BY CASE WHEN is_owner = true THEN 0 ELSE 1 END, id ASC \
+     LIMIT 1";
 
+/// Query / decode errors are failures, never "no owner" and never a different identity.
 pub async fn site_owner_user_id(db: &DatabaseConnection) -> Result<i32, String> {
-    let owner = match db
+    let row = db
         .query_one_raw(Statement::from_string(
             DatabaseBackend::Postgres,
-            "SELECT id FROM users WHERE is_owner = true ORDER BY id ASC LIMIT 1".to_string(),
+            SITE_OWNER_SQL.to_string(),
         ))
         .await
-    {
-        Ok(Some(row)) => match row.try_get::<i32>("", "id") {
-            Ok(id) => Ok(Some(id)),
-            Err(error) => {
-                tracing::error!(%error, "failed to decode site owner id");
-                Err("Failed to resolve site owner".to_string())
-            }
-        },
-        Ok(None) => Ok(None),
-        Err(error) => {
+        .map_err(|error| {
             tracing::error!(%error, "failed to resolve site owner");
-            Err("Failed to resolve site owner".to_string())
-        }
-    };
-    if matches!(owner, Ok(Some(_)) | Err(_)) {
-        return owner_id_from_lookups(owner, Ok(None));
-    }
-
-    let admin = match db
-        .query_one_raw(Statement::from_string(
-            DatabaseBackend::Postgres,
-            "SELECT id FROM users WHERE is_admin = true ORDER BY id ASC LIMIT 1".to_string(),
-        ))
-        .await
-    {
-        Ok(Some(row)) => match row.try_get::<i32>("", "id") {
-            Ok(id) => Ok(Some(id)),
-            Err(error) => {
-                tracing::error!(%error, "failed to decode site owner id");
-                Err("Failed to resolve site owner".to_string())
-            }
-        },
-        Ok(None) => Ok(None),
-        Err(error) => {
-            tracing::error!(%error, "failed to resolve site owner");
-            Err("Failed to resolve site owner".to_string())
-        }
-    };
-    owner_id_from_lookups(owner, admin)
+            "Failed to resolve site owner".to_string()
+        })?
+        .ok_or_else(|| "No administrator is configured as the site owner".to_string())?;
+    row.try_get::<i32>("", "id").map_err(|error| {
+        tracing::error!(%error, "failed to decode site owner id");
+        "Failed to resolve site owner".to_string()
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::owner_id_from_lookups;
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
-    #[test]
-    fn owner_query_error_does_not_fall_back_to_lowest_admin() {
-        let error = owner_id_from_lookups(Err("db down".into()), Ok(Some(1))).unwrap_err();
-        assert_eq!(error, "db down");
-    }
+    #[tokio::test]
+    #[ignore = "requires SITE_OWNER_TEST_DATABASE_URL pointing to a disposable PostgreSQL database"]
+    async fn owner_tier_wins_then_lowest_admin_then_unconfigured() {
+        let url = std::env::var("SITE_OWNER_TEST_DATABASE_URL").expect("disposable test DB");
+        let mut options = sea_orm::ConnectOptions::new(url);
+        options.max_connections(1);
+        let db = sea_orm::Database::connect(options).await.unwrap();
+        let exec = |sql: &str| {
+            let db = db.clone();
+            let sql = sql.to_string();
+            async move {
+                db.execute_raw(Statement::from_string(DatabaseBackend::Postgres, sql))
+                    .await
+                    .unwrap();
+            }
+        };
+        // A session-local temp table shadows any real `users` table.
+        exec("CREATE TEMP TABLE users (id INT PRIMARY KEY, is_admin BOOLEAN, is_owner BOOLEAN)")
+            .await;
 
-    #[test]
-    fn owner_decode_error_does_not_select_admin() {
-        let error = owner_id_from_lookups(Err("Failed to resolve site owner".into()), Ok(Some(9)))
-            .unwrap_err();
-        assert!(error.contains("site owner"));
-    }
-
-    #[test]
-    fn missing_owner_uses_lowest_admin() {
-        assert_eq!(owner_id_from_lookups(Ok(None), Ok(Some(3))).unwrap(), 3);
-    }
-
-    #[test]
-    fn durable_owner_wins_over_admin() {
-        assert_eq!(owner_id_from_lookups(Ok(Some(7)), Ok(Some(1))).unwrap(), 7);
-    }
-
-    #[test]
-    fn missing_owner_and_admin_is_unconfigured() {
-        let error = owner_id_from_lookups(Ok(None), Ok(None)).unwrap_err();
+        let error = super::site_owner_user_id(&db).await.unwrap_err();
         assert!(error.contains("No administrator"));
-    }
 
-    #[test]
-    fn admin_query_error_is_not_unconfigured() {
-        let error = owner_id_from_lookups(Ok(None), Err("db down".into())).unwrap_err();
-        assert_eq!(error, "db down");
+        exec("INSERT INTO users VALUES (1, false, NULL), (3, true, NULL), (5, true, false)").await;
+        assert_eq!(super::site_owner_user_id(&db).await.unwrap(), 3);
+
+        exec("INSERT INTO users VALUES (7, false, true), (9, true, true)").await;
+        assert_eq!(super::site_owner_user_id(&db).await.unwrap(), 7);
+
+        exec("DROP TABLE users").await;
+        exec("CREATE TEMP TABLE users (id TEXT, is_admin BOOLEAN, is_owner BOOLEAN)").await;
+        exec("INSERT INTO users VALUES ('x', true, true)").await;
+        let error = super::site_owner_user_id(&db).await.unwrap_err();
+        assert_eq!(error, "Failed to resolve site owner");
     }
 }
