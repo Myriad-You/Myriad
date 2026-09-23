@@ -9,13 +9,17 @@ import zhCN from '../i18n/config.zh-CN.json' with { type: 'json' }
 import zhTW from '../i18n/config.zh-TW.json' with { type: 'json' }
 import { formatMessage } from '../i18n/formatMessage'
 import {
-  clearRestoreMediaNotice,
-  formatUnresolvedMediaNotice,
+  clearRestoreNotice,
+  EMPTY_RESTORE_NOTICE,
+  formatRestoreNotice,
+  hasRestoreNotice,
+  parseSettingKeys,
   parseUnresolvedRestoredMedia,
-  readRestoreMediaNotice,
-  RESTORE_MEDIA_NOTICE_KEY,
-  stashRestoreMediaNotice,
-} from './settingsRestoreMedia'
+  readRestoreNotice,
+  RESTORE_NOTICE_KEY,
+  stashRestoreNotice,
+  summarizeKeys,
+} from './settingsRestoreNotice'
 
 function memoryStorage() {
   const map = new Map<string, string>()
@@ -28,7 +32,8 @@ function memoryStorage() {
 }
 
 const enCopy = {
-  title: enUS.restoreUnresolvedMediaTitle,
+  mediaTitle: enUS.restoreUnresolvedMediaTitle,
+  skippedTitle: enUS.restoreSkippedSettingsTitle,
   more: enUS.restoreUnresolvedMediaMore,
   wallpaper: enUS.restoreUnresolvedMediaWallpaper,
   sticker: enUS.restoreUnresolvedMediaSticker,
@@ -37,8 +42,8 @@ function format(template: string, params: Record<string, string | number>) {
   return formatMessage('en-US', template, params)
 }
 
-describe('settings restore unresolved media', () => {
-  it('parses the server field and drops malformed entries', () => {
+describe('settings restore notice', () => {
+  it('parses the server fields and drops malformed entries', () => {
     assert.deepEqual(parseUnresolvedRestoredMedia(undefined), [])
     assert.deepEqual(parseUnresolvedRestoredMedia({}), [])
     assert.deepEqual(
@@ -51,47 +56,73 @@ describe('settings restore unresolved media', () => {
       ]),
       [{ setting: 'ui_wallpaper_url', url: '/media/assets/a/w.png' }],
     )
+    assert.deepEqual(parseSettingKeys(undefined), [])
+    assert.deepEqual(
+      parseSettingKeys(['ui_wallpaper_url', '', 3, null, 'proxy_url']),
+      ['ui_wallpaper_url', 'proxy_url'],
+    )
   })
 
-  it('labels settings, pluralizes and truncates long lists', () => {
-    const items = [
+  it('labels media, lists skipped settings, pluralizes and truncates', () => {
+    const unresolvedMedia = [
       { setting: 'ui_wallpaper_url', url: '/media/federation/1/w.png' },
       ...Array.from({ length: 6 }, (_, i) => ({
         setting: 'dashboard_layout',
         url: `/api/media/${i + 1}/content`,
       })),
     ]
-    const notice = formatUnresolvedMediaNotice(items, enCopy, format)
-    assert.match(notice.title, /^7 media items /)
-    assert.equal(notice.lines.length, 5)
-    assert.equal(notice.lines[0], 'Wallpaper: /media/federation/1/w.png')
-    assert.equal(notice.lines[1], 'Dashboard sticker: /api/media/1/content')
-    assert.equal(notice.more, '…and 2 more')
+    const notice = formatRestoreNotice(
+      { unresolvedMedia, skippedSettings: ['umami_script_url'] },
+      enCopy,
+      format,
+    )
+    assert.match(notice.media!.title, /^7 media items /)
+    assert.equal(notice.media!.lines.length, 5)
+    assert.equal(notice.media!.lines[0], 'Wallpaper: /media/federation/1/w.png')
+    assert.equal(notice.media!.lines[1], 'Dashboard sticker: /api/media/1/content')
+    assert.equal(notice.media!.more, '…and 2 more')
+    assert.match(notice.skipped!.title, /^1 setting .* was skipped; the current value was kept$/)
+    assert.deepEqual(notice.skipped!.lines, ['umami_script_url'])
+    assert.equal(notice.skipped!.more, null)
 
-    const single = formatUnresolvedMediaNotice(items.slice(0, 1), enCopy, format)
-    assert.match(single.title, /^1 media item .* was not bound$/)
-    assert.equal(single.more, null)
+    const onlySkipped = formatRestoreNotice(
+      { unresolvedMedia: [], skippedSettings: ['a', 'b'] },
+      enCopy,
+      format,
+    )
+    assert.equal(onlySkipped.media, null)
+    assert.match(onlySkipped.skipped!.title, /^2 settings /)
+    assert.deepEqual(summarizeKeys(['a', 'b', 'c'], 2), {
+      shown: ['a', 'b'],
+      hidden: 1,
+    })
   })
 
   it('carries the notice across the reload until cleared', () => {
     const storage = memoryStorage()
-    const items = [{ setting: 'dashboard_layout', url: '/api/media/9/content' }]
-    assert.equal(stashRestoreMediaNotice(items, storage), true)
-    assert.deepEqual(readRestoreMediaNotice(storage), items)
-    assert.deepEqual(readRestoreMediaNotice(storage), items, 'read keeps it')
+    const notice = {
+      unresolvedMedia: [{ setting: 'dashboard_layout', url: '/api/media/9/content' }],
+      skippedSettings: ['ui_wallpaper_url'],
+    }
+    assert.equal(hasRestoreNotice(notice), true)
+    assert.equal(stashRestoreNotice(notice, storage), true)
+    assert.deepEqual(readRestoreNotice(storage), notice)
+    assert.deepEqual(readRestoreNotice(storage), notice, 'read keeps it')
     // A later clean restore clears a stale notice.
-    assert.equal(stashRestoreMediaNotice([], storage), true)
-    assert.deepEqual(readRestoreMediaNotice(storage), [])
-    stashRestoreMediaNotice(items, storage)
-    clearRestoreMediaNotice(storage)
-    assert.equal(storage.map.has(RESTORE_MEDIA_NOTICE_KEY), false)
-    storage.map.set(RESTORE_MEDIA_NOTICE_KEY, '{not json')
-    assert.deepEqual(readRestoreMediaNotice(storage), [])
+    assert.equal(stashRestoreNotice(EMPTY_RESTORE_NOTICE, storage), true)
+    assert.deepEqual(readRestoreNotice(storage), EMPTY_RESTORE_NOTICE)
+    stashRestoreNotice(notice, storage)
+    clearRestoreNotice(storage)
+    assert.equal(storage.map.has(RESTORE_NOTICE_KEY), false)
+    storage.map.set(RESTORE_NOTICE_KEY, '{not json')
+    assert.deepEqual(readRestoreNotice(storage), EMPTY_RESTORE_NOTICE)
+    storage.map.set(RESTORE_NOTICE_KEY, 'null')
+    assert.deepEqual(readRestoreNotice(storage), EMPTY_RESTORE_NOTICE)
   })
 
   it('survives missing or failing storage', () => {
-    assert.equal(stashRestoreMediaNotice([], null), false)
-    assert.deepEqual(readRestoreMediaNotice(null), [])
+    assert.equal(stashRestoreNotice(EMPTY_RESTORE_NOTICE, null), false)
+    assert.deepEqual(readRestoreNotice(null), EMPTY_RESTORE_NOTICE)
     const failing = {
       getItem: () => {
         throw new Error('blocked')
@@ -104,18 +135,19 @@ describe('settings restore unresolved media', () => {
       },
     }
     assert.equal(
-      stashRestoreMediaNotice([{ setting: 'x', url: '/a' }], failing),
+      stashRestoreNotice({ unresolvedMedia: [], skippedSettings: ['x'] }, failing),
       false,
     )
-    assert.deepEqual(readRestoreMediaNotice(failing), [])
-    clearRestoreMediaNotice(failing)
+    assert.deepEqual(readRestoreNotice(failing), EMPTY_RESTORE_NOTICE)
+    clearRestoreNotice(failing)
   })
 
   it('has copy in every host language', () => {
     const keys = [
-      'importConfigSuccessUnresolvedMedia',
+      'importConfigSuccessNeedsAttention',
       'restoreUnresolvedMediaTitle',
       'restoreUnresolvedMediaHint',
+      'restoreSkippedSettingsTitle',
       'restoreUnresolvedMediaMore',
       'restoreUnresolvedMediaWallpaper',
       'restoreUnresolvedMediaSticker',
@@ -134,8 +166,10 @@ describe('settings restore unresolved media', () => {
       for (const key of keys) {
         const text = copy[key]
         assert.ok(text.length > 0, `${locale}.${key}`)
-        const rendered = formatMessage(locale, text, { count: 3 })
-        assert.doesNotMatch(rendered, /[{}]/, `${locale}.${key}: ${rendered}`)
+        for (const count of [1, 3]) {
+          const rendered = formatMessage(locale, text, { count })
+          assert.doesNotMatch(rendered, /[{}]/, `${locale}.${key}: ${rendered}`)
+        }
       }
     }
   })

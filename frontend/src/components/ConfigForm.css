@@ -165,6 +165,13 @@ html.dark .settings-stat-chip.is-warning {
   font-weight: 600;
 }
 
+.settings-restore-invalid-keys {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
 .settings-restore-media-list {
   margin: 0;
   padding-left: 1.125rem;

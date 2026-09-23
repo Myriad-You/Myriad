@@ -19,11 +19,14 @@ import {
   updateConfig,
 } from '../../lib/api'
 import {
-  clearRestoreMediaNotice,
-  formatUnresolvedMediaNotice,
-  readRestoreMediaNotice,
-  stashRestoreMediaNotice,
-} from '../../lib/settingsRestoreMedia'
+  clearRestoreNotice,
+  EMPTY_RESTORE_NOTICE,
+  formatRestoreNotice,
+  hasRestoreNotice,
+  readRestoreNotice,
+  stashRestoreNotice,
+  summarizeKeys,
+} from '../../lib/settingsRestoreNotice'
 
 import { getCSRFToken } from '../../utils/csrf'
 import { purgeFrontendCachesAndReload } from '../../utils/frontendCachePurge'
@@ -226,25 +229,23 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
   const { t, format } = useI18n()
   const { catalog: g, bindGuide } = useSettingGuide()
   // Carried across the reload that follows a restore; shown until dismissed.
-  const [unresolvedMedia, setUnresolvedMedia] = useState(() =>
-    readRestoreMediaNotice(),
-  )
-  const unresolvedMediaNotice =
-    unresolvedMedia.length > 0
-      ? formatUnresolvedMediaNotice(
-          unresolvedMedia,
-          {
-            title: t.config.restoreUnresolvedMediaTitle,
-            more: t.config.restoreUnresolvedMediaMore,
-            wallpaper: t.config.restoreUnresolvedMediaWallpaper,
-            sticker: t.config.restoreUnresolvedMediaSticker,
-          },
-          format,
-        )
-      : null
-  const dismissUnresolvedMedia = useCallback(() => {
-    clearRestoreMediaNotice()
-    setUnresolvedMedia([])
+  const [restoreNotice, setRestoreNotice] = useState(() => readRestoreNotice())
+  const formattedRestoreNotice = hasRestoreNotice(restoreNotice)
+    ? formatRestoreNotice(
+        restoreNotice,
+        {
+          mediaTitle: t.config.restoreUnresolvedMediaTitle,
+          skippedTitle: t.config.restoreSkippedSettingsTitle,
+          more: t.config.restoreUnresolvedMediaMore,
+          wallpaper: t.config.restoreUnresolvedMediaWallpaper,
+          sticker: t.config.restoreUnresolvedMediaSticker,
+        },
+        format,
+      )
+    : null
+  const dismissRestoreNotice = useCallback(() => {
+    clearRestoreNotice()
+    setRestoreNotice(EMPTY_RESTORE_NOTICE)
   }, [])
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
   const [cachePurgeArmed, setCachePurgeArmed] = useState(false)
@@ -259,6 +260,7 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
   const [restorePreview, setRestorePreview] =
     useState<SettingsRestorePreview | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const invalidPreviewKeys = summarizeKeys(restorePreview?.invalid_keys ?? [])
   const previewText = {
     restore: t.config.importPreviewRestore,
     preserve: t.config.importPreviewPreserve,
@@ -361,20 +363,24 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
 
     try {
       await getCSRFToken(true)
-      let unresolvedCount = 0
+      let attentionCount = 0
       if (isVersionedSettingsBackup(pendingImportData)) {
         const result = await restoreSettingsBackup(pendingImportData)
         restoreClientPreferences(pendingClientRestore)
-        unresolvedCount = result.unresolved_media.length
-        // An empty list also clears a notice left by an earlier restore.
-        stashRestoreMediaNotice(result.unresolved_media)
+        attentionCount =
+          result.unresolved_media.length + result.skipped_settings.length
+        // An empty notice also clears one left by an earlier restore.
+        stashRestoreNotice({
+          unresolvedMedia: result.unresolved_media,
+          skippedSettings: result.skipped_settings,
+        })
       } else {
         await updateConfig(pendingImportData)
       }
-      if (unresolvedCount > 0) {
+      if (attentionCount > 0) {
         onMessage?.(
-          format(t.config.importConfigSuccessUnresolvedMedia, {
-            count: unresolvedCount,
+          format(t.config.importConfigSuccessNeedsAttention, {
+            count: attentionCount,
           }),
           'warning',
         )
@@ -598,24 +604,43 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
         {...bindGuide('advanced.backup', g.advanced.backup)}
         icon={<FaSave />}
       >
-        {unresolvedMediaNotice && (
+        {formattedRestoreNotice && (
           <div
             className="settings-stat-chip is-warning settings-restore-media-notice"
             role="status"
           >
-            <p className="settings-restore-media-title">
-              {unresolvedMediaNotice.title}
-            </p>
-            <p>{t.config.restoreUnresolvedMediaHint}</p>
-            <ul className="settings-restore-media-list">
-              {unresolvedMediaNotice.lines.map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-            </ul>
-            {unresolvedMediaNotice.more && (
-              <p>{unresolvedMediaNotice.more}</p>
+            {formattedRestoreNotice.skipped && (
+              <>
+                <p className="settings-restore-media-title">
+                  {formattedRestoreNotice.skipped.title}
+                </p>
+                <ul className="settings-restore-media-list">
+                  {formattedRestoreNotice.skipped.lines.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+                {formattedRestoreNotice.skipped.more && (
+                  <p>{formattedRestoreNotice.skipped.more}</p>
+                )}
+              </>
             )}
-            <SettingsButton variant="secondary" onClick={dismissUnresolvedMedia}>
+            {formattedRestoreNotice.media && (
+              <>
+                <p className="settings-restore-media-title">
+                  {formattedRestoreNotice.media.title}
+                </p>
+                <p>{t.config.restoreUnresolvedMediaHint}</p>
+                <ul className="settings-restore-media-list">
+                  {formattedRestoreNotice.media.lines.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+                {formattedRestoreNotice.media.more && (
+                  <p>{formattedRestoreNotice.media.more}</p>
+                )}
+              </>
+            )}
+            <SettingsButton variant="secondary" onClick={dismissRestoreNotice}>
               {t.config.restoreUnresolvedMediaDismiss}
             </SettingsButton>
           </div>
@@ -750,6 +775,15 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
                   {restorePreview.invalid_count > 0 && (
                     <div className="settings-stat-chip is-danger is-wide">
                       {previewText.invalid}: {restorePreview.invalid_count}
+                      {invalidPreviewKeys.shown.length > 0 && (
+                        <span className="settings-restore-invalid-keys">
+                          {invalidPreviewKeys.shown.join(', ')}
+                          {invalidPreviewKeys.hidden > 0 &&
+                            ` ${format(t.config.restoreUnresolvedMediaMore, {
+                              count: invalidPreviewKeys.hidden,
+                            })}`}
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>

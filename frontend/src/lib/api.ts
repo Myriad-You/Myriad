@@ -1,5 +1,5 @@
 import type { AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig } from 'axios'
-import type { UnresolvedRestoredMedia } from './settingsRestoreMedia'
+import type { UnresolvedRestoredMedia } from './settingsRestoreNotice'
 import axios from 'axios'
 
 import { API_URL } from '../config'
@@ -18,7 +18,10 @@ import {
 import { invalidatePermissionConfig } from '../utils/permissionConfig'
 import { checkRateLimit, RateLimitError } from '../utils/rateLimiter'
 import { isUselessErrorText, userFacingError } from '../utils/userFacingError'
-import { parseUnresolvedRestoredMedia } from './settingsRestoreMedia'
+import {
+  parseSettingKeys,
+  parseUnresolvedRestoredMedia,
+} from './settingsRestoreNotice'
 
 const API_BASE_URL =
   API_URL || (typeof window !== 'undefined' ? window.location.origin : '')
@@ -316,6 +319,11 @@ export interface SettingsRestoreResult {
   preview?: SettingsRestorePreview
   /** Local media the backup cites that does not exist here; left unbound. */
   unresolved_media: UnresolvedRestoredMedia[]
+  /**
+   * Settings the restore skipped as invalid, keeping their current values
+   * (`preview.invalid_keys`, key names only).
+   */
+  skipped_settings: string[]
 }
 
 export async function restoreSettingsBackup(
@@ -337,6 +345,7 @@ export async function restoreSettingsBackup(
     unresolved_media: parseUnresolvedRestoredMedia(
       response.data.unresolved_media,
     ),
+    skipped_settings: parseSettingKeys(response.data.preview?.invalid_keys),
   } as SettingsRestoreResult
 }
 
