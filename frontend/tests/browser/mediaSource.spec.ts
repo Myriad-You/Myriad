@@ -36,3 +36,10 @@ test('switching sources clears the previous private preview immediately, includi
   await page.evaluate(() => window.mediaSourceTest.show(undefined))
   await expect(page.locator('img')).toHaveCount(0)
 })
+
+test('a private catalog image with an old site origin loads through the current site', async ({ page }) => {
+  await page.evaluate(() => window.mediaSourceTest.show('https://old.invalid/api/media/7/content?v=2'))
+  await expect.poll(() => page.evaluate(() => window.mediaSourceTest.requests[0]?.url)).toBe('/api/media/7/content?v=2')
+  await page.evaluate(() => window.mediaSourceTest.requests[0].finish())
+  await expect.poll(() => page.locator('img').evaluate(img => (img as HTMLImageElement).naturalWidth)).toBe(2)
+})

@@ -11,3 +11,11 @@ test('backend media reads resolve at the API origin; stored identity and externa
     assert.equal(siteMediaUrl(url, 'https://api.example'), url)
   }
 })
+
+test('persisted media follows the current API origin after a site-domain change', () => {
+  for (const path of ['/media/assets/id/portrait.jpg', '/media/federation/1/photo.jpg', '/api/media/7/content']) {
+    assert.equal(siteMediaUrl(`https://old.example${path}?v=2`, 'https://api.example'), `https://api.example${path}?v=2`)
+    assert.equal(siteMediaUrl(`//old.example${path}`, ''), path)
+  }
+  assert.equal(siteMediaUrl('https://other.example/api/private', ''), 'https://other.example/api/private')
+})

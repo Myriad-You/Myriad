@@ -1,6 +1,7 @@
 import { API_URL } from '../config'
 import { currentCopy } from '../i18n/localeCopy'
 import { getCSRFToken } from '../utils/csrf'
+import { siteMediaUrl } from '../utils/siteMediaUrl'
 import { userFacingError } from '../utils/userFacingError'
 import { apiService } from './api'
 
@@ -95,7 +96,7 @@ export async function fetchMediaObjectUrl(
   path: string,
   signal?: AbortSignal,
 ): Promise<string> {
-  path = path.trim()
+  path = siteMediaUrl(path.trim(), '')
   const url = path.startsWith('http') || path.startsWith('//') || path.startsWith('blob:') || path.startsWith('data:')
     ? path
     : `${API_URL.replace(/\/$/, '')}${path}`

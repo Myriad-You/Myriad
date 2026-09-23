@@ -120,3 +120,11 @@ it('serializes filters and the full timestamp cursor without changing its precis
     before_created_at: cursor.created_at, before_id: '42', limit: '10',
   })
 })
+
+it('private preview fetch stays on the current site when a stored URL has an old origin', async () => {
+  const fetch = mock.method(globalThis, 'fetch', async () => new Response(new Blob(['image'])))
+  const url = await fetchMediaObjectUrl('https://old.example/api/media/7/content?v=2')
+  assert.equal(fetch.mock.calls[0].arguments[0], '/api/media/7/content?v=2')
+  assert.equal(fetch.mock.calls[0].arguments[1]?.credentials, 'include')
+  URL.revokeObjectURL(url)
+})
