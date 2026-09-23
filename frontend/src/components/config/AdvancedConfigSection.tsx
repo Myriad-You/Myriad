@@ -18,6 +18,12 @@ import {
   restoreSettingsBackup,
   updateConfig,
 } from '../../lib/api'
+import {
+  clearRestoreMediaNotice,
+  formatUnresolvedMediaNotice,
+  readRestoreMediaNotice,
+  stashRestoreMediaNotice,
+} from '../../lib/settingsRestoreMedia'
 
 import { getCSRFToken } from '../../utils/csrf'
 import { purgeFrontendCachesAndReload } from '../../utils/frontendCachePurge'
@@ -217,8 +223,29 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
   updateUiFieldValue,
   onMessage,
 }) => {
-  const { t } = useI18n()
+  const { t, format } = useI18n()
   const { catalog: g, bindGuide } = useSettingGuide()
+  // Carried across the reload that follows a restore; shown until dismissed.
+  const [unresolvedMedia, setUnresolvedMedia] = useState(() =>
+    readRestoreMediaNotice(),
+  )
+  const unresolvedMediaNotice =
+    unresolvedMedia.length > 0
+      ? formatUnresolvedMediaNotice(
+          unresolvedMedia,
+          {
+            title: t.config.restoreUnresolvedMediaTitle,
+            more: t.config.restoreUnresolvedMediaMore,
+            wallpaper: t.config.restoreUnresolvedMediaWallpaper,
+            sticker: t.config.restoreUnresolvedMediaSticker,
+          },
+          format,
+        )
+      : null
+  const dismissUnresolvedMedia = useCallback(() => {
+    clearRestoreMediaNotice()
+    setUnresolvedMedia([])
+  }, [])
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
   const [cachePurgeArmed, setCachePurgeArmed] = useState(false)
   const [cachePurgeLoading, setCachePurgeLoading] = useState(false)
@@ -334,13 +361,26 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
 
     try {
       await getCSRFToken(true)
+      let unresolvedCount = 0
       if (isVersionedSettingsBackup(pendingImportData)) {
-        await restoreSettingsBackup(pendingImportData)
+        const result = await restoreSettingsBackup(pendingImportData)
         restoreClientPreferences(pendingClientRestore)
+        unresolvedCount = result.unresolved_media.length
+        // An empty list also clears a notice left by an earlier restore.
+        stashRestoreMediaNotice(result.unresolved_media)
       } else {
         await updateConfig(pendingImportData)
       }
-      onMessage?.(t.config.importConfigSuccess, 'success')
+      if (unresolvedCount > 0) {
+        onMessage?.(
+          format(t.config.importConfigSuccessUnresolvedMedia, {
+            count: unresolvedCount,
+          }),
+          'warning',
+        )
+      } else {
+        onMessage?.(t.config.importConfigSuccess, 'success')
+      }
       setTimeout(() => {
         window.location.reload()
       }, 2000)
@@ -355,7 +395,7 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
       setPendingClientRestore(null)
       setRestorePreview(null)
     }
-  }, [pendingClientRestore, pendingImportData, t, onMessage])
+  }, [pendingClientRestore, pendingImportData, t, format, onMessage])
 
   const clearCachePurgeArmTimer = useCallback(() => {
     if (cachePurgeArmTimerRef.current != null) {
@@ -558,6 +598,28 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
         {...bindGuide('advanced.backup', g.advanced.backup)}
         icon={<FaSave />}
       >
+        {unresolvedMediaNotice && (
+          <div
+            className="settings-stat-chip is-warning settings-restore-media-notice"
+            role="status"
+          >
+            <p className="settings-restore-media-title">
+              {unresolvedMediaNotice.title}
+            </p>
+            <p>{t.config.restoreUnresolvedMediaHint}</p>
+            <ul className="settings-restore-media-list">
+              {unresolvedMediaNotice.lines.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+            {unresolvedMediaNotice.more && (
+              <p>{unresolvedMediaNotice.more}</p>
+            )}
+            <SettingsButton variant="secondary" onClick={dismissUnresolvedMedia}>
+              {t.config.restoreUnresolvedMediaDismiss}
+            </SettingsButton>
+          </div>
+        )}
         <ButtonItem
           itemKey="export_config"
           label={t.config.exportConfig}

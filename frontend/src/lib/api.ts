@@ -1,7 +1,8 @@
 import type { AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig } from 'axios'
+import type { UnresolvedRestoredMedia } from './settingsRestoreMedia'
 import axios from 'axios'
-import { API_URL } from '../config'
 
+import { API_URL } from '../config'
 import { hostLocaleHeaders } from '../i18n/hostLocaleHeaders'
 import { currentCopy } from '../i18n/localeCopy'
 import { parseApiErrorBody } from '../services/api'
@@ -17,6 +18,7 @@ import {
 import { invalidatePermissionConfig } from '../utils/permissionConfig'
 import { checkRateLimit, RateLimitError } from '../utils/rateLimiter'
 import { isUselessErrorText, userFacingError } from '../utils/userFacingError'
+import { parseUnresolvedRestoredMedia } from './settingsRestoreMedia'
 
 const API_BASE_URL =
   API_URL || (typeof window !== 'undefined' ? window.location.origin : '')
@@ -307,7 +309,18 @@ export async function previewSettingsBackup(backup: unknown) {
   return response.data.preview as SettingsRestorePreview
 }
 
-export async function restoreSettingsBackup(backup: unknown) {
+export interface SettingsRestoreResult {
+  success: true
+  message?: string
+  requires_reload?: boolean
+  preview?: SettingsRestorePreview
+  /** Local media the backup cites that does not exist here; left unbound. */
+  unresolved_media: UnresolvedRestoredMedia[]
+}
+
+export async function restoreSettingsBackup(
+  backup: unknown,
+): Promise<SettingsRestoreResult> {
   const response = await api.post('/api/config/settings-backup', backup)
   if (response.data?.success !== true) {
     const restoreError =
@@ -319,7 +332,12 @@ export async function restoreSettingsBackup(backup: unknown) {
     )
   }
   invalidatePermissionConfig()
-  return response.data
+  return {
+    ...response.data,
+    unresolved_media: parseUnresolvedRestoredMedia(
+      response.data.unresolved_media,
+    ),
+  } as SettingsRestoreResult
 }
 
 export async function fetchPermissionsConfig() {
