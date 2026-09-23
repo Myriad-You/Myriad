@@ -2,8 +2,9 @@
 use axum::{Json, extract::State, http::StatusCode};
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseConnection,
-    EntityTrait, QueryFilter, QuerySelect, QueryTrait, TransactionTrait,
+    ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
+    QuerySelect, QueryTrait, TransactionTrait,
+    sea_query::{LockType, OnConflict},
 };
 use serde_json::json;
 
@@ -135,16 +136,33 @@ async fn apply_synced_state(
             updated_at: Set(now.into()),
             ..Default::default()
         };
-        match new_state.insert(transaction).await {
+        // DO NOTHING instead of a unique violation: the violation would abort the
+        // enclosing transaction, so the follow-up read could not report the conflict.
+        let inserted = phantasi_user_states::Entity::insert(new_state)
+            .on_conflict(
+                OnConflict::columns([
+                    phantasi_user_states::Column::UserId,
+                    phantasi_user_states::Column::ItemId,
+                ])
+                .do_nothing()
+                .to_owned(),
+            )
+            .exec_with_returning(transaction)
+            .await;
+        match inserted {
             Ok(inserted) => SyncedStateApply::Confirmed {
                 revision: inserted.revision,
             },
-            Err(_) => match current_sync_conflict(transaction, user_id, state_item).await {
-                Ok(conflict) if conflict.server_revision > 0 => {
-                    SyncedStateApply::Conflict(conflict)
+            // sea-orm reports a DO NOTHING conflict as "record not inserted/found".
+            Err(sea_orm::DbErr::RecordNotInserted | sea_orm::DbErr::RecordNotFound(_)) => {
+                match current_sync_conflict(transaction, user_id, state_item).await {
+                    Ok(conflict) if conflict.server_revision > 0 => {
+                        SyncedStateApply::Conflict(conflict)
+                    }
+                    _ => SyncedStateApply::Failed,
                 }
-                _ => SyncedStateApply::Failed,
-            },
+            }
+            Err(_) => SyncedStateApply::Failed,
         }
     }
 }
@@ -190,6 +208,15 @@ pub(crate) async fn sync_states(
     let mut conflicts = Vec::new();
     let item_ids: Vec<i32> = req.states.iter().map(|s| s.item_id).collect();
 
+    let transaction = db
+        .begin()
+        .await
+        .map_err(|error| phantasi_store_http("begin reading sync", error))?;
+
+    // Validate the entire batch inside the write transaction, before the first
+    // write. FOR KEY SHARE keeps the articles from being deleted until commit
+    // without blocking ordinary article updates. Missing and hidden articles
+    // share the same response, without disclosing private source data.
     let visible_item_ids: std::collections::HashSet<i32> = if !item_ids.is_empty() {
         phantasi_items::Entity::find()
             .filter(phantasi_items::Column::Id.is_in(item_ids))
@@ -199,8 +226,9 @@ pub(crate) async fn sync_states(
             )
             .select_only()
             .column(phantasi_items::Column::Id)
+            .lock(LockType::KeyShare)
             .into_tuple::<i32>()
-            .all(&db)
+            .all(&transaction)
             .await
             .map_err(|error| phantasi_store_http("find visible articles", error))?
             .into_iter()
@@ -208,21 +236,14 @@ pub(crate) async fn sync_states(
     } else {
         std::collections::HashSet::new()
     };
-
-    // Validate the entire batch before the first write. Missing and hidden
-    // articles share the same response, without disclosing private source data.
     if req
         .states
         .iter()
         .any(|state| !visible_item_ids.contains(&state.item_id))
     {
+        let _ = transaction.rollback().await;
         return Err(phantasi_http_err(StatusCode::NOT_FOUND, "Item not found"));
     }
-
-    let transaction = db
-        .begin()
-        .await
-        .map_err(|error| phantasi_store_http("begin reading sync", error))?;
     for state_item in req.states {
         if transaction
             .execute_unprepared("SAVEPOINT phantasi_sync_item")
@@ -500,5 +521,54 @@ mod sync_transaction_tests {
         );
         db.execute_unprepared("DROP TABLE IF EXISTS phantasi_user_states, phantasi_items, phantasi_sources CASCADE; DROP FUNCTION IF EXISTS phantasi_advance_state_revision() CASCADE;").await.unwrap();
         db.close().await.unwrap();
+    }
+
+    /// Two batch transactions race on the same first state. The loser must
+    /// report a conflict and keep its transaction usable for the rest of the batch.
+    #[tokio::test]
+    async fn racing_first_insert_in_a_transaction_reports_conflict() {
+        let Ok(url) = std::env::var("PHANTASI_TEST_DATABASE_URL") else {
+            return;
+        };
+        let isolated = crate::db::IsolatedSchema::migrated(&url, "reading_sync_test").await;
+        let db = isolated.db.clone();
+        db.execute_unprepared(
+            "INSERT INTO users (id, username) VALUES (7, 'reader');
+             INSERT INTO phantasi_sources (id, user_id, name, url) VALUES (1, 7, 'S', 'https://s.example/feed');
+             INSERT INTO phantasi_items (id, source_id, guid, title, link, published_at, fetched_at)
+             VALUES (10, 1, 'g10', 'T', 'https://s.example/10', NOW(), NOW());",
+        )
+        .await
+        .unwrap();
+        let now = Utc::now();
+        let first = db.begin().await.unwrap();
+        match apply_synced_state(&first, 7, true, now, &sync_item(Some(0), Some(true))).await {
+            SyncedStateApply::Confirmed { revision } => assert_eq!(revision, 1),
+            other => panic!("first insert should confirm, got {other:?}"),
+        }
+        let second = db.begin().await.unwrap();
+        second
+            .execute_unprepared("SAVEPOINT phantasi_sync_item")
+            .await
+            .unwrap();
+        let racing = async {
+            apply_synced_state(&second, 7, true, now, &sync_item(Some(0), Some(true))).await
+        };
+        let commit_first = async {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            first.commit().await.unwrap();
+        };
+        let (outcome, ()) = tokio::join!(racing, commit_first);
+        match outcome {
+            SyncedStateApply::Conflict(conflict) => assert_eq!(conflict.server_revision, 1),
+            other => panic!("losing first insert must be a conflict, got {other:?}"),
+        }
+        second
+            .execute_unprepared("RELEASE SAVEPOINT phantasi_sync_item")
+            .await
+            .expect("transaction must stay usable after the conflict");
+        second.commit().await.unwrap();
+        drop(db);
+        isolated.drop().await;
     }
 }
