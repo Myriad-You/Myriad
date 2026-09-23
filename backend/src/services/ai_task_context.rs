@@ -3,16 +3,16 @@
 //! Domain implementation for host-provided context refs. HTTP handlers map
 //! [`AiContextError`] to Axum responses and pass grant permission bits.
 
+use std::collections::HashMap;
+
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::GLOBAL_DYNAMIC_CONFIG;
 use crate::models::entities::platform_reports;
 use crate::services::ai_task_prepare::MAX_CONTEXT_BYTES;
-use crate::services::permission_service::{TappPermission, TappPermissionService, UserRole};
+use crate::services::permission_service::{TappPermission, UserRole};
 use crate::services::platform_cache::{get_cached_platform_data, validate_platform_name};
-use crate::services::tapp_ownership::{self, TappAccessError};
 use myriad_tapp_contract::manifest::{TappAiContextSource, TappAiManifest};
 
 pub const MAX_CONTEXT_ITEM_BYTES: usize = 64 * 1024;
@@ -55,7 +55,6 @@ pub struct AiContextSubject {
     pub subject_id: i32,
     pub username: String,
     pub role: UserRole,
-    pub tapp_id: String,
     /// Runtime grant includes platform:read.
     pub grant_platform_read: bool,
     /// Runtime grant includes report:read.
@@ -101,51 +100,51 @@ fn value_size(value: &Value) -> Result<usize, AiContextError> {
         })
 }
 
-async fn require_capability(
+/// The Runtime Grant was rebound for this request against the current
+/// installation's approved permissions and the current role/config, so its
+/// bits are the granted permission; no second installation/config lookup.
+fn require_grant(permission: TappPermission, granted: bool) -> Result<(), AiContextError> {
+    if granted {
+        return Ok(());
+    }
+    Err(AiContextError::new(
+        403,
+        "RUNTIME_GRANT_PERMISSION_DENIED",
+        format!("Runtime grant is missing '{}'", permission.as_str()),
+    ))
+}
+
+/// Load every referenced report of the subject in one query (refs are capped at 16).
+async fn load_reports(
     db: &DatabaseConnection,
-    subject: &AiContextSubject,
-    permission: TappPermission,
-    grant_ok: bool,
-) -> Result<(), AiContextError> {
-    if !grant_ok {
-        return Err(AiContextError::new(
-            403,
-            "RUNTIME_GRANT_PERMISSION_DENIED",
-            format!("Runtime grant is missing '{}'", permission.as_str()),
-        ));
+    subject_id: i32,
+    refs: &[AiContextRef],
+) -> Result<HashMap<i32, platform_reports::Model>, AiContextError> {
+    let mut ids: Vec<i32> = refs
+        .iter()
+        .filter_map(|context_ref| match context_ref {
+            AiContextRef::Report { report_id } => Some(*report_id),
+            _ => None,
+        })
+        .collect();
+    if ids.is_empty() {
+        return Ok(HashMap::new());
     }
-    let config = GLOBAL_DYNAMIC_CONFIG.read().await;
-    let allowed = TappPermissionService::check(&config, subject.role, permission);
-    drop(config);
-    if !allowed {
-        return Err(AiContextError::new(
-            403,
-            "PERMISSION_DENIED",
-            format!("You do not have the '{}' permission", permission.as_str()),
-        ));
-    }
-    tapp_ownership::verify_tapp_approved_permissions(
-        db,
-        subject.subject_id,
-        &subject.tapp_id,
-        &[permission],
-    )
-    .await
-    .map_err(|err| match err {
-        TappAccessError::Database => {
-            AiContextError::new(500, "AI_CONTEXT_READ_FAILED", err.message())
-        }
-        TappAccessError::NoAdmin => {
-            AiContextError::new(500, "AI_CONTEXT_READ_FAILED", "No admin user found")
-        }
-        TappAccessError::AccessDenied { .. } => {
-            AiContextError::new(403, "Access denied", err.message())
-        }
-        TappAccessError::PermissionNotGranted { .. } => {
-            AiContextError::new(403, "PERMISSION_DENIED", err.message())
-        }
-    })?;
-    Ok(())
+    ids.sort_unstable();
+    ids.dedup();
+    let rows = platform_reports::Entity::find()
+        .filter(platform_reports::Column::UserId.eq(subject_id))
+        .filter(platform_reports::Column::Id.is_in(ids))
+        .all(db)
+        .await
+        .map_err(|_| {
+            AiContextError::new(
+                500,
+                "AI_CONTEXT_READ_FAILED",
+                "Failed to read report context",
+            )
+        })?;
+    Ok(rows.into_iter().map(|row| (row.id, row)).collect())
 }
 
 /// Resolve host-provided context refs into a prompt appendix + provenance list.
@@ -163,28 +162,39 @@ pub async fn resolve_context(
         ));
     }
 
-    let mut values = Vec::with_capacity(refs.len());
-    let mut provenance = Vec::with_capacity(refs.len());
-    let mut total_bytes = 0usize;
+    // Declaration and grant checks run for every ref before any store read.
     for context_ref in refs {
-        let source = context_ref.source();
-        if !declaration.context_sources.contains(&source) {
+        if !declaration.context_sources.contains(&context_ref.source()) {
             return Err(AiContextError::new(
                 403,
                 "AI_CONTEXT_NOT_DECLARED",
                 "AI context source is not declared by this Tapp",
             ));
         }
+        match context_ref {
+            AiContextRef::Platform { .. } => {
+                require_grant(TappPermission::PlatformRead, subject.grant_platform_read)?
+            }
+            AiContextRef::Report { .. } => {
+                require_grant(TappPermission::ReportRead, subject.grant_report_read)?
+            }
+            AiContextRef::Profile { .. } | AiContextRef::Custom { .. } => {}
+        }
+    }
+    let mut reports = load_reports(db, subject.subject_id, refs).await?;
+    let mut report_uses: HashMap<i32, usize> = HashMap::new();
+    for context_ref in refs {
+        if let AiContextRef::Report { report_id } = context_ref {
+            *report_uses.entry(*report_id).or_default() += 1;
+        }
+    }
 
+    let mut values = Vec::with_capacity(refs.len());
+    let mut provenance = Vec::with_capacity(refs.len());
+    let mut total_bytes = 0usize;
+    for context_ref in refs {
         let (value, source_meta) = match context_ref {
             AiContextRef::Platform { platform, selector } => {
-                require_capability(
-                    db,
-                    subject,
-                    TappPermission::PlatformRead,
-                    subject.grant_platform_read,
-                )
-                .await?;
                 validate_platform_name(platform)
                     .map_err(|error| AiContextError::new(400, "INVALID_AI_CONTEXT", error))?;
                 if selector.len() > 256 || (!selector.is_empty() && !selector.starts_with('/')) {
@@ -218,31 +228,21 @@ pub async fn resolve_context(
                 )
             }
             AiContextRef::Report { report_id } => {
-                require_capability(
-                    db,
-                    subject,
-                    TappPermission::ReportRead,
-                    subject.grant_report_read,
-                )
-                .await?;
-                let report = platform_reports::Entity::find_by_id(*report_id)
-                    .filter(platform_reports::Column::UserId.eq(subject.subject_id))
-                    .one(db)
-                    .await
-                    .map_err(|_| {
-                        AiContextError::new(
-                            500,
-                            "AI_CONTEXT_READ_FAILED",
-                            "Failed to read report context",
-                        )
-                    })?
-                    .ok_or_else(|| {
-                        AiContextError::new(
-                            404,
-                            "AI_CONTEXT_NOT_FOUND",
-                            "Report context was not found",
-                        )
-                    })?;
+                let uses = report_uses.entry(*report_id).or_default();
+                *uses = uses.saturating_sub(1);
+                // Move the row out on its last use; only repeated refs clone.
+                let report = if *uses == 0 {
+                    reports.remove(report_id)
+                } else {
+                    reports.get(report_id).cloned()
+                }
+                .ok_or_else(|| {
+                    AiContextError::new(
+                        404,
+                        "AI_CONTEXT_NOT_FOUND",
+                        "Report context was not found",
+                    )
+                })?;
                 (
                     json!({
                         "id": report.id,
@@ -369,7 +369,6 @@ mod tests {
             subject_id: 1,
             username: "u".into(),
             role: UserRole::User,
-            tapp_id: "com.example.app".into(),
             grant_platform_read: true,
             grant_report_read: false,
         };

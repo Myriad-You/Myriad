@@ -254,7 +254,6 @@ pub async fn create_ai_task(
         subject_id: runtime.subject_id(),
         username: claims.username.clone(),
         role,
-        tapp_id: runtime.tapp_id().to_string(),
         grant_platform_read: runtime.has(TappPermission::PlatformRead),
         grant_report_read: runtime.has(TappPermission::ReportRead),
     };
