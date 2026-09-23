@@ -13,33 +13,11 @@ use crate::models::entities::{phantasi_items, phantasi_user_states};
 use super::helpers::{get_phantasi_user_and_admin_status, phantasi_http_err, phantasi_store_http};
 use super::reading_mark::visible_state_sources;
 
-async fn apply_unread_delta(
-    _transaction: &impl ConnectionTrait,
-    _source_id: i32,
-    _delta: i32,
-) -> Result<(), sea_orm::DbErr> {
-    // 未读以每用户 SQL 覆盖为准。站级 phantasi_sources.unread_count 不在读路径写。
-    Ok(())
-}
-
 #[derive(Debug)]
 enum SyncedStateApply {
     Confirmed { revision: i64 },
     Conflict(phantasi_user_states::SyncConflict),
     Failed,
-}
-
-fn unread_delta(previous: bool, next: Option<bool>) -> i32 {
-    match next {
-        Some(read) if read != previous => {
-            if read {
-                -1
-            } else {
-                1
-            }
-        }
-        _ => 0,
-    }
 }
 
 fn apply_sync_fields(
@@ -70,7 +48,11 @@ fn apply_sync_fields(
     active
 }
 
-/// One article: lock article then state, write both the row and its count, or roll back.
+/// One article: lock the user's state row and compare-and-swap it by revision.
+///
+/// Article existence and visibility are validated for the whole batch by the
+/// caller before the first write; unread counts are per-user SQL projections, so
+/// there is no article/source row to lock or update here.
 async fn apply_synced_state(
     transaction: &impl ConnectionTrait,
     user_id: i32,
@@ -78,22 +60,6 @@ async fn apply_synced_state(
     now: chrono::DateTime<Utc>,
     state_item: &phantasi_user_states::SyncStateItem,
 ) -> SyncedStateApply {
-    let source_id = match phantasi_items::Entity::find_by_id(state_item.item_id)
-        .filter(
-            phantasi_items::Column::SourceId
-                .in_subquery(visible_state_sources(is_admin).into_query()),
-        )
-        .select_only()
-        .column(phantasi_items::Column::SourceId)
-        .lock_exclusive()
-        .into_tuple::<i32>()
-        .one(transaction)
-        .await
-    {
-        Ok(Some(source_id)) => source_id,
-        _ => return SyncedStateApply::Failed,
-    };
-
     let existing = match phantasi_user_states::Entity::find()
         .filter(phantasi_user_states::Column::UserId.eq(user_id))
         .filter(phantasi_user_states::Column::ItemId.eq(state_item.item_id))
@@ -119,7 +85,6 @@ async fn apply_synced_state(
 
         let state_id = server_state.id;
         let previous_revision = server_state.revision;
-        let was_read = server_state.is_read;
         let active = apply_sync_fields(server_state.into(), state_item, now, is_admin);
         let updated = phantasi_user_states::Entity::update_many()
             .set(active)
@@ -128,16 +93,6 @@ async fn apply_synced_state(
             .exec(transaction)
             .await;
         if matches!(&updated, Ok(result) if result.rows_affected == 1) {
-            if apply_unread_delta(
-                transaction,
-                source_id,
-                unread_delta(was_read, state_item.is_read),
-            )
-            .await
-            .is_err()
-            {
-                return SyncedStateApply::Failed;
-            }
             SyncedStateApply::Confirmed {
                 revision: previous_revision + 1,
             }
@@ -181,17 +136,9 @@ async fn apply_synced_state(
             ..Default::default()
         };
         match new_state.insert(transaction).await {
-            Ok(inserted) => {
-                if apply_unread_delta(transaction, source_id, if is_read { -1 } else { 0 })
-                    .await
-                    .is_err()
-                {
-                    return SyncedStateApply::Failed;
-                }
-                SyncedStateApply::Confirmed {
-                    revision: inserted.revision,
-                }
-            }
+            Ok(inserted) => SyncedStateApply::Confirmed {
+                revision: inserted.revision,
+            },
             Err(_) => match current_sync_conflict(transaction, user_id, state_item).await {
                 Ok(conflict) if conflict.server_revision > 0 => {
                     SyncedStateApply::Conflict(conflict)
@@ -204,19 +151,6 @@ async fn apply_synced_state(
 
 // A failed compare-and-swap is a conflict, not a retryable storage failure.
 // Re-read after the competing write so the response describes current state.
-#[cfg(test)]
-async fn commit_synced_state(
-    transaction: sea_orm::DatabaseTransaction,
-    source_id: i32,
-    delta: i32,
-) -> Result<(), sea_orm::DbErr> {
-    if let Err(error) = apply_unread_delta(&transaction, source_id, delta).await {
-        let _ = transaction.rollback().await;
-        return Err(error);
-    }
-    transaction.commit().await
-}
-
 async fn current_sync_conflict(
     db: &impl ConnectionTrait,
     user_id: i32,
@@ -256,7 +190,7 @@ pub(crate) async fn sync_states(
     let mut conflicts = Vec::new();
     let item_ids: Vec<i32> = req.states.iter().map(|s| s.item_id).collect();
 
-    let item_source_map: std::collections::HashMap<i32, i32> = if !item_ids.is_empty() {
+    let visible_item_ids: std::collections::HashSet<i32> = if !item_ids.is_empty() {
         phantasi_items::Entity::find()
             .filter(phantasi_items::Column::Id.is_in(item_ids))
             .filter(
@@ -265,15 +199,14 @@ pub(crate) async fn sync_states(
             )
             .select_only()
             .column(phantasi_items::Column::Id)
-            .column(phantasi_items::Column::SourceId)
-            .into_tuple::<(i32, i32)>()
+            .into_tuple::<i32>()
             .all(&db)
             .await
             .map_err(|error| phantasi_store_http("find visible articles", error))?
             .into_iter()
             .collect()
     } else {
-        std::collections::HashMap::new()
+        std::collections::HashSet::new()
     };
 
     // Validate the entire batch before the first write. Missing and hidden
@@ -281,7 +214,7 @@ pub(crate) async fn sync_states(
     if req
         .states
         .iter()
-        .any(|state| !item_source_map.contains_key(&state.item_id))
+        .any(|state| !visible_item_ids.contains(&state.item_id))
     {
         return Err(phantasi_http_err(StatusCode::NOT_FOUND, "Item not found"));
     }
@@ -359,23 +292,25 @@ mod journal_audit_contracts {
     }
 
     #[test]
-    fn sync_does_not_write_site_unread() {
+    fn per_state_apply_does_not_touch_articles_or_sources() {
         let src = include_str!("reading_sync.rs");
         let start = src
-            .find("async fn apply_unread_delta")
-            .expect("apply_unread_delta");
+            .find("async fn apply_synced_state")
+            .expect("apply_synced_state");
         let body = &src[start..];
         let end = body[1..]
-            .find("\n#[derive")
-            .or_else(|| body[1..].find("\nenum "))
+            .find("\nasync fn ")
             .map(|index| index + 1)
             .unwrap_or(body.len());
-        let delta = &body[..end];
+        let apply = &body[..end];
         assert!(
-            !delta.contains("UPDATE phantasi_sources"),
+            !apply.contains("phantasi_items::"),
+            "batch pre-validation covers articles; per-state apply must not re-read or lock them"
+        );
+        assert!(
+            !apply.contains("phantasi_sources"),
             "offline sync must not write site-wide source unread_count"
         );
-        assert!(delta.contains("Ok(())"));
     }
 }
 
@@ -400,15 +335,6 @@ mod sync_transaction_tests {
             .nth(1)
             .expect("insert state");
         assert!(insert.contains("is_admin && state_item.is_starred"));
-    }
-
-    #[test]
-    fn unread_delta_only_changes_when_read_flag_flips() {
-        assert_eq!(unread_delta(false, Some(true)), -1);
-        assert_eq!(unread_delta(true, Some(false)), 1);
-        assert_eq!(unread_delta(true, Some(true)), 0);
-        assert_eq!(unread_delta(false, None), 0);
-        assert_eq!(unread_delta(false, Some(false)), 0);
     }
 
     fn isolated_url() -> String {
@@ -506,52 +432,7 @@ mod sync_transaction_tests {
 
     #[tokio::test]
     #[ignore = "requires explicit PHANTASI_REVISION_TEST_DATABASE_URL for an isolated database"]
-    async fn count_failure_rolls_back_state_and_success_commits_both() {
-        let db = isolated_db(1).await;
-        // Temporary tables shadow real names only on this test connection.
-        db.execute_unprepared("CREATE TEMP TABLE phantasi_sources (id INTEGER PRIMARY KEY, unread_count INTEGER CHECK (unread_count <= 10)); CREATE TEMP TABLE phantasi_atomic_probe (id INTEGER PRIMARY KEY, revision INTEGER); INSERT INTO phantasi_sources VALUES (1, 10); INSERT INTO phantasi_atomic_probe VALUES (1, 1)").await.unwrap();
-        let failed = db.begin().await.unwrap();
-        failed
-            .execute_unprepared(
-                "UPDATE phantasi_atomic_probe SET revision = revision + 1 WHERE id = 1",
-            )
-            .await
-            .unwrap();
-        assert!(commit_synced_state(failed, 1, 1).await.is_err());
-        let row = db
-            .query_one_raw(Statement::from_string(
-                DatabaseBackend::Postgres,
-                "SELECT revision, unread_count FROM phantasi_atomic_probe CROSS JOIN phantasi_sources",
-            ))
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(row.try_get::<i32>("", "revision").unwrap(), 1);
-        assert_eq!(row.try_get::<i32>("", "unread_count").unwrap(), 10);
-        let success = db.begin().await.unwrap();
-        success
-            .execute_unprepared(
-                "UPDATE phantasi_atomic_probe SET revision = revision + 1 WHERE id = 1",
-            )
-            .await
-            .unwrap();
-        commit_synced_state(success, 1, -1).await.unwrap();
-        let row = db
-            .query_one_raw(Statement::from_string(
-                DatabaseBackend::Postgres,
-                "SELECT revision, unread_count FROM phantasi_atomic_probe CROSS JOIN phantasi_sources",
-            ))
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(row.try_get::<i32>("", "revision").unwrap(), 2);
-        assert_eq!(row.try_get::<i32>("", "unread_count").unwrap(), 9);
-        db.close().await.unwrap();
-    }
-
-    #[tokio::test]
-    #[ignore = "requires explicit PHANTASI_REVISION_TEST_DATABASE_URL for an isolated database"]
-    async fn apply_confirms_then_conflicts_and_rolls_count_failure_back() {
+    async fn apply_confirms_then_conflicts() {
         let db = isolated_db(1).await;
         db.execute_unprepared("CREATE TEMP TABLE phantasi_sources (id INTEGER PRIMARY KEY, admin_only BOOLEAN NOT NULL DEFAULT FALSE, unread_count INTEGER NOT NULL); CREATE TEMP TABLE phantasi_items (id INTEGER PRIMARY KEY, source_id INTEGER NOT NULL); CREATE TEMP TABLE phantasi_user_states (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, item_id INTEGER NOT NULL, is_read BOOLEAN NOT NULL DEFAULT FALSE, is_starred BOOLEAN NOT NULL DEFAULT FALSE, read_at TIMESTAMPTZ, read_progress REAL, starred_at TIMESTAMPTZ, notes TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), revision BIGINT NOT NULL DEFAULT 1, UNIQUE (user_id, item_id)); CREATE OR REPLACE FUNCTION phantasi_advance_state_revision() RETURNS trigger AS $$ BEGIN NEW.revision := OLD.revision + 1; RETURN NEW; END; $$ LANGUAGE plpgsql; CREATE TRIGGER phantasi_state_revision BEFORE UPDATE ON phantasi_user_states FOR EACH ROW EXECUTE FUNCTION phantasi_advance_state_revision(); INSERT INTO phantasi_sources VALUES (1, FALSE, 1); INSERT INTO phantasi_items VALUES (10, 1); INSERT INTO phantasi_items VALUES (11, 1);").await.unwrap();
 
@@ -559,14 +440,6 @@ mod sync_transaction_tests {
             SyncedStateApply::Confirmed { revision } => assert_eq!(revision, 1),
             other => panic!("insert should confirm, got {other:?}"),
         }
-        assert_eq!(
-            scalar_i32(
-                &db,
-                "SELECT unread_count AS v FROM phantasi_sources WHERE id = 1"
-            )
-            .await,
-            0
-        );
 
         match apply_read(&db, Some(0), Some(true)).await {
             SyncedStateApply::Conflict(conflict) => {
@@ -581,48 +454,12 @@ mod sync_transaction_tests {
             other => panic!("matching revision should confirm, got {other:?}"),
         }
 
-        db.execute_unprepared("UPDATE phantasi_sources SET unread_count = 1; ALTER TABLE phantasi_sources ADD CHECK (unread_count >= 1)").await.unwrap();
-        match apply_synced_state(
-            &db,
-            7,
-            true,
-            Utc::now(),
-            &phantasi_user_states::SyncStateItem {
-                item_id: 11,
-                expected_revision: Some(0),
-                is_read: Some(true),
-                is_starred: None,
-                read_progress: None,
-                updated_at: 1,
-            },
-        )
-        .await
-        {
-            SyncedStateApply::Failed => {}
-            other => panic!("count check should fail the write, got {other:?}"),
-        }
-        assert_eq!(
-            scalar_i32(
-                &db,
-                "SELECT COUNT(*)::int AS v FROM phantasi_user_states WHERE item_id = 11"
-            )
-            .await,
-            0
-        );
-        assert_eq!(
-            scalar_i32(
-                &db,
-                "SELECT unread_count AS v FROM phantasi_sources WHERE id = 1"
-            )
-            .await,
-            1
-        );
         db.close().await.unwrap();
     }
 
     #[tokio::test]
     #[ignore = "requires explicit PHANTASI_REVISION_TEST_DATABASE_URL for an isolated database"]
-    async fn concurrent_first_inserts_confirm_once_and_keep_count() {
+    async fn concurrent_first_inserts_confirm_once() {
         let db = isolated_db(4).await;
         db.execute_unprepared("DROP TABLE IF EXISTS phantasi_user_states, phantasi_items, phantasi_sources CASCADE; DROP FUNCTION IF EXISTS phantasi_advance_state_revision() CASCADE;").await.unwrap();
         db.execute_unprepared(SYNC_TABLES).await.unwrap();
@@ -656,14 +493,6 @@ mod sync_transaction_tests {
         assert_eq!(
             scalar_i32(&db, "SELECT COUNT(*)::int AS v FROM phantasi_user_states").await,
             1
-        );
-        assert_eq!(
-            scalar_i32(
-                &db,
-                "SELECT unread_count AS v FROM phantasi_sources WHERE id = 1"
-            )
-            .await,
-            0
         );
         assert_eq!(
             scalar_i64(&db, "SELECT revision AS v FROM phantasi_user_states").await,
