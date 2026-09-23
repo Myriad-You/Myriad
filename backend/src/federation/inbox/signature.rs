@@ -257,6 +257,14 @@ pub(crate) async fn promote_verified_actor(
     }
     persist_verified_remote_actor(db, &resolved)
         .await
+        .and_then(|info| {
+            // Never hand an ephemeral placeholder id (0) to FK writers.
+            if info.id > 0 {
+                Ok(info)
+            } else {
+                Err("verified actor was not persisted".to_string())
+            }
+        })
         .inspect_err(|e| {
             tracing::warn!(
                 actor = %actor_url_str,
