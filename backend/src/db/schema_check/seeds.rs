@@ -2,8 +2,34 @@
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbErr, Statement};
 use serde_json::Value;
 
-use super::introspect::get_existing_tables;
 use crate::config::DynamicConfig;
+
+/// Runtime permissions whose default delegation is open; seeded with `true`
+/// independently of `DynamicConfig::default()`.
+const EXPLICIT_OPEN_CONFIG_KEYS: [&str; 2] =
+    ["user_perm_component_theme", "user_perm_shortcut_register"];
+
+/// Build `($1, $2, …), ($n, …)` placeholders for a multi-row VALUES list.
+/// `trailing` is appended verbatim inside each row after the bound columns.
+fn values_placeholders(rows: usize, columns: usize, trailing: &str) -> String {
+    let mut sql = String::with_capacity(rows * (columns * 5 + trailing.len() + 4));
+    for row in 0..rows {
+        if row > 0 {
+            sql.push_str(", ");
+        }
+        sql.push('(');
+        for column in 0..columns {
+            if column > 0 {
+                sql.push_str(", ");
+            }
+            sql.push('$');
+            sql.push_str(&(row * columns + column + 1).to_string());
+        }
+        sql.push_str(trailing);
+        sql.push(')');
+    }
+    sql
+}
 
 pub struct DefaultPlatformSeed {
     pub name: &'static str,
@@ -112,50 +138,38 @@ pub fn default_platform_seeds() -> &'static [DefaultPlatformSeed] {
 /// 将缺失的默认平台行补入 `platforms` 表（ON CONFLICT DO NOTHING，不覆盖用户已有配置）
 ///
 /// 这是「数据表种子同步」入口：结构由列/索引检查负责，默认业务行由本函数负责。
+/// 整表由 Migrator 001 创建；缺表时 INSERT 直接返回数据库错误并阻断 readiness。
 pub async fn ensure_default_platforms(db: &DatabaseConnection) -> Result<usize, DbErr> {
-    // 整表由 Migrator 001 创建；缺表说明迁移历史/结构不一致，必须阻断 readiness。
-    let existing_tables = get_existing_tables(db).await?;
-    if !existing_tables.contains("platforms") {
-        return Err(DbErr::Custom(
-            "platforms table missing after migrations".to_string(),
-        ));
-    }
-
     let seeds = default_platform_seeds();
-    let mut inserted = 0usize;
-
+    let mut values = Vec::with_capacity(seeds.len() * 6);
     for seed in seeds {
-        // 使用参数化 Statement，避免字符串拼接注入；ON CONFLICT (name) DO NOTHING
-        let sql = r#"
-            INSERT INTO platforms (name, display_name, icon, api_endpoint, auth_type, enabled)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (name) DO NOTHING
-        "#;
-
-        let result = db
-            .execute_raw(sea_orm::Statement::from_sql_and_values(
-                sea_orm::DatabaseBackend::Postgres,
-                sql,
-                [
-                    seed.name.into(),
-                    seed.display_name.into(),
-                    seed.icon.into(),
-                    seed.api_endpoint.into(),
-                    seed.auth_type.into(),
-                    seed.enabled.into(),
-                ],
-            ))
-            .await?;
-
-        let rows = result.rows_affected();
-        if rows > 0 {
-            tracing::info!(
-                "📦 Seeded default platform row: {} ({})",
-                seed.name,
-                seed.display_name
-            );
-            inserted += rows as usize;
-        }
+        values.extend([
+            seed.name.into(),
+            seed.display_name.into(),
+            seed.icon.into(),
+            seed.api_endpoint.into(),
+            seed.auth_type.into(),
+            seed.enabled.into(),
+        ]);
+    }
+    // 单条参数化 multi-row INSERT；ON CONFLICT (name) DO NOTHING，RETURNING 只含真实插入的行
+    let sql = format!(
+        "INSERT INTO platforms (name, display_name, icon, api_endpoint, auth_type, enabled) \
+         VALUES {} ON CONFLICT (name) DO NOTHING RETURNING name, display_name",
+        values_placeholders(seeds.len(), 6, "")
+    );
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            sql,
+            values,
+        ))
+        .await?;
+    let inserted = rows.len();
+    for row in &rows {
+        let name: String = row.try_get("", "name")?;
+        let display_name: String = row.try_get("", "display_name")?;
+        tracing::info!("📦 Seeded default platform row: {} ({})", name, display_name);
     }
 
     if inserted > 0 {
@@ -176,57 +190,49 @@ pub async fn ensure_default_platforms(db: &DatabaseConnection) -> Result<usize, 
 /// Optional values serialize as JSON null. `user_perm_component_theme` and
 /// `user_perm_shortcut_register` are inserted separately in `ensure_default_config`.
 pub fn default_config_seeds() -> Vec<(String, Value)> {
-    let defaults = serde_json::to_value(DynamicConfig::default())
-        .expect("DynamicConfig defaults must remain JSON serializable");
-    let explicit_open = ["user_perm_component_theme", "user_perm_shortcut_register"];
+    let Value::Object(defaults) = serde_json::to_value(DynamicConfig::default())
+        .expect("DynamicConfig defaults must remain JSON serializable")
+    else {
+        panic!("DynamicConfig must serialize as an object");
+    };
     defaults
-        .as_object()
-        .expect("DynamicConfig must serialize as an object")
-        .iter()
-        .filter(|(key, _)| !explicit_open.contains(&key.as_str()))
-        .map(|(key, value)| (key.clone(), value.clone()))
+        .into_iter()
+        .filter(|(key, _)| !EXPLICIT_OPEN_CONFIG_KEYS.contains(&key.as_str()))
         .collect()
 }
 
 /// Seed missing runtime configuration rows without overwriting administrator
-/// choices. The two explicitly default-open permissions are inserted first so
-/// their upgrade semantics are independent from the general seed pass.
+/// choices. The two explicitly default-open permissions carry a fixed `true`
+/// value and are excluded from `default_config_seeds()`, so every key appears
+/// exactly once in the single multi-row INSERT.
 pub async fn ensure_default_config(db: &DatabaseConnection) -> Result<usize, DbErr> {
-    let existing_tables = get_existing_tables(db).await?;
-    if !existing_tables.contains("configurations") {
-        return Err(DbErr::Custom(
-            "configurations table missing after migrations".to_string(),
-        ));
+    let seeds = default_config_seeds();
+    let row_count = EXPLICIT_OPEN_CONFIG_KEYS.len() + seeds.len();
+    let mut values = Vec::with_capacity(row_count * 2);
+    for key in EXPLICIT_OPEN_CONFIG_KEYS {
+        values.extend([key.into(), Value::Bool(true).into()]);
     }
-
-    let explicit_open = ["user_perm_component_theme", "user_perm_shortcut_register"];
-    let mut inserted = 0usize;
-
-    let mut explicit_open_inserted = Vec::new();
-    for key in explicit_open {
-        let result = db
-            .execute_raw(Statement::from_sql_and_values(
-                sea_orm::DatabaseBackend::Postgres,
-                "INSERT INTO configurations (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (key) DO NOTHING",
-                vec![key.into(), Value::Bool(true).into()],
-            ))
-            .await?;
-        let rows = result.rows_affected() as usize;
-        inserted += rows;
-        if rows > 0 {
-            explicit_open_inserted.push(key);
-        }
+    for (key, value) in seeds {
+        values.extend([key.into(), value.into()]);
     }
-
-    for (key, value) in default_config_seeds() {
-        let result = db
-            .execute_raw(Statement::from_sql_and_values(
-                sea_orm::DatabaseBackend::Postgres,
-                "INSERT INTO configurations (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (key) DO NOTHING",
-                vec![key.into(), value.into()],
-            ))
-            .await?;
-        inserted += result.rows_affected() as usize;
+    // 缺表时 INSERT 直接返回数据库错误；已有管理员设置由 DO NOTHING 保留
+    let sql = format!(
+        "INSERT INTO configurations (key, value, updated_at) VALUES {} \
+         ON CONFLICT (key) DO NOTHING RETURNING key",
+        values_placeholders(row_count, 2, ", CURRENT_TIMESTAMP")
+    );
+    let rows = db
+        .query_all_raw(Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            sql,
+            values,
+        ))
+        .await?;
+    let inserted = rows.len();
+    let mut explicit_open_inserted = false;
+    for row in &rows {
+        let key: String = row.try_get("", "key")?;
+        explicit_open_inserted |= EXPLICIT_OPEN_CONFIG_KEYS.contains(&key.as_str());
     }
 
     if inserted > 0 {
@@ -237,11 +243,25 @@ pub async fn ensure_default_config(db: &DatabaseConnection) -> Result<usize, DbE
     } else {
         tracing::debug!("Runtime configuration seed: all rows already present");
     }
-    if !explicit_open_inserted.is_empty() {
+    if explicit_open_inserted {
         tracing::info!(
             "Upgrade notice: ordinary users now have default granted permissions for component:theme and shortcut:register"
         );
     }
 
     Ok(inserted)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::values_placeholders;
+
+    #[test]
+    fn values_placeholders_number_rows_sequentially() {
+        assert_eq!(values_placeholders(1, 2, ""), "($1, $2)");
+        assert_eq!(
+            values_placeholders(2, 2, ", CURRENT_TIMESTAMP"),
+            "($1, $2, CURRENT_TIMESTAMP), ($3, $4, CURRENT_TIMESTAMP)"
+        );
+    }
 }
