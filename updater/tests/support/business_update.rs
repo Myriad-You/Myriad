@@ -175,7 +175,7 @@ esac
         let response = self
             .post(
                 "/update",
-                json!({"target_commit":TARGET,"mode":"commit","allow_compose_override":true}),
+                json!({"target_commit":TARGET,"mode":"commit","allow_compose_override":true,"confirm_risk":true}),
             )
             .await;
         let code = response.status();
