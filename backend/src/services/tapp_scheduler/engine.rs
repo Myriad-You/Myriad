@@ -1326,15 +1326,16 @@ SELECT EXISTS (
         let input_value = context.get(input).unwrap_or(Self::json_null());
         let extracted = if let Some(path) = extract {
             let parts: Vec<&str> = path.split('.').collect();
-            Self::lookup_json_path(input_value, &parts).clone()
+            Self::lookup_json_path(input_value, &parts)
         } else {
-            input_value.clone()
+            input_value
         };
 
+        // 模板分支只借用选中的子树；仅纯返回分支在出口处复制一次。
         if let Some(tpl) = template {
-            serde_json::Value::String(Self::resolve_template_with_input(tpl, context, &extracted))
+            serde_json::Value::String(Self::resolve_template_with_input(tpl, context, extracted))
         } else {
-            extracted
+            extracted.clone()
         }
     }
 
@@ -2171,5 +2172,35 @@ mod frontend_finalizer_tests {
             .execute_unprepared(&format!("DROP SCHEMA {schema_name} CASCADE"))
             .await
             .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod transform_tests {
+    use super::*;
+
+    #[test]
+    fn transform_keeps_template_and_passthrough_semantics() {
+        let mut context = HashMap::new();
+        context.insert(
+            "resp".to_string(),
+            json!({"data": {"items": [1, 2], "title": "hi", "count": 3}}),
+        );
+
+        let passthrough =
+            TappSchedulerEngine::action_transform(&context, "resp", Some("data.items"), None);
+        assert_eq!(passthrough, json!([1, 2]));
+
+        let templated = TappSchedulerEngine::action_transform(
+            &context,
+            "resp",
+            Some("data"),
+            Some("{{_input.title}}:{{_input.count}}"),
+        );
+        assert_eq!(templated, json!("hi:3"));
+
+        let missing =
+            TappSchedulerEngine::action_transform(&context, "absent", Some("data.items"), None);
+        assert_eq!(missing, serde_json::Value::Null);
     }
 }
