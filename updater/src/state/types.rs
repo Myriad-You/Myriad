@@ -203,6 +203,11 @@ pub enum Phase {
     StartOld,
     NeedsManual,
     Cleanup,
+    /// A phase this updater does not recognize (e.g. one added by a newer release).
+    /// Captured so forward state files still deserialize instead of failing;
+    /// recovery treats it as non-post-swap and clears the stale maintenance.
+    #[serde(other)]
+    Unknown,
 }
 
 impl Phase {
@@ -406,5 +411,14 @@ mod tests {
         assert!(Phase::MaintenanceOn.takes_site_offline());
         assert!(Phase::Stopping.takes_site_offline());
         assert!(Phase::NeedsManual.takes_site_offline());
+    }
+
+    #[test]
+    fn unknown_future_phases_deserialize_into_unknown() {
+        // A phase added by a newer release must not fail this updater's state load.
+        let phase: Phase = serde_json::from_str(r#""future_phase""#).unwrap();
+        assert_eq!(phase, Phase::Unknown);
+        assert!(!phase.is_post_swap());
+        assert!(!phase.is_rollback());
     }
 }
