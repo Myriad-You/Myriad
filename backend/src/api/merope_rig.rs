@@ -58,13 +58,16 @@ const MEROPE_STICKER_STYLE_REFERENCE_BYTES: &[u8] =
 
 fn merope_style_reference()
 -> Result<image_generation::ImageReference, image_generation::ImageGenerationError> {
-    image_generation::ImageReference::new(MEROPE_STYLE_REFERENCE_BYTES.to_vec(), "image/png")
+    image_generation::ImageReference::new(
+        axum::body::Bytes::from_static(MEROPE_STYLE_REFERENCE_BYTES),
+        "image/png",
+    )
 }
 
 fn merope_sticker_style_reference()
 -> Result<image_generation::ImageReference, image_generation::ImageGenerationError> {
     image_generation::ImageReference::new(
-        MEROPE_STICKER_STYLE_REFERENCE_BYTES.to_vec(),
+        axum::body::Bytes::from_static(MEROPE_STICKER_STYLE_REFERENCE_BYTES),
         "image/webp",
     )
 }
@@ -1030,7 +1033,7 @@ pub async fn decompose_with_see_through(
         .await
         .map_err(see_through_error)?;
     let output = client
-        .decompose(image.bytes, &image.media_type, options)
+        .decompose(image.bytes.into(), &image.media_type, options)
         .await
         .map_err(see_through_error)?;
 
@@ -1291,7 +1294,10 @@ fn bind_worn_portrait(profile: &mut Value, portrait: &str, fingerprint: Option<&
     }
 }
 
-fn uploaded_portrait_reference(bytes: Vec<u8>) -> ApiResult<image_generation::ImageReference> {
+fn uploaded_portrait_reference(
+    bytes: impl Into<axum::body::Bytes>,
+) -> ApiResult<image_generation::ImageReference> {
+    let bytes = bytes.into();
     let mime = match image::guess_format(&bytes) {
         Ok(image::ImageFormat::Png) => "image/png",
         Ok(image::ImageFormat::Jpeg) => "image/jpeg",
@@ -1323,7 +1329,7 @@ pub async fn upload_portrait(
                 if bytes.len() > 10 * 1024 * 1024 {
                     return Err(bad_request("Portrait image exceeds 10 MB"));
                 }
-                let reference = uploaded_portrait_reference(bytes.to_vec())?;
+                let reference = uploaded_portrait_reference(bytes)?;
                 image_bytes = Some(reference);
             }
             Some("image") => {
@@ -1344,8 +1350,8 @@ pub async fn upload_portrait(
                     crate::services::media::MediaSource::Upload,
                 ),
                 crate::services::media::NewMediaBytes {
-                    bytes: reference.bytes.clone(),
-                    claimed_mime: reference.media_type.clone(),
+                    bytes: reference.bytes.into(),
+                    claimed_mime: reference.media_type,
                     filename: "portrait".into(),
                     max_bytes: 10 * 1024 * 1024,
                     derived_from_id: None,
