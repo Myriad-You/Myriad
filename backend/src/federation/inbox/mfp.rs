@@ -21,6 +21,9 @@ fn file_chunk_error(error: InboundChunkError) -> (StatusCode, Json<serde_json::V
         InboundChunkError::Invalid(_) => AppError::public_json("Invalid file chunk"),
         InboundChunkError::Forbidden(_) => AppError::public_json("Access denied"),
         InboundChunkError::Closed(_) => AppError::public_json("Target is closed"),
+        InboundChunkError::Conflict(_) => {
+            AppError::public_json("Chunk conflicts with stored data")
+        }
         InboundChunkError::NotReady(_) => {
             json!({"error": "Activity not ready", "retry": true})
         }
@@ -79,6 +82,7 @@ pub(crate) async fn handle_mfp_activity(
     actor_url_str: &str,
     activity_type: &str,
     activity: &serde_json::Value,
+    pool: &sea_orm::DatabaseConnection,
     post_commit: &mut PostCommit,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     tracing::info!(
@@ -155,7 +159,7 @@ pub(crate) async fn handle_mfp_activity(
                 .get("object")
                 .filter(|o| o.get("type").and_then(|v| v.as_str()) == Some("myriad:FileChunk"));
             let notice = if let Some(object) = chunk {
-                crate::federation::file_transfer::handle_file_chunk(db, actor_url_str, object)
+                crate::federation::file_transfer::handle_file_chunk(db, pool, actor_url_str, object)
                     .await
                     .map_err(file_chunk_error)?
             } else {
@@ -275,6 +279,9 @@ mod tests {
         assert_eq!(status, StatusCode::FORBIDDEN);
         let (status, _) = super::file_chunk_error(InboundChunkError::Closed("cancelled".into()));
         assert_eq!(status, StatusCode::GONE);
+        let (status, _) =
+            super::file_chunk_error(InboundChunkError::Conflict("bytes differ".into()));
+        assert_eq!(status, StatusCode::CONFLICT);
     }
 
     #[test]

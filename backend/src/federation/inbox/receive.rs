@@ -383,6 +383,7 @@ pub async fn post_inbox(
         content_remote,
         move_verified.as_ref(),
         DeliveryMode::QueueOnly,
+        &db,
         &mut post_commit,
     )
     .await;
@@ -427,6 +428,7 @@ async fn dispatch_personal_activity<C: ConnectionTrait>(
     content_remote: Option<&RemoteActorInfo>,
     move_verified: Option<&VerifiedMove>,
     delivery_mode: DeliveryMode<'_>,
+    pool: &DatabaseConnection,
     post_commit: &mut PostCommit,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     match activity_type {
@@ -465,6 +467,7 @@ async fn dispatch_personal_activity<C: ConnectionTrait>(
                 actor_url_str,
                 ty,
                 activity,
+                pool,
                 post_commit,
             )
             .await
@@ -618,6 +621,7 @@ pub async fn post_shared_inbox(
         follow_remote,
         content_remote,
         move_verified.as_ref(),
+        &db,
         &mut post_commit,
     )
     .await;
@@ -661,6 +665,7 @@ async fn dispatch_shared_activity<C: ConnectionTrait>(
     follow_remote: Option<&RemoteActorInfo>,
     content_remote: Option<&RemoteActorInfo>,
     move_verified: Option<&VerifiedMove>,
+    pool: &DatabaseConnection,
     post_commit: &mut PostCommit,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
     if matches!(activity_type, "Create" | "Announce") {
@@ -693,6 +698,7 @@ async fn dispatch_shared_activity<C: ConnectionTrait>(
                     actor_url_str,
                     activity_type,
                     activity,
+                    pool,
                     post_commit,
                 )
                 .await;

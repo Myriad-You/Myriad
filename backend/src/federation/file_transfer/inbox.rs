@@ -10,7 +10,7 @@ use super::storage::{
     admit_new_transfer_str, final_file_path, finalize_part_file, http_err_to_string,
     is_strictly_under, is_valid_transfer_id, lock_transfer_admission, lock_transfer_session,
     part_file_path, path_to_db, prepare_chunk_file, resolve_transfer_path,
-    run_transfer_file_work, sha256_file, storage_root,
+    run_transfer_file_work, sha256_file, storage_root, verify_committed_chunk,
 };
 
 // Inbox 处理
@@ -188,6 +188,8 @@ pub enum InboundChunkError {
     Forbidden(String),
     /// Transfer already cancelled or failed. Permanent.
     Closed(String),
+    /// Chunk bytes differ from the bytes already stored for that index. Permanent.
+    Conflict(String),
     /// Transfer metadata or an earlier chunk has not arrived yet. Retryable.
     NotReady(String),
     /// In-flight chunk byte budget exhausted. Retryable.
@@ -203,6 +205,7 @@ impl InboundChunkError {
             Self::Invalid(_) => StatusCode::BAD_REQUEST,
             Self::Forbidden(_) => StatusCode::FORBIDDEN,
             Self::Closed(_) => StatusCode::GONE,
+            Self::Conflict(_) => StatusCode::CONFLICT,
             Self::NotReady(_) | Self::Busy(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -213,6 +216,7 @@ impl InboundChunkError {
             Self::Invalid(m)
             | Self::Forbidden(m)
             | Self::Closed(m)
+            | Self::Conflict(m)
             | Self::NotReady(m)
             | Self::Busy(m)
             | Self::Internal(m) => m,
@@ -224,12 +228,26 @@ fn internal(error: impl std::fmt::Display) -> InboundChunkError {
     InboundChunkError::Internal(error.to_string())
 }
 
+/// Storage helpers report payload/state conflicts as 409 (bytes differ from
+/// what is stored, offset inconsistent with stored data) and a vanished
+/// committed chunk as 410; a retry cannot change either, so both stay
+/// permanent. Only genuine I/O failures (5xx) are retryable.
 fn storage_failure(err: (axum::http::StatusCode, axum::Json<serde_json::Value>)) -> InboundChunkError {
-    if err.0 == axum::http::StatusCode::BAD_REQUEST {
-        InboundChunkError::Invalid(http_err_to_string(err))
-    } else {
-        InboundChunkError::Internal(http_err_to_string(err))
+    use axum::http::StatusCode;
+    let status = err.0;
+    let detail = http_err_to_string(err);
+    match status {
+        StatusCode::BAD_REQUEST => InboundChunkError::Invalid(detail),
+        StatusCode::CONFLICT => InboundChunkError::Conflict(detail),
+        StatusCode::GONE => InboundChunkError::Closed(detail),
+        _ => InboundChunkError::Internal(detail),
     }
+}
+
+/// Exact padded base64 length of `n` bytes; the sender forwards the
+/// canonical STANDARD encoding the upload endpoint accepted.
+fn encoded_len(n: i64) -> Option<usize> {
+    usize::try_from(n).ok().map(|n| n.div_ceil(3) * 4)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -300,8 +318,12 @@ async fn write_inbound_chunk(
 /// synced chunk stays in place and a retry verifies or rewrites it at the
 /// database offset. Returns the live-UI notice for the caller to broadcast
 /// after commit.
+///
+/// `pool` provides the separate connection that holds the file I/O lock for as
+/// long as the write runs (see `run_transfer_file_work`).
 pub async fn handle_file_chunk(
     db: &impl ConnectionTrait,
+    pool: &sea_orm::DatabaseConnection,
     actor_url_str: &str,
     object: &serde_json::Value,
 ) -> Result<Option<TransferNotice>, InboundChunkError> {
@@ -334,6 +356,10 @@ pub async fn handle_file_chunk(
         return Err(Invalid(format!(
             "chunk_size must be between 1 and {DEFAULT_CHUNK_SIZE} bytes"
         )));
+    }
+    // Reject a mis-sized encoding before any lock, budget or decode allocation.
+    if encoded_len(chunk_size) != Some(chunk_data.len()) {
+        return Err(Invalid("chunkData length does not match chunkSize".into()));
     }
 
     lock_transfer_session(db, transfer_id)
@@ -413,32 +439,14 @@ pub async fn handle_file_chunk(
     if chunk_index < 0 || chunk_index >= chunks_total {
         return Err(Invalid("Chunk index out of range".into()));
     }
-    if chunk_index < chunks_completed {
-        // Already committed under another activity id: nothing left to do.
-        tracing::debug!(
-            transfer_id,
-            chunk_index,
-            chunks_completed,
-            "[FileTransfer] ignoring already-committed inbound chunk"
-        );
-        return Ok(None);
-    }
-    if !["pending", "in-progress"].contains(&status.as_str()) {
+    let replay = chunk_index < chunks_completed;
+    if !replay && !["pending", "in-progress"].contains(&status.as_str()) {
         return Err(Closed(format!("Transfer {transfer_id} is closed ({status})")));
     }
     if chunk_index > chunks_completed {
         return Err(NotReady(format!(
             "Chunk {chunk_index} not yet present in order; expected {chunks_completed}"
         )));
-    }
-
-    // Reserve decoded chunk budget; it travels with the bytes into the file task.
-    let chunk_budget = admit_chunk_bytes_str(chunk_size).map_err(InboundChunkError::Busy)?;
-    let decoded = BASE64
-        .decode(chunk_data.as_bytes())
-        .map_err(|_| Invalid("Invalid base64 chunkData".into()))?;
-    if decoded.len() as i64 != chunk_size {
-        return Err(Invalid("chunkSize does not match decoded data length".into()));
     }
 
     let is_last_chunk = chunk_index == chunks_total - 1;
@@ -453,6 +461,15 @@ pub async fn handle_file_chunk(
         )));
     }
 
+    // Reserve decoded chunk budget; it travels with the bytes into the file task.
+    let chunk_budget = admit_chunk_bytes_str(chunk_size).map_err(InboundChunkError::Busy)?;
+    let decoded = BASE64
+        .decode(chunk_data.as_bytes())
+        .map_err(|_| Invalid("Invalid base64 chunkData".into()))?;
+    if decoded.len() as i64 != chunk_size {
+        return Err(Invalid("chunkSize does not match decoded data length".into()));
+    }
+
     let final_path =
         resolve_transfer_path(transfer_id, &filename, local_path.as_deref()).map_err(internal)?;
     let final_path_db = path_to_db(&final_path);
@@ -462,9 +479,30 @@ pub async fn handle_file_chunk(
     {
         return Err(internal("Transfer path escapes storage root"));
     }
+
+    if replay {
+        // Already committed under another activity id. Accept only identical
+        // bytes; a divergent chunk for a committed index is a permanent conflict.
+        let offset = DEFAULT_CHUNK_SIZE * chunk_index as i64;
+        run_transfer_file_work(pool, transfer_id, async move {
+            let _chunk_budget = chunk_budget;
+            verify_committed_chunk(&part_path, &final_path, &decoded, offset).await
+        })
+        .await
+        .map_err(internal)?
+        .map_err(storage_failure)?;
+        tracing::debug!(
+            transfer_id,
+            chunk_index,
+            chunks_completed,
+            "[FileTransfer] identical replay of an already-committed inbound chunk"
+        );
+        return Ok(None);
+    }
+
     let expected_offset = DEFAULT_CHUNK_SIZE * chunks_completed as i64;
 
-    let outcome = run_transfer_file_work(transfer_id, async move {
+    let outcome = run_transfer_file_work(pool, transfer_id, async move {
         let _chunk_budget = chunk_budget;
         write_inbound_chunk(
             part_path,
@@ -690,7 +728,7 @@ mod tests {
 
         // Out of order: retryable, nothing written.
         let txn = db.begin().await.unwrap();
-        let err = handle_file_chunk(&txn, PEER, &chunk(&transfer_id, 1, &last))
+        let err = handle_file_chunk(&txn, db, PEER, &chunk(&transfer_id, 1, &last))
             .await
             .unwrap_err();
         assert_eq!(err.status(), axum::http::StatusCode::SERVICE_UNAVAILABLE);
@@ -698,7 +736,7 @@ mod tests {
 
         // Wrong sender: permanent.
         let txn = db.begin().await.unwrap();
-        let err = handle_file_chunk(&txn, "https://evil.example/users/x", &chunk(&transfer_id, 0, &first))
+        let err = handle_file_chunk(&txn, db, "https://evil.example/users/x", &chunk(&transfer_id, 0, &first))
             .await
             .unwrap_err();
         assert_eq!(err.status(), axum::http::StatusCode::FORBIDDEN);
@@ -706,7 +744,7 @@ mod tests {
 
         // Chunk 0 written and synced, but the receipt transaction rolls back.
         let txn = db.begin().await.unwrap();
-        let notice = handle_file_chunk(&txn, PEER, &chunk(&transfer_id, 0, &first))
+        let notice = handle_file_chunk(&txn, db, PEER, &chunk(&transfer_id, 0, &first))
             .await
             .unwrap();
         assert!(notice.is_some());
@@ -715,7 +753,7 @@ mod tests {
 
         // Retry verifies the durable bytes instead of appending, then commits.
         let txn = db.begin().await.unwrap();
-        handle_file_chunk(&txn, PEER, &chunk(&transfer_id, 0, &first))
+        handle_file_chunk(&txn, db, PEER, &chunk(&transfer_id, 0, &first))
             .await
             .unwrap();
         txn.commit().await.unwrap();
@@ -724,7 +762,7 @@ mod tests {
         // Replay of a committed chunk under another activity id: no effect.
         let txn = db.begin().await.unwrap();
         assert!(
-            handle_file_chunk(&txn, PEER, &chunk(&transfer_id, 0, &first))
+            handle_file_chunk(&txn, db, PEER, &chunk(&transfer_id, 0, &first))
                 .await
                 .unwrap()
                 .is_none()
@@ -732,8 +770,26 @@ mod tests {
         txn.commit().await.unwrap();
         assert_eq!(progress(db, &transfer_id).await, (1, "in-progress".into()));
 
+        // A different payload for the committed index is a permanent conflict.
+        let mut divergent = first.clone();
+        divergent[0] ^= 0xff;
         let txn = db.begin().await.unwrap();
-        handle_file_chunk(&txn, PEER, &chunk(&transfer_id, 1, &last))
+        let err = handle_file_chunk(&txn, db, PEER, &chunk(&transfer_id, 0, &divergent))
+            .await
+            .unwrap_err();
+        assert_eq!(err.status(), axum::http::StatusCode::CONFLICT);
+        txn.rollback().await.unwrap();
+
+        // Encoded length disagreeing with chunkSize: rejected before decoding.
+        let mut padded = chunk(&transfer_id, 1, &last);
+        padded["chunkData"] = json!(format!("{}AAAA", padded["chunkData"].as_str().unwrap()));
+        let txn = db.begin().await.unwrap();
+        let err = handle_file_chunk(&txn, db, PEER, &padded).await.unwrap_err();
+        assert_eq!(err.status(), axum::http::StatusCode::BAD_REQUEST);
+        txn.rollback().await.unwrap();
+
+        let txn = db.begin().await.unwrap();
+        handle_file_chunk(&txn, db, PEER, &chunk(&transfer_id, 1, &last))
             .await
             .unwrap();
         txn.commit().await.unwrap();

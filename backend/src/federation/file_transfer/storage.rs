@@ -392,43 +392,51 @@ pub(super) async fn lock_transfer_session(
     Ok(())
 }
 
-/// In-process per-transfer file lock, held by the detached file task.
-static TRANSFER_FILE_LOCKS: once_cell::sync::Lazy<
-    std::sync::Mutex<std::collections::HashMap<String, std::sync::Weak<tokio::sync::Mutex<()>>>>,
-> = once_cell::sync::Lazy::new(Default::default);
-
-fn transfer_file_lock(transfer_id: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
-    let mut locks = TRANSFER_FILE_LOCKS
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some(lock) = locks.get(transfer_id).and_then(std::sync::Weak::upgrade) {
-        return lock;
-    }
-    locks.retain(|_, lock| lock.strong_count() > 0);
-    let lock = std::sync::Arc::new(tokio::sync::Mutex::new(()));
-    locks.insert(transfer_id.to_string(), std::sync::Arc::downgrade(&lock));
-    lock
+fn transfer_io_lock_key(transfer_id: &str) -> String {
+    format!("federation-file-transfer-io:{transfer_id}")
 }
 
-/// Run one transfer's filesystem mutation to completion even if the caller is
-/// cancelled.
+/// Run one transfer's filesystem mutation under a database lock that outlives
+/// the caller.
 ///
-/// The database advisory lock ([`lock_transfer_session`]) is released when a
-/// cancelled request drops its transaction, while blocking file I/O may still
-/// be running. The work therefore runs in its own task that holds this
-/// transfer's in-process lock until the I/O finishes; a retry that re-acquires
-/// the advisory lock then waits here instead of writing the same `.part`
-/// concurrently. (Only covers replicas sharing this process's lock table;
-/// separate replicas on shared storage are not covered — uncertain.)
-pub(super) async fn run_transfer_file_work<T, F>(transfer_id: &str, work: F) -> Result<T, String>
+/// The session lock ([`lock_transfer_session`]) lives in the caller's
+/// transaction, which a cancelled request drops while blocking file I/O may
+/// still be running. So the I/O takes a second advisory lock on its **own**
+/// pooled connection before it starts, and that connection moves into a
+/// detached task that releases the lock only after the I/O has finished. The
+/// lock is PostgreSQL-wide, so every replica sharing the storage serializes on
+/// it: a retry that re-acquires the session lock elsewhere waits here instead of
+/// writing the same `.part` concurrently. Lock order is always session → I/O.
+pub(super) async fn run_transfer_file_work<T, F>(
+    pool: &DatabaseConnection,
+    transfer_id: &str,
+    work: F,
+) -> Result<T, String>
 where
     T: Send + 'static,
     F: std::future::Future<Output = T> + Send + 'static,
 {
-    let lock = transfer_file_lock(transfer_id);
+    let io_lock = pool
+        .begin()
+        .await
+        .map_err(|error| format!("transfer file lock connection: {error}"))?;
+    io_lock
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+            [transfer_io_lock_key(transfer_id).into()],
+        ))
+        .await
+        .map_err(|error| format!("transfer file lock: {error}"))?;
+    // Cancelled before this point: `io_lock` drops, the lock is released, and no
+    // I/O has started. From here the task owns the lock until the I/O ends.
     tokio::spawn(async move {
-        let _guard = lock.lock_owned().await;
-        work.await
+        let out = work.await;
+        if let Err(error) = io_lock.rollback().await {
+            // The connection is discarded; PostgreSQL releases the lock with it.
+            tracing::warn!(%error, "[FileTransfer] releasing transfer file lock failed");
+        }
+        out
     })
     .await
     .map_err(|error| format!("transfer file task failed: {error}"))
@@ -601,6 +609,32 @@ async fn sync_new_part_entries(
 /// fsync an existing file's data and metadata.
 async fn sync_file(path: &Path) -> Result<(), std::io::Error> {
     fs::File::open(path).await?.sync_all().await
+}
+
+/// Compare a replayed, already-committed chunk with the bytes stored for it
+/// (in the final file once published, else in the `.part`). Mismatch is 409.
+pub(super) async fn verify_committed_chunk(
+    part_path: &Path,
+    final_path: &Path,
+    decoded: &[u8],
+    offset: i64,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    let path = match fs::metadata(final_path).await {
+        Ok(_) => final_path,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => part_path,
+        Err(error) => return Err(storage_err(error)),
+    };
+    match verify_chunk_bytes(path, decoded, offset).await {
+        Err((StatusCode::INTERNAL_SERVER_ERROR, _))
+            if fs::metadata(path).await.is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) =>
+        {
+            Err((
+                StatusCode::GONE,
+                Json(AppError::public_json("Committed chunk is no longer stored")),
+            ))
+        }
+        other => other,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1183,28 +1217,66 @@ mod tests {
         tokio::fs::remove_dir_all(root).await.unwrap();
     }
 
+    /// A cancelled caller must not release the I/O lock while its write still
+    /// runs: another connection (standing in for another replica) waits for it.
     #[tokio::test]
     async fn cancelled_caller_keeps_transfer_file_lock_until_io_finishes() {
         use std::sync::Arc;
         use std::sync::atomic::AtomicBool;
+        let Some(fixture) = crate::federation::test_db::SchemaDb::new().await else {
+            return;
+        };
+        let db = fixture.db.clone();
         let finished = Arc::new(AtomicBool::new(false));
         let flag = finished.clone();
-        let cancelled = tokio::time::timeout(
-            std::time::Duration::from_millis(20),
-            run_transfer_file_work("ft_cancel_lock", async move {
-                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                flag.store(true, Ordering::SeqCst);
-            }),
-        )
-        .await;
-        assert!(cancelled.is_err(), "caller was cancelled mid-write");
+        let started = Arc::new(tokio::sync::Notify::new());
+        let started_tx = started.clone();
+        let caller = tokio::spawn({
+            let db = db.clone();
+            async move {
+                run_transfer_file_work(&db, "ft_cancel_lock", async move {
+                    started_tx.notify_one();
+                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                    flag.store(true, Ordering::SeqCst);
+                })
+                .await
+            }
+        });
+        started.notified().await;
+        caller.abort();
+        assert!(caller.await.unwrap_err().is_cancelled(), "caller was cancelled mid-write");
+
         let flag = finished.clone();
-        let observed = run_transfer_file_work("ft_cancel_lock", async move {
+        let observed = run_transfer_file_work(&db, "ft_cancel_lock", async move {
             flag.load(Ordering::SeqCst)
         })
         .await
         .unwrap();
         assert!(observed, "next writer waited for the orphaned write");
+        fixture.close().await;
+    }
+
+    #[tokio::test]
+    async fn committed_chunk_replay_compares_stored_bytes() {
+        let (root, part_path, final_path) = chunk_test_paths("committed");
+        write_chunk_to_part(&part_path, b"first", 0).await.unwrap();
+        verify_committed_chunk(&part_path, &final_path, b"first", 0)
+            .await
+            .unwrap();
+        let diverged = verify_committed_chunk(&part_path, &final_path, b"other", 0)
+            .await
+            .unwrap_err();
+        assert_eq!(diverged.0, StatusCode::CONFLICT);
+        tokio::fs::rename(&part_path, &final_path).await.unwrap();
+        verify_committed_chunk(&part_path, &final_path, b"first", 0)
+            .await
+            .unwrap();
+        tokio::fs::remove_file(&final_path).await.unwrap();
+        let gone = verify_committed_chunk(&part_path, &final_path, b"first", 0)
+            .await
+            .unwrap_err();
+        assert_eq!(gone.0, StatusCode::GONE);
+        tokio::fs::remove_dir_all(root).await.unwrap();
     }
 
     #[test]

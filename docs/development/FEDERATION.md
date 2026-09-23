@@ -127,15 +127,19 @@ transfer; the chunk is written at the offset owned by `chunks_completed`
 byte-compared), the file and any new directory entries are synced, and only
 then does the progress update commit together with the receipt. A rolled-back
 receipt leaves the synced bytes in place for the retry to verify; the database
-never records progress ahead of durable file data. The file I/O runs in its own
-task holding a per-transfer in-process lock, so a cancelled request cannot let
-a retry write the same `.part` while the orphaned write is still running
-(separate replicas on shared storage are not covered by that lock — uncertain).
-Live-UI progress is broadcast only after the receipt commits.
+never records progress ahead of durable file data. The file I/O first takes a
+second PostgreSQL advisory lock on its own pooled connection and runs in a
+detached task that releases it only after the I/O finishes, so a cancelled
+request (whose transaction, and session lock, is dropped) cannot let a retry
+on any replica sharing the storage write the same `.part` concurrently. Live-UI
+progress is broadcast only after the receipt commits.
 
 Missing transfer metadata or an out-of-order chunk is a retryable `503`; a
-wrong sender, a closed transfer or a malformed chunk is a permanent `4xx`; a
-chunk already committed under another activity id is accepted without effect.
+wrong sender, a closed transfer, a malformed or mis-sized chunk (the encoded
+length is checked before decoding) and bytes that conflict with stored data are
+permanent `4xx`. A chunk already committed under another activity id is
+accepted without effect only if its bytes equal the stored ones; otherwise it
+is a permanent `409`.
 
 ## Keys: ensure vs rotate
 

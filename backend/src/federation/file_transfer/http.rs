@@ -13,7 +13,8 @@ use super::storage::{
     ChunkFileState, DEFAULT_CHUNK_SIZE, MAX_FILE_SIZE, UploadSessionAction, admit_chunk_bytes,
     admit_new_transfer, bad_request, final_file_path, finalize_uploaded_transfer,
     is_strictly_under, is_valid_transfer_id, lock_transfer_admission, lock_transfer_session,
-    part_file_path, path_to_db, prepare_chunk_file, resolve_transfer_path, safe_filename,
+    part_file_path, path_to_db, prepare_chunk_file, resolve_transfer_path, run_transfer_file_work,
+    safe_filename,
     storage_err, storage_root, stored_bytes, upload_session_action, verify_chunk_bytes,
 };
 use super::types::{
@@ -462,14 +463,22 @@ pub async fn upload_chunk(
         }));
     }
 
-    let chunk_file_state = prepare_chunk_file(
-        &part_path,
-        &final_path,
-        &decoded,
-        expected_offset,
-        is_last_chunk,
-    )
-    .await?;
+    // Same cancellation-safe I/O lock as inbound chunks (see run_transfer_file_work).
+    let chunk_file_state = {
+        let (part_path, final_path) = (part_path.clone(), final_path.clone());
+        run_transfer_file_work(db, transfer_id, async move {
+            prepare_chunk_file(
+                &part_path,
+                &final_path,
+                &decoded,
+                expected_offset,
+                is_last_chunk,
+            )
+            .await
+        })
+        .await
+        .map_err(storage_err)??
+    };
 
     let (persisted_chunks, persisted_status, should_fanout) =
         if session_action == UploadSessionAction::ResumeFinalization {

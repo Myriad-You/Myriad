@@ -568,6 +568,13 @@ const _: () = assert!(
         && INBOX_BODY_LIMIT >= (TRANSFER_CHUNK_SIZE as usize).div_ceil(3) * 4 + 64 * 1024,
     "an inbound FileChunk activity must fit the inbox string and body budgets"
 );
+const _: () = assert!(
+    crate::services::memory_profile::SAVER_INBOX_BODY_LIMIT
+        >= (TRANSFER_CHUNK_SIZE as usize).div_ceil(3) * 4 + 64 * 1024
+        && crate::services::memory_profile::SAVER_INBOX_INFLIGHT_RAW_BUDGET
+            >= crate::services::memory_profile::SAVER_INBOX_BODY_LIMIT,
+    "the memory-saver inbox must still fit one full FileChunk activity"
+);
 
 /// 控制类端点不该能缓冲和消息端点一样多的数据。
 const _: () = assert!(

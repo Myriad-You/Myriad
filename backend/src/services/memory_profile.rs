@@ -34,7 +34,9 @@ pub const DEFAULT_MAX_AUDIO_BYTES: usize = 128 * 1024 * 1024;
 /// Memory-saver budgets for ~1 GiB hosts (second notch below bounded default).
 pub const SAVER_DB_MIN_CONNECTIONS: u32 = 1;
 pub const SAVER_DB_MAX_CONNECTIONS: u32 = 4;
-pub const SAVER_INBOX_INFLIGHT_RAW_BUDGET: usize = 4 * 1024 * 1024;
+/// Must admit one full inbound `myriad:FileChunk` activity (base64 of
+/// `TRANSFER_CHUNK_SIZE` plus envelope); see `saver_admits_a_full_file_chunk`.
+pub const SAVER_INBOX_INFLIGHT_RAW_BUDGET: usize = 6 * 1024 * 1024;
 pub const SAVER_MAX_IN_FLIGHT_CHUNK_BYTES: usize = 16 * 1024 * 1024;
 pub const SAVER_MAX_API_CACHE_ENTRIES: usize = 128;
 pub const SAVER_MAX_GEO_CACHE_ENTRIES: usize = 128;
@@ -49,7 +51,9 @@ pub const DEFAULT_AUTHENTICATED_BODY_LIMIT: usize = 24 * 1024 * 1024;
 pub const DEFAULT_NOTE_IMAGE_LIMIT: usize = 32 * 1024 * 1024;
 pub const DEFAULT_NOTE_VIDEO_LIMIT: usize = 256 * 1024 * 1024;
 pub const SAVER_MESSAGE_PAYLOAD_LIMIT: usize = 2 * 1024 * 1024;
-pub const SAVER_INBOX_BODY_LIMIT: usize = 4 * 1024 * 1024;
+/// Same-version peers always send 4 MiB raw chunks (≈5.4 MiB encoded), so the
+/// saver inbox cap must still fit one; lower would reject valid transfers.
+pub const SAVER_INBOX_BODY_LIMIT: usize = 6 * 1024 * 1024;
 pub const SAVER_AUTHENTICATED_BODY_LIMIT: usize = 8 * 1024 * 1024;
 pub const SAVER_NOTE_IMAGE_LIMIT: usize = 8 * 1024 * 1024;
 pub const SAVER_NOTE_VIDEO_LIMIT: usize = 32 * 1024 * 1024;
@@ -407,6 +411,21 @@ mod tests {
         assert!(s.max_audio_bytes < d.max_audio_bytes);
         // Still admits at least one full inbox body under saver single-request limit.
         assert!(s.inbox_inflight_raw_budget >= s.inbox_body_limit);
+    }
+
+    /// Chunk size is fixed protocol-wide, not per profile: every profile's
+    /// inbox must admit one full encoded `myriad:FileChunk` activity.
+    #[test]
+    fn saver_admits_a_full_file_chunk() {
+        let encoded_chunk =
+            (crate::federation::limits::TRANSFER_CHUNK_SIZE as usize).div_ceil(3) * 4;
+        let envelope = 64 * 1024;
+        for profile in [MemoryProfile::Default, MemoryProfile::Saver] {
+            let b = MemoryBudgets::for_profile(profile);
+            assert!(b.inbox_body_limit >= encoded_chunk + envelope, "{profile:?}");
+            assert!(b.inbox_inflight_raw_budget >= b.inbox_body_limit, "{profile:?}");
+            assert!(b.max_in_flight_chunk_bytes >= encoded_chunk, "{profile:?}");
+        }
     }
 
     #[test]

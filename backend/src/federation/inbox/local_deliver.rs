@@ -259,6 +259,7 @@ pub async fn deliver_activity_locally(
                 actor_url_str,
                 activity_type,
                 activity,
+                db,
                 &mut post_commit,
             )
             .await;
@@ -276,6 +277,7 @@ pub async fn deliver_activity_locally(
                 actor_url_str,
                 other,
                 activity,
+                db,
                 &mut post_commit,
             )
             .await;
