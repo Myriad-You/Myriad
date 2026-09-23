@@ -588,21 +588,6 @@ pub async fn bookmark_object(
     .await
     .map_err(db_err)?;
 
-    // Keep timeline flag in sync when a matching row exists
-    let _ = db
-        .execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"UPDATE federation_timeline
-               SET is_bookmarked = true
-               WHERE user_id = $1
-                 AND (
-                   content_json->>'id' = $2
-                   OR content_json #>> '{object,id}' = $2
-                 )"#,
-            [user_id.into(), object_id.clone().into()],
-        ))
-        .await;
-
     let st = stats_for_one(db, user_id, &object_id).await?;
     Ok(InteractionResponse {
         success: true,
@@ -635,20 +620,6 @@ pub async fn unbookmark_object(
     ))
     .await
     .map_err(db_err)?;
-
-    let _ = db
-        .execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            r#"UPDATE federation_timeline
-               SET is_bookmarked = false
-               WHERE user_id = $1
-                 AND (
-                   content_json->>'id' = $2
-                   OR content_json #>> '{object,id}' = $2
-                 )"#,
-            [user_id.into(), object_id.clone().into()],
-        ))
-        .await;
 
     let st = stats_for_one(db, user_id, &object_id).await?;
     Ok(InteractionResponse {
@@ -831,19 +802,20 @@ pub async fn list_bookmarks(
     }
 
     // Enrich counts
-    if let Ok(stats_map) = interaction_stats_for_objects(db, user_id, &object_ids).await {
-        for item in &mut items {
-            if let Some(oid) = item.get("object_id").and_then(|v| v.as_str()) {
-                if let Some(st) = stats_map.get(oid) {
-                    if let Some(obj) = item.as_object_mut() {
-                        obj.insert("liked_by_me".into(), json!(st.liked_by_me));
-                        obj.insert("bookmarked_by_me".into(), json!(true));
-                        obj.insert("announced_by_me".into(), json!(st.announced_by_me));
-                        obj.insert("like_count".into(), json!(st.like_count));
-                        obj.insert("bookmark_count".into(), json!(st.bookmark_count));
-                        obj.insert("announce_count".into(), json!(st.announce_count));
-                        obj.insert("reply_count".into(), json!(st.reply_count));
-                    }
+    let stats_map = interaction_stats_for_objects(db, user_id, &object_ids)
+        .await
+        .map_err(db_err)?;
+    for item in &mut items {
+        if let Some(oid) = item.get("object_id").and_then(|v| v.as_str()) {
+            if let Some(st) = stats_map.get(oid) {
+                if let Some(obj) = item.as_object_mut() {
+                    obj.insert("liked_by_me".into(), json!(st.liked_by_me));
+                    obj.insert("bookmarked_by_me".into(), json!(true));
+                    obj.insert("announced_by_me".into(), json!(st.announced_by_me));
+                    obj.insert("like_count".into(), json!(st.like_count));
+                    obj.insert("bookmark_count".into(), json!(st.bookmark_count));
+                    obj.insert("announce_count".into(), json!(st.announce_count));
+                    obj.insert("reply_count".into(), json!(st.reply_count));
                 }
             }
         }

@@ -1112,12 +1112,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_channels_active_relationship
                             .default(false),
                     )
                     .col(
-                        ColumnDef::new(FederationTimeline::IsBookmarked)
-                            .boolean()
-                            .not_null()
-                            .default(false),
-                    )
-                    .col(
                         ColumnDef::new(FederationTimeline::ReceivedAt)
                             .timestamp_with_time_zone()
                             .not_null()
@@ -1643,7 +1637,6 @@ pub enum FederationTimeline {
     ContentPreview,
     ContentJson,
     IsRead,
-    IsBookmarked,
     ReceivedAt,
 }
 

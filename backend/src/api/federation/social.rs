@@ -2043,26 +2043,28 @@ pub(crate) async fn get_federation_timeline(
                 .map(|s| s.to_string())
         })
         .collect();
-    if let Ok(stats_map) =
-        federation::interactions::interaction_stats_for_objects(db, user_id, &object_ids).await
-    {
-        for item in &mut items {
-            if let Some(oid) = item
-                .get("object_id")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-            {
-                if let Some(st) = stats_map.get(&oid) {
-                    if let Some(obj) = item.as_object_mut() {
-                        obj.insert("liked_by_me".into(), json!(st.liked_by_me));
-                        obj.insert("bookmarked_by_me".into(), json!(st.bookmarked_by_me));
-                        obj.insert("announced_by_me".into(), json!(st.announced_by_me));
-                        obj.insert("like_count".into(), json!(st.like_count));
-                        obj.insert("bookmark_count".into(), json!(st.bookmark_count));
-                        obj.insert("announce_count".into(), json!(st.announce_count));
-                        obj.insert("reply_count".into(), json!(st.reply_count));
-                        obj.insert("is_bookmarked".into(), json!(st.bookmarked_by_me));
-                    }
+    // `is_bookmarked` is derived from the authoritative interaction rows; a stats
+    // failure fails the timeline rather than returning unknown bookmark state.
+    let stats_map =
+        federation::interactions::interaction_stats_for_objects(db, user_id, &object_ids)
+            .await
+            .map_err(|error| federation_user_error("load timeline", error))?;
+    for item in &mut items {
+        if let Some(oid) = item
+            .get("object_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+        {
+            if let Some(st) = stats_map.get(&oid) {
+                if let Some(obj) = item.as_object_mut() {
+                    obj.insert("liked_by_me".into(), json!(st.liked_by_me));
+                    obj.insert("bookmarked_by_me".into(), json!(st.bookmarked_by_me));
+                    obj.insert("announced_by_me".into(), json!(st.announced_by_me));
+                    obj.insert("like_count".into(), json!(st.like_count));
+                    obj.insert("bookmark_count".into(), json!(st.bookmark_count));
+                    obj.insert("announce_count".into(), json!(st.announce_count));
+                    obj.insert("reply_count".into(), json!(st.reply_count));
+                    obj.insert("is_bookmarked".into(), json!(st.bookmarked_by_me));
                 }
             }
         }

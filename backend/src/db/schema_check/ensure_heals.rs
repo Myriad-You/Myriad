@@ -1210,7 +1210,8 @@ pub(crate) async fn ensure_read_projection_schema(db: &DatabaseConnection) -> Re
         DROP INDEX IF EXISTS idx_users_github_id;
         ALTER TABLE tapps DROP COLUMN IF EXISTS granted_permissions;
         ALTER TABLE platform_reports DROP COLUMN IF EXISTS expires_at;
-        ALTER TABLE phantasi_sources DROP COLUMN IF EXISTS unread_count;").await?;
+        ALTER TABLE phantasi_sources DROP COLUMN IF EXISTS unread_count;
+        ALTER TABLE federation_timeline DROP COLUMN IF EXISTS is_bookmarked;").await?;
     Ok(())
 }
 

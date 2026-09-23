@@ -1224,12 +1224,6 @@ pub(crate) fn tables() -> Vec<TableDef> {
                     not_null: false,
                 },
                 ColumnDef {
-                    name: "is_bookmarked".into(),
-                    data_type: "boolean".into(),
-                    default_value: Some("false".into()),
-                    not_null: false,
-                },
-                ColumnDef {
                     name: "received_at".into(),
                     data_type: "timestamp with time zone".into(),
                     default_value: Some("now()".into()),

@@ -23,7 +23,6 @@ pub struct Model {
     #[sea_orm(column_type = "Json", nullable)]
     pub content_json: Option<Json>,
     pub is_read: bool,
-    pub is_bookmarked: bool,
     pub received_at: DateTimeWithTimeZone,
 }
 

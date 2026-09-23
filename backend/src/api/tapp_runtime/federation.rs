@@ -68,7 +68,14 @@ fn feed_item(row: FeedRow) -> Value {
     })
 }
 
-async fn enrich_feed_items(db: &DatabaseConnection, user_id: i32, items: &mut [Value]) {
+/// Attach authoritative interaction state (including the `is_bookmarked` response
+/// field) from one batch stats read. A stats failure fails the feed instead of
+/// returning items without — or with stale — per-user state.
+async fn enrich_feed_items(
+    db: &DatabaseConnection,
+    user_id: i32,
+    items: &mut [Value],
+) -> Result<(), HttpError> {
     let object_ids: Vec<String> = items
         .iter()
         .filter_map(|it| {
@@ -77,12 +84,13 @@ async fn enrich_feed_items(db: &DatabaseConnection, user_id: i32, items: &mut [V
                 .map(|s| s.to_string())
         })
         .collect();
-    let Ok(stats_map) =
+    let stats_map =
         crate::federation::interactions::interaction_stats_for_objects(db, user_id, &object_ids)
             .await
-    else {
-        return;
-    };
+            .map_err(|error| {
+                tracing::warn!(%error, "Failed to load federation feed interaction stats");
+                db_unavailable()
+            })?;
     for item in items.iter_mut() {
         let Some(oid) = item
             .get("object_id")
@@ -105,6 +113,7 @@ async fn enrich_feed_items(db: &DatabaseConnection, user_id: i32, items: &mut [V
             obj.insert("is_bookmarked".into(), json!(st.bookmarked_by_me));
         }
     }
+    Ok(())
 }
 
 /// SQL expression: resolved local-user avatar URL when present. Used only for the
@@ -202,7 +211,7 @@ async fn load_personal_feed(
     })?;
 
     let mut items: Vec<Value> = rows.into_iter().map(feed_item).collect();
-    enrich_feed_items(db, user_id, &mut items).await;
+    enrich_feed_items(db, user_id, &mut items).await?;
     Ok(items)
 }
 
@@ -427,7 +436,7 @@ pub async fn get_federation_rooms_feed(
     let mut items = dedupe_federation_feed(load_rooms_feed(&db).await?);
     // Guests get the same list without like/bookmark state (there is no "me").
     if federation_feed_includes_personal(runtime_grant.subject_id()) {
-        enrich_feed_items(&db, runtime_grant.subject_id(), &mut items).await;
+        enrich_feed_items(&db, runtime_grant.subject_id(), &mut items).await?;
     }
     let total = items.len();
 
@@ -458,7 +467,7 @@ pub async fn get_federation_feed(
     let mut items = merge_federation_feed(personal, public);
     // Re-enrich after merge so public-only rows also get counts / me-flags.
     if include_personal {
-        enrich_feed_items(&db, runtime_grant.subject_id(), &mut items).await;
+        enrich_feed_items(&db, runtime_grant.subject_id(), &mut items).await?;
     }
     let total = items.len();
 
