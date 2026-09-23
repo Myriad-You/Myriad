@@ -13,7 +13,7 @@ use crate::federation::actor::{
 };
 use crate::federation::signature::{
     HTTP_DATE_MAX_SKEW, ParsedSignature, parse_signature_header, require_covered_headers,
-    verify_date_freshness, verify_digest, verify_signature,
+    verify_date_freshness, verify_digest, verify_signature_covered,
 };
 use crate::federation::types::*;
 
@@ -67,7 +67,7 @@ fn unique_header<'a>(
 /// 为重建签名字符串收集 header 值。
 ///
 /// 只收集签名 `headers` 参数里列出的名字，且每个都走 [`unique_header`]。
-/// 缺失的 header 不放进 map —— 由 `verify_signature` 报
+/// 缺失的 header 不放进 map —— 由 `verify_signature_covered` 报
 /// "Missing header for signature"，保持原有错误语义。
 fn signing_header_map(
     headers: &HeaderMap,
@@ -225,7 +225,8 @@ pub(crate) async fn verify_request_signature(
     // 只取签名覆盖的 header，且每个都必须唯一（见 unique_header）。
     let header_map = signing_header_map(headers, &parsed.headers)?;
 
-    let valid = verify_signature(public_key_pem, parsed, method, path, &header_map)
+    // Covered-header set was checked by the gate (with body_present).
+    let valid = verify_signature_covered(public_key_pem, parsed, method, path, &header_map)
         .map_err(|error| inbox_auth_reject("Signature verification failed", error))?;
 
     if !valid {
@@ -385,7 +386,7 @@ mod tests {
         assert_eq!(parsed.key_id, "https://a.example/users/alice#main-key");
         let map = signing_header_map(&headers, &parsed.headers).unwrap();
         let pem = kp.public_key_pem().unwrap();
-        assert!(verify_signature(&pem, &parsed, "POST", "/inbox", &map).unwrap());
+        assert!(verify_signature_covered(&pem, &parsed, "POST", "/inbox", &map).unwrap());
 
         let err = verify_preparse_gate(&headers, br#"{"type":"Delete"}"#).unwrap_err();
         assert_eq!(err.0, StatusCode::UNAUTHORIZED);
