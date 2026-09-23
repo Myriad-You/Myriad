@@ -13,6 +13,7 @@ use sea_orm::{
 use serde_json::json;
 
 use crate::error::HttpError;
+use crate::extract::OptionalViewer;
 use crate::models::entities::{phantasi_items, phantasi_sources, phantasi_user_states};
 
 use super::helpers::{get_phantasi_user_and_admin_status, phantasi_http_err, phantasi_store_http};
@@ -21,34 +22,34 @@ use super::helpers::{get_phantasi_user_and_admin_status, phantasi_http_err, phan
 
 pub(crate) async fn mark_read(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    viewer: OptionalViewer,
     Path(item_id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    update_item_state(&db, &headers, item_id, Some(true), None).await
+    update_item_state(&db, &viewer, item_id, Some(true), None).await
 }
 
 pub(crate) async fn mark_unread(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    viewer: OptionalViewer,
     Path(item_id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    update_item_state(&db, &headers, item_id, Some(false), None).await
+    update_item_state(&db, &viewer, item_id, Some(false), None).await
 }
 
 pub(crate) async fn star_item(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    viewer: OptionalViewer,
     Path(item_id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    update_item_state(&db, &headers, item_id, None, Some(true)).await
+    update_item_state(&db, &viewer, item_id, None, Some(true)).await
 }
 
 pub(crate) async fn unstar_item(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    viewer: OptionalViewer,
     Path(item_id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    update_item_state(&db, &headers, item_id, None, Some(false)).await
+    update_item_state(&db, &viewer, item_id, None, Some(false)).await
 }
 
 pub(crate) fn visible_state_sources(is_admin: bool) -> sea_orm::Select<phantasi_sources::Entity> {
@@ -64,12 +65,12 @@ pub(crate) fn visible_state_sources(is_admin: bool) -> sea_orm::Select<phantasi_
 
 pub(crate) async fn update_item_state(
     db: &DatabaseConnection,
-    headers: &axum::http::HeaderMap,
+    viewer: &OptionalViewer,
     item_id: i32,
     is_read: Option<bool>,
     is_starred: Option<bool>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let (user_id, is_admin) = get_phantasi_user_and_admin_status(headers, db).await?;
+    let (user_id, is_admin) = get_phantasi_user_and_admin_status(viewer, db).await?;
     if is_starred.is_some() && !is_admin {
         return Err(phantasi_http_err(StatusCode::FORBIDDEN, "Forbidden"));
     }
@@ -199,10 +200,10 @@ pub(crate) async fn update_item_state(
 
 pub(crate) async fn mark_all_read(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    viewer: OptionalViewer,
     Json(req): Json<phantasi_user_states::MarkAllReadRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let (user_id, is_admin) = get_phantasi_user_and_admin_status(&headers, &db).await?;
+    let (user_id, is_admin) = get_phantasi_user_and_admin_status(&viewer, &db).await?;
     // 共享订阅库：按当前用户可见源标记，而非「我创建的源」
 
     let mut source_ids_query = phantasi_sources::Entity::find()

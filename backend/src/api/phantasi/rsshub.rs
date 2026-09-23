@@ -9,11 +9,12 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::error::HttpError;
+use crate::extract::AdminClaims;
 use crate::models::entities::rsshub_instances;
 use crate::services::rsshub_service::RsshubService;
 use myriad_error::AppError;
 
-use super::helpers::{get_admin_user_id_from_headers, phantasi_http_err};
+use super::helpers::{admin_user_id, phantasi_http_err};
 
 fn rsshub_mutate_error(error: String) -> HttpError {
     if error.starts_with("Failed to ") {
@@ -30,9 +31,9 @@ fn rsshub_mutate_error(error: String) -> HttpError {
 
 pub(crate) async fn list_rsshub_instances(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    admin: AdminClaims,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let user_id = get_admin_user_id_from_headers(&headers, &db).await?;
+    let user_id = admin_user_id(&admin)?;
     let rsshub_service = RsshubService::new(db);
     if let Err(e) = rsshub_service.ensure_default_instances().await {
         tracing::warn!("[RSSHub] Failed to ensure default instances: {}", e);
@@ -60,10 +61,10 @@ pub(crate) struct AddRsshubInstanceRequest {
 
 pub(crate) async fn add_rsshub_instance(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    admin: AdminClaims,
     Json(req): Json<AddRsshubInstanceRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let user_id = get_admin_user_id_from_headers(&headers, &db).await?;
+    let user_id = admin_user_id(&admin)?;
     let rsshub_service = RsshubService::new(db);
     match rsshub_service
         .add_instance(
@@ -95,11 +96,11 @@ pub(crate) struct UpdateRsshubInstanceRequest {
 
 pub(crate) async fn update_rsshub_instance(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    admin: AdminClaims,
     Path(id): Path<i32>,
     Json(req): Json<UpdateRsshubInstanceRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let user_id = get_admin_user_id_from_headers(&headers, &db).await?;
+    let user_id = admin_user_id(&admin)?;
     let rsshub_service = RsshubService::new(db);
     match rsshub_service
         .update_instance(
@@ -124,10 +125,10 @@ pub(crate) async fn update_rsshub_instance(
 
 pub(crate) async fn delete_rsshub_instance(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    admin: AdminClaims,
     Path(id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let user_id = get_admin_user_id_from_headers(&headers, &db).await?;
+    let user_id = admin_user_id(&admin)?;
     let rsshub_service = RsshubService::new(db);
     match rsshub_service
         .delete_instance(id, Some(user_id), true)
@@ -140,10 +141,9 @@ pub(crate) async fn delete_rsshub_instance(
 
 pub(crate) async fn health_check_rsshub_instance(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
     Path(id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
     let rsshub_service = RsshubService::new(db.clone());
     let instance = match rsshub_instances::Entity::find_by_id(id).one(&db).await {
         Ok(Some(i)) => i,
@@ -177,10 +177,10 @@ pub(crate) async fn health_check_rsshub_instance(
 
 pub(crate) async fn reset_rsshub_instance(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    admin: AdminClaims,
     Path(id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let user_id = get_admin_user_id_from_headers(&headers, &db).await?;
+    let user_id = admin_user_id(&admin)?;
     let rsshub_service = RsshubService::new(db);
     match rsshub_service
         .reset_instance_stats(id, Some(user_id), true)
@@ -193,9 +193,9 @@ pub(crate) async fn reset_rsshub_instance(
 
 pub(crate) async fn health_check_all_rsshub_instances(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    admin: AdminClaims,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let user_id = get_admin_user_id_from_headers(&headers, &db).await?;
+    let user_id = admin_user_id(&admin)?;
     let rsshub_service = RsshubService::new(db);
     match rsshub_service.check_all_instances(Some(user_id)).await {
         Ok(()) => Ok(Json(
@@ -234,7 +234,7 @@ mod tests {
                 .map(|index| index + 1)
                 .unwrap_or(body.len());
             assert!(
-                body[..end].contains("get_admin_user_id_from_headers"),
+                body[..end].contains("admin: AdminClaims"),
                 "{name} must require an admin session"
             );
         }

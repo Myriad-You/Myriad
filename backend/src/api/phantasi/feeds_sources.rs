@@ -1,5 +1,6 @@
 //! Phantasi feed sources: list, CRUD, discover, and categories.
 use crate::error::HttpError;
+use crate::extract::{AdminClaims, OptionalViewer};
 use myriad_error::AppError;
 
 use axum::{
@@ -23,9 +24,9 @@ use crate::services::phantasi_parser::{FeedParser, ParseError, ParsedFeed};
 use crate::services::phantasi_scheduler::get_phantasi_scheduler;
 
 use super::helpers::{
-    build_feed_discovery_candidates, get_admin_user_id_from_headers, get_phantasi_viewer,
-    materialize_source_icon, normalize_http_url, overlay_requested_feed_type,
-    parse_feed_type_label, persist_source_icon, phantasi_http_err, phantasi_store_http,
+    admin_user_id, build_feed_discovery_candidates, get_phantasi_viewer, materialize_source_icon,
+    normalize_http_url, overlay_requested_feed_type, parse_feed_type_label, persist_source_icon,
+    phantasi_http_err, phantasi_store_http,
 };
 
 // 订阅源管理
@@ -228,10 +229,10 @@ fn retain_listed_sources_for_category(
 /// `board` 按手帐板块切：订阅不含入口/笔记，笔记含 note/`我`，朋友们含入口和友情链接。
 pub(crate) async fn list_sources(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    viewer: OptionalViewer,
     Query(query): Query<ListSourcesQuery>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let (user_id, is_admin) = get_phantasi_viewer(&headers, &db).await?;
+    let (user_id, is_admin) = get_phantasi_viewer(&viewer, &db).await?;
 
     // 获取订阅源（非管理员过滤掉 admin_only=true 的源）
     let mut source_query =
@@ -432,11 +433,11 @@ pub struct AddSourceRequest {
 
 pub(crate) async fn add_source(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    admin: AdminClaims,
     Json(req): Json<AddSourceRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     // 添加订阅源需要管理员权限
-    let user_id = get_admin_user_id_from_headers(&headers, &db).await?;
+    let user_id = admin_user_id(&admin)?;
 
     // 验证 URL
     let url = req.url.trim();
@@ -707,12 +708,10 @@ pub(crate) async fn add_source(
 /// 更新订阅源（需要管理员权限）
 pub(crate) async fn update_source(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
     Path(id): Path<i32>,
     Json(req): Json<phantasi_sources::UpdateSourceRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
-
     let source = phantasi_sources::Entity::find_by_id(id).one(&db).await;
 
     match source {
@@ -858,11 +857,9 @@ pub(crate) async fn update_source(
 /// 删除订阅源（需要管理员权限）
 pub(crate) async fn delete_source(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
     Path(id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
-
     let source = phantasi_sources::Entity::find_by_id(id).one(&db).await;
 
     match source {
@@ -915,11 +912,9 @@ pub(crate) async fn delete_source(
 /// 手动刷新订阅源（需要管理员权限）
 pub(crate) async fn refresh_source(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
     Path(id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
-
     let source = phantasi_sources::Entity::find_by_id(id).one(&db).await;
 
     match source {
@@ -990,12 +985,9 @@ fn discover_success_response(
 
 /// 探测订阅源信息（需管理员；出站经 FeedParser SSRF 防护）
 pub(crate) async fn discover_source(
-    State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
     Json(req): Json<DiscoverRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
-
     let mut candidates = match build_feed_discovery_candidates(&req.url) {
         Ok(candidates) => candidates,
         Err(error) => {
@@ -1053,9 +1045,9 @@ pub(crate) async fn discover_source(
 /// 获取分类列表（公开读：关访客门 404；坏凭据 401）
 pub(crate) async fn list_categories(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    viewer: OptionalViewer,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    get_phantasi_viewer(&headers, &db).await?;
+    get_phantasi_viewer(&viewer, &db).await?;
     let categories = phantasi_categories::Entity::find()
         .order_by_asc(phantasi_categories::Column::SortOrder)
         .all(&db)
@@ -1075,11 +1067,11 @@ pub(crate) async fn list_categories(
 
 pub(crate) async fn create_category(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    admin: AdminClaims,
     Json(req): Json<phantasi_categories::CreateCategoryRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     // 创建分类需要管理员权限
-    let user_id = get_admin_user_id_from_headers(&headers, &db).await?;
+    let user_id = admin_user_id(&admin)?;
 
     let now = Utc::now();
     let new_cat = phantasi_categories::ActiveModel {
@@ -1103,12 +1095,11 @@ pub(crate) async fn create_category(
 
 pub(crate) async fn update_category(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
     Path(id): Path<i32>,
     Json(req): Json<phantasi_categories::UpdateCategoryRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     // 更新分类需要管理员权限。共享目录按 id，不按创建者。
-    get_admin_user_id_from_headers(&headers, &db).await?;
 
     let cat = phantasi_categories::Entity::find_by_id(id).one(&db).await;
 
@@ -1146,11 +1137,10 @@ pub(crate) async fn update_category(
 
 pub(crate) async fn delete_category(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
     Path(id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     // 删除分类需要管理员权限。共享目录按 id，不按创建者。
-    get_admin_user_id_from_headers(&headers, &db).await?;
 
     let cat = phantasi_categories::Entity::find_by_id(id).one(&db).await;
 

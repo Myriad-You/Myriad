@@ -17,12 +17,13 @@ use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOr
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::helpers::{get_admin_user_id_from_headers, phantasi_http_err};
+use super::helpers::phantasi_http_err;
 use crate::api::seo::{
     notes_rss_enabled, notes_rss_is_public, public_absolute_url, public_site_identity,
     resolve_public_base_url, strip_html_snippet, xml_escape,
 };
 use crate::error::HttpError;
+use crate::extract::AdminClaims;
 use crate::models::entities::{phantasi_items, phantasi_sources};
 
 const NOTES_RSS_ITEM_LIMIT: u64 = 50;
@@ -249,19 +250,17 @@ fn notes_rss_settings_json(enabled: bool) -> Value {
 /// GET `/api/phantasi/notes/rss` — 站长看开关。
 pub async fn get_notes_rss_settings(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
 ) -> Result<Json<Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
     Ok(Json(notes_rss_settings_json(notes_rss_enabled(&db).await)))
 }
 
 /// PUT `/api/phantasi/notes/rss` — 站长改开关。默认关。
 pub async fn put_notes_rss_settings(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
     Json(req): Json<NotesRssSettingsRequest>,
 ) -> Result<Json<Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
     let config_service = crate::services::config_service::ConfigService::new(db);
     if let Err(error) = config_service
         .update_config(NOTES_RSS_PREFERENCES_KEY, json!(req.enabled))

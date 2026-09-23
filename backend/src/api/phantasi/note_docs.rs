@@ -18,9 +18,10 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use super::helpers::{get_admin_user_id_from_headers, phantasi_http_err, phantasi_store_http};
+use super::helpers::{admin_user_id, phantasi_http_err, phantasi_store_http};
 use super::note_collab::{NoteCollabEvent, note_collab_hub};
 use crate::error::HttpError;
+use crate::extract::AdminClaims;
 use crate::middleware::auth::Claims;
 use crate::models::entities::phantasi_note_docs;
 use crate::services::note_authors::{
@@ -226,9 +227,8 @@ pub(super) async fn find_doc(
 /// `GET /notes/docs` — 管理端文档列表，含草稿和定时。
 pub(crate) async fn list_note_docs(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
     let docs = phantasi_note_docs::list_query()
         .order_by_desc(phantasi_note_docs::Column::UpdatedAt)
         .all(&db)
@@ -245,10 +245,10 @@ pub(crate) async fn list_note_docs(
 /// `POST /notes/docs` — 建一篇云端草稿。标题可空。
 pub(crate) async fn create_note_doc(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    admin: AdminClaims,
     Json(req): Json<NoteDocWriteRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let user_id = get_admin_user_id_from_headers(&headers, &db).await?;
+    let user_id = admin_user_id(&admin)?;
     let now = Utc::now();
     let doc = phantasi_note_docs::ActiveModel {
         user_id: Set(user_id),
@@ -297,10 +297,9 @@ pub(crate) async fn create_note_doc(
 /// `GET /notes/docs/{id}`
 pub(crate) async fn get_note_doc(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
     Path(id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
     let doc = find_doc(&db, id).await?;
     Ok(Json(
         json!({ "success": true, "doc": respond_doc(&db, doc).await? }),
@@ -310,10 +309,10 @@ pub(crate) async fn get_note_doc(
 /// `GET /notes/docs/for-item/{item_id}` — 给已发布笔记找或建对应文档。
 pub(crate) async fn get_note_doc_for_item(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    admin: AdminClaims,
     Path(item_id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let user_id = get_admin_user_id_from_headers(&headers, &db).await?;
+    let user_id = admin_user_id(&admin)?;
     let source_id = crate::models::entities::phantasi_items::Entity::find_by_id(item_id)
         .select_only()
         .column(crate::models::entities::phantasi_items::Column::SourceId)
@@ -371,11 +370,11 @@ pub(crate) async fn get_note_doc_for_item(
 /// `PUT /notes/docs/{id}` — 存草稿。带 revision，对不上 409。
 pub(crate) async fn update_note_doc(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    admin: AdminClaims,
     Path(id): Path<i32>,
     Json(req): Json<NoteDocWriteRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let user_id = get_admin_user_id_from_headers(&headers, &db).await?;
+    let user_id = admin_user_id(&admin)?;
     let expected = expected_revision(req.revision)?;
     let doc = find_doc(&db, id).await?;
     if !revision_matches(expected, doc.revision) {
@@ -469,11 +468,11 @@ pub(super) fn broadcast_saved_doc(
 /// `PUT /notes/docs/{id}/topic` — classify without publishing draft content.
 pub(crate) async fn update_note_doc_topic(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    admin: AdminClaims,
     Path(id): Path<i32>,
     Json(req): Json<NoteDocTopicRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let user_id = get_admin_user_id_from_headers(&headers, &db).await?;
+    let user_id = admin_user_id(&admin)?;
     let topic = req
         .topic
         .ok_or_else(|| phantasi_http_err(StatusCode::BAD_REQUEST, "A topic is required"))?;
@@ -493,10 +492,9 @@ pub(crate) async fn update_note_doc_topic(
 /// `DELETE /notes/docs/{id}` — 删云端文档。已发布的文章另走 DELETE /notes/{item}。
 pub(crate) async fn delete_note_doc(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
     Path(id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
     let status = phantasi_note_docs::Entity::find_by_id(id)
         .select_only()
         .column(phantasi_note_docs::Column::Status)
@@ -531,11 +529,11 @@ pub(crate) async fn delete_note_doc(
 /// `POST /notes/docs/{id}/publish`
 pub(crate) async fn publish_note_doc(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    admin: AdminClaims,
     Path(id): Path<i32>,
     Json(req): Json<NoteDocWriteRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let user_id = get_admin_user_id_from_headers(&headers, &db).await?;
+    let user_id = admin_user_id(&admin)?;
     let expected = expected_revision(req.revision)?;
     let mut doc = find_doc(&db, id).await?;
     if !revision_matches(expected, doc.revision) {
@@ -591,11 +589,11 @@ pub(crate) async fn publish_note_doc(
 /// `POST /notes/docs/{id}/schedule`
 pub(crate) async fn schedule_note_doc(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    admin: AdminClaims,
     Path(id): Path<i32>,
     Json(req): Json<NoteDocWriteRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let user_id = get_admin_user_id_from_headers(&headers, &db).await?;
+    let user_id = admin_user_id(&admin)?;
     let doc = find_doc(&db, id).await?;
     if doc.status == NoteDocStatus::Published.as_str() {
         return Err(phantasi_http_err(
@@ -675,11 +673,11 @@ pub(crate) async fn schedule_note_doc(
 /// `POST /notes/docs/{id}/unschedule`
 pub(crate) async fn unschedule_note_doc(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    admin: AdminClaims,
     Path(id): Path<i32>,
     Json(req): Json<NoteDocWriteRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let user_id = get_admin_user_id_from_headers(&headers, &db).await?;
+    let user_id = admin_user_id(&admin)?;
     let expected = expected_revision(req.revision)?;
     let doc = find_doc(&db, id).await?;
     if !revision_matches(expected, doc.revision) {
@@ -759,9 +757,8 @@ pub(crate) async fn unschedule_note_doc(
 /// `GET /notes/author-candidates`
 pub(crate) async fn list_note_author_candidates(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
     Ok(Json(json!({
         "success": true,
         "candidates": load_note_author_candidates(&db).await?,
@@ -789,10 +786,9 @@ pub(super) async fn find_doc_owner(
 /// `GET /notes/docs/{id}/authors` — settings do not need the document body.
 pub(crate) async fn list_note_doc_authors(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
     Path(id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
     find_doc_owner(&db, id).await?;
     let mut authors = load_authors_for_docs(&db, &[id]).await?;
     Ok(Json(json!({
@@ -804,11 +800,10 @@ pub(crate) async fn list_note_doc_authors(
 /// `POST /notes/docs/{id}/authors`
 pub(crate) async fn add_note_doc_author(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
     Path(id): Path<i32>,
     Json(req): Json<NoteAuthorWriteRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
     let (owner_id, item_id) = find_doc_owner(&db, id).await?;
     let authors = add_note_author(&db, id, owner_id, req.user_id, item_id).await?;
     Ok(Json(json!({ "success": true, "authors": authors })))
@@ -817,10 +812,9 @@ pub(crate) async fn add_note_doc_author(
 /// `DELETE /notes/docs/{id}/authors/{user_id}`
 pub(crate) async fn remove_note_doc_author(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
     Path((id, user_id)): Path<(i32, i32)>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
     let (_, item_id) = find_doc_owner(&db, id).await?;
     let authors = remove_note_author(&db, id, user_id, item_id).await?;
     Ok(Json(json!({ "success": true, "authors": authors })))

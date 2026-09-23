@@ -402,6 +402,77 @@ pub async fn optional_current_auth_middleware(
     }
 }
 
+/// How a public route treats a presented credential that fails verification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InvalidCredential {
+    /// 401, same as required auth (clears a stale cookie).
+    Reject,
+    /// Continue as anonymous. Only a 401 downgrades; server errors still fail.
+    Anonymous,
+}
+
+/// Optional auth plus the current-admin proof, for routes whose handlers need
+/// both "who is this" and "is this still an admin".
+///
+/// Absence is anonymous; a presented credential must pass the same resolver as
+/// [`auth_middleware`] and is otherwise rejected. A valid subject lands in the
+/// extensions as `Claims` and [`OptionalClaims`]; [`CurrentAdminVerified`] is
+/// added only after [`ensure_current_admin_on`] succeeds.
+pub async fn optional_current_admin_auth_middleware(
+    State(db): State<DatabaseConnection>,
+    req: Request,
+    next: Next,
+) -> Response {
+    optional_admin_auth(db, req, next, InvalidCredential::Reject).await
+}
+
+/// Same as [`optional_current_admin_auth_middleware`], except an invalid,
+/// expired or revoked credential continues as anonymous instead of 401. For
+/// routes that have always served cached content regardless of credentials.
+pub async fn lenient_current_admin_auth_middleware(
+    State(db): State<DatabaseConnection>,
+    req: Request,
+    next: Next,
+) -> Response {
+    optional_admin_auth(db, req, next, InvalidCredential::Anonymous).await
+}
+
+async fn optional_admin_auth(
+    db: DatabaseConnection,
+    mut req: Request,
+    next: Next,
+    invalid: InvalidCredential,
+) -> Response {
+    let credential_source = auth_credential_source(req.headers());
+    let claims = match authenticate_optional_request(req.headers(), &db).await {
+        Ok(claims) => claims,
+        Err(error_response)
+            if invalid == InvalidCredential::Anonymous
+                && error_response.status() == StatusCode::UNAUTHORIZED =>
+        {
+            None
+        }
+        Err(error_response) => {
+            return clear_invalid_cookie_response(*error_response, credential_source).await;
+        }
+    };
+    if let Some(claims) = claims.as_ref() {
+        record_user_presence(claims, db.clone());
+        // Forbidden only means "not a current admin"; anything else (database
+        // failure, malformed subject) must not silently downgrade the caller.
+        match ensure_current_admin_on(claims, &db).await {
+            Ok(()) => {
+                req.extensions_mut().insert(CurrentAdminVerified(()));
+            }
+            Err((StatusCode::FORBIDDEN, _)) => {}
+            Err(error) => return error.into_response(),
+        }
+        req.extensions_mut().insert(claims.clone());
+    }
+    req.extensions_mut().insert(OptionalClaims(claims));
+    next.run(req).await
+}
+
 /// 每用户至少间隔 60s 才落一次库，避免高频请求放大写入。
 const PRESENCE_WRITE_INTERVAL: Duration = Duration::from_secs(60);
 /// Drop map entries older than this so long-lived processes do not retain every
@@ -500,8 +571,9 @@ pub async fn admin_middleware(
     }
 }
 
-/// Request-scoped proof that `admin_middleware` already ran
-/// [`ensure_current_admin_on`] successfully for the `Claims` in this request.
+/// Request-scoped proof that `admin_middleware` (or the optional-auth variants
+/// above) already ran [`ensure_current_admin_on`] successfully for the `Claims`
+/// in this request.
 ///
 /// The private field keeps it constructible only here, so neither a header nor
 /// another module can forge it. It holds no identity copy and never outlives the
@@ -572,25 +644,6 @@ pub async fn ensure_current_admin_on(
     } else {
         Err(admin_forbidden())
     }
-}
-
-/// Verify JWT headers (incl. session epoch) and re-check the admin flag against the request DB.
-pub async fn verify_current_admin_from_headers(
-    headers: &HeaderMap,
-    db: &DatabaseConnection,
-) -> Result<Claims, (StatusCode, Json<serde_json::Value>)> {
-    let claims = authenticate_request(headers, db).await.map_err(|_| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({
-                "error": "Unauthorized",
-                "message": "Please login before using administrator functions."
-            })),
-        )
-    })?;
-
-    ensure_current_admin_on(&claims, db).await?;
-    Ok(claims)
 }
 
 /// Load the current durable authorization snapshot.
@@ -1605,6 +1658,96 @@ mod tests {
     }
 
     #[test]
+    fn optional_admin_auth_keeps_invalid_credential_semantics_per_mode() {
+        use crate::extract::OptionalViewer;
+        use axum::{Router, body::Body, middleware::from_fn_with_state, routing::get};
+        use tower::ServiceExt;
+
+        ensure_jwt_secret();
+        let _test_guard = auth_cache_test_guard();
+        clear_auth_cache_for_test();
+        // 81 current ordinary user, 82 revoked session, 83 admin claim whose live
+        // check hits the (disconnected) database.
+        for (id, token_version, is_admin) in [(81, 0, false), (82, 1, false), (83, 0, true)] {
+            auth_cache_put(
+                id,
+                Some(AuthSnapshot {
+                    token_version,
+                    is_admin,
+                    is_owner: false,
+                }),
+            );
+        }
+        let bearer = |id: i32, admin: bool| {
+            let claims = mint_session_claims(id, "viewer", admin, false, 0);
+            format!("Bearer {}", encode_session_token(&claims).expect("token"))
+        };
+        let viewer = get(|viewer: OptionalViewer| async move {
+            let sub = viewer.claims.map(|claims| claims.sub).unwrap_or_default();
+            format!("{sub}:{}", viewer.is_admin)
+        });
+        let strict = Router::new()
+            .route("/", viewer.clone())
+            .route_layer(from_fn_with_state(
+                DatabaseConnection::default(),
+                super::optional_current_admin_auth_middleware,
+            ));
+        let lenient = Router::new()
+            .route("/", viewer.clone())
+            .route_layer(from_fn_with_state(
+                DatabaseConnection::default(),
+                super::lenient_current_admin_auth_middleware,
+            ));
+        let unmounted = Router::new().route("/", viewer);
+        let call = |app: axum::Router, auth: Option<String>| async move {
+            let mut request = axum::http::Request::builder().uri("/");
+            if let Some(auth) = auth {
+                request = request.header(header::AUTHORIZATION, auth);
+            }
+            let response = app
+                .oneshot(request.body(Body::empty()).expect("request"))
+                .await
+                .expect("response");
+            let status = response.status();
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("body");
+            (status, String::from_utf8_lossy(&body).into_owned())
+        };
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            let ok = |body: &str| (StatusCode::OK, body.to_string());
+            assert_eq!(call(strict.clone(), None).await, ok(":false"));
+            assert_eq!(
+                call(strict.clone(), Some(bearer(81, false))).await,
+                ok("81:false")
+            );
+            for invalid in ["Bearer invalid".to_string(), bearer(82, false)] {
+                assert_eq!(
+                    call(strict.clone(), Some(invalid.clone())).await.0,
+                    StatusCode::UNAUTHORIZED
+                );
+                assert_eq!(call(lenient.clone(), Some(invalid)).await, ok(":false"));
+            }
+            // A failed live admin check never downgrades to a non-admin viewer.
+            for app in [strict, lenient] {
+                assert_eq!(
+                    call(app, Some(bearer(83, true))).await.0,
+                    StatusCode::INTERNAL_SERVER_ERROR
+                );
+            }
+            // Missing middleware is a wiring bug, not an anonymous viewer.
+            assert_eq!(
+                call(unmounted, Some(bearer(81, false))).await.0,
+                StatusCode::INTERNAL_SERVER_ERROR
+            );
+        });
+    }
+
+    #[test]
     fn signed_guest_session_is_stable_and_tamper_evident() {
         let secret = b"test-secret-at-least-thirty-two-bytes-long";
         let session_id = "0123456789abcdef0123456789abcdef";
@@ -1882,5 +2025,15 @@ mod tests {
         let check = body.find("ensure_current_admin_on(").expect("check");
         let proof = body.find("CurrentAdminVerified(())").expect("proof");
         assert!(check < proof);
+
+        let optional = src
+            .split("async fn optional_admin_auth(")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}\n").next())
+            .expect("optional_admin_auth");
+        let check = optional.find("ensure_current_admin_on(").expect("check");
+        let proof = optional.find("CurrentAdminVerified(())").expect("proof");
+        assert!(check < proof);
+        assert_eq!(optional.matches("CurrentAdminVerified(())").count(), 1);
     }
 }

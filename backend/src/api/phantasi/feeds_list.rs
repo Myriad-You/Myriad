@@ -1,5 +1,6 @@
 //! Phantasi feed items list and subscription topics.
 use crate::error::HttpError;
+use crate::extract::{AdminClaims, OptionalViewer};
 
 use axum::{
     Json,
@@ -24,8 +25,8 @@ use crate::services::phantasi_topics::{
 };
 
 use super::helpers::{
-    get_admin_user_id_from_headers, get_phantasi_viewer, materialize_source_icon,
-    phantasi_http_err, phantasi_store_http,
+    get_phantasi_viewer, materialize_source_icon, phantasi_http_err, phantasi_store_http,
+    require_viewer_admin,
 };
 
 // 订阅主题
@@ -97,9 +98,9 @@ fn topic_suggest_http(err: TopicSuggestError) -> HttpError {
 /// 本站已有的订阅主题名。笔记分类不进这里。
 pub(crate) async fn list_subscription_topics(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    viewer: OptionalViewer,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let (_, is_admin) = get_phantasi_viewer(&headers, &db).await?;
+    let (_, is_admin) = get_phantasi_viewer(&viewer, &db).await?;
     let topics = list_subscription_topic_names(&db, is_admin)
         .await
         .map_err(|e| phantasi_store_http("list topics", e))?;
@@ -114,10 +115,9 @@ pub(crate) async fn list_subscription_topics(
 /// 站长勾选哪些已有主题在订阅墙出混排卡。访客只读 GET `/topics` 里的 `cards`。
 pub(crate) async fn put_feed_topic_cards(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
     Json(body): Json<UpdateTopicCardsRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
     let topics = list_subscription_topic_names(&db, true)
         .await
         .map_err(|e| phantasi_store_http("list topics", e))?;
@@ -144,11 +144,10 @@ pub(crate) async fn put_feed_topic_cards(
 /// 站长手填订阅文章主题。笔记走编辑器，不走这条。
 pub(crate) async fn update_item_topic(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
     Path(id): Path<i32>,
     Json(body): Json<UpdateItemTopicRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
     let topic = set_subscription_item_topic(&db, id, body.topic.as_deref())
         .await
         .map_err(topic_write_http)?;
@@ -158,10 +157,9 @@ pub(crate) async fn update_item_topic(
 /// 按正文建议主题并写回。站长可再手改。
 pub(crate) async fn suggest_item_topic(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
     Path(id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
     let topic = suggest_subscription_item_topic(&db, id, true)
         .await
         .map_err(topic_suggest_http)?;
@@ -178,11 +176,11 @@ pub(crate) async fn suggest_item_topic(
 /// 非管理员看不到 admin_only 源下的文章
 pub(crate) async fn list_items(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    viewer: OptionalViewer,
     Query(query): Query<phantasi_items::ItemsQuery>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     // 获取可选用户 ID 与管理员状态
-    let (user_id, is_admin) = get_phantasi_viewer(&headers, &db).await?;
+    let (user_id, is_admin) = get_phantasi_viewer(&viewer, &db).await?;
 
     let mut visible_sources = phantasi_sources::Entity::find()
         .select_only()
@@ -213,7 +211,7 @@ pub(crate) async fn list_items(
     };
     let filter_type = query.filter.as_deref().unwrap_or("all");
     if filter_type == "starred" {
-        get_admin_user_id_from_headers(&headers, &db).await?;
+        require_viewer_admin(&viewer)?;
     }
 
     // 构建查询
@@ -425,7 +423,7 @@ mod tests {
             .split("pub(crate) async fn put_feed_topic_cards")
             .nth(1)
             .expect("put_feed_topic_cards");
-        assert!(put.contains("get_admin_user_id_from_headers"));
+        assert!(put.contains("_admin: AdminClaims"));
         assert!(put.contains("sanitize_feed_topic_cards"));
     }
 
@@ -442,7 +440,7 @@ mod tests {
             .unwrap_or(body.len());
         let list = &body[..end];
         assert!(list.contains("filter_type == \"starred\""));
-        assert!(list.contains("get_admin_user_id_from_headers"));
+        assert!(list.contains("require_viewer_admin(&viewer)"));
         assert!(list.contains("materialize_source_icon"));
     }
 }

@@ -92,6 +92,42 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthedClaims {
     }
 }
 
+/// 可选认证路由上的访问者：`claims` 为 `None` 即游客；`is_admin` 只来自本请求的
+/// 当前管理员核验标记，不看 JWT 里的 `is_admin`。
+///
+/// 仅在已挂 `optional_current_admin_auth_middleware` /
+/// `lenient_current_admin_auth_middleware` 的路由上使用。漏挂时 500，
+/// 不会把带凭据的请求静默当成游客。
+#[derive(Debug)]
+pub struct OptionalViewer {
+    pub claims: Option<Claims>,
+    pub is_admin: bool,
+}
+
+impl<S: Send + Sync> FromRequestParts<S> for OptionalViewer {
+    type Rejection = (StatusCode, Json<Value>);
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let crate::middleware::auth::OptionalClaims(claims) = parts
+            .extensions
+            .get::<crate::middleware::auth::OptionalClaims>()
+            .cloned()
+            .ok_or_else(|| {
+                tracing::error!("OptionalViewer used on a route without optional auth middleware");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(AppError::public_json("Authentication is not configured")),
+                )
+            })?;
+        let is_admin = claims.is_some()
+            && parts
+                .extensions
+                .get::<crate::middleware::auth::CurrentAdminVerified>()
+                .is_some();
+        Ok(OptionalViewer { claims, is_admin })
+    }
+}
+
 /// 当前仍然是管理员的调用者。
 ///
 /// 5 个 ring 写端点 + `federation_update_trust_policy` 的路由只有 router 级 `auth_middleware`，`AdminClaims` 是它们唯一的管理员防线。

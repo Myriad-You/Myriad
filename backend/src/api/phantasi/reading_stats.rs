@@ -4,6 +4,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde_json::json;
 
 use crate::error::HttpError;
+use crate::extract::OptionalViewer;
 
 use super::helpers::{get_phantasi_viewer, phantasi_store_http};
 
@@ -13,9 +14,9 @@ use super::helpers::{get_phantasi_viewer, phantasi_store_http};
 /// 游客不计算已读/收藏统计以节约计算
 pub(crate) async fn get_stats(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    viewer: OptionalViewer,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let (user_id, is_admin) = get_phantasi_viewer(&headers, &db).await?;
+    let (user_id, is_admin) = get_phantasi_viewer(&viewer, &db).await?;
 
     let visible_sources = if is_admin {
         "phantasi_sources"

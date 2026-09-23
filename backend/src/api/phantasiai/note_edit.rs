@@ -1,15 +1,13 @@
 //! Stateless editing: only an explicit editor action applies the returned draft.
 use axum::{
     Json,
-    extract::State,
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
 };
 use myriad_phantasi_notes::{
     ai_edit::{SYSTEM_PROMPT, build_prompt, validate_result},
     render_markdown_preview,
 };
-use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 
 fn failure(status: StatusCode, code: &str) -> Response {
@@ -21,13 +19,9 @@ fn failure(status: StatusCode, code: &str) -> Response {
 }
 
 pub(super) async fn edit_note(
-    State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
+    _admin: crate::extract::AdminClaims,
     Json(request): Json<Value>,
 ) -> Response {
-    if let Err(response) = super::verify_admin(&headers, &db).await {
-        return response;
-    }
     let prompt = match build_prompt(&request) {
         Ok(prompt) => prompt,
         Err(code) => return failure(StatusCode::BAD_REQUEST, code),

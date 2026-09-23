@@ -1,5 +1,6 @@
 //! Phantasi OPML import and export.
 use crate::error::HttpError;
+use crate::extract::{AdminClaims, OptionalViewer};
 use myriad_error::AppError;
 
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
@@ -13,8 +14,7 @@ use serde_json::json;
 use crate::models::entities::phantasi_sources;
 
 use super::helpers::{
-    generate_opml, get_admin_user_id_from_headers, get_phantasi_viewer, parse_opml,
-    phantasi_store_http,
+    admin_user_id, generate_opml, get_phantasi_viewer, parse_opml, phantasi_store_http,
 };
 
 // OPML 导入导出
@@ -27,11 +27,11 @@ pub struct ImportOpmlRequest {
 
 pub(crate) async fn import_opml(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    admin: AdminClaims,
     Json(req): Json<ImportOpmlRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     // 导入 OPML 需要管理员权限
-    let user_id = get_admin_user_id_from_headers(&headers, &db).await?;
+    let user_id = admin_user_id(&admin)?;
 
     // 解析 OPML
     let feeds = parse_opml(&req.opml);
@@ -104,9 +104,9 @@ pub(crate) async fn import_opml(
 /// 导出 OPML（公开读：关访客门 404；坏凭据 401；非管理员不导出 admin_only 源）
 pub(crate) async fn export_opml(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    viewer: OptionalViewer,
 ) -> Result<impl IntoResponse, HttpError> {
-    let (_, is_admin) = get_phantasi_viewer(&headers, &db).await?;
+    let (_, is_admin) = get_phantasi_viewer(&viewer, &db).await?;
 
     let mut query = phantasi_sources::Entity::find()
         // 笔记源的 url 是 `myriad:notes`，不是一个可订阅的 feed。导出来别人

@@ -1,6 +1,7 @@
 //! Account-scoped editor preferences and version-checked history restoration.
-use super::helpers::{get_admin_user_id_from_headers, phantasi_http_err, phantasi_store_http};
+use super::helpers::{admin_user_id, phantasi_http_err, phantasi_store_http};
 use super::note_docs::{broadcast_saved_doc, credit_and_respond, find_doc_owner};
+use crate::extract::AdminClaims;
 use crate::{
     error::HttpError, models::entities::phantasi_note_docs,
     services::note_publish::millis_to_datetime,
@@ -33,9 +34,9 @@ pub(crate) struct EditorPreference {
 
 pub(crate) async fn get_preference(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
+    admin: AdminClaims,
 ) -> Result<Json<Value>, HttpError> {
-    let user_id = get_admin_user_id_from_headers(&headers, &db).await?;
+    let user_id = admin_user_id(&admin)?;
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -52,10 +53,10 @@ pub(crate) async fn get_preference(
 }
 pub(crate) async fn put_preference(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
+    admin: AdminClaims,
     Json(req): Json<EditorPreference>,
 ) -> Result<Json<Value>, HttpError> {
-    let user_id = get_admin_user_id_from_headers(&headers, &db).await?;
+    let user_id = admin_user_id(&admin)?;
     let view = serde_json::to_value(req.default_view).unwrap();
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
@@ -93,10 +94,9 @@ fn history_response(row: sea_orm::QueryResult) -> Result<Value, sea_orm::DbErr> 
 
 pub(crate) async fn list_history(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
+    _admin: AdminClaims,
     Path(id): Path<i32>,
 ) -> Result<Json<Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
     find_doc_owner(&db, id).await?;
     let rows = db
         .query_all_raw(Statement::from_sql_and_values(
@@ -116,10 +116,9 @@ pub(crate) async fn list_history(
 
 pub(crate) async fn get_history_entry(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
+    _admin: AdminClaims,
     Path((id, version)): Path<(i32, i64)>,
 ) -> Result<Json<Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
     find_doc_owner(&db, id).await?;
     let row = db
         .query_one_raw(Statement::from_sql_and_values(
@@ -152,11 +151,11 @@ struct Snapshot {
 
 pub(crate) async fn restore_history(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
+    admin: AdminClaims,
     Path((id, version)): Path<(i32, i64)>,
     Json(req): Json<RestoreRequest>,
 ) -> Result<Json<Value>, HttpError> {
-    let user_id = get_admin_user_id_from_headers(&headers, &db).await?;
+    let user_id = admin_user_id(&admin)?;
     let saved = restore_version(&db, id, version, user_id, &req).await?;
     broadcast_saved_doc(&saved, user_id, req.client_request_id);
     Ok(Json(

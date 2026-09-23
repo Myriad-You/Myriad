@@ -23,7 +23,7 @@ use sea_orm::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::middleware::auth::verify_current_admin_from_headers;
+use crate::extract::{AdminClaims, OptionalViewer};
 use crate::models::entities::phantasi_annotations::{self, AnnotationType};
 use crate::services::ai::create_ai_analyzer_for_tier;
 use crate::services::data_paths::paths;
@@ -43,23 +43,12 @@ fn phantasiai_store_failed(
         .into_response()
 }
 
-// 权限验证辅助函数
-
-/// 验证是否是管理员（生成 / 重新生成 / 风格标签）
-#[allow(clippy::result_large_err)]
-async fn verify_admin(
-    headers: &axum::http::HeaderMap,
-    db: &sea_orm::DatabaseConnection,
-) -> Result<(), axum::response::Response> {
-    verify_current_admin_from_headers(headers, db)
-        .await
-        .map(|_| ())
-        .map_err(|(status, body)| (status, body).into_response())
-}
-
 /// 创建 Phantasiai API 路由
+///
+/// 所有路由都挂宽松的可选认证：无效 / 过期 / 已撤销凭据当游客（缓存读一直如此），
+/// 有效凭据注入 Claims，当前管理员再带本请求的核验标记。
 pub fn create_phantasiai_routes(
-    _app_state: crate::state::AppState,
+    app_state: crate::state::AppState,
 ) -> Router<crate::state::AppState> {
     Router::<crate::state::AppState>::new()
         .route("/notes/edit", post(note_edit::edit_note))
@@ -79,6 +68,10 @@ pub fn create_phantasiai_routes(
         )
         // AI 风格标签：为订阅源生成风格标签
         .route("/sources/{source_id}/style-tags", post(generate_style_tags))
+        .route_layer(axum::middleware::from_fn_with_state(
+            app_state,
+            crate::middleware::auth::lenient_current_admin_auth_middleware,
+        ))
 }
 
 // 注释类型
@@ -146,7 +139,7 @@ pub struct PodcastResponse {
 /// 如果没有缓存且非管理员，返回空数组
 async fn get_annotations(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    viewer: OptionalViewer,
     Path(item_id): Path<i32>,
 ) -> impl IntoResponse {
     // 尝试从数据库获取（任何人都可以访问已缓存的注释）
@@ -189,7 +182,7 @@ async fn get_annotations(
     }
 
     // 数据库没有缓存，检查是否是管理员（只有管理员可以生成新注释）
-    if verify_admin(&headers, &db).await.is_err() {
+    if !viewer.is_admin {
         // 非管理员返回空数组（不生成新内容）
         return (
             StatusCode::OK,
@@ -237,14 +230,9 @@ async fn get_annotations(
 /// 重新生成注释（仅管理员可用）
 async fn regenerate_annotations(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
     Path(item_id): Path<i32>,
 ) -> impl IntoResponse {
-    // 验证管理员身份
-    if let Err(e) = verify_admin(&headers, &db).await {
-        return e.into_response();
-    }
-
     // 删除该 item 已有 phantasi_annotations
     let _ = phantasi_annotations::Entity::delete_many()
         .filter(phantasi_annotations::Column::ItemId.eq(item_id))
@@ -863,18 +851,18 @@ use crate::models::entities::phantasi_podcasts;
 /// 如果没有缓存，只有管理员可以生成新的播客脚本
 async fn get_podcast_script(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    viewer: OptionalViewer,
     Path(item_id): Path<i32>,
 ) -> axum::response::Response {
-    podcast_script(db, item_id, Some(&headers)).await
+    podcast_script(db, item_id, viewer.is_admin).await
 }
 
-/// `unverified_headers = None` means the caller already verified the current admin
-/// in this request, so a cache miss generates without authenticating again.
+/// `is_admin` comes from this request's current-admin proof; only then does a
+/// cache miss generate.
 async fn podcast_script(
     db: DatabaseConnection,
     item_id: i32,
-    unverified_headers: Option<&axum::http::HeaderMap>,
+    is_admin: bool,
 ) -> axum::response::Response {
     // 先尝试从数据库获取缓存（任何人都可以访问缓存）
     if let Ok(Some(cached)) = phantasi_podcasts::Entity::find()
@@ -888,10 +876,6 @@ async fn podcast_script(
     }
 
     // 没有缓存时，验证管理员身份才能生成
-    let is_admin = match unverified_headers {
-        Some(headers) => verify_admin(headers, &db).await.is_ok(),
-        None => true,
-    };
     if !is_admin {
         // 非管理员返回空结果而不是错误
         return (
@@ -1064,14 +1048,9 @@ async fn podcast_script(
 /// 强制重新生成播客脚本（删除缓存后重新生成，仅管理员可用）
 async fn regenerate_podcast_script(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
     Path(item_id): Path<i32>,
 ) -> axum::response::Response {
-    // 验证管理员身份
-    if let Err(e) = verify_admin(&headers, &db).await {
-        return e.into_response();
-    }
-
     // 获取文章信息以获取 source_id（用于清理 TTS 缓存）
     use crate::models::entities::phantasi_items;
     let source_id = match phantasi_items::Entity::find_by_id(item_id)
@@ -1128,7 +1107,7 @@ async fn regenerate_podcast_script(
     }
 
     // 接着走 `get_podcast_script`（无缓存则生成）
-    podcast_script(db, item_id, None).await
+    podcast_script(db, item_id, true).await
 }
 
 /// 构建播客脚本提示词
@@ -1331,14 +1310,9 @@ pub struct StyleTagsResponse {
 /// 仅管理员可调用
 async fn generate_style_tags(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
     Path(source_id): Path<i32>,
 ) -> impl IntoResponse {
-    // 验证管理员身份
-    if let Err(e) = verify_admin(&headers, &db).await {
-        return e.into_response();
-    }
-
     // 获取订阅源信息
     let source = match phantasi_sources::Entity::find_by_id(source_id)
         .one(&db)

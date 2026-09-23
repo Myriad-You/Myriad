@@ -8,6 +8,7 @@ use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, Quer
 use serde_json::json;
 
 use crate::error::HttpError;
+use crate::extract::OptionalViewer;
 use crate::models::entities::{
     phantasi_annotations, phantasi_items, phantasi_podcasts, phantasi_sources, phantasi_user_states,
 };
@@ -21,11 +22,11 @@ use myriad_error::AppError;
 /// admin_only 源下的文章仅管理员可见
 pub(crate) async fn get_item(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    viewer: OptionalViewer,
     Path(id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     // 获取可选用户 ID 与管理员状态
-    let (user_id, is_admin) = get_phantasi_viewer(&headers, &db).await?;
+    let (user_id, is_admin) = get_phantasi_viewer(&viewer, &db).await?;
 
     // 获取文章
     let item = phantasi_items::Entity::find_by_id(id)

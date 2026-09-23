@@ -9,10 +9,8 @@ use sea_orm::{ActiveModelTrait, ActiveValue::Set, DatabaseConnection};
 use serde_json::json;
 
 use crate::error::HttpError;
-use crate::middleware::auth::{
-    Claims, authenticate_optional_request, authenticate_request, ensure_current_admin_on,
-    verify_current_admin_from_headers,
-};
+use crate::extract::{AdminClaims, OptionalViewer};
+use crate::middleware::auth::Claims;
 use crate::models::entities::phantasi_sources;
 use crate::services::icon_service::IconService;
 
@@ -38,21 +36,22 @@ fn parse_user_id(claims: &Claims) -> Result<i32, HttpError> {
         .map_err(|_| phantasi_http_err(StatusCode::UNAUTHORIZED, "Invalid user ID"))
 }
 
-/// 公开读：无凭据当游客；带了凭据就必须是当前有效会话。
-/// 同一请求只验签一次，再用这份 Claims 查一次当前管理员。
-pub(crate) async fn get_optional_user_and_admin_status(
-    headers: &axum::http::HeaderMap,
-    db: &DatabaseConnection,
-) -> Result<(Option<i32>, bool), HttpError> {
-    let Some(claims) = authenticate_optional_request(headers, db)
-        .await
-        .map_err(|response| HttpError::from(response.status()))?
-    else {
-        return Ok((None, false));
-    };
-    let user_id = parse_user_id(&claims)?;
-    let is_admin = ensure_current_admin_on(&claims, db).await.is_ok();
-    Ok((Some(user_id), is_admin))
+/// 管理功能的用户 ID。`AdminClaims` 已完成当前管理员核验（非管理员 403）。
+pub(crate) fn admin_user_id(admin: &AdminClaims) -> Result<i32, HttpError> {
+    parse_user_id(&admin.0)
+}
+
+/// 公开路由里仅管理员可用的分支：游客 401，非管理员 403。
+pub(crate) fn require_viewer_admin(viewer: &OptionalViewer) -> Result<(), HttpError> {
+    match (&viewer.claims, viewer.is_admin) {
+        (_, true) => Ok(()),
+        (None, false) => Err(phantasi_http_err(StatusCode::UNAUTHORIZED, "Unauthorized")),
+        (Some(_), false) => Err(phantasi_http_err(StatusCode::FORBIDDEN, "Forbidden")),
+    }
+}
+
+fn viewer_user_id(viewer: &OptionalViewer) -> Result<Option<i32>, HttpError> {
+    viewer.claims.as_ref().map(parse_user_id).transpose()
 }
 
 fn phantasi_access_allowed(level: &str, user_id: Option<i32>, is_admin: bool) -> bool {
@@ -78,44 +77,28 @@ pub(crate) async fn require_phantasi_module_access(
     Err(phantasi_http_err(StatusCode::NOT_FOUND, "Not found"))
 }
 
-/// Public Journal boundary: invalid credentials are rejected and the complete
-/// all/authenticated/admin visibility matrix is enforced before data access.
+/// Public Journal boundary: invalid credentials were already rejected by the
+/// optional auth middleware; the complete all/authenticated/admin visibility
+/// matrix is enforced here before data access.
 pub(crate) async fn get_phantasi_viewer(
-    headers: &axum::http::HeaderMap,
+    viewer: &OptionalViewer,
     db: &DatabaseConnection,
 ) -> Result<(Option<i32>, bool), HttpError> {
-    let viewer = get_optional_user_and_admin_status(headers, db).await?;
-    require_phantasi_module_access(db, viewer.0, viewer.1).await?;
-    Ok(viewer)
+    let user_id = viewer_user_id(viewer)?;
+    require_phantasi_module_access(db, user_id, viewer.is_admin).await?;
+    Ok((user_id, viewer.is_admin))
 }
 
+/// 用户写：必须登录，并满足模块可见性。
 pub(crate) async fn get_phantasi_user_and_admin_status(
-    headers: &axum::http::HeaderMap,
+    viewer: &OptionalViewer,
     db: &DatabaseConnection,
 ) -> Result<(i32, bool), HttpError> {
-    let claims = authenticate_request(headers, db)
-        .await
-        .map_err(|_| phantasi_http_err(StatusCode::UNAUTHORIZED, "Unauthorized"))?;
-    let user_id = parse_user_id(&claims)?;
-    let is_admin = ensure_current_admin_on(&claims, db).await.is_ok();
-    require_phantasi_module_access(db, Some(user_id), is_admin).await?;
-    Ok((user_id, is_admin))
-}
-
-/// 从请求头获取管理员用户 ID（用于管理功能）
-/// 非管理员返回 403 Forbidden
-pub(crate) async fn get_admin_user_id_from_headers(
-    headers: &axum::http::HeaderMap,
-    db: &DatabaseConnection,
-) -> Result<i32, HttpError> {
-    let claims = verify_current_admin_from_headers(headers, db)
-        .await
-        .map_err(|(status, body)| HttpError::from((status, body)))?;
-
-    claims
-        .sub
-        .parse::<i32>()
-        .map_err(|_| phantasi_http_err(StatusCode::UNAUTHORIZED, "Invalid user ID"))
+    let Some(user_id) = viewer_user_id(viewer)? else {
+        return Err(phantasi_http_err(StatusCode::UNAUTHORIZED, "Unauthorized"));
+    };
+    require_phantasi_module_access(db, Some(user_id), viewer.is_admin).await?;
+    Ok((user_id, viewer.is_admin))
 }
 
 pub(crate) const OPML_UNCATEGORIZED: &str = "Uncategorized";

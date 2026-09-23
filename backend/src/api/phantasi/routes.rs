@@ -17,7 +17,9 @@ use super::{
 /// 创建 Phantasi API 路由
 pub fn create_phantasi_routes(app_state: crate::state::AppState) -> Router<crate::state::AppState> {
     use axum::middleware::from_fn_with_state;
-    Router::<crate::state::AppState>::new()
+    // 读凭据的 JSON API：无凭据当游客，带了就必须有效（与各 handler 原先一致）。
+    // 有效时注入 Claims；当前管理员另带本请求的核验标记，handler 不再自行验签查库。
+    let api = Router::<crate::state::AppState>::new()
         // 订阅源管理
         .route(
             "/sources",
@@ -44,7 +46,6 @@ pub fn create_phantasi_routes(app_state: crate::state::AppState) -> Router<crate
         .route("/topics", get(feeds_list::list_subscription_topics))
         .route("/topics/cards", put(feeds_list::put_feed_topic_cards))
         // 笔记（站长自写内容；写路径一律管理员）
-        .route("/notes.xml", get(super::notes_rss::notes_rss))
         .route(
             "/notes/rss",
             get(super::notes_rss::get_notes_rss_settings)
@@ -111,13 +112,6 @@ pub fn create_phantasi_routes(app_state: crate::state::AppState) -> Router<crate
             post(note_docs::unschedule_note_doc),
         )
         .route(
-            "/notes/docs/{id}/ws",
-            get(note_docs::note_doc_websocket).route_layer(from_fn_with_state(
-                app_state.clone(),
-                crate::middleware::auth::auth_middleware,
-            )),
-        )
-        .route(
             "/notes/{id}",
             put(notes::update_note).delete(notes::delete_note),
         )
@@ -169,14 +163,6 @@ pub fn create_phantasi_routes(app_state: crate::state::AppState) -> Router<crate
         .route("/sync-states", post(reading_sync::sync_states))
         // 统计信息
         .route("/stats", get(reading_stats::get_stats))
-        // WebSocket（通知）
-        .route(
-            "/ws",
-            get(reading_sync_ws::phantasi_websocket).route_layer(from_fn_with_state(
-                app_state.clone(),
-                crate::middleware::auth::auth_middleware,
-            )),
-        )
         // RSSHub 实例管理
         .route(
             "/rsshub/instances",
@@ -198,6 +184,31 @@ pub fn create_phantasi_routes(app_state: crate::state::AppState) -> Router<crate
         .route(
             "/rsshub/health-check-all",
             post(super::rsshub::health_check_all_rsshub_instances),
+        )
+        .route_layer(from_fn_with_state(
+            app_state.clone(),
+            crate::middleware::auth::optional_current_admin_auth_middleware,
+        ));
+
+    // 不读凭据的路由（RSS、静态图标、图片缓存）和自带 auth_middleware 的 WebSocket
+    // 不挂可选认证：过期 cookie 不能让订阅器或图片请求 401。
+    Router::<crate::state::AppState>::new()
+        .merge(api)
+        .route("/notes.xml", get(super::notes_rss::notes_rss))
+        .route(
+            "/notes/docs/{id}/ws",
+            get(note_docs::note_doc_websocket).route_layer(from_fn_with_state(
+                app_state.clone(),
+                crate::middleware::auth::auth_middleware,
+            )),
+        )
+        // WebSocket（通知）
+        .route(
+            "/ws",
+            get(reading_sync_ws::phantasi_websocket).route_layer(from_fn_with_state(
+                app_state.clone(),
+                crate::middleware::auth::auth_middleware,
+            )),
         )
         // 图标静态文件：Cache-Control max-age=86400；本层无 CompressionLayer
         .nest_service(

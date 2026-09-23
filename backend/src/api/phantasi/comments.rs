@@ -14,6 +14,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::error::HttpError;
+use crate::extract::{AdminClaims, OptionalViewer};
 use crate::models::entities::{phantasi_comments, phantasi_items, phantasi_sources};
 use myriad_error::AppError;
 
@@ -24,8 +25,7 @@ use crate::services::permission_service::{
 };
 
 use super::helpers::{
-    get_admin_user_id_from_headers, get_phantasi_user_and_admin_status, get_phantasi_viewer,
-    phantasi_http_err, phantasi_store_http,
+    get_phantasi_user_and_admin_status, get_phantasi_viewer, phantasi_http_err, phantasi_store_http,
 };
 
 static COMMENT_COLOR: LazyLock<regex::Regex> = LazyLock::new(|| {
@@ -207,11 +207,11 @@ fn bounded_comment_page(
 /// 文章下顶级评论的一页。按 ID 游标读取；调用方按锚点位置排列。能看见文章的人都能看。
 pub(crate) async fn list_comments(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    viewer: OptionalViewer,
     Path(item_id): Path<i32>,
     Query(page): Query<CommentPageQuery>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let (user_id, is_admin) = get_phantasi_viewer(&headers, &db).await?;
+    let (user_id, is_admin) = get_phantasi_viewer(&viewer, &db).await?;
     let can_write = match user_id {
         Some(uid) => {
             let config = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
@@ -296,11 +296,11 @@ pub(crate) async fn list_comments(
 /// 仅登录用户可用
 pub(crate) async fn create_comment(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    viewer: OptionalViewer,
     Path(item_id): Path<i32>,
     Json(req): Json<phantasi_comments::CreateCommentRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let (user_id, is_admin) = get_phantasi_user_and_admin_status(&headers, &db).await?;
+    let (user_id, is_admin) = get_phantasi_user_and_admin_status(&viewer, &db).await?;
     require_comment_write(user_id, is_admin).await?;
     let content_revision = visible_item(&db, item_id, is_admin).await?;
 
@@ -396,11 +396,11 @@ pub(crate) async fn create_comment(
 /// 仅评论作者可用
 pub(crate) async fn update_comment(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    viewer: OptionalViewer,
     Path(comment_id): Path<i32>,
     Json(req): Json<phantasi_comments::UpdateCommentRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let (user_id, is_admin) = get_phantasi_user_and_admin_status(&headers, &db).await?;
+    let (user_id, is_admin) = get_phantasi_user_and_admin_status(&viewer, &db).await?;
     require_comment_write(user_id, is_admin).await?;
 
     // 获取评论并验证所有权
@@ -480,10 +480,10 @@ pub(crate) async fn update_comment(
 /// 删除评论。作者或站长。
 pub(crate) async fn delete_comment(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    viewer: OptionalViewer,
     Path(comment_id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let (user_id, is_admin) = get_phantasi_user_and_admin_status(&headers, &db).await?;
+    let (user_id, is_admin) = get_phantasi_user_and_admin_status(&viewer, &db).await?;
     require_comment_write(user_id, is_admin).await?;
 
     let comment = phantasi_comments::Entity::find_by_id(comment_id)
@@ -533,11 +533,11 @@ pub(crate) async fn delete_comment(
 /// 某条评论下的一页回复。按 ID 游标读取；调用方按创建时间排列。能看见文章就能看。
 pub(crate) async fn list_comment_replies(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    viewer: OptionalViewer,
     Path(comment_id): Path<i32>,
     Query(page): Query<CommentPageQuery>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let (_, is_admin) = get_phantasi_viewer(&headers, &db).await?;
+    let (_, is_admin) = get_phantasi_viewer(&viewer, &db).await?;
     let parent = match phantasi_comments::Entity::find_by_id(comment_id)
         .one(&db)
         .await
@@ -600,11 +600,9 @@ pub(crate) struct AdminCommentsQuery {
 /// 工作台：全站评论。仅站长。
 pub(crate) async fn list_admin_comments(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
     Query(query): Query<AdminCommentsQuery>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
-
     let needle = query
         .q
         .as_deref()

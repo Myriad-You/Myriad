@@ -9,6 +9,7 @@ use sea_orm::{
 use serde_json::json;
 
 use crate::error::HttpError;
+use crate::extract::OptionalViewer;
 use crate::models::entities::{phantasi_items, phantasi_user_states};
 
 use super::helpers::{get_phantasi_user_and_admin_status, phantasi_http_err, phantasi_store_http};
@@ -193,12 +194,12 @@ async fn current_sync_conflict(
 
 pub(crate) async fn sync_states(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    viewer: OptionalViewer,
     Json(req): Json<phantasi_user_states::SyncStatesRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
     req.validate_targets()
         .map_err(|message| phantasi_http_err(StatusCode::BAD_REQUEST, message))?;
-    let (user_id, is_admin) = get_phantasi_user_and_admin_status(&headers, &db).await?;
+    let (user_id, is_admin) = get_phantasi_user_and_admin_status(&viewer, &db).await?;
 
     let now = Utc::now();
     let mut synced = 0;

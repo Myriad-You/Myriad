@@ -16,6 +16,7 @@ use serde_json::json;
 use std::net::SocketAddr;
 
 use crate::error::HttpError;
+use crate::extract::{AdminClaims, OptionalViewer};
 use crate::middleware::client_ip::{client_ip_from_parts, trusted_proxy_headers_enabled};
 use crate::models::entities::{
     phantasi_source_applications::{self, ApplicationResponse, CreateApplicationRequest},
@@ -25,8 +26,8 @@ use crate::services::phantasi_scheduler::get_phantasi_scheduler;
 use myriad_error::AppError;
 
 use super::helpers::{
-    get_admin_user_id_from_headers, get_phantasi_viewer, normalize_http_url, phantasi_http_err,
-    phantasi_store_http, url_match_key,
+    admin_user_id, get_phantasi_viewer, normalize_http_url, phantasi_http_err, phantasi_store_http,
+    url_match_key,
 };
 
 const FRIEND_CATEGORY: &str = "友情链接";
@@ -234,9 +235,10 @@ pub(crate) async fn create_application(
     State(db): State<DatabaseConnection>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
+    viewer: OptionalViewer,
     Json(req): Json<CreateApplicationRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let (user_id, _) = get_phantasi_viewer(&headers, &db).await?;
+    let (user_id, _) = get_phantasi_viewer(&viewer, &db).await?;
     let site_name = require_text(&req.site_name, MAX_NAME, "Site name is required")?;
     let site_url = parse_public_url(&req.site_url)?;
     let feed_url = match trim_opt(req.feed_url, MAX_URL)? {
@@ -368,10 +370,9 @@ pub(crate) struct AdminApplicationsQuery {
 /// 工作台订阅审核列表。仅站长。
 pub(crate) async fn list_applications(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
+    _admin: AdminClaims,
     Query(query): Query<AdminApplicationsQuery>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
     let mut rows = phantasi_source_applications::Entity::find()
         .order_by_desc(phantasi_source_applications::Column::CreatedAt)
         .limit(LIST_LIMIT)
@@ -451,11 +452,11 @@ async fn load_application(
 /// 通过申请：有 RSS 建订阅，没有建入口型，分类都是友情链接。
 pub(crate) async fn approve_application(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
+    admin: AdminClaims,
     Path(id): Path<i32>,
     Json(req): Json<phantasi_source_applications::ReviewApplicationRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let admin_id = get_admin_user_id_from_headers(&headers, &db).await?;
+    let admin_id = admin_user_id(&admin)?;
     let review_note = trim_opt(req.review_note, MAX_NOTE)?;
     let (updated, source, created) =
         approve_pending_application(&db, admin_id, id, review_note).await?;
@@ -548,11 +549,11 @@ async fn approve_pending_application(
 
 pub(crate) async fn reject_application(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
+    admin: AdminClaims,
     Path(id): Path<i32>,
     Json(req): Json<phantasi_source_applications::ReviewApplicationRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let admin_id = get_admin_user_id_from_headers(&headers, &db).await?;
+    let admin_id = admin_user_id(&admin)?;
     let review_note = trim_opt(req.review_note, MAX_NOTE)?;
     let updated = reject_pending_application(&db, admin_id, id, review_note).await?;
     Ok(Json(json!({
@@ -593,10 +594,9 @@ async fn reject_pending_application(
 
 pub(crate) async fn delete_application(
     State(db): State<DatabaseConnection>,
-    headers: HeaderMap,
+    _admin: AdminClaims,
     Path(id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
     let result = phantasi_source_applications::Entity::delete_by_id(id)
         .exec(&db)
         .await

@@ -23,8 +23,9 @@ use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QuerySe
 use serde::Deserialize;
 use serde_json::json;
 
-use super::helpers::{get_admin_user_id_from_headers, phantasi_http_err, phantasi_store_http};
+use super::helpers::{admin_user_id, phantasi_http_err, phantasi_store_http};
 use crate::error::HttpError;
+use crate::extract::AdminClaims;
 use crate::models::entities::{phantasi_items, phantasi_sources};
 
 /// 笔记落在「我」分类下 —— 这是站内唯一可做文章级 SEO 的分类。
@@ -90,11 +91,9 @@ async fn find_catalog_note(
 /// 预览调 `render_markdown_preview`：和发布同一份 HTML，只多了每个顶层块的原文区间
 /// （`data-md-start/end`），前端靠它做「点预览即编辑」。发布调 `render_note`。前端不自己渲染。
 pub(crate) async fn preview_note(
-    State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
     Json(req): Json<NotePreviewRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
     validate_note("Preview", &req.content_md).map_err(validation_err)?;
     Ok(Json(json!({
         "success": true,
@@ -105,10 +104,10 @@ pub(crate) async fn preview_note(
 /// `POST /api/phantasi/notes` — 写一篇笔记。
 pub(crate) async fn create_note(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    admin: AdminClaims,
     Json(req): Json<NoteWriteRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let user_id = get_admin_user_id_from_headers(&headers, &db).await?;
+    let user_id = admin_user_id(&admin)?;
     let item = crate::services::note_publish::write_note_with_doc(
         &db,
         user_id,
@@ -131,11 +130,11 @@ pub(crate) async fn create_note(
 /// `PUT /api/phantasi/notes/{id}` — 改一篇笔记。
 pub(crate) async fn update_note(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    admin: AdminClaims,
     Path(id): Path<i32>,
     Json(req): Json<NoteWriteRequest>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    let user_id = get_admin_user_id_from_headers(&headers, &db).await?;
+    let user_id = admin_user_id(&admin)?;
     find_catalog_note(&db, id).await?;
     let item = crate::services::note_publish::write_note_with_doc(
         &db,
@@ -159,10 +158,9 @@ pub(crate) async fn update_note(
 /// `DELETE /api/phantasi/notes/{id}` — 删一篇笔记。
 pub(crate) async fn delete_note(
     State(db): State<DatabaseConnection>,
-    headers: axum::http::HeaderMap,
+    _admin: AdminClaims,
     Path(id): Path<i32>,
 ) -> Result<Json<serde_json::Value>, HttpError> {
-    get_admin_user_id_from_headers(&headers, &db).await?;
     let source = find_catalog_note(&db, id).await?;
 
     crate::services::note_publish::delete_note_with_doc(&db, id, &source).await?;
