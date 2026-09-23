@@ -899,11 +899,13 @@ pub(crate) fn validate_installed_resources(
             DeclaredResourceKind::Asset => {
                 let path = regular_resource_path(tapp_dir, relative)
                     .ok_or_else(|| asset_not_regular(relative))?;
-                let bytes = std::fs::read(&path).map_err(|_| asset_not_found(relative))?;
+                let size = std::fs::metadata(&path)
+                    .map_err(|_| asset_not_found(relative))?
+                    .len();
                 asset_total =
                     crate::services::tapp_install_resources::validate_asset_resource_bytes_with(
                         relative,
-                        bytes.len() as u64,
+                        size,
                         asset_total,
                         crate::services::tapp_install_resources::AssetBudget::for_manifest(
                             manifest,
@@ -1095,8 +1097,6 @@ pub(crate) fn append_directory_to_zip<W: std::io::Write + std::io::Seek>(
     directory: &FsPath,
     options: zip::write::SimpleFileOptions,
 ) -> Result<(), std::io::Error> {
-    use std::io::{Read, Write};
-
     for entry in std::fs::read_dir(directory)? {
         let entry = entry?;
         let path = entry.path();
@@ -1126,10 +1126,8 @@ pub(crate) fn append_directory_to_zip<W: std::io::Write + std::io::Seek>(
         }
         let filename = relative.to_string_lossy().replace('\\', "/");
         let mut file = std::fs::File::open(&path)?;
-        let mut content = Vec::new();
-        file.read_to_end(&mut content)?;
         zip.start_file(filename, options)?;
-        zip.write_all(&content)?;
+        std::io::copy(&mut file, zip)?;
     }
 
     Ok(())

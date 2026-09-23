@@ -355,9 +355,17 @@ async fn extract_archive(
             if let Some(parent) = out_path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            let mut content = Vec::new();
-            file.read_to_end(&mut content)?;
-            std::fs::write(out_path, content)?;
+            // 流式写盘，不再整条目物化。上限取已校验的声明大小再多一字节：
+            // 恰好读到声明大小时内层仍会读到 EOF 并完成 CRC 校验，超出则拒绝。
+            let declared_size = file.size();
+            let mut out = std::fs::File::create(out_path)?;
+            let copied = std::io::copy(&mut (&mut file).take(declared_size + 1), &mut out)?;
+            if copied > declared_size {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Tapp archive entry exceeds declared size",
+                ));
+            }
         }
         Ok(())
     })
