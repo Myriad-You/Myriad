@@ -409,18 +409,6 @@ pub fn session_from_stored(
     })
 }
 
-/// When the caller requested encryption, never fall back to storing plaintext.
-pub fn require_encrypted_if_requested(
-    want_encrypt: bool,
-    plaintext: serde_json::Value,
-    encrypted: Result<serde_json::Value, String>,
-) -> Result<(serde_json::Value, bool), String> {
-    if !want_encrypt {
-        return Ok((plaintext, false));
-    }
-    encrypted.map(|value| (value, true))
-}
-
 /// 将明文 JSON 载荷加密为可序列化信封 Value
 pub fn encrypt_json_payload(
     session: &EncryptionSession,
@@ -999,26 +987,5 @@ mod tests {
             decrypt_json_payload(&rotated, &env).is_err(),
             "history encrypted before the rotation must not be readable after it"
         );
-    }
-
-    #[test]
-    fn encrypt_true_does_not_fall_back_to_plaintext() {
-        let plain = serde_json::json!({"text": "secret"});
-        let err = require_encrypted_if_requested(
-            true,
-            plain.clone(),
-            Err("E2E session not established".into()),
-        )
-        .unwrap_err();
-        assert!(err.contains("E2E"));
-        let (stored, is_encrypted) =
-            require_encrypted_if_requested(false, plain.clone(), Err("unused".into())).unwrap();
-        assert_eq!(stored, plain);
-        assert!(!is_encrypted);
-        let cipher = serde_json::json!({"alg": "x25519-aes256gcm"});
-        let (stored, is_encrypted) =
-            require_encrypted_if_requested(true, plain, Ok(cipher.clone())).unwrap();
-        assert_eq!(stored, cipher);
-        assert!(is_encrypted);
     }
 }

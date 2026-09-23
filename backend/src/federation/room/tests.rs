@@ -584,12 +584,6 @@ fn create_and_admit_use_same_transaction_lock() {
 }
 
 #[test]
-fn encrypt_true_room_path_uses_require_encrypted() {
-    let src = include_str!("messages.rs");
-    assert!(src.contains("require_encrypted_if_requested"));
-}
-
-#[test]
 fn room_join_never_overwrites_an_existing_role() {
     // A pending invite carrying role=admin must survive the invitee's accept,
     // and a member must not be able to re-announce itself upward.

@@ -671,31 +671,28 @@ pub async fn send_message(
         .try_get::<Option<serde_json::Value>>("", "properties")
         .unwrap_or(None);
 
-    let encrypted = if want_encrypt {
-        match load_e2e_session(channel_id, properties.as_ref()).await {
+    let stored_payload = if want_encrypt {
+        let encrypted = match load_e2e_session(channel_id, properties.as_ref()).await {
             Ok(session) if session.established => {
                 crate::federation::e2e::encrypt_json_payload(&session, &req.payload)
             }
             Ok(_) => Err("E2E session not established".into()),
             Err(e) => Err(e),
-        }
+        };
+        // encrypt=true never falls back to storing / sending plaintext.
+        encrypted.map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": e,
+                    "code": "e2e_required",
+                })),
+            )
+        })?
     } else {
-        Ok(req.payload.clone())
+        req.payload.clone()
     };
-    let (stored_payload, is_encrypted) = crate::federation::e2e::require_encrypted_if_requested(
-        want_encrypt,
-        req.payload.clone(),
-        encrypted,
-    )
-    .map_err(|e| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(json!({
-                "error": e,
-                "code": "e2e_required",
-            })),
-        )
-    })?;
+    let is_encrypted = want_encrypt;
 
     // 存入消息
     let message_id = generate_message_id();

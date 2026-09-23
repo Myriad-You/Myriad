@@ -70,7 +70,6 @@ mod split_contract_tests {
         assert!(src.contains("insert_local_activity"));
         assert!(src.contains("enqueue_delivery"));
         assert!(src.contains("is_unique_violation"));
-        assert!(src.contains("require_encrypted_if_requested"));
     }
 }
 

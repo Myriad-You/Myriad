@@ -81,12 +81,10 @@ pub async fn send_room_message(
         ));
     }
 
-    let encrypted = if want_encrypt {
-        match collect_room_e2e_recipients(db, room_id, &local_actor).await {
+    let stored_payload = if want_encrypt {
+        let encrypted = match collect_room_e2e_recipients(db, room_id, &local_actor).await {
             Err(e) => Err(e),
-            Ok(recipients) if recipients.is_empty() => {
-                Err("No peer E2E keys yet".into())
-            }
+            Ok(recipients) if recipients.is_empty() => Err("No peer E2E keys yet".into()),
             Ok(mut all) => match load_member_e2e_keys(db, room_id, &local_actor).await {
                 Ok((my_pk, _)) => {
                     if !all.iter().any(|(_, pk)| pk == &my_pk) {
@@ -100,24 +98,21 @@ pub async fn send_room_message(
                 }
                 Err(e) => Err(e),
             },
-        }
+        };
+        // encrypt=true never falls back to storing / sending plaintext.
+        encrypted.map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": e,
+                    "code": "e2e_required",
+                })),
+            )
+        })?
     } else {
-        Ok(req.payload.clone())
+        req.payload.clone()
     };
-    let (stored_payload, is_encrypted) = crate::federation::e2e::require_encrypted_if_requested(
-        want_encrypt,
-        req.payload.clone(),
-        encrypted,
-    )
-    .map_err(|e| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(json!({
-                "error": e,
-                "code": "e2e_required",
-            })),
-        )
-    })?;
+    let is_encrypted = want_encrypt;
 
     let message_id = generate_message_id();
     let activity_id = generate_activity_id(&base_url);
