@@ -139,11 +139,8 @@ pub async fn nodeinfo_wellknown() -> (StatusCode, Json<serde_json::Value>) {
 pub async fn nodeinfo(
     State(db): State<DatabaseConnection>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<serde_json::Value>)> {
-    let (total_users, active_month, local_posts) = nodeinfo_usage_counts(
-        get_user_stats(&db).await,
-        get_local_post_count(&db).await,
-    )
-    .map_err(db_err)?;
+    let (total_users, active_month, local_posts) =
+        nodeinfo_usage_counts(&db).await.map_err(db_err)?;
 
     let response = NodeInfo {
         version: "2.1".to_string(),
@@ -183,48 +180,37 @@ pub async fn nodeinfo(
 
 // 辅助函数
 
-/// NodeInfo COUNT: missing row is 0; a query/decode error is not 0.
-pub(crate) fn counts_from_query(
-    result: Result<Option<i64>, sea_orm::DbErr>,
-) -> Result<u64, sea_orm::DbErr> {
-    match result {
-        Ok(Some(n)) => Ok(n.max(0) as u64),
-        Ok(None) => Ok(0),
-        Err(error) => Err(error),
-    }
-}
-
-/// Assemble NodeInfo usage counts. A COUNT error is not a real zero.
-pub(crate) fn nodeinfo_usage_counts(
-    users: Result<(u64, u64), sea_orm::DbErr>,
-    posts: Result<u64, sea_orm::DbErr>,
-) -> Result<(u64, u64, u64), sea_orm::DbErr> {
-    let (total_users, active_month) = users?;
-    let local_posts = posts?;
-    Ok((total_users, active_month, local_posts))
-}
-
-async fn count_from_sql(
+/// NodeInfo usage: total users, users active in 30 days, local posts.
+///
+/// One aggregate statement (always one row); a query error, a missing row or a
+/// column decode error is an error, never a substituted 0.
+async fn nodeinfo_usage_counts(
     db: &sea_orm::DatabaseConnection,
-    sql: &str,
-) -> Result<u64, sea_orm::DbErr> {
+) -> Result<(u64, u64, u64), sea_orm::DbErr> {
+    const SQL: &str = "WITH user_counts AS ( \
+            SELECT COUNT(*)::bigint AS total_users, \
+                   COUNT(*) FILTER (WHERE last_login_at > NOW() - INTERVAL '30 days')::bigint \
+                       AS active_month \
+            FROM users \
+        ), post_counts AS ( \
+            SELECT COUNT(*)::bigint AS local_posts \
+            FROM federation_activities \
+            WHERE is_local = true \
+        ) \
+        SELECT total_users, active_month, local_posts \
+        FROM user_counts CROSS JOIN post_counts";
     let row = db
-        .query_one_raw(Statement::from_string(
-            DatabaseBackend::Postgres,
-            sql.to_string(),
-        ))
-        .await;
-    let value = match row {
-        Err(error) => return counts_from_query(Err(error)),
-        Ok(None) => None,
-        Ok(Some(row)) => match row.try_get::<i64>("", "count") {
-            Ok(n) => Some(n),
-            Err(error) => {
-                return counts_from_query(Err(sea_orm::DbErr::Custom(error.to_string())));
-            }
-        },
+        .query_one_raw(Statement::from_string(DatabaseBackend::Postgres, SQL))
+        .await?
+        .ok_or_else(|| {
+            sea_orm::DbErr::Custom("NodeInfo usage aggregate returned no row".into())
+        })?;
+    let column = |name: &str| {
+        row.try_get::<i64>("", name)
+            .map(|n| n.max(0) as u64)
+            .map_err(|error| sea_orm::DbErr::Custom(error.to_string()))
     };
-    counts_from_query(Ok(value))
+    Ok((column("total_users")?, column("active_month")?, column("local_posts")?))
 }
 
 /// Canonical `acct:` domain for a WebFinger resource addressed at this instance.
@@ -271,53 +257,9 @@ async fn get_frontend_url() -> String {
     frontend_url.trim_end_matches('/').to_string()
 }
 
-/// 查询用户统计
-async fn get_user_stats(db: &sea_orm::DatabaseConnection) -> Result<(u64, u64), sea_orm::DbErr> {
-    let total = count_from_sql(db, "SELECT COUNT(*) as count FROM users").await?;
-    let active = count_from_sql(
-        db,
-        "SELECT COUNT(*) as count FROM users WHERE last_login_at > NOW() - INTERVAL '30 days'",
-    )
-    .await?;
-    Ok((total, active))
-}
-
-/// 查询本地发布数
-async fn get_local_post_count(db: &sea_orm::DatabaseConnection) -> Result<u64, sea_orm::DbErr> {
-    count_from_sql(
-        db,
-        "SELECT COUNT(*) as count FROM federation_activities WHERE is_local = true",
-    )
-    .await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn counts_from_query_error_is_not_zero() {
-        let err = sea_orm::DbErr::Custom("db down".into());
-        assert!(
-            counts_from_query(Err(err)).is_err(),
-            "NodeInfo COUNT failure must not become 0"
-        );
-        assert_eq!(counts_from_query(Ok(None)).unwrap(), 0);
-        assert_eq!(counts_from_query(Ok(Some(12))).unwrap(), 12);
-        assert_eq!(counts_from_query(Ok(Some(0))).unwrap(), 0);
-    }
-
-    #[test]
-    fn nodeinfo_does_not_substitute_default_counts_on_error() {
-        let err = sea_orm::DbErr::Custom("db down".into());
-        assert!(nodeinfo_usage_counts(Err(err), Ok(0)).is_err());
-        let err = sea_orm::DbErr::Custom("db down".into());
-        assert!(nodeinfo_usage_counts(Ok((1, 1)), Err(err)).is_err());
-        assert_eq!(
-            nodeinfo_usage_counts(Ok((3, 1)), Ok(9)).unwrap(),
-            (3, 1, 9)
-        );
-    }
 
     #[test]
     fn test_parse_acct_uri() {
