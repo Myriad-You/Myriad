@@ -358,8 +358,19 @@ pub async fn delete_note_with_doc(
         .await
         .map_err(|e| phantasi_store_http("begin note delete", e))?;
     let outcome = async {
+        // Lock order shared with every publisher: article, then document, then
+        // media/source rows. Take both row locks before touching media.
+        phantasi_items::Entity::find_by_id(item_id)
+            .select_only()
+            .column(phantasi_items::Column::Id)
+            .lock_exclusive()
+            .into_tuple::<i32>()
+            .one(&txn)
+            .await
+            .map_err(|e| phantasi_store_http("lock note for delete", e))?;
         let docs = phantasi_note_docs::Entity::find()
             .filter(phantasi_note_docs::Column::ItemId.eq(item_id))
+            .lock_exclusive()
             .all(&txn)
             .await
             .map_err(|e| phantasi_store_http("find note docs for delete", e))?;
@@ -371,7 +382,6 @@ pub async fn delete_note_with_doc(
         crate::services::media::bind_note_published(&txn, item_id, None, "", &[])
             .await
             .map_err(media_bind_http)?;
-        // Match publication and metadata lock order: article, then document.
         phantasi_items::Entity::delete_by_id(item_id)
             .exec(&txn)
             .await
@@ -512,6 +522,31 @@ async fn lock_next_due_doc<C: ConnectionTrait>(
         .await
 }
 
+/// `FOR UPDATE NOWAIT` on an existing article. `Ok(false)` means another
+/// transaction holds it; a missing article is fine (publish reports it).
+async fn lock_article_nowait<C: ConnectionTrait>(
+    txn: &C,
+    item_id: i32,
+) -> Result<bool, sea_orm::DbErr> {
+    match txn
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT id FROM phantasi_items WHERE id = $1 FOR UPDATE NOWAIT",
+            [item_id.into()],
+        ))
+        .await
+    {
+        Ok(_) => Ok(true),
+        Err(error) if is_lock_not_available(&error) => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+fn is_lock_not_available(error: &sea_orm::DbErr) -> bool {
+    let text = error.to_string();
+    text.contains("55P03") || text.contains("could not obtain lock")
+}
+
 /// 调度器：把到点的定时稿写成公开文章。
 ///
 /// 每篇一个短事务：锁住该篇 → 在 savepoint 内发布 → 提交。确定的 4xx（内容无效）在同一
@@ -541,6 +576,22 @@ pub async fn publish_due_note_docs(db: &DatabaseConnection) -> Result<usize, Str
         let scheduled_ms = doc.scheduled_at.map(datetime_to_millis);
         after = doc.scheduled_at.map(|scheduled_at| (scheduled_at, doc_id));
         let published_at = scheduled_ms.or(doc.published_at.map(datetime_to_millis));
+
+        // Everyone else locks article before document. Holding the document here,
+        // never wait for its article: if a delete/edit owns it, skip to next tick.
+        if let Some(item_id) = doc.item_id {
+            match lock_article_nowait(&txn, item_id).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    let _ = txn.rollback().await;
+                    continue;
+                }
+                Err(error) => {
+                    let _ = txn.rollback().await;
+                    return Err(format!("lock scheduled note article: {error}"));
+                }
+            }
+        }
 
         let savepoint = match txn.begin().await {
             Ok(savepoint) => savepoint,
@@ -1406,6 +1457,83 @@ mod tests {
         assert!(revert.contains("last_error"));
         assert!(revert.contains("Column::Status.eq(NoteDocStatus::Scheduled"));
         assert!(revert.contains("Column::Revision.eq(revision)"));
+    }
+
+    async fn migrated_note_db() -> Option<crate::db::IsolatedSchema> {
+        let url = std::env::var("PHANTASI_TEST_DATABASE_URL").ok()?;
+        let isolated = crate::db::IsolatedSchema::migrated(&url, "note_schedule_test").await;
+        isolated
+            .db
+            .execute_unprepared("INSERT INTO users (id, username) VALUES (1, 'note-owner')")
+            .await
+            .unwrap();
+        insert_test_source(&isolated.db).await;
+        Some(isolated)
+    }
+
+    #[tokio::test]
+    async fn concurrent_schedulers_publish_each_due_doc_once() {
+        let Some(isolated) = migrated_note_db().await else {
+            return;
+        };
+        let db = isolated.db.clone();
+        for _ in 0..6 {
+            insert_test_doc(&db).await;
+        }
+        let (left, right) = tokio::join!(publish_due_note_docs(&db), publish_due_note_docs(&db));
+        assert_eq!(left.unwrap() + right.unwrap(), 6);
+        assert_eq!(phantasi_items::Entity::find().count(&db).await.unwrap(), 6);
+        assert_eq!(
+            phantasi_note_docs::Entity::find()
+                .filter(phantasi_note_docs::Column::Status.eq("published"))
+                .count(&db)
+                .await
+                .unwrap(),
+            6
+        );
+        drop(db);
+        isolated.drop().await;
+    }
+
+    #[tokio::test]
+    async fn scheduler_never_waits_for_an_article_locked_by_another_writer() {
+        let Some(isolated) = migrated_note_db().await else {
+            return;
+        };
+        let db = isolated.db.clone();
+        let item = insert_test_item(&db).await;
+        let doc = insert_test_doc(&db).await;
+        let mut linked: phantasi_note_docs::ActiveModel = doc.into();
+        linked.item_id = Set(Some(item.id));
+        let doc = linked.update(&db).await.unwrap();
+
+        // A delete/edit holds the article (it locks article before document).
+        let holder = db.begin().await.unwrap();
+        holder
+            .execute_unprepared(&format!(
+                "SELECT id FROM phantasi_items WHERE id = {} FOR UPDATE",
+                item.id
+            ))
+            .await
+            .unwrap();
+        let skipped = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            publish_due_note_docs(&db),
+        )
+        .await
+        .expect("scheduler must not block on a locked article");
+        assert_eq!(skipped.unwrap(), 0);
+        let still = phantasi_note_docs::Entity::find_by_id(doc.id)
+            .one(&db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(still.status, "scheduled");
+        holder.rollback().await.unwrap();
+
+        assert_eq!(publish_due_note_docs(&db).await.unwrap(), 1);
+        drop(db);
+        isolated.drop().await;
     }
 
     #[tokio::test]
