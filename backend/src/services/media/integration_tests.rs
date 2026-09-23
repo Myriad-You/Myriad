@@ -1686,3 +1686,124 @@ async fn postgres_upgrade_imports_legacy_wallpaper_saved_under_previous_origin()
     );
     f.close().await;
 }
+
+fn restored_entry(key: &str, value: serde_json::Value) -> crate::api::config::SettingsBackupEntry {
+    crate::api::config::SettingsBackupEntry {
+        key: key.into(),
+        value,
+        schema_version: 1,
+        description: None,
+        category: Some("general".into()),
+        is_encrypted: Some(false),
+        is_public: Some(false),
+    }
+}
+
+async fn stored_config(f: &Fixture, key: &str) -> Option<serde_json::Value> {
+    f.db.query_one_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT value FROM configurations WHERE key = $1",
+        [key.into()],
+    ))
+    .await
+    .unwrap()
+    .map(|row| row.try_get::<serde_json::Value>("", "value").unwrap())
+}
+
+#[tokio::test]
+async fn settings_restore_rebinds_wallpaper_and_stickers_in_the_config_transaction() {
+    use crate::api::config::{RestoreWriteError, write_restored_configurations};
+    let Some(f) = Fixture::new().await else {
+        return;
+    };
+    let wallpaper = f.image().await;
+    let sticker = f.image().await;
+    let layout = json!({"standard":[],"free":[{"type":"sticker","config":{"imageUrl":sticker.content_path}}]});
+    let txn = f.db.begin().await.unwrap();
+    assert!(
+        write_restored_configurations(
+            &txn,
+            vec![
+                restored_entry("ui_wallpaper_url", json!(wallpaper.content_path)),
+                restored_entry("dashboard_layout", json!(layout.to_string())),
+            ],
+            &[],
+        )
+        .await
+        .is_ok()
+    );
+    txn.commit().await.unwrap();
+    // Stored exactly as a save would: published, path-only public URLs.
+    let stored_wallpaper = stored_config(&f, "ui_wallpaper_url").await.unwrap();
+    assert!(
+        stored_wallpaper
+            .as_str()
+            .is_some_and(|url| url.starts_with("/media/assets/")),
+        "{stored_wallpaper}"
+    );
+    let stored_layout = stored_config(&f, "dashboard_layout").await.unwrap();
+    assert!(
+        stored_layout
+            .as_str()
+            .is_some_and(|text| text.contains("/media/assets/")),
+        "{stored_layout}"
+    );
+    assert_eq!(wallpaper_references(&f).await, vec![wallpaper.id]);
+    assert!(active_count(&f.db, sticker.id).await.unwrap() > 0);
+    for id in [wallpaper.id, sticker.id] {
+        assert!(matches!(
+            f.service.delete(&f.db, id).await,
+            Err(MediaError::InUse)
+        ));
+    }
+
+    // A restored wallpaper citing local media that does not exist here fails the
+    // whole restore, like saving it would; nothing from the backup is written.
+    let txn = f.db.begin().await.unwrap();
+    let result = write_restored_configurations(
+        &txn,
+        vec![
+            restored_entry("restore_probe", json!("written")),
+            restored_entry(
+                "ui_wallpaper_url",
+                json!(format!("/media/assets/{}/gone.png", Uuid::new_v4())),
+            ),
+        ],
+        &[],
+    )
+    .await;
+    assert!(matches!(
+        result,
+        Err(RestoreWriteError::Media(MediaError::NotReady))
+    ));
+    txn.rollback().await.unwrap();
+    assert!(stored_config(&f, "restore_probe").await.is_none());
+    assert_eq!(
+        stored_config(&f, "ui_wallpaper_url").await,
+        Some(stored_wallpaper)
+    );
+    assert_eq!(wallpaper_references(&f).await, vec![wallpaper.id]);
+
+    // Restoring an external wallpaper and an unset layout releases both assets.
+    let txn = f.db.begin().await.unwrap();
+    assert!(
+        write_restored_configurations(
+            &txn,
+            vec![
+                restored_entry("ui_wallpaper_url", json!("https://cdn.example/wall.png")),
+                restored_entry("dashboard_layout", serde_json::Value::Null),
+            ],
+            &[],
+        )
+        .await
+        .is_ok()
+    );
+    txn.commit().await.unwrap();
+    assert!(wallpaper_references(&f).await.is_empty());
+    assert_eq!(active_count(&f.db, sticker.id).await.unwrap(), 0);
+    assert_eq!(
+        stored_config(&f, "ui_wallpaper_url").await,
+        Some(json!("https://cdn.example/wall.png"))
+    );
+    f.close().await;
+}

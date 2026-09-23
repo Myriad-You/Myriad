@@ -39,23 +39,7 @@ pub async fn update_dashboard_config(
             Err(error) => {
                 tracing::error!(%error, "failed to bind dashboard sticker references");
                 let _ = txn.rollback().await;
-                let status = match error {
-                    crate::services::media::MediaError::Invalid { .. }
-                    | crate::services::media::MediaError::Conflict { .. } => StatusCode::BAD_REQUEST,
-                    crate::services::media::MediaError::NotReady
-                    | crate::services::media::MediaError::InUse
-                    | crate::services::media::MediaError::PublicInUse => StatusCode::CONFLICT,
-                    _ => StatusCode::INTERNAL_SERVER_ERROR,
-                };
-                return (
-                    status,
-                    Json(json!({
-                        "success": false,
-                        "error": error.to_string(),
-                        "code": error.code(),
-                        "message": error.to_string()
-                    })),
-                );
+                return media_binding_failed(&error);
             }
         }
     }
@@ -111,6 +95,28 @@ pub async fn update_dashboard_config(
             "success": true,
             "message": "ok",
             "layout": saved_layout
+        })),
+    )
+}
+
+/// Response for a setting whose media references could not be bound. Shared by
+/// saving the dashboard and restoring a settings backup.
+pub(super) fn media_binding_failed(
+    error: &crate::services::media::MediaError,
+) -> (StatusCode, Json<Value>) {
+    use crate::services::media::MediaError;
+    let status = match error {
+        MediaError::Invalid { .. } | MediaError::Conflict { .. } => StatusCode::BAD_REQUEST,
+        MediaError::NotReady | MediaError::InUse | MediaError::PublicInUse => StatusCode::CONFLICT,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    (
+        status,
+        Json(json!({
+            "success": false,
+            "error": error.to_string(),
+            "code": error.code(),
+            "message": error.to_string()
         })),
     )
 }

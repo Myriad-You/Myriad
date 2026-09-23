@@ -480,6 +480,104 @@ pub async fn preview_settings_restore(
     )
 }
 
+pub(crate) enum RestoreWriteError {
+    Db(sea_orm::DbErr),
+    Media(crate::services::media::MediaError),
+}
+
+impl From<sea_orm::DbErr> for RestoreWriteError {
+    fn from(error: sea_orm::DbErr) -> Self {
+        Self::Db(error)
+    }
+}
+
+/// Config value as the text its reader parses; `None` means unset.
+fn restored_setting_text(value: &Value) -> Option<String> {
+    match value {
+        Value::Null => None,
+        Value::String(text) => Some(text.clone()),
+        other => Some(other.to_string()),
+    }
+}
+
+/// Bind the media references of restored settings through the same binders as
+/// saving them, so restored media keeps deletion protection. Values are
+/// rewritten to what a save would store (published, path-only local URLs).
+async fn bind_restored_media(
+    txn: &impl ConnectionTrait,
+    entries: &mut [SettingsBackupEntry],
+    origins: &[String],
+) -> Result<(), crate::services::media::MediaError> {
+    for entry in entries {
+        let text = restored_setting_text(&entry.value);
+        let stored = match entry.key.as_str() {
+            "ui_wallpaper_url" => {
+                crate::services::media::bind_and_publish_wallpaper(
+                    txn,
+                    text.as_deref().unwrap_or(""),
+                    origins,
+                )
+                .await?
+            }
+            "dashboard_layout" => {
+                crate::services::media::bind_and_publish_dashboard_layout(
+                    txn,
+                    text.as_deref().unwrap_or(""),
+                    origins,
+                )
+                .await?
+            }
+            _ => continue,
+        };
+        // An unset value still clears stale references above, but stays unset.
+        if text.is_some() {
+            entry.value = Value::String(stored);
+        }
+    }
+    Ok(())
+}
+
+/// Write restored settings in the caller's transaction, media bindings included.
+pub(crate) async fn write_restored_configurations(
+    txn: &impl ConnectionTrait,
+    mut entries: Vec<SettingsBackupEntry>,
+    origins: &[String],
+) -> Result<(), RestoreWriteError> {
+    bind_restored_media(txn, &mut entries, origins)
+        .await
+        .map_err(RestoreWriteError::Media)?;
+    for entry in entries {
+        txn.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"
+                INSERT INTO configurations
+                    (key, value, description, category, is_encrypted, is_public, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ON CONFLICT (key) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    description = COALESCE(EXCLUDED.description, configurations.description),
+                    category = COALESCE(EXCLUDED.category, configurations.category),
+                    is_encrypted = COALESCE(EXCLUDED.is_encrypted, configurations.is_encrypted),
+                    is_public = COALESCE(EXCLUDED.is_public, configurations.is_public),
+                    updated_at = CURRENT_TIMESTAMP
+            "#,
+            vec![
+                entry.key.clone().into(),
+                // 备份里是明文（见 export_settings），落库前重新加密。
+                crate::services::data_key::seal_config_value(&entry.key, entry.value)
+                    .map_err(|error| sea_orm::DbErr::Custom(error.to_string()))?
+                    .into(),
+                entry.description.into(),
+                entry.category.into(),
+                entry.is_encrypted.into(),
+                entry.is_public.into(),
+            ],
+        ))
+        .await?;
+    }
+    Ok(())
+}
+
 pub async fn restore_settings(
     State(db): State<DatabaseConnection>,
     State(dynamic_config): State<std::sync::Arc<tokio::sync::RwLock<crate::config::DynamicConfig>>>,
@@ -513,6 +611,8 @@ pub async fn restore_settings(
         .notification_preferences
         .normalized();
 
+    // Same origin set as saving the wallpaper and the media upgrade backfill.
+    let origins = crate::services::media::upgrade::configured_origins().await;
     let transaction = match db.begin().await {
         Ok(transaction) => transaction,
         Err(error) => {
@@ -526,37 +626,8 @@ pub async fn restore_settings(
         }
     };
 
-    let restore_result: Result<(), sea_orm::DbErr> = async {
-        for entry in entries {
-            transaction
-                .execute_raw(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    r#"
-                        INSERT INTO configurations
-                            (key, value, description, category, is_encrypted, is_public, created_at, updated_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                        ON CONFLICT (key) DO UPDATE SET
-                            value = EXCLUDED.value,
-                            description = COALESCE(EXCLUDED.description, configurations.description),
-                            category = COALESCE(EXCLUDED.category, configurations.category),
-                            is_encrypted = COALESCE(EXCLUDED.is_encrypted, configurations.is_encrypted),
-                            is_public = COALESCE(EXCLUDED.is_public, configurations.is_public),
-                            updated_at = CURRENT_TIMESTAMP
-                    "#,
-                    vec![
-                        entry.key.clone().into(),
-                        // 备份里是明文（见 export_settings），落库前重新加密。
-                        crate::services::data_key::seal_config_value(&entry.key, entry.value)
-                            .map_err(|error| sea_orm::DbErr::Custom(error.to_string()))?
-                            .into(),
-                        entry.description.into(),
-                        entry.category.into(),
-                        entry.is_encrypted.into(),
-                        entry.is_public.into(),
-                    ],
-                ))
-                .await?;
-        }
+    let restore_result: Result<(), RestoreWriteError> = async {
+        write_restored_configurations(&transaction, entries, &origins).await?;
 
         let notification_value = serde_json::to_value(&notification_preferences)
             .map_err(|error| sea_orm::DbErr::Custom(error.to_string()))?;
@@ -578,9 +649,9 @@ pub async fn restore_settings(
             ))
             .await?;
         if update_result.rows_affected() == 0 {
-            return Err(sea_orm::DbErr::Custom(
+            return Err(RestoreWriteError::Db(sea_orm::DbErr::Custom(
                 "Authenticated user no longer exists".to_string(),
-            ));
+            )));
         }
 
         transaction.commit().await?;
@@ -588,12 +659,23 @@ pub async fn restore_settings(
     }
     .await;
 
-    if let Err(error) = restore_result {
-        tracing::error!("Failed to restore settings: {}", error);
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to restore settings", "code": "settings_backup_failed"})),
-        );
+    match restore_result {
+        Ok(()) => {}
+        Err(RestoreWriteError::Media(error)) => {
+            // Same semantics as saving the setting: nothing is restored when a
+            // restored wallpaper or sticker cannot keep its media protected.
+            tracing::warn!(%error, "settings restore rejected: media references could not be bound");
+            return super::extras::media_binding_failed(&error);
+        }
+        Err(RestoreWriteError::Db(error)) => {
+            tracing::error!("Failed to restore settings: {}", error);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(
+                    json!({"error": "Failed to restore settings", "code": "settings_backup_failed"}),
+                ),
+            );
+        }
     }
 
     let config_service = crate::services::config_service::ConfigService::new(db.clone());
