@@ -60,6 +60,13 @@ pub enum CrashRecoveryPlan {
     FailUnstarted {
         job_id: String,
     },
+    /// `job.current` still names a Succeeded/Failed job while maintenance is
+    /// inactive: an interrupted cleanup (e.g. maintenance cleared, pointer
+    /// removal failed). Finish it so the stale pointer cannot refuse every
+    /// later mutation.
+    ReleaseTerminalCurrent {
+        job_id: String,
+    },
 }
 
 /// Observed `MYRIAD_TAG` while classifying a SwapTag crash.
@@ -264,6 +271,16 @@ pub fn plan_crash_recovery(
         return CrashRecoveryPlan::ClearOrphanMaintenance;
     }
 
+    if let Some(id) = current_job_id.filter(|id| !id.is_empty())
+        && !maint.active
+        && job_id.as_deref() == Some(id)
+        && job.is_some_and(|j| matches!(j.status, JobStatus::Succeeded | JobStatus::Failed))
+    {
+        return CrashRecoveryPlan::ReleaseTerminalCurrent {
+            job_id: id.to_string(),
+        };
+    }
+
     CrashRecoveryPlan::Idle
 }
 
@@ -347,6 +364,13 @@ impl Worker {
                 super::machine::clear_maintenance(&state)?;
                 state.append_history(&format!(
                     "recovery: job {job_id} never started; marked failed"
+                ))?;
+                Ok(RecoveryReport::Idle)
+            }
+            CrashRecoveryPlan::ReleaseTerminalCurrent { job_id } => {
+                state.set_current_job(None)?;
+                state.append_history(&format!(
+                    "recovery: released job.current for finished job {job_id}"
                 ))?;
                 Ok(RecoveryReport::Idle)
             }
@@ -761,6 +785,45 @@ mod recovery_plan_tests {
         assert!(matches!(
             crate::worker::replay_idempotent_update(&state, "k", "fp").unwrap(),
             Some(crate::worker::IdempotentReplay::Accepted(id)) if id == "j1"
+        ));
+    }
+
+    /// FailUnstarted marked the job Failed and cleared maintenance, then
+    /// removing `job.current` failed: the next start must finish the cleanup.
+    #[tokio::test]
+    async fn recover_releases_terminal_current_left_by_interrupted_cleanup() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = Arc::new(StateDir::open(dir.path()).unwrap());
+        let mut j = job(JobStatus::Pending, Phase::Preflight);
+        j.steps.clear();
+        state.write_job(&j).unwrap();
+        state.set_current_job(Some("j1")).unwrap();
+        Worker::recover_or_idle_state(state.clone(), None)
+            .await
+            .expect("first recovery");
+        // Simulate the pointer removal having failed after the job write.
+        state.set_current_job(Some("j1")).unwrap();
+
+        let report = Worker::recover_or_idle_state(state.clone(), None)
+            .await
+            .expect("second recovery");
+        assert!(matches!(report, RecoveryReport::Idle));
+        assert!(state.read_current_job().unwrap().is_none());
+        assert_eq!(state.read_job("j1").unwrap().status, JobStatus::Failed);
+        // Idempotent: a further restart is a plain Idle.
+        assert!(matches!(
+            Worker::recover_or_idle_state(state.clone(), None).await.unwrap(),
+            RecoveryReport::Idle
+        ));
+    }
+
+    #[test]
+    fn terminal_current_with_active_maintenance_is_not_released() {
+        let m = maint(true, Phase::Stopping, Some("j1"));
+        let j = job(JobStatus::Failed, Phase::Stopping);
+        assert!(matches!(
+            plan_crash_recovery(&m, Some("j1"), Some(&j), &EnvTagObservation::Absent),
+            CrashRecoveryPlan::ClearPreSwap { .. }
         ));
     }
 
