@@ -91,7 +91,11 @@ impl UpdaterClientError {
             ),
             Self::Upstream(status, body) => {
                 tracing::error!(%status, body = %redact_secrets(&body), "updater upstream failed");
-                AppError::from_status_u16(status.as_u16(), format!("updater upstream {status}"))
+                let message = match extract_upstream_error(&body) {
+                    Some(detail) => format!("updater upstream {status}: {detail}"),
+                    None => format!("updater upstream {status}"),
+                };
+                AppError::from_status_u16(status.as_u16(), message)
             }
             Self::Transport(error) => {
                 tracing::error!(%error, "updater transport failed");
@@ -104,6 +108,19 @@ impl UpdaterClientError {
 impl From<UpdaterClientError> for AppError {
     fn from(e: UpdaterClientError) -> Self {
         e.into_app_error()
+    }
+}
+
+/// Pull the `error` field out of an updater `{"error": "..."}` body so the
+/// operator sees the real reason (e.g. a GitHub rate limit) instead of a bare
+/// status line. Returns `None` when the body is not that shape.
+fn extract_upstream_error(body: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    let message = value.get("error")?.as_str()?.trim();
+    if message.is_empty() {
+        None
+    } else {
+        Some(message.to_string())
     }
 }
 
@@ -383,5 +400,19 @@ mod tests {
         let json = e.to_json();
         assert_eq!(json["error"], "updater upstream 409 Conflict");
         assert!(json.get("message").is_none());
+    }
+
+    #[test]
+    fn into_app_error_upstream_surfaces_the_updater_reason() {
+        let body = r#"{"error":"github: GET releases failed: 403 Forbidden (rate limit)"}"#;
+        let e = UpdaterClientError::Upstream(StatusCode::INTERNAL_SERVER_ERROR, body.into())
+            .into_app_error();
+        assert_eq!(e.status_u16(), 500);
+        let json = e.to_json();
+        assert_eq!(
+            json["error"],
+            "updater upstream 500 Internal Server Error: github: GET releases failed: \
+             403 Forbidden (rate limit)"
+        );
     }
 }
