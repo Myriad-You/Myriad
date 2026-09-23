@@ -1033,7 +1033,7 @@ pub async fn decompose_with_see_through(
         .await
         .map_err(see_through_error)?;
     let output = client
-        .decompose(image.bytes.into(), &image.media_type, options)
+        .decompose(image.bytes, &image.media_type, options)
         .await
         .map_err(see_through_error)?;
 

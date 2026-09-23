@@ -160,7 +160,7 @@ impl SeeThroughClient {
 
     pub async fn decompose(
         &self,
-        image: Vec<u8>,
+        image: axum::body::Bytes,
         media_type: &str,
         options: DecomposeOptions,
     ) -> Result<DecomposeOutput, SeeThroughError> {
@@ -177,7 +177,11 @@ impl SeeThroughClient {
         Ok(DecomposeOutput { psd, event_id })
     }
 
-    async fn upload(&self, image: Vec<u8>, media_type: &str) -> Result<String, SeeThroughError> {
+    async fn upload(
+        &self,
+        image: axum::body::Bytes,
+        media_type: &str,
+    ) -> Result<String, SeeThroughError> {
         let extension = match media_type {
             "image/png" => "png",
             "image/jpeg" => "jpg",
@@ -188,7 +192,9 @@ impl SeeThroughClient {
                 ));
             }
         };
-        let part = multipart::Part::bytes(image)
+        // Hand the shared buffer to the request body; no copy of the portrait.
+        let length = image.len() as u64;
+        let part = multipart::Part::stream_with_length(reqwest::Body::from(image), length)
             .file_name(format!("character.{extension}"))
             .mime_str(media_type)
             .map_err(|error| SeeThroughError::InvalidInput(error.to_string()))?;
