@@ -576,6 +576,11 @@ mod reconcile_tests {
         let tapp_id = format!("com.example.w{}", uuid::Uuid::new_v4().simple());
         let full = |local: &str| format_tapp_widget_id(&tapp_id, local);
         let (owner, other) = (910_001, 910_002);
+        db.execute_unprepared(
+            "INSERT INTO users (id, username) VALUES (910001, 'widget-owner'), (910002, 'widget-other')",
+        )
+        .await
+        .unwrap();
         // Legacy source-less manifest row, an unrelated runtime row of the owner,
         // and another user's runtime row bound to the owner's installation.
         db.execute_raw(Statement::from_sql_and_values(

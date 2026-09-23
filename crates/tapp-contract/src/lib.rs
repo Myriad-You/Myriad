@@ -24,6 +24,56 @@ fn list_map<'a>(values: &'a [(&'a str, &'a [&'a str])]) -> BTreeMap<&'a str, &'a
     values.iter().copied().collect()
 }
 
+/// Sandbox bridge action table and capability profiles. The frontend bridge
+/// imports the same file directly, so this export is its only other reader.
+#[cfg(feature = "tapp-contract-schema")]
+const SANDBOX_CONTRACT_JSON: &str = include_str!("../../../shared/tapp_sandbox_contract.json");
+
+/// Parsed sandbox contract, checked against the permission catalog: every
+/// action names `public` or a catalog permission, and every headless-denied
+/// action is a known action.
+#[cfg(feature = "tapp-contract-schema")]
+fn sandbox_contract() -> (Value, Value) {
+    let mut value: Value = serde_json::from_str(SANDBOX_CONTRACT_JSON)
+        .expect("shared/tapp_sandbox_contract.json must be valid JSON");
+    let actions = value["actions"].take();
+    let capabilities = value["capabilities"].take();
+    let levels = permission::permission_levels();
+    let action_map = actions
+        .as_object()
+        .expect("sandbox contract actions must be an object");
+    assert!(!action_map.is_empty(), "sandbox contract has no actions");
+    for (action, required) in action_map {
+        let required = required
+            .as_str()
+            .unwrap_or_else(|| panic!("sandbox action {action} permission must be a string"));
+        assert!(
+            required == "public" || levels.contains_key(required),
+            "sandbox action {action} names unknown permission {required}"
+        );
+    }
+    let profiles = capabilities["profiles"]
+        .as_array()
+        .expect("sandbox contract capabilities.profiles must be an array");
+    assert!(
+        !profiles.is_empty() && profiles.iter().all(Value::is_string),
+        "sandbox capability profiles must be non-empty strings"
+    );
+    for denied in capabilities["headlessDeniedActions"]
+        .as_array()
+        .expect("sandbox contract capabilities.headlessDeniedActions must be an array")
+    {
+        let denied = denied
+            .as_str()
+            .expect("headless-denied action must be a string");
+        assert!(
+            action_map.contains_key(denied),
+            "headless-denied action {denied} is not a sandbox action"
+        );
+    }
+    (actions, capabilities)
+}
+
 #[cfg(feature = "tapp-contract-schema")]
 fn ai_operation_permissions() -> BTreeMap<String, &'static str> {
     use manifest::TappAiOperation::{Analyze, Chat, Generate, Image, Search};
@@ -43,6 +93,7 @@ fn ai_operation_permissions() -> BTreeMap<String, &'static str> {
 #[cfg(feature = "tapp-contract-schema")]
 pub fn export_tapp_contract() -> Value {
     let schema = schemars::schema_for!(manifest::TappManifest);
+    let (actions, capabilities) = sandbox_contract();
     json!({
         "schema": schema,
         "limits": {
@@ -197,7 +248,9 @@ pub fn export_tapp_contract() -> Value {
         },
         "permissionLevels": permission::permission_levels(),
         "replacementHints": permission::replacement_hints(),
-        "requiresAuthenticatedSubject": permission::requires_authenticated_subject_names()
+        "requiresAuthenticatedSubject": permission::requires_authenticated_subject_names(),
+        "actions": actions,
+        "capabilities": capabilities
     })
 }
 
@@ -254,5 +307,13 @@ mod export_catalog_tests {
             exported["rules"]["hostPageCss"].as_str(),
             Some(crate::contract_rules::HOST_PAGE_CSS)
         );
+
+        let actions = exported["actions"].as_object().expect("actions");
+        assert_eq!(actions["lifecycle.ready"], "public");
+        assert_eq!(actions["storage.set"], "storage:write");
+        let denied = exported["capabilities"]["headlessDeniedActions"]
+            .as_array()
+            .expect("headlessDeniedActions");
+        assert!(denied.iter().any(|action| action == "ui.confirm"));
     }
 }

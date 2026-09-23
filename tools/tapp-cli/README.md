@@ -167,9 +167,11 @@ the [AI Task examples](../../docs/development/tapp/API_REFERENCE.md#ai-api).
 
 ## Generated contract
 
-The committed contract combines the Rust Manifest schema and semantic rules
-from `crates/tapp-contract` (shared with backend install validation) with the
-runtime permission map and sandbox capability profiles:
+The committed contract is the output of the neutral contract exporter
+(`tools/tapp-contract-export`): the Rust Manifest schema and semantic rules from
+`crates/tapp-contract` (shared with backend install validation) plus the sandbox
+action permission map and capability profiles from
+`shared/tapp_sandbox_contract.json` (also imported by the frontend bridge):
 
 ```bash
 cd tools/tapp-cli
@@ -177,8 +179,7 @@ npm run sync-contract
 ```
 
 Run this command after changing `crates/tapp-contract` (Manifest types or
-contract rules), `frontend/src/tapp/runtime/permissionConfig.ts`, or
-`frontend/src/tapp/runtime/sandbox/capabilityProfiles.ts`. Templates and ZIP
+contract rules) or `shared/tapp_sandbox_contract.json`. Templates and ZIP
 packaging remain handwritten; validation consumes `src/generated/contract.json`.
 
 `sync-contract` is a repository-maintainer command. It is run by

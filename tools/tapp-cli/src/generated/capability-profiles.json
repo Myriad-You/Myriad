@@ -1,9 +1,4 @@
 {
-  "profiles": [
-    "page",
-    "widget",
-    "headless"
-  ],
   "headlessDeniedActions": [
     "ui.setTitle",
     "ui.confirm",
@@ -46,5 +41,10 @@
     "model3d.awaitTask",
     "model3d.getUrl",
     "model3d.getMetadata"
+  ],
+  "profiles": [
+    "page",
+    "widget",
+    "headless"
   ]
 }

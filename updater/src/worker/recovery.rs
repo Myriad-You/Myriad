@@ -54,6 +54,19 @@ pub enum CrashRecoveryPlan {
     },
     /// `maintenance.active` with no job id and no `job.current`.
     ClearOrphanMaintenance,
+    /// Admitted but the executor never recorded a step (still Pending) and the
+    /// site was never taken offline: nothing changed, but no executor survives
+    /// the restart. Fail the job explicitly and release `job.current`.
+    FailUnstarted {
+        job_id: String,
+    },
+    /// `job.current` still names a Succeeded/Failed job while maintenance is
+    /// inactive: an interrupted cleanup (e.g. maintenance cleared, pointer
+    /// removal failed). Finish it so the stale pointer cannot refuse every
+    /// later mutation.
+    ReleaseTerminalCurrent {
+        job_id: String,
+    },
 }
 
 /// Observed `MYRIAD_TAG` while classifying a SwapTag crash.
@@ -92,6 +105,12 @@ pub fn plan_crash_recovery(
             JobStatus::Running | JobStatus::Pending | JobStatus::NeedsManual
         )
     });
+    if let Some(id) = &job_id
+        && !maint.active
+        && job.is_some_and(super::job_never_started)
+    {
+        return CrashRecoveryPlan::FailUnstarted { job_id: id.clone() };
+    }
     let last_step_phase = job.and_then(|j| j.steps.last().map(|s| s.phase));
     let interrupted_phase = job.and_then(|j| {
         j.steps
@@ -252,6 +271,16 @@ pub fn plan_crash_recovery(
         return CrashRecoveryPlan::ClearOrphanMaintenance;
     }
 
+    if let Some(id) = current_job_id.filter(|id| !id.is_empty())
+        && !maint.active
+        && job_id.as_deref() == Some(id)
+        && job.is_some_and(|j| matches!(j.status, JobStatus::Succeeded | JobStatus::Failed))
+    {
+        return CrashRecoveryPlan::ReleaseTerminalCurrent {
+            job_id: id.to_string(),
+        };
+    }
+
     CrashRecoveryPlan::Idle
 }
 
@@ -316,6 +345,34 @@ impl Worker {
                 state.write_maintenance(&maintenance)?;
                 state.set_current_job(Some(&job_id))?;
                 Ok(RecoveryReport::Resume { job_id, rollback })
+            }
+            CrashRecoveryPlan::FailUnstarted { job_id } => {
+                let Some(mut job) = job else {
+                    return Err(UpdaterError::State(format!(
+                        "recovery: unstarted job {job_id} was not loaded"
+                    )));
+                };
+                job.status = JobStatus::Failed;
+                job.finished_at = Some(Utc::now());
+                job.steps.push(crate::state::JobStep::start(Phase::Preflight));
+                if let Some(step) = job.steps.last_mut() {
+                    step.finish_err(
+                        "updater restarted before the job started; nothing was changed",
+                    );
+                }
+                state.write_job(&job)?;
+                super::machine::clear_maintenance(&state)?;
+                state.append_history(&format!(
+                    "recovery: job {job_id} never started; marked failed"
+                ))?;
+                Ok(RecoveryReport::Idle)
+            }
+            CrashRecoveryPlan::ReleaseTerminalCurrent { job_id } => {
+                state.set_current_job(None)?;
+                state.append_history(&format!(
+                    "recovery: released job.current for finished job {job_id}"
+                ))?;
+                Ok(RecoveryReport::Idle)
             }
             CrashRecoveryPlan::FinishCommitted => {
                 super::update::finish_successful_deploy(&state, job_id.as_deref().unwrap(), None)?;
@@ -704,6 +761,70 @@ mod recovery_plan_tests {
             plan_crash_recovery(&m, None, None, &EnvTagObservation::Absent),
             CrashRecoveryPlan::ClearOrphanMaintenance
         );
+    }
+
+    /// Restart between admission (`job.current`) and the executor's first step.
+    #[tokio::test]
+    async fn recover_fails_admitted_but_unstarted_job_explicitly() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = Arc::new(StateDir::open(dir.path()).unwrap());
+        let mut j = job(JobStatus::Pending, Phase::Preflight);
+        j.steps.clear();
+        j.idempotency_key = Some("k".into());
+        j.idempotency_fingerprint = Some("fp".into());
+        state.write_job(&j).unwrap();
+        state.set_current_job(Some("j1")).unwrap();
+
+        let report = Worker::recover_or_idle_state(state.clone(), None)
+            .await
+            .expect("recover");
+        assert!(matches!(report, RecoveryReport::Idle));
+        assert!(state.read_current_job().unwrap().is_none());
+        assert_eq!(state.read_job("j1").unwrap().status, JobStatus::Failed);
+        // Replay reports the terminal job; it neither reruns nor stays Pending.
+        assert!(matches!(
+            crate::worker::replay_idempotent_update(&state, "k", "fp").unwrap(),
+            Some(crate::worker::IdempotentReplay::Accepted(id)) if id == "j1"
+        ));
+    }
+
+    /// FailUnstarted marked the job Failed and cleared maintenance, then
+    /// removing `job.current` failed: the next start must finish the cleanup.
+    #[tokio::test]
+    async fn recover_releases_terminal_current_left_by_interrupted_cleanup() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = Arc::new(StateDir::open(dir.path()).unwrap());
+        let mut j = job(JobStatus::Pending, Phase::Preflight);
+        j.steps.clear();
+        state.write_job(&j).unwrap();
+        state.set_current_job(Some("j1")).unwrap();
+        Worker::recover_or_idle_state(state.clone(), None)
+            .await
+            .expect("first recovery");
+        // Simulate the pointer removal having failed after the job write.
+        state.set_current_job(Some("j1")).unwrap();
+
+        let report = Worker::recover_or_idle_state(state.clone(), None)
+            .await
+            .expect("second recovery");
+        assert!(matches!(report, RecoveryReport::Idle));
+        assert!(state.read_current_job().unwrap().is_none());
+        assert_eq!(state.read_job("j1").unwrap().status, JobStatus::Failed);
+        // Idempotent: a further restart is a plain Idle.
+        assert!(matches!(
+            Worker::recover_or_idle_state(state.clone(), None).await.unwrap(),
+            RecoveryReport::Idle
+        ));
+    }
+
+    #[test]
+    fn terminal_current_with_active_maintenance_is_not_released() {
+        let m = maint(true, Phase::Stopping, Some("j1"));
+        let j = job(JobStatus::Failed, Phase::Stopping);
+        assert!(matches!(
+            plan_crash_recovery(&m, Some("j1"), Some(&j), &EnvTagObservation::Absent),
+            CrashRecoveryPlan::ClearPreSwap { .. }
+        ));
     }
 
     /// End-to-end recovery against a real state dir (no docker).

@@ -11,6 +11,7 @@ use sea_orm_migration::prelude::*;
 /// 4. auth_provider 允许值扩展为 ('local','github','oidc','federated')
 /// 5. 加 username 全局唯一索引（大小写不敏感，含冲突预处理）
 /// 6. 加 allow_local_registration 配置项（默认 false）
+/// 7. 用户生命周期：`user_lifecycle.sql`（FK 级联 + 主体表删除触发器）
 #[derive(DeriveMigrationName)]
 pub struct Migration;
 
@@ -168,11 +169,19 @@ impl MigrationTrait for Migration {
         )
         .await?;
 
+        // ==================== 6. 用户生命周期（依赖 001–006 全部表） ====================
+        db.execute_unprepared(include_str!("user_lifecycle.sql"))
+            .await?;
+
         Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         let db = manager.get_connection();
+
+        // 6. 用户生命周期：FK、主体表守卫与删除触发器全部撤销
+        db.execute_unprepared(include_str!("user_lifecycle_down.sql"))
+            .await?;
 
         // 5. 删除配置项
         db.execute_unprepared("DELETE FROM configurations WHERE key = 'allow_local_registration'")

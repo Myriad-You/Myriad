@@ -632,6 +632,11 @@ async fn migrations_leave_no_schema_drift() {
     );
 
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, TransactionTrait};
+    // Fixture account for the upgrade rows below (user-owned tables reject
+    // unknown positive user ids).
+    db.execute_unprepared("INSERT INTO users (id, username) VALUES (2147483647, 'schema-fixture')")
+        .await
+        .expect("insert fixture user");
     let invalid = db
         .execute_raw(Statement::from_string(
             DatabaseBackend::Postgres,
@@ -797,6 +802,7 @@ DROP TRIGGER reject_schema_dedup_delete ON federation_timeline;
 DROP FUNCTION reject_schema_dedup_delete();
 DELETE FROM federation_delivery_queue WHERE id = -2;
 DELETE FROM federation_timeline WHERE id = -2;
+DELETE FROM users WHERE id = 2147483647;
 "#,
     )
     .await

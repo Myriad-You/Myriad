@@ -293,6 +293,7 @@ async fn do_schema_check(db: &DatabaseConnection) -> Result<(), DbErr> {
     ensure_phantasi_application_pending_unique(db).await?;
     ensure_tapp_shortcut_chord_unique(db).await?;
     // last_read_at / rate_* / engagement 等字段：TableDef + 通用 drift ADD（无专用 heal）
+    ensure_user_lifecycle(db).await?;
     ensure_federation_foreign_keys(db).await?;
     ensure_single_owner(db).await?;
 

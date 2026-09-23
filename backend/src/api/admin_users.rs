@@ -635,75 +635,6 @@ pub async fn unlink_identity(
     user_detail(&db, user_id).await
 }
 
-/// 在删除 users 行之前，清理无 FK / 非 CASCADE 的用户关联数据。
-///
-/// - `user_identities`：有 `ON DELETE CASCADE`，随 users 删除即可。
-/// - 其余带 `user_id` 的表多为逻辑关联（无 FK），需显式删除以免残留。
-/// - `phantasi_sources` 删除会 CASCADE 到 `phantasi_items` 及其下游。
-/// - `federation_room_members.local_user_id` 可空：置 NULL，保留房间成员记录。
-/// - 磁盘上的 Tapp 安装目录等文件资源不在此清理（与卸载路径不同）；DB 行删除后
-/// 对应目录成为孤立文件，可后续由运维/GC 处理。
-async fn cleanup_user_related_data(
-    txn: &impl ConnectionTrait,
-    user_id: i32,
-) -> Result<(), ApiError> {
-    // 顺序：先子表/依赖，再用户拥有的顶层资源。
-    const CLEANUP_SQL: &[&str] = &[
-        // Agent
-        "DELETE FROM agent_messages WHERE session_id IN \
-         (SELECT id FROM agent_sessions WHERE user_id = $1)",
-        "DELETE FROM agent_sessions WHERE user_id = $1",
-        "DELETE FROM agent_tasks WHERE user_id = $1",
-        "DELETE FROM agent_notifications WHERE user_id = $1",
-        "DELETE FROM agent_task_presets WHERE user_id = $1",
-        // Platform data
-        "DELETE FROM activity_events WHERE user_id = $1",
-        "DELETE FROM metadata_history WHERE user_id = $1",
-        "DELETE FROM platform_metadata WHERE user_id = $1",
-        "DELETE FROM platform_reports WHERE user_id = $1",
-        // Tapp stack
-        "DELETE FROM tapp_task_executions WHERE scheduled_task_id IN \
-         (SELECT id FROM tapp_scheduled_tasks WHERE user_id = $1) \
-         OR user_id = $1",
-        "DELETE FROM tapp_scheduled_tasks WHERE user_id = $1",
-        "DELETE FROM tapp_user_activities WHERE user_id = $1",
-        "DELETE FROM tapp_quota_usage WHERE user_id = $1",
-        "DELETE FROM tapp_storage WHERE user_id = $1",
-        "DELETE FROM tapp_widgets WHERE user_id = $1",
-        "DELETE FROM tapps WHERE user_id = $1",
-        "DELETE FROM tapp_runtime_registry WHERE subject_id = $1 OR owner_id = $1",
-        "DELETE FROM tapp_ai_cost_ledger WHERE subject_id = $1 OR owner_id = $1",
-        // Phantasi（sources → items CASCADE）
-        "DELETE FROM phantasi_comments WHERE user_id = $1",
-        "DELETE FROM phantasi_user_states WHERE user_id = $1",
-        "DELETE FROM phantasi_categories WHERE user_id = $1",
-        "DELETE FROM phantasi_sources WHERE user_id = $1",
-        "DELETE FROM rsshub_instances WHERE user_id = $1",
-        // Federation
-        "DELETE FROM federation_timeline WHERE user_id = $1",
-        "DELETE FROM federation_published_content WHERE user_id = $1",
-        "DELETE FROM federation_channel_messages WHERE channel_id IN \
-         (SELECT channel_id FROM federation_channels WHERE user_id = $1)",
-        "DELETE FROM federation_channels WHERE user_id = $1",
-        "DELETE FROM federation_activities WHERE user_id = $1",
-        "DELETE FROM federation_follows WHERE user_id = $1",
-        "DELETE FROM federation_keys WHERE user_id = $1",
-        "UPDATE federation_room_members SET local_user_id = NULL WHERE local_user_id = $1",
-    ];
-
-    for sql in CLEANUP_SQL {
-        txn.execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            *sql,
-            [user_id.into()],
-        ))
-        .await
-        .map_err(db_error("cleanup user data"))?;
-    }
-
-    Ok(())
-}
-
 /// DELETE /api/admin/users/{id}
 ///
 /// 安全规则：
@@ -766,8 +697,9 @@ pub async fn delete_user(
             ));
         }
     }
-    cleanup_user_related_data(&txn, user_id).await?;
-    // user_identities CASCADE；其余已在 cleanup 中处理
+    // 关联数据的生命周期归 schema（`migrations/user_lifecycle.sql`）：FK 级联 +
+    // 主体表删除触发器在同一语句内完成；任一约束失败整条删除回滚。磁盘上的
+    // Tapp 安装目录不属于数据库，不在此处理。
     let result = txn
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -1025,5 +957,183 @@ mod tests {
             "exactly one concurrent last-admin demote may commit"
         );
         assert_eq!(remaining, 1, "the last administrator must remain");
+    }
+
+    /// Deleting a user is one `DELETE FROM users`: FK cascades and the
+    /// subject-row trigger remove owned rows, detach history, keep other
+    /// subjects (system 0), and the heal restores a missing FK after clearing
+    /// orphans.
+    #[tokio::test]
+    async fn user_delete_is_owned_by_schema_lifecycle() {
+        use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+        let Ok(url) = std::env::var("AUTH_TEST_DATABASE_URL") else {
+            return;
+        };
+        let isolated = crate::db::IsolatedSchema::migrated(&url, "user_lifecycle_test").await;
+        let db = isolated.db.clone();
+        db.execute_unprepared(
+            r#"
+INSERT INTO users (id, username) VALUES (10, 'gone'), (11, 'kept');
+INSERT INTO agent_sessions (id, user_id, created_at, last_active_at)
+VALUES ('s-gone', 10, NOW(), NOW()), ('s-kept', 11, NOW(), NOW());
+INSERT INTO agent_messages (session_id, role, content, created_at)
+VALUES ('s-gone', 'user', 'x', NOW()), ('s-kept', 'user', 'y', NOW());
+INSERT INTO platform_reports (user_id, platform, metadata, report)
+VALUES (10, 'steam', '{}', '{}'), (11, 'steam', '{}', '{}');
+INSERT INTO federation_room_members (room_id, actor_url, is_local, membership_status, local_user_id)
+VALUES ('room', 'https://site.example/users/gone', TRUE, 'joined', 10);
+INSERT INTO tapps (tapp_id, user_id, name, version, manifest, file_path, code_path)
+VALUES ('com.example.a', 10, 'A', '1', '{}', '', ''), ('com.example.a', 0, 'A', '1', '{}', '', '');
+INSERT INTO tapp_ai_cost_ledger (subject_id, owner_id, tapp_id, task_id, source, operation, provider, model, status)
+VALUES (10, 10, 't', 'k', 'agent', 'chat', 'p', 'm', 'ok'), (0, 0, 't', 'k', 'agent', 'chat', 'p', 'm', 'ok');
+"#,
+        )
+        .await
+        .unwrap();
+        let count = |sql: &'static str| {
+            let db = db.clone();
+            async move {
+                db.query_one_raw(Statement::from_string(DatabaseBackend::Postgres, sql))
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .try_get::<i64>("", "n")
+                    .unwrap()
+            }
+        };
+
+        db.execute_unprepared("DELETE FROM users WHERE id = 10")
+            .await
+            .unwrap();
+        assert_eq!(
+            count("SELECT count(*) AS n FROM agent_sessions WHERE user_id = 10").await,
+            0
+        );
+        assert_eq!(count("SELECT count(*) AS n FROM agent_messages").await, 1);
+        assert_eq!(count("SELECT count(*) AS n FROM platform_reports").await, 1);
+        assert_eq!(
+            count("SELECT count(*) AS n FROM federation_room_members WHERE local_user_id IS NULL")
+                .await,
+            1,
+            "room membership history is detached, not deleted"
+        );
+        assert_eq!(
+            count("SELECT count(*) AS n FROM tapps WHERE user_id = 0").await,
+            1
+        );
+        assert_eq!(count("SELECT count(*) AS n FROM tapps").await, 1);
+        assert_eq!(
+            count("SELECT count(*) AS n FROM tapp_ai_cost_ledger").await,
+            1
+        );
+
+        // Existing DBs: a missing FK is healed after clearing orphans only.
+        db.execute_unprepared(
+            "ALTER TABLE platform_reports DROP CONSTRAINT fk_platform_reports_user; \
+             INSERT INTO platform_reports (user_id, platform, metadata, report) \
+             VALUES (999, 'steam', '{}', '{}');",
+        )
+        .await
+        .unwrap();
+        // Same SQL `schema_check::ensure_user_lifecycle` runs on every boot.
+        for _ in 0..2 {
+            db.execute_unprepared(include_str!("../../migrations/user_lifecycle.sql"))
+                .await
+                .unwrap();
+        }
+        assert_eq!(count("SELECT count(*) AS n FROM platform_reports").await, 1);
+        assert!(
+            db.execute_unprepared(
+                "INSERT INTO platform_reports (user_id, platform, metadata, report) \
+                 VALUES (999, 'steam', '{}', '{}')"
+            )
+            .await
+            .is_err(),
+            "healed FK must reject rows for missing users"
+        );
+
+        // Subject-keyed tables: positive ids must be accounts; system (0) and
+        // guest (negative) subjects stay unconstrained.
+        let ledger = |subject: i32| {
+            format!(
+                "INSERT INTO tapp_ai_cost_ledger (subject_id, owner_id, tapp_id, task_id, \
+                 source, operation, provider, model, status) \
+                 VALUES ({subject}, 0, 't', 'k', 'agent', 'chat', 'p', 'm', 'ok')"
+            )
+        };
+        assert!(db.execute_unprepared(&ledger(999)).await.is_err());
+        db.execute_unprepared(&ledger(-5)).await.unwrap();
+
+        // A write that locked the user first commits before the delete's
+        // cleanup snapshot, so it is removed rather than orphaned.
+        use sea_orm::TransactionTrait;
+        db.execute_unprepared("INSERT INTO users (id, username) VALUES (12, 'racer')")
+            .await
+            .unwrap();
+        let writer = db.begin().await.unwrap();
+        writer.execute_unprepared(&ledger(11)).await.unwrap();
+        let deleting = tokio::spawn({
+            let db = db.clone();
+            async move {
+                db.execute_unprepared("DELETE FROM users WHERE id = 11")
+                    .await
+            }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert!(!deleting.is_finished(), "user delete waits for the writer");
+        writer.commit().await.unwrap();
+        deleting.await.unwrap().unwrap();
+        assert_eq!(
+            count("SELECT count(*) AS n FROM tapp_ai_cost_ledger WHERE subject_id = 11").await,
+            0
+        );
+
+        // A write arriving after the delete waits for it and then fails.
+        let deleter = db.begin().await.unwrap();
+        deleter
+            .execute_unprepared("DELETE FROM users WHERE id = 12")
+            .await
+            .unwrap();
+        let writing = tokio::spawn({
+            let db = db.clone();
+            let sql = ledger(12);
+            async move { db.execute_unprepared(&sql).await }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert!(!writing.is_finished(), "writer waits for the user delete");
+        deleter.commit().await.unwrap();
+        assert!(writing.await.unwrap().is_err());
+        assert_eq!(
+            count("SELECT count(*) AS n FROM tapp_ai_cost_ledger WHERE subject_id = 12").await,
+            0
+        );
+
+        // Migration 006 `down` removes every lifecycle object it added.
+        db.execute_unprepared(include_str!("../../migrations/user_lifecycle_down.sql"))
+            .await
+            .unwrap();
+        assert_eq!(
+            count(
+                "SELECT count(*) AS n FROM pg_constraint c \
+                 JOIN pg_namespace n ON n.oid = c.connamespace \
+                 WHERE n.nspname = current_schema() AND c.contype = 'f' \
+                   AND c.conname IN ('fk_platform_reports_user', 'fk_agent_messages_session', \
+                                     'fk_fed_room_members_local_user')"
+            )
+            .await,
+            0
+        );
+        assert_eq!(
+            count(
+                "SELECT count(*) AS n FROM pg_trigger t \
+                 JOIN pg_class r ON r.oid = t.tgrelid \
+                 JOIN pg_namespace n ON n.oid = r.relnamespace \
+                 WHERE n.nspname = current_schema() AND t.tgname LIKE 'trg_%subject%'"
+            )
+            .await,
+            0
+        );
+        db.execute_unprepared(&ledger(999)).await.unwrap();
+        isolated.drop().await;
     }
 }

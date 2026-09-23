@@ -14,9 +14,7 @@ import {
   permissionCatalog,
 } from '../src/project.mjs'
 import { listZipEntries } from '../src/zip.mjs'
-import { parseCapabilitySource } from '../scripts/capability-source.mjs'
 import { findMyriadRepoRoot } from '../scripts/myriad-source.mjs'
-import { parsePermissionSource } from '../scripts/permission-source.mjs'
 
 const directories = []
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -61,28 +59,18 @@ describe('Tapp project core', () => {
       backendContract.requiresAuthenticatedSubject,
     )
     assert.deepEqual(permissionCatalog().permissionLevels, backendContract.permissionLevels)
+    assert.deepEqual(permissionCatalog().actions, backendContract.actions)
+    assert.deepEqual(current.capabilities, backendContract.capabilities)
   })
 
-  upstreamIt('keeps generated actions aligned with permissionConfig', async () => {
-    const source = await readFile(
-      resolve(myriadRoot, 'frontend/src/tapp/runtime/permissionConfig.ts'),
-      'utf8',
-    )
-    const { actions } = parsePermissionSource(source)
-    assert.deepEqual(permissionCatalog().actions, actions)
-  })
-
-  upstreamIt('keeps capability profiles aligned with capabilityProfiles.ts', async () => {
-    const source = await readFile(
-      resolve(
-        myriadRoot,
-        'frontend/src/tapp/runtime/sandbox/capabilityProfiles.ts',
-      ),
-      'utf8',
-    )
-    const expected = parseCapabilitySource(source)
+  it('ships generated capability profiles and SDK types', async () => {
     const current = generatedContract().capabilities
-    assert.deepEqual(current, expected)
+    assert.deepEqual(
+      JSON.parse(
+        await readFile(resolve(packageRoot, 'src/generated/capability-profiles.json'), 'utf8'),
+      ),
+      current,
+    )
     assert.ok(current.headlessDeniedActions.includes('ui.confirm'))
     await access(resolve(packageRoot, 'src/generated/manifest.schema.json'))
     await access(resolve(packageRoot, 'src/generated/capability-profiles.json'))
@@ -117,55 +105,6 @@ describe('Tapp project core', () => {
     assert.ok(generatedContract().rules.httpOnlyApiFields.includes('credential'))
     assert.ok(generatedContract().rules.forbiddenOutboundHeaders.includes('host'))
     assert.ok(generatedContract().rules.forbiddenOutboundHeaders.includes('content-length'))
-  })
-
-  upstreamIt('parses contract sources independently of quote style', async () => {
-    const permissionSource = await readFile(
-      resolve(myriadRoot, 'frontend/src/tapp/runtime/permissionConfig.ts'),
-      'utf8',
-    )
-    const capabilitySource = await readFile(
-      resolve(
-        myriadRoot,
-        'frontend/src/tapp/runtime/sandbox/capabilityProfiles.ts',
-      ),
-      'utf8',
-    )
-
-    const quotedPermissionSource = permissionSource.replace(
-      /\['lifecycle\.ready', 'public'\]/,
-      '["lifecycle.ready", "public"]',
-    )
-    const quotedCapabilitySource = capabilitySource.replace(
-      "'ui.showNotification'",
-      '"ui.showNotification"',
-    )
-
-    assert.deepEqual(
-      parsePermissionSource(quotedPermissionSource),
-      parsePermissionSource(permissionSource),
-    )
-    assert.deepEqual(
-      parseCapabilitySource(quotedCapabilitySource),
-      parseCapabilitySource(capabilitySource),
-    )
-  })
-
-  upstreamIt('rejects contract sources with syntax errors', async () => {
-    const permissionSource = await readFile(
-      resolve(myriadRoot, 'frontend/src/tapp/runtime/permissionConfig.ts'),
-      'utf8',
-    )
-    const capabilitySource = await readFile(
-      resolve(
-        myriadRoot,
-        'frontend/src/tapp/runtime/sandbox/capabilityProfiles.ts',
-      ),
-      'utf8',
-    )
-
-    assert.throws(() => parsePermissionSource(`${permissionSource}\nconst =`))
-    assert.throws(() => parseCapabilitySource(`${capabilitySource}\nconst =`))
   })
 
   for (const type of ['page', 'widget', 'both']) {

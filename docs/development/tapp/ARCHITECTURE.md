@@ -333,16 +333,16 @@ runtime ID 和最终权限；停止、更新、卸载或 Bridge 销毁会撤销�
 单个沙箱请求，不要求 Runtime Grant。Phantasi、语音与联邦这三类宿主代理路径已接入统一服务端归因：
 沙箱 handler 调用 `/api/phantasi`、`/api/speech`、`/api/federation` 时附带
 `X-Tapp-Runtime-Grant`，宿主中间件校验 Grant、按“方法 + 路由”映射强制对应 Tapp 权限
-（映射与沙箱 `PERMISSION_MAP` / `permissionConfig` 一致），未映射的宿主专用路由
+（映射与沙箱 `PERMISSION_MAP` / `shared/tapp_sandbox_contract.json` 一致），未映射的宿主专用路由
 （Phantasi WebSocket、RSSHub 实例管理、缓存管理、离线同步，以及联邦 E2E 密钥交换等）对带 Grant 的
 请求直接拒绝；不带 Grant 头的宿主 UI 请求不受影响。联邦 Channel/Room 的浏览器 WebSocket
 升级无法携带自定义头，因此 Bridge 先通过带 Grant 的 `POST .../ws-ticket` 换取短时、单次票据，
 再用 `?tapp_ws_ticket=` 升级；票据按 subject、Tapp、runtime 与目标 Channel/Room 绑定，消费后即删除。
 
-**跨栈一致性（fixtures）**：host 路由 → 权限与沙箱 action → 权限的权威数据在
-`docs/development/tapp/fixtures/host_route_permissions.json` 与
-`action_permissions.json`。**先改 fixture，再改** `host_attribution` 消费端与前端
-`PERMISSION_MAP`；Rust 单测与 `permissionMapConsistency.test.ts` 会在漂移时失败。权限字符串
+**跨栈一致性（fixtures）**：host 路由 → 权限的权威数据在
+`docs/development/tapp/fixtures/host_route_permissions.json`；沙箱 action → 权限的权威数据在
+`shared/tapp_sandbox_contract.json`，`action_permissions.json` 只是宿主代理域的一致性
+fixture。改宿主代理动作时同步三处（fixture、`host_attribution` 消费端、沙箱契约数据）；Rust 单测与 `permissionMapConsistency.test.ts` 会在漂移时失败。权限字符串
 还必须能通过 `myriad-tapp-contract` 的 `TappPermission::from_str`；前端 `PERMISSION_LEVELS` 由测试锁到同一份导出。
 
 ### 三种沙箱能调用的面不一样
@@ -373,8 +373,9 @@ model3d。SDK 上拿掉的方法，桥也不会再接：不能只从对象上藏
 
 权限目录（名字、等级、替代提示、需登录主体的集合）在 `myriad-tapp-contract`，由
 `export_tapp_contract()` 导出。HMAC 与 transform 求值在 `myriad-tapp-rules`，不进契约。
-SDK action 映射仍以 `docs/development/tapp/fixtures/` 下 JSON
-为 source of truth，由测试强制与 `PERMISSION_MAP`、`host_attribution` 对齐；前端
+SDK action 映射的权威数据是 `shared/tapp_sandbox_contract.json`（前端 `PERMISSION_MAP`
+直接读取，并经 `export_tapp_contract()` 导出）；`docs/development/tapp/fixtures/` 下 JSON
+是宿主代理域的一致性 fixture，由测试强制与 `PERMISSION_MAP`、`host_attribution` 对齐；前端
 `PERMISSION_LEVELS` 与 `TappPermission` union 锁到这份导出。授予/下放仍在后端
 `TappPermissionService`。后端永远是授权判定的最终边界。
 
@@ -481,7 +482,9 @@ sequenceDiagram
 - TappRuntime 列表缓存 TTL 为 30 秒；启动同步使用批量详情接口，Widget 也按集合读取。
   `waitForSync` 直接等待首次同步并明确抛出失败/超时，不得把失败标记成成功空状态。
 - 前端权限等级锁到 `export_tapp_contract()` 的 `permissionLevels`；`permissionConfig.ts` 的
-  `PERMISSION_LEVELS` 是这份目录的前端副本，不是另一份注册表。`PERMISSION_MAP` 仍对 fixture。
+  `PERMISSION_LEVELS` 是这份目录的前端副本，不是另一份注册表。`PERMISSION_MAP` 与 headless
+  禁用动作直接读取 `shared/tapp_sandbox_contract.json`，同一文件经 `export_tapp_contract()`
+  输出给 Tapp CLI/SDK；宿主代理域仍对 fixture。
 - `QuotaManager` 只保存平台读写与声明 API 的短期滑动窗口，未跟踪 action 不创建记录，
   失败调用不计数。AI calls、tokens 与 cooldown 由 PostgreSQL 服务端账本统一执行，前端只展示
   usage snapshot，不再维护另一套计费事实。

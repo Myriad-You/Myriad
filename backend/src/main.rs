@@ -609,44 +609,6 @@ async fn run_server(role: runtime_role::RuntimeRole) -> anyhow::Result<()> {
     start_unified_server(config, role).await
 }
 
-/// Middleware to check if route is allowed in configuration mode
-async fn config_mode_middleware(req: Request, next: Next) -> Response {
-    let path = req.uri().path();
-
-    // Whitelist of paths that are allowed in configuration mode
-    let allowed_paths = [
-        "/health",
-        "/ready",
-        "/api/setup/",
-        "/api/system/status",
-        "/api/auth/login",
-        "/api/auth/me",
-        "/api/auth/logout",
-        "/api/auth/oauth/",
-    ];
-
-    // If in config mode and path is not whitelisted, return 503
-    if CONFIG_MODE.load(Ordering::Relaxed) && !allowed_paths.iter().any(|p| path.starts_with(p)) {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json({
-                let mut v = AppError::service_unavailable("Service in configuration mode")
-                    .with_message("Finish database setup first.")
-                    .with_hint(
-                        "After configuration, the service restarts to load the full route table",
-                    )
-                    .with_code("configuration_mode")
-                    .to_json();
-                v["configure_endpoint"] = json!("/api/setup/database-config");
-                v
-            }),
-        )
-            .into_response();
-    }
-
-    next.run(req).await
-}
-
 /// 路由已挂 `admin_middleware`；`AdminClaims` 把同一个检查写进签名。
 async fn update_config(
     extract::AdminClaims(_claims): extract::AdminClaims,

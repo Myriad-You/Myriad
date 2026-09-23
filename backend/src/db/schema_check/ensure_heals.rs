@@ -352,12 +352,25 @@ END $$;
     Ok(())
 }
 
+/// User lifecycle owned by the schema (`migrations/user_lifecycle.sql`): FK
+/// cascades for account-owned rows; for subject-keyed tables an insert-side
+/// guard plus an AFTER DELETE trigger on `users`. Unlike the federation candidates below this heal always applies:
+/// it only removes rows whose owning user is already gone (or detaches
+/// nullable references), which is what deleting that user does.
+pub(crate) async fn ensure_user_lifecycle(db: &DatabaseConnection) -> Result<(), DbErr> {
+    db.execute_unprepared(include_str!("../../../migrations/user_lifecycle.sql"))
+        .await?;
+    Ok(())
+}
+
 /// Federation foreign keys — **conservative by default**.
 ///
 /// # Policy (strict, no data mutation)
 ///
 /// 005 SeaORM 主表没有 `ForeignKey::create`（本函数的候选 FK）。
 /// 扩展 SQL 里 `federation_object_interactions.user_id` 已 `REFERENCES users`。
+/// 指向 `users` 的归属 FK（及 channel → messages 级联）属于用户生命周期，
+/// 由 [`ensure_user_lifecycle`] 默认修复，不在这里。
 /// 孤儿行清理（DELETE / SET NULL）从不自动执行。
 ///
 /// **Default (`MYRIAD_FEDERATION_APPLY_FKS` unset/false): report-only.**
@@ -409,26 +422,6 @@ pub(crate) async fn ensure_federation_foreign_keys(db: &DatabaseConnection) -> R
     // - SET NULL for optional references (nullable columns)
     const FKS: &[FedFk] = &[
         FedFk {
-            name: "fk_fed_keys_user",
-            orphan_sql: r#"
-SELECT COUNT(*)::bigint AS orphans FROM federation_keys k
-WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.id = k.user_id)"#,
-            add_sql: r#"
-ALTER TABLE federation_keys
-  ADD CONSTRAINT fk_fed_keys_user
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"#,
-        },
-        FedFk {
-            name: "fk_fed_follows_user",
-            orphan_sql: r#"
-SELECT COUNT(*)::bigint AS orphans FROM federation_follows f
-WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.id = f.user_id)"#,
-            add_sql: r#"
-ALTER TABLE federation_follows
-  ADD CONSTRAINT fk_fed_follows_user
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"#,
-        },
-        FedFk {
             name: "fk_fed_follows_remote_actor",
             orphan_sql: r#"
 SELECT COUNT(*)::bigint AS orphans FROM federation_follows f
@@ -437,17 +430,6 @@ WHERE NOT EXISTS (SELECT 1 FROM federation_remote_actors r WHERE r.id = f.remote
 ALTER TABLE federation_follows
   ADD CONSTRAINT fk_fed_follows_remote_actor
   FOREIGN KEY (remote_actor_id) REFERENCES federation_remote_actors(id) ON DELETE CASCADE"#,
-        },
-        FedFk {
-            name: "fk_fed_activities_user",
-            orphan_sql: r#"
-SELECT COUNT(*)::bigint AS orphans FROM federation_activities a
-WHERE a.user_id IS NOT NULL
-  AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = a.user_id)"#,
-            add_sql: r#"
-ALTER TABLE federation_activities
-  ADD CONSTRAINT fk_fed_activities_user
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL"#,
         },
         FedFk {
             name: "fk_fed_activities_remote_actor",
@@ -471,16 +453,6 @@ ALTER TABLE federation_delivery_queue
   FOREIGN KEY (activity_id) REFERENCES federation_activities(id) ON DELETE CASCADE"#,
         },
         FedFk {
-            name: "fk_fed_channels_user",
-            orphan_sql: r#"
-SELECT COUNT(*)::bigint AS orphans FROM federation_channels c
-WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.id = c.user_id)"#,
-            add_sql: r#"
-ALTER TABLE federation_channels
-  ADD CONSTRAINT fk_fed_channels_user
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"#,
-        },
-        FedFk {
             name: "fk_fed_channels_remote_actor",
             orphan_sql: r#"
 SELECT COUNT(*)::bigint AS orphans FROM federation_channels c
@@ -489,16 +461,6 @@ WHERE NOT EXISTS (SELECT 1 FROM federation_remote_actors r WHERE r.id = c.remote
 ALTER TABLE federation_channels
   ADD CONSTRAINT fk_fed_channels_remote_actor
   FOREIGN KEY (remote_actor_id) REFERENCES federation_remote_actors(id) ON DELETE CASCADE"#,
-        },
-        FedFk {
-            name: "fk_fed_channel_messages_channel",
-            orphan_sql: r#"
-SELECT COUNT(*)::bigint AS orphans FROM federation_channel_messages m
-WHERE NOT EXISTS (SELECT 1 FROM federation_channels c WHERE c.channel_id = m.channel_id)"#,
-            add_sql: r#"
-ALTER TABLE federation_channel_messages
-  ADD CONSTRAINT fk_fed_channel_messages_channel
-  FOREIGN KEY (channel_id) REFERENCES federation_channels(channel_id) ON DELETE CASCADE"#,
         },
         FedFk {
             name: "fk_fed_room_members_room",
@@ -511,17 +473,6 @@ ALTER TABLE federation_room_members
   FOREIGN KEY (room_id) REFERENCES federation_rooms(room_id) ON DELETE CASCADE"#,
         },
         FedFk {
-            name: "fk_fed_room_members_local_user",
-            orphan_sql: r#"
-SELECT COUNT(*)::bigint AS orphans FROM federation_room_members m
-WHERE m.local_user_id IS NOT NULL
-  AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = m.local_user_id)"#,
-            add_sql: r#"
-ALTER TABLE federation_room_members
-  ADD CONSTRAINT fk_fed_room_members_local_user
-  FOREIGN KEY (local_user_id) REFERENCES users(id) ON DELETE SET NULL"#,
-        },
-        FedFk {
             name: "fk_fed_room_messages_room",
             orphan_sql: r#"
 SELECT COUNT(*)::bigint AS orphans FROM federation_room_messages m
@@ -532,16 +483,6 @@ ALTER TABLE federation_room_messages
   FOREIGN KEY (room_id) REFERENCES federation_rooms(room_id) ON DELETE CASCADE"#,
         },
         FedFk {
-            name: "fk_fed_published_user",
-            orphan_sql: r#"
-SELECT COUNT(*)::bigint AS orphans FROM federation_published_content p
-WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.id = p.user_id)"#,
-            add_sql: r#"
-ALTER TABLE federation_published_content
-  ADD CONSTRAINT fk_fed_published_user
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"#,
-        },
-        FedFk {
             name: "fk_fed_published_activity",
             orphan_sql: r#"
 SELECT COUNT(*)::bigint AS orphans FROM federation_published_content p
@@ -550,16 +491,6 @@ WHERE NOT EXISTS (SELECT 1 FROM federation_activities a WHERE a.activity_id = p.
 ALTER TABLE federation_published_content
   ADD CONSTRAINT fk_fed_published_activity
   FOREIGN KEY (activity_id) REFERENCES federation_activities(activity_id) ON DELETE CASCADE"#,
-        },
-        FedFk {
-            name: "fk_fed_timeline_user",
-            orphan_sql: r#"
-SELECT COUNT(*)::bigint AS orphans FROM federation_timeline t
-WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.id = t.user_id)"#,
-            add_sql: r#"
-ALTER TABLE federation_timeline
-  ADD CONSTRAINT fk_fed_timeline_user
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"#,
         },
         FedFk {
             name: "fk_fed_timeline_remote_actor",
