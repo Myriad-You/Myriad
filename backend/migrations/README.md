@@ -69,7 +69,7 @@ Recent tables:
 | media_assets | `003` / `media_asset_model.sql` | `ensure_media_assets_table` + TableDef |
 | media_references / media_url_aliases / media_migration_jobs | `003` / `media_asset_model.sql` | `ensure_media_assets_table` + TableDef |
 | note editor history | `003` / `note_editor.sql` | `ensure_note_editor_history` + TableDef |
-| user lifecycle FKs + subject-row delete trigger | `006` / `user_lifecycle.sql` | `ensure_user_lifecycle` (orphans of the listed FKs are removed / set NULL before the constraint is added) |
+| user lifecycle FKs + subject-table guard / delete triggers | `006` / `user_lifecycle.sql` (down: `user_lifecycle_down.sql`) | `ensure_user_lifecycle` (orphans of the listed FKs are removed / set NULL before the constraint is added) |
 
 Older DBs that already applied a pre-feature migration version get tables via
 `ensure_*` (`CREATE IF NOT EXISTS`). The `_schema_versions` mark does **not**

@@ -1051,6 +1051,89 @@ VALUES (10, 10, 't', 'k', 'agent', 'chat', 'p', 'm', 'ok'), (0, 0, 't', 'k', 'ag
             .is_err(),
             "healed FK must reject rows for missing users"
         );
+
+        // Subject-keyed tables: positive ids must be accounts; system (0) and
+        // guest (negative) subjects stay unconstrained.
+        let ledger = |subject: i32| {
+            format!(
+                "INSERT INTO tapp_ai_cost_ledger (subject_id, owner_id, tapp_id, task_id, \
+                 source, operation, provider, model, status) \
+                 VALUES ({subject}, 0, 't', 'k', 'agent', 'chat', 'p', 'm', 'ok')"
+            )
+        };
+        assert!(db.execute_unprepared(&ledger(999)).await.is_err());
+        db.execute_unprepared(&ledger(-5)).await.unwrap();
+
+        // A write that locked the user first commits before the delete's
+        // cleanup snapshot, so it is removed rather than orphaned.
+        use sea_orm::TransactionTrait;
+        db.execute_unprepared("INSERT INTO users (id, username) VALUES (12, 'racer')")
+            .await
+            .unwrap();
+        let writer = db.begin().await.unwrap();
+        writer.execute_unprepared(&ledger(11)).await.unwrap();
+        let deleting = tokio::spawn({
+            let db = db.clone();
+            async move {
+                db.execute_unprepared("DELETE FROM users WHERE id = 11")
+                    .await
+            }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert!(!deleting.is_finished(), "user delete waits for the writer");
+        writer.commit().await.unwrap();
+        deleting.await.unwrap().unwrap();
+        assert_eq!(
+            count("SELECT count(*) AS n FROM tapp_ai_cost_ledger WHERE subject_id = 11").await,
+            0
+        );
+
+        // A write arriving after the delete waits for it and then fails.
+        let deleter = db.begin().await.unwrap();
+        deleter
+            .execute_unprepared("DELETE FROM users WHERE id = 12")
+            .await
+            .unwrap();
+        let writing = tokio::spawn({
+            let db = db.clone();
+            let sql = ledger(12);
+            async move { db.execute_unprepared(&sql).await }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert!(!writing.is_finished(), "writer waits for the user delete");
+        deleter.commit().await.unwrap();
+        assert!(writing.await.unwrap().is_err());
+        assert_eq!(
+            count("SELECT count(*) AS n FROM tapp_ai_cost_ledger WHERE subject_id = 12").await,
+            0
+        );
+
+        // Migration 006 `down` removes every lifecycle object it added.
+        db.execute_unprepared(include_str!("../../migrations/user_lifecycle_down.sql"))
+            .await
+            .unwrap();
+        assert_eq!(
+            count(
+                "SELECT count(*) AS n FROM pg_constraint c \
+                 JOIN pg_namespace n ON n.oid = c.connamespace \
+                 WHERE n.nspname = current_schema() AND c.contype = 'f' \
+                   AND c.conname IN ('fk_platform_reports_user', 'fk_agent_messages_session', \
+                                     'fk_fed_room_members_local_user')"
+            )
+            .await,
+            0
+        );
+        assert_eq!(
+            count(
+                "SELECT count(*) AS n FROM pg_trigger t \
+                 JOIN pg_class r ON r.oid = t.tgrelid \
+                 JOIN pg_namespace n ON n.oid = r.relnamespace \
+                 WHERE n.nspname = current_schema() AND t.tgname LIKE 'trg_%subject%'"
+            )
+            .await,
+            0
+        );
+        db.execute_unprepared(&ledger(999)).await.unwrap();
         isolated.drop().await;
     }
 }

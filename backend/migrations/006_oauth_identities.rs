@@ -179,12 +179,9 @@ impl MigrationTrait for Migration {
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         let db = manager.get_connection();
 
-        // 6. 用户生命周期
-        db.execute_unprepared(
-            "DROP TRIGGER IF EXISTS trg_users_delete_subject_rows ON users; \
-             DROP FUNCTION IF EXISTS delete_user_subject_rows();",
-        )
-        .await?;
+        // 6. 用户生命周期：FK、主体表守卫与删除触发器全部撤销
+        db.execute_unprepared(include_str!("user_lifecycle_down.sql"))
+            .await?;
 
         // 5. 删除配置项
         db.execute_unprepared("DELETE FROM configurations WHERE key = 'allow_local_registration'")

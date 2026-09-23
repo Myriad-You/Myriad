@@ -632,6 +632,11 @@ async fn migrations_leave_no_schema_drift() {
     );
 
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement, TransactionTrait};
+    // Fixture account for the upgrade rows below (user-owned tables reject
+    // unknown positive user ids).
+    db.execute_unprepared("INSERT INTO users (id, username) VALUES (2147483647, 'schema-fixture')")
+        .await
+        .expect("insert fixture user");
     let invalid = db
         .execute_raw(Statement::from_string(
             DatabaseBackend::Postgres,
@@ -697,7 +702,6 @@ DROP INDEX idx_timeline_user_activity;
 INSERT INTO federation_delivery_queue (id, activity_id, target_inbox, target_domain, attempts)
 VALUES (-2, 2147483647, 'https://schema.test/inbox', 'schema.test', 3),
        (-1, 2147483647, 'https://schema.test/inbox', 'schema.test', 0);
-INSERT INTO users (id, username) VALUES (2147483647, 'schema-dedup-fixture');
 INSERT INTO federation_timeline (id, user_id, activity_id, is_read)
 VALUES (-2, 2147483647, 'https://schema.test/activity', TRUE),
        (-1, 2147483647, 'https://schema.test/activity', FALSE);

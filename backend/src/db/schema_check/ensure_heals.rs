@@ -353,8 +353,8 @@ END $$;
 }
 
 /// User lifecycle owned by the schema (`migrations/user_lifecycle.sql`): FK
-/// cascades for account-owned rows plus the delete trigger for subject-keyed
-/// tables. Unlike the federation candidates below this heal always applies:
+/// cascades for account-owned rows; for subject-keyed tables an insert-side
+/// guard plus an AFTER DELETE trigger on `users`. Unlike the federation candidates below this heal always applies:
 /// it only removes rows whose owning user is already gone (or detaches
 /// nullable references), which is what deleting that user does.
 pub(crate) async fn ensure_user_lifecycle(db: &DatabaseConnection) -> Result<(), DbErr> {
