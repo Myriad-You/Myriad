@@ -506,7 +506,7 @@ impl TappSchedulerEngine {
                     ("user".to_string(), Some(vec![task.user_id]))
                 }
                 TaskScope::Tapp => {
-                    // target_users=None；入队时 `can_receive_frontend_task` 过滤
+                    // target_users=None；入队时 `frontend_recipients` 按受众谓词过滤
                     ("tapp".to_string(), None)
                 }
                 TaskScope::TappPerUser => {
@@ -514,7 +514,7 @@ impl TappSchedulerEngine {
                     ("tapp-per-user".to_string(), Some(vec![task.user_id]))
                 }
                 TaskScope::Global => {
-                    // target_users=None；入队时 can_receive_frontend_task 过滤
+                    // target_users=None；入队时 `frontend_recipients` 按受众谓词过滤
                     ("global".to_string(), None)
                 }
             };
@@ -616,36 +616,15 @@ impl TappSchedulerEngine {
         task: &tapp_scheduled_tasks::Model,
         message: &FrontendTaskMessage,
     ) -> Result<usize, String> {
-        let active_connections =
-            shared_registry::list_subject_endpoints(db, SCHEDULER_PRESENCE_NAMESPACE)
-                .await
-                .map_err(|error| scheduler_store_failed("list connections", error))?;
+        let recipients = Self::frontend_recipients(db, task, message.target_users.as_deref())
+            .await?;
         let mut deliveries = 0usize;
         let mut first_error = None;
-        let mut audience = HashMap::<i32, bool>::new();
-        for connection in active_connections {
-            let user_id = connection.subject_id;
-            if message
-                .target_users
-                .as_ref()
-                .is_some_and(|users| !users.contains(&user_id))
-            {
-                continue;
-            }
-            let allowed = if let Some(&allowed) = audience.get(&user_id) {
-                allowed
-            } else {
-                let allowed = Self::can_receive_frontend_task(db, user_id, task).await?;
-                audience.insert(user_id, allowed);
-                allowed
-            };
-            if !allowed {
-                continue;
-            }
+        for record_id in recipients {
             match shared_registry::enqueue(
                 db,
                 SCHEDULER_MAILBOX_CHANNEL,
-                &scheduler_mailbox_recipient(&connection.record_id),
+                &scheduler_mailbox_recipient(&record_id),
                 message,
                 Utc::now().timestamp() + SCHEDULER_MESSAGE_TTL_SECONDS,
             )
@@ -669,6 +648,85 @@ impl TappSchedulerEngine {
         } else {
             Ok(0)
         }
+    }
+
+    /// 一次查询选出本次投递的 live 连接 record_id。
+    ///
+    /// 受众谓词与 [`Self::can_receive_frontend_task`] 逐字一致，只是以连接的
+    /// subject_id 为参数下推到 SQL；`target_users` 是额外的 AND 限制，
+    /// `Some([])` 表示零收件人而非广播。
+    async fn frontend_recipients(
+        db: &DatabaseConnection,
+        task: &tapp_scheduled_tasks::Model,
+        target_users: Option<&[i32]>,
+    ) -> Result<Vec<String>, String> {
+        #[derive(FromQueryResult)]
+        struct RecipientRow {
+            record_id: String,
+        }
+
+        if target_users.is_some_and(<[i32]>::is_empty) {
+            return Ok(Vec::new());
+        }
+        let mut values: Vec<sea_orm::Value> = vec![SCHEDULER_PRESENCE_NAMESPACE.into()];
+        let audience = match task.scope {
+            TaskScope::User | TaskScope::TappPerUser => {
+                values.push(task.user_id.into());
+                "r.subject_id = $2"
+            }
+            TaskScope::Global => {
+                "EXISTS (SELECT 1 FROM users WHERE id = r.subject_id AND is_admin = true)"
+            }
+            TaskScope::Tapp => {
+                values.push(task.tapp_id.clone().into());
+                r#"EXISTS (
+    SELECT 1
+    FROM tapps
+    WHERE tapp_id = $2
+      AND (
+          user_id = r.subject_id
+          OR user_id = (
+              SELECT id FROM users
+              WHERE is_admin = true
+              ORDER BY id
+              LIMIT 1
+          )
+          OR EXISTS (
+              SELECT 1 FROM users
+              WHERE id = r.subject_id AND is_admin = true
+          )
+      )
+)"#
+            }
+        };
+        let target_filter = match target_users {
+            Some(users) => {
+                values.push(users.to_vec().into());
+                format!("AND r.subject_id = ANY(${})", values.len())
+            }
+            None => String::new(),
+        };
+        let sql = format!(
+            r#"
+SELECT r.record_id
+FROM tapp_runtime_registry r
+WHERE r.namespace = $1
+  AND r.subject_id IS NOT NULL
+  AND r.expires_at > EXTRACT(EPOCH FROM NOW())::BIGINT
+  AND {audience}
+  {target_filter}
+ORDER BY r.updated_at, r.record_id
+"#
+        );
+        RecipientRow::find_by_statement(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            sql,
+            values,
+        ))
+        .all(db)
+        .await
+        .map(|rows| rows.into_iter().map(|row| row.record_id).collect())
+        .map_err(|error| scheduler_store_failed("list frontend recipients", error))
     }
 
     async fn can_receive_frontend_task(
