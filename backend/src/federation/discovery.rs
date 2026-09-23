@@ -357,4 +357,64 @@ mod tests {
             Some(("bob".into(), "example.com".into()))
         );
     }
+
+    /// The raw NodeInfo aggregate against real PostgreSQL: empty schema, real
+    /// counts, and a query error that must surface instead of becoming 0.
+    #[tokio::test]
+    async fn nodeinfo_usage_counts_against_real_schema() {
+        let Some(fixture) = crate::federation::test_db::SchemaDb::new().await else {
+            return;
+        };
+        let db = &fixture.db;
+        assert_eq!(nodeinfo_usage_counts(db).await.unwrap(), (0, 0, 0));
+
+        db.execute_unprepared(
+            r#"
+            INSERT INTO users (username, last_login_at) VALUES
+                ('recent', NOW() - INTERVAL '1 day'),
+                ('stale', NOW() - INTERVAL '60 days'),
+                ('never', NULL);
+            "#,
+        )
+        .await
+        .unwrap();
+        let user_id: i32 = db
+            .query_one_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT id FROM users WHERE username = 'recent'",
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get("", "id")
+            .unwrap();
+        for n in 0..2 {
+            crate::federation::types::insert_local_activity(
+                db,
+                user_id,
+                &format!("https://local.test/activities/{n}"),
+                "Create",
+                Some("Note"),
+                json!({}),
+            )
+            .await
+            .unwrap();
+        }
+        db.execute_unprepared(
+            "UPDATE federation_activities SET is_local = false \
+             WHERE activity_id = 'https://local.test/activities/1'",
+        )
+        .await
+        .unwrap();
+        assert_eq!(nodeinfo_usage_counts(db).await.unwrap(), (3, 1, 1));
+
+        db.execute_unprepared("ALTER TABLE federation_activities RENAME TO fa_gone")
+            .await
+            .unwrap();
+        assert!(
+            nodeinfo_usage_counts(db).await.is_err(),
+            "query error must not become zero counts"
+        );
+        fixture.close().await;
+    }
 }

@@ -111,28 +111,14 @@ mod list_smoke_tests {
     }
 }
 
-/// 真实 `send_message` 路径的 E2E fail-closed 行为（需要测试库，未配置时跳过）。
+/// 真实 `send_message` 路径的 E2E fail-closed 行为（每个测试独立 schema，见 `test_db`）。
 #[cfg(test)]
 mod send_e2e_tests {
     use axum::http::StatusCode;
-    use sea_orm::{ConnectionTrait, Database, DatabaseBackend, DatabaseConnection, Statement};
-    use sea_orm_migration::MigratorTrait;
+    use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 
     use super::SendMessageRequest;
-
-    async fn test_db() -> Option<DatabaseConnection> {
-        let database_url = std::env::var("CHANNEL_TEST_DATABASE_URL")
-            .or_else(|_| std::env::var("NOTIFICATION_TEST_DATABASE_URL"))
-            .or_else(|_| std::env::var("MYRIAD_SCHEMA_DRIFT_DB"))
-            .ok()?;
-        let db = Database::connect(&database_url)
-            .await
-            .expect("connect test db");
-        migration::Migrator::up(&db, None)
-            .await
-            .expect("migrator up");
-        Some(db)
-    }
+    use crate::federation::test_db::SchemaDb;
 
     /// 新建本地用户 + 远端 actor + active channel，返回 (user_id, username, channel_id)。
     async fn active_channel(
@@ -216,9 +202,10 @@ mod send_e2e_tests {
 
     #[tokio::test]
     async fn encrypt_true_without_usable_session_writes_nothing() {
-        let Some(db) = test_db().await else {
+        let Some(fixture) = SchemaDb::new().await else {
             return;
         };
+        let db = &fixture.db;
         let local = crate::federation::e2e::generate_keypair();
         let cases = [
             // 缺 session：从未做过 key-exchange
@@ -238,30 +225,32 @@ mod send_e2e_tests {
             }})),
         ];
         for properties in cases {
-            let (user_id, username, channel_id) = active_channel(&db, properties.clone()).await;
+            let (user_id, username, channel_id) = active_channel(db, properties.clone()).await;
             let (status, body) =
-                super::send_message(user_id, &username, &channel_id, &db, &request(true))
+                super::send_message(user_id, &username, &channel_id, db, &request(true))
                     .await
                     .expect_err("encrypt=true must fail closed");
             assert_eq!(status, StatusCode::BAD_REQUEST, "{properties:?}");
             assert_eq!(body.0["code"], "e2e_required", "{properties:?}");
             assert_eq!(
-                side_effects(&db, user_id, &channel_id).await,
+                side_effects(db, user_id, &channel_id).await,
                 (0, 0),
                 "no message / Activity may be written: {properties:?}"
             );
         }
+        fixture.close().await;
     }
 
     #[tokio::test]
     async fn encrypt_true_with_session_stores_only_ciphertext() {
-        let Some(db) = test_db().await else {
+        let Some(fixture) = SchemaDb::new().await else {
             return;
         };
+        let db = &fixture.db;
         let local = crate::federation::e2e::generate_keypair();
         let peer = crate::federation::e2e::generate_keypair();
         let (user_id, username, channel_id) = active_channel(
-            &db,
+            db,
             Some(serde_json::json!({"e2e": {
                 "local_public_key": local.public_key,
                 "local_private_key": local.private_key,
@@ -269,7 +258,7 @@ mod send_e2e_tests {
             }})),
         )
         .await;
-        let resp = super::send_message(user_id, &username, &channel_id, &db, &request(true))
+        let resp = super::send_message(user_id, &username, &channel_id, db, &request(true))
             .await
             .expect("encrypted send");
         assert!(resp.is_encrypted);
@@ -286,16 +275,18 @@ mod send_e2e_tests {
         let stored: String = row.try_get("", "payload").expect("payload");
         assert!(row.try_get::<bool>("", "is_encrypted").expect("flag"));
         assert!(!stored.contains("secret plaintext"), "plaintext must not be stored");
-        assert_eq!(side_effects(&db, user_id, &channel_id).await, (1, 1));
+        assert_eq!(side_effects(db, user_id, &channel_id).await, (1, 1));
+        fixture.close().await;
     }
 
     #[tokio::test]
     async fn encrypt_false_stores_plaintext_without_session() {
-        let Some(db) = test_db().await else {
+        let Some(fixture) = SchemaDb::new().await else {
             return;
         };
-        let (user_id, username, channel_id) = active_channel(&db, None).await;
-        let resp = super::send_message(user_id, &username, &channel_id, &db, &request(false))
+        let db = &fixture.db;
+        let (user_id, username, channel_id) = active_channel(db, None).await;
+        let resp = super::send_message(user_id, &username, &channel_id, db, &request(false))
             .await
             .expect("plaintext send");
         assert!(!resp.is_encrypted);
@@ -312,5 +303,6 @@ mod send_e2e_tests {
         let stored: serde_json::Value = row.try_get("", "payload").expect("payload");
         assert_eq!(stored, serde_json::json!({"text": "secret plaintext"}));
         assert!(!row.try_get::<bool>("", "is_encrypted").expect("flag"));
+        fixture.close().await;
     }
 }

@@ -592,28 +592,13 @@ fn room_join_never_overwrites_an_existing_role() {
     assert_eq!(room_join_effective_role(Some("member"), "owner"), "member");
 }
 
-/// 真实 `send_room_message` 路径的 E2E fail-closed 行为（需要测试库，未配置时跳过）。
+/// 真实 `send_room_message` 路径的 E2E fail-closed 行为（每个测试独立 schema，见 `test_db`）。
 mod send_e2e_db {
     use axum::http::StatusCode;
-    use sea_orm::{ConnectionTrait, Database, DatabaseBackend, DatabaseConnection, Statement};
-    use sea_orm_migration::MigratorTrait;
+    use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 
     use super::super::SendRoomMessageRequest;
-
-    async fn test_db() -> Option<DatabaseConnection> {
-        let database_url = std::env::var("ROOM_TEST_DATABASE_URL")
-            .or_else(|_| std::env::var("CHANNEL_TEST_DATABASE_URL"))
-            .or_else(|_| std::env::var("NOTIFICATION_TEST_DATABASE_URL"))
-            .or_else(|_| std::env::var("MYRIAD_SCHEMA_DRIFT_DB"))
-            .ok()?;
-        let db = Database::connect(&database_url)
-            .await
-            .expect("connect test db");
-        migration::Migrator::up(&db, None)
-            .await
-            .expect("migrator up");
-        Some(db)
-    }
+    use crate::federation::test_db::SchemaDb;
 
     struct Fixture {
         user_id: i32,
@@ -732,33 +717,34 @@ mod send_e2e_db {
 
     #[tokio::test]
     async fn encrypt_true_without_keys_writes_nothing() {
-        let Some(db) = test_db().await else {
+        let Some(fixture) = SchemaDb::new().await else {
             return;
         };
+        let db = &fixture.db;
         let own = crate::federation::e2e::generate_keypair();
         let peer = crate::federation::e2e::generate_keypair();
         let own_pk = own.public_key.clone();
         let peer_pk = peer.public_key.clone();
 
         // 缺 session：房间从未发布 E2E 密钥
-        let no_session = room(&db, |_| None, Some(own_keys(&own))).await;
+        let no_session = room(db, |_| None, Some(own_keys(&own))).await;
         // 无对端：只有自己的公钥
         let only_self = room(
-            &db,
+            db,
             move |me: &str| Some(serde_json::json!({ me: own_pk })),
             Some(own_keys(&own)),
         )
         .await;
         // 缺 key：对端已发布，但本地成员没有自己的 e2e 密钥
         let no_own_key = room(
-            &db,
+            db,
             |_| Some(serde_json::json!({"https://peer.example/users/p": peer_pk})),
             None,
         )
         .await;
         // 对端公钥非法：加密前即失败
         let bad_peer = room(
-            &db,
+            db,
             |_| Some(serde_json::json!({"https://peer.example/users/p": "not-a-key"})),
             Some(own_keys(&own)),
         )
@@ -774,63 +760,68 @@ mod send_e2e_db {
                 f.user_id,
                 &f.username,
                 &f.room_id,
-                &db,
+                db,
                 &request(true),
             )
             .await
             .expect_err("encrypt=true must fail closed");
             assert_eq!(status, StatusCode::BAD_REQUEST, "{case}");
             assert_eq!(body.0["code"], "e2e_required", "{case}");
-            assert_eq!(side_effects(&db, f).await, (0, 0), "{case}: nothing written");
+            assert_eq!(side_effects(db, f).await, (0, 0), "{case}: nothing written");
         }
+        fixture.close().await;
     }
 
     #[tokio::test]
     async fn encrypt_true_with_peer_keys_stores_only_ciphertext() {
-        let Some(db) = test_db().await else {
+        let Some(fixture) = SchemaDb::new().await else {
             return;
         };
+        let db = &fixture.db;
         let own = crate::federation::e2e::generate_keypair();
         let peer = crate::federation::e2e::generate_keypair();
         let peer_pk = peer.public_key.clone();
         let f = room(
-            &db,
+            db,
             |_| Some(serde_json::json!({"https://peer.example/users/p": peer_pk})),
             Some(own_keys(&own)),
         )
         .await;
         let resp =
-            super::super::send_room_message(f.user_id, &f.username, &f.room_id, &db, &request(true))
+            super::super::send_room_message(f.user_id, &f.username, &f.room_id, db, &request(true))
                 .await
                 .expect("encrypted send");
         assert!(resp.is_encrypted);
-        let (payload, is_encrypted) = stored(&db, &f).await;
+        let (payload, is_encrypted) = stored(db, &f).await;
         assert!(is_encrypted);
         assert!(
             !payload.to_string().contains("secret plaintext"),
             "plaintext must not be stored"
         );
-        assert_eq!(side_effects(&db, &f).await.0, 1);
+        assert_eq!(side_effects(db, &f).await.0, 1);
+        fixture.close().await;
     }
 
     #[tokio::test]
     async fn encrypt_false_stores_plaintext_without_keys() {
-        let Some(db) = test_db().await else {
+        let Some(fixture) = SchemaDb::new().await else {
             return;
         };
-        let f = room(&db, |_| None, None).await;
+        let db = &fixture.db;
+        let f = room(db, |_| None, None).await;
         let resp = super::super::send_room_message(
             f.user_id,
             &f.username,
             &f.room_id,
-            &db,
+            db,
             &request(false),
         )
         .await
         .expect("plaintext send");
         assert!(!resp.is_encrypted);
-        let (payload, is_encrypted) = stored(&db, &f).await;
+        let (payload, is_encrypted) = stored(db, &f).await;
         assert!(!is_encrypted);
         assert_eq!(payload, serde_json::json!({"text": "secret plaintext"}));
+        fixture.close().await;
     }
 }

@@ -43,3 +43,6 @@ pub mod file_transfer;
 pub mod trust;
 
 pub mod worker;
+
+#[cfg(test)]
+pub(crate) mod test_db;
