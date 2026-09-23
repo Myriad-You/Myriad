@@ -6,9 +6,7 @@ use serde_json::{Value, json};
 use super::build::reconcile_platform_auto_refresh;
 use super::secrets::{
     insert_platform_field, insert_sanitized_clearable_url, is_masked_secret_value,
-    normalize_music_playlist_id, sanitize_google_site_verification, sanitize_http_base_url,
-    sanitize_proxy_url, sanitize_site_favicon_url, sanitize_site_og_image_url,
-    sanitize_umami_script_url, sanitize_wallpaper_url,
+    normalize_music_playlist_id, url_setting_sanitizer,
 };
 use super::types::ConfigResponse;
 
@@ -742,74 +740,26 @@ pub(crate) fn collect_database_updates_with_vendor(
     for field in &config.ui_config.config_fields {
         let (key, json_value) = match field.key.as_str() {
             // 可清空非敏感串：空串也写库，否则「重置本页」会被下方 is_empty 守卫吞掉
-            // 仅持久化策略允许的 URL（http(s)/同站路径）；非法值跳过以免写入危险 scheme/内网
-            "wallpaper_url" => {
-                match sanitize_wallpaper_url(&field.value) {
-                    Some(safe) => {
-                        updates.insert("ui_wallpaper_url".to_string(), JsonValue::String(safe));
-                    }
-                    None => {
-                        tracing::warn!(
-                            wallpaper_url = %field.value,
-                            "Rejecting wallpaper_url that failed scheme/host policy"
-                        );
-                    }
+            // 仅持久化策略允许的 URL；非法值跳过以免写入危险 scheme/内网。
+            // The policy per key lives in `url_setting_sanitizer`, shared with
+            // settings restore (wallpaper: http(s)/same-site path, no private
+            // hosts; the rest: scheme/format only, private hosts allowed).
+            "wallpaper_url"
+            | "site_favicon"
+            | "site_og_image"
+            | "google_site_verification"
+            | "umami_script_url"
+            | "proxy_url"
+            | "gemini_base_url"
+            | "github_api_base_url" => {
+                let db_key = if field.key == "wallpaper_url" {
+                    "ui_wallpaper_url"
+                } else {
+                    field.key.as_str()
+                };
+                if let Some(sanitize) = url_setting_sanitizer(db_key) {
+                    insert_sanitized_clearable_url(&mut updates, db_key, &field.value, sanitize);
                 }
-                continue;
-            }
-            // Soft URL policy (scheme/format only — private hosts allowed for self-host)
-            "site_favicon" => {
-                insert_sanitized_clearable_url(
-                    &mut updates,
-                    "site_favicon",
-                    &field.value,
-                    sanitize_site_favicon_url,
-                );
-                continue;
-            }
-            "site_og_image" => {
-                insert_sanitized_clearable_url(
-                    &mut updates,
-                    "site_og_image",
-                    &field.value,
-                    sanitize_site_og_image_url,
-                );
-                continue;
-            }
-            "google_site_verification" => {
-                insert_sanitized_clearable_url(
-                    &mut updates,
-                    "google_site_verification",
-                    &field.value,
-                    sanitize_google_site_verification,
-                );
-                continue;
-            }
-            "umami_script_url" => {
-                insert_sanitized_clearable_url(
-                    &mut updates,
-                    "umami_script_url",
-                    &field.value,
-                    sanitize_umami_script_url,
-                );
-                continue;
-            }
-            "proxy_url" => {
-                insert_sanitized_clearable_url(
-                    &mut updates,
-                    "proxy_url",
-                    &field.value,
-                    sanitize_proxy_url,
-                );
-                continue;
-            }
-            "gemini_base_url" | "github_api_base_url" => {
-                insert_sanitized_clearable_url(
-                    &mut updates,
-                    &field.key,
-                    &field.value,
-                    sanitize_http_base_url,
-                );
                 continue;
             }
             "site_ai_intro" => {

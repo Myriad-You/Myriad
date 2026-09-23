@@ -480,9 +480,40 @@ pub async fn preview_settings_restore(
     )
 }
 
+#[derive(Debug)]
 pub(crate) enum RestoreWriteError {
     Db(sea_orm::DbErr),
     Media(crate::services::media::MediaError),
+    /// A setting failed the policy saving it enforces; names the key only,
+    /// never the value (a proxy URL may carry credentials).
+    Invalid(String),
+}
+
+/// Apply the save path's URL policy (`url_setting_sanitizer`) to restored
+/// settings and store the sanitized form. Saving silently keeps the previous
+/// value on rejection; a restore cannot, so any rejection fails it.
+pub(crate) fn sanitize_restored_settings(
+    entries: &mut [SettingsBackupEntry],
+) -> Result<(), String> {
+    for entry in entries {
+        let Some(sanitize) = super::secrets::url_setting_sanitizer(&entry.key) else {
+            continue;
+        };
+        match &entry.value {
+            Value::Null => {}
+            Value::String(raw) => match sanitize(raw) {
+                Some(safe) => entry.value = Value::String(safe),
+                None => {
+                    return Err(format!(
+                        "{} failed the URL policy for this setting",
+                        entry.key
+                    ));
+                }
+            },
+            _ => return Err(format!("{} must be a string", entry.key)),
+        }
+    }
+    Ok(())
 }
 
 impl From<sea_orm::DbErr> for RestoreWriteError {
@@ -559,6 +590,8 @@ pub(crate) async fn write_restored_configurations(
     origins: &[String],
     legacy: &crate::services::media::LegacyPaths,
 ) -> Result<Vec<UnresolvedRestoredMedia>, RestoreWriteError> {
+    // Validate before binding: a rejected wallpaper must not be published.
+    sanitize_restored_settings(&mut entries).map_err(RestoreWriteError::Invalid)?;
     let unresolved = bind_restored_media(txn, &mut entries, origins, legacy)
         .await
         .map_err(RestoreWriteError::Media)?;
@@ -685,6 +718,18 @@ pub async fn restore_settings(
             // yet, answers like saving the setting: nothing is restored.
             tracing::warn!(%error, "settings restore rejected: media references could not be bound");
             return super::extras::media_binding_failed(&error);
+        }
+        Err(RestoreWriteError::Invalid(message)) => {
+            tracing::warn!(%message, "settings restore rejected: invalid setting");
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "success": false,
+                    "error": "Invalid settings backup",
+                    "code": "config_invalid",
+                    "message": message
+                })),
+            );
         }
         Err(RestoreWriteError::Db(error)) => {
             tracing::error!("Failed to restore settings: {}", error);
@@ -1560,6 +1605,60 @@ mod settings_backup_tests {
         assert_eq!(
             sanitize_wallpaper_url("https://user:pass@cdn.example.com/a.jpg"),
             None
+        );
+    }
+
+    #[test]
+    fn restore_applies_the_save_url_policy_to_every_url_setting() {
+        fn restore_one(key: &str, value: Value) -> Result<Value, String> {
+            let mut entries = vec![SettingsBackupEntry {
+                value,
+                ..entry(key)
+            }];
+            sanitize_restored_settings(&mut entries)?;
+            Ok(entries.remove(0).value)
+        }
+        for (key, unsafe_value) in [
+            ("ui_wallpaper_url", "javascript:alert(1)"),
+            ("ui_wallpaper_url", "data:image/png;base64,aaa"),
+            ("ui_wallpaper_url", "http://127.0.0.1/a.jpg"),
+            ("ui_wallpaper_url", "/javascript:alert(1)"),
+            ("site_favicon", "data:text/html,<script>alert(1)</script>"),
+            ("site_og_image", "javascript:alert(1)"),
+            ("google_site_verification", "<script>alert(1)</script>"),
+            ("umami_script_url", "javascript:alert(1)"),
+            ("proxy_url", "file:///etc/passwd"),
+            ("gemini_base_url", "javascript:alert(1)"),
+            ("github_api_base_url", "ftp://example.com"),
+        ] {
+            let error = restore_one(key, json!(unsafe_value)).unwrap_err();
+            assert!(error.contains(key), "{key}: {error}");
+            // The rejected value never reaches the response (it may hold secrets).
+            assert!(!error.contains(unsafe_value), "{key}: {error}");
+        }
+        assert!(restore_one("umami_script_url", json!(42)).is_err());
+        // Accepted values are stored in the form saving would store.
+        assert_eq!(
+            restore_one(
+                "google_site_verification",
+                json!(r#"<meta name="google-site-verification" content="Tok_en-1" />"#)
+            ),
+            Ok(json!("Tok_en-1"))
+        );
+        assert_eq!(
+            restore_one("github_api_base_url", json!("https://api.github.com/")),
+            Ok(json!("https://api.github.com"))
+        );
+        assert_eq!(
+            restore_one("ui_wallpaper_url", json!("/media/assets/a/w.png")),
+            Ok(json!("/media/assets/a/w.png"))
+        );
+        assert_eq!(restore_one("ui_wallpaper_url", json!("")), Ok(json!("")));
+        assert_eq!(restore_one("proxy_url", Value::Null), Ok(Value::Null));
+        // Settings without a URL policy pass through untouched.
+        assert_eq!(
+            restore_one("site_title", json!("javascript:alert(1)")),
+            Ok(json!("javascript:alert(1)"))
         );
     }
 

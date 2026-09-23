@@ -378,6 +378,21 @@ fn sanitize_http_url_allow_private(raw: &str) -> Option<String> {
     Some(parsed.to_string())
 }
 
+/// Scheme/host policy of each URL-like setting, keyed by its `configurations`
+/// key. The single source for saving the config bag and restoring a backup.
+pub(crate) fn url_setting_sanitizer(db_key: &str) -> Option<fn(&str) -> Option<String>> {
+    Some(match db_key {
+        "ui_wallpaper_url" => sanitize_wallpaper_url,
+        "site_favicon" => sanitize_site_favicon_url,
+        "site_og_image" => sanitize_site_og_image_url,
+        "google_site_verification" => sanitize_google_site_verification,
+        "umami_script_url" => sanitize_umami_script_url,
+        "proxy_url" => sanitize_proxy_url,
+        "gemini_base_url" | "github_api_base_url" => sanitize_http_base_url,
+        _ => return None,
+    })
+}
+
 /// Apply a clearable URL field: empty writes empty; invalid skips the update.
 pub(crate) fn insert_sanitized_clearable_url(
     updates: &mut std::collections::HashMap<String, serde_json::Value>,

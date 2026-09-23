@@ -1815,6 +1815,39 @@ async fn settings_restore_rebinds_wallpaper_and_stickers_in_the_config_transacti
             .is_none()
     );
 
+    // A wallpaper that saving would reject (unsafe scheme, private host) fails
+    // the whole restore before anything is bound or written.
+    for unsafe_wallpaper in [
+        "javascript:alert(1)",
+        "data:image/png;base64,aaa",
+        "http://127.0.0.1/wall.png",
+    ] {
+        let txn = f.db.begin().await.unwrap();
+        let result = write_restored_configurations(
+            &txn,
+            vec![
+                restored_entry("restore_probe", json!("unsafe")),
+                restored_entry("ui_wallpaper_url", json!(unsafe_wallpaper)),
+            ],
+            &[],
+            &legacy,
+        )
+        .await;
+        assert!(
+            matches!(result, Err(RestoreWriteError::Invalid(_))),
+            "{unsafe_wallpaper}"
+        );
+        txn.rollback().await.unwrap();
+        assert_eq!(
+            stored_config(&f, "restore_probe").await,
+            Some(json!("written"))
+        );
+        assert_eq!(
+            stored_config(&f, "ui_wallpaper_url").await,
+            Some(json!(dead_wallpaper))
+        );
+    }
+
     // Media that is catalogued here but not ready is not dead: the restore is
     // rejected like saving it would be, and nothing from the backup is written.
     f.db.execute_unprepared("INSERT INTO media_assets(kind,url,mime,name,size) VALUES ('upload','/media/federation/1/late.png','image/png','late.png',0)").await.unwrap();
