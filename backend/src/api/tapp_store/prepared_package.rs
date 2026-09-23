@@ -330,6 +330,38 @@ async fn write_text(
         })
 }
 
+/// 逐条目流式解压到 `extraction_dir`。
+///
+/// 条目经 `io::copy` 直接写盘，上限取声明大小再多一字节：恰好读到声明大小时
+/// 内层仍会读到 EOF 并完成 CRC 校验；实际数据超过声明大小则拒绝。
+fn extract_archive_entries(data: &[u8], extraction_dir: &Path) -> Result<(), std::io::Error> {
+    use std::io::Read;
+
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(data))?;
+    for index in 0..archive.len() {
+        let mut file = archive.by_index(index)?;
+        let out_path = archive_entry_path(extraction_dir, file.name())
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+        if file.is_dir() {
+            std::fs::create_dir_all(&out_path)?;
+            continue;
+        }
+        if let Some(parent) = out_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let declared_size = file.size();
+        let mut out = std::fs::File::create(out_path)?;
+        let copied = std::io::copy(&mut (&mut file).take(declared_size + 1), &mut out)?;
+        if copied > declared_size {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Tapp archive entry exceeds declared size",
+            ));
+        }
+    }
+    Ok(())
+}
+
 async fn extract_archive(
     package: &PreparedTappPackage,
     tapp_dir: &Path,
@@ -339,35 +371,8 @@ async fn extract_archive(
     let tapp_dir = tapp_dir.to_path_buf();
     let extraction_dir = tapp_dir.clone();
     // move Arc into blocking task — refcount share, not full zip clone.
-    let result = tokio::task::spawn_blocking(move || -> Result<(), std::io::Error> {
-        use std::io::Read;
-
-        let cursor = std::io::Cursor::new(file_data.as_slice());
-        let mut archive = zip::ZipArchive::new(cursor)?;
-        for index in 0..archive.len() {
-            let mut file = archive.by_index(index)?;
-            let out_path = archive_entry_path(&extraction_dir, file.name())
-                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
-            if file.is_dir() {
-                std::fs::create_dir_all(&out_path)?;
-                continue;
-            }
-            if let Some(parent) = out_path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            // 流式写盘，不再整条目物化。上限取已校验的声明大小再多一字节：
-            // 恰好读到声明大小时内层仍会读到 EOF 并完成 CRC 校验，超出则拒绝。
-            let declared_size = file.size();
-            let mut out = std::fs::File::create(out_path)?;
-            let copied = std::io::copy(&mut (&mut file).take(declared_size + 1), &mut out)?;
-            if copied > declared_size {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "Tapp archive entry exceeds declared size",
-                ));
-            }
-        }
-        Ok(())
+    let result = tokio::task::spawn_blocking(move || {
+        extract_archive_entries(file_data.as_slice(), &extraction_dir)
     })
     .await;
 
@@ -719,6 +724,89 @@ mod tests {
             .expect_err("dangling require must fail staging");
         assert_eq!(error.0, StatusCode::BAD_REQUEST);
 
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    fn stored_archive(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        for (name, content) in entries {
+            writer.start_file(*name, options).unwrap();
+            writer.write_all(content).unwrap();
+        }
+        writer.finish().unwrap().into_inner()
+    }
+
+    fn temp_extraction_dir(label: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "myriad-extract-{label}-{}",
+            uuid::Uuid::new_v4().simple()
+        ))
+    }
+
+    #[test]
+    fn extraction_streams_large_entries_intact() {
+        let root = temp_extraction_dir("large");
+        let large: Vec<u8> = (0..(3 * 1024 * 1024 + 17))
+            .map(|i| (i % 251) as u8)
+            .collect();
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        writer
+            .start_file("assets/big.bin", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(&large).unwrap();
+        writer
+            .start_file("empty.txt", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        let bytes = writer.finish().unwrap().into_inner();
+
+        extract_archive_entries(&bytes, &root).unwrap();
+
+        assert_eq!(std::fs::read(root.join("assets/big.bin")).unwrap(), large);
+        assert!(std::fs::read(root.join("empty.txt")).unwrap().is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn extraction_rejects_crc_mismatch() {
+        let root = temp_extraction_dir("crc");
+        let content = b"export const archive = true;";
+        let mut bytes = stored_archive(&[("src/main.js", content)]);
+        let offset = bytes
+            .windows(content.len())
+            .position(|window| window == content)
+            .unwrap();
+        bytes[offset] ^= 0xff;
+
+        assert!(extract_archive_entries(&bytes, &root).is_err());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn extraction_rejects_entry_larger_than_declared_size() {
+        let root = temp_extraction_dir("oversize");
+        let content = b"0123456789abcdef";
+        let mut bytes = stored_archive(&[("data.txt", content)]);
+        // Shrink the declared uncompressed size in both the local header
+        // (offset 22) and the central directory header (offset 24) while the
+        // stored payload keeps all 16 bytes.
+        let declared = 4_u32.to_le_bytes();
+        let local = bytes
+            .windows(4)
+            .position(|window| window == [0x50, 0x4b, 0x03, 0x04])
+            .unwrap();
+        bytes[local + 22..local + 26].copy_from_slice(&declared);
+        let central = bytes
+            .windows(4)
+            .position(|window| window == [0x50, 0x4b, 0x01, 0x02])
+            .unwrap();
+        bytes[central + 24..central + 28].copy_from_slice(&declared);
+
+        let error = extract_archive_entries(&bytes, &root).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData, "{error}");
+        let written = std::fs::metadata(root.join("data.txt")).unwrap().len();
+        assert!(written <= 5, "wrote {written} bytes past the declared size");
         let _ = std::fs::remove_dir_all(root);
     }
 
