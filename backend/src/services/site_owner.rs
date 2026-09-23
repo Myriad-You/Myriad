@@ -58,6 +58,15 @@ pub async fn site_owner_user_id(db: &DatabaseConnection) -> Result<i32, String> 
 mod tests {
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
+    /// Runs in the default suite; the PostgreSQL test below covers execution.
+    #[test]
+    fn owner_query_prefers_owner_tier_then_lowest_id() {
+        let sql = super::SITE_OWNER_SQL;
+        assert!(sql.contains("WHERE is_owner = true OR is_admin = true"));
+        assert!(sql.contains("ORDER BY CASE WHEN is_owner = true THEN 0 ELSE 1 END, id ASC"));
+        assert!(sql.ends_with("LIMIT 1"));
+    }
+
     #[tokio::test]
     #[ignore = "requires SITE_OWNER_TEST_DATABASE_URL pointing to a disposable PostgreSQL database"]
     async fn owner_tier_wins_then_lowest_admin_then_unconfigured() {

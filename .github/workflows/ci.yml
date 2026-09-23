@@ -211,6 +211,11 @@ jobs:
         env:
           AI_QUOTA_TEST_DATABASE_URL: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_drift
         run: cargo test -p myriad-backend --locked services::ai_quota::database_tests -- --ignored --nocapture
+      - name: Site owner resolution query
+        env:
+          # The test shadows `users` with a session-local temp table.
+          SITE_OWNER_TEST_DATABASE_URL: postgres://myriad:myriad_ci@127.0.0.1:5432/myriad_drift
+        run: cargo test -p myriad-backend --locked services::site_owner:: -- --ignored --nocapture
       - name: Native Work loop database and provider contracts
         env:
           # Debug Work futures exceed the test harness default 2 MiB stack.
