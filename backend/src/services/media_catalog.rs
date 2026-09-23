@@ -1,11 +1,10 @@
 //! 媒体目录查询。常规写入走 `services::media`，这里不再登记新文件。
 
 use sea_orm::{
-    ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, DbErr, EntityTrait,
-    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect,
+    ColumnTrait, Condition, ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr,
+    EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Statement,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 use crate::federation::content::federation_media_root;
 use crate::models::entities::media_assets;
@@ -211,13 +210,6 @@ pub async fn list_assets(
     })
 }
 
-pub async fn get_asset(
-    db: &DatabaseConnection,
-    id: i32,
-) -> Result<Option<media_assets::Model>, DbErr> {
-    media_assets::Entity::find_by_id(id).one(db).await
-}
-
 pub async fn delete_asset(
     db: &DatabaseConnection,
     id: i32,
@@ -244,19 +236,71 @@ pub async fn delete_asset(
     }
 }
 
+/// Legacy (pre-migration, `state IS NULL`) delete.
+///
+/// Failure protocol: one SELECT decides eligibility (row, legacy state and
+/// every reference kind); any query or decode failure aborts before touching
+/// disk. The file goes first (NotFound counts as removed), then the row. If the
+/// row delete fails after the file is gone, the error surfaces and a retry of
+/// the same id converges: the file is NotFound and the row is deleted.
 async fn delete_unmigrated_asset(
     db: &DatabaseConnection,
     id: i32,
 ) -> Result<Result<(), Vec<String>>, DbErr> {
-    let Some(row) = get_asset(db, id).await? else {
+    let Some(row) = db
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            r#"
+            SELECT a.url, a.state IS NULL AS unmigrated,
+                   EXISTS (
+                       SELECT 1 FROM phantasi_note_docs
+                       WHERE image LIKE p.pat ESCAPE '\' OR content_md LIKE p.pat ESCAPE '\'
+                   ) AS notes,
+                   EXISTS (
+                       SELECT 1 FROM phantasi_items
+                       WHERE image LIKE p.pat ESCAPE '\'
+                          OR content_md LIKE p.pat ESCAPE '\'
+                          OR content LIKE p.pat ESCAPE '\'
+                   ) AS articles,
+                   EXISTS (
+                       SELECT 1 FROM configurations WHERE value::text LIKE p.pat ESCAPE '\'
+                   ) AS site
+            FROM media_assets a
+            CROSS JOIN LATERAL (
+                SELECT '%' || replace(replace(replace(a.url, '\', '\\'), '%', '\%'), '_', '\_')
+                       || '%' AS pat
+            ) p
+            WHERE a.id = $1
+            "#,
+            [id.into()],
+        ))
+        .await?
+    else {
         return Ok(Err(vec!["missing".into()]));
     };
-    let refs = media_references(db, &row.url).await?;
+    let url: String = row.try_get("", "url")?;
+    if !row.try_get::<bool>("", "unmigrated")? {
+        // Reached only through `MediaError::Invalid`; a migrated row with a
+        // corrupt state must not fall back to the legacy delete.
+        return Err(DbErr::Custom(format!(
+            "media asset {id} has an unrecognised lifecycle state"
+        )));
+    }
+    let mut refs = Vec::new();
+    for kind in ["notes", "articles", "site"] {
+        if row.try_get::<bool>("", kind)? {
+            refs.push(kind.to_string());
+        }
+    }
     if !refs.is_empty() {
         return Ok(Err(refs));
     }
-    remove_file(&row.url).await.map_err(DbErr::Custom)?;
-    media_assets::Entity::delete_by_id(id).exec(db).await?;
+    remove_file(&url).await.map_err(DbErr::Custom)?;
+    media_assets::Entity::delete_many()
+        .filter(media_assets::Column::Id.eq(id))
+        .filter(media_assets::Column::State.is_null())
+        .exec(db)
+        .await?;
     Ok(Ok(()))
 }
 
@@ -289,114 +333,6 @@ fn federation_disk_path(url: &str) -> Option<std::path::PathBuf> {
         return None;
     }
     Some(federation_media_root().join(user).join(file))
-}
-
-fn like_contains_pattern(url: &str) -> String {
-    let needle = canonical_media_url(url).unwrap_or_else(|| url.to_string());
-    let escaped = needle
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_");
-    format!("%{escaped}%")
-}
-
-async fn urls_matching(
-    db: &DatabaseConnection,
-    sql: &str,
-    patterns: &[String],
-) -> Result<std::collections::HashSet<String>, DbErr> {
-    if patterns.is_empty() {
-        return Ok(std::collections::HashSet::new());
-    }
-    let payload = serde_json::to_value(patterns).map_err(|error| DbErr::Json(error.to_string()))?;
-    let rows = db
-        .query_all_raw(sea_orm::Statement::from_sql_and_values(
-            sea_orm::DatabaseBackend::Postgres,
-            sql,
-            [payload.into()],
-        ))
-        .await?;
-    let mut found = std::collections::HashSet::new();
-    for row in rows {
-        if let Ok(url) = row.try_get::<String>("", "url") {
-            found.insert(url);
-        }
-    }
-    Ok(found)
-}
-
-async fn media_references_batch(
-    db: &DatabaseConnection,
-    urls: &[String],
-) -> Result<HashMap<String, Vec<String>>, DbErr> {
-    let mut patterns = Vec::new();
-    let mut pattern_to_url = HashMap::new();
-    for url in urls {
-        let pattern = like_contains_pattern(url);
-        pattern_to_url.insert(pattern.clone(), url.clone());
-        patterns.push(pattern);
-    }
-    let notes = urls_matching(
-        db,
-        r#"
-        SELECT pat AS url
-        FROM json_array_elements_text($1::json) AS pat
-        WHERE EXISTS (
-            SELECT 1 FROM phantasi_note_docs
-            WHERE image LIKE pat ESCAPE '\' OR content_md LIKE pat ESCAPE '\'
-        )
-        "#,
-        &patterns,
-    )
-    .await?;
-    let articles = urls_matching(
-        db,
-        r#"
-        SELECT pat AS url
-        FROM json_array_elements_text($1::json) AS pat
-        WHERE EXISTS (
-            SELECT 1 FROM phantasi_items
-            WHERE image LIKE pat ESCAPE '\'
-               OR content_md LIKE pat ESCAPE '\'
-               OR content LIKE pat ESCAPE '\'
-        )
-        "#,
-        &patterns,
-    )
-    .await?;
-    let site = urls_matching(
-        db,
-        r#"
-        SELECT pat AS url
-        FROM json_array_elements_text($1::json) AS pat
-        WHERE EXISTS (
-            SELECT 1 FROM configurations
-            WHERE value::text LIKE pat ESCAPE '\'
-        )
-        "#,
-        &patterns,
-    )
-    .await?;
-    let mut refs: HashMap<String, Vec<String>> = HashMap::new();
-    for (pattern, url) in pattern_to_url {
-        let mut kinds = Vec::new();
-        if notes.contains(&pattern) {
-            kinds.push("notes".into());
-        }
-        if articles.contains(&pattern) {
-            kinds.push("articles".into());
-        }
-        if site.contains(&pattern) {
-            kinds.push("site".into());
-        }
-        refs.insert(url, kinds);
-    }
-    Ok(refs)
-}
-
-async fn media_references(db: &DatabaseConnection, url: &str) -> Result<Vec<String>, DbErr> {
-    let map = media_references_batch(db, std::slice::from_ref(&url.to_string())).await?;
-    Ok(map.get(url).cloned().unwrap_or_default())
 }
 
 fn to_view(row: CatalogAsset, references: Vec<String>) -> MediaAssetView {
@@ -482,31 +418,12 @@ mod tests {
         let list = src
             .split("pub async fn list_assets")
             .nth(1)
-            .and_then(|rest| rest.split("pub async fn get_asset").next())
+            .and_then(|rest| rest.split("pub async fn delete_asset").next())
             .expect("list_assets");
         assert!(!list.contains("read_dir"));
         assert!(list.contains("catalog_labels_for_assets"));
         assert!(!src.contains(concat!("backfill", "_federation")));
         assert!(!src.contains(concat!("pub async fn ", "register(")));
-    }
-
-    #[test]
-    fn reference_query_errors_block_delete() {
-        let src = include_str!("media_catalog.rs");
-        let body = src
-            .split("async fn media_references_batch")
-            .nth(1)
-            .and_then(|rest| rest.split("async fn media_references(").next())
-            .expect("media_references_batch");
-        assert!(
-            !body.contains("if let Ok("),
-            "reference lookup failures must not look like zero references"
-        );
-        assert_eq!(
-            body.matches(".await?;").count(),
-            3,
-            "notes/articles/site lookups must propagate query errors"
-        );
     }
 
     #[test]
@@ -525,5 +442,60 @@ mod tests {
         )))
         .unwrap_err();
         assert!(error.contains("locked"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn legacy_delete_checks_references_in_one_select_and_converges() {
+        use sea_orm::ConnectionTrait;
+        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+            return;
+        };
+        let isolated = crate::db::IsolatedSchema::migrated(&url, "media_catalog_test").await;
+        let db = isolated.db.clone();
+        let exec = |sql: String| {
+            let db = db.clone();
+            async move { db.execute_unprepared(&sql).await.unwrap() }
+        };
+        let legacy_url = "/media/federation/987654/legacy_a%b.png";
+        exec(format!(
+            "INSERT INTO media_assets (id, kind, url, mime) VALUES \
+             (1, 'upload', '{legacy_url}', 'image/png'), \
+             (2, 'upload', '/media/federation/987654/other.png', 'image/png')"
+        ))
+        .await;
+        exec(format!(
+            "INSERT INTO configurations (key, value) VALUES \
+             ('media_catalog_test', to_jsonb('see https://x.example{legacy_url}'::text))"
+        ))
+        .await;
+
+        // Referenced by site config (URL with LIKE metacharacters matches literally).
+        assert_eq!(
+            super::delete_asset(&db, 1).await.unwrap(),
+            Err(vec!["site".to_string()])
+        );
+        exec("DELETE FROM configurations WHERE key = 'media_catalog_test'".into()).await;
+        assert_eq!(super::delete_asset(&db, 1).await.unwrap(), Ok(()));
+        assert_eq!(
+            super::delete_asset(&db, 1).await.unwrap(),
+            Err(vec!["missing".to_string()])
+        );
+
+        // A reference-table failure aborts the delete instead of reading as "unused".
+        exec("ALTER TABLE phantasi_items RENAME TO phantasi_items_off".into()).await;
+        assert!(super::delete_asset(&db, 2).await.is_err());
+        exec("ALTER TABLE phantasi_items_off RENAME TO phantasi_items".into()).await;
+        let remaining = db
+            .query_one_raw(sea_orm::Statement::from_string(
+                sea_orm::DatabaseBackend::Postgres,
+                "SELECT count(*)::int AS n FROM media_assets WHERE id = 2",
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get::<i32>("", "n")
+            .unwrap();
+        assert_eq!(remaining, 1);
+        isolated.drop().await;
     }
 }
