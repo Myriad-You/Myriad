@@ -26,7 +26,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
-use crate::middleware::auth::Claims;
+use crate::middleware::auth::{AuthSubject, Claims};
 use crate::middleware::ws_origin::{
     allowed_origins_from_global_config, assert_ws_origin_for_cookie_session,
 };
@@ -158,10 +158,16 @@ pub async fn channel_websocket(
     State(db): State<DatabaseConnection>,
     ws: WebSocketUpgrade,
     Extension(claims): Extension<Claims>,
+    Extension(subject): Extension<AuthSubject>,
     headers: HeaderMap,
     axum::extract::Path(channel_id): axum::extract::Path<String>,
     Query(query): Query<FederationWsQuery>,
 ) -> Response {
+    // The subject was parsed once at the auth boundary; only durable users may
+    // open a federation socket, and that is decided before any ticket is consumed.
+    let Some(user_id) = subject.durable_user_id() else {
+        return ws_ticket_http_error(WsTicketError::InvalidSubject).into_response();
+    };
     let allowed = allowed_origins_from_global_config().await;
     if let Err(err) = assert_ws_origin_for_cookie_session(&headers, &allowed) {
         return err.into_response();
@@ -174,7 +180,7 @@ pub async fn channel_websocket(
     let tapp_attr = match resolve_ws_ticket(
         &db,
         query.tapp_ws_ticket.as_deref(),
-        &claims,
+        user_id,
         WsTicketKind::Channel,
         &channel_id,
     )
@@ -184,10 +190,7 @@ pub async fn channel_websocket(
         Err(err) => return err.into_response(),
     };
 
-    let Some(user_id) = crate::services::tapp_ownership::positive_user_id(&claims.sub) else {
-        return ws_ticket_http_error(WsTicketError::InvalidSubject).into_response();
-    };
-    let username = claims.username.clone();
+    let username = claims.username;
 
     ws.max_message_size(MAX_WS_MESSAGE_BYTES)
         .max_frame_size(MAX_WS_MESSAGE_BYTES)
@@ -201,7 +204,7 @@ pub async fn channel_websocket(
 async fn resolve_ws_ticket(
     db: &DatabaseConnection,
     ticket: Option<&str>,
-    claims: &Claims,
+    subject_id: i32,
     kind: WsTicketKind,
     resource_id: &str,
 ) -> Result<Option<ConsumedWsTicket>, (axum::http::StatusCode, axum::Json<serde_json::Value>)> {
@@ -209,8 +212,6 @@ async fn resolve_ws_ticket(
         return Ok(None);
     };
     // Fail closed: never fall open to host identity when a ticket was supplied.
-    let subject_id = crate::services::tapp_ownership::positive_user_id(&claims.sub)
-        .ok_or_else(|| ws_ticket_http_error(WsTicketError::InvalidSubject))?;
     let consumed = tapp_ws_ticket::consume_ws_ticket(db, ticket, subject_id, kind, resource_id)
         .await
         .map_err(ws_ticket_http_error)?;
@@ -375,10 +376,16 @@ pub async fn room_websocket(
     State(db): State<DatabaseConnection>,
     ws: WebSocketUpgrade,
     Extension(claims): Extension<Claims>,
+    Extension(subject): Extension<AuthSubject>,
     headers: HeaderMap,
     axum::extract::Path(room_id): axum::extract::Path<String>,
     Query(query): Query<FederationWsQuery>,
 ) -> Response {
+    // The subject was parsed once at the auth boundary; only durable users may
+    // open a federation socket, and that is decided before any ticket is consumed.
+    let Some(user_id) = subject.durable_user_id() else {
+        return ws_ticket_http_error(WsTicketError::InvalidSubject).into_response();
+    };
     let allowed = allowed_origins_from_global_config().await;
     if let Err(err) = assert_ws_origin_for_cookie_session(&headers, &allowed) {
         return err.into_response();
@@ -391,7 +398,7 @@ pub async fn room_websocket(
     let tapp_attr = match resolve_ws_ticket(
         &db,
         query.tapp_ws_ticket.as_deref(),
-        &claims,
+        user_id,
         WsTicketKind::Room,
         &room_id,
     )
@@ -401,10 +408,7 @@ pub async fn room_websocket(
         Err(err) => return err.into_response(),
     };
 
-    let Some(user_id) = crate::services::tapp_ownership::positive_user_id(&claims.sub) else {
-        return ws_ticket_http_error(WsTicketError::InvalidSubject).into_response();
-    };
-    let username = claims.username.clone();
+    let username = claims.username;
     ws.max_message_size(MAX_WS_MESSAGE_BYTES)
         .max_frame_size(MAX_WS_MESSAGE_BYTES)
         .on_upgrade(move |socket| async move {
@@ -699,7 +703,8 @@ mod registry_lifecycle_tests {
     fn websocket_upgrade_rejects_non_positive_subject() {
         let src = include_str!("ws_gateway.rs");
         let production = src.split("#[cfg(test)]").next().expect("production");
-        assert!(production.contains("positive_user_id"));
+        assert_eq!(production.matches("subject.durable_user_id()").count(), 2);
+        assert!(!production.contains("claims.sub"));
         assert!(!production.contains("unwrap_or(-1)"));
     }
 

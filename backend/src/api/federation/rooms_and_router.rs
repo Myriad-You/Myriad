@@ -18,14 +18,10 @@ use super::social::*;
 
 /// Path 参数由 Axum 抽取。
 async fn federation_list_transfers(
-    extract::AuthedClaims(claims): extract::AuthedClaims,
+    extract::DurableUserId(user_id): extract::DurableUserId,
     extract::Db(db): extract::Db,
     axum::extract::Path(channel_id): axum::extract::Path<String>,
 ) -> Response {
-    let user_id = match require_user_id(&claims) {
-        Ok(id) => id,
-        Err(response) => return response,
-    };
     match federation::file_transfer::list_transfers(&channel_id, user_id, &db).await {
         Ok(transfers) => (
             StatusCode::OK,
@@ -39,15 +35,12 @@ async fn federation_list_transfers(
 /// 路由已声明该路径参数并挂了 auth_middleware；
 /// body 上限由路由的 `live_small_control_body_limit`（`SMALL_CONTROL_BODY_LIMIT` 256 KiB）。
 async fn federation_initiate_room_transfer(
+    extract::DurableUserId(user_id): extract::DurableUserId,
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
     axum::extract::Path(room_id): axum::extract::Path<String>,
     Json(transfer_req): Json<federation::file_transfer::InitTransferRequest>,
 ) -> Response {
-    let user_id = match require_user_id(&claims) {
-        Ok(id) => id,
-        Err(response) => return response,
-    };
     match federation::file_transfer::initiate_room_transfer(
         user_id,
         &claims.username,
@@ -64,14 +57,11 @@ async fn federation_initiate_room_transfer(
 
 /// Path 参数由 Axum 抽取。
 async fn federation_list_room_transfers(
+    extract::DurableUserId(user_id): extract::DurableUserId,
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
     axum::extract::Path(room_id): axum::extract::Path<String>,
 ) -> Response {
-    let user_id = match require_user_id(&claims) {
-        Ok(id) => id,
-        Err(response) => return response,
-    };
     match federation::file_transfer::list_room_transfers(&room_id, user_id, &claims.username, &db)
         .await
     {
@@ -86,15 +76,12 @@ async fn federation_list_room_transfers(
 
 /// 路由已声明 `{room_id}`；before/limit/filter/q 全部走 `Query<ListQuery>`。
 async fn federation_list_room_files(
+    extract::DurableUserId(user_id): extract::DurableUserId,
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
     axum::extract::Path(room_id): axum::extract::Path<String>,
     axum::extract::Query(q): axum::extract::Query<ListQuery>,
 ) -> Response {
-    let user_id = match require_user_id(&claims) {
-        Ok(id) => id,
-        Err(response) => return response,
-    };
     match federation::room::list_room_files(
         user_id,
         &claims.username,
@@ -114,14 +101,11 @@ async fn federation_list_room_files(
 
 /// Path 参数由 Axum 抽取。
 async fn federation_get_transfer(
+    extract::DurableUserId(user_id): extract::DurableUserId,
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
     axum::extract::Path(transfer_id): axum::extract::Path<String>,
 ) -> Response {
-    let user_id = match require_user_id(&claims) {
-        Ok(id) => id,
-        Err(response) => return response,
-    };
     match federation::file_transfer::get_transfer(&transfer_id, user_id, &claims.username, &db)
         .await
     {
@@ -132,6 +116,7 @@ async fn federation_get_transfer(
 
 /// Path `{transfer_id}`；返回文件流（RFC 5987 文件名），不是 JSON。
 async fn federation_download_transfer(
+    extract::DurableUserId(user_id): extract::DurableUserId,
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
     axum::extract::Path(transfer_id): axum::extract::Path<String>,
@@ -139,10 +124,6 @@ async fn federation_download_transfer(
     use axum::body::Body;
     use axum::http::header::{CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE, HeaderValue};
 
-    let user_id = match require_user_id(&claims) {
-        Ok(id) => id,
-        Err(response) => return response,
-    };
     let file = match federation::file_transfer::open_transfer_file(
         &transfer_id,
         user_id,
@@ -211,6 +192,7 @@ async fn federation_download_transfer(
 /// 块内容是 base64（4/3 膨胀），上限由路由的 `TRANSFER_CHUNK_BODY_LIMIT` 层
 /// 提供 —— 见 `federation::limits`，那里有编译期断言保证它容得下一整块。
 async fn federation_upload_chunk(
+    extract::DurableUserId(user_id): extract::DurableUserId,
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
     axum::extract::Path(transfer_id): axum::extract::Path<String>,
@@ -226,10 +208,6 @@ async fn federation_upload_chunk(
         }
     };
 
-    let user_id = match require_user_id(&claims) {
-        Ok(id) => id,
-        Err(response) => return response,
-    };
     match federation::file_transfer::upload_chunk(
         user_id,
         &claims.username,
@@ -246,14 +224,11 @@ async fn federation_upload_chunk(
 
 /// 路由已声明该路径参数；claims / path / db 走提取器，不再手工解析 URI。
 async fn federation_cancel_transfer(
+    extract::DurableUserId(user_id): extract::DurableUserId,
     extract::AuthedClaims(claims): extract::AuthedClaims,
     extract::Db(db): extract::Db,
     axum::extract::Path(transfer_id): axum::extract::Path<String>,
 ) -> Response {
-    let user_id = match require_user_id(&claims) {
-        Ok(id) => id,
-        Err(response) => return response,
-    };
     match federation::file_transfer::cancel_transfer(user_id, &claims.username, &transfer_id, &db)
         .await
     {
@@ -680,8 +655,8 @@ mod query_parse_tests {
     fn file_transfer_handlers_do_not_parse_subject_to_zero() {
         let src = include_str!("rooms_and_router.rs");
         let production = src.split("#[cfg(test)]").next().expect("production");
-        assert!(production.contains("require_user_id"));
-        assert!(!production.contains("claims.sub.parse().unwrap_or(0)"));
+        assert!(production.contains("extract::DurableUserId(user_id)"));
+        assert!(!production.contains("claims.sub"));
     }
 
     #[test]

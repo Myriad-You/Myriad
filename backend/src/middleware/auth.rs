@@ -50,6 +50,44 @@ pub struct Claims {
 #[derive(Debug, Clone)]
 pub struct OptionalClaims(pub Option<Claims>);
 
+/// Subject id parsed exactly once from a verified JWT `sub` at the auth boundary.
+///
+/// The auth middlewares insert it next to [`Claims`]; handlers read this typed id
+/// instead of re-parsing `claims.sub`. Positive ids are durable users, negative ids
+/// are server-minted guests (optional-auth routes only), `0` is neither. The private
+/// field keeps it constructible only by this module.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AuthSubject(i32);
+
+impl AuthSubject {
+    /// The durable user id, or `None` for guests and the `0` subject.
+    pub fn durable_user_id(self) -> Option<i32> {
+        (self.0 > 0).then_some(self.0)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(id: i32) -> Self {
+        Self(id)
+    }
+}
+
+/// Verified claims together with the subject parsed from them.
+#[derive(Debug, Clone)]
+pub struct AuthContext {
+    pub claims: Claims,
+    pub subject: AuthSubject,
+}
+
+/// The one place a verified JWT `sub` is parsed. Non-numeric or overflowing
+/// subjects are an invalid session, never a fallback id.
+fn parse_subject(claims: &Claims) -> Result<AuthSubject, Box<Response>> {
+    claims
+        .sub
+        .parse::<i32>()
+        .map(AuthSubject)
+        .map_err(|_| unauthorized_session_response())
+}
+
 /// Build claims for a durable user session (login / register / password reissue).
 pub fn mint_session_claims(
     user_id: i32,
@@ -365,12 +403,13 @@ pub async fn auth_middleware(
 ) -> Response {
     let headers = req.headers();
 
-    match authenticate_request(headers, &db).await {
-        Ok(claims) => {
-            record_user_presence(&claims, db);
-            // Token is valid, inject claims into request extensions
+    match authenticate_request_context(headers, &db).await {
+        Ok(AuthContext { claims, subject }) => {
+            record_user_presence(subject, db);
+            // Token is valid, inject claims and the typed subject into request extensions
             let mut req = req;
             req.extensions_mut().insert(claims);
+            req.extensions_mut().insert(subject);
             next.run(req).await
         }
         Err(error_response) => *error_response,
@@ -387,12 +426,14 @@ pub async fn optional_current_auth_middleware(
     next: Next,
 ) -> Response {
     let credential_source = auth_credential_source(req.headers());
-    match authenticate_optional_request(req.headers(), &db).await {
-        Ok(claims) => {
-            if let Some(claims) = claims.as_ref() {
-                record_user_presence(claims, db);
-            }
+    match authenticate_optional_request_context(req.headers(), &db).await {
+        Ok(context) => {
             let mut req = req;
+            let claims = context.map(|AuthContext { claims, subject }| {
+                record_user_presence(subject, db);
+                req.extensions_mut().insert(subject);
+                claims
+            });
             req.extensions_mut().insert(OptionalClaims(claims));
             next.run(req).await
         }
@@ -445,8 +486,8 @@ async fn optional_admin_auth(
     invalid: InvalidCredential,
 ) -> Response {
     let credential_source = auth_credential_source(req.headers());
-    let claims = match authenticate_optional_request(req.headers(), &db).await {
-        Ok(claims) => claims,
+    let context = match authenticate_optional_request_context(req.headers(), &db).await {
+        Ok(context) => context,
         Err(error_response)
             if invalid == InvalidCredential::Anonymous
                 && error_response.status() == StatusCode::UNAUTHORIZED =>
@@ -457,8 +498,12 @@ async fn optional_admin_auth(
             return clear_invalid_cookie_response(*error_response, credential_source).await;
         }
     };
+    let claims = context.map(|AuthContext { claims, subject }| {
+        req.extensions_mut().insert(subject);
+        record_user_presence(subject, db.clone());
+        claims
+    });
     if let Some(claims) = claims.as_ref() {
-        record_user_presence(claims, db.clone());
         match current_admin_status(claims, &db).await {
             Ok(true) => {
                 req.extensions_mut().insert(CurrentAdminVerified(()));
@@ -506,11 +551,11 @@ fn presence_write_due(user_id: i32) -> bool {
 
 /// 节流更新 users.last_seen_at / online_seconds（异步、尽力而为）。
 /// 游客（负数 ID）不记录。DB 由 middleware `State` 注入。
-pub fn record_user_presence(claims: &Claims, db: DatabaseConnection) {
-    let Ok(user_id) = claims.sub.parse::<i32>() else {
+pub fn record_user_presence(subject: AuthSubject, db: DatabaseConnection) {
+    let Some(user_id) = subject.durable_user_id() else {
         return;
     };
-    if user_id <= 0 || !presence_write_due(user_id) {
+    if !presence_write_due(user_id) {
         return;
     }
     tokio::spawn(async move {
@@ -544,9 +589,9 @@ pub async fn admin_middleware(
 ) -> Response {
     let headers = req.headers();
 
-    match authenticate_request(headers, &db).await {
-        Ok(claims) => {
-            record_user_presence(&claims, db.clone());
+    match authenticate_request_context(headers, &db).await {
+        Ok(AuthContext { claims, subject }) => {
+            record_user_presence(subject, db.clone());
             if let Err((status, body)) = ensure_current_admin_on(&claims, &db).await {
                 tracing::warn!(
                     "⚠️  User {} (is_admin={}) attempted to access admin-only endpoint (Forbidden)",
@@ -565,6 +610,7 @@ pub async fn admin_middleware(
             // 供 `AdminClaims` 复用，不再二次查库。
             let mut req = req;
             req.extensions_mut().insert(claims);
+            req.extensions_mut().insert(subject);
             req.extensions_mut().insert(CurrentAdminVerified(()));
             next.run(req).await
         }
@@ -755,16 +801,13 @@ pub fn session_epoch_matches(claim_tv: i64, db_version: Option<i64>) -> bool {
 /// Guests (`sub` ≤ 0) skip the DB check — they are not durable sessions.
 /// Missing durable users fail closed as revoked sessions.
 async fn validated_auth_snapshot(
-    claims: &Claims,
+    subject: AuthSubject,
+    claim_tv: i64,
     db: &DatabaseConnection,
 ) -> Result<Option<AuthSnapshot>, Box<Response>> {
-    let user_id: i32 = claims
-        .sub
-        .parse()
-        .map_err(|_| unauthorized_session_response())?;
-    if user_id <= 0 {
+    let Some(user_id) = subject.durable_user_id() else {
         return Ok(None);
-    }
+    };
 
     let snapshot = load_auth_snapshot(db, user_id).await.map_err(|e| {
         tracing::error!("Failed to load token_version for user {}: {}", user_id, e);
@@ -789,10 +832,10 @@ async fn validated_auth_snapshot(
         return Err(unauthorized_session_response());
     };
 
-    if !session_epoch_matches(claims.tv, Some(snapshot.token_version)) {
+    if !session_epoch_matches(claim_tv, Some(snapshot.token_version)) {
         tracing::debug!(
             user_id,
-            claim_tv = claims.tv,
+            claim_tv,
             db_version = snapshot.token_version,
             "JWT session epoch mismatch — treating token as revoked"
         );
@@ -835,13 +878,26 @@ pub async fn authenticate_request(
     headers: &HeaderMap,
     db: &DatabaseConnection,
 ) -> Result<Claims, Box<Response>> {
+    authenticate_request_context(headers, db)
+        .await
+        .map(|context| context.claims)
+}
+
+/// [`authenticate_request`] keeping the subject parsed at the boundary: token
+/// verification, one strict `sub` parse, then session epoch / current roles
+/// checked against that same id.
+pub async fn authenticate_request_context(
+    headers: &HeaderMap,
+    db: &DatabaseConnection,
+) -> Result<AuthContext, Box<Response>> {
     let mut claims = verify_jwt_token(headers)?;
-    if let Some(snapshot) = validated_auth_snapshot(&claims, db).await? {
+    let subject = parse_subject(&claims)?;
+    if let Some(snapshot) = validated_auth_snapshot(subject, claims.tv, db).await? {
         // This keeps ordinary authorization decisions bounded by the cache TTL
         // even when a role-change NOTIFY is missed.
         claims = apply_current_roles(claims, snapshot);
     }
-    Ok(claims)
+    Ok(AuthContext { claims, subject })
 }
 
 /// Revalidate claims already bound by authenticated server code to a short-lived
@@ -850,12 +906,14 @@ pub(crate) async fn revalidate_bound_claims(
     claims: &Claims,
     db: &DatabaseConnection,
 ) -> Result<Claims, Box<Response>> {
-    if claims.exp <= chrono::Utc::now().timestamp()
-        || crate::services::tapp_ownership::positive_user_id(&claims.sub).is_none()
-    {
+    if claims.exp <= chrono::Utc::now().timestamp() {
         return Err(unauthorized_session_response());
     }
-    let snapshot = validated_auth_snapshot(claims, db)
+    let subject = parse_subject(claims)?;
+    if subject.durable_user_id().is_none() {
+        return Err(unauthorized_session_response());
+    }
+    let snapshot = validated_auth_snapshot(subject, claims.tv, db)
         .await?
         .ok_or_else(unauthorized_session_response)?;
     Ok(apply_current_roles(claims.clone(), snapshot))
@@ -870,10 +928,20 @@ pub async fn authenticate_optional_request(
     headers: &HeaderMap,
     db: &DatabaseConnection,
 ) -> Result<Option<Claims>, Box<Response>> {
+    authenticate_optional_request_context(headers, db)
+        .await
+        .map(|context| context.map(|context| context.claims))
+}
+
+/// [`authenticate_optional_request`] keeping the subject parsed at the boundary.
+pub async fn authenticate_optional_request_context(
+    headers: &HeaderMap,
+    db: &DatabaseConnection,
+) -> Result<Option<AuthContext>, Box<Response>> {
     if extract_auth_token(headers).is_none() {
         return Ok(None);
     }
-    authenticate_request(headers, db).await.map(Some)
+    authenticate_request_context(headers, db).await.map(Some)
 }
 
 /// Atomically revoke the expected session epoch and return the new value.
@@ -1018,10 +1086,10 @@ pub async fn optional_auth_middleware(
     let mut set_guest_cookie = None;
     // Missing credentials become a signed guest. Presented credentials must
     // pass the full current-state path and never downgrade to guest.
-    let claims = match authenticate_optional_request(headers, &db).await {
-        Ok(Some(claims)) => {
-            record_user_presence(&claims, db);
-            claims
+    let (claims, subject) = match authenticate_optional_request_context(headers, &db).await {
+        Ok(Some(AuthContext { claims, subject })) => {
+            record_user_presence(subject, db);
+            (claims, subject)
         }
         Ok(None) => {
             let secret = match env::var("JWT_SECRET") {
@@ -1046,7 +1114,7 @@ pub async fn optional_auth_middleware(
             let guest_id = guest_id(&session_id);
             tracing::debug!(guest_id, "Guest access through signed browser session");
 
-            Claims {
+            let claims = Claims {
                 sub: guest_id.to_string(),
                 username: format!("guest:{}", &session_id[..8]),
                 is_admin: false,
@@ -1054,7 +1122,8 @@ pub async fn optional_auth_middleware(
                 exp: chrono::Utc::now().timestamp() + GUEST_SESSION_MAX_AGE,
                 iat: chrono::Utc::now().timestamp(),
                 tv: 0,
-            }
+            };
+            (claims, AuthSubject(guest_id))
         }
         Err(error_response) => {
             return clear_invalid_cookie_response(*error_response, credential_source).await;
@@ -1063,6 +1132,7 @@ pub async fn optional_auth_middleware(
 
     let mut req = req;
     req.extensions_mut().insert(claims);
+    req.extensions_mut().insert(subject);
     let mut response = next.run(req).await;
     if let Some(token) = set_guest_cookie {
         let is_production = crate::oauth_url_builder::SiteConfig::is_production().await;
