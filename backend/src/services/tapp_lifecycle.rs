@@ -176,27 +176,10 @@ pub fn runtime_widget_register_shape_ok(
         && sizes.iter().any(|size| size == default_size)
 }
 
-/// Whether a widget row is treated as manifest-sourced during reconcile.
-pub fn is_manifest_widget_row(
-    config: &serde_json::Value,
-    widget_id: &str,
-    legacy_manifest_ids: &std::collections::HashSet<String>,
-) -> bool {
-    widget_source(config) == Some("manifest") || legacy_manifest_ids.contains(widget_id)
-}
-
-/// Desired full widget ids from the current typed manifest widget list.
-pub fn desired_manifest_widget_ids(
-    tapp_id: &str,
-    local_ids: impl IntoIterator<Item = impl AsRef<str>>,
-) -> std::collections::HashSet<String> {
-    local_ids
-        .into_iter()
-        .map(|id| format_tapp_widget_id(tapp_id, id.as_ref()))
-        .collect()
-}
-
 /// Full widget ids from a previous raw manifest JSON `widgets` array.
+///
+/// During reconcile a row is manifest-sourced when `config.source` is
+/// `"manifest"` or its id is one of these legacy (source-less) ids.
 pub fn legacy_manifest_widget_ids(
     tapp_id: &str,
     previous_manifest: Option<&serde_json::Value>,
@@ -471,28 +454,9 @@ mod tests {
 
     #[test]
     fn reconcile_and_slot_helpers() {
-        let desired = desired_manifest_widget_ids("com.ex", ["a", "b"]);
-        assert!(desired.contains("tapp.com.ex.a"));
-        assert!(desired.contains("tapp.com.ex.b"));
-
         let legacy =
             legacy_manifest_widget_ids("com.ex", Some(&json!({ "widgets": [{ "id": "old" }] })));
         assert!(legacy.contains("tapp.com.ex.old"));
-        assert!(is_manifest_widget_row(
-            &json!({ "source": "manifest" }),
-            "tapp.com.ex.x",
-            &legacy
-        ));
-        assert!(is_manifest_widget_row(
-            &json!({ "source": "runtime" }),
-            "tapp.com.ex.old",
-            &legacy
-        ));
-        assert!(!is_manifest_widget_row(
-            &json!({ "source": "runtime" }),
-            "tapp.com.ex.x",
-            &legacy
-        ));
 
         assert!(runtime_widget_slot_available(1, 1, 3));
         assert!(!runtime_widget_slot_available(2, 1, 3));

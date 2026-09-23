@@ -2,9 +2,9 @@
 
 use super::{
     ApiResponse, MAX_WIDGETS_PER_TAPP, TappManifest, TappSettingDef, TappWidgetCategory,
-    TappWidgetRefreshPolicy, current_is_admin, find_admin_user_id, lock_tapp_lifecycle,
-    optional_authenticated_user_id, require_current_admin, validate_tapp_settings,
-    validate_widget_refresh_policy,
+    TappWidgetDef, TappWidgetRefreshPolicy, current_is_admin, find_admin_user_id,
+    lock_tapp_lifecycle, optional_authenticated_user_id, require_current_admin,
+    validate_tapp_settings, validate_widget_refresh_policy,
 };
 use axum::{
     Extension, Json,
@@ -14,6 +14,7 @@ use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, ConnectionTrait, DatabaseBackend,
     DatabaseConnection, EntityTrait, QueryFilter, QuerySelect, Set, Statement, TransactionTrait,
+    Value as SeaValue,
 };
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -26,9 +27,8 @@ use crate::services::permission_service::TappPermission;
 
 use crate::error::HttpError;
 use crate::services::tapp_lifecycle::{
-    desired_manifest_widget_ids, format_tapp_widget_id, is_manifest_widget_row,
-    legacy_manifest_widget_ids, local_widget_id_from_full, manifest_declares_local_widget_id,
-    resolve_full_widget_id,
+    format_tapp_widget_id, legacy_manifest_widget_ids, local_widget_id_from_full,
+    manifest_declares_local_widget_id, resolve_full_widget_id,
     runtime_widget_belongs_to_installation as runtime_widget_belongs_to_installation_domain,
     runtime_widget_register_shape_ok, runtime_widget_slot_available, widget_source,
 };
@@ -189,6 +189,18 @@ pub struct RegisterWidgetRequest {
     pub refresh_policy: Option<TappWidgetRefreshPolicy>,
 }
 
+/// `$first, $first+1, …` for `count` bind parameters.
+fn placeholder_list(first: usize, count: usize) -> String {
+    (first..first + count)
+        .map(|index| format!("${index}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Reconcile manifest widget rows with a fixed number of set statements:
+/// one stale-manifest DELETE, one runtime-conflict DELETE and one multi-row
+/// upsert on `(user_id, tapp_id, widget_id)`. Callers own the lifecycle
+/// transaction; any failed statement rolls the whole install/update back.
 pub(super) async fn reconcile_manifest_widgets(
     db: &impl ConnectionTrait,
     user_id: i32,
@@ -196,94 +208,109 @@ pub(super) async fn reconcile_manifest_widgets(
     manifest: &TappManifest,
     previous_manifest: Option<&serde_json::Value>,
 ) -> Result<(), HttpError> {
+    let db_error = |_| HttpError(AppError::internal("Database error"));
     let desired_widgets = manifest.widgets.as_deref().unwrap_or_default();
-    let desired_ids =
-        desired_manifest_widget_ids(tapp_id, desired_widgets.iter().map(|w| w.id.as_str()));
+    // Manifest validation rejects duplicate ids; keep the last one regardless so
+    // the upsert never touches the same row twice.
+    let mut seen = HashSet::new();
+    let mut desired: Vec<(String, &TappWidgetDef)> = desired_widgets
+        .iter()
+        .rev()
+        .map(|widget| (format_tapp_widget_id(tapp_id, &widget.id), widget))
+        .filter(|(widget_id, _)| seen.insert(widget_id.clone()))
+        .collect();
+    desired.reverse();
     let legacy_manifest_ids = legacy_manifest_widget_ids(tapp_id, previous_manifest);
 
-    let existing = tapp_widgets::Entity::find()
-        .filter(tapp_widgets::Column::UserId.eq(user_id))
-        .filter(tapp_widgets::Column::TappId.eq(tapp_id))
-        .all(db)
+    // Stale manifest rows (`config.source = manifest` or a legacy source-less
+    // manifest id) that the new manifest no longer declares.
+    let mut values: Vec<SeaValue> = vec![user_id.into(), tapp_id.into()];
+    let mut manifest_row = "config->>'source' = 'manifest'".to_string();
+    if !legacy_manifest_ids.is_empty() {
+        manifest_row.push_str(&format!(
+            " OR widget_id IN ({})",
+            placeholder_list(values.len() + 1, legacy_manifest_ids.len())
+        ));
+        values.extend(legacy_manifest_ids.iter().map(|id| SeaValue::from(id.as_str())));
+    }
+    let mut sql = format!(
+        "DELETE FROM tapp_widgets WHERE user_id = $1 AND tapp_id = $2 AND ({manifest_row})"
+    );
+    if !desired.is_empty() {
+        sql.push_str(&format!(
+            " AND widget_id NOT IN ({})",
+            placeholder_list(values.len() + 1, desired.len())
+        ));
+        values.extend(desired.iter().map(|(id, _)| SeaValue::from(id.as_str())));
+    }
+    db.execute_raw(Statement::from_sql_and_values(DatabaseBackend::Postgres, sql, values))
         .await
-        .map_err(|_| HttpError(AppError::internal("Database error")))?;
-    for widget in existing {
-        if is_manifest_widget_row(&widget.config, &widget.widget_id, &legacy_manifest_ids)
-            && !desired_ids.contains(&widget.widget_id)
-        {
-            tapp_widgets::Entity::delete_by_id(widget.id)
-                .exec(db)
-                .await
-                .map_err(|_| HttpError(AppError::internal("Database error")))?;
-        }
+        .map_err(db_error)?;
+    if desired.is_empty() {
+        return Ok(());
     }
 
-    for widget in desired_widgets {
-        let widget_id = format_tapp_widget_id(tapp_id, &widget.id);
-        db.execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
+    // Runtime rows another user registered for this owner's installation.
+    let mut values: Vec<SeaValue> = vec![user_id.into(), user_id.to_string().into()];
+    values.extend(desired.iter().map(|(id, _)| SeaValue::from(id.as_str())));
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        format!(
             r#"DELETE FROM tapp_widgets
-               WHERE widget_id = $1
-                 AND user_id <> $2
+               WHERE user_id <> $1
                  AND config->>'source' = 'runtime'
-                 AND config->>'installationOwnerId' = $3"#,
-            vec![
-                widget_id.clone().into(),
-                user_id.into(),
-                user_id.to_string().into(),
-            ],
-        ))
-        .await
-        .map_err(|_| HttpError(AppError::internal("Database error")))?;
+                 AND config->>'installationOwnerId' = $2
+                 AND widget_id IN ({})"#,
+            placeholder_list(3, desired.len())
+        ),
+        values,
+    ))
+    .await
+    .map_err(db_error)?;
+
+    const COLUMNS: usize = 10;
+    let mut values: Vec<SeaValue> = Vec::with_capacity(desired.len() * COLUMNS);
+    let mut rows = Vec::with_capacity(desired.len());
+    for (widget_id, widget) in desired {
+        let first = values.len() + 1;
+        rows.push(format!("({}, NOW())", placeholder_list(first, COLUMNS)));
         let runtime_config = serde_json::json!({
             "settings": &widget.settings,
             "refreshPolicy": &widget.refresh_policy,
             "source": "manifest",
             "installationOwnerId": user_id,
         });
-        let existing = tapp_widgets::Entity::find()
-            .filter(tapp_widgets::Column::UserId.eq(user_id))
-            .filter(tapp_widgets::Column::WidgetId.eq(&widget_id))
-            .one(db)
-            .await
-            .map_err(|_| HttpError(AppError::internal("Database error")))?;
-        if let Some(existing) = existing {
-            let mut active: tapp_widgets::ActiveModel = existing.into();
-            active.name = Set(widget.name.clone());
-            active.description = Set(widget.description.clone());
-            active.icon = Set(widget.icon.clone());
-            active.default_size = Set(widget.default_size.clone());
-            active.sizes = Set(serde_json::to_value(&widget.sizes).unwrap_or_default());
-            active.category = Set(widget
+        values.extend([
+            widget_id.into(),
+            tapp_id.into(),
+            user_id.into(),
+            widget.name.as_str().into(),
+            widget.description.clone().into(),
+            widget.icon.clone().into(),
+            widget.default_size.as_str().into(),
+            serde_json::to_value(&widget.sizes).unwrap_or_default().into(),
+            widget
                 .category
-                .map(|category| category.as_str().to_string()));
-            active.config = Set(runtime_config);
-            active
-                .update(db)
-                .await
-                .map_err(|_| HttpError(AppError::internal("Database error")))?;
-        } else {
-            tapp_widgets::ActiveModel {
-                id: NotSet,
-                widget_id: Set(widget_id),
-                tapp_id: Set(tapp_id.to_string()),
-                user_id: Set(user_id),
-                name: Set(widget.name.clone()),
-                description: Set(widget.description.clone()),
-                icon: Set(widget.icon.clone()),
-                default_size: Set(widget.default_size.clone()),
-                sizes: Set(serde_json::to_value(&widget.sizes).unwrap_or_default()),
-                category: Set(widget
-                    .category
-                    .map(|category| category.as_str().to_string())),
-                config: Set(runtime_config),
-                registered_at: Set(Utc::now().fixed_offset()),
-            }
-            .insert(db)
-            .await
-            .map_err(|_| HttpError(AppError::internal("Database error")))?;
-        }
+                .map(|category| category.as_str().to_string())
+                .into(),
+            runtime_config.into(),
+        ]);
     }
+    db.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        format!(
+            "INSERT INTO tapp_widgets (widget_id, tapp_id, user_id, name, description, icon, \
+             default_size, sizes, category, config, registered_at) VALUES {} \
+             ON CONFLICT (user_id, tapp_id, widget_id) DO UPDATE SET \
+             name = EXCLUDED.name, description = EXCLUDED.description, icon = EXCLUDED.icon, \
+             default_size = EXCLUDED.default_size, sizes = EXCLUDED.sizes, \
+             category = EXCLUDED.category, config = EXCLUDED.config",
+            rows.join(", ")
+        ),
+        values,
+    ))
+    .await
+    .map_err(db_error)?;
     Ok(())
 }
 
@@ -495,4 +522,125 @@ pub(super) async fn unregister_widget(
         .await
         .map_err(|_| HttpError(AppError::internal("Database error")))?;
     Ok(Json(ApiResponse::success(())))
+}
+
+#[cfg(test)]
+mod reconcile_tests {
+    use super::*;
+    use sea_orm::Database;
+    use sea_orm_migration::MigratorTrait;
+    use serde_json::json;
+
+    fn manifest(tapp_id: &str, widgets: serde_json::Value) -> TappManifest {
+        serde_json::from_value(json!({
+            "id": tapp_id,
+            "name": "Widgets",
+            "version": "1.0.0",
+            "core": { "entry": "main.js" },
+            "permissions": ["widget:register"],
+            "widgets": widgets,
+        }))
+        .expect("manifest")
+    }
+
+    fn widget(id: &str, name: &str) -> serde_json::Value {
+        json!({ "id": id, "name": name, "defaultSize": "2x2", "sizes": ["2x2", "4x2"] })
+    }
+
+    async fn rows(db: &DatabaseConnection, tapp_id: &str) -> Vec<(i32, String, String, String)> {
+        db.query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT user_id, widget_id, name, COALESCE(config->>'source', '') AS source \
+             FROM tapp_widgets WHERE tapp_id = $1 ORDER BY user_id, widget_id",
+            [tapp_id.into()],
+        ))
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|row| {
+            (
+                row.try_get("", "user_id").unwrap(),
+                row.try_get("", "widget_id").unwrap(),
+                row.try_get("", "name").unwrap(),
+                row.try_get("", "source").unwrap(),
+            )
+        })
+        .collect()
+    }
+
+    #[tokio::test]
+    async fn reconcile_upserts_prunes_and_clears_runtime_conflicts_when_db_provided() {
+        let Ok(url) = std::env::var("TAPP_TEST_DATABASE_URL") else {
+            return;
+        };
+        let db = Database::connect(&url).await.unwrap();
+        migration::Migrator::up(&db, None).await.unwrap();
+        let tapp_id = format!("com.example.w{}", uuid::Uuid::new_v4().simple());
+        let full = |local: &str| format_tapp_widget_id(&tapp_id, local);
+        let (owner, other) = (910_001, 910_002);
+        // Legacy source-less manifest row, an unrelated runtime row of the owner,
+        // and another user's runtime row bound to the owner's installation.
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO tapp_widgets (widget_id, tapp_id, user_id, name, config) VALUES \
+             ($1, $4, $5, 'legacy', '{}'), \
+             ($2, $4, $5, 'mine', '{\"source\":\"runtime\"}'), \
+             ($3, $4, $6, 'theirs', $7)",
+            [
+                full("old").into(),
+                full("runtime").into(),
+                full("a").into(),
+                tapp_id.as_str().into(),
+                owner.into(),
+                other.into(),
+                json!({ "source": "runtime", "installationOwnerId": owner.to_string() }).into(),
+            ],
+        ))
+        .await
+        .unwrap();
+        let previous = json!({ "widgets": [{ "id": "old" }] });
+
+        let first = manifest(&tapp_id, json!([widget("a", "A"), widget("b", "B")]));
+        reconcile_manifest_widgets(&db, owner, &tapp_id, &first, Some(&previous))
+            .await
+            .unwrap();
+        assert_eq!(
+            rows(&db, &tapp_id).await,
+            vec![
+                (owner, full("a"), "A".into(), "manifest".into()),
+                (owner, full("b"), "B".into(), "manifest".into()),
+                (owner, full("runtime"), "mine".into(), "runtime".into()),
+            ]
+        );
+
+        // Update in place, drop `b`, idempotent on repeat.
+        let second = manifest(&tapp_id, json!([widget("a", "A2")]));
+        for _ in 0..2 {
+            reconcile_manifest_widgets(&db, owner, &tapp_id, &second, None)
+                .await
+                .unwrap();
+        }
+        assert_eq!(
+            rows(&db, &tapp_id).await,
+            vec![
+                (owner, full("a"), "A2".into(), "manifest".into()),
+                (owner, full("runtime"), "mine".into(), "runtime".into()),
+            ]
+        );
+
+        reconcile_manifest_widgets(&db, owner, &tapp_id, &manifest(&tapp_id, json!([])), None)
+            .await
+            .unwrap();
+        assert_eq!(
+            rows(&db, &tapp_id).await,
+            vec![(owner, full("runtime"), "mine".into(), "runtime".into())]
+        );
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "DELETE FROM tapp_widgets WHERE tapp_id = $1",
+            [tapp_id.as_str().into()],
+        ))
+        .await
+        .unwrap();
+    }
 }
