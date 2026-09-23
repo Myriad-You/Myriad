@@ -365,8 +365,8 @@ END $$;
 /// missing. No `ALTER TABLE`. Safe for every production boot.
 ///
 /// **Opt-in apply (`MYRIAD_FEDERATION_APPLY_FKS=1` or `true`):**
-/// 1. Skip if the constraint already exists.
-/// 2. Count orphans (SELECT only).
+/// 1. Skip if the constraint already exists (one `pg_constraint` query for all).
+/// 2. Count orphans for the missing ones (SELECT only, one UNION ALL query).
 /// 3. If orphans > 0 → warn and **skip** (still no DELETE / SET NULL).
 /// 4. If orphans = 0 → `ALTER TABLE … ADD CONSTRAINT`.
 ///
@@ -598,38 +598,66 @@ ALTER TABLE federation_file_transfers
 
     let mut missing_clean: u32 = 0;
     let mut missing_orphans: u32 = 0;
-    let mut present: u32 = 0;
 
-    for fk in FKS {
-        let exists = db
-            .query_one_raw(sea_orm::Statement::from_sql_and_values(
-                sea_orm::DatabaseBackend::Postgres,
-                r#"
-SELECT 1 AS ok
-FROM information_schema.table_constraints
-WHERE table_schema = 'public'
-  AND constraint_type = 'FOREIGN KEY'
-  AND constraint_name = $1
-LIMIT 1
+    // One catalog round-trip for every candidate constraint name.
+    let names: Vec<String> = FKS.iter().map(|fk| fk.name.to_string()).collect();
+    let existing: std::collections::HashSet<String> = db
+        .query_all_raw(sea_orm::Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            r#"
+SELECT c.conname::text AS name
+FROM pg_constraint c
+JOIN pg_namespace n ON n.oid = c.connamespace
+WHERE n.nspname = 'public'
+  AND c.contype = 'f'
+  AND c.conname::text = ANY($1)
 "#,
-                vec![fk.name.into()],
-            ))
-            .await?;
-        if exists.is_some() {
-            present += 1;
-            continue;
-        }
+            [names.into()],
+        ))
+        .await?
+        .iter()
+        .map(|row| row.try_get::<String>("", "name"))
+        .collect::<Result<_, _>>()?;
 
-        let orphan_row = db
-            .query_one_raw(sea_orm::Statement::from_string(
+    let missing: Vec<&FedFk> = FKS
+        .iter()
+        .filter(|fk| !existing.contains(fk.name))
+        .collect();
+    let present = (FKS.len() - missing.len()) as u32;
+
+    // One orphan-count round-trip for the missing ones only. Branch SQL is the
+    // static `orphan_sql` above; `idx` maps each row back to `missing`.
+    let mut orphan_counts: Vec<Option<i64>> = vec![None; missing.len()];
+    if !missing.is_empty() {
+        let sql = missing
+            .iter()
+            .enumerate()
+            .map(|(idx, fk)| {
+                format!("SELECT {idx}::int AS idx, q.orphans FROM ({}) AS q", fk.orphan_sql)
+            })
+            .collect::<Vec<_>>()
+            .join("\nUNION ALL\n");
+        let rows = db
+            .query_all_raw(sea_orm::Statement::from_string(
                 sea_orm::DatabaseBackend::Postgres,
-                fk.orphan_sql.to_string(),
+                sql,
             ))
             .await?;
-        let orphans: i64 = orphan_row
-            .as_ref()
-            .and_then(|r| r.try_get::<i64>("", "orphans").ok())
-            .unwrap_or(0);
+        for row in rows {
+            let idx: i32 = row.try_get("", "idx")?;
+            let orphans: i64 = row.try_get("", "orphans")?;
+            let slot = usize::try_from(idx)
+                .ok()
+                .and_then(|idx| orphan_counts.get_mut(idx))
+                .ok_or_else(|| DbErr::Custom(format!("unexpected orphan-count row {idx}")))?;
+            *slot = Some(orphans);
+        }
+    }
+
+    for (fk, orphans) in missing.into_iter().zip(orphan_counts) {
+        let orphans = orphans.ok_or_else(|| {
+            DbErr::Custom(format!("orphan count missing for constraint {}", fk.name))
+        })?;
 
         if orphans > 0 {
             missing_orphans += 1;
