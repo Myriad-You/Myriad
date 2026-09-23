@@ -417,7 +417,8 @@ enum InvalidCredential {
 /// Absence is anonymous; a presented credential must pass the same resolver as
 /// [`auth_middleware`] and is otherwise rejected. A valid subject lands in the
 /// extensions as `Claims` and [`OptionalClaims`]; [`CurrentAdminVerified`] is
-/// added only after [`ensure_current_admin_on`] succeeds.
+/// added only after [`ensure_current_admin_on`] succeeds, [`CurrentAdminDenied`]
+/// when it answers 403.
 pub async fn optional_current_admin_auth_middleware(
     State(db): State<DatabaseConnection>,
     req: Request,
@@ -458,13 +459,13 @@ async fn optional_admin_auth(
     };
     if let Some(claims) = claims.as_ref() {
         record_user_presence(claims, db.clone());
-        // Forbidden only means "not a current admin"; anything else (database
-        // failure, malformed subject) must not silently downgrade the caller.
-        match ensure_current_admin_on(claims, &db).await {
-            Ok(()) => {
+        match current_admin_status(claims, &db).await {
+            Ok(true) => {
                 req.extensions_mut().insert(CurrentAdminVerified(()));
             }
-            Err((StatusCode::FORBIDDEN, _)) => {}
+            Ok(false) => {
+                req.extensions_mut().insert(CurrentAdminDenied(()));
+            }
             Err(error) => return error.into_response(),
         }
         req.extensions_mut().insert(claims.clone());
@@ -580,6 +581,28 @@ pub async fn admin_middleware(
 /// request; the next request is checked against the database again.
 #[derive(Clone, Copy, Debug)]
 pub struct CurrentAdminVerified(());
+
+/// Request-scoped negative counterpart of [`CurrentAdminVerified`]: the optional
+/// auth middleware already ran [`ensure_current_admin_on`] for these `Claims`
+/// and it answered 403, so `AdminClaims` rejects without a second query.
+#[derive(Clone, Copy, Debug)]
+pub struct CurrentAdminDenied(());
+
+/// Current-admin probe for callers where "not an admin" is a normal outcome.
+///
+/// `Ok(false)` only for the 403 of [`ensure_current_admin_on`]; a database
+/// failure or malformed subject propagates, so it never silently downgrades
+/// the caller to non-admin.
+pub async fn current_admin_status(
+    claims: &Claims,
+    db: &DatabaseConnection,
+) -> Result<bool, (StatusCode, Json<serde_json::Value>)> {
+    match ensure_current_admin_on(claims, db).await {
+        Ok(()) => Ok(true),
+        Err((StatusCode::FORBIDDEN, _)) => Ok(false),
+        Err(error) => Err(error),
+    }
+}
 
 /// Verify the signed admin claim against the current database state.
 ///
@@ -891,7 +914,7 @@ pub async fn bump_token_version(
     Ok(new_version)
 }
 
-fn admin_forbidden() -> (StatusCode, Json<serde_json::Value>) {
+pub(crate) fn admin_forbidden() -> (StatusCode, Json<serde_json::Value>) {
     (
         StatusCode::FORBIDDEN,
         Json(json!({
@@ -1059,16 +1082,7 @@ pub async fn optional_auth_middleware(
 pub fn verify_jwt_token(headers: &HeaderMap) -> Result<Claims, Box<Response>> {
     let token = extract_auth_token(headers).ok_or_else(|| {
         tracing::debug!("Missing or invalid Authorization header/cookie");
-        Box::new(
-            (
-                StatusCode::UNAUTHORIZED,
-                Json(json!({
-                    "error": "Unauthorized",
-                    "message": "Missing or invalid authorization token. Please login first."
-                })),
-            )
-                .into_response(),
-        )
+        Box::new(missing_credential().into_response())
     })?;
 
     // Get JWT secret
@@ -1107,6 +1121,19 @@ pub fn verify_jwt_token(headers: &HeaderMap) -> Result<Claims, Box<Response>> {
     })?;
 
     Ok(token_data.claims)
+}
+
+/// The 401 that [`auth_middleware`] returns when no credential was sent.
+/// Shared with `AdminClaims` so admin routes behind optional auth answer a
+/// credential-less request in the same shape.
+pub(crate) fn missing_credential() -> (StatusCode, Json<serde_json::Value>) {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(json!({
+            "error": "Unauthorized",
+            "message": "Missing or invalid authorization token. Please login first."
+        })),
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2012,6 +2039,15 @@ mod tests {
             .await
             .expect_err("without the proof the current admin check hits the DB");
         assert_eq!(error.0, StatusCode::INTERNAL_SERVER_ERROR);
+
+        // Optional auth already answered 403: reject without a second query
+        // (the disconnected DB would turn a re-check into 500).
+        let mut parts = request(false);
+        parts.extensions.insert(super::CurrentAdminDenied(()));
+        let error = crate::extract::AdminClaims::from_request_parts(&mut parts, &state)
+            .await
+            .expect_err("a denied proof rejects");
+        assert_eq!(error.0, StatusCode::FORBIDDEN);
     }
 
     #[test]
@@ -2031,9 +2067,18 @@ mod tests {
             .nth(1)
             .and_then(|rest| rest.split("\n}\n").next())
             .expect("optional_admin_auth");
-        let check = optional.find("ensure_current_admin_on(").expect("check");
+        let check = optional.find("current_admin_status(").expect("check");
         let proof = optional.find("CurrentAdminVerified(())").expect("proof");
         assert!(check < proof);
         assert_eq!(optional.matches("CurrentAdminVerified(())").count(), 1);
+
+        // Only the 403 of the live check becomes "not an admin"; the rest fails.
+        let status = src
+            .split("pub async fn current_admin_status(")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}\n").next())
+            .expect("current_admin_status");
+        assert!(status.contains("ensure_current_admin_on("));
+        assert!(status.contains("Err((StatusCode::FORBIDDEN, _)) => Ok(false)"));
     }
 }

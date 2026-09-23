@@ -131,10 +131,31 @@ impl<S: Send + Sync> FromRequestParts<S> for OptionalViewer {
 /// 当前仍然是管理员的调用者。
 ///
 /// 5 个 ring 写端点 + `federation_update_trust_policy` 的路由只有 router 级 `auth_middleware`，`AdminClaims` 是它们唯一的管理员防线。
-/// 与 `admin_middleware` 叠加时复用其本请求核验标记，不再二次查库；否则由 `ensure_current_admin_on`
-/// 回查数据库，不只看 JWT `is_admin`。
+/// 与 `admin_middleware` / 可选认证中间件叠加时复用其本请求核验结果（通过或 403），不再二次查库；
+/// 否则由 `ensure_current_admin_on` 回查数据库，不只看 JWT `is_admin`。
+///
+/// 可选认证路由上未带凭据时，401 与 `auth_middleware` 缺凭据的响应同形。
 #[derive(Debug)]
 pub struct AdminClaims(pub Claims);
+
+/// 取已认证 claims；可选认证中间件已判定「未带凭据」时给 `auth_middleware` 同形 401。
+fn admin_subject(parts: &Parts) -> Result<Claims, (StatusCode, Json<Value>)> {
+    if let Some(claims) = parts.extensions.get::<Claims>() {
+        return Ok(claims.clone());
+    }
+    if matches!(
+        parts
+            .extensions
+            .get::<crate::middleware::auth::OptionalClaims>(),
+        Some(crate::middleware::auth::OptionalClaims(None))
+    ) {
+        return Err(crate::middleware::auth::missing_credential());
+    }
+    Err((
+        StatusCode::UNAUTHORIZED,
+        Json(AppError::public_json("Not authenticated")),
+    ))
+}
 
 /// Full-mode: admin check uses AppState DB (no process global).
 impl FromRequestParts<crate::state::AppState> for AdminClaims {
@@ -144,13 +165,20 @@ impl FromRequestParts<crate::state::AppState> for AdminClaims {
         parts: &mut Parts,
         state: &crate::state::AppState,
     ) -> Result<Self, Self::Rejection> {
-        let AuthedClaims(claims) = AuthedClaims::from_request_parts(parts, state).await?;
+        let claims = admin_subject(parts)?;
         if parts
             .extensions
             .get::<crate::middleware::auth::CurrentAdminVerified>()
             .is_some()
         {
             return Ok(AdminClaims(claims));
+        }
+        if parts
+            .extensions
+            .get::<crate::middleware::auth::CurrentAdminDenied>()
+            .is_some()
+        {
+            return Err(crate::middleware::auth::admin_forbidden());
         }
         let db = state.db().ok_or_else(db_unavailable)?;
         crate::middleware::auth::ensure_current_admin_on(&claims, &db).await?;
@@ -166,7 +194,7 @@ impl FromRequestParts<()> for AdminClaims {
     type Rejection = (StatusCode, Json<Value>);
 
     async fn from_request_parts(parts: &mut Parts, state: &()) -> Result<Self, Self::Rejection> {
-        let AuthedClaims(claims) = AuthedClaims::from_request_parts(parts, state).await?;
+        let claims = admin_subject(parts)?;
         if !claims.is_admin {
             return Err((
                 StatusCode::FORBIDDEN,
@@ -258,6 +286,17 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(err.0, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn admin_claims_answers_a_credential_less_optional_request_like_auth_middleware() {
+        // 可选认证中间件判定未带凭据 → 与 auth_middleware 缺凭据同形 401
+        let mut parts = parts_with(Some(crate::middleware::auth::OptionalClaims(None)));
+        let err = AdminClaims::from_request_parts(&mut parts, &())
+            .await
+            .unwrap_err();
+        assert_eq!(err.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(err.1.0, crate::middleware::auth::missing_credential().1.0);
     }
 
     /// 每个管理端点的签名里都必须带 `AdminClaims`。

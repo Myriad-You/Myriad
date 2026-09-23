@@ -45,22 +45,21 @@ fn phantasiai_store_failed(
 
 /// 创建 Phantasiai API 路由
 ///
-/// 所有路由都挂宽松的可选认证：无效 / 过期 / 已撤销凭据当游客（缓存读一直如此），
-/// 有效凭据注入 Claims，当前管理员再带本请求的核验标记。
+/// 缓存读（注释 / 播客）挂宽松的可选认证：无效 / 过期 / 已撤销凭据当游客（缓存读
+/// 一直如此），有效凭据注入 Claims，当前管理员再带本请求的核验标记。
+///
+/// 管理员专用写路由挂 `admin_middleware`：缺凭据、无效凭据与非管理员的响应与其余
+/// 必需认证路由一致，不会先被降级成游客再报 "Not authenticated"。
 pub fn create_phantasiai_routes(
     app_state: crate::state::AppState,
 ) -> Router<crate::state::AppState> {
-    Router::<crate::state::AppState>::new()
+    let admin = Router::<crate::state::AppState>::new()
         .route("/notes/edit", post(note_edit::edit_note))
-        // 获取文章注释：缓存命中即返回；无缓存仅管理员生成
-        .route("/items/{item_id}/annotations", get(get_annotations))
         // 重新生成注释
         .route(
             "/items/{item_id}/annotations/regenerate",
             post(regenerate_annotations),
         )
-        // AI 播客：生成对话式文稿
-        .route("/items/{item_id}/podcast", get(get_podcast_script))
         // AI 播客：强制重新生成
         .route(
             "/items/{item_id}/podcast/regenerate",
@@ -69,9 +68,19 @@ pub fn create_phantasiai_routes(
         // AI 风格标签：为订阅源生成风格标签
         .route("/sources/{source_id}/style-tags", post(generate_style_tags))
         .route_layer(axum::middleware::from_fn_with_state(
+            app_state.clone(),
+            crate::middleware::auth::admin_middleware,
+        ));
+    Router::<crate::state::AppState>::new()
+        // 获取文章注释：缓存命中即返回；无缓存仅管理员生成
+        .route("/items/{item_id}/annotations", get(get_annotations))
+        // AI 播客：生成对话式文稿
+        .route("/items/{item_id}/podcast", get(get_podcast_script))
+        .route_layer(axum::middleware::from_fn_with_state(
             app_state,
             crate::middleware::auth::lenient_current_admin_auth_middleware,
         ))
+        .merge(admin)
 }
 
 // 注释类型
