@@ -46,7 +46,7 @@ pub(crate) async fn deliver_activity(
     username: &str,
     target_inbox: &str,
     target_domain: &str,
-    body: &[u8],
+    body: Vec<u8>,
     stored_key_id: Option<&str>,
     activity_type: &str,
 ) -> Result<(), DeliveryAttemptError> {
@@ -69,7 +69,7 @@ pub(crate) async fn deliver_activity(
         host: &host_header,
         path: &path,
         method: "POST",
-        body: Some(body),
+        body: Some(&body),
     };
 
     let signed = sign_request(keypair, &params)
@@ -97,7 +97,7 @@ pub(crate) async fn deliver_activity(
         .header("Digest", &signed.digest.unwrap_or_default())
         .header("Signature", &signed.signature)
         .header("Content-Type", AP_CONTENT_TYPE)
-        .body(body.to_vec())
+        .body(body)
         .send()
         .await
         .map_err(|e| DeliveryAttemptError::remote(format!("Request failed: {}", e)))?;

@@ -888,7 +888,7 @@ pub async fn process_delivery_queue_detailed(
                     &sign_username,
                     &target_inbox,
                     &target_domain,
-                    &body_bytes,
+                    body_bytes,
                     loaded.stored_key_id.as_deref(),
                     &activity_type,
                 )
