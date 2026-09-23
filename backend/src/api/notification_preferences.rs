@@ -150,8 +150,31 @@ mod tests {
             .0;
         assert_eq!(first["preferences"]["sources"]["phantasi"], false);
         assert_eq!(second["preferences"]["sources"]["phantasi"], true);
-        assert_eq!(first["catalog"]["sources"].as_array().unwrap().len(), 8);
-        assert_eq!(first["catalog"]["events"].as_array().unwrap().len(), 28);
+        // The API must expose the whole catalog, in order; the catalog itself grows
+        // whenever a producer gains a new event, so compare against it directly.
+        assert_eq!(first["catalog"]["sources"], json!(SOURCE_KEYS));
+        let event_keys: Vec<&str> = first["catalog"]["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|event| event["key"].as_str().unwrap())
+            .collect();
+        let catalog_keys: Vec<&str> = EVENT_DEFINITIONS.iter().map(|event| event.key).collect();
+        assert_eq!(event_keys, catalog_keys);
+        assert_eq!(
+            catalog_keys
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            catalog_keys.len(),
+            "event keys must be unique"
+        );
+        assert!(
+            EVENT_DEFINITIONS
+                .iter()
+                .all(|event| SOURCE_KEYS.contains(&event.source)),
+            "every event must belong to a declared source"
+        );
 
         db.execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
