@@ -90,11 +90,6 @@ struct MaintenanceFile {
     from_version: Option<String>,
     #[serde(default)]
     to_version: Option<String>,
-    // `started_at` is part of the on-disk schema but not surfaced in maintenance HTML.
-    // Keep it so deserialization stays forward-compatible.
-    #[serde(default)]
-    #[allow(dead_code)]
-    started_at: Option<DateTime<Utc>>,
     #[serde(default)]
     updated_at: Option<DateTime<Utc>>,
     #[serde(default)]
@@ -1344,6 +1339,32 @@ async fn proxy_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn maintenance_file_ignores_writer_only_started_at() {
+        let with_started: MaintenanceFile = serde_json::from_str(
+            r#"{"active":true,"phase":"migrating","from_version":"0.5.3","to_version":"0.5.4",
+                "started_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:01:00Z",
+                "message_key":"update"}"#,
+        )
+        .unwrap();
+        let without_started: MaintenanceFile = serde_json::from_str(
+            r#"{"active":true,"phase":"migrating","from_version":"0.5.3","to_version":"0.5.4",
+                "updated_at":"2026-01-01T00:01:00Z","message_key":"update"}"#,
+        )
+        .unwrap();
+        for m in [with_started, without_started] {
+            assert!(m.active);
+            assert_eq!(m.phase.as_deref(), Some("migrating"));
+            assert_eq!(m.from_version.as_deref(), Some("0.5.3"));
+            assert_eq!(m.to_version.as_deref(), Some("0.5.4"));
+            assert_eq!(
+                m.updated_at,
+                Some("2026-01-01T00:01:00Z".parse::<DateTime<Utc>>().unwrap())
+            );
+            assert_eq!(m.message_key.as_deref(), Some("update"));
+        }
+    }
 
     #[test]
     fn federation_routing_covers_objects_without_stealing_spa_indexes() {
