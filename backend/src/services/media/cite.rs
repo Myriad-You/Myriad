@@ -558,6 +558,26 @@ pub async fn publish_local_url(
         .unwrap_or_else(|| url.to_string()))
 }
 
+/// Saving a wallpaper is publication; bind it in the same transaction as config.
+pub async fn bind_and_publish_wallpaper(
+    txn: &impl ConnectionTrait,
+    url: &str,
+    origins: &[String],
+) -> Result<String, MediaError> {
+    let local = cite_local_path(url, origins);
+    let published = publish_local_url(txn, local.as_deref().unwrap_or(url), origins).await?;
+    let refs = references_from_urls(
+        txn,
+        origins,
+        std::slice::from_ref(&published),
+        |_| "image".into(),
+        true,
+    )
+    .await?;
+    bind_consumer(txn, "site_wallpaper", "site", &refs).await?;
+    Ok(published)
+}
+
 pub async fn publish_asset_ids(
     txn: &impl ConnectionTrait,
     ids: &[i32],

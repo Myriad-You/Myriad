@@ -1894,5 +1894,8 @@
   "aiApiFormatGemini": "Gemini generateContent API",
   "aiVendorCustom": "カスタムプロバイダー",
   "aiVendorCustomDesc": "プリセット一覧にないプロバイダーを追加します",
-  "aiVendorSetupMissing": "設定が必要"
+  "aiVendorSetupMissing": "設定が必要",
+  "wallpaperMediaChoose": "メディアから選択",
+  "wallpaperMediaPublishHint": "設定を保存すると、この画像が壁紙として公開されます。",
+  "wallpaperMediaMore": "さらに読み込む"
 }

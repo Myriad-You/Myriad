@@ -1996,5 +1996,8 @@
   "aiApiFormatGemini": "Gemini generateContent API",
   "aiVendorCustom": "自訂服務商",
   "aiVendorCustomDesc": "新增預設清單中沒有的服務商",
-  "aiVendorSetupMissing": "需要設定"
+  "aiVendorSetupMissing": "需要設定",
+  "wallpaperMediaChoose": "從媒體庫選擇",
+  "wallpaperMediaPublishHint": "儲存設定後，這張圖片將公開用作桌布。",
+  "wallpaperMediaMore": "繼續載入"
 }

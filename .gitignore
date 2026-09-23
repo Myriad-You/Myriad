@@ -337,3 +337,8 @@ backend/data/.bootstrap-claimed
 !frontend/tests/browser/friendLinks.spec.ts
 !frontend/tests/browser/fixture/friendLinks.html
 !frontend/tests/browser/fixture/friendLinks.tsx
+
+# Wallpaper selection browser regression
+!/frontend/tests/browser/wallpaperMedia.spec.ts
+!/frontend/tests/browser/fixture/wallpaperMedia.html
+!/frontend/tests/browser/fixture/wallpaperMedia.tsx

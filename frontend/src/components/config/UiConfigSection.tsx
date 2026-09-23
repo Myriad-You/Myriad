@@ -39,6 +39,7 @@ import {
 import { SettingItemWrapper } from '../settings/items/SettingItemWrapper'
 import { SettingTitleTag } from '../settings/SettingTitleTag'
 import { SiteUrlField } from './SiteUrlField'
+import { WallpaperMediaPicker } from './WallpaperMediaPicker'
 import './UiConfigSection.css'
 
 const EdgeOneIcon: React.FC = () => (
@@ -894,20 +895,22 @@ export const UiConfigSection: React.FC<UiConfigSectionProps> = ({
               layout="vertical"
             />
           ) : (
-            <InputItem
-              key={field.key}
-              itemKey={field.key}
-              label={getFieldLabel(field.key, field.label)}
-              required={field.required}
-              value={field.value}
-              onChange={(v) => updateValue(field.key, v)}
-              placeholder={getFieldPlaceholder(field.key, field.placeholder)}
-              inputType={
-                field.field_type as 'text' | 'password' | 'url' | 'email'
-              }
-              {...bindGuide('ui.wallpaper', g.ui.wallpaper)}
-              layout="vertical"
-            />
+            <React.Fragment key={field.key}>
+              <InputItem
+                itemKey={field.key}
+                label={getFieldLabel(field.key, field.label)}
+                required={field.required}
+                value={field.value}
+                onChange={(v) => updateValue(field.key, v)}
+                placeholder={getFieldPlaceholder(field.key, field.placeholder)}
+                inputType={
+                  field.field_type as 'text' | 'password' | 'url' | 'email'
+                }
+                {...bindGuide('ui.wallpaper', g.ui.wallpaper)}
+                layout="vertical"
+              />
+              <WallpaperMediaPicker onSelect={(url) => updateValue(field.key, url)} />
+            </React.Fragment>
           ),
         )}
       </SettingGroup>

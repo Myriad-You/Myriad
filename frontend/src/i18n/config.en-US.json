@@ -1910,5 +1910,8 @@
   "aiApiFormatGemini": "Gemini generateContent API",
   "aiVendorCustom": "Custom provider",
   "aiVendorCustomDesc": "Add a provider that is not in the preset list",
-  "aiVendorSetupMissing": "Needs setup"
+  "aiVendorSetupMissing": "Needs setup",
+  "wallpaperMediaChoose": "Choose from media library",
+  "wallpaperMediaPublishHint": "Saving settings publishes this image as the wallpaper.",
+  "wallpaperMediaMore": "Load more"
 }

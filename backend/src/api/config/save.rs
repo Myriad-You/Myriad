@@ -1,6 +1,6 @@
 //! Persist admin config to the database and deploy-key `.env` writes.
 use axum::{Json, extract::State};
-use sea_orm::DatabaseConnection;
+use sea_orm::{DatabaseConnection, TransactionTrait};
 use serde_json::{Value, json};
 
 use super::build::reconcile_platform_auto_refresh;
@@ -24,7 +24,7 @@ pub async fn update_config(
 
     // 1. 保存到数据库
     let config_service = crate::services::config_service::ConfigService::new(db.clone());
-    match save_to_database(&config_service, &payload).await {
+    match save_to_database(&db, &payload).await {
         Ok(()) => {}
         Err(ConfigPersistError::Invalid(message)) => {
             tracing::warn!(%message, "rejected invalid configuration");
@@ -122,17 +122,30 @@ enum ConfigPersistError {
 
 /// 保存配置到数据库
 async fn save_to_database(
-    config_service: &crate::services::config_service::ConfigService,
+    db: &DatabaseConnection,
     config: &ConfigResponse,
 ) -> Result<(), ConfigPersistError> {
     let vendor_snapshot = crate::GLOBAL_DYNAMIC_CONFIG
         .read()
         .await
         .effective_vendor_sources();
-    let updates = collect_database_updates_with_vendor(config, Ok(vendor_snapshot))
+    let mut updates = collect_database_updates_with_vendor(config, Ok(vendor_snapshot))
         .map_err(ConfigPersistError::Invalid)?;
-    config_service
-        .update_configs(updates)
+    let txn = db
+        .begin()
+        .await
+        .map_err(|error| ConfigPersistError::Store(error.to_string()))?;
+    if let Some(url) = updates.get("ui_wallpaper_url").and_then(Value::as_str) {
+        let origins = vec![crate::oauth_url_builder::SiteConfig::get_base_url().await];
+        let published = crate::services::media::bind_and_publish_wallpaper(&txn, url, &origins)
+            .await
+            .map_err(|error| ConfigPersistError::Store(error.to_string()))?;
+        updates.insert("ui_wallpaper_url".into(), json!(published));
+    }
+    crate::services::config_service::ConfigService::update_configs_on(&txn, updates)
+        .await
+        .map_err(|error| ConfigPersistError::Store(error.to_string()))?;
+    txn.commit()
         .await
         .map_err(|error| ConfigPersistError::Store(error.to_string()))?;
     Ok(())
@@ -584,10 +597,7 @@ pub(crate) fn collect_database_updates_with_vendor(
                 if !parsed.is_array() {
                     return Err("ai_vendor_sources must be a JSON array".to_string());
                 }
-                let parsed = merge_vendor_source_secrets_with(
-                    parsed,
-                    vendor_existing.clone(),
-                )?;
+                let parsed = merge_vendor_source_secrets_with(parsed, vendor_existing.clone())?;
                 ("ai_vendor_sources", parsed)
             }
             _ => continue,

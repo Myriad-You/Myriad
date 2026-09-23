@@ -1996,5 +1996,8 @@
   "aiApiFormatGemini": "Gemini generateContent API",
   "aiVendorCustom": "自定义服务商",
   "aiVendorCustomDesc": "添加预设列表中没有的服务商",
-  "aiVendorSetupMissing": "需要配置"
+  "aiVendorSetupMissing": "需要配置",
+  "wallpaperMediaChoose": "从媒体库选择",
+  "wallpaperMediaPublishHint": "保存设置后，这张图片将公开用作壁纸。",
+  "wallpaperMediaMore": "继续加载"
 }

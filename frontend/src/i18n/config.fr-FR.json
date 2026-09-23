@@ -1911,5 +1911,8 @@
   "aiApiFormatGemini": "API Gemini generateContent",
   "aiVendorCustom": "Fournisseur personnalisé",
   "aiVendorCustomDesc": "Ajouter un fournisseur absent des préréglages",
-  "aiVendorSetupMissing": "Configuration requise"
+  "aiVendorSetupMissing": "Configuration requise",
+  "wallpaperMediaChoose": "Choisir dans les médias",
+  "wallpaperMediaPublishHint": "Enregistrer publie cette image comme fond d’écran.",
+  "wallpaperMediaMore": "Charger plus"
 }

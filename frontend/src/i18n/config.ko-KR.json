@@ -1907,5 +1907,8 @@
   "aiApiFormatGemini": "Gemini generateContent API",
   "aiVendorCustom": "사용자 지정 제공자",
   "aiVendorCustomDesc": "프리셋 목록에 없는 제공자를 추가합니다",
-  "aiVendorSetupMissing": "설정 필요"
+  "aiVendorSetupMissing": "설정 필요",
+  "wallpaperMediaChoose": "미디어에서 선택",
+  "wallpaperMediaPublishHint": "설정을 저장하면 이 이미지가 배경화면으로 공개됩니다.",
+  "wallpaperMediaMore": "더 불러오기"
 }

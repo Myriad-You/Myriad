@@ -1383,3 +1383,107 @@ ALTER TABLE metadata_history DROP COLUMN old_data, DROP COLUMN new_data;
     assert_eq!(body["activities"][0]["change_count"], 3);
     f.close().await;
 }
+
+#[tokio::test]
+async fn wallpaper_publication_and_references_commit_together() {
+    let Some(f) = Fixture::new().await else {
+        return;
+    };
+    let image = f.image().await;
+    let txn = f.db.begin().await.unwrap();
+    let url = bind_and_publish_wallpaper(&txn, &image.content_path, &[])
+        .await
+        .unwrap();
+    assert!(url.starts_with("/media/assets/"));
+    txn.rollback().await.unwrap();
+    let row = assets::find_by_id(&f.db, image.id).await.unwrap().unwrap();
+    assert_eq!(row.exposure.as_deref(), Some("private"));
+    let txn = f.db.begin().await.unwrap();
+    let url = bind_and_publish_wallpaper(&txn, &image.content_path, &[])
+        .await
+        .unwrap();
+    txn.commit().await.unwrap();
+    let filename = url.rsplit('/').next().unwrap();
+    let outcome = resolve_public_asset(&f.db, f.service.store(), image.public_id, filename)
+        .await
+        .unwrap();
+    let ServeOutcome::File(file) = outcome else {
+        panic!("published wallpaper must be readable")
+    };
+    assert_eq!(tokio::fs::read(file.path).await.unwrap(), png());
+    assert!(matches!(
+        f.service.delete(&f.db, image.id).await,
+        Err(MediaError::InUse)
+    ));
+    let txn = f.db.begin().await.unwrap();
+    bind_and_publish_wallpaper(&txn, "", &[]).await.unwrap();
+    txn.commit().await.unwrap();
+    assert_eq!(
+        f.service.delete(&f.db, image.id).await.unwrap(),
+        DeleteOutcome::Deleted
+    );
+    f.close().await;
+}
+
+#[tokio::test]
+async fn generated_portrait_and_sticker_urls_serve_real_bytes_after_publication() {
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode},
+    };
+    let Some(f) = Fixture::new().await else {
+        return;
+    };
+    for filename in ["portrait.png", "sticker.png", "note.png"] {
+        let (image, _) = f
+            .service
+            .persist_ready_bytes(
+                &f.db,
+                MediaContext::site(MediaActor::admin(1).unwrap(), MediaSource::Generated),
+                NewMediaBytes {
+                    bytes: png().into(),
+                    claimed_mime: "image/png".into(),
+                    filename: filename.into(),
+                    max_bytes: 1024 * 1024,
+                    derived_from_id: None,
+                    exposure: MediaExposure::Private,
+                },
+            )
+            .await
+            .unwrap();
+        let txn = f.db.begin().await.unwrap();
+        let public = publish_local_url(&txn, &image.catalog_url(), &[])
+            .await
+            .unwrap();
+        txn.commit().await.unwrap();
+        let catalog = crate::services::media_catalog::list_assets(&f.db, &Default::default())
+            .await
+            .unwrap();
+        let item = catalog
+            .items
+            .iter()
+            .find(|item| item.id == image.id)
+            .unwrap();
+        assert_eq!(item.public_path.as_deref(), Some(public.as_str()));
+        let outcome = resolve_public_asset(
+            &f.db,
+            f.service.store(),
+            image.public_id,
+            public.rsplit('/').next().unwrap(),
+        )
+        .await
+        .unwrap();
+        let response = crate::api::media_public::send_media_outcome(
+            Request::builder().uri(&public).body(Body::empty()).unwrap(),
+            outcome,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["content-type"], "image/png");
+        assert_eq!(
+            &to_bytes(response.into_body(), 1024 * 1024).await.unwrap()[..],
+            png()
+        );
+    }
+    f.close().await;
+}

@@ -1963,5 +1963,8 @@
   "aiApiFormatGemini": "Gemini generateContent API",
   "aiVendorCustom": "Eigener Anbieter",
   "aiVendorCustomDesc": "Einen Anbieter hinzufügen, der nicht in den Vorlagen steht",
-  "aiVendorSetupMissing": "Einrichtung erforderlich"
+  "aiVendorSetupMissing": "Einrichtung erforderlich",
+  "wallpaperMediaChoose": "Aus Mediathek wählen",
+  "wallpaperMediaPublishHint": "Beim Speichern wird dieses Bild als Hintergrund veröffentlicht.",
+  "wallpaperMediaMore": "Mehr laden"
 }
