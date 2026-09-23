@@ -692,3 +692,189 @@ mod tests {
         assert_eq!(EventError::TopicNotDeclared.status_hint(), 403);
     }
 }
+
+#[cfg(test)]
+mod delivery_db_tests {
+    use super::*;
+    use sea_orm::ConnectionTrait;
+
+    /// Connect to `MYRIAD_RUNTIME_ISOLATION_TEST_DB` inside a fresh UUID schema.
+    async fn isolated_db(
+        prefix: &str,
+    ) -> (
+        sea_orm::DatabaseConnection,
+        sea_orm::DatabaseConnection,
+        String,
+    ) {
+        use sea_orm::{ConnectOptions, ConnectionTrait, Database};
+        let url = std::env::var("MYRIAD_RUNTIME_ISOLATION_TEST_DB").unwrap();
+        let admin = Database::connect(&url).await.unwrap();
+        let schema_name = format!("{prefix}_{}", uuid::Uuid::new_v4().simple());
+        admin
+            .execute_unprepared(&format!("CREATE SCHEMA {schema_name}"))
+            .await
+            .unwrap();
+        let mut options = ConnectOptions::new(url);
+        options.max_connections(2).map_sqlx_postgres_opts({
+            let schema_name = schema_name.clone();
+            move |options| options.options([("search_path", schema_name.as_str())])
+        });
+        let db = Database::connect(options).await.unwrap();
+        db.execute_unprepared(
+            "CREATE TABLE tapp_runtime_registry (namespace VARCHAR(64) NOT NULL, \
+             record_id VARCHAR(160) NOT NULL, subject_id INTEGER, owner_id INTEGER, \
+             tapp_id VARCHAR(255), runtime_id VARCHAR(160), payload JSONB NOT NULL, \
+             expires_at BIGINT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), \
+             PRIMARY KEY (namespace, record_id)); \
+             CREATE TABLE tapp_runtime_mailbox (message_id BIGSERIAL PRIMARY KEY, \
+             channel TEXT NOT NULL, runtime_id TEXT NOT NULL, payload JSONB NOT NULL, \
+             expires_at BIGINT NOT NULL); \
+             CREATE TABLE users (id INTEGER PRIMARY KEY, is_admin BOOLEAN); \
+             CREATE TABLE tapps (id SERIAL PRIMARY KEY, tapp_id VARCHAR(255) NOT NULL, \
+             user_id INTEGER NOT NULL)",
+        )
+        .await
+        .unwrap();
+        (admin, db, schema_name)
+    }
+
+    async fn drop_schema(admin: &sea_orm::DatabaseConnection, schema_name: &str) {
+        use sea_orm::ConnectionTrait;
+        admin
+            .execute_unprepared(&format!("DROP SCHEMA {schema_name} CASCADE"))
+            .await
+            .unwrap();
+    }
+
+    fn runtime(runtime_id: &str, subject_id: i32) -> EventRuntime {
+        EventRuntime {
+            runtime_id: runtime_id.into(),
+            tapp_id: "com.example.events".into(),
+            owner_id: 1,
+            subject_id,
+        }
+    }
+
+    fn event(scope: EventScope, topic: &str, source: &EventRuntime) -> TappEventEnvelope {
+        TappEventEnvelope {
+            version: 2,
+            event_id: "evt_test".into(),
+            topic: topic.into(),
+            scope,
+            source: EventSource {
+                tapp_id: source.tapp_id.clone(),
+                runtime_id: source.runtime_id.clone(),
+            },
+            payload: serde_json::json!({}),
+            occurred_at: Utc::now().to_rfc3339(),
+            dedupe_key: None,
+        }
+    }
+
+    async fn mailbox(db: &sea_orm::DatabaseConnection) -> Vec<String> {
+        let rows = db
+            .query_all_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT runtime_id FROM tapp_runtime_mailbox WHERE channel = 'event' ORDER BY runtime_id",
+            ))
+            .await
+            .unwrap();
+        rows.iter()
+            .map(|row| row.try_get::<String>("", "runtime_id").unwrap())
+            .collect()
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a disposable MYRIAD_RUNTIME_ISOLATION_TEST_DB"]
+    async fn delivery_targets_live_subscribed_presence_only() {
+        let (admin, db, schema_name) = isolated_db("events").await;
+        let live = Utc::now().timestamp() + 600;
+        let topic = "tapp.com.example.events.changed";
+        let subscribed = HashSet::from([topic.to_string()]);
+        for (runtime_id, subject_id, topics, expires_at) in [
+            ("rt_a", 7, subscribed.clone(), live),
+            ("rt_b", 7, subscribed.clone(), live),
+            ("rt_c", 8, subscribed.clone(), live),
+            ("rt_d", 7, HashSet::from(["tapp.other".to_string()]), live),
+            (
+                "rt_expired",
+                7,
+                subscribed.clone(),
+                Utc::now().timestamp() - 1,
+            ),
+        ] {
+            register_subscription(&db, &runtime(runtime_id, subject_id), topics, expires_at)
+                .await
+                .unwrap();
+        }
+
+        let instance = |id: &str| event(EventScope::Instance, topic, &runtime(id, 7));
+        assert_eq!(
+            deliver_event(&db, &runtime("rt_a", 7), &instance("rt_a"))
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(mailbox(&db).await, vec!["rt_a"]);
+        for silent in ["rt_d", "rt_expired", "rt_missing"] {
+            assert_eq!(
+                deliver_event(&db, &runtime(silent, 7), &instance(silent))
+                    .await
+                    .unwrap(),
+                0,
+                "{silent}"
+            );
+        }
+        assert_eq!(mailbox(&db).await, vec!["rt_a"]);
+
+        let owner = event(EventScope::Owner, topic, &runtime("rt_a", 7));
+        assert_eq!(
+            deliver_event(&db, &runtime("rt_a", 7), &owner)
+                .await
+                .unwrap(),
+            2
+        );
+        assert_eq!(mailbox(&db).await, vec!["rt_a", "rt_a", "rt_b"]);
+
+        drop_schema(&admin, &schema_name).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a disposable MYRIAD_RUNTIME_ISOLATION_TEST_DB"]
+    async fn instance_delivery_surfaces_presence_errors() {
+        let (admin, db, schema_name) = isolated_db("events_err").await;
+        db.execute_unprepared(&format!(
+            "INSERT INTO tapp_runtime_registry (namespace, record_id, subject_id, payload, expires_at)
+             VALUES ('{EVENT_PRESENCE_NAMESPACE}', 'rt_bad', 7, '\"garbage\"'::jsonb, {})",
+            Utc::now().timestamp() + 600
+        ))
+        .await
+        .unwrap();
+        let rt = runtime("rt_bad", 7);
+        let error = deliver_event(&db, &rt, &event(EventScope::Instance, "tapp.x.y", &rt))
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            EventError::Unavailable {
+                detail: UnavailableDetail::Registry
+            }
+        ));
+
+        db.execute_unprepared("DROP TABLE tapp_runtime_registry")
+            .await
+            .unwrap();
+        let error = deliver_event(&db, &rt, &event(EventScope::Instance, "tapp.x.y", &rt))
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            EventError::Unavailable {
+                detail: UnavailableDetail::Registry
+            }
+        ));
+        assert!(mailbox(&db).await.is_empty());
+
+        drop_schema(&admin, &schema_name).await;
+    }
+}
