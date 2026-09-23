@@ -1048,14 +1048,17 @@ async fn get_platform_data(
         return Ok(cached_data);
     }
 
-    // 从统一元数据服务读取（完整 JSONB；`*_chunk_N` 行会并进主记录）。
+    // 4. 从统一元数据服务只读取目标平台（`*_chunk_N` 行会并进主记录）。
     let metadata_service = crate::services::metadata_service::MetadataService::new(db.clone());
-    if let Ok(all_metadata) = metadata_service.get_all_latest_metadata(user_id).await {
-        if let Some(platform_data) = all_metadata.get(platform) {
+    match metadata_service
+        .get_latest_platform_metadata(user_id, platform)
+        .await
+    {
+        Ok(Some(platform_data)) => {
             tracing::info!("✓ Loaded {} from unified metadata storage", platform);
 
             // 处理并缓存该平台数据
-            let filtered_data = SmartFilter::process_and_save_single(platform, platform_data)
+            let filtered_data = SmartFilter::process_and_save_single(platform, &platform_data)
                 .map_err(|e| {
                     tracing::error!(platform, error = %e, "Failed to process platform data");
                     "Failed to process platform data".to_string()
@@ -1066,6 +1069,15 @@ async fn get_platform_data(
                 platform
             );
             return Ok(filtered_data);
+        }
+        Ok(None) => {}
+        // 数据库故障不是正常的缓存未命中：记录后按原有策略降级到 raw 文件。
+        Err(error) => {
+            tracing::warn!(
+                platform,
+                error = %error,
+                "Failed to load platform metadata; trying raw file"
+            );
         }
     }
 

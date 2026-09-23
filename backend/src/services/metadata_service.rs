@@ -4,8 +4,8 @@ use crate::services::activity_event_service::{
 };
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbErr, EntityTrait,
-    QueryFilter, QueryOrder, Set, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, DbErr,
+    EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set, TransactionTrait, sea_query::Expr,
 };
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -606,48 +606,103 @@ impl MetadataService {
         // 合并分片数据到主记录
         for (platform, chunks) in chunk_data {
             if let Some(main_data) = result.get_mut(&platform) {
-                // 检查主记录是否标记为分片
-                let is_chunked = main_data
-                    .get("_chunked")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-
-                if is_chunked {
-                    // 按分片索引排序 (HashMap -> Vec，按 key 排序)
-                    let mut sorted_chunks: Vec<_> = chunks.into_iter().collect();
-                    sorted_chunks.sort_by_key(|(idx, _)| *idx);
-                    let chunks_count = sorted_chunks.len();
-
-                    // 合并所有分片的 songs 到 liked_songs
-                    if let Some(main_songs) = main_data
-                        .get_mut("liked_songs")
-                        .and_then(|s| s.as_array_mut())
-                    {
-                        let original_count = main_songs.len();
-                        for (idx, chunk) in sorted_chunks {
-                            if let Some(chunk_songs) = chunk.get("songs").and_then(|s| s.as_array())
-                            {
-                                main_songs.extend(chunk_songs.iter().cloned());
-                                tracing::debug!(
-                                    "🎵 Merged chunk {} with {} songs",
-                                    idx,
-                                    chunk_songs.len()
-                                );
-                            }
-                        }
-                        tracing::info!(
-                            "✅ Merged {} chunks for {}: {} -> {} songs",
-                            chunks_count,
-                            platform,
-                            original_count,
-                            main_songs.len()
-                        );
-                    }
-                }
+                merge_chunk_rows(&platform, main_data, chunks);
             }
         }
 
         Ok(result)
+    }
+
+    /// 只读取一个平台的最新元数据（含其 `*_chunk_*` 分片行并合并），不读其它平台。
+    ///
+    /// 结果与 `get_all_latest_metadata(user_id).remove(platform)` 相同。
+    pub async fn get_latest_platform_metadata(
+        &self,
+        user_id: i32,
+        platform: &str,
+    ) -> Result<Option<Value>, DbErr> {
+        // 含 `_chunk_` 的名字本身就是分片行，不会作为主记录返回。
+        if platform.contains("_chunk_") {
+            return Ok(None);
+        }
+        let rows = platform_metadata::Entity::find()
+            .select_only()
+            .column(platform_metadata::Column::PlatformName)
+            .column(platform_metadata::Column::RawData)
+            .filter(platform_metadata::Column::UserId.eq(user_id))
+            .filter(
+                Condition::any()
+                    .add(platform_metadata::Column::PlatformName.eq(platform))
+                    // starts_with 按字面前缀匹配，平台名中的 `_` 不会被当作通配符。
+                    .add(Expr::cust_with_values(
+                        "starts_with(platform_name, $1)",
+                        [format!("{platform}_chunk_")],
+                    )),
+            )
+            .order_by_desc(platform_metadata::Column::FetchedAt)
+            .into_tuple::<(String, Value)>()
+            .all(&self.db)
+            .await?;
+
+        let mut main = None;
+        let mut chunks: HashMap<i32, Value> = HashMap::new();
+        for (name, raw_data) in rows {
+            if name == platform {
+                // 按 fetched_at DESC，只取第一条（最新）
+                if main.is_none() {
+                    main = Some(raw_data);
+                }
+                continue;
+            }
+            let mut parts = name.split("_chunk_");
+            if parts.next() != Some(platform) {
+                continue;
+            }
+            if let Some(idx) = parts.next().and_then(|idx| idx.parse::<i32>().ok()) {
+                chunks.entry(idx).or_insert(raw_data);
+            }
+        }
+        let Some(mut main) = main else {
+            return Ok(None);
+        };
+        merge_chunk_rows(platform, &mut main, chunks);
+        Ok(Some(main))
+    }
+}
+
+/// 主记录标记 `_chunked` 时，把分片的 `songs` 按分片序号追加到 `liked_songs`。
+fn merge_chunk_rows(platform: &str, main_data: &mut Value, chunks: HashMap<i32, Value>) {
+    let is_chunked = main_data
+        .get("_chunked")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if !is_chunked {
+        return;
+    }
+    // 按分片索引排序 (HashMap -> Vec，按 key 排序)
+    let mut sorted_chunks: Vec<_> = chunks.into_iter().collect();
+    sorted_chunks.sort_by_key(|(idx, _)| *idx);
+    let chunks_count = sorted_chunks.len();
+
+    // 合并所有分片的 songs 到 liked_songs
+    if let Some(main_songs) = main_data
+        .get_mut("liked_songs")
+        .and_then(|s| s.as_array_mut())
+    {
+        let original_count = main_songs.len();
+        for (idx, mut chunk) in sorted_chunks {
+            if let Some(Value::Array(chunk_songs)) = chunk.get_mut("songs").map(Value::take) {
+                tracing::debug!("🎵 Merged chunk {} with {} songs", idx, chunk_songs.len());
+                main_songs.extend(chunk_songs);
+            }
+        }
+        tracing::info!(
+            "✅ Merged {} chunks for {}: {} -> {} songs",
+            chunks_count,
+            platform,
+            original_count,
+            main_songs.len()
+        );
     }
 }
 
@@ -698,5 +753,93 @@ mod tests {
             save.find("txn.commit()").unwrap() < save.find("spawn_diary").unwrap(),
             "diary side effects must wait until snapshot+history commit"
         );
+    }
+}
+
+#[cfg(test)]
+mod platform_read_tests {
+    use super::*;
+    use sea_orm::{Database, DatabaseBackend, Statement};
+    use sea_orm_migration::MigratorTrait;
+
+    #[tokio::test]
+    async fn single_platform_read_matches_full_read_when_db_provided() {
+        let Ok(url) = std::env::var("METADATA_TEST_DATABASE_URL") else {
+            return;
+        };
+        let db = Database::connect(&url).await.unwrap();
+        migration::Migrator::up(&db, None).await.unwrap();
+        let user_id: i32 = db
+            .query_one_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "INSERT INTO users (username) VALUES ($1) RETURNING id",
+                [format!("metadata-{}", uuid::Uuid::new_v4().simple()).into()],
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get("", "id")
+            .unwrap();
+        let now = Utc::now().naive_utc();
+        for (name, raw) in [
+            ("netease", json!({ "_chunked": true, "liked_songs": [1] })),
+            ("netease_chunk_2", json!({ "songs": [3] })),
+            ("netease_chunk_1", json!({ "songs": [2] })),
+            ("neteasex_chunk_1", json!({ "songs": [99] })),
+            ("github", json!({ "repos": 1 })),
+        ] {
+            platform_metadata::ActiveModel {
+                user_id: Set(user_id),
+                platform_name: Set(name.into()),
+                raw_data: Set(raw),
+                fetched_at: Set(now),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            }
+            .insert(&db)
+            .await
+            .unwrap();
+        }
+        let service = MetadataService::new(db.clone());
+        let mut all = service.get_all_latest_metadata(user_id).await.unwrap();
+        let netease = service
+            .get_latest_platform_metadata(user_id, "netease")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(netease["liked_songs"], json!([1, 2, 3]));
+        assert_eq!(Some(netease), all.remove("netease"));
+        assert_eq!(
+            service
+                .get_latest_platform_metadata(user_id, "github")
+                .await
+                .unwrap(),
+            all.remove("github")
+        );
+        for missing in ["steam", "netease_chunk_1", "neteasex"] {
+            assert_eq!(
+                service
+                    .get_latest_platform_metadata(user_id, missing)
+                    .await
+                    .unwrap(),
+                None,
+                "{missing}"
+            );
+        }
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "DELETE FROM platform_metadata WHERE user_id = $1",
+            [user_id.into()],
+        ))
+        .await
+        .unwrap();
+        db.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "DELETE FROM users WHERE id = $1",
+            [user_id.into()],
+        ))
+        .await
+        .unwrap();
     }
 }
