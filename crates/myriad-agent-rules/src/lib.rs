@@ -3,6 +3,7 @@
 //! No I/O. Backend services re-export moved symbols so existing imports compile.
 
 pub mod channel;
+pub mod concept;
 pub mod data_read;
 pub mod error;
 pub mod external;
@@ -88,3 +89,5 @@ mod tests {
         assert!(over.chars().count() > IMAGE_PROMPT_MAX_CHARS);
     }
 }
+
+pub use concept::Concept;

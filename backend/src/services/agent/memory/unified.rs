@@ -18,7 +18,6 @@ use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DbErr, EntityTrait,
     ExprTrait, QueryFilter, QueryOrder, QuerySelect,
 };
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::models::entities::agent_memories;
@@ -181,24 +180,7 @@ pub fn audience_admits(original: &[i32], present: &Audience) -> bool {
     !present.members.is_empty() && present.members.iter().all(|id| original.contains(id))
 }
 
-/// Something a memory is about, with the other names people use for it, so
-/// "喵" finds the memory about the cat. Written by the same model call that
-/// wrote the memory; the aliases are that model's knowledge, not the person's
-/// words, and are used only to match, never shown as something they said.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Concept {
-    pub name: String,
-    #[serde(default)]
-    pub aliases: Vec<String>,
-}
-
-impl Concept {
-    /// Every name this concept answers to, the canonical one first.
-    pub fn surface_forms(&self) -> impl Iterator<Item = &str> {
-        std::iter::once(self.name.as_str()).chain(self.aliases.iter().map(String::as_str))
-    }
-}
+pub use myriad_agent_rules::Concept;
 
 fn clean_name(text: &str) -> Option<String> {
     let text: String = text
