@@ -717,16 +717,17 @@ fn request(case: &Case) -> Value {
         }
         "stranger_note" => {
             let (system, schema) = super::merope::strangers::note_probe_contract(&default_soul());
-            let said = |role: &str| {
-                case.history
-                    .iter()
-                    .find(|line| line.role == role)
-                    .map(|line| line.text.clone())
-                    .unwrap_or_default()
-            };
+            // Each of their lines with her answer, in order.
+            let exchanges: Vec<Value> = case
+                .history
+                .chunks(2)
+                .map(|pair| {
+                    json!({"they":pair[0].text,"you":pair.get(1).map(|line| line.text.as_str()).unwrap_or_default()})
+                })
+                .collect();
             json!({"system":system,"schema":schema,"schemaName":"merope_stranger_note",
                 "input":json!({"name":"阿明","remembered":case.remembered.first(),
-                    "exchange":{"they":said("user"),"you":said("assistant")}}).to_string()})
+                    "exchanges":exchanges}).to_string()})
         }
         "chime" => {
             let (system, schema) =
@@ -1873,7 +1874,7 @@ fn motion_semantics_require_grounded_output_and_real_review() {
     assert_eq!(input["rig"]["activeBehaviors"][0]["function"], "uncertain");
 }
 
-const MIND_CASES: usize = 95;
+const MIND_CASES: usize = 96;
 
 #[test]
 fn mind_cases_run_through_production_sections_and_contracts() {
