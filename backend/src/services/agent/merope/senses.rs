@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 use serde::Serialize;
 use serde_json::Value;
 
-const USER_AGENT: &str = "MyriadPersona/1.0 (+reading on her own)";
+const AGENT_NAME: &str = "MyriadPersona/1.0";
 /// YouTube serves its player only to a browser.
 const BROWSER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const PAGE_TIMEOUT: Duration = Duration::from_secs(20);
@@ -33,6 +33,13 @@ const MAX_PAGE_BYTES: usize = 3 * 1024 * 1024;
 const MAX_PAGE_CHARS: usize = 6_000;
 const MAX_TRANSCRIPT_CHARS: usize = 8_000;
 const VIDEO_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// Who she is when she reads: named, with the site to reach about her, as
+/// Wikimedia and polite crawling ask of automated readers.
+async fn user_agent() -> String {
+    let site = crate::oauth_url_builder::SiteConfig::get_base_url().await;
+    format!("{AGENT_NAME} (+{site}; reading on her own)")
+}
 const SEARCH_RESULTS: usize = 6;
 /// robots.txt answers are kept this long per site.
 const ROBOTS_FOR: Duration = Duration::from_secs(24 * 60 * 60);
@@ -150,7 +157,7 @@ async fn search_wikipedia(query: &str) -> Result<Vec<Hit>, String> {
     let fetched = crate::services::outbound_security::get_public_following_redirects(
         url.as_str(),
         PAGE_TIMEOUT,
-        Some(USER_AGENT),
+        Some(&user_agent().await),
     )
     .await
     .map_err(|_| "could not reach Wikipedia".to_string())?;
@@ -303,7 +310,7 @@ async fn allowed(url: &url::Url) -> bool {
             let rules = match crate::services::outbound_security::get_public_following_redirects(
                 &format!("{origin}/robots.txt"),
                 Duration::from_secs(10),
-                Some(USER_AGENT),
+                Some(&user_agent().await),
             )
             .await
             {
@@ -492,7 +499,7 @@ pub async fn read(address: &str, about: Option<&str>) -> Result<Taken, String> {
     let fetched = crate::services::outbound_security::get_public_following_redirects(
         address,
         PAGE_TIMEOUT,
-        Some(USER_AGENT),
+        Some(&user_agent().await),
     )
     .await
     .map_err(|_| "could not reach the page".to_string())?;
@@ -884,6 +891,13 @@ async fn watch_with_yt_dlp(tool: &std::path::Path, address: &str) -> Result<Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn she_reads_under_her_name_with_the_site_to_reach() {
+        let agent = user_agent().await;
+        assert!(agent.starts_with("MyriadPersona/1.0 (+http"), "{agent}");
+        assert!(agent.ends_with("; reading on her own)"));
+    }
 
     #[test]
     fn robots_rules_for_everyone_and_for_ai_readers_are_honored() {
