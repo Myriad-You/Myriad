@@ -1,6 +1,7 @@
 name: Bug report · 问题反馈
 description: Something in Myriad does not behave as it should. · Myriad 的某个功能表现不对。
 labels: ["⚠️bug?"]
+type: Bug
 body:
   - type: markdown
     attributes:

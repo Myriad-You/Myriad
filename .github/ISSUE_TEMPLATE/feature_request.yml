@@ -1,6 +1,7 @@
 name: Feature request · 功能建议
 description: Suggest something new, or a change to how an existing feature works. · 提议新功能，或改进现有功能。
 labels: ["✨Feature"]
+type: Feature
 body:
   - type: markdown
     attributes:
