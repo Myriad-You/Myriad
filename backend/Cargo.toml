@@ -138,6 +138,7 @@ scraper = "0.27"                                        # HTML parsing for web.s
 prost = "0.14"                                          # Feishu long-connection Frame (pbbp2)
 
 [dev-dependencies]
+proc-macro2 = { version = "1", features = ["span-locations"] }
 syn = { version = "3", features = ["full", "visit"] }
 
 # release profile lives in the root workspace Cargo.toml

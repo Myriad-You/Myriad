@@ -14,10 +14,6 @@ use std::path::{Path, PathBuf};
 
 const SERVICE_ROOTS: &[&str] = &["services", "persona", "federation", "db"];
 
-/// Crossings not yet moved down, each with the file it is in. The list only
-/// shrinks: a new entry means a new crossing.
-const NOT_YET_MOVED: &[(&str, &str)] = &[];
-
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
@@ -42,75 +38,94 @@ fn is_test_file(path: &Path) -> bool {
         || path.components().any(|c| c.as_os_str() == "tests")
 }
 
-/// The source up to its test module, without comment lines.
-fn production_lines(source: &str) -> Vec<(usize, &str)> {
-    let mut lines = Vec::new();
-    let mut previous_is_cfg_test = false;
-    for (index, line) in source.lines().enumerate() {
-        let trimmed = line.trim_start();
-        if previous_is_cfg_test
-            && (trimmed.starts_with("mod ")
-                || trimmed.starts_with("pub(crate) mod ")
-                || trimmed.starts_with("pub mod "))
-            && !line.starts_with(' ')
-        {
-            break;
-        }
-        previous_is_cfg_test = trimmed.starts_with("#[cfg(test)]");
-        if previous_is_cfg_test || trimmed.starts_with("//") {
-            continue;
-        }
-        lines.push((index + 1, line));
-    }
-    lines
-}
-
-/// Every way `source` (the file at `relative`) reaches into `api`.
+/// Parse Rust syntax so aliases, whitespace, nested imports and code after a
+/// test module are checked too. Comments and string literals are not code.
 fn crossings_in(relative: &str, source: &str) -> Vec<(String, usize, String)> {
-    let relative = relative.to_string();
-    let mut found = Vec::new();
-    let lines = production_lines(source);
-    // `use crate::{api, ..}` brings the module in by a short name.
-    let mut in_group = None;
-    for (line_no, line) in &lines {
-        let trimmed = line.trim();
-        if trimmed.starts_with("use crate::{") || trimmed.starts_with("pub use crate::{") {
-            in_group = Some(*line_no);
-        }
-        if let Some(start) = in_group {
-            let names = trimmed
-                .trim_start_matches("pub ")
-                .trim_start_matches("use crate::{");
-            if names
-                .split([',', '{', '}', ' ', ';'])
-                .any(|name| name == "api")
-            {
-                found.push((relative.clone(), start, "use crate::{api}".to_string()));
+    use syn::visit::Visit;
+    struct References<'a> {
+        file: &'a str,
+        found: Vec<(String, usize, String)>,
+    }
+    impl References<'_> {
+        fn record(&mut self, path: &[String], span: proc_macro2::Span) {
+            if path.len() >= 2 && path[0] == "crate" && path[1] == "api" {
+                self.found
+                    .push((self.file.into(), span.start().line, path.join("::")));
             }
-            if trimmed.contains('}') {
-                in_group = None;
+        }
+        fn imports(&mut self, tree: &syn::UseTree, prefix: &mut Vec<String>) {
+            use syn::spanned::Spanned;
+            match tree {
+                syn::UseTree::Path(path) => {
+                    prefix.push(path.ident.to_string());
+                    self.imports(&path.tree, prefix);
+                    prefix.pop();
+                }
+                syn::UseTree::Group(group) => {
+                    for item in &group.items {
+                        self.imports(item, prefix);
+                    }
+                }
+                syn::UseTree::Name(name) => {
+                    prefix.push(name.ident.to_string());
+                    self.record(prefix, tree.span());
+                    prefix.pop();
+                }
+                syn::UseTree::Rename(rename) => {
+                    prefix.push(rename.ident.to_string());
+                    self.record(prefix, tree.span());
+                    prefix.pop();
+                }
+                syn::UseTree::Glob(_) => self.record(prefix, tree.span()),
             }
         }
     }
-    for (line_no, line) in lines {
-        let mut rest = line;
-        if line.trim_start().starts_with("use crate::api;") {
-            found.push((relative.clone(), line_no, "use crate::api".to_string()));
+    fn test_only(attrs: &[syn::Attribute]) -> bool {
+        attrs.iter().any(|attr| {
+            attr.path().is_ident("cfg")
+                && attr
+                    .parse_args::<syn::Path>()
+                    .is_ok_and(|path| path.is_ident("test"))
+        })
+    }
+    impl<'ast> Visit<'ast> for References<'_> {
+        fn visit_item_mod(&mut self, item: &'ast syn::ItemMod) {
+            if !test_only(&item.attrs) {
+                syn::visit::visit_item_mod(self, item);
+            }
         }
-        while let Some(at) = rest.find("crate::api::") {
-            let path_text: String = rest[at..]
-                .chars()
-                .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == ':')
-                .collect();
-            found.push((
-                relative.clone(),
-                line_no,
-                path_text.trim_end_matches(':').to_string(),
-            ));
-            rest = &rest[at + "crate::api::".len()..];
+        fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
+            if !test_only(&item.attrs) {
+                syn::visit::visit_item_fn(self, item);
+            }
+        }
+        fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
+            if !test_only(&item.attrs) {
+                self.imports(&item.tree, &mut Vec::new());
+            }
+        }
+        fn visit_path(&mut self, path: &'ast syn::Path) {
+            use syn::spanned::Spanned;
+            self.record(
+                &path
+                    .segments
+                    .iter()
+                    .map(|segment| segment.ident.to_string())
+                    .collect::<Vec<_>>(),
+                path.span(),
+            );
+            syn::visit::visit_path(self, path);
         }
     }
-    found
+    let file = syn::parse_file(source).unwrap_or_else(|error| panic!("{relative}: {error}"));
+    let mut visitor = References {
+        file: relative,
+        found: Vec::new(),
+    };
+    if !test_only(&file.attrs) {
+        visitor.visit_file(&file);
+    }
+    visitor.found
 }
 
 fn crossings() -> Vec<(String, usize, String)> {
@@ -141,11 +156,6 @@ fn crossings() -> Vec<(String, usize, String)> {
 fn services_do_not_reach_into_the_http_layer() {
     let unexpected: Vec<String> = crossings()
         .into_iter()
-        .filter(|(file, _, path)| {
-            !NOT_YET_MOVED
-                .iter()
-                .any(|(allowed_file, allowed_path)| file == allowed_file && path == allowed_path)
-        })
         .map(|(file, line, path)| format!("{file}:{line} {path}"))
         .collect();
     assert!(
@@ -156,44 +166,64 @@ fn services_do_not_reach_into_the_http_layer() {
 }
 
 #[test]
-fn the_not_yet_moved_list_only_names_crossings_that_still_exist() {
-    let found = crossings();
-    for (file, path) in NOT_YET_MOVED {
+fn every_way_into_api_is_seen() {
+    for source in [
+        "fn f() { let x = crate::api::agent::start(); }",
+        "use crate::api;",
+        "use crate::api as http;",
+        "pub(crate) use crate :: api;",
+        "use crate::{api, services};",
+        "use crate::{services::{thing}, api::{agent as a}};",
+        "use crate::{\n services,\n api,\n};",
+        "#[cfg(test)] mod tests {}\nuse crate::api;",
+    ] {
+        assert!(!crossings_in("x.rs", source).is_empty(), "missed {source}");
+    }
+    for source in [
+        "// crate::api::agent in a comment",
+        "/* use crate::api; */",
+        "use crate::{services, apis};",
+        "const TEXT: &str = \"crate::api::agent\";",
+        "fn f() {}\n#[cfg(test)]\nmod tests { use crate::api; }",
+        "#[cfg(test)] use crate::api;",
+        "#![cfg(test)]\nuse crate::api;",
+    ] {
         assert!(
-            found.iter().any(|(f, _, p)| f == file && p == path),
-            "{file} no longer uses {path}: take it off NOT_YET_MOVED"
+            crossings_in("x.rs", source).is_empty(),
+            "false positive {source}"
+        );
+    }
+    assert_eq!(crossings_in("x.rs", "\nuse crate::api;")[0].1, 2);
+}
+
+#[test]
+fn installation_services_have_no_http_adapter_dependencies() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/services/tapp_packages");
+    let mut files = Vec::new();
+    rust_files(&src, &mut files);
+    for path in files {
+        let source = fs::read_to_string(&path).unwrap();
+        assert!(
+            !source.contains("axum::") && !source.contains("HttpError"),
+            "{} depends on HTTP adapters",
+            path.display()
         );
     }
 }
 
 #[test]
-fn every_way_into_api_is_seen() {
-    let cases = [
-        (
-            "let x = crate::api::agent::start();",
-            "crate::api::agent::start",
-        ),
-        ("use crate::api;", "use crate::api"),
-        ("use crate::{api, services};", "use crate::{api}"),
-        (
-            "use crate::{\n    services,\n    api,\n};",
-            "use crate::{api}",
-        ),
-    ];
-    for (source, expected) in cases {
-        let found = crossings_in("x.rs", source);
+fn work_handlers_use_the_model_boundary() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/services/agent");
+    let mut files = Vec::new();
+    for dir in ["executor", "work_loop"] {
+        rust_files(&src.join(dir), &mut files);
+    }
+    for path in files.into_iter().filter(|path| !is_test_file(path)) {
+        let source = fs::read_to_string(&path).unwrap();
         assert!(
-            found.iter().any(|(_, _, path)| path == expected),
-            "{source:?} not seen: {found:?}"
+            !source.contains("AiAnalyzer") && !source.contains("create_ai_analyzer"),
+            "{} bypasses WorkModel",
+            path.display()
         );
     }
-    assert!(crossings_in("x.rs", "// crate::api::agent in a comment").is_empty());
-    assert!(crossings_in("x.rs", "use crate::{services, apis};").is_empty());
-    assert!(
-        crossings_in(
-            "x.rs",
-            "fn f() {}\n#[cfg(test)]\nmod tests {\n    use crate::api;\n}"
-        )
-        .is_empty()
-    );
 }
