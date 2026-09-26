@@ -9,6 +9,7 @@ mod onboarding;
 mod outfit_overlay;
 mod performance;
 mod persona;
+pub mod reading;
 mod rig;
 mod rig_contract;
 mod rig_outfit;

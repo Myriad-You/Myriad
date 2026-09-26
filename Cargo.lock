@@ -2832,10 +2832,12 @@ dependencies = [
  "chrono",
  "earcutr",
  "myriad-agent-rules",
+ "scraper",
  "serde",
  "serde_json",
  "sha2 0.11.0",
  "thiserror 2.0.20",
+ "url",
 ]
 
 [[package]]
