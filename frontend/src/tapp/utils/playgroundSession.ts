@@ -47,10 +47,12 @@ export interface PlaygroundSessionsStore {
 }
 
 function randomId(prefix: string): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+  // randomUUID needs a secure context; getRandomValues does not (plain-HTTP LAN hosts).
+  if (typeof crypto.randomUUID === 'function') {
     return `${prefix}_${crypto.randomUUID()}`
   }
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
+  const bytes = crypto.getRandomValues(new Uint8Array(16))
+  return `${prefix}_${Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')}`
 }
 
 export function createSessionId(): string {

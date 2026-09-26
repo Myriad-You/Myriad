@@ -624,13 +624,9 @@ class RemoteStoreServiceImpl {
 
   /** 同一次下载共用 bust id；不复用上次会话。 */
   private newStoreDownloadSessionId(): string {
-    if (
-      typeof crypto !== 'undefined' &&
-      typeof crypto.randomUUID === 'function'
-    ) {
-      return crypto.randomUUID().replaceAll('-', '')
-    }
-    return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
+    // getRandomValues also works outside secure contexts, unlike randomUUID.
+    const bytes = crypto.getRandomValues(new Uint8Array(16))
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
   }
 
   /** 所有商店宿主都 bust；不靠非简单请求头。 */
