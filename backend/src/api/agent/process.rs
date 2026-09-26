@@ -397,26 +397,34 @@ pub(crate) async fn start_process_run(
         .map(|s| s.to_string());
 
     // 确保会话存在（自动创建或验证已有会话）
-    let session_id =
-        match ensure_session(&db, client_session_id.as_deref(), user_id, interaction_mode).await {
-            Ok(sid) => sid,
-            Err(e) => {
-                tracing::warn!("[Agent API] Failed to ensure session: {}", e);
-                // Chat 或带 `source_intent_id` 的接单必须有持久会话，否则历史会分叉。
-                if source_intent_id.is_some()
-                    || interaction_mode == crate::services::agent::AgentInteractionMode::Chat
-                {
-                    return Err(HttpError::from((
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(AppError::public_json(
-                            "Could not prepare durable Agent session",
-                        )),
-                    )));
-                }
-                // 不阻塞主流程，降级为无会话模式
-                String::new()
+    // A group turn keeps to that group's session; anything else to a private one.
+    let session_id = match ensure_session_in(
+        &db,
+        client_session_id.as_deref(),
+        user_id,
+        interaction_mode,
+        group.as_ref().map(|group| group.venue.as_str()),
+    )
+    .await
+    {
+        Ok(sid) => sid,
+        Err(e) => {
+            tracing::warn!("[Agent API] Failed to ensure session: {}", e);
+            // Chat 或带 `source_intent_id` 的接单必须有持久会话，否则历史会分叉。
+            if source_intent_id.is_some()
+                || interaction_mode == crate::services::agent::AgentInteractionMode::Chat
+            {
+                return Err(HttpError::from((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(AppError::public_json(
+                        "Could not prepare durable Agent session",
+                    )),
+                )));
             }
-        };
+            // 不阻塞主流程，降级为无会话模式
+            String::new()
+        }
+    };
 
     let has_session = !session_id.is_empty();
 

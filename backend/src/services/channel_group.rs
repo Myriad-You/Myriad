@@ -735,22 +735,18 @@ async fn run_turn(
         .lock()
         .ok()
         .and_then(|sessions| sessions.get(&key).cloned());
-    let session_id = crate::api::agent::ensure_session(
+    // Made as the group's from the start: never read back as a private one.
+    let session_id = crate::api::agent::ensure_session_in(
         db,
         known.as_deref(),
         user_id,
         AgentInteractionMode::Chat,
+        Some(&venue),
     )
     .await
     .ok()?;
     if let Ok(mut sessions) = SESSIONS.lock() {
         sessions.insert(key, session_id.clone());
-    }
-    // A group session is never read back as a private conversation.
-    if known.as_deref() != Some(session_id.as_str()) {
-        if let Err(error) = crate::api::agent::mark_session_venue(db, &session_id, &venue).await {
-            warn!(%error, "[Group] could not mark the session as a group's");
-        }
     }
     let run = crate::api::agent::start_process_run(
         db.clone(),

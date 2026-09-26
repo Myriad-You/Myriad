@@ -1202,6 +1202,8 @@ pub async fn latest_open_session(
     let Some(session) = agent_sessions::Entity::find()
         .filter(agent_sessions::Column::UserId.eq(user_id))
         .filter(agent_sessions::Column::Archived.eq(false))
+        // Her own lines to them go to a conversation of theirs, never a group.
+        .filter(crate::api::agent::private_sessions())
         .order_by_desc(agent_sessions::Column::LastActiveAt)
         .one(db)
         .await?

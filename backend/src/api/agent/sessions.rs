@@ -24,7 +24,30 @@ fn session_mode(context: Option<&Value>) -> crate::services::agent::AgentInterac
 }
 
 fn session_context(mode: crate::services::agent::AgentInteractionMode) -> Value {
-    json!({ "mode": mode.as_str() })
+    session_context_in(mode, None)
+}
+
+fn session_context_in(
+    mode: crate::services::agent::AgentInteractionMode,
+    venue: Option<&str>,
+) -> Value {
+    match venue {
+        Some(venue) => json!({ "mode": mode.as_str(), "venue": venue }),
+        None => json!({ "mode": mode.as_str() }),
+    }
+}
+
+/// The group a session belongs to, if it is a group's.
+fn session_venue(context: Option<&Value>) -> Option<String> {
+    context
+        .and_then(|value| value.get("venue"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+/// Sessions that are the user's own conversations, not a group's.
+pub(crate) fn private_sessions() -> sea_orm::sea_query::SimpleExpr {
+    sea_orm::sea_query::Expr::cust("(agent_sessions.context::jsonb ->> 'venue') IS NULL")
 }
 
 // 会话管理 API
@@ -122,6 +145,8 @@ pub async fn list_sessions(
     let sessions = agent_sessions::Entity::find()
         .filter(agent_sessions::Column::UserId.eq(user_id))
         .filter(agent_sessions::Column::Archived.eq(false))
+        // A group's conversation is not one of theirs to open and continue.
+        .filter(private_sessions())
         .order_by_desc(agent_sessions::Column::LastActiveAt)
         .paginate(&db, limit)
         .fetch_page(page_index)
@@ -561,32 +586,6 @@ pub(crate) async fn mark_spoken_reply_cut_off(
     Ok(true)
 }
 
-/// Mark a Chat session as held in a group (`venue`), so what happens there
-/// is never read back as a private conversation.
-pub(crate) async fn mark_session_venue(
-    db: &DatabaseConnection,
-    session_id: &str,
-    venue: &str,
-) -> Result<(), sea_orm::DbErr> {
-    let Some(session) = agent_sessions::Entity::find_by_id(session_id)
-        .one(db)
-        .await?
-    else {
-        return Ok(());
-    };
-    let mut context = session.context.clone().unwrap_or_else(|| json!({}));
-    if context.get("venue").and_then(Value::as_str) == Some(venue) {
-        return Ok(());
-    }
-    if let Some(object) = context.as_object_mut() {
-        object.insert("venue".into(), json!(venue));
-    }
-    let mut active: agent_sessions::ActiveModel = session.into();
-    active.context = Set(Some(context));
-    active.update(db).await?;
-    Ok(())
-}
-
 pub(crate) async fn load_session_history(
     db: &DatabaseConnection,
     session_id: &str,
@@ -615,12 +614,28 @@ pub(crate) async fn load_session_history(
         .collect())
 }
 
-/// Return the session if id+user+mode match; otherwise insert a new row (None, missing, or mode mismatch).
+/// A private session: the one asked for if it belongs to the user, has this
+/// mode and is not a group's; otherwise a new private one.
 pub(crate) async fn ensure_session(
     db: &DatabaseConnection,
     session_id: Option<&str>,
     user_id: i32,
     mode: crate::services::agent::AgentInteractionMode,
+) -> Result<String, String> {
+    ensure_session_in(db, session_id, user_id, mode, None).await
+}
+
+/// The session asked for if it belongs to the user and has this mode and
+/// venue (`None` private, or a group such as `telegram:-100123`); otherwise
+/// a new one, carrying its venue from the moment it exists. A group's
+/// conversation is never read back as a private one, and a private request
+/// never continues a group's session.
+pub(crate) async fn ensure_session_in(
+    db: &DatabaseConnection,
+    session_id: Option<&str>,
+    user_id: i32,
+    mode: crate::services::agent::AgentInteractionMode,
+    venue: Option<&str>,
 ) -> Result<String, String> {
     if let Some(sid) = session_id {
         if let Some(session) = agent_sessions::Entity::find_by_id(sid)
@@ -629,14 +644,17 @@ pub(crate) async fn ensure_session(
             .await
             .map_err(|error| session_store_failed("find session", error))?
         {
-            if session_mode(session.context.as_ref()) == mode {
+            let stored_venue = session_venue(session.context.as_ref());
+            if session_mode(session.context.as_ref()) == mode && stored_venue.as_deref() == venue {
                 return Ok(sid.to_string());
             }
             tracing::info!(
                 session_id = sid,
                 requested_mode = mode.as_str(),
                 stored_mode = session_mode(session.context.as_ref()).as_str(),
-                "[Agent API] Session mode mismatch; creating an isolated session"
+                group_session = stored_venue.is_some(),
+                group_request = venue.is_some(),
+                "[Agent API] Session mode or venue mismatch; creating an isolated session"
             );
         }
     }
@@ -648,7 +666,7 @@ pub(crate) async fn ensure_session(
         id: Set(new_id.clone()),
         user_id: Set(user_id),
         title: Set(None),
-        context: Set(Some(session_context(mode))),
+        context: Set(Some(session_context_in(mode, venue))),
         message_count: Set(0),
         archived: Set(false),
         created_at: Set(now),
@@ -855,5 +873,95 @@ mod message_media_tests {
             "a message cannot pin another user's media"
         );
         let _ = tokio::fs::remove_dir_all(service.store().root()).await;
+    }
+}
+
+#[cfg(test)]
+mod venue_tests {
+    use super::*;
+    use crate::services::agent::AgentInteractionMode;
+    use sea_orm::ConnectionTrait;
+
+    /// A group's session is the group's from the moment it exists; a private
+    /// request never continues it, and nothing private picks it up.
+    #[tokio::test]
+    async fn a_group_session_never_turns_private() {
+        let Ok(url) = std::env::var("MYRIAD_MEDIA_TEST_DATABASE_URL") else {
+            return;
+        };
+        let schema = crate::db::IsolatedSchema::migrated(&url, "session_venue").await;
+        let db = &schema.db;
+        db.execute_unprepared("INSERT INTO users (id, username) VALUES (21, 'owner')")
+            .await
+            .unwrap();
+        let private = ensure_session(db, None, 21, AgentInteractionMode::Chat)
+            .await
+            .unwrap();
+        let group = ensure_session_in(
+            db,
+            None,
+            21,
+            AgentInteractionMode::Chat,
+            Some("telegram:-100123"),
+        )
+        .await
+        .unwrap();
+        let stored = agent_sessions::Entity::find_by_id(&group)
+            .one(db)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            session_venue(stored.context.as_ref()).as_deref(),
+            Some("telegram:-100123")
+        );
+        // The group keeps its session; a private request gets its own.
+        let again = ensure_session_in(
+            db,
+            Some(&group),
+            21,
+            AgentInteractionMode::Chat,
+            Some("telegram:-100123"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(again, group);
+        let from_web = ensure_session(db, Some(&group), 21, AgentInteractionMode::Chat)
+            .await
+            .unwrap();
+        assert_ne!(from_web, group);
+        let other_group = ensure_session_in(
+            db,
+            Some(&group),
+            21,
+            AgentInteractionMode::Chat,
+            Some("discord:22"),
+        )
+        .await
+        .unwrap();
+        assert_ne!(other_group, group);
+        // Newest is a group's; the private listing never shows or picks it.
+        db.execute_unprepared(&format!(
+            "UPDATE agent_sessions SET last_active_at = NOW() + interval '1 hour' WHERE id = '{group}'"
+        ))
+        .await
+        .unwrap();
+        let listed: Vec<String> = agent_sessions::Entity::find()
+            .filter(agent_sessions::Column::UserId.eq(21))
+            .filter(private_sessions())
+            .all(db)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|session| session.id)
+            .collect();
+        assert!(listed.contains(&private) && listed.contains(&from_web));
+        assert!(!listed.contains(&group) && !listed.contains(&other_group));
+        let (latest, _) = crate::services::agent::merope::store::latest_open_session(db, 21)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_ne!(latest, group);
+        schema.drop().await;
     }
 }
