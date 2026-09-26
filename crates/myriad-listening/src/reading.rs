@@ -177,7 +177,7 @@ fn groove(sheet: &ListeningSheet) -> Vec<Reading> {
         "About {tempo:.0} BPM; pulse clarity {:.2}, syncopation {:.2}",
         sheet.pulse_clarity, sheet.syncopation
     );
-    let tends_to = if sheet.pulse_clarity < 0.3 {
+    let tends_to = if sheet.pulse_clarity < STEADY {
         FAINT
     } else if sheet.syncopation > 0.5 {
         LOST
@@ -192,7 +192,7 @@ fn groove(sheet: &ListeningSheet) -> Vec<Reading> {
         tends_to,
         source: GROOVE_SOURCE,
     });
-    if (110.0..=135.0).contains(&tempo) && sheet.pulse_clarity >= 0.3 {
+    if (110.0..=135.0).contains(&tempo) && sheet.pulse_clarity >= STEADY {
         readings.push(Reading {
             at_s: None,
             heard: format!("The tempo is about {tempo:.0} BPM"),
@@ -203,10 +203,14 @@ fn groove(sheet: &ListeningSheet) -> Vec<Reading> {
     readings
 }
 
+/// Below this pulse clarity a tempo is only a guess.
+pub(crate) const STEADY: f32 = 0.3;
+
 fn cues(sheet: &ListeningSheet, minor: bool) -> Option<Reading> {
-    let tempo = sheet.tempo_bpm?;
-    let fast = tempo >= 120.0;
-    let slow = tempo < 90.0;
+    // Pace is a cue only when a beat can be felt.
+    let tempo = sheet.tempo_bpm.filter(|_| sheet.pulse_clarity >= STEADY);
+    let fast = tempo.is_some_and(|tempo| tempo >= 120.0);
+    let slow = tempo.is_some_and(|tempo| tempo < 90.0);
     let bright = sheet.brightness_hz >= 2_500.0;
     let dark = sheet.brightness_hz < 1_500.0;
     let mode = sheet.key.as_ref().map(|_| minor);
@@ -217,12 +221,11 @@ fn cues(sheet: &ListeningSheet, minor: bool) -> Option<Reading> {
         None if slow && dark => SAD_CUES,
         _ => MIXED_CUES,
     };
-    let pace = if fast {
-        "fast"
-    } else if slow {
-        "slow"
-    } else {
-        "moderate"
+    let pace = match tempo {
+        Some(tempo) if fast => format!("A fast tempo ({tempo:.0} BPM)"),
+        Some(tempo) if slow => format!("A slow tempo ({tempo:.0} BPM)"),
+        Some(tempo) => format!("A moderate tempo ({tempo:.0} BPM)"),
+        None => "No steady pace".to_string(),
     };
     let colour = if bright {
         "bright"
@@ -251,7 +254,7 @@ fn cues(sheet: &ListeningSheet, minor: bool) -> Option<Reading> {
     Some(Reading {
         at_s: None,
         heard: format!(
-            "A {pace} tempo ({tempo:.0} BPM), a {colour} sound ({:.0} Hz spectral centroid), {key}{contrast}",
+            "{pace}, a {colour} sound ({:.0} Hz spectral centroid), {key}{contrast}",
             sheet.brightness_hz
         ),
         tends_to,
@@ -386,6 +389,13 @@ pub(crate) mod tests {
         let readings = read(&slow, true);
         assert!(readings.iter().any(|r| r.tends_to == SAD_CUES));
         assert!(!readings.iter().any(|r| r.tends_to == PREFERRED_TEMPO));
+        slow.pulse_clarity = 0.2;
+        let faint = read(&slow, true);
+        assert!(faint.iter().any(|r| r.tends_to == FAINT));
+        // A tempo that is only a guess is no cue.
+        let cue = faint.iter().find(|r| r.source == CUES_SOURCE).unwrap();
+        assert!(cue.heard.starts_with("No steady pace"), "{}", cue.heard);
+        assert_eq!(cue.tends_to, MIXED_CUES);
         slow.tempo_bpm = None;
         assert!(read(&slow, true).iter().any(|r| r.tends_to == FAINT));
     }

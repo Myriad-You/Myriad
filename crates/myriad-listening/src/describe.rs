@@ -9,7 +9,7 @@ use crate::{ListeningSheet, Moment, MomentKind};
 fn moment_text(moment: &Moment) -> Option<String> {
     Some(match moment.kind {
         MomentKind::Surge => format!("swells {:+.0} dB", moment.amount),
-        MomentKind::Drop => format!("falls away {:.0} dB", -moment.amount),
+        MomentKind::Drop => format!("falls away {:.0} dB", moment.amount),
         MomentKind::OpensUp => format!("the sound opens up ({:.1}x brighter)", moment.amount),
         MomentKind::Build => format!(
             "a build that began at {} peaks here ({:.0} s)",
@@ -43,9 +43,14 @@ impl ListeningSheet {
         let _ = write!(out, "Length {}.", clock(self.duration_s));
         match self.tempo_bpm {
             Some(tempo) => {
+                let about = if self.pulse_clarity >= crate::reading::STEADY {
+                    "About"
+                } else {
+                    "A faint pulse, perhaps about"
+                };
                 let _ = write!(
                     out,
-                    " About {tempo:.0} BPM, pulse clarity {:.2}, syncopation {:.2}.",
+                    " {about} {tempo:.0} BPM, pulse clarity {:.2}, syncopation {:.2}.",
                     self.pulse_clarity, self.syncopation
                 );
             }

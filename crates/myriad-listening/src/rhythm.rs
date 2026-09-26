@@ -26,6 +26,9 @@ const PRIOR_OCTAVES: f32 = 1.0;
 const LEAST_CLARITY: f32 = 0.15;
 /// Within this share of a beat of a grid point counts as on it.
 const ON_GRID: f32 = 0.1;
+/// Below this tempo, a pulse at double speed at least this strong wins.
+const DOUBLE_BELOW_BPM: f32 = 90.0;
+const DOUBLE_SHARE: f32 = 0.6;
 /// Attacks must carry at least this share of the onset strength: a held
 /// sound changes a little all the time without ever striking.
 const LEAST_ATTACK: f32 = 0.15;
@@ -120,8 +123,29 @@ pub fn analyze(frames: &Frames) -> Rhythm {
             ..none
         };
     }
-    // The true period falls between frames; a parabola through the peak
-    // finds it.
+    let mut period = refine(&correlation, lag);
+    // A slow reading with a strong pulse at twice the speed is usually the
+    // beat counted in halves: the faster one is what people tap.
+    if 60.0 * fps / period < DOUBLE_BELOW_BPM {
+        let half = (period / 2.0).round() as usize;
+        let peak = (half.saturating_sub(1).max(1)..=half + 1)
+            .max_by(|&a, &b| correlation[a].total_cmp(&correlation[b]));
+        if let Some(peak) = peak {
+            if correlation[peak] >= DOUBLE_SHARE * correlation[lag] {
+                period = refine(&correlation, peak);
+            }
+        }
+    }
+    Rhythm {
+        tempo_bpm: Some(60.0 * fps / period),
+        pulse_clarity: clarity,
+        syncopation: syncopation(&strength, period),
+    }
+}
+
+/// The true period falls between frames; a parabola through the peak
+/// finds it.
+fn refine(correlation: &[f32], lag: usize) -> f32 {
     let (before, at, after) = (correlation[lag - 1], correlation[lag], correlation[lag + 1]);
     let bend = before - 2.0 * at + after;
     let offset = if bend.abs() > f32::EPSILON {
@@ -129,12 +153,7 @@ pub fn analyze(frames: &Frames) -> Rhythm {
     } else {
         0.0
     };
-    let period = lag as f32 + offset;
-    Rhythm {
-        tempo_bpm: Some(60.0 * fps / period),
-        pulse_clarity: clarity,
-        syncopation: syncopation(&strength, period),
-    }
+    lag as f32 + offset
 }
 
 /// Lay a beat grid of this period where it best meets the onsets, then
@@ -210,6 +229,27 @@ mod tests {
         let rhythm = analyze(&spectrum::analyze(&audio(samples)));
         assert!((rhythm.tempo_bpm.unwrap() - 120.0).abs() < 3.0);
         assert!(rhythm.syncopation > 0.3, "{}", rhythm.syncopation);
+    }
+
+    #[test]
+    fn a_slow_beat_stays_slow_unless_it_moves_in_halves() {
+        let slow = analyze(&spectrum::analyze(&audio(clicks(70.0, 24.0, 0.8))));
+        assert!((slow.tempo_bpm.unwrap() - 70.0).abs() < 3.0);
+        // Strong hits at 64 BPM with softer ones halfway between: 128.
+        let mut samples = clicks(64.0, 24.0, 0.8);
+        let offbeats = clicks(64.0, 24.0, 0.6);
+        let delay = (60.0 / 128.0 * RATE as f32) as usize;
+        for (i, value) in offbeats.iter().enumerate() {
+            if let Some(slot) = samples.get_mut(i + delay) {
+                *slot += value;
+            }
+        }
+        let doubled = analyze(&spectrum::analyze(&audio(samples)));
+        assert!(
+            (doubled.tempo_bpm.unwrap() - 128.0).abs() < 4.0,
+            "{:?}",
+            doubled.tempo_bpm
+        );
     }
 
     #[test]

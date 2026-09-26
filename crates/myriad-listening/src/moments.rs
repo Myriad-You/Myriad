@@ -22,6 +22,8 @@ const BUILD_LONGEST: usize = 20;
 const BUILD_JUMP_DB: f32 = 4.0;
 /// Candidates this close together are one moment.
 const APART: usize = 3;
+/// The song coming in and dying away are not moments in it.
+const EDGE: usize = 4;
 
 /// Keep the strongest of each run of nearby candidates.
 fn strongest(candidates: Vec<(usize, f32)>) -> Vec<(usize, f32)> {
@@ -66,7 +68,7 @@ pub fn find(seconds: &Seconds, sections: &[Section]) -> Vec<Moment> {
     };
 
     let window = |i: usize| i.saturating_sub(2)..i;
-    let surges = (2..n)
+    let surges = (EDGE.max(2)..n)
         .filter(|&i| is_audible(i))
         .filter_map(|i| {
             let before = loud[window(i)].iter().copied().fold(f32::MAX, f32::min);
@@ -76,7 +78,7 @@ pub fn find(seconds: &Seconds, sections: &[Section]) -> Vec<Moment> {
         .collect();
     push(MomentKind::Surge, strongest(surges));
 
-    let drops = (2..n)
+    let drops = (2..n.saturating_sub(EDGE))
         .filter_map(|i| {
             let before = loud[window(i)].iter().copied().fold(f32::MIN, f32::max);
             let fall = before - loud[i];
@@ -85,7 +87,7 @@ pub fn find(seconds: &Seconds, sections: &[Section]) -> Vec<Moment> {
         .collect();
     push(MomentKind::Drop, strongest(drops));
 
-    let opens = (2..n)
+    let opens = (EDGE.max(2)..n)
         .filter(|&i| is_audible(i) && bright[i] > 0.0)
         .filter_map(|i| {
             let before = bright[window(i)]
@@ -168,6 +170,7 @@ mod tests {
         }));
         samples.extend(chord(&tone, 8.0, 0.8));
         samples.extend(chord(&tone, 8.0, 0.02));
+        samples.extend(crate::testing::silence(3.0));
         let per_second = spectrum::per_second(&spectrum::analyze(&audio(samples)));
         let moments = find(&per_second, &[]);
         let summary: Vec<(MomentKind, f32)> = moments.iter().map(|m| (m.kind, m.at_s)).collect();
@@ -180,6 +183,13 @@ mod tests {
         );
         assert!(kinds_near(&moments, MomentKind::Surge, 22.0), "{summary:?}");
         assert!(kinds_near(&moments, MomentKind::Drop, 30.0), "{summary:?}");
+        // The song ending is no drop, and its start no surge.
+        assert!(
+            !moments
+                .iter()
+                .any(|m| m.at_s > per_second.loudness_db.len() as f32 - 4.0)
+        );
+        assert!(!moments.iter().any(|m| m.at_s < 3.0), "{summary:?}");
         // The ramp itself is no surge.
         assert!(
             !kinds_near(&moments, MomentKind::Surge, 15.0),
