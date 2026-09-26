@@ -4,7 +4,18 @@ import {
 } from './performanceExpression'
 
 export type RandomActionName =
-  'postureShift' | 'headDrift' | 'shoulderEase' | 'softBlink'
+  | 'postureShift'
+  | 'headDrift'
+  | 'shoulderEase'
+  | 'softBlink'
+  | 'smile'
+  | 'curiousTilt'
+  | 'ponder'
+  | 'hum'
+  | 'yawn'
+
+/** The small feeling an idle clip is played with; the same move reads differently under each. */
+export type IdleMood = 'content' | 'relaxed' | 'curious' | 'pensive'
 
 export interface RandomActionFrame {
   angleX: number
@@ -17,6 +28,9 @@ export interface RandomActionFrame {
   browAngSym: number
   eyeOpen: number
   irisScale: number
+  mouthForm: number
+  mouthOpen: number
+  mouthRound: number
   armY: number
   armPos: number
   ambientScale: number
@@ -43,21 +57,43 @@ interface ActionDefinition {
   minimumDuration: number
   maximumDuration: number
   weight?: number
+  /** Feelings the clip may be played with, picked afresh each time. */
+  moods?: readonly IdleMood[]
 }
 
 type RandomSource = () => number
 
 const IDLE_ACTIONS: readonly ActionDefinition[] = [
-  { name: 'postureShift', minimumDuration: 2.4, maximumDuration: 4.2 },
-  { name: 'headDrift', minimumDuration: 2.6, maximumDuration: 4.4 },
-  { name: 'shoulderEase', minimumDuration: 2.8, maximumDuration: 4.6 },
+  { name: 'postureShift', minimumDuration: 2.4, maximumDuration: 4.2, moods: ['relaxed', 'content', 'pensive'] },
+  { name: 'headDrift', minimumDuration: 2.6, maximumDuration: 4.4, moods: ['curious', 'content', 'pensive'] },
+  { name: 'shoulderEase', minimumDuration: 2.8, maximumDuration: 4.6, moods: ['relaxed', 'content'] },
   {
     name: 'softBlink',
     minimumDuration: 1.6,
     maximumDuration: 2.1,
     weight: 0.8,
+    moods: ['content', 'relaxed'],
   },
+  { name: 'smile', minimumDuration: 1.8, maximumDuration: 2.6, weight: 0.9 },
+  { name: 'curiousTilt', minimumDuration: 2.2, maximumDuration: 3.4, weight: 0.8 },
+  { name: 'ponder', minimumDuration: 2.8, maximumDuration: 4.2, weight: 0.7 },
+  { name: 'hum', minimumDuration: 3.2, maximumDuration: 4.6, weight: 0.6 },
+  { name: 'yawn', minimumDuration: 2.6, maximumDuration: 3.4, weight: 0.25 },
 ]
+
+type MoodFace = Pick<
+  RandomActionFrame,
+  'brow' | 'browAngSym' | 'eyeOpen' | 'irisScale' | 'eyeX' | 'eyeY' | 'mouthForm' | 'mouthOpen' | 'mouthRound'
+>
+
+/** Faint on purpose: a mood colours an idle move, it is not a performed expression. */
+const MOOD_FACE: Readonly<Record<IdleMood, Readonly<MoodFace>>> = {
+  content: { brow: 0.06, browAngSym: 0, eyeOpen: -0.07, irisScale: 0, eyeX: 0, eyeY: 0, mouthForm: 0.28, mouthOpen: 0, mouthRound: 0 },
+  relaxed: { brow: -0.04, browAngSym: 0, eyeOpen: -0.2, irisScale: 0, eyeX: 0, eyeY: 0, mouthForm: 0.12, mouthOpen: 0, mouthRound: 0 },
+  curious: { brow: 0.26, browAngSym: 0, eyeOpen: 0.05, irisScale: 0.05, eyeX: 0, eyeY: 0, mouthForm: 0, mouthOpen: 0.06, mouthRound: 0.14 },
+  // Gaze sideways follows the clip's direction.
+  pensive: { brow: 0.16, browAngSym: -0.14, eyeOpen: -0.1, irisScale: -0.03, eyeX: 0.35, eyeY: -0.28, mouthForm: -0.12, mouthOpen: 0, mouthRound: 0 },
+}
 
 const NEUTRAL_FRAME: RandomActionFrame = {
   angleX: 0,
@@ -70,6 +106,9 @@ const NEUTRAL_FRAME: RandomActionFrame = {
   browAngSym: 0,
   eyeOpen: 0,
   irisScale: 0,
+  mouthForm: 0,
+  mouthOpen: 0,
+  mouthRound: 0,
   armY: 0,
   armPos: 0,
   ambientScale: 1,
@@ -107,6 +146,7 @@ export class RandomActionController {
   private actionDuration = 1
   private actionDirection = 1
   private actionIntensity = 1
+  private actionMood: IdleMood | null = null
   private nextActionAt = Number.POSITIVE_INFINITY
   private releaseStartedAt = 0
   private releasing = false
@@ -164,6 +204,10 @@ export class RandomActionController {
     return this.output
   }
 
+  getActiveMood(): IdleMood | null {
+    return this.activeIndex >= 0 ? this.actionMood : null
+  }
+
   getActiveAction(): RandomActionName | null {
     return this.activeIndex >= 0
       ? (this.catalog()[this.activeIndex]?.name ?? null)
@@ -201,6 +245,10 @@ export class RandomActionController {
     )
     this.actionDirection = this.randomUnit() < 0.5 ? -1 : 1
     this.actionIntensity = this.randomRange(0.75, 1.25)
+    const moods = action.moods ?? []
+    this.actionMood = moods.length > 0
+      ? moods[Math.min(moods.length - 1, Math.floor(this.randomUnit() * moods.length))]
+      : null
     this.nextActionAt = now + this.actionDuration + this.randomRange(2.8, 7.5)
     copyFrame(this.actionFrom, this.output)
     this.handoffDuration = idleHandoffSeconds(this.actionFrom)
@@ -273,11 +321,86 @@ export class RandomActionController {
         this.output.armY = 0.035 * gesture * intensity
         this.output.ambientScale = 1 - 0.3 * motion
         break
+      case 'smile': {
+        // A closed-eye smile is a beat inside the clip, not the whole of it.
+        // Plain closed lids with lifted corners: the squeezed >< eyes read as strain.
+        const beat = stagedEnvelope(progress, 0.28, 0.58)
+        this.output.angleY = -0.06 * motion * intensity
+        this.output.angleZ = direction * 0.12 * motion * intensity
+        this.output.body = direction * 0.06 * motion * intensity
+        this.output.brow = 0.12 * face * intensity
+        this.output.eyeOpen = -0.95 * beat
+        this.output.mouthForm = 0.5 * face * intensity
+        this.output.ambientScale = 1 - 0.25 * motion
+        break
+      }
+      case 'curiousTilt':
+        this.output.angleX = direction * 0.06 * motion * intensity
+        this.output.angleY = 0.04 * motion * intensity
+        this.output.angleZ = direction * 0.2 * motion * intensity
+        this.output.body = -direction * 0.05 * motion * intensity
+        this.output.brow = 0.32 * face * intensity
+        this.output.eyeOpen = 0.06 * face * intensity
+        this.output.irisScale = 0.06 * face * intensity
+        this.output.mouthRound = 0.2 * face * intensity
+        this.output.mouthOpen = 0.12 * face * intensity
+        this.output.ambientScale = 1 - 0.22 * motion
+        break
+      case 'ponder':
+        this.output.angleX = direction * 0.06 * motion * intensity
+        this.output.angleY = -0.06 * motion * intensity
+        this.output.angleZ = -direction * 0.14 * motion * intensity
+        this.output.eyeX = direction * 0.45 * face * intensity
+        this.output.eyeY = -0.32 * face * intensity
+        this.output.brow = 0.2 * face * intensity
+        this.output.browAngSym = -0.16 * face * intensity
+        this.output.eyeOpen = -0.1 * face * intensity
+        this.output.mouthForm = -0.14 * face * intensity
+        this.output.ambientScale = 1 - 0.4 * motion
+        break
+      case 'hum': {
+        // Swaying to a tune only she hears.
+        const sway = Math.sin(2 * Math.PI * 1.5 * progress)
+        this.output.angleZ = direction * (0.05 + 0.08 * sway) * motion * intensity
+        this.output.angleX = direction * 0.04 * sway * motion * intensity
+        this.output.body = direction * 0.06 * sway * motion * intensity
+        this.output.brow = 0.04 * face * intensity
+        this.output.eyeOpen = -0.22 * face * intensity
+        this.output.mouthForm = 0.32 * face * intensity
+        this.output.ambientScale = 1 - 0.3 * motion
+        break
+      }
+      case 'yawn': {
+        const open = stagedEnvelope(progress, 0.3, 0.62)
+        this.output.angleY = -0.1 * motion * intensity
+        this.output.angleZ = direction * 0.06 * motion * intensity
+        this.output.brow = -0.08 * open
+        this.output.eyeOpen = -0.6 * open
+        this.output.mouthOpen = 0.7 * open
+        this.output.mouthRound = 0.45 * open
+        this.output.armY = 0.12 * gesture * intensity
+        this.output.ambientScale = 1 - 0.35 * motion
+        break
+      }
     }
+    if (this.actionMood) this.applyMood(MOOD_FACE[this.actionMood], face * intensity, direction)
     this.blendFromPrevious(
       smootherstep((now - this.actionStartedAt) / this.handoffDuration),
     )
     return this.output
+  }
+
+  private applyMood(mood: Readonly<MoodFace>, amount: number, direction: number): void {
+    const output = this.output
+    output.brow += mood.brow * amount
+    output.browAngSym += mood.browAngSym * amount
+    output.eyeOpen += mood.eyeOpen * amount
+    output.irisScale += mood.irisScale * amount
+    output.eyeX += mood.eyeX * direction * amount
+    output.eyeY += mood.eyeY * amount
+    output.mouthForm += mood.mouthForm * amount
+    output.mouthOpen += mood.mouthOpen * amount
+    output.mouthRound += mood.mouthRound * amount
   }
 
   private blendFromPrevious(amount: number): void {
@@ -358,6 +481,9 @@ const ACTION_OFFSET_KEYS = [
   'browAngSym',
   'eyeOpen',
   'irisScale',
+  'mouthForm',
+  'mouthOpen',
+  'mouthRound',
   'armY',
   'armPos',
 ] as const

@@ -64,6 +64,9 @@ test('all shared pose producers land through one channel-weighted composition', 
         browAngSym: 0,
         eyeOpen: 0,
         irisScale: 0,
+        mouthForm: 0,
+        mouthOpen: 0,
+        mouthRound: 0,
         armY: 0,
         armPos: 0,
         ambientScale: 1,
@@ -166,6 +169,9 @@ test('delight realizes its claimed bust resource through head/body ownership', (
         browAngSym: 0,
         eyeOpen: 0,
         irisScale: 0,
+        mouthForm: 0,
+        mouthOpen: 0,
+        mouthRound: 0,
         armY: 0,
         armPos: 0,
         ambientScale: 1,
@@ -651,5 +657,43 @@ test('the lovestruck mouth yields to a voice by degrees, not in one step', () =>
   )
   for (const rest of [-1, 2]) {
     assert.ok(openAt(rest) >= taken && openAt(rest) <= free)
+  }
+})
+
+test('an idle mood colours a free mouth but yields it to a voice or a song', () => {
+  const none = { gaze: 0, headBody: 0, expression: 0 }
+  const random = { gaze: 1, headBody: 1, expression: 1 }
+  const stylized = new StylizedExpressionMotionController().sample(0, 0, 0, 0, 0, 0)
+  const compose = (speechMouth: number, grooveMouth: number) => {
+    const target = { ...IDENTITY_DRIVER }
+    applyAnime25DComposedPose(
+      target,
+      { ambient: none, random, groove: none, thinking: none, performance: none, stylized: none, coSpeech: none, speechMouth, grooveMouth },
+      {
+        ambient: { angleX: 0, angleY: 0, angleZ: 0, body: 0, eyeX: 0, eyeY: 0 },
+        randomAction: {
+          angleX: 0, angleY: 0, angleZ: 0, body: 0, eyeX: 0, eyeY: 0, brow: 0, browAngSym: 0,
+          eyeOpen: -0.2, irisScale: 0, mouthForm: 0.4, mouthOpen: 0.3, mouthRound: 0.2,
+          armY: 0, armPos: 0, ambientScale: 1,
+        },
+        groove: { angleX: 0, angleY: 0, angleZ: 0, body: 0, armY: 0, armPos: 0, eyeX: 0, brow: 0 },
+        thinking: { angleX: 0, angleY: 0, angleZ: 0, eyeX: 0, eyeY: 0, brow: 0, mouthCY: 0, mouthCAng: 0, mouthScale: 0 },
+        breath: { angleX: 0, angleY: 0, angleZ: 0, body: 0 },
+        performance: intentExpressionOffset('think', 0),
+        stylized,
+        coSpeech: { brow: 0, eyeOpen: 0, angleY: 0, angleZ: 0, body: 0 },
+      },
+      zeroOccupancyOffset(),
+    )
+    return target
+  }
+  const idle = compose(0, 0)
+  assert.ok(idle.mouthForm > 0.3 && idle.mouthOpen > 0.2 && idle.mouthRound > 0.1)
+  for (const owned of [compose(1, 0), compose(0, 1)]) {
+    assert.equal(owned.mouthForm, IDENTITY_DRIVER.mouthForm)
+    assert.equal(owned.mouthOpen, IDENTITY_DRIVER.mouthOpen)
+    assert.equal(owned.mouthRound, IDENTITY_DRIVER.mouthRound)
+    // The eyes still carry the mood while she talks.
+    assert.ok(owned.eyeOpenL < 1)
   }
 })

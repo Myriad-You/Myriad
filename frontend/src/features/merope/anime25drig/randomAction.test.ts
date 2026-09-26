@@ -30,12 +30,10 @@ test('waits briefly, then plays a visible staged action', () => {
   assert.equal(magnitude(controller.sample(1.59, true, false)), 0)
 
   controller.sample(1.61, true, false)
-  assert.equal(controller.getActiveAction(), 'headDrift')
+  assert.notEqual(controller.getActiveAction(), null)
   const action = controller.sample(2.25, true, false)
-  assert.ok(Math.abs(action.angleX) > 0.1)
-  assert.equal(action.brow, 0)
-  assert.ok(action.eyeOpen < -0.015)
-  assert.ok(action.ambientScale > 0.8 && action.ambientScale < 1)
+  assert.ok(magnitude(action) > 0.1, `${magnitude(action)}`)
+  assert.ok(action.ambientScale > 0.6 && action.ambientScale < 1)
 })
 
 test('reuses one frame object and keeps every action channel bounded', () => {
@@ -58,15 +56,19 @@ test('reuses one frame object and keeps every action channel bounded', () => {
       Math.abs(current.angleZ - previous.angleZ),
       Math.abs(current.armY - previous.armY),
     )
-    assert.ok(Math.abs(current.angleX) <= 0.188)
-    assert.ok(Math.abs(current.angleY) <= 0.238)
-    assert.ok(Math.abs(current.angleZ) <= 0.216)
-    assert.ok(Math.abs(current.body) <= 0.276)
-    assert.ok(Math.abs(current.brow) <= 0.195)
-    assert.ok(Math.abs(current.browAngSym) <= 0.108)
-    assert.ok(Math.abs(current.eyeOpen) <= 0.454)
-    assert.equal(current.eyeX, 0)
-    assert.equal(current.eyeY, 0)
+    assert.ok(Math.abs(current.angleX) <= 0.2)
+    assert.ok(Math.abs(current.angleY) <= 0.24)
+    assert.ok(Math.abs(current.angleZ) <= 0.26)
+    assert.ok(Math.abs(current.body) <= 0.28)
+    assert.ok(Math.abs(current.brow) <= 0.42)
+    assert.ok(Math.abs(current.browAngSym) <= 0.21)
+    assert.ok(Math.abs(current.eyeOpen) <= 1)
+    assert.ok(Math.abs(current.eyeX) <= 0.6)
+    assert.ok(Math.abs(current.eyeY) <= 0.42)
+    // An idle mood colours the mouth; only a yawn opens it wide.
+    assert.ok(Math.abs(current.mouthForm) <= 0.65)
+    assert.ok(current.mouthOpen >= 0 && current.mouthOpen <= 0.72)
+    assert.ok(current.mouthRound >= 0 && current.mouthRound <= 0.47)
     assert.ok(Math.abs(current.armY) <= 0.526)
     assert.ok(Math.abs(current.armPos) <= 0.226)
     assert.ok(current.ambientScale >= 0.28 && current.ambientScale <= 1)
@@ -85,7 +87,7 @@ test('cycles through the complete action catalog without immediate repeats', () 
   const seen = new Set<RandomActionName>()
   let activeBefore: RandomActionName | null = null
   let lastStarted: RandomActionName | null = null
-  for (let frame = 0; frame <= 60 * 180; frame += 1) {
+  for (let frame = 0; frame <= 60 * 600; frame += 1) {
     controller.sample(frame / 60, true, false)
     const active = controller.getActiveAction()
     if (active && activeBefore === null) {
@@ -96,10 +98,15 @@ test('cycles through the complete action catalog without immediate repeats', () 
     activeBefore = active
   }
   assert.deepEqual(Iterator.from(seen).toArray().toSorted(), [
+    'curiousTilt',
     'headDrift',
+    'hum',
+    'ponder',
     'postureShift',
     'shoulderEase',
+    'smile',
     'softBlink',
+    'yawn',
   ])
 })
 
@@ -256,5 +263,39 @@ test('a held action keeps easing into its pose instead of freezing', () => {
     longestFrozen = Math.max(longestFrozen, frozen)
     previous = active ? pose : null
   }
-  assert.ok(longestFrozen / 60 < 0.1, `froze for ${longestFrozen / 60}s`)
+  // A sway turns back through a single still instant; a held pose used to freeze for over a second.
+  assert.ok(longestFrozen / 60 < 0.2, `froze for ${longestFrozen / 60}s`)
+})
+
+test('the same idle move is played with different feelings, never the same face every time', () => {
+  let seed = 0x5151_7777
+  const random = () => {
+    seed = (seed * 1_664_525 + 1_013_904_223) >>> 0
+    return seed / 0x1_0000_0000
+  }
+  const controller = new RandomActionController(random)
+  const moods = new Set<string>()
+  for (let frame = 0; frame <= 60 * 600; frame += 1) {
+    controller.sample(frame / 60, true, false)
+    if (controller.getActiveAction() === 'postureShift') moods.add(String(controller.getActiveMood()))
+  }
+  assert.ok(moods.size >= 2, [...moods].join(','))
+})
+
+test('a closed-eye smile shuts the lids and lifts the corners; it never uses the squeezed eyes', () => {
+  const controller = new RandomActionController(() => 0.5)
+  const catalog = (controller as unknown as { catalog: () => { name: string }[] }).catalog()
+  const index = catalog.findIndex((action) => action.name === 'smile')
+  ;(controller as unknown as { nextActionIndex: () => number }).nextActionIndex = () => index
+  let closed = 0
+  let smile = 0
+  for (let frame = 0; frame < 60 * 6; frame += 1) {
+    const sample = controller.sample(frame / 60, true, false)
+    if (controller.getActiveAction() !== 'smile') continue
+    closed = Math.min(closed, sample.eyeOpen)
+    smile = Math.max(smile, sample.mouthForm)
+  }
+  assert.ok(closed < -0.7, `${closed}`)
+  assert.ok(smile > 0.3, `${smile}`)
+  assert.equal('eyeSqueeze' in controller.sample(10, true, false), false)
 })
