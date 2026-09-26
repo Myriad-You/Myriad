@@ -273,9 +273,10 @@ async fn extract_and_store(
     if !should_extract_chat_remember_against(&user_text, &existing) {
         return;
     }
-    let Some(analyzer) =
-        crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(EXTRACT_TIMEOUT))
-            .await
+    let Some(model) = super::call::Ask::new(super::call::Voice::Judge, user_id, "chat_remember")
+        .within(EXTRACT_TIMEOUT)
+        .model()
+        .await
     else {
         tracing::warn!(
             user_id,
@@ -289,16 +290,9 @@ async fn extract_and_store(
     let system_prompt = extract_system_prompt(&existing);
     let raw = match request::request(
         || async {
-            let call =
-                analyzer.analyze_json(&system_prompt, &input, EXTRACT_SCHEMA_NAME, Some(&schema));
             match tokio::time::timeout(
                 EXTRACT_TOTAL_TIMEOUT,
-                crate::services::ai_cost_ledger::with_site_ai_ledger(
-                    user_id,
-                    "merope",
-                    "chat_remember",
-                    call,
-                ),
+                model.json(&system_prompt, &input, EXTRACT_SCHEMA_NAME, &schema),
             )
             .await
             {

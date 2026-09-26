@@ -190,26 +190,11 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
     let soul: String = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
-    let Some(analyzer) = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(
-        std::time::Duration::from_secs(60),
-    ))
-    .await
-    else {
-        return;
-    };
-    let raw = crate::services::ai_cost_ledger::with_site_ai_ledger(
-        owner,
-        "merope",
-        SCHEMA_NAME,
-        analyzer.with_light_thinking().analyze_json(
-            &system(&soul),
-            &input,
-            SCHEMA_NAME,
-            Some(&schema()),
-        ),
-    )
-    .await;
-    let Some(changes) = raw.ok().and_then(|raw| parse(&raw)) else {
+    let raw = super::call::Ask::new(super::call::Voice::Hers, owner, SCHEMA_NAME)
+        .within(std::time::Duration::from_secs(60))
+        .json_raw(&system(&soul), &input, SCHEMA_NAME, &schema())
+        .await;
+    let Some(changes) = raw.and_then(|raw| parse(&raw)) else {
         tracing::info!("[Merope] could not go over her own time");
         return;
     };

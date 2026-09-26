@@ -94,7 +94,7 @@ pub async fn tick(db: DatabaseConnection) {
     if !super::is_enabled().await {
         return;
     }
-    let Ok(owner) = crate::services::ai_cost_ledger::resolve_site_owner_id().await else {
+    let Some(owner) = super::call::site_owner().await else {
         tracing::debug!("[Merope] no site owner to bill her own time to");
         return;
     };
@@ -238,17 +238,15 @@ async fn choose(db: &DatabaseConnection, owner: i32) -> Result<Doing, Option<chr
         "options": option_views,
     })
     .to_string();
-    let choice: Option<Choice> = call::ask(
-        Voice::Judge,
-        CALL_TIMEOUT,
-        owner,
-        "doing_choice",
-        &choice_system(&soul),
-        &input,
-        CHOICE_SCHEMA,
-        &choice_schema(options.len()),
-    )
-    .await;
+    let choice: Option<Choice> = call::Ask::new(Voice::Judge, owner, "doing_choice")
+        .within(CALL_TIMEOUT)
+        .json(
+            &choice_system(&soul),
+            &input,
+            CHOICE_SCHEMA,
+            &choice_schema(options.len()),
+        )
+        .await;
     let Some(choice) = choice else {
         tracing::info!("[Merope] could not decide what to do on her own");
         return Err(None);
@@ -413,17 +411,15 @@ async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
     );
     let soul = soul().await;
     let what = format!("{} {}", done.thing.verb(), done.thing.describe());
-    let Some(raw) = call::ask_raw(
-        Voice::Hers,
-        CALL_TIMEOUT,
-        owner,
-        "doing_digest",
-        &digest_system(&soul, &what, &done.why, &intake.how),
-        &input,
-        DIGEST_SCHEMA,
-        &digest_schema(&intake.asks),
-    )
-    .await
+    let Some(raw) = call::Ask::new(Voice::Hers, owner, "doing_digest")
+        .within(CALL_TIMEOUT)
+        .json_raw(
+            &digest_system(&soul, &what, &done.why, &intake.how),
+            &input,
+            DIGEST_SCHEMA,
+            &digest_schema(&intake.asks),
+        )
+        .await
     else {
         return;
     };

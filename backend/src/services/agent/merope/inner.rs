@@ -272,23 +272,15 @@ async fn compile(
     }
     let input = input.to_string();
     // Her own voice, thinking little.
-    let analyzer =
-        crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(CALL_TIMEOUT))
-            .await?
-            .with_light_thinking();
-    let raw = crate::services::ai_cost_ledger::with_site_ai_ledger(
-        user_id,
-        "merope",
-        "inner",
-        analyzer.analyze_json(
+    let raw = super::call::Ask::new(super::call::Voice::Hers, user_id, "inner")
+        .within(CALL_TIMEOUT)
+        .json_raw(
             &system_for(&soul, private),
             &input,
             SCHEMA_NAME,
-            Some(&schema_for(private)),
-        ),
-    )
-    .await
-    .ok()?;
+            &schema_for(private),
+        )
+        .await?;
     let reflected = parse_reflection(&raw)?;
     if private {
         let now = chrono::Utc::now();

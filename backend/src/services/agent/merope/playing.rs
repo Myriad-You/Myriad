@@ -78,7 +78,7 @@ pub async fn tick(db: DatabaseConnection) {
     if !super::is_enabled().await {
         return;
     }
-    let Ok(owner) = crate::services::ai_cost_ledger::resolve_site_owner_id().await else {
+    let Some(owner) = super::call::site_owner().await else {
         return;
     };
     let Some(playing) = game_of(crate::services::steam_presence::site_presence(&db).await) else {

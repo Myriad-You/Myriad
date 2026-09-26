@@ -244,23 +244,21 @@ async fn wonder_and_find_out(
         .await
         .unwrap_or_default();
     let myself = super::self_state::current(&db).await.facts_view();
-    let Some(wonder) = call::ask::<Wonder>(
-        Voice::Judge,
-        CALL_TIMEOUT,
-        user_id,
-        "wonder",
-        &wonder_system(&soul),
-        &json!({
-            "userText": user_text.chars().take(1000).collect::<String>(),
-            "reply": super::ingest::compact_summary(reply),
-            "scene": turn.scene,
-            "myself": myself,
-        })
-        .to_string(),
-        WONDER_SCHEMA,
-        &wonder_schema(),
-    )
-    .await
+    let Some(wonder) = call::Ask::new(Voice::Judge, user_id, "wonder")
+        .within(CALL_TIMEOUT)
+        .json::<Wonder>(
+            &wonder_system(&soul),
+            &json!({
+                "userText": user_text.chars().take(1000).collect::<String>(),
+                "reply": super::ingest::compact_summary(reply),
+                "scene": turn.scene,
+                "myself": myself,
+            })
+            .to_string(),
+            WONDER_SCHEMA,
+            &wonder_schema(),
+        )
+        .await
     else {
         return;
     };
@@ -289,17 +287,15 @@ async fn wonder_and_find_out(
         return;
     }
     let why = wonder.why.unwrap_or_default();
-    let Some(found) = call::ask::<FoundOut>(
-        Voice::Hers,
-        CALL_TIMEOUT,
-        user_id,
-        "found_out",
-        &digest_system(&soul, why.trim()),
-        &myriad_agent_rules::untrusted_block("search_results", &text),
-        DIGEST_SCHEMA,
-        &digest_schema(),
-    )
-    .await
+    let Some(found) = call::Ask::new(Voice::Hers, user_id, "found_out")
+        .within(CALL_TIMEOUT)
+        .json::<FoundOut>(
+            &digest_system(&soul, why.trim()),
+            &myriad_agent_rules::untrusted_block("search_results", &text),
+            DIGEST_SCHEMA,
+            &digest_schema(),
+        )
+        .await
     else {
         return;
     };

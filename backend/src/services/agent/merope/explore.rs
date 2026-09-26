@@ -210,17 +210,15 @@ pub async fn wonder(db: &DatabaseConnection, owner: i32) {
     let soul = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
-    let Some(wondered) = call::ask::<Wondered>(
-        Voice::Hers,
-        CALL_TIMEOUT,
-        owner,
-        "wonder_own",
-        &wonder_system(&soul),
-        &wonder_input(&records, &open),
-        "merope_wonder_own",
-        &wonder_schema(),
-    )
-    .await
+    let Some(wondered) = call::Ask::new(Voice::Hers, owner, "wonder_own")
+        .within(CALL_TIMEOUT)
+        .json::<Wondered>(
+            &wonder_system(&soul),
+            &wonder_input(&records, &open),
+            "merope_wonder_own",
+            &wonder_schema(),
+        )
+        .await
     else {
         return;
     };
@@ -739,32 +737,28 @@ async fn go(owner: i32, question: &str) -> Option<Trip> {
     let soul = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
-    let thinking: Thinking = call::ask(
-        Voice::Hers,
-        CALL_TIMEOUT,
-        owner,
-        "explore_think",
-        &think_system(&soul, question),
-        "(nothing looked up)",
-        "merope_explore_think",
-        &think_schema(),
-    )
-    .await?;
+    let thinking: Thinking = call::Ask::new(Voice::Hers, owner, "explore_think")
+        .within(CALL_TIMEOUT)
+        .json(
+            &think_system(&soul, question),
+            "(nothing looked up)",
+            "merope_explore_think",
+            &think_schema(),
+        )
+        .await?;
     let senses = senses::available().await;
     let mut looked: Vec<Looked> = Vec::new();
     let steps = if thinking.go_look() { STEPS } else { 0 };
     for _ in 0..steps {
-        let step: Option<Step> = call::ask(
-            Voice::Judge,
-            CALL_TIMEOUT,
-            owner,
-            "explore_step",
-            &step_system(senses),
-            &step_input(question, &thinking.thought, &looked),
-            "merope_explore_step",
-            &step_schema_for(&looked, senses),
-        )
-        .await;
+        let step: Option<Step> = call::Ask::new(Voice::Judge, owner, "explore_step")
+            .within(CALL_TIMEOUT)
+            .json(
+                &step_system(senses),
+                &step_input(question, &thinking.thought, &looked),
+                "merope_explore_step",
+                &step_schema_for(&looked, senses),
+            )
+            .await;
         let Some(go) = step.as_ref().and_then(|step| go_for(step, &looked, senses)) else {
             break;
         };
@@ -893,17 +887,15 @@ pub async fn compare(owner: i32, trip: &Trip) -> Option<Compared> {
         "found": trip.material(),
     })
     .to_string();
-    call::ask(
-        Voice::Judge,
-        CALL_TIMEOUT,
-        owner,
-        "explore_compare",
-        compare_system(),
-        &input,
-        "merope_explore_compare",
-        &compare_schema(),
-    )
-    .await
+    call::Ask::new(Voice::Judge, owner, "explore_compare")
+        .within(CALL_TIMEOUT)
+        .json(
+            compare_system(),
+            &input,
+            "merope_explore_compare",
+            &compare_schema(),
+        )
+        .await
 }
 
 // --- for the semantic suite ---------------------------------------------------------------

@@ -27,7 +27,6 @@ use crate::services::agent::notification_preferences::{ACTION_OPEN_AGENT, Notifi
 use crate::services::agent::notifications::{
     LiveSpeech, Notification, NotificationPriority, NotificationType, get_notification_manager,
 };
-use crate::services::ai::create_strict_lite_ai_analyzer_with_timeout;
 
 static DELIVERY: Lazy<DeliveryCoordinator> = Lazy::new(DeliveryCoordinator::default);
 
@@ -313,13 +312,10 @@ fn speech_is_shown(event_key: &str, notify: bool) -> bool {
 }
 
 async fn compose_line(db: &DatabaseConnection, user_id: i32, summary: &str) -> Option<String> {
-    let Some(analyzer) =
-        create_strict_lite_ai_analyzer_with_timeout(Some(std::time::Duration::from_secs(30)))
-            .await
-            .map(crate::services::analyzer::AiAnalyzer::with_light_thinking)
-    else {
-        return None;
-    };
+    let model = super::super::call::Ask::new(super::super::call::Voice::Hers, user_id, "speak")
+        .within(std::time::Duration::from_secs(30))
+        .model()
+        .await?;
     let soul = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_else(|| "You are Agent.".to_string());
@@ -350,14 +346,7 @@ async fn compose_line(db: &DatabaseConnection, user_id: i32, summary: &str) -> O
     let system =
         super::super::speaking_prompts::compose_proactive_system(&soul, &mind, &recent_block);
     let prompt = super::super::speaking_prompts::compose_proactive_user(summary);
-    match crate::services::ai_cost_ledger::with_site_ai_ledger(
-        user_id,
-        "merope",
-        "speak",
-        analyzer.analyze_with_system(&system, &prompt),
-    )
-    .await
-    {
+    match model.text(&system, &prompt).await {
         Ok(raw) => {
             let spoken = sanitize_speech(&raw);
             (!is_trivial_line(&spoken)).then_some(spoken)

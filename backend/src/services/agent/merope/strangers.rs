@@ -193,26 +193,14 @@ pub async fn reply(
         transcript,
         words,
     );
-    let analyzer =
-        crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(REPLY_TIMEOUT))
-            .await?
-            .with_light_thinking();
+    let model = super::call::Ask::new(super::call::Voice::Hers, owner, "group_stranger")
+        .within(REPLY_TIMEOUT)
+        .model()
+        .await?;
     // A reply the provider dropped halfway reached no one: ask once more.
-    let ask = || {
-        crate::services::ai_cost_ledger::with_site_ai_ledger(
-            owner,
-            "merope",
-            "group_stranger",
-            analyzer.analyze_stream_parts_with_images(&prompt, &[], |_| async { true }),
-        )
-    };
-    let mut raw = ask().await;
-    if raw.as_ref().is_err_and(|error| {
-        error
-            .downcast_ref::<crate::services::analyzer::StreamCut>()
-            .is_some()
-    }) {
-        raw = ask().await;
+    let mut raw = model.say(&prompt).await;
+    if raw.as_ref().is_err_and(super::call::was_cut) {
+        raw = model.say(&prompt).await;
     }
     let raw = raw.ok()?;
     let (said, started) = super::soup::split_start(&raw);
@@ -362,24 +350,11 @@ async fn write_note(
         "exchanges": exchanges,
     })
     .to_string();
-    let Some(analyzer) =
-        crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(NOTE_TIMEOUT)).await
-    else {
-        return;
-    };
-    let raw = crate::services::ai_cost_ledger::with_site_ai_ledger(
-        owner,
-        "merope",
-        NOTE_SCHEMA,
-        analyzer.analyze_json(
-            &note_system(&soul),
-            &input,
-            NOTE_SCHEMA,
-            Some(&note_schema()),
-        ),
-    )
-    .await;
-    let Some(note) = raw.ok().and_then(|raw| parse_note(&raw)) else {
+    let raw = super::call::Ask::new(super::call::Voice::HersAtLength, owner, NOTE_SCHEMA)
+        .within(NOTE_TIMEOUT)
+        .json_raw(&note_system(&soul), &input, NOTE_SCHEMA, &note_schema())
+        .await;
+    let Some(note) = raw.and_then(|raw| parse_note(&raw)) else {
         return;
     };
     let group = group_venue(venue);

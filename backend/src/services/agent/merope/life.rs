@@ -59,7 +59,7 @@ pub async fn tick(db: DatabaseConnection) {
     if !NIGHT.contains(&now.hour()) || !super::is_enabled().await {
         return;
     }
-    let Ok(owner) = crate::services::ai_cost_ledger::resolve_site_owner_id().await else {
+    let Some(owner) = super::call::site_owner().await else {
         return;
     };
     // Yesterday, and any day just before it a missed night left unwritten
@@ -158,10 +158,10 @@ async fn write_yesterday(db: &DatabaseConnection, owner: i32, day: NaiveDate) {
     let Some(facts) = day_facts(db, day).await else {
         return;
     };
-    let Some(analyzer) = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(
-        std::time::Duration::from_secs(60),
-    ))
-    .await
+    let Some(model) = super::call::Ask::new(super::call::Voice::HersAtLength, owner, DAY_SCHEMA)
+        .within(std::time::Duration::from_secs(60))
+        .model()
+        .await
     else {
         return;
     };
@@ -187,13 +187,7 @@ async fn write_yesterday(db: &DatabaseConnection, owner: i32, day: NaiveDate) {
         "earlierEntries": earlier,
     })
     .to_string();
-    let written = crate::services::ai_cost_ledger::with_site_ai_ledger(
-        owner,
-        "merope",
-        DAY_SCHEMA,
-        analyzer.analyze_with_system(&own_day_prompt(&soul), &input),
-    )
-    .await;
+    let written = model.text(&own_day_prompt(&soul), &input).await;
     let Ok(text) = written else {
         return;
     };
@@ -269,10 +263,10 @@ async fn fill_old_concepts(db: &DatabaseConnection, owner: i32) {
         if memories.is_empty() {
             continue;
         }
-        let Some(analyzer) = crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(
-            std::time::Duration::from_secs(60),
-        ))
-        .await
+        let Some(model) = super::call::Ask::new(super::call::Voice::Judge, owner, CONCEPTS_SCHEMA)
+            .within(std::time::Duration::from_secs(60))
+            .model()
+            .await
         else {
             return;
         };
@@ -284,17 +278,10 @@ async fn fill_old_concepts(db: &DatabaseConnection, owner: i32) {
         })
         .to_string();
         let schema = concepts_schema();
-        let raw = crate::services::ai_cost_ledger::with_site_ai_ledger(
-            owner,
-            "merope",
-            CONCEPTS_SCHEMA,
-            analyzer.analyze_json(CONCEPTS_SYSTEM, &input, CONCEPTS_SCHEMA, Some(&schema)),
-        )
-        .await;
-        let Some(filled) = raw.ok().and_then(|raw| {
-            let json = myriad_agent_rules::extract_json_object_from_ai_response(raw.trim());
-            serde_json::from_str::<Filled>(json.as_deref().unwrap_or(raw.trim())).ok()
-        }) else {
+        let raw = model
+            .json(CONCEPTS_SYSTEM, &input, CONCEPTS_SCHEMA, &schema)
+            .await;
+        let Some(filled) = raw.ok().and_then(|raw| super::call::parse::<Filled>(&raw)) else {
             continue;
         };
         let asked: std::collections::HashSet<&str> =

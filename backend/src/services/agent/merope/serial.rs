@@ -608,24 +608,15 @@ pub async fn judge_guess(
     remembered: bool,
     next_part: &str,
 ) -> Option<Guessed> {
-    let analyzer =
-        crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(JUDGE_TIMEOUT))
-            .await?;
     let input = json!({
         "guess": guess,
         "nextPart": next_part.chars().take(PART_CHARS_EN + 2_000).collect::<String>(),
     })
     .to_string();
-    let raw = crate::services::ai_cost_ledger::with_site_ai_ledger(
-        owner,
-        "merope",
-        "serial_guess",
-        analyzer.analyze_json(judge_system(), &input, JUDGE_SCHEMA, Some(&judge_schema())),
-    )
-    .await
-    .ok()?;
-    let json = myriad_agent_rules::extract_json_object_from_ai_response(raw.trim());
-    let judged: Judged = serde_json::from_str(json.as_deref().unwrap_or(raw.trim())).ok()?;
+    let judged: Judged = super::call::Ask::new(super::call::Voice::Judge, owner, "serial_guess")
+        .within(JUDGE_TIMEOUT)
+        .json(judge_system(), &input, JUDGE_SCHEMA, &judge_schema())
+        .await?;
     Some(Guessed {
         said: guess.to_string(),
         held: judged.held,

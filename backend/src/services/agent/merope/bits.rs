@@ -341,26 +341,16 @@ pub async fn go_over(
             "conversation": lines,
         })
         .to_string();
-        let Some(analyzer) = crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(
-            Some(std::time::Duration::from_secs(60)),
-        )
-        .await
-        else {
-            return;
-        };
-        let raw = crate::services::ai_cost_ledger::with_site_ai_ledger(
-            owner,
-            "merope",
-            SCHEMA_NAME,
-            analyzer.analyze_json(
+        let raw = super::call::Ask::new(super::call::Voice::HersAtLength, owner, SCHEMA_NAME)
+            .within(std::time::Duration::from_secs(60))
+            .json_raw(
                 &system(&soul, matches!(circle, Circle::Group { .. })),
                 &input,
                 SCHEMA_NAME,
-                Some(&schema()),
-            ),
-        )
-        .await;
-        let Some(changes) = raw.ok().and_then(|raw| parse(&raw)) else {
+                &schema(),
+            )
+            .await;
+        let Some(changes) = raw.and_then(|raw| parse(&raw)) else {
             continue;
         };
         for change in changes.bits.into_iter().take(MAX_CHANGES) {

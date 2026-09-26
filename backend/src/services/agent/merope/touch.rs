@@ -77,11 +77,6 @@ pub(crate) async fn appraise(
 ) -> Option<Value> {
     let state = super::get_or_create_state(db, user_id).await.ok()?;
     let soul = super::resolve_speaking_soul().await?;
-    // A nonverbal reaction class: a typed judgment, not speech.
-    let analyzer = crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(
-        Duration::from_secs(2),
-    ))
-    .await?;
     let request = appraisal_contract(
         &soul,
         body,
@@ -89,19 +84,17 @@ pub(crate) async fn appraise(
         state.arousal,
         super::current_activity(&state),
     );
-    let raw = crate::services::ai_cost_ledger::with_site_ai_ledger(
-        user_id,
-        "touch",
-        "appraise",
-        analyzer.analyze_json(
+    // A nonverbal reaction class: a typed judgment, not speech.
+    let raw = super::call::Ask::new(super::call::Voice::Judge, user_id, "appraise")
+        .billed_as("touch")
+        .within(Duration::from_secs(2))
+        .json_raw(
             request["system"].as_str()?,
             request["input"].as_str()?,
             request["schemaName"].as_str()?,
-            Some(&request["schema"]),
-        ),
-    )
-    .await
-    .ok()?;
+            &request["schema"],
+        )
+        .await?;
     parse_appraisal(&raw)
 }
 

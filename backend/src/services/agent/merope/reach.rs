@@ -326,21 +326,10 @@ async fn would_write(
             .collect::<Vec<_>>(),
     })
     .to_string();
-    let analyzer =
-        crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(CALL_TIMEOUT)).await?;
-    let raw = crate::services::ai_cost_ledger::with_site_ai_ledger(
-        user_id,
-        "merope",
-        "reach_judge",
-        analyzer.analyze_json(
-            &judge_system(&soul),
-            &input,
-            JUDGE_SCHEMA,
-            Some(&judge_schema()),
-        ),
-    )
-    .await
-    .ok()?;
+    let raw = super::call::Ask::new(super::call::Voice::Judge, user_id, "reach_judge")
+        .within(CALL_TIMEOUT)
+        .json_raw(&judge_system(&soul), &input, JUDGE_SCHEMA, &judge_schema())
+        .await?;
     parse_judged(&raw).flatten()
 }
 
@@ -371,18 +360,13 @@ async fn compose(
         "(nothing yet: you are writing first)",
         "",
     );
-    let analyzer =
-        crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(CALL_TIMEOUT))
-            .await?
-            .with_light_thinking();
-    let raw = crate::services::ai_cost_ledger::with_site_ai_ledger(
-        user_id,
-        "merope",
-        "reach_out",
-        analyzer.analyze_stream_parts_with_images(&prompt, &[], |_| async { true }),
-    )
-    .await
-    .ok()?;
+    let raw = super::call::Ask::new(super::call::Voice::Hers, user_id, "reach_out")
+        .within(CALL_TIMEOUT)
+        .model()
+        .await?
+        .say(&prompt)
+        .await
+        .ok()?;
     as_text(&raw)
 }
 

@@ -400,18 +400,14 @@ async fn write(
     let input = input(records, tally, before);
     // Her own voice, thinking a little; a second try if the first does not
     // honor the contract.
+    let model = super::call::Ask::new(super::call::Voice::Hers, owner, "self_story")
+        .within(CALL_TIMEOUT)
+        .model()
+        .await?;
     for _ in 0..2 {
-        let analyzer =
-            crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(CALL_TIMEOUT))
-                .await?
-                .with_light_thinking();
-        let Ok(raw) = crate::services::ai_cost_ledger::with_site_ai_ledger(
-            owner,
-            "merope",
-            "self_story",
-            analyzer.analyze_json(&system(soul), &input, SCHEMA_NAME, Some(&schema())),
-        )
-        .await
+        let Ok(raw) = model
+            .json(&system(soul), &input, SCHEMA_NAME, &schema())
+            .await
         else {
             continue;
         };

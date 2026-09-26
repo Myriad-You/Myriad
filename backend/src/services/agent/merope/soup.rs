@@ -354,26 +354,18 @@ async fn make_up(table: &Table, words: &str, billing: i32) -> Option<String> {
     // that stalls, once more thinking little.
     let mut puzzle: Option<Puzzle> = None;
     for (attempt, limit) in [(1, FIRST_TRY), (2, SECOND_TRY)] {
-        let analyzer =
-            crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(limit)).await?;
-        let analyzer = if attempt == 1 {
-            analyzer
+        let voice = if attempt == 1 {
+            super::call::Voice::HersAtLength
         } else {
-            analyzer.with_light_thinking()
+            super::call::Voice::Hers
         };
+        let model = super::call::Ask::new(voice, billing, "soup_start")
+            .within(limit)
+            .model()
+            .await?;
         let raw = tokio::time::timeout(
             limit,
-            crate::services::ai_cost_ledger::with_site_ai_ledger(
-                billing,
-                "merope",
-                "soup_start",
-                analyzer.analyze_json(
-                    &start_system(&soul),
-                    &input,
-                    START_SCHEMA,
-                    Some(&start_schema()),
-                ),
-            ),
+            model.json(&start_system(&soul), &input, START_SCHEMA, &start_schema()),
         )
         .await;
         match raw {
@@ -483,25 +475,16 @@ pub async fn this_turn_at(
     billing: i32,
 ) -> Option<String> {
     let mut game = load(table).await?;
-    let analyzer =
-        crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(CALL_TIMEOUT)).await;
-    let judged: Option<Judged> = match analyzer {
-        Some(analyzer) => crate::services::ai_cost_ledger::with_site_ai_ledger(
-            billing,
-            "merope",
-            "soup_judge",
-            analyzer.analyze_json(
+    let judged: Option<Judged> =
+        super::call::Ask::new(super::call::Voice::Judge, billing, "soup_judge")
+            .within(CALL_TIMEOUT)
+            .json(
                 JUDGE_SYSTEM,
                 &judge_input(&game, words),
                 JUDGE_SCHEMA,
-                Some(&judge_schema(game.keys.len())),
-            ),
-        )
-        .await
-        .ok()
-        .and_then(|raw| parse(&raw)),
-        None => None,
-    };
+                &judge_schema(game.keys.len()),
+            )
+            .await;
     let Some(judged) = judged else {
         // Unjudged, she must not guess an answer.
         return Some(section(&game, None, table.is_group(), asker));
