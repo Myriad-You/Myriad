@@ -116,7 +116,9 @@ export class AmbientMotionController {
     const eyeDuration =
       EYE_SACCADE_FLOOR_SECONDS +
       Math.min(1.8, eyeTravel) * EYE_SACCADE_SECONDS_PER_UNIT
-    const headDuration = 0.42 + Math.sqrt(headTravel) * this.range(0.45, 0.68)
+    // Anime timing: a brisk move into a held pose. The follow-through layer
+    // turns the brisk stop into a small overshoot and settle.
+    const headDuration = 0.3 + Math.sqrt(headTravel) * this.range(0.34, 0.5)
     const latency = this.range(0.045, 0.13)
     this.gazeX.retarget(now, this.targetX, eyeDuration)
     this.gazeY.retarget(now, this.targetY, eyeDuration)
@@ -137,7 +139,7 @@ export class AmbientMotionController {
         this.range(-0.07, 0.07)
       bodyDuration = Math.max(
         headDuration * 1.3,
-        0.5 + Math.sqrt(Math.abs(bodyTarget - this.body.value)) * 0.8,
+        0.4 + Math.sqrt(Math.abs(bodyTarget - this.body.value)) * 0.62,
       )
       this.body.retarget(now, bodyTarget, bodyDuration, latency + 0.12)
     }

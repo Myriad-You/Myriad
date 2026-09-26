@@ -48,6 +48,11 @@ export class PoseResponseController {
     eyeY: 0,
   }
 
+  /** The filtered pose's own acceleration, in driver units per second squared. */
+  accelerationOf(key: PoseKey): number {
+    return this.acceleration[key]
+  }
+
   step(
     current: Pose,
     target: Readonly<Pose>,
