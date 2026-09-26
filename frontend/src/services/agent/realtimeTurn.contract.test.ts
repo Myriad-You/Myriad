@@ -84,7 +84,7 @@ test('SSE disconnect resumes the same Work run instead of cancelling it', () => 
   assert.match(process, /let run = create_run\(/)
   assert.match(process, /pub async fn cancel_task/)
   assert.match(process, /cancel_task_for_user/)
-  assert.match(process, /claim_chat_turn/)
+  assert.match(process, /claim_speaking_turn/)
 })
 
 test('replace and cancel stay idempotent and do not look like faults', () => {

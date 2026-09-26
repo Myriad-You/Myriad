@@ -301,6 +301,8 @@ pub(super) async fn test_database() -> sea_orm::DatabaseConnection {
     for sql in [
         "CREATE TABLE IF NOT EXISTS runtime_registry (namespace TEXT NOT NULL, record_id TEXT NOT NULL, subject_id INTEGER, owner_id INTEGER, tapp_id TEXT, runtime_id TEXT, payload JSONB NOT NULL, expires_at BIGINT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(namespace,record_id))",
         "CREATE TABLE IF NOT EXISTS runtime_mailbox (message_id BIGSERIAL PRIMARY KEY, channel TEXT NOT NULL, runtime_id TEXT NOT NULL, payload JSONB NOT NULL, expires_at BIGINT NOT NULL)",
+        // principal/auth snapshot reads is_owner + token_version.
+        "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, is_admin BOOLEAN NOT NULL, is_owner BOOLEAN NOT NULL DEFAULT false, token_version INTEGER NOT NULL DEFAULT 0)",
     ] {
         db.execute_raw(Statement::from_string(DatabaseBackend::Postgres, sql))
             .await
@@ -552,13 +554,8 @@ async fn postgres_fencing_recovery_and_observation_driven_execution() {
     // boolean that can authorize a different action after a pause.
     db.execute_raw(Statement::from_string(
         DatabaseBackend::Postgres,
-        "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, is_admin BOOLEAN NOT NULL)",
-    ))
-    .await
-    .unwrap();
-    db.execute_raw(Statement::from_string(
-        DatabaseBackend::Postgres,
-        "INSERT INTO users VALUES (8181,true) ON CONFLICT(id) DO UPDATE SET is_admin=true",
+        "INSERT INTO users (id, is_admin, is_owner) VALUES (8181, true, false) \
+         ON CONFLICT(id) DO UPDATE SET is_admin=true",
     ))
     .await
     .unwrap();
@@ -597,6 +594,9 @@ async fn postgres_fencing_recovery_and_observation_driven_execution() {
     ))
     .await
     .unwrap();
+    // Raw SQL role writes bypass the service layer; drop the auth snapshot cache.
+    crate::middleware::auth::invalidate_auth_cache_local(8181);
+    crate::services::principal::invalidate_site_owner_cache();
     let approved = approval.pending.front().unwrap().clone();
     assert!(
         !agent

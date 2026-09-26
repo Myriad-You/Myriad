@@ -10,6 +10,24 @@ pub(crate) fn get_expected_indexes() -> Vec<IndexDef> {
             is_unique: false,
         },
         IndexDef {
+            name: "idx_local_music_tracks_order".into(),
+            table: "local_music_tracks".into(),
+            columns: vec!["sort_order".into(), "id".into()],
+            is_unique: false,
+        },
+        IndexDef {
+            name: "idx_local_music_tracks_enabled".into(),
+            table: "local_music_tracks".into(),
+            columns: vec!["enabled".into(), "sort_order".into(), "id".into()],
+            is_unique: false,
+        },
+        IndexDef {
+            name: "idx_local_music_playlist_tracks_order".into(),
+            table: "local_music_playlist_tracks".into(),
+            columns: vec!["playlist_id".into(), "sort_order".into(), "track_id".into()],
+            is_unique: false,
+        },
+        IndexDef {
             name: "idx_users_username".into(),
             table: "users".into(),
             columns: vec!["username".into()],

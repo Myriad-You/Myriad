@@ -122,6 +122,7 @@ async function gpuCycles(cycles: number, failure = '', atlasSize = 0) {
   const snapshots = []
   let rejected = 0
   let unchanged = true
+  let drawingBufferBytes = 0
   const read = () => {
     const data = new Uint8Array(gl.drawingBufferWidth * gl.drawingBufferHeight * 4)
     gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, data)
@@ -146,6 +147,7 @@ async function gpuCycles(cycles: number, failure = '', atlasSize = 0) {
       try {
         await player.loadAtlas(url)
         player.resize(256, 300, 1)
+        drawingBufferBytes = Math.max(1, gl.drawingBufferWidth) * Math.max(1, gl.drawingBufferHeight) * 4
         player.tick(1 / 60)
         const before = read()
         const active = tracked.counts()
@@ -165,7 +167,7 @@ async function gpuCycles(cycles: number, failure = '', atlasSize = 0) {
     }
     return {
       snapshots, final: tracked.counts(), rejected, unchanged, glError: gl.getError(),
-      finalBytes: tracked.bytes(), peakBytes: tracked.peak(), renderer,
+      finalBytes: tracked.bytes(), peakBytes: tracked.peak(), drawingBufferBytes, renderer,
       byteMetric: 'Requested RGBA8 texels and bufferData payload bytes; excludes driver overhead, framebuffers, decoded images, CPU copies and physical residency',
     }
   } finally {

@@ -9,6 +9,15 @@ use super::error::MediaError;
 
 pub const ALLOWED_IMAGE_MIMES: [&str; 4] = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 pub const ALLOWED_VIDEO_MIMES: [&str; 3] = ["video/mp4", "video/webm", "video/quicktime"];
+/// Local music library uploads (Myriad local source).
+pub const ALLOWED_AUDIO_MIMES: [&str; 6] = [
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/flac",
+    "audio/wav",
+    "audio/ogg",
+    "audio/aac",
+];
 
 const MAX_IMAGE_EDGE: u32 = 8192;
 const MAX_IMAGE_PIXELS: u64 = 16_777_216;
@@ -18,6 +27,7 @@ const MAX_DECODE_ALLOC: u64 = 64 * 1024 * 1024;
 pub enum MediaClass {
     Image,
     Video,
+    Audio,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -32,16 +42,51 @@ pub struct ValidatedPayload {
 }
 
 pub fn allowed_media_mimes() -> impl Iterator<Item = &'static str> {
-    ALLOWED_IMAGE_MIMES.into_iter().chain(ALLOWED_VIDEO_MIMES)
+    ALLOWED_IMAGE_MIMES
+        .into_iter()
+        .chain(ALLOWED_VIDEO_MIMES)
+        .chain(ALLOWED_AUDIO_MIMES)
 }
 
-pub fn normalize_mime(claimed: &str) -> Result<String, MediaError> {
+/// Map browser/vendor MIME aliases onto the canonical allowlist values.
+pub fn canonical_mime_alias(claimed: &str) -> String {
     let mime = claimed
         .split(';')
         .next()
         .unwrap_or(claimed)
         .trim()
         .to_ascii_lowercase();
+    match mime.as_str() {
+        // Browsers often send audio/mp3 for .mp3
+        "audio/mp3" | "audio/mpeg3" | "audio/x-mpeg-3" | "audio/x-mp3" | "audio/mpg" => {
+            "audio/mpeg".into()
+        }
+        "audio/m4a" | "audio/x-m4a" | "audio/mp4a-latm" => "audio/mp4".into(),
+        "audio/x-flac" | "audio/flac" => "audio/flac".into(),
+        "audio/x-wav" | "audio/wave" | "audio/vnd.wave" | "audio/x-pn-wav" => "audio/wav".into(),
+        "audio/x-ogg" | "application/ogg" | "audio/vorbis" | "audio/opus" => "audio/ogg".into(),
+        "audio/aacp" | "audio/x-aac" | "audio/x-hx-aac-adts" => "audio/aac".into(),
+        _ => mime,
+    }
+}
+
+/// Infer audio MIME from filename when the browser sends octet-stream/empty.
+/// Local music library only accepts tagged audio: mp3 / flac / ogg.
+pub fn audio_mime_from_filename(filename: &str) -> Option<&'static str> {
+    let ext = filename
+        .rsplit_once('.')
+        .map(|(_, ext)| ext.to_ascii_lowercase())
+        .unwrap_or_default();
+    match ext.as_str() {
+        "mp3" | "mpga" | "mpeg" => Some("audio/mpeg"),
+        "flac" => Some("audio/flac"),
+        "ogg" | "oga" => Some("audio/ogg"),
+        _ => None,
+    }
+}
+
+pub fn normalize_mime(claimed: &str) -> Result<String, MediaError> {
+    let mime = canonical_mime_alias(claimed);
     if allowed_media_mimes().any(|allowed| allowed == mime) {
         Ok(mime)
     } else {
@@ -58,6 +103,12 @@ pub fn extension_for_mime(mime: &str) -> Option<&'static str> {
         "video/mp4" => Some("mp4"),
         "video/webm" => Some("webm"),
         "video/quicktime" => Some("mov"),
+        "audio/mpeg" => Some("mp3"),
+        "audio/mp4" => Some("m4a"),
+        "audio/flac" => Some("flac"),
+        "audio/wav" => Some("wav"),
+        "audio/ogg" => Some("ogg"),
+        "audio/aac" => Some("aac"),
         _ => None,
     }
 }
@@ -92,6 +143,9 @@ pub fn validate_bytes(
             let (width, height) = decode_image_dimensions(bytes)?;
             (Some(width), Some(height), MediaClass::Image)
         }
+        "audio/mpeg" | "audio/mp4" | "audio/flac" | "audio/wav" | "audio/ogg" | "audio/aac" => {
+            (None, None, MediaClass::Audio)
+        }
         _ => (None, None, MediaClass::Video),
     };
     Ok(ValidatedPayload {
@@ -113,6 +167,20 @@ fn sniff_magic(bytes: &[u8], mime: &str) -> Result<(), MediaError> {
         "image/gif" => bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a"),
         "video/webm" => bytes.starts_with(&[0x1a, 0x45, 0xdf, 0xa3]),
         "video/mp4" | "video/quicktime" => bytes.len() >= 8 && &bytes[4..8] == b"ftyp",
+        "audio/flac" => bytes.starts_with(b"fLaC"),
+        "audio/wav" => {
+            bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WAVE"
+        }
+        "audio/ogg" => bytes.starts_with(b"OggS"),
+        "audio/mpeg" => {
+            bytes.starts_with(b"ID3")
+                || (bytes.len() >= 2 && bytes[0] == 0xff && (bytes[1] & 0xe0) == 0xe0)
+        }
+        "audio/mp4" | "audio/aac" => {
+            // m4a/mp4 family: ftyp box; ADTS AAC starts with 0xFFFx
+            (bytes.len() >= 8 && &bytes[4..8] == b"ftyp")
+                || (bytes.len() >= 2 && bytes[0] == 0xff && (bytes[1] & 0xf0) == 0xf0)
+        }
         _ => false,
     };
     if ok {

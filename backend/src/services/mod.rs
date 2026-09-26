@@ -2,6 +2,7 @@
 pub mod activity_event_service;
 pub mod agent;
 pub mod agent_interaction; // Agent ↔ Tapp interaction create surface
+pub mod audio_tags; // MP3/FLAC/Ogg embedded tags for local music
 pub mod agora_chat; // Realtime transport bindings to shared Agent Chat runs
 pub mod agora_convo; // Shengwang Conversational AI join/leave/interrupt
 pub mod agora_rtc_token; // Agora AccessToken2
@@ -35,6 +36,7 @@ pub mod jobs; // Process-owned periodic background jobs and their shutdown
 pub mod json_schema_subset;
 pub mod kugou_service; // Kugou lyrics (KRC) supplement
 pub mod library_items; // Library item models, paging, Bangumi/MAL builders, preferences, assembly cache
+pub mod local_music; // Local music library catalog → player playlist
 pub mod memory_profile; // default vs memory-saver process budgets
 pub mod merope_rig; // Anime2.5D rig store (live pointer is worn outfit)
 pub mod metadata_service;

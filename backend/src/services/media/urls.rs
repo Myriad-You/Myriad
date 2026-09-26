@@ -158,7 +158,8 @@ pub fn filename_for_mime(name: &str, mime: &str, public_id: Uuid) -> Result<Stri
 
 fn normalize_ext(ext: &str) -> Result<&str, MediaError> {
     match ext {
-        "jpg" | "png" | "gif" | "webp" | "mp4" | "webm" | "mov" => Ok(ext),
+        "jpg" | "png" | "gif" | "webp" | "mp4" | "webm" | "mov"
+        | "mp3" | "m4a" | "flac" | "wav" | "ogg" | "aac" => Ok(ext),
         _ => Err(MediaError::invalid("Unsupported media type")),
     }
 }
@@ -189,6 +190,12 @@ pub fn parse_storage_key(key: &str) -> Result<(Uuid, &'static str), MediaError> 
         "mp4" => "mp4",
         "webm" => "webm",
         "mov" => "mov",
+        "mp3" => "mp3",
+        "m4a" => "m4a",
+        "flac" => "flac",
+        "wav" => "wav",
+        "ogg" => "ogg",
+        "aac" => "aac",
         _ => return Err(MediaError::invalid("Invalid storage key")),
     };
     Ok((public_id, ext))

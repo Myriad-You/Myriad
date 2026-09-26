@@ -21,6 +21,9 @@ pub mod tapp_scheduled_tasks;
 pub mod tapp_task_executions;
 
 // Phantasi 阅读系统实体
+pub mod local_music_playlist_tracks;
+pub mod local_music_playlists;
+pub mod local_music_tracks;
 pub mod media_assets;
 pub mod media_migration_jobs;
 pub mod media_references;

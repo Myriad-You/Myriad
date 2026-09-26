@@ -100,6 +100,21 @@ pub async fn list_assets(
             .add(C::State.is_null())
             .add(C::State.is_not_in(["deleted", "deleting", "staging"])),
     );
+    // Workbench catalog is the note/blog image+video library. Local-music audio
+    // and covers are managed only in the music admin UI — never list them here.
+    query = query.filter(
+        Condition::all()
+            .add(Expr::cust(
+                "COALESCE(lower(btrim(mime)), '') NOT LIKE 'audio/%'",
+            ))
+            .add(Expr::cust(
+                "id NOT IN (\
+                 SELECT audio_media_id FROM local_music_tracks \
+                 UNION ALL \
+                 SELECT cover_media_id FROM local_music_tracks WHERE cover_media_id IS NOT NULL\
+                 )",
+            )),
+    );
     if let Some(kind) = params.kind.as_deref().filter(|v| *v != "all") {
         query = query.filter(C::Kind.eq(kind));
     }
@@ -370,6 +385,20 @@ mod tests {
         assert!(list.contains("catalog_labels_for_assets"));
         assert!(!src.contains(concat!("backfill", "_federation")));
         assert!(!src.contains(concat!("pub async fn ", "register(")));
+    }
+
+    #[test]
+    fn list_hides_audio_and_local_music_bindings() {
+        let src = include_str!("media_catalog.rs");
+        let list = src
+            .split("pub async fn list_assets")
+            .nth(1)
+            .and_then(|rest| rest.split("pub async fn delete_asset").next())
+            .expect("list_assets");
+        assert!(list.contains("NOT LIKE 'audio/%'"));
+        assert!(list.contains("local_music_tracks"));
+        assert!(list.contains("audio_media_id"));
+        assert!(list.contains("cover_media_id"));
     }
 
     #[test]

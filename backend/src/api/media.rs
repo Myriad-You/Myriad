@@ -28,7 +28,8 @@ fn media_http(status: StatusCode, error: impl Into<String>) -> HttpError {
 }
 
 fn upload_budget(mime: &str) -> usize {
-    if mime.trim().to_ascii_lowercase().starts_with("video/") {
+    let mime = mime.trim().to_ascii_lowercase();
+    if mime.starts_with("video/") || mime.starts_with("audio/") {
         note_video_limit()
     } else {
         note_image_limit()

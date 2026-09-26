@@ -228,11 +228,8 @@ async fn make_up(request: &UserRequest) -> Option<String> {
     // that stalls, once more thinking little.
     let mut puzzle: Option<Puzzle> = None;
     for (attempt, limit) in [(1, FIRST_TRY), (2, SECOND_TRY)] {
-        let Some(analyzer) =
-            crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(limit)).await
-        else {
-            return None;
-        };
+        let analyzer =
+            crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(limit)).await?;
         let analyzer = if attempt == 1 {
             analyzer
         } else {

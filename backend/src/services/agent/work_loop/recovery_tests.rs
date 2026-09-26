@@ -58,13 +58,8 @@ async fn postgres_work_process_recovery_and_competing_resumes() {
         .await.unwrap();
     db.execute_raw(Statement::from_string(
         DatabaseBackend::Postgres,
-        "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, is_admin BOOLEAN NOT NULL)",
-    ))
-    .await
-    .unwrap();
-    db.execute_raw(Statement::from_string(
-        DatabaseBackend::Postgres,
-        "INSERT INTO users VALUES (8282,true) ON CONFLICT(id) DO UPDATE SET is_admin=true",
+        "INSERT INTO users (id, is_admin, is_owner) VALUES (8282, true, false) \
+         ON CONFLICT(id) DO UPDATE SET is_admin=true",
     ))
     .await
     .unwrap();

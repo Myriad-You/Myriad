@@ -50,6 +50,20 @@
   inset: 0.12rem 0.25rem;
 }
 
+.lyric-wave__text {
+  display: inline;
+}
+
+.lyric-wave__trans {
+  display: block;
+  margin-top: 0.12em;
+  font-size: 0.62em;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  opacity: 0.8;
+  filter: none;
+}
+
 .lyric-wave__row {
   position: absolute;
   top: 0;
