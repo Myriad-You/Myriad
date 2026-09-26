@@ -731,7 +731,7 @@ fn request(case: &Case) -> Value {
         }
         "doing_digest" => {
             let (system, schema) = super::merope::doing::digest_probe_contract(
-                &contract_soul(),
+                &case_soul(case),
                 &case.input,
                 &case.reply,
                 case.material.as_deref(),

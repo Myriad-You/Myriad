@@ -718,7 +718,8 @@ async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
         key,
         thing: done.thing.clone(),
         heard: sheet.map(|sheet| sheet.gist()),
-        reaction: Some(digest.reaction),
+        // Nothing reached her: no taste to keep.
+        reaction: (material != Material::Nothing).then_some(digest.reaction),
     };
     let Ok(Some(_)) = unified::remember_own(
         db,
