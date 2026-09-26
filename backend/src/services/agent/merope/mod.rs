@@ -26,6 +26,7 @@ pub mod self_story;
 pub mod senses;
 pub mod serial;
 pub mod soup;
+pub mod sources;
 pub mod speaking_prompts;
 pub mod state;
 pub mod store;

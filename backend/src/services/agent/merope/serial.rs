@@ -22,7 +22,7 @@ use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::doing::Thing;
+use super::sources::{Carry, Intake, Kept, Thing};
 
 pub const NAMESPACE: &str = "merope_serial";
 const FOLLOWING: &str = "following";
@@ -37,6 +37,14 @@ const PART_CHARS_EN: usize = 10_000;
 /// Works offered to start when she follows nothing.
 const START_OPTIONS: usize = 2;
 const JUDGE_TIMEOUT: Duration = Duration::from_secs(45);
+/// About how long a day's part takes to read.
+pub const MINUTES: i64 = 10;
+/// A part carries a day's reading.
+const PART_CHARS: usize = 12_000;
+
+const HOW: &str = "The material is this part of the book as it was written; you are following it one part a day. If you guessed after the last part, what you guessed is given: you now know how that went. \
+Then guess is your own hunch about what happens next, one sentence (null if this was the last part); go_on is whether you want to keep reading it: false lets it go for good, and your note says why. \
+knew_it is whether you already knew this book before reading it here, that is, you know or half-remember how it goes; say so in your note too, and then your guess is what you remember, and says so. ";
 const JUDGE_SCHEMA: &str = "merope_serial_guess";
 
 #[derive(Debug, Clone, Deserialize)]
@@ -396,8 +404,126 @@ pub async fn options(db: &DatabaseConnection) -> Vec<Thing> {
 }
 
 /// What an option says about the work, for her choice.
-pub fn about(id: &str) -> Option<(&'static str, &'static str)> {
-    work(id).map(|work| (work.about.as_str(), work.lang.as_str()))
+pub fn view(id: &str, index: usize, total: usize) -> serde_json::Map<String, Value> {
+    let mut view = serde_json::Map::new();
+    view.insert("part".into(), json!(format!("{} of {total}", index + 1)));
+    if let Some(work) = work(id) {
+        view.insert("about".into(), json!(work.about));
+        view.insert("language".into(), json!(work.lang));
+    }
+    view
+}
+
+/// The part she reads, with what she guessed after the one before.
+pub async fn intake(db: &DatabaseConnection, id: &str, index: usize) -> Option<Intake> {
+    let Some((part, _)) = part(id, index).await else {
+        tracing::info!(serial = %id, "[Merope] the part she meant to read would not load");
+        return None;
+    };
+    // What she guessed after the last part, and whether she knew the book
+    // (so it was memory, not a guess).
+    let (guessed_before, knew_it) = match following(db).await {
+        Some(following) if following.id == id && index > 0 => (following.guess, following.knew_it),
+        _ => (None, false),
+    };
+    let mut intake = Intake::plain(Some(part.clone()), PART_CHARS, HOW);
+    intake.asks = asks();
+    if let Some(guess) = &guessed_before {
+        intake
+            .alongside
+            .push(("What you guessed after the last part".into(), guess.clone()));
+    }
+    intake.carry = Carry::Chapter {
+        part,
+        guessed_before,
+        knew_it,
+    };
+    Some(intake)
+}
+
+fn asks() -> Vec<(&'static str, Value)> {
+    vec![
+        (
+            "guess",
+            json!({ "type": ["string", "null"], "maxLength": 160 }),
+        ),
+        ("go_on", json!({ "type": "boolean" })),
+        ("knew_it", json!({ "type": "boolean" })),
+    ]
+}
+
+/// Once she has written: whether her last guess held, judged against this
+/// part, and where she is in the book now.
+#[allow(clippy::too_many_arguments)]
+pub async fn after(
+    db: &DatabaseConnection,
+    owner: i32,
+    id: &str,
+    index: usize,
+    total: usize,
+    wrote: &serde_json::Map<String, Value>,
+    part: &str,
+    guessed_before: Option<String>,
+    knew_it: bool,
+) -> Kept {
+    let guessed = match &guessed_before {
+        Some(guess) => judge_guess(owner, guess, knew_it, part).await,
+        None => None,
+    };
+    let guess = wrote
+        .get("guess")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let go_on = wrote.get("go_on").and_then(Value::as_bool).unwrap_or(true);
+    let knew = wrote
+        .get("knew_it")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let ended = read(db, id, index, total, guess, go_on, knew).await;
+    Kept {
+        guessed,
+        ended,
+        ..Kept::default()
+    }
+}
+
+/// What a part of a serial adds to the line she looks back on, and whether
+/// her guess did not hold. A guess from memory of a book she already knew
+/// says nothing about her reading.
+pub fn looking_back(guessed: Option<&Guessed>, ended: Option<Ended>) -> (String, bool) {
+    let mut line = String::new();
+    let mut wrong = false;
+    if let Some(guessed) = guessed {
+        wrong = guessed.held == Held::No && !guessed.remembered;
+        let held = match guessed.held {
+            Held::Yes => "it held",
+            Held::Partly => "it partly held",
+            Held::No => "it did not hold",
+            Held::NotYet => "too soon to tell",
+        };
+        let from = if guessed.remembered {
+            "you remembered"
+        } else {
+            "you had guessed"
+        };
+        line.push_str(&format!(
+            " [{from}: {}; {held}: {}]",
+            guessed.said, guessed.happened
+        ));
+    }
+    match ended {
+        Some(Ended::Finished) => line.push_str(" [you finished the book]"),
+        Some(Ended::LetGo) => line.push_str(" [you let the book go here]"),
+        None => {}
+    }
+    (line, wrong)
+}
+
+#[cfg(test)]
+pub(crate) fn probe_intake(_material: Option<&str>) -> Intake {
+    let mut intake = Intake::plain(None, PART_CHARS, HOW);
+    intake.asks = asks();
+    intake
 }
 
 /// She read part `index`: go on to the next, or let it go, or it has

@@ -32,8 +32,8 @@ use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::doing::Thing;
 use super::senses;
+use super::sources::{Carry, Intake, Kept, Thing};
 use crate::services::agent::memory::unified;
 
 /// A question of her own, not yet looked into.
@@ -55,6 +55,13 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(45);
 const GLIMPSE_CHARS: usize = 700;
 /// How much of everything looked at she writes from.
 pub const FOUND_CHARS: usize = 12_000;
+/// About how long finding something out takes.
+pub const MINUTES: i64 = 15;
+
+const WENT_OUT: &str = "You went out to find it out. What you thought first, and how sure you were, is given; the material is what you actually looked at (searches, pages, what is said in videos), each with where it came from. \
+Write what you found out and what you make of it, in your own words, never a copy: what matched what you thought, what surprised you, what is still open. Only what the material says; if it did not answer it, say so plainly. ";
+const THOUGHT_OVER: &str = "You thought it over from what you already know, without looking anything up; the material is what you thought. \
+Write what you make of it now, in your own words, as a thought of your own, not as something you just found out. ";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Question {
@@ -313,13 +320,104 @@ pub async fn options(db: &DatabaseConnection) -> Vec<Thing> {
 }
 
 /// What made her wonder about it, for her choice.
-pub async fn why(db: &DatabaseConnection, question_id: &str) -> Option<String> {
-    open(db)
+pub async fn view(db: &DatabaseConnection, question_id: &str) -> serde_json::Map<String, Value> {
+    let mut view = serde_json::Map::new();
+    if let Some(why) = open(db)
         .await
         .into_iter()
         .find(|question| question.id == question_id)
         .map(|question| question.why)
         .filter(|why| !why.is_empty())
+    {
+        view.insert("why".into(), json!(why));
+    }
+    view
+}
+
+/// What she takes in: what she looked at, or, if thinking it over was
+/// enough, what she thought.
+pub async fn intake(owner: i32, question_id: &str, question: &str) -> Option<Intake> {
+    let Some(trip) = trip_for(owner, question_id, question).await else {
+        tracing::info!("[Merope] setting out to find something out came to nothing");
+        return None;
+    };
+    let mut intake = if trip.went_out() {
+        let mut intake = Intake::plain(Some(trip.material()), FOUND_CHARS, WENT_OUT);
+        intake.alongside.push((
+            format!("What you thought first ({})", trip.sure),
+            trip.thought.clone(),
+        ));
+        intake
+    } else {
+        Intake::plain(Some(trip.thought.clone()), FOUND_CHARS, THOUGHT_OVER)
+    };
+    intake.carry = Carry::Trip(trip);
+    Some(intake)
+}
+
+/// A time she set out to find something out, as kept.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Explored {
+    thought: String,
+    /// sure, fairly, or unsure.
+    #[serde(default)]
+    sure: String,
+    /// Where she looked; none if thinking it over was enough.
+    sources: Vec<String>,
+    compared: Option<Compared>,
+}
+
+/// Once she has written: how what she found compared with what she
+/// thought (only going out has anything to compare with); the question is
+/// closed either way.
+pub async fn after(db: &DatabaseConnection, owner: i32, question_id: &str, trip: &Trip) -> Kept {
+    close(db, question_id).await;
+    Kept {
+        explored: Some(Explored {
+            thought: trip.thought.clone(),
+            sure: trip.sure.clone(),
+            sources: trip.sources(),
+            compared: if trip.went_out() {
+                compare(owner, trip).await
+            } else {
+                None
+            },
+        }),
+        ..Kept::default()
+    }
+}
+
+/// What finding something out adds to the line she looks back on, and
+/// whether it came to nothing.
+pub fn looking_back(explored: Option<&Explored>) -> (String, bool) {
+    let Some(explored) = explored else {
+        return (String::new(), false);
+    };
+    match &explored.compared {
+        None if explored.sources.is_empty() => (
+            format!(
+                " [you thought it over from what you know ({}): {}]",
+                explored.sure, explored.thought
+            ),
+            false,
+        ),
+        Some(compared) => (
+            format!(
+                " [you had thought: {}; answered: {}; surprise: {}; new to you: {}{}]",
+                explored.thought,
+                compared.answered,
+                compared.surprise,
+                compared.new,
+                if compared.already_known {
+                    "; you knew it already"
+                } else {
+                    ""
+                }
+            ),
+            compared.answered == "no",
+        ),
+        None => (format!(" [you had thought: {}]", explored.thought), false),
+    }
 }
 
 // --- going out ---------------------------------------------------------------------
@@ -836,6 +934,11 @@ pub async fn compare(owner: i32, trip: &Trip) -> Option<Compared> {
 }
 
 // --- for the semantic suite ---------------------------------------------------------------
+
+#[cfg(test)]
+pub(crate) fn probe_intake(_material: Option<&str>) -> Intake {
+    Intake::plain(None, FOUND_CHARS, WENT_OUT)
+}
 
 #[cfg(test)]
 pub(crate) fn think_probe(soul: &str, question: &str) -> (String, Value) {

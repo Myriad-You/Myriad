@@ -17,7 +17,7 @@ use std::time::Duration;
 use myriad_listening::ListeningSheet;
 use sea_orm::DatabaseConnection;
 
-use super::doing::Thing;
+use super::sources::Thing;
 use crate::services::music_player_view::PlayerMusicSource;
 
 const FETCH_TIMEOUT: Duration = Duration::from_secs(90);

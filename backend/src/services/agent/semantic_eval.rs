@@ -1120,7 +1120,7 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
             Some(_) => "needs_review",
         },
         "doing_digest" => {
-            if super::merope::doing::parse_digest(output) {
+            if super::merope::doing::parse_digest(output, &case.input, case.material.as_deref()) {
                 "needs_review"
             } else {
                 "output_invalid"
