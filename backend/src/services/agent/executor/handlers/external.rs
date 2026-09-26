@@ -206,12 +206,22 @@ async fn execute_hitokoto_get(params: &HashMap<String, Value>) -> Result<Value, 
 
 // Notion
 
+fn is_notion_id(id: &str) -> bool {
+    let hex = id.bytes().filter(|b| *b != b'-');
+    id.len() <= 36 && hex.clone().count() == 32 && hex.clone().all(|b| b.is_ascii_hexdigit())
+}
+
 async fn execute_notion_query(params: &HashMap<String, Value>) -> Result<Value, String> {
     let api_key =
         std::env::var("NOTION_API_KEY").map_err(|_| "Notion is not configured".to_string())?;
 
     let database_id = first_string_param(params, &["databaseId", "database_id"])
         .ok_or("Missing databaseId parameter")?;
+    // Goes into the path of a request carrying the host key: a Notion id only,
+    // so a crafted value cannot steer the POST to another Notion endpoint.
+    if !is_notion_id(&database_id) {
+        return Err("Invalid databaseId parameter".to_string());
+    }
     let filter = params.get("filter").cloned().unwrap_or(json!({}));
 
     let client = fixed_host_client()?;
@@ -715,4 +725,18 @@ async fn execute_mcp_tool(
     // violate tools that declare `additionalProperties: false`.
     let args = mcp_arguments(params);
     manager.call_tool(&server_id, &tool_name, args).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_notion_id;
+
+    #[test]
+    fn notion_id_accepts_only_hex_ids() {
+        assert!(is_notion_id("0123456789abcdef0123456789ABCDEF"));
+        assert!(is_notion_id("01234567-89ab-cdef-0123-456789abcdef"));
+        assert!(!is_notion_id("../pages/0123456789abcdef0123456789abcdef"));
+        assert!(!is_notion_id("0123456789abcdef0123456789abcdef/../x"));
+        assert!(!is_notion_id("0123456789abcdef"));
+    }
 }
