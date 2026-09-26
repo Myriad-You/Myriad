@@ -705,6 +705,8 @@ enum Material {
     Chapter,
     /// What she looked at, going out to find out a question of her own.
     Explored,
+    /// A question of her own, thought over from what she knows.
+    Thought,
 }
 
 const HEARD: &str = "You heard it: the material is what happens in its sound, measured from the recording, from start to end, with its lyrics where they are sung, and then what listening research says moments like those tend to do to listeners. \
@@ -714,8 +716,10 @@ The measures are of the whole sound: they cannot tell a voice from the instrumen
 Say it as a person would, by the moment, the line or the feeling, never by numbers, times, BPM, keys, decibels or sources. ";
 const WORDS_ONLY: &str = "The recording would not load, so you only had its words; you did not hear how it sounds, and do not pretend to. ";
 const NOTHING: &str = "The recording would not load and it had no words to read: you neither heard nor read any of it, and do not pretend to. ";
-const EXPLORED: &str = "You went out to find it out. What you expected and already knew before looking is given; the material is what you actually looked at (searches, pages, what is said in videos), each with where it came from. \
-Write what you found out and what you make of it, in your own words, never a copy: what matched what you expected, what surprised you, what is still open. Only what the material says; if it did not answer it, say so plainly. ";
+const EXPLORED: &str = "You went out to find it out. What you thought first, and how sure you were, is given; the material is what you actually looked at (searches, pages, what is said in videos), each with where it came from. \
+Write what you found out and what you make of it, in your own words, never a copy: what matched what you thought, what surprised you, what is still open. Only what the material says; if it did not answer it, say so plainly. ";
+const THOUGHT: &str = "You thought it over from what you already know, without looking anything up; the material is what you thought. \
+Write what you make of it now, in your own words, as a thought of your own, not as something you just found out. ";
 const CHAPTER: &str = "The material is this part of the book as it was written; you are following it one part a day. If you guessed after the last part, what you guessed is given: you now know how that went. \
 Then guess is your own hunch about what happens next, one sentence (null if this was the last part); go_on is whether you want to keep reading it: false lets it go for good, and your note says why. \
 knew_it is whether you already knew this book before reading it here, that is, you know or half-remember how it goes; say so in your note too, and then your guess is what you remember, and says so. ";
@@ -733,6 +737,7 @@ fn digest_system(soul: &str, what: &str, why: &str, material: Material) -> Strin
         Material::Read => "",
         Material::Chapter => CHAPTER,
         Material::Explored => EXPLORED,
+        Material::Thought => THOUGHT,
     };
     format!(
         "{soul}\n\n\
@@ -844,13 +849,14 @@ async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
                 tracing::info!("[Merope] setting out to find something out came to nothing");
                 return;
             };
-            let material = trip.material();
+            // Thought over from what she knows, or went out and looked.
+            let (material, text) = if trip.went_out() {
+                (Material::Explored, trip.material())
+            } else {
+                (Material::Thought, trip.thought.clone())
+            };
             trip_taken = Some(trip);
-            (
-                Material::Explored,
-                Some(material),
-                super::explore::FOUND_CHARS,
-            )
+            (material, Some(text), super::explore::FOUND_CHARS)
         }
     };
     // What she guessed after the last part of this serial, if anything, and
@@ -871,7 +877,7 @@ async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
         input.push_str(&myriad_agent_rules::untrusted_block("your_guess", guess));
     }
     if let Some(trip) = &trip_taken {
-        input.push_str(&expected_section(trip));
+        input.push_str(&thought_section(trip));
     }
     let soul = soul().await;
     let what = format!("{} {}", doing_verb(&done.thing), done.thing.describe());
@@ -927,9 +933,15 @@ async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
         (Thing::Inquiry { question_id, .. }, Some(trip)) => {
             super::explore::close(db, question_id).await;
             Some(Explored {
-                expected: trip.expected.clone(),
+                thought: trip.thought.clone(),
+                sure: trip.sure.clone(),
                 sources: trip.sources(),
-                compared: super::explore::compare(owner, trip).await,
+                // Only going out has anything to compare with.
+                compared: if trip.went_out() {
+                    super::explore::compare(owner, trip).await
+                } else {
+                    None
+                },
             })
         }
         _ => None,
@@ -1105,23 +1117,24 @@ pub struct Experience {
     explored: Option<Explored>,
 }
 
-/// A time she went out to find something out, as kept.
+/// A time she set out to find something out, as kept.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Explored {
-    expected: String,
+    thought: String,
+    /// sure, fairly, or unsure.
+    #[serde(default)]
+    sure: String,
+    /// Where she looked; none if thinking it over was enough.
     sources: Vec<String>,
     compared: Option<super::explore::Compared>,
 }
 
-/// What she expected before looking, for writing about what she found.
-fn expected_section(trip: &super::explore::Trip) -> String {
-    let mut lines = format!("Before looking, you expected: {}", trip.expected);
-    if !trip.knew.trim().is_empty() {
-        lines.push_str(&format!("\nYou already knew: {}", trip.knew));
-    }
+/// What she thought first, for writing about what she found.
+fn thought_section(trip: &super::explore::Trip) -> String {
     format!(
-        "\n\nWhat you wrote before looking:\n{}",
-        myriad_agent_rules::untrusted_block("before_looking", &lines)
+        "\n\nWhat you thought first ({}):\n{}",
+        trip.sure,
+        myriad_agent_rules::untrusted_block("your_thought", &trip.thought)
     )
 }
 
@@ -1168,11 +1181,15 @@ pub(super) fn experience_record(row: &unified_row::Model) -> Option<(String, boo
     let mut found_nothing = false;
     if let Some(explored) = &experience.explored {
         match &explored.compared {
+            None if explored.sources.is_empty() => line.push_str(&format!(
+                " [you thought it over from what you know ({}): {}]",
+                explored.sure, explored.thought
+            )),
             Some(compared) => {
                 found_nothing = compared.answered == "no";
                 line.push_str(&format!(
-                    " [you expected: {}; answered: {}; surprise: {}; new to you: {}{}]",
-                    explored.expected,
+                    " [you had thought: {}; answered: {}; surprise: {}; new to you: {}{}]",
+                    explored.thought,
                     compared.answered,
                     compared.surprise,
                     compared.new,
@@ -1183,7 +1200,7 @@ pub(super) fn experience_record(row: &unified_row::Model) -> Option<(String, boo
                     }
                 ));
             }
-            None => line.push_str(&format!(" [you expected: {}]", explored.expected)),
+            None => line.push_str(&format!(" [you had thought: {}]", explored.thought)),
         }
     }
     match experience.ended {

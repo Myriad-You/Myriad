@@ -521,6 +521,7 @@ fn cases() -> Vec<Case> {
                 | "self_story"
                 | "serial_guess"
                 | "wonder_own"
+                | "explore_think"
                 | "explore_step"
                 | "explore_compare"
         ));
@@ -535,13 +536,14 @@ fn eval_looked(case: &Case) -> Vec<super::merope::explore::Looked> {
         .collect()
 }
 
-/// A trip: the question (input), what she expected (reply) and knew
-/// (material), and what she looked at.
+/// A trip: the question (input), what she thought first (reply) and how
+/// sure she was (material), and what she looked at.
 fn eval_trip(case: &Case) -> super::merope::explore::Trip {
     super::merope::explore::Trip {
         question: case.input.clone(),
-        expected: case.reply.clone(),
-        knew: case.material.clone().unwrap_or_default(),
+        thought: case.reply.clone(),
+        sure: case.material.clone().unwrap_or_else(|| "unsure".into()),
+        depends_on_now: false,
         looked: eval_looked(case),
     }
 }
@@ -794,6 +796,11 @@ fn request(case: &Case) -> Value {
             let (system, schema, input, _) =
                 super::merope::explore::wonder_probe(&case_soul(case), &case.records, &case.lately);
             json!({"system":system,"schema":schema,"schemaName":"merope_wonder_own","input":input})
+        }
+        "explore_think" => {
+            let (system, schema) =
+                super::merope::explore::think_probe(&case_soul(case), &case.input);
+            json!({"system":system,"schema":schema,"schemaName":"merope_explore_think","input":"(nothing looked up)"})
         }
         "explore_step" => {
             let (system, schema, input) =
@@ -1136,6 +1143,17 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
                 Some(_) => "needs_review",
             }
         }
+        "explore_think" => match super::merope::explore::parse_thinking(output) {
+            None => "output_invalid",
+            Some((go_look, _)) => {
+                let want = case.expect.as_ref().and_then(|e| e["goLook"].as_bool());
+                if want.is_none_or(|want| want == go_look) {
+                    "pass"
+                } else {
+                    "behavior_failure"
+                }
+            }
+        },
         "explore_step" => match super::merope::explore::parse_step(output, &eval_looked(case)) {
             None => "output_invalid",
             Some(taken) => {
@@ -1831,7 +1849,7 @@ fn motion_semantics_require_grounded_output_and_real_review() {
     assert_eq!(input["rig"]["activeBehaviors"][0]["function"], "uncertain");
 }
 
-const MIND_CASES: usize = 90;
+const MIND_CASES: usize = 94;
 
 #[test]
 fn mind_cases_run_through_production_sections_and_contracts() {

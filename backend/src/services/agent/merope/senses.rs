@@ -516,6 +516,52 @@ pub async fn read(address: &str, about: Option<&str>) -> Result<Taken, String> {
     })
 }
 
+// --- a word or a meme ----------------------------------------------------------------
+
+/// Where a word, slang or meme may have an entry, by its script: Chinese
+/// net slang in 萌娘百科, Japanese in ニコニコ大百科, English in Know Your
+/// Meme; the others after, in case.
+fn meme_entries(term: &str) -> Vec<String> {
+    let term = term.trim();
+    if term.is_empty() || term.chars().count() > 40 {
+        return Vec::new();
+    }
+    let encoded = |text: &str| {
+        url::form_urlencoded::byte_serialize(text.as_bytes())
+            .collect::<String>()
+            .replace('+', "%20")
+    };
+    let slug: String = term
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    let moegirl = format!("https://zh.moegirl.org.cn/{}", encoded(term));
+    let nico = format!("https://dic.nicovideo.jp/a/{}", encoded(term));
+    let kym = (!slug.is_empty()).then(|| format!("https://knowyourmeme.com/memes/{slug}"));
+    let ordered = match wikipedia_language(term) {
+        "ja" => vec![Some(nico), Some(moegirl), kym],
+        "zh" => vec![Some(moegirl), Some(nico), kym],
+        _ => vec![kym, Some(moegirl), Some(nico)],
+    };
+    ordered.into_iter().flatten().collect()
+}
+
+/// A word, slang or meme, looked up in the dictionaries people keep for
+/// them. Only an entry of that name counts; nothing is guessed.
+pub async fn define(term: &str) -> Result<Taken, String> {
+    for entry in meme_entries(term) {
+        if let Ok(page) = read(&entry, Some(term)).await {
+            return Ok(page);
+        }
+    }
+    Err("no entry for it in the slang and meme dictionaries".into())
+}
+
 // --- a video -----------------------------------------------------------------------
 
 fn yt_dlp() -> Option<std::path::PathBuf> {
@@ -925,6 +971,22 @@ mod tests {
         assert_eq!(hits[0].snippet, "KANのシングル 転調するサビ");
         assert!(hits[0].url.starts_with("https://ja.wikipedia.org/wiki/"));
         assert!(url::Url::parse(&hits[0].url).is_ok());
+    }
+
+    #[test]
+    fn a_meme_is_looked_up_where_its_language_keeps_them() {
+        let zh = meme_entries("绝绝子");
+        assert!(zh[0].starts_with("https://zh.moegirl.org.cn/%E7%BB%9D"));
+        assert_eq!(
+            meme_entries("エモい")[0],
+            "https://dic.nicovideo.jp/a/%E3%82%A8%E3%83%A2%E3%81%84"
+        );
+        assert_eq!(
+            meme_entries("Doge!")[0],
+            "https://knowyourmeme.com/memes/doge"
+        );
+        assert!(meme_entries("").is_empty());
+        assert!(meme_entries(&"长".repeat(41)).is_empty());
     }
 
     #[test]
