@@ -177,6 +177,10 @@ struct Case {
     /// Bits between her and them, `[handle, how]` each.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     bits: Vec<(String, String)>,
+    /// A persona of its own, `[name, personality]`, instead of the contract
+    /// persona (chat cases).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    persona: Option<(String, String)>,
     /// The conversation is a group chat's (`bits`, `chime`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     in_group: bool,
@@ -196,6 +200,31 @@ struct HistoryLine {
 }
 
 /// Mind cases wear the production persona contract (no body, own words).
+/// The case's own persona, or the contract persona.
+fn case_soul(case: &Case) -> String {
+    match &case.persona {
+        Some((name, personality)) => persona_soul(name, personality),
+        None => contract_soul(),
+    }
+}
+
+fn persona_soul(name: &str, personality: &str) -> String {
+    let persona = crate::models::entities::agent_persona::Model {
+        id: "site".into(),
+        name: name.into(),
+        personality: personality.into(),
+        persona_json: None,
+        visual_profile: None,
+        portrait_asset_id: None,
+        portrait_generation: None,
+        avatar_asset_id: None,
+        avatar_generation: None,
+        updated_by: None,
+        updated_at: "2026-01-01T00:00:00Z".parse().unwrap(),
+    };
+    super::merope::format_persona(&persona).unwrap()
+}
+
 fn contract_soul() -> String {
     let persona = crate::models::entities::agent_persona::Model {
         id: "site".into(),
@@ -255,7 +284,7 @@ fn group_chat_prompt(case: &Case) -> String {
     .flatten()
     .collect();
     chat_prompt::build_group_chat_prompt(
-        &contract_soul(),
+        &case_soul(case),
         &sections.join("\n\n"),
         &transcript,
         &case.input,
@@ -367,7 +396,7 @@ fn mind_chat_prompt(case: &Case) -> String {
     .flatten()
     .collect();
     chat_prompt::build_chat_lite_prompt_with_perception(
-        &contract_soul(),
+        &case_soul(case),
         &sections.join("\n\n"),
         &history,
         &case.input,
@@ -395,6 +424,12 @@ fn cases() -> Vec<Case> {
         serde_json::from_str::<Vec<Case>>(include_str!("../../../../tests/merope/mind-cases.json"))
             .unwrap(),
     );
+    // Cases kept out of the repository, such as ones that carry a real
+    // persona: a JSON array at this path, run like any other.
+    if let Ok(path) = std::env::var("MEROPE_SEMANTIC_EXTRA_CASES") {
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|_| panic!("cannot read {path}"));
+        cases.extend(serde_json::from_str::<Vec<Case>>(&text).unwrap());
+    }
     let mut ids = HashSet::new();
     for case in &cases {
         assert!(ids.insert(&case.id) && !case.id.is_empty());
@@ -1528,7 +1563,7 @@ fn motion_semantics_require_grounded_output_and_real_review() {
     assert_eq!(input["rig"]["activeBehaviors"][0]["function"], "uncertain");
 }
 
-const MIND_CASES: usize = 54;
+const MIND_CASES: usize = 55;
 
 #[test]
 fn mind_cases_run_through_production_sections_and_contracts() {

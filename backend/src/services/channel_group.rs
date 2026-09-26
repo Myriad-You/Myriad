@@ -164,6 +164,21 @@ fn text_limit(platform: ChannelPlatform) -> usize {
     }
 }
 
+/// Her reply without a （回复 …） mark she copied from the transcript: the
+/// platform already shows what she replies to.
+fn without_reply_mark(reply: &str) -> String {
+    let trimmed = reply.trim_start();
+    if let Some(rest) = trimmed.strip_prefix("（回复") {
+        if let Some(end) = rest
+            .find('）')
+            .filter(|end| rest[..*end].chars().count() <= 200)
+        {
+            return rest[end + '）'.len_utf8()..].trim_start().to_string();
+        }
+    }
+    reply.to_string()
+}
+
 /// Her reply, chunk by chunk; whether any of it reached the group.
 async fn deliver(line: &GroupLine, token: &str, reply: &str) -> bool {
     let mut sent = false;
@@ -632,6 +647,7 @@ async fn answer(message: &GroupLine, token: &str, chime: Option<String>) -> bool
     if !binding.is_current(&db).await {
         return false;
     }
+    let reply = without_reply_mark(&reply);
     let sent = deliver(message, token, &reply).await;
     if sent {
         record_hers(&message.venue(), &reply);
@@ -675,6 +691,7 @@ async fn answer_stranger(db: &DatabaseConnection, message: &GroupLine, token: &s
     else {
         return false;
     };
+    let reply = without_reply_mark(&reply);
     let sent = deliver(message, token, &reply).await;
     if sent {
         record_hers(&venue, &reply);
@@ -923,6 +940,19 @@ mod tests {
         assert_eq!(discord.said(), "（回复你说的：听完要是）说到一半怎么没了");
         assert_eq!(discord.venue(), "discord:22");
         assert_eq!(text_limit(ChannelPlatform::Discord), 2000);
+    }
+
+    #[test]
+    fn she_does_not_echo_the_reply_mark() {
+        assert_eq!(
+            without_reply_mark("（回复 阿明）谁是你宝宝！"),
+            "谁是你宝宝！"
+        );
+        assert_eq!(without_reply_mark("（回复你说的：听完要是）断了"), "断了");
+        assert_eq!(
+            without_reply_mark("谁暴躁了（回复一下）"),
+            "谁暴躁了（回复一下）"
+        );
     }
 
     #[test]
