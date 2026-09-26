@@ -164,7 +164,7 @@ pub async fn reply(
         crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(REPLY_TIMEOUT))
             .await?
             .with_light_thinking();
-// A reply the provider dropped halfway reached no one: ask once more.
+    // A reply the provider dropped halfway reached no one: ask once more.
     let ask = || {
         crate::services::ai_cost_ledger::with_site_ai_ledger(
             owner,
