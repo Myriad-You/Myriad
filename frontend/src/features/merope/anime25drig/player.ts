@@ -124,7 +124,6 @@ import {
   stepJawMotion,
 } from './jawMotion'
 import {
-  HAIR_JELLY,
   HEAD_JELLY,
   jellyDisplacement,
 
@@ -269,8 +268,8 @@ function releaseCompiledGpu(
 interface JellyPart {
   element: JellyElement
   volume: JellyVolume
-  /** The sleeve's shoulder, or null for a mass hung from the head. */
-  side: 'L' | 'R' | null
+  /** The shoulder the sleeve hangs from. */
+  side: 'L' | 'R'
 }
 
 export class Anime25DPlayer {
@@ -356,7 +355,7 @@ export class Anime25DPlayer {
   /** The head is one soft volume: it squashes and stretches about the chin. */
   private readonly headJelly = new JellyVolume(HEAD_JELLY)
   private headJellyElement: JellyElement | null = null
-  /** Hair masses and sleeves each wobble in their own volume as well. */
+  /** Each hanging sleeve wobbles in its own volume as well. */
   private jellyParts = new Map<Anime25DGpuLayer, JellyPart>()
   private readonly jellyShift = { x: 0, y: 0 }
   private readonly jellyAnchor = { x: 0, y: 0 }
@@ -1272,23 +1271,9 @@ export class Anime25DPlayer {
       ? { anchorX: face.cx, anchorY: face.y1, axisX: 0, axisY: -1, length: faceHeight * 1.5, cutY: null }
       : null
     if (!this.headJellyElement) return
-    const contentBottom = Math.max(...this.layers.map((layer) => layer.source.y + layer.source.h))
     for (const layer of this.layers) {
       const binding = layer.secondaryDeformation
-      if (binding.head && binding.springs?.length) {
-        // A hair mass hangs from the crown.
-        const anchorY = face.y0 + faceHeight * 0.1
-        const bottom = layer.source.y + layer.source.h
-        this.jellyParts.set(layer, {
-          element: {
-            anchorX: face.cx, anchorY, axisX: 0, axisY: 1,
-            length: Math.max(faceHeight * 0.5, bottom - anchorY),
-            cutY: Math.abs(bottom - contentBottom) <= 0.5 ? bottom : null,
-          },
-          volume: new JellyVolume(HAIR_JELLY),
-          side: null,
-        })
-      } else if (binding.handwear && binding.arm && binding.arm.scale === 1 && binding.handwearSide) {
+      if (binding.handwear && binding.arm && binding.arm.scale === 1 && binding.handwearSide) {
         // A hanging sleeve's cloth hangs from the shoulder joint.
         const arm = binding.arm
         this.jellyParts.set(layer, {
@@ -1313,13 +1298,8 @@ export class Anime25DPlayer {
     this.headWorldPoint(element.anchorX, element.anchorY, this.jellyAnchor)
     this.headJelly.step(this.jellyAnchor.x, this.jellyAnchor.y, -downX, -downY, element.length, dt, dynamic)
     for (const part of this.jellyParts.values()) {
-      if (part.side) {
-        if (!this.writeArmJoint(part.side)) continue
-        part.volume.step(this.armJoint.x, this.armJoint.y, downX, downY, part.element.length, dt, dynamic)
-      } else {
-        this.headWorldPoint(part.element.anchorX, part.element.anchorY, this.jellyAnchor)
-        part.volume.step(this.jellyAnchor.x, this.jellyAnchor.y, downX, downY, part.element.length, dt, dynamic)
-      }
+      if (!this.writeArmJoint(part.side)) continue
+      part.volume.step(this.armJoint.x, this.armJoint.y, downX, downY, part.element.length, dt, dynamic)
     }
   }
 

@@ -1,10 +1,11 @@
 /**
- * A soft element's own volume. Hair masses, puffed sleeves and the head itself
- * are not rigid: when what they hang from starts or stops, the mass lags,
+ * A soft element's own volume. Puffed sleeves and the head itself are not
+ * rigid: when what they hang from starts or stops, the mass lags,
  * stretches away from its anchor or squashes into it, bulging sideways as it
  * does so because its area stays the same, and wobbles a few times before
  * it settles. This is what makes a drawing read as soft and bouncy, as opposed
- * to a rigid part that only swings.
+ * to a rigid part that only swings. Hair has no volume of its own; it only
+ * trails, which its strand springs already do.
  */
 export interface JellyTuning {
   hz: number
@@ -17,32 +18,29 @@ export interface JellyTuning {
   swayLimit: number
 }
 
+// Gains keep an ordinary brisk turn inside the linear range; the limits only
+// catch a snap, so a wobble is never flattened against them.
 export const HEAD_JELLY: Readonly<JellyTuning> = {
   hz: 3.4,
-  damping: 0.2,
-  gain: 2.5,
-  stretchLimit: 0.022,
+  damping: 0.22,
+  gain: 1.6,
+  stretchLimit: 0.03,
   swayLimit: 0,
 }
 
-export const HAIR_JELLY: Readonly<JellyTuning> = {
-  hz: 2.8,
-  damping: 0.16,
-  gain: 6,
-  stretchLimit: 0.06,
-  swayLimit: 0.015,
-}
-
+/** A sleeve's swing is the arm pendulum's; the sleeve only adds its volume. */
 export const SLEEVE_JELLY: Readonly<JellyTuning> = {
   hz: 3,
-  damping: 0.18,
-  gain: 6,
-  stretchLimit: 0.05,
-  swayLimit: 0.015,
+  damping: 0.22,
+  gain: 4.5,
+  stretchLimit: 0.07,
+  swayLimit: 0,
 }
 
 /** Anchor acceleration above this is a discontinuity, not motion. */
 const MAX_ANCHOR_ACCELERATION = 30_000
+/** A mass cannot feel a single-frame kick; the drive is smoothed above this. */
+const DRIVE_CUTOFF_HZ = 8
 const MAX_STEP_SECONDS = 1 / 240
 
 /** Where an element hangs from and which way it extends, in rest pixels. */
@@ -70,6 +68,8 @@ export class JellyVolume {
   private lastY = 0
   private velocityX = 0
   private velocityY = 0
+  private accelerationX = 0
+  private accelerationY = 0
   private samples = 0
 
   constructor(private readonly tuning: Readonly<JellyTuning>) {}
@@ -99,8 +99,11 @@ export class JellyVolume {
     const velocityX = (anchorX - this.lastX) / elapsed
     const velocityY = (anchorY - this.lastY) / elapsed
     if (this.samples >= 2) {
-      accelerationX = clamp((velocityX - this.velocityX) / elapsed, MAX_ANCHOR_ACCELERATION)
-      accelerationY = clamp((velocityY - this.velocityY) / elapsed, MAX_ANCHOR_ACCELERATION)
+      const blend = 1 - Math.exp(-2 * Math.PI * DRIVE_CUTOFF_HZ * elapsed)
+      this.accelerationX += (clamp((velocityX - this.velocityX) / elapsed, MAX_ANCHOR_ACCELERATION) - this.accelerationX) * blend
+      this.accelerationY += (clamp((velocityY - this.velocityY) / elapsed, MAX_ANCHOR_ACCELERATION) - this.accelerationY) * blend
+      accelerationX = this.accelerationX
+      accelerationY = this.accelerationY
     }
     if (this.samples >= 1) {
       this.velocityX = velocityX
@@ -137,6 +140,8 @@ export class JellyVolume {
     this.acrossVelocity = 0
     this.velocityX = 0
     this.velocityY = 0
+    this.accelerationX = 0
+    this.accelerationY = 0
     this.samples = Number.isFinite(anchorX) && Number.isFinite(anchorY) ? 1 : 0
     this.lastX = Number.isFinite(anchorX) ? anchorX : 0
     this.lastY = Number.isFinite(anchorY) ? anchorY : 0

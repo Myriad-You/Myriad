@@ -1,13 +1,13 @@
 import type { JellyElement } from './jellyVolume'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { HAIR_JELLY, jellyDisplacement, JellyVolume } from './jellyVolume'
+import { jellyDisplacement, JellyVolume, SLEEVE_JELLY } from './jellyVolume'
 
 const DT = 1 / 60
 const HANGING: JellyElement = { anchorX: 0, anchorY: 0, axisX: 0, axisY: 1, length: 200, cutY: null }
 
 /** The anchor rises 40 px in 0.2 s and stops dead; returns the stretch per frame. */
-function rise(jelly = new JellyVolume(HAIR_JELLY), dynamic = true) {
+function rise(jelly = new JellyVolume(SLEEVE_JELLY), dynamic = true) {
   const trace: number[] = []
   for (let i = 0; i < 180; i += 1) {
     const t = Math.min(1, (i * DT) / 0.2)
@@ -19,7 +19,7 @@ function rise(jelly = new JellyVolume(HAIR_JELLY), dynamic = true) {
 }
 
 test('a still anchor leaves the volume exactly as drawn', () => {
-  const jelly = new JellyVolume(HAIR_JELLY)
+  const jelly = new JellyVolume(SLEEVE_JELLY)
   for (let i = 0; i < 120; i += 1) jelly.step(10, 20, 0, 1, 200, DT, true)
   assert.equal(jelly.stretch, 0)
   assert.equal(jelly.sway, 0)
@@ -34,11 +34,11 @@ test('a mass hung from a rising anchor stretches, then squashes past rest, and s
 }
   assert.ok(crossings >= 3, `${crossings} wobbles`)
   assert.ok(Math.abs(trace.at(-1)!) < 1e-3)
-  assert.ok(Math.max(...trace.map(Math.abs)) <= HAIR_JELLY.stretchLimit)
+  assert.ok(Math.max(...trace.map(Math.abs)) <= SLEEVE_JELLY.stretchLimit)
 })
 
 test('physics off holds the drawing still', () => {
-  assert.ok(rise(new JellyVolume(HAIR_JELLY), false).every((value) => value === 0))
+  assert.ok(rise(new JellyVolume(SLEEVE_JELLY), false).every((value) => value === 0))
 })
 
 test('stretching narrows and squashing widens: the free end keeps its area', () => {
