@@ -842,7 +842,7 @@
       "memoryContent": "내용",
       "confirmRemoveMemory": "이 기억을 삭제할까요? 다음 행동부터 쓰지 않습니다.",
       "memoryScopes": {"her": "그녀 자신의", "person": "다른 사람에 관한", "group": "그룹의"},
-      "memoryCategories": {"experience": "그녀의 경험", "view": "그녀의 생각", "day": "그녀의 하루", "chat": "대화에서 기억한 것", "event": "있었던 일", "lookup": "찾아본 것", "import": "가져오기", "playing": "하고 있는 게임", "game": "함께 한 놀이", "bit": "둘만의 농담", "thread": "마음에 두고 있는 일", "work": "작업 교훈", "stranger": "외부인 메모", "learned": "그룹에서 들은 것", "other": "기타"},
+      "memoryCategories": {"experience": "그녀의 경험", "view": "그녀의 생각", "day": "그녀의 하루", "chat": "대화에서 기억한 것", "event": "있었던 일", "lookup": "찾아본 것", "import": "가져오기", "playing": "하고 있는 게임", "game": "함께 한 놀이", "bit": "둘만의 농담", "thread": "마음에 두고 있는 일", "work": "작업 교훈", "stranger": "외부인 메모", "learned": "그룹에서 들은 것", "self": "요즘의 그녀", "corrected": "틀려서 바로잡힌 것", "other": "기타"},
       "memoryOwnerHer": "그녀 자신",
       "memoryOwnerUser": "사용자 {id}",
       "memoryOwnerGroup": "{platform} 그룹 {id}",

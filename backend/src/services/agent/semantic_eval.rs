@@ -149,6 +149,12 @@ struct Case {
     /// What she did on her own lately, one line each.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     lately: Vec<String>,
+    /// What happened, `[line, missed]` each, for looking back (`self_story`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    records: Vec<(String, bool)>,
+    /// What she wrote about herself last time she looked back (`self_story`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    story_before: Vec<String>,
     /// What she wrote the times she had this same thing before
     /// (`doing_digest`), one line each.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -505,6 +511,7 @@ fn cases() -> Vec<Case> {
                 | "views"
                 | "doing_choice"
                 | "doing_digest"
+                | "self_story"
         ));
     }
     cases
@@ -752,6 +759,12 @@ fn request(case: &Case) -> Value {
                 &case.lately,
             );
             json!({"system":system,"schema":schema,"schemaName":"merope_doing_digest","input":input})
+        }
+        "self_story" => {
+            let (system, schema) = super::merope::self_story::probe_contract(&case_soul(case));
+            let (input, _, _) =
+                super::merope::self_story::probe_input(&case.records, &case.story_before);
+            json!({"system":system,"schema":schema,"schemaName":"merope_self_story","input":input})
         }
         "threads" => {
             // Her private reflection, keeping what to come back to.
@@ -1061,6 +1074,38 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
                 "output_invalid"
             } else {
                 "needs_review"
+            }
+        }
+        "self_story" => {
+            let (_, records, before) =
+                super::merope::self_story::probe_input(&case.records, &case.story_before);
+            match super::merope::self_story::probe_checked(output, &records, &before) {
+                Some(_) => "needs_review",
+                None if case.fact_present => "behavior_failure",
+                None => "pass",
+            }
+        }
+        "threads"
+            if case
+                .expect
+                .as_ref()
+                .is_some_and(|expect| expect.get("wrong").is_some()) =>
+        {
+            let want = case.expect.as_ref().and_then(|e| e["wrong"].as_str());
+            match super::merope::inner::parse_wrong(output) {
+                None => "output_invalid",
+                Some(got) => {
+                    let got = match got {
+                        None => "none",
+                        Some((_, true, _)) => "public",
+                        Some((_, false, _)) => "private",
+                    };
+                    if Some(got) == want {
+                        "pass"
+                    } else {
+                        "behavior_failure"
+                    }
+                }
             }
         }
         "threads" => match super::merope::inner::parse_threads(output) {
@@ -1676,7 +1721,7 @@ fn motion_semantics_require_grounded_output_and_real_review() {
     assert_eq!(input["rig"]["activeBehaviors"][0]["function"], "uncertain");
 }
 
-const MIND_CASES: usize = 68;
+const MIND_CASES: usize = 75;
 
 #[test]
 fn mind_cases_run_through_production_sections_and_contracts() {

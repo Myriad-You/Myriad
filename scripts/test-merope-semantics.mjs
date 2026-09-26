@@ -18,6 +18,7 @@ const KINDS = [
   'chat', 'memory', 'event', 'motion', 'touch', 'touch-response',
   'wonder', 'found_out', 'inner', 'own_day', 'doing_choice', 'doing_digest',
   'views', 'soup_start', 'soup_judge', 'bits', 'chime', 'stranger_note', 'threads', 'reach_judge',
+  'self_story',
 ]
 for (let i = 0; i < args.length; i += 1) {
   const arg = args[i]

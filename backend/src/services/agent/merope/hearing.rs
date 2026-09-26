@@ -218,7 +218,9 @@ mod live {
             let super::Thing::Song { id, .. } = &thing else {
                 unreachable!()
             };
-            let (bytes, ext) = super::recording(&db, "netease", id).await.expect("recording");
+            let (bytes, ext) = super::recording(&db, "netease", id)
+                .await
+                .expect("recording");
             let dir = std::path::Path::new(&dir);
             std::fs::write(dir.join(format!("{id}.{}", ext.unwrap_or("mp3"))), bytes).unwrap();
             if let Some(lrc) = super::timed_lyrics(&db, "netease", id).await {

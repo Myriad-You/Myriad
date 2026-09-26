@@ -1183,7 +1183,8 @@ pub async fn own_views<C: ConnectionTrait>(
     own_rows(db, OWN_VIEW, limit).await
 }
 
-async fn own_rows<C: ConnectionTrait>(
+/// Her own rows of one source, most recent first.
+pub async fn own_rows<C: ConnectionTrait>(
     db: &C,
     source: &str,
     limit: u64,

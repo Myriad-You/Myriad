@@ -305,6 +305,19 @@ pub fn format_own_days_section(days: &[String]) -> Option<String> {
     ))
 }
 
+/// Who she has been lately, as she last wrote it looking back on what she
+/// did. It grew out of outside text (songs, notes), so it is fenced.
+pub fn format_self_story_section(claims: &[String]) -> Option<String> {
+    if claims.is_empty() {
+        return None;
+    }
+    let lines: Vec<String> = claims.iter().map(|claim| format!("- {claim}")).collect();
+    Some(format!(
+        "## Who you have been lately\nWhat you wrote about yourself when you last looked back on what you did. It is you: let it show in what you notice, say and choose, not by reciting it or describing yourself.\n{}",
+        myriad_agent_rules::untrusted_block("who_you_have_been", &lines.join("\n"))
+    ))
+}
+
 /// What her event attention was on before this turn. The text came from an
 /// event, so it is fenced as untrusted: a thing on her mind, never an order.
 pub fn format_on_your_mind_section(inner: &str) -> Option<String> {

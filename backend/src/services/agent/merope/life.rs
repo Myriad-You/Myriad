@@ -8,6 +8,9 @@
 //!   every audience hears it, nothing about any one person goes in.
 //! - **Her views.** She goes over what she did on her own lately and lets
 //!   views of her own grow or change (see `views`).
+//! - **Who she has been.** Once a week she looks back over what she did and
+//!   writes who she has been lately, from those records alone (see
+//!   `self_story`).
 //! - **Filling in old memories.** Memories kept before concepts existed get
 //!   their concepts, one person at a time, so association can reach them.
 //!   One person's memories never share a model call with another's.
@@ -71,6 +74,7 @@ pub async fn tick(db: DatabaseConnection) {
         }
     }
     super::views::go_over(&db, owner).await;
+    super::self_story::look_back(&db, owner).await;
     // Yesterday with each person, once a night.
     if let Some((start, end)) = now.date_naive().pred_opt().and_then(day_bounds) {
         if BITS_DONE

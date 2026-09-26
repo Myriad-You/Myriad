@@ -842,7 +842,7 @@
       "memoryContent": "Contenu",
       "confirmRemoveMemory": "Supprimer ce souvenir ? Elle ne s'en servira plus la prochaine fois.",
       "memoryScopes": {"her": "Les siens", "person": "Sur les gens", "group": "Dans les groupes"},
-      "memoryCategories": {"experience": "Son expérience", "view": "Son avis", "day": "Sa journée", "chat": "Retenu en discussion", "event": "Un événement", "lookup": "Cherché", "import": "Importé", "playing": "Ce qu'ils jouent", "game": "Joué ensemble", "bit": "Blague entre vous", "thread": "Ce qu'elle garde en tête", "work": "Leçon de travail", "stranger": "Note sur un inconnu", "learned": "Entendu dans le groupe", "other": "Autre"},
+      "memoryCategories": {"experience": "Son expérience", "view": "Son avis", "day": "Sa journée", "chat": "Retenu en discussion", "event": "Un événement", "lookup": "Cherché", "import": "Importé", "playing": "Ce qu'ils jouent", "game": "Joué ensemble", "bit": "Blague entre vous", "thread": "Ce qu'elle garde en tête", "work": "Leçon de travail", "stranger": "Note sur un inconnu", "learned": "Entendu dans le groupe", "self": "Qui elle a été", "corrected": "Reprise sur une erreur", "other": "Autre"},
       "memoryOwnerHer": "Elle-même",
       "memoryOwnerUser": "Utilisateur {id}",
       "memoryOwnerGroup": "Groupe {platform} {id}",

@@ -70,6 +70,9 @@ struct Inner {
     /// matter (indexes into openThreads).
     #[serde(default)]
     done: Vec<usize>,
+    /// In private: they showed her something she said was wrong.
+    #[serde(default)]
+    wrong: Option<super::self_story::Corrected>,
 }
 
 /// Threads kept from one exchange, at most.
@@ -79,7 +82,8 @@ const MAX_KEPT: usize = 3;
 const THREADS: &str = "\n\n\
 openThreads are things you already meant to come back to with them. \
 keep: from this exchange, anything you would want to come back to with them later, in your own words (then: what you would ask or say): something they are about to do or face (dueInHours: hours from now until it would be natural to ask, for example the evening after an exam; null for whenever), or something left unfinished between you. Only what they said or what happened here, never a guess; most exchanges keep nothing. \
-done: the i of each open thread your reply already took up, or that no longer matters.";
+done: the i of each open thread your reply already took up, or that no longer matters. \
+wrong: only if in this exchange they showed you that something you said was wrong (a fact, a name, a date, a claim; not a difference of taste or opinion), otherwise null: about is what it was about, in a few words; note is one first-person sentence of what you had said and what turned out right; public is whether it is about a public matter (a song, a film, a place, a fact of the world) rather than about them or their life; took is how you took it: took_it, not_sure, or stood_by.";
 
 fn system_for(soul: &str, private: bool) -> String {
     let base = system(soul);
@@ -112,9 +116,20 @@ fn schema_for(private: bool) -> Value {
                     "additionalProperties": false
                 }
             },
-            "done": { "type": "array", "items": { "type": "integer", "minimum": 0 } }
+            "done": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+            "wrong": {
+                "type": ["object", "null"],
+                "properties": {
+                    "about": { "type": "string", "maxLength": 40 },
+                    "note": { "type": "string", "maxLength": 160 },
+                    "public": { "type": "boolean" },
+                    "took": { "type": "string", "enum": ["took_it", "not_sure", "stood_by"] }
+                },
+                "required": ["about", "note", "public", "took"],
+                "additionalProperties": false
+            }
         },
-        "required": ["inner", "keep", "done"],
+        "required": ["inner", "keep", "done", "wrong"],
         "additionalProperties": false
     })
 }
@@ -287,6 +302,11 @@ async fn compile(
             .filter_map(|index| threads.get(*index).map(|thread| thread.id.clone()))
             .collect();
         super::threads::close(db, user_id, &done, "taken_up").await;
+        // Being wrong about a public matter is part of her own story; about
+        // them or their life, it stays out of it.
+        if let Some(wrong) = reflected.wrong.as_ref().filter(|wrong| wrong.public) {
+            super::self_story::remember_corrected(db, wrong).await;
+        }
     }
     Some(reflected.inner)
 }
@@ -297,6 +317,7 @@ struct Reflection {
     inner: String,
     keep: Vec<super::threads::Kept>,
     done: Vec<usize>,
+    wrong: Option<super::self_story::Corrected>,
 }
 
 fn parse_reflection(raw: &str) -> Option<Reflection> {
@@ -310,10 +331,11 @@ fn parse_reflection(raw: &str) -> Option<Reflection> {
         .chars()
         .take(MAX_INNER_CHARS)
         .collect();
-    (!inner.is_empty()).then(|| Reflection {
+    (!inner.is_empty()).then_some(Reflection {
         inner,
         keep: parsed.keep,
         done: parsed.done,
+        wrong: parsed.wrong,
     })
 }
 
@@ -348,6 +370,21 @@ pub(crate) fn parse_threads(raw: &str) -> Option<(String, Vec<(String, Option<i6
                 .collect(),
             reflected.done,
         )
+    })
+}
+
+/// What the reflection says she was shown to be wrong about, as (about,
+/// public, took), for the semantic suite.
+#[cfg(test)]
+pub(crate) fn parse_wrong(raw: &str) -> Option<Option<(String, bool, String)>> {
+    parse_reflection(raw).map(|reflected| {
+        reflected.wrong.map(|wrong| {
+            let took = serde_json::to_value(wrong.took)
+                .ok()
+                .and_then(|took| took.as_str().map(str::to_string))
+                .unwrap_or_default();
+            (wrong.about, wrong.public, took)
+        })
     })
 }
 
@@ -397,12 +434,20 @@ mod tests {
         assert!(!system_for("你是小灯。", false).contains("openThreads"));
         assert_eq!(schema_for(false), super::schema());
         let (inner, kept, done) = parse_threads(
-            r#"{"inner":"有点替他紧张。","keep":[{"about":"考试","then":"问他考得怎么样","dueInHours":30}],"done":[0]}"#,
+            r#"{"inner":"有点替他紧张。","keep":[{"about":"考试","then":"问他考得怎么样","dueInHours":30}],"done":[0],"wrong":null}"#,
         )
         .unwrap();
         assert_eq!(inner, "有点替他紧张。");
         assert_eq!(kept, vec![("考试".to_string(), Some(30))]);
         assert_eq!(done, vec![0]);
+        assert!(system.contains("not a difference of taste or opinion"));
+        let wrong = parse_reflection(
+            r#"{"inner":"记错了。","keep":[],"done":[],"wrong":{"about":"晴天的发行年份","note":"我说晴天是2005年的，其实是2003年。","public":true,"took":"took_it"}}"#,
+        )
+        .unwrap()
+        .wrong
+        .unwrap();
+        assert!(wrong.public && wrong.about == "晴天的发行年份");
         // A group's reflection is just how she is.
         assert_eq!(
             parse(r#"{"inner":"群里好吵。"}"#).as_deref(),

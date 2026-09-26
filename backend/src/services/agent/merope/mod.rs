@@ -21,6 +21,7 @@ mod priming;
 pub mod reach;
 pub mod report_dna;
 pub mod self_state;
+pub mod self_story;
 pub mod soup;
 pub mod speaking_prompts;
 pub mod state;
@@ -338,8 +339,9 @@ pub use speaking_prompts::{
     format_brought_to_mind_section, format_curious_section, format_doing_section,
     format_emotion_section, format_found_out_section, format_inner_moment_ago_section,
     format_mood_section, format_on_your_mind_section, format_own_days_section, format_persona,
-    format_playing_section, format_recent_section, format_remembered_section, format_since_section,
-    format_views_section, group_speaking_section, guest_speaking_section, mood_tone_instruction,
+    format_playing_section, format_recent_section, format_remembered_section,
+    format_self_story_section, format_since_section, format_views_section, group_speaking_section,
+    guest_speaking_section, mood_tone_instruction,
 };
 
 /// Prompt sections for whoever this turn is speaking to. Empty when Merope is off.
@@ -669,6 +671,11 @@ async fn speaking_prompt_from_db(
     }
     if !matches!(turn, Turn::Plain) {
         if let Some(block) = format_own_days_section(&life::recent_days(db, OWN_DAYS_LIMIT).await) {
+            sections.push(block);
+        }
+        // Who she has been lately, told from what she did: hers, heard
+        // wherever she is.
+        if let Some(block) = format_self_story_section(&self_story::current(db).await) {
             sections.push(block);
         }
         // Her own time is about public things, so any audience may hear it.
