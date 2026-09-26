@@ -468,6 +468,17 @@ pub fn timedtext_text(xml: &str) -> String {
     lines.join(" ")
 }
 
+/// What her senses can do right now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Senses {
+    pub search: bool,
+    /// Searching goes to Wikipedia (no search provider set up), which
+    /// finds articles by their subject, not by a string of keywords.
+    pub search_is_wikipedia: bool,
+    pub read: bool,
+    pub video: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

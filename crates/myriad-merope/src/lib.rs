@@ -6,6 +6,7 @@
 pub mod affect;
 mod anime25d_contract;
 pub mod answer;
+pub mod explore;
 mod onboarding;
 mod outfit_overlay;
 mod performance;
@@ -22,6 +23,7 @@ pub mod soup;
 pub mod speaking;
 mod speech_plan;
 mod sticker_avatar;
+pub mod views;
 mod visual_contract;
 mod visual_design;
 mod visual_prompt;

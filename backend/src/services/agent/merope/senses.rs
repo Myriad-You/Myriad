@@ -22,10 +22,9 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
 use serde_json::Value;
 
-pub use myriad_merope::reading::{Hit, Taken};
+pub use myriad_merope::reading::{Hit, Senses, Taken};
 use myriad_merope::reading::{
     SEARCH_RESULTS, disallowed_for_her, focused, meme_entries, page_text, path_is_closed,
     pick_track, timedtext_text, video_address, vtt_text, wikipedia_hits, wikipedia_language,
@@ -48,17 +47,6 @@ async fn user_agent() -> String {
 }
 /// robots.txt answers are kept this long per site.
 const ROBOTS_FOR: Duration = Duration::from_secs(24 * 60 * 60);
-
-/// What her senses can do right now.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub struct Senses {
-    pub search: bool,
-    /// Searching goes to Wikipedia (no search provider set up), which
-    /// finds articles by their subject, not by a string of keywords.
-    pub search_is_wikipedia: bool,
-    pub read: bool,
-    pub video: bool,
-}
 
 pub async fn available() -> Senses {
     Senses {
