@@ -184,15 +184,15 @@ async fn execute_seo_review(
     let mut claim_status = ClaimStatus::Done;
     match tokio::time::timeout(
         timeout,
-        crate::api::seo_review::run_scheduled_seo_review(&task_db),
+        crate::services::seo_review::run_scheduled_seo_review(&task_db),
     )
     .await
     {
-        Ok(Ok(crate::api::seo_review::SeoReviewOutcome::Unchanged)) => {
+        Ok(Ok(crate::services::seo_review::SeoReviewOutcome::Unchanged)) => {
             hb_ref.record_result(&task.id, "unchanged").await;
             tracing::info!(task_id = %task.id, "[Heartbeat] SEO review unchanged");
         }
-        Ok(Ok(crate::api::seo_review::SeoReviewOutcome::Draft {
+        Ok(Ok(crate::services::seo_review::SeoReviewOutcome::Draft {
             why,
             site_description,
             site_keywords,

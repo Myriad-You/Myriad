@@ -15,7 +15,7 @@ use sea_orm::{
 };
 use serde::Serialize;
 
-use crate::api::seo::PHANTASI_MINE_CATEGORY as NOTE_SOURCE_CATEGORY;
+use crate::services::public_site::PHANTASI_MINE_CATEGORY as NOTE_SOURCE_CATEGORY;
 use crate::error::HttpError;
 use crate::models::entities::{phantasi_items, phantasi_note_docs, phantasi_sources};
 use axum::{Json, http::StatusCode};
