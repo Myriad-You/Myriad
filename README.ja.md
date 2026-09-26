@@ -561,6 +561,16 @@ Tapp サンドボックス · [MCP](https://github.com/modelcontextprotocol/mode
 
 ---
 
+## スポンサー
+
+Myriad はオープンに開発され、使ってくれる人たちに支えられています。役に立っていると感じたら、ぜひ応援をお願いします：
+
+[![unifans](https://img.shields.io/badge/unifans-%E5%BF%9C%E6%8F%B4-FF5E8A?style=for-the-badge)](https://app.unifans.io/c/somekawahitomi)
+[![Liberapay](https://img.shields.io/badge/Liberapay-%E5%AF%84%E4%BB%98-F6C915?style=for-the-badge&logo=liberapay&logoColor=black)](https://liberapay.com/furina/donate)
+[![afdian](https://img.shields.io/badge/%E7%88%B1%E5%8F%91%E7%94%B5-Sponsor-946CE6?style=for-the-badge)](https://afdian.com/a/mamori)
+
+支えてくださるすべての方に感謝します。
+
 ## 貢献
 
 Issue と PR を歓迎。UI 文言：`zh-CN` / `zh-TW` / `en-US` / `ja-JP` / `ko-KR` / `fr-FR` / `de-DE`。

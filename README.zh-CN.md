@@ -561,6 +561,16 @@ Tapp 沙箱 · [MCP](https://github.com/modelcontextprotocol/modelcontextprotoco
 
 ---
 
+## 赞助
+
+Myriad 公开开发，靠使用它的人一起支撑。如果它对你有用，欢迎支持我们继续走下去：
+
+[![爱发电](https://img.shields.io/badge/%E7%88%B1%E5%8F%91%E7%94%B5-%E8%B5%9E%E5%8A%A9-946CE6?style=for-the-badge)](https://afdian.com/a/mamori)
+[![unifans](https://img.shields.io/badge/unifans-%E6%94%AF%E6%8C%81-FF5E8A?style=for-the-badge)](https://app.unifans.io/c/somekawahitomi)
+[![Liberapay](https://img.shields.io/badge/Liberapay-%E6%8D%90%E5%8A%A9-F6C915?style=for-the-badge&logo=liberapay&logoColor=black)](https://liberapay.com/furina/donate)
+
+感谢每一位支持我们的你。
+
 ## 贡献
 
 欢迎 Issue 与 PR。UI 文案：`zh-CN` / `zh-TW` / `en-US` / `ja-JP` / `ko-KR` / `fr-FR` / `de-DE`。

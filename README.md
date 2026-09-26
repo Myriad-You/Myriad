@@ -564,6 +564,16 @@ Currently Chinese. [Index](docs/INDEX.md).
 
 ---
 
+## Sponsor
+
+Myriad is built in the open and kept alive by the people who use it. If it has earned a place in your life, you can help keep it going:
+
+[![Liberapay](https://img.shields.io/badge/Liberapay-Donate-F6C915?style=for-the-badge&logo=liberapay&logoColor=black)](https://liberapay.com/furina/donate)
+[![unifans](https://img.shields.io/badge/unifans-Support-FF5E8A?style=for-the-badge)](https://app.unifans.io/c/somekawahitomi)
+[![afdian](https://img.shields.io/badge/%E7%88%B1%E5%8F%91%E7%94%B5-Sponsor-946CE6?style=for-the-badge)](https://afdian.com/a/mamori)
+
+Thank you to everyone who supports us.
+
 ## Contributing
 
 Issues and PRs welcome. UI copy: `zh-CN` / `zh-TW` / `en-US` / `ja-JP` / `ko-KR` / `fr-FR` / `de-DE`.
