@@ -117,6 +117,56 @@ pub(super) fn build_authenticated_router(
                     middleware::auth::admin_middleware,
                 )),
         )
+        // Local music library — admin catalog
+        .route(
+            "/api/local-music",
+            get(api::local_music::list_local_tracks)
+                .post(api::local_music::create_local_track)
+                .route_layer(from_fn_with_state(
+                    app_state.clone(),
+                    middleware::auth::admin_middleware,
+                )),
+        )
+        .route(
+            "/api/local-music/playlists",
+            get(api::local_music::list_local_playlists)
+                .post(api::local_music::create_local_playlist)
+                .route_layer(from_fn_with_state(
+                    app_state.clone(),
+                    middleware::auth::admin_middleware,
+                )),
+        )
+        .route(
+            "/api/local-music/playlists/{id}",
+            axum::routing::patch(api::local_music::update_local_playlist)
+                .delete(api::local_music::delete_local_playlist)
+                .route_layer(from_fn_with_state(
+                    app_state.clone(),
+                    middleware::auth::admin_middleware,
+                )),
+        )
+        .route(
+            "/api/local-music/upload",
+            post(api::local_music::upload_local_track)
+                .layer(axum::extract::DefaultBodyLimit::max(
+                    // Audio + optional cover in one multipart body.
+                    crate::services::memory_profile::max_audio_bytes()
+                        .saturating_add(crate::services::memory_profile::note_image_limit()),
+                ))
+                .route_layer(from_fn_with_state(
+                    app_state.clone(),
+                    middleware::auth::admin_middleware,
+                )),
+        )
+        .route(
+            "/api/local-music/{id}",
+            axum::routing::patch(api::local_music::update_local_track)
+                .delete(api::local_music::delete_local_track)
+                .route_layer(from_fn_with_state(
+                    app_state.clone(),
+                    middleware::auth::admin_middleware,
+                )),
+        )
         .route(
             "/api/media/{id}",
             axum::routing::delete(api::media::delete_media).route_layer(from_fn_with_state(
@@ -824,6 +874,23 @@ pub(super) fn build_authenticated_router(
         .route(
             "/api/proxy/music/kugou/lyrics-verbatim",
             get(api::proxy::proxy_kugou_lyrics_verbatim),
+        )
+        // Local music library — guest-playable like netease/qq
+        .route(
+            "/api/proxy/music/local/playlist/{id}",
+            get(api::local_music::proxy_local_playlist),
+        )
+        .route(
+            "/api/proxy/music/local/lyrics/{id}",
+            get(api::local_music::proxy_local_lyrics),
+        )
+        .route(
+            "/api/proxy/music/local/audio/{id}",
+            get(api::local_music::proxy_local_audio),
+        )
+        .route(
+            "/api/proxy/music/local/cover/{id}",
+            get(api::local_music::proxy_local_cover),
         )
         // Bilibili debug/live-fetch routes — admin only (not public cache)
         .route(

@@ -259,7 +259,7 @@ async fn await_reply(
             _ = typing.tick() => sink.send_typing().await,
             envelope = events.next() => match envelope?.event {
                 AgentProgressEvent::TaskCompleted { success, response, .. } => {
-                    return success.then(|| *response);
+                    return success.then_some(*response);
                 }
                 AgentProgressEvent::Error { .. } => return None,
                 _ => {}

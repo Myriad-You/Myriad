@@ -21,6 +21,7 @@ import {
   destroyPlaybackAudioElement,
   filterPlaylist,
   getCurrentLyricIndex,
+  getLocalPlaylist,
   getMusicProxyFallbackUrl,
   getNeteasePlaylist,
   getQQPlaylist,
@@ -160,6 +161,7 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
   const neteaseProxyFallbackTriedRef = useRef<Set<string>>(new Set())
   const audioLoadSongIdRef = useRef<string | null>(null)
   const audioLoadGenerationRef = useRef(0)
+  const errorSkipCountRef = useRef(0)
   isPlayingRef.current = isPlaying
   currentSongRef.current = currentSong
   currentSongIndexRef.current = currentSongIndex
@@ -513,13 +515,20 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
 
   const loadPlaylist = useCallback(
     async (source: MusicSource, plistId: string, autoPlay: boolean = false) => {
-      loadResource.medium(`music-playlist-${plistId}`, async () => {
+      // Local must re-run every time (resourceLoader dedupes by completed id).
+      const taskKey
+        = source === 'local'
+          ? `music-playlist-local-${Date.now()}`
+          : `music-playlist-${source}-${plistId}`
+      loadResource.medium(taskKey, async () => {
         try {
           setMusicErrorKey('')
           setMusicErrorDetail('')
           neteaseProxyFallbackTriedRef.current.clear()
           const songs =
-            source === 'netease'
+            source === 'local'
+              ? await getLocalPlaylist(plistId || 'local')
+              : source === 'netease'
               ? await getNeteasePlaylist(plistId)
               : await getQQPlaylist(plistId)
 
@@ -559,6 +568,25 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
     [selectSong, excludeVipSongs, flashMusicError],
   )
 
+  // Config panel / local library can request a fresh playlist load.
+  useEffect(() => {
+    const onReload = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        playlistId?: string
+        source?: string
+        autoPlay?: boolean
+      }>).detail
+      const source = (detail?.source as MusicSource) || musicSource
+      const id = detail?.playlistId || (source === 'local' ? 'local' : playlistId)
+      if (!id) return
+      setMusicSource(source)
+      setPlaylistId(id)
+      if (musicEnabled) void loadPlaylist(source, id, Boolean(detail?.autoPlay))
+    }
+    window.addEventListener('music-player-load-playlist', onReload)
+    return () => window.removeEventListener('music-player-load-playlist', onReload)
+  }, [loadPlaylist, musicEnabled, musicSource, playlistId])
+
   const loadMusicConfig = useCallback(async () => {
     try {
       resetPreloadBackoff()
@@ -570,7 +598,9 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
       const { normalizeMusicPlaylistId } = await import(
         '../utils/musicPlaylistId',
       )
-      const plistId = normalizeMusicPlaylistId(data.music_playlist_id || '')
+      const rawId = normalizeMusicPlaylistId(data.music_playlist_id || '')
+      // Local library always plays the on-site catalog when no id is set.
+      const plistId = source === 'local' && !rawId ? 'local' : rawId
 
       // Must land before loadPlaylist: playback URLs are built from it.
       setMusicStreamProxyEnabled(configFlagOn(data.music_proxy_enabled))
@@ -875,6 +905,7 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
       ) {
         return
       }
+      errorSkipCountRef.current = 0
       if (!currentSongLoadedRef.current) {
         currentSongLoadedRef.current = true
         currentSongStartTimeRef.current = Date.now()
@@ -1044,6 +1075,13 @@ export function useMusicPlayer(): UseMusicPlayerReturn {
             selectGenerationRef.current !== audioLoadGenerationRef.current ||
             currentSongRef.current?.id !== audioLoadSongIdRef.current
           ) {
+            return
+          }
+          // Stop auto-skip after a few consecutive failures (dead URLs would loop forever).
+          errorSkipCountRef.current += 1
+          if (errorSkipCountRef.current > 3) {
+            errorSkipCountRef.current = 0
+            userWantsPlayingRef.current = false
             return
           }
           const nextIndex = (currentSongIndex + 1) % playlist.length

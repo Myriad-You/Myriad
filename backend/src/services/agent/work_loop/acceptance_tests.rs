@@ -27,15 +27,10 @@ pub(super) async fn business_database(user: i32) -> sea_orm::DatabaseConnection 
             .await
             .unwrap();
     }
-    db.execute_raw(Statement::from_string(
-        DatabaseBackend::Postgres,
-        "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, is_admin BOOLEAN NOT NULL)",
-    ))
-    .await
-    .unwrap();
     db.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "INSERT INTO users VALUES ($1,true) ON CONFLICT(id) DO UPDATE SET is_admin=true",
+        "INSERT INTO users (id, is_admin, is_owner) VALUES ($1, true, false) \
+         ON CONFLICT(id) DO UPDATE SET is_admin=true",
         [user.into()],
     ))
     .await

@@ -18,6 +18,7 @@ pub mod federation; // HTTP surface; domain lives in crate::federation
 pub mod game_presence; // public Enka / Xbox / PSN; no user cookies
 pub mod github_stars; // GitHub repo summary for settings badges + Phantasi (platform egress)
 pub mod home_stickers; // Free-layout AI stickers
+pub mod local_music; // Local music library (admin catalog + guest player)
 pub mod mal;
 pub mod media;
 pub mod media_edit;

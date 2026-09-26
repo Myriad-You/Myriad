@@ -63,15 +63,21 @@ test('repeated glass and avatar lifecycles release DOM and GPU resources across 
 
 test('4096px atlas replacement bounds estimated upload bytes and releases them', async ({ page, browserName }, testInfo) => {
   const result = await page.evaluate(() => window.memoryGpu.gpuCycles(3, '', 4096))
+  const atlasBytes = 4096 * 4096 * 4
+  // Iris draw keeps one RGBA eye-mask target the size of the backing store.
+  // Replacement may hold both atlases plus that mask, but not a third atlas.
+  const maskBytes = result.drawingBufferBytes
   expect(result.renderer.maxTextureSize).toBeGreaterThanOrEqual(4096)
   expect(result.glError).toBe(0)
   expect(result.final).toEqual(empty)
   expect(result.finalBytes).toEqual(noBytes)
-  expect(result.peakBytes.textures).toBe(2 * 4096 * 4096 * 4)
+  expect(maskBytes).toBeGreaterThan(0)
+  expect(maskBytes).toBeLessThan(atlasBytes)
+  expect(result.peakBytes.textures).toBe(2 * atlasBytes + maskBytes)
   let steadyBuffers = 0
   for (const snapshot of result.snapshots) {
     if (!('active' in snapshot)) continue
-    expect(snapshot.activeBytes.textures).toBe(4096 * 4096 * 4)
+    expect(snapshot.activeBytes.textures).toBe(atlasBytes + maskBytes)
     expect(snapshot.afterReplacementBytes).toEqual(snapshot.activeBytes)
     steadyBuffers = Math.max(steadyBuffers, snapshot.activeBytes.buffers)
   }

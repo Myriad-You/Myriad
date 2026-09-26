@@ -210,6 +210,8 @@ async fn postgres_recipe_confirmation_denial_revocation_and_owner_isolation() {
             ))
             .await
             .unwrap();
+            crate::middleware::auth::invalidate_auth_cache_local(8582);
+            crate::services::principal::invalidate_site_owner_cache();
         }
         let answer = UserAnswer {
             task_id: state.task.task_id.clone(),

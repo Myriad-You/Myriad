@@ -11,7 +11,11 @@ import {
 } from 'react'
 import './LyricWaveScroll.css'
 
-export interface LyricWaveLine { time: number; text: string }
+export interface LyricWaveLine {
+  time: number
+  text: string
+  translation?: string
+}
 
 export type LyricWaveVariant = 'card' | 'panel'
 
@@ -105,10 +109,16 @@ function rowClass(i: number, focus: number): string {
 }
 
 function cleanLyricLines(lyrics: LyricWaveLine[]) {
-  const out: { text: string; origIdx: number }[] = []
+  const out: { text: string; translation?: string; origIdx: number }[] = []
   for (let i = 0; i < lyrics.length; i++) {
     const text = (lyrics[i]?.text || '').trim()
-    if (text) out.push({ text, origIdx: i })
+    if (!text) continue
+    const translation = lyrics[i]?.translation?.trim()
+    out.push({
+      text,
+      translation: translation || undefined,
+      origIdx: i,
+    })
   }
   return out
 }
@@ -729,7 +739,10 @@ export const LyricWaveScroll = memo(({
               className={rowClass(i, focusForClass)}
               data-index={i}
             >
-              {line.text}
+              <span className="lyric-wave__text">{line.text}</span>
+              {line.translation ? (
+                <span className="lyric-wave__trans">{line.translation}</span>
+              ) : null}
             </p>
           )
         })}

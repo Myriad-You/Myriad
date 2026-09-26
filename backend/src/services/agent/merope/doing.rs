@@ -330,7 +330,7 @@ async fn options(db: &DatabaseConnection, lately: &[unified_row::Model]) -> Vec<
             (experience.key.starts_with("note:") || recent).then_some(experience.key)
         })
         .collect();
-    let mut songs: Vec<Thing> = site_songs()
+    let mut songs: Vec<Thing> = site_songs(db)
         .await
         .into_iter()
         .filter(|thing| !done.contains(&thing.key()))
@@ -355,7 +355,7 @@ fn shuffle<T>(items: &mut [T]) {
     }
 }
 
-async fn site_songs() -> Vec<Thing> {
+async fn site_songs(db: &DatabaseConnection) -> Vec<Thing> {
     let (enabled, source, playlist) = {
         let config = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
         (
@@ -378,12 +378,28 @@ async fn site_songs() -> Vec<Thing> {
     };
     let source = match setting(source, "MUSIC_SOURCE").as_deref() {
         Some("qq") => PlayerMusicSource::Qq,
+        Some("local") => PlayerMusicSource::Local,
         _ => PlayerMusicSource::Netease,
     };
     let loaded = match source {
         // Only what the site's own player already loaded.
         PlayerMusicSource::Qq => {
             crate::services::music_player_view::get_cached_player_playlist(source, &playlist).await
+        }
+        PlayerMusicSource::Local => {
+            let db = db.clone();
+            let pid = playlist.clone();
+            crate::services::music_player_view::load_player_playlist(
+                source,
+                &playlist,
+                || async move {
+                    crate::services::local_music::build_player_playlist(&db, &pid)
+                        .await
+                        .map_err(|_| PlayerPlaylistError::FetchFailed)
+                },
+            )
+            .await
+            .ok()
         }
         PlayerMusicSource::Netease => {
             let Ok(id) = playlist.parse::<i64>() else {

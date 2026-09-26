@@ -210,7 +210,7 @@ export function throttle<T extends (...args: any[]) => any>(
   return throttled
 }
 
-export type MusicSource = 'netease' | 'qq'
+export type MusicSource = 'netease' | 'qq' | 'local'
 
 export interface Song {
   id: string
@@ -349,7 +349,23 @@ export function parseLyrics(lrcText: string): LyricLine[] {
     }
   }
 
-  return lyrics.toSorted((a, b) => a.time - b.time)
+  // Pair bilingual LRC: same timestamp → original + translation.
+  const sorted = lyrics.toSorted((a, b) => a.time - b.time)
+  const paired: LyricLine[] = []
+  for (const line of sorted) {
+    const prev = paired[paired.length - 1]
+    if (prev && Math.abs(prev.time - line.time) < 0.08) {
+      if (!prev.translation) {
+        // Later line at same time is the translation (common LRC convention).
+        prev.translation = line.text
+      } else {
+        prev.translation += `\n${line.text}`
+      }
+      continue
+    }
+    paired.push({ ...line })
+  }
+  return paired
 }
 
 export function parseYrc(yrcText: string): WordLyricLine[] {
@@ -441,11 +457,21 @@ export function parseKrc(krcText: string): WordLyricLine[] {
   return result.toSorted((a, b) => a.time - b.time)
 }
 
+/** Local library audio is same-origin (spectrum-safe, no geo/proxy switch). */
+export function getLocalAudioUrl(trackId: string): string {
+  return `${API_URL}/api/proxy/music/local/audio/${trackId}`
+}
+
+export function getLocalLyricsUrl(trackId: string): string {
+  return `${API_URL}/api/proxy/music/local/lyrics/${trackId}`
+}
+
 function playbackUrlForSong(
   source: MusicSource,
   id: string,
   inChina: boolean | null,
 ): string {
+  if (source === 'local') return getLocalAudioUrl(id)
   if (source === 'netease') {
     if (inChina === null) return getNeteaseAudioUrlImmediate(id)
     return getNeteaseGeoPlaybackUrl(id, inChina)
@@ -501,6 +527,8 @@ function isPlayerPlaylistPayload(
 }
 
 function getPlaylistFromCache(cacheKey: string): Song[] | null {
+  // Local library ids go stale when files are deleted/re-uploaded.
+  if (cacheKey.startsWith('local-')) return null
   const memoryCache = playlistMemoryCache.get(cacheKey)
   if (
     memoryCache &&
@@ -532,6 +560,8 @@ function getPlaylistFromCache(cacheKey: string): Song[] | null {
 }
 
 function savePlaylistToCache(cacheKey: string, songs: Song[]): void {
+  // Local library changes on disk; do not persist stale track ids.
+  if (cacheKey.startsWith('local-')) return
   const entry: PlaylistCacheEntry = {
     data: songs.map(stripPlaybackUrl),
     timestamp: Date.now(),
@@ -588,7 +618,9 @@ async function fetchPlayerPlaylist(
   playlistId: string,
 ): Promise<PlayerPlaylistPayload> {
   const path =
-    source === 'netease'
+    source === 'local'
+      ? `${API_URL}/api/proxy/music/local/playlist/${playlistId || 'local'}`
+      : source === 'netease'
       ? `${API_URL}/api/proxy/music/netease/playlist/${playlistId}`
       : `${API_URL}/api/proxy/music/qq/playlist/${playlistId}`
   const response = await fetch(path)
@@ -650,6 +682,10 @@ export async function getNeteasePlaylist(playlistId: string): Promise<Song[]> {
 
 export async function getQQPlaylist(playlistId: string): Promise<Song[]> {
   return loadPlayerPlaylist('qq', playlistId)
+}
+
+export async function getLocalPlaylist(playlistId = 'local'): Promise<Song[]> {
+  return loadPlayerPlaylist('local', playlistId || 'local')
 }
 
 const verbatimLyricsCache = new Map<string, VerbatimLyricsResult>()
@@ -916,7 +952,13 @@ export async function getLyricsWithVerbatim(
   let verbatimSource: VerbatimLyricsSource = ''
   let translation: LyricLine[] = []
 
-  if (song.source === 'qq') {
+  if (song.source === 'local') {
+    const res = await fetch(getLocalLyricsUrl(song.id))
+    if (res.ok) {
+      const body = (await res.json()) as { lrc?: string }
+      lines = parseLyrics(body.lrc || '')
+    }
+  } else if (song.source === 'qq') {
     const qq = await getQQLyricsWithTranslation(song.id)
     lines = qq.lines
     translation = qq.translation

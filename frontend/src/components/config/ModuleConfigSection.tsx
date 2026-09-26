@@ -52,6 +52,7 @@ import {
   useSettingGuide,
 } from '../settings'
 import { Spinner } from '../Spinner'
+import { LocalMusicManager } from './LocalMusicManager'
 import { MyriadConfigIcon } from './MyriadConfigIcon'
 
 interface UiConfigField {
@@ -814,7 +815,12 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
           label={t.config.musicPlatform}
           {...bindGuide('modules.musicPlatform', g.modules.musicPlatform)}
           value={musicSource}
-          onChange={(v) => updateUiFieldValue('music_source', v)}
+          onChange={(v) => {
+            updateUiFieldValue('music_source', v)
+            if (v === 'local') {
+              updateUiFieldValue('music_playlist_id', 'local')
+            }
+          }}
           options={[
             {
               value: 'netease',
@@ -826,36 +832,44 @@ export const ModuleConfigSection: React.FC<ModuleConfigSectionProps> = ({
               label: t.config.qqMusic,
               icon: <SiQqmusic />,
             },
+            {
+              value: 'local',
+              label: t.config.localMusic,
+              icon: <LibraryTypeIcon type="music" className="h-3.5 w-3.5" />,
+            },
           ]}
           layout="horizontal"
           disabled={!musicEnabled}
         />
-        <InputItem
-          itemKey="music_playlist_id"
-          label={t.config.playlistId}
-          required
-          value={playlistId}
-          onChange={(v) => {
-            const next =
-              v.includes('://') || v.includes('id=') || v.includes('/playlist/')
-                ? normalizeMusicPlaylistId(v)
-                : v
-            updateUiFieldValue('music_playlist_id', next)
-          }}
-          placeholder={
-            musicSource === 'netease'
-              ? t.config.neteasePlaylistExample
-              : t.config.qqPlaylistExample
-          }
-          hint={
-            musicSource === 'netease'
-              ? t.config.neteasePlaylistHint
-              : t.config.qqPlaylistHint
-          }
-          {...bindGuide('modules.musicPlaylist', g.modules.musicPlaylist)}
-          layout="vertical"
-          disabled={!musicEnabled}
-        />
+        {musicSource !== 'local' && (
+          <InputItem
+            itemKey="music_playlist_id"
+            label={t.config.playlistId}
+            required
+            value={playlistId}
+            onChange={(v) => {
+              const next =
+                v.includes('://') || v.includes('id=') || v.includes('/playlist/')
+                  ? normalizeMusicPlaylistId(v)
+                  : v
+              updateUiFieldValue('music_playlist_id', next)
+            }}
+            placeholder={
+              musicSource === 'netease'
+                ? t.config.neteasePlaylistExample
+                : t.config.qqPlaylistExample
+            }
+            hint={
+              musicSource === 'netease'
+                ? t.config.neteasePlaylistHint
+                : t.config.qqPlaylistHint
+            }
+            {...bindGuide('modules.musicPlaylist', g.modules.musicPlaylist)}
+            layout="vertical"
+            disabled={!musicEnabled}
+          />
+        )}
+        {musicSource === 'local' && <LocalMusicManager />}
         <SwitchItem
           itemKey="music_proxy_enabled"
           label={t.config.musicProxyEnabled}

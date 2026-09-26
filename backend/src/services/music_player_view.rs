@@ -34,6 +34,7 @@ pub const PLAYER_PLAYLIST_CACHE_VERSION: &str = "v1";
 pub enum PlayerMusicSource {
     Netease,
     Qq,
+    Local,
 }
 
 impl PlayerMusicSource {
@@ -41,6 +42,7 @@ impl PlayerMusicSource {
         match self {
             Self::Netease => "netease",
             Self::Qq => "qq",
+            Self::Local => "local",
         }
     }
 }
@@ -99,6 +101,10 @@ where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<PlayerPlaylist, PlayerPlaylistError>>,
 {
+    // Local catalog mutates on upload/delete/edit — never serve a stale cache.
+    if source == PlayerMusicSource::Local {
+        return Ok(Arc::new(fetch().await?));
+    }
     if let Some(playlist) = get_cached_player_playlist(source, playlist_id).await {
         return Ok(playlist);
     }
@@ -347,6 +353,10 @@ mod tests {
         assert_eq!(
             player_playlist_cache_key(PlayerMusicSource::Netease, "42"),
             "playlist_player:v1:netease:42"
+        );
+        assert_eq!(
+            player_playlist_cache_key(PlayerMusicSource::Local, "local"),
+            "playlist_player:v1:local:local"
         );
         assert_eq!(
             player_playlist_cache_key(PlayerMusicSource::Qq, "99"),

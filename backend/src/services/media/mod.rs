@@ -56,7 +56,56 @@ pub use types::{
     MediaState, NewMediaBytes, RecoveryReport, task_media_context,
 };
 pub use urls::{cite_local_path, content_path, public_path, registered_local_path, storage_key};
-pub use validate::{ValidatedPayload, allowed_media_mimes, validate_bytes};
+
+/// Guest-readable media bytes for local-music playback/covers (public exposure only).
+pub async fn resolve_guest_media_bytes(
+    db: &DatabaseConnection,
+    media_id: i32,
+) -> Result<(String, Vec<u8>), MediaError> {
+    use sea_orm::EntityTrait;
+    let row = crate::models::entities::media_assets::Entity::find_by_id(media_id)
+        .one(db)
+        .await
+        .map_err(|_| MediaError::StoreFailed)?
+        .ok_or_else(|| MediaError::invalid("Media not found"))?;
+    if row.exposure.as_deref() != Some("public") {
+        return Err(MediaError::invalid("Media is not public"));
+    }
+    if row.state.as_deref() != Some("ready") {
+        return Err(MediaError::invalid("Media is not ready"));
+    }
+    let key = row.storage_key.ok_or(MediaError::StoreFailed)?;
+    let store = MediaStore::new(crate::services::data_paths::paths().media.clone());
+    let path = store.final_path(&key)?;
+    let bytes = tokio::fs::read(path).await.map_err(|_| MediaError::StoreFailed)?;
+    Ok((row.mime, bytes))
+}
+pub use validate::{
+    ValidatedPayload, allowed_media_mimes, audio_mime_from_filename, canonical_mime_alias,
+    validate_bytes,
+};
+
+/// Resolve a multipart audio MIME for storage: alias-canonicalize, then filename fallback.
+pub fn resolve_upload_audio_mime(claimed: &str, filename: &str) -> String {
+    let canonical = canonical_mime_alias(claimed);
+    if allowed_media_mimes().any(|allowed| allowed == canonical) {
+        return canonical;
+    }
+    if let Some(from_name) = audio_mime_from_filename(filename) {
+        return from_name.to_string();
+    }
+    if canonical.is_empty() || canonical == "application/octet-stream" {
+        if let Some(from_name) = audio_mime_from_filename(filename) {
+            return from_name.to_string();
+        }
+    }
+    // Keep claimed for the error path (normalize_mime will reject with a clear message).
+    if canonical.is_empty() {
+        claimed.trim().to_ascii_lowercase()
+    } else {
+        canonical
+    }
+}
 
 use sea_orm::{DatabaseConnection, TransactionTrait};
 use uuid::Uuid;
@@ -463,6 +512,8 @@ mod tests {
 
     #[test]
     fn allowed_mimes_keep_current_upload_surface() {
+        // Product intent: the shared media catalog accepts images, video, and
+        // local-music audio (mp3/flac/ogg) through the same upload surface.
         let mimes: Vec<_> = allowed_media_mimes().collect();
         assert_eq!(
             mimes,
@@ -474,6 +525,12 @@ mod tests {
                 "video/mp4",
                 "video/webm",
                 "video/quicktime",
+                "audio/mpeg",
+                "audio/mp4",
+                "audio/flac",
+                "audio/wav",
+                "audio/ogg",
+                "audio/aac",
             ]
         );
     }

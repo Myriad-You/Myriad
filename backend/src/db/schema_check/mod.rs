@@ -25,6 +25,7 @@ mod tables_agent;
 mod tables_analytics;
 mod tables_core;
 mod tables_federation;
+mod tables_local_music;
 mod tables_phantasi;
 mod tables_tapp;
 mod types;

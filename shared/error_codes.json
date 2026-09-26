@@ -1659,6 +1659,9 @@
     "AI_TASK_REGISTRY_UNAVAILABLE",
     "updater_upstream_failed",
     "AI_OUTPUT_SCHEMA_MISMATCH",
-    "store_asset_fetch_failed"
+    "store_asset_fetch_failed",
+    "cover_not_found",
+    "playlist_not_found",
+    "track_not_found"
   ]
 }
