@@ -36,7 +36,7 @@ use super::senses;
 use super::sources::{Carry, Intake, Kept, Thing};
 use crate::services::agent::memory::unified;
 pub use myriad_merope::explore::{
-    Compared, Explored, FOUND_CHARS, Go, Looked, Question, Step, Trip, go_for, looking_back,
+    Compared, Explored, FOUND_CHARS, Go, Looked, Question, Step, Trip, go_for,
 };
 use myriad_merope::explore::{
     NEW_A_NIGHT, Thinking, Wondered, compare_schema, compare_system, step_input, step_schema_for,
@@ -56,8 +56,6 @@ const OFFERED: usize = 2;
 /// Steps a search may take.
 const STEPS: usize = 5;
 const CALL_TIMEOUT: Duration = Duration::from_secs(45);
-/// About how long finding something out takes.
-pub const MINUTES: i64 = 15;
 
 const WENT_OUT: &str = "You went out to find it out. What you thought first, and how sure you were, is given; the material is what you actually looked at (searches, pages, what is said in videos), each with where it came from. \
 Write what you found out and what you make of it, in your own words, never a copy: what matched what you thought, what surprised you, what is still open. Only what the material says; if it did not answer it, say so plainly. ";

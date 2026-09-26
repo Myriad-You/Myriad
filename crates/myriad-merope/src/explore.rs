@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 /// New questions a night, at most.
+/// About how long finding something out takes.
+pub const MINUTES: i64 = 15;
+
 pub const NEW_A_NIGHT: usize = 2;
 
 /// How much of each thing looked at the next step sees.
