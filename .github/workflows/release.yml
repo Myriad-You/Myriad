@@ -30,6 +30,9 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: read
+
 env:
   REGISTRY: docker.io
   # Docker Hub namespace = DOCKERHUB_USERNAME secret. Forks set their own
