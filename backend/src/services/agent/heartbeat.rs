@@ -483,6 +483,21 @@ impl HeartbeatManager {
             }
         }
         let mut tasks = self.tasks.read().await.clone();
+        // 每个心跳 tick 都会调到这里；已经对齐就别重写 HEARTBEAT.md。
+        let current = tasks.iter().find(|t| t.id == SEO_REVIEW_TASK_ID);
+        let aligned = match (current, schedule) {
+            (Some(task), Some(cron)) => {
+                task.enabled
+                    && task.schedule == cron
+                    && task.action == SEO_REVIEW_TASK_ACTION
+                    && task.name == SEO_REVIEW_TASK_NAME
+            }
+            (Some(task), None) => !task.enabled,
+            (None, cron) => cron.is_none(),
+        };
+        if aligned {
+            return Ok(());
+        }
         {
             if let Some(task) = tasks.iter_mut().find(|t| t.id == SEO_REVIEW_TASK_ID) {
                 if let Some(cron) = schedule {
@@ -890,18 +905,6 @@ pub fn get_heartbeat() -> Option<&'static Arc<HeartbeatManager>> {
     HEARTBEAT_MANAGER.get()
 }
 
-/// Align the reserved SEO review heartbeat with the saved cadence. Missing
-/// Heartbeat manager is not a config-save failure.
-pub async fn sync_seo_review_cadence(cadence: &str) {
-    let Some(manager) = get_heartbeat() else {
-        tracing::warn!("Heartbeat not initialized; SEO review cadence saved but not scheduled");
-        return;
-    };
-    let cron = crate::services::seo_policy::seo_review_cron(cadence);
-    if let Err(error) = manager.upsert_seo_review_task(cron).await {
-        tracing::error!(%error, "Failed to sync SEO review heartbeat");
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -1323,6 +1326,28 @@ mod tests {
             error.contains("Failed to persist HEARTBEAT.md"),
             "persist failure must not return success: {error}"
         );
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+
+    #[tokio::test]
+    async fn seo_review_sync_only_writes_when_cadence_changes() {
+        let dir = heartbeat_test_dir("seo_sync").await;
+        let path = dir.join("HEARTBEAT.md");
+        let mgr = HeartbeatManager::new(path.clone()).await.unwrap();
+
+        // 关着且没有任务：不落盘
+        mgr.upsert_seo_review_task(None).await.unwrap();
+        assert!(tokio::fs::metadata(&path).await.is_err());
+
+        mgr.upsert_seo_review_task(Some("0 9 * * *")).await.unwrap();
+        let written = tokio::fs::read_to_string(&path).await.unwrap();
+        assert!(written.contains(SEO_REVIEW_TASK_ID));
+
+        // 让写盘必然失败：已对齐的重复同步不能碰文件，变更才会写
+        tokio::fs::remove_file(&path).await.unwrap();
+        tokio::fs::create_dir(&path).await.unwrap();
+        mgr.upsert_seo_review_task(Some("0 9 * * *")).await.unwrap();
+        assert!(mgr.upsert_seo_review_task(Some("0 9 * * 1")).await.is_err());
         let _ = tokio::fs::remove_dir_all(&dir).await;
     }
 }

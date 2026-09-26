@@ -745,11 +745,9 @@ pub async fn restore_settings(
 
     // The configuration just proven to load inside the committed transaction.
     // Same Arc as AppState.dynamic_config after from_shared — write via State.
-    let cadence = new_config.site_seo_review_cadence.clone();
     *dynamic_config.write().await = new_config;
     crate::services::http_client::reload_global_client().await;
     crate::services::oauth::registry::REGISTRY.reload().await;
-    crate::services::agent::heartbeat::sync_seo_review_cadence(&cadence).await;
 
     if let Err(error) = reconcile_platform_auto_refresh(&db).await {
         tracing::error!(
