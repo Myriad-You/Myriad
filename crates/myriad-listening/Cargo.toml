@@ -1,0 +1,16 @@
+[package]
+name = "myriad-listening"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Listening to a song from its sound: spectrum features, structure and moments, lyrics on the timeline, read through music-psychology findings."
+authors = ["Myriad Contributors"]
+license = "AGPL-3.0-only"
+
+[dependencies]
+rustfft = "6"
+serde = { version = "1", features = ["derive"] }
+symphonia = { version = "0.5", default-features = false, features = ["mp3", "flac", "aac", "isomp4", "wav", "pcm", "ogg", "vorbis"] }
+
+[dev-dependencies]
+serde_json = "1"
