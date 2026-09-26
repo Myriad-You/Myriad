@@ -228,6 +228,7 @@ function applyRandomActionExpressionExtras(
 ): void {
   const weight = clamp(amount, 0, 1)
   if (weight <= 0) return
+  target.eyeSmile = mixBoundedExpressionChannel(target.eyeSmile, frame.eyeSmile * weight, 0, 1, 0)
   const mouth = weight * clamp(mouthFree, 0, 1)
   if (mouth > 0) {
     target.mouthForm = mixBoundedExpressionChannel(

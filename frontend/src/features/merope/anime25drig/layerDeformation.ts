@@ -24,6 +24,7 @@ type UpstreamFeatureExpression = Pick<
   | 'eyeX'
   | 'eyeY'
   | 'irisScale'
+  | 'eyeSmile'
 >
 
 export interface Anime25DUpstreamFeatureInput {
@@ -114,11 +115,14 @@ export function deformAnime25DUpstreamFeaturePoint(
     point.y += expression.eyeY * 6 * input.faceScale
     const closing = smoothstep((0.32 - eyeOpen) / 0.32)
     point.y = eye.closeY + (point.y - eye.closeY) * (1 - 0.8 * closing)
+    // The iris only rides up a little; the rising lid, not a squash, hides its lower part.
+    point.y -= smileAmount(expression.eyeSmile) * (eye.y1 - eye.y0) * SMILE_IRIS_LIFT
     return
   }
   if (input.kind === 'eye-open-lid') {
     const eye = input.eye!
     point.y = eye.closeY + (point.y - eye.closeY) * (1 - 0.85 * (1 - eyeOpen))
+    smileLids(point, eye, smileAmount(expression.eyeSmile))
     return
   }
   point.y += (-expression.brow * 9 + (1 - eyeOpen) * 3.5) * input.faceScale
@@ -127,6 +131,38 @@ export function deformAnime25DUpstreamFeaturePoint(
       ? expression.browAngL + expression.browAngSym
       : expression.browAngR - expression.browAngSym) * 0.3
   rotateAround(point, input.centerX, input.centerY, rotation)
+}
+
+/** At a full smile the lower lid rises this share of the eye's height, at its middle. */
+const SMILE_LOWER_LIFT = 0.36
+/** ...and the upper lid comes down this much, so the eye narrows from both sides. */
+const SMILE_UPPER_DROP = 0.08
+const SMILE_IRIS_LIFT = 0.06
+
+function smileAmount(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0
+}
+
+/**
+ * A smile reaching the eyes: the cheeks push the lower lid up in an arch,
+ * highest in the middle, and the upper lid settles a little. The white and
+ * the lower lashes move; the iris, clipped by the white, is covered from below.
+ */
+function smileLids(point: Anime25DMutablePoint, eye: Anime25DEyeAnchor, smile: number): void {
+  if (smile <= 0) return
+  const height = Math.max(1, eye.y1 - eye.y0)
+  const halfWidth = Math.max(1, (eye.x1 - eye.x0) / 2)
+  const middle = eye.y0 + height * 0.45
+  const across = Math.min(1, Math.abs(point.x - (eye.x0 + eye.x1) / 2) / (halfWidth * 1.25))
+  const arch = 1 - 0.55 * across * across
+  if (point.y > middle) {
+    // Lower lashes sit below the white; they take the whole lift.
+    const lower = smoothstep((point.y - middle) / (eye.y1 + height * 0.2 - middle))
+    point.y -= smile * height * SMILE_LOWER_LIFT * lower * arch
+  } else {
+    const upper = smoothstep((middle - point.y) / (middle - eye.y0 + height * 0.3))
+    point.y += smile * height * SMILE_UPPER_DROP * upper * arch
+  }
 }
 
 function rotateAround(

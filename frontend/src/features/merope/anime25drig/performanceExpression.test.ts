@@ -65,7 +65,9 @@ test('maps semantic baselines and cues to legible expression offsets', () => {
   assert.ok(Math.abs(delight.mouthForm) <= 0.26)
   assert.ok(Math.abs(delight.angleY) > 0.16)
   assert.ok(Math.abs(delight.angleY) <= 0.18)
-  assert.ok(delight.eyeSqueeze > 1.1 && delight.eyeSqueeze < 1.2)
+  // Delight smiles with the eyes rather than squeezing them into comic ><.
+  assert.equal(delight.eyeSqueeze, 0)
+  assert.ok((delight.eyeSmile ?? 0) > 1 && (delight.eyeSmile ?? 0) < 1.3)
   assert.ok((delight.bust ?? 0) > 0)
   assert.equal(dizzy.eyeDizzy, 1)
   assert.equal(dizzy.eyeOpen, 0)
@@ -100,6 +102,7 @@ test('maps semantic baselines and cues to legible expression offsets', () => {
     'eyeCry',
     'eyeDizzy',
     'eyeOpen',
+    'eyeSmile',
     'eyeSqueeze',
     'eyeX',
     'eyeY',
@@ -110,6 +113,7 @@ test('maps semantic baselines and cues to legible expression offsets', () => {
     'silly',
     'speechless',
   ])
+  assert.ok((warm.eyeSmile ?? 0) > 0)
 })
 
 test('irritation keeps alert eyes within the actual driver range while knitting the brow', () => {
@@ -372,6 +376,7 @@ const ZERO_SAMPLE = {
   armY: 0,
   armPos: 0,
   bust: 0,
+  eyeSmile: 0,
   anger: 0,
   speechless: 0,
   maniac: 0,

@@ -28,6 +28,7 @@ export interface RandomActionFrame {
   browAngSym: number
   eyeOpen: number
   irisScale: number
+  eyeSmile: number
   mouthForm: number
   mouthOpen: number
   mouthRound: number
@@ -83,16 +84,16 @@ const IDLE_ACTIONS: readonly ActionDefinition[] = [
 
 type MoodFace = Pick<
   RandomActionFrame,
-  'brow' | 'browAngSym' | 'eyeOpen' | 'irisScale' | 'eyeX' | 'eyeY' | 'mouthForm' | 'mouthOpen' | 'mouthRound'
+  'brow' | 'browAngSym' | 'eyeOpen' | 'irisScale' | 'eyeSmile' | 'eyeX' | 'eyeY' | 'mouthForm' | 'mouthOpen' | 'mouthRound'
 >
 
 /** Faint on purpose: a mood colours an idle move, it is not a performed expression. */
 const MOOD_FACE: Readonly<Record<IdleMood, Readonly<MoodFace>>> = {
-  content: { brow: 0.06, browAngSym: 0, eyeOpen: -0.07, irisScale: 0, eyeX: 0, eyeY: 0, mouthForm: 0.28, mouthOpen: 0, mouthRound: 0 },
-  relaxed: { brow: -0.04, browAngSym: 0, eyeOpen: -0.2, irisScale: 0, eyeX: 0, eyeY: 0, mouthForm: 0.12, mouthOpen: 0, mouthRound: 0 },
-  curious: { brow: 0.26, browAngSym: 0, eyeOpen: 0.05, irisScale: 0.05, eyeX: 0, eyeY: 0, mouthForm: 0, mouthOpen: 0.06, mouthRound: 0.14 },
+  content: { brow: 0.06, browAngSym: 0, eyeOpen: -0.04, irisScale: 0, eyeSmile: 0.4, eyeX: 0, eyeY: 0, mouthForm: 0.28, mouthOpen: 0, mouthRound: 0 },
+  relaxed: { brow: -0.04, browAngSym: 0, eyeOpen: -0.2, irisScale: 0, eyeSmile: 0.15, eyeX: 0, eyeY: 0, mouthForm: 0.12, mouthOpen: 0, mouthRound: 0 },
+  curious: { brow: 0.26, browAngSym: 0, eyeOpen: 0.05, irisScale: 0.05, eyeSmile: 0, eyeX: 0, eyeY: 0, mouthForm: 0, mouthOpen: 0.06, mouthRound: 0.14 },
   // Gaze sideways follows the clip's direction.
-  pensive: { brow: 0.16, browAngSym: -0.14, eyeOpen: -0.1, irisScale: -0.03, eyeX: 0.35, eyeY: -0.28, mouthForm: -0.12, mouthOpen: 0, mouthRound: 0 },
+  pensive: { brow: 0.16, browAngSym: -0.14, eyeOpen: -0.1, irisScale: -0.03, eyeSmile: 0, eyeX: 0.35, eyeY: -0.28, mouthForm: -0.12, mouthOpen: 0, mouthRound: 0 },
 }
 
 const NEUTRAL_FRAME: RandomActionFrame = {
@@ -106,6 +107,7 @@ const NEUTRAL_FRAME: RandomActionFrame = {
   browAngSym: 0,
   eyeOpen: 0,
   irisScale: 0,
+  eyeSmile: 0,
   mouthForm: 0,
   mouthOpen: 0,
   mouthRound: 0,
@@ -329,6 +331,8 @@ export class RandomActionController {
         this.output.angleZ = direction * 0.12 * motion * intensity
         this.output.body = direction * 0.06 * motion * intensity
         this.output.brow = 0.12 * face * intensity
+        // The eyes smile first, then close on the beat.
+        this.output.eyeSmile = face
         this.output.eyeOpen = -0.95 * beat
         this.output.mouthForm = 0.5 * face * intensity
         this.output.ambientScale = 1 - 0.25 * motion
@@ -365,7 +369,8 @@ export class RandomActionController {
         this.output.angleX = direction * 0.04 * sway * motion * intensity
         this.output.body = direction * 0.06 * sway * motion * intensity
         this.output.brow = 0.04 * face * intensity
-        this.output.eyeOpen = -0.22 * face * intensity
+        this.output.eyeOpen = -0.12 * face * intensity
+        this.output.eyeSmile = 0.5 * face * intensity
         this.output.mouthForm = 0.32 * face * intensity
         this.output.ambientScale = 1 - 0.3 * motion
         break
@@ -396,6 +401,7 @@ export class RandomActionController {
     output.browAngSym += mood.browAngSym * amount
     output.eyeOpen += mood.eyeOpen * amount
     output.irisScale += mood.irisScale * amount
+    output.eyeSmile += mood.eyeSmile * amount
     output.eyeX += mood.eyeX * direction * amount
     output.eyeY += mood.eyeY * amount
     output.mouthForm += mood.mouthForm * amount
@@ -481,6 +487,7 @@ const ACTION_OFFSET_KEYS = [
   'browAngSym',
   'eyeOpen',
   'irisScale',
+  'eyeSmile',
   'mouthForm',
   'mouthOpen',
   'mouthRound',
