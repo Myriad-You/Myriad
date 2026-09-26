@@ -66,3 +66,14 @@ test('the anchor and a canvas cut stay where they are drawn', () => {
   jellyDisplacement(30, 120, { ...HANGING, cutY: 180 }, 0.05, 0.02, shift)
   assert.ok(Math.hypot(shift.x, shift.y) > 0)
 })
+
+test('past its soft reach an element only rides along: a bare hand does not stretch', () => {
+  const shift = { x: 0, y: 0 }
+  const sleeve = { ...HANGING, softReach: 0.5 }
+  jellyDisplacement(20, 50, sleeve, 0.06, 0, shift)
+  assert.ok(Math.hypot(shift.x, shift.y) > 0.1)
+  for (const y of [100, 150, 199]) {
+    jellyDisplacement(20, y, sleeve, 0.06, 0, shift)
+    assert.ok(Math.hypot(shift.x, shift.y) < 1e-9, `${y}`)
+  }
+})

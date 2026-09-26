@@ -124,6 +124,7 @@ import {
   stepJawMotion,
 } from './jawMotion'
 import {
+  chestVolumeStretch,
   HEAD_JELLY,
   jellyDisplacement,
 
@@ -264,6 +265,9 @@ function releaseCompiledGpu(
   if (collarClip) disposeCollarClipMesh(gl, collarClip)
   if (texture) gl.deleteTexture(texture)
 }
+
+/** Share of an arm with a bare forearm that is sleeve: only that much of it is soft. */
+const SLEEVE_SOFT_REACH = 0.55
 
 interface JellyPart {
   element: JellyElement
@@ -1277,7 +1281,11 @@ export class Anime25DPlayer {
         // A hanging sleeve's cloth hangs from the shoulder joint.
         const arm = binding.arm
         this.jellyParts.set(layer, {
-          element: { anchorX: arm.pivotX, anchorY: arm.pivotY, axisX: 0, axisY: 1, length: arm.length, cutY: arm.cutY },
+          element: {
+            anchorX: arm.pivotX, anchorY: arm.pivotY, axisX: 0, axisY: 1, length: arm.length, cutY: arm.cutY,
+            // Cloth all the way down is soft all the way; a bare forearm and hand are not.
+            softReach: arm.drape ? 1 : SLEEVE_SOFT_REACH,
+          },
           volume: new JellyVolume(SLEEVE_JELLY),
           side: binding.handwearSide === 'L' ? 'L' : 'R',
         })
@@ -1465,6 +1473,9 @@ export class Anime25DPlayer {
     secondaryDeformationFrame.inverseChestRadiusY = inverseChestRy
     secondaryDeformationFrame.chestOffsetX = chestOffsetX
     secondaryDeformationFrame.chestOffsetY = chestOffsetY
+    secondaryDeformationFrame.chestStretch = e.phys
+      ? chestVolumeStretch(this.chest.offsetY * chestMotionMix * this.chestDynamics.inertiaGain, chestRy)
+      : 0
     secondaryDeformationFrame.chestVolumeScale =
       1 + breathResidual * this.chestDynamics.breathVolumeScale
     writeAnime25DOpacityFrame(

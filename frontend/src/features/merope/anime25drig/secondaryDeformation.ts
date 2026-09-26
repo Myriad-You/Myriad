@@ -94,6 +94,8 @@ export interface Anime25DSecondaryDeformationFrame {
   inverseChestRadiusY: number
   chestOffsetX: number
   chestOffsetY: number
+  /** The chest's own stretch (+) or squash (−) as its spring carries it; it keeps its area. */
+  chestStretch?: number
   chestField: Readonly<ChestSpatialField>
   chestVolumeScale: number
   shellProfile: Readonly<Anime25DShellProfile>
@@ -387,6 +389,11 @@ export function deformAnime25DSecondaryPoint(
     )
     point.x += frame.chestOffsetX * chestWeight
     point.y += frame.chestOffsetY * chestWeight
+    if (frame.chestStretch) {
+      const scale = 1 + frame.chestStretch * chestWeight
+      point.x += (restX - frame.chestCenterX) * (1 / scale - 1)
+      point.y += (restY - frame.chestMotionCenterY) * (scale - 1)
+    }
   }
   if (binding.torsoShellMode === 'sleeve') {
     // A sleeve is one rigid drawing hanging beside the cylinder, not a patch of its surface.

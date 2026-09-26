@@ -37,6 +37,19 @@ export const SLEEVE_JELLY: Readonly<JellyTuning> = {
   swayLimit: 0,
 }
 
+/**
+ * The chest already bounces on its own spring; it is soft, so the same lag
+ * that carries it also changes its shape. Hanging low it lengthens and
+ * narrows, thrown up it flattens and widens.
+ */
+export const CHEST_VOLUME = { gain: 0.45, stretchLimit: 0.06 } as const
+
+/** The chest's stretch for its spring lag, in pixels downward, over its vertical radius. */
+export function chestVolumeStretch(lagY: number, radiusY: number): number {
+  if (!Number.isFinite(lagY) || !(radiusY > 0)) return 0
+  return softLimit((CHEST_VOLUME.gain * lagY) / radiusY, CHEST_VOLUME.stretchLimit)
+}
+
 /** Anchor acceleration above this is a discontinuity, not motion. */
 const MAX_ANCHOR_ACCELERATION = 30_000
 /** A mass cannot feel a single-frame kick; the drive is smoothed above this. */
@@ -53,6 +66,12 @@ export interface JellyElement {
   length: number
   /** Rest y of a canvas cut the element runs into; its edge stays on it. */
   cutY: number | null
+  /**
+   * Share of the length that is soft, from the anchor. Past it the element is
+   * rigid and only rides along: a sleeve's forearm and hand do not stretch.
+   * 1 is soft all the way to the free end.
+   */
+  softReach?: number
 }
 
 export class JellyVolume {
@@ -175,7 +194,15 @@ export function jellyDisplacement(
   const dy = restY - element.anchorY
   const along = dx * element.axisX + dy * element.axisY
   const across = -dx * element.axisY + dy * element.axisX
-  let weight = smoothstep(along / element.length)
+  const reach = element.softReach ?? 1
+  let weight: number
+  if (reach < 1) {
+    // A soft bulge that closes again before the rigid part begins.
+    const t = along / (element.length * reach)
+    weight = t > 0 && t < 1 ? Math.sin(Math.PI * t) ** 2 : 0
+  } else {
+    weight = smoothstep(along / element.length)
+  }
   if (element.cutY !== null) {
     // A cut edge stays on the canvas cut; the mass bulges above it instead.
     weight *= smoothstep((element.cutY - restY) / (element.length * CUT_RELEASE))

@@ -1397,3 +1397,22 @@ test('a head tilt swings hair near the neck but not the length resting on the bo
   // The torso's share of a head tilt fades out onto the cut as well.
   assert.ok(turned('topwear', 'body', 400) < 1e-9)
 })
+
+test('a chest hanging low lengthens and narrows; thrown up it flattens and widens', () => {
+  const binding = secondaryBinding('topwear', 'body', false)
+  const shifted = (stretch: number, x: number, y: number) => {
+    const frame = secondaryFrame(0.3, 1)
+    frame.chestStretch = stretch
+    const moved = deformSecondary({ x, y }, binding, frame)
+    frame.chestStretch = 0
+    const still = deformSecondary({ x, y }, binding, frame)
+    return { x: moved.x - still.x, y: moved.y - still.y }
+  }
+  const frame = secondaryFrame(0.3, 1)
+  const below = [frame.chestCenterX, frame.chestMotionCenterY + 30] as const
+  const beside = [frame.chestCenterX + 30, frame.chestMotionCenterY] as const
+  assert.ok(shifted(0.05, ...below).y > 0)
+  assert.ok(shifted(0.05, ...beside).x < 0)
+  assert.ok(shifted(-0.05, ...below).y < 0)
+  assert.ok(shifted(-0.05, ...beside).x > 0)
+})
