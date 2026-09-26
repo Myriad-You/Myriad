@@ -9,8 +9,10 @@
 //! that sound alike share a letter; the loudest one that comes back is most
 //! likely the chorus.
 
-use crate::Section;
+use std::collections::HashMap;
+
 use crate::spectrum::Seconds;
+use crate::{LyricLine, Section};
 
 /// Half the kernel width, in steps (about seconds).
 const KERNEL: usize = 6;
@@ -293,6 +295,158 @@ fn split_long(starts: &mut Vec<usize>, n: usize, curve: &[f32]) {
     }
 }
 
+/// Lines this far apart or more are the words coming back, not one line
+/// sung twice in a row.
+const WORDS_RETURN_S: f32 = 20.0;
+
+/// A lyric line as compared: without spaces and punctuation, lowercased;
+/// none when too short to tell apart.
+fn words_key(text: &str) -> Option<String> {
+    let key: String = text
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect();
+    (key.chars().count() >= 4).then_some(key)
+}
+
+/// With lyrics, the words say which parts are the same: parts that sing the
+/// same lines are one kind of part, whatever the sound, and the part whose
+/// lines come back most is the chorus. That is how listeners know a chorus
+/// too. Without lines coming back, the sound's reading stands.
+pub fn by_words(sections: Vec<Section>, lyrics: &[LyricLine]) -> Vec<Section> {
+    if sections.len() < 2 {
+        return sections;
+    }
+    let sections = align_to_words(sections, lyrics);
+    let index_at = |at: f32| {
+        sections
+            .iter()
+            .position(|s| s.start_s <= at && at < s.end_s)
+            .unwrap_or(sections.len() - 1)
+    };
+    // Where each line is sung.
+    let mut sung: HashMap<String, Vec<(f32, usize)>> = HashMap::new();
+    for line in lyrics {
+        if let Some(key) = words_key(&line.text) {
+            sung.entry(key)
+                .or_default()
+                .push((line.at_s, index_at(line.at_s)));
+        }
+    }
+    let returning: Vec<&Vec<(f32, usize)>> = sung
+        .values()
+        .filter(|times| {
+            let first = times.iter().map(|t| t.0).fold(f32::MAX, f32::min);
+            let last = times.iter().map(|t| t.0).fold(f32::MIN, f32::max);
+            last - first >= WORDS_RETURN_S
+        })
+        .collect();
+    if returning.is_empty() {
+        return sections;
+    }
+
+    // Parts that share two returning lines are the same kind of part.
+    let n = sections.len();
+    let mut shared = vec![vec![0usize; n]; n];
+    let mut weight = vec![0usize; n];
+    for times in &returning {
+        let mut parts: Vec<usize> = times.iter().map(|t| t.1).collect();
+        parts.sort_unstable();
+        parts.dedup();
+        for &part in &parts {
+            weight[part] += times.len() - 1;
+        }
+        for (a, &i) in parts.iter().enumerate() {
+            for &j in &parts[a + 1..] {
+                shared[i][j] += 1;
+            }
+        }
+    }
+    let mut root: Vec<usize> = (0..n).collect();
+    fn find(root: &mut [usize], i: usize) -> usize {
+        let mut i = i;
+        while root[i] != i {
+            root[i] = root[root[i]];
+            i = root[i];
+        }
+        i
+    }
+    for i in 0..n {
+        for j in i + 1..n {
+            if shared[i][j] >= 2 {
+                let (a, b) = (find(&mut root, i), find(&mut root, j));
+                root[a.max(b)] = a.min(b);
+            }
+        }
+    }
+    let mut sections = sections;
+    for i in 0..n {
+        let first = find(&mut root, i);
+        if first != i {
+            sections[i].label = sections[first].label;
+        }
+    }
+
+    // The chorus: the kind of part whose lines come back most.
+    let mut by_label: HashMap<char, (usize, usize)> = HashMap::new();
+    for (i, section) in sections.iter().enumerate() {
+        let entry = by_label.entry(section.label).or_default();
+        entry.0 += weight[i];
+        entry.1 += 1;
+    }
+    let chorus = by_label
+        .iter()
+        .filter(|(_, (lines, parts))| *parts > 1 && *lines >= 2)
+        .max_by_key(|(label, (lines, _))| (*lines, std::cmp::Reverse(**label)))
+        .map(|(label, _)| *label);
+    if let Some(chorus) = chorus {
+        for section in &mut sections {
+            section.likely_chorus = section.label == chorus;
+        }
+    }
+    merge_neighbours(sections)
+}
+
+/// A part heard to begin a few seconds off from where a run of returning
+/// lines starts begins there: the sound's boundary is only as fine as a
+/// second and blurs around the change, the first sung line does not.
+fn align_to_words(mut sections: Vec<Section>, lyrics: &[LyricLine]) -> Vec<Section> {
+    const NEAR_S: f32 = 6.0;
+    const LEAD_S: f32 = 0.5;
+    const LEAST_PART_S: f32 = 4.0;
+    let keys: Vec<Option<String>> = lyrics.iter().map(|l| words_key(&l.text)).collect();
+    let returns = |i: usize| {
+        keys[i].as_ref().is_some_and(|key| {
+            lyrics.iter().zip(&keys).any(|(other, other_key)| {
+                other_key.as_ref() == Some(key)
+                    && (other.at_s - lyrics[i].at_s).abs() >= WORDS_RETURN_S
+            })
+        })
+    };
+    // Where runs of returning lines start.
+    let starts: Vec<f32> = (0..lyrics.len())
+        .filter(|&i| returns(i) && (i == 0 || !returns(i - 1)))
+        .map(|i| lyrics[i].at_s - LEAD_S)
+        .collect();
+    for i in 1..sections.len() {
+        let boundary = sections[i].start_s;
+        let near = starts
+            .iter()
+            .copied()
+            .filter(|at| (at - boundary).abs() <= NEAR_S)
+            .min_by(|a, b| (a - boundary).abs().total_cmp(&(b - boundary).abs()));
+        if let Some(at) = near
+            && at - sections[i - 1].start_s >= LEAST_PART_S
+            && sections[i].end_s - at >= LEAST_PART_S
+        {
+            sections[i - 1].end_s = at;
+            sections[i].start_s = at;
+        }
+    }
+    sections
+}
+
 /// Share of the song spent in parts that come back.
 pub fn repetition(sections: &[Section]) -> f32 {
     let total: f32 = sections.iter().map(|s| s.end_s - s.start_s).sum();
@@ -352,6 +506,56 @@ mod tests {
         let mut short = vec![0];
         split_long(&mut short, 40, &curve);
         assert_eq!(short, vec![0]);
+    }
+
+    #[test]
+    fn the_words_say_which_parts_are_the_same_and_which_is_the_chorus() {
+        let section = |start_s, end_s, label, likely_chorus| Section {
+            start_s,
+            end_s,
+            label,
+            likely_chorus,
+            loudness_db: 0.0,
+            brightness: 1.0,
+            change: 0.5,
+        };
+        // The sound heard four different parts and took the loud one for
+        // the chorus; the words say B and D are the same, and the chorus.
+        let heard = vec![
+            section(0.0, 30.0, 'A', false),
+            section(30.0, 60.0, 'B', false),
+            section(60.0, 90.0, 'C', true),
+            section(90.0, 120.0, 'D', false),
+            section(120.0, 150.0, 'C', true),
+        ];
+        let line = |at_s: f32, text: &str| LyricLine {
+            at_s,
+            text: text.into(),
+            section: None,
+            in_chorus: false,
+            lands_on: None,
+        };
+        let lyrics = vec![
+            line(5.0, "第一段主歌的词"),
+            line(35.0, "如果你看得见"),
+            line(40.0, "就当我是灯塔"),
+            line(65.0, "中间一段不一样"),
+            line(95.0, "如果你看得见"),
+            line(100.0, "就当我是灯塔"),
+            line(125.0, "中间一段也不一样"),
+        ];
+        let parts = by_words(heard.clone(), &lyrics);
+        // The chorus parts begin where their words do.
+        assert_eq!(parts[1].start_s, 34.5);
+        assert_eq!(parts[0].end_s, 34.5);
+        assert_eq!(parts[3].start_s, 94.5);
+        let labels: String = parts.iter().map(|s| s.label).collect();
+        assert_eq!(labels, "ABCBC");
+        let chorus: Vec<bool> = parts.iter().map(|s| s.likely_chorus).collect();
+        assert_eq!(chorus, vec![false, true, false, true, false]);
+        // No line comes back: the sound's reading stands.
+        assert_eq!(by_words(heard.clone(), &lyrics[..1]).len(), 5);
+        assert!(by_words(heard, &lyrics[..1])[2].likely_chorus);
     }
 
     #[test]

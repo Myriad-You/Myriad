@@ -109,14 +109,14 @@ pub fn listen(audio: &Audio, lrc: Option<&str>) -> ListeningSheet {
     let per_second = spectrum::per_second(&frames);
     let rhythm = rhythm::analyze(&frames);
     let tonal = tonal::analyze(&frames);
-    let sections = structure::sections(&per_second);
-    let moments = moments::find(&per_second, &sections);
     let lyrics = lrc
         .map(parse_lrc)
         .unwrap_or_default()
         .into_iter()
         .filter(|line| line.at_s <= frames.duration_s + 1.0)
         .collect::<Vec<_>>();
+    let sections = structure::by_words(structure::sections(&per_second), &lyrics);
+    let moments = moments::find(&per_second, &sections);
     let mut sheet = ListeningSheet {
         duration_s: frames.duration_s,
         tempo_bpm: rhythm.tempo_bpm,
