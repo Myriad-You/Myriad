@@ -2,15 +2,15 @@
 //!
 //! Domain validation / resource overrides live in
 //! [`crate::services::tapp_prepared_package`]. This module maps domain errors to
-//! Axum responses and performs filesystem staging (resources write + archive extract).
+//! shared application errors and performs filesystem staging (resources write + archive extract).
 
-use super::{
-    ApiResponse, api_error, archive_entry_path, log_install_failure, validate_installed_resources,
-    validate_tapp_archive, validate_tapp_archive_with, widget_template_path, write_install_assets,
+use super::package_files::{
+    archive_entry_path, log_install_failure, validate_installed_resources, validate_tapp_archive,
+    validate_tapp_archive_with, widget_template_path, write_install_assets,
     write_install_generation, write_tapp_resource,
 };
-use axum::{Json, http::StatusCode};
 use chrono::{DateTime, FixedOffset};
+use myriad_error::AppError;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::fs;
@@ -22,41 +22,34 @@ use crate::services::tapp_prepared_package::{
 };
 
 // Path-stable re-exports for installation / store_package / tests.
-pub(super) use crate::services::tapp_prepared_package::{
+pub(crate) use crate::services::tapp_prepared_package::{
     PreparedTappPackage, PreparedTappResources,
 };
 
-type PackageError = (StatusCode, Json<ApiResponse<()>>);
+type PackageError = AppError;
 
 #[derive(Debug, Clone, Copy)]
-pub(super) struct PackageStageContext {
+pub(crate) struct PackageStageContext {
     pub user_id: i32,
     pub installation_owner_id: i32,
 }
 
 fn map_validate_error(err: PackageValidateError) -> PackageError {
-    (
-        StatusCode::from_u16(err.status_hint()).unwrap_or(StatusCode::BAD_REQUEST),
-        api_error(err.message()),
-    )
+    AppError::from_status_u16(err.status_hint(), err.message())
 }
 
 fn map_load_error(err: PackageLoadError) -> PackageError {
-    (
-        StatusCode::from_u16(err.status_hint()).unwrap_or(StatusCode::BAD_REQUEST),
-        api_error(err.message()),
-    )
+    AppError::from_status_u16(err.status_hint(), err.message())
 }
 
-/// HTTP adapter: load a .tapp archive into a validated prepared package.
-pub(super) fn package_from_archive(
+/// Load adapter: load a .tapp archive into a validated prepared package.
+pub(crate) fn package_from_archive(
     file_data: Vec<u8>,
 ) -> Result<PreparedTappPackage, PackageError> {
     let cursor = std::io::Cursor::new(&file_data);
     let mut archive = zip::ZipArchive::new(cursor)
         .map_err(|_| map_load_error(PackageLoadError::InvalidArchive))?;
-    validate_tapp_archive(&mut archive)
-        .map_err(|error| (StatusCode::BAD_REQUEST, api_error(error)))?;
+    validate_tapp_archive(&mut archive).map_err(|error| AppError::from_status_u16(400, error))?;
 
     let manifest_content = {
         let mut manifest_file = archive
@@ -73,9 +66,9 @@ pub(super) fn package_from_archive(
     let budget = crate::services::tapp_install_resources::ArchiveBudget::for_manifest(&manifest);
     budget
         .check_compressed(file_data.len())
-        .map_err(|error| (StatusCode::PAYLOAD_TOO_LARGE, api_error(error)))?;
+        .map_err(|error| AppError::from_status_u16(413, error))?;
     validate_tapp_archive_with(&mut archive, budget)
-        .map_err(|error| (StatusCode::BAD_REQUEST, api_error(error)))?;
+        .map_err(|error| AppError::from_status_u16(400, error))?;
     PreparedTappPackage::from_archive_parts(
         manifest,
         file_data,
@@ -84,9 +77,9 @@ pub(super) fn package_from_archive(
     .map_err(map_validate_error)
 }
 
-/// Extension methods that stay HTTP-bound (StatusCode mapping + staging IO).
-pub(super) trait PreparedTappPackageHttp {
-    fn validate_for_http(&self, expected_tapp_id: Option<&str>) -> Result<(), PackageError>;
+/// Package validation and filesystem staging shared by all installation callers.
+pub(crate) trait PreparedTappPackageIo {
+    fn validate_for_install(&self, expected_tapp_id: Option<&str>) -> Result<(), PackageError>;
     fn stage_into(
         &self,
         tapp_dir: &Path,
@@ -95,8 +88,8 @@ pub(super) trait PreparedTappPackageHttp {
     ) -> impl std::future::Future<Output = Result<(), PackageError>> + Send;
 }
 
-impl PreparedTappPackageHttp for PreparedTappPackage {
-    fn validate_for_http(&self, expected_tapp_id: Option<&str>) -> Result<(), PackageError> {
+impl PreparedTappPackageIo for PreparedTappPackage {
+    fn validate_for_install(&self, expected_tapp_id: Option<&str>) -> Result<(), PackageError> {
         self.validate(
             expected_tapp_id,
             &crate::services::tapp_prepared_package::current_system_version(),
@@ -120,10 +113,7 @@ impl PreparedTappPackageHttp for PreparedTappPackage {
                     .await
                     .map_err(|error| {
                         log_write_failure(self, "write_manifest", context, &manifest_path, &error);
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            api_error("Failed to save manifest"),
-                        )
+                        AppError::from_status_u16(500, "Failed to save manifest")
                     })?;
             }
             None => {
@@ -135,13 +125,10 @@ impl PreparedTappPackageHttp for PreparedTappPackage {
 
         write_install_generation(tapp_dir, generation).map_err(|error| {
             log_write_failure(self, "write_install_generation", context, tapp_dir, &error);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                api_error("Failed to save install state"),
-            )
+            AppError::from_status_u16(500, "Failed to save install state")
         })?;
         validate_installed_resources(&self.manifest, tapp_dir)
-            .map_err(|error| (StatusCode::BAD_REQUEST, api_error(error)))
+            .map_err(|error| AppError::from_status_u16(400, error))
     }
 }
 
@@ -163,11 +150,9 @@ async fn write_resources(
         .and_then(|core| core.styles.as_deref())
     {
         let Some(content) = nonempty_content(resources.core_styles.as_ref()) else {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                api_error(format!(
-                    "Missing content for declared core.styles={declared}"
-                )),
+            return Err(AppError::from_status_u16(
+                400,
+                format!("Missing content for declared core.styles={declared}"),
             ));
         };
         write_text(package, tapp_dir, declared, content, "core_styles", context).await?;
@@ -180,11 +165,9 @@ async fn write_resources(
         .and_then(|page| page.styles.as_deref())
     {
         let Some(content) = nonempty_content(resources.page_styles.as_ref()) else {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                api_error(format!(
-                    "Missing content for declared page.styles={declared}"
-                )),
+            return Err(AppError::from_status_u16(
+                400,
+                format!("Missing content for declared page.styles={declared}"),
             ));
         };
         write_text(package, tapp_dir, declared, content, "page_styles", context).await?;
@@ -200,12 +183,12 @@ async fn write_resources(
                 .as_ref()
                 .and_then(|styles| styles.get(&widget.id));
             let Some(content) = nonempty_content(content) else {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    api_error(format!(
+                return Err(AppError::from_status_u16(
+                    400,
+                    format!(
                         "Missing content for declared widgets[{}].styles={declared}",
                         widget.id
-                    )),
+                    ),
                 ));
             };
             write_text(
@@ -251,11 +234,9 @@ async fn write_resources(
         .and_then(|page| page.template.as_deref())
     {
         let Some(content) = nonempty_content(resources.page_template.as_ref()) else {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                api_error(format!(
-                    "Missing content for declared page.template={declared}"
-                )),
+            return Err(AppError::from_status_u16(
+                400,
+                format!("Missing content for declared page.template={declared}"),
             ));
         };
         write_text(
@@ -279,12 +260,8 @@ async fn write_resources(
     }
     if let Some(i18n) = &resources.i18n {
         for (language, data) in i18n {
-            let json = serde_json::to_string_pretty(data).map_err(|_| {
-                (
-                    StatusCode::BAD_REQUEST,
-                    api_error("Failed to serialize i18n resource"),
-                )
-            })?;
+            let json = serde_json::to_string_pretty(data)
+                .map_err(|_| AppError::from_status_u16(400, "Failed to serialize i18n resource"))?;
             write_text(
                 package,
                 tapp_dir,
@@ -299,7 +276,7 @@ async fn write_resources(
     if let Some(assets) = &resources.assets {
         write_install_assets(tapp_dir, &package.manifest, assets)
             .await
-            .map_err(|error| (StatusCode::BAD_REQUEST, api_error(error)))?;
+            .map_err(|error| AppError::from_status_u16(400, error))?;
     }
     Ok(())
 }
@@ -323,10 +300,7 @@ async fn write_text(
                 tapp_dir,
                 &error,
             );
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                api_error("Failed to save package files"),
-            )
+            AppError::from_status_u16(500, "Failed to save package files")
         })
 }
 
@@ -386,17 +360,11 @@ async fn extract_archive(
                 tapp_dir.as_path(),
                 &error,
             );
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                api_error("Failed to save files"),
-            ))
+            Err(AppError::from_status_u16(500, "Failed to save files"))
         }
         Err(error) => {
             log_write_failure(package, "extract_join", context, tapp_dir.as_path(), &error);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                api_error("Failed to extract files"),
-            ))
+            Err(AppError::from_status_u16(500, "Failed to extract files"))
         }
     }
 }
@@ -452,12 +420,12 @@ mod tests {
 
         assert!(
             package
-                .validate_for_http(Some("com.example.other"))
+                .validate_for_install(Some("com.example.other"))
                 .is_err()
         );
         assert!(
             package
-                .validate_for_http(Some("com.example.prepared"))
+                .validate_for_install(Some("com.example.prepared"))
                 .is_ok()
         );
     }
@@ -526,7 +494,7 @@ mod tests {
             },
         );
 
-        package.validate_for_http(None).unwrap();
+        package.validate_for_install(None).unwrap();
         package
             .stage_into(
                 &root,
@@ -548,7 +516,10 @@ mod tests {
         assert!(root.join("i18n/en-US.json").is_file());
         assert!(root.join("page/index.js").is_file());
         assert!(root.join("assets/pixel.png").is_file());
-        assert!(root.join(super::super::TAPP_INSTALL_STATE_FILE).is_file());
+        assert!(
+            root.join(super::super::package_files::TAPP_INSTALL_STATE_FILE)
+                .is_file()
+        );
 
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -618,7 +589,7 @@ mod tests {
             },
         );
 
-        package.validate_for_http(None).unwrap();
+        package.validate_for_install(None).unwrap();
         package
             .stage_into(
                 &root,
@@ -632,9 +603,11 @@ mod tests {
             .unwrap();
 
         // 扫描登记：落盘后每个 require 目标都必须存在。
-        crate::api::tapp_store::package_files::validate_installed_package_modules(&root).unwrap();
+        crate::services::tapp_packages::package_files::validate_installed_package_modules(&root)
+            .unwrap();
 
-        let scanned = crate::api::tapp_store::package_files::collect_package_module_paths(&root);
+        let scanned =
+            crate::services::tapp_packages::package_files::collect_package_module_paths(&root);
         let sources: HashMap<String, String> = scanned
             .iter()
             .map(|relative| {
@@ -710,7 +683,7 @@ mod tests {
             },
         );
 
-        package.validate_for_http(None).unwrap();
+        package.validate_for_install(None).unwrap();
         let error = package
             .stage_into(
                 &root,
@@ -722,7 +695,7 @@ mod tests {
             )
             .await
             .expect_err("dangling require must fail staging");
-        assert_eq!(error.0, StatusCode::BAD_REQUEST);
+        assert_eq!(error.status_u16(), 400);
 
         let _ = std::fs::remove_dir_all(root);
     }
@@ -853,7 +826,10 @@ mod tests {
             "export const archive = true;"
         );
         assert!(root.join("manifest.json").is_file());
-        assert!(root.join(super::super::TAPP_INSTALL_STATE_FILE).is_file());
+        assert!(
+            root.join(super::super::package_files::TAPP_INSTALL_STATE_FILE)
+                .is_file()
+        );
 
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -887,7 +863,7 @@ mod tests {
             },
         );
 
-        package.validate_for_http(None).unwrap();
+        package.validate_for_install(None).unwrap();
         package
             .stage_into(
                 &root,
@@ -947,7 +923,7 @@ mod tests {
             },
         );
 
-        package.validate_for_http(None).unwrap();
+        package.validate_for_install(None).unwrap();
         package
             .stage_into(
                 &root,
@@ -962,12 +938,14 @@ mod tests {
 
         // 未声明但被 require 的文件同样落盘
         assert!(root.join("page/state.js").is_file());
-        super::super::validate_installed_resources(&package.manifest, &root).unwrap();
+        super::super::package_files::validate_installed_resources(&package.manifest, &root)
+            .unwrap();
 
         // 落盘后再改入口 require 到不存在文件：`validate_installed_resources` 失败
         std::fs::write(root.join("page/index.js"), "require('./ghost.js');").unwrap();
-        let error = super::super::validate_installed_resources(&package.manifest, &root)
-            .expect_err("missing require target must fail install validation");
+        let error =
+            super::super::package_files::validate_installed_resources(&package.manifest, &root)
+                .expect_err("missing require target must fail install validation");
         assert!(error.contains("ghost.js"), "got: {error}");
 
         std::fs::remove_dir_all(root).unwrap();
@@ -1006,7 +984,7 @@ mod tests {
             },
         );
 
-        package.validate_for_http(None).unwrap();
+        package.validate_for_install(None).unwrap();
         package
             .stage_into(
                 &root,
@@ -1053,9 +1031,9 @@ mod tests {
             },
         );
 
-        let err = package.validate_for_http(None).unwrap_err();
-        assert_eq!(err.0, StatusCode::BAD_REQUEST);
-        let body = serde_json::to_string(&err.1.0).unwrap_or_default();
+        let err = package.validate_for_install(None).unwrap_err();
+        assert_eq!(err.status_u16(), 400);
+        let body = serde_json::to_string(&err.to_json()).unwrap_or_default();
         assert!(
             body.contains("page.styles"),
             "error should name the declaring layer field, got: {body}"
@@ -1092,9 +1070,9 @@ mod tests {
             },
         );
 
-        let err = package.validate_for_http(None).unwrap_err();
-        assert_eq!(err.0, StatusCode::BAD_REQUEST);
-        let body = serde_json::to_string(&err.1.0).unwrap_or_default();
+        let err = package.validate_for_install(None).unwrap_err();
+        assert_eq!(err.status_u16(), 400);
+        let body = serde_json::to_string(&err.to_json()).unwrap_or_default();
         assert!(
             body.contains("styles/page.css"),
             "error should mention declared path, got: {body}"
@@ -1131,9 +1109,9 @@ mod tests {
             },
         );
 
-        let err = package.validate_for_http(None).unwrap_err();
-        assert_eq!(err.0, StatusCode::BAD_REQUEST);
-        let body = serde_json::to_string(&err.1.0).unwrap_or_default();
+        let err = package.validate_for_install(None).unwrap_err();
+        assert_eq!(err.status_u16(), 400);
+        let body = serde_json::to_string(&err.to_json()).unwrap_or_default();
         assert!(
             body.contains("widgets[].styles"),
             "error should name the declaring layer field, got: {body}"

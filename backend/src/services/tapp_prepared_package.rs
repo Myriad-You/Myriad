@@ -1,13 +1,15 @@
 //! Validated in-memory Tapp package (resources or archive) — pure domain.
 //!
-//! Install/update handlers stage packages to disk in the API layer. Validation,
+//! Installation services stage packages to disk. Validation,
 //! resource overrides, widget-template binding, and declared-style content
 //! presence rules live here so they are free of Axum/`StatusCode`.
 
+#[cfg(test)]
+pub use myriad_tapp_rules::validate_widget_template_contents;
 pub use myriad_tapp_rules::{
     PackageLoadError, PackageValidateError, PreparedTappPackage, PreparedTappResources,
     WidgetTemplateContents, check_manifest_byte_size, nonempty_content, parse_manifest_json,
-    validate_widget_template_contents, widget_template_path,
+    widget_template_path,
 };
 
 /// Backend package version used by prepared-package manifest checks.

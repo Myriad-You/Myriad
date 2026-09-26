@@ -45,16 +45,13 @@ use crate::{
 
 use super::{
     RuntimeGrantContext,
-    common::{
-        check_anonymous_rate_limit, check_rate_limit, current_tapp_user_role, parse_user_id,
-        resolve_accessible_tapp, validate_prompt_security,
-    },
+    common::{check_anonymous_rate_limit, check_rate_limit},
     shared_registry::{self, RegistryIdentity},
 };
 
 // Domain types (HTTP request/response surfaces).
 // AiContextRef lives in services::ai_task_context; not re-exported here.
-pub use crate::services::ai_task_execute::{AiTaskOutputRequest, CreateAiTaskRequest};
+pub use crate::services::ai_task_execute::CreateAiTaskRequest;
 pub use crate::services::ai_task_registry::{AiTaskDelivery, AiTaskSnapshot};
 
 type ApiError = HttpError;
@@ -103,9 +100,7 @@ fn context_api_error(err: AiContextError) -> ApiError {
 }
 
 // Cancel helpers for runtime_grant (local + durable shared registry).
-pub(super) use crate::services::ai_task_runtime::{
-    cancel_all_tapp_ai_tasks, cancel_runtime_ai_tasks, cancel_tapp_ai_tasks,
-};
+pub(super) use crate::services::ai_task_runtime::{cancel_runtime_ai_tasks, cancel_tapp_ai_tasks};
 
 fn authorize_persisted<'a>(
     task: &'a PersistedAiTask,

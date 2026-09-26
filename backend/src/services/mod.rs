@@ -2,7 +2,6 @@
 pub mod activity_event_service;
 pub mod agent;
 pub mod agent_interaction; // Agent ↔ Tapp interaction create surface
-pub mod audio_tags; // MP3/FLAC/Ogg embedded tags for local music
 pub mod agora_chat; // Realtime transport bindings to shared Agent Chat runs
 pub mod agora_convo; // Shengwang Conversational AI join/leave/interrupt
 pub mod agora_rtc_token; // Agora AccessToken2
@@ -18,6 +17,7 @@ pub mod ai_task_provider; // Text/image provider execution for AI Tasks
 pub mod ai_task_registry; // Cross-replica register/persist
 pub mod ai_task_runtime; // Process-local AI_TASKS map + state transitions
 pub mod analyzer;
+pub mod audio_tags; // MP3/FLAC/Ogg embedded tags for local music
 pub mod avatar; // 头像来源枚举/解析（单一解析处；HTTP JSON 走代理，联邦 Actor 不经代理 URL）
 pub mod background_processor;
 pub mod config_service;
@@ -55,10 +55,10 @@ pub mod platform_id; // PlatformId registry: ids, aliases, credentials/enabled r
 pub mod platform_items; // Cache → uniform items[] projection
 pub mod platform_refresh; // Platform fetch/cache (profile HTTP + scheduler)
 pub mod principal; // 当前角色、站长、安装是否已认领：唯一来源
-pub mod public_site; // What the site shows guests: branding, open modules, public links
-pub mod public_reports; // Whose reports the public sees
 pub mod process_db; // The process database connection (platform infrastructure)
 pub mod profile_text; // 名称/简介文案来源（与 avatar 独立）
+pub mod public_reports; // Whose reports the public sees
+pub mod public_site; // What the site shows guests: branding, open modules, public links
 pub mod retired_configuration; // Backup denylist for retired configuration keys
 pub mod runtime_registry; // Platform runtime registry/mailbox shared by replicas (workspace crate)
 pub mod see_through; // Remote See-through layered-PSD decomposition
@@ -98,6 +98,7 @@ pub mod tapp_notification;
 pub mod tapp_ownership;
 pub mod tapp_package_fs; // Install-dir lifecycle artifacts + orphan/path rules
 pub mod tapp_package_read; // Installed package resource path plans
+pub(crate) mod tapp_packages;
 pub mod tapp_playground_knowledge; // Playground Agent read-only contract retrieval
 pub mod tapp_prepared_package; // Prepared package validate + resource overrides
 pub mod tapp_rate_limit;

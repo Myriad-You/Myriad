@@ -195,7 +195,3 @@ pub(super) async fn disconnect_runtime_events(runtime_id: &str) -> bool {
 pub(super) async fn disconnect_tapp_events(subject_id: i32, tapp_id: &str) -> usize {
     tapp_events::disconnect_tapp_events(subject_id, tapp_id).await
 }
-
-pub(super) async fn disconnect_all_tapp_events(owner_id: i32, tapp_id: &str) -> usize {
-    tapp_events::disconnect_all_tapp_events(owner_id, tapp_id).await
-}

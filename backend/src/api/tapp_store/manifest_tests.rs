@@ -15,7 +15,6 @@ use crate::models::entities::{tapp_widgets, tapps};
 use crate::services::permission_service::UserRole;
 use axum::http::StatusCode;
 use serde_json::json;
-use std::path::PathBuf;
 
 #[test]
 fn permission_errors_return_actionable_service_unavailable() {

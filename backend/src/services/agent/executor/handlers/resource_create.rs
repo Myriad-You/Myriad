@@ -91,14 +91,14 @@ async fn persist_agent_tapp(
     // The same install core as any direct install: validation, conflict
     // check, canonical owner and staged activation instead of writing the
     // live directory and inserting the row by hand.
-    crate::api::tapp_store::install_generated(
+    crate::services::tapp_packages::install_generated(
         ctx.db,
         ctx.user_id,
         typed_manifest,
         HashMap::from([(core_entry, code.to_string()), (page_entry, page_source)]),
     )
     .await
-    .map_err(|error| error.0.to_string())?;
+    .map_err(|error| error.to_string())?;
     Ok(Utc::now())
 }
 

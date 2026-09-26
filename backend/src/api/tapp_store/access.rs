@@ -1,12 +1,12 @@
 use super::validate_tapp_id;
 use axum::http::StatusCode;
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement};
+use sea_orm::{ConnectionTrait, DatabaseConnection, DbErr};
 
 use crate::api::tapp_runtime::RuntimeGrantContext;
 use crate::api::tapp_runtime::common as tapp_common;
 use crate::error::HttpError;
 use crate::middleware::auth::{Claims, current_admin_status, ensure_current_admin_on};
-use crate::services::permission_service::{TappPermission, TappPermissionService, UserRole};
+use crate::services::permission_service::{TappPermission, UserRole};
 use crate::services::tapp_ownership::{self, TappAccessError};
 use myriad_error::AppError;
 
@@ -15,33 +15,7 @@ pub(super) async fn get_admin_user_id(db: &DatabaseConnection) -> Result<i32, Ht
     tapp_common::get_admin_user_id(db).await
 }
 
-/// Refuse new Tapp installs when an admin has locked the account.
-pub(super) async fn ensure_tapp_install_allowed(
-    db: &DatabaseConnection,
-    user_id: i32,
-) -> Result<(), HttpError> {
-    let row = db
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT tapp_install_disabled FROM users WHERE id = $1",
-            [user_id.into()],
-        ))
-        .await
-        .map_err(|_| {
-            HttpError(AppError::internal(
-                "Failed to check Tapp install permission",
-            ))
-        })?;
-    let disabled = row
-        .and_then(|row| row.try_get::<bool>("", "tapp_install_disabled").ok())
-        .unwrap_or(false);
-    if disabled {
-        return Err(HttpError(AppError::forbidden(
-            "Tapp installation is disabled for this account",
-        )));
-    }
-    Ok(())
-}
+pub(super) use crate::services::tapp_packages::ensure_tapp_install_allowed;
 
 pub(super) async fn find_admin_user_id(db: &DatabaseConnection) -> Result<Option<i32>, HttpError> {
     tapp_common::find_admin_user_id(db).await
@@ -189,6 +163,7 @@ pub(super) async fn current_user_role(
 }
 
 // Domain install-namespace helpers: services::tapp_ownership (path-stable re-export).
+#[cfg(test)]
 pub(crate) use crate::services::tapp_ownership::{
     canonical_installation_owner_id, installation_conflict_owner_ids,
 };
@@ -200,26 +175,6 @@ pub(super) async fn require_current_admin(
     ensure_current_admin_on(claims, db)
         .await
         .map_err(|(status, body)| HttpError::from((status, body)))
-}
-
-pub(super) async fn filter_install_permissions(
-    dynamic_config: &tokio::sync::RwLock<crate::config::DynamicConfig>,
-    role: UserRole,
-    permissions: Vec<String>,
-) -> Result<Vec<String>, HttpError> {
-    let config = dynamic_config.read().await;
-    let granted = TappPermissionService::filter_permissions_for_role(&config, role, &permissions)
-        .map_err(|error| {
-        HttpError::from((
-            StatusCode::CONFLICT,
-            axum::Json(serde_json::json!({
-                "error": error.message(),
-                "code": error.code(),
-            })),
-        ))
-    })?;
-    drop(config);
-    Ok(granted)
 }
 
 #[cfg(test)]

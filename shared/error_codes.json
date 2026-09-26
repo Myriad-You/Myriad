@@ -71,6 +71,7 @@
     "Inbox processing failed": "inbox_failed",
     "Failed to find Tapp": "tapp_not_found",
     "Tapp install not found": "tapp_not_found",
+    "Tapp not installed": "tapp_not_found",
     "Failed to read user data": "account_load_failed",
     "Failed to load current user": "account_load_failed",
     "Notification system not initialized": "notification_unavailable",

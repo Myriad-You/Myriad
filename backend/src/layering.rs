@@ -16,13 +16,7 @@ const SERVICE_ROOTS: &[&str] = &["services", "persona", "federation", "db"];
 
 /// Crossings not yet moved down, each with the file it is in. The list only
 /// shrinks: a new entry means a new crossing.
-const NOT_YET_MOVED: &[(&str, &str)] = &[
-    // The Tapp install core still lives in `api::tapp_store`.
-    (
-        "services/agent/executor/handlers/resource_create.rs",
-        "crate::api::tapp_store::install_generated",
-    ),
-];
+const NOT_YET_MOVED: &[(&str, &str)] = &[];
 
 fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else {
