@@ -11,9 +11,12 @@
 //! and otherwise through Wikipedia's public search API (in the language the
 //! question is asked in), so she can always look something up.
 //!
-//! Video subtitles come from `yt-dlp` (the path in `YT_DLP_PATH`, or on the
-//! PATH): the spoken language's automatic captions first, the uploader's
-//! own English, Japanese or Chinese subtitles otherwise.
+//! A video is read by its subtitles, fetched the way YouTube's own player
+//! fetches them: the uploader's subtitles in the spoken language first, then
+//! the automatic captions, then subtitles in English, Japanese or Chinese.
+//! Nothing needs installing for that. If someone has put `yt-dlp` on the
+//! host (`YT_DLP_PATH`, or on the PATH), it is tried when that way fails; it
+//! is never required.
 
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
@@ -23,6 +26,8 @@ use serde::Serialize;
 use serde_json::Value;
 
 const USER_AGENT: &str = "MyriadPersona/1.0 (+reading on her own)";
+/// YouTube serves its player only to a browser.
+const BROWSER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 const PAGE_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_PAGE_BYTES: usize = 3 * 1024 * 1024;
 const MAX_PAGE_CHARS: usize = 6_000;
@@ -45,7 +50,8 @@ pub async fn available() -> Senses {
         // Wikipedia is always there to search.
         search: true,
         read: true,
-        video: yt_dlp().is_some(),
+        // Subtitles are fetched directly; yt-dlp is only a fallback.
+        video: true,
     }
 }
 
@@ -541,34 +547,185 @@ async fn video_title(tool: &std::path::Path, address: &str) -> String {
     }
 }
 
+/// The subtitle track to read: the uploader's own in the spoken language
+/// (the language of the automatic captions), else the automatic captions,
+/// else the uploader's in a language she reads.
+fn pick_track(tracks: &[Value]) -> Option<&Value> {
+    fn language(track: &Value) -> &str {
+        track
+            .get("languageCode")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+    }
+    let automatic = |track: &Value| track.get("kind").and_then(Value::as_str) == Some("asr");
+    let spoken = tracks.iter().find(|track| automatic(track)).map(language);
+    tracks
+        .iter()
+        .find(|track| !automatic(track) && spoken.is_some_and(|spoken| language(track) == spoken))
+        .or_else(|| tracks.iter().find(|track| automatic(track)))
+        .or_else(|| {
+            ["en", "ja", "zh"].into_iter().find_map(|wanted| {
+                tracks
+                    .iter()
+                    .find(|track| language(track).split('-').next() == Some(wanted))
+            })
+        })
+}
+
+/// YouTube's timed text as plain running text.
+fn timedtext_text(xml: &str) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    let mut rest = xml;
+    while let Some(start) = rest.find("<p ") {
+        rest = &rest[start..];
+        let Some(open_end) = rest.find('>') else {
+            break;
+        };
+        let Some(close) = rest.find("</p>") else {
+            break;
+        };
+        let inner = &rest[open_end + 1..close.max(open_end + 1)];
+        let mut plain = String::new();
+        let mut in_tag = false;
+        for c in inner.chars() {
+            match c {
+                '<' => in_tag = true,
+                '>' => in_tag = false,
+                _ if !in_tag => plain.push(c),
+                _ => {}
+            }
+        }
+        let plain = plain
+            .replace("&amp;", "&")
+            .replace("&#39;", "'")
+            .replace("&quot;", "\"")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        if !plain.is_empty() && lines.last() != Some(&plain) {
+            lines.push(plain);
+        }
+        rest = &rest[close + 4..];
+    }
+    lines.join(" ")
+}
+
+async fn get_text(address: &str) -> Result<String, String> {
+    let fetched = crate::services::outbound_security::get_public_following_redirects(
+        address,
+        PAGE_TIMEOUT,
+        Some(BROWSER_AGENT),
+    )
+    .await
+    .map_err(|_| "could not reach the video".to_string())?;
+    if !fetched.response.status().is_success() {
+        return Err(format!("the video answered {}", fetched.response.status()));
+    }
+    let body =
+        crate::services::outbound_security::read_limited_body(fetched.response, MAX_PAGE_BYTES)
+            .await
+            .map_err(|_| "the video page was too large".to_string())?;
+    Ok(String::from_utf8_lossy(&body).into_owned())
+}
+
+/// A YouTube video's subtitles and title, the way its player gets them.
+async fn watch_directly(address: &str, id: &str) -> Result<(String, String), String> {
+    const PLAYER: &str = "https://www.youtube.com/youtubei/v1/player";
+    let page = get_text(address).await?;
+    let key = page
+        .split("\"INNERTUBE_API_KEY\":\"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .filter(|key| {
+            key.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        })
+        .ok_or_else(|| "the video page did not load as expected".to_string())?;
+    let (url, client) = crate::services::outbound_security::build_public_http_client(
+        &format!("{PLAYER}?key={key}"),
+        PAGE_TIMEOUT,
+        Some(BROWSER_AGENT),
+    )
+    .await
+    .map_err(|_| "could not reach the video".to_string())?;
+    let player: Value = client
+        .post(url)
+        .json(&serde_json::json!({
+            "context": { "client": { "clientName": "ANDROID", "clientVersion": "20.10.38" } },
+            "videoId": id,
+        }))
+        .send()
+        .await
+        .map_err(|_| "could not reach the video".to_string())?
+        .json()
+        .await
+        .map_err(|_| "the video's player answered oddly".to_string())?;
+    let title = player
+        .pointer("/videoDetails/title")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .chars()
+        .take(200)
+        .collect();
+    let tracks = player
+        .pointer("/captions/playerCaptionsTracklistRenderer/captionTracks")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let track = pick_track(&tracks)
+        .and_then(|track| track.get("baseUrl").and_then(Value::as_str))
+        .filter(|url| url.starts_with("https://www.youtube.com/api/timedtext"))
+        .ok_or_else(|| "the video has no subtitles to read".to_string())?;
+    let text = timedtext_text(&get_text(track).await?);
+    if text.is_empty() {
+        return Err("the video's subtitles were empty".into());
+    }
+    Ok((title, text))
+}
+
 /// A video, by what is said in it.
 pub async fn watch(address: &str) -> Result<Taken, String> {
-    let tool = yt_dlp().ok_or_else(|| "cannot watch videos here".to_string())?;
     let address = video_address(address).ok_or_else(|| "not a video she can watch".to_string())?;
+    let id = address.rsplit('=').next().unwrap_or_default().to_string();
+    let direct = watch_directly(&address, &id).await;
+    let (title, text) = match (direct, yt_dlp()) {
+        (Ok(found), _) => found,
+        (Err(_), Some(tool)) => {
+            let text = watch_with_yt_dlp(&tool, &address).await?;
+            (video_title(&tool, &address).await, text)
+        }
+        (Err(why), None) => return Err(why),
+    };
+    let (text, _) = myriad_agent_rules::compress_and_truncate_text(&text, MAX_TRANSCRIPT_CHARS);
+    Ok(Taken {
+        title,
+        url: address,
+        text,
+    })
+}
+
+/// The fallback, only where someone has put yt-dlp on the host.
+async fn watch_with_yt_dlp(tool: &std::path::Path, address: &str) -> Result<String, String> {
     // The spoken language's own captions first, one request; then the
     // uploader's subtitles in a language she reads.
-    let text = match subtitles(
-        &tool,
+    match subtitles(
+        tool,
         &address,
         &["--write-auto-subs", "--sub-langs", ".*-orig"],
     )
     .await
     {
-        Some(text) => text,
+        Some(text) => Ok(text),
         None => subtitles(
-            &tool,
+            tool,
             &address,
             &["--write-subs", "--sub-langs", "en,ja,zh-Hans,zh-Hant"],
         )
         .await
-        .ok_or_else(|| "the video has no subtitles to read".to_string())?,
-    };
-    let (text, _) = myriad_agent_rules::compress_and_truncate_text(&text, MAX_TRANSCRIPT_CHARS);
-    Ok(Taken {
-        title: video_title(&tool, &address).await,
-        url: address,
-        text,
-    })
+        .ok_or_else(|| "the video has no subtitles to read".to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -646,6 +803,26 @@ mod tests {
         );
         assert!(video_address("https://evil.example/watch?v=arj7oStGLkU").is_none());
         assert!(video_address("https://www.youtube.com/watch?v=short").is_none());
+    }
+
+    #[test]
+    fn the_spoken_language_s_own_subtitles_come_first() {
+        let tracks = serde_json::json!([
+            { "languageCode": "ar", "baseUrl": "a" },
+            { "languageCode": "en", "kind": "asr", "baseUrl": "auto" },
+            { "languageCode": "en", "baseUrl": "own" },
+            { "languageCode": "ja", "baseUrl": "ja" }
+        ]);
+        let tracks = tracks.as_array().unwrap();
+        assert_eq!(pick_track(tracks).unwrap()["baseUrl"], "own");
+        assert_eq!(pick_track(&tracks[..2]).unwrap()["baseUrl"], "auto");
+        assert_eq!(
+            pick_track(&[tracks[0].clone(), tracks[3].clone()]).unwrap()["baseUrl"],
+            "ja"
+        );
+        assert!(pick_track(&tracks[..1]).is_none());
+        let xml = "<?xml version=\"1.0\" ?><timedtext format=\"3\"><body><p t=\"1\" d=\"2\">So in college,</p><p t=\"3\" d=\"2\"><s>I</s><s> was</s> a &amp; b &#39;c&#39;</p></body></timedtext>";
+        assert_eq!(timedtext_text(xml), "So in college, I was a & b 'c'");
     }
 
     #[test]
