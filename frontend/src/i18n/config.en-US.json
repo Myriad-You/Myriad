@@ -898,7 +898,7 @@
   "agentSkillsTitle": "Skills",
   "agentSkillsDesc": "Ways it has learned. Delete ones you do not need.",
   "agentMemoryTitle": "Memory",
-  "agentMemoryDesc": "Things it remembers. Open a row to rephrase, or delete it.",
+  "agentMemoryDesc": "Her memory lives in three places that never mix: her own (what she lived, her views, her days), about people (what she learned of each person in private, your inside jokes), and in groups (what a group heard, its inside jokes, notes on outsiders). Open a row to rephrase, or delete it.",
   "agentPersona": "Persona",
   "agentPersonaBeta": "Beta",
   "agentPersonaHint": "When on, Agent speaks with the site persona, keeps per-person mood and diary, and may speak after named events. When off, it only chats and does tasks.",

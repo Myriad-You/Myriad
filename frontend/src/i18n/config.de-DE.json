@@ -898,7 +898,7 @@
   "agentSkillsTitle": "Skills",
   "agentSkillsDesc": "Gelernte Wege. Nicht benötigte löschen.",
   "agentMemoryTitle": "Erinnerung",
-  "agentMemoryDesc": "Was erinnert wird. Eine Zeile öffnen zum Umformulieren oder löschen.",
+  "agentMemoryDesc": "Ihr Gedächtnis liegt an drei Orten, die sich nie mischen: ihr eigenes (Erlebtes, Ansichten, Tage), über Personen (was sie im privaten Gespräch über jemanden weiß, eure Insider) und in Gruppen (was eine Gruppe gehört hat, ihre Insider, Notizen zu Außenstehenden). Eine Zeile öffnen zum Umformulieren oder löschen.",
   "agentPersona": "Persona",
   "agentPersonaBeta": "Beta",
   "agentPersonaHint": "Wenn an, spricht Agent mit der Website-Persona, hält Stimmung und Tagebuch pro Person und kann nach benannten Ereignissen sprechen. Wenn aus, nur Chat und Aufgaben.",

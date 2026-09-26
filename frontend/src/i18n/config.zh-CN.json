@@ -898,7 +898,7 @@
   "agentSkillsTitle": "技能",
   "agentSkillsDesc": "它学会的做法。不需要的可以删掉。",
   "agentMemoryTitle": "记忆",
-  "agentMemoryDesc": "它记住的事。点开一行可以改措辞，也可以删掉。",
+  "agentMemoryDesc": "她的记忆分三处，互不相混：她自己的（她自己经历的、看法、日子）、关于别人的（私聊里对每个人的记忆和你们之间的梗）、群里的（群里听到的、群梗、对外人的小笔记）。点开一行可以改措辞，也可以删掉。",
   "agentPersona": "人设",
   "agentPersonaBeta": "Beta",
   "agentPersonaHint": "打开后 Agent 会用设定说话，记住跟每个人的心情和日记，并在有名单上的事时自己开口。关上则只聊天办事。",

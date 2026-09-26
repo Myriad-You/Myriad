@@ -708,6 +708,26 @@ export interface MemoryEntry {
   importance?: number
 }
 
+/** A memory as the site admin sees it: whose it is and where it came from. */
+export interface ManagedMemory {
+  id: string
+  content: string
+  memoryType: string
+  source: string
+  /** Hers (she lived it), a person's (learned in private), or a group's. */
+  scope: 'her' | 'person' | 'group'
+  /** Where it came from, finer than scope (`experience`, `bit`, `stranger`, …). */
+  category: string
+  personId?: number | null
+  personName?: string | null
+  /** The group, as `platform:chat` (`telegram:-100123`). */
+  group?: string | null
+  /** Her note on someone from outside the community: who. */
+  strangerName?: string | null
+  createdAt: string
+  updatedAt?: string
+}
+
 export interface SkillInfo {
   id: string
   name: string

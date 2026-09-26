@@ -440,6 +440,133 @@ pub(crate) async fn list_memories(
     Ok(Json(json!({ "memories": memories_json })))
 }
 
+/// All of her memory, for the site admin: each row with whose it is (hers,
+/// a person's, a group's), where it came from, and who or which group.
+/// GET /api/agent/memory/all
+pub(crate) async fn list_all_memories(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+) -> Result<Json<Value>, HttpError> {
+    require_current_admin(&claims, &db).await?;
+    use crate::services::agent::memory::manage::{self, Whose};
+    let rows = manage::list_all(&db, 2000)
+        .await
+        .map_err(memory_store_http)?;
+    let people: Vec<i32> = rows
+        .iter()
+        .filter_map(|row| match manage::whose(row) {
+            Whose::Person(user_id) => Some(user_id),
+            _ => None,
+        })
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let names = person_names(&db, &people).await;
+    let memories: Vec<Value> = rows
+        .iter()
+        .map(|row| {
+            let (scope, person, group) = match manage::whose(row) {
+                Whose::Hers => ("her", None, None),
+                Whose::Person(user_id) => ("person", Some(user_id), None),
+                Whose::Group(venue) => ("group", None, Some(venue)),
+            };
+            // Her note on someone from outside names them in its evidence.
+            let stranger = row
+                .evidence
+                .as_deref()
+                .filter(|_| row.source == crate::services::agent::merope::strangers::SOURCE)
+                .and_then(|evidence| serde_json::from_str::<Value>(evidence).ok())
+                .and_then(|evidence| evidence["name"].as_str().map(str::to_string));
+            json!({
+                "id": row.id,
+                "content": row.content,
+                "memoryType": row.kind,
+                "source": row.source,
+                "scope": scope,
+                "category": manage::category(row),
+                "personId": person,
+                "personName": person.and_then(|id| names.get(&id).cloned()),
+                "group": group,
+                "strangerName": stranger,
+                "createdAt": row.created_at.to_rfc3339(),
+                "updatedAt": row.updated_at.to_rfc3339(),
+            })
+        })
+        .collect();
+    Ok(Json(json!({ "memories": memories })))
+}
+
+async fn person_names(
+    db: &DatabaseConnection,
+    ids: &[i32],
+) -> std::collections::HashMap<i32, String> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    if ids.is_empty() {
+        return Default::default();
+    }
+    db.query_all_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT id, coalesce(nullif(display_name, ''), username, '') AS name FROM users WHERE id = ANY($1)",
+        [ids.to_vec().into()],
+    ))
+    .await
+    .unwrap_or_default()
+    .iter()
+    .filter_map(|row| {
+        Some((
+            row.try_get::<i32>("", "id").ok()?,
+            row.try_get::<String>("", "name").ok()?,
+        ))
+    })
+    .collect()
+}
+
+/// Edit any memory (site admin).
+/// PUT /api/agent/memory/all/:id
+pub(crate) async fn update_any_memory(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(memory_id): Path<String>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, HttpError> {
+    require_current_admin(&claims, &db).await?;
+    let content = body["content"].as_str().ok_or_else(|| {
+        HttpError::from((
+            StatusCode::BAD_REQUEST,
+            Json(AppError::public_json("Missing field: content")),
+        ))
+    })?;
+    let updated = crate::services::agent::memory::manage::update_any(&db, &memory_id, content)
+        .await
+        .map_err(memory_store_http)?;
+    memory_found(updated)
+}
+
+/// Retire any memory (site admin): kept, no longer recalled.
+/// DELETE /api/agent/memory/all/:id
+pub(crate) async fn delete_any_memory(
+    State(db): State<DatabaseConnection>,
+    Extension(claims): Extension<Claims>,
+    Path(memory_id): Path<String>,
+) -> Result<Json<Value>, HttpError> {
+    require_current_admin(&claims, &db).await?;
+    let removed = crate::services::agent::memory::manage::retire_any(&db, &memory_id)
+        .await
+        .map_err(memory_store_http)?;
+    memory_found(removed)
+}
+
+fn memory_found(changed: bool) -> Result<Json<Value>, HttpError> {
+    if changed {
+        Ok(Json(json!({ "success": true })))
+    } else {
+        Err(HttpError::from((
+            StatusCode::NOT_FOUND,
+            Json(AppError::public_json("Memory not found")),
+        )))
+    }
+}
+
 fn memory_store_http(error: sea_orm::DbErr) -> HttpError {
     tracing::error!(%error, "agent memory store failed");
     HttpError(AppError::internal("Failed to access memory"))

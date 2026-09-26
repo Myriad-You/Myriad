@@ -5,6 +5,7 @@ import type {
   CreatePresetRequest,
   ExecutionTrace,
   HeartbeatTask,
+  ManagedMemory,
   MemoryEntry,
   MeropeDoingResponse,
   MoodTransition,
@@ -913,6 +914,27 @@ class AgentService {
     } catch {
       return []
     }
+  }
+
+  /** All of her memory, sorted by whose it is (site admin). */
+  async getAllMemories(): Promise<ManagedMemory[]> {
+    const response = await apiService.get<{ memories: ManagedMemory[] }>(
+      `${this.baseUrl}/memory/all`,
+    )
+    return response.memories
+  }
+
+  async updateAnyMemory(memoryId: string, content: string): Promise<void> {
+    await apiService.put(
+      `${this.baseUrl}/memory/all/${encodeURIComponent(memoryId)}`,
+      { content },
+    )
+  }
+
+  async deleteAnyMemory(memoryId: string): Promise<void> {
+    await apiService.delete(
+      `${this.baseUrl}/memory/all/${encodeURIComponent(memoryId)}`,
+    )
   }
 
   async deleteMemory(memoryId: string): Promise<void> {

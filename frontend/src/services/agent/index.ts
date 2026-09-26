@@ -33,6 +33,7 @@ export type {
   FrontendAction,
   FrontendActionType,
   HeartbeatTask,
+  ManagedMemory,
   MemoryEntry,
   MeropeStateChangedEvent,
   MusicControlEvent,

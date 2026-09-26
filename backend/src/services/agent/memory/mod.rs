@@ -7,6 +7,7 @@
 
 mod association;
 pub(crate) mod lexical;
+pub mod manage;
 pub mod unified;
 pub(crate) mod work_memory;
 

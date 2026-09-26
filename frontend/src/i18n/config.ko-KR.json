@@ -898,7 +898,7 @@
   "agentSkillsTitle": "스킬",
   "agentSkillsDesc": "배운 방식. 필요 없는 것은 지우세요.",
   "agentMemoryTitle": "기억",
-  "agentMemoryDesc": "기억하는 것들. 행을 열어 다시 쓰거나 지울 수 있습니다.",
+  "agentMemoryDesc": "그녀의 기억은 섞이지 않는 세 곳에 있습니다. 그녀 자신의 것(스스로 겪은 일, 생각, 하루), 다른 사람에 관한 것(개인 대화에서 기억한 것, 둘만의 농담), 그룹의 것(그룹에서 들은 것, 그룹의 농담, 외부인 메모). 행을 열어 다시 쓰거나 지울 수 있습니다.",
   "agentPersona": "페르소나",
   "agentPersonaBeta": "Beta",
   "agentPersonaHint": "켜면 Agent가 사이트 페르소나로 말하고, 사람별 기분과 일기를 유지하며, 지정 이벤트 뒤에 말할 수 있습니다. 끄면 채팅과 작업만 합니다.",

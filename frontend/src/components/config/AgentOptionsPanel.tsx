@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import type {
   HeartbeatTask,
-  MemoryEntry,
+  ManagedMemory,
   SkillInfo,
 } from '../../services/agent'
 import type { SchedulePreset } from '../agent-panel/agentSchedule'
@@ -173,7 +173,7 @@ export const AgentOptionsPanel: React.FC = () => {
   const m = t.agentPanel.manage
   const [tasks, setTasks] = useState<HeartbeatTask[]>([])
   const [skills, setSkills] = useState<SkillInfo[]>([])
-  const [memories, setMemories] = useState<MemoryEntry[]>([])
+  const [memories, setMemories] = useState<ManagedMemory[]>([])
   const [loading, setLoading] = useState(false)
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [draft, setDraft] = useState<TaskDraft | null>(null)
@@ -185,6 +185,7 @@ export const AgentOptionsPanel: React.FC = () => {
   const [skillQuery, setSkillQuery] = useState('')
   const [skillFilter, setSkillFilter] = useState('all')
   const [memoryQuery, setMemoryQuery] = useState('')
+  const [memoryScope, setMemoryScope] = useState('all')
 
   const load = useCallback(async () => {
     if (!isAuthenticated) {
@@ -196,7 +197,7 @@ export const AgentOptionsPanel: React.FC = () => {
     setLoading(true)
     try {
       const nextSkills = await agentService.getSkills()
-      const nextMemories = await agentService.getMemories()
+      const nextMemories = await agentService.getAllMemories()
       setSkills(nextSkills)
       setMemories(nextMemories)
       setTasks(await agentService.getHeartbeatTasks())
@@ -571,13 +572,44 @@ export const AgentOptionsPanel: React.FC = () => {
     [busyKey, filteredSkills, format, guard, m],
   )
 
+  /** Whose a memory is, as a person reads it. */
+  const memoryOwner = useCallback(
+    (memory: ManagedMemory): string => {
+      if (memory.scope === 'her') return m.memoryOwnerHer
+      if (memory.scope === 'person') {
+        return (
+          memory.personName ||
+          format(m.memoryOwnerUser, { id: String(memory.personId ?? '') })
+        )
+      }
+      const [platform = '', ...rest] = (memory.group ?? '').split(':')
+      const group = format(m.memoryOwnerGroup, {
+        platform: platform.charAt(0).toUpperCase() + platform.slice(1),
+        id: rest.join(':'),
+      })
+      return memory.strangerName
+        ? `${group} · ${format(m.memoryAbout, { name: memory.strangerName })}`
+        : group
+    },
+    [format, m],
+  )
+
+  const memoryScopeCount = useCallback(
+    (scope: ManagedMemory['scope']) =>
+      memories.filter((memory) => memory.scope === scope).length,
+    [memories],
+  )
+
   const filteredMemories = useMemo(() => {
     const q = memoryQuery.trim().toLowerCase()
-    if (!q) return memories
-    return memories.filter((memory) =>
-      memory.content.toLowerCase().includes(q),
+    return memories.filter(
+      (memory) =>
+        (memoryScope === 'all' || memory.scope === memoryScope) &&
+        (!q ||
+          memory.content.toLowerCase().includes(q) ||
+          memoryOwner(memory).toLowerCase().includes(q)),
     )
-  }, [memories, memoryQuery])
+  }, [memories, memoryOwner, memoryQuery, memoryScope])
 
   const memoryItems: ManagedListItem[] = useMemo(
     () =>
@@ -586,9 +618,16 @@ export const AgentOptionsPanel: React.FC = () => {
         return {
           id: memory.id,
           title: memory.content,
-          meta: memory.createdAt
-            ? new Date(memory.createdAt).toLocaleString(locale || undefined)
-            : undefined,
+          meta: [
+            (m.memoryCategories as Record<string, string>)[memory.category] ??
+              m.memoryCategories.other,
+            memoryOwner(memory),
+            memory.createdAt
+              ? new Date(memory.createdAt).toLocaleString(locale || undefined)
+              : '',
+          ]
+            .filter(Boolean)
+            .join(' · '),
           expanded,
           onToggleExpand: () => {
             if (expanded) {
@@ -629,7 +668,7 @@ export const AgentOptionsPanel: React.FC = () => {
                   onClick={() => {
                     const text = memoryDraft.trim()
                     void guard(`memory:${memory.id}`, () =>
-                      agentService.updateMemory(memory.id, text),
+                      agentService.updateAnyMemory(memory.id, text),
                     ).then((ok) => {
                       if (!ok) return
                       setExpandedMemoryId(null)
@@ -650,7 +689,7 @@ export const AgentOptionsPanel: React.FC = () => {
               confirm: m.confirmRemoveMemory,
               onClick: () =>
                 void guard(`memory:${memory.id}`, () =>
-                  agentService.deleteMemory(memory.id),
+                  agentService.deleteAnyMemory(memory.id),
                 ),
             },
           ],
@@ -665,6 +704,7 @@ export const AgentOptionsPanel: React.FC = () => {
       locale,
       m,
       memoryDraft,
+      memoryOwner,
     ],
   )
 
@@ -834,6 +874,37 @@ export const AgentOptionsPanel: React.FC = () => {
                   onChange: setMemoryQuery,
                   placeholder: m.searchMemory,
                   ariaLabel: m.searchMemory,
+                }
+              : undefined
+          }
+          filters={
+            memories.length > 0
+              ? {
+                  value: memoryScope,
+                  onChange: setMemoryScope,
+                  ariaLabel: t.config.federationListQueryToggle,
+                  options: [
+                    {
+                      key: 'all',
+                      label: t.config.mcpFilterAll,
+                      count: memories.length,
+                    },
+                    {
+                      key: 'her',
+                      label: m.memoryScopes.her,
+                      count: memoryScopeCount('her'),
+                    },
+                    {
+                      key: 'person',
+                      label: m.memoryScopes.person,
+                      count: memoryScopeCount('person'),
+                    },
+                    {
+                      key: 'group',
+                      label: m.memoryScopes.group,
+                      count: memoryScopeCount('group'),
+                    },
+                  ],
                 }
               : undefined
           }

@@ -898,7 +898,7 @@
   "agentSkillsTitle": "Compétences",
   "agentSkillsDesc": "Ce qu'il a appris. Supprimez celles dont vous n'avez pas besoin.",
   "agentMemoryTitle": "Mémoire",
-  "agentMemoryDesc": "Ce dont il se souvient. Ouvrez une ligne pour reformuler, ou supprimez-la.",
+  "agentMemoryDesc": "Sa mémoire tient en trois lieux qui ne se mêlent jamais : la sienne (ce qu'elle a vécu, ses avis, ses journées), sur les gens (ce qu'elle sait de chacun en privé, vos blagues) et dans les groupes (ce qu'un groupe a entendu, ses blagues, des notes sur les inconnus). Ouvrez une ligne pour reformuler, ou supprimez-la.",
   "agentPersona": "Persona",
   "agentPersonaBeta": "Bêta",
   "agentPersonaHint": "Si activé, Agent parle avec la persona du site, tient humeur et journal par personne, et peut parler après certains événements. Sinon, il ne fait que discuter et exécuter des tâches.",
