@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { armDrapeWeight, bindArmRig, bindArmRigMesh } from './armRig'
+import { anime25DArmsTouch, armDrapeWeight, bindArmRig, bindArmRigMesh } from './armRig'
 
 const ANCHORS = {
   face: { x0: 300, y0: 150, x1: 700, y1: 650, cx: 500, cy: 400 },
@@ -109,4 +109,18 @@ test('drape weight is zero on the upper arm and whole at the hem', () => {
   assert.equal(armDrapeWeight(rig, rig.pivotY + rig.length * 0.3), 0)
   assert.equal(armDrapeWeight(rig, rig.pivotY + rig.length), 1)
   assert.equal(armDrapeWeight({ ...rig, drape: false }, rig.pivotY + rig.length), 0)
+})
+
+test('hands holding each other join the arms; arms apart stay apart', () => {
+  const RIGHT = { x: 660, y: 780, w: 220, h: 540, side: 'R' as const }
+  // Two hanging sleeves, nowhere near each other.
+  const leftAlone = sleeve(LEFT, hanging)
+  const rightAlone = sleeve(RIGHT, (x, y) => x >= 690 && x < 850 && y >= 790)
+  assert.equal(anime25DArmsTouch(LEFT, leftAlone, RIGHT, rightAlone), false)
+  // The left hand reaches across and grips the right one.
+  const reaching = { x: 120, y: 780, w: 600, h: 540, side: 'L' as const }
+  const leftReach = sleeve(reaching, (x, y) => (x >= 150 && x < 310 && y >= 790) || (y >= 1000 && y < 1060 && x >= 150 && x < 700))
+  const rightHeld = sleeve(RIGHT, (x, y) => (x >= 690 && x < 850 && y >= 790) || (y >= 1000 && y < 1060 && x >= 700 && x < 850))
+  assert.equal(anime25DArmsTouch(reaching, leftReach, RIGHT, rightHeld), true)
+  assert.equal(anime25DArmsTouch(reaching, null, RIGHT, rightHeld), false)
 })

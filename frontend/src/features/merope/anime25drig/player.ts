@@ -515,7 +515,7 @@ export class Anime25DPlayer {
         releaseCompiledGpu(this.gl, compiled.layers, compiled.collarClip, nextTexture)
         return
       }
-      this.applyPackage(playback, rigManifest)
+      this.applyPackage(playback, rigManifest, compiled.armsLinked)
     } catch (error) {
       // Keep the live outfit; the not-yet-owned replacement must be released.
       releaseCompiledGpu(
@@ -596,6 +596,7 @@ export class Anime25DPlayer {
   private applyPackage(
     playback: Anime25DPlayback,
     rigManifest?: MeropeRigManifest,
+    armsLinked = false,
   ): void {
     playback = {
       ...playback,
@@ -608,8 +609,11 @@ export class Anime25DPlayer {
     this.motionEnvelopeProfile = deriveAnime25DMotionEnvelopeProfile(
       playback,
       rigManifest,
+      armsLinked,
     )
-    this.singingGroove.setArmMotion(this.motionEnvelopeProfile.armMotion)
+    this.singingGroove.setArmMotion(
+      this.motionEnvelopeProfile.armMotion && this.motionEnvelopeProfile.rigidArm.limit > 0,
+    )
     this.neckDepth =
       playback.layers.find((layer) => layer.role === 'neck')?.depth ?? 0.95
     this.mouthTransition = new MouthTransitionController(playback.mouthProfile)

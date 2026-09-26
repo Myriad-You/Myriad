@@ -186,3 +186,53 @@ export function bindArmRigMesh(rig: ArmRig, rest: Float32Array): ArmRigMesh {
   }
   return { weights, jointVertex }
 }
+
+/** Contact shorter than this is two arms brushing, not hands holding each other. */
+const MIN_ARM_CONTACT = 6
+
+/**
+ * True when the two sleeve drawings touch: hands clasped, one gripping the
+ * other. Such arms cannot swing apart without tearing their contact, so they
+ * move as one piece with the torso.
+ */
+export function anime25DArmsTouch(
+  first: Layer,
+  firstImage: CroppedLayerPixels | null,
+  second: Layer,
+  secondImage: CroppedLayerPixels | null,
+  reach = 2,
+): boolean {
+  if (!firstImage || !secondImage) return false
+  const cell = Math.max(1, reach)
+  const key = (x: number, y: number) => `${Math.floor(x / cell)},${Math.floor(y / cell)}`
+  const occupied = new Set<string>()
+  eachOpaque(second, secondImage, (x, y) => occupied.add(key(x, y)))
+  let contact = 0
+  eachOpaque(first, firstImage, (x, y) => {
+    if (contact >= MIN_ARM_CONTACT) return
+    const cx = Math.floor(x / cell)
+    const cy = Math.floor(y / cell)
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (occupied.has(`${cx + dx},${cy + dy}`)) {
+          contact++
+          return
+        }
+      }
+    }
+  })
+  return contact >= MIN_ARM_CONTACT
+}
+
+function eachOpaque(layer: Layer, image: CroppedLayerPixels, visit: (x: number, y: number) => void): void {
+  const { width, height, pixels } = image
+  if (width < 1 || height < 1 || pixels.length !== width * height * 4) return
+  const scaleX = layer.w / width
+  const scaleY = layer.h / height
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (pixels[(y * width + x) * 4 + 3] < OPAQUE) continue
+      visit(layer.x + (x + 0.5) * scaleX, layer.y + (y + 0.5) * scaleY)
+    }
+  }
+}

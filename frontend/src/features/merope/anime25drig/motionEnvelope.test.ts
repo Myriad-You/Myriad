@@ -105,6 +105,18 @@ test('assets without rigid sleeves do not advertise an arm envelope', () => {
   assert.equal(driver.armPos, 0)
 })
 
+test('arms whose hands hold each other take no arm gesture; the body carries it', () => {
+  const profile = deriveAnime25DMotionEnvelopeProfile({ layers: [{ role: 'handwear' }] }, undefined, true)
+  assert.equal(profile.armMotion, true)
+  assert.equal(profile.rigidArm.limit, 0)
+  const driver = { ...IDENTITY_DRIVER, armY: 0.8, armPos: -0.6 }
+  const result = projectAnime25DMotionEnvelope(driver, profile, { clippedEnergy: 0, transferredEnergy: 0 })
+  assert.equal(driver.armY, 0)
+  assert.equal(driver.armPos, 0)
+  assert.notEqual(driver.body, 0)
+  assert.ok(result.transferredEnergy > 1.3)
+})
+
 test('all reproducible boundary probes stay inside a restrictive asset envelope', () => {
   const profile = deriveAnime25DMotionEnvelopeProfile(
     {

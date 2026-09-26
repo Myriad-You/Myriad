@@ -67,6 +67,7 @@ type MotionEnvelopeManifest = Pick<MeropeRigManifest, 'outfitProfile'>
 export function deriveAnime25DMotionEnvelopeProfile(
   playback: Readonly<MotionEnvelopePlayback>,
   manifest?: Readonly<MotionEnvelopeManifest>,
+  armsLinked = false,
 ): Anime25DMotionEnvelopeProfile {
   const highCollar = playback.layers.some(
     (layer) => layer.role === 'collar-back' || layer.role === 'collar-front',
@@ -77,7 +78,8 @@ export function deriveAnime25DMotionEnvelopeProfile(
     0.25,
     1,
   )
-  const rigidArmLimit = armMotion
+  // Hands holding each other cannot open or sway apart; arm gestures go to the body.
+  const rigidArmLimit = armMotion && !armsLinked
     ? clamp(
         finiteOr(manifest?.outfitProfile?.secondaryMotionScale, 1),
         0.2,

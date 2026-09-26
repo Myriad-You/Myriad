@@ -163,6 +163,8 @@ export function createAnime25DSecondaryDeformationBinding(input: {
   torsoShellMode?: Anime25DTorsoShellMode | null
   arm?: ArmRig | null
   armMesh?: ArmRigMesh | null
+  /** A shared torso carry point for arms that move as one piece. */
+  handwearAnchorX?: number
 }): Anime25DSecondaryDeformationBinding {
   return {
     ...input,
@@ -174,7 +176,7 @@ export function createAnime25DSecondaryDeformationBinding(input: {
     handwear: input.baseRole === 'handwear',
     handwearSide:
       input.baseRole === 'handwear' ? (input.source.side ?? null) : null,
-    handwearAnchorX: input.source.x + input.source.w / 2,
+    handwearAnchorX: input.handwearAnchorX ?? input.source.x + input.source.w / 2,
     shellMode: input.shellMode ?? null,
     hairlinePinWeights: input.hairlinePinWeights ?? null,
     torsoShellMode: input.torsoShellMode ?? null,
