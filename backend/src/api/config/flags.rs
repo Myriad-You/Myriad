@@ -2,10 +2,11 @@
 //!
 //! No Axum: Agent and other services must not import the HTTP config handlers
 //! just to read these flags.
-use serde_json::{Value, json};
 
 use super::types::PlatformConfig;
+pub(crate) use crate::services::config_service::public_ui_config_value;
 use crate::services::platform_id::PlatformId;
+pub(crate) use crate::services::platform_id::platform_configured_flags;
 
 /// 按管理员配置的平台顺序对平台列表排序。
 /// `order` 中的平台按其顺序排在前面，未列出的平台保持原有默认顺序排在最后。
@@ -33,37 +34,6 @@ pub(crate) fn nonempty_env(key: &str) -> bool {
     std::env::var(key)
         .ok()
         .is_some_and(|s| !s.trim().is_empty())
-}
-
-/// Agent `config.get` / `platform.connection` / `auth.status` 共用：平台是否按配置视为已接通。
-///
-/// 与报告一键生成、刷新闸门同源：[`PlatformId::enabled`]。
-pub(crate) fn platform_configured_flags(
-    config: &crate::config::DynamicConfig,
-) -> Vec<(&'static str, bool)> {
-    PlatformId::ALL
-        .into_iter()
-        .map(|id| (id.slug(), id.enabled(config)))
-        .collect()
-}
-
-/// Agent `config.get` ui 段：与公开 UI 运行时同类的非密钥字段。
-pub(crate) fn public_ui_config_value(config: &crate::config::DynamicConfig) -> Value {
-    json!({
-        "analytics_enabled": config.analytics_enabled,
-        "pwa_enabled": config.pwa_enabled,
-        "wallpaper_url": config.ui_wallpaper_url,
-        "wallpaper_blur": config.ui_wallpaper_blur,
-        "evocative_parallax": config.ui_evocative_parallax,
-        "evocative_dynamic_blur": config.ui_evocative_dynamic_blur,
-        "evocative_ripple": config.ui_evocative_ripple,
-        "evocative_fps": config.ui_evocative_fps,
-        "evocative_ripple_quality": config.ui_evocative_ripple_quality,
-        "music_enabled": config.music_enabled,
-        "music_source": config.music_source,
-        "site_title": config.site_title,
-        "site_description": config.site_description,
-    })
 }
 
 /// 管理台表单里凭据字段显示、并在保存时原样写回的值：库里存过就用库里的

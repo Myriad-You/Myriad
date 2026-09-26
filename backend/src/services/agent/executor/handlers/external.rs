@@ -178,7 +178,7 @@ async fn execute_http_fetch(params: &HashMap<String, Value>) -> Result<Value, St
 async fn execute_hitokoto_get(params: &HashMap<String, Value>) -> Result<Value, String> {
     let hitokoto_type = hitokoto_type(params);
 
-    let host = crate::api::config::HITOKOTO_BUILTIN_HOSTS[0];
+    let host = crate::services::hitokoto::HITOKOTO_BUILTIN_HOSTS[0];
     let url = match hitokoto_type {
         Some(t) => {
             let encoded = urlencoding::encode(t);

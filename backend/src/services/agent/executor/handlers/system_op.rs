@@ -996,7 +996,7 @@ async fn execute_phantasi_schedule(params: &HashMap<String, Value>) -> Result<Va
 }
 
 async fn execute_setup_status(ctx: &HandlerContext<'_>) -> Result<Value, String> {
-    let progress = crate::api::setup::inspect_setup_progress(ctx.db)
+    let progress = crate::services::setup_progress::inspect_setup_progress(ctx.db)
         .await
         .map_err(|error| {
             tracing::warn!(%error, "[Agent] setup.status cannot be read");

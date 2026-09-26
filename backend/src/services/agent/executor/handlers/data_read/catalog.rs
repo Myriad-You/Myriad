@@ -18,7 +18,7 @@ pub(super) async fn execute_platform_connection(
 
     let configured = {
         let dynamic = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
-        crate::api::config::platform_configured_flags(&dynamic)
+        crate::services::platform_id::platform_configured_flags(&dynamic)
     };
     let configured_map: HashMap<&str, bool> = configured.iter().copied().collect();
 
@@ -752,8 +752,8 @@ pub(super) async fn execute_report_list(
         .map(str::trim)
         .filter(|s| !s.is_empty());
 
-    let preferred = crate::api::reports::public_report_owner_user_id(ctx.db).await;
-    let owner_id = crate::api::reports::resolve_report_user_id_for_public_read(ctx.db, preferred)
+    let preferred = crate::services::public_reports::public_report_owner_user_id(ctx.db).await;
+    let owner_id = crate::services::public_reports::owner_for_public_read(ctx.db, preferred)
         .await
         .unwrap_or(preferred);
 

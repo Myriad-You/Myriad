@@ -897,7 +897,7 @@ pub async fn sync_seo_review_cadence(cadence: &str) {
         tracing::warn!("Heartbeat not initialized; SEO review cadence saved but not scheduled");
         return;
     };
-    let cron = crate::api::seo_policy::seo_review_cron(cadence);
+    let cron = crate::services::seo_policy::seo_review_cron(cadence);
     if let Err(error) = manager.upsert_seo_review_task(cron).await {
         tracing::error!(%error, "Failed to sync SEO review heartbeat");
     }

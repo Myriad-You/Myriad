@@ -190,6 +190,18 @@ fn env_var(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|s| !s.trim().is_empty())
 }
 
+/// Agent `config.get` / `platform.connection` / `auth.status` 共用：平台是否按配置视为已接通。
+///
+/// 与报告一键生成、刷新闸门同源：[`PlatformId::enabled`]。
+pub(crate) fn platform_configured_flags(
+    config: &crate::config::DynamicConfig,
+) -> Vec<(&'static str, bool)> {
+    PlatformId::ALL
+        .into_iter()
+        .map(|id| (id.slug(), id.enabled(config)))
+        .collect()
+}
+
 pub fn xbox_gamertag(config: &DynamicConfig) -> Option<String> {
     db_then_env(config.xbox_gamertag.as_ref(), &["XBOX_GAMERTAG"])
 }
@@ -359,9 +371,7 @@ pub(crate) mod tests {
         for (name, config, env) in config_table() {
             with_env(&env, || {
                 let flags: HashMap<&str, bool> =
-                    crate::api::config::platform_configured_flags(&config)
-                        .into_iter()
-                        .collect();
+                    platform_configured_flags(&config).into_iter().collect();
                 let report = crate::api::reports::enabled_report_platforms(&config);
                 let fetchable_ids =
                     crate::services::platform_refresh::configured_platform_ids(&config);

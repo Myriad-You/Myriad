@@ -227,58 +227,16 @@ impl Drop for ReportGeneration {
 }
 
 /// Public latest owner: `site_owner_user_id` (lowest admin) then user_id 1.
-/// Viewer credentials never select public report ownership. Used by `get_latest_report` + catalog, not authed `/api/reports/list`.
-pub(crate) async fn public_report_owner_user_id(db: &DatabaseConnection) -> i32 {
-    if let Ok(owner_id) = crate::api::profile::site_owner_user_id(db).await {
-        return owner_id;
-    }
-    1
-}
+pub(crate) use crate::services::public_reports::public_report_owner_user_id;
 
-/// Prefer `preferred` when they have platform reports; otherwise use the user_id
-/// that most recently wrote a non-`all` platform report.
-///
-/// If `preferred` has no non-`all` platform reports, use the user_id that
-/// most recently wrote one.
+/// [`crate::services::public_reports::owner_for_public_read`], as an HTTP error.
 pub(crate) async fn resolve_report_user_id_for_public_read(
     db: &DatabaseConnection,
     preferred: i32,
 ) -> Result<i32, HttpError> {
-    let preferred_count = platform_reports::Entity::find()
-        .filter(platform_reports::Column::UserId.eq(preferred))
-        .filter(platform_reports::Column::Platform.ne("all"))
-        .count(db)
+    crate::services::public_reports::owner_for_public_read(db, preferred)
         .await
-        .map_err(|e| {
-            tracing::error!("count platform_reports for owner {}: {}", preferred, e);
-            HttpError(AppError::internal("Database error"))
-        })?;
-    if preferred_count > 0 {
-        return Ok(preferred);
-    }
-
-    let fallback = platform_reports::Entity::find()
-        .filter(platform_reports::Column::Platform.ne("all"))
-        .order_by_desc(platform_reports::Column::CreatedAt)
-        .one(db)
-        .await
-        .map_err(|e| {
-            tracing::error!("fallback platform_reports lookup failed: {}", e);
-            HttpError(AppError::internal("Database error"))
-        })?;
-
-    if let Some(row) = fallback {
-        if row.user_id != preferred {
-            tracing::warn!(
-                preferred,
-                fallback = row.user_id,
-                "Site owner has no platform_reports; serving latest reports from user_id={}",
-                row.user_id
-            );
-        }
-        return Ok(row.user_id);
-    }
-    Ok(preferred)
+        .map_err(|_| HttpError(AppError::internal("Database error")))
 }
 
 #[cfg(test)]

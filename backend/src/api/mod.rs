@@ -39,7 +39,7 @@ pub mod proxy;
 pub mod reports;
 pub mod seo;
 pub mod seo_geo;
-pub mod seo_policy;
+pub use crate::services::seo_policy;
 pub mod seo_review;
 pub mod setup;
 pub mod setup_bootstrap;

@@ -29,14 +29,14 @@ pub(super) async fn execute_config_get(params: &HashMap<String, Value>) -> Resul
 
         if section == "all" || section == "platforms" {
             let mut platforms = serde_json::Map::new();
-            for (name, on) in crate::api::config::platform_configured_flags(dynamic) {
+            for (name, on) in crate::services::platform_id::platform_configured_flags(dynamic) {
                 platforms.insert(name.to_string(), json!(on));
             }
             config["platforms"] = Value::Object(platforms);
         }
 
         if section == "all" || section == "ui" {
-            config["ui"] = crate::api::config::public_ui_config_value(dynamic);
+            config["ui"] = crate::services::config_service::public_ui_config_value(dynamic);
         }
     }
 
@@ -98,7 +98,7 @@ pub(super) async fn execute_auth_status(ctx: &HandlerContext<'_>) -> Result<Valu
 
     let configured = {
         let dynamic = crate::GLOBAL_DYNAMIC_CONFIG.read().await;
-        crate::api::config::platform_configured_flags(&dynamic)
+        crate::services::platform_id::platform_configured_flags(&dynamic)
     };
     let mut linked_platforms = Vec::new();
     for (name, on) in configured {

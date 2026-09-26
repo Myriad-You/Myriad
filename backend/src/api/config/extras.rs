@@ -250,28 +250,9 @@ pub async fn update_tapp_window_schemes(
 // 一言（Hitokoto）配置 API
 
 pub(crate) const HITOKOTO_CONFIG_KEY: &str = "hitokoto_config";
-/// Config UI source ids — keep in sync with frontend `BUILTIN_HITOKOTO_SOURCES`
-/// (+ `"custom"`) in `frontend/src/utils/quote.ts`.
-pub const HITOKOTO_SOURCE_IDS: [&str; 5] = [
-    "hitokoto-cn",
-    "hitokoto-anime",
-    "quotable-en",
-    "meigen-ja",
-    "custom",
-];
-
-/// Builtin quote API hosts (no port) matching FE `BUILTIN_HITOKOTO_SOURCES` URLs.
-/// Proxy SSRF policy is still `outbound_security`; this list is catalog alignment.
-pub const HITOKOTO_BUILTIN_HOSTS: [&str; 3] =
-    ["v1.hitokoto.cn", "api.quotable.io", "meigen.doodlenote.net"];
-
-/// Default literary-category URL on the first builtin host (FE `hitokoto-cn`).
-pub fn default_hitokoto_url() -> String {
-    format!(
-        "https://{}/?c=d&c=i&c=k&encode=json",
-        HITOKOTO_BUILTIN_HOSTS[0]
-    )
-}
+pub use crate::services::hitokoto::{
+    HITOKOTO_BUILTIN_HOSTS, HITOKOTO_SOURCE_IDS, default_hitokoto_url,
+};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]

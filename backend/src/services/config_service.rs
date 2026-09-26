@@ -19,7 +19,26 @@ fn opt_nonempty_string(v: &JsonValue) -> Option<String> {
 /// back; `every_saved_setting_is_read_back` checks that.
 macro_rules! standard_fields {
     ($($rule:ident: [$($field:ident),* $(,)?]),* $(,)?) => {
-        #[cfg(test)]
+        /// Agent `config.get` ui 段：与公开 UI 运行时同类的非密钥字段。
+pub(crate) fn public_ui_config_value(config: &crate::config::DynamicConfig) -> JsonValue {
+    serde_json::json!({
+        "analytics_enabled": config.analytics_enabled,
+        "pwa_enabled": config.pwa_enabled,
+        "wallpaper_url": config.ui_wallpaper_url,
+        "wallpaper_blur": config.ui_wallpaper_blur,
+        "evocative_parallax": config.ui_evocative_parallax,
+        "evocative_dynamic_blur": config.ui_evocative_dynamic_blur,
+        "evocative_ripple": config.ui_evocative_ripple,
+        "evocative_fps": config.ui_evocative_fps,
+        "evocative_ripple_quality": config.ui_evocative_ripple_quality,
+        "music_enabled": config.music_enabled,
+        "music_source": config.music_source,
+        "site_title": config.site_title,
+        "site_description": config.site_description,
+    })
+}
+
+#[cfg(test)]
         const STANDARD_KEYS: &[&str] = &[$($(stringify!($field)),*),*];
 
         fn read_standard_fields(config: &mut DynamicConfig, map: &HashMap<String, JsonValue>) {
@@ -653,11 +672,11 @@ impl ConfigService {
         // 网站元数据配置
         if let Some(v) = map.get("site_seo_review_cadence") {
             config.site_seo_review_cadence =
-                crate::api::seo_policy::normalize_seo_review_cadence(v.as_str().unwrap_or(""))
+                crate::services::seo_policy::normalize_seo_review_cadence(v.as_str().unwrap_or(""))
                     .to_string();
         } else {
             config.site_seo_review_cadence =
-                crate::api::seo_policy::normalize_seo_review_cadence("").to_string();
+                crate::services::seo_policy::normalize_seo_review_cadence("").to_string();
         }
         // Keep noindex in sync with policy when policy is set.
         if !config.site_visibility_policy.trim().is_empty() {
