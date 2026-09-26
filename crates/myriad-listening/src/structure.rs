@@ -20,8 +20,11 @@ const SHORTEST: usize = 8;
 const LEVEL_WEIGHT: f32 = 2.0;
 /// Less novel than this is no boundary, however quiet the rest.
 const LEAST_NOVELTY: f32 = 0.1;
-/// Sections this alike (cosine) share a letter.
-const ALIKE: f32 = 0.6;
+/// Sections this alike share a letter (see `alike`).
+const ALIKE: f32 = 0.45;
+/// A part longer than this, in steps, is split where it changes most
+/// inside: a whole verse and pre-chorus rarely run this long unchanged.
+const LONGEST: usize = 40;
 
 /// Each second as a vector: every dimension standardized over the song.
 fn features(seconds: &Seconds) -> Vec<Vec<f32>> {
@@ -136,6 +139,7 @@ pub fn sections(seconds: &Seconds) -> Vec<Section> {
     let curve = novelty(&vectors);
     let mut starts = vec![0];
     starts.extend(boundaries(&curve));
+    split_long(&mut starts, n, &curve);
     let spans: Vec<(usize, usize)> = starts
         .iter()
         .enumerate()
@@ -154,22 +158,30 @@ pub fn sections(seconds: &Seconds) -> Vec<Section> {
     };
     let song_loudness = seconds.mean_loudness_db();
     let song_brightness = seconds.mean_brightness().max(1.0);
-    let mut labels: Vec<(char, Vec<f32>)> = Vec::new();
-    let mut result: Vec<Section> = spans
+    // Each part takes the letter of the earlier part it sounds most like,
+    // if any sounds alike enough; otherwise a new letter.
+    let mut heard: Vec<(char, (usize, usize), Vec<f32>)> = Vec::new();
+    let mut letters = 0u8;
+    let result: Vec<Section> = spans
         .iter()
         .map(|&(from, to)| {
             let mean = mean_of(from, to);
-            let alike = labels
+            let alike = heard
                 .iter()
-                .map(|(label, other)| (*label, cosine(&mean, other)))
+                .map(|(label, span, other)| {
+                    let overall = cosine(&mean, other);
+                    let unfolding = unfolds_alike(&vectors, (from, to), *span);
+                    (*label, (overall + unfolding) / 2.0)
+                })
                 .filter(|(_, similarity)| *similarity >= ALIKE)
                 .max_by(|a, b| a.1.total_cmp(&b.1))
                 .map(|(label, _)| label);
             let label = alike.unwrap_or_else(|| {
-                let next = (b'A' + labels.len().min(25) as u8) as char;
-                labels.push((next, mean.clone()));
+                let next = (b'A' + letters.min(25)) as char;
+                letters += 1;
                 next
             });
+            heard.push((label, (from, to), mean.clone()));
             let power = seconds.loudness_db[from..to]
                 .iter()
                 .map(|db| 10f32.powf(db / 10.0))
@@ -189,6 +201,7 @@ pub fn sections(seconds: &Seconds) -> Vec<Section> {
         })
         .collect();
 
+    let mut result = merge_neighbours(result);
     // The chorus: of the parts that come back, the loudest.
     let returning = |label: char| result.iter().filter(|s| s.label == label).count() > 1;
     let chorus = result
@@ -207,6 +220,77 @@ pub fn sections(seconds: &Seconds) -> Vec<Section> {
         }
     }
     result
+}
+
+/// How alike two parts unfold: the shorter laid along the longer where
+/// they match best, second by second, by pitch content (the same chords in
+/// the same order), 1 for the same.
+fn unfolds_alike(vectors: &[Vec<f32>], a: (usize, usize), b: (usize, usize)) -> f32 {
+    let (short, long) = if a.1 - a.0 <= b.1 - b.0 {
+        (a, b)
+    } else {
+        (b, a)
+    };
+    let length = short.1 - short.0;
+    if length == 0 {
+        return 0.0;
+    }
+    (0..=(long.1 - long.0 - length))
+        .map(|offset| {
+            (0..length)
+                .map(|k| {
+                    cosine(
+                        &vectors[short.0 + k][..12],
+                        &vectors[long.0 + offset + k][..12],
+                    )
+                })
+                .sum::<f32>()
+                / length as f32
+        })
+        .fold(f32::MIN, f32::max)
+}
+
+/// Neighbouring parts with the same letter are one part.
+fn merge_neighbours(sections: Vec<Section>) -> Vec<Section> {
+    let mut merged: Vec<Section> = Vec::new();
+    for section in sections {
+        match merged.last_mut() {
+            Some(last) if last.label == section.label => {
+                let (a, b) = (last.end_s - last.start_s, section.end_s - section.start_s);
+                let power = |db: f32| 10f32.powf(db / 10.0);
+                last.loudness_db = 10.0
+                    * ((power(last.loudness_db) * a + power(section.loudness_db) * b) / (a + b))
+                        .log10();
+                last.brightness = (last.brightness * a + section.brightness * b) / (a + b);
+                last.end_s = section.end_s;
+            }
+            _ => merged.push(section),
+        }
+    }
+    merged
+}
+
+/// Split parts longer than `LONGEST` where they change most inside, as long
+/// as that change is a real one and leaves both halves long enough.
+fn split_long(starts: &mut Vec<usize>, n: usize, curve: &[f32]) {
+    loop {
+        let ends: Vec<usize> = starts.iter().skip(1).copied().chain([n]).collect();
+        let split = starts.iter().zip(&ends).find_map(|(&from, &to)| {
+            if to - from <= LONGEST {
+                return None;
+            }
+            (from + SHORTEST..to.saturating_sub(SHORTEST))
+                .max_by(|&a, &b| curve[a].total_cmp(&curve[b]))
+                .filter(|&at| curve[at] >= LEAST_NOVELTY)
+        });
+        match split {
+            Some(at) => {
+                starts.push(at);
+                starts.sort_unstable();
+            }
+            None => return,
+        }
+    }
 }
 
 /// Share of the song spent in parts that come back.
@@ -254,6 +338,20 @@ mod tests {
         assert_eq!(sections[0].change, 0.0);
         assert!(sections[1].change > 0.3, "{}", sections[1].change);
         assert!((repetition(&sections) - 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_long_part_is_split_where_it_changes_most() {
+        let mut curve = vec![0.0f32; 100];
+        curve[30] = 0.3;
+        curve[70] = 0.05;
+        let mut starts = vec![0];
+        split_long(&mut starts, 100, &curve);
+        // 0..100 splits at 30; 30..100 has nothing real left inside.
+        assert_eq!(starts, vec![0, 30]);
+        let mut short = vec![0];
+        split_long(&mut short, 40, &curve);
+        assert_eq!(short, vec![0]);
     }
 
     #[test]

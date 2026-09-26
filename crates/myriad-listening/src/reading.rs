@@ -143,6 +143,9 @@ fn chills(sheet: &ListeningSheet) -> Vec<Reading> {
         let louder = section.loudness_db - before.loudness_db;
         if louder >= 3.0 {
             heard.push_str(&format!(", {louder:.0} dB louder than before"));
+        } else if louder > -3.0 {
+            // Said, so that it is not heard as a burst.
+            heard.push_str(", at about the same loudness as before");
         }
         if before.brightness > 0.0 && section.brightness / before.brightness >= 1.15 {
             heard.push_str(", brighter than before");
@@ -452,12 +455,16 @@ pub(crate) mod tests {
             .filter(|r| r.tends_to == CHORUS_IN)
             .collect();
         assert_eq!(entries.len(), 2, "{readings:#?}");
-        assert!(entries[0].heard.starts_with("At 0:30 the chorus comes in;"));
+        assert!(
+            entries[0]
+                .heard
+                .starts_with("At 0:30 the chorus comes in, at about the same loudness as before;")
+        );
         assert!(entries[0].heard.contains("「就是现在」"));
         assert!(
             entries[1]
                 .heard
-                .starts_with("At 1:30 the chorus comes in again, brighter than before")
+                .starts_with("At 1:30 the chorus comes in again, at about the same loudness as before, brighter than before")
         );
         assert!(!entries[1].heard.contains("dB"));
     }
