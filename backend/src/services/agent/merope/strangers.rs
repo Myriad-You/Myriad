@@ -154,6 +154,13 @@ pub async fn reply(
     if let Some(block) = super::format_views_section(&super::views::touched(db, words, 2).await) {
         sections.push(block);
     }
+    // The group's turtle soup: anyone may ask, and so may they.
+    let table = super::soup::Table::Group(venue.to_string());
+    let game = match super::soup::this_turn_at(&table, Some(&stranger.name), words, owner).await {
+        Some(section) => section,
+        None => super::soup::GROUP_OFFER.to_string(),
+    };
+    sections.push(game);
     let prompt = crate::services::agent::chat_prompt::build_group_chat_prompt(
         &soul,
         &sections.join("\n\n"),
@@ -182,7 +189,15 @@ pub async fn reply(
         raw = ask().await;
     }
     let raw = raw.ok()?;
-    let text = without_directives(&raw);
+    let (said, started) = super::soup::split_start(&raw);
+    let mut text = without_directives(&said);
+    // She said she would think one up: the puzzle follows her words.
+    if started {
+        let opening = super::soup::start_at(&table, words, owner).await;
+        text = format!("{text}\n\n{opening}").trim().to_string();
+    }
+    // A game this line ended is over, and the group remembers it.
+    super::soup::after_turn_at(db, &table).await;
     (!text.is_empty()).then_some(text)
 }
 

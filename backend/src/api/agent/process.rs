@@ -531,6 +531,7 @@ pub(crate) async fn start_process_run(
         }
         ctx.venue = group.as_ref().map(|group| group.venue.clone());
         ctx.chime = group.as_ref().and_then(|group| group.chime.clone());
+        ctx.speaker = group.as_ref().map(|group| group.speaker.clone());
         ctx.channel_chat = channel_chat.clone();
     } else {
         let mut new_ctx = RequestContext {

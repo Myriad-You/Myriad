@@ -274,11 +274,26 @@ fn group_chat_prompt(case: &Case) -> String {
             created_at: None,
         })
         .collect();
+    let soup = case.soup.as_ref().map(|soup| {
+        if soup.get("offer").is_some() {
+            return super::merope::soup::GROUP_OFFER.to_string();
+        }
+        let verdict: super::merope::soup::Verdict =
+            serde_json::from_value(soup["verdict"].clone()).expect("soup verdict");
+        super::merope::soup::section_for_eval(
+            soup["surface"].as_str().unwrap_or(""),
+            soup["truth"].as_str().unwrap_or(""),
+            verdict,
+            true,
+            soup["asker"].as_str().or(Some("阿明")),
+        )
+    });
     let sections: Vec<String> = [
         Some(super::merope::group_speaking_section("阿明")),
         super::merope::format_remembered_section(&case.remembered),
         super::merope::format_views_section(&case.views),
         super::merope::format_bits_section(&case.bits, true),
+        soup,
     ]
     .into_iter()
     .flatten()
@@ -381,6 +396,8 @@ fn mind_chat_prompt(case: &Case) -> String {
                     soup["surface"].as_str().unwrap_or(""),
                     soup["truth"].as_str().unwrap_or(""),
                     verdict,
+                    false,
+                    None,
                 )
             }),
         case.own_time.as_ref().and_then(|own| {
@@ -1563,7 +1580,7 @@ fn motion_semantics_require_grounded_output_and_real_review() {
     assert_eq!(input["rig"]["activeBehaviors"][0]["function"], "uncertain");
 }
 
-const MIND_CASES: usize = 55;
+const MIND_CASES: usize = 59;
 
 #[test]
 fn mind_cases_run_through_production_sections_and_contracts() {

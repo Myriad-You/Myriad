@@ -91,6 +91,9 @@ pub struct RequestContext {
     /// Server-set only; never serialized.
     #[serde(skip)]
     pub chime: Option<String>,
+    /// In a group, who spoke to her, as the group knows them. Server-set only.
+    #[serde(skip)]
+    pub speaker: Option<String>,
 }
 
 /// A private IM chat turn: she talks as herself and may hand work off.

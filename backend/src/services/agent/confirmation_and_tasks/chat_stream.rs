@@ -464,6 +464,17 @@ impl Agent {
             .and_then(|context| context.conversation_history.as_deref())
             .unwrap_or(&[]);
         if venue.is_some() {
+            // A turtle soup on in this group, with this line judged; or how
+            // she would start one for the group.
+            let game = match crate::services::agent::merope::soup::this_turn(request).await {
+                Some(section) => Some(section),
+                None => {
+                    crate::services::agent::merope::soup::offer_line(request).map(str::to_string)
+                }
+            };
+            if let Some(game) = game {
+                merope_block = format!("{merope_block}\n\n{game}");
+            }
             // Nobody asked her: she chose to say something.
             if let Some(why) = request
                 .context

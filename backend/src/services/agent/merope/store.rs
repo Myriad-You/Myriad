@@ -564,6 +564,8 @@ where
         .await?;
     // How often she has talked with people outside the community.
     super::strangers::forget_counts(db).await?;
+    // Turtle soups on now.
+    super::soup::forget_games(db).await?;
     resync_persona_avatar_snapshots(db, None).await?;
     Ok(())
 }

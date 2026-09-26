@@ -21,7 +21,8 @@
 //!
 //! A group gets one turn at a time and a short pause between replies, so a
 //! busy group cannot crowd out everyone else. A line that speaks to her while
-//! she is busy waits: when she is done she answers the latest one waiting.
+//! she is busy waits: when she is done she answers those waiting in order, a
+//! few at most (a turtle soup's questions come fast).
 //! Delivery is best effort: a restart mid-turn loses that reply, which is
 //! acceptable for chat.
 //!
@@ -209,6 +210,8 @@ const TRANSCRIPT_LINES: usize = 30;
 const TRANSCRIPT_FOR: Duration = Duration::from_secs(6 * 3600);
 const MAX_GROUPS: usize = 256;
 const MAX_LINE_CHARS: usize = 500;
+/// Lines that spoke to her while she was busy, answered in order after.
+const WAITING_LINES: usize = 5;
 /// Between two of her replies in the same group.
 const GROUP_PAUSE: Duration = Duration::from_secs(5);
 /// Chiming in: quiet this long in a group since she last spoke there, at
@@ -263,8 +266,8 @@ struct Group {
     /// Chime-ins today: the day, and how many.
     chimes: Option<(chrono::NaiveDate, u32)>,
     last_look: Option<Instant>,
-    /// The latest line that spoke to her while she was busy.
-    waiting: Option<GroupLine>,
+    /// Lines that spoke to her while she was busy, oldest first.
+    waiting: VecDeque<GroupLine>,
     /// Replies today to people outside the community: the day, and how many.
     stranger_replies: Option<(chrono::NaiveDate, u32)>,
 }
@@ -463,6 +466,15 @@ fn begin(group: &mut Group) -> Turn {
     Turn::Began
 }
 
+/// A line that spoke to her while she was busy: answered after, in order;
+/// past a few, the oldest goes.
+fn park(group: &mut Group, message: GroupLine) {
+    group.waiting.push_back(message);
+    while group.waiting.len() > WAITING_LINES {
+        group.waiting.pop_front();
+    }
+}
+
 fn end_turn(venue: &str, replied: bool) {
     with_group(venue, |group| {
         group.busy = false;
@@ -482,7 +494,7 @@ pub async fn handle(mut message: GroupLine, token: String) {
         let turn = with_group(&venue, |group| {
             let turn = begin(group);
             if matches!(turn, Turn::Busy) {
-                group.waiting = Some(message.clone());
+                park(group, message.clone());
             }
             turn
         })
@@ -509,7 +521,7 @@ pub async fn handle(mut message: GroupLine, token: String) {
 /// after the pause.
 async fn finish_turn(venue: &str, replied: bool) -> Option<GroupLine> {
     end_turn(venue, replied);
-    with_group(venue, |group| group.waiting.is_some()).filter(|waiting| *waiting)?;
+    with_group(venue, |group| !group.waiting.is_empty()).filter(|waiting| *waiting)?;
     if replied {
         tokio::time::sleep(GROUP_PAUSE).await;
     }
@@ -521,7 +533,7 @@ async fn finish_turn(venue: &str, replied: bool) -> Option<GroupLine> {
             Turn::Busy => return None,
         }
     }
-    let next = with_group(venue, |group| group.waiting.take()).flatten();
+    let next = with_group(venue, |group| group.waiting.pop_front()).flatten();
     if next.is_none() {
         end_turn(venue, false);
     }
@@ -847,6 +859,7 @@ async fn run_turn(
                     transcript: transcript(&venue, Some(&message.message_id)),
                     venue,
                     chime,
+                    speaker: message.display_name.clone(),
                 }),
                 ..Default::default()
             }),
@@ -990,10 +1003,19 @@ mod tests {
         assert!(matches!(begin_turn(&venue(chat)), Turn::Began));
         assert!(matches!(begin_turn(&venue(chat)), Turn::Busy));
         with_group(&venue(chat), |group| {
-            group.waiting = Some(line(chat, 5, "阿明", "@她 在吗"))
+            for id in 1..=7 {
+                park(group, line(chat, id, "阿明", &format!("第{id}问")));
+            }
         });
         end_turn(&venue(chat), true);
         assert!(matches!(begin_turn(&venue(chat)), Turn::Resting(_)));
+        // Questions that came while she was busy are answered in order; past
+        // a few, the oldest go.
+        let waiting: Vec<String> = with_group(&venue(chat), |group| {
+            group.waiting.iter().map(|line| line.text.clone()).collect()
+        })
+        .unwrap();
+        assert_eq!(waiting, ["第3问", "第4问", "第5问", "第6问", "第7问"]);
         let mut today = None;
         for _ in 0..3 {
             assert!(count_today(&mut today, 3));

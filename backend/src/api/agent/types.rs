@@ -53,6 +53,8 @@ pub struct GroupTurn {
     pub transcript: Vec<crate::services::agent::types::ConversationMessage>,
     /// Nobody addressed her: she is chiming in, and why.
     pub chime: Option<String>,
+    /// Who spoke to her, as the group knows them.
+    pub speaker: String,
 }
 
 /// 对话消息（API 格式）

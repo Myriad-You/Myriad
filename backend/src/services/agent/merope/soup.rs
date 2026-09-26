@@ -11,15 +11,20 @@
 //! answer is right; she then says it in her own voice without adding clues.
 //! When a game ends she remembers it with them.
 //!
-//! Games live in process memory for a few hours, one per conversation, and
-//! only in a private conversation for now.
+//! A game is played at a table: one private conversation, or one group. In
+//! a group anyone may ask, members and people from outside alike; each
+//! question is judged and kept with who asked it, and whoever gets it is
+//! the one who solved it. The group remembers the game, not any one person.
+//!
+//! Games are kept in the runtime registry for a few hours, so a restart does
+//! not lose the truth halfway through.
 
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::{LazyLock, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use sea_orm::DatabaseConnection;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::services::agent::UserRequest;
@@ -33,7 +38,7 @@ const MAX_ASKED: usize = 60;
 const START_SCHEMA: &str = "merope_soup_start";
 const JUDGE_SCHEMA: &str = "merope_soup_judge";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Verdict {
     Yes,
@@ -56,50 +61,170 @@ impl Verdict {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 enum Ending {
     Solved,
     GaveUp,
 }
 
-#[derive(Debug, Clone)]
+/// Where a game is played.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Table {
+    Private {
+        user_id: i32,
+        session: String,
+    },
+    /// A group, as sessions know it (`telegram:-100123`).
+    Group(String),
+}
+
+impl Table {
+    fn record_id(&self) -> String {
+        match self {
+            Self::Private { user_id, session } => format!("p:{user_id}:{session}"),
+            Self::Group(venue) => format!("g:{venue}"),
+        }
+        .chars()
+        .take(160)
+        .collect()
+    }
+
+    fn is_group(&self) -> bool {
+        matches!(self, Self::Group(_))
+    }
+}
+
+/// One question and how it was judged; in a group, who asked it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Asked {
+    by: Option<String>,
+    question: String,
+    verdict: Verdict,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Game {
     surface: String,
     truth: String,
     keys: Vec<String>,
-    asked: Vec<(String, Verdict)>,
+    asked: Vec<Asked>,
     found: Vec<usize>,
     ending: Option<Ending>,
-    started: Instant,
+    /// In a group, who solved it.
+    solver: Option<String>,
+    started: chrono::DateTime<chrono::Utc>,
 }
 
-type Key = (i32, String);
+/// Runtime-registry namespace of the games on now.
+pub const GAMES_NAMESPACE: &str = "merope_soup";
 
-static GAMES: LazyLock<Mutex<HashMap<Key, Game>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Tables with a game on, as this process last saw them: a synchronous
+/// reader can tell a game is on without going to the registry.
+static ON: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
 
-fn key_of(request: &UserRequest) -> Option<Key> {
+fn mark(table: &Table, on: bool) {
+    if let Ok(mut tables) = ON.lock() {
+        if on {
+            tables.insert(table.record_id());
+        } else {
+            tables.remove(&table.record_id());
+        }
+    }
+}
+
+async fn load(table: &Table) -> Option<Game> {
+    let db = crate::services::process_db::database().ok()?;
+    let game =
+        crate::services::runtime_registry::get::<Game>(&db, GAMES_NAMESPACE, &table.record_id())
+            .await
+            .ok()
+            .flatten();
+    mark(table, game.is_some());
+    game
+}
+
+async fn save(table: &Table, game: &Game) {
+    mark(table, true);
+    let Ok(db) = crate::services::process_db::database() else {
+        return;
+    };
+    let keep_until =
+        (game.started + chrono::Duration::from_std(KEEP_FOR).unwrap_or_default()).timestamp();
+    if let Err(error) = crate::services::runtime_registry::put(
+        &db,
+        GAMES_NAMESPACE,
+        &table.record_id(),
+        crate::services::runtime_registry::RegistryIdentity {
+            subject_id: None,
+            owner_id: None,
+            tapp_id: None,
+            runtime_id: None,
+        },
+        game,
+        keep_until,
+    )
+    .await
+    {
+        tracing::warn!(%error, "[Merope] could not keep a turtle soup");
+    }
+}
+
+async fn take(table: &Table) -> Option<Game> {
+    mark(table, false);
+    let db = crate::services::process_db::database().ok()?;
+    crate::services::runtime_registry::take::<Game>(&db, GAMES_NAMESPACE, &table.record_id())
+        .await
+        .ok()
+        .flatten()
+}
+
+/// The table of this turn: the group it is in, or this private
+/// conversation. None when she was not asked (joining in on her own).
+pub fn table_of(request: &UserRequest) -> Option<Table> {
     let context = request.context.as_ref()?;
-    // Private conversations only, for now.
-    if context.venue.is_some() || request.user_id <= 0 {
+    if request.user_id <= 0 || context.chime.is_some() {
         return None;
     }
+    if let Some(venue) = context.venue.clone() {
+        return Some(Table::Group(venue));
+    }
     let session = context.session_id.clone().filter(|id| !id.is_empty())?;
-    Some((request.user_id, session))
+    Some(Table::Private {
+        user_id: request.user_id,
+        session,
+    })
+}
+
+/// Who asked, in a group: the name the group knows them by.
+fn asker_of(request: &UserRequest) -> Option<String> {
+    request
+        .context
+        .as_ref()
+        .and_then(|context| context.speaker.clone())
 }
 
 /// A new persona hosts no game she did not start.
 pub(super) fn forget() {
-    if let Ok(mut games) = GAMES.lock() {
-        games.clear();
+    if let Ok(mut tables) = ON.lock() {
+        tables.clear();
     }
     if let Ok(mut recent) = RECENT_SURFACES.lock() {
         recent.clear();
     }
 }
 
-/// Whether a game is on in this conversation.
+/// Forget every game kept in the registry, with the persona.
+pub async fn forget_games<C: sea_orm::ConnectionTrait>(db: &C) -> Result<u64, sea_orm::DbErr> {
+    crate::services::runtime_registry::delete_matching(db, GAMES_NAMESPACE, None, None, None, None)
+        .await
+}
+
+/// Whether a game is on at this turn's table.
 pub fn in_game(request: &UserRequest) -> bool {
-    key_of(request).is_some_and(|key| GAMES.lock().is_ok_and(|games| games.contains_key(&key)))
+    table_of(request).is_some_and(|table| {
+        ON.lock()
+            .is_ok_and(|tables| tables.contains(&table.record_id()))
+    })
 }
 
 /// Take her start marker out of a reply: the text without it, and whether
@@ -190,13 +315,18 @@ static RECENT_SURFACES: LazyLock<Mutex<Vec<String>>> = LazyLock::new(|| Mutex::n
 
 /// She said she would host one: make it up and return what she says to open
 /// it. If it cannot be made after a retry she says so rather than leave her
-/// word hanging. `None` only outside a private conversation.
+/// word hanging. `None` only when she was not asked (no table).
 pub async fn start(request: &UserRequest) -> Option<String> {
-    key_of(request)?;
-    Some(match make_up(request).await {
+    let table = table_of(request)?;
+    Some(start_at(&table, &request.raw_input, request.user_id).await)
+}
+
+/// [`start`] at a table, for whoever asked (`words`), billed to `billing`.
+pub async fn start_at(table: &Table, words: &str, billing: i32) -> String {
+    match make_up(table, words, billing).await {
         Some(opening) => opening,
         None => NOT_THIS_TIME.to_string(),
-    })
+    }
 }
 
 /// What she says when no puzzle came to her.
@@ -206,8 +336,7 @@ const NOT_THIS_TIME: &str = "……不行，一下子没想出好的。你再叫
 const FIRST_TRY: Duration = Duration::from_secs(45);
 const SECOND_TRY: Duration = Duration::from_secs(30);
 
-async fn make_up(request: &UserRequest) -> Option<String> {
-    let key = key_of(request)?;
+async fn make_up(table: &Table, words: &str, billing: i32) -> Option<String> {
     let soul: String = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default()
@@ -219,7 +348,7 @@ async fn make_up(request: &UserRequest) -> Option<String> {
         .map(|recent| recent.clone())
         .unwrap_or_default();
     let input = json!({
-        "theirWords": request.raw_input.chars().take(300).collect::<String>(),
+        "theirWords": words.chars().take(300).collect::<String>(),
         "setting": SETTINGS[rand::random_range(0..SETTINGS.len())],
         "recentSurfaces": recent,
     })
@@ -238,7 +367,7 @@ async fn make_up(request: &UserRequest) -> Option<String> {
         let raw = tokio::time::timeout(
             limit,
             crate::services::ai_cost_ledger::with_site_ai_ledger(
-                request.user_id,
+                billing,
                 "merope",
                 "soup_start",
                 analyzer.analyze_json(
@@ -273,21 +402,20 @@ async fn make_up(request: &UserRequest) -> Option<String> {
         let excess = recent.len().saturating_sub(10);
         recent.drain(..excess);
     }
-    if let Ok(mut games) = GAMES.lock() {
-        games.retain(|_, game| game.started.elapsed() < KEEP_FOR);
-        games.insert(
-            key,
-            Game {
-                surface: puzzle.surface.trim().to_string(),
-                truth: puzzle.truth.trim().to_string(),
-                keys: puzzle.keys,
-                asked: Vec::new(),
-                found: Vec::new(),
-                ending: None,
-                started: Instant::now(),
-            },
-        );
-    }
+    save(
+        table,
+        &Game {
+            surface: puzzle.surface.trim().to_string(),
+            truth: puzzle.truth.trim().to_string(),
+            keys: puzzle.keys,
+            asked: Vec::new(),
+            found: Vec::new(),
+            ending: None,
+            solver: None,
+            started: chrono::Utc::now(),
+        },
+    )
+    .await;
     Some(presentation)
 }
 
@@ -328,7 +456,7 @@ fn judge_input(game: &Game, message: &str) -> String {
         "keys": game.keys,
         "alreadyFound": game.found,
         "earlier": game.asked.iter().rev().take(12).rev()
-            .map(|(question, verdict)| json!({"q": question, "a": verdict.says()}))
+            .map(|asked| json!({"q": asked.question, "a": asked.verdict.says()}))
             .collect::<Vec<_>>(),
         "latest": message.chars().take(400).collect::<String>(),
     })
@@ -336,20 +464,38 @@ fn judge_input(game: &Game, message: &str) -> String {
 }
 
 /// The game section for this turn, with their message judged, if a game is
-/// on in this conversation.
+/// on at this turn's table.
 pub async fn this_turn(request: &UserRequest) -> Option<String> {
-    let key = key_of(request)?;
-    let game = GAMES.lock().ok()?.get(&key).cloned()?;
+    let table = table_of(request)?;
+    let asker = asker_of(request);
+    this_turn_at(
+        &table,
+        asker.as_deref(),
+        &request.raw_input,
+        request.user_id,
+    )
+    .await
+}
+
+/// [`this_turn`] at a table: `asker` is who asked, in a group; billed to
+/// `billing`.
+pub async fn this_turn_at(
+    table: &Table,
+    asker: Option<&str>,
+    words: &str,
+    billing: i32,
+) -> Option<String> {
+    let mut game = load(table).await?;
     let analyzer =
         crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(CALL_TIMEOUT)).await;
     let judged: Option<Judged> = match analyzer {
         Some(analyzer) => crate::services::ai_cost_ledger::with_site_ai_ledger(
-            request.user_id,
+            billing,
             "merope",
             "soup_judge",
             analyzer.analyze_json(
                 JUDGE_SYSTEM,
-                &judge_input(&game, &request.raw_input),
+                &judge_input(&game, words),
                 JUDGE_SCHEMA,
                 Some(&judge_schema(game.keys.len())),
             ),
@@ -361,52 +507,96 @@ pub async fn this_turn(request: &UserRequest) -> Option<String> {
     };
     let Some(judged) = judged else {
         // Unjudged, she must not guess an answer.
-        return Some(section(&game, None));
+        return Some(section(&game, None, table.is_group(), asker));
     };
-    let game = GAMES.lock().ok().and_then(|mut games| {
-        let game = games.get_mut(&key)?;
-        if judged.verdict != Verdict::NotAQuestion && game.asked.len() < MAX_ASKED {
-            game.asked.push((
-                request.raw_input.chars().take(200).collect(),
-                judged.verdict,
-            ));
-        }
-        for index in judged.found.iter().copied() {
-            if index < game.keys.len() && !game.found.contains(&index) {
-                game.found.push(index);
-            }
-        }
-        game.ending = if judged.solved {
-            Some(Ending::Solved)
-        } else if judged.gave_up {
-            Some(Ending::GaveUp)
-        } else {
-            None
-        };
-        Some(game.clone())
-    })?;
-    Some(section(&game, Some(judged.verdict)))
+    apply(&mut game, &judged, asker, words);
+    save(table, &game).await;
+    Some(section(
+        &game,
+        Some(judged.verdict),
+        table.is_group(),
+        asker,
+    ))
 }
 
-fn section(game: &Game, verdict: Option<Verdict>) -> String {
+/// A judged message, into the game: the question with who asked it, the key
+/// points now found, and whether it ended (and who solved it).
+fn apply(game: &mut Game, judged: &Judged, asker: Option<&str>, words: &str) {
+    if judged.verdict != Verdict::NotAQuestion && game.asked.len() < MAX_ASKED {
+        game.asked.push(Asked {
+            by: asker.map(str::to_string),
+            question: words.chars().take(200).collect(),
+            verdict: judged.verdict,
+        });
+    }
+    for index in judged.found.iter().copied() {
+        if index < game.keys.len() && !game.found.contains(&index) {
+            game.found.push(index);
+        }
+    }
+    game.ending = if judged.solved {
+        game.solver = asker.map(str::to_string);
+        Some(Ending::Solved)
+    } else if judged.gave_up {
+        Some(Ending::GaveUp)
+    } else {
+        None
+    };
+}
+
+/// How she answers: the judged answer and at most a short line of her own.
+/// A wrong guess is only "not it": never what is wrong with it, what to
+/// think about instead, or which way the truth lies.
+const HOLD_BACK: &str = "Say the judged answer and at most one short line of your own. When a question or a guess is wrong, say only that it is not it (不是这个), as yourself: never say what is wrong with it, what to think about instead, which part is close, or which way the truth lies, and never sum up what they have found. Long guesses get the same short answer.";
+
+fn section(game: &Game, verdict: Option<Verdict>, group: bool, asker: Option<&str>) -> String {
     let asked = game.asked.len();
     let found = game.found.len();
     let keys = game.keys.len();
+    let who = asker.filter(|_| group).unwrap_or("they");
     let now = match (game.ending, verdict) {
+        (Some(Ending::Solved), _) if group => format!(
+            "{} has solved it. Say so and give them the credit, then tell the whole truth in your own words and react as yourself.",
+            game.solver.as_deref().unwrap_or(who)
+        ),
         (Some(Ending::Solved), _) => "They have solved it. Confirm it, then tell the whole truth in your own words and react as yourself.".to_string(),
         (Some(Ending::GaveUp), _) => "They give up. Tell the whole truth in your own words; you may tease them a little.".to_string(),
-        (None, Some(Verdict::NotAQuestion)) => "Their latest message is not a question about the puzzle: answer it as usual. The game is still on.".to_string(),
+        (None, Some(Verdict::NotAQuestion)) => format!("The latest message from {who} is not a question about the puzzle: answer it as usual. The game is still on."),
         (None, Some(verdict)) => format!(
-            "Their latest question, judged against the truth: {}. Answer with exactly that, in your own voice; you may react or tease, but add no clue beyond it.",
+            "The latest question, from {who}, judged against the truth: {}. {HOLD_BACK}",
             verdict.says()
         ),
-        (None, None) => "Their latest message could not be judged just now: do not answer yes or no; ask them to say it again.".to_string(),
+        (None, None) => "The latest message could not be judged just now: do not answer yes or no; ask for it again.".to_string(),
+    };
+    let players = if group {
+        let mut names: Vec<&str> = game
+            .asked
+            .iter()
+            .filter_map(|asked| asked.by.as_deref())
+            .collect();
+        names.dedup();
+        let mut seen = Vec::new();
+        for name in names {
+            if !seen.contains(&name) {
+                seen.push(name);
+            }
+        }
+        format!(
+            "You are hosting it for the group: anyone may ask, and you answer whoever asks. Asking so far: {}.\n",
+            if seen.is_empty() {
+                "no one yet".to_string()
+            } else {
+                seen.join(", ")
+            }
+        )
+    } else {
+        "You are hosting it with them.\n".to_string()
     };
     format!(
         "## Turtle soup\n\
-You are hosting a turtle soup with them. They were told this surface: {surface}\n\
-The truth (your secret: never say it or hint past the answer, until they solve it or give up): {truth}\n\
-Questions asked so far: {asked}. Key points they have found: {found} of {keys}.\n\
+{players}The surface everyone was told: {surface}\n\
+The truth (your secret: never say it or hint past the answer, until it is solved or they give up): {truth}\n\
+Questions asked so far: {asked}. Key points found: {found} of {keys}.\n\
 {now}",
         surface = game.surface,
         truth = game.truth,
@@ -414,54 +604,73 @@ Questions asked so far: {asked}. Key points they have found: {found} of {keys}.\
 }
 
 /// After her reply: a game that just ended is over, and she remembers it
-/// with them.
+/// with them, or with the group.
 pub async fn after_turn(db: &DatabaseConnection, request: &UserRequest) {
-    let Some(key) = key_of(request) else {
-        return;
-    };
-    let ended = GAMES.lock().ok().and_then(|mut games| {
-        if games.get(&key).is_some_and(|game| game.ending.is_some()) {
-            games.remove(&key)
-        } else {
-            None
-        }
-    });
-    let Some(game) = ended else {
-        return;
-    };
-    let surface: String = game.surface.chars().take(60).collect();
-    let how = match game.ending {
-        Some(Ending::Solved) => format!("问了{}个问题猜中了", game.asked.len()),
-        _ => format!("问了{}个问题后放弃了", game.asked.len()),
-    };
-    let _ = unified::remember(
-        db,
-        unified::NewMemory {
-            user_id: request.user_id,
-            kind: unified::MemoryKind::Fact,
-            content: format!("和我玩过一局海龟汤（{surface}），{how}"),
-            evidence: None,
-            speaker: unified::Speaker::Agent,
-            source: "game",
-            audience: Audience::private(request.user_id),
-            importance: 0.4,
-            concepts: vec![unified::Concept {
-                name: "海龟汤".into(),
-                aliases: vec!["turtle soup".into(), "情境猜谜".into()],
-            }],
-        },
-    )
-    .await;
+    if let Some(table) = table_of(request) {
+        after_turn_at(db, &table).await;
+    }
 }
 
-/// How to start a game, for a private chat with no game on.
-pub fn offer_line(request: &UserRequest) -> Option<&'static str> {
-    let key = key_of(request)?;
-    if GAMES.lock().ok()?.contains_key(&key) {
-        return None;
+/// [`after_turn`] at a table.
+pub async fn after_turn_at(db: &DatabaseConnection, table: &Table) {
+    let Some(game) = load(table).await.filter(|game| game.ending.is_some()) else {
+        return;
+    };
+    take(table).await;
+    let surface: String = game.surface.chars().take(60).collect();
+    let concepts = vec![unified::Concept {
+        name: "海龟汤".into(),
+        aliases: vec!["turtle soup".into(), "情境猜谜".into()],
+    }];
+    match table {
+        Table::Private { user_id, .. } => {
+            let how = match game.ending {
+                Some(Ending::Solved) => format!("问了{}个问题猜中了", game.asked.len()),
+                _ => format!("问了{}个问题后放弃了", game.asked.len()),
+            };
+            let _ = unified::remember(
+                db,
+                unified::NewMemory {
+                    user_id: *user_id,
+                    kind: unified::MemoryKind::Fact,
+                    content: format!("和我玩过一局海龟汤（{surface}），{how}"),
+                    evidence: None,
+                    speaker: unified::Speaker::Agent,
+                    source: "game",
+                    audience: Audience::private(*user_id),
+                    importance: 0.4,
+                    concepts,
+                },
+            )
+            .await;
+        }
+        Table::Group(venue) => {
+            let how = match (game.ending, game.solver.as_deref()) {
+                (Some(Ending::Solved), Some(solver)) => {
+                    format!("大家问了{}个问题，{solver}猜中了", game.asked.len())
+                }
+                (Some(Ending::Solved), None) => format!("大家问了{}个问题猜中了", game.asked.len()),
+                _ => format!("大家问了{}个问题后放弃了", game.asked.len()),
+            };
+            let _ = unified::remember_in_venue(
+                db,
+                &Audience::group(venue.as_str(), 0).venue(),
+                &format!("群里玩过一局海龟汤（{surface}），{how}"),
+                &json!({ "game": "soup" }).to_string(),
+                "game",
+            )
+            .await;
+        }
     }
-    Some(OFFER)
 }
+
+/// How to start a game, when none is on (see [`this_turn`]).
+pub fn offer_line(request: &UserRequest) -> Option<&'static str> {
+    let table = table_of(request)?;
+    Some(if table.is_group() { GROUP_OFFER } else { OFFER })
+}
+
+pub(crate) const GROUP_OFFER: &str = "## Games\nIf someone in the group wants to play turtle soup (海龟汤, a lateral-thinking puzzle), you host it for the whole group: say briefly that you are thinking one up, and put [[game:soup]] on its own last line; the puzzle follows your words. Do not make one up yourself. Do not read that line aloud.\nIf the group's talk shows a turtle soup still going but you do not have its truth here, you have lost it: say so plainly and offer a new one. Never answer its questions without the truth.";
 
 pub(crate) const OFFER: &str = "## Games\nIf they want to play turtle soup (海龟汤, a lateral-thinking puzzle) with you, you host it: say briefly that you are thinking one up, and put [[game:soup]] on its own last line; the puzzle follows your words. Do not make one up yourself. Do not read that line aloud.\nIf the conversation shows a turtle soup still going but you do not have its truth here, you have lost it: say so plainly and offer a new one. Never answer its questions without the truth.";
 
@@ -489,7 +698,8 @@ pub(crate) fn judge_probe(
         asked: Vec::new(),
         found: Vec::new(),
         ending: None,
-        started: Instant::now(),
+        solver: None,
+        started: chrono::Utc::now(),
     };
     (
         JUDGE_SYSTEM.to_string(),
@@ -511,17 +721,28 @@ pub(crate) fn parse_puzzle(raw: &str) -> bool {
 }
 
 #[cfg(test)]
-pub(crate) fn section_for_eval(surface: &str, truth: &str, verdict: Verdict) -> String {
+pub(crate) fn section_for_eval(
+    surface: &str,
+    truth: &str,
+    verdict: Verdict,
+    group: bool,
+    asker: Option<&str>,
+) -> String {
     let game = Game {
         surface: surface.into(),
         truth: truth.into(),
         keys: vec!["k".into()],
-        asked: vec![("q".into(), verdict)],
+        asked: vec![Asked {
+            by: None,
+            question: "q".into(),
+            verdict,
+        }],
         found: Vec::new(),
         ending: None,
-        started: Instant::now(),
+        solver: None,
+        started: chrono::Utc::now(),
     };
-    section(&game, Some(verdict))
+    section(&game, Some(verdict), group, asker)
 }
 
 #[cfg(test)]
@@ -536,7 +757,8 @@ mod tests {
             asked: Vec::new(),
             found: Vec::new(),
             ending: None,
-            started: Instant::now(),
+            solver: None,
+            started: chrono::Utc::now(),
         }
     }
 
@@ -551,15 +773,70 @@ mod tests {
 
     #[test]
     fn she_answers_only_what_was_judged_and_keeps_the_secret() {
-        let section = section(&game(), Some(Verdict::Yes));
+        let section = section(&game(), Some(Verdict::Yes), false, None);
         assert!(section.contains("judged against the truth: yes"));
-        assert!(section.contains("add no clue beyond it"));
+        assert!(section.contains("say only that it is not it"));
         assert!(section.contains("never say it or hint past the answer"));
-        let unjudged = super::section(&game(), None);
+        let unjudged = super::section(&game(), None, false, None);
         assert!(unjudged.contains("do not answer yes or no"));
         let mut solved = game();
         solved.ending = Some(Ending::Solved);
-        assert!(super::section(&solved, Some(Verdict::Yes)).contains("tell the whole truth"));
+        assert!(
+            super::section(&solved, Some(Verdict::Yes), false, None)
+                .contains("tell the whole truth")
+        );
+    }
+
+    /// In a group anyone may ask: each question is kept with who asked it,
+    /// the one who gets it is the solver, and she credits them.
+    #[test]
+    fn in_a_group_everyone_plays_and_the_solver_gets_the_credit() {
+        let mut game = game();
+        let judged = |verdict, found: Vec<usize>, solved| Judged {
+            verdict,
+            found,
+            solved,
+            gave_up: false,
+        };
+        apply(
+            &mut game,
+            &judged(Verdict::No, vec![], false),
+            Some("小红"),
+            "他是被毒死的吗",
+        );
+        apply(
+            &mut game,
+            &judged(Verdict::Yes, vec![0], false),
+            Some("阿明"),
+            "他以前遇过海难吗",
+        );
+        apply(
+            &mut game,
+            &judged(Verdict::NotAQuestion, vec![], false),
+            Some("老周"),
+            "哈哈哈",
+        );
+        let asking = section(&game, Some(Verdict::Yes), true, Some("阿明"));
+        assert!(asking.contains("anyone may ask"));
+        assert!(asking.contains("Asking so far: 小红, 阿明."));
+        assert!(asking.contains("from 阿明"));
+        assert!(asking.contains("say only that it is not it"));
+        apply(
+            &mut game,
+            &judged(Verdict::Yes, vec![1], true),
+            Some("小红"),
+            "他当年吃的是人肉",
+        );
+        assert_eq!(game.solver.as_deref(), Some("小红"));
+        assert_eq!(game.asked.len(), 3, "small talk is not a question");
+        let solved = section(&game, Some(Verdict::Yes), true, Some("小红"));
+        assert!(solved.contains("小红 has solved it"));
+        let stored: Game = serde_json::from_str(&serde_json::to_string(&game).unwrap()).unwrap();
+        assert_eq!(stored.asked[1].by.as_deref(), Some("阿明"));
+        assert_eq!(
+            Table::Group("telegram:-100".into()).record_id(),
+            "g:telegram:-100"
+        );
     }
 
     #[test]
