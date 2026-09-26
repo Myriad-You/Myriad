@@ -14,8 +14,8 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 
 use super::intake_helpers::{
-    DEFAULT_SUMMARY_DAYS, MAX_SUMMARY_DAYS, analytics_tz_label, compare_range_kind, metric_delta,
-    resolve_analytics_window,
+    DEFAULT_SUMMARY_DAYS, MAX_SUMMARY_DAYS, analytics_day_sql, analytics_tz_label,
+    compare_range_kind, metric_delta, resolve_analytics_window,
 };
 
 #[derive(Debug, Deserialize)]
@@ -43,7 +43,8 @@ fn bare_where(subject: bool, model: bool, source: bool) -> String {
 
 /// [`bare_where`] with a column prefix such as `l.`.
 fn ledger_where(p: &str, subject: bool, model: bool, source: bool) -> String {
-    let mut s = format!("WHERE {p}occurred_at::date >= $1 AND {p}occurred_at::date <= $2");
+    let day = analytics_day_sql(&format!("{p}occurred_at"));
+    let mut s = format!("WHERE {day} >= $1 AND {day} <= $2");
     let mut idx = 3u32;
     if subject {
         s.push_str(&format!(" AND {p}subject_id = ${idx}"));
@@ -90,12 +91,13 @@ fn summary_sql(subject: bool, model: bool, source: bool) -> String {
     let where_scan = bare_where(subject, model, source);
     let next = 3 + u32::from(subject) + u32::from(model) + u32::from(source);
     let (cur, prev_day, prev_to) = (next, next + 1, next + 2);
+    let day = analytics_day_sql("occurred_at");
     format!(
         r#"
 WITH scoped AS (
-    SELECT occurred_at::date AS day, subject_id, model, provider,
+    SELECT {day} AS day, subject_id, model, provider,
            {SOURCE_EXPR} AS source, input_tokens, output_tokens,
-           occurred_at::date >= ${cur} AS cur
+           {day} >= ${cur} AS cur
     FROM ai_cost_ledger
     {where_scan}
 ), grouped AS (

@@ -386,6 +386,17 @@ pub(crate) fn analytics_today() -> NaiveDate {
     Local::now().date_naive()
 }
 
+/// The server-local date of a `timestamptz` column, on the same clock as
+/// [`analytics_today`]. A bare `::date` would use the database session's
+/// time zone instead, and the two disagree whenever the database runs in
+/// another zone: between local midnight and the database's, "today" would
+/// miss everything that happened so far. The offset is the current one, as
+/// for [`analytics_today`].
+pub(crate) fn analytics_day_sql(column: &str) -> String {
+    let offset = Local::now().offset().local_minus_utc();
+    format!("({column} AT TIME ZONE INTERVAL '{offset} seconds')::date")
+}
+
 /// Display label: `TZ` if set; else `local` at UTC+0, else `UTC±N`.
 pub(crate) fn analytics_tz_label() -> String {
     std::env::var("TZ")
