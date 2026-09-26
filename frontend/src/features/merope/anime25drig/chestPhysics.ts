@@ -19,8 +19,8 @@ const CHEST_OUTPUT_GAIN = 2
 const MAX_RESPONSE_MIX = 0.94
 const MAX_FOLLOW_MIX = 0.58
 const MIN_SIZE_TRANSMISSION = 0.04
-const SIZE_BOOST_START = 0.38
-const SIZE_BOOST_END = 0.65
+const SIZE_BOOST_START = 0.5
+const SIZE_BOOST_END = 0.75
 const MAX_SIZE_TRANSMISSION_BOOST = 0.75
 const MIN_GARMENT_TRANSMISSION = 0.35
 const MIN_RESPONSE_GARMENT_TRANSMISSION = 0.55
@@ -40,8 +40,19 @@ const SOFT_BREATH_VOLUME_GAIN = 0.08
 const STRUCTURED_BREATH_VOLUME_GAIN = 0.025
 const CHEST_BREATH_TRAVEL = 1.2
 const CHEST_BODY_EXCITATION_TRAVEL = 20
-const DYNAMIC_BOOST_START = 0.3
-const DYNAMIC_BOOST_END = 0.6
+// A vision pass reads small chests anywhere up to about 0.55 and a medium-large
+// one anywhere from 0.55 to 0.72, so a mid estimate bounced a flat chest like an
+// average one. The boost now needs a clearly large estimate.
+const DYNAMIC_BOOST_START = 0.52
+const DYNAMIC_BOOST_END = 0.8
+/**
+ * Without a vision estimate the size is unknown, and a flat chest must not
+ * bounce like an average one: assume a small-to-medium chest.
+ */
+const UNKNOWN_SIZE_VISIBLE_SCALE = 0.4
+/** The chest's own shape change starts only once there is volume to change. */
+const VOLUME_SIZE_START = 0.55
+const VOLUME_SIZE_END = 0.8
 const MAX_INERTIA_GAIN = 5.5
 const MAX_DAMPING_REDUCTION = 0.58
 
@@ -150,6 +161,8 @@ export interface ChestDynamicsTuning {
   inertiaGain: number
   /** Share of whole-body motion injected into the spring, never direct travel. */
   bodyExcitationScale: number
+  /** How much the chest's shape follows its bounce; nothing for a flat chest. */
+  volumeScale: number
   breathMotionScale: number
   breathVolumeScale: number
 }
@@ -353,6 +366,7 @@ export function resolveChestDynamics(
       dampingScale: 1,
       inertiaGain: 1,
       bodyExcitationScale: 0,
+      volumeScale: 0,
       breathMotionScale: 0,
       breathVolumeScale: 0,
     }
@@ -366,8 +380,9 @@ export function resolveChestDynamics(
   const responseGarmentTransmission =
     MIN_RESPONSE_GARMENT_TRANSMISSION +
     (1 - MIN_RESPONSE_GARMENT_TRANSMISSION) * garmentMotion ** 0.25
+  const visibleScale = resolveChestVisibleScale(profile)
   const sizeTransmission = resolveChestSizeTransmission(profile)
-  const dynamicBoost = resolveChestDynamicBoost(profile.visibleScale)
+  const dynamicBoost = resolveChestDynamicBoost(visibleScale)
   const followAttenuation = 1 - 0.12 * support ** 1.1
   const supportAttenuation = 1 - 0.08 * support ** 1.15
   const followScale = garmentTransmission * followAttenuation * sizeTransmission
@@ -393,6 +408,7 @@ export function resolveChestDynamics(
     ),
     inertiaGain: mix(1, MAX_INERTIA_GAIN, dynamicBoost),
     bodyExcitationScale: dynamicBoost,
+    volumeScale: smoothstep(clamp((visibleScale - VOLUME_SIZE_START) / (VOLUME_SIZE_END - VOLUME_SIZE_START), 0, 1)),
     breathMotionScale: field.breathMotionGain,
     breathVolumeScale: field.breathVolumeGain,
   }
@@ -409,10 +425,16 @@ function resolveChestDynamicBoost(visibleScale: number): number {
   )
 }
 
+/** The apparent size to tune motion by: the estimate, or a cautious guess without one. */
+function resolveChestVisibleScale(profile: Pick<ChestDynamicsProfile, 'source' | 'visibleScale'>): number {
+  const visibleScale = clamp(profile.visibleScale, 0, 1)
+  return profile.source === 'ai-vision' ? visibleScale : Math.min(visibleScale, UNKNOWN_SIZE_VISIBLE_SCALE)
+}
+
 function resolveChestSizeTransmission(profile: ChestDynamicsProfile): number {
-  if (profile.source !== 'ai-vision') return 1
+  const visibleScale = resolveChestVisibleScale(profile)
   const progress = clamp(
-    (profile.visibleScale - AI_MOTION_RAMP_START) /
+    (visibleScale - AI_MOTION_RAMP_START) /
       (AI_MOTION_RAMP_END - AI_MOTION_RAMP_START),
     0,
     1,
@@ -421,7 +443,7 @@ function resolveChestSizeTransmission(profile: ChestDynamicsProfile): number {
   const baseTransmission =
     MIN_SIZE_TRANSMISSION + (1 - MIN_SIZE_TRANSMISSION) * eased
   const boostProgress = clamp(
-    (profile.visibleScale - SIZE_BOOST_START) /
+    (visibleScale - SIZE_BOOST_START) /
       (SIZE_BOOST_END - SIZE_BOOST_START),
     0,
     1,

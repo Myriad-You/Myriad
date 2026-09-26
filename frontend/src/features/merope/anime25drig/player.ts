@@ -1481,7 +1481,8 @@ export class Anime25DPlayer {
     secondaryDeformationFrame.chestOffsetX = chestOffsetX
     secondaryDeformationFrame.chestOffsetY = chestOffsetY
     secondaryDeformationFrame.chestStretch = e.phys
-      ? chestVolumeStretch(this.chest.offsetY * chestMotionMix * this.chestDynamics.inertiaGain, chestRy)
+      ? chestVolumeStretch(this.chest.offsetY * chestMotionMix * this.chestDynamics.inertiaGain, chestRy) *
+        this.chestDynamics.volumeScale
       : 0
     secondaryDeformationFrame.chestVolumeScale =
       1 + breathResidual * this.chestDynamics.breathVolumeScale
