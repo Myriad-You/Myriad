@@ -345,6 +345,11 @@ export function createManiacMouthShadowBitmap(
   return { width, height, data }
 }
 
+/** The silhouette each generated mouth is drawn in; other painters reuse it so morphs match. */
+export function mouthExpressionOuterPath(kind: MouthExpressionKind): readonly Point[] {
+  return mouthOuterPath(kind)
+}
+
 /**
  * A consonant's narrow mouth is the open mouth drawn flatter, cavity and tongue
  * included, so speech that passes through it never swaps to unrelated art.
