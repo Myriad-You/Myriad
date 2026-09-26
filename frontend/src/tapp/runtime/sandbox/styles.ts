@@ -1280,6 +1280,11 @@ function parseDynamicClass(className: string): string | null {
   return null
 }
 
+/** 类名里除字母数字、`_`、`-` 外都转义，反斜杠也算；漏转的 `#` 会让 `bg-[#fff]` 对不上元素，漏转的反斜杠会吞掉后面的 `{`。 */
+function escapeClassSelector(className: string): string {
+  return className.replaceAll(/[^\w-]/g, '\\$&')
+}
+
 export function generateOnDemandTailwindCSS(html: string): string {
   const usedClasses = extractClassNames(html)
   const cssRules: string[] = []
@@ -1347,7 +1352,7 @@ export function generateOnDemandTailwindCSS(html: string): string {
     if (spaceYMatch) {
       const spacingValue = SPACING[spaceYMatch[1]]
       if (spacingValue) {
-        const escapedClass = className.replaceAll(/[:.[\]/%]/g, '\\$&')
+        const escapedClass = escapeClassSelector(className)
         spaceRules.push(
           `${prefix}.${escapedClass}>:not([hidden])~:not([hidden]){margin-top:${spacingValue}}`,
         )
@@ -1359,7 +1364,7 @@ export function generateOnDemandTailwindCSS(html: string): string {
     if (spaceXMatch) {
       const spacingValue = SPACING[spaceXMatch[1]]
       if (spacingValue) {
-        const escapedClass = className.replaceAll(/[:.[\]/%]/g, '\\$&')
+        const escapedClass = escapeClassSelector(className)
         spaceRules.push(
           `${prefix}.${escapedClass}>:not([hidden])~:not([hidden]){margin-left:${spacingValue}}`,
         )
@@ -1369,7 +1374,7 @@ export function generateOnDemandTailwindCSS(html: string): string {
 
     const css = parseDynamicClass(baseClass)
     if (css) {
-      const escapedClass = className.replaceAll(/[:.[\]/%]/g, '\\$&')
+      const escapedClass = escapeClassSelector(className)
 
       if (isGroupHover) {
         cssRules.push(`${prefix}.group:hover .${escapedClass}{${css}}`)
