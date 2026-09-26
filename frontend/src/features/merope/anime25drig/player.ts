@@ -19,7 +19,6 @@ import type {
   Anime25DStylizedTargets,
 } from './driverComposition'
 import type { Anime25DExpressionDeformationFrame } from './expressionDeformation'
-import type { FollowThroughKey } from './followThrough'
 import type { Anime25DHairSpringFrame } from './hairPhysics'
 import type { JellyElement } from './jellyVolume'
 import type { Anime25DGpuLayer } from './layerGpuBinding'
@@ -106,7 +105,6 @@ import {
 import { deformAnime25DExpressionPoint } from './expressionDeformation'
 import { ThinkingExpressionOwnership } from './expressionPresets'
 import { expressiveEyeOpenOffset } from './expressiveMotionEnvelope'
-import { FollowThroughController } from './followThrough'
 import {
   animationCatchupSeconds,
   animationElapsedSeconds,
@@ -301,17 +299,11 @@ export class Anime25DPlayer {
   private touchAtlas: TouchAtlas | null = null
   private touchLayers: TouchPaintLayer[] = []
   private readonly performanceTelemetry = new Anime25DPerformanceTelemetry()
-  /** The pose as shown: the primary one plus its follow-through. Everything downstream reads this. */
   private readonly current: Anime25DDriver = { ...IDENTITY_DRIVER }
-  /** The response filter's own state; only the follow-through reads it. */
-  private readonly primary: Anime25DDriver = { ...IDENTITY_DRIVER }
   private readonly target: Anime25DDriver = { ...IDENTITY_DRIVER }
   private readonly workingTarget: Anime25DDriver = { ...IDENTITY_DRIVER }
 
   private readonly poseResponse = new PoseResponseController()
-  private readonly followThrough = new FollowThroughController()
-  private readonly followThroughAcceleration = (key: FollowThroughKey) => this.poseResponse.accelerationOf(key)
-  private readonly followThroughBounds: Record<FollowThroughKey, number> = { angleX: 1, angleY: 1, angleZ: 1, body: 1 }
 
   private readonly mouthMorph: MouthMorphState = {
     centerX: 0,
@@ -1177,16 +1169,13 @@ export class Anime25DPlayer {
       },
     ])
     stepAnime25DDriverResponse(
-      this.primary,
+      this.current,
       this.target,
       tgt,
       this.poseResponse,
       dt,
       this.responseScale,
     )
-    this.followThroughBounds.angleY = this.motionEnvelopeProfile.pitch.limit
-    this.followThroughBounds.body = this.motionEnvelopeProfile.torso.limit
-    this.followThrough.step(this.primary, this.followThroughAcceleration, dt, this.followThroughBounds, this.current)
     this.irisRebound.step(
       this.time,
       this.blinkState.activeSeconds,
