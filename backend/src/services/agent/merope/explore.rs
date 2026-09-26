@@ -32,6 +32,7 @@ use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use super::call::{self, Voice};
 use super::senses;
 use super::sources::{Carry, Intake, Kept, Thing};
 use crate::services::agent::memory::unified;
@@ -182,38 +183,6 @@ fn checked_questions(
     kept
 }
 
-async fn ask<T: for<'de> Deserialize<'de>>(
-    judge: bool,
-    owner: i32,
-    operation: &'static str,
-    system: &str,
-    input: &str,
-    schema_name: &str,
-    schema: &Value,
-) -> Option<T> {
-    let analyzer = if judge {
-        crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(CALL_TIMEOUT)).await?
-    } else {
-        crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(CALL_TIMEOUT))
-            .await?
-            .with_light_thinking()
-    };
-    let raw = crate::services::ai_cost_ledger::with_site_ai_ledger(
-        owner,
-        "merope",
-        operation,
-        analyzer.analyze_json(system, input, schema_name, Some(schema)),
-    )
-    .await
-    .ok()?;
-    parse(&raw)
-}
-
-fn parse<T: for<'de> Deserialize<'de>>(raw: &str) -> Option<T> {
-    let json = myriad_agent_rules::extract_json_object_from_ai_response(raw.trim());
-    serde_json::from_str(json.as_deref().unwrap_or(raw.trim())).ok()
-}
-
 /// At night: from what she did this past week, the questions she has.
 pub async fn wonder(db: &DatabaseConnection, owner: i32) {
     let now = Utc::now().fixed_offset();
@@ -241,8 +210,9 @@ pub async fn wonder(db: &DatabaseConnection, owner: i32) {
     let soul = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
-    let Some(wondered) = ask::<Wondered>(
-        false,
+    let Some(wondered) = call::ask::<Wondered>(
+        Voice::Hers,
+        CALL_TIMEOUT,
         owner,
         "wonder_own",
         &wonder_system(&soul),
@@ -769,8 +739,9 @@ async fn go(owner: i32, question: &str) -> Option<Trip> {
     let soul = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
-    let thinking: Thinking = ask(
-        false,
+    let thinking: Thinking = call::ask(
+        Voice::Hers,
+        CALL_TIMEOUT,
         owner,
         "explore_think",
         &think_system(&soul, question),
@@ -783,8 +754,9 @@ async fn go(owner: i32, question: &str) -> Option<Trip> {
     let mut looked: Vec<Looked> = Vec::new();
     let steps = if thinking.go_look() { STEPS } else { 0 };
     for _ in 0..steps {
-        let step: Option<Step> = ask(
-            true,
+        let step: Option<Step> = call::ask(
+            Voice::Judge,
+            CALL_TIMEOUT,
             owner,
             "explore_step",
             &step_system(senses),
@@ -921,8 +893,9 @@ pub async fn compare(owner: i32, trip: &Trip) -> Option<Compared> {
         "found": trip.material(),
     })
     .to_string();
-    ask(
-        true,
+    call::ask(
+        Voice::Judge,
+        CALL_TIMEOUT,
         owner,
         "explore_compare",
         compare_system(),
@@ -948,7 +921,7 @@ pub(crate) fn think_probe(soul: &str, question: &str) -> (String, Value) {
 /// Whether she would go out to look, and how sure she was.
 #[cfg(test)]
 pub(crate) fn parse_thinking(raw: &str) -> Option<(bool, String)> {
-    let thinking: Thinking = parse(raw)?;
+    let thinking: Thinking = call::parse(raw)?;
     Some((thinking.go_look(), thinking.sure))
 }
 
@@ -981,7 +954,7 @@ pub(crate) fn parse_wondered(
     raw: &str,
     records: &[super::self_story::Record],
 ) -> Option<Vec<String>> {
-    let wondered: Wondered = parse(raw)?;
+    let wondered: Wondered = call::parse(raw)?;
     Some(
         checked_questions(wondered, records, &[])
             .into_iter()
@@ -1012,7 +985,7 @@ pub(crate) fn step_probe(
 /// The step as production would take it: (action, what), or none.
 #[cfg(test)]
 pub(crate) fn parse_step(raw: &str, looked: &[Looked]) -> Option<Option<(String, String)>> {
-    let step: Step = parse(raw)?;
+    let step: Step = call::parse(raw)?;
     let senses = senses::Senses {
         search: true,
         search_is_wikipedia: true,
@@ -1044,7 +1017,7 @@ pub(crate) fn compare_probe(trip: &Trip) -> (String, Value, String) {
 
 #[cfg(test)]
 pub(crate) fn parse_compared(raw: &str) -> Option<Compared> {
-    parse(raw)
+    call::parse(raw)
 }
 
 #[cfg(test)]

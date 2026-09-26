@@ -303,8 +303,7 @@ fn spread(rows: Vec<agent_memories::Model>, keep: usize) -> Vec<agent_memories::
 }
 
 fn parse(raw: &str) -> Option<Changes> {
-    let json = myriad_agent_rules::extract_json_object_from_ai_response(raw.trim());
-    serde_json::from_str(json.as_deref().unwrap_or(raw.trim())).ok()
+    super::call::parse(raw)
 }
 
 /// The views their words touch, for a prompt: (about, view).

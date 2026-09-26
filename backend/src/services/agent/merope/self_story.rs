@@ -423,8 +423,7 @@ async fn write(
 }
 
 fn parse(raw: &str) -> Option<Written> {
-    let json = myriad_agent_rules::extract_json_object_from_ai_response(raw.trim());
-    serde_json::from_str(json.as_deref().unwrap_or(raw.trim())).ok()
+    super::call::parse(raw)
 }
 
 /// At night: once a week has passed since she last looked back, and enough

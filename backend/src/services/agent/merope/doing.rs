@@ -31,6 +31,7 @@ use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
+use super::call::{self, Voice};
 pub use super::sources::Thing;
 use super::sources::{self, Kept};
 use crate::services::agent::memory::unified::{self, Concept};
@@ -237,8 +238,9 @@ async fn choose(db: &DatabaseConnection, owner: i32) -> Result<Doing, Option<chr
         "options": option_views,
     })
     .to_string();
-    let choice: Option<Choice> = ask(
+    let choice: Option<Choice> = call::ask(
         Voice::Judge,
+        CALL_TIMEOUT,
         owner,
         "doing_choice",
         &choice_system(&soul),
@@ -411,8 +413,9 @@ async fn finish(db: &DatabaseConnection, owner: i32, done: Doing) {
     );
     let soul = soul().await;
     let what = format!("{} {}", done.thing.verb(), done.thing.describe());
-    let Some(raw) = ask_raw(
+    let Some(raw) = call::ask_raw(
         Voice::Hers,
+        CALL_TIMEOUT,
         owner,
         "doing_digest",
         &digest_system(&soul, &what, &done.why, &intake.how),
@@ -796,59 +799,6 @@ async fn soul() -> String {
         .unwrap_or_default()
 }
 
-/// Whether a call judges (fast model) or writes in her own words (Lite).
-enum Voice {
-    Judge,
-    Hers,
-}
-
-fn parse<T: for<'de> Deserialize<'de>>(raw: &str) -> Option<T> {
-    let json = myriad_agent_rules::extract_json_object_from_ai_response(raw.trim());
-    serde_json::from_str(json.as_deref().unwrap_or(raw.trim())).ok()
-}
-
-async fn ask_raw(
-    voice: Voice,
-    owner: i32,
-    operation: &'static str,
-    system: &str,
-    input: &str,
-    schema_name: &str,
-    schema: &Value,
-) -> Option<String> {
-    let analyzer = match voice {
-        Voice::Judge => {
-            crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(CALL_TIMEOUT))
-                .await?
-        }
-        Voice::Hers => {
-            crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(CALL_TIMEOUT))
-                .await?
-                .with_light_thinking()
-        }
-    };
-    crate::services::ai_cost_ledger::with_site_ai_ledger(
-        owner,
-        "merope",
-        operation,
-        analyzer.analyze_json(system, input, schema_name, Some(schema)),
-    )
-    .await
-    .ok()
-}
-
-async fn ask<T: for<'de> Deserialize<'de>>(
-    voice: Voice,
-    owner: i32,
-    operation: &'static str,
-    system: &str,
-    input: &str,
-    schema_name: &str,
-    schema: &Value,
-) -> Option<T> {
-    parse(&ask_raw(voice, owner, operation, system, input, schema_name, schema).await?)
-}
-
 /// The two calls as production sends them, for the semantic suite.
 #[cfg(test)]
 pub(crate) fn choice_probe_contract(soul: &str, options: usize) -> (String, Value) {
@@ -902,7 +852,7 @@ pub(crate) fn parse_digest(raw: &str, what: &str, material: Option<&str>) -> boo
 
 #[cfg(test)]
 pub(crate) fn parse_choice(raw: &str) -> Option<Option<usize>> {
-    parse::<Choice>(raw).map(|choice| choice.choice)
+    call::parse::<Choice>(raw).map(|choice| choice.choice)
 }
 
 #[cfg(test)]

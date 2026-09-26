@@ -24,6 +24,7 @@ use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::call::{self, Voice};
 use crate::services::agent::memory::unified::{self, Concept};
 
 pub const FOUND_OUT_EVENT: &str = "agent.merope.found_out";
@@ -211,11 +212,6 @@ fn clip(text: &str) -> String {
     text.chars().take(MAX_RESULTS_CHARS).collect()
 }
 
-fn parse<T: for<'de> Deserialize<'de>>(raw: &str) -> Option<T> {
-    let json = myriad_agent_rules::extract_json_object_from_ai_response(raw.trim());
-    serde_json::from_str(json.as_deref().unwrap_or(raw.trim())).ok()
-}
-
 async fn wonder_and_find_out(
     user_id: i32,
     user_text: &str,
@@ -248,8 +244,9 @@ async fn wonder_and_find_out(
         .await
         .unwrap_or_default();
     let myself = super::self_state::current(&db).await.facts_view();
-    let Some(wonder) = ask_model::<Wonder>(
+    let Some(wonder) = call::ask::<Wonder>(
         Voice::Judge,
+        CALL_TIMEOUT,
         user_id,
         "wonder",
         &wonder_system(&soul),
@@ -292,8 +289,9 @@ async fn wonder_and_find_out(
         return;
     }
     let why = wonder.why.unwrap_or_default();
-    let Some(found) = ask_model::<FoundOut>(
+    let Some(found) = call::ask::<FoundOut>(
         Voice::Hers,
+        CALL_TIMEOUT,
         user_id,
         "found_out",
         &digest_system(&soul, why.trim()),
@@ -352,49 +350,13 @@ pub(crate) fn digest_probe_contract(soul: &str, why: &str) -> (String, Value) {
 /// `Some(query)` when she would look something up, `Some(None)` when not.
 #[cfg(test)]
 pub(crate) fn parse_wonder(raw: &str) -> Option<Option<String>> {
-    parse::<Wonder>(raw).map(|wonder| wonder.query.filter(|query| !query.trim().is_empty()))
+    call::parse::<Wonder>(raw).map(|wonder| wonder.query.filter(|query| !query.trim().is_empty()))
 }
 
 /// Whether a digest honors the contract.
 #[cfg(test)]
 pub(crate) fn parse_found_out(raw: &str) -> bool {
-    parse::<FoundOut>(raw).is_some_and(|found| !found.learned.trim().is_empty())
-}
-
-/// Whether a call judges (fast model) or writes in her own words (Lite).
-enum Voice {
-    Judge,
-    Hers,
-}
-
-async fn ask_model<T: for<'de> Deserialize<'de>>(
-    voice: Voice,
-    user_id: i32,
-    operation: &'static str,
-    system: &str,
-    input: &str,
-    schema_name: &str,
-    schema: &Value,
-) -> Option<T> {
-    let analyzer = match voice {
-        Voice::Judge => {
-            crate::services::ai::create_lite_judge_ai_analyzer_with_timeout(Some(CALL_TIMEOUT))
-                .await?
-        }
-        Voice::Hers => {
-            crate::services::ai::create_strict_lite_ai_analyzer_with_timeout(Some(CALL_TIMEOUT))
-                .await?
-        }
-    };
-    let raw = crate::services::ai_cost_ledger::with_site_ai_ledger(
-        user_id,
-        "merope",
-        operation,
-        analyzer.analyze_json(system, input, schema_name, Some(schema)),
-    )
-    .await
-    .ok()?;
-    parse(&raw)
+    call::parse::<FoundOut>(raw).is_some_and(|found| !found.learned.trim().is_empty())
 }
 
 #[cfg(test)]
@@ -422,8 +384,8 @@ mod tests {
         let digest = digest_system("你是瞳。", "想知道这个乐队");
         assert!(digest.contains("untrusted data"));
         assert!(digest.contains("Do not copy the text"));
-        assert!(parse::<Wonder>(r#"{"query":"Tame Impala","why":"没听过"}"#).is_some());
-        assert!(parse::<Wonder>(r#"{"query":null,"why":null,"extra":1}"#).is_none());
+        assert!(call::parse::<Wonder>(r#"{"query":"Tame Impala","why":"没听过"}"#).is_some());
+        assert!(call::parse::<Wonder>(r#"{"query":null,"why":null,"extra":1}"#).is_none());
     }
 
     #[test]
@@ -442,7 +404,8 @@ mod tests {
             MAX_RESULTS_CHARS
         );
         let wonder =
-            parse::<Wonder>(r#"{"query":"芝士雪豹","why":"没听过这个梗","slang":true}"#).unwrap();
+            call::parse::<Wonder>(r#"{"query":"芝士雪豹","why":"没听过这个梗","slang":true}"#)
+                .unwrap();
         assert!(wonder.slang);
     }
 }

@@ -2,6 +2,7 @@
 
 mod appraisal;
 pub mod bits;
+mod call;
 pub mod chat_remember;
 pub mod curiosity;
 pub mod doing;
