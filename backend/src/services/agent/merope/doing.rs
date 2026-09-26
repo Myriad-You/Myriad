@@ -26,7 +26,7 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Utc};
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -36,7 +36,8 @@ use super::sources::{self, Kept};
 use crate::services::agent::memory::unified::{self, Concept};
 
 pub const DOING_EVENT: &str = "agent.merope.doing";
-const PER_DAY: u32 = 36;
+/// Things she starts within one clock hour, however the hours fall.
+const PER_HOUR: u32 = 8;
 const PAUSE_MINUTES: std::ops::Range<i64> = 3..12;
 const REST: chrono::Duration = chrono::Duration::minutes(30);
 /// She brings something up to the same person at most this often.
@@ -62,8 +63,10 @@ struct Life {
     now: Option<Doing>,
     /// When she next looks for something to do.
     next_at: Option<DateTime<Utc>>,
-    day: Option<NaiveDate>,
-    today: u32,
+    /// The clock hour counted, as hours since the epoch, and how many
+    /// things she started in it.
+    hour: Option<i64>,
+    this_hour: u32,
     told: HashMap<i32, Instant>,
 }
 
@@ -108,19 +111,15 @@ pub async fn tick(db: DatabaseConnection) {
             tracing::info!("[Merope] writing down what she did ran out of time");
         }
     }
-    // After a restart the day's count comes back from what she wrote down.
-    if LIFE.lock().is_ok_and(|life| life.day.is_none()) {
-        let midnight = chrono::Local::now()
-            .date_naive()
-            .and_hms_opt(0, 0, 0)
-            .and_then(|midnight| midnight.and_local_timezone(chrono::Local).earliest());
-        if let Some(midnight) = midnight {
-            if let Ok(done) = unified::own_experiences_since(&db, midnight.fixed_offset()).await {
-                if let Ok(mut life) = LIFE.lock() {
-                    life.day = Some(chrono::Local::now().date_naive());
-                    life.today = u32::try_from(done).unwrap_or(PER_DAY);
-                }
-            }
+    // After a restart the hour's count comes back from what she wrote down.
+    if LIFE.lock().is_ok_and(|life| life.hour.is_none()) {
+        let hour = hour_of(now);
+        if let Some(start) = DateTime::<Utc>::from_timestamp(hour * 3600, 0)
+            && let Ok(done) = unified::own_experiences_since(&db, start.fixed_offset()).await
+            && let Ok(mut life) = LIFE.lock()
+        {
+            life.hour = Some(hour);
+            life.this_hour = u32::try_from(done).unwrap_or(PER_HOUR);
         }
     }
     if !free_to_start(now) {
@@ -133,7 +132,7 @@ pub async fn tick(db: DatabaseConnection) {
     if let Ok(mut life) = LIFE.lock() {
         match chosen {
             Some(doing) => {
-                life.today += 1;
+                life.this_hour += 1;
                 sources::begin(&db, owner, &doing.thing);
                 life.now = Some(doing);
             }
@@ -147,12 +146,16 @@ fn free_to_start(now: DateTime<Utc>) -> bool {
     let Ok(mut life) = LIFE.lock() else {
         return false;
     };
-    let today = chrono::Local::now().date_naive();
-    if life.day != Some(today) {
-        life.day = Some(today);
-        life.today = 0;
+    let hour = hour_of(now);
+    if life.hour != Some(hour) {
+        life.hour = Some(hour);
+        life.this_hour = 0;
     }
-    life.now.is_none() && life.today < PER_DAY && life.next_at.is_none_or(|at| at <= now)
+    life.now.is_none() && life.this_hour < PER_HOUR && life.next_at.is_none_or(|at| at <= now)
+}
+
+fn hour_of(at: DateTime<Utc>) -> i64 {
+    at.timestamp().div_euclid(3600)
 }
 
 // --- choosing ---------------------------------------------------------------
@@ -1022,7 +1025,7 @@ mod tests {
     }
 
     #[test]
-    fn a_day_holds_a_bounded_number_of_things_and_rests_between() {
+    fn an_hour_holds_a_bounded_number_of_things_and_rests_between() {
         let now = Utc::now();
         {
             let mut life = LIFE.lock().unwrap();
@@ -1037,9 +1040,13 @@ mod tests {
         {
             let mut life = LIFE.lock().unwrap();
             life.next_at = None;
-            life.today = PER_DAY;
+            life.this_hour = PER_HOUR;
         }
-        assert!(!free_to_start(now), "enough for one day");
+        assert!(!free_to_start(now), "enough for this hour");
+        assert!(
+            free_to_start(now + chrono::Duration::hours(1)),
+            "the next hour is its own"
+        );
         {
             let mut life = LIFE.lock().unwrap();
             *life = Life::default();
