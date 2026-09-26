@@ -8,7 +8,9 @@ authors = ["Myriad Contributors"]
 license = "AGPL-3.0-only"
 
 [dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 earcutr = "0.5"
+myriad-agent-rules = { path = "../myriad-agent-rules" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.11"

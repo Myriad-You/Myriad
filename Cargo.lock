@@ -2829,7 +2829,9 @@ dependencies = [
 name = "myriad-merope"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "earcutr",
+ "myriad-agent-rules",
  "serde",
  "serde_json",
  "sha2 0.11.0",

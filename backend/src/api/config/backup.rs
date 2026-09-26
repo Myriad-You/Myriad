@@ -785,11 +785,12 @@ mod settings_backup_tests {
         AiConfig, ConfigField, ConfigResponse, MODULE_VISIBILITY_PREFERENCES_KEY,
         PlatformAutoFetchConfig, PlatformConfig, collect_database_updates, db_or_env_clearable,
         deploy_env_key, is_masked_secret_value, normalize_music_playlist_id,
-        platform_configured_flags, public_ui_config_value, sanitize_google_site_verification,
-        sanitize_http_base_url, sanitize_proxy_url, sanitize_site_favicon_url,
-        sanitize_site_og_image_url, sanitize_umami_script_url, sanitize_wallpaper_url,
-        should_write_env_field, update_env_var,
+        sanitize_google_site_verification, sanitize_http_base_url, sanitize_proxy_url,
+        sanitize_site_favicon_url, sanitize_site_og_image_url, sanitize_umami_script_url,
+        sanitize_wallpaper_url, should_write_env_field, update_env_var,
     };
+    use crate::services::config_service::public_ui_config_value;
+    use crate::services::platform_id::platform_configured_flags;
 
     fn empty_config() -> ConfigResponse {
         ConfigResponse::default()
