@@ -1,15 +1,20 @@
 //! Writing to someone first, the way a friend would.
 //!
-//! Now and then she thinks of someone who is away: something they told her
-//! was coming up has come (see `threads`), or it has been a while since they
-//! talked. If they are paired in a chat app where she can write first, she
-//! may send them a message there; their answer carries on in the same chat.
+//! Now and then she thinks of someone who is not with her: something they
+//! told her was coming up has come (see `threads`), or it has been a while
+//! since they talked. Where her words go depends on where they are:
+//! - on the site with her panel open: nothing; she is right there, and what
+//!   is on her mind comes up when they talk;
+//! - on the site elsewhere: a notification with her line, opening her panel;
+//! - away, paired in a chat app where she can write first: a message there,
+//!   and their answer carries on in the same chat;
+//! - away otherwise: the same notification, waiting on the site.
 //!
 //! Cheap gates come first, and they are what keep her from being a nuisance:
 //! they have not asked her not to (「别主动找我」, with its hours), it is not
 //! night on the site's clock, she has not written to them first in the last
-//! day, they are not on the site or in the middle of talking with her, and
-//! there is a reason. Then the judgment model decides, as her, whether she
+//! day, they are not in the middle of talking with her, and there is a
+//! reason. Then the judgment model decides, as her, whether she
 //! would; most of the time she would not. If she would, she writes it in her
 //! own voice with their recent talk in front of her, and a thread she wrote
 //! about is taken up.
@@ -40,23 +45,52 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(30);
 const JUDGE_SCHEMA: &str = "merope_reach_out";
 const MAX_LINE_CHARS: usize = 200;
 
-/// One pass over everyone she could write to first.
+/// One pass over everyone she could write to first: whoever she has
+/// talked with in private lately, and whoever is paired in a chat app.
 pub async fn tick(db: DatabaseConnection) {
     if !super::is_enabled().await || !awake(chrono::Local::now().hour()) {
         return;
     }
-    let present = crate::services::agent::consciousness::present_users();
+    let mut people = crate::services::channel_work::reachable_people(&db).await;
+    people.extend(talked_lately(&db).await);
+    people.sort_unstable();
+    people.dedup();
     let mut written = 0;
-    for user_id in crate::services::channel_work::reachable_people(&db).await {
+    for user_id in people {
         if written >= PER_PASS {
             break;
         }
-        if present.contains(&user_id) || !quiet_enough(&db, user_id).await {
+        let here = route(
+            crate::services::agent::consciousness::live_presence_panel_open(user_id),
+            crate::services::agent::consciousness::present_users().contains(&user_id),
+        );
+        if here == Route::Stay || !quiet_enough(&db, user_id).await {
             continue;
         }
-        if reach_out(&db, user_id).await {
+        if reach_out(&db, user_id, here).await {
             written += 1;
         }
+    }
+}
+
+/// Where her words go, by where they are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Route {
+    /// Her panel is open: she is right there, nothing to send.
+    Stay,
+    /// On the site elsewhere: a notification with her line.
+    Site,
+    /// Away: a chat app where she can write first, else the site.
+    Away,
+}
+
+fn route(panel_open: bool, on_site: bool) -> Route {
+    if panel_open {
+        Route::Stay
+    } else if on_site {
+        Route::Site
+    } else {
+        Route::Away
     }
 }
 
@@ -75,6 +109,22 @@ async fn quiet_enough(db: &DatabaseConnection, user_id: i32) -> bool {
     !super::store::recently_spoke_event(db, user_id, EVENT_KEY, AT_MOST_EVERY_MINUTES)
         .await
         .unwrap_or(true)
+}
+
+/// People who have talked with her in private lately.
+async fn talked_lately(db: &DatabaseConnection) -> Vec<i32> {
+    db.query_all_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "SELECT DISTINCT s.user_id FROM agent_messages m JOIN agent_sessions s ON s.id = m.session_id \
+         WHERE s.user_id > 0 AND s.context->>'mode' = 'chat' AND s.context->>'venue' IS NULL \
+           AND m.role = 'user' AND m.created_at > NOW() - make_interval(days => $1)",
+        [(MISSED_UNTIL_DAYS as i32).into()],
+    ))
+    .await
+    .unwrap_or_default()
+    .iter()
+    .filter_map(|row| row.try_get::<i32>("", "user_id").ok())
+    .collect()
 }
 
 /// When they last said anything to her in private, anywhere.
@@ -182,7 +232,7 @@ async fn recent_talk(
         .unwrap_or_default()
 }
 
-async fn reach_out(db: &DatabaseConnection, user_id: i32) -> bool {
+async fn reach_out(db: &DatabaseConnection, user_id: i32, here: Route) -> bool {
     let now = Utc::now();
     let threads = threads::open(db, user_id).await;
     let Some(reason) = reason(&threads, last_talk(db, user_id).await, now) else {
@@ -195,18 +245,61 @@ async fn reach_out(db: &DatabaseConnection, user_id: i32) -> bool {
     let Some(line) = compose(db, user_id, &about, &talk).await else {
         return false;
     };
-    let Some(platform) = crate::services::channel_work::say_first(db, user_id, &line).await else {
+    let went = match here {
+        Route::Stay => None,
+        Route::Site => notify_on_site(db, user_id, &line).await.then_some("site"),
+        Route::Away => match crate::services::channel_work::say_first(db, user_id, &line).await {
+            Some(platform) => Some(platform.slug()),
+            None => notify_on_site(db, user_id, &line).await.then_some("site"),
+        },
+    };
+    let Some(went) = went else {
         return false;
     };
     let _ = super::store::insert_proactive(db, user_id, &line, Some(EVENT_KEY), true).await;
     let taken: Vec<String> = reason.due.iter().map(|thread| thread.id.clone()).collect();
     threads::close(db, user_id, &taken, "reached_out").await;
-    tracing::info!(
-        user_id,
-        platform = platform.slug(),
-        "[Merope] wrote to someone first"
-    );
+    tracing::info!(user_id, went, "[Merope] wrote to someone first");
     true
+}
+
+/// Her line as a notification on the site: shown now if they are there,
+/// waiting for them if not; opening it opens her panel. It is one of theirs
+/// to switch off (「她想找你说话」).
+async fn notify_on_site(db: &DatabaseConnection, user_id: i32, line: &str) -> bool {
+    use crate::services::agent::notification_preferences::{
+        ACTION_OPEN_AGENT, NotificationEventKey,
+    };
+    use crate::services::agent::notifications::{
+        Notification, NotificationPriority, NotificationType, get_notification_manager,
+    };
+    let Some(manager) = get_notification_manager() else {
+        return false;
+    };
+    let title = super::store::get_persona(db)
+        .await
+        .ok()
+        .flatten()
+        .map(|persona| persona.name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "Merope".to_string());
+    let session_id = super::store::latest_open_session(db, user_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|(id, _)| id);
+    let notification = Notification::new(
+        user_id,
+        NotificationType::SystemInfo,
+        NotificationPriority::Normal,
+        title,
+        line,
+    )
+    .with_event(
+        NotificationEventKey::MeropeReachOut,
+        json!({ "action": ACTION_OPEN_AGENT, "session_id": session_id }),
+    );
+    manager.notify(notification).await
 }
 
 async fn would_write(
@@ -257,7 +350,7 @@ async fn would_write(
 /// How she writes first: a text, not a speech.
 fn writing_first(about: &str) -> String {
     format!(
-        "## Writing to them first\nThey are not here. You are sending them a message first, in their chat app, about: {about}. \
+        "## Writing to them first\nThey are not talking with you right now. You are sending them a message first, about: {about}; they will see it when they look. \
 Write it the way you would text a friend: one or two short lines, in your own voice. Do not explain why you are writing, do not recap, and ask rather than assume how things went. \
 It is a text message: no actions or descriptions in brackets, nothing about a place you are in."
     )
@@ -373,6 +466,11 @@ mod tests {
         // In the middle of talking with her: never.
         assert!(reason(&[exam], Some(hours(1)), now).is_none());
         assert!(awake(9) && awake(21) && !awake(22) && !awake(3));
+        // Her panel open: she is right there. On the site elsewhere: the
+        // site. Away: a chat app, else the site.
+        assert_eq!(route(true, true), Route::Stay);
+        assert_eq!(route(false, true), Route::Site);
+        assert_eq!(route(false, false), Route::Away);
     }
 
     #[test]

@@ -41,6 +41,7 @@
     "agent.clarification": "Wartet auf eine Antwort",
     "agent.merope.platform_activity": "Plattformaktivität",
     "agent.merope.report_ready": "Bericht bereit",
+    "agent.merope.reach_out": "Sie möchte reden",
     "heartbeat.succeeded": "Geplante Aufgabe erfolgreich",
     "heartbeat.failed": "Geplante Aufgabe fehlgeschlagen",
     "heartbeat.seo_review": "Agent-SEO",

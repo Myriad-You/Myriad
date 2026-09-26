@@ -41,6 +41,7 @@
     "agent.clarification": "답변 대기",
     "agent.merope.platform_activity": "플랫폼 활동",
     "agent.merope.report_ready": "보고서 준비됨",
+    "agent.merope.reach_out": "하고 싶은 말이 있어요",
     "heartbeat.succeeded": "예약 작업 성공",
     "heartbeat.failed": "예약 작업 실패",
     "heartbeat.seo_review": "Agent SEO",

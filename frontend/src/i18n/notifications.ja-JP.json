@@ -41,6 +41,7 @@
     "agent.clarification": "回答待ち",
     "agent.merope.platform_activity": "プラットフォームの動き",
     "agent.merope.report_ready": "レポート完成",
+    "agent.merope.reach_out": "話したいことがある",
     "heartbeat.succeeded": "定期タスク成功",
     "heartbeat.failed": "定期タスク失敗",
     "heartbeat.seo_review": "Agent SEO",
