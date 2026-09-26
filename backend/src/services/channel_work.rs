@@ -495,7 +495,7 @@ async fn cancel_session_tasks(db: &DatabaseConnection, user_id: i32, session_id:
         if session_id_from_lane_id(task.lane_id.as_deref()).as_deref() != Some(session_id) {
             continue;
         }
-        let _ = crate::api::agent::cancel_task_and_wake(db, user_id, &task.task_id).await;
+        let _ = crate::services::agent::run::cancel_task_and_wake(db, user_id, &task.task_id).await;
     }
 }
 

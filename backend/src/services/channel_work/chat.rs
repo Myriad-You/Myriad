@@ -250,7 +250,7 @@ async fn await_reply(
     run: std::sync::Arc<crate::services::agent::run_hub::AgentRun>,
     sink: &ChannelSink,
 ) -> Option<Value> {
-    let mut events = Box::pin(crate::api::agent::agent_run_envelopes(run));
+    let mut events = Box::pin(crate::services::agent::run::agent_run_envelopes(run));
     let mut typing = tokio::time::interval(TYPING_EVERY);
     let deadline = tokio::time::sleep(TURN_DEADLINE);
     tokio::pin!(deadline);

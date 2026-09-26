@@ -26,6 +26,7 @@ pub(crate) mod presence_window;
 pub mod queue;
 pub mod resource_create_pure;
 pub mod response_agent;
+pub mod run;
 pub mod run_hub;
 pub mod search_output;
 pub mod sessions;
