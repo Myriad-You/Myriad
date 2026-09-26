@@ -736,10 +736,16 @@ fn request(case: &Case) -> Value {
                 &case.reply,
                 case.material.as_deref(),
             );
-            let input = match &case.material {
-                Some(material) => myriad_agent_rules::untrusted_block("material", material),
-                None => "(no material)".to_string(),
-            };
+            let views: Vec<String> = case
+                .views
+                .iter()
+                .map(|(about, view)| format!("{about}: {view}"))
+                .collect();
+            let input = super::merope::doing::digest_probe_input(
+                case.material.as_deref(),
+                &views,
+                &case.lately,
+            );
             json!({"system":system,"schema":schema,"schemaName":"merope_doing_digest","input":input})
         }
         "threads" => {

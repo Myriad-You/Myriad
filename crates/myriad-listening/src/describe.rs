@@ -119,12 +119,19 @@ impl ListeningSheet {
 
         if !self.readings.is_empty() {
             out.push_str("\nWhat listening research says about things like these:\n");
+            // One finding once, with every place in the song it applies to.
+            let mut findings: Vec<(&str, &str, Vec<&str>)> = Vec::new();
             for reading in &self.readings {
-                let _ = writeln!(
-                    out,
-                    "- {}. {} ({})",
-                    reading.heard, reading.tends_to, reading.source
-                );
+                match findings
+                    .iter_mut()
+                    .find(|(tends_to, _, _)| *tends_to == reading.tends_to)
+                {
+                    Some((_, _, heard)) => heard.push(&reading.heard),
+                    None => findings.push((reading.tends_to, reading.source, vec![&reading.heard])),
+                }
+            }
+            for (tends_to, source, heard) in findings {
+                let _ = writeln!(out, "- {}. {tends_to} ({source})", heard.join(". "));
             }
         }
     }
@@ -209,6 +216,13 @@ mod tests {
         let line = text.find("0:30 「就是现在」").unwrap();
         assert!(build < line && line < surge, "{text}");
         assert!(text.contains("(Huron 2006"));
+        // A finding is given once, with all its places.
+        assert_eq!(
+            text.matches("where listeners most often report chills")
+                .count(),
+            1
+        );
+        assert!(text.contains("At 0:30 a section breaks in") && text.contains(". At 1:30"));
         assert!(text.contains("come back.\n\nHow it goes:\n"), "{text}");
         let gist = sheet.gist();
         assert!(

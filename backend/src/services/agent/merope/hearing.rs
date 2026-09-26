@@ -213,6 +213,19 @@ mod live {
             cover: String::new(),
             duration_ms: 0,
         };
+        // For tuning: keep the recording and its lyrics where asked.
+        if let Ok(dir) = std::env::var("MEROPE_HEAR_KEEP") {
+            let super::Thing::Song { id, .. } = &thing else {
+                unreachable!()
+            };
+            let (bytes, ext) = super::recording(&db, "netease", id).await.expect("recording");
+            let dir = std::path::Path::new(&dir);
+            std::fs::write(dir.join(format!("{id}.{}", ext.unwrap_or("mp3"))), bytes).unwrap();
+            if let Some(lrc) = super::timed_lyrics(&db, "netease", id).await {
+                std::fs::write(dir.join(format!("{id}.lrc")), lrc).unwrap();
+            }
+            return;
+        }
         let started = std::time::Instant::now();
         let sheet = super::hear(&db, &thing).await.expect("heard");
         println!("heard in {:?}\n{}", started.elapsed(), sheet.describe());
