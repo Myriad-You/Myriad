@@ -200,3 +200,51 @@ pub(crate) mod testing {
         }
     }
 }
+
+/// Hear every recording in `LISTEN_TUNE_DIR` (with `<name>.lrc` beside it)
+/// and write each sheet to `LISTEN_TUNE_OUT/<name>.txt`: for tuning the
+/// thresholds against real songs.
+#[cfg(test)]
+mod tune {
+    #[test]
+    #[ignore = "needs LISTEN_TUNE_DIR and LISTEN_TUNE_OUT"]
+    fn hear_a_folder() {
+        let (Ok(dir), Ok(out)) = (
+            std::env::var("LISTEN_TUNE_DIR"),
+            std::env::var("LISTEN_TUNE_OUT"),
+        ) else {
+            return;
+        };
+        let mut paths: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| path.extension().is_some_and(|ext| ext != "lrc"))
+            .collect();
+        paths.sort();
+        for path in paths {
+            let name = path.file_stem().unwrap().to_string_lossy().to_string();
+            let lrc = std::fs::read_to_string(path.with_extension("lrc")).ok();
+            let ext = path
+                .extension()
+                .map(|ext| ext.to_string_lossy().to_string());
+            let bytes = std::fs::read(&path).unwrap();
+            let Ok(sheet) = super::listen_to_bytes(bytes, ext.as_deref(), lrc.as_deref()) else {
+                println!("{name}: could not hear");
+                continue;
+            };
+            std::fs::write(
+                std::path::Path::new(&out).join(format!("{name}.txt")),
+                sheet.describe(),
+            )
+            .unwrap();
+            println!(
+                "{name}: tempo {:?} clarity {:.2} syncopation {:.2} key {:?} sections {}",
+                sheet.tempo_bpm.map(|t| t.round()),
+                sheet.pulse_clarity,
+                sheet.syncopation,
+                sheet.key,
+                sheet.sections.len()
+            );
+        }
+    }
+}

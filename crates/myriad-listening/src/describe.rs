@@ -73,7 +73,7 @@ impl ListeningSheet {
             " Loudness range {:.0} dB; spectral centroid {:.0} Hz. {:.0}% of it is parts that come back.",
             self.dynamic_range_db,
             self.brightness_hz,
-            self.repetition * 100.0
+            self.repetition * 100.0 + 0.0
         );
         out
     }
