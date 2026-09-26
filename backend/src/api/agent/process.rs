@@ -368,6 +368,13 @@ pub(crate) async fn start_process_run(
             )),
         )));
     }
+    // Started from a chat app or a group, and answered there.
+    let answered_elsewhere = group.is_some()
+        || channel_chat.is_some()
+        || req
+            .context
+            .as_ref()
+            .is_some_and(|context| context.from_channel);
     let source_intent_id = req
         .context
         .as_ref()
@@ -600,6 +607,10 @@ pub(crate) async fn start_process_run(
         has_session.then_some(session_id.clone()),
     )
     .await;
+    // Answered in a chat app or a group: the site stays quiet about it.
+    if answered_elsewhere {
+        run.answered_elsewhere();
+    }
     // 注入 run_id，供确认手持（confirmation）复用同一 run hub / 通知身份
     if let Some(ref mut ctx) = user_request.context {
         ctx.run_id = Some(run_id_for_meta.clone());

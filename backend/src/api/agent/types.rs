@@ -42,6 +42,9 @@ pub struct ProcessContext {
     /// A private IM chat turn. Set only by the server, like `group`.
     #[serde(skip)]
     pub channel_chat: Option<crate::services::agent::types::ChannelChat>,
+    /// Work started from a chat app, answered there. Set only by the server.
+    #[serde(skip)]
+    pub from_channel: bool,
 }
 
 /// Where a channel group turn happens and what the group said lately.

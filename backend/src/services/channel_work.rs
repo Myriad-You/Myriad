@@ -533,6 +533,7 @@ async fn start_work_run(
                 rig_state: None,
                 group: None,
                 channel_chat: None,
+                from_channel: true,
             }),
         },
     )
@@ -599,6 +600,7 @@ async fn resume_pending(
                         rig_state: None,
                         group: None,
                         channel_chat: None,
+                        from_channel: true,
                     }),
                 },
             )

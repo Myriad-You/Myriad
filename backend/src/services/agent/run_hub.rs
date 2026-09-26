@@ -72,6 +72,9 @@ pub struct AgentRun {
     run_id: String,
     user_id: i32,
     session_id: Option<String>,
+    /// Started from a chat app or a group and answered there: the site does
+    /// not notify about it, and she does not tell it again on the site.
+    elsewhere: std::sync::atomic::AtomicBool,
     created_at: chrono::DateTime<Utc>,
     state: Mutex<AgentRunState>,
     publish_order: Mutex<()>,
@@ -97,6 +100,7 @@ impl AgentRun {
             run_id,
             user_id,
             session_id,
+            elsewhere: std::sync::atomic::AtomicBool::new(false),
             created_at: Utc::now(),
             state: Mutex::new(AgentRunState {
                 next_sequence: 1,
@@ -151,6 +155,7 @@ impl AgentRun {
             run_id: persisted.run_id,
             user_id: persisted.user_id,
             session_id: persisted.session_id,
+            elsewhere: std::sync::atomic::AtomicBool::new(false),
             created_at: persisted.created_at,
             state: Mutex::new(AgentRunState {
                 next_sequence: persisted.next_sequence,
@@ -652,7 +657,7 @@ WHERE namespace = $1 AND runtime_id = $2
         }
         drop(_order);
 
-        if notify {
+        if self.notifies_site(notify) {
             if let Some(manager) = get_notification_manager() {
                 let title = match status.as_str() {
                     "completed" => "The task finished",
@@ -676,6 +681,20 @@ WHERE namespace = $1 AND runtime_id = $2
                     .await;
             }
         }
+    }
+}
+
+impl AgentRun {
+    /// This run was started from a chat app or a group and is answered there.
+    pub(crate) fn answered_elsewhere(&self) {
+        self.elsewhere
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether an event worth notifying about reaches the site: never for a
+    /// run answered in a chat app or a group.
+    fn notifies_site(&self, notify: bool) -> bool {
+        notify && !self.elsewhere.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
@@ -823,6 +842,15 @@ pub(crate) async fn get_live_run_for_user(run_id: &str, user_id: i32) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_run_answered_in_a_chat_app_stays_quiet_on_the_site() {
+        let run = AgentRun::new("run_elsewhere".into(), 7, None);
+        assert!(run.notifies_site(true));
+        assert!(!run.notifies_site(false));
+        run.answered_elsewhere();
+        assert!(!run.notifies_site(true));
+    }
 
     #[test]
     fn terminal_records_are_retried_progress_is_not() {
