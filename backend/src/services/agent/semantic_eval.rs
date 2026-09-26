@@ -571,7 +571,7 @@ fn event_context(case: &Case) -> (event::ConsciousnessEvent, event::SelfSnapshot
         kind: case.event_kind.clone(),
         headline: "合成测试事件".into(),
         summary: if case.event_kind == "agent.merope.touch" {
-            crate::api::agent::touch::completion_summary(
+            super::merope::touch::completion_summary(
                 &serde_json::from_value(case.touch.clone().unwrap()).unwrap(),
             )
         } else {
@@ -621,7 +621,7 @@ fn event_context(case: &Case) -> (event::ConsciousnessEvent, event::SelfSnapshot
 
 fn request(case: &Case) -> Value {
     match case.kind.as_str() {
-        "touch" => crate::api::agent::touch::appraisal_contract(
+        "touch" => super::merope::touch::appraisal_contract(
             &case.soul.clone().unwrap_or_else(default_soul),
             &serde_json::from_value(case.touch.clone().expect("touch summary required")).unwrap(),
             case.mood.unwrap_or(70.0),
@@ -998,7 +998,7 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
     }
     match case.kind.as_str() {
         "touch" => {
-            let Some(value) = crate::api::agent::touch::parse_appraisal(output) else {
+            let Some(value) = super::merope::touch::parse_appraisal(output) else {
                 return "contract_failure";
             };
             if case
@@ -1665,7 +1665,7 @@ async fn run_semantic_suite() {
             None
         };
         let reaction = (outcome == "returned")
-            .then(|| crate::api::agent::touch::parse_appraisal(&output))
+            .then(|| super::merope::touch::parse_appraisal(&output))
             .flatten();
         let touch_metrics = (case.kind == "touch").then(|| json!({
             "valid":reaction.is_some(),

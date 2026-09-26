@@ -33,6 +33,7 @@ pub mod state;
 pub mod store;
 pub mod strangers;
 pub mod threads;
+pub mod touch;
 pub mod views;
 pub mod wander;
 

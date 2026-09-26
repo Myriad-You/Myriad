@@ -42,7 +42,9 @@ struct Watch {
 static WATCH: LazyLock<Mutex<Watch>> = LazyLock::new(|| Mutex::new(Watch::default()));
 
 /// What the status says: playing this game, playing nothing, or unknown.
-fn game_of(presence: Option<crate::api::steam::SteamPresenceResponse>) -> Option<Option<String>> {
+fn game_of(
+    presence: Option<crate::services::steam_presence::SteamPresenceResponse>,
+) -> Option<Option<String>> {
     let presence = presence?;
     Some(
         presence
@@ -79,7 +81,7 @@ pub async fn tick(db: DatabaseConnection) {
     let Ok(owner) = crate::services::ai_cost_ledger::resolve_site_owner_id().await else {
         return;
     };
-    let Some(playing) = game_of(crate::api::steam::site_presence(&db).await) else {
+    let Some(playing) = game_of(crate::services::steam_presence::site_presence(&db).await) else {
         return;
     };
     let ended = WATCH.lock().ok().and_then(|mut watch| {

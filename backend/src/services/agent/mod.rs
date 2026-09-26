@@ -28,6 +28,7 @@ pub mod resource_create_pure;
 pub mod response_agent;
 pub mod run_hub;
 pub mod search_output;
+pub mod sessions;
 pub mod skill;
 pub mod skill_evolution;
 pub mod system_op_pure;

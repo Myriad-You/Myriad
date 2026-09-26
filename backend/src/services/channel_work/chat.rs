@@ -169,9 +169,10 @@ async fn handed_off(db: &DatabaseConnection, work_session_id: &str, busy: bool) 
     if work_session_id.is_empty() {
         return None;
     }
-    let history = crate::api::agent::load_session_history(db, work_session_id, 2, false)
-        .await
-        .ok()?;
+    let history =
+        crate::services::agent::sessions::load_session_history(db, work_session_id, 2, false)
+            .await
+            .ok()?;
     let recent = |at: Option<&str>| {
         at.and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
             .is_some_and(|at| chrono::Utc::now().signed_duration_since(at) < HANDED_OFF_FOR)

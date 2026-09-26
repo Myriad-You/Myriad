@@ -227,7 +227,7 @@ async fn recent_talk(
     else {
         return Vec::new();
     };
-    crate::api::agent::load_session_history(db, &session, 8, true)
+    crate::services::agent::sessions::load_session_history(db, &session, 8, true)
         .await
         .unwrap_or_default()
 }
