@@ -18,6 +18,7 @@ mod rig_semantics;
 mod rig_spatial;
 mod rig_state;
 pub mod self_story;
+pub mod soup;
 pub mod speaking;
 mod speech_plan;
 mod sticker_avatar;
