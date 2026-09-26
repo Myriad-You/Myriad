@@ -36,6 +36,8 @@ const HELD_IN_PROMPT: usize = 60;
 const FADE_AFTER: chrono::Duration = chrono::Duration::days(30);
 const PURGE_AFTER: chrono::Duration = chrono::Duration::days(90);
 const MAX_CHANGES: usize = 6;
+/// Experiences a view keeps as what it grew out of.
+const GREW_FROM: usize = 3;
 const SCHEMA_NAME: &str = "merope_views";
 
 /// The night her views were last gone over, so a night does it once.
@@ -96,6 +98,28 @@ fn view_of(row: &agent_memories::Model) -> Option<(String, String)> {
     let evidence: Value = serde_json::from_str(row.evidence.as_deref()?).ok()?;
     let about = evidence.get("about")?.as_str()?.trim().to_string();
     (!about.is_empty()).then(|| (about, row.content.clone()))
+}
+
+/// A view with what it grew out of, as she holds it when it comes up.
+fn grown_view(row: &agent_memories::Model) -> Option<(String, String)> {
+    let (about, view) = view_of(row)?;
+    let grew_from: Vec<String> = row
+        .evidence
+        .as_deref()
+        .and_then(|evidence| serde_json::from_str::<Value>(evidence).ok())
+        .and_then(|evidence| evidence.get("grewFrom").cloned())
+        .and_then(|from| from.as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|from| from.get("what")?.as_str().map(str::to_string))
+        .collect();
+    if grew_from.is_empty() {
+        return Some((about, view));
+    }
+    Some((
+        about,
+        format!("{view} (it grew from: {})", grew_from.join("; ")),
+    ))
 }
 
 /// "灰色公路" and "灰色公路的歌" are the same subject to her.
@@ -227,10 +251,19 @@ pub async fn go_over(db: &DatabaseConnection, owner: i32) {
             );
         }
         concepts.truncate(5);
+        // What it grew out of, so she knows where it came from.
+        let grew_from: Vec<Value> = sources
+            .iter()
+            .take(GREW_FROM)
+            .filter_map(|row| {
+                Some(json!({ "id": row.id, "what": super::doing::experience_line(row)? }))
+            })
+            .collect();
         if let Ok(Some(id)) = unified::remember_own(
             db,
             &view,
-            &json!({ "about": about, "changed": change.changed }).to_string(),
+            &json!({ "about": about, "changed": change.changed, "grewFrom": grew_from })
+                .to_string(),
             concepts,
             unified::OWN_VIEW,
         )
@@ -283,6 +316,7 @@ pub async fn touched(db: &DatabaseConnection, words: &str, limit: usize) -> Vec<
         return Vec::new();
     };
     let views: Vec<(String, String)> = rows.iter().filter_map(view_of).collect();
+    let grown: Vec<(String, String)> = rows.iter().filter_map(grown_view).collect();
     let texts: Vec<String> = views
         .iter()
         .map(|(about, view)| format!("{about} {view}"))
@@ -307,7 +341,7 @@ pub async fn touched(db: &DatabaseConnection, words: &str, limit: usize) -> Vec<
     scored
         .into_iter()
         .take(limit)
-        .map(|(index, _)| views[index].clone())
+        .map(|(index, _)| grown[index].clone())
         .collect()
 }
 
@@ -317,7 +351,7 @@ pub async fn held(db: &DatabaseConnection, limit: u64) -> Vec<String> {
         .await
         .unwrap_or_default()
         .iter()
-        .filter_map(view_of)
+        .filter_map(grown_view)
         .map(|(about, view)| format!("{about}: {view}"))
         .collect()
 }
@@ -424,5 +458,18 @@ mod tests {
         assert!(same_subject("灰色公路", "灰色公路的歌"));
         assert!(!same_subject("歌", "灰色公路的歌"));
         assert!(!same_subject("amazarashi", "Mili"));
+        // Read back with what it grew out of, when that was kept.
+        assert_eq!(grown_view(&row), view_of(&row));
+        let grown = agent_memories::Model {
+            evidence: Some(
+                r#"{"about":"amazarashi","changed":false,"grewFrom":[{"id":"doing_1","what":"listened to the song 「スピードと摩擦」 by amazarashi (you liked it)"}]}"#
+                    .into(),
+            ),
+            ..row
+        };
+        assert_eq!(
+            grown_view(&grown).unwrap().1,
+            "他们的歌冲得狠。 (it grew from: listened to the song 「スピードと摩擦」 by amazarashi (you liked it))"
+        );
     }
 }

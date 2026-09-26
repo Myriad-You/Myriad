@@ -242,6 +242,29 @@ async fn last_story(
     Some((row.id, row.created_at, claims))
 }
 
+/// Which of these rows are still kept, faded or not: what happened is still
+/// what happened after it fades from mind, until it is gone.
+async fn still_there<'a>(
+    db: &DatabaseConnection,
+    rows: impl Iterator<Item = &'a String>,
+) -> HashSet<String> {
+    use crate::models::entities::agent_memories;
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
+    let ids: Vec<String> = rows.cloned().collect::<HashSet<_>>().into_iter().collect();
+    if ids.is_empty() {
+        return HashSet::new();
+    }
+    agent_memories::Entity::find()
+        .select_only()
+        .column(agent_memories::Column::Id)
+        .filter(agent_memories::Column::Id.is_in(ids))
+        .into_tuple::<String>()
+        .all(db)
+        .await
+        .map(|ids| ids.into_iter().collect())
+        .unwrap_or_default()
+}
+
 /// Who she has been lately, as she last wrote it: one claim a line.
 pub async fn current(db: &DatabaseConnection) -> Vec<String> {
     last_story(db)
@@ -330,12 +353,14 @@ fn checked(
             .iter()
             .filter_map(|id| by_id.get(id.as_str()).copied())
             .collect();
+        // Carrying one on needs what it rested on to still be there.
         let carried = claim
             .continues
             .as_deref()
             .and_then(|id| id.strip_prefix('b'))
             .and_then(|index| index.parse::<usize>().ok())
-            .and_then(|index| before.get(index.wrapping_sub(1)));
+            .and_then(|index| before.get(index.wrapping_sub(1)))
+            .filter(|claim| !claim.rests_on.is_empty());
         if cited.is_empty() && carried.is_none() {
             continue;
         }
@@ -419,10 +444,17 @@ pub async fn look_back(db: &DatabaseConnection, owner: i32) {
     if records.len() < FEWEST {
         return;
     }
-    let before = last
+    // Last time's claims, each still resting on records that are there; one
+    // whose records are all gone can no longer be carried on as it was.
+    let mut before = last
         .as_ref()
         .map(|(_, _, claims)| claims.clone())
         .unwrap_or_default();
+    let there = still_there(db, before.iter().flat_map(|claim| claim.rests_on.iter())).await;
+    for claim in &mut before {
+        claim.rests_on.retain(|row| there.contains(row));
+    }
+    before.retain(|claim| !claim.rests_on.is_empty());
     let soul = crate::services::agent::identity::get_speaking_soul()
         .await
         .unwrap_or_default();
@@ -555,6 +587,21 @@ mod tests {
         );
         assert_eq!(claims[0].rests_on, vec!["row_r1", "old_row"]);
         assert_eq!(claims[3].rests_on, vec!["old_row"]);
+
+        // Once what it rested on is gone, carrying it on alone is not enough.
+        let gone = vec![Claim {
+            text: "快歌里藏着难过的，我总会停下来".into(),
+            rests_on: Vec::new(),
+        }];
+        assert!(
+            checked(
+                written(json!([{ "text": "旧的看法还在", "cites": [], "continues": "b1" }])),
+                &records[..1],
+                &json!({}),
+                &gone,
+            )
+            .is_none()
+        );
     }
 
     #[test]
