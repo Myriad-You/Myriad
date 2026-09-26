@@ -578,6 +578,18 @@ Thank you to everyone who supports us.
 
 Issues and PRs welcome. UI copy: `zh-CN` / `zh-TW` / `en-US` / `ja-JP` / `ko-KR` / `fr-FR` / `de-DE`.
 
+### People
+
+[![Contributors](https://contrib.rocks/image?repo=Myriad-You/Myriad)](https://github.com/Myriad-You/Myriad/graphs/contributors)
+
+### AI agents
+
+Much of Myriad is written together with coding agents. Their commits carry a `Co-Authored-By` trailer, which is why they also appear in GitHub's contributor list.
+
+[![Claude Code](https://img.shields.io/badge/Claude%20Code-D97757?style=for-the-badge&logo=claude&logoColor=white)](https://claude.com/claude-code)
+[![Cursor](https://img.shields.io/badge/Cursor-000000?style=for-the-badge&logo=cursor&logoColor=white)](https://cursor.com)
+[![GitHub Copilot](https://img.shields.io/badge/GitHub%20Copilot-000000?style=for-the-badge&logo=githubcopilot&logoColor=white)](https://github.com/features/copilot)
+
 ## License
 
 The host (`backend`, `frontend`, and workspace crates) and `proxy` / `updater` are [AGPL-3.0](LICENSE). A Tapp that talks to the host only through the documented Bridge is an independent work; its license is the author's (see the AGPL section 7 additional permission in `LICENSE`).
