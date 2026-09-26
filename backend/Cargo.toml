@@ -129,6 +129,7 @@ tokio-tungstenite = { version = "0.30", default-features = false, features = ["c
 # rustls `ring`, reqwest pulls `aws-lc-rs`; with both features present rustls
 # will not auto-pick, and tokio-tungstenite WSS panics on connect.
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "aws-lc-rs"] }
+encoding_rs = "0.8"                                     # Shift_JIS texts (Aozora Bunko serials)
 zip = "8.6"                                             # For .tapp file handling
 md5 = "0.8"
 quick-xml = "0.42"

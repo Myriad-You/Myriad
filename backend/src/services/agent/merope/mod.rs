@@ -22,6 +22,7 @@ pub mod reach;
 pub mod report_dna;
 pub mod self_state;
 pub mod self_story;
+pub mod serial;
 pub mod soup;
 pub mod speaking_prompts;
 pub mod state;

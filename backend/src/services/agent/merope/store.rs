@@ -569,6 +569,8 @@ where
     super::strangers::forget_counts(db).await?;
     // Turtle soups on now.
     super::soup::forget_games(db).await?;
+    // The serial she followed and the books she finished or let go.
+    super::serial::forget(db).await?;
     resync_persona_avatar_snapshots(db, None).await?;
     Ok(())
 }

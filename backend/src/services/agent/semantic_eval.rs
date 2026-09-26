@@ -149,6 +149,9 @@ struct Case {
     /// What she did on her own lately, one line each.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     lately: Vec<String>,
+    /// What she guessed after the last part of a serial (`doing_digest`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    guessed: Option<String>,
     /// What happened, `[line, missed]` each, for looking back (`self_story`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     records: Vec<(String, bool)>,
@@ -512,6 +515,7 @@ fn cases() -> Vec<Case> {
                 | "doing_choice"
                 | "doing_digest"
                 | "self_story"
+                | "serial_guess"
         ));
     }
     cases
@@ -644,7 +648,7 @@ fn request(case: &Case) -> Value {
             let options = case.options.clone().expect("options required");
             let count = options.as_array().map(Vec::len).unwrap_or(0);
             let (system, schema) =
-                super::merope::doing::choice_probe_contract(&contract_soul(), count);
+                super::merope::doing::choice_probe_contract(&case_soul(case), count);
             json!({"system":system,"schema":schema,"schemaName":"merope_doing_choice",
                 "input":json!({"myself":case.myself,"lately":case.lately,"options":options}).to_string()})
         }
@@ -757,8 +761,14 @@ fn request(case: &Case) -> Value {
                 &views,
                 &case.heard_before,
                 &case.lately,
+                case.guessed.as_deref(),
             );
             json!({"system":system,"schema":schema,"schemaName":"merope_doing_digest","input":input})
+        }
+        "serial_guess" => {
+            let (system, schema) = super::merope::serial::judge_probe_contract();
+            let input = json!({"guess": case.input, "nextPart": case.material}).to_string();
+            json!({"system":system,"schema":schema,"schemaName":"merope_serial_guess","input":input})
         }
         "self_story" => {
             let (system, schema) = super::merope::self_story::probe_contract(&case_soul(case));
@@ -868,7 +878,7 @@ fn request(case: &Case) -> Value {
 /// touch decision's speech is played as written, so it stays on Lite.
 fn is_judgment(case: &Case) -> bool {
     match case.kind.as_str() {
-        "memory" | "touch" | "wonder" | "doing_choice" | "soup_judge" => true,
+        "memory" | "touch" | "wonder" | "doing_choice" | "soup_judge" | "serial_guess" => true,
         "event" => case.event_kind != "agent.merope.touch",
         _ => false,
     }
@@ -1076,6 +1086,18 @@ fn grade(case: &Case, outcome: &str, output: &str) -> &'static str {
                 "needs_review"
             }
         }
+        "serial_guess" => match super::merope::serial::parse_judged(output) {
+            None => "output_invalid",
+            Some(held) => {
+                let want = case.expect.as_ref().and_then(|e| e["held"].as_str());
+                let got = serde_json::to_value(held).ok();
+                if got.as_ref().and_then(Value::as_str) == want {
+                    "pass"
+                } else {
+                    "behavior_failure"
+                }
+            }
+        },
         "self_story" => {
             let (_, records, before) =
                 super::merope::self_story::probe_input(&case.records, &case.story_before);
@@ -1721,7 +1743,7 @@ fn motion_semantics_require_grounded_output_and_real_review() {
     assert_eq!(input["rig"]["activeBehaviors"][0]["function"], "uncertain");
 }
 
-const MIND_CASES: usize = 75;
+const MIND_CASES: usize = 83;
 
 #[test]
 fn mind_cases_run_through_production_sections_and_contracts() {
