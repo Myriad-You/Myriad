@@ -71,6 +71,54 @@ fn production_lines(source: &str) -> Vec<(usize, &str)> {
     lines
 }
 
+/// Every way `source` (the file at `relative`) reaches into `api`.
+fn crossings_in(relative: &str, source: &str) -> Vec<(String, usize, String)> {
+    let relative = relative.to_string();
+    let mut found = Vec::new();
+    let lines = production_lines(source);
+    // `use crate::{api, ..}` brings the module in by a short name.
+    let mut in_group = None;
+    for (line_no, line) in &lines {
+        let trimmed = line.trim();
+        if trimmed.starts_with("use crate::{") || trimmed.starts_with("pub use crate::{") {
+            in_group = Some(*line_no);
+        }
+        if let Some(start) = in_group {
+            let names = trimmed
+                .trim_start_matches("pub ")
+                .trim_start_matches("use crate::{");
+            if names
+                .split([',', '{', '}', ' ', ';'])
+                .any(|name| name == "api")
+            {
+                found.push((relative.clone(), start, "use crate::{api}".to_string()));
+            }
+            if trimmed.contains('}') {
+                in_group = None;
+            }
+        }
+    }
+    for (line_no, line) in lines {
+        let mut rest = line;
+        if line.trim_start().starts_with("use crate::api;") {
+            found.push((relative.clone(), line_no, "use crate::api".to_string()));
+        }
+        while let Some(at) = rest.find("crate::api::") {
+            let path_text: String = rest[at..]
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == ':')
+                .collect();
+            found.push((
+                relative.clone(),
+                line_no,
+                path_text.trim_end_matches(':').to_string(),
+            ));
+            rest = &rest[at + "crate::api::".len()..];
+        }
+    }
+    found
+}
+
 fn crossings() -> Vec<(String, usize, String)> {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut files = Vec::new();
@@ -90,21 +138,7 @@ fn crossings() -> Vec<(String, usize, String)> {
             .unwrap_or(&path)
             .to_string_lossy()
             .replace('\\', "/");
-        for (line_no, line) in production_lines(&source) {
-            let mut rest = line;
-            while let Some(at) = rest.find("crate::api::") {
-                let path_text: String = rest[at..]
-                    .chars()
-                    .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == ':')
-                    .collect();
-                found.push((
-                    relative.clone(),
-                    line_no,
-                    path_text.trim_end_matches(':').to_string(),
-                ));
-                rest = &rest[at + "crate::api::".len()..];
-            }
-        }
+        found.extend(crossings_in(&relative, &source));
     }
     found
 }
@@ -136,4 +170,36 @@ fn the_not_yet_moved_list_only_names_crossings_that_still_exist() {
             "{file} no longer uses {path}: take it off NOT_YET_MOVED"
         );
     }
+}
+
+#[test]
+fn every_way_into_api_is_seen() {
+    let cases = [
+        (
+            "let x = crate::api::agent::start();",
+            "crate::api::agent::start",
+        ),
+        ("use crate::api;", "use crate::api"),
+        ("use crate::{api, services};", "use crate::{api}"),
+        (
+            "use crate::{\n    services,\n    api,\n};",
+            "use crate::{api}",
+        ),
+    ];
+    for (source, expected) in cases {
+        let found = crossings_in("x.rs", source);
+        assert!(
+            found.iter().any(|(_, _, path)| path == expected),
+            "{source:?} not seen: {found:?}"
+        );
+    }
+    assert!(crossings_in("x.rs", "// crate::api::agent in a comment").is_empty());
+    assert!(crossings_in("x.rs", "use crate::{services, apis};").is_empty());
+    assert!(
+        crossings_in(
+            "x.rs",
+            "fn f() {}\n#[cfg(test)]\nmod tests {\n    use crate::api;\n}"
+        )
+        .is_empty()
+    );
 }

@@ -44,7 +44,6 @@ fn agent_run_event_stream(run: Arc<AgentRun>) -> impl Stream<Item = Result<Event
     })
 }
 
-mod autonomy_dispatch;
 mod discord_pairing;
 mod discord_status;
 mod feishu_pairing;
@@ -66,7 +65,6 @@ mod telegram_pairing;
 mod telegram_status;
 
 pub(crate) use crate::services::agent::run::*;
-pub use autonomy_dispatch::*;
 pub use discord_pairing::*;
 pub use discord_status::*;
 pub use feishu_pairing::*;

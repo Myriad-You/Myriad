@@ -19,6 +19,7 @@ use crate::services::agent::consciousness::{
 use crate::services::agent::run_hub::create_run;
 use crate::services::agent::sessions::persist_assistant_message;
 
+mod autonomy_dispatch;
 mod boot;
 mod envelopes;
 mod intentions;
@@ -27,6 +28,7 @@ mod start;
 mod types;
 mod waiting;
 
+pub use autonomy_dispatch::*;
 pub use boot::*;
 pub(crate) use envelopes::*;
 pub(crate) use intentions::*;
