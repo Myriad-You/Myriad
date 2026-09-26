@@ -304,7 +304,7 @@ impl TappSchedulerEngine {
                     serde_json::from_value::<ScheduleConfig>(task.schedule_config.clone())
                 {
                     if let Some(cron_str) = config.cron {
-                        if let Ok(schedule) = cron::Schedule::from_str(&cron_str) {
+                        if let Ok(schedule) = parse_cron_schedule(&cron_str) {
                             let mut count = 0i64;
                             for next in schedule.after(&next_run) {
                                 if next >= now {
@@ -1666,7 +1666,7 @@ ORDER BY r.updated_at, r.record_id
             }
             ScheduleType::Cron => {
                 let cron_str = config.cron.ok_or("Missing cron")?;
-                let schedule = Schedule::from_str(&cron_str).map_err(|error| {
+                let schedule = parse_cron_schedule(&cron_str).map_err(|error| {
                     tracing::warn!(%error, cron = %cron_str, "invalid cron expression");
                     format!("Invalid cron expression: {cron_str}")
                 })?;
@@ -1676,6 +1676,75 @@ ORDER BY r.updated_at, r.record_id
             }
         }
     }
+}
+
+/// Tapp 文档与 Agent 能力约定的是 5 段 Unix cron（分 时 日 月 周，周 0/7 = 周日），
+/// `cron` crate 却要 6/7 段（带秒）且周字段 1 = 周日。5 段表达式补上秒、把周字段
+/// 展开成英文缩写再交给 crate；6/7 段原样透传，已落库的旧任务语义不变。
+pub(crate) fn parse_cron_schedule(expr: &str) -> Result<Schedule, String> {
+    let fields: Vec<&str> = expr.split_whitespace().collect();
+    let normalized = if let [minute, hour, day, month, weekday] = fields[..] {
+        let weekday = unix_weekday_to_names(weekday)?;
+        format!("0 {minute} {hour} {day} {month} {weekday}")
+    } else {
+        expr.to_string()
+    };
+    Schedule::from_str(&normalized).map_err(|error| error.to_string())
+}
+
+const WEEKDAY_NAMES: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/// Unix 周字段（`1-5`、`0,6`、`*/2`、`mon-fri`）→ crate 认的缩写列表，绕开两边编号差一位。
+fn unix_weekday_to_names(field: &str) -> Result<String, String> {
+    if field == "*" || field == "?" {
+        return Ok(field.to_string());
+    }
+    let mut days = [false; 7];
+    for item in field.split(',') {
+        let (base, step) = match item.split_once('/') {
+            Some((base, step)) => (
+                base,
+                step.parse::<usize>()
+                    .ok()
+                    .filter(|step| *step > 0)
+                    .ok_or_else(|| format!("Invalid day-of-week step: {item}"))?,
+            ),
+            None => (item, 1),
+        };
+        let (low, high) = if base == "*" {
+            (0, 6)
+        } else if let Some((low, high)) = base.split_once('-') {
+            (unix_weekday(low)?, unix_weekday(high)?)
+        } else {
+            let day = unix_weekday(base)?;
+            (day, if step > 1 { 6 } else { day })
+        };
+        if low > high {
+            return Err(format!("Invalid day-of-week range: {item}"));
+        }
+        for day in (low..=high).step_by(step) {
+            days[day % 7] = true;
+        }
+    }
+    Ok(WEEKDAY_NAMES
+        .iter()
+        .zip(days)
+        .filter_map(|(name, set)| set.then_some(*name))
+        .collect::<Vec<_>>()
+        .join(","))
+}
+
+/// 0–7（0 与 7 都是周日）或三字母英文缩写。
+fn unix_weekday(raw: &str) -> Result<usize, String> {
+    if let Ok(day) = raw.parse::<usize>() {
+        return (day <= 7)
+            .then_some(day)
+            .ok_or_else(|| format!("Invalid day of week: {raw}"));
+    }
+    WEEKDAY_NAMES
+        .iter()
+        .position(|name| name.eq_ignore_ascii_case(raw))
+        .ok_or_else(|| format!("Invalid day of week: {raw}"))
 }
 
 /// Parse `UTC`, `Z`, `+08:00`, `-05:00`, `UTC+8`, `UTC+08:00`.

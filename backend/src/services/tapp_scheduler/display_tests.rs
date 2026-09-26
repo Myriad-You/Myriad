@@ -79,6 +79,39 @@ mod tests {
         assert_eq!(next.timestamp_millis(), 1_030_000);
     }
 
+    fn next_cron(expr: &str) -> Result<Option<String>, String> {
+        // 2026-09-26 是周六
+        let from = DateTime::parse_from_rfc3339("2026-09-26T01:30:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        TappSchedulerEngine::calculate_next_run(&ScheduleType::Cron, &json!({ "cron": expr }), from)
+            .map(|next| next.map(|next| next.format("%m-%d %H:%M").to_string()))
+    }
+
+    #[test]
+    fn cron_accepts_documented_five_field_unix_syntax() {
+        let cases = [
+            ("0 */6 * * *", "09-26 06:00"),
+            ("*/30 * * * *", "09-26 02:00"),
+            // 周字段按 Unix 编号：1 = 周一，0 与 7 都是周日
+            ("0 9 * * 1", "09-28 09:00"),
+            ("0 9 * * 0", "09-27 09:00"),
+            ("0 9 * * 7", "09-27 09:00"),
+            ("0 9 * * 1-5", "09-28 09:00"),
+            ("0 9 * * 5-7", "09-26 09:00"),
+            ("0 9 * * mon", "09-28 09:00"),
+            ("0 9 * * */3", "09-26 09:00"),
+            // 6 段（带秒）照旧透传
+            ("0 0 9 * * *", "09-26 09:00"),
+        ];
+        for (expr, expected) in cases {
+            assert_eq!(next_cron(expr), Ok(Some(expected.to_string())), "{expr}");
+        }
+        for expr in ["0 9 * * 8", "0 9 * * 5-1", "0 9 * *"] {
+            assert!(next_cron(expr).is_err(), "{expr}");
+        }
+    }
+
     #[test]
     fn backend_action_pipeline_is_bounded_for_recovery_lease() {
         let actions = (0..=MAX_SCHEDULER_BACKEND_ACTIONS)
