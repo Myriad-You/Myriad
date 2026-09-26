@@ -221,8 +221,12 @@ impl ChatSession {
                 if !super::agent::turn::cancel_chat_run(user_id, &session_id, &run_id).await {
                     if let Ok(db) = super::process_db::database() {
                         if let Err(error) =
-                            crate::api::agent::mark_spoken_reply_cut_off(&db, &session_id, &run_id)
-                                .await
+                            crate::services::agent::sessions::mark_spoken_reply_cut_off(
+                                &db,
+                                &session_id,
+                                &run_id,
+                            )
+                            .await
                         {
                             tracing::warn!(%error, "[Agora chat] could not mark a cut-off reply");
                         }

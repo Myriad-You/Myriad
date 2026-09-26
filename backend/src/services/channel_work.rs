@@ -19,7 +19,7 @@ use myriad_agent_rules::channel::{
     discord_reply_markup, ensure_pending_id, feishu_dm_capabilities, feishu_reply_markup,
     format_channel_result, format_pending_prompt, panel_entry_reply, parse_channel_command,
     pending_prompt_from_model_json, plan_delivery, qq_c2c_capabilities, should_deliver_sequence,
-    split_channel_text, task_started_reply, telegram_callback_action, telegram_dm_capabilities,
+    split_channel_text, telegram_callback_action, telegram_dm_capabilities,
     telegram_force_reply_markup, telegram_reply_markup,
 };
 use myriad_agent_rules::{is_cancellable_task_status, session_id_from_lane_id};
@@ -400,8 +400,13 @@ async fn handle_command(
             cancel_session_tasks(db, user_id, session_id).await;
             clear_pending(db, platform, session_key).await;
             clear_outbound(db, platform, session_key).await;
-            match crate::api::agent::ensure_session(db, None, user_id, AgentInteractionMode::Work)
-                .await
+            match crate::services::agent::sessions::ensure_session(
+                db,
+                None,
+                user_id,
+                AgentInteractionMode::Work,
+            )
+            .await
             {
                 Ok(new_id) => {
                     let _ = put_session(
@@ -739,7 +744,7 @@ pub(crate) async fn say_first(
                 return None;
             }
             if let Some(chat) = chat::chat_session(db, platform, user_id, &session_key).await {
-                if let Err(error) = crate::api::agent::persist_assistant_message(
+                if let Err(error) = crate::services::agent::sessions::persist_assistant_message(
                     db,
                     &chat,
                     None,
@@ -798,10 +803,14 @@ async fn bind_session(
             return Ok(stored);
         }
     }
-    let session_id =
-        crate::api::agent::ensure_session(db, None, user_id, AgentInteractionMode::Work)
-            .await
-            .map_err(DbErr::Custom)?;
+    let session_id = crate::services::agent::sessions::ensure_session(
+        db,
+        None,
+        user_id,
+        AgentInteractionMode::Work,
+    )
+    .await
+    .map_err(DbErr::Custom)?;
     let stored = StoredSession {
         session_id,
         last_run_id: None,

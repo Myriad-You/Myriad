@@ -835,7 +835,7 @@ async fn run_turn(
         .ok()
         .and_then(|sessions| sessions.get(&key).cloned());
     // Made as the group's from the start: never read back as a private one.
-    let session_id = crate::api::agent::ensure_session_in(
+    let session_id = crate::services::agent::sessions::ensure_session_in(
         db,
         known.as_deref(),
         user_id,

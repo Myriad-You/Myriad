@@ -154,9 +154,14 @@ pub(super) async fn chat_session(
     if let Some(id) = stored.chat_session_id.clone().filter(|id| !id.is_empty()) {
         return Some(id);
     }
-    let id = crate::api::agent::ensure_session(db, None, user_id, AgentInteractionMode::Chat)
-        .await
-        .ok()?;
+    let id = crate::services::agent::sessions::ensure_session(
+        db,
+        None,
+        user_id,
+        AgentInteractionMode::Chat,
+    )
+    .await
+    .ok()?;
     stored.chat_session_id = Some(id.clone());
     put_session(db, platform, user_id, session_key, stored)
         .await
