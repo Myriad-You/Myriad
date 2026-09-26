@@ -1,0 +1,71 @@
+name: Feature request · 功能建议
+description: Suggest something new, or a change to how an existing feature works. · 提议新功能，或改进现有功能。
+labels: ["✨Feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ideas that are still vague fit better in [Discussions](https://github.com/Myriad-You/Myriad/discussions) first.
+        还没想清楚的点子，建议先到 [Discussions](https://github.com/Myriad-You/Myriad/discussions) 聊聊。
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before you suggest · 提交前确认
+      options:
+        - label: I searched existing issues and discussions for the same idea. · 已搜索过现有 issue 和 discussion。
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area · 所在模块
+      options:
+        - Homepage · 首页
+        - Platforms · 外部平台
+        - Library & reports · 媒体库与报告
+        - Persona & 2.5D · 形象与 2.5D
+        - Tapp
+        - Agent
+        - Phantasi
+        - Federation · 联邦
+        - Accounts & visibility · 账户与可见性
+        - Deployment / update / backup · 部署 / 更新 / 备份
+        - Other · 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem · 要解决的问题
+      description: What are you trying to do, and what gets in the way today? Start from the situation, not the solution. · 你想做什么，现在卡在哪里？先讲场景，再讲方案。
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution · 设想的方案
+      description: How it could work from the user's point of view. Mockups welcome. · 从使用者角度描述它怎么工作，欢迎附草图。
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered · 考虑过的替代方案
+      description: Workarounds you use today, or other designs you ruled out and why. · 目前的变通办法，或排除掉的其他方案及原因。
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else · 补充
+      description: Who else benefits, related projects, links. If it touches Tapp permissions or credentials, say so. · 还有谁受益、可参考的项目、链接。如涉及 Tapp 权限或凭据请注明。
+
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution · 参与
+      options:
+        - label: I'd like to work on this myself. · 我愿意自己来实现。

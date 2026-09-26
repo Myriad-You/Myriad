@@ -1,0 +1,116 @@
+name: Bug report · 问题反馈
+description: Something in Myriad does not behave as it should. · Myriad 的某个功能表现不对。
+labels: ["⚠️bug?"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report. A precise report gets fixed much faster.
+        感谢反馈。描述越具体，修得越快。
+
+        **Security issues do not go here** — use [private vulnerability reporting](https://github.com/Myriad-You/Myriad/security/advisories/new).
+        **安全问题请勿在此提交**，请走[私密漏洞报告](https://github.com/Myriad-You/Myriad/security/advisories/new)。
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before you report · 提交前确认
+      options:
+        - label: I searched existing issues and this has not been reported. · 已搜索过现有 issue，没有人报告过。
+          required: true
+        - label: I am on the [latest release](https://github.com/Myriad-You/Myriad/releases/latest), or I confirmed it still happens there. · 使用的是最新版本，或已确认最新版本仍有此问题。
+          required: true
+        - label: I did a hard refresh (Ctrl/Cmd + Shift + R) and the problem persists. · 已强制刷新页面，问题依旧。
+          required: false
+        - label: I have not modified the source code or images. · 没有改过源码或镜像。
+          required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area · 所在模块
+      options:
+        - Homepage · 首页
+        - Platforms · 外部平台
+        - Library & reports · 媒体库与报告
+        - Persona & 2.5D · 形象与 2.5D
+        - Tapp
+        - Agent
+        - Phantasi
+        - Federation · 联邦
+        - Accounts & visibility · 账户与可见性
+        - Deployment / update / backup · 部署 / 更新 / 备份
+        - Other · 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened · 实际表现
+      description: What did you see? Include the exact error message if there is one. · 发生了什么？有报错请原文贴出。
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected · 预期表现
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce · 复现步骤
+      description: Minimal steps from a fresh page load. Say whether it happens every time. · 从打开页面开始的最少步骤，并说明是否每次都出现。
+      placeholder: |
+        1. Go to …
+        2. Click …
+        3. See …
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Myriad version · 版本
+      description: Shown in the admin updater settings, or the image tag from `docker compose images`. · 管理员更新设置页可见，或 `docker compose images` 里的镜像标签。
+      placeholder: v0.5.7
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment · 部署方式
+      options:
+        - Docker Compose (official stack) · 官方 Docker Compose
+        - Native (no Docker) · 原生部署
+        - Local development (scripts/dev.sh) · 本地开发
+        - Other · 其他
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment · 环境
+      description: Server OS / CPU arch, and the browser + version where you saw it. · 服务器系统与架构，出问题的浏览器及版本。
+      placeholder: Debian 12 amd64 · Chrome 141 / Safari 26 iOS
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs · 日志
+      description: |
+        e.g. `docker compose logs --tail=200 backend`, plus the browser console if it's a UI problem.
+        例如 `docker compose logs --tail=200 backend`；界面问题请附浏览器控制台输出。
+        **Remove tokens, API keys, passwords and personal data before pasting. · 粘贴前请删掉令牌、API key、密码和个人信息。**
+      render: shell
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots / anything else · 截图与补充
+      description: Screenshots, screen recordings, related config (redacted), or what you already tried. · 截图、录屏、相关配置（已脱敏）、已尝试过的办法。
