@@ -1,12 +1,11 @@
-use crate::services::agent::capability::CapabilityRef;
-use chrono::Utc;
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
+#[cfg(test)]
 use std::collections::HashMap;
 
 use super::agent_header::*;
 use super::types::*;
-use super::{capability, executor, mcp, memory, skill, types};
+use super::{capability, executor, memory};
 
 /// 一次办事结束后交给记忆抽取的材料。
 pub(crate) struct MemoryRecordParams<'a> {

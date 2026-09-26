@@ -7,6 +7,6 @@ mod rooms_and_router;
 mod social;
 
 pub use rooms_and_router::router;
-pub use social::{
-    admin_federation_domain_move, federation_get_public_room, json_rejection_response,
-};
+#[cfg(test)]
+pub use social::json_rejection_response;
+pub use social::{admin_federation_domain_move, federation_get_public_room};

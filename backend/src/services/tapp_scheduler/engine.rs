@@ -23,7 +23,6 @@ use crate::services::tapp_storage::{
 };
 use myriad_tapp_contract::manifest::TappAiOperation;
 
-use crate::GLOBAL_DYNAMIC_CONFIG;
 use crate::models::entities::tapp_scheduled_tasks::{
     self, BackendAction, BackendActionWrapper, ExecutionTarget, MissedPolicy, RetryConfig,
     ScheduleConfig, ScheduleType, TaskScope, TaskStats,
@@ -2182,9 +2181,14 @@ mod frontend_finalizer_tests {
         );
         receipt.unwrap();
         timeout.unwrap();
-        TappSchedulerEngine::finalize_frontend_execution(&db, execution, ExecutionStatus::Success, None)
-            .await
-            .unwrap();
+        TappSchedulerEngine::finalize_frontend_execution(
+            &db,
+            execution,
+            ExecutionStatus::Success,
+            None,
+        )
+        .await
+        .unwrap();
         let task = tapp_scheduled_tasks::Entity::find_by_id(1)
             .one(&db)
             .await

@@ -5,7 +5,6 @@
 //! schema via `search_path` and drops it on [`SchemaDb::close`], so no rows are
 //! left in the shared schema. Unset → tests skip.
 use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseConnection};
-use sea_orm_migration::MigratorTrait;
 
 pub(crate) struct SchemaDb {
     pub db: DatabaseConnection,

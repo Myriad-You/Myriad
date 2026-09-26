@@ -3,7 +3,7 @@
 use std::{sync::Arc, time::Duration};
 
 use axum::{Json, Router, extract::State, http::StatusCode, routing::get};
-use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseConnection};
+use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 use serde_json::json;
 use tokio::sync::watch;
 

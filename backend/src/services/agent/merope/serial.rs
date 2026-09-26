@@ -352,14 +352,14 @@ mod tests {
     #[test]
     fn a_book_is_cut_between_paragraphs_into_days() {
         let paragraph = "あ".repeat(1_200);
-        let text = vec![paragraph.as_str(); 9].join("\n");
+        let text = [paragraph.as_str(); 9].join("\n");
         let parts = parts(&text, "ja");
         // 1,200 a paragraph, 5,000 a day: four paragraphs a part, and the
         // one left over is too short to stand alone.
         assert_eq!(parts.len(), 2);
         assert!(parts.iter().all(|part| part.chars().count() >= 4_800));
         let english = "word ".repeat(400);
-        let text = vec![english.trim(); 12].join("\n\n");
+        let text = [english.trim(); 12].join("\n\n");
         let parts = super::parts(&text, "en");
         assert_eq!(parts.len(), 3);
         assert!(!parts[0].contains("  "));

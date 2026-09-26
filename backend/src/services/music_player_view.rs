@@ -3,6 +3,7 @@
 //! `NeteaseService::fetch_playlist` stays fat — platform liked-songs still needs
 //! full tracks. This module is the player-proxy boundary only.
 
+#[cfg(test)]
 use myriad_platform_utils::netease::ensure_https_url;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
@@ -540,7 +541,11 @@ mod tests {
 
     #[test]
     fn qq_missing_or_malformed_songlist_is_invalid() {
-        for playlist in [json!({}), json!({"songlist": null}), json!({"songlist": {}})] {
+        for playlist in [
+            json!({}),
+            json!({"songlist": null}),
+            json!({"songlist": {}}),
+        ] {
             for upstream in [
                 json!({"code": 0, "data": {"cdlist": [playlist.clone()]}}),
                 json!({"code": 0, "cdlist": [playlist.clone()]}),

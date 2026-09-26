@@ -495,7 +495,6 @@ pub async fn save(
 mod tests {
     use super::*;
     use sea_orm::Database;
-    use sea_orm_migration::MigratorTrait;
 
     #[test]
     fn normalization_fills_new_catalog_entries_and_drops_unknown_ones() {

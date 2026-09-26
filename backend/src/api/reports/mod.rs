@@ -11,8 +11,7 @@ mod mock;
 mod prompt_data;
 mod prompts;
 
+#[cfg(test)]
+pub(crate) use generate::enabled_report_platforms;
 pub use generate::{generate_all_reports, generate_platform_reports};
-pub(crate) use generate::{
-    enabled_report_platforms, public_report_owner_user_id, resolve_report_user_id_for_public_read,
-};
 pub use latest_and_list::get_latest_report;

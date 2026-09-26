@@ -2,8 +2,7 @@
 //!
 //! 包含能力名称映射、步骤描述、风险评估等辅助函数
 
-use super::super::types::{Capability, RecipeStep};
-use crate::services::agent::capability::CapabilityRef;
+use super::super::types::Capability;
 use serde_json::{Value, json};
 
 /// 能力在 Planner 索引中的说明文字。

@@ -6,7 +6,6 @@ use super::agent_footer::*;
 use super::agent_header::*;
 use super::motion_overlay::{round_motion_style, utterance_index_in_session};
 use super::types::*;
-use super::{capability, executor, response_agent, types};
 
 impl Agent {
     /// 创建新的 Agent 实例

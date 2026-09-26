@@ -39,6 +39,7 @@ impl std::fmt::Display for ProviderError {
 
 impl std::error::Error for ProviderError {}
 
+#[cfg(test)]
 pub use myriad_agent_rules::parse_image_dim;
 
 /// Read width/height from task input via the shared image-size rule.

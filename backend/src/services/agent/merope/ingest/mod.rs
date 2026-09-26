@@ -18,15 +18,13 @@ use sea_orm::DatabaseConnection;
 
 use super::gates::IngestSight;
 use super::is_logged_in_addressee;
-use super::store::{insert_diary, insert_remembered_if_new, latest_open_session};
+use super::store::{insert_remembered_if_new, latest_open_session};
 use super::{activity_is_busy, current_activity, effective_do_not_disturb};
 use crate::models::entities::agent_addressee_state;
 use crate::services::agent::consciousness::last_live_presence;
 use crate::services::agent::run_hub;
 
-pub use produce::{
-    ingest, spawn, spawn_diary, spawn_presence, stable_consciousness_event_id, work_outcome_parent,
-};
+pub use produce::{spawn, spawn_diary, spawn_presence};
 pub use redeem::tick_speak_intents;
 
 const SAME_EVENT_MINUTES: i64 = 15;

@@ -5,11 +5,11 @@ mod generate_internal;
 mod persist;
 
 pub(crate) use enrich::finalize_public_platform_report;
+pub(crate) use generate_internal::generate_platform_reports_internal;
+#[cfg(test)]
 pub(crate) use generate_internal::{
-    anime_status_counts_five, generate_platform_reports_internal, github_contribution_level,
-    normalize_steam_player_type,
+    anime_status_counts_five, github_contribution_level, normalize_steam_player_type,
 };
-pub(crate) use persist::MAX_CONCURRENT_PLATFORM_REPORTS;
 
 use axum::{Extension, Json, extract::State, http::HeaderMap};
 use sea_orm::DatabaseConnection;

@@ -12,6 +12,7 @@ use myriad_error::AppError;
 use sea_orm::DatabaseConnection;
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde::Deserialize;
+#[cfg(test)]
 use serde_json::json;
 
 use crate::federation::types::*;
@@ -202,15 +203,17 @@ async fn nodeinfo_usage_counts(
     let row = db
         .query_one_raw(Statement::from_string(DatabaseBackend::Postgres, SQL))
         .await?
-        .ok_or_else(|| {
-            sea_orm::DbErr::Custom("NodeInfo usage aggregate returned no row".into())
-        })?;
+        .ok_or_else(|| sea_orm::DbErr::Custom("NodeInfo usage aggregate returned no row".into()))?;
     let column = |name: &str| {
         row.try_get::<i64>("", name)
             .map(|n| n.max(0) as u64)
             .map_err(|error| sea_orm::DbErr::Custom(error.to_string()))
     };
-    Ok((column("total_users")?, column("active_month")?, column("local_posts")?))
+    Ok((
+        column("total_users")?,
+        column("active_month")?,
+        column("local_posts")?,
+    ))
 }
 
 /// Canonical `acct:` domain for a WebFinger resource addressed at this instance.

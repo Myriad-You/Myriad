@@ -1,6 +1,6 @@
 //! Room helpers (membership, fanout, name validation).
 use axum::{Json, http::StatusCode};
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
+use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::json;
 
 use crate::federation::types::*;

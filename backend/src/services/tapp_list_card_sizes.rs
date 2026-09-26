@@ -4,7 +4,9 @@ use std::collections::BTreeMap;
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(test)]
+use serde_json::json;
 
 const MAX_ENTRIES: usize = 256;
 const MAX_TAPP_ID_LEN: usize = 128;

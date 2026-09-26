@@ -50,7 +50,6 @@ pub async fn post_live_presence(
 mod tests {
     use super::*;
     use axum::response::IntoResponse;
-    use serde_json::json;
 
     #[test]
     fn parse_failure_does_not_echo_raw_json() {

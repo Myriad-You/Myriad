@@ -7,12 +7,15 @@
 //! - platform write item cap
 //! - multi-feed prioritization for phantasi.subscribe
 
+#[cfg(test)]
 pub use myriad_agent_rules::{
     MAX_FEED_NAME_LEN, MAX_FEED_URLS, MAX_PLATFORM_WRITE_ITEMS, MAX_UPDATE_INTERVAL,
-    MIN_UPDATE_INTERVAL, clamp_update_interval_minutes, collect_subscribe_url_candidates,
-    extract_and_prioritize_feeds, feed_priority_score, is_disallowed_subscribe_host,
-    is_disallowed_subscribe_ip, platform_write_cap_error, platform_write_items_over_cap,
-    sanitize_feed_name, take_feed_urls_to_try, validate_subscribe_url_policy,
+    MIN_UPDATE_INTERVAL, extract_and_prioritize_feeds, feed_priority_score,
+};
+pub use myriad_agent_rules::{
+    clamp_update_interval_minutes, collect_subscribe_url_candidates, is_disallowed_subscribe_ip,
+    platform_write_cap_error, platform_write_items_over_cap, sanitize_feed_name,
+    take_feed_urls_to_try, validate_subscribe_url_policy,
 };
 
 #[cfg(test)]

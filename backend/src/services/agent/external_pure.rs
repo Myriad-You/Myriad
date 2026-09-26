@@ -3,16 +3,22 @@
 //! Handlers keep outbound HTTP. Domain symbols live in `myriad-agent-rules`
 //! and are re-exported here so existing imports compile.
 
-use serde_json::{Value, json};
+#[cfg(test)]
+use serde_json::json;
+#[cfg(test)]
 use std::collections::HashMap;
 
 pub use myriad_agent_rules::{
-    HTTP_FETCH_MAX_BODY_BYTES, SCRAPE_SKIP_TAGS, WEB_SCRAPE_DEFAULT_MAX_LENGTH,
-    WEB_SCRAPE_MAX_HTML_BYTES, classify_outbound_fetch, compress_and_truncate_text,
-    first_i64_param, first_string_param, hitokoto_type, http_body_exceeds_limit,
-    http_body_size_error, http_content_length_error, http_fetch_method, match_mcp_capability_id,
-    mcp_arguments, optional_string_param, parse_http_body_value, parse_mcp_capability_id,
-    sanitize_http_headers, scrape_max_length, scrape_selector, scrape_should_skip_tag,
+    HTTP_FETCH_MAX_BODY_BYTES, WEB_SCRAPE_MAX_HTML_BYTES, classify_outbound_fetch,
+    compress_and_truncate_text, first_i64_param, first_string_param, hitokoto_type,
+    http_body_size_error, http_fetch_method, match_mcp_capability_id, mcp_arguments,
+    optional_string_param, parse_http_body_value, sanitize_http_headers, scrape_max_length,
+    scrape_selector, scrape_should_skip_tag,
+};
+#[cfg(test)]
+pub use myriad_agent_rules::{
+    WEB_SCRAPE_DEFAULT_MAX_LENGTH, http_body_exceeds_limit, http_content_length_error,
+    parse_mcp_capability_id,
 };
 
 #[cfg(test)]

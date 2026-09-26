@@ -29,33 +29,39 @@ pub(crate) mod upgrade;
 mod urls;
 mod validate;
 
-pub use access::{can_manage, can_read};
-pub use binding::{Authority, Bound, Citation, Citations, Consumer, Unresolved, Visibility, bind};
+pub use binding::{Authority, Citations, Consumer, Unresolved, bind};
+#[cfg(test)]
+pub use cite::bind_and_publish_wallpaper;
 pub use cite::{
-    bind_ai_task, bind_and_publish_dashboard_layout, bind_and_publish_site_image,
-    bind_and_publish_wallpaper, bind_note_draft, bind_note_published, bind_persona, bind_rss_item,
-    bind_run_input, clear_note_doc, clear_rss_source, extract_registered_paths,
-    normalize_cited_media, normalize_local_url, resolve_asset_id,
+    bind_ai_task, bind_and_publish_dashboard_layout, bind_and_publish_site_image, bind_note_draft,
+    bind_note_published, bind_persona, bind_rss_item, bind_run_input, clear_note_doc,
+    clear_rss_source, normalize_cited_media, normalize_local_url, resolve_asset_id,
 };
 pub(crate) use cite::{
     bind_restored_dashboard_layout, bind_restored_site_image, sync_note_history_refs,
 };
 pub use error::MediaError;
-pub use legacy::{LegacyClass, LegacyPaths};
-pub use maintenance::{maintain, prune_references, start_upgrade_worker};
-pub use recovery::{RecoverPlan, plan_recovery};
-pub use references::{active_count, parse_consumer_type};
+pub use legacy::LegacyPaths;
+#[cfg(test)]
+pub use maintenance::prune_references;
+pub use maintenance::{maintain, start_upgrade_worker};
+#[cfg(test)]
+pub use references::active_count;
 pub use scan::catalog_labels_for_assets;
 pub use serve::{
     FileServe, NO_STORE, ServeOutcome, resolve_alias_or_legacy, resolve_authenticated_content,
     resolve_private_asset, resolve_public_asset,
 };
 pub use store::MediaStore;
+#[cfg(test)]
+pub use types::MediaScope;
 pub use types::{
-    DeleteOutcome, MediaActor, MediaAsset, MediaContext, MediaExposure, MediaScope, MediaSource,
-    MediaState, NewMediaBytes, RecoveryReport, task_media_context,
+    DeleteOutcome, MediaActor, MediaAsset, MediaContext, MediaExposure, MediaSource, MediaState,
+    NewMediaBytes, RecoveryReport, task_media_context,
 };
-pub use urls::{cite_local_path, content_path, public_path, registered_local_path, storage_key};
+#[cfg(test)]
+pub use urls::storage_key;
+pub use urls::{cite_local_path, content_path, registered_local_path};
 
 /// Guest-readable media bytes for local-music playback/covers (public exposure only).
 pub async fn resolve_guest_media_bytes(
@@ -81,8 +87,7 @@ pub async fn resolve_guest_media_bytes(
     Ok((row.mime, bytes))
 }
 pub use validate::{
-    ValidatedPayload, allowed_media_mimes, audio_mime_from_filename, canonical_mime_alias,
-    validate_bytes,
+    allowed_media_mimes, audio_mime_from_filename, canonical_mime_alias, validate_bytes,
 };
 
 /// Resolve a multipart audio MIME for storage: alias-canonicalize, then filename fallback.

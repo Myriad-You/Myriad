@@ -14,9 +14,8 @@ use super::super::store::{
     recent_proactive, recently_spoke_event, touch_proactive,
 };
 use super::super::{
-    MoodTransition, MotionContext, MotionPhase, PerformanceDirective, addressee_speaking_section,
-    direct_motion, format_mood_section, local_directive, public_persona_name, refine_motion,
-    resolve_addressee_label, resolve_round_motion_style,
+    MoodTransition, MotionContext, MotionPhase, PerformanceDirective, direct_motion,
+    local_directive, public_persona_name, refine_motion, resolve_round_motion_style,
 };
 use super::{
     SAME_EVENT_MINUTES, compact_summary, current_sight, is_enabled, is_trivial_line, log_skip,

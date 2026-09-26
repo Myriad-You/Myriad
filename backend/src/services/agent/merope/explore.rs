@@ -602,14 +602,6 @@ pub(crate) fn parse_compared(raw: &str) -> Option<Compared> {
 mod tests {
     use super::*;
 
-    fn looked(kind: &str, at: &str, text: &str) -> Looked {
-        Looked {
-            kind: kind.into(),
-            at: at.into(),
-            title: String::new(),
-            text: text.into(),
-        }
-    }
     #[test]
     fn a_question_grows_from_what_happened() {
         let (_, records, _) = super::super::self_story::probe_input(

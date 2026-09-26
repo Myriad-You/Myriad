@@ -9,9 +9,10 @@ use sea_orm::{
 use serde_json::Value;
 
 pub use myriad_tapp_contract::storage::{
-    HostNamespace, is_host_storage_key, is_reserved_storage_route_key,
-    validate_sandbox_storage_key, validate_storage_key,
+    HostNamespace, validate_sandbox_storage_key, validate_storage_key,
 };
+#[cfg(test)]
+pub use myriad_tapp_contract::storage::{is_host_storage_key, is_reserved_storage_route_key};
 
 /// Per-install soft quota for sandbox + host-managed keys combined.
 pub const TAPP_STORAGE_QUOTA_BYTES: i64 = 8 * 1024 * 1024;

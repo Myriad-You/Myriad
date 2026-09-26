@@ -47,17 +47,16 @@ pub use motion::{
     MotionContext, MotionPhase, PerformanceDirective, direct_motion, local_directive,
     refine_motion, resolve_round_motion_style,
 };
-pub use myriad_merope::RigStateSummary;
 pub use outfit_overlay::{apply_model_wear_directive, chat_wardrobe_section, overlay_outfit_id};
 pub use store::{
     JsonDocumentUpdate, PersonaContractUpdate, PortraitUpdate, acquire_avatar_generation,
     acquire_portrait_generation, avatar_generation_is_pending, clear_persona_on,
     complete_avatar_generation, complete_portrait_generation, credit_music_listening,
-    generation_inputs_changed, get_or_create_state, get_persona, get_persona_on, insert_diary,
-    insert_proactive, latest_diary, list_diary_from_sources, normalize_persona_fields,
-    portrait_generation_is_pending, promote_activity, recent_proactive, release_avatar_generation,
-    release_portrait_generation, rewrite_persona_media_urls, set_activity, set_dnd_schedule,
-    set_do_not_disturb, sticker_avatar_asset_id, update_affect, upsert_persona_on,
+    get_or_create_state, get_persona, get_persona_on, insert_diary, latest_diary,
+    list_diary_from_sources, portrait_generation_is_pending, promote_activity,
+    release_avatar_generation, release_portrait_generation, rewrite_persona_media_urls,
+    set_activity, set_dnd_schedule, set_do_not_disturb, sticker_avatar_asset_id, update_affect,
+    upsert_persona_on,
 };
 
 /// Logged-in users only. Guests use negative ids; heartbeat is `SYSTEM_USER_ID` (0).
@@ -758,11 +757,13 @@ pub fn has_custom_persona(persona: &agent_persona::Model) -> bool {
     format_persona(persona).is_some()
 }
 
-pub use gates::{IngestDecision, IngestSight, decide_ingest, is_valuable_event};
+#[cfg(test)]
+pub use gates::{IngestSight, decide_ingest};
+#[cfg(test)]
+pub use state::Affect;
 pub use state::{
-    ACTIVITY_STALE_SECS, Affect, AffectBaseline, DEFAULT_AROUSAL, DEFAULT_MOOD, MOOD_FLOOR,
-    MUSIC_LISTENING_MIN_SECS, MoodTransition, ORIGIN, apply_task_outcome, apply_user_utterance,
-    clamp_mood, detect_mood_cue, effective_activity, is_extremely_low, mood_band,
+    MUSIC_LISTENING_MIN_SECS, MoodTransition, apply_task_outcome, apply_user_utterance, clamp_mood,
+    detect_mood_cue, effective_activity, is_extremely_low, mood_band,
 };
 
 /// The activity to act on, with a stale one read as idle.

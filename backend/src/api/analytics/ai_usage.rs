@@ -13,9 +13,11 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
+#[cfg(test)]
+use super::intake_helpers::{DEFAULT_SUMMARY_DAYS, MAX_SUMMARY_DAYS};
 use super::intake_helpers::{
-    DEFAULT_SUMMARY_DAYS, MAX_SUMMARY_DAYS, analytics_day_sql, analytics_tz_label,
-    compare_range_kind, metric_delta, resolve_analytics_window,
+    analytics_day_sql, analytics_tz_label, compare_range_kind, metric_delta,
+    resolve_analytics_window,
 };
 
 #[derive(Debug, Deserialize)]

@@ -8,8 +8,6 @@
 
 use serde_json::Value;
 
-use super::ai_process_pure::USER_TEXT_MAX_CHARS;
-use super::identity;
 use super::types::AgentProgressEvent;
 use crate::services::analyzer::StreamDelta;
 

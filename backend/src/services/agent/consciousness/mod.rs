@@ -26,30 +26,29 @@ pub(crate) fn semantic_probe_contract(soul: &str, kind: &str) -> (String, serde_
     )
 }
 
-pub use attention::{AttentionSegment, last_attention, next_attention_segment, touch_attention};
-pub use authorize::{authorize_capability, effective_granted, missing_permission};
-pub use dispatch::{
-    AutonomyClaim, autonomy_cap_from_grant, autonomy_claim_decision, build_autonomy_work_request,
-};
-pub use engine::{
-    ConsciousnessGate, Consideration, consider_event, forbids_propose_work, is_work_outcome,
-    pre_gate,
-};
+#[cfg(test)]
+pub use attention::AttentionSegment;
+pub use attention::{last_attention, touch_attention};
+#[cfg(test)]
+pub use authorize::missing_permission;
+pub use authorize::{authorize_capability, effective_granted};
+pub use dispatch::{AutonomyClaim, autonomy_claim_decision, build_autonomy_work_request};
+#[cfg(test)]
+pub use engine::{ConsciousnessGate, forbids_propose_work, pre_gate};
+pub use engine::{consider_event, is_work_outcome};
 pub use grant::{
-    AutonomyGrantView, AutonomyGrantWriteError, AutonomyVerdict, autonomy_cap_still_allows,
-    autonomy_execute_permission_error, effective_granted_permissions, evaluate_autonomy_grant,
-    intention_may_enter_work, prepare_personal_grant, revoke_personal_grant, skips_user_review,
+    AutonomyGrantView, AutonomyGrantWriteError, AutonomyVerdict, autonomy_execute_permission_error,
+    effective_granted_permissions, evaluate_autonomy_grant, intention_may_enter_work,
+    prepare_personal_grant, revoke_personal_grant, skips_user_review,
 };
 pub use grant_store::AutonomyGrantStore;
-pub use policy::{DecisionPolicyError, validate_decision};
+pub use policy::validate_decision;
 pub use presence::{
     last_live_presence, live_presence_from_custom_data, live_presence_from_request,
     live_presence_panel_open, present_users, remember_live_presence,
 };
 pub use snapshot::capture_self_snapshot;
-pub use speak_intent::{
-    SPEAK_INTENT_TTL_SECS, SpeakIntent, drain_speak_intents, enqueue_speak_intent, new_speak_intent,
-};
+pub use speak_intent::{SpeakIntent, drain_speak_intents, enqueue_speak_intent, new_speak_intent};
 pub use store::IntentStore;
 pub use types::{
     AcceptSource, ConsciousnessAction, ConsciousnessDecision, ConsciousnessEvent, EventUrgency,

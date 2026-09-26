@@ -28,7 +28,6 @@ pub use routes::{create_phantasi_routes, legacy_brew_image_cache_routes};
 #[cfg(test)]
 mod integration_tests {
     use sea_orm::{Database, EntityTrait};
-    use sea_orm_migration::MigratorTrait;
 
     /// DB-gated smoke: empty phantasi_sources after Migrator (list_sources shape dependency).
     /// Set `PHANTASI_TEST_DATABASE_URL` or `NOTIFICATION_TEST_DATABASE_URL` to run.

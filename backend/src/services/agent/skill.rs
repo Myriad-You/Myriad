@@ -17,8 +17,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::RwLock;
 
-use crate::config::ModelTier;
-
 /// Skill 定义
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Skill {

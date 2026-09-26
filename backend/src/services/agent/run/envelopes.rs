@@ -207,7 +207,7 @@ pub(crate) async fn run_envelope_step(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::agent::run_hub::create_run_for_test as create_run;
+
     use tokio_stream::StreamExt;
 
     fn progress(message: &str) -> AgentProgressEvent {

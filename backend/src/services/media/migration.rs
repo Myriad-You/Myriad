@@ -13,7 +13,9 @@ use super::legacy::{
     LegacyKind, LegacyOwner, LegacyPaths, cache_equivalent_path, ext_from_legacy, legacy_disk_path,
     legacy_kind, owner_from_local_path,
 };
-use super::store::{MediaStore, hash_path};
+use super::store::MediaStore;
+#[cfg(test)]
+use super::store::hash_path;
 use super::types::{MediaExposure, MediaScope, MediaSource, MediaState};
 use super::urls::{alias_local_path, storage_key};
 

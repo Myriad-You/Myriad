@@ -15,12 +15,11 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::error::HttpError;
-use crate::middleware::auth::{Claims, ensure_current_admin_on};
+use crate::middleware::auth::Claims;
 use crate::services::permission_service::{TappPermission, UserRole};
 use crate::services::tapp_api_service::{ApiExecutionContext, TappApiService};
 use crate::services::tapp_credentials::{self, TappCredentialError};
 use crate::services::tapp_declared_api::{self, DeclaredApiError};
-use crate::services::tapp_ownership::TappAccessError;
 
 use super::common::check_rate_limit;
 use super::runtime_grant::RuntimeGrantContext;

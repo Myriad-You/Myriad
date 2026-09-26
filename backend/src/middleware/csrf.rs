@@ -1,16 +1,17 @@
-use axum::{
-    Json,
-    extract::Request,
-    http::{HeaderMap, Method, StatusCode, header},
-    middleware::Next,
-    response::{IntoResponse, Response},
-};
+use axum::Json;
+use axum::extract::Request;
+#[cfg(test)]
+use axum::http::header;
+use axum::http::{HeaderMap, Method, StatusCode};
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use hmac::{Hmac, KeyInit, Mac};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
+#[cfg(test)]
 use std::env;
 use subtle::ConstantTimeEq;
 
@@ -1037,7 +1038,7 @@ mod tests {
         use axum::Router;
         use axum::body::Body;
         use axum::middleware::from_fn;
-        use axum::routing::{get, post};
+        use axum::routing::get;
         use tower::ServiceExt;
 
         async fn ok() -> &'static str {

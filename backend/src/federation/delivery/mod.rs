@@ -7,7 +7,8 @@ mod dispatch;
 mod query;
 mod queue;
 
-pub use dispatch::*;
+#[cfg(test)]
+pub(crate) use dispatch::*;
 pub use query::*;
 pub use queue::*;
 

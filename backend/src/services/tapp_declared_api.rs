@@ -4,19 +4,16 @@
 //! Actual outbound execution remains [`crate::services::tapp_api_service`].
 
 use once_cell::sync::Lazy;
-use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
-use crate::GLOBAL_DYNAMIC_CONFIG;
 use crate::models::entities::tapps;
 use crate::services::permission_service::{
-    TappPermissionService, UnknownTappPermission, UserRole, tapp_permission_replacement_hint,
+    UnknownTappPermission, tapp_permission_replacement_hint,
 };
-use crate::services::tapp_ownership::{self, TappAccessError};
 use myriad_tapp_contract::manifest::{TappApiAccess, TappApiDef};
 
 /// 缓存条目：已解析的 API 定义 + 缓存时间

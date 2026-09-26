@@ -15,7 +15,9 @@ mod types;
 
 pub use crud::*;
 pub use e2e::{handle_key_exchange, initiate_e2e_key_exchange};
-pub(crate) use helpers::{fanout_to_remote_members, fanout_to_remote_members_required, get_member_role};
+#[cfg(test)]
+pub(crate) use helpers::fanout_to_remote_members;
+pub(crate) use helpers::{fanout_to_remote_members_required, get_member_role};
 pub use inbox::*;
 pub use members::*;
 pub use messages::*;

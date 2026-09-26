@@ -7,6 +7,7 @@ mod platforms_extended;
 mod types;
 mod x_share;
 
+#[cfg(test)]
 pub(crate) use platforms_core::parse_github_repo_summary;
 pub use types::{GithubRepoSummary, PlatformFetcher};
 pub use x_share::{X_SHARE_DEFAULT_MAX_LEN, build_x_intent_url, compose_x_share_text};

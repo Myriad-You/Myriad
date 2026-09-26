@@ -180,7 +180,7 @@ mod tests {
         let why = reason(&[exam.clone(), later.clone()], Some(hours(30)), now).unwrap();
         assert_eq!(why.due, vec![exam.clone()]);
         // Nothing due, talked yesterday: no reason.
-        assert!(reason(&[later.clone()], Some(hours(30)), now).is_none());
+        assert!(reason(std::slice::from_ref(&later), Some(hours(30)), now).is_none());
         // A while since they talked.
         assert_eq!(
             reason(&[], Some(hours(24 * 4)), now).unwrap().days_since,

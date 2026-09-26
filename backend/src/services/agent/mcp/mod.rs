@@ -12,7 +12,7 @@
 //! - Stdio line / JSON-RPC message cap ([`transport::MAX_MCP_LINE_BYTES`])
 //! - Concurrent live child process cap ([`transport::MAX_MCP_CHILDREN`])
 
-pub use myriad_mcp::{config, manager, protocol, server, transport};
+pub use myriad_mcp::{config, manager, protocol};
 
 use std::path::Path;
 use std::sync::{Arc, OnceLock};

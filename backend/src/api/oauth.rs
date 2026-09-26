@@ -25,7 +25,6 @@ use sea_orm::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::env;
 
 use crate::middleware::auth::{auth_cookie_value, encode_session_token, mint_session_claims};
 use crate::oauth_url_builder::SiteConfig;

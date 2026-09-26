@@ -6,7 +6,6 @@ use axum::{Json, http::StatusCode};
 use serde_json::{Value, json};
 
 pub use myriad_module_visibility::{
-    AgentUsagePreferences, MODULE_VISIBILITY_KEYS, MODULE_VISIBILITY_LEVELS,
     MODULE_VISIBILITY_PREFERENCES_KEY, ModuleVisibilityPreferences,
 };
 

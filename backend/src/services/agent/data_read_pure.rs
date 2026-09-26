@@ -1,11 +1,10 @@
 pub use myriad_agent_rules::{
-    extract_json_array_from_ai_response, parse_rsshub_radar_rules, project_time_info, weekday_zh,
+    extract_json_array_from_ai_response, parse_rsshub_radar_rules, project_time_info,
 };
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn project_time_info_uses_supplied_clock_not_hidden_now() {

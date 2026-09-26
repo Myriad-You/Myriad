@@ -11,7 +11,7 @@
 //! writes, so a fresh request can claim it again. A permanent handler error is
 //! recorded as `rejected` (never as accepted).
 
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseTransaction, Statement};
+use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use sha2::{Digest, Sha256};
 
 use crate::federation::types::{normalize_activity_id, normalize_actor_url};

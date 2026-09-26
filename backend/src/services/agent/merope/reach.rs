@@ -277,17 +277,8 @@ pub(crate) fn writing_first_section(about: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::threads::Thread;
     use super::*;
 
-    fn thread(about: &str, due: Option<DateTime<Utc>>) -> Thread {
-        Thread {
-            id: about.into(),
-            about: about.into(),
-            then: format!("问问{about}"),
-            due,
-        }
-    }
     #[test]
     fn she_writes_a_text_not_a_scene() {
         assert_eq!(

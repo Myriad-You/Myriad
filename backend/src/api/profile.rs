@@ -3,7 +3,7 @@ use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
 };
-use chrono::{Duration, Utc};
+use chrono::Utc;
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, QueryFilter,
     QueryOrder, Statement,
@@ -496,11 +496,10 @@ pub use crate::services::image_proxy_urls::{normalize_json_media_urls, proxy_ima
 
 // library_items：分页/组装缓存与平台条目组装（DB 与 raw 缓存共用）。
 pub use crate::services::library_items::{
-    CachedLibraryItems, LIBRARY_SOURCE_PREFERENCES_KEY, LibraryItem, LibrarySourcePreferences,
-    append_bangumi_library_items, append_mal_library_items, assemble_library_items,
-    cached_library_items,
-    collect_library_source_options, count_library_items_by_type, invalidate_library_assembly_cache,
-    paginate_library_items, store_library_items,
+    CachedLibraryItems, LIBRARY_SOURCE_PREFERENCES_KEY, LibrarySourcePreferences,
+    assemble_library_items, cached_library_items, collect_library_source_options,
+    count_library_items_by_type, invalidate_library_assembly_cache, paginate_library_items,
+    store_library_items,
 };
 async fn load_library_source_preferences(db: &DatabaseConnection) -> LibrarySourcePreferences {
     let sql = "SELECT value FROM configurations WHERE key = $1";

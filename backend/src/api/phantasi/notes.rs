@@ -30,6 +30,7 @@ use crate::models::entities::{phantasi_items, phantasi_sources};
 
 /// 笔记落在「我」分类下 —— 这是站内唯一可做文章级 SEO 的分类。
 /// 直接引用 `api::seo` 的那份取值，不另抄一个字面量。
+#[cfg(test)]
 use crate::api::seo::PHANTASI_MINE_CATEGORY as NOTE_SOURCE_CATEGORY;
 
 #[derive(Debug, Deserialize)]

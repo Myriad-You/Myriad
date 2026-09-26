@@ -19,9 +19,7 @@ use crate::services::tapp_rate_limit::{self, RateLimitError};
 // 平台数据缓存
 // Domain implementation: `services::platform_cache`.
 
-pub use crate::services::platform_cache::{
-    get_available_platforms, get_cached_platform_data, validate_platform_name,
-};
+pub use crate::services::platform_cache::{get_available_platforms, validate_platform_name};
 // acquire_platform_lock / invalidate_cached_platform_data: import from services::platform_cache
 // (write paths use append_filtered_items / write_filtered_document).
 
@@ -209,6 +207,7 @@ pub async fn verify_tapp_approved_permissions(
 
 /// Priority for install selection: 0 = subject's private, 1 = site admin public, 2 = other.
 /// Used by `resolve_accessible_tapp` (and declared-API paths that call it).
+#[cfg(test)]
 pub use tapp_ownership::tapp_owner_priority;
 
 /// 认证边界已解析的持久 user_id（不再解析 `claims.sub`）。
@@ -249,7 +248,6 @@ pub async fn current_tapp_user_role(
 // can share the same heuristics without depending on this API module.
 
 /// 验证提示词安全性（后端层）
-pub use myriad_prompt_security::validate_prompt_security;
 
 #[cfg(test)]
 mod tests {

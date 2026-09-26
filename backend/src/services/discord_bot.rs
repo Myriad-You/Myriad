@@ -31,7 +31,7 @@ use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::{RwLock, watch};
 use tokio_tungstenite::tungstenite::Message;
-use tracing::{info, warn};
+use tracing::warn;
 
 use crate::GLOBAL_DYNAMIC_CONFIG;
 use crate::config::DynamicConfig;
@@ -1005,9 +1005,7 @@ fn log_transport(context: &str, err: &impl std::fmt::Display, token: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use myriad_agent_rules::channel::{
-        DISCORD_DIRECT_MESSAGES, classify_discord_rest, discord_private_text_from_create,
-    };
+    use myriad_agent_rules::channel::{classify_discord_rest, discord_private_text_from_create};
 
     #[test]
     fn fingerprint_intent_matches_rules() {

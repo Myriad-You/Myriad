@@ -31,7 +31,8 @@ use crate::models::entities::{agent_messages, agent_sessions, agent_task_presets
 use crate::services::agent::queue::LaneQueue;
 use crate::services::agent::run_hub::{AgentRun, get_run_for_user};
 use crate::services::agent::{
-    Agent, AgentProgressEvent, LANE_QUEUE, RequestContext, UserAnswer, UserRequest};
+    Agent, AgentProgressEvent, LANE_QUEUE, RequestContext, UserAnswer, UserRequest,
+};
 
 /// 等待用户回答的任务上下文
 /// `spawn_restored_wait_loop` 注册后等待 oneshot；answer / cancel / interrupt 都可 send `done_tx`
@@ -69,10 +70,10 @@ pub use discord_pairing::*;
 pub use discord_status::*;
 pub use feishu_pairing::*;
 pub use feishu_status::*;
-pub use heartbeat_mcp::*;
-pub use helpers::*;
+pub(crate) use heartbeat_mcp::*;
+pub(crate) use helpers::*;
 pub use intentions::*;
-pub use notifications::*;
+pub(crate) use notifications::*;
 pub use presence::*;
 pub use presets::*;
 pub use process::*;

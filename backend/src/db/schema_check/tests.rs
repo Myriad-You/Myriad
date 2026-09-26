@@ -2,8 +2,6 @@
 use super::expected_indexes::get_expected_indexes;
 use super::expected_schema::get_expected_schema;
 use super::introspect::*;
-use super::orchestrator::*;
-use super::seeds::*;
 use super::types::*;
 
 use super::*;
@@ -601,7 +599,6 @@ async fn migrations_leave_no_schema_drift() {
         return;
     };
 
-    use sea_orm_migration::MigratorTrait;
     let db = sea_orm::Database::connect(&url)
         .await
         .expect("connect to the drift-check database");
@@ -1762,7 +1759,7 @@ async fn federation_fk_heal_runs_against_real_catalog() {
         eprintln!("skipping: set MYRIAD_SCHEMA_DRIFT_DB to run the federation FK heal");
         return;
     };
-    use sea_orm_migration::MigratorTrait;
+
     let db = sea_orm::Database::connect(&url)
         .await
         .expect("connect to the drift-check database");
@@ -1949,7 +1946,12 @@ async fn repost_heal_reconciles_half_withdrawn_reposts() {
             .await
             .unwrap()
             .iter()
-            .map(|row| (row.try_get_by_index(0).unwrap(), row.try_get_by_index(1).unwrap()))
+            .map(|row| {
+                (
+                    row.try_get_by_index(0).unwrap(),
+                    row.try_get_by_index(1).unwrap(),
+                )
+            })
             .collect();
         rows.sort();
         rows
@@ -2208,10 +2210,8 @@ async fn tapp_named_runtime_registry_is_renamed_in_place() {
     )
     .await;
     assert_eq!(triggers, ["trg_runtime_registry_subject_user"]);
-    let kept = names(
-        "SELECT payload->>'kept' AS name FROM runtime_registry WHERE record_id = 'k'",
-    )
-    .await;
+    let kept =
+        names("SELECT payload->>'kept' AS name FROM runtime_registry WHERE record_id = 'k'").await;
     assert_eq!(kept, ["true"]);
     db.execute_unprepared(
         "INSERT INTO runtime_mailbox (channel, runtime_id, payload, expires_at) VALUES ('ai_task', 'r', '{}', 1)",
@@ -2257,7 +2257,11 @@ async fn tapp_named_ai_cost_ledger_is_renamed_in_place() {
             .await
             .unwrap()
             .iter()
-            .map(|row| row.try_get::<Option<String>>("", "name").unwrap().unwrap_or_default())
+            .map(|row| {
+                row.try_get::<Option<String>>("", "name")
+                    .unwrap()
+                    .unwrap_or_default()
+            })
             .collect::<Vec<_>>()
     };
     assert_eq!(

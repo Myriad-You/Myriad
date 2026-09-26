@@ -76,7 +76,6 @@ mod split_contract_tests {
 #[cfg(test)]
 mod list_smoke_tests {
     use sea_orm::{ConnectionTrait, Database, DatabaseBackend, Statement};
-    use sea_orm_migration::MigratorTrait;
 
     #[tokio::test]
     async fn list_channels_empty_for_new_user_when_db_provided() {

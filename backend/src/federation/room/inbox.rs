@@ -1,5 +1,5 @@
 //! Remote room activity handlers (inbox).
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
+use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::json;
 use std::collections::HashSet;
 
@@ -910,9 +910,9 @@ pub(crate) async fn backfill_roster_for_new_member(
 
     let mut sent = 0u32;
     for row in members {
-        let member_actor: String = row.try_get("", "actor_url").map_err(|e| {
-            format!("roster backfill member actor_url decode failed: {e}")
-        })?;
+        let member_actor: String = row
+            .try_get("", "actor_url")
+            .map_err(|e| format!("roster backfill member actor_url decode failed: {e}"))?;
         if member_actor.is_empty() {
             return Err("roster backfill saw a member with empty actor_url".into());
         }
@@ -1587,7 +1587,10 @@ mod tests {
         let body = src
             .split("pub async fn handle_room_join(")
             .nth(1)
-            .and_then(|rest| rest.split("pub(crate) async fn backfill_roster_for_new_member").next())
+            .and_then(|rest| {
+                rest.split("pub(crate) async fn backfill_roster_for_new_member")
+                    .next()
+            })
             .expect("handle_room_join");
         let lock_at = body.find("lock_room_capacity").expect("lock");
         let prior_at = body.find("get_membership").expect("membership");
@@ -1601,7 +1604,10 @@ mod tests {
         let body = src
             .split("pub(crate) async fn backfill_roster_for_new_member")
             .nth(1)
-            .and_then(|rest| rest.split("pub(crate) async fn refanout_local_e2e_keys_to_member").next())
+            .and_then(|rest| {
+                rest.split("pub(crate) async fn refanout_local_e2e_keys_to_member")
+                    .next()
+            })
             .expect("backfill_roster_for_new_member");
         assert!(body.contains("insert_and_enqueue_delivery"));
         assert!(!body.contains("roster backfill enqueue failed"));

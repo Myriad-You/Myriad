@@ -299,4 +299,3 @@ pub async fn delete_tapp_report(
         .map_err(crud_http_error)?;
     Ok(Json(json!({ "success": true, "deleted": report_id })))
 }
-use myriad_error::AppError;

@@ -32,11 +32,13 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::models::entities::{phantasi_items, phantasi_sources, tapps};
+#[cfg(test)]
+pub(crate) use crate::services::public_site::PHANTASI_MINE_CATEGORY;
 pub(crate) use crate::services::public_site::{
-    PHANTASI_MINE_CATEGORY, SiteBranding, description_from_manifest, encode_path_segment,
-    load_site_branding, module_is_public_all, name_from_manifest, own_phantasi_item_links,
-    own_phantasi_note_links, phantasi_item_path, phantasi_source_is_own, public_absolute_url,
-    public_tapp_links, strip_html_snippet,
+    SiteBranding, description_from_manifest, encode_path_segment, load_site_branding,
+    module_is_public_all, name_from_manifest, own_phantasi_item_links, own_phantasi_note_links,
+    phantasi_item_path, phantasi_source_is_own, public_absolute_url, public_tapp_links,
+    strip_html_snippet,
 };
 use crate::services::tapp_ownership::{find_admin_user_id, public_install_visible_to_viewer};
 use crate::services::tapp_validation::validate_tapp_id;

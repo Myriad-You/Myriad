@@ -13,7 +13,9 @@ use sea_orm::{
     FromQueryResult, QueryFilter, Statement, prelude::DateTimeWithTimeZone,
 };
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(test)]
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 

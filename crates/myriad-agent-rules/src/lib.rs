@@ -76,6 +76,8 @@ pub const SANITIZE_PROMPT_MAX_CHARS: usize = USER_TEXT_MAX_CHARS;
 /// Counted with `chars()`, not bytes — CJK prompts are 3 bytes per character.
 pub const IMAGE_PROMPT_MAX_CHARS: usize = USER_TEXT_MAX_CHARS;
 
+pub use concept::Concept;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -89,5 +91,3 @@ mod tests {
         assert!(over.chars().count() > IMAGE_PROMPT_MAX_CHARS);
     }
 }
-
-pub use concept::Concept;

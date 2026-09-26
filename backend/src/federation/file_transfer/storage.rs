@@ -19,9 +19,11 @@ pub(super) use crate::federation::limits::TRANSFER_CHUNK_SIZE as DEFAULT_CHUNK_S
 
 /// 单个文件传输总大小上限（产品决策，见 limits 注释）
 pub(super) use crate::federation::limits::MAX_FILE_SIZE;
+#[cfg(test)]
+use crate::federation::limits::MAX_IN_FLIGHT_CHUNK_BYTES;
 use crate::federation::limits::{
     MAX_CONCURRENT_TRANSFER_BYTES, MAX_CONCURRENT_TRANSFERS, MAX_CONCURRENT_TRANSFERS_PER_USER,
-    MAX_IN_FLIGHT_CHUNK_BYTES, max_in_flight_chunk_bytes,
+    max_in_flight_chunk_bytes,
 };
 
 // ── in-flight chunk byte budget ────────────────────────────────────
@@ -1254,11 +1256,14 @@ mod tests {
         assert!(caller.await.unwrap_err().is_cancelled(), "caller was cancelled mid-write");
 
         let flag = finished.clone();
-        let observed = run_transfer_file_work(&db, "ft_cancel_lock", async move {
-            flag.load(Ordering::SeqCst)
-        })
-        .await
-        .unwrap();
+        let observed =
+            run_transfer_file_work(
+                &db,
+                "ft_cancel_lock",
+                async move { flag.load(Ordering::SeqCst) },
+            )
+            .await
+            .unwrap();
         assert!(observed, "next writer waited for the orphaned write");
         fixture.close().await;
     }

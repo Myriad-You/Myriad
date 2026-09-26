@@ -89,7 +89,6 @@ pub async fn update_notification_preferences(
 mod tests {
     use super::*;
     use sea_orm::{ConnectionTrait, Database, DatabaseBackend, Statement};
-    use sea_orm_migration::MigratorTrait;
 
     fn claims(user_id: i32) -> Claims {
         Claims {
