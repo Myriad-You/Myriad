@@ -2708,6 +2708,7 @@ dependencies = [
  "myriad-error",
  "myriad-image-proxy",
  "myriad-json-schema",
+ "myriad-listening",
  "myriad-mcp",
  "myriad-merope",
  "myriad-module-visibility",

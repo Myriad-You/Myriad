@@ -734,6 +734,7 @@ fn request(case: &Case) -> Value {
                 &contract_soul(),
                 &case.input,
                 &case.reply,
+                case.material.as_deref(),
             );
             let input = match &case.material {
                 Some(material) => myriad_agent_rules::untrusted_block("material", material),
@@ -1664,7 +1665,7 @@ fn motion_semantics_require_grounded_output_and_real_review() {
     assert_eq!(input["rig"]["activeBehaviors"][0]["function"], "uncertain");
 }
 
-const MIND_CASES: usize = 65;
+const MIND_CASES: usize = 68;
 
 #[test]
 fn mind_cases_run_through_production_sections_and_contracts() {

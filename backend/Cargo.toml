@@ -57,6 +57,7 @@ myriad-json-schema = { path = "../crates/myriad-json-schema" }
 myriad-outbound = { path = "../crates/myriad-outbound" }
 myriad-platform-utils = { path = "../crates/myriad-platform-utils" }
 myriad-runtime-registry = { path = "../crates/myriad-runtime-registry" }
+myriad-listening = { path = "../crates/myriad-listening" }
 myriad-prompt-security = { path = "../crates/myriad-prompt-security" }
 myriad-agent-rules = { path = "../crates/myriad-agent-rules" }
 myriad-phantasi-notes = { path = "../crates/myriad-phantasi-notes" }

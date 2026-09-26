@@ -6,6 +6,7 @@ pub mod chat_remember;
 pub mod curiosity;
 pub mod doing;
 pub mod gates;
+pub mod hearing;
 pub mod ingest;
 pub(crate) mod inner;
 pub mod life;
