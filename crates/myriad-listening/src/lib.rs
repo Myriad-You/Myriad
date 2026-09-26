@@ -74,6 +74,9 @@ pub struct Section {
     pub loudness_db: f32,
     /// Brightness relative to the whole song, as a ratio.
     pub brightness: f32,
+    /// How different it sounds from what came before, 0 to 1 (the novelty
+    /// at its start; 0 for the first).
+    pub change: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

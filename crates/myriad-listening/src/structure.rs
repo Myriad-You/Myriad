@@ -133,8 +133,9 @@ pub fn sections(seconds: &Seconds) -> Vec<Section> {
         return Vec::new();
     }
     let vectors = features(seconds);
+    let curve = novelty(&vectors);
     let mut starts = vec![0];
-    starts.extend(boundaries(&novelty(&vectors)));
+    starts.extend(boundaries(&curve));
     let spans: Vec<(usize, usize)> = starts
         .iter()
         .enumerate()
@@ -183,6 +184,7 @@ pub fn sections(seconds: &Seconds) -> Vec<Section> {
                 likely_chorus: false,
                 loudness_db: 10.0 * power.max(1e-12).log10() - song_loudness,
                 brightness: brightness / song_brightness,
+                change: if from == 0 { 0.0 } else { curve[from].min(1.0) },
             }
         })
         .collect();
@@ -249,6 +251,8 @@ mod tests {
         assert!(sections[1].likely_chorus && sections[3].likely_chorus);
         assert!(!sections[0].likely_chorus);
         assert!(sections[1].loudness_db > sections[0].loudness_db + 10.0);
+        assert_eq!(sections[0].change, 0.0);
+        assert!(sections[1].change > 0.3, "{}", sections[1].change);
         assert!((repetition(&sections) - 1.0).abs() < 0.01);
     }
 

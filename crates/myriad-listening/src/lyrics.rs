@@ -130,6 +130,7 @@ mod tests {
             likely_chorus,
             loudness_db: 0.0,
             brightness: 1.0,
+            change: 0.5,
         };
         let sections = [
             section(0.0, 30.0, 'A', false),
