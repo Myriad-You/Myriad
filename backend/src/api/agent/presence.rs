@@ -11,7 +11,7 @@ use crate::services::agent::consciousness::{
 };
 use axum::body::Bytes;
 use axum::http::StatusCode;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 fn invalid_presence_payload() -> HttpError {
     HttpError::from((
@@ -50,6 +50,7 @@ pub async fn post_live_presence(
 mod tests {
     use super::*;
     use axum::response::IntoResponse;
+    use serde_json::json;
 
     #[test]
     fn parse_failure_does_not_echo_raw_json() {

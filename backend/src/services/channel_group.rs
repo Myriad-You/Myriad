@@ -825,9 +825,9 @@ async fn run_turn(
     token: &str,
     chime: Option<String>,
 ) -> Option<String> {
-    let claims = crate::services::channel_work::claims_for_user(db, user_id)
+    crate::services::principal::current_roles(db, user_id)
         .await
-        .ok()?;
+        .ok()??;
     let venue = message.venue();
     let key = (venue.clone(), user_id);
     let known = SESSIONS
@@ -847,15 +847,15 @@ async fn run_turn(
     if let Ok(mut sessions) = SESSIONS.lock() {
         sessions.insert(key, session_id.clone());
     }
-    let run = crate::api::agent::start_process_run(
+    let run = crate::services::agent::run::start_for_user(
         db.clone(),
-        claims,
-        crate::api::agent::ProcessRequest {
+        user_id,
+        crate::services::agent::run::ProcessRequest {
             input: message.said(),
-            context: Some(crate::api::agent::ProcessContext {
+            context: Some(crate::services::agent::run::ProcessContext {
                 mode: Some(AgentInteractionMode::Chat),
                 session_id: Some(session_id),
-                group: Some(crate::api::agent::GroupTurn {
+                group: Some(crate::services::agent::run::GroupTurn {
                     transcript: transcript(&venue, Some(&message.message_id)),
                     venue,
                     chime,

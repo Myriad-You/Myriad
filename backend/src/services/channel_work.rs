@@ -22,18 +22,18 @@ use myriad_agent_rules::channel::{
     split_channel_text, telegram_callback_action, telegram_dm_capabilities,
     telegram_force_reply_markup, telegram_reply_markup,
 };
+#[cfg(test)]
+use myriad_agent_rules::channel::task_started_reply;
 use myriad_agent_rules::{is_cancellable_task_status, session_id_from_lane_id};
 use once_cell::sync::Lazy;
 use sea_orm::{
-    ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement, Value as SeaValue,
-};
+    ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
-use crate::api::agent::{ProcessContext, ProcessRequest};
-use crate::middleware::auth::{Claims, mint_session_claims};
+use crate::services::agent::run::{ProcessContext, ProcessRequest};
 use crate::services::agent::run_hub::AgentRun;
 use crate::services::agent::{Agent, AgentInteractionMode, AgentProgressEvent};
 use crate::services::runtime_registry::{self as shared_registry, RegistryIdentity};
@@ -283,13 +283,17 @@ async fn continue_text(
     if !sink.authorized().await {
         return;
     }
-    let claims = match claims_for_user(db, user_id).await {
-        Ok(value) => value,
-        Err(error) => {
-            warn!(%error, user_id, "channel claims lookup failed");
+    match crate::services::principal::current_roles(db, user_id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => {
+            warn!(user_id, "channel user missing");
             return;
         }
-    };
+        Err(error) => {
+            warn!(%error, user_id, "channel user lookup failed");
+            return;
+        }
+    }
     let session_id = match bind_session(db, platform, user_id, session_key).await {
         Ok(stored) => stored.session_id,
         Err(error) => {
@@ -343,7 +347,6 @@ async fn continue_text(
                 }
                 resume_pending(
                     db.clone(),
-                    claims,
                     session_id,
                     session_key,
                     user_id,
@@ -362,7 +365,6 @@ async fn continue_text(
     // She answers as herself; Work is what she hands off.
     chat::start_chat_turn(
         db.clone(),
-        claims,
         user_id,
         session_id,
         input,
@@ -508,7 +510,6 @@ async fn cancel_session_tasks(db: &DatabaseConnection, user_id: i32, session_id:
 /// she handed off for them.
 async fn start_work_run(
     db: DatabaseConnection,
-    claims: Claims,
     user_id: i32,
     session_id: String,
     input: &str,
@@ -521,9 +522,9 @@ async fn start_work_run(
     } else {
         input
     };
-    let run = match crate::api::agent::start_process_run(
+    let run = match crate::services::agent::run::start_for_user(
         db.clone(),
-        claims,
+        user_id,
         ProcessRequest {
             input: input.to_string(),
             context: Some(ProcessContext {
@@ -571,7 +572,6 @@ async fn start_work_run(
 
 async fn resume_pending(
     db: DatabaseConnection,
-    claims: Claims,
     session_id: String,
     session_key: &str,
     user_id: i32,
@@ -588,9 +588,9 @@ async fn resume_pending(
         PendingKind::Clarify { original_input } => {
             let (input, parked_original) = clarify_followup(&original_input, &answer);
             next_original = parked_original;
-            crate::api::agent::start_process_run(
+            crate::services::agent::run::start_for_user(
                 db.clone(),
-                claims,
+                user_id,
                 ProcessRequest {
                     input,
                     context: Some(ProcessContext {
@@ -621,9 +621,9 @@ async fn resume_pending(
             task_id,
             question_id,
             ..
-        } => crate::api::agent::start_answer_run(
+        } => crate::services::agent::run::answer_for_user(
             db.clone(),
-            claims,
+            user_id,
             task_id,
             question_id,
             answer,
@@ -762,33 +762,6 @@ pub(crate) async fn say_first(
     None
 }
 
-pub(crate) async fn claims_for_user(
-    db: &DatabaseConnection,
-    user_id: i32,
-) -> Result<Claims, DbErr> {
-    let row = db
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT username, COALESCE(is_admin, false) AS is_admin, \
-                    COALESCE(is_owner, false) AS is_owner, \
-                    COALESCE(token_version, 0) AS token_version \
-             FROM users WHERE id = $1 LIMIT 1",
-            vec![SeaValue::Int(Some(user_id))],
-        ))
-        .await?
-        .ok_or_else(|| DbErr::RecordNotFound("paired user missing".into()))?;
-    let username: String = row.try_get("", "username").unwrap_or_default();
-    let is_admin: bool = row.try_get("", "is_admin").unwrap_or(false);
-    let is_owner: bool = row.try_get("", "is_owner").unwrap_or(false);
-    let token_version = crate::middleware::auth::row_session_epoch(&row)?;
-    Ok(mint_session_claims(
-        user_id,
-        username,
-        is_admin,
-        is_owner,
-        token_version,
-    ))
-}
 
 async fn bind_session(
     db: &DatabaseConnection,

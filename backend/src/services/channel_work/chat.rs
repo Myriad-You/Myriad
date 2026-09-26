@@ -19,8 +19,7 @@ use sea_orm::DatabaseConnection;
 use serde_json::{Value, json};
 use tracing::warn;
 
-use crate::api::agent::{ProcessContext, ProcessRequest};
-use crate::middleware::auth::Claims;
+use crate::services::agent::run::{ProcessContext, ProcessRequest};
 use crate::services::agent::types::ChannelChat;
 use crate::services::agent::{AgentInteractionMode, AgentProgressEvent};
 
@@ -36,7 +35,6 @@ const MODEL_IMAGE_EDGE: u32 = 1024;
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn start_chat_turn(
     db: DatabaseConnection,
-    claims: Claims,
     user_id: i32,
     work_session_id: String,
     input: &str,
@@ -63,9 +61,9 @@ pub(super) async fn start_chat_turn(
     } else {
         input.to_string()
     };
-    let run = match crate::api::agent::start_process_run(
+    let run = match crate::services::agent::run::start_for_user(
         db.clone(),
-        claims.clone(),
+        user_id,
         ProcessRequest {
             input: input_text,
             context: Some(ProcessContext {
@@ -121,7 +119,6 @@ pub(super) async fn start_chat_turn(
         let work_input = work_input(instruction, input);
         super::start_work_run(
             db,
-            claims,
             user_id,
             work_session_id,
             &work_input,

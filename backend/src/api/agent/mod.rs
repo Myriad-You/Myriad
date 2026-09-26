@@ -18,7 +18,7 @@ use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait,
     PaginatorTrait, QueryFilter, QueryOrder,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -29,11 +29,9 @@ use tokio_stream::StreamExt;
 use crate::middleware::auth::Claims;
 use crate::models::entities::{agent_messages, agent_sessions, agent_task_presets};
 use crate::services::agent::queue::LaneQueue;
-use crate::services::agent::run_hub::{AgentRun, create_run, get_run_for_user};
+use crate::services::agent::run_hub::{AgentRun, get_run_for_user};
 use crate::services::agent::{
-    Agent, AgentProgressEvent, AgentResponse, AgentResponseType, LANE_QUEUE, RequestContext,
-    TaskState, UserAnswer, UserRequest,
-};
+    Agent, AgentProgressEvent, LANE_QUEUE, RequestContext, UserAnswer, UserRequest};
 
 /// 等待用户回答的任务上下文
 /// `spawn_restored_wait_loop` 注册后等待 oneshot；answer / cancel / interrupt 都可 send `done_tx`
@@ -47,7 +45,6 @@ fn agent_run_event_stream(run: Arc<AgentRun>) -> impl Stream<Item = Result<Event
 }
 
 mod autonomy_dispatch;
-mod boot;
 mod discord_pairing;
 mod discord_status;
 mod feishu_pairing;
@@ -67,11 +64,9 @@ mod routes;
 mod sessions;
 mod telegram_pairing;
 mod telegram_status;
-mod types;
 
 pub(crate) use crate::services::agent::run::*;
 pub use autonomy_dispatch::*;
-pub use boot::*;
 pub use discord_pairing::*;
 pub use discord_status::*;
 pub use feishu_pairing::*;
@@ -89,4 +84,3 @@ pub use routes::*;
 pub use sessions::*;
 pub use telegram_pairing::*;
 pub use telegram_status::*;
-pub use types::*;
