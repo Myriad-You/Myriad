@@ -95,6 +95,13 @@ export function deformAnime25DUpstreamFeaturePoint(
       point.y = centerY + (point.y - centerY) * scale
     }
     point.y -= eyeOpen * 3
+    // A smiling closed eye arches up into ^: the lid line bows from its sag.
+    const smile = smileAmount(expression.eyeSmile)
+    if (smile > 0) {
+      const halfWidth = Math.max(1, (eye.x1 - eye.x0) / 2)
+      const across = (point.x - (eye.x0 + eye.x1) / 2) / halfWidth
+      point.y -= smile * (eye.y1 - eye.y0) * CLOSED_SMILE_BOW * (1 - across * across)
+    }
     point.y += expression.eyeCY * 14 * input.faceScale
     rotateAround(
       point,
@@ -138,6 +145,8 @@ const SMILE_LOWER_LIFT = 0.36
 /** ...and the upper lid comes down this much, so the eye narrows from both sides. */
 const SMILE_UPPER_DROP = 0.08
 const SMILE_IRIS_LIFT = 0.06
+/** A fully smiling closed lid bows up by this share of the eye's height at its middle. */
+const CLOSED_SMILE_BOW = 0.42
 
 function smileAmount(value: number): number {
   return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0

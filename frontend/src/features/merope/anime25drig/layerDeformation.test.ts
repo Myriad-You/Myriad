@@ -335,3 +335,21 @@ test('a smile reaching the eyes lifts the lower lid in an arch; the iris only ri
   const irisBottom = move('irides', middle, eye.y1 - 2, 0).y - move('irides', middle, eye.y1 - 2, 1).y
   assert.ok(Math.abs(irisTop - irisBottom) < 1e-9 && irisTop > 0 && irisTop < height * 0.1)
 })
+
+test('a smiling closed eye bows up into ^, most at its middle', () => {
+  const eye = FRAME.anchors.eyeL!
+  const closed = { role: 'eye-close', fade: 'eyeClose', side: 'L', x: 70, y: 98, w: 45, h: 10 } as Pick<
+    Anime25DPlaybackLayer, 'fade' | 'h' | 'role' | 'side' | 'w' | 'x' | 'y'>
+  const at = (x: number, eyeSmile: number) => {
+    const feature = bindAnime25DUpstreamFeature(closed, eye, 1, { ...IDENTITY_DRIVER, eyeOpenL: 0, eyeSmile })!
+    const point = { x, y: eye.closeY }
+    deformAnime25DUpstreamFeaturePoint(point, feature)
+    return point.y
+  }
+  const middle = (eye.x0 + eye.x1) / 2
+  const lift = at(middle, 0) - at(middle, 1)
+  const cornerLift = at(eye.x0, 0) - at(eye.x0, 1)
+  assert.ok(lift > (eye.y1 - eye.y0) * 0.3, `${lift}`)
+  assert.ok(Math.abs(cornerLift) < 1e-9, 'the corners stay where the lid meets them')
+  assert.equal(at(middle, 0), at(middle, 0))
+})
